@@ -1,12 +1,12 @@
-updated: 2025-08-04 18:07:34Z
+updated: 2025-08-10 19:52:21Z
 kegv:    2023-01
 
 title:   KEG Worklog for tapper
-url:     git@github.com:jlrickert/tapper.git
+url:     https://keg.jlrickert.me/@jlrickert/tapper
 creator: git@github.com:jlrickert/jlrickert.git
 state:   living
 
-summary:
+summary: |
   👋 Hey there! The KEG community welcomes you. This is an initial
   sample `keg` file. It uses a simplified YAML format. (If you know JSON,
   you know this.) Go ahead and change this summary and anything else you
@@ -29,8 +29,22 @@ links:
   - alias: jlrickert
     url: keg.jlrickert.me/@jlrickert/public
 
+zeke:
+  includes:
+    docs:
+      key: zeke
+      find: **/meta.yaml
+      merge: ["contexts", "roles"]
+      merge-prefix: false
+
 indexes:
   - file: dex/changes.md
     summary: latest changes
   - file: dex/nodes.tsv
     summary: all nodes by id
+  - file: dex/links
+    summary: all outgoing links
+  - file: dex/backlinks
+    summary: all incoming links
+  - file: dex/tags
+    summary: all tags
