@@ -1,10 +1,12 @@
 package keg
 
-// Package config provides versioned configuration management for the KEG application.
-// It supports loading, parsing, converting, and accessing configuration data with
-// environment variable expansion and version migration.
+// Package config provides versioned configuration management for the KEG
+// application. It supports loading, parsing, converting, and accessing
+// configuration data with environment variable expansion and version
+// migration.
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"reflect"
@@ -12,12 +14,21 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// Config version strings identify KEG configuration schema versions. When a
+// new configuration schema is introduced, add a new constant and update the
+// Config alias to point to the latest version. These constants are used by
+// parsing and migration logic (e.g., ParseConfigData) to detect and upgrade
+// older config formats.
 const (
+	// ConfigV1VersionString is the initial configuration version identifier.
 	ConfigV1VersionString = "2023-01"
+
+	// ConfigV2VersionString is the current configuration version identifier.
 	ConfigV2VersionString = "2025-07"
 )
 
-// ConfigV1 represents the initial version of the KEG configuration specification.
+// ConfigV1 represents the initial version of the KEG configuration
+// specification.
 type ConfigV1 struct {
 	// Kegv is the version of the specification.
 	Kegv string `yaml:"kegv"`
@@ -44,7 +55,8 @@ type ConfigV1 struct {
 	Indexes []IndexEntry `yaml:"indexes,omitempty"`
 }
 
-// ConfigV1 represents the initial version of the KEG configuration specification.
+// ConfigV2 represents the second (current) version of the KEG configuration
+// specification. It extends V1 with additional fields such as Links and Zeke.
 type ConfigV2 struct {
 	// Kegv is the version of the specification.
 	Kegv string `yaml:"kegv"`
@@ -67,26 +79,35 @@ type ConfigV2 struct {
 	// Summary provides a brief description or summary of the KEG content.
 	Summary string `yaml:"summary,omitempty"`
 
-	// Links holds a list of LinkEntry objects representing related links or references in the configuration.
+	// Links holds a list of LinkEntry objects representing related links or
+	// references in the configuration.
 	Links []LinkEntry `yaml:"links,omitempty"`
+
+	// Zeke contains the merged "zeke" block from included KEG files (if
+	// present).
+	Zeke map[string]any `yaml:"zeke,omitempty"`
 
 	// Indexes is a list of index entries that link to related files or nodes.
 	Indexes []IndexEntry `yaml:"indexes,omitempty"`
 }
 
+// LinkEntry represents a named link in the KEG configuration.
 type LinkEntry struct {
 	Alias string `json:"alias"` // Alias for the link
 	URL   string `json:"url"`   // URL of the link
 }
 
+// IndexEntry represents an entry in the indexes list in the KEG configuration.
 type IndexEntry struct {
 	File    string `yaml:"file"`
 	Summary string `yaml:"summary"`
 }
 
-// Since there is no version 2 yet, ConfigV1 is the latest version
+// Config is an alias for the latest configuration version. Update this alias
+// when introducing a newer configuration version.
 type Config = ConfigV2
 
+// toV2 converts a ConfigV1 value to the ConfigV2 representation.
 func (c *ConfigV1) toV2() ConfigV2 {
 	return ConfigV2{
 		Kegv:    ConfigV2VersionString,
@@ -97,11 +118,13 @@ func (c *ConfigV1) toV2() ConfigV2 {
 		State:   c.State,
 		Summary: c.Summary,
 		Indexes: c.Indexes,
-		Links:   nil, // No links in v1, so empty slice or nil
+		Links:   nil, // No links in v1, so leave as nil
 	}
 }
 
 // ParseConfigData parses raw YAML config data into the latest Config version.
+// It detects the "kegv" version field and performs migration from earlier
+// versions when necessary.
 func ParseConfigData(data []byte) (Config, error) {
 	var configV2 ConfigV2
 
@@ -135,7 +158,10 @@ func ParseConfigData(data []byte) (Config, error) {
 	return configV2, nil
 }
 
-// expandEnvRecursively recursively expands environment variables in strings and string slices.
+// expandEnvRecursively recursively expands environment variables in strings
+// and string slices within the provided reflect.Value. It supports traversing
+// pointers, structs, and slices of strings. Unexported fields or non-settable
+// fields are skipped.
 func expandEnvRecursively(v reflect.Value) {
 	if !v.IsValid() {
 		return
@@ -171,7 +197,9 @@ func expandEnvRecursively(v reflect.Value) {
 	}
 }
 
-// ExpandEnv expands environment variables in the Config fields.
+// ExpandEnv expands environment variables in the Config fields. It recursively
+// walks the config structure and expands variables in strings and string
+// slices. Additionally it expands URLs in Links if present.
 func (c *Config) ExpandEnv() {
 	expandEnvRecursively(reflect.ValueOf(c).Elem())
 
@@ -179,4 +207,14 @@ func (c *Config) ExpandEnv() {
 	for i := range c.Links {
 		c.Links[i].URL = os.ExpandEnv(c.Links[i].URL)
 	}
+}
+
+// toYAML serializes the Config to YAML.
+func (c *Config) toYAML() ([]byte, error) {
+	return yaml.Marshal(c)
+}
+
+// toJSON serializes the Config to JSON.
+func (c *Config) toJSON() ([]byte, error) {
+	return json.Marshal(c)
 }
