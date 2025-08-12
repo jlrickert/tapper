@@ -48,8 +48,10 @@ func TestReadFromDex_BasicParsing(t *testing.T) {
 		t.Fatalf("WriteIndex(backlinks) failed: %v", err)
 	}
 
-	k := keg.NewKeg(mem)
-	dx, err := keg.ReadFromDex(&k)
+	k := keg.NewKeg(mem, keg.NewBasicLinkResolver(func(owner, node string) (string, error) {
+		return "", nil
+	}))
+	dx, err := keg.ReadFromDex(k.Repo)
 	if err != nil {
 		t.Fatalf("ReadFromDex returned error: %v", err)
 	}
@@ -62,7 +64,7 @@ func TestReadFromDex_BasicParsing(t *testing.T) {
 	// helper to lookup a NodeRef by id
 	find := func(id keg.NodeID) *keg.NodeRef {
 		for i := range dx.Nodes {
-			if dx.Nodes[i].Id == id {
+			if dx.Nodes[i].ID == id {
 				return &dx.Nodes[i]
 			}
 		}
@@ -88,12 +90,12 @@ func TestReadFromDex_BasicParsing(t *testing.T) {
 
 	// Check that the timestamp parsing produced a valid time for node 3
 	want3, _ := time.Parse("2006-01-02 15:04:05Z07:00", "2025-08-09 17:44:04Z")
-	if !n3.Modified.Equal(want3) {
-		t.Fatalf("node 3 modified mismatch: got %v want %v", n3.Modified, want3)
+	if !n3.Updated.Equal(want3) {
+		t.Fatalf("node 3 modified mismatch: got %v want %v", n3.Updated, want3)
 	}
 	// node 999 had an unparsable time; Modified should be zero time
-	if !n999.Modified.IsZero() {
-		t.Fatalf("expected zero Modified for node 999, got %v", n999.Modified)
+	if !n999.Updated.IsZero() {
+		t.Fatalf("expected zero Modified for node 999, got %v", n999.Updated)
 	}
 
 	// Validate tags
