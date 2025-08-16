@@ -3,18 +3,14 @@ package keg_test
 import (
 	"bytes"
 	"errors"
+	"slices"
 	"testing"
 
 	"github.com/jlrickert/tapper/pkg/keg"
 )
 
 func containsID(list []keg.NodeID, id keg.NodeID) bool {
-	for _, v := range list {
-		if v == id {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(list, id)
 }
 
 func TestMemoryRepo_WriteReadMetaAndContent(t *testing.T) {
