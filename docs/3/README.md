@@ -136,7 +136,7 @@ contexts:
     files:
       - "./pkg/zeke/*"
     contexts:
-      - "@ecw/go-config" # example of an included context reference
+      - "@work/go-config" # example of an included context reference
 ```
 
 ### Include mechanics and merging
@@ -320,7 +320,7 @@ includes:
       file: ~/.config/zeke/zeke.yaml
       merge: ["contexts", "roles"]
       merge-prefix: user
-    ecw:
+    work:
       glob: ~/repos/bitbucket.org/jared52/zet/docs/**/meta.yaml
 roles:
   gitcommit:
@@ -353,7 +353,7 @@ contexts:
     files:
       - ./pkg/zeke/*
     contexts:
-      - "@ecw/go-config"
+      - "@work/go-config"
 ```
 
 If you'd like, I can output this as a patch suitable for git or produce a minimal unit-test sketch demonstrating the include/merge behavior. Which would you prefer?
