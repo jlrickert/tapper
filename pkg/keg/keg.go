@@ -103,8 +103,8 @@ func (k *Keg) ResolveLink(ctx context.Context, token string) (string, error) {
 	}
 
 	// Accept tokens with optional "keg:" prefix.
-	if strings.HasPrefix(token, "keg:") {
-		token = strings.TrimPrefix(token, "keg:")
+	if after, ok := strings.CutPrefix(token, "keg:"); ok {
+		token = after
 	}
 
 	// If token contains owner/node (owner/<nodeid>), try owner lookup first.
