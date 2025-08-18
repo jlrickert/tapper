@@ -8,5 +8,5 @@ const (
 	// Example config file: $XDG_CONFIG_HOME/tapper/aliases.yaml
 	ConfigAppName = "tapper"
 
-	DefaultRepoTapperDir = ".tapper"
+	DefaultLocalTapperDir = ".tapper"
 )
