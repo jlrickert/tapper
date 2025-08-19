@@ -3,7 +3,9 @@ package cmd
 import (
 	"context"
 	"io"
+	"time"
 
+	"github.com/jlrickert/tapper/pkg/internal"
 	"github.com/jlrickert/tapper/pkg/keg"
 	"github.com/spf13/cobra"
 )
@@ -76,6 +78,9 @@ type CmdDeps struct {
 	In  io.Reader
 	Out io.Writer
 	Err io.Writer
+
+	Editor internal.EditorRunner
+	Clock  *time.Time
 
 	flags CmdGlobalFlags
 }
