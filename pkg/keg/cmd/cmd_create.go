@@ -1,11 +1,6 @@
 package cmd
 
 import (
-	// "fmt"
-	// "io"
-	// "os"
-	"strings"
-
 	// "github.com/jlrickert/tapper/pkg/internal"
 	"github.com/spf13/cobra"
 )
@@ -199,21 +194,4 @@ metadata non-interactively: --id, --title, --tags, --author, and --stdin.`,
 	}
 
 	return cmd
-}
-
-// normalizeTags accepts a comma-separated tag string and returns a slice of
-// trimmed tokens. Real implementation would perform normalization (lowercase,
-// hyphenation, dedupe, sort). This helper keeps the behavior simple for stubs.
-func normalizeTags(raw string) []string {
-	if raw == "" {
-		return nil
-	}
-	parts := strings.Split(raw, ",")
-	out := make([]string, 0, len(parts))
-	for _, p := range parts {
-		if t := strings.TrimSpace(p); t != "" {
-			out = append(out, t)
-		}
-	}
-	return out
 }
