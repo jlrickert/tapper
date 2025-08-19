@@ -24,3 +24,13 @@ func IsTerminal() (bool, error) {
 	}
 	return (fi.Mode() & os.ModeCharDevice) != 0, nil
 }
+
+type EditorRunner func(path string) error
+
+func Edit(path string) {
+	editor := os.Getenv("EDITOR")
+	visual := os.Getenv("VISUAL")
+
+	_ = editor
+	_ = visual
+}
