@@ -1,90 +1,119 @@
 package keg
 
-// KegRepository defines the storage backend contract used by KEG.
-// Implementations provide access to node content, metadata, indices, and
-// auxiliary artifacts (images, attachments). Methods should return well-typed
-// errors (for example the sentinel errors defined in pkg/keg/errors.go) so
-// callers can use errors.Is / errors.As for handling.
+import (
+	"context"
+	"time"
+)
+
+// KegRepository is the storage backend contract used by KEG. Implementations
+// provide access to node content, metadata, indices, and auxiliary artifacts
+// (images, attachments). Methods are context-aware (honor cancellation/deadlines)
+// and should return well-typed errors (for example the sentinel errors defined
+// in pkg/keg/errors.go) so callers can reliably use errors.Is / errors.As.
 type KegRepository interface {
-	// ReadContent returns the primary content for the given node id as a byte
-	// slice. Implementations should read and return the content bytes or an
-	// error if the content cannot be read.
-	ReadContent(id NodeID) ([]byte, error)
+	// Name returns a short, human-friendly name for the backend implementation.
+	Name() string
 
-	// ReadMeta returns the serialized node metadata (for example meta.yaml)
-	// for the specified node id.
-	ReadMeta(id NodeID) ([]byte, error)
+	// Next returns the next available NodeID that can be allocated by the repo.
+	// The operation is cancellable via ctx.
+	Next(ctx context.Context) (NodeID, error)
 
-	// Stats returns NodeStats (timestamps) for the node.
-	Stats(id NodeID) (NodeStats, error)
+	// ReadContent returns the primary content for the given node id (for example
+	// README.md) as a byte slice. If the content cannot be read return an error.
+	ReadContent(ctx context.Context, id NodeID) ([]byte, error)
 
-	// ListIndexes returns a list of index names (for example dex files)
-	// available from this repository.
-	ListIndexes() ([]string, error)
+	// ReadMeta returns the serialized node metadata (for example meta.yaml) for
+	// the specified node id. If metadata is missing or unreadable return an
+	// appropriate typed error.
+	ReadMeta(ctx context.Context, id NodeID) ([]byte, error)
 
-	// ListNodesID returns a slice of all node IDs present in the repository.
-	ListNodesID() ([]NodeID, error)
+	// ListNodes returns a slice of all node IDs present in the repository.
+	ListNodes(ctx context.Context) ([]NodeID, error)
 
-	// ListNodes returns a slice of NodeRef describing nodes (id, title,
-	// updated).
-	ListNodes() ([]NodeRef, error)
+	// ListItems returns the list of ancillary item names (attachments) associated
+	// with the given node id. Implementations should return ErrNodeNotFound if the
+	// node does not exist.
+	ListItems(ctx context.Context, id NodeID) ([]string, error)
 
-	// ListItems returns the list of ancillary item names (attachments)
-	// associated with the given node id. Implementations should return
-	// ErrNodeNotFound if the node does not exist.
-	ListItems(id NodeID) ([]string, error)
+	// ListImages returns the list of stored image names associated with the given
+	// node id. Implementations should return ErrNodeNotFound if the node does not
+	// exist.
+	ListImages(ctx context.Context, id NodeID) ([]string, error)
 
-	// ListImages returns the list of stored image names associated with the
-	// given node id. Implementations should return ErrNodeNotFound if the node
-	// does not exist.
-	ListImages(id NodeID) ([]string, error)
+	// WriteContent writes the primary content for the given node id. Implementers
+	// should perform atomic writes where possible (write temp + rename) and update
+	// any canonical timestamps as appropriate.
+	WriteContent(ctx context.Context, id NodeID, data []byte) error
 
-	// WriteContent writes the primary content for the given node id.
-	WriteContent(id NodeID, data []byte) error
+	// WriteMeta writes the node metadata (for example meta.yaml) for the node id.
+	// Write operations should be atomic when possible and return typed errors on
+	// failure.
+	WriteMeta(ctx context.Context, id NodeID, data []byte) error
 
-	// WriteMeta writes the node metadata (for example meta.yaml) for the node
-	// id.
-	WriteMeta(id NodeID, data []byte) error
-
-	// UploadImage stores an image blob associated with the node.
-	UploadImage(id NodeID, name string, data []byte) error
+	// UploadImage stores an image blob associated with the node. Name is the
+	// destination filename/key and data is the file bytes.
+	UploadImage(ctx context.Context, id NodeID, name string, data []byte) error
 
 	// UploadItem stores a named ancillary item (attachment) for the node.
-	UploadItem(id NodeID, name string, data []byte) error
+	UploadItem(ctx context.Context, id NodeID, name string, data []byte) error
 
 	// MoveNode renames or moves a node from id to dst. Implementations should
-	// return ErrDestinationExists (or equivalent) if the destination already
-	// exists.
-	MoveNode(id NodeID, dst NodeID) error
+	// return ErrDestinationExists (or an equivalent typed error) if the destination
+	// already exists, and should ensure the move is atomic when possible.
+	MoveNode(ctx context.Context, id NodeID, dst NodeID) error
 
-	// GetIndex reads the raw contents of an index file by name (e.g.,
-	// "nodes.tsv").
-	GetIndex(name string) ([]byte, error)
+	// GetIndex reads the raw contents of an index file by name (for example
+	// "nodes.tsv" or "tags"). The returned bytes are a copy and callers should not
+	// mutate them.
+	GetIndex(ctx context.Context, name string) ([]byte, error)
 
-	// WriteIndex writes the raw contents of an index file.
-	WriteIndex(name string, data []byte) error
+	// ClearIndexes removes or resets the repository index artifacts (for example
+	// files under dex/). Implementations may acquire a short-lived repo-level
+	// lock for this operation; callers should expect the method to honor ctx for
+	// cancellation and to return typed errors on failure.
+	ClearIndexes(ctx context.Context) error
 
-	// ClearDex removes or resets the repository index as supported by the
-	// implementation.
-	ClearDex() error
+	// WriteIndex writes the raw contents of an index file. Implementations should
+	// write atomically (temp + rename) to avoid exposing partial state to readers.
+	WriteIndex(ctx context.Context, name string, data []byte) error
 
-	// DeleteNode removes the node and all associated content/metadata/items.
-	DeleteNode(id NodeID) error
+	// ListIndexes returns a list of index names (for example dex files) available
+	// from this repository. Returned names should be sorted for determinism.
+	ListIndexes(ctx context.Context) ([]string, error)
 
-	// DeleteImage removes a stored image by name for the node.
-	DeleteImage(id NodeID, name string) error
+	// DeleteNode removes the node and all associated content/metadata/items. If
+	// the node does not exist implementations should return a typed
+	// NodeNotFoundError.
+	DeleteNode(ctx context.Context, id NodeID) error
 
-	// DeleteItem removes a stored ancillary item by name for the node.
-	DeleteItem(id NodeID, name string) error
+	// DeleteImage removes a stored image by name for the node. If the node does
+	// not exist return NodeNotFoundError; if the image is not present return an
+	// appropriate sentinel (for example ErrNotFound) or typed error per policy.
+	DeleteImage(ctx context.Context, id NodeID, name string) error
+
+	// DeleteItem removes a named ancillary item by name for the node.
+	DeleteItem(ctx context.Context, id NodeID, name string) error
 
 	// ReadConfig reads and returns the repository-level configuration (Config).
-	// Implementations should load and parse the stored configuration (for example a keg file
-	// or project zeke.yaml). If the configuration is missing, implementations MAY return
-	// ErrMetaNotFound or a more specific error. Return the parsed Config on success.
-	ReadConfig() (Config, error)
+	// Implementations should load and parse the stored configuration (for example
+	// the keg file or project zeke.yaml). If the configuration is missing, an
+	// implementation may return ErrNotFound or a more specific sentinel.
+	ReadConfig(ctx context.Context) (Config, error)
 
-	// WriteConfig persists the provided Config to the repository.
-	// Implementations should write atomically where possible and return an
-	// error on failure.
-	WriteConfig(config Config) error
+	// WriteConfig persists the provided Config to the repository. Implementations
+	// should write atomically where possible and validate input as appropriate.
+	WriteConfig(ctx context.Context, config Config) error
+
+	// LockNode attempts to acquire a per-node lock scoped to the given node id.
+	// It may retry according to retryInterval and should respect ctx for
+	// cancellation/deadline. On success it returns an unlock function that the
+	// caller must invoke (and handle any error returned) to release the lock.
+	LockNode(ctx context.Context, id NodeID, retryInterval time.Duration) (func() error, error)
+
+	// ClearNodeLock removes or clears a per-node lock for the given node id.
+	// Implementations should attempt to release/delete any lock artifact scoped to
+	// the node and return nil if the lock was cleared or did not exist. The call
+	// should respect ctx for cancellation and wrap unexpected filesystem/backend
+	// errors appropriately (for example with a BackendError).
+	ClearNodeLock(ctx context.Context, id NodeID) error
 }
