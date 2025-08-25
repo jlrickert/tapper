@@ -34,7 +34,7 @@ Recommended placement (use XDG where appropriate):
   - template: `.tapper/local.example.yaml` (committed)
   - recommended to add `.tapper/local.yaml` to `.gitignore` by default
 - User/global (aliases, defaults)
-  - path: `$XDG_CONFIG_HOME/tapper/aliases.yaml` or `~/.config/tapper/aliases.yaml`
+  - path: `$XDG_CONFIG_HOME/tapper/config.yaml` or `~/.config/tapper/config.yaml`
   - optional global overrides: `$XDG_CONFIG_HOME/tapper/config.yaml`
 - Wrapper / runtime override
   - environment variable: `KEG_CURRENT` (highest precedence if set)
@@ -47,7 +47,7 @@ This is the expected shape for repo-local `.tapper/local.yaml`. Implementations 
 # .tapper/local.yaml
 updated: 2025-08-14T12:00:00Z # RFC3339 UTC, optional but recommended
 keg:
-  alias: work # optional: alias resolved via ~/.config/tapper/aliases.yaml
+  alias: work # optional: alias resolved via ~/.config/tapper/config.yaml
   url: git@github.com:org/work-keg.git # optional explicit git URL or file path
   path: /Users/jlrickert/kegs/work # optional explicit local filesystem path (preferred if present)
   prefer_local: true # if both local path and remote exist, prefer local
@@ -57,7 +57,7 @@ note: "Set via `tap repo work`"
 User-level aliases file format:
 
 ```yaml
-# ~/.config/tapper/aliases.yaml
+# ~/.config/tapper/config.yaml
 updated: 2025-08-14T12:00:00Z
 aliases:
   work:
@@ -74,26 +74,39 @@ Rules:
 - `alias` is resolved via the aliases file; resolving an alias produces a `url` or `path`.
 - Reject values embedding credentials (e.g., `https://user:token@host`).
 
-## Match criteria (for more advanced mapping entries)
-
-If you choose to allow multiple mappings per repo (useful in global `~/.config/tapper`), each mapping can include match conditions:
-
-- path_prefix: absolute or repo-root-relative path prefix
-- path_glob: glob pattern
-- git_remote_host / git_remote_owner / repo_regex: parsed from the origin remote URL
-- repo_root_file: presence of filename at repo root (e.g., `keg`, `docs/keg`)
-
-Example mapping (global config):
-
 ```yaml
+# ~/.config/tapper/config.yaml
+updated: 2025-08-14T12:00:00Z
+aliases:
+  work:
+    url: https://keg.work.com/@jlrickert/work-keg
+  localdev:
+    path: /home/dev/kegs/common-keg
+    prefer_local: true
+
 mappings:
-  - name: "primomed → work"
+  - name: " → work"
     match:
       git_remote_owner: primomed
       repo_regex: "^primomed(-.*)?$"
     keg:
       alias: work
     priority: 100
+
+  - name: "repo with docs/keg → work"
+    match:
+      repo_root_file: docs/keg
+    keg:
+      alias: work
+    priority: 50
+
+  - name: "dev path prefix → localdev"
+    match:
+      path_prefix: /home/dev/repos/
+      path_glob: "**/primomed/**"
+    keg:
+      alias: localdev
+    priority: 40
 ```
 
 ## Resolution & precedence
@@ -107,8 +120,8 @@ Ordered from highest to lowest priority. The first match wins (unless two candid
    - `git config --local tap.keg pub`
 4. Repo-local file (e.g., `.tapper/local.yaml`) at repo root
 5. Project keg file (e.g., `docs/keg` or `./keg` inside the repo)
-6. User-level tapper aliases / config (`~/.config/tapper/aliases.yaml`)
-7. Fallback defaults (e.g., `~/.config/keg` or built-in behavior)
+6. User-level tapper aliases / config (`~/.config/tapper/config.yaml`)
+7. Fallback defaults (e.g., `~/.config/tapper/config.yaml` or built-in behavior)
 
 Tie-breakers among multiple matching mappings:
 
@@ -158,10 +171,10 @@ note: "persisted override"
 EOF
 ```
 
-Example aliases file:
+Example config file:
 
 ```yaml
-# ~/.config/tapper/aliases.yaml
+# ~/.config/tapper/config.yaml
 aliases:
   work:
     url: git@github.com:org/work-keg.git
@@ -192,8 +205,6 @@ target="$(resolve_keg)"
 export KEG_CURRENT="$target"
 exec /usr/local/bin/keg "$@"
 ```
-
----
 
 ## Validation & safety
 
@@ -240,22 +251,3 @@ mv "$tmp" "$repo_root/.tapper/local.yaml"
 - Provide `tap repo set --local` to write git config (default).
 - Always confirm destructive actions (unset, delete).
 - Document this behavior in CONTRIBUTING.md and README to avoid surprise.
-
-## Migration & compatibility
-
-- If you previously used a different scheme (e.g., only global aliases), support both old and new formats during a transition period. Emit warnings encouraging users to move to the new precedence model.
-- Provide `tap repo migrate` if you need to transform older settings into the new expected format.
-
-## Example node meta (suggested)
-
-If you add a meta.yaml for this node, use:
-
-```yaml
-updated: 2025-08-14T12:00:00Z
-title: Tapper configuration (tapper-config)
-summary: Specification for developer and repo-level overrides that map projects to KEG targets.
-tags:
-  - tapper
-  - config
-  - keg
-```

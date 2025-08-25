@@ -1,7 +1,7 @@
 0	2025-08-04 22:03:53Z	Sorry, planned but not yet available
 1	2025-08-12 05:09:13Z	Configuration (config)
 2	2025-08-15 02:37:07Z	Keg configuration (keg-config)
-3	2025-08-09 17:44:04Z	Zeke AI utility (zeke)
+3	2025-08-16 03:52:11Z	Zeke AI utility (zeke)
 4	2025-08-08 04:13:49Z	LSP (lsp)
 5	2025-08-15 02:51:00Z	KEG specification (keg-spec)
 6	2025-08-14 05:19:42Z	Keg index (keg-index)
@@ -20,10 +20,11 @@
 19	2025-08-15 03:29:11Z	Keg content (keg-content)
 20	2025-08-14 05:39:17Z	Keg node (keg-node)
 21	2025-08-14 05:32:30Z	Keg links (keg-link)
-22	2025-08-14 04:45:51Z	Tapper configuration (tapper-config)
+22	2025-08-18 04:51:21Z	Tapper configuration (tapper-config)
 23	2025-08-14 04:56:23Z	Tapper CLI commands (tapper-cli)
 24	2025-08-15 02:37:04Z	Zeke extension to keg configuration
-25	2025-08-14 23:32:11Z	Keg storage layout (storage-layout)
-26	2025-08-14 23:42:11Z	KEG CLI — KEG management tool (keg)
-27	2025-08-14 23:42:02Z	KEG CLI — Commands Reference
-28	2025-08-14 22:36:29Z	Integration — KEG, Zeke, and Link Resolution
+25	2025-08-15 04:32:11Z	Keg storage layout (storage-layout)
+26	2025-08-15 04:42:11Z	KEG CLI — KEG management tool (keg)
+27	2025-08-15 04:42:02Z	KEG CLI — Commands Reference
+28	2025-08-15 03:36:29Z	Integration — KEG, Zeke, and Link Resolution
+29	2025-08-19 08:06:39Z	Design patterns in pkg/keg/cmd

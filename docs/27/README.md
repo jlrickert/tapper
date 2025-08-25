@@ -22,17 +22,17 @@ keg repo show
 
 ## Node creation & editing
 
-### keg create (alias: keg new-node, short: keg c)
+### keg create (alias: short: keg c)
 
-Purpose: Create a KEG node under docs/<id>/, optionally with explicit id, content, and metadata.
+Purpose: Create a KEG node, optionally with explicit id, content, and metadata. This will return the id of the node created.
 
 Usage examples:
-keg create [--id <n>] [--title "<Title>"] [--tags "a,b"] [--author "Name <email>"] [--stdin README.md]  
-keg create [--id <n>] --stdin README.md
+keg create [--id <n>] [--title "<Title>"] [--tags "a,b"] [--author "Name <email>"]
+keg create [--id <n>]
 
 Quick create / piping:
 keg c
-echo "# Quick note" | keg create --stdin README.md
+echo "# Quick note" | keg create
 echo "# Title" | keg c --tags="a,b"
 
 Examples:
@@ -93,6 +93,7 @@ Overview
 Commands
 
 - keg image upload <id> <file> [--name NAME] [--thumb] [--force] [--store-meta] [--max-size BYTES]
+
   - Upload a local file to docs/<id>/images/<name>.
   - If --name omitted, uses normalized basename(file).
   - --thumb generates thumbnails (best-effort).
@@ -101,13 +102,14 @@ Commands
   - Prints resulting image name, sha256, size, content-type on success.
   - Validation:
     - Allowed raster formats: image/png, image/jpeg, image/gif, image/webp. SVG (image/svg+xml) is treated as text and sanitized or rejected depending on repo policy.
-    - Default MaxSize: 8 * 1024 * 1024 (configurable).
+    - Default MaxSize: 8 _ 1024 _ 1024 (configurable).
     - Name sanitization: basename only, allow [A-Za-z0-9._-], replace whitespace with '-'.
   - Example:
     keg image upload 42 ./diagram.png
     # returned: uploaded diagram.png (sha256: ..., size: 12345, content-type: image/png)
 
 - keg image list <id> [--meta]
+
   - List images stored for a node. Without flags prints sorted image names.
   - --meta prints JSON array of per-image metadata (name, sha256, size, content-type, created).
   - Example:
@@ -115,6 +117,7 @@ Commands
     keg image list 42 --meta
 
 - keg image delete <id> <name> [--yes]
+
   - Delete a named image and its thumbnails and .meta files.
   - Requires interactive confirmation unless --yes is provided.
   - Returns a non-error if the image doesn't exist (or a sentinel ErrMetaNotFound depending on policy); CLI warns and continues.
@@ -122,6 +125,7 @@ Commands
     keg image delete 42 diagram.png --yes
 
 - keg image serve <id> <name> [--port N] [--readonly]
+
   - Serve a single image (or the images directory) over a temporary local HTTP server for preview (developer convenience).
   - Default bind: 127.0.0.1; prints URL after start.
   - Read-only by default; do not enable write endpoints on unsafe networks.
@@ -432,4 +436,3 @@ keg link "keg:repo" --format url
 - [Keg content/README conventions — keg-content](../19)
 - [Zeke AI utility — zeke](../3)
 - [Integration — KEG, Zeke, and Link Resolution](../28)
-
