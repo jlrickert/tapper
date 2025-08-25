@@ -79,7 +79,4 @@ type NodeCreateOptions struct {
 
 	// Initial content bytes (README.md). May be nil.
 	Content []byte
-
-	// If true, persist atomically and set created/updated timestamps.
-	EnsureTimestamps bool
 }

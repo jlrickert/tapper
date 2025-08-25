@@ -3,7 +3,7 @@ package cmd
 import (
 	"context"
 	"io"
-	"time"
+	"os"
 
 	"github.com/jlrickert/tapper/pkg/internal"
 	"github.com/jlrickert/tapper/pkg/keg"
@@ -80,7 +80,7 @@ type CmdDeps struct {
 	Err io.Writer
 
 	Editor internal.EditorRunner
-	Clock  *time.Time
+	Clock  internal.Clock
 
 	flags CmdGlobalFlags
 }
@@ -115,14 +115,14 @@ func WithIO(in io.Reader, out io.Writer, errOut io.Writer) CmdOption {
 // Callers relying on default behavior should provide sensible fallbacks after
 // this returns (for example, setting Out to os.Stdout if nil).
 func applyCmdOptions(opts ...CmdOption) *CmdDeps {
-	cfg := &CmdDeps{}
+	deps := &CmdDeps{}
 	for _, o := range opts {
 		if o == nil {
 			continue
 		}
-		o(cfg)
+		o(deps)
 	}
-	return cfg
+	return deps
 }
 
 // ApplyDefaults ensures command dependencies have clear, documented defaults
@@ -151,19 +151,21 @@ func applyCmdOptions(opts ...CmdOption) *CmdDeps {
 // add the required imports (os, etc.). For now, keep it a no-op to be
 // explicit and predictable.
 func (deps *CmdDeps) ApplyDefaults() error {
-	// Intentionally conservative: do not implicitly create or mutate
-	// heavy-weight resources (for example, constructing a FsRepo or
-	// MemoryRepo). Tests often rely on nil to detect uninitialized
-	// dependencies, and callers should opt-in to defaults via the
-	// provided functional options (WithIO, WithKeg) so behavior is explicit.
-	//
-	// If you need lightweight, non-invasive defaults for interactive use,
-	// set them at the call site (for example, WithIO(os.Stdin, os.Stdout, os.Stderr))
-	// rather than changing this function to perform global defaults.
-	//
-	// Note: leaving deps.Keg nil is deliberate — callers must inject a
-	// Keg when they expect repository operations. This keeps CLI tests and
-	// libraries explicit about their runtime dependencies.
+	if deps.In == nil {
+		deps.In = os.Stdin
+	}
+	if deps.Out == nil {
+		deps.Out = os.Stdout
+	}
+	if deps.Err == nil {
+		deps.Err = deps.Out
+	}
+	if deps.Editor == nil {
+		deps.Editor = internal.DefaultEditor
+	}
+	if deps.Clock == nil {
+		deps.Clock = internal.RealClock{}
+	}
 	return nil
 }
 

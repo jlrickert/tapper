@@ -2,555 +2,184 @@ package keg
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"sort"
-	"strconv"
-	"strings"
-	"time"
 )
 
-// IndexBuilder is a small abstraction for building a single index artifact.
-// Implementations may be registered with a higher-level service or invoked
-// directly by BuildIndexes. The Build method returns the bytes to write and a
-// suggested index filename.
-type IndexBuilder interface {
-	// Name returns a short canonical name for the index (e.g., "dex/tags").
-	Name() string
-
-	// Build builds the index content from the repository and returns the bytes.
-	Build(ctx context.Context, repo KegRepository) ([]byte, error)
-}
-
-// Dex holds in-memory representations of the common dex indices.
-// It is a convenience high-level view used by index builders and tools.
+// Dex provides a high-level, in-memory view of the repository's generated
+// dex indices: nodes, tags, links, and backlinks. It is a convenience wrapper
+// used by index builders and other tooling to read or inspect index data without
+// dealing directly with repository I/O. Dex does not perform any I/O itself;
+// callers are responsible for providing a KegRepository when writing indices.
 type Dex struct {
-	Nodes     []NodeRef           // list of nodes (id, title, updated)
-	Tags      map[string][]NodeID // tag -> member node ids (sorted unique)
-	Links     map[NodeID][]NodeID // src -> dst node ids (sorted unique)
-	Backlinks map[NodeID][]NodeID // dst -> src node ids (sorted unique)
+	nodes     *NodesIndex
+	tags      *TagsIndex
+	links     *LinksIndex
+	backlinks *BacklinksIndex
 }
 
-// ReadFromDex attempts to load index artifacts from the repository
-// ("nodes.tsv", "tags", "links", "backlinks") and parse them into a Dex
-// structure. Missing index files are treated as empty datasets (no error).
-func ReadFromDex(repo KegRepository) (*Dex, error) {
+// NewDexFromRepo loads available index artifacts ("nodes.tsv", "tags", "links",
+// "backlinks") from the provided repository and returns a Dex populated with
+// parsed indexes. Missing or empty index files are treated as empty datasets
+// and do not cause an error.
+func NewDexFromRepo(ctx context.Context, repo KegRepository) (*Dex, error) {
+	nodesIndex, err := NewNodesIndexFromRepo(ctx, repo)
+	if err != nil {
+		return nil, nil
+	}
+	tagsIndex, err := NewTagsIndexFromRepo(ctx, repo)
+	if err != nil {
+		return nil, nil
+	}
+	linksIndex, err := NewLinksIndexFromRepo(ctx, repo)
+	if err != nil {
+		return nil, nil
+	}
+	backlinksIndex, err := NewBacklinksIndexFromRepo(ctx, repo)
+	if err != nil {
+		return nil, nil
+	}
 	d := &Dex{
-		Tags:      make(map[string][]NodeID),
-		Links:     make(map[NodeID][]NodeID),
-		Backlinks: make(map[NodeID][]NodeID),
+		nodes:     nodesIndex,
+		tags:      tagsIndex,
+		links:     linksIndex,
+		backlinks: backlinksIndex,
 	}
-
-	// Helper to optionally read an index (missing -> nil, err -> propagate).
-	readOpt := func(name string) ([]byte, error) {
-		b, err := repo.GetIndex(name)
-		if err != nil {
-			// repo implementations return ErrMetaNotFound for missing index
-			if IsNotFound(err) || errorsIsMetaNotFound(err) {
-				return nil, nil
-			}
-			return nil, err
-		}
-		return b, nil
-	}
-
-	// nodes.tsv
-	if data, err := readOpt("nodes.tsv"); err != nil {
-		return nil, fmt.Errorf("read nodes.tsv: %w", err)
-	} else if len(bytesTrimSpace(data)) > 0 {
-		nodes, err := parseNodesIndex(data)
-		if err != nil {
-			return nil, fmt.Errorf("parse nodes.tsv: %w", err)
-		}
-		d.Nodes = nodes
-	}
-
-	// tags
-	if data, err := readOpt("tags"); err != nil {
-		return nil, fmt.Errorf("read tags: %w", err)
-	} else if len(bytesTrimSpace(data)) > 0 {
-		tags, err := parseTagsIndex(data)
-		if err != nil {
-			return nil, fmt.Errorf("parse tags: %w", err)
-		}
-		d.Tags = tags
-	}
-
-	// links
-	if data, err := readOpt("links"); err != nil {
-		return nil, fmt.Errorf("read links: %w", err)
-	} else if len(bytesTrimSpace(data)) > 0 {
-		links, err := parseLinksIndex(data)
-		if err != nil {
-			return nil, fmt.Errorf("parse links: %w", err)
-		}
-		d.Links = links
-	}
-
-	// backlinks
-	if data, err := readOpt("backlinks"); err != nil {
-		return nil, fmt.Errorf("read backlinks: %w", err)
-	} else if len(bytesTrimSpace(data)) > 0 {
-		back, err := parseBacklinksIndex(data)
-		if err != nil {
-			return nil, fmt.Errorf("parse backlinks: %w", err)
-		}
-		d.Backlinks = back
-	}
-
 	return d, nil
 }
 
-// BuildFromRepo scans the repository and constructs a Dex representation from
-// authoritative sources (node meta and content). It is used by index builders
-// that need to regenerate indices from node data.
-func BuildFromRepo(repo KegRepository) (*Dex, error) {
-	d := &Dex{
-		Tags:      make(map[string][]NodeID),
-		Links:     make(map[NodeID][]NodeID),
-		Backlinks: make(map[NodeID][]NodeID),
-	}
+// Nodes returns the parsed nodes index (slice of NodeRef).
+func (dex *Dex) Nodes() []NodeRef {
+	return dex.nodes.Nodes
+}
 
-	// enumerate nodes using ListNodes (prefer ListNodes to get titles/updated)
-	nodes, err := repo.ListNodes()
+// Tags returns the parsed tags index (map[tag] -> []NodeID).
+func (dex *Dex) Tags() map[string][]NodeID {
+	return dex.tags.tags
+}
+
+// Links returns the parsed outgoing links index (map[src] -> []dst).
+func (dex *Dex) Links() map[NodeID][]NodeID {
+	return dex.links.links
+}
+
+// Backlinks returns the parsed backlinks index (map[dst] -> []src).
+func (dex *Dex) Backlinks() map[NodeID][]NodeID {
+	return dex.backlinks.backlinks
+}
+
+// Clear resets all in-memory index data held by the Dex instance.
+func (dex *Dex) Clear(ctx context.Context) error {
+	dex.nodes.Clear(ctx)
+	dex.tags.Clear(ctx)
+	dex.links.Clear(ctx)
+	dex.backlinks.Clear(ctx)
+	return nil
+}
+
+// Add adds the provided node to all managed indexes. This implements the
+// IndexBuilder contract for convenience when using Dex as an aggregated builder.
+func (dex *Dex) Add(ctx context.Context, node Node) error {
+	dex.nodes.Add(ctx, node)
+	dex.tags.Add(ctx, node)
+	dex.links.Add(ctx, node)
+	dex.backlinks.Add(ctx, node)
+	return nil
+}
+
+// Remove removes the node identified by id from all managed indexes. This
+// implements the IndexBuilder contract for convenience when using Dex.
+func (dex *Dex) Remove(ctx context.Context, node NodeID) error {
+	dex.nodes.Remove(ctx, node)
+	dex.tags.Remove(ctx, node)
+	dex.links.Remove(ctx, node)
+	dex.backlinks.Remove(ctx, node)
+	return nil
+}
+
+// Rebuild clears current in-memory indexes and repopulates them from the
+// provided Keg instance. This is a convenience that combines Clear + Update.
+func (dex *Dex) Rebuild(ctx context.Context, keg *Keg) error {
+	err := dex.Clear(ctx)
 	if err != nil {
-		return nil, NewBackendError("repo", "ListNodes", 0, err, false)
+		return err
 	}
-	d.Nodes = nodes
+	return dex.Update(ctx, keg)
+}
 
-	// Build tag map from meta for each node id. Use ListNodesID when available.
-	ids, err := repo.ListNodesID()
+// Update scans the Keg repository and updates the in-memory indexes. It queries
+// the repository's Next() to determine the id space to attempt. For each id it
+// loads the node and either adds it to the indexes or removes any existing
+// state if the node is not found.
+func (dex *Dex) Update(ctx context.Context, keg *Keg) error {
+	nextId, err := keg.Repo.Next(ctx)
 	if err != nil {
-		return nil, NewBackendError("repo", "ListNodesID", 0, err, false)
+		return fmt.Errorf("unable to update dex: %w", err)
 	}
 
-	for _, id := range ids {
-		// Read meta (meta may be missing; skip)
-		metaBytes, err := repo.ReadMeta(id)
-		if err == nil && len(bytesTrimSpace(metaBytes)) > 0 {
-			meta, perr := ParseMeta(metaBytes)
-			if perr == nil {
-				for _, tag := range meta.Tags() {
-					if tag == "" {
-						continue
-					}
-					d.Tags[tag] = append(d.Tags[tag], id)
-				}
-			}
-		} else if err != nil && !IsMetaNotFound(err) {
-			// treat unexpected repo errors as backend errors
-			return nil, NewBackendError("repo", "ReadMeta", 0, err, false)
-		}
-
-		// Read content and extract numeric ../N links (content may be absent)
-		content, cerr := repo.ReadContent(id)
-		if cerr != nil {
-			// if node not found it is unexpected because we enumerated ids above
-			if !IsNotFound(cerr) {
-				return nil, NewBackendError("repo", "ReadContent", 0, cerr, false)
-			}
+	for i := range nextId - 1 {
+		node, err := keg.GetNode(ctx, i)
+		if IsNotFound(err) {
+			dex.Remove(ctx, i)
 			continue
+		} else if err != nil {
+			return fmt.Errorf("unable to update dex: %w", err)
 		}
-		if len(bytesTrimSpace(content)) > 0 {
-			cont, perr := ParseContent(content, "README.md")
-			if perr == nil && len(cont.Links) > 0 {
-				dstSet := map[int]struct{}{}
-				for _, dst := range cont.Links {
-					dstSet[int(dst)] = struct{}{}
-				}
-				// append unique dsts
-				for dst := range dstSet {
-					d.Links[id] = append(d.Links[id], NodeID(dst))
-				}
-			}
-		}
+
+		dex.Add(ctx, node)
 	}
 
-	// Normalize tags: dedupe & sort
-	for tag, arr := range d.Tags {
-		set := map[int]struct{}{}
-		for _, v := range arr {
-			set[int(v)] = struct{}{}
-		}
-		ints := make([]int, 0, len(set))
-		for k := range set {
-			ints = append(ints, k)
-		}
-		sort.Ints(ints)
-		out := make([]NodeID, len(ints))
-		for i, v := range ints {
-			out[i] = NodeID(v)
-		}
-		d.Tags[tag] = out
-	}
-
-	// Normalize links: dedupe & sort destinations, ensure sources with no dsts can be empty slice
-	for src, arr := range d.Links {
-		set := map[int]struct{}{}
-		for _, v := range arr {
-			set[int(v)] = struct{}{}
-		}
-		ints := make([]int, 0, len(set))
-		for k := range set {
-			ints = append(ints, k)
-		}
-		sort.Ints(ints)
-		out := make([]NodeID, len(ints))
-		for i, v := range ints {
-			out[i] = NodeID(v)
-		}
-		d.Links[src] = out
-	}
-
-	// Build backlinks by reversing links
-	for src, dsts := range d.Links {
-		for _, dst := range dsts {
-			d.Backlinks[dst] = append(d.Backlinks[dst], src)
-		}
-	}
-	// Ensure every node appears in backlinks map (possibly empty)
-	for _, n := range d.Nodes {
-		if _, ok := d.Backlinks[n.ID]; !ok {
-			d.Backlinks[n.ID] = []NodeID{}
-		}
-	}
-	// Normalize backlinks: dedupe & sort
-	for dst, arr := range d.Backlinks {
-		set := map[int]struct{}{}
-		for _, v := range arr {
-			set[int(v)] = struct{}{}
-		}
-		ints := make([]int, 0, len(set))
-		for k := range set {
-			ints = append(ints, k)
-		}
-		sort.Ints(ints)
-		out := make([]NodeID, len(ints))
-		for i, v := range ints {
-			out[i] = NodeID(v)
-		}
-		d.Backlinks[dst] = out
-	}
-
-	return d, nil
+	return nil
 }
 
-// ----------------- Index parsing helpers -----------------
-
-func parseNodesIndex(data []byte) ([]NodeRef, error) {
-	var out []NodeRef
-	lines := strings.Split(string(data), "\n")
-	for _, ln := range lines {
-		ln = strings.TrimSpace(ln)
-		if ln == "" {
-			continue
-		}
-		parts := strings.SplitN(ln, "\t", 3)
-		if len(parts) < 3 {
-			// skip malformed line
-			continue
-		}
-		idNum, err := strconv.Atoi(strings.TrimSpace(parts[0]))
-		if err != nil {
-			continue
-		}
-		updatedStr := strings.TrimSpace(parts[1])
-		var mod time.Time
-		if updatedStr != "" {
-			if t, err := time.Parse(time.RFC3339, updatedStr); err == nil {
-				mod = t
-			} else {
-				// try legacy format
-				const alt = "2006-01-02 15:04:05Z"
-				if t2, err2 := time.Parse(alt, updatedStr); err2 == nil {
-					mod = t2
-				}
-			}
-		}
-		title := strings.TrimSpace(parts[2])
-		out = append(out, NodeRef{
-			ID:      NodeID(idNum),
-			Title:   title,
-			Updated: mod,
-		})
-	}
-	return out, nil
-}
-
-func parseTagsIndex(data []byte) (map[string][]NodeID, error) {
-	out := make(map[string][]NodeID)
-	lines := strings.Split(string(data), "\n")
-	for _, ln := range lines {
-		s := strings.TrimSpace(ln)
-		if s == "" {
-			continue
-		}
-		fields := strings.Fields(s)
-		if len(fields) == 0 {
-			continue
-		}
-		tag := fields[0]
-		if len(fields) > 1 {
-			for _, tok := range fields[1:] {
-				if n, err := strconv.Atoi(strings.TrimSpace(tok)); err == nil {
-					out[tag] = append(out[tag], NodeID(n))
-				}
-			}
-		} else {
-			if _, ok := out[tag]; !ok {
-				out[tag] = []NodeID{}
-			}
-		}
-	}
-	return out, nil
-}
-
-func parseLinksIndex(data []byte) (map[NodeID][]NodeID, error) {
-	out := make(map[NodeID][]NodeID)
-	lines := strings.Split(string(data), "\n")
-	for _, ln := range lines {
-		ln = strings.TrimSpace(ln)
-		if ln == "" {
-			continue
-		}
-		parts := strings.SplitN(ln, "\t", 2)
-		if len(parts) == 0 {
-			continue
-		}
-		idNum, err := strconv.Atoi(strings.TrimSpace(parts[0]))
-		if err != nil {
-			continue
-		}
-		var rest string
-		if len(parts) > 1 {
-			rest = strings.TrimSpace(parts[1])
-		}
-		if rest == "" {
-			out[NodeID(idNum)] = []NodeID{}
-			continue
-		}
-		toks := strings.Fields(rest)
-		for _, tk := range toks {
-			if n, err := strconv.Atoi(strings.TrimSpace(tk)); err == nil {
-				out[NodeID(idNum)] = append(out[NodeID(idNum)], NodeID(n))
-			}
-		}
-	}
-	return out, nil
-}
-
-func parseBacklinksIndex(data []byte) (map[NodeID][]NodeID, error) {
-	out := make(map[NodeID][]NodeID)
-	lines := strings.Split(string(data), "\n")
-	for _, ln := range lines {
-		ln = strings.TrimSpace(ln)
-		if ln == "" {
-			continue
-		}
-		parts := strings.SplitN(ln, "\t", 2)
-		if len(parts) == 0 {
-			continue
-		}
-		idNum, err := strconv.Atoi(strings.TrimSpace(parts[0]))
-		if err != nil {
-			continue
-		}
-		var rest string
-		if len(parts) > 1 {
-			rest = strings.TrimSpace(parts[1])
-		}
-		if rest == "" {
-			out[NodeID(idNum)] = []NodeID{}
-			continue
-		}
-		toks := strings.Fields(rest)
-		for _, tk := range toks {
-			if n, err := strconv.Atoi(strings.TrimSpace(tk)); err == nil {
-				out[NodeID(idNum)] = append(out[NodeID(idNum)], NodeID(n))
-			}
-		}
-	}
-	return out, nil
-}
-
-// ----------------- Serialization helpers -----------------
-
-func (d *Dex) NodesTSV() []byte {
-	var b strings.Builder
-	for _, n := range d.Nodes {
-		id := int(n.ID)
-		updated := ""
-		if !n.Updated.IsZero() {
-			updated = n.Updated.UTC().Format("2006-01-02 15:04:05Z")
-		}
-		title := strings.ReplaceAll(strings.TrimSpace(n.Title), "\t", " ")
-		fmt.Fprintf(&b, "%d\t%s\t%s\n", id, updated, title)
-	}
-	return []byte(b.String())
-}
-
-func (d *Dex) TagsText() []byte {
-	// collect and sort tag keys
-	tags := make([]string, 0, len(d.Tags))
-	for k := range d.Tags {
-		tags = append(tags, k)
-	}
-	sort.Strings(tags)
-	var b strings.Builder
-	for _, tag := range tags {
-		ids := d.Tags[tag]
-		if len(ids) == 0 {
-			fmt.Fprintf(&b, "%s\n", tag)
-			continue
-		}
-		fmt.Fprintf(&b, "%s", tag)
-		for _, id := range ids {
-			fmt.Fprintf(&b, " %d", int(id))
-		}
-		b.WriteByte('\n')
-	}
-	return []byte(b.String())
-}
-
-func (d *Dex) LinksTSV() []byte {
-	// collect src keys and sort
-	srcs := make([]int, 0, len(d.Links))
-	for s := range d.Links {
-		srcs = append(srcs, int(s))
-	}
-	sort.Ints(srcs)
-	var b strings.Builder
-	for _, s := range srcs {
-		dstList := d.Links[NodeID(s)]
-		if len(dstList) == 0 {
-			fmt.Fprintf(&b, "%d\t\n", s)
-			continue
-		}
-		fmt.Fprintf(&b, "%d\t", s)
-		for i, ddd := range dstList {
-			if i > 0 {
-				b.WriteByte(' ')
-			}
-			fmt.Fprintf(&b, "%d", int(ddd))
-		}
-		b.WriteByte('\n')
-	}
-	return []byte(b.String())
-}
-
-func (d *Dex) BacklinksTSV() []byte {
-	dests := make([]int, 0, len(d.Backlinks))
-	for dst := range d.Backlinks {
-		dests = append(dests, int(dst))
-	}
-	sort.Ints(dests)
-	var b strings.Builder
-	for _, dst := range dests {
-		srcList := d.Backlinks[NodeID(dst)]
-		if len(srcList) == 0 {
-			fmt.Fprintf(&b, "%d\t\n", dst)
-			continue
-		}
-		fmt.Fprintf(&b, "%d\t", dst)
-		for i, s := range srcList {
-			if i > 0 {
-				b.WriteByte(' ')
-			}
-			fmt.Fprintf(&b, "%d", int(s))
-		}
-		b.WriteByte('\n')
-	}
-	return []byte(b.String())
-}
-
-// ----------------- IndexBuilder implementations -----------------
-
-// NodesIndexBuilder builds "nodes.tsv".
-type NodesIndexBuilder struct{}
-
-var _ IndexBuilder = (*NodesIndexBuilder)(nil)
-
-func (NodesIndexBuilder) Name() string { return "nodes.tsv" }
-func (NodesIndexBuilder) Build(_ context.Context, repo KegRepository) ([]byte, error) {
-	// prefer ListNodes since it returns titles and timestamps
-	nodes, err := repo.ListNodes()
+// Write serializes the in-memory indexes and writes them atomically to the
+// provided repository using WriteIndex. If any write operation fails the error
+// chain is returned (errors.Join is used to aggregate multiple errors).
+func (dex *Dex) Write(ctx context.Context, repo KegRepository) error {
+	nodesData, err := dex.nodes.Data(ctx)
 	if err != nil {
-		return nil, NewBackendError("repo", "ListNodes", 0, err, false)
+		return fmt.Errorf("unable to write dex: %w", err)
 	}
-	d := &Dex{Nodes: nodes}
-	return d.NodesTSV(), nil
-}
 
-// TagsIndexBuilder builds "tags".
-type TagsIndexBuilder struct{}
-
-var _ IndexBuilder = (*TagsIndexBuilder)(nil)
-
-func (TagsIndexBuilder) Name() string { return "tags" }
-func (TagsIndexBuilder) Build(_ context.Context, repo KegRepository) ([]byte, error) {
-	d, err := BuildFromRepo(repo)
+	tagsData, err := dex.tags.Data(ctx)
 	if err != nil {
-		return nil, err
+		return fmt.Errorf("unable to write dex: %w", err)
 	}
-	return d.TagsText(), nil
-}
 
-// LinksIndexBuilder builds "links".
-type LinksIndexBuilder struct{}
-
-var _ IndexBuilder = (*LinksIndexBuilder)(nil)
-
-func (LinksIndexBuilder) Name() string { return "links" }
-func (LinksIndexBuilder) Build(_ context.Context, repo KegRepository) ([]byte, error) {
-	d, err := BuildFromRepo(repo)
+	linksData, err := dex.links.Data(ctx)
 	if err != nil {
-		return nil, err
+		return fmt.Errorf("unable to write dex: %w", err)
 	}
-	return d.LinksTSV(), nil
-}
 
-// BacklinksIndexBuilder builds "backlinks".
-type BacklinksIndexBuilder struct{}
-
-var _ IndexBuilder = (*BacklinksIndexBuilder)(nil)
-
-func (BacklinksIndexBuilder) Name() string { return "backlinks" }
-func (BacklinksIndexBuilder) Build(_ context.Context, repo KegRepository) ([]byte, error) {
-	d, err := BuildFromRepo(repo)
+	backlinksData, err := dex.backlinks.Data(ctx)
 	if err != nil {
-		return nil, err
+		return fmt.Errorf("unable to write dex: %w", err)
 	}
-	return d.BacklinksTSV(), nil
+
+	err = nil
+	var errs []error
+	if e := repo.WriteIndex(ctx, dex.nodes.Name(), nodesData); e != nil {
+		errs = append(errs, e)
+	}
+	if e := repo.WriteIndex(ctx, dex.tags.Name(), tagsData); e != nil {
+		errs = append(errs, e)
+	}
+	if e := repo.WriteIndex(ctx, dex.links.Name(), linksData); e != nil {
+		errs = append(errs, e)
+	}
+	if e := repo.WriteIndex(ctx, dex.backlinks.Name(), backlinksData); e != nil {
+		errs = append(errs, e)
+	}
+	err = errors.Join(errs...)
+	if err != nil {
+		return fmt.Errorf("unable to write dex: %w", err)
+	}
+
+	return nil
 }
 
-// ----------------- small helpers to avoid import churn -----------------
-
-// bytesTrimSpace avoids importing bytes in many places; inline tiny helper.
-func bytesTrimSpace(b []byte) []byte { return bytesTrim(b) }
-
-func bytesTrim(b []byte) []byte {
-	return bytesTrimFunc(b)
-}
-
-func bytesTrimFunc(b []byte) []byte {
-	// quick implementation of bytes.TrimSpace to avoid adding an import in some
-	// environments; use standard library if you prefer.
-	i := 0
-	j := len(b)
-	for i < j {
-		c := b[i]
-		if c == ' ' || c == '\n' || c == '\t' || c == '\r' || c == '\f' || c == '\v' {
-			i++
-			continue
-		}
-		break
-	}
-	for j > i {
-		c := b[j-1]
-		if c == ' ' || c == '\n' || c == '\t' || c == '\r' || c == '\f' || c == '\v' {
-			j--
-			continue
-		}
-		break
-	}
-	return b[i:j]
+// NextID returns the NextID value from the nodes index. This represents the
+// next available numeric node id known to the in-memory nodes index.
+func (dex *Dex) NextID() NodeID {
+	return dex.nodes.NextID
 }

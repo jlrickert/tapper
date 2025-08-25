@@ -870,7 +870,7 @@ func (f *FsRepo) DeleteItem(ctx context.Context, id NodeID, name string) error {
 }
 
 // ReadConfig implements KegRepository.
-func (f *FsRepo) ReadConfig(ctx context.Context) (Config, error) {
+func (f *FsRepo) ReadConfig(ctx context.Context) (*Config, error) {
 	candidates := []string{"keg", "keg.yaml", "keg.yml"}
 	var lastErr error
 	for _, c := range candidates {
@@ -878,21 +878,21 @@ func (f *FsRepo) ReadConfig(ctx context.Context) (Config, error) {
 		if _, err := os.Stat(p); err == nil {
 			b, rerr := os.ReadFile(p)
 			if rerr != nil {
-				return Config{}, NewBackendError(f.Name(), "ReadConfig", 0, rerr, false)
+				return &Config{}, NewBackendError(f.Name(), "ReadConfig", 0, rerr, false)
 			}
 			cfg, perr := ParseConfigData(b)
 			if perr != nil {
-				return Config{}, NewBackendError(f.Name(), "ReadConfig", 0, perr, false)
+				return &Config{}, NewBackendError(f.Name(), "ReadConfig", 0, perr, false)
 			}
-			return cfg, nil
+			return &cfg, nil
 		} else if !os.IsNotExist(err) {
 			lastErr = err
 		}
 	}
 	if lastErr != nil {
-		return Config{}, NewBackendError(f.Name(), "ReadConfig", 0, lastErr, false)
+		return &Config{}, NewBackendError(f.Name(), "ReadConfig", 0, lastErr, false)
 	}
-	return Config{}, ErrKegNotFound
+	return &Config{}, ErrKegNotFound
 }
 
 // WriteConfig implements KegRepository.
