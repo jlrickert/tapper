@@ -2,7 +2,6 @@ package keg_test
 
 import (
 	"bytes"
-	"errors"
 	"reflect"
 	"strings"
 	"testing"
@@ -11,11 +10,21 @@ import (
 	"github.com/jlrickert/tapper/pkg/keg"
 )
 
-func TestParseMeta_EmptyReturnsErrMetaNotFound(t *testing.T) {
+func TestParseMeta_EmptyReturnsEmptyMeta(t *testing.T) {
 	t.Parallel()
-	_, err := keg.ParseMeta([]byte("   \n\t"))
-	if !errors.Is(err, keg.ErrMetaNotFound) {
-		t.Fatalf("expected ErrMetaNotFound, got %v", err)
+	m, err := keg.ParseMeta([]byte("   \n\t"), deps)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if m == nil {
+		t.Fatalf("expected non-nil Meta for empty input")
+	}
+	out, err := m.ToBytes()
+	if err != nil {
+		t.Fatalf("ToBytes error: %v", err)
+	}
+	if len(out) != 0 {
+		t.Fatalf("expected empty bytes for empty meta, got %q", out)
 	}
 }
 
@@ -28,13 +37,13 @@ tags:
   - One
   - two
 `)
-	m, err := keg.ParseMeta(orig)
+	m, err := keg.ParseMeta(orig, deps)
 	if err != nil {
 		t.Fatalf("ParseMeta error: %v", err)
 	}
 
 	// When unmodified, ToYAML should return the original bytes verbatim.
-	out, err := m.ToYAML()
+	out, err := m.ToBytes()
 	if err != nil {
 		t.Fatalf("ToYAML error: %v", err)
 	}
@@ -46,7 +55,7 @@ tags:
 	if err := m.AddTag("New"); err != nil {
 		t.Fatalf("AddTag error: %v", err)
 	}
-	out2, err := m.ToYAML()
+	out2, err := m.ToBytes()
 	if err != nil {
 		t.Fatalf("ToYAML error after mutation: %v", err)
 	}
@@ -64,7 +73,7 @@ func TestTags_Normalization_AddRemove(t *testing.T) {
 	// Case: tags as a single string with comma and spaces.
 	m := keg.NewMetaFromRaw(map[string]any{
 		"tags": "Zeke, Draft  ,  other_tag",
-	})
+	}, deps)
 	tags := m.Tags()
 	want := []string{"draft", "other_tag", "zeke"}
 	if !reflect.DeepEqual(tags, want) {
@@ -108,7 +117,7 @@ func TestTags_Normalization_AddRemove(t *testing.T) {
 
 func TestSetGetDeleteAndIntermediateTypeError(t *testing.T) {
 	t.Parallel()
-	m := keg.NewMetaFromRaw(nil)
+	m := keg.NewMetaFromRaw(nil, deps)
 
 	// Set nested value
 	if err := m.Set("v", "a", "b", "c"); err != nil {
@@ -143,7 +152,7 @@ func TestSetGetDeleteAndIntermediateTypeError(t *testing.T) {
 
 func TestTimeFieldsAndTouchAndGetStats(t *testing.T) {
 	t.Parallel()
-	m := keg.NewMetaFromRaw(nil)
+	m := keg.NewMetaFromRaw(nil, deps)
 
 	// Initially zero times
 	if !m.GetUpdated().IsZero() || !m.GetCreated().IsZero() || !m.GetAccessed().IsZero() {
@@ -175,7 +184,7 @@ func TestTimeFieldsAndTouchAndGetStats(t *testing.T) {
 	}
 
 	// Touch should set missing times and bump accessed. Use fresh Meta.
-	m2 := keg.NewMetaFromRaw(nil)
+	m2 := keg.NewMetaFromRaw(nil, deps)
 	// Sleep not required; Touch uses time.Now but we will just assert non-zero.
 	m2.Touch()
 	if m2.GetCreated().IsZero() || m2.GetUpdated().IsZero() || m2.GetAccessed().IsZero() {
@@ -187,7 +196,7 @@ func TestToJSON_NormalizesTags(t *testing.T) {
 	t.Parallel()
 	m := keg.NewMetaFromRaw(map[string]any{
 		"tags": []any{"A B", "a-b", "C,c"},
-	})
+	}, deps)
 	jb, err := m.ToJSON()
 	if err != nil {
 		t.Fatalf("ToJSON error: %v", err)

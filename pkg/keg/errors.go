@@ -17,9 +17,14 @@ import (
 // Keep these sentinel identities stable (do not change them lightly). Clients
 // must rely on errors.Is (identity), not error string matching.
 var (
+	ErrKegExists        = errors.New("keg: keg already exists")
 	ErrNodeNotFound     = errors.New("keg: node not found")
-	ErrContentNotFound  = errors.New("keg: content not found")
-	ErrMetaNotFound     = errors.New("keg: meta not found")
+	ErrContentNotFound  = errors.New("keg: node content not found")
+	ErrMetaNotFound     = errors.New("keg: node meta not found")
+	ErrNotFound         = errors.New("keg: item not found")
+	ErrParser           = errors.New("keg: unable to parse")
+	ErrKegNotFound      = errors.New("keg: keg not found")
+	ErrDexNotFound      = errors.New("keg: dex not found")
 	ErrPermissionDenied = errors.New("keg: permission denied")
 	ErrInvalidMeta      = errors.New("keg: invalid meta")
 	ErrConflict         = errors.New("keg: conflict")
@@ -37,6 +42,11 @@ var (
 	// information while preserving this sentinel for callers that need to detect
 	// timeout semantics via errors.Is.
 	ErrLockTimeout = errors.New("keg: lock acquire timeout")
+
+	// ErrLock indicates a generic failure to acquire a repository or node
+	// lock. Use errors.Is(err, ErrLock) to detect non-timeout lock acquisition
+	// failures.
+	ErrLock = errors.New("keg: cannot acquire lock")
 )
 
 // Behavior interfaces used when inspecting error chains via errors.As.
@@ -241,42 +251,6 @@ func IsTemporary(err error) bool {
 	var t temporary
 	if errors.As(err, &t) {
 		return t.Temporary()
-	}
-	return false
-}
-
-// errorsIsMetaNotFound checks for ErrMetaNotFound sentinel in error chain.
-// keep local wrapper to avoid importing "errors" at top-level again.
-func errorsIsMetaNotFound(err error) bool {
-	if err == nil {
-		return false
-	}
-	// Compare error strings or use errors.Is if available
-	return IsMetaNotFound(err)
-}
-
-// IsMetaNotFound attempts to detect ErrMetaNotFound in wrapped error chain.
-func IsMetaNotFound(err error) bool {
-	// we rely on errors.Is which is available; use it.
-	return errorsIs(err, ErrMetaNotFound)
-}
-
-// errorsIs proxies errors.Is to avoid import duplication in some constrained builds.
-func errorsIs(err, target error) bool {
-	return errorIs(err, target)
-}
-
-func errorIs(err, target error) bool {
-	// simple recursive Unwrap-based search
-	if err == nil {
-		return false
-	}
-	if err == target {
-		return true
-	}
-	type unw interface{ Unwrap() error }
-	if u, ok := err.(unw); ok {
-		return errorIs(u.Unwrap(), target)
 	}
 	return false
 }

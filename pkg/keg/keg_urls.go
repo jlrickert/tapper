@@ -2,6 +2,7 @@ package keg
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -25,11 +26,11 @@ type LinkResolver interface {
 type BasicLinkResolver struct {
 	// Fallback is called when resolving "alias/node" and no owner alias is found.
 	// If nil, alias resolution will fail with an error.
-	Fallback func(alias, node string) (string, error)
+	Fallback func(alias string, node NodeID) (string, error)
 }
 
 // NewBasicLinkResolver constructs a BasicLinkResolver with an optional fallback.
-func NewBasicLinkResolver(fallback func(alias, node string) (string, error)) *BasicLinkResolver {
+func NewBasicLinkResolver(fallback func(alias string, node NodeID) (string, error)) *BasicLinkResolver {
 	return &BasicLinkResolver{Fallback: fallback}
 }
 
@@ -76,9 +77,15 @@ func (r *BasicLinkResolver) Resolve(cfg Config, token string) (string, error) {
 			res := base + "/" + nodePart
 			return res, nil
 		}
+
+		id, err := strconv.ParseInt(nodePart, 10, 32)
+		if err != nil {
+			return "", fmt.Errorf("invalid node token: %q", nodePart)
+		}
+
 		// try fallback if provided
 		if r != nil && r.Fallback != nil {
-			res, err := r.Fallback(alias, nodePart)
+			res, err := r.Fallback(alias, NodeID(id))
 			if err != nil {
 				return "", fmt.Errorf("fallback resolution failed: %w", err)
 			}

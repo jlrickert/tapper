@@ -29,6 +29,7 @@ type yamlCodec struct{}
 
 var _ MetaCodec = (*yamlCodec)(nil)
 
+// yamlCodec.Parse parses YAML bytes into a map[string]any.
 func (yamlCodec) Parse(data []byte) (map[string]any, error) {
 	var out map[string]any
 	if err := yaml.Unmarshal(data, &out); err != nil {
@@ -37,16 +38,19 @@ func (yamlCodec) Parse(data []byte) (map[string]any, error) {
 	return out, nil
 }
 
+// yamlCodec.Marshal serializes a map[string]any to YAML bytes.
 func (yamlCodec) Marshal(m map[string]any) ([]byte, error) {
 	return yaml.Marshal(m)
 }
 
+// yamlCodec.Name returns the codec name "yaml".
 func (yamlCodec) Name() string { return "yaml" }
 
 type jsonCodec struct{}
 
 var _ MetaCodec = (*jsonCodec)(nil)
 
+// jsonCodec.Parse parses JSON bytes into a map[string]any.
 func (jsonCodec) Parse(data []byte) (map[string]any, error) {
 	var out map[string]any
 	if err := json.Unmarshal(data, &out); err != nil {
@@ -55,10 +59,12 @@ func (jsonCodec) Parse(data []byte) (map[string]any, error) {
 	return out, nil
 }
 
+// jsonCodec.Marshal serializes a map[string]any to JSON bytes.
 func (jsonCodec) Marshal(m map[string]any) ([]byte, error) {
 	return json.Marshal(m)
 }
 
+// jsonCodec.Name returns the codec name "json".
 func (jsonCodec) Name() string { return "json" }
 
 // Meta is a simple wrapper around the raw YAML/JSON meta mapping.
@@ -88,25 +94,42 @@ type Meta struct {
 	// modified indicates whether this Meta has been changed since it was parsed
 	// from rawBytes. NewMetaFromRaw-created metas are treated as modified.
 	modified bool
+
+	deps *Deps
+}
+
+// NewMeta returns a new Meta initialized with an empty map and marked as modified.
+func NewMeta(deps *Deps) *Meta {
+	return &Meta{
+		Data:     make(map[string]any),
+		modified: true,
+		deps:     deps,
+	}
 }
 
 // NewMetaFromRaw returns a Meta wrapping the provided raw map (or an empty one).
-func NewMetaFromRaw(raw map[string]any) *Meta {
+// The returned Meta is marked modified to indicate it did not originate from a
+// verbatim parsed byte slice.
+func NewMetaFromRaw(raw map[string]any, deps *Deps) *Meta {
 	if raw == nil {
 		raw = make(map[string]any)
 	}
-	return &Meta{Data: raw, modified: true}
+	return &Meta{
+		Data:     raw,
+		modified: true,
+		deps:     deps,
+	}
 }
 
-// ParseMeta parses YAML or JSON bytes into a Meta. If data is empty/whitespace, returns ErrMetaNotFound.
+// ParseMeta parses YAML or JSON bytes into a Meta. If data is empty/whitespace, returns an empty Meta.
 //
 // Parsing uses a codec attempt order: if the trimmed content starts with '{' or '['
-// we try JSON first then YAML; otherwise YAML first then JSON. This mirrors the
-// heuristic previously in place but is implemented via the MetaCodec abstraction
-// so alternate codec sets or orders can be applied if needed.
-func ParseMeta(data []byte) (*Meta, error) {
+// we try JSON first then YAML; otherwise YAML first then JSON. The function
+// preserves the original bytes and detected format so unmodified metas can be
+// round-tripped verbatim.
+func ParseMeta(data []byte, deps *Deps) (*Meta, error) {
 	if len(bytes.TrimSpace(data)) == 0 {
-		return nil, ErrMetaNotFound
+		return NewMeta(deps), nil
 	}
 
 	trim := bytes.TrimSpace(data)
@@ -140,7 +163,7 @@ func ParseMeta(data []byte) (*Meta, error) {
 		return nil, fmt.Errorf("parse meta: unknown format")
 	}
 
-	m := NewMetaFromRaw(raw)
+	m := NewMetaFromRaw(raw, deps)
 	// Preserve original bytes and format for potential verbatim round-trip when unmodified.
 	m.rawBytes = append([]byte(nil), data...)
 	m.rawFormat = format
@@ -157,13 +180,13 @@ func (m *Meta) Raw() map[string]any {
 	return out
 }
 
-// Clone returns a deep copy of Meta.
+// Clone returns a deep copy of Meta including raw bytes, format and modified flag.
 func (m *Meta) Clone() *Meta {
 	if m == nil {
 		return nil
 	}
 	copyData, _ := deepCopyMap(m.Data)
-	clone := NewMetaFromRaw(copyData)
+	clone := NewMetaFromRaw(copyData, m.deps)
 	// preserve rawBytes and rawFormat and modified flag so clones behave the same for ToYAML/ToJSON
 	if m.rawBytes != nil {
 		clone.rawBytes = append([]byte(nil), m.rawBytes...)
@@ -171,6 +194,265 @@ func (m *Meta) Clone() *Meta {
 	clone.rawFormat = m.rawFormat
 	clone.modified = m.modified
 	return clone
+}
+
+// GetHash returns the cached build/hash value stored in the meta map.
+//
+// This function is safe: it tolerates missing keys and a variety of underlying
+// value types. It returns the string representation of the stored value or an
+// empty string if no value is present.
+func (m *Meta) GetHash() string {
+	if m == nil {
+		return ""
+	}
+	v, ok := m.Get("hash")
+	if !ok || v == nil {
+		return ""
+	}
+	switch t := v.(type) {
+	case string:
+		return strings.TrimSpace(t)
+	case []byte:
+		return string(t)
+	default:
+		// Best-effort stringification for unexpected types.
+		return strings.TrimSpace(fmt.Sprint(t))
+	}
+}
+
+// SetHash stores the given hash string into the meta map under the "hash" key.
+// The call is a no-op for a nil receiver. The value is trimmed before storing.
+func (m *Meta) SetHash(hash string) {
+	if m == nil {
+		return
+	}
+	_ = m.Set(strings.TrimSpace(hash), "hash")
+}
+
+// SetHashData computes a stable content hash for the supplied bytes and stores it
+// in the meta map under the "hash" key.
+//
+// It prefers using an injected hasher available via m.deps if present. If no
+// hasher is available it falls back to a simple MD5 hasher to ensure a useful
+// value is still recorded. This function is nil-safe.
+func (m *Meta) SetHashData(data []byte) {
+	if m == nil {
+		return
+	}
+
+	var h string
+	// Use injected hasher if available; access to the unexported field is valid
+	// within the same package. If not present, fall back to MD5Hasher.
+	if m.deps != nil && m.deps.Hasher != nil {
+		h = m.deps.Hasher.Hash(data)
+	} else {
+		h = (&MD5Hasher{}).Hash(data)
+	}
+	_ = m.Set(h, "hash")
+}
+
+// GetTitle returns the stored title from the meta map.
+//
+// It is defensive: missing keys or non-string stored values are handled safely.
+// The returned string is trimmed. If no title exists an empty string is returned.
+func (m *Meta) GetTitle() string {
+	if m == nil {
+		return ""
+	}
+	v, ok := m.Get("title")
+	if !ok || v == nil {
+		return ""
+	}
+	if s, ok := v.(string); ok {
+		return strings.TrimSpace(s)
+	}
+	// Best-effort stringification for unexpected types.
+	return strings.TrimSpace(fmt.Sprint(v))
+}
+
+// SetTitle writes the provided title into the meta map under the "title" key.
+// The value is trimmed and the meta is marked modified. Nil receiver is a no-op.
+func (m *Meta) SetTitle(title string) {
+	if m == nil {
+		return
+	}
+	_ = m.Set(strings.TrimSpace(title), "title")
+}
+
+// GetLinks extracts and returns normalized destination NodeIDs from the "links" key.
+//
+// It accepts multiple input shapes: arrays of numbers, arrays of strings, a single
+// string of space/comma-separated ids, or mixed. Returned slice is deduplicated
+// and sorted ascending.
+func (m *Meta) GetLinks() []NodeID {
+	if m == nil {
+		return nil
+	}
+	raw, ok := m.Data["links"]
+	if !ok || raw == nil {
+		return nil
+	}
+
+	seen := make(map[int]struct{})
+
+	addInt := func(v int) {
+		if v < 0 {
+			return
+		}
+		if _, ok := seen[v]; !ok {
+			seen[v] = struct{}{}
+		}
+	}
+
+	parseAny := func(x any) {
+		switch v := x.(type) {
+		case int:
+			addInt(v)
+		case int8:
+			addInt(int(v))
+		case int16:
+			addInt(int(v))
+		case int32:
+			addInt(int(v))
+		case int64:
+			addInt(int(v))
+		case uint:
+			addInt(int(v))
+		case uint8:
+			addInt(int(v))
+		case uint16:
+			addInt(int(v))
+		case uint32:
+			addInt(int(v))
+		case uint64:
+			addInt(int(v))
+		case float32:
+			iv := int(v)
+			// accept if it was integral or close enough
+			if float32(iv) == v {
+				addInt(iv)
+			}
+		case float64:
+			iv := int(v)
+			if float64(iv) == v {
+				addInt(iv)
+			}
+		case string:
+			// try to parse numeric id from string
+			var id int
+			if _, err := fmt.Sscan(strings.TrimSpace(v), &id); err == nil {
+				addInt(id)
+			}
+		}
+	}
+
+	switch t := raw.(type) {
+	case []any:
+		for _, e := range t {
+			parseAny(e)
+		}
+	case []string:
+		for _, s := range t {
+			parseAny(s)
+		}
+	case string:
+		// allow space/comma-separated list of ids
+		for _, part := range strings.FieldsFunc(t, func(r rune) bool {
+			return r == ',' || unicode.IsSpace(r)
+		}) {
+			parseAny(part)
+		}
+	case map[string]any:
+	case []int:
+		for _, v := range t {
+			addInt(v)
+		}
+	default:
+		// unknown shape: try a best-effort single-value parse
+		parseAny(t)
+	}
+
+	if len(seen) == 0 {
+		return nil
+	}
+
+	ints := make([]int, 0, len(seen))
+	for k := range seen {
+		ints = append(ints, k)
+	}
+	sort.Ints(ints)
+	out := make([]NodeID, 0, len(ints))
+	for _, v := range ints {
+		out = append(out, NodeID(v))
+	}
+	return out
+}
+
+// AddLink appends the given NodeID to the meta "links" list if not already present.
+func (m *Meta) AddLink(link NodeID) {
+	if m == nil {
+		return
+	}
+	// Use GetLinks to obtain a normalized, deduped, sorted slice.
+	existing := m.GetLinks()
+	for _, l := range existing {
+		if l == link {
+			return // already present
+		}
+	}
+	existing = append(existing, link)
+	m.SetLinks(existing)
+}
+
+// SetLinks replaces the meta "links" value with the provided slice of NodeIDs.
+// The stored representation is []int for predictable YAML/JSON output; the list
+// is deduped and sorted before storing.
+func (m *Meta) SetLinks(links []NodeID) {
+	if m == nil {
+		return
+	}
+	seen := make(map[int]struct{}, len(links))
+	ints := make([]int, 0, len(links))
+	for _, l := range links {
+		li := int(l)
+		if li < 0 {
+			continue
+		}
+		if _, ok := seen[li]; ok {
+			continue
+		}
+		seen[li] = struct{}{}
+		ints = append(ints, li)
+	}
+	sort.Ints(ints)
+
+	// Store as []int for predictable YAML/JSON output.
+	// Use Set to mark modified and maintain path semantics.
+	m.Set(ints, "links")
+}
+
+// GetSummary returns the "summary" string stored in meta or an empty string.
+func (m *Meta) GetSummary() string {
+	if m == nil {
+		return ""
+	}
+	v, ok := m.Get("summary")
+	if !ok || v == nil {
+		return ""
+	}
+	if s, ok := v.(string); ok {
+		return s
+	}
+	// If it's some other scalar (rare), try to stringify safely.
+	return fmt.Sprint(v)
+}
+
+// SetSummary stores the provided summary string under the "summary" key.
+func (m *Meta) SetSummary(summary string) {
+	if m == nil {
+		return
+	}
+	_ = m.Set(summary, "summary")
 }
 
 // Get returns the value at the given path (variadic keys).
@@ -248,8 +530,8 @@ func (m *Meta) Delete(path ...string) error {
 	return m.Set(nil, path...)
 }
 
-// Tags returns the canonical top-level tags as a normalized,
-// deduplicated, sorted slice. It only looks at meta["tags"].
+// Tags returns the canonical top-level tags as a normalized, deduplicated,
+// sorted slice. It only looks at meta["tags"].
 func (m *Meta) Tags() []string {
 	if m == nil {
 		return nil
@@ -290,8 +572,8 @@ func (m *Meta) Tags() []string {
 	return setToSortedSlice(set)
 }
 
-// AddTag adds the normalized tag to the canonical top-level tags (creates tags slice if missing).
-// No-op if tag normalizes to empty or already present.
+// AddTag adds the normalized tag to the canonical top-level tags (creates tags
+// slice if missing). No-op if tag normalizes to empty or already present.
 func (m *Meta) AddTag(tag string) error {
 	if m == nil {
 		return errors.New("meta nil")
@@ -338,7 +620,8 @@ func (m *Meta) AddTag(tag string) error {
 	return nil
 }
 
-// RemoveTag removes the tag from the canonical top-level tags (no-op if not present).
+// RemoveTag removes the tag from the canonical top-level tags (no-op if not
+// present).
 func (m *Meta) RemoveTag(tag string) error {
 	if m == nil {
 		return errors.New("meta nil")
@@ -384,7 +667,8 @@ func (m *Meta) RemoveTag(tag string) error {
 	return nil
 }
 
-// NormalizeTags normalizes canonical top-level tags in-place (lowercase, hyphenize, dedupe, sort).
+// NormalizeTags normalizes canonical top-level tags in-place (lowercase,
+// hyphenize, dedupe, sort).
 func (m *Meta) NormalizeTags() {
 	if m == nil {
 		return
@@ -433,27 +717,35 @@ func (m *Meta) NormalizeTags() {
 }
 
 // ToYAML serializes Meta to YAML and returns bytes.
+//
+// If the Meta was parsed from YAML and has not been modified, the original raw
+// bytes are returned verbatim to preserve comments and formatting.
 func (m *Meta) ToYAML() ([]byte, error) {
 	if m == nil {
-		return nil, ErrMetaNotFound
+		return []byte{}, nil
 	}
-	// If we parsed the meta and it has not been modified, and the original format
-	// was YAML, return the original bytes verbatim to preserve comments and formatting.
+	// If we parsed the meta and it has not been modified, and the original
+	// format was YAML, return the original bytes verbatim to preserve comments
+	// and formatting.
 	if !m.modified && m.rawFormat == "yaml" && m.rawBytes != nil {
 		return append([]byte(nil), m.rawBytes...), nil
 	}
-	// Ensure canonical tags normalized for stable output (may set modified).
 	m.NormalizeTags()
+	// Ensure canonical tags normalized for stable output (may set modified).
 	return yaml.Marshal(m.Data)
 }
 
 // ToJSON serializes Meta to JSON.
+//
+// If the Meta was parsed from JSON and has not been modified, the original raw
+// bytes are returned verbatim to preserve formatting.
 func (m *Meta) ToJSON() ([]byte, error) {
 	if m == nil {
-		return nil, ErrMetaNotFound
+		return []byte{}, nil
 	}
-	// If we parsed the meta and it has not been modified, and the original format
-	// was JSON, return the original bytes verbatim to preserve formatting.
+	// If we parsed the meta and it has not been modified, and the original
+	// format was JSON, return the original bytes verbatim to preserve
+	// formatting.
 	if !m.modified && m.rawFormat == "json" && m.rawBytes != nil {
 		return append([]byte(nil), m.rawBytes...), nil
 	}
@@ -461,7 +753,24 @@ func (m *Meta) ToJSON() ([]byte, error) {
 	return json.Marshal(m.Data)
 }
 
-// GetUpdated returns parsed "updated" timestamp if present and parseable; zero time otherwise.
+// ToBytes returns a serialization matching the original detected format
+// ("json" or "yaml"). If the format is unknown, an empty slice is returned.
+func (m *Meta) ToBytes() ([]byte, error) {
+	if m == nil {
+		return []byte{}, nil
+	}
+	switch m.rawFormat {
+	case "json":
+		return m.ToJSON()
+	case "yaml":
+		return m.ToYAML()
+	default:
+		return []byte{}, nil
+	}
+}
+
+// GetUpdated returns parsed "updated" timestamp if present and parseable; zero
+// time otherwise.
 func (m *Meta) GetUpdated() time.Time {
 	if m == nil {
 		return time.Time{}
@@ -489,9 +798,7 @@ func (m *Meta) SetUpdated(t time.Time) {
 }
 
 // GetCreated returns parsed "created" timestamp if present and parseable; zero
-// time otherwise. The meta key checked is "created". If the value is a string
-// it will be parsed using the same rules as GetUpdated; if the stored value is
-// a time.Time it will be returned directly.
+// time otherwise.
 func (m *Meta) GetCreated() time.Time {
 	if m == nil {
 		return time.Time{}
@@ -520,8 +827,7 @@ func (m *Meta) SetCreated(t time.Time) {
 }
 
 // GetAccessed returns parsed "accessed" timestamp if present and parseable;
-// zero time otherwise. The meta key checked is "accessed". It accepts string
-// or time.Time values.
+// zero time otherwise.
 func (m *Meta) GetAccessed() time.Time {
 	if m == nil {
 		return time.Time{}
@@ -549,12 +855,13 @@ func (m *Meta) SetAccessed(t time.Time) {
 	m.modified = true
 }
 
-// bump the accessed time to current. ensure other time stamps exist as well
+// Touch updates accessed/created/updated timestamps as appropriate and marks
+// the meta modified.
 func (m *Meta) Touch() {
 	if m == nil {
 		return
 	}
-	now := time.Now().UTC()
+	now := m.deps.Clock.Now().UTC()
 
 	// Ensure created/updated timestamps exist (set to now if missing)
 	if m.GetCreated().IsZero() {
@@ -569,11 +876,7 @@ func (m *Meta) Touch() {
 	// SetAccessed already marks modified.
 }
 
-// GetStats composes a NodeStats from the meta timestamps. It uses:
-// - Modified := GetUpdated()
-// - Birth    := GetCreated()
-// - Access   := GetAccessed()
-// Any missing/unparsable values become zero times.
+// GetStats composes a NodeStats from the meta timestamps.
 func (m *Meta) GetStats() NodeStats {
 	return NodeStats{
 		Updated: m.GetUpdated(),
@@ -582,8 +885,32 @@ func (m *Meta) GetStats() NodeStats {
 	}
 }
 
+// LoadContent updates meta fields from the provided Content (hash/title/lead/links)
+// and sets timestamps as necessary.
+func (m *Meta) LoadContent(content *Content) {
+	if content == nil {
+		return
+	}
+
+	now := m.deps.Clock.Now()
+	if m.GetHash() != content.Hash {
+		m.SetUpdated(now)
+	}
+	m.SetTitle(content.Title)
+	m.SetSummary(content.Lead)
+	m.SetLinks(content.Links)
+	m.SetHash(content.Hash)
+	if m.GetCreated().IsZero() {
+		m.SetCreated(now)
+	}
+	if m.GetAccessed().IsZero() {
+		m.SetAccessed(now)
+	}
+}
+
 /* ---------------- helpers ---------------- */
 
+// parseUpdatedTimestamp parses an RFC3339 timestamp or a fallback format.
 func parseUpdatedTimestamp(s string) (time.Time, error) {
 	if t, err := time.Parse(time.RFC3339, s); err == nil {
 		return t, nil
@@ -592,8 +919,7 @@ func parseUpdatedTimestamp(s string) (time.Time, error) {
 	return time.Parse(alt, s)
 }
 
-// normalizeTag: lowercase, trim, replace whitespace/comma with hyphen,
-// collapse repeated hyphens, strip edges.
+// normalizeTag lowercases, trims and tokenizes a tag string into a hyphen-separated token.
 func normalizeTag(s string) string {
 	s = strings.TrimSpace(s)
 	if s == "" {
@@ -629,6 +955,7 @@ func normalizeTag(s string) string {
 	return out
 }
 
+// splitAndNormalizeTags splits a comma/space separated tag string and normalizes each token.
 func splitAndNormalizeTags(s string) []string {
 	parts := strings.FieldsFunc(s, func(r rune) bool {
 		return r == ',' || unicode.IsSpace(r)
@@ -642,6 +969,7 @@ func splitAndNormalizeTags(s string) []string {
 	return out
 }
 
+// setToSortedSlice converts a set (map[string]struct{}) into a sorted slice.
 func setToSortedSlice(set map[string]struct{}) []string {
 	out := make([]string, 0, len(set))
 	for k := range set {
@@ -652,6 +980,7 @@ func setToSortedSlice(set map[string]struct{}) []string {
 }
 
 // deepCopyMap uses YAML round-trip to deep-copy heterogeneous map[string]any structures.
+//
 // It's simple and robust for metadata maps. If performance is a concern replace with faster logic.
 func deepCopyMap(m map[string]any) (map[string]any, error) {
 	if m == nil {

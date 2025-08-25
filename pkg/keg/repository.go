@@ -98,7 +98,7 @@ type KegRepository interface {
 	// Implementations should load and parse the stored configuration (for example
 	// the keg file or project zeke.yaml). If the configuration is missing, an
 	// implementation may return ErrNotFound or a more specific sentinel.
-	ReadConfig(ctx context.Context) (Config, error)
+	ReadConfig(ctx context.Context) (*Config, error)
 
 	// WriteConfig persists the provided Config to the repository. Implementations
 	// should write atomically where possible and validate input as appropriate.
