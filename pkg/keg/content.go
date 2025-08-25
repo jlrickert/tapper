@@ -9,37 +9,48 @@ import (
 	"strings"
 )
 
-// Content represents the extracted pieces of a node's primary content file
-// (README.md or README.rst). Title is the canonical title (first H1 for
-// Markdown, or the RST title detected), Lead is the first paragraph after the
-// title, Links are discovered numeric node links (../N), and Format is a short
-// hint like "markdown" or "rst".
+// Content holds the extracted pieces of a node's primary content file
+// (README.md or README.rst).
+//
+// Fields:
+//   - Hash: stable content hash computed by the repository hasher.
+//   - Title: canonical title (first H1 for Markdown, or RST title detected).
+//   - Lead: first paragraph immediately following the title (used as a short summary).
+//   - Links: numeric outgoing node links discovered in the content (../N).
+//   - Format: short hint of the detected format ("markdown", "rst", or "empty").
 type Content struct {
+	Hash   string
 	Title  string
 	Lead   string
 	Links  []NodeID
 	Format string
 }
 
-// ParseContent attempts to extract title, lead paragraph, and numeric outgoing
-// links from the provided file bytes. The filename can be used as a hint for
-// format detection (e.g., README.md vs README.rst). When unsure, Markdown
-// heuristics are attempted first.
-func ParseContent(data []byte, filename string) (*Content, error) {
+// ParseContent extracts a Content value from raw file bytes.
+//
+// The format parameter is a filename hint (e.g., "README.md", "README.rst").
+// When format is ambiguous the function applies simple heuristics to choose
+// between Markdown and reStructuredText. The returned Content contains a
+// deterministic, deduplicated, sorted list of discovered numeric links.
+//
+// ParseContent requires a non-nil deps pointer whose hasher is used to compute
+// the content Hash. If the input is empty or only whitespace, a Content with
+// Format == "empty" is returned.
+func ParseContent(data []byte, format string, deps *Deps) (*Content, error) {
 	if len(bytes.TrimSpace(data)) == 0 {
 		return &Content{Format: "empty"}, nil
 	}
 
-	format := detectFormat(data, filename)
+	fmt := detectFormat(data, format)
 
 	var title, lead string
-	switch format {
+	switch fmt {
 	case "rst":
 		title, lead = extractRSTTitleAndLead(data)
 	default:
 		// default to markdown heuristics
 		title, lead = extractMarkdownTitleAndLead(data)
-		format = "markdown"
+		fmt = "markdown"
 	}
 
 	links := extractNumericLinks(data)
@@ -48,16 +59,21 @@ func ParseContent(data []byte, filename string) (*Content, error) {
 	links = dedupeAndSortNodeIDs(links)
 
 	return &Content{
+		Hash:   deps.Hasher.Hash(data),
 		Title:  title,
 		Lead:   lead,
 		Links:  links,
-		Format: format,
+		Format: fmt,
 	}, nil
 }
 
-// detectFormat uses filename and small heuristics to pick "rst" or "markdown".
-func detectFormat(data []byte, filename string) string {
-	lower := strings.ToLower(filename)
+// detectFormat returns "rst" or "markdown" using a filename hint and a small
+// content-based heuristic. If the provided format string ends with ".rst" or
+// ".rest" we prefer "rst". Otherwise we inspect the second line of the file:
+// an RST title is commonly followed by a line of === or --- that matches the
+// underline style.
+func detectFormat(data []byte, format string) string {
+	lower := strings.ToLower(format)
 	if strings.HasSuffix(lower, ".rst") || strings.HasSuffix(lower, ".rest") {
 		return "rst"
 	}
@@ -79,6 +95,7 @@ func detectFormat(data []byte, filename string) string {
 	return "markdown"
 }
 
+// isAllRunes reports whether s is non-empty and consists entirely of runeChar.
 func isAllRunes(s string, runeChar rune) bool {
 	for _, r := range s {
 		if r != runeChar {
@@ -88,9 +105,14 @@ func isAllRunes(s string, runeChar rune) bool {
 	return len(s) > 0
 }
 
-// extractMarkdownTitleAndLead finds the first H1 line ("# Title") and the
-// first paragraph immediately following it. If no H1 is found, it will try a
-// shallow fallback: first non-empty line as title and the next paragraph as lead.
+// extractMarkdownTitleAndLead finds the first Markdown H1 title (a line that
+// begins with "# ") and the first paragraph immediately following that title.
+// If no H1 is present, the function falls back to using the first non-empty
+// line as the title and attempts to find the subsequent paragraph.
+//
+// The lead paragraph is the first contiguous block of non-blank lines after
+// the title (stops at the next blank line). If a subsequent heading (line
+// starting with '#') is encountered before a paragraph, no lead is returned.
 func extractMarkdownTitleAndLead(data []byte) (string, string) {
 	scanner := bufio.NewScanner(bytes.NewReader(data))
 	title := ""
@@ -100,16 +122,16 @@ func extractMarkdownTitleAndLead(data []byte) (string, string) {
 		lines = append(lines, line)
 		if title == "" {
 			trim := strings.TrimSpace(line)
-			if strings.HasPrefix(trim, "# ") {
-				title = strings.TrimSpace(strings.TrimPrefix(trim, "# "))
-				// stop scanning title; we'll scan lines after for lead
+			if after, ok := strings.CutPrefix(trim, "# "); ok {
+				title = strings.TrimSpace(after)
+				// stop scanning title; we'll scan remainder for lead
 				break
 			}
-			// also accept underline-style h1 (line followed by ===) is uncommon in MD,
-			// so skip here and rely on rst detection.
+			// underline-style H1 (title followed by ===) is uncommon in Markdown,
+			// so rely on rst detection for that case.
 		}
 	}
-	// If title still empty, fallback to first non-empty line in whole file
+	// If title still empty, fallback to first non-empty line collected so far.
 	if title == "" {
 		for _, l := range lines {
 			if t := strings.TrimSpace(l); t != "" {
@@ -117,11 +139,10 @@ func extractMarkdownTitleAndLead(data []byte) (string, string) {
 				break
 			}
 		}
-		// if still empty, scan from beginning to collect paragraphs
+		// if still empty, we'll scan from the beginning below to find paragraphs
 	}
 
-	// Find lead paragraph: first non-empty paragraph after the title line.
-	// To do this we need to continue scanning from the point after the detected title.
+	// Continue scanning from the start to find the lead paragraph after the title.
 	remaining := bytes.NewReader(data)
 	scanner = bufio.NewScanner(remaining)
 	foundTitle := false
@@ -129,23 +150,21 @@ func extractMarkdownTitleAndLead(data []byte) (string, string) {
 		line := scanner.Text()
 		if !foundTitle {
 			trim := strings.TrimSpace(line)
-			// mark title found when we encounter it (matching our title heuristics)
-			if title != "" && (strings.HasPrefix(trim, "# ") && strings.Contains(trim, title) || trim == title) {
+			// mark title found when we encounter a line matching our heuristics
+			if title != "" && ((strings.HasPrefix(trim, "# ") && strings.Contains(trim, title)) || trim == title) {
 				foundTitle = true
 			}
-			// If title was from fallback (first non-empty line) we also consider the first match as found.
+			// If the fallback title equals this line, treat it as the found title.
 			if title != "" && !foundTitle {
-				// If fallback title equals this line, mark foundTitle true
 				if strings.TrimSpace(line) == title {
 					foundTitle = true
 				}
 			}
 			continue
 		}
-		// After title: skip blank lines until we hit paragraph content
-		// collect contiguous non-blank lines as paragraph
-		// First non-empty paragraph is lead.
-		// skip possible heading lines that start with '#' (a subsequent heading isn't a paragraph)
+		// After title: skip blank lines until paragraph content is found.
+		// The first non-empty paragraph is the lead. If we hit another heading
+		// before a paragraph, treat as no lead.
 		for scanner.Scan() {
 			l := scanner.Text()
 			if strings.TrimSpace(l) == "" {
@@ -171,9 +190,10 @@ func extractMarkdownTitleAndLead(data []byte) (string, string) {
 	return title, ""
 }
 
-// extractRSTTitleAndLead finds an RST-style title where the first line is text
-// and the second line is a run of '=' or '-' matching length. Lead is the first
-// paragraph after the title block.
+// extractRSTTitleAndLead detects an RST-style title: first line text and the
+// second line consisting entirely of '=' or '-' (a common RST underline).
+// The lead is the first paragraph after the underline block. If the RST-style
+// title is not present, the function falls back to the Markdown fallback logic.
 func extractRSTTitleAndLead(data []byte) (string, string) {
 	scanner := bufio.NewScanner(bytes.NewReader(data))
 	lines := []string{}
@@ -213,8 +233,9 @@ func extractRSTTitleAndLead(data []byte) (string, string) {
 
 var numericLinkRE = regexp.MustCompile(`\.\./\s*([0-9]+)`)
 
-// extractNumericLinks finds occurrences of "../N" where N is a positive integer
-// and returns them as a slice of NodeID (may contain duplicates).
+// extractNumericLinks finds occurrences of "../N" where N is a non-negative
+// integer and returns them as a slice of NodeID. The returned slice may contain
+// duplicates; callers should call dedupeAndSortNodeIDs to normalize the result.
 func extractNumericLinks(data []byte) []NodeID {
 	matches := numericLinkRE.FindAllSubmatch(data, -1)
 	out := make([]NodeID, 0, len(matches))
@@ -231,6 +252,9 @@ func extractNumericLinks(data []byte) []NodeID {
 	return out
 }
 
+// dedupeAndSortNodeIDs removes duplicates from the input slice and returns a
+// new slice sorted in ascending numeric order. The operation is deterministic
+// and suitable for producing stable index outputs.
 func dedupeAndSortNodeIDs(in []NodeID) []NodeID {
 	set := make(map[int]struct{})
 	out := make([]NodeID, 0, len(in))

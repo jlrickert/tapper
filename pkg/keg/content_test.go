@@ -2,19 +2,23 @@ package keg
 
 import (
 	"bytes"
-	"errors"
 	"reflect"
 	"testing"
 	"time"
 )
 
 func TestParseMeta_Empty(t *testing.T) {
-	_, err := ParseMeta([]byte("   \n\t"))
-	if err == nil {
-		t.Fatalf("expected error for empty meta, got nil")
+	// ParseMeta now returns an empty Meta for whitespace input (no error).
+	m, err := ParseMeta([]byte("   \n\t"), nil)
+	if err != nil {
+		t.Fatalf("expected no error for empty meta, got: %v", err)
 	}
-	if !errors.Is(err, ErrMetaNotFound) {
-		t.Fatalf("expected ErrMetaNotFound, got: %v", err)
+	if m == nil {
+		t.Fatalf("expected non-nil Meta for empty input")
+	}
+	// Tags should be empty/nil for an empty meta.
+	if got := m.Tags(); len(got) != 0 {
+		t.Fatalf("expected no tags for empty meta, got: %v", got)
 	}
 }
 
@@ -24,7 +28,7 @@ func TestMeta_TagsHandling(t *testing.T) {
 tags: "Zeke, Draft"
 `)
 
-	m, err := ParseMeta(yaml1)
+	m, err := ParseMeta(yaml1, nil)
 	if err != nil {
 		t.Fatalf("ParseMeta failed: %v", err)
 	}
@@ -67,30 +71,30 @@ tags:
   - draft
 `)
 
-	m, err := ParseMeta(orig)
+	m, err := ParseMeta(orig, nil)
 	if err != nil {
 		t.Fatalf("ParseMeta failed: %v", err)
 	}
 
-	// Should be unmodified initially; ToYAML should return the original bytes verbatim.
-	out, err := m.ToYAML()
+	// Should be unmodified initially; ToBytes should return the original bytes verbatim.
+	out, err := m.ToBytes()
 	if err != nil {
-		t.Fatalf("ToYAML failed: %v", err)
+		t.Fatalf("ToBytes failed: %v", err)
 	}
 	if !bytes.Equal(out, orig) {
-		t.Fatalf("ToYAML did not preserve original bytes for unmodified YAML\ngot:\n%s\nwant:\n%s", out, orig)
+		t.Fatalf("ToBytes did not preserve original bytes for unmodified YAML\ngot:\n%s\nwant:\n%s", out, orig)
 	}
 
-	// Mutate (AddTag) and then ToYAML should produce a canonical YAML (not verbatim).
+	// Mutate (AddTag) and then ToBytes should produce a canonical YAML (not verbatim).
 	if err := m.AddTag("added"); err != nil {
 		t.Fatalf("AddTag failed: %v", err)
 	}
-	out2, err := m.ToYAML()
+	out2, err := m.ToBytes()
 	if err != nil {
-		t.Fatalf("ToYAML after modification failed: %v", err)
+		t.Fatalf("ToBytes after modification failed: %v", err)
 	}
 	if bytes.Equal(out2, orig) {
-		t.Fatalf("ToYAML should not equal original after modification")
+		t.Fatalf("ToBytes should not equal original after modification")
 	}
 	// Ensure updated tags are present in the produced YAML bytes.
 	if !bytes.Contains(out2, []byte("added")) {
@@ -100,7 +104,7 @@ tags:
 
 func TestMeta_JSON_VerbatimRoundtrip(t *testing.T) {
 	jsonOrig := []byte(`{"updated":"2025-08-04T22:03:53Z","tags":"Zeke, Draft"}`)
-	m, err := ParseMeta(jsonOrig)
+	m, err := ParseMeta(jsonOrig, nil)
 	if err != nil {
 		t.Fatalf("ParseMeta(json) failed: %v", err)
 	}
@@ -116,7 +120,7 @@ func TestMeta_JSON_VerbatimRoundtrip(t *testing.T) {
 func TestMeta_UpdatedParsingAndSetters(t *testing.T) {
 	yaml := []byte(`updated: 2025-08-04 22:03:53Z
 `)
-	m, err := ParseMeta(yaml)
+	m, err := ParseMeta(yaml, nil)
 	if err != nil {
 		t.Fatalf("ParseMeta failed: %v", err)
 	}
