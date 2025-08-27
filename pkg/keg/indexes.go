@@ -8,9 +8,10 @@ import (
 	"strings"
 )
 
-// IndexBuilder constructs a single index artifact (for example: nodes.tsv,
-// tags, links, backlinks). Implementations maintain in-memory state via Add,
-// Remove, Clear and produce the serialized bytes to write via Data.
+// IndexBuilder is an interface for constructing a single index artifact
+// (for example: nodes.tsv, tags, links, backlinks). Implementations maintain
+// in-memory state via Add / Remove / Clear and produce the serialized bytes to
+// write via Data.
 type IndexBuilder interface {
 	// Name returns the canonical index filename (for example "dex/tags").
 	Name() string
@@ -91,12 +92,12 @@ func NewNodesIndexFromRepo(ctx context.Context, repo KegRepository) (*NodesIndex
 				var titleBytes []byte
 
 				if t2 != -1 {
-					// title is the third column (after second tab)
+					// Title is the third column (after second tab).
 					titleBytes = bytesTrim(line[t2+1:])
 				} else {
-					// fallback: remainder after first tab may contain updated + title.
+					// Fallback: remainder after first tab may contain updated + title.
 					rem := bytesTrim(line[t1+1:])
-					// try to split on first space (updated may contain no tab)
+					// Try to split on first space (updated may contain no tab).
 					sidx := -1
 					for j := range rem {
 						if rem[j] == ' ' {
@@ -107,7 +108,7 @@ func NewNodesIndexFromRepo(ctx context.Context, repo KegRepository) (*NodesIndex
 					if sidx != -1 && sidx+1 < len(rem) {
 						titleBytes = bytesTrim(rem[sidx+1:])
 					} else {
-						// treat remainder as title if parsing fails
+						// Treat remainder as title if parsing fails.
 						titleBytes = rem
 					}
 				}
@@ -119,14 +120,14 @@ func NewNodesIndexFromRepo(ctx context.Context, repo KegRepository) (*NodesIndex
 						idx.Nodes = append(idx.Nodes, NodeRef{
 							ID:    NodeID(idInt),
 							Title: title,
-							// Updated left zero; authoritative timestamps should be taken
-							// from meta.yaml when available.
+							// Updated is left zero here; authoritative timestamps should be
+							// taken from meta.yaml when available.
 						})
 					}
 				}
 			}
 		}
-		// advance to next line
+		// Advance to next line.
 		start = i + 1
 	}
 
@@ -245,22 +246,21 @@ func NewTagsIndexFromRepo(ctx context.Context, repo KegRepository) (*TagsIndex, 
 							ids = append(ids, id)
 						}
 					}
-					// selection sort for small slices to ensure ascending order
-					for a := 0; a < len(ids); a++ {
-						min := a
-						for b := a + 1; b < len(ids); b++ {
-							if ids[b] < ids[min] {
-								min = b
-							}
-						}
-						if min != a {
-							ids[a], ids[min] = ids[min], ids[a]
-						}
+					// sort ids
+					ints := make([]int, len(ids))
+					for k, vv := range ids {
+						ints[k] = int(vv)
 					}
+					sort.Ints(ints)
+					ids = make([]NodeID, len(ints))
+					for k, vv := range ints {
+						ids[k] = NodeID(vv)
+					}
+
 					if len(ids) > 0 {
 						idx.Tags[tag] = ids
 					} else {
-						// ensure tag exists with empty slice if no valid ids were found
+						// Ensure tag exists with empty slice if no valid ids were found.
 						idx.Tags[tag] = []NodeID{}
 					}
 				}
@@ -282,33 +282,26 @@ func (t *TagsIndex) Add(ctx context.Context, node Node) error {
 	}
 
 	for _, tag := range node.Meta.Tags() {
-		tagList := append(t.Tags[tag], node.ID)
-
-		// deduplicate
-		seen := make(map[NodeID]struct{}, len(tagList))
-		unique := make([]NodeID, 0, len(tagList))
-		for _, id := range tagList {
-			if _, ok := seen[id]; ok {
-				continue
-			}
+		// Build a set from the existing list.
+		existing := t.Tags[tag]
+		seen := make(map[NodeID]struct{}, len(existing)+1)
+		for _, id := range existing {
 			seen[id] = struct{}{}
-			unique = append(unique, id)
 		}
+		// Add the new id if not present.
+		seen[node.ID] = struct{}{}
 
-		// selection sort (efficient for small slices; avoids extra imports)
-		for i := 0; i < len(unique); i++ {
-			min := i
-			for j := i + 1; j < len(unique); j++ {
-				if unique[j] < unique[min] {
-					min = j
-				}
-			}
-			if min != i {
-				unique[i], unique[min] = unique[min], unique[i]
-			}
+		// Rebuild sorted slice.
+		ints := make([]int, 0, len(seen))
+		for id := range seen {
+			ints = append(ints, int(id))
 		}
-
-		t.Tags[tag] = unique
+		sort.Ints(ints)
+		newList := make([]NodeID, len(ints))
+		for i, v := range ints {
+			newList[i] = NodeID(v)
+		}
+		t.Tags[tag] = newList
 	}
 	return nil
 }
@@ -337,24 +330,18 @@ func (t *TagsIndex) Remove(ctx context.Context, id NodeID) error {
 		}
 
 		// Ensure sorted and deduped as a defensive measure.
-		for i := 0; i < len(newList); i++ {
-			min := i
-			for j := i + 1; j < len(newList); j++ {
-				if newList[j] < newList[min] {
-					min = j
-				}
-			}
-			if min != i {
-				newList[i], newList[min] = newList[min], newList[i]
-			}
+		ints := make([]int, len(newList))
+		for i, v := range newList {
+			ints[i] = int(v)
 		}
-		uniq := make([]NodeID, 0, len(newList))
-		prev := NodeID(-1)
-		for _, v := range newList {
+		sort.Ints(ints)
+		uniq := make([]NodeID, 0, len(ints))
+		prev := -1
+		for _, v := range ints {
 			if v == prev {
 				continue
 			}
-			uniq = append(uniq, v)
+			uniq = append(uniq, NodeID(v))
 			prev = v
 		}
 
@@ -373,8 +360,8 @@ func (t *TagsIndex) Clear(ctx context.Context) error {
 // Data serializes the tags index. Lines are emitted in lexicographic tag order.
 // Each line is: "<tag> <id1> <id2>...\n". Tags with no members are omitted.
 func (t *TagsIndex) Data(ctx context.Context) ([]byte, error) {
-	// Handle nil or empty map
-	if t.Tags == nil || len(t.Tags) == 0 {
+	// Handle empty map.
+	if len(t.Tags) == 0 {
 		return []byte{}, nil
 	}
 
@@ -447,7 +434,7 @@ func NewLinksIndexFromRepo(ctx context.Context, repo KegRepository) (*LinksIndex
 			// Expect form: "<src>\t<dst1> <dst2> ..."
 			// find first tab
 			tpos := -1
-			for j := 0; j < len(line); j++ {
+			for j := range line {
 				if line[j] == '\t' {
 					tpos = j
 					break
@@ -542,7 +529,7 @@ func (l *LinksIndex) Clear(ctx context.Context) error {
 // Data serializes links as TSV lines: "<src>\t<dst1> <dst2>...\n". Sources are
 // emitted in ascending numeric order and destination lists are deduped/sorted.
 func (l *LinksIndex) Data(ctx context.Context) ([]byte, error) {
-	if l.Links == nil || len(l.Links) == 0 {
+	if len(l.Links) == 0 {
 		return []byte{}, nil
 	}
 	// collect and sort source ids
@@ -621,7 +608,7 @@ func NewBacklinksIndexFromRepo(ctx context.Context, repo KegRepository) (*Backli
 		if len(line) > 0 {
 			// Expect form: "<dst>\t<src1> src2 ..."
 			tpos := -1
-			for j := 0; j < len(line); j++ {
+			for j := range line {
 				if line[j] == '\t' {
 					tpos = j
 					break
@@ -681,7 +668,7 @@ func (b *BacklinksIndex) Add(ctx context.Context, node Node) error {
 	if b.Backlinks == nil {
 		b.Backlinks = map[NodeID][]NodeID{}
 	}
-	// ensure destination exists (may be filled later by indexer)
+	// Ensure destination exists; may be filled later by an indexer.
 	if _, ok := b.Backlinks[node.ID]; !ok {
 		b.Backlinks[node.ID] = []NodeID{}
 	}

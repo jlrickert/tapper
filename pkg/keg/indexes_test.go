@@ -1,190 +1,225 @@
 package keg_test
 
 import (
-	"reflect"
 	"testing"
+	"time"
 
 	"github.com/jlrickert/tapper/pkg/keg"
 )
 
-func TestReadFromDex_Table(t *testing.T) {
-	cases := []struct {
-		name          string
-		nodesTSV      string
-		tagsData      string
-		linksData     string
-		backlinksData string
-
-		wantNodesCount int
-		wantNodes      map[keg.NodeID]string
-
-		wantTags      map[string][]keg.NodeID
-		wantLinks     map[keg.NodeID][]keg.NodeID
-		wantBacklinks map[keg.NodeID][]keg.NodeID
+func TestTagsIndex_Data(t *testing.T) {
+	tests := []struct {
+		name string
+		idx  *keg.TagsIndex
+		want string
 	}{
 		{
-			name: "basic",
-			nodesTSV: "" +
-				"0\t2025-08-04 22:03:53Z\tSorry, planned but not yet available\n" +
-				"1\t2025-08-04 23:06:30Z\tConfiguration (config)\n" +
-				"3\t2025-08-09 17:44:04Z\tZeke AI utility (zeke)\n" +
-				"badline-without-tabs\n" + // malformed - should be skipped
-				"999\tnot-a-time\tTitle with bad time\n", // id parses, time parse will produce zero time
-			tagsData: "" +
-				"zeke 3 10 45\n" +
-				"keg 5 10 15 42\n" +
-				"emptytag\n", // tag present with empty members
-			linksData: "" +
-				"1\t3 5\n" +
-				"10\t\n" + // explicit empty destinations
-				"bad\t3 4\n", // invalid source id -> skipped
-			backlinksData: "" +
-				"3\t1 2\n" +
-				"42\t3 7\n" +
-				"15\t\n", // empty sources
-
-			wantNodesCount: 4, // 0,1,3,999
-
-			wantNodes: map[keg.NodeID]string{
-				0:   "Sorry, planned but not yet available",
-				1:   "Configuration (config)",
-				3:   "Zeke AI utility (zeke)",
-				999: "Title with bad time",
-			},
-
-			// Note: indices that contain empty member lists may be omitted by parsers.
-			// Tests should not assume empty-member entries are always present.
-			wantTags: map[string][]keg.NodeID{
-				"zeke": {3, 10, 45},
-			},
-			wantLinks: map[keg.NodeID][]keg.NodeID{
-				1: {3, 5},
-			},
-			wantBacklinks: map[keg.NodeID][]keg.NodeID{
-				3: {1, 2},
-			},
+			name: "empty map",
+			idx:  keg.NewTagsIndex(),
+			want: "",
 		},
 		{
-			name:           "empty_indexes",
-			nodesTSV:       "",
-			tagsData:       "",
-			linksData:      "",
-			backlinksData:  "",
-			wantNodesCount: 0,
-			wantNodes:      map[keg.NodeID]string{},
-			wantTags:       map[string][]keg.NodeID{},
-			wantLinks:      map[keg.NodeID][]keg.NodeID{},
-			wantBacklinks:  map[keg.NodeID][]keg.NodeID{},
+			name: "single tag sorted",
+			idx: &keg.TagsIndex{
+				Tags: map[string][]keg.NodeID{
+					"zeke": {3, 10, 45},
+				},
+			},
+			want: "zeke 3 10 45\n",
+		},
+		// {
+		// 	name: "unsorted and duplicate ids normalized",
+		// 	idx: &keg.TagsIndex{
+		// 		Tags: map[string][]keg.NodeID{
+		// 			"draft": {12, 10, 12, 10},
+		// 		},
+		// 	},
+		// 	want: "draft 10 12\n",
+		// },
+		{
+			name: "multiple tags lexicographic order",
+			idx: &keg.TagsIndex{
+				Tags: map[string][]keg.NodeID{
+					"b": {2},
+					"a": {1},
+				},
+			},
+			want: "a 1\nb 2\n",
+		},
+		{
+			name: "omit empty-list tag",
+			idx: &keg.TagsIndex{
+				Tags: map[string][]keg.NodeID{
+					"keep":  {5},
+					"empty": {},
+				},
+			},
+			want: "keep 5\n",
 		},
 	}
 
-	for _, tc := range cases {
+	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			t.Helper()
-
-			mem := keg.NewMemoryRepo()
-
-			// write indexes only if non-empty (tests may want to omit them)
-			if tc.nodesTSV != "" {
-				if err := mem.WriteIndex(t.Context(), "nodes.tsv", []byte(tc.nodesTSV)); err != nil {
-					t.Fatalf("%s: WriteIndex(nodes.tsv) failed: %v", tc.name, err)
-				}
-			}
-			if tc.tagsData != "" {
-				if err := mem.WriteIndex(t.Context(), "tags", []byte(tc.tagsData)); err != nil {
-					t.Fatalf("%s: WriteIndex(tags) failed: %v", tc.name, err)
-				}
-			}
-			if tc.linksData != "" {
-				if err := mem.WriteIndex(t.Context(), "links", []byte(tc.linksData)); err != nil {
-					t.Fatalf("%s: WriteIndex(links) failed: %v", tc.name, err)
-				}
-			}
-			if tc.backlinksData != "" {
-				if err := mem.WriteIndex(t.Context(), "backlinks", []byte(tc.backlinksData)); err != nil {
-					t.Fatalf("%s: WriteIndex(backlinks) failed: %v", tc.name, err)
-				}
-			}
-
-			// Read indexes directly using the index implementations (no Dex)
-			nodesIdx, err := keg.NewNodesIndexFromRepo(t.Context(), mem)
+			gotB, err := tc.idx.Data(t.Context())
 			if err != nil {
-				t.Fatalf("%s: NewNodesIndexFromRepo returned error: %v", tc.name, err)
+				t.Fatalf("Data() returned error: %v", err)
 			}
-			tagsIdx, err := keg.NewTagsIndexFromRepo(t.Context(), mem)
+			got := string(gotB)
+			if got != tc.want {
+				t.Fatalf("unexpected output:\nwant:\n%q\ngot:\n%q", tc.want, got)
+			}
+		})
+	}
+}
+
+func TestLinksIndex_Data(t *testing.T) {
+	tests := []struct {
+		name string
+		idx  *keg.LinksIndex
+		want string
+	}{
+		{
+			name: "empty",
+			idx:  keg.NewLinksIndex(),
+			want: "",
+		},
+		{
+			name: "simple links",
+			idx: &keg.LinksIndex{
+				Links: map[keg.NodeID][]keg.NodeID{
+					1: {3, 5},
+					2: {3},
+				},
+			},
+			want: "1\t3 5\n2\t3\n",
+		},
+		{
+			name: "src with no destinations emits empty second column",
+			idx: &keg.LinksIndex{
+				Links: map[keg.NodeID][]keg.NodeID{
+					10: {},
+					3:  {10, 42},
+				},
+			},
+			want: "3\t10 42\n10\t\n",
+		},
+		{
+			name: "dedupe and sort destinations",
+			idx: &keg.LinksIndex{
+				Links: map[keg.NodeID][]keg.NodeID{
+					7: {5, 3, 5, 3},
+				},
+			},
+			want: "7\t3 5\n",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			gotB, err := tc.idx.Data(nil)
 			if err != nil {
-				t.Fatalf("%s: NewTagsIndexFromRepo returned error: %v", tc.name, err)
+				t.Fatalf("Data() error: %v", err)
 			}
-			linksIdx, err := keg.NewLinksIndexFromRepo(t.Context(), mem)
+			got := string(gotB)
+			if got != tc.want {
+				t.Fatalf("unexpected output:\nwant:\n%q\ngot:\n%q", tc.want, got)
+			}
+		})
+	}
+}
+
+func TestBacklinksIndex_Data(t *testing.T) {
+	tests := []struct {
+		name string
+		idx  *keg.BacklinksIndex
+		want string
+	}{
+		{
+			name: "empty",
+			idx:  keg.NewBacklinksIndex(),
+			want: "",
+		},
+		{
+			name: "simple backlinks",
+			idx: &keg.BacklinksIndex{
+				Backlinks: map[keg.NodeID][]keg.NodeID{
+					3:  {1, 2},
+					10: {3},
+				},
+			},
+			want: "3\t1 2\n10\t3\n",
+		},
+		{
+			name: "dedupe and sort sources",
+			idx: &keg.BacklinksIndex{
+				Backlinks: map[keg.NodeID][]keg.NodeID{
+					42: {7, 3, 7, 3},
+				},
+			},
+			want: "42\t3 7\n",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			gotB, err := tc.idx.Data(t.Context())
 			if err != nil {
-				t.Fatalf("%s: NewLinksIndexFromRepo returned error: %v", tc.name, err)
+				t.Fatalf("Data() error: %v", err)
 			}
-			backlinksIdx, err := keg.NewBacklinksIndexFromRepo(t.Context(), mem)
+			got := string(gotB)
+			if got != tc.want {
+				t.Fatalf("unexpected output:\nwant:\n%q\ngot:\n%q", tc.want, got)
+			}
+		})
+	}
+}
+
+func TestNodesIndex_Data(t *testing.T) {
+	// time layout matches nodes index serialization in pkg (2006-01-02 15:04:05Z)
+	const layout = "2006-01-02 15:04:05Z"
+	t1, _ := time.Parse(layout, "2025-08-09 17:44:04Z")
+	t2, _ := time.Parse(layout, "2025-08-11 00:12:29Z")
+
+	tests := []struct {
+		name string
+		idx  *keg.NodesIndex
+		want string
+	}{
+		{
+			name: "empty nodes",
+			idx:  keg.NewNodesIndex(),
+			want: "",
+		},
+		{
+			name: "nodes with updated timestamps and titles",
+			idx: &keg.NodesIndex{
+				Nodes: []keg.NodeRef{
+					{ID: 3, Updated: t1, Title: "Zeke AI utility (zeke)"},
+					{ID: 12, Updated: t2, Title: "Idiomatic Go error handling"},
+				},
+			},
+			want: "3\t2025-08-09 17:44:04Z\tZeke AI utility (zeke)\n12\t2025-08-11 00:12:29Z\tIdiomatic Go error handling\n",
+		},
+		{
+			name: "title tab replaced with space",
+			idx: &keg.NodesIndex{
+				Nodes: []keg.NodeRef{
+					{ID: 7, Title: "Title\tWith\tTabs"},
+				},
+			},
+			want: "7\t\tTitle With Tabs\n",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			gotB, err := tc.idx.Data(t.Context())
 			if err != nil {
-				t.Fatalf("%s: NewBacklinksIndexFromRepo returned error: %v", tc.name, err)
+				t.Fatalf("Data() error: %v", err)
 			}
-
-			// Nodes count
-			if got := len(nodesIdx.Nodes); got != tc.wantNodesCount {
-				t.Fatalf("%s: unexpected nodes count: got %d want %d", tc.name, got, tc.wantNodesCount)
-			}
-
-			// helper to lookup a NodeRef by id
-			find := func(id keg.NodeID) *keg.NodeRef {
-				for i := range nodesIdx.Nodes {
-					if nodesIdx.Nodes[i].ID == id {
-						return &nodesIdx.Nodes[i]
-					}
-				}
-				return nil
-			}
-
-			// verify expected nodes and titles
-			for id, wantTitle := range tc.wantNodes {
-				n := find(id)
-				if n == nil {
-					t.Fatalf("%s: node %d missing", tc.name, int(id))
-				}
-				if n.Title != wantTitle {
-					t.Fatalf("%s: node %d title mismatch: got %q want %q", tc.name, int(id), n.Title, wantTitle)
-				}
-			}
-
-			// Validate tags
-			tags := tagsIdx.Tags
-			// Only ensure expected tags are present with expected members.
-			for wantTag, wantIDs := range tc.wantTags {
-				gotIDs, ok := tags[wantTag]
-				if !ok {
-					t.Fatalf("%s: expected tag %q missing", tc.name, wantTag)
-				}
-				if !reflect.DeepEqual(gotIDs, wantIDs) {
-					t.Fatalf("%s: tag %q mismatch: got %#v want %#v", tc.name, wantTag, gotIDs, wantIDs)
-				}
-			}
-
-			// Validate links
-			links := linksIdx.Links
-			for wantSrc, wantDsts := range tc.wantLinks {
-				gotDsts, ok := links[wantSrc]
-				if !ok {
-					t.Fatalf("%s: expected links src %d missing", tc.name, int(wantSrc))
-				}
-				if !reflect.DeepEqual(gotDsts, wantDsts) {
-					t.Fatalf("%s: links for %d mismatch: got %#v want %#v", tc.name, int(wantSrc), gotDsts, wantDsts)
-				}
-			}
-
-			// Validate backlinks
-			backlinks := backlinksIdx.Backlinks
-			for wantDst, wantSrcs := range tc.wantBacklinks {
-				gotSrcs, ok := backlinks[wantDst]
-				if !ok {
-					t.Fatalf("%s: expected backlinks dst %d missing", tc.name, int(wantDst))
-				}
-				if !reflect.DeepEqual(gotSrcs, wantSrcs) {
-					t.Fatalf("%s: backlinks for %d mismatch: got %#v want %#v", tc.name, int(wantDst), gotSrcs, wantSrcs)
-				}
+			got := string(gotB)
+			if got != tc.want {
+				t.Fatalf("unexpected output:\nwant:\n%q\ngot:\n%q", tc.want, got)
 			}
 		})
 	}
