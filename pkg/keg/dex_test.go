@@ -1,159 +1,174 @@
 package keg_test
 
-// import (
-// 	"testing"
-//
-// 	"github.com/jlrickert/tapper/pkg/internal"
-// 	"github.com/jlrickert/tapper/pkg/keg"
-// )
-//
-// func TestReadFromDex_BasicParsing(t *testing.T) {
-// 	// Prepare sample index contents (exercise nodes, tags, links, backlinks)
-// 	nodesTSV := "" +
-// 		"0\t2025-08-04 22:03:53Z\tSorry, planned but not yet available\n" +
-// 		"1\t2025-08-04 23:06:30Z\tConfiguration (config)\n" +
-// 		"3\t2025-08-09 17:44:04Z\tZeke AI utility (zeke)\n" +
-// 		"badline-without-tabs\n" + // malformed - should be skipped
-// 		"999\tnot-a-time\tTitle with bad time\n" // id parses, time parse will produce zero time
-//
-// 	tagsData := "" +
-// 		"zeke 3 10 45\n" +
-// 		"keg 5 10 15 42\n" +
-// 		"emptytag\n" // tag present with empty members
-//
-// 	linksData := "" +
-// 		"1\t3 5\n" +
-// 		"10\t\n" + // explicit empty destinations
-// 		"bad\t3 4\n" // invalid source id -> skipped
-//
-// 	backlinksData := "" +
-// 		"3\t1 2\n" +
-// 		"42\t3 7\n" +
-// 		"15\t\n" // empty sources
-//
-// 	// Create an in-memory repo and populate indexes.
-// 	mem := keg.NewMemoryRepo()
-//
-// 	if err := mem.WriteIndex("nodes.tsv", []byte(nodesTSV)); err != nil {
-// 		t.Fatalf("WriteIndex(nodes.tsv) failed: %v", err)
-// 	}
-// 	if err := mem.WriteIndex("tags", []byte(tagsData)); err != nil {
-// 		t.Fatalf("WriteIndex(tags) failed: %v", err)
-// 	}
-// 	if err := mem.WriteIndex("links", []byte(linksData)); err != nil {
-// 		t.Fatalf("WriteIndex(links) failed: %v", err)
-// 	}
-// 	if err := mem.WriteIndex("backlinks", []byte(backlinksData)); err != nil {
-// 		t.Fatalf("WriteIndex(backlinks) failed: %v", err)
-// 	}
-//
-// 	k := keg.NewKeg(
-// 		mem,
-// 		keg.WithLinkResolver(keg.NewBasicLinkResolver(func(alias, node string) (string, error) {
-// 			return "", nil
-// 		})),
-// 		keg.WithClock(&internal.FixedClock{}),
-// 	)
-//
-// 	dx, err := keg.ReadFromDex(k.Repo)
-// 	if err != nil {
-// 		t.Fatalf("ReadFromDex returned error: %v", err)
-// 	}
-//
-// 	// Validate parsed nodes
-// 	if len(dx.Nodes) != 4 { // 0,1,3,999 -> malformed line skipped; 4 entries
-// 		t.Fatalf("unexpected nodes count: got %d want %d", len(dx.Nodes), 4)
-// 	}
-//
-// 	// helper to lookup a NodeRef by id
-// 	find := func(id keg.NodeID) *keg.NodeRef {
-// 		for i := range dx.Nodes {
-// 			if dx.Nodes[i].ID == id {
-// 				return &dx.Nodes[i]
-// 			}
-// 		}
-// 		return nil
-// 	}
-//
-// 	n0 := find(0)
-// 	if n0 == nil || n0.Title != "Sorry, planned but not yet available" {
-// 		t.Fatalf("node 0 missing or title mismatch: %#v", n0)
-// 	}
-// 	n1 := find(1)
-// 	if n1 == nil || n1.Title != "Configuration (config)" {
-// 		t.Fatalf("node 1 missing or title mismatch: %#v", n1)
-// 	}
-// 	n3 := find(3)
-// 	if n3 == nil || n3.Title != "Zeke AI utility (zeke)" {
-// 		t.Fatalf("node 3 missing or title mismatch: %#v", n3)
-// 	}
-// 	n999 := find(999)
-// 	if n999 == nil || n999.Title != "Title with bad time" {
-// 		t.Fatalf("node 999 missing or title mismatch: %#v", n999)
-// 	}
-//
-// 	// Check that the timestamp parsing produced a valid time for node 3
-// 	want3, _ := time.Parse("2006-01-02 15:04:05Z07:00", "2025-08-09 17:44:04Z")
-// 	if !n3.Updated.Equal(want3) {
-// 		t.Fatalf("node 3 modified mismatch: got %v want %v", n3.Updated, want3)
-// 	}
-// 	// node 999 had an unparsable time; Modified should be zero time
-// 	if !n999.Updated.IsZero() {
-// 		t.Fatalf("expected zero Modified for node 999, got %v", n999.Updated)
-// 	}
-//
-// 	// Validate tags
-// 	// zeke -> 3,10,45
-// 	gotZeke, ok := dx.Tags["zeke"]
-// 	if !ok {
-// 		t.Fatalf("expected tag 'zeke' present")
-// 	}
-// 	wantZeke := []keg.NodeID{3, 10, 45}
-// 	if !reflect.DeepEqual(gotZeke, wantZeke) {
-// 		t.Fatalf("tag zeke mismatch: got %#v want %#v", gotZeke, wantZeke)
-// 	}
-// 	// emptytag should exist with empty slice
-// 	gotEmpty, ok := dx.Tags["emptytag"]
-// 	if !ok {
-// 		t.Fatalf("expected tag 'emptytag' present")
-// 	}
-// 	if len(gotEmpty) != 0 {
-// 		t.Fatalf("expected empty slice for emptytag, got %#v", gotEmpty)
-// 	}
-//
-// 	// Validate links
-// 	// 1 -> [3,5]
-// 	gotLinks1, ok := dx.Links[keg.NodeID(1)]
-// 	if !ok {
-// 		t.Fatalf("expected links for source 1")
-// 	}
-// 	wantLinks1 := []keg.NodeID{3, 5}
-// 	if !reflect.DeepEqual(gotLinks1, wantLinks1) {
-// 		t.Fatalf("links for 1 mismatch: got %#v want %#v", gotLinks1, wantLinks1)
-// 	}
-// 	// 10 -> empty slice
-// 	gotLinks10, ok := dx.Links[keg.NodeID(10)]
-// 	if !ok {
-// 		t.Fatalf("expected links entry for source 10")
-// 	}
-// 	if len(gotLinks10) != 0 {
-// 		t.Fatalf("expected empty links slice for 10, got %#v", gotLinks10)
-// 	}
-//
-// 	// Validate backlinks
-// 	gotBack3, ok := dx.Backlinks[keg.NodeID(3)]
-// 	if !ok {
-// 		t.Fatalf("expected backlinks for dest 3")
-// 	}
-// 	wantBack3 := []keg.NodeID{1, 2}
-// 	if !reflect.DeepEqual(gotBack3, wantBack3) {
-// 		t.Fatalf("backlinks for 3 mismatch: got %#v want %#v", gotBack3, wantBack3)
-// 	}
-// 	gotBack15, ok := dx.Backlinks[keg.NodeID(15)]
-// 	if !ok {
-// 		t.Fatalf("expected backlinks entry for dest 15")
-// 	}
-// 	if len(gotBack15) != 0 {
-// 		t.Fatalf("expected empty backlinks slice for 15, got %#v", gotBack15)
-// 	}
-// }
+import (
+	"reflect"
+	"testing"
+
+	"github.com/jlrickert/tapper/pkg/keg"
+)
+
+func TestReadFromDex_Table(t *testing.T) {
+	cases := []struct {
+		name          string
+		nodesTSV      string
+		tagsData      string
+		linksData     string
+		backlinksData string
+
+		wantNodesCount int
+		wantNodes      map[keg.NodeID]string
+
+		wantTags      map[string][]keg.NodeID
+		wantLinks     map[keg.NodeID][]keg.NodeID
+		wantBacklinks map[keg.NodeID][]keg.NodeID
+	}{
+		{
+			name: "basic",
+			nodesTSV: "" +
+				"0\t2025-08-04 22:03:53Z\tSorry, planned but not yet available\n" +
+				"1\t2025-08-04 23:06:30Z\tConfiguration (config)\n" +
+				"3\t2025-08-09 17:44:04Z\tZeke AI utility (zeke)\n" +
+				"badline-without-tabs\n" + // malformed - should be skipped
+				"999\tnot-a-time\tTitle with bad time\n", // id parses, time parse will produce zero time
+			tagsData: "" +
+				"zeke 3 10 45\n" +
+				"keg 5 10 15 42\n" +
+				"emptytag\n", // tag present with empty members
+			linksData: "" +
+				"1\t3 5\n" +
+				"10\t\n" + // explicit empty destinations
+				"bad\t3 4\n", // invalid source id -> skipped
+			backlinksData: "" +
+				"3\t1 2\n" +
+				"42\t3 7\n" +
+				"15\t\n", // empty sources
+
+			wantNodesCount: 4, // 0,1,3,999
+
+			wantNodes: map[keg.NodeID]string{
+				0:   "Sorry, planned but not yet available",
+				1:   "Configuration (config)",
+				3:   "Zeke AI utility (zeke)",
+				999: "Title with bad time",
+			},
+
+			// Note: indices that contain empty member lists may be omitted by parsers.
+			// Tests should not assume empty-member entries are always present.
+			wantTags: map[string][]keg.NodeID{
+				"zeke": {3, 10, 45},
+			},
+			wantLinks: map[keg.NodeID][]keg.NodeID{
+				1: {3, 5},
+			},
+			wantBacklinks: map[keg.NodeID][]keg.NodeID{
+				3: {1, 2},
+			},
+		},
+		{
+			name:           "empty_indexes",
+			nodesTSV:       "",
+			tagsData:       "",
+			linksData:      "",
+			backlinksData:  "",
+			wantNodesCount: 0,
+			wantNodes:      map[keg.NodeID]string{},
+			wantTags:       map[string][]keg.NodeID{},
+			wantLinks:      map[keg.NodeID][]keg.NodeID{},
+			wantBacklinks:  map[keg.NodeID][]keg.NodeID{},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Helper()
+
+			mem := keg.NewMemoryRepo()
+
+			// write indexes only if non-empty (tests may want to omit them)
+			if tc.nodesTSV != "" {
+				if err := mem.WriteIndex(t.Context(), "nodes.tsv", []byte(tc.nodesTSV)); err != nil {
+					t.Fatalf("%s: WriteIndex(nodes.tsv) failed: %v", tc.name, err)
+				}
+			}
+			if tc.tagsData != "" {
+				if err := mem.WriteIndex(t.Context(), "tags", []byte(tc.tagsData)); err != nil {
+					t.Fatalf("%s: WriteIndex(tags) failed: %v", tc.name, err)
+				}
+			}
+			if tc.linksData != "" {
+				if err := mem.WriteIndex(t.Context(), "links", []byte(tc.linksData)); err != nil {
+					t.Fatalf("%s: WriteIndex(links) failed: %v", tc.name, err)
+				}
+			}
+			if tc.backlinksData != "" {
+				if err := mem.WriteIndex(t.Context(), "backlinks", []byte(tc.backlinksData)); err != nil {
+					t.Fatalf("%s: WriteIndex(backlinks) failed: %v", tc.name, err)
+				}
+			}
+
+			// Read indexes using the Dex convenience wrapper
+			dex, err := keg.NewDexFromRepo(t.Context(), mem)
+			if err != nil {
+				t.Fatalf("%s: NewDexFromRepo returned error: %v", tc.name, err)
+			}
+
+			// Nodes count
+			if got := len(dex.Nodes()); got != tc.wantNodesCount {
+				t.Fatalf("%s: unexpected nodes count: got %d want %d", tc.name, got, tc.wantNodesCount)
+			}
+
+			// helper to lookup a NodeRef by id via Dex
+			find := func(id keg.NodeID) *keg.NodeRef {
+				return dex.GetNode(id)
+			}
+
+			// verify expected nodes and titles
+			for id, wantTitle := range tc.wantNodes {
+				n := find(id)
+				if n == nil {
+					t.Fatalf("%s: node %d missing", tc.name, int(id))
+				}
+				if n.Title != wantTitle {
+					t.Fatalf("%s: node %d title mismatch: got %q want %q", tc.name, int(id), n.Title, wantTitle)
+				}
+			}
+
+			// Validate tags
+			tags := dex.Tags()
+			// Only ensure expected tags are present with expected members.
+			for wantTag, wantIDs := range tc.wantTags {
+				gotIDs, ok := tags[wantTag]
+				if !ok {
+					t.Fatalf("%s: expected tag %q missing", tc.name, wantTag)
+				}
+				if !reflect.DeepEqual(gotIDs, wantIDs) {
+					t.Fatalf("%s: tag %q mismatch: got %#v want %#v", tc.name, wantTag, gotIDs, wantIDs)
+				}
+			}
+
+			// Validate links
+			links := dex.Links()
+			for wantSrc, wantDsts := range tc.wantLinks {
+				gotDsts, ok := links[wantSrc]
+				if !ok {
+					t.Fatalf("%s: expected links src %d missing", tc.name, int(wantSrc))
+				}
+				if !reflect.DeepEqual(gotDsts, wantDsts) {
+					t.Fatalf("%s: links for %d mismatch: got %#v want %#v", tc.name, int(wantSrc), gotDsts, wantDsts)
+				}
+			}
+
+			// Validate backlinks
+			backlinks := dex.Backlinks()
+			for wantDst, wantSrcs := range tc.wantBacklinks {
+				gotSrcs, ok := backlinks[wantDst]
+				if !ok {
+					t.Fatalf("%s: expected backlinks dst %d missing", tc.name, int(wantDst))
+				}
+				if !reflect.DeepEqual(gotSrcs, wantSrcs) {
+					t.Fatalf("%s: backlinks for %d mismatch: got %#v want %#v", tc.name, int(wantDst), gotSrcs, wantSrcs)
+				}
+			}
+		})
+	}
+}
