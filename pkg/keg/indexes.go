@@ -193,17 +193,17 @@ func (idx *NodesIndex) Data(ctx context.Context) ([]byte, error) {
 
 // TagsIndex builds the "tags" index mapping tag -> sorted list of node ids.
 type TagsIndex struct {
-	tags map[string][]NodeID
+	Tags map[string][]NodeID
 }
 
 func NewTagsIndex() *TagsIndex {
-	return &TagsIndex{tags: make(map[string][]NodeID)}
+	return &TagsIndex{Tags: make(map[string][]NodeID)}
 }
 
 // NewTagsIndexFromRepo loads an existing tags index if present. Missing or
 // unreadable index returns an empty TagsIndex so callers can rebuild it.
 func NewTagsIndexFromRepo(ctx context.Context, repo KegRepository) (*TagsIndex, error) {
-	idx := &TagsIndex{tags: map[string][]NodeID{}}
+	idx := &TagsIndex{Tags: map[string][]NodeID{}}
 
 	// If caller passed nil, return empty index.
 	if repo == nil {
@@ -258,10 +258,10 @@ func NewTagsIndexFromRepo(ctx context.Context, repo KegRepository) (*TagsIndex, 
 						}
 					}
 					if len(ids) > 0 {
-						idx.tags[tag] = ids
+						idx.Tags[tag] = ids
 					} else {
 						// ensure tag exists with empty slice if no valid ids were found
-						idx.tags[tag] = []NodeID{}
+						idx.Tags[tag] = []NodeID{}
 					}
 				}
 			}
@@ -277,12 +277,12 @@ func (idx *TagsIndex) Name() string { return "tags" }
 // Add appends the node ID for each tag, deduplicates, and keeps per-tag lists
 // sorted in ascending order.
 func (t *TagsIndex) Add(ctx context.Context, node Node) error {
-	if t.tags == nil {
-		t.tags = map[string][]NodeID{}
+	if t.Tags == nil {
+		t.Tags = map[string][]NodeID{}
 	}
 
 	for _, tag := range node.Meta.Tags() {
-		tagList := append(t.tags[tag], node.ID)
+		tagList := append(t.Tags[tag], node.ID)
 
 		// deduplicate
 		seen := make(map[NodeID]struct{}, len(tagList))
@@ -308,7 +308,7 @@ func (t *TagsIndex) Add(ctx context.Context, node Node) error {
 			}
 		}
 
-		t.tags[tag] = unique
+		t.Tags[tag] = unique
 	}
 	return nil
 }
@@ -316,11 +316,11 @@ func (t *TagsIndex) Add(ctx context.Context, node Node) error {
 // Remove deletes the node ID from all tag lists. If a tag ends up with no
 // members it is removed from the map.
 func (t *TagsIndex) Remove(ctx context.Context, id NodeID) error {
-	if t.tags == nil {
+	if t.Tags == nil {
 		return nil
 	}
 
-	for tag, list := range t.tags {
+	for tag, list := range t.Tags {
 		// Build a new slice excluding the id to remove.
 		newList := make([]NodeID, 0, len(list))
 		for _, v := range list {
@@ -332,7 +332,7 @@ func (t *TagsIndex) Remove(ctx context.Context, id NodeID) error {
 
 		// If the list is empty after removal, delete the tag entry.
 		if len(newList) == 0 {
-			delete(t.tags, tag)
+			delete(t.Tags, tag)
 			continue
 		}
 
@@ -358,7 +358,7 @@ func (t *TagsIndex) Remove(ctx context.Context, id NodeID) error {
 			prev = v
 		}
 
-		t.tags[tag] = uniq
+		t.Tags[tag] = uniq
 	}
 
 	return nil
@@ -366,7 +366,7 @@ func (t *TagsIndex) Remove(ctx context.Context, id NodeID) error {
 
 // Clear resets the tags index to empty.
 func (t *TagsIndex) Clear(ctx context.Context) error {
-	t.tags = map[string][]NodeID{}
+	t.Tags = map[string][]NodeID{}
 	return nil
 }
 
@@ -374,13 +374,13 @@ func (t *TagsIndex) Clear(ctx context.Context) error {
 // Each line is: "<tag> <id1> <id2>...\n". Tags with no members are omitted.
 func (t *TagsIndex) Data(ctx context.Context) ([]byte, error) {
 	// Handle nil or empty map
-	if t.tags == nil || len(t.tags) == 0 {
+	if t.Tags == nil || len(t.Tags) == 0 {
 		return []byte{}, nil
 	}
 
 	// collect and sort tags
-	tags := make([]string, 0, len(t.tags))
-	for tag := range t.tags {
+	tags := make([]string, 0, len(t.Tags))
+	for tag := range t.Tags {
 		tags = append(tags, tag)
 	}
 	sort.Strings(tags)
@@ -388,7 +388,7 @@ func (t *TagsIndex) Data(ctx context.Context) ([]byte, error) {
 	// Build deterministically using strings.Builder.
 	var b strings.Builder
 	for _, tag := range tags {
-		ids := t.tags[tag]
+		ids := t.Tags[tag]
 		if len(ids) == 0 {
 			continue
 		}
@@ -410,19 +410,19 @@ var _ IndexBuilder = (*TagsIndex)(nil)
 
 // LinksIndex builds the "links" index (source -> destinations).
 type LinksIndex struct {
-	links map[NodeID][]NodeID
+	Links map[NodeID][]NodeID
 }
 
 var _ IndexBuilder = (*LinksIndex)(nil)
 
 func NewLinksIndex() *LinksIndex {
-	return &LinksIndex{links: make(map[NodeID][]NodeID)}
+	return &LinksIndex{Links: make(map[NodeID][]NodeID)}
 }
 
 // NewLinksIndexFromRepo loads an existing links index. Missing or unreadable
 // index yields an empty LinksIndex so callers can recreate it.
 func NewLinksIndexFromRepo(ctx context.Context, repo KegRepository) (*LinksIndex, error) {
-	idx := &LinksIndex{links: map[NodeID][]NodeID{}}
+	idx := &LinksIndex{Links: map[NodeID][]NodeID{}}
 
 	// If caller passed nil, return empty index.
 	if repo == nil {
@@ -489,7 +489,7 @@ func NewLinksIndexFromRepo(ctx context.Context, repo KegRepository) (*LinksIndex
 								ids[k] = NodeID(vv)
 							}
 						}
-						idx.links[src] = ids
+						idx.Links[src] = ids
 					}
 				}
 			}
@@ -505,23 +505,23 @@ func (idx *LinksIndex) Name() string { return "links" }
 // Add ensures there's an entry for the source node. Extraction of outgoing
 // links from content is handled elsewhere.
 func (l *LinksIndex) Add(ctx context.Context, node Node) error {
-	if l.links == nil {
-		l.links = map[NodeID][]NodeID{}
+	if l.Links == nil {
+		l.Links = map[NodeID][]NodeID{}
 	}
-	if _, ok := l.links[node.ID]; !ok {
-		l.links[node.ID] = []NodeID{}
+	if _, ok := l.Links[node.ID]; !ok {
+		l.Links[node.ID] = []NodeID{}
 	}
 	return nil
 }
 
 // Remove deletes the source entry and purges the id from any destination lists.
 func (l *LinksIndex) Remove(ctx context.Context, id NodeID) error {
-	if l.links == nil {
+	if l.Links == nil {
 		return nil
 	}
-	delete(l.links, id)
+	delete(l.Links, id)
 	// Also remove id from destination lists
-	for src, dsts := range l.links {
+	for src, dsts := range l.Links {
 		newList := make([]NodeID, 0, len(dsts))
 		for _, d := range dsts {
 			if d == id {
@@ -529,25 +529,25 @@ func (l *LinksIndex) Remove(ctx context.Context, id NodeID) error {
 			}
 			newList = append(newList, d)
 		}
-		l.links[src] = newList
+		l.Links[src] = newList
 	}
 	return nil
 }
 
 func (l *LinksIndex) Clear(ctx context.Context) error {
-	l.links = map[NodeID][]NodeID{}
+	l.Links = map[NodeID][]NodeID{}
 	return nil
 }
 
 // Data serializes links as TSV lines: "<src>\t<dst1> <dst2>...\n". Sources are
 // emitted in ascending numeric order and destination lists are deduped/sorted.
 func (l *LinksIndex) Data(ctx context.Context) ([]byte, error) {
-	if l.links == nil || len(l.links) == 0 {
+	if l.Links == nil || len(l.Links) == 0 {
 		return []byte{}, nil
 	}
 	// collect and sort source ids
-	srcs := make([]int, 0, len(l.links))
-	for s := range l.links {
+	srcs := make([]int, 0, len(l.Links))
+	for s := range l.Links {
 		srcs = append(srcs, int(s))
 	}
 	sort.Ints(srcs)
@@ -555,7 +555,7 @@ func (l *LinksIndex) Data(ctx context.Context) ([]byte, error) {
 	var b strings.Builder
 	for _, s := range srcs {
 		src := NodeID(s)
-		dstList := l.links[src]
+		dstList := l.Links[src]
 		// ensure sorted ascending and deduped
 		ints := make([]int, 0, len(dstList))
 		seen := make(map[int]struct{})
@@ -583,21 +583,21 @@ func (l *LinksIndex) Data(ctx context.Context) ([]byte, error) {
 
 // BacklinksIndex builds "backlinks" (destination -> sources).
 type BacklinksIndex struct {
-	backlinks map[NodeID][]NodeID
+	Backlinks map[NodeID][]NodeID
 }
 
 var _ IndexBuilder = (*BacklinksIndex)(nil)
 
 func NewBacklinksIndex() *BacklinksIndex {
 	return &BacklinksIndex{
-		backlinks: make(map[NodeID][]NodeID),
+		Backlinks: make(map[NodeID][]NodeID),
 	}
 }
 
 // NewBacklinksIndexFromRepo loads an existing backlinks index. Missing/unreadable
 // data yields an empty BacklinksIndex so callers can recreate it.
 func NewBacklinksIndexFromRepo(ctx context.Context, repo KegRepository) (*BacklinksIndex, error) {
-	idx := &BacklinksIndex{backlinks: map[NodeID][]NodeID{}}
+	idx := &BacklinksIndex{Backlinks: map[NodeID][]NodeID{}}
 
 	// If caller passed nil, return empty index.
 	if repo == nil {
@@ -663,7 +663,7 @@ func NewBacklinksIndexFromRepo(ctx context.Context, repo KegRepository) (*Backli
 								ids[k] = NodeID(vv)
 							}
 						}
-						idx.backlinks[dst] = ids
+						idx.Backlinks[dst] = ids
 					}
 				}
 			}
@@ -678,23 +678,23 @@ func (BacklinksIndex) Name() string { return "backlinks" }
 
 // Add ensures there's an entry for the destination node (no-op for parsing).
 func (b *BacklinksIndex) Add(ctx context.Context, node Node) error {
-	if b.backlinks == nil {
-		b.backlinks = map[NodeID][]NodeID{}
+	if b.Backlinks == nil {
+		b.Backlinks = map[NodeID][]NodeID{}
 	}
 	// ensure destination exists (may be filled later by indexer)
-	if _, ok := b.backlinks[node.ID]; !ok {
-		b.backlinks[node.ID] = []NodeID{}
+	if _, ok := b.Backlinks[node.ID]; !ok {
+		b.Backlinks[node.ID] = []NodeID{}
 	}
 	return nil
 }
 
 // Remove removes the destination entry and purges the id from all source lists.
 func (b *BacklinksIndex) Remove(ctx context.Context, id NodeID) error {
-	if b.backlinks == nil {
+	if b.Backlinks == nil {
 		return nil
 	}
-	delete(b.backlinks, id)
-	for dst, srcs := range b.backlinks {
+	delete(b.Backlinks, id)
+	for dst, srcs := range b.Backlinks {
 		newList := make([]NodeID, 0, len(srcs))
 		for _, s := range srcs {
 			if s == id {
@@ -702,25 +702,25 @@ func (b *BacklinksIndex) Remove(ctx context.Context, id NodeID) error {
 			}
 			newList = append(newList, s)
 		}
-		b.backlinks[dst] = newList
+		b.Backlinks[dst] = newList
 	}
 	return nil
 }
 
 func (b *BacklinksIndex) Clear(ctx context.Context) error {
-	b.backlinks = map[NodeID][]NodeID{}
+	b.Backlinks = map[NodeID][]NodeID{}
 	return nil
 }
 
 // Data serializes backlinks as TSV lines: "<dst>\t<src1> <src2>...\n". Destinations
 // are emitted in ascending order; source lists are deduped and sorted.
 func (b *BacklinksIndex) Data(ctx context.Context) ([]byte, error) {
-	if len(b.backlinks) == 0 {
+	if len(b.Backlinks) == 0 {
 		return []byte{}, nil
 	}
 	// collect and sort destination ids
-	dests := make([]int, 0, len(b.backlinks))
-	for d := range b.backlinks {
+	dests := make([]int, 0, len(b.Backlinks))
+	for d := range b.Backlinks {
 		dests = append(dests, int(d))
 	}
 	sort.Ints(dests)
@@ -728,7 +728,7 @@ func (b *BacklinksIndex) Data(ctx context.Context) ([]byte, error) {
 	var sb strings.Builder
 	for _, di := range dests {
 		dst := NodeID(di)
-		srcs := b.backlinks[dst]
+		srcs := b.Backlinks[dst]
 		ints := make([]int, 0, len(srcs))
 		seen := make(map[int]struct{})
 		for _, s := range srcs {
