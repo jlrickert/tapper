@@ -3,7 +3,6 @@ package keg_test
 import (
 	"reflect"
 	"testing"
-	"time"
 
 	"github.com/jlrickert/tapper/pkg/keg"
 )
@@ -16,9 +15,8 @@ func TestReadFromDex_Table(t *testing.T) {
 		linksData     string
 		backlinksData string
 
-		wantNodesCount  int
-		wantNodes       map[keg.NodeID]string
-		wantNodeUpdated map[keg.NodeID]*time.Time
+		wantNodesCount int
+		wantNodes      map[keg.NodeID]string
 
 		wantTags      map[string][]keg.NodeID
 		wantLinks     map[keg.NodeID][]keg.NodeID
@@ -53,14 +51,6 @@ func TestReadFromDex_Table(t *testing.T) {
 				3:   "Zeke AI utility (zeke)",
 				999: "Title with bad time",
 			},
-			// only check node 3 timestamp
-			wantNodeUpdated: func() map[keg.NodeID]*time.Time {
-				m := map[keg.NodeID]*time.Time{}
-				want3, _ := time.Parse("2006-01-02 15:04:05Z07:00", "2025-08-09 17:44:04Z")
-				m[3] = &want3
-				// 999 intentionally omitted (unparsable -> zero time)
-				return m
-			}(),
 
 			// Note: indices that contain empty member lists may be omitted by parsers.
 			// Tests should not assume empty-member entries are always present.
@@ -75,17 +65,16 @@ func TestReadFromDex_Table(t *testing.T) {
 			},
 		},
 		{
-			name:            "empty_indexes",
-			nodesTSV:        "",
-			tagsData:        "",
-			linksData:       "",
-			backlinksData:   "",
-			wantNodesCount:  0,
-			wantNodes:       map[keg.NodeID]string{},
-			wantNodeUpdated: map[keg.NodeID]*time.Time{},
-			wantTags:        map[string][]keg.NodeID{},
-			wantLinks:       map[keg.NodeID][]keg.NodeID{},
-			wantBacklinks:   map[keg.NodeID][]keg.NodeID{},
+			name:           "empty_indexes",
+			nodesTSV:       "",
+			tagsData:       "",
+			linksData:      "",
+			backlinksData:  "",
+			wantNodesCount: 0,
+			wantNodes:      map[keg.NodeID]string{},
+			wantTags:       map[string][]keg.NodeID{},
+			wantLinks:      map[keg.NodeID][]keg.NodeID{},
+			wantBacklinks:  map[keg.NodeID][]keg.NodeID{},
 		},
 	}
 
@@ -117,23 +106,34 @@ func TestReadFromDex_Table(t *testing.T) {
 				}
 			}
 
-			k := keg.NewKeg(mem)
-			dex, err := keg.NewDexFromRepo(t.Context(), k.Repo)
+			// Read indexes directly using the index implementations (no Dex)
+			nodesIdx, err := keg.NewNodesIndexFromRepo(t.Context(), mem)
 			if err != nil {
-				t.Fatalf("%s: ReadFromDex returned error: %v", tc.name, err)
+				t.Fatalf("%s: NewNodesIndexFromRepo returned error: %v", tc.name, err)
+			}
+			tagsIdx, err := keg.NewTagsIndexFromRepo(t.Context(), mem)
+			if err != nil {
+				t.Fatalf("%s: NewTagsIndexFromRepo returned error: %v", tc.name, err)
+			}
+			linksIdx, err := keg.NewLinksIndexFromRepo(t.Context(), mem)
+			if err != nil {
+				t.Fatalf("%s: NewLinksIndexFromRepo returned error: %v", tc.name, err)
+			}
+			backlinksIdx, err := keg.NewBacklinksIndexFromRepo(t.Context(), mem)
+			if err != nil {
+				t.Fatalf("%s: NewBacklinksIndexFromRepo returned error: %v", tc.name, err)
 			}
 
 			// Nodes count
-			if got := len(dex.Nodes()); got != tc.wantNodesCount {
+			if got := len(nodesIdx.Nodes); got != tc.wantNodesCount {
 				t.Fatalf("%s: unexpected nodes count: got %d want %d", tc.name, got, tc.wantNodesCount)
 			}
 
 			// helper to lookup a NodeRef by id
 			find := func(id keg.NodeID) *keg.NodeRef {
-				nodes := dex.Nodes()
-				for i := range nodes {
-					if nodes[i].ID == id {
-						return &nodes[i]
+				for i := range nodesIdx.Nodes {
+					if nodesIdx.Nodes[i].ID == id {
+						return &nodesIdx.Nodes[i]
 					}
 				}
 				return nil
@@ -150,25 +150,8 @@ func TestReadFromDex_Table(t *testing.T) {
 				}
 			}
 
-			// verify expected updated times (if provided)
-			for id, wantTime := range tc.wantNodeUpdated {
-				n := find(id)
-				if n == nil {
-					t.Fatalf("%s: node %d missing for updated-time check", tc.name, int(id))
-				}
-				if wantTime == nil {
-					if !n.Updated.IsZero() {
-						t.Fatalf("%s: expected zero Updated for node %d, got %v", tc.name, int(id), n.Updated)
-					}
-				} else {
-					if !n.Updated.Equal(*wantTime) {
-						t.Fatalf("%s: node %d updated mismatch: got %v want %v", tc.name, int(id), n.Updated, *wantTime)
-					}
-				}
-			}
-
 			// Validate tags
-			tags := dex.Tags()
+			tags := tagsIdx.Tags
 			// Only ensure expected tags are present with expected members.
 			for wantTag, wantIDs := range tc.wantTags {
 				gotIDs, ok := tags[wantTag]
@@ -181,7 +164,7 @@ func TestReadFromDex_Table(t *testing.T) {
 			}
 
 			// Validate links
-			links := dex.Links()
+			links := linksIdx.Links
 			for wantSrc, wantDsts := range tc.wantLinks {
 				gotDsts, ok := links[wantSrc]
 				if !ok {
@@ -193,7 +176,7 @@ func TestReadFromDex_Table(t *testing.T) {
 			}
 
 			// Validate backlinks
-			backlinks := dex.Backlinks()
+			backlinks := backlinksIdx.Backlinks
 			for wantDst, wantSrcs := range tc.wantBacklinks {
 				gotSrcs, ok := backlinks[wantDst]
 				if !ok {

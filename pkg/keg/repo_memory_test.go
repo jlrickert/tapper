@@ -20,14 +20,14 @@ func TestMemoryRepo_WriteReadMetaAndContent(t *testing.T) {
 	ctx := context.Background()
 
 	id := keg.NodeID(10)
-	meta := []byte("title: test\nupdated: 2025-08-11 00:00:00Z\n")
 	content := []byte("# hello\n")
+	meta := []byte("title: test\nupdated: 2025-08-11 00:00:00Z\n")
 
-	if err := r.WriteMeta(ctx, id, meta); err != nil {
-		t.Fatalf("WriteMeta failed: %v", err)
-	}
 	if err := r.WriteContent(ctx, id, content); err != nil {
 		t.Fatalf("WriteContent failed: %v", err)
+	}
+	if err := r.WriteMeta(ctx, id, meta); err != nil {
+		t.Fatalf("WriteMeta failed: %v", err)
 	}
 
 	gotMeta, err := r.ReadMeta(ctx, id)

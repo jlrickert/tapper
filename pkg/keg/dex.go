@@ -55,17 +55,17 @@ func (dex *Dex) Nodes() []NodeRef {
 
 // Tags returns the parsed tags index (map[tag] -> []NodeID).
 func (dex *Dex) Tags() map[string][]NodeID {
-	return dex.tags.tags
+	return dex.tags.Tags
 }
 
 // Links returns the parsed outgoing links index (map[src] -> []dst).
 func (dex *Dex) Links() map[NodeID][]NodeID {
-	return dex.links.links
+	return dex.links.Links
 }
 
 // Backlinks returns the parsed backlinks index (map[dst] -> []src).
 func (dex *Dex) Backlinks() map[NodeID][]NodeID {
-	return dex.backlinks.backlinks
+	return dex.backlinks.Backlinks
 }
 
 // Clear resets all in-memory index data held by the Dex instance.
@@ -175,6 +175,18 @@ func (dex *Dex) Write(ctx context.Context, repo KegRepository) error {
 		return fmt.Errorf("unable to write dex: %w", err)
 	}
 
+	return nil
+}
+
+func (dex *Dex) GetNode(id NodeID) *NodeRef {
+	if dex == nil || dex.nodes == nil {
+		return nil
+	}
+	for i := range dex.nodes.Nodes {
+		if dex.nodes.Nodes[i].ID == id {
+			return &dex.nodes.Nodes[i]
+		}
+	}
 	return nil
 }
 

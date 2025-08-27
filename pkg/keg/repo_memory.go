@@ -11,17 +11,22 @@ import (
 // MemoryRepo is an in-memory implementation of KegRepository intended for
 // tests and lightweight tooling that doesn't require persistent storage.
 //
-// Concurrency:
-//   - It is safe for concurrent use by multiple goroutines. An internal RWMutex
-//     protects access to nodes, indexes, and config.
-//   - Methods that mutate state take the write lock; readers take the read lock.
+// Concurrency / locking:
 //
-// Semantics:
-//   - Node IDs are allocated implicitly when writing content/meta/items/images.
-//   - Index files are stored in-memory by name (for example "nodes.tsv") and can
-//     be written/read with WriteIndex/GetIndex.
-//   - Errors returned attempt to follow the pkg/keg sentinel/typed error policy
-//     (e.g., NewNodeNotFoundError, ErrMetaNotFound).
+//   - MemoryRepo uses an internal sync.RWMutex (mu) to guard all internal maps
+//     and per-node structures. Readers use RLock/RUnlock; mutating operations use
+//     Lock/Unlock.
+//   - The implementation aims to be safe for concurrent use by multiple goroutines.
+//
+// Semantics / behavior:
+//
+//   - Node entries are created on demand when writing content, meta, items, or
+//     images.
+//   - Index files are kept in-memory by name (for example "nodes.tsv") and are
+//     accessible via WriteIndex/GetIndex.
+//   - Methods generally return sentinel or typed errors defined in the package to
+//     match the KegRepository contract (for example NewNodeNotFoundError,
+//     ErrNotFound).
 type MemoryRepo struct {
 	mu sync.RWMutex
 	// nodes stores per-node data keyed by NodeID.
@@ -50,7 +55,7 @@ func NewMemoryRepo() *MemoryRepo {
 }
 
 // ensureNode returns an existing node or creates one if absent.
-// Caller must hold repo.mu (at least write) when invoking this helper.
+// Caller must hold r.mu (write lock) when invoking this helper.
 func (r *MemoryRepo) ensureNode(id NodeID) *memoryNode {
 	n, ok := r.nodes[id]
 	if !ok {
@@ -67,9 +72,9 @@ func (r *MemoryRepo) Name() string {
 	return "memory"
 }
 
+// Next returns a new NodeID. The context is accepted to satisfy the repository
+// interface but is not used by this in-memory implementation.
 func (r *MemoryRepo) Next(ctx context.Context) (NodeID, error) {
-	// Context currently unused for MemoryRepo, but accepted to satisfy the
-	// context-aware KegRepository interface.
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	count := r.counter
@@ -78,9 +83,10 @@ func (r *MemoryRepo) Next(ctx context.Context) (NodeID, error) {
 }
 
 // ReadContent returns the primary content for the given node id.
-// If the node does not exist, a typed NodeNotFoundError is returned.
-// If the node exists but has no content, nil is returned with a nil error.
-// The returned slice is a copy to avoid caller-visible mutation.
+//
+// - If the node does not exist, ErrNodeNotFound is returned.
+// - If the node exists but has no content, (nil, nil) is returned.
+// - The returned slice is a copy to prevent caller-visible mutation.
 func (r *MemoryRepo) ReadContent(ctx context.Context, id NodeID) ([]byte, error) {
 	r.mu.RLock()
 	n, ok := r.nodes[id]
@@ -90,7 +96,7 @@ func (r *MemoryRepo) ReadContent(ctx context.Context, id NodeID) ([]byte, error)
 	}
 
 	if n.content == nil {
-		// Content may legitimately be absent; return nil rather than ErrMetaNotFound.
+		// Content may legitimately be absent; return nil rather than ErrNotFound.
 		return nil, nil
 	}
 	cp := make([]byte, len(n.content))
@@ -99,9 +105,10 @@ func (r *MemoryRepo) ReadContent(ctx context.Context, id NodeID) ([]byte, error)
 }
 
 // ReadMeta returns the serialized node metadata (usually meta.yaml).
-// If the node does not exist, a typed NodeNotFoundError is returned.
-// If meta is absent, ErrNotFound is returned.
-// The returned bytes are a copy.
+//
+// - If the node does not exist, ErrNodeNotFound is returned.
+// - If meta is absent, ErrNotFound is returned.
+// - The returned bytes are a copy.
 func (r *MemoryRepo) ReadMeta(ctx context.Context, id NodeID) ([]byte, error) {
 	r.mu.RLock()
 	n, ok := r.nodes[id]
@@ -129,7 +136,7 @@ func (r *MemoryRepo) ListIndexes(ctx context.Context) ([]string, error) {
 	return names, nil
 }
 
-// ClearIndexes implements KegRepository.
+// ClearIndexes removes all stored index artifacts.
 func (r *MemoryRepo) ClearIndexes(ctx context.Context) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -149,6 +156,8 @@ func (r *MemoryRepo) ListNodes(ctx context.Context) ([]NodeID, error) {
 	return ids, nil
 }
 
+// getNode is a small helper that returns the node and a boolean indicating
+// presence. It uses RLock/RUnlock internally.
 func (r *MemoryRepo) getNode(id NodeID) (*memoryNode, bool) {
 	r.mu.RLock()
 	n, ok := r.nodes[id]
@@ -157,7 +166,7 @@ func (r *MemoryRepo) getNode(id NodeID) (*memoryNode, bool) {
 }
 
 // ListItems lists ancillary item names stored for a node, sorted lexicographically.
-// If the node does not exist, a typed NodeNotFoundError is returned.
+// If the node does not exist, ErrNodeNotFound is returned.
 func (r *MemoryRepo) ListItems(ctx context.Context, id NodeID) ([]string, error) {
 	n, ok := r.getNode(id)
 	if !ok {
@@ -174,7 +183,7 @@ func (r *MemoryRepo) ListItems(ctx context.Context, id NodeID) ([]string, error)
 }
 
 // ListImages lists stored image names for a node, sorted lexicographically.
-// Returns NodeNotFoundError if the node doesn't exist.
+// Returns ErrNodeNotFound if the node doesn't exist.
 func (r *MemoryRepo) ListImages(ctx context.Context, id NodeID) ([]string, error) {
 	n, ok := r.getNode(id)
 	if !ok {
@@ -191,57 +200,53 @@ func (r *MemoryRepo) ListImages(ctx context.Context, id NodeID) ([]string, error
 }
 
 // WriteContent writes the primary content for the given node id, creating the
-// node if necessary. It updates the node's Updated timestamp.
+// node if necessary.
 //
-// The stored content is a copy of the provided slice.
+// Note: this implementation stores the provided slice reference in-memory.
+// Callers should avoid mutating the provided slice after calling this method.
 func (r *MemoryRepo) WriteContent(ctx context.Context, id NodeID, data []byte) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	n := r.ensureNode(id)
-	copy(n.content, data)
+	n.content = data
 	return nil
 }
 
-// WriteMeta sets the node metadata (meta.yaml bytes), updates the cached title
-// extracted from the meta, and updates the node's Updated timestamp.
+// WriteMeta sets the node metadata (meta.yaml bytes), creating the node if needed.
 //
-// The stored meta is a copy of the provided slice.
+// Note: the provided slice is stored as-is in-memory; do not modify it after
+// writing.
 func (r *MemoryRepo) WriteMeta(ctx context.Context, id NodeID, data []byte) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	n := r.ensureNode(id)
-	n.meta = make([]byte, len(data))
-	copy(n.meta, data)
+	n.meta = data
 	return nil
 }
 
-// UploadImage stores an image blob for the node. Name is used as the key and
-// the provided data is copied. Updates the node's Updated timestamp.
+// UploadImage stores an image blob for the node. Name is used as the key.
 func (r *MemoryRepo) UploadImage(ctx context.Context, id NodeID, name string, data []byte) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	n := r.ensureNode(id)
-	buf := make([]byte, len(data))
-	copy(buf, data)
-	n.images[name] = buf
+	n.images[name] = data
 	return nil
 }
 
-// UploadItem stores an ancillary item blob for the node. The data is copied
-// and the node's Updated timestamp is bumped.
+// UploadItem stores an ancillary item blob for the node.
 func (r *MemoryRepo) UploadItem(ctx context.Context, id NodeID, name string, data []byte) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	n := r.ensureNode(id)
-	buf := make([]byte, len(data))
-	copy(buf, data)
-	n.items[name] = buf
+	n.items[name] = data
 	return nil
 }
 
-// MoveNode renames or moves a node from id to dst. If the source node does not
-// exist, a NodeNotFoundError is returned. If the destination already exists,
-// a DestinationExistsError is returned.
+// MoveNode renames or moves a node from id to dst.
+//
+// - If the source node does not exist, ErrNodeNotFound is returned.
+// - If the destination already exists, a DestinationExistsError is returned.
+// The move is performed by transferring the in-memory node pointer.
 func (r *MemoryRepo) MoveNode(ctx context.Context, id NodeID, dst NodeID) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -252,14 +257,14 @@ func (r *MemoryRepo) MoveNode(ctx context.Context, id NodeID, dst NodeID) error 
 	if _, exists := r.nodes[dst]; exists {
 		return NewDestinationExistsError(dst)
 	}
-	// Move
+	// Move (transfer pointer)
 	r.nodes[dst] = srcNode
 	delete(r.nodes, id)
 	return nil
 }
 
-// GetIndex reads a stored index by name. If not present, ErrNotFound is
-// returned. The returned bytes are a copy.
+// GetIndex reads a stored index by name. If not present, ErrNotFound is returned.
+// The returned bytes are a copy.
 func (r *MemoryRepo) GetIndex(ctx context.Context, name string) ([]byte, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -272,17 +277,15 @@ func (r *MemoryRepo) GetIndex(ctx context.Context, name string) ([]byte, error) 
 	return cp, nil
 }
 
-// WriteIndex writes or replaces an in-memory index file. The data is copied.
+// WriteIndex writes or replaces an in-memory index file.
 func (r *MemoryRepo) WriteIndex(ctx context.Context, name string, data []byte) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	cp := make([]byte, len(data))
-	copy(cp, data)
-	r.indexes[name] = cp
+	r.indexes[name] = data
 	return nil
 }
 
-// ClearDex removes all stored index artifacts (resets the indexes map).
+// ClearDex removes all stored index artifacts.
 func (r *MemoryRepo) ClearDex() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -290,8 +293,8 @@ func (r *MemoryRepo) ClearDex() error {
 	return nil
 }
 
-// DeleteNode removes the node and all associated content/metadata/items. If
-// the node does not exist, a NodeNotFoundError is returned.
+// DeleteNode removes the node and all associated content/metadata/items.
+// If the node does not exist, NewNodeNotFoundError is returned.
 func (r *MemoryRepo) DeleteNode(ctx context.Context, id NodeID) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -302,9 +305,10 @@ func (r *MemoryRepo) DeleteNode(ctx context.Context, id NodeID) error {
 	return nil
 }
 
-// DeleteImage removes a stored image by name for the node. Returns
-// NodeNotFoundError if the node doesn't exist or ErrNotFound if the image name
-// is not present.
+// DeleteImage removes a stored image by name for the node.
+//
+// - Returns NewNodeNotFoundError if the node doesn't exist.
+// - Returns ErrNotFound if the image name is not present.
 func (r *MemoryRepo) DeleteImage(ctx context.Context, id NodeID, name string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -319,9 +323,10 @@ func (r *MemoryRepo) DeleteImage(ctx context.Context, id NodeID, name string) er
 	return nil
 }
 
-// DeleteItem removes an ancillary item by name for the node. Returns
-// NodeNotFoundError if the node doesn't exist or ErrNotFound if the item name
-// is not present.
+// DeleteItem removes an ancillary item by name for the node.
+//
+// - Returns NewNodeNotFoundError if the node doesn't exist.
+// - Returns ErrNotFound if the item name is not present.
 func (r *MemoryRepo) DeleteItem(ctx context.Context, id NodeID, name string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -338,13 +343,13 @@ func (r *MemoryRepo) DeleteItem(ctx context.Context, id NodeID, name string) err
 
 // ReadConfig returns the repository-level config previously written with
 // WriteConfig. If no config has been written, ErrNotFound is returned.
+// A copy of the stored Config is returned to avoid external mutation.
 func (r *MemoryRepo) ReadConfig(ctx context.Context) (*Config, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	if r.config == nil {
 		return nil, ErrNotFound
 	}
-	// return a copy to avoid external mutation
 	c := *r.config
 	return &c, nil
 }
@@ -358,11 +363,8 @@ func (r *MemoryRepo) WriteConfig(ctx context.Context, config Config) error {
 	return nil
 }
 
-// ClearNodeLock implements KegRepository.
-//
-// For the in-memory repo we represent a per-node lock using a reserved
-// item key (KegLockFile) inside the node's items map. Clearing the lock is a
-// best-effort operation: if the node does not exist we return NewNodeNotFoundError.
+// ClearNodeLock removes a per-node lock marker (represented as a reserved item key).
+// Returns NewNodeNotFoundError if the node does not exist.
 func (r *MemoryRepo) ClearNodeLock(ctx context.Context, id NodeID) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -377,12 +379,15 @@ func (r *MemoryRepo) ClearNodeLock(ctx context.Context, id NodeID) error {
 	return nil
 }
 
-// LockNode implements KegRepository.
+// LockNode attempts to acquire a per-node lock. It will retry at the provided
+// retryInterval until the context is cancelled. On success it returns an unlock
+// function which the caller MUST call to release the lock.
 //
-// This function attempts to acquire a per-node lock. It will retry at the
-// provided retryInterval until the context is cancelled. If the node does not
-// exist, a NodeNotFoundError is returned immediately. On success an unlock
-// function is returned which the caller MUST call to release the lock.
+// Behavior notes:
+//
+// - If retryInterval <= 0, a sensible default is used.
+// - If the node does not exist, NewNodeNotFoundError is returned immediately.
+// - If ctx is cancelled while waiting, ErrLockTimeout is returned.
 func (r *MemoryRepo) LockNode(ctx context.Context, id NodeID, retryInterval time.Duration) (func() error, error) {
 	// Default retry interval if caller gives zero or negative.
 	if retryInterval <= 0 {

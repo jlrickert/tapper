@@ -19,6 +19,7 @@ import (
 var (
 	ErrKegExists        = errors.New("keg: keg already exists")
 	ErrNodeNotFound     = errors.New("keg: node not found")
+	ErrNodeExists       = errors.New("keg: node exists")
 	ErrContentNotFound  = errors.New("keg: node content not found")
 	ErrMetaNotFound     = errors.New("keg: node meta not found")
 	ErrNotFound         = errors.New("keg: item not found")
