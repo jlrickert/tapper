@@ -13,9 +13,9 @@ import (
 
 // KegUrl describes the repo-local "keg" hint shape.
 type KegUrl struct {
-	// http, https, file, postgresql, keg
+	// http, https, ssh, git, api, file, postgresql
 	Type     string `yaml:"type,omitempty"`
-	Value    string `yaml:"uri,omitempty"`
+	Value    string `yaml:"link,omitempty"`
 	Readonly bool   `yaml:"readonly,omitempty"`
 }
 
