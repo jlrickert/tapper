@@ -1,0 +1,59 @@
+package tap
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"path/filepath"
+	"time"
+
+	std "github.com/jlrickert/go-std/pkg"
+	"gopkg.in/yaml.v3"
+)
+
+// LocalConfig is the structure for .tapper/local.yaml (repo-local visible override).
+type LocalConfig struct {
+	Updated string `yaml:"updated,omitempty"`
+	Keg     KegUrl `yaml:"keg,omitempty"`
+}
+
+// ReadLocalFile reads and parses a .tapper/local.yaml file into LocalConfig.
+func ReadLocalFile(ctx context.Context, path string) (*LocalConfig, error) {
+	lg := std.LoggerFromContext(ctx)
+	b, err := os.ReadFile(path)
+	if err != nil {
+		lg.Debug("failed to read local config", "path", path, "err", err)
+		return nil, fmt.Errorf("failed to read local config: %w", err)
+	}
+	var lf LocalConfig
+	if err := yaml.Unmarshal(b, &lf); err != nil {
+		lg.Error("failed to parse local config", "path", "data", string(b), path, "err", err)
+		return nil, fmt.Errorf("failed to parse local config: %w", err)
+	}
+	lg.Info("local config read", "path", path, "config", lf)
+	return &lf, nil
+}
+
+// WriteLocalFile writes LocalConfig to repoRoot/.tapper/local.yaml atomically.
+// It will create the .tapper directory if needed.
+func (lf *LocalConfig) WriteLocalFile(ctx context.Context, projectPath string) error {
+	lg := std.LoggerFromContext(ctx)
+	fn := ".tapper/local.yaml"
+	path := filepath.Join(projectPath, ".tapper", fn)
+
+	b, err := yaml.Marshal(lf)
+	if err != nil {
+		lg.Error("failed to marshal local config", "path", path, "err", err)
+		return err
+	}
+	if err := std.AtomicWriteFile(path, b, 0o644); err != nil {
+		lg.Error("failed to write to local config", "path", path, "err", err)
+		return fmt.Errorf("failed to write to local config: %w", err)
+	}
+	return nil
+}
+
+func (lf *LocalConfig) Touch(ctx context.Context) {
+	clock := std.ClockFromContext(ctx)
+	lf.Updated = clock.Now().Format(time.RFC3339)
+}

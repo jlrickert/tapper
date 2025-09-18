@@ -1,7 +1,7 @@
 package tap_test
 
 import (
-	"os"
+	"strings"
 	"testing"
 
 	"github.com/jlrickert/tapper/pkg/tap"
@@ -13,7 +13,7 @@ kegv: "2023-01"
 updated: "2023-01-01"
 title: "Test KEG V1"
 url: "https://example.com"
-creator: "creator-id"
+creator: "Jared Rickert"
 state: "living"
 summary: "This is a test KEG V1 config"
 indexes:
@@ -23,7 +23,7 @@ indexes:
     summary: "Index 2 summary"
 `
 
-	config, err := tap.ParseConfigData([]byte(v1Yaml))
+	config, err := tap.ParseKegConfig([]byte(v1Yaml))
 	if err != nil {
 		t.Fatalf("ParseConfigData failed: %v", err)
 	}
@@ -36,6 +36,13 @@ indexes:
 	}
 	if len(config.Indexes) != 2 {
 		t.Errorf("Expected 2 indexes, got %d", len(config.Indexes))
+	} else {
+		if config.Indexes[0].File != "index1.md" {
+			t.Errorf("expected first index file 'index1.md', got %q", config.Indexes[0].File)
+		}
+		if config.Indexes[1].File != "index2.md" {
+			t.Errorf("expected second index file 'index2.md', got %q", config.Indexes[1].File)
+		}
 	}
 	if len(config.Links) != 0 {
 		t.Errorf("Expected Links to be nil or empty, got %v", config.Links)
@@ -53,15 +60,19 @@ state: "archived"
 summary: "This is a test KEG V2 config"
 links:
   - alias: "home"
-    url: "https://home.example.com"
+    url:
+      type: "https"
+      link: "keg.example.com/@user/home"
   - alias: "docs"
-    url: "https://docs.example.com"
+    url:
+      type: "https"
+      link: "keg.example.com/@user/docs"
 indexes:
   - file: "index1.md"
     summary: "Index 1 summary"
 `
 
-	config, err := tap.ParseConfigData([]byte(v2Yaml))
+	config, err := tap.ParseKegConfig([]byte(v2Yaml))
 	if err != nil {
 		t.Fatalf("ParseConfigData failed: %v", err)
 	}
@@ -73,57 +84,36 @@ indexes:
 		t.Errorf("Expected Title to be 'Test KEG V2', got %s", config.Title)
 	}
 	if len(config.Links) != 2 {
-		t.Errorf("Expected 2 links, got %d", len(config.Links))
+		t.Fatalf("Expected 2 links, got %d", len(config.Links))
 	}
+	// Verify parsed link entries
+	foundHome := false
+	foundDocs := false
+	for _, l := range config.Links {
+		if l.Alias == "home" {
+			foundHome = true
+			if l.URL.Value != "keg.example.com/@user/home" {
+				t.Errorf("home link URL mismatch: expected %q, got %q", "keg.example.com/@user/home", l.URL.Value)
+			}
+		}
+		if l.Alias == "docs" {
+			foundDocs = true
+			if l.URL.Value != "keg.example.com/@user/docs" {
+				t.Errorf("docs link URL mismatch: expected %q, got %q", "keg.example.com/@user/docs", l.URL.Value)
+			}
+		}
+	}
+	if !foundHome {
+		t.Error("expected to find link with alias 'home'")
+	}
+	if !foundDocs {
+		t.Error("expected to find link with alias 'docs'")
+	}
+
 	if len(config.Indexes) != 1 {
 		t.Errorf("Expected 1 index, got %d", len(config.Indexes))
-	}
-}
-
-func TestExpandEnv(t *testing.T) {
-	os.Setenv("TEST_TITLE", "EnvTitle")
-	os.Setenv("TEST_URL", "https://env.url")
-
-	config := tap.KegConfig{
-		Kegv:    tap.ConfigV2VersionString,
-		Title:   "${TEST_TITLE}",
-		URL:     "${TEST_URL}",
-		Creator: "creator",
-		State:   "living",
-		Summary: "summary",
-		Links: []tap.LinkEntry{
-			{Alias: "alias1", URL: "${TEST_URL}"},
-		},
-		Indexes: []tap.IndexEntry{
-			{File: "file1.md", Summary: "summary1"},
-		},
-	}
-
-	config.ExpandEnv()
-
-	if config.Title != "EnvTitle" {
-		t.Errorf("Expected Title to be 'EnvTitle', got %s", config.Title)
-	}
-	if config.URL != "https://env.url" {
-		t.Errorf("Expected URL to be 'https://env.url', got %s", config.URL)
-	}
-	if config.Links[0].URL != "https://env.url" {
-		t.Errorf("Expected Links[0].URL to be 'https://env.url', got %s", config.Links[0].URL)
-	}
-}
-
-func TestExpandEnvPartial(t *testing.T) {
-	os.Setenv("PARTIAL", "partial_value")
-
-	config := tap.KegConfig{
-		Kegv:  tap.ConfigV2VersionString,
-		Title: "Title with ${PARTIAL}",
-	}
-
-	config.ExpandEnv()
-
-	if config.Title != "Title with partial_value" {
-		t.Errorf("Expected Title to be 'Title with partial_value', got %s", config.Title)
+	} else if config.Indexes[0].File != "index1.md" {
+		t.Errorf("expected index file 'index1.md', got %q", config.Indexes[0].File)
 	}
 }
 
@@ -133,9 +123,12 @@ kegv: "invalid-version"
 title: "Invalid version test"
 `
 
-	_, err := tap.ParseConfigData([]byte(invalidYaml))
+	_, err := tap.ParseKegConfig([]byte(invalidYaml))
 	if err == nil {
 		t.Fatal("Expected error for unsupported config version, got nil")
+	}
+	if !strings.Contains(err.Error(), "unsupported config version") {
+		t.Fatalf("unexpected error for invalid version: %v", err)
 	}
 }
 
@@ -144,8 +137,11 @@ func TestParseConfigDataMissingVersion(t *testing.T) {
 title: "Missing version test"
 `
 
-	_, err := tap.ParseConfigData([]byte(missingVersionYaml))
+	_, err := tap.ParseKegConfig([]byte(missingVersionYaml))
 	if err == nil {
 		t.Fatal("Expected error for missing version field, got nil")
+	}
+	if !strings.Contains(err.Error(), "missing or invalid kegv") {
+		t.Fatalf("unexpected error for missing version: %v", err)
 	}
 }
