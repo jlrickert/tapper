@@ -1,10 +1,10 @@
 package tap_test
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/jlrickert/tapper/pkg/tap"
+	"github.com/stretchr/testify/require"
 )
 
 func TestParseConfigDataV1(t *testing.T) {
@@ -24,29 +24,14 @@ indexes:
 `
 
 	config, err := tap.ParseKegConfig([]byte(v1Yaml))
-	if err != nil {
-		t.Fatalf("ParseConfigData failed: %v", err)
-	}
+	require.NoError(t, err, "ParseKegConfig failed")
 
-	if config.Kegv != tap.ConfigV2VersionString {
-		t.Errorf("Expected Kegv to be %s, got %s", tap.ConfigV2VersionString, config.Kegv)
-	}
-	if config.Title != "Test KEG V1" {
-		t.Errorf("Expected Title to be 'Test KEG V1', got %s", config.Title)
-	}
-	if len(config.Indexes) != 2 {
-		t.Errorf("Expected 2 indexes, got %d", len(config.Indexes))
-	} else {
-		if config.Indexes[0].File != "index1.md" {
-			t.Errorf("expected first index file 'index1.md', got %q", config.Indexes[0].File)
-		}
-		if config.Indexes[1].File != "index2.md" {
-			t.Errorf("expected second index file 'index2.md', got %q", config.Indexes[1].File)
-		}
-	}
-	if len(config.Links) != 0 {
-		t.Errorf("Expected Links to be nil or empty, got %v", config.Links)
-	}
+	require.Equal(t, tap.ConfigV2VersionString, config.Kegv)
+	require.Equal(t, "Test KEG V1", config.Title)
+	require.Len(t, config.Indexes, 2)
+	require.Equal(t, "index1.md", config.Indexes[0].File)
+	require.Equal(t, "index2.md", config.Indexes[1].File)
+	require.Empty(t, config.Links)
 }
 
 func TestParseConfigDataV2(t *testing.T) {
@@ -60,61 +45,32 @@ state: "archived"
 summary: "This is a test KEG V2 config"
 links:
   - alias: "home"
-    url:
-      type: "https"
-      link: "keg.example.com/@user/home"
+    url: "https://keg.example.com/@user/home"
   - alias: "docs"
-    url:
-      type: "https"
-      link: "keg.example.com/@user/docs"
+    url: "https://keg.example.com/@user/docs"
 indexes:
   - file: "index1.md"
     summary: "Index 1 summary"
 `
 
 	config, err := tap.ParseKegConfig([]byte(v2Yaml))
-	if err != nil {
-		t.Fatalf("ParseConfigData failed: %v", err)
-	}
+	require.NoError(t, err, "ParseKegConfig failed")
 
-	if config.Kegv != tap.ConfigV2VersionString {
-		t.Errorf("Expected Kegv to be %s, got %s", tap.ConfigV2VersionString, config.Kegv)
-	}
-	if config.Title != "Test KEG V2" {
-		t.Errorf("Expected Title to be 'Test KEG V2', got %s", config.Title)
-	}
-	if len(config.Links) != 2 {
-		t.Fatalf("Expected 2 links, got %d", len(config.Links))
-	}
-	// Verify parsed link entries
-	foundHome := false
-	foundDocs := false
+	require.Equal(t, tap.ConfigV2VersionString, config.Kegv)
+	require.Equal(t, "Test KEG V2", config.Title)
+
+	require.Len(t, config.Links, 2, "expected 2 links")
+	links := map[string]string{}
 	for _, l := range config.Links {
-		if l.Alias == "home" {
-			foundHome = true
-			if l.URL.Value != "keg.example.com/@user/home" {
-				t.Errorf("home link URL mismatch: expected %q, got %q", "keg.example.com/@user/home", l.URL.Value)
-			}
-		}
-		if l.Alias == "docs" {
-			foundDocs = true
-			if l.URL.Value != "keg.example.com/@user/docs" {
-				t.Errorf("docs link URL mismatch: expected %q, got %q", "keg.example.com/@user/docs", l.URL.Value)
-			}
-		}
+		links[l.Alias] = l.URL
 	}
-	if !foundHome {
-		t.Error("expected to find link with alias 'home'")
-	}
-	if !foundDocs {
-		t.Error("expected to find link with alias 'docs'")
-	}
+	require.Contains(t, links, "home")
+	require.Contains(t, links, "docs")
+	require.Equal(t, "https://keg.example.com/@user/home", links["home"])
+	require.Equal(t, "https://keg.example.com/@user/docs", links["docs"])
 
-	if len(config.Indexes) != 1 {
-		t.Errorf("Expected 1 index, got %d", len(config.Indexes))
-	} else if config.Indexes[0].File != "index1.md" {
-		t.Errorf("expected index file 'index1.md', got %q", config.Indexes[0].File)
-	}
+	require.Len(t, config.Indexes, 1)
+	require.Equal(t, "index1.md", config.Indexes[0].File)
 }
 
 func TestParseConfigDataInvalidVersion(t *testing.T) {
@@ -124,12 +80,8 @@ title: "Invalid version test"
 `
 
 	_, err := tap.ParseKegConfig([]byte(invalidYaml))
-	if err == nil {
-		t.Fatal("Expected error for unsupported config version, got nil")
-	}
-	if !strings.Contains(err.Error(), "unsupported config version") {
-		t.Fatalf("unexpected error for invalid version: %v", err)
-	}
+	require.Error(t, err, "expected error for unsupported config version")
+	require.Contains(t, err.Error(), "unsupported config version")
 }
 
 func TestParseConfigDataMissingVersion(t *testing.T) {
@@ -138,10 +90,6 @@ title: "Missing version test"
 `
 
 	_, err := tap.ParseKegConfig([]byte(missingVersionYaml))
-	if err == nil {
-		t.Fatal("Expected error for missing version field, got nil")
-	}
-	if !strings.Contains(err.Error(), "missing or invalid kegv") {
-		t.Fatalf("unexpected error for missing version: %v", err)
-	}
+	require.Error(t, err, "expected error for missing version field")
+	require.Contains(t, err.Error(), "missing or invalid kegv")
 }

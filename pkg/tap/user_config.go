@@ -1,255 +1,479 @@
 package tap
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 
 	std "github.com/jlrickert/go-std/pkg"
 	"gopkg.in/yaml.v3"
 )
 
-// UserConfig is the optional higher-level tapper config (~/.config/tapper/config.yaml).
-// It may contain multiple mappings that match repositories to keg targets.
+// UserConfig represents the user's tapper configuration. We keep both a
+// deserialized Go-friendly view (for quick access) and the original yaml.Node
+// for in-place edits so comments and formatting are preserved when writing.
 type UserConfig struct {
-	// defaultKeg is the alias for the default keg
-	defaultKeg string `yaml:"defaultKeg,omitempty"`
+	DefaultKeg string            `yaml:"defaultKeg,omitempty"`
+	KegMap     []KegMapEntry     `yaml:"kegMap"`
+	Kegs       map[string]KegUrl `yaml:"kegs"`
 
-	// Maps a path to a keg to use
-	mappings []Mapping         `yaml:"mappings,omitempty"`
-	kegs     map[string]KegUrl `yaml:"aliases,omitempty"`
+	// node holds the original parsed YAML document root (document node). When
+	// present we edit it directly to preserve comments and overall structure.
+	node *yaml.Node
 }
 
-// Mapping is a single mapping entry in the user config.
-type Mapping struct {
-	PathPrefix string `yaml:"prefix,omitempty"`
-	PathRegex  string `yaml:"regex,omitempty"`
-	Alias      string `yaml:"alias"`
+type KegMapEntry struct {
+	Alias      string `yaml:"alias,omitempty"`
+	PathPrefix string `yaml:"pathPrefix,omitempty"`
+	PathRegex  string `yaml:"pathRegex,omitempty"`
 }
 
-func (cfg *UserConfig) Normalize(ctx context.Context) error {
-	if cfg == nil {
+type KegUrl struct {
+	URL      string `yaml:"url,omitempty"`
+	Readonly bool   `yaml:"readonly,omitempty"`
+	User     string `yaml:"user,omitempty"`
+	Password string `yaml:"password,omitempty"`
+	Token    string `yaml:"token,omitempty"`
+	TokenEnv string `yaml:"tokenEnv,omitempty"`
+}
+
+// ResolvePaths expands env vars and tildes in the provided basePath and returns
+// an error only on expand failure. This is a helper to normalize inputs used in
+// matching.
+func ResolvePaths(ctx context.Context, basePath string) error {
+	// Use std helpers to ensure same behavior as other code paths.
+	_, err := std.ExpandPath(ctx, basePath)
+	if err != nil {
+		return fmt.Errorf("expand path: %w", err)
+	}
+	// No stateful changes; caller can use returned expanded path where needed.
+	return nil
+}
+
+// Clone produces a deep copy of the UserConfig including the underlying
+// yaml.Node so callers can safely mutate the clone.
+func (uc *UserConfig) Clone(ctx context.Context) *UserConfig {
+	if uc == nil {
 		return nil
 	}
-
-	// Normalize default keg if present.
-	if cfg.defaultKeg != "" {
-		cfg.defaultKeg = strings.TrimSpace(strings.ToLower(cfg.defaultKeg))
+	// Marshal the existing node (preserves comments) and parse into a new one.
+	var buf bytes.Buffer
+	if uc.node != nil {
+		enc := yaml.NewEncoder(&buf)
+		enc.SetIndent(2)
+		// encode the whole document node
+		_ = enc.Encode(uc.node)
+		_ = enc.Close()
+	} else {
+		// Fall back to struct marshal (loses comments but still clones)
+		b, _ := yaml.Marshal(uc)
+		buf.Write(b)
 	}
-
-	// Normalize aliases: lowercase keys and normalize each KegUrl value.
-	if cfg.kegs != nil {
-		newKegs := make(map[string]KegUrl, len(cfg.kegs))
-		for k, v := range cfg.kegs {
-			key := strings.TrimSpace(k)
-			lkey := strings.ToLower(key)
-
-			// Normalize the KegUrl value.
-			if err := (&v).Normalize(ctx); err != nil {
-				return fmt.Errorf("normalize alias %q: %w", k, err)
-			}
-
-			// If duplicate lowercase keys occur, last one wins (deterministic
-			// iteration order is not guaranteed, but this keeps behavior simple).
-			newKegs[lkey] = v
-		}
-		cfg.kegs = newKegs
+	nuc, _ := ParseUserConfig(ctx, buf.Bytes())
+	if nuc == nil {
+		// As fallback, do a shallow copy
+		out := *uc
+		return &out
 	}
-
-	// Normalize mappings: clean path prefixes, validate regex, normalize alias.
-	for i := range cfg.mappings {
-		m := &cfg.mappings[i]
-		if m.PathPrefix != "" {
-			m.PathPrefix = filepath.Clean(m.PathPrefix)
-		}
-		if m.PathRegex != "" {
-			if _, err := regexp.Compile(m.PathRegex); err != nil {
-				return fmt.Errorf("invalid mapping regex %q: %w", m.PathRegex, err)
-			}
-		}
-		m.Alias = strings.TrimSpace(m.Alias)
-		m.Alias = strings.ToLower(m.Alias)
-	}
-
-	// Optionally expand env in any remaining stringy fields via std helpers.
-	// This mirrors behavior in other config normalization helpers.
-	env := std.EnvFromContext(ctx)
-	if cfg.kegs != nil {
-		for k, v := range cfg.kegs {
-			// Ensure Value expanded (again) in case ExpandEnv is needed.
-			v.Value = std.ExpandEnv(env, v.Value)
-			cfg.kegs[k] = v
-		}
-	}
-
-	return nil
+	return nuc
 }
 
-// ResolveKegAlias looks up an alias in the user's Tapper configuration and
-// returns the resolved KegTarget. Behavior:
-//
-//   - Prefers an exact key match against cfg.Aliases.
-//   - Falls back to a case-insensitive match if no exact key is found.
-//   - If no user config is available or the alias cannot be found, a typed
-//     AliasNotFoundError is returned.
-//
-// Note: This function only reads and validates the alias entry. It does not
-// perform further resolution (for example preferring local paths or expanding
-// other alias tokens); callers that need that behavior should load the full
-// UserConfig and use ResolveKegTargetForRepo as appropriate.
-func (cfg *UserConfig) ResolveAlias(ctx context.Context, alias string) (*KegUrl, error) {
-	if cfg == nil {
-		return nil, NewAliasNotFoundError(alias)
+// ResolveAlias looks up the keg by alias and returns a parsed KegUrl. Returns
+// nil + error when not found or parse fails.
+func (uc *UserConfig) ResolveAlias(ctx context.Context, alias string) (*KegTarget, error) {
+	if uc == nil {
+		return nil, fmt.Errorf("no user config")
 	}
-	if cfg.kegs == nil {
-		return nil, NewAliasNotFoundError(alias)
+	u, ok := uc.Kegs[alias]
+	if !ok {
+		return nil, fmt.Errorf("keg alias not found: %s", alias)
 	}
-
-	if target, ok := cfg.kegs[alias]; ok {
-		return &target, nil
-	}
-
-	// Case-insensitive fallback.
-	if target, ok := cfg.kegs[strings.ToLower(alias)]; ok {
-		return &target, nil
-	}
-
-	return nil, NewAliasNotFoundError(alias)
+	return ParseKegTarget(ctx, u.URL)
 }
 
-// ResolveKegMap searches the configured mappings for one that matches the
-// provided path and returns the resolved KegUrl for the mapping's alias.
-// Matching rules (checked in declaration order):
-//   - If Mapping.PathPrefix is set and path has that prefix -> match.
-//   - If Mapping.PathRegex is set and the regex matches -> match.
-//
-// For a matched mapping the function attempts to resolve mapping.Alias via
-// ResolveAlias. If the alias is not found the mapping is skipped and search
-// continues. If no mapping matches and a defaultKeg is configured, the default
-// is returned. If nothing is found ErrKegNotFound is returned.
-//
-// Note: This function uses the first matching mapping. More advanced tie-
-// breaking (priority, specificity) can be added later.
-func (cfg *UserConfig) ResolveKegMap(ctx context.Context, path string) (*KegUrl, error) {
-	lg := std.LoggerFromContext(ctx)
-
-	if cfg == nil {
-		lg.Debug("no user config provided to ResolveKegMap")
-		return nil, ErrKegNotFound
+// ResolveKegMap chooses the appropriate keg (via alias) based on the provided
+// filesystem path. Regex entries have precedence over pathPrefix. When multiple
+// pathPrefix entries match, the longest prefix wins.
+func (uc *UserConfig) ResolveKegMap(ctx context.Context, path string) (*KegTarget, error) {
+	if uc == nil {
+		return nil, fmt.Errorf("no user config")
 	}
+	// Expand path and make absolute/clean to compare reliably.
+	val := std.ExpandEnv(ctx, path)
+	abs, err := std.ExpandPath(ctx, val)
+	if err != nil {
+		// still try with expanded env
+		abs = val
+	}
+	abs = filepath.Clean(abs)
 
-	// Normalize incoming path for stable comparisons.
-	p := filepath.Clean(path)
-
-	for _, m := range cfg.mappings {
-		// PathPrefix matching
-		if m.PathPrefix != "" {
-			pref := filepath.Clean(m.PathPrefix)
-			if strings.HasPrefix(p, pref) {
-				if m.Alias == "" {
-					lg.Debug("mapping matched by prefix but has no alias", "prefix", m.PathPrefix, "path", p)
-					continue
-				}
-				kurl, err := cfg.ResolveAlias(ctx, m.Alias)
-				if err != nil {
-					lg.Debug("mapping alias not found, skipping", "alias", m.Alias, "err", err)
-					continue
-				}
-				lg.Info("resolved keg via mapping (prefix)", "prefix", m.PathPrefix, "alias", m.Alias)
-				return kurl, nil
-			}
+	// First check regex entries (highest precedence)
+	for _, m := range uc.KegMap {
+		if m.PathRegex == "" {
+			continue
 		}
-
-		// Regex matching
-		if m.PathRegex != "" {
-			re, err := regexp.Compile(m.PathRegex)
-			if err != nil {
-				lg.Error("invalid mapping regex, skipping", "regex", m.PathRegex, "err", err)
-				continue
-			}
-			if re.MatchString(p) {
-				if m.Alias == "" {
-					lg.Debug("mapping matched by regex but has no alias", "regex", m.PathRegex, "path", p)
-					continue
-				}
-				kurl, err := cfg.ResolveAlias(ctx, m.Alias)
-				if err != nil {
-					lg.Debug("mapping alias not found, skipping", "alias", m.Alias, "err", err)
-					continue
-				}
-				lg.Info("resolved keg via mapping (regex)", "regex", m.PathRegex, "alias", m.Alias)
-				return kurl, nil
-			}
+		pattern := std.ExpandEnv(ctx, m.PathRegex)
+		pattern, _ = std.ExpandPath(ctx, pattern)
+		ok, _ := regexp.MatchString(pattern, abs)
+		if ok {
+			return uc.ResolveAlias(ctx, m.Alias)
 		}
 	}
 
-	// Fallback to defaultKeg if configured.
-	if cfg.defaultKeg != "" {
-		lg.Info("using default keg from user config")
-		return cfg.ResolveAlias(ctx, cfg.defaultKeg)
+	// Collect prefix matches and choose the longest matching prefix.
+	type match struct {
+		entry KegMapEntry
+		len   int
+	}
+	var matches []match
+	for _, m := range uc.KegMap {
+		if m.PathPrefix == "" {
+			continue
+		}
+		pref := std.ExpandEnv(ctx, m.PathPrefix)
+		pref, _ = std.ExpandPath(ctx, pref)
+		pref = filepath.Clean(pref)
+		if strings.HasPrefix(abs, pref) {
+			matches = append(matches, match{entry: m, len: len(pref)})
+		}
+	}
+	if len(matches) > 0 {
+		// choose longest prefix
+		sort.Slice(matches, func(i, j int) bool { return matches[i].len > matches[j].len })
+		return uc.ResolveAlias(ctx, matches[0].entry.Alias)
 	}
 
-	lg.Debug("no mapping matched and no default keg configured", "path", p)
-	return nil, ErrKegNotFound
+	// fallback to defaultKeg if set
+	if uc.DefaultKeg != "" {
+		return uc.ResolveAlias(ctx, uc.DefaultKeg)
+	}
+
+	return nil, fmt.Errorf("no keg map entry matched path: %s", path)
 }
 
-func ParseUserConfig(ctx context.Context, data []byte) (*UserConfig, error) {
-	var uc UserConfig
-	if err := yaml.Unmarshal(data, &uc); err != nil {
-		return nil, fmt.Errorf("failed to parse user config: %w", err)
+// ParseUserConfig parses raw YAML (string) into a UserConfig while preserving
+// the underlying yaml.Node for comment-preserving edits.
+func ParseUserConfig(ctx context.Context, raw []byte) (*UserConfig, error) {
+	var doc yaml.Node
+	if err := yaml.Unmarshal([]byte(raw), &doc); err != nil {
+		return nil, fmt.Errorf("failed to parse user config yaml: %w", err)
 	}
-	if err := uc.Normalize(ctx); err != nil {
-		return nil, fmt.Errorf("failed to normalize user config: %w", err)
+	uc := &UserConfig{node: &doc}
+	// doc.Content[0] should be the document's root mapping node if present.
+	if len(doc.Content) > 0 {
+		if err := doc.Content[0].Decode(uc); err != nil {
+			// Try decoding the whole doc as a fallback
+			if err2 := doc.Decode(uc); err2 != nil {
+				// return uc, nil
+				return nil, fmt.Errorf("failed to decode config into struct: %w", err)
+			}
+		}
+	} else {
+		// empty doc -> zero value config
+		uc.KegMap = nil
+		uc.Kegs = nil
 	}
-	return &uc, nil
+	return uc, nil
 }
 
-func ReadUserConfigFrom(ctx context.Context, path string) (*UserConfig, error) {
+// ReadUserConfig reads the YAML file at path and returns a parsed UserConfig.
+func ReadUserConfig(ctx context.Context, path string) (*UserConfig, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("read user config: %w", err)
 	}
-	var uc UserConfig
-	if err := yaml.Unmarshal(b, &uc); err != nil {
-		return nil, err
-	}
-	if err := uc.Normalize(ctx); err != nil {
-
-	}
-	return &uc, nil
+	return ParseUserConfig(ctx, b)
 }
 
-// WriteUserConfig writes the UserConfig to pathName atomically.
-//
-// Behavior:
-//   - Validates receiver is non-nil and pathName is provided.
-//   - Ensures the Updated field is set (RFC3339 UTC) if empty.
-//   - Creates parent directory (os.MkdirAll) as needed.
-//   - Marshals the config to YAML and writes it to a temporary file in the
-//     same directory, then renames the temp file into place to provide an
-//     atomic replacement on POSIX filesystems.
-//   - Returns a wrapped error describing the failure (marshal, write, rename,
-//     or directory creation). The temporary file is removed on failure when
-//     possible.
-//
-// Note: This routine does not attempt an fsync of the directory after rename.
-// Callers that require stronger durability guarantees should perform explicit
-// fsyncs on the target filesystem where supported.
+// WriteUserConfig writes the UserConfig back to path, preserving comments and
+// formatting when possible. Uses AtomicWriteFile from std.
 func (uc *UserConfig) WriteUserConfig(ctx context.Context, path string) error {
-	lg := std.LoggerFromContext(ctx)
-	b, err := yaml.Marshal(uc)
-	if err != nil {
-		lg.Error("marshal user config", "err", err, "path", path)
-		return fmt.Errorf("marshal user config: %w", err)
+	if uc == nil {
+		return fmt.Errorf("no user config")
+	}
+	var buf bytes.Buffer
+	enc := yaml.NewEncoder(&buf)
+	enc.SetIndent(2)
+
+	// Prefer writing the original node (keeps comments). If absent, write struct.
+	if uc.node != nil {
+		// Ensure we encode the document node as-is.
+		if err := enc.Encode(uc.node); err != nil {
+			_ = enc.Close()
+			return fmt.Errorf("encode yaml node: %w", err)
+		}
+	} else {
+		if err := enc.Encode(uc); err != nil {
+			_ = enc.Close()
+			return fmt.Errorf("encode yaml struct: %w", err)
+		}
+	}
+	if err := enc.Close(); err != nil {
+		return fmt.Errorf("close encoder: %w", err)
 	}
 
-	if err := std.AtomicWriteFile(path, b, 0o644); err != nil {
-		lg.Error("failed to write to user config", "err", err, "path", path)
-		return fmt.Errorf("failed to write user config: %w", err)
+	// Ensure parent directory exists
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("mkdirall %s: %w", dir, err)
 	}
 
+	if err := std.AtomicWriteFile(path, buf.Bytes(), 0o644); err != nil {
+		return fmt.Errorf("atomic write: %w", err)
+	}
 	return nil
+}
+
+/*
+   Programmatic mutation helpers
+
+   The helpers below edit the in-memory yaml.Node directly when available so
+   comments and unrelated nodes remain unchanged. When node is missing we update
+   the Go struct and leave the caller to WriteUserConfig (which will marshal
+   the struct).
+*/
+
+// AddOrUpdateKeg adds a new keg entry or updates the url for an existing alias.
+// The change is applied to both the Go view (uc.Kegs) and the underlying yaml.Node
+// when present.
+func (uc *UserConfig) AddOrUpdateKeg(alias, urlRaw string) {
+	if uc == nil {
+		return
+	}
+	// Update struct view
+	if uc.Kegs == nil {
+		uc.Kegs = map[string]KegUrl{}
+	}
+	k := uc.Kegs[alias]
+	k.URL = urlRaw
+	uc.Kegs[alias] = k
+
+	// If no node present, nothing more to do
+	if uc.node == nil {
+		return
+	}
+
+	// Ensure document root mapping exists
+	root := uc.node
+	if len(root.Content) == 0 {
+		// create document mapping node
+		m := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+		root.Content = []*yaml.Node{m}
+	}
+	doc := root.Content[0]
+	// find or create "kegs" mapping
+	var kegsNode *yaml.Node
+	for i := 0; i < len(doc.Content); i += 2 {
+		keyNode := doc.Content[i]
+		if keyNode.Value == "kegs" {
+			kegsNode = doc.Content[i+1]
+			break
+		}
+	}
+	if kegsNode == nil {
+		// append new mapping entry
+		key := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "kegs"}
+		val := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+		doc.Content = append(doc.Content, key, val)
+		kegsNode = val
+	}
+	// ensure kegsNode is mapping
+	if kegsNode.Kind != yaml.MappingNode {
+		newMap := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+		// replace in doc
+		for i := 0; i < len(doc.Content); i += 2 {
+			if doc.Content[i].Value == "kegs" {
+				doc.Content[i+1] = newMap
+				break
+			}
+		}
+		kegsNode = newMap
+	}
+
+	// find existing alias entry
+	found := false
+	for i := 0; i < len(kegsNode.Content); i += 2 {
+		keyNode := kegsNode.Content[i]
+		if keyNode.Value == alias {
+			// replace value with mapping containing url key
+			newVal := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+			urlKey := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "url"}
+			urlVal := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: urlRaw}
+			newVal.Content = append(newVal.Content, urlKey, urlVal)
+			kegsNode.Content[i+1] = newVal
+			found = true
+			break
+		}
+	}
+	if !found {
+		// append new alias mapping
+		keyNode := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: alias}
+		valMap := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+		urlKey := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "url"}
+		urlVal := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: urlRaw}
+		valMap.Content = append(valMap.Content, urlKey, urlVal)
+		kegsNode.Content = append(kegsNode.Content, keyNode, valMap)
+	}
+}
+
+// AddOrUpdateKegMapEntry adds or updates a keg map entry (prefix or regex).
+// If an entry with the same alias and same path field exists it's updated.
+func (uc *UserConfig) AddOrUpdateKegMapEntry(alias, pathPrefix, pathRegex string) {
+	if uc == nil {
+		return
+	}
+	// Update struct view: look for existing entry to update, otherwise append.
+	updated := false
+	for i := range uc.KegMap {
+		m := &uc.KegMap[i]
+		if m.Alias != alias {
+			continue
+		}
+		// match on provided path field
+		if pathPrefix != "" && m.PathPrefix != "" {
+			m.PathPrefix = pathPrefix
+			m.PathRegex = pathRegex
+			updated = true
+			break
+		}
+		if pathRegex != "" && m.PathRegex != "" {
+			m.PathRegex = pathRegex
+			m.PathPrefix = pathPrefix
+			updated = true
+			break
+		}
+	}
+	if !updated {
+		// append new entry
+		uc.KegMap = append(uc.KegMap, KegMapEntry{
+			Alias:      alias,
+			PathPrefix: pathPrefix,
+			PathRegex:  pathRegex,
+		})
+	}
+
+	// If no node present, return
+	if uc.node == nil {
+		return
+	}
+
+	// Ensure document root mapping exists
+	root := uc.node
+	if len(root.Content) == 0 {
+		m := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+		root.Content = []*yaml.Node{m}
+	}
+	doc := root.Content[0]
+
+	// find or create "kegMap" sequence node
+	var kegMapNode *yaml.Node
+	for i := 0; i < len(doc.Content); i += 2 {
+		if doc.Content[i].Value == "kegMap" {
+			kegMapNode = doc.Content[i+1]
+			break
+		}
+	}
+	if kegMapNode == nil {
+		// append new sequence entry
+		key := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "kegMap"}
+		seq := &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq"}
+		doc.Content = append(doc.Content, key, seq)
+		kegMapNode = seq
+	}
+	// ensure sequence node
+	if kegMapNode.Kind != yaml.SequenceNode {
+		newSeq := &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq"}
+		for i := 0; i < len(doc.Content); i += 2 {
+			if doc.Content[i].Value == "kegMap" {
+				doc.Content[i+1] = newSeq
+				break
+			}
+		}
+		kegMapNode = newSeq
+	}
+
+	// Try to find existing entry with same alias and same path field, update it.
+	found := false
+	for _, item := range kegMapNode.Content {
+		if item.Kind != yaml.MappingNode {
+			continue
+		}
+		var entryAlias, existingPrefix, existingRegex string
+		for j := 0; j < len(item.Content); j += 2 {
+			k := item.Content[j]
+			v := item.Content[j+1]
+			switch k.Value {
+			case "alias":
+				entryAlias = v.Value
+			case "pathPrefix":
+				existingPrefix = v.Value
+			case "pathRegex":
+				existingRegex = v.Value
+			}
+		}
+		if entryAlias != alias {
+			continue
+		}
+		// match when both alias and same path field exist
+		if pathPrefix != "" && existingPrefix != "" {
+			// update pathPrefix (or add if missing)
+			setOrReplaceMappingKey(item, "pathPrefix", pathPrefix)
+			// also update pathRegex key according to provided
+			if pathRegex != "" {
+				setOrReplaceMappingKey(item, "pathRegex", pathRegex)
+			}
+			found = true
+			break
+		}
+		if pathRegex != "" && existingRegex != "" {
+			setOrReplaceMappingKey(item, "pathRegex", pathRegex)
+			if pathPrefix != "" {
+				setOrReplaceMappingKey(item, "pathPrefix", pathPrefix)
+			}
+			found = true
+			break
+		}
+	}
+	if !found {
+		// append a new mapping entry to the sequence
+		newItem := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+		aliasKey := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "alias"}
+		aliasVal := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: alias}
+		newItem.Content = append(newItem.Content, aliasKey, aliasVal)
+		if pathPrefix != "" {
+			kKey := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "pathPrefix"}
+			kVal := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: pathPrefix}
+			newItem.Content = append(newItem.Content, kKey, kVal)
+		}
+		if pathRegex != "" {
+			kKey := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "pathRegex"}
+			kVal := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: pathRegex}
+			newItem.Content = append(newItem.Content, kKey, kVal)
+		}
+		kegMapNode.Content = append(kegMapNode.Content, newItem)
+	}
+}
+
+// setOrReplaceMappingKey sets the key to value on the provided mapping node.
+// If the key exists its value is replaced, otherwise the key/value are appended.
+func setOrReplaceMappingKey(mapNode *yaml.Node, key, val string) {
+	if mapNode == nil || mapNode.Kind != yaml.MappingNode {
+		return
+	}
+	for i := 0; i < len(mapNode.Content); i += 2 {
+		k := mapNode.Content[i]
+		if k.Value == key {
+			mapNode.Content[i+1] = &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: val}
+			return
+		}
+	}
+	// append
+	k := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key}
+	v := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: val}
+	mapNode.Content = append(mapNode.Content, k, v)
 }

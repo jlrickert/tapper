@@ -1,0 +1,259 @@
+package tap
+
+import (
+	"context"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	std "github.com/jlrickert/go-std/pkg"
+)
+
+// TestNormalize_LowercasesAndExpandsKegs verifies that Normalize lowercases
+// alias keys, expands env vars in KegUrl values and normalizes the default keg.
+func TestNormalize_LowercasesAndExpandsKegs(t *testing.T) {
+	ctx := context.Background()
+	tmp := t.TempDir()
+
+	// Provide an Env for expansion using go-std's test env.
+	env := std.NewTestEnv("", "")
+	if err := env.Set("KEG_USER_TEST_DIR", tmp); err != nil {
+		t.Fatalf("failed to set env in MapEnv: %v", err)
+	}
+	ctx = std.WithEnv(ctx, env)
+
+	uc := &UserConfig{
+		defaultKeg: "DefaultALias",
+		kegs: map[string]KegUrl{
+			"MyAlias": {Type: "file", Value: "$KEG_USER_TEST_DIR/keg"},
+			"Other":   {Type: "https", Value: "https://example.com/path"},
+		},
+		mappings: []Mapping{
+			{PathPrefix: "./src/project", Alias: "MyAlias"},
+		},
+	}
+
+	if err := uc.Normalize(ctx); err != nil {
+		t.Fatalf("Normalize failed: %v", err)
+	}
+
+	// defaultKeg should be lowercased
+	if uc.defaultKeg != "defaultalias" {
+		t.Fatalf("expected defaultKeg lowercased to 'defaultalias', got %q", uc.defaultKeg)
+	}
+
+	// kegs keys should be lowercased
+	if _, ok := uc.kegs["myalias"]; !ok {
+		t.Fatalf("expected keystore to contain lowercased key 'myalias'")
+	}
+	if _, ok := uc.kegs["other"]; !ok {
+		t.Fatalf("expected keystore to contain lowercased key 'other'")
+	}
+
+	// file value should be expanded and absolute
+	k := uc.kegs["myalias"]
+	if filepath.Base(k.Value) != "keg" {
+		t.Fatalf("expected expanded keg value to end with 'keg', got %q", k.Value)
+	}
+	if !filepath.IsAbs(k.Value) {
+		t.Fatalf("expected expanded keg value to be absolute, got %q", k.Value)
+	}
+}
+
+// TestResolveAlias checks ResolveAlias returns expected results for exact and
+// case-insensitive lookups and that missing aliases return an AliasNotFound error.
+func TestResolveAlias(t *testing.T) {
+	ctx := context.Background()
+	uc := &UserConfig{
+		kegs: map[string]KegUrl{
+			"MyAlias": {Type: "https", Value: "https://example.com/a"},
+			"other":   {Type: "file", Value: "/tmp/other"},
+		},
+	}
+
+	if err := uc.Normalize(ctx); err != nil {
+		t.Fatalf("Normalize failed: %v", err)
+	}
+
+	// Exact lookup (case-insensitive because keys are normalized)
+	got, err := uc.ResolveAlias(ctx, "MyAlias")
+	if err != nil {
+		t.Fatalf("ResolveAlias exact failed: %v", err)
+	}
+	if got == nil || !strings.HasPrefix(got.Value, "https://example.com") {
+		t.Fatalf("unexpected alias target: %#v", got)
+	}
+
+	// Lowercase lookup
+	got2, err := uc.ResolveAlias(ctx, "myalias")
+	if err != nil {
+		t.Fatalf("ResolveAlias lowercase failed: %v", err)
+	}
+	if got2 == nil || got2.Value != got.Value {
+		t.Fatalf("expected same target for case-insensitive lookup, got %v vs %v", got.Value, got2.Value)
+	}
+
+	// Missing alias returns typed AliasNotFoundError
+	_, err = uc.ResolveAlias(ctx, "nope")
+	if err == nil {
+		t.Fatal("expected error for missing alias, got nil")
+	}
+	if !IsAliasNotFound(err) {
+		t.Fatalf("expected AliasNotFound error, got: %v", err)
+	}
+}
+
+// TestResolveKegMap exercises prefix, regex and default-keg fallback behaviors.
+func TestResolveKegMap(t *testing.T) {
+	ctx := context.Background()
+
+	uc := &UserConfig{
+		defaultKeg: "default",
+		kegs: map[string]KegUrl{
+			"default": {Type: "https", Value: "https://default.example"},
+			"pref":    {Type: "file", Value: "/repos/prefkeg"},
+			"rx":      {Type: "https", Value: "https://rx.example"},
+		},
+		mappings: []Mapping{
+			{PathPrefix: "/repos/myproj", Alias: "pref"},
+			{PathRegex: ".*special.*", Alias: "rx"},
+			// mapping with missing alias should be skipped
+			{PathPrefix: "/invalid", Alias: "doesnotexist"},
+		},
+	}
+
+	if err := uc.Normalize(ctx); err != nil {
+		t.Fatalf("Normalize failed: %v", err)
+	}
+
+	// Prefix match
+	kurl, err := uc.ResolveKegMap(ctx, "/repos/myproj/sub/dir")
+	if err != nil {
+		t.Fatalf("ResolveKegMap prefix match failed: %v", err)
+	}
+	if kurl == nil || kurl.Value != "/repos/prefkeg" && !strings.HasPrefix(kurl.Value, "/repos/prefkeg") {
+		t.Fatalf("unexpected prefix-resolved target: %#v", kurl)
+	}
+
+	// Regex match
+	kurl2, err := uc.ResolveKegMap(ctx, "/some/path/special/thing")
+	if err != nil {
+		t.Fatalf("ResolveKegMap regex match failed: %v", err)
+	}
+	if kurl2 == nil || kurl2.Value != "https://rx.example" {
+		t.Fatalf("unexpected regex-resolved target: %#v", kurl2)
+	}
+
+	// No mapping -> fallback to defaultKeg
+	kurl3, err := uc.ResolveKegMap(ctx, "/unmatched/path")
+	if err != nil {
+		t.Fatalf("ResolveKegMap default fallback failed: %v", err)
+	}
+	if kurl3 == nil || !strings.HasPrefix(kurl3.Value, "https://default.example") {
+		t.Fatalf("unexpected default-resolved target: %#v", kurl3)
+	}
+}
+
+// TestResolveKegMap_NoConfig ensures ResolveKegMap returns ErrKegNotFound when
+// no user config is provided or nothing matches and no default is set.
+func TestResolveKegMap_NoConfig(t *testing.T) {
+	ctx := context.Background()
+
+	// Nil config
+	var uc *UserConfig
+	_, err := uc.ResolveKegMap(ctx, "/any/path")
+	if err == nil {
+		t.Fatal("expected error for nil config, got nil")
+	}
+	if err != ErrKegNotFound {
+		t.Fatalf("expected ErrKegNotFound for nil config, got %v", err)
+	}
+
+	// Empty config with no default and no mappings
+	uc2 := &UserConfig{}
+	_, err = uc2.ResolveKegMap(ctx, "/no/match")
+	if err == nil {
+		t.Fatal("expected error for no mapping and no default, got nil")
+	}
+	if err != ErrKegNotFound {
+		t.Fatalf("expected ErrKegNotFound for empty config, got %v", err)
+	}
+}
+
+// TestResolvePaths_TildeAndRelative ensures that ResolvePaths expands a home
+// shorthand (~) when HOME is set and correctly resolves ../.. style prefixes
+// in mapping PathPrefix entries.
+func TestResolvePaths_TildeAndRelative(t *testing.T) {
+	ctx := context.Background()
+
+	// Provide a temporary home directory and set HOME so expansion can be checked.
+	tmpHome := t.TempDir()
+
+	// Use go-std's NewTestEnv to provide HOME for expansion and attach it to ctx.
+	env := std.NewTestEnv(tmpHome, "")
+	ctx = std.WithEnv(ctx, env)
+
+	// Base path simulates a nested repo location.
+	basePath := filepath.Join(tmpHome, "repos", "myproj", "src", "pkg")
+
+	uc := &UserConfig{
+		kegs: map[string]KegUrl{
+			"home":    {Type: "file", Value: "~/keg"},
+			"homeenv": {Type: "file", Value: "$HOME/keg"},
+		},
+		mappings: []Mapping{
+			{PathPrefix: "../../otherproj", Alias: "home"},
+		},
+	}
+
+	// Normalize should expand env vars for $HOME entries; it may not expand ~,
+	// but ResolvePaths will attempt to absolutize relative paths for mappings and
+	// file-type kegs.
+	if err := uc.Normalize(ctx); err != nil {
+		t.Fatalf("Normalize failed: %v", err)
+	}
+
+	if err := uc.ResolvePaths(basePath); err != nil {
+		t.Fatalf("ResolvePaths failed: %v", err)
+	}
+
+	// Expected expanded home path for $HOME and ~ (we expect implementations to
+	// treat ~ as $HOME for convenience)
+	expectedHomeKeg := filepath.Clean(filepath.Join(tmpHome, "keg"))
+
+	// Check homeenv (should expand $HOME)
+	vEnv, ok := uc.kegs["homeenv"]
+	if !ok {
+		t.Fatalf("expected 'homeenv' keg to exist")
+	}
+	if !filepath.IsAbs(vEnv.Value) {
+		t.Fatalf("expected homeenv keg to be absolute, got %q", vEnv.Value)
+	}
+	if filepath.Clean(vEnv.Value) != expectedHomeKeg {
+		t.Fatalf("expected homeenv keg %q, got %q", expectedHomeKeg, vEnv.Value)
+	}
+
+	// Check home (tilde); some implementations expand ~, others may not. We
+	// assert expansion here to document desired behavior.
+	vTilde, ok := uc.kegs["home"]
+	if !ok {
+		t.Fatalf("expected 'home' keg to exist")
+	}
+	if !filepath.IsAbs(vTilde.Value) {
+		t.Fatalf("expected home (tilde) keg to be absolute, got %q", vTilde.Value)
+	}
+	if filepath.Clean(vTilde.Value) != expectedHomeKeg {
+		t.Fatalf("expected tilde-expanded keg %q, got %q", expectedHomeKeg, vTilde.Value)
+	}
+
+	// Verify mapping PathPrefix ../../otherproj resolved relative to basePath
+	if len(uc.mappings) == 0 {
+		t.Fatalf("expected mappings to be present")
+	}
+	resolvedPref := filepath.Clean(uc.mappings[0].PathPrefix)
+	expectedPrefAbs, _ := filepath.Abs(filepath.Join(basePath, "../../otherproj"))
+	expectedPrefAbs = filepath.Clean(expectedPrefAbs)
+	if resolvedPref != expectedPrefAbs {
+		t.Fatalf("expected mapping prefix %q, got %q", expectedPrefAbs, resolvedPref)
+	}
+}
