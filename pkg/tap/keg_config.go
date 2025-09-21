@@ -87,7 +87,7 @@ type KegConfigV2 struct {
 // LinkEntry represents a named link in the KEG configuration.
 type LinkEntry struct {
 	Alias string `json:"alias"` // Alias for the link
-	URL   KegUrl `json:"url"`   // URL of the link
+	URL   string `json:"url"`   // URL of the link
 }
 
 // IndexEntry represents an entry in the indexes list in the KEG configuration.
@@ -139,10 +139,9 @@ Key points:
 - Keep the zero node as a placeholder for planned content and update creator
   and url to reflect the keg's primary repo/location.`,
 		Links: []LinkEntry{
-			{Alias: "jlrickert", URL: KegUrl{
-				Type:  "https",
-				Value: "keg.jlrickert.me/@jlrickert/public",
-			},
+			{
+				Alias: "jlrickert",
+				URL:   "https://keg.jlrickert.me/@jlrickert/public",
 			},
 		},
 		Zekia: map[string]any{
@@ -205,13 +204,13 @@ func ParseKegConfig(data []byte) (*KegConfig, error) {
 	return &configV2, nil
 }
 
-func (c *KegConfig) ResolveAlias(alias string) *KegUrl {
+func (c *KegConfig) ResolveAlias(ctx context.Context, alias string) (*KegTarget, error) {
 	for _, entry := range c.Links {
 		if alias == entry.Alias {
-			return &entry.URL
+			return ParseKegTarget(ctx, entry.URL)
 		}
 	}
-	return nil
+	return nil, fmt.Errorf("alias %s not found: %w", alias, ErrNotFound)
 }
 
 // toYAML serializes the Config to YAML.
@@ -222,6 +221,11 @@ func (c *KegConfig) ToYAML() ([]byte, error) {
 // toJSON serializes the Config to JSON.
 func (c *KegConfig) ToJSON() ([]byte, error) {
 	return json.Marshal(c)
+}
+
+func (c *KegConfig) String() string {
+	out, _ := c.ToYAML()
+	return string(out)
 }
 
 func (lf *KegConfig) Touch(ctx context.Context) {
