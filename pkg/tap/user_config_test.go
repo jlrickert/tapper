@@ -18,8 +18,7 @@ func TestWriteUserConfig_PreservesComments(t *testing.T) {
 defaultKeg: main
 
 kegs:
-  main:
-    url: "~/keg" # inline url comment
+  main: "~/keg" # inline url comment
   # kegs trailing comment
 
 kegMap:
@@ -58,8 +57,7 @@ func TestClone_PreservesComments(t *testing.T) {
 	raw := `# config header
 defaultKeg: main
 kegs:
-  main:
-    url: "~/keg" # keep this inline
+  main: "~/keg" # keep this inline
 `
 
 	uc, err := tap.ParseUserConfig(fx.ctx, []byte(raw))
