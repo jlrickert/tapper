@@ -1,0 +1,498 @@
+// package tap
+//
+// import (
+// 	"bytes"
+// 	"context"
+// 	"fmt"
+// 	"maps"
+// 	"os"
+// 	"path/filepath"
+// 	"regexp"
+// 	"strings"
+//
+// 	std "github.com/jlrickert/go-std/pkg"
+// 	"gopkg.in/yaml.v3"
+// )
+//
+// // UserConfig is the optional higher-level tapper config (~/.config/tapper/config.yaml).
+// // It may contain multiple mappings that match repositories to keg targets.
+// type UserConfig struct {
+// 	// defaultKeg is the alias for the default keg
+// 	defaultKeg string `yaml:"defaultKeg,omitempty"`
+//
+// 	// Maps a path to a keg to use
+// 	mappings []Mapping         `yaml:"mappings,omitempty"`
+// 	kegs     map[string]KegUrl `yaml:"aliases,omitempty"`
+//
+// 	// raw holds the parsed YAML document node when the config was read from disk.
+// 	// Keeping the original node allows write operations to preserve comments and
+// 	// formatting that were present in the source YAML.
+// 	raw *yaml.Node `yaml:"-"`
+// }
+//
+// // Mapping is a single mapping entry in the user config.
+// type Mapping struct {
+// 	PathPrefix string `yaml:"prefix,omitempty"`
+// 	PathRegex  string `yaml:"regex,omitempty"`
+// 	Alias      string `yaml:"alias"`
+// }
+//
+// func (cfg *UserConfig) Normalize(ctx context.Context) error {
+// 	if cfg == nil {
+// 		return nil
+// 	}
+//
+// 	// Normalize default keg if present.
+// 	if cfg.defaultKeg != "" {
+// 		cfg.defaultKeg = strings.TrimSpace(strings.ToLower(cfg.defaultKeg))
+// 	}
+//
+// 	// Normalize aliases: lowercase keys and normalize each KegUrl value.
+// 	if cfg.kegs != nil {
+// 		newKegs := make(map[string]KegUrl, len(cfg.kegs))
+// 		for k, v := range cfg.kegs {
+// 			key := strings.TrimSpace(k)
+// 			lkey := strings.ToLower(key)
+//
+// 			path, err := std.ExpandPath(ctx, v.Value)
+// 			if err == nil {
+// 				v.URL = path
+// 			}
+//
+// 			// If duplicate lowercase keys occur, last one wins (deterministic
+// 			// iteration order is not guaranteed, but this keeps behavior
+// 			// simple).
+// 			newKegs[lkey] = v
+// 		}
+// 		cfg.kegs = newKegs
+// 	}
+//
+// 	// Normalize mappings: clean path prefixes, validate regex, normalize alias.
+// 	for i := range cfg.mappings {
+// 		m := &cfg.mappings[i]
+// 		if m.PathPrefix != "" {
+// 			m.PathPrefix = filepath.Clean(m.PathPrefix)
+// 		}
+// 		if m.PathRegex != "" {
+// 			if _, err := regexp.Compile(m.PathRegex); err != nil {
+// 				return fmt.Errorf("invalid mapping regex %q: %w", m.PathRegex, err)
+// 			}
+// 		}
+// 		path, err := std.ExpandPath(ctx, m.PathPrefix)
+// 		if err == nil {
+// 			m.PathPrefix = path
+// 		}
+// 		m.Alias = strings.TrimSpace(m.Alias)
+// 		m.Alias = strings.ToLower(m.Alias)
+// 	}
+//
+// 	// Expand environment variables and tilde in remaining string fields.
+// 	// This mirrors behavior in other config normalization helpers and centralizes
+// 	// expansion logic in ExpandEnv.
+// 	if err := cfg.ExpandEnv(ctx); err != nil {
+// 		return fmt.Errorf("expand env in user config: %w", err)
+// 	}
+//
+// 	return nil
+// }
+//
+// // ExpandEnv expands environment variables and tilde (~) in string fields of the
+// // UserConfig. It uses the Env obtained from the provided context via
+// // std.EnvFromContext. Fields expanded:
+// //   - mapping.PathPrefix
+// //   - mapping.PathRegex (env expansion only; regex validity is not rechecked here)
+// //   - kegs[*].Value
+// //
+// // ExpandEnv does not absolutize paths or validate regexes; callers should run
+// // ResolvePaths and Normalize (which validates regexes) as appropriate.
+// func (cfg *UserConfig) ExpandEnv(ctx context.Context) error {
+// 	if cfg == nil {
+// 		return nil
+// 	}
+//
+// 	// Expand in mappings
+// 	for i := range cfg.mappings {
+// 		m := &cfg.mappings[i]
+// 		if m.PathPrefix != "" {
+// 			// First expand env vars like $HOME, then expand leading tilde.
+// 			p := std.ExpandEnv(ctx, m.PathPrefix)
+// 			m.PathPrefix = p
+// 		}
+// 		if m.PathRegex != "" {
+// 			m.PathRegex = std.ExpandEnv(ctx, m.PathRegex)
+// 			// Do not recompile here; Normalize performs regex validation.
+// 		}
+// 	}
+//
+// 	// Expand in kegs
+// 	if cfg.kegs != nil {
+// 		for key, v := range cfg.kegs {
+// 			if v.Value != "" {
+// 				val := std.ExpandEnv(ctx, v.Value)
+// 				v.Value = val
+// 			}
+// 			cfg.kegs[key] = v
+// 		}
+// 	}
+//
+// 	return nil
+// }
+//
+// // ResolvePaths updates path-like fields in the UserConfig to be absolute,
+// // resolving relative paths against basePath. It processes mapping prefixes
+// // and file-type alias values. If basePath is empty, the current working
+// // directory is used.
+// func (cfg *UserConfig) ResolvePaths(basePath string) error {
+// 	if cfg == nil {
+// 		return nil
+// 	}
+//
+// 	base := basePath
+// 	if base == "" {
+// 		wd, err := os.Getwd()
+// 		if err != nil {
+// 			// fallback to "." if we cannot get cwd
+// 			base = "."
+// 		} else {
+// 			base = wd
+// 		}
+// 	}
+//
+// 	// Make base absolute if possible
+// 	if absBase, err := filepath.Abs(base); err == nil {
+// 		base = absBase
+// 	}
+//
+// 	// Resolve mapping prefixes
+// 	for i := range cfg.mappings {
+// 		m := &cfg.mappings[i]
+// 		if m.PathPrefix == "" {
+// 			continue
+// 		}
+// 		// If already absolute, just clean it.
+// 		if filepath.IsAbs(m.PathPrefix) {
+// 			m.PathPrefix = filepath.Clean(m.PathPrefix)
+// 			continue
+// 		}
+//
+// 		joined := filepath.Join(base, m.PathPrefix)
+// 		if abs, err := filepath.Abs(joined); err == nil {
+// 			m.PathPrefix = filepath.Clean(abs)
+// 		} else {
+// 			m.PathPrefix = filepath.Clean(joined)
+// 		}
+// 	}
+//
+// 	// Resolve file-type kegs that are relative paths
+// 	if cfg.kegs != nil {
+// 		for key, v := range cfg.kegs {
+// 			if v.Type == "file" {
+// 				val := v.Value
+// 				if val == "" {
+// 					cfg.kegs[key] = v
+// 					continue
+// 				}
+// 				// If already absolute, just clean
+// 				if filepath.IsAbs(val) {
+// 					v.Value = filepath.Clean(val)
+// 					cfg.kegs[key] = v
+// 					continue
+// 				}
+// 				// Join with base and absolutize
+// 				joined := filepath.Join(base, val)
+// 				if abs, err := filepath.Abs(joined); err == nil {
+// 					v.Value = filepath.Clean(abs)
+// 				} else {
+// 					v.Value = filepath.Clean(joined)
+// 				}
+// 				cfg.kegs[key] = v
+// 			}
+// 		}
+// 	}
+//
+// 	return nil
+// }
+//
+// // Clone returns a deep copy of the UserConfig. It clones slices and maps so
+// // modifications to the result will not affect the original.
+// func (cfg *UserConfig) Clone() *UserConfig {
+// 	if cfg == nil {
+// 		return nil
+// 	}
+// 	clone := &UserConfig{
+// 		defaultKeg: cfg.defaultKeg,
+// 	}
+//
+// 	if len(cfg.mappings) > 0 {
+// 		clone.mappings = make([]Mapping, len(cfg.mappings))
+// 		copy(clone.mappings, cfg.mappings)
+// 	}
+//
+// 	if cfg.kegs != nil {
+// 		clone.kegs = make(map[string]KegUrl, len(cfg.kegs))
+// 		maps.Copy(clone.kegs, cfg.kegs)
+// 	}
+//
+// 	// Note: intentionally do not copy raw node to avoid accidental sharing of
+// 	// comment-bearing nodes between original and clone.
+// 	return clone
+// }
+//
+// // ResolveKegAlias looks up an alias in the user's Tapper configuration and
+// // returns the resolved KegTarget. Behavior:
+// //
+// //   - Prefers an exact key match against cfg.Aliases.
+// //   - Falls back to a case-insensitive match if no exact key is found.
+// //   - If no user config is available or the alias cannot be found, a typed
+// //     AliasNotFoundError is returned.
+// //
+// // Note: This function only reads and validates the alias entry. It does not
+// // perform further resolution (for example preferring local paths or expanding
+// // other alias tokens); callers that need that behavior should load the full
+// // UserConfig and use ResolveKegTargetForRepo as appropriate.
+// func (cfg *UserConfig) ResolveAlias(ctx context.Context, alias string) (*KegUrl, error) {
+// 	if cfg == nil {
+// 		return nil, NewAliasNotFoundError(alias)
+// 	}
+// 	if cfg.kegs == nil {
+// 		return nil, NewAliasNotFoundError(alias)
+// 	}
+//
+// 	if target, ok := cfg.kegs[alias]; ok {
+// 		return &target, nil
+// 	}
+//
+// 	// Case-insensitive fallback.
+// 	if target, ok := cfg.kegs[strings.ToLower(alias)]; ok {
+// 		return &target, nil
+// 	}
+//
+// 	return nil, NewAliasNotFoundError(alias)
+// }
+//
+// // ResolveKegMap searches the configured mappings for one that matches the
+// // provided path and returns the resolved KegUrl for the mapping's alias.
+// // Matching rules (checked in declaration order):
+// //   - If Mapping.PathPrefix is set and path has that prefix -> match.
+// //   - If Mapping.PathRegex is set and the regex matches -> match.
+// //
+// // For a matched mapping the function attempts to resolve mapping.Alias via
+// // ResolveAlias. If the alias is not found the mapping is skipped and search
+// // continues. If no mapping matches and a defaultKeg is configured, the default
+// // is returned. If nothing is found ErrKegNotFound is returned.
+// //
+// // Note: This function uses the first matching mapping. More advanced tie-
+// // breaking (priority, specificity) can be added later.
+// func (cfg *UserConfig) ResolveKegMap(ctx context.Context, path string) (*KegUrl, error) {
+// 	lg := std.LoggerFromContext(ctx)
+//
+// 	if cfg == nil {
+// 		lg.Debug("no user config provided to ResolveKegMap")
+// 		return nil, ErrKegNotFound
+// 	}
+//
+// 	// Normalize incoming path for stable comparisons.
+// 	p := filepath.Clean(path)
+//
+// 	for _, m := range cfg.mappings {
+// 		// PathPrefix matching
+// 		if m.PathPrefix != "" {
+// 			pref := filepath.Clean(m.PathPrefix)
+// 			if strings.HasPrefix(p, pref) {
+// 				if m.Alias == "" {
+// 					lg.Debug("mapping matched by prefix but has no alias", "prefix", m.PathPrefix, "path", p)
+// 					continue
+// 				}
+// 				kurl, err := cfg.ResolveAlias(ctx, m.Alias)
+// 				if err != nil {
+// 					lg.Debug("mapping alias not found, skipping", "alias", m.Alias, "err", err)
+// 					continue
+// 				}
+// 				lg.Info("resolved keg via mapping (prefix)", "prefix", m.PathPrefix, "alias", m.Alias)
+// 				return kurl, nil
+// 			}
+// 		}
+//
+// 		// Regex matching
+// 		if m.PathRegex != "" {
+// 			re, err := regexp.Compile(m.PathRegex)
+// 			if err != nil {
+// 				lg.Error("invalid mapping regex, skipping", "regex", m.PathRegex, "err", err)
+// 				continue
+// 			}
+// 			if re.MatchString(p) {
+// 				if m.Alias == "" {
+// 					lg.Debug("mapping matched by regex but has no alias", "regex", m.PathRegex, "path", p)
+// 					continue
+// 				}
+// 				kurl, err := cfg.ResolveAlias(ctx, m.Alias)
+// 				if err != nil {
+// 					lg.Debug("mapping alias not found, skipping", "alias", m.Alias, "err", err)
+// 					continue
+// 				}
+// 				lg.Info("resolved keg via mapping (regex)", "regex", m.PathRegex, "alias", m.Alias)
+// 				return kurl, nil
+// 			}
+// 		}
+// 	}
+//
+// 	// Fallback to defaultKeg if configured.
+// 	if cfg.defaultKeg != "" {
+// 		lg.Info("using default keg from user config")
+// 		return cfg.ResolveAlias(ctx, cfg.defaultKeg)
+// 	}
+//
+// 	lg.Debug("no mapping matched and no default keg configured", "path", p)
+// 	return nil, ErrKegNotFound
+// }
+//
+// // ParseUserConfig parses YAML into a UserConfig while retaining the original
+// // yaml.Node so comments can be preserved when writing the file back out.
+// func ParseUserConfig(ctx context.Context, data []byte) (*UserConfig, error) {
+// 	var doc yaml.Node
+// 	if err := yaml.Unmarshal(data, &doc); err != nil {
+// 		return nil, fmt.Errorf("failed to parse user config: %w", err)
+// 	}
+//
+// 	var uc UserConfig
+// 	// Decode node into struct (preserves types). Node.Decode will use the node's
+// 	// content to populate the struct fields.
+// 	if err := doc.Decode(&uc); err != nil {
+// 		return nil, fmt.Errorf("failed to decode user config node: %w", err)
+// 	}
+//
+// 	// Keep the original document node to preserve comments on write.
+// 	uc.raw = &doc
+//
+// 	if err := uc.Normalize(ctx); err != nil {
+// 		return nil, fmt.Errorf("failed to normalize user config: %w", err)
+// 	}
+// 	return &uc, nil
+// }
+//
+// func ReadUserConfig(ctx context.Context, path string) (*UserConfig, error) {
+// 	b, err := os.ReadFile(path)
+// 	if err != nil {
+// 		return nil, err
+// 	}
+// 	cfg, err := ParseUserConfig(ctx, b)
+// 	if err != nil {
+// 		return cfg, err
+// 	}
+// 	root := filepath.Dir(path)
+// 	cfg.ResolvePaths(root)
+// 	return cfg, nil
+// }
+//
+// // mergeMappingComments copies comments from src mapping node into dst mapping node
+// // for matching keys. It prefers to copy comments that exist on the source node
+// // into the destination node, recursing for nested mappings.
+// func mergeMappingComments(dst, src *yaml.Node) {
+// 	// Copy top-level mapping comments if present on src
+// 	if src.HeadComment != "" {
+// 		dst.HeadComment = src.HeadComment
+// 	}
+// 	if src.LineComment != "" {
+// 		dst.LineComment = src.LineComment
+// 	}
+// 	if src.FootComment != "" {
+// 		dst.FootComment = src.FootComment
+// 	}
+//
+// 	// src.Content contains key/value pairs
+// 	for i := 0; i+1 < len(src.Content); i += 2 {
+// 		sk := src.Content[i]
+// 		sv := src.Content[i+1]
+//
+// 		// Find the matching key in dst
+// 		for j := 0; j+1 < len(dst.Content); j += 2 {
+// 			dk := dst.Content[j]
+// 			dv := dst.Content[j+1]
+// 			if dk.Value == sk.Value {
+// 				// Copy key comments
+// 				if sk.HeadComment != "" {
+// 					dk.HeadComment = sk.HeadComment
+// 				}
+// 				if sk.LineComment != "" {
+// 					dk.LineComment = sk.LineComment
+// 				}
+// 				if sk.FootComment != "" {
+// 					dk.FootComment = sk.FootComment
+// 				}
+// 				// Copy value comments
+// 				if sv.HeadComment != "" {
+// 					dv.HeadComment = sv.HeadComment
+// 				}
+// 				if sv.LineComment != "" {
+// 					dv.LineComment = sv.LineComment
+// 				}
+// 				if sv.FootComment != "" {
+// 					dv.FootComment = sv.FootComment
+// 				}
+// 				// Recurse for nested mapping nodes
+// 				if sv.Kind == yaml.MappingNode && dv.Kind == yaml.MappingNode {
+// 					mergeMappingComments(dv, sv)
+// 				}
+// 				break
+// 			}
+// 		}
+// 	}
+// }
+//
+// // WriteUserConfig writes the UserConfig to pathName atomically while attempting
+// // to preserve comments and formatting from the original file when available.
+// func (uc *UserConfig) WriteUserConfig(ctx context.Context, path string) error {
+// 	lg := std.LoggerFromContext(ctx)
+//
+// 	// Encode the current struct into a YAML node
+// 	outBytes, err := yaml.Marshal(uc)
+// 	if err != nil {
+// 		lg.Error("marshal user config", "err", err, "path", path)
+// 		return fmt.Errorf("marshal user config: %w", err)
+// 	}
+// 	var outDoc yaml.Node
+// 	if err := yaml.Unmarshal(outBytes, &outDoc); err != nil {
+// 		lg.Error("unmarshal generated yaml into node", "err", err, "path", path)
+// 		return fmt.Errorf("internal error preparing user config: %w", err)
+// 	}
+//
+// 	// If we have an original parsed document, merge comments from it.
+// 	if uc != nil && uc.raw != nil && len(uc.raw.Content) > 0 && len(outDoc.Content) > 0 {
+// 		srcRoot := uc.raw.Content[0]
+// 		dstRoot := outDoc.Content[0]
+// 		if srcRoot.Kind == yaml.MappingNode && dstRoot.Kind == yaml.MappingNode {
+// 			mergeMappingComments(dstRoot, srcRoot)
+// 			// Also copy document-level comments
+// 			if uc.raw.HeadComment != "" {
+// 				outDoc.HeadComment = uc.raw.HeadComment
+// 			}
+// 			if uc.raw.LineComment != "" {
+// 				outDoc.LineComment = uc.raw.LineComment
+// 			}
+// 			if uc.raw.FootComment != "" {
+// 				outDoc.FootComment = uc.raw.FootComment
+// 			}
+// 		}
+// 	}
+//
+// 	// Encode the node back to bytes using yaml.Encoder so node comments are honored.
+// 	var buf bytes.Buffer
+// 	enc := yaml.NewEncoder(&buf)
+// 	enc.SetIndent(2)
+// 	if err := enc.Encode(&outDoc); err != nil {
+// 		enc.Close()
+// 		lg.Error("encode user config node", "err", err, "path", path)
+// 		return fmt.Errorf("encode user config node: %w", err)
+// 	}
+// 	if err := enc.Close(); err != nil {
+// 		lg.Error("close yaml encoder", "err", err, "path", path)
+// 		return fmt.Errorf("encode user config node: %w", err)
+// 	}
+//
+// 	if err := std.AtomicWriteFile(path, buf.Bytes(), 0o644); err != nil {
+// 		lg.Error("failed to write to user config", "err", err, "path", path)
+// 		return fmt.Errorf("failed to write user config: %w", err)
+// 	}
+//
+// 	return nil
+// }
