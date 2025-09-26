@@ -106,6 +106,9 @@ func ParseMeta(ctx context.Context, raw []byte) (*Meta, error) {
 // ToYAML serializes the Meta to a YAML string. When the Meta carries an original
 // parsed yaml.Node we prefer encoding that node to preserve comments and layout.
 // Otherwise we marshal a temporary exported struct.
+//
+// This function also ensures tag lists are normalized and emitted in ascending
+// order.
 func (m *Meta) ToYAML() string {
 	if m == nil {
 		return ""
@@ -113,6 +116,39 @@ func (m *Meta) ToYAML() string {
 
 	// Prefer writing the original node to preserve comments and formatting.
 	if m.node != nil {
+		// Attempt to normalize the "tags" sequence inside the parsed node so the
+		// emitted YAML has tags in ascending order while preserving comments.
+		if len(m.node.Content) > 0 {
+			root := m.node.Content[0]
+			// root expected to be a mapping node for typical document structure.
+			if root != nil && root.Kind == yaml.MappingNode {
+				for i := 0; i+1 < len(root.Content); i += 2 {
+					key := root.Content[i]
+					val := root.Content[i+1]
+					if key != nil && key.Kind == yaml.ScalarNode &&
+						key.Value == "tags" && val != nil &&
+						val.Kind == yaml.SequenceNode {
+						// collect scalar values
+						var toks []string
+						for _, n := range val.Content {
+							if n != nil && n.Kind == yaml.ScalarNode {
+								toks = append(toks, n.Value)
+							}
+						}
+						// normalize and sort tokens
+						toks = NormalizeTags(toks)
+						// rebuild sequence node with sorted scalars
+						seq := &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq"}
+						for _, s := range toks {
+							seq.Content = append(seq.Content,
+								&yaml.Node{Kind: yaml.ScalarNode, Value: s, Tag: "!!str"})
+						}
+						root.Content[i+1] = seq
+					}
+				}
+			}
+		}
+
 		var buf bytes.Buffer
 		enc := yaml.NewEncoder(&buf)
 		enc.SetIndent(2)
@@ -125,11 +161,15 @@ func (m *Meta) ToYAML() string {
 		return out
 	}
 
-	// Fallback to marshaling an exported struct.
+	// Fallback to marshaling an exported struct. Ensure tags are sorted.
+	tags := make([]string, len(m.tags))
+	copy(tags, m.tags)
+	sort.Strings(tags)
+
 	t := metaYAML{
 		Title:    m.title,
 		Hash:     m.hash,
-		Tags:     m.tags,
+		Tags:     tags,
 		Updated:  m.updated,
 		Created:  m.created,
 		Accessed: m.accessed,
@@ -240,6 +280,8 @@ func (m *Meta) Tags() []string {
 	}
 	out := make([]string, len(m.tags))
 	copy(out, m.tags)
+	// ensure callers always see tags in ascending order
+	sort.Strings(out)
 	return out
 }
 
@@ -317,7 +359,11 @@ func (m *Meta) Get(key string) (string, bool) {
 		if len(m.tags) == 0 {
 			return "", false
 		}
-		return strings.Join(m.tags, " "), true
+		// return tags joined with single spaces, in ascending order
+		toks := make([]string, len(m.tags))
+		copy(toks, m.tags)
+		sort.Strings(toks)
+		return strings.Join(toks, " "), true
 	case "updated":
 		if m.updated.IsZero() {
 			return "", false
