@@ -1,9 +1,9 @@
-package tap_test
+package keg_test
 
 import (
 	"testing"
 
-	"github.com/jlrickert/tapper/pkg/tap"
+	"github.com/jlrickert/tapper/pkg/keg"
 	"github.com/stretchr/testify/require"
 )
 
@@ -23,10 +23,10 @@ indexes:
     summary: "Index 2 summary"
 `
 
-	config, err := tap.ParseKegConfig([]byte(v1Yaml))
+	config, err := keg.ParseKegConfig([]byte(v1Yaml))
 	require.NoError(t, err, "ParseKegConfig failed")
 
-	require.Equal(t, tap.ConfigV2VersionString, config.Kegv)
+	require.Equal(t, keg.ConfigV2VersionString, config.Kegv)
 	require.Equal(t, "Test KEG V1", config.Title)
 	require.Len(t, config.Indexes, 2)
 	require.Equal(t, "index1.md", config.Indexes[0].File)
@@ -53,10 +53,10 @@ indexes:
     summary: "Index 1 summary"
 `
 
-	config, err := tap.ParseKegConfig([]byte(v2Yaml))
+	config, err := keg.ParseKegConfig([]byte(v2Yaml))
 	require.NoError(t, err, "ParseKegConfig failed")
 
-	require.Equal(t, tap.ConfigV2VersionString, config.Kegv)
+	require.Equal(t, keg.ConfigV2VersionString, config.Kegv)
 	require.Equal(t, "Test KEG V2", config.Title)
 
 	require.Len(t, config.Links, 2, "expected 2 links")
@@ -79,7 +79,7 @@ kegv: "invalid-version"
 title: "Invalid version test"
 `
 
-	_, err := tap.ParseKegConfig([]byte(invalidYaml))
+	_, err := keg.ParseKegConfig([]byte(invalidYaml))
 	require.Error(t, err, "expected error for unsupported config version")
 	require.Contains(t, err.Error(), "unsupported config version")
 }
@@ -89,7 +89,7 @@ func TestParseConfigDataMissingVersion(t *testing.T) {
 title: "Missing version test"
 `
 
-	_, err := tap.ParseKegConfig([]byte(missingVersionYaml))
+	_, err := keg.ParseKegConfig([]byte(missingVersionYaml))
 	require.Error(t, err, "expected error for missing version field")
 	require.Contains(t, err.Error(), "missing or invalid kegv")
 }

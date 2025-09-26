@@ -117,10 +117,6 @@ func WithEnvMap(m map[string]string) FixtureOption {
 	}
 }
 
-func (f *Fixture) Context() context.Context {
-	return f.ctx
-}
-
 // Helper wrapper: WriteLocalConfigFile writes LocalConfig into projectPath/.tapper/local.yaml
 // and fails the test on error.
 func (f *Fixture) WriteLocalConfigFile(projectPath string, lf *tap.LocalConfig) {

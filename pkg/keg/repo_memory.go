@@ -6,9 +6,6 @@ import (
 	"sort"
 	"sync"
 	"time"
-
-	terrs "github.com/jlrickert/tapper/pkg/errors"
-	"github.com/jlrickert/tapper/pkg/tap"
 )
 
 // MemoryRepo is an in-memory implementation of KegRepository intended for
@@ -36,7 +33,7 @@ type MemoryRepo struct {
 	// indexes stores raw index files by name (for example: "nodes.tsv").
 	indexes map[string][]byte
 	// config holds the in-memory Config if written.
-	config *tap.KegConfig
+	config *KegConfig
 }
 
 type memoryNode struct {
@@ -108,7 +105,7 @@ func (r *MemoryRepo) ReadContent(ctx context.Context, id Node) ([]byte, error) {
 	n, ok := r.nodes[id]
 	r.mu.RUnlock()
 	if !ok {
-		return nil, terrs.ErrNodeNotFound
+		return nil, ErrNodeNotFound
 	}
 
 	if n.content == nil {
@@ -130,10 +127,10 @@ func (r *MemoryRepo) ReadMeta(ctx context.Context, id Node) ([]byte, error) {
 	n, ok := r.nodes[id]
 	r.mu.RUnlock()
 	if !ok {
-		return nil, terrs.ErrNodeNotFound
+		return nil, ErrNodeNotFound
 	}
 	if n.meta == nil {
-		return nil, terrs.ErrNotFound
+		return nil, ErrNotFound
 	}
 	cp := make([]byte, len(n.meta))
 	copy(cp, n.meta)
@@ -194,7 +191,7 @@ func (r *MemoryRepo) getNode(id Node) (*memoryNode, bool) {
 func (r *MemoryRepo) ListItems(ctx context.Context, id Node) ([]string, error) {
 	n, ok := r.getNode(id)
 	if !ok {
-		return nil, terrs.ErrNodeNotFound
+		return nil, ErrNodeNotFound
 	}
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -211,7 +208,7 @@ func (r *MemoryRepo) ListItems(ctx context.Context, id Node) ([]string, error) {
 func (r *MemoryRepo) ListImages(ctx context.Context, id Node) ([]string, error) {
 	n, ok := r.getNode(id)
 	if !ok {
-		return nil, terrs.ErrNodeNotFound
+		return nil, ErrNodeNotFound
 	}
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -276,10 +273,10 @@ func (r *MemoryRepo) MoveNode(ctx context.Context, id Node, dst Node) error {
 	defer r.mu.Unlock()
 	srcNode, ok := r.nodes[id]
 	if !ok {
-		return terrs.ErrNodeNotFound
+		return ErrNodeNotFound
 	}
 	if _, exists := r.nodes[dst]; exists {
-		return terrs.ErrDestinationExists
+		return ErrDestinationExists
 	}
 	// Move (transfer pointer)
 	r.nodes[dst] = srcNode
@@ -294,7 +291,7 @@ func (r *MemoryRepo) GetIndex(ctx context.Context, name string) ([]byte, error) 
 	defer r.mu.RUnlock()
 	b, ok := r.indexes[name]
 	if !ok {
-		return nil, terrs.ErrNotFound
+		return nil, ErrNotFound
 	}
 	cp := make([]byte, len(b))
 	copy(cp, b)
@@ -323,7 +320,7 @@ func (r *MemoryRepo) DeleteNode(ctx context.Context, id Node) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if _, ok := r.nodes[id]; !ok {
-		return terrs.ErrNodeNotFound
+		return ErrNodeNotFound
 	}
 	delete(r.nodes, id)
 	return nil
@@ -338,10 +335,10 @@ func (r *MemoryRepo) DeleteImage(ctx context.Context, id Node, name string) erro
 	defer r.mu.Unlock()
 	n, ok := r.nodes[id]
 	if !ok {
-		return terrs.ErrNodeNotFound
+		return ErrNodeNotFound
 	}
 	if _, ok := n.images[name]; !ok {
-		return terrs.ErrNotFound
+		return ErrNotFound
 	}
 	delete(n.images, name)
 	return nil
@@ -356,10 +353,10 @@ func (r *MemoryRepo) DeleteItem(ctx context.Context, id Node, name string) error
 	defer r.mu.Unlock()
 	n, ok := r.nodes[id]
 	if !ok {
-		return terrs.ErrNodeNotFound
+		return ErrNodeNotFound
 	}
 	if _, ok := n.items[name]; !ok {
-		return terrs.ErrNotFound
+		return ErrNotFound
 	}
 	delete(n.items, name)
 	return nil
@@ -368,18 +365,18 @@ func (r *MemoryRepo) DeleteItem(ctx context.Context, id Node, name string) error
 // ReadConfig returns the repository-level config previously written with
 // WriteConfig. If no config has been written, ErrNotFound is returned.
 // A copy of the stored Config is returned to avoid external mutation.
-func (r *MemoryRepo) ReadConfig(ctx context.Context) (*tap.KegConfig, error) {
+func (r *MemoryRepo) ReadConfig(ctx context.Context) (*KegConfig, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	if r.config == nil {
-		return nil, terrs.ErrNotFound
+		return nil, ErrNotFound
 	}
 	c := *r.config
 	return &c, nil
 }
 
 // WriteConfig stores the provided Config in-memory. A copy of the value is kept.
-func (r *MemoryRepo) WriteConfig(ctx context.Context, config *tap.KegConfig) error {
+func (r *MemoryRepo) WriteConfig(ctx context.Context, config *KegConfig) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	c := config
@@ -395,7 +392,7 @@ func (r *MemoryRepo) ClearNodeLock(ctx context.Context, id Node) error {
 
 	n, ok := r.nodes[id]
 	if !ok {
-		return terrs.ErrNodeNotFound
+		return ErrNodeNotFound
 	}
 
 	// Remove the lock marker if present.
@@ -423,7 +420,7 @@ func (r *MemoryRepo) LockNode(ctx context.Context, id Node, retryInterval time.D
 	n, ok := r.nodes[id]
 	if !ok {
 		r.mu.Unlock()
-		return nil, terrs.ErrNodeNotFound
+		return nil, ErrNodeNotFound
 	}
 	if _, locked := n.items[KegLockFile]; !locked {
 		// Acquire lock by setting a reserved item key.
@@ -452,13 +449,13 @@ func (r *MemoryRepo) LockNode(ctx context.Context, id Node, retryInterval time.D
 		case <-ctx.Done():
 			// Per package semantics, use ErrLockTimeout to indicate the lock
 			// acquisition was canceled/timed out.
-			return nil, terrs.ErrLockTimeout
+			return nil, ErrLockTimeout
 		case <-ticker.C:
 			r.mu.Lock()
 			n, ok := r.nodes[id]
 			if !ok {
 				r.mu.Unlock()
-				return nil, terrs.ErrNodeNotFound
+				return nil, ErrNodeNotFound
 			}
 			if _, locked := n.items[KegLockFile]; !locked {
 				n.items[KegLockFile] = []byte{1}

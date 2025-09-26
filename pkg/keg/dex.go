@@ -7,8 +7,6 @@ import (
 	"maps"
 	"slices"
 	"sync"
-
-	tapper_errors "github.com/jlrickert/tapper/pkg/errors"
 )
 
 // Dex provides a high-level, in-memory view of the repository's generated
@@ -39,68 +37,82 @@ type Dex struct {
 func NewDexFromRepo(ctx context.Context, repo KegRepository) (*Dex, error) {
 	d := &Dex{}
 
+	var errs []error
+
 	// nodes.tsv
 	if data, err := repo.GetIndex(ctx, "nodes.tsv"); err != nil {
-		if errors.Is(err, tapper_errors.ErrNotFound) {
+		if errors.Is(err, ErrNotFound) {
 			d.nodes = NodeIndex{}
 		} else {
-			return nil, fmt.Errorf("unable to read `nodes.tsv` index: %w", err)
+			errs = append(errs, fmt.Errorf("unable to read `nodes.tsv` index: %w", err))
 		}
 	} else {
 		ni, err := ParseNodeIndex(ctx, data)
 		if err != nil {
-			return nil, fmt.Errorf("unable to parse `nodes.tsv` index: %w", err)
+			errs = append(errs, fmt.Errorf("unable to parse `nodes.tsv` index: %w", err))
+			d.nodes = NodeIndex{}
+		} else {
+			d.nodes = ni
 		}
-		d.nodes = ni
 	}
 
 	// tags
 	if data, err := repo.GetIndex(ctx, "tags"); err != nil {
-		if errors.Is(err, tapper_errors.ErrNotFound) {
+		if errors.Is(err, ErrNotFound) {
 			d.tags = TagIndex{}
 		} else {
-			return nil, fmt.Errorf("unable to read `tags` index: %w", err)
+			errs = append(errs, fmt.Errorf("unable to read `tags` index: %w", err))
 		}
 	} else {
 		ti, err := ParseTagIndex(ctx, data)
 		if err != nil {
-			return nil, fmt.Errorf("unable to parse `tags` index: %w", err)
+			errs = append(errs, fmt.Errorf("unable to parse `tags` index: %w", err))
+			d.tags = TagIndex{}
+		} else {
+			d.tags = ti
 		}
-		d.tags = ti
 	}
 
 	// links
 	if data, err := repo.GetIndex(ctx, "links"); err != nil {
-		if errors.Is(err, tapper_errors.ErrNotFound) {
+		if errors.Is(err, ErrNotFound) {
 			d.links = LinkIndex{}
 		} else {
-			return nil, fmt.Errorf("unable to read `links` index: %w", err)
+			errs = append(errs, fmt.Errorf("unable to read `links` index: %w", err))
 		}
 	} else {
 		li, err := ParseLinkIndex(ctx, data)
 		if err != nil {
-			return nil, fmt.Errorf("unable to parse `links` index: %w", err)
+			errs = append(errs, fmt.Errorf("unable to parse `links` index: %w", err))
+			d.links = LinkIndex{}
+		} else {
+			d.links = li
 		}
-		d.links = li
 	}
 
 	// backlinks
 	if data, err := repo.GetIndex(ctx, "backlinks"); err != nil {
-		if errors.Is(err, tapper_errors.ErrNotFound) {
+		if errors.Is(err, ErrNotFound) {
 			d.backlinks = BacklinkIndex{}
 		} else {
-			return nil, fmt.Errorf("unable to read `backlinks` index: %w", err)
+			errs = append(errs, fmt.Errorf("unable to read `backlinks` index: %w", err))
 		}
 	} else {
 		bi, err := ParseBacklinksIndex(ctx, data)
 		if err != nil {
-			return nil, fmt.Errorf("unable to parse `backlinks` index: %w", err)
-		}
-		if bi != nil {
-			d.backlinks = *bi
-		} else {
+			errs = append(errs, fmt.Errorf("unable to parse `backlinks` index: %w", err))
 			d.backlinks = BacklinkIndex{}
+		} else {
+			if bi != nil {
+				d.backlinks = *bi
+			} else {
+				d.backlinks = BacklinkIndex{}
+			}
 		}
+	}
+
+	if len(errs) > 0 {
+		return d, errors.Join(errs...)
 	}
 
 	return d, nil
