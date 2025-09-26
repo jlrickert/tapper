@@ -8,8 +8,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/jlrickert/tapper/pkg/tap"
-
 	"github.com/yuin/goldmark"
 	gm_ast "github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/text"
@@ -48,7 +46,7 @@ func ParseContent(ctx context.Context, data []byte, format string) (*Content, er
 	}
 
 	fmt := detectFormat(data, format)
-	hasher := tap.HasherFromContext(ctx)
+	hasher := HasherFromContext(ctx)
 
 	var title, lead string
 	switch fmt {

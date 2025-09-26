@@ -7,7 +7,7 @@ import (
 	"time"
 
 	std "github.com/jlrickert/go-std/pkg"
-	"github.com/jlrickert/tapper/pkg/tap"
+	"github.com/jlrickert/tapper/pkg/keg"
 )
 
 // FixtureOption modifies a Fixture during construction.
@@ -22,7 +22,7 @@ type Fixture struct {
 	logger *std.TestHandler
 	env    *std.MapEnv
 	clock  *std.TestClock
-	hasher *tap.MD5Hasher
+	hasher *keg.MD5Hasher
 
 	// optional runtime state
 	tempDir string
@@ -37,7 +37,7 @@ func NewFixture(t *testing.T, opts ...FixtureOption) *Fixture {
 	lg, handler := std.NewTestLogger(t, std.ParseLevel("debug"))
 	env := std.NewTestEnv(filepath.Join(tempDir, "home", "testuser"), "testuser")
 	clock := std.NewTestClock(time.Now())
-	hasher := &tap.MD5Hasher{}
+	hasher := &keg.MD5Hasher{}
 
 	// populate common temp env vars
 	tmp := filepath.Join(tempDir, "tmp")

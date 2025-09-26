@@ -11,19 +11,22 @@ import (
 	"strings"
 
 	std "github.com/jlrickert/go-std/pkg"
+	"github.com/jlrickert/tapper/pkg/keg"
 	"gopkg.in/yaml.v3"
 )
 
-// UserConfig represents the user's tapper configuration. We keep both a
-// deserialized Go-friendly view (for quick access) and the original yaml.Node
-// for in-place edits so comments and formatting are preserved when writing.
+// UserConfig represents the user's tapper configuration.
+//
+// We keep both a deserialized Go-friendly view (for quick access) and the
+// original yaml.Node for in-place edits so comments and formatting are
+// preserved when writing.
 type UserConfig struct {
 	DefaultKeg string            `yaml:"defaultKeg,omitempty"`
 	KegMap     []KegMapEntry     `yaml:"kegMap"`
 	Kegs       map[string]KegUrl `yaml:"kegs"`
 
 	// node holds the original parsed YAML document root (document node). When
-	// present we edit it directly to preserve comments and overall structure.
+	// present we edit it directly to preserve comments and layout.
 	node *yaml.Node
 }
 
@@ -33,9 +36,10 @@ type KegMapEntry struct {
 	PathRegex  string `yaml:"pathRegex,omitempty"`
 }
 
-// KegUrl represents a keg reference. To allow YAML to accept either a simple
-// string (the URL) or a mapping with fields, UnmarshalYAML and MarshalYAML are
-// implemented so the field supports both forms.
+// KegUrl represents a keg reference.
+//
+// YAML may supply either a plain scalar (URL string) or a mapping with fields.
+// UnmarshalYAML and MarshalYAML support both forms so the field is flexible.
 type KegUrl struct {
 	URL      string `yaml:"url,omitempty"`
 	Readonly bool   `yaml:"readonly,omitempty"`
@@ -45,8 +49,8 @@ type KegUrl struct {
 	TokenEnv string `yaml:"tokenEnv,omitempty"`
 }
 
-// UnmarshalYAML supports both a scalar string (interpreted as the URL) and a
-// mapping node that decodes into the full KegUrl struct.
+// UnmarshalYAML accepts either a scalar string (the URL) or a mapping node that
+// decodes into the full KegUrl struct.
 func (k *KegUrl) UnmarshalYAML(node *yaml.Node) error {
 	if node == nil {
 		return nil
@@ -78,8 +82,8 @@ func (k *KegUrl) UnmarshalYAML(node *yaml.Node) error {
 	}
 }
 
-// MarshalYAML will emit a scalar string when only the URL is set and all other
-// fields are zero values. Otherwise it will emit a mapping with fields.
+// MarshalYAML emits a scalar string when only the URL is set and all other
+// fields are zero values. Otherwise it emits a mapping with fields.
 func (k KegUrl) MarshalYAML() (any, error) {
 	onlyURL := k.URL != "" &&
 		!k.Readonly &&
@@ -108,21 +112,22 @@ func (k KegUrl) MarshalYAML() (any, error) {
 	}, nil
 }
 
-// ResolvePaths expands env vars and tildes in the provided basePath and returns
-// an error only on expand failure. This is a helper to normalize inputs used in
-// matching.
+// ResolvePaths expands environment variables and tildes in basePath and
+// reports an error only when expansion fails.
+//
+// This helper normalizes input used elsewhere for path matching.
 func ResolvePaths(ctx context.Context, basePath string) error {
-	// Use std helpers to ensure same behavior as other code paths.
+	// Use std helpers to ensure consistent behavior with other code paths.
 	_, err := std.ExpandPath(ctx, basePath)
 	if err != nil {
 		return fmt.Errorf("expand path: %w", err)
 	}
-	// No stateful changes; caller can use returned expanded path where needed.
+	// No stateful changes; caller can use the expanded path if needed.
 	return nil
 }
 
-// Clone produces a deep copy of the UserConfig including the underlying
-// yaml.Node so callers can safely mutate the clone.
+// Clone produces a deep copy of the UserConfig including the underlying yaml
+// node so callers can safely mutate the clone without affecting the original.
 func (uc *UserConfig) Clone(ctx context.Context) *UserConfig {
 	if uc == nil {
 		return nil
@@ -142,16 +147,17 @@ func (uc *UserConfig) Clone(ctx context.Context) *UserConfig {
 	}
 	nuc, _ := ParseUserConfig(ctx, buf.Bytes())
 	if nuc == nil {
-		// As fallback, do a shallow copy
+		// As a final fallback, do a shallow copy
 		out := *uc
 		return &out
 	}
 	return nuc
 }
 
-// ResolveAlias looks up the keg by alias and returns a parsed KegTarget. Returns
-// nil + error when not found or parse fails.
-func (uc *UserConfig) ResolveAlias(ctx context.Context, alias string) (*KegTarget, error) {
+// ResolveAlias looks up the keg by alias and returns a parsed KegTarget.
+//
+// Returns nil + error when not found or parse fails.
+func (uc *UserConfig) ResolveAlias(ctx context.Context, alias string) (*keg.KegTarget, error) {
 	if uc == nil {
 		return nil, fmt.Errorf("no user config")
 	}
@@ -162,13 +168,14 @@ func (uc *UserConfig) ResolveAlias(ctx context.Context, alias string) (*KegTarge
 	if u.URL == "" {
 		return nil, fmt.Errorf("keg alias %s has empty url", alias)
 	}
-	return ParseKegTarget(ctx, u.URL)
+	return keg.ParseKegTarget(ctx, u.URL)
 }
 
-// ResolveKegMap chooses the appropriate keg (via alias) based on the provided
-// filesystem path. Regex entries have precedence over pathPrefix. When multiple
-// pathPrefix entries match, the longest prefix wins.
-func (uc *UserConfig) ResolveKegMap(ctx context.Context, path string) (*KegTarget, error) {
+// ResolveKegMap chooses the appropriate keg (via alias) based on path.
+//
+// Regex entries have precedence over pathPrefix. When multiple pathPrefix
+// entries match, the longest prefix wins.
+func (uc *UserConfig) ResolveKegMap(ctx context.Context, path string) (*keg.KegTarget, error) {
 	if uc == nil {
 		return nil, fmt.Errorf("no user config")
 	}
@@ -181,7 +188,7 @@ func (uc *UserConfig) ResolveKegMap(ctx context.Context, path string) (*KegTarge
 	}
 	abs = filepath.Clean(abs)
 
-	// First check regex entries (highest precedence)
+	// First check regex entries (highest precedence).
 	for _, m := range uc.KegMap {
 		if m.PathRegex == "" {
 			continue
@@ -225,8 +232,8 @@ func (uc *UserConfig) ResolveKegMap(ctx context.Context, path string) (*KegTarge
 	return nil, fmt.Errorf("no keg map entry matched path: %s", path)
 }
 
-// ParseUserConfig parses raw YAML (string) into a UserConfig while preserving
-// the underlying yaml.Node for comment-preserving edits.
+// ParseUserConfig parses raw YAML into a UserConfig while preserving the
+// underlying yaml.Node for comment-preserving edits.
 func ParseUserConfig(ctx context.Context, raw []byte) (*UserConfig, error) {
 	var doc yaml.Node
 	if err := yaml.Unmarshal([]byte(raw), &doc); err != nil {
@@ -236,9 +243,8 @@ func ParseUserConfig(ctx context.Context, raw []byte) (*UserConfig, error) {
 	// doc.Content[0] should be the document's root mapping node if present.
 	if len(doc.Content) > 0 {
 		if err := doc.Content[0].Decode(uc); err != nil {
-			// Try decoding the whole doc as a fallback
+			// Try decoding the whole doc as a fallback.
 			if err2 := doc.Decode(uc); err2 != nil {
-				// return uc, nil
 				return nil, fmt.Errorf("failed to decode config into struct: %w", err)
 			}
 		}
@@ -259,11 +265,9 @@ func ReadUserConfig(ctx context.Context, path string) (*UserConfig, error) {
 	return ParseUserConfig(ctx, b)
 }
 
-// WriteUserConfig writes the UserConfig back to path, preserving comments and
-// formatting when possible. Uses AtomicWriteFile from std.
-func (uc *UserConfig) WriteUserConfig(ctx context.Context, path string) error {
+func (uc *UserConfig) ToYAML(ctx context.Context) ([]byte, error) {
 	if uc == nil {
-		return fmt.Errorf("no user config")
+		return nil, fmt.Errorf("no user config")
 	}
 	var buf bytes.Buffer
 	enc := yaml.NewEncoder(&buf)
@@ -274,25 +278,35 @@ func (uc *UserConfig) WriteUserConfig(ctx context.Context, path string) error {
 		// Ensure we encode the document node as-is.
 		if err := enc.Encode(uc.node); err != nil {
 			_ = enc.Close()
-			return fmt.Errorf("encode yaml node: %w", err)
+			return nil, fmt.Errorf("encode yaml node: %w", err)
 		}
 	} else {
 		if err := enc.Encode(uc); err != nil {
 			_ = enc.Close()
-			return fmt.Errorf("encode yaml struct: %w", err)
+			return nil, fmt.Errorf("encode yaml struct: %w", err)
 		}
 	}
 	if err := enc.Close(); err != nil {
-		return fmt.Errorf("close encoder: %w", err)
+		return nil, fmt.Errorf("close encoder: %w", err)
+	}
+	return buf.Bytes(), nil
+}
+
+// WriteUserConfig writes the UserConfig back to path, preserving comments and
+// formatting when possible. Uses AtomicWriteFile from std.
+func (uc *UserConfig) WriteUserConfig(ctx context.Context, path string) error {
+	data, err := uc.ToYAML(ctx)
+	if err != nil {
+		return fmt.Errorf("unable to write user config: %w", err)
 	}
 
-	// Ensure parent directory exists
+	// Ensure parent directory exists.
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("mkdirall %s: %w", dir, err)
 	}
 
-	if err := std.AtomicWriteFile(path, buf.Bytes(), 0o644); err != nil {
+	if err := std.AtomicWriteFile(path, data, 0o644); err != nil {
 		return fmt.Errorf("atomic write: %w", err)
 	}
 	return nil
