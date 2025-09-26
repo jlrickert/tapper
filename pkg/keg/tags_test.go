@@ -1,33 +1,59 @@
-package keg
+package keg_test
 
 import (
-	"reflect"
 	"testing"
+
+	"github.com/jlrickert/tapper/pkg/keg"
+	"github.com/stretchr/testify/require"
 )
 
-// Unit table-driven test for NormalizeTags (no external deps).
-func TestNormalizeTags_Table(t *testing.T) {
+func TestNormalizeTag(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name string
+	cases := []struct {
+		in   string
+		want string
+	}{
+		{"Simple", "simple"},
+		{"My Tag", "my-tag"},
+		{"  Leading/Trailing  ", "leading-trailing"},
+		{"A--B", "a-b"},
+		{"___", ""},
+		{"pkg:Zeke", "pkg-zeke"},
+		{"multi   space", "multi-space"},
+		{"with,comma", "with-comma"},
+	}
+
+	for i, tc := range cases {
+		t.Run(string(rune(i)), func(t *testing.T) {
+			t.Parallel()
+			got := keg.NormalizeTag(tc.in)
+			require.Equal(t, tc.want, got, "input: %q", tc.in)
+		})
+	}
+}
+
+func TestParseTags(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
 		in   string
 		want []string
 	}{
-		{"empty", "", nil},
-		{"single", "alpha", []string{"alpha"}},
-		{"comma-separated", "a,b,c", []string{"a", "b", "c"}},
-		{"spaces and empty tokens", " a ,  b ,, c ", []string{"a", "b", "c"}},
-		{"leading/trailing", "  x  ", []string{"x"}},
+		{"", []string{}},
+		// note: ParseTags returns lexicographically sorted tokens
+		{"one two three", []string{"one", "three", "two"}},
+		{"Foo, Bar; baz\nFoo", []string{"bar", "baz", "foo"}},
+		{"My Tag, Another Tag", []string{"another-tag", "my-tag"}},
+		{",, ,", []string{}},
+		{"pkg:Zeke other", []string{"other", "pkg-zeke"}},
 	}
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
+	for i, tc := range cases {
+		t.Run(string(rune(i)), func(t *testing.T) {
 			t.Parallel()
-			got := NormalizeTags(tc.in)
-			if !reflect.DeepEqual(got, tc.want) {
-				t.Fatalf("NormalizeTags(%q) = %#v; want %#v", tc.in, got, tc.want)
-			}
+			got := keg.ParseTags(tc.in)
+			require.Equal(t, tc.want, got, "input: %q", tc.in)
 		})
 	}
 }
