@@ -1,10 +1,9 @@
-package keg_test
+package keg
 
 import (
-	"reflect"
 	"testing"
 
-	"github.com/jlrickert/tapper/pkg/keg"
+	"github.com/stretchr/testify/require"
 )
 
 func TestReadFromDex_Table(t *testing.T) {
@@ -16,11 +15,11 @@ func TestReadFromDex_Table(t *testing.T) {
 		backlinksData string
 
 		wantNodesCount int
-		wantNodes      map[keg.NodeID]string
+		wantNodes      map[int]string
 
-		wantTags      map[string][]keg.NodeID
-		wantLinks     map[keg.NodeID][]keg.NodeID
-		wantBacklinks map[keg.NodeID][]keg.NodeID
+		wantTags      map[string][]int
+		wantLinks     map[int][]int
+		wantBacklinks map[int][]int
 	}{
 		{
 			name: "basic",
@@ -31,8 +30,8 @@ func TestReadFromDex_Table(t *testing.T) {
 				"badline-without-tabs\n" + // malformed - should be skipped
 				"999\tnot-a-time\tTitle with bad time\n", // id parses, time parse will produce zero time
 			tagsData: "" +
-				"zeke 3 10 45\n" +
-				"keg 5 10 15 42\n" +
+				"zeke\t3 10 45\n" +
+				"keg\t5 10 15 42\n" +
 				"emptytag\n", // tag present with empty members
 			linksData: "" +
 				"1\t3 5\n" +
@@ -45,7 +44,7 @@ func TestReadFromDex_Table(t *testing.T) {
 
 			wantNodesCount: 4, // 0,1,3,999
 
-			wantNodes: map[keg.NodeID]string{
+			wantNodes: map[int]string{
 				0:   "Sorry, planned but not yet available",
 				1:   "Configuration (config)",
 				3:   "Zeke AI utility (zeke)",
@@ -54,13 +53,13 @@ func TestReadFromDex_Table(t *testing.T) {
 
 			// Note: indices that contain empty member lists may be omitted by parsers.
 			// Tests should not assume empty-member entries are always present.
-			wantTags: map[string][]keg.NodeID{
+			wantTags: map[string][]int{
 				"zeke": {3, 10, 45},
 			},
-			wantLinks: map[keg.NodeID][]keg.NodeID{
+			wantLinks: map[int][]int{
 				1: {3, 5},
 			},
-			wantBacklinks: map[keg.NodeID][]keg.NodeID{
+			wantBacklinks: map[int][]int{
 				3: {1, 2},
 			},
 		},
@@ -71,103 +70,97 @@ func TestReadFromDex_Table(t *testing.T) {
 			linksData:      "",
 			backlinksData:  "",
 			wantNodesCount: 0,
-			wantNodes:      map[keg.NodeID]string{},
-			wantTags:       map[string][]keg.NodeID{},
-			wantLinks:      map[keg.NodeID][]keg.NodeID{},
-			wantBacklinks:  map[keg.NodeID][]keg.NodeID{},
+			wantNodes:      map[int]string{},
+			wantTags:       map[string][]int{},
+			wantLinks:      map[int][]int{},
+			wantBacklinks:  map[int][]int{},
 		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			t.Helper()
 
-			mem := keg.NewMemoryRepo()
+			mem := NewMemoryRepo()
 
 			// write indexes only if non-empty (tests may want to omit them)
 			if tc.nodesTSV != "" {
-				if err := mem.WriteIndex(t.Context(), "nodes.tsv", []byte(tc.nodesTSV)); err != nil {
-					t.Fatalf("%s: WriteIndex(nodes.tsv) failed: %v", tc.name, err)
-				}
+				require.NoError(t, mem.WriteIndex(t.Context(), "nodes.tsv", []byte(tc.nodesTSV)))
 			}
 			if tc.tagsData != "" {
-				if err := mem.WriteIndex(t.Context(), "tags", []byte(tc.tagsData)); err != nil {
-					t.Fatalf("%s: WriteIndex(tags) failed: %v", tc.name, err)
-				}
+				require.NoError(t, mem.WriteIndex(t.Context(), "tags", []byte(tc.tagsData)))
 			}
 			if tc.linksData != "" {
-				if err := mem.WriteIndex(t.Context(), "links", []byte(tc.linksData)); err != nil {
-					t.Fatalf("%s: WriteIndex(links) failed: %v", tc.name, err)
-				}
+				require.NoError(t, mem.WriteIndex(t.Context(), "links", []byte(tc.linksData)))
 			}
 			if tc.backlinksData != "" {
-				if err := mem.WriteIndex(t.Context(), "backlinks", []byte(tc.backlinksData)); err != nil {
-					t.Fatalf("%s: WriteIndex(backlinks) failed: %v", tc.name, err)
-				}
+				require.NoError(t, mem.WriteIndex(t.Context(), "backlinks", []byte(tc.backlinksData)))
 			}
 
 			// Read indexes using the Dex convenience wrapper
-			dex, err := keg.NewDexFromRepo(t.Context(), mem)
-			if err != nil {
-				t.Fatalf("%s: NewDexFromRepo returned error: %v", tc.name, err)
-			}
+			dex, err := NewDexFromRepo(t.Context(), mem)
+			require.NoError(t, err)
 
 			// Nodes count
-			if got := len(dex.Nodes()); got != tc.wantNodesCount {
-				t.Fatalf("%s: unexpected nodes count: got %d want %d", tc.name, got, tc.wantNodesCount)
-			}
+			require.Len(t, dex.Nodes(t.Context()), tc.wantNodesCount)
 
 			// helper to lookup a NodeRef by id via Dex
-			find := func(id keg.NodeID) *keg.NodeRef {
-				return dex.GetNode(id)
+			find := func(id Node) *NodeIndexEntry {
+				return dex.GetRef(t.Context(), id)
 			}
 
 			// verify expected nodes and titles
 			for id, wantTitle := range tc.wantNodes {
-				n := find(id)
-				if n == nil {
-					t.Fatalf("%s: node %d missing", tc.name, int(id))
-				}
-				if n.Title != wantTitle {
-					t.Fatalf("%s: node %d title mismatch: got %q want %q", tc.name, int(id), n.Title, wantTitle)
+				n := find(Node{ID: id})
+				require.NotNil(t, n, "node %d missing", int(id))
+				require.Equal(t, wantTitle, n.Title, "node %d title mismatch", int(id))
+			}
+
+			// Validate tags by parsing the raw tags index directly from the repo
+			gotTags := map[string][]int{}
+			if tc.tagsData != "" {
+				data, err := mem.GetIndex(t.Context(), "tags")
+				require.NoError(t, err)
+				parsed, err := ParseTagIndex(t.Context(), data)
+				require.NoError(t, err)
+				// parsed has unexported internal structure; tests are in-package so access directly
+				for tag, nodes := range parsed.data {
+					ids := make([]int, 0, len(nodes))
+					for _, n := range nodes {
+						ids = append(ids, n.ID)
+					}
+					gotTags[tag] = ids
 				}
 			}
 
-			// Validate tags
-			tags := dex.Tags()
 			// Only ensure expected tags are present with expected members.
 			for wantTag, wantIDs := range tc.wantTags {
-				gotIDs, ok := tags[wantTag]
-				if !ok {
-					t.Fatalf("%s: expected tag %q missing", tc.name, wantTag)
-				}
-				if !reflect.DeepEqual(gotIDs, wantIDs) {
-					t.Fatalf("%s: tag %q mismatch: got %#v want %#v", tc.name, wantTag, gotIDs, wantIDs)
-				}
+				gotIDs, ok := gotTags[wantTag]
+				require.True(t, ok, "expected tag %q missing", wantTag)
+				require.Equal(t, wantIDs, gotIDs, "tag %q mismatch", wantTag)
 			}
 
-			// Validate links
-			links := dex.Links()
+			// Validate links by querying Dex per source node
 			for wantSrc, wantDsts := range tc.wantLinks {
-				gotDsts, ok := links[wantSrc]
-				if !ok {
-					t.Fatalf("%s: expected links src %d missing", tc.name, int(wantSrc))
+				gotNodes, ok := dex.Links(t.Context(), Node{ID: wantSrc})
+				require.True(t, ok, "expected links src %d missing", int(wantSrc))
+				gotDsts := make([]int, 0, len(gotNodes))
+				for _, n := range gotNodes {
+					gotDsts = append(gotDsts, n.ID)
 				}
-				if !reflect.DeepEqual(gotDsts, wantDsts) {
-					t.Fatalf("%s: links for %d mismatch: got %#v want %#v", tc.name, int(wantSrc), gotDsts, wantDsts)
-				}
+				require.Equal(t, wantDsts, gotDsts, "links for %d mismatch", int(wantSrc))
 			}
 
-			// Validate backlinks
-			backlinks := dex.Backlinks()
+			// Validate backlinks by querying Dex per destination node
 			for wantDst, wantSrcs := range tc.wantBacklinks {
-				gotSrcs, ok := backlinks[wantDst]
-				if !ok {
-					t.Fatalf("%s: expected backlinks dst %d missing", tc.name, int(wantDst))
+				gotNodes, ok := dex.Backlinks(t.Context(), Node{ID: wantDst})
+				require.True(t, ok, "expected backlinks dst %d missing", int(wantDst))
+				gotSrcs := make([]int, 0, len(gotNodes))
+				for _, n := range gotNodes {
+					gotSrcs = append(gotSrcs, n.ID)
 				}
-				if !reflect.DeepEqual(gotSrcs, wantSrcs) {
-					t.Fatalf("%s: backlinks for %d mismatch: got %#v want %#v", tc.name, int(wantDst), gotSrcs, wantSrcs)
-				}
+				require.Equal(t, wantSrcs, gotSrcs, "backlinks for %d mismatch", int(wantDst))
 			}
 		})
 	}
