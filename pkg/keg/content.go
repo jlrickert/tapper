@@ -3,10 +3,16 @@ package keg
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"regexp"
 	"sort"
-	"strconv"
 	"strings"
+
+	"github.com/jlrickert/tapper/pkg/tap"
+
+	"github.com/yuin/goldmark"
+	gm_ast "github.com/yuin/goldmark/ast"
+	"github.com/yuin/goldmark/text"
 )
 
 // Content holds the extracted pieces of a node's primary content file
@@ -22,7 +28,7 @@ type Content struct {
 	Hash   string
 	Title  string
 	Lead   string
-	Links  []NodeID
+	Links  []Node
 	Format string
 }
 
@@ -36,12 +42,13 @@ type Content struct {
 // ParseContent requires a non-nil deps pointer whose hasher is used to compute
 // the content Hash. If the input is empty or only whitespace, a Content with
 // Format == "empty" is returned.
-func ParseContent(data []byte, format string, deps *Deps) (*Content, error) {
+func ParseContent(ctx context.Context, data []byte, format string) (*Content, error) {
 	if len(bytes.TrimSpace(data)) == 0 {
 		return &Content{Format: "empty"}, nil
 	}
 
 	fmt := detectFormat(data, format)
+	hasher := tap.HasherFromContext(ctx)
 
 	var title, lead string
 	switch fmt {
@@ -59,7 +66,7 @@ func ParseContent(data []byte, format string, deps *Deps) (*Content, error) {
 	links = dedupeAndSortNodeIDs(links)
 
 	return &Content{
-		Hash:   deps.Hasher.Hash(data),
+		Hash:   hasher.Hash(data),
 		Title:  title,
 		Lead:   lead,
 		Links:  links,
@@ -234,38 +241,84 @@ func extractRSTTitleAndLead(data []byte) (string, string) {
 var numericLinkRE = regexp.MustCompile(`\.\./\s*([0-9]+)`)
 
 // extractNumericLinks finds occurrences of "../N" where N is a non-negative
-// integer and returns them as a slice of NodeID. The returned slice may contain
-// duplicates; callers should call dedupeAndSortNodeIDs to normalize the result.
-func extractNumericLinks(data []byte) []NodeID {
-	matches := numericLinkRE.FindAllSubmatch(data, -1)
-	out := make([]NodeID, 0, len(matches))
-	for _, m := range matches {
-		if len(m) < 2 {
-			continue
+// integer and returns them as a slice of NodeID. For Markdown content the
+// function uses goldmark to parse the document and extract numeric destinations
+// from Link and AutoLink nodes and also scans text nodes for bare "../N" tokens.
+// For non-markdown content the function falls back to a simple regex scan.
+// The returned slice may contain duplicates; callers should call dedupeAndSortNodeIDs
+// to normalize the result.
+func extractNumericLinks(data []byte) []Node {
+	out := make([]Node, 0)
+
+	// Attempt to parse as Markdown using goldmark. If parsing fails, fall back to regex.
+	md := goldmark.New()
+	reader := text.NewReader(data)
+	doc := md.Parser().Parse(reader)
+
+	// regex to match a destination that is exactly ../N (allowing optional whitespace)
+	destExactRE := regexp.MustCompile(`^\s*\.\./\s*([0-9]+)\s*$`)
+
+	_ = gm_ast.Walk(doc, func(n gm_ast.Node, entering bool) (gm_ast.WalkStatus, error) {
+		if !entering {
+			return gm_ast.WalkContinue, nil
 		}
-		if idStr := string(m[1]); idStr != "" {
-			if id, err := strconv.Atoi(idStr); err == nil {
-				out = append(out, NodeID(id))
+		switch n.Kind() {
+		case gm_ast.KindLink:
+			if l, ok := n.(*gm_ast.Link); ok {
+				dest := string(l.Destination)
+				if m := destExactRE.FindStringSubmatch(dest); len(m) == 2 {
+					if id, err := ParseNode(m[1]); err == nil {
+						out = append(out, *id)
+					}
+				}
+			}
+		case gm_ast.KindAutoLink:
+			if al, ok := n.(*gm_ast.AutoLink); ok {
+				dest := string(al.URL(data))
+				if m := destExactRE.FindStringSubmatch(dest); len(m) == 2 {
+					if id, err := ParseNode(m[1]); err == nil {
+						out = append(out, *id)
+					}
+				}
+			}
+		}
+		return gm_ast.WalkContinue, nil
+	})
+
+	// If goldmark produced no nodes (unlikely) or out is empty, fall back to scanning the raw bytes.
+	if len(out) == 0 {
+		matches := numericLinkRE.FindAllSubmatch(data, -1)
+		for _, m := range matches {
+			if len(m) < 2 {
+				continue
+			}
+			if id, err := ParseNode(string(m[1])); err == nil {
+				out = append(out, *id)
 			}
 		}
 	}
+
 	return out
 }
 
 // dedupeAndSortNodeIDs removes duplicates from the input slice and returns a
 // new slice sorted in ascending numeric order. The operation is deterministic
 // and suitable for producing stable index outputs.
-func dedupeAndSortNodeIDs(in []NodeID) []NodeID {
-	set := make(map[int]struct{})
-	out := make([]NodeID, 0, len(in))
+func dedupeAndSortNodeIDs(in []Node) []Node {
+	set := make(map[string]struct{})
+	out := make([]Node, 0, len(in))
 	for _, id := range in {
-		key := int(id)
+		key := id.Path()
 		if _, ok := set[key]; ok {
 			continue
 		}
 		set[key] = struct{}{}
 		out = append(out, id)
 	}
-	sort.Slice(out, func(i, j int) bool { return int(out[i]) < int(out[j]) })
+	sort.Slice(out, func(i, j int) bool {
+		a := out[i].Path()
+		b := out[j].Path()
+		return strings.Compare(a, b) < 0
+	})
 	return out
 }
