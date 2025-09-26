@@ -1,114 +1,104 @@
 package keg
 
-// Package keg defines common sentinel errors, typed error types, and helper
-// constructors/predicates used across the KEG project for consistent error
-// handling and matching (errors.Is / errors.As compatible).
 import (
 	"errors"
 	"fmt"
 	"time"
 )
 
-// Sentinel errors are exported values intended for simple equality-style checks.
-// Callers should use errors.Is(err, ErrX) to detect these conditions. When
-// returning higher-level errors, wrap underlying errors with %w or return typed
-// errors that implement Unwrap/Is so these sentinels remain matchable.
-//
-// Keep these sentinel identities stable (do not change them lightly). Clients
-// must rely on errors.Is (identity), not error string matching.
+// Sentinel errors used for simple equality-style checks.
 var (
-	ErrKegExists        = errors.New("keg: keg already exists")
-	ErrNodeNotFound     = errors.New("keg: node not found")
-	ErrNodeExists       = errors.New("keg: node exists")
-	ErrContentNotFound  = errors.New("keg: node content not found")
-	ErrMetaNotFound     = errors.New("keg: node meta not found")
-	ErrNotFound         = errors.New("keg: item not found")
-	ErrParser           = errors.New("keg: unable to parse")
-	ErrKegNotFound      = errors.New("keg: keg not found")
-	ErrDexNotFound      = errors.New("keg: dex not found")
-	ErrPermissionDenied = errors.New("keg: permission denied")
-	ErrInvalidMeta      = errors.New("keg: invalid meta")
-	ErrConflict         = errors.New("keg: conflict")
-	ErrQuotaExceeded    = errors.New("keg: quota exceeded")
-	ErrRateLimited      = errors.New("keg: rate limited")
+	ErrAliasNotFound    = errors.New("alias not found")
+	ErrInvalidConfig    = errors.New("invalid config")
+	ErrKegExists        = errors.New("keg already exists")
+	ErrNodeNotFound     = errors.New("node not found")
+	ErrNodeExists       = errors.New("node exists")
+	ErrContentNotFound  = errors.New("node content not found")
+	ErrMetaNotFound     = errors.New("node meta not found")
+	ErrNotFound         = errors.New("item not found")
+	ErrParser           = errors.New("unable to parse")
+	ErrKegNotFound      = errors.New("keg not found")
+	ErrDexNotFound      = errors.New("dex not found")
+	ErrPermissionDenied = errors.New("permission denied")
+	ErrInvalidMeta      = errors.New("invalid meta")
+	ErrConflict         = errors.New("conflict")
+	ErrQuotaExceeded    = errors.New("quota exceeded")
+	ErrRateLimited      = errors.New("rate limited")
 
 	// ErrDestinationExists is returned when a move/rename cannot proceed because
 	// the destination node id already exists. Prefer returning a typed
 	// DestinationExistsError that unwraps to this sentinel when callers may need
 	// structured information.
-	ErrDestinationExists = errors.New("keg: destination already exists")
+	ErrDestinationExists = errors.New("destination already exists")
 
 	// ErrLockTimeout indicates acquiring a repository or node lock timed out or
 	// was canceled. Lock-acquiring helpers should wrap context/cancellation
 	// information while preserving this sentinel for callers that need to detect
 	// timeout semantics via errors.Is.
-	ErrLockTimeout = errors.New("keg: lock acquire timeout")
+	ErrLockTimeout = errors.New("lock acquire timeout")
 
 	// ErrLock indicates a generic failure to acquire a repository or node
 	// lock. Use errors.Is(err, ErrLock) to detect non-timeout lock acquisition
 	// failures.
-	ErrLock = errors.New("keg: cannot acquire lock")
+	ErrLock = errors.New("cannot acquire lock")
 )
+
+// AliasNotFoundError is a typed error that carries the missing alias for callers
+// that need richer diagnostic information.
+type AliasNotFoundError struct {
+	Alias string
+}
+
+func (e *AliasNotFoundError) Error() string { return fmt.Sprintf("alias not found: %q", e.Alias) }
+
+func (e *AliasNotFoundError) Is(target error) bool {
+	return target == ErrAliasNotFound
+}
+
+func (e *AliasNotFoundError) Unwrap() error { return ErrAliasNotFound }
+
+// NewAliasNotFoundError constructs a typed AliasNotFoundError.
+func NewAliasNotFoundError(alias string) error {
+	return &AliasNotFoundError{Alias: alias}
+}
+
+// IsAliasNotFound reports whether err is (or wraps) an alias-not-found condition.
+func IsAliasNotFound(err error) bool {
+	return errors.Is(err, ErrAliasNotFound)
+}
+
+// InvalidConfigError represents a validation or parse failure for tapper config.
+type InvalidConfigError struct {
+	Msg string
+}
+
+func (e *InvalidConfigError) Error() string {
+	if e.Msg == "" {
+		return "invalid tapper config"
+	}
+	return fmt.Sprintf("invalid tapper config: %s", e.Msg)
+}
+
+func (e *InvalidConfigError) Is(target error) bool {
+	return target == ErrInvalidConfig
+}
+
+func (e *InvalidConfigError) Unwrap() error { return ErrInvalidConfig }
+
+// NewInvalidConfigError creates an InvalidConfigError with a human message.
+func NewInvalidConfigError(msg string) error {
+	return &InvalidConfigError{Msg: msg}
+}
+
+// IsInvalidConfig reports whether err is (or wraps) an invalid-config condition.
+func IsInvalidConfig(err error) bool {
+	return errors.Is(err, ErrInvalidConfig)
+}
 
 // Behavior interfaces used when inspecting error chains via errors.As.
 // These are intentionally unexported; predicates expose the behavior to callers.
 type temporary interface{ Temporary() bool }
 type retryable interface{ Retryable() bool }
-
-// NodeNotFoundError is a typed error that carries the missing NodeID. It
-// implements Is/Unwrap so callers can match either the typed error (via
-// errors.As) or the sentinel ErrNodeNotFound (via errors.Is).
-type NodeNotFoundError struct {
-	ID NodeID
-}
-
-func (e *NodeNotFoundError) Error() string {
-	return fmt.Sprintf("node not found: %s", e.ID.Path())
-}
-
-// Is allows errors.Is(err, ErrNodeNotFound) to succeed when the chain contains
-// a *NodeNotFoundError.
-func (e *NodeNotFoundError) Is(target error) bool {
-	return target == ErrNodeNotFound
-}
-
-// Unwrap returns the sentinel so errors.Is can traverse to the sentinel value.
-func (e *NodeNotFoundError) Unwrap() error { return ErrNodeNotFound }
-
-// DestinationExistsError indicates the destination id for a move already exists.
-// It implements Is/Unwrap to match ErrDestinationExists.
-type DestinationExistsError struct {
-	ID NodeID
-}
-
-func (e *DestinationExistsError) Error() string {
-	return fmt.Sprintf("destination exists: %s", e.ID.Path())
-}
-
-func (e *DestinationExistsError) Is(target error) bool { return target == ErrDestinationExists }
-func (e *DestinationExistsError) Unwrap() error        { return ErrDestinationExists }
-
-// ConflictError represents a write/version conflict for a node. It may include
-// optional expected/got version values and a Cause that is returned by Unwrap.
-type ConflictError struct {
-	ID            NodeID
-	Expected, Got int // optional version numbers or similar
-	Cause         error
-}
-
-func (e *ConflictError) Error() string {
-	if e.Expected == 0 && e.Got == 0 {
-		return fmt.Sprintf("conflict for node %s", e.ID.Path())
-	}
-	return fmt.Sprintf("conflict for node %s: expected=%d got=%d", e.ID.Path(), e.Expected, e.Got)
-}
-
-// Unwrap returns the underlying cause (if any).
-func (e *ConflictError) Unwrap() error { return e.Cause }
-
-// Is allows errors.Is(err, ErrConflict) to succeed when the chain contains a
-// *ConflictError.
-func (e *ConflictError) Is(target error) bool { return target == ErrConflict }
 
 // BackendError wraps errors coming from an external backend (API, DB, object
 // store). It exposes Retryable() to indicate transient failures.
@@ -166,26 +156,6 @@ func (e *TransientError) Temporary() bool { return true }
 func (e *TransientError) Retryable() bool { return true }
 
 // Helper constructors
-
-// NewNodeNotFoundError constructs a *NodeNotFoundError for the given id.
-func NewNodeNotFoundError(id NodeID) error {
-	return &NodeNotFoundError{ID: id}
-}
-
-// NewDestinationExistsError constructs a *DestinationExistsError for the given id.
-func NewDestinationExistsError(id NodeID) error {
-	return &DestinationExistsError{ID: id}
-}
-
-// NewConflictError constructs a *ConflictError with the provided details.
-func NewConflictError(id NodeID, expect, got int, cause error) error {
-	return &ConflictError{
-		ID:       id,
-		Expected: expect,
-		Got:      got,
-		Cause:    cause,
-	}
-}
 
 // NewBackendError constructs a *BackendError describing an operation against a backend.
 func NewBackendError(backend, op string, status int, cause error, transient bool) error {

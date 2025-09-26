@@ -1,4 +1,4 @@
-package tap
+package keg
 
 // Package config provides versioned configuration management for the KEG
 // application. It supports loading, parsing, converting, and accessing

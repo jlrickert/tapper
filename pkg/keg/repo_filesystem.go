@@ -12,8 +12,6 @@ import (
 	"time"
 
 	std "github.com/jlrickert/go-std/pkg"
-	terrs "github.com/jlrickert/tapper/pkg/errors"
-	"github.com/jlrickert/tapper/pkg/tap"
 	"gopkg.in/yaml.v3"
 )
 
@@ -79,7 +77,7 @@ func NewFsRepoFromEnvOrSearch(ctx context.Context) (*FsRepo, error) {
 	// 2) current directory
 	cwd, err := env.GetWd()
 	if err != nil {
-		return nil, terrs.NewBackendError(f.Name(),
+		return nil, NewBackendError(f.Name(),
 			"NewFsRepoFromEnvOrSearch", 0, err, false)
 	}
 	if kp := findKegInDir(cwd, candidates); kp != "" {
@@ -130,7 +128,7 @@ func NewFsRepoFromEnvOrSearch(ctx context.Context) (*FsRepo, error) {
 		return f, nil
 	}
 
-	return nil, terrs.NewBackendError(
+	return nil, NewBackendError(
 		f.Name(),
 		"NewFsRepoFromEnvOrSearch",
 		0,
@@ -167,7 +165,7 @@ func resolveKegFromEnv(ctx context.Context, v string, candidates []string) (envR
 		if slices.Contains(candidates, base) {
 			return envResolveResult{rootDir: filepath.Dir(v), kegPath: v}, nil
 		}
-		return envResolveResult{}, terrs.NewBackendError("fs",
+		return envResolveResult{}, NewBackendError("fs",
 			"resolveKegFromEnv", 0,
 			errors.New("KEG_CURRENT pointed to a file that is not a known keg filename"),
 			false)
@@ -183,13 +181,13 @@ func resolveKegFromEnv(ctx context.Context, v string, candidates []string) (envR
 		// directory but no keg file found — treat as valid root only if caller
 		// expects that. For our purposes require the keg file to exist; return
 		// error to let caller continue search.
-		return envResolveResult{}, terrs.NewBackendError("fs",
+		return envResolveResult{}, NewBackendError("fs",
 			"resolveKegFromEnv", 0,
 			errors.New("KEG_CURRENT directory does not contain a keg file"),
 			false)
 	}
 	// path doesn't exist or stat failed — treat as error
-	return envResolveResult{}, terrs.NewBackendError("fs",
+	return envResolveResult{}, NewBackendError("fs",
 		"resolveKegFromEnv", 0, err, false)
 }
 
@@ -278,7 +276,7 @@ func (f *FsRepo) acquireLock(ctx context.Context, retryInterval time.Duration) (
 			unlock := func() error {
 				if err := os.Remove(lockPath); err != nil &&
 					!os.IsNotExist(err) {
-					return terrs.NewBackendError(f.Name(),
+					return NewBackendError(f.Name(),
 						"AcquireLock:unlock", 0, err, false)
 				}
 				return nil
@@ -288,7 +286,7 @@ func (f *FsRepo) acquireLock(ctx context.Context, retryInterval time.Duration) (
 
 		// Unexpected error (not "file exists")
 		if !os.IsExist(err) {
-			return nil, terrs.NewBackendError(f.Name(),
+			return nil, NewBackendError(f.Name(),
 				"AcquireLock", 0, err, false)
 		}
 
@@ -296,9 +294,9 @@ func (f *FsRepo) acquireLock(ctx context.Context, retryInterval time.Duration) (
 		select {
 		case <-ctx.Done():
 			// Use sentinel for callers that want to check timeout/cancel
-			return nil, terrs.NewBackendError(f.Name(),
+			return nil, NewBackendError(f.Name(),
 				"AcquireLock", 0,
-				fmt.Errorf("%w: %s", terrs.ErrLockTimeout, ctx.Err()), false)
+				fmt.Errorf("%w: %s", ErrLockTimeout, ctx.Err()), false)
 		case <-ticker.C:
 			// retry
 		}
@@ -317,9 +315,9 @@ func (f *FsRepo) LockNode(ctx context.Context, id Node,
 	// Ensure the node directory exists before attempting to lock.
 	if _, statErr := os.Stat(nodeDir); statErr != nil {
 		if os.IsNotExist(statErr) {
-			return nil, terrs.ErrNodeNotFound
+			return nil, ErrNodeNotFound
 		}
-		return nil, terrs.NewBackendError(f.Name(),
+		return nil, NewBackendError(f.Name(),
 			"AcquireNodeLock", 0, statErr, false)
 	}
 
@@ -340,7 +338,7 @@ func (f *FsRepo) LockNode(ctx context.Context, id Node,
 			unlock := func() error {
 				if err := os.Remove(lockPath); err != nil &&
 					!os.IsNotExist(err) {
-					return terrs.NewBackendError(f.Name(),
+					return NewBackendError(f.Name(),
 						"AcquireNodeLock:unlock", 0, err, false)
 				}
 				return nil
@@ -350,16 +348,16 @@ func (f *FsRepo) LockNode(ctx context.Context, id Node,
 
 		// Unexpected error (not "file exists")
 		if !os.IsExist(err) {
-			return nil, terrs.NewBackendError(f.Name(),
+			return nil, NewBackendError(f.Name(),
 				"AcquireNodeLock", 0, err, false)
 		}
 
 		// Lock file exists; wait or bail if context is done
 		select {
 		case <-ctx.Done():
-			return nil, terrs.NewBackendError(f.Name(),
+			return nil, NewBackendError(f.Name(),
 				"AcquireNodeLock", 0,
-				fmt.Errorf("%w: %s", terrs.ErrLockTimeout, ctx.Err()), false)
+				fmt.Errorf("%w: %s", ErrLockTimeout, ctx.Err()), false)
 		case <-ticker.C:
 			// retry
 		}
@@ -383,7 +381,7 @@ func (f *FsRepo) ClearLocks() error {
 	// List immediate entries in repo root and attempt to remove per-node locks.
 	entries, err := os.ReadDir(f.Root)
 	if err != nil {
-		return terrs.NewBackendError(f.Name(), "ClearLocks", 0, err, false)
+		return NewBackendError(f.Name(), "ClearLocks", 0, err, false)
 	}
 
 	for _, e := range entries {
@@ -402,7 +400,7 @@ func (f *FsRepo) ClearLocks() error {
 		return nil
 	}
 	if len(errs) == 1 {
-		return terrs.NewBackendError(f.Name(), "ClearLocks", 0, errs[0], false)
+		return NewBackendError(f.Name(), "ClearLocks", 0, errs[0], false)
 	}
 
 	// Aggregate messages for multiple errors.
@@ -413,7 +411,7 @@ func (f *FsRepo) ClearLocks() error {
 		}
 		agg += er.Error()
 	}
-	return terrs.NewBackendError(f.Name(), "ClearLocks", 0, fmt.Errorf("%s", agg), false)
+	return NewBackendError(f.Name(), "ClearLocks", 0, fmt.Errorf("%s", agg), false)
 }
 
 func (f *FsRepo) ClearNodeLock(ctx context.Context, id Node) error {
@@ -422,14 +420,14 @@ func (f *FsRepo) ClearNodeLock(ctx context.Context, id Node) error {
 	// Ensure the node directory exists.
 	if _, statErr := os.Stat(nodeDir); statErr != nil {
 		if os.IsNotExist(statErr) {
-			return terrs.ErrNodeNotFound
+			return ErrNodeNotFound
 		}
-		return terrs.NewBackendError(f.Name(), "ClearNodeLock", 0, statErr, false)
+		return NewBackendError(f.Name(), "ClearNodeLock", 0, statErr, false)
 	}
 
 	lockPath := filepath.Join(nodeDir, KegLockFile)
 	if err := os.Remove(lockPath); err != nil && !os.IsNotExist(err) {
-		return terrs.NewBackendError(f.Name(), "ClearNodeLock", 0, err, false)
+		return NewBackendError(f.Name(), "ClearNodeLock", 0, err, false)
 	}
 
 	return nil
@@ -448,19 +446,19 @@ func (f *FsRepo) Next(ctx context.Context) (Node, error) {
 
 	unlock, err := f.acquireLock(lctx, retry)
 	if err != nil {
-		return Node{}, terrs.NewBackendError(f.Name(), "Next", 0, err, false)
+		return Node{}, NewBackendError(f.Name(), "Next", 0, err, false)
 	}
 	// best-effort unlock
 	defer func() { _ = unlock() }()
 
 	// Ensure repo root exists (if not, create it)
 	if _, statErr := os.Stat(f.Root); statErr != nil {
-		return Node{}, terrs.NewBackendError(f.Name(), "Next", 0, statErr, false)
+		return Node{}, NewBackendError(f.Name(), "Next", 0, statErr, false)
 	}
 
 	entries, err := os.ReadDir(f.Root)
 	if err != nil {
-		return Node{}, terrs.NewBackendError(f.Name(), "Next", 0, err, false)
+		return Node{}, NewBackendError(f.Name(), "Next", 0, err, false)
 	}
 
 	maxID := -1
@@ -484,9 +482,9 @@ func (f *FsRepo) ReadContent(ctx context.Context, id Node) ([]byte, error) {
 	nodeDir := filepath.Join(f.Root, id.Path())
 	if _, statErr := os.Stat(nodeDir); statErr != nil {
 		if os.IsNotExist(statErr) {
-			return nil, terrs.ErrNodeNotFound
+			return nil, ErrNodeNotFound
 		}
-		return nil, terrs.NewBackendError(f.Name(), "ReadContent", 0, statErr, false)
+		return nil, NewBackendError(f.Name(), "ReadContent", 0, statErr, false)
 	}
 	contentPath := filepath.Join(nodeDir, f.ContentFilename)
 	b, err := os.ReadFile(contentPath)
@@ -495,7 +493,7 @@ func (f *FsRepo) ReadContent(ctx context.Context, id Node) ([]byte, error) {
 			// node exists but no content
 			return nil, nil
 		}
-		return nil, terrs.NewBackendError(f.Name(), "ReadContent", 0, err, false)
+		return nil, NewBackendError(f.Name(), "ReadContent", 0, err, false)
 	}
 	return append([]byte(nil), b...), nil
 }
@@ -505,9 +503,9 @@ func (f *FsRepo) ReadMeta(ctx context.Context, id Node) ([]byte, error) {
 	nodeDir := filepath.Join(f.Root, id.Path())
 	if _, statErr := os.Stat(nodeDir); statErr != nil {
 		if os.IsNotExist(statErr) {
-			return nil, terrs.ErrNodeNotFound
+			return nil, ErrNodeNotFound
 		}
-		return nil, terrs.NewBackendError(f.Name(), "ReadMeta", 0, statErr, false)
+		return nil, NewBackendError(f.Name(), "ReadMeta", 0, statErr, false)
 	}
 	metaPath := filepath.Join(nodeDir, f.MetaFilename)
 	b, err := os.ReadFile(metaPath)
@@ -515,7 +513,7 @@ func (f *FsRepo) ReadMeta(ctx context.Context, id Node) ([]byte, error) {
 		if os.IsNotExist(err) {
 			return []byte(nil), nil
 		}
-		return nil, terrs.NewBackendError(f.Name(), "ReadMeta", 0, err, false)
+		return nil, NewBackendError(f.Name(), "ReadMeta", 0, err, false)
 	}
 	return append([]byte(nil), b...), nil
 }
@@ -523,7 +521,7 @@ func (f *FsRepo) ReadMeta(ctx context.Context, id Node) ([]byte, error) {
 func (f *FsRepo) ListNodes(ctx context.Context) ([]Node, error) {
 	entries, err := os.ReadDir(f.Root)
 	if err != nil {
-		return nil, terrs.NewBackendError(f.Name(), "ListNodes", 0, err, false)
+		return nil, NewBackendError(f.Name(), "ListNodes", 0, err, false)
 	}
 	var ids []Node
 	for _, e := range entries {
@@ -554,14 +552,14 @@ func (f *FsRepo) ListItems(ctx context.Context, id Node) ([]string, error) {
 	nodeDir := filepath.Join(f.Root, id.Path())
 	if _, statErr := os.Stat(nodeDir); statErr != nil {
 		if os.IsNotExist(statErr) {
-			return nil, terrs.ErrNodeNotFound
+			return nil, ErrNodeNotFound
 		}
-		return nil, terrs.NewBackendError(f.Name(), "ListItems", 0, statErr, false)
+		return nil, NewBackendError(f.Name(), "ListItems", 0, statErr, false)
 	}
 
 	entries, err := os.ReadDir(filepath.Join(nodeDir, NodeAttachmentsDir))
 	if err != nil {
-		return nil, terrs.NewBackendError(f.Name(), "ListItems", 0, err, false)
+		return nil, NewBackendError(f.Name(), "ListItems", 0, err, false)
 	}
 
 	var names []string
@@ -578,9 +576,9 @@ func (f *FsRepo) ListImages(ctx context.Context, id Node) ([]string, error) {
 	nodeDir := filepath.Join(f.Root, id.Path())
 	if _, statErr := os.Stat(nodeDir); statErr != nil {
 		if os.IsNotExist(statErr) {
-			return nil, terrs.ErrNodeNotFound
+			return nil, ErrNodeNotFound
 		}
-		return nil, terrs.NewBackendError(f.Name(), "ListImages", 0, statErr, false)
+		return nil, NewBackendError(f.Name(), "ListImages", 0, statErr, false)
 	}
 
 	imagesDir := filepath.Join(nodeDir, NodeImagesDir)
@@ -590,7 +588,7 @@ func (f *FsRepo) ListImages(ctx context.Context, id Node) ([]string, error) {
 			// no images directory -> empty list
 			return []string{}, nil
 		}
-		return nil, terrs.NewBackendError(f.Name(), "ListImages", 0, err, false)
+		return nil, NewBackendError(f.Name(), "ListImages", 0, err, false)
 	}
 
 	var names []string
@@ -611,13 +609,13 @@ func (f *FsRepo) ListImages(ctx context.Context, id Node) ([]string, error) {
 func (f *FsRepo) WriteContent(ctx context.Context, id Node, data []byte) error {
 	nodeDir := filepath.Join(f.Root, id.Path())
 	if err := os.MkdirAll(nodeDir, 0o755); err != nil {
-		return terrs.NewBackendError(f.Name(), "WriteContent", 0, err, false)
+		return NewBackendError(f.Name(), "WriteContent", 0, err, false)
 	}
 
 	metaPath := filepath.Join(nodeDir, f.ContentFilename)
 	err := std.AtomicWriteFile(metaPath, data, 0o0644)
 	if err != nil {
-		return terrs.NewBackendError(f.Name(), "WriteContent", 0, err, false)
+		return NewBackendError(f.Name(), "WriteContent", 0, err, false)
 	}
 	return nil
 }
@@ -627,15 +625,15 @@ func (f *FsRepo) WriteMeta(ctx context.Context, id Node, data []byte) error {
 	nodeDir := filepath.Join(f.Root, id.Path())
 	if _, statErr := os.Stat(nodeDir); statErr != nil {
 		if os.IsNotExist(statErr) {
-			return terrs.ErrNodeNotFound
+			return ErrNodeNotFound
 		}
-		return terrs.NewBackendError(f.Name(), "WriteMeta", 0, statErr, false)
+		return NewBackendError(f.Name(), "WriteMeta", 0, statErr, false)
 	}
 
 	metaPath := filepath.Join(nodeDir, f.MetaFilename)
 	err := std.AtomicWriteFile(metaPath, data, 0o0644)
 	if err != nil {
-		return terrs.NewBackendError(f.Name(), "WriteMeta", 0, err, false)
+		return NewBackendError(f.Name(), "WriteMeta", 0, err, false)
 	}
 	return nil
 }
@@ -645,15 +643,15 @@ func (f *FsRepo) UploadImage(ctx context.Context, id Node, name string, data []b
 	nodeDir := filepath.Join(f.Root, id.Path())
 	if _, statErr := os.Stat(nodeDir); statErr != nil {
 		if os.IsNotExist(statErr) {
-			return terrs.ErrNodeNotFound
+			return ErrNodeNotFound
 		}
-		return terrs.NewBackendError(f.Name(), "UploadImage", 0, statErr, false)
+		return NewBackendError(f.Name(), "UploadImage", 0, statErr, false)
 	}
 
 	imagePath := filepath.Join(nodeDir, NodeImagesDir, name)
 	err := std.AtomicWriteFile(imagePath, data, 0o0644)
 	if err != nil {
-		return terrs.NewBackendError(f.Name(), "UploadImage", 0, err, false)
+		return NewBackendError(f.Name(), "UploadImage", 0, err, false)
 	}
 
 	return nil
@@ -664,15 +662,15 @@ func (f *FsRepo) UploadItem(ctx context.Context, id Node, name string, data []by
 	nodeDir := filepath.Join(f.Root, id.Path())
 	if _, statErr := os.Stat(nodeDir); statErr != nil {
 		if os.IsNotExist(statErr) {
-			return terrs.ErrNodeNotFound
+			return ErrNodeNotFound
 		}
-		return terrs.NewBackendError(f.Name(), "UploadImage", 0, statErr, false)
+		return NewBackendError(f.Name(), "UploadImage", 0, statErr, false)
 	}
 
 	itemPath := filepath.Join(nodeDir, NodeAttachmentsDir, name)
 	err := std.AtomicWriteFile(itemPath, data, 0o0644)
 	if err != nil {
-		return terrs.NewBackendError(f.Name(), "UploadItem", 0, err, false)
+		return NewBackendError(f.Name(), "UploadItem", 0, err, false)
 	}
 
 	return nil
@@ -683,20 +681,20 @@ func (f *FsRepo) MoveNode(ctx context.Context, id Node, dst Node) error {
 	src := filepath.Join(f.Root, id.Path())
 	if _, statErr := os.Stat(src); statErr != nil {
 		if os.IsNotExist(statErr) {
-			return terrs.ErrNodeNotFound
+			return ErrNodeNotFound
 		}
-		return terrs.NewBackendError(f.Name(), "MoveNode", 0, statErr, false)
+		return NewBackendError(f.Name(), "MoveNode", 0, statErr, false)
 	}
 
 	dstPath := filepath.Join(f.Root, dst.Path())
 	if _, statErr := os.Stat(dstPath); statErr == nil {
-		return terrs.ErrDestinationExists
+		return ErrDestinationExists
 	} else if !os.IsNotExist(statErr) {
-		return terrs.NewBackendError(f.Name(), "MoveNode", 0, statErr, false)
+		return NewBackendError(f.Name(), "MoveNode", 0, statErr, false)
 	}
 
 	if err := os.Rename(src, dstPath); err != nil {
-		return terrs.NewBackendError(f.Name(), "MoveNode", 0, err, false)
+		return NewBackendError(f.Name(), "MoveNode", 0, err, false)
 	}
 	return nil
 }
@@ -707,9 +705,9 @@ func (f *FsRepo) GetIndex(ctx context.Context, name string) ([]byte, error) {
 	b, err := os.ReadFile(idxPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, terrs.ErrDexNotFound
+			return nil, ErrDexNotFound
 		}
-		return nil, terrs.NewBackendError(f.Name(), "GetIndex", 0, err, false)
+		return nil, NewBackendError(f.Name(), "GetIndex", 0, err, false)
 	}
 	// return a copy (ReadFile already returns a copy)
 	return append([]byte(nil), b...), nil
@@ -723,18 +721,18 @@ func (f *FsRepo) ClearIndexes(ctx context.Context) error {
 		if os.IsNotExist(statErr) {
 			return nil
 		}
-		return terrs.NewBackendError(f.Name(), "ClearIndexes", 0, statErr, false)
+		return NewBackendError(f.Name(), "ClearIndexes", 0, statErr, false)
 	}
 
 	entries, readErr := os.ReadDir(dexDir)
 	if readErr != nil {
-		return terrs.NewBackendError(f.Name(), "ClearIndexes", 0, readErr, false)
+		return NewBackendError(f.Name(), "ClearIndexes", 0, readErr, false)
 	}
 
 	for _, e := range entries {
 		path := filepath.Join(dexDir, e.Name())
 		if rmErr := os.RemoveAll(path); rmErr != nil {
-			return terrs.NewBackendError(f.Name(), "ClearIndexes", 0, rmErr, false)
+			return NewBackendError(f.Name(), "ClearIndexes", 0, rmErr, false)
 		}
 	}
 
@@ -746,7 +744,7 @@ func (f *FsRepo) WriteIndex(ctx context.Context, name string, data []byte) error
 	idxPath := filepath.Join(f.Root, "dex", name)
 	err := std.AtomicWriteFile(idxPath, data, 0o0644)
 	if err != nil {
-		return terrs.NewBackendError(f.Name(), "WriteIndex", 0, err, false)
+		return NewBackendError(f.Name(), "WriteIndex", 0, err, false)
 	}
 	return nil
 }
@@ -759,7 +757,7 @@ func (f *FsRepo) ListIndexes(ctx context.Context) ([]string, error) {
 		if os.IsNotExist(err) {
 			return []string{}, nil
 		}
-		return nil, terrs.NewBackendError(f.Name(), "ListIndexes", 0, err, false)
+		return nil, NewBackendError(f.Name(), "ListIndexes", 0, err, false)
 	}
 	var names []string
 	for _, e := range entries {
@@ -776,13 +774,13 @@ func (f *FsRepo) DeleteNode(ctx context.Context, id Node) error {
 	nodeDir := filepath.Join(f.Root, id.Path())
 	if _, statErr := os.Stat(nodeDir); statErr != nil {
 		if os.IsNotExist(statErr) {
-			return terrs.ErrNodeNotFound
+			return ErrNodeNotFound
 		}
-		return terrs.NewBackendError(f.Name(), "DeleteNode", 0, statErr, false)
+		return NewBackendError(f.Name(), "DeleteNode", 0, statErr, false)
 	}
 
 	if err := os.RemoveAll(nodeDir); err != nil {
-		return terrs.NewBackendError(f.Name(), "DeleteNode", 0, err, false)
+		return NewBackendError(f.Name(), "DeleteNode", 0, err, false)
 	}
 	return nil
 }
@@ -794,9 +792,9 @@ func (f *FsRepo) DeleteImage(ctx context.Context, id Node, name string) error {
 	// Ensure node exists
 	if _, statErr := os.Stat(nodeDir); statErr != nil {
 		if os.IsNotExist(statErr) {
-			return terrs.ErrNodeNotFound
+			return ErrNodeNotFound
 		}
-		return terrs.NewBackendError(f.Name(), "DeleteImage", 0, statErr, false)
+		return NewBackendError(f.Name(), "DeleteImage", 0, statErr, false)
 	}
 
 	imagesDir := filepath.Join(nodeDir, NodeImagesDir)
@@ -804,14 +802,14 @@ func (f *FsRepo) DeleteImage(ctx context.Context, id Node, name string) error {
 
 	if _, statErr := os.Stat(imagePath); statErr != nil {
 		if os.IsNotExist(statErr) {
-			return terrs.ErrNotFound
+			return ErrNotFound
 		}
-		return terrs.NewBackendError(f.Name(), "DeleteImage", 0, statErr, false)
+		return NewBackendError(f.Name(), "DeleteImage", 0, statErr, false)
 	}
 
 	// Remove image and possible metadata/thumbs; best-effort for extras.
 	if err := os.RemoveAll(imagePath); err != nil {
-		return terrs.NewBackendError(f.Name(), "DeleteImage", 0, err, false)
+		return NewBackendError(f.Name(), "DeleteImage", 0, err, false)
 	}
 
 	// remove per-image meta if present
@@ -842,21 +840,21 @@ func (f *FsRepo) DeleteItem(ctx context.Context, id Node, name string) error {
 		if os.IsNotExist(statErr) {
 			return nil
 		}
-		return terrs.NewBackendError(f.Name(), "DeleteItem", 0, statErr, false)
+		return NewBackendError(f.Name(), "DeleteItem", 0, statErr, false)
 	}
 
 	// Remove the item (file or directory). Use RemoveAll to handle both files
 	// and directories; wrap any error for callers to inspect/decide about
 	// retry.
 	if err := os.RemoveAll(itemPath); err != nil {
-		return terrs.NewBackendError(f.Name(), "DeleteItem", 0, err, false)
+		return NewBackendError(f.Name(), "DeleteItem", 0, err, false)
 	}
 
 	return nil
 }
 
 // ReadConfig implements KegRepository.
-func (f *FsRepo) ReadConfig(ctx context.Context) (*tap.KegConfig, error) {
+func (f *FsRepo) ReadConfig(ctx context.Context) (*KegConfig, error) {
 	candidates := []string{"keg", "keg.yaml", "keg.yml"}
 	var lastErr error
 	for _, c := range candidates {
@@ -864,12 +862,12 @@ func (f *FsRepo) ReadConfig(ctx context.Context) (*tap.KegConfig, error) {
 		if _, err := os.Stat(p); err == nil {
 			b, rerr := os.ReadFile(p)
 			if rerr != nil {
-				return &tap.KegConfig{}, terrs.NewBackendError(f.Name(),
+				return &KegConfig{}, NewBackendError(f.Name(),
 					"ReadConfig", 0, rerr, false)
 			}
-			cfg, perr := tap.ParseKegConfig(b)
+			cfg, perr := ParseKegConfig(b)
 			if perr != nil {
-				return &tap.KegConfig{}, terrs.NewBackendError(f.Name(),
+				return &KegConfig{}, NewBackendError(f.Name(),
 					"ReadConfig", 0, perr, false)
 			}
 			return cfg, nil
@@ -878,24 +876,24 @@ func (f *FsRepo) ReadConfig(ctx context.Context) (*tap.KegConfig, error) {
 		}
 	}
 	if lastErr != nil {
-		return &tap.KegConfig{}, terrs.NewBackendError(f.Name(),
+		return &KegConfig{}, NewBackendError(f.Name(),
 			"ReadConfig", 0, lastErr, false)
 	}
-	return &tap.KegConfig{}, terrs.ErrKegNotFound
+	return &KegConfig{}, ErrKegNotFound
 }
 
 // WriteConfig implements KegRepository.
-func (f *FsRepo) WriteConfig(ctx context.Context, config *tap.KegConfig) error {
+func (f *FsRepo) WriteConfig(ctx context.Context, config *KegConfig) error {
 	// marshal to YAML
 	out, err := yaml.Marshal(config)
 	if err != nil {
-		return terrs.NewBackendError(f.Name(), "WriteConfig", 0, err, false)
+		return NewBackendError(f.Name(), "WriteConfig", 0, err, false)
 	}
 	target := filepath.Join(f.Root, "keg")
 
 	err = std.AtomicWriteFile(target, out, 0o0644)
 	if err != nil {
-		return terrs.NewBackendError(f.Name(), "WriteConfig", 0, err, false)
+		return NewBackendError(f.Name(), "WriteConfig", 0, err, false)
 	}
 	return nil
 }

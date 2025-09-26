@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	terrs "github.com/jlrickert/tapper/pkg/errors"
 	"github.com/jlrickert/tapper/pkg/keg"
 	"github.com/stretchr/testify/require"
 )
@@ -117,7 +116,7 @@ func TestFsRepo_MoveDeleteNodeAndDestinationExists(t *testing.T) {
 	// src should no longer exist
 	_, err := r.ReadContent(ctx, src)
 	require.Error(t, err)
-	require.ErrorIs(t, err, terrs.ErrNodeNotFound)
+	require.ErrorIs(t, err, keg.ErrNodeNotFound)
 
 	// dst should have content
 	got, err := r.ReadContent(ctx, dst)
@@ -130,13 +129,13 @@ func TestFsRepo_MoveDeleteNodeAndDestinationExists(t *testing.T) {
 
 	err = r.MoveNode(ctx, dst, other)
 	require.Error(t, err)
-	require.ErrorIs(t, err, terrs.ErrDestinationExists)
+	require.ErrorIs(t, err, keg.ErrDestinationExists)
 
 	// DeleteNode should remove node
 	require.NoError(t, r.DeleteNode(ctx, other))
 	_, err = r.ReadContent(ctx, other)
 	require.Error(t, err)
-	require.ErrorIs(t, err, terrs.ErrNodeNotFound)
+	require.ErrorIs(t, err, keg.ErrNodeNotFound)
 }
 
 func TestFsRepo_UploadAndListImagesAndItems(t *testing.T) {
@@ -241,7 +240,7 @@ func TestFsRepo_ClearLocksAndNodeLockBehavior(t *testing.T) {
 	_, err = r.LockNode(ctxTimeout, keg.Node{ID: 50}, 50*time.Millisecond)
 	require.Error(t, err)
 	// underlying error should wrap ErrLockTimeout
-	require.True(t, errors.Is(err, terrs.ErrLockTimeout))
+	require.True(t, errors.Is(err, keg.ErrLockTimeout))
 
 	// Clear the node lock via ClearNodeLock and ensure file removed
 	require.NoError(t, r.ClearNodeLock(ctx, keg.Node{ID: 50}))

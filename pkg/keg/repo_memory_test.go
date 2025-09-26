@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"testing"
 
-	terrs "github.com/jlrickert/tapper/pkg/errors"
 	"github.com/jlrickert/tapper/pkg/keg"
 	"github.com/stretchr/testify/require"
 )
@@ -47,7 +46,7 @@ func TestMemoryRepo_ReadMissingReturnsNotFound(t *testing.T) {
 
 	_, err := r.ReadContent(ctx, missing)
 	require.Error(t, err)
-	require.ErrorIs(t, err, terrs.ErrNodeNotFound)
+	require.ErrorIs(t, err, keg.ErrNodeNotFound)
 }
 
 func TestMemoryRepo_WriteAndListIndexes_GetIndex(t *testing.T) {
@@ -91,7 +90,7 @@ func TestMemoryRepo_MoveNodeAndDestinationExists(t *testing.T) {
 
 	// src should no longer exist
 	_, err := r.ReadContent(ctx, src)
-	require.ErrorIs(t, err, terrs.ErrNodeNotFound)
+	require.ErrorIs(t, err, keg.ErrNodeNotFound)
 
 	// dst should exist with same content
 	got, err := r.ReadContent(ctx, dst)
@@ -104,7 +103,7 @@ func TestMemoryRepo_MoveNodeAndDestinationExists(t *testing.T) {
 
 	err = r.MoveNode(ctx, dst, other)
 	require.Error(t, err)
-	require.ErrorIs(t, err, terrs.ErrDestinationExists)
+	require.ErrorIs(t, err, keg.ErrDestinationExists)
 }
 
 func TestMemoryRepo_NextProducesIncreasingIDs(t *testing.T) {
