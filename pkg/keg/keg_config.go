@@ -13,6 +13,7 @@ import (
 	"time"
 
 	std "github.com/jlrickert/go-std/pkg"
+	kegurl "github.com/jlrickert/tapper/pkg/keg_url"
 	"gopkg.in/yaml.v3"
 )
 
@@ -204,10 +205,10 @@ func ParseKegConfig(data []byte) (*KegConfig, error) {
 	return &configV2, nil
 }
 
-func (c *KegConfig) ResolveAlias(ctx context.Context, alias string) (*KegTarget, error) {
+func (c *KegConfig) ResolveAlias(ctx context.Context, alias string) (*kegurl.Target, error) {
 	for _, entry := range c.Links {
 		if alias == entry.Alias {
-			return ParseKegTarget(ctx, entry.URL)
+			return kegurl.Parse(ctx, entry.URL)
 		}
 	}
 	return nil, fmt.Errorf("alias %s not found: %w", alias, ErrNotFound)
