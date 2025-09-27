@@ -8,13 +8,14 @@ import (
 	"time"
 
 	std "github.com/jlrickert/go-std/pkg"
+	kegurl "github.com/jlrickert/tapper/pkg/keg_url"
 	"gopkg.in/yaml.v3"
 )
 
 // LocalConfig is the structure for .tapper/local.yaml (repo-local visible override).
 type LocalConfig struct {
-	Updated string `yaml:"updated,omitempty"`
-	Keg     KegUrl `yaml:"keg,omitempty"`
+	Updated string        `yaml:"updated,omitempty"`
+	Keg     kegurl.Target `yaml:"keg,omitempty"`
 }
 
 // ReadLocalFile reads and parses a .tapper/local.yaml file into LocalConfig.

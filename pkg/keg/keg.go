@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	std "github.com/jlrickert/go-std/pkg"
+	kegurl "github.com/jlrickert/tapper/pkg/keg_url"
 )
 
 // Keg is a concrete high-level service backed by a KegRepository.
@@ -21,6 +22,10 @@ type Keg struct {
 }
 
 type KegOption func(*Keg)
+
+func NewKegFromTarget(ctx context.Context, target kegurl.Target) (*Keg, error) {
+	return nil, nil
+}
 
 // NewKeg returns a Keg service backed by the provided repository.
 func NewKeg(repo KegRepository, opts ...KegOption) *Keg {

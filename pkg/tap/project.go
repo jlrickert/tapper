@@ -7,8 +7,8 @@ import (
 
 	std "github.com/jlrickert/go-std/pkg"
 
-	terrors "github.com/jlrickert/tapper/pkg/errors"
 	"github.com/jlrickert/tapper/pkg/keg"
+	kegurl "github.com/jlrickert/tapper/pkg/keg_url"
 )
 
 type Project struct {
@@ -66,7 +66,7 @@ func LoadProject(ctx context.Context, root string, opts ...ProjectOption) (*Proj
 	if path, err := std.UserConfigPath(ctx); err != nil {
 		return nil, fmt.Errorf(
 			"unable to get find user config path: %w",
-			terrors.ErrNotFound,
+			keg.ErrNotFound,
 		)
 	} else {
 		p.UserConfigRoot = filepath.Join(path, appName)
@@ -75,7 +75,7 @@ func LoadProject(ctx context.Context, root string, opts ...ProjectOption) (*Proj
 	if path, err := std.UserDataPath(ctx); err != nil {
 		return nil, fmt.Errorf(
 			"unable to get find user data path: %w",
-			terrors.ErrNotFound,
+			keg.ErrNotFound,
 		)
 	} else {
 		p.DataRoot = filepath.Join(path, appName)
@@ -84,7 +84,7 @@ func LoadProject(ctx context.Context, root string, opts ...ProjectOption) (*Proj
 	if path, err := std.UserStatePath(ctx); err != nil {
 		return nil, fmt.Errorf(
 			"unable to get find user state root: %w",
-			terrors.ErrNotFound,
+			keg.ErrNotFound,
 		)
 	} else {
 		p.StateRoot = filepath.Join(path, appName)
@@ -93,7 +93,7 @@ func LoadProject(ctx context.Context, root string, opts ...ProjectOption) (*Proj
 	if path, err := std.UserCachePath(ctx); err != nil {
 		return nil, fmt.Errorf(
 			"unable to get find user cache root: %w",
-			terrors.ErrNotFound,
+			keg.ErrNotFound,
 		)
 	} else {
 		p.CacheRoot = filepath.Join(path, appName)
@@ -104,6 +104,6 @@ func LoadProject(ctx context.Context, root string, opts ...ProjectOption) (*Proj
 	return &p, nil
 }
 
-func (p *Project) DefaultTarget(ctx context.Context) *keg.KegTarget {
+func (p *Project) DefaultTarget(ctx context.Context) *kegurl.Target {
 	return nil
 }
