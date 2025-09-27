@@ -2,88 +2,101 @@ package kegurl
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	std "github.com/jlrickert/go-std/pkg"
 	"gopkg.in/yaml.v3"
 )
 
+var scalarApiRE = regexp.MustCompile(`^([A-Za-z0-9_.-]+):\s*(.+)$`)
+var dupSlashRE = regexp.MustCompile(`/+`)
+
 // Target describes a resolved KEG repository target.
 //
 // Schema is the URI scheme when the target was written as a URL (for example
-// "file", "http", "s3", "git", "https", "kegapi"). Path is the URL path
-// component or an absolute file system path when the target was supplied as a
-// file path. Readonly indicates whether the target was explicitly requested
-// read only.
+// "file", "http", "https"). Path is the URL path component or an absolute
+// filesystem path when the target was supplied as a file path.
+//
+// The Target struct is the canonical, minimal shape used by tooling. Valid
+// forms that map into Target include:
+//
+// - File targets:
+//   - Scalar file paths such as "/abs/path", "./rel/path", "../rel/path",
+//     "~/path", or Windows drive paths.
+//   - Mapping form with "file" key.
+//     File targets are normalized to a cleaned path and Expand will attempt to
+//     expand a leading tilde.
+//
+// - API/HTTP targets:
+//   - Full URL scalars (http:// or https://).
+//   - Mapping form with "url" key and optional user/password/token/tokenEnv.
+//     Query parameters like "readonly", "token", and "token-env" are honored
+//     when parsing a URL scalar.
+//
+// - Registry API shorthand and structured form:
+//   - Compact scalar shorthand "registry:user/keg" or "registry:/@user/keg".
+//   - Mapping form with "repo", "user", and "keg" fields.
+//     These represent a registry-level API target and may be expanded by the
+//     resolver by looking up the registry's base URL and composing the final
+//     API URL. The Repo field holds the registry key/name.
+//
+// Fields:
+//
+//   - File: filesystem path when the target is a local keg.
+//   - Repo: registry name when using a registry API form.
+//   - Url: canonical URL when provided or parsed from a scalar.
+//   - User/Keg: structured registry pieces for composing an API URL.
+//   - Password/Token/TokenEnv: credential hints. TokenEnv is preferred for
+//     production usage.
+//   - Readonly: when true the target was requested read only.
 type Target struct {
-	// schema is the canonical scheme for the target. Examples include
-	// "file", "https", "git", and "kegapi". It is typically inferred from the
-	// original input when possible.
-	schema string
+	// File is the file to use when the Target is a file
+	File string `yaml:"file,omitempty"`
 
-	// url is the raw URL or original input string. For network schemas this is
-	// a URL; for file targets it is a cleaned filesystem path.
-	url string `yaml:"url,omitempty"`
+	// Repo is the repo to use to resolve the User and Keg
+	Repo string `yaml:"repo,omitempty"`
 
-	// api holds the API base when the schema refers to a keg api endpoint.
-	api string `yaml:"api,omitempty"`
+	// Url is the url for the target when represented as a scalar or explicit
+	// mapping value. Url is used when the target is http/s, git, ssh, etc
+	Url string `yaml:"url,omitempty"`
 
-	// path is the URL path component. For file targets it is an absolute,
-	// cleaned filesystem path. For network targets it is the path portion of
-	// the URL.
-	path string `yaml:"path,omitempty"`
+	// Other options
+	User     string `yaml:"user,omitempty"`
+	Keg      string `yaml:"keg,omitempty"`
+	Password string `yaml:"password,omitempty"`
+	Token    string `yaml:"token,omitempty"`
+	TokenEnv string `yaml:"tokenEnv,omitempty"`
 
-	// readonly indicates whether the target should be treated as read only.
-	// When missing the effective default may be true for some schemas. Only
-	// file and kegapi schemas may be writable.
-	readonly bool `yaml:"readonly,omitempty"`
-
-	// host is the network host portion of the target when applicable.
-	host string `yaml:"host,omitempty"`
-
-	// port is the network port as a string when present.
-	port string `yaml:"port,omitempty"`
-
-	// user is the username to be used for basic auth or similar auth schemes.
-	user string `yaml:"user,omitempty"`
-
-	// password is the password to use for basic auth.
-	password string `yaml:"password,omitempty"`
-
-	// token is an inline access token. Prefer tokenEnv for storing tokens in
-	// the environment where possible.
-	token string `yaml:"token,omitempty"`
-
-	// tokenEnv names an environment variable from which to read a token at
-	// runtime. If present the code should prefer the environment value over the
-	// inline token.
-	tokenEnv string `yaml:"tokenEnv,omitempty"`
+	// Readonly specifies in the target is readonly. Only api and file are
+	// writable
+	Readonly bool `yaml:"readonly,omitempty"`
 }
 
 type TargetOption = func(t *Target)
 type HTTPOption = func(t *Target)
 
 const (
-	SchemaFile  = "file"
+	SchemeFile  = "file"
 	SchemaGit   = "git"
 	SchemaSSH   = "ssh"
-	SchemaHTTP  = "http"
-	SchemaHTTPs = "https"
+	SchemeHTTP  = "http"
+	SchemeHTTPs = "https"
 	SchemaAlias = "keg"
-	SchemaApi   = "kegapi"
+	SchemeApi   = "kegapi"
 	SchemaS3    = "s3"
 )
 
 // NewApi constructs a Target representing a keg API endpoint.
-func NewApi(urlStr string, token string, opts ...TargetOption) Target {
+func NewApi(repo string, user, keg string, opts ...TargetOption) Target {
 	t := Target{
-		schema: SchemaApi,
-		url:    urlStr,
-		token:  token,
-		api:    urlStr,
+		Repo: repo,
+		User: user,
+		Keg:  keg,
 	}
 	for _, o := range opts {
 		o(&t)
@@ -91,63 +104,12 @@ func NewApi(urlStr string, token string, opts ...TargetOption) Target {
 	return t
 }
 
-// NewGithub constructs a github.com HTTPS target for the given user/repo.
-func NewGithub(user string, repo string, opts ...TargetOption) Target {
-	path := "/" + strings.TrimPrefix(user, "/") + "/" +
-		strings.TrimPrefix(repo, "/")
-	u := url.URL{Scheme: "https", Host: "github.com", Path: path}
-	t := Target{
-		schema:   SchemaHTTPs,
-		url:      u.String(),
-		path:     path,
-		host:     "github.com",
-		readonly: true,
-	}
-	for _, o := range opts {
-		o(&t)
-	}
-	return t
-}
-
-// NewBitbucket constructs a bitbucket.org HTTPS target for the provided path.
-func NewBitbucket(path string) Target {
-	p := path
-	if !strings.HasPrefix(p, "/") {
-		p = "/" + p
-	}
-	u := url.URL{Scheme: "https", Host: "bitbucket.org", Path: p}
-	return Target{
-		schema:   SchemaHTTPs,
-		url:      u.String(),
-		path:     p,
-		host:     "bitbucket.org",
-		readonly: true,
-	}
-}
-
-// NewGit constructs a git:// target for the given host and path.
-func NewGit(host, path string) Target {
-	p := path
-	if !strings.HasPrefix(p, "/") {
-		p = "/" + p
-	}
-	u := url.URL{Scheme: "git", Host: host, Path: p}
-	return Target{
-		schema:   SchemaGit,
-		url:      u.String(),
-		path:     p,
-		host:     host,
-		readonly: true,
-	}
-}
-
-// NewFile constructs a file target for a local filesystem path.
+// NewFile constructs a file target for a local filesystem path. The path is
+// cleaned using filepath.Clean.
 func NewFile(path string, opts ...TargetOption) Target {
 	p := filepath.Clean(path)
 	t := Target{
-		schema: SchemaFile,
-		path:   p,
-		url:    p,
+		File: p,
 	}
 	for _, o := range opts {
 		o(&t)
@@ -157,199 +119,151 @@ func NewFile(path string, opts ...TargetOption) Target {
 
 func WithReadonly() TargetOption {
 	return func(t *Target) {
-		t.readonly = true
+		t.Readonly = true
 	}
 }
 
 func WithBasicAuth(user, pass string) HTTPOption {
 	return func(target *Target) {
-		target.user = user
-		target.password = pass
+		target.User = user
+		target.Password = pass
 	}
 }
 
 func WithToken(token string) HTTPOption {
 	return func(target *Target) {
-		target.token = token
+		target.Token = token
 	}
 }
 
-// Parse parses a user-supplied target string into a Keg Target.
+// Parse parses a user-supplied target scalar into a Target.
 //
-// Behavior:
-//   - The raw string has environment variables expanded via std.ExpandEnv and
-//     leading tildes expanded via std.ExpandPath.
-//   - The value is cleaned with filepath.Clean.
-//   - We first attempt to parse the cleaned value as a URL using url.Parse.
-//     When a scheme is present it is used as the target Schema and the parsed
-//     path is used for Path.
-//   - When the input looks like a plain file path (no URL scheme but an
-//     absolute path in the filesystem), the Path will hold the file path and
-//     Schema will be empty. Callers may set Schema to "file" if they prefer an
-//     explicit file URI form.
-//   - The query parameter "readonly" is honored. Recognized true values are
-//     "1", "true", and "yes" in a case-insensitive comparison. If present and
-//     true, Readonly is set to true.
+// Accepted input forms:
+// - File paths (absolute, ./, ../, ~, Windows drive). These become File targets.
+// - Compact registry shorthand "registry:user/keg" or "registry:/@user/keg".
+// - HTTP/HTTPS URL scalars.
+// - Any URL-like scalar parsed by url.Parse.
 //
-// Returns an error when the input is empty or when path expansion fails.
-//
-// Examples:
-//
-//	"https://example.com/user/repo"
-//	  - Schema: "https"
-//	  - Host: example.com
-//	  - Path: /user/repo
-//
-//	"git@github.com:owner/repo.git"
-//	  - Schema: "git" (ssh form will be parsed by adding an ssh:// prefix)
-//	  - Host: github.com
-//	  - Path: /owner/repo.git
-//
-//	"github.com/owner/repo"
-//	  - Schema: "https" (detected as host-like)
-//	  - Host: github.com
-//	  - Path: /owner/repo
-//
-//	"/home/me/projects/kegalias"
-//	  - Schema: "file" (local path)
-//	  - Path: /home/me/projects/keg
-//
-//	"https://api.example.com/kegalias?readonly=true&token=abc123"
-//	  - Schema: "https"
-//	  - Path: kegalias
-//	  - Readonly: true
-//	  - Token: "abc123"
-func Parse(ctx context.Context, raw string) (*Target, error) {
-	if raw == "" {
+// The function tries to be permissive when parsing common variants (extra
+// whitespace, duplicate slashes). It returns an error for empty or malformed
+// shorthand inputs.
+func Parse(raw string) (*Target, error) {
+	value := strings.TrimSpace(raw)
+	if value == "" {
 		return nil, fmt.Errorf("empty target")
 	}
 
-	// Expand environment variables and tildes.
-	value := std.ExpandEnv(ctx, raw)
-	value, err := std.ExpandPath(ctx, value)
-	if err != nil {
-		return nil, fmt.Errorf("unable to expand %s: %w", value, err)
+	detectedScheme := detectScheme(value)
+	switch detectedScheme {
+	case SchemeFile:
+		t := Target{
+			File: filepath.Clean(strings.TrimPrefix(value, "file://")),
+		}
+		return &t, nil
+	case SchemeApi:
+		// Accept compact registry shorthand: "registry:user/keg" or
+		// "registry:/@user/keg".
+		if m := scalarApiRE.FindStringSubmatch(value); m != nil {
+			repo := m[1]
+			rest := strings.TrimSpace(m[2])
+			rest = strings.TrimPrefix(rest, "/")
+			parts := strings.SplitN(rest, "/", 2)
+			if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+				return nil, fmt.Errorf("malformed target shorthand: %s", raw)
+			}
+			user := parts[0]
+			keg := parts[1]
+			t := Target{
+				Repo: repo,
+				User: user,
+				Keg:  keg,
+			}
+			return &t, nil
+		}
+	case SchemeHTTP:
+		if !strings.HasPrefix(value, "http://") {
+			value = "http://" + value
+		}
+	case SchemeHTTPs:
+		if !strings.HasPrefix(value, "https://") {
+			value = "https://" + value
+		}
 	}
 
-	// Keep a clean copy for parsing; do not lose the original host/path shape.
-	value = filepath.Clean(value)
-
-	// Try to parse as a URL. url.Parse will accept absolute file paths and
-	// yield an empty Scheme with the path populated.
+	// Otherwise, treat as URL-like and parse with url.Parse.
 	u, err := url.Parse(value)
 	if err != nil {
 		return nil, fmt.Errorf("unable to parse %s: %w", value, err)
 	}
 
-	// If the input had no scheme, attempt to detect likely schema and, when
-	// appropriate, reparse using an explicit scheme so url.Parse fills Host.
-	schema := u.Scheme
-	if schema == "" {
-		schema = detectSchema(value)
-		// Only reparse when we detected a network-like schema.
-		switch schema {
-		case SchemaGit:
-			// If the form is "git@host:owner/repo" use ssh scheme for parsing.
-			if strings.HasPrefix(value, "git@") {
-				if nu, perr := url.Parse("ssh://" + value); perr == nil {
-					u = nu
-				}
-			} else {
-				if nu, perr := url.Parse("git://" + value); perr == nil {
-					u = nu
-				}
-			}
-		case SchemaHTTP, SchemaHTTPs:
-			// Prefer https when we detected SchemaHTTPs.
-			prefix := "http://"
-			if schema == SchemaHTTPs {
-				prefix = "https://"
-			}
-			if nu, perr := url.Parse(prefix + value); perr == nil {
-				u = nu
-			}
+	// Normalize path component by collapsing duplicate slashes.
+	u.Path = dupSlashRE.ReplaceAllString(u.Path, "/")
+
+	user := ""
+	pass := ""
+	if u.User != nil {
+		user = u.User.Username()
+		if p, ok := u.User.Password(); ok {
+			pass = p
 		}
 	}
 
-	paswd, _ := u.User.Password()
 	kt := Target{
-		url:      u.String(),
-		schema:   schema,
-		path:     u.Path,
-		host:     u.Hostname(),
-		port:     u.Port(),
-		user:     u.User.Username(),
-		password: paswd,
+		Url:      value,
+		User:     user,
+		Password: pass,
 	}
 
 	// Honor common truthy query values for readonly.
 	if q := u.Query().Get("readonly"); q != "" {
 		q = strings.ToLower(q)
 		if q == "1" || q == "true" || q == "yes" {
-			kt.readonly = true
+			kt.Readonly = true
 		}
 	}
 
 	if q := u.Query().Get("token"); q != "" {
-		q = strings.TrimSpace(q)
-		kt.token = q
+		kt.Token = strings.TrimSpace(q)
 	}
 
 	if q := u.Query().Get("token-env"); q != "" {
-		q = strings.TrimSpace(q)
-		kt.tokenEnv = q
+		kt.TokenEnv = strings.TrimSpace(q)
 	}
 
 	return &kt, nil
 }
 
-func (kt *Target) User() string     { return kt.user }
-func (kt *Target) Pass() string     { return kt.password }
-func (kt *Target) Schema() string   { return kt.schema }
-func (kt *Target) Path() string     { return kt.path }
-func (kt *Target) Host() string     { return kt.host }
-func (kt *Target) Port() string     { return kt.port }
-func (kt *Target) Hostname() string { return kt.host + ":" + kt.Port() }
-
-// String returns a canonical representation of the target as a URI-like string.
-//
-// Notes:
-//   - When Schema is "file" callers can expect a file URI style value. If Schema
-//     is empty the returned string will be the URL form built from Schema and
-//     Path which may be just the path component for local file paths.
-//   - If Readonly was set but the underlying URI contains no readonly query
-//     parameter, callers can append one if they need an explicit readonly form.
-func (kt *Target) String() string {
-	u := url.URL{
-		Scheme: kt.schema,
-		Host:   kt.host,
-		Path:   kt.path,
+// Expand replaces environment variables and expands leading tilde in File and
+// Repo-related fields. It uses std.ExpandEnv and std.ExpandPath to match the
+// rest of the code base. Errors from ExpandPath are collected and returned as
+// a joined error so callers can see expansion issues.
+func (k *Target) Expand(ctx context.Context) error {
+	var errs []error
+	expand := func(ctx context.Context, value string) string {
+		va := std.ExpandEnv(ctx, value)
+		vb, err := std.ExpandPath(ctx, va)
+		if err != nil {
+			errs = append(errs, err)
+			return va
+		}
+		return vb
 	}
-	if kt.port != "" {
-		u.Host = kt.host + ":" + kt.port
-	} else {
-		u.Host = kt.host
-	}
-	if kt.user != "" && kt.password != "" {
-		u.User = url.UserPassword(kt.user, kt.password)
-	}
-	// url.Query returns a copy, so mutate the values and set RawQuery.
-	q := u.Query()
-	if kt.token != "" {
-		q.Add("token", kt.token)
-	}
-	if kt.tokenEnv != "" {
-		q.Add("token-env", kt.tokenEnv)
-	}
-	if kt.readonly {
-		q.Add("readonly", "true")
-	}
-	u.RawQuery = q.Encode()
-	return u.String()
+	k.File = expand(ctx, k.File)
+	k.Url = std.ExpandEnv(ctx, k.Url)
+	k.File = expand(ctx, k.File)
+	k.Repo = std.ExpandEnv(ctx, k.Repo)
+	k.Password = std.ExpandEnv(ctx, k.Password)
+	k.Token = std.ExpandEnv(ctx, k.Token)
+	k.TokenEnv = std.ExpandEnv(ctx, k.TokenEnv)
+	return errors.Join(errs...)
 }
 
-// UnmarshalYAML accepts either a scalar string (the URL) or a mapping node that
-// decodes into the full Keg Target struct.
+// UnmarshalYAML accepts either a scalar string (the URL or shorthand or file)
+// or a mapping node that decodes into the full Target struct. Mapping form may
+// include structured repo/user/keg or an explicit file field.
+//
+// When a scalar is provided the value is parsed via Parse which recognizes file
+// scalars, shorthand registry forms, and URL scalars.
 func (k *Target) UnmarshalYAML(node *yaml.Node) error {
 	if node == nil {
 		return nil
@@ -360,133 +274,173 @@ func (k *Target) UnmarshalYAML(node *yaml.Node) error {
 		if err := node.Decode(&s); err != nil {
 			return fmt.Errorf("decode keg url scalar: %w", err)
 		}
-		kt, err := Parse(context.Background(), s)
+		kt, err := Parse(s)
 		if err != nil {
 			return err
 		}
-		// Copy parsed fields into receiver so callers get a fully populated Target.
-		k.schema = kt.schema
-		k.url = kt.url
-		k.path = kt.path
-		k.readonly = kt.readonly
-		k.host = kt.host
-		k.port = kt.port
-		k.user = kt.user
-		k.password = kt.password
-		k.token = kt.token
-		k.tokenEnv = kt.tokenEnv
-		k.api = kt.api
+		*k = *kt
 		return nil
 	case yaml.MappingNode:
-		// decode into a temporary alias to avoid recursion issues
 		type tmp Target
 		var t tmp
 		if err := node.Decode(&t); err != nil {
 			return fmt.Errorf("decode keg url mapping: %w", err)
 		}
 		*k = Target(t)
+		if k.Url != "" {
+			switch detectScheme(k.Url) {
+			case SchemeHTTP:
+				if !strings.HasPrefix(k.Url, "http://") {
+					k.Url = "http://" + k.Url
+				}
+			case SchemeHTTPs:
+				if !strings.HasPrefix(k.Url, "https://") {
+					k.Url = "https://" + k.Url
+				}
+			}
+		}
 		return nil
 	default:
 		return fmt.Errorf("unsupported yaml node kind %d for KegUrl", node.Kind)
 	}
 }
 
-// MarshalYAML emits a scalar string when only the URL is set and all other
-// fields are zero values. Otherwise it emits a mapping with fields.
-func (k Target) MarshalYAML() (any, error) {
-	onlyURL := k.url != "" &&
-		!k.readonly &&
-		k.user == "" &&
-		k.password == "" &&
-		k.token == "" &&
-		k.tokenEnv == "" &&
-		k.host == "" &&
-		k.path == ""
-	if onlyURL {
-		return k.url, nil
+// String returns a human-friendly representation of the target. For registry
+// API form it returns "repo:user/keg". For file it returns the file path. For
+// HTTP targets it returns the canonical Url.
+func (kt *Target) String() string {
+	switch kt.Scheme() {
+	case SchemeFile:
+		return kt.File
+	case SchemeApi:
+		return kt.Repo + ":" + kt.User + "/" + kt.Keg
+	case SchemeHTTP, SchemeHTTPs:
+		return kt.Url
+	default:
+		u, _ := url.Parse(kt.Url)
+		return u.String()
 	}
-	// return struct mapping
-	return struct {
-		URL      string `yaml:"url,omitempty"`
-		Readonly bool   `yaml:"readonly,omitempty"`
-		User     string `yaml:"user,omitempty"`
-		Password string `yaml:"password,omitempty"`
-		Token    string `yaml:"token,omitempty"`
-		TokenEnv string `yaml:"tokenEnv,omitempty"`
-	}{
-		URL:      k.url,
-		Readonly: k.readonly,
-		User:     k.user,
-		Password: k.password,
-		Token:    k.token,
-		TokenEnv: k.tokenEnv,
-	}, nil
 }
 
-// detectSchema returns one of SchemaFile, SchemaGit, or SchemaHTTPs based on
-// the form of the provided raw string.
-//
-// Examples the function handles:
-// - "github.com/jlrickert/project"   -> SchemaGit
-// - "jlrickert.me/@user/project"     -> SchemaHTTPs
-// - "repos/keg"                      -> SchemaFile
-func detectSchema(raw string) string {
+// Scheme reports the inferred scheme for this Target value. Repo implies the
+// keg api scheme. File implies a local file scheme. Otherwise we fall back to
+// detectScheme on the Url.
+func (kt *Target) Scheme() string {
+	if kt.File != "" {
+		return SchemeFile
+	}
+	if kt.Repo != "" {
+		return SchemeApi
+	}
+	return detectScheme(kt.Url)
+}
+
+// Host returns the hostname portion for HTTP/HTTPS targets. For file targets
+// it returns an empty string.
+func (kt *Target) Host() string {
+	switch kt.Scheme() {
+	case SchemeFile:
+		return ""
+	case SchemeHTTP, SchemeHTTPs:
+		u, _ := url.Parse(kt.Url)
+		return u.Hostname()
+	default:
+		u, _ := url.Parse(kt.Url)
+		return u.Hostname()
+	}
+}
+
+func (kt *Target) Port() string {
+	switch kt.Scheme() {
+	case SchemeFile:
+		return ""
+	default:
+		u, _ := url.Parse(kt.Url)
+		return u.Port()
+	}
+}
+
+func (kt *Target) Path() string {
+	switch kt.Scheme() {
+	case SchemeFile:
+		return filepath.Clean(kt.File)
+	case SchemeApi:
+		// Preserve a leading @ on user when composing a path for display.
+		return filepath.Join("@"+kt.User, kt.Keg)
+	default:
+		u, _ := url.Parse(kt.Url)
+		return u.Path
+	}
+}
+
+// detectScheme returns SchemeHTTPs or SchemeFile based on the form of raw.
+// It recognizes explicit http/https/file schemes and the compact registry
+// shorthand form. It will treat typical filesystem path forms as SchemeFile.
+func detectScheme(raw string) string {
+	if raw == "" {
+		return SchemeFile
+	}
+	if m := scalarApiRE.FindStringSubmatch(raw); m != nil {
+		rest := strings.TrimSpace(m[2])
+		rest = strings.TrimPrefix(rest, "/")
+		parts := strings.SplitN(rest, "/", 2)
+		if len(parts) == 2 && parts[0] != "" && parts[1] != "" {
+			return SchemeApi
+		}
+	}
+
 	// Try to parse as a URL first. This catches explicit schemes like
-	// "https://", "git://", "file://", and "ssh://".
+	// "https://", "file://".
 	if u, err := url.Parse(raw); err == nil && u.Scheme != "" {
 		switch u.Scheme {
-		case "http", "https":
-			return SchemaHTTP
-		case "git", "ssh":
-			return SchemaGit
+		case "http":
+			return SchemeHTTP
+		case "https":
+			return SchemeHTTPs
 		case "file":
-			return SchemaFile
+			return SchemeFile
 		}
 	}
 
-	// Common git indicators when scheme is omitted.
-	if strings.HasSuffix(raw, ".git") ||
-		strings.HasPrefix(raw, "git@") ||
-		strings.Contains(raw, "bitbucket.org") ||
-		strings.Contains(raw, "github.com") {
-		return SchemaGit
+	// Avoid classifying absolute or relative file paths as hosts.
+	if strings.HasPrefix(raw, "/") ||
+		strings.HasPrefix(raw, ".") ||
+		strings.HasPrefix(raw, "..") ||
+		strings.HasPrefix(raw, "./") ||
+		strings.HasPrefix(raw, "../") ||
+		strings.HasPrefix(raw, "~") {
+		return SchemeFile
 	}
 
-	// Host-like patterns without scheme, e.g. "example.com/user/proj".
-	// Only treat as HTTP(S) when the input does not look like a file path and
-	// the first segment (before the first "/") contains a dot.
-	if raw != "" {
-		// Avoid classifying absolute or relative file paths as hosts.
-		if strings.HasPrefix(raw, "/") ||
-			strings.HasPrefix(raw, "./") ||
-			strings.HasPrefix(raw, "../") ||
-			strings.HasPrefix(raw, "~") {
-			return SchemaFile
-		}
+	// Check for implicit http website
+	head := getHostLikePath(raw)
+	if head != "" && strings.Contains(head, ".") {
+		return SchemeHTTPs
+	}
 
-		// Windows drive letter like "C:" should be treated as file.
-		if len(raw) >= 2 && raw[1] == ':' && ((raw[0] >= 'A' && raw[0] <= 'Z') ||
-			(raw[0] >= 'a' && raw[0] <= 'z')) {
-			return SchemaFile
-		}
-
-		// Look at the host-like part before the first slash.
-		firstSlash := strings.IndexRune(raw, '/')
-		var head string
-		if firstSlash == -1 {
-			head = raw
-		} else if firstSlash > 0 {
-			head = raw[:firstSlash]
-		} else {
-			head = ""
-		}
-
-		// If the head part contains a dot and is not empty, treat as https.
-		if head != "" && strings.Contains(head, ".") {
-			return SchemaHTTPs
-		}
+	// Windows drive letter like "C:" should be treated as file.
+	if len(raw) >= 2 && raw[1] == ':' && ((raw[0] >= 'A' && raw[0] <= 'Z') ||
+		(raw[0] >= 'a' && raw[0] <= 'z')) {
+		return SchemeFile
 	}
 
 	// Fallback: treat as a local or repo-file path.
-	return SchemaFile
+	return SchemeFile
+}
+
+func getHostLikePath(raw string) string {
+	// Look at the host-like part before the first slash.
+	firstSlash := strings.IndexRune(raw, '/')
+	var head string
+	if firstSlash == -1 {
+		return raw
+	} else if firstSlash > 0 {
+		return raw[:firstSlash]
+	} else {
+		head = ""
+	}
+	if head != "" && strings.Contains(head, ".") {
+		return head
+	}
+	return ""
 }

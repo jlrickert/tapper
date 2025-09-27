@@ -2,74 +2,220 @@ package kegurl_test
 
 import (
 	"net/url"
-	"path/filepath"
 	"testing"
 
 	std "github.com/jlrickert/go-std/pkg"
 	kegurl "github.com/jlrickert/tapper/pkg/keg_url"
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 )
 
-func TestParseKegTarget_HTTP_KegSuffix(t *testing.T) {
-	raw := "https://example.com/project"
-	kt, err := kegurl.Parse(t.Context(), raw)
-	require.NoError(t, err, "ParseKegTarget failed")
-	require.Equal(t, "https", kt.Schema(), "expected scheme https")
-	// Path should be the URL path (e.g., "/project")
-	require.Equal(t, "project", filepath.Base(kt.Path()), "expected path base 'project'")
-	// remote target should have a non-empty scheme
-	require.NotEmpty(t, kt.Schema(), "expected remote target, got local")
-
-	// Ensure String produces a parseable URL and path base is correct.
-	uStr := kt.String()
-	u, err := url.Parse(uStr)
-	require.NoError(t, err, "String produced invalid URL")
-	require.Equal(t, "project", filepath.Base(u.Path), "expected URL path base 'project'")
-}
-
-func TestParseKegTarget_FileURIAndPath(t *testing.T) {
-	// file:// URI case
-	raw := "file:///tmp/keg"
-	kt, err := kegurl.Parse(t.Context(), raw)
-	require.NoError(t, err, "ParseKegTarget failed")
-	require.Equal(t, "file", kt.Schema(), "expected type file")
-	// Path base should be "keg"
-	require.Equal(t, "keg", filepath.Base(kt.Path()), "expected parsed file uri path base to be 'keg'")
-	out := kt.String()
-	u, err := url.Parse(out)
-	require.NoError(t, err, "String produced invalid URL")
-	require.Equal(t, "keg", filepath.Base(u.Path), "expected String() path base to be 'keg'")
-
-	// plain filesystem path (no scheme)
-	tmp := t.TempDir()
-	rawPath := filepath.Join(tmp, "keg")
-	kt2, err := kegurl.Parse(t.Context(), rawPath)
-	require.NoError(t, err, "ParseKegTarget failed for path")
-	// For plain paths ParseKegTarget produces an empty scheme and sets Path to the cleaned path.
-	require.NotEmpty(t, kt2.Schema(), "expected default file scheme for plain path")
-	abs, _ := filepath.Abs(rawPath)
-	require.Equal(t, filepath.Clean(abs), filepath.Clean(kt2.Path()), "expected Path to be absolute")
-	out2 := kt2.String()
-	u2, err := url.Parse(out2)
-	require.NoError(t, err, "String produced invalid URL for path")
-	require.Equal(t, "keg", filepath.Base(u2.Path), "expected String() path base to be 'keg'")
-}
-
-func TestParseKegTarget_EmptyError(t *testing.T) {
-	_, err := kegurl.Parse(t.Context(), "")
-	require.Error(t, err, "expected error for empty target")
-}
-
-func TestNormalize_ExpandsEnvAndMakesAbsolute(t *testing.T) {
-	env := std.NewTestEnv("test-user", "test-user")
+// Tests for parsing and YAML unmarshalling of kegurl.Target values.
+// The table driven tests cover file paths, file URIs, tilde expansion,
+// relative paths, shorthand registry:user/keg form, and HTTP/HTTPS URLs.
+func TestParse_File_TableDriven(t *testing.T) {
+	// Prepare a test Env for tilde expansion checks.
+	env := std.NewTestEnv("/home/testuser", "testuser")
 	ctx := std.WithEnv(t.Context(), env)
-	tempDir := t.TempDir()
 
-	// set env var used in Uri in the fixture's Env
-	err := env.Set("KEG_TEST_DIR", tempDir)
-	require.NoError(t, err, "failed to set env in fixture")
+	cases := []struct {
+		name       string
+		raw        string
+		expand     bool // run kt.Expand(ctx) before assertions
+		wantErr    bool
+		wantSchema string
+		wantFile   string
+	}{
+		{
+			name:       "absolute path",
+			raw:        "/tmp/keg",
+			wantSchema: kegurl.SchemeFile,
+			wantFile:   "/tmp/keg",
+		},
+		{
+			name:       "file uri",
+			raw:        "file:///tmp/keg",
+			wantSchema: kegurl.SchemeFile,
+			wantFile:   "/tmp/keg",
+		},
+		{
+			name:       "tilde path expands to home",
+			raw:        "~/kegs/work",
+			expand:     true,
+			wantSchema: kegurl.SchemeFile,
+			wantFile:   "~/kegs/work",
+		},
+		{
+			name:       "relative path",
+			raw:        "kegs/work",
+			wantSchema: kegurl.SchemeFile,
+			wantFile:   "kegs/work",
+		},
+	}
 
-	kt, err := kegurl.Parse(ctx, "${KEG_TEST_DIR}/keg")
-	require.NoError(t, err, "ExpandPath failed")
-	require.True(t, filepath.IsAbs(kt.Path()), "expected normalized Uri to be absolute")
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			kt, err := kegurl.Parse(tc.raw)
+			require.NoError(t, err)
+			if tc.expand {
+				err = kt.Expand(ctx)
+				require.NoError(t, err)
+				f, _ := std.ExpandPath(ctx, tc.wantFile)
+				tc.wantFile = f
+			}
+			if tc.wantSchema != "" {
+				require.Equal(t, tc.wantSchema, kt.Scheme())
+			}
+			if tc.wantFile != "" {
+				require.Equal(t, tc.wantFile, kt.File)
+				require.Equal(t, tc.wantFile, kt.Path())
+			}
+		})
+	}
+}
+
+// Table driven tests for YAML unmarshalling behavior.
+// These ensure both scalar and mapping forms decode to the expected Target.
+func TestUnmarshalYAML_TableDriven(t *testing.T) {
+	cases := []struct {
+		name       string
+		rawYAML    []byte
+		wantErr    bool
+		wantSchema string
+		wantHost   string
+		wantPath   string
+		wantToken  string
+		wantRepo   string
+		wantUser   string
+		wantKeg    string
+		wantFile   string
+		wantUrl    string
+	}{
+		{
+			name:       "https: simple url mapping",
+			rawYAML:    []byte("url: example.com/owner/repo"),
+			wantSchema: kegurl.SchemeHTTPs,
+			wantHost:   "example.com",
+			wantPath:   "/owner/repo",
+			wantUrl:    "https://example.com/owner/repo",
+		},
+		{
+			name:       "https: simple url scalar",
+			rawYAML:    []byte("example.com/owner/repo"),
+			wantSchema: kegurl.SchemeHTTPs,
+			wantHost:   "example.com",
+			wantPath:   "/owner/repo",
+			wantUrl:    "https://example.com/owner/repo",
+		},
+		{
+			name: "https: url + token mapping",
+			// Use raw string literal for readability and to avoid long line joins.
+			rawYAML: []byte(`url: https://keg.example.com/@user/keg
+token: secret123
+`),
+			wantSchema: kegurl.SchemeHTTPs,
+			wantUrl:    "https://keg.example.com/@user/keg",
+			wantHost:   "keg.example.com",
+			wantPath:   "/@user/keg",
+			wantToken:  "secret123",
+		},
+		{
+			name:       "api: structured repo+user+keg mapping",
+			rawYAML:    []byte("repo: jlr\nuser: jlrickert\nkeg: tapper\n"),
+			wantSchema: kegurl.SchemeApi,
+			wantRepo:   "jlr",
+			wantUser:   "jlrickert",
+			wantKeg:    "tapper",
+		},
+		{
+			name:       "api: scalar shorthand as yaml string",
+			rawYAML:    []byte("jlr:jlrickert/tapper"),
+			wantSchema: kegurl.SchemeApi,
+			wantRepo:   "jlr",
+			wantUser:   "jlrickert",
+			wantKeg:    "tapper",
+		},
+		{
+			name:       "file: simple path",
+			rawYAML:    []byte("/home/testuser/kegs/public"),
+			wantSchema: kegurl.SchemeFile,
+			wantFile:   "/home/testuser/kegs/public",
+		},
+		{
+			name:       "file: with home expansion",
+			rawYAML:    []byte("~/kegs/public"),
+			wantSchema: kegurl.SchemeFile,
+			wantFile:   "~/kegs/public",
+		},
+		{
+			name:       "file: relative path",
+			rawYAML:    []byte("../../kegs/public"),
+			wantSchema: kegurl.SchemeFile,
+			wantFile:   "../../kegs/public",
+		},
+		{
+			name:       "file: screwy relative path",
+			rawYAML:    []byte("..//../kegs/public"),
+			wantSchema: kegurl.SchemeFile,
+			wantFile:   "../../kegs/public",
+		},
+		{
+			name:       "file: with explicit scheme",
+			rawYAML:    []byte("file:///home/testuser/kegs/public"),
+			wantSchema: kegurl.SchemeFile,
+			wantFile:   "/home/testuser/kegs/public",
+		},
+		{
+			name:       "file: path w/ explicit scheme and home",
+			rawYAML:    []byte("file://~/kegs/public"),
+			wantSchema: kegurl.SchemeFile,
+			wantFile:   "~/kegs/public",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			var kt kegurl.Target
+			err := yaml.Unmarshal(tc.rawYAML, &kt)
+			if tc.wantErr {
+				require.Error(t, err, tc.name)
+				return
+			}
+			require.NoError(t, err)
+			if tc.wantSchema != "" {
+				require.Equal(t, tc.wantSchema, kt.Scheme())
+			}
+			if tc.wantFile != "" {
+				require.Equal(t, tc.wantFile, kt.File)
+			}
+			if tc.wantRepo != "" {
+				require.Equal(t, tc.wantRepo, kt.Repo)
+			}
+			if tc.wantUrl != "" {
+				require.Equal(t, tc.wantUrl, kt.Url)
+			}
+			if tc.wantHost != "" {
+				require.Equal(t, tc.wantHost, kt.Host())
+			}
+			if tc.wantPath != "" {
+				require.Equal(t, tc.wantPath, kt.Path())
+			}
+			if tc.wantToken != "" {
+				require.Equal(t, tc.wantToken, kt.Token)
+			}
+			if tc.wantUser != "" {
+				require.Equal(t, tc.wantUser, kt.User)
+			}
+			if tc.wantKeg != "" {
+				require.Equal(t, tc.wantKeg, kt.Keg)
+			}
+			// Ensure the String result is parseable as a URL when non-empty.
+			if kt.String() != "" {
+				_, err := url.Parse(kt.String())
+				require.NoError(t, err, tc.name)
+			}
+		})
+	}
 }
