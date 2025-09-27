@@ -11,7 +11,7 @@ import (
 	"strings"
 
 	std "github.com/jlrickert/go-std/pkg"
-	"github.com/jlrickert/tapper/pkg/keg"
+	kegurl "github.com/jlrickert/tapper/pkg/keg_url"
 	"gopkg.in/yaml.v3"
 )
 
@@ -21,9 +21,14 @@ import (
 // original yaml.Node for in-place edits so comments and formatting are
 // preserved when writing.
 type UserConfig struct {
-	DefaultKeg string            `yaml:"defaultKeg,omitempty"`
-	KegMap     []KegMapEntry     `yaml:"kegMap"`
-	Kegs       map[string]KegUrl `yaml:"kegs"`
+	// Default keg to use. value is an alias
+	DefaultKeg string `yaml:"defaultKeg,omitempty"`
+
+	// KegMap maps a context to the keg to use
+	KegMap []KegMapEntry `yaml:"kegMap"`
+
+	// kegs maps an alias to a keg
+	Kegs map[string]kegurl.Target `yaml:"kegs"`
 
 	// node holds the original parsed YAML document root (document node). When
 	// present we edit it directly to preserve comments and layout.
@@ -34,82 +39,6 @@ type KegMapEntry struct {
 	Alias      string `yaml:"alias,omitempty"`
 	PathPrefix string `yaml:"pathPrefix,omitempty"`
 	PathRegex  string `yaml:"pathRegex,omitempty"`
-}
-
-// KegUrl represents a keg reference.
-//
-// YAML may supply either a plain scalar (URL string) or a mapping with fields.
-// UnmarshalYAML and MarshalYAML support both forms so the field is flexible.
-type KegUrl struct {
-	URL      string `yaml:"url,omitempty"`
-	Readonly bool   `yaml:"readonly,omitempty"`
-	User     string `yaml:"user,omitempty"`
-	Password string `yaml:"password,omitempty"`
-	Token    string `yaml:"token,omitempty"`
-	TokenEnv string `yaml:"tokenEnv,omitempty"`
-}
-
-// UnmarshalYAML accepts either a scalar string (the URL) or a mapping node that
-// decodes into the full KegUrl struct.
-func (k *KegUrl) UnmarshalYAML(node *yaml.Node) error {
-	if node == nil {
-		return nil
-	}
-	switch node.Kind {
-	case yaml.ScalarNode:
-		var s string
-		if err := node.Decode(&s); err != nil {
-			return fmt.Errorf("decode keg url scalar: %w", err)
-		}
-		k.URL = s
-		k.Readonly = false
-		k.User = ""
-		k.Password = ""
-		k.Token = ""
-		k.TokenEnv = ""
-		return nil
-	case yaml.MappingNode:
-		// decode into a temporary alias to avoid recursion issues
-		type tmp KegUrl
-		var t tmp
-		if err := node.Decode(&t); err != nil {
-			return fmt.Errorf("decode keg url mapping: %w", err)
-		}
-		*k = KegUrl(t)
-		return nil
-	default:
-		return fmt.Errorf("unsupported yaml node kind %d for KegUrl", node.Kind)
-	}
-}
-
-// MarshalYAML emits a scalar string when only the URL is set and all other
-// fields are zero values. Otherwise it emits a mapping with fields.
-func (k KegUrl) MarshalYAML() (any, error) {
-	onlyURL := k.URL != "" &&
-		!k.Readonly &&
-		k.User == "" &&
-		k.Password == "" &&
-		k.Token == "" &&
-		k.TokenEnv == ""
-	if onlyURL {
-		return k.URL, nil
-	}
-	// return struct mapping
-	return struct {
-		URL      string `yaml:"url,omitempty"`
-		Readonly bool   `yaml:"readonly,omitempty"`
-		User     string `yaml:"user,omitempty"`
-		Password string `yaml:"password,omitempty"`
-		Token    string `yaml:"token,omitempty"`
-		TokenEnv string `yaml:"tokenEnv,omitempty"`
-	}{
-		URL:      k.URL,
-		Readonly: k.Readonly,
-		User:     k.User,
-		Password: k.Password,
-		Token:    k.Token,
-		TokenEnv: k.TokenEnv,
-	}, nil
 }
 
 // ResolvePaths expands environment variables and tildes in basePath and
@@ -157,7 +86,7 @@ func (uc *UserConfig) Clone(ctx context.Context) *UserConfig {
 // ResolveAlias looks up the keg by alias and returns a parsed KegTarget.
 //
 // Returns nil + error when not found or parse fails.
-func (uc *UserConfig) ResolveAlias(ctx context.Context, alias string) (*keg.KegTarget, error) {
+func (uc *UserConfig) ResolveAlias(ctx context.Context, alias string) (*kegurl.Target, error) {
 	if uc == nil {
 		return nil, fmt.Errorf("no user config")
 	}
@@ -165,17 +94,17 @@ func (uc *UserConfig) ResolveAlias(ctx context.Context, alias string) (*keg.KegT
 	if !ok {
 		return nil, fmt.Errorf("keg alias not found: %s", alias)
 	}
-	if u.URL == "" {
+	if u.String() == "" {
 		return nil, fmt.Errorf("keg alias %s has empty url", alias)
 	}
-	return keg.ParseKegTarget(ctx, u.URL)
+	return kegurl.Parse(ctx, u.String())
 }
 
 // ResolveKegMap chooses the appropriate keg (via alias) based on path.
 //
 // Regex entries have precedence over pathPrefix. When multiple pathPrefix
 // entries match, the longest prefix wins.
-func (uc *UserConfig) ResolveKegMap(ctx context.Context, path string) (*keg.KegTarget, error) {
+func (uc *UserConfig) ResolveKegMap(ctx context.Context, path string) (*kegurl.Target, error) {
 	if uc == nil {
 		return nil, fmt.Errorf("no user config")
 	}
@@ -310,4 +239,86 @@ func (uc *UserConfig) WriteUserConfig(ctx context.Context, path string) error {
 		return fmt.Errorf("atomic write: %w", err)
 	}
 	return nil
+}
+
+// MergeConfig merges multiple UserConfig values into a single configuration.
+//
+// Merge semantics:
+//   - Later configs in the argument list override earlier values for the same
+//     keys (DefaultKeg and Kegs).
+//   - KegMap entries are appended in order, but entries with the same Alias are
+//     overridden by later entries (the later entry replaces the earlier one).
+//   - The returned UserConfig will have a Kegs map and a KegMap slice.
+//   - If any input carries a parsed yaml.Node, the node from the last non-nil
+//     config is cloned and used to preserve comments when possible.
+func MergeConfig(cfgs ...UserConfig) *UserConfig {
+	if len(cfgs) == 0 {
+		return nil
+	}
+
+	out := &UserConfig{
+		Kegs:   make(map[string]kegurl.Target),
+		KegMap: make([]KegMapEntry, 0),
+	}
+
+	// map to track alias -> index in out.KegMap so newer entries override older
+	aliasIndex := make(map[string]int)
+
+	var lastNode *yaml.Node
+
+	for _, c := range cfgs {
+		// DefaultKeg: later wins when non-empty.
+		if c.DefaultKeg != "" {
+			out.DefaultKeg = c.DefaultKeg
+		}
+
+		// Merge Kegs: later entries override earlier entries for same alias.
+		if c.Kegs != nil {
+			if out.Kegs == nil {
+				out.Kegs = make(map[string]kegurl.Target)
+			}
+			for k, v := range c.Kegs {
+				out.Kegs[k] = v
+			}
+		}
+
+		// Merge KegMap entries. Preserve order but override by alias when provided.
+		for _, e := range c.KegMap {
+			if e.Alias == "" {
+				// no alias to dedupe by; always append
+				out.KegMap = append(out.KegMap, e)
+				continue
+			}
+			if idx, ok := aliasIndex[e.Alias]; ok {
+				// replace existing entry at idx with the new one
+				out.KegMap[idx] = e
+			} else {
+				aliasIndex[e.Alias] = len(out.KegMap)
+				out.KegMap = append(out.KegMap, e)
+			}
+		}
+
+		// remember last non-nil node so we can preserve comments if present
+		if c.node != nil {
+			lastNode = c.node
+		}
+	}
+
+	// If we found a lastNode, clone it by using ParseUserConfig on its YAML
+	// rendering so the returned config has a node suitable for ToYAML edits.
+	if lastNode != nil {
+		// Encode lastNode into bytes
+		var buf bytes.Buffer
+		enc := yaml.NewEncoder(&buf)
+		enc.SetIndent(2)
+		_ = enc.Encode(lastNode)
+		_ = enc.Close()
+
+		if cloned, err := ParseUserConfig(context.Background(), buf.Bytes()); err == nil && cloned != nil {
+			// Use the cloned node but keep the merged struct fields from out.
+			out.node = cloned.node
+		}
+	}
+
+	return out
 }

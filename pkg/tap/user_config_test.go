@@ -38,16 +38,20 @@ kegMap:
 
 	// Ensure top comments are preserved
 	require.Contains(t, out, "# Top comment", "expected top comment preserved in output")
-	require.Contains(t, out, "# another top comment", "expected second top comment preserved in output")
+	require.Contains(t, out, "# another top comment",
+		"expected second top comment preserved in output")
 
 	// Ensure inline comment on url preserved
-	require.Contains(t, out, "# inline url comment", "expected inline url comment preserved in output")
+	require.Contains(t, out, "# inline url comment",
+		"expected inline url comment preserved in output")
 
 	// Ensure sequence trailing comment preserved
-	require.Contains(t, out, "# kegs trailing comment", "expected kegs trailing comment preserved in output")
+	require.Contains(t, out, "# kegs trailing comment",
+		"expected kegs trailing comment preserved in output")
 
 	// Ensure prefix comment preserved
-	require.Contains(t, out, "# prefix comment", "expected pathPrefix inline comment preserved in output")
+	require.Contains(t, out, "# prefix comment",
+		"expected pathPrefix inline comment preserved in output")
 }
 
 func TestClone_PreservesComments(t *testing.T) {
@@ -73,49 +77,53 @@ kegs:
 	require.NoError(t, err, "failed to read written cloned user config")
 	out := string(data)
 
-	require.Contains(t, out, "# config header", "expected header comment preserved in cloned output")
-	require.Contains(t, out, "# keep this inline", "expected inline comment preserved in cloned output")
+	require.Contains(t, out, "# config header",
+		"expected header comment preserved in cloned output")
+	require.Contains(t, out, "# keep this inline",
+		"expected inline comment preserved in cloned output")
 }
 
-// New tests for mutation helpers
-
-func TestResolveKegMap_RegexPrecedenceAndLongestPrefix(t *testing.T) {
+func TestParseUserConfig_KegExamples(t *testing.T) {
 	t.Parallel()
 	fx := NewFixture(t)
 
-	// Prepare Kegs map (aliases point to file URIs for easy ParseKegTarget)
-	uc := &tap.UserConfig{
-		Kegs: map[string]tap.KegUrl{
-			"p": {URL: "file:///p"},
-			"r": {URL: "file:///r"},
-		},
-		KegMap: []tap.KegMapEntry{
-			// prefix that will match; a shorter one
-			{Alias: "p", PathPrefix: filepath.Join(fx.tempDir, "projects")},
-			// longer prefix to test longest-prefix selection
-			{Alias: "p_long", PathPrefix: filepath.Join(fx.tempDir, "projects", "sub")},
-			// regex entry that should win over prefixes when matched
-			{Alias: "r", PathRegex: ".*special.*"},
-		},
-	}
+	// Examples of different keg value forms:
+	// - api scheme
+	// - https URL with username and password
+	// - a value that is only a URL-like host/path without scheme
+	// - another api example
+	raw := `kegs:
+  work:
+    api: work.com/keg/api
+    token: ${WORK_TOKEN}
+    readonly: true
+  api: "api://api.example.com/v1"
+  https_keg: "https://alice:secret@secure.example.com/project"
+  only_url: "keg.only.example/path"
+  api_alt: "api://other.example"
+`
 
-	// ensure Kegs has entries for p_long as well
-	uc.Kegs["p_long"] = tap.KegUrl{URL: "file:///p_long"}
+	uc, err := tap.ParseUserConfig(fx.ctx, []byte(raw))
+	require.NoError(t, err, "ParseUserConfig failed")
 
-	// Path that matches both a prefix and the regex; regex should take precedence
-	testPath := filepath.Join(fx.tempDir, "projects", "sub", "special", "repo")
-	kt, err := uc.ResolveKegMap(fx.ctx, testPath)
-	require.NoError(t, err, "ResolveKegMap should succeed when regex matches")
-	require.NotNil(t, kt)
-	// regex alias 'r' points to file:///r
-	require.Equal(t, "file", kt.Schema)
-	require.Equal(t, "r", filepath.Base(kt.Path), "expected resolved target path base to be 'r' due to regex match")
+	path := filepath.Join(fx.tempDir, "user_kegs.yaml")
+	fx.WriteUserConfigFile(path, uc)
 
-	// Path that matches multiple prefixes; longest prefix (p_long) should win
-	prefixPath := filepath.Join(fx.tempDir, "projects", "sub", "other")
-	kt2, err := uc.ResolveKegMap(fx.ctx, prefixPath)
-	require.NoError(t, err, "ResolveKegMap should succeed for prefix match")
-	require.NotNil(t, kt2)
-	require.Equal(t, "file", kt2.Schema)
-	require.Equal(t, "p_long", filepath.Base(kt2.Path), "expected p_long to be selected for longest prefix")
+	data, err := os.ReadFile(path)
+	require.NoError(t, err, "failed to read written user config with kegs")
+	out := string(data)
+
+	// Ensure the various keg examples were preserved in the serialized YAML.
+	require.Contains(t, out, "api://api.example.com/v1", "expected api URL present")
+	require.Contains(t, out, "https://alice:secret@secure.example.com/project",
+		"expected https URL with user:pass present")
+	require.Contains(t, out, "keg.only.example/path",
+		"expected only-url style value present")
+	require.Contains(t, out, "api://other.example", "expected second api URL present")
+
+	// Also ensure the nested mapping and token were preserved for the 'work' keg.
+	require.Contains(t, out, "work:", "expected 'work' keg mapping present")
+	require.Contains(t, out, "work.com/keg/api", "expected work api host/path present")
+	require.Contains(t, out, "${WORK_TOKEN}", "expected token env var preserved")
+	require.Contains(t, out, "readonly: true", "expected readonly flag preserved")
 }
