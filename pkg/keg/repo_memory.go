@@ -105,7 +105,7 @@ func (r *MemoryRepo) ReadContent(ctx context.Context, id Node) ([]byte, error) {
 	n, ok := r.nodes[id]
 	r.mu.RUnlock()
 	if !ok {
-		return nil, ErrNodeNotFound
+		return nil, ErrNotExist
 	}
 
 	if n.content == nil {
@@ -127,10 +127,10 @@ func (r *MemoryRepo) ReadMeta(ctx context.Context, id Node) ([]byte, error) {
 	n, ok := r.nodes[id]
 	r.mu.RUnlock()
 	if !ok {
-		return nil, ErrNodeNotFound
+		return nil, ErrNotExist
 	}
 	if n.meta == nil {
-		return nil, ErrNotFound
+		return nil, ErrNotExist
 	}
 	cp := make([]byte, len(n.meta))
 	copy(cp, n.meta)
@@ -191,7 +191,7 @@ func (r *MemoryRepo) getNode(id Node) (*memoryNode, bool) {
 func (r *MemoryRepo) ListItems(ctx context.Context, id Node) ([]string, error) {
 	n, ok := r.getNode(id)
 	if !ok {
-		return nil, ErrNodeNotFound
+		return nil, ErrNotExist
 	}
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -208,7 +208,7 @@ func (r *MemoryRepo) ListItems(ctx context.Context, id Node) ([]string, error) {
 func (r *MemoryRepo) ListImages(ctx context.Context, id Node) ([]string, error) {
 	n, ok := r.getNode(id)
 	if !ok {
-		return nil, ErrNodeNotFound
+		return nil, ErrNotExist
 	}
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -273,7 +273,7 @@ func (r *MemoryRepo) MoveNode(ctx context.Context, id Node, dst Node) error {
 	defer r.mu.Unlock()
 	srcNode, ok := r.nodes[id]
 	if !ok {
-		return ErrNodeNotFound
+		return ErrNotExist
 	}
 	if _, exists := r.nodes[dst]; exists {
 		return ErrDestinationExists
@@ -291,7 +291,7 @@ func (r *MemoryRepo) GetIndex(ctx context.Context, name string) ([]byte, error) 
 	defer r.mu.RUnlock()
 	b, ok := r.indexes[name]
 	if !ok {
-		return nil, ErrNotFound
+		return nil, ErrNotExist
 	}
 	cp := make([]byte, len(b))
 	copy(cp, b)
@@ -320,7 +320,7 @@ func (r *MemoryRepo) DeleteNode(ctx context.Context, id Node) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if _, ok := r.nodes[id]; !ok {
-		return ErrNodeNotFound
+		return ErrNotExist
 	}
 	delete(r.nodes, id)
 	return nil
@@ -335,10 +335,10 @@ func (r *MemoryRepo) DeleteImage(ctx context.Context, id Node, name string) erro
 	defer r.mu.Unlock()
 	n, ok := r.nodes[id]
 	if !ok {
-		return ErrNodeNotFound
+		return ErrNotExist
 	}
 	if _, ok := n.images[name]; !ok {
-		return ErrNotFound
+		return ErrNotExist
 	}
 	delete(n.images, name)
 	return nil
@@ -353,10 +353,10 @@ func (r *MemoryRepo) DeleteItem(ctx context.Context, id Node, name string) error
 	defer r.mu.Unlock()
 	n, ok := r.nodes[id]
 	if !ok {
-		return ErrNodeNotFound
+		return ErrNotExist
 	}
 	if _, ok := n.items[name]; !ok {
-		return ErrNotFound
+		return ErrNotExist
 	}
 	delete(n.items, name)
 	return nil
@@ -369,7 +369,7 @@ func (r *MemoryRepo) ReadConfig(ctx context.Context) (*KegConfig, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	if r.config == nil {
-		return nil, ErrNotFound
+		return nil, ErrNotExist
 	}
 	c := *r.config
 	return &c, nil
@@ -392,7 +392,7 @@ func (r *MemoryRepo) ClearNodeLock(ctx context.Context, id Node) error {
 
 	n, ok := r.nodes[id]
 	if !ok {
-		return ErrNodeNotFound
+		return ErrNotExist
 	}
 
 	// Remove the lock marker if present.
@@ -420,7 +420,7 @@ func (r *MemoryRepo) LockNode(ctx context.Context, id Node, retryInterval time.D
 	n, ok := r.nodes[id]
 	if !ok {
 		r.mu.Unlock()
-		return nil, ErrNodeNotFound
+		return nil, ErrNotExist
 	}
 	if _, locked := n.items[KegLockFile]; !locked {
 		// Acquire lock by setting a reserved item key.
@@ -455,7 +455,7 @@ func (r *MemoryRepo) LockNode(ctx context.Context, id Node, retryInterval time.D
 			n, ok := r.nodes[id]
 			if !ok {
 				r.mu.Unlock()
-				return nil, ErrNodeNotFound
+				return nil, ErrNotExist
 			}
 			if _, locked := n.items[KegLockFile]; !locked {
 				n.items[KegLockFile] = []byte{1}
