@@ -116,7 +116,7 @@ func TestFsRepo_MoveDeleteNodeAndDestinationExists(t *testing.T) {
 	// src should no longer exist
 	_, err := r.ReadContent(ctx, src)
 	require.Error(t, err)
-	require.ErrorIs(t, err, keg.ErrNodeNotFound)
+	require.ErrorIs(t, err, keg.ErrNotExist)
 
 	// dst should have content
 	got, err := r.ReadContent(ctx, dst)
@@ -135,7 +135,7 @@ func TestFsRepo_MoveDeleteNodeAndDestinationExists(t *testing.T) {
 	require.NoError(t, r.DeleteNode(ctx, other))
 	_, err = r.ReadContent(ctx, other)
 	require.Error(t, err)
-	require.ErrorIs(t, err, keg.ErrNodeNotFound)
+	require.ErrorIs(t, err, keg.ErrNotExist)
 }
 
 func TestFsRepo_UploadAndListImagesAndItems(t *testing.T) {

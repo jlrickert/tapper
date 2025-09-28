@@ -2,6 +2,8 @@ package kegurl_test
 
 import (
 	"net/url"
+	"os"
+	"path/filepath"
 	"testing"
 
 	std "github.com/jlrickert/go-std/pkg"
@@ -14,9 +16,16 @@ import (
 // The table driven tests cover file paths, file URIs, tilde expansion,
 // relative paths, shorthand registry:user/keg form, and HTTP/HTTPS URLs.
 func TestParse_File_TableDriven(t *testing.T) {
+	jail := t.TempDir()
 	// Prepare a test Env for tilde expansion checks.
-	env := std.NewTestEnv("/home/testuser", "testuser")
+	env := std.NewTestEnv(jail, filepath.FromSlash("/home/testuser"), "testuser")
 	ctx := std.WithEnv(t.Context(), env)
+
+	// Use OS-specific temp dir so tests work across platforms.
+	tmpDir := os.TempDir()
+	absTmpKeg := filepath.Join(tmpDir, "keg")
+	// Use a file URI that uses forward slashes as URLs expect.
+	fileURI := "file://" + filepath.ToSlash(absTmpKeg)
 
 	cases := []struct {
 		name       string
@@ -28,15 +37,15 @@ func TestParse_File_TableDriven(t *testing.T) {
 	}{
 		{
 			name:       "absolute path",
-			raw:        "/tmp/keg",
+			raw:        absTmpKeg,
 			wantSchema: kegurl.SchemeFile,
-			wantFile:   "/tmp/keg",
+			wantFile:   absTmpKeg,
 		},
 		{
 			name:       "file uri",
-			raw:        "file:///tmp/keg",
+			raw:        fileURI,
 			wantSchema: kegurl.SchemeFile,
-			wantFile:   "/tmp/keg",
+			wantFile:   absTmpKeg,
 		},
 		{
 			name:       "tilde path expands to home",
@@ -188,7 +197,9 @@ token: secret123
 				require.Equal(t, tc.wantSchema, kt.Scheme())
 			}
 			if tc.wantFile != "" {
-				require.Equal(t, tc.wantFile, kt.File)
+				// Normalize the expected path to the current OS style before compare.
+				exp := filepath.FromSlash(tc.wantFile)
+				require.Equal(t, exp, kt.File)
 			}
 			if tc.wantRepo != "" {
 				require.Equal(t, tc.wantRepo, kt.Repo)

@@ -151,7 +151,7 @@ func (keg *Keg) UpdateMeta(ctx context.Context, id Node, f func(*Meta)) error {
 	raw, err := keg.Repo.ReadMeta(ctx, id)
 	if err != nil {
 		// If node missing, propagate
-		if errors.Is(err, ErrNodeNotFound) {
+		if errors.Is(err, ErrNotExist) {
 			return fmt.Errorf("unable to create node: %w", err)
 		}
 		// If repo returns ErrNotFound for meta, treat as empty meta and proceed

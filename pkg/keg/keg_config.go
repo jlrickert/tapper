@@ -178,7 +178,7 @@ func ParseKegConfig(data []byte) (*KegConfig, error) {
 	// Detect version by unmarshaling into a generic map
 	var raw map[string]any
 	if err := yaml.Unmarshal(data, &raw); err != nil {
-		return &configV2, fmt.Errorf("failed to parse keg data: %w", errors.Join(ErrParser, err))
+		return &configV2, fmt.Errorf("failed to parse keg data: %w", errors.Join(ErrParse, err))
 	}
 
 	// Check for "kegv" version field
@@ -208,10 +208,15 @@ func ParseKegConfig(data []byte) (*KegConfig, error) {
 func (c *KegConfig) ResolveAlias(ctx context.Context, alias string) (*kegurl.Target, error) {
 	for _, entry := range c.Links {
 		if alias == entry.Alias {
-			return kegurl.Parse(ctx, entry.URL)
+			kt, err := kegurl.Parse(entry.URL)
+			if err != nil {
+				return nil, fmt.Errorf("could resolve alias: %w", err)
+			}
+			kt.Expand(ctx)
+			return kt, nil
 		}
 	}
-	return nil, fmt.Errorf("alias %s not found: %w", alias, ErrNotFound)
+	return nil, fmt.Errorf("alias %s not found: %w", alias, ErrNotExist)
 }
 
 // toYAML serializes the Config to YAML.

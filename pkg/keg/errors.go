@@ -3,27 +3,20 @@ package keg
 import (
 	"errors"
 	"fmt"
+	"os"
 	"time"
 )
 
 // Sentinel errors used for simple equality-style checks.
 var (
-	ErrAliasNotFound    = errors.New("alias not found")
-	ErrInvalidConfig    = errors.New("invalid config")
-	ErrKegExists        = errors.New("keg already exists")
-	ErrNodeNotFound     = errors.New("node not found")
-	ErrNodeExists       = errors.New("node exists")
-	ErrContentNotFound  = errors.New("node content not found")
-	ErrMetaNotFound     = errors.New("node meta not found")
-	ErrNotFound         = errors.New("item not found")
-	ErrParser           = errors.New("unable to parse")
-	ErrKegNotFound      = errors.New("keg not found")
-	ErrDexNotFound      = errors.New("dex not found")
-	ErrPermissionDenied = errors.New("permission denied")
-	ErrInvalidMeta      = errors.New("invalid meta")
-	ErrConflict         = errors.New("conflict")
-	ErrQuotaExceeded    = errors.New("quota exceeded")
-	ErrRateLimited      = errors.New("rate limited")
+	ErrInvalid       = os.ErrInvalid    // invalid argument
+	ErrExist         = os.ErrExist      // file already exists
+	ErrNotExist      = os.ErrNotExist   // file does not exist
+	ErrPermission    = os.ErrPermission // permission denied
+	ErrParse         = errors.New("unable to parse")
+	ErrConflict      = errors.New("conflict")
+	ErrQuotaExceeded = errors.New("quota exceeded")
+	ErrRateLimited   = errors.New("rate limited")
 
 	// ErrDestinationExists is returned when a move/rename cannot proceed because
 	// the destination node id already exists. Prefer returning a typed
@@ -51,20 +44,9 @@ type AliasNotFoundError struct {
 
 func (e *AliasNotFoundError) Error() string { return fmt.Sprintf("alias not found: %q", e.Alias) }
 
-func (e *AliasNotFoundError) Is(target error) bool {
-	return target == ErrAliasNotFound
-}
-
-func (e *AliasNotFoundError) Unwrap() error { return ErrAliasNotFound }
-
 // NewAliasNotFoundError constructs a typed AliasNotFoundError.
 func NewAliasNotFoundError(alias string) error {
 	return &AliasNotFoundError{Alias: alias}
-}
-
-// IsAliasNotFound reports whether err is (or wraps) an alias-not-found condition.
-func IsAliasNotFound(err error) bool {
-	return errors.Is(err, ErrAliasNotFound)
 }
 
 // InvalidConfigError represents a validation or parse failure for tapper config.
@@ -80,10 +62,10 @@ func (e *InvalidConfigError) Error() string {
 }
 
 func (e *InvalidConfigError) Is(target error) bool {
-	return target == ErrInvalidConfig
+	return target == ErrInvalid
 }
 
-func (e *InvalidConfigError) Unwrap() error { return ErrInvalidConfig }
+func (e *InvalidConfigError) Unwrap() error { return ErrInvalid }
 
 // NewInvalidConfigError creates an InvalidConfigError with a human message.
 func NewInvalidConfigError(msg string) error {
@@ -92,7 +74,7 @@ func NewInvalidConfigError(msg string) error {
 
 // IsInvalidConfig reports whether err is (or wraps) an invalid-config condition.
 func IsInvalidConfig(err error) bool {
-	return errors.Is(err, ErrInvalidConfig)
+	return errors.Is(err, ErrInvalid)
 }
 
 // Behavior interfaces used when inspecting error chains via errors.As.
@@ -180,11 +162,6 @@ func NewTransientError(cause error) error {
 
 // Convenience predicates
 
-// IsNotFound returns true if err represents a node-not-found condition.
-func IsNotFound(err error) bool {
-	return errors.Is(err, ErrNodeNotFound)
-}
-
 // IsDestinationExists returns true if err represents a destination-exists condition.
 func IsDestinationExists(err error) bool {
 	return errors.Is(err, ErrDestinationExists)
@@ -192,7 +169,7 @@ func IsDestinationExists(err error) bool {
 
 // IsPermissionDenied returns true if err indicates a permission problem.
 func IsPermissionDenied(err error) bool {
-	return errors.Is(err, ErrPermissionDenied)
+	return errors.Is(err, ErrPermission)
 }
 
 // IsConflict returns true if err is a conflict error.

@@ -2,11 +2,16 @@ package cmd
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"io"
+	"log/slog"
 	"os"
 
 	"github.com/jlrickert/tapper/pkg/internal"
 	"github.com/jlrickert/tapper/pkg/keg"
+	"github.com/jlrickert/tapper/pkg/log"
+	"github.com/jlrickert/tapper/pkg/tapper"
 	"github.com/spf13/cobra"
 )
 
@@ -43,7 +48,27 @@ func NewRootCmdWithDeps(deps *CmdDeps) *cobra.Command {
 	editing, indexing, and inspecting nodes. See docs/ for repository-specific
 	conventions (meta.yaml, README.md, dex/* indices).`,
 		Version: Version,
-		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+		PreRunE: func(cmd *cobra.Command, args []string) error {
+			if deps.flags.CfgFile != "" {
+				userCfg, err := tapper.ReadUserConfigFrom(deps.flags.CfgFile)
+				if err != nil {
+					return err
+				}
+				deps.UserConfig = userCfg
+			}
+			userCfg, err := tapper.ReadUserConfig(tapper.ConfigAppName)
+			deps.UserConfig = userCfg
+
+			if deps.flags.Debug {
+				deps.Logger
+			} else if deps.flags.Verbose {
+			}
+			err = deps.ApplyDefaults()
+			if err != nil {
+				return err
+			}
+
+			fmt.Fprintln(cmd.OutOrStdout(), "TEST")
 			return deps.ApplyDefaults()
 		},
 		// Default action: show help if no subcommand is provided.
@@ -57,8 +82,26 @@ func NewRootCmdWithDeps(deps *CmdDeps) *cobra.Command {
 	root.SetErr(deps.Err)
 
 	// Persistent flags available to all subcommands
-	root.PersistentFlags().StringVar(&deps.flags.CfgFile, "config", "", "config file (default: $XDG_CONFIG_HOME/tapper/keg.yaml)")
-	root.PersistentFlags().BoolVarP(&deps.flags.Verbose, "verbose", "v", false, "enable verbose output")
+	root.PersistentFlags().StringVar(
+		&deps.flags.CfgFile,
+		"config",
+		"",
+		"config file (default: $XDG_CONFIG_HOME/tapper/keg.yaml)",
+	)
+	root.PersistentFlags().BoolVarP(
+		&deps.flags.Verbose,
+		"verbose",
+		"v",
+		false,
+		"enable verbose output",
+	)
+	root.PersistentFlags().BoolVarP(
+		&deps.flags.Debug,
+		"debug",
+		"d",
+		false,
+		"enable debug output",
+	)
 
 	// Keep Cobra's automatic completion enabled for the root command.
 	root.CompletionOptions.DisableDefaultCmd = false
@@ -69,18 +112,26 @@ func NewRootCmdWithDeps(deps *CmdDeps) *cobra.Command {
 	return root
 }
 
+type KegResolver func(root string, cfg *tapper.UserConfig) (tapper.KegTarget, error)
+
 // CmdOption is a functional option for configuring command dependencies.
 type CmdOption func(*CmdDeps)
 
 // CmdDeps holds injectable dependencies for commands (Keg service, IO streams, etc.).
 type CmdDeps struct {
-	Keg *keg.Keg
+	Keg         *keg.Keg
+	Logger      *slog.Logger
+	LocalConfig *tapper.LocalConfig
+	UserConfig  *tapper.UserConfig
+
 	In  io.Reader
 	Out io.Writer
 	Err io.Writer
 
-	Editor internal.EditorRunner
-	Clock  internal.Clock
+	Project     string
+	KegResolver KegResolver
+	Editor      internal.EditorRunner
+	Clock       internal.Clock
 
 	flags CmdGlobalFlags
 }
@@ -91,12 +142,30 @@ type CmdGlobalFlags struct {
 	Debug   bool
 }
 
+func WithKeg(k *keg.Keg) CmdOption {
+	return func(cd *CmdDeps) {
+		cd.Keg = k
+	}
+}
+
+func WithConfig(cfg *tapper.UserConfig) CmdOption {
+	return func(cd *CmdDeps) {
+		cd.UserConfig = cfg
+	}
+}
+
 // WithKeg returns a CmdOption that injects the provided *keg.Keg into the command config.
 // Tests or callers can provide a keg backed by a MemoryRepo to exercise real create
 // behavior without touching disk.
-func WithKeg(k *keg.Keg) CmdOption {
+func WithKegResolver(k KegResolver) CmdOption {
 	return func(c *CmdDeps) {
-		c.Keg = k
+		c.KegResolver = k
+	}
+}
+
+func WithLogger(lg *slog.Logger) CmdOption {
+	return func(cd *CmdDeps) {
+		cd.Logger = lg
 	}
 }
 
@@ -151,6 +220,7 @@ func applyCmdOptions(opts ...CmdOption) *CmdDeps {
 // add the required imports (os, etc.). For now, keep it a no-op to be
 // explicit and predictable.
 func (deps *CmdDeps) ApplyDefaults() error {
+	var errs []error
 	if deps.In == nil {
 		deps.In = os.Stdin
 	}
@@ -160,13 +230,40 @@ func (deps *CmdDeps) ApplyDefaults() error {
 	if deps.Err == nil {
 		deps.Err = deps.Out
 	}
+	if deps.Project == "" {
+		if wd, err := os.Getwd(); err == nil {
+			deps.Project = wd
+		} else {
+			deps.Project = "."
+		}
+	}
+
 	if deps.Editor == nil {
 		deps.Editor = internal.DefaultEditor
 	}
 	if deps.Clock == nil {
 		deps.Clock = internal.RealClock{}
 	}
-	return nil
+	if deps.Logger == nil {
+		deps.Logger = log.NewNopLogger()
+	}
+	if deps.UserConfig == nil {
+		userCfg, err := tapper.ReadUserConfig(tapper.ConfigAppName)
+		if err != nil {
+			errs = append(errs, err)
+		} else {
+			deps.UserConfig = userCfg
+		}
+	}
+	if deps.LocalConfig == nil {
+		localCfg, err := tapper.ReadLocalFile(deps.Project)
+		if err != nil {
+			errs = append(errs, err)
+		} else {
+			deps.LocalConfig = localCfg
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // RunWithDeps runs the root command wired with the provided dependencies.

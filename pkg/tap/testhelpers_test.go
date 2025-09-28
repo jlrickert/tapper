@@ -2,6 +2,7 @@ package tap_test
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -19,11 +20,10 @@ type Fixture struct {
 
 	ctx    context.Context
 	logger *std.TestHandler
-	env    *std.MapEnv
+	env    *std.TestEnv
 	clock  *std.TestClock
 
-	// optional runtime state
-	tempDir string
+	Jail string
 }
 
 // NewFixture constructs a Fixture and applies given options. It registers
@@ -31,12 +31,12 @@ type Fixture struct {
 func NewFixture(t *testing.T, opts ...FixtureOption) *Fixture {
 	t.Helper()
 
-	tempDir := t.TempDir()
+	root := t.TempDir()
 	lg, handler := std.NewTestLogger(t, std.ParseLevel("debug"))
-	env := std.NewTestEnv(filepath.Join(tempDir, "home", "testuser"), "testuser")
+	env := std.NewTestEnv(root, filepath.Join(root, "home", "testuser"), "testuser")
 	clock := std.NewTestClock(time.Now())
 
-	tmp := filepath.Join(tempDir, "tmp")
+	tmp := filepath.Join(root, "tmp")
 	env.Set("TMPDIR", tmp) // preferred on Unix/macOS
 	env.Set("TMP", tmp)
 	env.Set("TEMP", tmp)
@@ -48,12 +48,12 @@ func NewFixture(t *testing.T, opts ...FixtureOption) *Fixture {
 	ctx = std.WithClock(ctx, clock)
 
 	f := &Fixture{
-		t:       t,
-		ctx:     ctx,
-		logger:  handler,
-		env:     env,
-		clock:   clock,
-		tempDir: tempDir,
+		t:      t,
+		ctx:    ctx,
+		logger: handler,
+		env:    env,
+		clock:  clock,
+		Jail:   root,
 	}
 
 	// apply options
@@ -96,7 +96,7 @@ func WithTempDir(setAsHome bool) FixtureOption {
 	return func(f *Fixture) {
 		f.t.Helper()
 		tmp := f.t.TempDir()
-		f.tempDir = tmp
+		f.Jail = tmp
 		if setAsHome {
 			if err := f.env.SetHome(tmp); err != nil {
 				f.t.Fatalf("WithTempDir SetHome failed: %v", err)
@@ -127,9 +127,9 @@ func (f *Fixture) WriteLocalConfigFile(projectPath string, lf *tap.LocalConfig) 
 }
 
 // Helper wrapper: WriteUserConfigFile writes a UserConfig to path and fails on error.
-func (f *Fixture) WriteUserConfigFile(path string, uc *tap.UserConfig) {
+func (f *Fixture) WriteUserConfigFile(path string, uc *tap.Config) {
 	f.t.Helper()
-	if err := uc.WriteUserConfig(f.ctx, path); err != nil {
+	if err := uc.Write(f.ctx, path); err != nil {
 		f.t.Fatalf("WriteUserConfigFile failed: %v", err)
 	}
 }
@@ -138,14 +138,24 @@ func (f *Fixture) WriteUserConfigFile(path string, uc *tap.UserConfig) {
 // attempts to make the provided path absolute.
 func (f *Fixture) AbsPath(rel string) string {
 	f.t.Helper()
-	if filepath.IsAbs(rel) || f.tempDir == "" {
+	if filepath.IsAbs(rel) || f.Jail == "" {
 		abs, err := filepath.Abs(rel)
 		if err != nil {
 			f.t.Fatalf("AbsPath failed: %v", err)
 		}
 		return abs
 	}
-	return std.AbsPath(f.ctx, filepath.Join(f.tempDir, rel))
+	return std.AbsPath(f.ctx, filepath.Join(f.Jail, rel))
+}
+
+func (f *Fixture) Write(ctx context.Context, path string, data []byte) error {
+	p := std.EnsureInJail(f.Jail, path)
+	err := os.WriteFile(p, data, 0x644)
+	return err
+}
+
+func (f *Fixture) Context() context.Context {
+	return f.ctx
 }
 
 func (f *Fixture) cleanup() {

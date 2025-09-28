@@ -41,7 +41,7 @@ func NewDexFromRepo(ctx context.Context, repo KegRepository) (*Dex, error) {
 
 	// nodes.tsv
 	if data, err := repo.GetIndex(ctx, "nodes.tsv"); err != nil {
-		if errors.Is(err, ErrNotFound) {
+		if errors.Is(err, ErrNotExist) {
 			d.nodes = NodeIndex{}
 		} else {
 			errs = append(errs, fmt.Errorf("unable to read `nodes.tsv` index: %w", err))
@@ -58,7 +58,7 @@ func NewDexFromRepo(ctx context.Context, repo KegRepository) (*Dex, error) {
 
 	// tags
 	if data, err := repo.GetIndex(ctx, "tags"); err != nil {
-		if errors.Is(err, ErrNotFound) {
+		if errors.Is(err, ErrNotExist) {
 			d.tags = TagIndex{}
 		} else {
 			errs = append(errs, fmt.Errorf("unable to read `tags` index: %w", err))
@@ -75,7 +75,7 @@ func NewDexFromRepo(ctx context.Context, repo KegRepository) (*Dex, error) {
 
 	// links
 	if data, err := repo.GetIndex(ctx, "links"); err != nil {
-		if errors.Is(err, ErrNotFound) {
+		if errors.Is(err, ErrNotExist) {
 			d.links = LinkIndex{}
 		} else {
 			errs = append(errs, fmt.Errorf("unable to read `links` index: %w", err))
@@ -92,7 +92,7 @@ func NewDexFromRepo(ctx context.Context, repo KegRepository) (*Dex, error) {
 
 	// backlinks
 	if data, err := repo.GetIndex(ctx, "backlinks"); err != nil {
-		if errors.Is(err, ErrNotFound) {
+		if errors.Is(err, ErrNotExist) {
 			d.backlinks = BacklinkIndex{}
 		} else {
 			errs = append(errs, fmt.Errorf("unable to read `backlinks` index: %w", err))
@@ -230,8 +230,7 @@ func (dex *Dex) Write(ctx context.Context, repo KegRepository) error {
 	var errs []error
 	var wg sync.WaitGroup
 
-	wg.Add(1)
-	go func() {
+	wg.Go(func() {
 		nodesData, err := dex.nodes.Data(ctx)
 		name := "nodes.tsv"
 		if err != nil {
@@ -240,11 +239,9 @@ func (dex *Dex) Write(ctx context.Context, repo KegRepository) error {
 		if e := repo.WriteIndex(ctx, name, nodesData); e != nil {
 			errs = append(errs, fmt.Errorf("unable to write `%s` index: %w", name, err))
 		}
-		wg.Done()
-	}()
+	})
 
-	wg.Add(1)
-	go func() {
+	wg.Go(func() {
 		data, err := dex.tags.Data(ctx)
 		name := "tags"
 		if err != nil {
@@ -253,11 +250,9 @@ func (dex *Dex) Write(ctx context.Context, repo KegRepository) error {
 		if err := repo.WriteIndex(ctx, name, data); err != nil {
 			errs = append(errs, fmt.Errorf("unable to write `%s` index: %w", name, err))
 		}
-		wg.Done()
-	}()
+	})
 
-	wg.Add(1)
-	go func() {
+	wg.Go(func() {
 		data, err := dex.links.Data(ctx)
 		name := "links"
 		if err != nil {
@@ -266,11 +261,9 @@ func (dex *Dex) Write(ctx context.Context, repo KegRepository) error {
 		if err := repo.WriteIndex(ctx, name, data); err != nil {
 			errs = append(errs, fmt.Errorf("unable to write `%s` index: %w", name, err))
 		}
-		wg.Done()
-	}()
+	})
 
-	wg.Add(1)
-	go func() {
+	wg.Go(func() {
 		data, err := dex.backlinks.Data(ctx)
 		name := "backlinks"
 		if err != nil {
@@ -279,8 +272,7 @@ func (dex *Dex) Write(ctx context.Context, repo KegRepository) error {
 		if err := repo.WriteIndex(ctx, name, data); err != nil {
 			errs = append(errs, fmt.Errorf("unable to write `%s` index: %w", name, err))
 		}
-		wg.Done()
-	}()
+	})
 
 	wg.Wait()
 

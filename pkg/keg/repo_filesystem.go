@@ -75,7 +75,7 @@ func NewFsRepoFromEnvOrSearch(ctx context.Context) (*FsRepo, error) {
 	}
 
 	// 2) current directory
-	cwd, err := env.GetWd()
+	cwd, err := env.Getwd()
 	if err != nil {
 		return nil, NewBackendError(f.Name(),
 			"NewFsRepoFromEnvOrSearch", 0, err, false)
@@ -315,7 +315,7 @@ func (f *FsRepo) LockNode(ctx context.Context, id Node,
 	// Ensure the node directory exists before attempting to lock.
 	if _, statErr := os.Stat(nodeDir); statErr != nil {
 		if os.IsNotExist(statErr) {
-			return nil, ErrNodeNotFound
+			return nil, ErrNotExist
 		}
 		return nil, NewBackendError(f.Name(),
 			"AcquireNodeLock", 0, statErr, false)
@@ -420,7 +420,7 @@ func (f *FsRepo) ClearNodeLock(ctx context.Context, id Node) error {
 	// Ensure the node directory exists.
 	if _, statErr := os.Stat(nodeDir); statErr != nil {
 		if os.IsNotExist(statErr) {
-			return ErrNodeNotFound
+			return ErrNotExist
 		}
 		return NewBackendError(f.Name(), "ClearNodeLock", 0, statErr, false)
 	}
@@ -482,7 +482,7 @@ func (f *FsRepo) ReadContent(ctx context.Context, id Node) ([]byte, error) {
 	nodeDir := filepath.Join(f.Root, id.Path())
 	if _, statErr := os.Stat(nodeDir); statErr != nil {
 		if os.IsNotExist(statErr) {
-			return nil, ErrNodeNotFound
+			return nil, ErrNotExist
 		}
 		return nil, NewBackendError(f.Name(), "ReadContent", 0, statErr, false)
 	}
@@ -503,7 +503,7 @@ func (f *FsRepo) ReadMeta(ctx context.Context, id Node) ([]byte, error) {
 	nodeDir := filepath.Join(f.Root, id.Path())
 	if _, statErr := os.Stat(nodeDir); statErr != nil {
 		if os.IsNotExist(statErr) {
-			return nil, ErrNodeNotFound
+			return nil, ErrNotExist
 		}
 		return nil, NewBackendError(f.Name(), "ReadMeta", 0, statErr, false)
 	}
@@ -552,7 +552,7 @@ func (f *FsRepo) ListItems(ctx context.Context, id Node) ([]string, error) {
 	nodeDir := filepath.Join(f.Root, id.Path())
 	if _, statErr := os.Stat(nodeDir); statErr != nil {
 		if os.IsNotExist(statErr) {
-			return nil, ErrNodeNotFound
+			return nil, ErrNotExist
 		}
 		return nil, NewBackendError(f.Name(), "ListItems", 0, statErr, false)
 	}
@@ -576,7 +576,7 @@ func (f *FsRepo) ListImages(ctx context.Context, id Node) ([]string, error) {
 	nodeDir := filepath.Join(f.Root, id.Path())
 	if _, statErr := os.Stat(nodeDir); statErr != nil {
 		if os.IsNotExist(statErr) {
-			return nil, ErrNodeNotFound
+			return nil, ErrNotExist
 		}
 		return nil, NewBackendError(f.Name(), "ListImages", 0, statErr, false)
 	}
@@ -625,7 +625,7 @@ func (f *FsRepo) WriteMeta(ctx context.Context, id Node, data []byte) error {
 	nodeDir := filepath.Join(f.Root, id.Path())
 	if _, statErr := os.Stat(nodeDir); statErr != nil {
 		if os.IsNotExist(statErr) {
-			return ErrNodeNotFound
+			return ErrNotExist
 		}
 		return NewBackendError(f.Name(), "WriteMeta", 0, statErr, false)
 	}
@@ -643,7 +643,7 @@ func (f *FsRepo) UploadImage(ctx context.Context, id Node, name string, data []b
 	nodeDir := filepath.Join(f.Root, id.Path())
 	if _, statErr := os.Stat(nodeDir); statErr != nil {
 		if os.IsNotExist(statErr) {
-			return ErrNodeNotFound
+			return ErrNotExist
 		}
 		return NewBackendError(f.Name(), "UploadImage", 0, statErr, false)
 	}
@@ -662,7 +662,7 @@ func (f *FsRepo) UploadItem(ctx context.Context, id Node, name string, data []by
 	nodeDir := filepath.Join(f.Root, id.Path())
 	if _, statErr := os.Stat(nodeDir); statErr != nil {
 		if os.IsNotExist(statErr) {
-			return ErrNodeNotFound
+			return ErrNotExist
 		}
 		return NewBackendError(f.Name(), "UploadImage", 0, statErr, false)
 	}
@@ -681,7 +681,7 @@ func (f *FsRepo) MoveNode(ctx context.Context, id Node, dst Node) error {
 	src := filepath.Join(f.Root, id.Path())
 	if _, statErr := os.Stat(src); statErr != nil {
 		if os.IsNotExist(statErr) {
-			return ErrNodeNotFound
+			return ErrNotExist
 		}
 		return NewBackendError(f.Name(), "MoveNode", 0, statErr, false)
 	}
@@ -705,7 +705,7 @@ func (f *FsRepo) GetIndex(ctx context.Context, name string) ([]byte, error) {
 	b, err := os.ReadFile(idxPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, ErrDexNotFound
+			return nil, ErrNotExist
 		}
 		return nil, NewBackendError(f.Name(), "GetIndex", 0, err, false)
 	}
@@ -774,7 +774,7 @@ func (f *FsRepo) DeleteNode(ctx context.Context, id Node) error {
 	nodeDir := filepath.Join(f.Root, id.Path())
 	if _, statErr := os.Stat(nodeDir); statErr != nil {
 		if os.IsNotExist(statErr) {
-			return ErrNodeNotFound
+			return ErrNotExist
 		}
 		return NewBackendError(f.Name(), "DeleteNode", 0, statErr, false)
 	}
@@ -792,7 +792,7 @@ func (f *FsRepo) DeleteImage(ctx context.Context, id Node, name string) error {
 	// Ensure node exists
 	if _, statErr := os.Stat(nodeDir); statErr != nil {
 		if os.IsNotExist(statErr) {
-			return ErrNodeNotFound
+			return ErrNotExist
 		}
 		return NewBackendError(f.Name(), "DeleteImage", 0, statErr, false)
 	}
@@ -802,7 +802,7 @@ func (f *FsRepo) DeleteImage(ctx context.Context, id Node, name string) error {
 
 	if _, statErr := os.Stat(imagePath); statErr != nil {
 		if os.IsNotExist(statErr) {
-			return ErrNotFound
+			return ErrNotExist
 		}
 		return NewBackendError(f.Name(), "DeleteImage", 0, statErr, false)
 	}
@@ -879,7 +879,7 @@ func (f *FsRepo) ReadConfig(ctx context.Context) (*KegConfig, error) {
 		return &KegConfig{}, NewBackendError(f.Name(),
 			"ReadConfig", 0, lastErr, false)
 	}
-	return &KegConfig{}, ErrKegNotFound
+	return &KegConfig{}, ErrNotExist
 }
 
 // WriteConfig implements KegRepository.

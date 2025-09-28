@@ -46,7 +46,7 @@ func TestMemoryRepo_ReadMissingReturnsNotFound(t *testing.T) {
 
 	_, err := r.ReadContent(ctx, missing)
 	require.Error(t, err)
-	require.ErrorIs(t, err, keg.ErrNodeNotFound)
+	require.ErrorIs(t, err, keg.ErrNotExist)
 }
 
 func TestMemoryRepo_WriteAndListIndexes_GetIndex(t *testing.T) {
@@ -90,7 +90,7 @@ func TestMemoryRepo_MoveNodeAndDestinationExists(t *testing.T) {
 
 	// src should no longer exist
 	_, err := r.ReadContent(ctx, src)
-	require.ErrorIs(t, err, keg.ErrNodeNotFound)
+	require.ErrorIs(t, err, keg.ErrNotExist)
 
 	// dst should exist with same content
 	got, err := r.ReadContent(ctx, dst)

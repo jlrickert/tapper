@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"time"
 
 	std "github.com/jlrickert/go-std/pkg"
 	kegurl "github.com/jlrickert/tapper/pkg/keg_url"
@@ -14,8 +13,9 @@ import (
 
 // LocalConfig is the structure for .tapper/local.yaml (repo-local visible override).
 type LocalConfig struct {
-	Updated string        `yaml:"updated,omitempty"`
-	Keg     kegurl.Target `yaml:"keg,omitempty"`
+	// Default keg to use. This is an alias
+	DefaultKeg string        `yaml:"defaultKeg,omitEmpty"`
+	Keg        kegurl.Target `yaml:"keg,omitempty"`
 }
 
 // ReadLocalFile reads and parses a .tapper/local.yaml file into LocalConfig.
@@ -52,9 +52,4 @@ func (lf *LocalConfig) WriteLocalFile(ctx context.Context, projectPath string) e
 		return fmt.Errorf("failed to write to local config: %w", err)
 	}
 	return nil
-}
-
-func (lf *LocalConfig) Touch(ctx context.Context) {
-	clock := std.ClockFromContext(ctx)
-	lf.Updated = clock.Now().Format(time.RFC3339)
 }
