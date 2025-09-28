@@ -24,7 +24,6 @@ func newCreateCmdWithDeps(deps *CmdDeps) *cobra.Command {
 		flagTitle  string
 		flagTags   string
 		flagAuthor string
-		flagStdin  bool
 		flagForce  bool
 		flagEdit   bool
 	)
@@ -39,34 +38,21 @@ By default this command will attempt to read content from stdin (if piped)
 or open an editor to compose README.md. Several flags allow providing
 metadata non-interactively: --id, --title, --tags, --author, and --stdin.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			// Ensure deps have sensible defaults so callers/tests that pass nil still work.
-			// Allow CmdDeps.ApplyDefaults to set any sensible defaults (no-op in tests by design).
-			_ = deps.ApplyDefaults()
-
 			// If no Keg service provided, remain in stubbed behavior but show
 			// TEST marker for backward compatibility with tests that expect
 			// the simple output.
 			if deps.Keg == nil || deps.Keg.Repo == nil {
 				return nil
 			}
+			fmt.Fprintln(cmd.OutOrStdout())
+			return nil
 
-			if deps.In == nil {
-				deps.In = os.Stdin
-			}
-			if deps.Out == nil {
-				deps.Out = os.Stdout
-			}
-			if deps.Err == nil {
-				deps.Err = os.Stderr
-			}
+			// Ensure deps have sensible defaults so callers/tests that pass nil still work.
+			// Allow CmdDeps.ApplyDefaults to set any sensible defaults (no-op in tests by design).
+			_ = deps.ApplyDefaults()
 
 			// Decide whether to read content from stdin.
-			readFromStdin := flagStdin
-			if !readFromStdin {
-				if ok, _ := internal.IsPipe(); ok {
-					readFromStdin = true
-				}
-			}
+			readFromStdin, _ := internal.IsPipe()
 
 			var content []byte
 			var err error
@@ -112,52 +98,32 @@ metadata non-interactively: --id, --title, --tags, --author, and --stdin.`,
 			// Normalize tags
 			var tags []string
 			if strings.TrimSpace(flagTags) != "" {
-				// Allow comma or whitespace separated input; convert to comma-separated form expected by NormalizeTags
-				// (NormalizeTags is a simple helper; ensure tokens are joined by commas)
-				parts := strings.FieldsFunc(flagTags, func(r rune) bool {
-					return r == ',' || r == ';' || r == '\n' || r == '\t' || r == ' '
-				})
-				joined := strings.Join(parts, ",")
-				tags = keg.NormalizeTags(joined)
+				tags = keg.ParseTags(strings.TrimSpace(flagTags))
 			}
 
 			repo := deps.Keg.Repo
+			dex := deps.Keg.Dex
 
 			// Determine target ID
-			var targetID keg.NodeID
+			var targetID keg.Node
 			if flagID > 0 {
-				targetID = keg.NodeID(flagID)
-				// Check existence
-				if _, statErr := repo.Stats(targetID); statErr == nil {
-					// node exists
-					if !flagForce {
-						return keg.NewDestinationExistsError(targetID)
-					}
-					// else continue and overwrite
+				targetID = keg.Node(flagID)
+				exisitingNode := dex.GetNode(targetID)
+				if exisitingNode != nil && flagForce {
+					targetID = exisitingNode.ID
+				} else if exisitingNode != nil {
+					return keg.NewDestinationExistsError(targetID)
+				} else {
+					targetID = keg.Node(flagID)
 				}
 			} else {
-				// Choose next available numeric id: max(existing)+1 (or 1 when none)
-				ids, err := repo.ListNodesID()
-				if err != nil {
-					// If we cannot list nodes, fall back to 1
-					targetID = keg.NodeID(1)
-				} else {
-					max := -1
-					for _, id := range ids {
-						if int(id) > max {
-							max = int(id)
-						}
-					}
-					targetID = keg.NodeID(max + 1)
-					if targetID < 1 {
-						targetID = 1
-					}
-				}
+				targetID, err = deps.Keg.NextID(cmd.Context())
 			}
 
-			deps.Keg.Create(cmd.Context(), keg.CreateOptions{
-				Title: "",
-				Tags:  []string{},
+			deps.Keg.CreateNode(cmd.Context(), keg.NodeCreateOptions{
+				ID:      targetID,
+				Meta:    nil,
+				Content: content,
 			})
 
 			// Build meta map

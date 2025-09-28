@@ -20,12 +20,12 @@ type Fixture struct {
 	ctx context.Context
 
 	logger *std.TestHandler
-	env    *std.MapEnv
+	env    *std.TestEnv
 	clock  *std.TestClock
 	hasher *keg.MD5Hasher
 
 	// optional runtime state
-	tempDir string
+	Jail string
 }
 
 // NewFixture constructs a Fixture and applies given options. It registers
@@ -33,14 +33,14 @@ type Fixture struct {
 func NewFixture(t *testing.T, opts ...FixtureOption) *Fixture {
 	t.Helper()
 
-	tempDir := t.TempDir()
+	jail := t.TempDir()
 	lg, handler := std.NewTestLogger(t, std.ParseLevel("debug"))
-	env := std.NewTestEnv(filepath.Join(tempDir, "home", "testuser"), "testuser")
+	env := std.NewTestEnv(jail, filepath.Join("home", "testuser"), "testuser")
 	clock := std.NewTestClock(time.Now())
 	hasher := &keg.MD5Hasher{}
 
 	// populate common temp env vars
-	tmp := filepath.Join(tempDir, "tmp")
+	tmp := filepath.Join(jail, "tmp")
 	_ = env.Set("TMPDIR", tmp) // preferred on Unix/macOS
 	_ = env.Set("TMP", tmp)
 	_ = env.Set("TEMP", tmp)
@@ -52,13 +52,13 @@ func NewFixture(t *testing.T, opts ...FixtureOption) *Fixture {
 	ctx = std.WithClock(ctx, clock)
 
 	f := &Fixture{
-		t:       t,
-		ctx:     ctx,
-		logger:  handler,
-		hasher:  hasher,
-		env:     env,
-		clock:   clock,
-		tempDir: tempDir,
+		t:      t,
+		ctx:    ctx,
+		logger: handler,
+		hasher: hasher,
+		env:    env,
+		clock:  clock,
+		Jail:   jail,
 	}
 
 	// apply options
@@ -101,7 +101,7 @@ func WithTempDir(setAsHome bool) FixtureOption {
 	return func(f *Fixture) {
 		f.t.Helper()
 		tmp := f.t.TempDir()
-		f.tempDir = tmp
+		f.Jail = tmp
 		if setAsHome {
 			if err := f.env.SetHome(tmp); err != nil {
 				f.t.Fatalf("WithTempDir SetHome failed: %v", err)
@@ -126,14 +126,14 @@ func WithEnvMap(m map[string]string) FixtureOption {
 // attempts to make the provided path absolute.
 func (f *Fixture) AbsPath(rel string) string {
 	f.t.Helper()
-	if filepath.IsAbs(rel) || f.tempDir == "" {
+	if filepath.IsAbs(rel) || f.Jail == "" {
 		abs, err := filepath.Abs(rel)
 		if err != nil {
 			f.t.Fatalf("AbsPath failed: %v", err)
 		}
 		return abs
 	}
-	return std.AbsPath(f.ctx, filepath.Join(f.tempDir, rel))
+	return std.AbsPath(f.ctx, filepath.Join(f.Jail, rel))
 }
 
 func (f *Fixture) cleanup() {
