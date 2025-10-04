@@ -2,13 +2,21 @@ package keg_test
 
 import (
 	"context"
+	"embed"
+	iofs "io/fs"
+	"os"
+	"path"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	std "github.com/jlrickert/go-std/pkg"
 	"github.com/jlrickert/tapper/pkg/keg"
 )
+
+//go:embed data/**
+var testdata embed.FS
 
 // FixtureOption modifies a Fixture during construction.
 type FixtureOption func(f *Fixture)
@@ -25,6 +33,7 @@ type Fixture struct {
 	hasher *keg.MD5Hasher
 
 	// optional runtime state
+	// Jail is a temporary directory that acts as the root filesystem
 	Jail string
 }
 
@@ -38,6 +47,8 @@ func NewFixture(t *testing.T, opts ...FixtureOption) *Fixture {
 	env := std.NewTestEnv(jail, filepath.Join("home", "testuser"), "testuser")
 	clock := std.NewTestClock(time.Now())
 	hasher := &keg.MD5Hasher{}
+
+	// env.Setwd(jail)
 
 	// populate common temp env vars
 	tmp := filepath.Join(jail, "tmp")
@@ -122,6 +133,26 @@ func WithEnvMap(m map[string]string) FixtureOption {
 	}
 }
 
+// fixture is a directory under pkg/keg/data. For example, empty, and example
+// are valid values
+// path is where the keg data should be copied over.
+func WithFileKeg(fixture string, pathArg string) FixtureOption {
+	return func(f *Fixture) {
+		f.t.Helper()
+
+		// Source is the embedded package data directory.
+		src := path.Join("data", fixture)
+		if _, err := iofs.Stat(testdata, src); err != nil {
+			f.t.Fatalf("WithFileKeg: source %s not found: %v", src, err)
+		}
+
+		dst := filepath.Join(f.Jail, pathArg)
+		if err := copyEmbedDir(testdata, src, dst); err != nil {
+			f.t.Fatalf("WithFileKeg: copy %s -> %s failed: %v", src, dst, err)
+		}
+	}
+}
+
 // AbsPath returns an absolute path relative to TempDir if it's set; otherwise
 // attempts to make the provided path absolute.
 func (f *Fixture) AbsPath(rel string) string {
@@ -138,4 +169,79 @@ func (f *Fixture) AbsPath(rel string) string {
 
 func (f *Fixture) cleanup() {
 	// reserved for future teardown (stop mocks, remove long-lived artifacts, etc.)
+}
+
+// DumpJailTree logs a tree of files rooted at the fixture's Jail.
+//
+// maxDepth limits recursion depth. maxDepth <= 0 means unlimited depth.
+func (f *Fixture) DumpJailTree(maxDepth int) {
+	f.t.Helper()
+	if f.Jail == "" {
+		f.t.Log("DumpJailTree: no jail set")
+		return
+	}
+
+	f.t.Logf("Jail tree: %s", f.Jail)
+	err := filepath.WalkDir(f.Jail, func(p string, d iofs.DirEntry, err error) error {
+		if err != nil {
+			f.t.Logf("  error: %v", err)
+			return nil
+		}
+		rel, err := filepath.Rel(f.Jail, p)
+		if err != nil {
+			rel = p
+		}
+		// Normalize current dir
+		if rel == "." {
+			rel = "."
+		}
+		// Apply depth limit when requested
+		if maxDepth > 0 && rel != "." {
+			depth := strings.Count(rel, string(os.PathSeparator)) + 1
+			if depth > maxDepth {
+				if d.IsDir() {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+		}
+		suffix := ""
+		if d.IsDir() {
+			suffix = "/"
+		}
+		f.t.Logf("  %s%s", rel, suffix)
+		return nil
+	})
+	if err != nil {
+		f.t.Logf("DumpJailTree walk error: %v", err)
+	}
+}
+
+// copyEmbedDir recursively copies a directory tree from an embedded FS to dst.
+func copyEmbedDir(fsys embed.FS, src, dst string) error {
+	entries, err := iofs.ReadDir(fsys, src)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(dst, 0o755); err != nil {
+		return err
+	}
+	for _, e := range entries {
+		s := path.Join(src, e.Name())
+		d := filepath.Join(dst, e.Name())
+		if e.IsDir() {
+			if err := copyEmbedDir(fsys, s, d); err != nil {
+				return err
+			}
+			continue
+		}
+		data, err := fsys.ReadFile(s)
+		if err != nil {
+			return err
+		}
+		if err := os.WriteFile(d, data, 0o644); err != nil {
+			return err
+		}
+	}
+	return nil
 }

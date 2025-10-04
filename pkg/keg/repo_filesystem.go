@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strings"
 	"sync"
 	"time"
 
@@ -466,9 +465,10 @@ func (f *FsRepo) Next(ctx context.Context) (Node, error) {
 		if !e.IsDir() {
 			continue
 		}
-		if v, perr := strconvAtoiSafe(e.Name()); perr == nil {
-			if v > maxID {
-				maxID = v
+		// Accept directory names that parse as valid Node ids, e.g. "42" or "42-0001".
+		if n, perr := ParseNode(e.Name()); perr == nil && n != nil {
+			if n.ID > maxID {
+				maxID = n.ID
 			}
 		}
 	}
@@ -491,11 +491,11 @@ func (f *FsRepo) ReadContent(ctx context.Context, id Node) ([]byte, error) {
 	if err != nil {
 		if os.IsNotExist(err) {
 			// node exists but no content
-			return nil, nil
+			return []byte(nil), nil
 		}
 		return nil, NewBackendError(f.Name(), "ReadContent", 0, err, false)
 	}
-	return append([]byte(nil), b...), nil
+	return b, nil
 }
 
 // ReadMeta implements KegRepository.
@@ -528,15 +528,16 @@ func (f *FsRepo) ListNodes(ctx context.Context) ([]Node, error) {
 		if !e.IsDir() {
 			continue
 		}
-		if v, perr := strconvAtoiSafe(e.Name()); perr == nil {
-			ids = append(ids, Node{ID: v})
+		// Only include directory names that parse as valid Node identifiers.
+		if n, perr := ParseNode(e.Name()); perr == nil && n != nil && n.Valid() {
+			ids = append(ids, *n)
 		}
 	}
-	// sort ascending (selection sort to avoid extra imports)
+	// sort ascending using Node.Compare for deterministic ordering
 	for i := 0; i < len(ids); i++ {
 		min := i
 		for j := i + 1; j < len(ids); j++ {
-			if ids[j].ID < ids[min].ID {
+			if ids[j].Compare(ids[min]) < 0 {
 				min = j
 			}
 		}
@@ -856,30 +857,21 @@ func (f *FsRepo) DeleteItem(ctx context.Context, id Node, name string) error {
 // ReadConfig implements KegRepository.
 func (f *FsRepo) ReadConfig(ctx context.Context) (*KegConfig, error) {
 	candidates := []string{"keg", "keg.yaml", "keg.yml"}
-	var lastErr error
 	for _, c := range candidates {
 		p := filepath.Join(f.Root, c)
 		if _, err := os.Stat(p); err == nil {
 			b, rerr := os.ReadFile(p)
 			if rerr != nil {
-				return &KegConfig{}, NewBackendError(f.Name(),
-					"ReadConfig", 0, rerr, false)
+				return nil, NewBackendError(f.Name(), "ReadConfig", 0, rerr, false)
 			}
 			cfg, perr := ParseKegConfig(b)
 			if perr != nil {
-				return &KegConfig{}, NewBackendError(f.Name(),
-					"ReadConfig", 0, perr, false)
+				return nil, NewBackendError(f.Name(), "ReadConfig", 0, perr, false)
 			}
 			return cfg, nil
-		} else if !os.IsNotExist(err) {
-			lastErr = err
 		}
 	}
-	if lastErr != nil {
-		return &KegConfig{}, NewBackendError(f.Name(),
-			"ReadConfig", 0, lastErr, false)
-	}
-	return &KegConfig{}, ErrNotExist
+	return nil, ErrNotExist
 }
 
 // WriteConfig implements KegRepository.
@@ -901,28 +893,6 @@ func (f *FsRepo) WriteConfig(ctx context.Context, config *KegConfig) error {
 var _ KegRepository = (*FsRepo)(nil)
 
 // ----------------- small helpers -----------------
-
-// strconvAtoiSafe wraps strconv.Atoi while avoiding an import in many files.
-func strconvAtoiSafe(s string) (int, error) {
-	// accept leading/trailing spaces trimmed
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return 0, fmt.Errorf("empty")
-	}
-	// disallow non-digit prefixes
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if c < '0' || c > '9' {
-			return 0, fmt.Errorf("non-digit")
-		}
-	}
-	// parse manually
-	n := 0
-	for i := 0; i < len(s); i++ {
-		n = n*10 + int(s[i]-'0')
-	}
-	return n, nil
-}
 
 func sortStrings(ss []string) {
 	if len(ss) <= 1 {
