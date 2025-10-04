@@ -3,6 +3,7 @@ package keg_test
 import (
 	"context"
 	"embed"
+	"fmt"
 	iofs "io/fs"
 	"os"
 	"path"
@@ -21,7 +22,9 @@ var testdata embed.FS
 // FixtureOption modifies a Fixture during construction.
 type FixtureOption func(f *Fixture)
 
-// Fixture bundles common test setup (ctx, env, logger, clock, services, tempdir, helpers).
+// Fixture bundles common test setup used by package tests. It contains a
+// testing.T, a context carrying a test logger, a test env, a test clock, a
+// hasher, and a temporary "jail" directory that acts as an isolated filesystem.
 type Fixture struct {
 	t *testing.T
 
@@ -32,13 +35,13 @@ type Fixture struct {
 	clock  *std.TestClock
 	hasher *keg.MD5Hasher
 
-	// optional runtime state
-	// Jail is a temporary directory that acts as the root filesystem
+	// Optional runtime state. Jail is a temporary directory that acts as the
+	// root filesystem for file-based test fixtures.
 	Jail string
 }
 
-// NewFixture constructs a Fixture and applies given options. It registers
-// cleanup with t.Cleanup so callers don't need to call a cleanup func.
+// NewFixture constructs a Fixture and applies given options. Cleanup is
+// registered with t.Cleanup so callers do not need to call a cleanup func.
 func NewFixture(t *testing.T, opts ...FixtureOption) *Fixture {
 	t.Helper()
 
@@ -48,9 +51,9 @@ func NewFixture(t *testing.T, opts ...FixtureOption) *Fixture {
 	clock := std.NewTestClock(time.Now())
 	hasher := &keg.MD5Hasher{}
 
-	// env.Setwd(jail)
+	env.Setwd(jail)
 
-	// populate common temp env vars
+	// Populate common temp env vars.
 	tmp := filepath.Join(jail, "tmp")
 	_ = env.Set("TMPDIR", tmp) // preferred on Unix/macOS
 	_ = env.Set("TMP", tmp)
@@ -72,12 +75,12 @@ func NewFixture(t *testing.T, opts ...FixtureOption) *Fixture {
 		Jail:   jail,
 	}
 
-	// apply options
+	// Apply options.
 	for _, opt := range opts {
 		opt(f)
 	}
 
-	// register cleanup (reserved for future teardown)
+	// Register cleanup (reserved for future teardown).
 	t.Cleanup(func() { f.cleanup() })
 
 	return f
@@ -107,7 +110,8 @@ func WithClock(t0 time.Time) FixtureOption {
 	}
 }
 
-// WithTempDir creates a t.TempDir and sets it on the fixture (and optionally HOME).
+// WithTempDir creates a t.TempDir and sets it on the fixture. If setAsHome is
+// true the temp dir is also set as HOME in the fixture env.
 func WithTempDir(setAsHome bool) FixtureOption {
 	return func(f *Fixture) {
 		f.t.Helper()
@@ -133,9 +137,9 @@ func WithEnvMap(m map[string]string) FixtureOption {
 	}
 }
 
-// fixture is a directory under pkg/keg/data. For example, empty, and example
-// are valid values
-// path is where the keg data should be copied over.
+// WithFileKeg copies a fixture directory from the embedded package data into
+// the provided path within the fixture Jail. Example fixtures are "empty" or
+// "example".
 func WithFileKeg(fixture string, pathArg string) FixtureOption {
 	return func(f *Fixture) {
 		f.t.Helper()
@@ -153,8 +157,9 @@ func WithFileKeg(fixture string, pathArg string) FixtureOption {
 	}
 }
 
-// AbsPath returns an absolute path relative to TempDir if it's set; otherwise
-// attempts to make the provided path absolute.
+// AbsPath returns an absolute path. When the fixture Jail is set and rel is
+// relative the path is made relative to the Jail. Otherwise the function
+// returns the absolute form of rel.
 func (f *Fixture) AbsPath(rel string) string {
 	f.t.Helper()
 	if filepath.IsAbs(rel) || f.Jail == "" {
@@ -167,13 +172,62 @@ func (f *Fixture) AbsPath(rel string) string {
 	return std.AbsPath(f.ctx, filepath.Join(f.Jail, rel))
 }
 
-func (f *Fixture) cleanup() {
-	// reserved for future teardown (stop mocks, remove long-lived artifacts, etc.)
+// Context returns the fixture context.
+func (f *Fixture) Context() context.Context {
+	return f.ctx
 }
 
-// DumpJailTree logs a tree of files rooted at the fixture's Jail.
-//
-// maxDepth limits recursion depth. maxDepth <= 0 means unlimited depth.
+// ReadJailFile reads a file located under the fixture Jail. The path is
+// interpreted relative to the Jail root.
+func (f *Fixture) ReadJailFile(path string) ([]byte, error) {
+	f.t.Helper()
+	if f.Jail == "" {
+		return nil, fmt.Errorf("no jail set")
+	}
+	p := std.EnsureInJail(f.Jail, path)
+	return os.ReadFile(p)
+}
+
+// MustReadJailFile reads a file under the Jail and fails the test on error.
+func (f *Fixture) MustReadJailFile(rel string) []byte {
+	f.t.Helper()
+	b, err := f.ReadJailFile(rel)
+	if err != nil {
+		f.t.Fatalf("MustReadJailFile %s failed: %v", rel, err)
+	}
+	return b
+}
+
+// WriteJailFile writes data to a path under the fixture Jail, creating parent
+// directories as needed. perm is applied to the file.
+func (f *Fixture) WriteJailFile(path string, data []byte, perm os.FileMode) error {
+	f.t.Helper()
+	if f.Jail == "" {
+		return fmt.Errorf("no jail set")
+	}
+	p := std.EnsureInJail(f.Jail, path)
+	dir := filepath.Dir(p)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(p, data, perm)
+}
+
+// MustWriteJailFile writes data under the Jail and fails the test on error.
+func (f *Fixture) MustWriteJailFile(path string, data []byte, perm os.FileMode) {
+	f.t.Helper()
+	if err := f.WriteJailFile(path, data, perm); err != nil {
+		f.t.Fatalf("MustWriteJailFile %s failed: %v", path, err)
+	}
+}
+
+func (f *Fixture) cleanup() {
+	// Reserved for future teardown. Stop mocks or remove long-lived artifacts
+	// here if needed.
+}
+
+// DumpJailTree logs a tree of files rooted at the fixture's Jail. maxDepth
+// limits recursion depth. maxDepth <= 0 means unlimited depth.
 func (f *Fixture) DumpJailTree(maxDepth int) {
 	f.t.Helper()
 	if f.Jail == "" {
@@ -191,11 +245,11 @@ func (f *Fixture) DumpJailTree(maxDepth int) {
 		if err != nil {
 			rel = p
 		}
-		// Normalize current dir
+		// Normalize current dir.
 		if rel == "." {
 			rel = "."
 		}
-		// Apply depth limit when requested
+		// Apply depth limit when requested.
 		if maxDepth > 0 && rel != "." {
 			depth := strings.Count(rel, string(os.PathSeparator)) + 1
 			if depth > maxDepth {
