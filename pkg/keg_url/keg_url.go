@@ -22,35 +22,30 @@ var dupSlashRE = regexp.MustCompile(`/+`)
 // "file", "http", "https"). Path is the URL path component or an absolute
 // filesystem path when the target was supplied as a file path.
 //
-// The Target struct is the canonical, minimal shape used by tooling. Valid
-// forms that map into Target include:
+// The Target type is the canonical, minimal shape used by tooling. Valid
+// input forms that map into Target include:
 //
 // - File targets:
 //   - Scalar file paths such as "/abs/path", "./rel/path", "../rel/path",
 //     "~/path", or Windows drive paths.
-//   - Mapping form with "file" key.
-//     File targets are normalized to a cleaned path and Expand will attempt to
-//     expand a leading tilde.
+//   - Mapping form with a "file" key. File values are cleaned with
+//     filepath.Clean; Expand will attempt to expand a leading tilde.
 //
-// - API/HTTP targets:
+// - API or HTTP targets:
 //   - Full URL scalars (http:// or https://).
-//   - Mapping form with "url" key and optional user/password/token/tokenEnv.
-//     Query parameters like "readonly", "token", and "token-env" are honored
-//     when parsing a URL scalar.
+//   - Mapping form with "url" and optional user/password/token/tokenEnv.
+//     Query params like "readonly", "token", and "token-env" are honored.
 //
 // - Registry API shorthand and structured form:
 //   - Compact scalar shorthand "registry:user/keg" or "registry:/@user/keg".
 //   - Mapping form with "repo", "user", and "keg" fields.
-//     These represent a registry-level API target and may be expanded by the
-//     resolver by looking up the registry's base URL and composing the final
-//     API URL. The Repo field holds the registry key/name.
 //
 // Fields:
 //
-//   - File: filesystem path when the target is a local keg.
-//   - Repo: registry name when using a registry API form.
+//   - File: filesystem path for a local keg target.
+//   - Repo: registry name when using an API style target.
 //   - Url: canonical URL when provided or parsed from a scalar.
-//   - User/Keg: structured registry pieces for composing an API URL.
+//   - User/Keg: structured registry pieces used to compose API paths.
 //   - Password/Token/TokenEnv: credential hints. TokenEnv is preferred for
 //     production usage.
 //   - Readonly: when true the target was requested read only.
@@ -62,8 +57,10 @@ type Target struct {
 	Repo string `yaml:"repo,omitempty"`
 
 	// Url is the url for the target when represented as a scalar or explicit
-	// mapping value. Url is used when the target is http/s, git, ssh, etc
+	// mapping value. Url is used when the target was http/s, git, ssh, etc
 	Url string `yaml:"url,omitempty"`
+
+	Memory bool
 
 	// Other options
 	User     string `yaml:"user,omitempty"`
@@ -81,14 +78,15 @@ type TargetOption = func(t *Target)
 type HTTPOption = func(t *Target)
 
 const (
-	SchemeFile  = "file"
-	SchemaGit   = "git"
-	SchemaSSH   = "ssh"
-	SchemeHTTP  = "http"
-	SchemeHTTPs = "https"
-	SchemaAlias = "keg"
-	SchemeApi   = "kegapi"
-	SchemaS3    = "s3"
+	SchemeMemory = "memory"
+	SchemeFile   = "file"
+	SchemeGit    = "git"
+	SchemeSSH    = "ssh"
+	SchemeHTTP   = "http"
+	SchemeHTTPs  = "https"
+	SchemaAlias  = "keg"
+	SchemeApi    = "kegapi"
+	SchemeS3     = "s3"
 )
 
 // NewApi constructs a Target representing a keg API endpoint.
@@ -110,6 +108,17 @@ func NewFile(path string, opts ...TargetOption) Target {
 	p := filepath.Clean(path)
 	t := Target{
 		File: p,
+	}
+	for _, o := range opts {
+		o(&t)
+	}
+	return t
+}
+
+func NewMemory(kegalias string, opts ...TargetOption) Target {
+	t := Target{
+		Memory: true,
+		Keg:    kegalias,
 	}
 	for _, o := range opts {
 		o(&t)
@@ -139,14 +148,14 @@ func WithToken(token string) HTTPOption {
 // Parse parses a user-supplied target scalar into a Target.
 //
 // Accepted input forms:
-// - File paths (absolute, ./, ../, ~, Windows drive). These become File targets.
-// - Compact registry shorthand "registry:user/keg" or "registry:/@user/keg".
-// - HTTP/HTTPS URL scalars.
-// - Any URL-like scalar parsed by url.Parse.
+//   - File paths (absolute, ./, ../, ~, Windows drive). These produce File
+//     targets.
+//   - Compact registry shorthand "registry:user/keg" or "registry:/@user/keg".
+//   - HTTP/HTTPS URL scalars.
+//   - Any URL-like scalar parsed by url.Parse.
 //
-// The function tries to be permissive when parsing common variants (extra
-// whitespace, duplicate slashes). It returns an error for empty or malformed
-// shorthand inputs.
+// The function is permissive with common variants (extra whitespace, duplicate
+// slashes). It returns an error for empty or malformed shorthand inputs.
 func Parse(raw string) (*Target, error) {
 	value := strings.TrimSpace(raw)
 	if value == "" {
@@ -233,10 +242,12 @@ func Parse(raw string) (*Target, error) {
 	return &kt, nil
 }
 
-// Expand replaces environment variables and expands leading tilde in File and
-// Repo-related fields. It uses std.ExpandEnv and std.ExpandPath to match the
-// rest of the code base. Errors from ExpandPath are collected and returned as
-// a joined error so callers can see expansion issues.
+// Expand replaces environment variables and expands a leading tilde in File
+// and Repo-related fields. It uses std.ExpandEnv and std.ExpandPath so behavior
+// matches the rest of the code base.
+//
+// Errors from ExpandPath are collected and returned as a joined error so callers
+// can see expansion issues.
 func (k *Target) Expand(ctx context.Context) error {
 	var errs []error
 	expand := func(ctx context.Context, value string) string {
@@ -262,8 +273,8 @@ func (k *Target) Expand(ctx context.Context) error {
 // or a mapping node that decodes into the full Target struct. Mapping form may
 // include structured repo/user/keg or an explicit file field.
 //
-// When a scalar is provided the value is parsed via Parse which recognizes file
-// scalars, shorthand registry forms, and URL scalars.
+// When a scalar is provided the value is parsed via Parse which recognizes
+// file scalars, shorthand registry forms, and URL scalars.
 func (k *Target) UnmarshalYAML(node *yaml.Node) error {
 	if node == nil {
 		return nil
@@ -323,7 +334,7 @@ func (kt *Target) String() string {
 }
 
 // Scheme reports the inferred scheme for this Target value. Repo implies the
-// keg api scheme. File implies a local file scheme. Otherwise we fall back to
+// keg API scheme. File implies a local file scheme. Otherwise we fall back to
 // detectScheme on the Url.
 func (kt *Target) Scheme() string {
 	if kt.File != "" {
@@ -375,7 +386,7 @@ func (kt *Target) Path() string {
 
 // detectScheme returns SchemeHTTPs or SchemeFile based on the form of raw.
 // It recognizes explicit http/https/file schemes and the compact registry
-// shorthand form. It will treat typical filesystem path forms as SchemeFile.
+// shorthand form. Typical filesystem path forms are classified as SchemeFile.
 func detectScheme(raw string) string {
 	if raw == "" {
 		return SchemeFile
@@ -390,7 +401,7 @@ func detectScheme(raw string) string {
 	}
 
 	// Try to parse as a URL first. This catches explicit schemes like
-	// "https://", "file://".
+	// "https://" or "file://".
 	if u, err := url.Parse(raw); err == nil && u.Scheme != "" {
 		switch u.Scheme {
 		case "http":
@@ -412,7 +423,7 @@ func detectScheme(raw string) string {
 		return SchemeFile
 	}
 
-	// Check for implicit http website
+	// Check for implicit http website.
 	head := getHostLikePath(raw)
 	if head != "" && strings.Contains(head, ".") {
 		return SchemeHTTPs
@@ -424,23 +435,18 @@ func detectScheme(raw string) string {
 		return SchemeFile
 	}
 
-	// Fallback: treat as a local or repo-file path.
+	// Fallback: treat as a local or repo file path.
 	return SchemeFile
 }
 
 func getHostLikePath(raw string) string {
 	// Look at the host-like part before the first slash.
 	firstSlash := strings.IndexRune(raw, '/')
-	var head string
 	if firstSlash == -1 {
 		return raw
 	} else if firstSlash > 0 {
 		return raw[:firstSlash]
-	} else {
-		head = ""
 	}
-	if head != "" && strings.Contains(head, ".") {
-		return head
-	}
+	// If no head could be extracted, return empty.
 	return ""
 }
