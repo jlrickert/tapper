@@ -553,13 +553,16 @@ func (f *FsRepo) ListItems(ctx context.Context, id Node) ([]string, error) {
 	nodeDir := filepath.Join(f.Root, id.Path())
 	if _, statErr := os.Stat(nodeDir); statErr != nil {
 		if os.IsNotExist(statErr) {
-			return nil, ErrNotExist
+			return nil, fmt.Errorf("node %s does not exist: %w", nodeDir, ErrNotExist)
 		}
 		return nil, NewBackendError(f.Name(), "ListItems", 0, statErr, false)
 	}
 
 	entries, err := os.ReadDir(filepath.Join(nodeDir, NodeAttachmentsDir))
 	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return []string{}, nil
+		}
 		return nil, NewBackendError(f.Name(), "ListItems", 0, err, false)
 	}
 
