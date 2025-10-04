@@ -100,11 +100,10 @@ type KegRepository interface {
 	// DeleteItem removes a named ancillary item by name for the node.
 	DeleteItem(ctx context.Context, id Node, name string) error
 
-	// ReadConfig reads and returns the repository-level configuration
-	// (Config). Implementations should load and parse the stored configuration
-	// (for example the keg file or project zeke.yaml). If the configuration is
-	// missing, an implementation may return ErrNotFound or a more specific
-	// sentinel.
+	// ReadConfig reads and returns the repository-level configuration (Config).
+	// Implementations should load and parse the stored configuration. If the
+	// configuration is missing, an implementation may return ErrNotFound or a
+	// more specific sentinel.
 	ReadConfig(ctx context.Context) (*KegConfig, error)
 
 	// WriteConfig persists the provided Config to the repository.

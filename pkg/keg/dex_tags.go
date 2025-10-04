@@ -2,6 +2,7 @@ package keg
 
 import (
 	"context"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -83,7 +84,7 @@ func ParseTagIndex(ctx context.Context, data []byte) (TagIndex, error) {
 // - The method should ensure idx.data is initialized when first used.
 // - Duplicate entries for a given tag should be avoided (idempotent add).
 // - The node should be added using node.Path() as the identifier.
-func (idx *TagIndex) Add(ctx context.Context, data NodeData) error {
+func (idx *TagIndex) Add(ctx context.Context, data *NodeData) error {
 	_ = ctx
 	if idx == nil {
 		return nil
@@ -91,34 +92,29 @@ func (idx *TagIndex) Add(ctx context.Context, data NodeData) error {
 	if idx.data == nil {
 		idx.data = map[string][]Node{}
 	}
-	if len(data.Tags) == 0 {
+	tags := data.Tags()
+	if len(tags) == 0 {
 		return nil
 	}
 
-	srcNode, err := ParseNode(data.ID)
-	if err != nil {
-		// If source ID cannot be parsed, do nothing.
-		return nil
-	}
-	src := *srcNode
-	srcPath := data.ID
-
-	for _, tag := range data.Tags {
+	for _, tag := range tags {
 		if tag == "" {
 			continue
 		}
 		list := idx.data[tag]
 		dup := false
 		for _, n := range list {
-			if n.Path() == srcPath {
+			if n.Equals(data.ID) {
 				dup = true
 				break
 			}
 		}
 		if !dup {
-			list = append(list, src)
+			list = append(list, data.ID)
 			// keep list deterministic by sorting after append
-			sort.Slice(list, func(i, j int) bool { return list[i].Compare(list[j]) < 0 })
+			slices.SortFunc(list, func(a Node, b Node) int {
+				return a.Compare(b)
+			})
 			idx.data[tag] = list
 		}
 	}

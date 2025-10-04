@@ -1,10 +1,10 @@
 package keg
 
-// ZeroNodeContent is the fallback content used when a node has no content.
+// RawZeroNodeContent is the fallback content used when a node has no content.
 // It serves as a friendly placeholder indicating the content is planned but
 // not yet available. Callers may display this as the node README. If you
 // want the content created sooner, open an issue describing the request.
-var ZeroNodeContent = `# Sorry, planned but not yet available
+var RawZeroNodeContent = `# Sorry, planned but not yet available
 
 This is a placeholder until content is created for the link that brought you
 here. If you need this content sooner, please open an issue describing why
