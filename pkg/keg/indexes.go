@@ -11,7 +11,7 @@ type IndexBuilder interface {
 	Name() string
 
 	// Add incorporates information from a node into the index's in-memory state.
-	Add(ctx context.Context, node NodeData) error
+	Add(ctx context.Context, node *NodeData) error
 
 	// Remove deletes node-related state from the index.
 	Remove(ctx context.Context, node Node) error

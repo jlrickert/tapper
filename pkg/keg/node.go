@@ -17,12 +17,27 @@ import (
 // zero-padded 4-digit numeric suffix used to represent an uncommitted or
 // temporary variant of the node.
 type Node struct {
-	ID int
+	ID    int
+	Alias string
 	// Code is an additional random identifier used to signify an uncommitted node.
 	Code string
 }
 
-// NewTempNodeID creates a new Node using the provided base id string and a
+func RandomCode(context.Context) string {
+	// generate a 0..9999 number using crypto/rand, fallback to nanotime if rand
+	// fails
+	b := make([]byte, 2)
+	var num int
+	if _, err := crand.Read(b); err == nil {
+		num = (int(b[0])<<8 | int(b[1])) % 10000
+	} else {
+		num = int(time.Now().UnixNano() % 10000)
+	}
+	code := fmt.Sprintf("%04d", num)
+	return code
+}
+
+// NewTempNode creates a new Node using the provided base id string and a
 // 4-digit numeric code. The function attempts to parse the base id via
 // ParseNode; if that fails it will try to parse the string as a non-negative
 // integer. If the id is empty or cannot be parsed as a non-negative integer
@@ -35,28 +50,22 @@ type Node struct {
 // The context parameter is accepted to allow future callers to pass context
 // without changing the signature. It is not used by the current
 // implementation.
-func NewTempNodeID(ctx context.Context, id string) *Node {
+func NewTempNode(ctx context.Context, id string) *Node {
 	_ = ctx
 	baseID := 0
+	alias := ""
 	if id != "" {
 		if n, err := ParseNode(id); err == nil && n != nil {
 			baseID = n.ID
+			alias = n.Alias
 		} else if v, err := strconv.Atoi(id); err == nil && v >= 0 {
 			baseID = v
 		}
 	}
 
-	// generate a 0..9999 number using crypto/rand, fallback to nanotime if rand fails
-	b := make([]byte, 2)
-	var num int
-	if _, err := crand.Read(b); err == nil {
-		num = (int(b[0])<<8 | int(b[1])) % 10000
-	} else {
-		num = int(time.Now().UnixNano() % 10000)
-	}
-	code := fmt.Sprintf("%04d", num)
+	code := RandomCode(ctx)
 
-	return &Node{ID: baseID, Code: code}
+	return &Node{ID: baseID, Code: code, Alias: alias}
 }
 
 // Path returns the path component for this Node suitable for use in file
@@ -66,7 +75,14 @@ func NewTempNodeID(ctx context.Context, id string) *Node {
 //
 //	Node{ID:42, Code:""}      -> "42"
 //	Node{ID:42, Code:"0001"}  -> "42-0001"
+//	Node{ID:42, Alias:"work"} -> "keg:work/42"
 func (id Node) Path() string {
+	if id.Alias != "" {
+		if id.Code != "" {
+			return "keg:" + id.Alias + "/" + strconv.Itoa(id.ID) + "-" + id.Code
+		}
+		return "keg:" + id.Alias + "/" + strconv.Itoa(id.ID)
+	}
 	if id.Code != "" {
 		return strconv.Itoa(id.ID) + "-" + id.Code
 	}
@@ -78,18 +94,42 @@ func (id Node) String() string { return id.Path() }
 // ParseNode converts a string into a *Node.
 //
 // Accepted forms:
-//   - "0" or a non-negative integer without leading zeros (for example "1", "23")
-//   - "<id>-<code>" where <id> follows the rules above and <code> is exactly 4 digits
+//
+//   - "0" or a non-negative integer without leading zeros (for example "1",
+//     "23")
+//
+//   - "<id>-<code>" where <id> follows the rules above and <code> is exactly
+//     4 digits
+//
+//   - "keg:<alias>/<id>" or "keg:<alias>/<id>-<code>" to include an alias.
 //
 // Examples:
 //
-//	"42"       -> &Node{ID:42, Code:""}, nil
-//	"42-0001"  -> &Node{ID:42, Code:"0001"}, nil
-//	"0023"     -> nil, error (leading zeros not allowed)
-//	""         -> nil, error
+//	"42"               -> &Node{ID:42, Code:""}, nil
+//	"42-0001"          -> &Node{ID:42, Code:"0001"}, nil
+//	"keg:work/23"      -> &Node{ID:23, Alias:"work"}, nil
+//	"keg:work/23-0001" -> &Node{ID:23, Alias:"work", Code:"0001"}, nil
+//	"0023"             -> nil, error (leading zeros not allowed)
+//	""                 -> nil, error
 func ParseNode(s string) (*Node, error) {
 	if s == "" {
 		return nil, fmt.Errorf("parse node id: empty")
+	}
+
+	// handle optional keg alias prefix "keg:<alias>/..."
+	alias := ""
+	if strings.HasPrefix(s, "keg:") {
+		rest := s[len("keg:"):]
+		// expect alias followed by '/' then id
+		slash := strings.IndexByte(rest, '/')
+		if slash < 0 {
+			return nil, fmt.Errorf("parse node id %q: missing slash after alias", s)
+		}
+		alias = rest[:slash]
+		if alias == "" {
+			return nil, fmt.Errorf("parse node id %q: empty alias", s)
+		}
+		s = rest[slash+1:]
 	}
 
 	// find hyphen if present
@@ -131,16 +171,16 @@ func ParseNode(s string) (*Node, error) {
 		if len(codePart) != 4 {
 			return nil, fmt.Errorf("parse node id %q: code must be 4 digits", s)
 		}
-		for j := range 4 {
+		for j := 0; j < 4; j++ {
 			c := codePart[j]
 			if c < '0' || c > '9' {
 				return nil, fmt.Errorf("parse node id %q: code must be numeric", s)
 			}
 		}
-		return &Node{ID: n, Code: codePart}, nil
+		return &Node{ID: n, Code: codePart, Alias: alias}, nil
 	}
 
-	return &Node{ID: n}, nil
+	return &Node{ID: n, Alias: alias}, nil
 }
 
 // Valid reports whether the Node ID is a non-negative integer.
@@ -166,35 +206,17 @@ type NodeStats struct {
 	Access time.Time
 }
 
-// NodeData is a high-level representation of a KEG node. Implementations may
-// compose this from repository pieces such as meta, content, and ancillary
-// items.
-type NodeData struct {
-	ID       string // identifier
-	Hash     string
-	Title    string
-	Lead     string
-	Links    []Node
-	Format   string
-	Updated  time.Time
-	Created  time.Time
-	Accessed time.Time
-	Tags     []string
-
-	// Ancillary names (attachments and images). Implementations may populate these
-	// from the repository.
-	Items  []string
-	Images []string
-}
-
 // Equals reports whether two Nodes are identical in ID and Code.
 func (n Node) Equals(other Node) bool {
-	return n.ID == other.ID && n.Code == other.Code
+	return n.ID == other.ID && n.Code == other.Code && n.Alias == other.Alias
 }
 
 // Lt reports whether n is strictly less than other using ID then Code.
 func (n Node) Lt(other Node) bool {
 	if n.ID == other.ID {
+		if n.Code == other.Code {
+			return n.Alias < other.Alias
+		}
 		return n.Code < other.Code
 	}
 	return n.ID < other.ID
@@ -203,6 +225,9 @@ func (n Node) Lt(other Node) bool {
 // Gt reports whether n is strictly greater than other using ID then Code.
 func (n Node) Gt(other Node) bool {
 	if n.ID == other.ID {
+		if n.Code == other.Code {
+			return n.Alias > other.Alias
+		}
 		return n.Code > other.Code
 	}
 	return n.ID > other.ID
@@ -232,26 +257,17 @@ func (n Node) Compare(other Node) int {
 	if n.Code > other.Code {
 		return 1
 	}
+	if n.Alias < other.Alias {
+		return -1
+	}
+	if n.Alias > other.Alias {
+		return 1
+	}
 	return 0
 }
 
 // Increment returns a new Node with the ID value increased by one while
 // preserving the Code.
 func (n Node) Increment() Node {
-	return Node{ID: n.ID + 1, Code: n.Code}
-}
-
-// Ref builds a NodeIndexEntry from the NodeData. If the NodeData.ID is
-// malformed ParseNode may fail and the function will fall back to a zero Node.
-func (d *NodeData) Ref() *NodeIndexEntry {
-	// ParseNode may fail for malformed IDs; fall back to a zero Node when that happens.
-	n, err := ParseNode(d.ID)
-	if err != nil || n == nil {
-		n = &Node{ID: 0}
-	}
-	return &NodeIndexEntry{
-		ID:      n.Path(),
-		Title:   d.Title,
-		Updated: d.Updated,
-	}
+	return Node{ID: n.ID + 1, Code: n.Code, Alias: n.Alias}
 }
