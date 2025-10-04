@@ -123,16 +123,12 @@ func ParseNodeIndex(ctx context.Context, data []byte) (NodeIndex, error) {
 //	The function should insert or update the NodeIndexEntry derived from the
 //	supplied NodeData. After modification, idx.data must be ordered so that
 //	Next and serialized output are stable and deterministic.
-func (idx *NodeIndex) Add(ctx context.Context, data NodeData) error {
+func (idx *NodeIndex) Add(ctx context.Context, data *NodeData) error {
 	_ = ctx
 	if idx == nil {
 		return nil
 	}
-	entry := NodeIndexEntry{
-		ID:      data.ID,
-		Title:   data.Title,
-		Updated: data.Updated,
-	}
+	entry := data.Ref()
 	// initialize if needed
 	if idx.data == nil {
 		idx.data = []NodeIndexEntry{entry}

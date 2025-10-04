@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	std "github.com/jlrickert/go-std/pkg"
 	"github.com/jlrickert/tapper/pkg/keg"
 	"github.com/stretchr/testify/require"
 )
@@ -32,7 +31,7 @@ func TestTags_Normalization_AddRemove(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
-	m := keg.NewMeta(ctx)
+	m := keg.NewMeta(ctx, time.Now())
 	// Set tags as a single string (comma separated)
 	err := m.Set(ctx, "tags", "Zeke, Draft  ,  other_tag")
 	require.NoError(t, err)
@@ -71,7 +70,7 @@ func TestSetGetAndUnsetSimpleKey(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
-	m := keg.NewMeta(ctx)
+	m := keg.NewMeta(ctx, time.Now())
 
 	// Use a supported simple key ("hash") rather than arbitrary keys.
 	require.NoError(t, m.Set(ctx, "hash", "a"))
@@ -88,15 +87,18 @@ func TestSetGetAndUnsetSimpleKey(t *testing.T) {
 
 func TestTimeFields_SetAndRead(t *testing.T) {
 	t.Parallel()
-	clock := &std.TestClock{}
-	clock.Set(clock.Now().Add(5 * time.Hour))
-	ctx := std.WithClock(context.Background(), clock)
+	initial := time.Now()
+	// Use Fixture to provide clock in context set to initial + 5h.
+	f := NewFixture(t, WithClock(initial.Add(5*time.Hour)))
+	ctx := f.ctx
 
-	m := keg.NewMeta(ctx)
+	m := keg.NewMeta(ctx, f.clock.Now())
 
 	// Initially zero times
 	require.True(t,
-		m.Updated().Equal(clock.Now()) && m.Created().Equal(clock.Now()) && m.Accessed().IsZero(),
+		m.Updated().Equal(f.clock.Now()) &&
+			m.Created().Equal(f.clock.Now()) &&
+			m.Accessed().IsZero(),
 		"expected zero times for new meta",
 	)
 
@@ -118,7 +120,7 @@ func TestToYAML_NormalizesTagsOutput(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
-	m := keg.NewMeta(ctx)
+	m := keg.NewMeta(ctx, time.Now())
 	// Set tags as a slice; Meta.Set supports []string
 	require.NoError(t, m.Set(ctx, "tags", []string{"A B", "a-b", "C,c"}))
 
@@ -130,7 +132,8 @@ func TestToYAML_NormalizesTagsOutput(t *testing.T) {
 
 	// Also ensure YAML serializes tags section
 	require.True(t,
-		bytes.Contains([]byte(out), []byte("tags:")) || strings.Contains(out, "tags:"),
+		bytes.Contains([]byte(out), []byte("tags:")) ||
+			strings.Contains(out, "tags:"),
 		"expected tags section in YAML output",
 	)
 }
@@ -161,52 +164,57 @@ func TestParseMeta_TitleAndHash(t *testing.T) {
 func TestSetHash_UpdatesUpdatedTimeWhenChanged(t *testing.T) {
 	t.Parallel()
 
-	// Use a deterministically controllable clock
+	// Use a deterministically controllable clock via Fixture
 	initial := time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC)
-	clock := std.NewTestClock(initial)
-	ctx := std.WithClock(context.Background(), clock)
+	f := NewFixture(t, WithClock(initial))
+	ctx := f.ctx
 
-	m := keg.NewMeta(ctx)
+	m := keg.NewMeta(ctx, f.clock.Now())
 	// initial updated should match clock
-	require.True(t, m.Updated().Equal(clock.Now()), "initial updated should equal clock now")
+	require.True(t, m.Updated().Equal(f.clock.Now()),
+		"initial updated should equal clock now")
 
-	// Advance clock to simulate later time, then set hash with updateTime=true
-	clock.Advance(2 * time.Hour)
-	later := clock.Now()
+	// Advance clock to simulate later time, then set hash with a supplied time
+	f.clock.Advance(2 * time.Hour)
+	later := f.clock.Now()
 
-	// ensure hash changes and updateTime true causes updated timestamp to be set to later
-	m.SetHash(ctx, "hash-v1", true)
+	// ensure hash changes and passing now causes updated timestamp to be set
+	m.SetHash(ctx, "hash-v1", &later)
 	require.Equal(t, "hash-v1", m.Hash(), "hash should be set")
-	require.True(t, m.Updated().Equal(later), "updated timestamp should reflect clock now after SetHash with updateTime true")
+	require.True(t, m.Updated().Equal(later),
+		"updated timestamp should reflect clock now after SetHash")
 
-	// Advance clock again and set same hash with updateTime=true; updated should not change
-	clock.Advance(1 * time.Hour)
-	current := clock.Now()
-	m.SetHash(ctx, "hash-v1", true) // same hash
+	// Advance clock again and set same hash; updated should not change
+	f.clock.Advance(1 * time.Hour)
+	current := f.clock.Now()
+	// setting the same hash again should not mutate Updated
+	m.SetHash(ctx, "hash-v1", &current) // same hash
 	require.Equal(t, "hash-v1", m.Hash(), "hash should remain unchanged")
 	// updated should remain the previous time, not current
-	require.False(t, m.Updated().Equal(current), "updated should not change when setting same hash")
+	require.False(t, m.Updated().Equal(current),
+		"updated should not change when setting same hash")
 }
 
 func TestSetHash_IdempotentViaSetDoesNotUpdateTime(t *testing.T) {
 	t.Parallel()
 
 	initial := time.Date(2024, 2, 3, 4, 5, 6, 0, time.UTC)
-	clock := std.NewTestClock(initial)
-	ctx := std.WithClock(context.Background(), clock)
+	f := NewFixture(t, WithClock(initial))
+	ctx := f.ctx
 
-	m := keg.NewMeta(ctx)
+	m := keg.NewMeta(ctx, f.clock.Now())
 
 	// Use Set (not SetHash) to change hash; Set does not modify timestamps.
 	require.NoError(t, m.Set(ctx, "hash", "initial"))
 	initialUpdated := m.Updated()
 
-	clock.Advance(24 * time.Hour)
+	f.clock.Advance(24 * time.Hour)
 	// Change hash via Set again
 	require.NoError(t, m.Set(ctx, "hash", "updated-via-set"))
 	require.Equal(t, "updated-via-set", m.Hash(), "hash should update via Set")
 	// Updated timestamp should be unchanged because Set does not update timestamps
-	require.True(t, m.Updated().Equal(initialUpdated), "Updated should not change when using Set for hash")
+	require.True(t, m.Updated().Equal(initialUpdated),
+		"Updated should not change when using Set for hash")
 }
 
 // Tests for comment preservation in ParseMeta and ToYAML
@@ -228,11 +236,15 @@ hash: comment-hash
 	out := m.ToYAML()
 	// When ParseMeta parsed a document node, ToYAML should emit the original
 	// comments present in the node when encoding that node.
-	require.Contains(t, out, "keep-this-comment", "expected leading comment to be preserved")
-	require.Contains(t, out, "preserve me", "expected inline comment to be preserved")
+	require.Contains(t, out, "keep-this-comment",
+		"expected leading comment to be preserved")
+	require.Contains(t, out, "preserve me",
+		"expected inline comment to be preserved")
 	// Also ensure the key values remain present
-	require.Contains(t, out, "Title With Comment", "expected title value to be preserved")
-	require.Contains(t, out, "comment-hash", "expected hash value to be preserved")
+	require.Contains(t, out, "Title With Comment",
+		"expected title value to be preserved")
+	require.Contains(t, out, "comment-hash",
+		"expected hash value to be preserved")
 }
 
 func TestToYAML_NodeAbsent_DoesNotContainOriginalComments(t *testing.T) {
@@ -241,7 +253,7 @@ func TestToYAML_NodeAbsent_DoesNotContainOriginalComments(t *testing.T) {
 
 	// Create a meta programmatically (node should be nil) and ensure that ToYAML
 	// does not accidentally include unrelated comment text.
-	m := keg.NewMeta(ctx)
+	m := keg.NewMeta(ctx, time.Now())
 	m.SetTitle(ctx, "NoComments")
 	require.NoError(t, m.Set(ctx, "hash", "h1"))
 	require.NoError(t, m.Set(ctx, "tags", []string{"t1"}))
@@ -249,5 +261,6 @@ func TestToYAML_NodeAbsent_DoesNotContainOriginalComments(t *testing.T) {
 	out := m.ToYAML()
 	// The string used in the comment test should not be present when the meta was
 	// not parsed from a node containing that comment.
-	require.NotContains(t, out, "keep-this-comment", "expected no preserved comments for programmatic meta")
+	require.NotContains(t, out, "keep-this-comment",
+		"expected no preserved comments for programmatic meta")
 }

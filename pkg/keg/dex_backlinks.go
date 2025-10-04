@@ -78,7 +78,7 @@ func ParseBacklinksIndex(ctx context.Context, data []byte) (*BacklinkIndex, erro
 //     destination when possible.
 //
 // This method only mutates in-memory state and does not perform I/O.
-func (idx *BacklinkIndex) Add(ctx context.Context, data NodeData) error {
+func (idx *BacklinkIndex) Add(ctx context.Context, data *NodeData) error {
 	if idx == nil {
 		return nil
 	}
@@ -86,25 +86,18 @@ func (idx *BacklinkIndex) Add(ctx context.Context, data NodeData) error {
 		idx.data = map[string][]Node{}
 	}
 
-	srcNode, err := ParseNode(data.ID)
-	if err != nil {
-		// If the source ID cannot be parsed, do nothing.
-		return nil
-	}
-	src := *srcNode
-
-	for _, dst := range data.Links {
+	for _, dst := range data.Links() {
 		key := dst.Path()
 		list := idx.data[key]
 		dup := false
 		for _, n := range list {
-			if n.Equals(src) {
+			if n.Equals(data.ID) {
 				dup = true
 				break
 			}
 		}
 		if !dup {
-			idx.data[key] = append(list, src)
+			idx.data[key] = append(list, data.ID)
 		}
 	}
 

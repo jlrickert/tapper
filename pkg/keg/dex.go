@@ -154,19 +154,18 @@ func (dex *Dex) Backlinks(ctx context.Context, node Node) ([]Node, bool) {
 }
 
 // Clear resets all in-memory index data held by the Dex instance.
-func (dex *Dex) Clear(ctx context.Context) error {
+func (dex *Dex) Clear(ctx context.Context) {
 	dex.mu.Lock()
 	dex.nodes = NodeIndex{}
 	dex.tags = TagIndex{}
 	dex.links = LinkIndex{}
 	dex.backlinks = BacklinkIndex{}
 	dex.mu.Unlock()
-	return nil
 }
 
 // Add adds the provided node to all managed indexes. This implements the
 // IndexBuilder contract for convenience when using Dex as an aggregated builder.
-func (dex *Dex) Add(ctx context.Context, data NodeData) error {
+func (dex *Dex) Add(ctx context.Context, data *NodeData) error {
 	dex.mu.Lock()
 
 	var errs []error

@@ -17,7 +17,7 @@ import (
 
 var (
 	// Version is the build-time Version. Override with:
-	//   -ldflags "-X github.com/yourorg/yourrepo/cmd.Version=v1.2.3"
+	//   -ldflags "-X github.com/jlrickert/tapper/cmd.Version=v1.2.3"
 	Version string = "dev"
 )
 

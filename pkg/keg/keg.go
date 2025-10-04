@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
+	"time"
 
 	std "github.com/jlrickert/go-std/pkg"
 	kegurl "github.com/jlrickert/tapper/pkg/keg_url"
@@ -15,16 +17,24 @@ import (
 type Keg struct {
 	Repo KegRepository
 
-	dex    *Dex
-	config *KegConfig
-
-	mu sync.Mutex
+	dex *Dex
+	mu  sync.Mutex
 }
 
 type KegOption func(*Keg)
 
 func NewKegFromTarget(ctx context.Context, target kegurl.Target) (*Keg, error) {
-	return nil, nil
+	switch target.Scheme() {
+	case kegurl.SchemeFile:
+		repo := FsRepo{
+			Root:            target.Path(),
+			ContentFilename: MarkdownContentFilename,
+			MetaFilename:    YAMLMetaFilename,
+		}
+		keg := Keg{Repo: &repo}
+		return &keg, nil
+	}
+	return nil, fmt.Errorf("target not supported: %w", errors.ErrUnsupported)
 }
 
 // NewKeg returns a Keg service backed by the provided repository.
@@ -38,6 +48,59 @@ func NewKeg(repo KegRepository, opts ...KegOption) *Keg {
 	return keg
 }
 
+// KegExists checks if a keg has been initiated within the repo. It verifies
+// that the keg config exists and that a zero node is present.
+func KegExists(ctx context.Context, repo KegRepository) (bool, error) {
+	if repo == nil {
+		return false, fmt.Errorf("no repository provided")
+	}
+
+	// Check for a config. If it is missing, keg is not initialized.
+	if _, err := repo.ReadConfig(ctx); err != nil {
+		if errors.Is(err, ErrNotExist) {
+			return false, nil
+		}
+		// Some backends may return other typed errors; wrap them for callers.
+		return false, NewBackendError(repo.Name(), "KegExists:ReadConfig", 0, err, false)
+	}
+
+	// Ensure a zero node exists by listing nodes and looking for ID 0.
+	ids, err := repo.ListNodes(ctx)
+	if err != nil {
+		return false, NewBackendError(repo.Name(), "KegExists:ListNodes", 0, err, false)
+	}
+	for _, n := range ids {
+		if n.ID == 0 {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// Init creates a new keg
+func (keg *Keg) Init(ctx context.Context) error {
+	if keg == nil || keg.Repo == nil {
+		return fmt.Errorf("no repository configured")
+	}
+
+	// refuse to init when a keg already exists
+	exists, err := KegExists(ctx, keg.Repo)
+	if err != nil {
+		return err
+	}
+	if exists {
+		return ErrExist
+	}
+
+	if err := keg.UpdateConfig(ctx, func(kc *KegConfig) {}); err != nil {
+		return err
+	}
+
+	// Create has a special case for the zero node
+	_, err = keg.Create(ctx, nil)
+	return err
+}
+
 type KegCreateOptions struct {
 	Title string
 	Lead  string
@@ -46,9 +109,13 @@ type KegCreateOptions struct {
 }
 
 // Create creates a new node: allocates an ID, writes content, creates and writes meta.
-func (keg *Keg) Create(ctx context.Context, opts KegCreateOptions) (Node, error) {
+func (keg *Keg) Create(ctx context.Context, opts *KegCreateOptions) (Node, error) {
 	if keg == nil || keg.Repo == nil {
 		return Node{}, fmt.Errorf("no repository configured")
+	}
+
+	if opts == nil {
+		opts = &KegCreateOptions{}
 	}
 
 	// Reserve next ID
@@ -57,32 +124,68 @@ func (keg *Keg) Create(ctx context.Context, opts KegCreateOptions) (Node, error)
 		return Node{}, NewBackendError("keg", "Create:Next", 0, err, false)
 	}
 
-	// Build initial meta
-	m := NewMeta(ctx)
-	if opts.Title != "" {
-		m.SetTitle(ctx, opts.Title)
+	clock := std.ClockFromContext(ctx)
+	now := clock.Now()
+
+	var rawContent string
+	var content *Content
+
+	m := NewMeta(ctx, now)
+	m.SetAttrs(ctx, opts.Attrs)
+
+	// Special case for the 0 node
+	if id.ID == 0 {
+		rawContent = RawZeroNodeContent
+		zeroContent, _ := ParseContent(ctx, []byte(rawContent), MarkdownContentFilename)
+		content = zeroContent
+		m.Update(ctx, content, &now)
+	} else {
+		b := strings.Builder{}
+		if opts.Title != "" {
+			m.SetTitle(ctx, opts.Title)
+			b.WriteString(fmt.Sprintf("# %s\n", opts.Title))
+		} else {
+			b.WriteString(fmt.Sprintf("# Node %s\n", id.Path()))
+		}
+
+		if opts.Lead != "" {
+			m.SetLead(ctx, opts.Lead)
+			b.WriteString(fmt.Sprintf("\n%s\n", opts.Lead))
+		}
+
+		if len(opts.Tags) != 0 {
+			m.SetTags(ctx, opts.Tags)
+		}
+
+		rawContent = b.String()
+		content, _ = ParseContent(ctx, []byte(rawContent), MarkdownContentFilename)
 	}
-	if len(opts.Tags) > 0 {
-		m.SetTags(ctx, opts.Tags)
-	}
-	// set created/updated times handled by NewMeta
 
 	// Persist empty content if no attrs/content provided (caller may call SetContent separately)
 	// We'll write an empty content file so repo implementations that require a content file are happy.
-	if err := keg.Repo.WriteContent(ctx, id, []byte(ZeroNodeContent)); err != nil {
-		return Node{}, NewBackendError(keg.Repo.Name(), "Create:WriteContent", 0, err, false)
+	if err := keg.Repo.WriteContent(ctx, id, []byte(rawContent)); err != nil {
+		return id, NewBackendError(keg.Repo.Name(), "Create:WriteContent", 0, err, false)
 	}
-
-	// ensure hash is set for the content
-	h := HasherFromContext(ctx).Hash([]byte(ZeroNodeContent))
-	m.SetHash(ctx, h, true)
-
-	// Persist meta
 	if err := keg.Repo.WriteMeta(ctx, id, []byte(m.ToYAML())); err != nil {
-		return Node{}, NewBackendError(keg.Repo.Name(), "Create:WriteMeta", 0, err, false)
+		return id, NewBackendError(keg.Repo.Name(), "Create:WriteContent", 0, err, false)
 	}
 
-	return id, nil
+	return id, keg.indexNode(ctx, &NodeData{ID: id, Content: content, Meta: m})
+}
+
+func (keg *Keg) Config(ctx context.Context) (*KegConfig, error) {
+	return keg.Repo.ReadConfig(ctx)
+}
+
+func (keg *Keg) UpdateConfig(ctx context.Context, f func(*KegConfig)) error {
+	cfg, err := keg.Config(ctx)
+	if errors.Is(err, ErrNotExist) {
+		cfg = NewKegConfig()
+	} else {
+		return err
+	}
+	f(cfg)
+	return keg.Repo.WriteConfig(ctx, cfg)
 }
 
 // Content retrieves content from a node
@@ -97,7 +200,7 @@ func (keg *Keg) Content(ctx context.Context, id Node) ([]byte, error) {
 	return b, nil
 }
 
-// SetContent sets the content of the node and updates the meta (hash/updated)
+// SetContent sets the content of the node and updates the meta and dex
 func (keg *Keg) SetContent(ctx context.Context, id Node, data []byte) error {
 	if keg == nil || keg.Repo == nil {
 		return fmt.Errorf("no repository configured")
@@ -106,16 +209,7 @@ func (keg *Keg) SetContent(ctx context.Context, id Node, data []byte) error {
 	if err := keg.Repo.WriteContent(ctx, id, data); err != nil {
 		return NewBackendError(keg.Repo.Name(), "SetContent:WriteContent", 0, err, false)
 	}
-
-	// update meta.hash (and updated time) via UpdateMeta
-	hash := HasherFromContext(ctx).Hash(data)
-	if err := keg.UpdateMeta(ctx, id, func(m *Meta) {
-		m.SetHash(ctx, hash, true)
-	}); err != nil {
-		return err
-	}
-
-	return nil
+	return keg.Update(ctx, id)
 }
 
 // Meta gets the meta for a node
@@ -130,49 +224,18 @@ func (keg *Keg) Meta(ctx context.Context, id Node) ([]byte, error) {
 	return b, nil
 }
 
-// SetMeta sets the meta in the repo
-func (keg *Keg) SetMeta(ctx context.Context, id Node, data []byte) error {
-	if keg == nil || keg.Repo == nil {
-		return fmt.Errorf("no repository configured")
-	}
-	if err := keg.Repo.WriteMeta(ctx, id, data); err != nil {
-		return NewBackendError(keg.Repo.Name(), "SetMeta:WriteMeta", 0, err, false)
-	}
-	return nil
-}
-
 // UpdateMeta updates meta then writes to repo. f is applied to the parsed Meta.
 func (keg *Keg) UpdateMeta(ctx context.Context, id Node, f func(*Meta)) error {
 	if keg == nil || keg.Repo == nil {
 		return fmt.Errorf("no repository configured")
 	}
 
-	// Read existing meta
-	raw, err := keg.Repo.ReadMeta(ctx, id)
-	if err != nil {
-		// If node missing, propagate
-		if errors.Is(err, ErrNotExist) {
-			return fmt.Errorf("unable to create node: %w", err)
-		}
-		// If repo returns ErrNotFound for meta, treat as empty meta and proceed
-		// (different repos behave differently).
-		// For any other backend error, wrap and return.
+	clock := std.ClockFromContext(ctx)
+	now := clock.Now()
 
-		// if it's a typed backend error wrap
-		return NewBackendError(keg.Repo.Name(), "UpdateMeta:ReadMeta", 0, err, false)
-	}
-
-	var m *Meta
-	if len(raw) == 0 {
-		m = NewMeta(ctx)
-	} else {
-		pm, perr := ParseMeta(ctx, raw)
-		if perr != nil {
-			// couldn't parse existing meta, start fresh
-			m = NewMeta(ctx)
-		} else {
-			m = pm
-		}
+	m, err := keg.getMeta(ctx, id)
+	if errors.Is(err, ErrNotExist) {
+		m = NewMeta(ctx, now)
 	}
 
 	// apply mutation
@@ -185,61 +248,27 @@ func (keg *Keg) UpdateMeta(ctx context.Context, id Node, f func(*Meta)) error {
 	return nil
 }
 
-// Touch bumps the access time for a node. This convenience function locates a
-// repository via NewFsRepoFromEnvOrSearch and applies the access time update.
+// Touch bumps the access time for a node.
 func (keg *Keg) Touch(ctx context.Context, id Node) error {
-	repo, err := NewFsRepoFromEnvOrSearch(ctx)
-	if err != nil {
-		return err
-	}
-	k := NewKeg(repo)
-	clock := std.ClockFromContext(ctx)
-	return k.UpdateMeta(ctx, id, func(m *Meta) {
-		m.SetAccessed(ctx, clock.Now())
+	return keg.UpdateMeta(ctx, id, func(m *Meta) {
+		clock := std.ClockFromContext(ctx)
+		now := clock.Now()
+		m.accessed = now
 	})
 }
 
 // Update updates the meta data for a node by re-parsing content and applying
-// any discovered properties (title, lead, hash). Convenience wrapper that
-// locates repository via NewFsRepoFromEnvOrSearch and operates on it.
+// any discovered properties (title, lead, hash, etc). The dex is also
+// incrementally updated
 func (keg *Keg) Update(ctx context.Context, id Node) error {
-	// Read content (may be nil)
-	data, err := keg.Repo.ReadContent(ctx, id)
+	data, err := keg.getNode(ctx, id)
 	if err != nil {
-		return err
+		return fmt.Errorf("unable to update: %w", err)
 	}
-	// Parse content (detect format using filename hint)
-	var content *Content
-	if len(data) > 0 {
-		c, perr := ParseContent(ctx, data, MarkdownContentFilename)
-		if perr != nil {
-			// tolerate parse error by skipping content-driven updates
-			content = nil
-		} else {
-			content = c
-		}
+	if !data.ContentChanged() {
+		return nil
 	}
-
-	// Apply updates to meta
-	if err := keg.UpdateMeta(ctx, id, func(m *Meta) {
-		if content != nil {
-			if content.Title != "" {
-				m.SetTitle(ctx, content.Title)
-			}
-			if content.Lead != "" {
-				// store lead as generic key to preserve it in YAML; Meta doesn't have explicit Lead setter
-				_ = m.Set(ctx, "lead", content.Lead)
-			}
-			// set hash if present
-			if content.Hash != "" {
-				m.SetHash(ctx, content.Hash, true)
-			}
-		}
-	}); err != nil {
-		return err
-	}
-
-	return nil
+	return keg.indexNode(ctx, data)
 }
 
 // Index cleans the dex, rebuilds, and then writes to the repo. It uses the
@@ -249,12 +278,15 @@ func (k *Keg) Index(ctx context.Context, _ Node) error {
 	// Build a fresh in-memory Dex
 	if k.dex == nil {
 		k.dex = &Dex{}
+	} else {
+		// ensure empty state before rebuilding
+		k.dex.Clear(ctx)
 	}
 
 	// List node ids and populate dex
 	ids, err := k.Repo.ListNodes(ctx)
 	if err != nil {
-		return NewBackendError(k.Repo.Name(), "Index:ListNodes", 0, err, false)
+		return fmt.Errorf("unable to re index: %w", err)
 	}
 
 	var errs []error
@@ -264,13 +296,12 @@ func (k *Keg) Index(ctx context.Context, _ Node) error {
 			errs = append(errs, err)
 			continue
 		}
-		err = k.dex.Add(ctx, *data)
-		if err != nil {
+		// Dex.Add expects a *NodeData
+		if err := k.dex.Add(ctx, data); err != nil {
 			errs = append(errs, err)
 		}
 	}
-	err = k.dex.Write(ctx, k.Repo)
-	if err != nil {
+	if err := k.dex.Write(ctx, k.Repo); err != nil {
 		errs = append(errs, fmt.Errorf("unable to save dex: %w", err))
 	}
 
@@ -285,11 +316,24 @@ func (keg *Keg) Commit(ctx context.Context, id Node) error {
 	if id.Code == "" {
 		return nil
 	}
-	dst := Node{ID: id.ID}
+	dst, err := keg.Repo.Next(ctx)
+	if err != nil {
+		return err
+	}
 	if err := keg.Repo.MoveNode(ctx, id, dst); err != nil {
 		return err
 	}
 	return nil
+}
+
+// Dex gets the dex. If it not available attempt to load it from the repo
+func (k *Keg) Dex(ctx context.Context) (*Dex, error) {
+	if k.dex != nil {
+		return k.dex, nil
+	}
+	dex, err := NewDexFromRepo(ctx, k.Repo)
+	k.dex = dex
+	return dex, err
 }
 
 // -- utility functions
@@ -331,27 +375,31 @@ func (keg *Keg) getNode(ctx context.Context, n Node) (*NodeData, error) {
 	}
 
 	return &NodeData{
-		ID:       n.Path(),
-		Hash:     meta.hash,
-		Title:    content.Title,
-		Lead:     content.Lead,
-		Links:    content.Links,
-		Format:   content.Format,
-		Updated:  meta.Updated(),
-		Created:  meta.Created(),
-		Accessed: meta.Accessed(),
-		Tags:     meta.Tags(),
-		Items:    items,
-		Images:   images,
+		ID:      n,
+		Content: content,
+		Meta:    meta,
+		Items:   items,
+		Images:  images,
 	}, nil
 }
 
-// Dex gets the dex. If it not available attempt to load it from the repo
-func (k *Keg) Dex(ctx context.Context) (*Dex, error) {
-	if k.dex != nil {
-		return k.dex, nil
+// indexNode adds the data node to the dex and updates the config timestamp
+func (keg *Keg) indexNode(ctx context.Context, data *NodeData) error {
+	clock := std.ClockFromContext(ctx)
+	now := clock.Now()
+	dex, err := keg.Dex(ctx)
+	if err != nil {
+		return err
 	}
-	dex, err := NewDexFromRepo(ctx, k.Repo)
-	k.dex = dex
-	return dex, err
+	dex.Add(ctx, data)
+	if err := dex.Write(ctx, keg.Repo); err != nil {
+		return err
+	}
+
+	if err := keg.UpdateConfig(ctx, func(kc *KegConfig) {
+		kc.Updated = now.Format(time.RFC3339)
+	}); err != nil {
+		return err
+	}
+	return nil
 }

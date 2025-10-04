@@ -75,7 +75,7 @@ func ParseLinkIndex(ctx context.Context, data []byte) (LinkIndex, error) {
 //     given source when possible.
 //
 // This method only mutates in-memory state and does not perform I/O.
-func (idx *LinkIndex) Add(ctx context.Context, data NodeData) error {
+func (idx *LinkIndex) Add(ctx context.Context, data *NodeData) error {
 	_ = ctx
 	if idx == nil {
 		return nil
@@ -84,15 +84,17 @@ func (idx *LinkIndex) Add(ctx context.Context, data NodeData) error {
 		idx.data = map[string][]Node{}
 	}
 
-	key := data.ID
+	key := data.ID.Path()
 	existing := idx.data[key]
 
+	links := data.Links()
+
 	// dedupe by path, preferring existing representative Node
-	m := make(map[string]Node, len(existing)+len(data.Links))
+	m := make(map[string]Node, len(existing)+len(links))
 	for _, n := range existing {
 		m[n.Path()] = n
 	}
-	for _, n := range data.Links {
+	for _, n := range links {
 		m[n.Path()] = n
 	}
 
