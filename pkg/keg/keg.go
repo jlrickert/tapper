@@ -25,9 +25,13 @@ type KegOption func(*Keg)
 
 func NewKegFromTarget(ctx context.Context, target kegurl.Target) (*Keg, error) {
 	switch target.Scheme() {
+	case kegurl.SchemeMemory:
+		repo := NewMemoryRepo()
+		keg := Keg{Repo: repo}
+		return &keg, nil
 	case kegurl.SchemeFile:
 		repo := FsRepo{
-			Root:            target.Path(),
+			Root:            std.AbsPath(ctx, target.Path()),
 			ContentFilename: MarkdownContentFilename,
 			MetaFilename:    YAMLMetaFilename,
 		}
@@ -48,33 +52,41 @@ func NewKeg(repo KegRepository, opts ...KegOption) *Keg {
 	return keg
 }
 
-// KegExists checks if a keg has been initiated within the repo. It verifies
+// IsKegInitiated checks if a keg has been initiated within the repo. It verifies
 // that the keg config exists and that a zero node is present.
-func KegExists(ctx context.Context, repo KegRepository) (bool, error) {
+func IsKegInitiated(ctx context.Context, repo KegRepository) (bool, error) {
 	if repo == nil {
 		return false, fmt.Errorf("no repository provided")
 	}
 
+	var configExists bool
+
 	// Check for a config. If it is missing, keg is not initialized.
-	if _, err := repo.ReadConfig(ctx); err != nil {
+	_, err := repo.ReadConfig(ctx)
+	if err != nil {
 		if errors.Is(err, ErrNotExist) {
-			return false, nil
+			configExists = false
+		} else {
+			return false, fmt.Errorf("unable to check config existence: %w", err)
 		}
-		// Some backends may return other typed errors; wrap them for callers.
-		return false, NewBackendError(repo.Name(), "KegExists:ReadConfig", 0, err, false)
+	} else {
+		configExists = true
 	}
 
+	var zeroNodeExists bool
+
 	// Ensure a zero node exists by listing nodes and looking for ID 0.
-	ids, err := repo.ListNodes(ctx)
+	_, err = repo.ReadContent(ctx, Node{ID: 0})
 	if err != nil {
-		return false, NewBackendError(repo.Name(), "KegExists:ListNodes", 0, err, false)
-	}
-	for _, n := range ids {
-		if n.ID == 0 {
-			return true, nil
+		if errors.Is(err, ErrNotExist) {
+			zeroNodeExists = false
+		} else {
+			return false, fmt.Errorf("unable to check zero node existence: %w", err)
 		}
+	} else {
+		zeroNodeExists = true
 	}
-	return false, nil
+	return configExists && zeroNodeExists, nil
 }
 
 // Init creates a new keg
@@ -84,21 +96,24 @@ func (keg *Keg) Init(ctx context.Context) error {
 	}
 
 	// refuse to init when a keg already exists
-	exists, err := KegExists(ctx, keg.Repo)
+	exists, err := IsKegInitiated(ctx, keg.Repo)
 	if err != nil {
-		return err
+		return fmt.Errorf("unable to init keg: %w", err)
 	}
 	if exists {
-		return ErrExist
+		return fmt.Errorf("cannot init an already existing keg: %w", ErrExist)
 	}
 
 	if err := keg.UpdateConfig(ctx, func(kc *KegConfig) {}); err != nil {
-		return err
+		return fmt.Errorf("unable to update config: %w", err)
 	}
 
 	// Create has a special case for the zero node
 	_, err = keg.Create(ctx, nil)
-	return err
+	if err != nil {
+		return fmt.Errorf("unable to create zero node: %w", err)
+	}
+	return nil
 }
 
 type KegCreateOptions struct {
