@@ -13,8 +13,8 @@ import (
 func TestNewProject_WithOptions(t *testing.T) {
 	req := require.New(t)
 
-	f := NewFixture(t)
-	ctx := f.ctx
+	fx := NewFixture(t)
+	ctx := fx.Context()
 
 	p, err := tap.NewProject(
 		ctx,
@@ -36,25 +36,26 @@ func TestNewProject_WithOptions(t *testing.T) {
 func TestNewProject_DefaultsFromEnv(t *testing.T) {
 	req := require.New(t)
 
-	f := NewFixture(t)
+	fx := NewFixture(t)
 
 	// Make the fixture use a deterministic home and username.
-	req.NoError(f.env.SetHome("/home/testuser"))
-	req.NoError(f.env.SetUser("testuser"))
+	env := std.EnvFromContext(fx.Context())
+	req.NoError(env.SetHome("/home/testuser"))
+	req.NoError(env.SetUser("testuser"))
 
 	// Provide a Root so NewProject skips env.GetWd error paths but still
 	// computes Config/Data/State/Cache roots from the injected env.
 	wantRoot := "/repo/root"
-	p, err := tap.NewProject(f.ctx, tap.WithRoot(wantRoot))
+	p, err := tap.NewProject(fx.Context(), tap.WithRoot(wantRoot))
 	req.NoError(err)
 
-	cfgBase, err := std.UserConfigPath(f.ctx)
+	cfgBase, err := std.UserConfigPath(fx.Context())
 	req.NoError(err)
-	dataBase, err := std.UserDataPath(f.ctx)
+	dataBase, err := std.UserDataPath(fx.Context())
 	req.NoError(err)
-	stateBase, err := std.UserStatePath(f.ctx)
+	stateBase, err := std.UserStatePath(fx.Context())
 	req.NoError(err)
-	cacheBase, err := std.UserCachePath(f.ctx)
+	cacheBase, err := std.UserCachePath(fx.Context())
 	req.NoError(err)
 
 	req.Equal(wantRoot, p.Root)
@@ -67,18 +68,19 @@ func TestNewProject_DefaultsFromEnv(t *testing.T) {
 func TestWithCurrentProjectSetsRoot(t *testing.T) {
 	req := require.New(t)
 
-	f := NewFixture(t)
+	fx := NewFixture(t)
 
 	// Set an explicit working directory so the option can discover it via
 	// EnvFromContext.
-	f.env.Setwd("/some/repo/path")
+	env := std.EnvFromContext(fx.Context())
+	env.Setwd("/some/repo/path")
 
 	p := &tap.Project{}
-	opt := tap.WithAutoRootDetect(f.ctx)
+	opt := tap.WithAutoRootDetect(fx.Context())
 	opt(p)
 
-	wd, err := f.env.Getwd()
+	wd, err := env.Getwd()
 	req.NoError(err)
-	want := std.FindGitRoot(f.ctx, wd)
+	want := std.FindGitRoot(fx.Context(), wd)
 	req.Equal(want, p.Root)
 }

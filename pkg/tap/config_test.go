@@ -2,7 +2,6 @@ package tap_test
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"testing"
 
@@ -27,14 +26,10 @@ kegMap:
     pathPrefix: "~/projects" # prefix comment
 `
 
-	uc, err := tap.ParseUserConfig(fx.ctx, []byte(raw))
+	uc, err := tap.ParseUserConfig(fx.Context(), []byte(raw))
 	require.NoError(t, err, "ParseUserConfig failed")
-
-	path := filepath.Join(fx.Jail, "user.yaml")
-	fx.WriteUserConfigFile(path, uc)
-
-	data, err := os.ReadFile(path)
-	require.NoError(t, err, "failed to read written user config")
+	data, err := uc.ToYAML(fx.Context())
+	require.NoError(t, err, "ToYAML failed")
 	out := string(data)
 
 	// Ensure top comments are preserved
@@ -65,17 +60,13 @@ kegs:
   main: "~/keg" # keep this inline
 `
 
-	uc, err := tap.ParseUserConfig(fx.ctx, []byte(raw))
+	uc, err := tap.ParseUserConfig(fx.Context(), []byte(raw))
 	require.NoError(t, err, "ParseUserConfig failed")
 
-	clone := uc.Clone(fx.ctx)
+	clone := uc.Clone(fx.Context())
 	require.NotNil(t, clone, "expected clone to be non-nil")
 
-	path := filepath.Join(fx.Jail, "user_clone.yaml")
-	fx.WriteUserConfigFile(path, clone)
-
-	data, err := os.ReadFile(path)
-	require.NoError(t, err, "failed to read written cloned user config")
+	data, err := clone.ToYAML(fx.Context())
 	out := string(data)
 
 	require.Contains(t, out, "# config header",
@@ -104,14 +95,10 @@ func TestParseUserConfig_KegExamples(t *testing.T) {
   api_alt: "api://other.example"
 `
 
-	uc, err := tap.ParseUserConfig(fx.ctx, []byte(raw))
+	uc, err := tap.ParseUserConfig(fx.Context(), []byte(raw))
 	require.NoError(t, err, "ParseUserConfig failed")
 
-	path := filepath.Join(fx.Jail, "user_kegs.yaml")
-	fx.WriteUserConfigFile(path, uc)
-
-	data, err := os.ReadFile(path)
-	require.NoError(t, err, "failed to read written user config with kegs")
+	data, err := uc.ToYAML(fx.Context())
 	out := string(data)
 
 	// Ensure the various keg examples were preserved in the serialized YAML.
@@ -139,24 +126,24 @@ func TestResolveAlias_Behavior(t *testing.T) {
   nested:
     url: "api.example.com/v1"
 `
-	uc, err := tap.ParseUserConfig(fx.ctx, []byte(raw))
+	uc, err := tap.ParseUserConfig(fx.Context(), []byte(raw))
 	require.NoError(t, err)
 
 	// Successful resolve
-	kt, err := uc.ResolveAlias(fx.ctx, "main")
+	kt, err := uc.ResolveAlias(fx.Context(), "main")
 	require.NoError(t, err, "expected ResolveAlias to succeed for existing alias")
 	require.NotNil(t, kt)
 	require.Contains(t, kt.String(), "https://example.com/main")
 
 	// Nested mapping should also be present as a keg entry
-	kt2, err := uc.ResolveAlias(fx.ctx, "nested")
+	kt2, err := uc.ResolveAlias(fx.Context(), "nested")
 	require.NoError(t, err, "expected ResolveAlias to succeed for nested mapping")
 	require.NotNil(t, kt2)
 	// The Parse behavior may normalize to an api scheme or similar; ensure non-empty.
 	require.NotZero(t, kt2.String())
 
 	// Missing alias yields error
-	_, err = uc.ResolveAlias(fx.ctx, "missing")
+	_, err = uc.ResolveAlias(fx.Context(), "missing")
 	require.Error(t, err, "expected ResolveAlias to error for unknown alias")
 }
 
@@ -181,30 +168,30 @@ kegMap:
     pathPrefix: "%s/projects"
 `, fx.Jail, fx.Jail, fx.Jail)
 
-	uc, err := tap.ParseUserConfig(fx.ctx, []byte(raw))
+	uc, err := tap.ParseUserConfig(fx.Context(), []byte(raw))
 	require.NoError(t, err, "ParseUserConfig failed")
 
 	// Path matching the regex should prefer the regex alias
 	pathRegexMatch := filepath.Join(fx.Jail, "x", "special")
-	kt, err := uc.ResolveProjectKeg(fx.ctx, pathRegexMatch)
+	kt, err := uc.ResolveProjectKeg(fx.Context(), pathRegexMatch)
 	require.NoError(t, err, "expected ResolveProjectKeg to match regex")
 	require.Contains(t, kt.String(), "https://example.com/regex")
 
 	// Path that matches both proj and projfoo should choose the longest prefix
 	pathLongPrefix := filepath.Join(fx.Jail, "projects", "foo", "bar")
-	kt2, err := uc.ResolveProjectKeg(fx.ctx, pathLongPrefix)
+	kt2, err := uc.ResolveProjectKeg(fx.Context(), pathLongPrefix)
 	require.NoError(t, err, "expected ResolveProjectKeg to match a prefix")
 	require.Contains(t, kt2.String(), "https://example.com/projfoo")
 
 	// Path that only matches proj prefix
 	pathProj := filepath.Join(fx.Jail, "projects", "other")
-	kt3, err := uc.ResolveProjectKeg(fx.ctx, pathProj)
+	kt3, err := uc.ResolveProjectKeg(fx.Context(), pathProj)
 	require.NoError(t, err, "expected ResolveProjectKeg to match proj prefix")
 	require.Contains(t, kt3.String(), "https://example.com/proj")
 
 	// Path that matches nothing falls back to defaultKeg
 	pathNone := filepath.Join(fx.Jail, "unmatched")
-	kt4, err := uc.ResolveProjectKeg(fx.ctx, pathNone)
+	kt4, err := uc.ResolveProjectKeg(fx.Context(), pathNone)
 	require.NoError(t, err, "expected ResolveProjectKeg to fallback to defaultKeg")
 	require.Contains(t, kt4.String(), "https://example.com/default")
 
@@ -215,9 +202,9 @@ kegMap:
   - alias: proj
     pathPrefix: "%s/projects"
 `, fx.Jail)
-	uc2, err := tap.ParseUserConfig(fx.ctx, []byte(rawNoDefault))
+	uc2, err := tap.ParseUserConfig(fx.Context(), []byte(rawNoDefault))
 	require.NoError(t, err)
 
-	_, err = uc2.ResolveProjectKeg(fx.ctx, filepath.Join(fx.Jail, "nope"))
+	_, err = uc2.ResolveProjectKeg(fx.Context(), filepath.Join(fx.Jail, "nope"))
 	require.Error(t, err, "expected ResolveProjectKeg to error when no match and no default")
 }
