@@ -1,0 +1,14 @@
+updated: "2025-10-11T00:00:00Z"
+defaultKeg: blog
+kegMap:
+  - alias: blog
+    pathPrefix: ./
+kegs:
+  blog: knut:jlrickert/blog
+  pub: ~/kegs/public
+  priv: ~/kegs/private
+defaultRegistry: knut
+registries:
+  - name: knut
+    url: https://registry.knut.com
+    tokenEnv: TAP_REGISTRY_TOKEN

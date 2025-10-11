@@ -26,6 +26,9 @@ import (
 // original yaml.Node for in-place edits so comments and formatting are
 // preserved when writing.
 type Config struct {
+	LogFile  string `yaml:"logFile,omitempty"`
+	LogLevel string `yaml:"logLevel,omitempty"`
+
 	// Updated is a timestamp
 	Updated time.Time `yaml:"updated,omitempty"`
 
