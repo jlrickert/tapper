@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	std "github.com/jlrickert/go-std/pkg"
 	"github.com/yuin/goldmark"
 	gm_ast "github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/text"
@@ -46,7 +47,7 @@ func ParseContent(ctx context.Context, data []byte, format string) (*Content, er
 	}
 
 	fmt := detectFormat(data, format)
-	hasher := HasherFromContext(ctx)
+	hasher := std.HasherFromContext(ctx)
 
 	var title, lead string
 	switch fmt {

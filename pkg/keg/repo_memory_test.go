@@ -13,7 +13,7 @@ func TestMemoryRepo_WriteReadMetaAndContent(t *testing.T) {
 	fx := NewFixture(t)
 
 	r := keg.NewMemoryRepo()
-	ctx := fx.ctx
+	ctx := fx.Context()
 
 	id := keg.Node{ID: 10}
 	content := []byte("# hello\n")
@@ -40,7 +40,7 @@ func TestMemoryRepo_ReadMissingReturnsNotFound(t *testing.T) {
 	fx := NewFixture(t)
 
 	r := keg.NewMemoryRepo()
-	ctx := fx.ctx
+	ctx := fx.Context()
 
 	missing := keg.Node{ID: 9999}
 
@@ -54,7 +54,7 @@ func TestMemoryRepo_WriteAndListIndexes_GetIndex(t *testing.T) {
 	fx := NewFixture(t)
 
 	r := keg.NewMemoryRepo()
-	ctx := fx.ctx
+	ctx := fx.Context()
 
 	name := "dex/nodes.tsv"
 	data := []byte("1\t2025-08-11 00:00:00Z\tTitle\n")
@@ -74,7 +74,7 @@ func TestMemoryRepo_MoveNodeAndDestinationExists(t *testing.T) {
 	fx := NewFixture(t)
 
 	r := keg.NewMemoryRepo()
-	ctx := fx.ctx
+	ctx := fx.Context()
 
 	src := keg.Node{ID: 20}
 	dst := keg.Node{ID: 30}
@@ -111,7 +111,7 @@ func TestMemoryRepo_NextProducesIncreasingIDs(t *testing.T) {
 	fx := NewFixture(t)
 
 	r := keg.NewMemoryRepo()
-	ctx := fx.ctx
+	ctx := fx.Context()
 
 	// Obtain the next available ID.
 	first, err := r.Next(ctx)
