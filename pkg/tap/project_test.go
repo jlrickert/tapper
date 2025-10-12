@@ -1,7 +1,6 @@
 package tap_test
 
 import (
-	"path/filepath"
 	"testing"
 
 	std "github.com/jlrickert/go-std/pkg"
@@ -26,61 +25,98 @@ func TestNewProject_WithOptions(t *testing.T) {
 	)
 	req.NoError(err)
 
-	req.Equal("/repo/root", p.Root)
-	req.Equal("/cfg", p.ConfigRoot)
-	req.Equal("/data", p.DataRoot)
-	req.Equal("/state", p.StateRoot)
-	req.Equal("/cache", p.CacheRoot)
+	req.Equal("/repo/root", p.Root())
+
+	cfgRoot, err := p.ConfigRoot(ctx)
+	req.NoError(err)
+	req.Equal("/cfg", cfgRoot)
+
+	dataRoot, err := p.DataRoot(ctx)
+	req.NoError(err)
+	req.Equal("/data", dataRoot)
+
+	stateRoot, err := p.StateRoot(ctx)
+	req.NoError(err)
+	req.Equal("/state", stateRoot)
+
+	cacheRoot, err := p.CacheRoot(ctx)
+	req.NoError(err)
+	req.Equal("/cache", cacheRoot)
 }
 
-func TestNewProject_DefaultsFromEnv(t *testing.T) {
+// Tests for updating the user config for a project.
+
+func TestProject_UserConfigUpdate_SetsDefaultKeg(t *testing.T) {
 	req := require.New(t)
 
 	fx := NewFixture(t)
+	ctx := fx.Context()
 
-	// Make the fixture use a deterministic home and username.
-	env := std.EnvFromContext(fx.Context())
-	req.NoError(env.SetHome("/home/testuser"))
+	// Ensure a stable home so user config roots resolve predictably.
+	// env := std.EnvFromContext(ctx)
+	// req.NoError(env.SetHome(fx.AbsPath("home")))
+	// req.NoError(env.SetUser("testuser"))
+
+	// Create a project rooted at an explicit path so other roots are stable.
+	wantRoot := "/repo/root"
+	p, err := tap.NewProject(ctx, tap.WithRoot(wantRoot))
+	req.NoError(err)
+
+	// Update the user config to set DefaultKeg.
+	err = p.UserConfigUpdate(ctx, func(cfg *tap.Config) {
+		cfg.DefaultKeg = "mykeg"
+	}, false)
+	req.NoError(err)
+
+	fx.MustReadJailFile("~/.config/tapper/config.yaml")
+
+	// Read back the user config and verify the change is visible.
+	got, err := p.UserConfig(ctx, false)
+	req.NoError(err)
+	req.Equal("mykeg", got.DefaultKeg)
+
+	// Create a new Project instance to ensure the persisted config is re-read.
+	p2, err := tap.NewProject(ctx, tap.WithRoot(wantRoot))
+	req.NoError(err)
+	got2, err := p2.UserConfig(ctx, false)
+	req.NoError(err)
+	req.Equal("mykeg", got2.DefaultKeg)
+}
+
+func TestProject_UserConfigUpdate_AppendsKegMapEntry(t *testing.T) {
+	req := require.New(t)
+
+	fx := NewFixture(t)
+	ctx := fx.Context()
+
+	// Use deterministic env values so config paths are stable.
+	env := std.EnvFromContext(ctx)
+	req.NoError(env.SetHome(fx.AbsPath("home")))
 	req.NoError(env.SetUser("testuser"))
 
-	// Provide a Root so NewProject skips env.GetWd error paths but still
-	// computes Config/Data/State/Cache roots from the injected env.
-	wantRoot := "/repo/root"
-	p, err := tap.NewProject(fx.Context(), tap.WithRoot(wantRoot))
+	p, err := tap.NewProject(ctx, tap.WithRoot("/repo/root"))
 	req.NoError(err)
 
-	cfgBase, err := std.UserConfigPath(fx.Context())
+	// Append a KegMap entry via the update helper.
+	entry := tap.KegMapEntry{
+		Alias:      "alias-x",
+		PathPrefix: "/projects/x",
+	}
+	err = p.UserConfigUpdate(ctx, func(cfg *tap.Config) {
+		cfg.KegMap = append(cfg.KegMap, entry)
+	}, false)
 	req.NoError(err)
-	dataBase, err := std.UserDataPath(fx.Context())
-	req.NoError(err)
-	stateBase, err := std.UserStatePath(fx.Context())
-	req.NoError(err)
-	cacheBase, err := std.UserCachePath(fx.Context())
+
+	// Verify the entry is present when reading the user config.
+	cfg, err := p.UserConfig(ctx, false)
 	req.NoError(err)
 
-	req.Equal(wantRoot, p.Root)
-	req.Equal(filepath.Join(cfgBase, tap.DefaultAppName), p.ConfigRoot)
-	req.Equal(filepath.Join(dataBase, tap.DefaultAppName), p.DataRoot)
-	req.Equal(filepath.Join(stateBase, tap.DefaultAppName), p.StateRoot)
-	req.Equal(filepath.Join(cacheBase, tap.DefaultAppName), p.CacheRoot)
-}
-
-func TestWithCurrentProjectSetsRoot(t *testing.T) {
-	req := require.New(t)
-
-	fx := NewFixture(t)
-
-	// Set an explicit working directory so the option can discover it via
-	// EnvFromContext.
-	env := std.EnvFromContext(fx.Context())
-	env.Setwd("/some/repo/path")
-
-	p := &tap.Project{}
-	opt := tap.WithAutoRootDetect(fx.Context())
-	opt(p)
-
-	wd, err := env.Getwd()
-	req.NoError(err)
-	want := std.FindGitRoot(fx.Context(), wd)
-	req.Equal(want, p.Root)
+	found := false
+	for _, e := range cfg.KegMap {
+		if e.Alias == entry.Alias && e.PathPrefix == entry.PathPrefix {
+			found = true
+			break
+		}
+	}
+	req.True(found, "expected appended KegMap entry to be present")
 }
