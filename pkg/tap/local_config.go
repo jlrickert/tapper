@@ -47,7 +47,7 @@ func (lf *LocalConfig) WriteLocalFile(ctx context.Context, projectPath string) e
 		lg.Error("failed to marshal local config", "path", path, "err", err)
 		return err
 	}
-	if err := std.AtomicWriteFile(path, b, 0o644); err != nil {
+	if err := std.AtomicWriteFile(ctx, path, b, 0o644); err != nil {
 		lg.Error("failed to write to local config", "path", path, "err", err)
 		return fmt.Errorf("failed to write to local config: %w", err)
 	}
