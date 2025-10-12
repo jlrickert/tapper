@@ -94,7 +94,10 @@ type BackendError struct {
 
 func (e *BackendError) Error() string {
 	if e.StatusCode != 0 {
-		return fmt.Sprintf("%s %s: status=%d: %v", e.Backend, e.Op, e.StatusCode, e.Cause)
+		return fmt.Sprintf(
+			"%s %s: status=%d: %v",
+			e.Backend, e.Op, e.StatusCode, e.Cause,
+		)
 	}
 	return fmt.Sprintf("%s %s: %v", e.Backend, e.Op, e.Cause)
 }
@@ -115,7 +118,10 @@ type RateLimitError struct {
 
 func (e *RateLimitError) Error() string {
 	if e.RetryAfter > 0 {
-		return fmt.Sprintf("rate limited: retry after %s: %s", e.RetryAfter, e.Message)
+		return fmt.Sprintf(
+			"rate limited: retry after %s: %s",
+			e.RetryAfter, e.Message,
+		)
 	}
 	if e.Message != "" {
 		return "rate limited: " + e.Message
@@ -175,6 +181,49 @@ func IsPermissionDenied(err error) bool {
 // IsConflict returns true if err is a conflict error.
 func IsConflict(err error) bool {
 	return errors.Is(err, ErrConflict)
+}
+
+// IsBackendError reports whether err is (or wraps) a BackendError.
+func IsBackendError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var be *BackendError
+	return errors.As(err, &be)
+}
+
+func ParseBackendError(err error) *BackendError {
+	if err == nil {
+		return nil
+	}
+
+	// If it's already a BackendError, return it.
+	var be *BackendError
+	if errors.As(err, &be) {
+		return be
+	}
+
+	// If it's a RateLimitError, convert to a BackendError wrapper and mark
+	// it as transient.
+	var rl *RateLimitError
+	if errors.As(err, &rl) {
+		return &BackendError{Cause: rl, Transient: true}
+	}
+
+	// If it's a TransientError, convert to a BackendError wrapper.
+	var te *TransientError
+	if errors.As(err, &te) {
+		return &BackendError{Cause: te, Transient: true}
+	}
+
+	// If the error reports retryable or temporary semantics, create a wrapper
+	// that preserves that behavior.
+	if IsRetryable(err) || IsTemporary(err) {
+		return &BackendError{Cause: err, Transient: true}
+	}
+
+	// No backend-related information available.
+	return nil
 }
 
 // IsRetryable inspects the error chain for a Retryable() bool implementation and

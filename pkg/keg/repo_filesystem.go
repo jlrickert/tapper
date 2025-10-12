@@ -79,7 +79,7 @@ func NewFsRepoFromEnvOrSearch(ctx context.Context) (*FsRepo, error) {
 		return nil, NewBackendError(f.Name(),
 			"NewFsRepoFromEnvOrSearch", 0, err, false)
 	}
-	if kp := findKegInDir(cwd, candidates); kp != "" {
+	if kp := findKegInDir(ctx, cwd, candidates); kp != "" {
 		f := &FsRepo{
 			Root:            cwd,
 			ContentFilename: MarkdownContentFilename,
@@ -157,7 +157,7 @@ func resolveKegFromEnv(ctx context.Context, v string, candidates []string) (envR
 	if expanded, err := std.ExpandPath(ctx, v); err == nil {
 		v = expanded
 	}
-	info, err := os.Stat(v)
+	info, err := std.Stat(ctx, v)
 	if err == nil && info.Mode().IsRegular() {
 		// env pointed to a file; verify its name is a candidate
 		base := filepath.Base(v)
@@ -173,7 +173,7 @@ func resolveKegFromEnv(ctx context.Context, v string, candidates []string) (envR
 		// env pointed to a directory: check for candidate file inside
 		for _, c := range candidates {
 			p := filepath.Join(v, c)
-			if fi, statErr := os.Stat(p); statErr == nil && fi.Mode().IsRegular() {
+			if fi, statErr := std.Stat(ctx, p); statErr == nil && fi.Mode().IsRegular() {
 				return envResolveResult{rootDir: v, kegPath: p}, nil
 			}
 		}
@@ -192,10 +192,10 @@ func resolveKegFromEnv(ctx context.Context, v string, candidates []string) (envR
 
 // findKegInDir checks if any candidate keg filename exists directly in dir.
 // returns full path or "".
-func findKegInDir(dir string, candidates []string) string {
+func findKegInDir(ctx context.Context, dir string, candidates []string) string {
 	for _, c := range candidates {
 		p := filepath.Join(dir, c)
-		if fi, err := os.Stat(p); err == nil && fi.Mode().IsRegular() {
+		if fi, err := std.Stat(ctx, p); err == nil && fi.Mode().IsRegular() {
 			return p
 		}
 	}
@@ -257,15 +257,20 @@ func (f *FsRepo) withLockContext(parent context.Context) (context.Context,
 // and returns an unlock function that releases the lock. The unlock function
 // returns an error if the release failed.
 func (f *FsRepo) acquireLock(ctx context.Context, retryInterval time.Duration) (func() error, error) {
-
-	lockPath := filepath.Join(f.Root, KegLockFile)
+	root, err := std.ExpandPath(ctx, f.Root)
+	if err != nil {
+		return func() error { return nil }, err
+	}
+	lockPath := filepath.Join(root, KegLockFile)
 
 	ticker := time.NewTicker(retryInterval)
 	defer ticker.Stop()
 
 	for {
-		lf, err := os.OpenFile(lockPath,
-			os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+		lf, err := os.OpenFile(
+			lockPath,
+			os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600,
+		)
 		if err == nil {
 			// best-effort diagnostics
 			_, _ = fmt.Fprintf(lf, "%d %s\n",
@@ -273,7 +278,7 @@ func (f *FsRepo) acquireLock(ctx context.Context, retryInterval time.Duration) (
 			_ = lf.Close()
 
 			unlock := func() error {
-				if err := os.Remove(lockPath); err != nil &&
+				if err := std.Remove(ctx, lockPath, false); err != nil &&
 					!os.IsNotExist(err) {
 					return NewBackendError(f.Name(),
 						"AcquireLock:unlock", 0, err, false)
@@ -306,13 +311,15 @@ func (f *FsRepo) acquireLock(ctx context.Context, retryInterval time.Duration) (
 // directory (root/<node-id>/.keg-lock). It behaves like AcquireLock but scoped
 // to a specific node. If the node directory does not exist, it returns a
 // NewNodeNotFoundError.
-func (f *FsRepo) LockNode(ctx context.Context, id Node,
-	retryInterval time.Duration) (func() error, error) {
-
-	nodeDir := filepath.Join(f.Root, (&id).Path())
+func (f *FsRepo) LockNode(ctx context.Context, id Node, retryInterval time.Duration) (func() error, error) {
+	root, err := std.ExpandPath(ctx, f.Root)
+	if err == nil {
+		return func() error { return nil }, err
+	}
+	nodeDir := filepath.Join(root, id.Path())
 
 	// Ensure the node directory exists before attempting to lock.
-	if _, statErr := os.Stat(nodeDir); statErr != nil {
+	if _, statErr := std.Stat(ctx, nodeDir); statErr != nil {
 		if os.IsNotExist(statErr) {
 			return nil, ErrNotExist
 		}
@@ -335,10 +342,15 @@ func (f *FsRepo) LockNode(ctx context.Context, id Node,
 			_ = lf.Close()
 
 			unlock := func() error {
-				if err := os.Remove(lockPath); err != nil &&
+				if err := std.Remove(ctx, lockPath, false); err != nil &&
 					!os.IsNotExist(err) {
-					return NewBackendError(f.Name(),
-						"AcquireNodeLock:unlock", 0, err, false)
+					return NewBackendError(
+						f.Name(),
+						"AcquireNodeLock:unlock",
+						0,
+						err,
+						false,
+					)
 				}
 				return nil
 			}
@@ -347,8 +359,13 @@ func (f *FsRepo) LockNode(ctx context.Context, id Node,
 
 		// Unexpected error (not "file exists")
 		if !os.IsExist(err) {
-			return nil, NewBackendError(f.Name(),
-				"AcquireNodeLock", 0, err, false)
+			return nil, NewBackendError(
+				f.Name(),
+				"AcquireNodeLock",
+				0,
+				err,
+				false,
+			)
 		}
 
 		// Lock file exists; wait or bail if context is done
@@ -368,17 +385,17 @@ func (f *FsRepo) LockNode(ctx context.Context, id Node,
 // in immediate subdirectories. Non-existence is ignored. If filesystem errors
 // occur they are wrapped in a BackendError; multiple errors are combined into
 // a single BackendError with an aggregated message.
-func (f *FsRepo) ClearLocks() error {
+func (f *FsRepo) ClearLocks(ctx context.Context) error {
 	// Remove repo-level lock first.
 	var errs []error
 
 	rootLock := filepath.Join(f.Root, KegLockFile)
-	if err := os.Remove(rootLock); err != nil && !os.IsNotExist(err) {
+	if err := std.Remove(ctx, rootLock, false); err != nil && !os.IsNotExist(err) {
 		errs = append(errs, fmt.Errorf("remove root lock: %w", err))
 	}
 
 	// List immediate entries in repo root and attempt to remove per-node locks.
-	entries, err := os.ReadDir(f.Root)
+	entries, err := std.ReadDir(ctx, f.Root)
 	if err != nil {
 		return NewBackendError(f.Name(), "ClearLocks", 0, err, false)
 	}
@@ -390,7 +407,7 @@ func (f *FsRepo) ClearLocks() error {
 		// Only consider direct child directories as node dirs. We don't enforce
 		// numeric names here; absence of a lock file is normal and ignored.
 		nodeLock := filepath.Join(f.Root, e.Name(), KegLockFile)
-		if err := os.Remove(nodeLock); err != nil && !os.IsNotExist(err) {
+		if err := std.Remove(ctx, nodeLock, false); err != nil && !os.IsNotExist(err) {
 			errs = append(errs, fmt.Errorf("remove lock %s: %w", nodeLock, err))
 		}
 	}
@@ -417,7 +434,7 @@ func (f *FsRepo) ClearNodeLock(ctx context.Context, id Node) error {
 	nodeDir := filepath.Join(f.Root, id.Path())
 
 	// Ensure the node directory exists.
-	if _, statErr := os.Stat(nodeDir); statErr != nil {
+	if _, statErr := std.Stat(ctx, nodeDir); statErr != nil {
 		if os.IsNotExist(statErr) {
 			return ErrNotExist
 		}
@@ -425,7 +442,7 @@ func (f *FsRepo) ClearNodeLock(ctx context.Context, id Node) error {
 	}
 
 	lockPath := filepath.Join(nodeDir, KegLockFile)
-	if err := os.Remove(lockPath); err != nil && !os.IsNotExist(err) {
+	if err := std.Remove(ctx, lockPath, false); err != nil && !os.IsNotExist(err) {
 		return NewBackendError(f.Name(), "ClearNodeLock", 0, err, false)
 	}
 
@@ -451,11 +468,11 @@ func (f *FsRepo) Next(ctx context.Context) (Node, error) {
 	defer func() { _ = unlock() }()
 
 	// Ensure repo root exists (if not, create it)
-	if _, statErr := os.Stat(f.Root); statErr != nil {
+	if _, statErr := std.Stat(ctx, f.Root); statErr != nil {
 		return Node{}, NewBackendError(f.Name(), "Next", 0, statErr, false)
 	}
 
-	entries, err := os.ReadDir(f.Root)
+	entries, err := std.ReadDir(ctx, f.Root)
 	if err != nil {
 		return Node{}, NewBackendError(f.Name(), "Next", 0, err, false)
 	}
@@ -480,14 +497,16 @@ func (f *FsRepo) Next(ctx context.Context) (Node, error) {
 // ReadContent implements KegRepository.
 func (f *FsRepo) ReadContent(ctx context.Context, id Node) ([]byte, error) {
 	nodeDir := filepath.Join(f.Root, id.Path())
-	if _, statErr := os.Stat(nodeDir); statErr != nil {
+	if _, statErr := std.Stat(ctx, nodeDir); statErr != nil {
 		if os.IsNotExist(statErr) {
 			return nil, ErrNotExist
+		} else if os.IsPermission(statErr) {
+			return nil, ErrPermission
 		}
 		return nil, NewBackendError(f.Name(), "ReadContent", 0, statErr, false)
 	}
 	contentPath := filepath.Join(nodeDir, f.ContentFilename)
-	b, err := os.ReadFile(contentPath)
+	b, err := std.ReadFile(ctx, contentPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			// node exists but no content
@@ -501,25 +520,25 @@ func (f *FsRepo) ReadContent(ctx context.Context, id Node) ([]byte, error) {
 // ReadMeta implements KegRepository.
 func (f *FsRepo) ReadMeta(ctx context.Context, id Node) ([]byte, error) {
 	nodeDir := filepath.Join(f.Root, id.Path())
-	if _, statErr := os.Stat(nodeDir); statErr != nil {
+	if _, statErr := std.Stat(ctx, nodeDir); statErr != nil {
 		if os.IsNotExist(statErr) {
 			return nil, ErrNotExist
 		}
 		return nil, NewBackendError(f.Name(), "ReadMeta", 0, statErr, false)
 	}
 	metaPath := filepath.Join(nodeDir, f.MetaFilename)
-	b, err := os.ReadFile(metaPath)
+	b, err := std.ReadFile(ctx, metaPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return []byte(nil), nil
 		}
 		return nil, NewBackendError(f.Name(), "ReadMeta", 0, err, false)
 	}
-	return append([]byte(nil), b...), nil
+	return b, nil
 }
 
 func (f *FsRepo) ListNodes(ctx context.Context) ([]Node, error) {
-	entries, err := os.ReadDir(f.Root)
+	entries, err := std.ReadDir(ctx, f.Root)
 	if err != nil {
 		return nil, NewBackendError(f.Name(), "ListNodes", 0, err, false)
 	}
@@ -551,14 +570,14 @@ func (f *FsRepo) ListNodes(ctx context.Context) ([]Node, error) {
 // ListItems implements KegRepository.
 func (f *FsRepo) ListItems(ctx context.Context, id Node) ([]string, error) {
 	nodeDir := filepath.Join(f.Root, id.Path())
-	if _, statErr := os.Stat(nodeDir); statErr != nil {
+	if _, statErr := std.Stat(ctx, nodeDir); statErr != nil {
 		if os.IsNotExist(statErr) {
 			return nil, fmt.Errorf("node %s does not exist: %w", nodeDir, ErrNotExist)
 		}
 		return nil, NewBackendError(f.Name(), "ListItems", 0, statErr, false)
 	}
 
-	entries, err := os.ReadDir(filepath.Join(nodeDir, NodeAttachmentsDir))
+	entries, err := std.ReadDir(ctx, filepath.Join(nodeDir, NodeAttachmentsDir))
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return []string{}, nil
@@ -578,7 +597,7 @@ func (f *FsRepo) ListItems(ctx context.Context, id Node) ([]string, error) {
 // ListImages implements KegRepository.
 func (f *FsRepo) ListImages(ctx context.Context, id Node) ([]string, error) {
 	nodeDir := filepath.Join(f.Root, id.Path())
-	if _, statErr := os.Stat(nodeDir); statErr != nil {
+	if _, statErr := std.Stat(ctx, nodeDir); statErr != nil {
 		if os.IsNotExist(statErr) {
 			return nil, ErrNotExist
 		}
@@ -586,7 +605,7 @@ func (f *FsRepo) ListImages(ctx context.Context, id Node) ([]string, error) {
 	}
 
 	imagesDir := filepath.Join(nodeDir, NodeImagesDir)
-	entries, err := os.ReadDir(imagesDir)
+	entries, err := std.ReadDir(ctx, imagesDir)
 	if err != nil {
 		if os.IsNotExist(err) {
 			// no images directory -> empty list
@@ -612,12 +631,8 @@ func (f *FsRepo) ListImages(ctx context.Context, id Node) ([]string, error) {
 // WriteContent implements KegRepository.
 func (f *FsRepo) WriteContent(ctx context.Context, id Node, data []byte) error {
 	nodeDir := filepath.Join(f.Root, id.Path())
-	if err := os.MkdirAll(nodeDir, 0o755); err != nil {
-		return NewBackendError(f.Name(), "WriteContent", 0, err, false)
-	}
-
 	metaPath := filepath.Join(nodeDir, f.ContentFilename)
-	err := std.AtomicWriteFile(metaPath, data, 0o0644)
+	err := std.AtomicWriteFile(ctx, metaPath, data, 0o644)
 	if err != nil {
 		return NewBackendError(f.Name(), "WriteContent", 0, err, false)
 	}
@@ -627,15 +642,8 @@ func (f *FsRepo) WriteContent(ctx context.Context, id Node, data []byte) error {
 // WriteMeta implements KegRepository.
 func (f *FsRepo) WriteMeta(ctx context.Context, id Node, data []byte) error {
 	nodeDir := filepath.Join(f.Root, id.Path())
-	if _, statErr := os.Stat(nodeDir); statErr != nil {
-		if os.IsNotExist(statErr) {
-			return ErrNotExist
-		}
-		return NewBackendError(f.Name(), "WriteMeta", 0, statErr, false)
-	}
-
 	metaPath := filepath.Join(nodeDir, f.MetaFilename)
-	err := std.AtomicWriteFile(metaPath, data, 0o0644)
+	err := std.AtomicWriteFile(ctx, metaPath, data, 0o644)
 	if err != nil {
 		return NewBackendError(f.Name(), "WriteMeta", 0, err, false)
 	}
@@ -645,7 +653,7 @@ func (f *FsRepo) WriteMeta(ctx context.Context, id Node, data []byte) error {
 // UploadImage implements KegRepository.
 func (f *FsRepo) UploadImage(ctx context.Context, id Node, name string, data []byte) error {
 	nodeDir := filepath.Join(f.Root, id.Path())
-	if _, statErr := os.Stat(nodeDir); statErr != nil {
+	if _, statErr := std.Stat(ctx, nodeDir); statErr != nil {
 		if os.IsNotExist(statErr) {
 			return ErrNotExist
 		}
@@ -653,7 +661,7 @@ func (f *FsRepo) UploadImage(ctx context.Context, id Node, name string, data []b
 	}
 
 	imagePath := filepath.Join(nodeDir, NodeImagesDir, name)
-	err := std.AtomicWriteFile(imagePath, data, 0o0644)
+	err := std.AtomicWriteFile(ctx, imagePath, data, 0o0644)
 	if err != nil {
 		return NewBackendError(f.Name(), "UploadImage", 0, err, false)
 	}
@@ -664,7 +672,7 @@ func (f *FsRepo) UploadImage(ctx context.Context, id Node, name string, data []b
 // UploadItem implements KegRepository.
 func (f *FsRepo) UploadItem(ctx context.Context, id Node, name string, data []byte) error {
 	nodeDir := filepath.Join(f.Root, id.Path())
-	if _, statErr := os.Stat(nodeDir); statErr != nil {
+	if _, statErr := std.Stat(ctx, nodeDir); statErr != nil {
 		if os.IsNotExist(statErr) {
 			return ErrNotExist
 		}
@@ -672,7 +680,7 @@ func (f *FsRepo) UploadItem(ctx context.Context, id Node, name string, data []by
 	}
 
 	itemPath := filepath.Join(nodeDir, NodeAttachmentsDir, name)
-	err := std.AtomicWriteFile(itemPath, data, 0o0644)
+	err := std.AtomicWriteFile(ctx, itemPath, data, 0o0644)
 	if err != nil {
 		return NewBackendError(f.Name(), "UploadItem", 0, err, false)
 	}
@@ -683,7 +691,7 @@ func (f *FsRepo) UploadItem(ctx context.Context, id Node, name string, data []by
 // MoveNode implements KegRepository.
 func (f *FsRepo) MoveNode(ctx context.Context, id Node, dst Node) error {
 	src := filepath.Join(f.Root, id.Path())
-	if _, statErr := os.Stat(src); statErr != nil {
+	if _, statErr := std.Stat(ctx, src); statErr != nil {
 		if os.IsNotExist(statErr) {
 			return ErrNotExist
 		}
@@ -691,13 +699,13 @@ func (f *FsRepo) MoveNode(ctx context.Context, id Node, dst Node) error {
 	}
 
 	dstPath := filepath.Join(f.Root, dst.Path())
-	if _, statErr := os.Stat(dstPath); statErr == nil {
+	if _, statErr := std.Stat(ctx, dstPath); statErr == nil {
 		return ErrDestinationExists
 	} else if !os.IsNotExist(statErr) {
 		return NewBackendError(f.Name(), "MoveNode", 0, statErr, false)
 	}
 
-	if err := os.Rename(src, dstPath); err != nil {
+	if err := std.Rename(ctx, src, dstPath); err != nil {
 		return NewBackendError(f.Name(), "MoveNode", 0, err, false)
 	}
 	return nil
@@ -706,7 +714,7 @@ func (f *FsRepo) MoveNode(ctx context.Context, id Node, dst Node) error {
 // GetIndex implements KegRepository.
 func (f *FsRepo) GetIndex(ctx context.Context, name string) ([]byte, error) {
 	idxPath := filepath.Join(f.Root, "dex", name)
-	b, err := os.ReadFile(idxPath)
+	b, err := std.ReadFile(ctx, idxPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, ErrNotExist
@@ -721,21 +729,21 @@ func (f *FsRepo) ClearIndexes(ctx context.Context) error {
 	dexDir := filepath.Join(f.Root, "dex")
 
 	// If dex directory doesn't exist, nothing to clear.
-	if _, statErr := os.Stat(dexDir); statErr != nil {
+	if _, statErr := std.Stat(ctx, dexDir); statErr != nil {
 		if os.IsNotExist(statErr) {
 			return nil
 		}
 		return NewBackendError(f.Name(), "ClearIndexes", 0, statErr, false)
 	}
 
-	entries, readErr := os.ReadDir(dexDir)
+	entries, readErr := std.ReadDir(ctx, dexDir)
 	if readErr != nil {
 		return NewBackendError(f.Name(), "ClearIndexes", 0, readErr, false)
 	}
 
 	for _, e := range entries {
 		path := filepath.Join(dexDir, e.Name())
-		if rmErr := os.RemoveAll(path); rmErr != nil {
+		if rmErr := std.Remove(ctx, path, true); rmErr != nil {
 			return NewBackendError(f.Name(), "ClearIndexes", 0, rmErr, false)
 		}
 	}
@@ -746,7 +754,7 @@ func (f *FsRepo) ClearIndexes(ctx context.Context) error {
 // WriteIndex implements KegRepository.
 func (f *FsRepo) WriteIndex(ctx context.Context, name string, data []byte) error {
 	idxPath := filepath.Join(f.Root, "dex", name)
-	err := std.AtomicWriteFile(idxPath, data, 0o0644)
+	err := std.AtomicWriteFile(ctx, idxPath, data, 0o0644)
 	if err != nil {
 		return NewBackendError(f.Name(), "WriteIndex", 0, err, false)
 	}
@@ -756,7 +764,7 @@ func (f *FsRepo) WriteIndex(ctx context.Context, name string, data []byte) error
 // ListIndexes implements KegRepository.
 func (f *FsRepo) ListIndexes(ctx context.Context) ([]string, error) {
 	dexDir := filepath.Join(f.Root, "dex")
-	entries, err := os.ReadDir(dexDir)
+	entries, err := std.ReadDir(ctx, dexDir)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return []string{}, nil
@@ -776,14 +784,14 @@ func (f *FsRepo) ListIndexes(ctx context.Context) ([]string, error) {
 // DeleteNode implements KegRepository.
 func (f *FsRepo) DeleteNode(ctx context.Context, id Node) error {
 	nodeDir := filepath.Join(f.Root, id.Path())
-	if _, statErr := os.Stat(nodeDir); statErr != nil {
+	if _, statErr := std.Stat(ctx, nodeDir); statErr != nil {
 		if os.IsNotExist(statErr) {
 			return ErrNotExist
 		}
 		return NewBackendError(f.Name(), "DeleteNode", 0, statErr, false)
 	}
 
-	if err := os.RemoveAll(nodeDir); err != nil {
+	if err := std.Remove(ctx, nodeDir, true); err != nil {
 		return NewBackendError(f.Name(), "DeleteNode", 0, err, false)
 	}
 	return nil
@@ -794,7 +802,7 @@ func (f *FsRepo) DeleteImage(ctx context.Context, id Node, name string) error {
 	nodeDir := filepath.Join(f.Root, id.Path())
 
 	// Ensure node exists
-	if _, statErr := os.Stat(nodeDir); statErr != nil {
+	if _, statErr := std.Stat(ctx, nodeDir); statErr != nil {
 		if os.IsNotExist(statErr) {
 			return ErrNotExist
 		}
@@ -804,7 +812,7 @@ func (f *FsRepo) DeleteImage(ctx context.Context, id Node, name string) error {
 	imagesDir := filepath.Join(nodeDir, NodeImagesDir)
 	imagePath := filepath.Join(imagesDir, name)
 
-	if _, statErr := os.Stat(imagePath); statErr != nil {
+	if _, statErr := std.Stat(ctx, imagePath); statErr != nil {
 		if os.IsNotExist(statErr) {
 			return ErrNotExist
 		}
@@ -812,17 +820,17 @@ func (f *FsRepo) DeleteImage(ctx context.Context, id Node, name string) error {
 	}
 
 	// Remove image and possible metadata/thumbs; best-effort for extras.
-	if err := os.RemoveAll(imagePath); err != nil {
+	if err := std.Remove(ctx, imagePath, true); err != nil {
 		return NewBackendError(f.Name(), "DeleteImage", 0, err, false)
 	}
 
 	// remove per-image meta if present
 	metaPath := filepath.Join(imagesDir, ".meta", name+".json")
-	_ = os.Remove(metaPath)
+	_ = std.Remove(ctx, metaPath, false)
 
 	// remove thumbs directory entry best-effort
 	thumbPath := filepath.Join(imagesDir, "thumbs", name)
-	_ = os.RemoveAll(thumbPath)
+	_ = std.Remove(ctx, thumbPath, false)
 
 	return nil
 }
@@ -840,7 +848,7 @@ func (f *FsRepo) DeleteItem(ctx context.Context, id Node, name string) error {
 
 	// Verify the target exists so we can return a meaningful sentinel when
 	// missing.
-	if _, statErr := os.Stat(itemPath); statErr != nil {
+	if _, statErr := std.Stat(ctx, itemPath); statErr != nil {
 		if os.IsNotExist(statErr) {
 			return nil
 		}
@@ -850,7 +858,7 @@ func (f *FsRepo) DeleteItem(ctx context.Context, id Node, name string) error {
 	// Remove the item (file or directory). Use RemoveAll to handle both files
 	// and directories; wrap any error for callers to inspect/decide about
 	// retry.
-	if err := os.RemoveAll(itemPath); err != nil {
+	if err := std.Remove(ctx, itemPath, true); err != nil {
 		return NewBackendError(f.Name(), "DeleteItem", 0, err, false)
 	}
 
@@ -862,8 +870,8 @@ func (f *FsRepo) ReadConfig(ctx context.Context) (*KegConfig, error) {
 	candidates := []string{"keg", "keg.yaml", "keg.yml"}
 	for _, c := range candidates {
 		p := filepath.Join(f.Root, c)
-		if _, err := os.Stat(p); err == nil {
-			b, rerr := os.ReadFile(p)
+		if _, err := std.Stat(ctx, p); err == nil {
+			b, rerr := std.ReadFile(ctx, p)
 			if rerr != nil {
 				return nil, NewBackendError(f.Name(), "ReadConfig", 0, rerr, false)
 			}
@@ -886,7 +894,7 @@ func (f *FsRepo) WriteConfig(ctx context.Context, config *KegConfig) error {
 	}
 	target := filepath.Join(f.Root, "keg")
 
-	err = std.AtomicWriteFile(target, out, 0o0644)
+	err = std.AtomicWriteFile(ctx, target, out, 0o0644)
 	if err != nil {
 		return NewBackendError(f.Name(), "WriteConfig", 0, err, false)
 	}

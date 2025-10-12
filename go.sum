@@ -9,6 +9,8 @@ github.com/jlrickert/go-std v0.0.0-20251005001139-90e9dac01c72 h1:cbgPGAwLRk49Wf
 github.com/jlrickert/go-std v0.0.0-20251005001139-90e9dac01c72/go.mod h1:h4cp83Ew4ZtI87B/EQyfN1IoefILWoga+YwzAc9b1DQ=
 github.com/jlrickert/go-std v0.0.0-20251012203827-b27b917dfcfa h1:f9Qxh5RywyXdtIqKMaRHbnVZdrbAp05AmWKTFarW4qg=
 github.com/jlrickert/go-std v0.0.0-20251012203827-b27b917dfcfa/go.mod h1:hevf+TOA0aI6ZXJ7M/BYn4wS0FMJyppRi2G0S7CgNP0=
+github.com/jlrickert/go-std v0.0.0-20251012225716-472e5584a168 h1:qOYPLYNf9IEcSlZ5S+LSdULvn5tbtADei0up+j1Z6Dk=
+github.com/jlrickert/go-std v0.0.0-20251012225716-472e5584a168/go.mod h1:hevf+TOA0aI6ZXJ7M/BYn4wS0FMJyppRi2G0S7CgNP0=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
 github.com/russross/blackfriday/v2 v2.1.0/go.mod h1:+Rmxgy9KzJVeS9/2gXHxylqXiyQDYRxCVz55jmeOWTM=

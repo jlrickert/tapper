@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jlrickert/go-std/testutils"
 	"github.com/jlrickert/tapper/pkg/keg"
 	"github.com/stretchr/testify/require"
 )
@@ -89,15 +90,15 @@ func TestTimeFields_SetAndRead(t *testing.T) {
 	t.Parallel()
 	initial := time.Now()
 	// Use Fixture to provide clock in context set to initial + 5h.
-	f := NewFixture(t, WithClock(initial.Add(5*time.Hour)))
-	ctx := f.ctx
+	f := NewFixture(t, testutils.WithClock(initial.Add(5*time.Hour)))
+	ctx := f.Context()
 
-	m := keg.NewMeta(ctx, f.clock.Now())
+	m := keg.NewMeta(ctx, f.Now())
 
 	// Initially zero times
 	require.True(t,
-		m.Updated().Equal(f.clock.Now()) &&
-			m.Created().Equal(f.clock.Now()) &&
+		m.Updated().Equal(f.Now()) &&
+			m.Created().Equal(f.Now()) &&
 			m.Accessed().IsZero(),
 		"expected zero times for new meta",
 	)
@@ -166,17 +167,17 @@ func TestSetHash_UpdatesUpdatedTimeWhenChanged(t *testing.T) {
 
 	// Use a deterministically controllable clock via Fixture
 	initial := time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC)
-	f := NewFixture(t, WithClock(initial))
-	ctx := f.ctx
+	f := NewFixture(t, testutils.WithClock(initial))
+	ctx := f.Context()
 
-	m := keg.NewMeta(ctx, f.clock.Now())
+	m := keg.NewMeta(ctx, f.Now())
 	// initial updated should match clock
-	require.True(t, m.Updated().Equal(f.clock.Now()),
+	require.True(t, m.Updated().Equal(f.Now()),
 		"initial updated should equal clock now")
 
 	// Advance clock to simulate later time, then set hash with a supplied time
-	f.clock.Advance(2 * time.Hour)
-	later := f.clock.Now()
+	f.Advance(2 * time.Hour)
+	later := f.Now()
 
 	// ensure hash changes and passing now causes updated timestamp to be set
 	m.SetHash(ctx, "hash-v1", &later)
@@ -185,8 +186,8 @@ func TestSetHash_UpdatesUpdatedTimeWhenChanged(t *testing.T) {
 		"updated timestamp should reflect clock now after SetHash")
 
 	// Advance clock again and set same hash; updated should not change
-	f.clock.Advance(1 * time.Hour)
-	current := f.clock.Now()
+	f.Advance(1 * time.Hour)
+	current := f.Now()
 	// setting the same hash again should not mutate Updated
 	m.SetHash(ctx, "hash-v1", &current) // same hash
 	require.Equal(t, "hash-v1", m.Hash(), "hash should remain unchanged")
@@ -199,16 +200,16 @@ func TestSetHash_IdempotentViaSetDoesNotUpdateTime(t *testing.T) {
 	t.Parallel()
 
 	initial := time.Date(2024, 2, 3, 4, 5, 6, 0, time.UTC)
-	f := NewFixture(t, WithClock(initial))
-	ctx := f.ctx
+	f := NewFixture(t, testutils.WithClock(initial))
+	ctx := f.Context()
 
-	m := keg.NewMeta(ctx, f.clock.Now())
+	m := keg.NewMeta(ctx, f.Now())
 
 	// Use Set (not SetHash) to change hash; Set does not modify timestamps.
 	require.NoError(t, m.Set(ctx, "hash", "initial"))
 	initialUpdated := m.Updated()
 
-	f.clock.Advance(24 * time.Hour)
+	f.Advance(24 * time.Hour)
 	// Change hash via Set again
 	require.NoError(t, m.Set(ctx, "hash", "updated-via-set"))
 	require.Equal(t, "updated-via-set", m.Hash(), "hash should update via Set")

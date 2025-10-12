@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"sync"
 	"time"
 
 	std "github.com/jlrickert/go-std/pkg"
@@ -19,7 +18,6 @@ type Keg struct {
 	Repo KegRepository
 
 	dex *Dex
-	mu  sync.RWMutex
 }
 
 type KegOption func(*Keg)
