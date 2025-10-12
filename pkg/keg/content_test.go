@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	std "github.com/jlrickert/go-std/pkg"
 	"github.com/jlrickert/tapper/pkg/keg"
 	"github.com/stretchr/testify/require"
 )
@@ -11,7 +12,7 @@ import (
 func TestParseContent_MarkdownTitleAndLead(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	ctx = keg.WithHasher(ctx, &keg.MD5Hasher{})
+	ctx = std.WithHasher(ctx, &std.MD5Hasher{})
 
 	md := `# My Title
 
@@ -33,13 +34,13 @@ More content and an outgoing link: ../1 and ../2 and ../1
 	expected := []keg.Node{{ID: 1}, {ID: 2}}
 	require.Equal(t, expected, c.Links)
 	// hash should match the hasher injected into ctx
-	require.Equal(t, keg.HasherFromContext(ctx).Hash([]byte(md)), c.Hash)
+	require.Equal(t, std.HasherFromContext(ctx).Hash([]byte(md)), c.Hash)
 }
 
 func TestParseContent_MarkdownFallbackTitleAndLead(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	ctx = keg.WithHasher(ctx, &keg.MD5Hasher{})
+	ctx = std.WithHasher(ctx, &std.MD5Hasher{})
 
 	md := `Some title line
 
@@ -58,7 +59,7 @@ Another paragraph.
 func TestParseContent_EmptyInputReturnsEmptyFormat(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	ctx = keg.WithHasher(ctx, &keg.MD5Hasher{})
+	ctx = std.WithHasher(ctx, &std.MD5Hasher{})
 
 	empty := "    \n\t\n"
 	c, err := keg.ParseContent(ctx, []byte(empty), "README.md")
