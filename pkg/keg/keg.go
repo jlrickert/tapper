@@ -274,7 +274,7 @@ func (keg *Keg) SetContent(ctx context.Context, id Node, data []byte) error {
 	if err := keg.Repo.WriteContent(ctx, id, data); err != nil {
 		return fmt.Errorf("unable to write content: %w", err)
 	}
-	return keg.Update(ctx, id)
+	return keg.IndexNode(ctx, id)
 }
 
 // GetMeta gets the meta for a node.
@@ -338,9 +338,9 @@ func (keg *Keg) Touch(ctx context.Context, id Node) error {
 	})
 }
 
-// Update updates the meta data for a node by re-parsing content and applying
+// IndexNode updates the meta data for a node by re-parsing content and applying
 // any discovered properties (title, lead, hash, etc). The dex is also updated.
-func (keg *Keg) Update(ctx context.Context, id Node) error {
+func (keg *Keg) IndexNode(ctx context.Context, id Node) error {
 	if err := keg.checkKegExists(ctx); err != nil {
 		return fmt.Errorf("failed to update node: %w", err)
 	}
