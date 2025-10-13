@@ -2,126 +2,138 @@ package cli_test
 
 import (
 	"bytes"
-	"context"
-	"path/filepath"
+	"embed"
+	"fmt"
+	"strconv"
+	"strings"
 	"testing"
-	"time"
 
-	std "github.com/jlrickert/go-std/pkg"
-	"github.com/jlrickert/tapper/pkg/keg" // for memory repo in examples
+	"github.com/spf13/cobra"
+
+	"github.com/jlrickert/go-std/testutils"
+	"github.com/jlrickert/tapper/pkg/app"
+	"github.com/jlrickert/tapper/pkg/cli"
 )
 
-// Fixture bundles common test setup for CLI tests.
-type Fixture struct {
+// testdata is an optional embedded data FS for fixtures. Previously an embed
+// pattern attempted to include empty directories which caused an embed error.
+var testdata embed.FS
+
+func NewFixture(t *testing.T, opts ...testutils.FixtureOption) *testutils.Fixture {
+	return testutils.NewFixture(t,
+		&testutils.FixtureOptions{
+			Data: testdata,
+			Home: "/home/testuser",
+			User: "testuser",
+		}, opts...)
+}
+
+// Harness provides a thin wrapper around the tap CLI root command with test
+// buffers for stdin/stdout/stderr.
+type Harness struct {
 	t *testing.T
 
-	Ctx     context.Context
-	Handler *std.TestHandler // captured log handler
-	Logger  *std.TestHandler // same as Handler; keep for readability
-	Env     *std.TestEnv
-	Clock   *std.TestClock
-
-	OutBuf bytes.Buffer
-	ErrBuf bytes.Buffer
-	InBuf  *bytes.Buffer
-
-	Jail string
-	Repo keg.KegRepository
+	Cmd     *cobra.Command
+	InBuf   *bytes.Buffer
+	OutBuf  *bytes.Buffer
+	ErrBuf  *bytes.Buffer
+	Streams app.Streams
 }
 
-// NewFixture constructs a Fixture and registers t.Cleanup automatically.
-func NewFixture(t *testing.T) *Fixture {
+// NewHarness constructs a Harness using the provided fixture. The Cobra command
+// inherits the fixture context so tests get the fixture logger, env, and clock.
+func NewHarness(t *testing.T, fx *testutils.Fixture) *Harness {
 	t.Helper()
 
-	jail := t.TempDir()
-	lg, handler := std.NewTestLogger(t, std.ParseLevel("debug"))
-	env := std.NewTestEnv(jail, filepath.Join("home", "testuser"), "testuser")
-	clock := std.NewTestClock(time.Now())
+	inBuf := &bytes.Buffer{}
+	outBuf := &bytes.Buffer{}
+	errBuf := &bytes.Buffer{}
 
-	// populate common temp env vars; fail test on error to avoid silent setup problems
-	tmp := filepath.Join(jail, "tmp")
-	if err := env.Set("TMPDIR", tmp); err != nil {
-		t.Fatalf("failed to set TMPDIR: %v", err)
+	streams := app.Streams{
+		In:  inBuf,
+		Out: outBuf,
+		Err: errBuf,
 	}
-	if err := env.Set("TMP", tmp); err != nil {
-		t.Fatalf("failed to set TMP: %v", err)
-	}
-	if err := env.Set("TEMP", tmp); err != nil {
-		t.Fatalf("failed to set TEMP: %v", err)
-	}
-	if err := env.Set("TEMPDIR", tmp); err != nil {
-		t.Fatalf("failed to set TEMPDIR: %v", err)
-	}
-	env.Setwd(jail)
 
-	ctx := t.Context()
-	ctx = std.WithLogger(ctx, lg)
-	ctx = std.WithEnv(ctx, env)
-	ctx = std.WithClock(ctx, clock)
+	cmd := cli.NewRootCmd()
+	cmd.SetContext(fx.Context())
+	cmd.SetIn(streams.In)
+	cmd.SetOut(streams.Out)
+	cmd.SetErr(streams.Err)
 
-	f := &Fixture{
+	return &Harness{
 		t:       t,
-		Ctx:     ctx,
-		Handler: handler,
-		Logger:  handler,
-		Env:     env,
-		Clock:   clock,
-		Jail:    jail,
-		InBuf:   &bytes.Buffer{},
-		Repo:    keg.NewMemoryRepo(),
+		Cmd:     cmd,
+		InBuf:   inBuf,
+		OutBuf:  outBuf,
+		ErrBuf:  errBuf,
+		Streams: streams,
+	}
+}
+
+// Run executes the CLI with the provided arguments. It returns any execution
+// error so tests can assert on exit paths.
+func (h *Harness) Run(args ...string) error {
+	h.t.Helper()
+	h.Cmd.SetArgs(args)
+	return h.Cmd.ExecuteContext(h.Cmd.Context())
+}
+
+// ResetIO clears the captured stdin/stdout/stderr buffers.
+func (h *Harness) ResetIO() {
+	h.t.Helper()
+	h.InBuf.Reset()
+	h.OutBuf.Reset()
+	h.ErrBuf.Reset()
+}
+
+// WriteInput replaces the stdin buffer contents with the provided string.
+func (h *Harness) WriteInput(s string) {
+	h.t.Helper()
+	h.InBuf.Reset()
+	_, _ = h.InBuf.WriteString(s)
+}
+
+// Completion renders a shell completion script for the configured command and
+// returns it as a string. Zsh is used for now. The pos and args parameters are
+// accepted for future expansion but are currently unused.
+func (h *Harness) Completion(pos int, words ...string) ([]string, cobra.ShellCompDirective, error) {
+	h.t.Helper()
+	h.ResetIO()
+
+	// Cobra expects argv with command name first.
+	line := append([]string{h.Cmd.Name()}, words...)
+
+	// Insert an empty word at the cursor position to mimic the shell.
+	if pos < 0 || pos > len(line) {
+		return nil, cobra.ShellCompDirectiveError, fmt.Errorf("cursor %d out of range", pos)
+	}
+	line = append(line[:pos], append([]string{""}, line[pos:]...)...)
+
+	args := append([]string{"__complete"}, line...)
+	if err := h.Run(args...); err != nil {
+		return nil, cobra.ShellCompDirectiveError, err
 	}
 
-	// default Out/Err point to buffers
-	f.OutBuf = bytes.Buffer{}
-	f.ErrBuf = bytes.Buffer{}
+	out := strings.TrimSuffix(h.OutBuf.String(), "\n")
+	lines := strings.Split(out, "\n")
+	if len(lines) == 0 {
+		return nil, cobra.ShellCompDirectiveError, fmt.Errorf("no completion output")
+	}
 
-	t.Cleanup(func() {
-		f.cleanup()
-	})
+	dirLine := lines[len(lines)-1]
+	if !strings.HasPrefix(dirLine, ":") {
+		return nil, cobra.ShellCompDirectiveError, fmt.Errorf("missing directive line: %q", dirLine)
+	}
+	dirVal, err := strconv.Atoi(dirLine[1:])
+	if err != nil {
+		return nil, cobra.ShellCompDirectiveError, fmt.Errorf("bad directive %q: %w", dirLine, err)
+	}
 
-	return f
-}
-
-// Context returns the fixture context.
-//
-// Use this to call cmd.SetContext(f.Context()) before executing Cobra commands.
-func (f *Fixture) Context() context.Context {
-	f.t.Helper()
-	return f.Ctx
-}
-
-// SetCmdIO wires cmd's stdin/stdout/stderr to the fixture buffers.
-func (f *Fixture) SetCmdIO(cmd interface {
-	SetIn(any)
-	SetOut(any)
-	SetErr(any)
-}) {
-	f.t.Helper()
-	cmd.SetIn(f.InBuf)
-	cmd.SetOut(&f.OutBuf)
-	cmd.SetErr(&f.ErrBuf)
-}
-
-// Out returns the captured stdout as a string.
-func (f *Fixture) Out() string {
-	f.t.Helper()
-	return f.OutBuf.String()
-}
-
-// Err returns the captured stderr as a string.
-func (f *Fixture) Err() string {
-	f.t.Helper()
-	return f.ErrBuf.String()
-}
-
-// WriteIn writes s to the fixture stdin buffer (overwrites previous contents).
-func (f *Fixture) WriteIn(s string) {
-	f.t.Helper()
-	f.InBuf.Reset()
-	_, _ = f.InBuf.WriteString(s)
-}
-
-// cleanup reserved for future teardown (stop mocks, remove long-lived artifacts, etc.)
-func (f *Fixture) cleanup() {
-	// no-op for now
+	var comps []string
+	for _, l := range lines[:len(lines)-1] {
+		// Candidates may include a tab-separated description; keep only the value.
+		comps = append(comps, strings.SplitN(l, "\t", 2)[0])
+	}
+	return comps, cobra.ShellCompDirective(dirVal), nil
 }
