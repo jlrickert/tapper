@@ -2,20 +2,21 @@ package keg
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
 
 func TestReadFromDex_Table(t *testing.T) {
 	cases := []struct {
-		name          string
-		nodesTSV      string
-		tagsData      string
-		linksData     string
-		backlinksData string
-
-		wantNodesCount int
-		wantNodes      map[int]string
+		name             string
+		nodesTSV         string
+		tagsData         string
+		linksData        string
+		backlinksData    string
+		wantNodesCount   int
+		wantNodes        map[int]string
+		wantNodesUpdated map[int]string
 
 		wantTags      map[string][]int
 		wantLinks     map[int][]int
@@ -24,9 +25,9 @@ func TestReadFromDex_Table(t *testing.T) {
 		{
 			name: "basic",
 			nodesTSV: "" +
-				"0\t2025-08-04 22:03:53Z\tSorry, planned but not yet available\n" +
-				"1\t2025-08-04 23:06:30Z\tConfiguration (config)\n" +
-				"3\t2025-08-09 17:44:04Z\tZeke AI utility (zeke)\n" +
+				"0\t2025-08-04T22:03:53Z\tSorry, planned but not yet available\n" +
+				"1\t2025-08-04T23:06:30Z\tConfiguration (config)\n" +
+				"3\t2025-08-09T17:44:04Z\tZeke AI utility (zeke)\n" +
 				"badline-without-tabs\n" + // malformed - should be skipped
 				"999\tnot-a-time\tTitle with bad time\n", // id parses, time parse will produce zero time
 			tagsData: "" +
@@ -51,6 +52,15 @@ func TestReadFromDex_Table(t *testing.T) {
 				999: "Title with bad time",
 			},
 
+			// Expected updated timestamps as they appear in the index. When the
+			// value is not parseable we expect a zero time.
+			wantNodesUpdated: map[int]string{
+				0:   "2025-08-04T22:03:53Z",
+				1:   "2025-08-04T23:06:30Z",
+				3:   "2025-08-09T17:44:04Z",
+				999: "not-a-time",
+			},
+
 			// Note: indices that contain empty member lists may be omitted by parsers.
 			// Tests should not assume empty-member entries are always present.
 			wantTags: map[string][]int{
@@ -64,17 +74,35 @@ func TestReadFromDex_Table(t *testing.T) {
 			},
 		},
 		{
-			name:           "empty_indexes",
-			nodesTSV:       "",
-			tagsData:       "",
-			linksData:      "",
-			backlinksData:  "",
-			wantNodesCount: 0,
-			wantNodes:      map[int]string{},
-			wantTags:       map[string][]int{},
-			wantLinks:      map[int][]int{},
-			wantBacklinks:  map[int][]int{},
+			name:             "empty_indexes",
+			nodesTSV:         "",
+			tagsData:         "",
+			linksData:        "",
+			backlinksData:    "",
+			wantNodesCount:   0,
+			wantNodes:        map[int]string{},
+			wantNodesUpdated: map[int]string{},
+			wantTags:         map[string][]int{},
+			wantLinks:        map[int][]int{},
+			wantBacklinks:    map[int][]int{},
 		},
+	}
+
+	parseTS := func(s string) (time.Time, bool) {
+		if s == "" {
+			return time.Time{}, true
+		}
+		layouts := []string{
+			time.RFC3339,
+			"2006-01-02T15:04:05Z07:00",
+			"2006-01-02T15:04:05Z",
+		}
+		for _, l := range layouts {
+			if t, err := time.Parse(l, s); err == nil {
+				return t, true
+			}
+		}
+		return time.Time{}, false
 	}
 
 	for _, tc := range cases {
@@ -110,11 +138,23 @@ func TestReadFromDex_Table(t *testing.T) {
 				return dex.GetRef(t.Context(), id)
 			}
 
-			// verify expected nodes and titles
+			// verify expected nodes, titles and timestamps
 			for id, wantTitle := range tc.wantNodes {
 				n := find(Node{ID: id})
 				require.NotNil(t, n, "node %d missing", int(id))
 				require.Equal(t, wantTitle, n.Title, "node %d title mismatch", int(id))
+
+				if expectStr, ok := tc.wantNodesUpdated[id]; ok {
+					expT, okp := parseTS(expectStr)
+					if okp && !expT.IsZero() {
+						require.True(t, n.Updated.Equal(expT),
+							"node %d updated mismatch: want %v got %v", int(id), expT, n.Updated)
+					} else {
+						// Unparsable expected value implies we expect zero time.
+						require.True(t, n.Updated.IsZero(),
+							"node %d expected zero updated time, got %v", int(id), n.Updated)
+					}
+				}
 			}
 
 			// Validate tags by parsing the raw tags index directly from the repo
