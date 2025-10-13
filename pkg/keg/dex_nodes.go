@@ -236,11 +236,11 @@ func (idx *NodeIndex) Data(ctx context.Context) ([]byte, error) {
 	for _, e := range idx.data {
 		b.WriteString(e.ID)
 		b.WriteByte('\t')
-		b.WriteString(e.Title)
 		if !e.Updated.IsZero() {
-			b.WriteByte('\t')
 			b.WriteString(e.Updated.Format(time.RFC3339))
 		}
+		b.WriteByte('\t')
+		b.WriteString(e.Title)
 		b.WriteByte('\n')
 	}
 	return []byte(b.String()), nil
