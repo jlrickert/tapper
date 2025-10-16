@@ -11,8 +11,17 @@ import (
 	"github.com/jlrickert/tapper/pkg/app"
 )
 
+type interactiveKey int
+
+var ctxInteractiveKey interactiveKey
+
+func WithInteractive(ctx context.Context, interactive bool) context.Context {
+	return context.WithValue(ctx, ctxInteractiveKey, interactive)
+}
+
 func Run(ctx context.Context, streams app.Streams, args []string) error {
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+	ctx = WithInteractive(ctx, streams.Interactive)
 	defer stop()
 	cmd := NewRootCmd()
 	cmd.SetArgs(args)

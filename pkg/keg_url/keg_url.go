@@ -78,15 +78,15 @@ type TargetOption = func(t *Target)
 type HTTPOption = func(t *Target)
 
 const (
-	SchemeMemory = "memory"
-	SchemeFile   = "file"
-	SchemeGit    = "git"
-	SchemeSSH    = "ssh"
-	SchemeHTTP   = "http"
-	SchemeHTTPs  = "https"
-	SchemaAlias  = "keg"
-	SchemeApi    = "kegapi"
-	SchemeS3     = "s3"
+	SchemeMemory   = "memory"
+	SchemeFile     = "file"
+	SchemeGit      = "git"
+	SchemeSSH      = "ssh"
+	SchemeHTTP     = "http"
+	SchemeHTTPs    = "https"
+	SchemaAlias    = "keg"
+	SchemeRegistry = "registry"
+	SchemeS3       = "s3"
 )
 
 // NewApi constructs a Target representing a keg API endpoint.
@@ -169,7 +169,7 @@ func Parse(raw string) (*Target, error) {
 			File: filepath.Clean(strings.TrimPrefix(value, "file://")),
 		}
 		return &t, nil
-	case SchemeApi:
+	case SchemeRegistry:
 		// Accept compact registry shorthand: "registry:user/keg" or
 		// "registry:/@user/keg".
 		if m := scalarApiRE.FindStringSubmatch(value); m != nil {
@@ -323,7 +323,7 @@ func (kt *Target) String() string {
 	switch kt.Scheme() {
 	case SchemeFile:
 		return kt.File
-	case SchemeApi:
+	case SchemeRegistry:
 		return kt.Repo + ":" + kt.User + "/" + kt.Keg
 	case SchemeHTTP, SchemeHTTPs:
 		return kt.Url
@@ -341,7 +341,7 @@ func (kt *Target) Scheme() string {
 		return SchemeFile
 	}
 	if kt.Repo != "" {
-		return SchemeApi
+		return SchemeRegistry
 	}
 	return detectScheme(kt.Url)
 }
@@ -375,7 +375,7 @@ func (kt *Target) Path() string {
 	switch kt.Scheme() {
 	case SchemeFile:
 		return filepath.Clean(kt.File)
-	case SchemeApi:
+	case SchemeRegistry:
 		// Preserve a leading @ on user when composing a path for display.
 		return filepath.Join("@"+kt.User, kt.Keg)
 	default:
@@ -396,7 +396,7 @@ func detectScheme(raw string) string {
 		rest = strings.TrimPrefix(rest, "/")
 		parts := strings.SplitN(rest, "/", 2)
 		if len(parts) == 2 && parts[0] != "" && parts[1] != "" {
-			return SchemeApi
+			return SchemeRegistry
 		}
 	}
 

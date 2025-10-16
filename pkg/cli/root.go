@@ -86,7 +86,10 @@ func NewRootCmd() *cobra.Command {
 		"output logs as JSON")
 
 	// add do subcommand; pass nil runner so it will resolve runner from ctx
-	cmd.AddCommand(NewInitCmd())
+	cmd.AddCommand(
+		NewInitCmd(),
+		NewCreateCmd(),
+	)
 
 	return cmd
 }

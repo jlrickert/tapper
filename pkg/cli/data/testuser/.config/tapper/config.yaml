@@ -1,0 +1,3 @@
+defaultKeg: example
+kegs:
+  example: ~/kegs/example
