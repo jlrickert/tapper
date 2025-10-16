@@ -17,6 +17,8 @@ import (
 
 // testdata is an optional embedded data FS for fixtures. Previously an embed
 // pattern attempted to include empty directories which caused an embed error.
+//
+//go:embed data/** data/**/.*
 var testdata embed.FS
 
 func NewFixture(t *testing.T, opts ...testutils.FixtureOption) *testutils.Fixture {
@@ -42,7 +44,7 @@ type Harness struct {
 
 // NewHarness constructs a Harness using the provided fixture. The Cobra command
 // inherits the fixture context so tests get the fixture logger, env, and clock.
-func NewHarness(t *testing.T, fx *testutils.Fixture) *Harness {
+func NewHarness(t *testing.T, fx *testutils.Fixture, interactive bool) *Harness {
 	t.Helper()
 
 	inBuf := &bytes.Buffer{}
