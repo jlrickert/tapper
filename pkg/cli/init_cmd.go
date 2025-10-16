@@ -36,7 +36,9 @@ func NewInitCmd() *cobra.Command {
 		PersistentPreRun: func(cmd *cobra.Command, args []string) {},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var name string
-			if len(args) > 0 {
+			if len(args) == 0 {
+				name = "."
+			} else if len(args) > 0 {
 				name = args[0]
 			}
 			t := "registry"
@@ -65,7 +67,9 @@ func NewInitCmd() *cobra.Command {
 			}
 			alias := flagAlias
 			if alias == "" && name == "." {
-				filepath.Base(filepath.Dir(r.Root))
+				alias = filepath.Base(filepath.Dir(r.Root))
+			} else if alias == "" && t == "local" && name != "." {
+				alias = name
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "keg %s created", flagAlias)
 			return nil

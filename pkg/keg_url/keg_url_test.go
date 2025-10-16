@@ -132,7 +132,7 @@ token: secret123
 		{
 			name:       "api: structured repo+user+keg mapping",
 			rawYAML:    []byte("repo: jlr\nuser: jlrickert\nkeg: tapper\n"),
-			wantSchema: kegurl.SchemeApi,
+			wantSchema: kegurl.SchemeRegistry,
 			wantRepo:   "jlr",
 			wantUser:   "jlrickert",
 			wantKeg:    "tapper",
@@ -140,7 +140,7 @@ token: secret123
 		{
 			name:       "api: scalar shorthand as yaml string",
 			rawYAML:    []byte("jlr:jlrickert/tapper"),
-			wantSchema: kegurl.SchemeApi,
+			wantSchema: kegurl.SchemeRegistry,
 			wantRepo:   "jlr",
 			wantUser:   "jlrickert",
 			wantKeg:    "tapper",
