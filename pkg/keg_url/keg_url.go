@@ -9,7 +9,7 @@ import (
 	"regexp"
 	"strings"
 
-	std "github.com/jlrickert/go-std/pkg"
+	"github.com/jlrickert/go-std/toolkit"
 	"gopkg.in/yaml.v3"
 )
 
@@ -251,8 +251,8 @@ func Parse(raw string) (*Target, error) {
 func (k *Target) Expand(ctx context.Context) error {
 	var errs []error
 	expand := func(ctx context.Context, value string) string {
-		va := std.ExpandEnv(ctx, value)
-		vb, err := std.ExpandPath(ctx, va)
+		va := toolkit.ExpandEnv(ctx, value)
+		vb, err := toolkit.ExpandPath(ctx, va)
 		if err != nil {
 			errs = append(errs, err)
 			return va
@@ -260,12 +260,12 @@ func (k *Target) Expand(ctx context.Context) error {
 		return vb
 	}
 	k.File = expand(ctx, k.File)
-	k.Url = std.ExpandEnv(ctx, k.Url)
+	k.Url = toolkit.ExpandEnv(ctx, k.Url)
 	k.File = expand(ctx, k.File)
-	k.Repo = std.ExpandEnv(ctx, k.Repo)
-	k.Password = std.ExpandEnv(ctx, k.Password)
-	k.Token = std.ExpandEnv(ctx, k.Token)
-	k.TokenEnv = std.ExpandEnv(ctx, k.TokenEnv)
+	k.Repo = toolkit.ExpandEnv(ctx, k.Repo)
+	k.Password = toolkit.ExpandEnv(ctx, k.Password)
+	k.Token = toolkit.ExpandEnv(ctx, k.Token)
+	k.TokenEnv = toolkit.ExpandEnv(ctx, k.TokenEnv)
 	return errors.Join(errs...)
 }
 

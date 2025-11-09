@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	std "github.com/jlrickert/go-std/pkg"
+	"github.com/jlrickert/go-std/toolkit"
 	kegurl "github.com/jlrickert/tapper/pkg/keg_url"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
@@ -18,8 +18,8 @@ import (
 func TestParse_File_TableDriven(t *testing.T) {
 	jail := t.TempDir()
 	// Prepare a test Env for tilde expansion checks.
-	env := std.NewTestEnv(jail, filepath.FromSlash("/home/testuser"), "testuser")
-	ctx := std.WithEnv(t.Context(), env)
+	env := toolkit.NewTestEnv(jail, filepath.FromSlash("/home/testuser"), "testuser")
+	ctx := toolkit.WithEnv(t.Context(), env)
 
 	// Use OS-specific temp dir so tests work across platforms.
 	tmpDir := os.TempDir()
@@ -70,7 +70,7 @@ func TestParse_File_TableDriven(t *testing.T) {
 			if tc.expand {
 				err = kt.Expand(ctx)
 				require.NoError(t, err)
-				f, _ := std.ExpandPath(ctx, tc.wantFile)
+				f, _ := toolkit.ExpandPath(ctx, tc.wantFile)
 				tc.wantFile = f
 			}
 			if tc.wantSchema != "" {
