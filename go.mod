@@ -14,7 +14,7 @@ require (
 )
 
 require (
-	github.com/jlrickert/go-std v0.0.0-20251012225716-472e5584a168
+	github.com/jlrickert/go-std v0.1.0
 	github.com/spf13/cobra v1.10.1
 	github.com/stretchr/testify v1.11.1
 	github.com/yuin/goldmark v1.7.13
