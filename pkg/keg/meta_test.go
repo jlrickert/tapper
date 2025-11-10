@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jlrickert/go-std/sandbox"
+	"github.com/jlrickert/cli-toolkit/sandbox"
 	"github.com/jlrickert/tapper/pkg/keg"
 	"github.com/stretchr/testify/require"
 )

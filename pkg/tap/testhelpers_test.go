@@ -2,19 +2,20 @@ package tap_test
 
 import (
 	"embed"
+	"path/filepath"
 	"testing"
 
-	"github.com/jlrickert/go-std/testutils"
+	"github.com/jlrickert/cli-toolkit/sandbox"
 )
 
-//go:embed data/** data/**/.*
+//go:embed all:data/**
 var testdata embed.FS
 
-func NewFixture(t *testing.T, opts ...testutils.FixtureOption) *testutils.Fixture {
-	return testutils.NewFixture(t,
-		&testutils.FixtureOptions{
+func NewSandbox(t *testing.T, opts ...sandbox.SandboxOption) *sandbox.Sandbox {
+	return sandbox.NewSandbox(t,
+		&sandbox.SandboxOptions{
 			Data: testdata,
-			Home: "/home/testuser",
+			Home: filepath.FromSlash("/home/testuser"),
 			User: "testuser",
 		}, opts...)
 }
