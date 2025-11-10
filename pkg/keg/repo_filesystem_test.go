@@ -3,15 +3,15 @@ package keg_test
 import (
 	"testing"
 
-	std "github.com/jlrickert/go-std/pkg"
-	"github.com/jlrickert/go-std/testutils"
+	sandbox "github.com/jlrickert/go-std/sandbox"
+	tookit "github.com/jlrickert/go-std/toolkit"
 	"github.com/jlrickert/tapper/pkg/keg"
 	"github.com/stretchr/testify/require"
 )
 
 func TestFsRepo_WriteReadMetaAndContent(t *testing.T) {
 	t.Parallel()
-	fx := NewFixture(t, testutils.WithFixture("empty", "~/empty"))
+	fx := NewSandbox(t, sandbox.WithFixture("empty", "~/empty"))
 	ctx := fx.Context()
 
 	r := &keg.FsRepo{
@@ -41,10 +41,11 @@ func TestFsRepo_WriteReadMetaAndContent(t *testing.T) {
 
 func TestFsRepo_NextAndListNodes(t *testing.T) {
 	t.Parallel()
-	fx := NewFixture(t,
-		testutils.WithFixture("home", "/home"),
-		testutils.WithWd("~/repofs_fs"),
+	fx := NewSandbox(t,
+		sandbox.WithFixture("home", "/home"),
+		sandbox.WithWd("~/repofs_fs"),
 	)
+	fx.DumpJailTree(0)
 	ctx := fx.Context()
 
 	r := &keg.FsRepo{
@@ -77,12 +78,12 @@ func TestFsRepo_NextAndListNodes(t *testing.T) {
 
 func TestFsRepo_MoveDeleteNodeAndDestinationExists(t *testing.T) {
 	t.Parallel()
-	fx := NewFixture(t)
+	fx := NewSandbox(t)
 	ctx := fx.Context()
 
 	tmp := t.TempDir()
 	// Use std.Mkdir to avoid direct os package functions.
-	require.NoError(t, std.Mkdir(ctx, tmp, 0o755, true))
+	require.NoError(t, tookit.Mkdir(ctx, tmp, 0o755, true))
 
 	r := &keg.FsRepo{
 		Root:            tmp,
@@ -129,11 +130,11 @@ func TestFsRepo_MoveDeleteNodeAndDestinationExists(t *testing.T) {
 
 func TestFsRepo_UploadAndListImagesAndItems(t *testing.T) {
 	t.Parallel()
-	fx := NewFixture(t)
+	fx := NewSandbox(t)
 	ctx := fx.Context()
 
 	tmp := t.TempDir()
-	require.NoError(t, std.Mkdir(ctx, tmp, 0o755, true))
+	require.NoError(t, tookit.Mkdir(ctx, tmp, 0o755, true))
 
 	r := &keg.FsRepo{
 		Root:            tmp,
@@ -164,7 +165,7 @@ func TestFsRepo_UploadAndListImagesAndItems(t *testing.T) {
 
 func TestFsRepo_WriteGetAndListIndexes(t *testing.T) {
 	t.Parallel()
-	fx := NewFixture(t, testutils.WithFixture("example", "~/example"))
+	fx := NewSandbox(t, sandbox.WithFixture("example", "~/example"))
 	ctx := fx.Context()
 
 	r := &keg.FsRepo{
