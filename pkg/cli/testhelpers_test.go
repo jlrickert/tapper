@@ -17,7 +17,7 @@ import (
 // testdata is an optional embedded data FS for fixtures. Previously an embed
 // pattern attempted to include empty directories which caused an embed error.
 //
-//go:embed data/** data/**/.*
+//go:embed all:data/**
 var testdata embed.FS
 
 func NewSandbox(t *testing.T, opts ...tu.SandboxOption) *tu.Sandbox {

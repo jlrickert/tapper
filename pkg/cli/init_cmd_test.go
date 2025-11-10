@@ -1,7 +1,6 @@
 package cli_test
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -9,44 +8,37 @@ import (
 
 func TestInitLocalKeg(t *testing.T) {
 	fx := NewSandbox(t)
-	h := NewHarness(t, fx)
+	h := NewProcess(t, false, "init", "--type", "local", "--title", "myalias", "--creator", "me")
 
 	// Note: the CLI binds the alias into the `--title` flag (see
 	// init_cmd.go). To produce the printed alias use --title.
-	err := h.Run(
-		"init",
-		"mykeg",
-		"--type", "local",
-		"--title", "myalias",
-		"--creator", "me",
-	)
-	require.NoError(t, err, "init command should succeed")
+	res := h.Run(fx.Context())
+	require.NoError(t, res.Err, "init command should succeed")
 
-	out := h.OutBuf.String()
-	require.True(t,
-		strings.Contains(out, "keg myalias created"),
-		"unexpected output: %q", out,
+	require.Contains(t, string(res.Stdout), "keg myalias created",
+		"unexpected output: %q", string(res.Stdout),
 	)
 
 	// stderr should be empty for a successful run.
-	require.Equal(t, "", h.ErrBuf.String())
+	require.Equal(t, "", string(res.Stderr))
 
 	// Verify the created keg contains the example contents.
-	// Expect a nodes index with the zero node and a zero node README/meta.
-	nodes := fx.MustReadJailFile("dex/nodes.tsv")
+	// Expect a nodes index with the zero node and a zero node
+	// README/meta.
+	nodes := fx.MustReadFile("dex/nodes.tsv")
 	require.Contains(t,
 		string(nodes),
 		"0\t",
 		"nodes index should contain zero node",
 	)
 
-	readme := fx.MustReadJailFile("0/README.md")
+	readme := fx.MustReadFile("0/README.md")
 	require.Contains(t, string(readme),
 		"Sorry, planned but not yet available",
 		"zero node README should contain placeholder text",
 	)
 
-	meta := fx.MustReadJailFile("0/meta.yaml")
+	meta := fx.MustReadFile("0/meta.yaml")
 	require.Contains(t,
 		string(meta),
 		"title: Sorry, planned but not yet available",
