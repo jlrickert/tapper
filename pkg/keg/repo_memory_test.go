@@ -10,7 +10,7 @@ import (
 
 func TestMemoryRepo_WriteReadMetaAndContent(t *testing.T) {
 	t.Parallel()
-	fx := NewFixture(t)
+	fx := NewSandbox(t)
 
 	r := keg.NewMemoryRepo()
 	ctx := fx.Context()
@@ -37,7 +37,7 @@ func TestMemoryRepo_WriteReadMetaAndContent(t *testing.T) {
 
 func TestMemoryRepo_ReadMissingReturnsNotFound(t *testing.T) {
 	t.Parallel()
-	fx := NewFixture(t)
+	fx := NewSandbox(t)
 
 	r := keg.NewMemoryRepo()
 	ctx := fx.Context()
@@ -51,7 +51,7 @@ func TestMemoryRepo_ReadMissingReturnsNotFound(t *testing.T) {
 
 func TestMemoryRepo_WriteAndListIndexes_GetIndex(t *testing.T) {
 	t.Parallel()
-	fx := NewFixture(t)
+	fx := NewSandbox(t)
 
 	r := keg.NewMemoryRepo()
 	ctx := fx.Context()
@@ -71,7 +71,7 @@ func TestMemoryRepo_WriteAndListIndexes_GetIndex(t *testing.T) {
 
 func TestMemoryRepo_MoveNodeAndDestinationExists(t *testing.T) {
 	t.Parallel()
-	fx := NewFixture(t)
+	fx := NewSandbox(t)
 
 	r := keg.NewMemoryRepo()
 	ctx := fx.Context()
@@ -108,7 +108,7 @@ func TestMemoryRepo_MoveNodeAndDestinationExists(t *testing.T) {
 
 func TestMemoryRepo_NextProducesIncreasingIDs(t *testing.T) {
 	t.Parallel()
-	fx := NewFixture(t)
+	fx := NewSandbox(t)
 
 	r := keg.NewMemoryRepo()
 	ctx := fx.Context()

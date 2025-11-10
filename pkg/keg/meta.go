@@ -519,8 +519,8 @@ func (m *Meta) Get(key string) (string, bool) {
 //   - "links": accepts []Node, []string or string (space/comma separated) and
 //     normalizes into a []Node slice
 //
-// Other keys are ignored. Comment-preserving edits are out of scope for this
-// helper.
+// For other keys, the function will write the key/value into the preserved
+// yaml.Node when available so comment-preserving writes include them.
 func (m *Meta) Set(ctx context.Context, key string, val any) error {
 	if m == nil {
 		return nil
@@ -538,23 +538,21 @@ func (m *Meta) Set(ctx context.Context, key string, val any) error {
 		return nil
 
 	case "tags":
-		var toks []string
 		if val == nil {
-			toks = []string{}
-		} else {
-			switch v := val.(type) {
-			case []string:
-				toks = v
-			case string:
-				parsed := ParseTags(v)
-				toks = parsed
-			default:
-				parsed := ParseTags(fmt.Sprint(v))
-				toks = parsed
-			}
+			m.SetTags(ctx, []string{})
+			return nil
 		}
-		toks = NormalizeTags(toks)
-		m.tags = toks
+		switch v := val.(type) {
+		case []string:
+			m.SetTags(ctx, v)
+			return nil
+		case string:
+			parsed := ParseTags(v)
+			m.SetTags(ctx, parsed)
+		default:
+			parsed := ParseTags(fmt.Sprint(v))
+			m.SetTags(ctx, parsed)
+		}
 		return nil
 
 	case "updated":
@@ -684,35 +682,34 @@ func (m *Meta) Set(ctx context.Context, key string, val any) error {
 		return nil
 
 	default:
-		// Other keys: no-op in this refactor iteration.
+		if m.node == nil {
+			hackyM, _ := ParseMeta(ctx, []byte(m.ToYAML()))
+			m.node = hackyM.node
+		}
+		// For unknown keys, write the key/value into the preserved yaml node
+		// when possible so comment-preserving writes will include them.
+		if m.node != nil && len(m.node.Content) > 0 {
+			root := m.node.Content[0]
+			if root != nil && root.Kind == yaml.MappingNode {
+				node := valueToYAMLNode(val)
+				setNodeInMapping(root, key, node)
+			}
+		}
 		return nil
 	}
 }
 
-// SetAttrs applies a map of attributes to the Meta. For known keys we defer to
-// Meta.Set so normalization rules are applied. Unknown keys are added to the
-// preserved yaml.Node when available so comment-preserving writes include them.
+// SetAttrs applies a map of attributes to the Meta. It now delegates all keys
+// to Meta.Set so normalization, validation, and YAML preservation are handled
+// in one place.
 func (m *Meta) SetAttrs(ctx context.Context, attrs map[string]any) error {
 	if m == nil || attrs == nil {
 		return nil
 	}
 
 	for k, v := range attrs {
-		switch k {
-		// prefer existing Set logic for well-known keys so validation occurs
-		case "hash", "tags", "updated", "created", "accessed", "lead", "links":
-			if err := m.Set(ctx, k, v); err != nil {
-				return err
-			}
-		default:
-			// write unknown keys into the preserved yaml node when possible
-			if m.node != nil && len(m.node.Content) > 0 {
-				root := m.node.Content[0]
-				if root != nil && root.Kind == yaml.MappingNode {
-					node := valueToYAMLNode(v)
-					setNodeInMapping(root, k, node)
-				}
-			}
+		if err := m.Set(ctx, k, v); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -721,6 +718,7 @@ func (m *Meta) SetAttrs(ctx context.Context, attrs map[string]any) error {
 // Update refreshes meta fields based on parsed content. This updates title,
 // hash, lead and links derived from the provided Content.
 func (m *Meta) Update(ctx context.Context, content *Content, now *time.Time) {
+	m.SetAttrs(ctx, content.Frontmatter)
 	m.SetTitle(ctx, content.Title)
 	// update hash and bump updated timestamp on change
 	m.SetHash(ctx, content.Hash, now)
@@ -815,13 +813,13 @@ func valueToYAMLNode(v any) *yaml.Node {
 	default:
 		// attempt to handle []interface{} and map[string]interface{}
 		switch s := t.(type) {
-		case []interface{}:
+		case []any:
 			seq := &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq"}
 			for _, e := range s {
 				seq.Content = append(seq.Content, valueToYAMLNode(e))
 			}
 			return seq
-		case map[string]interface{}:
+		case map[string]any:
 			mnode := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
 			for k, v2 := range s {
 				mnode.Content = append(mnode.Content,
