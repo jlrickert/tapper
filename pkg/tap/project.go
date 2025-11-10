@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"sort"
 
-	proj "github.com/jlrickert/go-std/project"
+	proj "github.com/jlrickert/cli-toolkit/project"
 
 	"github.com/jlrickert/tapper/pkg/keg"
 	kegurl "github.com/jlrickert/tapper/pkg/keg_url"

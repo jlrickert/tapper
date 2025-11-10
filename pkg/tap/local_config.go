@@ -6,7 +6,8 @@ import (
 	"os"
 	"path/filepath"
 
-	std "github.com/jlrickert/go-std/pkg"
+	"github.com/jlrickert/cli-toolkit/mylog"
+	"github.com/jlrickert/cli-toolkit/toolkit"
 	kegurl "github.com/jlrickert/tapper/pkg/keg_url"
 	"gopkg.in/yaml.v3"
 )
@@ -20,7 +21,7 @@ type LocalConfig struct {
 
 // ReadLocalFile reads and parses a .tapper/local.yaml file into LocalConfig.
 func ReadLocalFile(ctx context.Context, path string) (*LocalConfig, error) {
-	lg := std.LoggerFromContext(ctx)
+	lg := mylog.LoggerFromContext(ctx)
 	b, err := os.ReadFile(path)
 	if err != nil {
 		lg.Debug("failed to read local config", "path", path, "err", err)
@@ -38,7 +39,7 @@ func ReadLocalFile(ctx context.Context, path string) (*LocalConfig, error) {
 // WriteLocalFile writes LocalConfig to repoRoot/.tapper/local.yaml atomically.
 // It will create the .tapper directory if needed.
 func (lf *LocalConfig) WriteLocalFile(ctx context.Context, projectPath string) error {
-	lg := std.LoggerFromContext(ctx)
+	lg := mylog.LoggerFromContext(ctx)
 	fn := ".tapper/local.yaml"
 	path := filepath.Join(projectPath, ".tapper", fn)
 
@@ -47,7 +48,7 @@ func (lf *LocalConfig) WriteLocalFile(ctx context.Context, projectPath string) e
 		lg.Error("failed to marshal local config", "path", path, "err", err)
 		return err
 	}
-	if err := std.AtomicWriteFile(ctx, path, b, 0o644); err != nil {
+	if err := toolkit.AtomicWriteFile(ctx, path, b, 0o644); err != nil {
 		lg.Error("failed to write to local config", "path", path, "err", err)
 		return fmt.Errorf("failed to write to local config: %w", err)
 	}

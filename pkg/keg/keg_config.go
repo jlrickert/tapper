@@ -12,7 +12,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/jlrickert/go-std/clock"
+	"github.com/jlrickert/cli-toolkit/clock"
 	kegurl "github.com/jlrickert/tapper/pkg/keg_url"
 	"gopkg.in/yaml.v3"
 )

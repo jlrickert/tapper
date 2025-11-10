@@ -12,7 +12,9 @@ import (
 	"context"
 	"os"
 
-	std "github.com/jlrickert/go-std/pkg"
+	"github.com/jlrickert/cli-toolkit/clock"
+	"github.com/jlrickert/cli-toolkit/mylog"
+	"github.com/jlrickert/cli-toolkit/toolkit"
 	"github.com/spf13/cobra"
 
 	"github.com/jlrickert/tapper/pkg/app"
@@ -33,7 +35,7 @@ func NewRootCmd() *cobra.Command {
 			ctx := cmd.Context()
 
 			// Only install a logger if the context does not already contain one.
-			if std.LoggerFromContext(ctx) == std.NewDiscardLogger() {
+			if mylog.LoggerFromContext(ctx) == mylog.NewDiscardLogger() {
 				// create logger out -> stderr or file
 				var out = os.Stderr
 				var f *os.File
@@ -46,22 +48,22 @@ func NewRootCmd() *cobra.Command {
 					}
 					out = f
 				}
-				lg := std.NewLogger(std.LoggerConfig{
+				lg := mylog.NewLogger(mylog.LoggerConfig{
 					Out:     out,
-					Level:   std.ParseLevel(logLevel),
+					Level:   mylog.ParseLevel(logLevel),
 					JSON:    logJSON,
 					Version: Version,
 				})
-				ctx = std.WithLogger(ctx, lg)
+				ctx = mylog.WithLogger(ctx, lg)
 			}
 
 			// Only install OsEnv/OsClock if not present to avoid overwriting tests.
 			// EnvFromContext returns a non-nil Env; detect default by type.
-			if _, ok := std.EnvFromContext(ctx).(*std.OsEnv); ok {
-				ctx = std.WithEnv(ctx, &std.OsEnv{})
+			if _, ok := toolkit.EnvFromContext(ctx).(*toolkit.OsEnv); ok {
+				ctx = toolkit.WithEnv(ctx, &toolkit.OsEnv{})
 			}
-			if std.ClockFromContext(ctx) == nil {
-				ctx = std.WithClock(ctx, std.OsClock{})
+			if clock.ClockFromContext(ctx) == nil {
+				ctx = clock.WithClock(ctx, clock.OsClock{})
 			}
 
 			cmd.SetContext(ctx)
