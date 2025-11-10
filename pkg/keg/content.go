@@ -8,10 +8,11 @@ import (
 	"sort"
 	"strings"
 
-	std "github.com/jlrickert/go-std/pkg"
+	"github.com/jlrickert/go-std/toolkit"
 	"github.com/yuin/goldmark"
 	gm_ast "github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/text"
+	"gopkg.in/yaml.v3"
 )
 
 // Content holds the extracted pieces of a node's primary content file
@@ -20,15 +21,41 @@ import (
 // Fields:
 //   - Hash: stable content hash computed by the repository hasher.
 //   - Title: canonical title (first H1 for Markdown, or RST title detected).
-//   - Lead: first paragraph immediately following the title (used as a short summary).
+//   - Lead: first paragraph immediately following the title (used as a short
+//     summary).
 //   - Links: numeric outgoing node links discovered in the content (../N).
 //   - Format: short hint of the detected format ("markdown", "rst", or "empty").
+//   - Frontmatter: parsed YAML frontmatter when present (Markdown only).
+//   - Body: the raw body bytes of the content file with frontmatter removed for
+//     Markdown (or the original bytes for other formats), represented as a
+//     string.
 type Content struct {
-	Hash   string
-	Title  string
-	Lead   string
-	Links  []Node
+	// Hash is the stable content hash computed by the repository hasher.
+	Hash string
+
+	// Title is the canonical title for the content. For Markdown this is the
+	// first H1; for RST it is the detected title.
+	Title string
+
+	// Lead is the first paragraph immediately following the title. It is used
+	// as a short summary or preview of the content.
+	Lead string
+
+	// Links is the list of numeric outgoing node links discovered in the
+	// content (for example "../42"). Entries are normalized Node values.
+	Links []Node
+
+	// Format is a short hint of the detected format. Typical values are
+	// "markdown", "rst", or "empty".
 	Format string
+
+	// Body is the content body with Markdown frontmatter removed when present.
+	// For non-Markdown formats this is the original file content.
+	Body string
+
+	// Frontmatter is the parsed YAML frontmatter when present. It is non-nil
+	// only for Markdown documents that include a leading YAML block.
+	Frontmatter map[string]any
 }
 
 // ParseContent extracts a Content value from raw file bytes.
@@ -47,29 +74,38 @@ func ParseContent(ctx context.Context, data []byte, format string) (*Content, er
 	}
 
 	fmt := detectFormat(data, format)
-	hasher := std.HasherFromContext(ctx)
+	hasher := toolkit.HasherFromContext(ctx)
 
 	var title, lead string
+	var fm map[string]any
+	var contentData []byte
+
 	switch fmt {
 	case "rst":
+		// RST: no frontmatter handling for now
 		title, lead = extractRSTTitleAndLead(data)
+		contentData = data
 	default:
 		// default to markdown heuristics
-		title, lead = extractMarkdownTitleAndLead(data)
+		// Support YAML frontmatter at the start of the document.
+		fm, contentData = extractMarkdownFrontmatter(data)
+		title, lead = extractMarkdownTitleAndLead(contentData)
 		fmt = "markdown"
 	}
 
-	links := extractNumericLinks(data)
+	links := extractNumericLinks(contentData)
 
 	// sort & dedupe node ids (stable deterministic order)
 	links = dedupeAndSortNodeIDs(links)
 
 	return &Content{
-		Hash:   hasher.Hash(data),
-		Title:  title,
-		Lead:   lead,
-		Links:  links,
-		Format: fmt,
+		Hash:        hasher.Hash(data),
+		Title:       title,
+		Lead:        lead,
+		Links:       links,
+		Format:      fmt,
+		Frontmatter: fm,
+		Body:        string(contentData),
 	}, nil
 }
 
@@ -320,4 +356,72 @@ func dedupeAndSortNodeIDs(in []Node) []Node {
 		return strings.Compare(a, b) < 0
 	})
 	return out
+}
+
+// extractMarkdownFrontmatter looks for a YAML frontmatter block at the very
+// start of the document. If found it returns the parsed map and the content
+// with the frontmatter removed. If not found, returns (nil, original).
+//
+// The function is tolerant: if YAML unmarshal fails we ignore the frontmatter
+// and return nil with the original data.
+func extractMarkdownFrontmatter(data []byte) (map[string]any, []byte) {
+	if len(data) == 0 {
+		return nil, data
+	}
+	// Accept leading UTF-8 BOM or direct '---' at start.
+	trimmed := data
+	// Check for BOM
+	if bytes.HasPrefix(trimmed, []byte("\xef\xbb\xbf")) {
+		trimmed = trimmed[3:]
+	}
+	if !bytes.HasPrefix(trimmed, []byte("---\n")) && !bytes.HasPrefix(trimmed, []byte("---\r\n")) {
+		return nil, data
+	}
+	// rest is after the opening '---\n' or '---\r\n'
+	var rest []byte
+	if bytes.HasPrefix(trimmed, []byte("---\r\n")) {
+		rest = trimmed[len([]byte("---\r\n")):]
+	} else {
+		rest = trimmed[len([]byte("---\n")):]
+	}
+
+	// Try several common closing markers.
+	// Prefer the most specific sequence first.
+	choices := [][]byte{
+		[]byte("\n---\r\n"),
+		[]byte("\n---\n"),
+		[]byte("\r\n---\n"),
+		[]byte("\n---"),
+	}
+	var endIdx int = -1
+	var endMarkerLen int
+	for _, m := range choices {
+		if i := bytes.Index(rest, m); i >= 0 {
+			endIdx = i
+			endMarkerLen = len(m)
+			break
+		}
+	}
+	if endIdx < 0 {
+		// No closing marker found; treat as no frontmatter.
+		return nil, data
+	}
+
+	fmBytes := rest[:endIdx]
+	remaining := rest[endIdx+endMarkerLen:]
+
+	// If we stripped a BOM earlier, reconstruct remaining relative to original
+	// to preserve exact bytes around start if needed.
+	if bytes.HasPrefix(data, []byte("\xef\xbb\xbf")) {
+		remaining = append([]byte("\xef\xbb\xbf"), remaining...)
+	}
+
+	var fm map[string]any
+	if err := yaml.Unmarshal(fmBytes, &fm); err != nil {
+		// On parse error, ignore and return original data.
+		return nil, data
+	}
+	// Trim leading newline(s) from remaining so title detection starts at first content line.
+	remaining = bytes.TrimLeft(remaining, "\r\n")
+	return fm, remaining
 }

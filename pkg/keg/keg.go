@@ -7,7 +7,8 @@ import (
 	"strings"
 	"time"
 
-	std "github.com/jlrickert/go-std/pkg"
+	"github.com/jlrickert/go-std/clock"
+	"github.com/jlrickert/go-std/toolkit"
 	kegurl "github.com/jlrickert/tapper/pkg/keg_url"
 )
 
@@ -30,7 +31,7 @@ func NewKegFromTarget(ctx context.Context, target kegurl.Target) (*Keg, error) {
 		return &keg, nil
 	case kegurl.SchemeFile:
 		repo := FsRepo{
-			Root:            std.AbsPath(ctx, target.Path()),
+			Root:            toolkit.AbsPath(ctx, target.Path()),
 			ContentFilename: MarkdownContentFilename,
 			MetaFilename:    YAMLMetaFilename,
 		}
@@ -112,8 +113,8 @@ func (keg *Keg) Init(ctx context.Context) error {
 
 	// Create the zero node as a special case during Init. We do this here so
 	// Create can continue to require an initiated keg.
-	clock := std.ClockFromContext(ctx)
-	now := clock.Now()
+	clk := clock.ClockFromContext(ctx)
+	now := clk.Now()
 
 	rawContent := RawZeroNodeContent
 	zeroContent, _ := ParseContent(ctx, []byte(rawContent), MarkdownContentFilename)
@@ -148,6 +149,7 @@ type KegCreateOptions struct {
 	Title string
 	Lead  string
 	Tags  []string
+	Body  []byte
 	Attrs map[string]any
 }
 
@@ -168,35 +170,45 @@ func (keg *Keg) Create(ctx context.Context, opts *KegCreateOptions) (Node, error
 		return Node{}, fmt.Errorf("failed to allocate node id: %w", err)
 	}
 
-	clock := std.ClockFromContext(ctx)
-	now := clock.Now()
+	clk := clock.ClockFromContext(ctx)
+	now := clk.Now()
 
-	m := NewMeta(ctx, now)
-	m.SetAttrs(ctx, opts.Attrs)
-
-	// Build default content/meta for a new node
-	b := strings.Builder{}
-	if opts.Title != "" {
-		b.WriteString(fmt.Sprintf("# %s\n", opts.Title))
+	var rawContent []byte
+	if len(opts.Body) > 0 {
+		rawContent = opts.Body
 	} else {
-		b.WriteString(fmt.Sprintf("# Node %s\n", id.Path()))
+		// Build default content/meta for a new node
+		b := strings.Builder{}
+		if opts.Title != "" {
+			b.WriteString(fmt.Sprintf("# %s\n", opts.Title))
+		} else {
+			b.WriteString(fmt.Sprintf("# Node %s\n", id.Path()))
+		}
+
+		if opts.Lead != "" {
+			b.WriteString(fmt.Sprintf("\n%s\n", opts.Lead))
+		}
+		rawContent = []byte(b.String())
 	}
 
-	if opts.Lead != "" {
-		b.WriteString(fmt.Sprintf("\n%s\n", opts.Lead))
+	content, err := ParseContent(ctx, []byte(rawContent), MarkdownContentFilename)
+	if err != nil {
+		return Node{}, fmt.Errorf("invalid content: %w", err)
+	}
+	m := NewMeta(ctx, now)
+	if len(opts.Attrs) > 0 {
+		m.SetAttrs(ctx, opts.Attrs)
 	}
 
-	if len(opts.Tags) != 0 {
+	if len(opts.Tags) > 0 {
 		m.SetTags(ctx, opts.Tags)
 	}
 
-	rawContent := b.String()
-	content, _ := ParseContent(ctx, []byte(rawContent), MarkdownContentFilename)
 	m.Update(ctx, content, &now)
 
 	// Persist empty content so repo implementations that require a content file
 	// are satisfied.
-	if err := keg.Repo.WriteContent(ctx, id, []byte(rawContent)); err != nil {
+	if err := keg.Repo.WriteContent(ctx, id, []byte(content.Body)); err != nil {
 		return id, fmt.Errorf("Create: write content to backend %s: %w", keg.Repo.Name(), err)
 	}
 	if err := keg.Repo.WriteMeta(ctx, id, []byte(m.ToYAML())); err != nil {
@@ -295,8 +307,8 @@ func (keg *Keg) SetMeta(ctx context.Context, id Node, meta *Meta) error {
 		return fmt.Errorf("UpdateMeta: write meta to backend %s: %w", keg.Repo.Name(), err)
 	}
 
-	clock := std.ClockFromContext(ctx)
-	now := clock.Now()
+	clk := clock.ClockFromContext(ctx)
+	now := clk.Now()
 	nodeData := &NodeData{ID: id, Meta: meta}
 	return keg.addNodeToDex(ctx, nodeData, &now)
 }
@@ -307,8 +319,8 @@ func (keg *Keg) UpdateMeta(ctx context.Context, id Node, f func(*Meta)) error {
 		return fmt.Errorf("failed to update node meta: %w", err)
 	}
 
-	clock := std.ClockFromContext(ctx)
-	now := clock.Now()
+	clk := clock.ClockFromContext(ctx)
+	now := clk.Now()
 
 	m, err := keg.getMeta(ctx, id)
 	if errors.Is(err, ErrNotExist) {
@@ -332,8 +344,8 @@ func (keg *Keg) Touch(ctx context.Context, id Node) error {
 	}
 
 	return keg.UpdateMeta(ctx, id, func(m *Meta) {
-		clock := std.ClockFromContext(ctx)
-		now := clock.Now()
+		clk := clock.ClockFromContext(ctx)
+		now := clk.Now()
 		m.accessed = now
 	})
 }
@@ -353,8 +365,8 @@ func (keg *Keg) IndexNode(ctx context.Context, id Node) error {
 		return nil
 	}
 
-	clock := std.ClockFromContext(ctx)
-	now := clock.Now()
+	clk := clock.ClockFromContext(ctx)
+	now := clk.Now()
 	data.Meta.Update(ctx, data.Content, &now)
 
 	err = keg.Repo.WriteMeta(ctx, id, []byte(data.Meta.ToYAML()))

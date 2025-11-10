@@ -12,7 +12,7 @@ import (
 	"fmt"
 	"time"
 
-	std "github.com/jlrickert/go-std/pkg"
+	"github.com/jlrickert/go-std/clock"
 	kegurl "github.com/jlrickert/tapper/pkg/keg_url"
 	"gopkg.in/yaml.v3"
 )
@@ -235,6 +235,6 @@ func (c *KegConfig) String() string {
 }
 
 func (lf *KegConfig) Touch(ctx context.Context) {
-	clock := std.ClockFromContext(ctx)
-	lf.Updated = clock.Now().Format(time.RFC3339)
+	clk := clock.ClockFromContext(ctx)
+	lf.Updated = clk.Now().Format(time.RFC3339)
 }
