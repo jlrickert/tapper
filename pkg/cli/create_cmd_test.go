@@ -2,7 +2,6 @@ package cli_test
 
 import (
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -61,28 +60,28 @@ func TestCreate_Table(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			// Set up a fresh fixture per case so filesystem state is isolated.
 			fx := NewSandbox(t, testutils.WithFixture("testuser", "/home/testuser"))
-			h := NewHarness(t, fx)
+			h := NewProcess(t, false, tc.args...)
 
 			// Capture the fixture time for timestamp assertions.
 			now := fx.Now().Format(time.RFC3339)
 
 			// Execute the CLI command.
-			err := h.Run(tc.args...)
-			require.NoError(t, err)
+			res := h.Run(fx.Context())
+			require.NoError(t, res.Err)
 
 			// Validate stdout expectations.
 			if tc.exactOut != "" {
-				out := h.OutBuf.String()
+				out := string(res.Stdout)
 				require.Equal(t, tc.exactOut, out)
 			} else if tc.outRegex != "" {
-				out := strings.TrimSpace(h.OutBuf.String())
+				out := strings.TrimSpace(string(res.Stdout))
 				require.Regexp(t, tc.outRegex, out)
 			}
 
 			// Verify README expectations.
 			readmePath := "~/kegs/example/1/README.md"
 			if tc.wantReadmeNotEmpty || len(tc.readmeContains) > 0 {
-				content := fx.MustReadJailFile(readmePath)
+				content := fx.MustReadFile(readmePath)
 				if tc.wantReadmeNotEmpty {
 					require.NotEmpty(t, content, "expected README to be written for created node")
 				}
@@ -94,7 +93,7 @@ func TestCreate_Table(t *testing.T) {
 			// Verify meta expectations.
 			metaPath := "~/kegs/example/1/meta.yaml"
 			if len(tc.metaContains) > 0 {
-				meta := fx.MustReadJailFile(metaPath)
+				meta := fx.MustReadFile(metaPath)
 				ms := string(meta)
 				for _, want := range tc.metaContains {
 					if strings.Contains(want, "{now}") {
@@ -117,26 +116,19 @@ func TestCreate_FromStdin(t *testing.T) {
 
 	proc := NewProcess(t, true, "create")
 
-	done := make(chan error)
-	var wg sync.WaitGroup
-	wg.Go(func() {
-		res := proc.Run(fx.Context())
-		done <- res.Err
-	})
-	// Provide content on stdin that should become the README body.
 	stdin := "Title line\n\nThis content came from stdin.\n"
-	proc.Write([]byte(stdin))
+	res := proc.RunWithIO(fx.Context(), strings.NewReader(stdin))
 
 	// Invoke create with a positional marker that signals stdin usage.
 	// CLI implementation may choose the convention; tests assume "stdin".
-	require.NoError(t, <-done)
+	require.NoError(t, res.Err)
 
 	// The command should emit the new node id on stdout.
-	out := strings.TrimSpace(proc.OutBuf.String())
+	out := strings.TrimSpace(string(res.Stdout))
 	require.Regexp(t, `^\d+`, out)
 
 	// Verify the created README contains the stdin content.
 	readmePath := "~/kegs/example/1/README.md"
-	content := fx.MustReadJailFile(readmePath)
+	content := fx.MustReadFile(readmePath)
 	require.Contains(t, string(content), "This content came from stdin.")
 }
