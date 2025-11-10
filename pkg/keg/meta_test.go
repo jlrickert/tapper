@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jlrickert/go-std/testutils"
+	"github.com/jlrickert/go-std/sandbox"
 	"github.com/jlrickert/tapper/pkg/keg"
 	"github.com/stretchr/testify/require"
 )
@@ -90,7 +90,7 @@ func TestTimeFields_SetAndRead(t *testing.T) {
 	t.Parallel()
 	initial := time.Now()
 	// Use Fixture to provide clock in context set to initial + 5h.
-	f := NewFixture(t, testutils.WithClock(initial.Add(5*time.Hour)))
+	f := NewSandbox(t, sandbox.WithClock(initial.Add(5*time.Hour)))
 	ctx := f.Context()
 
 	m := keg.NewMeta(ctx, f.Now())
@@ -167,7 +167,7 @@ func TestSetHash_UpdatesUpdatedTimeWhenChanged(t *testing.T) {
 
 	// Use a deterministically controllable clock via Fixture
 	initial := time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC)
-	f := NewFixture(t, testutils.WithClock(initial))
+	f := NewSandbox(t, sandbox.WithClock(initial))
 	ctx := f.Context()
 
 	m := keg.NewMeta(ctx, f.Now())
@@ -200,7 +200,7 @@ func TestSetHash_IdempotentViaSetDoesNotUpdateTime(t *testing.T) {
 	t.Parallel()
 
 	initial := time.Date(2024, 2, 3, 4, 5, 6, 0, time.UTC)
-	f := NewFixture(t, testutils.WithClock(initial))
+	f := NewSandbox(t, sandbox.WithClock(initial))
 	ctx := f.Context()
 
 	m := keg.NewMeta(ctx, f.Now())
@@ -264,4 +264,37 @@ func TestToYAML_NodeAbsent_DoesNotContainOriginalComments(t *testing.T) {
 	// not parsed from a node containing that comment.
 	require.NotContains(t, out, "keep-this-comment",
 		"expected no preserved comments for programmatic meta")
+}
+
+// New test for SetAttrs behavior
+func TestSetAttrs_AppliesKnownAndUnknownKeys(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	raw := []byte(`# initial
+title: Orig
+hash: h1
+tags: [old]
+baz: box
+`)
+	m, err := keg.ParseMeta(ctx, raw)
+	require.NoError(t, err)
+	require.NotNil(t, m)
+
+	// Apply attributes: update tags, add unknown foo, and remove hash via nil.
+	attrs := map[string]any{
+		"tags": "NewTag, another",
+		"foo":  "bar",
+		"baz":  "boxy",
+	}
+	require.NoError(t, m.SetAttrs(ctx, attrs))
+
+	// Known key "tags" should be normalized and deduped.
+	wantTags := []string{"another", "newtag"}
+	require.Equal(t, wantTags, m.Tags(), "tags should be normalized by SetAttrs")
+
+	// Unknown key "foo" should be present in YAML when parsed node exists.
+	out := m.ToYAML()
+	require.Contains(t, out, "foo: bar", "unknown attrs should appear in YAML")
+	require.Contains(t, out, "baz: boxy", "unknown attr value should appear in YAML")
 }

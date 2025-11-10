@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jlrickert/go-std/testutils"
+	"github.com/jlrickert/go-std/sandbox"
 	kegpkg "github.com/jlrickert/tapper/pkg/keg"
 	kegurl "github.com/jlrickert/tapper/pkg/keg_url"
 	"github.com/stretchr/testify/require"
@@ -16,7 +16,7 @@ import (
 // contains the example data. Init should fail with ErrExist.
 func TestInitWhenRepoIsExample(t *testing.T) {
 	t.Parallel()
-	f := NewFixture(t, testutils.WithFixture("example", "~/repos/example"))
+	f := NewSandbox(t, sandbox.WithFixture("example", "~/repos/example"))
 
 	k, err := kegpkg.NewKegFromTarget(
 		f.Context(),
@@ -37,7 +37,7 @@ func TestInitWhenRepoIsExample(t *testing.T) {
 // verifies the repository reports an initialized keg and a zero node exists.
 func TestInitOnEmptyRepo(t *testing.T) {
 	t.Parallel()
-	f := NewFixture(t, testutils.WithFixture("empty", "repo"))
+	f := NewSandbox(t, sandbox.WithFixture("empty", "repo"))
 
 	k, err := kegpkg.NewKegFromTarget(f.Context(), kegurl.NewFile("repo"))
 	require.NoError(t, err, "NewKegFromTarget failed")
@@ -67,7 +67,7 @@ func TestInitOnEmptyRepo(t *testing.T) {
 // Init has been called.
 func TestKegExistsWithMemoryRepo(t *testing.T) {
 	t.Parallel()
-	f := NewFixture(t)
+	f := NewSandbox(t)
 
 	repo := kegpkg.NewMemoryRepo()
 
@@ -90,7 +90,7 @@ func TestKegExistsWithMemoryRepo(t *testing.T) {
 // the memory repo.
 func TestKegExistsWithFsRepo(t *testing.T) {
 	t.Parallel()
-	f := NewFixture(t, testutils.WithFixture("empty", "repofs"))
+	f := NewSandbox(t, sandbox.WithFixture("empty", "repofs"))
 
 	k, err := kegpkg.NewKegFromTarget(f.Context(), kegurl.NewFile("repofs"))
 	require.NoError(t, err, "NewKegFromTarget failed")
@@ -115,7 +115,7 @@ func TestKegExistsWithFsRepo(t *testing.T) {
 // RawZeroNodeContent.
 func TestCreateZeroNodeInMemoryRepo(t *testing.T) {
 	t.Parallel()
-	f := NewFixture(t)
+	f := NewSandbox(t)
 
 	repo := kegpkg.NewMemoryRepo()
 	k := kegpkg.NewKeg(repo)
@@ -130,7 +130,7 @@ func TestCreateZeroNodeInMemoryRepo(t *testing.T) {
 // sensible content and meta that can be parsed.
 func TestCreateNodeWithMeta(t *testing.T) {
 	t.Parallel()
-	f := NewFixture(t)
+	f := NewSandbox(t)
 
 	repo := kegpkg.NewMemoryRepo()
 	k := kegpkg.NewKeg(repo)
@@ -158,11 +158,77 @@ func TestCreateNodeWithMeta(t *testing.T) {
 	require.True(t, foundTag, "expected normalized tag 'tag-a' to be present")
 }
 
+// New test: create where Body is provided in the Create options. Ensure the
+// provided body becomes the node content and meta is parsed from it.
+func TestCreateWithBody(t *testing.T) {
+	t.Parallel()
+	f := NewSandbox(t)
+
+	repo := kegpkg.NewMemoryRepo()
+	k := kegpkg.NewKeg(repo)
+	require.NoError(t, k.Init(f.Context()))
+
+	body := []byte("# BodyTitle\n\nbody paragraph\n")
+	opts := &kegpkg.KegCreateOptions{
+		Body: body,
+	}
+	id, err := k.Create(f.Context(), opts)
+	require.NoError(t, err)
+	require.Equal(t, 1, id.ID, "expected created node id to be 1")
+
+	got, err := k.GetContent(f.Context(), id)
+	require.NoError(t, err)
+	require.Equal(t, string(body), string(got))
+
+	m, err := k.GetMeta(f.Context(), id)
+	require.NoError(t, err)
+	require.Equal(t, "BodyTitle", m.Title())
+	require.Equal(t, "body paragraph", m.Lead())
+}
+
+// New test: Body contains YAML frontmatter. Ensure content written equals the
+// provided bytes and parsed meta reflects the markdown heading and lead.
+func TestCreateWithBodyFrontmatter(t *testing.T) {
+	t.Parallel()
+	f := NewSandbox(t)
+
+	repo := kegpkg.NewMemoryRepo()
+	k := kegpkg.NewKeg(repo)
+	require.NoError(t, k.Init(f.Context()))
+
+	rawBody := []byte(`---
+tags:
+  - fm
+foo: bar
+---
+# FMTitle
+
+fm lead paragraph
+`)
+	id, err := k.Create(f.Context(), &kegpkg.KegCreateOptions{Body: rawBody})
+	require.NoError(t, err)
+	require.Equal(t, 1, id.ID, "expected created node id to be 1")
+
+	got, err := k.GetContent(f.Context(), id)
+	content, _ := kegpkg.ParseContent(f.Context(), rawBody, kegpkg.FormatMarkdown)
+	require.NoError(t, err)
+	require.Equal(t, content.Body, string(got))
+
+	m, err := k.GetMeta(f.Context(), id)
+	require.NoError(t, err)
+
+	// Title should be derived from the first H1 in the markdown body.
+	require.Equal(t, "FMTitle", m.Title())
+	require.Equal(t, "fm lead paragraph", m.Lead())
+	require.Contains(t, m.Tags(), "fm")
+	require.Contains(t, m.ToYAML(), "foo: bar")
+}
+
 // TestSetContentAndUpdate ensures SetContent causes meta to be updated from
 // parsed content (for example lead paragraph changes).
 func TestSetContentAndUpdate(t *testing.T) {
 	t.Parallel()
-	f := NewFixture(t)
+	f := NewSandbox(t)
 
 	repo := kegpkg.NewMemoryRepo()
 	k := kegpkg.NewKeg(repo)
@@ -190,7 +256,7 @@ func TestSetContentAndUpdate(t *testing.T) {
 func TestCreateAndUpdateNodesWithFsRepo(t *testing.T) {
 	t.Parallel()
 	// Use the empty fixture as a filesystem-backed repo.
-	f := NewFixture(t, testutils.WithFixture("empty", "repofs_fs"))
+	f := NewSandbox(t, sandbox.WithFixture("empty", "repofs_fs"))
 
 	k, err := kegpkg.NewKegFromTarget(f.Context(), kegurl.NewFile("repofs_fs"))
 	require.NoError(t, err, "NewKegFromTarget failed")
@@ -243,7 +309,7 @@ func TestCreateAndUpdateNodesWithFsRepo(t *testing.T) {
 // the generated indexes reflect tags, links, and backlinks.
 func TestNodesWithTagsAndInterlinks(t *testing.T) {
 	t.Parallel()
-	f := NewFixture(t)
+	f := NewSandbox(t)
 
 	repo := kegpkg.NewMemoryRepo()
 	k := kegpkg.NewKeg(repo)
@@ -324,7 +390,7 @@ func TestNodesWithTagsAndInterlinks(t *testing.T) {
 // backlinks may be absent and should be treated as empty.
 func TestIndexFilesHaveExpectedData(t *testing.T) {
 	t.Parallel()
-	f := NewFixture(t, testutils.WithFixture("example", "~/repo"))
+	f := NewSandbox(t, sandbox.WithFixture("example", "~/repo"))
 
 	k, err := kegpkg.NewKegFromTarget(f.Context(), kegurl.NewFile("~/repo"))
 	require.NoError(t, err, "NewKegFromTarget failed")
