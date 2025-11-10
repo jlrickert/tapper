@@ -3,7 +3,7 @@ package cli
 import (
 	"fmt"
 
-	std "github.com/jlrickert/go-std/pkg"
+	"github.com/jlrickert/cli-toolkit/toolkit"
 	"github.com/jlrickert/tapper/pkg/app"
 	"github.com/spf13/cobra"
 )
@@ -24,13 +24,15 @@ func NewCreateCmd() *cobra.Command {
 			// Resolve runner: prefer an injected runner from context, otherwise
 			// construct a local app.Runner using the Env's working directory.
 			ctx := cmd.Context()
-			env := std.EnvFromContext(ctx)
+			env := toolkit.EnvFromContext(ctx)
 			wd, _ := env.Getwd()
 
 			r := NewRunnerFromContext(ctx)
 			if r == nil {
 				r = &app.Runner{Root: wd}
 			}
+			stream := toolkit.StreamFromContext(ctx)
+			opts.Stream = stream
 
 			node, err := r.Create(ctx, opts)
 			if err != nil {

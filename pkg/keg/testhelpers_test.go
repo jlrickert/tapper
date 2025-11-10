@@ -2,7 +2,7 @@ package keg_test
 
 import (
 	"embed"
-	"github.com/jlrickert/go-std/sandbox"
+	"github.com/jlrickert/cli-toolkit/sandbox"
 	"testing"
 )
 

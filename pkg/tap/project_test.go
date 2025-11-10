@@ -3,7 +3,7 @@ package tap_test
 import (
 	"testing"
 
-	std "github.com/jlrickert/go-std/pkg"
+	"github.com/jlrickert/cli-toolkit/toolkit"
 	"github.com/stretchr/testify/require"
 
 	"github.com/jlrickert/tapper/pkg/tap"
@@ -12,7 +12,7 @@ import (
 func TestNewProject_WithOptions(t *testing.T) {
 	req := require.New(t)
 
-	fx := NewFixture(t)
+	fx := NewSandbox(t)
 	ctx := fx.Context()
 
 	p, err := tap.NewProject(
@@ -49,7 +49,7 @@ func TestNewProject_WithOptions(t *testing.T) {
 func TestProject_UserConfigUpdate_SetsDefaultKeg(t *testing.T) {
 	req := require.New(t)
 
-	fx := NewFixture(t)
+	fx := NewSandbox(t)
 	ctx := fx.Context()
 
 	// Ensure a stable home so user config roots resolve predictably.
@@ -68,7 +68,7 @@ func TestProject_UserConfigUpdate_SetsDefaultKeg(t *testing.T) {
 	}, false)
 	req.NoError(err)
 
-	fx.MustReadJailFile("~/.config/tapper/config.yaml")
+	fx.MustReadFile("~/.config/tapper/config.yaml")
 
 	// Read back the user config and verify the change is visible.
 	got, err := p.UserConfig(ctx, false)
@@ -86,11 +86,11 @@ func TestProject_UserConfigUpdate_SetsDefaultKeg(t *testing.T) {
 func TestProject_UserConfigUpdate_AppendsKegMapEntry(t *testing.T) {
 	req := require.New(t)
 
-	fx := NewFixture(t)
+	fx := NewSandbox(t)
 	ctx := fx.Context()
 
 	// Use deterministic env values so config paths are stable.
-	env := std.EnvFromContext(ctx)
+	env := toolkit.EnvFromContext(ctx)
 	req.NoError(env.SetHome(fx.AbsPath("home")))
 	req.NoError(env.SetUser("testuser"))
 

@@ -14,7 +14,9 @@ import (
 	"strings"
 	"time"
 
-	std "github.com/jlrickert/go-std/pkg"
+	"github.com/jlrickert/cli-toolkit/clock"
+	"github.com/jlrickert/cli-toolkit/mylog"
+	"github.com/jlrickert/cli-toolkit/toolkit"
 	"github.com/jlrickert/tapper/pkg/keg"
 	kegurl "github.com/jlrickert/tapper/pkg/keg_url"
 	"gopkg.in/yaml.v3"
@@ -83,7 +85,7 @@ type KegRegistry struct {
 // function does not modify any state.
 func ResolvePaths(ctx context.Context, basePath string) error {
 	// Use std helpers to ensure consistent behavior with other code paths.
-	_, err := std.ExpandPath(ctx, basePath)
+	_, err := toolkit.ExpandPath(ctx, basePath)
 	if err != nil {
 		return fmt.Errorf("expand path: %w", err)
 	}
@@ -155,8 +157,8 @@ func (uc *Config) ResolveProjectKeg(ctx context.Context, path string) (*kegurl.T
 		return nil, fmt.Errorf("no user config")
 	}
 	// Expand path and make absolute/clean to compare reliably.
-	val := std.ExpandEnv(ctx, path)
-	abs, err := std.ExpandPath(ctx, val)
+	val := toolkit.ExpandEnv(ctx, path)
+	abs, err := toolkit.ExpandPath(ctx, val)
 	if err != nil {
 		// Still try with expanded env when ExpandPath fails.
 		abs = val
@@ -168,8 +170,8 @@ func (uc *Config) ResolveProjectKeg(ctx context.Context, path string) (*kegurl.T
 		if m.PathRegex == "" {
 			continue
 		}
-		pattern := std.ExpandEnv(ctx, m.PathRegex)
-		pattern, _ = std.ExpandPath(ctx, pattern)
+		pattern := toolkit.ExpandEnv(ctx, m.PathRegex)
+		pattern, _ = toolkit.ExpandPath(ctx, pattern)
 		ok, _ := regexp.MatchString(pattern, abs)
 		if ok {
 			return uc.ResolveAlias(ctx, m.Alias)
@@ -186,8 +188,8 @@ func (uc *Config) ResolveProjectKeg(ctx context.Context, path string) (*kegurl.T
 		if m.PathPrefix == "" {
 			continue
 		}
-		pref := std.ExpandEnv(ctx, m.PathPrefix)
-		pref, _ = std.ExpandPath(ctx, pref)
+		pref := toolkit.ExpandEnv(ctx, m.PathPrefix)
+		pref, _ = toolkit.ExpandPath(ctx, pref)
 		pref = filepath.Clean(pref)
 		if strings.HasPrefix(abs, pref) {
 			matches = append(matches, match{entry: m, len: len(pref)})
@@ -240,7 +242,7 @@ func ParseUserConfig(ctx context.Context, raw []byte) (*Config, error) {
 // When the file does not exist the function returns a Config value and an
 // error that wraps keg.ErrNotExist so callers can detect no-config cases.
 func ReadConfig(ctx context.Context, path string) (*Config, error) {
-	b, err := os.ReadFile(path)
+	b, err := toolkit.ReadFile(ctx, path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return &Config{}, fmt.Errorf("unable read user config: %w", keg.ErrNotExist)
@@ -257,7 +259,7 @@ func ReadConfig(ctx context.Context, path string) (*Config, error) {
 // set to "knut" and a local file based keg pointing at the user data path is
 // provided under the alias "local".
 func DefaultUserConfig(ctx context.Context) *Config {
-	path, _ := std.UserDataPath(ctx)
+	path, _ := toolkit.UserDataPath(ctx)
 	return &Config{
 		DefaultRegistry: "knut",
 		KegMap:          []KegMapEntry{},
@@ -314,7 +316,7 @@ func (uc *Config) Write(ctx context.Context, path string) error {
 		return fmt.Errorf("unable to write user config: %w", err)
 	}
 
-	if err := std.AtomicWriteFile(ctx, path, data, 0o644); err != nil {
+	if err := toolkit.AtomicWriteFile(ctx, path, data, 0o644); err != nil {
 		return fmt.Errorf("unable to write config: %w", err)
 	}
 	return nil
@@ -403,7 +405,7 @@ func MergeConfig(cfgs ...*Config) *Config {
 
 // Touch updates the Updated timestamp on the Config using the context clock.
 func (uc *Config) Touch(ctx context.Context) {
-	clock := std.ClockFromContext(ctx)
+	clock := clock.ClockFromContext(ctx)
 	uc.Updated = clock.Now()
 }
 
@@ -413,7 +415,7 @@ func (uc *Config) Touch(ctx context.Context) {
 // bytes are trimmed of surrounding whitespace. The function logs diagnostic
 // messages using the logger present in ctx.
 func LocalGitData(ctx context.Context, projectPath, key string) ([]byte, error) {
-	lg := std.LoggerFromContext(ctx)
+	lg := mylog.LoggerFromContext(ctx)
 	// check git exists
 	if _, err := exec.LookPath("git"); err != nil {
 		lg.Warn("git executable not found", "projectPath", projectPath, "err", err)

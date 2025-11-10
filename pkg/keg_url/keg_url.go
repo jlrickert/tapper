@@ -9,7 +9,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/jlrickert/go-std/toolkit"
+	"github.com/jlrickert/cli-toolkit/toolkit"
 	"gopkg.in/yaml.v3"
 )
 

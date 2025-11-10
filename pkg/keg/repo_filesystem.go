@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"slices"
 
-	"github.com/jlrickert/go-std/project"
-	"github.com/jlrickert/go-std/toolkit"
+	"github.com/jlrickert/cli-toolkit/project"
+	"github.com/jlrickert/cli-toolkit/toolkit"
 	"gopkg.in/yaml.v3"
 )
 

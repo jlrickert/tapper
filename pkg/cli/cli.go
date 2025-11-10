@@ -3,26 +3,17 @@ package cli
 import (
 	"context"
 	"errors"
-	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
 
-	"github.com/jlrickert/tapper/pkg/app"
+	"github.com/jlrickert/cli-toolkit/toolkit"
 )
 
-type interactiveKey int
-
-var ctxInteractiveKey interactiveKey
-
-func WithInteractive(ctx context.Context, interactive bool) context.Context {
-	return context.WithValue(ctx, ctxInteractiveKey, interactive)
-}
-
-func Run(ctx context.Context, streams app.Streams, args []string) error {
+func Run(ctx context.Context, args []string) (int, error) {
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
-	ctx = WithInteractive(ctx, streams.Interactive)
 	defer stop()
+	streams := toolkit.StreamFromContext(ctx)
 	cmd := NewRootCmd()
 	cmd.SetArgs(args)
 	cmd.SetIn(streams.In)
@@ -32,10 +23,9 @@ func Run(ctx context.Context, streams app.Streams, args []string) error {
 	if err := cmd.ExecuteContext(ctx); err != nil {
 		if errors.Is(err, context.Canceled) ||
 			errors.Is(err, context.DeadlineExceeded) {
-			os.Exit(130)
+			return 130, err
 		}
-		fmt.Fprintln(streams.Err, err)
-		os.Exit(1)
+		return 1, err
 	}
-	return nil
+	return 0, nil
 }

@@ -1,12 +1,16 @@
 package app
 
-import "context"
+import (
+	"context"
 
-func (r *Runner) DoConfigEdit(ctx context.Context, stream Streams) error {
+	"github.com/jlrickert/cli-toolkit/toolkit"
+)
+
+func (r *Runner) DoConfigEdit(ctx context.Context, stream toolkit.Stream) error {
 	return nil
 }
 
-func (r *Runner) DoConfigData(ctx context.Context, stream Streams) error {
+func (r *Runner) DoConfigData(ctx context.Context, stream toolkit.Stream) error {
 	return nil
 }
 

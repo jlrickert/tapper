@@ -8,7 +8,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/jlrickert/go-std/toolkit"
+	"github.com/jlrickert/cli-toolkit/toolkit"
 	"github.com/yuin/goldmark"
 	gm_ast "github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/text"

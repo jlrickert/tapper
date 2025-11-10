@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"slices"
 
-	std "github.com/jlrickert/go-std/pkg"
+	"github.com/jlrickert/cli-toolkit/toolkit"
 	"github.com/jlrickert/tapper/pkg/app"
 	"github.com/jlrickert/tapper/pkg/keg"
 	"github.com/spf13/cobra"
@@ -34,6 +34,7 @@ func NewInitCmd() *cobra.Command {
 		Short: "create a new keg target",
 		// No-op persistent pre run used for symmetry with other commands.
 		PersistentPreRun: func(cmd *cobra.Command, args []string) {},
+		Aliases:          []string{"c"},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var name string
 			if len(args) == 0 {
@@ -51,7 +52,7 @@ func NewInitCmd() *cobra.Command {
 				}
 				t = flagType
 			}
-			env := std.EnvFromContext(cmd.Context())
+			env := toolkit.EnvFromContext(cmd.Context())
 			wd, _ := env.Getwd()
 			r := app.Runner{Root: wd}
 			err := r.Init(cmd.Context(), name, &app.InitOptions{

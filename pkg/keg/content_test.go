@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jlrickert/go-std/toolkit"
+	"github.com/jlrickert/cli-toolkit/toolkit"
 	"github.com/jlrickert/tapper/pkg/keg"
 	"github.com/stretchr/testify/require"
 )

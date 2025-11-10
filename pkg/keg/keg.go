@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jlrickert/go-std/clock"
-	"github.com/jlrickert/go-std/toolkit"
+	"github.com/jlrickert/cli-toolkit/clock"
+	"github.com/jlrickert/cli-toolkit/toolkit"
 	kegurl "github.com/jlrickert/tapper/pkg/keg_url"
 )
 

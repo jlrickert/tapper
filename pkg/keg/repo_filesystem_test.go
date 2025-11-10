@@ -3,8 +3,8 @@ package keg_test
 import (
 	"testing"
 
-	sandbox "github.com/jlrickert/go-std/sandbox"
-	tookit "github.com/jlrickert/go-std/toolkit"
+	sandbox "github.com/jlrickert/cli-toolkit/sandbox"
+	tookit "github.com/jlrickert/cli-toolkit/toolkit"
 	"github.com/jlrickert/tapper/pkg/keg"
 	"github.com/stretchr/testify/require"
 )

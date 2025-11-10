@@ -2,10 +2,11 @@ package cli_test
 
 import (
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
-	"github.com/jlrickert/go-std/testutils"
+	testutils "github.com/jlrickert/cli-toolkit/sandbox"
 	"github.com/stretchr/testify/require"
 )
 
@@ -59,8 +60,8 @@ func TestCreate_Table(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			// Set up a fresh fixture per case so filesystem state is isolated.
-			fx := NewFixture(t, testutils.WithFixture("testuser", "/home/testuser"))
-			h := NewHarness(t, fx, true)
+			fx := NewSandbox(t, testutils.WithFixture("testuser", "/home/testuser"))
+			h := NewHarness(t, fx)
 
 			// Capture the fixture time for timestamp assertions.
 			now := fx.Now().Format(time.RFC3339)
@@ -104,4 +105,38 @@ func TestCreate_Table(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestCreate_FromStdin verifies that content provided on stdin is used as the
+// created node README content. Note: most flags are not supported when using
+// stdin input; prefer invoking the command without flags when providing stdin.
+func TestCreate_FromStdin(t *testing.T) {
+	fx := NewSandbox(t,
+		testutils.WithFixture("testuser", "/home/testuser"),
+	)
+
+	proc := NewProcess(t, true, "create")
+
+	done := make(chan error)
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		res := proc.Run(fx.Context())
+		done <- res.Err
+	})
+	// Provide content on stdin that should become the README body.
+	stdin := "Title line\n\nThis content came from stdin.\n"
+	proc.Write([]byte(stdin))
+
+	// Invoke create with a positional marker that signals stdin usage.
+	// CLI implementation may choose the convention; tests assume "stdin".
+	require.NoError(t, <-done)
+
+	// The command should emit the new node id on stdout.
+	out := strings.TrimSpace(proc.OutBuf.String())
+	require.Regexp(t, `^\d+`, out)
+
+	// Verify the created README contains the stdin content.
+	readmePath := "~/kegs/example/1/README.md"
+	content := fx.MustReadJailFile(readmePath)
+	require.Contains(t, string(content), "This content came from stdin.")
 }

@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jlrickert/go-std/sandbox"
+	"github.com/jlrickert/cli-toolkit/sandbox"
 	kegpkg "github.com/jlrickert/tapper/pkg/keg"
 	kegurl "github.com/jlrickert/tapper/pkg/keg_url"
 	"github.com/stretchr/testify/require"

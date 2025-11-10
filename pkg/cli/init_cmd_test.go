@@ -8,8 +8,8 @@ import (
 )
 
 func TestInitLocalKeg(t *testing.T) {
-	fx := NewFixture(t)
-	h := NewHarness(t, fx, true)
+	fx := NewSandbox(t)
+	h := NewHarness(t, fx)
 
 	// Note: the CLI binds the alias into the `--title` flag (see
 	// init_cmd.go). To produce the printed alias use --title.
