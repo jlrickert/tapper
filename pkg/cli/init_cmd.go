@@ -19,15 +19,16 @@ import (
 //	keg init mykeg --type local
 //	keg init blog --path ./kegs/blog --title "Blog" --creator "me"
 func NewInitCmd() *cobra.Command {
-	var flagType string
-
-	var flagTitle string
-	var flagAlias string
-	var flagCreator string
-	var flagTokenEnv string
-
-	var flagAddConfig bool
-	var flagNoConfig bool
+	initOpts := &app.InitOptions{}
+	// var flagType string
+	//
+	// var flagTitle string
+	// var flagAlias string
+	// var flagCreator string
+	// var flagTokenEnv string
+	//
+	// var flagAddConfig bool
+	// var flagNoConfig bool
 
 	cmd := &cobra.Command{
 		Use:   "init NAME",
@@ -43,49 +44,41 @@ func NewInitCmd() *cobra.Command {
 				name = args[0]
 			}
 			t := "registry"
-			if flagType != "" {
-				if !slices.Contains([]string{"registry", "local", "file"}, flagType) {
+			if initOpts.Type != "" {
+				if !slices.Contains([]string{"registry", "local", "file"}, initOpts.Type) {
 					return fmt.Errorf(
 						"%s is not a valid type: %w",
-						flagType, keg.ErrInvalid,
+						initOpts.Type, keg.ErrInvalid,
 					)
 				}
-				t = flagType
+				t = initOpts.Type
 			}
 			env := toolkit.EnvFromContext(cmd.Context())
 			wd, _ := env.Getwd()
 			r := app.Runner{Root: wd}
-			err := r.Init(cmd.Context(), name, &app.InitOptions{
-				Type:           t,
-				Creator:        flagCreator,
-				Title:          flagTitle,
-				Alias:          flagAlias,
-				AddUserConfig:  flagAddConfig,
-				AddLocalConfig: flagAddConfig,
-			})
+			err := r.Init(cmd.Context(), name, initOpts)
 			if err != nil {
 				return err
 			}
-			alias := flagAlias
+			alias := initOpts.Alias
 			if alias == "" && name == "." {
 				alias = filepath.Base(filepath.Dir(r.Root))
 			} else if alias == "" && t == "local" && name != "." {
 				alias = name
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "keg %s created", flagAlias)
+			fmt.Fprintf(cmd.OutOrStdout(), "keg %s created", initOpts.Alias)
 			return nil
 		},
 	}
 
-	cmd.Flags().StringVar(&flagType, "type", "registry", "destination type: registry|file|local")
+	cmd.Flags().StringVar(&initOpts.Type, "type", "registry", "destination type: registry|file|local")
+	cmd.Flags().StringVar(&initOpts.Alias, "alias", "", "alias of keg to add to config")
+	cmd.Flags().StringVar(&initOpts.Title, "title", "", "human title to write into the keg config")
+	cmd.Flags().StringVar(&initOpts.Creator, "creator", "", "creator identifier to include in the keg config")
+	cmd.Flags().StringVar(&initOpts.TokenEnv, "token-env", "", "environment variable name to store token reference (API targets)")
 
-	cmd.Flags().StringVar(&flagTitle, "alias", "", "alias of keg to add to config")
-	cmd.Flags().StringVar(&flagAlias, "title", "", "human title to write into the keg config")
-	cmd.Flags().StringVar(&flagCreator, "creator", "", "creator identifier to include in the keg config")
-	cmd.Flags().StringVar(&flagTokenEnv, "token-env", "", "environment variable name to store token reference (API targets)")
-
-	cmd.Flags().BoolVar(&flagAddConfig, "add-config", true, "add created target to user config automatically")
-	cmd.Flags().BoolVar(&flagNoConfig, "no-config", false, "do not add created target to user config")
+	cmd.Flags().BoolVar(&initOpts.AddUserConfig, "add-user-config", true, "add created target to user config automatically")
+	cmd.Flags().BoolVar(&initOpts.AddLocalConfig, "add-local-config", true, "add created created target to local config if a project is found")
 
 	// Provide shell completion for the --type flag.
 	_ = cmd.RegisterFlagCompletionFunc(
