@@ -1,6 +1,7 @@
 package tap_test
 
 import (
+	"path/filepath"
 	"testing"
 
 	"github.com/jlrickert/cli-toolkit/toolkit"
@@ -15,33 +16,14 @@ func TestNewProject_WithOptions(t *testing.T) {
 	fx := NewSandbox(t)
 	ctx := fx.Context()
 
-	p, err := tap.NewProject(
-		ctx,
-		tap.WithRoot("/repo/root"),
-		tap.WithConfigRoot("/cfg"),
-		tap.WithDataRoot("/data"),
-		tap.WithStateRoot("/state"),
-		tap.WithCacheRoot("/cache"),
-	)
+	p, err := tap.NewTapContext(ctx, "/repo/root")
 	req.NoError(err)
 
-	req.Equal("/repo/root", p.Root())
-
-	cfgRoot, err := p.ConfigRoot(ctx)
-	req.NoError(err)
-	req.Equal("/cfg", cfgRoot)
-
-	dataRoot, err := p.DataRoot(ctx)
-	req.NoError(err)
-	req.Equal("/data", dataRoot)
-
-	stateRoot, err := p.StateRoot(ctx)
-	req.NoError(err)
-	req.Equal("/state", stateRoot)
-
-	cacheRoot, err := p.CacheRoot(ctx)
-	req.NoError(err)
-	req.Equal("/cache", cacheRoot)
+	req.Equal("/repo/root", p.Root)
+	req.Equal(fx.ResolvePath(filepath.Join(".config", tap.DefaultAppName)), p.ConfigRoot)
+	req.Equal(fx.ResolvePath(filepath.Join(".local", "share", tap.DefaultAppName)), p.DataRoot)
+	req.Equal(fx.ResolvePath(filepath.Join(".local", "state", tap.DefaultAppName)), p.StateRoot)
+	req.Equal(fx.ResolvePath(filepath.Join(".cache", tap.DefaultAppName)), p.CacheRoot)
 }
 
 // Tests for updating the user config for a project.
@@ -59,7 +41,7 @@ func TestProject_UserConfigUpdate_SetsDefaultKeg(t *testing.T) {
 
 	// Create a project rooted at an explicit path so other roots are stable.
 	wantRoot := "/repo/root"
-	p, err := tap.NewProject(ctx, tap.WithRoot(wantRoot))
+	p, err := tap.NewTapContext(ctx, wantRoot)
 	req.NoError(err)
 
 	// Update the user config to set DefaultKeg.
@@ -76,7 +58,7 @@ func TestProject_UserConfigUpdate_SetsDefaultKeg(t *testing.T) {
 	req.Equal("mykeg", got.DefaultKeg)
 
 	// Create a new Project instance to ensure the persisted config is re-read.
-	p2, err := tap.NewProject(ctx, tap.WithRoot(wantRoot))
+	p2, err := tap.NewTapContext(ctx, wantRoot)
 	req.NoError(err)
 	got2, err := p2.UserConfig(ctx, false)
 	req.NoError(err)
@@ -94,7 +76,7 @@ func TestProject_UserConfigUpdate_AppendsKegMapEntry(t *testing.T) {
 	req.NoError(env.SetHome(fx.AbsPath("home")))
 	req.NoError(env.SetUser("testuser"))
 
-	p, err := tap.NewProject(ctx, tap.WithRoot("/repo/root"))
+	p, err := tap.NewTapContext(ctx, "/repo/root")
 	req.NoError(err)
 
 	// Append a KegMap entry via the update helper.

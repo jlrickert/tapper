@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"slices"
 
-	"github.com/jlrickert/cli-toolkit/project"
+	appCtx "github.com/jlrickert/cli-toolkit/appctx"
 	"github.com/jlrickert/cli-toolkit/toolkit"
 	"gopkg.in/yaml.v3"
 )
@@ -81,7 +81,7 @@ func NewFsRepoFromEnvOrSearch(ctx context.Context) (*FsRepo, error) {
 	}
 
 	// 3) if in a git project, find git root and search the project tree
-	if gitRoot := project.FindGitRoot(ctx, cwd); gitRoot != "" {
+	if gitRoot := appCtx.FindGitRoot(ctx, cwd); gitRoot != "" {
 		if kp := findKegRecursive(gitRoot, candidates); kp != "" {
 			f := &FsRepo{
 				Root:            filepath.Dir(kp), // directory containing the keg file
