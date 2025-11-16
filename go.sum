@@ -7,6 +7,8 @@ github.com/jlrickert/cli-toolkit v0.1.2 h1:FvZNZ47tmo3yOZYWXhxR89AYqglXrrCRMRwna
 github.com/jlrickert/cli-toolkit v0.1.2/go.mod h1:T6Bto6XvyTkFZpyU9TMGQYErV4y4v3qa+JqBEYDJQqI=
 github.com/jlrickert/cli-toolkit v0.2.0 h1:p0hkIVQp7OqwYniIORuX/AtzY/4RS6su1hcVEErw1tE=
 github.com/jlrickert/cli-toolkit v0.2.0/go.mod h1:T6Bto6XvyTkFZpyU9TMGQYErV4y4v3qa+JqBEYDJQqI=
+github.com/jlrickert/cli-toolkit v0.2.1 h1:00BY74wpZs0IevBPYiRKQOATl2HqXu6K04eY4u8Rjbc=
+github.com/jlrickert/cli-toolkit v0.2.1/go.mod h1:03sO4E1V/w0QIbpCqzkjbntUwXgyiwxXSVWgEWn1Dwg=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
 github.com/russross/blackfriday/v2 v2.1.0/go.mod h1:+Rmxgy9KzJVeS9/2gXHxylqXiyQDYRxCVz55jmeOWTM=
@@ -25,6 +27,8 @@ golang.org/x/sys v0.38.0 h1:3yZWxaJjBmCWXqhN1qh02AkOnCQ1poK6oF+a7xWL6Gc=
 golang.org/x/sys v0.38.0/go.mod h1:OgkHotnGiDImocRcuBABYBEXf8A9a87e/uXjp9XT3ks=
 golang.org/x/term v0.36.0 h1:zMPR+aF8gfksFprF/Nc/rd1wRS1EI6nDBGyWAvDzx2Q=
 golang.org/x/term v0.36.0/go.mod h1:Qu394IJq6V6dCBRgwqshf3mPF85AqzYEzofzRdZkWss=
+golang.org/x/term v0.37.0 h1:8EGAD0qCmHYZg6J17DvsMy9/wJ7/D/4pV/wfnld5lTU=
+golang.org/x/term v0.37.0/go.mod h1:5pB4lxRNYYVZuTLmy8oR2BH8dflOR+IbTYFD8fi3254=
 gopkg.in/check.v1 v0.0.0-20161208181325-20d25e280405 h1:yhCVgyC4o1eVCa2tZl7eS0r+SDo693bJlVdllGtEeKM=
 gopkg.in/check.v1 v0.0.0-20161208181325-20d25e280405/go.mod h1:Co6ibVJAznAaIkqp8huTwlJQCZ016jof/cbN4VW5Yz0=
 gopkg.in/yaml.v3 v3.0.1 h1:fxVm/GzAzEWqLHuvctI91KS9hhNmmWOoWu0XTYJS7CA=

@@ -8,7 +8,12 @@ import (
 
 func TestInitLocalKeg(t *testing.T) {
 	fx := NewSandbox(t)
-	h := NewProcess(t, false, "init", "--type", "local", "--title", "myalias", "--creator", "me")
+	h := NewProcess(t, false,
+		"init",
+		"--type", "local",
+		"--alias", "myalias",
+		"--creator", "me",
+	)
 
 	// Note: the CLI binds the alias into the `--title` flag (see
 	// init_cmd.go). To produce the printed alias use --title.

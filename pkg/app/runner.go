@@ -15,18 +15,18 @@ import (
 type Runner struct {
 	Root string
 
-	project *tap.TapProject
+	project *tap.TapContext
 }
 
 // getProject returns the cached *TapProject when available. If no project is
 // cached this constructs a new TapProject using the Runner Root as the
 // project root, caches it on the Runner, and returns it. Any error creating
 // the project is wrapped to provide context to callers.
-func (r *Runner) getProject(ctx context.Context) (*tap.TapProject, error) {
+func (r *Runner) getProject(ctx context.Context) (*tap.TapContext, error) {
 	if r.project != nil {
 		return r.project, nil
 	}
-	project, err := tap.NewProject(ctx, tap.WithRoot(r.Root))
+	project, err := tap.NewTapContext(ctx, r.Root)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create project: %w", err)
 	}

@@ -12,9 +12,7 @@ import (
 	"context"
 	"os"
 
-	"github.com/jlrickert/cli-toolkit/clock"
 	"github.com/jlrickert/cli-toolkit/mylog"
-	"github.com/jlrickert/cli-toolkit/toolkit"
 	"github.com/spf13/cobra"
 
 	"github.com/jlrickert/tapper/pkg/app"
@@ -35,7 +33,7 @@ func NewRootCmd() *cobra.Command {
 			ctx := cmd.Context()
 
 			// Only install a logger if the context does not already contain one.
-			if mylog.LoggerFromContext(ctx) == mylog.NewDiscardLogger() {
+			if mylog.LoggerFromContext(ctx) == mylog.DefaultLogger {
 				// create logger out -> stderr or file
 				var out = os.Stderr
 				var f *os.File
@@ -55,15 +53,6 @@ func NewRootCmd() *cobra.Command {
 					Version: Version,
 				})
 				ctx = mylog.WithLogger(ctx, lg)
-			}
-
-			// Only install OsEnv/OsClock if not present to avoid overwriting tests.
-			// EnvFromContext returns a non-nil Env; detect default by type.
-			if _, ok := toolkit.EnvFromContext(ctx).(*toolkit.OsEnv); ok {
-				ctx = toolkit.WithEnv(ctx, &toolkit.OsEnv{})
-			}
-			if clock.ClockFromContext(ctx) == nil {
-				ctx = clock.WithClock(ctx, clock.OsClock{})
 			}
 
 			cmd.SetContext(ctx)

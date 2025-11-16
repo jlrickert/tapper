@@ -26,6 +26,8 @@ type InitOptions struct {
 	Creator string
 	Title   string
 	Alias   string
+
+	TokenEnv string
 }
 
 // Init creates a keg entry for the given name.
@@ -120,7 +122,7 @@ func (r *Runner) initLocal(ctx context.Context, opts initLocalOptions) error {
 		return fmt.Errorf("unable to init keg: %w", err)
 	}
 
-	k, err := keg.NewKegFromTarget(ctx, kegurl.NewFile(proj.Root()))
+	k, err := keg.NewKegFromTarget(ctx, kegurl.NewFile(proj.Root))
 	if err != nil {
 		return fmt.Errorf("unable to init keg: %w", err)
 	}
