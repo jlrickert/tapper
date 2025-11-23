@@ -18,11 +18,11 @@ type Runner struct {
 	project *tap.TapContext
 }
 
-// getProject returns the cached *TapProject when available. If no project is
+// getTapCtx returns the cached *TapProject when available. If no project is
 // cached this constructs a new TapProject using the Runner Root as the
 // project root, caches it on the Runner, and returns it. Any error creating
 // the project is wrapped to provide context to callers.
-func (r *Runner) getProject(ctx context.Context) (*tap.TapContext, error) {
+func (r *Runner) getTapCtx(ctx context.Context) (*tap.TapContext, error) {
 	if r.project != nil {
 		return r.project, nil
 	}

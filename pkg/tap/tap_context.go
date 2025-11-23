@@ -41,37 +41,21 @@ func NewTapContext(ctx context.Context, root string) (*TapContext, error) {
 // Config reads and merges data, state, user, and local configuration files for
 // the project. Merge order: data, state, user, local. Later values override
 // earlier ones.
-func (p *TapContext) Config(ctx context.Context) *Config {
-	// // Data config
-	// dataCfg, err := ReadConfig(ctx, filepath.Join(p.DataRoot, "config.yaml"))
-	// if errors.Is(err, keg.ErrNotExist) {
-	// 	dataCfg = &Config{}
-	// } else if err != nil {
-	// 	dataCfg = &Config{}
-	// }
-	//
-	// // State config
-	// stateCfg, err := ReadConfig(ctx, filepath.Join(p.StateRoot, "config.yaml"))
-	// if errors.Is(err, keg.ErrNotExist) {
-	// 	stateCfg = &Config{}
-	// } else if err != nil {
-	// 	stateCfg = &Config{}
-	// }
-
-	// User config
-	userCfg, err := ReadConfig(ctx, filepath.Join(p.ConfigRoot, "config.yaml"))
+func (tCtx *TapContext) Config(ctx context.Context) *Config {
+	// Local config
+	localCfg, err := ReadConfig(ctx, filepath.Join(tCtx.LocalConfigRoot, "config.yaml"))
 	if errors.Is(err, keg.ErrNotExist) {
-		userCfg = &Config{}
+		localCfg = &Config{}
 	} else if err != nil {
-		userCfg = &Config{}
+		localCfg = &Config{}
 	}
 
-	// Local config
-	localCfg, err := ReadConfig(ctx, filepath.Join(p.LocalConfigRoot, "config.yaml"))
+	// User config
+	userCfg, err := ReadConfig(ctx, filepath.Join(tCtx.ConfigRoot, "config.yaml"))
 	if errors.Is(err, keg.ErrNotExist) {
-		localCfg = &Config{}
+		userCfg = &Config{}
 	} else if err != nil {
-		localCfg = &Config{}
+		userCfg = &Config{}
 	}
 
 	return MergeConfig(userCfg, localCfg)

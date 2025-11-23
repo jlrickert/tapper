@@ -8,6 +8,7 @@ import (
 	"github.com/jlrickert/cli-toolkit/toolkit"
 	"github.com/jlrickert/tapper/pkg/app"
 	"github.com/jlrickert/tapper/pkg/keg"
+	kegurl "github.com/jlrickert/tapper/pkg/keg_url"
 	"github.com/spf13/cobra"
 )
 
@@ -27,40 +28,47 @@ func NewInitCmd() *cobra.Command {
 		// No-op persistent pre run used for symmetry with other commands.
 		PersistentPreRun: func(cmd *cobra.Command, args []string) {},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			var name string
 			if len(args) == 0 {
-				name = "."
-			} else if len(args) > 0 {
-				name = args[0]
+				return fmt.Errorf("NAME is required: %w", keg.ErrInvalid)
+			}
+			name := args[0]
+
+			if initOpts.Type != "" && !slices.Contains([]string{"registry", "local", "user"}, initOpts.Type) {
+				return fmt.Errorf(
+					"%s is not a valid type: %w",
+					initOpts.Type, keg.ErrInvalid,
+				)
+			}
+
+			if name == "." && initOpts.Type != "local" {
+				return fmt.Errorf(
+					". is only valid for for a local keg type: %w",
+					keg.ErrInvalid,
+				)
+			} else if name == "." && initOpts.Type == "" {
+
 			}
 
 			env := toolkit.EnvFromContext(cmd.Context())
 			wd, _ := env.Getwd()
-
-			if initOpts.Alias == "" {
-				if name == "." || name == "" {
+			r := app.Runner{Root: wd}
+			switch initOpts.Type {
+			case "local":
+				if initOpts.Alias == "" {
 					initOpts.Alias = filepath.Base(wd)
-				} else {
+				}
+			case "registry":
+				u, _ := kegurl.Parse(initOpts.Name)
+				initOpts.User = u.User
+				initOpts.Repo = u.Repo
+			case "user":
+				fallthrough
+			default:
+				initOpts.Name = name
+				if initOpts.Alias == "" {
 					initOpts.Alias = name
 				}
 			}
-
-			if initOpts.Type != "" {
-				if !slices.Contains([]string{"registry", "local", "user"}, initOpts.Type) {
-					return fmt.Errorf(
-						"%s is not a valid type: %w",
-						initOpts.Type, keg.ErrInvalid,
-					)
-				}
-			} else {
-				if name == "" || name == "." {
-					initOpts.Type = "local"
-				} else {
-					initOpts.Type = "registry"
-				}
-			}
-
-			r := app.Runner{Root: wd}
 
 			err := r.DoInit(cmd.Context(), name, initOpts)
 			if err != nil {
