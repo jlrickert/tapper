@@ -3,6 +3,7 @@ package cli_test
 import (
 	"testing"
 
+	"github.com/jlrickert/cli-toolkit/sandbox"
 	"github.com/stretchr/testify/require"
 )
 
@@ -49,4 +50,48 @@ func TestInitLocalKeg(t *testing.T) {
 		"title: Sorry, planned but not yet available",
 		"zero node meta should include the placeholder title",
 	)
+}
+
+func TestCreateFileTypeRepo(t *testing.T) {
+	fx := NewSandbox(t, sandbox.WithFixture("testuser", "~"))
+	h := NewProcess(t, false,
+		"create",
+		"--title", "My Test Node",
+		"--lead", "A brief summary of the node",
+		"--tags", "tag1",
+		"--tags", "tag2",
+	)
+
+	res := h.Run(fx.Context())
+	require.NoError(t, res.Err, "create command should succeed")
+	fx.DumpJailTree(0)
+
+	// Verify successful creation message in stdout
+	require.Contains(t, string(res.Stdout), "1",
+		"unexpected output: %q", string(res.Stdout),
+	)
+
+	// stderr should be empty for a successful run
+	require.Equal(t, "", string(res.Stderr))
+
+	// Verify the created node files exist
+	meta := fx.MustReadFile("kegs/example/1/meta.yaml")
+	require.Contains(t,
+		string(meta),
+		"title: My Test Node",
+		"node meta should include the title",
+	)
+	require.Contains(t,
+		string(meta),
+		"tag1",
+		"node meta should include tag1",
+	)
+	require.Contains(t,
+		string(meta),
+		"tag2",
+		"node meta should include tag2",
+	)
+
+	readme := fx.MustReadFile("kegs/example/1/README.md")
+	require.NotEmpty(t, readme, "node README should be created")
 }

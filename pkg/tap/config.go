@@ -54,6 +54,9 @@ type Config struct {
 	// API style kegs. The CLI default value is "knut".
 	DefaultRegistry string `yaml:"defaultRegistry"`
 
+	// Path to discover KEGs on local file system
+	UserRepoPath string `yaml:"userRepoPath"`
+
 	// Registries describes configured registries available to the user.
 	Registries []KegRegistry `yaml:"registries,omitempty"`
 
@@ -245,7 +248,7 @@ func ReadConfig(ctx context.Context, path string) (*Config, error) {
 	b, err := toolkit.ReadFile(ctx, path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return &Config{}, fmt.Errorf("unable read user config: %w", keg.ErrNotExist)
+			return nil, fmt.Errorf("unable read user config: %w", keg.ErrNotExist)
 		}
 		return nil, err
 	}
@@ -258,15 +261,34 @@ func ReadConfig(ctx context.Context, path string) (*Config, error) {
 // starting point when no on-disk config is available. The DefaultRegistry is
 // set to "knut" and a local file based keg pointing at the user data path is
 // provided under the alias "local".
-func DefaultUserConfig(ctx context.Context) *Config {
-	path, _ := toolkit.UserDataPath(ctx)
+func DefaultUserConfig(user, userRepos string) *Config {
+	return &Config{
+		DefaultRegistry: "knut",
+		KegMap:          []KegMapEntry{},
+		DefaultKeg:      user,
+		Kegs: map[string]kegurl.Target{
+			user: kegurl.NewFile(filepath.Join(userRepos, "@"+user, user)),
+		},
+		UserRepoPath: filepath.Join(userRepos),
+		Registries: []KegRegistry{
+			{
+				Name:     "knut",
+				Url:      "keg.jlrickert.me",
+				TokenEnv: "KNUT_API_KEY",
+			},
+		},
+	}
+}
+
+func DefaultLocalConfig(user, userKegRepo string) *Config {
 	return &Config{
 		DefaultRegistry: "knut",
 		KegMap:          []KegMapEntry{},
 		DefaultKeg:      "local",
 		Kegs: map[string]kegurl.Target{
-			"local": kegurl.NewFile(path),
+			user: kegurl.NewFile(filepath.Join(userKegRepo, "@"+user, user)),
 		},
+		UserRepoPath: filepath.Join(userKegRepo),
 		Registries: []KegRegistry{
 			{
 				Name:     "knut",
