@@ -377,6 +377,10 @@ func MergeConfig(cfgs ...*Config) *Config {
 			out.DefaultKeg = c.DefaultKeg
 		}
 
+		if c.UserRepoPath != "" {
+			out.UserRepoPath = c.UserRepoPath
+		}
+
 		// Merge Kegs: later entries override earlier entries for same alias.
 		if c.Kegs != nil {
 			if out.Kegs == nil {
@@ -429,6 +433,93 @@ func MergeConfig(cfgs ...*Config) *Config {
 func (uc *Config) Touch(ctx context.Context) {
 	clock := clock.ClockFromContext(ctx)
 	uc.Updated = clock.Now()
+}
+
+// AddKeg adds or updates a keg entry in the Config.
+//
+// Updates both the struct's Kegs map and the YAML node (if present) to preserve
+// comments and formatting. If the node exists, the alias entry is added/updated
+// within the kegs mapping while preserving document structure.
+func (uc *Config) AddKeg(ctx context.Context, alias string, target kegurl.Target) error {
+	if uc == nil {
+		return fmt.Errorf("config is nil")
+	}
+	if alias == "" {
+		return fmt.Errorf("alias is required")
+	}
+
+	// Add/update in struct
+	if uc.Kegs == nil {
+		uc.Kegs = make(map[string]kegurl.Target)
+	}
+	uc.Kegs[alias] = target
+
+	// Update node if present to preserve comments in file
+	if uc.node != nil && len(uc.node.Content) > 0 {
+		rootNode := uc.node.Content[0]
+		if rootNode == nil || rootNode.Kind != yaml.MappingNode {
+			return nil
+		}
+
+		// Find or create the "kegs" mapping in the root
+		kegsNode := findOrCreateMapKey(rootNode, "kegs")
+		if kegsNode != nil {
+			// Add or update the alias entry within kegs
+			updateMapEntry(kegsNode, alias, target.String())
+		}
+	}
+
+	return nil
+}
+
+// findOrCreateMapKey finds a mapping key's value in a YAML mapping node or creates
+// it if missing. Returns the value node for the given key.
+func findOrCreateMapKey(mapNode *yaml.Node, key string) *yaml.Node {
+	if mapNode == nil || mapNode.Kind != yaml.MappingNode {
+		return nil
+	}
+
+	// Search for existing key in key-value pairs
+	for i := 0; i < len(mapNode.Content); i += 2 {
+		if mapNode.Content[i].Value == key {
+			if i+1 < len(mapNode.Content) {
+				return mapNode.Content[i+1]
+			}
+		}
+	}
+
+	// Not found, create new entry with empty mapping
+	keyNode := &yaml.Node{Kind: yaml.ScalarNode, Value: key}
+	valueNode := &yaml.Node{Kind: yaml.MappingNode, Content: []*yaml.Node{}}
+	mapNode.Content = append(mapNode.Content, keyNode, valueNode)
+	return valueNode
+}
+
+// updateMapEntry adds or updates an entry within a YAML mapping node.
+// If the key exists, its value is updated; otherwise a new key-value pair is added.
+func updateMapEntry(mapNode *yaml.Node, key, value string) {
+	if mapNode == nil || mapNode.Kind != yaml.MappingNode {
+		return
+	}
+
+	// Search for existing entry
+	for i := 0; i < len(mapNode.Content); i += 2 {
+		if mapNode.Content[i].Value == key {
+			if i+1 < len(mapNode.Content) {
+				mapNode.Content[i+1] = &yaml.Node{
+					Kind:  yaml.ScalarNode,
+					Value: value,
+				}
+			}
+			return
+		}
+	}
+
+	// Not found, add new entry
+	mapNode.Content = append(mapNode.Content,
+		&yaml.Node{Kind: yaml.ScalarNode, Value: key},
+		&yaml.Node{Kind: yaml.ScalarNode, Value: value},
+	)
 }
 
 // LocalGitData attempts to run `git -C projectPath config --local --get key`.

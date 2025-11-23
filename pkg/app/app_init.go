@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 
 	"github.com/jlrickert/cli-toolkit/toolkit"
@@ -14,6 +13,10 @@ import (
 
 // InitOptions configures behavior for Runner.Init.
 type InitOptions struct {
+	Name string
+	Repo string
+	User string
+
 	// Type could be local, user, or registry
 	Type string
 
@@ -37,9 +40,11 @@ type InitOptions struct {
 // keg. The current implementation defers to project.DefaultKeg for further
 // resolution and returns any error encountered when obtaining the project.
 func (r *Runner) DoInit(ctx context.Context, name string, options *InitOptions) error {
+	var err error
+	var target *kegurl.Target
 	switch options.Type {
 	case "registry":
-		r.initRegistry(ctx, initRegistryOptions{
+		target, err = r.initRegistry(ctx, initRegistryOptions{
 			Alias:          options.Alias,
 			User:           "",
 			Repo:           "",
@@ -49,20 +54,9 @@ func (r *Runner) DoInit(ctx context.Context, name string, options *InitOptions) 
 			Creator:        options.Creator,
 		})
 	case "user":
-		cfg := r.project.Config(ctx)
-		if cfg == nil || cfg.UserRepoPath == "" {
-			return fmt.Errorf("userRepoPath not configured: %w", keg.ErrNotExist)
-		}
-		r.initUserKeg(ctx, InitFileOptions{
-			Alias:          options.Alias,
-			Path:           cfg.UserRepoPath,
-			AddUserConfig:  options.AddUserConfig,
-			AddLocalConfig: options.AddLocalConfig,
-			Title:          options.Title,
-			Creator:        options.Creator,
-		})
+		target, err = r.initUserKeg(ctx, options)
 	case "local":
-		return r.initLocalKeg(ctx, initLocalOptions{
+		target, err = r.initLocalKeg(ctx, initLocalOptions{
 			Alias:          options.Alias,
 			AddUserConfig:  options.AddUserConfig,
 			AddLocalConfig: options.AddLocalConfig,
@@ -70,57 +64,21 @@ func (r *Runner) DoInit(ctx context.Context, name string, options *InitOptions) 
 			Creator:        options.Creator,
 		})
 	default:
-		if name == "." {
-			return r.initLocalKeg(ctx, initLocalOptions{
-				Alias:          options.Alias,
-				AddUserConfig:  options.AddUserConfig,
-				AddLocalConfig: options.AddLocalConfig,
-				Creator:        options.Creator,
-				Title:          options.Title,
-			})
-		}
-		u, err := kegurl.Parse(name)
-		if err != nil {
-			return fmt.Errorf("unable to init keg: %w", err)
-		}
-		switch u.Scheme() {
-		case kegurl.SchemeFile:
-			return r.initUserKeg(ctx, InitFileOptions{
-				Path:           u.Path(),
-				AddUserConfig:  options.AddUserConfig,
-				AddLocalConfig: options.AddLocalConfig,
-				Alias:          options.Alias,
-				Creator:        options.Creator,
-				Title:          options.Title,
-			})
-		case kegurl.SchemeRegistry:
-		}
-		u.Scheme()
+		return fmt.Errorf("%s is an invalid repo type", options.Type)
 	}
-	if name == "." || name == "" {
-		env := toolkit.EnvFromContext(ctx)
-		pwd, err := env.Getwd()
-		if err != nil {
-			return err
-		}
-		return r.initLocalKeg(ctx, initLocalOptions{
-			Alias:          pwd,
-			AddUserConfig:  options.AddUserConfig,
-			AddLocalConfig: options.AddLocalConfig,
 
-			Title:   options.Title,
-			Creator: options.Type,
-		})
-	}
-	if name == "" {
-		return fmt.Errorf("name required: %w", keg.ErrInvalid)
-	}
-	project, err := r.getProject(ctx)
 	if err != nil {
 		return err
 	}
-	project.DefaultKeg(ctx)
-	return nil
+
+	cfg := r.project.Config(ctx)
+	if cfg == nil || cfg.UserRepoPath == "" {
+		return nil
+	}
+	tapCtx, _ := r.getTapCtx(ctx)
+	return tapCtx.UserConfigUpdate(ctx, func(cfg *tap.Config) {
+		cfg.AddKeg(ctx, options.Alias, *target)
+	}, true)
 }
 
 type initLocalOptions struct {
@@ -142,17 +100,18 @@ type initLocalOptions struct {
 // created. A zero node README is written to "0/README.md".
 //
 // Errors are wrapped with contextual messages to aid callers.
-func (r *Runner) initLocalKeg(ctx context.Context, opts initLocalOptions) error {
-	proj, err := r.getProject(ctx)
+func (r *Runner) initLocalKeg(ctx context.Context, _ initLocalOptions) (*kegurl.Target, error) {
+	proj, err := r.getTapCtx(ctx)
 	if err != nil {
-		return fmt.Errorf("unable to init keg: %w", err)
+		return nil, fmt.Errorf("unable to init keg: %w", err)
 	}
 
-	k, err := keg.NewKegFromTarget(ctx, kegurl.NewFile(proj.Root))
+	target := kegurl.NewFile(proj.Root)
+	k, err := keg.NewKegFromTarget(ctx, target)
 	if err != nil {
-		return fmt.Errorf("unable to init keg: %w", err)
+		return nil, fmt.Errorf("unable to init keg: %w", err)
 	}
-	return k.Init(ctx)
+	return &target, k.Init(ctx)
 }
 
 type InitFileOptions struct {
@@ -166,94 +125,23 @@ type InitFileOptions struct {
 	Title   string
 }
 
-func (r *Runner) initUserKeg(ctx context.Context, opt InitFileOptions) error {
-	// Determine the directory that will host the keg repo. We accept either:
-	// - explicit Path (file or directory) or
-	// - default location under user data: $XDG_DATA_HOME/kegs/@user/<alias>
-	var repoDir string
-
-	env := toolkit.EnvFromContext(ctx)
-
-	if opt.Path != "" {
-		p := filepath.Clean(opt.Path)
-		// If the provided path looks like a file (base == "keg"), treat the parent
-		// as the repo directory. Otherwise treat path as a directory and place a
-		// "keg" file inside it.
-		if filepath.Base(p) == "keg" {
-			repoDir = filepath.Dir(p)
-		} else {
-			repoDir = p
-		}
-	} else {
-		// Path not provided: derive user and place under user data path.
-		user, _ := env.GetUser()
-		if user == "" {
-			// Fallback to a sensible default username.
-			user = "user"
-		}
-		base, err := toolkit.UserDataPath(ctx)
-		if err != nil {
-			return fmt.Errorf("unable to determine user data path: %w", err)
-		}
-		alias := opt.Alias
-		if alias == "" {
-			return fmt.Errorf("alias required when path not provided: %w", keg.ErrInvalid)
-		}
-		repoDir = filepath.Join(base, "kegs", "@"+user, alias)
-	}
-
-	// Ensure directory exists.
-	if err := toolkit.Mkdir(ctx, repoDir, os.FileMode(0o755), true); err != nil {
-		return fmt.Errorf("unable to create keg directory %s: %w", repoDir, err)
-	}
-
-	// Initialize the keg repository at the target directory.
-	k, err := keg.NewKegFromTarget(ctx, kegurl.NewFile(repoDir))
+func (r *Runner) initUserKeg(ctx context.Context, opt *InitOptions) (*kegurl.Target, error) {
+	tapCtx, err := r.getTapCtx(ctx)
 	if err != nil {
-		return fmt.Errorf("unable to init keg from target: %w", err)
+		return nil, err
 	}
-	if err := k.Init(ctx); err != nil {
-		return fmt.Errorf("unable to init keg: %w", err)
-	}
-
-	// Optionally update user or local config with the created target.
-	if opt.AddUserConfig || opt.AddLocalConfig {
-		proj, err := r.getProject(ctx)
-		if err != nil {
-			return fmt.Errorf("unable to update config: %w", err)
-		}
-		// Build target to store in config: use the repo directory as a file-style
-		// target (convention is to point at the repo root for file targets).
-		target := kegurl.NewFile(repoDir)
-		alias := opt.Alias
-		if alias == "" {
-			// When alias missing, prefer the directory base.
-			alias = filepath.Base(repoDir)
-		}
-		if opt.AddUserConfig {
-			if err := proj.UserConfigUpdate(ctx, func(cfg *tap.Config) {
-				if cfg.Kegs == nil {
-					cfg.Kegs = map[string]kegurl.Target{}
-				}
-				cfg.Kegs[alias] = target
-			}, false); err != nil {
-				return fmt.Errorf("unable to write user config: %w", err)
-			}
-		}
-		if opt.AddLocalConfig {
-			if err := proj.LocalConfigUpdate(ctx, func(cfg *tap.Config) {
-				// LocalConfig uses a different struct but helper accepts *tap.Config
-				if cfg.Kegs == nil {
-					cfg.Kegs = map[string]kegurl.Target{}
-				}
-				cfg.Kegs[alias] = target
-			}, false); err != nil {
-				return fmt.Errorf("unable to write local config: %w", err)
-			}
-		}
+	cfg := tapCtx.Config(ctx)
+	base := cfg.UserRepoPath
+	if base == "" {
+		return nil, fmt.Errorf("userRepoPath not defined in user config: %w", keg.ErrNotExist)
 	}
 
-	return nil
+	kegPath := filepath.Join(base, opt.Name)
+
+	target := kegurl.NewFile(kegPath)
+	k, err := keg.NewKegFromTarget(ctx, target)
+	err = k.Init(ctx)
+	return &target, err
 }
 
 type initRegistryOptions struct {
@@ -268,14 +156,14 @@ type initRegistryOptions struct {
 	Title   string
 }
 
-func (r *Runner) initRegistry(ctx context.Context, opts initRegistryOptions) error {
+func (r *Runner) initRegistry(ctx context.Context, opts initRegistryOptions) (*kegurl.Target, error) {
 	if opts.Alias == "" {
-		return fmt.Errorf("alias required: %w", keg.ErrInvalid)
+		return nil, fmt.Errorf("alias required: %w", keg.ErrInvalid)
 	}
 
-	proj, err := r.getProject(ctx)
+	proj, err := r.getTapCtx(ctx)
 	if err != nil {
-		return fmt.Errorf("unable to init registry keg: %w", err)
+		return nil, fmt.Errorf("unable to init registry keg: %w", err)
 	}
 
 	// Determine repo (registry) name. Prefer explicit flag, then project config.
@@ -322,7 +210,7 @@ func (r *Runner) initRegistry(ctx context.Context, opts initRegistryOptions) err
 				}
 				cfg.Kegs[alias] = target
 			}, false); err != nil {
-				return fmt.Errorf("unable to write user config: %w", err)
+				return nil, fmt.Errorf("unable to write user config: %w", err)
 			}
 		}
 		if opts.AddLocalConfig {
@@ -332,10 +220,10 @@ func (r *Runner) initRegistry(ctx context.Context, opts initRegistryOptions) err
 				}
 				cfg.Kegs[alias] = target
 			}, false); err != nil {
-				return fmt.Errorf("unable to write local config: %w", err)
+				return nil, fmt.Errorf("unable to write local config: %w", err)
 			}
 		}
 	}
 
-	return nil
+	return &target, nil
 }

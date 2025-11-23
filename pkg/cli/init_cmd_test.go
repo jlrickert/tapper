@@ -11,6 +11,7 @@ func TestInitLocalKeg(t *testing.T) {
 	fx := NewSandbox(t)
 	h := NewProcess(t, false,
 		"init",
+		".",
 		"--type", "local",
 		"--alias", "myalias",
 		"--creator", "me",
@@ -52,45 +53,55 @@ func TestInitLocalKeg(t *testing.T) {
 	)
 }
 
-func TestCreateFileTypeRepo(t *testing.T) {
+func TestInitUserKeg(t *testing.T) {
 	fx := NewSandbox(t, sandbox.WithFixture("testuser", "~"))
 	h := NewProcess(t, false,
-		"create",
-		"--title", "My Test Node",
-		"--lead", "A brief summary of the node",
-		"--tags", "tag1",
-		"--tags", "tag2",
+		"init",
+		"public",
+		"--type", "user",
+		"--alias", "public",
+		"--creator", "testcreator",
 	)
 
 	res := h.Run(fx.Context())
-	require.NoError(t, res.Err, "create command should succeed")
+	require.NoError(t, res.Err, "init user keg command should succeed")
+	fx.DumpFileContent("~/.config/tapper/config.yaml")
+	fx.DumpJailTree(0)
 
-	// Verify successful creation message in stdout
-	require.Contains(t, string(res.Stdout), "1",
+	require.Contains(t, string(res.Stdout), "keg public created",
 		"unexpected output: %q", string(res.Stdout),
 	)
 
-	// stderr should be empty for a successful run
+	// stderr should be empty for a successful run.
 	require.Equal(t, "", string(res.Stderr))
 
-	// Verify the created node files exist
-	meta := fx.MustReadFile("kegs/example/1/meta.yaml")
+	// Verify the created keg exists in the userRepoPath (.local/share/tapper/kegs).
+	// The keg should be created at .local/share/tapper/kegs/public
+	nodes := fx.MustReadFile(".local/share/tapper/kegs/public/dex/nodes.tsv")
 	require.Contains(t,
-		string(meta),
-		"title: My Test Node",
-		"node meta should include the title",
-	)
-	require.Contains(t,
-		string(meta),
-		"tag1",
-		"node meta should include tag1",
-	)
-	require.Contains(t,
-		string(meta),
-		"tag2",
-		"node meta should include tag2",
+		string(nodes),
+		"0\t",
+		"nodes index should contain zero node",
 	)
 
-	readme := fx.MustReadFile("kegs/example/1/README.md")
-	require.NotEmpty(t, readme, "node README should be created")
+	readme := fx.MustReadFile(".local/share/tapper/kegs/public/0/README.md")
+	require.Contains(t, string(readme),
+		"Sorry, planned but not yet available",
+		"zero node README should contain placeholder text",
+	)
+
+	meta := fx.MustReadFile(".local/share/tapper/kegs/public/0/meta.yaml")
+	require.Contains(t,
+		string(meta),
+		"title: Sorry, planned but not yet available",
+		"zero node meta should include the placeholder title",
+	)
+
+	// Verify the user config was updated with the new keg
+	userConfig := fx.MustReadFile(".config/tapper/config.yaml")
+	require.Contains(t,
+		string(userConfig),
+		"public:",
+		"user config should contain the new keg alias",
+	)
 }

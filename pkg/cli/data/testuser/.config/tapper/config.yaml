@@ -1,3 +1,4 @@
 defaultKeg: example
+userRepoPath: ~/.local/share/tapper/kegs
 kegs:
   example: ~/kegs/example
