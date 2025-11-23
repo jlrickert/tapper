@@ -110,7 +110,7 @@ func (p *TapContext) UserConfigUpdate(ctx context.Context, f func(cfg *Config),
 	cache bool) error {
 	cfg, err := p.UserConfig(ctx, cache)
 	if errors.Is(err, keg.ErrNotExist) {
-		cfg = &Config{}
+		cfg = &Config{data: &configDTO{}}
 	} else if err != nil {
 		return err
 	}
@@ -179,7 +179,7 @@ func (p *TapContext) DataConfigUpdate(ctx context.Context, f func(cfg *Config),
 func (p *TapContext) ListKegs(ctx context.Context) []string {
 	cfg := p.Config(ctx)
 	var xs []string
-	for k := range cfg.Kegs {
+	for k := range cfg.Kegs() {
 		xs = append(xs, k)
 	}
 	sort.Strings(xs)
@@ -191,10 +191,10 @@ func (p *TapContext) ListKegs(ctx context.Context) []string {
 func (p *TapContext) DefaultKeg(ctx context.Context) (*kegurl.Target, error) {
 	cfg := p.Config(ctx)
 	local, err := p.LocalConfig(ctx, true)
-	if err == nil && local.DefaultKeg != "" {
-		return cfg.ResolveAlias(ctx, local.DefaultKeg)
+	if err == nil && local.DefaultKeg() != "" {
+		return cfg.ResolveAlias(local.DefaultKeg())
 	}
-	return cfg.ResolveProjectKeg(ctx, p.Root)
+	return cfg.ResolveKegMap(ctx, p.Root)
 }
 
 type ResolveKegOpts struct {
@@ -208,12 +208,12 @@ func (p *TapContext) ResolveKeg(ctx context.Context, opts *ResolveKegOpts) (*keg
 	}
 
 	if opts != nil && opts.Alias != "" {
-		return cfg.ResolveAlias(ctx, opts.Alias)
+		return cfg.ResolveAlias(opts.Alias)
 	}
-	target, _ := cfg.ResolveProjectKeg(ctx, p.Root)
+	target, _ := cfg.ResolveKegMap(ctx, p.Root)
 	if target != nil {
 		return target, nil
 	}
 
-	return cfg.ResolveAlias(ctx, cfg.DefaultKeg)
+	return cfg.ResolveAlias(cfg.DefaultKeg())
 }

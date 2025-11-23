@@ -46,7 +46,7 @@ func TestProject_UserConfigUpdate_SetsDefaultKeg(t *testing.T) {
 
 	// Update the user config to set DefaultKeg.
 	err = p.UserConfigUpdate(ctx, func(cfg *tap.Config) {
-		cfg.DefaultKeg = "mykeg"
+		cfg.SetDefaultKeg("mykeg")
 	}, false)
 	req.NoError(err)
 
@@ -55,14 +55,14 @@ func TestProject_UserConfigUpdate_SetsDefaultKeg(t *testing.T) {
 	// Read back the user config and verify the change is visible.
 	got, err := p.UserConfig(ctx, false)
 	req.NoError(err)
-	req.Equal("mykeg", got.DefaultKeg)
+	req.Equal("mykeg", got.DefaultKeg())
 
 	// Create a new Project instance to ensure the persisted config is re-read.
 	p2, err := tap.NewTapContext(ctx, wantRoot)
 	req.NoError(err)
 	got2, err := p2.UserConfig(ctx, false)
 	req.NoError(err)
-	req.Equal("mykeg", got2.DefaultKeg)
+	req.Equal("mykeg", got2.DefaultKeg())
 }
 
 func TestProject_UserConfigUpdate_AppendsKegMapEntry(t *testing.T) {
@@ -85,7 +85,7 @@ func TestProject_UserConfigUpdate_AppendsKegMapEntry(t *testing.T) {
 		PathPrefix: "/projects/x",
 	}
 	err = p.UserConfigUpdate(ctx, func(cfg *tap.Config) {
-		cfg.KegMap = append(cfg.KegMap, entry)
+		cfg.AddKegMap(entry)
 	}, false)
 	req.NoError(err)
 
@@ -94,7 +94,7 @@ func TestProject_UserConfigUpdate_AppendsKegMapEntry(t *testing.T) {
 	req.NoError(err)
 
 	found := false
-	for _, e := range cfg.KegMap {
+	for _, e := range cfg.KegMap() {
 		if e.Alias == entry.Alias && e.PathPrefix == entry.PathPrefix {
 			found = true
 			break
