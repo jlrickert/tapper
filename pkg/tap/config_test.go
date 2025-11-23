@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	kegurl "github.com/jlrickert/tapper/pkg/keg_url"
 	"github.com/jlrickert/tapper/pkg/tap"
 	"github.com/stretchr/testify/require"
 )
@@ -129,21 +130,22 @@ func TestResolveAlias_Behavior(t *testing.T) {
 	uc, err := tap.ParseUserConfig(fx.Context(), []byte(raw))
 	require.NoError(t, err)
 
+	t.Log(uc.Kegs())
 	// Successful resolve
-	kt, err := uc.ResolveAlias(fx.Context(), "main")
+	kt, err := uc.ResolveAlias("main")
 	require.NoError(t, err, "expected ResolveAlias to succeed for existing alias")
 	require.NotNil(t, kt)
 	require.Contains(t, kt.String(), "https://example.com/main")
 
 	// Nested mapping should also be present as a keg entry
-	kt2, err := uc.ResolveAlias(fx.Context(), "nested")
+	kt2, err := uc.ResolveAlias("nested")
 	require.NoError(t, err, "expected ResolveAlias to succeed for nested mapping")
 	require.NotNil(t, kt2)
 	// The Parse behavior may normalize to an api scheme or similar; ensure non-empty.
 	require.NotZero(t, kt2.String())
 
 	// Missing alias yields error
-	_, err = uc.ResolveAlias(fx.Context(), "missing")
+	_, err = uc.ResolveAlias("missing")
 	require.Error(t, err, "expected ResolveAlias to error for unknown alias")
 }
 
@@ -173,27 +175,26 @@ kegMap:
 
 	// Path matching the regex should prefer the regex alias
 	pathRegexMatch := filepath.Join(fx.GetJail(), "x", "special")
-	kt, err := uc.ResolveProjectKeg(fx.Context(), pathRegexMatch)
+	kt, err := uc.ResolveKegMap(fx.Context(), pathRegexMatch)
 	require.NoError(t, err, "expected ResolveProjectKeg to match regex")
 	require.Contains(t, kt.String(), "https://example.com/regex")
 
 	// Path that matches both proj and projfoo should choose the longest prefix
 	pathLongPrefix := filepath.Join(fx.GetJail(), "projects", "foo", "bar")
-	kt2, err := uc.ResolveProjectKeg(fx.Context(), pathLongPrefix)
+	kt2, err := uc.ResolveKegMap(fx.Context(), pathLongPrefix)
 	require.NoError(t, err, "expected ResolveProjectKeg to match a prefix")
 	require.Contains(t, kt2.String(), "https://example.com/projfoo")
 
 	// Path that only matches proj prefix
 	pathProj := filepath.Join(fx.GetJail(), "projects", "other")
-	kt3, err := uc.ResolveProjectKeg(fx.Context(), pathProj)
+	kt3, err := uc.ResolveKegMap(fx.Context(), pathProj)
 	require.NoError(t, err, "expected ResolveProjectKeg to match proj prefix")
 	require.Contains(t, kt3.String(), "https://example.com/proj")
 
 	// Path that matches nothing falls back to defaultKeg
 	pathNone := filepath.Join(fx.GetJail(), "unmatched")
-	kt4, err := uc.ResolveProjectKeg(fx.Context(), pathNone)
-	require.NoError(t, err, "expected ResolveProjectKeg to fallback to defaultKeg")
-	require.Contains(t, kt4.String(), "https://example.com/default")
+	_, err = uc.ResolveKegMap(fx.Context(), pathNone)
+	require.Error(t, err, "expected ResolveProjectKeg not return anything")
 
 	// If no default and no match, expect an error.
 	rawNoDefault := fmt.Sprintf(`kegs:
@@ -205,6 +206,146 @@ kegMap:
 	uc2, err := tap.ParseUserConfig(fx.Context(), []byte(rawNoDefault))
 	require.NoError(t, err)
 
-	_, err = uc2.ResolveProjectKeg(fx.Context(), filepath.Join(fx.GetJail(), "nope"))
+	_, err = uc2.ResolveKegMap(fx.Context(), filepath.Join(fx.GetJail(), "nope"))
 	require.Error(t, err, "expected ResolveProjectKeg to error when no match and no default")
+}
+
+func TestAddKeg_AddsAndUpdatesEntries(t *testing.T) {
+	t.Parallel()
+
+	raw := `kegs:
+  existing: "https://example.com/existing"
+`
+	cfg, err := tap.ParseUserConfig(t.Context(), []byte(raw))
+	require.NoError(t, err)
+
+	// Add a new keg
+	newTarget := kegurl.NewFile("/path/to/keg")
+	err = cfg.AddKeg("newkeg", newTarget)
+	require.NoError(t, err)
+
+	// Verify it's in the kegs map
+	kegs := cfg.Kegs()
+	require.Contains(t, kegs, "newkeg")
+	target := kegs["newkeg"]
+	require.Equal(t, newTarget.String(), target.String())
+
+	// Verify existing entry is still there
+	require.Contains(t, kegs, "existing")
+
+	// Update an existing keg
+	updatedTarget := kegurl.NewFile("/path/to/updated")
+	err = cfg.AddKeg("existing", updatedTarget)
+	require.NoError(t, err)
+
+	kegs = cfg.Kegs()
+	target = kegs["existing"]
+	require.Equal(t, updatedTarget.String(), target.String())
+
+	// Serialize and verify the changes are present
+	data, err := cfg.ToYAML(t.Context())
+	require.NoError(t, err)
+	out := string(data)
+	require.Contains(t, out, "newkeg")
+	require.Contains(t, out, "/path/to/keg")
+}
+
+func TestAddKeg_ReturnsErrorOnNilOrEmptyAlias(t *testing.T) {
+	t.Parallel()
+
+	cfg := tap.DefaultUserConfig("testuser", "/tmp")
+
+	// Test nil config
+	var nilCfg *tap.Config
+	err := nilCfg.AddKeg("test", kegurl.NewFile("/path"))
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "config is nil")
+
+	// Test empty alias
+	err = cfg.AddKeg("", kegurl.NewFile("/path"))
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "alias is required")
+}
+
+func TestAddKegMap_AddsAndUpdatesEntries(t *testing.T) {
+	t.Parallel()
+	fx := NewSandbox(t)
+
+	raw := `kegMap:
+  - alias: existing
+    pathPrefix: "/existing"
+`
+	cfg, err := tap.ParseUserConfig(fx.Context(), []byte(raw))
+	require.NoError(t, err)
+
+	// Add a new keg map entry
+	newEntry := tap.KegMapEntry{
+		Alias:      "newentry",
+		PathPrefix: "/new/prefix",
+	}
+	err = cfg.AddKegMap(newEntry)
+	require.NoError(t, err)
+
+	// Verify it's in the kegMap
+	kegMap := cfg.KegMap()
+	found := false
+	for _, e := range kegMap {
+		if e.Alias == "newentry" && e.PathPrefix == "/new/prefix" {
+			found = true
+			break
+		}
+	}
+	require.True(t, found, "expected newentry to be present in kegMap")
+
+	// Verify existing entry is still there
+	found = false
+	for _, e := range kegMap {
+		if e.Alias == "existing" && e.PathPrefix == "/existing" {
+			found = true
+			break
+		}
+	}
+	require.True(t, found, "expected existing entry to still be present")
+
+	// Update an existing entry
+	updatedEntry := tap.KegMapEntry{
+		Alias:      "existing",
+		PathPrefix: "/updated/prefix",
+		PathRegex:  "^/regex",
+	}
+	err = cfg.AddKegMap(updatedEntry)
+	require.NoError(t, err)
+
+	kegMap = cfg.KegMap()
+	found = false
+	for _, e := range kegMap {
+		if e.Alias == "existing" && e.PathPrefix == "/updated/prefix" && e.PathRegex == "^/regex" {
+			found = true
+			break
+		}
+	}
+	require.True(t, found, "expected existing entry to be updated")
+
+	// Verify serialization includes the changes
+	data, err := cfg.ToYAML(fx.Context())
+	require.NoError(t, err)
+	out := string(data)
+	require.Contains(t, out, "newentry")
+	require.Contains(t, out, "/new/prefix")
+}
+
+func TestAddKegMap_ReturnsErrorOnNilOrEmptyAlias(t *testing.T) {
+	t.Parallel()
+	cfg := tap.DefaultUserConfig("testuser", "/tmp")
+
+	// Test nil config
+	var nilCfg *tap.Config
+	err := nilCfg.AddKegMap(tap.KegMapEntry{Alias: "test"})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "config is nil")
+
+	// Test empty alias
+	err = cfg.AddKegMap(tap.KegMapEntry{Alias: ""})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "alias is required")
 }

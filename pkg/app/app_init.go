@@ -72,12 +72,12 @@ func (r *Runner) DoInit(ctx context.Context, name string, options *InitOptions) 
 	}
 
 	cfg := r.project.Config(ctx)
-	if cfg == nil || cfg.UserRepoPath == "" {
+	if cfg == nil || cfg.UserRepoPath() == "" {
 		return nil
 	}
 	tapCtx, _ := r.getTapCtx(ctx)
 	return tapCtx.UserConfigUpdate(ctx, func(cfg *tap.Config) {
-		cfg.AddKeg(ctx, options.Alias, *target)
+		cfg.AddKeg(options.Alias, *target)
 	}, true)
 }
 
@@ -131,7 +131,7 @@ func (r *Runner) initUserKeg(ctx context.Context, opt *InitOptions) (*kegurl.Tar
 		return nil, err
 	}
 	cfg := tapCtx.Config(ctx)
-	base := cfg.UserRepoPath
+	base := cfg.UserRepoPath()
 	if base == "" {
 		return nil, fmt.Errorf("userRepoPath not defined in user config: %w", keg.ErrNotExist)
 	}
@@ -170,8 +170,8 @@ func (r *Runner) initRegistry(ctx context.Context, opts initRegistryOptions) (*k
 	repoName := opts.Repo
 	if repoName == "" {
 		cfg := proj.Config(ctx)
-		if cfg != nil && cfg.DefaultRegistry != "" {
-			repoName = cfg.DefaultRegistry
+		if cfg != nil && cfg.DefaultRegistry() != "" {
+			repoName = cfg.DefaultRegistry()
 		}
 	}
 	if repoName == "" {
@@ -188,9 +188,9 @@ func (r *Runner) initRegistry(ctx context.Context, opts initRegistryOptions) (*k
 			user = u
 		} else {
 			// try to fall back to project-local default if present
-			if cfg := proj.Config(ctx); cfg != nil && cfg.DefaultKeg != "" {
+			if cfg := proj.Config(ctx); cfg != nil && cfg.DefaultKeg() != "" {
 				// ignore: best-effort only
-				user = cfg.DefaultKeg
+				user = cfg.DefaultKeg()
 			}
 		}
 		if user == "" {
@@ -205,20 +205,14 @@ func (r *Runner) initRegistry(ctx context.Context, opts initRegistryOptions) (*k
 		alias := opts.Alias
 		if opts.AddUserConfig {
 			if err := proj.UserConfigUpdate(ctx, func(cfg *tap.Config) {
-				if cfg.Kegs == nil {
-					cfg.Kegs = map[string]kegurl.Target{}
-				}
-				cfg.Kegs[alias] = target
+				cfg.AddKeg(alias, target)
 			}, false); err != nil {
 				return nil, fmt.Errorf("unable to write user config: %w", err)
 			}
 		}
 		if opts.AddLocalConfig {
 			if err := proj.LocalConfigUpdate(ctx, func(cfg *tap.Config) {
-				if cfg.Kegs == nil {
-					cfg.Kegs = map[string]kegurl.Target{}
-				}
-				cfg.Kegs[alias] = target
+				cfg.AddKeg(alias, target)
 			}, false); err != nil {
 				return nil, fmt.Errorf("unable to write local config: %w", err)
 			}

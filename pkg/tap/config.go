@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -29,36 +28,41 @@ import (
 // task design for "tap init" is reflected in the semantics described for
 // default registries and path handling.
 
-// Config represents the user's tapper configuration.
-//
-// We keep both a deserialized, Go friendly view for quick access and the
-// original yaml.Node for in-place edits so comments and formatting are
-// preserved when writing.
-type Config struct {
+type configDTO struct {
 	LogFile  string `yaml:"logFile,omitempty"`
 	LogLevel string `yaml:"logLevel,omitempty"`
 
-	// Updated is a timestamp.
+	// updated is a timestamp.
 	Updated time.Time `yaml:"updated,omitempty"`
 
-	// DefaultKeg is the alias of the default keg to use.
+	// defaultKeg is the alias of the default keg to use.
 	DefaultKeg string `yaml:"defaultKeg,omitempty"`
 
-	// KegMap maps a project path or pattern to a keg alias.
+	// kegMap maps a project path or pattern to a keg alias.
 	KegMap []KegMapEntry `yaml:"kegMap"`
 
-	// Kegs maps an alias to a keg Target.
+	// kegs maps an alias to a keg Target.
 	Kegs map[string]kegurl.Target `yaml:"kegs"`
 
-	// DefaultRegistry is the named registry used by default when creating
+	// defaultRegistry is the named registry used by default when creating
 	// API style kegs. The CLI default value is "knut".
 	DefaultRegistry string `yaml:"defaultRegistry"`
 
-	// Path to discover KEGs on local file system
+	// userRepoPath is the path to discover KEGs on local file system.
 	UserRepoPath string `yaml:"userRepoPath"`
 
-	// Registries describes configured registries available to the user.
+	// registries describes configured registries available to the user.
 	Registries []KegRegistry `yaml:"registries,omitempty"`
+}
+
+// Config represents the user's tapper configuration.
+//
+// All fields are private. Use getter methods to read values and setter methods
+// to update them. Setter methods sync both the struct and the YAML node to
+// ensure comments and formatting are preserved when writing.
+type Config struct {
+	// parsed data.
+	data *configDTO
 
 	// node holds the original parsed YAML document root (document node).
 	// When present we edit it directly to preserve comments and layout.
@@ -80,19 +84,164 @@ type KegRegistry struct {
 	TokenEnv string `yaml:"tokenEnv,omitempty"`
 }
 
-// ResolvePaths expands environment variables and tildes in basePath and
-// reports an error only when expansion fails.
-//
-// This helper normalizes input used elsewhere for path matching. It calls
-// std.ExpandPath which expands a leading tilde and environment variables. The
-// function does not modify any state.
-func ResolvePaths(ctx context.Context, basePath string) error {
-	// Use std helpers to ensure consistent behavior with other code paths.
-	_, err := toolkit.ExpandPath(ctx, basePath)
-	if err != nil {
-		return fmt.Errorf("expand path: %w", err)
+// --- Getter Methods ---
+
+// DefaultKeg returns the alias of the default keg to use.
+func (c *Config) DefaultKeg() string {
+	if c.data == nil {
+		c.data = &configDTO{}
 	}
-	// No stateful changes; caller can use the expanded path if needed.
+	return c.data.DefaultKeg
+}
+
+// UserRepoPath returns the path to discover KEGs on the local file system.
+func (c *Config) UserRepoPath() string {
+	if c.data == nil {
+		c.data = &configDTO{}
+	}
+	return c.data.UserRepoPath
+}
+
+// Kegs returns a map of keg aliases to their targets.
+func (c *Config) Kegs() map[string]kegurl.Target {
+	if c.data == nil {
+		c.data = &configDTO{}
+	}
+	if c.data.Kegs == nil {
+
+		return map[string]kegurl.Target{}
+	}
+	return c.data.Kegs
+}
+
+// DefaultRegistry returns the default registry name.
+func (c *Config) DefaultRegistry() string {
+	if c.data == nil {
+		c.data = &configDTO{}
+	}
+	return c.data.DefaultRegistry
+}
+
+// KegMap returns the list of path/regex to keg alias mappings.
+func (c *Config) KegMap() []KegMapEntry {
+	if c.data == nil {
+		c.data = &configDTO{}
+	}
+	if c.data.KegMap == nil {
+		return []KegMapEntry{}
+	}
+	return c.data.KegMap
+}
+
+// Registries returns the list of configured registries.
+func (c *Config) Registries() []KegRegistry {
+	if c.data == nil {
+		c.data = &configDTO{}
+	}
+	if c.data.Registries == nil {
+		return []KegRegistry{}
+	}
+	return c.data.Registries
+}
+
+// LogFile returns the log file path.
+func (c *Config) LogFile() string {
+	if c.data == nil {
+		c.data = &configDTO{}
+	}
+	return c.data.LogFile
+}
+
+// LogLevel returns the log level.
+func (c *Config) LogLevel() string {
+	if c.data == nil {
+		c.data = &configDTO{}
+	}
+	return c.data.LogLevel
+}
+
+// Updated returns the last update timestamp.
+func (c *Config) Updated() time.Time {
+	if c.data == nil {
+		c.data = &configDTO{}
+	}
+	return c.data.Updated
+}
+
+// --- Setter Methods ---
+
+// SetDefaultKeg sets the default keg alias and updates the node.
+func (c *Config) SetDefaultKeg(keg string) error {
+	if c.data == nil {
+		c.data = &configDTO{}
+	}
+	c.data.DefaultKeg = keg
+	if c.node != nil && len(c.node.Content) > 0 {
+		rootNode := c.node.Content[0]
+		if rootNode != nil && rootNode.Kind == yaml.MappingNode {
+			updateMapEntry(rootNode, "defaultKeg", keg)
+		}
+	}
+	return nil
+}
+
+// SetUserRepoPath sets the user repository path and updates the node.
+func (c *Config) SetUserRepoPath(path string) error {
+	if c.data == nil {
+		c.data = &configDTO{}
+	}
+	c.data.UserRepoPath = path
+	if c.node != nil && len(c.node.Content) > 0 {
+		rootNode := c.node.Content[0]
+		if rootNode != nil && rootNode.Kind == yaml.MappingNode {
+			updateMapEntry(rootNode, "userRepoPath", path)
+		}
+	}
+	return nil
+}
+
+// SetDefaultRegistry sets the default registry and updates the node.
+func (c *Config) SetDefaultRegistry(ctx context.Context, registry string) error {
+	if c.data == nil {
+		c.data = &configDTO{}
+	}
+	c.data.DefaultRegistry = registry
+	if c.node != nil && len(c.node.Content) > 0 {
+		rootNode := c.node.Content[0]
+		if rootNode != nil && rootNode.Kind == yaml.MappingNode {
+			updateMapEntry(rootNode, "defaultRegistry", registry)
+		}
+	}
+	return nil
+}
+
+// SetLogFile sets the log file path and updates the node.
+func (c *Config) SetLogFile(ctx context.Context, path string) error {
+	if c.data == nil {
+		c.data = &configDTO{}
+	}
+	c.data.LogFile = path
+	if c.node != nil && len(c.node.Content) > 0 {
+		rootNode := c.node.Content[0]
+		if rootNode != nil && rootNode.Kind == yaml.MappingNode {
+			updateMapEntry(rootNode, "logFile", path)
+		}
+	}
+	return nil
+}
+
+// SetLogLevel sets the log level and updates the node.
+func (c *Config) SetLogLevel(ctx context.Context, level string) error {
+	if c.data == nil {
+		c.data = &configDTO{}
+	}
+	c.data.LogLevel = level
+	if c.node != nil && len(c.node.Content) > 0 {
+		rootNode := c.node.Content[0]
+		if rootNode != nil && rootNode.Kind == yaml.MappingNode {
+			updateMapEntry(rootNode, "logLevel", level)
+		}
+	}
 	return nil
 }
 
@@ -105,47 +254,29 @@ func (uc *Config) Clone(ctx context.Context) *Config {
 	if uc == nil {
 		return nil
 	}
-	// Marshal the existing node (preserves comments) and parse into a new one.
-	var buf bytes.Buffer
-	if uc.node != nil {
-		enc := yaml.NewEncoder(&buf)
-		enc.SetIndent(2)
-		// Encode the whole document node.
-		_ = enc.Encode(uc.node)
-		_ = enc.Close()
-	} else {
-		// Fall back to struct marshal (loses comments but still clones).
-		b, _ := yaml.Marshal(uc)
-		buf.Write(b)
-	}
-	nuc, _ := ParseUserConfig(ctx, buf.Bytes())
-	if nuc == nil {
-		// As a final fallback, do a shallow copy.
-		out := *uc
-		return &out
-	}
-	return nuc
+	data, _ := uc.ToYAML(ctx)
+	cfg, _ := ParseUserConfig(ctx, data)
+	return cfg
 }
 
 // ResolveAlias looks up the keg by alias and returns a parsed Target.
 //
-// Returns (nil, error) when not found or parse fails. The function checks that
-// the stored target has a non-empty string form before parsing.
-func (uc *Config) ResolveAlias(ctx context.Context, alias string) (*kegurl.Target, error) {
-	if uc == nil {
-		return nil, fmt.Errorf("no user config")
+// Returns (nil, error) when not found or parse fails.
+func (uc *Config) ResolveAlias(alias string) (*kegurl.Target, error) {
+	if uc.data == nil {
+		uc.data = &configDTO{}
 	}
-	u, ok := uc.Kegs[alias]
+	if uc.data.Kegs == nil {
+		uc.data.Kegs = map[string]kegurl.Target{}
+	}
+	u, ok := uc.data.Kegs[alias]
 	if !ok {
 		return nil, fmt.Errorf("keg alias not found: %s", alias)
-	}
-	if u.String() == "" {
-		return nil, fmt.Errorf("keg alias %s has empty url", alias)
 	}
 	return kegurl.Parse(u.String())
 }
 
-// ResolveProjectKeg chooses the appropriate keg (via alias) based on path.
+// ResolveKegMap chooses the appropriate keg (via alias) based on path.
 //
 // Precedence rules:
 //  1. Regex entries in KegMap have the highest precedence.
@@ -155,12 +286,13 @@ func (uc *Config) ResolveAlias(ctx context.Context, alias string) (*kegurl.Targe
 //
 // The function expands env vars and tildes prior to comparisons so stored
 // prefixes and patterns may contain ~ or $VAR values.
-func (uc *Config) ResolveProjectKeg(ctx context.Context, path string) (*kegurl.Target, error) {
-	if uc == nil {
-		return nil, fmt.Errorf("no user config")
+func (uc *Config) ResolveKegMap(ctx context.Context, projectRoot string) (*kegurl.Target, error) {
+	if uc.data == nil {
+		uc.data = &configDTO{}
+		return nil, nil
 	}
 	// Expand path and make absolute/clean to compare reliably.
-	val := toolkit.ExpandEnv(ctx, path)
+	val := toolkit.ExpandEnv(ctx, projectRoot)
 	abs, err := toolkit.ExpandPath(ctx, val)
 	if err != nil {
 		// Still try with expanded env when ExpandPath fails.
@@ -169,7 +301,7 @@ func (uc *Config) ResolveProjectKeg(ctx context.Context, path string) (*kegurl.T
 	abs = filepath.Clean(abs)
 
 	// First check regex entries (highest precedence).
-	for _, m := range uc.KegMap {
+	for _, m := range uc.data.KegMap {
 		if m.PathRegex == "" {
 			continue
 		}
@@ -177,7 +309,7 @@ func (uc *Config) ResolveProjectKeg(ctx context.Context, path string) (*kegurl.T
 		pattern, _ = toolkit.ExpandPath(ctx, pattern)
 		ok, _ := regexp.MatchString(pattern, abs)
 		if ok {
-			return uc.ResolveAlias(ctx, m.Alias)
+			return uc.ResolveAlias(m.Alias)
 		}
 	}
 
@@ -187,7 +319,7 @@ func (uc *Config) ResolveProjectKeg(ctx context.Context, path string) (*kegurl.T
 		len   int
 	}
 	var matches []match
-	for _, m := range uc.KegMap {
+	for _, m := range uc.data.KegMap {
 		if m.PathPrefix == "" {
 			continue
 		}
@@ -198,18 +330,24 @@ func (uc *Config) ResolveProjectKeg(ctx context.Context, path string) (*kegurl.T
 			matches = append(matches, match{entry: m, len: len(pref)})
 		}
 	}
+
 	if len(matches) > 0 {
 		// Choose longest prefix.
 		sort.Slice(matches, func(i, j int) bool { return matches[i].len > matches[j].len })
-		return uc.ResolveAlias(ctx, matches[0].entry.Alias)
+		return uc.ResolveAlias(matches[0].entry.Alias)
 	}
 
-	// Fallback to DefaultKeg if set.
-	if uc.DefaultKeg != "" {
-		return uc.ResolveAlias(ctx, uc.DefaultKeg)
-	}
+	return nil, fmt.Errorf("no keg map entry matched path: %s", projectRoot)
+}
 
-	return nil, fmt.Errorf("no keg map entry matched path: %s", path)
+func (uc *Config) ResolveDefault(ctx context.Context) (*kegurl.Target, error) {
+	if uc.data == nil {
+		uc.data = &configDTO{}
+		return nil, nil
+	}
+	alias := toolkit.ExpandEnv(ctx, uc.DefaultKeg())
+	return uc.ResolveAlias(alias)
+
 }
 
 // ParseUserConfig parses raw YAML into a Config while preserving the
@@ -220,24 +358,14 @@ func (uc *Config) ResolveProjectKeg(ctx context.Context, path string) (*kegurl.T
 // KegMap and Kegs set to nil.
 func ParseUserConfig(ctx context.Context, raw []byte) (*Config, error) {
 	var doc yaml.Node
-	if err := yaml.Unmarshal([]byte(raw), &doc); err != nil {
+	if err := yaml.Unmarshal(raw, &doc); err != nil {
 		return nil, fmt.Errorf("failed to parse user config yaml: %w", err)
 	}
 	uc := &Config{node: &doc}
-	// doc.Content[0] should be the document's root mapping node if present.
-	if len(doc.Content) > 0 {
-		if err := doc.Content[0].Decode(uc); err != nil {
-			// Try decoding the whole doc as a fallback.
-			if err2 := doc.Decode(uc); err2 != nil {
-				return nil, fmt.Errorf("failed to decode config into struct: %w", err)
-			}
-		}
-	} else {
-		// Empty doc -> zero value config.
-		uc.KegMap = nil
-		uc.Kegs = nil
-	}
-	return uc, nil
+	var tmpCfg configDTO
+	err := yaml.Unmarshal(raw, &tmpCfg)
+	uc.data = &tmpCfg
+	return uc, err
 }
 
 // ReadConfig reads the YAML file at path and returns a parsed Config.
@@ -263,18 +391,20 @@ func ReadConfig(ctx context.Context, path string) (*Config, error) {
 // provided under the alias "local".
 func DefaultUserConfig(user, userRepos string) *Config {
 	return &Config{
-		DefaultRegistry: "knut",
-		KegMap:          []KegMapEntry{},
-		DefaultKeg:      user,
-		Kegs: map[string]kegurl.Target{
-			user: kegurl.NewFile(filepath.Join(userRepos, "@"+user, user)),
-		},
-		UserRepoPath: filepath.Join(userRepos),
-		Registries: []KegRegistry{
-			{
-				Name:     "knut",
-				Url:      "keg.jlrickert.me",
-				TokenEnv: "KNUT_API_KEY",
+		data: &configDTO{
+			DefaultRegistry: "knut",
+			KegMap:          []KegMapEntry{},
+			DefaultKeg:      user,
+			Kegs: map[string]kegurl.Target{
+				user: kegurl.NewFile(filepath.Join(userRepos, "@"+user, user)),
+			},
+			UserRepoPath: filepath.Join(userRepos),
+			Registries: []KegRegistry{
+				{
+					Name:     "knut",
+					Url:      "keg.jlrickert.me",
+					TokenEnv: "KNUT_API_KEY",
+				},
 			},
 		},
 	}
@@ -282,18 +412,20 @@ func DefaultUserConfig(user, userRepos string) *Config {
 
 func DefaultLocalConfig(user, userKegRepo string) *Config {
 	return &Config{
-		DefaultRegistry: "knut",
-		KegMap:          []KegMapEntry{},
-		DefaultKeg:      "local",
-		Kegs: map[string]kegurl.Target{
-			user: kegurl.NewFile(filepath.Join(userKegRepo, "@"+user, user)),
-		},
-		UserRepoPath: filepath.Join(userKegRepo),
-		Registries: []KegRegistry{
-			{
-				Name:     "knut",
-				Url:      "keg.jlrickert.me",
-				TokenEnv: "KNUT_API_KEY",
+		data: &configDTO{
+			DefaultRegistry: "knut",
+			KegMap:          []KegMapEntry{},
+			DefaultKeg:      "local",
+			Kegs: map[string]kegurl.Target{
+				user: kegurl.NewFile(filepath.Join(userKegRepo, "@"+user, user)),
+			},
+			UserRepoPath: filepath.Join(userKegRepo),
+			Registries: []KegRegistry{
+				{
+					Name:     "knut",
+					Url:      "keg.jlrickert.me",
+					TokenEnv: "KNUT_API_KEY",
+				},
 			},
 		},
 	}
@@ -319,7 +451,7 @@ func (uc *Config) ToYAML(ctx context.Context) ([]byte, error) {
 			return nil, fmt.Errorf("encode yaml node: %w", err)
 		}
 	} else {
-		if err := enc.Encode(uc); err != nil {
+		if err := enc.Encode(uc.data); err != nil {
 			_ = enc.Close()
 			return nil, fmt.Errorf("encode yaml struct: %w", err)
 		}
@@ -359,50 +491,35 @@ func MergeConfig(cfgs ...*Config) *Config {
 	}
 
 	out := &Config{
-		Kegs:   make(map[string]kegurl.Target),
-		KegMap: make([]KegMapEntry, 0),
+		data: &configDTO{
+			Kegs:   make(map[string]kegurl.Target),
+			KegMap: make([]KegMapEntry, 0),
+		},
 	}
-
-	// map to track alias -> index in out.KegMap so newer entries override older
-	aliasIndex := make(map[string]int)
 
 	var lastNode *yaml.Node
 
 	for _, c := range cfgs {
-		if c == nil {
+		if c == nil || c.data == nil {
 			continue
 		}
+
 		// DefaultKeg: later wins when non-empty.
-		if c.DefaultKeg != "" {
-			out.DefaultKeg = c.DefaultKeg
+		if c.data.DefaultKeg != "" {
+			out.data.DefaultKeg = c.data.DefaultKeg
 		}
 
-		if c.UserRepoPath != "" {
-			out.UserRepoPath = c.UserRepoPath
+		if c.data.UserRepoPath != "" {
+			out.data.UserRepoPath = c.data.UserRepoPath
 		}
 
-		// Merge Kegs: later entries override earlier entries for same alias.
-		if c.Kegs != nil {
-			if out.Kegs == nil {
-				out.Kegs = make(map[string]kegurl.Target)
-			}
-			maps.Copy(out.Kegs, c.Kegs)
+		for alias, target := range c.data.Kegs {
+			out.AddKeg(alias, target)
 		}
 
 		// Merge KegMap entries. Preserve order but override by alias when provided.
-		for _, e := range c.KegMap {
-			if e.Alias == "" {
-				// No alias to dedupe by; always append.
-				out.KegMap = append(out.KegMap, e)
-				continue
-			}
-			if idx, ok := aliasIndex[e.Alias]; ok {
-				// Replace existing entry at idx with the new one.
-				out.KegMap[idx] = e
-			} else {
-				aliasIndex[e.Alias] = len(out.KegMap)
-				out.KegMap = append(out.KegMap, e)
-			}
+		for _, e := range c.data.KegMap {
+			out.AddKegMap(e)
 		}
 
 		// Remember last non-nil node so we can preserve comments if present.
@@ -432,7 +549,7 @@ func MergeConfig(cfgs ...*Config) *Config {
 // Touch updates the Updated timestamp on the Config using the context clock.
 func (uc *Config) Touch(ctx context.Context) {
 	clock := clock.ClockFromContext(ctx)
-	uc.Updated = clock.Now()
+	uc.data.Updated = clock.Now()
 }
 
 // AddKeg adds or updates a keg entry in the Config.
@@ -440,7 +557,7 @@ func (uc *Config) Touch(ctx context.Context) {
 // Updates both the struct's Kegs map and the YAML node (if present) to preserve
 // comments and formatting. If the node exists, the alias entry is added/updated
 // within the kegs mapping while preserving document structure.
-func (uc *Config) AddKeg(ctx context.Context, alias string, target kegurl.Target) error {
+func (uc *Config) AddKeg(alias string, target kegurl.Target) error {
 	if uc == nil {
 		return fmt.Errorf("config is nil")
 	}
@@ -449,10 +566,10 @@ func (uc *Config) AddKeg(ctx context.Context, alias string, target kegurl.Target
 	}
 
 	// Add/update in struct
-	if uc.Kegs == nil {
-		uc.Kegs = make(map[string]kegurl.Target)
+	if uc.data.Kegs == nil {
+		uc.data.Kegs = make(map[string]kegurl.Target)
 	}
-	uc.Kegs[alias] = target
+	uc.data.Kegs[alias] = target
 
 	// Update node if present to preserve comments in file
 	if uc.node != nil && len(uc.node.Content) > 0 {
@@ -470,6 +587,94 @@ func (uc *Config) AddKeg(ctx context.Context, alias string, target kegurl.Target
 	}
 
 	return nil
+}
+
+// AddKegMap adds or updates a keg map entry in the Config.
+//
+// Updates both the struct's KegMap slice and the YAML node (if present) to preserve
+// comments and formatting. If an entry with the same alias exists, it is replaced;
+// otherwise a new entry is appended.
+func (uc *Config) AddKegMap(entry KegMapEntry) error {
+	if uc == nil {
+		return fmt.Errorf("config is nil")
+	}
+	if entry.Alias == "" {
+		return fmt.Errorf("alias is required")
+	}
+
+	// Find and update or append to struct
+	found := false
+	for i, e := range uc.data.KegMap {
+		if e.Alias == entry.Alias {
+			uc.data.KegMap[i] = entry
+			found = true
+			break
+		}
+	}
+	if !found {
+		uc.data.KegMap = append(uc.data.KegMap, entry)
+	}
+
+	// Update node if present to preserve comments in file
+	if uc.node != nil && len(uc.node.Content) > 0 {
+		rootNode := uc.node.Content[0]
+		if rootNode == nil || rootNode.Kind != yaml.MappingNode {
+			return nil
+		}
+
+		// Find or create the "kegMap" sequence in the root
+		kegMapNode := findOrCreateMapKey(rootNode, "kegMap")
+		if kegMapNode != nil {
+			// Rebuild the kegMap sequence from the updated slice
+			updateKegMapSequence(kegMapNode, uc.data.KegMap)
+		}
+	}
+
+	return nil
+}
+
+// updateKegMapSequence updates a YAML sequence node to match the provided KegMapEntry slice.
+func updateKegMapSequence(seqNode *yaml.Node, entries []KegMapEntry) {
+	if seqNode == nil || seqNode.Kind != yaml.SequenceNode {
+		return
+	}
+
+	// Clear existing content
+	seqNode.Content = []*yaml.Node{}
+
+	// Add each entry as a mapping node
+	for _, e := range entries {
+		entryNode := &yaml.Node{
+			Kind:    yaml.MappingNode,
+			Content: []*yaml.Node{},
+		}
+
+		// Add alias key-value
+		if e.Alias != "" {
+			entryNode.Content = append(entryNode.Content,
+				&yaml.Node{Kind: yaml.ScalarNode, Value: "alias"},
+				&yaml.Node{Kind: yaml.ScalarNode, Value: e.Alias},
+			)
+		}
+
+		// Add pathPrefix key-value if set
+		if e.PathPrefix != "" {
+			entryNode.Content = append(entryNode.Content,
+				&yaml.Node{Kind: yaml.ScalarNode, Value: "pathPrefix"},
+				&yaml.Node{Kind: yaml.ScalarNode, Value: e.PathPrefix},
+			)
+		}
+
+		// Add pathRegex key-value if set
+		if e.PathRegex != "" {
+			entryNode.Content = append(entryNode.Content,
+				&yaml.Node{Kind: yaml.ScalarNode, Value: "pathRegex"},
+				&yaml.Node{Kind: yaml.ScalarNode, Value: e.PathRegex},
+			)
+		}
+
+		seqNode.Content = append(seqNode.Content, entryNode)
+	}
 }
 
 // findOrCreateMapKey finds a mapping key's value in a YAML mapping node or creates
