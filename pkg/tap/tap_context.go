@@ -212,3 +212,24 @@ func (p *TapContext) DefaultKeg(ctx context.Context) (*kegurl.Target, error) {
 	}
 	return cfg.ResolveProjectKeg(ctx, p.Root)
 }
+
+type ResolveKegOpts struct {
+	Alias string
+}
+
+func (p *TapContext) ResolveKeg(ctx context.Context, opts *ResolveKegOpts) (*kegurl.Target, error) {
+	cfg := p.Config(ctx)
+	if cfg == nil {
+		return nil, nil
+	}
+
+	if opts != nil && opts.Alias != "" {
+		return cfg.ResolveAlias(ctx, opts.Alias)
+	}
+	target, _ := cfg.ResolveProjectKeg(ctx, p.Root)
+	if target != nil {
+		return target, nil
+	}
+
+	return cfg.ResolveAlias(ctx, cfg.DefaultKeg)
+}

@@ -18,8 +18,9 @@ func NewCreateCmd() *cobra.Command {
 	var opts app.CreateOptions
 
 	cmd := &cobra.Command{
-		Use:   "create",
-		Short: "create a new node in the current keg",
+		Use:     "create",
+		Short:   "create a new node in the current keg",
+		Aliases: []string{"c"},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Resolve runner: prefer an injected runner from context, otherwise
 			// construct a local app.Runner using the Env's working directory.

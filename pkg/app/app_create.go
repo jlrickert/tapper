@@ -7,10 +7,14 @@ import (
 
 	"github.com/jlrickert/cli-toolkit/toolkit"
 	"github.com/jlrickert/tapper/pkg/keg"
+	"github.com/jlrickert/tapper/pkg/tap"
 )
 
 // CreateOptions configures behavior for Runner.Create.
 type CreateOptions struct {
+	// alias of the keg to create the node on
+	Alias string
+
 	Title  string
 	Lead   string
 	Tags   []string
@@ -31,10 +35,11 @@ func (r *Runner) Create(ctx context.Context, opts CreateOptions) (keg.Node, erro
 		return keg.Node{}, fmt.Errorf("unable to create node: %w", err)
 	}
 
-	target, err := proj.DefaultKeg(ctx)
+	target, err := proj.ResolveKeg(ctx, &tap.ResolveKegOpts{Alias: opts.Alias})
 	if err != nil {
 		return keg.Node{}, fmt.Errorf("unable to determine default keg: %w", err)
 	}
+
 	if target == nil {
 		return keg.Node{}, fmt.Errorf("no default keg configured: %w", keg.ErrInvalid)
 	}
