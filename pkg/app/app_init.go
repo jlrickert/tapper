@@ -14,7 +14,7 @@ import (
 
 // InitOptions configures behavior for Runner.Init.
 type InitOptions struct {
-	// Type could be local, file, or registry
+	// Type could be local, user, or registry
 	Type string
 
 	// AddConfig adds config to user config
@@ -30,21 +30,30 @@ type InitOptions struct {
 	TokenEnv string
 }
 
-// Init creates a keg entry for the given name.
+// DoInit creates a keg entry for the given name.
 //
-// If name is empty an ErrInvalid-wrapped error is returned. Init obtains the
+// If name is empty an ErrInvalid-wrapped error is returned. DoInit obtains the
 // project via getProject and then performs the actions required to create a
 // keg. The current implementation defers to project.DefaultKeg for further
 // resolution and returns any error encountered when obtaining the project.
-func (r *Runner) Init(ctx context.Context, name string, options *InitOptions) error {
+func (r *Runner) DoInit(ctx context.Context, name string, options *InitOptions) error {
 	switch options.Type {
 	case "registry":
-	case "file":
+		r.initRegistry(ctx, initRegistryOptions{
+			Alias:          options.Alias,
+			User:           "",
+			Repo:           "",
+			AddUserConfig:  options.AddUserConfig,
+			AddLocalConfig: options.AddLocalConfig,
+			Title:          options.Title,
+			Creator:        options.Creator,
+		})
+	case "user":
 		cfg := r.project.Config(ctx)
 		if cfg == nil || cfg.UserRepoPath == "" {
 			return fmt.Errorf("userRepoPath not configured: %w", keg.ErrNotExist)
 		}
-		r.initFile(ctx, InitFileOptions{
+		r.initUserKeg(ctx, InitFileOptions{
 			Alias:          options.Alias,
 			Path:           cfg.UserRepoPath,
 			AddUserConfig:  options.AddUserConfig,
@@ -53,7 +62,7 @@ func (r *Runner) Init(ctx context.Context, name string, options *InitOptions) er
 			Creator:        options.Creator,
 		})
 	case "local":
-		return r.initLocal(ctx, initLocalOptions{
+		return r.initLocalKeg(ctx, initLocalOptions{
 			Alias:          options.Alias,
 			AddUserConfig:  options.AddUserConfig,
 			AddLocalConfig: options.AddLocalConfig,
@@ -62,7 +71,7 @@ func (r *Runner) Init(ctx context.Context, name string, options *InitOptions) er
 		})
 	default:
 		if name == "." {
-			return r.initLocal(ctx, initLocalOptions{
+			return r.initLocalKeg(ctx, initLocalOptions{
 				Alias:          options.Alias,
 				AddUserConfig:  options.AddUserConfig,
 				AddLocalConfig: options.AddLocalConfig,
@@ -76,7 +85,7 @@ func (r *Runner) Init(ctx context.Context, name string, options *InitOptions) er
 		}
 		switch u.Scheme() {
 		case kegurl.SchemeFile:
-			return r.initFile(ctx, InitFileOptions{
+			return r.initUserKeg(ctx, InitFileOptions{
 				Path:           u.Path(),
 				AddUserConfig:  options.AddUserConfig,
 				AddLocalConfig: options.AddLocalConfig,
@@ -94,7 +103,7 @@ func (r *Runner) Init(ctx context.Context, name string, options *InitOptions) er
 		if err != nil {
 			return err
 		}
-		return r.initLocal(ctx, initLocalOptions{
+		return r.initLocalKeg(ctx, initLocalOptions{
 			Alias:          pwd,
 			AddUserConfig:  options.AddUserConfig,
 			AddLocalConfig: options.AddLocalConfig,
@@ -123,7 +132,7 @@ type initLocalOptions struct {
 	Title   string
 }
 
-// initLocal creates a filesystem-backed keg repository at path.
+// initLocalKeg creates a filesystem-backed keg repository at path.
 //
 // If path is empty the current working directory is used. The function uses
 // the Env from ctx to resolve the working directory when available and falls
@@ -133,7 +142,7 @@ type initLocalOptions struct {
 // created. A zero node README is written to "0/README.md".
 //
 // Errors are wrapped with contextual messages to aid callers.
-func (r *Runner) initLocal(ctx context.Context, opts initLocalOptions) error {
+func (r *Runner) initLocalKeg(ctx context.Context, opts initLocalOptions) error {
 	proj, err := r.getProject(ctx)
 	if err != nil {
 		return fmt.Errorf("unable to init keg: %w", err)
@@ -157,7 +166,7 @@ type InitFileOptions struct {
 	Title   string
 }
 
-func (r *Runner) initFile(ctx context.Context, opt InitFileOptions) error {
+func (r *Runner) initUserKeg(ctx context.Context, opt InitFileOptions) error {
 	// Determine the directory that will host the keg repo. We accept either:
 	// - explicit Path (file or directory) or
 	// - default location under user data: $XDG_DATA_HOME/kegs/@user/<alias>

@@ -64,7 +64,6 @@ func TestCreateFileTypeRepo(t *testing.T) {
 
 	res := h.Run(fx.Context())
 	require.NoError(t, res.Err, "create command should succeed")
-	fx.DumpJailTree(0)
 
 	// Verify successful creation message in stdout
 	require.Contains(t, string(res.Stdout), "1",
