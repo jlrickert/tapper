@@ -20,22 +20,12 @@ import (
 //	keg init blog --path ./kegs/blog --title "Blog" --creator "me"
 func NewInitCmd() *cobra.Command {
 	initOpts := &app.InitOptions{}
-	// var flagType string
-	//
-	// var flagTitle string
-	// var flagAlias string
-	// var flagCreator string
-	// var flagTokenEnv string
-	//
-	// var flagAddConfig bool
-	// var flagNoConfig bool
 
 	cmd := &cobra.Command{
 		Use:   "init NAME",
 		Short: "create a new keg target",
 		// No-op persistent pre run used for symmetry with other commands.
 		PersistentPreRun: func(cmd *cobra.Command, args []string) {},
-		Aliases:          []string{"c"},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var name string
 			if len(args) == 0 {
@@ -56,7 +46,7 @@ func NewInitCmd() *cobra.Command {
 			}
 
 			if initOpts.Type != "" {
-				if !slices.Contains([]string{"registry", "local", "file"}, initOpts.Type) {
+				if !slices.Contains([]string{"registry", "local", "user"}, initOpts.Type) {
 					return fmt.Errorf(
 						"%s is not a valid type: %w",
 						initOpts.Type, keg.ErrInvalid,
@@ -72,7 +62,7 @@ func NewInitCmd() *cobra.Command {
 
 			r := app.Runner{Root: wd}
 
-			err := r.Init(cmd.Context(), name, initOpts)
+			err := r.DoInit(cmd.Context(), name, initOpts)
 			if err != nil {
 				return err
 			}
@@ -82,7 +72,7 @@ func NewInitCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&initOpts.Type, "type", "", "destination type: registry|file|local")
+	cmd.Flags().StringVar(&initOpts.Type, "type", "", "destination type: registry|user|local")
 	cmd.Flags().StringVar(&initOpts.Alias, "alias", "", "alias of keg to add to config")
 	cmd.Flags().StringVar(&initOpts.Title, "title", "", "human title to write into the keg config")
 	cmd.Flags().StringVar(&initOpts.Creator, "creator", "", "creator identifier to include in the keg config")
@@ -95,7 +85,7 @@ func NewInitCmd() *cobra.Command {
 	_ = cmd.RegisterFlagCompletionFunc(
 		"type",
 		func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-			opts := []string{"registry", "file", "local"}
+			opts := []string{"registry", "file", "user"}
 			return opts, cobra.ShellCompDirectiveNoFileComp
 		},
 	)
