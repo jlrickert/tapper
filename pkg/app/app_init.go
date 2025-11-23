@@ -40,13 +40,25 @@ func (r *Runner) Init(ctx context.Context, name string, options *InitOptions) er
 	switch options.Type {
 	case "registry":
 	case "file":
+		cfg := r.project.Config(ctx)
+		if cfg == nil || cfg.UserRepoPath == "" {
+			return fmt.Errorf("userRepoPath not configured: %w", keg.ErrNotExist)
+		}
+		r.initFile(ctx, InitFileOptions{
+			Alias:          options.Alias,
+			Path:           cfg.UserRepoPath,
+			AddUserConfig:  options.AddUserConfig,
+			AddLocalConfig: options.AddLocalConfig,
+			Title:          options.Title,
+			Creator:        options.Creator,
+		})
 	case "local":
 		return r.initLocal(ctx, initLocalOptions{
 			Alias:          options.Alias,
 			AddUserConfig:  options.AddUserConfig,
 			AddLocalConfig: options.AddLocalConfig,
-			Creator:        options.Creator,
 			Title:          options.Title,
+			Creator:        options.Creator,
 		})
 	default:
 		if name == "." {
@@ -76,9 +88,14 @@ func (r *Runner) Init(ctx context.Context, name string, options *InitOptions) er
 		}
 		u.Scheme()
 	}
-	if name == "." {
+	if name == "." || name == "" {
+		env := toolkit.EnvFromContext(ctx)
+		pwd, err := env.Getwd()
+		if err != nil {
+			return err
+		}
 		return r.initLocal(ctx, initLocalOptions{
-			Alias:          options.Alias,
+			Alias:          pwd,
 			AddUserConfig:  options.AddUserConfig,
 			AddLocalConfig: options.AddLocalConfig,
 

@@ -28,11 +28,10 @@ type TapContext struct {
 // It applies any provided Tap ProjectOption values first, then calls into the
 // std project constructor to fill platform defaults.
 func NewTapContext(ctx context.Context, root string) (*TapContext, error) {
-	aCtx, err := appctx.NewAppContext(ctx, DefaultAppName)
+	aCtx, err := appctx.NewAppContext(ctx, root, DefaultAppName)
 	if err != nil {
 		return nil, err
 	}
-	aCtx.Root = root
 	tCtx := TapContext{
 		AppContext: aCtx,
 	}
@@ -43,26 +42,26 @@ func NewTapContext(ctx context.Context, root string) (*TapContext, error) {
 // the project. Merge order: data, state, user, local. Later values override
 // earlier ones.
 func (p *TapContext) Config(ctx context.Context) *Config {
-	// Data config
-	dataCfg, err := ReadConfig(ctx, filepath.Join(p.DataRoot, "config.yaml"))
-	if errors.Is(err, keg.ErrNotExist) {
-		dataCfg = &Config{}
-	} else if err != nil {
-		dataCfg = &Config{}
-	}
-
-	// State config
-	stateCfg, err := ReadConfig(ctx, filepath.Join(p.StateRoot, "config.yaml"))
-	if errors.Is(err, keg.ErrNotExist) {
-		stateCfg = &Config{}
-	} else if err != nil {
-		stateCfg = &Config{}
-	}
+	// // Data config
+	// dataCfg, err := ReadConfig(ctx, filepath.Join(p.DataRoot, "config.yaml"))
+	// if errors.Is(err, keg.ErrNotExist) {
+	// 	dataCfg = &Config{}
+	// } else if err != nil {
+	// 	dataCfg = &Config{}
+	// }
+	//
+	// // State config
+	// stateCfg, err := ReadConfig(ctx, filepath.Join(p.StateRoot, "config.yaml"))
+	// if errors.Is(err, keg.ErrNotExist) {
+	// 	stateCfg = &Config{}
+	// } else if err != nil {
+	// 	stateCfg = &Config{}
+	// }
 
 	// User config
 	userCfg, err := ReadConfig(ctx, filepath.Join(p.ConfigRoot, "config.yaml"))
 	if errors.Is(err, keg.ErrNotExist) {
-		userCfg = DefaultUserConfig(ctx)
+		userCfg = &Config{}
 	} else if err != nil {
 		userCfg = &Config{}
 	}
@@ -75,7 +74,7 @@ func (p *TapContext) Config(ctx context.Context) *Config {
 		localCfg = &Config{}
 	}
 
-	return MergeConfig(dataCfg, stateCfg, userCfg, localCfg)
+	return MergeConfig(userCfg, localCfg)
 }
 
 // LocalConfig returns the repo-local override configuration. When cache is true
@@ -85,9 +84,6 @@ func (p *TapContext) LocalConfig(ctx context.Context, cache bool) (*Config, erro
 		return p.lCfg, nil
 	}
 	cfg, err := ReadConfig(ctx, filepath.Join(p.LocalConfigRoot, "config.yaml"))
-	if errors.Is(err, keg.ErrNotExist) {
-		cfg = DefaultUserConfig(ctx)
-	}
 	if err != nil {
 		// propagate other errors
 		return nil, err
@@ -116,9 +112,6 @@ func (p *TapContext) UserConfig(ctx context.Context, cache bool) (*Config, error
 		return p.uCfg, nil
 	}
 	cfg, err := ReadConfig(ctx, filepath.Join(p.ConfigRoot, "config.yaml"))
-	if errors.Is(err, keg.ErrNotExist) {
-		cfg = DefaultUserConfig(ctx)
-	}
 	if err != nil {
 		// propagate other errors
 		return nil, err

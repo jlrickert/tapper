@@ -43,7 +43,18 @@ func NewInitCmd() *cobra.Command {
 			} else if len(args) > 0 {
 				name = args[0]
 			}
-			t := "registry"
+
+			env := toolkit.EnvFromContext(cmd.Context())
+			wd, _ := env.Getwd()
+
+			if initOpts.Alias == "" {
+				if name == "." || name == "" {
+					initOpts.Alias = filepath.Base(wd)
+				} else {
+					initOpts.Alias = name
+				}
+			}
+
 			if initOpts.Type != "" {
 				if !slices.Contains([]string{"registry", "local", "file"}, initOpts.Type) {
 					return fmt.Errorf(
@@ -51,27 +62,27 @@ func NewInitCmd() *cobra.Command {
 						initOpts.Type, keg.ErrInvalid,
 					)
 				}
-				t = initOpts.Type
+			} else {
+				if name == "" || name == "." {
+					initOpts.Type = "local"
+				} else {
+					initOpts.Type = "registry"
+				}
 			}
-			env := toolkit.EnvFromContext(cmd.Context())
-			wd, _ := env.Getwd()
+
 			r := app.Runner{Root: wd}
+
 			err := r.Init(cmd.Context(), name, initOpts)
 			if err != nil {
 				return err
 			}
-			alias := initOpts.Alias
-			if alias == "" && name == "." {
-				alias = filepath.Base(filepath.Dir(r.Root))
-			} else if alias == "" && t == "local" && name != "." {
-				alias = name
-			}
+
 			fmt.Fprintf(cmd.OutOrStdout(), "keg %s created", initOpts.Alias)
 			return nil
 		},
 	}
 
-	cmd.Flags().StringVar(&initOpts.Type, "type", "registry", "destination type: registry|file|local")
+	cmd.Flags().StringVar(&initOpts.Type, "type", "", "destination type: registry|file|local")
 	cmd.Flags().StringVar(&initOpts.Alias, "alias", "", "alias of keg to add to config")
 	cmd.Flags().StringVar(&initOpts.Title, "title", "", "human title to write into the keg config")
 	cmd.Flags().StringVar(&initOpts.Creator, "creator", "", "creator identifier to include in the keg config")
