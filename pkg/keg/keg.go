@@ -16,7 +16,8 @@ import (
 // It implements common node operations by delegating low-level storage to the
 // repo.
 type Keg struct {
-	Repo KegRepository
+	Target *kegurl.Target
+	Repo   KegRepository
 
 	dex *Dex
 }
@@ -35,7 +36,7 @@ func NewKegFromTarget(ctx context.Context, target kegurl.Target) (*Keg, error) {
 			ContentFilename: MarkdownContentFilename,
 			MetaFilename:    YAMLMetaFilename,
 		}
-		keg := Keg{Repo: &repo}
+		keg := Keg{Target: &target, Repo: &repo}
 		return &keg, nil
 	}
 	return nil, fmt.Errorf("unsupported target scheme: %s", target.Scheme())
