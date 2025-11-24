@@ -33,20 +33,22 @@ func NewInitCmd() *cobra.Command {
 			}
 			name := args[0]
 
-			if initOpts.Type != "" && !slices.Contains([]string{"registry", "local", "user"}, initOpts.Type) {
+			// Infer type if not provided:
+			// - If name is ".", infer type as "local"
+			// - Otherwise, default to "user"
+			if initOpts.Type == "" {
+				if name == "." {
+					initOpts.Type = "local"
+				} else {
+					initOpts.Type = "user"
+				}
+			}
+
+			if !slices.Contains([]string{"registry", "local", "user"}, initOpts.Type) {
 				return fmt.Errorf(
 					"%s is not a valid type: %w",
 					initOpts.Type, keg.ErrInvalid,
 				)
-			}
-
-			if name == "." && initOpts.Type != "local" {
-				return fmt.Errorf(
-					". is only valid for for a local keg type: %w",
-					keg.ErrInvalid,
-				)
-			} else if name == "." && initOpts.Type == "" {
-
 			}
 
 			env := toolkit.EnvFromContext(cmd.Context())
