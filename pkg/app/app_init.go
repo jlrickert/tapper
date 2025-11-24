@@ -13,12 +13,19 @@ import (
 
 // InitOptions configures behavior for Runner.Init.
 type InitOptions struct {
-	Name string
-	Repo string
-	User string
-
 	// Type could be local, user, or registry
 	Type string
+
+	// When type is registry
+	Repo     string
+	User     string
+	TokenEnv string
+
+	// When type is user
+	Name string
+
+	// When type is local
+	Path string
 
 	// AddConfig adds config to user config
 	AddUserConfig bool
@@ -29,8 +36,6 @@ type InitOptions struct {
 	Creator string
 	Title   string
 	Alias   string
-
-	TokenEnv string
 }
 
 // DoInit creates a keg entry for the given name.
@@ -54,15 +59,19 @@ func (r *Runner) DoInit(ctx context.Context, name string, options *InitOptions) 
 			Creator:        options.Creator,
 		})
 	case "user":
-		target, err = r.initUserKeg(ctx, options)
+		k, e := r.initUserKeg(ctx, options)
+		err = e
+		target = k.Target
 	case "local":
-		target, err = r.initLocalKeg(ctx, initLocalOptions{
-			Alias:          options.Alias,
+		k, e := r.initLocalKeg(ctx, initLocalOptions{
+			Path:           options.Path,
 			AddUserConfig:  options.AddUserConfig,
 			AddLocalConfig: options.AddLocalConfig,
 			Title:          options.Title,
 			Creator:        options.Creator,
 		})
+		err = e
+		target = k.Target
 	default:
 		return fmt.Errorf("%s is an invalid repo type", options.Type)
 	}
@@ -71,18 +80,23 @@ func (r *Runner) DoInit(ctx context.Context, name string, options *InitOptions) 
 		return err
 	}
 
-	cfg := r.project.Config(ctx)
+	tCtx, err := r.getTapCtx(ctx)
+	cfg := tCtx.Config(ctx)
 	if cfg == nil || cfg.UserRepoPath() == "" {
 		return nil
 	}
-	tapCtx, _ := r.getTapCtx(ctx)
+	tapCtx, err := r.getTapCtx(ctx)
+	if err != nil {
+		return fmt.Errorf("unable to add alias %s update user config: %w", options.Alias, err)
+	}
+
 	return tapCtx.UserConfigUpdate(ctx, func(cfg *tap.Config) {
 		cfg.AddKeg(options.Alias, *target)
 	}, true)
 }
 
 type initLocalOptions struct {
-	Alias          string
+	Path           string
 	AddUserConfig  bool
 	AddLocalConfig bool
 
@@ -100,48 +114,47 @@ type initLocalOptions struct {
 // created. A zero node README is written to "0/README.md".
 //
 // Errors are wrapped with contextual messages to aid callers.
-func (r *Runner) initLocalKeg(ctx context.Context, _ initLocalOptions) (*kegurl.Target, error) {
-	proj, err := r.getTapCtx(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("unable to init keg: %w", err)
-	}
-
-	target := kegurl.NewFile(proj.Root)
+func (r *Runner) initLocalKeg(ctx context.Context, opts initLocalOptions) (*keg.Keg, error) {
+	target := kegurl.NewFile(opts.Path)
 	k, err := keg.NewKegFromTarget(ctx, target)
 	if err != nil {
 		return nil, fmt.Errorf("unable to init keg: %w", err)
 	}
-	return &target, k.Init(ctx)
+	err = k.Init(ctx)
+	if err != nil {
+		return nil, err
+	}
+	err = k.UpdateConfig(ctx, func(kc *keg.KegConfig) {
+		kc.Creator = opts.Creator
+		kc.Title = opts.Title
+	})
+	return k, err
 }
 
-type InitFileOptions struct {
-	Path string
-
-	AddUserConfig  bool
-	AddLocalConfig bool
-
-	Alias   string
-	Creator string
-	Title   string
-}
-
-func (r *Runner) initUserKeg(ctx context.Context, opt *InitOptions) (*kegurl.Target, error) {
+func (r *Runner) initUserKeg(ctx context.Context, opts *InitOptions) (*keg.Keg, error) {
 	tapCtx, err := r.getTapCtx(ctx)
 	if err != nil {
 		return nil, err
 	}
 	cfg := tapCtx.Config(ctx)
-	base := cfg.UserRepoPath()
-	if base == "" {
+	repoPath := cfg.UserRepoPath()
+	if repoPath == "" {
 		return nil, fmt.Errorf("userRepoPath not defined in user config: %w", keg.ErrNotExist)
 	}
 
-	kegPath := filepath.Join(base, opt.Name)
+	kegPath := filepath.Join(repoPath, opts.Name)
 
 	target := kegurl.NewFile(kegPath)
 	k, err := keg.NewKegFromTarget(ctx, target)
 	err = k.Init(ctx)
-	return &target, err
+	if err != nil {
+		return nil, err
+	}
+	err = k.UpdateConfig(ctx, func(kc *keg.KegConfig) {
+		kc.Creator = opts.Creator
+		kc.Title = opts.Title
+	})
+	return k, err
 }
 
 type initRegistryOptions struct {

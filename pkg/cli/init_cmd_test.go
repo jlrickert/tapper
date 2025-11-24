@@ -1,6 +1,7 @@
 package cli_test
 
 import (
+	"path/filepath"
 	"testing"
 
 	testutils "github.com/jlrickert/cli-toolkit/sandbox"
@@ -13,6 +14,7 @@ type initTestCase struct {
 	expectedAlias    string
 	expectedLocation string
 	setupFixture     *string
+	cwd              *string
 	description      string
 }
 
@@ -27,8 +29,20 @@ func TestInitCommand_TableDriven(t *testing.T) {
 				"--creator", "me",
 			},
 			expectedAlias:    "myalias",
-			expectedLocation: "keg",
+			expectedLocation: "~/",
 			description:      "When first argument is '.', type should be inferred as local without --type flag",
+		},
+		{
+			name: "local_keg_with_dot_infers_alias",
+			args: []string{
+				"init",
+				".",
+				"--creator", "me",
+			},
+			expectedAlias:    "myproject",
+			expectedLocation: "~/myproject",
+			cwd:              strPtr("~/myproject"),
+			description:      "Local keg with '.' should infer alias from current working directory base when not provided",
 		},
 		{
 			name: "local_keg_with_dot_explicit_type",
@@ -40,7 +54,7 @@ func TestInitCommand_TableDriven(t *testing.T) {
 				"--creator", "me",
 			},
 			expectedAlias:    "myalias",
-			expectedLocation: "keg",
+			expectedLocation: "~/",
 			description:      "Local keg with explicit --type local flag",
 		},
 		{
@@ -52,7 +66,7 @@ func TestInitCommand_TableDriven(t *testing.T) {
 				"--creator", "testcreator",
 			},
 			expectedAlias:    "public",
-			expectedLocation: ".local/share/tapper/kegs/public/keg",
+			expectedLocation: "~/.local/share/tapper/kegs/public",
 			setupFixture:     strPtr("testuser"),
 			description:      "When type is omitted and first argument is not '.', default type should be user",
 		},
@@ -66,7 +80,7 @@ func TestInitCommand_TableDriven(t *testing.T) {
 				"--creator", "testcreator",
 			},
 			expectedAlias:    "public",
-			expectedLocation: ".local/share/tapper/kegs/public/keg",
+			expectedLocation: "~/.local/share/tapper/kegs/public",
 			setupFixture:     strPtr("testuser"),
 			description:      "User keg with explicit --type user flag",
 		},
@@ -78,33 +92,52 @@ func TestInitCommand_TableDriven(t *testing.T) {
 				"--creator", "me",
 			},
 			expectedAlias:    "myblog",
-			expectedLocation: ".local/share/tapper/kegs/myblog/keg",
+			expectedLocation: "~/.local/share/tapper/kegs/myblog",
 			setupFixture:     strPtr("testuser"),
 			description:      "User keg should infer alias from name when not provided",
+		},
+		{
+			name: "dot_with_user_type_infers_alias",
+			args: []string{
+				"init",
+				".",
+				"--type", "user",
+				"--creator", "me",
+			},
+			expectedAlias:    "myproject",
+			expectedLocation: "~/.local/share/tapper/kegs/myproject",
+			setupFixture:     strPtr("testuser"),
+			cwd:              strPtr("/home/testuser/myproject"),
+			description:      "When name is '.' with type user, alias should infer from current working directory base",
 		},
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+		t.Run(tt.name, func(innerT *testing.T) {
+			innerT.Parallel()
 			var opts []testutils.SandboxOption
 			if tt.setupFixture != nil {
 				opts = append(opts, testutils.WithFixture(*tt.setupFixture, "~"))
 			}
-			sb := NewSandbox(t, opts...)
+			sb := NewSandbox(innerT, opts...)
 
-			h := NewProcess(t, false, tt.args...)
+			if tt.cwd != nil {
+				sb.Setwd(*tt.cwd)
+			}
+
+			h := NewProcess(innerT, false, tt.args...)
 			res := h.Run(sb.Context())
 
-			require.NoError(t, res.Err, "init command should succeed - %s", tt.description)
-			require.Contains(t, string(res.Stdout), "keg "+tt.expectedAlias+" created",
+			require.NoError(innerT, res.Err, "init command should succeed - %s", tt.description)
+			require.Contains(innerT, string(res.Stdout), "keg "+tt.expectedAlias+" created",
 				"unexpected output: %q", string(res.Stdout))
-			require.Equal(t, "", string(res.Stderr), "stderr should be empty")
+			require.Equal(innerT, "", string(res.Stderr), "stderr should be empty")
 
 			// Determine the base path for reading files (remove /dex/nodes.tsv from the location)
 			var baseKegPath string
 			if tt.setupFixture != nil {
 				// User kegs are at .local/share/tapper/kegs/{alias}
-				baseKegPath = ".local/share/tapper/kegs/" + tt.expectedAlias
+				baseKegPath = "~/.local/share/tapper/kegs/" + tt.expectedAlias
 			} else {
 				// Local kegs are at the repo root
 				baseKegPath = ""
@@ -113,12 +146,12 @@ func TestInitCommand_TableDriven(t *testing.T) {
 			// Verify the created keg contains the example contents
 			nodesPath := baseKegPath
 			if nodesPath != "" {
-				nodesPath += "/dex/nodes.tsv"
+				nodesPath = filepath.Join(baseKegPath, "/dex/nodes.tsv")
 			} else {
-				nodesPath = "dex/nodes.tsv"
+				nodesPath = filepath.Join(tt.expectedLocation, "dex/nodes.tsv")
 			}
 			nodes := sb.MustReadFile(nodesPath)
-			require.Contains(t, string(nodes), "0\t",
+			require.Contains(innerT, string(nodes), "0\t",
 				"nodes index should contain zero node")
 
 			readmePath := baseKegPath
@@ -128,7 +161,7 @@ func TestInitCommand_TableDriven(t *testing.T) {
 				readmePath = "0/README.md"
 			}
 			readme := sb.MustReadFile(readmePath)
-			require.Contains(t, string(readme),
+			require.Contains(innerT, string(readme),
 				"Sorry, planned but not yet available",
 				"zero node README should contain placeholder text")
 
@@ -139,14 +172,14 @@ func TestInitCommand_TableDriven(t *testing.T) {
 				metaPath = "0/meta.yaml"
 			}
 			meta := sb.MustReadFile(metaPath)
-			require.Contains(t, string(meta),
+			require.Contains(innerT, string(meta),
 				"title: Sorry, planned but not yet available",
 				"zero node meta should include the placeholder title")
 
 			// For user kegs, verify config was updated
 			if tt.setupFixture != nil {
-				userConfig := sb.MustReadFile(".config/tapper/config.yaml")
-				require.Contains(t, string(userConfig), tt.expectedAlias+":",
+				userConfig := sb.MustReadFile("~/.config/tapper/config.yaml")
+				require.Contains(innerT, string(userConfig), tt.expectedAlias+":",
 					"user config should contain the new keg alias")
 			}
 		})
