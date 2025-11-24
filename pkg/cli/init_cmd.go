@@ -3,7 +3,6 @@ package cli
 import (
 	"fmt"
 	"path/filepath"
-	"slices"
 
 	"github.com/jlrickert/cli-toolkit/toolkit"
 	"github.com/jlrickert/tapper/pkg/app"
@@ -33,9 +32,10 @@ func NewInitCmd() *cobra.Command {
 			}
 			name := args[0]
 
-			// Infer type if not provided:
-			// - If name is ".", infer type as "local"
-			// - Otherwise, default to "user"
+			env := toolkit.EnvFromContext(cmd.Context())
+			wd, _ := env.Getwd()
+			r := app.Runner{Root: wd}
+
 			if initOpts.Type == "" {
 				if name == "." {
 					initOpts.Type = "local"
@@ -44,32 +44,38 @@ func NewInitCmd() *cobra.Command {
 				}
 			}
 
-			if !slices.Contains([]string{"registry", "local", "user"}, initOpts.Type) {
+			switch initOpts.Type {
+			case "local":
+				if initOpts.Alias == "" && name == "." {
+					initOpts.Alias = filepath.Base(wd)
+				}
+				initOpts.Path = name
+			case "user":
+				initOpts.Name = name
+				if name == "." {
+					initOpts.Name = filepath.Base(wd)
+				}
+
+				if initOpts.Alias == "" {
+					if name == "." {
+						initOpts.Alias = filepath.Base(wd)
+					} else {
+						initOpts.Alias = filepath.Base(name)
+					}
+				}
+			case "registry":
+				u, _ := kegurl.Parse(name)
+				initOpts.User = u.User
+				initOpts.Repo = u.Repo
+			default:
 				return fmt.Errorf(
 					"%s is not a valid type: %w",
 					initOpts.Type, keg.ErrInvalid,
 				)
 			}
 
-			env := toolkit.EnvFromContext(cmd.Context())
-			wd, _ := env.Getwd()
-			r := app.Runner{Root: wd}
-			switch initOpts.Type {
-			case "local":
-				if initOpts.Alias == "" {
-					initOpts.Alias = filepath.Base(wd)
-				}
-			case "registry":
-				u, _ := kegurl.Parse(initOpts.Name)
-				initOpts.User = u.User
-				initOpts.Repo = u.Repo
-			case "user":
-				fallthrough
-			default:
-				initOpts.Name = name
-				if initOpts.Alias == "" {
-					initOpts.Alias = name
-				}
+			if initOpts.Alias == "" {
+				panic("Alias needs to be defined")
 			}
 
 			err := r.DoInit(cmd.Context(), name, initOpts)
