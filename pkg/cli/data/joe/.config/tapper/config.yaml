@@ -1,0 +1,9 @@
+defaultKeg: personal
+userRepoPath: ~/.local/share/tapper/kegs
+kegMap:
+  - alias: work
+    pathPrefix: ~/repos/work
+kegs:
+  example: ~/kegs/example
+  personal: ~/kegs/personal
+  work: ~/kegs/work
