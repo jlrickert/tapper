@@ -22,20 +22,15 @@ func NewCreateCmd() *cobra.Command {
 		Short:   "create a new node in the current keg",
 		Aliases: []string{"c"},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			// Resolve runner: prefer an injected runner from context, otherwise
-			// construct a local app.Runner using the Env's working directory.
-			ctx := cmd.Context()
-			env := toolkit.EnvFromContext(ctx)
-			wd, _ := env.Getwd()
-
-			r := NewRunnerFromContext(ctx)
-			if r == nil {
-				r = &app.Runner{Root: wd}
-			}
-			stream := toolkit.StreamFromContext(ctx)
+			stream := toolkit.StreamFromContext(cmd.Context())
 			opts.Stream = stream
+			ctx := cmd.Context()
 
-			node, err := r.Create(ctx, opts)
+			r, err := app.NewRunnerFromWd(ctx)
+			if err != nil {
+				return err
+			}
+			node, err := r.Create(cmd.Context(), opts)
 			if err != nil {
 				return err
 			}

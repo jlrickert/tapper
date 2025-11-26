@@ -12,18 +12,29 @@ import (
 	kegurl "github.com/jlrickert/tapper/pkg/keg_url"
 )
 
-// Keg is a concrete high-level service backed by a KegRepository.
-// It implements common node operations by delegating low-level storage to the
-// repo.
+// Keg is a concrete high-level service providing KEG node operations backed by a
+// KegRepository. It abstracts storage implementation details, allowing operations
+// over nodes to work uniformly across memory, filesystem, and remote backends.
+// Keg delegates low-level storage operations to its underlying repository and
+// maintains an in-memory dex for indexing.
 type Keg struct {
+	// Target is the keg URL/location (nil for memory-backed kegs)
 	Target *kegurl.Target
-	Repo   KegRepository
+	// Repo is the storage backend implementation
+	Repo KegRepository
 
+	// dex is an optional in-memory index of nodes, lazily loaded from repo
 	dex *Dex
 }
 
+// KegOption is a functional option for configuring Keg behavior
 type KegOption func(*Keg)
 
+// NewKegFromTarget constructs a Keg from a kegurl.Target. It automatically
+// selects the appropriate repository implementation based on the target's scheme:
+// - memory:// targets use an in-memory repository
+// - file:// targets use a filesystem repository
+// Returns an error if the target scheme is not supported.
 func NewKegFromTarget(ctx context.Context, target kegurl.Target) (*Keg, error) {
 	switch target.Scheme() {
 	case kegurl.SchemeMemory:
@@ -43,6 +54,7 @@ func NewKegFromTarget(ctx context.Context, target kegurl.Target) (*Keg, error) {
 }
 
 // NewKeg returns a Keg service backed by the provided repository.
+// Functional options can be provided to customize Keg behavior.
 func NewKeg(repo KegRepository, opts ...KegOption) *Keg {
 	keg := &Keg{
 		Repo: repo,
@@ -53,9 +65,10 @@ func NewKeg(repo KegRepository, opts ...KegOption) *Keg {
 	return keg
 }
 
-// IsKegInitiated checks if a keg has been initiated within the repo. It
-// verifies that the keg config exists and that a zero node is present.
-func IsKegInitiated(ctx context.Context, repo KegRepository) (bool, error) {
+// RepoContainsKeg checks if a keg has been properly initialized within a repository.
+// It verifies both that a keg config exists and that a zero node (node ID 0) is present.
+// Returns true only if both conditions are met, indicating a fully initialized keg.
+func RepoContainsKeg(ctx context.Context, repo KegRepository) (bool, error) {
 	if repo == nil {
 		return false, fmt.Errorf("no repository provided")
 	}
@@ -90,14 +103,16 @@ func IsKegInitiated(ctx context.Context, repo KegRepository) (bool, error) {
 	return configExists && zeroNodeExists, nil
 }
 
-// Init creates a new keg.
+// Init initializes a new keg by creating the config file, zero node with default
+// content, and updating the dex. It returns an error if the keg already exists.
+// Init is idempotent in the sense that it checks for existing kegs first.
 func (keg *Keg) Init(ctx context.Context) error {
 	if keg == nil || keg.Repo == nil {
 		return fmt.Errorf("no repository configured")
 	}
 
 	// refuse to init when a keg already exists
-	exists, err := IsKegInitiated(ctx, keg.Repo)
+	exists, err := RepoContainsKeg(ctx, keg.Repo)
 	if err != nil {
 		return fmt.Errorf("failed to check keg existence: %w", err)
 	}
@@ -142,20 +157,28 @@ func (keg *Keg) Init(ctx context.Context) error {
 	return nil
 }
 
+// Next reserves and returns the next available node ID from the repository.
 func (keg *Keg) Next(ctx context.Context) (Node, error) {
 	return keg.Repo.Next(ctx)
 }
 
+// KegCreateOptions specifies parameters for creating a new node
 type KegCreateOptions struct {
+	// Title is the human-readable title for the node
 	Title string
-	Lead  string
-	Tags  []string
-	Body  []byte
+	// Lead is a one-line summary
+	Lead string
+	// Tags are searchable labels for the node
+	Tags []string
+	// Body is the raw markdown content; if empty, default content is generated from Title/Lead
+	Body []byte
+	// Attrs are arbitrary key-value attributes attached to the node
 	Attrs map[string]any
 }
 
-// Create creates a new node: allocates an ID, writes content, creates and
-// writes meta.
+// Create creates a new node: allocates an ID, parses content, generates metadata,
+// and indexes the node in the dex. The node is immediately persisted to the repository.
+// If Body is empty, default markdown content is generated from Title and Lead.
 func (keg *Keg) Create(ctx context.Context, opts *KegCreateOptions) (Node, error) {
 	if err := keg.checkKegExists(ctx); err != nil {
 		return Node{}, fmt.Errorf("failed to create node: %w", err)
@@ -220,6 +243,7 @@ func (keg *Keg) Create(ctx context.Context, opts *KegCreateOptions) (Node, error
 	return id, keg.addNodeToDex(ctx, nodeData, &now)
 }
 
+// Config returns the keg's configuration.
 func (keg *Keg) Config(ctx context.Context) (*KegConfig, error) {
 	if err := keg.checkKegExists(ctx); err != nil {
 		return nil, fmt.Errorf("failed to retrieve config: %w", err)
@@ -228,6 +252,9 @@ func (keg *Keg) Config(ctx context.Context) (*KegConfig, error) {
 	return keg.Repo.ReadConfig(ctx)
 }
 
+// UpdateConfig reads the keg config, applies the provided mutation function,
+// and writes the result back to the repository. This is the preferred way to
+// modify keg configuration to ensure updates are atomically persisted.
 func (keg *Keg) UpdateConfig(ctx context.Context, f func(*KegConfig)) error {
 	if err := keg.checkKegExists(ctx); err != nil {
 		return fmt.Errorf("unable to update config: %w", err)
@@ -250,6 +277,8 @@ func (keg *Keg) UpdateConfig(ctx context.Context, f func(*KegConfig)) error {
 	return nil
 }
 
+// SetConfig parses and writes keg configuration from raw bytes.
+// Prefer UpdateConfig for most use cases as it handles read-modify-write atomically.
 func (keg *Keg) SetConfig(ctx context.Context, data []byte) error {
 	if err := keg.checkKegExists(ctx); err != nil {
 		return fmt.Errorf("unable to set config: %w", err)
@@ -264,7 +293,7 @@ func (keg *Keg) SetConfig(ctx context.Context, data []byte) error {
 	return nil
 }
 
-// GetContent retrieves content from a node.
+// GetContent retrieves the raw markdown content for a node.
 func (keg *Keg) GetContent(ctx context.Context, id Node) ([]byte, error) {
 	if err := keg.checkKegExists(ctx); err != nil {
 		return nil, fmt.Errorf("failed to retrieve node content: %w", err)
@@ -277,7 +306,8 @@ func (keg *Keg) GetContent(ctx context.Context, id Node) ([]byte, error) {
 	return b, nil
 }
 
-// SetContent sets the content of the node and updates the meta and dex.
+// SetContent writes content for a node and updates its metadata by re-indexing.
+// This ensures the node's title, lead, and other metadata are kept in sync with content changes.
 func (keg *Keg) SetContent(ctx context.Context, id Node, data []byte) error {
 	if err := keg.checkKegExists(ctx); err != nil {
 		return fmt.Errorf("failed to set node content: %w", err)
@@ -290,7 +320,7 @@ func (keg *Keg) SetContent(ctx context.Context, id Node, data []byte) error {
 	return keg.IndexNode(ctx, id)
 }
 
-// GetMeta gets the meta for a node.
+// GetMeta retrieves the parsed metadata for a node.
 func (keg *Keg) GetMeta(ctx context.Context, id Node) (*Meta, error) {
 	if err := keg.checkKegExists(ctx); err != nil {
 		return nil, fmt.Errorf("failed to get node meta: %w", err)
@@ -298,6 +328,7 @@ func (keg *Keg) GetMeta(ctx context.Context, id Node) (*Meta, error) {
 	return keg.getMeta(ctx, id)
 }
 
+// SetMeta writes metadata for a node and updates the dex.
 func (keg *Keg) SetMeta(ctx context.Context, id Node, meta *Meta) error {
 	if err := keg.checkKegExists(ctx); err != nil {
 		return fmt.Errorf("failed to update node meta: %w", err)
@@ -314,7 +345,8 @@ func (keg *Keg) SetMeta(ctx context.Context, id Node, meta *Meta) error {
 	return keg.addNodeToDex(ctx, nodeData, &now)
 }
 
-// UpdateMeta updates meta then writes to repo. f is applied to the parsed Meta.
+// UpdateMeta reads the node's metadata, applies the provided mutation function,
+// and writes the result back to the repository with dex updates.
 func (keg *Keg) UpdateMeta(ctx context.Context, id Node, f func(*Meta)) error {
 	if err := keg.checkKegExists(ctx); err != nil {
 		return fmt.Errorf("failed to update node meta: %w", err)
@@ -338,7 +370,7 @@ func (keg *Keg) UpdateMeta(ctx context.Context, id Node, f func(*Meta)) error {
 	return nil
 }
 
-// Touch bumps the access time for a node.
+// Touch updates the access time of a node to the current time.
 func (keg *Keg) Touch(ctx context.Context, id Node) error {
 	if err := keg.checkKegExists(ctx); err != nil {
 		return fmt.Errorf("failed to touch node: %w", err)
@@ -351,8 +383,9 @@ func (keg *Keg) Touch(ctx context.Context, id Node) error {
 	})
 }
 
-// IndexNode updates the meta data for a node by re-parsing content and applying
-// any discovered properties (title, lead, hash, etc). The dex is also updated.
+// IndexNode updates a node's metadata by re-parsing its content and extracting
+// properties like title, lead, and content hash. The dex is also updated to reflect
+// any changes. If content hasn't changed, this is a no-op.
 func (keg *Keg) IndexNode(ctx context.Context, id Node) error {
 	if err := keg.checkKegExists(ctx); err != nil {
 		return fmt.Errorf("failed to update node: %w", err)
@@ -377,7 +410,9 @@ func (keg *Keg) IndexNode(ctx context.Context, id Node) error {
 	return keg.addNodeToDex(ctx, data, &now)
 }
 
-// Index cleans the dex, rebuilds, and then writes to the repo.
+// Index performs a full keg re-indexing by clearing the dex and rebuilding it
+// from scratch by reading all nodes in the repository. This is useful for
+// recovering from index corruption or after bulk node modifications.
 func (k *Keg) Index(ctx context.Context, _ Node) error {
 	if err := k.checkKegExists(ctx); err != nil {
 		return fmt.Errorf("failed to re index keg: %w", err)
@@ -416,9 +451,9 @@ func (k *Keg) Index(ctx context.Context, _ Node) error {
 	return errors.Join(errs...)
 }
 
-// Commit commits a node. For the in-memory and filesystem repo semantics this
-// removes any temporary code suffix by moving the node directory to the
-// canonical numeric id.
+// Commit finalizes a temporary node by allocating a permanent ID and moving it
+// from its temporary location (with Code suffix) to the canonical numeric ID.
+// For nodes without a Code (already permanent), Commit is a no-op.
 func (keg *Keg) Commit(ctx context.Context, id Node) error {
 	if err := keg.checkKegExists(ctx); err != nil {
 		return fmt.Errorf("failed to commit node: %w", err)
@@ -438,7 +473,8 @@ func (keg *Keg) Commit(ctx context.Context, id Node) error {
 	return nil
 }
 
-// Dex gets the dex. If it is not available attempt to load it from the repo.
+// Dex returns the keg's index, loading it from the repository on first access.
+// The dex is lazily loaded and cached in memory for efficient access.
 func (keg *Keg) Dex(ctx context.Context) (*Dex, error) {
 	if err := keg.checkKegExists(ctx); err != nil {
 		return nil, fmt.Errorf("failed to retrieve dex: %w", err)
@@ -452,8 +488,9 @@ func (keg *Keg) Dex(ctx context.Context) (*Dex, error) {
 	return dex, err
 }
 
-// -- utility functions
+// -- private utility functions
 
+// getContent retrieves and parses raw markdown content for a node.
 func (keg *Keg) getContent(ctx context.Context, id Node) (*Content, error) {
 	raw, err := keg.Repo.ReadContent(ctx, id)
 	if err != nil {
@@ -462,6 +499,7 @@ func (keg *Keg) getContent(ctx context.Context, id Node) (*Content, error) {
 	return ParseContent(ctx, raw, FormatMarkdown)
 }
 
+// getMeta retrieves and parses YAML metadata for a node.
 func (keg *Keg) getMeta(ctx context.Context, id Node) (*Meta, error) {
 	raw, err := keg.Repo.ReadMeta(ctx, id)
 	if err != nil {
@@ -470,6 +508,7 @@ func (keg *Keg) getMeta(ctx context.Context, id Node) (*Meta, error) {
 	return ParseMeta(ctx, raw)
 }
 
+// getNode builds a complete NodeData from a node's content, metadata, and attachments.
 func (keg *Keg) getNode(ctx context.Context, n Node) (*NodeData, error) {
 	content, err := keg.getContent(ctx, n)
 	if err != nil {
@@ -499,7 +538,8 @@ func (keg *Keg) getNode(ctx context.Context, n Node) (*NodeData, error) {
 	}, nil
 }
 
-// addNodeToDex adds the data node to the dex and updates the config timestamp.
+// addNodeToDex adds a node to the dex, writes dex changes to the repository,
+// and updates the keg's Updated timestamp to the provided time (or now if not specified).
 func (keg *Keg) addNodeToDex(ctx context.Context, data *NodeData, now *time.Time) error {
 	dex, err := keg.Dex(ctx)
 	if err != nil {
@@ -522,12 +562,14 @@ func (keg *Keg) addNodeToDex(ctx context.Context, data *NodeData, now *time.Time
 	return nil
 }
 
+// checkKegExists verifies that a keg is properly initialized in the repository.
+// Returns an error if the keg is not found or if the repository is not configured.
 func (keg *Keg) checkKegExists(ctx context.Context) error {
 	if keg == nil || keg.Repo == nil {
 		return fmt.Errorf("no repository configured")
 	}
 
-	exists, err := IsKegInitiated(ctx, keg.Repo)
+	exists, err := RepoContainsKeg(ctx, keg.Repo)
 	if err != nil {
 		return fmt.Errorf("failed to check keg existence: %w", err)
 	}

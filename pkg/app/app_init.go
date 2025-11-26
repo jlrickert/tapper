@@ -28,7 +28,8 @@ type InitOptions struct {
 	Path string
 
 	// AddConfig adds config to user config
-	AddUserConfig bool
+	FlagAddToConfig bool
+	FlagNoAddConfig bool
 
 	// AddLocalConfig adds the alias to the local project
 	AddLocalConfig bool
@@ -38,13 +39,13 @@ type InitOptions struct {
 	Alias   string
 }
 
-// DoInit creates a keg entry for the given name.
+// Init creates a keg entry for the given name.
 //
-// If name is empty an ErrInvalid-wrapped error is returned. DoInit obtains the
+// If name is empty an ErrInvalid-wrapped error is returned. Init obtains the
 // project via getProject and then performs the actions required to create a
 // keg. The current implementation defers to project.DefaultKeg for further
 // resolution and returns any error encountered when obtaining the project.
-func (r *Runner) DoInit(ctx context.Context, name string, options *InitOptions) error {
+func (r *Runner) Init(ctx context.Context, name string, options *InitOptions) error {
 	var err error
 	var target *kegurl.Target
 	switch options.Type {
@@ -53,7 +54,7 @@ func (r *Runner) DoInit(ctx context.Context, name string, options *InitOptions) 
 			Alias:          options.Alias,
 			User:           "",
 			Repo:           "",
-			AddUserConfig:  options.AddUserConfig,
+			AddUserConfig:  options.FlagAddToConfig,
 			AddLocalConfig: options.AddLocalConfig,
 			Title:          options.Title,
 			Creator:        options.Creator,
@@ -65,7 +66,7 @@ func (r *Runner) DoInit(ctx context.Context, name string, options *InitOptions) 
 	case "local":
 		k, e := r.initLocalKeg(ctx, initLocalOptions{
 			Path:           options.Path,
-			AddUserConfig:  options.AddUserConfig,
+			AddUserConfig:  options.FlagAddToConfig,
 			AddLocalConfig: options.AddLocalConfig,
 			Title:          options.Title,
 			Creator:        options.Creator,
@@ -80,18 +81,36 @@ func (r *Runner) DoInit(ctx context.Context, name string, options *InitOptions) 
 		return err
 	}
 
-	tCtx, err := r.getTapCtx(ctx)
+	tCtx, err := r.GetTapContext(ctx)
 	cfg := tCtx.Config(ctx)
 	if cfg == nil || cfg.UserRepoPath() == "" {
 		return nil
 	}
-	tapCtx, err := r.getTapCtx(ctx)
+	tapCtx, err := r.GetTapContext(ctx)
 	if err != nil {
 		return fmt.Errorf("unable to add alias %s update user config: %w", options.Alias, err)
 	}
 
+	if options.FlagNoAddConfig {
+		return nil
+	}
+
+	if !options.FlagAddToConfig && options.Type == "local" {
+		return nil
+	}
+
 	return tapCtx.UserConfigUpdate(ctx, func(cfg *tap.Config) {
-		cfg.AddKeg(options.Alias, *target)
+		alias := options.Alias
+		if options.Alias == "." {
+			alias = r.Root
+		}
+		if options.Alias == "~" {
+			a, err := toolkit.ResolvePath(ctx, "~", false)
+			if err != nil {
+				alias = a
+			}
+		}
+		cfg.AddKeg(alias, *target)
 	}, true)
 }
 
@@ -132,7 +151,7 @@ func (r *Runner) initLocalKeg(ctx context.Context, opts initLocalOptions) (*keg.
 }
 
 func (r *Runner) initUserKeg(ctx context.Context, opts *InitOptions) (*keg.Keg, error) {
-	tapCtx, err := r.getTapCtx(ctx)
+	tapCtx, err := r.GetTapContext(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -174,7 +193,7 @@ func (r *Runner) initRegistry(ctx context.Context, opts initRegistryOptions) (*k
 		return nil, fmt.Errorf("alias required: %w", keg.ErrInvalid)
 	}
 
-	proj, err := r.getTapCtx(ctx)
+	proj, err := r.GetTapContext(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("unable to init registry keg: %w", err)
 	}
@@ -212,25 +231,6 @@ func (r *Runner) initRegistry(ctx context.Context, opts initRegistryOptions) (*k
 	}
 
 	target := kegurl.NewApi(repoName, user, opts.Alias)
-
-	// Optionally write to user/local config.
-	if opts.AddUserConfig || opts.AddLocalConfig {
-		alias := opts.Alias
-		if opts.AddUserConfig {
-			if err := proj.UserConfigUpdate(ctx, func(cfg *tap.Config) {
-				cfg.AddKeg(alias, target)
-			}, false); err != nil {
-				return nil, fmt.Errorf("unable to write user config: %w", err)
-			}
-		}
-		if opts.AddLocalConfig {
-			if err := proj.LocalConfigUpdate(ctx, func(cfg *tap.Config) {
-				cfg.AddKeg(alias, target)
-			}, false); err != nil {
-				return nil, fmt.Errorf("unable to write local config: %w", err)
-			}
-		}
-	}
 
 	return &target, nil
 }

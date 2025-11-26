@@ -9,13 +9,14 @@ import (
 )
 
 type initTestCase struct {
-	name             string
-	args             []string
-	expectedAlias    string
-	expectedLocation string
-	setupFixture     *string
-	cwd              *string
-	description      string
+	name               string
+	args               []string
+	expectedAlias      string
+	expectedLocation   string
+	expectConfigUpdate bool
+	setupFixture       *string
+	cwd                *string
+	description        string
 }
 
 func TestInitCommand_TableDriven(t *testing.T) {
@@ -65,10 +66,11 @@ func TestInitCommand_TableDriven(t *testing.T) {
 				"--alias", "public",
 				"--creator", "testcreator",
 			},
-			expectedAlias:    "public",
-			expectedLocation: "~/.local/share/tapper/kegs/public",
-			setupFixture:     strPtr("testuser"),
-			description:      "When type is omitted and first argument is not '.', default type should be user",
+			expectedAlias:      "public",
+			expectedLocation:   "~/.local/share/tapper/kegs/public",
+			expectConfigUpdate: true,
+			setupFixture:       strPtr("testuser"),
+			description:        "When type is omitted and first argument is not '.', default type should be user",
 		},
 		{
 			name: "user_keg_with_explicit_type",
@@ -79,10 +81,11 @@ func TestInitCommand_TableDriven(t *testing.T) {
 				"--alias", "public",
 				"--creator", "testcreator",
 			},
-			expectedAlias:    "public",
-			expectedLocation: "~/.local/share/tapper/kegs/public",
-			setupFixture:     strPtr("testuser"),
-			description:      "User keg with explicit --type user flag",
+			expectedAlias:      "public",
+			expectedLocation:   "~/.local/share/tapper/kegs/public",
+			expectConfigUpdate: true,
+			setupFixture:       strPtr("testuser"),
+			description:        "User keg with explicit --type user flag",
 		},
 		{
 			name: "user_keg_infers_alias",
@@ -91,10 +94,11 @@ func TestInitCommand_TableDriven(t *testing.T) {
 				"myblog",
 				"--creator", "me",
 			},
-			expectedAlias:    "myblog",
-			expectedLocation: "~/.local/share/tapper/kegs/myblog",
-			setupFixture:     strPtr("testuser"),
-			description:      "User keg should infer alias from name when not provided",
+			expectedAlias:      "myblog",
+			expectedLocation:   "~/.local/share/tapper/kegs/myblog",
+			expectConfigUpdate: true,
+			setupFixture:       strPtr("testuser"),
+			description:        "User keg should infer alias from name when not provided",
 		},
 		{
 			name: "dot_with_user_type_infers_alias",
@@ -104,11 +108,12 @@ func TestInitCommand_TableDriven(t *testing.T) {
 				"--type", "user",
 				"--creator", "me",
 			},
-			expectedAlias:    "myproject",
-			expectedLocation: "~/.local/share/tapper/kegs/myproject",
-			setupFixture:     strPtr("testuser"),
-			cwd:              strPtr("/home/testuser/myproject"),
-			description:      "When name is '.' with type user, alias should infer from current working directory base",
+			expectedAlias:      "myproject",
+			expectedLocation:   "~/.local/share/tapper/kegs/myproject",
+			expectConfigUpdate: true,
+			setupFixture:       strPtr("testuser"),
+			cwd:                strPtr("/home/testuser/myproject"),
+			description:        "When name is '.' with type user, alias should infer from current working directory base",
 		},
 	}
 
@@ -179,8 +184,14 @@ func TestInitCommand_TableDriven(t *testing.T) {
 			// For user kegs, verify config was updated
 			if tt.setupFixture != nil {
 				userConfig := sb.MustReadFile("~/.config/tapper/config.yaml")
-				require.Contains(innerT, string(userConfig), tt.expectedAlias+":",
-					"user config should contain the new keg alias")
+
+				if tt.expectConfigUpdate {
+					require.Contains(innerT, string(userConfig), tt.expectedAlias+":",
+						"user config should contain the new keg alias")
+				} else {
+					require.NotContains(innerT, string(userConfig), tt.expectedAlias+":",
+						"user config should contain the new keg alias")
+				}
 			}
 		})
 	}

@@ -14,9 +14,6 @@ import (
 
 	"github.com/jlrickert/cli-toolkit/mylog"
 	"github.com/spf13/cobra"
-
-	"github.com/jlrickert/tapper/pkg/app"
-	"github.com/jlrickert/tapper/pkg/keg"
 )
 
 type shutdownKey struct{}
@@ -76,7 +73,7 @@ func NewRootCmd() *cobra.Command {
 	cmd.PersistentFlags().BoolVar(&logJSON, "log-json", false,
 		"output logs as JSON")
 
-	// add do subcommand; pass nil runner so it will resolve runner from ctx
+	// add subcommands; pass nil runner so it will resolve runner from ctx
 	cmd.AddCommand(
 		NewInitCmd(),
 		NewCreateCmd(),
@@ -98,23 +95,4 @@ func WithRepo(ctx context.Context, r any) context.Context {
 func RepoFromContext(ctx context.Context) any {
 	v := ctx.Value(repoKeyType{})
 	return v
-}
-
-// NewRunnerFromContext builds an app.Runner using a repo stored in ctx if
-// present. Returns nil when a repo cannot be found.
-func NewRunnerFromContext(ctx context.Context) *app.Runner {
-	if v := RepoFromContext(ctx); v != nil {
-		if repo, ok := v.(interface {
-			// minimal method set to satisfy keg.KegRepository usage in tests
-			ListNodes(context.Context) ([]keg.Node, error)
-		}); ok {
-			// We do not assert types here; callers (tests) will provide the right
-			// concrete type. The Runner constructor accepts the concrete keg
-			// repository type; to avoid circular imports we allow the Runner to
-			// accept an any and perform necessary conversions there.
-			_ = repo
-		}
-	}
-	// Let the app package resolve repo when Run is invoked if needed.
-	return nil
 }

@@ -45,7 +45,7 @@ func TestInitOnEmptyRepo(t *testing.T) {
 	require.NoError(t, k.Init(f.Context()), "Init failed")
 
 	// Repo should now report a keg exists.
-	exists, err := kegpkg.IsKegInitiated(f.Context(), k.Repo)
+	exists, err := kegpkg.RepoContainsKeg(f.Context(), k.Repo)
 	require.NoError(t, err, "KegExists returned error")
 	require.True(t, exists, "KegExists expected true after Init")
 
@@ -72,7 +72,7 @@ func TestKegExistsWithMemoryRepo(t *testing.T) {
 	repo := kegpkg.NewMemoryRepo()
 
 	// Initially not initialized.
-	exists, err := kegpkg.IsKegInitiated(f.Context(), repo)
+	exists, err := kegpkg.RepoContainsKeg(f.Context(), repo)
 	require.NoError(t, err)
 	require.False(t, exists, "expected KegExists false for new memory repo")
 
@@ -80,7 +80,7 @@ func TestKegExistsWithMemoryRepo(t *testing.T) {
 	k := kegpkg.NewKeg(repo)
 	require.NoError(t, k.Init(f.Context()), "Init failed for memory repo")
 
-	exists, err = kegpkg.IsKegInitiated(f.Context(), repo)
+	exists, err = kegpkg.RepoContainsKeg(f.Context(), repo)
 	require.NoError(t, err)
 	require.True(t, exists, "expected KegExists true after Init")
 }
@@ -96,14 +96,14 @@ func TestKegExistsWithFsRepo(t *testing.T) {
 	require.NoError(t, err, "NewKegFromTarget failed")
 
 	// Uninitialized on disk.
-	exists, err := kegpkg.IsKegInitiated(f.Context(), k.Repo)
+	exists, err := kegpkg.RepoContainsKeg(f.Context(), k.Repo)
 	require.NoError(t, err)
 	require.False(t, exists, "expected KegExists false for empty fs repo")
 
 	// Initialize and verify.
 	require.NoError(t, k.Init(f.Context()), "Init failed for fs repo")
 
-	exists, err = kegpkg.IsKegInitiated(f.Context(), k.Repo)
+	exists, err = kegpkg.RepoContainsKeg(f.Context(), k.Repo)
 	require.NoError(t, err)
 	require.True(t, exists, "expected KegExists true after Init")
 }

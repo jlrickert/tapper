@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/jlrickert/cli-toolkit/toolkit"
 	"github.com/jlrickert/tapper/pkg/app"
 	"github.com/jlrickert/tapper/pkg/keg"
 	kegurl "github.com/jlrickert/tapper/pkg/keg_url"
@@ -32,9 +31,11 @@ func NewInitCmd() *cobra.Command {
 			}
 			name := args[0]
 
-			env := toolkit.EnvFromContext(cmd.Context())
-			wd, _ := env.Getwd()
-			r := app.Runner{Root: wd}
+			ctx := cmd.Context()
+			r, err := app.NewRunnerFromWd(ctx)
+			if err != nil {
+				return err
+			}
 
 			if initOpts.Type == "" {
 				if name == "." {
@@ -47,18 +48,18 @@ func NewInitCmd() *cobra.Command {
 			switch initOpts.Type {
 			case "local":
 				if initOpts.Alias == "" && name == "." {
-					initOpts.Alias = filepath.Base(wd)
+					initOpts.Alias = filepath.Base(r.Root)
 				}
 				initOpts.Path = name
 			case "user":
 				initOpts.Name = name
 				if name == "." {
-					initOpts.Name = filepath.Base(wd)
+					initOpts.Name = filepath.Base(r.Root)
 				}
 
 				if initOpts.Alias == "" {
 					if name == "." {
-						initOpts.Alias = filepath.Base(wd)
+						initOpts.Alias = filepath.Base(r.Root)
 					} else {
 						initOpts.Alias = filepath.Base(name)
 					}
@@ -78,7 +79,7 @@ func NewInitCmd() *cobra.Command {
 				panic("Alias needs to be defined")
 			}
 
-			err := r.DoInit(cmd.Context(), name, initOpts)
+			err = r.Init(cmd.Context(), name, initOpts)
 			if err != nil {
 				return err
 			}
@@ -94,7 +95,8 @@ func NewInitCmd() *cobra.Command {
 	cmd.Flags().StringVar(&initOpts.Creator, "creator", "", "creator identifier to include in the keg config")
 	cmd.Flags().StringVar(&initOpts.TokenEnv, "token-env", "", "environment variable name to store token reference (API targets)")
 
-	cmd.Flags().BoolVar(&initOpts.AddUserConfig, "add-user-config", true, "add created target to user config automatically")
+	cmd.Flags().BoolVar(&initOpts.FlagAddToConfig, "add-user-config", false, "add created target to user config automatically")
+	cmd.Flags().BoolVar(&initOpts.FlagNoAddConfig, "no-add-user-config", false, "add created target to user config automatically")
 	cmd.Flags().BoolVar(&initOpts.AddLocalConfig, "add-local-config", true, "add created created target to local config if a project is found")
 
 	// Provide shell completion for the --type flag.

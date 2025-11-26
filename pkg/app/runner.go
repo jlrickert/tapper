@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/jlrickert/cli-toolkit/toolkit"
 	"github.com/jlrickert/tapper/pkg/tap"
 )
 
@@ -18,11 +19,20 @@ type Runner struct {
 	project *tap.TapContext
 }
 
-// getTapCtx returns the cached *TapProject when available. If no project is
+func NewRunnerFromWd(ctx context.Context) (*Runner, error) {
+	env := toolkit.EnvFromContext(ctx)
+	wd, err := env.Getwd()
+	if err != nil {
+		return nil, err
+	}
+	return &Runner{Root: wd}, nil
+}
+
+// GetTapContext returns the cached *TapProject when available. If no project is
 // cached this constructs a new TapProject using the Runner Root as the
 // project root, caches it on the Runner, and returns it. Any error creating
 // the project is wrapped to provide context to callers.
-func (r *Runner) getTapCtx(ctx context.Context) (*tap.TapContext, error) {
+func (r *Runner) GetTapContext(ctx context.Context) (*tap.TapContext, error) {
 	if r.project != nil {
 		return r.project, nil
 	}
