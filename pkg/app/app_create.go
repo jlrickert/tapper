@@ -30,7 +30,7 @@ type CreateOptions struct {
 //
 // Errors are wrapped with contextual messages to aid callers.
 func (r *Runner) Create(ctx context.Context, opts CreateOptions) (keg.Node, error) {
-	proj, err := r.getTapCtx(ctx)
+	proj, err := r.GetTapContext(ctx)
 	if err != nil {
 		return keg.Node{}, fmt.Errorf("unable to create node: %w", err)
 	}
