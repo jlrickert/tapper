@@ -1,4 +1,4 @@
-package tap_test
+package tapper_test
 
 import (
 	"fmt"
@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	kegurl "github.com/jlrickert/tapper/pkg/keg_url"
-	"github.com/jlrickert/tapper/pkg/tap"
+	"github.com/jlrickert/tapper/pkg/tapper"
 	"github.com/stretchr/testify/require"
 )
 
@@ -27,7 +27,7 @@ kegMap:
     pathPrefix: "~/projects" # prefix comment
 `
 
-	uc, err := tap.ParseUserConfig(fx.Context(), []byte(raw))
+	uc, err := tapper.ParseUserConfig(fx.Context(), []byte(raw))
 	require.NoError(t, err, "ParseUserConfig failed")
 	data, err := uc.ToYAML(fx.Context())
 	require.NoError(t, err, "ToYAML failed")
@@ -61,7 +61,7 @@ kegs:
   main: "~/keg" # keep this inline
 `
 
-	uc, err := tap.ParseUserConfig(fx.Context(), []byte(raw))
+	uc, err := tapper.ParseUserConfig(fx.Context(), []byte(raw))
 	require.NoError(t, err, "ParseUserConfig failed")
 
 	clone := uc.Clone(fx.Context())
@@ -96,7 +96,7 @@ func TestParseUserConfig_KegExamples(t *testing.T) {
   api_alt: "api://other.example"
 `
 
-	uc, err := tap.ParseUserConfig(fx.Context(), []byte(raw))
+	uc, err := tapper.ParseUserConfig(fx.Context(), []byte(raw))
 	require.NoError(t, err, "ParseUserConfig failed")
 
 	data, err := uc.ToYAML(fx.Context())
@@ -127,7 +127,7 @@ func TestResolveAlias_Behavior(t *testing.T) {
   nested:
     url: "api.example.com/v1"
 `
-	uc, err := tap.ParseUserConfig(fx.Context(), []byte(raw))
+	uc, err := tapper.ParseUserConfig(fx.Context(), []byte(raw))
 	require.NoError(t, err)
 
 	t.Log(uc.Kegs())
@@ -170,7 +170,7 @@ kegMap:
     pathPrefix: "%s/projects"
 `, fx.GetJail(), fx.GetJail(), fx.GetJail())
 
-	uc, err := tap.ParseUserConfig(fx.Context(), []byte(raw))
+	uc, err := tapper.ParseUserConfig(fx.Context(), []byte(raw))
 	require.NoError(t, err, "ParseUserConfig failed")
 
 	// Path matching the regex should prefer the regex alias
@@ -203,7 +203,7 @@ kegMap:
   - alias: proj
     pathPrefix: "%s/projects"
 `, fx.GetJail())
-	uc2, err := tap.ParseUserConfig(fx.Context(), []byte(rawNoDefault))
+	uc2, err := tapper.ParseUserConfig(fx.Context(), []byte(rawNoDefault))
 	require.NoError(t, err)
 
 	_, err = uc2.ResolveKegMap(fx.Context(), filepath.Join(fx.GetJail(), "nope"))
@@ -216,7 +216,7 @@ func TestAddKeg_AddsAndUpdatesEntries(t *testing.T) {
 	raw := `kegs:
   existing: "https://example.com/existing"
 `
-	cfg, err := tap.ParseUserConfig(t.Context(), []byte(raw))
+	cfg, err := tapper.ParseUserConfig(t.Context(), []byte(raw))
 	require.NoError(t, err)
 
 	// Add a new keg
@@ -253,10 +253,10 @@ func TestAddKeg_AddsAndUpdatesEntries(t *testing.T) {
 func TestAddKeg_ReturnsErrorOnNilOrEmptyAlias(t *testing.T) {
 	t.Parallel()
 
-	cfg := tap.DefaultUserConfig("testuser", "/tmp")
+	cfg := tapper.DefaultUserConfig("testuser", "/tmp")
 
 	// Test nil config
-	var nilCfg *tap.Config
+	var nilCfg *tapper.Config
 	err := nilCfg.AddKeg("test", kegurl.NewFile("/path"))
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "config is nil")
@@ -275,11 +275,11 @@ func TestAddKegMap_AddsAndUpdatesEntries(t *testing.T) {
   - alias: existing
     pathPrefix: "/existing"
 `
-	cfg, err := tap.ParseUserConfig(fx.Context(), []byte(raw))
+	cfg, err := tapper.ParseUserConfig(fx.Context(), []byte(raw))
 	require.NoError(t, err)
 
 	// Add a new keg map entry
-	newEntry := tap.KegMapEntry{
+	newEntry := tapper.KegMapEntry{
 		Alias:      "newentry",
 		PathPrefix: "/new/prefix",
 	}
@@ -308,7 +308,7 @@ func TestAddKegMap_AddsAndUpdatesEntries(t *testing.T) {
 	require.True(t, found, "expected existing entry to still be present")
 
 	// Update an existing entry
-	updatedEntry := tap.KegMapEntry{
+	updatedEntry := tapper.KegMapEntry{
 		Alias:      "existing",
 		PathPrefix: "/updated/prefix",
 		PathRegex:  "^/regex",
@@ -336,16 +336,16 @@ func TestAddKegMap_AddsAndUpdatesEntries(t *testing.T) {
 
 func TestAddKegMap_ReturnsErrorOnNilOrEmptyAlias(t *testing.T) {
 	t.Parallel()
-	cfg := tap.DefaultUserConfig("testuser", "/tmp")
+	cfg := tapper.DefaultUserConfig("testuser", "/tmp")
 
 	// Test nil config
-	var nilCfg *tap.Config
-	err := nilCfg.AddKegMap(tap.KegMapEntry{Alias: "test"})
+	var nilCfg *tapper.Config
+	err := nilCfg.AddKegMap(tapper.KegMapEntry{Alias: "test"})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "config is nil")
 
 	// Test empty alias
-	err = cfg.AddKegMap(tap.KegMapEntry{Alias: ""})
+	err = cfg.AddKegMap(tapper.KegMapEntry{Alias: ""})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "alias is required")
 }

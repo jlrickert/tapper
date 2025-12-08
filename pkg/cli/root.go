@@ -31,13 +31,12 @@ func NewRootCmd() *cobra.Command {
 
 			// Only install a logger if the context does not already contain one.
 			if mylog.LoggerFromContext(ctx) == mylog.DefaultLogger {
-				// create logger out -> stderr or file
+				// create a logger out-> stderr or file
 				var out = os.Stderr
 				var f *os.File
 				if logFile != "" {
 					var err error
-					f, err = os.OpenFile(logFile,
-						os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+					f, err = os.OpenFile(logFile, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 					if err != nil {
 						return err
 					}
@@ -78,6 +77,7 @@ func NewRootCmd() *cobra.Command {
 		NewInitCmd(),
 		NewCreateCmd(),
 		NewCatCmd(),
+		NewIndexCmd(),
 	)
 
 	return cmd

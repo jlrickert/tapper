@@ -1,4 +1,4 @@
-package tap
+package tapper
 
 import (
 	"bytes"
@@ -750,4 +750,16 @@ func LocalGitData(ctx context.Context, projectPath, key string) ([]byte, error) 
 	data := bytes.TrimSpace(out.Bytes())
 	lg.Debug("git data read", "projectPath", projectPath, "data", data)
 	return data, nil
+}
+
+func (cfg *Config) ListKegs() []string {
+	if cfg == nil || cfg.data == nil {
+		return []string{}
+	}
+	keys := make([]string, 0, len(cfg.data.Kegs))
+	for k := range cfg.data.Kegs {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }

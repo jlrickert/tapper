@@ -1,4 +1,4 @@
-package tap
+package tapper
 
 // Config version strings identify KEG configuration schema versions. Each
 // constant is a stable identifier for a particular config schema. When a new
