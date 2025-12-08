@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/jlrickert/tapper/pkg/app"
 	"github.com/jlrickert/tapper/pkg/keg"
 	kegurl "github.com/jlrickert/tapper/pkg/keg_url"
+	"github.com/jlrickert/tapper/pkg/tapper"
 	"github.com/spf13/cobra"
 )
 
@@ -18,7 +18,7 @@ import (
 //	keg init mykeg --type local
 //	keg init blog --path ./kegs/blog --title "Blog" --creator "me"
 func NewInitCmd() *cobra.Command {
-	initOpts := &app.InitOptions{}
+	initOpts := &tapper.InitOptions{}
 
 	cmd := &cobra.Command{
 		Use:   "init NAME",
@@ -32,7 +32,7 @@ func NewInitCmd() *cobra.Command {
 			name := args[0]
 
 			ctx := cmd.Context()
-			r, err := app.NewRunnerFromWd(ctx)
+			r, err := tapper.NewTap(ctx)
 			if err != nil {
 				return err
 			}

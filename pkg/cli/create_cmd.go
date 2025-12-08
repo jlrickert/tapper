@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/jlrickert/cli-toolkit/toolkit"
-	"github.com/jlrickert/tapper/pkg/app"
+	"github.com/jlrickert/tapper/pkg/tapper"
 	"github.com/spf13/cobra"
 )
 
@@ -15,7 +15,7 @@ import (
 //	tap create --title "My note" --lead "one-line summary"
 //	tap create --title "Note" --tags tag1 --tags tag2 --attrs foo=bar --attrs x=1
 func NewCreateCmd() *cobra.Command {
-	var opts app.CreateOptions
+	var opts tapper.CreateOptions
 
 	cmd := &cobra.Command{
 		Use:     "create",
@@ -26,11 +26,11 @@ func NewCreateCmd() *cobra.Command {
 			opts.Stream = stream
 			ctx := cmd.Context()
 
-			r, err := app.NewRunnerFromWd(ctx)
+			tap, err := tapper.NewTap(ctx)
 			if err != nil {
 				return err
 			}
-			node, err := r.Create(cmd.Context(), opts)
+			node, err := tap.Create(cmd.Context(), opts)
 			if err != nil {
 				return err
 			}

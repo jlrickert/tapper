@@ -1,4 +1,4 @@
-package tap_test
+package tapper_test
 
 import (
 	"path/filepath"
@@ -7,45 +7,46 @@ import (
 	"github.com/jlrickert/cli-toolkit/toolkit"
 	"github.com/stretchr/testify/require"
 
-	"github.com/jlrickert/tapper/pkg/tap"
+	"github.com/jlrickert/tapper/pkg/tapper"
 )
 
-func TestNewProject_WithOptions(t *testing.T) {
+// Integration tests for Tap configuration and keg resolution
+
+func TestTap_Context_CreatesValidTapContext(t *testing.T) {
 	req := require.New(t)
 
 	fx := NewSandbox(t)
 	ctx := fx.Context()
 
-	p, err := tap.NewTapContext(ctx, "/repo/root")
+	tap, err := tapper.NewTap(ctx)
 	req.NoError(err)
 
-	req.Equal("/repo/root", p.Root)
-	req.Equal(fx.ResolvePath(filepath.Join(".config", tap.DefaultAppName)), p.ConfigRoot)
-	req.Equal(fx.ResolvePath(filepath.Join(".local", "share", tap.DefaultAppName)), p.DataRoot)
-	req.Equal(fx.ResolvePath(filepath.Join(".local", "state", tap.DefaultAppName)), p.StateRoot)
-	req.Equal(fx.ResolvePath(filepath.Join(".cache", tap.DefaultAppName)), p.CacheRoot)
+	tCtx, err := tap.Context(ctx)
+	req.NoError(err)
+
+	req.Equal(tap.Root, tCtx.Root)
+	req.Equal(fx.ResolvePath(filepath.Join(".config", tapper.DefaultAppName)), tCtx.ConfigRoot)
+	req.Equal(fx.ResolvePath(filepath.Join(".local", "share", tapper.DefaultAppName)), tCtx.DataRoot)
+	req.Equal(fx.ResolvePath(filepath.Join(".local", "state", tapper.DefaultAppName)), tCtx.StateRoot)
+	req.Equal(fx.ResolvePath(filepath.Join(".cache", tapper.DefaultAppName)), tCtx.CacheRoot)
 }
 
-// Tests for updating the user config for a project.
+// Integration tests for updating the user config for a project.
 
-func TestProject_UserConfigUpdate_SetsDefaultKeg(t *testing.T) {
+func TestTap_UserConfigUpdate_SetsDefaultKeg(t *testing.T) {
 	req := require.New(t)
 
 	fx := NewSandbox(t)
 	ctx := fx.Context()
 
-	// Ensure a stable home so user config roots resolve predictably.
-	// env := std.EnvFromContext(ctx)
-	// req.NoError(env.SetHome(fx.AbsPath("home")))
-	// req.NoError(env.SetUser("testuser"))
+	tap, err := tapper.NewTap(ctx)
+	req.NoError(err)
 
-	// Create a project rooted at an explicit path so other roots are stable.
-	wantRoot := "/repo/root"
-	p, err := tap.NewTapContext(ctx, wantRoot)
+	p, err := tap.Context(ctx)
 	req.NoError(err)
 
 	// Update the user config to set DefaultKeg.
-	err = p.UserConfigUpdate(ctx, func(cfg *tap.Config) {
+	err = p.UserConfigUpdate(ctx, func(cfg *tapper.Config) {
 		cfg.SetDefaultKeg("mykeg")
 	}, false)
 	req.NoError(err)
@@ -57,15 +58,17 @@ func TestProject_UserConfigUpdate_SetsDefaultKeg(t *testing.T) {
 	req.NoError(err)
 	req.Equal("mykeg", got.DefaultKeg())
 
-	// Create a new Project instance to ensure the persisted config is re-read.
-	p2, err := tap.NewTapContext(ctx, wantRoot)
+	// Create a new Tap instance to ensure the persisted config is re-read.
+	tap2, err := tapper.NewTap(ctx)
+	req.NoError(err)
+	p2, err := tap2.Context(ctx)
 	req.NoError(err)
 	got2, err := p2.UserConfig(ctx, false)
 	req.NoError(err)
 	req.Equal("mykeg", got2.DefaultKeg())
 }
 
-func TestProject_UserConfigUpdate_AppendsKegMapEntry(t *testing.T) {
+func TestTap_UserConfigUpdate_AppendsKegMapEntry(t *testing.T) {
 	req := require.New(t)
 
 	fx := NewSandbox(t)
@@ -76,15 +79,18 @@ func TestProject_UserConfigUpdate_AppendsKegMapEntry(t *testing.T) {
 	req.NoError(env.SetHome(fx.AbsPath("home")))
 	req.NoError(env.SetUser("testuser"))
 
-	p, err := tap.NewTapContext(ctx, "/repo/root")
+	tap, err := tapper.NewTap(ctx)
+	req.NoError(err)
+
+	p, err := tap.Context(ctx)
 	req.NoError(err)
 
 	// Append a KegMap entry via the update helper.
-	entry := tap.KegMapEntry{
+	entry := tapper.KegMapEntry{
 		Alias:      "alias-x",
 		PathPrefix: "/projects/x",
 	}
-	err = p.UserConfigUpdate(ctx, func(cfg *tap.Config) {
+	err = p.UserConfigUpdate(ctx, func(cfg *tapper.Config) {
 		cfg.AddKegMap(entry)
 	}, false)
 	req.NoError(err)

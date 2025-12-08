@@ -1,4 +1,4 @@
-package tap_test
+package tapper_test
 
 import (
 	"embed"

@@ -3,7 +3,7 @@ package cli
 import (
 	"fmt"
 
-	"github.com/jlrickert/tapper/pkg/app"
+	"github.com/jlrickert/tapper/pkg/tapper"
 	"github.com/spf13/cobra"
 )
 
@@ -15,7 +15,7 @@ import (
 //	tap cat 42
 //	tap cat 0 --alias myalias
 func NewCatCmd() *cobra.Command {
-	var opts app.CatOptions
+	var opts tapper.CatOptions
 
 	cmd := &cobra.Command{
 		Use:     "cat NODE_ID",
@@ -27,12 +27,12 @@ func NewCatCmd() *cobra.Command {
 			opts.NodeID = args[0]
 
 			ctx := cmd.Context()
-			r, err := app.NewRunnerFromWd(ctx)
+			tap, err := tapper.NewTap(ctx)
 			if err != nil {
 				return err
 			}
 
-			output, err := r.Cat(ctx, opts)
+			output, err := tap.Cat(ctx, opts)
 			if err != nil {
 				return err
 			}
