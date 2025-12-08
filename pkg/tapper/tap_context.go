@@ -1,10 +1,9 @@
-package tap
+package tapper
 
 import (
 	"context"
 	"errors"
 	"path/filepath"
-	"sort"
 
 	"github.com/jlrickert/cli-toolkit/appctx"
 
@@ -24,10 +23,10 @@ type TapContext struct {
 	lCfg *Config
 }
 
-// NewTapContext constructs a TapProject backed by github.com/jlrickert/go-std/project.
+// newTapContext constructs a TapProject backed by github.com/jlrickert/go-std/project.
 // It applies any provided Tap ProjectOption values first, then calls into the
 // std project constructor to fill platform defaults.
-func NewTapContext(ctx context.Context, root string) (*TapContext, error) {
+func newTapContext(ctx context.Context, root string) (*TapContext, error) {
 	aCtx, err := appctx.NewAppContext(ctx, root, DefaultAppName)
 	if err != nil {
 		return nil, err
@@ -177,13 +176,7 @@ func (p *TapContext) DataConfigUpdate(ctx context.Context, f func(cfg *Config),
 // ListKegs returns the list of known keg aliases from the merged config.
 // The result is sorted to be deterministic.
 func (p *TapContext) ListKegs(ctx context.Context) []string {
-	cfg := p.Config(ctx)
-	var xs []string
-	for k := range cfg.Kegs() {
-		xs = append(xs, k)
-	}
-	sort.Strings(xs)
-	return xs
+	return p.Config(ctx).ListKegs()
 }
 
 // DefaultKeg selects the appropriate keg target for the project root using the
