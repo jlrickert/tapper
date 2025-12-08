@@ -476,3 +476,88 @@ func (t *Tap) ConfigEdit(ctx context.Context, opts ConfigEditOptions) error {
 	err := toolkit.Edit(ctx, configPath)
 	return err
 }
+
+// InfoOptions configures behavior for Tap.Info.
+type InfoOptions struct {
+	// Alias of the keg to display info for
+	Alias string
+}
+
+// Info displays the keg metadata (keg.yaml file contents).
+func (t *Tap) Info(ctx context.Context, opts InfoOptions) (string, error) {
+	tCtx := t.Context()
+
+	target, err := tCtx.ResolveKeg(ctx, &ResolveKegOpts{Alias: opts.Alias})
+	if err != nil {
+		return "", fmt.Errorf("unable to determine keg: %w", err)
+	}
+
+	if target == nil {
+		return "", fmt.Errorf("no keg configured: %w", keg.ErrInvalid)
+	}
+
+	k, err := keg.NewKegFromTarget(ctx, *target)
+	if err != nil {
+		return "", fmt.Errorf("unable to open keg: %w", err)
+	}
+
+	cfg, err := k.Config(ctx)
+	if err != nil {
+		return "", fmt.Errorf("unable to read keg config: %w", err)
+	}
+
+	// Convert config to YAML format
+	return cfg.String(), nil
+}
+
+// InfoEditOptions configures behavior for Tap.InfoEdit.
+type InfoEditOptions struct {
+	// Alias of the keg to edit info for
+	Alias string
+}
+
+// InfoEdit opens the keg configuration file in the default editor.
+func (t *Tap) InfoEdit(ctx context.Context, opts InfoEditOptions) error {
+	tCtx := t.Context()
+
+	target, err := tCtx.ResolveKeg(ctx, &ResolveKegOpts{Alias: opts.Alias})
+	if err != nil {
+		return fmt.Errorf("unable to determine keg: %w", err)
+	}
+
+	if target == nil {
+		return fmt.Errorf("no keg configured: %w", keg.ErrInvalid)
+	}
+
+	k, err := keg.NewKegFromTarget(ctx, *target)
+	if err != nil {
+		return fmt.Errorf("unable to open keg: %w", err)
+	}
+
+	// Get the keg config file path
+	// The keg file is typically at the root of the keg directory
+	configPath := filepath.Join(target.Path(), "keg")
+	if target.Scheme() == kegurl.SchemeFile {
+		configPath = filepath.Join(target.Path(), "keg")
+	}
+
+	// Ensure config exists by reading it first
+	_, err = k.Config(ctx)
+	if err != nil {
+		return fmt.Errorf("unable to read keg config: %w", err)
+	}
+
+	// Open the file in the editor
+	err = toolkit.Edit(ctx, configPath)
+	if err != nil {
+		return fmt.Errorf("unable to edit keg config: %w", err)
+	}
+
+	// Try to parse the edited config to validate it
+	_, err = k.Config(ctx)
+	if err != nil {
+		return fmt.Errorf("keg config is invalid after editing: %w", err)
+	}
+
+	return nil
+}
