@@ -3,6 +3,7 @@ package tapper
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
 
 	"github.com/jlrickert/cli-toolkit/appctx"
@@ -11,9 +12,9 @@ import (
 	kegurl "github.com/jlrickert/tapper/pkg/keg_url"
 )
 
-// TapContext is a small wrapper around stdproject.Project that adds cached
+// TapApi is a small wrapper around stdproject.Project that adds cached
 // tapper-specific config values and convenience helpers.
-type TapContext struct {
+type TapApi struct {
 	*appctx.AppContext
 
 	// Cached configs.
@@ -21,56 +22,68 @@ type TapContext struct {
 	sCfg *Config
 	uCfg *Config
 	lCfg *Config
+
+	cfg *Config
 }
 
 // newTapContext constructs a TapProject backed by github.com/jlrickert/go-std/project.
 // It applies any provided Tap ProjectOption values first, then calls into the
 // std project constructor to fill platform defaults.
-func newTapContext(ctx context.Context, root string) (*TapContext, error) {
+func newTapContext(ctx context.Context, root string) (*TapApi, error) {
 	aCtx, err := appctx.NewAppContext(ctx, root, DefaultAppName)
 	if err != nil {
 		return nil, err
 	}
-	tCtx := TapContext{
+	tCtx := TapApi{
 		AppContext: aCtx,
+		dCfg:       nil,
+		sCfg:       nil,
+		uCfg:       nil,
+		lCfg:       nil,
 	}
 	return &tCtx, nil
 }
 
-func (tCtx *TapContext) ConfigPath() string {
+func (tCtx *TapApi) ConfigPath() string {
 	return filepath.Join(tCtx.ConfigRoot, "config.yaml")
+}
+
+func (tCtx *TapApi) LoadConfig(ctx context.Context, path string) (*Config, error) {
+	cfg, err := ReadConfig(ctx, path)
+	if err != nil {
+		return nil, err
+	}
+	tCtx.cfg = cfg
+	return tCtx.cfg, nil
 }
 
 // Config reads and merges data, state, user, and local configuration files for
 // the project. Merge order: data, state, user, local. Later values override
 // earlier ones.
-func (tCtx *TapContext) Config(ctx context.Context) *Config {
-	// Local config
-	localCfg, err := ReadConfig(ctx, tCtx.ConfigPath())
-	if errors.Is(err, keg.ErrNotExist) {
-		localCfg = &Config{}
-	} else if err != nil {
-		localCfg = &Config{}
+func (tCtx *TapApi) Config(ctx context.Context, cache bool) *Config {
+	if tCtx.cfg != nil && !cache {
+		return tCtx.cfg
+	}
+	lCfg, err := tCtx.LocalConfig(ctx, cache)
+	if err != nil {
+		lCfg = &Config{}
+	}
+	uCfg, err := tCtx.UserConfig(ctx, cache)
+	if err != nil {
+		uCfg = &Config{}
 	}
 
-	// User config
-	userCfg, err := ReadConfig(ctx, filepath.Join(tCtx.ConfigRoot, "config.yaml"))
-	if errors.Is(err, keg.ErrNotExist) {
-		userCfg = &Config{}
-	} else if err != nil {
-		userCfg = &Config{}
-	}
-
-	return MergeConfig(userCfg, localCfg)
+	tCtx.cfg = MergeConfig(uCfg, lCfg)
+	return tCtx.cfg
 }
 
-func (tCtx *TapContext) LocalConfigPath() string {
+func (tCtx *TapApi) LocalConfigPath() string {
 	return filepath.Join(tCtx.LocalConfigRoot, "config.yaml")
 }
 
 // LocalConfig returns the repo-local override configuration. When cache is true
 // a previously loaded value may be returned.
-func (tCtx *TapContext) LocalConfig(ctx context.Context, cache bool) (*Config, error) {
+func (tCtx *TapApi) LocalConfig(ctx context.Context, cache bool) (*Config, error) {
 	if cache && tCtx.lCfg != nil {
 		return tCtx.lCfg, nil
 	}
@@ -85,7 +98,7 @@ func (tCtx *TapContext) LocalConfig(ctx context.Context, cache bool) (*Config, e
 
 // LocalConfigUpdate loads the local config, applies f and writes the result.
 // When cache is true cached values may be used for read.
-func (tCtx *TapContext) LocalConfigUpdate(ctx context.Context, f func(cfg *Config), cache bool) error {
+func (tCtx *TapApi) LocalConfigUpdate(ctx context.Context, f func(cfg *Config), cache bool) error {
 	cfg, err := tCtx.LocalConfig(ctx, cache)
 	if errors.Is(err, keg.ErrNotExist) {
 		cfg = &Config{}
@@ -98,7 +111,7 @@ func (tCtx *TapContext) LocalConfigUpdate(ctx context.Context, f func(cfg *Confi
 
 // UserConfig returns the merged user configuration. When cache is true a
 // previously loaded value may be returned.
-func (tCtx *TapContext) UserConfig(ctx context.Context, cache bool) (*Config, error) {
+func (tCtx *TapApi) UserConfig(ctx context.Context, cache bool) (*Config, error) {
 	if cache && tCtx.uCfg != nil {
 		return tCtx.uCfg, nil
 	}
@@ -113,7 +126,7 @@ func (tCtx *TapContext) UserConfig(ctx context.Context, cache bool) (*Config, er
 
 // UserConfigUpdate loads the user config, applies f and writes the result. When
 // cache is true cached values may be used for read.
-func (tCtx *TapContext) UserConfigUpdate(ctx context.Context, f func(cfg *Config),
+func (tCtx *TapApi) UserConfigUpdate(ctx context.Context, f func(cfg *Config),
 	cache bool) error {
 	cfg, err := tCtx.UserConfig(ctx, cache)
 	if errors.Is(err, keg.ErrNotExist) {
@@ -127,7 +140,7 @@ func (tCtx *TapContext) UserConfigUpdate(ctx context.Context, f func(cfg *Config
 
 // StateConfig returns the state configuration. When cache is true a previously
 // loaded value may be returned.
-func (tCtx *TapContext) StateConfig(ctx context.Context, cache bool) (*Config, error) {
+func (tCtx *TapApi) StateConfig(ctx context.Context, cache bool) (*Config, error) {
 	if cache && tCtx.sCfg != nil {
 		return tCtx.sCfg, nil
 	}
@@ -141,7 +154,7 @@ func (tCtx *TapContext) StateConfig(ctx context.Context, cache bool) (*Config, e
 
 // StateConfigUpdate loads the state config, applies f and writes the result.
 // When cache is true cached values may be used for read.
-func (tCtx *TapContext) StateConfigUpdate(ctx context.Context, f func(cfg *Config),
+func (tCtx *TapApi) StateConfigUpdate(ctx context.Context, f func(cfg *Config),
 	cache bool) error {
 	cfg, err := tCtx.StateConfig(ctx, cache)
 	if errors.Is(err, keg.ErrNotExist) {
@@ -155,7 +168,7 @@ func (tCtx *TapContext) StateConfigUpdate(ctx context.Context, f func(cfg *Confi
 
 // DataConfig returns the data configuration. When cache is true a previously
 // loaded value may be returned.
-func (tCtx *TapContext) DataConfig(ctx context.Context, cache bool) (*Config, error) {
+func (tCtx *TapApi) DataConfig(ctx context.Context, cache bool) (*Config, error) {
 	if cache && tCtx.dCfg != nil {
 		return tCtx.dCfg, nil
 	}
@@ -167,9 +180,9 @@ func (tCtx *TapContext) DataConfig(ctx context.Context, cache bool) (*Config, er
 	return cfg, nil
 }
 
-// DataConfigUpdate loads the data config, applies f and writes the result.
-// When cache is true cached values may be used for read.
-func (tCtx *TapContext) DataConfigUpdate(ctx context.Context, f func(cfg *Config),
+// DataConfigUpdate loads the data config, applies f, and writes the result.
+// When the cache is true, cached values may be used for reading.
+func (tCtx *TapApi) DataConfigUpdate(ctx context.Context, f func(cfg *Config),
 	cache bool) error {
 	cfg, err := tCtx.DataConfig(ctx, cache)
 	if errors.Is(err, keg.ErrNotExist) {
@@ -183,38 +196,58 @@ func (tCtx *TapContext) DataConfigUpdate(ctx context.Context, f func(cfg *Config
 
 // ListKegs returns the list of known keg aliases from the merged config.
 // The result is sorted to be deterministic.
-func (tCtx *TapContext) ListKegs(ctx context.Context) []string {
-	return tCtx.Config(ctx).ListKegs()
+func (tCtx *TapApi) ListKegs(ctx context.Context, cache bool) []string {
+	return tCtx.Config(ctx, cache).ListKegs()
 }
 
 // DefaultKeg selects the appropriate keg target for the project root using the
 // merged config's project-keg resolution rules.
-func (tCtx *TapContext) DefaultKeg(ctx context.Context) (*kegurl.Target, error) {
-	cfg := tCtx.Config(ctx)
-	local, err := tCtx.LocalConfig(ctx, true)
-	if err == nil && local.DefaultKeg() != "" {
-		return cfg.ResolveAlias(local.DefaultKeg())
+func (tCtx *TapApi) DefaultKeg(ctx context.Context, cache bool) (*kegurl.Target, error) {
+	cfg := tCtx.Config(ctx, cache)
+	if cfg == nil {
+		return nil, nil
 	}
-	return cfg.ResolveKegMap(ctx, tCtx.Root)
+	if cfg.DefaultKeg() == "" {
+		return nil, nil
+	}
+	return cfg.ResolveAlias(cfg.DefaultKeg())
 }
 
-type ResolveKegOpts struct {
-	Alias string
-}
-
-func (tCtx *TapContext) ResolveKeg(ctx context.Context, opts *ResolveKegOpts) (*kegurl.Target, error) {
-	cfg := tCtx.Config(ctx)
+// ResolveKeg resolves and returns a keg target based on the provided options, including alias and configuration settings.
+func (tCtx *TapApi) ResolveKeg(ctx context.Context, alias string, cache bool) (*kegurl.Target, error) {
+	cfg := tCtx.Config(ctx, cache)
 	if cfg == nil {
 		return nil, nil
 	}
 
-	if opts != nil && opts.Alias != "" {
-		return cfg.ResolveAlias(opts.Alias)
+	return cfg.ResolveAlias(alias)
+}
+
+type ResolveKegOpts struct {
+	Root  string
+	Alias string
+	Cache bool
+}
+
+func (tCtx *TapApi) Target(ctx context.Context, opts *ResolveKegOpts) (*kegurl.Target, error) {
+	if opts == nil {
+		opts = &ResolveKegOpts{Cache: true, Root: tCtx.Root}
 	}
-	target, _ := cfg.ResolveKegMap(ctx, tCtx.Root)
-	if target != nil {
-		return target, nil
+	if opts.Root == "" {
+		opts.Root = tCtx.Root
 	}
 
-	return cfg.ResolveAlias(cfg.DefaultKeg())
+	cfg := tCtx.Config(ctx, opts.Cache)
+	if cfg == nil {
+		return nil, fmt.Errorf("no configuration available")
+	}
+	if opts.Alias != "" {
+		return cfg.ResolveAlias(opts.Alias)
+	}
+	target, err := cfg.ResolveKegMap(ctx, opts.Root)
+	if target != nil && err == nil {
+		return target, err
+	}
+	alias := cfg.DefaultKeg()
+	return cfg.ResolveAlias(alias)
 }

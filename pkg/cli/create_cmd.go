@@ -12,9 +12,9 @@ import (
 //
 // Usage examples:
 //
-//	tap create --title "My note" --lead "one-line summary"
-//	tap create --title "Note" --tags tag1 --tags tag2 --attrs foo=bar --attrs x=1
-func NewCreateCmd() *cobra.Command {
+//	Tap create --title "My note" --lead "one-line summary"
+//	Tap create --title "Note" --tags tag1 --tags tag2 --attrs foo=bar --attrs x=1
+func NewCreateCmd(deps *Deps) *cobra.Command {
 	var opts tapper.CreateOptions
 
 	cmd := &cobra.Command{
@@ -24,13 +24,8 @@ func NewCreateCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			stream := toolkit.StreamFromContext(cmd.Context())
 			opts.Stream = stream
-			ctx := cmd.Context()
 
-			tap, err := tapper.NewTap(ctx)
-			if err != nil {
-				return err
-			}
-			node, err := tap.Create(cmd.Context(), opts)
+			node, err := deps.Tap.Create(cmd.Context(), opts)
 			if err != nil {
 				return err
 			}

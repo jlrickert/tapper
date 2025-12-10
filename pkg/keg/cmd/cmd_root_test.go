@@ -29,7 +29,7 @@ package cmd_test
 // 	// k := keg.NewKeg(mem, nil)
 // 	//
 // 	// // Request help output from the root command.
-// 	// if err := cmd.Run(t.Context(), []string{"--help"},
+// 	// if err := cmd.Run(t.Api(), []string{"--help"},
 // 	// 	cmd.WithIO(nil, &out, &out),
 // 	// 	cmd.WithKeg(k),
 // 	// ); err != nil {

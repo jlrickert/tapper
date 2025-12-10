@@ -34,13 +34,13 @@ package keg
 //
 // // WithHasher returns a copy of ctx that carries the provided Hasher.
 // // Use this to inject a custom hasher for tests or alternative hashing strategies.
-// func WithHasher(ctx context.Context, h Hasher) context.Context {
+// func WithHasher(ctx context.Api, h Hasher) context.Api {
 // 	return context.WithValue(ctx, hasherKey{}, h)
 // }
 //
 // // HasherFromContext returns the Hasher stored in ctx. If ctx is nil or does not
 // // contain a Hasher, DefaultHasher is returned.
-// func HasherFromContext(ctx context.Context) Hasher {
+// func HasherFromContext(ctx context.Api) Hasher {
 // 	if ctx == nil {
 // 		return DefaultHasher
 // 	}

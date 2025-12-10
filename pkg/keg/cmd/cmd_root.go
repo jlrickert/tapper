@@ -273,7 +273,7 @@ package cmd
 // // initialization registered in PersistentPreRunE (for example, deps.ApplyDefaults)
 // // will execute before the command runs. The returned error is whatever Cobra's
 // // ExecuteContext returns.
-// func RunWithDeps(ctx context.Context, args []string, deps *CmdDeps) error {
+// func RunWithDeps(ctx context.Api, args []string, deps *CmdDeps) error {
 // 	root := NewRootCmdWithDeps(deps)
 // 	// if caller supplied args, use them; otherwise Cobra will use os.Args
 // 	if len(args) > 0 {
@@ -284,7 +284,7 @@ package cmd
 //
 // // Run is a convenience wrapper that creates the root command (with provided options),
 // // sets the provided args, and executes it. Tests or main can call this.
-// func Run(ctx context.Context, args []string, opts ...CmdOption) error {
+// func Run(ctx context.Api, args []string, opts ...CmdOption) error {
 // 	root := NewRootCmd(opts...)
 // 	// if caller supplied args, use them; otherwise cobra will use os.Args
 // 	if len(args) > 0 {

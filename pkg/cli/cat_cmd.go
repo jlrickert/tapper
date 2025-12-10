@@ -11,10 +11,10 @@ import (
 //
 // Usage examples:
 //
-//	tap cat 0
-//	tap cat 42
-//	tap cat 0 --alias myalias
-func NewCatCmd() *cobra.Command {
+//	Tap cat 0
+//	Tap cat 42
+//	Tap cat 0 --alias myalias
+func NewCatCmd(deps *Deps) *cobra.Command {
 	var opts tapper.CatOptions
 
 	cmd := &cobra.Command{
@@ -26,13 +26,7 @@ func NewCatCmd() *cobra.Command {
 			// Set the node ID from the first argument
 			opts.NodeID = args[0]
 
-			ctx := cmd.Context()
-			tap, err := tapper.NewTap(ctx)
-			if err != nil {
-				return err
-			}
-
-			output, err := tap.Cat(ctx, opts)
+			output, err := deps.Tap.Cat(cmd.Context(), opts)
 			if err != nil {
 				return err
 			}
@@ -42,7 +36,11 @@ func NewCatCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&opts.Alias, "alias", "", "alias of the keg to read from")
+	cmd.Flags().StringVar(&opts.Alias, "keg", "", "alias of the keg to read from")
+
+	_ = cmd.RegisterFlagCompletionFunc("keg", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		return deps.Tap.Api.ListKegs(cmd.Context(), true), cobra.ShellCompDirectiveNoFileComp
+	})
 
 	return cmd
 }
