@@ -14,7 +14,7 @@ package tapper_test
 // 	req := require.New(t)
 //
 // 	fx := NewSandbox(t)
-// 	ctx := fx.Context()
+// 	ctx := fx.Api()
 //
 // 	p, err := tapper.newTapContext(ctx, "/repo/root")
 // 	req.NoError(err)
@@ -32,7 +32,7 @@ package tapper_test
 // 	req := require.New(t)
 //
 // 	fx := NewSandbox(t)
-// 	ctx := fx.Context()
+// 	ctx := fx.Api()
 //
 // 	// Ensure a stable home so user config roots resolve predictably.
 // 	// env := std.EnvFromContext(ctx)
@@ -69,7 +69,7 @@ package tapper_test
 // 	req := require.New(t)
 //
 // 	fx := NewSandbox(t)
-// 	ctx := fx.Context()
+// 	ctx := fx.Api()
 //
 // 	// Use deterministic env values so config paths are stable.
 // 	env := toolkit.EnvFromContext(ctx)

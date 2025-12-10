@@ -64,8 +64,8 @@ type Config struct {
 	// parsed data.
 	data *configDTO
 
-	// node holds the original parsed YAML document root (document node).
-	// When present we edit it directly to preserve comments and layout.
+	// Node holds the original parsed YAML document root (document node).
+	// When present, we edit it directly to preserve comments and layout.
 	node *yaml.Node
 }
 
@@ -87,97 +87,97 @@ type KegRegistry struct {
 // --- Getter Methods ---
 
 // DefaultKeg returns the alias of the default keg to use.
-func (c *Config) DefaultKeg() string {
-	if c.data == nil {
-		c.data = &configDTO{}
+func (cfg *Config) DefaultKeg() string {
+	if cfg.data == nil {
+		cfg.data = &configDTO{}
 	}
-	return c.data.DefaultKeg
+	return cfg.data.DefaultKeg
 }
 
 // UserRepoPath returns the path to discover KEGs on the local file system.
-func (c *Config) UserRepoPath() string {
-	if c.data == nil {
-		c.data = &configDTO{}
+func (cfg *Config) UserRepoPath() string {
+	if cfg.data == nil {
+		cfg.data = &configDTO{}
 	}
-	return c.data.UserRepoPath
+	return cfg.data.UserRepoPath
 }
 
 // Kegs returns a map of keg aliases to their targets.
-func (c *Config) Kegs() map[string]kegurl.Target {
-	if c.data == nil {
-		c.data = &configDTO{}
+func (cfg *Config) Kegs() map[string]kegurl.Target {
+	if cfg.data == nil {
+		cfg.data = &configDTO{}
 	}
-	if c.data.Kegs == nil {
+	if cfg.data.Kegs == nil {
 
 		return map[string]kegurl.Target{}
 	}
-	return c.data.Kegs
+	return cfg.data.Kegs
 }
 
 // DefaultRegistry returns the default registry name.
-func (c *Config) DefaultRegistry() string {
-	if c.data == nil {
-		c.data = &configDTO{}
+func (cfg *Config) DefaultRegistry() string {
+	if cfg.data == nil {
+		cfg.data = &configDTO{}
 	}
-	return c.data.DefaultRegistry
+	return cfg.data.DefaultRegistry
 }
 
 // KegMap returns the list of path/regex to keg alias mappings.
-func (c *Config) KegMap() []KegMapEntry {
-	if c.data == nil {
-		c.data = &configDTO{}
+func (cfg *Config) KegMap() []KegMapEntry {
+	if cfg.data == nil {
+		cfg.data = &configDTO{}
 	}
-	if c.data.KegMap == nil {
+	if cfg.data.KegMap == nil {
 		return []KegMapEntry{}
 	}
-	return c.data.KegMap
+	return cfg.data.KegMap
 }
 
-// Registries returns the list of configured registries.
-func (c *Config) Registries() []KegRegistry {
-	if c.data == nil {
-		c.data = &configDTO{}
+// Registries return the list of configured registries.
+func (cfg *Config) Registries() []KegRegistry {
+	if cfg.data == nil {
+		cfg.data = &configDTO{}
 	}
-	if c.data.Registries == nil {
+	if cfg.data.Registries == nil {
 		return []KegRegistry{}
 	}
-	return c.data.Registries
+	return cfg.data.Registries
 }
 
 // LogFile returns the log file path.
-func (c *Config) LogFile() string {
-	if c.data == nil {
-		c.data = &configDTO{}
+func (cfg *Config) LogFile() string {
+	if cfg.data == nil {
+		cfg.data = &configDTO{}
 	}
-	return c.data.LogFile
+	return cfg.data.LogFile
 }
 
 // LogLevel returns the log level.
-func (c *Config) LogLevel() string {
-	if c.data == nil {
-		c.data = &configDTO{}
+func (cfg *Config) LogLevel() string {
+	if cfg.data == nil {
+		cfg.data = &configDTO{}
 	}
-	return c.data.LogLevel
+	return cfg.data.LogLevel
 }
 
 // Updated returns the last update timestamp.
-func (c *Config) Updated() time.Time {
-	if c.data == nil {
-		c.data = &configDTO{}
+func (cfg *Config) Updated() time.Time {
+	if cfg.data == nil {
+		cfg.data = &configDTO{}
 	}
-	return c.data.Updated
+	return cfg.data.Updated
 }
 
 // --- Setter Methods ---
 
 // SetDefaultKeg sets the default keg alias and updates the node.
-func (c *Config) SetDefaultKeg(keg string) error {
-	if c.data == nil {
-		c.data = &configDTO{}
+func (cfg *Config) SetDefaultKeg(keg string) error {
+	if cfg.data == nil {
+		cfg.data = &configDTO{}
 	}
-	c.data.DefaultKeg = keg
-	if c.node != nil && len(c.node.Content) > 0 {
-		rootNode := c.node.Content[0]
+	cfg.data.DefaultKeg = keg
+	if cfg.node != nil && len(cfg.node.Content) > 0 {
+		rootNode := cfg.node.Content[0]
 		if rootNode != nil && rootNode.Kind == yaml.MappingNode {
 			updateMapEntry(rootNode, "defaultKeg", keg)
 		}
@@ -186,13 +186,13 @@ func (c *Config) SetDefaultKeg(keg string) error {
 }
 
 // SetUserRepoPath sets the user repository path and updates the node.
-func (c *Config) SetUserRepoPath(path string) error {
-	if c.data == nil {
-		c.data = &configDTO{}
+func (cfg *Config) SetUserRepoPath(path string) error {
+	if cfg.data == nil {
+		cfg.data = &configDTO{}
 	}
-	c.data.UserRepoPath = path
-	if c.node != nil && len(c.node.Content) > 0 {
-		rootNode := c.node.Content[0]
+	cfg.data.UserRepoPath = path
+	if cfg.node != nil && len(cfg.node.Content) > 0 {
+		rootNode := cfg.node.Content[0]
 		if rootNode != nil && rootNode.Kind == yaml.MappingNode {
 			updateMapEntry(rootNode, "userRepoPath", path)
 		}
@@ -201,13 +201,13 @@ func (c *Config) SetUserRepoPath(path string) error {
 }
 
 // SetDefaultRegistry sets the default registry and updates the node.
-func (c *Config) SetDefaultRegistry(ctx context.Context, registry string) error {
-	if c.data == nil {
-		c.data = &configDTO{}
+func (cfg *Config) SetDefaultRegistry(ctx context.Context, registry string) error {
+	if cfg.data == nil {
+		cfg.data = &configDTO{}
 	}
-	c.data.DefaultRegistry = registry
-	if c.node != nil && len(c.node.Content) > 0 {
-		rootNode := c.node.Content[0]
+	cfg.data.DefaultRegistry = registry
+	if cfg.node != nil && len(cfg.node.Content) > 0 {
+		rootNode := cfg.node.Content[0]
 		if rootNode != nil && rootNode.Kind == yaml.MappingNode {
 			updateMapEntry(rootNode, "defaultRegistry", registry)
 		}
@@ -216,13 +216,13 @@ func (c *Config) SetDefaultRegistry(ctx context.Context, registry string) error 
 }
 
 // SetLogFile sets the log file path and updates the node.
-func (c *Config) SetLogFile(ctx context.Context, path string) error {
-	if c.data == nil {
-		c.data = &configDTO{}
+func (cfg *Config) SetLogFile(ctx context.Context, path string) error {
+	if cfg.data == nil {
+		cfg.data = &configDTO{}
 	}
-	c.data.LogFile = path
-	if c.node != nil && len(c.node.Content) > 0 {
-		rootNode := c.node.Content[0]
+	cfg.data.LogFile = path
+	if cfg.node != nil && len(cfg.node.Content) > 0 {
+		rootNode := cfg.node.Content[0]
 		if rootNode != nil && rootNode.Kind == yaml.MappingNode {
 			updateMapEntry(rootNode, "logFile", path)
 		}
@@ -231,13 +231,13 @@ func (c *Config) SetLogFile(ctx context.Context, path string) error {
 }
 
 // SetLogLevel sets the log level and updates the node.
-func (c *Config) SetLogLevel(ctx context.Context, level string) error {
-	if c.data == nil {
-		c.data = &configDTO{}
+func (cfg *Config) SetLogLevel(ctx context.Context, level string) error {
+	if cfg.data == nil {
+		cfg.data = &configDTO{}
 	}
-	c.data.LogLevel = level
-	if c.node != nil && len(c.node.Content) > 0 {
-		rootNode := c.node.Content[0]
+	cfg.data.LogLevel = level
+	if cfg.node != nil && len(cfg.node.Content) > 0 {
+		rootNode := cfg.node.Content[0]
 		if rootNode != nil && rootNode.Kind == yaml.MappingNode {
 			updateMapEntry(rootNode, "logLevel", level)
 		}
@@ -250,26 +250,26 @@ func (c *Config) SetLogLevel(ctx context.Context, level string) error {
 //
 // When possible the clone preserves the original document node so comment
 // preserving edits remain possible on the returned value.
-func (uc *Config) Clone(ctx context.Context) *Config {
-	if uc == nil {
+func (cfg *Config) Clone(ctx context.Context) *Config {
+	if cfg == nil {
 		return nil
 	}
-	data, _ := uc.ToYAML(ctx)
-	cfg, _ := ParseUserConfig(ctx, data)
-	return cfg
+	data, _ := cfg.ToYAML(ctx)
+	uCfg, _ := ParseUserConfig(ctx, data)
+	return uCfg
 }
 
 // ResolveAlias looks up the keg by alias and returns a parsed Target.
 //
 // Returns (nil, error) when not found or parse fails.
-func (uc *Config) ResolveAlias(alias string) (*kegurl.Target, error) {
-	if uc.data == nil {
-		uc.data = &configDTO{}
+func (cfg *Config) ResolveAlias(alias string) (*kegurl.Target, error) {
+	if cfg.data == nil {
+		cfg.data = &configDTO{}
 	}
-	if uc.data.Kegs == nil {
-		uc.data.Kegs = map[string]kegurl.Target{}
+	if cfg.data.Kegs == nil {
+		cfg.data.Kegs = map[string]kegurl.Target{}
 	}
-	u, ok := uc.data.Kegs[alias]
+	u, ok := cfg.data.Kegs[alias]
 	if !ok {
 		return nil, fmt.Errorf("keg alias not found: %s", alias)
 	}
@@ -286,9 +286,9 @@ func (uc *Config) ResolveAlias(alias string) (*kegurl.Target, error) {
 //
 // The function expands env vars and tildes prior to comparisons so stored
 // prefixes and patterns may contain ~ or $VAR values.
-func (uc *Config) ResolveKegMap(ctx context.Context, projectRoot string) (*kegurl.Target, error) {
-	if uc.data == nil {
-		uc.data = &configDTO{}
+func (cfg *Config) ResolveKegMap(ctx context.Context, projectRoot string) (*kegurl.Target, error) {
+	if cfg.data == nil {
+		cfg.data = &configDTO{}
 		return nil, nil
 	}
 	// Expand path and make absolute/clean to compare reliably.
@@ -301,7 +301,7 @@ func (uc *Config) ResolveKegMap(ctx context.Context, projectRoot string) (*kegur
 	abs = filepath.Clean(abs)
 
 	// First check regex entries (highest precedence).
-	for _, m := range uc.data.KegMap {
+	for _, m := range cfg.data.KegMap {
 		if m.PathRegex == "" {
 			continue
 		}
@@ -309,7 +309,7 @@ func (uc *Config) ResolveKegMap(ctx context.Context, projectRoot string) (*kegur
 		pattern, _ = toolkit.ExpandPath(ctx, pattern)
 		ok, _ := regexp.MatchString(pattern, abs)
 		if ok {
-			return uc.ResolveAlias(m.Alias)
+			return cfg.ResolveAlias(m.Alias)
 		}
 	}
 
@@ -319,7 +319,7 @@ func (uc *Config) ResolveKegMap(ctx context.Context, projectRoot string) (*kegur
 		len   int
 	}
 	var matches []match
-	for _, m := range uc.data.KegMap {
+	for _, m := range cfg.data.KegMap {
 		if m.PathPrefix == "" {
 			continue
 		}
@@ -334,19 +334,19 @@ func (uc *Config) ResolveKegMap(ctx context.Context, projectRoot string) (*kegur
 	if len(matches) > 0 {
 		// Choose longest prefix.
 		sort.Slice(matches, func(i, j int) bool { return matches[i].len > matches[j].len })
-		return uc.ResolveAlias(matches[0].entry.Alias)
+		return cfg.ResolveAlias(matches[0].entry.Alias)
 	}
 
 	return nil, fmt.Errorf("no keg map entry matched path: %s", projectRoot)
 }
 
-func (uc *Config) ResolveDefault(ctx context.Context) (*kegurl.Target, error) {
-	if uc.data == nil {
-		uc.data = &configDTO{}
+func (cfg *Config) ResolveDefault(ctx context.Context) (*kegurl.Target, error) {
+	if cfg.data == nil {
+		cfg.data = &configDTO{}
 		return nil, nil
 	}
-	alias := toolkit.ExpandEnv(ctx, uc.DefaultKeg())
-	return uc.ResolveAlias(alias)
+	alias := toolkit.ExpandEnv(ctx, cfg.DefaultKeg())
+	return cfg.ResolveAlias(alias)
 
 }
 
@@ -435,8 +435,8 @@ func DefaultLocalConfig(user, userKegRepo string) *Config {
 //
 // When possible the original parsed document node is emitted to preserve
 // comments and formatting; otherwise the struct form is encoded.
-func (uc *Config) ToYAML(ctx context.Context) ([]byte, error) {
-	if uc == nil {
+func (cfg *Config) ToYAML(ctx context.Context) ([]byte, error) {
+	if cfg == nil {
 		return nil, fmt.Errorf("no user config")
 	}
 	var buf bytes.Buffer
@@ -444,14 +444,14 @@ func (uc *Config) ToYAML(ctx context.Context) ([]byte, error) {
 	enc.SetIndent(2)
 
 	// Prefer writing the original node to keep comments. If absent, write struct.
-	if uc.node != nil {
+	if cfg.node != nil {
 		// Ensure we encode the document node as-is.
-		if err := enc.Encode(uc.node); err != nil {
+		if err := enc.Encode(cfg.node); err != nil {
 			_ = enc.Close()
 			return nil, fmt.Errorf("encode yaml node: %w", err)
 		}
 	} else {
-		if err := enc.Encode(uc.data); err != nil {
+		if err := enc.Encode(cfg.data); err != nil {
 			_ = enc.Close()
 			return nil, fmt.Errorf("encode yaml struct: %w", err)
 		}
@@ -464,8 +464,8 @@ func (uc *Config) ToYAML(ctx context.Context) ([]byte, error) {
 
 // Write writes the Config back to path, preserving comments and formatting
 // when possible. Uses AtomicWriteFile from std.
-func (uc *Config) Write(ctx context.Context, path string) error {
-	data, err := uc.ToYAML(ctx)
+func (cfg *Config) Write(ctx context.Context, path string) error {
+	data, err := cfg.ToYAML(ctx)
 	if err != nil {
 		return fmt.Errorf("unable to write user config: %w", err)
 	}
@@ -547,9 +547,9 @@ func MergeConfig(cfgs ...*Config) *Config {
 }
 
 // Touch updates the Updated timestamp on the Config using the context clock.
-func (uc *Config) Touch(ctx context.Context) {
-	clock := clock.ClockFromContext(ctx)
-	uc.data.Updated = clock.Now()
+func (cfg *Config) Touch(ctx context.Context) {
+	clk := clock.ClockFromContext(ctx)
+	cfg.data.Updated = clk.Now()
 }
 
 // AddKeg adds or updates a keg entry in the Config.
@@ -557,8 +557,8 @@ func (uc *Config) Touch(ctx context.Context) {
 // Updates both the struct's Kegs map and the YAML node (if present) to preserve
 // comments and formatting. If the node exists, the alias entry is added/updated
 // within the kegs mapping while preserving document structure.
-func (uc *Config) AddKeg(alias string, target kegurl.Target) error {
-	if uc == nil {
+func (cfg *Config) AddKeg(alias string, target kegurl.Target) error {
+	if cfg == nil {
 		return fmt.Errorf("config is nil")
 	}
 	if alias == "" {
@@ -566,14 +566,14 @@ func (uc *Config) AddKeg(alias string, target kegurl.Target) error {
 	}
 
 	// Add/update in struct
-	if uc.data.Kegs == nil {
-		uc.data.Kegs = make(map[string]kegurl.Target)
+	if cfg.data.Kegs == nil {
+		cfg.data.Kegs = make(map[string]kegurl.Target)
 	}
-	uc.data.Kegs[alias] = target
+	cfg.data.Kegs[alias] = target
 
 	// Update node if present to preserve comments in file
-	if uc.node != nil && len(uc.node.Content) > 0 {
-		rootNode := uc.node.Content[0]
+	if cfg.node != nil && len(cfg.node.Content) > 0 {
+		rootNode := cfg.node.Content[0]
 		if rootNode == nil || rootNode.Kind != yaml.MappingNode {
 			return nil
 		}
@@ -594,8 +594,8 @@ func (uc *Config) AddKeg(alias string, target kegurl.Target) error {
 // Updates both the struct's KegMap slice and the YAML node (if present) to preserve
 // comments and formatting. If an entry with the same alias exists, it is replaced;
 // otherwise a new entry is appended.
-func (uc *Config) AddKegMap(entry KegMapEntry) error {
-	if uc == nil {
+func (cfg *Config) AddKegMap(entry KegMapEntry) error {
+	if cfg == nil {
 		return fmt.Errorf("config is nil")
 	}
 	if entry.Alias == "" {
@@ -604,20 +604,20 @@ func (uc *Config) AddKegMap(entry KegMapEntry) error {
 
 	// Find and update or append to struct
 	found := false
-	for i, e := range uc.data.KegMap {
+	for i, e := range cfg.data.KegMap {
 		if e.Alias == entry.Alias {
-			uc.data.KegMap[i] = entry
+			cfg.data.KegMap[i] = entry
 			found = true
 			break
 		}
 	}
 	if !found {
-		uc.data.KegMap = append(uc.data.KegMap, entry)
+		cfg.data.KegMap = append(cfg.data.KegMap, entry)
 	}
 
 	// Update node if present to preserve comments in file
-	if uc.node != nil && len(uc.node.Content) > 0 {
-		rootNode := uc.node.Content[0]
+	if cfg.node != nil && len(cfg.node.Content) > 0 {
+		rootNode := cfg.node.Content[0]
 		if rootNode == nil || rootNode.Kind != yaml.MappingNode {
 			return nil
 		}
@@ -626,7 +626,7 @@ func (uc *Config) AddKegMap(entry KegMapEntry) error {
 		kegMapNode := findOrCreateMapKey(rootNode, "kegMap")
 		if kegMapNode != nil {
 			// Rebuild the kegMap sequence from the updated slice
-			updateKegMapSequence(kegMapNode, uc.data.KegMap)
+			updateKegMapSequence(kegMapNode, cfg.data.KegMap)
 		}
 	}
 

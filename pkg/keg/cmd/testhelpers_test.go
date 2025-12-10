@@ -170,7 +170,7 @@ package cmd_test
 // // Run executes the CLI command using the fixture's CmdDeps.
 // func (f *TestFixture) Run(args []string) error {
 // 	f.T.Helper()
-// 	return cmd.RunWithDeps(f.T.Context(), args, f.Deps)
+// 	return cmd.RunWithDeps(f.T.Api(), args, f.Deps)
 // }
 //
 // // RunOrFail executes and fails the test on error.

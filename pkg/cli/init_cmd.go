@@ -17,7 +17,7 @@ import (
 //	keg init NAME
 //	keg init mykeg --type local
 //	keg init blog --path ./kegs/blog --title "Blog" --creator "me"
-func NewInitCmd() *cobra.Command {
+func NewInitCmd(deps *Deps) *cobra.Command {
 	initOpts := &tapper.InitOptions{}
 
 	cmd := &cobra.Command{
@@ -31,12 +31,6 @@ func NewInitCmd() *cobra.Command {
 			}
 			name := args[0]
 
-			ctx := cmd.Context()
-			r, err := tapper.NewTap(ctx)
-			if err != nil {
-				return err
-			}
-
 			if initOpts.Type == "" {
 				if name == "." {
 					initOpts.Type = "local"
@@ -48,18 +42,18 @@ func NewInitCmd() *cobra.Command {
 			switch initOpts.Type {
 			case "local":
 				if initOpts.Alias == "" && name == "." {
-					initOpts.Alias = filepath.Base(r.Root)
+					initOpts.Alias = filepath.Base(deps.Root)
 				}
 				initOpts.Path = name
 			case "user":
 				initOpts.Name = name
 				if name == "." {
-					initOpts.Name = filepath.Base(r.Root)
+					initOpts.Name = filepath.Base(deps.Root)
 				}
 
 				if initOpts.Alias == "" {
 					if name == "." {
-						initOpts.Alias = filepath.Base(r.Root)
+						initOpts.Alias = filepath.Base(deps.Root)
 					} else {
 						initOpts.Alias = filepath.Base(name)
 					}
@@ -79,7 +73,7 @@ func NewInitCmd() *cobra.Command {
 				panic("Alias needs to be defined")
 			}
 
-			err = r.Init(cmd.Context(), name, initOpts)
+			err := deps.Tap.Init(cmd.Context(), name, initOpts)
 			if err != nil {
 				return err
 			}

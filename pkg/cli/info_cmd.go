@@ -11,11 +11,11 @@ import (
 //
 // Usage examples:
 //
-//	tap info
-//	tap info --alias myalias
-//	tap info edit
-//	tap info edit --alias myalias
-func NewInfoCmd() *cobra.Command {
+//	Tap info
+//	Tap info --alias myalias
+//	Tap info edit
+//	Tap info edit --alias myalias
+func NewInfoCmd(deps *Deps) *cobra.Command {
 	var opts tapper.InfoOptions
 
 	cmd := &cobra.Command{
@@ -24,15 +24,10 @@ func NewInfoCmd() *cobra.Command {
 		Long: `Display the keg configuration (keg.yaml).
 
 Shows metadata about the keg including title, creator, state, and other
-configuration properties. Use 'tap info edit' to modify the configuration.`,
+configuration properties. Use 'Tap info edit' to modify the configuration.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
-			tap, err := tapper.NewTap(ctx)
-			if err != nil {
-				return err
-			}
-
-			output, err := tap.Info(ctx, opts)
+			output, err := deps.Tap.Info(ctx, opts)
 			if err != nil {
 				return err
 			}
@@ -42,10 +37,10 @@ configuration properties. Use 'tap info edit' to modify the configuration.`,
 		},
 	}
 
-	cmd.Flags().StringVar(&opts.Alias, "alias", "", "alias of the keg to display info for")
+	cmd.Flags().StringVar(&opts.Alias, "keg", "", "alias of the keg to display info for")
 
 	// Add the edit subcommand
-	cmd.AddCommand(NewInfoEditCmd())
+	cmd.AddCommand(NewInfoEditCmd(deps))
 
 	return cmd
 }

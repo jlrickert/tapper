@@ -11,11 +11,11 @@ import (
 //
 // Usage examples:
 //
-//	tap config
-//	tap config --local
-//	tap config edit
-//	tap config edit --local
-func NewConfigCmd() *cobra.Command {
+//	Tap config
+//	Tap config --local
+//	Tap config edit
+//	Tap config edit --local
+func NewConfigCmd(deps *Deps) *cobra.Command {
 	var opts tapper.ConfigOptions
 
 	cmd := &cobra.Command{
@@ -23,16 +23,12 @@ func NewConfigCmd() *cobra.Command {
 		Short: "display configuration",
 		Long: `Display the merged configuration (user + local).
 
-Use 'tap config edit' to modify the configuration.
+Use 'Tap config edit' to modify the configuration.
 Use '--local' flag to view only local project configuration.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
-			tap, err := tapper.NewTap(ctx)
-			if err != nil {
-				return err
-			}
 
-			output, err := tap.Config(ctx, opts)
+			output, err := deps.Tap.Config(ctx, opts)
 			if err != nil {
 				return err
 			}
@@ -45,7 +41,7 @@ Use '--local' flag to view only local project configuration.`,
 	cmd.Flags().BoolVar(&opts.Local, "local", false, "display local project configuration")
 
 	// Add the edit subcommand
-	cmd.AddCommand(NewConfigEditCmd())
+	cmd.AddCommand(NewConfigEditCmd(deps))
 
 	return cmd
 }

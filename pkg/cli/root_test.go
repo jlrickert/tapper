@@ -17,7 +17,7 @@ package cli_test
 // )
 //
 // // helper to run a command and capture errors
-// func runCmd(t *testing.T, cmd *cobra.Command, ctx context.Context, in *bytes.Buffer, out *bytes.Buffer, errb *bytes.Buffer, args []string) error {
+// func runCmd(t *testing.T, cmd *cobra.Command, ctx context.Api, in *bytes.Buffer, out *bytes.Buffer, errb *bytes.Buffer, args []string) error {
 // 	t.Helper()
 // 	cmd.SetContext(ctx)
 // 	cmd.SetIn(in)

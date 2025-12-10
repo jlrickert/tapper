@@ -15,27 +15,15 @@ import (
 type Tap struct {
 	Root string
 
-	tCtx *TapContext
+	Api *TapApi
 }
 
-func NewTap(ctx context.Context) (*Tap, error) {
-	env := toolkit.EnvFromContext(ctx)
-	wd, err := env.Getwd()
-	if err != nil {
-		return nil, err
-	}
-	tCtx, err := newTapContext(ctx, wd)
+func NewTap(ctx context.Context, root string) (*Tap, error) {
+	tCtx, err := newTapContext(ctx, root)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create project: %w", err)
 	}
-	return &Tap{Root: wd, tCtx: tCtx}, nil
-}
-
-func (t *Tap) Context() *TapContext {
-	if t.tCtx == nil {
-		panic("tap context not initialized. Use NewTap instead")
-	}
-	return t.tCtx
+	return &Tap{Root: root, Api: tCtx}, nil
 }
 
 // CatOptions configures behavior for Runner.Cat.
@@ -52,9 +40,11 @@ type CatOptions struct {
 // The metadata (meta.yaml) is output as YAML frontmatter above the node's
 // primary content (README.md).
 func (t *Tap) Cat(ctx context.Context, opts CatOptions) (string, error) {
-	tCtx := t.Context()
-
-	target, err := tCtx.ResolveKeg(ctx, &ResolveKegOpts{Alias: opts.Alias})
+	target, err := t.Api.Target(ctx, &ResolveKegOpts{
+		Root:  t.Root,
+		Alias: opts.Alias,
+		Cache: true,
+	})
 	if err != nil {
 		return "", fmt.Errorf("unable to determine keg: %w", err)
 	}
@@ -114,9 +104,11 @@ type CreateOptions struct {
 //
 // Errors are wrapped with contextual messages to aid callers.
 func (t *Tap) Create(ctx context.Context, opts CreateOptions) (keg.Node, error) {
-	tCtx := t.Context()
-
-	target, err := tCtx.ResolveKeg(ctx, &ResolveKegOpts{Alias: opts.Alias})
+	target, err := t.Api.Target(ctx, &ResolveKegOpts{
+		Root:  t.Root,
+		Alias: opts.Alias,
+		Cache: true,
+	})
 	if err != nil {
 		return keg.Node{}, fmt.Errorf("unable to determine default keg: %w", err)
 	}
@@ -130,7 +122,7 @@ func (t *Tap) Create(ctx context.Context, opts CreateOptions) (keg.Node, error) 
 		return keg.Node{}, fmt.Errorf("unable to open keg: %w", err)
 	}
 
-	body := []byte{}
+	var body []byte
 	attrs := make(map[string]any, len(opts.Attrs))
 	if opts.Stream != nil && opts.Stream.IsPiped {
 		b, _ := io.ReadAll(opts.Stream.In)
@@ -167,9 +159,11 @@ type IndexOptions struct {
 // This scans all nodes and regenerates the dex indices. Useful after
 // manually modifying files or to refresh stale indices.
 func (t *Tap) Index(ctx context.Context, opts IndexOptions) (string, error) {
-	tCtx := t.Context()
-
-	target, err := tCtx.ResolveKeg(ctx, &ResolveKegOpts{Alias: opts.Alias})
+	target, err := t.Api.Target(ctx, &ResolveKegOpts{
+		Root:  t.Root,
+		Alias: opts.Alias,
+		Cache: true,
+	})
 	if err != nil {
 		return "", fmt.Errorf("unable to determine keg: %w", err)
 	}
@@ -242,19 +236,15 @@ func (t *Tap) Init(ctx context.Context, name string, options *InitOptions) error
 			Creator:        options.Creator,
 		})
 	case "user":
-		k, e := t.initUserKeg(ctx, options)
-		err = e
-		target = k.Target
+		target, err = t.initUserKeg(ctx, options)
 	case "local":
-		k, e := t.initLocalKeg(ctx, initLocalOptions{
+		target, err = t.initLocalKeg(ctx, initLocalOptions{
 			Path:           options.Path,
 			AddUserConfig:  options.FlagAddToConfig,
 			AddLocalConfig: options.AddLocalConfig,
 			Title:          options.Title,
 			Creator:        options.Creator,
 		})
-		err = e
-		target = k.Target
 	default:
 		return fmt.Errorf("%s is an invalid repo type", options.Type)
 	}
@@ -263,13 +253,9 @@ func (t *Tap) Init(ctx context.Context, name string, options *InitOptions) error
 		return err
 	}
 
-	tCtx := t.Context()
-	cfg := tCtx.Config(ctx)
+	cfg := t.Api.Config(ctx, true)
 	if cfg == nil || cfg.UserRepoPath() == "" {
 		return nil
-	}
-	if err != nil {
-		return fmt.Errorf("unable to add alias %s update user config: %w", options.Alias, err)
 	}
 
 	if options.FlagNoAddConfig {
@@ -280,7 +266,7 @@ func (t *Tap) Init(ctx context.Context, name string, options *InitOptions) error
 		return nil
 	}
 
-	return tCtx.UserConfigUpdate(ctx, func(cfg *Config) {
+	return t.Api.UserConfigUpdate(ctx, func(cfg *Config) {
 		alias := options.Alias
 		if options.Alias == "." {
 			alias = t.Root
@@ -314,7 +300,7 @@ type initLocalOptions struct {
 // created. A zero node README is written to "0/README.md".
 //
 // Errors are wrapped with contextual messages to aid callers.
-func (t *Tap) initLocalKeg(ctx context.Context, opts initLocalOptions) (*keg.Keg, error) {
+func (t *Tap) initLocalKeg(ctx context.Context, opts initLocalOptions) (*kegurl.Target, error) {
 	target := kegurl.NewFile(opts.Path)
 	k, err := keg.NewKegFromTarget(ctx, target)
 	if err != nil {
@@ -328,12 +314,11 @@ func (t *Tap) initLocalKeg(ctx context.Context, opts initLocalOptions) (*keg.Keg
 		kc.Creator = opts.Creator
 		kc.Title = opts.Title
 	})
-	return k, err
+	return k.Target, err
 }
 
-func (t *Tap) initUserKeg(ctx context.Context, opts *InitOptions) (*keg.Keg, error) {
-	tapCtx := t.Context()
-	cfg := tapCtx.Config(ctx)
+func (t *Tap) initUserKeg(ctx context.Context, opts *InitOptions) (*kegurl.Target, error) {
+	cfg := t.Api.Config(ctx, true)
 	repoPath := cfg.UserRepoPath()
 	if repoPath == "" {
 		return nil, fmt.Errorf("userRepoPath not defined in user config: %w", keg.ErrNotExist)
@@ -343,6 +328,9 @@ func (t *Tap) initUserKeg(ctx context.Context, opts *InitOptions) (*keg.Keg, err
 
 	target := kegurl.NewFile(kegPath)
 	k, err := keg.NewKegFromTarget(ctx, target)
+	if err != nil {
+		return nil, fmt.Errorf("unable to init keg: %w", err)
+	}
 	err = k.Init(ctx)
 	if err != nil {
 		return nil, err
@@ -351,7 +339,7 @@ func (t *Tap) initUserKeg(ctx context.Context, opts *InitOptions) (*keg.Keg, err
 		kc.Creator = opts.Creator
 		kc.Title = opts.Title
 	})
-	return k, err
+	return k.Target, err
 }
 
 type initRegistryOptions struct {
@@ -371,12 +359,10 @@ func (t *Tap) initRegistry(ctx context.Context, opts initRegistryOptions) (*kegu
 		return nil, fmt.Errorf("alias required: %w", keg.ErrInvalid)
 	}
 
-	tCtx := t.Context()
-
 	// Determine repo (registry) name. Prefer explicit flag, then project config.
 	repoName := opts.Repo
 	if repoName == "" {
-		cfg := tCtx.Config(ctx)
+		cfg := t.Api.Config(ctx, true)
 		if cfg != nil && cfg.DefaultRegistry() != "" {
 			repoName = cfg.DefaultRegistry()
 		}
@@ -395,7 +381,7 @@ func (t *Tap) initRegistry(ctx context.Context, opts initRegistryOptions) (*kegu
 			user = u
 		} else {
 			// try to fall back to project-local default if present
-			if cfg := tCtx.Config(ctx); cfg != nil && cfg.DefaultKeg() != "" {
+			if cfg := t.Api.Config(ctx, true); cfg != nil && cfg.DefaultKeg() != "" {
 				// ignore: best-effort only
 				user = cfg.DefaultKeg()
 			}
@@ -418,17 +404,15 @@ type ConfigOptions struct {
 
 // Config displays the merged or local configuration.
 func (t *Tap) Config(ctx context.Context, opts ConfigOptions) (string, error) {
-	tCtx := t.Context()
-
 	var cfg *Config
 	if opts.Local {
-		lCfg, err := tCtx.LocalConfig(ctx, false)
+		lCfg, err := t.Api.LocalConfig(ctx, false)
 		if err != nil {
 			return "", fmt.Errorf("unable to read local config: %w", err)
 		}
 		cfg = lCfg
 	} else {
-		uCfg := tCtx.Config(ctx)
+		uCfg := t.Api.Config(ctx, true)
 		if uCfg == nil {
 			return "", fmt.Errorf("no configuration available: %w", keg.ErrNotExist)
 		}
@@ -451,13 +435,11 @@ type ConfigEditOptions struct {
 
 // ConfigEdit opens the configuration file in the default editor.
 func (t *Tap) ConfigEdit(ctx context.Context, opts ConfigEditOptions) error {
-	tCtx := t.Context()
-
 	var configPath string
 	if opts.Local {
-		configPath = tCtx.LocalConfigPath()
+		configPath = t.Api.LocalConfigPath()
 	} else {
-		configPath = tCtx.ConfigPath()
+		configPath = t.Api.ConfigPath()
 	}
 
 	// If config doesn't exist, create a default one
@@ -485,9 +467,11 @@ type InfoOptions struct {
 
 // Info displays the keg metadata (keg.yaml file contents).
 func (t *Tap) Info(ctx context.Context, opts InfoOptions) (string, error) {
-	tCtx := t.Context()
-
-	target, err := tCtx.ResolveKeg(ctx, &ResolveKegOpts{Alias: opts.Alias})
+	target, err := t.Api.Target(ctx, &ResolveKegOpts{
+		Root:  t.Root,
+		Alias: opts.Alias,
+		Cache: false,
+	})
 	if err != nil {
 		return "", fmt.Errorf("unable to determine keg: %w", err)
 	}
@@ -518,9 +502,11 @@ type InfoEditOptions struct {
 
 // InfoEdit opens the keg configuration file in the default editor.
 func (t *Tap) InfoEdit(ctx context.Context, opts InfoEditOptions) error {
-	tCtx := t.Context()
-
-	target, err := tCtx.ResolveKeg(ctx, &ResolveKegOpts{Alias: opts.Alias})
+	target, err := t.Api.Target(ctx, &ResolveKegOpts{
+		Root:  t.Root,
+		Alias: opts.Alias,
+		Cache: true,
+	})
 	if err != nil {
 		return fmt.Errorf("unable to determine keg: %w", err)
 	}

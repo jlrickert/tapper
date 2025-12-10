@@ -118,10 +118,10 @@ package cmd
 // 					targetID = keg.Node(flagID)
 // 				}
 // 			} else {
-// 				targetID, err = deps.Keg.NextID(cmd.Context())
+// 				targetID, err = deps.Keg.NextID(cmd.Api())
 // 			}
 //
-// 			deps.Keg.CreateNode(cmd.Context(), keg.NodeCreateOptions{
+// 			deps.Keg.CreateNode(cmd.Api(), keg.NodeCreateOptions{
 // 				ID:      targetID,
 // 				Meta:    nil,
 // 				Content: content,

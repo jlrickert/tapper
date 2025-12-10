@@ -21,7 +21,7 @@ func TestTap_Context_CreatesValidTapContext(t *testing.T) {
 	tap, err := tapper.NewTap(ctx)
 	req.NoError(err)
 
-	tCtx := tap.Context()
+	tCtx := tap.Api()
 
 	req.Equal(tap.Root, tCtx.Root)
 	req.Equal(fx.ResolvePath(filepath.Join(".config", tapper.DefaultAppName)), tCtx.ConfigRoot)
@@ -41,7 +41,7 @@ func TestTap_UserConfigUpdate_SetsDefaultKeg(t *testing.T) {
 	tap, err := tapper.NewTap(ctx)
 	req.NoError(err)
 
-	tCtx := tap.Context()
+	tCtx := tap.Api()
 
 	// Update the user config to set DefaultKeg.
 	err = tCtx.UserConfigUpdate(ctx, func(cfg *tapper.Config) {
@@ -59,7 +59,7 @@ func TestTap_UserConfigUpdate_SetsDefaultKeg(t *testing.T) {
 	// Create a new Tap instance to ensure the persisted config is re-read.
 	tap2, err := tapper.NewTap(ctx)
 	req.NoError(err)
-	p2 := tap2.Context()
+	p2 := tap2.Api()
 	got2, err := p2.UserConfig(ctx, false)
 	req.NoError(err)
 	req.Equal("mykeg", got2.DefaultKeg())
@@ -79,7 +79,7 @@ func TestTap_UserConfigUpdate_AppendsKegMapEntry(t *testing.T) {
 	tap, err := tapper.NewTap(ctx)
 	req.NoError(err)
 
-	p := tap.Context()
+	p := tap.Api()
 
 	// Append a KegMap entry via the update helper.
 	entry := tapper.KegMapEntry{

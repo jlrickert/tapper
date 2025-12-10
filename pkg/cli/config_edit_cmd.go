@@ -9,9 +9,9 @@ import (
 //
 // Usage examples:
 //
-//	tap config edit
-//	tap config edit --local
-func NewConfigEditCmd() *cobra.Command {
+//	Tap config edit
+//	Tap config edit --local
+func NewConfigEditCmd(deps *Deps) *cobra.Command {
 	var opts tapper.ConfigEditOptions
 
 	cmd := &cobra.Command{
@@ -25,12 +25,8 @@ project-specific local configuration instead.
 The editor is determined by the EDITOR environment variable, defaulting to 'vim'.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
-			tap, err := tapper.NewTap(ctx)
-			if err != nil {
-				return err
-			}
 
-			return tap.ConfigEdit(ctx, opts)
+			return deps.Tap.ConfigEdit(ctx, opts)
 		},
 	}
 
