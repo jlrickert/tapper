@@ -9,9 +9,9 @@ import (
 //
 // Usage examples:
 //
-//	tap info edit
-//	tap info edit --alias myalias
-func NewInfoEditCmd() *cobra.Command {
+//	Tap info edit
+//	Tap info edit --alias myalias
+func NewInfoEditCmd(deps *Deps) *cobra.Command {
 	var opts tapper.InfoEditOptions
 
 	cmd := &cobra.Command{
@@ -22,12 +22,7 @@ func NewInfoEditCmd() *cobra.Command {
 The editor is determined by the EDITOR environment variable, defaulting to 'vim'.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
-			tap, err := tapper.NewTap(ctx)
-			if err != nil {
-				return err
-			}
-
-			return tap.InfoEdit(ctx, opts)
+			return deps.Tap.InfoEdit(ctx, opts)
 		},
 	}
 

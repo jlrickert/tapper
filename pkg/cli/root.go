@@ -13,30 +13,70 @@ import (
 	"os"
 
 	"github.com/jlrickert/cli-toolkit/mylog"
+	"github.com/jlrickert/cli-toolkit/toolkit"
+	"github.com/jlrickert/tapper/pkg/tapper"
 	"github.com/spf13/cobra"
 )
 
 type shutdownKey struct{}
 
+type Deps struct {
+	Root     string
+	Shutdown func()
+
+	ConfigPath string
+	LogFile    string
+	LogLevel   string
+	LogJSON    bool
+
+	Tap *tapper.Tap
+}
+
 func NewRootCmd() *cobra.Command {
-	var logFile string
-	var logLevel string
-	var logJSON bool
+	deps := &Deps{
+		Root: "",
+		Shutdown: func() {
+		},
+		ConfigPath: "",
+		LogFile:    "",
+		LogLevel:   "",
+		LogJSON:    false,
+		Tap:        nil,
+	}
 
 	cmd := &cobra.Command{
-		Use: "tap",
+		Use: "Tap",
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			// Respect an existing context (tests set f.Ctx). Use it as the base.
 			ctx := cmd.Context()
+
+			env := toolkit.EnvFromContext(ctx)
+			wd, err := env.Getwd()
+			if err != nil {
+				return err
+			}
+			tap, err := tapper.NewTap(ctx, wd)
+			if err != nil {
+				return err
+			}
+			deps.Tap = tap
+			deps.Root = wd
+
+			if deps.ConfigPath != "" {
+				_, err := deps.Tap.Api.LoadConfig(ctx, deps.ConfigPath)
+				if err != nil {
+					return err
+				}
+			}
 
 			// Only install a logger if the context does not already contain one.
 			if mylog.LoggerFromContext(ctx) == mylog.DefaultLogger {
 				// create a logger out-> stderr or file
 				var out = os.Stderr
 				var f *os.File
-				if logFile != "" {
+				if deps.LogFile != "" {
 					var err error
-					f, err = os.OpenFile(logFile, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+					f, err = os.OpenFile(deps.LogFile, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 					if err != nil {
 						return err
 					}
@@ -44,8 +84,8 @@ func NewRootCmd() *cobra.Command {
 				}
 				lg := mylog.NewLogger(mylog.LoggerConfig{
 					Out:     out,
-					Level:   mylog.ParseLevel(logLevel),
-					JSON:    logJSON,
+					Level:   mylog.ParseLevel(deps.LogLevel),
+					JSON:    deps.LogJSON,
 					Version: Version,
 				})
 				ctx = mylog.WithLogger(ctx, lg)
@@ -65,27 +105,25 @@ func NewRootCmd() *cobra.Command {
 		},
 	}
 
-	cmd.PersistentFlags().StringVar(&logFile, "log-file", "",
-		"write logs to file (default stderr)")
-	cmd.PersistentFlags().StringVar(&logLevel, "log-level", "info",
-		"minimum log level")
-	cmd.PersistentFlags().BoolVar(&logJSON, "log-json", false,
-		"output logs as JSON")
+	cmd.PersistentFlags().StringVar(&deps.LogFile, "log-file", "", "write logs to file (default stderr)")
+	cmd.PersistentFlags().StringVar(&deps.LogLevel, "log-level", "info", "minimum log level")
+	cmd.PersistentFlags().BoolVar(&deps.LogJSON, "log-json", false, "output logs as JSON")
+	cmd.PersistentFlags().StringVar(&deps.ConfigPath, "config", "", "path to config file")
 
 	// add subcommands; pass nil runner so it will resolve runner from ctx
 	cmd.AddCommand(
-		NewInitCmd(),
-		NewCreateCmd(),
-		NewCatCmd(),
-		NewIndexCmd(),
-		NewConfigCmd(),
-		NewInfoCmd(),
+		NewInitCmd(deps),
+		NewCreateCmd(deps),
+		NewCatCmd(deps),
+		NewIndexCmd(deps),
+		NewConfigCmd(deps),
+		NewInfoCmd(deps),
 	)
 
 	return cmd
 }
 
-// Context key helpers for attaching a repo so commands can create runners from
+// Api key helpers for attaching a repo so commands can create runners from
 // the test fixture context.
 type repoKeyType struct{}
 

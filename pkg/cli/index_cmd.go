@@ -11,9 +11,9 @@ import (
 //
 // Usage examples:
 //
-//	tap index
-//	tap index --alias myalias
-func NewIndexCmd() *cobra.Command {
+//	Tap index
+//	Tap index --alias myalias
+func NewIndexCmd(deps *Deps) *cobra.Command {
 	var opts tapper.IndexOptions
 
 	cmd := &cobra.Command{
@@ -25,12 +25,7 @@ This command scans all nodes and regenerates the dex indices. Useful after
 manually modifying files or to refresh stale indices.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
-			tap, err := tapper.NewTap(ctx)
-			if err != nil {
-				return err
-			}
-
-			output, err := tap.Index(ctx, opts)
+			output, err := deps.Tap.Index(ctx, opts)
 			if err != nil {
 				return err
 			}
