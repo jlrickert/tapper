@@ -30,6 +30,7 @@ type Deps struct {
 	LogJSON    bool
 
 	Tap *tapper.Tap
+	Err error
 }
 
 func NewRootCmd() *cobra.Command {
@@ -64,9 +65,7 @@ func NewRootCmd() *cobra.Command {
 
 			if deps.ConfigPath != "" {
 				_, err := deps.Tap.Api.LoadConfig(ctx, deps.ConfigPath)
-				if err != nil {
-					return err
-				}
+				deps.Err = err
 			}
 
 			// Only install a logger if the context does not already contain one.

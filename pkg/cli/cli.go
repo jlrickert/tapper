@@ -13,6 +13,19 @@ import (
 func Run(ctx context.Context, args []string) (int, error) {
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	// Make it so that cat is the default subcommand if no valid subcommand is given
+	if len(args) >= 2 && args[0] == "__complete" {
+		if _, err := strconv.Atoi(args[1]); err == nil {
+			args = append([]string{"__complete", "cat"}, args[2:]...)
+			return Run(ctx, args)
+		}
+	} else if len(args) >= 1 {
+		if _, err := strconv.Atoi(args[0]); err == nil {
+			args = append([]string{"cat"}, args...)
+			return Run(ctx, args)
+		}
+	}
 	streams := toolkit.StreamFromContext(ctx)
 	cmd := NewRootCmd()
 	cmd.SetArgs(args)
