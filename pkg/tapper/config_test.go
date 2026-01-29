@@ -27,8 +27,8 @@ kegMap:
     pathPrefix: "~/projects" # prefix comment
 `
 
-	uc, err := tapper.ParseUserConfig(fx.Context(), []byte(raw))
-	require.NoError(t, err, "ParseUserConfig failed")
+	uc, err := tapper.ParseConfig(fx.Context(), []byte(raw))
+	require.NoError(t, err, "ParseConfig failed")
 	data, err := uc.ToYAML(fx.Context())
 	require.NoError(t, err, "ToYAML failed")
 	out := string(data)
@@ -61,8 +61,8 @@ kegs:
   main: "~/keg" # keep this inline
 `
 
-	uc, err := tapper.ParseUserConfig(fx.Context(), []byte(raw))
-	require.NoError(t, err, "ParseUserConfig failed")
+	uc, err := tapper.ParseConfig(fx.Context(), []byte(raw))
+	require.NoError(t, err, "ParseConfig failed")
 
 	clone := uc.Clone(fx.Context())
 	require.NotNil(t, clone, "expected clone to be non-nil")
@@ -96,8 +96,8 @@ func TestParseUserConfig_KegExamples(t *testing.T) {
   api_alt: "api://other.example"
 `
 
-	uc, err := tapper.ParseUserConfig(fx.Context(), []byte(raw))
-	require.NoError(t, err, "ParseUserConfig failed")
+	uc, err := tapper.ParseConfig(fx.Context(), []byte(raw))
+	require.NoError(t, err, "ParseConfig failed")
 
 	data, err := uc.ToYAML(fx.Context())
 	out := string(data)
@@ -127,7 +127,7 @@ func TestResolveAlias_Behavior(t *testing.T) {
   nested:
     url: "api.example.com/v1"
 `
-	uc, err := tapper.ParseUserConfig(fx.Context(), []byte(raw))
+	uc, err := tapper.ParseConfig(fx.Context(), []byte(raw))
 	require.NoError(t, err)
 
 	t.Log(uc.Kegs())
@@ -170,8 +170,8 @@ kegMap:
     pathPrefix: "%s/projects"
 `, fx.GetJail(), fx.GetJail(), fx.GetJail())
 
-	uc, err := tapper.ParseUserConfig(fx.Context(), []byte(raw))
-	require.NoError(t, err, "ParseUserConfig failed")
+	uc, err := tapper.ParseConfig(fx.Context(), []byte(raw))
+	require.NoError(t, err, "ParseConfig failed")
 
 	// Path matching the regex should prefer the regex alias
 	pathRegexMatch := filepath.Join(fx.GetJail(), "x", "special")
@@ -203,7 +203,7 @@ kegMap:
   - alias: proj
     pathPrefix: "%s/projects"
 `, fx.GetJail())
-	uc2, err := tapper.ParseUserConfig(fx.Context(), []byte(rawNoDefault))
+	uc2, err := tapper.ParseConfig(fx.Context(), []byte(rawNoDefault))
 	require.NoError(t, err)
 
 	_, err = uc2.ResolveKegMap(fx.Context(), filepath.Join(fx.GetJail(), "nope"))
@@ -216,7 +216,7 @@ func TestAddKeg_AddsAndUpdatesEntries(t *testing.T) {
 	raw := `kegs:
   existing: "https://example.com/existing"
 `
-	cfg, err := tapper.ParseUserConfig(t.Context(), []byte(raw))
+	cfg, err := tapper.ParseConfig(t.Context(), []byte(raw))
 	require.NoError(t, err)
 
 	// Add a new keg
@@ -275,7 +275,7 @@ func TestAddKegMap_AddsAndUpdatesEntries(t *testing.T) {
   - alias: existing
     pathPrefix: "/existing"
 `
-	cfg, err := tapper.ParseUserConfig(fx.Context(), []byte(raw))
+	cfg, err := tapper.ParseConfig(fx.Context(), []byte(raw))
 	require.NoError(t, err)
 
 	// Add a new keg map entry

@@ -16,7 +16,7 @@ package tapper_test
 // 	fx := NewSandbox(t)
 // 	ctx := fx.Api()
 //
-// 	p, err := tapper.newTapContext(ctx, "/repo/root")
+// 	p, err := tapper.newTapApi(ctx, "/repo/root")
 // 	req.NoError(err)
 //
 // 	req.Equal("/repo/root", p.Root)
@@ -41,7 +41,7 @@ package tapper_test
 //
 // 	// Create a project rooted at an explicit path so other roots are stable.
 // 	wantRoot := "/repo/root"
-// 	p, err := tapper.newTapContext(ctx, wantRoot)
+// 	p, err := tapper.newTapApi(ctx, wantRoot)
 // 	req.NoError(err)
 //
 // 	// Update the user config to set DefaultKeg.
@@ -58,7 +58,7 @@ package tapper_test
 // 	req.Equal("mykeg", got.DefaultKeg())
 //
 // 	// Create a new Project instance to ensure the persisted config is re-read.
-// 	p2, err := tapper.newTapContext(ctx, wantRoot)
+// 	p2, err := tapper.newTapApi(ctx, wantRoot)
 // 	req.NoError(err)
 // 	got2, err := p2.UserConfig(ctx, false)
 // 	req.NoError(err)
@@ -76,7 +76,7 @@ package tapper_test
 // 	req.NoError(env.SetHome(fx.AbsPath("home")))
 // 	req.NoError(env.SetUser("testuser"))
 //
-// 	p, err := tapper.newTapContext(ctx, "/repo/root")
+// 	p, err := tapper.newTapApi(ctx, "/repo/root")
 // 	req.NoError(err)
 //
 // 	// Append a KegMap entry via the update helper.
