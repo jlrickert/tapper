@@ -3,9 +3,7 @@ package cli
 import (
 	"context"
 	"errors"
-	"os"
-	"os/signal"
-	"syscall"
+	"strconv"
 
 	"github.com/jlrickert/cli-toolkit/toolkit"
 )
