@@ -37,7 +37,12 @@ configuration properties. Use 'Tap info edit' to modify the configuration.`,
 		},
 	}
 
-	cmd.Flags().StringVar(&opts.Alias, "keg", "", "alias of the keg to display info for")
+	cmd.Flags().StringVarP(&opts.Alias, "keg", "k", "", "alias of the keg to display info for")
+
+	_ = cmd.RegisterFlagCompletionFunc("keg", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		kegs, _ := deps.Tap.ListKegs(cmd.Context(), true)
+		return kegs, cobra.ShellCompDirectiveNoFileComp
+	})
 
 	// Add the edit subcommand
 	cmd.AddCommand(NewInfoEditCmd(deps))

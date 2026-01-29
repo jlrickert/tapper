@@ -12,9 +12,9 @@ import (
 // Usage examples:
 //
 //	Tap config
-//	Tap config --local
+//	Tap config --project
 //	Tap config edit
-//	Tap config edit --local
+//	Tap config edit --project
 func NewConfigCmd(deps *Deps) *cobra.Command {
 	var opts tapper.ConfigOptions
 
@@ -38,7 +38,7 @@ Use '--local' flag to view only local project configuration.`,
 		},
 	}
 
-	cmd.Flags().BoolVar(&opts.Local, "local", false, "display local project configuration")
+	cmd.Flags().BoolVar(&opts.Project, "project", false, "display project configuration")
 
 	// Add the edit subcommand
 	cmd.AddCommand(NewConfigEditCmd(deps))

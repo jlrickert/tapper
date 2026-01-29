@@ -89,10 +89,6 @@ func NewInitCmd(deps *Deps) *cobra.Command {
 	cmd.Flags().StringVar(&initOpts.Creator, "creator", "", "creator identifier to include in the keg config")
 	cmd.Flags().StringVar(&initOpts.TokenEnv, "token-env", "", "environment variable name to store token reference (API targets)")
 
-	cmd.Flags().BoolVar(&initOpts.FlagAddToConfig, "add-user-config", false, "add created target to user config automatically")
-	cmd.Flags().BoolVar(&initOpts.FlagNoAddConfig, "no-add-user-config", false, "add created target to user config automatically")
-	cmd.Flags().BoolVar(&initOpts.AddLocalConfig, "add-local-config", true, "add created created target to local config if a project is found")
-
 	// Provide shell completion for the --type flag.
 	_ = cmd.RegisterFlagCompletionFunc(
 		"type",

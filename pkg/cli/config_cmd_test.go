@@ -31,7 +31,7 @@ func TestConfigCommand_DisplaysMergedConfig(t *testing.T) {
 			args:         []string{"config", "--local"},
 			setupFixture: strPtr("joe"),
 			expectedErr:  "no configuration available",
-			description:  "Local config may not exist and should error gracefully",
+			description:  "Project config may not exist and should error gracefully",
 		},
 	}
 
