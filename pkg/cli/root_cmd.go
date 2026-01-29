@@ -46,7 +46,7 @@ func NewRootCmd() *cobra.Command {
 	}
 
 	cmd := &cobra.Command{
-		Use: "Tap",
+		Use: "tap",
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			// Respect an existing context (tests set f.Ctx). Use it as the base.
 			ctx := cmd.Context()
@@ -56,7 +56,10 @@ func NewRootCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			tap, err := tapper.NewTap(ctx, wd)
+			tap, err := tapper.NewTap(ctx, tapper.TapOptions{
+				Root:       wd,
+				ConfigPath: deps.ConfigPath,
+			})
 			if err != nil {
 				return err
 			}
@@ -64,7 +67,7 @@ func NewRootCmd() *cobra.Command {
 			deps.Root = wd
 
 			if deps.ConfigPath != "" {
-				_, err := deps.Tap.Api.LoadConfig(ctx, deps.ConfigPath)
+				_, err := tapper.ReadConfig(ctx, deps.ConfigPath)
 				deps.Err = err
 			}
 
@@ -111,12 +114,13 @@ func NewRootCmd() *cobra.Command {
 
 	// add subcommands; pass nil runner so it will resolve runner from ctx
 	cmd.AddCommand(
-		NewInitCmd(deps),
-		NewCreateCmd(deps),
 		NewCatCmd(deps),
-		NewIndexCmd(deps),
 		NewConfigCmd(deps),
+		NewCreateCmd(deps),
+		NewIndexCmd(deps),
 		NewInfoCmd(deps),
+		NewInitCmd(deps),
+		NewRepoCmd(deps),
 	)
 
 	return cmd

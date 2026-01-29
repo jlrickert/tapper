@@ -248,14 +248,14 @@ func (cfg *Config) SetLogLevel(ctx context.Context, level string) error {
 // Clone produces a deep copy of the Config including the underlying yaml
 // node so callers can safely mutate the clone without affecting the original.
 //
-// When possible the clone preserves the original document node so comment
+// When possible, the clone preserves the original document node, so comment
 // preserving edits remain possible on the returned value.
 func (cfg *Config) Clone(ctx context.Context) *Config {
 	if cfg == nil {
 		return nil
 	}
 	data, _ := cfg.ToYAML(ctx)
-	uCfg, _ := ParseUserConfig(ctx, data)
+	uCfg, _ := ParseConfig(ctx, data)
 	return uCfg
 }
 
@@ -276,20 +276,14 @@ func (cfg *Config) ResolveAlias(alias string) (*kegurl.Target, error) {
 	return kegurl.Parse(u.String())
 }
 
-// ResolveKegMap chooses the appropriate keg (via alias) based on path.
-//
-// Precedence rules:
-//  1. Regex entries in KegMap have the highest precedence.
-//  2. PathPrefix entries are considered next; when multiple prefixes match the
-//     longest prefix wins.
-//  3. If no entry matches, the DefaultKeg is used if set.
-//
-// The function expands env vars and tildes prior to comparisons so stored
-// prefixes and patterns may contain ~ or $VAR values.
-func (cfg *Config) ResolveKegMap(ctx context.Context, projectRoot string) (*kegurl.Target, error) {
+// LookupAlias returns the keg alias matching the given project root path.
+// It first checks regex patterns in KegMap entries, then prefix matches.
+// For multiple prefix matches, the longest matching prefix wins.
+// Returns empty string if no match is found or config data is nil.
+func (cfg *Config) LookupAlias(ctx context.Context, projectRoot string) string {
 	if cfg.data == nil {
 		cfg.data = &configDTO{}
-		return nil, nil
+		return ""
 	}
 	// Expand path and make absolute/clean to compare reliably.
 	val := toolkit.ExpandEnv(ctx, projectRoot)
@@ -309,7 +303,7 @@ func (cfg *Config) ResolveKegMap(ctx context.Context, projectRoot string) (*kegu
 		pattern, _ = toolkit.ExpandPath(ctx, pattern)
 		ok, _ := regexp.MatchString(pattern, abs)
 		if ok {
-			return cfg.ResolveAlias(m.Alias)
+			return m.Alias
 		}
 	}
 
@@ -334,10 +328,25 @@ func (cfg *Config) ResolveKegMap(ctx context.Context, projectRoot string) (*kegu
 	if len(matches) > 0 {
 		// Choose longest prefix.
 		sort.Slice(matches, func(i, j int) bool { return matches[i].len > matches[j].len })
-		return cfg.ResolveAlias(matches[0].entry.Alias)
+		return matches[0].entry.Alias
 	}
 
-	return nil, fmt.Errorf("no keg map entry matched path: %s", projectRoot)
+	return ""
+}
+
+// ResolveKegMap chooses the appropriate keg (via alias) based on path.
+//
+// Precedence rules:
+//  1. Regex entries in KegMap have the highest precedence.
+//  2. PathPrefix entries are considered next; when multiple prefixes match the
+//     longest prefix wins.
+//  3. If no entry matches, the DefaultKeg is used if set.
+//
+// The function expands env vars and tildes prior to comparisons, so stored
+// prefixes and patterns may contain ~ or $VAR values.
+func (cfg *Config) ResolveKegMap(ctx context.Context, projectRoot string) (*kegurl.Target, error) {
+	alias := cfg.LookupAlias(ctx, projectRoot)
+	return cfg.ResolveAlias(alias)
 }
 
 func (cfg *Config) ResolveDefault(ctx context.Context) (*kegurl.Target, error) {
@@ -350,13 +359,13 @@ func (cfg *Config) ResolveDefault(ctx context.Context) (*kegurl.Target, error) {
 
 }
 
-// ParseUserConfig parses raw YAML into a Config while preserving the
+// ParseConfig parses raw YAML into a Config while preserving the
 // underlying yaml.Node for comment-preserving edits.
 //
 // The function attempts to decode the document root mapping into the struct.
-// If the document root is missing the returned Config is a zero value with
+// If the document root is missing, the returned Config is a zero value with
 // KegMap and Kegs set to nil.
-func ParseUserConfig(ctx context.Context, raw []byte) (*Config, error) {
+func ParseConfig(ctx context.Context, raw []byte) (*Config, error) {
 	var doc yaml.Node
 	if err := yaml.Unmarshal(raw, &doc); err != nil {
 		return nil, fmt.Errorf("failed to parse user config yaml: %w", err)
@@ -380,7 +389,7 @@ func ReadConfig(ctx context.Context, path string) (*Config, error) {
 		}
 		return nil, err
 	}
-	return ParseUserConfig(ctx, b)
+	return ParseConfig(ctx, b)
 }
 
 // DefaultUserConfig returns a sensible default Config for a new user.
@@ -389,14 +398,14 @@ func ReadConfig(ctx context.Context, path string) (*Config, error) {
 // starting point when no on-disk config is available. The DefaultRegistry is
 // set to "knut" and a local file based keg pointing at the user data path is
 // provided under the alias "local".
-func DefaultUserConfig(user, userRepos string) *Config {
+func DefaultUserConfig(name string, userRepos string) *Config {
 	return &Config{
 		data: &configDTO{
 			DefaultRegistry: "knut",
 			KegMap:          []KegMapEntry{},
-			DefaultKeg:      user,
+			DefaultKeg:      name,
 			Kegs: map[string]kegurl.Target{
-				user: kegurl.NewFile(filepath.Join(userRepos, "@"+user, user)),
+				name: kegurl.NewFile(filepath.Join(userRepos, name)),
 			},
 			UserRepoPath: filepath.Join(userRepos),
 			Registries: []KegRegistry{
@@ -410,14 +419,14 @@ func DefaultUserConfig(user, userRepos string) *Config {
 	}
 }
 
-func DefaultLocalConfig(user, userKegRepo string) *Config {
+func DefaultProjectConfig(user, userKegRepo string) *Config {
 	return &Config{
 		data: &configDTO{
 			DefaultRegistry: "knut",
 			KegMap:          []KegMapEntry{},
 			DefaultKeg:      "local",
 			Kegs: map[string]kegurl.Target{
-				user: kegurl.NewFile(filepath.Join(userKegRepo, "@"+user, user)),
+				user: kegurl.NewFile(filepath.Join(userKegRepo, "docs")),
 			},
 			UserRepoPath: filepath.Join(userKegRepo),
 			Registries: []KegRegistry{
@@ -528,7 +537,7 @@ func MergeConfig(cfgs ...*Config) *Config {
 		}
 	}
 
-	// If we found a lastNode, clone it by using ParseUserConfig on its YAML
+	// If we found a lastNode, clone it by using ParseConfig on its YAML
 	// rendering so the returned config has a node suitable for ToYAML edits.
 	if lastNode != nil {
 		var buf bytes.Buffer
@@ -537,7 +546,7 @@ func MergeConfig(cfgs ...*Config) *Config {
 		_ = enc.Encode(lastNode)
 		_ = enc.Close()
 
-		if cloned, err := ParseUserConfig(context.Background(), buf.Bytes()); err == nil && cloned != nil {
+		if cloned, err := ParseConfig(context.Background(), buf.Bytes()); err == nil && cloned != nil {
 			// Use the cloned node but keep the merged struct fields from out.
 			out.node = cloned.node
 		}
@@ -752,6 +761,8 @@ func LocalGitData(ctx context.Context, projectPath, key string) ([]byte, error) 
 	return data, nil
 }
 
+// ListKegs returns a sorted slice of all keg names in the configuration.
+// Returns an empty slice if the config or its data is nil.
 func (cfg *Config) ListKegs() []string {
 	if cfg == nil || cfg.data == nil {
 		return []string{}

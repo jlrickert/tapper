@@ -31,15 +31,16 @@ func NewCatCmd(deps *Deps) *cobra.Command {
 				return err
 			}
 
-			fmt.Fprint(cmd.OutOrStdout(), output)
-			return nil
+			_, err = fmt.Fprint(cmd.OutOrStdout(), output)
+			return err
 		},
 	}
 
-	cmd.Flags().StringVar(&opts.Alias, "keg", "", "alias of the keg to read from")
+	cmd.Flags().StringVarP(&opts.Alias, "keg", "k", "", "alias of the keg to read from")
 
 	_ = cmd.RegisterFlagCompletionFunc("keg", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-		return deps.Tap.Api.ListKegs(cmd.Context(), true), cobra.ShellCompDirectiveNoFileComp
+		kegs, _ := deps.Tap.ListKegs(cmd.Context(), true)
+		return kegs, cobra.ShellCompDirectiveNoFileComp
 	})
 
 	return cmd
