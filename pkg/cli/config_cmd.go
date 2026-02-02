@@ -1,7 +1,9 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
+	"os"
 
 	"github.com/jlrickert/tapper/pkg/tapper"
 	"github.com/spf13/cobra"
@@ -13,6 +15,7 @@ import (
 //
 //	Tap config
 //	Tap config --project
+//	Tap config --user
 //	Tap config edit
 //	Tap config edit --project
 func NewConfigCmd(deps *Deps) *cobra.Command {
@@ -29,16 +32,22 @@ Use '--local' flag to view only local project configuration.`,
 			ctx := cmd.Context()
 
 			output, err := deps.Tap.Config(ctx, opts)
+			if errors.Is(err, os.ErrNotExist) {
+				_, err := fmt.Fprintf(os.Stdout, "%s\n", err)
+				return err
+			}
 			if err != nil {
 				return err
 			}
 
-			fmt.Fprint(cmd.OutOrStdout(), output)
-			return nil
+			_, err = fmt.Fprint(cmd.OutOrStdout(), output)
+			return err
 		},
 	}
 
 	cmd.Flags().BoolVar(&opts.Project, "project", false, "display project configuration")
+	cmd.Flags().BoolVar(&opts.User, "user", false, "display user configuration")
+	cmd.Flags().BoolVar(&opts.Template, "template", false, "display template configuration")
 
 	// Add the edit subcommand
 	cmd.AddCommand(NewConfigEditCmd(deps))

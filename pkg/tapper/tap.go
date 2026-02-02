@@ -363,21 +363,35 @@ type ConfigOptions struct {
 
 	// User indicates whether to display user config
 	User bool
+
+	// Template prints out a templated. Combine with either project or user
+	// flag. Defaults to using --user flag
+	Template bool
 }
 
 // Config displays the merged or project configuration.
 func (t *Tap) Config(ctx context.Context, opts ConfigOptions) (string, error) {
 	var cfg *Config
+	if opts.Template {
+		if opts.Project {
+			cfg := DefaultProjectConfig("", "")
+			data, err := cfg.ToYAML(ctx)
+			return string(data), err
+		}
+		cfg := DefaultUserConfig("", "")
+		data, err := cfg.ToYAML(ctx)
+		return string(data), err
+	}
 	if opts.Project {
 		lCfg, err := t.ConfigService.ProjectConfig(ctx, false)
 		if err != nil {
-			return "", fmt.Errorf("unable to read project config: %w", err)
+			return "", err
 		}
 		cfg = lCfg
 	} else if opts.User {
 		uCfg, err := t.ConfigService.UserConfig(ctx, false)
 		if err != nil {
-			return "", fmt.Errorf("unable to read project config: %w", err)
+			return "", err
 		}
 		cfg = uCfg
 	} else {
@@ -396,6 +410,8 @@ func (t *Tap) Config(ctx context.Context, opts ConfigOptions) (string, error) {
 type ConfigEditOptions struct {
 	// Project indicates whether to edit local config instead of user config
 	Project bool
+
+	User bool
 
 	ConfigPath string
 }
