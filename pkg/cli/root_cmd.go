@@ -110,7 +110,7 @@ func NewRootCmd() *cobra.Command {
 	cmd.PersistentFlags().StringVar(&deps.LogFile, "log-file", "", "write logs to file (default stderr)")
 	cmd.PersistentFlags().StringVar(&deps.LogLevel, "log-level", "info", "minimum log level")
 	cmd.PersistentFlags().BoolVar(&deps.LogJSON, "log-json", false, "output logs as JSON")
-	cmd.PersistentFlags().StringVar(&deps.ConfigPath, "config", "", "path to config file")
+	cmd.PersistentFlags().StringVarP(&deps.ConfigPath, "config", "c", "", "path to config file")
 
 	// add subcommands; pass nil runner so it will resolve runner from ctx
 	cmd.AddCommand(
