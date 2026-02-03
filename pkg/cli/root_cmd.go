@@ -120,6 +120,7 @@ func NewRootCmd() *cobra.Command {
 		NewIndexCmd(deps),
 		NewInfoCmd(deps),
 		NewInitCmd(deps),
+		NewPwdCmd(deps),
 		NewRepoCmd(deps),
 	)
 
