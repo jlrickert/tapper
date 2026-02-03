@@ -9,7 +9,6 @@ package cli
 // The new command does not hard-wire an app.Runner; the "do" subcommand will
 // resolve a runner from context if one was not provided at construction.
 import (
-	"context"
 	"os"
 
 	"github.com/jlrickert/cli-toolkit/mylog"
@@ -105,6 +104,10 @@ func NewRootCmd() *cobra.Command {
 			}
 			return nil
 		},
+		//RunE: func(cmd *cobra.Command, args []string) error {
+		//	_, err := fmt.Fprint(cmd.OutOrStdout(), "test")
+		//	return err
+		//},
 	}
 
 	cmd.PersistentFlags().StringVar(&deps.LogFile, "log-file", "", "write logs to file (default stderr)")
@@ -120,24 +123,10 @@ func NewRootCmd() *cobra.Command {
 		NewIndexCmd(deps),
 		NewInfoCmd(deps),
 		NewInitCmd(deps),
+		NewListCmd(deps),
 		NewPwdCmd(deps),
 		NewRepoCmd(deps),
 	)
 
 	return cmd
-}
-
-// Api key helpers for attaching a repo so commands can create runners from
-// the test fixture context.
-type repoKeyType struct{}
-
-// WithRepo returns a context containing the provided keg repo.
-func WithRepo(ctx context.Context, r any) context.Context {
-	return context.WithValue(ctx, repoKeyType{}, r)
-}
-
-// RepoFromContext extracts a keg repo from context if present.
-func RepoFromContext(ctx context.Context) any {
-	v := ctx.Value(repoKeyType{})
-	return v
 }

@@ -17,7 +17,7 @@ type KegService struct {
 
 type ResolveKegOptions struct {
 	Root    string
-	Alias   string
+	Keg     string
 	NoCache bool
 }
 
@@ -29,10 +29,10 @@ func (s *KegService) init() {
 
 func (s *KegService) Resolve(ctx context.Context, opts ResolveKegOptions) (*keg.Keg, error) {
 	s.init()
-	if opts.Alias != "" {
-		return s.ResolveKegAlias(ctx, opts.Alias, !opts.NoCache)
+	if opts.Keg != "" {
+		return s.ResolveKegAlias(ctx, opts.Keg, !opts.NoCache)
 	}
-	if opts.Alias == "" {
+	if opts.Keg == "" {
 		env := toolkit.EnvFromContext(ctx)
 		root, err := env.Getwd()
 		if err != nil {
@@ -49,16 +49,16 @@ func (s *KegService) Resolve(ctx context.Context, opts ResolveKegOptions) (*keg.
 func (s *KegService) ResolvePath(ctx context.Context, path string, cache bool) (*keg.Keg, error) {
 	s.init()
 	cfg := s.ConfigService.Config(ctx, true)
-	alias := cfg.LookupAlias(ctx, path)
-	return s.ResolveKegAlias(ctx, alias, cache)
+	kegAlias := cfg.LookupAlias(ctx, path)
+	return s.ResolveKegAlias(ctx, kegAlias, cache)
 }
 
-func (s *KegService) ResolveKegAlias(ctx context.Context, alias string, cache bool) (*keg.Keg, error) {
+func (s *KegService) ResolveKegAlias(ctx context.Context, kegAlias string, cache bool) (*keg.Keg, error) {
 	s.init()
-	if cache && s.kegCache[alias] != nil {
-		return s.kegCache[alias], nil
+	if cache && s.kegCache[kegAlias] != nil {
+		return s.kegCache[kegAlias], nil
 	}
-	target, err := s.ConfigService.ResolveTarget(ctx, alias, cache)
+	target, err := s.ConfigService.ResolveTarget(ctx, kegAlias, cache)
 	if err != nil {
 		return nil, err
 	}
@@ -67,7 +67,7 @@ func (s *KegService) ResolveKegAlias(ctx context.Context, alias string, cache bo
 		return k, err
 	}
 	if k != nil {
-		s.kegCache[alias] = k
+		s.kegCache[kegAlias] = k
 	}
 	return k, err
 }

@@ -221,7 +221,7 @@ package tapper
 //
 ////type ResolveKegOpts struct {
 ////	Root  string
-////	Alias string
+////	Keg string
 ////	Cache bool
 ////}
 //
@@ -237,8 +237,8 @@ package tapper
 ////	if cfg == nil {
 ////		return nil, fmt.Errorf("no configuration available")
 ////	}
-////	if opts.Alias != "" {
-////		return cfg.ResolveAlias(opts.Alias)
+////	if opts.Keg != "" {
+////		return cfg.ResolveAlias(opts.Keg)
 ////	}
 ////	target, err := cfg.ResolveKegMap(ctx, opts.Root)
 ////	if target != nil && err == nil {
