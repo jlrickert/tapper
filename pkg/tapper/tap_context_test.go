@@ -20,10 +20,10 @@ package tapper_test
 // 	req.NoError(err)
 //
 // 	req.Equal("/repo/root", p.Root)
-// 	req.Equal(fx.ResolvePath(filepath.Join(".config", tapper.DefaultAppName)), p.ConfigRoot)
-// 	req.Equal(fx.ResolvePath(filepath.Join(".local", "share", tapper.DefaultAppName)), p.DataRoot)
-// 	req.Equal(fx.ResolvePath(filepath.Join(".local", "state", tapper.DefaultAppName)), p.StateRoot)
-// 	req.Equal(fx.ResolvePath(filepath.Join(".cache", tapper.DefaultAppName)), p.CacheRoot)
+// 	req.Equal(fx.resolvePath(filepath.Join(".config", tapper.DefaultAppName)), p.ConfigRoot)
+// 	req.Equal(fx.resolvePath(filepath.Join(".local", "share", tapper.DefaultAppName)), p.DataRoot)
+// 	req.Equal(fx.resolvePath(filepath.Join(".local", "state", tapper.DefaultAppName)), p.StateRoot)
+// 	req.Equal(fx.resolvePath(filepath.Join(".cache", tapper.DefaultAppName)), p.CacheRoot)
 // }
 //
 // // Tests for updating the user config for a project.

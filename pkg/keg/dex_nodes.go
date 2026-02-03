@@ -44,7 +44,7 @@ type NodeIndex struct {
 //
 // Example input:
 //
-//	"42\t2025-01-02T15:04:05Z\tMy Title\n0\t2024-12-01T12:00:00Z\tZero Node\n"
+//	"42\t2025-01-02T15:04:05Z\tMy Title\n0\t2024-12-01T12:00:00Z\tZero NodeId\n"
 //
 // Note: the expected column order is: id<TAB>updated<TAB>title
 func ParseNodeIndex(ctx context.Context, data []byte) (NodeIndex, error) {
@@ -196,7 +196,7 @@ func (idx *NodeIndex) Add(ctx context.Context, data *NodeData) error {
 //
 //	The function should locate the entry whose ID equals node.Path() and remove
 //	it from the slice. The remaining slice should preserve deterministic order.
-func (idx *NodeIndex) Rm(ctx context.Context, node Node) error {
+func (idx *NodeIndex) Rm(ctx context.Context, node NodeId) error {
 	_ = ctx
 	if idx == nil || idx.data == nil {
 		return nil
@@ -261,7 +261,7 @@ func (idx *NodeIndex) List(ctx context.Context) []NodeIndexEntry {
 //
 // The returned pointer points into the internal slice. Callers that need to
 // modify the entry should copy it first to avoid data races.
-func (idx *NodeIndex) Get(ctx context.Context, node Node) *NodeIndexEntry {
+func (idx *NodeIndex) Get(ctx context.Context, node NodeId) *NodeIndexEntry {
 	_ = ctx
 	if idx == nil || idx.data == nil {
 		return nil
@@ -275,11 +275,11 @@ func (idx *NodeIndex) Get(ctx context.Context, node Node) *NodeIndexEntry {
 	return nil
 }
 
-// Next returns the next available Node id based on the current index contents.
+// Next returns the next available NodeId id based on the current index contents.
 //
 // Semantics:
-//   - If the index is empty, Next returns Node{ID:0, Code:""} (the zeroth id).
-//   - Otherwise Next returns a Node whose ID is one greater than the highest
+//   - If the index is empty, Next returns NodeId{ID:0, Code:""} (the zeroth id).
+//   - Otherwise Next returns a NodeId whose ID is one greater than the highest
 //     numeric ID present in the index. If entries contain code suffixes the
 //     numeric portion is used for ordering.
 //   - The function does not modify the index.
@@ -288,10 +288,10 @@ func (idx *NodeIndex) Get(ctx context.Context, node Node) *NodeIndexEntry {
 //
 //	The function should examine idx.data to determine the maximal numeric id and
 //	return the subsequent id. It should not allocate or write any external state.
-func (idx *NodeIndex) Next(ctx context.Context) Node {
+func (idx *NodeIndex) Next(ctx context.Context) NodeId {
 	_ = ctx
 	if idx == nil || len(idx.data) == 0 {
-		return Node{ID: 0, Code: ""}
+		return NodeId{ID: 0, Code: ""}
 	}
 	maxID := -1
 	for _, e := range idx.data {
@@ -303,7 +303,7 @@ func (idx *NodeIndex) Next(ctx context.Context) Node {
 	}
 	if maxID < 0 {
 		// No parsable numeric ids found; return zero as next id.
-		return Node{ID: 0, Code: ""}
+		return NodeId{ID: 0, Code: ""}
 	}
-	return Node{ID: maxID + 1, Code: ""}
+	return NodeId{ID: maxID + 1, Code: ""}
 }

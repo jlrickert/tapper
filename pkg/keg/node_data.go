@@ -8,7 +8,7 @@ import "time"
 type NodeData struct {
 	// ID is the node identifier as a string (for example "42" or "42-0001").
 	// Keep this lightweight while other fields are exposed via accessors.
-	ID      Node
+	ID      NodeId
 	Content *Content
 	Meta    *Meta
 
@@ -75,18 +75,18 @@ func (n *NodeData) Lead() string {
 
 // Links returns the outgoing links discovered for the node. Prefer content
 // links and fall back to meta links when content is empty.
-func (n *NodeData) Links() []Node {
+func (n *NodeData) Links() []NodeId {
 	if n == nil {
 		return nil
 	}
 	if n.Meta != nil {
 		ml := n.Meta.Links()
-		links := make([]Node, len(ml))
+		links := make([]NodeId, len(ml))
 		copy(links, ml)
 		return links
 	}
 	if n.Content != nil && len(n.Content.Links) > 0 {
-		links := make([]Node, len(n.Content.Links))
+		links := make([]NodeId, len(n.Content.Links))
 		copy(links, n.Content.Links)
 		return links
 	}
@@ -140,7 +140,7 @@ func (n *NodeData) Tags() []string {
 }
 
 // Ref builds a NodeIndexEntry from the NodeData. If the NodeData.ID is
-// malformed ParseNode may fail and the function will fall back to a zero Node.
+// malformed ParseNode may fail and the function will fall back to a zero NodeId.
 func (d *NodeData) Ref() NodeIndexEntry {
 	return NodeIndexEntry{
 		ID:      d.ID.Path(),

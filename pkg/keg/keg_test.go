@@ -121,7 +121,7 @@ func TestCreateZeroNodeInMemoryRepo(t *testing.T) {
 	k := kegpkg.NewKeg(repo)
 	k.Init(f.Context())
 
-	b, err := k.GetContent(f.Context(), kegpkg.Node{ID: 0})
+	b, err := k.GetContent(f.Context(), kegpkg.NodeId{ID: 0})
 	require.NoError(t, err)
 	require.Contains(t, string(b), "Sorry, planned but not yet available")
 }
@@ -136,7 +136,7 @@ func TestCreateNodeWithMeta(t *testing.T) {
 	k := kegpkg.NewKeg(repo)
 	k.Init(f.Context())
 
-	opts := &kegpkg.KegCreateOptions{
+	opts := &kegpkg.CreateOptions{
 		Title: "MyTitle",
 		Lead:  "short lead",
 		Tags:  []string{"TagA", "tag-a"},
@@ -169,7 +169,7 @@ func TestCreateWithBody(t *testing.T) {
 	require.NoError(t, k.Init(f.Context()))
 
 	body := []byte("# BodyTitle\n\nbody paragraph\n")
-	opts := &kegpkg.KegCreateOptions{
+	opts := &kegpkg.CreateOptions{
 		Body: body,
 	}
 	id, err := k.Create(f.Context(), opts)
@@ -205,7 +205,7 @@ foo: bar
 
 fm lead paragraph
 `)
-	id, err := k.Create(f.Context(), &kegpkg.KegCreateOptions{Body: rawBody})
+	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Body: rawBody})
 	require.NoError(t, err)
 	require.Equal(t, 1, id.ID, "expected created node id to be 1")
 
@@ -238,7 +238,7 @@ func TestSetContentAndUpdate(t *testing.T) {
 	_, err := k.Create(f.Context(), nil)
 	require.NoError(t, err)
 
-	id, err := k.Create(f.Context(), &kegpkg.KegCreateOptions{Title: "Initial"})
+	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "Initial"})
 	require.NoError(t, err)
 
 	// change content to include a new lead paragraph
@@ -265,7 +265,7 @@ func TestCreateAndUpdateNodesWithFsRepo(t *testing.T) {
 	require.NoError(t, k.Init(f.Context()), "Init failed")
 
 	// Create a new node with title and lead.
-	opts := &kegpkg.KegCreateOptions{
+	opts := &kegpkg.CreateOptions{
 		Title: "FSNode",
 		Lead:  "lead fs",
 	}
@@ -282,7 +282,7 @@ func TestCreateAndUpdateNodesWithFsRepo(t *testing.T) {
 	require.Equal(t, id.Path(), ref.ID)
 
 	// Ensure zero node is present in dex as well.
-	zeroRef := dex.GetRef(f.Context(), kegpkg.Node{ID: 0})
+	zeroRef := dex.GetRef(f.Context(), kegpkg.NodeId{ID: 0})
 	require.NotNil(t, zeroRef, "dex should contain zero node")
 
 	createdUpdated := ref.Updated
@@ -316,7 +316,7 @@ func TestNodesWithTagsAndInterlinks(t *testing.T) {
 	require.NoError(t, k.Init(f.Context()))
 
 	// Create node A with tags
-	optsA := &kegpkg.KegCreateOptions{
+	optsA := &kegpkg.CreateOptions{
 		Title: "NodeA",
 		Lead:  "lead a",
 		Tags:  []string{"Alpha", "Shared"},
@@ -326,7 +326,7 @@ func TestNodesWithTagsAndInterlinks(t *testing.T) {
 	require.Equal(t, 1, idA.ID)
 
 	// Create node B with tags
-	optsB := &kegpkg.KegCreateOptions{
+	optsB := &kegpkg.CreateOptions{
 		Title: "NodeB",
 		Lead:  "lead b",
 		Tags:  []string{"Beta", "Shared"},
@@ -400,7 +400,7 @@ func TestIndexFilesHaveExpectedData(t *testing.T) {
 	require.NoError(t, err, "NewDexFromRepo failed")
 
 	// nodes.tsv should contain the zero node entry.
-	zeroRef := dex.GetRef(f.Context(), kegpkg.Node{ID: 0})
+	zeroRef := dex.GetRef(f.Context(), kegpkg.NodeId{ID: 0})
 	require.NotNil(t, zeroRef, "nodes.tsv should include zero node entry")
 
 	// changes.md is expected to exist in the example fixture under dex/.
@@ -423,11 +423,11 @@ func TestIndexFilesHaveExpectedData(t *testing.T) {
 	if _, err := k.Repo.GetIndex(f.Context(), "backlinks"); err != nil {
 		require.True(t, errors.Is(err, kegpkg.ErrNotExist),
 			"expected missing backlinks index to return ErrNotExist, got: %v", err)
-		_, ok := dex.Backlinks(f.Context(), kegpkg.Node{ID: 0})
+		_, ok := dex.Backlinks(f.Context(), kegpkg.NodeId{ID: 0})
 		require.False(t, ok, "expected no backlinks for zero when index is absent")
 	} else {
 		// backlinks file present, ensure parsing did not error earlier and that
 		// the dex can return a backlinks mapping (possibly empty).
-		_, _ = dex.Backlinks(f.Context(), kegpkg.Node{ID: 0})
+		_, _ = dex.Backlinks(f.Context(), kegpkg.NodeId{ID: 0})
 	}
 }

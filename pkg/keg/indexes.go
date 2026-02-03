@@ -14,7 +14,7 @@ type IndexBuilder interface {
 	Add(ctx context.Context, node *NodeData) error
 
 	// Remove deletes node-related state from the index.
-	Remove(ctx context.Context, node Node) error
+	Remove(ctx context.Context, node NodeId) error
 
 	// Clear resets the index to an empty state.
 	Clear(ctx context.Context) error
