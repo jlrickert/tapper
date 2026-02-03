@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/jlrickert/cli-toolkit/toolkit"
 	"github.com/jlrickert/tapper/pkg/keg"
@@ -54,8 +55,8 @@ type CatOptions struct {
 	// NodeID is the node identifier to read (e.g., "0", "42")
 	NodeID string
 
-	// Alias of the keg to read from
-	Alias string
+	// Keg of the keg to read from
+	Keg string
 
 	// Meta indicates whether to display only meta data
 	Meta bool
@@ -68,7 +69,7 @@ type CatOptions struct {
 func (t *Tap) Cat(ctx context.Context, opts CatOptions) (string, error) {
 	k, err := t.KegService.Resolve(ctx, ResolveKegOptions{
 		Root:    t.Root,
-		Alias:   opts.Alias,
+		Keg:     opts.Keg,
 		NoCache: false,
 	})
 	if err != nil {
@@ -108,7 +109,7 @@ func (t *Tap) Cat(ctx context.Context, opts CatOptions) (string, error) {
 // CreateOptions configures behavior for Runner.Create.
 type CreateOptions struct {
 	// alias of the keg to create the node on
-	Alias string
+	KegAlias string
 
 	Title  string
 	Lead   string
@@ -127,7 +128,7 @@ type CreateOptions struct {
 func (t *Tap) Create(ctx context.Context, opts CreateOptions) (keg.Node, error) {
 	k, err := t.KegService.Resolve(ctx, ResolveKegOptions{
 		Root:    t.Root,
-		Alias:   opts.Alias,
+		Keg:     opts.KegAlias,
 		NoCache: false,
 	})
 	if err != nil {
@@ -162,8 +163,8 @@ func (t *Tap) Create(ctx context.Context, opts CreateOptions) (keg.Node, error) 
 
 // IndexOptions configures behavior for Runner.Index.
 type IndexOptions struct {
-	// Alias of the keg to index
-	Alias string
+	// KegAlias of the keg to index
+	KegAlias string
 }
 
 // Index rebuilds all indices for a keg (nodes.tsv, tags, links, backlinks).
@@ -173,7 +174,7 @@ type IndexOptions struct {
 func (t *Tap) Index(ctx context.Context, opts IndexOptions) (string, error) {
 	k, err := t.KegService.Resolve(ctx, ResolveKegOptions{
 		Root:    t.Root,
-		Alias:   opts.Alias,
+		Keg:     opts.KegAlias,
 		NoCache: false,
 	})
 	if err != nil {
@@ -431,7 +432,7 @@ func (t *Tap) ConfigEdit(ctx context.Context, opts ConfigEditOptions) error {
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
 		var cfg *Config
 		if opts.Project {
-			cfg = DefaultProjectConfig("", "")
+			cfg = DefaultProjectConfig("project", "kegs")
 		} else {
 			cfg = DefaultUserConfig("public", "~/Documents/kegs")
 		}
@@ -446,15 +447,15 @@ func (t *Tap) ConfigEdit(ctx context.Context, opts ConfigEditOptions) error {
 
 // InfoOptions configures behavior for Tap.Info.
 type InfoOptions struct {
-	// Alias of the keg to display info for
-	Alias string
+	// KegAlias of the keg to display info for
+	KegAlias string
 }
 
 // Info displays the keg metadata (keg.yaml file contents).
 func (t *Tap) Info(ctx context.Context, opts InfoOptions) (string, error) {
 	k, err := t.KegService.Resolve(ctx, ResolveKegOptions{
 		Root:    t.Root,
-		Alias:   opts.Alias,
+		Keg:     opts.KegAlias,
 		NoCache: false,
 	})
 	if err != nil {
@@ -476,10 +477,10 @@ type InfoEditOptions struct {
 	Alias string
 }
 
-func (t *Tap) LookupKeg(ctx context.Context, alias string) (*keg.Keg, error) {
+func (t *Tap) LookupKeg(ctx context.Context, kegAlias string) (*keg.Keg, error) {
 	k, err := t.KegService.Resolve(ctx, ResolveKegOptions{
 		Root:    t.Root,
-		Alias:   alias,
+		Keg:     kegAlias,
 		NoCache: false,
 	})
 	if err != nil {
@@ -541,6 +542,51 @@ func firstDir(path string) string {
 		}
 	}
 	return ""
+}
+
+type ListOptions struct {
+	// Keg alias
+	Keg string
+
+	// Format to use. %i is node id, %d
+	// %i is node id
+	// %d is date
+	// %t is node title
+	// %% for literal %
+	Format string
+
+	IdOnly bool
+}
+
+func (t *Tap) List(ctx context.Context, opts ListOptions) ([]string, error) {
+	k, err := t.KegService.Resolve(ctx, ResolveKegOptions{
+		Root:    t.Root,
+		Keg:     opts.Keg,
+		NoCache: false,
+	})
+	if err != nil {
+		return []string{}, fmt.Errorf("unable to open keg: %w", err)
+	}
+	dex, err := k.Dex(ctx)
+	if err != nil {
+		return []string{}, fmt.Errorf("unable to read dex: %w", err)
+	}
+
+	format := opts.Format
+	if format == "" {
+		format = "%i\t%d\t%t"
+	}
+
+	entries := dex.Nodes(ctx)
+	lines := make([]string, 0)
+	for _, entry := range entries {
+		line := format
+		line = strings.Replace(line, "%i", entry.ID, -1)
+		line = strings.Replace(line, "%d", entry.Updated.Format(time.RFC3339), -1)
+		line = strings.Replace(line, "%t", entry.Title, -1)
+		lines = append(lines, line)
+	}
+	return lines, nil
 }
 
 type DirOptions struct {

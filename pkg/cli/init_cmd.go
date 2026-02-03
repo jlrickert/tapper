@@ -70,7 +70,7 @@ func NewInitCmd(deps *Deps) *cobra.Command {
 			}
 
 			if initOpts.Alias == "" {
-				panic("Alias needs to be defined")
+				panic("Keg needs to be defined")
 			}
 
 			err := deps.Tap.Init(cmd.Context(), name, initOpts)

@@ -74,7 +74,7 @@ func (s *ConfigService) Config(ctx context.Context, cache bool) *Config {
 	}
 
 	if s.ConfigPath != "" {
-		// FIXME: propagate this error up
+		// FIXME: propagate this error up. Thus function is missing error type
 		cfg, _ := ReadConfig(ctx, s.ConfigPath)
 		if cfg == nil {
 			cfg = &Config{}

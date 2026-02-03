@@ -36,7 +36,7 @@ func NewCatCmd(deps *Deps) *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVarP(&opts.Alias, "keg", "k", "", "alias of the keg to read from")
+	cmd.Flags().StringVarP(&opts.Keg, "keg", "k", "", "alias of the keg to read from")
 
 	_ = cmd.RegisterFlagCompletionFunc("keg", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		kegs, _ := deps.Tap.ListKegs(cmd.Context(), true)

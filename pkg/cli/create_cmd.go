@@ -35,7 +35,7 @@ func NewCreateCmd(deps *Deps) *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVarP(&opts.Alias, "keg", "k", "", "alias of the keg to create the node in")
+	cmd.Flags().StringVarP(&opts.KegAlias, "keg", "k", "", "alias of the keg to create the node in")
 	cmd.Flags().StringVar(&opts.Title, "title", "", "title for the new node")
 	cmd.Flags().StringVar(&opts.Lead, "lead", "", "lead/short summary for the new node")
 	cmd.Flags().StringSliceVar(&opts.Tags, "tags", nil, "tags to apply to the node (repeatable)")

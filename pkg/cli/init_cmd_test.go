@@ -43,7 +43,7 @@ func TestInitCommand_TableDriven(t *testing.T) {
 			expectedAlias:    "myproject",
 			expectedLocation: "~/myproject",
 			cwd:              strPtr("~/myproject"),
-			description:      "Local keg with '.' should infer alias from current working directory base when not provided",
+			description:      "Project keg with '.' should infer alias from current working directory base when not provided",
 		},
 		{
 			name: "local_keg_with_dot_explicit_type",
@@ -56,7 +56,7 @@ func TestInitCommand_TableDriven(t *testing.T) {
 			},
 			expectedAlias:    "myalias",
 			expectedLocation: "~/",
-			description:      "Local keg with explicit --type local flag",
+			description:      "Project keg with explicit --type local flag",
 		},
 		{
 			name: "user_keg_defaults_to_user_type",
@@ -144,7 +144,7 @@ func TestInitCommand_TableDriven(t *testing.T) {
 				// User kegs are at .local/share/tapper/kegs/{alias}
 				baseKegPath = "~/.local/share/tapper/kegs/" + tt.expectedAlias
 			} else {
-				// Local kegs are at the repo root
+				// Project kegs are at the repo root
 				baseKegPath = ""
 			}
 

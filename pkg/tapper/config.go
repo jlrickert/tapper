@@ -489,7 +489,7 @@ func (cfg *Config) Write(ctx context.Context, path string) error {
 //
 // Merge semantics:
 //   - Later configs override earlier values for the same keys.
-//   - KegMap entries are appended in order, but entries with the same Alias
+//   - KegMap entries are appended in order, but entries with the same Keg
 //     are overridden by later entries.
 //   - The returned Config will have a Kegs map and a KegMap slice.
 //   - If any input carries a parsed yaml.Node, the node from the last non-nil

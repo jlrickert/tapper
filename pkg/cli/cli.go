@@ -9,9 +9,6 @@ import (
 )
 
 func Run(ctx context.Context, args []string) (int, error) {
-	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
-	defer stop()
-
 	// Make it so that cat is the default subcommand if no valid subcommand is given
 	if len(args) >= 2 && args[0] == "__complete" {
 		if _, err := strconv.Atoi(args[1]); err == nil {
@@ -24,6 +21,7 @@ func Run(ctx context.Context, args []string) (int, error) {
 			return Run(ctx, args)
 		}
 	}
+
 	streams := toolkit.StreamFromContext(ctx)
 	cmd := NewRootCmd()
 	cmd.SetArgs(args)
