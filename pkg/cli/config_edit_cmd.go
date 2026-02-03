@@ -33,7 +33,8 @@ The editor is determined by the EDITOR environment variable, defaulting to 'vim'
 		},
 	}
 
-	cmd.Flags().BoolVar(&opts.Project, "local", false, "edit local project configuration")
+	cmd.Flags().BoolVar(&opts.Project, "project", false, "edit project configuration")
+	cmd.Flags().BoolVar(&opts.User, "user", false, "edit user configuration")
 
 	return cmd
 }
