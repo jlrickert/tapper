@@ -35,7 +35,7 @@ manually modifying files or to refresh stale indices.`,
 		},
 	}
 
-	cmd.Flags().StringVarP(&opts.Alias, "keg", "k", "", "alias of the keg to index")
+	cmd.Flags().StringVarP(&opts.KegAlias, "keg", "k", "", "alias of the keg to index")
 
 	_ = cmd.RegisterFlagCompletionFunc("keg", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		kegs, _ := deps.Tap.ListKegs(cmd.Context(), true)

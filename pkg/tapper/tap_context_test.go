@@ -81,7 +81,7 @@ package tapper_test
 //
 // 	// Append a KegMap entry via the update helper.
 // 	entry := tapper.KegMapEntry{
-// 		Alias:      "alias-x",
+// 		Keg:      "alias-x",
 // 		PathPrefix: "/projects/x",
 // 	}
 // 	err = p.UserConfigUpdate(ctx, func(cfg *tapper.Config) {
@@ -95,7 +95,7 @@ package tapper_test
 //
 // 	found := false
 // 	for _, e := range cfg.KegMap() {
-// 		if e.Alias == entry.Alias && e.PathPrefix == entry.PathPrefix {
+// 		if e.Keg == entry.Keg && e.PathPrefix == entry.PathPrefix {
 // 			found = true
 // 			break
 // 		}

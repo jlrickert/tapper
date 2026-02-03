@@ -75,7 +75,7 @@ func NewTempNode(ctx context.Context, id string) *Node {
 //
 //	Node{ID:42, Code:""}      -> "42"
 //	Node{ID:42, Code:"0001"}  -> "42-0001"
-//	Node{ID:42, Alias:"work"} -> "keg:work/42"
+//	Node{ID:42, Keg:"work"} -> "keg:work/42"
 func (id Node) Path() string {
 	if id.Alias != "" {
 		if id.Code != "" {
@@ -107,8 +107,8 @@ func (id Node) String() string { return id.Path() }
 //
 //	"42"               -> &Node{ID:42, Code:""}, nil
 //	"42-0001"          -> &Node{ID:42, Code:"0001"}, nil
-//	"keg:work/23"      -> &Node{ID:23, Alias:"work"}, nil
-//	"keg:work/23-0001" -> &Node{ID:23, Alias:"work", Code:"0001"}, nil
+//	"keg:work/23"      -> &Node{ID:23, Keg:"work"}, nil
+//	"keg:work/23-0001" -> &Node{ID:23, Keg:"work", Code:"0001"}, nil
 //	"0023"             -> nil, error (leading zeros not allowed)
 //	""                 -> nil, error
 func ParseNode(s string) (*Node, error) {
