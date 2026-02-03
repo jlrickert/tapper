@@ -17,53 +17,53 @@ type KegRepository interface {
 
 	// Next returns the next available NodeID that can be allocated by the
 	// repo. The operation is cancellable via ctx.
-	Next(ctx context.Context) (Node, error)
+	Next(ctx context.Context) (NodeId, error)
 
 	// ReadContent returns the primary content for the given node id (for
 	// example README.md) as a byte slice. If the content cannot be read return
 	// an error.
-	ReadContent(ctx context.Context, id Node) ([]byte, error)
+	ReadContent(ctx context.Context, id NodeId) ([]byte, error)
 
 	// ReadMeta returns the serialized node metadata (for example meta.yaml)
 	// for the specified node id. If metadata is missing or unreadable return
 	// an appropriate typed error.
-	ReadMeta(ctx context.Context, id Node) ([]byte, error)
+	ReadMeta(ctx context.Context, id NodeId) ([]byte, error)
 
 	// ListNodes returns a slice of all node IDs present in the repository.
-	ListNodes(ctx context.Context) ([]Node, error)
+	ListNodes(ctx context.Context) ([]NodeId, error)
 
 	// ListItems returns the list of ancillary item names (attachments)
 	// associated with the given node id. Implementations should return
 	// ErrNodeNotFound if the node does not exist.
-	ListItems(ctx context.Context, id Node) ([]string, error)
+	ListItems(ctx context.Context, id NodeId) ([]string, error)
 
 	// ListImages returns the list of stored image names associated with the
 	// given node id. Implementations should return ErrNodeNotFound if the node
 	// does not exist.
-	ListImages(ctx context.Context, id Node) ([]string, error)
+	ListImages(ctx context.Context, id NodeId) ([]string, error)
 
 	// WriteContent writes the primary content for the given node id.
 	// Implementers should perform atomic writes where possible (write temp +
 	// rename) and update any canonical timestamps as appropriate.
-	WriteContent(ctx context.Context, id Node, data []byte) error
+	WriteContent(ctx context.Context, id NodeId, data []byte) error
 
 	// WriteMeta writes the node metadata (for example meta.yaml) for the node
 	// id. Write operations should be atomic when possible and return typed
 	// errors on failure.
-	WriteMeta(ctx context.Context, id Node, data []byte) error
+	WriteMeta(ctx context.Context, id NodeId, data []byte) error
 
 	// UploadImage stores an image blob associated with the node. Name is the
 	// destination filename/key and data is the file bytes.
-	UploadImage(ctx context.Context, id Node, name string, data []byte) error
+	UploadImage(ctx context.Context, id NodeId, name string, data []byte) error
 
 	// UploadItem stores a named ancillary item (attachment) for the node.
-	UploadItem(ctx context.Context, id Node, name string, data []byte) error
+	UploadItem(ctx context.Context, id NodeId, name string, data []byte) error
 
 	// MoveNode renames or moves a node from id to dst. Implementations should
 	// return ErrDestinationExists (or an equivalent typed error) if the
 	// destination already exists, and should ensure the move is atomic when
 	// possible.
-	MoveNode(ctx context.Context, id Node, dst Node) error
+	MoveNode(ctx context.Context, id NodeId, dst NodeId) error
 
 	// GetIndex reads the raw contents of an index file by name (for example
 	// "nodes.tsv" or "tags"). The returned bytes are a copy and callers should
@@ -89,16 +89,16 @@ type KegRepository interface {
 	// DeleteNode removes the node and all associated content/metadata/items.
 	// If the node does not exist implementations should return a typed
 	// NodeNotFoundError.
-	DeleteNode(ctx context.Context, id Node) error
+	DeleteNode(ctx context.Context, id NodeId) error
 
 	// DeleteImage removes a stored image by name for the node. If the node
 	// does not exist return NodeNotFoundError; if the image is not present
 	// return an appropriate sentinel (for example ErrNotFound) or typed error
 	// per policy.
-	DeleteImage(ctx context.Context, id Node, name string) error
+	DeleteImage(ctx context.Context, id NodeId, name string) error
 
 	// DeleteItem removes a named ancillary item by name for the node.
-	DeleteItem(ctx context.Context, id Node, name string) error
+	DeleteItem(ctx context.Context, id NodeId, name string) error
 
 	// ReadConfig reads and returns the repository-level configuration (Config).
 	// Implementations should load and parse the stored configuration. If the

@@ -125,14 +125,14 @@ type CreateOptions struct {
 // to keg.Keg.Create to allocate and persist the new node.
 //
 // Errors are wrapped with contextual messages to aid callers.
-func (t *Tap) Create(ctx context.Context, opts CreateOptions) (keg.Node, error) {
+func (t *Tap) Create(ctx context.Context, opts CreateOptions) (keg.NodeId, error) {
 	k, err := t.KegService.Resolve(ctx, ResolveKegOptions{
 		Root:    t.Root,
 		Keg:     opts.KegAlias,
 		NoCache: false,
 	})
 	if err != nil {
-		return keg.Node{}, fmt.Errorf("unable to determine default keg: %w", err)
+		return keg.NodeId{}, fmt.Errorf("unable to determine default keg: %w", err)
 	}
 
 	var body []byte
@@ -147,7 +147,7 @@ func (t *Tap) Create(ctx context.Context, opts CreateOptions) (keg.Node, error) 
 		}
 	}
 
-	node, err := k.Create(ctx, &keg.KegCreateOptions{
+	node, err := k.Create(ctx, &keg.CreateOptions{
 		Title: opts.Title,
 		Lead:  opts.Lead,
 		Tags:  opts.Tags,
@@ -155,7 +155,7 @@ func (t *Tap) Create(ctx context.Context, opts CreateOptions) (keg.Node, error) 
 		Attrs: attrs,
 	})
 	if err != nil {
-		return keg.Node{}, fmt.Errorf("unable to create node: %w", err)
+		return keg.NodeId{}, fmt.Errorf("unable to create node: %w", err)
 	}
 
 	return node, nil
@@ -165,6 +165,9 @@ func (t *Tap) Create(ctx context.Context, opts CreateOptions) (keg.Node, error) 
 type IndexOptions struct {
 	// KegAlias of the keg to index
 	KegAlias string
+
+	// Force a full rebuild
+	Force bool
 }
 
 // Index rebuilds all indices for a keg (nodes.tsv, tags, links, backlinks).
@@ -182,7 +185,7 @@ func (t *Tap) Index(ctx context.Context, opts IndexOptions) (string, error) {
 	}
 
 	// Rebuild indices - pass empty node as placeholder
-	err = k.Index(ctx, keg.Node{})
+	err = k.Index(ctx, keg.NodeId{})
 	if err != nil {
 		return "", fmt.Errorf("unable to rebuild indices: %w", err)
 	}

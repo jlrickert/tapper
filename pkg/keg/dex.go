@@ -126,7 +126,7 @@ func (dex *Dex) Nodes(ctx context.Context) []NodeIndexEntry {
 }
 
 // Tags returns the parsed tags index (map[tag] -> []NodeID).
-func (dex *Dex) TagLinks(ctx context.Context, node Node) ([]Node, bool) {
+func (dex *Dex) TagLinks(ctx context.Context, node NodeId) ([]NodeId, bool) {
 	dex.mu.RLock()
 	defer dex.mu.RUnlock()
 	list, ok := dex.tags.data[node.Path()]
@@ -141,14 +141,14 @@ func (dex *Dex) TagList(ctx context.Context) []string {
 }
 
 // Links returns the parsed outgoing links index (map[src] -> []dst).
-func (dex *Dex) Links(ctx context.Context, node Node) ([]Node, bool) {
+func (dex *Dex) Links(ctx context.Context, node NodeId) ([]NodeId, bool) {
 	list, ok := dex.links.data[node.Path()]
 	return list, ok
 }
 
 // Backlinks returns the parsed backlinks index (map[dst] -> []src).
 // NOTE: not intended to be mutated
-func (dex *Dex) Backlinks(ctx context.Context, node Node) ([]Node, bool) {
+func (dex *Dex) Backlinks(ctx context.Context, node NodeId) ([]NodeId, bool) {
 	list, ok := dex.backlinks.data[node.Path()]
 	return list, ok
 }
@@ -190,7 +190,7 @@ func (dex *Dex) Add(ctx context.Context, data *NodeData) error {
 
 // Remove removes the node identified by id from all managed indexes. This
 // implements the IndexBuilder contract for convenience when using Dex.
-func (dex *Dex) Remove(ctx context.Context, node Node) error {
+func (dex *Dex) Remove(ctx context.Context, node NodeId) error {
 	dex.mu.Lock()
 
 	var errs []error
@@ -213,7 +213,7 @@ func (dex *Dex) Remove(ctx context.Context, node Node) error {
 	return errors.Join(errs...)
 }
 
-func (dex *Dex) NextNode(ctx context.Context) Node {
+func (dex *Dex) NextNode(ctx context.Context) NodeId {
 	dex.mu.RLock()
 	defer dex.mu.RUnlock()
 	return dex.nodes.Next(ctx)
@@ -282,7 +282,7 @@ func (dex *Dex) Write(ctx context.Context, repo KegRepository) error {
 	return fmt.Errorf("unable to write dex: %w", errors.Join(errs...))
 }
 
-func (dex *Dex) GetRef(ctx context.Context, id Node) *NodeIndexEntry {
+func (dex *Dex) GetRef(ctx context.Context, id NodeId) *NodeIndexEntry {
 	if dex == nil {
 		return nil
 	}

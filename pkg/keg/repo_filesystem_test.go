@@ -21,7 +21,7 @@ func TestFsRepo_WriteReadMetaAndContent(t *testing.T) {
 	}
 
 	fx.DumpJailTree(0)
-	id := keg.Node{ID: 10}
+	id := keg.NodeId{ID: 10}
 	content := []byte("# hello\n")
 	meta := []byte("title: test\nupdated: 2025-08-11 00:00:00Z\n")
 
@@ -91,9 +91,9 @@ func TestFsRepo_MoveDeleteNodeAndDestinationExists(t *testing.T) {
 		MetaFilename:    keg.YAMLMetaFilename,
 	}
 
-	src := keg.Node{ID: 20}
-	dst := keg.Node{ID: 30}
-	other := keg.Node{ID: 31}
+	src := keg.NodeId{ID: 20}
+	dst := keg.NodeId{ID: 30}
+	other := keg.NodeId{ID: 31}
 	content := []byte("content")
 
 	// prepare src node
@@ -142,7 +142,7 @@ func TestFsRepo_UploadAndListImagesAndItems(t *testing.T) {
 		MetaFilename:    keg.YAMLMetaFilename,
 	}
 
-	id := keg.Node{ID: 40}
+	id := keg.NodeId{ID: 40}
 	// ensure node exists
 	require.NoError(t, r.WriteContent(ctx, id, []byte("c")))
 	require.NoError(t, r.WriteMeta(ctx, id, []byte("title: i\n")))

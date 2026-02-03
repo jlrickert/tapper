@@ -42,7 +42,8 @@ func (s *ConfigService) UserConfig(ctx context.Context, cache bool) (*Config, er
 	if cache && s.userCache != nil {
 		return s.userCache, nil
 	}
-	cfg, err := ReadConfig(ctx, filepath.Join(s.PathService.ConfigRoot, "config.yaml"))
+	path := filepath.Join(s.PathService.ConfigRoot, "config.yaml")
+	cfg, err := ReadConfig(ctx, path)
 	if err != nil {
 		return nil, err
 	}

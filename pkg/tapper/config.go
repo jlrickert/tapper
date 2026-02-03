@@ -64,7 +64,7 @@ type Config struct {
 	// parsed data.
 	data *configDTO
 
-	// Node holds the original parsed YAML document root (document node).
+	// NodeId holds the original parsed YAML document root (document node).
 	// When present, we edit it directly to preserve comments and layout.
 	node *yaml.Node
 }
@@ -360,7 +360,7 @@ func (cfg *Config) ResolveDefault(ctx context.Context) (*kegurl.Target, error) {
 }
 
 // ParseConfig parses raw YAML into a Config while preserving the
-// underlying yaml.Node for comment-preserving edits.
+// underlying yaml.NodeId for comment-preserving edits.
 //
 // The function attempts to decode the document root mapping into the struct.
 // If the document root is missing, the returned Config is a zero value with
@@ -445,30 +445,31 @@ func DefaultProjectConfig(user, userKegRepo string) *Config {
 // When possible the original parsed document node is emitted to preserve
 // comments and formatting; otherwise the struct form is encoded.
 func (cfg *Config) ToYAML(ctx context.Context) ([]byte, error) {
-	if cfg == nil {
-		return nil, fmt.Errorf("no user config")
-	}
-	var buf bytes.Buffer
-	enc := yaml.NewEncoder(&buf)
-	enc.SetIndent(2)
-
-	// Prefer writing the original node to keep comments. If absent, write struct.
-	if cfg.node != nil {
-		// Ensure we encode the document node as-is.
-		if err := enc.Encode(cfg.node); err != nil {
-			_ = enc.Close()
-			return nil, fmt.Errorf("encode yaml node: %w", err)
-		}
-	} else {
-		if err := enc.Encode(cfg.data); err != nil {
-			_ = enc.Close()
-			return nil, fmt.Errorf("encode yaml struct: %w", err)
-		}
-	}
-	if err := enc.Close(); err != nil {
-		return nil, fmt.Errorf("close encoder: %w", err)
-	}
-	return buf.Bytes(), nil
+	return yaml.Marshal(cfg.data)
+	//if cfg == nil {
+	//	return nil, fmt.Errorf("no user config")
+	//}
+	//var buf bytes.Buffer
+	//enc := yaml.NewEncoder(&buf)
+	//enc.SetIndent(2)
+	//
+	//// Prefer writing the original node to keep comments. If absent, write struct.
+	//if cfg.node != nil {
+	//	// Ensure we encode the document node as-is.
+	//	if err := enc.Encode(cfg.node); err != nil {
+	//		_ = enc.Close()
+	//		return nil, fmt.Errorf("encode yaml node: %w", err)
+	//	}
+	//} else {
+	//	if err := enc.Encode(cfg.data); err != nil {
+	//		_ = enc.Close()
+	//		return nil, fmt.Errorf("encode yaml struct: %w", err)
+	//	}
+	//}
+	//if err := enc.Close(); err != nil {
+	//	return nil, fmt.Errorf("close encoder: %w", err)
+	//}
+	//return buf.Bytes(), nil
 }
 
 // Write writes the Config back to path, preserving comments and formatting
@@ -492,7 +493,7 @@ func (cfg *Config) Write(ctx context.Context, path string) error {
 //   - KegMap entries are appended in order, but entries with the same Keg
 //     are overridden by later entries.
 //   - The returned Config will have a Kegs map and a KegMap slice.
-//   - If any input carries a parsed yaml.Node, the node from the last non-nil
+//   - If any input carries a parsed yaml.NodeId, the node from the last non-nil
 //     config is cloned and used to preserve comments when possible.
 func MergeConfig(cfgs ...*Config) *Config {
 	if len(cfgs) == 0 {

@@ -42,8 +42,8 @@ type Content struct {
 	Lead string
 
 	// Links is the list of numeric outgoing node links discovered in the
-	// content (for example "../42"). Entries are normalized Node values.
-	Links []Node
+	// content (for example "../42"). Entries are normalized NodeId values.
+	Links []NodeId
 
 	// Format is a short hint of the detected format. Typical values are
 	// "markdown", "rst", or "empty".
@@ -282,8 +282,8 @@ var numericLinkRE = regexp.MustCompile(`\.\./\s*([0-9]+)`)
 // For non-markdown content the function falls back to a simple regex scan.
 // The returned slice may contain duplicates; callers should call dedupeAndSortNodeIDs
 // to normalize the result.
-func extractNumericLinks(data []byte) []Node {
-	out := make([]Node, 0)
+func extractNumericLinks(data []byte) []NodeId {
+	out := make([]NodeId, 0)
 
 	// Attempt to parse as Markdown using goldmark. If parsing fails, fall back to regex.
 	md := goldmark.New()
@@ -339,9 +339,9 @@ func extractNumericLinks(data []byte) []Node {
 // dedupeAndSortNodeIDs removes duplicates from the input slice and returns a
 // new slice sorted in ascending numeric order. The operation is deterministic
 // and suitable for producing stable index outputs.
-func dedupeAndSortNodeIDs(in []Node) []Node {
+func dedupeAndSortNodeIDs(in []NodeId) []NodeId {
 	set := make(map[string]struct{})
-	out := make([]Node, 0, len(in))
+	out := make([]NodeId, 0, len(in))
 	for _, id := range in {
 		key := id.Path()
 		if _, ok := set[key]; ok {

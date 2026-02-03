@@ -14,7 +14,7 @@ import (
 // The type has unexported fields and is safe for in-memory, single-process use.
 // Concurrency control is the caller's responsibility.
 type LinkIndex struct {
-	data map[string][]Node
+	data map[string][]NodeId
 }
 
 // ParseLinkIndex parses the raw bytes of a links index into a LinkIndex.
@@ -32,10 +32,10 @@ type LinkIndex struct {
 func ParseLinkIndex(ctx context.Context, data []byte) (LinkIndex, error) {
 	_ = ctx
 	if len(data) == 0 {
-		return LinkIndex{data: map[string][]Node{}}, nil
+		return LinkIndex{data: map[string][]NodeId{}}, nil
 	}
 
-	out := LinkIndex{data: map[string][]Node{}}
+	out := LinkIndex{data: map[string][]NodeId{}}
 	s := string(data)
 	lines := strings.SplitSeq(s, "\n")
 	for line := range lines {
@@ -47,7 +47,7 @@ func ParseLinkIndex(ctx context.Context, data []byte) (LinkIndex, error) {
 			continue
 		}
 		src := parts[0]
-		var dests []Node
+		var dests []NodeId
 		if len(parts) == 2 && strings.TrimSpace(parts[1]) != "" {
 			toks := strings.FieldsSeq(parts[1]) // splits on spaces
 			for tok := range toks {
@@ -65,7 +65,7 @@ func ParseLinkIndex(ctx context.Context, data []byte) (LinkIndex, error) {
 }
 
 // Add incorporates link information from the provided NodeData into the index.
-// The NodeData.ID value is used as the source key (via Node.Path semantics) and
+// The NodeData.ID value is used as the source key (via NodeId.Path semantics) and
 // NodeData.Links is treated as the list of destination nodes.
 //
 // Behavior expectations (not enforced here but callers may rely on them):
@@ -81,7 +81,7 @@ func (idx *LinkIndex) Add(ctx context.Context, data *NodeData) error {
 		return nil
 	}
 	if idx.data == nil {
-		idx.data = map[string][]Node{}
+		idx.data = map[string][]NodeId{}
 	}
 
 	key := data.ID.Path()
@@ -89,8 +89,8 @@ func (idx *LinkIndex) Add(ctx context.Context, data *NodeData) error {
 
 	links := data.Links()
 
-	// dedupe by path, preferring existing representative Node
-	m := make(map[string]Node, len(existing)+len(links))
+	// dedupe by path, preferring existing representative NodeId
+	m := make(map[string]NodeId, len(existing)+len(links))
 	for _, n := range existing {
 		m[n.Path()] = n
 	}
@@ -98,12 +98,12 @@ func (idx *LinkIndex) Add(ctx context.Context, data *NodeData) error {
 		m[n.Path()] = n
 	}
 
-	uniq := make([]Node, 0, len(m))
+	uniq := make([]NodeId, 0, len(m))
 	for _, n := range m {
 		uniq = append(uniq, n)
 	}
 
-	// basic insertion sort by Node.Compare (ascending)
+	// basic insertion sort by NodeId.Compare (ascending)
 	for i := 1; i < len(uniq); i++ {
 		for j := i; j > 0 && uniq[j-1].Compare(uniq[j]) > 0; j-- {
 			uniq[j-1], uniq[j] = uniq[j], uniq[j-1]
@@ -124,13 +124,13 @@ func (idx *LinkIndex) Add(ctx context.Context, data *NodeData) error {
 //     slices or be deleted; callers should tolerate either representation.
 //
 // This method only mutates in-memory state and does not perform I/O.
-func (idx *LinkIndex) Rm(ctx context.Context, node Node) error {
+func (idx *LinkIndex) Rm(ctx context.Context, node NodeId) error {
 	_ = ctx
 	if idx == nil {
 		return nil
 	}
 	if idx.data == nil {
-		idx.data = map[string][]Node{}
+		idx.data = map[string][]NodeId{}
 	}
 
 	// remove the node as a source
@@ -177,7 +177,7 @@ func (idx *LinkIndex) Data(ctx context.Context) ([]byte, error) {
 		return []byte{}, nil
 	}
 	if idx.data == nil {
-		idx.data = map[string][]Node{}
+		idx.data = map[string][]NodeId{}
 	}
 	if len(idx.data) == 0 {
 		return []byte{}, nil
@@ -189,7 +189,7 @@ func (idx *LinkIndex) Data(ctx context.Context) ([]byte, error) {
 		keys = append(keys, k)
 	}
 
-	// comparator that tries to parse Node ids and compare numerically when possible
+	// comparator that tries to parse NodeId ids and compare numerically when possible
 	cmp := func(a, b string) int {
 		na, ea := ParseNode(a)
 		nb, eb := ParseNode(b)
@@ -226,13 +226,13 @@ func (idx *LinkIndex) Data(ctx context.Context) ([]byte, error) {
 			continue
 		}
 
-		// dedupe by path and keep representative Node
-		m := make(map[string]Node, len(dsts))
+		// dedupe by path and keep representative NodeId
+		m := make(map[string]NodeId, len(dsts))
 		for _, n := range dsts {
 			m[n.Path()] = n
 		}
 
-		uniq := make([]Node, 0, len(m))
+		uniq := make([]NodeId, 0, len(m))
 		for _, n := range m {
 			uniq = append(uniq, n)
 		}

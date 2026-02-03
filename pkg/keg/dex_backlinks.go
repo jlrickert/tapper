@@ -13,7 +13,7 @@ import (
 // The type is intended for in-memory, single-process use. Concurrency control
 // is the caller's responsibility.
 type BacklinkIndex struct {
-	data map[string][]Node
+	data map[string][]NodeId
 }
 
 // ParseBacklinksIndex parses the raw bytes of a backlinks index into a
@@ -32,7 +32,7 @@ type BacklinkIndex struct {
 func ParseBacklinksIndex(ctx context.Context, data []byte) (*BacklinkIndex, error) {
 	_ = ctx
 	idx := &BacklinkIndex{
-		data: map[string][]Node{},
+		data: map[string][]NodeId{},
 	}
 	if len(bytes.TrimSpace(data)) == 0 {
 		return idx, nil
@@ -83,7 +83,7 @@ func (idx *BacklinkIndex) Add(ctx context.Context, data *NodeData) error {
 		return nil
 	}
 	if idx.data == nil {
-		idx.data = map[string][]Node{}
+		idx.data = map[string][]NodeId{}
 	}
 
 	for _, dst := range data.Links() {
@@ -115,19 +115,19 @@ func (idx *BacklinkIndex) Add(ctx context.Context, data *NodeData) error {
 //     or be deleted; callers should tolerate either representation.
 //
 // This method only mutates in-memory state and does not perform I/O.
-func (idx *BacklinkIndex) Rm(ctx context.Context, node Node) error {
+func (idx *BacklinkIndex) Rm(ctx context.Context, node NodeId) error {
 	if idx == nil {
 		return nil
 	}
 	if idx.data == nil {
-		idx.data = map[string][]Node{}
+		idx.data = map[string][]NodeId{}
 	}
 
 	for dst, list := range idx.data {
 		if len(list) == 0 {
 			continue
 		}
-		var out []Node
+		var out []NodeId
 		removed := false
 		for _, n := range list {
 			if n.Equals(node) {
@@ -168,7 +168,7 @@ func (idx *BacklinkIndex) Data(ctx context.Context) ([]byte, error) {
 		return []byte{}, nil
 	}
 	if idx.data == nil {
-		idx.data = map[string][]Node{}
+		idx.data = map[string][]NodeId{}
 	}
 
 	if len(idx.data) == 0 {
@@ -181,7 +181,7 @@ func (idx *BacklinkIndex) Data(ctx context.Context) ([]byte, error) {
 		keys = append(keys, k)
 	}
 
-	// comparator that tries to parse Node ids and compare numerically when possible
+	// comparator that tries to parse NodeId ids and compare numerically when possible
 	cmp := func(a, b string) int {
 		na, ea := ParseNode(a)
 		nb, eb := ParseNode(b)
@@ -221,14 +221,14 @@ func (idx *BacklinkIndex) Data(ctx context.Context) ([]byte, error) {
 			continue
 		}
 
-		// dedupe by path and keep a representative Node for sorting
-		m := make(map[string]Node, len(srcs))
+		// dedupe by path and keep a representative NodeId for sorting
+		m := make(map[string]NodeId, len(srcs))
 		for _, n := range srcs {
 			m[n.Path()] = n
 		}
 
 		// extract unique nodes
-		uniq := make([]Node, 0, len(m))
+		uniq := make([]NodeId, 0, len(m))
 		for _, n := range m {
 			uniq = append(uniq, n)
 		}
