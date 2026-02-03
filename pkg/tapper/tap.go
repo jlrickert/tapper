@@ -543,6 +543,21 @@ func firstDir(path string) string {
 	return ""
 }
 
+type DirOptions struct {
+	Keg string
+}
+
+func (t *Tap) Dir(ctx context.Context, opts DirOptions) (string, error) {
+	k, err := t.KegService.Resolve(ctx, ResolveKegOptions{
+		Root: t.Root,
+		Keg:  opts.Keg,
+	})
+	if err != nil {
+		return "", fmt.Errorf("unable to open keg: %w", err)
+	}
+	return k.Target.File, nil
+}
+
 // ListKegs returns all available keg directories by scanning the user repository
 // and merging with configured keg aliases. When cache is true, cached config
 // values may be used.
