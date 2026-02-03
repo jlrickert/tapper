@@ -30,5 +30,5 @@ func (s *PathService) ProjectConfig() string {
 }
 
 func (s *PathService) UserConfig() string {
-	return filepath.Join(s.UserConfig(), "config.yaml")
+	return filepath.Join(s.ConfigRoot, "config.yaml")
 }
