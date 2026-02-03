@@ -23,7 +23,7 @@ import (
 // Note: TagIndex does not perform internal synchronization. Callers that need
 // concurrent access should guard the index with a mutex.
 type TagIndex struct {
-	data map[string][]Node
+	data map[string][]NodeId
 }
 
 // ParseTagIndex parses the serialized tag index bytes into a TagIndex.
@@ -35,7 +35,7 @@ type TagIndex struct {
 // TagIndex and no error.
 func ParseTagIndex(ctx context.Context, data []byte) (TagIndex, error) {
 	_ = ctx
-	idx := TagIndex{data: map[string][]Node{}}
+	idx := TagIndex{data: map[string][]NodeId{}}
 	if len(data) == 0 {
 		return idx, nil
 	}
@@ -61,7 +61,7 @@ func ParseTagIndex(ctx context.Context, data []byte) (TagIndex, error) {
 			// no nodes -> skip
 			continue
 		}
-		list := make([]Node, 0, len(fields))
+		list := make([]NodeId, 0, len(fields))
 		for _, s := range fields {
 			n, err := ParseNode(s)
 			if err != nil {
@@ -90,7 +90,7 @@ func (idx *TagIndex) Add(ctx context.Context, data *NodeData) error {
 		return nil
 	}
 	if idx.data == nil {
-		idx.data = map[string][]Node{}
+		idx.data = map[string][]NodeId{}
 	}
 	tags := data.Tags()
 	if len(tags) == 0 {
@@ -112,7 +112,7 @@ func (idx *TagIndex) Add(ctx context.Context, data *NodeData) error {
 		if !dup {
 			list = append(list, data.ID)
 			// keep list deterministic by sorting after append
-			slices.SortFunc(list, func(a Node, b Node) int {
+			slices.SortFunc(list, func(a NodeId, b NodeId) int {
 				return a.Compare(b)
 			})
 			idx.data[tag] = list
@@ -128,13 +128,13 @@ func (idx *TagIndex) Add(ctx context.Context, data *NodeData) error {
 //   - If idx is nil this is a no-op.
 //   - If a tag has no remaining nodes after removal it should be removed from
 //     the map to avoid emitting empty tag lines when serialized.
-func (idx *TagIndex) Rm(ctx context.Context, node Node) error {
+func (idx *TagIndex) Rm(ctx context.Context, node NodeId) error {
 	_ = ctx
 	if idx == nil {
 		return nil
 	}
 	if idx.data == nil {
-		idx.data = map[string][]Node{}
+		idx.data = map[string][]NodeId{}
 		return nil
 	}
 
@@ -155,7 +155,7 @@ func (idx *TagIndex) Rm(ctx context.Context, node Node) error {
 			delete(idx.data, tag)
 		} else {
 			// ensure we keep a copy with correct length
-			cpy := make([]Node, len(out))
+			cpy := make([]NodeId, len(out))
 			copy(cpy, out)
 			idx.data[tag] = cpy
 		}
@@ -168,10 +168,10 @@ func (idx *TagIndex) Rm(ctx context.Context, node Node) error {
 //
 // Serialization requirements:
 //   - Tags (map keys) must be emitted in a stable, deterministic order. When a
-//     tag token can be parsed as a Node id it may be ordered numerically; otherwise
+//     tag token can be parsed as a NodeId id it may be ordered numerically; otherwise
 //     fall back to lexicographic ordering.
-//   - Node lists for each tag must be de-duplicated and sorted by numeric id then
-//     by code (the same ordering ParseNode/Node.Compare implies).
+//   - NodeId lists for each tag must be de-duplicated and sorted by numeric id then
+//     by code (the same ordering ParseNode/NodeId.Compare implies).
 //   - Lines must use a single tab between tag and the node list, and a single
 //     space between node ids. Each line must be terminated with a newline.
 //   - If the index is empty return an empty byte slice and no error.
@@ -181,7 +181,7 @@ func (idx *TagIndex) Data(ctx context.Context) ([]byte, error) {
 		return []byte{}, nil
 	}
 	if idx.data == nil {
-		idx.data = map[string][]Node{}
+		idx.data = map[string][]NodeId{}
 	}
 	if len(idx.data) == 0 {
 		return []byte{}, nil
@@ -193,7 +193,7 @@ func (idx *TagIndex) Data(ctx context.Context) ([]byte, error) {
 		keys = append(keys, k)
 	}
 
-	// comparator that tries to parse Node ids and compare numerically when possible
+	// comparator that tries to parse NodeId ids and compare numerically when possible
 	cmpKey := func(a, b string) bool {
 		na, ea := ParseNode(a)
 		nb, eb := ParseNode(b)
@@ -218,18 +218,18 @@ func (idx *TagIndex) Data(ctx context.Context) ([]byte, error) {
 			continue
 		}
 
-		// dedupe by path keeping a representative Node
-		m := make(map[string]Node, len(srcs))
+		// dedupe by path keeping a representative NodeId
+		m := make(map[string]NodeId, len(srcs))
 		for _, n := range srcs {
 			m[n.Path()] = n
 		}
 
-		uniq := make([]Node, 0, len(m))
+		uniq := make([]NodeId, 0, len(m))
 		for _, n := range m {
 			uniq = append(uniq, n)
 		}
 
-		// sort uniq by numeric id then code using Node.Compare
+		// sort uniq by numeric id then code using NodeId.Compare
 		sort.Slice(uniq, func(i, j int) bool { return uniq[i].Compare(uniq[j]) < 0 })
 
 		// build line

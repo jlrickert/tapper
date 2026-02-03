@@ -12,11 +12,11 @@ import (
 // Package keg defines the identifier type and related high-level node
 // data structures used by KEG repository implementations.
 
-// Node is the stable numeric identifier for a KEG node. The ID field is the
+// NodeId is the stable numeric identifier for a KEG node. The ID field is the
 // canonical non-negative integer identifier. The optional Code field is a
 // zero-padded 4-digit numeric suffix used to represent an uncommitted or
 // temporary variant of the node.
-type Node struct {
+type NodeId struct {
 	ID    int
 	Alias string
 	// Code is an additional random identifier used to signify an uncommitted node.
@@ -37,11 +37,11 @@ func RandomCode(context.Context) string {
 	return code
 }
 
-// NewTempNode creates a new Node using the provided base id string and a
+// NewTempNode creates a new NodeId using the provided base id string and a
 // 4-digit numeric code. The function attempts to parse the base id via
 // ParseNode; if that fails it will try to parse the string as a non-negative
 // integer. If the id is empty or cannot be parsed as a non-negative integer
-// the returned Node will have ID set to 0.
+// the returned NodeId will have ID set to 0.
 //
 // The Code is generated with crypto/rand when available and falls back to the
 // current nanotime if random bytes cannot be obtained. The code is returned
@@ -50,7 +50,7 @@ func RandomCode(context.Context) string {
 // The context parameter is accepted to allow future callers to pass context
 // without changing the signature. It is not used by the current
 // implementation.
-func NewTempNode(ctx context.Context, id string) *Node {
+func NewTempNode(ctx context.Context, id string) *NodeId {
 	_ = ctx
 	baseID := 0
 	alias := ""
@@ -65,18 +65,18 @@ func NewTempNode(ctx context.Context, id string) *Node {
 
 	code := RandomCode(ctx)
 
-	return &Node{ID: baseID, Code: code, Alias: alias}
+	return &NodeId{ID: baseID, Code: code, Alias: alias}
 }
 
-// Path returns the path component for this Node suitable for use in file
+// Path returns the path component for this NodeId suitable for use in file
 // names or URLs.
 //
 // Examples:
 //
-//	Node{ID:42, Code:""}      -> "42"
-//	Node{ID:42, Code:"0001"}  -> "42-0001"
-//	Node{ID:42, Keg:"work"} -> "keg:work/42"
-func (id Node) Path() string {
+//	NodeId{ID:42, Code:""}      -> "42"
+//	NodeId{ID:42, Code:"0001"}  -> "42-0001"
+//	NodeId{ID:42, Keg:"work"} -> "keg:work/42"
+func (id NodeId) Path() string {
 	if id.Alias != "" {
 		if id.Code != "" {
 			return "keg:" + id.Alias + "/" + strconv.Itoa(id.ID) + "-" + id.Code
@@ -89,9 +89,9 @@ func (id Node) Path() string {
 	return strconv.Itoa(id.ID)
 }
 
-func (id Node) String() string { return id.Path() }
+func (id NodeId) String() string { return id.Path() }
 
-// ParseNode converts a string into a *Node.
+// ParseNode converts a string into a *NodeId.
 //
 // Accepted forms:
 //
@@ -105,13 +105,13 @@ func (id Node) String() string { return id.Path() }
 //
 // Examples:
 //
-//	"42"               -> &Node{ID:42, Code:""}, nil
-//	"42-0001"          -> &Node{ID:42, Code:"0001"}, nil
-//	"keg:work/23"      -> &Node{ID:23, Keg:"work"}, nil
-//	"keg:work/23-0001" -> &Node{ID:23, Keg:"work", Code:"0001"}, nil
+//	"42"               -> &NodeId{ID:42, Code:""}, nil
+//	"42-0001"          -> &NodeId{ID:42, Code:"0001"}, nil
+//	"keg:work/23"      -> &NodeId{ID:23, Keg:"work"}, nil
+//	"keg:work/23-0001" -> &NodeId{ID:23, Keg:"work", Code:"0001"}, nil
 //	"0023"             -> nil, error (leading zeros not allowed)
 //	""                 -> nil, error
-func ParseNode(s string) (*Node, error) {
+func ParseNode(s string) (*NodeId, error) {
 	if s == "" {
 		return nil, fmt.Errorf("parse node id: empty")
 	}
@@ -177,14 +177,14 @@ func ParseNode(s string) (*Node, error) {
 				return nil, fmt.Errorf("parse node id %q: code must be numeric", s)
 			}
 		}
-		return &Node{ID: n, Code: codePart, Alias: alias}, nil
+		return &NodeId{ID: n, Code: codePart, Alias: alias}, nil
 	}
 
-	return &Node{ID: n, Alias: alias}, nil
+	return &NodeId{ID: n, Alias: alias}, nil
 }
 
-// Valid reports whether the Node ID is a non-negative integer.
-func (id Node) Valid() bool { return id.ID >= 0 }
+// Valid reports whether the NodeId ID is a non-negative integer.
+func (id NodeId) Valid() bool { return id.ID >= 0 }
 
 // NodeIndexEntry is a small descriptor for a node used by repository listings
 // and indices. It contains the node id as a string, a human-friendly title,
@@ -207,12 +207,12 @@ type NodeStats struct {
 }
 
 // Equals reports whether two Nodes are identical in ID and Code.
-func (n Node) Equals(other Node) bool {
+func (n NodeId) Equals(other NodeId) bool {
 	return n.ID == other.ID && n.Code == other.Code && n.Alias == other.Alias
 }
 
 // Lt reports whether n is strictly less than other using ID then Code.
-func (n Node) Lt(other Node) bool {
+func (n NodeId) Lt(other NodeId) bool {
 	if n.ID == other.ID {
 		if n.Code == other.Code {
 			return n.Alias < other.Alias
@@ -223,7 +223,7 @@ func (n Node) Lt(other Node) bool {
 }
 
 // Gt reports whether n is strictly greater than other using ID then Code.
-func (n Node) Gt(other Node) bool {
+func (n NodeId) Gt(other NodeId) bool {
 	if n.ID == other.ID {
 		if n.Code == other.Code {
 			return n.Alias > other.Alias
@@ -234,17 +234,17 @@ func (n Node) Gt(other Node) bool {
 }
 
 // Gte reports whether n is greater than or equal to other.
-func (n Node) Gte(other Node) bool {
+func (n NodeId) Gte(other NodeId) bool {
 	return n.Gt(other) || n.Equals(other)
 }
 
 // Lte reports whether n is less than or equal to other.
-func (n Node) Lte(other Node) bool {
+func (n NodeId) Lte(other NodeId) bool {
 	return n.Lt(other) || n.Equals(other)
 }
 
 // Compare returns -1 if n < other, 1 if n > other, and 0 if they are equal.
-func (n Node) Compare(other Node) int {
+func (n NodeId) Compare(other NodeId) int {
 	if n.ID < other.ID {
 		return -1
 	}
@@ -266,8 +266,8 @@ func (n Node) Compare(other Node) int {
 	return 0
 }
 
-// Increment returns a new Node with the ID value increased by one while
+// Increment returns a new NodeId with the ID value increased by one while
 // preserving the Code.
-func (n Node) Increment() Node {
-	return Node{ID: n.ID + 1, Code: n.Code, Alias: n.Alias}
+func (n NodeId) Increment() NodeId {
+	return NodeId{ID: n.ID + 1, Code: n.Code, Alias: n.Alias}
 }

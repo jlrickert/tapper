@@ -30,7 +30,7 @@ func (s *KegService) init() {
 func (s *KegService) Resolve(ctx context.Context, opts ResolveKegOptions) (*keg.Keg, error) {
 	s.init()
 	if opts.Keg != "" {
-		return s.ResolveKegAlias(ctx, opts.Keg, !opts.NoCache)
+		return s.resolveKegAlias(ctx, opts.Keg, !opts.NoCache)
 	}
 	if opts.Keg == "" {
 		env := toolkit.EnvFromContext(ctx)
@@ -38,22 +38,22 @@ func (s *KegService) Resolve(ctx context.Context, opts ResolveKegOptions) (*keg.
 		if err != nil {
 			return nil, fmt.Errorf("failed to get working directory: %w", err)
 		}
-		return s.ResolvePath(ctx, root, !opts.NoCache)
+		return s.resolvePath(ctx, root, !opts.NoCache)
 	}
 	cache := !opts.NoCache
 	cfg := s.ConfigService.Config(ctx, cache)
 	alias := cfg.DefaultKeg()
-	return s.ResolveKegAlias(ctx, alias, !opts.NoCache)
+	return s.resolveKegAlias(ctx, alias, !opts.NoCache)
 }
 
-func (s *KegService) ResolvePath(ctx context.Context, path string, cache bool) (*keg.Keg, error) {
+func (s *KegService) resolvePath(ctx context.Context, path string, cache bool) (*keg.Keg, error) {
 	s.init()
 	cfg := s.ConfigService.Config(ctx, true)
 	kegAlias := cfg.LookupAlias(ctx, path)
-	return s.ResolveKegAlias(ctx, kegAlias, cache)
+	return s.resolveKegAlias(ctx, kegAlias, cache)
 }
 
-func (s *KegService) ResolveKegAlias(ctx context.Context, kegAlias string, cache bool) (*keg.Keg, error) {
+func (s *KegService) resolveKegAlias(ctx context.Context, kegAlias string, cache bool) (*keg.Keg, error) {
 	s.init()
 	if cache && s.kegCache[kegAlias] != nil {
 		return s.kegCache[kegAlias], nil

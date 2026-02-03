@@ -15,7 +15,7 @@ func TestMemoryRepo_WriteReadMetaAndContent(t *testing.T) {
 	r := keg.NewMemoryRepo()
 	ctx := fx.Context()
 
-	id := keg.Node{ID: 10}
+	id := keg.NodeId{ID: 10}
 	content := []byte("# hello\n")
 	meta := []byte("title: test\nupdated: 2025-08-11 00:00:00Z\n")
 
@@ -42,7 +42,7 @@ func TestMemoryRepo_ReadMissingReturnsNotFound(t *testing.T) {
 	r := keg.NewMemoryRepo()
 	ctx := fx.Context()
 
-	missing := keg.Node{ID: 9999}
+	missing := keg.NodeId{ID: 9999}
 
 	_, err := r.ReadContent(ctx, missing)
 	require.Error(t, err)
@@ -76,9 +76,9 @@ func TestMemoryRepo_MoveNodeAndDestinationExists(t *testing.T) {
 	r := keg.NewMemoryRepo()
 	ctx := fx.Context()
 
-	src := keg.Node{ID: 20}
-	dst := keg.Node{ID: 30}
-	other := keg.Node{ID: 31}
+	src := keg.NodeId{ID: 20}
+	dst := keg.NodeId{ID: 30}
+	other := keg.NodeId{ID: 31}
 	content := []byte("content")
 
 	// prepare src node

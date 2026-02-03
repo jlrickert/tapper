@@ -134,13 +134,13 @@ func TestReadFromDex_Table(t *testing.T) {
 			require.Len(t, dex.Nodes(t.Context()), tc.wantNodesCount)
 
 			// helper to lookup a NodeRef by id via Dex
-			find := func(id Node) *NodeIndexEntry {
+			find := func(id NodeId) *NodeIndexEntry {
 				return dex.GetRef(t.Context(), id)
 			}
 
 			// verify expected nodes, titles and timestamps
 			for id, wantTitle := range tc.wantNodes {
-				n := find(Node{ID: id})
+				n := find(NodeId{ID: id})
 				require.NotNil(t, n, "node %d missing", int(id))
 				require.Equal(t, wantTitle, n.Title, "node %d title mismatch", int(id))
 
@@ -183,7 +183,7 @@ func TestReadFromDex_Table(t *testing.T) {
 
 			// Validate links by querying Dex per source node
 			for wantSrc, wantDsts := range tc.wantLinks {
-				gotNodes, ok := dex.Links(t.Context(), Node{ID: wantSrc})
+				gotNodes, ok := dex.Links(t.Context(), NodeId{ID: wantSrc})
 				require.True(t, ok, "expected links src %d missing", int(wantSrc))
 				gotDsts := make([]int, 0, len(gotNodes))
 				for _, n := range gotNodes {
@@ -194,7 +194,7 @@ func TestReadFromDex_Table(t *testing.T) {
 
 			// Validate backlinks by querying Dex per destination node
 			for wantDst, wantSrcs := range tc.wantBacklinks {
-				gotNodes, ok := dex.Backlinks(t.Context(), Node{ID: wantDst})
+				gotNodes, ok := dex.Backlinks(t.Context(), NodeId{ID: wantDst})
 				require.True(t, ok, "expected backlinks dst %d missing", int(wantDst))
 				gotSrcs := make([]int, 0, len(gotNodes))
 				for _, n := range gotNodes {

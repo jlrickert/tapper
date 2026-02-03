@@ -31,7 +31,7 @@ type Meta struct {
 	// lead is the first paragraph or short summary extracted from content.
 	lead string
 	// links are outgoing node links discovered in the content.
-	links []Node
+	links []NodeId
 
 	// node holds the parsed YAML document node when available. When present we
 	// prefer writing this node back to disk to preserve comments and layout.
@@ -61,7 +61,7 @@ func NewMeta(ctx context.Context, now time.Time) *Meta {
 // ParseMeta parses raw YAML bytes into a Meta. If the input is empty or only
 // whitespace a zero-value Meta is returned.
 //
-// When parsing succeeds the original yaml.Node is preserved so callers can
+// When parsing succeeds the original yaml.NodeId is preserved so callers can
 // perform comment-preserving edits. The YAML is decoded into a temporary
 // struct for mapping and the resulting values are normalized before populating
 // the Meta.
@@ -110,11 +110,11 @@ func ParseMeta(ctx context.Context, raw []byte) (*Meta, error) {
 		m.tags = NormalizeTags(tmp.Tags)
 	}
 
-	// Parse Links strings into Node values when possible.
+	// Parse Links strings into NodeId values when possible.
 	if len(tmp.Links) == 0 {
-		m.links = []Node{}
+		m.links = []NodeId{}
 	} else {
-		var lnks []Node
+		var lnks []NodeId
 		for _, s := range tmp.Links {
 			n, err := ParseNode(s)
 			if err != nil || n == nil {
@@ -131,7 +131,7 @@ func ParseMeta(ctx context.Context, raw []byte) (*Meta, error) {
 
 // ToYAML serializes the Meta to a YAML string.
 //
-// If the Meta preserves the original parsed yaml.Node we encode that node to
+// If the Meta preserves the original parsed yaml.NodeId we encode that node to
 // retain comments and formatting. In that case we also try to normalize the
 // "tags" sequence in-place so tags are emitted in ascending order. When no
 // parsed node is available we marshal a temporary struct. An empty meta yields
@@ -428,23 +428,23 @@ func (m *Meta) SetLead(ctx context.Context, l string) {
 	}
 }
 
-// Links returns a copy of outgoing links as a slice of Node.
-func (m *Meta) Links() []Node {
+// Links returns a copy of outgoing links as a slice of NodeId.
+func (m *Meta) Links() []NodeId {
 	if m == nil {
 		return nil
 	}
-	out := make([]Node, len(m.links))
+	out := make([]NodeId, len(m.links))
 	copy(out, m.links)
 	return out
 }
 
 // SetLinks replaces the outgoing links and updates the parsed node when
 // present.
-func (m *Meta) SetLinks(ctx context.Context, links []Node) {
+func (m *Meta) SetLinks(ctx context.Context, links []NodeId) {
 	if m == nil {
 		return
 	}
-	lnks := make([]Node, len(links))
+	lnks := make([]NodeId, len(links))
 	copy(lnks, links)
 	m.links = lnks
 
@@ -516,11 +516,11 @@ func (m *Meta) Get(key string) (string, bool) {
 //     tags
 //   - "updated","created","accessed": accept time.Time or RFC3339 string
 //   - "lead": sets the lead string
-//   - "links": accepts []Node, []string or string (space/comma separated) and
-//     normalizes into a []Node slice
+//   - "links": accepts []NodeId, []string or string (space/comma separated) and
+//     normalizes into a []NodeId slice
 //
 // For other keys, the function will write the key/value into the preserved
-// yaml.Node when available so comment-preserving writes include them.
+// yaml.NodeId when available so comment-preserving writes include them.
 func (m *Meta) Set(ctx context.Context, key string, val any) error {
 	if m == nil {
 		return nil
@@ -628,16 +628,16 @@ func (m *Meta) Set(ctx context.Context, key string, val any) error {
 
 	case "links":
 		if val == nil {
-			m.links = []Node{}
+			m.links = []NodeId{}
 			return nil
 		}
 		switch v := val.(type) {
-		case []Node:
-			lnks := make([]Node, len(v))
+		case []NodeId:
+			lnks := make([]NodeId, len(v))
 			copy(lnks, v)
 			m.links = lnks
 		case []string:
-			var lnks []Node
+			var lnks []NodeId
 			for _, s := range v {
 				n, err := ParseNode(s)
 				if err != nil || n == nil {
@@ -651,7 +651,7 @@ func (m *Meta) Set(ctx context.Context, key string, val any) error {
 				return r == ',' || r == ';' || r == ' ' || r == '\n' ||
 					r == '\t'
 			})
-			var lnks []Node
+			var lnks []NodeId
 			for _, s := range parts {
 				if s == "" {
 					continue
@@ -666,7 +666,7 @@ func (m *Meta) Set(ctx context.Context, key string, val any) error {
 		default:
 			// attempt to coerce via fmt
 			parsed := strings.Fields(fmt.Sprint(v))
-			var lnks []Node
+			var lnks []NodeId
 			for _, s := range parsed {
 				if s == "" {
 					continue
@@ -727,7 +727,7 @@ func (m *Meta) Update(ctx context.Context, content *Content, now *time.Time) {
 	m.SetLinks(ctx, content.Links)
 }
 
-// Helpers to update yaml.Node mappings in-place when preserving parsed nodes.
+// Helpers to update yaml.NodeId mappings in-place when preserving parsed nodes.
 // root is expected to be a mapping node (yaml.MappingNode).
 
 // setScalarInMapping sets or appends a scalar value for the provided key.
@@ -768,7 +768,7 @@ func setNodeInMapping(root *yaml.Node, key string, node *yaml.Node) {
 	)
 }
 
-// valueToYAMLNode converts a Go value into a yaml.Node. It handles common
+// valueToYAMLNode converts a Go value into a yaml.NodeId. It handles common
 // primitive types, slices, maps and time.Time.
 func valueToYAMLNode(v any) *yaml.Node {
 	if v == nil {

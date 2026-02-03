@@ -32,7 +32,7 @@ More content and an outgoing link: ../1 and ../2 and ../1
 	require.Equal(t, "This is the lead paragraph. It continues on the same paragraph.", c.Lead)
 
 	// links should be deduped and sorted
-	expected := []keg.Node{{ID: 1}, {ID: 2}}
+	expected := []keg.NodeId{{ID: 1}, {ID: 2}}
 	require.Equal(t, expected, c.Links)
 	// hash should match the hasher injected into ctx
 	require.Equal(t, toolkit.HasherFromContext(ctx).Hash([]byte(md)), c.Hash)

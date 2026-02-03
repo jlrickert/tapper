@@ -218,15 +218,15 @@ func (f *FsRepo) Name() string {
 	return "fs"
 }
 
-func (f *FsRepo) Next(ctx context.Context) (Node, error) {
+func (f *FsRepo) Next(ctx context.Context) (NodeId, error) {
 	// Ensure repo root exists (if not, create it)
 	if _, statErr := toolkit.Stat(ctx, f.Root, false); statErr != nil {
-		return Node{}, NewBackendError(f.Name(), "Next", 0, statErr, false)
+		return NodeId{}, NewBackendError(f.Name(), "Next", 0, statErr, false)
 	}
 
 	entries, err := toolkit.ReadDir(ctx, f.Root)
 	if err != nil {
-		return Node{}, NewBackendError(f.Name(), "Next", 0, err, false)
+		return NodeId{}, NewBackendError(f.Name(), "Next", 0, err, false)
 	}
 
 	maxID := -1
@@ -234,7 +234,7 @@ func (f *FsRepo) Next(ctx context.Context) (Node, error) {
 		if !e.IsDir() {
 			continue
 		}
-		// Accept directory names that parse as valid Node ids, e.g. "42" or "42-0001".
+		// Accept directory names that parse as valid NodeId ids, e.g. "42" or "42-0001".
 		if n, perr := ParseNode(e.Name()); perr == nil && n != nil {
 			if n.ID > maxID {
 				maxID = n.ID
@@ -243,11 +243,11 @@ func (f *FsRepo) Next(ctx context.Context) (Node, error) {
 	}
 
 	next := maxID + 1
-	return Node{ID: next}, nil
+	return NodeId{ID: next}, nil
 }
 
 // ReadContent implements KegRepository.
-func (f *FsRepo) ReadContent(ctx context.Context, id Node) ([]byte, error) {
+func (f *FsRepo) ReadContent(ctx context.Context, id NodeId) ([]byte, error) {
 	nodeDir := filepath.Join(f.Root, id.Path())
 	if _, statErr := toolkit.Stat(ctx, nodeDir, false); statErr != nil {
 		if os.IsNotExist(statErr) {
@@ -270,7 +270,7 @@ func (f *FsRepo) ReadContent(ctx context.Context, id Node) ([]byte, error) {
 }
 
 // ReadMeta implements KegRepository.
-func (f *FsRepo) ReadMeta(ctx context.Context, id Node) ([]byte, error) {
+func (f *FsRepo) ReadMeta(ctx context.Context, id NodeId) ([]byte, error) {
 	nodeDir := filepath.Join(f.Root, id.Path())
 	if _, statErr := toolkit.Stat(ctx, nodeDir, false); statErr != nil {
 		if os.IsNotExist(statErr) {
@@ -289,22 +289,22 @@ func (f *FsRepo) ReadMeta(ctx context.Context, id Node) ([]byte, error) {
 	return b, nil
 }
 
-func (f *FsRepo) ListNodes(ctx context.Context) ([]Node, error) {
+func (f *FsRepo) ListNodes(ctx context.Context) ([]NodeId, error) {
 	entries, err := toolkit.ReadDir(ctx, f.Root)
 	if err != nil {
 		return nil, NewBackendError(f.Name(), "ListNodes", 0, err, false)
 	}
-	var ids []Node
+	var ids []NodeId
 	for _, e := range entries {
 		if !e.IsDir() {
 			continue
 		}
-		// Only include directory names that parse as valid Node identifiers.
+		// Only include directory names that parse as valid NodeId identifiers.
 		if n, perr := ParseNode(e.Name()); perr == nil && n != nil && n.Valid() {
 			ids = append(ids, *n)
 		}
 	}
-	// sort ascending using Node.Compare for deterministic ordering
+	// sort ascending using NodeId.Compare for deterministic ordering
 	for i := 0; i < len(ids); i++ {
 		min := i
 		for j := i + 1; j < len(ids); j++ {
@@ -320,7 +320,7 @@ func (f *FsRepo) ListNodes(ctx context.Context) ([]Node, error) {
 }
 
 // ListItems implements KegRepository.
-func (f *FsRepo) ListItems(ctx context.Context, id Node) ([]string, error) {
+func (f *FsRepo) ListItems(ctx context.Context, id NodeId) ([]string, error) {
 	nodeDir := filepath.Join(f.Root, id.Path())
 	if _, statErr := toolkit.Stat(ctx, nodeDir, false); statErr != nil {
 		if os.IsNotExist(statErr) {
@@ -347,7 +347,7 @@ func (f *FsRepo) ListItems(ctx context.Context, id Node) ([]string, error) {
 }
 
 // ListImages implements KegRepository.
-func (f *FsRepo) ListImages(ctx context.Context, id Node) ([]string, error) {
+func (f *FsRepo) ListImages(ctx context.Context, id NodeId) ([]string, error) {
 	nodeDir := filepath.Join(f.Root, id.Path())
 	if _, statErr := toolkit.Stat(ctx, nodeDir, false); statErr != nil {
 		if os.IsNotExist(statErr) {
@@ -381,7 +381,7 @@ func (f *FsRepo) ListImages(ctx context.Context, id Node) ([]string, error) {
 }
 
 // WriteContent implements KegRepository.
-func (f *FsRepo) WriteContent(ctx context.Context, id Node, data []byte) error {
+func (f *FsRepo) WriteContent(ctx context.Context, id NodeId, data []byte) error {
 	nodeDir := filepath.Join(f.Root, id.Path())
 	contentPath := filepath.Join(nodeDir, f.ContentFilename)
 
@@ -399,7 +399,7 @@ func (f *FsRepo) WriteContent(ctx context.Context, id Node, data []byte) error {
 }
 
 // WriteMeta implements KegRepository.
-func (f *FsRepo) WriteMeta(ctx context.Context, id Node, data []byte) error {
+func (f *FsRepo) WriteMeta(ctx context.Context, id NodeId, data []byte) error {
 	nodeDir := filepath.Join(f.Root, id.Path())
 	metaPath := filepath.Join(nodeDir, f.MetaFilename)
 
@@ -417,7 +417,7 @@ func (f *FsRepo) WriteMeta(ctx context.Context, id Node, data []byte) error {
 }
 
 // UploadImage implements KegRepository.
-func (f *FsRepo) UploadImage(ctx context.Context, id Node, name string, data []byte) error {
+func (f *FsRepo) UploadImage(ctx context.Context, id NodeId, name string, data []byte) error {
 	nodeDir := filepath.Join(f.Root, id.Path())
 	if _, statErr := toolkit.Stat(ctx, nodeDir, false); statErr != nil {
 		if os.IsNotExist(statErr) {
@@ -443,7 +443,7 @@ func (f *FsRepo) UploadImage(ctx context.Context, id Node, name string, data []b
 }
 
 // UploadItem implements KegRepository.
-func (f *FsRepo) UploadItem(ctx context.Context, id Node, name string, data []byte) error {
+func (f *FsRepo) UploadItem(ctx context.Context, id NodeId, name string, data []byte) error {
 	nodeDir := filepath.Join(f.Root, id.Path())
 	if _, statErr := toolkit.Stat(ctx, nodeDir, false); statErr != nil {
 		if os.IsNotExist(statErr) {
@@ -469,7 +469,7 @@ func (f *FsRepo) UploadItem(ctx context.Context, id Node, name string, data []by
 }
 
 // MoveNode implements KegRepository.
-func (f *FsRepo) MoveNode(ctx context.Context, id Node, dst Node) error {
+func (f *FsRepo) MoveNode(ctx context.Context, id NodeId, dst NodeId) error {
 	src := filepath.Join(f.Root, id.Path())
 	if _, statErr := toolkit.Stat(ctx, src, false); statErr != nil {
 		if os.IsNotExist(statErr) {
@@ -562,7 +562,7 @@ func (f *FsRepo) ListIndexes(ctx context.Context) ([]string, error) {
 }
 
 // DeleteNode implements KegRepository.
-func (f *FsRepo) DeleteNode(ctx context.Context, id Node) error {
+func (f *FsRepo) DeleteNode(ctx context.Context, id NodeId) error {
 	nodeDir := filepath.Join(f.Root, id.Path())
 	if _, statErr := toolkit.Stat(ctx, nodeDir, false); statErr != nil {
 		if os.IsNotExist(statErr) {
@@ -578,7 +578,7 @@ func (f *FsRepo) DeleteNode(ctx context.Context, id Node) error {
 }
 
 // DeleteImage implements KegRepository.
-func (f *FsRepo) DeleteImage(ctx context.Context, id Node, name string) error {
+func (f *FsRepo) DeleteImage(ctx context.Context, id NodeId, name string) error {
 	nodeDir := filepath.Join(f.Root, id.Path())
 
 	// Ensure node exists
@@ -622,7 +622,7 @@ func (f *FsRepo) DeleteImage(ctx context.Context, id Node, name string) error {
 //   - Any unexpected filesystem errors are wrapped in a BackendError.
 //   - Removal is performed with os.RemoveAll so both files and directories are
 //     supported.
-func (f *FsRepo) DeleteItem(ctx context.Context, id Node, name string) error {
+func (f *FsRepo) DeleteItem(ctx context.Context, id NodeId, name string) error {
 	nodeDir := filepath.Join(f.Root, id.Path())
 	itemPath := filepath.Join(nodeDir, name)
 
