@@ -13,7 +13,7 @@ import (
 // dex indices: nodes, tags, links, and backlinks. It is a convenience wrapper
 // used by index builders and other tooling to read or inspect index data without
 // dealing directly with repository I/O. Dex does not perform any I/O itself;
-// callers are responsible for providing a KegRepository when writing indices.
+// callers are responsible for providing a Repository when writing indices.
 type Dex struct {
 	// nodes is the list of nodes sorted by node id.
 	nodes NodeIndex
@@ -34,7 +34,7 @@ type Dex struct {
 // "backlinks") from the provided repository and returns a Dex populated with
 // parsed indexes. Missing or empty index files are treated as empty datasets
 // and do not cause an error.
-func NewDexFromRepo(ctx context.Context, repo KegRepository) (*Dex, error) {
+func NewDexFromRepo(ctx context.Context, repo Repository) (*Dex, error) {
 	d := &Dex{}
 
 	var errs []error
@@ -222,7 +222,7 @@ func (dex *Dex) NextNode(ctx context.Context) NodeId {
 // Write serializes the in-memory indexes and writes them atomically to the
 // provided repository using WriteIndex. If any write operation fails the error
 // chain is returned (errors.Join is used to aggregate multiple errors).
-func (dex *Dex) Write(ctx context.Context, repo KegRepository) error {
+func (dex *Dex) Write(ctx context.Context, repo Repository) error {
 	dex.mu.Lock()
 	defer dex.mu.Unlock()
 

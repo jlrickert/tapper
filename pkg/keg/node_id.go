@@ -195,17 +195,6 @@ type NodeIndexEntry struct {
 	Updated time.Time `json:"updated" yaml:"updated"`
 }
 
-// NodeStats groups commonly used node timestamps returned by repository
-// implementations and composed from NodeMeta.GetStats.
-type NodeStats struct {
-	// Updated is the node's last meaningful modification time.
-	Updated time.Time
-	// Created is the node's creation time when available.
-	Created time.Time
-	// Access is the last-read or access time.
-	Access time.Time
-}
-
 // Equals reports whether two Nodes are identical in ID and Code.
 func (n NodeId) Equals(other NodeId) bool {
 	return n.ID == other.ID && n.Code == other.Code && n.Alias == other.Alias

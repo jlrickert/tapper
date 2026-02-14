@@ -3,6 +3,7 @@ package keg_test
 import (
 	"bytes"
 	"testing"
+	"time"
 
 	"github.com/jlrickert/tapper/pkg/keg"
 	"github.com/stretchr/testify/require"
@@ -33,6 +34,38 @@ func TestMemoryRepo_WriteReadMetaAndContent(t *testing.T) {
 	ids, err := r.ListNodes(ctx)
 	require.NoError(t, err)
 	require.Contains(t, ids, id, "expected ListNodes to contain written id")
+}
+
+func TestMemoryRepo_WriteReadStats(t *testing.T) {
+	t.Parallel()
+	fx := NewSandbox(t)
+
+	r := keg.NewMemoryRepo()
+	ctx := fx.Context()
+	id := keg.NodeId{ID: 77}
+
+	require.NoError(t, r.WriteMeta(ctx, id, []byte("title: keep-me\nfoo: bar\n")))
+
+	now := time.Date(2026, 2, 14, 12, 0, 0, 0, time.UTC)
+	stats := keg.NewStats(now)
+	stats.SetHash("h1", &now)
+	stats.SetLead("lead text")
+	stats.SetLinks([]keg.NodeId{{ID: 1}, {ID: 2}})
+	stats.SetAccessed(now)
+
+	require.NoError(t, r.WriteStats(ctx, id, stats))
+
+	gotStats, err := r.ReadStats(ctx, id)
+	require.NoError(t, err)
+	require.Equal(t, "h1", gotStats.Hash())
+	require.Equal(t, "lead text", gotStats.Lead())
+	require.Len(t, gotStats.Links(), 2)
+
+	gotMeta, err := r.ReadMeta(ctx, id)
+	require.NoError(t, err)
+	require.Contains(t, string(gotMeta), "title: keep-me")
+	require.Contains(t, string(gotMeta), "foo: bar")
+	require.Contains(t, string(gotMeta), "hash: h1")
 }
 
 func TestMemoryRepo_ReadMissingReturnsNotFound(t *testing.T) {

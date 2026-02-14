@@ -13,7 +13,7 @@ import (
 // It holds the node identifier, repository reference, and lazily-loaded node data.
 type Node struct {
 	ID   NodeId
-	Repo KegRepository
+	Repo Repository
 
 	data *NodeData
 }
@@ -22,6 +22,9 @@ type Node struct {
 // metadata, items, and images. Returns an error if the repository is not set or
 // if any repository operation fails.
 func (n *Node) Init(ctx context.Context) error {
+	if n.data != nil {
+		return nil
+	}
 	if n.Repo == nil {
 		return fmt.Errorf("repo required")
 	}
@@ -29,7 +32,7 @@ func (n *Node) Init(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	meta, err := n.getMeta(ctx, n.ID)
+	meta, stats, err := n.getMetaAndStats(ctx, n.ID)
 	if err != nil {
 		return err
 	}
@@ -48,6 +51,7 @@ func (n *Node) Init(ctx context.Context) error {
 		ID:      n.ID,
 		Content: content,
 		Meta:    meta,
+		Stats:   stats,
 		Items:   items,
 		Images:  images,
 	}
@@ -64,13 +68,22 @@ func (n *Node) getContent(ctx context.Context, id NodeId) (*NodeContent, error) 
 	return ParseContent(ctx, raw, FormatMarkdown)
 }
 
-// getMeta retrieves and parses YAML metadata for a node.
-func (n *Node) getMeta(ctx context.Context, id NodeId) (*NodeMeta, error) {
+// getMetaAndStats retrieves and parses YAML metadata plus programmatic stats
+// for a node via repository APIs.
+func (n *Node) getMetaAndStats(ctx context.Context, id NodeId) (*NodeMeta, *NodeStats, error) {
 	raw, err := n.Repo.ReadMeta(ctx, id)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return ParseMeta(ctx, raw)
+	meta, err := ParseMeta(ctx, raw)
+	if err != nil {
+		return nil, nil, err
+	}
+	stats, err := n.Repo.ReadStats(ctx, id)
+	if err != nil {
+		return nil, nil, err
+	}
+	return meta, stats, nil
 }
 
 func (n *Node) String() string { return n.ID.String() }
@@ -105,6 +118,18 @@ func (n *Node) Created(ctx context.Context) (time.Time, error) {
 	}
 
 	return n.data.Created(), nil
+}
+
+func (n *Node) Stats(ctx context.Context) (*NodeStats, error) {
+	if err := n.Init(ctx); err != nil {
+		return nil, err
+	}
+	if n.data.Stats == nil {
+		return &NodeStats{}, nil
+	}
+	copyStats := *n.data.Stats
+	copyStats.links = n.data.Stats.Links()
+	return &copyStats, nil
 }
 
 func (n *Node) Tags(ctx context.Context) ([]string, error) {
@@ -152,23 +177,12 @@ func (n *Node) Update(ctx context.Context) error {
 	clk := clock.ClockFromContext(ctx)
 	now := clk.Now()
 
-	err1 := n.data.Meta.SetAttrs(ctx, n.data.Content.Frontmatter)
-	n.data.Meta.SetTitle(ctx, n.data.Content.Title)
-	// update hash and bump updated timestamp on change
-	n.data.Meta.SetHash(ctx, n.data.Content.Hash, &now)
-	// also update lead and links from parsed content
-	n.data.Meta.SetLead(ctx, n.data.Content.Lead)
-	n.data.Meta.SetLinks(ctx, n.data.Content.Links)
-	if n.data.Meta.Updated().IsZero() {
-		n.data.Meta.SetUpdated(ctx, now)
+	err1 := n.data.UpdateMeta(ctx, &now)
+	if n.data.Stats == nil {
+		n.data.Stats = NewStats(now)
 	}
-	if n.data.Meta.Created().IsZero() {
-		n.data.Meta.SetCreated(ctx, now)
-	}
-	if n.data.Meta.Accessed().IsZero() {
-		n.data.Meta.SetAccessed(ctx, now)
-	}
-	err2 := n.Repo.WriteMeta(ctx, n.ID, []byte(n.data.Meta.ToYAML()))
+	n.data.Stats.EnsureTimes(now)
+	err2 := n.Save(ctx)
 	return errors.Join(err1, err2)
 }
 
@@ -180,7 +194,7 @@ func (n *Node) Touch(ctx context.Context) error {
 	clk := clock.ClockFromContext(ctx)
 	now := clk.Now()
 	n.data.Touch(ctx, &now)
-	return n.Repo.WriteMeta(ctx, n.ID, []byte(n.data.Meta.ToYAML()))
+	return n.Save(ctx)
 }
 
 func (n *Node) Changed(ctx context.Context) (bool, error) {
@@ -195,4 +209,11 @@ func (n *Node) ClearCache() {
 }
 
 func (n *Node) Save(ctx context.Context) error {
+	if err := n.Init(ctx); err != nil {
+		return err
+	}
+	if err := n.Repo.WriteMeta(ctx, n.ID, []byte(n.data.Meta.ToYAML())); err != nil {
+		return err
+	}
+	return n.Repo.WriteStats(ctx, n.ID, n.data.Stats)
 }
