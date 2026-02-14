@@ -45,7 +45,7 @@ func TestConfigCommand_DisplaysMergedConfig(t *testing.T) {
 			sb := NewSandbox(innerT, opts...)
 
 			h := NewProcess(innerT, false, tt.args...)
-			res := h.Run(sb.Context())
+			res := h.Run(sb.Context(), sb.Runtime())
 
 			if tt.expectedErr != "" {
 				require.Error(innerT, res.Err, "expected error - %s", tt.description)
@@ -85,12 +85,12 @@ func TestConfigCommand_IntegrationWithInit(t *testing.T) {
 			"--alias", "newstudy",
 			"--creator", "test-user",
 		)
-		initRes := initCmd.Run(sb.Context())
+		initRes := initCmd.Run(sb.Context(), sb.Runtime())
 		require.NoError(innerT, initRes.Err, "init should succeed")
 
 		// Now display the config
 		configCmd := NewProcess(innerT, false, "config")
-		configRes := configCmd.Run(sb.Context())
+		configRes := configCmd.Run(sb.Context(), sb.Runtime())
 		require.NoError(innerT, configRes.Err, "config should succeed after init")
 
 		stdout := string(configRes.Stdout)

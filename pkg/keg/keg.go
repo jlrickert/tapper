@@ -4,11 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/jlrickert/cli-toolkit/clock"
-	"github.com/jlrickert/cli-toolkit/toolkit"
 	kegurl "github.com/jlrickert/tapper/pkg/keg_url"
 )
 
@@ -43,7 +43,7 @@ func NewKegFromTarget(ctx context.Context, target kegurl.Target) (*Keg, error) {
 		return &keg, nil
 	case kegurl.SchemeFile:
 		repo := FsRepo{
-			Root:            toolkit.AbsPath(ctx, target.Path()),
+			Root:            filepath.Clean(target.Path()),
 			ContentFilename: MarkdownContentFilename,
 			MetaFilename:    YAMLMetaFilename,
 		}

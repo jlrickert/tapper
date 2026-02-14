@@ -36,7 +36,7 @@ func TestInfoCommand_DisplaysKegMetadata(t *testing.T) {
 			sb := NewSandbox(innerT, opts...)
 
 			h := NewProcess(innerT, false, tt.args...)
-			res := h.Run(sb.Context())
+			res := h.Run(sb.Context(), sb.Runtime())
 
 			if tt.expectedErr != "" {
 				require.Error(innerT, res.Err, "expected error - %s", tt.description)
@@ -72,12 +72,12 @@ func TestInfoCommand_IntegrationWithInit(t *testing.T) {
 			"--alias", "newstudy",
 			"--creator", "test-user",
 		)
-		initRes := initCmd.Run(sb.Context())
+		initRes := initCmd.Run(sb.Context(), sb.Runtime())
 		require.NoError(innerT, initRes.Err, "init should succeed")
 
 		// Now display the keg info
 		infoCmd := NewProcess(innerT, false, "info", "--alias", "newstudy")
-		infoRes := infoCmd.Run(sb.Context())
+		infoRes := infoCmd.Run(sb.Context(), sb.Runtime())
 		require.NoError(innerT, infoRes.Err, "info should succeed after init")
 
 		stdout := string(infoRes.Stdout)
@@ -114,7 +114,7 @@ func TestInfoCommand_WithJoeFixture(t *testing.T) {
 			sb := NewSandbox(innerT, opts...)
 
 			h := NewProcess(innerT, false, tt.args...)
-			res := h.Run(sb.Context())
+			res := h.Run(sb.Context(), sb.Runtime())
 
 			if tt.expectedErr != "" {
 				require.Error(innerT, res.Err, "expected error - %s", tt.description)

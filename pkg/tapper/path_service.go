@@ -1,18 +1,18 @@
 package tapper
 
 import (
-	"context"
 	"path/filepath"
 
-	"github.com/jlrickert/cli-toolkit/appctx"
+	appctx "github.com/jlrickert/cli-toolkit/apppaths"
+	"github.com/jlrickert/cli-toolkit/toolkit"
 )
 
 type PathService struct {
-	*appctx.AppContext
+	*appctx.AppPaths
 }
 
-func NewPathService(ctx context.Context, root string) (*PathService, error) {
-	appS, err := appctx.NewAppContext(ctx, root, DefaultAppName)
+func NewPathService(rt *toolkit.Runtime, root string) (*PathService, error) {
+	appS, err := appctx.NewAppPaths(rt, root, DefaultAppName)
 	if err != nil {
 		return nil, err
 	}
@@ -22,7 +22,7 @@ func NewPathService(ctx context.Context, root string) (*PathService, error) {
 }
 
 func (s *PathService) Project() string {
-	return s.AppContext.LocalConfigRoot
+	return s.AppPaths.LocalConfigRoot
 }
 
 func (s *PathService) ProjectConfig() string {

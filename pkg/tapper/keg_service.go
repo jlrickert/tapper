@@ -9,6 +9,8 @@ import (
 )
 
 type KegService struct {
+	Runtime *toolkit.Runtime
+
 	ConfigService *ConfigService
 
 	// Caches a keg by alias
@@ -33,8 +35,7 @@ func (s *KegService) Resolve(ctx context.Context, opts ResolveKegOptions) (*keg.
 		return s.resolveKegAlias(ctx, opts.Keg, !opts.NoCache)
 	}
 	if opts.Keg == "" {
-		env := toolkit.EnvFromContext(ctx)
-		root, err := env.Getwd()
+		root, err := s.Runtime.Env.Getwd()
 		if err != nil {
 			return nil, fmt.Errorf("failed to get working directory: %w", err)
 		}

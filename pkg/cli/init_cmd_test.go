@@ -131,7 +131,7 @@ func TestInitCommand_TableDriven(t *testing.T) {
 			}
 
 			h := NewProcess(innerT, false, tt.args...)
-			res := h.Run(sb.Context())
+			res := h.Run(sb.Context(), sb.Runtime())
 
 			require.NoError(innerT, res.Err, "init command should succeed - %s", tt.description)
 			require.Contains(innerT, string(res.Stdout), "keg "+tt.expectedAlias+" created",

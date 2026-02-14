@@ -9,6 +9,7 @@ package cli
 // The new command does not hard-wire an app.Runner; the "do" subcommand will
 // resolve a runner from context if one was not provided at construction.
 import (
+	"fmt"
 	"os"
 
 	"github.com/jlrickert/cli-toolkit/mylog"
@@ -22,6 +23,7 @@ type shutdownKey struct{}
 type Deps struct {
 	Root     string
 	Shutdown func()
+	Runtime  *toolkit.Runtime
 
 	ConfigPath string
 	LogFile    string
@@ -32,16 +34,12 @@ type Deps struct {
 	Err error
 }
 
-func NewRootCmd() *cobra.Command {
-	deps := &Deps{
-		Root: "",
-		Shutdown: func() {
-		},
-		ConfigPath: "",
-		LogFile:    "",
-		LogLevel:   "",
-		LogJSON:    false,
-		Tap:        nil,
+func NewRootCmd(deps *Deps) *cobra.Command {
+	if deps == nil {
+		deps = &Deps{}
+	}
+	if deps.Shutdown == nil {
+		deps.Shutdown = func() {}
 	}
 
 	cmd := &cobra.Command{
@@ -49,15 +47,19 @@ func NewRootCmd() *cobra.Command {
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			// Respect an existing context (tests set f.Ctx). Use it as the base.
 			ctx := cmd.Context()
+			rt := deps.Runtime
+			if rt == nil {
+				return fmt.Errorf("runtime is required")
+			}
 
-			env := toolkit.EnvFromContext(ctx)
-			wd, err := env.Getwd()
+			wd, err := rt.Env.Getwd()
 			if err != nil {
 				return err
 			}
-			tap, err := tapper.NewTap(ctx, tapper.TapOptions{
+			tap, err := tapper.NewTap(tapper.TapOptions{
 				Root:       wd,
 				ConfigPath: deps.ConfigPath,
+				Runtime:    rt,
 			})
 			if err != nil {
 				return err
@@ -70,8 +72,7 @@ func NewRootCmd() *cobra.Command {
 				deps.Err = err
 			}
 
-			// Only install a logger if the context does not already contain one.
-			if mylog.LoggerFromContext(ctx) == mylog.DefaultLogger {
+			if deps.LogFile != "" || deps.LogJSON || deps.LogLevel != "" {
 				// create a logger out-> stderr or file
 				var out = os.Stderr
 				var f *os.File
@@ -89,9 +90,10 @@ func NewRootCmd() *cobra.Command {
 					JSON:    deps.LogJSON,
 					Version: Version,
 				})
-				ctx = mylog.WithLogger(ctx, lg)
+				deps.Runtime.Logger = lg
 			}
 
+			ctx = mylog.WithLogger(ctx, deps.Runtime.Logger)
 			cmd.SetContext(ctx)
 			return nil
 		},

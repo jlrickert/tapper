@@ -11,10 +11,10 @@ package tapper
 //	kegurl "github.com/jlrickert/tapper/pkg/keg_url"
 //)
 //
-//// TapApi is a small wrapper around AppContext. Project that adds cached
+//// TapApi is a small wrapper around AppPaths. Project that adds cached
 //// tapper-specific config values and convenience helpers.
 //type TapApi struct {
-//	*appctx.AppContext
+//	*appctx.AppPaths
 //
 //	Paths *PathService
 //
@@ -30,13 +30,13 @@ package tapper
 //// newTapApi constructs a TapProject backed by github.com/jlrickert/go-std/project.
 //// It applies any provided Tap ProjectOption values first, then calls into the
 //// std project constructor to fill platform defaults.
-//func newTapApi(ctx context.Context, pathService appctx.AppContext) (*TapApi, error) {
+//func newTapApi(ctx context.Context, pathService appctx.AppPaths) (*TapApi, error) {
 //	aCtx, err := appctx.NewAppContext(ctx, pathService.Root, DefaultAppName)
 //	if err != nil {
 //		return nil, err
 //	}
 //	tCtx := TapApi{
-//		AppContext: aCtx,
+//		AppPaths: aCtx,
 //		Paths:      pathService,
 //		dCfg:       nil,
 //		sCfg:       nil,

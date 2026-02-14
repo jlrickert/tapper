@@ -16,6 +16,8 @@ import (
 
 type Tap struct {
 	Root string
+	// Runtime carries process-level dependencies.
+	Runtime *toolkit.Runtime
 
 	//Api *TapApi
 
@@ -27,22 +29,44 @@ type Tap struct {
 type TapOptions struct {
 	Root       string
 	ConfigPath string
+	Runtime    *toolkit.Runtime
 }
 
-func NewTap(ctx context.Context, opts TapOptions) (*Tap, error) {
-	if opts.Root == "" {
-		env := toolkit.EnvFromContext(ctx)
-		wd, _ := env.Getwd()
-		opts.Root = wd
-		return nil, fmt.Errorf("root path required")
+func NewTap(opts TapOptions) (*Tap, error) {
+	rt := opts.Runtime
+	if rt == nil {
+		var err error
+		rt, err = toolkit.NewRuntime()
+		if err != nil {
+			return nil, fmt.Errorf("unable to create runtime: %w", err)
+		}
 	}
-	pathService, err := NewPathService(ctx, opts.Root)
+	if err := rt.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid runtime: %w", err)
+	}
+
+	if opts.Root == "" {
+		wd, err := rt.Env.Getwd()
+		if err != nil {
+			return nil, fmt.Errorf("unable to determine working directory: %w", err)
+		}
+		opts.Root = wd
+	}
+	pathService, err := NewPathService(rt, opts.Root)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create path service: %w", err)
 	}
-	configService := &ConfigService{PathService: pathService, ConfigPath: opts.ConfigPath}
-	kegService := &KegService{ConfigService: configService}
+	configService := &ConfigService{
+		Runtime:     rt,
+		PathService: pathService,
+		ConfigPath:  opts.ConfigPath,
+	}
+	kegService := &KegService{
+		Runtime:       rt,
+		ConfigService: configService,
+	}
 	return &Tap{
+		Runtime:       rt,
 		Root:          opts.Root,
 		PathService:   pathService,
 		ConfigService: configService,
@@ -342,8 +366,7 @@ func (t *Tap) initRegistry(ctx context.Context, opts initRegistryOptions) (*kegu
 	// Determine user namespace.
 	user := opts.User
 	if user == "" {
-		env := toolkit.EnvFromContext(ctx)
-		u, _ := env.GetUser()
+		u, _ := t.Runtime.Env.GetUser()
 		if u != "" {
 			user = u
 		} else {
@@ -615,12 +638,12 @@ func (t *Tap) Dir(ctx context.Context, opts DirOptions) (string, error) {
 // values may be used.
 func (t *Tap) ListKegs(ctx context.Context, cache bool) ([]string, error) {
 	cfg := t.ConfigService.Config(ctx, cache)
-	userRepo, _ := toolkit.ExpandPath(ctx, cfg.UserRepoPath())
+	userRepo, _ := toolkit.ExpandPath(t.Runtime.Env, cfg.UserRepoPath())
 
 	// Find files
 	var results []string
 	pattern := filepath.Join(userRepo, "*", "keg")
-	if kegPaths, err := toolkit.Glob(ctx, pattern); err == nil {
+	if kegPaths, err := t.Runtime.Glob(pattern); err == nil {
 		for _, kegPath := range kegPaths {
 			path, err := filepath.Rel(userRepo, kegPath)
 			if err == nil {

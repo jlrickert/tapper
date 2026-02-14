@@ -66,7 +66,7 @@ func TestCreate_Table(t *testing.T) {
 			now := fx.Now().Format(time.RFC3339)
 
 			// Execute the CLI command.
-			res := h.Run(fx.Context())
+			res := h.Run(fx.Context(), fx.Runtime())
 			require.NoError(t, res.Err)
 
 			// Validate stdout expectations.
@@ -117,7 +117,7 @@ func TestCreate_FromStdin(t *testing.T) {
 	proc := NewProcess(t, true, "create")
 
 	stdin := "Title line\n\nThis content came from stdin.\n"
-	res := proc.RunWithIO(fx.Context(), strings.NewReader(stdin))
+	res := proc.RunWithIO(fx.Context(), fx.Runtime(), strings.NewReader(stdin))
 
 	// Invoke create with a positional marker that signals stdin usage.
 	// CLI implementation may choose the convention; tests assume "stdin".

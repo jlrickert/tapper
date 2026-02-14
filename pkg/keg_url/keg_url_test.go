@@ -16,11 +16,6 @@ import (
 // The table driven tests cover file paths, file URIs, tilde expansion,
 // relative paths, shorthand registry:user/keg form, and HTTP/HTTPS URLs.
 func TestParse_File_TableDriven(t *testing.T) {
-	jail := t.TempDir()
-	// Prepare a test Env for tilde expansion checks.
-	env := toolkit.NewTestEnv(jail, filepath.FromSlash("/home/testuser"), "testuser")
-	ctx := toolkit.WithEnv(t.Context(), env)
-
 	// Use OS-specific temp dir so tests work across platforms.
 	tmpDir := os.TempDir()
 	absTmpKeg := filepath.Join(tmpDir, "keg")
@@ -30,7 +25,7 @@ func TestParse_File_TableDriven(t *testing.T) {
 	cases := []struct {
 		name       string
 		raw        string
-		expand     bool // run kt.Expand(ctx) before assertions
+		expand     bool // run kt.Expand(env) before assertions
 		wantErr    bool
 		wantSchema string
 		wantFile   string
@@ -68,9 +63,9 @@ func TestParse_File_TableDriven(t *testing.T) {
 			kt, err := kegurl.Parse(tc.raw)
 			require.NoError(t, err)
 			if tc.expand {
-				err = kt.Expand(ctx)
+				err = kt.Expand(&toolkit.OsEnv{})
 				require.NoError(t, err)
-				f, _ := toolkit.ExpandPath(ctx, tc.wantFile)
+				f, _ := toolkit.ExpandPath(&toolkit.OsEnv{}, tc.wantFile)
 				tc.wantFile = f
 			}
 			if tc.wantSchema != "" {
@@ -229,4 +224,34 @@ token: secret123
 			}
 		})
 	}
+}
+
+func TestTargetExpand_ExpandsEnvironmentVariables(t *testing.T) {
+	t.Parallel()
+
+	jail := t.TempDir()
+	home := filepath.Join(string(filepath.Separator), "home", "tester")
+	env := toolkit.NewTestEnv(jail, home, "tester")
+	require.NoError(t, env.Set("KEG_NAME", "blog"))
+	require.NoError(t, env.Set("REPO_NAME", "knut"))
+	require.NoError(t, env.Set("SECRET_TOKEN", "secret-token"))
+	require.NoError(t, env.Set("TOKEN_ENV_KEY", "TAPPER_TOKEN"))
+
+	kt := kegurl.Target{
+		File:     "~/${KEG_NAME}/keg",
+		Url:      "https://example.com/${USER}/${KEG_NAME}",
+		Repo:     "${REPO_NAME}",
+		Password: "${SECRET_TOKEN}",
+		Token:    "${SECRET_TOKEN}",
+		TokenEnv: "${TOKEN_ENV_KEY}",
+	}
+
+	err := kt.Expand(env)
+	require.NoError(t, err)
+	require.Equal(t, filepath.Join(home, "blog", "keg"), kt.File)
+	require.Equal(t, "https://example.com/tester/blog", kt.Url)
+	require.Equal(t, "knut", kt.Repo)
+	require.Equal(t, "secret-token", kt.Password)
+	require.Equal(t, "secret-token", kt.Token)
+	require.Equal(t, "TAPPER_TOKEN", kt.TokenEnv)
 }
