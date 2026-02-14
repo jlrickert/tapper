@@ -205,36 +205,38 @@ func ParseKegConfig(data []byte) (*KegConfig, error) {
 	return &configV2, nil
 }
 
-func (c *KegConfig) ResolveAlias(ctx context.Context, alias string) (*kegurl.Target, error) {
-	for _, entry := range c.Links {
+func (kc *KegConfig) ResolveAlias(ctx context.Context, alias string) (*kegurl.Target, error) {
+	for _, entry := range kc.Links {
 		if alias == entry.Alias {
 			kt, err := kegurl.Parse(entry.URL)
 			if err != nil {
 				return nil, fmt.Errorf("could resolve alias: %w", err)
 			}
-			kt.Expand(ctx)
+			if err := kt.Expand(runtimeMust().Env); err != nil {
+				return nil, fmt.Errorf("could not expand alias target: %w", err)
+			}
 			return kt, nil
 		}
 	}
 	return nil, fmt.Errorf("alias %s not found: %w", alias, ErrNotExist)
 }
 
-// toYAML serializes the Config to YAML.
-func (c *KegConfig) ToYAML() ([]byte, error) {
-	return yaml.Marshal(c)
+// ToYAML serializes the Config to YAML.
+func (kc *KegConfig) ToYAML() ([]byte, error) {
+	return yaml.Marshal(kc)
 }
 
-// toJSON serializes the Config to JSON.
-func (c *KegConfig) ToJSON() ([]byte, error) {
-	return json.Marshal(c)
+// ToJSON serializes the Config to JSON.
+func (kc *KegConfig) ToJSON() ([]byte, error) {
+	return json.Marshal(kc)
 }
 
-func (c *KegConfig) String() string {
-	out, _ := c.ToYAML()
+func (kc *KegConfig) String() string {
+	out, _ := kc.ToYAML()
 	return string(out)
 }
 
-func (lf *KegConfig) Touch(ctx context.Context) {
+func (kc *KegConfig) Touch(ctx context.Context) {
 	clk := clock.ClockFromContext(ctx)
-	lf.Updated = clk.Now().Format(time.RFC3339)
+	kc.Updated = clk.Now().Format(time.RFC3339)
 }

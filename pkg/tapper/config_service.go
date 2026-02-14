@@ -11,6 +11,8 @@ import (
 )
 
 type ConfigService struct {
+	Runtime *toolkit.Runtime
+
 	PathService *PathService
 
 	// ConfigPath is the path to the config file.
@@ -23,12 +25,15 @@ type ConfigService struct {
 	mergedCache *Config
 }
 
-func NewConfigService(ctx context.Context, root string) (*ConfigService, error) {
-	pathService, err := NewPathService(ctx, root)
+func NewConfigService(root string, rt *toolkit.Runtime) (*ConfigService, error) {
+	pathService, err := NewPathService(rt, root)
 	if err != nil {
 		return nil, err
 	}
-	return &ConfigService{PathService: pathService}, nil
+	return &ConfigService{
+		Runtime:     rt,
+		PathService: pathService,
+	}, nil
 }
 
 func (s *ConfigService) ResetCache() {
@@ -126,7 +131,7 @@ func (s *ConfigService) Config(ctx context.Context, cache bool) *Config {
 
 func (s *ConfigService) LocalRepoKegs(ctx context.Context, cache bool) ([]string, error) {
 	cfg := s.Config(ctx, cache)
-	repoPath, _ := toolkit.ExpandPath(ctx, cfg.UserRepoPath())
+	repoPath, _ := toolkit.ExpandPath(s.Runtime.Env, cfg.UserRepoPath())
 
 	if repoPath == "" {
 		return nil, fmt.Errorf("userRepoPath not defined in user config")
@@ -136,7 +141,7 @@ func (s *ConfigService) LocalRepoKegs(ctx context.Context, cache bool) ([]string
 	var results []string
 	pattern := filepath.Join(repoPath, "*", "keg")
 
-	kegPaths, err := toolkit.Glob(ctx, pattern)
+	kegPaths, err := s.Runtime.Glob(pattern)
 	if err != nil {
 		return nil, err
 	}
