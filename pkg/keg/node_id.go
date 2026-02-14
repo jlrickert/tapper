@@ -196,7 +196,7 @@ type NodeIndexEntry struct {
 }
 
 // NodeStats groups commonly used node timestamps returned by repository
-// implementations and composed from Meta.GetStats.
+// implementations and composed from NodeMeta.GetStats.
 type NodeStats struct {
 	// Updated is the node's last meaningful modification time.
 	Updated time.Time

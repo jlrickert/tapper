@@ -166,8 +166,11 @@ type IndexOptions struct {
 	// KegAlias of the keg to index
 	KegAlias string
 
-	// Force a full rebuild
-	Force bool
+	// Rebuild rebuilds the full index
+	Rebuild bool
+
+	// NoUpdate skips updating node meta information
+	NoUpdate bool
 }
 
 // Index rebuilds all indices for a keg (nodes.tsv, tags, links, backlinks).
@@ -185,7 +188,7 @@ func (t *Tap) Index(ctx context.Context, opts IndexOptions) (string, error) {
 	}
 
 	// Rebuild indices - pass empty node as placeholder
-	err = k.Index(ctx, keg.NodeId{})
+	err = k.Index(ctx, keg.IndexOptions{NoUpdate: opts.NoUpdate})
 	if err != nil {
 		return "", fmt.Errorf("unable to rebuild indices: %w", err)
 	}
@@ -217,7 +220,7 @@ type InitOptions struct {
 
 // Init creates a keg entry for the given name.
 //
-// If name is empty an ErrInvalid-wrapped error is returned. Init obtains the
+// If the name is empty, an ErrInvalid-wrapped error is returned. Init gets the
 // project via getProject and then performs the actions required to create a
 // keg. The current implementation defers to project.DefaultKeg for further
 // resolution and returns any error encountered when obtaining the project.

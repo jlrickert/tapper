@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/jlrickert/cli-toolkit/clock"
@@ -322,7 +321,7 @@ func (k *Keg) SetContent(ctx context.Context, id NodeId, data []byte) error {
 }
 
 // GetMeta retrieves the parsed metadata for a node.
-func (k *Keg) GetMeta(ctx context.Context, id NodeId) (*Meta, error) {
+func (k *Keg) GetMeta(ctx context.Context, id NodeId) (*NodeMeta, error) {
 	if err := k.checkKegExists(ctx); err != nil {
 		return nil, fmt.Errorf("failed to get node meta: %w", err)
 	}
@@ -330,7 +329,7 @@ func (k *Keg) GetMeta(ctx context.Context, id NodeId) (*Meta, error) {
 }
 
 // SetMeta writes metadata for a node and updates the dex.
-func (k *Keg) SetMeta(ctx context.Context, id NodeId, meta *Meta) error {
+func (k *Keg) SetMeta(ctx context.Context, id NodeId, meta *NodeMeta) error {
 	if err := k.checkKegExists(ctx); err != nil {
 		return fmt.Errorf("failed to update node meta: %w", err)
 	}
@@ -348,7 +347,7 @@ func (k *Keg) SetMeta(ctx context.Context, id NodeId, meta *Meta) error {
 
 // UpdateMeta reads the node's metadata, applies the provided mutation function,
 // and writes the result back to the repository with dex updates.
-func (k *Keg) UpdateMeta(ctx context.Context, id NodeId, f func(*Meta)) error {
+func (k *Keg) UpdateMeta(ctx context.Context, id NodeId, f func(*NodeMeta)) error {
 	if err := k.checkKegExists(ctx); err != nil {
 		return fmt.Errorf("failed to update node meta: %w", err)
 	}
@@ -377,11 +376,24 @@ func (k *Keg) Touch(ctx context.Context, id NodeId) error {
 		return fmt.Errorf("failed to touch node: %w", err)
 	}
 
-	return k.UpdateMeta(ctx, id, func(m *Meta) {
+	return k.UpdateMeta(ctx, id, func(m *NodeMeta) {
 		clk := clock.ClockFromContext(ctx)
 		now := clk.Now()
 		m.accessed = now
 	})
+}
+
+// Node retrieves complete node data including content, metadata, items, and images for a given node ID.
+// Returns an error if any component fails to load.
+func (k *Keg) Node(id NodeId) *Node {
+	return &Node{
+		ID: NodeId{
+			ID:    id.ID,
+			Alias: k.Target.Keg,
+			Code:  id.Code,
+		},
+		Repo: k.Repo,
+	}
 }
 
 // IndexNode updates a node's metadata by re-parsing its content and extracting
@@ -392,29 +404,43 @@ func (k *Keg) IndexNode(ctx context.Context, id NodeId) error {
 		return fmt.Errorf("failed to update node: %w", err)
 	}
 
-	data, err := k.getNode(ctx, id)
-	if err != nil {
-		return fmt.Errorf("failed to build node data: %w", err)
-	}
-	if !data.ContentChanged() {
-		return nil
-	}
-
-	clk := clock.ClockFromContext(ctx)
-	now := clk.Now()
-	data.Meta.Update(ctx, data.Content, &now)
-
-	err = k.Repo.WriteMeta(ctx, id, []byte(data.Meta.ToYAML()))
+	n := k.Node(id)
+	changed, err := n.Changed(ctx)
 	if err != nil {
 		return err
 	}
-	return k.addNodeToDex(ctx, data, &now)
+	if !changed {
+		return nil
+	}
+	err = n.Update(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to update node %s: %w", id, err)
+	}
+	dex, err := k.Dex(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to retrieve dex: %w", err)
+	}
+	err = dex.Add(ctx, n.data)
+	if err != nil {
+		return fmt.Errorf("failed to add node %s to dex: %w", id, err)
+	}
+	err = dex.Write(ctx, k.Repo)
+	if err != nil {
+		return fmt.Errorf("failed to write dex: %w", err)
+	}
+	return k.UpdateConfig(ctx, func(cfg *KegConfig) {
+		cfg.Touch(ctx)
+	})
+}
+
+type IndexOptions struct {
+	NoUpdate bool
 }
 
 // Index performs a full keg re-indexing by clearing the dex and rebuilding it
 // from scratch by reading all nodes in the repository. This is useful for
 // recovering from index corruption or after bulk node modifications.
-func (k *Keg) Index(ctx context.Context, _ NodeId) error {
+func (k *Keg) Index(ctx context.Context, opts IndexOptions) error {
 	if err := k.checkKegExists(ctx); err != nil {
 		return fmt.Errorf("failed to re index keg: %w", err)
 	}
@@ -433,34 +459,38 @@ func (k *Keg) Index(ctx context.Context, _ NodeId) error {
 		return fmt.Errorf("failed to list nodes: %w", err)
 	}
 
-	var wg sync.WaitGroup
-
 	var errs []error
 	for _, id := range ids {
-		wg.Go(func() {
-			data, err := k.getNode(ctx, id)
-			if err != nil {
-				errs = append(errs, err)
-				return
-			}
+		data, err := k.getNode(ctx, id)
+		if err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		if !opts.NoUpdate {
 			clk := clock.ClockFromContext(ctx)
 			now := clk.Now()
-			if data.Meta.accessed.IsZero() {
-				data.Meta.accessed = now
+			err := data.Update(ctx, &now)
+			if err != nil {
+				errs = append(errs, err)
+				continue
 			}
-			if data.Meta.updated.IsZero() {
-				data.Meta.updated = now
-			}
-			if data.Meta.created.IsZero() {
-				data.Meta.created = now
-			}
-			// Dex.Add expects a *NodeData
-			if err := k.dex.Add(ctx, data); err != nil {
-				errs = append(errs, fmt.Errorf("failed to add node %s: %w", id, err))
-			}
-		})
+		}
+		clk := clock.ClockFromContext(ctx)
+		now := clk.Now()
+		if data.Meta.accessed.IsZero() {
+			data.Meta.accessed = now
+		}
+		if data.Meta.updated.IsZero() {
+			data.Meta.updated = now
+		}
+		if data.Meta.created.IsZero() {
+			data.Meta.created = now
+		}
+		// Dex.Add expects a *NodeData
+		if err := k.dex.Add(ctx, data); err != nil {
+			errs = append(errs, fmt.Errorf("failed to add node %s: %w", id, err))
+		}
 	}
-	wg.Wait()
 
 	if err := k.dex.Write(ctx, k.Repo); err != nil {
 		errs = append(errs, fmt.Errorf("failed to save dex: %w", err))
@@ -509,7 +539,7 @@ func (k *Keg) Dex(ctx context.Context) (*Dex, error) {
 // -- private utility functions
 
 // getContent retrieves and parses raw markdown content for a node.
-func (k *Keg) getContent(ctx context.Context, id NodeId) (*Content, error) {
+func (k *Keg) getContent(ctx context.Context, id NodeId) (*NodeContent, error) {
 	raw, err := k.Repo.ReadContent(ctx, id)
 	if err != nil {
 		return nil, err
@@ -518,7 +548,7 @@ func (k *Keg) getContent(ctx context.Context, id NodeId) (*Content, error) {
 }
 
 // getMeta retrieves and parses YAML metadata for a node.
-func (k *Keg) getMeta(ctx context.Context, id NodeId) (*Meta, error) {
+func (k *Keg) getMeta(ctx context.Context, id NodeId) (*NodeMeta, error) {
 	raw, err := k.Repo.ReadMeta(ctx, id)
 	if err != nil {
 		return nil, err

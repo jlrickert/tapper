@@ -293,7 +293,7 @@ func TestCreateAndUpdateNodesWithFsRepo(t *testing.T) {
 	newContent := []byte("# FSNode\n\nnew lead from fs\n")
 	require.NoError(t, k.SetContent(f.Context(), id, newContent))
 
-	// Meta should reflect the new lead.
+	// NodeMeta should reflect the new lead.
 	m, err := k.GetMeta(f.Context(), id)
 	require.NoError(t, err)
 	require.Equal(t, "new lead from fs", m.Lead())
