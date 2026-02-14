@@ -4,13 +4,13 @@ import (
 	"context"
 )
 
-// KegRepository is the storage backend contract used by KEG. Implementations
+// Repository is the storage backend contract used by KEG. Implementations
 // provide access to node content, metadata, indices, and auxiliary artifacts
 // (images, attachments). Methods are context-aware (honor
 // cancellation/deadlines) and should return well-typed errors (for example the
 // sentinel errors defined in pkg/keg/errors.go) so callers can reliably use
 // errors.Is / errors.As.
-type KegRepository interface {
+type Repository interface {
 	// Name returns a short, human-friendly name for the backend
 	// implementation.
 	Name() string
@@ -28,6 +28,11 @@ type KegRepository interface {
 	// for the specified node id. If metadata is missing or unreadable return
 	// an appropriate typed error.
 	ReadMeta(ctx context.Context, id NodeId) ([]byte, error)
+
+	// ReadStats returns programmatic node stats for the specified node id.
+	// Implementations typically load stats from meta.yaml, returning an empty
+	// stats value when the node exists but has no persisted metadata.
+	ReadStats(ctx context.Context, id NodeId) (*NodeStats, error)
 
 	// ListNodes returns a slice of all node IDs present in the repository.
 	ListNodes(ctx context.Context) ([]NodeId, error)
@@ -51,6 +56,10 @@ type KegRepository interface {
 	// id. Write operations should be atomic when possible and return typed
 	// errors on failure.
 	WriteMeta(ctx context.Context, id NodeId, data []byte) error
+
+	// WriteStats writes programmatic node stats for the specified node id while
+	// preserving manually edited node metadata.
+	WriteStats(ctx context.Context, id NodeId, stats *NodeStats) error
 
 	// UploadImage stores an image blob associated with the node. Name is the
 	// destination filename/key and data is the file bytes.

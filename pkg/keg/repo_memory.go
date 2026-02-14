@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// MemoryRepo is an in-memory implementation of KegRepository intended for
+// MemoryRepo is an in-memory implementation of Repository intended for
 // tests and lightweight tooling that doesn't require persistent storage.
 //
 // Concurrency / locking:
@@ -25,7 +25,7 @@ import (
 //   - Index files are kept in-memory by name (for example "nodes.tsv") and are
 //     accessible via WriteIndex/GetIndex.
 //   - Methods return sentinel or typed errors defined in the package to match the
-//     KegRepository contract (for example NewNodeNotFoundError, ErrNotFound).
+//     Repository contract (for example NewNodeNotFoundError, ErrNotFound).
 type MemoryRepo struct {
 	mu sync.RWMutex
 	// nodes stores per-node data keyed by NodeID.
@@ -137,6 +137,26 @@ func (r *MemoryRepo) ReadMeta(ctx context.Context, id NodeId) ([]byte, error) {
 	return cp, nil
 }
 
+// ReadStats returns parsed programmatic stats for a node.
+func (r *MemoryRepo) ReadStats(ctx context.Context, id NodeId) (*NodeStats, error) {
+	r.mu.RLock()
+	n, ok := r.nodes[id]
+	r.mu.RUnlock()
+	if !ok {
+		return nil, ErrNotExist
+	}
+	if n.meta == nil {
+		return &NodeStats{links: []NodeId{}}, nil
+	}
+	cp := make([]byte, len(n.meta))
+	copy(cp, n.meta)
+	stats, err := ParseStats(ctx, cp)
+	if err != nil {
+		return nil, err
+	}
+	return stats, nil
+}
+
 // ListIndexes returns the names of stored index files sorted lexicographically.
 func (r *MemoryRepo) ListIndexes(ctx context.Context) ([]string, error) {
 	r.mu.RLock()
@@ -242,6 +262,32 @@ func (r *MemoryRepo) WriteMeta(ctx context.Context, id NodeId, data []byte) erro
 	defer r.mu.Unlock()
 	n := r.ensureNode(id)
 	n.meta = data
+	return nil
+}
+
+// WriteStats writes programmatic stats while preserving manually edited meta
+// fields.
+func (r *MemoryRepo) WriteStats(ctx context.Context, id NodeId, stats *NodeStats) error {
+	if stats == nil {
+		stats = &NodeStats{}
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	n := r.ensureNode(id)
+
+	var raw []byte
+	if n.meta != nil {
+		raw = make([]byte, len(n.meta))
+		copy(raw, n.meta)
+	}
+
+	meta, err := ParseMeta(ctx, raw)
+	if err != nil {
+		return err
+	}
+	n.meta = []byte(meta.ToYAMLWithStats(stats))
 	return nil
 }
 
@@ -477,5 +523,5 @@ func (r *MemoryRepo) LockNode(ctx context.Context, id NodeId, retryInterval time
 	}
 }
 
-// Ensure MemoryRepo implements KegRepository at compile time.
-var _ KegRepository = (*MemoryRepo)(nil)
+// Ensure MemoryRepo implements Repository at compile time.
+var _ Repository = (*MemoryRepo)(nil)
