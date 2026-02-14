@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"time"
 
 	appCtx "github.com/jlrickert/cli-toolkit/appctx"
 	"github.com/jlrickert/cli-toolkit/toolkit"
@@ -218,6 +219,51 @@ func (f *FsRepo) Name() string {
 	return "fs"
 }
 
+// WithNodeLock executes fn while holding an exclusive lock for node id.
+func (f *FsRepo) WithNodeLock(ctx context.Context, id NodeId, fn func(context.Context) error) error {
+	if fn == nil {
+		return fmt.Errorf("fn required")
+	}
+	if contextHasNodeLock(ctx, id) {
+		return fn(ctx)
+	}
+
+	nodeDir := filepath.Join(f.Root, id.Path())
+	if err := toolkit.Mkdir(ctx, nodeDir, 0o755, true); err != nil {
+		return errors.Join(ErrLock, NewBackendError(f.Name(), "WithNodeLock", 0, err, false))
+	}
+
+	lockPath := filepath.Join(nodeDir, KegLockFile)
+	for {
+		err := toolkit.Mkdir(ctx, lockPath, 0o700, false)
+		if err == nil {
+			break
+		}
+		if os.IsExist(err) {
+			select {
+			case <-ctx.Done():
+				return fmt.Errorf("%w: %w", ErrLockTimeout, ctx.Err())
+			case <-time.After(100 * time.Millisecond):
+			}
+			continue
+		}
+		return errors.Join(ErrLock, NewBackendError(f.Name(), "WithNodeLock", 0, err, false))
+	}
+
+	lockedCtx := contextWithNodeLock(ctx, id)
+	runErr := fn(lockedCtx)
+
+	unlockCtx := context.WithoutCancel(lockedCtx)
+	unlockErr := toolkit.Remove(unlockCtx, lockPath, true)
+	if unlockErr != nil && !os.IsNotExist(unlockErr) {
+		unlockErr = errors.Join(ErrLock, NewBackendError(f.Name(), "WithNodeLockUnlock", 0, unlockErr, false))
+	} else {
+		unlockErr = nil
+	}
+
+	return errors.Join(runErr, unlockErr)
+}
+
 func (f *FsRepo) Next(ctx context.Context) (NodeId, error) {
 	// Ensure repo root exists (if not, create it)
 	if _, statErr := toolkit.Stat(ctx, f.Root, false); statErr != nil {
@@ -332,63 +378,41 @@ func (f *FsRepo) ListNodes(ctx context.Context) ([]NodeId, error) {
 	return ids, nil
 }
 
-// ListItems implements Repository.
-func (f *FsRepo) ListItems(ctx context.Context, id NodeId) ([]string, error) {
+// ListAssets implements Repository.
+func (f *FsRepo) ListAssets(ctx context.Context, id NodeId, kind AssetKind) ([]string, error) {
 	nodeDir := filepath.Join(f.Root, id.Path())
 	if _, statErr := toolkit.Stat(ctx, nodeDir, false); statErr != nil {
 		if os.IsNotExist(statErr) {
 			return nil, fmt.Errorf("node %s does not exist: %w", nodeDir, ErrNotExist)
 		}
-		return nil, NewBackendError(f.Name(), "ListItems", 0, statErr, false)
+		return nil, NewBackendError(f.Name(), "ListAssets", 0, statErr, false)
 	}
 
-	entries, err := toolkit.ReadDir(ctx, filepath.Join(nodeDir, NodeAttachmentsDir))
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return []string{}, nil
-		}
-		return nil, NewBackendError(f.Name(), "ListItems", 0, err, false)
+	var dir string
+	switch kind {
+	case AssetKindImage:
+		dir = filepath.Join(nodeDir, NodeImagesDir)
+	case AssetKindItem:
+		dir = filepath.Join(nodeDir, NodeAttachmentsDir)
+	default:
+		return nil, fmt.Errorf("unknown asset kind %q", kind)
 	}
 
-	var names []string
-	for _, e := range entries {
-		n := e.Name()
-		names = append(names, n)
-	}
-	sortStrings(names)
-	return names, nil
-}
-
-// ListImages implements Repository.
-func (f *FsRepo) ListImages(ctx context.Context, id NodeId) ([]string, error) {
-	nodeDir := filepath.Join(f.Root, id.Path())
-	if _, statErr := toolkit.Stat(ctx, nodeDir, false); statErr != nil {
-		if os.IsNotExist(statErr) {
-			return nil, ErrNotExist
-		}
-		return nil, NewBackendError(f.Name(), "ListImages", 0, statErr, false)
-	}
-
-	imagesDir := filepath.Join(nodeDir, NodeImagesDir)
-	entries, err := toolkit.ReadDir(ctx, imagesDir)
+	entries, err := toolkit.ReadDir(ctx, dir)
 	if err != nil {
 		if os.IsNotExist(err) {
-			// no images directory -> empty list
 			return []string{}, nil
 		}
-		return nil, NewBackendError(f.Name(), "ListImages", 0, err, false)
+		return nil, NewBackendError(f.Name(), "ListAssets", 0, err, false)
 	}
 
 	var names []string
 	for _, e := range entries {
-		// skip metadata dir
-		if e.Name() == ".meta" {
+		if kind == AssetKindImage && e.Name() == ".meta" {
 			continue
 		}
-		// include files only (images typically files); allow directories as well
 		names = append(names, e.Name())
 	}
-	// deterministic order
 	sortStrings(names)
 	return names, nil
 }
@@ -450,53 +474,35 @@ func (f *FsRepo) WriteStats(ctx context.Context, id NodeId, stats *NodeStats) er
 	return f.WriteMeta(ctx, id, []byte(meta.ToYAMLWithStats(stats)))
 }
 
-// UploadImage implements Repository.
-func (f *FsRepo) UploadImage(ctx context.Context, id NodeId, name string, data []byte) error {
+// WriteAsset implements Repository.
+func (f *FsRepo) WriteAsset(ctx context.Context, id NodeId, kind AssetKind, name string, data []byte) error {
 	nodeDir := filepath.Join(f.Root, id.Path())
 	if _, statErr := toolkit.Stat(ctx, nodeDir, false); statErr != nil {
 		if os.IsNotExist(statErr) {
 			return ErrNotExist
 		}
-		return NewBackendError(f.Name(), "UploadImage", 0, statErr, false)
+		return NewBackendError(f.Name(), "WriteAsset", 0, statErr, false)
 	}
 
-	imagePath := filepath.Join(nodeDir, NodeImagesDir, name)
+	var assetPath string
+	switch kind {
+	case AssetKindImage:
+		assetPath = filepath.Join(nodeDir, NodeImagesDir, name)
+	case AssetKindItem:
+		assetPath = filepath.Join(nodeDir, NodeAttachmentsDir, name)
+	default:
+		return fmt.Errorf("unknown asset kind %q", kind)
+	}
 
 	// Create parent directory if it doesn't exist
-	dir := filepath.Dir(imagePath)
+	dir := filepath.Dir(assetPath)
 	if err := toolkit.Mkdir(ctx, dir, 0o755, true); err != nil {
-		return NewBackendError(f.Name(), "UploadImage", 0, err, false)
+		return NewBackendError(f.Name(), "WriteAsset", 0, err, false)
 	}
 
-	err := toolkit.AtomicWriteFile(ctx, imagePath, data, 0o0644)
+	err := toolkit.AtomicWriteFile(ctx, assetPath, data, 0o0644)
 	if err != nil {
-		return NewBackendError(f.Name(), "UploadImage", 0, err, false)
-	}
-
-	return nil
-}
-
-// UploadItem implements Repository.
-func (f *FsRepo) UploadItem(ctx context.Context, id NodeId, name string, data []byte) error {
-	nodeDir := filepath.Join(f.Root, id.Path())
-	if _, statErr := toolkit.Stat(ctx, nodeDir, false); statErr != nil {
-		if os.IsNotExist(statErr) {
-			return ErrNotExist
-		}
-		return NewBackendError(f.Name(), "UploadImage", 0, statErr, false)
-	}
-
-	itemPath := filepath.Join(nodeDir, NodeAttachmentsDir, name)
-
-	// Create parent directory if it doesn't exist
-	dir := filepath.Dir(itemPath)
-	if err := toolkit.Mkdir(ctx, dir, 0o755, true); err != nil {
-		return NewBackendError(f.Name(), "UploadItem", 0, err, false)
-	}
-
-	err := toolkit.AtomicWriteFile(ctx, itemPath, data, 0o0644)
-	if err != nil {
-		return NewBackendError(f.Name(), "UploadItem", 0, err, false)
+		return NewBackendError(f.Name(), "WriteAsset", 0, err, false)
 	}
 
 	return nil
@@ -611,8 +617,8 @@ func (f *FsRepo) DeleteNode(ctx context.Context, id NodeId) error {
 	return nil
 }
 
-// DeleteImage implements Repository.
-func (f *FsRepo) DeleteImage(ctx context.Context, id NodeId, name string) error {
+// DeleteAsset implements Repository.
+func (f *FsRepo) DeleteAsset(ctx context.Context, id NodeId, kind AssetKind, name string) error {
 	nodeDir := filepath.Join(f.Root, id.Path())
 
 	// Ensure node exists
@@ -620,63 +626,67 @@ func (f *FsRepo) DeleteImage(ctx context.Context, id NodeId, name string) error 
 		if os.IsNotExist(statErr) {
 			return ErrNotExist
 		}
-		return NewBackendError(f.Name(), "DeleteImage", 0, statErr, false)
+		return NewBackendError(f.Name(), "DeleteAsset", 0, statErr, false)
 	}
 
-	imagesDir := filepath.Join(nodeDir, NodeImagesDir)
-	imagePath := filepath.Join(imagesDir, name)
-
-	if _, statErr := toolkit.Stat(ctx, imagePath, false); statErr != nil {
-		if os.IsNotExist(statErr) {
-			return ErrNotExist
+	switch kind {
+	case AssetKindImage:
+		imagesDir := filepath.Join(nodeDir, NodeImagesDir)
+		imagePath := filepath.Join(imagesDir, name)
+		if _, statErr := toolkit.Stat(ctx, imagePath, false); statErr != nil {
+			if os.IsNotExist(statErr) {
+				return ErrNotExist
+			}
+			return NewBackendError(f.Name(), "DeleteAsset", 0, statErr, false)
 		}
-		return NewBackendError(f.Name(), "DeleteImage", 0, statErr, false)
+		if err := toolkit.Remove(ctx, imagePath, true); err != nil {
+			return NewBackendError(f.Name(), "DeleteAsset", 0, err, false)
+		}
+		metaPath := filepath.Join(imagesDir, ".meta", name+".json")
+		_ = toolkit.Remove(ctx, metaPath, false)
+		thumbPath := filepath.Join(imagesDir, "thumbs", name)
+		_ = toolkit.Remove(ctx, thumbPath, false)
+		return nil
+	case AssetKindItem:
+		itemPath := filepath.Join(nodeDir, NodeAttachmentsDir, name)
+		if _, statErr := toolkit.Stat(ctx, itemPath, false); statErr != nil {
+			if os.IsNotExist(statErr) {
+				return ErrNotExist
+			}
+			return NewBackendError(f.Name(), "DeleteAsset", 0, statErr, false)
+		}
+		if err := toolkit.Remove(ctx, itemPath, true); err != nil {
+			return NewBackendError(f.Name(), "DeleteAsset", 0, err, false)
+		}
+		return nil
+	default:
+		return fmt.Errorf("unknown asset kind %q", kind)
 	}
-
-	// Remove image and possible metadata/thumbs; best-effort for extras.
-	if err := toolkit.Remove(ctx, imagePath, true); err != nil {
-		return NewBackendError(f.Name(), "DeleteImage", 0, err, false)
-	}
-
-	// remove per-image meta if present
-	metaPath := filepath.Join(imagesDir, ".meta", name+".json")
-	_ = toolkit.Remove(ctx, metaPath, false)
-
-	// remove thumbs directory entry best-effort
-	thumbPath := filepath.Join(imagesDir, "thumbs", name)
-	_ = toolkit.Remove(ctx, thumbPath, false)
-
-	return nil
 }
 
-// DeleteItem removes a named ancillary item (file or directory) from the
-// node's directory (root/<id>/<name>). Behavior:
-//   - If the node directory does not exist, return a typed NodeNotFoundError.
-//   - If the named item does not exist, return the sentinel ErrMetaNotFound.
-//   - Any unexpected filesystem errors are wrapped in a BackendError.
-//   - Removal is performed with os.RemoveAll so both files and directories are
-//     supported.
+// Compatibility wrappers for pre-assets API callers.
+func (f *FsRepo) ListItems(ctx context.Context, id NodeId) ([]string, error) {
+	return f.ListAssets(ctx, id, AssetKindItem)
+}
+
+func (f *FsRepo) ListImages(ctx context.Context, id NodeId) ([]string, error) {
+	return f.ListAssets(ctx, id, AssetKindImage)
+}
+
+func (f *FsRepo) UploadImage(ctx context.Context, id NodeId, name string, data []byte) error {
+	return f.WriteAsset(ctx, id, AssetKindImage, name, data)
+}
+
+func (f *FsRepo) UploadItem(ctx context.Context, id NodeId, name string, data []byte) error {
+	return f.WriteAsset(ctx, id, AssetKindItem, name, data)
+}
+
+func (f *FsRepo) DeleteImage(ctx context.Context, id NodeId, name string) error {
+	return f.DeleteAsset(ctx, id, AssetKindImage, name)
+}
+
 func (f *FsRepo) DeleteItem(ctx context.Context, id NodeId, name string) error {
-	nodeDir := filepath.Join(f.Root, id.Path())
-	itemPath := filepath.Join(nodeDir, name)
-
-	// Verify the target exists so we can return a meaningful sentinel when
-	// missing.
-	if _, statErr := toolkit.Stat(ctx, itemPath, false); statErr != nil {
-		if os.IsNotExist(statErr) {
-			return nil
-		}
-		return NewBackendError(f.Name(), "DeleteItem", 0, statErr, false)
-	}
-
-	// Remove the item (file or directory). Use RemoveAll to handle both files
-	// and directories; wrap any error for callers to inspect/decide about
-	// retry.
-	if err := toolkit.Remove(ctx, itemPath, true); err != nil {
-		return NewBackendError(f.Name(), "DeleteItem", 0, err, false)
-	}
-
-	return nil
+	return f.DeleteAsset(ctx, id, AssetKindItem, name)
 }
 
 // ReadConfig implements Repository.

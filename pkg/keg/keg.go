@@ -145,14 +145,19 @@ func (k *Keg) Init(ctx context.Context) error {
 
 	id := NodeId{ID: 0}
 
-	if err := k.Repo.WriteContent(ctx, id, []byte(rawContent)); err != nil {
-		return fmt.Errorf("Init: write content to backend %s: %w", k.Repo.Name(), err)
-	}
-	if err := k.Repo.WriteMeta(ctx, id, []byte(m.ToYAML())); err != nil {
-		return fmt.Errorf("Init: write meta to backend %s: %w", k.Repo.Name(), err)
-	}
-	if err := k.Repo.WriteStats(ctx, id, stats); err != nil {
-		return fmt.Errorf("Init: write stats to backend %s: %w", k.Repo.Name(), err)
+	if err := k.withNodeLock(ctx, id, func(lockCtx context.Context) error {
+		if err := k.Repo.WriteContent(lockCtx, id, []byte(rawContent)); err != nil {
+			return fmt.Errorf("Init: write content to backend %s: %w", k.Repo.Name(), err)
+		}
+		if err := k.Repo.WriteMeta(lockCtx, id, []byte(m.ToYAML())); err != nil {
+			return fmt.Errorf("Init: write meta to backend %s: %w", k.Repo.Name(), err)
+		}
+		if err := k.Repo.WriteStats(lockCtx, id, stats); err != nil {
+			return fmt.Errorf("Init: write stats to backend %s: %w", k.Repo.Name(), err)
+		}
+		return nil
+	}); err != nil {
+		return err
 	}
 
 	nodeData.ID = id
@@ -239,16 +244,20 @@ func (k *Keg) Create(ctx context.Context, opts *CreateOptions) (NodeId, error) {
 	_ = nodeData.UpdateMeta(ctx, &now)
 	nodeData.Stats.EnsureTimes(now)
 
-	// Persist empty content so repo implementations that require a content file
-	// are satisfied.
-	if err := k.Repo.WriteContent(ctx, id, []byte(content.Body)); err != nil {
-		return id, fmt.Errorf("create: write content to backend %s: %w", k.Repo.Name(), err)
-	}
-	if err := k.Repo.WriteMeta(ctx, id, []byte(m.ToYAML())); err != nil {
-		return id, fmt.Errorf("create: write meta to backend %s: %w", k.Repo.Name(), err)
-	}
-	if err := k.Repo.WriteStats(ctx, id, stats); err != nil {
-		return id, fmt.Errorf("create: write stats to backend %s: %w", k.Repo.Name(), err)
+	// Persist content and metadata atomically for this node.
+	if err := k.withNodeLock(ctx, id, func(lockCtx context.Context) error {
+		if err := k.Repo.WriteContent(lockCtx, id, []byte(content.Body)); err != nil {
+			return fmt.Errorf("create: write content to backend %s: %w", k.Repo.Name(), err)
+		}
+		if err := k.Repo.WriteMeta(lockCtx, id, []byte(m.ToYAML())); err != nil {
+			return fmt.Errorf("create: write meta to backend %s: %w", k.Repo.Name(), err)
+		}
+		if err := k.Repo.WriteStats(lockCtx, id, stats); err != nil {
+			return fmt.Errorf("create: write stats to backend %s: %w", k.Repo.Name(), err)
+		}
+		return nil
+	}); err != nil {
+		return id, err
 	}
 
 	return id, k.addNodeToDex(ctx, nodeData, &now)
@@ -324,11 +333,27 @@ func (k *Keg) SetContent(ctx context.Context, id NodeId, data []byte) error {
 		return fmt.Errorf("failed to set node content: %w", err)
 	}
 
-	// write content
-	if err := k.Repo.WriteContent(ctx, id, data); err != nil {
-		return fmt.Errorf("unable to write content: %w", err)
+	var nodeData *NodeData
+	err := k.withNodeLock(ctx, id, func(lockCtx context.Context) error {
+		if err := k.Repo.WriteContent(lockCtx, id, data); err != nil {
+			return fmt.Errorf("unable to write content: %w", err)
+		}
+		updated, changed, err := k.indexNodeLocked(lockCtx, id)
+		if err != nil {
+			return err
+		}
+		if changed {
+			nodeData = updated
+		}
+		return nil
+	})
+	if err != nil {
+		return err
 	}
-	return k.IndexNode(ctx, id)
+	if nodeData == nil {
+		return nil
+	}
+	return k.writeNodeToDex(ctx, id, nodeData)
 }
 
 // GetMeta retrieves the parsed metadata for a node.
@@ -353,25 +378,32 @@ func (k *Keg) SetMeta(ctx context.Context, id NodeId, meta *NodeMeta) error {
 		return fmt.Errorf("failed to update node meta: %w", err)
 	}
 
-	stats, err := k.getStats(ctx, id)
-	if err != nil && !errors.Is(err, ErrNotExist) {
-		return fmt.Errorf("failed to read node stats: %w", err)
-	}
-	if stats == nil {
-		stats = &NodeStats{}
-	}
+	var nodeData *NodeData
+	err := k.withNodeLock(ctx, id, func(lockCtx context.Context) error {
+		stats, err := k.getStats(lockCtx, id)
+		if err != nil && !errors.Is(err, ErrNotExist) {
+			return fmt.Errorf("failed to read node stats: %w", err)
+		}
+		if stats == nil {
+			stats = &NodeStats{}
+		}
 
-	// write back
-	if err := k.Repo.WriteMeta(ctx, id, []byte(meta.ToYAML())); err != nil {
-		return fmt.Errorf("UpdateMeta: write meta to backend %s: %w", k.Repo.Name(), err)
-	}
-	if err := k.Repo.WriteStats(ctx, id, stats); err != nil {
-		return fmt.Errorf("UpdateMeta: write stats to backend %s: %w", k.Repo.Name(), err)
+		if err := k.Repo.WriteMeta(lockCtx, id, []byte(meta.ToYAML())); err != nil {
+			return fmt.Errorf("UpdateMeta: write meta to backend %s: %w", k.Repo.Name(), err)
+		}
+		if err := k.Repo.WriteStats(lockCtx, id, stats); err != nil {
+			return fmt.Errorf("UpdateMeta: write stats to backend %s: %w", k.Repo.Name(), err)
+		}
+
+		nodeData = &NodeData{ID: id, Meta: meta, Stats: stats}
+		return nil
+	})
+	if err != nil {
+		return err
 	}
 
 	clk := clock.ClockFromContext(ctx)
 	now := clk.Now()
-	nodeData := &NodeData{ID: id, Meta: meta, Stats: stats}
 	return k.addNodeToDex(ctx, nodeData, &now)
 }
 
@@ -385,28 +417,28 @@ func (k *Keg) UpdateMeta(ctx context.Context, id NodeId, f func(*NodeMeta)) erro
 	clk := clock.ClockFromContext(ctx)
 	now := clk.Now()
 
-	m, stats, err := k.getMetaAndStats(ctx, id)
-	if errors.Is(err, ErrNotExist) {
-		m = NewMeta(ctx, now)
-		stats = NewStats(now)
-	} else if err != nil {
-		return fmt.Errorf("failed to read node metadata: %w", err)
-	}
-	if stats == nil {
-		stats = &NodeStats{}
-	}
+	return k.withNodeLock(ctx, id, func(lockCtx context.Context) error {
+		m, stats, err := k.getMetaAndStats(lockCtx, id)
+		if errors.Is(err, ErrNotExist) {
+			m = NewMeta(lockCtx, now)
+			stats = NewStats(now)
+		} else if err != nil {
+			return fmt.Errorf("failed to read node metadata: %w", err)
+		}
+		if stats == nil {
+			stats = &NodeStats{}
+		}
 
-	// apply mutation
-	f(m)
+		f(m)
 
-	// write back
-	if err := k.Repo.WriteMeta(ctx, id, []byte(m.ToYAML())); err != nil {
-		return fmt.Errorf("UpdateMeta: write meta to backend %s: %w", k.Repo.Name(), err)
-	}
-	if err := k.Repo.WriteStats(ctx, id, stats); err != nil {
-		return fmt.Errorf("UpdateMeta: write stats to backend %s: %w", k.Repo.Name(), err)
-	}
-	return nil
+		if err := k.Repo.WriteMeta(lockCtx, id, []byte(m.ToYAML())); err != nil {
+			return fmt.Errorf("UpdateMeta: write meta to backend %s: %w", k.Repo.Name(), err)
+		}
+		if err := k.Repo.WriteStats(lockCtx, id, stats); err != nil {
+			return fmt.Errorf("UpdateMeta: write stats to backend %s: %w", k.Repo.Name(), err)
+		}
+		return nil
+	})
 }
 
 // Touch updates the access time of a node to the current time.
@@ -418,23 +450,25 @@ func (k *Keg) Touch(ctx context.Context, id NodeId) error {
 	clk := clock.ClockFromContext(ctx)
 	now := clk.Now()
 
-	meta, stats, err := k.getMetaAndStats(ctx, id)
-	if errors.Is(err, ErrNotExist) {
-		meta = NewMeta(ctx, now)
-		stats = NewStats(now)
-	} else if err != nil {
-		return fmt.Errorf("failed to read node metadata: %w", err)
-	}
-	if stats == nil {
-		stats = &NodeStats{}
-	}
+	return k.withNodeLock(ctx, id, func(lockCtx context.Context) error {
+		meta, stats, err := k.getMetaAndStats(lockCtx, id)
+		if errors.Is(err, ErrNotExist) {
+			meta = NewMeta(lockCtx, now)
+			stats = NewStats(now)
+		} else if err != nil {
+			return fmt.Errorf("failed to read node metadata: %w", err)
+		}
+		if stats == nil {
+			stats = &NodeStats{}
+		}
 
-	stats.SetAccessed(now)
-	stats.EnsureTimes(now)
-	if err := k.Repo.WriteMeta(ctx, id, []byte(meta.ToYAML())); err != nil {
-		return err
-	}
-	return k.Repo.WriteStats(ctx, id, stats)
+		stats.SetAccessed(now)
+		stats.EnsureTimes(now)
+		if err := k.Repo.WriteMeta(lockCtx, id, []byte(meta.ToYAML())); err != nil {
+			return err
+		}
+		return k.Repo.WriteStats(lockCtx, id, stats)
+	})
 }
 
 // Node retrieves complete node data including content, metadata, items, and images for a given node ID.
@@ -462,33 +496,24 @@ func (k *Keg) IndexNode(ctx context.Context, id NodeId) error {
 		return fmt.Errorf("failed to update node: %w", err)
 	}
 
-	n := k.Node(id)
-	changed, err := n.Changed(ctx)
+	var nodeData *NodeData
+	err := k.withNodeLock(ctx, id, func(lockCtx context.Context) error {
+		updated, changed, err := k.indexNodeLocked(lockCtx, id)
+		if err != nil {
+			return err
+		}
+		if changed {
+			nodeData = updated
+		}
+		return nil
+	})
 	if err != nil {
 		return err
 	}
-	if !changed {
+	if nodeData == nil {
 		return nil
 	}
-	err = n.Update(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to update node %s: %w", id, err)
-	}
-	dex, err := k.Dex(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to retrieve dex: %w", err)
-	}
-	err = dex.Add(ctx, n.data)
-	if err != nil {
-		return fmt.Errorf("failed to add node %s to dex: %w", id, err)
-	}
-	err = dex.Write(ctx, k.Repo)
-	if err != nil {
-		return fmt.Errorf("failed to write dex: %w", err)
-	}
-	return k.UpdateConfig(ctx, func(cfg *KegConfig) {
-		cfg.Touch(ctx)
-	})
+	return k.writeNodeToDex(ctx, id, nodeData)
 }
 
 type IndexOptions struct {
@@ -591,6 +616,44 @@ func (k *Keg) Dex(ctx context.Context) (*Dex, error) {
 
 // -- private utility functions
 
+func (k *Keg) withNodeLock(ctx context.Context, id NodeId, fn func(context.Context) error) error {
+	if contextHasNodeLock(ctx, id) {
+		return fn(ctx)
+	}
+	return k.Repo.WithNodeLock(ctx, id, fn)
+}
+
+func (k *Keg) indexNodeLocked(ctx context.Context, id NodeId) (*NodeData, bool, error) {
+	n := k.Node(id)
+	changed, err := n.Changed(ctx)
+	if err != nil {
+		return nil, false, err
+	}
+	if !changed {
+		return nil, false, nil
+	}
+	if err := n.Update(ctx); err != nil {
+		return nil, false, fmt.Errorf("failed to update node %s: %w", id, err)
+	}
+	return n.data, true, nil
+}
+
+func (k *Keg) writeNodeToDex(ctx context.Context, id NodeId, data *NodeData) error {
+	dex, err := k.Dex(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to retrieve dex: %w", err)
+	}
+	if err := dex.Add(ctx, data); err != nil {
+		return fmt.Errorf("failed to add node %s to dex: %w", id, err)
+	}
+	if err := dex.Write(ctx, k.Repo); err != nil {
+		return fmt.Errorf("failed to write dex: %w", err)
+	}
+	return k.UpdateConfig(ctx, func(cfg *KegConfig) {
+		cfg.Touch(ctx)
+	})
+}
+
 // getContent retrieves and parses raw markdown content for a node.
 func (k *Keg) getContent(ctx context.Context, id NodeId) (*NodeContent, error) {
 	raw, err := k.Repo.ReadContent(ctx, id)
@@ -636,12 +699,12 @@ func (k *Keg) getNode(ctx context.Context, n NodeId) (*NodeData, error) {
 		return nil, err
 	}
 
-	items, err := k.Repo.ListItems(ctx, n)
+	items, err := k.Repo.ListAssets(ctx, n, AssetKindItem)
 	if err != nil {
 		return nil, err
 	}
 
-	images, err := k.Repo.ListImages(ctx, n)
+	images, err := k.Repo.ListAssets(ctx, n, AssetKindImage)
 	if err != nil {
 		return nil, err
 	}

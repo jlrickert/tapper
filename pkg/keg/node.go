@@ -37,12 +37,12 @@ func (n *Node) Init(ctx context.Context) error {
 		return err
 	}
 
-	items, err := n.Repo.ListItems(ctx, n.ID)
+	items, err := n.Repo.ListAssets(ctx, n.ID, AssetKindItem)
 	if err != nil {
 		return err
 	}
 
-	images, err := n.Repo.ListImages(ctx, n.ID)
+	images, err := n.Repo.ListAssets(ctx, n.ID, AssetKindImage)
 	if err != nil {
 		return err
 	}
@@ -177,12 +177,22 @@ func (n *Node) Update(ctx context.Context) error {
 	clk := clock.ClockFromContext(ctx)
 	now := clk.Now()
 
+	run := func(lockCtx context.Context) error {
+		return n.updateUnlocked(lockCtx, now)
+	}
+	if contextHasNodeLock(ctx, n.ID) {
+		return run(ctx)
+	}
+	return n.Repo.WithNodeLock(ctx, n.ID, run)
+}
+
+func (n *Node) updateUnlocked(ctx context.Context, now time.Time) error {
 	err1 := n.data.UpdateMeta(ctx, &now)
 	if n.data.Stats == nil {
 		n.data.Stats = NewStats(now)
 	}
 	n.data.Stats.EnsureTimes(now)
-	err2 := n.Save(ctx)
+	err2 := n.saveUnlocked(ctx)
 	return errors.Join(err1, err2)
 }
 
@@ -193,8 +203,18 @@ func (n *Node) Touch(ctx context.Context) error {
 
 	clk := clock.ClockFromContext(ctx)
 	now := clk.Now()
+	run := func(lockCtx context.Context) error {
+		return n.touchUnlocked(lockCtx, now)
+	}
+	if contextHasNodeLock(ctx, n.ID) {
+		return run(ctx)
+	}
+	return n.Repo.WithNodeLock(ctx, n.ID, run)
+}
+
+func (n *Node) touchUnlocked(ctx context.Context, now time.Time) error {
 	n.data.Touch(ctx, &now)
-	return n.Save(ctx)
+	return n.saveUnlocked(ctx)
 }
 
 func (n *Node) Changed(ctx context.Context) (bool, error) {
@@ -212,6 +232,16 @@ func (n *Node) Save(ctx context.Context) error {
 	if err := n.Init(ctx); err != nil {
 		return err
 	}
+	run := func(lockCtx context.Context) error {
+		return n.saveUnlocked(lockCtx)
+	}
+	if contextHasNodeLock(ctx, n.ID) {
+		return run(ctx)
+	}
+	return n.Repo.WithNodeLock(ctx, n.ID, run)
+}
+
+func (n *Node) saveUnlocked(ctx context.Context) error {
 	if err := n.Repo.WriteMeta(ctx, n.ID, []byte(n.data.Meta.ToYAML())); err != nil {
 		return err
 	}
