@@ -15,7 +15,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Content holds the extracted pieces of a node's primary content file
+// NodeContent holds the extracted pieces of a node's primary content file
 // (README.md or README.rst).
 //
 // Fields:
@@ -29,7 +29,7 @@ import (
 //   - Body: the raw body bytes of the content file with frontmatter removed for
 //     Markdown (or the original bytes for other formats), represented as a
 //     string.
-type Content struct {
+type NodeContent struct {
 	// Hash is the stable content hash computed by the repository hasher.
 	Hash string
 
@@ -58,19 +58,19 @@ type Content struct {
 	Frontmatter map[string]any
 }
 
-// ParseContent extracts a Content value from raw file bytes.
+// ParseContent extracts a NodeContent value from raw file bytes.
 //
 // The format parameter is a filename hint (e.g., "README.md", "README.rst").
 // When format is ambiguous the function applies simple heuristics to choose
-// between Markdown and reStructuredText. The returned Content contains a
+// between Markdown and reStructuredText. The returned NodeContent contains a
 // deterministic, deduplicated, sorted list of discovered numeric links.
 //
 // ParseContent requires a non-nil deps pointer whose hasher is used to compute
-// the content Hash. If the input is empty or only whitespace, a Content with
+// the content Hash. If the input is empty or only whitespace, a NodeContent with
 // Format == "empty" is returned.
-func ParseContent(ctx context.Context, data []byte, format string) (*Content, error) {
+func ParseContent(ctx context.Context, data []byte, format string) (*NodeContent, error) {
 	if len(bytes.TrimSpace(data)) == 0 {
-		return &Content{Format: "empty"}, nil
+		return &NodeContent{Format: "empty"}, nil
 	}
 
 	fmt := detectFormat(data, format)
@@ -98,7 +98,7 @@ func ParseContent(ctx context.Context, data []byte, format string) (*Content, er
 	// sort & dedupe node ids (stable deterministic order)
 	links = dedupeAndSortNodeIDs(links)
 
-	return &Content{
+	return &NodeContent{
 		Hash:        hasher.Hash(data),
 		Title:       title,
 		Lead:        lead,
