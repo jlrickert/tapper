@@ -109,7 +109,7 @@ func (r *MemoryRepo) ReadContent(ctx context.Context, id NodeId) ([]byte, error)
 	}
 
 	if n.content == nil {
-		// Content may legitimately be absent; return nil rather than ErrNotFound.
+		// NodeContent may legitimately be absent; return nil rather than ErrNotFound.
 		return nil, nil
 	}
 	cp := make([]byte, len(n.content))

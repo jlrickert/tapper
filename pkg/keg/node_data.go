@@ -1,6 +1,9 @@
 package keg
 
-import "time"
+import (
+	"context"
+	"time"
+)
 
 // NodeData is a high-level representation of a KEG node. Implementations may
 // compose this from repository pieces such as meta, content, and ancillary
@@ -9,8 +12,8 @@ type NodeData struct {
 	// ID is the node identifier as a string (for example "42" or "42-0001").
 	// Keep this lightweight while other fields are exposed via accessors.
 	ID      NodeId
-	Content *Content
-	Meta    *Meta
+	Content *NodeContent
+	Meta    *NodeMeta
 
 	// Ancillary names (attachments and images). Implementations may populate these
 	// from the repository.
@@ -27,7 +30,7 @@ func (n *NodeData) ContentHash() string {
 	return n.Content.Hash
 }
 
-// MetaHash returns the meta hash from the parsed Meta when available.
+// MetaHash returns the meta hash from the parsed NodeMeta when available.
 func (n *NodeData) MetaHash() string {
 	if n == nil || n.Meta == nil {
 		return ""
@@ -35,7 +38,7 @@ func (n *NodeData) MetaHash() string {
 	return n.Meta.Hash()
 }
 
-// Content has previously changed
+// NodeContent has previously changed
 func (n *NodeData) ContentChanged() bool {
 	return n.ContentHash() != n.MetaHash()
 }
@@ -141,10 +144,25 @@ func (n *NodeData) Tags() []string {
 
 // Ref builds a NodeIndexEntry from the NodeData. If the NodeData.ID is
 // malformed ParseNode may fail and the function will fall back to a zero NodeId.
-func (d *NodeData) Ref() NodeIndexEntry {
+func (n *NodeData) Ref() NodeIndexEntry {
 	return NodeIndexEntry{
-		ID:      d.ID.Path(),
-		Title:   d.Title(),
-		Updated: d.Updated(),
+		ID:      n.ID.Path(),
+		Title:   n.Title(),
+		Updated: n.Updated(),
 	}
+}
+
+func (n *NodeData) UpdateMeta(ctx context.Context, now *time.Time) error {
+	err := n.Meta.SetAttrs(ctx, n.Content.Frontmatter)
+	n.Meta.SetTitle(ctx, n.Content.Title)
+	// update hash and bump updated timestamp on change
+	n.Meta.SetHash(ctx, n.Content.Hash, now)
+	// also update lead and links from parsed content
+	n.Meta.SetLead(ctx, n.Content.Lead)
+	n.Meta.SetLinks(ctx, n.Content.Links)
+	return err
+}
+
+func (n *NodeData) Touch(ctx context.Context, now *time.Time) {
+	n.Meta.SetAccessed(ctx, *now)
 }

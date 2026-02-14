@@ -12,18 +12,18 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Meta holds parsed node metadata and provides helpers to read and update it.
+// NodeMeta holds parsed node metadata and provides helpers to read and update it.
 //
 // The type keeps common meta fields unexported and exposes accessor and mutator
 // methods. When parsing succeeds the original YAML document node is preserved
 // so that writes can retain comments and formatting when possible.
-type Meta struct {
+type NodeMeta struct {
 	// primary meta fields are unexported to encapsulate access behind methods
 	title string
 	hash  string
 	tags  []string
 
-	// Content timestamps. Marshaled form is RFC 3339.
+	// NodeContent timestamps. Marshaled form is RFC 3339.
 	updated  time.Time
 	created  time.Time
 	accessed time.Time
@@ -49,27 +49,27 @@ type metaYAML struct {
 	Links    []string  `yaml:"links,omitempty"`
 }
 
-// NewMeta constructs a Meta prepopulated with sensible timestamps derived from
+// NewMeta constructs a NodeMeta prepopulated with sensible timestamps derived from
 // the clock in ctx. Use this when creating a new meta value for a node.
-func NewMeta(ctx context.Context, now time.Time) *Meta {
-	return &Meta{
+func NewMeta(ctx context.Context, now time.Time) *NodeMeta {
+	return &NodeMeta{
 		updated: now,
 		created: now,
 	}
 }
 
-// ParseMeta parses raw YAML bytes into a Meta. If the input is empty or only
-// whitespace a zero-value Meta is returned.
+// ParseMeta parses raw YAML bytes into a NodeMeta. If the input is empty or only
+// whitespace a zero-value NodeMeta is returned.
 //
 // When parsing succeeds the original yaml.NodeId is preserved so callers can
 // perform comment-preserving edits. The YAML is decoded into a temporary
 // struct for mapping and the resulting values are normalized before populating
-// the Meta.
-func ParseMeta(ctx context.Context, raw []byte) (*Meta, error) {
+// the NodeMeta.
+func ParseMeta(ctx context.Context, raw []byte) (*NodeMeta, error) {
 	trimmed := bytes.TrimSpace(raw)
 	if len(trimmed) == 0 {
 		// empty meta => return zero meta (no node)
-		return &Meta{
+		return &NodeMeta{
 			tags: nil,
 		}, nil
 	}
@@ -81,7 +81,7 @@ func ParseMeta(ctx context.Context, raw []byte) (*Meta, error) {
 	}
 
 	var tmp metaYAML
-	// If doc.Content has a root mapping node, decode that into tmp; otherwise
+	// If doc.NodeContent has a root mapping node, decode that into tmp; otherwise
 	// try decoding the whole document as a fallback.
 	if len(doc.Content) > 0 {
 		if err := doc.Content[0].Decode(&tmp); err != nil {
@@ -92,7 +92,7 @@ func ParseMeta(ctx context.Context, raw []byte) (*Meta, error) {
 		}
 	}
 
-	m := &Meta{
+	m := &NodeMeta{
 		title:    tmp.Title,
 		hash:     tmp.Hash,
 		updated:  tmp.Updated,
@@ -129,14 +129,14 @@ func ParseMeta(ctx context.Context, raw []byte) (*Meta, error) {
 	return m, nil
 }
 
-// ToYAML serializes the Meta to a YAML string.
+// ToYAML serializes the NodeMeta to a YAML string.
 //
-// If the Meta preserves the original parsed yaml.NodeId we encode that node to
+// If the NodeMeta preserves the original parsed yaml.NodeId we encode that node to
 // retain comments and formatting. In that case we also try to normalize the
 // "tags" sequence in-place so tags are emitted in ascending order. When no
 // parsed node is available we marshal a temporary struct. An empty meta yields
 // an empty string.
-func (m *Meta) ToYAML() string {
+func (m *NodeMeta) ToYAML() string {
 	if m == nil {
 		return ""
 	}
@@ -218,7 +218,7 @@ func (m *Meta) ToYAML() string {
 }
 
 // Title returns the meta title.
-func (m *Meta) Title() string {
+func (m *NodeMeta) Title() string {
 	if m == nil {
 		return ""
 	}
@@ -227,7 +227,7 @@ func (m *Meta) Title() string {
 
 // SetTitle updates the title and reflects the change in the parsed node when
 // present.
-func (m *Meta) SetTitle(ctx context.Context, t string) {
+func (m *NodeMeta) SetTitle(ctx context.Context, t string) {
 	if m == nil {
 		return
 	}
@@ -241,9 +241,9 @@ func (m *Meta) SetTitle(ctx context.Context, t string) {
 	}
 }
 
-// AddTag adds a tag to the Meta if it is not already present. The tag list is
+// AddTag adds a tag to the NodeMeta if it is not already present. The tag list is
 // deduplicated and kept in lexicographic order.
-func (m *Meta) AddTag(tag string) {
+func (m *NodeMeta) AddTag(tag string) {
 	if m == nil {
 		return
 	}
@@ -266,8 +266,8 @@ func (m *Meta) AddTag(tag string) {
 	sort.Strings(m.tags)
 }
 
-// RmTag removes a tag from the Meta if present.
-func (m *Meta) RmTag(tag string) {
+// RmTag removes a tag from the NodeMeta if present.
+func (m *NodeMeta) RmTag(tag string) {
 	if m == nil {
 		return
 	}
@@ -295,7 +295,7 @@ func (m *Meta) RmTag(tag string) {
 }
 
 // Hash returns the stored content hash.
-func (m *Meta) Hash() string {
+func (m *NodeMeta) Hash() string {
 	if m == nil {
 		return ""
 	}
@@ -304,7 +304,7 @@ func (m *Meta) Hash() string {
 
 // SetHash sets the content hash and updates the updated timestamp when the
 // hash changes. The parsed node is updated when present.
-func (m *Meta) SetHash(ctx context.Context, h string, now *time.Time) {
+func (m *NodeMeta) SetHash(ctx context.Context, h string, now *time.Time) {
 	if m == nil {
 		return
 	}
@@ -324,7 +324,7 @@ func (m *Meta) SetHash(ctx context.Context, h string, now *time.Time) {
 }
 
 // Tags returns a copy of the tags slice.
-func (m *Meta) Tags() []string {
+func (m *NodeMeta) Tags() []string {
 	if m == nil {
 		return nil
 	}
@@ -337,7 +337,7 @@ func (m *Meta) Tags() []string {
 
 // SetTags replaces the tag list. Input tags are normalized and deduped. When a
 // parsed node is present the YAML node is updated to reflect the new tags.
-func (m *Meta) SetTags(ctx context.Context, tags []string) {
+func (m *NodeMeta) SetTags(ctx context.Context, tags []string) {
 	if m == nil {
 		return
 	}
@@ -359,7 +359,7 @@ func (m *Meta) SetTags(ctx context.Context, tags []string) {
 }
 
 // Updated returns the updated timestamp.
-func (m *Meta) Updated() time.Time {
+func (m *NodeMeta) Updated() time.Time {
 	if m == nil {
 		return time.Time{}
 	}
@@ -367,7 +367,7 @@ func (m *Meta) Updated() time.Time {
 }
 
 // SetUpdated sets the updated timestamp.
-func (m *Meta) SetUpdated(ctx context.Context, t time.Time) {
+func (m *NodeMeta) SetUpdated(ctx context.Context, t time.Time) {
 	if m == nil {
 		return
 	}
@@ -375,7 +375,7 @@ func (m *Meta) SetUpdated(ctx context.Context, t time.Time) {
 }
 
 // Created returns the created timestamp.
-func (m *Meta) Created() time.Time {
+func (m *NodeMeta) Created() time.Time {
 	if m == nil {
 		return time.Time{}
 	}
@@ -383,7 +383,7 @@ func (m *Meta) Created() time.Time {
 }
 
 // SetCreated sets the created timestamp.
-func (m *Meta) SetCreated(ctx context.Context, t time.Time) {
+func (m *NodeMeta) SetCreated(ctx context.Context, t time.Time) {
 	if m == nil {
 		return
 	}
@@ -391,7 +391,7 @@ func (m *Meta) SetCreated(ctx context.Context, t time.Time) {
 }
 
 // Accessed returns the accessed timestamp.
-func (m *Meta) Accessed() time.Time {
+func (m *NodeMeta) Accessed() time.Time {
 	if m == nil {
 		return time.Time{}
 	}
@@ -399,7 +399,7 @@ func (m *Meta) Accessed() time.Time {
 }
 
 // SetAccessed sets the accessed timestamp.
-func (m *Meta) SetAccessed(ctx context.Context, t time.Time) {
+func (m *NodeMeta) SetAccessed(ctx context.Context, t time.Time) {
 	if m == nil {
 		return
 	}
@@ -407,7 +407,7 @@ func (m *Meta) SetAccessed(ctx context.Context, t time.Time) {
 }
 
 // Lead returns the meta lead (short summary).
-func (m *Meta) Lead() string {
+func (m *NodeMeta) Lead() string {
 	if m == nil {
 		return ""
 	}
@@ -415,7 +415,7 @@ func (m *Meta) Lead() string {
 }
 
 // SetLead sets the meta lead and updates the parsed node when present.
-func (m *Meta) SetLead(ctx context.Context, l string) {
+func (m *NodeMeta) SetLead(ctx context.Context, l string) {
 	if m == nil {
 		return
 	}
@@ -429,7 +429,7 @@ func (m *Meta) SetLead(ctx context.Context, l string) {
 }
 
 // Links returns a copy of outgoing links as a slice of NodeId.
-func (m *Meta) Links() []NodeId {
+func (m *NodeMeta) Links() []NodeId {
 	if m == nil {
 		return nil
 	}
@@ -440,7 +440,7 @@ func (m *Meta) Links() []NodeId {
 
 // SetLinks replaces the outgoing links and updates the parsed node when
 // present.
-func (m *Meta) SetLinks(ctx context.Context, links []NodeId) {
+func (m *NodeMeta) SetLinks(ctx context.Context, links []NodeId) {
 	if m == nil {
 		return
 	}
@@ -463,7 +463,7 @@ func (m *Meta) SetLinks(ctx context.Context, links []NodeId) {
 
 // Get retrieves well-known meta fields (hash, tags, updated, created,
 // accessed, lead). The boolean return indicates whether a value was found.
-func (m *Meta) Get(key string) (string, bool) {
+func (m *NodeMeta) Get(key string) (string, bool) {
 	if m == nil {
 		return "", false
 	}
@@ -508,10 +508,10 @@ func (m *Meta) Get(key string) (string, bool) {
 	}
 }
 
-// Set sets or updates a well-known key/value pair in the Meta.
+// Set sets or updates a well-known key/value pair in the NodeMeta.
 //
 // Supported keys:
-//   - "hash": sets Meta.hash (string)
+//   - "hash": sets NodeMeta.hash (string)
 //   - "tags": accepts []string or string (space/comma separated) and normalizes
 //     tags
 //   - "updated","created","accessed": accept time.Time or RFC3339 string
@@ -521,7 +521,7 @@ func (m *Meta) Get(key string) (string, bool) {
 //
 // For other keys, the function will write the key/value into the preserved
 // yaml.NodeId when available so comment-preserving writes include them.
-func (m *Meta) Set(ctx context.Context, key string, val any) error {
+func (m *NodeMeta) Set(ctx context.Context, key string, val any) error {
 	if m == nil {
 		return nil
 	}
@@ -699,10 +699,10 @@ func (m *Meta) Set(ctx context.Context, key string, val any) error {
 	}
 }
 
-// SetAttrs applies a map of attributes to the Meta. It now delegates all keys
-// to Meta.Set so normalization, validation, and YAML preservation are handled
+// SetAttrs applies a map of attributes to the NodeMeta. It now delegates all keys
+// to NodeMeta.Set so normalization, validation, and YAML preservation are handled
 // in one place.
-func (m *Meta) SetAttrs(ctx context.Context, attrs map[string]any) error {
+func (m *NodeMeta) SetAttrs(ctx context.Context, attrs map[string]any) error {
 	if m == nil || attrs == nil {
 		return nil
 	}
@@ -716,8 +716,8 @@ func (m *Meta) SetAttrs(ctx context.Context, attrs map[string]any) error {
 }
 
 // Update refreshes meta fields based on parsed content. This updates title,
-// hash, lead and links derived from the provided Content.
-func (m *Meta) Update(ctx context.Context, content *Content, now *time.Time) {
+// hash, lead and links derived from the provided NodeContent.
+func (m *NodeMeta) Update(ctx context.Context, content *NodeContent, now *time.Time) {
 	m.SetAttrs(ctx, content.Frontmatter)
 	m.SetTitle(ctx, content.Title)
 	// update hash and bump updated timestamp on change

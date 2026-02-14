@@ -19,7 +19,7 @@ func TestParseMeta_EmptyReturnsEmptyMeta(t *testing.T) {
 	m, err := keg.ParseMeta(ctx, []byte("   \n\t"))
 	t.Log(m)
 	require.NoError(t, err, "ParseMeta should not error for empty input")
-	require.NotNil(t, m, "expected non-nil Meta for empty input")
+	require.NotNil(t, m, "expected non-nil NodeMeta for empty input")
 
 	// Comment-preserving parsing is out of scope. Just ensure the meta is empty
 	// (no tags, no time fields set).
@@ -122,7 +122,7 @@ func TestToYAML_NormalizesTagsOutput(t *testing.T) {
 	ctx := context.Background()
 
 	m := keg.NewMeta(ctx, time.Now())
-	// Set tags as a slice; Meta.Set supports []string
+	// Set tags as a slice; NodeMeta.Set supports []string
 	require.NoError(t, m.Set(ctx, "tags", []string{"A B", "a-b", "C,c"}))
 
 	out := m.ToYAML()
