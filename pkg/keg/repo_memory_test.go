@@ -2,6 +2,7 @@ package keg_test
 
 import (
 	"bytes"
+	"context"
 	"testing"
 	"time"
 
@@ -102,6 +103,31 @@ func TestMemoryRepo_WriteAndListIndexes_GetIndex(t *testing.T) {
 	require.Contains(t, list, name, "expected ListIndexes to include written index name")
 }
 
+func TestMemoryRepo_AssetsAPI(t *testing.T) {
+	t.Parallel()
+	fx := NewSandbox(t)
+
+	r := keg.NewMemoryRepo()
+	ctx := fx.Context()
+	id := keg.NodeId{ID: 41}
+
+	require.NoError(t, r.WriteAsset(ctx, id, keg.AssetKindImage, "a.png", []byte("png")))
+	require.NoError(t, r.WriteAsset(ctx, id, keg.AssetKindItem, "doc.txt", []byte("txt")))
+
+	images, err := r.ListAssets(ctx, id, keg.AssetKindImage)
+	require.NoError(t, err)
+	require.Equal(t, []string{"a.png"}, images)
+
+	items, err := r.ListAssets(ctx, id, keg.AssetKindItem)
+	require.NoError(t, err)
+	require.Equal(t, []string{"doc.txt"}, items)
+
+	require.NoError(t, r.DeleteAsset(ctx, id, keg.AssetKindItem, "doc.txt"))
+	items, err = r.ListAssets(ctx, id, keg.AssetKindItem)
+	require.NoError(t, err)
+	require.Empty(t, items)
+}
+
 func TestMemoryRepo_MoveNodeAndDestinationExists(t *testing.T) {
 	t.Parallel()
 	fx := NewSandbox(t)
@@ -173,4 +199,54 @@ func TestMemoryRepo_NextProducesIncreasingIDs(t *testing.T) {
 
 	// sanity: ensure bytes.Equal works as expected for content comparisons used earlier
 	require.True(t, bytes.Equal(content, got))
+}
+
+func TestMemoryRepo_WithNodeLockTimeout(t *testing.T) {
+	t.Parallel()
+	fx := NewSandbox(t)
+	ctx := fx.Context()
+
+	r := keg.NewMemoryRepo()
+	id := keg.NodeId{ID: 55}
+
+	locked := make(chan struct{})
+	release := make(chan struct{})
+	done := make(chan error, 1)
+
+	go func() {
+		done <- r.WithNodeLock(ctx, id, func(context.Context) error {
+			close(locked)
+			<-release
+			return nil
+		})
+	}()
+
+	<-locked
+
+	lockCtx, cancel := context.WithTimeout(ctx, 50*time.Millisecond)
+	defer cancel()
+	err := r.WithNodeLock(lockCtx, id, func(context.Context) error {
+		return nil
+	})
+	require.Error(t, err)
+	require.ErrorIs(t, err, keg.ErrLockTimeout)
+
+	close(release)
+	require.NoError(t, <-done)
+}
+
+func TestMemoryRepo_WithNodeLockReentrant(t *testing.T) {
+	t.Parallel()
+	fx := NewSandbox(t)
+	ctx := fx.Context()
+
+	r := keg.NewMemoryRepo()
+	id := keg.NodeId{ID: 56}
+
+	err := r.WithNodeLock(ctx, id, func(lockCtx context.Context) error {
+		return r.WithNodeLock(lockCtx, id, func(context.Context) error {
+			return nil
+		})
+	})
+	require.NoError(t, err)
 }

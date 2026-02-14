@@ -1,122 +1,125 @@
 package keg
 
-import (
-	"context"
+import "context"
+
+// AssetKind identifies an asset namespace for a node.
+type AssetKind string
+
+const (
+	AssetKindImage AssetKind = "image"
+	AssetKindItem  AssetKind = "item"
 )
 
-// Repository is the storage backend contract used by KEG. Implementations
-// provide access to node content, metadata, indices, and auxiliary artifacts
-// (images, attachments). Methods are context-aware (honor
-// cancellation/deadlines) and should return well-typed errors (for example the
-// sentinel errors defined in pkg/keg/errors.go) so callers can reliably use
-// errors.Is / errors.As.
+// Repository is the storage backend contract used by KEG. Implementations are
+// responsible for moving node data between storage and the service layer.
 type Repository interface {
-	// Name returns a short, human-friendly name for the backend
-	// implementation.
+	// Backend identity
+
+	// Name returns a short, human-friendly backend identifier.
 	Name() string
 
-	// Next returns the next available NodeID that can be allocated by the
-	// repo. The operation is cancellable via ctx.
+	// Node lifecycle
+
+	// Next returns the next available node id allocation candidate.
+	// Implementations should honor ctx cancellation where applicable.
 	Next(ctx context.Context) (NodeId, error)
-
-	// ReadContent returns the primary content for the given node id (for
-	// example README.md) as a byte slice. If the content cannot be read return
-	// an error.
-	ReadContent(ctx context.Context, id NodeId) ([]byte, error)
-
-	// ReadMeta returns the serialized node metadata (for example meta.yaml)
-	// for the specified node id. If metadata is missing or unreadable return
-	// an appropriate typed error.
-	ReadMeta(ctx context.Context, id NodeId) ([]byte, error)
-
-	// ReadStats returns programmatic node stats for the specified node id.
-	// Implementations typically load stats from meta.yaml, returning an empty
-	// stats value when the node exists but has no persisted metadata.
-	ReadStats(ctx context.Context, id NodeId) (*NodeStats, error)
-
-	// ListNodes returns a slice of all node IDs present in the repository.
+	// ListNodes returns all node ids present in the backend.
+	// Returned ids should be deterministic (stable ordering) when possible.
 	ListNodes(ctx context.Context) ([]NodeId, error)
-
-	// ListItems returns the list of ancillary item names (attachments)
-	// associated with the given node id. Implementations should return
-	// ErrNodeNotFound if the node does not exist.
-	ListItems(ctx context.Context, id NodeId) ([]string, error)
-
-	// ListImages returns the list of stored image names associated with the
-	// given node id. Implementations should return ErrNodeNotFound if the node
-	// does not exist.
-	ListImages(ctx context.Context, id NodeId) ([]string, error)
-
-	// WriteContent writes the primary content for the given node id.
-	// Implementers should perform atomic writes where possible (write temp +
-	// rename) and update any canonical timestamps as appropriate.
-	WriteContent(ctx context.Context, id NodeId, data []byte) error
-
-	// WriteMeta writes the node metadata (for example meta.yaml) for the node
-	// id. Write operations should be atomic when possible and return typed
-	// errors on failure.
-	WriteMeta(ctx context.Context, id NodeId, data []byte) error
-
-	// WriteStats writes programmatic node stats for the specified node id while
-	// preserving manually edited node metadata.
-	WriteStats(ctx context.Context, id NodeId, stats *NodeStats) error
-
-	// UploadImage stores an image blob associated with the node. Name is the
-	// destination filename/key and data is the file bytes.
-	UploadImage(ctx context.Context, id NodeId, name string, data []byte) error
-
-	// UploadItem stores a named ancillary item (attachment) for the node.
-	UploadItem(ctx context.Context, id NodeId, name string, data []byte) error
-
-	// MoveNode renames or moves a node from id to dst. Implementations should
-	// return ErrDestinationExists (or an equivalent typed error) if the
-	// destination already exists, and should ensure the move is atomic when
-	// possible.
+	// MoveNode renames or relocates a node from id to dst.
+	// Implementations should return typed/sentinel errors when source is missing
+	// or destination already exists.
 	MoveNode(ctx context.Context, id NodeId, dst NodeId) error
-
-	// GetIndex reads the raw contents of an index file by name (for example
-	// "nodes.tsv" or "tags"). The returned bytes are a copy and callers should
-	// not mutate them.
-	GetIndex(ctx context.Context, name string) ([]byte, error)
-
-	// ClearIndexes removes or resets the repository index artifacts (for
-	// example files under dex/). Implementations may acquire a short-lived
-	// repo-level lock for this operation; callers should expect the method to
-	// honor ctx for cancellation and to return typed errors on failure.
-	ClearIndexes(ctx context.Context) error
-
-	// WriteIndex writes the raw contents of an index file. Implementations
-	// should write atomically (temp + rename) to avoid exposing partial state
-	// to readers.
-	WriteIndex(ctx context.Context, name string, data []byte) error
-
-	// ListIndexes returns a list of index names (for example dex files)
-	// available from this repository. Returned names should be sorted for
-	// determinism.
-	ListIndexes(ctx context.Context) ([]string, error)
-
-	// DeleteNode removes the node and all associated content/metadata/items.
-	// If the node does not exist implementations should return a typed
-	// NodeNotFoundError.
+	// DeleteNode removes the node and all associated persisted data.
+	// If id does not exist, implementations should return a typed/sentinel
+	// not-exist error.
 	DeleteNode(ctx context.Context, id NodeId) error
 
-	// DeleteImage removes a stored image by name for the node. If the node
-	// does not exist return NodeNotFoundError; if the image is not present
-	// return an appropriate sentinel (for example ErrNotFound) or typed error
-	// per policy.
-	DeleteImage(ctx context.Context, id NodeId, name string) error
+	// Node primary data
 
-	// DeleteItem removes a named ancillary item by name for the node.
-	DeleteItem(ctx context.Context, id NodeId, name string) error
+	// WithNodeLock executes fn while holding an exclusive lock for node id.
+	// Implementations should block until the lock is acquired or ctx is
+	// canceled, and must release the lock after fn returns.
+	WithNodeLock(ctx context.Context, id NodeId, fn func(context.Context) error) error
+	// ReadContent reads the primary node content bytes (for example README.md).
+	// Missing nodes should return a typed/sentinel not-exist error.
+	ReadContent(ctx context.Context, id NodeId) ([]byte, error)
+	// WriteContent writes primary node content bytes for id.
+	// Implementations should perform atomic writes when possible.
+	WriteContent(ctx context.Context, id NodeId, data []byte) error
+	// ReadMeta reads raw node metadata bytes (for example meta.yaml).
+	// Missing nodes should return a typed/sentinel not-exist error.
+	ReadMeta(ctx context.Context, id NodeId) ([]byte, error)
+	// WriteMeta writes raw node metadata bytes.
+	// Implementations should preserve atomicity when possible.
+	WriteMeta(ctx context.Context, id NodeId, data []byte) error
+	// ReadStats returns parsed programmatic node stats for id.
+	// Backends that persist stats inside meta.yaml should parse and return those
+	// fields while preserving any manual metadata concerns at higher layers.
+	ReadStats(ctx context.Context, id NodeId) (*NodeStats, error)
+	// WriteStats writes programmatic node stats for id.
+	// Implementations should preserve manually edited metadata fields when stats
+	// and metadata share a storage representation.
+	WriteStats(ctx context.Context, id NodeId, stats *NodeStats) error
 
-	// ReadConfig reads and returns the repository-level configuration (Config).
-	// Implementations should load and parse the stored configuration. If the
-	// configuration is missing, an implementation may return ErrNotFound or a
-	// more specific sentinel.
+	// Node assets (images, attachments/items)
+
+	// ListAssets lists asset names for a node and asset namespace kind.
+	// Missing nodes should return a typed/sentinel not-exist error.
+	ListAssets(ctx context.Context, id NodeId, kind AssetKind) ([]string, error)
+	// WriteAsset stores a named asset payload for a node and asset kind.
+	// Implementations may create required directories/containers as needed.
+	WriteAsset(ctx context.Context, id NodeId, kind AssetKind, name string, data []byte) error
+	// DeleteAsset removes a named asset for a node and asset kind.
+	// Missing nodes or missing assets should return typed/sentinel errors.
+	DeleteAsset(ctx context.Context, id NodeId, kind AssetKind, name string) error
+
+	// Indexes
+
+	// GetIndex reads an index artifact by name (for example "nodes.tsv").
+	// Returned bytes should be treated as immutable by callers.
+	GetIndex(ctx context.Context, name string) ([]byte, error)
+	// WriteIndex writes an index artifact by name.
+	// Implementations should prefer atomic file replacement semantics.
+	WriteIndex(ctx context.Context, name string, data []byte) error
+	// ListIndexes returns available index artifact names.
+	// Results should be deterministic when possible.
+	ListIndexes(ctx context.Context) ([]string, error)
+	// ClearIndexes removes or resets index artifacts in the backend.
+	// This method should be idempotent and context-aware.
+	ClearIndexes(ctx context.Context) error
+
+	// Repository config
+
+	// ReadConfig reads repository-level keg configuration.
+	// Missing config should return typed/sentinel not-exist errors.
 	ReadConfig(ctx context.Context) (*KegConfig, error)
-
-	// WriteConfig persists the provided Config to the repository.
-	// Implementations should write atomically where possible and validate
-	// input as appropriate.
+	// WriteConfig persists repository-level keg configuration.
+	// Implementations should perform atomic writes when possible.
 	WriteConfig(ctx context.Context, config *KegConfig) error
+}
+
+type nodeLockContextKey struct{}
+type nodeLockSet map[NodeId]struct{}
+
+func lockNodeKey(id NodeId) NodeId {
+	return NodeId{ID: id.ID, Code: id.Code}
+}
+
+func contextWithNodeLock(ctx context.Context, id NodeId) context.Context {
+	key := lockNodeKey(id)
+	current, _ := ctx.Value(nodeLockContextKey{}).(nodeLockSet)
+	next := make(nodeLockSet, len(current)+1)
+	for existing := range current {
+		next[existing] = struct{}{}
+	}
+	next[key] = struct{}{}
+	return context.WithValue(ctx, nodeLockContextKey{}, next)
+}
+
+func contextHasNodeLock(ctx context.Context, id NodeId) bool {
+	key := lockNodeKey(id)
+	current, _ := ctx.Value(nodeLockContextKey{}).(nodeLockSet)
+	_, ok := current[key]
+	return ok
 }

@@ -1,6 +1,9 @@
 package keg_test
 
 import (
+	"context"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -149,17 +152,17 @@ func TestFsRepo_UploadAndListImagesAndItems(t *testing.T) {
 	require.NoError(t, r.WriteMeta(ctx, id, []byte("title: i\n")))
 
 	// images
-	require.NoError(t, r.UploadImage(ctx, id, "a.png", []byte("pngdata")))
-	require.NoError(t, r.UploadImage(ctx, id, "b.jpg", []byte("jpgdata")))
+	require.NoError(t, r.WriteAsset(ctx, id, keg.AssetKindImage, "a.png", []byte("pngdata")))
+	require.NoError(t, r.WriteAsset(ctx, id, keg.AssetKindImage, "b.jpg", []byte("jpgdata")))
 
-	images, err := r.ListImages(ctx, id)
+	images, err := r.ListAssets(ctx, id, keg.AssetKindImage)
 	require.NoError(t, err)
 	require.Contains(t, images, "a.png")
 	require.Contains(t, images, "b.jpg")
 
 	// items
-	require.NoError(t, r.UploadItem(ctx, id, "attach.txt", []byte("data")))
-	items, err := r.ListItems(ctx, id)
+	require.NoError(t, r.WriteAsset(ctx, id, keg.AssetKindItem, "attach.txt", []byte("data")))
+	items, err := r.ListAssets(ctx, id, keg.AssetKindItem)
 	require.NoError(t, err)
 	require.Contains(t, items, "attach.txt")
 }
@@ -217,4 +220,77 @@ func TestFsRepo_WriteReadStats(t *testing.T) {
 	require.Contains(t, string(gotMeta), "title: keep-me")
 	require.Contains(t, string(gotMeta), "foo: bar")
 	require.Contains(t, string(gotMeta), "hash: h1")
+}
+
+func TestFsRepo_WithNodeLockTimeout(t *testing.T) {
+	t.Parallel()
+	fx := NewSandbox(t)
+	ctx := fx.Context()
+
+	tmp := t.TempDir()
+	require.NoError(t, tookit.Mkdir(ctx, tmp, 0o755, true))
+
+	r := &keg.FsRepo{
+		Root:            tmp,
+		ContentFilename: keg.MarkdownContentFilename,
+		MetaFilename:    keg.YAMLMetaFilename,
+	}
+
+	id := keg.NodeId{ID: 91}
+	locked := make(chan struct{})
+	release := make(chan struct{})
+	done := make(chan error, 1)
+
+	go func() {
+		done <- r.WithNodeLock(ctx, id, func(context.Context) error {
+			close(locked)
+			<-release
+			return nil
+		})
+	}()
+
+	<-locked
+
+	lockCtx, cancel := context.WithTimeout(ctx, 50*time.Millisecond)
+	defer cancel()
+	err := r.WithNodeLock(lockCtx, id, func(context.Context) error {
+		return nil
+	})
+	require.Error(t, err)
+	require.ErrorIs(t, err, keg.ErrLockTimeout)
+
+	close(release)
+	require.NoError(t, <-done)
+}
+
+func TestFsRepo_WithNodeLockReentrantAndCleanup(t *testing.T) {
+	t.Parallel()
+	fx := NewSandbox(t)
+	ctx := fx.Context()
+
+	tmp := t.TempDir()
+	require.NoError(t, tookit.Mkdir(ctx, tmp, 0o755, true))
+
+	r := &keg.FsRepo{
+		Root:            tmp,
+		ContentFilename: keg.MarkdownContentFilename,
+		MetaFilename:    keg.YAMLMetaFilename,
+	}
+
+	id := keg.NodeId{ID: 92}
+	lockPath := filepath.Join(tmp, id.Path(), keg.KegLockFile)
+
+	err := r.WithNodeLock(ctx, id, func(lockCtx context.Context) error {
+		_, statErr := tookit.Stat(lockCtx, lockPath, false)
+		require.NoError(t, statErr)
+
+		return r.WithNodeLock(lockCtx, id, func(context.Context) error {
+			return nil
+		})
+	})
+	require.NoError(t, err)
+
+	_, err = tookit.Stat(ctx, lockPath, false)
+	require.Error(t, err)
+	require.True(t, os.IsNotExist(err))
 }
