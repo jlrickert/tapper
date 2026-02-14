@@ -1,7 +1,6 @@
 package kegurl
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"net/url"
@@ -248,24 +247,24 @@ func Parse(raw string) (*Target, error) {
 //
 // Errors from ExpandPath are collected and returned as a joined error so callers
 // can see expansion issues.
-func (k *Target) Expand(ctx context.Context) error {
+func (k *Target) Expand(env toolkit.Env) error {
 	var errs []error
-	expand := func(ctx context.Context, value string) string {
-		va := toolkit.ExpandEnv(ctx, value)
-		vb, err := toolkit.ExpandPath(ctx, va)
+
+	expand := func(value string) string {
+		va := toolkit.ExpandEnv(env, value)
+		vb, err := toolkit.ExpandPath(env, va)
 		if err != nil {
 			errs = append(errs, err)
 			return va
 		}
 		return vb
 	}
-	k.File = expand(ctx, k.File)
-	k.Url = toolkit.ExpandEnv(ctx, k.Url)
-	k.File = expand(ctx, k.File)
-	k.Repo = toolkit.ExpandEnv(ctx, k.Repo)
-	k.Password = toolkit.ExpandEnv(ctx, k.Password)
-	k.Token = toolkit.ExpandEnv(ctx, k.Token)
-	k.TokenEnv = toolkit.ExpandEnv(ctx, k.TokenEnv)
+	k.File = expand(k.File)
+	k.Url = toolkit.ExpandEnv(env, k.Url)
+	k.Repo = toolkit.ExpandEnv(env, k.Repo)
+	k.Password = toolkit.ExpandEnv(env, k.Password)
+	k.Token = toolkit.ExpandEnv(env, k.Token)
+	k.TokenEnv = toolkit.ExpandEnv(env, k.TokenEnv)
 	return errors.Join(errs...)
 }
 

@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 
 	"github.com/jlrickert/cli-toolkit/mylog"
-	"github.com/jlrickert/cli-toolkit/toolkit"
 	kegurl "github.com/jlrickert/tapper/pkg/keg_url"
 	"gopkg.in/yaml.v3"
 )
@@ -48,7 +47,7 @@ func (lf *LocalConfig) WriteLocalFile(ctx context.Context, projectPath string) e
 		lg.Error("failed to marshal local config", "path", path, "err", err)
 		return err
 	}
-	if err := toolkit.AtomicWriteFile(ctx, path, b, 0o644); err != nil {
+	if err := runtimeMust().AtomicWriteFile(path, b, 0o644); err != nil {
 		lg.Error("failed to write to local config", "path", path, "err", err)
 		return fmt.Errorf("failed to write to local config: %w", err)
 	}

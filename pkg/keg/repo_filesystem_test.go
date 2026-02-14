@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/jlrickert/cli-toolkit/sandbox"
-	tookit "github.com/jlrickert/cli-toolkit/toolkit"
 	"github.com/jlrickert/tapper/pkg/keg"
 	"github.com/stretchr/testify/require"
 )
@@ -87,7 +86,7 @@ func TestFsRepo_MoveDeleteNodeAndDestinationExists(t *testing.T) {
 
 	tmp := t.TempDir()
 	// Use std.Mkdir to avoid direct os package functions.
-	require.NoError(t, tookit.Mkdir(ctx, tmp, 0o755, true))
+	require.NoError(t, os.MkdirAll(tmp, 0o755))
 
 	r := &keg.FsRepo{
 		Root:            tmp,
@@ -138,7 +137,7 @@ func TestFsRepo_UploadAndListImagesAndItems(t *testing.T) {
 	ctx := fx.Context()
 
 	tmp := t.TempDir()
-	require.NoError(t, tookit.Mkdir(ctx, tmp, 0o755, true))
+	require.NoError(t, os.MkdirAll(tmp, 0o755))
 
 	r := &keg.FsRepo{
 		Root:            tmp,
@@ -189,7 +188,7 @@ func TestFsRepo_WriteReadStats(t *testing.T) {
 	ctx := fx.Context()
 
 	tmp := t.TempDir()
-	require.NoError(t, tookit.Mkdir(ctx, tmp, 0o755, true))
+	require.NoError(t, os.MkdirAll(tmp, 0o755))
 
 	r := &keg.FsRepo{
 		Root:            tmp,
@@ -228,7 +227,7 @@ func TestFsRepo_WithNodeLockTimeout(t *testing.T) {
 	ctx := fx.Context()
 
 	tmp := t.TempDir()
-	require.NoError(t, tookit.Mkdir(ctx, tmp, 0o755, true))
+	require.NoError(t, os.MkdirAll(tmp, 0o755))
 
 	r := &keg.FsRepo{
 		Root:            tmp,
@@ -269,7 +268,7 @@ func TestFsRepo_WithNodeLockReentrantAndCleanup(t *testing.T) {
 	ctx := fx.Context()
 
 	tmp := t.TempDir()
-	require.NoError(t, tookit.Mkdir(ctx, tmp, 0o755, true))
+	require.NoError(t, os.MkdirAll(tmp, 0o755))
 
 	r := &keg.FsRepo{
 		Root:            tmp,
@@ -281,7 +280,7 @@ func TestFsRepo_WithNodeLockReentrantAndCleanup(t *testing.T) {
 	lockPath := filepath.Join(tmp, id.Path(), keg.KegLockFile)
 
 	err := r.WithNodeLock(ctx, id, func(lockCtx context.Context) error {
-		_, statErr := tookit.Stat(lockCtx, lockPath, false)
+		_, statErr := os.Lstat(lockPath)
 		require.NoError(t, statErr)
 
 		return r.WithNodeLock(lockCtx, id, func(context.Context) error {
@@ -290,7 +289,7 @@ func TestFsRepo_WithNodeLockReentrantAndCleanup(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	_, err = tookit.Stat(ctx, lockPath, false)
+	_, err = os.Lstat(lockPath)
 	require.Error(t, err)
 	require.True(t, os.IsNotExist(err))
 }

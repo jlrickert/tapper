@@ -33,19 +33,17 @@ func NewCliRunner(t *testing.T) *tu.Process {
 }
 
 func NewProcess(t *testing.T, isTTY bool, args ...string) *tu.Process {
-	return tu.NewProcess(func(ctx context.Context, stream *toolkit.Stream) (int, error) {
-		procCtx := toolkit.WithStream(ctx, stream)
-		return cli.Run(procCtx, args)
+	return tu.NewProcess(func(ctx context.Context, rt *toolkit.Runtime) (int, error) {
+		return cli.Run(ctx, rt, args)
 	}, isTTY)
 }
 
 func NewCompletionProcess(t *testing.T, isTTY bool, pos int, words ...string) *tu.Process {
-	return tu.NewProcess(func(ctx context.Context, stream *toolkit.Stream) (int, error) {
+	return tu.NewProcess(func(ctx context.Context, rt *toolkit.Runtime) (int, error) {
 		// Build completion request arguments for cobra
 		args := []string{"__complete"}
 		args = append(args, words...)
 
-		procCtx := toolkit.WithStream(ctx, stream)
-		return cli.Run(procCtx, args)
+		return cli.Run(ctx, rt, args)
 	}, isTTY)
 }

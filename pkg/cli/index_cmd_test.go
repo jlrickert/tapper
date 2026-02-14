@@ -48,7 +48,7 @@ func TestIndexCommand_TableDrivenErrorHandling(t *testing.T) {
 			}
 
 			h := NewProcess(innerT, false, tt.args...)
-			res := h.Run(sb.Context())
+			res := h.Run(sb.Context(), sb.Runtime())
 
 			require.Error(innerT, res.Err, "expected error - %s", tt.description)
 			stderr := string(res.Stderr)
@@ -106,7 +106,7 @@ func TestIndexCommand_WithJoeFixture(t *testing.T) {
 			}
 
 			h := NewProcess(innerT, false, tt.args...)
-			res := h.Run(sb.Context())
+			res := h.Run(sb.Context(), sb.Runtime())
 
 			require.NoError(innerT, res.Err, "index command should succeed - %s", tt.description)
 			stdout := string(res.Stdout)
@@ -135,13 +135,13 @@ func TestIndexCommand_IntegrationWithInit(t *testing.T) {
 			"--alias", "newstudy",
 			"--creator", "test-user",
 		)
-		initRes := initCmd.Run(sb.Context())
+		initRes := initCmd.Run(sb.Context(), sb.Runtime())
 		require.NoError(innerT, initRes.Err, "init should succeed")
 		require.Contains(innerT, string(initRes.Stdout), "keg newstudy created")
 
 		// Now rebuild indices
 		indexCmd := NewProcess(innerT, false, "index", "--alias", "newstudy")
-		indexRes := indexCmd.Run(sb.Context())
+		indexRes := indexCmd.Run(sb.Context(), sb.Runtime())
 		require.NoError(innerT, indexRes.Err, "index should succeed")
 
 		stdout := string(indexRes.Stdout)

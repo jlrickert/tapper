@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jlrickert/cli-toolkit/clock"
@@ -20,6 +21,30 @@ import (
 	kegurl "github.com/jlrickert/tapper/pkg/keg_url"
 	"gopkg.in/yaml.v3"
 )
+
+var (
+	defaultRuntimeOnce sync.Once
+	defaultRuntime     *toolkit.Runtime
+	defaultRuntimeErr  error
+)
+
+func runtimeOrErr() (*toolkit.Runtime, error) {
+	defaultRuntimeOnce.Do(func() {
+		defaultRuntime, defaultRuntimeErr = toolkit.NewRuntime()
+	})
+	if defaultRuntimeErr != nil {
+		return nil, defaultRuntimeErr
+	}
+	return defaultRuntime, nil
+}
+
+func runtimeMust() *toolkit.Runtime {
+	rt, err := runtimeOrErr()
+	if err != nil {
+		panic(err)
+	}
+	return rt
+}
 
 // Package tap provides helpers for the tapper CLI related to user and
 // project configuration, keg resolution, and small utilities used by commands.
@@ -286,8 +311,8 @@ func (cfg *Config) LookupAlias(ctx context.Context, projectRoot string) string {
 		return ""
 	}
 	// Expand path and make absolute/clean to compare reliably.
-	val := toolkit.ExpandEnv(ctx, projectRoot)
-	abs, err := toolkit.ExpandPath(ctx, val)
+	val := toolkit.ExpandEnv(runtimeMust().Env, projectRoot)
+	abs, err := toolkit.ExpandPath(runtimeMust().Env, val)
 	if err != nil {
 		// Still try with expanded env when ExpandPath fails.
 		abs = val
@@ -299,8 +324,8 @@ func (cfg *Config) LookupAlias(ctx context.Context, projectRoot string) string {
 		if m.PathRegex == "" {
 			continue
 		}
-		pattern := toolkit.ExpandEnv(ctx, m.PathRegex)
-		pattern, _ = toolkit.ExpandPath(ctx, pattern)
+		pattern := toolkit.ExpandEnv(runtimeMust().Env, m.PathRegex)
+		pattern, _ = toolkit.ExpandPath(runtimeMust().Env, pattern)
 		ok, _ := regexp.MatchString(pattern, abs)
 		if ok {
 			return m.Alias
@@ -317,8 +342,8 @@ func (cfg *Config) LookupAlias(ctx context.Context, projectRoot string) string {
 		if m.PathPrefix == "" {
 			continue
 		}
-		pref := toolkit.ExpandEnv(ctx, m.PathPrefix)
-		pref, _ = toolkit.ExpandPath(ctx, pref)
+		pref := toolkit.ExpandEnv(runtimeMust().Env, m.PathPrefix)
+		pref, _ = toolkit.ExpandPath(runtimeMust().Env, pref)
 		pref = filepath.Clean(pref)
 		if strings.HasPrefix(abs, pref) {
 			matches = append(matches, match{entry: m, len: len(pref)})
@@ -354,7 +379,7 @@ func (cfg *Config) ResolveDefault(ctx context.Context) (*kegurl.Target, error) {
 		cfg.data = &configDTO{}
 		return nil, nil
 	}
-	alias := toolkit.ExpandEnv(ctx, cfg.DefaultKeg())
+	alias := toolkit.ExpandEnv(runtimeMust().Env, cfg.DefaultKeg())
 	return cfg.ResolveAlias(alias)
 
 }
@@ -382,7 +407,7 @@ func ParseConfig(ctx context.Context, raw []byte) (*Config, error) {
 // When the file does not exist the function returns a Config value and an
 // error that wraps keg.ErrNotExist so callers can detect no-config cases.
 func ReadConfig(ctx context.Context, path string) (*Config, error) {
-	b, err := toolkit.ReadFile(ctx, path)
+	b, err := runtimeMust().ReadFile(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil, fmt.Errorf("unable read user config: %w", keg.ErrNotExist)
@@ -480,7 +505,7 @@ func (cfg *Config) Write(ctx context.Context, path string) error {
 		return fmt.Errorf("unable to write user config: %w", err)
 	}
 
-	if err := toolkit.AtomicWriteFile(ctx, path, data, 0o644); err != nil {
+	if err := runtimeMust().AtomicWriteFile(path, data, 0o644); err != nil {
 		return fmt.Errorf("unable to write config: %w", err)
 	}
 	return nil

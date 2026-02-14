@@ -56,7 +56,7 @@ func TestCatCommand_TableDrivenErrorHandling(t *testing.T) {
 			}
 
 			h := NewProcess(innerT, false, tt.args...)
-			res := h.Run(sb.Context())
+			res := h.Run(sb.Context(), sb.Runtime())
 
 			if tt.expectedErr != "" {
 				require.Error(innerT, res.Err, "expected error - %s", tt.description)
@@ -169,7 +169,7 @@ func TestCatCommand_WithJoeFixture(t *testing.T) {
 			}
 
 			h := NewProcess(innerT, false, tt.args...)
-			res := h.Run(sb.Context())
+			res := h.Run(sb.Context(), sb.Runtime())
 
 			if tt.expectedErr != "" {
 				require.Error(innerT, res.Err, "expected error - %s", tt.description)
@@ -208,13 +208,13 @@ func TestCatCommand_IntegrationWithInit(t *testing.T) {
 			"--alias", "newstudy",
 			"--creator", "test-user",
 		)
-		initRes := initCmd.Run(sb.Context())
+		initRes := initCmd.Run(sb.Context(), sb.Runtime())
 		require.NoError(innerT, initRes.Err, "init should succeed")
 		require.Contains(innerT, string(initRes.Stdout), "keg newstudy created")
 
 		// Now cat the node 0
 		catCmd := NewProcess(innerT, false, "cat", "0", "--alias", "newstudy")
-		catRes := catCmd.Run(sb.Context())
+		catRes := catCmd.Run(sb.Context(), sb.Runtime())
 		require.NoError(innerT, catRes.Err, "cat should succeed")
 
 		stdout := string(catRes.Stdout)
@@ -240,13 +240,13 @@ func TestCatCommand_UserKeg(t *testing.T) {
 			"--alias", "public",
 			"--creator", "test-user",
 		)
-		initRes := initCmd.Run(sb.Context())
+		initRes := initCmd.Run(sb.Context(), sb.Runtime())
 		require.NoError(innerT, initRes.Err, "init should succeed")
 		require.Contains(innerT, string(initRes.Stdout), "keg public created")
 
 		// Now cat the node from that user keg
 		catCmd := NewProcess(innerT, false, "cat", "0", "--alias", "public")
-		catRes := catCmd.Run(sb.Context())
+		catRes := catCmd.Run(sb.Context(), sb.Runtime())
 		require.NoError(innerT, catRes.Err, "cat should succeed")
 
 		stdout := string(catRes.Stdout)
