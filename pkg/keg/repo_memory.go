@@ -2,6 +2,8 @@ package keg
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"slices"
 	"sort"
 	"sync"
@@ -30,6 +32,8 @@ type MemoryRepo struct {
 	mu sync.RWMutex
 	// nodes stores per-node data keyed by NodeID.
 	nodes map[NodeId]*memoryNode
+	// nodeLocks tracks active per-node lock ownership.
+	nodeLocks map[NodeId]struct{}
 	// indexes stores raw index files by name (for example: "nodes.tsv").
 	indexes map[string][]byte
 	// config holds the in-memory Config if written.
@@ -46,8 +50,9 @@ type memoryNode struct {
 // NewMemoryRepo constructs a ready-to-use in-memory repository.
 func NewMemoryRepo() *MemoryRepo {
 	return &MemoryRepo{
-		nodes:   make(map[NodeId]*memoryNode),
-		indexes: make(map[string][]byte),
+		nodes:     make(map[NodeId]*memoryNode),
+		nodeLocks: make(map[NodeId]struct{}),
+		indexes:   make(map[string][]byte),
 	}
 }
 
@@ -206,34 +211,29 @@ func (r *MemoryRepo) getNode(id NodeId) (*memoryNode, bool) {
 	return n, ok
 }
 
-// ListItems lists ancillary item names stored for a node, sorted lexicographically.
-// If the node does not exist, ErrNodeNotFound is returned.
-func (r *MemoryRepo) ListItems(ctx context.Context, id NodeId) ([]string, error) {
+// ListAssets lists asset names for a node and asset kind, sorted lexicographically.
+func (r *MemoryRepo) ListAssets(ctx context.Context, id NodeId, kind AssetKind) ([]string, error) {
+	_ = ctx
 	n, ok := r.getNode(id)
 	if !ok {
 		return nil, ErrNotExist
 	}
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	names := make([]string, 0, len(n.items))
-	for k := range n.items {
-		names = append(names, k)
-	}
-	sort.Strings(names)
-	return names, nil
-}
 
-// ListImages lists stored image names for a node, sorted lexicographically.
-// Returns ErrNodeNotFound if the node doesn't exist.
-func (r *MemoryRepo) ListImages(ctx context.Context, id NodeId) ([]string, error) {
-	n, ok := r.getNode(id)
-	if !ok {
-		return nil, ErrNotExist
-	}
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	names := make([]string, 0, len(n.images))
-	for k := range n.images {
+
+	var src map[string][]byte
+	switch kind {
+	case AssetKindImage:
+		src = n.images
+	case AssetKindItem:
+		src = n.items
+	default:
+		return nil, fmt.Errorf("unknown asset kind %q", kind)
+	}
+
+	names := make([]string, 0, len(src))
+	for k := range src {
 		names = append(names, k)
 	}
 	sort.Strings(names)
@@ -291,21 +291,21 @@ func (r *MemoryRepo) WriteStats(ctx context.Context, id NodeId, stats *NodeStats
 	return nil
 }
 
-// UploadImage stores an image blob for the node. Name is used as the key.
-func (r *MemoryRepo) UploadImage(ctx context.Context, id NodeId, name string, data []byte) error {
+// WriteAsset stores a named asset blob for a node.
+func (r *MemoryRepo) WriteAsset(ctx context.Context, id NodeId, kind AssetKind, name string, data []byte) error {
+	_ = ctx
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	n := r.ensureNode(id)
-	n.images[name] = data
-	return nil
-}
 
-// UploadItem stores an ancillary item blob for the node.
-func (r *MemoryRepo) UploadItem(ctx context.Context, id NodeId, name string, data []byte) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	n := r.ensureNode(id)
-	n.items[name] = data
+	switch kind {
+	case AssetKindImage:
+		n.images[name] = data
+	case AssetKindItem:
+		n.items[name] = data
+	default:
+		return fmt.Errorf("unknown asset kind %q", kind)
+	}
 	return nil
 }
 
@@ -372,40 +372,56 @@ func (r *MemoryRepo) DeleteNode(ctx context.Context, id NodeId) error {
 	return nil
 }
 
-// DeleteImage removes a stored image by name for the node.
-//
-// - Returns NewNodeNotFoundError if the node doesn't exist.
-// - Returns ErrNotFound if the image name is not present.
-func (r *MemoryRepo) DeleteImage(ctx context.Context, id NodeId, name string) error {
+// DeleteAsset removes an asset by name for a node.
+func (r *MemoryRepo) DeleteAsset(ctx context.Context, id NodeId, kind AssetKind, name string) error {
+	_ = ctx
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	n, ok := r.nodes[id]
 	if !ok {
 		return ErrNotExist
 	}
-	if _, ok := n.images[name]; !ok {
-		return ErrNotExist
+
+	switch kind {
+	case AssetKindImage:
+		if _, ok := n.images[name]; !ok {
+			return ErrNotExist
+		}
+		delete(n.images, name)
+	case AssetKindItem:
+		if _, ok := n.items[name]; !ok {
+			return ErrNotExist
+		}
+		delete(n.items, name)
+	default:
+		return fmt.Errorf("unknown asset kind %q", kind)
 	}
-	delete(n.images, name)
 	return nil
 }
 
-// DeleteItem removes an ancillary item by name for the node.
-//
-// - Returns NewNodeNotFoundError if the node doesn't exist.
-// - Returns ErrNotFound if the item name is not present.
+// Compatibility wrappers for pre-assets API callers.
+func (r *MemoryRepo) ListItems(ctx context.Context, id NodeId) ([]string, error) {
+	return r.ListAssets(ctx, id, AssetKindItem)
+}
+
+func (r *MemoryRepo) ListImages(ctx context.Context, id NodeId) ([]string, error) {
+	return r.ListAssets(ctx, id, AssetKindImage)
+}
+
+func (r *MemoryRepo) UploadImage(ctx context.Context, id NodeId, name string, data []byte) error {
+	return r.WriteAsset(ctx, id, AssetKindImage, name, data)
+}
+
+func (r *MemoryRepo) UploadItem(ctx context.Context, id NodeId, name string, data []byte) error {
+	return r.WriteAsset(ctx, id, AssetKindItem, name, data)
+}
+
+func (r *MemoryRepo) DeleteImage(ctx context.Context, id NodeId, name string) error {
+	return r.DeleteAsset(ctx, id, AssetKindImage, name)
+}
+
 func (r *MemoryRepo) DeleteItem(ctx context.Context, id NodeId, name string) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	n, ok := r.nodes[id]
-	if !ok {
-		return ErrNotExist
-	}
-	if _, ok := n.items[name]; !ok {
-		return ErrNotExist
-	}
-	delete(n.items, name)
-	return nil
+	return r.DeleteAsset(ctx, id, AssetKindItem, name)
 }
 
 // ReadConfig returns the repository-level config previously written with
@@ -430,19 +446,12 @@ func (r *MemoryRepo) WriteConfig(ctx context.Context, config *KegConfig) error {
 	return nil
 }
 
-// ClearNodeLock removes a per-node lock marker (represented as a reserved item key).
-// Returns NewNodeNotFoundError if the node does not exist.
+// ClearNodeLock removes an active per-node lock marker.
 func (r *MemoryRepo) ClearNodeLock(ctx context.Context, id NodeId) error {
+	_ = ctx
 	r.mu.Lock()
 	defer r.mu.Unlock()
-
-	n, ok := r.nodes[id]
-	if !ok {
-		return ErrNotExist
-	}
-
-	// Remove the lock marker if present.
-	delete(n.items, KegLockFile)
+	delete(r.nodeLocks, lockNodeKey(id))
 	return nil
 }
 
@@ -453,9 +462,10 @@ func (r *MemoryRepo) ClearNodeLock(ctx context.Context, id NodeId) error {
 // Behavior notes:
 //
 // - If retryInterval <= 0, a sensible default is used.
-// - If the node does not exist, NewNodeNotFoundError is returned immediately.
 // - If ctx is cancelled while waiting, ErrLockTimeout is returned.
 func (r *MemoryRepo) LockNode(ctx context.Context, id NodeId, retryInterval time.Duration) (func() error, error) {
+	key := lockNodeKey(id)
+
 	// Default retry interval if caller gives zero or negative.
 	if retryInterval <= 0 {
 		retryInterval = 100 * time.Millisecond
@@ -463,23 +473,15 @@ func (r *MemoryRepo) LockNode(ctx context.Context, id NodeId, retryInterval time
 
 	// Fast path: try to acquire immediately.
 	r.mu.Lock()
-	n, ok := r.nodes[id]
-	if !ok {
-		r.mu.Unlock()
-		return nil, ErrNotExist
-	}
-	if _, locked := n.items[KegLockFile]; !locked {
-		// Acquire lock by setting a reserved item key.
-		n.items[KegLockFile] = []byte{1}
+	if _, locked := r.nodeLocks[key]; !locked {
+		// Acquire lock immediately.
+		r.nodeLocks[key] = struct{}{}
 		r.mu.Unlock()
 
 		unlock := func() error {
 			r.mu.Lock()
 			defer r.mu.Unlock()
-			// If node was deleted, nothing to do; deletion is allowed.
-			if nn, ok := r.nodes[id]; ok {
-				delete(nn.items, KegLockFile)
-			}
+			delete(r.nodeLocks, key)
 			return nil
 		}
 		return unlock, nil
@@ -495,24 +497,17 @@ func (r *MemoryRepo) LockNode(ctx context.Context, id NodeId, retryInterval time
 		case <-ctx.Done():
 			// Per package semantics, use ErrLockTimeout to indicate the lock
 			// acquisition was canceled/timed out.
-			return nil, ErrLockTimeout
+			return nil, fmt.Errorf("%w: %w", ErrLockTimeout, ctx.Err())
 		case <-ticker.C:
 			r.mu.Lock()
-			n, ok := r.nodes[id]
-			if !ok {
-				r.mu.Unlock()
-				return nil, ErrNotExist
-			}
-			if _, locked := n.items[KegLockFile]; !locked {
-				n.items[KegLockFile] = []byte{1}
+			if _, locked := r.nodeLocks[key]; !locked {
+				r.nodeLocks[key] = struct{}{}
 				r.mu.Unlock()
 
 				unlock := func() error {
 					r.mu.Lock()
 					defer r.mu.Unlock()
-					if nn, ok := r.nodes[id]; ok {
-						delete(nn.items, KegLockFile)
-					}
+					delete(r.nodeLocks, key)
 					return nil
 				}
 				return unlock, nil
@@ -521,6 +516,29 @@ func (r *MemoryRepo) LockNode(ctx context.Context, id NodeId, retryInterval time
 			// continue retrying
 		}
 	}
+}
+
+// WithNodeLock executes fn while holding an exclusive lock for node id.
+func (r *MemoryRepo) WithNodeLock(ctx context.Context, id NodeId, fn func(context.Context) error) error {
+	if fn == nil {
+		return fmt.Errorf("fn required")
+	}
+	if contextHasNodeLock(ctx, id) {
+		return fn(ctx)
+	}
+
+	unlock, err := r.LockNode(ctx, id, 100*time.Millisecond)
+	if err != nil {
+		if errors.Is(err, ErrLockTimeout) {
+			return err
+		}
+		return errors.Join(ErrLock, err)
+	}
+
+	lockedCtx := contextWithNodeLock(ctx, id)
+	runErr := fn(lockedCtx)
+	unlockErr := unlock()
+	return errors.Join(runErr, unlockErr)
 }
 
 // Ensure MemoryRepo implements Repository at compile time.
