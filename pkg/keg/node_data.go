@@ -14,6 +14,7 @@ type NodeData struct {
 	ID      NodeId
 	Content *NodeContent
 	Meta    *NodeMeta
+	Stats   *NodeStats
 
 	// Ancillary names (attachments and images). Implementations may populate these
 	// from the repository.
@@ -30,12 +31,12 @@ func (n *NodeData) ContentHash() string {
 	return n.Content.Hash
 }
 
-// MetaHash returns the meta hash from the parsed NodeMeta when available.
+// MetaHash returns the stored programmatic hash when available.
 func (n *NodeData) MetaHash() string {
-	if n == nil || n.Meta == nil {
+	if n == nil || n.Stats == nil {
 		return ""
 	}
-	return n.Meta.Hash()
+	return n.Stats.Hash()
 }
 
 // NodeContent has previously changed
@@ -60,13 +61,13 @@ func (n *NodeData) Title() string {
 	return ""
 }
 
-// Lead returns the short lead/summary for the node. Prefer meta then content.
+// Lead returns the short lead/summary for the node. Prefer stats then content.
 func (n *NodeData) Lead() string {
 	if n == nil {
 		return ""
 	}
-	if n.Meta != nil {
-		if l := n.Meta.Lead(); l != "" {
+	if n.Stats != nil {
+		if l := n.Stats.Lead(); l != "" {
 			return l
 		}
 	}
@@ -76,16 +77,14 @@ func (n *NodeData) Lead() string {
 	return ""
 }
 
-// Links returns the outgoing links discovered for the node. Prefer content
-// links and fall back to meta links when content is empty.
+// Links returns the outgoing links discovered for the node. Prefer stats and
+// fall back to parsed content links when stats are unavailable.
 func (n *NodeData) Links() []NodeId {
 	if n == nil {
 		return nil
 	}
-	if n.Meta != nil {
-		ml := n.Meta.Links()
-		links := make([]NodeId, len(ml))
-		copy(links, ml)
+	if n.Stats != nil {
+		links := n.Stats.Links()
 		return links
 	}
 	if n.Content != nil && len(n.Content.Links) > 0 {
@@ -104,28 +103,28 @@ func (n *NodeData) Format() string {
 	return n.Content.Format
 }
 
-// Updated returns the updated timestamp from meta when available.
+// Updated returns the updated timestamp from stats when available.
 func (n *NodeData) Updated() time.Time {
-	if n == nil || n.Meta == nil {
+	if n == nil || n.Stats == nil {
 		return time.Time{}
 	}
-	return n.Meta.Updated()
+	return n.Stats.Updated()
 }
 
-// Created returns the created timestamp from meta when available.
+// Created returns the created timestamp from stats when available.
 func (n *NodeData) Created() time.Time {
-	if n == nil || n.Meta == nil {
+	if n == nil || n.Stats == nil {
 		return time.Time{}
 	}
-	return n.Meta.Created()
+	return n.Stats.Created()
 }
 
-// Accessed returns the accessed timestamp from meta when available.
+// Accessed returns the accessed timestamp from stats when available.
 func (n *NodeData) Accessed() time.Time {
-	if n == nil || n.Meta == nil {
+	if n == nil || n.Stats == nil {
 		return time.Time{}
 	}
-	return n.Meta.Accessed()
+	return n.Stats.Accessed()
 }
 
 // Tags returns a copy of the normalized tag list from meta or nil if not set.
@@ -153,16 +152,28 @@ func (n *NodeData) Ref() NodeIndexEntry {
 }
 
 func (n *NodeData) UpdateMeta(ctx context.Context, now *time.Time) error {
+	if n == nil || n.Content == nil {
+		return nil
+	}
+	if n.Meta == nil {
+		n.Meta = NewMeta(ctx, time.Time{})
+	}
+	if n.Stats == nil {
+		n.Stats = &NodeStats{}
+	}
 	err := n.Meta.SetAttrs(ctx, n.Content.Frontmatter)
 	n.Meta.SetTitle(ctx, n.Content.Title)
-	// update hash and bump updated timestamp on change
-	n.Meta.SetHash(ctx, n.Content.Hash, now)
-	// also update lead and links from parsed content
-	n.Meta.SetLead(ctx, n.Content.Lead)
-	n.Meta.SetLinks(ctx, n.Content.Links)
+	n.Stats.UpdateFromContent(n.Content, now)
 	return err
 }
 
 func (n *NodeData) Touch(ctx context.Context, now *time.Time) {
-	n.Meta.SetAccessed(ctx, *now)
+	_ = ctx
+	if n == nil || now == nil {
+		return
+	}
+	if n.Stats == nil {
+		n.Stats = &NodeStats{}
+	}
+	n.Stats.SetAccessed(*now)
 }

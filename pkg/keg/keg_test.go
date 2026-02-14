@@ -152,7 +152,9 @@ func TestCreateNodeWithMeta(t *testing.T) {
 	m, err := k.GetMeta(f.Context(), id)
 	require.NoError(t, err)
 	require.Equal(t, "MyTitle", m.Title())
-	require.Equal(t, "short lead", m.Lead())
+	stats, err := k.GetStats(f.Context(), id)
+	require.NoError(t, err)
+	require.Equal(t, "short lead", stats.Lead())
 	// normalized tags should include "tag-a"
 	foundTag := slices.Contains(m.Tags(), "tag-a")
 	require.True(t, foundTag, "expected normalized tag 'tag-a' to be present")
@@ -183,7 +185,9 @@ func TestCreateWithBody(t *testing.T) {
 	m, err := k.GetMeta(f.Context(), id)
 	require.NoError(t, err)
 	require.Equal(t, "BodyTitle", m.Title())
-	require.Equal(t, "body paragraph", m.Lead())
+	stats, err := k.GetStats(f.Context(), id)
+	require.NoError(t, err)
+	require.Equal(t, "body paragraph", stats.Lead())
 }
 
 // New test: Body contains YAML frontmatter. Ensure content written equals the
@@ -219,7 +223,9 @@ fm lead paragraph
 
 	// Title should be derived from the first H1 in the markdown body.
 	require.Equal(t, "FMTitle", m.Title())
-	require.Equal(t, "fm lead paragraph", m.Lead())
+	stats, err := k.GetStats(f.Context(), id)
+	require.NoError(t, err)
+	require.Equal(t, "fm lead paragraph", stats.Lead())
 	require.Contains(t, m.Tags(), "fm")
 	require.Contains(t, m.ToYAML(), "foo: bar")
 }
@@ -245,9 +251,9 @@ func TestSetContentAndUpdate(t *testing.T) {
 	newContent := []byte("# Initial\n\nupdated lead paragraph\n")
 	require.NoError(t, k.SetContent(f.Context(), id, newContent))
 
-	m, err := k.GetMeta(f.Context(), id)
+	stats, err := k.GetStats(f.Context(), id)
 	require.NoError(t, err)
-	require.Equal(t, "updated lead paragraph", m.Lead())
+	require.Equal(t, "updated lead paragraph", stats.Lead())
 }
 
 // TestCreateAndUpdateNodesWithFsRepo uses the filesystem repo to create a
@@ -294,9 +300,9 @@ func TestCreateAndUpdateNodesWithFsRepo(t *testing.T) {
 	require.NoError(t, k.SetContent(f.Context(), id, newContent))
 
 	// NodeMeta should reflect the new lead.
-	m, err := k.GetMeta(f.Context(), id)
+	stats, err := k.GetStats(f.Context(), id)
 	require.NoError(t, err)
-	require.Equal(t, "new lead from fs", m.Lead())
+	require.Equal(t, "new lead from fs", stats.Lead())
 
 	// Dex entry should have a newer updated timestamp.
 	ref2 := dex.GetRef(f.Context(), id)
