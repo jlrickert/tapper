@@ -46,7 +46,7 @@ func NewTap(opts TapOptions) (*Tap, error) {
 	}
 
 	if opts.Root == "" {
-		wd, err := rt.Env.Getwd()
+		wd, err := rt.Getwd()
 		if err != nil {
 			return nil, fmt.Errorf("unable to determine working directory: %w", err)
 		}
@@ -261,7 +261,7 @@ func (t *Tap) Init(ctx context.Context, name string, options *InitOptions) error
 		})
 	case "user":
 		_, err = t.initUserKeg(ctx, options)
-	case "project":
+	case "project", "local":
 		_, err = t.initProjectKeg(ctx, initLocalOptions{
 			Path:    options.Path,
 			Title:   options.Title,
@@ -293,7 +293,7 @@ type initLocalOptions struct {
 // Errors are wrapped with contextual messages to aid callers.
 func (t *Tap) initProjectKeg(ctx context.Context, opts initLocalOptions) (*kegurl.Target, error) {
 	target := kegurl.NewFile(opts.Path)
-	k, err := keg.NewKegFromTarget(ctx, target)
+	k, err := keg.NewKegFromTarget(ctx, target, t.Runtime)
 	if err != nil {
 		return nil, fmt.Errorf("unable to init keg: %w", err)
 	}
@@ -318,7 +318,7 @@ func (t *Tap) initUserKeg(ctx context.Context, opts *InitOptions) (*kegurl.Targe
 	kegPath := filepath.Join(repoPath, opts.Name)
 
 	target := kegurl.NewFile(kegPath)
-	k, err := keg.NewKegFromTarget(ctx, target)
+	k, err := keg.NewKegFromTarget(ctx, target, t.Runtime)
 	if err != nil {
 		return nil, fmt.Errorf("unable to init keg: %w", err)
 	}
@@ -330,7 +330,28 @@ func (t *Tap) initUserKeg(ctx context.Context, opts *InitOptions) (*kegurl.Targe
 		kc.Creator = opts.Creator
 		kc.Title = opts.Title
 	})
-	return k.Target, err
+	if err != nil {
+		return nil, err
+	}
+
+	alias := opts.Alias
+	if alias == "" {
+		alias = opts.Name
+	}
+	if alias != "" {
+		userCfg, err := t.ConfigService.UserConfig(ctx, false)
+		if err != nil {
+			return nil, err
+		}
+		if err := userCfg.AddKeg(alias, target); err != nil {
+			return nil, err
+		}
+		if err := userCfg.Write(ctx, t.Runtime, t.PathService.UserConfig()); err != nil {
+			return nil, err
+		}
+		t.ConfigService.ResetCache()
+	}
+	return k.Target, nil
 }
 
 type initRegistryOptions struct {
@@ -366,7 +387,7 @@ func (t *Tap) initRegistry(ctx context.Context, opts initRegistryOptions) (*kegu
 	// Determine user namespace.
 	user := opts.User
 	if user == "" {
-		u, _ := t.Runtime.Env.GetUser()
+		u, _ := t.Runtime.GetUser()
 		if u != "" {
 			user = u
 		} else {
@@ -465,7 +486,7 @@ func (t *Tap) ConfigEdit(ctx context.Context, opts ConfigEditOptions) error {
 		} else {
 			cfg = DefaultUserConfig("public", "~/Documents/kegs")
 		}
-		if err := cfg.Write(ctx, configPath); err != nil {
+		if err := cfg.Write(ctx, t.Runtime, configPath); err != nil {
 			return fmt.Errorf("unable to create default config: %w", err)
 		}
 	}
@@ -638,7 +659,7 @@ func (t *Tap) Dir(ctx context.Context, opts DirOptions) (string, error) {
 // values may be used.
 func (t *Tap) ListKegs(ctx context.Context, cache bool) ([]string, error) {
 	cfg := t.ConfigService.Config(ctx, cache)
-	userRepo, _ := toolkit.ExpandPath(t.Runtime.Env, cfg.UserRepoPath())
+	userRepo, _ := toolkit.ExpandPath(t.Runtime, cfg.UserRepoPath())
 
 	// Find files
 	var results []string

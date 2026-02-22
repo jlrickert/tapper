@@ -35,7 +35,7 @@ func TestCatCommand_TableDrivenErrorHandling(t *testing.T) {
 		},
 		{
 			name:         "cat_nonexistent_alias",
-			args:         []string{"cat", "0", "--alias", "nonexistent"},
+			args:         []string{"cat", "0", "--keg", "nonexistent"},
 			setupFixture: strPtr("joe"),
 			expectedErr:  "keg alias not found",
 			description:  "Error when keg alias does not exist",
@@ -45,7 +45,7 @@ func TestCatCommand_TableDrivenErrorHandling(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(innerT *testing.T) {
 			innerT.Parallel()
-			var opts []testutils.SandboxOption
+			var opts []testutils.Option
 			if tt.setupFixture != nil {
 				opts = append(opts, testutils.WithFixture(*tt.setupFixture, "~"))
 			}
@@ -127,7 +127,7 @@ func TestCatCommand_WithJoeFixture(t *testing.T) {
 			args: []string{
 				"cat",
 				"0",
-				"--alias", "example",
+				"--keg", "example",
 			},
 			setupFixture: strPtr("joe"),
 			cwd:          strPtr("~/repos/work/spy-things"),
@@ -143,7 +143,7 @@ func TestCatCommand_WithJoeFixture(t *testing.T) {
 			args: []string{
 				"cat",
 				"0",
-				"--alias", "personal",
+				"--keg", "personal",
 			},
 			setupFixture: strPtr("joe"),
 			expectedInStdout: []string{
@@ -158,7 +158,7 @@ func TestCatCommand_WithJoeFixture(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(innerT *testing.T) {
 			innerT.Parallel()
-			var opts []testutils.SandboxOption
+			var opts []testutils.Option
 			if tt.setupFixture != nil {
 				opts = append(opts, testutils.WithFixture(*tt.setupFixture, "~"))
 			}
@@ -195,7 +195,7 @@ func TestCatCommand_WithJoeFixture(t *testing.T) {
 func TestCatCommand_IntegrationWithInit(t *testing.T) {
 	t.Run("cat_node_after_init", func(innerT *testing.T) {
 		innerT.Parallel()
-		opts := []testutils.SandboxOption{
+		opts := []testutils.Option{
 			testutils.WithFixture("testuser", "~"),
 		}
 		sb := NewSandbox(innerT, opts...)
@@ -213,7 +213,7 @@ func TestCatCommand_IntegrationWithInit(t *testing.T) {
 		require.Contains(innerT, string(initRes.Stdout), "keg newstudy created")
 
 		// Now cat the node 0
-		catCmd := NewProcess(innerT, false, "cat", "0", "--alias", "newstudy")
+		catCmd := NewProcess(innerT, false, "cat", "0", "--keg", "newstudy")
 		catRes := catCmd.Run(sb.Context(), sb.Runtime())
 		require.NoError(innerT, catRes.Err, "cat should succeed")
 
@@ -227,7 +227,7 @@ func TestCatCommand_IntegrationWithInit(t *testing.T) {
 func TestCatCommand_UserKeg(t *testing.T) {
 	t.Run("cat_from_user_keg_with_alias", func(innerT *testing.T) {
 		innerT.Parallel()
-		opts := []testutils.SandboxOption{
+		opts := []testutils.Option{
 			testutils.WithFixture("testuser", "~"),
 		}
 		sb := NewSandbox(innerT, opts...)
@@ -245,7 +245,7 @@ func TestCatCommand_UserKeg(t *testing.T) {
 		require.Contains(innerT, string(initRes.Stdout), "keg public created")
 
 		// Now cat the node from that user keg
-		catCmd := NewProcess(innerT, false, "cat", "0", "--alias", "public")
+		catCmd := NewProcess(innerT, false, "cat", "0", "--keg", "public")
 		catRes := catCmd.Run(sb.Context(), sb.Runtime())
 		require.NoError(innerT, catRes.Err, "cat should succeed")
 

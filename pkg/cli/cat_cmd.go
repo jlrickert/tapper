@@ -13,7 +13,7 @@ import (
 //
 //	Tap cat 0
 //	Tap cat 42
-//	Tap cat 0 --alias myalias
+//	Tap cat 0 --keg myalias
 func NewCatCmd(deps *Deps) *cobra.Command {
 	var opts tapper.CatOptions
 

@@ -27,8 +27,8 @@ func TestConfigCommand_DisplaysMergedConfig(t *testing.T) {
 			description:      "Display merged configuration from user config",
 		},
 		{
-			name:         "config_with_local_flag",
-			args:         []string{"config", "--local"},
+			name:         "config_with_project_flag",
+			args:         []string{"config", "--project"},
 			setupFixture: strPtr("joe"),
 			expectedErr:  "no configuration available",
 			description:  "Project config may not exist and should error gracefully",
@@ -38,7 +38,7 @@ func TestConfigCommand_DisplaysMergedConfig(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(innerT *testing.T) {
 			innerT.Parallel()
-			var opts []testutils.SandboxOption
+			var opts []testutils.Option
 			if tt.setupFixture != nil {
 				opts = append(opts, testutils.WithFixture(*tt.setupFixture, "~"))
 			}
@@ -72,7 +72,7 @@ func TestConfigCommand_DisplaysMergedConfig(t *testing.T) {
 func TestConfigCommand_IntegrationWithInit(t *testing.T) {
 	t.Run("config_after_init", func(innerT *testing.T) {
 		innerT.Parallel()
-		opts := []testutils.SandboxOption{
+		opts := []testutils.Option{
 			testutils.WithFixture("testuser", "~"),
 		}
 		sb := NewSandbox(innerT, opts...)

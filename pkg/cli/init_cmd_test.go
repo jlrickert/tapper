@@ -120,7 +120,7 @@ func TestInitCommand_TableDriven(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(innerT *testing.T) {
 			innerT.Parallel()
-			var opts []testutils.SandboxOption
+			var opts []testutils.Option
 			if tt.setupFixture != nil {
 				opts = append(opts, testutils.WithFixture(*tt.setupFixture, "~"))
 			}

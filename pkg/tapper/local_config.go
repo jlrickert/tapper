@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	"github.com/jlrickert/cli-toolkit/mylog"
+	"github.com/jlrickert/cli-toolkit/toolkit"
 	kegurl "github.com/jlrickert/tapper/pkg/keg_url"
 	"gopkg.in/yaml.v3"
 )
@@ -37,7 +38,7 @@ func ReadLocalFile(ctx context.Context, path string) (*LocalConfig, error) {
 
 // WriteLocalFile writes LocalConfig to repoRoot/.tapper/local.yaml atomically.
 // It will create the .tapper directory if needed.
-func (lf *LocalConfig) WriteLocalFile(ctx context.Context, projectPath string) error {
+func (lf *LocalConfig) WriteLocalFile(ctx context.Context, rt *toolkit.Runtime, projectPath string) error {
 	lg := mylog.LoggerFromContext(ctx)
 	fn := ".tapper/local.yaml"
 	path := filepath.Join(projectPath, ".tapper", fn)
@@ -47,7 +48,10 @@ func (lf *LocalConfig) WriteLocalFile(ctx context.Context, projectPath string) e
 		lg.Error("failed to marshal local config", "path", path, "err", err)
 		return err
 	}
-	if err := runtimeMust().AtomicWriteFile(path, b, 0o644); err != nil {
+	if err := validateRuntime(rt); err != nil {
+		return err
+	}
+	if err := rt.AtomicWriteFile(path, b, 0o644); err != nil {
 		lg.Error("failed to write to local config", "path", path, "err", err)
 		return fmt.Errorf("failed to write to local config: %w", err)
 	}
