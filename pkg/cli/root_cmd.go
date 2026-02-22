@@ -18,6 +18,7 @@ type Deps struct {
 	Root     string
 	Shutdown func()
 	Runtime  *toolkit.Runtime
+	Profile  Profile
 
 	ConfigPath string
 	LogFile    string
@@ -32,12 +33,13 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 	if deps == nil {
 		deps = &Deps{}
 	}
+	deps.Profile = deps.Profile.withDefaults()
 	if deps.Shutdown == nil {
 		deps.Shutdown = func() {}
 	}
 
 	cmd := &cobra.Command{
-		Use: "tap",
+		Use: deps.Profile.Use,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			// Respect an existing context (tests set f.Ctx). Use it as the base.
 			ctx := cmd.Context()
@@ -112,17 +114,21 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 	cmd.PersistentFlags().BoolVar(&deps.LogJSON, "log-json", false, "output logs as JSON")
 	cmd.PersistentFlags().StringVarP(&deps.ConfigPath, "config", "c", "", "path to config file")
 
-	// add subcommands; pass nil runner so it will resolve runner from ctx
-	cmd.AddCommand(
+	subcommands := []*cobra.Command{
 		NewCatCmd(deps),
-		NewConfigCmd(deps),
 		NewCreateCmd(deps),
 		NewIndexCmd(deps),
 		NewInfoCmd(deps),
 		NewListCmd(deps),
 		NewPwdCmd(deps),
-		NewRepoCmd(deps),
-	)
+	}
+	if deps.Profile.IncludeConfigCommand {
+		subcommands = append(subcommands, NewConfigCmd(deps))
+	}
+	if deps.Profile.IncludeRepoCommand {
+		subcommands = append(subcommands, NewRepoCmd(deps))
+	}
+	cmd.AddCommand(subcommands...)
 
 	return cmd
 }
