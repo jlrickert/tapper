@@ -26,6 +26,7 @@ func NewInfoCmd(deps *Deps) *cobra.Command {
 Shows metadata about the keg including title, creator, state, and other
 configuration properties. Use 'Tap info edit' to modify the configuration.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			applyKegTargetProfile(deps, &opts.KegTargetOptions)
 			ctx := cmd.Context()
 			output, err := deps.Tap.Info(ctx, opts)
 			if err != nil {
@@ -37,16 +38,7 @@ configuration properties. Use 'Tap info edit' to modify the configuration.`,
 		},
 	}
 
-	cmd.Flags().StringVarP(&opts.Keg, "keg", "k", "", "alias of the keg to display info for")
-
-	_ = cmd.RegisterFlagCompletionFunc("keg", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-		kegs, _ := deps.Tap.ListKegs(true)
-		return kegs, cobra.ShellCompDirectiveNoFileComp
-	})
-	_ = cmd.RegisterFlagCompletionFunc("alias", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-		kegs, _ := deps.Tap.ListKegs(true)
-		return kegs, cobra.ShellCompDirectiveNoFileComp
-	})
+	bindKegTargetFlags(cmd, deps, &opts.KegTargetOptions, "alias of the keg to display info for")
 
 	// Add the edit subcommand
 	cmd.AddCommand(NewInfoEditCmd(deps))

@@ -21,17 +21,13 @@ func NewInfoEditCmd(deps *Deps) *cobra.Command {
 
 The editor is determined by the EDITOR environment variable, defaulting to 'vim'.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			applyKegTargetProfile(deps, &opts.KegTargetOptions)
 			ctx := cmd.Context()
 			return deps.Tap.InfoEdit(ctx, opts)
 		},
 	}
 
-	cmd.Flags().StringVarP(&opts.Keg, "keg", "k", "", "alias of the keg to edit info for")
-
-	_ = cmd.RegisterFlagCompletionFunc("keg", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-		kegs, _ := deps.Tap.ListKegs(true)
-		return kegs, cobra.ShellCompDirectiveNoFileComp
-	})
+	bindKegTargetFlags(cmd, deps, &opts.KegTargetOptions, "alias of the keg to edit info for")
 
 	return cmd
 }

@@ -4,9 +4,31 @@ version: "3"
 vars:
   GREETING: Hello, World!
 tasks:
+  run: go run "./cmd/keg" {{.CLI_ARGS}}
   test:
     cmds:
-      - go test ./pkg/keg/
+      - go test ./pkg/... {{.CLI_ARGS}}
     sources:
-      - 'pkg/keg/*.go'
+      - ./pkg/**/*.go
     silent: true
+  install-keg:
+    desc: Install the keg CLI (go install ./cmd/keg) and generate Zsh completions (~/.cache/dotfiles/zsh/completions/_keg).
+    cmds:
+      - go install ./cmd/kegv2
+      - kegv2 completion zsh > '{{env "HOME"}}/.cache/dotfiles/zsh/completions/_kegv2'
+    sources:
+      - cmd/**
+      - pkg/**
+  install-tap:
+    desc: Install the tap CLI (go install ./cmd/tap) and generate Zsh completions (~/.cache/dotfiles/zsh/completions/_tap).
+    cmds:
+      - go install ./cmd/tap
+      - tap completion zsh > '{{env "HOME"}}/.cache/dotfiles/zsh/completions/_tap'
+    sources:
+      - cmd/**/*.go
+      - pkg/**/*.go
+  install-tapper:
+    desc: Install the tapper CLI (go install ./cmd/tap) and generate Zsh completions (~/.cache/dotfiles/zsh/completions/_tap).
+    cmds:
+      - go install ./cmd/tap
+      - tap completion zsh > '{{env "HOME"}}/.cache/dotfiles/zsh/completions/_tap'

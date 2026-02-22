@@ -17,6 +17,7 @@ func NewListCmd(deps *Deps) *cobra.Command {
 
 		Aliases: []string{"ls"},
 		RunE: func(cmd *cobra.Command, args []string) error {
+			applyKegTargetProfile(deps, &opts.KegTargetOptions)
 			nodes, err := deps.Tap.List(cmd.Context(), opts)
 			if err != nil {
 				return err
@@ -34,12 +35,7 @@ func NewListCmd(deps *Deps) *cobra.Command {
 
 	cmd.Flags().BoolVarP(&opts.IdOnly, "id-only", "", false, "show only ids")
 	cmd.Flags().StringVarP(&opts.Format, "format", "f", "", "output format")
-	cmd.Flags().StringVarP(&opts.Keg, "keg", "k", "", "keg alias for which note to show")
-
-	_ = cmd.RegisterFlagCompletionFunc("keg", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-		kegs, _ := deps.Tap.ListKegs(true)
-		return kegs, cobra.ShellCompDirectiveNoFileComp
-	})
+	bindKegTargetFlags(cmd, deps, &opts.KegTargetOptions, "keg alias for which note to show")
 
 	return cmd
 }
