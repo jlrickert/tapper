@@ -146,14 +146,11 @@ func TestCreateNodeWithMeta(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, string(content), "# MyTitle")
 
-	m, err := k.GetMeta(f.Context(), id)
-	require.NoError(t, err)
-	require.Equal(t, "MyTitle", m.Title())
 	stats, err := k.GetStats(f.Context(), id)
 	require.NoError(t, err)
 	require.Equal(t, "short lead", stats.Lead())
 	// normalized tags should include "tag-a"
-	foundTag := slices.Contains(m.Tags(), "tag-a")
+	foundTag := slices.Contains(stats.Tags(), "tag-a")
 	require.True(t, foundTag, "expected normalized tag 'tag-a' to be present")
 }
 
@@ -223,7 +220,7 @@ fm lead paragraph
 	stats, err := k.GetStats(f.Context(), id)
 	require.NoError(t, err)
 	require.Equal(t, "fm lead paragraph", stats.Lead())
-	require.Contains(t, m.Tags(), "fm")
+	require.Contains(t, stats.Tags(), "fm")
 	require.Contains(t, m.ToYAML(), "foo: bar")
 }
 

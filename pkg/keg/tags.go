@@ -6,7 +6,7 @@ import (
 	"unicode"
 )
 
-// normalizeTag lowercases, trims and tokenizes a tag string into a hyphen-separated token.
+// NormalizeTag normalizeTag lowercases, trims, and tokenizes a tag string into a hyphen-separated token.
 func NormalizeTag(s string) string {
 	s = strings.TrimSpace(s)
 	if s == "" {

@@ -236,11 +236,10 @@ func (k *Keg) Create(ctx context.Context, opts *CreateOptions) (NodeId, error) {
 		m.SetAttrs(ctx, opts.Attrs)
 	}
 
-	if len(opts.Tags) > 0 {
-		m.SetTags(ctx, opts.Tags)
-	}
-
 	stats := NewStats(now)
+	if len(opts.Tags) > 0 {
+		stats.SetTags(opts.Tags)
+	}
 	nodeData := &NodeData{ID: id, Content: content, Meta: m, Stats: stats}
 	_ = nodeData.UpdateMeta(ctx, &now)
 	nodeData.Stats.EnsureTimes(now)
