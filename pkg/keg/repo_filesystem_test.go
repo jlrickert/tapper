@@ -17,11 +17,7 @@ func TestFsRepo_WriteReadMetaAndContent(t *testing.T) {
 	fx := NewSandbox(t, sandbox.WithFixture("empty", "~/empty"))
 	ctx := fx.Context()
 
-	r := &keg.FsRepo{
-		Root:            "~/empty",
-		ContentFilename: keg.MarkdownContentFilename,
-		MetaFilename:    keg.YAMLMetaFilename,
-	}
+	r := keg.NewFsRepo("~/empty", fx.Runtime())
 
 	fx.DumpJailTree(0)
 	id := keg.NodeId{ID: 10}
@@ -51,11 +47,7 @@ func TestFsRepo_NextAndListNodes(t *testing.T) {
 	fx.DumpJailTree(0)
 	ctx := fx.Context()
 
-	r := &keg.FsRepo{
-		Root:            "~/repofs_fs",
-		ContentFilename: keg.MarkdownContentFilename,
-		MetaFilename:    keg.YAMLMetaFilename,
-	}
+	r := keg.NewFsRepo("~/repofs_fs", fx.Runtime())
 
 	next, err := r.Next(ctx)
 	require.NoError(t, err)
@@ -88,11 +80,7 @@ func TestFsRepo_MoveDeleteNodeAndDestinationExists(t *testing.T) {
 	// Use std.Mkdir to avoid direct os package functions.
 	require.NoError(t, os.MkdirAll(tmp, 0o755))
 
-	r := &keg.FsRepo{
-		Root:            tmp,
-		ContentFilename: keg.MarkdownContentFilename,
-		MetaFilename:    keg.YAMLMetaFilename,
-	}
+	r := keg.NewFsRepo(tmp, fx.Runtime())
 
 	src := keg.NodeId{ID: 20}
 	dst := keg.NodeId{ID: 30}
@@ -139,11 +127,7 @@ func TestFsRepo_UploadAndListImagesAndItems(t *testing.T) {
 	tmp := t.TempDir()
 	require.NoError(t, os.MkdirAll(tmp, 0o755))
 
-	r := &keg.FsRepo{
-		Root:            tmp,
-		ContentFilename: keg.MarkdownContentFilename,
-		MetaFilename:    keg.YAMLMetaFilename,
-	}
+	r := keg.NewFsRepo(tmp, fx.Runtime())
 
 	id := keg.NodeId{ID: 40}
 	// ensure node exists
@@ -171,11 +155,7 @@ func TestFsRepo_WriteGetAndListIndexes(t *testing.T) {
 	fx := NewSandbox(t, sandbox.WithFixture("example", "~/example"))
 	ctx := fx.Context()
 
-	r := &keg.FsRepo{
-		Root:            "~/example",
-		ContentFilename: keg.MarkdownContentFilename,
-		MetaFilename:    keg.YAMLMetaFilename,
-	}
+	r := keg.NewFsRepo("~/example", fx.Runtime())
 
 	data, err := r.GetIndex(ctx, "nodes.tsv")
 	require.NoError(t, err, "expect to be able to read nodes.tsv index")
@@ -190,11 +170,7 @@ func TestFsRepo_WriteReadStats(t *testing.T) {
 	tmp := t.TempDir()
 	require.NoError(t, os.MkdirAll(tmp, 0o755))
 
-	r := &keg.FsRepo{
-		Root:            tmp,
-		ContentFilename: keg.MarkdownContentFilename,
-		MetaFilename:    keg.YAMLMetaFilename,
-	}
+	r := keg.NewFsRepo(tmp, fx.Runtime())
 
 	id := keg.NodeId{ID: 88}
 	require.NoError(t, r.WriteMeta(ctx, id, []byte("title: keep-me\nfoo: bar\n")))
@@ -229,11 +205,7 @@ func TestFsRepo_WithNodeLockTimeout(t *testing.T) {
 	tmp := t.TempDir()
 	require.NoError(t, os.MkdirAll(tmp, 0o755))
 
-	r := &keg.FsRepo{
-		Root:            tmp,
-		ContentFilename: keg.MarkdownContentFilename,
-		MetaFilename:    keg.YAMLMetaFilename,
-	}
+	r := keg.NewFsRepo(tmp, fx.Runtime())
 
 	id := keg.NodeId{ID: 91}
 	locked := make(chan struct{})
@@ -270,17 +242,13 @@ func TestFsRepo_WithNodeLockReentrantAndCleanup(t *testing.T) {
 	tmp := t.TempDir()
 	require.NoError(t, os.MkdirAll(tmp, 0o755))
 
-	r := &keg.FsRepo{
-		Root:            tmp,
-		ContentFilename: keg.MarkdownContentFilename,
-		MetaFilename:    keg.YAMLMetaFilename,
-	}
+	r := keg.NewFsRepo(tmp, fx.Runtime())
 
 	id := keg.NodeId{ID: 92}
 	lockPath := filepath.Join(tmp, id.Path(), keg.KegLockFile)
 
 	err := r.WithNodeLock(ctx, id, func(lockCtx context.Context) error {
-		_, statErr := os.Lstat(lockPath)
+		_, statErr := fx.Runtime().Stat(lockPath, false)
 		require.NoError(t, statErr)
 
 		return r.WithNodeLock(lockCtx, id, func(context.Context) error {
@@ -289,7 +257,7 @@ func TestFsRepo_WithNodeLockReentrantAndCleanup(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	_, err = os.Lstat(lockPath)
+	_, err = fx.Runtime().Stat(lockPath, false)
 	require.Error(t, err)
 	require.True(t, os.IsNotExist(err))
 }

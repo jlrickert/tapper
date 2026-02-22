@@ -212,9 +212,6 @@ func (kc *KegConfig) ResolveAlias(ctx context.Context, alias string) (*kegurl.Ta
 			if err != nil {
 				return nil, fmt.Errorf("could resolve alias: %w", err)
 			}
-			if err := kt.Expand(runtimeMust().Env); err != nil {
-				return nil, fmt.Errorf("could not expand alias target: %w", err)
-			}
 			return kt, nil
 		}
 	}

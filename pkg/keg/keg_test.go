@@ -18,10 +18,7 @@ func TestInitWhenRepoIsExample(t *testing.T) {
 	t.Parallel()
 	f := NewSandbox(t, sandbox.WithFixture("example", "~/repos/example"))
 
-	k, err := kegpkg.NewKegFromTarget(
-		f.Context(),
-		kegurl.NewFile("~/repos/example"),
-	)
+	k, err := kegpkg.NewKegFromTarget(f.Context(), kegurl.NewFile("~/repos/example"), f.Runtime())
 	require.NoError(t, err, "NewKegFromTarget failed")
 
 	err = k.Init(f.Context())
@@ -39,7 +36,7 @@ func TestInitOnEmptyRepo(t *testing.T) {
 	t.Parallel()
 	f := NewSandbox(t, sandbox.WithFixture("empty", "repo"))
 
-	k, err := kegpkg.NewKegFromTarget(f.Context(), kegurl.NewFile("repo"))
+	k, err := kegpkg.NewKegFromTarget(f.Context(), kegurl.NewFile("repo"), f.Runtime())
 	require.NoError(t, err, "NewKegFromTarget failed")
 
 	require.NoError(t, k.Init(f.Context()), "Init failed")
@@ -92,7 +89,7 @@ func TestKegExistsWithFsRepo(t *testing.T) {
 	t.Parallel()
 	f := NewSandbox(t, sandbox.WithFixture("empty", "repofs"))
 
-	k, err := kegpkg.NewKegFromTarget(f.Context(), kegurl.NewFile("repofs"))
+	k, err := kegpkg.NewKegFromTarget(f.Context(), kegurl.NewFile("repofs"), f.Runtime())
 	require.NoError(t, err, "NewKegFromTarget failed")
 
 	// Uninitialized on disk.
@@ -264,7 +261,7 @@ func TestCreateAndUpdateNodesWithFsRepo(t *testing.T) {
 	// Use the empty fixture as a filesystem-backed repo.
 	f := NewSandbox(t, sandbox.WithFixture("empty", "repofs_fs"))
 
-	k, err := kegpkg.NewKegFromTarget(f.Context(), kegurl.NewFile("repofs_fs"))
+	k, err := kegpkg.NewKegFromTarget(f.Context(), kegurl.NewFile("repofs_fs"), f.Runtime())
 	require.NoError(t, err, "NewKegFromTarget failed")
 
 	// Initialize on disk.
@@ -398,7 +395,7 @@ func TestIndexFilesHaveExpectedData(t *testing.T) {
 	t.Parallel()
 	f := NewSandbox(t, sandbox.WithFixture("example", "~/repo"))
 
-	k, err := kegpkg.NewKegFromTarget(f.Context(), kegurl.NewFile("~/repo"))
+	k, err := kegpkg.NewKegFromTarget(f.Context(), kegurl.NewFile("~/repo"), f.Runtime())
 	require.NoError(t, err, "NewKegFromTarget failed")
 
 	// Load dex via NewDexFromRepo which reads the index artifacts.
