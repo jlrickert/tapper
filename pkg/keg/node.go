@@ -127,6 +127,7 @@ func (n *Node) Stats(ctx context.Context) (*NodeStats, error) {
 	}
 	copyStats := *n.data.Stats
 	copyStats.links = n.data.Stats.Links()
+	copyStats.tags = n.data.Stats.Tags()
 	return &copyStats, nil
 }
 
