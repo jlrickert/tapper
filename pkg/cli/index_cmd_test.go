@@ -37,7 +37,7 @@ func TestIndexCommand_TableDrivenErrorHandling(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(innerT *testing.T) {
 			innerT.Parallel()
-			var opts []testutils.SandboxOption
+			var opts []testutils.Option
 			if tt.setupFixture != nil {
 				opts = append(opts, testutils.WithFixture(*tt.setupFixture, "~"))
 			}
@@ -95,7 +95,7 @@ func TestIndexCommand_WithJoeFixture(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(innerT *testing.T) {
 			innerT.Parallel()
-			var opts []testutils.SandboxOption
+			var opts []testutils.Option
 			if tt.setupFixture != nil {
 				opts = append(opts, testutils.WithFixture(*tt.setupFixture, "~"))
 			}
@@ -122,7 +122,7 @@ func TestIndexCommand_WithJoeFixture(t *testing.T) {
 func TestIndexCommand_IntegrationWithInit(t *testing.T) {
 	t.Run("index_after_init", func(innerT *testing.T) {
 		innerT.Parallel()
-		opts := []testutils.SandboxOption{
+		opts := []testutils.Option{
 			testutils.WithFixture("testuser", "~"),
 		}
 		sb := NewSandbox(innerT, opts...)

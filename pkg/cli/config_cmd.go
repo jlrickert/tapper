@@ -27,14 +27,13 @@ func NewConfigCmd(deps *Deps) *cobra.Command {
 		Long: `Display the merged configuration (user + local).
 
 Use 'Tap config edit' to modify the configuration.
-Use '--local' flag to view only local project configuration.`,
+Use '--project' flag to view only local project configuration.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
 
 			output, err := deps.Tap.Config(ctx, opts)
 			if errors.Is(err, os.ErrNotExist) {
-				_, err := fmt.Fprintf(os.Stdout, "%s\n", err)
-				return err
+				return fmt.Errorf("no configuration available: %w", err)
 			}
 			if err != nil {
 				return err

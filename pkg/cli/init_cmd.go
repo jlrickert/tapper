@@ -23,8 +23,6 @@ func NewInitCmd(deps *Deps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "init NAME",
 		Short: "create a new keg target",
-		// No-op persistent pre run used for symmetry with other commands.
-		PersistentPreRun: func(cmd *cobra.Command, args []string) {},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 0 {
 				return fmt.Errorf("NAME is required: %w", keg.ErrInvalid)
@@ -70,7 +68,7 @@ func NewInitCmd(deps *Deps) *cobra.Command {
 			}
 
 			if initOpts.Alias == "" {
-				panic("Keg needs to be defined")
+				return fmt.Errorf("alias is required: %w", keg.ErrInvalid)
 			}
 
 			err := deps.Tap.Init(cmd.Context(), name, initOpts)
@@ -78,8 +76,8 @@ func NewInitCmd(deps *Deps) *cobra.Command {
 				return err
 			}
 
-			fmt.Fprintf(cmd.OutOrStdout(), "keg %s created", initOpts.Alias)
-			return nil
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "keg %s created", initOpts.Alias)
+			return err
 		},
 	}
 

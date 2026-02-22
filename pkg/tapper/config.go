@@ -11,7 +11,6 @@ import (
 	"regexp"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/jlrickert/cli-toolkit/clock"
@@ -21,30 +20,6 @@ import (
 	kegurl "github.com/jlrickert/tapper/pkg/keg_url"
 	"gopkg.in/yaml.v3"
 )
-
-var (
-	defaultRuntimeOnce sync.Once
-	defaultRuntime     *toolkit.Runtime
-	defaultRuntimeErr  error
-)
-
-func runtimeOrErr() (*toolkit.Runtime, error) {
-	defaultRuntimeOnce.Do(func() {
-		defaultRuntime, defaultRuntimeErr = toolkit.NewRuntime()
-	})
-	if defaultRuntimeErr != nil {
-		return nil, defaultRuntimeErr
-	}
-	return defaultRuntime, nil
-}
-
-func runtimeMust() *toolkit.Runtime {
-	rt, err := runtimeOrErr()
-	if err != nil {
-		panic(err)
-	}
-	return rt
-}
 
 // Package tap provides helpers for the tapper CLI related to user and
 // project configuration, keg resolution, and small utilities used by commands.
@@ -301,18 +276,31 @@ func (cfg *Config) ResolveAlias(alias string) (*kegurl.Target, error) {
 	return kegurl.Parse(u.String())
 }
 
+func validateRuntime(rt *toolkit.Runtime) error {
+	if rt == nil {
+		return fmt.Errorf("runtime is required")
+	}
+	if err := rt.Validate(); err != nil {
+		return fmt.Errorf("invalid runtime: %w", err)
+	}
+	return nil
+}
+
 // LookupAlias returns the keg alias matching the given project root path.
 // It first checks regex patterns in KegMap entries, then prefix matches.
 // For multiple prefix matches, the longest matching prefix wins.
 // Returns empty string if no match is found or config data is nil.
-func (cfg *Config) LookupAlias(ctx context.Context, projectRoot string) string {
+func (cfg *Config) LookupAlias(ctx context.Context, rt *toolkit.Runtime, projectRoot string) string {
+	if err := validateRuntime(rt); err != nil {
+		return ""
+	}
 	if cfg.data == nil {
 		cfg.data = &configDTO{}
 		return ""
 	}
 	// Expand path and make absolute/clean to compare reliably.
-	val := toolkit.ExpandEnv(runtimeMust().Env, projectRoot)
-	abs, err := toolkit.ExpandPath(runtimeMust().Env, val)
+	val := toolkit.ExpandEnv(rt, projectRoot)
+	abs, err := toolkit.ExpandPath(rt, val)
 	if err != nil {
 		// Still try with expanded env when ExpandPath fails.
 		abs = val
@@ -324,8 +312,8 @@ func (cfg *Config) LookupAlias(ctx context.Context, projectRoot string) string {
 		if m.PathRegex == "" {
 			continue
 		}
-		pattern := toolkit.ExpandEnv(runtimeMust().Env, m.PathRegex)
-		pattern, _ = toolkit.ExpandPath(runtimeMust().Env, pattern)
+		pattern := toolkit.ExpandEnv(rt, m.PathRegex)
+		pattern, _ = toolkit.ExpandPath(rt, pattern)
 		ok, _ := regexp.MatchString(pattern, abs)
 		if ok {
 			return m.Alias
@@ -342,8 +330,8 @@ func (cfg *Config) LookupAlias(ctx context.Context, projectRoot string) string {
 		if m.PathPrefix == "" {
 			continue
 		}
-		pref := toolkit.ExpandEnv(runtimeMust().Env, m.PathPrefix)
-		pref, _ = toolkit.ExpandPath(runtimeMust().Env, pref)
+		pref := toolkit.ExpandEnv(rt, m.PathPrefix)
+		pref, _ = toolkit.ExpandPath(rt, pref)
 		pref = filepath.Clean(pref)
 		if strings.HasPrefix(abs, pref) {
 			matches = append(matches, match{entry: m, len: len(pref)})
@@ -369,17 +357,23 @@ func (cfg *Config) LookupAlias(ctx context.Context, projectRoot string) string {
 //
 // The function expands env vars and tildes prior to comparisons, so stored
 // prefixes and patterns may contain ~ or $VAR values.
-func (cfg *Config) ResolveKegMap(ctx context.Context, projectRoot string) (*kegurl.Target, error) {
-	alias := cfg.LookupAlias(ctx, projectRoot)
+func (cfg *Config) ResolveKegMap(ctx context.Context, rt *toolkit.Runtime, projectRoot string) (*kegurl.Target, error) {
+	if err := validateRuntime(rt); err != nil {
+		return nil, err
+	}
+	alias := cfg.LookupAlias(ctx, rt, projectRoot)
 	return cfg.ResolveAlias(alias)
 }
 
-func (cfg *Config) ResolveDefault(ctx context.Context) (*kegurl.Target, error) {
+func (cfg *Config) ResolveDefault(rt *toolkit.Runtime) (*kegurl.Target, error) {
+	if err := validateRuntime(rt); err != nil {
+		return nil, err
+	}
 	if cfg.data == nil {
 		cfg.data = &configDTO{}
 		return nil, nil
 	}
-	alias := toolkit.ExpandEnv(runtimeMust().Env, cfg.DefaultKeg())
+	alias := toolkit.ExpandEnv(rt, cfg.DefaultKeg())
 	return cfg.ResolveAlias(alias)
 
 }
@@ -406,8 +400,11 @@ func ParseConfig(ctx context.Context, raw []byte) (*Config, error) {
 //
 // When the file does not exist the function returns a Config value and an
 // error that wraps keg.ErrNotExist so callers can detect no-config cases.
-func ReadConfig(ctx context.Context, path string) (*Config, error) {
-	b, err := runtimeMust().ReadFile(path)
+func ReadConfig(ctx context.Context, rt *toolkit.Runtime, path string) (*Config, error) {
+	if err := validateRuntime(rt); err != nil {
+		return nil, err
+	}
+	b, err := rt.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil, fmt.Errorf("unable read user config: %w", keg.ErrNotExist)
@@ -499,13 +496,16 @@ func (cfg *Config) ToYAML(ctx context.Context) ([]byte, error) {
 
 // Write writes the Config back to path, preserving comments and formatting
 // when possible. Uses AtomicWriteFile from std.
-func (cfg *Config) Write(ctx context.Context, path string) error {
+func (cfg *Config) Write(ctx context.Context, rt *toolkit.Runtime, path string) error {
+	if err := validateRuntime(rt); err != nil {
+		return err
+	}
 	data, err := cfg.ToYAML(ctx)
 	if err != nil {
 		return fmt.Errorf("unable to write user config: %w", err)
 	}
 
-	if err := runtimeMust().AtomicWriteFile(path, data, 0o644); err != nil {
+	if err := rt.AtomicWriteFile(path, data, 0o644); err != nil {
 		return fmt.Errorf("unable to write config: %w", err)
 	}
 	return nil

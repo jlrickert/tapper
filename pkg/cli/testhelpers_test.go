@@ -20,8 +20,8 @@ import (
 //go:embed all:data/**
 var testdata embed.FS
 
-func NewSandbox(t *testing.T, opts ...tu.SandboxOption) *tu.Sandbox {
-	return tu.NewSandbox(t, &tu.SandboxOptions{
+func NewSandbox(t *testing.T, opts ...tu.Option) *tu.Sandbox {
+	return tu.NewSandbox(t, &tu.Options{
 		Data: testdata,
 		Home: "/home/testuser",
 		User: "testuser",

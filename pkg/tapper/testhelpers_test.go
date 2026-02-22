@@ -11,9 +11,9 @@ import (
 //go:embed all:data/**
 var testdata embed.FS
 
-func NewSandbox(t *testing.T, opts ...sandbox.SandboxOption) *sandbox.Sandbox {
+func NewSandbox(t *testing.T, opts ...sandbox.Option) *sandbox.Sandbox {
 	return sandbox.NewSandbox(t,
-		&sandbox.SandboxOptions{
+		&sandbox.Options{
 			Data: testdata,
 			Home: filepath.FromSlash("/home/testuser"),
 			User: "testuser",
