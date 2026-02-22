@@ -12,7 +12,7 @@ import (
 func TestNewTap_UsesRuntimeWorkingDirectoryWhenRootEmpty(t *testing.T) {
 	t.Parallel()
 
-	fx := NewSandbox(t, sandbox.WithFixture("testuser", "/home/testuser"))
+	fx := NewSandbox(t, sandbox.WithFixture("example", "/home/testuser"))
 	require.NoError(t, fx.Setwd("/home/testuser"))
 
 	tap, err := tapper.NewTap(tapper.TapOptions{
@@ -28,7 +28,7 @@ func TestNewTap_UsesRuntimeWorkingDirectoryWhenRootEmpty(t *testing.T) {
 func TestNewTap_InitializesServicesAndPaths(t *testing.T) {
 	t.Parallel()
 
-	fx := NewSandbox(t, sandbox.WithFixture("testuser", "/home/testuser"))
+	fx := NewSandbox(t, sandbox.WithFixture("example", "/home/testuser"))
 	require.NoError(t, fx.Setwd("/home/testuser"))
 
 	root := "/home/testuser/work"

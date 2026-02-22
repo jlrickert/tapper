@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jlrickert/cli-toolkit/toolkit"
 	"github.com/stretchr/testify/require"
 )
 
@@ -110,7 +111,9 @@ func TestReadFromDex_Table(t *testing.T) {
 			t.Parallel()
 			t.Helper()
 
-			mem := NewMemoryRepo()
+			rt, err := toolkit.NewTestRuntime(t.TempDir(), "/home/testuser", "testuser")
+			require.NoError(t, err)
+			mem := NewMemoryRepo(rt)
 
 			// write indexes only if non-empty (tests may want to omit them)
 			if tc.nodesTSV != "" {

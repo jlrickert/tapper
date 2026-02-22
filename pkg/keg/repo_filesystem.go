@@ -238,6 +238,13 @@ func (f *FsRepo) Name() string {
 	return "fs"
 }
 
+func (f *FsRepo) Runtime() *toolkit.Runtime {
+	if f == nil {
+		return nil
+	}
+	return f.runtime
+}
+
 // WithNodeLock executes fn while holding an exclusive lock for node id.
 func (f *FsRepo) WithNodeLock(ctx context.Context, id NodeId, fn func(context.Context) error) error {
 	if fn == nil {
@@ -458,7 +465,7 @@ func (f *FsRepo) WriteMeta(ctx context.Context, id NodeId, data []byte) error {
 	nodeDir := filepath.Join(f.Root, id.Path())
 	metaPath := filepath.Join(nodeDir, f.MetaFilename)
 
-	// Create parent directory if it doesn't exist
+	// Create a parent directory if it doesn't exist
 	dir := filepath.Dir(metaPath)
 	if err := f.runtime.Mkdir(dir, 0o755, true); err != nil {
 		return NewBackendError(f.Name(), "WriteMeta", 0, err, false)
@@ -708,7 +715,7 @@ func (f *FsRepo) DeleteItem(ctx context.Context, id NodeId, name string) error {
 }
 
 // ReadConfig implements Repository.
-func (f *FsRepo) ReadConfig(ctx context.Context) (*KegConfig, error) {
+func (f *FsRepo) ReadConfig(ctx context.Context) (*Config, error) {
 	candidates := []string{"keg", "keg.yaml", "keg.yml"}
 	for _, c := range candidates {
 		p := filepath.Join(f.Root, c)
@@ -728,7 +735,7 @@ func (f *FsRepo) ReadConfig(ctx context.Context) (*KegConfig, error) {
 }
 
 // WriteConfig implements Repository.
-func (f *FsRepo) WriteConfig(ctx context.Context, config *KegConfig) error {
+func (f *FsRepo) WriteConfig(ctx context.Context, config *Config) error {
 	// marshal to YAML
 	out, err := yaml.Marshal(config)
 	if err != nil {

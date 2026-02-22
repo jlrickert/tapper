@@ -1,7 +1,6 @@
 package tapper
 
 import (
-	"context"
 	"fmt"
 	"path/filepath"
 	"slices"
@@ -43,12 +42,12 @@ func (s *ConfigService) ResetCache() {
 }
 
 // UserConfig returns the global user configuration
-func (s *ConfigService) UserConfig(ctx context.Context, cache bool) (*Config, error) {
+func (s *ConfigService) UserConfig(cache bool) (*Config, error) {
 	if cache && s.userCache != nil {
 		return s.userCache, nil
 	}
 	path := filepath.Join(s.PathService.ConfigRoot, "config.yaml")
-	cfg, err := ReadConfig(ctx, s.Runtime, path)
+	cfg, err := ReadConfig(s.Runtime, path)
 	if err != nil {
 		return nil, err
 	}
@@ -59,11 +58,11 @@ func (s *ConfigService) UserConfig(ctx context.Context, cache bool) (*Config, er
 // ProjectConfig returns the project-level configuration with optional caching.
 // If cache is true and a cached config exists, it returns the cached version.
 // Otherwise, it reads the config from the local config root and caches the result.
-func (s *ConfigService) ProjectConfig(ctx context.Context, cache bool) (*Config, error) {
+func (s *ConfigService) ProjectConfig(cache bool) (*Config, error) {
 	if cache && s.projectCache != nil {
 		return s.projectCache, nil
 	}
-	cfg, err := ReadConfig(ctx, s.Runtime, filepath.Join(s.PathService.LocalConfigRoot, "config.yaml"))
+	cfg, err := ReadConfig(s.Runtime, filepath.Join(s.PathService.LocalConfigRoot, "config.yaml"))
 	if err != nil {
 		return nil, err
 	}
@@ -74,14 +73,14 @@ func (s *ConfigService) ProjectConfig(ctx context.Context, cache bool) (*Config,
 // Config returns the merged user and project configuration with optional caching.
 // If cache is true and a merged config exists, it returns the cached version.
 // Otherwise, it retrieves both configs, merges them, caches the result, and returns it.
-func (s *ConfigService) Config(ctx context.Context, cache bool) *Config {
+func (s *ConfigService) Config(cache bool) *Config {
 	if cache && s.mergedCache != nil {
 		return s.mergedCache
 	}
 
 	if s.ConfigPath != "" {
 		// FIXME: propagate this error up. Thus function is missing error type
-		cfg, _ := ReadConfig(ctx, s.Runtime, s.ConfigPath)
+		cfg, _ := ReadConfig(s.Runtime, s.ConfigPath)
 		if cfg == nil {
 			cfg = &Config{}
 		}
@@ -89,8 +88,8 @@ func (s *ConfigService) Config(ctx context.Context, cache bool) *Config {
 		return cfg
 	}
 
-	user, _ := s.UserConfig(ctx, cache)
-	project, _ := s.ProjectConfig(ctx, cache)
+	user, _ := s.UserConfig(cache)
+	project, _ := s.ProjectConfig(cache)
 	s.mergedCache = MergeConfig(user, project)
 	return s.mergedCache
 }
@@ -129,8 +128,8 @@ func (s *ConfigService) Config(ctx context.Context, cache bool) *Config {
 //	return kegDirs, nil
 //}
 
-func (s *ConfigService) LocalRepoKegs(ctx context.Context, cache bool) ([]string, error) {
-	cfg := s.Config(ctx, cache)
+func (s *ConfigService) LocalRepoKegs(cache bool) ([]string, error) {
+	cfg := s.Config(cache)
 	repoPath, _ := toolkit.ExpandPath(s.Runtime, cfg.UserRepoPath())
 
 	if repoPath == "" {
@@ -166,8 +165,8 @@ func (s *ConfigService) LocalRepoKegs(ctx context.Context, cache bool) ([]string
 	return kegDirs, nil
 }
 
-func (s *ConfigService) ResolveTarget(ctx context.Context, alias string, cache bool) (*kegurl.Target, error) {
-	cfg := s.Config(ctx, cache)
+func (s *ConfigService) ResolveTarget(alias string, cache bool) (*kegurl.Target, error) {
+	cfg := s.Config(cache)
 	requestedAlias := alias
 	if requestedAlias == "" {
 		requestedAlias = cfg.DefaultKeg()
@@ -180,7 +179,7 @@ func (s *ConfigService) ResolveTarget(ctx context.Context, alias string, cache b
 	}
 
 	// Fallback to a discovered local repository keg.
-	localKegs, err := s.LocalRepoKegs(ctx, cache)
+	localKegs, err := s.LocalRepoKegs(cache)
 	if err != nil {
 		return nil, err
 	}
@@ -190,9 +189,5 @@ func (s *ConfigService) ResolveTarget(ctx context.Context, alias string, cache b
 		return &t, nil
 	}
 
-	// Preserve the explicit alias-not-found error for callers.
-	if err != nil {
-		return nil, err
-	}
 	return nil, fmt.Errorf("keg alias not found: %s", requestedAlias)
 }

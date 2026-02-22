@@ -12,6 +12,7 @@ import (
 var testdata embed.FS
 
 func NewSandbox(t *testing.T, opts ...sandbox.Option) *sandbox.Sandbox {
+	t.Helper()
 	return sandbox.NewSandbox(t,
 		&sandbox.Options{
 			Data: testdata,

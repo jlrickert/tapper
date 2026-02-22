@@ -1,13 +1,7 @@
 package cli
 
 // NewRootCmd builds the root cobra command, wires persistent flags, and
-// installs the "do" subcommand. The command's PersistentPreRunE will only
-// create a production logger/ctx when the incoming command context does not
-// already carry a logger/env/clock (this lets tests set a test context via
-// cmd.SetContext(f.Ctx) before Execute).
-//
-// The new command does not hard-wire an app.Runner; the "do" subcommand will
-// resolve a runner from context if one was not provided at construction.
+// initializes services from explicit runtime dependencies.
 import (
 	"fmt"
 	"os"
@@ -68,7 +62,7 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 			deps.Root = wd
 
 			if deps.ConfigPath != "" {
-				_, err := tapper.ReadConfig(ctx, deps.Runtime, deps.ConfigPath)
+				_, err := tapper.ReadConfig(deps.Runtime, deps.ConfigPath)
 				deps.Err = err
 			}
 
@@ -95,7 +89,6 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 				}
 			}
 
-			ctx = mylog.WithLogger(ctx, deps.Runtime.Logger())
 			cmd.SetContext(ctx)
 			return nil
 		},
@@ -126,7 +119,6 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 		NewCreateCmd(deps),
 		NewIndexCmd(deps),
 		NewInfoCmd(deps),
-		NewInitCmd(deps),
 		NewListCmd(deps),
 		NewPwdCmd(deps),
 		NewRepoCmd(deps),

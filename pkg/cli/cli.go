@@ -5,8 +5,6 @@ import (
 	"errors"
 	"strconv"
 
-	"github.com/jlrickert/cli-toolkit/clock"
-	"github.com/jlrickert/cli-toolkit/mylog"
 	"github.com/jlrickert/cli-toolkit/toolkit"
 )
 
@@ -21,11 +19,6 @@ func Run(ctx context.Context, rt *toolkit.Runtime, args []string) (int, error) {
 	if err := rt.Validate(); err != nil {
 		return 1, err
 	}
-
-	ctx = mylog.WithLogger(ctx, rt.Logger())
-	ctx = clock.WithClock(ctx, rt.Clock())
-	ctx = toolkit.WithHasher(ctx, rt.Hasher())
-	ctx = toolkit.WithStream(ctx, rt.Stream())
 
 	// Make it so that cat is the default subcommand if no valid subcommand is given
 	if len(args) >= 2 && args[0] == "__complete" {

@@ -10,13 +10,13 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// NewInitCmd returns the `keg init` cobra command.
+// NewInitCmd returns the `tap repo init` cobra command.
 //
 // Usage examples:
 //
-//	keg init NAME
-//	keg init mykeg --type local
-//	keg init blog --path ./kegs/blog --title "Blog" --creator "me"
+//	tap repo init NAME
+//	tap repo init mykeg --type local
+//	tap repo init blog --path ./kegs/blog --title "Blog" --creator "me"
 func NewInitCmd(deps *Deps) *cobra.Command {
 	initOpts := &tapper.InitOptions{}
 
@@ -39,8 +39,8 @@ func NewInitCmd(deps *Deps) *cobra.Command {
 
 			switch initOpts.Type {
 			case "local":
-				if initOpts.Alias == "" && name == "." {
-					initOpts.Alias = filepath.Base(deps.Root)
+				if initOpts.Keg == "" && name == "." {
+					initOpts.Keg = filepath.Base(deps.Root)
 				}
 				initOpts.Path = name
 			case "user":
@@ -49,11 +49,11 @@ func NewInitCmd(deps *Deps) *cobra.Command {
 					initOpts.Name = filepath.Base(deps.Root)
 				}
 
-				if initOpts.Alias == "" {
+				if initOpts.Keg == "" {
 					if name == "." {
-						initOpts.Alias = filepath.Base(deps.Root)
+						initOpts.Keg = filepath.Base(deps.Root)
 					} else {
-						initOpts.Alias = filepath.Base(name)
+						initOpts.Keg = filepath.Base(name)
 					}
 				}
 			case "registry":
@@ -67,7 +67,7 @@ func NewInitCmd(deps *Deps) *cobra.Command {
 				)
 			}
 
-			if initOpts.Alias == "" {
+			if initOpts.Keg == "" {
 				return fmt.Errorf("alias is required: %w", keg.ErrInvalid)
 			}
 
@@ -76,13 +76,13 @@ func NewInitCmd(deps *Deps) *cobra.Command {
 				return err
 			}
 
-			_, err = fmt.Fprintf(cmd.OutOrStdout(), "keg %s created", initOpts.Alias)
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "keg %s created", initOpts.Keg)
 			return err
 		},
 	}
 
 	cmd.Flags().StringVar(&initOpts.Type, "type", "", "destination type: registry|user|local")
-	cmd.Flags().StringVar(&initOpts.Alias, "alias", "", "alias of keg to add to config")
+	cmd.Flags().StringVarP(&initOpts.Keg, "keg", "k", "", "alias of keg to add to config")
 	cmd.Flags().StringVar(&initOpts.Title, "title", "", "human title to write into the keg config")
 	cmd.Flags().StringVar(&initOpts.Creator, "creator", "", "creator identifier to include in the keg config")
 	cmd.Flags().StringVar(&initOpts.TokenEnv, "token-env", "", "environment variable name to store token reference (API targets)")
