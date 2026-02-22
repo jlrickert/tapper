@@ -24,6 +24,7 @@ func NewIndexCmd(deps *Deps) *cobra.Command {
 This command scans all nodes and regenerates the dex indices. Useful after
 manually modifying files or to refresh stale indices.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			applyKegTargetProfile(deps, &opts.KegTargetOptions)
 			ctx := cmd.Context()
 			output, err := deps.Tap.Index(ctx, opts)
 			if err != nil {
@@ -35,19 +36,19 @@ manually modifying files or to refresh stale indices.`,
 		},
 	}
 
-	cmd.Flags().StringVarP(&opts.KegAlias, "keg", "k", "", "alias of the keg to index")
-	// Backward-compatible alias flag.
-	cmd.Flags().StringVar(&opts.KegAlias, "alias", "", "alias of the keg to index (deprecated; use --keg)")
+	bindKegTargetFlags(cmd, deps, &opts.KegTargetOptions, "alias of the keg to index")
+	if deps.Profile.withDefaults().AllowKegAliasFlags {
+		// Backward-compatible alias flag.
+		cmd.Flags().StringVar(&opts.Keg, "alias", "", "alias of the keg to index (deprecated; use --keg)")
+	}
 	cmd.Flags().BoolVarP(&opts.Rebuild, "rebuild", "r", false, "rebuild all indices (nodes.tsv, tags, links, backlinks)")
 
-	_ = cmd.RegisterFlagCompletionFunc("keg", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-		kegs, _ := deps.Tap.ListKegs(true)
-		return kegs, cobra.ShellCompDirectiveNoFileComp
-	})
-	_ = cmd.RegisterFlagCompletionFunc("alias", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-		kegs, _ := deps.Tap.ListKegs(true)
-		return kegs, cobra.ShellCompDirectiveNoFileComp
-	})
+	if deps.Profile.withDefaults().AllowKegAliasFlags {
+		_ = cmd.RegisterFlagCompletionFunc("alias", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+			kegs, _ := deps.Tap.ListKegs(true)
+			return kegs, cobra.ShellCompDirectiveNoFileComp
+		})
+	}
 
 	return cmd
 }

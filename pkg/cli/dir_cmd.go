@@ -13,6 +13,7 @@ func NewPwdCmd(deps *Deps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use: "dir",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			applyKegTargetProfile(deps, &opts.KegTargetOptions)
 			dir, err := deps.Tap.Dir(cmd.Context(), opts)
 			if err != nil {
 				return err
@@ -22,11 +23,6 @@ func NewPwdCmd(deps *Deps) *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVarP(&opts.Keg, "keg", "k", "", "alias of the keg to read from")
-
-	_ = cmd.RegisterFlagCompletionFunc("keg", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-		kegs, _ := deps.Tap.ListKegs(true)
-		return kegs, cobra.ShellCompDirectiveNoFileComp
-	})
+	bindKegTargetFlags(cmd, deps, &opts.KegTargetOptions, "alias of the keg to read from")
 	return cmd
 }

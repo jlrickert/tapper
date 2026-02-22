@@ -25,6 +25,7 @@ func NewCatCmd(deps *Deps) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Set the node ID from the first argument
 			opts.NodeID = args[0]
+			applyKegTargetProfile(deps, &opts.KegTargetOptions)
 
 			output, err := deps.Tap.Cat(cmd.Context(), opts)
 			if err != nil {
@@ -36,12 +37,7 @@ func NewCatCmd(deps *Deps) *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVarP(&opts.Keg, "keg", "k", "", "alias of the keg to read from")
-
-	_ = cmd.RegisterFlagCompletionFunc("keg", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-		kegs, _ := deps.Tap.ListKegs(true)
-		return kegs, cobra.ShellCompDirectiveNoFileComp
-	})
+	bindKegTargetFlags(cmd, deps, &opts.KegTargetOptions, "alias of the keg to read from")
 
 	return cmd
 }

@@ -75,13 +75,38 @@ func NewTap(opts TapOptions) (*Tap, error) {
 	}, nil
 }
 
+// KegTargetOptions describes how a command should resolve a keg target.
+type KegTargetOptions struct {
+	// Keg is the configured alias.
+	Keg string
+
+	// Project resolves using project-local keg discovery.
+	Project bool
+
+	// Cwd, when combined with Project, uses cwd as the base instead of git root.
+	Cwd bool
+
+	// Path is an explicit local project path used for project keg discovery.
+	Path string
+}
+
+func (t *Tap) resolveKeg(ctx context.Context, opts KegTargetOptions) (*keg.Keg, error) {
+	return t.KegService.Resolve(ctx, ResolveKegOptions{
+		Root:    t.Root,
+		Keg:     opts.Keg,
+		Project: opts.Project,
+		Cwd:     opts.Cwd,
+		Path:    opts.Path,
+		NoCache: false,
+	})
+}
+
 // CatOptions configures behavior for Runner.Cat.
 type CatOptions struct {
 	// NodeID is the node identifier to read (e.g., "0", "42")
 	NodeID string
 
-	// Keg of the keg to read from
-	Keg string
+	KegTargetOptions
 
 	// Meta indicates whether to display only meta data
 	Meta bool
@@ -92,11 +117,7 @@ type CatOptions struct {
 // The metadata (meta.yaml) is output as YAML frontmatter above the node's
 // primary content (README.md).
 func (t *Tap) Cat(ctx context.Context, opts CatOptions) (string, error) {
-	k, err := t.KegService.Resolve(ctx, ResolveKegOptions{
-		Root:    t.Root,
-		Keg:     opts.Keg,
-		NoCache: false,
-	})
+	k, err := t.resolveKeg(ctx, opts.KegTargetOptions)
 	if err != nil {
 		return "", fmt.Errorf("unable to open keg: %w", err)
 	}
@@ -133,8 +154,7 @@ func (t *Tap) Cat(ctx context.Context, opts CatOptions) (string, error) {
 
 // CreateOptions configures behavior for Runner.Create.
 type CreateOptions struct {
-	// alias of the keg to create the node on
-	KegAlias string
+	KegTargetOptions
 
 	Title  string
 	Lead   string
@@ -151,11 +171,7 @@ type CreateOptions struct {
 //
 // Errors are wrapped with contextual messages to aid callers.
 func (t *Tap) Create(ctx context.Context, opts CreateOptions) (keg.NodeId, error) {
-	k, err := t.KegService.Resolve(ctx, ResolveKegOptions{
-		Root:    t.Root,
-		Keg:     opts.KegAlias,
-		NoCache: false,
-	})
+	k, err := t.resolveKeg(ctx, opts.KegTargetOptions)
 	if err != nil {
 		return keg.NodeId{}, fmt.Errorf("unable to determine default keg: %w", err)
 	}
@@ -188,8 +204,7 @@ func (t *Tap) Create(ctx context.Context, opts CreateOptions) (keg.NodeId, error
 
 // IndexOptions configures behavior for Runner.Index.
 type IndexOptions struct {
-	// KegAlias of the keg to index
-	KegAlias string
+	KegTargetOptions
 
 	// Rebuild rebuilds the full index
 	Rebuild bool
@@ -203,11 +218,7 @@ type IndexOptions struct {
 // This scans all nodes and regenerates the dex indices. Useful after
 // manually modifying files or to refresh stale indices.
 func (t *Tap) Index(ctx context.Context, opts IndexOptions) (string, error) {
-	k, err := t.KegService.Resolve(ctx, ResolveKegOptions{
-		Root:    t.Root,
-		Keg:     opts.KegAlias,
-		NoCache: false,
-	})
+	k, err := t.resolveKeg(ctx, opts.KegTargetOptions)
 	if err != nil {
 		return "", fmt.Errorf("unable to determine keg: %w", err)
 	}
@@ -338,6 +349,11 @@ func (t *Tap) InitKeg(ctx context.Context, name string, options InitOptions) err
 				}
 			}
 			projectPath = filepath.Join(base, "docs")
+		}
+		projectPath = toolkit.ExpandEnv(t.Runtime, projectPath)
+		projectPath, err = toolkit.ExpandPath(t.Runtime, projectPath)
+		if err != nil {
+			return fmt.Errorf("unable to resolve project path %q: %w", options.Path, err)
 		}
 		_, err = t.initProjectKeg(ctx, initLocalOptions{
 			Path:    projectPath,
@@ -588,17 +604,12 @@ func (t *Tap) ConfigEdit(ctx context.Context, opts ConfigEditOptions) error {
 
 // InfoOptions configures behavior for Tap.Info.
 type InfoOptions struct {
-	// Keg of the keg to display info for
-	Keg string
+	KegTargetOptions
 }
 
 // Info displays the keg metadata (keg.yaml file contents).
 func (t *Tap) Info(ctx context.Context, opts InfoOptions) (string, error) {
-	k, err := t.KegService.Resolve(ctx, ResolveKegOptions{
-		Root:    t.Root,
-		Keg:     opts.Keg,
-		NoCache: false,
-	})
+	k, err := t.resolveKeg(ctx, opts.KegTargetOptions)
 	if err != nil {
 		return "", fmt.Errorf("unable to open keg: %w", err)
 	}
@@ -614,8 +625,7 @@ func (t *Tap) Info(ctx context.Context, opts InfoOptions) (string, error) {
 
 // InfoEditOptions configures behavior for Tap.InfoEdit.
 type InfoEditOptions struct {
-	// Keg of the keg to edit info for
-	Keg string
+	KegTargetOptions
 }
 
 func (t *Tap) LookupKeg(ctx context.Context, kegAlias string) (*keg.Keg, error) {
@@ -632,7 +642,7 @@ func (t *Tap) LookupKeg(ctx context.Context, kegAlias string) (*keg.Keg, error) 
 
 // InfoEdit opens the keg configuration file in the default editor.
 func (t *Tap) InfoEdit(ctx context.Context, opts InfoEditOptions) error {
-	k, err := t.LookupKeg(ctx, opts.Keg)
+	k, err := t.resolveKeg(ctx, opts.KegTargetOptions)
 	if err != nil {
 		return err
 	}
@@ -684,8 +694,7 @@ func firstDir(path string) string {
 }
 
 type ListOptions struct {
-	// Keg alias
-	Keg string
+	KegTargetOptions
 
 	// Format to use. %i is node id, %d
 	// %i is node id
@@ -698,11 +707,7 @@ type ListOptions struct {
 }
 
 func (t *Tap) List(ctx context.Context, opts ListOptions) ([]string, error) {
-	k, err := t.KegService.Resolve(ctx, ResolveKegOptions{
-		Root:    t.Root,
-		Keg:     opts.Keg,
-		NoCache: false,
-	})
+	k, err := t.resolveKeg(ctx, opts.KegTargetOptions)
 	if err != nil {
 		return []string{}, fmt.Errorf("unable to open keg: %w", err)
 	}
@@ -729,14 +734,11 @@ func (t *Tap) List(ctx context.Context, opts ListOptions) ([]string, error) {
 }
 
 type DirOptions struct {
-	Keg string
+	KegTargetOptions
 }
 
 func (t *Tap) Dir(ctx context.Context, opts DirOptions) (string, error) {
-	k, err := t.KegService.Resolve(ctx, ResolveKegOptions{
-		Root: t.Root,
-		Keg:  opts.Keg,
-	})
+	k, err := t.resolveKeg(ctx, opts.KegTargetOptions)
 	if err != nil {
 		return "", fmt.Errorf("unable to open keg: %w", err)
 	}

@@ -9,6 +9,10 @@ import (
 )
 
 func Run(ctx context.Context, rt *toolkit.Runtime, args []string) (int, error) {
+	return RunWithProfile(ctx, rt, args, TapProfile())
+}
+
+func RunWithProfile(ctx context.Context, rt *toolkit.Runtime, args []string, profile Profile) (int, error) {
 	if rt == nil {
 		var err error
 		rt, err = toolkit.NewRuntime()
@@ -24,12 +28,12 @@ func Run(ctx context.Context, rt *toolkit.Runtime, args []string) (int, error) {
 	if len(args) >= 2 && args[0] == "__complete" {
 		if _, err := strconv.Atoi(args[1]); err == nil {
 			args = append([]string{"__complete", "cat"}, args[2:]...)
-			return Run(ctx, rt, args)
+			return RunWithProfile(ctx, rt, args, profile)
 		}
 	} else if len(args) >= 1 {
 		if _, err := strconv.Atoi(args[0]); err == nil {
 			args = append([]string{"cat"}, args...)
-			return Run(ctx, rt, args)
+			return RunWithProfile(ctx, rt, args, profile)
 		}
 	}
 
@@ -38,6 +42,7 @@ func Run(ctx context.Context, rt *toolkit.Runtime, args []string) (int, error) {
 		Root:     "",
 		Runtime:  rt,
 		Shutdown: func() {},
+		Profile:  profile,
 	}
 	cmd := NewRootCmd(deps)
 	cmd.SetArgs(args)
