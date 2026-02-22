@@ -1,9 +1,7 @@
 package keg_test
 
 import (
-	"bytes"
 	"context"
-	"strings"
 	"testing"
 	"time"
 
@@ -18,33 +16,8 @@ func TestParseMeta_EmptyReturnsEmptyMeta(t *testing.T) {
 	m, err := keg.ParseMeta(ctx, []byte("   \n\t"))
 	require.NoError(t, err)
 	require.NotNil(t, m)
-	require.Empty(t, m.Tags())
 	_, ok := m.Get("updated")
 	require.False(t, ok)
-}
-
-func TestTags_Normalization_AddRemove(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-
-	m := keg.NewMeta(ctx, time.Now())
-	err := m.Set(ctx, "tags", "Zeke, Draft  ,  other_tag")
-	require.NoError(t, err)
-
-	tags := m.Tags()
-	require.Equal(t, []string{"draft", "other_tag", "zeke"}, tags)
-
-	m.AddTag("ZEKE")
-	require.Equal(t, []string{"draft", "other_tag", "zeke"}, m.Tags())
-
-	m.AddTag("New Tag!")
-	require.Equal(t, []string{"draft", "new-tag", "other_tag", "zeke"}, m.Tags())
-
-	m.RmTag("other_TAG")
-	require.Equal(t, []string{"draft", "new-tag", "zeke"}, m.Tags())
-
-	m.RmTag("nonexistent")
-	require.Equal(t, []string{"draft", "new-tag", "zeke"}, m.Tags())
 }
 
 func TestSetGetAndUnsetTitleKey(t *testing.T) {
@@ -76,27 +49,11 @@ func TestProgrammaticKeysNotReturnedByMetaGet(t *testing.T) {
 	require.Contains(t, out, "hash: abc123")
 }
 
-func TestToYAML_NormalizesTagsOutput(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-
-	m := keg.NewMeta(ctx, time.Now())
-	require.NoError(t, m.Set(ctx, "tags", []string{"A B", "a-b", "C,c"}))
-
-	out := m.ToYAML()
-	lout := strings.ToLower(out)
-	require.Contains(t, lout, "a-b")
-	require.Contains(t, lout, "c")
-	require.True(t,
-		bytes.Contains([]byte(out), []byte("tags:")) || strings.Contains(out, "tags:"),
-	)
-}
-
 func TestParseMeta_TitleAndStatsSplit(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
-	raw := []byte("title: My Fancy Title\nhash: abc123\n")
+	raw := []byte("title: My Fancy Title\nhash: abc123\ntags: [a, b]\n")
 	m, err := keg.ParseMeta(ctx, raw)
 	require.NoError(t, err)
 	require.Equal(t, "My Fancy Title", m.Title())
@@ -106,6 +63,7 @@ func TestParseMeta_TitleAndStatsSplit(t *testing.T) {
 	s, err := keg.ParseStats(ctx, raw)
 	require.NoError(t, err)
 	require.Equal(t, "abc123", s.Hash())
+	require.Equal(t, []string{"a", "b"}, s.Tags())
 }
 
 func TestParseMeta_PreservesComments(t *testing.T) {
@@ -135,17 +93,19 @@ func TestToYAMLWithStats_WritesProgrammaticFields(t *testing.T) {
 
 	m := keg.NewMeta(ctx, now)
 	m.SetTitle(ctx, "Node")
-	m.SetTags(ctx, []string{"alpha"})
 
 	s := keg.NewStats(now)
 	s.SetHash("h1", &now)
 	s.SetLead("summary")
 	s.SetLinks([]keg.NodeId{{ID: 1}, {ID: 2}})
+	s.SetTags([]string{"Alpha", "beta"})
 	s.SetAccessed(now)
 
 	out := m.ToYAMLWithStats(s)
 	require.Contains(t, out, "title: Node")
 	require.Contains(t, out, "tags:")
+	require.Contains(t, out, "- alpha")
+	require.Contains(t, out, "- beta")
 	require.Contains(t, out, "hash: h1")
 	require.Contains(t, out, "updated:")
 	require.Contains(t, out, "created:")
@@ -175,9 +135,11 @@ baz: box
 	}
 	require.NoError(t, m.SetAttrs(ctx, attrs))
 
-	require.Equal(t, []string{"another", "newtag"}, m.Tags())
-
 	out := m.ToYAML()
 	require.Contains(t, out, "foo: bar")
 	require.Contains(t, out, "baz: boxy")
+
+	stats, err := keg.ParseStats(ctx, []byte(out))
+	require.NoError(t, err)
+	require.Equal(t, []string{"another", "newtag"}, stats.Tags())
 }

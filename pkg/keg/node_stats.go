@@ -5,18 +5,21 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"sort"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
 )
 
 type statsYAML struct {
-	Hash     string    `yaml:"hash,omitempty"`
-	Updated  time.Time `yaml:"updated,omitempty"`
-	Created  time.Time `yaml:"created,omitempty"`
-	Accessed time.Time `yaml:"accessed,omitempty"`
-	Lead     string    `yaml:"lead,omitempty"`
-	Links    []string  `yaml:"links,omitempty"`
+	Hash     string   `yaml:"hash,omitempty"`
+	Updated  string   `yaml:"updated,omitempty"`
+	Created  string   `yaml:"created,omitempty"`
+	Accessed string   `yaml:"accessed,omitempty"`
+	Lead     string   `yaml:"lead,omitempty"`
+	Links    []string `yaml:"links,omitempty"`
+	Tags     any      `yaml:"tags,omitempty"`
 }
 
 // NodeStats contains programmatic node data derived by tooling.
@@ -27,6 +30,7 @@ type NodeStats struct {
 	accessed time.Time
 	lead     string
 	links    []NodeId
+	tags     []string
 }
 
 func NewStats(now time.Time) *NodeStats {
@@ -34,6 +38,7 @@ func NewStats(now time.Time) *NodeStats {
 		updated: now,
 		created: now,
 		links:   []NodeId{},
+		tags:    []string{},
 	}
 }
 
@@ -43,7 +48,7 @@ func ParseStats(ctx context.Context, raw []byte) (*NodeStats, error) {
 
 	trimmed := bytes.TrimSpace(raw)
 	if len(trimmed) == 0 {
-		return &NodeStats{links: []NodeId{}}, nil
+		return &NodeStats{links: []NodeId{}, tags: []string{}}, nil
 	}
 
 	var doc yaml.Node
@@ -62,11 +67,12 @@ func ParseStats(ctx context.Context, raw []byte) (*NodeStats, error) {
 
 	stats := &NodeStats{
 		hash:     tmp.Hash,
-		updated:  tmp.Updated,
-		created:  tmp.Created,
-		accessed: tmp.Accessed,
+		updated:  parseStatsTime(tmp.Updated),
+		created:  parseStatsTime(tmp.Created),
+		accessed: parseStatsTime(tmp.Accessed),
 		lead:     tmp.Lead,
 		links:    make([]NodeId, 0, len(tmp.Links)),
+		tags:     parseStatsTags(tmp.Tags),
 	}
 
 	for _, rawLink := range tmp.Links {
@@ -79,6 +85,30 @@ func ParseStats(ctx context.Context, raw []byte) (*NodeStats, error) {
 	stats.links = normalizeNodeIDList(stats.links)
 
 	return stats, nil
+}
+
+func parseStatsTime(raw string) time.Time {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return time.Time{}
+	}
+
+	layouts := []string{
+		time.RFC3339Nano,
+		time.RFC3339,
+		"2006-01-02 15:04:05Z07:00",
+		"2006-01-02 15:04:05",
+		"2006-01-02 15:04",
+		"2006-01-02",
+	}
+	for _, layout := range layouts {
+		t, err := time.Parse(layout, value)
+		if err == nil {
+			return t
+		}
+	}
+
+	return time.Time{}
 }
 
 func (s *NodeStats) Hash() string {
@@ -163,6 +193,55 @@ func (s *NodeStats) Links() []NodeId {
 	return out
 }
 
+func (s *NodeStats) Tags() []string {
+	if s == nil {
+		return nil
+	}
+	out := make([]string, len(s.tags))
+	copy(out, s.tags)
+	sort.Strings(out)
+	return out
+}
+
+func (s *NodeStats) SetTags(tags []string) {
+	if s == nil {
+		return
+	}
+	s.tags = NormalizeTags(tags)
+	sort.Strings(s.tags)
+}
+
+func (s *NodeStats) AddTag(tag string) {
+	if s == nil {
+		return
+	}
+	t := NormalizeTag(strings.TrimSpace(tag))
+	if t == "" || slices.Contains(s.tags, t) {
+		return
+	}
+	s.tags = append(s.tags, t)
+	sort.Strings(s.tags)
+}
+
+func (s *NodeStats) RmTag(tag string) {
+	if s == nil {
+		return
+	}
+	t := NormalizeTag(strings.TrimSpace(tag))
+	if t == "" {
+		return
+	}
+	out := make([]string, 0, len(s.tags))
+	for _, existing := range s.tags {
+		if existing == t {
+			continue
+		}
+		out = append(out, existing)
+	}
+	s.tags = out
+	sort.Strings(s.tags)
+}
+
 func (s *NodeStats) SetLinks(links []NodeId) {
 	if s == nil {
 		return
@@ -192,6 +271,9 @@ func (s *NodeStats) UpdateFromContent(content *NodeContent, now *time.Time) {
 	s.SetHash(content.Hash, now)
 	s.SetLead(content.Lead)
 	s.SetLinks(content.Links)
+	if tags, ok := parseTagsFromFrontmatter(content.Frontmatter); ok {
+		s.SetTags(tags)
+	}
 }
 
 func normalizeNodeIDList(links []NodeId) []NodeId {
@@ -211,4 +293,47 @@ func normalizeNodeIDList(links []NodeId) []NodeId {
 
 	slices.SortFunc(out, func(a, b NodeId) int { return a.Compare(b) })
 	return out
+}
+
+func parseTagsFromFrontmatter(frontmatter map[string]any) ([]string, bool) {
+	if frontmatter == nil {
+		return nil, false
+	}
+	raw, ok := frontmatter["tags"]
+	if !ok {
+		return nil, false
+	}
+	return parseStatsTags(raw), true
+}
+
+func parseStatsTags(raw any) []string {
+	switch v := raw.(type) {
+	case nil:
+		return []string{}
+	case []string:
+		out := NormalizeTags(v)
+		sort.Strings(out)
+		return out
+	case []any:
+		values := make([]string, 0, len(v))
+		for _, item := range v {
+			switch t := item.(type) {
+			case string:
+				values = append(values, t)
+			default:
+				values = append(values, fmt.Sprint(t))
+			}
+		}
+		out := NormalizeTags(values)
+		sort.Strings(out)
+		return out
+	case string:
+		out := ParseTags(v)
+		sort.Strings(out)
+		return out
+	default:
+		out := ParseTags(fmt.Sprint(v))
+		sort.Strings(out)
+		return out
+	}
 }

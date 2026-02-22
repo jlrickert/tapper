@@ -127,12 +127,12 @@ func (n *NodeData) Accessed() time.Time {
 	return n.Stats.Accessed()
 }
 
-// Tags returns a copy of the normalized tag list from meta or nil if not set.
+// Tags returns a copy of the normalized tag list from stats or nil if not set.
 func (n *NodeData) Tags() []string {
-	if n == nil || n.Meta == nil {
+	if n == nil || n.Stats == nil {
 		return nil
 	}
-	tags := n.Meta.Tags()
+	tags := n.Stats.Tags()
 	if tags == nil {
 		return nil
 	}
