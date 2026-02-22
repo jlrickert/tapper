@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	appCtx "github.com/jlrickert/cli-toolkit/apppaths"
 	"github.com/jlrickert/cli-toolkit/toolkit"
 	"github.com/jlrickert/tapper/pkg/keg"
 	kegurl "github.com/jlrickert/tapper/pkg/keg_url"
@@ -221,20 +222,26 @@ func (t *Tap) Index(ctx context.Context, opts IndexOptions) (string, error) {
 	return output, nil
 }
 
-// InitOptions configures behavior for Runner.Init.
+// InitOptions configures behavior for Runner.InitKeg.
 type InitOptions struct {
-	// Type could be project, user, or registry
-	Type string
+	// Destination selection. Exactly one may be true.
+	Project  bool
+	User     bool
+	Registry bool
 
-	// When type is registry
-	Repo     string
-	User     string
+	// For project destination: when true, use cwd as the project root base.
+	// Otherwise git root is preferred (falling back to cwd).
+	Cwd bool
+
+	// Registry-specific options.
+	Repo     string // registry name
+	UserName string // registry namespace
 	TokenEnv string
 
-	// When type is user
+	// Keg name (user destination)
 	Name string
 
-	// When type is local
+	// Explicit filesystem path for local destinations.
 	Path string
 
 	Creator string
@@ -242,33 +249,103 @@ type InitOptions struct {
 	Keg     string
 }
 
-// Init creates a keg entry for the given name.
+// InitKeg creates a keg entry for the given name.
 //
-// If the name is empty, an ErrInvalid-wrapped error is returned. Init gets the
+// If the name is empty, an ErrInvalid-wrapped error is returned. InitKeg gets the
 // project via getProject and then performs the actions required to create a
 // keg. The current implementation defers to project.DefaultKeg for further
 // resolution and returns any error encountered when obtaining the project.
-func (t *Tap) Init(ctx context.Context, name string, options *InitOptions) error {
+func (t *Tap) InitKeg(ctx context.Context, name string, options InitOptions) error {
+	if strings.TrimSpace(name) == "" {
+		return fmt.Errorf("name is required: %w", keg.ErrInvalid)
+	}
+
+	enabled := 0
+	if options.Project {
+		enabled++
+	}
+	if options.User {
+		enabled++
+	}
+	if options.Registry {
+		enabled++
+	}
+	if enabled > 1 {
+		return fmt.Errorf("only one destination may be selected: --project, --user, or --registry")
+	}
+	if options.Cwd && !options.Project {
+		return fmt.Errorf("--cwd can only be used with --project")
+	}
+
+	alias := strings.TrimSpace(options.Keg)
+	if alias == "" {
+		switch name {
+		case ".":
+			cwd, err := t.Runtime.Getwd()
+			if err != nil {
+				return fmt.Errorf("unable to determine working directory for alias inference: %w", err)
+			}
+			alias = filepath.Base(cwd)
+		default:
+			alias = filepath.Base(name)
+		}
+	}
+	if alias == "" {
+		return fmt.Errorf("keg alias is required: %w", keg.ErrInvalid)
+	}
+	options.Keg = alias
+
+	destination := "user"
+	switch {
+	case options.Project:
+		destination = "project"
+	case options.Registry:
+		destination = "registry"
+	case options.User:
+		destination = "user"
+	}
+
 	var err error
-	switch options.Type {
+	switch destination {
 	case "registry":
 		_, err = t.initRegistry(initRegistryOptions{
-			Alias:   options.Keg,
-			User:    "",
-			Repo:    "",
-			Title:   options.Title,
-			Creator: options.Creator,
+			Alias:         options.Keg,
+			User:          options.UserName,
+			Repo:          options.Repo,
+			AddUserConfig: true,
+			Title:         options.Title,
+			Creator:       options.Creator,
 		})
 	case "user":
+		if options.Name == "" || options.Name == "." {
+			if name == "." {
+				options.Name = options.Keg
+			} else {
+				options.Name = name
+			}
+		}
 		_, err = t.initUserKeg(ctx, options)
-	case "project", "local":
+	case "project":
+		projectPath := strings.TrimSpace(options.Path)
+		if projectPath == "" {
+			base, resolveErr := t.Runtime.Getwd()
+			if resolveErr != nil {
+				return fmt.Errorf("unable to determine working directory: %w", resolveErr)
+			}
+			if !options.Cwd {
+				if gitRoot := appCtx.FindGitRoot(ctx, t.Runtime, base); gitRoot != "" {
+					base = gitRoot
+				}
+			}
+			projectPath = filepath.Join(base, "docs")
+		}
 		_, err = t.initProjectKeg(ctx, initLocalOptions{
-			Path:    options.Path,
+			Path:    projectPath,
 			Title:   options.Title,
 			Creator: options.Creator,
 		})
 	default:
-		return fmt.Errorf("%s is an invalid repo type", options.Type)
+		return fmt.Errorf("invalid init destination")
 	}
 
 	return err
@@ -308,7 +385,7 @@ func (t *Tap) initProjectKeg(ctx context.Context, opts initLocalOptions) (*kegur
 	return k.Target, err
 }
 
-func (t *Tap) initUserKeg(ctx context.Context, opts *InitOptions) (*kegurl.Target, error) {
+func (t *Tap) initUserKeg(ctx context.Context, opts InitOptions) (*kegurl.Target, error) {
 	cfg := t.ConfigService.Config(true)
 	repoPath := cfg.UserRepoPath()
 	if repoPath == "" {
@@ -403,6 +480,20 @@ func (t *Tap) initRegistry(opts initRegistryOptions) (*kegurl.Target, error) {
 	}
 
 	target := kegurl.NewApi(repoName, user, opts.Alias)
+
+	if opts.AddUserConfig {
+		userCfg, err := t.ConfigService.UserConfig(false)
+		if err != nil {
+			return nil, err
+		}
+		if err := userCfg.AddKeg(opts.Alias, target); err != nil {
+			return nil, err
+		}
+		if err := userCfg.Write(t.Runtime, t.PathService.UserConfig()); err != nil {
+			return nil, err
+		}
+		t.ConfigService.ResetCache()
+	}
 
 	return &target, nil
 }

@@ -26,22 +26,24 @@ func TestInitCommand_TableDriven(t *testing.T) {
 			args: []string{
 				"repo", "init",
 				".",
+				"--project",
 				"--keg", "myalias",
 				"--creator", "me",
 			},
 			expectedAlias:    "myalias",
-			expectedLocation: "~/",
-			description:      "When first argument is '.', type should be inferred as local without --type flag",
+			expectedLocation: "~/docs",
+			description:      "When --project and name is '.', default destination should be docs under project root",
 		},
 		{
 			name: "local_keg_with_dot_infers_alias",
 			args: []string{
 				"repo", "init",
 				".",
+				"--project",
 				"--creator", "me",
 			},
 			expectedAlias:    "myproject",
-			expectedLocation: "~/myproject",
+			expectedLocation: "~/myproject/docs",
 			cwd:              strPtr("~/myproject"),
 			description:      "Project keg with '.' should infer alias from current working directory base when not provided",
 		},
@@ -50,13 +52,13 @@ func TestInitCommand_TableDriven(t *testing.T) {
 			args: []string{
 				"repo", "init",
 				".",
-				"--type", "local",
+				"--project",
 				"--keg", "myalias",
 				"--creator", "me",
 			},
 			expectedAlias:    "myalias",
-			expectedLocation: "~/",
-			description:      "Project keg with explicit --type local flag",
+			expectedLocation: "~/docs",
+			description:      "Project keg with explicit --project flag",
 		},
 		{
 			name: "user_keg_defaults_to_user_type",
@@ -70,14 +72,14 @@ func TestInitCommand_TableDriven(t *testing.T) {
 			expectedLocation:   "~/.local/share/tapper/kegs/public",
 			expectConfigUpdate: true,
 			setupFixture:       strPtr("testuser"),
-			description:        "When type is omitted and first argument is not '.', default type should be user",
+			description:        "When no destination flag is provided and name is not '.', default destination should be user",
 		},
 		{
 			name: "user_keg_with_explicit_type",
 			args: []string{
 				"repo", "init",
 				"public",
-				"--type", "user",
+				"--user",
 				"--keg", "public",
 				"--creator", "testcreator",
 			},
@@ -85,7 +87,7 @@ func TestInitCommand_TableDriven(t *testing.T) {
 			expectedLocation:   "~/.local/share/tapper/kegs/public",
 			expectConfigUpdate: true,
 			setupFixture:       strPtr("testuser"),
-			description:        "User keg with explicit --type user flag",
+			description:        "User keg with explicit --user flag",
 		},
 		{
 			name: "user_keg_infers_alias",
@@ -105,7 +107,7 @@ func TestInitCommand_TableDriven(t *testing.T) {
 			args: []string{
 				"repo", "init",
 				".",
-				"--type", "user",
+				"--user",
 				"--creator", "me",
 			},
 			expectedAlias:      "myproject",
@@ -113,7 +115,7 @@ func TestInitCommand_TableDriven(t *testing.T) {
 			expectConfigUpdate: true,
 			setupFixture:       strPtr("testuser"),
 			cwd:                strPtr("/home/testuser/myproject"),
-			description:        "When name is '.' with type user, alias should infer from current working directory base",
+			description:        "When name is '.' with --user, alias should infer from current working directory base",
 		},
 	}
 
@@ -163,7 +165,7 @@ func TestInitCommand_TableDriven(t *testing.T) {
 			if readmePath != "" {
 				readmePath += "/0/README.md"
 			} else {
-				readmePath = "0/README.md"
+				readmePath = filepath.Join(tt.expectedLocation, "0/README.md")
 			}
 			readme := sb.MustReadFile(readmePath)
 			require.Contains(innerT, string(readme),
@@ -174,7 +176,7 @@ func TestInitCommand_TableDriven(t *testing.T) {
 			if metaPath != "" {
 				metaPath += "/0/meta.yaml"
 			} else {
-				metaPath = "0/meta.yaml"
+				metaPath = filepath.Join(tt.expectedLocation, "0/meta.yaml")
 			}
 			meta := sb.MustReadFile(metaPath)
 			require.Contains(innerT, string(meta),
@@ -199,4 +201,28 @@ func TestInitCommand_TableDriven(t *testing.T) {
 
 func strPtr(s string) *string {
 	return &s
+}
+
+func TestInitCommand_DestinationValidation(t *testing.T) {
+	t.Run("project_and_user_flags_conflict", func(innerT *testing.T) {
+		innerT.Parallel()
+		sb := NewSandbox(innerT)
+
+		h := NewProcess(innerT, false, "repo", "init", "blog", "--project", "--user")
+		res := h.Run(sb.Context(), sb.Runtime())
+
+		require.Error(innerT, res.Err)
+		require.Contains(innerT, string(res.Stderr), "only one destination may be selected")
+	})
+
+	t.Run("cwd_requires_project_flag", func(innerT *testing.T) {
+		innerT.Parallel()
+		sb := NewSandbox(innerT)
+
+		h := NewProcess(innerT, false, "repo", "init", "blog", "--cwd")
+		res := h.Run(sb.Context(), sb.Runtime())
+
+		require.Error(innerT, res.Err)
+		require.Contains(innerT, string(res.Stderr), "--cwd can only be used with --project")
+	})
 }
