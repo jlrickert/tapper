@@ -128,7 +128,7 @@ func (k *Keg) Init(ctx context.Context) error {
 		return fmt.Errorf("failed to write config: %w", err)
 	}
 
-	// Create the zero node as a special case during Init. We do this here so
+	// Create the zero node as a special case during InitKeg. We do this here so
 	// Create can continue to require an initiated keg.
 	clk := repoClock(k.Repo)
 	now := clk.Now()
@@ -148,13 +148,13 @@ func (k *Keg) Init(ctx context.Context) error {
 
 	if err := k.withNodeLock(ctx, id, func(lockCtx context.Context) error {
 		if err := k.Repo.WriteContent(lockCtx, id, []byte(rawContent)); err != nil {
-			return fmt.Errorf("Init: write content to backend %s: %w", k.Repo.Name(), err)
+			return fmt.Errorf("InitKeg: write content to backend %s: %w", k.Repo.Name(), err)
 		}
 		if err := k.Repo.WriteMeta(lockCtx, id, []byte(m.ToYAML())); err != nil {
-			return fmt.Errorf("Init: write meta to backend %s: %w", k.Repo.Name(), err)
+			return fmt.Errorf("InitKeg: write meta to backend %s: %w", k.Repo.Name(), err)
 		}
 		if err := k.Repo.WriteStats(lockCtx, id, stats); err != nil {
-			return fmt.Errorf("Init: write stats to backend %s: %w", k.Repo.Name(), err)
+			return fmt.Errorf("InitKeg: write stats to backend %s: %w", k.Repo.Name(), err)
 		}
 		return nil
 	}); err != nil {
@@ -280,7 +280,7 @@ func (k *Keg) UpdateConfig(ctx context.Context, f func(*Config)) error {
 		return fmt.Errorf("unable to update config: %w", err)
 	}
 
-	// Read config directly from the repository to allow Init to create it when
+	// Read config directly from the repository to allow InitKeg to create it when
 	// the keg is not yet fully initiated.
 	cfg, err := k.Repo.ReadConfig(ctx)
 	if err != nil {

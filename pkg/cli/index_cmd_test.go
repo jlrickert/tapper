@@ -131,7 +131,7 @@ func TestIndexCommand_IntegrationWithInit(t *testing.T) {
 		initCmd := NewProcess(innerT, false,
 			"repo", "init",
 			"newstudy",
-			"--type", "user",
+			"--user",
 			"--keg", "newstudy",
 			"--creator", "test-user",
 		)

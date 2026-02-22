@@ -204,7 +204,7 @@ func TestCatCommand_IntegrationWithInit(t *testing.T) {
 		initCmd := NewProcess(innerT, false,
 			"repo", "init",
 			"newstudy",
-			"--type", "user",
+			"--user",
 			"--keg", "newstudy",
 			"--creator", "test-user",
 		)
@@ -236,7 +236,7 @@ func TestCatCommand_UserKeg(t *testing.T) {
 		initCmd := NewProcess(innerT, false,
 			"repo", "init",
 			"public",
-			"--type", "user",
+			"--user",
 			"--keg", "public",
 			"--creator", "test-user",
 		)
