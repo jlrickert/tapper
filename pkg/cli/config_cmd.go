@@ -13,11 +13,11 @@ import (
 //
 // Usage examples:
 //
-//	Tap config
-//	Tap config --project
-//	Tap config --user
-//	Tap config edit
-//	Tap config edit --project
+//	tap config
+//	tap config --project
+//	tap config --user
+//	tap config edit
+//	tap config edit --project
 func NewConfigCmd(deps *Deps) *cobra.Command {
 	var opts tapper.ConfigOptions
 
@@ -29,9 +29,7 @@ func NewConfigCmd(deps *Deps) *cobra.Command {
 Use 'Tap config edit' to modify the configuration.
 Use '--project' flag to view only local project configuration.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			ctx := cmd.Context()
-
-			output, err := deps.Tap.Config(ctx, opts)
+			output, err := deps.Tap.Config(opts)
 			if errors.Is(err, os.ErrNotExist) {
 				return fmt.Errorf("no configuration available: %w", err)
 			}

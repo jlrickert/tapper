@@ -202,10 +202,10 @@ func TestCatCommand_IntegrationWithInit(t *testing.T) {
 
 		// First, initialize a user keg
 		initCmd := NewProcess(innerT, false,
-			"init",
+			"repo", "init",
 			"newstudy",
 			"--type", "user",
-			"--alias", "newstudy",
+			"--keg", "newstudy",
 			"--creator", "test-user",
 		)
 		initRes := initCmd.Run(sb.Context(), sb.Runtime())
@@ -234,10 +234,10 @@ func TestCatCommand_UserKeg(t *testing.T) {
 
 		// First, initialize a user keg
 		initCmd := NewProcess(innerT, false,
-			"init",
+			"repo", "init",
 			"public",
 			"--type", "user",
-			"--alias", "public",
+			"--keg", "public",
 			"--creator", "test-user",
 		)
 		initRes := initCmd.Run(sb.Context(), sb.Runtime())

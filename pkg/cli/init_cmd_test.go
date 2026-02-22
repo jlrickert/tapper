@@ -24,9 +24,9 @@ func TestInitCommand_TableDriven(t *testing.T) {
 		{
 			name: "local_keg_with_dot_infers_type",
 			args: []string{
-				"init",
+				"repo", "init",
 				".",
-				"--alias", "myalias",
+				"--keg", "myalias",
 				"--creator", "me",
 			},
 			expectedAlias:    "myalias",
@@ -36,7 +36,7 @@ func TestInitCommand_TableDriven(t *testing.T) {
 		{
 			name: "local_keg_with_dot_infers_alias",
 			args: []string{
-				"init",
+				"repo", "init",
 				".",
 				"--creator", "me",
 			},
@@ -48,10 +48,10 @@ func TestInitCommand_TableDriven(t *testing.T) {
 		{
 			name: "local_keg_with_dot_explicit_type",
 			args: []string{
-				"init",
+				"repo", "init",
 				".",
 				"--type", "local",
-				"--alias", "myalias",
+				"--keg", "myalias",
 				"--creator", "me",
 			},
 			expectedAlias:    "myalias",
@@ -61,9 +61,9 @@ func TestInitCommand_TableDriven(t *testing.T) {
 		{
 			name: "user_keg_defaults_to_user_type",
 			args: []string{
-				"init",
+				"repo", "init",
 				"public",
-				"--alias", "public",
+				"--keg", "public",
 				"--creator", "testcreator",
 			},
 			expectedAlias:      "public",
@@ -75,10 +75,10 @@ func TestInitCommand_TableDriven(t *testing.T) {
 		{
 			name: "user_keg_with_explicit_type",
 			args: []string{
-				"init",
+				"repo", "init",
 				"public",
 				"--type", "user",
-				"--alias", "public",
+				"--keg", "public",
 				"--creator", "testcreator",
 			},
 			expectedAlias:      "public",
@@ -90,7 +90,7 @@ func TestInitCommand_TableDriven(t *testing.T) {
 		{
 			name: "user_keg_infers_alias",
 			args: []string{
-				"init",
+				"repo", "init",
 				"myblog",
 				"--creator", "me",
 			},
@@ -103,7 +103,7 @@ func TestInitCommand_TableDriven(t *testing.T) {
 		{
 			name: "dot_with_user_type_infers_alias",
 			args: []string{
-				"init",
+				"repo", "init",
 				".",
 				"--type", "user",
 				"--creator", "me",

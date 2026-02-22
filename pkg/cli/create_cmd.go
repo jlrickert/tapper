@@ -3,7 +3,6 @@ package cli
 import (
 	"fmt"
 
-	"github.com/jlrickert/cli-toolkit/toolkit"
 	"github.com/jlrickert/tapper/pkg/tapper"
 	"github.com/spf13/cobra"
 )
@@ -22,8 +21,7 @@ func NewCreateCmd(deps *Deps) *cobra.Command {
 		Short:   "create a new node in the current keg",
 		Aliases: []string{"c"},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			stream := toolkit.StreamFromContext(cmd.Context())
-			opts.Stream = stream
+			opts.Stream = deps.Runtime.Stream()
 
 			node, err := deps.Tap.Create(cmd.Context(), opts)
 			if err != nil {
@@ -45,7 +43,7 @@ func NewCreateCmd(deps *Deps) *cobra.Command {
 	)
 
 	_ = cmd.RegisterFlagCompletionFunc("keg", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-		kegs, _ := deps.Tap.ListKegs(cmd.Context(), true)
+		kegs, _ := deps.Tap.ListKegs(true)
 		return kegs, cobra.ShellCompDirectiveNoFileComp
 	})
 

@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jlrickert/cli-toolkit/clock"
 	"github.com/jlrickert/cli-toolkit/toolkit"
 	kegurl "github.com/jlrickert/tapper/pkg/keg_url"
 )
@@ -39,7 +38,7 @@ type Option func(*Keg)
 func NewKegFromTarget(ctx context.Context, target kegurl.Target, rt *toolkit.Runtime) (*Keg, error) {
 	switch target.Scheme() {
 	case kegurl.SchemeMemory:
-		repo := NewMemoryRepo()
+		repo := NewMemoryRepo(rt)
 		keg := Keg{Repo: repo}
 		return &keg, nil
 	case kegurl.SchemeFile:
@@ -124,18 +123,18 @@ func (k *Keg) Init(ctx context.Context) error {
 
 	// Ensure we have a config file. UpdateConfig must be allowed to write the
 	// repo-level config even when the keg is not fully initiated.
-	cfg := NewKegConfig()
+	cfg := NewConfig()
 	if err := k.Repo.WriteConfig(ctx, cfg); err != nil {
 		return fmt.Errorf("failed to write config: %w", err)
 	}
 
 	// Create the zero node as a special case during Init. We do this here so
 	// Create can continue to require an initiated keg.
-	clk := clock.ClockFromContext(ctx)
+	clk := repoClock(k.Repo)
 	now := clk.Now()
 
 	rawContent := RawZeroNodeContent
-	zeroContent, _ := ParseContent(ctx, []byte(rawContent), MarkdownContentFilename)
+	zeroContent, _ := ParseContent(repoRuntime(k.Repo), []byte(rawContent), MarkdownContentFilename)
 
 	m := NewMeta(ctx, now)
 	stats := NewStats(now)
@@ -207,7 +206,7 @@ func (k *Keg) Create(ctx context.Context, opts *CreateOptions) (NodeId, error) {
 		return NodeId{}, fmt.Errorf("failed to allocate node id: %w", err)
 	}
 
-	clk := clock.ClockFromContext(ctx)
+	clk := repoClock(k.Repo)
 	now := clk.Now()
 
 	var rawContent []byte
@@ -228,7 +227,7 @@ func (k *Keg) Create(ctx context.Context, opts *CreateOptions) (NodeId, error) {
 		rawContent = []byte(b.String())
 	}
 
-	content, err := ParseContent(ctx, rawContent, MarkdownContentFilename)
+	content, err := ParseContent(repoRuntime(k.Repo), rawContent, MarkdownContentFilename)
 	if err != nil {
 		return NodeId{}, fmt.Errorf("invalid content: %w", err)
 	}
@@ -266,7 +265,7 @@ func (k *Keg) Create(ctx context.Context, opts *CreateOptions) (NodeId, error) {
 }
 
 // Config returns the keg's configuration.
-func (k *Keg) Config(ctx context.Context) (*KegConfig, error) {
+func (k *Keg) Config(ctx context.Context) (*Config, error) {
 	if err := k.checkKegExists(ctx); err != nil {
 		return nil, fmt.Errorf("failed to retrieve config: %w", err)
 	}
@@ -277,7 +276,7 @@ func (k *Keg) Config(ctx context.Context) (*KegConfig, error) {
 // UpdateConfig reads the keg config, applies the provided mutation function,
 // and writes the result back to the repository. This is the preferred way to
 // modify keg configuration to ensure updates are atomically persisted.
-func (k *Keg) UpdateConfig(ctx context.Context, f func(*KegConfig)) error {
+func (k *Keg) UpdateConfig(ctx context.Context, f func(*Config)) error {
 	if err := k.checkKegExists(ctx); err != nil {
 		return fmt.Errorf("unable to update config: %w", err)
 	}
@@ -287,7 +286,7 @@ func (k *Keg) UpdateConfig(ctx context.Context, f func(*KegConfig)) error {
 	cfg, err := k.Repo.ReadConfig(ctx)
 	if err != nil {
 		if errors.Is(err, ErrNotExist) {
-			cfg = NewKegConfig()
+			cfg = NewConfig()
 		} else {
 			return fmt.Errorf("failed to read config: %w", err)
 		}
@@ -404,7 +403,7 @@ func (k *Keg) SetMeta(ctx context.Context, id NodeId, meta *NodeMeta) error {
 		return err
 	}
 
-	clk := clock.ClockFromContext(ctx)
+	clk := repoClock(k.Repo)
 	now := clk.Now()
 	return k.addNodeToDex(ctx, nodeData, &now)
 }
@@ -416,7 +415,7 @@ func (k *Keg) UpdateMeta(ctx context.Context, id NodeId, f func(*NodeMeta)) erro
 		return fmt.Errorf("failed to update node meta: %w", err)
 	}
 
-	clk := clock.ClockFromContext(ctx)
+	clk := repoClock(k.Repo)
 	now := clk.Now()
 
 	return k.withNodeLock(ctx, id, func(lockCtx context.Context) error {
@@ -449,7 +448,7 @@ func (k *Keg) Touch(ctx context.Context, id NodeId) error {
 		return fmt.Errorf("failed to touch node: %w", err)
 	}
 
-	clk := clock.ClockFromContext(ctx)
+	clk := repoClock(k.Repo)
 	now := clk.Now()
 
 	return k.withNodeLock(ctx, id, func(lockCtx context.Context) error {
@@ -552,7 +551,7 @@ func (k *Keg) Index(ctx context.Context, opts IndexOptions) error {
 			continue
 		}
 		if !opts.NoUpdate {
-			clk := clock.ClockFromContext(ctx)
+			clk := repoClock(k.Repo)
 			now := clk.Now()
 			err := data.UpdateMeta(ctx, &now)
 			if err != nil {
@@ -560,7 +559,7 @@ func (k *Keg) Index(ctx context.Context, opts IndexOptions) error {
 				continue
 			}
 		}
-		clk := clock.ClockFromContext(ctx)
+		clk := repoClock(k.Repo)
 		now := clk.Now()
 		if data.Stats == nil {
 			data.Stats = &NodeStats{}
@@ -651,8 +650,8 @@ func (k *Keg) writeNodeToDex(ctx context.Context, id NodeId, data *NodeData) err
 	if err := dex.Write(ctx, k.Repo); err != nil {
 		return fmt.Errorf("failed to write dex: %w", err)
 	}
-	return k.UpdateConfig(ctx, func(cfg *KegConfig) {
-		cfg.Touch(ctx)
+	return k.UpdateConfig(ctx, func(cfg *Config) {
+		cfg.Touch(repoRuntime(k.Repo))
 	})
 }
 
@@ -662,7 +661,7 @@ func (k *Keg) getContent(ctx context.Context, id NodeId) (*NodeContent, error) {
 	if err != nil {
 		return nil, err
 	}
-	return ParseContent(ctx, raw, FormatMarkdown)
+	return ParseContent(repoRuntime(k.Repo), raw, FormatMarkdown)
 }
 
 // getMeta retrieves and parses YAML metadata for a node.
@@ -736,7 +735,7 @@ func (k *Keg) addNodeToDex(ctx context.Context, data *NodeData, now *time.Time) 
 			return err
 		}
 
-		if err := k.UpdateConfig(ctx, func(kc *KegConfig) {
+		if err := k.UpdateConfig(ctx, func(kc *Config) {
 			kc.Updated = now.Format(time.RFC3339)
 		}); err != nil {
 			return err

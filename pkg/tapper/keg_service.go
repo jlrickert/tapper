@@ -42,15 +42,15 @@ func (s *KegService) Resolve(ctx context.Context, opts ResolveKegOptions) (*keg.
 		return s.resolvePath(ctx, root, !opts.NoCache)
 	}
 	cache := !opts.NoCache
-	cfg := s.ConfigService.Config(ctx, cache)
+	cfg := s.ConfigService.Config(cache)
 	alias := cfg.DefaultKeg()
 	return s.resolveKegAlias(ctx, alias, !opts.NoCache)
 }
 
 func (s *KegService) resolvePath(ctx context.Context, path string, cache bool) (*keg.Keg, error) {
 	s.init()
-	cfg := s.ConfigService.Config(ctx, true)
-	kegAlias := cfg.LookupAlias(ctx, s.Runtime, path)
+	cfg := s.ConfigService.Config(true)
+	kegAlias := cfg.LookupAlias(s.Runtime, path)
 	if kegAlias == "" {
 		kegAlias = cfg.DefaultKeg()
 	}
@@ -68,7 +68,7 @@ func (s *KegService) resolveKegAlias(ctx context.Context, kegAlias string, cache
 	if cache && s.kegCache[kegAlias] != nil {
 		return s.kegCache[kegAlias], nil
 	}
-	target, err := s.ConfigService.ResolveTarget(ctx, kegAlias, cache)
+	target, err := s.ConfigService.ResolveTarget(kegAlias, cache)
 	if err != nil {
 		return nil, err
 	}

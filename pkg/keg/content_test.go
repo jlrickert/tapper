@@ -1,7 +1,6 @@
 package keg_test
 
 import (
-	"context"
 	"strings"
 	"testing"
 
@@ -10,10 +9,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func testRuntime(t *testing.T) *toolkit.Runtime {
+	t.Helper()
+	rt, err := toolkit.NewTestRuntime(t.TempDir(), "/home/testuser", "testuser")
+	require.NoError(t, err)
+	return rt
+}
+
 func TestParseContent_MarkdownTitleAndLead(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
-	ctx = toolkit.WithHasher(ctx, &toolkit.MD5Hasher{})
+	rt := testRuntime(t)
 
 	md := `# My Title
 
@@ -25,7 +30,7 @@ It continues on the same paragraph.
 More content and an outgoing link: ../1 and ../2 and ../1
 `
 
-	c, err := keg.ParseContent(ctx, []byte(md), "README.md")
+	c, err := keg.ParseContent(rt, []byte(md), "README.md")
 	require.NoError(t, err)
 	require.Equal(t, "markdown", c.Format)
 	require.Equal(t, "My Title", c.Title)
@@ -34,14 +39,13 @@ More content and an outgoing link: ../1 and ../2 and ../1
 	// links should be deduped and sorted
 	expected := []keg.NodeId{{ID: 1}, {ID: 2}}
 	require.Equal(t, expected, c.Links)
-	// hash should match the hasher injected into ctx
-	require.Equal(t, toolkit.HasherFromContext(ctx).Hash([]byte(md)), c.Hash)
+	// hash should match runtime hasher
+	require.Equal(t, rt.Hasher().Hash([]byte(md)), c.Hash)
 }
 
 func TestParseContent_MarkdownFallbackTitleAndLead(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
-	ctx = toolkit.WithHasher(ctx, &toolkit.MD5Hasher{})
+	rt := testRuntime(t)
 
 	md := `Some title line
 
@@ -50,7 +54,7 @@ This is the first paragraph after the title fallback.
 Another paragraph.
 `
 
-	c, err := keg.ParseContent(ctx, []byte(md), "README.md")
+	c, err := keg.ParseContent(rt, []byte(md), "README.md")
 	require.NoError(t, err)
 	require.Equal(t, "markdown", c.Format)
 	require.Equal(t, "Some title line", c.Title)
@@ -59,11 +63,10 @@ Another paragraph.
 
 func TestParseContent_EmptyInputReturnsEmptyFormat(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
-	ctx = toolkit.WithHasher(ctx, &toolkit.MD5Hasher{})
+	rt := testRuntime(t)
 
 	empty := "    \n\t\n"
-	c, err := keg.ParseContent(ctx, []byte(empty), "README.md")
+	c, err := keg.ParseContent(rt, []byte(empty), "README.md")
 	require.NoError(t, err)
 	require.Equal(t, "empty", c.Format)
 	require.Equal(t, "", c.Title)
@@ -73,8 +76,7 @@ func TestParseContent_EmptyInputReturnsEmptyFormat(t *testing.T) {
 
 func TestParseContent_MarkdownFrontmatterAndBody(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
-	ctx = toolkit.WithHasher(ctx, &toolkit.MD5Hasher{})
+	rt := testRuntime(t)
 
 	md := `---
 foo: bar
@@ -89,7 +91,7 @@ This is the lead paragraph extracted after frontmatter.
 More content and a link ../3
 `
 
-	c, err := keg.ParseContent(ctx, []byte(md), "README.md")
+	c, err := keg.ParseContent(rt, []byte(md), "README.md")
 	require.NoError(t, err)
 
 	require.Equal(t, "markdown", c.Format)
@@ -117,8 +119,7 @@ More content and a link ../3
 
 func TestParseContent_MarkdownFrontmatterNoH1UsesFirstLine(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
-	ctx = toolkit.WithHasher(ctx, &toolkit.MD5Hasher{})
+	rt := testRuntime(t)
 
 	md := `---
 meta: value
@@ -128,7 +129,7 @@ meta: value
 Lead paragraph following the fallback title.
 `
 
-	c, err := keg.ParseContent(ctx, []byte(md), "README.md")
+	c, err := keg.ParseContent(rt, []byte(md), "README.md")
 	require.NoError(t, err)
 
 	require.Equal(t, "markdown", c.Format)

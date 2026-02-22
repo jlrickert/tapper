@@ -5,8 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"time"
-
-	"github.com/jlrickert/cli-toolkit/clock"
 )
 
 // Node provides operations and lifecycle management for a single KEG node.
@@ -65,7 +63,7 @@ func (n *Node) getContent(ctx context.Context, id NodeId) (*NodeContent, error) 
 	if err != nil {
 		return nil, err
 	}
-	return ParseContent(ctx, raw, FormatMarkdown)
+	return ParseContent(repoRuntime(n.Repo), raw, FormatMarkdown)
 }
 
 // getMetaAndStats retrieves and parses YAML metadata plus programmatic stats
@@ -174,7 +172,7 @@ func (n *Node) Update(ctx context.Context) error {
 		return err
 	}
 
-	clk := clock.ClockFromContext(ctx)
+	clk := repoClock(n.Repo)
 	now := clk.Now()
 
 	run := func(lockCtx context.Context) error {
@@ -201,7 +199,7 @@ func (n *Node) Touch(ctx context.Context) error {
 		return err
 	}
 
-	clk := clock.ClockFromContext(ctx)
+	clk := repoClock(n.Repo)
 	now := clk.Now()
 	run := func(lockCtx context.Context) error {
 		return n.touchUnlocked(lockCtx, now)

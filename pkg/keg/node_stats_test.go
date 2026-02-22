@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jlrickert/cli-toolkit/toolkit"
 	"github.com/jlrickert/tapper/pkg/keg"
 	"github.com/stretchr/testify/require"
 )
@@ -56,10 +57,11 @@ func TestSetHash_UpdatesUpdatedOnlyOnChange(t *testing.T) {
 
 func TestUpdateFromContent_UpdatesLeadHashAndLinks(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
 	now := time.Date(2025, 5, 6, 7, 8, 9, 0, time.UTC)
+	rt, err := toolkit.NewTestRuntime(t.TempDir(), "/home/testuser", "testuser")
+	require.NoError(t, err)
 
-	content, err := keg.ParseContent(ctx, []byte("# Title\n\nhello\n\n[one](../1) [two](../2)"), keg.FormatMarkdown)
+	content, err := keg.ParseContent(rt, []byte("# Title\n\nhello\n\n[one](../1) [two](../2)"), keg.FormatMarkdown)
 	require.NoError(t, err)
 
 	s := keg.NewStats(now)

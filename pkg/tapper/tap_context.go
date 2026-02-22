@@ -132,7 +132,7 @@ package tapper
 //	cache bool) error {
 //	cfg, err := api.UserConfig(ctx, cache)
 //	if errors.Is(err, keg.ErrNotExist) {
-//		cfg = &Config{data: &configDTO{}}
+//		cfg = &Config{data: &Config{}}
 //	} else if err != nil {
 //		return err
 //	}

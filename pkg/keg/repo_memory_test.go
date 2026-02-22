@@ -14,7 +14,7 @@ func TestMemoryRepo_WriteReadMetaAndContent(t *testing.T) {
 	t.Parallel()
 	fx := NewSandbox(t)
 
-	r := keg.NewMemoryRepo()
+	r := keg.NewMemoryRepo(fx.Runtime())
 	ctx := fx.Context()
 
 	id := keg.NodeId{ID: 10}
@@ -41,7 +41,7 @@ func TestMemoryRepo_WriteReadStats(t *testing.T) {
 	t.Parallel()
 	fx := NewSandbox(t)
 
-	r := keg.NewMemoryRepo()
+	r := keg.NewMemoryRepo(fx.Runtime())
 	ctx := fx.Context()
 	id := keg.NodeId{ID: 77}
 
@@ -73,7 +73,7 @@ func TestMemoryRepo_ReadMissingReturnsNotFound(t *testing.T) {
 	t.Parallel()
 	fx := NewSandbox(t)
 
-	r := keg.NewMemoryRepo()
+	r := keg.NewMemoryRepo(fx.Runtime())
 	ctx := fx.Context()
 
 	missing := keg.NodeId{ID: 9999}
@@ -87,7 +87,7 @@ func TestMemoryRepo_WriteAndListIndexes_GetIndex(t *testing.T) {
 	t.Parallel()
 	fx := NewSandbox(t)
 
-	r := keg.NewMemoryRepo()
+	r := keg.NewMemoryRepo(fx.Runtime())
 	ctx := fx.Context()
 
 	name := "dex/nodes.tsv"
@@ -107,7 +107,7 @@ func TestMemoryRepo_AssetsAPI(t *testing.T) {
 	t.Parallel()
 	fx := NewSandbox(t)
 
-	r := keg.NewMemoryRepo()
+	r := keg.NewMemoryRepo(fx.Runtime())
 	ctx := fx.Context()
 	id := keg.NodeId{ID: 41}
 
@@ -132,7 +132,7 @@ func TestMemoryRepo_MoveNodeAndDestinationExists(t *testing.T) {
 	t.Parallel()
 	fx := NewSandbox(t)
 
-	r := keg.NewMemoryRepo()
+	r := keg.NewMemoryRepo(fx.Runtime())
 	ctx := fx.Context()
 
 	src := keg.NodeId{ID: 20}
@@ -169,7 +169,7 @@ func TestMemoryRepo_NextProducesIncreasingIDs(t *testing.T) {
 	t.Parallel()
 	fx := NewSandbox(t)
 
-	r := keg.NewMemoryRepo()
+	r := keg.NewMemoryRepo(fx.Runtime())
 	ctx := fx.Context()
 
 	// Obtain the next available ID.
@@ -206,7 +206,7 @@ func TestMemoryRepo_WithNodeLockTimeout(t *testing.T) {
 	fx := NewSandbox(t)
 	ctx := fx.Context()
 
-	r := keg.NewMemoryRepo()
+	r := keg.NewMemoryRepo(fx.Runtime())
 	id := keg.NodeId{ID: 55}
 
 	locked := make(chan struct{})
@@ -240,7 +240,7 @@ func TestMemoryRepo_WithNodeLockReentrant(t *testing.T) {
 	fx := NewSandbox(t)
 	ctx := fx.Context()
 
-	r := keg.NewMemoryRepo()
+	r := keg.NewMemoryRepo(fx.Runtime())
 	id := keg.NodeId{ID: 56}
 
 	err := r.WithNodeLock(ctx, id, func(lockCtx context.Context) error {
