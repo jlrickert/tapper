@@ -125,7 +125,7 @@ func (dex *Dex) Nodes(ctx context.Context) []NodeIndexEntry {
 	return dex.nodes.List(ctx)
 }
 
-// Tags returns the parsed tags index (map[tag] -> []NodeID).
+// TagLinks Tags returns the parsed tags index (map[tag] -> []NodeID).
 func (dex *Dex) TagLinks(ctx context.Context, node NodeId) ([]NodeId, bool) {
 	dex.mu.RLock()
 	defer dex.mu.RUnlock()
