@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/jlrickert/cli-toolkit/clock"
+	"github.com/jlrickert/cli-toolkit/toolkit"
 	kegurl "github.com/jlrickert/tapper/pkg/keg_url"
 )
 
@@ -35,7 +36,7 @@ type Option func(*Keg)
 // - memory:// targets use an in-memory repository
 // - file:// targets use a filesystem repository
 // Returns an error if the target scheme is not supported.
-func NewKegFromTarget(ctx context.Context, target kegurl.Target) (*Keg, error) {
+func NewKegFromTarget(ctx context.Context, target kegurl.Target, rt *toolkit.Runtime) (*Keg, error) {
 	switch target.Scheme() {
 	case kegurl.SchemeMemory:
 		repo := NewMemoryRepo()
@@ -46,6 +47,7 @@ func NewKegFromTarget(ctx context.Context, target kegurl.Target) (*Keg, error) {
 			Root:            filepath.Clean(target.Path()),
 			ContentFilename: MarkdownContentFilename,
 			MetaFilename:    YAMLMetaFilename,
+			runtime:         rt,
 		}
 		keg := Keg{Target: &target, Repo: &repo}
 		return &keg, nil
