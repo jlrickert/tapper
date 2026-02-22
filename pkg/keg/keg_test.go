@@ -12,8 +12,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestInitWhenRepoIsExample attempts to Init a keg when the repo already
-// contains the example data. Init should fail with ErrExist.
+// TestInitWhenRepoIsExample attempts to InitKeg a keg when the repo already
+// contains the example data. InitKeg should fail with ErrExist.
 func TestInitWhenRepoIsExample(t *testing.T) {
 	t.Parallel()
 	f := NewSandbox(t, sandbox.WithFixture("example", "~/repos/example"))
@@ -26,7 +26,7 @@ func TestInitWhenRepoIsExample(t *testing.T) {
 	require.Truef(
 		t,
 		errors.Is(err, kegpkg.ErrExist),
-		"Init expected ErrExist, got: %v", err,
+		"InitKeg expected ErrExist, got: %v", err,
 	)
 }
 
@@ -39,12 +39,12 @@ func TestInitOnEmptyRepo(t *testing.T) {
 	k, err := kegpkg.NewKegFromTarget(f.Context(), kegurl.NewFile("repo"), f.Runtime())
 	require.NoError(t, err, "NewKegFromTarget failed")
 
-	require.NoError(t, k.Init(f.Context()), "Init failed")
+	require.NoError(t, k.Init(f.Context()), "InitKeg failed")
 
 	// Repo should now report a keg exists.
 	exists, err := kegpkg.RepoContainsKeg(f.Context(), k.Repo)
 	require.NoError(t, err, "KegExists returned error")
-	require.True(t, exists, "KegExists expected true after Init")
+	require.True(t, exists, "KegExists expected true after InitKeg")
 
 	// Ensure a zero node is present.
 	ids, err := k.Repo.ListNodes(f.Context())
@@ -56,12 +56,12 @@ func TestInitOnEmptyRepo(t *testing.T) {
 			break
 		}
 	}
-	require.True(t, foundZero, "expected zero node to exist after Init")
+	require.True(t, foundZero, "expected zero node to exist after InitKeg")
 }
 
 // TestKegExistsWithMemoryRepo verifies KegExists behavior with the in-memory
 // repository. It should report false for an uninitialized repo and true after
-// Init has been called.
+// InitKeg has been called.
 func TestKegExistsWithMemoryRepo(t *testing.T) {
 	t.Parallel()
 	f := NewSandbox(t)
@@ -73,13 +73,13 @@ func TestKegExistsWithMemoryRepo(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, exists, "expected KegExists false for new memory repo")
 
-	// Initialize via Keg.Init and re-check.
+	// Initialize via Keg.InitKeg and re-check.
 	k := kegpkg.NewKeg(repo)
-	require.NoError(t, k.Init(f.Context()), "Init failed for memory repo")
+	require.NoError(t, k.Init(f.Context()), "InitKeg failed for memory repo")
 
 	exists, err = kegpkg.RepoContainsKeg(f.Context(), repo)
 	require.NoError(t, err)
-	require.True(t, exists, "expected KegExists true after Init")
+	require.True(t, exists, "expected KegExists true after InitKeg")
 }
 
 // TestKegExistsWithFsRepo verifies KegExists behavior using the filesystem
@@ -98,11 +98,11 @@ func TestKegExistsWithFsRepo(t *testing.T) {
 	require.False(t, exists, "expected KegExists false for empty fs repo")
 
 	// Initialize and verify.
-	require.NoError(t, k.Init(f.Context()), "Init failed for fs repo")
+	require.NoError(t, k.Init(f.Context()), "InitKeg failed for fs repo")
 
 	exists, err = kegpkg.RepoContainsKeg(f.Context(), k.Repo)
 	require.NoError(t, err)
-	require.True(t, exists, "expected KegExists true after Init")
+	require.True(t, exists, "expected KegExists true after InitKeg")
 }
 
 // Additional tests
@@ -262,7 +262,7 @@ func TestCreateAndUpdateNodesWithFsRepo(t *testing.T) {
 	require.NoError(t, err, "NewKegFromTarget failed")
 
 	// Initialize on disk.
-	require.NoError(t, k.Init(f.Context()), "Init failed")
+	require.NoError(t, k.Init(f.Context()), "InitKeg failed")
 
 	// Create a new node with title and lead.
 	opts := &kegpkg.CreateOptions{

@@ -3,9 +3,9 @@ package cli
 import (
 	"fmt"
 	"path/filepath"
+	"strings"
 
 	"github.com/jlrickert/tapper/pkg/keg"
-	kegurl "github.com/jlrickert/tapper/pkg/keg_url"
 	"github.com/jlrickert/tapper/pkg/tapper"
 	"github.com/spf13/cobra"
 )
@@ -15,63 +15,74 @@ import (
 // Usage examples:
 //
 //	tap repo init NAME
-//	tap repo init mykeg --type local
-//	tap repo init blog --path ./kegs/blog --title "Blog" --creator "me"
+//	tap repo init . --project
+//	tap repo init blog --registry --repo knut --namespace me
+//	tap repo init blog --project --path ./docs --title "Blog" --creator "me"
 func NewInitCmd(deps *Deps) *cobra.Command {
-	initOpts := &tapper.InitOptions{}
+	initOpts := tapper.InitOptions{}
 
 	cmd := &cobra.Command{
 		Use:   "init NAME",
 		Short: "create a new keg target",
+		Long: strings.TrimSpace(`
+Create a keg target and initialize it in one of three destinations:
+
+1. user (default)
+   Creates a filesystem-backed keg under your configured user repo path and
+   writes/updates the alias in user config.
+
+2. project (--project)
+   Creates a project-local keg. By default this resolves to <project>/docs,
+   where <project> is the git root when available. Use --cwd to base it on the
+   current working directory instead. Use --path to set an explicit location.
+
+3. registry (--registry)
+   Creates a registry/API keg target and stores it in config without creating
+   local keg files.
+
+Alias and name behavior:
+- --keg sets the alias written to config.
+- If --keg is omitted, alias is inferred from NAME (or cwd basename when NAME=".").
+- In user mode, NAME selects the directory name under userRepoPath.
+
+Metadata:
+- --title and --creator are written into the keg config for filesystem-backed kegs.
+`),
+		Example: strings.TrimSpace(`
+tap repo init blog
+tap repo init . --project
+tap repo init . --project --cwd
+tap repo init blog --project --path ./docs
+tap repo init blog --user --keg myblog
+tap repo init blog --registry --repo knut --namespace me
+`),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 0 {
 				return fmt.Errorf("NAME is required: %w", keg.ErrInvalid)
 			}
 			name := args[0]
 
-			if initOpts.Type == "" {
-				if name == "." {
-					initOpts.Type = "local"
-				} else {
-					initOpts.Type = "user"
+			if initOpts.Project {
+				if initOpts.Path == "" && name != "." {
+					initOpts.Path = name
 				}
 			}
-
-			switch initOpts.Type {
-			case "local":
-				if initOpts.Keg == "" && name == "." {
-					initOpts.Keg = filepath.Base(deps.Root)
-				}
-				initOpts.Path = name
-			case "user":
+			if initOpts.User && strings.TrimSpace(initOpts.Name) == "" {
 				initOpts.Name = name
+			}
+			if strings.TrimSpace(initOpts.Keg) == "" {
 				if name == "." {
-					initOpts.Name = filepath.Base(deps.Root)
-				}
-
-				if initOpts.Keg == "" {
-					if name == "." {
-						initOpts.Keg = filepath.Base(deps.Root)
-					} else {
-						initOpts.Keg = filepath.Base(name)
+					cwd, err := deps.Runtime.Getwd()
+					if err != nil {
+						return fmt.Errorf("unable to determine working directory for alias inference: %w", err)
 					}
+					initOpts.Keg = filepath.Base(cwd)
+				} else {
+					initOpts.Keg = filepath.Base(name)
 				}
-			case "registry":
-				u, _ := kegurl.Parse(name)
-				initOpts.User = u.User
-				initOpts.Repo = u.Repo
-			default:
-				return fmt.Errorf(
-					"%s is not a valid type: %w",
-					initOpts.Type, keg.ErrInvalid,
-				)
 			}
 
-			if initOpts.Keg == "" {
-				return fmt.Errorf("alias is required: %w", keg.ErrInvalid)
-			}
-
-			err := deps.Tap.Init(cmd.Context(), name, initOpts)
+			err := deps.Tap.InitKeg(cmd.Context(), name, initOpts)
 			if err != nil {
 				return err
 			}
@@ -81,20 +92,17 @@ func NewInitCmd(deps *Deps) *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&initOpts.Type, "type", "", "destination type: registry|user|local")
+	cmd.Flags().BoolVar(&initOpts.Project, "project", false, "create a project-local keg")
+	cmd.Flags().BoolVar(&initOpts.User, "user", false, "create a user keg under userRepoPath")
+	cmd.Flags().BoolVar(&initOpts.Registry, "registry", false, "create a registry target")
+	cmd.Flags().BoolVar(&initOpts.Cwd, "cwd", false, "with --project, use cwd instead of git root")
+	cmd.Flags().StringVar(&initOpts.Path, "path", "", "explicit local destination path (project destination)")
+	cmd.Flags().StringVar(&initOpts.Repo, "repo", "", "registry name to use with --registry")
+	cmd.Flags().StringVar(&initOpts.UserName, "namespace", "", "registry namespace/user to use with --registry")
 	cmd.Flags().StringVarP(&initOpts.Keg, "keg", "k", "", "alias of keg to add to config")
 	cmd.Flags().StringVar(&initOpts.Title, "title", "", "human title to write into the keg config")
 	cmd.Flags().StringVar(&initOpts.Creator, "creator", "", "creator identifier to include in the keg config")
 	cmd.Flags().StringVar(&initOpts.TokenEnv, "token-env", "", "environment variable name to store token reference (API targets)")
-
-	// Provide shell completion for the --type flag.
-	_ = cmd.RegisterFlagCompletionFunc(
-		"type",
-		func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-			opts := []string{"registry", "file", "user"}
-			return opts, cobra.ShellCompDirectiveNoFileComp
-		},
-	)
 
 	return cmd
 }
