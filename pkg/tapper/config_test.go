@@ -175,25 +175,25 @@ kegMap:
 
 	// Path matching the regex should prefer the regex alias
 	pathRegexMatch := filepath.Join(fx.GetJail(), "x", "special")
-	kt, err := uc.ResolveKegMap(fx.Context(), pathRegexMatch)
+	kt, err := uc.ResolveKegMap(fx.Context(), fx.Runtime(), pathRegexMatch)
 	require.NoError(t, err, "expected ResolveProjectKeg to match regex")
 	require.Contains(t, kt.String(), "https://example.com/regex")
 
 	// Path that matches both proj and projfoo should choose the longest prefix
 	pathLongPrefix := filepath.Join(fx.GetJail(), "projects", "foo", "bar")
-	kt2, err := uc.ResolveKegMap(fx.Context(), pathLongPrefix)
+	kt2, err := uc.ResolveKegMap(fx.Context(), fx.Runtime(), pathLongPrefix)
 	require.NoError(t, err, "expected ResolveProjectKeg to match a prefix")
 	require.Contains(t, kt2.String(), "https://example.com/projfoo")
 
 	// Path that only matches proj prefix
 	pathProj := filepath.Join(fx.GetJail(), "projects", "other")
-	kt3, err := uc.ResolveKegMap(fx.Context(), pathProj)
+	kt3, err := uc.ResolveKegMap(fx.Context(), fx.Runtime(), pathProj)
 	require.NoError(t, err, "expected ResolveProjectKeg to match proj prefix")
 	require.Contains(t, kt3.String(), "https://example.com/proj")
 
 	// Path that matches nothing falls back to defaultKeg
 	pathNone := filepath.Join(fx.GetJail(), "unmatched")
-	_, err = uc.ResolveKegMap(fx.Context(), pathNone)
+	_, err = uc.ResolveKegMap(fx.Context(), fx.Runtime(), pathNone)
 	require.Error(t, err, "expected ResolveProjectKeg not return anything")
 
 	// If no default and no match, expect an error.
@@ -206,7 +206,7 @@ kegMap:
 	uc2, err := tapper.ParseConfig(fx.Context(), []byte(rawNoDefault))
 	require.NoError(t, err)
 
-	_, err = uc2.ResolveKegMap(fx.Context(), filepath.Join(fx.GetJail(), "nope"))
+	_, err = uc2.ResolveKegMap(fx.Context(), fx.Runtime(), filepath.Join(fx.GetJail(), "nope"))
 	require.Error(t, err, "expected ResolveProjectKeg to error when no match and no default")
 }
 

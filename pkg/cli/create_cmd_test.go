@@ -30,8 +30,8 @@ func TestCreate_Table(t *testing.T) {
 			metaContains: []string{
 				"title: Note",
 				"lead: one-line",
-				"created: {now}",
-				"updated: {now}",
+				"created: \"{now}\"",
+				"updated: \"{now}\"",
 			},
 		},
 		{
@@ -40,8 +40,8 @@ func TestCreate_Table(t *testing.T) {
 			outRegex:           `^\d+`,
 			wantReadmeNotEmpty: true,
 			metaContains: []string{
-				"created: {now}",
-				"updated: {now}",
+				"created: \"{now}\"",
+				"updated: \"{now}\"",
 			},
 		},
 		{

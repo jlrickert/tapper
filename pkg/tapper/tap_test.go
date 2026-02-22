@@ -20,7 +20,7 @@ func TestNewTap_UsesRuntimeWorkingDirectoryWhenRootEmpty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	wd, err := fx.Runtime().Env.Getwd()
+	wd, err := fx.Runtime().Getwd()
 	require.NoError(t, err)
 	require.Equal(t, wd, tap.Root)
 }

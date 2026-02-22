@@ -35,7 +35,7 @@ func (s *KegService) Resolve(ctx context.Context, opts ResolveKegOptions) (*keg.
 		return s.resolveKegAlias(ctx, opts.Keg, !opts.NoCache)
 	}
 	if opts.Keg == "" {
-		root, err := s.Runtime.Env.Getwd()
+		root, err := s.Runtime.Getwd()
 		if err != nil {
 			return nil, fmt.Errorf("failed to get working directory: %w", err)
 		}
@@ -50,12 +50,21 @@ func (s *KegService) Resolve(ctx context.Context, opts ResolveKegOptions) (*keg.
 func (s *KegService) resolvePath(ctx context.Context, path string, cache bool) (*keg.Keg, error) {
 	s.init()
 	cfg := s.ConfigService.Config(ctx, true)
-	kegAlias := cfg.LookupAlias(ctx, path)
+	kegAlias := cfg.LookupAlias(ctx, s.Runtime, path)
+	if kegAlias == "" {
+		kegAlias = cfg.DefaultKeg()
+	}
+	if kegAlias == "" {
+		return nil, fmt.Errorf("no keg configured")
+	}
 	return s.resolveKegAlias(ctx, kegAlias, cache)
 }
 
 func (s *KegService) resolveKegAlias(ctx context.Context, kegAlias string, cache bool) (*keg.Keg, error) {
 	s.init()
+	if kegAlias == "" {
+		return nil, fmt.Errorf("no keg configured")
+	}
 	if cache && s.kegCache[kegAlias] != nil {
 		return s.kegCache[kegAlias], nil
 	}
@@ -63,7 +72,10 @@ func (s *KegService) resolveKegAlias(ctx context.Context, kegAlias string, cache
 	if err != nil {
 		return nil, err
 	}
-	k, err := keg.NewKegFromTarget(ctx, *target)
+	if target == nil {
+		return nil, fmt.Errorf("keg alias not found: %s", kegAlias)
+	}
+	k, err := keg.NewKegFromTarget(ctx, *target, s.Runtime)
 	if err != nil {
 		return k, err
 	}

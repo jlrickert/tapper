@@ -48,7 +48,7 @@ func (s *ConfigService) UserConfig(ctx context.Context, cache bool) (*Config, er
 		return s.userCache, nil
 	}
 	path := filepath.Join(s.PathService.ConfigRoot, "config.yaml")
-	cfg, err := ReadConfig(ctx, path)
+	cfg, err := ReadConfig(ctx, s.Runtime, path)
 	if err != nil {
 		return nil, err
 	}
@@ -63,7 +63,7 @@ func (s *ConfigService) ProjectConfig(ctx context.Context, cache bool) (*Config,
 	if cache && s.projectCache != nil {
 		return s.projectCache, nil
 	}
-	cfg, err := ReadConfig(ctx, filepath.Join(s.PathService.LocalConfigRoot, "config.yaml"))
+	cfg, err := ReadConfig(ctx, s.Runtime, filepath.Join(s.PathService.LocalConfigRoot, "config.yaml"))
 	if err != nil {
 		return nil, err
 	}
@@ -81,7 +81,7 @@ func (s *ConfigService) Config(ctx context.Context, cache bool) *Config {
 
 	if s.ConfigPath != "" {
 		// FIXME: propagate this error up. Thus function is missing error type
-		cfg, _ := ReadConfig(ctx, s.ConfigPath)
+		cfg, _ := ReadConfig(ctx, s.Runtime, s.ConfigPath)
 		if cfg == nil {
 			cfg = &Config{}
 		}
@@ -131,7 +131,7 @@ func (s *ConfigService) Config(ctx context.Context, cache bool) *Config {
 
 func (s *ConfigService) LocalRepoKegs(ctx context.Context, cache bool) ([]string, error) {
 	cfg := s.Config(ctx, cache)
-	repoPath, _ := toolkit.ExpandPath(s.Runtime.Env, cfg.UserRepoPath())
+	repoPath, _ := toolkit.ExpandPath(s.Runtime, cfg.UserRepoPath())
 
 	if repoPath == "" {
 		return nil, fmt.Errorf("userRepoPath not defined in user config")
@@ -168,26 +168,31 @@ func (s *ConfigService) LocalRepoKegs(ctx context.Context, cache bool) ([]string
 
 func (s *ConfigService) ResolveTarget(ctx context.Context, alias string, cache bool) (*kegurl.Target, error) {
 	cfg := s.Config(ctx, cache)
-	if alias == "" {
-		alias = cfg.DefaultKeg()
+	requestedAlias := alias
+	if requestedAlias == "" {
+		requestedAlias = cfg.DefaultKeg()
 	}
 
-	// Check to see if there is an explicit keg in the configuration
-	t, _ := cfg.ResolveAlias(alias)
-	if t != nil {
+	// Check for explicit keg in configuration first.
+	t, err := cfg.ResolveAlias(requestedAlias)
+	if err == nil && t != nil {
 		return t, nil
 	}
 
-	// Lookup all of the
+	// Fallback to a discovered local repository keg.
 	localKegs, err := s.LocalRepoKegs(ctx, cache)
 	if err != nil {
 		return nil, err
 	}
-	if cfg.UserRepoPath() != "" && slices.Contains(localKegs, alias) {
-		path := filepath.Join(cfg.UserRepoPath(), alias)
+	if cfg.UserRepoPath() != "" && slices.Contains(localKegs, requestedAlias) {
+		path := filepath.Join(cfg.UserRepoPath(), requestedAlias)
 		t := kegurl.NewFile(path)
 		return &t, nil
 	}
 
-	return nil, nil
+	// Preserve the explicit alias-not-found error for callers.
+	if err != nil {
+		return nil, err
+	}
+	return nil, fmt.Errorf("keg alias not found: %s", requestedAlias)
 }

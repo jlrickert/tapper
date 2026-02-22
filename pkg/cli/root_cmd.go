@@ -52,7 +52,7 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 				return fmt.Errorf("runtime is required")
 			}
 
-			wd, err := rt.Env.Getwd()
+			wd, err := rt.Getwd()
 			if err != nil {
 				return err
 			}
@@ -68,7 +68,7 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 			deps.Root = wd
 
 			if deps.ConfigPath != "" {
-				_, err := tapper.ReadConfig(ctx, deps.ConfigPath)
+				_, err := tapper.ReadConfig(ctx, deps.Runtime, deps.ConfigPath)
 				deps.Err = err
 			}
 
@@ -90,10 +90,12 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 					JSON:    deps.LogJSON,
 					Version: Version,
 				})
-				deps.Runtime.Logger = lg
+				if err := deps.Runtime.SetLogger(lg); err != nil {
+					return err
+				}
 			}
 
-			ctx = mylog.WithLogger(ctx, deps.Runtime.Logger)
+			ctx = mylog.WithLogger(ctx, deps.Runtime.Logger())
 			cmd.SetContext(ctx)
 			return nil
 		},
