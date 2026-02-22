@@ -8,6 +8,8 @@ import (
 	"sort"
 	"sync"
 	"time"
+
+	"github.com/jlrickert/cli-toolkit/toolkit"
 )
 
 // MemoryRepo is an in-memory implementation of Repository intended for
@@ -37,7 +39,9 @@ type MemoryRepo struct {
 	// indexes stores raw index files by name (for example: "nodes.tsv").
 	indexes map[string][]byte
 	// config holds the in-memory Config if written.
-	config *KegConfig
+	config *Config
+
+	runtime *toolkit.Runtime
 }
 
 type memoryNode struct {
@@ -48,11 +52,12 @@ type memoryNode struct {
 }
 
 // NewMemoryRepo constructs a ready-to-use in-memory repository.
-func NewMemoryRepo() *MemoryRepo {
+func NewMemoryRepo(rt *toolkit.Runtime) *MemoryRepo {
 	return &MemoryRepo{
 		nodes:     make(map[NodeId]*memoryNode),
 		nodeLocks: make(map[NodeId]struct{}),
 		indexes:   make(map[string][]byte),
+		runtime:   rt,
 	}
 }
 
@@ -72,6 +77,13 @@ func (r *MemoryRepo) ensureNode(id NodeId) *memoryNode {
 
 func (r *MemoryRepo) Name() string {
 	return "memory"
+}
+
+func (r *MemoryRepo) Runtime() *toolkit.Runtime {
+	if r == nil {
+		return nil
+	}
+	return r.runtime
 }
 
 // Next returns a new NodeID. The context is accepted to satisfy the repository
@@ -427,7 +439,7 @@ func (r *MemoryRepo) DeleteItem(ctx context.Context, id NodeId, name string) err
 // ReadConfig returns the repository-level config previously written with
 // WriteConfig. If no config has been written, ErrNotFound is returned.
 // A copy of the stored Config is returned to avoid external mutation.
-func (r *MemoryRepo) ReadConfig(ctx context.Context) (*KegConfig, error) {
+func (r *MemoryRepo) ReadConfig(ctx context.Context) (*Config, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	if r.config == nil {
@@ -438,7 +450,7 @@ func (r *MemoryRepo) ReadConfig(ctx context.Context) (*KegConfig, error) {
 }
 
 // WriteConfig stores the provided Config in-memory. A copy of the value is kept.
-func (r *MemoryRepo) WriteConfig(ctx context.Context, config *KegConfig) error {
+func (r *MemoryRepo) WriteConfig(ctx context.Context, config *Config) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	c := config

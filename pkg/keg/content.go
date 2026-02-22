@@ -3,7 +3,6 @@ package keg
 import (
 	"bufio"
 	"bytes"
-	"context"
 	"regexp"
 	"sort"
 	"strings"
@@ -65,16 +64,16 @@ type NodeContent struct {
 // between Markdown and reStructuredText. The returned NodeContent contains a
 // deterministic, deduplicated, sorted list of discovered numeric links.
 //
-// ParseContent requires a non-nil deps pointer whose hasher is used to compute
-// the content Hash. If the input is empty or only whitespace, a NodeContent with
-// Format == "empty" is returned.
-func ParseContent(ctx context.Context, data []byte, format string) (*NodeContent, error) {
+// ParseContent uses the provided runtime hasher to compute content Hash.
+// If the input is empty or only whitespace, a NodeContent with Format == "empty"
+// is returned.
+func ParseContent(rt *toolkit.Runtime, data []byte, format string) (*NodeContent, error) {
 	if len(bytes.TrimSpace(data)) == 0 {
 		return &NodeContent{Format: "empty"}, nil
 	}
 
 	fmt := detectFormat(data, format)
-	hasher := toolkit.HasherFromContext(ctx)
+	hasher := runtimeHasher(rt)
 
 	var title, lead string
 	var fm map[string]any

@@ -66,7 +66,7 @@ func TestKegExistsWithMemoryRepo(t *testing.T) {
 	t.Parallel()
 	f := NewSandbox(t)
 
-	repo := kegpkg.NewMemoryRepo()
+	repo := kegpkg.NewMemoryRepo(f.Runtime())
 
 	// Initially not initialized.
 	exists, err := kegpkg.RepoContainsKeg(f.Context(), repo)
@@ -114,7 +114,7 @@ func TestCreateZeroNodeInMemoryRepo(t *testing.T) {
 	t.Parallel()
 	f := NewSandbox(t)
 
-	repo := kegpkg.NewMemoryRepo()
+	repo := kegpkg.NewMemoryRepo(f.Runtime())
 	k := kegpkg.NewKeg(repo)
 	k.Init(f.Context())
 
@@ -129,7 +129,7 @@ func TestCreateNodeWithMeta(t *testing.T) {
 	t.Parallel()
 	f := NewSandbox(t)
 
-	repo := kegpkg.NewMemoryRepo()
+	repo := kegpkg.NewMemoryRepo(f.Runtime())
 	k := kegpkg.NewKeg(repo)
 	k.Init(f.Context())
 
@@ -163,7 +163,7 @@ func TestCreateWithBody(t *testing.T) {
 	t.Parallel()
 	f := NewSandbox(t)
 
-	repo := kegpkg.NewMemoryRepo()
+	repo := kegpkg.NewMemoryRepo(f.Runtime())
 	k := kegpkg.NewKeg(repo)
 	require.NoError(t, k.Init(f.Context()))
 
@@ -193,7 +193,7 @@ func TestCreateWithBodyFrontmatter(t *testing.T) {
 	t.Parallel()
 	f := NewSandbox(t)
 
-	repo := kegpkg.NewMemoryRepo()
+	repo := kegpkg.NewMemoryRepo(f.Runtime())
 	k := kegpkg.NewKeg(repo)
 	require.NoError(t, k.Init(f.Context()))
 
@@ -211,7 +211,7 @@ fm lead paragraph
 	require.Equal(t, 1, id.ID, "expected created node id to be 1")
 
 	got, err := k.GetContent(f.Context(), id)
-	content, _ := kegpkg.ParseContent(f.Context(), rawBody, kegpkg.FormatMarkdown)
+	content, _ := kegpkg.ParseContent(f.Runtime(), rawBody, kegpkg.FormatMarkdown)
 	require.NoError(t, err)
 	require.Equal(t, content.Body, string(got))
 
@@ -233,7 +233,7 @@ func TestSetContentAndUpdate(t *testing.T) {
 	t.Parallel()
 	f := NewSandbox(t)
 
-	repo := kegpkg.NewMemoryRepo()
+	repo := kegpkg.NewMemoryRepo(f.Runtime())
 	k := kegpkg.NewKeg(repo)
 	k.Init(f.Context())
 
@@ -314,7 +314,7 @@ func TestNodesWithTagsAndInterlinks(t *testing.T) {
 	t.Parallel()
 	f := NewSandbox(t)
 
-	repo := kegpkg.NewMemoryRepo()
+	repo := kegpkg.NewMemoryRepo(f.Runtime())
 	k := kegpkg.NewKeg(repo)
 	require.NoError(t, k.Init(f.Context()))
 

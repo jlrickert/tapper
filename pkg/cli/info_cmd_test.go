@@ -66,17 +66,17 @@ func TestInfoCommand_IntegrationWithInit(t *testing.T) {
 
 		// First, initialize a user keg
 		initCmd := NewProcess(innerT, false,
-			"init",
+			"repo", "init",
 			"newstudy",
 			"--type", "user",
-			"--alias", "newstudy",
+			"--keg", "newstudy",
 			"--creator", "test-user",
 		)
 		initRes := initCmd.Run(sb.Context(), sb.Runtime())
 		require.NoError(innerT, initRes.Err, "init should succeed")
 
 		// Now display the keg info
-		infoCmd := NewProcess(innerT, false, "info", "--alias", "newstudy")
+		infoCmd := NewProcess(innerT, false, "info", "--keg", "newstudy")
 		infoRes := infoCmd.Run(sb.Context(), sb.Runtime())
 		require.NoError(innerT, infoRes.Err, "info should succeed after init")
 
@@ -90,14 +90,14 @@ func TestInfoCommand_WithJoeFixture(t *testing.T) {
 	tests := []infoTestCase{
 		{
 			name:             "info_with_explicit_alias",
-			args:             []string{"info", "--alias", "personal"},
+			args:             []string{"info", "--keg", "personal"},
 			setupFixture:     strPtr("joe"),
 			expectedInStdout: []string{"kegv:"},
 			description:      "Display info for explicitly specified keg alias",
 		},
 		{
 			name:         "info_with_nonexistent_alias",
-			args:         []string{"info", "--alias", "nonexistent"},
+			args:         []string{"info", "--keg", "nonexistent"},
 			setupFixture: strPtr("joe"),
 			expectedErr:  "keg alias not found",
 			description:  "Error when keg alias does not exist",

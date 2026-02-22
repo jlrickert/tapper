@@ -1,6 +1,10 @@
 package keg
 
-import "context"
+import (
+	"context"
+
+	"github.com/jlrickert/cli-toolkit/toolkit"
+)
 
 // AssetKind identifies an asset namespace for a node.
 type AssetKind string
@@ -17,6 +21,8 @@ type Repository interface {
 
 	// Name returns a short, human-friendly backend identifier.
 	Name() string
+	// Runtime returns the runtime dependency container used by this repo.
+	Runtime() *toolkit.Runtime
 
 	// Node lifecycle
 
@@ -93,10 +99,10 @@ type Repository interface {
 
 	// ReadConfig reads repository-level keg configuration.
 	// Missing config should return typed/sentinel not-exist errors.
-	ReadConfig(ctx context.Context) (*KegConfig, error)
+	ReadConfig(ctx context.Context) (*Config, error)
 	// WriteConfig persists repository-level keg configuration.
 	// Implementations should perform atomic writes when possible.
-	WriteConfig(ctx context.Context, config *KegConfig) error
+	WriteConfig(ctx context.Context, config *Config) error
 }
 
 type nodeLockContextKey struct{}

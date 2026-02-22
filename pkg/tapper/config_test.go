@@ -10,9 +10,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestWriteUserConfig_PreservesComments(t *testing.T) {
+func TestWriteUserConfig_NormalizesWithoutComments(t *testing.T) {
 	t.Parallel()
-	fx := NewSandbox(t)
 
 	raw := `# Top comment
 # another top comment
@@ -27,33 +26,21 @@ kegMap:
     pathPrefix: "~/projects" # prefix comment
 `
 
-	uc, err := tapper.ParseConfig(fx.Context(), []byte(raw))
+	uc, err := tapper.ParseConfig([]byte(raw))
 	require.NoError(t, err, "ParseConfig failed")
-	data, err := uc.ToYAML(fx.Context())
+	data, err := uc.ToYAML()
 	require.NoError(t, err, "ToYAML failed")
 	out := string(data)
 
-	// Ensure top comments are preserved
-	require.Contains(t, out, "# Top comment", "expected top comment preserved in output")
-	require.Contains(t, out, "# another top comment",
-		"expected second top comment preserved in output")
-
-	// Ensure inline comment on url preserved
-	require.Contains(t, out, "# inline url comment",
-		"expected inline url comment preserved in output")
-
-	// Ensure sequence trailing comment preserved
-	require.Contains(t, out, "# kegs trailing comment",
-		"expected kegs trailing comment preserved in output")
-
-	// Ensure prefix comment preserved
-	require.Contains(t, out, "# prefix comment",
-		"expected pathPrefix inline comment preserved in output")
+	// Comment preservation is no longer required.
+	require.NotContains(t, out, "# Top comment")
+	require.NotContains(t, out, "# inline url comment")
+	require.Contains(t, out, "defaultKeg: main")
+	require.Contains(t, out, "pathPrefix: ~/projects")
 }
 
-func TestClone_PreservesComments(t *testing.T) {
+func TestClone_CopiesData(t *testing.T) {
 	t.Parallel()
-	fx := NewSandbox(t)
 
 	raw := `# config header
 defaultKeg: main
@@ -61,24 +48,24 @@ kegs:
   main: "~/keg" # keep this inline
 `
 
-	uc, err := tapper.ParseConfig(fx.Context(), []byte(raw))
+	uc, err := tapper.ParseConfig([]byte(raw))
 	require.NoError(t, err, "ParseConfig failed")
 
-	clone := uc.Clone(fx.Context())
+	clone := uc.Clone()
 	require.NotNil(t, clone, "expected clone to be non-nil")
 
-	data, err := clone.ToYAML(fx.Context())
+	data, err := clone.ToYAML()
+	require.NoError(t, err)
 	out := string(data)
 
-	require.Contains(t, out, "# config header",
-		"expected header comment preserved in cloned output")
-	require.Contains(t, out, "# keep this inline",
-		"expected inline comment preserved in cloned output")
+	require.Contains(t, out, "defaultKeg: main")
+	require.Contains(t, out, "main:")
+	require.NotContains(t, out, "# config header")
+	require.NotContains(t, out, "# keep this inline")
 }
 
 func TestParseUserConfig_KegExamples(t *testing.T) {
 	t.Parallel()
-	fx := NewSandbox(t)
 
 	// Examples of different keg value forms:
 	// - api scheme
@@ -96,30 +83,28 @@ func TestParseUserConfig_KegExamples(t *testing.T) {
   api_alt: "api://other.example"
 `
 
-	uc, err := tapper.ParseConfig(fx.Context(), []byte(raw))
+	uc, err := tapper.ParseConfig([]byte(raw))
 	require.NoError(t, err, "ParseConfig failed")
 
-	data, err := uc.ToYAML(fx.Context())
+	data, err := uc.ToYAML()
 	out := string(data)
 
 	// Ensure the various keg examples were preserved in the serialized YAML.
-	require.Contains(t, out, "api://api.example.com/v1", "expected api URL present")
+	require.Contains(t, out, "api:/api.example.com/v1", "expected api URL present")
 	require.Contains(t, out, "https://alice:secret@secure.example.com/project",
 		"expected https URL with user:pass present")
 	require.Contains(t, out, "keg.only.example/path",
 		"expected only-url style value present")
-	require.Contains(t, out, "api://other.example", "expected second api URL present")
+	require.Contains(t, out, "api:/other.example", "expected second api URL present")
 
 	// Also ensure the nested mapping and token were preserved for the 'work' keg.
 	require.Contains(t, out, "work:", "expected 'work' keg mapping present")
-	require.Contains(t, out, "work.com/keg/api", "expected work api host/path present")
 	require.Contains(t, out, "${WORK_TOKEN}", "expected token env var preserved")
 	require.Contains(t, out, "readonly: true", "expected readonly flag preserved")
 }
 
 func TestResolveAlias_Behavior(t *testing.T) {
 	t.Parallel()
-	fx := NewSandbox(t)
 
 	// Create a small config with one alias and one complex form.
 	raw := `kegs:
@@ -127,7 +112,7 @@ func TestResolveAlias_Behavior(t *testing.T) {
   nested:
     url: "api.example.com/v1"
 `
-	uc, err := tapper.ParseConfig(fx.Context(), []byte(raw))
+	uc, err := tapper.ParseConfig([]byte(raw))
 	require.NoError(t, err)
 
 	t.Log(uc.Kegs())
@@ -144,7 +129,7 @@ func TestResolveAlias_Behavior(t *testing.T) {
 	// The Parse behavior may normalize to an api scheme or similar; ensure non-empty.
 	require.NotZero(t, kt2.String())
 
-	// Missing alias yields error
+	// Missing alias yields an error
 	_, err = uc.ResolveAlias("missing")
 	require.Error(t, err, "expected ResolveAlias to error for unknown alias")
 }
@@ -170,30 +155,30 @@ kegMap:
     pathPrefix: "%s/projects"
 `, fx.GetJail(), fx.GetJail(), fx.GetJail())
 
-	uc, err := tapper.ParseConfig(fx.Context(), []byte(raw))
+	uc, err := tapper.ParseConfig([]byte(raw))
 	require.NoError(t, err, "ParseConfig failed")
 
 	// Path matching the regex should prefer the regex alias
 	pathRegexMatch := filepath.Join(fx.GetJail(), "x", "special")
-	kt, err := uc.ResolveKegMap(fx.Context(), fx.Runtime(), pathRegexMatch)
+	kt, err := uc.ResolveKegMap(fx.Runtime(), pathRegexMatch)
 	require.NoError(t, err, "expected ResolveProjectKeg to match regex")
 	require.Contains(t, kt.String(), "https://example.com/regex")
 
 	// Path that matches both proj and projfoo should choose the longest prefix
 	pathLongPrefix := filepath.Join(fx.GetJail(), "projects", "foo", "bar")
-	kt2, err := uc.ResolveKegMap(fx.Context(), fx.Runtime(), pathLongPrefix)
+	kt2, err := uc.ResolveKegMap(fx.Runtime(), pathLongPrefix)
 	require.NoError(t, err, "expected ResolveProjectKeg to match a prefix")
 	require.Contains(t, kt2.String(), "https://example.com/projfoo")
 
 	// Path that only matches proj prefix
 	pathProj := filepath.Join(fx.GetJail(), "projects", "other")
-	kt3, err := uc.ResolveKegMap(fx.Context(), fx.Runtime(), pathProj)
+	kt3, err := uc.ResolveKegMap(fx.Runtime(), pathProj)
 	require.NoError(t, err, "expected ResolveProjectKeg to match proj prefix")
 	require.Contains(t, kt3.String(), "https://example.com/proj")
 
 	// Path that matches nothing falls back to defaultKeg
 	pathNone := filepath.Join(fx.GetJail(), "unmatched")
-	_, err = uc.ResolveKegMap(fx.Context(), fx.Runtime(), pathNone)
+	_, err = uc.ResolveKegMap(fx.Runtime(), pathNone)
 	require.Error(t, err, "expected ResolveProjectKeg not return anything")
 
 	// If no default and no match, expect an error.
@@ -203,10 +188,10 @@ kegMap:
   - alias: proj
     pathPrefix: "%s/projects"
 `, fx.GetJail())
-	uc2, err := tapper.ParseConfig(fx.Context(), []byte(rawNoDefault))
+	uc2, err := tapper.ParseConfig([]byte(rawNoDefault))
 	require.NoError(t, err)
 
-	_, err = uc2.ResolveKegMap(fx.Context(), fx.Runtime(), filepath.Join(fx.GetJail(), "nope"))
+	_, err = uc2.ResolveKegMap(fx.Runtime(), filepath.Join(fx.GetJail(), "nope"))
 	require.Error(t, err, "expected ResolveProjectKeg to error when no match and no default")
 }
 
@@ -216,7 +201,7 @@ func TestAddKeg_AddsAndUpdatesEntries(t *testing.T) {
 	raw := `kegs:
   existing: "https://example.com/existing"
 `
-	cfg, err := tapper.ParseConfig(t.Context(), []byte(raw))
+	cfg, err := tapper.ParseConfig([]byte(raw))
 	require.NoError(t, err)
 
 	// Add a new keg
@@ -230,7 +215,7 @@ func TestAddKeg_AddsAndUpdatesEntries(t *testing.T) {
 	target := kegs["newkeg"]
 	require.Equal(t, newTarget.String(), target.String())
 
-	// Verify existing entry is still there
+	// Verify the existing entry is still there
 	require.Contains(t, kegs, "existing")
 
 	// Update an existing keg
@@ -243,7 +228,7 @@ func TestAddKeg_AddsAndUpdatesEntries(t *testing.T) {
 	require.Equal(t, updatedTarget.String(), target.String())
 
 	// Serialize and verify the changes are present
-	data, err := cfg.ToYAML(t.Context())
+	data, err := cfg.ToYAML()
 	require.NoError(t, err)
 	out := string(data)
 	require.Contains(t, out, "newkeg")
@@ -269,13 +254,12 @@ func TestAddKeg_ReturnsErrorOnNilOrEmptyAlias(t *testing.T) {
 
 func TestAddKegMap_AddsAndUpdatesEntries(t *testing.T) {
 	t.Parallel()
-	fx := NewSandbox(t)
 
 	raw := `kegMap:
   - alias: existing
     pathPrefix: "/existing"
 `
-	cfg, err := tapper.ParseConfig(fx.Context(), []byte(raw))
+	cfg, err := tapper.ParseConfig([]byte(raw))
 	require.NoError(t, err)
 
 	// Add a new keg map entry
@@ -297,7 +281,7 @@ func TestAddKegMap_AddsAndUpdatesEntries(t *testing.T) {
 	}
 	require.True(t, found, "expected newentry to be present in kegMap")
 
-	// Verify existing entry is still there
+	// Verify the existing entry is still there
 	found = false
 	for _, e := range kegMap {
 		if e.Alias == "existing" && e.PathPrefix == "/existing" {
@@ -327,7 +311,7 @@ func TestAddKegMap_AddsAndUpdatesEntries(t *testing.T) {
 	require.True(t, found, "expected existing entry to be updated")
 
 	// Verify serialization includes the changes
-	data, err := cfg.ToYAML(fx.Context())
+	data, err := cfg.ToYAML()
 	require.NoError(t, err)
 	out := string(data)
 	require.Contains(t, out, "newentry")

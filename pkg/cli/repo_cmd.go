@@ -13,7 +13,10 @@ func NewRepoCmd(deps *Deps) *cobra.Command {
 		Short: "manage keg repositories",
 	}
 
-	cmd.AddCommand(NewRepoKegListCmd(deps))
+	cmd.AddCommand(
+		NewRepoKegListCmd(deps),
+		NewInitCmd(deps),
+	)
 
 	return cmd
 }
@@ -24,7 +27,7 @@ func NewRepoKegListCmd(deps *Deps) *cobra.Command {
 		Short:   "list all available kegs",
 		Aliases: []string{"ls"},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			kegs, err := deps.Tap.ListKegs(cmd.Context(), true)
+			kegs, err := deps.Tap.ListKegs(true)
 			if err != nil {
 				return err
 			}

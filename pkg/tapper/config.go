@@ -13,8 +13,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jlrickert/cli-toolkit/clock"
-	"github.com/jlrickert/cli-toolkit/mylog"
 	"github.com/jlrickert/cli-toolkit/toolkit"
 	"github.com/jlrickert/tapper/pkg/keg"
 	kegurl "github.com/jlrickert/tapper/pkg/keg_url"
@@ -57,16 +55,11 @@ type configDTO struct {
 
 // Config represents the user's tapper configuration.
 //
-// All fields are private. Use getter methods to read values and setter methods
-// to update them. Setter methods sync both the struct and the YAML node to
-// ensure comments and formatting are preserved when writing.
+// Config is a data-only model. We do not preserve YAML comments or original
+// document formatting.
 type Config struct {
 	// parsed data.
 	data *configDTO
-
-	// NodeId holds the original parsed YAML document root (document node).
-	// When present, we edit it directly to preserve comments and layout.
-	node *yaml.Node
 }
 
 // KegMapEntry is an entry mapping a path prefix or regex to a keg alias.
@@ -170,92 +163,64 @@ func (cfg *Config) Updated() time.Time {
 
 // --- Setter Methods ---
 
-// SetDefaultKeg sets the default keg alias and updates the node.
+// SetDefaultKeg sets the default keg alias.
 func (cfg *Config) SetDefaultKeg(keg string) error {
 	if cfg.data == nil {
 		cfg.data = &configDTO{}
 	}
 	cfg.data.DefaultKeg = keg
-	if cfg.node != nil && len(cfg.node.Content) > 0 {
-		rootNode := cfg.node.Content[0]
-		if rootNode != nil && rootNode.Kind == yaml.MappingNode {
-			updateMapEntry(rootNode, "defaultKeg", keg)
-		}
-	}
 	return nil
 }
 
-// SetUserRepoPath sets the user repository path and updates the node.
+// SetUserRepoPath sets the user repository path.
 func (cfg *Config) SetUserRepoPath(path string) error {
 	if cfg.data == nil {
 		cfg.data = &configDTO{}
 	}
 	cfg.data.UserRepoPath = path
-	if cfg.node != nil && len(cfg.node.Content) > 0 {
-		rootNode := cfg.node.Content[0]
-		if rootNode != nil && rootNode.Kind == yaml.MappingNode {
-			updateMapEntry(rootNode, "userRepoPath", path)
-		}
-	}
 	return nil
 }
 
-// SetDefaultRegistry sets the default registry and updates the node.
-func (cfg *Config) SetDefaultRegistry(ctx context.Context, registry string) error {
+// SetDefaultRegistry sets the default registry.
+func (cfg *Config) SetDefaultRegistry(_ context.Context, registry string) error {
 	if cfg.data == nil {
 		cfg.data = &configDTO{}
 	}
 	cfg.data.DefaultRegistry = registry
-	if cfg.node != nil && len(cfg.node.Content) > 0 {
-		rootNode := cfg.node.Content[0]
-		if rootNode != nil && rootNode.Kind == yaml.MappingNode {
-			updateMapEntry(rootNode, "defaultRegistry", registry)
-		}
-	}
 	return nil
 }
 
-// SetLogFile sets the log file path and updates the node.
-func (cfg *Config) SetLogFile(ctx context.Context, path string) error {
+// SetLogFile sets the log file path.
+func (cfg *Config) SetLogFile(_ context.Context, path string) error {
 	if cfg.data == nil {
 		cfg.data = &configDTO{}
 	}
 	cfg.data.LogFile = path
-	if cfg.node != nil && len(cfg.node.Content) > 0 {
-		rootNode := cfg.node.Content[0]
-		if rootNode != nil && rootNode.Kind == yaml.MappingNode {
-			updateMapEntry(rootNode, "logFile", path)
-		}
-	}
 	return nil
 }
 
-// SetLogLevel sets the log level and updates the node.
-func (cfg *Config) SetLogLevel(ctx context.Context, level string) error {
+// SetLogLevel sets the log level.
+func (cfg *Config) SetLogLevel(level string) error {
 	if cfg.data == nil {
 		cfg.data = &configDTO{}
 	}
 	cfg.data.LogLevel = level
-	if cfg.node != nil && len(cfg.node.Content) > 0 {
-		rootNode := cfg.node.Content[0]
-		if rootNode != nil && rootNode.Kind == yaml.MappingNode {
-			updateMapEntry(rootNode, "logLevel", level)
-		}
-	}
 	return nil
 }
 
-// Clone produces a deep copy of the Config including the underlying yaml
-// node so callers can safely mutate the clone without affecting the original.
-//
-// When possible, the clone preserves the original document node, so comment
-// preserving edits remain possible on the returned value.
-func (cfg *Config) Clone(ctx context.Context) *Config {
+// Clone produces a deep copy of the Config.
+func (cfg *Config) Clone() *Config {
 	if cfg == nil {
 		return nil
 	}
-	data, _ := cfg.ToYAML(ctx)
-	uCfg, _ := ParseConfig(ctx, data)
+	data, err := cfg.ToYAML()
+	if err != nil {
+		return nil
+	}
+	uCfg, err := ParseConfig(data)
+	if err != nil {
+		return nil
+	}
 	return uCfg
 }
 
@@ -276,24 +241,11 @@ func (cfg *Config) ResolveAlias(alias string) (*kegurl.Target, error) {
 	return kegurl.Parse(u.String())
 }
 
-func validateRuntime(rt *toolkit.Runtime) error {
-	if rt == nil {
-		return fmt.Errorf("runtime is required")
-	}
-	if err := rt.Validate(); err != nil {
-		return fmt.Errorf("invalid runtime: %w", err)
-	}
-	return nil
-}
-
 // LookupAlias returns the keg alias matching the given project root path.
 // It first checks regex patterns in KegMap entries, then prefix matches.
 // For multiple prefix matches, the longest matching prefix wins.
 // Returns empty string if no match is found or config data is nil.
-func (cfg *Config) LookupAlias(ctx context.Context, rt *toolkit.Runtime, projectRoot string) string {
-	if err := validateRuntime(rt); err != nil {
-		return ""
-	}
+func (cfg *Config) LookupAlias(rt *toolkit.Runtime, projectRoot string) string {
 	if cfg.data == nil {
 		cfg.data = &configDTO{}
 		return ""
@@ -357,18 +309,12 @@ func (cfg *Config) LookupAlias(ctx context.Context, rt *toolkit.Runtime, project
 //
 // The function expands env vars and tildes prior to comparisons, so stored
 // prefixes and patterns may contain ~ or $VAR values.
-func (cfg *Config) ResolveKegMap(ctx context.Context, rt *toolkit.Runtime, projectRoot string) (*kegurl.Target, error) {
-	if err := validateRuntime(rt); err != nil {
-		return nil, err
-	}
-	alias := cfg.LookupAlias(ctx, rt, projectRoot)
+func (cfg *Config) ResolveKegMap(rt *toolkit.Runtime, projectRoot string) (*kegurl.Target, error) {
+	alias := cfg.LookupAlias(rt, projectRoot)
 	return cfg.ResolveAlias(alias)
 }
 
 func (cfg *Config) ResolveDefault(rt *toolkit.Runtime) (*kegurl.Target, error) {
-	if err := validateRuntime(rt); err != nil {
-		return nil, err
-	}
 	if cfg.data == nil {
 		cfg.data = &configDTO{}
 		return nil, nil
@@ -378,32 +324,20 @@ func (cfg *Config) ResolveDefault(rt *toolkit.Runtime) (*kegurl.Target, error) {
 
 }
 
-// ParseConfig parses raw YAML into a Config while preserving the
-// underlying yaml.NodeId for comment-preserving edits.
-//
-// The function attempts to decode the document root mapping into the struct.
-// If the document root is missing, the returned Config is a zero value with
-// KegMap and Kegs set to nil.
-func ParseConfig(ctx context.Context, raw []byte) (*Config, error) {
-	var doc yaml.Node
-	if err := yaml.Unmarshal(raw, &doc); err != nil {
+// ParseConfig parses raw YAML into a Config data model.
+func ParseConfig(raw []byte) (*Config, error) {
+	uc := &Config{data: &configDTO{}}
+	if err := yaml.Unmarshal(raw, uc.data); err != nil {
 		return nil, fmt.Errorf("failed to parse user config yaml: %w", err)
 	}
-	uc := &Config{node: &doc}
-	var tmpCfg configDTO
-	err := yaml.Unmarshal(raw, &tmpCfg)
-	uc.data = &tmpCfg
-	return uc, err
+	return uc, nil
 }
 
 // ReadConfig reads the YAML file at path and returns a parsed Config.
 //
 // When the file does not exist the function returns a Config value and an
 // error that wraps keg.ErrNotExist so callers can detect no-config cases.
-func ReadConfig(ctx context.Context, rt *toolkit.Runtime, path string) (*Config, error) {
-	if err := validateRuntime(rt); err != nil {
-		return nil, err
-	}
+func ReadConfig(rt *toolkit.Runtime, path string) (*Config, error) {
 	b, err := rt.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -411,7 +345,7 @@ func ReadConfig(ctx context.Context, rt *toolkit.Runtime, path string) (*Config,
 		}
 		return nil, err
 	}
-	return ParseConfig(ctx, b)
+	return ParseConfig(b)
 }
 
 // DefaultUserConfig returns a sensible default Config for a new user.
@@ -463,44 +397,19 @@ func DefaultProjectConfig(user, userKegRepo string) *Config {
 }
 
 // ToYAML serializes the Config to YAML bytes.
-//
-// When possible the original parsed document node is emitted to preserve
-// comments and formatting; otherwise the struct form is encoded.
-func (cfg *Config) ToYAML(ctx context.Context) ([]byte, error) {
+func (cfg *Config) ToYAML() ([]byte, error) {
+	if cfg == nil {
+		return nil, fmt.Errorf("config is nil")
+	}
+	if cfg.data == nil {
+		cfg.data = &configDTO{}
+	}
 	return yaml.Marshal(cfg.data)
-	//if cfg == nil {
-	//	return nil, fmt.Errorf("no user config")
-	//}
-	//var buf bytes.Buffer
-	//enc := yaml.NewEncoder(&buf)
-	//enc.SetIndent(2)
-	//
-	//// Prefer writing the original node to keep comments. If absent, write struct.
-	//if cfg.node != nil {
-	//	// Ensure we encode the document node as-is.
-	//	if err := enc.Encode(cfg.node); err != nil {
-	//		_ = enc.Close()
-	//		return nil, fmt.Errorf("encode yaml node: %w", err)
-	//	}
-	//} else {
-	//	if err := enc.Encode(cfg.data); err != nil {
-	//		_ = enc.Close()
-	//		return nil, fmt.Errorf("encode yaml struct: %w", err)
-	//	}
-	//}
-	//if err := enc.Close(); err != nil {
-	//	return nil, fmt.Errorf("close encoder: %w", err)
-	//}
-	//return buf.Bytes(), nil
 }
 
-// Write writes the Config back to path, preserving comments and formatting
-// when possible. Uses AtomicWriteFile from std.
-func (cfg *Config) Write(ctx context.Context, rt *toolkit.Runtime, path string) error {
-	if err := validateRuntime(rt); err != nil {
-		return err
-	}
-	data, err := cfg.ToYAML(ctx)
+// Write writes the Config back to path using atomic replacement.
+func (cfg *Config) Write(rt *toolkit.Runtime, path string) error {
+	data, err := cfg.ToYAML()
 	if err != nil {
 		return fmt.Errorf("unable to write user config: %w", err)
 	}
@@ -518,8 +427,6 @@ func (cfg *Config) Write(ctx context.Context, rt *toolkit.Runtime, path string) 
 //   - KegMap entries are appended in order, but entries with the same Keg
 //     are overridden by later entries.
 //   - The returned Config will have a Kegs map and a KegMap slice.
-//   - If any input carries a parsed yaml.NodeId, the node from the last non-nil
-//     config is cloned and used to preserve comments when possible.
 func MergeConfig(cfgs ...*Config) *Config {
 	if len(cfgs) == 0 {
 		return nil
@@ -531,8 +438,6 @@ func MergeConfig(cfgs ...*Config) *Config {
 			KegMap: make([]KegMapEntry, 0),
 		},
 	}
-
-	var lastNode *yaml.Node
 
 	for _, c := range cfgs {
 		if c == nil || c.data == nil {
@@ -547,6 +452,21 @@ func MergeConfig(cfgs ...*Config) *Config {
 		if c.data.UserRepoPath != "" {
 			out.data.UserRepoPath = c.data.UserRepoPath
 		}
+		if c.data.LogFile != "" {
+			out.data.LogFile = c.data.LogFile
+		}
+		if c.data.LogLevel != "" {
+			out.data.LogLevel = c.data.LogLevel
+		}
+		if !c.data.Updated.IsZero() {
+			out.data.Updated = c.data.Updated
+		}
+		if len(c.data.Registries) > 0 {
+			out.data.Registries = append([]KegRegistry(nil), c.data.Registries...)
+		}
+		if c.data.DefaultRegistry != "" {
+			out.data.DefaultRegistry = c.data.DefaultRegistry
+		}
 
 		for alias, target := range c.data.Kegs {
 			out.AddKeg(alias, target)
@@ -556,48 +476,27 @@ func MergeConfig(cfgs ...*Config) *Config {
 		for _, e := range c.data.KegMap {
 			out.AddKegMap(e)
 		}
-
-		// Remember last non-nil node so we can preserve comments if present.
-		if c.node != nil {
-			lastNode = c.node
-		}
-	}
-
-	// If we found a lastNode, clone it by using ParseConfig on its YAML
-	// rendering so the returned config has a node suitable for ToYAML edits.
-	if lastNode != nil {
-		var buf bytes.Buffer
-		enc := yaml.NewEncoder(&buf)
-		enc.SetIndent(2)
-		_ = enc.Encode(lastNode)
-		_ = enc.Close()
-
-		if cloned, err := ParseConfig(context.Background(), buf.Bytes()); err == nil && cloned != nil {
-			// Use the cloned node but keep the merged struct fields from out.
-			out.node = cloned.node
-		}
 	}
 
 	return out
 }
 
-// Touch updates the Updated timestamp on the Config using the context clock.
-func (cfg *Config) Touch(ctx context.Context) {
-	clk := clock.ClockFromContext(ctx)
+// Touch updates the Updated timestamp on the Config using the runtime clock.
+func (cfg *Config) Touch(rt *toolkit.Runtime) {
+	clk := rt.Clock()
 	cfg.data.Updated = clk.Now()
 }
 
 // AddKeg adds or updates a keg entry in the Config.
-//
-// Updates both the struct's Kegs map and the YAML node (if present) to preserve
-// comments and formatting. If the node exists, the alias entry is added/updated
-// within the kegs mapping while preserving document structure.
 func (cfg *Config) AddKeg(alias string, target kegurl.Target) error {
 	if cfg == nil {
 		return fmt.Errorf("config is nil")
 	}
 	if alias == "" {
 		return fmt.Errorf("alias is required")
+	}
+	if cfg.data == nil {
+		cfg.data = &configDTO{}
 	}
 
 	// Add/update in struct
@@ -606,35 +505,19 @@ func (cfg *Config) AddKeg(alias string, target kegurl.Target) error {
 	}
 	cfg.data.Kegs[alias] = target
 
-	// Update node if present to preserve comments in file
-	if cfg.node != nil && len(cfg.node.Content) > 0 {
-		rootNode := cfg.node.Content[0]
-		if rootNode == nil || rootNode.Kind != yaml.MappingNode {
-			return nil
-		}
-
-		// Find or create the "kegs" mapping in the root
-		kegsNode := findOrCreateMapKey(rootNode, "kegs")
-		if kegsNode != nil {
-			// Add or update the alias entry within kegs
-			updateMapEntry(kegsNode, alias, target.String())
-		}
-	}
-
 	return nil
 }
 
 // AddKegMap adds or updates a keg map entry in the Config.
-//
-// Updates both the struct's KegMap slice and the YAML node (if present) to preserve
-// comments and formatting. If an entry with the same alias exists, it is replaced;
-// otherwise a new entry is appended.
 func (cfg *Config) AddKegMap(entry KegMapEntry) error {
 	if cfg == nil {
 		return fmt.Errorf("config is nil")
 	}
 	if entry.Alias == "" {
 		return fmt.Errorf("alias is required")
+	}
+	if cfg.data == nil {
+		cfg.data = &configDTO{}
 	}
 
 	// Find and update or append to struct
@@ -650,125 +533,16 @@ func (cfg *Config) AddKegMap(entry KegMapEntry) error {
 		cfg.data.KegMap = append(cfg.data.KegMap, entry)
 	}
 
-	// Update node if present to preserve comments in file
-	if cfg.node != nil && len(cfg.node.Content) > 0 {
-		rootNode := cfg.node.Content[0]
-		if rootNode == nil || rootNode.Kind != yaml.MappingNode {
-			return nil
-		}
-
-		// Find or create the "kegMap" sequence in the root
-		kegMapNode := findOrCreateMapKey(rootNode, "kegMap")
-		if kegMapNode != nil {
-			// Rebuild the kegMap sequence from the updated slice
-			updateKegMapSequence(kegMapNode, cfg.data.KegMap)
-		}
-	}
-
 	return nil
-}
-
-// updateKegMapSequence updates a YAML sequence node to match the provided KegMapEntry slice.
-func updateKegMapSequence(seqNode *yaml.Node, entries []KegMapEntry) {
-	if seqNode == nil || seqNode.Kind != yaml.SequenceNode {
-		return
-	}
-
-	// Clear existing content
-	seqNode.Content = []*yaml.Node{}
-
-	// Add each entry as a mapping node
-	for _, e := range entries {
-		entryNode := &yaml.Node{
-			Kind:    yaml.MappingNode,
-			Content: []*yaml.Node{},
-		}
-
-		// Add alias key-value
-		if e.Alias != "" {
-			entryNode.Content = append(entryNode.Content,
-				&yaml.Node{Kind: yaml.ScalarNode, Value: "alias"},
-				&yaml.Node{Kind: yaml.ScalarNode, Value: e.Alias},
-			)
-		}
-
-		// Add pathPrefix key-value if set
-		if e.PathPrefix != "" {
-			entryNode.Content = append(entryNode.Content,
-				&yaml.Node{Kind: yaml.ScalarNode, Value: "pathPrefix"},
-				&yaml.Node{Kind: yaml.ScalarNode, Value: e.PathPrefix},
-			)
-		}
-
-		// Add pathRegex key-value if set
-		if e.PathRegex != "" {
-			entryNode.Content = append(entryNode.Content,
-				&yaml.Node{Kind: yaml.ScalarNode, Value: "pathRegex"},
-				&yaml.Node{Kind: yaml.ScalarNode, Value: e.PathRegex},
-			)
-		}
-
-		seqNode.Content = append(seqNode.Content, entryNode)
-	}
-}
-
-// findOrCreateMapKey finds a mapping key's value in a YAML mapping node or creates
-// it if missing. Returns the value node for the given key.
-func findOrCreateMapKey(mapNode *yaml.Node, key string) *yaml.Node {
-	if mapNode == nil || mapNode.Kind != yaml.MappingNode {
-		return nil
-	}
-
-	// Search for existing key in key-value pairs
-	for i := 0; i < len(mapNode.Content); i += 2 {
-		if mapNode.Content[i].Value == key {
-			if i+1 < len(mapNode.Content) {
-				return mapNode.Content[i+1]
-			}
-		}
-	}
-
-	// Not found, create new entry with empty mapping
-	keyNode := &yaml.Node{Kind: yaml.ScalarNode, Value: key}
-	valueNode := &yaml.Node{Kind: yaml.MappingNode, Content: []*yaml.Node{}}
-	mapNode.Content = append(mapNode.Content, keyNode, valueNode)
-	return valueNode
-}
-
-// updateMapEntry adds or updates an entry within a YAML mapping node.
-// If the key exists, its value is updated; otherwise a new key-value pair is added.
-func updateMapEntry(mapNode *yaml.Node, key, value string) {
-	if mapNode == nil || mapNode.Kind != yaml.MappingNode {
-		return
-	}
-
-	// Search for existing entry
-	for i := 0; i < len(mapNode.Content); i += 2 {
-		if mapNode.Content[i].Value == key {
-			if i+1 < len(mapNode.Content) {
-				mapNode.Content[i+1] = &yaml.Node{
-					Kind:  yaml.ScalarNode,
-					Value: value,
-				}
-			}
-			return
-		}
-	}
-
-	// Not found, add new entry
-	mapNode.Content = append(mapNode.Content,
-		&yaml.Node{Kind: yaml.ScalarNode, Value: key},
-		&yaml.Node{Kind: yaml.ScalarNode, Value: value},
-	)
 }
 
 // LocalGitData attempts to run `git -C projectPath config --local --get key`.
 //
 // If git is not present or the command fails it returns an error. The returned
 // bytes are trimmed of surrounding whitespace. The function logs diagnostic
-// messages using the logger present in ctx.
-func LocalGitData(ctx context.Context, projectPath, key string) ([]byte, error) {
-	lg := mylog.LoggerFromContext(ctx)
+// messages using the logger from rt.
+func LocalGitData(ctx context.Context, rt *toolkit.Runtime, projectPath, key string) ([]byte, error) {
+	lg := rt.Logger()
 	// check git exists
 	if _, err := exec.LookPath("git"); err != nil {
 		lg.Warn("git executable not found", "projectPath", projectPath, "err", err)

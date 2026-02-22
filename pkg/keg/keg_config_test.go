@@ -51,6 +51,16 @@ links:
 indexes:
   - file: "index1.md"
     summary: "Index 1 summary"
+entities:
+  entity:
+    id: 2045
+    summary: "Defines required contents and conventions for all entity notes."
+  gear:
+    id: 2044
+    summary: "Canonical structure for gear/equipment notes."
+tags:
+  entity: "Canonical notes that define structure rules for entity types"
+  client: "Client of ECW"
 `
 
 	config, err := keg.ParseKegConfig([]byte(v2Yaml))
@@ -71,6 +81,16 @@ indexes:
 
 	require.Len(t, config.Indexes, 1)
 	require.Equal(t, "index1.md", config.Indexes[0].File)
+
+	require.Len(t, config.Entities, 2)
+	require.Equal(t, 2045, config.Entities["entity"].ID)
+	require.Equal(t, "Defines required contents and conventions for all entity notes.", config.Entities["entity"].Summary)
+	require.Equal(t, 2044, config.Entities["gear"].ID)
+	require.Equal(t, "Canonical structure for gear/equipment notes.", config.Entities["gear"].Summary)
+
+	require.Len(t, config.Tags, 2)
+	require.Equal(t, "Canonical notes that define structure rules for entity types", config.Tags["entity"])
+	require.Equal(t, "Client of ECW", config.Tags["client"])
 }
 
 func TestParseConfigDataInvalidVersion(t *testing.T) {
@@ -92,4 +112,68 @@ title: "Missing version test"
 	_, err := keg.ParseKegConfig([]byte(missingVersionYaml))
 	require.Error(t, err, "expected error for missing version field")
 	require.Contains(t, err.Error(), "missing or invalid kegv")
+}
+
+func TestAddEntity_AddsAndUpdates(t *testing.T) {
+	cfg := &keg.Config{}
+
+	err := cfg.AddEntity("entity", 2045, "original")
+	require.NoError(t, err)
+	require.Len(t, cfg.Entities, 1)
+	require.Equal(t, 2045, cfg.Entities["entity"].ID)
+	require.Equal(t, "original", cfg.Entities["entity"].Summary)
+
+	err = cfg.AddEntity("entity", 2046, "updated")
+	require.NoError(t, err)
+	require.Len(t, cfg.Entities, 1)
+	require.Equal(t, 2046, cfg.Entities["entity"].ID)
+	require.Equal(t, "updated", cfg.Entities["entity"].Summary)
+}
+
+func TestAddEntity_ValidatesRequiredFields(t *testing.T) {
+	cfg := &keg.Config{}
+
+	var nilCfg *keg.Config
+	err := nilCfg.AddEntity("entity", 1, "x")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "config is nil")
+
+	err = cfg.AddEntity("", 1, "summary")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "entity name is required")
+
+	err = cfg.AddEntity("entity", 0, "summary")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "entity id must be greater than zero")
+}
+
+func TestAddTag_AddsAndUpdates(t *testing.T) {
+	cfg := &keg.Config{}
+
+	err := cfg.AddTag("entity", "original")
+	require.NoError(t, err)
+	require.Len(t, cfg.Tags, 1)
+	require.Equal(t, "original", cfg.Tags["entity"])
+
+	err = cfg.AddTag("entity", "updated")
+	require.NoError(t, err)
+	require.Len(t, cfg.Tags, 1)
+	require.Equal(t, "updated", cfg.Tags["entity"])
+}
+
+func TestAddTag_ValidatesRequiredFields(t *testing.T) {
+	cfg := &keg.Config{}
+
+	var nilCfg *keg.Config
+	err := nilCfg.AddTag("x", "x")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "config is nil")
+
+	err = cfg.AddTag("", "summary")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "tag name is required")
+
+	err = cfg.AddTag("tag", "")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "tag summary is required")
 }
