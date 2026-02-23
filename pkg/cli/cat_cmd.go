@@ -11,20 +11,28 @@ import (
 //
 // Usage examples:
 //
-//	Tap cat 0
-//	Tap cat 42
-//	Tap cat 0 --keg myalias
+//	tap cat 0
+//	tap cat 0 1 2
+//	tap cat --tag "fire and not archived"
+//	tap cat 0 --keg myalias
 func NewCatCmd(deps *Deps) *cobra.Command {
 	var opts tapper.CatOptions
 
 	cmd := &cobra.Command{
-		Use:     "cat NODE_ID",
-		Short:   "display a node's content with metadata as frontmatter",
+		Use:     "cat [NODE_ID...]",
+		Short:   "display node(s) content with metadata as frontmatter",
 		Aliases: []string{"show"},
-		Args:    cobra.ExactArgs(1),
+		Args: func(cmd *cobra.Command, args []string) error {
+			if opts.Tag != "" {
+				return nil
+			}
+			if len(args) == 0 {
+				return fmt.Errorf("accepts at least 1 arg(s), received 0")
+			}
+			return nil
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			// Set the node ID from the first argument
-			opts.NodeID = args[0]
+			opts.NodeIDs = args
 			opts.Stream = deps.Runtime.Stream()
 			applyKegTargetProfile(deps, &opts.KegTargetOptions)
 
@@ -43,6 +51,7 @@ func NewCatCmd(deps *Deps) *cobra.Command {
 	cmd.Flags().BoolVar(&opts.StatsOnly, "stats-only", false, "display node stats only")
 	cmd.Flags().BoolVar(&opts.MetaOnly, "meta-only", false, "display node metadata only")
 	cmd.Flags().BoolVar(&opts.Edit, "edit", false, "edit node in a temporary file")
+	cmd.Flags().StringVar(&opts.Tag, "tag", "", `tag expression to select nodes (e.g., "fire", "fire and not archived")`)
 
 	return cmd
 }

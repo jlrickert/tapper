@@ -38,7 +38,7 @@ func TestCatCommand_TableDrivenErrorHandling(t *testing.T) {
 		{
 			name:        "cat_missing_node_id",
 			args:        []string{"cat"},
-			expectedErr: "accepts 1 arg",
+			expectedErr: "at least 1 arg",
 			description: "Error when node ID is not provided",
 		},
 		{
@@ -411,4 +411,68 @@ EOF
 	require.Contains(t, meta, "summary: changed by cat edit")
 	require.Contains(t, content, "# Cat Edited")
 	require.Contains(t, content, "Body updated from cat --edit.")
+}
+
+// TestCatCommand_MultiNode_YAMLStream verifies that requesting multiple nodes
+// in default (frontmatter) mode produces a YAML multi-document stream where
+// each document has an injected "id:" field and no "=== N ===" decoration.
+func TestCatCommand_MultiNode_YAMLStream(t *testing.T) {
+	t.Parallel()
+	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
+
+	// Create a second node so we have two to cat.
+	createRes := NewProcess(t, false, "create", "--keg", "personal", "--title", "Second node").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, createRes.Err, "create should succeed")
+
+	res := NewProcess(t, false, "cat", "0", "1", "--keg", "personal").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+
+	out := string(res.Stdout)
+
+	// Must contain id fields for both nodes.
+	require.Contains(t, out, `id: "0"`, "first document should have id: 0")
+	require.Contains(t, out, `id: "1"`, "second document should have id: 1")
+
+	// Must NOT contain the old === decoration.
+	require.NotContains(t, out, "=== 0 ===", "should not use old header format")
+	require.NotContains(t, out, "=== 1 ===", "should not use old header format")
+
+	// The output must be a valid YAML stream: starts with "---".
+	require.True(t, strings.HasPrefix(out, "---\n"), "output should start with YAML document-start marker")
+}
+
+// TestCatCommand_MultiNode_ContentOnly verifies that --content-only with
+// multiple nodes separates documents with a plain "---" thematic break and
+// does NOT inject "id:" fields.
+func TestCatCommand_MultiNode_ContentOnly(t *testing.T) {
+	t.Parallel()
+	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
+
+	// Create a second node so we have two to cat.
+	createRes := NewProcess(t, false, "create", "--keg", "personal", "--title", "Second node").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, createRes.Err, "create should succeed")
+
+	res := NewProcess(t, false, "cat", "0", "1", "--keg", "personal", "--content-only").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+
+	out := string(res.Stdout)
+
+	// Separator must be present.
+	require.Contains(t, out, "\n---\n", "content-only multi-node output should have --- separator")
+
+	// No injected id field.
+	require.NotContains(t, out, `id: "0"`, "content-only should not inject id field")
+}
+
+// TestCatCommand_SingleNode_NoIDField verifies that a single-node cat does NOT
+// inject an "id:" field (backward-compatibility guarantee).
+func TestCatCommand_SingleNode_NoIDField(t *testing.T) {
+	t.Parallel()
+	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
+
+	res := NewProcess(t, false, "cat", "0", "--keg", "personal").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+
+	out := string(res.Stdout)
+	require.NotContains(t, out, `id: "0"`, "single-node output should not have injected id field")
 }
