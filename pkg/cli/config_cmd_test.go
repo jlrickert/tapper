@@ -21,14 +21,14 @@ func TestConfigCommand_DisplaysMergedConfig(t *testing.T) {
 	tests := []configTestCase{
 		{
 			name:             "config_displays_merged_config",
-			args:             []string{"config"},
+			args:             []string{"repo", "config"},
 			setupFixture:     strPtr("joe"),
 			expectedInStdout: []string{"defaultKeg:", "kegs:"},
 			description:      "Display merged configuration from user config",
 		},
 		{
 			name:         "config_with_project_flag",
-			args:         []string{"config", "--project"},
+			args:         []string{"repo", "config", "--project"},
 			setupFixture: strPtr("joe"),
 			expectedErr:  "no configuration available",
 			description:  "Project config may not exist and should error gracefully",
@@ -53,7 +53,7 @@ func TestConfigCommand_DisplaysMergedConfig(t *testing.T) {
 				require.Contains(innerT, stderr, tt.expectedErr,
 					"error message should contain %q, got stderr: %s", tt.expectedErr, stderr)
 			} else {
-				require.NoError(innerT, res.Err, "config command should succeed - %s", tt.description)
+				require.NoError(innerT, res.Err, "repo config command should succeed - %s", tt.description)
 				stdout := string(res.Stdout)
 
 				for _, expected := range tt.expectedInStdout {
@@ -88,10 +88,10 @@ func TestConfigCommand_IntegrationWithInit(t *testing.T) {
 		initRes := initCmd.Run(sb.Context(), sb.Runtime())
 		require.NoError(innerT, initRes.Err, "init should succeed")
 
-		// Now display the config
-		configCmd := NewProcess(innerT, false, "config")
+		// Now display the repo config
+		configCmd := NewProcess(innerT, false, "repo", "config")
 		configRes := configCmd.Run(sb.Context(), sb.Runtime())
-		require.NoError(innerT, configRes.Err, "config should succeed after init")
+		require.NoError(innerT, configRes.Err, "repo config should succeed after init")
 
 		stdout := string(configRes.Stdout)
 		require.Contains(innerT, stdout, "kegs:", "output should contain kegs section")

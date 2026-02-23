@@ -5,12 +5,12 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// NewInfoEditCmd returns the `info edit` cobra subcommand.
+// NewInfoEditCmd returns the `config edit` cobra subcommand.
 //
 // Usage examples:
 //
-//	Tap info edit
-//	Tap info edit --alias myalias
+//	tap config edit
+//	tap config edit --keg myalias
 func NewInfoEditCmd(deps *Deps) *cobra.Command {
 	var opts tapper.InfoEditOptions
 
@@ -29,7 +29,7 @@ If stdin is piped, that content is used as the initial editable draft.`,
 		},
 	}
 
-	bindKegTargetFlags(cmd, deps, &opts.KegTargetOptions, "alias of the keg to edit info for")
+	bindKegTargetFlags(cmd, deps, &opts.KegTargetOptions, "alias of the keg to edit configuration for")
 
 	return cmd
 }

@@ -435,8 +435,7 @@ func (r *MemoryRepo) DeleteAsset(ctx context.Context, id NodeId, kind AssetKind,
 	return nil
 }
 
-// Compatibility wrappers for pre-assets API callers.
-func (r *MemoryRepo) ListItems(ctx context.Context, id NodeId) ([]string, error) {
+func (r *MemoryRepo) ListFiles(ctx context.Context, id NodeId) ([]string, error) {
 	return r.ListAssets(ctx, id, AssetKindItem)
 }
 
@@ -444,11 +443,11 @@ func (r *MemoryRepo) ListImages(ctx context.Context, id NodeId) ([]string, error
 	return r.ListAssets(ctx, id, AssetKindImage)
 }
 
-func (r *MemoryRepo) UploadImage(ctx context.Context, id NodeId, name string, data []byte) error {
+func (r *MemoryRepo) WriteImage(ctx context.Context, id NodeId, name string, data []byte) error {
 	return r.WriteAsset(ctx, id, AssetKindImage, name, data)
 }
 
-func (r *MemoryRepo) UploadItem(ctx context.Context, id NodeId, name string, data []byte) error {
+func (r *MemoryRepo) WriteFile(ctx context.Context, id NodeId, name string, data []byte) error {
 	return r.WriteAsset(ctx, id, AssetKindItem, name, data)
 }
 
@@ -456,7 +455,7 @@ func (r *MemoryRepo) DeleteImage(ctx context.Context, id NodeId, name string) er
 	return r.DeleteAsset(ctx, id, AssetKindImage, name)
 }
 
-func (r *MemoryRepo) DeleteItem(ctx context.Context, id NodeId, name string) error {
+func (r *MemoryRepo) DeleteFile(ctx context.Context, id NodeId, name string) error {
 	return r.DeleteAsset(ctx, id, AssetKindItem, name)
 }
 
@@ -579,3 +578,5 @@ func (r *MemoryRepo) WithNodeLock(ctx context.Context, id NodeId, fn func(contex
 
 // Ensure MemoryRepo implements Repository at compile time.
 var _ Repository = (*MemoryRepo)(nil)
+var _ RepositoryFiles = (*MemoryRepo)(nil)
+var _ RepositoryImages = (*MemoryRepo)(nil)

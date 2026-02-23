@@ -5,22 +5,22 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// NewConfigEditCmd returns the `config edit` cobra subcommand.
+// NewRepoConfigEditCmd returns the `repo config edit` cobra subcommand.
 //
 // Usage examples:
 //
-//	Tap config edit
-//	Tap config edit --project
-func NewConfigEditCmd(deps *Deps) *cobra.Command {
+//	tap repo config edit
+//	tap repo config edit --project
+func NewRepoConfigEditCmd(deps *Deps) *cobra.Command {
 	var opts tapper.ConfigEditOptions
 
 	cmd := &cobra.Command{
 		Use:   "edit",
-		Short: "edit configuration with default editor",
+		Short: "edit tap configuration with default editor",
 		Long: `Open the configuration file in your default editor for editing.
 
-By default, edits the user configuration. Use '--local' to edit the
-project-specific local configuration instead.
+By default, edits the user configuration. Use '--project' to edit project
+configuration.
 
 The editor is determined by the EDITOR environment variable, defaulting to 'vim'.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -34,7 +34,6 @@ The editor is determined by the EDITOR environment variable, defaulting to 'vim'
 	}
 
 	cmd.Flags().BoolVar(&opts.Project, "project", false, "edit project configuration")
-	cmd.Flags().BoolVar(&opts.Project, "local", false, "edit project configuration (deprecated; use --project)")
 	cmd.Flags().BoolVar(&opts.User, "user", false, "edit user configuration")
 
 	return cmd

@@ -16,11 +16,11 @@ type infoTestCase struct {
 	description      string
 }
 
-func TestInfoCommand_DisplaysKegMetadata(t *testing.T) {
+func TestConfigCommand_DisplaysKegMetadata(t *testing.T) {
 	tests := []infoTestCase{
 		{
 			name:        "info_no_alias_error",
-			args:        []string{"info"},
+			args:        []string{"config"},
 			expectedErr: "no keg configured",
 			description: "Error when no keg is configured and no alias specified",
 		},
@@ -44,7 +44,7 @@ func TestInfoCommand_DisplaysKegMetadata(t *testing.T) {
 				require.Contains(innerT, stderr, tt.expectedErr,
 					"error message should contain %q, got stderr: %s", tt.expectedErr, stderr)
 			} else {
-				require.NoError(innerT, res.Err, "info command should succeed - %s", tt.description)
+				require.NoError(innerT, res.Err, "config command should succeed - %s", tt.description)
 				stdout := string(res.Stdout)
 
 				for _, expected := range tt.expectedInStdout {
@@ -56,8 +56,8 @@ func TestInfoCommand_DisplaysKegMetadata(t *testing.T) {
 	}
 }
 
-func TestInfoCommand_IntegrationWithInit(t *testing.T) {
-	t.Run("info_after_init_displays_keg_metadata", func(innerT *testing.T) {
+func TestConfigCommand_IntegrationWithInit_KegConfig(t *testing.T) {
+	t.Run("config_after_init_displays_keg_metadata", func(innerT *testing.T) {
 		innerT.Parallel()
 		opts := []testutils.Option{
 			testutils.WithFixture("testuser", "~"),
@@ -75,10 +75,10 @@ func TestInfoCommand_IntegrationWithInit(t *testing.T) {
 		initRes := initCmd.Run(sb.Context(), sb.Runtime())
 		require.NoError(innerT, initRes.Err, "init should succeed")
 
-		// Now display the keg info
-		infoCmd := NewProcess(innerT, false, "info", "--keg", "newstudy")
+		// Now display the keg config
+		infoCmd := NewProcess(innerT, false, "config", "--keg", "newstudy")
 		infoRes := infoCmd.Run(sb.Context(), sb.Runtime())
-		require.NoError(innerT, infoRes.Err, "info should succeed after init")
+		require.NoError(innerT, infoRes.Err, "config should succeed after init")
 
 		stdout := string(infoRes.Stdout)
 		require.Contains(innerT, stdout, "kegv:", "output should contain keg version")
@@ -86,18 +86,18 @@ func TestInfoCommand_IntegrationWithInit(t *testing.T) {
 	})
 }
 
-func TestInfoCommand_WithJoeFixture(t *testing.T) {
+func TestConfigCommand_WithJoeFixture(t *testing.T) {
 	tests := []infoTestCase{
 		{
 			name:             "info_with_explicit_alias",
-			args:             []string{"info", "--keg", "personal"},
+			args:             []string{"config", "--keg", "personal"},
 			setupFixture:     strPtr("joe"),
 			expectedInStdout: []string{"kegv:", "zekia:"},
 			description:      "Display info for explicitly specified keg alias",
 		},
 		{
 			name:         "info_with_nonexistent_alias",
-			args:         []string{"info", "--keg", "nonexistent"},
+			args:         []string{"config", "--keg", "nonexistent"},
 			setupFixture: strPtr("joe"),
 			expectedErr:  "keg alias not found",
 			description:  "Error when keg alias does not exist",
@@ -122,7 +122,7 @@ func TestInfoCommand_WithJoeFixture(t *testing.T) {
 				require.Contains(innerT, stderr, tt.expectedErr,
 					"error message should contain %q, got stderr: %s", tt.expectedErr, stderr)
 			} else {
-				require.NoError(innerT, res.Err, "info command should succeed - %s", tt.description)
+				require.NoError(innerT, res.Err, "config command should succeed - %s", tt.description)
 				stdout := string(res.Stdout)
 
 				for _, expected := range tt.expectedInStdout {
@@ -134,7 +134,7 @@ func TestInfoCommand_WithJoeFixture(t *testing.T) {
 	}
 }
 
-func TestInfoCommand_PreservesEntitiesAndCustomSections(t *testing.T) {
+func TestConfigCommand_PreservesEntitiesAndCustomSections(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
 
@@ -151,7 +151,7 @@ custom_block:
 `
 	sb.MustWriteFile("~/kegs/example/keg", []byte(custom), 0o644)
 
-	infoCmd := NewProcess(t, false, "info", "--keg", "example")
+	infoCmd := NewProcess(t, false, "config", "--keg", "example")
 	infoRes := infoCmd.Run(sb.Context(), sb.Runtime())
 	require.NoError(t, infoRes.Err)
 
