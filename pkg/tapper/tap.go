@@ -112,6 +112,9 @@ type CatOptions struct {
 
 	KegTargetOptions
 
+	// Edit opens the node in the editor instead of printing output.
+	Edit bool
+
 	// ContentOnly displays content only.
 	ContentOnly bool
 
@@ -120,6 +123,9 @@ type CatOptions struct {
 
 	// MetaOnly displays metadata only.
 	MetaOnly bool
+
+	// Stream carries stdin piping information when editing.
+	Stream *toolkit.Stream
 }
 
 // StatsOptions configures behavior for Tap.Stats.
@@ -161,6 +167,9 @@ type MetaOptions struct {
 // primary content (README.md).
 func (t *Tap) Cat(ctx context.Context, opts CatOptions) (string, error) {
 	outputModes := 0
+	if opts.Edit {
+		outputModes++
+	}
 	if opts.ContentOnly {
 		outputModes++
 	}
@@ -171,7 +180,15 @@ func (t *Tap) Cat(ctx context.Context, opts CatOptions) (string, error) {
 		outputModes++
 	}
 	if outputModes > 1 {
-		return "", fmt.Errorf("only one output mode may be selected: --content-only, --stats-only, --meta-only")
+		return "", fmt.Errorf("only one output mode may be selected: --edit, --content-only, --stats-only, --meta-only")
+	}
+
+	if opts.Edit {
+		return "", t.Edit(ctx, EditOptions{
+			NodeID:           opts.NodeID,
+			KegTargetOptions: opts.KegTargetOptions,
+			Stream:           opts.Stream,
+		})
 	}
 
 	k, err := t.resolveKeg(ctx, opts.KegTargetOptions)
