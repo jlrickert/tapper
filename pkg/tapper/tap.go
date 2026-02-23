@@ -1125,6 +1125,101 @@ func (t *Tap) Info(ctx context.Context, opts InfoOptions) (string, error) {
 	return cfg.String(), nil
 }
 
+// KegInfoOptions configures behavior for Tap.KegInfo.
+type KegInfoOptions struct {
+	KegTargetOptions
+}
+
+// KegInfo displays diagnostics for a resolved keg.
+func (t *Tap) KegInfo(ctx context.Context, opts KegInfoOptions) (string, error) {
+	k, err := t.resolveKeg(ctx, opts.KegTargetOptions)
+	if err != nil {
+		return "", fmt.Errorf("unable to open keg: %w", err)
+	}
+
+	workingDir, err := t.Runtime.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("unable to get working directory: %w", err)
+	}
+
+	nodeIDs, err := k.Repo.ListNodes(ctx)
+	if err != nil {
+		return "", fmt.Errorf("unable to list nodes: %w", err)
+	}
+
+	type assetDiagnostics struct {
+		Supported       bool `yaml:"supported"`
+		NodesWithAssets int  `yaml:"nodes_with_assets"`
+		TotalAssets     int  `yaml:"total_assets"`
+	}
+	type diagnostics struct {
+		WorkingDirectory string `yaml:"working_directory"`
+		Target           string `yaml:"target,omitempty"`
+		Scheme           string `yaml:"scheme,omitempty"`
+		KegDirectory     string `yaml:"keg_directory,omitempty"`
+
+		NodeCount int `yaml:"node_count"`
+
+		Assets struct {
+			Files  assetDiagnostics `yaml:"files"`
+			Images assetDiagnostics `yaml:"images"`
+		} `yaml:"assets"`
+	}
+
+	out := diagnostics{
+		WorkingDirectory: workingDir,
+		NodeCount:        len(nodeIDs),
+	}
+
+	if k.Target != nil {
+		out.Target = k.Target.String()
+		out.Scheme = string(k.Target.Scheme())
+		if k.Target.Scheme() == kegurl.SchemeFile {
+			path := toolkit.ExpandEnv(t.Runtime, k.Target.Path())
+			if expanded, expandErr := toolkit.ExpandPath(t.Runtime, path); expandErr == nil {
+				path = expanded
+			}
+			out.KegDirectory = filepath.Clean(path)
+		} else {
+			out.KegDirectory = k.Target.Path()
+		}
+	}
+
+	if repoFiles, ok := k.Repo.(keg.RepositoryFiles); ok {
+		out.Assets.Files.Supported = true
+		for _, id := range nodeIDs {
+			names, listErr := repoFiles.ListFiles(ctx, id)
+			if listErr != nil {
+				return "", fmt.Errorf("unable to list files for node %s: %w", id.Path(), listErr)
+			}
+			if len(names) > 0 {
+				out.Assets.Files.NodesWithAssets++
+			}
+			out.Assets.Files.TotalAssets += len(names)
+		}
+	}
+
+	if repoImages, ok := k.Repo.(keg.RepositoryImages); ok {
+		out.Assets.Images.Supported = true
+		for _, id := range nodeIDs {
+			names, listErr := repoImages.ListImages(ctx, id)
+			if listErr != nil {
+				return "", fmt.Errorf("unable to list images for node %s: %w", id.Path(), listErr)
+			}
+			if len(names) > 0 {
+				out.Assets.Images.NodesWithAssets++
+			}
+			out.Assets.Images.TotalAssets += len(names)
+		}
+	}
+
+	b, err := yaml.Marshal(out)
+	if err != nil {
+		return "", fmt.Errorf("unable to marshal info output: %w", err)
+	}
+	return string(b), nil
+}
+
 func readRawKegConfig(rt *toolkit.Runtime, root string) ([]byte, error) {
 	_, raw, err := readRawKegConfigWithPath(rt, root)
 	return raw, err

@@ -11,37 +11,32 @@ import (
 //
 // Usage examples:
 //
-//	Tap info
-//	Tap info --alias myalias
-//	Tap info edit
-//	Tap info edit --alias myalias
+//	tap info
+//	tap info --keg myalias
 func NewInfoCmd(deps *Deps) *cobra.Command {
-	var opts tapper.InfoOptions
+	var opts tapper.KegInfoOptions
 
 	cmd := &cobra.Command{
 		Use:   "info",
-		Short: "display keg metadata",
-		Long: `Display the keg configuration (keg.yaml).
+		Short: "display keg diagnostics",
+		Long: `Display diagnostic information about the resolved keg.
 
-Shows metadata about the keg including title, creator, state, and other
-configuration properties. Use 'Tap info edit' to modify the configuration.`,
+Includes working directory, resolved target details, node counts, and
+asset summary data useful for troubleshooting.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			applyKegTargetProfile(deps, &opts.KegTargetOptions)
 			ctx := cmd.Context()
-			output, err := deps.Tap.Info(ctx, opts)
+			output, err := deps.Tap.KegInfo(ctx, opts)
 			if err != nil {
 				return err
 			}
 
-			fmt.Fprint(cmd.OutOrStdout(), output)
-			return nil
+			_, err = fmt.Fprint(cmd.OutOrStdout(), output)
+			return err
 		},
 	}
 
-	bindKegTargetFlags(cmd, deps, &opts.KegTargetOptions, "alias of the keg to display info for")
-
-	// Add the edit subcommand
-	cmd.AddCommand(NewInfoEditCmd(deps))
+	bindKegTargetFlags(cmd, deps, &opts.KegTargetOptions, "alias of the keg to inspect")
 
 	return cmd
 }
