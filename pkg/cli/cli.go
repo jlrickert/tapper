@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strconv"
 
 	"github.com/jlrickert/cli-toolkit/toolkit"
@@ -51,6 +52,8 @@ func RunWithProfile(ctx context.Context, rt *toolkit.Runtime, args []string, pro
 	cmd.SetErr(streams.Err)
 
 	if err := cmd.ExecuteContext(ctx); err != nil {
+		_, _ = fmt.Fprintf(streams.Err, "Error: %s\n", renderUserError(err, deps))
+
 		if errors.Is(err, context.Canceled) ||
 			errors.Is(err, context.DeadlineExceeded) {
 			return 130, err
