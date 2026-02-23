@@ -386,19 +386,12 @@ func (t *Tap) Edit(ctx context.Context, opts EditOptions) error {
 		_ = t.Runtime.Remove(tempPath, false)
 	}()
 
-	if err := toolkit.Edit(ctx, t.Runtime, tempPath); err != nil {
+	if err := editWithLiveSaves(ctx, t.Runtime, tempPath, func(editedRaw []byte) error {
+		return t.applyEditedNodeRaw(ctx, k, id, editedRaw)
+	}); err != nil {
 		return fmt.Errorf("unable to edit node: %w", err)
 	}
-
-	editedRaw, err := t.Runtime.ReadFile(tempPath)
-	if err != nil {
-		return fmt.Errorf("unable to read edited node file: %w", err)
-	}
-	if bytes.Equal(editedRaw, originalRaw) {
-		return nil
-	}
-
-	return t.applyEditedNodeRaw(ctx, k, id, editedRaw)
+	return nil
 }
 
 func (t *Tap) applyEditedNodeRaw(ctx context.Context, k *keg.Keg, id keg.NodeId, editedRaw []byte) error {
@@ -490,9 +483,7 @@ func (t *Tap) editMeta(ctx context.Context, k *keg.Keg, id keg.NodeId, stream *t
 	if err != nil {
 		return fmt.Errorf("node metadata is invalid: %w", err)
 	}
-	originalRaw := []byte(metaNode.ToYAML())
-
-	initialRaw := originalRaw
+	initialRaw := []byte(metaNode.ToYAML())
 	if stream != nil && stream.IsPiped {
 		pipedRaw, readErr := io.ReadAll(stream.In)
 		if readErr != nil {
@@ -514,24 +505,17 @@ func (t *Tap) editMeta(ctx context.Context, k *keg.Keg, id keg.NodeId, stream *t
 		_ = t.Runtime.Remove(tempPath, false)
 	}()
 
-	if err := toolkit.Edit(ctx, t.Runtime, tempPath); err != nil {
-		return fmt.Errorf("unable to edit node metadata: %w", err)
-	}
-
-	editedRaw, err := t.Runtime.ReadFile(tempPath)
-	if err != nil {
-		return fmt.Errorf("unable to read edited metadata file: %w", err)
-	}
-	if bytes.Equal(editedRaw, originalRaw) {
+	if err := editWithLiveSaves(ctx, t.Runtime, tempPath, func(editedRaw []byte) error {
+		updatedMeta, err := keg.ParseMeta(ctx, editedRaw)
+		if err != nil {
+			return fmt.Errorf("node metadata is invalid after editing: %w", err)
+		}
+		if err := k.SetMeta(ctx, id, updatedMeta); err != nil {
+			return fmt.Errorf("unable to save node metadata: %w", err)
+		}
 		return nil
-	}
-
-	updatedMeta, err := keg.ParseMeta(ctx, editedRaw)
-	if err != nil {
-		return fmt.Errorf("node metadata is invalid after editing: %w", err)
-	}
-	if err := k.SetMeta(ctx, id, updatedMeta); err != nil {
-		return fmt.Errorf("unable to save node metadata: %w", err)
+	}); err != nil {
+		return fmt.Errorf("unable to edit node metadata: %w", err)
 	}
 	return nil
 }
@@ -1390,23 +1374,15 @@ func (t *Tap) InfoEdit(ctx context.Context, opts InfoEditOptions) error {
 		_ = t.Runtime.Remove(tempPath, false)
 	}()
 
-	if err := toolkit.Edit(ctx, t.Runtime, tempPath); err != nil {
+	if err := editWithLiveSaves(ctx, t.Runtime, tempPath, func(editedRaw []byte) error {
+		if _, err := keg.ParseKegConfig(editedRaw); err != nil {
+			return fmt.Errorf("keg config is invalid after editing: %w", err)
+		}
+		return saveConfig(editedRaw)
+	}); err != nil {
 		return fmt.Errorf("unable to edit keg config: %w", err)
 	}
-
-	editedRaw, err := t.Runtime.ReadFile(tempPath)
-	if err != nil {
-		return fmt.Errorf("unable to read edited temp config file: %w", err)
-	}
-	if bytes.Equal(editedRaw, originalRaw) {
-		return nil
-	}
-
-	if _, err := keg.ParseKegConfig(editedRaw); err != nil {
-		return fmt.Errorf("keg config is invalid after editing: %w", err)
-	}
-
-	return saveConfig(editedRaw)
+	return nil
 }
 
 func firstDir(path string) string {
