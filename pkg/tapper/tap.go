@@ -937,6 +937,8 @@ func (t *Tap) List(ctx context.Context, opts ListOptions) ([]string, error) {
 
 type DirOptions struct {
 	KegTargetOptions
+
+	NodeID string
 }
 
 func (t *Tap) Dir(ctx context.Context, opts DirOptions) (string, error) {
@@ -954,7 +956,34 @@ func (t *Tap) Dir(ctx context.Context, opts DirOptions) (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("unable to resolve keg directory: %w", err)
 		}
-		return filepath.Clean(expanded), nil
+		kegDir := filepath.Clean(expanded)
+
+		if strings.TrimSpace(opts.NodeID) == "" {
+			return kegDir, nil
+		}
+
+		node, err := keg.ParseNode(opts.NodeID)
+		if err != nil {
+			return "", fmt.Errorf("invalid node ID %q: %w", opts.NodeID, err)
+		}
+		if node == nil {
+			return "", fmt.Errorf("invalid node ID %q: %w", opts.NodeID, keg.ErrInvalid)
+		}
+		id := keg.NodeId{ID: node.ID, Code: node.Code}
+
+		exists, err := k.Repo.HasNode(ctx, id)
+		if err != nil {
+			return "", fmt.Errorf("unable to check node existence: %w", err)
+		}
+		if !exists {
+			return "", fmt.Errorf("node %s not found", id.Path())
+		}
+
+		return filepath.Join(kegDir, id.Path()), nil
+	}
+
+	if strings.TrimSpace(opts.NodeID) != "" {
+		return "", fmt.Errorf("node directory is only available for local file-backed kegs")
 	}
 
 	return k.Target.Path(), nil
