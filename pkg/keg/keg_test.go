@@ -432,6 +432,43 @@ func TestIndexFilesHaveExpectedData(t *testing.T) {
 	}
 }
 
+func TestIndex_PreservesUnknownConfigFields(t *testing.T) {
+	t.Parallel()
+	f := NewSandbox(t, sandbox.WithFixture("empty", "repofs_config"))
+
+	k, err := kegpkg.NewKegFromTarget(f.Context(), kegurl.NewFile("repofs_config"), f.Runtime())
+	require.NoError(t, err, "NewKegFromTarget failed")
+	require.NoError(t, k.Init(f.Context()), "InitKeg failed")
+
+	_, err = k.Create(f.Context(), &kegpkg.CreateOptions{Title: "Config Field Preservation"})
+	require.NoError(t, err)
+
+	customConfig := []byte(`kegv: "2025-07"
+updated: "2020-01-01T00:00:00Z"
+title: "custom config"
+summary: "contains unknown fields"
+custom_block:
+  keep_me: true
+  nested:
+    item: value
+`)
+	require.NoError(t, f.Runtime().WriteFile("repofs_config/keg", customConfig, 0o644))
+
+	require.NoError(t, k.Index(f.Context(), kegpkg.IndexOptions{}))
+
+	raw, err := f.Runtime().ReadFile("repofs_config/keg")
+	require.NoError(t, err)
+	out := string(raw)
+	require.Contains(t, out, "custom_block:")
+	require.Contains(t, out, "keep_me: true")
+	require.Contains(t, out, "nested:")
+	require.Contains(t, out, "item: value")
+
+	cfg, err := k.Repo.ReadConfig(f.Context())
+	require.NoError(t, err)
+	require.NotEqual(t, "2020-01-01T00:00:00Z", cfg.Updated)
+}
+
 func TestMove_RewritesLinksAndUpdatesDex(t *testing.T) {
 	t.Parallel()
 	f := NewSandbox(t)

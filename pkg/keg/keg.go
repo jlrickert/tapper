@@ -12,6 +12,7 @@ import (
 
 	"github.com/jlrickert/cli-toolkit/toolkit"
 	kegurl "github.com/jlrickert/tapper/pkg/keg_url"
+	"gopkg.in/yaml.v3"
 )
 
 // Keg is a concrete high-level service providing KEG node operations backed by a
@@ -658,9 +659,7 @@ func (k *Keg) Index(ctx context.Context, opts IndexOptions) error {
 	if err := k.dex.Write(ctx, k.Repo); err != nil {
 		errs = append(errs, fmt.Errorf("failed to save dex: %w", err))
 	}
-	if err := k.UpdateConfig(ctx, func(cfg *Config) {
-		cfg.Updated = now.Format(time.RFC3339)
-	}); err != nil {
+	if err := k.touchConfigUpdated(ctx, now); err != nil {
 		errs = append(errs, fmt.Errorf("failed to update index timestamp: %w", err))
 	}
 
@@ -751,9 +750,7 @@ func (k *Keg) Move(ctx context.Context, src NodeId, dst NodeId) error {
 
 	clk := repoClock(k.Repo)
 	now := clk.Now()
-	if err := k.UpdateConfig(ctx, func(cfg *Config) {
-		cfg.Updated = now.Format(time.RFC3339)
-	}); err != nil {
+	if err := k.touchConfigUpdated(ctx, now); err != nil {
 		errs = append(errs, fmt.Errorf("failed to update config after move: %w", err))
 	}
 
@@ -801,9 +798,7 @@ func (k *Keg) Remove(ctx context.Context, id NodeId) error {
 
 	clk := repoClock(k.Repo)
 	now := clk.Now()
-	if err := k.UpdateConfig(ctx, func(cfg *Config) {
-		cfg.Updated = now.Format(time.RFC3339)
-	}); err != nil {
+	if err := k.touchConfigUpdated(ctx, now); err != nil {
 		errs = append(errs, fmt.Errorf("failed to update config after remove: %w", err))
 	}
 
@@ -882,9 +877,7 @@ func (k *Keg) writeNodeToDex(ctx context.Context, id NodeId, data *NodeData) err
 	if err := dex.Write(ctx, k.Repo); err != nil {
 		return fmt.Errorf("failed to write dex: %w", err)
 	}
-	return k.UpdateConfig(ctx, func(cfg *Config) {
-		cfg.Touch(repoRuntime(k.Repo))
-	})
+	return k.touchConfigUpdated(ctx, repoClock(k.Repo).Now())
 }
 
 func rewriteNodeLinks(raw []byte, src NodeId, dst NodeId) ([]byte, bool) {
@@ -906,6 +899,85 @@ func rewriteNodeLinks(raw []byte, src NodeId, dst NodeId) ([]byte, bool) {
 		return raw, false
 	}
 	return []byte(rewritten), true
+}
+
+func (k *Keg) touchConfigUpdated(ctx context.Context, at time.Time) error {
+	if at.IsZero() {
+		at = repoClock(k.Repo).Now()
+	}
+	updated := at.Format(time.RFC3339)
+
+	if fsRepo, ok := k.Repo.(*FsRepo); ok {
+		return fsRepoTouchConfigUpdated(fsRepo, updated)
+	}
+
+	return k.UpdateConfig(ctx, func(cfg *Config) {
+		cfg.Updated = updated
+	})
+}
+
+func fsRepoTouchConfigUpdated(repo *FsRepo, updated string) error {
+	configPath, raw, err := fsRepoReadRawConfig(repo)
+	if err != nil {
+		return err
+	}
+
+	patched, err := patchConfigUpdatedField(raw, updated)
+	if err != nil {
+		return fmt.Errorf("failed to patch config timestamp: %w", err)
+	}
+
+	if bytes.Equal(raw, patched) {
+		return nil
+	}
+	if err := repo.runtime.AtomicWriteFile(configPath, patched, 0o644); err != nil {
+		return NewBackendError(repo.Name(), "WriteConfig", 0, err, false)
+	}
+	return nil
+}
+
+func fsRepoReadRawConfig(repo *FsRepo) (string, []byte, error) {
+	candidates := []string{"keg", "keg.yaml", "keg.yml"}
+	for _, candidate := range candidates {
+		path := filepath.Join(repo.Root, candidate)
+		if _, err := repo.runtime.Stat(path, false); err == nil {
+			b, readErr := repo.runtime.ReadFile(path)
+			if readErr != nil {
+				return "", nil, NewBackendError(repo.Name(), "ReadConfig", 0, readErr, false)
+			}
+			return path, b, nil
+		}
+	}
+	return "", nil, ErrNotExist
+}
+
+func patchConfigUpdatedField(raw []byte, updated string) ([]byte, error) {
+	var doc yaml.Node
+	if err := yaml.Unmarshal(raw, &doc); err != nil {
+		return nil, err
+	}
+	if len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
+		return nil, fmt.Errorf("config root must be a mapping")
+	}
+
+	root := doc.Content[0]
+	for i := 0; i+1 < len(root.Content); i += 2 {
+		key := root.Content[i]
+		if key.Kind == yaml.ScalarNode && key.Value == "updated" {
+			val := root.Content[i+1]
+			val.Kind = yaml.ScalarNode
+			val.Tag = "!!str"
+			val.Style = 0
+			val.Value = updated
+			return yaml.Marshal(&doc)
+		}
+	}
+
+	root.Content = append(root.Content,
+		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "updated"},
+		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: updated},
+	)
+	return yaml.Marshal(&doc)
 }
 
 func (k *Keg) readIndexWatermark(ctx context.Context) (time.Time, error) {
@@ -1033,9 +1105,7 @@ func (k *Keg) addNodeToDex(ctx context.Context, data *NodeData, now *time.Time) 
 			return err
 		}
 
-		if err := k.UpdateConfig(ctx, func(kc *Config) {
-			kc.Updated = now.Format(time.RFC3339)
-		}); err != nil {
+		if err := k.touchConfigUpdated(ctx, *now); err != nil {
 			return err
 		}
 	}
