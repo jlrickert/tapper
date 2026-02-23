@@ -12,7 +12,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jlrickert/cli-toolkit/toolkit"
 	kegurl "github.com/jlrickert/tapper/pkg/keg_url"
 	"gopkg.in/yaml.v3"
 )
@@ -242,9 +241,8 @@ func (kc *Config) String() string {
 	return string(out)
 }
 
-func (kc *Config) Touch(rt *toolkit.Runtime) {
-	clk := runtimeClock(rt)
-	kc.Updated = clk.Now().Format(time.RFC3339)
+func (kc *Config) Touch(t time.Time) {
+	kc.Updated = t.Format(time.RFC3339)
 }
 
 // AddEntity adds or updates an entity entry by entity name.
