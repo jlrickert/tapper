@@ -364,16 +364,16 @@ func (t *Tap) Edit(ctx context.Context, opts EditOptions) error {
 	}
 
 	originalRaw := composeEditNodeFile(meta, content)
-	initialRaw := originalRaw
 	if opts.Stream != nil && opts.Stream.IsPiped {
 		pipedRaw, readErr := io.ReadAll(opts.Stream.In)
 		if readErr != nil {
 			return fmt.Errorf("unable to read piped input: %w", readErr)
 		}
 		if len(bytes.TrimSpace(pipedRaw)) > 0 {
-			initialRaw = pipedRaw
+			return t.applyEditedNodeRaw(ctx, k, id, pipedRaw)
 		}
 	}
+	initialRaw := originalRaw
 
 	tempPath, err := newEditorTempFilePath(t.Runtime, "tap-edit-", ".md")
 	if err != nil {
@@ -398,6 +398,10 @@ func (t *Tap) Edit(ctx context.Context, opts EditOptions) error {
 		return nil
 	}
 
+	return t.applyEditedNodeRaw(ctx, k, id, editedRaw)
+}
+
+func (t *Tap) applyEditedNodeRaw(ctx context.Context, k *keg.Keg, id keg.NodeId, editedRaw []byte) error {
 	hasFrontmatter, frontmatterRaw, bodyRaw, err := splitEditNodeFile(editedRaw)
 	if err != nil {
 		return err
@@ -1136,6 +1140,9 @@ func (t *Tap) KegInfo(ctx context.Context, opts KegInfoOptions) (string, error) 
 	if err != nil {
 		return "", fmt.Errorf("unable to open keg: %w", err)
 	}
+	if _, err := k.Config(ctx); err != nil {
+		return "", fmt.Errorf("unable to read keg config: %w", err)
+	}
 
 	workingDir, err := t.Runtime.Getwd()
 	if err != nil {
@@ -1338,6 +1345,23 @@ func (t *Tap) InfoEdit(ctx context.Context, opts InfoEditOptions) error {
 		originalRaw = []byte(cfg.String())
 	}
 
+	saveConfig := func(data []byte) error {
+		if configPath != "" {
+			resolvedPath, err := t.Runtime.ResolvePath(configPath, true)
+			if err != nil {
+				return fmt.Errorf("unable to resolve keg config path: %w", err)
+			}
+			if err := t.Runtime.AtomicWriteFile(resolvedPath, data, 0o644); err != nil {
+				return fmt.Errorf("unable to save edited keg config: %w", err)
+			}
+			return nil
+		}
+		if err := k.SetConfig(ctx, data); err != nil {
+			return fmt.Errorf("unable to save edited keg config: %w", err)
+		}
+		return nil
+	}
+
 	initialRaw := originalRaw
 	if opts.Stream != nil && opts.Stream.IsPiped {
 		pipedRaw, readErr := io.ReadAll(opts.Stream.In)
@@ -1345,7 +1369,13 @@ func (t *Tap) InfoEdit(ctx context.Context, opts InfoEditOptions) error {
 			return fmt.Errorf("unable to read piped input: %w", readErr)
 		}
 		if len(bytes.TrimSpace(pipedRaw)) > 0 {
-			initialRaw = pipedRaw
+			if bytes.Equal(pipedRaw, originalRaw) {
+				return nil
+			}
+			if _, parseErr := keg.ParseKegConfig(pipedRaw); parseErr != nil {
+				return fmt.Errorf("keg config from stdin is invalid: %w", parseErr)
+			}
+			return saveConfig(pipedRaw)
 		}
 	}
 
@@ -1376,21 +1406,7 @@ func (t *Tap) InfoEdit(ctx context.Context, opts InfoEditOptions) error {
 		return fmt.Errorf("keg config is invalid after editing: %w", err)
 	}
 
-	if configPath != "" {
-		resolvedPath, err := t.Runtime.ResolvePath(configPath, true)
-		if err != nil {
-			return fmt.Errorf("unable to resolve keg config path: %w", err)
-		}
-		if err := t.Runtime.AtomicWriteFile(resolvedPath, editedRaw, 0o644); err != nil {
-			return fmt.Errorf("unable to save edited keg config: %w", err)
-		}
-		return nil
-	}
-
-	if err := k.SetConfig(ctx, editedRaw); err != nil {
-		return fmt.Errorf("unable to save edited keg config: %w", err)
-	}
-	return nil
+	return saveConfig(editedRaw)
 }
 
 func firstDir(path string) string {

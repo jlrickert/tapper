@@ -40,3 +40,13 @@ func TestInfoCommand_WithNonexistentAliasErrors(t *testing.T) {
 	require.Error(t, res.Err)
 	require.Contains(t, string(res.Stderr), "keg alias not found")
 }
+
+func TestInfoCommand_WithInvalidKegConfigErrors(t *testing.T) {
+	t.Parallel()
+	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
+	sb.MustWriteFile("~/kegs/example/keg", []byte("kegv: [\n"), 0o644)
+
+	res := NewProcess(t, false, "info", "--keg", "example").Run(sb.Context(), sb.Runtime())
+	require.Error(t, res.Err)
+	require.Contains(t, string(res.Stderr), "unable to read keg config")
+}
