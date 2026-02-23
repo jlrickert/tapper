@@ -1374,19 +1374,51 @@ func (t *Tap) Tags(ctx context.Context, opts TagsOptions) ([]string, error) {
 		return tags, nil
 	}
 
-	nodes, ok := dex.TagNodes(ctx, tag)
-	if !ok || len(nodes) == 0 {
+	expr, err := parseTagExpression(tag)
+	if err != nil {
+		return []string{}, fmt.Errorf("invalid tag expression: %w", err)
+	}
+
+	indexEntries := dex.Nodes(ctx)
+	universe := make(map[string]struct{}, len(indexEntries))
+	entryByID := make(map[string]keg.NodeIndexEntry, len(indexEntries))
+	for _, entry := range indexEntries {
+		entryByID[entry.ID] = entry
+		universe[entry.ID] = struct{}{}
+		node, parseErr := keg.ParseNode(entry.ID)
+		if parseErr == nil && node != nil {
+			path := node.Path()
+			entryByID[path] = entry
+			universe[path] = struct{}{}
+		}
+	}
+
+	matchedIDs := evaluateTagExpression(expr, universe, func(tagName string) map[string]struct{} {
+		nodes, ok := dex.TagNodes(ctx, tagName)
+		if !ok || len(nodes) == 0 {
+			return map[string]struct{}{}
+		}
+		return setFromNodeIDs(nodes)
+	})
+	if len(matchedIDs) == 0 {
 		return []string{}, nil
 	}
 
-	entries := make([]keg.NodeIndexEntry, 0, len(nodes))
-	for _, node := range nodes {
-		ref := dex.GetRef(ctx, node)
-		if ref != nil {
-			entries = append(entries, *ref)
+	entries := make([]keg.NodeIndexEntry, 0, len(matchedIDs))
+	for nodeID := range matchedIDs {
+		if entry, ok := entryByID[nodeID]; ok {
+			entries = append(entries, entry)
 			continue
 		}
-		entries = append(entries, keg.NodeIndexEntry{ID: node.Path()})
+		node, parseErr := keg.ParseNode(nodeID)
+		if parseErr == nil && node != nil {
+			ref := dex.GetRef(ctx, *node)
+			if ref != nil {
+				entries = append(entries, *ref)
+				continue
+			}
+		}
+		entries = append(entries, keg.NodeIndexEntry{ID: nodeID})
 	}
 	sortNodeIndexEntries(entries)
 	return renderNodeEntries(entries, opts.Format, opts.IdOnly, opts.Reverse), nil
