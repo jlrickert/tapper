@@ -2,6 +2,8 @@ package cli_test
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -59,6 +61,13 @@ func TestCatCommand_TableDrivenErrorHandling(t *testing.T) {
 			setupFixture: strPtr("joe"),
 			expectedErr:  "only one output mode may be selected",
 			description:  "Error when multiple output modes are selected",
+		},
+		{
+			name:         "cat_conflicting_edit_and_output_flag",
+			args:         []string{"cat", "0", "--edit", "--stats-only"},
+			setupFixture: strPtr("joe"),
+			expectedErr:  "only one output mode may be selected",
+			description:  "Error when edit mode conflicts with output flags",
 		},
 	}
 
@@ -362,4 +371,44 @@ func TestCatCommand_DefaultFrontmatterDoesNotInjectStats(t *testing.T) {
 	out := string(res.Stdout)
 	require.NotContains(t, out, "access_count:", "default frontmatter should come from meta only")
 	require.NotContains(t, out, "accessed:", "default frontmatter should come from meta only")
+}
+
+func TestCatCommand_EditFlagEditsNode(t *testing.T) {
+	t.Parallel()
+	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
+
+	jail := sb.Runtime().GetJail()
+	require.NotEmpty(t, jail)
+	resolvedJail, err := filepath.EvalSymlinks(jail)
+	require.NoError(t, err)
+	require.NoError(t, sb.Runtime().SetJail(resolvedJail))
+	jail = resolvedJail
+
+	scriptPath := filepath.Join(jail, "cat-edit-node.sh")
+	script := `#!/bin/sh
+cat > "$1" <<'EOF'
+---
+tags:
+  - edited-via-cat
+summary: changed by cat edit
+---
+# Cat Edited
+
+Body updated from cat --edit.
+EOF
+`
+	require.NoError(t, os.WriteFile(scriptPath, []byte(script), 0o755))
+	require.NoError(t, sb.Runtime().Set("EDITOR", "/bin/sh "+scriptPath))
+	sb.Runtime().Unset("VISUAL")
+
+	res := NewProcess(t, false, "cat", "0", "--keg", "personal", "--edit").RunWithIO(sb.Context(), sb.Runtime(), strings.NewReader(""))
+	require.NoError(t, res.Err)
+	require.Equal(t, "", strings.TrimSpace(string(res.Stdout)))
+
+	meta := string(sb.MustReadFile("~/kegs/personal/0/meta.yaml"))
+	content := string(sb.MustReadFile("~/kegs/personal/0/README.md"))
+	require.Contains(t, meta, "- edited-via-cat")
+	require.Contains(t, meta, "summary: changed by cat edit")
+	require.Contains(t, content, "# Cat Edited")
+	require.Contains(t, content, "Body updated from cat --edit.")
 }
