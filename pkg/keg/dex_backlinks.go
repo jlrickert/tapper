@@ -123,6 +123,9 @@ func (idx *BacklinkIndex) Rm(ctx context.Context, node NodeId) error {
 		idx.data = map[string][]NodeId{}
 	}
 
+	// Remove backlinks bucket where the removed node is the destination.
+	delete(idx.data, node.Path())
+
 	for dst, list := range idx.data {
 		if len(list) == 0 {
 			continue
