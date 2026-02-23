@@ -26,6 +26,12 @@ func TestTagsCommand_TableDrivenErrors(t *testing.T) {
 			fixture:     strPtr("joe"),
 			expectedErr: "keg alias not found",
 		},
+		{
+			name:        "invalid_expression",
+			args:        []string{"tags", "a and (b", "--keg", "personal"},
+			fixture:     strPtr("joe"),
+			expectedErr: "invalid tag expression",
+		},
 	}
 
 	for _, tt := range tests {
@@ -88,6 +94,35 @@ func TestTagsCommand_ListNodesForTag(t *testing.T) {
 	reverse := NewProcess(t, false, "tags", "fire", "--id-only", "--reverse").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, reverse.Err)
 	require.Equal(t, "2\n1", strings.TrimSpace(string(reverse.Stdout)))
+}
+
+func TestTagsCommand_TagExpression(t *testing.T) {
+	t.Parallel()
+	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
+
+	res := NewProcess(t, false, "create", "--title", "Node AB", "--tags", "a", "--tags", "b").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+	require.Equal(t, "1", strings.TrimSpace(string(res.Stdout)))
+
+	res = NewProcess(t, false, "create", "--title", "Node AC", "--tags", "a", "--tags", "c").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+	require.Equal(t, "2", strings.TrimSpace(string(res.Stdout)))
+
+	res = NewProcess(t, false, "create", "--title", "Node C", "--tags", "c").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+	require.Equal(t, "3", strings.TrimSpace(string(res.Stdout)))
+
+	orExpr := NewProcess(t, false, "tags", "a and (b or c)", "--id-only").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, orExpr.Err)
+	require.Equal(t, "1\n2", strings.TrimSpace(string(orExpr.Stdout)))
+
+	notExpr := NewProcess(t, false, "tags", "a and not c", "--id-only").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, notExpr.Err)
+	require.Equal(t, "1", strings.TrimSpace(string(notExpr.Stdout)))
+
+	symbolExpr := NewProcess(t, false, "tags", "a && !c", "--id-only").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, symbolExpr.Err)
+	require.Equal(t, "1", strings.TrimSpace(string(symbolExpr.Stdout)))
 }
 
 func TestTagsCommand_NoMatchesReturnsEmptyOutput(t *testing.T) {
