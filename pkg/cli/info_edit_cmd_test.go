@@ -42,7 +42,7 @@ EOF
 	require.NoError(t, sb.Runtime().Set("EDITOR", "/bin/sh "+scriptPath))
 	sb.Runtime().Unset("VISUAL")
 
-	res := NewProcess(t, false, "config", "edit", "--keg", "example").RunWithIO(sb.Context(), sb.Runtime(), strings.NewReader(""))
+	res := NewProcess(t, false, "config", "--edit", "--keg", "example").RunWithIO(sb.Context(), sb.Runtime(), strings.NewReader(""))
 	require.NoError(t, res.Err)
 
 	edited := string(sb.MustReadFile("~/kegs/example/keg"))
@@ -80,7 +80,7 @@ EOF
 	sb.Runtime().Unset("VISUAL")
 
 	before := sb.MustReadFile("~/kegs/example/keg")
-	res := NewProcess(t, false, "config", "edit", "--keg", "example").RunWithIO(sb.Context(), sb.Runtime(), strings.NewReader(""))
+	res := NewProcess(t, false, "config", "--edit", "--keg", "example").RunWithIO(sb.Context(), sb.Runtime(), strings.NewReader(""))
 	require.Error(t, res.Err)
 	require.Contains(t, string(res.Stderr), "keg config is invalid after editing")
 
@@ -105,7 +105,7 @@ func TestInfoEdit_UsesPipedStdinWithoutEditor(t *testing.T) {
 title: Final Title
 summary: piped content
 `)
-	res := NewProcess(t, false, "config", "edit", "--keg", "example").RunWithIO(sb.Context(), sb.Runtime(), stdin)
+	res := NewProcess(t, false, "config", "--edit", "--keg", "example").RunWithIO(sb.Context(), sb.Runtime(), stdin)
 	require.NoError(t, res.Err)
 
 	saved := string(sb.MustReadFile("~/kegs/example/keg"))
@@ -128,7 +128,7 @@ func TestInfoEdit_RejectsInvalidPipedStdin(t *testing.T) {
 
 	before := sb.MustReadFile("~/kegs/example/keg")
 	stdin := strings.NewReader("kegv: [\n")
-	res := NewProcess(t, false, "config", "edit", "--keg", "example").RunWithIO(sb.Context(), sb.Runtime(), stdin)
+	res := NewProcess(t, false, "config", "--edit", "--keg", "example").RunWithIO(sb.Context(), sb.Runtime(), stdin)
 	require.Error(t, res.Err)
 	require.Contains(t, string(res.Stderr), "keg config from stdin is invalid")
 
