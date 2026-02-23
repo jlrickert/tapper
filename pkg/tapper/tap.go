@@ -755,6 +755,18 @@ func (t *Tap) Info(ctx context.Context, opts InfoOptions) (string, error) {
 		return "", fmt.Errorf("unable to open keg: %w", err)
 	}
 
+	// For file-backed kegs, return the raw config contents so unknown sections
+	// (for example custom fields, entities, zekia blocks) are preserved.
+	if k.Target != nil && k.Target.Scheme() == kegurl.SchemeFile {
+		raw, rawErr := readRawKegConfig(t.Runtime, k.Target.Path())
+		if rawErr == nil {
+			return string(raw), nil
+		}
+		if !os.IsNotExist(rawErr) {
+			return "", fmt.Errorf("unable to read raw keg config: %w", rawErr)
+		}
+	}
+
 	cfg, err := k.Config(ctx)
 	if err != nil {
 		return "", fmt.Errorf("unable to read keg config: %w", err)
@@ -762,6 +774,37 @@ func (t *Tap) Info(ctx context.Context, opts InfoOptions) (string, error) {
 
 	// Convert config to YAML format
 	return cfg.String(), nil
+}
+
+func readRawKegConfig(rt *toolkit.Runtime, root string) ([]byte, error) {
+	base := toolkit.ExpandEnv(rt, root)
+	if expanded, err := toolkit.ExpandPath(rt, base); err == nil {
+		base = expanded
+	}
+
+	var firstErr error
+	for _, name := range []string{"keg", "keg.yaml", "keg.yml"} {
+		path := filepath.Join(base, name)
+		if resolved, err := rt.ResolvePath(path, true); err == nil {
+			path = resolved
+		}
+
+		data, err := rt.ReadFile(path)
+		if err == nil {
+			return data, nil
+		}
+		if os.IsNotExist(err) {
+			continue
+		}
+		if firstErr == nil {
+			firstErr = err
+		}
+	}
+
+	if firstErr != nil {
+		return nil, firstErr
+	}
+	return nil, os.ErrNotExist
 }
 
 // InfoEditOptions configures behavior for Tap.InfoEdit.
@@ -845,6 +888,8 @@ type ListOptions struct {
 	Format string
 
 	IdOnly bool
+
+	Reverse bool
 }
 
 func (t *Tap) List(ctx context.Context, opts ListOptions) ([]string, error) {
@@ -859,7 +904,18 @@ func (t *Tap) List(ctx context.Context, opts ListOptions) ([]string, error) {
 
 	entries := dex.Nodes(ctx)
 	lines := make([]string, 0)
-	for _, entry := range entries {
+
+	start := 0
+	end := len(entries)
+	step := 1
+	if opts.Reverse {
+		start = len(entries) - 1
+		end = -1
+		step = -1
+	}
+
+	for i := start; i != end; i += step {
+		entry := entries[i]
 		if opts.IdOnly {
 			lines = append(lines, entry.ID)
 			continue
