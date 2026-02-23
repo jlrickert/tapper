@@ -39,7 +39,9 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 	}
 
 	cmd := &cobra.Command{
-		Use: deps.Profile.Use,
+		Use:           deps.Profile.Use,
+		SilenceUsage:  true,
+		SilenceErrors: true,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			// Respect an existing context (tests set f.Ctx). Use it as the base.
 			ctx := cmd.Context()

@@ -97,11 +97,19 @@ func (s *KegService) resolveProjectTarget(ctx context.Context, base string, cach
 	}
 
 	var candidates []string
+	seen := map[string]struct{}{}
 	for _, b := range baseCandidates {
 		if b == "" {
 			continue
 		}
-		candidates = append(candidates, b, filepath.Join(b, "docs"))
+		for _, candidate := range []string{b, filepath.Join(b, "docs")} {
+			candidate = filepath.Clean(candidate)
+			if _, ok := seen[candidate]; ok {
+				continue
+			}
+			seen[candidate] = struct{}{}
+			candidates = append(candidates, candidate)
+		}
 	}
 
 	var checked []string
@@ -118,7 +126,7 @@ func (s *KegService) resolveProjectTarget(ctx context.Context, base string, cach
 		return s.resolveFileKeg(ctx, candidate, cache)
 	}
 
-	return nil, fmt.Errorf("project keg not found (checked: %s)", strings.Join(checked, ", "))
+	return nil, newProjectKegNotFoundError(checked)
 }
 
 func (s *KegService) resolveFileKeg(ctx context.Context, root string, cache bool) (*keg.Keg, error) {
