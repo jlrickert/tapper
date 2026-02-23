@@ -18,6 +18,7 @@ func TestParseStats_ParsesProgrammaticFields(t *testing.T) {
 updated: 2024-01-02T03:04:05Z
 created: 2024-01-01T03:04:05Z
 accessed: 2024-01-03T03:04:05Z
+access_count: 3
 lead: short
 links:
   - 1
@@ -30,6 +31,7 @@ links:
 	require.Equal(t, time.Date(2024, 1, 2, 3, 4, 5, 0, time.UTC), s.Updated())
 	require.Equal(t, time.Date(2024, 1, 1, 3, 4, 5, 0, time.UTC), s.Created())
 	require.Equal(t, time.Date(2024, 1, 3, 3, 4, 5, 0, time.UTC), s.Accessed())
+	require.Equal(t, 3, s.AccessCount())
 	require.Equal(t, "short", s.Lead())
 	links := s.Links()
 	require.Len(t, links, 2)
@@ -60,6 +62,7 @@ func TestParseStats_IgnoresInvalidTimeValues(t *testing.T) {
 	raw := []byte(`updated: not-a-time
 created: 2024-01-01T03:04:05Z
 accessed: also-not-a-time
+access_count: -7
 `)
 
 	s, err := keg.ParseStats(ctx, raw)
@@ -67,6 +70,7 @@ accessed: also-not-a-time
 	require.True(t, s.Updated().IsZero())
 	require.Equal(t, time.Date(2024, 1, 1, 3, 4, 5, 0, time.UTC), s.Created())
 	require.True(t, s.Accessed().IsZero())
+	require.Equal(t, 0, s.AccessCount())
 }
 
 func TestSetHash_UpdatesUpdatedOnlyOnChange(t *testing.T) {
@@ -116,4 +120,16 @@ func TestEnsureTimes_FillsZeroValues(t *testing.T) {
 	require.Equal(t, now, s.Updated())
 	require.Equal(t, now, s.Created())
 	require.Equal(t, now, s.Accessed())
+}
+
+func TestIncrementAccessCount(t *testing.T) {
+	t.Parallel()
+	s := &keg.NodeStats{}
+
+	s.IncrementAccessCount()
+	s.IncrementAccessCount()
+	require.Equal(t, 2, s.AccessCount())
+
+	s.SetAccessCount(-10)
+	require.Equal(t, 0, s.AccessCount())
 }

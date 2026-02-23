@@ -465,6 +465,7 @@ func (k *Keg) Touch(ctx context.Context, id NodeId) error {
 		}
 
 		stats.SetAccessed(now)
+		stats.IncrementAccessCount()
 		stats.EnsureTimes(now)
 		if err := k.Repo.WriteMeta(lockCtx, id, []byte(meta.ToYAML())); err != nil {
 			return err
