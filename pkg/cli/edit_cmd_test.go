@@ -96,3 +96,47 @@ tags: [
 	require.Equal(t, beforeMeta, afterMeta)
 	require.Equal(t, beforeContent, afterContent)
 }
+
+func TestEdit_LiveSavePreservesEarlierValidContentOnLaterInvalidSave(t *testing.T) {
+	t.Parallel()
+	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
+
+	jail := sb.Runtime().GetJail()
+	require.NotEmpty(t, jail)
+	resolvedJail, err := filepath.EvalSymlinks(jail)
+	require.NoError(t, err)
+	require.NoError(t, sb.Runtime().SetJail(resolvedJail))
+	jail = resolvedJail
+
+	scriptPath := filepath.Join(jail, "edit-live-valid-then-invalid.sh")
+	script := `#!/bin/sh
+cat > "$1" <<'EOF'
+---
+summary: first valid save
+tags:
+  - live
+---
+# Saved First
+EOF
+sleep 1
+cat > "$1" <<'EOF'
+---
+tags: [
+---
+# Broken Final
+EOF
+`
+	require.NoError(t, os.WriteFile(scriptPath, []byte(script), 0o755))
+	require.NoError(t, sb.Runtime().Set("EDITOR", "/bin/sh "+scriptPath))
+	sb.Runtime().Unset("VISUAL")
+
+	res := NewProcess(t, false, "edit", "0", "--keg", "personal").RunWithIO(sb.Context(), sb.Runtime(), strings.NewReader(""))
+	require.NoError(t, res.Err)
+
+	meta := string(sb.MustReadFile("~/kegs/personal/0/meta.yaml"))
+	content := string(sb.MustReadFile("~/kegs/personal/0/README.md"))
+	require.Contains(t, meta, "summary: first valid save")
+	require.Contains(t, meta, "- live")
+	require.Contains(t, content, "# Saved First")
+	require.NotContains(t, content, "# Broken Final")
+}

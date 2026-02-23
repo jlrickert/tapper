@@ -232,3 +232,39 @@ tags:
 	require.Contains(t, meta, "summary: saved from editor")
 	require.Contains(t, meta, "- final")
 }
+
+func TestMetaCommand_Edit_LiveSavePreservesEarlierValidMetaOnLaterInvalidSave(t *testing.T) {
+	t.Parallel()
+	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
+	sb.MustWriteFile("~/kegs/personal/0/meta.yaml", []byte("summary: before\n"), 0o644)
+
+	jail := sb.Runtime().GetJail()
+	require.NotEmpty(t, jail)
+	resolvedJail, err := filepath.EvalSymlinks(jail)
+	require.NoError(t, err)
+	require.NoError(t, sb.Runtime().SetJail(resolvedJail))
+	jail = resolvedJail
+
+	scriptPath := filepath.Join(jail, "edit-meta-live-valid-then-invalid.sh")
+	script := `#!/bin/sh
+cat > "$1" <<'EOF'
+summary: first valid meta
+tags:
+  - live
+EOF
+sleep 1
+cat > "$1" <<'EOF'
+tags: [
+EOF
+`
+	require.NoError(t, os.WriteFile(scriptPath, []byte(script), 0o755))
+	require.NoError(t, sb.Runtime().Set("EDITOR", "/bin/sh "+scriptPath))
+	sb.Runtime().Unset("VISUAL")
+
+	res := NewProcess(t, false, "meta", "0", "--keg", "personal", "--edit").RunWithIO(sb.Context(), sb.Runtime(), strings.NewReader(""))
+	require.NoError(t, res.Err)
+
+	meta := string(sb.MustReadFile("~/kegs/personal/0/meta.yaml"))
+	require.Contains(t, meta, "summary: first valid meta")
+	require.Contains(t, meta, "- live")
+}
