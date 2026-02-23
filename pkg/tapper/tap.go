@@ -120,6 +120,14 @@ type CatOptions struct {
 	MetaOnly bool
 }
 
+// StatsOptions configures behavior for Tap.Stats.
+type StatsOptions struct {
+	// NodeID is the node identifier to inspect (e.g., "0", "42")
+	NodeID string
+
+	KegTargetOptions
+}
+
 // Cat reads and displays a node's content with its metadata as frontmatter.
 //
 // The metadata (meta.yaml) is output as YAML frontmatter above the node's
@@ -204,6 +212,41 @@ func formatFrontmatter(meta []byte, content []byte) string {
 func formatStatsOnlyYAML(ctx context.Context, stats *keg.NodeStats) string {
 	meta := keg.NewMeta(ctx, time.Time{})
 	return strings.TrimRight(meta.ToYAMLWithStats(stats), "\n")
+}
+
+// Stats reads and displays programmatic node stats.
+func (t *Tap) Stats(ctx context.Context, opts StatsOptions) (string, error) {
+	k, err := t.resolveKeg(ctx, opts.KegTargetOptions)
+	if err != nil {
+		return "", fmt.Errorf("unable to open keg: %w", err)
+	}
+
+	node, err := keg.ParseNode(opts.NodeID)
+	if err != nil {
+		return "", fmt.Errorf("invalid node ID %q: %w", opts.NodeID, err)
+	}
+	if node == nil {
+		return "", fmt.Errorf("invalid node ID %q: %w", opts.NodeID, keg.ErrInvalid)
+	}
+
+	exists, err := k.Repo.HasNode(ctx, *node)
+	if err != nil {
+		return "", fmt.Errorf("unable to inspect node: %w", err)
+	}
+	if !exists {
+		return "", fmt.Errorf("node %s not found", node.Path())
+	}
+
+	stats, err := k.Repo.ReadStats(ctx, *node)
+	if err != nil {
+		if errors.Is(err, keg.ErrNotExist) {
+			stats = &keg.NodeStats{}
+		} else {
+			return "", fmt.Errorf("unable to read node stats: %w", err)
+		}
+	}
+
+	return formatStatsOnlyYAML(ctx, stats), nil
 }
 
 // CreateOptions configures behavior for Runner.Create.
