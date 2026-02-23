@@ -16,7 +16,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// KegConfigV1 represents the initial version of the KEG configuration
+// ConfigV1 KegConfigV1 represents the initial version of the KEG configuration
 // specification.
 type ConfigV1 struct {
 	// Kegv is the version of the specification.
