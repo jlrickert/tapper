@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -666,6 +667,149 @@ func (k *Keg) Index(ctx context.Context, opts IndexOptions) error {
 	return errors.Join(errs...)
 }
 
+// Move renames a node from src to dst and rewrites in-content links that
+// target src (../N) across the keg.
+func (k *Keg) Move(ctx context.Context, src NodeId, dst NodeId) error {
+	if err := k.checkKegExists(ctx); err != nil {
+		return fmt.Errorf("failed to move node: %w", err)
+	}
+
+	src = NodeId{ID: src.ID, Code: src.Code}
+	dst = NodeId{ID: dst.ID, Code: dst.Code}
+	if !src.Valid() || !dst.Valid() {
+		return fmt.Errorf("invalid node id: %w", ErrInvalid)
+	}
+	if src.ID == 0 || dst.ID == 0 {
+		return fmt.Errorf("node 0 cannot be moved: %w", ErrInvalid)
+	}
+	if src.Equals(dst) {
+		return nil
+	}
+
+	srcExists, err := k.Repo.HasNode(ctx, src)
+	if err != nil {
+		return fmt.Errorf("failed to check source node: %w", err)
+	}
+	if !srcExists {
+		return fmt.Errorf("source node %s not found: %w", src.Path(), ErrNotExist)
+	}
+
+	dstExists, err := k.Repo.HasNode(ctx, dst)
+	if err != nil {
+		return fmt.Errorf("failed to check destination node: %w", err)
+	}
+	if dstExists {
+		return fmt.Errorf("destination node %s already exists: %w", dst.Path(), ErrDestinationExists)
+	}
+
+	if err := k.Repo.MoveNode(ctx, src, dst); err != nil {
+		return fmt.Errorf("failed to move node %s to %s: %w", src.Path(), dst.Path(), err)
+	}
+
+	ids, err := k.Repo.ListNodes(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to list nodes for link rewrite: %w", err)
+	}
+
+	var errs []error
+	for _, id := range ids {
+		raw, readErr := k.Repo.ReadContent(ctx, id)
+		if readErr != nil {
+			if errors.Is(readErr, ErrNotExist) {
+				continue
+			}
+			errs = append(errs, fmt.Errorf("failed to read node content %s: %w", id.Path(), readErr))
+			continue
+		}
+
+		updated, changed := rewriteNodeLinks(raw, src, dst)
+		if !changed {
+			continue
+		}
+		if err := k.SetContent(ctx, id, updated); err != nil {
+			errs = append(errs, fmt.Errorf("failed to rewrite links for node %s: %w", id.Path(), err))
+		}
+	}
+
+	dex, err := k.Dex(ctx)
+	if err != nil {
+		errs = append(errs, fmt.Errorf("failed to retrieve dex after move: %w", err))
+	} else {
+		if err := dex.Remove(ctx, src); err != nil {
+			errs = append(errs, fmt.Errorf("failed to remove stale dex entry for %s: %w", src.Path(), err))
+		}
+		movedData, err := k.getNode(ctx, dst)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("failed to load moved node %s: %w", dst.Path(), err))
+		} else if err := dex.Add(ctx, movedData); err != nil {
+			errs = append(errs, fmt.Errorf("failed to add moved node %s to dex: %w", dst.Path(), err))
+		}
+		if err := dex.Write(ctx, k.Repo); err != nil {
+			errs = append(errs, fmt.Errorf("failed to write dex after move: %w", err))
+		}
+	}
+
+	clk := repoClock(k.Repo)
+	now := clk.Now()
+	if err := k.UpdateConfig(ctx, func(cfg *Config) {
+		cfg.Updated = now.Format(time.RFC3339)
+	}); err != nil {
+		errs = append(errs, fmt.Errorf("failed to update config after move: %w", err))
+	}
+
+	return errors.Join(errs...)
+}
+
+// Remove deletes a node from the repository and updates dex/config artifacts.
+func (k *Keg) Remove(ctx context.Context, id NodeId) error {
+	if err := k.checkKegExists(ctx); err != nil {
+		return fmt.Errorf("failed to remove node: %w", err)
+	}
+
+	id = NodeId{ID: id.ID, Code: id.Code}
+	if !id.Valid() {
+		return fmt.Errorf("invalid node id: %w", ErrInvalid)
+	}
+	if id.ID == 0 {
+		return fmt.Errorf("node 0 cannot be removed: %w", ErrInvalid)
+	}
+
+	exists, err := k.Repo.HasNode(ctx, id)
+	if err != nil {
+		return fmt.Errorf("failed to check node existence: %w", err)
+	}
+	if !exists {
+		return fmt.Errorf("node %s not found: %w", id.Path(), ErrNotExist)
+	}
+
+	if err := k.Repo.DeleteNode(ctx, id); err != nil {
+		return fmt.Errorf("failed to delete node %s: %w", id.Path(), err)
+	}
+
+	var errs []error
+	dex, err := k.Dex(ctx)
+	if err != nil {
+		errs = append(errs, fmt.Errorf("failed to retrieve dex after remove: %w", err))
+	} else {
+		if err := dex.Remove(ctx, id); err != nil {
+			errs = append(errs, fmt.Errorf("failed to remove %s from dex: %w", id.Path(), err))
+		}
+		if err := dex.Write(ctx, k.Repo); err != nil {
+			errs = append(errs, fmt.Errorf("failed to write dex after remove: %w", err))
+		}
+	}
+
+	clk := repoClock(k.Repo)
+	now := clk.Now()
+	if err := k.UpdateConfig(ctx, func(cfg *Config) {
+		cfg.Updated = now.Format(time.RFC3339)
+	}); err != nil {
+		errs = append(errs, fmt.Errorf("failed to update config after remove: %w", err))
+	}
+
+	return errors.Join(errs...)
+}
+
 // Commit finalizes a temporary node by allocating a permanent ID and moving it
 // from its temporary location (with Code suffix) to the canonical numeric ID.
 // For nodes without a Code (already permanent), Commit is a no-op.
@@ -741,6 +885,27 @@ func (k *Keg) writeNodeToDex(ctx context.Context, id NodeId, data *NodeData) err
 	return k.UpdateConfig(ctx, func(cfg *Config) {
 		cfg.Touch(repoRuntime(k.Repo))
 	})
+}
+
+func rewriteNodeLinks(raw []byte, src NodeId, dst NodeId) ([]byte, bool) {
+	oldID := src.Path()
+	newID := dst.Path()
+	if oldID == "" || newID == "" || oldID == newID || len(raw) == 0 {
+		return raw, false
+	}
+
+	// Match canonical relative node links "../N" with optional spaces after "../".
+	// Keep trailing delimiter so only whole node ids are rewritten.
+	delimiters := `[[:space:]\)\]\}\>\.,;:!?'\"#]`
+	pattern := `\.\./\s*` + regexp.QuoteMeta(oldID) + `(` + delimiters + `|$)`
+	re := regexp.MustCompile(pattern)
+
+	original := string(raw)
+	rewritten := re.ReplaceAllString(original, "../"+newID+`$1`)
+	if rewritten == original {
+		return raw, false
+	}
+	return []byte(rewritten), true
 }
 
 func (k *Keg) readIndexWatermark(ctx context.Context) (time.Time, error) {
