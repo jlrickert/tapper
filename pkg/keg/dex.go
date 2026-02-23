@@ -127,9 +127,18 @@ func (dex *Dex) Nodes(ctx context.Context) []NodeIndexEntry {
 
 // TagLinks Tags returns the parsed tags index (map[tag] -> []NodeID).
 func (dex *Dex) TagLinks(ctx context.Context, node NodeId) ([]NodeId, bool) {
+	return dex.TagNodes(ctx, node.Path())
+}
+
+// TagNodes returns the parsed tags index entry for tag (map[tag] -> []NodeID).
+func (dex *Dex) TagNodes(ctx context.Context, tag string) ([]NodeId, bool) {
 	dex.mu.RLock()
 	defer dex.mu.RUnlock()
-	list, ok := dex.tags.data[node.Path()]
+	tag = NormalizeTag(tag)
+	if tag == "" {
+		return nil, false
+	}
+	list, ok := dex.tags.data[tag]
 	return list, ok
 }
 
