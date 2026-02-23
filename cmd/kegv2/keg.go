@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"os"
 
 	"github.com/jlrickert/cli-toolkit/toolkit"
@@ -16,7 +15,6 @@ func main() {
 
 	rt, err := toolkit.NewRuntime()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}
 
@@ -26,7 +24,6 @@ func main() {
 		os.Args[1:],
 		cli.KegV2Profile(),
 	); err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(exitCode)
 	}
 	os.Exit(0)
