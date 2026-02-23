@@ -47,6 +47,13 @@ func TestCatCommand_TableDrivenErrorHandling(t *testing.T) {
 			expectedErr:  "node 12341234 not found",
 			description:  "Error when node does not exist",
 		},
+		{
+			name:         "cat_conflicting_output_flags",
+			args:         []string{"cat", "0", "--meta-only", "--stats-only"},
+			setupFixture: strPtr("joe"),
+			expectedErr:  "only one output mode may be selected",
+			description:  "Error when multiple output modes are selected",
+		},
 	}
 
 	for _, tt := range tests {
@@ -160,6 +167,49 @@ func TestCatCommand_WithJoeFixture(t *testing.T) {
 			},
 			description: "Display node 0 from personal keg with explicit alias",
 		},
+		{
+			name: "cat_content_only",
+			args: []string{
+				"cat",
+				"0",
+				"--content-only",
+				"--keg", "personal",
+			},
+			setupFixture: strPtr("joe"),
+			expectedInStdout: []string{
+				"# Sorry, planned but not yet available",
+			},
+			description: "Display only content when --content-only is provided",
+		},
+		{
+			name: "cat_meta_only",
+			args: []string{
+				"cat",
+				"0",
+				"--meta-only",
+				"--keg", "personal",
+			},
+			setupFixture: strPtr("joe"),
+			expectedInStdout: []string{
+				"title: Sorry, planned but not yet available",
+			},
+			description: "Display only metadata when --meta-only is provided",
+		},
+		{
+			name: "cat_stats_only",
+			args: []string{
+				"cat",
+				"0",
+				"--stats-only",
+				"--keg", "personal",
+			},
+			setupFixture: strPtr("joe"),
+			expectedInStdout: []string{
+				"hash:",
+				"updated:",
+			},
+			description: "Display only stats when --stats-only is provided",
+		},
 	}
 
 	for _, tt := range tests {
@@ -192,8 +242,12 @@ func TestCatCommand_WithJoeFixture(t *testing.T) {
 						"expected output to contain %q, got:\n%s", expected, stdout)
 				}
 
-				// Verify frontmatter structure
-				require.Contains(innerT, stdout, "---", "output should contain frontmatter delimiter")
+				if !strings.Contains(strings.Join(tt.args, " "), "--content-only") &&
+					!strings.Contains(strings.Join(tt.args, " "), "--meta-only") &&
+					!strings.Contains(strings.Join(tt.args, " "), "--stats-only") {
+					// Verify frontmatter structure
+					require.Contains(innerT, stdout, "---", "output should contain frontmatter delimiter")
+				}
 			}
 		})
 	}
