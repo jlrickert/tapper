@@ -18,6 +18,7 @@ func TestCreate_Table(t *testing.T) {
 		wantReadmeNotEmpty bool
 		readmeContains     []string
 		metaContains       []string
+		statsContains      []string
 	}{
 		{
 			name:     "default_keg",
@@ -27,11 +28,11 @@ func TestCreate_Table(t *testing.T) {
 				"# Note",
 				"one-line",
 			},
-			metaContains: []string{
-				"title: Note",
-				"lead: one-line",
-				"created: \"{now}\"",
-				"updated: \"{now}\"",
+			statsContains: []string{
+				"\"title\":\"Note\"",
+				"\"lead\":\"one-line\"",
+				"\"created\":\"{now}\"",
+				"\"updated\":\"{now}\"",
 			},
 		},
 		{
@@ -39,9 +40,9 @@ func TestCreate_Table(t *testing.T) {
 			args:               []string{"create"},
 			outRegex:           `^\d+`,
 			wantReadmeNotEmpty: true,
-			metaContains: []string{
-				"created: \"{now}\"",
-				"updated: \"{now}\"",
+			statsContains: []string{
+				"\"created\":\"{now}\"",
+				"\"updated\":\"{now}\"",
 			},
 		},
 		{
@@ -100,6 +101,19 @@ func TestCreate_Table(t *testing.T) {
 						want = strings.ReplaceAll(want, "{now}", now)
 					}
 					require.Contains(t, ms, want)
+				}
+			}
+
+			// Verify stats expectations.
+			statsPath := "~/kegs/example/1/stats.json"
+			if len(tc.statsContains) > 0 {
+				stats := fx.MustReadFile(statsPath)
+				ss := string(stats)
+				for _, want := range tc.statsContains {
+					if strings.Contains(want, "{now}") {
+						want = strings.ReplaceAll(want, "{now}", now)
+					}
+					require.Contains(t, ss, want)
 				}
 			}
 		})

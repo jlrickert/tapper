@@ -5,8 +5,16 @@ import (
 	"github.com/jlrickert/cli-toolkit/toolkit"
 )
 
+type repositoryRuntimeProvider interface {
+	Runtime() *toolkit.Runtime
+}
+
 func repoRuntime(repo Repository) *toolkit.Runtime {
-	return repo.Runtime()
+	rt := repo.(repositoryRuntimeProvider).Runtime()
+	if rt == nil {
+		panic("repository runtime is nil")
+	}
+	return rt
 }
 
 func repoClock(repo Repository) clock.Clock {

@@ -150,7 +150,9 @@ func TestCreateNodeWithMeta(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "short lead", stats.Lead())
 	// normalized tags should include "tag-a"
-	foundTag := slices.Contains(stats.Tags(), "tag-a")
+	m, err := k.GetMeta(f.Context(), id)
+	require.NoError(t, err)
+	foundTag := slices.Contains(m.Tags(), "tag-a")
 	require.True(t, foundTag, "expected normalized tag 'tag-a' to be present")
 }
 
@@ -176,11 +178,9 @@ func TestCreateWithBody(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, string(body), string(got))
 
-	m, err := k.GetMeta(f.Context(), id)
-	require.NoError(t, err)
-	require.Equal(t, "BodyTitle", m.Title())
 	stats, err := k.GetStats(f.Context(), id)
 	require.NoError(t, err)
+	require.Equal(t, "BodyTitle", stats.Title())
 	require.Equal(t, "body paragraph", stats.Lead())
 }
 
@@ -216,11 +216,11 @@ fm lead paragraph
 	require.NoError(t, err)
 
 	// Title should be derived from the first H1 in the markdown body.
-	require.Equal(t, "FMTitle", m.Title())
 	stats, err := k.GetStats(f.Context(), id)
 	require.NoError(t, err)
+	require.Equal(t, "FMTitle", stats.Title())
 	require.Equal(t, "fm lead paragraph", stats.Lead())
-	require.Contains(t, stats.Tags(), "fm")
+	require.Contains(t, m.Tags(), "fm")
 	require.Contains(t, m.ToYAML(), "foo: bar")
 }
 

@@ -172,16 +172,16 @@ func TestInitCommand_TableDriven(t *testing.T) {
 				"Sorry, planned but not yet available",
 				"zero node README should contain placeholder text")
 
-			metaPath := baseKegPath
-			if metaPath != "" {
-				metaPath += "/0/meta.yaml"
+			statsPath := baseKegPath
+			if statsPath != "" {
+				statsPath += "/0/stats.json"
 			} else {
-				metaPath = filepath.Join(tt.expectedLocation, "0/meta.yaml")
+				statsPath = filepath.Join(tt.expectedLocation, "0/stats.json")
 			}
-			meta := sb.MustReadFile(metaPath)
-			require.Contains(innerT, string(meta),
-				"title: Sorry, planned but not yet available",
-				"zero node meta should include the placeholder title")
+			stats := sb.MustReadFile(statsPath)
+			require.Contains(innerT, string(stats),
+				`"title":"Sorry, planned but not yet available"`,
+				"zero node stats should include the placeholder title")
 
 			// For user kegs, verify config was updated
 			if tt.setupFixture != nil {

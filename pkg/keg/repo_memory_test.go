@@ -37,6 +37,25 @@ func TestMemoryRepo_WriteReadMetaAndContent(t *testing.T) {
 	require.Contains(t, ids, id, "expected ListNodes to contain written id")
 }
 
+func TestMemoryRepo_HasNode(t *testing.T) {
+	t.Parallel()
+	fx := NewSandbox(t)
+
+	r := keg.NewMemoryRepo(fx.Runtime())
+	ctx := fx.Context()
+	id := keg.NodeId{ID: 10}
+
+	exists, err := r.HasNode(ctx, id)
+	require.NoError(t, err)
+	require.False(t, exists)
+
+	require.NoError(t, r.WriteContent(ctx, id, []byte("hello")))
+
+	exists, err = r.HasNode(ctx, id)
+	require.NoError(t, err)
+	require.True(t, exists)
+}
+
 func TestMemoryRepo_WriteReadStats(t *testing.T) {
 	t.Parallel()
 	fx := NewSandbox(t)
@@ -66,7 +85,7 @@ func TestMemoryRepo_WriteReadStats(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, string(gotMeta), "title: keep-me")
 	require.Contains(t, string(gotMeta), "foo: bar")
-	require.Contains(t, string(gotMeta), "hash: h1")
+	require.NotContains(t, string(gotMeta), "hash:")
 }
 
 func TestMemoryRepo_ReadMissingReturnsNotFound(t *testing.T) {
