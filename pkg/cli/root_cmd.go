@@ -119,6 +119,7 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 	subcommands := []*cobra.Command{
 		NewCatCmd(deps),
 		NewCreateCmd(deps),
+		NewEditCmd(deps),
 		NewIndexCmd(deps),
 		NewInfoCmd(deps),
 		NewListCmd(deps),
