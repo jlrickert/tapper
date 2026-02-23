@@ -133,14 +133,6 @@ func (s *KegService) resolveFileKeg(ctx context.Context, root string, cache bool
 		return nil, err
 	}
 
-	exists, err := keg.RepoContainsKeg(ctx, k.Repo)
-	if err != nil {
-		return nil, fmt.Errorf("unable to validate keg at %s: %w", root, err)
-	}
-	if !exists {
-		return nil, fmt.Errorf("keg not initialized at %s", root)
-	}
-
 	if cache {
 		s.kegCache[key] = k
 	}
