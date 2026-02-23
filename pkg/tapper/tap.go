@@ -109,8 +109,14 @@ type CatOptions struct {
 
 	KegTargetOptions
 
-	// Meta indicates whether to display only meta data
-	Meta bool
+	// ContentOnly displays content only.
+	ContentOnly bool
+
+	// StatsOnly displays stats only.
+	StatsOnly bool
+
+	// MetaOnly displays metadata only.
+	MetaOnly bool
 }
 
 // Cat reads and displays a node's content with its metadata as frontmatter.
@@ -118,6 +124,20 @@ type CatOptions struct {
 // The metadata (meta.yaml) is output as YAML frontmatter above the node's
 // primary content (README.md).
 func (t *Tap) Cat(ctx context.Context, opts CatOptions) (string, error) {
+	outputModes := 0
+	if opts.ContentOnly {
+		outputModes++
+	}
+	if opts.StatsOnly {
+		outputModes++
+	}
+	if opts.MetaOnly {
+		outputModes++
+	}
+	if outputModes > 1 {
+		return "", fmt.Errorf("only one output mode may be selected: --content-only, --stats-only, --meta-only")
+	}
+
 	k, err := t.resolveKeg(ctx, opts.KegTargetOptions)
 	if err != nil {
 		return "", fmt.Errorf("unable to open keg: %w", err)
@@ -141,6 +161,14 @@ func (t *Tap) Cat(ctx context.Context, opts CatOptions) (string, error) {
 		return "", fmt.Errorf("unable to read node metadata: %w", err)
 	}
 
+	stats, err := k.Repo.ReadStats(ctx, *node)
+	if err != nil {
+		if errors.Is(err, keg.ErrNotExist) {
+			return "", fmt.Errorf("node %s not found", node.Path())
+		}
+		return "", fmt.Errorf("unable to read node stats: %w", err)
+	}
+
 	// Read content
 	content, err := k.Repo.ReadContent(ctx, *node)
 	if err != nil {
@@ -150,13 +178,42 @@ func (t *Tap) Cat(ctx context.Context, opts CatOptions) (string, error) {
 		return "", fmt.Errorf("unable to read node content: %w", err)
 	}
 
-	if opts.Meta {
+	if opts.ContentOnly {
+		return string(content), nil
+	}
+
+	if opts.StatsOnly {
+		return formatStatsOnlyYAML(ctx, stats), nil
+	}
+
+	if opts.MetaOnly {
 		return string(meta), nil
 	}
 
-	// Format as frontmatter + content
-	output := fmt.Sprintf("---\n%s---\n%s", string(meta), string(content))
+	mergedMeta, err := mergeMetaAndStatsYAML(ctx, meta, stats)
+	if err != nil {
+		return "", err
+	}
+	output := formatFrontmatter([]byte(mergedMeta), content)
 	return output, nil
+}
+
+func formatFrontmatter(meta []byte, content []byte) string {
+	metaText := strings.TrimRight(string(meta), "\n")
+	return fmt.Sprintf("---\n%s\n---\n%s", metaText, string(content))
+}
+
+func mergeMetaAndStatsYAML(ctx context.Context, metaRaw []byte, stats *keg.NodeStats) (string, error) {
+	meta, err := keg.ParseMeta(ctx, metaRaw)
+	if err != nil {
+		return "", fmt.Errorf("unable to parse node metadata: %w", err)
+	}
+	return strings.TrimRight(meta.ToYAMLWithStats(stats), "\n"), nil
+}
+
+func formatStatsOnlyYAML(ctx context.Context, stats *keg.NodeStats) string {
+	meta := keg.NewMeta(ctx, time.Time{})
+	return strings.TrimRight(meta.ToYAMLWithStats(stats), "\n")
 }
 
 // CreateOptions configures behavior for Runner.Create.
