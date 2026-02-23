@@ -38,6 +38,9 @@ func NewCatCmd(deps *Deps) *cobra.Command {
 	}
 
 	bindKegTargetFlags(cmd, deps, &opts.KegTargetOptions, "alias of the keg to read from")
+	cmd.Flags().BoolVar(&opts.ContentOnly, "content-only", false, "display node content only")
+	cmd.Flags().BoolVar(&opts.StatsOnly, "stats-only", false, "display node stats only")
+	cmd.Flags().BoolVar(&opts.MetaOnly, "meta-only", false, "display node metadata only")
 
 	return cmd
 }
