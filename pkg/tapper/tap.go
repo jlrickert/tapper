@@ -2,6 +2,7 @@ package tapper
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -134,12 +135,18 @@ func (t *Tap) Cat(ctx context.Context, opts CatOptions) (string, error) {
 	// Read metadata
 	meta, err := k.Repo.ReadMeta(ctx, *node)
 	if err != nil {
+		if errors.Is(err, keg.ErrNotExist) {
+			return "", fmt.Errorf("node %s not found", node.Path())
+		}
 		return "", fmt.Errorf("unable to read node metadata: %w", err)
 	}
 
 	// Read content
 	content, err := k.Repo.ReadContent(ctx, *node)
 	if err != nil {
+		if errors.Is(err, keg.ErrNotExist) {
+			return "", fmt.Errorf("node %s not found", node.Path())
+		}
 		return "", fmt.Errorf("unable to read node content: %w", err)
 	}
 
