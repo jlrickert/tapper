@@ -1,6 +1,7 @@
 package tapper
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -777,6 +778,11 @@ func (t *Tap) Info(ctx context.Context, opts InfoOptions) (string, error) {
 }
 
 func readRawKegConfig(rt *toolkit.Runtime, root string) ([]byte, error) {
+	_, raw, err := readRawKegConfigWithPath(rt, root)
+	return raw, err
+}
+
+func readRawKegConfigWithPath(rt *toolkit.Runtime, root string) (string, []byte, error) {
 	base := toolkit.ExpandEnv(rt, root)
 	if expanded, err := toolkit.ExpandPath(rt, base); err == nil {
 		base = expanded
@@ -791,7 +797,7 @@ func readRawKegConfig(rt *toolkit.Runtime, root string) ([]byte, error) {
 
 		data, err := rt.ReadFile(path)
 		if err == nil {
-			return data, nil
+			return path, data, nil
 		}
 		if os.IsNotExist(err) {
 			continue
@@ -802,9 +808,47 @@ func readRawKegConfig(rt *toolkit.Runtime, root string) ([]byte, error) {
 	}
 
 	if firstErr != nil {
-		return nil, firstErr
+		return "", nil, firstErr
 	}
-	return nil, os.ErrNotExist
+	return "", nil, os.ErrNotExist
+}
+
+func newEditorTempFilePath(rt *toolkit.Runtime, prefix string, suffix string) (string, error) {
+	base := ""
+	if strings.TrimSpace(rt.GetJail()) != "" {
+		if home, err := rt.GetHome(); err == nil && strings.TrimSpace(home) != "" {
+			base = filepath.Join(home, ".cache", "tapper", "tmp")
+		} else {
+			base = "/tmp"
+		}
+	} else {
+		base = strings.TrimSpace(rt.GetTempDir())
+		if base == "" {
+			base = os.TempDir()
+		}
+	}
+
+	expanded := toolkit.ExpandEnv(rt, base)
+	if p, err := toolkit.ExpandPath(rt, expanded); err == nil {
+		expanded = p
+	}
+
+	if err := rt.Mkdir(expanded, 0o755, true); err != nil {
+		return "", err
+	}
+
+	for i := 0; i < 64; i++ {
+		path := filepath.Join(expanded,
+			fmt.Sprintf("%s%d-%02d%s", prefix, time.Now().UnixNano(), i, suffix))
+		if _, err := rt.Stat(path, false); err == nil {
+			continue
+		} else if os.IsNotExist(err) {
+			return path, nil
+		} else {
+			return "", err
+		}
+	}
+	return "", fmt.Errorf("unable to allocate temp file path")
 }
 
 // InfoEditOptions configures behavior for Tap.InfoEdit.
@@ -831,33 +875,66 @@ func (t *Tap) InfoEdit(ctx context.Context, opts InfoEditOptions) error {
 		return err
 	}
 
-	if k.Target.Scheme() != kegurl.SchemeFile {
-		return fmt.Errorf("%s", "Only local kegs are supported")
+	var (
+		configPath  string
+		originalRaw []byte
+	)
+	if k.Target != nil && k.Target.Scheme() == kegurl.SchemeFile {
+		path, raw, readErr := readRawKegConfigWithPath(t.Runtime, k.Target.Path())
+		if readErr != nil {
+			return fmt.Errorf("unable to read keg config: %w", readErr)
+		}
+		configPath = path
+		originalRaw = raw
+	} else {
+		cfg, cfgErr := k.Config(ctx)
+		if cfgErr != nil {
+			return fmt.Errorf("unable to read keg config: %w", cfgErr)
+		}
+		originalRaw = []byte(cfg.String())
 	}
 
-	configPath, err := t.Runtime.ResolvePath(filepath.Join(k.Target.Path(), "keg"), true)
+	tempPath, err := newEditorTempFilePath(t.Runtime, "tap-info-", ".yaml")
 	if err != nil {
-		return fmt.Errorf("unable to resolve keg config path: %w", err)
+		return fmt.Errorf("unable to create temp file path: %w", err)
 	}
-
-	// Ensure config exists by reading it first
-	_, err = k.Config(ctx)
-	if err != nil {
-		return fmt.Errorf("unable to read keg config: %w", err)
+	if err := t.Runtime.WriteFile(tempPath, originalRaw, 0o600); err != nil {
+		return fmt.Errorf("unable to write temp config file: %w", err)
 	}
+	defer func() {
+		_ = t.Runtime.Remove(tempPath, false)
+	}()
 
-	// Open the file in the editor
-	err = toolkit.Edit(ctx, t.Runtime, configPath)
-	if err != nil {
+	if err := toolkit.Edit(ctx, t.Runtime, tempPath); err != nil {
 		return fmt.Errorf("unable to edit keg config: %w", err)
 	}
 
-	// Try to parse the edited config to validate it
-	_, err = k.Config(ctx)
+	editedRaw, err := t.Runtime.ReadFile(tempPath)
 	if err != nil {
+		return fmt.Errorf("unable to read edited temp config file: %w", err)
+	}
+	if bytes.Equal(editedRaw, originalRaw) {
+		return nil
+	}
+
+	if _, err := keg.ParseKegConfig(editedRaw); err != nil {
 		return fmt.Errorf("keg config is invalid after editing: %w", err)
 	}
 
+	if configPath != "" {
+		resolvedPath, err := t.Runtime.ResolvePath(configPath, true)
+		if err != nil {
+			return fmt.Errorf("unable to resolve keg config path: %w", err)
+		}
+		if err := t.Runtime.AtomicWriteFile(resolvedPath, editedRaw, 0o644); err != nil {
+			return fmt.Errorf("unable to save edited keg config: %w", err)
+		}
+		return nil
+	}
+
+	if err := k.SetConfig(ctx, editedRaw); err != nil {
+		return fmt.Errorf("unable to save edited keg config: %w", err)
+	}
 	return nil
 }
 
