@@ -854,6 +854,7 @@ func newEditorTempFilePath(rt *toolkit.Runtime, prefix string, suffix string) (s
 // InfoEditOptions configures behavior for Tap.InfoEdit.
 type InfoEditOptions struct {
 	KegTargetOptions
+	Stream *toolkit.Stream
 }
 
 func (t *Tap) LookupKeg(ctx context.Context, kegAlias string) (*keg.Keg, error) {
@@ -894,11 +895,22 @@ func (t *Tap) InfoEdit(ctx context.Context, opts InfoEditOptions) error {
 		originalRaw = []byte(cfg.String())
 	}
 
+	initialRaw := originalRaw
+	if opts.Stream != nil && opts.Stream.IsPiped {
+		pipedRaw, readErr := io.ReadAll(opts.Stream.In)
+		if readErr != nil {
+			return fmt.Errorf("unable to read piped input: %w", readErr)
+		}
+		if len(bytes.TrimSpace(pipedRaw)) > 0 {
+			initialRaw = pipedRaw
+		}
+	}
+
 	tempPath, err := newEditorTempFilePath(t.Runtime, "tap-info-", ".yaml")
 	if err != nil {
 		return fmt.Errorf("unable to create temp file path: %w", err)
 	}
-	if err := t.Runtime.WriteFile(tempPath, originalRaw, 0o600); err != nil {
+	if err := t.Runtime.WriteFile(tempPath, initialRaw, 0o600); err != nil {
 		return fmt.Errorf("unable to write temp config file: %w", err)
 	}
 	defer func() {
