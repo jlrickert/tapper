@@ -135,3 +135,38 @@ func TestInfoEdit_RejectsInvalidPipedStdin(t *testing.T) {
 	after := sb.MustReadFile("~/kegs/example/keg")
 	require.Equal(t, string(before), string(after))
 }
+
+func TestInfoEdit_LiveSavePreservesEarlierValidConfigOnLaterInvalidSave(t *testing.T) {
+	t.Parallel()
+	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
+
+	jail := sb.Runtime().GetJail()
+	require.NotEmpty(t, jail)
+	resolvedJail, err := filepath.EvalSymlinks(jail)
+	require.NoError(t, err)
+	require.NoError(t, sb.Runtime().SetJail(resolvedJail))
+	jail = resolvedJail
+
+	scriptPath := filepath.Join(jail, "edit-keg-live-valid-then-invalid.sh")
+	script := `#!/bin/sh
+cat > "$1" <<'EOF'
+kegv: 2025-07
+title: First Valid Config
+summary: saved once
+EOF
+sleep 1
+cat > "$1" <<'EOF'
+kegv: [
+EOF
+`
+	require.NoError(t, os.WriteFile(scriptPath, []byte(script), 0o755))
+	require.NoError(t, sb.Runtime().Set("EDITOR", "/bin/sh "+scriptPath))
+	sb.Runtime().Unset("VISUAL")
+
+	res := NewProcess(t, false, "config", "--edit", "--keg", "example").RunWithIO(sb.Context(), sb.Runtime(), strings.NewReader(""))
+	require.NoError(t, res.Err)
+
+	saved := string(sb.MustReadFile("~/kegs/example/keg"))
+	require.Contains(t, saved, "title: First Valid Config")
+	require.Contains(t, saved, "summary: saved once")
+}
