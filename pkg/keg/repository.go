@@ -2,8 +2,6 @@ package keg
 
 import (
 	"context"
-
-	"github.com/jlrickert/cli-toolkit/toolkit"
 )
 
 // AssetKind identifies an asset namespace for a node.
@@ -21,11 +19,13 @@ type Repository interface {
 
 	// Name returns a short, human-friendly backend identifier.
 	Name() string
-	// Runtime returns the runtime dependency container used by this repo.
-	Runtime() *toolkit.Runtime
 
 	// Node lifecycle
 
+	// HasNode reports whether id exists as a node in the backend.
+	// Missing nodes should return (false, nil). Backend/storage failures should
+	// be returned as non-nil errors.
+	HasNode(ctx context.Context, id NodeId) (bool, error)
 	// Next returns the next available node id allocation candidate.
 	// Implementations should honor ctx cancellation where applicable.
 	Next(ctx context.Context) (NodeId, error)

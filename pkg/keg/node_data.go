@@ -44,14 +44,14 @@ func (n *NodeData) ContentChanged() bool {
 	return n.ContentHash() != n.MetaHash()
 }
 
-// Title returns the canonical title for the node. Prefer meta title and fall
+// Title returns the canonical title for the node. Prefer stats title and fall
 // back to parsed content title when available.
 func (n *NodeData) Title() string {
 	if n == nil {
 		return ""
 	}
-	if n.Meta != nil {
-		if t := n.Meta.Title(); t != "" {
+	if n.Stats != nil {
+		if t := n.Stats.Title(); t != "" {
 			return t
 		}
 	}
@@ -127,13 +127,29 @@ func (n *NodeData) Accessed() time.Time {
 	return n.Stats.Accessed()
 }
 
-// Tags returns a copy of the normalized tag list from stats or nil if not set.
+// Tags returns a copy of the normalized tag list from metadata or nil if not set.
 func (n *NodeData) Tags() []string {
-	if n == nil || n.Stats == nil {
+	if n == nil {
 		return nil
 	}
-	tags := n.Stats.Tags()
-	if tags == nil {
+	if n.Meta != nil {
+		tags := n.Meta.Tags()
+		if len(tags) == 0 {
+			return nil
+		}
+		out := make([]string, len(tags))
+		copy(out, tags)
+		return out
+	}
+	if n.Content == nil || n.Content.Frontmatter == nil {
+		return nil
+	}
+	raw, ok := n.Content.Frontmatter["tags"]
+	if !ok {
+		return nil
+	}
+	tags := parseMetaTags(raw)
+	if len(tags) == 0 {
 		return nil
 	}
 	out := make([]string, len(tags))
@@ -162,7 +178,6 @@ func (n *NodeData) UpdateMeta(ctx context.Context, now *time.Time) error {
 		n.Stats = &NodeStats{}
 	}
 	err := n.Meta.SetAttrs(ctx, n.Content.Frontmatter)
-	n.Meta.SetTitle(ctx, n.Content.Title)
 	n.Stats.UpdateFromContent(n.Content, now)
 	return err
 }
