@@ -37,3 +37,29 @@ func TestListCommand_IdOnlyOutputsOnlyIDs(t *testing.T) {
 		require.Regexp(t, idPattern, line, "id-only output should contain only node IDs")
 	}
 }
+
+func TestListCommand_ReverseOrdering(t *testing.T) {
+	t.Parallel()
+	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
+
+	res := NewProcess(t, false, "create", "--title", "One").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+	res = NewProcess(t, false, "create", "--title", "Two").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+	res = NewProcess(t, false, "create", "--title", "Three").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+
+	normal := NewProcess(t, false, "list", "--id-only").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, normal.Err)
+	normalLines := strings.Split(strings.TrimSpace(string(normal.Stdout)), "\n")
+	require.GreaterOrEqual(t, len(normalLines), 4)
+	require.Equal(t, "0", strings.TrimSpace(normalLines[0]))
+	require.Equal(t, "3", strings.TrimSpace(normalLines[len(normalLines)-1]))
+
+	reversed := NewProcess(t, false, "list", "--id-only", "--reverse").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, reversed.Err)
+	reversedLines := strings.Split(strings.TrimSpace(string(reversed.Stdout)), "\n")
+	require.GreaterOrEqual(t, len(reversedLines), 4)
+	require.Equal(t, "3", strings.TrimSpace(reversedLines[0]))
+	require.Equal(t, "0", strings.TrimSpace(reversedLines[len(reversedLines)-1]))
+}
