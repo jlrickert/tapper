@@ -1,6 +1,7 @@
 package keg
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -17,7 +18,7 @@ import (
 const (
 	MarkdownContentFilename = "README.md"
 	YAMLMetaFilename        = "meta.yaml"
-	YAMLStatsFilename       = "stats.yaml"
+	JSONStatsFilename       = "stats.json"
 	KegCurrentEnvKey        = "KEG_CURRENT"
 	KegLockFile             = ".keg-lock"
 	NodeImagesDir           = "images"
@@ -46,7 +47,7 @@ func NewFsRepo(root string, rt *toolkit.Runtime) *FsRepo {
 		Root:            root,
 		ContentFilename: MarkdownContentFilename,
 		MetaFilename:    YAMLMetaFilename,
-		StatsFilename:   YAMLStatsFilename,
+		StatsFilename:   JSONStatsFilename,
 		runtime:         rt,
 	}
 }
@@ -74,6 +75,7 @@ func NewFsRepoFromEnvOrSearch(ctx context.Context, rt *toolkit.Runtime) (*FsRepo
 				Root:            p.rootDir,
 				ContentFilename: MarkdownContentFilename,
 				MetaFilename:    YAMLMetaFilename,
+				StatsFilename:   JSONStatsFilename,
 				runtime:         rt,
 			}
 			return f, nil
@@ -92,6 +94,7 @@ func NewFsRepoFromEnvOrSearch(ctx context.Context, rt *toolkit.Runtime) (*FsRepo
 			Root:            cwd,
 			ContentFilename: MarkdownContentFilename,
 			MetaFilename:    YAMLMetaFilename,
+			StatsFilename:   JSONStatsFilename,
 			runtime:         rt,
 		}
 		return f, nil
@@ -104,6 +107,7 @@ func NewFsRepoFromEnvOrSearch(ctx context.Context, rt *toolkit.Runtime) (*FsRepo
 				Root:            filepath.Dir(kp), // directory containing the keg file
 				ContentFilename: MarkdownContentFilename,
 				MetaFilename:    YAMLMetaFilename,
+				StatsFilename:   JSONStatsFilename,
 				runtime:         rt,
 			}
 			return f, nil
@@ -117,6 +121,7 @@ func NewFsRepoFromEnvOrSearch(ctx context.Context, rt *toolkit.Runtime) (*FsRepo
 			Root:            filepath.Dir(kp),
 			ContentFilename: MarkdownContentFilename,
 			MetaFilename:    YAMLMetaFilename,
+			StatsFilename:   JSONStatsFilename,
 			runtime:         rt,
 		}
 		return f, nil
@@ -130,6 +135,7 @@ func NewFsRepoFromEnvOrSearch(ctx context.Context, rt *toolkit.Runtime) (*FsRepo
 			Root:            defDir,
 			ContentFilename: MarkdownContentFilename,
 			MetaFilename:    YAMLMetaFilename,
+			StatsFilename:   JSONStatsFilename,
 			runtime:         rt,
 		}
 		return f, nil
@@ -238,6 +244,19 @@ func (f *FsRepo) Name() string {
 	return "fs"
 }
 
+func (f *FsRepo) HasNode(ctx context.Context, id NodeId) (bool, error) {
+	_ = ctx
+	nodeDir := filepath.Join(f.Root, id.Path())
+	info, err := f.runtime.Stat(nodeDir, false)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, NewBackendError(f.Name(), "HasNode", 0, err, false)
+	}
+	return info.IsDir(), nil
+}
+
 func (f *FsRepo) Runtime() *toolkit.Runtime {
 	if f == nil {
 		return nil
@@ -319,15 +338,14 @@ func (f *FsRepo) Next(ctx context.Context) (NodeId, error) {
 
 // ReadContent implements Repository.
 func (f *FsRepo) ReadContent(ctx context.Context, id NodeId) ([]byte, error) {
-	nodeDir := filepath.Join(f.Root, id.Path())
-	if _, statErr := f.runtime.Stat(nodeDir, false); statErr != nil {
-		if os.IsNotExist(statErr) {
-			return nil, ErrNotExist
-		} else if os.IsPermission(statErr) {
-			return nil, ErrPermission
-		}
-		return nil, NewBackendError(f.Name(), "ReadContent", 0, statErr, false)
+	exists, err := f.HasNode(ctx, id)
+	if err != nil {
+		return nil, err
 	}
+	if !exists {
+		return nil, ErrNotExist
+	}
+	nodeDir := filepath.Join(f.Root, id.Path())
 	contentPath := filepath.Join(nodeDir, f.ContentFilename)
 	b, err := f.runtime.ReadFile(contentPath)
 	if err != nil {
@@ -342,13 +360,14 @@ func (f *FsRepo) ReadContent(ctx context.Context, id NodeId) ([]byte, error) {
 
 // ReadMeta implements Repository.
 func (f *FsRepo) ReadMeta(ctx context.Context, id NodeId) ([]byte, error) {
-	nodeDir := filepath.Join(f.Root, id.Path())
-	if _, statErr := f.runtime.Stat(nodeDir, false); statErr != nil {
-		if os.IsNotExist(statErr) {
-			return nil, ErrNotExist
-		}
-		return nil, NewBackendError(f.Name(), "ReadMeta", 0, statErr, false)
+	exists, err := f.HasNode(ctx, id)
+	if err != nil {
+		return nil, err
 	}
+	if !exists {
+		return nil, ErrNotExist
+	}
+	nodeDir := filepath.Join(f.Root, id.Path())
 	metaPath := filepath.Join(nodeDir, f.MetaFilename)
 	b, err := f.runtime.ReadFile(metaPath)
 	if err != nil {
@@ -362,15 +381,63 @@ func (f *FsRepo) ReadMeta(ctx context.Context, id NodeId) ([]byte, error) {
 
 // ReadStats implements Repository.
 func (f *FsRepo) ReadStats(ctx context.Context, id NodeId) (*NodeStats, error) {
-	raw, err := f.ReadMeta(ctx, id)
+	exists, err := f.HasNode(ctx, id)
 	if err != nil {
 		return nil, err
 	}
+	if !exists {
+		return nil, ErrNotExist
+	}
+	nodeDir := filepath.Join(f.Root, id.Path())
+	statsPath := filepath.Join(nodeDir, f.StatsFilename)
+	raw, err := f.runtime.ReadFile(statsPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			// Compatibility path: parse stats from legacy meta.yaml content.
+			legacy, lerr := f.ReadMeta(ctx, id)
+			if lerr != nil || len(bytes.TrimSpace(legacy)) == 0 {
+				return nil, ErrNotExist
+			}
+			stats, perr := ParseStats(ctx, legacy)
+			if perr != nil {
+				return nil, ErrNotExist
+			}
+			return stats, nil
+		}
+		return nil, NewBackendError(f.Name(), "ReadStats", 0, err, false)
+	}
+
 	stats, err := ParseStats(ctx, raw)
 	if err != nil {
 		return nil, NewBackendError(f.Name(), "ReadStats", 0, err, false)
 	}
 	return stats, nil
+}
+
+func (f *FsRepo) NodeFilesExist(ctx context.Context, id NodeId) (bool, bool, error) {
+	exists, err := f.HasNode(ctx, id)
+	if err != nil {
+		return false, false, err
+	}
+	if !exists {
+		return false, false, nil
+	}
+	nodeDir := filepath.Join(f.Root, id.Path())
+	metaPath := filepath.Join(nodeDir, f.MetaFilename)
+	_, metaErr := f.runtime.Stat(metaPath, false)
+	metaExists := metaErr == nil
+	if metaErr != nil && !os.IsNotExist(metaErr) {
+		return false, false, NewBackendError(f.Name(), "NodeFilesExist", 0, metaErr, false)
+	}
+
+	statsPath := filepath.Join(nodeDir, f.StatsFilename)
+	_, statsErr := f.runtime.Stat(statsPath, false)
+	statsExists := statsErr == nil
+	if statsErr != nil && !os.IsNotExist(statsErr) {
+		return false, false, NewBackendError(f.Name(), "NodeFilesExist", 0, statsErr, false)
+	}
+
+	return metaExists, statsExists, nil
 }
 
 func (f *FsRepo) ListNodes(ctx context.Context) ([]NodeId, error) {
@@ -406,11 +473,12 @@ func (f *FsRepo) ListNodes(ctx context.Context) ([]NodeId, error) {
 // ListAssets implements Repository.
 func (f *FsRepo) ListAssets(ctx context.Context, id NodeId, kind AssetKind) ([]string, error) {
 	nodeDir := filepath.Join(f.Root, id.Path())
-	if _, statErr := f.runtime.Stat(nodeDir, false); statErr != nil {
-		if os.IsNotExist(statErr) {
-			return nil, fmt.Errorf("node %s does not exist: %w", nodeDir, ErrNotExist)
-		}
-		return nil, NewBackendError(f.Name(), "ListAssets", 0, statErr, false)
+	exists, err := f.HasNode(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if !exists {
+		return nil, fmt.Errorf("node %s does not exist: %w", nodeDir, ErrNotExist)
 	}
 
 	var dir string
@@ -484,29 +552,34 @@ func (f *FsRepo) WriteStats(ctx context.Context, id NodeId, stats *NodeStats) er
 		stats = &NodeStats{}
 	}
 
-	raw, err := f.ReadMeta(ctx, id)
-	if err != nil && !errors.Is(err, ErrNotExist) {
-		return err
-	}
-	if errors.Is(err, ErrNotExist) {
-		raw = nil
+	nodeDir := filepath.Join(f.Root, id.Path())
+	statsPath := filepath.Join(nodeDir, f.StatsFilename)
+
+	// Create parent directory if it doesn't exist.
+	dir := filepath.Dir(statsPath)
+	if err := f.runtime.Mkdir(dir, 0o755, true); err != nil {
+		return NewBackendError(f.Name(), "WriteStats", 0, err, false)
 	}
 
-	meta, perr := ParseMeta(ctx, raw)
-	if perr != nil {
-		return NewBackendError(f.Name(), "WriteStats", 0, perr, false)
+	data, err := stats.ToJSON()
+	if err != nil {
+		return NewBackendError(f.Name(), "WriteStats", 0, err, false)
 	}
-	return f.WriteMeta(ctx, id, []byte(meta.ToYAMLWithStats(stats)))
+	if err := f.runtime.AtomicWriteFile(statsPath, data, 0o644); err != nil {
+		return NewBackendError(f.Name(), "WriteStats", 0, err, false)
+	}
+	return nil
 }
 
 // WriteAsset implements Repository.
 func (f *FsRepo) WriteAsset(ctx context.Context, id NodeId, kind AssetKind, name string, data []byte) error {
 	nodeDir := filepath.Join(f.Root, id.Path())
-	if _, statErr := f.runtime.Stat(nodeDir, false); statErr != nil {
-		if os.IsNotExist(statErr) {
-			return ErrNotExist
-		}
-		return NewBackendError(f.Name(), "WriteAsset", 0, statErr, false)
+	exists, err := f.HasNode(ctx, id)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		return ErrNotExist
 	}
 
 	var assetPath string
@@ -525,7 +598,7 @@ func (f *FsRepo) WriteAsset(ctx context.Context, id NodeId, kind AssetKind, name
 		return NewBackendError(f.Name(), "WriteAsset", 0, err, false)
 	}
 
-	err := f.runtime.AtomicWriteFile(assetPath, data, 0o0644)
+	err = f.runtime.AtomicWriteFile(assetPath, data, 0o0644)
 	if err != nil {
 		return NewBackendError(f.Name(), "WriteAsset", 0, err, false)
 	}
@@ -536,18 +609,21 @@ func (f *FsRepo) WriteAsset(ctx context.Context, id NodeId, kind AssetKind, name
 // MoveNode implements Repository.
 func (f *FsRepo) MoveNode(ctx context.Context, id NodeId, dst NodeId) error {
 	src := filepath.Join(f.Root, id.Path())
-	if _, statErr := f.runtime.Stat(src, false); statErr != nil {
-		if os.IsNotExist(statErr) {
-			return ErrNotExist
-		}
-		return NewBackendError(f.Name(), "MoveNode", 0, statErr, false)
+	srcExists, err := f.HasNode(ctx, id)
+	if err != nil {
+		return err
+	}
+	if !srcExists {
+		return ErrNotExist
 	}
 
 	dstPath := filepath.Join(f.Root, dst.Path())
-	if _, statErr := f.runtime.Stat(dstPath, false); statErr == nil {
+	dstExists, err := f.HasNode(ctx, dst)
+	if err != nil {
+		return err
+	}
+	if dstExists {
 		return ErrDestinationExists
-	} else if !os.IsNotExist(statErr) {
-		return NewBackendError(f.Name(), "MoveNode", 0, statErr, false)
 	}
 
 	if err := f.runtime.Rename(src, dstPath); err != nil {
@@ -629,11 +705,12 @@ func (f *FsRepo) ListIndexes(ctx context.Context) ([]string, error) {
 // DeleteNode implements Repository.
 func (f *FsRepo) DeleteNode(ctx context.Context, id NodeId) error {
 	nodeDir := filepath.Join(f.Root, id.Path())
-	if _, statErr := f.runtime.Stat(nodeDir, false); statErr != nil {
-		if os.IsNotExist(statErr) {
-			return ErrNotExist
-		}
-		return NewBackendError(f.Name(), "DeleteNode", 0, statErr, false)
+	exists, err := f.HasNode(ctx, id)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		return ErrNotExist
 	}
 
 	if err := f.runtime.Remove(nodeDir, true); err != nil {
@@ -647,11 +724,12 @@ func (f *FsRepo) DeleteAsset(ctx context.Context, id NodeId, kind AssetKind, nam
 	nodeDir := filepath.Join(f.Root, id.Path())
 
 	// Ensure node exists
-	if _, statErr := f.runtime.Stat(nodeDir, false); statErr != nil {
-		if os.IsNotExist(statErr) {
-			return ErrNotExist
-		}
-		return NewBackendError(f.Name(), "DeleteAsset", 0, statErr, false)
+	exists, err := f.HasNode(ctx, id)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		return ErrNotExist
 	}
 
 	switch kind {

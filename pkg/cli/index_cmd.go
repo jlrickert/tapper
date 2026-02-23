@@ -18,11 +18,11 @@ func NewIndexCmd(deps *Deps) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "index",
-		Short: "rebuild indices for a keg",
-		Long: `Rebuild all indices for a keg (nodes.tsv, tags, links, backlinks).
+		Short: "update indices for a keg",
+		Long: `Update indices for a keg (nodes.tsv, tags, links, backlinks).
 
-This command scans all nodes and regenerates the dex indices. Useful after
-manually modifying files or to refresh stale indices.`,
+By default this runs incremental indexing using the keg config timestamp.
+Use --rebuild to scan all nodes and regenerate the full dex.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			applyKegTargetProfile(deps, &opts.KegTargetOptions)
 			ctx := cmd.Context()
@@ -41,7 +41,7 @@ manually modifying files or to refresh stale indices.`,
 		// Backward-compatible alias flag.
 		cmd.Flags().StringVar(&opts.Keg, "alias", "", "alias of the keg to index (deprecated; use --keg)")
 	}
-	cmd.Flags().BoolVarP(&opts.Rebuild, "rebuild", "r", false, "rebuild all indices (nodes.tsv, tags, links, backlinks)")
+	cmd.Flags().BoolVarP(&opts.Rebuild, "rebuild", "r", false, "rebuild all indices from scratch (nodes.tsv, tags, links, backlinks)")
 
 	if deps.Profile.withDefaults().AllowKegAliasFlags {
 		_ = cmd.RegisterFlagCompletionFunc("alias", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {

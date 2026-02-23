@@ -47,6 +47,7 @@ type MemoryRepo struct {
 type memoryNode struct {
 	content []byte
 	meta    []byte
+	stats   []byte
 	items   map[string][]byte
 	images  map[string][]byte
 }
@@ -77,6 +78,14 @@ func (r *MemoryRepo) ensureNode(id NodeId) *memoryNode {
 
 func (r *MemoryRepo) Name() string {
 	return "memory"
+}
+
+func (r *MemoryRepo) HasNode(ctx context.Context, id NodeId) (bool, error) {
+	_ = ctx
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	_, ok := r.nodes[id]
+	return ok, nil
 }
 
 func (r *MemoryRepo) Runtime() *toolkit.Runtime {
@@ -162,16 +171,37 @@ func (r *MemoryRepo) ReadStats(ctx context.Context, id NodeId) (*NodeStats, erro
 	if !ok {
 		return nil, ErrNotExist
 	}
-	if n.meta == nil {
-		return &NodeStats{links: []NodeId{}}, nil
+	if n.stats == nil {
+		if n.meta == nil {
+			return nil, ErrNotExist
+		}
+		cp := make([]byte, len(n.meta))
+		copy(cp, n.meta)
+		stats, err := ParseStats(ctx, cp)
+		if err != nil {
+			return nil, ErrNotExist
+		}
+		return stats, nil
 	}
-	cp := make([]byte, len(n.meta))
-	copy(cp, n.meta)
+	cp := make([]byte, len(n.stats))
+	copy(cp, n.stats)
 	stats, err := ParseStats(ctx, cp)
 	if err != nil {
 		return nil, err
 	}
 	return stats, nil
+}
+
+func (r *MemoryRepo) NodeFilesExist(ctx context.Context, id NodeId) (bool, bool, error) {
+	_ = ctx
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	n, ok := r.nodes[id]
+	if !ok {
+		return false, false, nil
+	}
+	return len(n.meta) > 0, len(n.stats) > 0, nil
 }
 
 // ListIndexes returns the names of stored index files sorted lexicographically.
@@ -280,6 +310,7 @@ func (r *MemoryRepo) WriteMeta(ctx context.Context, id NodeId, data []byte) erro
 // WriteStats writes programmatic stats while preserving manually edited meta
 // fields.
 func (r *MemoryRepo) WriteStats(ctx context.Context, id NodeId, stats *NodeStats) error {
+	_ = ctx
 	if stats == nil {
 		stats = &NodeStats{}
 	}
@@ -288,18 +319,11 @@ func (r *MemoryRepo) WriteStats(ctx context.Context, id NodeId, stats *NodeStats
 	defer r.mu.Unlock()
 
 	n := r.ensureNode(id)
-
-	var raw []byte
-	if n.meta != nil {
-		raw = make([]byte, len(n.meta))
-		copy(raw, n.meta)
-	}
-
-	meta, err := ParseMeta(ctx, raw)
+	data, err := stats.ToJSON()
 	if err != nil {
 		return err
 	}
-	n.meta = []byte(meta.ToYAMLWithStats(stats))
+	n.stats = data
 	return nil
 }
 

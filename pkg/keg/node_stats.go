@@ -3,34 +3,45 @@ package keg
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"slices"
-	"sort"
 	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
 )
 
+type statsJSON struct {
+	Title    string   `json:"title,omitempty"`
+	Hash     string   `json:"hash,omitempty"`
+	Updated  string   `json:"updated,omitempty"`
+	Created  string   `json:"created,omitempty"`
+	Accessed string   `json:"accessed,omitempty"`
+	Lead     string   `json:"lead,omitempty"`
+	Links    []string `json:"links,omitempty"`
+}
+
+// statsYAML is kept for compatibility with historical on-disk stats encodings.
 type statsYAML struct {
+	Title    string   `yaml:"title,omitempty"`
 	Hash     string   `yaml:"hash,omitempty"`
 	Updated  string   `yaml:"updated,omitempty"`
 	Created  string   `yaml:"created,omitempty"`
 	Accessed string   `yaml:"accessed,omitempty"`
 	Lead     string   `yaml:"lead,omitempty"`
 	Links    []string `yaml:"links,omitempty"`
-	Tags     any      `yaml:"tags,omitempty"`
 }
 
 // NodeStats contains programmatic node data derived by tooling.
 type NodeStats struct {
+	title    string
 	hash     string
 	updated  time.Time
 	created  time.Time
 	accessed time.Time
 	lead     string
 	links    []NodeId
-	tags     []string
 }
 
 func NewStats(now time.Time) *NodeStats {
@@ -38,44 +49,52 @@ func NewStats(now time.Time) *NodeStats {
 		updated: now,
 		created: now,
 		links:   []NodeId{},
-		tags:    []string{},
 	}
 }
 
-// ParseStats extracts programmatic node stats from raw meta yaml bytes.
+// ParseStats extracts programmatic node stats from raw bytes.
+// The canonical encoding is JSON; YAML is accepted as a compatibility fallback.
 func ParseStats(ctx context.Context, raw []byte) (*NodeStats, error) {
 	_ = ctx
 
 	trimmed := bytes.TrimSpace(raw)
 	if len(trimmed) == 0 {
-		return &NodeStats{links: []NodeId{}, tags: []string{}}, nil
+		return &NodeStats{links: []NodeId{}}, nil
 	}
 
+	var js statsJSON
+	if err := json.Unmarshal(trimmed, &js); err == nil {
+		return decodeStats(js.Title, js.Hash, js.Updated, js.Created, js.Accessed, js.Lead, js.Links), nil
+	}
+
+	// Compatibility path for legacy YAML stats payloads.
 	var doc yaml.Node
-	if err := yaml.Unmarshal(raw, &doc); err != nil {
-		return nil, fmt.Errorf("failed to parse node stats yaml: %w", err)
+	if err := yaml.Unmarshal(trimmed, &doc); err != nil {
+		return nil, fmt.Errorf("failed to parse node stats json: %w", err)
 	}
-
-	var tmp statsYAML
+	var ys statsYAML
 	if len(doc.Content) > 0 {
-		if err := doc.Content[0].Decode(&tmp); err != nil {
-			if err2 := doc.Decode(&tmp); err2 != nil {
+		if err := doc.Content[0].Decode(&ys); err != nil {
+			if err2 := doc.Decode(&ys); err2 != nil {
 				return nil, fmt.Errorf("failed to decode node stats yaml: %w", err)
 			}
 		}
 	}
+	return decodeStats(ys.Title, ys.Hash, ys.Updated, ys.Created, ys.Accessed, ys.Lead, ys.Links), nil
+}
 
+func decodeStats(title, hash, updated, created, accessed, lead string, rawLinks []string) *NodeStats {
 	stats := &NodeStats{
-		hash:     tmp.Hash,
-		updated:  parseStatsTime(tmp.Updated),
-		created:  parseStatsTime(tmp.Created),
-		accessed: parseStatsTime(tmp.Accessed),
-		lead:     tmp.Lead,
-		links:    make([]NodeId, 0, len(tmp.Links)),
-		tags:     parseStatsTags(tmp.Tags),
+		title:    title,
+		hash:     hash,
+		updated:  parseStatsTime(updated),
+		created:  parseStatsTime(created),
+		accessed: parseStatsTime(accessed),
+		lead:     lead,
+		links:    make([]NodeId, 0, len(rawLinks)),
 	}
 
-	for _, rawLink := range tmp.Links {
+	for _, rawLink := range rawLinks {
 		n, err := ParseNode(rawLink)
 		if err != nil || n == nil {
 			continue
@@ -83,8 +102,7 @@ func ParseStats(ctx context.Context, raw []byte) (*NodeStats, error) {
 		stats.links = append(stats.links, *n)
 	}
 	stats.links = normalizeNodeIDList(stats.links)
-
-	return stats, nil
+	return stats
 }
 
 func parseStatsTime(raw string) time.Time {
@@ -109,6 +127,20 @@ func parseStatsTime(raw string) time.Time {
 	}
 
 	return time.Time{}
+}
+
+func (s *NodeStats) Title() string {
+	if s == nil {
+		return ""
+	}
+	return s.title
+}
+
+func (s *NodeStats) SetTitle(title string) {
+	if s == nil {
+		return
+	}
+	s.title = title
 }
 
 func (s *NodeStats) Hash() string {
@@ -193,55 +225,6 @@ func (s *NodeStats) Links() []NodeId {
 	return out
 }
 
-func (s *NodeStats) Tags() []string {
-	if s == nil {
-		return nil
-	}
-	out := make([]string, len(s.tags))
-	copy(out, s.tags)
-	sort.Strings(out)
-	return out
-}
-
-func (s *NodeStats) SetTags(tags []string) {
-	if s == nil {
-		return
-	}
-	s.tags = NormalizeTags(tags)
-	sort.Strings(s.tags)
-}
-
-func (s *NodeStats) AddTag(tag string) {
-	if s == nil {
-		return
-	}
-	t := NormalizeTag(strings.TrimSpace(tag))
-	if t == "" || slices.Contains(s.tags, t) {
-		return
-	}
-	s.tags = append(s.tags, t)
-	sort.Strings(s.tags)
-}
-
-func (s *NodeStats) RmTag(tag string) {
-	if s == nil {
-		return
-	}
-	t := NormalizeTag(strings.TrimSpace(tag))
-	if t == "" {
-		return
-	}
-	out := make([]string, 0, len(s.tags))
-	for _, existing := range s.tags {
-		if existing == t {
-			continue
-		}
-		out = append(out, existing)
-	}
-	s.tags = out
-	sort.Strings(s.tags)
-}
-
 func (s *NodeStats) SetLinks(links []NodeId) {
 	if s == nil {
 		return
@@ -268,12 +251,38 @@ func (s *NodeStats) UpdateFromContent(content *NodeContent, now *time.Time) {
 	if s == nil || content == nil {
 		return
 	}
+	s.SetTitle(content.Title)
 	s.SetHash(content.Hash, now)
 	s.SetLead(content.Lead)
 	s.SetLinks(content.Links)
-	if tags, ok := parseTagsFromFrontmatter(content.Frontmatter); ok {
-		s.SetTags(tags)
+}
+
+func (s *NodeStats) ToJSON() ([]byte, error) {
+	if s == nil {
+		s = &NodeStats{}
 	}
+	wire := statsJSON{
+		Title: s.Title(),
+		Hash:  s.Hash(),
+		Lead:  s.Lead(),
+	}
+	if !s.Updated().IsZero() {
+		wire.Updated = s.Updated().Format(time.RFC3339)
+	}
+	if !s.Created().IsZero() {
+		wire.Created = s.Created().Format(time.RFC3339)
+	}
+	if !s.Accessed().IsZero() {
+		wire.Accessed = s.Accessed().Format(time.RFC3339)
+	}
+	links := s.Links()
+	if len(links) > 0 {
+		wire.Links = make([]string, 0, len(links))
+		for _, link := range links {
+			wire.Links = append(wire.Links, link.Path())
+		}
+	}
+	return json.Marshal(wire)
 }
 
 func normalizeNodeIDList(links []NodeId) []NodeId {
@@ -293,47 +302,4 @@ func normalizeNodeIDList(links []NodeId) []NodeId {
 
 	slices.SortFunc(out, func(a, b NodeId) int { return a.Compare(b) })
 	return out
-}
-
-func parseTagsFromFrontmatter(frontmatter map[string]any) ([]string, bool) {
-	if frontmatter == nil {
-		return nil, false
-	}
-	raw, ok := frontmatter["tags"]
-	if !ok {
-		return nil, false
-	}
-	return parseStatsTags(raw), true
-}
-
-func parseStatsTags(raw any) []string {
-	switch v := raw.(type) {
-	case nil:
-		return []string{}
-	case []string:
-		out := NormalizeTags(v)
-		sort.Strings(out)
-		return out
-	case []any:
-		values := make([]string, 0, len(v))
-		for _, item := range v {
-			switch t := item.(type) {
-			case string:
-				values = append(values, t)
-			default:
-				values = append(values, fmt.Sprint(t))
-			}
-		}
-		out := NormalizeTags(values)
-		sort.Strings(out)
-		return out
-	case string:
-		out := ParseTags(v)
-		sort.Strings(out)
-		return out
-	default:
-		out := ParseTags(fmt.Sprint(v))
-		sort.Strings(out)
-		return out
-	}
 }

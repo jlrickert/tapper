@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -12,10 +13,11 @@ import (
 
 // NodeMeta holds manually edited node metadata and helpers to read/update it.
 //
-// Programmatic fields (hash/timestamps/lead/links/tags) are represented by NodeStats.
-// NodeMeta focuses on human-editable yaml data and comment-preserving writes.
+// Programmatic fields (title/hash/timestamps/lead/links) are represented by
+// NodeStats. NodeMeta focuses on human-editable yaml data and comment-preserving
+// writes.
 type NodeMeta struct {
-	title string
+	tags []string
 
 	// node preserves the parsed yaml document to retain comments/layout when
 	// serializing back to yaml.
@@ -23,12 +25,12 @@ type NodeMeta struct {
 }
 
 type metaYAML struct {
-	Title string `yaml:"title,omitempty"`
+	Tags any `yaml:"tags,omitempty"`
 }
 
 type metaWithStatsYAML struct {
-	Title    string    `yaml:"title,omitempty"`
 	Tags     []string  `yaml:"tags,omitempty"`
+	Title    string    `yaml:"title,omitempty"`
 	Hash     string    `yaml:"hash,omitempty"`
 	Updated  time.Time `yaml:"updated,omitempty"`
 	Created  time.Time `yaml:"created,omitempty"`
@@ -68,10 +70,9 @@ func ParseMeta(ctx context.Context, raw []byte) (*NodeMeta, error) {
 	}
 
 	m := &NodeMeta{
-		title: tmp.Title,
-		node:  &doc,
+		tags: parseMetaTags(tmp.Tags),
+		node: &doc,
 	}
-
 	return m, nil
 }
 
@@ -91,12 +92,10 @@ func (m *NodeMeta) ToYAMLWithStats(stats *NodeStats) string {
 		if len(m.node.Content) > 0 {
 			root := m.node.Content[0]
 			if root != nil && root.Kind == yaml.MappingNode {
-				if m.title == "" {
-					removeFromMapping(root, "title")
+				rewriteTagsInMapping(root, m.tags)
+				if stats == nil {
+					removeProgrammaticFromMapping(root)
 				} else {
-					setScalarInMapping(root, "title", m.title)
-				}
-				if stats != nil {
 					applyStatsToMapping(root, stats)
 				}
 			}
@@ -115,10 +114,10 @@ func (m *NodeMeta) ToYAMLWithStats(stats *NodeStats) string {
 	}
 
 	data := metaWithStatsYAML{
-		Title: m.title,
+		Tags: m.Tags(),
 	}
 	if stats != nil {
-		data.Tags = stats.Tags()
+		data.Title = stats.Title()
 		data.Hash = stats.Hash()
 		data.Updated = stats.Updated()
 		data.Created = stats.Created()
@@ -141,61 +140,112 @@ func (m *NodeMeta) ToYAMLWithStats(stats *NodeStats) string {
 	return out
 }
 
-func (m *NodeMeta) Title() string {
+func (m *NodeMeta) Tags() []string {
 	if m == nil {
-		return ""
+		return nil
 	}
-	return m.title
+	out := make([]string, len(m.tags))
+	copy(out, m.tags)
+	return out
 }
 
-func (m *NodeMeta) SetTitle(ctx context.Context, title string) {
-	_ = ctx
+func (m *NodeMeta) SetTags(tags []string) {
 	if m == nil {
 		return
 	}
-	m.title = title
+	normalized := NormalizeTags(tags)
+	sort.Strings(normalized)
+	m.tags = normalized
+
 	if m.node != nil && len(m.node.Content) > 0 {
 		root := m.node.Content[0]
 		if root != nil && root.Kind == yaml.MappingNode {
-			if title == "" {
-				removeFromMapping(root, "title")
-			} else {
-				setScalarInMapping(root, "title", title)
-			}
+			rewriteTagsInMapping(root, normalized)
+			removeFromMapping(root, "title")
 		}
 	}
 }
 
-// Get retrieves well-known meta fields managed by NodeMeta.
+func (m *NodeMeta) AddTag(tag string) {
+	if m == nil {
+		return
+	}
+	t := NormalizeTag(strings.TrimSpace(tag))
+	if t == "" {
+		return
+	}
+	tags := append(m.Tags(), t)
+	m.SetTags(tags)
+}
+
+func (m *NodeMeta) RmTag(tag string) {
+	if m == nil {
+		return
+	}
+	t := NormalizeTag(strings.TrimSpace(tag))
+	if t == "" {
+		return
+	}
+	existing := m.Tags()
+	if len(existing) == 0 {
+		return
+	}
+	out := make([]string, 0, len(existing))
+	for _, candidate := range existing {
+		if candidate == t {
+			continue
+		}
+		out = append(out, candidate)
+	}
+	m.SetTags(out)
+}
+
+// Get retrieves scalar metadata fields by key.
 func (m *NodeMeta) Get(key string) (string, bool) {
 	if m == nil {
 		return "", false
 	}
-	switch key {
-	case "title":
-		if m.title == "" {
+	if key == "tags" {
+		if len(m.tags) == 0 {
 			return "", false
 		}
-		return m.title, true
-	default:
+		return strings.Join(m.tags, ","), true
+	}
+	if m.node == nil || len(m.node.Content) == 0 {
 		return "", false
 	}
+	root := m.node.Content[0]
+	val := mappingValueInMapping(root, key)
+	if val == nil || val.Kind != yaml.ScalarNode {
+		return "", false
+	}
+	return val.Value, true
 }
 
-// Set updates known NodeMeta keys (title) and preserves unknown keys in
+// Set updates known NodeMeta keys (tags) and preserves unknown keys in
 // the yaml node when available.
 func (m *NodeMeta) Set(ctx context.Context, key string, val any) error {
+	_ = ctx
 	if m == nil {
 		return nil
 	}
 
 	switch key {
-	case "title":
+	case "tags":
 		if val == nil {
-			m.SetTitle(ctx, "")
+			m.SetTags(nil)
 			return nil
 		}
-		m.SetTitle(ctx, fmt.Sprint(val))
+		m.SetTags(parseMetaTags(val))
+		return nil
+	case "title":
+		// Title is a programmatic field owned by stats.json, not meta.yaml.
+		if m.node != nil && len(m.node.Content) > 0 {
+			root := m.node.Content[0]
+			if root != nil && root.Kind == yaml.MappingNode {
+				removeFromMapping(root, "title")
+			}
+		}
 		return nil
 	default:
 		if m.node == nil {
@@ -206,11 +256,9 @@ func (m *NodeMeta) Set(ctx context.Context, key string, val any) error {
 				},
 			}
 			root := m.node.Content[0]
-			if m.title != "" {
-				setScalarInMapping(root, "title", m.title)
-			}
+			rewriteTagsInMapping(root, m.tags)
 		}
-		if m.node != nil && len(m.node.Content) > 0 {
+		if len(m.node.Content) > 0 {
 			root := m.node.Content[0]
 			if root != nil && root.Kind == yaml.MappingNode {
 				if val == nil {
@@ -239,6 +287,12 @@ func (m *NodeMeta) SetAttrs(ctx context.Context, attrs map[string]any) error {
 func applyStatsToMapping(root *yaml.Node, stats *NodeStats) {
 	if root == nil || root.Kind != yaml.MappingNode || stats == nil {
 		return
+	}
+
+	if stats.Title() == "" {
+		removeFromMapping(root, "title")
+	} else {
+		setScalarInMapping(root, "title", stats.Title())
 	}
 
 	if stats.Hash() == "" {
@@ -282,25 +336,114 @@ func applyStatsToMapping(root *yaml.Node, stats *NodeStats) {
 		}
 		setNodeInMapping(root, "links", seq)
 	}
+}
 
-	rewriteTagsInMapping(root, stats.Tags())
+func removeProgrammaticFromMapping(root *yaml.Node) {
+	removeFromMapping(root, "title")
+	removeFromMapping(root, "hash")
+	removeFromMapping(root, "updated")
+	removeFromMapping(root, "created")
+	removeFromMapping(root, "accessed")
+	removeFromMapping(root, "lead")
+	removeFromMapping(root, "links")
 }
 
 func rewriteTagsInMapping(root *yaml.Node, tags []string) {
 	if root == nil || root.Kind != yaml.MappingNode {
 		return
 	}
-	if len(tags) == 0 {
+	normalized := NormalizeTags(tags)
+	sort.Strings(normalized)
+	if len(normalized) == 0 {
 		removeFromMapping(root, "tags")
 		return
 	}
-	normalized := NormalizeTags(tags)
-	seq := &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq"}
-	for _, tag := range normalized {
-		seq.Content = append(seq.Content,
-			&yaml.Node{Kind: yaml.ScalarNode, Value: tag, Tag: "!!str"})
+
+	seq := mappingValueInMapping(root, "tags")
+	if seq == nil || seq.Kind != yaml.SequenceNode {
+		seq = &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq"}
+		for _, tag := range normalized {
+			seq.Content = append(seq.Content,
+				&yaml.Node{Kind: yaml.ScalarNode, Value: tag, Tag: "!!str"})
+		}
+		setNodeInMapping(root, "tags", seq)
+		return
 	}
-	setNodeInMapping(root, "tags", seq)
+	seq.Kind = yaml.SequenceNode
+	seq.Tag = "!!seq"
+
+	existing := map[string]*yaml.Node{}
+	for _, item := range seq.Content {
+		if item == nil || item.Kind != yaml.ScalarNode {
+			continue
+		}
+		key := NormalizeTag(item.Value)
+		if key == "" {
+			continue
+		}
+		if _, ok := existing[key]; !ok {
+			existing[key] = item
+		}
+	}
+
+	next := make([]*yaml.Node, 0, len(normalized))
+	for _, tag := range normalized {
+		if node, ok := existing[tag]; ok {
+			node.Kind = yaml.ScalarNode
+			node.Tag = "!!str"
+			node.Value = tag
+			next = append(next, node)
+			delete(existing, tag)
+			continue
+		}
+		next = append(next, &yaml.Node{Kind: yaml.ScalarNode, Value: tag, Tag: "!!str"})
+	}
+	seq.Content = next
+}
+
+func mappingValueInMapping(root *yaml.Node, key string) *yaml.Node {
+	if root == nil || root.Kind != yaml.MappingNode {
+		return nil
+	}
+	for i := 0; i+1 < len(root.Content); i += 2 {
+		k := root.Content[i]
+		if k != nil && k.Kind == yaml.ScalarNode && k.Value == key {
+			return root.Content[i+1]
+		}
+	}
+	return nil
+}
+
+func parseMetaTags(raw any) []string {
+	switch v := raw.(type) {
+	case nil:
+		return []string{}
+	case []string:
+		out := NormalizeTags(v)
+		sort.Strings(out)
+		return out
+	case []any:
+		values := make([]string, 0, len(v))
+		for _, item := range v {
+			switch t := item.(type) {
+			case string:
+				values = append(values, t)
+			default:
+				values = append(values, fmt.Sprint(t))
+			}
+		}
+		out := NormalizeTags(values)
+		sort.Strings(out)
+		return out
+	case string:
+		out := ParseTags(v)
+		sort.Strings(out)
+		return out
+	default:
+		out := ParseTags(fmt.Sprint(v))
+		sort.Strings(out)
+		return out
+	}
 }
 
 func setScalarInMapping(root *yaml.Node, key, val string) {

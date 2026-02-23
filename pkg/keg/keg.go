@@ -1,6 +1,7 @@
 package keg
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -46,6 +47,7 @@ func NewKegFromTarget(ctx context.Context, target kegurl.Target, rt *toolkit.Run
 			Root:            filepath.Clean(target.Path()),
 			ContentFilename: MarkdownContentFilename,
 			MetaFilename:    YAMLMetaFilename,
+			StatsFilename:   JSONStatsFilename,
 			runtime:         rt,
 		}
 		keg := Keg{Target: &target, Repo: &repo}
@@ -238,7 +240,7 @@ func (k *Keg) Create(ctx context.Context, opts *CreateOptions) (NodeId, error) {
 
 	stats := NewStats(now)
 	if len(opts.Tags) > 0 {
-		stats.SetTags(opts.Tags)
+		m.SetTags(opts.Tags)
 	}
 	nodeData := &NodeData{ID: id, Content: content, Meta: m, Stats: stats}
 	_ = nodeData.UpdateMeta(ctx, &now)
@@ -517,61 +519,147 @@ func (k *Keg) IndexNode(ctx context.Context, id NodeId) error {
 }
 
 type IndexOptions struct {
+	Rebuild  bool
 	NoUpdate bool
 }
 
-// Index performs a full keg re-indexing by clearing the dex and rebuilding it
-// from scratch by reading all nodes in the repository. This is useful for
-// recovering from index corruption or after bulk node modifications.
+// Index updates the keg indices.
+// With Rebuild=true, all index artifacts are rebuilt from scratch.
+// With Rebuild=false, only nodes updated since config.updated (plus missing
+// metadata/stats files) are indexed.
 func (k *Keg) Index(ctx context.Context, opts IndexOptions) error {
 	if err := k.checkKegExists(ctx); err != nil {
 		return fmt.Errorf("failed to re index keg: %w", err)
 	}
 
-	// Build a fresh in-memory Dex
-	if k.dex == nil {
-		k.dex = &Dex{}
-	} else {
-		// ensure empty state before rebuilding
-		k.dex.Clear(ctx)
+	indexedAt, err := k.readIndexWatermark(ctx)
+	if err != nil {
+		return err
 	}
 
-	// List node ids and populate dex
+	if opts.Rebuild {
+		if k.dex == nil {
+			k.dex = &Dex{}
+		} else {
+			k.dex.Clear(ctx)
+		}
+	} else {
+		dex, dexErr := k.Dex(ctx)
+		if dexErr != nil {
+			return dexErr
+		}
+		if dex == nil {
+			k.dex = &Dex{}
+		} else {
+			k.dex = dex
+		}
+	}
+
 	ids, err := k.Repo.ListNodes(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to list nodes: %w", err)
 	}
+	currentNodes := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		currentNodes[id.Path()] = struct{}{}
+	}
+
+	if !opts.Rebuild {
+		for _, ref := range k.dex.Nodes(ctx) {
+			id, perr := ParseNode(ref.ID)
+			if perr != nil || id == nil {
+				continue
+			}
+			if _, ok := currentNodes[id.Path()]; !ok {
+				if err := k.dex.Remove(ctx, *id); err != nil {
+					return fmt.Errorf("failed removing stale node %s from dex: %w", id.Path(), err)
+				}
+			}
+		}
+	}
 
 	var errs []error
+	clk := repoClock(k.Repo)
+	now := clk.Now()
+
 	for _, id := range ids {
+		metaMissing, statsMissing, probeErr := k.nodeFilesMissing(ctx, id)
+		if probeErr != nil {
+			errs = append(errs, probeErr)
+			continue
+		}
+
 		data, err := k.getNode(ctx, id)
 		if err != nil {
 			errs = append(errs, err)
 			continue
 		}
-		if !opts.NoUpdate {
-			clk := repoClock(k.Repo)
-			now := clk.Now()
+
+		if data.Meta == nil {
+			data.Meta = NewMeta(ctx, time.Time{})
+		}
+		if data.Stats == nil {
+			data.Stats = &NodeStats{}
+		}
+
+		changed := data.ContentChanged()
+		statsUpdated := data.Stats.Updated()
+		updatedSinceLastIndex := indexedAt.IsZero() ||
+			statsUpdated.IsZero() ||
+			statsUpdated.After(indexedAt)
+		hasRequiredStats := data.Stats.Title() != "" &&
+			data.Stats.Hash() != "" &&
+			!data.Stats.Created().IsZero() &&
+			!data.Stats.Updated().IsZero()
+
+		needsRefresh := opts.Rebuild ||
+			metaMissing ||
+			statsMissing ||
+			(!opts.NoUpdate && (changed || updatedSinceLastIndex || !hasRequiredStats))
+
+		if needsRefresh {
 			err := data.UpdateMeta(ctx, &now)
 			if err != nil {
 				errs = append(errs, err)
 				continue
 			}
 		}
-		clk := repoClock(k.Repo)
-		now := clk.Now()
-		if data.Stats == nil {
-			data.Stats = &NodeStats{}
-		}
+
 		data.Stats.EnsureTimes(now)
-		// Dex.Add expects a *NodeData
-		if err := k.dex.Add(ctx, data); err != nil {
-			errs = append(errs, fmt.Errorf("failed to add node %s: %w", id, err))
+
+		needsPersist := opts.Rebuild || metaMissing || statsMissing || needsRefresh
+		if needsPersist {
+			err := k.withNodeLock(ctx, id, func(lockCtx context.Context) error {
+				if err := k.Repo.WriteMeta(lockCtx, id, []byte(data.Meta.ToYAML())); err != nil {
+					return fmt.Errorf("failed to write node meta %s: %w", id.Path(), err)
+				}
+				if err := k.Repo.WriteStats(lockCtx, id, data.Stats); err != nil {
+					return fmt.Errorf("failed to write node stats %s: %w", id.Path(), err)
+				}
+				return nil
+			})
+			if err != nil {
+				errs = append(errs, err)
+				continue
+			}
+		}
+
+		needsDexUpdate := opts.Rebuild || needsRefresh || needsPersist ||
+			k.dex.GetRef(ctx, id) == nil || updatedSinceLastIndex
+		if needsDexUpdate {
+			if err := k.dex.Add(ctx, data); err != nil {
+				errs = append(errs, fmt.Errorf("failed to add node %s: %w", id, err))
+			}
 		}
 	}
 
 	if err := k.dex.Write(ctx, k.Repo); err != nil {
 		errs = append(errs, fmt.Errorf("failed to save dex: %w", err))
+	}
+	if err := k.UpdateConfig(ctx, func(cfg *Config) {
+		cfg.Updated = now.Format(time.RFC3339)
+	}); err != nil {
+		errs = append(errs, fmt.Errorf("failed to update index timestamp: %w", err))
 	}
 
 	return errors.Join(errs...)
@@ -654,6 +742,41 @@ func (k *Keg) writeNodeToDex(ctx context.Context, id NodeId, data *NodeData) err
 	})
 }
 
+func (k *Keg) readIndexWatermark(ctx context.Context) (time.Time, error) {
+	cfg, err := k.Repo.ReadConfig(ctx)
+	if err != nil {
+		if errors.Is(err, ErrNotExist) {
+			return time.Time{}, nil
+		}
+		return time.Time{}, fmt.Errorf("failed to read keg config: %w", err)
+	}
+	return parseStatsTime(cfg.Updated), nil
+}
+
+func (k *Keg) nodeFilesMissing(ctx context.Context, id NodeId) (bool, bool, error) {
+	exists, err := k.Repo.HasNode(ctx, id)
+	if err != nil {
+		return false, false, fmt.Errorf("failed to probe node existence for %s: %w", id.Path(), err)
+	}
+	if !exists {
+		return true, true, nil
+	}
+
+	rawMeta, err := k.Repo.ReadMeta(ctx, id)
+	if err != nil && !errors.Is(err, ErrNotExist) {
+		return false, false, fmt.Errorf("failed to probe meta for node %s: %w", id.Path(), err)
+	}
+	metaMissing := errors.Is(err, ErrNotExist) || len(bytes.TrimSpace(rawMeta)) == 0
+
+	_, statsErr := k.Repo.ReadStats(ctx, id)
+	if statsErr != nil && !errors.Is(statsErr, ErrNotExist) {
+		return false, false, fmt.Errorf("failed to probe stats for node %s: %w", id.Path(), statsErr)
+	}
+	statsMissing := errors.Is(statsErr, ErrNotExist)
+
+	return metaMissing, statsMissing, nil
+}
+
 // getContent retrieves and parses raw markdown content for a node.
 func (k *Keg) getContent(ctx context.Context, id NodeId) (*NodeContent, error) {
 	raw, err := k.Repo.ReadContent(ctx, id)
@@ -667,13 +790,23 @@ func (k *Keg) getContent(ctx context.Context, id NodeId) (*NodeContent, error) {
 func (k *Keg) getMeta(ctx context.Context, id NodeId) (*NodeMeta, error) {
 	raw, err := k.Repo.ReadMeta(ctx, id)
 	if err != nil {
+		if errors.Is(err, ErrNotExist) {
+			return NewMeta(ctx, time.Time{}), nil
+		}
 		return nil, err
 	}
 	return ParseMeta(ctx, raw)
 }
 
 func (k *Keg) getStats(ctx context.Context, id NodeId) (*NodeStats, error) {
-	return k.Repo.ReadStats(ctx, id)
+	stats, err := k.Repo.ReadStats(ctx, id)
+	if err != nil {
+		if errors.Is(err, ErrNotExist) {
+			return &NodeStats{}, nil
+		}
+		return nil, err
+	}
+	return stats, nil
 }
 
 func (k *Keg) getMetaAndStats(ctx context.Context, id NodeId) (*NodeMeta, *NodeStats, error) {

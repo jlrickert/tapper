@@ -38,6 +38,25 @@ func TestFsRepo_WriteReadMetaAndContent(t *testing.T) {
 	require.Equal(t, string(meta), string(gotMeta))
 }
 
+func TestFsRepo_HasNode(t *testing.T) {
+	t.Parallel()
+	fx := NewSandbox(t, sandbox.WithFixture("empty", "~/empty"))
+	ctx := fx.Context()
+
+	r := keg.NewFsRepo("~/empty", fx.Runtime())
+	id := keg.NodeId{ID: 12}
+
+	exists, err := r.HasNode(ctx, id)
+	require.NoError(t, err)
+	require.False(t, exists)
+
+	require.NoError(t, r.WriteContent(ctx, id, []byte("# hello\n")))
+
+	exists, err = r.HasNode(ctx, id)
+	require.NoError(t, err)
+	require.True(t, exists)
+}
+
 func TestFsRepo_NextAndListNodes(t *testing.T) {
 	t.Parallel()
 	fx := NewSandbox(t,
@@ -194,7 +213,12 @@ func TestFsRepo_WriteReadStats(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, string(gotMeta), "title: keep-me")
 	require.Contains(t, string(gotMeta), "foo: bar")
-	require.Contains(t, string(gotMeta), "hash: h1")
+	require.NotContains(t, string(gotMeta), "hash:")
+
+	statsPath := filepath.Join(tmp, id.Path(), keg.JSONStatsFilename)
+	rawStats, err := fx.Runtime().ReadFile(statsPath)
+	require.NoError(t, err)
+	require.Contains(t, string(rawStats), "\"hash\":\"h1\"")
 }
 
 func TestFsRepo_WithNodeLockTimeout(t *testing.T) {

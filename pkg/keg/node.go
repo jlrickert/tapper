@@ -70,16 +70,27 @@ func (n *Node) getContent(ctx context.Context, id NodeId) (*NodeContent, error) 
 // for a node via repository APIs.
 func (n *Node) getMetaAndStats(ctx context.Context, id NodeId) (*NodeMeta, *NodeStats, error) {
 	raw, err := n.Repo.ReadMeta(ctx, id)
-	if err != nil {
+	if err != nil && !errors.Is(err, ErrNotExist) {
 		return nil, nil, err
 	}
-	meta, err := ParseMeta(ctx, raw)
-	if err != nil {
-		return nil, nil, err
+
+	var meta *NodeMeta
+	if errors.Is(err, ErrNotExist) {
+		meta = NewMeta(ctx, time.Time{})
+	} else {
+		meta, err = ParseMeta(ctx, raw)
+		if err != nil {
+			return nil, nil, err
+		}
 	}
+
 	stats, err := n.Repo.ReadStats(ctx, id)
 	if err != nil {
-		return nil, nil, err
+		if errors.Is(err, ErrNotExist) {
+			stats = &NodeStats{}
+		} else {
+			return nil, nil, err
+		}
 	}
 	return meta, stats, nil
 }
@@ -127,7 +138,6 @@ func (n *Node) Stats(ctx context.Context) (*NodeStats, error) {
 	}
 	copyStats := *n.data.Stats
 	copyStats.links = n.data.Stats.Links()
-	copyStats.tags = n.data.Stats.Tags()
 	return &copyStats, nil
 }
 
