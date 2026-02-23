@@ -129,6 +129,7 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 		NewPwdCmd(deps),
 		NewRemoveCmd(deps),
 		NewStatsCmd(deps),
+		NewTagsCmd(deps),
 	}
 	if deps.Profile.IncludeConfigCommand {
 		subcommands = append(subcommands, NewConfigCmd(deps))
