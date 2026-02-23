@@ -1,9 +1,7 @@
 package cli
 
 import (
-	"errors"
 	"fmt"
-	"os"
 
 	"github.com/jlrickert/tapper/pkg/tapper"
 	"github.com/spf13/cobra"
@@ -14,25 +12,24 @@ import (
 // Usage examples:
 //
 //	tap config
-//	tap config --project
-//	tap config --user
+//	tap config --keg myalias
 //	tap config edit
-//	tap config edit --project
+//	tap config edit --keg myalias
 func NewConfigCmd(deps *Deps) *cobra.Command {
-	var opts tapper.ConfigOptions
+	var opts tapper.InfoOptions
 
 	cmd := &cobra.Command{
 		Use:   "config",
-		Short: "display configuration",
-		Long: `Display the merged configuration (user + local).
+		Short: "display keg configuration",
+		Long: `Display the keg configuration (keg file contents).
 
-Use 'Tap config edit' to modify the configuration.
-Use '--project' flag to view only local project configuration.`,
+Shows metadata about the keg including title, creator, entities, tags, and
+other configuration properties. Use 'tap config edit' to modify the keg
+configuration.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			output, err := deps.Tap.Config(opts)
-			if errors.Is(err, os.ErrNotExist) {
-				return fmt.Errorf("no configuration available: %w", err)
-			}
+			applyKegTargetProfile(deps, &opts.KegTargetOptions)
+			ctx := cmd.Context()
+			output, err := deps.Tap.Info(ctx, opts)
 			if err != nil {
 				return err
 			}
@@ -42,12 +39,10 @@ Use '--project' flag to view only local project configuration.`,
 		},
 	}
 
-	cmd.Flags().BoolVar(&opts.Project, "project", false, "display project configuration")
-	cmd.Flags().BoolVar(&opts.User, "user", false, "display user configuration")
-	cmd.Flags().BoolVar(&opts.Template, "template", false, "display template configuration")
+	bindKegTargetFlags(cmd, deps, &opts.KegTargetOptions, "alias of the keg to display configuration for")
 
-	// Add the edit subcommand
-	cmd.AddCommand(NewConfigEditCmd(deps))
+	// Add the edit subcommand for keg config editing.
+	cmd.AddCommand(NewInfoEditCmd(deps))
 
 	return cmd
 }

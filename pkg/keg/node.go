@@ -38,12 +38,12 @@ func (n *Node) Init(ctx context.Context) error {
 		return err
 	}
 
-	items, err := n.Repo.ListAssets(ctx, n.ID, AssetKindItem)
+	items, err := repoListFiles(ctx, n.Repo, n.ID)
 	if err != nil {
 		return err
 	}
 
-	images, err := n.Repo.ListAssets(ctx, n.ID, AssetKindImage)
+	images, err := repoListImages(ctx, n.Repo, n.ID)
 	if err != nil {
 		return err
 	}

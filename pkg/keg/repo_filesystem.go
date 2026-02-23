@@ -767,8 +767,7 @@ func (f *FsRepo) DeleteAsset(ctx context.Context, id NodeId, kind AssetKind, nam
 	}
 }
 
-// Compatibility wrappers for pre-assets API callers.
-func (f *FsRepo) ListItems(ctx context.Context, id NodeId) ([]string, error) {
+func (f *FsRepo) ListFiles(ctx context.Context, id NodeId) ([]string, error) {
 	return f.ListAssets(ctx, id, AssetKindItem)
 }
 
@@ -776,11 +775,11 @@ func (f *FsRepo) ListImages(ctx context.Context, id NodeId) ([]string, error) {
 	return f.ListAssets(ctx, id, AssetKindImage)
 }
 
-func (f *FsRepo) UploadImage(ctx context.Context, id NodeId, name string, data []byte) error {
+func (f *FsRepo) WriteImage(ctx context.Context, id NodeId, name string, data []byte) error {
 	return f.WriteAsset(ctx, id, AssetKindImage, name, data)
 }
 
-func (f *FsRepo) UploadItem(ctx context.Context, id NodeId, name string, data []byte) error {
+func (f *FsRepo) WriteFile(ctx context.Context, id NodeId, name string, data []byte) error {
 	return f.WriteAsset(ctx, id, AssetKindItem, name, data)
 }
 
@@ -788,7 +787,7 @@ func (f *FsRepo) DeleteImage(ctx context.Context, id NodeId, name string) error 
 	return f.DeleteAsset(ctx, id, AssetKindImage, name)
 }
 
-func (f *FsRepo) DeleteItem(ctx context.Context, id NodeId, name string) error {
+func (f *FsRepo) DeleteFile(ctx context.Context, id NodeId, name string) error {
 	return f.DeleteAsset(ctx, id, AssetKindItem, name)
 }
 
@@ -835,6 +834,8 @@ func (f *FsRepo) WriteConfig(ctx context.Context, config *Config) error {
 }
 
 var _ Repository = (*FsRepo)(nil)
+var _ RepositoryFiles = (*FsRepo)(nil)
+var _ RepositoryImages = (*FsRepo)(nil)
 
 // ----------------- small helpers -----------------
 

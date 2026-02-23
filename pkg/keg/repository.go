@@ -2,6 +2,7 @@ package keg
 
 import (
 	"context"
+	"time"
 )
 
 // AssetKind identifies an asset namespace for a node.
@@ -68,22 +69,10 @@ type Repository interface {
 	// and metadata share a storage representation.
 	WriteStats(ctx context.Context, id NodeId, stats *NodeStats) error
 
-	// Node assets (images, attachments/items)
-
-	// ListAssets lists asset names for a node and asset namespace kind.
-	// Missing nodes should return a typed/sentinel not-exist error.
-	ListAssets(ctx context.Context, id NodeId, kind AssetKind) ([]string, error)
-	// WriteAsset stores a named asset payload for a node and asset kind.
-	// Implementations may create required directories/containers as needed.
-	WriteAsset(ctx context.Context, id NodeId, kind AssetKind, name string, data []byte) error
-	// DeleteAsset removes a named asset for a node and asset kind.
-	// Missing nodes or missing assets should return typed/sentinel errors.
-	DeleteAsset(ctx context.Context, id NodeId, kind AssetKind, name string) error
-
 	// Indexes
 
 	// GetIndex reads an index artifact by name (for example "nodes.tsv").
-	// Returned bytes should be treated as immutable by callers.
+	// Callers should treat returned bytes as immutable.
 	GetIndex(ctx context.Context, name string) ([]byte, error)
 	// WriteIndex writes an index artifact by name.
 	// Implementations should prefer atomic file replacement semantics.
@@ -95,7 +84,7 @@ type Repository interface {
 	// This method should be idempotent and context-aware.
 	ClearIndexes(ctx context.Context) error
 
-	// Repository config
+	// Repository config. This is the keg file
 
 	// ReadConfig reads repository-level keg configuration.
 	// Missing config should return typed/sentinel not-exist errors.
@@ -103,6 +92,102 @@ type Repository interface {
 	// WriteConfig persists repository-level keg configuration.
 	// Implementations should perform atomic writes when possible.
 	WriteConfig(ctx context.Context, config *Config) error
+}
+
+// RepositoryFiles provides optional per-node file attachment access.
+type RepositoryFiles interface {
+	// ListFiles lists file attachment names for a node.
+	ListFiles(ctx context.Context, id NodeId) ([]string, error)
+	// WriteFile stores a file attachment for a node.
+	WriteFile(ctx context.Context, id NodeId, name string, data []byte) error
+	// DeleteFile removes a file attachment from a node.
+	DeleteFile(ctx context.Context, id NodeId, name string) error
+}
+
+// RepositoryImages provides optional per-node image access.
+type RepositoryImages interface {
+	// ListImages lists image names for a node.
+	ListImages(ctx context.Context, id NodeId) ([]string, error)
+	// WriteImage stores an image payload for a node.
+	WriteImage(ctx context.Context, id NodeId, name string, data []byte) error
+	// DeleteImage removes an image from a node.
+	DeleteImage(ctx context.Context, id NodeId, name string) error
+}
+
+type RevisionID int64
+
+// SnapshotContentKind describes how snapshot content bytes are stored.
+type SnapshotContentKind string
+
+const (
+	// SnapshotContentKindPatch stores content as a diff from a base revision.
+	SnapshotContentKindPatch SnapshotContentKind = "patch"
+	// SnapshotContentKindFull stores full reconstructed content bytes.
+	SnapshotContentKindFull SnapshotContentKind = "full"
+)
+
+type Snapshot struct {
+	ID        RevisionID
+	Node      NodeId
+	Parent    RevisionID // 0 for root
+	CreatedAt time.Time
+	Message   string
+
+	// Integrity + retrieval hints
+	ContentHash  string
+	MetaHash     string
+	StatsHash    string
+	IsCheckpoint bool // full content stored instead of patch
+}
+
+// SnapshotContentWrite describes content payload for a new snapshot revision.
+type SnapshotContentWrite struct {
+	Kind SnapshotContentKind
+	Base RevisionID
+
+	// Algorithm identifies the patch format, for example "xdiff-v1".
+	Algorithm string
+	Data      []byte
+
+	// Hash is the digest of fully materialized content at this revision.
+	Hash string
+}
+
+// SnapshotWrite describes append parameters for a new node snapshot.
+type SnapshotWrite struct {
+	ExpectedParent RevisionID
+	Message        string
+
+	Meta  []byte
+	Stats *NodeStats
+
+	Content SnapshotContentWrite
+}
+
+// SnapshotReadOptions configures how snapshots are loaded.
+type SnapshotReadOptions struct {
+	// ResolveContent reconstructs full content bytes for the selected revision.
+	ResolveContent bool
+}
+
+// RepositorySnapshots provides revision-based history operations.
+type RepositorySnapshots interface {
+	// AppendSnapshot appends a new revision with optimistic parent check.
+	AppendSnapshot(ctx context.Context, id NodeId, in SnapshotWrite) (Snapshot, error)
+
+	// GetSnapshot returns snapshot metadata and optional state payloads.
+	// When opts.ResolveContent is true, returned content must be fully materialized.
+	GetSnapshot(ctx context.Context, id NodeId, rev RevisionID, opts SnapshotReadOptions) (snap Snapshot, content []byte, meta []byte, stats *NodeStats, err error)
+
+	// ListSnapshots returns revisions for a node in deterministic order.
+	ListSnapshots(ctx context.Context, id NodeId) ([]Snapshot, error)
+
+	// ReadContentAt reconstructs content at a specific revision.
+	ReadContentAt(ctx context.Context, id NodeId, rev RevisionID) ([]byte, error)
+
+	// RestoreSnapshot restores live node state to rev. Implementations may append
+	// a restore snapshot when createRestoreSnapshot is true.
+	RestoreSnapshot(ctx context.Context, id NodeId, rev RevisionID, createRestoreSnapshot bool) error
 }
 
 type nodeLockContextKey struct{}

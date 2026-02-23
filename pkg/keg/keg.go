@@ -1066,12 +1066,12 @@ func (k *Keg) getNode(ctx context.Context, n NodeId) (*NodeData, error) {
 		return nil, err
 	}
 
-	items, err := k.Repo.ListAssets(ctx, n, AssetKindItem)
+	items, err := repoListFiles(ctx, k.Repo, n)
 	if err != nil {
 		return nil, err
 	}
 
-	images, err := k.Repo.ListAssets(ctx, n, AssetKindImage)
+	images, err := repoListImages(ctx, k.Repo, n)
 	if err != nil {
 		return nil, err
 	}
