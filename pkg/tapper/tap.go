@@ -1220,6 +1220,23 @@ type GrepOptions struct {
 	IgnoreCase bool
 }
 
+type TagsOptions struct {
+	KegTargetOptions
+
+	// Tag filters nodes by tag. When empty, all tags are listed.
+	Tag string
+
+	// Format to use. %i is node id
+	// %d is date
+	// %t is node title
+	// %% for literal %
+	Format string
+
+	IdOnly bool
+
+	Reverse bool
+}
+
 type grepMatch struct {
 	entry keg.NodeIndexEntry
 	lines []string
@@ -1337,6 +1354,44 @@ func (t *Tap) Grep(ctx context.Context, opts GrepOptions) ([]string, error) {
 	return renderGrepMatches(matches, opts.Reverse), nil
 }
 
+func (t *Tap) Tags(ctx context.Context, opts TagsOptions) ([]string, error) {
+	k, err := t.resolveKeg(ctx, opts.KegTargetOptions)
+	if err != nil {
+		return []string{}, fmt.Errorf("unable to open keg: %w", err)
+	}
+	dex, err := k.Dex(ctx)
+	if err != nil {
+		return []string{}, fmt.Errorf("unable to read dex: %w", err)
+	}
+
+	tag := strings.TrimSpace(opts.Tag)
+	if tag == "" {
+		tags := dex.TagList(ctx)
+		sortStringsAsc(tags)
+		if opts.Reverse {
+			reverseStrings(tags)
+		}
+		return tags, nil
+	}
+
+	nodes, ok := dex.TagNodes(ctx, tag)
+	if !ok || len(nodes) == 0 {
+		return []string{}, nil
+	}
+
+	entries := make([]keg.NodeIndexEntry, 0, len(nodes))
+	for _, node := range nodes {
+		ref := dex.GetRef(ctx, node)
+		if ref != nil {
+			entries = append(entries, *ref)
+			continue
+		}
+		entries = append(entries, keg.NodeIndexEntry{ID: node.Path()})
+	}
+	sortNodeIndexEntries(entries)
+	return renderNodeEntries(entries, opts.Format, opts.IdOnly, opts.Reverse), nil
+}
+
 func grepContentLineMatches(re *regexp.Regexp, raw []byte) []string {
 	if len(raw) == 0 {
 		return nil
@@ -1427,6 +1482,23 @@ func sortNodeIndexEntries(entries []keg.NodeIndexEntry) {
 			}
 			entries[j-1], entries[j] = entries[j], entries[j-1]
 		}
+	}
+}
+
+func sortStringsAsc(values []string) {
+	for i := 1; i < len(values); i++ {
+		for j := i; j > 0; j-- {
+			if values[j-1] <= values[j] {
+				break
+			}
+			values[j-1], values[j] = values[j], values[j-1]
+		}
+	}
+}
+
+func reverseStrings(values []string) {
+	for i, j := 0, len(values)-1; i < j; i, j = i+1, j-1 {
+		values[i], values[j] = values[j], values[i]
 	}
 }
 
