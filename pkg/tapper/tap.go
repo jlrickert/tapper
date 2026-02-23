@@ -857,14 +857,19 @@ func (t *Tap) List(ctx context.Context, opts ListOptions) ([]string, error) {
 		return []string{}, fmt.Errorf("unable to read dex: %w", err)
 	}
 
-	format := opts.Format
-	if format == "" {
-		format = "%i\t%d\t%t"
-	}
-
 	entries := dex.Nodes(ctx)
 	lines := make([]string, 0)
 	for _, entry := range entries {
+		if opts.IdOnly {
+			lines = append(lines, entry.ID)
+			continue
+		}
+
+		format := opts.Format
+		if format == "" {
+			format = "%i\t%d\t%t"
+		}
+
 		line := format
 		line = strings.Replace(line, "%i", entry.ID, -1)
 		line = strings.Replace(line, "%d", entry.Updated.Format(time.RFC3339), -1)
