@@ -12,9 +12,9 @@ func NewRemoveCmd(deps *Deps) *cobra.Command {
 		Use:     "rm NODE_ID",
 		Short:   "remove a node",
 		Aliases: []string{"remove"},
-		Args:    cobra.ExactArgs(1),
+		Args:    cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			opts.NodeID = args[0]
+			opts.NodeIDs = args
 			applyKegTargetProfile(deps, &opts.KegTargetOptions)
 			return deps.Tap.Remove(cmd.Context(), opts)
 		},
