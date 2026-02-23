@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -1199,6 +1200,31 @@ type BacklinksOptions struct {
 	Reverse bool
 }
 
+type GrepOptions struct {
+	KegTargetOptions
+
+	// Query is the regex pattern used to search nodes.
+	Query string
+
+	// Format to use. %i is node id
+	// %d is date
+	// %t is node title
+	// %% for literal %
+	Format string
+
+	IdOnly bool
+
+	Reverse bool
+
+	// IgnoreCase enables case-insensitive regex matching.
+	IgnoreCase bool
+}
+
+type grepMatch struct {
+	entry keg.NodeIndexEntry
+	lines []string
+}
+
 func (t *Tap) List(ctx context.Context, opts ListOptions) ([]string, error) {
 	k, err := t.resolveKeg(ctx, opts.KegTargetOptions)
 	if err != nil {
@@ -1256,6 +1282,108 @@ func (t *Tap) Backlinks(ctx context.Context, opts BacklinksOptions) ([]string, e
 	}
 	sortNodeIndexEntries(entries)
 	return renderNodeEntries(entries, opts.Format, opts.IdOnly, opts.Reverse), nil
+}
+
+func (t *Tap) Grep(ctx context.Context, opts GrepOptions) ([]string, error) {
+	k, err := t.resolveKeg(ctx, opts.KegTargetOptions)
+	if err != nil {
+		return []string{}, fmt.Errorf("unable to open keg: %w", err)
+	}
+	dex, err := k.Dex(ctx)
+	if err != nil {
+		return []string{}, fmt.Errorf("unable to read dex: %w", err)
+	}
+
+	pattern := opts.Query
+	if opts.IgnoreCase {
+		pattern = "(?i)" + pattern
+	}
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		return []string{}, fmt.Errorf("invalid query regex %q: %w", opts.Query, err)
+	}
+
+	entries := dex.Nodes(ctx)
+	matches := make([]grepMatch, 0)
+	for _, entry := range entries {
+		id, parseErr := keg.ParseNode(entry.ID)
+		if parseErr != nil || id == nil {
+			continue
+		}
+
+		contentRaw, contentErr := k.Repo.ReadContent(ctx, *id)
+		if contentErr != nil {
+			if errors.Is(contentErr, keg.ErrNotExist) {
+				continue
+			}
+			return []string{}, fmt.Errorf("unable to read node content: %w", contentErr)
+		}
+		lineMatches := grepContentLineMatches(re, contentRaw)
+		if len(lineMatches) > 0 {
+			matches = append(matches, grepMatch{
+				entry: entry,
+				lines: lineMatches,
+			})
+		}
+	}
+
+	matchedEntries := make([]keg.NodeIndexEntry, 0, len(matches))
+	for _, match := range matches {
+		matchedEntries = append(matchedEntries, match.entry)
+	}
+	if opts.IdOnly || opts.Format != "" {
+		return renderNodeEntries(matchedEntries, opts.Format, opts.IdOnly, opts.Reverse), nil
+	}
+	return renderGrepMatches(matches, opts.Reverse), nil
+}
+
+func grepContentLineMatches(re *regexp.Regexp, raw []byte) []string {
+	if len(raw) == 0 {
+		return nil
+	}
+
+	content := strings.ReplaceAll(string(raw), "\r\n", "\n")
+	parts := strings.Split(content, "\n")
+	lines := make([]string, 0)
+	for i, part := range parts {
+		line := strings.TrimRight(part, "\r")
+		if re.MatchString(line) {
+			lines = append(lines, fmt.Sprintf("%d:%s", i+1, line))
+		}
+	}
+	return lines
+}
+
+func renderGrepMatches(matches []grepMatch, reverse bool) []string {
+	lines := make([]string, 0)
+
+	start := 0
+	end := len(matches)
+	step := 1
+	if reverse {
+		start = len(matches) - 1
+		end = -1
+		step = -1
+	}
+
+	first := true
+	for i := start; i != end; i += step {
+		match := matches[i]
+		if !first {
+			lines = append(lines, "")
+		}
+		first = false
+
+		header := strings.TrimSpace(match.entry.Title)
+		if header == "" {
+			lines = append(lines, match.entry.ID)
+		} else {
+			lines = append(lines, fmt.Sprintf("%s %s", match.entry.ID, header))
+		}
+		lines = append(lines, match.lines...)
+	}
+
+	return lines
 }
 
 func renderNodeEntries(entries []keg.NodeIndexEntry, format string, idOnly bool, reverse bool) []string {
