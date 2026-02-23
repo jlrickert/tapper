@@ -40,6 +40,13 @@ func TestCatCommand_TableDrivenErrorHandling(t *testing.T) {
 			expectedErr:  "keg alias not found",
 			description:  "Error when keg alias does not exist",
 		},
+		{
+			name:         "cat_nonexistent_node",
+			args:         []string{"cat", "12341234"},
+			setupFixture: strPtr("joe"),
+			expectedErr:  "node 12341234 not found",
+			description:  "Error when node does not exist",
+		},
 	}
 
 	for _, tt := range tests {
