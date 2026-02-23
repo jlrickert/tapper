@@ -73,7 +73,7 @@ func ParseContent(rt *toolkit.Runtime, data []byte, format string) (*NodeContent
 	}
 
 	fmt := detectFormat(data, format)
-	hasher := runtimeHasher(rt)
+	hasher := rt.Hasher()
 
 	var title, lead string
 	var fm map[string]any

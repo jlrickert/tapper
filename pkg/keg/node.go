@@ -5,13 +5,16 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"github.com/jlrickert/cli-toolkit/toolkit"
 )
 
 // Node provides operations and lifecycle management for a single KEG node.
 // It holds the node identifier, repository reference, and lazily-loaded node data.
 type Node struct {
-	ID   NodeId
-	Repo Repository
+	ID      NodeId
+	Repo    Repository
+	Runtime *toolkit.Runtime
 
 	data *NodeData
 }
@@ -63,7 +66,7 @@ func (n *Node) getContent(ctx context.Context, id NodeId) (*NodeContent, error) 
 	if err != nil {
 		return nil, err
 	}
-	return ParseContent(repoRuntime(n.Repo), raw, FormatMarkdown)
+	return ParseContent(n.Runtime, raw, FormatMarkdown)
 }
 
 // getMetaAndStats retrieves and parses YAML metadata plus programmatic stats
@@ -183,8 +186,7 @@ func (n *Node) Update(ctx context.Context) error {
 		return err
 	}
 
-	clk := repoClock(n.Repo)
-	now := clk.Now()
+	now := n.Runtime.Clock().Now()
 
 	run := func(lockCtx context.Context) error {
 		return n.updateUnlocked(lockCtx, now)
@@ -210,8 +212,7 @@ func (n *Node) Touch(ctx context.Context) error {
 		return err
 	}
 
-	clk := repoClock(n.Repo)
-	now := clk.Now()
+	now := n.Runtime.Clock().Now()
 	run := func(lockCtx context.Context) error {
 		return n.touchUnlocked(lockCtx, now)
 	}
