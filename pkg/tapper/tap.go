@@ -1182,6 +1182,23 @@ type ListOptions struct {
 	Reverse bool
 }
 
+type BacklinksOptions struct {
+	KegTargetOptions
+
+	// NodeID is the target node to inspect incoming links for.
+	NodeID string
+
+	// Format to use. %i is node id
+	// %d is date
+	// %t is node title
+	// %% for literal %
+	Format string
+
+	IdOnly bool
+
+	Reverse bool
+}
+
 func (t *Tap) List(ctx context.Context, opts ListOptions) ([]string, error) {
 	k, err := t.resolveKeg(ctx, opts.KegTargetOptions)
 	if err != nil {
@@ -1193,12 +1210,61 @@ func (t *Tap) List(ctx context.Context, opts ListOptions) ([]string, error) {
 	}
 
 	entries := dex.Nodes(ctx)
+	return renderNodeEntries(entries, opts.Format, opts.IdOnly, opts.Reverse), nil
+}
+
+func (t *Tap) Backlinks(ctx context.Context, opts BacklinksOptions) ([]string, error) {
+	k, err := t.resolveKeg(ctx, opts.KegTargetOptions)
+	if err != nil {
+		return []string{}, fmt.Errorf("unable to open keg: %w", err)
+	}
+	dex, err := k.Dex(ctx)
+	if err != nil {
+		return []string{}, fmt.Errorf("unable to read dex: %w", err)
+	}
+
+	node, err := keg.ParseNode(opts.NodeID)
+	if err != nil {
+		return []string{}, fmt.Errorf("invalid node ID %q: %w", opts.NodeID, err)
+	}
+	if node == nil {
+		return []string{}, fmt.Errorf("invalid node ID %q: %w", opts.NodeID, keg.ErrInvalid)
+	}
+	id := keg.NodeId{ID: node.ID, Code: node.Code}
+
+	exists, err := k.Repo.HasNode(ctx, id)
+	if err != nil {
+		return []string{}, fmt.Errorf("unable to inspect node: %w", err)
+	}
+	if !exists {
+		return []string{}, fmt.Errorf("node %s not found", id.Path())
+	}
+
+	backlinks, ok := dex.Backlinks(ctx, id)
+	if !ok || len(backlinks) == 0 {
+		return []string{}, nil
+	}
+
+	entries := make([]keg.NodeIndexEntry, 0, len(backlinks))
+	for _, source := range backlinks {
+		ref := dex.GetRef(ctx, source)
+		if ref != nil {
+			entries = append(entries, *ref)
+			continue
+		}
+		entries = append(entries, keg.NodeIndexEntry{ID: source.Path()})
+	}
+	sortNodeIndexEntries(entries)
+	return renderNodeEntries(entries, opts.Format, opts.IdOnly, opts.Reverse), nil
+}
+
+func renderNodeEntries(entries []keg.NodeIndexEntry, format string, idOnly bool, reverse bool) []string {
 	lines := make([]string, 0)
 
 	start := 0
 	end := len(entries)
 	step := 1
-	if opts.Reverse {
+	if reverse {
 		start = len(entries) - 1
 		end = -1
 		step = -1
@@ -1206,23 +1272,55 @@ func (t *Tap) List(ctx context.Context, opts ListOptions) ([]string, error) {
 
 	for i := start; i != end; i += step {
 		entry := entries[i]
-		if opts.IdOnly {
+		if idOnly {
 			lines = append(lines, entry.ID)
 			continue
 		}
 
-		format := opts.Format
-		if format == "" {
-			format = "%i\t%d\t%t"
+		lineFormat := format
+		if lineFormat == "" {
+			lineFormat = "%i\t%d\t%t"
 		}
 
-		line := format
+		line := lineFormat
 		line = strings.Replace(line, "%i", entry.ID, -1)
 		line = strings.Replace(line, "%d", entry.Updated.Format(time.RFC3339), -1)
 		line = strings.Replace(line, "%t", entry.Title, -1)
 		lines = append(lines, line)
 	}
-	return lines, nil
+	return lines
+}
+
+func sortNodeIndexEntries(entries []keg.NodeIndexEntry) {
+	for i := 1; i < len(entries); i++ {
+		for j := i; j > 0; j-- {
+			if compareNodeEntryID(entries[j-1].ID, entries[j].ID) <= 0 {
+				break
+			}
+			entries[j-1], entries[j] = entries[j], entries[j-1]
+		}
+	}
+}
+
+func compareNodeEntryID(a, b string) int {
+	na, ea := keg.ParseNode(a)
+	nb, eb := keg.ParseNode(b)
+	if ea == nil && eb == nil && na != nil && nb != nil {
+		return na.Compare(*nb)
+	}
+	if ea == nil && na != nil {
+		return -1
+	}
+	if eb == nil && nb != nil {
+		return 1
+	}
+	if a < b {
+		return -1
+	}
+	if a > b {
+		return 1
+	}
+	return 0
 }
 
 type DirOptions struct {

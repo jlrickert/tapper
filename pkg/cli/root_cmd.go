@@ -117,6 +117,7 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 	cmd.PersistentFlags().StringVarP(&deps.ConfigPath, "config", "c", "", "path to config file")
 
 	subcommands := []*cobra.Command{
+		NewBacklinksCmd(deps),
 		NewCatCmd(deps),
 		NewCreateCmd(deps),
 		NewEditCmd(deps),
