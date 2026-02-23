@@ -141,6 +141,20 @@ type EditOptions struct {
 	Stream *toolkit.Stream
 }
 
+// MetaOptions configures behavior for Tap.Meta.
+type MetaOptions struct {
+	// NodeID is the node identifier to inspect (e.g., "0", "42")
+	NodeID string
+
+	KegTargetOptions
+
+	// Edit opens metadata in the editor.
+	Edit bool
+
+	// Stream carries stdin piping information.
+	Stream *toolkit.Stream
+}
+
 // Cat reads and displays a node's content with its metadata as frontmatter.
 //
 // The metadata (meta.yaml) is output as YAML frontmatter above the node's
@@ -225,6 +239,65 @@ func formatFrontmatter(meta []byte, content []byte) string {
 func formatStatsOnlyYAML(ctx context.Context, stats *keg.NodeStats) string {
 	meta := keg.NewMeta(ctx, time.Time{})
 	return strings.TrimRight(meta.ToYAMLWithStats(stats), "\n")
+}
+
+// Meta reads node metadata, replaces it from stdin, or edits it in a temp file.
+func (t *Tap) Meta(ctx context.Context, opts MetaOptions) (string, error) {
+	k, err := t.resolveKeg(ctx, opts.KegTargetOptions)
+	if err != nil {
+		return "", fmt.Errorf("unable to open keg: %w", err)
+	}
+
+	node, err := keg.ParseNode(opts.NodeID)
+	if err != nil {
+		return "", fmt.Errorf("invalid node ID %q: %w", opts.NodeID, err)
+	}
+	if node == nil {
+		return "", fmt.Errorf("invalid node ID %q: %w", opts.NodeID, keg.ErrInvalid)
+	}
+
+	id := keg.NodeId{ID: node.ID, Code: node.Code}
+	exists, err := k.Repo.HasNode(ctx, id)
+	if err != nil {
+		return "", fmt.Errorf("unable to inspect node: %w", err)
+	}
+	if !exists {
+		return "", fmt.Errorf("node %s not found", id.Path())
+	}
+
+	if opts.Edit {
+		if err := t.editMeta(ctx, k, id, opts.Stream); err != nil {
+			return "", err
+		}
+		return "", nil
+	}
+
+	if opts.Stream != nil && opts.Stream.IsPiped {
+		pipedRaw, readErr := io.ReadAll(opts.Stream.In)
+		if readErr != nil {
+			return "", fmt.Errorf("unable to read piped input: %w", readErr)
+		}
+		if len(bytes.TrimSpace(pipedRaw)) > 0 {
+			metaNode, parseErr := keg.ParseMeta(ctx, pipedRaw)
+			if parseErr != nil {
+				return "", fmt.Errorf("metadata from stdin is invalid: %w", parseErr)
+			}
+			if err := k.SetMeta(ctx, id, metaNode); err != nil {
+				return "", fmt.Errorf("unable to save node metadata: %w", err)
+			}
+			return "", nil
+		}
+	}
+
+	raw, err := k.Repo.ReadMeta(ctx, id)
+	if err != nil && !errors.Is(err, keg.ErrNotExist) {
+		return "", fmt.Errorf("unable to read node metadata: %w", err)
+	}
+	metaNode, err := keg.ParseMeta(ctx, raw)
+	if err != nil {
+		return "", fmt.Errorf("node metadata is invalid: %w", err)
+	}
+	return strings.TrimRight(metaNode.ToYAML(), "\n"), nil
 }
 
 // Edit opens a node in an editor using a temporary markdown file.
@@ -384,6 +457,62 @@ func splitEditNodeFile(raw []byte) (bool, []byte, []byte, error) {
 
 	body := bytes.TrimLeft(rest[endIdx+endLen:], "\r\n")
 	return true, frontmatter, body, nil
+}
+
+func (t *Tap) editMeta(ctx context.Context, k *keg.Keg, id keg.NodeId, stream *toolkit.Stream) error {
+	raw, err := k.Repo.ReadMeta(ctx, id)
+	if err != nil && !errors.Is(err, keg.ErrNotExist) {
+		return fmt.Errorf("unable to read node metadata: %w", err)
+	}
+
+	metaNode, err := keg.ParseMeta(ctx, raw)
+	if err != nil {
+		return fmt.Errorf("node metadata is invalid: %w", err)
+	}
+	originalRaw := []byte(metaNode.ToYAML())
+
+	initialRaw := originalRaw
+	if stream != nil && stream.IsPiped {
+		pipedRaw, readErr := io.ReadAll(stream.In)
+		if readErr != nil {
+			return fmt.Errorf("unable to read piped input: %w", readErr)
+		}
+		if len(bytes.TrimSpace(pipedRaw)) > 0 {
+			initialRaw = pipedRaw
+		}
+	}
+
+	tempPath, err := newEditorTempFilePath(t.Runtime, "tap-meta-", ".yaml")
+	if err != nil {
+		return fmt.Errorf("unable to create temp file path: %w", err)
+	}
+	if err := t.Runtime.WriteFile(tempPath, initialRaw, 0o600); err != nil {
+		return fmt.Errorf("unable to write temp metadata file: %w", err)
+	}
+	defer func() {
+		_ = t.Runtime.Remove(tempPath, false)
+	}()
+
+	if err := toolkit.Edit(ctx, t.Runtime, tempPath); err != nil {
+		return fmt.Errorf("unable to edit node metadata: %w", err)
+	}
+
+	editedRaw, err := t.Runtime.ReadFile(tempPath)
+	if err != nil {
+		return fmt.Errorf("unable to read edited metadata file: %w", err)
+	}
+	if bytes.Equal(editedRaw, originalRaw) {
+		return nil
+	}
+
+	updatedMeta, err := keg.ParseMeta(ctx, editedRaw)
+	if err != nil {
+		return fmt.Errorf("node metadata is invalid after editing: %w", err)
+	}
+	if err := k.SetMeta(ctx, id, updatedMeta); err != nil {
+		return fmt.Errorf("unable to save node metadata: %w", err)
+	}
+	return nil
 }
 
 // Stats reads and displays programmatic node stats.
