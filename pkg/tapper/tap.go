@@ -234,31 +234,22 @@ func (t *Tap) Cat(ctx context.Context, opts CatOptions) (string, error) {
 		return strings.TrimRight(out, "\n") + "\n", nil
 	}
 
-	// Multiple nodes: emit a YAML document stream.
+	// Multiple nodes: emit a YAML document stream where every document is
+	// self-identifying via an injected "id:" field. The leading "---" of each
+	// document serves as the visual separator; documents are joined with a
+	// single blank line.
 	//
-	// Default (frontmatter) mode: each document gets an injected "id:" field so
-	// the reader always knows which node they are looking at. The leading "---"
-	// of each document acts as a natural separator — no extra decoration needed.
-	//
-	// Non-frontmatter modes (--content-only, --meta-only, --stats-only): emit a
-	// plain "\n---\n" thematic-break separator between items (a valid YAML
-	// document-start marker and a Markdown horizontal rule).
+	//   default        ---\nid: "N"\n<meta>\n---\n<content>
+	//   --meta-only    ---\nid: "N"\n<meta yaml>
+	//   --stats-only   ---\nid: "N"\n<stats yaml>
+	//   --content-only ---\nid: "N"\n---\n<content>
 	var buf strings.Builder
-	isFrontmatterMode := !opts.ContentOnly && !opts.MetaOnly && !opts.StatsOnly
 	for i, nodeID := range nodeIDs {
 		if i > 0 {
-			if isFrontmatterMode {
-				buf.WriteString("\n")
-			} else {
-				buf.WriteString("\n---\n")
-			}
+			buf.WriteString("\n")
 		}
 		var out string
-		if isFrontmatterMode {
-			out, err = t.catSingleNodeWithID(ctx, k, nodeID, opts)
-		} else {
-			out, err = t.catSingleNode(ctx, k, nodeID, opts)
-		}
+		out, err = t.catSingleNodeForStream(ctx, k, nodeID, opts)
 		if err != nil {
 			return "", err
 		}
@@ -323,16 +314,36 @@ func formatFrontmatter(meta []byte, content []byte) string {
 	return fmt.Sprintf("---\n%s\n---\n%s", metaText, string(content))
 }
 
-// formatFrontmatterWithID is like formatFrontmatter but prepends an `id` field
-// to the YAML block so multi-document streams are self-identifying.
+// formatFrontmatterWithID is like formatFrontmatter but prepends an `id` field.
 func formatFrontmatterWithID(id string, meta []byte, content []byte) string {
 	metaText := strings.TrimRight(string(meta), "\n")
 	return fmt.Sprintf("---\nid: %q\n%s\n---\n%s", id, metaText, string(content))
 }
 
-// catSingleNodeWithID is like catSingleNode but injects the node ID into the
-// frontmatter. Used for multi-node default-mode output (YAML document stream).
-func (t *Tap) catSingleNodeWithID(ctx context.Context, k *keg.Keg, nodeID string, opts CatOptions) (string, error) {
+// formatMetaWithID wraps a raw meta YAML block as a `---`-delimited document
+// with an injected `id` field at the top.
+func formatMetaWithID(id string, meta []byte) string {
+	metaText := strings.TrimRight(string(meta), "\n")
+	return fmt.Sprintf("---\nid: %q\n%s", id, metaText)
+}
+
+// formatStatsWithID wraps a pre-rendered stats YAML string as a
+// `---`-delimited document with an injected `id` field at the top.
+func formatStatsWithID(id string, stats string) string {
+	statsText := strings.TrimRight(stats, "\n")
+	return fmt.Sprintf("---\nid: %q\n%s", id, statsText)
+}
+
+// formatContentWithID prefixes a content block with a tiny YAML frontmatter
+// containing only the node `id`, then closes the frontmatter before the body.
+func formatContentWithID(id string, content []byte) string {
+	return fmt.Sprintf("---\nid: %q\n---\n%s", id, string(content))
+}
+
+// catSingleNodeForStream reads and formats a single node for multi-document
+// stream output. It injects the node ID into every output mode so each
+// document is self-identifying.
+func (t *Tap) catSingleNodeForStream(ctx context.Context, k *keg.Keg, nodeID string, opts CatOptions) (string, error) {
 	node, err := keg.ParseNode(nodeID)
 	if err != nil {
 		return "", fmt.Errorf("invalid node ID %q: %w", nodeID, err)
@@ -358,7 +369,29 @@ func (t *Tap) catSingleNodeWithID(ctx context.Context, k *keg.Keg, nodeID string
 		return "", fmt.Errorf("unable to update node access: %w", err)
 	}
 
-	return formatFrontmatterWithID(node.Path(), meta, content), nil
+	id := node.Path()
+
+	if opts.ContentOnly {
+		return formatContentWithID(id, content), nil
+	}
+
+	if opts.StatsOnly {
+		stats, readErr := k.Repo.ReadStats(ctx, *node)
+		if readErr != nil {
+			if errors.Is(readErr, keg.ErrNotExist) {
+				stats = &keg.NodeStats{}
+			} else {
+				return "", fmt.Errorf("unable to read node stats: %w", readErr)
+			}
+		}
+		return formatStatsWithID(id, formatStatsOnlyYAML(ctx, stats)), nil
+	}
+
+	if opts.MetaOnly {
+		return formatMetaWithID(id, meta), nil
+	}
+
+	return formatFrontmatterWithID(id, meta, content), nil
 }
 
 func formatStatsOnlyYAML(ctx context.Context, stats *keg.NodeStats) string {

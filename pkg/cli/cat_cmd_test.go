@@ -442,8 +442,8 @@ func TestCatCommand_MultiNode_YAMLStream(t *testing.T) {
 }
 
 // TestCatCommand_MultiNode_ContentOnly verifies that --content-only with
-// multiple nodes separates documents with a plain "---" thematic break and
-// does NOT inject "id:" fields.
+// multiple nodes injects the node ID as a tiny YAML frontmatter before each
+// content block.
 func TestCatCommand_MultiNode_ContentOnly(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
@@ -457,11 +457,50 @@ func TestCatCommand_MultiNode_ContentOnly(t *testing.T) {
 
 	out := string(res.Stdout)
 
-	// Separator must be present.
-	require.Contains(t, out, "\n---\n", "content-only multi-node output should have --- separator")
+	// Each document must carry its ID.
+	require.Contains(t, out, `id: "0"`, "content-only multi-node should inject id for first node")
+	require.Contains(t, out, `id: "1"`, "content-only multi-node should inject id for second node")
 
-	// No injected id field.
-	require.NotContains(t, out, `id: "0"`, "content-only should not inject id field")
+	// The output starts with a YAML document-start marker.
+	require.True(t, strings.HasPrefix(out, "---\n"), "output should start with ---")
+}
+
+// TestCatCommand_MultiNode_MetaOnly verifies that --meta-only with multiple
+// nodes injects the node ID into each YAML document.
+func TestCatCommand_MultiNode_MetaOnly(t *testing.T) {
+	t.Parallel()
+	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
+
+	createRes := NewProcess(t, false, "create", "--keg", "personal", "--title", "Second node").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, createRes.Err, "create should succeed")
+
+	res := NewProcess(t, false, "cat", "0", "1", "--keg", "personal", "--meta-only").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+
+	out := string(res.Stdout)
+
+	require.Contains(t, out, `id: "0"`, "meta-only multi-node should inject id for first node")
+	require.Contains(t, out, `id: "1"`, "meta-only multi-node should inject id for second node")
+	require.True(t, strings.HasPrefix(out, "---\n"), "output should start with ---")
+}
+
+// TestCatCommand_MultiNode_StatsOnly verifies that --stats-only with multiple
+// nodes injects the node ID into each YAML document.
+func TestCatCommand_MultiNode_StatsOnly(t *testing.T) {
+	t.Parallel()
+	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
+
+	createRes := NewProcess(t, false, "create", "--keg", "personal", "--title", "Second node").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, createRes.Err, "create should succeed")
+
+	res := NewProcess(t, false, "cat", "0", "1", "--keg", "personal", "--stats-only").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+
+	out := string(res.Stdout)
+
+	require.Contains(t, out, `id: "0"`, "stats-only multi-node should inject id for first node")
+	require.Contains(t, out, `id: "1"`, "stats-only multi-node should inject id for second node")
+	require.True(t, strings.HasPrefix(out, "---\n"), "output should start with ---")
 }
 
 // TestCatCommand_SingleNode_NoIDField verifies that a single-node cat does NOT
