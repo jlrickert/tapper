@@ -25,6 +25,8 @@ type Keg struct {
 	Target *kegurl.Target
 	// Repo is the storage backend implementation
 	Repo Repository
+	// Runtime provides clock/hash/fs helpers used by high-level keg operations.
+	Runtime *toolkit.Runtime
 
 	// dex is an optional in-memory index of nodes, lazily loaded from repo
 	dex *Dex
@@ -42,7 +44,7 @@ func NewKegFromTarget(ctx context.Context, target kegurl.Target, rt *toolkit.Run
 	switch target.Scheme() {
 	case kegurl.SchemeMemory:
 		repo := NewMemoryRepo(rt)
-		keg := Keg{Repo: repo}
+		keg := Keg{Repo: repo, Runtime: rt}
 		return &keg, nil
 	case kegurl.SchemeFile:
 		repo := FsRepo{
@@ -52,7 +54,7 @@ func NewKegFromTarget(ctx context.Context, target kegurl.Target, rt *toolkit.Run
 			StatsFilename:   JSONStatsFilename,
 			runtime:         rt,
 		}
-		keg := Keg{Target: &target, Repo: &repo}
+		keg := Keg{Target: &target, Repo: &repo, Runtime: rt}
 		return &keg, nil
 	}
 	return nil, fmt.Errorf("unsupported target scheme: %s", target.Scheme())
@@ -60,9 +62,10 @@ func NewKegFromTarget(ctx context.Context, target kegurl.Target, rt *toolkit.Run
 
 // NewKeg returns a Keg service backed by the provided repository.
 // Functional options can be provided to customize Keg behavior.
-func NewKeg(repo Repository, opts ...Option) *Keg {
+func NewKeg(repo Repository, rt *toolkit.Runtime, opts ...Option) *Keg {
 	keg := &Keg{
-		Repo: repo,
+		Repo:    repo,
+		Runtime: rt,
 	}
 	for _, o := range opts {
 		o(keg)
@@ -134,11 +137,10 @@ func (k *Keg) Init(ctx context.Context) error {
 
 	// Create the zero node as a special case during InitKeg. We do this here so
 	// Create can continue to require an initiated keg.
-	clk := repoClock(k.Repo)
-	now := clk.Now()
+	now := k.Runtime.Clock().Now()
 
 	rawContent := RawZeroNodeContent
-	zeroContent, _ := ParseContent(repoRuntime(k.Repo), []byte(rawContent), MarkdownContentFilename)
+	zeroContent, _ := ParseContent(k.Runtime, []byte(rawContent), MarkdownContentFilename)
 
 	m := NewMeta(ctx, now)
 	stats := NewStats(now)
@@ -210,8 +212,7 @@ func (k *Keg) Create(ctx context.Context, opts *CreateOptions) (NodeId, error) {
 		return NodeId{}, fmt.Errorf("failed to allocate node id: %w", err)
 	}
 
-	clk := repoClock(k.Repo)
-	now := clk.Now()
+	now := k.Runtime.Clock().Now()
 
 	var rawContent []byte
 	if len(opts.Body) > 0 {
@@ -231,7 +232,7 @@ func (k *Keg) Create(ctx context.Context, opts *CreateOptions) (NodeId, error) {
 		rawContent = []byte(b.String())
 	}
 
-	content, err := ParseContent(repoRuntime(k.Repo), rawContent, MarkdownContentFilename)
+	content, err := ParseContent(k.Runtime, rawContent, MarkdownContentFilename)
 	if err != nil {
 		return NodeId{}, fmt.Errorf("invalid content: %w", err)
 	}
@@ -406,8 +407,7 @@ func (k *Keg) SetMeta(ctx context.Context, id NodeId, meta *NodeMeta) error {
 		return err
 	}
 
-	clk := repoClock(k.Repo)
-	now := clk.Now()
+	now := k.Runtime.Clock().Now()
 	return k.addNodeToDex(ctx, nodeData, &now)
 }
 
@@ -418,8 +418,7 @@ func (k *Keg) UpdateMeta(ctx context.Context, id NodeId, f func(*NodeMeta)) erro
 		return fmt.Errorf("failed to update node meta: %w", err)
 	}
 
-	clk := repoClock(k.Repo)
-	now := clk.Now()
+	now := k.Runtime.Clock().Now()
 
 	return k.withNodeLock(ctx, id, func(lockCtx context.Context) error {
 		m, stats, err := k.getMetaAndStats(lockCtx, id)
@@ -451,8 +450,7 @@ func (k *Keg) Touch(ctx context.Context, id NodeId) error {
 		return fmt.Errorf("failed to touch node: %w", err)
 	}
 
-	clk := repoClock(k.Repo)
-	now := clk.Now()
+	now := k.Runtime.Clock().Now()
 
 	return k.withNodeLock(ctx, id, func(lockCtx context.Context) error {
 		meta, stats, err := k.getMetaAndStats(lockCtx, id)
@@ -489,7 +487,8 @@ func (k *Keg) Node(id NodeId) *Node {
 			Alias: alias,
 			Code:  id.Code,
 		},
-		Repo: k.Repo,
+		Repo:    k.Repo,
+		Runtime: k.Runtime,
 	}
 }
 
@@ -582,8 +581,7 @@ func (k *Keg) Index(ctx context.Context, opts IndexOptions) error {
 	}
 
 	var errs []error
-	clk := repoClock(k.Repo)
-	now := clk.Now()
+	now := k.Runtime.Clock().Now()
 
 	for _, id := range ids {
 		metaMissing, statsMissing, probeErr := k.nodeFilesMissing(ctx, id)
@@ -748,8 +746,7 @@ func (k *Keg) Move(ctx context.Context, src NodeId, dst NodeId) error {
 		}
 	}
 
-	clk := repoClock(k.Repo)
-	now := clk.Now()
+	now := k.Runtime.Clock().Now()
 	if err := k.touchConfigUpdated(ctx, now); err != nil {
 		errs = append(errs, fmt.Errorf("failed to update config after move: %w", err))
 	}
@@ -796,8 +793,7 @@ func (k *Keg) Remove(ctx context.Context, id NodeId) error {
 		}
 	}
 
-	clk := repoClock(k.Repo)
-	now := clk.Now()
+	now := k.Runtime.Clock().Now()
 	if err := k.touchConfigUpdated(ctx, now); err != nil {
 		errs = append(errs, fmt.Errorf("failed to update config after remove: %w", err))
 	}
@@ -877,7 +873,7 @@ func (k *Keg) writeNodeToDex(ctx context.Context, id NodeId, data *NodeData) err
 	if err := dex.Write(ctx, k.Repo); err != nil {
 		return fmt.Errorf("failed to write dex: %w", err)
 	}
-	return k.touchConfigUpdated(ctx, repoClock(k.Repo).Now())
+	return k.touchConfigUpdated(ctx, k.Runtime.Clock().Now())
 }
 
 func rewriteNodeLinks(raw []byte, src NodeId, dst NodeId) ([]byte, bool) {
@@ -903,7 +899,7 @@ func rewriteNodeLinks(raw []byte, src NodeId, dst NodeId) ([]byte, bool) {
 
 func (k *Keg) touchConfigUpdated(ctx context.Context, at time.Time) error {
 	if at.IsZero() {
-		at = repoClock(k.Repo).Now()
+		at = k.Runtime.Clock().Now()
 	}
 	updated := at.Format(time.RFC3339)
 
@@ -1021,7 +1017,7 @@ func (k *Keg) getContent(ctx context.Context, id NodeId) (*NodeContent, error) {
 	if err != nil {
 		return nil, err
 	}
-	return ParseContent(repoRuntime(k.Repo), raw, FormatMarkdown)
+	return ParseContent(k.Runtime, raw, FormatMarkdown)
 }
 
 // getMeta retrieves and parses YAML metadata for a node.
