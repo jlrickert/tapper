@@ -92,7 +92,7 @@ func TestInfoCommand_WithJoeFixture(t *testing.T) {
 			name:             "info_with_explicit_alias",
 			args:             []string{"info", "--keg", "personal"},
 			setupFixture:     strPtr("joe"),
-			expectedInStdout: []string{"kegv:"},
+			expectedInStdout: []string{"kegv:", "zekia:"},
 			description:      "Display info for explicitly specified keg alias",
 		},
 		{
@@ -132,4 +132,31 @@ func TestInfoCommand_WithJoeFixture(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestInfoCommand_PreservesEntitiesAndCustomSections(t *testing.T) {
+	t.Parallel()
+	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
+
+	custom := `kegv: 2025-07
+title: Example
+entities:
+  client:
+    id: 42
+    summary: Example entity
+tags:
+  project: project summary
+custom_block:
+  enabled: true
+`
+	sb.MustWriteFile("~/kegs/example/keg", []byte(custom), 0o644)
+
+	infoCmd := NewProcess(t, false, "info", "--keg", "example")
+	infoRes := infoCmd.Run(sb.Context(), sb.Runtime())
+	require.NoError(t, infoRes.Err)
+
+	stdout := string(infoRes.Stdout)
+	require.Contains(t, stdout, "entities:")
+	require.Contains(t, stdout, "client:")
+	require.Contains(t, stdout, "custom_block:")
 }
