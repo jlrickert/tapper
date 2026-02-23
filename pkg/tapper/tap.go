@@ -808,7 +808,20 @@ func (t *Tap) Dir(ctx context.Context, opts DirOptions) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("unable to open keg: %w", err)
 	}
-	return k.Target.File, nil
+	if k.Target == nil {
+		return "", fmt.Errorf("keg target is not configured")
+	}
+
+	if k.Target.Scheme() == kegurl.SchemeFile {
+		path := toolkit.ExpandEnv(t.Runtime, k.Target.File)
+		expanded, err := toolkit.ExpandPath(t.Runtime, path)
+		if err != nil {
+			return "", fmt.Errorf("unable to resolve keg directory: %w", err)
+		}
+		return filepath.Clean(expanded), nil
+	}
+
+	return k.Target.Path(), nil
 }
 
 // ListKegs returns all available keg directories by scanning the user repository
