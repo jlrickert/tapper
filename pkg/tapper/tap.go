@@ -268,6 +268,81 @@ func (t *Tap) Create(ctx context.Context, opts CreateOptions) (keg.NodeId, error
 	return node, nil
 }
 
+type MoveOptions struct {
+	KegTargetOptions
+
+	SourceID string
+	DestID   string
+}
+
+func (t *Tap) Move(ctx context.Context, opts MoveOptions) error {
+	k, err := t.resolveKeg(ctx, opts.KegTargetOptions)
+	if err != nil {
+		return fmt.Errorf("unable to open keg: %w", err)
+	}
+
+	src, err := keg.ParseNode(opts.SourceID)
+	if err != nil {
+		return fmt.Errorf("invalid source node ID %q: %w", opts.SourceID, err)
+	}
+	if src == nil {
+		return fmt.Errorf("invalid source node ID %q: %w", opts.SourceID, keg.ErrInvalid)
+	}
+
+	dst, err := keg.ParseNode(opts.DestID)
+	if err != nil {
+		return fmt.Errorf("invalid destination node ID %q: %w", opts.DestID, err)
+	}
+	if dst == nil {
+		return fmt.Errorf("invalid destination node ID %q: %w", opts.DestID, keg.ErrInvalid)
+	}
+
+	srcID := keg.NodeId{ID: src.ID, Code: src.Code}
+	dstID := keg.NodeId{ID: dst.ID, Code: dst.Code}
+	if err := k.Move(ctx, srcID, dstID); err != nil {
+		if errors.Is(err, keg.ErrNotExist) {
+			return fmt.Errorf("node %s not found", srcID.Path())
+		}
+		if errors.Is(err, keg.ErrDestinationExists) {
+			return fmt.Errorf("destination node %s already exists", dstID.Path())
+		}
+		return fmt.Errorf("unable to move node: %w", err)
+	}
+
+	return nil
+}
+
+type RemoveOptions struct {
+	KegTargetOptions
+
+	NodeID string
+}
+
+func (t *Tap) Remove(ctx context.Context, opts RemoveOptions) error {
+	k, err := t.resolveKeg(ctx, opts.KegTargetOptions)
+	if err != nil {
+		return fmt.Errorf("unable to open keg: %w", err)
+	}
+
+	node, err := keg.ParseNode(opts.NodeID)
+	if err != nil {
+		return fmt.Errorf("invalid node ID %q: %w", opts.NodeID, err)
+	}
+	if node == nil {
+		return fmt.Errorf("invalid node ID %q: %w", opts.NodeID, keg.ErrInvalid)
+	}
+
+	id := keg.NodeId{ID: node.ID, Code: node.Code}
+	if err := k.Remove(ctx, id); err != nil {
+		if errors.Is(err, keg.ErrNotExist) {
+			return fmt.Errorf("node %s not found", id.Path())
+		}
+		return fmt.Errorf("unable to remove node: %w", err)
+	}
+
+	return nil
+}
+
 // IndexOptions configures behavior for Runner.Index.
 type IndexOptions struct {
 	KegTargetOptions

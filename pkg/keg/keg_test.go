@@ -431,3 +431,121 @@ func TestIndexFilesHaveExpectedData(t *testing.T) {
 		_, _ = dex.Backlinks(f.Context(), kegpkg.NodeId{ID: 0})
 	}
 }
+
+func TestMove_RewritesLinksAndUpdatesDex(t *testing.T) {
+	t.Parallel()
+	f := NewSandbox(t)
+
+	repo := kegpkg.NewMemoryRepo(f.Runtime())
+	k := kegpkg.NewKeg(repo)
+	require.NoError(t, k.Init(f.Context()))
+
+	id1, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "One"})
+	require.NoError(t, err)
+	require.Equal(t, 1, id1.ID)
+
+	id2, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "Two"})
+	require.NoError(t, err)
+	require.Equal(t, 2, id2.ID)
+
+	// Add canonical and bare links to node 2.
+	require.NoError(t, k.SetContent(f.Context(), id1, []byte("# One\n\nSee [two](../2).\nAlso ../2.\n")))
+
+	require.NoError(t, k.Move(f.Context(), kegpkg.NodeId{ID: 2}, kegpkg.NodeId{ID: 3}))
+
+	exists, err := k.Repo.HasNode(f.Context(), kegpkg.NodeId{ID: 2})
+	require.NoError(t, err)
+	require.False(t, exists, "source node should be moved away")
+
+	exists, err = k.Repo.HasNode(f.Context(), kegpkg.NodeId{ID: 3})
+	require.NoError(t, err)
+	require.True(t, exists, "destination node should exist")
+
+	updatedContent, err := k.GetContent(f.Context(), kegpkg.NodeId{ID: 1})
+	require.NoError(t, err)
+	require.Contains(t, string(updatedContent), "[two](../3)")
+	require.Contains(t, string(updatedContent), "../3.")
+	require.NotContains(t, string(updatedContent), "../2")
+
+	dex, err := k.Dex(f.Context())
+	require.NoError(t, err)
+
+	links, ok := dex.Links(f.Context(), kegpkg.NodeId{ID: 1})
+	require.True(t, ok, "node 1 should have outgoing links")
+	require.Len(t, links, 1)
+	require.Equal(t, 3, links[0].ID)
+
+	backlinks, ok := dex.Backlinks(f.Context(), kegpkg.NodeId{ID: 3})
+	require.True(t, ok, "node 3 should have backlinks")
+	require.Len(t, backlinks, 1)
+	require.Equal(t, 1, backlinks[0].ID)
+}
+
+func TestMove_DestinationExists(t *testing.T) {
+	t.Parallel()
+	f := NewSandbox(t)
+
+	repo := kegpkg.NewMemoryRepo(f.Runtime())
+	k := kegpkg.NewKeg(repo)
+	require.NoError(t, k.Init(f.Context()))
+
+	_, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "One"})
+	require.NoError(t, err)
+	_, err = k.Create(f.Context(), &kegpkg.CreateOptions{Title: "Two"})
+	require.NoError(t, err)
+	_, err = k.Create(f.Context(), &kegpkg.CreateOptions{Title: "Three"})
+	require.NoError(t, err)
+
+	err = k.Move(f.Context(), kegpkg.NodeId{ID: 2}, kegpkg.NodeId{ID: 3})
+	require.Error(t, err)
+	require.ErrorIs(t, err, kegpkg.ErrDestinationExists)
+}
+
+func TestRemove_DeletesNodeAndUpdatesDex(t *testing.T) {
+	t.Parallel()
+	f := NewSandbox(t)
+
+	repo := kegpkg.NewMemoryRepo(f.Runtime())
+	k := kegpkg.NewKeg(repo)
+	require.NoError(t, k.Init(f.Context()))
+
+	id1, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "One"})
+	require.NoError(t, err)
+	id2, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "Two"})
+	require.NoError(t, err)
+
+	require.NoError(t, k.SetContent(f.Context(), id1, []byte("# One\n\nSee [two](../2).\n")))
+
+	require.NoError(t, k.Remove(f.Context(), id2))
+
+	exists, err := k.Repo.HasNode(f.Context(), id2)
+	require.NoError(t, err)
+	require.False(t, exists, "node should be deleted from repository")
+
+	dex, err := k.Dex(f.Context())
+	require.NoError(t, err)
+
+	_, ok := dex.Links(f.Context(), id2)
+	require.False(t, ok, "deleted node should be absent from links index")
+
+	_, ok = dex.Backlinks(f.Context(), id2)
+	require.False(t, ok, "deleted node should be absent from backlinks index")
+
+	node1Links, ok := dex.Links(f.Context(), id1)
+	if ok {
+		require.Len(t, node1Links, 0, "links to deleted node should be removed")
+	}
+}
+
+func TestRemove_NotFound(t *testing.T) {
+	t.Parallel()
+	f := NewSandbox(t)
+
+	repo := kegpkg.NewMemoryRepo(f.Runtime())
+	k := kegpkg.NewKeg(repo)
+	require.NoError(t, k.Init(f.Context()))
+
+	err := k.Remove(f.Context(), kegpkg.NodeId{ID: 4242})
+	require.Error(t, err)
+	require.ErrorIs(t, err, kegpkg.ErrNotExist)
+}
