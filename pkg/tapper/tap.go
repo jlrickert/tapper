@@ -107,8 +107,13 @@ func (t *Tap) resolveKeg(ctx context.Context, opts KegTargetOptions) (*keg.Keg, 
 
 // CatOptions configures behavior for Runner.Cat.
 type CatOptions struct {
-	// NodeID is the node identifier to read (e.g., "0", "42")
-	NodeID string
+	// NodeIDs are the node identifiers to read (e.g., "0", "42").
+	// Multiple IDs produce concatenated output separated by blank lines.
+	NodeIDs []string
+
+	// Tag is an optional tag expression (same syntax as tap tags) used to
+	// select nodes. Mutually exclusive with NodeIDs.
+	Tag string
 
 	KegTargetOptions
 
@@ -161,10 +166,10 @@ type MetaOptions struct {
 	Stream *toolkit.Stream
 }
 
-// Cat reads and displays a node's content with its metadata as frontmatter.
+// Cat reads and displays node(s) content with metadata as frontmatter.
 //
-// The metadata (meta.yaml) is output as YAML frontmatter above the node's
-// primary content (README.md).
+// When multiple node IDs are provided, outputs are concatenated and separated
+// by blank lines. When --tag is provided, nodes are selected by tag expression.
 func (t *Tap) Cat(ctx context.Context, opts CatOptions) (string, error) {
 	outputModes := 0
 	if opts.Edit {
@@ -183,9 +188,33 @@ func (t *Tap) Cat(ctx context.Context, opts CatOptions) (string, error) {
 		return "", fmt.Errorf("only one output mode may be selected: --edit, --content-only, --stats-only, --meta-only")
 	}
 
+	// Resolve node IDs from tag expression or direct args.
+	nodeIDs := opts.NodeIDs
+	if opts.Tag != "" {
+		if len(nodeIDs) > 0 {
+			return "", fmt.Errorf("cannot specify both node IDs and --tag")
+		}
+		tagIDs, err := t.Tags(ctx, TagsOptions{
+			KegTargetOptions: opts.KegTargetOptions,
+			Tag:              opts.Tag,
+			IdOnly:           true,
+		})
+		if err != nil {
+			return "", fmt.Errorf("unable to query by tag: %w", err)
+		}
+		nodeIDs = tagIDs
+	}
+
+	if len(nodeIDs) == 0 {
+		return "", nil
+	}
+
 	if opts.Edit {
+		if len(nodeIDs) > 1 {
+			return "", fmt.Errorf("--edit can only be used with a single node")
+		}
 		return "", t.Edit(ctx, EditOptions{
-			NodeID:           opts.NodeID,
+			NodeID:           nodeIDs[0],
 			KegTargetOptions: opts.KegTargetOptions,
 			Stream:           opts.Stream,
 		})
@@ -196,16 +225,59 @@ func (t *Tap) Cat(ctx context.Context, opts CatOptions) (string, error) {
 		return "", fmt.Errorf("unable to open keg: %w", err)
 	}
 
-	// Parse the node ID
-	node, err := keg.ParseNode(opts.NodeID)
-	if err != nil {
-		return "", fmt.Errorf("invalid node ID %q: %w", opts.NodeID, err)
-	}
-	if node == nil {
-		return "", fmt.Errorf("invalid node ID %q: %w", opts.NodeID, keg.ErrInvalid)
+	// Single node: return output as-is (preserve existing behaviour).
+	if len(nodeIDs) == 1 {
+		out, err := t.catSingleNode(ctx, k, nodeIDs[0], opts)
+		if err != nil {
+			return "", err
+		}
+		return strings.TrimRight(out, "\n") + "\n", nil
 	}
 
-	// Read content
+	// Multiple nodes: emit a YAML document stream.
+	//
+	// Default (frontmatter) mode: each document gets an injected "id:" field so
+	// the reader always knows which node they are looking at. The leading "---"
+	// of each document acts as a natural separator — no extra decoration needed.
+	//
+	// Non-frontmatter modes (--content-only, --meta-only, --stats-only): emit a
+	// plain "\n---\n" thematic-break separator between items (a valid YAML
+	// document-start marker and a Markdown horizontal rule).
+	var buf strings.Builder
+	isFrontmatterMode := !opts.ContentOnly && !opts.MetaOnly && !opts.StatsOnly
+	for i, nodeID := range nodeIDs {
+		if i > 0 {
+			if isFrontmatterMode {
+				buf.WriteString("\n")
+			} else {
+				buf.WriteString("\n---\n")
+			}
+		}
+		var out string
+		if isFrontmatterMode {
+			out, err = t.catSingleNodeWithID(ctx, k, nodeID, opts)
+		} else {
+			out, err = t.catSingleNode(ctx, k, nodeID, opts)
+		}
+		if err != nil {
+			return "", err
+		}
+		buf.WriteString(strings.TrimRight(out, "\n"))
+		buf.WriteString("\n")
+	}
+	return buf.String(), nil
+}
+
+// catSingleNode reads and formats a single node's content according to opts.
+func (t *Tap) catSingleNode(ctx context.Context, k *keg.Keg, nodeID string, opts CatOptions) (string, error) {
+	node, err := keg.ParseNode(nodeID)
+	if err != nil {
+		return "", fmt.Errorf("invalid node ID %q: %w", nodeID, err)
+	}
+	if node == nil {
+		return "", fmt.Errorf("invalid node ID %q: %w", nodeID, keg.ErrInvalid)
+	}
+
 	content, err := k.Repo.ReadContent(ctx, *node)
 	if err != nil {
 		if errors.Is(err, keg.ErrNotExist) {
@@ -214,7 +286,6 @@ func (t *Tap) Cat(ctx context.Context, opts CatOptions) (string, error) {
 		return "", fmt.Errorf("unable to read node content: %w", err)
 	}
 
-	// Read metadata
 	meta, err := k.Repo.ReadMeta(ctx, *node)
 	if err != nil && !errors.Is(err, keg.ErrNotExist) {
 		return "", fmt.Errorf("unable to read node metadata: %w", err)
@@ -244,13 +315,50 @@ func (t *Tap) Cat(ctx context.Context, opts CatOptions) (string, error) {
 		return string(meta), nil
 	}
 
-	output := formatFrontmatter(meta, content)
-	return output, nil
+	return formatFrontmatter(meta, content), nil
 }
 
 func formatFrontmatter(meta []byte, content []byte) string {
 	metaText := strings.TrimRight(string(meta), "\n")
 	return fmt.Sprintf("---\n%s\n---\n%s", metaText, string(content))
+}
+
+// formatFrontmatterWithID is like formatFrontmatter but prepends an `id` field
+// to the YAML block so multi-document streams are self-identifying.
+func formatFrontmatterWithID(id string, meta []byte, content []byte) string {
+	metaText := strings.TrimRight(string(meta), "\n")
+	return fmt.Sprintf("---\nid: %q\n%s\n---\n%s", id, metaText, string(content))
+}
+
+// catSingleNodeWithID is like catSingleNode but injects the node ID into the
+// frontmatter. Used for multi-node default-mode output (YAML document stream).
+func (t *Tap) catSingleNodeWithID(ctx context.Context, k *keg.Keg, nodeID string, opts CatOptions) (string, error) {
+	node, err := keg.ParseNode(nodeID)
+	if err != nil {
+		return "", fmt.Errorf("invalid node ID %q: %w", nodeID, err)
+	}
+	if node == nil {
+		return "", fmt.Errorf("invalid node ID %q: %w", nodeID, keg.ErrInvalid)
+	}
+
+	content, err := k.Repo.ReadContent(ctx, *node)
+	if err != nil {
+		if errors.Is(err, keg.ErrNotExist) {
+			return "", fmt.Errorf("node %s not found", node.Path())
+		}
+		return "", fmt.Errorf("unable to read node content: %w", err)
+	}
+
+	meta, err := k.Repo.ReadMeta(ctx, *node)
+	if err != nil && !errors.Is(err, keg.ErrNotExist) {
+		return "", fmt.Errorf("unable to read node metadata: %w", err)
+	}
+
+	if err := k.Touch(ctx, *node); err != nil {
+		return "", fmt.Errorf("unable to update node access: %w", err)
+	}
+
+	return formatFrontmatterWithID(node.Path(), meta, content), nil
 }
 
 func formatStatsOnlyYAML(ctx context.Context, stats *keg.NodeStats) string {
