@@ -191,4 +191,5 @@ func (n *NodeData) Touch(ctx context.Context, now *time.Time) {
 		n.Stats = &NodeStats{}
 	}
 	n.Stats.SetAccessed(*now)
+	n.Stats.IncrementAccessCount()
 }

@@ -35,6 +35,7 @@ type metaWithStatsYAML struct {
 	Updated  time.Time `yaml:"updated,omitempty"`
 	Created  time.Time `yaml:"created,omitempty"`
 	Accessed time.Time `yaml:"accessed,omitempty"`
+	Accesses int       `yaml:"access_count,omitempty"`
 	Lead     string    `yaml:"lead,omitempty"`
 	Links    []string  `yaml:"links,omitempty"`
 }
@@ -122,6 +123,7 @@ func (m *NodeMeta) ToYAMLWithStats(stats *NodeStats) string {
 		data.Updated = stats.Updated()
 		data.Created = stats.Created()
 		data.Accessed = stats.Accessed()
+		data.Accesses = stats.AccessCount()
 		data.Lead = stats.Lead()
 		links := stats.Links()
 		if len(links) > 0 {
@@ -319,6 +321,12 @@ func applyStatsToMapping(root *yaml.Node, stats *NodeStats) {
 		setScalarInMapping(root, "accessed", stats.Accessed().Format(time.RFC3339))
 	}
 
+	if stats.AccessCount() <= 0 {
+		removeFromMapping(root, "access_count")
+	} else {
+		setScalarInMapping(root, "access_count", fmt.Sprintf("%d", stats.AccessCount()))
+	}
+
 	if stats.Lead() == "" {
 		removeFromMapping(root, "lead")
 	} else {
@@ -344,6 +352,7 @@ func removeProgrammaticFromMapping(root *yaml.Node) {
 	removeFromMapping(root, "updated")
 	removeFromMapping(root, "created")
 	removeFromMapping(root, "accessed")
+	removeFromMapping(root, "access_count")
 	removeFromMapping(root, "lead")
 	removeFromMapping(root, "links")
 }

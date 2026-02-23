@@ -18,6 +18,7 @@ type statsJSON struct {
 	Updated  string   `json:"updated,omitempty"`
 	Created  string   `json:"created,omitempty"`
 	Accessed string   `json:"accessed,omitempty"`
+	Accesses int      `json:"access_count,omitempty"`
 	Lead     string   `json:"lead,omitempty"`
 	Links    []string `json:"links,omitempty"`
 }
@@ -29,6 +30,7 @@ type statsYAML struct {
 	Updated  string   `yaml:"updated,omitempty"`
 	Created  string   `yaml:"created,omitempty"`
 	Accessed string   `yaml:"accessed,omitempty"`
+	Accesses int      `yaml:"access_count,omitempty"`
 	Lead     string   `yaml:"lead,omitempty"`
 	Links    []string `yaml:"links,omitempty"`
 }
@@ -40,6 +42,7 @@ type NodeStats struct {
 	updated  time.Time
 	created  time.Time
 	accessed time.Time
+	accesses int
 	lead     string
 	links    []NodeId
 }
@@ -64,7 +67,7 @@ func ParseStats(ctx context.Context, raw []byte) (*NodeStats, error) {
 
 	var js statsJSON
 	if err := json.Unmarshal(trimmed, &js); err == nil {
-		return decodeStats(js.Title, js.Hash, js.Updated, js.Created, js.Accessed, js.Lead, js.Links), nil
+		return decodeStats(js.Title, js.Hash, js.Updated, js.Created, js.Accessed, js.Accesses, js.Lead, js.Links), nil
 	}
 
 	// Compatibility path for legacy YAML stats payloads.
@@ -80,16 +83,21 @@ func ParseStats(ctx context.Context, raw []byte) (*NodeStats, error) {
 			}
 		}
 	}
-	return decodeStats(ys.Title, ys.Hash, ys.Updated, ys.Created, ys.Accessed, ys.Lead, ys.Links), nil
+	return decodeStats(ys.Title, ys.Hash, ys.Updated, ys.Created, ys.Accessed, ys.Accesses, ys.Lead, ys.Links), nil
 }
 
-func decodeStats(title, hash, updated, created, accessed, lead string, rawLinks []string) *NodeStats {
+func decodeStats(title, hash, updated, created, accessed string, accesses int, lead string, rawLinks []string) *NodeStats {
+	if accesses < 0 {
+		accesses = 0
+	}
+
 	stats := &NodeStats{
 		title:    title,
 		hash:     hash,
 		updated:  parseStatsTime(updated),
 		created:  parseStatsTime(created),
 		accessed: parseStatsTime(accessed),
+		accesses: accesses,
 		lead:     lead,
 		links:    make([]NodeId, 0, len(rawLinks)),
 	}
@@ -202,6 +210,33 @@ func (s *NodeStats) SetAccessed(t time.Time) {
 	s.accessed = t
 }
 
+func (s *NodeStats) AccessCount() int {
+	if s == nil {
+		return 0
+	}
+	if s.accesses < 0 {
+		return 0
+	}
+	return s.accesses
+}
+
+func (s *NodeStats) SetAccessCount(count int) {
+	if s == nil {
+		return
+	}
+	if count < 0 {
+		count = 0
+	}
+	s.accesses = count
+}
+
+func (s *NodeStats) IncrementAccessCount() {
+	if s == nil {
+		return
+	}
+	s.accesses++
+}
+
 func (s *NodeStats) Lead() string {
 	if s == nil {
 		return ""
@@ -274,6 +309,9 @@ func (s *NodeStats) ToJSON() ([]byte, error) {
 	}
 	if !s.Accessed().IsZero() {
 		wire.Accessed = s.Accessed().Format(time.RFC3339)
+	}
+	if s.AccessCount() > 0 {
+		wire.Accesses = s.AccessCount()
 	}
 	links := s.Links()
 	if len(links) > 0 {

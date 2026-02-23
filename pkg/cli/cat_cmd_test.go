@@ -1,12 +1,18 @@
 package cli_test
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
 	testutils "github.com/jlrickert/cli-toolkit/sandbox"
 	"github.com/stretchr/testify/require"
 )
+
+type catStatsJSON struct {
+	Accessed    string `json:"accessed"`
+	AccessCount int    `json:"access_count"`
+}
 
 type catTestCase struct {
 	name             string
@@ -315,4 +321,30 @@ func TestCatCommand_UserKeg(t *testing.T) {
 		require.Contains(innerT, stdout, "title: Sorry, planned but not yet available", "metadata should contain title")
 		require.Contains(innerT, stdout, "Sorry, planned but not yet available", "content should be present")
 	})
+}
+
+func TestCatCommand_BumpsAccessedAndAccessCount(t *testing.T) {
+	t.Parallel()
+	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
+
+	statsPath := "~/kegs/personal/0/stats.json"
+	oldAccessed := "2001-01-01T00:00:00Z"
+	sb.MustWriteFile(statsPath, []byte(`{"accessed":"`+oldAccessed+`","access_count":7}`), 0o644)
+
+	h := NewProcess(t, false, "cat", "0", "--keg", "personal", "--content-only")
+	res := h.Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err, "cat should succeed and bump access metadata")
+
+	var afterOne catStatsJSON
+	require.NoError(t, json.Unmarshal(sb.MustReadFile(statsPath), &afterOne))
+	require.Equal(t, 8, afterOne.AccessCount, "access count should increment on read")
+	require.NotEmpty(t, afterOne.Accessed, "accessed should be set")
+	require.NotEqual(t, oldAccessed, afterOne.Accessed, "accessed should be bumped")
+
+	res = h.Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err, "second cat should also succeed")
+
+	var afterTwo catStatsJSON
+	require.NoError(t, json.Unmarshal(sb.MustReadFile(statsPath), &afterTwo))
+	require.Equal(t, 9, afterTwo.AccessCount, "access count should increment on every read")
 }

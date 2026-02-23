@@ -167,6 +167,10 @@ func (t *Tap) Cat(ctx context.Context, opts CatOptions) (string, error) {
 		return "", fmt.Errorf("unable to read node metadata: %w", err)
 	}
 
+	if err := k.Touch(ctx, *node); err != nil {
+		return "", fmt.Errorf("unable to update node access: %w", err)
+	}
+
 	stats, err := k.Repo.ReadStats(ctx, *node)
 	if err != nil {
 		if errors.Is(err, keg.ErrNotExist) {
