@@ -50,26 +50,10 @@ EOF
 	require.Contains(t, content, "Edited body content.")
 }
 
-func TestEdit_UsesPipedStdinAsInitialDraft(t *testing.T) {
+func TestEdit_UsesPipedStdinWithoutEditor(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
-
-	jail := sb.Runtime().GetJail()
-	require.NotEmpty(t, jail)
-	resolvedJail, err := filepath.EvalSymlinks(jail)
-	require.NoError(t, err)
-	require.NoError(t, sb.Runtime().SetJail(resolvedJail))
-	jail = resolvedJail
-
-	scriptPath := filepath.Join(jail, "edit-node-stdin.sh")
-	capturePath := filepath.Join(jail, "edit-node-initial.txt")
-	script := `#!/bin/sh
-cat "$1" > "$CAPTURE_FILE"
-cat "$CAPTURE_FILE" > "$1"
-`
-	require.NoError(t, os.WriteFile(scriptPath, []byte(script), 0o755))
-	require.NoError(t, sb.Runtime().Set("CAPTURE_FILE", capturePath))
-	require.NoError(t, sb.Runtime().Set("EDITOR", "/bin/sh "+scriptPath))
+	require.NoError(t, sb.Runtime().Set("EDITOR", "/bin/false"))
 	sb.Runtime().Unset("VISUAL")
 
 	stdin := strings.NewReader(`---
@@ -82,14 +66,33 @@ summary: from stdin
 	res := NewProcess(t, false, "edit", "0", "--keg", "personal").RunWithIO(sb.Context(), sb.Runtime(), stdin)
 	require.NoError(t, res.Err)
 
-	initialRaw, err := os.ReadFile(capturePath)
-	require.NoError(t, err)
-	require.Contains(t, string(initialRaw), "summary: from stdin")
-	require.Contains(t, string(initialRaw), "# Piped Body")
-
 	meta := string(sb.MustReadFile("~/kegs/personal/0/meta.yaml"))
 	content := string(sb.MustReadFile("~/kegs/personal/0/README.md"))
 	require.Contains(t, meta, "summary: from stdin")
 	require.Contains(t, meta, "- piped")
 	require.Contains(t, content, "# Piped Body")
+}
+
+func TestEdit_RejectsInvalidPipedFrontmatter(t *testing.T) {
+	t.Parallel()
+	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
+	require.NoError(t, sb.Runtime().Set("EDITOR", "/bin/false"))
+	sb.Runtime().Unset("VISUAL")
+
+	beforeMeta := string(sb.MustReadFile("~/kegs/personal/0/meta.yaml"))
+	beforeContent := string(sb.MustReadFile("~/kegs/personal/0/README.md"))
+
+	stdin := strings.NewReader(`---
+tags: [
+---
+# Broken
+`)
+	res := NewProcess(t, false, "edit", "0", "--keg", "personal").RunWithIO(sb.Context(), sb.Runtime(), stdin)
+	require.Error(t, res.Err)
+	require.Contains(t, string(res.Stderr), "invalid frontmatter yaml")
+
+	afterMeta := string(sb.MustReadFile("~/kegs/personal/0/meta.yaml"))
+	afterContent := string(sb.MustReadFile("~/kegs/personal/0/README.md"))
+	require.Equal(t, beforeMeta, afterMeta)
+	require.Equal(t, beforeContent, afterContent)
 }

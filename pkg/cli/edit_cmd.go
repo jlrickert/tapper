@@ -17,7 +17,8 @@ func NewEditCmd(deps *Deps) *cobra.Command {
 
 If the file includes YAML frontmatter, it is written to meta.yaml.
 The remaining markdown body is written to the node content file.
-If stdin is piped, it is used as the initial draft before opening the editor.`,
+If stdin is piped with non-empty content, it is applied directly and no editor
+is launched.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts.NodeID = args[0]
