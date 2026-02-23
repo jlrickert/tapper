@@ -42,7 +42,8 @@ func TestTap_ProjectResolutionFlags(t *testing.T) {
 	)
 	catRes := catCmd.Run(sb.Context(), sb.Runtime())
 	require.NoError(t, catRes.Err, "cat with --project should resolve local project keg")
-	require.Contains(t, string(catRes.Stdout), "title: Project Local Note")
+	require.Contains(t, string(catRes.Stdout), "# Project Local Note")
+	require.NotContains(t, string(catRes.Stdout), "access_count:")
 }
 
 func TestKegV2_UsesProjectKegOnly(t *testing.T) {
@@ -79,7 +80,8 @@ func TestKegV2_UsesProjectKegOnly(t *testing.T) {
 		res := h.Run(sb.Context(), sb.Runtime())
 
 		require.NoError(innerT, res.Err)
-		require.Contains(innerT, string(res.Stdout), "title:")
+		require.Contains(innerT, string(res.Stdout), "# Sorry, planned but not yet available")
+		require.NotContains(innerT, string(res.Stdout), "access_count:")
 	})
 
 	t.Run("does_not_expose_keg_alias_flag", func(innerT *testing.T) {

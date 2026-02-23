@@ -286,7 +286,7 @@ func TestCatCommand_IntegrationWithInit(t *testing.T) {
 
 		stdout := string(catRes.Stdout)
 		require.Contains(innerT, stdout, "---", "output should contain frontmatter")
-		require.Contains(innerT, stdout, "title:", "output should contain title in metadata")
+		require.NotContains(innerT, stdout, "access_count:", "frontmatter should not inject stats")
 		require.Contains(innerT, stdout, "Sorry, planned but not yet available", "output should contain content")
 	})
 }
@@ -318,7 +318,7 @@ func TestCatCommand_UserKeg(t *testing.T) {
 
 		stdout := string(catRes.Stdout)
 		require.Contains(innerT, stdout, "---", "output should contain frontmatter")
-		require.Contains(innerT, stdout, "title: Sorry, planned but not yet available", "metadata should contain title")
+		require.NotContains(innerT, stdout, "access_count:", "frontmatter should not inject stats")
 		require.Contains(innerT, stdout, "Sorry, planned but not yet available", "content should be present")
 	})
 }
@@ -347,4 +347,19 @@ func TestCatCommand_BumpsAccessedAndAccessCount(t *testing.T) {
 	var afterTwo catStatsJSON
 	require.NoError(t, json.Unmarshal(sb.MustReadFile(statsPath), &afterTwo))
 	require.Equal(t, 9, afterTwo.AccessCount, "access count should increment on every read")
+}
+
+func TestCatCommand_DefaultFrontmatterDoesNotInjectStats(t *testing.T) {
+	t.Parallel()
+	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
+
+	statsPath := "~/kegs/personal/0/stats.json"
+	sb.MustWriteFile(statsPath, []byte(`{"accessed":"2025-01-01T00:00:00Z","access_count":123}`), 0o644)
+
+	res := NewProcess(t, false, "cat", "0", "--keg", "personal").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+
+	out := string(res.Stdout)
+	require.NotContains(t, out, "access_count:", "default frontmatter should come from meta only")
+	require.NotContains(t, out, "accessed:", "default frontmatter should come from meta only")
 }

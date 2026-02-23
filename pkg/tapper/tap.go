@@ -172,20 +172,19 @@ func (t *Tap) Cat(ctx context.Context, opts CatOptions) (string, error) {
 		return "", fmt.Errorf("unable to update node access: %w", err)
 	}
 
-	stats, err := k.Repo.ReadStats(ctx, *node)
-	if err != nil {
-		if errors.Is(err, keg.ErrNotExist) {
-			stats = &keg.NodeStats{}
-		} else {
-			return "", fmt.Errorf("unable to read node stats: %w", err)
-		}
-	}
-
 	if opts.ContentOnly {
 		return string(content), nil
 	}
 
 	if opts.StatsOnly {
+		stats, err := k.Repo.ReadStats(ctx, *node)
+		if err != nil {
+			if errors.Is(err, keg.ErrNotExist) {
+				stats = &keg.NodeStats{}
+			} else {
+				return "", fmt.Errorf("unable to read node stats: %w", err)
+			}
+		}
 		return formatStatsOnlyYAML(ctx, stats), nil
 	}
 
@@ -193,25 +192,13 @@ func (t *Tap) Cat(ctx context.Context, opts CatOptions) (string, error) {
 		return string(meta), nil
 	}
 
-	mergedMeta, err := mergeMetaAndStatsYAML(ctx, meta, stats)
-	if err != nil {
-		return "", err
-	}
-	output := formatFrontmatter([]byte(mergedMeta), content)
+	output := formatFrontmatter(meta, content)
 	return output, nil
 }
 
 func formatFrontmatter(meta []byte, content []byte) string {
 	metaText := strings.TrimRight(string(meta), "\n")
 	return fmt.Sprintf("---\n%s\n---\n%s", metaText, string(content))
-}
-
-func mergeMetaAndStatsYAML(ctx context.Context, metaRaw []byte, stats *keg.NodeStats) (string, error) {
-	meta, err := keg.ParseMeta(ctx, metaRaw)
-	if err != nil {
-		return "", fmt.Errorf("unable to parse node metadata: %w", err)
-	}
-	return strings.TrimRight(meta.ToYAMLWithStats(stats), "\n"), nil
 }
 
 func formatStatsOnlyYAML(ctx context.Context, stats *keg.NodeStats) string {
