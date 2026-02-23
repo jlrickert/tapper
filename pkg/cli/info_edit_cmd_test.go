@@ -88,7 +88,7 @@ EOF
 	require.Equal(t, string(before), string(after))
 }
 
-func TestInfoEdit_UsesPipedStdinAsInitialDraft(t *testing.T) {
+func TestInfoEdit_UsesPipedStdinWithoutEditor(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
 
@@ -97,36 +97,41 @@ func TestInfoEdit_UsesPipedStdinAsInitialDraft(t *testing.T) {
 	resolvedJail, err := filepath.EvalSymlinks(jail)
 	require.NoError(t, err)
 	require.NoError(t, sb.Runtime().SetJail(resolvedJail))
-	jail = resolvedJail
 
-	scriptPath := filepath.Join(jail, "edit-keg-stdin.sh")
-	capturePath := filepath.Join(jail, "editor-initial.txt")
-	script := `#!/bin/sh
-cat "$1" > "$CAPTURE_FILE"
-cat > "$1" <<'EOF'
-kegv: 2025-07
-title: Final Title
-summary: saved from editor
-EOF
-`
-	require.NoError(t, os.WriteFile(scriptPath, []byte(script), 0o755))
-	require.NoError(t, sb.Runtime().Set("CAPTURE_FILE", capturePath))
-	require.NoError(t, sb.Runtime().Set("EDITOR", "/bin/sh "+scriptPath))
+	require.NoError(t, sb.Runtime().Set("EDITOR", "/bin/false"))
 	sb.Runtime().Unset("VISUAL")
 
 	stdin := strings.NewReader(`kegv: 2025-07
-title: Draft From Stdin
+title: Final Title
 summary: piped content
 `)
 	res := NewProcess(t, false, "config", "edit", "--keg", "example").RunWithIO(sb.Context(), sb.Runtime(), stdin)
 	require.NoError(t, res.Err)
 
-	initialRaw, err := os.ReadFile(capturePath)
-	require.NoError(t, err)
-	require.Contains(t, string(initialRaw), "title: Draft From Stdin")
-	require.Contains(t, string(initialRaw), "summary: piped content")
-
 	saved := string(sb.MustReadFile("~/kegs/example/keg"))
 	require.Contains(t, saved, "title: Final Title")
-	require.Contains(t, saved, "summary: saved from editor")
+	require.Contains(t, saved, "summary: piped content")
+}
+
+func TestInfoEdit_RejectsInvalidPipedStdin(t *testing.T) {
+	t.Parallel()
+	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
+
+	jail := sb.Runtime().GetJail()
+	require.NotEmpty(t, jail)
+	resolvedJail, err := filepath.EvalSymlinks(jail)
+	require.NoError(t, err)
+	require.NoError(t, sb.Runtime().SetJail(resolvedJail))
+
+	require.NoError(t, sb.Runtime().Set("EDITOR", "/bin/false"))
+	sb.Runtime().Unset("VISUAL")
+
+	before := sb.MustReadFile("~/kegs/example/keg")
+	stdin := strings.NewReader("kegv: [\n")
+	res := NewProcess(t, false, "config", "edit", "--keg", "example").RunWithIO(sb.Context(), sb.Runtime(), stdin)
+	require.Error(t, res.Err)
+	require.Contains(t, string(res.Stderr), "keg config from stdin is invalid")
+
+	after := sb.MustReadFile("~/kegs/example/keg")
+	require.Equal(t, string(before), string(after))
 }

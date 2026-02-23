@@ -20,7 +20,8 @@ func NewInfoEditCmd(deps *Deps) *cobra.Command {
 		Long: `Open the keg configuration file (keg.yaml) in your default editor for editing.
 
 The editor is determined by the EDITOR environment variable, defaulting to 'vim'.
-If stdin is piped, that content is used as the initial editable draft.`,
+If stdin is piped with non-empty content, it is validated and saved directly
+without launching an editor.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			applyKegTargetProfile(deps, &opts.KegTargetOptions)
 			opts.Stream = deps.Runtime.Stream()
