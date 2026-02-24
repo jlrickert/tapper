@@ -7,8 +7,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
-	"time"
 
 	"github.com/jlrickert/cli-toolkit/toolkit"
 	"github.com/jlrickert/tapper/pkg/keg"
@@ -183,64 +181,14 @@ func readRawKegConfigWithPath(rt *toolkit.Runtime, root string) (string, []byte,
 	return "", nil, os.ErrNotExist
 }
 
-func newEditorTempFilePath(rt *toolkit.Runtime, prefix string, suffix string) (string, error) {
-	base := ""
-	if strings.TrimSpace(rt.GetJail()) != "" {
-		if home, err := rt.GetHome(); err == nil && strings.TrimSpace(home) != "" {
-			base = filepath.Join(home, ".cache", "tapper", "tmp")
-		} else {
-			base = "/tmp"
-		}
-	} else {
-		base = strings.TrimSpace(rt.GetTempDir())
-		if base == "" {
-			base = os.TempDir()
-		}
-	}
-
-	expanded := toolkit.ExpandEnv(rt, base)
-	if p, err := toolkit.ExpandPath(rt, expanded); err == nil {
-		expanded = p
-	}
-
-	if err := rt.Mkdir(expanded, 0o755, true); err != nil {
-		return "", err
-	}
-
-	for i := 0; i < 64; i++ {
-		path := filepath.Join(expanded,
-			fmt.Sprintf("%s%d-%02d%s", prefix, time.Now().UnixNano(), i, suffix))
-		if _, err := rt.Stat(path, false); err == nil {
-			continue
-		} else if os.IsNotExist(err) {
-			return path, nil
-		} else {
-			return "", err
-		}
-	}
-	return "", fmt.Errorf("unable to allocate temp file path")
-}
-
-// InfoEditOptions configures behavior for Tap.InfoEdit.
-type InfoEditOptions struct {
+// KegConfigEditOptions configures behavior for Tap.KegConfigEdit.
+type KegConfigEditOptions struct {
 	KegTargetOptions
 	Stream *toolkit.Stream
 }
 
-func (t *Tap) LookupKeg(ctx context.Context, kegAlias string) (*keg.Keg, error) {
-	k, err := t.KegService.Resolve(ctx, ResolveKegOptions{
-		Root:    t.Root,
-		Keg:     kegAlias,
-		NoCache: false,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("unable to open keg: %w", err)
-	}
-	return k, nil
-}
-
-// InfoEdit opens the keg configuration file in the default editor.
-func (t *Tap) InfoEdit(ctx context.Context, opts InfoEditOptions) error {
+// KegConfigEdit opens the keg configuration file in the default editor.
+func (t *Tap) KegConfigEdit(ctx context.Context, opts KegConfigEditOptions) error {
 	k, err := t.resolveKeg(ctx, opts.KegTargetOptions)
 	if err != nil {
 		return err
@@ -319,20 +267,4 @@ func (t *Tap) InfoEdit(ctx context.Context, opts InfoEditOptions) error {
 		return fmt.Errorf("unable to edit keg config: %w", err)
 	}
 	return nil
-}
-
-func firstDir(path string) string {
-	// Clean path first
-	path = filepath.Clean(path)
-
-	// Split by OS separator
-	parts := strings.Split(path, string(filepath.Separator))
-
-	// Skip the empty first part (from absolute paths like /foo or C:\foo)
-	for i := 0; i < len(parts); i++ {
-		if parts[i] != "" {
-			return parts[i]
-		}
-	}
-	return ""
 }

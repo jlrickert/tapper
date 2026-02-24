@@ -57,7 +57,7 @@ func (t *Tap) Config(opts ConfigOptions) (string, error) {
 	return string(data), nil
 }
 
-// ConfigEditOptions configures behavior for Tap.ConfigEdit.
+// ConfigEditOptions configures behavior for Tap.UserConfigEdit.
 type ConfigEditOptions struct {
 	// Project indicates whether to edit local config instead of user config
 	Project bool
@@ -67,8 +67,8 @@ type ConfigEditOptions struct {
 	ConfigPath string
 }
 
-// ConfigEdit opens the configuration file in the default editor.
-func (t *Tap) ConfigEdit(ctx context.Context, opts ConfigEditOptions) error {
+// UserConfigEdit opens the configuration file in the default editor.
+func (t *Tap) UserConfigEdit(ctx context.Context, opts ConfigEditOptions) error {
 	var configPath string
 	if opts.ConfigPath != "" {
 		configPath = opts.ConfigPath

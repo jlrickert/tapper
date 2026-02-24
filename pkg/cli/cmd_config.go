@@ -32,7 +32,7 @@ configuration.`,
 			ctx := cmd.Context()
 
 			if edit {
-				return deps.Tap.InfoEdit(ctx, tapper.InfoEditOptions{
+				return deps.Tap.KegConfigEdit(ctx, tapper.KegConfigEditOptions{
 					KegTargetOptions: opts.KegTargetOptions,
 					Stream:           deps.Runtime.Stream(),
 				})

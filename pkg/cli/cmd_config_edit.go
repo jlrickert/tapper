@@ -29,7 +29,7 @@ The editor is determined by the EDITOR environment variable, defaulting to 'vim'
 			if deps.ConfigPath != "" {
 				opts.ConfigPath = deps.ConfigPath
 			}
-			return deps.Tap.ConfigEdit(ctx, opts)
+			return deps.Tap.UserConfigEdit(ctx, opts)
 		},
 	}
 

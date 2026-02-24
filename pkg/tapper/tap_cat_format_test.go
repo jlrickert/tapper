@@ -7,6 +7,7 @@ import (
 )
 
 func TestFormatFrontmatter_ClosingDelimiterOnOwnLine(t *testing.T) {
+	t.Parallel()
 	meta := []byte("tags:\n  - wow\n  - gaming")
 	content := []byte("# Devastation Evoker priorities\n")
 
@@ -17,6 +18,7 @@ func TestFormatFrontmatter_ClosingDelimiterOnOwnLine(t *testing.T) {
 }
 
 func TestFormatFrontmatter_NoExtraBlankLineWhenMetaEndsWithNewline(t *testing.T) {
+	t.Parallel()
 	meta := []byte("title: Example\n")
 	content := []byte("body")
 
