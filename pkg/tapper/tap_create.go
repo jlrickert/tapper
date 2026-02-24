@@ -41,7 +41,7 @@ func (t *Tap) Create(ctx context.Context, opts CreateOptions) (keg.NodeId, error
 			return keg.NodeId{}, fmt.Errorf("unable to peek next node id: %w", peekErr)
 		}
 		initialRaw := buildCreateEditorInitialRaw(ctx, t.Runtime, opts, nextID)
-		tempPath, pathErr := newEditorTempFilePath(t.Runtime, "tap-create-", ".md")
+		tempPath, pathErr := newEditorTempFilePath(t.Runtime, "tap-create-"+nextID.String()+"-", ".md")
 		if pathErr != nil {
 			return keg.NodeId{}, fmt.Errorf("unable to create temp file path: %w", pathErr)
 		}
