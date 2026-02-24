@@ -156,7 +156,7 @@ func (t *Tap) Edit(ctx context.Context, opts EditOptions) error {
 	}
 	initialRaw := originalRaw
 
-	tempPath, err := newEditorTempFilePath(t.Runtime, "tap-edit-", ".md")
+	tempPath, err := newEditorTempFilePath(t.Runtime, "tap-edit-"+id.String()+"-", ".md")
 	if err != nil {
 		return fmt.Errorf("unable to create temp file path: %w", err)
 	}
@@ -275,7 +275,7 @@ func (t *Tap) editMeta(ctx context.Context, k *keg.Keg, id keg.NodeId, stream *t
 		}
 	}
 
-	tempPath, err := newEditorTempFilePath(t.Runtime, "tap-meta-", ".yaml")
+	tempPath, err := newEditorTempFilePath(t.Runtime, "tap-meta-"+id.String()+"-", ".yaml")
 	if err != nil {
 		return fmt.Errorf("unable to create temp file path: %w", err)
 	}
