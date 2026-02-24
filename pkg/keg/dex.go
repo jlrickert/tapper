@@ -6,14 +6,16 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strings"
 	"sync"
 )
 
 // Dex provides a high-level, in-memory view of the repository's generated
-// dex indices: nodes, tags, links, and backlinks. It is a convenience wrapper
-// used by index builders and other tooling to read or inspect index data without
-// dealing directly with repository I/O. Dex does not perform any I/O itself;
-// callers are responsible for providing a Repository when writing indices.
+// dex indices: nodes, tags, links, backlinks, and changes. It is a convenience
+// wrapper used by index builders and other tooling to read or inspect index
+// data without dealing directly with repository I/O. Dex does not perform any
+// I/O itself; callers are responsible for providing a Repository when writing
+// indices.
 type Dex struct {
 	// nodes is the list of nodes sorted by node id.
 	nodes NodeIndex
@@ -27,14 +29,56 @@ type Dex struct {
 	// backlinks maps a node to other nodes linking to it
 	backlinks BacklinkIndex
 
+	// changes is the reverse-chronological list of all nodes.
+	changes ChangesIndex
+
+	// custom holds config-driven tag-filtered index builders.
+	custom []IndexBuilder
+
 	mu sync.RWMutex
 }
 
+// DexOption is a functional option for NewDexFromRepo.
+type DexOption func(*Dex) error
+
+// WithConfig builds DexOptions from a keg Config. It iterates cfg.Indexes and
+// creates a TagFilteredIndex for each entry that:
+//   - has a non-empty Tags field, and
+//   - is not one of the core protected index names.
+//
+// The short file name used with repo.WriteIndex is derived by stripping any
+// leading "dex/" prefix from entry.File.
+func WithConfig(cfg *Config) DexOption {
+	return func(d *Dex) error {
+		if cfg == nil {
+			return nil
+		}
+		for _, entry := range cfg.Indexes {
+			if IsCoreIndex(entry.File) {
+				continue
+			}
+			if entry.Tags == "" {
+				continue
+			}
+			// Strip the "dex/" prefix to get the short name for repo.WriteIndex.
+			shortName := strings.TrimPrefix(entry.File, "dex/")
+			idx, err := NewTagFilteredIndex(shortName, entry.Tags)
+			if err != nil {
+				return fmt.Errorf("dex: config index %q: %w", entry.File, err)
+			}
+			d.custom = append(d.custom, idx)
+		}
+		return nil
+	}
+}
+
 // NewDexFromRepo loads available index artifacts ("nodes.tsv", "tags", "links",
-// "backlinks") from the provided repository and returns a Dex populated with
-// parsed indexes. Missing or empty index files are treated as empty datasets
-// and do not cause an error.
-func NewDexFromRepo(ctx context.Context, repo Repository) (*Dex, error) {
+// "backlinks", "changes.md") from the provided repository and returns a Dex
+// populated with parsed indexes. Missing or empty index files are treated as
+// empty datasets and do not cause an error. Additional DexOptions (e.g.
+// WithConfig) can be supplied to configure optional behaviour such as
+// tag-filtered custom indexes.
+func NewDexFromRepo(ctx context.Context, repo Repository, opts ...DexOption) (*Dex, error) {
 	d := &Dex{}
 
 	var errs []error
@@ -111,6 +155,30 @@ func NewDexFromRepo(ctx context.Context, repo Repository) (*Dex, error) {
 		}
 	}
 
+	// changes.md
+	if data, err := repo.GetIndex(ctx, "changes.md"); err != nil {
+		if errors.Is(err, ErrNotExist) {
+			d.changes = ChangesIndex{}
+		} else {
+			errs = append(errs, fmt.Errorf("unable to read `changes.md` index: %w", err))
+		}
+	} else {
+		ci, err := ParseChangesIndex(ctx, data)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("unable to parse `changes.md` index: %w", err))
+			d.changes = ChangesIndex{}
+		} else {
+			d.changes = ci
+		}
+	}
+
+	// Apply options (e.g. WithConfig to register custom tag-filtered indexes).
+	for _, opt := range opts {
+		if err := opt(d); err != nil {
+			errs = append(errs, err)
+		}
+	}
+
 	if len(errs) > 0 {
 		return d, errors.Join(errs...)
 	}
@@ -169,6 +237,10 @@ func (dex *Dex) Clear(ctx context.Context) {
 	dex.tags = TagIndex{}
 	dex.links = LinkIndex{}
 	dex.backlinks = BacklinkIndex{}
+	_ = dex.changes.Clear(ctx)
+	for _, c := range dex.custom {
+		_ = c.Clear(ctx)
+	}
 	dex.mu.Unlock()
 }
 
@@ -189,6 +261,14 @@ func (dex *Dex) Add(ctx context.Context, data *NodeData) error {
 	}
 	if err := dex.backlinks.Add(ctx, data); err != nil {
 		errs = append(errs, err)
+	}
+	if err := dex.changes.Add(ctx, data); err != nil {
+		errs = append(errs, err)
+	}
+	for _, c := range dex.custom {
+		if err := c.Add(ctx, data); err != nil {
+			errs = append(errs, err)
+		}
 	}
 	dex.mu.Unlock()
 	if len(errs) == 0 {
@@ -214,6 +294,14 @@ func (dex *Dex) Remove(ctx context.Context, node NodeId) error {
 	}
 	if err := dex.backlinks.Rm(ctx, node); err != nil {
 		errs = append(errs, err)
+	}
+	if err := dex.changes.Rm(ctx, node); err != nil {
+		errs = append(errs, err)
+	}
+	for _, c := range dex.custom {
+		if err := c.Remove(ctx, node); err != nil {
+			errs = append(errs, err)
+		}
 	}
 	dex.mu.Unlock()
 	if len(errs) == 0 {
@@ -281,6 +369,31 @@ func (dex *Dex) Write(ctx context.Context, repo Repository) error {
 			errs = append(errs, fmt.Errorf("unable to write `%s` index: %w", name, err))
 		}
 	})
+
+	wg.Go(func() {
+		data, err := dex.changes.Data(ctx)
+		name := "changes.md"
+		if err != nil {
+			errs = append(errs, fmt.Errorf("unable to create `%s` index: %w", name, err))
+		}
+		if err := repo.WriteIndex(ctx, name, data); err != nil {
+			errs = append(errs, fmt.Errorf("unable to write `%s` index: %w", name, err))
+		}
+	})
+
+	for _, c := range dex.custom {
+		c := c // capture for goroutine
+		wg.Go(func() {
+			data, err := c.Data(ctx)
+			name := c.Name()
+			if err != nil {
+				errs = append(errs, fmt.Errorf("unable to create `%s` index: %w", name, err))
+			}
+			if err := repo.WriteIndex(ctx, name, data); err != nil {
+				errs = append(errs, fmt.Errorf("unable to write `%s` index: %w", name, err))
+			}
+		})
+	}
 
 	wg.Wait()
 
