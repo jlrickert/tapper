@@ -61,16 +61,4 @@ tasks:
       Bump version, update changelog, commit, tag, push.
       GitHub Actions then runs goreleaser automatically.
     cmds:
-      - |
-        set -e
-        if [ -n "$(git status --porcelain)" ]; then
-          echo "Working tree not clean. Commit or stash first." >&2; exit 1
-        fi
-        NEXT=$(docker run --rm -v "$(pwd)":/app -w /app {{.CLIFF_IMG}} --bumped-version)
-        echo "Next version: $NEXT"
-        docker run --rm -v "$(pwd)":/app -w /app {{.CLIFF_IMG}} -o CHANGELOG.md
-        git add CHANGELOG.md
-        git commit -m "chore(release): $NEXT"
-        git tag -a "$NEXT" -m "$NEXT"
-        git push && git push origin "$NEXT"
-        echo "Tag $NEXT pushed. GitHub Actions will build and publish."
+      - open https://github.com/jlrickert/tapper/actions/workflows/release.yml
