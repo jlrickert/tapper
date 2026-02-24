@@ -1,6 +1,7 @@
 package keg
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -207,4 +208,103 @@ func TestReadFromDex_Table(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestDex_WritesChanges verifies that Dex.Write produces a dex/changes.md file
+// when nodes are added to the Dex via Add.
+func TestDex_WritesChanges(t *testing.T) {
+	t.Parallel()
+
+	rt, err := toolkit.NewTestRuntime(t.TempDir(), "/home/testuser", "testuser")
+	require.NoError(t, err)
+	mem := NewMemoryRepo(rt)
+
+	dex, err := NewDexFromRepo(t.Context(), mem)
+	require.NoError(t, err)
+
+	t1 := time.Date(2025, 3, 1, 12, 0, 0, 0, time.UTC)
+	t2 := time.Date(2025, 4, 1, 9, 0, 0, 0, time.UTC)
+
+	n1 := makeNodeData(1, "Alpha", nil, t1)
+	n2 := makeNodeData(2, "Beta", nil, t2)
+	require.NoError(t, dex.Add(t.Context(), n1))
+	require.NoError(t, dex.Add(t.Context(), n2))
+
+	require.NoError(t, dex.Write(t.Context(), mem))
+
+	raw, err := mem.GetIndex(t.Context(), "changes.md")
+	require.NoError(t, err)
+	s := string(raw)
+
+	// Newest first: Beta (t2) before Alpha (t1)
+	betaPos := strings.Index(s, "Beta")
+	alphaPos := strings.Index(s, "Alpha")
+	require.Greater(t, betaPos, -1, "Beta missing from changes.md")
+	require.Greater(t, alphaPos, -1, "Alpha missing from changes.md")
+	require.Less(t, betaPos, alphaPos, "Beta should appear before Alpha (newest first)")
+
+	// Verify link format
+	require.Contains(t, s, "[Alpha](../1)")
+	require.Contains(t, s, "[Beta](../2)")
+}
+
+// TestDex_WithConfig_CustomIndex verifies that WithConfig registers
+// tag-filtered custom indexes that are written on Dex.Write.
+func TestDex_WithConfig_CustomIndex(t *testing.T) {
+	t.Parallel()
+
+	rt, err := toolkit.NewTestRuntime(t.TempDir(), "/home/testuser", "testuser")
+	require.NoError(t, err)
+	mem := NewMemoryRepo(rt)
+
+	cfg := &Config{
+		Indexes: []IndexEntry{
+			{File: "dex/golang.md", Summary: "Go nodes", Tags: "golang"},
+			{File: "dex/changes.md", Summary: "latest changes"}, // core: should be ignored
+		},
+	}
+
+	dex, err := NewDexFromRepo(t.Context(), mem, WithConfig(cfg))
+	require.NoError(t, err)
+
+	t1 := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	goNode := makeNodeData(10, "Go concurrency", []string{"golang"}, t1)
+	pyNode := makeNodeData(11, "Python async", []string{"python"}, t1)
+
+	require.NoError(t, dex.Add(t.Context(), goNode))
+	require.NoError(t, dex.Add(t.Context(), pyNode))
+
+	require.NoError(t, dex.Write(t.Context(), mem))
+
+	// golang.md should exist and contain only the Go node
+	raw, err := mem.GetIndex(t.Context(), "golang.md")
+	require.NoError(t, err)
+	s := string(raw)
+	require.Contains(t, s, "Go concurrency")
+	require.NotContains(t, s, "Python async")
+}
+
+// TestDex_WithConfig_CoreIndexSkipped verifies that core index names in
+// cfg.Indexes with Tags set are not added as custom tag-filtered indexes.
+func TestDex_WithConfig_CoreIndexSkipped(t *testing.T) {
+	t.Parallel()
+
+	cfg := &Config{
+		Indexes: []IndexEntry{
+			// All of these are core names and should be skipped even if Tags is set.
+			{File: "dex/changes.md", Tags: "golang"},
+			{File: "dex/nodes.tsv", Tags: "golang"},
+			{File: "dex/links", Tags: "golang"},
+			{File: "dex/backlinks", Tags: "golang"},
+			{File: "dex/tags", Tags: "golang"},
+		},
+	}
+
+	rt, err := toolkit.NewTestRuntime(t.TempDir(), "/home/testuser", "testuser")
+	require.NoError(t, err)
+	mem := NewMemoryRepo(rt)
+
+	dex, err := NewDexFromRepo(t.Context(), mem, WithConfig(cfg))
+	require.NoError(t, err)
+	require.Empty(t, dex.custom, "core index names should not produce custom indexes")
 }

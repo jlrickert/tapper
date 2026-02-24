@@ -46,7 +46,7 @@ type ConfigV1 struct {
 	path string
 }
 
-// KegConfigV2 represents the second (current) version of the KEG configuration
+// ConfigV2 KegConfigV2 represents the second (current) version of the KEG configuration
 // specification. It extends V1 with additional fields such as Links and Zekia.
 type ConfigV2 struct {
 	// Kegv is the version of the specification.
@@ -94,6 +94,7 @@ type LinkEntry struct {
 type IndexEntry struct {
 	File    string `yaml:"file"`
 	Summary string `yaml:"summary"`
+	Tags    string `yaml:"tags,omitempty"` // boolean tag query; omit for core/unfiltered indexes
 }
 
 type EntityEntry struct {
@@ -101,7 +102,7 @@ type EntityEntry struct {
 	Summary string `yaml:"summary"`
 }
 
-// KegConfig is an alias for the latest configuration version. Update this alias
+// Config KegConfig is an alias for the latest configuration version. Update this alias
 // when introducing a newer configuration version.
 type Config = ConfigV2
 
