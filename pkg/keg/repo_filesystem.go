@@ -22,7 +22,7 @@ const (
 	KegCurrentEnvKey        = "KEG_CURRENT"
 	KegLockFile             = ".keg-lock"
 	NodeImagesDir           = "images"
-	NodeAttachmentsDir      = "attachments"
+	NodeAttachmentsDir      = "assets"
 )
 
 // FsRepo implements [Repository] using the local filesystem as storage. It
@@ -773,6 +773,50 @@ func (f *FsRepo) ListFiles(ctx context.Context, id NodeId) ([]string, error) {
 
 func (f *FsRepo) ListImages(ctx context.Context, id NodeId) ([]string, error) {
 	return f.ListAssets(ctx, id, AssetKindImage)
+}
+
+func (f *FsRepo) ReadFile(ctx context.Context, id NodeId, name string) ([]byte, error) {
+	exists, err := f.HasNode(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if !exists {
+		return nil, ErrNotExist
+	}
+	filePath := filepath.Join(f.Root, id.Path(), NodeAttachmentsDir, name)
+	if _, statErr := f.runtime.Stat(filePath, false); statErr != nil {
+		if os.IsNotExist(statErr) {
+			return nil, ErrNotExist
+		}
+		return nil, NewBackendError(f.Name(), "ReadFile", 0, statErr, false)
+	}
+	b, err := f.runtime.ReadFile(filePath)
+	if err != nil {
+		return nil, NewBackendError(f.Name(), "ReadFile", 0, err, false)
+	}
+	return b, nil
+}
+
+func (f *FsRepo) ReadImage(ctx context.Context, id NodeId, name string) ([]byte, error) {
+	exists, err := f.HasNode(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if !exists {
+		return nil, ErrNotExist
+	}
+	imagePath := filepath.Join(f.Root, id.Path(), NodeImagesDir, name)
+	if _, statErr := f.runtime.Stat(imagePath, false); statErr != nil {
+		if os.IsNotExist(statErr) {
+			return nil, ErrNotExist
+		}
+		return nil, NewBackendError(f.Name(), "ReadImage", 0, statErr, false)
+	}
+	b, err := f.runtime.ReadFile(imagePath)
+	if err != nil {
+		return nil, NewBackendError(f.Name(), "ReadImage", 0, err, false)
+	}
+	return b, nil
 }
 
 func (f *FsRepo) WriteImage(ctx context.Context, id NodeId, name string, data []byte) error {
