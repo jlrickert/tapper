@@ -98,6 +98,8 @@ type Repository interface {
 type RepositoryFiles interface {
 	// ListFiles lists file attachment names for a node.
 	ListFiles(ctx context.Context, id NodeId) ([]string, error)
+	// ReadFile reads a file attachment for a node.
+	ReadFile(ctx context.Context, id NodeId, name string) ([]byte, error)
 	// WriteFile stores a file attachment for a node.
 	WriteFile(ctx context.Context, id NodeId, name string, data []byte) error
 	// DeleteFile removes a file attachment from a node.
@@ -108,6 +110,8 @@ type RepositoryFiles interface {
 type RepositoryImages interface {
 	// ListImages lists image names for a node.
 	ListImages(ctx context.Context, id NodeId) ([]string, error)
+	// ReadImage reads an image payload for a node.
+	ReadImage(ctx context.Context, id NodeId, name string) ([]byte, error)
 	// WriteImage stores an image payload for a node.
 	WriteImage(ctx context.Context, id NodeId, name string, data []byte) error
 	// DeleteImage removes an image from a node.

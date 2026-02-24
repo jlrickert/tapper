@@ -443,6 +443,40 @@ func (r *MemoryRepo) ListImages(ctx context.Context, id NodeId) ([]string, error
 	return r.ListAssets(ctx, id, AssetKindImage)
 }
 
+func (r *MemoryRepo) ReadFile(ctx context.Context, id NodeId, name string) ([]byte, error) {
+	_ = ctx
+	n, ok := r.getNode(id)
+	if !ok {
+		return nil, ErrNotExist
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	data, exists := n.items[name]
+	if !exists {
+		return nil, ErrNotExist
+	}
+	cp := make([]byte, len(data))
+	copy(cp, data)
+	return cp, nil
+}
+
+func (r *MemoryRepo) ReadImage(ctx context.Context, id NodeId, name string) ([]byte, error) {
+	_ = ctx
+	n, ok := r.getNode(id)
+	if !ok {
+		return nil, ErrNotExist
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	data, exists := n.images[name]
+	if !exists {
+		return nil, ErrNotExist
+	}
+	cp := make([]byte, len(data))
+	copy(cp, data)
+	return cp, nil
+}
+
 func (r *MemoryRepo) WriteImage(ctx context.Context, id NodeId, name string, data []byte) error {
 	return r.WriteAsset(ctx, id, AssetKindImage, name, data)
 }
