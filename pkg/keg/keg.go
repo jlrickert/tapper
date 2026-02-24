@@ -780,6 +780,24 @@ func (k *Keg) Remove(ctx context.Context, id NodeId) error {
 		return fmt.Errorf("failed to delete node %s: %w", id.Path(), err)
 	}
 
+	// Rewrite all links that pointed to the removed node so they point to
+	// the zero node (../0) instead of dangling.
+	zeroID := NodeId{ID: 0}
+	nodeIDs, listErr := k.Repo.ListNodes(ctx)
+	if listErr != nil {
+		return fmt.Errorf("failed to list nodes for link rewrite after remove: %w", listErr)
+	}
+	for _, otherID := range nodeIDs {
+		raw, readErr := k.Repo.ReadContent(ctx, otherID)
+		if readErr != nil {
+			continue
+		}
+		updated, changed := rewriteNodeLinks(raw, id, zeroID)
+		if changed {
+			_ = k.Repo.WriteContent(ctx, otherID, updated)
+		}
+	}
+
 	var errs []error
 	dex, err := k.Dex(ctx)
 	if err != nil {
