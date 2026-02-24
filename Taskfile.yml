@@ -2,7 +2,18 @@
 
 version: "3"
 vars:
-  GREETING: Hello, World!
+  CLIFF_IMG: orhunp/git-cliff:latest
+  GR_IMG: goreleaser/goreleaser:latest
+  CLIFF_RUN: >-
+    docker run --rm
+    -v {{.ROOT_DIR}}:/app -w /app
+    {{.CLIFF_IMG}}
+  GR_RUN: >-
+    docker run --rm --privileged
+    -v {{.ROOT_DIR}}:/go/src/github.com/jlrickert/tapper
+    -w /go/src/github.com/jlrickert/tapper
+    {{.GR_IMG}}
+
 tasks:
   run: go run "./cmd/keg" {{.CLI_ARGS}}
   test:
@@ -32,3 +43,34 @@ tasks:
     cmds:
       - go install ./cmd/tap
       - tap completion zsh > '{{env "HOME"}}/.cache/dotfiles/zsh/completions/_tap'
+
+  changelog:
+    desc: Regenerate CHANGELOG.md via git-cliff (Docker).
+    cmds:
+      - "{{.CLIFF_RUN}} -o CHANGELOG.md"
+    generates:
+      - CHANGELOG.md
+
+  release-dry-run:
+    desc: Snapshot build to validate goreleaser config (Docker, no publish).
+    cmds:
+      - "{{.GR_RUN}} release --snapshot --clean"
+
+  release:
+    desc: |
+      Bump version, update changelog, commit, tag, push.
+      GitHub Actions then runs goreleaser automatically.
+    cmds:
+      - |
+        set -e
+        if [ -n "$(git status --porcelain)" ]; then
+          echo "Working tree not clean. Commit or stash first." >&2; exit 1
+        fi
+        NEXT=$(docker run --rm -v "$(pwd)":/app -w /app {{.CLIFF_IMG}} --bumped-version)
+        echo "Next version: $NEXT"
+        docker run --rm -v "$(pwd)":/app -w /app {{.CLIFF_IMG}} -o CHANGELOG.md
+        git add CHANGELOG.md
+        git commit -m "chore(release): $NEXT"
+        git tag -a "$NEXT" -m "$NEXT"
+        git push && git push origin "$NEXT"
+        echo "Tag $NEXT pushed. GitHub Actions will build and publish."
