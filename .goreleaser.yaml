@@ -8,14 +8,14 @@ builds:
   - id: tap
     binary: tap
     main: ./cmd/tap
-    env: [CGO_ENABLED=0]
+    env: [CGO_ENABLED=0, GOWORK=off]
     goos: [linux, darwin, windows]
     goarch: [amd64, arm64]
     ldflags: ["-s -w"]
   - id: kegv2
     binary: kegv2
     main: ./cmd/kegv2
-    env: [CGO_ENABLED=0]
+    env: [CGO_ENABLED=0, GOWORK=off]
     goos: [linux, darwin, windows]
     goarch: [amd64, arm64]
     ldflags: ["-s -w"]

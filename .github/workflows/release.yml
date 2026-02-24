@@ -1,14 +1,25 @@
 name: Release
-
 on:
-  push:
-    tags: ["v*"]
-
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version override (e.g. v1.2.3). Leave empty to auto-detect via git-cliff.'
+        required: false
+        default: ''
 permissions:
   contents: write
-
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go test ./...
+
   release:
+    needs: test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -17,6 +28,31 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+
+      - name: Determine version via git-cliff
+        id: cliff
+        uses: orhun/git-cliff-action@v4
+        with:
+          config: cliff.toml
+          args: --bumped-version
+
+      - name: Generate changelog
+        uses: orhun/git-cliff-action@v4
+        with:
+          config: cliff.toml
+          args: -o CHANGELOG.md
+
+      - name: Commit changelog and create tag
+        run: |
+          VERSION="${{ inputs.version || steps.cliff.outputs.version }}"
+          echo "Releasing $VERSION"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add CHANGELOG.md
+          git commit -m "chore(release): $VERSION" || echo "No changelog changes to commit"
+          git tag -a "$VERSION" -m "$VERSION"
+          git push origin HEAD:main --follow-tags
+
       - uses: goreleaser/goreleaser-action@v6
         with:
           version: latest
