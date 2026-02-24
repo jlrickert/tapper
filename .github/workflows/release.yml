@@ -45,6 +45,10 @@ jobs:
       - name: Commit changelog and create tag
         run: |
           VERSION="${{ inputs.version || steps.cliff.outputs.version }}"
+          if [ -z "$VERSION" ]; then
+            echo "Error: could not determine version. git-cliff returned nothing (no prior tags?). Use the version override input." >&2
+            exit 1
+          fi
           echo "Releasing $VERSION"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
