@@ -131,8 +131,7 @@ func TestCatCommand_WithJoeFixture(t *testing.T) {
 			setupFixture: strPtr("joe"),
 			expectedInStdout: []string{
 				"---",
-				"title: Sorry, planned but not yet available",
-				"---",
+				"# Sorry, planned but not yet available",
 			},
 			description: "Display node 0 from default personal keg",
 		},
@@ -177,8 +176,7 @@ func TestCatCommand_WithJoeFixture(t *testing.T) {
 			setupFixture: strPtr("joe"),
 			expectedInStdout: []string{
 				"---",
-				"title:",
-				"---",
+				"# Sorry, planned but not yet available",
 			},
 			description: "Display node 0 from personal keg with explicit alias",
 		},
@@ -206,7 +204,8 @@ func TestCatCommand_WithJoeFixture(t *testing.T) {
 			},
 			setupFixture: strPtr("joe"),
 			expectedInStdout: []string{
-				"title: Sorry, planned but not yet available",
+				"tags:",
+				"- planned",
 			},
 			description: "Display only metadata when --meta-only is provided",
 		},
