@@ -130,6 +130,7 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 		NewMetaCmd(deps),
 		NewMoveCmd(deps),
 		NewPwdCmd(deps),
+		NewReindexCmd(deps),
 		NewRemoveCmd(deps),
 		NewStatsCmd(deps),
 		NewTagsCmd(deps),
