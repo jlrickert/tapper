@@ -542,7 +542,13 @@ func (k *Keg) Index(ctx context.Context, opts IndexOptions) error {
 	if opts.Rebuild {
 		if k.dex == nil {
 			k.dex = &Dex{}
+			// Apply config-driven options (e.g. tag-filtered indexes) to the new Dex.
+			dexOpts, _ := k.dexOptions(ctx)
+			for _, opt := range dexOpts {
+				_ = opt(k.dex)
+			}
 		} else {
+			// Clear preserves registered custom IndexBuilders while emptying their data.
 			k.dex.Clear(ctx)
 		}
 	} else {
@@ -645,8 +651,12 @@ func (k *Keg) Index(ctx context.Context, opts IndexOptions) error {
 			}
 		}
 
+		// Always add to the dex when custom (tag-filtered) indexes are
+		// registered: they start empty and have no on-disk representation to
+		// load from, so every node must pass through Add to populate them.
 		needsDexUpdate := opts.Rebuild || needsRefresh || needsPersist ||
-			k.dex.GetRef(ctx, id) == nil || updatedSinceLastIndex
+			k.dex.GetRef(ctx, id) == nil || updatedSinceLastIndex ||
+			len(k.dex.custom) > 0
 		if needsDexUpdate {
 			if err := k.dex.Add(ctx, data); err != nil {
 				errs = append(errs, fmt.Errorf("failed to add node %s: %w", id, err))
@@ -843,6 +853,7 @@ func (k *Keg) Commit(ctx context.Context, id NodeId) error {
 
 // Dex returns the keg's index, loading it from the repository on first access.
 // The dex is lazily loaded and cached in memory for efficient access.
+// Config-driven tag-filtered indexes are applied automatically via WithConfig.
 func (k *Keg) Dex(ctx context.Context) (*Dex, error) {
 	if err := k.checkKegExists(ctx); err != nil {
 		return nil, fmt.Errorf("failed to retrieve dex: %w", err)
@@ -851,9 +862,24 @@ func (k *Keg) Dex(ctx context.Context) (*Dex, error) {
 	if k.dex != nil {
 		return k.dex, nil
 	}
-	dex, err := NewDexFromRepo(ctx, k.Repo)
+	opts, _ := k.dexOptions(ctx)
+	dex, err := NewDexFromRepo(ctx, k.Repo, opts...)
 	k.dex = dex
 	return dex, err
+}
+
+// dexOptions reads the keg config and returns DexOptions to apply when
+// constructing or initialising a Dex. If the config is absent or cannot be
+// read, an empty (nil) slice is returned so callers can proceed without error.
+func (k *Keg) dexOptions(ctx context.Context) ([]DexOption, error) {
+	cfg, err := k.Repo.ReadConfig(ctx)
+	if err != nil {
+		if errors.Is(err, ErrNotExist) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return []DexOption{WithConfig(cfg)}, nil
 }
 
 // -- private utility functions
