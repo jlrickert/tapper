@@ -1,6 +1,7 @@
 package keg_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/jlrickert/tapper/pkg/keg"
@@ -176,4 +177,11 @@ func TestAddTag_ValidatesRequiredFields(t *testing.T) {
 	err = cfg.AddTag("tag", "")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "tag summary is required")
+}
+
+func TestConfigToYAML_PrependsSchemaModeline(t *testing.T) {
+	cfg := keg.NewConfig()
+	out, err := cfg.ToYAML()
+	require.NoError(t, err)
+	require.True(t, strings.HasPrefix(string(out), "# yaml-language-server: $schema="+keg.KegConfigSchemaURL+"\n"))
 }

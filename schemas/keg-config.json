@@ -1,0 +1,103 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://raw.githubusercontent.com/jlrickert/tapper/main/schemas/keg-config.json",
+  "title": "tapper keg config",
+  "type": "object",
+  "properties": {
+    "kegv": {
+      "type": "string",
+      "enum": [
+        "2025-07"
+      ]
+    },
+    "updated": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "title": {
+      "type": "string",
+      "url": {
+        "type": "string"
+      },
+      "creator": {
+        "type": "string"
+      },
+      "state": {
+        "type": "string"
+      },
+      "summary": {
+        "type": "string"
+      },
+      "links": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "alias": {
+              "type": "string"
+            },
+            "url": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "alias",
+            "url"
+          ],
+          "additionalProperties": true
+        }
+      },
+      "indexes": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "file": {
+              "type": "string"
+            },
+            "summary": {
+              "type": "string"
+            },
+            "tags": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "file",
+            "summary"
+          ],
+          "additionalProperties": true
+        }
+      },
+      "entities": {
+        "type": "object",
+        "additionalProperties": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "summary": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "tags": {
+        "type": "object",
+        "additionalProperties": {
+          "type": "string"
+        }
+      }
+    },
+    "required": [
+      "kegv"
+    ],
+    "additionalProperties": true
+  }
+}

@@ -3,6 +3,7 @@ package tapper_test
 import (
 	"fmt"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	kegurl "github.com/jlrickert/tapper/pkg/keg_url"
@@ -433,4 +434,13 @@ defaultRegistry: ""
 	require.Equal(t, "ecw", merged.DefaultKeg())
 	require.Equal(t, "ecw", merged.FallbackKeg())
 	require.Equal(t, []string{"~/Documents/kegs", "~/repos/kegs", "~/work/kegs"}, merged.KegSearchPaths())
+}
+
+func TestConfigToYAML_PrependsSchemaModeline(t *testing.T) {
+	t.Parallel()
+
+	cfg := tapper.DefaultUserConfig("pub", "~/Documents/kegs")
+	out, err := cfg.ToYAML()
+	require.NoError(t, err)
+	require.True(t, strings.HasPrefix(string(out), "# yaml-language-server: $schema="+tapper.TapConfigSchemaURL+"\n"))
 }

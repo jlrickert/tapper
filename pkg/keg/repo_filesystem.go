@@ -12,7 +12,6 @@ import (
 
 	appCtx "github.com/jlrickert/cli-toolkit/apppaths"
 	"github.com/jlrickert/cli-toolkit/toolkit"
-	"gopkg.in/yaml.v3"
 )
 
 const (
@@ -857,8 +856,7 @@ func (f *FsRepo) ReadConfig(ctx context.Context) (*Config, error) {
 
 // WriteConfig implements Repository.
 func (f *FsRepo) WriteConfig(ctx context.Context, config *Config) error {
-	// marshal to YAML
-	out, err := yaml.Marshal(config)
+	out, err := config.ToYAML()
 	if err != nil {
 		return NewBackendError(f.Name(), "WriteConfig", 0, err, false)
 	}

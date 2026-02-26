@@ -1,0 +1,129 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://raw.githubusercontent.com/jlrickert/tapper/main/schemas/tap-config.json",
+  "title": "tapper user/project config",
+  "type": "object",
+  "properties": {
+    "defaultKeg": {
+      "type": "string"
+    },
+    "fallbackKeg": {
+      "type": "string"
+    },
+    "defaultRegistry": {
+      "type": "string"
+    },
+    "kegSearchPaths": {
+      "oneOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "kegs": {
+      "type": "object",
+      "additionalProperties": {
+        "oneOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "file": {
+                "type": "string"
+              },
+              "repo": {
+                "type": "string"
+              },
+              "url": {
+                "type": "string"
+              },
+              "memory": {
+                "type": "boolean"
+              },
+              "user": {
+                "type": "string"
+              },
+              "keg": {
+                "type": "string"
+              },
+              "password": {
+                "type": "string"
+              },
+              "token": {
+                "type": "string"
+              },
+              "tokenEnv": {
+                "type": "string"
+              },
+              "readonly": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": false
+          }
+        ]
+      }
+    },
+    "kegMap": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "alias": {
+            "type": "string"
+          },
+          "pathPrefix": {
+            "type": "string"
+          },
+          "pathRegex": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "alias"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "registries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "token": {
+            "type": "string"
+          },
+          "tokenEnv": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "logFile": {
+      "type": "string"
+    },
+    "logLevel": {
+      "type": "string"
+    },
+    "updated": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "additionalProperties": true
+}
