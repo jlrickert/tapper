@@ -126,7 +126,7 @@ func (s *ConfigService) ResolveTarget(alias string, cache bool) (*kegurl.Target,
 		requestedAlias = cfg.FallbackKeg()
 	}
 	if requestedAlias == "" {
-		return nil, fmt.Errorf("no keg configured")
+		return nil, fmt.Errorf("no keg configured (set defaultKeg/fallbackKeg, use --keg, or configure kegs in repo config)")
 	}
 
 	// Check for explicit keg in configuration first.
@@ -145,7 +145,7 @@ func (s *ConfigService) ResolveTarget(alias string, cache bool) (*kegurl.Target,
 		return &t, nil
 	}
 
-	return nil, fmt.Errorf("keg alias not found: %s", requestedAlias)
+	return nil, fmt.Errorf("keg alias not found: %s (add alias under kegs:, add discovery paths in kegSearchPaths, or create ./kegs/%s)", requestedAlias, requestedAlias)
 }
 
 // localRepoKegTargets scans kegSearchPaths and returns alias-to-path mappings.
@@ -154,7 +154,7 @@ func (s *ConfigService) localRepoKegTargets(cache bool) (map[string]string, erro
 	cfg := s.Config(cache)
 	searchPaths := cfg.KegSearchPaths()
 	if len(searchPaths) == 0 {
-		return nil, fmt.Errorf("kegSearchPaths not defined in config")
+		return nil, fmt.Errorf("kegSearchPaths not defined in config (set kegSearchPaths in tap repo config --user)")
 	}
 
 	// Later search paths take precedence for alias collisions.

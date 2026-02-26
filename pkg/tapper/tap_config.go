@@ -4,6 +4,9 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
 
 	"github.com/jlrickert/cli-toolkit/toolkit"
 )
@@ -16,7 +19,7 @@ type ConfigOptions struct {
 	User bool
 
 	// Template prints out a templated. Combine with either project or user
-	// flag. Defaults to using --user flag
+	// flag. Defaults to user template values.
 	Template bool
 }
 
@@ -25,11 +28,11 @@ func (t *Tap) Config(opts ConfigOptions) (string, error) {
 	var cfg *Config
 	if opts.Template {
 		if opts.Project {
-			cfg := DefaultProjectConfig("", "")
+			cfg := DefaultProjectConfig("project", "kegs")
 			data, err := cfg.ToYAML()
 			return string(data), err
 		}
-		cfg := DefaultUserConfig("", "")
+		cfg := DefaultUserConfig("pub", defaultUserKegSearchPath(t.Runtime))
 		data, err := cfg.ToYAML()
 		return string(data), err
 	}
@@ -84,7 +87,7 @@ func (t *Tap) UserConfigEdit(ctx context.Context, opts ConfigEditOptions) error 
 		if opts.Project {
 			cfg = DefaultProjectConfig("project", "kegs")
 		} else {
-			cfg = DefaultUserConfig("public", "~/Documents/kegs")
+			cfg = DefaultUserConfig("public", defaultUserKegSearchPath(t.Runtime))
 		}
 		if err := cfg.Write(t.Runtime, configPath); err != nil {
 			return fmt.Errorf("unable to create default config: %w", err)
@@ -93,4 +96,18 @@ func (t *Tap) UserConfigEdit(ctx context.Context, opts ConfigEditOptions) error 
 
 	err := toolkit.Edit(ctx, t.Runtime, configPath)
 	return err
+}
+
+func defaultUserKegSearchPath(rt *toolkit.Runtime) string {
+	switch runtime.GOOS {
+	case "darwin", "linux":
+		return "~/Documents/kegs"
+	default:
+		if rt != nil {
+			if home, err := rt.GetHome(); err == nil && strings.TrimSpace(home) != "" {
+				return filepath.Join(home, "Documents", "kegs")
+			}
+		}
+		return "~/Documents/kegs"
+	}
 }

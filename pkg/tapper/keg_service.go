@@ -220,10 +220,6 @@ func (s *KegService) resolveKegAlias(ctx context.Context, kegAlias string, proje
 		return nil, err
 	}
 
-	if target == nil {
-		return nil, fmt.Errorf("keg alias not found: %s", kegAlias)
-	}
-
 	k, err := keg.NewKegFromTarget(ctx, *target, s.Runtime)
 	if err != nil {
 		return k, err

@@ -33,6 +33,28 @@ func TestConfigCommand_DisplaysMergedConfig(t *testing.T) {
 			expectedErr:  "no configuration available",
 			description:  "Project config may not exist and should error gracefully",
 		},
+		{
+			name:         "config_template_user_includes_new_keys",
+			args:         []string{"repo", "config", "--template"},
+			setupFixture: strPtr("joe"),
+			expectedInStdout: []string{
+				"defaultKeg:",
+				"fallbackKeg:",
+				"kegSearchPaths:",
+			},
+			description: "Template output should include new config keys",
+		},
+		{
+			name:         "config_template_project_includes_new_keys",
+			args:         []string{"repo", "config", "--template", "--project"},
+			setupFixture: strPtr("joe"),
+			expectedInStdout: []string{
+				"defaultKeg:",
+				"fallbackKeg:",
+				"kegSearchPaths:",
+			},
+			description: "Project template output should include new config keys",
+		},
 	}
 
 	for _, tt := range tests {
