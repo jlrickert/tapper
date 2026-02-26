@@ -13,6 +13,7 @@ type initTestCase struct {
 	args               []string
 	expectedAlias      string
 	expectedLocation   string
+	expectedStdout     []string
 	expectConfigUpdate bool
 	setupFixture       *string
 	cwd                *string
@@ -21,6 +22,22 @@ type initTestCase struct {
 
 func TestInitCommand_TableDriven(t *testing.T) {
 	tests := []initTestCase{
+		{
+			name: "local_keg_named_project_defaults_to_kegs_alias",
+			args: []string{
+				"repo", "init",
+				"power",
+				"--project",
+				"--creator", "me",
+			},
+			expectedAlias:    "power",
+			expectedLocation: "~/kegs/power",
+			expectedStdout: []string{
+				"keg power created at",
+				"/kegs/power",
+			},
+			description: "When --project and name is not '.', destination should default to kegs/<alias> under project root",
+		},
 		{
 			name: "local_keg_with_dot_infers_type",
 			args: []string{
@@ -138,6 +155,10 @@ func TestInitCommand_TableDriven(t *testing.T) {
 			require.NoError(innerT, res.Err, "init command should succeed - %s", tt.description)
 			require.Contains(innerT, string(res.Stdout), "keg "+tt.expectedAlias+" created",
 				"unexpected output: %q", string(res.Stdout))
+			for _, fragment := range tt.expectedStdout {
+				require.Contains(innerT, string(res.Stdout), fragment,
+					"expected output to contain %q, got %q", fragment, string(res.Stdout))
+			}
 			require.Equal(innerT, "", string(res.Stderr), "stderr should be empty")
 
 			// Determine the base path for reading files (remove /dex/nodes.tsv from the location)

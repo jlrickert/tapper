@@ -45,9 +45,9 @@ type InitOptions struct {
 //   - user: filesystem-backed keg under the first configured kegSearchPaths entry
 //   - project: filesystem-backed keg under project path or explicit --path
 //   - registry: API target entry written to config only
-func (t *Tap) InitKeg(ctx context.Context, name string, options InitOptions) error {
+func (t *Tap) InitKeg(ctx context.Context, name string, options InitOptions) (*kegurl.Target, error) {
 	if strings.TrimSpace(name) == "" {
-		return fmt.Errorf("name is required: %w", keg.ErrInvalid)
+		return nil, fmt.Errorf("name is required: %w", keg.ErrInvalid)
 	}
 
 	enabled := 0
@@ -61,10 +61,10 @@ func (t *Tap) InitKeg(ctx context.Context, name string, options InitOptions) err
 		enabled++
 	}
 	if enabled > 1 {
-		return fmt.Errorf("only one destination may be selected: --project, --user, or --registry")
+		return nil, fmt.Errorf("only one destination may be selected: --project, --user, or --registry")
 	}
 	if options.Cwd && !options.Project {
-		return fmt.Errorf("--cwd can only be used with --project")
+		return nil, fmt.Errorf("--cwd can only be used with --project")
 	}
 
 	alias := strings.TrimSpace(options.Keg)
@@ -73,7 +73,7 @@ func (t *Tap) InitKeg(ctx context.Context, name string, options InitOptions) err
 		case ".":
 			cwd, err := t.Runtime.Getwd()
 			if err != nil {
-				return fmt.Errorf("unable to determine working directory for alias inference: %w", err)
+				return nil, fmt.Errorf("unable to determine working directory for alias inference: %w", err)
 			}
 			alias = filepath.Base(cwd)
 		default:
@@ -81,7 +81,7 @@ func (t *Tap) InitKeg(ctx context.Context, name string, options InitOptions) err
 		}
 	}
 	if alias == "" {
-		return fmt.Errorf("keg alias is required: %w", keg.ErrInvalid)
+		return nil, fmt.Errorf("keg alias is required: %w", keg.ErrInvalid)
 	}
 	options.Keg = alias
 
@@ -95,10 +95,13 @@ func (t *Tap) InitKeg(ctx context.Context, name string, options InitOptions) err
 		destination = "user"
 	}
 
-	var err error
+	var (
+		target *kegurl.Target
+		err    error
+	)
 	switch destination {
 	case "registry":
-		_, err = t.initRegistry(initRegistryOptions{
+		target, err = t.initRegistry(initRegistryOptions{
 			Alias:         options.Keg,
 			User:          options.UserName,
 			Repo:          options.Repo,
@@ -114,13 +117,13 @@ func (t *Tap) InitKeg(ctx context.Context, name string, options InitOptions) err
 				options.Name = name
 			}
 		}
-		_, err = t.initUserKeg(ctx, options)
+		target, err = t.initUserKeg(ctx, options)
 	case "project":
 		projectPath := strings.TrimSpace(options.Path)
 		if projectPath == "" {
 			base, resolveErr := t.Runtime.Getwd()
 			if resolveErr != nil {
-				return fmt.Errorf("unable to determine working directory: %w", resolveErr)
+				return nil, fmt.Errorf("unable to determine working directory: %w", resolveErr)
 			}
 			if !options.Cwd {
 				if gitRoot := appCtx.FindGitRoot(ctx, t.Runtime, base); gitRoot != "" {
@@ -132,18 +135,21 @@ func (t *Tap) InitKeg(ctx context.Context, name string, options InitOptions) err
 		projectPath = toolkit.ExpandEnv(t.Runtime, projectPath)
 		projectPath, err = toolkit.ExpandPath(t.Runtime, projectPath)
 		if err != nil {
-			return fmt.Errorf("unable to resolve project path %q: %w", options.Path, err)
+			return nil, fmt.Errorf("unable to resolve project path %q: %w", options.Path, err)
 		}
-		_, err = t.initProjectKeg(ctx, initLocalOptions{
+		target, err = t.initProjectKeg(ctx, initLocalOptions{
 			Path:    projectPath,
 			Title:   options.Title,
 			Creator: options.Creator,
 		})
 	default:
-		return fmt.Errorf("invalid init destination")
+		return nil, fmt.Errorf("invalid init destination")
 	}
 
-	return err
+	if err != nil {
+		return nil, err
+	}
+	return target, nil
 }
 
 type initLocalOptions struct {
