@@ -2,69 +2,90 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://raw.githubusercontent.com/jlrickert/tapper/main/schemas/tap-config.json",
   "title": "tapper user/project config",
+  "description": "Schema for tapper user or project configuration.",
   "type": "object",
   "properties": {
     "defaultKeg": {
-      "type": "string"
+      "type": "string",
+      "description": "Alias used when no explicit keg is requested."
     },
     "fallbackKeg": {
-      "type": "string"
+      "type": "string",
+      "description": "Last-resort keg alias used when no mapped or default alias resolves."
     },
     "defaultRegistry": {
-      "type": "string"
+      "type": "string",
+      "description": "Registry name used by default for API-style targets."
     },
     "kegSearchPaths": {
+      "description": "One path or a list of paths scanned for file-backed kegs.",
       "oneOf": [
         {
-          "type": "string"
+          "type": "string",
+          "description": "Single directory path used for keg discovery."
         },
         {
           "type": "array",
+          "description": "Ordered list of directory paths used for keg discovery.",
           "items": {
-            "type": "string"
+            "type": "string",
+            "description": "Directory path used for keg discovery."
           }
         }
       ]
     },
     "kegs": {
       "type": "object",
+      "description": "Map of alias names to keg target definitions.",
       "additionalProperties": {
         "oneOf": [
           {
-            "type": "string"
+            "type": "string",
+            "description": "Scalar keg target shorthand."
           },
           {
             "type": "object",
+            "description": "Structured keg target definition.",
             "properties": {
               "file": {
-                "type": "string"
+                "type": "string",
+                "description": "Filesystem path for a local keg target."
               },
               "repo": {
-                "type": "string"
+                "type": "string",
+                "description": "Registry name for an API-style target."
               },
               "url": {
-                "type": "string"
+                "type": "string",
+                "description": "Full URL target for remote access."
               },
               "memory": {
-                "type": "boolean"
+                "type": "boolean",
+                "description": "When true, use an in-memory keg target."
               },
               "user": {
-                "type": "string"
+                "type": "string",
+                "description": "User or namespace component for API-style targets."
               },
               "keg": {
-                "type": "string"
+                "type": "string",
+                "description": "Keg name component for API-style targets."
               },
               "password": {
-                "type": "string"
+                "type": "string",
+                "description": "Basic-auth password for URL targets."
               },
               "token": {
-                "type": "string"
+                "type": "string",
+                "description": "Inline token credential for URL or registry targets."
               },
               "tokenEnv": {
-                "type": "string"
+                "type": "string",
+                "description": "Environment variable name containing a token credential."
               },
               "readonly": {
-                "type": "boolean"
+                "type": "boolean",
+                "description": "Marks the target as read-only."
               }
             },
             "additionalProperties": false
@@ -74,17 +95,22 @@
     },
     "kegMap": {
       "type": "array",
+      "description": "Path-based rules that map files to keg aliases.",
       "items": {
         "type": "object",
+        "description": "Single path-to-alias mapping rule.",
         "properties": {
           "alias": {
-            "type": "string"
+            "type": "string",
+            "description": "Keg alias selected when this rule matches."
           },
           "pathPrefix": {
-            "type": "string"
+            "type": "string",
+            "description": "Path prefix that must match the current path."
           },
           "pathRegex": {
-            "type": "string"
+            "type": "string",
+            "description": "Regular expression used to match the current path."
           }
         },
         "required": [
@@ -95,33 +121,42 @@
     },
     "registries": {
       "type": "array",
+      "description": "List of named registry connection definitions.",
       "items": {
         "type": "object",
+        "description": "Single registry configuration entry.",
         "properties": {
           "name": {
-            "type": "string"
+            "type": "string",
+            "description": "Registry identifier referenced by targets and defaults."
           },
           "url": {
-            "type": "string"
+            "type": "string",
+            "description": "Base URL or host for the registry."
           },
           "token": {
-            "type": "string"
+            "type": "string",
+            "description": "Inline token credential for registry access."
           },
           "tokenEnv": {
-            "type": "string"
+            "type": "string",
+            "description": "Environment variable name containing the registry token."
           }
         },
         "additionalProperties": false
       }
     },
     "logFile": {
-      "type": "string"
+      "type": "string",
+      "description": "Path to the log output file."
     },
     "logLevel": {
-      "type": "string"
+      "type": "string",
+      "description": "Log verbosity level."
     },
     "updated": {
       "type": "string",
+      "description": "RFC3339 timestamp for the last config update.",
       "format": "date-time"
     }
   },
