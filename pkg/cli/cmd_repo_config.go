@@ -30,10 +30,7 @@ func NewRepoConfigCmd(deps *Deps) *cobra.Command {
 
 Use 'tap repo config edit' to modify configuration files.
 Use '--project' to view only project configuration.
-Use '--template' to print starter config with defaultKeg, fallbackKeg, and kegSearchPaths.
-
-Deprecation notes:
-- 'userRepoPath' is deprecated; use 'kegSearchPaths'.`,
+Use '--template' to print starter config with defaultKeg, fallbackKeg, and kegSearchPaths.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			output, err := deps.Tap.Config(opts)
 			if errors.Is(err, os.ErrNotExist) {
