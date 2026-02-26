@@ -16,6 +16,8 @@ import (
 //	tap repo config
 //	tap repo config --project
 //	tap repo config --user
+//	tap repo config --template
+//	tap repo config --template --project
 //	tap repo config edit
 //	tap repo config edit --project
 func NewRepoConfigCmd(deps *Deps) *cobra.Command {
@@ -27,7 +29,11 @@ func NewRepoConfigCmd(deps *Deps) *cobra.Command {
 		Long: `Display the merged tap configuration (user + project).
 
 Use 'tap repo config edit' to modify configuration files.
-Use '--project' to view only project configuration.`,
+Use '--project' to view only project configuration.
+Use '--template' to print starter config with defaultKeg, fallbackKeg, and kegSearchPaths.
+
+Deprecation notes:
+- 'userRepoPath' is deprecated; use 'kegSearchPaths'.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			output, err := deps.Tap.Config(opts)
 			if errors.Is(err, os.ErrNotExist) {
@@ -44,7 +50,7 @@ Use '--project' to view only project configuration.`,
 
 	cmd.Flags().BoolVar(&opts.Project, "project", false, "display project configuration")
 	cmd.Flags().BoolVar(&opts.User, "user", false, "display user configuration")
-	cmd.Flags().BoolVar(&opts.Template, "template", false, "display template configuration")
+	cmd.Flags().BoolVar(&opts.Template, "template", false, "display template configuration (includes defaultKeg, fallbackKeg, kegSearchPaths)")
 
 	cmd.AddCommand(NewRepoConfigEditCmd(deps))
 
