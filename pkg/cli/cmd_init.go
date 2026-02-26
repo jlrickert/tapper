@@ -17,7 +17,7 @@ import (
 //	tap repo init NAME
 //	tap repo init . --project
 //	tap repo init blog --registry --repo knut --namespace me
-//	tap repo init blog --project --path ./docs --title "Blog" --creator "me"
+//	tap repo init blog --project --path ./kegs/blog --title "Blog" --creator "me"
 func NewInitCmd(deps *Deps) *cobra.Command {
 	initOpts := tapper.InitOptions{}
 
@@ -28,11 +28,12 @@ func NewInitCmd(deps *Deps) *cobra.Command {
 Create a keg target and initialize it in one of three destinations:
 
 1. user (default)
-   Creates a filesystem-backed keg under your configured user repo path and
+   Creates a filesystem-backed keg under your first configured kegSearchPaths entry and
    writes/updates the alias in user config.
 
 2. project (--project)
-   Creates a project-local keg. By default this resolves to <project>/docs,
+   Creates a project-local keg. By default this resolves to
+   <project>/kegs/<alias>,
    where <project> is the git root when available. Use --cwd to base it on the
    current working directory instead. Use --path to set an explicit location.
 
@@ -43,7 +44,7 @@ Create a keg target and initialize it in one of three destinations:
 Alias and name behavior:
 - --keg sets the alias written to config.
 - If --keg is omitted, alias is inferred from NAME (or cwd basename when NAME=".").
-- In user mode, NAME selects the directory name under userRepoPath.
+- In user mode, NAME selects the directory name under the first kegSearchPaths entry.
 
 Metadata:
 - --title and --creator are written into the keg config for filesystem-backed kegs.
@@ -52,7 +53,7 @@ Metadata:
 tap repo init blog
 tap repo init . --project
 tap repo init . --project --cwd
-tap repo init blog --project --path ./docs
+tap repo init blog --project --path ./kegs/blog
 tap repo init blog --user --keg myblog
 tap repo init blog --registry --repo knut --namespace me
 `),
@@ -93,7 +94,7 @@ tap repo init blog --registry --repo knut --namespace me
 	}
 
 	cmd.Flags().BoolVar(&initOpts.Project, "project", false, "create a project-local keg")
-	cmd.Flags().BoolVar(&initOpts.User, "user", false, "create a user keg under userRepoPath")
+	cmd.Flags().BoolVar(&initOpts.User, "user", false, "create a user keg under the first configured kegSearchPaths entry")
 	cmd.Flags().BoolVar(&initOpts.Registry, "registry", false, "create a registry target")
 	cmd.Flags().BoolVar(&initOpts.Cwd, "cwd", false, "with --project, use cwd instead of git root")
 	cmd.Flags().StringVar(&initOpts.Path, "path", "", "explicit local destination path (project destination)")

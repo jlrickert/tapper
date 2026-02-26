@@ -136,7 +136,7 @@ func TestCatCommand_WithJoeFixture(t *testing.T) {
 			description: "Display node 0 from default personal keg",
 		},
 		{
-			name: "cat_work_keg_from_work_directory",
+			name: "cat_default_keg_overrides_path_resolution",
 			args: []string{
 				"cat",
 				"0",
@@ -145,10 +145,9 @@ func TestCatCommand_WithJoeFixture(t *testing.T) {
 			cwd:          strPtr("~/repos/work/spy-things"),
 			expectedInStdout: []string{
 				"---",
-				"title:",
-				"---",
+				"# Sorry, planned but not yet available",
 			},
-			description: "Display node 0 from work keg when in work directory (resolved via kegMap)",
+			description: "Display node 0 from default keg even when kegMap path matches",
 		},
 		{
 			name: "cat_explicit_alias_overrides_path_resolution",

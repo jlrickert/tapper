@@ -31,8 +31,8 @@ func TestInitCommand_TableDriven(t *testing.T) {
 				"--creator", "me",
 			},
 			expectedAlias:    "myalias",
-			expectedLocation: "~/docs",
-			description:      "When --project and name is '.', default destination should be docs under project root",
+			expectedLocation: "~/kegs/myalias",
+			description:      "When --project and name is '.', default destination should be kegs/<alias> under project root",
 		},
 		{
 			name: "local_keg_with_dot_infers_alias",
@@ -43,7 +43,7 @@ func TestInitCommand_TableDriven(t *testing.T) {
 				"--creator", "me",
 			},
 			expectedAlias:    "myproject",
-			expectedLocation: "~/myproject/docs",
+			expectedLocation: "~/myproject/kegs/myproject",
 			cwd:              strPtr("~/myproject"),
 			description:      "Project keg with '.' should infer alias from current working directory base when not provided",
 		},
@@ -57,7 +57,7 @@ func TestInitCommand_TableDriven(t *testing.T) {
 				"--creator", "me",
 			},
 			expectedAlias:    "myalias",
-			expectedLocation: "~/docs",
+			expectedLocation: "~/kegs/myalias",
 			description:      "Project keg with explicit --project flag",
 		},
 		{
