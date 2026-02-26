@@ -12,30 +12,42 @@ import (
 	kegurl "github.com/jlrickert/tapper/pkg/keg_url"
 )
 
+// KegService resolves keg targets from config, project paths, and explicit filesystem locations.
 type KegService struct {
+	// Runtime provides filesystem and environment access used to resolve kegs.
 	Runtime *toolkit.Runtime
 
+	// ConfigService resolves configured keg aliases and targets.
 	ConfigService *ConfigService
 
-	// Caches a keg by alias
+	// kegCache memoizes resolved kegs by alias or file-derived cache key.
 	kegCache map[string]*keg.Keg
 }
 
+// ResolveKegOptions controls how KegService resolves a keg target.
 type ResolveKegOptions struct {
-	Root    string
-	Keg     string
+	// Root is the base path used for project and fallback resolution.
+	Root string
+	// Keg is the explicit keg alias to resolve.
+	Keg string
+	// Project resolves a keg from project-local locations.
 	Project bool
-	Cwd     bool
-	Path    string
+	// Cwd limits project resolution to the current working directory.
+	Cwd bool
+	// Path resolves a keg from an explicit filesystem path.
+	Path string
+	// NoCache disables in-memory keg caching for this resolution.
 	NoCache bool
 }
 
+// ensureCache initializes the in-memory keg cache when needed.
 func (s *KegService) ensureCache() {
 	if s.kegCache == nil {
 		s.kegCache = map[string]*keg.Keg{}
 	}
 }
 
+// Resolve returns a keg using explicit path, project, alias, or configured fallback resolution.
 func (s *KegService) Resolve(ctx context.Context, opts ResolveKegOptions) (*keg.Keg, error) {
 	s.ensureCache()
 	cache := !opts.NoCache
@@ -58,16 +70,16 @@ func (s *KegService) Resolve(ctx context.Context, opts ResolveKegOptions) (*keg.
 			return nil, fmt.Errorf("failed to get working directory: %w", err)
 		}
 	}
-	if !opts.Cwd {
-		if gitRoot := appCtx.FindGitRoot(ctx, s.Runtime, base); gitRoot != "" {
-			base = gitRoot
-		}
-	}
 
 	if explicitPath != "" {
 		return s.resolveProjectTarget(ctx, explicitPath, cache)
 	}
 	if opts.Project {
+		if !opts.Cwd {
+			if gitRoot := appCtx.FindGitRoot(ctx, s.Runtime, base); gitRoot != "" {
+				base = gitRoot
+			}
+		}
 		return s.resolveProjectTarget(ctx, base, cache)
 	}
 	if alias != "" {
@@ -77,6 +89,7 @@ func (s *KegService) Resolve(ctx context.Context, opts ResolveKegOptions) (*keg.
 	return s.resolvePath(ctx, base, cache)
 }
 
+// resolveProjectTarget resolves a filesystem-backed keg under known project keg locations.
 func (s *KegService) resolveProjectTarget(ctx context.Context, base string, cache bool) (*keg.Keg, error) {
 	rawBase := filepath.Clean(toolkit.ExpandEnv(s.Runtime, base))
 	expandedBase := rawBase
@@ -129,6 +142,7 @@ func (s *KegService) resolveProjectTarget(ctx context.Context, base string, cach
 	return nil, newProjectKegNotFoundError(checked)
 }
 
+// resolveFileKeg resolves a keg from a filesystem root and caches it by normalized path.
 func (s *KegService) resolveFileKeg(ctx context.Context, root string, cache bool) (*keg.Keg, error) {
 	key := "file:" + filepath.Clean(root)
 	if cache && s.kegCache[key] != nil {
@@ -147,6 +161,7 @@ func (s *KegService) resolveFileKeg(ctx context.Context, root string, cache bool
 	return k, nil
 }
 
+// resolvePath resolves the effective keg alias from config for the given path and returns its keg.
 func (s *KegService) resolvePath(ctx context.Context, path string, cache bool) (*keg.Keg, error) {
 	s.ensureCache()
 	cfg := s.ConfigService.Config(true)
@@ -163,6 +178,7 @@ func (s *KegService) resolvePath(ctx context.Context, path string, cache bool) (
 	return s.resolveKegAlias(ctx, kegAlias, path, cache)
 }
 
+// resolveKegAlias resolves a keg alias from config and optionally falls back to project-local alias resolution.
 func (s *KegService) resolveKegAlias(ctx context.Context, kegAlias string, projectRoot string, cache bool) (*keg.Keg, error) {
 	s.ensureCache()
 	if kegAlias == "" {
@@ -218,6 +234,7 @@ func (s *KegService) resolveKegAlias(ctx context.Context, kegAlias string, proje
 	return k, err
 }
 
+// resolveProjectAlias resolves a project-local alias at <project>/kegs/<alias>/keg when present.
 func (s *KegService) resolveProjectAlias(ctx context.Context, base string, alias string, cache bool) (*keg.Keg, bool, error) {
 	base = strings.TrimSpace(base)
 	alias = strings.TrimSpace(alias)
@@ -225,7 +242,12 @@ func (s *KegService) resolveProjectAlias(ctx context.Context, base string, alias
 		return nil, false, nil
 	}
 
-	rawBase := filepath.Clean(toolkit.ExpandEnv(s.Runtime, base))
+	searchBase := base
+	if gitRoot := appCtx.FindGitRoot(ctx, s.Runtime, base); gitRoot != "" {
+		searchBase = gitRoot
+	}
+
+	rawBase := filepath.Clean(toolkit.ExpandEnv(s.Runtime, searchBase))
 	expandedBase := rawBase
 	if p, err := toolkit.ExpandPath(s.Runtime, rawBase); err == nil {
 		expandedBase = filepath.Clean(p)
