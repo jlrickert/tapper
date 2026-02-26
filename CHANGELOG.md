@@ -1,11 +1,21 @@
 # Changelog
 
+### 📚 Documentation
+
+- expand README with quick start and configuration overview
+- add installation instructions to README
+
+### 🚀 Features
+
+- return target path from InitKeg and update init command output
+
 ### ⚙️ Miscellaneous
 
 - add CI/CD automation with testing and release workflows
 - migrate release process to GitHub Actions workflow
 - improve code documentation and update dependencies
 - update .gitignore and upgrade cli-toolkit dependency
+- release v0.2.0
 
 ### 🐛 Bug Fixes
 
