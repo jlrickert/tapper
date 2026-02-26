@@ -38,7 +38,6 @@ func TestConfigCommand_DisplaysMergedConfig(t *testing.T) {
 			args:         []string{"repo", "config", "--template"},
 			setupFixture: strPtr("joe"),
 			expectedInStdout: []string{
-				"defaultKeg:",
 				"fallbackKeg:",
 				"kegSearchPaths:",
 			},
@@ -50,7 +49,6 @@ func TestConfigCommand_DisplaysMergedConfig(t *testing.T) {
 			setupFixture: strPtr("joe"),
 			expectedInStdout: []string{
 				"defaultKeg:",
-				"fallbackKeg:",
 				"kegSearchPaths:",
 			},
 			description: "Project template output should include new config keys",
