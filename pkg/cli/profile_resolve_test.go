@@ -23,7 +23,7 @@ func TestTap_ProjectResolutionFlags(t *testing.T) {
 	)
 	initRes := initCmd.Run(sb.Context(), sb.Runtime())
 	require.NoError(t, initRes.Err, "project init should succeed")
-	_ = sb.MustReadFile("~/docs/keg")
+	_ = sb.MustReadFile("~/kegs/project/keg")
 
 	createCmd := NewProcess(t, false,
 		"create",
@@ -74,7 +74,7 @@ func TestKegV2_UsesProjectKegOnly(t *testing.T) {
 		)
 		initRes := initCmd.Run(sb.Context(), sb.Runtime())
 		require.NoError(innerT, initRes.Err, "project init should succeed")
-		_ = sb.MustReadFile("~/docs/keg")
+		_ = sb.MustReadFile("~/kegs/project/keg")
 
 		h := NewKegV2Process(innerT, false, "cat", "0")
 		res := h.Run(sb.Context(), sb.Runtime())

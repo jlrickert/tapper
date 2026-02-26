@@ -333,3 +333,23 @@ func TestAddKegMap_ReturnsErrorOnNilOrEmptyAlias(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "alias is required")
 }
+
+func TestParseConfig_KegSearchPathsScalar(t *testing.T) {
+	t.Parallel()
+
+	raw := `fallbackKeg: pub
+kegSearchPaths: ~/Documents/kegs
+kegMap: []
+kegs: {}
+defaultRegistry: ""
+`
+	cfg, err := tapper.ParseConfig([]byte(raw))
+	require.NoError(t, err)
+	require.Equal(t, []string{"~/Documents/kegs"}, cfg.KegSearchPaths())
+
+	out, err := cfg.ToYAML()
+	require.NoError(t, err)
+	y := string(out)
+	require.Contains(t, y, "kegSearchPaths:")
+	require.Contains(t, y, "- ~/Documents/kegs")
+}

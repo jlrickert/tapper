@@ -40,10 +40,11 @@ type InitOptions struct {
 
 // InitKeg creates a keg entry for the given name.
 //
-// If the name is empty, an ErrInvalid-wrapped error is returned. InitKeg gets the
-// project via getProject and then performs the actions required to create a
-// keg. The current implementation defers to project.DefaultKeg for further
-// resolution and returns any error encountered when obtaining the project.
+// It validates destination flags, infers an alias when needed, and initializes
+// one of three destinations:
+//   - user: filesystem-backed keg under the first configured kegSearchPaths entry
+//   - project: filesystem-backed keg under project path or explicit --path
+//   - registry: API target entry written to config only
 func (t *Tap) InitKeg(ctx context.Context, name string, options InitOptions) error {
 	if strings.TrimSpace(name) == "" {
 		return fmt.Errorf("name is required: %w", keg.ErrInvalid)
@@ -126,7 +127,7 @@ func (t *Tap) InitKeg(ctx context.Context, name string, options InitOptions) err
 					base = gitRoot
 				}
 			}
-			projectPath = filepath.Join(base, "docs")
+			projectPath = filepath.Join(base, "kegs", options.Keg)
 		}
 		projectPath = toolkit.ExpandEnv(t.Runtime, projectPath)
 		projectPath, err = toolkit.ExpandPath(t.Runtime, projectPath)
@@ -154,14 +155,8 @@ type initLocalOptions struct {
 
 // initProjectKeg creates a filesystem-backed keg repository at path.
 //
-// If path is empty the current working directory is used. The function uses
-// the Env from ctx to resolve the working directory when available and falls
-// back to os.Getwd otherwise. The destination directory is created. An initial
-// keg configuration is written as YAML to "keg" inside the destination. A
-// dex/ directory and a nodes.tsv file containing the zero node entry are
-// created. A zero node README is written to "0/README.md".
-//
-// Errors are wrapped with contextual messages to aid callers.
+// The destination directory is created and initialized via keg.Init, then
+// creator/title metadata is applied to the generated keg config.
 func (t *Tap) initProjectKeg(ctx context.Context, opts initLocalOptions) (*kegurl.Target, error) {
 	target := kegurl.NewFile(opts.Path)
 	k, err := keg.NewKegFromTarget(ctx, target, t.Runtime)
@@ -181,9 +176,9 @@ func (t *Tap) initProjectKeg(ctx context.Context, opts initLocalOptions) (*kegur
 
 func (t *Tap) initUserKeg(ctx context.Context, opts InitOptions) (*kegurl.Target, error) {
 	cfg := t.ConfigService.Config(true)
-	repoPath := cfg.UserRepoPath()
+	repoPath := cfg.PrimaryKegSearchPath()
 	if repoPath == "" {
-		return nil, fmt.Errorf("userRepoPath not defined in user config: %w", keg.ErrNotExist)
+		return nil, fmt.Errorf("kegSearchPaths not defined in user config: %w", keg.ErrNotExist)
 	}
 
 	kegPath := filepath.Join(repoPath, opts.Name)
@@ -237,6 +232,7 @@ type initRegistryOptions struct {
 	Title   string
 }
 
+// initRegistry creates an API target and optionally stores it in user config.
 func (t *Tap) initRegistry(opts initRegistryOptions) (*kegurl.Target, error) {
 	if opts.Alias == "" {
 		return nil, fmt.Errorf("alias required: %w", keg.ErrInvalid)

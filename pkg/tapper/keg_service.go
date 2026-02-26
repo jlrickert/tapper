@@ -102,7 +102,13 @@ func (s *KegService) resolveProjectTarget(ctx context.Context, base string, cach
 		if b == "" {
 			continue
 		}
-		for _, candidate := range []string{b, filepath.Join(b, "docs")} {
+		baseName := filepath.Base(filepath.Clean(b))
+		for _, candidate := range []string{
+			b,
+			filepath.Join(b, "kegs", baseName),
+			filepath.Join(b, "kegs", "project"),
+			filepath.Join(b, "kegs", "tapper"),
+		} {
 			candidate = filepath.Clean(candidate)
 			if _, ok := seen[candidate]; ok {
 				continue
@@ -110,6 +116,7 @@ func (s *KegService) resolveProjectTarget(ctx context.Context, base string, cach
 			seen[candidate] = struct{}{}
 			candidates = append(candidates, candidate)
 		}
+
 	}
 
 	var checked []string
@@ -150,9 +157,12 @@ func (s *KegService) resolveFileKeg(ctx context.Context, root string, cache bool
 func (s *KegService) resolvePath(ctx context.Context, path string, cache bool) (*keg.Keg, error) {
 	s.init()
 	cfg := s.ConfigService.Config(true)
-	kegAlias := cfg.LookupAlias(s.Runtime, path)
+	kegAlias := cfg.DefaultKeg()
 	if kegAlias == "" {
-		kegAlias = cfg.DefaultKeg()
+		kegAlias = cfg.LookupAlias(s.Runtime, path)
+	}
+	if kegAlias == "" {
+		kegAlias = cfg.FallbackKeg()
 	}
 	if kegAlias == "" {
 		return nil, fmt.Errorf("no keg configured")
