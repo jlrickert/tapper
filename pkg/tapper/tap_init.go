@@ -178,7 +178,7 @@ func (t *Tap) initUserKeg(ctx context.Context, opts InitOptions) (*kegurl.Target
 	cfg := t.ConfigService.Config(true)
 	repoPath := cfg.PrimaryKegSearchPath()
 	if repoPath == "" {
-		return nil, fmt.Errorf("kegSearchPaths not defined in user config: %w", keg.ErrNotExist)
+		return nil, fmt.Errorf("kegSearchPaths not defined in user config (set via tap repo config --user): %w", keg.ErrNotExist)
 	}
 
 	kegPath := filepath.Join(repoPath, opts.Name)
