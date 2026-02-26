@@ -16,6 +16,11 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+const (
+	KegConfigSchemaURL      = "https://raw.githubusercontent.com/jlrickert/tapper/main/schemas/keg-config.json"
+	kegConfigSchemaModeline = "# yaml-language-server: $schema=" + KegConfigSchemaURL + "\n"
+)
+
 // ConfigV1 KegConfigV1 represents the initial version of the KEG configuration
 // specification.
 type ConfigV1 struct {
@@ -229,7 +234,11 @@ func (kc *Config) ResolveAlias(alias string) (*kegurl.Target, error) {
 
 // ToYAML serializes the Config to YAML.
 func (kc *Config) ToYAML() ([]byte, error) {
-	return yaml.Marshal(kc)
+	body, err := yaml.Marshal(kc)
+	if err != nil {
+		return nil, err
+	}
+	return append([]byte(kegConfigSchemaModeline), body...), nil
 }
 
 // ToJSON serializes the Config to JSON.

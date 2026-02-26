@@ -19,6 +19,11 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+const (
+	TapConfigSchemaURL      = "https://raw.githubusercontent.com/jlrickert/tapper/main/schemas/tap-config.json"
+	tapConfigSchemaModeline = "# yaml-language-server: $schema=" + TapConfigSchemaURL + "\n"
+)
+
 // Package tapper provides helpers for the tapper CLI related to user and
 // project configuration, keg resolution, and small utilities used by commands.
 //
@@ -484,7 +489,11 @@ func (cfg *Config) ToYAML() ([]byte, error) {
 	if cfg.data == nil {
 		cfg.data = &configDTO{}
 	}
-	return yaml.Marshal(cfg.data)
+	body, err := yaml.Marshal(cfg.data)
+	if err != nil {
+		return nil, err
+	}
+	return append([]byte(tapConfigSchemaModeline), body...), nil
 }
 
 // Write writes the Config back to path using atomic replacement.
