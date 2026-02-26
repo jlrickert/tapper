@@ -1,6 +1,6 @@
 module github.com/jlrickert/tapper
 
-go 1.25.0
+go 1.26.0
 
 require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
@@ -13,7 +13,7 @@ require (
 
 require (
 	github.com/fsnotify/fsnotify v1.9.0
-	github.com/jlrickert/cli-toolkit v1.0.0
+	github.com/jlrickert/cli-toolkit v1.0.2
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.11.1
 	github.com/yuin/goldmark v1.7.16
