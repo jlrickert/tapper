@@ -63,11 +63,6 @@ tap repo init blog --registry --repo knut --namespace me
 			}
 			name := args[0]
 
-			if initOpts.Project {
-				if initOpts.Path == "" && name != "." {
-					initOpts.Path = name
-				}
-			}
 			if initOpts.User && strings.TrimSpace(initOpts.Name) == "" {
 				initOpts.Name = name
 			}
@@ -83,8 +78,13 @@ tap repo init blog --registry --repo knut --namespace me
 				}
 			}
 
-			err := deps.Tap.InitKeg(cmd.Context(), name, initOpts)
+			target, err := deps.Tap.InitKeg(cmd.Context(), name, initOpts)
 			if err != nil {
+				return err
+			}
+
+			if initOpts.Project && target != nil {
+				_, err = fmt.Fprintf(cmd.OutOrStdout(), "keg %s created at %s", initOpts.Keg, target.Path())
 				return err
 			}
 
