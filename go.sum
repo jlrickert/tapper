@@ -7,6 +7,8 @@ github.com/inconshreveable/mousetrap v1.1.0 h1:wN+x4NVGpMsO7ErUn/mUI3vEoE6Jt13X2
 github.com/inconshreveable/mousetrap v1.1.0/go.mod h1:vpF70FUmC8bwa3OWnCshd2FqLfsEA9PFc4w1p2J65bw=
 github.com/jlrickert/cli-toolkit v1.0.0 h1:2SQupLa4W9GL6uZ41vcl8qdqrpasiH4waKKvfSuAmpg=
 github.com/jlrickert/cli-toolkit v1.0.0/go.mod h1:TXxkV2AsE0MMsA0zg1GfPcIlxlmI7QB05cA719XMIZs=
+github.com/jlrickert/cli-toolkit v1.0.2 h1:9owLaPYJki+kyvwQJDBhOU3RP3otUBQwJJZO9Gah3z4=
+github.com/jlrickert/cli-toolkit v1.0.2/go.mod h1:4LJ65Rl8IA3IHSzFKbuWBESqESkp8QrzZUPwGVYI5Tw=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
 github.com/russross/blackfriday/v2 v2.1.0/go.mod h1:+Rmxgy9KzJVeS9/2gXHxylqXiyQDYRxCVz55jmeOWTM=
