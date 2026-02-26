@@ -1,50 +1,62 @@
 # Changelog
 
-### 📚 Documentation
+All notable changes to this project are documented in this file.
 
+## Unreleased
+
+
+
+### 📚 Documentation
 - expand README with quick start and configuration overview
 - add installation instructions to README
 
-### 🚀 Features
 
+### 🚀 Features
 - return target path from InitKeg and update init command output
 
-### ⚙️ Miscellaneous
 
+## v0.2.0 - 2026-02-26
+
+
+
+### ⚙️ Miscellaneous
 - add CI/CD automation with testing and release workflows
 - migrate release process to GitHub Actions workflow
 - improve code documentation and update dependencies
 - update .gitignore and upgrade cli-toolkit dependency
-- release v0.2.0
+
 
 ### 🐛 Bug Fixes
-
 - align keg defaults and resolver precedence coverage
 - correct release workflow version detection
 
-### 📚 Documentation
 
+### 📚 Documentation
 - improve config error messages and template output
 
-### 🚀 Features
 
+### 🚀 Features
 - refactor tap package into focused modules and add file/image management
 - add dex/changes.md index and tag-filtered custom indexes
 - split index command into list and cat operations, add reindex command
 - evolve config schema to support ordered keg search paths
 - add project-local keg alias resolution in kegs/ directory
 
-### 🚜 Refactor
 
+### 🚜 Refactor
 - rename command files to cmd_ prefix convention
 - rename config edit methods and consolidate temp file utilities
 
-### 🧪 Testing
 
+### 🧪 Testing
 - expand mv and rm commands with comprehensive test coverage
 
-### ⚙️ Miscellaneous
 
+## v0.1.0 - 2026-02-24
+
+
+
+### ⚙️ Miscellaneous
 - update go-std to v0.1.0 and use toolkit package
 - upgrade cli-toolkit to v0.2.0 and refactor tests to use new sandbox API
 - update cli-toolkit to v0.2.1 and refactor project abstraction
@@ -52,24 +64,24 @@
 - add Apache License and update dependencies
 - add release automation with goreleaser and git-cliff
 
-### 🐛 Bug Fixes
 
+### 🐛 Bug Fixes
 - normalize and sort meta tags when serializing
 - write updated timestamp before title in nodes index
 - keg mapping for various commands
 - remove context dependencies from service layer
 - preserve unknown config fields when updating timestamp
 
-### 📚 Documentation
 
+### 📚 Documentation
 - add initial documentation and sample config for KEG project
 - add meta, content, node, and links documentation
 - add Tapper, KEG CLI, Zeke extension, and storage docs
 - Improve MemoryRepo docs and simplify tests
 - add CLI design patterns and update Tapper docs
 
-### 🚀 Features
 
+### 🚀 Features
 - add versioned KEG config management with env var expansion
 - add KEG docs for indices/tags/links and bump config to v2
 - add Dex index parsing and repository abstraction
@@ -124,8 +136,8 @@
 - add multi-node support and tag filtering to cat command
 - inject node ID into all multi-node cat output modes
 
-### 🚜 Refactor
 
+### 🚜 Refactor
 - reorganize keg internals and add deterministic index builders
 - centralize editor runner and add ISO8601 helper
 - export index fields and add Dex.GetNode
@@ -166,8 +178,8 @@
 - restructure config and info commands into separate repo and keg namespaces
 - convert config edit subcommand to flag
 
-### 🧪 Testing
 
+### 🧪 Testing
 - use scalar keg URLs in user config tests to preserve comments
 - add Meta parsing, hash and comment-preservation tests
 - convert create command tests to table-driven format
@@ -178,3 +190,4 @@
 - Add info edit command tests and refactor temp file handling
 - remove stats injection from default frontmatter output
 - Add live save tests and implement live editor with validation
+

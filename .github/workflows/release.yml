@@ -40,13 +40,8 @@ jobs:
           config: cliff.toml
           args: --bumped-version
 
-      - name: Generate changelog
-        uses: orhun/git-cliff-action@v4
-        with:
-          config: cliff.toml
-          args: -o CHANGELOG.md
-
-      - name: Commit changelog and create tag
+      - name: Resolve release version
+        id: version
         run: |
           DETECTED_VERSION="$(echo "${{ steps.cliff.outputs.content }}" | tr -d '[:space:]')"
           if [ -z "$DETECTED_VERSION" ]; then
@@ -65,6 +60,7 @@ jobs:
               exit 1
             fi
           fi
+
           VERSION="${{ inputs.version }}"
           if [ -z "$VERSION" ]; then
             VERSION="$DETECTED_VERSION"
@@ -77,7 +73,19 @@ jobs:
             echo "Error: tag '$VERSION' already exists. Set workflow input 'version' to a new value." >&2
             exit 1
           fi
+
           echo "Releasing $VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Generate changelog
+        uses: orhun/git-cliff-action@v4
+        with:
+          config: cliff.toml
+          args: --tag ${{ steps.version.outputs.version }} -o CHANGELOG.md
+
+      - name: Commit changelog and create tag
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add CHANGELOG.md

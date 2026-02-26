@@ -1,10 +1,16 @@
 [changelog]
-header = "# Changelog\n"
+header = "# Changelog\n\nAll notable changes to this project are documented in this file.\n"
 body = """
-{% for group, commits in commits | group_by(attribute="group") %}
+{% if version %}
+## {{ version }} - {{ timestamp | date(format=\"%Y-%m-%d\") }}
+{% else %}
+## Unreleased
+{% endif %}
+
+{% for group, commits in commits | group_by(attribute=\"group\") %}
 ### {{ group }}
-{% for commit in commits %}
-- {% if commit.scope %}**{{ commit.scope }}:** {% endif %}{{ commit.message }}\
+{% for commit in commits -%}
+- {% if commit.scope %}**{{ commit.scope }}:** {% endif %}{{ commit.message | trim }}
 {% endfor %}
 {% endfor %}
 """
@@ -15,11 +21,12 @@ conventional_commits = true
 filter_unconventional = true
 sort_commits = "oldest"
 commit_parsers = [
+  { message = "^chore\\(release\\):|^chore: release v", skip = true },
   { message = "^feat",      group = "🚀 Features"      },
   { message = "^fix",       group = "🐛 Bug Fixes"      },
-  { message = "^doc",       group = "📚 Documentation"  },
+  { message = "^docs?",     group = "📚 Documentation"  },
   { message = "^perf",      group = "⚡ Performance"    },
-  { message = "^refactor",  group = "🚜 Refactor"        },
+  { message = "^refactor",  group = "🚜 Refactor"       },
   { message = "^test",      group = "🧪 Testing"        },
   { message = "^chore|^ci", group = "⚙️ Miscellaneous" },
   { message = "^revert",    group = "◀️ Revert"         },
