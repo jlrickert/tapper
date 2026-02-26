@@ -2,42 +2,54 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://raw.githubusercontent.com/jlrickert/tapper/main/schemas/keg-config.json",
   "title": "tapper keg config",
+  "description": "Schema for keg metadata stored in a keg repository config file.",
   "type": "object",
   "properties": {
     "kegv": {
       "type": "string",
+      "description": "Configuration schema version.",
       "enum": [
         "2025-07"
       ]
     },
     "updated": {
       "type": "string",
+      "description": "RFC3339 timestamp indicating when the keg metadata was last updated.",
       "format": "date-time"
     },
     "title": {
       "type": "string",
+      "description": "Human-readable title for this keg.",
       "url": {
-        "type": "string"
+        "type": "string",
+        "description": "Primary URL for the keg or project."
       },
       "creator": {
-        "type": "string"
+        "type": "string",
+        "description": "Creator identifier, profile URL, or repository URL."
       },
       "state": {
-        "type": "string"
+        "type": "string",
+        "description": "Lifecycle state for the keg, such as living or archived."
       },
       "summary": {
-        "type": "string"
+        "type": "string",
+        "description": "Short summary of the keg's purpose and contents."
       },
       "links": {
         "type": "array",
+        "description": "Named external links or related keg references.",
         "items": {
           "type": "object",
+          "description": "A single named link entry.",
           "properties": {
             "alias": {
-              "type": "string"
+              "type": "string",
+              "description": "Unique alias used to reference the link."
             },
             "url": {
-              "type": "string"
+              "type": "string",
+              "description": "Destination URL or keg target."
             }
           },
           "required": [
@@ -49,17 +61,22 @@
       },
       "indexes": {
         "type": "array",
+        "description": "Configured index outputs and optional tag filters.",
         "items": {
           "type": "object",
+          "description": "A single index declaration.",
           "properties": {
             "file": {
-              "type": "string"
+              "type": "string",
+              "description": "Path to the generated index file relative to the keg root."
             },
             "summary": {
-              "type": "string"
+              "type": "string",
+              "description": "Short description of what this index contains."
             },
             "tags": {
-              "type": "string"
+              "type": "string",
+              "description": "Optional boolean tag query used to filter index contents."
             }
           },
           "required": [
@@ -71,15 +88,19 @@
       },
       "entities": {
         "type": "object",
+        "description": "Entity map keyed by entity name.",
         "additionalProperties": {
           "type": "object",
+          "description": "Metadata for a single entity.",
           "properties": {
             "id": {
               "type": "integer",
+              "description": "Node ID associated with the entity.",
               "minimum": 0
             },
             "summary": {
-              "type": "string"
+              "type": "string",
+              "description": "Short description of the entity."
             }
           },
           "required": [
@@ -90,8 +111,10 @@
       },
       "tags": {
         "type": "object",
+        "description": "Tag descriptions keyed by tag name.",
         "additionalProperties": {
-          "type": "string"
+          "type": "string",
+          "description": "Human-readable description for a tag."
         }
       }
     },
