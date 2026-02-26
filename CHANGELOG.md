@@ -2,6 +2,39 @@
 
 ### ⚙️ Miscellaneous
 
+- add CI/CD automation with testing and release workflows
+- migrate release process to GitHub Actions workflow
+- improve code documentation and update dependencies
+- update .gitignore and upgrade cli-toolkit dependency
+
+### 🐛 Bug Fixes
+
+- align keg defaults and resolver precedence coverage
+- correct release workflow version detection
+
+### 📚 Documentation
+
+- improve config error messages and template output
+
+### 🚀 Features
+
+- refactor tap package into focused modules and add file/image management
+- add dex/changes.md index and tag-filtered custom indexes
+- split index command into list and cat operations, add reindex command
+- evolve config schema to support ordered keg search paths
+- add project-local keg alias resolution in kegs/ directory
+
+### 🚜 Refactor
+
+- rename command files to cmd_ prefix convention
+- rename config edit methods and consolidate temp file utilities
+
+### 🧪 Testing
+
+- expand mv and rm commands with comprehensive test coverage
+
+### ⚙️ Miscellaneous
+
 - update go-std to v0.1.0 and use toolkit package
 - upgrade cli-toolkit to v0.2.0 and refactor tests to use new sandbox API
 - update cli-toolkit to v0.2.1 and refactor project abstraction
