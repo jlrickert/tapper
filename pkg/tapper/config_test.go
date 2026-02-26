@@ -353,3 +353,84 @@ defaultRegistry: ""
 	require.Contains(t, y, "kegSearchPaths:")
 	require.Contains(t, y, "- ~/Documents/kegs")
 }
+
+func TestParseConfig_SearchPathModes(t *testing.T) {
+	t.Parallel()
+
+	t.Run("legacy_only_userRepoPath_is_ignored", func(innerT *testing.T) {
+		innerT.Parallel()
+
+		raw := `userRepoPath: ~/Documents/kegs
+kegMap: []
+kegs: {}
+defaultRegistry: ""
+`
+		cfg, err := tapper.ParseConfig([]byte(raw))
+		require.NoError(innerT, err)
+		require.Empty(innerT, cfg.KegSearchPaths())
+	})
+
+	t.Run("mixed_legacy_and_new_uses_kegSearchPaths", func(innerT *testing.T) {
+		innerT.Parallel()
+
+		raw := `userRepoPath: ~/Documents/legacy
+kegSearchPaths:
+  - ~/Documents/kegs
+  - ~/repos/kegs
+kegMap: []
+kegs: {}
+defaultRegistry: ""
+`
+		cfg, err := tapper.ParseConfig([]byte(raw))
+		require.NoError(innerT, err)
+		require.Equal(innerT, []string{"~/Documents/kegs", "~/repos/kegs"}, cfg.KegSearchPaths())
+	})
+
+	t.Run("new_only_sequence_parses", func(innerT *testing.T) {
+		innerT.Parallel()
+
+		raw := `kegSearchPaths:
+  - ~/Documents/kegs
+  - ~/repos/kegs
+kegMap: []
+kegs: {}
+defaultRegistry: ""
+`
+		cfg, err := tapper.ParseConfig([]byte(raw))
+		require.NoError(innerT, err)
+		require.Equal(innerT, []string{"~/Documents/kegs", "~/repos/kegs"}, cfg.KegSearchPaths())
+	})
+}
+
+func TestMergeConfig_DefaultFallbackAndSearchPathPrecedence(t *testing.T) {
+	t.Parallel()
+
+	userRaw := `defaultKeg: pub
+fallbackKeg: pub
+kegSearchPaths:
+  - ~/Documents/kegs
+  - ~/repos/kegs
+kegMap: []
+kegs: {}
+defaultRegistry: ""
+`
+	projectRaw := `defaultKeg: ecw
+fallbackKeg: ecw
+kegSearchPaths:
+  - ~/work/kegs
+  - ~/Documents/kegs
+kegMap: []
+kegs: {}
+defaultRegistry: ""
+`
+
+	userCfg, err := tapper.ParseConfig([]byte(userRaw))
+	require.NoError(t, err)
+	projectCfg, err := tapper.ParseConfig([]byte(projectRaw))
+	require.NoError(t, err)
+
+	merged := tapper.MergeConfig(userCfg, projectCfg)
+	require.Equal(t, "ecw", merged.DefaultKeg())
+	require.Equal(t, "ecw", merged.FallbackKeg())
+	require.Equal(t, []string{"~/Documents/kegs", "~/repos/kegs", "~/work/kegs"}, merged.KegSearchPaths())
+}

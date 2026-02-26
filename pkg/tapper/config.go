@@ -427,12 +427,10 @@ func DefaultUserConfig(name string, userRepos string) *Config {
 		data: &configDTO{
 			DefaultRegistry: "knut",
 			KegMap:          []KegMapEntry{},
-			DefaultKeg:      name,
+			DefaultKeg:      "",
 			FallbackKeg:     name,
-			Kegs: map[string]kegurl.Target{
-				name: kegurl.NewFile(filepath.Join(userRepos, name)),
-			},
-			KegSearchPaths: stringList{filepath.Join(userRepos)},
+			KegSearchPaths:  stringList{filepath.Join(userRepos)},
+			Kegs:            map[string]kegurl.Target{},
 			Registries: []KegRegistry{
 				{
 					Name:     "knut",
