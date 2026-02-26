@@ -22,14 +22,14 @@ builds:
 
 archives:
   - id: tap
-    builds: [tap]
+    ids: [tap]
     name_template: "tap_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     format_overrides:
       - goos: windows
         formats: [zip]
     files: [LICENSE, README.md, CHANGELOG.md]
   - id: kegv2
-    builds: [kegv2]
+    ids: [kegv2]
     name_template: "kegv2_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     format_overrides:
       - goos: windows
@@ -40,7 +40,11 @@ checksum:
   name_template: "checksums.txt"
 
 changelog:
-  disable: true   # git-cliff owns the changelog
+  sort: asc
+  filters:
+    exclude:
+      - "^chore: release v"
+      - "^Merge"
 
 release:
   footer: |
