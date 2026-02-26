@@ -65,23 +65,13 @@ func (t *Tap) Dir(ctx context.Context, opts DirOptions) (string, error) {
 	return k.Target.Path(), nil
 }
 
-// ListKegs returns all available keg directories by scanning the user repository
-// and merging with configured keg aliases. When cache is true, cached config
-// values may be used.
+// ListKegs returns available keg aliases from local discovery paths and config.
+// When cache is true, cached config values may be used.
 func (t *Tap) ListKegs(cache bool) ([]string, error) {
 	cfg := t.ConfigService.Config(cache)
-	userRepo, _ := toolkit.ExpandPath(t.Runtime, cfg.UserRepoPath())
-
-	// Find files
 	var results []string
-	pattern := filepath.Join(userRepo, "*", "keg")
-	if kegPaths, err := t.Runtime.Glob(pattern); err == nil {
-		for _, kegPath := range kegPaths {
-			path, err := filepath.Rel(userRepo, kegPath)
-			if err == nil {
-				results = append(results, path)
-			}
-		}
+	if localKegs, err := t.ConfigService.DiscoveredKegAliases(cache); err == nil {
+		results = append(results, localKegs...)
 	}
 
 	results = append(results, cfg.ListKegs()...)

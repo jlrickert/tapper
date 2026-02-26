@@ -19,7 +19,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Package tap provides helpers for the tapper CLI related to user and
+// Package tapper provides helpers for the tapper CLI related to user and
 // project configuration, keg resolution, and small utilities used by commands.
 //
 // The comments in this file document the behavior expected by the CLI. The
@@ -33,8 +33,11 @@ type configDTO struct {
 	// updated is a timestamp.
 	Updated time.Time `yaml:"updated,omitempty"`
 
-	// defaultKeg is the alias of the default keg to use.
+	// defaultKeg is the alias used when no explicit keg is provided.
 	DefaultKeg string `yaml:"defaultKeg,omitempty"`
+
+	// fallbackKeg is a last-resort alias when no mapped/default keg resolves.
+	FallbackKeg string `yaml:"fallbackKeg,omitempty"`
 
 	// kegMap maps a project path or pattern to a keg alias.
 	KegMap []KegMapEntry `yaml:"kegMap"`
@@ -46,8 +49,8 @@ type configDTO struct {
 	// API style kegs. The CLI default value is "knut".
 	DefaultRegistry string `yaml:"defaultRegistry"`
 
-	// userRepoPath is the path to discover KEGs on local file system.
-	UserRepoPath string `yaml:"userRepoPath"`
+	// kegSearchPaths are local directories scanned for discovered kegs.
+	KegSearchPaths stringList `yaml:"kegSearchPaths,omitempty"`
 
 	// registries describes configured registries available to the user.
 	Registries []KegRegistry `yaml:"registries,omitempty"`
@@ -77,9 +80,43 @@ type KegRegistry struct {
 	TokenEnv string `yaml:"tokenEnv,omitempty"`
 }
 
+// stringList supports YAML scalar-or-sequence forms for search path config.
+// Both of these are valid:
+//
+//	kegSearchPaths: ~/Documents/kegs
+//	kegSearchPaths: [~/Documents/kegs, ~/repos/kegs]
+type stringList []string
+
+// UnmarshalYAML accepts either a single scalar path or a sequence of paths.
+func (s *stringList) UnmarshalYAML(node *yaml.Node) error {
+	switch node.Kind {
+	case yaml.ScalarNode:
+		if strings.TrimSpace(node.Value) == "" {
+			*s = []string{}
+			return nil
+		}
+		*s = []string{node.Value}
+		return nil
+	case yaml.SequenceNode:
+		var vals []string
+		if err := node.Decode(&vals); err != nil {
+			return err
+		}
+		*s = vals
+		return nil
+	default:
+		return fmt.Errorf("expected string or sequence")
+	}
+}
+
+// MarshalYAML normalizes output to a sequence for deterministic serialization.
+func (s stringList) MarshalYAML() (interface{}, error) {
+	return []string(s), nil
+}
+
 // --- Getter Methods ---
 
-// DefaultKeg returns the alias of the default keg to use.
+// DefaultKeg returns the alias to use when no explicit keg is provided.
 func (cfg *Config) DefaultKeg() string {
 	if cfg.data == nil {
 		cfg.data = &configDTO{}
@@ -87,12 +124,33 @@ func (cfg *Config) DefaultKeg() string {
 	return cfg.data.DefaultKeg
 }
 
-// UserRepoPath returns the path to discover KEGs on the local file system.
-func (cfg *Config) UserRepoPath() string {
+// FallbackKeg returns the last-resort keg alias.
+func (cfg *Config) FallbackKeg() string {
 	if cfg.data == nil {
 		cfg.data = &configDTO{}
 	}
-	return cfg.data.UserRepoPath
+	return cfg.data.FallbackKeg
+}
+
+// KegSearchPaths returns local discovery paths for file-backed kegs.
+func (cfg *Config) KegSearchPaths() []string {
+	if cfg.data == nil {
+		cfg.data = &configDTO{}
+	}
+	if cfg.data.KegSearchPaths == nil {
+		return []string{}
+	}
+	return append([]string(nil), []string(cfg.data.KegSearchPaths)...)
+}
+
+// PrimaryKegSearchPath returns the first configured local discovery path.
+func (cfg *Config) PrimaryKegSearchPath() string {
+	for _, p := range cfg.KegSearchPaths() {
+		if strings.TrimSpace(p) != "" {
+			return p
+		}
+	}
+	return ""
 }
 
 // Kegs returns a map of keg aliases to their targets.
@@ -163,7 +221,7 @@ func (cfg *Config) Updated() time.Time {
 
 // --- Setter Methods ---
 
-// SetDefaultKeg sets the default keg alias.
+// SetDefaultKeg sets the alias used when no explicit keg is provided.
 func (cfg *Config) SetDefaultKeg(keg string) error {
 	if cfg.data == nil {
 		cfg.data = &configDTO{}
@@ -172,12 +230,21 @@ func (cfg *Config) SetDefaultKeg(keg string) error {
 	return nil
 }
 
-// SetUserRepoPath sets the user repository path.
-func (cfg *Config) SetUserRepoPath(path string) error {
+// SetFallbackKeg sets the fallback keg alias.
+func (cfg *Config) SetFallbackKeg(keg string) error {
 	if cfg.data == nil {
 		cfg.data = &configDTO{}
 	}
-	cfg.data.UserRepoPath = path
+	cfg.data.FallbackKeg = keg
+	return nil
+}
+
+// SetKegSearchPaths sets local discovery paths for file-backed kegs.
+func (cfg *Config) SetKegSearchPaths(paths []string) error {
+	if cfg.data == nil {
+		cfg.data = &configDTO{}
+	}
+	cfg.data.KegSearchPaths = append(stringList(nil), paths...)
 	return nil
 }
 
@@ -305,7 +372,7 @@ func (cfg *Config) LookupAlias(rt *toolkit.Runtime, projectRoot string) string {
 //  1. Regex entries in KegMap have the highest precedence.
 //  2. PathPrefix entries are considered next; when multiple prefixes match the
 //     longest prefix wins.
-//  3. If no entry matches, the DefaultKeg is used if set.
+//  3. If no entry matches, resolution returns an alias-not-found error.
 //
 // The function expands env vars and tildes prior to comparisons, so stored
 // prefixes and patterns may contain ~ or $VAR values.
@@ -314,6 +381,7 @@ func (cfg *Config) ResolveKegMap(rt *toolkit.Runtime, projectRoot string) (*kegu
 	return cfg.ResolveAlias(alias)
 }
 
+// ResolveDefault resolves the current DefaultKeg alias to a target.
 func (cfg *Config) ResolveDefault(rt *toolkit.Runtime) (*kegurl.Target, error) {
 	if cfg.data == nil {
 		cfg.data = &configDTO{}
@@ -352,18 +420,19 @@ func ReadConfig(rt *toolkit.Runtime, path string) (*Config, error) {
 //
 // The returned Config is a fully populated in-memory config suitable as a
 // starting point when no on-disk config is available. The DefaultRegistry is
-// set to "knut" and a local file based keg pointing at the user data path is
-// provided under the alias "local".
+// set to "knut", default/fallback aliases are initialized to name, and
+// kegSearchPaths starts with userRepos.
 func DefaultUserConfig(name string, userRepos string) *Config {
 	return &Config{
 		data: &configDTO{
 			DefaultRegistry: "knut",
 			KegMap:          []KegMapEntry{},
 			DefaultKeg:      name,
+			FallbackKeg:     name,
 			Kegs: map[string]kegurl.Target{
 				name: kegurl.NewFile(filepath.Join(userRepos, name)),
 			},
-			UserRepoPath: filepath.Join(userRepos),
+			KegSearchPaths: stringList{filepath.Join(userRepos)},
 			Registries: []KegRegistry{
 				{
 					Name:     "knut",
@@ -375,16 +444,29 @@ func DefaultUserConfig(name string, userRepos string) *Config {
 	}
 }
 
+// DefaultProjectConfig returns a project-scoped config with sensible defaults.
+// The provided user value is used as the default/fallback alias, and the
+// optional userKegRepo is added to kegSearchPaths.
 func DefaultProjectConfig(user, userKegRepo string) *Config {
+	alias := strings.TrimSpace(user)
+	if alias == "" {
+		alias = "local"
+	}
+	searchPaths := stringList{}
+	if strings.TrimSpace(userKegRepo) != "" {
+		searchPaths = append(searchPaths, filepath.Join(userKegRepo))
+	}
+
 	return &Config{
 		data: &configDTO{
 			DefaultRegistry: "knut",
 			KegMap:          []KegMapEntry{},
-			DefaultKeg:      "local",
+			DefaultKeg:      alias,
+			FallbackKeg:     alias,
 			Kegs: map[string]kegurl.Target{
-				user: kegurl.NewFile(filepath.Join(userKegRepo, "docs")),
+				alias: kegurl.NewFile(filepath.Join(userKegRepo, alias)),
 			},
-			UserRepoPath: filepath.Join(userKegRepo),
+			KegSearchPaths: searchPaths,
 			Registries: []KegRegistry{
 				{
 					Name:     "knut",
@@ -423,9 +505,10 @@ func (cfg *Config) Write(rt *toolkit.Runtime, path string) error {
 // MergeConfig merges multiple Config values into a single configuration.
 //
 // Merge semantics:
-//   - Later configs override earlier values for the same keys.
-//   - KegMap entries are appended in order, but entries with the same Keg
-//     are overridden by later entries.
+//   - Later configs override earlier values for scalar keys.
+//   - kegSearchPaths are appended in order with deduplication.
+//   - KegMap entries are appended in order, but entries with the same alias
+//     are replaced by later entries.
 //   - The returned Config will have a Kegs map and a KegMap slice.
 func MergeConfig(cfgs ...*Config) *Config {
 	if len(cfgs) == 0 {
@@ -448,9 +531,12 @@ func MergeConfig(cfgs ...*Config) *Config {
 		if c.data.DefaultKeg != "" {
 			out.data.DefaultKeg = c.data.DefaultKeg
 		}
+		if c.data.FallbackKeg != "" {
+			out.data.FallbackKeg = c.data.FallbackKeg
+		}
 
-		if c.data.UserRepoPath != "" {
-			out.data.UserRepoPath = c.data.UserRepoPath
+		if len(c.data.KegSearchPaths) > 0 {
+			out.data.KegSearchPaths = appendUniqueStrings(out.data.KegSearchPaths, c.data.KegSearchPaths...)
 		}
 		if c.data.LogFile != "" {
 			out.data.LogFile = c.data.LogFile
@@ -573,4 +659,24 @@ func (cfg *Config) ListKegs() []string {
 	}
 	sort.Strings(keys)
 	return keys
+}
+
+// appendUniqueStrings appends non-empty src values that are not already in dst.
+func appendUniqueStrings(dst []string, src ...string) stringList {
+	seen := make(map[string]struct{}, len(dst))
+	out := append(stringList(nil), dst...)
+	for _, v := range out {
+		seen[v] = struct{}{}
+	}
+	for _, v := range src {
+		if strings.TrimSpace(v) == "" {
+			continue
+		}
+		if _, ok := seen[v]; ok {
+			continue
+		}
+		out = append(out, v)
+		seen[v] = struct{}{}
+	}
+	return out
 }
