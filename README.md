@@ -6,6 +6,47 @@ entrypoints:
 - `tap` for repo, config, and node workflows
 - `kegv2` for project-keg focused workflows
 
+## Installation
+
+Prerequisite: Go `1.26.0` or newer.
+
+Recommendation: install using the newest release tag (currently `v0.2.0`).
+
+Install binaries from the newest tag:
+
+```bash
+go install github.com/jlrickert/tapper/cmd/tap@v0.2.0
+go install github.com/jlrickert/tapper/cmd/kegv2@v0.2.0
+```
+
+Precompiled binaries are also published on GitHub Releases:
+<https://github.com/jlrickert/tapper/releases> (use the newest tag).
+
+If needed, add your Go bin directory to `PATH`:
+
+```bash
+export PATH="$(go env GOPATH)/bin:$PATH"
+```
+
+Verify installation:
+
+```bash
+tap --help
+kegv2 --help
+```
+
+Set up shell completions:
+
+```bash
+# zsh (current session)
+source <(tap completion zsh)
+source <(kegv2 completion zsh)
+
+# zsh (persist)
+tap completion zsh > "${fpath[1]}/_tap"
+kegv2 completion zsh > "${fpath[1]}/_kegv2"
+```
+
 ## Quick Start
 
 Run the CLI:
