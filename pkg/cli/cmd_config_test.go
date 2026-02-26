@@ -38,6 +38,7 @@ func TestConfigCommand_DisplaysMergedConfig(t *testing.T) {
 			args:         []string{"repo", "config", "--template"},
 			setupFixture: strPtr("joe"),
 			expectedInStdout: []string{
+				"# yaml-language-server: $schema=https://raw.githubusercontent.com/jlrickert/tapper/main/schemas/tap-config.json",
 				"fallbackKeg:",
 				"kegSearchPaths:",
 			},
@@ -48,6 +49,7 @@ func TestConfigCommand_DisplaysMergedConfig(t *testing.T) {
 			args:         []string{"repo", "config", "--template", "--project"},
 			setupFixture: strPtr("joe"),
 			expectedInStdout: []string{
+				"# yaml-language-server: $schema=https://raw.githubusercontent.com/jlrickert/tapper/main/schemas/tap-config.json",
 				"defaultKeg:",
 				"kegSearchPaths:",
 			},
@@ -79,6 +81,11 @@ func TestConfigCommand_DisplaysMergedConfig(t *testing.T) {
 				for _, expected := range tt.expectedInStdout {
 					require.Contains(innerT, stdout, expected,
 						"expected output to contain %q, got:\n%s", expected, stdout)
+				}
+
+				if strings.Contains(strings.Join(tt.args, " "), "--template") {
+					require.True(innerT, strings.HasPrefix(stdout, "# yaml-language-server: $schema="),
+						"template output should start with yaml-language-server modeline")
 				}
 
 				// Verify it looks like YAML output

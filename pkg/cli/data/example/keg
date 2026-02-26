@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/jlrickert/tapper/main/schemas/keg-config.json
 kegv: 2025-07
 updated: "2025-10-12T20:38:03-05:00"
 title: KEG Worklog for tapper

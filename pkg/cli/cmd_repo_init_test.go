@@ -204,6 +204,17 @@ func TestInitCommand_TableDriven(t *testing.T) {
 				`"title":"Sorry, planned but not yet available"`,
 				"zero node stats should include the placeholder title")
 
+			kegPath := baseKegPath
+			if kegPath != "" {
+				kegPath += "/keg"
+			} else {
+				kegPath = filepath.Join(tt.expectedLocation, "keg")
+			}
+			kegConfig := sb.MustReadFile(kegPath)
+			require.Contains(innerT, string(kegConfig),
+				"# yaml-language-server: $schema=https://raw.githubusercontent.com/jlrickert/tapper/main/schemas/keg-config.json",
+				"keg config should include schema modeline")
+
 			// For user kegs, verify config was updated
 			if tt.setupFixture != nil {
 				userConfig := sb.MustReadFile("~/.config/tapper/config.yaml")
