@@ -55,7 +55,7 @@ Profiles are defined in `pkg/cli/profile.go`.
 - `TapProfile` enables repo/config commands and alias flags.
 - `KegV2Profile` forces project-style resolution and disables alias/config/repo
   command surfaces.
-- Snapshot/archive commands (`node`, `export`, `import`) are shared by both
-  profiles. The main difference is target resolution: `kegv2` resolves against
-  the active project by default, while `tap` can target configured aliases or
-  explicit paths.
+- Snapshot/archive commands (`snapshot`, `archive import`, `archive export`)
+  are shared by both profiles. The main difference is target resolution:
+  `kegv2` resolves against the active project by default, while `tap` can
+  target configured aliases or explicit paths.

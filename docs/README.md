@@ -33,13 +33,13 @@ If you are unsure where to start, read [Configuration Overview](configuration/RE
 - Edit user/project config: `tap repo config edit --user|--project`
 - Show active keg config: `tap config`
 - Edit active keg config: `tap config --edit`
-- List node history in a project keg: `kegv2 node history NODE_ID`
-- Capture a node snapshot: `kegv2 node snapshot NODE_ID -m "message"`
-- Restore a node snapshot: `kegv2 node restore NODE_ID REV --yes`
-- Export a keg archive: `kegv2 export --with-history -o out.keg.tar.gz`
-- Import a keg archive: `kegv2 import out.keg.tar.gz`
+- List node history in a project keg: `kegv2 snapshot history NODE_ID`
+- Capture a node snapshot: `kegv2 snapshot NODE_ID -m "message"`
+- Restore a node snapshot: `kegv2 snapshot restore NODE_ID REV --yes`
+- Export a keg archive: `kegv2 archive export --with-history -o out.keg.tar.gz`
+- Import a keg archive: `kegv2 archive import out.keg.tar.gz`
 - Run the same workflows against a configured or explicit keg:
-  `tap node|export|import ... --keg ALIAS` or `--path PATH`
+  `tap snapshot|archive ... --keg ALIAS` or `--path PATH`
 
 ## Common Scenarios
 

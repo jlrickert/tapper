@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -210,9 +211,31 @@ func (t *Tap) Import(ctx context.Context, opts ImportOptions) ([]keg.NodeId, err
 		return nil, keg.ErrNotSupported
 	}
 
-	mapping, ordered, err := allocateImportedNodeIDs(ctx, k.Repo, manifest.Nodes)
+	mapping, ordered, err := resolveImportedNodeIDs(manifest.Nodes)
 	if err != nil {
 		return nil, err
+	}
+
+	preservedAssets := make(map[string]importedNodeAssets, len(ordered))
+	for _, sourceID := range ordered {
+		newID := mapping[sourceID]
+		exists, err := k.Repo.HasNode(ctx, newID)
+		if err != nil {
+			return nil, fmt.Errorf("unable to check existing node %s before import: %w", sourceID, err)
+		}
+		if !exists {
+			continue
+		}
+
+		assets, err := readImportedNodeAssets(ctx, k.Repo, newID)
+		if err != nil {
+			return nil, fmt.Errorf("unable to read existing assets for node %s: %w", sourceID, err)
+		}
+		preservedAssets[sourceID] = assets
+
+		if err := k.Repo.DeleteNode(ctx, newID); err != nil {
+			return nil, fmt.Errorf("unable to replace imported node %s: %w", sourceID, err)
+		}
 	}
 
 	for _, sourceID := range ordered {
@@ -246,46 +269,55 @@ func (t *Tap) Import(ctx context.Context, opts ImportOptions) ([]keg.NodeId, err
 		indexPath := base + "/snapshots/index.json"
 		if manifest.WithHistory {
 			rawIndex, ok := entries[indexPath]
-			if !ok {
-				continue
-			}
-			var history []keg.Snapshot
-			if err := json.Unmarshal(rawIndex, &history); err != nil {
-				return nil, fmt.Errorf("unable to parse snapshot history for node %s: %w", sourceID, err)
-			}
-
-			var expectedParent keg.RevisionID
-			for _, snap := range history {
-				content := rewriteImportedLinks(entries[base+"/snapshots/"+fmt.Sprintf("%d.full", snap.ID)], mapping)
-				meta := entries[base+"/snapshots/"+fmt.Sprintf("%d.meta", snap.ID)]
-				statsBytes := entries[base+"/snapshots/"+fmt.Sprintf("%d.stats", snap.ID)]
-				stats, err := keg.ParseStats(ctx, statsBytes)
-				if err != nil {
-					return nil, fmt.Errorf("unable to parse snapshot %d stats for node %s: %w", snap.ID, sourceID, err)
+			if ok {
+				var history []keg.Snapshot
+				if err := json.Unmarshal(rawIndex, &history); err != nil {
+					return nil, fmt.Errorf("unable to parse snapshot history for node %s: %w", sourceID, err)
 				}
-				remapStatsLinks(stats, mapping)
 
-				imported, err := snapshotRepo.AppendSnapshot(ctx, newID, keg.SnapshotWrite{
-					ExpectedParent: expectedParent,
-					Message:        snap.Message,
-					Meta:           meta,
-					Stats:          stats,
-					Content: keg.SnapshotContentWrite{
-						Kind: keg.SnapshotContentKindFull,
-						Base: expectedParent,
-						Data: content,
-					},
-				})
-				if err != nil {
-					return nil, fmt.Errorf("unable to import snapshot %d for node %s: %w", snap.ID, sourceID, err)
+				var expectedParent keg.RevisionID
+				for _, snap := range history {
+					content := rewriteImportedLinks(entries[base+"/snapshots/"+fmt.Sprintf("%d.full", snap.ID)], mapping)
+					meta := entries[base+"/snapshots/"+fmt.Sprintf("%d.meta", snap.ID)]
+					statsBytes := entries[base+"/snapshots/"+fmt.Sprintf("%d.stats", snap.ID)]
+					stats, err := keg.ParseStats(ctx, statsBytes)
+					if err != nil {
+						return nil, fmt.Errorf("unable to parse snapshot %d stats for node %s: %w", snap.ID, sourceID, err)
+					}
+					remapStatsLinks(stats, mapping)
+
+					imported, err := snapshotRepo.AppendSnapshot(ctx, newID, keg.SnapshotWrite{
+						ExpectedParent: expectedParent,
+						Message:        snap.Message,
+						Meta:           meta,
+						Stats:          stats,
+						Content: keg.SnapshotContentWrite{
+							Kind: keg.SnapshotContentKindFull,
+							Base: expectedParent,
+							Data: content,
+						},
+					})
+					if err != nil {
+						return nil, fmt.Errorf("unable to import snapshot %d for node %s: %w", snap.ID, sourceID, err)
+					}
+					expectedParent = imported.ID
 				}
-				expectedParent = imported.ID
 			}
 		}
-
-		if err := k.IndexNode(ctx, newID); err != nil {
-			return nil, fmt.Errorf("unable to index imported node %s: %w", newID.Path(), err)
+		if assets, ok := preservedAssets[sourceID]; ok {
+			if err := restoreImportedNodeAssets(ctx, k.Repo, newID, assets); err != nil {
+				return nil, fmt.Errorf("unable to restore existing assets for node %s: %w", sourceID, err)
+			}
 		}
+	}
+
+	if err := rebuildDexFromRepo(ctx, k); err != nil {
+		return nil, err
+	}
+	if err := k.UpdateConfig(ctx, func(cfg *keg.Config) {
+		cfg.Updated = t.Runtime.Clock().Now().UTC().Format(time.RFC3339)
+	}); err != nil {
+		return nil, fmt.Errorf("unable to update keg config after import: %w", err)
 	}
 
 	imported := make([]keg.NodeId, 0, len(ordered))
@@ -388,21 +420,39 @@ func readArchiveInput(ctx context.Context, rt *toolkit.Runtime, input string) ([
 	if err != nil {
 		return nil, err
 	}
-	data, err := rt.ReadFile(path)
+	resolved, err := rt.ResolvePath(path, false)
 	if err != nil {
-		return nil, fmt.Errorf("unable to read archive %s: %w", path, err)
+		return nil, fmt.Errorf("unable to resolve archive path %s: %w", path, err)
+	}
+	if _, err := rt.Stat(resolved, false); err != nil {
+		if os.IsNotExist(err) {
+			return nil, fmt.Errorf("archive not found: %s: %w", resolved, err)
+		}
+		return nil, fmt.Errorf("unable to stat archive %s: %w", resolved, err)
+	}
+	data, err := rt.ReadFile(resolved)
+	if err != nil {
+		return nil, fmt.Errorf("unable to read archive %s: %w", resolved, err)
 	}
 	return data, nil
 }
 
 func readArchiveEntries(data []byte) (map[string][]byte, error) {
 	gz, err := gzip.NewReader(bytes.NewReader(data))
-	if err != nil {
-		return nil, fmt.Errorf("unable to open archive gzip stream: %w", err)
+	if err == nil {
+		defer gz.Close()
+		return readTarEntries(tar.NewReader(gz))
 	}
-	defer gz.Close()
 
-	tr := tar.NewReader(gz)
+	entries, tarErr := readTarEntries(tar.NewReader(bytes.NewReader(data)))
+	if tarErr == nil {
+		return entries, nil
+	}
+
+	return nil, fmt.Errorf("unable to open archive stream: gzip=%v; tar=%v", err, tarErr)
+}
+
+func readTarEntries(tr *tar.Reader) (map[string][]byte, error) {
 	entries := map[string][]byte{}
 	for {
 		header, err := tr.Next()
@@ -424,23 +474,18 @@ func readArchiveEntries(data []byte) (map[string][]byte, error) {
 	return entries, nil
 }
 
-func allocateImportedNodeIDs(ctx context.Context, repo keg.Repository, nodes []archiveManifestNode) (map[string]keg.NodeId, []string, error) {
-	existing, err := repo.ListNodes(ctx)
-	if err != nil {
-		return nil, nil, fmt.Errorf("unable to list existing nodes for import: %w", err)
-	}
-	maxID := -1
-	for _, id := range existing {
-		if id.ID > maxID {
-			maxID = id.ID
-		}
-	}
-
+func resolveImportedNodeIDs(nodes []archiveManifestNode) (map[string]keg.NodeId, []string, error) {
 	mapping := make(map[string]keg.NodeId, len(nodes))
 	ordered := make([]string, 0, len(nodes))
 	for _, node := range nodes {
-		maxID++
-		mapping[node.SourceID] = keg.NodeId{ID: maxID}
+		id, err := parseNodeID(node.SourceID)
+		if err != nil {
+			return nil, nil, fmt.Errorf("invalid archive source node %q: %w", node.SourceID, err)
+		}
+		if _, exists := mapping[node.SourceID]; exists {
+			return nil, nil, fmt.Errorf("duplicate archive source node %q: %w", node.SourceID, keg.ErrInvalid)
+		}
+		mapping[node.SourceID] = id
 		ordered = append(ordered, node.SourceID)
 	}
 	return mapping, ordered, nil
@@ -480,4 +525,135 @@ func remapStatsLinks(stats *keg.NodeStats, mapping map[string]keg.NodeId) {
 		}
 	}
 	stats.SetLinks(links)
+}
+
+type importedNodeAssets struct {
+	files  map[string][]byte
+	images map[string][]byte
+}
+
+func readImportedNodeAssets(ctx context.Context, repo keg.Repository, id keg.NodeId) (importedNodeAssets, error) {
+	assets := importedNodeAssets{
+		files:  map[string][]byte{},
+		images: map[string][]byte{},
+	}
+
+	if filesRepo, ok := repo.(keg.RepositoryFiles); ok {
+		names, err := filesRepo.ListFiles(ctx, id)
+		if err != nil && !errors.Is(err, keg.ErrNotExist) {
+			return importedNodeAssets{}, err
+		}
+		for _, name := range names {
+			data, err := filesRepo.ReadFile(ctx, id, name)
+			if err != nil {
+				return importedNodeAssets{}, err
+			}
+			assets.files[name] = append([]byte(nil), data...)
+		}
+	}
+
+	if imagesRepo, ok := repo.(keg.RepositoryImages); ok {
+		names, err := imagesRepo.ListImages(ctx, id)
+		if err != nil && !errors.Is(err, keg.ErrNotExist) {
+			return importedNodeAssets{}, err
+		}
+		for _, name := range names {
+			data, err := imagesRepo.ReadImage(ctx, id, name)
+			if err != nil {
+				return importedNodeAssets{}, err
+			}
+			assets.images[name] = append([]byte(nil), data...)
+		}
+	}
+
+	return assets, nil
+}
+
+func restoreImportedNodeAssets(ctx context.Context, repo keg.Repository, id keg.NodeId, assets importedNodeAssets) error {
+	if filesRepo, ok := repo.(keg.RepositoryFiles); ok {
+		for name, data := range assets.files {
+			if err := filesRepo.WriteFile(ctx, id, name, data); err != nil {
+				return err
+			}
+		}
+	}
+
+	if imagesRepo, ok := repo.(keg.RepositoryImages); ok {
+		for name, data := range assets.images {
+			if err := imagesRepo.WriteImage(ctx, id, name, data); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+func rebuildDexFromRepo(ctx context.Context, k *keg.Keg) error {
+	dex, err := k.Dex(ctx)
+	if err != nil {
+		return fmt.Errorf("unable to load dex after import: %w", err)
+	}
+	dex.Clear(ctx)
+
+	ids, err := k.Repo.ListNodes(ctx)
+	if err != nil {
+		return fmt.Errorf("unable to list nodes after import: %w", err)
+	}
+
+	for _, id := range ids {
+		nodeData, err := loadNodeDataForDex(ctx, k, id)
+		if err != nil {
+			return fmt.Errorf("unable to read node %s for dex rebuild: %w", id.Path(), err)
+		}
+		if err := dex.Add(ctx, nodeData); err != nil {
+			return fmt.Errorf("unable to add node %s to dex after import: %w", id.Path(), err)
+		}
+	}
+
+	if err := dex.Write(ctx, k.Repo); err != nil {
+		return fmt.Errorf("unable to write dex after import: %w", err)
+	}
+	return nil
+}
+
+func loadNodeDataForDex(ctx context.Context, k *keg.Keg, id keg.NodeId) (*keg.NodeData, error) {
+	contentBytes, err := k.Repo.ReadContent(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	content, err := keg.ParseContent(k.Runtime, contentBytes, keg.FormatMarkdown)
+	if err != nil {
+		return nil, err
+	}
+
+	metaBytes, err := k.Repo.ReadMeta(ctx, id)
+	if err != nil && !errors.Is(err, keg.ErrNotExist) {
+		return nil, err
+	}
+	var meta *keg.NodeMeta
+	if errors.Is(err, keg.ErrNotExist) {
+		meta = keg.NewMeta(ctx, time.Time{})
+	} else {
+		meta, err = keg.ParseMeta(ctx, metaBytes)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	stats, err := k.Repo.ReadStats(ctx, id)
+	if err != nil {
+		if errors.Is(err, keg.ErrNotExist) {
+			stats = &keg.NodeStats{}
+		} else {
+			return nil, err
+		}
+	}
+
+	return &keg.NodeData{
+		ID:      id,
+		Content: content,
+		Meta:    meta,
+		Stats:   stats,
+	}, nil
 }
