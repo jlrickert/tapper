@@ -1,10 +1,23 @@
 # tapper
 
-`tapper` is a CLI for working with KEGs (Knowledge Exchange Graphs). It provides two
-entrypoints:
+`tapper` is a CLI for building knowledge systems with KEGs (Knowledge Exchange
+Graphs), including personal knowledge management and agent memory workflows across
+domains. It provides two entrypoints:
 
 - `tap` for repo, config, and node workflows
 - `kegv2` for project-keg focused workflows
+
+## Problem This Solves
+
+As notes grow across projects, domains, and tools, context gets fragmented:
+
+- important details are buried in disconnected files
+- links between ideas, plans, patches, releases, and people are hard to track
+- humans and agents cannot reliably reuse the same memory and structure
+
+`tapper` solves this by storing notes as linked KEG nodes with structured metadata,
+predictable config resolution, and CLI workflows for creating, navigating, and
+maintaining shared memory.
 
 ## Installation
 
