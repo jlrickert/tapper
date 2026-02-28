@@ -74,6 +74,20 @@ Initialize a project-local keg:
 tap repo init tapper --project
 ```
 
+Create and inspect node history in a project keg:
+
+```bash
+kegv2 node snapshot 12 -m "before refactor"
+kegv2 node history 12
+```
+
+Export and import a keg archive:
+
+```bash
+kegv2 export --with-history -o notes.keg.tar.gz
+kegv2 import notes.keg.tar.gz
+```
+
 Show merged repo configuration:
 
 ```bash

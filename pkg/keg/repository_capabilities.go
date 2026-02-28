@@ -17,3 +17,11 @@ func repoListImages(ctx context.Context, repo Repository, id NodeId) ([]string, 
 	}
 	return withImages.ListImages(ctx, id)
 }
+
+func repoSnapshots(repo Repository) (RepositorySnapshots, bool) {
+	withSnapshots, ok := repo.(RepositorySnapshots)
+	if !ok {
+		return nil, false
+	}
+	return withSnapshots, true
+}

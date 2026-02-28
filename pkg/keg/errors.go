@@ -17,6 +17,7 @@ var (
 	ErrConflict      = errors.New("conflict")
 	ErrQuotaExceeded = errors.New("quota exceeded")
 	ErrRateLimited   = errors.New("rate limited")
+	ErrNotSupported  = errors.New("not supported")
 
 	// ErrDestinationExists is returned when a move/rename cannot proceed because
 	// the destination node id already exists. Prefer returning a typed

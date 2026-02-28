@@ -38,6 +38,8 @@ type MemoryRepo struct {
 	nodeLocks map[NodeId]struct{}
 	// indexes stores raw index files by name (for example: "nodes.tsv").
 	indexes map[string][]byte
+	// snapshots stores revision history per node.
+	snapshots map[NodeId][]memorySnapshotEntry
 	// config holds the in-memory Config if written.
 	config *Config
 
@@ -52,12 +54,20 @@ type memoryNode struct {
 	images  map[string][]byte
 }
 
+type memorySnapshotEntry struct {
+	snapshot Snapshot
+	content  []byte
+	meta     []byte
+	stats    []byte
+}
+
 // NewMemoryRepo constructs a ready-to-use in-memory repository.
 func NewMemoryRepo(rt *toolkit.Runtime) *MemoryRepo {
 	return &MemoryRepo{
 		nodes:     make(map[NodeId]*memoryNode),
 		nodeLocks: make(map[NodeId]struct{}),
 		indexes:   make(map[string][]byte),
+		snapshots: make(map[NodeId][]memorySnapshotEntry),
 		runtime:   rt,
 	}
 }
@@ -363,6 +373,10 @@ func (r *MemoryRepo) MoveNode(ctx context.Context, id NodeId, dst NodeId) error 
 	// Move (transfer pointer)
 	r.nodes[dst] = srcNode
 	delete(r.nodes, id)
+	if snaps, ok := r.snapshots[id]; ok {
+		r.snapshots[dst] = snaps
+		delete(r.snapshots, id)
+	}
 	return nil
 }
 
@@ -405,6 +419,7 @@ func (r *MemoryRepo) DeleteNode(ctx context.Context, id NodeId) error {
 		return ErrNotExist
 	}
 	delete(r.nodes, id)
+	delete(r.snapshots, id)
 	return nil
 }
 
