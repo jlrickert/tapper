@@ -36,6 +36,9 @@ type FsRepo struct {
 	// MetaFilename specifies the filename for node metadata (typically meta.yaml)
 	MetaFilename  string
 	StatsFilename string
+	// SnapshotCheckpointInterval controls how many patch revisions may occur
+	// after a checkpoint before the next snapshot is stored as a full blob.
+	SnapshotCheckpointInterval int
 
 	runtime *toolkit.Runtime
 }
@@ -43,11 +46,12 @@ type FsRepo struct {
 // NewFsRepo constructs a filesystem repository with the provided root/runtime.
 func NewFsRepo(root string, rt *toolkit.Runtime) *FsRepo {
 	return &FsRepo{
-		Root:            root,
-		ContentFilename: MarkdownContentFilename,
-		MetaFilename:    YAMLMetaFilename,
-		StatsFilename:   JSONStatsFilename,
-		runtime:         rt,
+		Root:                       root,
+		ContentFilename:            MarkdownContentFilename,
+		MetaFilename:               YAMLMetaFilename,
+		StatsFilename:              JSONStatsFilename,
+		SnapshotCheckpointInterval: defaultSnapshotCheckpointInterval,
+		runtime:                    rt,
 	}
 }
 

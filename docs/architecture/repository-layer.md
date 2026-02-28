@@ -23,6 +23,8 @@ Primary implementations in `pkg/keg`:
 
 - `repo_memory.go` for in-memory repositories
 - `repo_filesystem.go` for filesystem-backed repositories
+- `repo_memory_snapshots.go` for in-memory revision history
+- `repo_filesystem_snapshots.go` for on-disk snapshot storage
 
 `NewKegFromTarget` in `pkg/keg/keg.go` selects an implementation from a
 `kegurl.Target` scheme (`memory` or `file`).
@@ -37,6 +39,18 @@ Primary implementations in `pkg/keg`:
 
 This separation allows command code to stay simple while storage behavior stays
 centralized and testable.
+
+## Snapshot Support
+
+`RepositorySnapshots` is implemented for both shipped repositories:
+
+- `MemoryRepo` stores fully materialized revisions in memory for tests and fast
+  local flows
+- `FsRepo` stores per-node history under `snapshots/` with `index.json`,
+  revision content blobs, and revision metadata/stats files
+
+This powers `kegv2 node history`, `kegv2 node snapshot`, `kegv2 node restore`,
+and archive import/export workflows.
 
 ## Why The Boundary Matters
 

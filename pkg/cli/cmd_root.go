@@ -142,6 +142,13 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 	if deps.Profile.IncludeRepoCommand {
 		subcommands = append(subcommands, NewRepoCmd(deps))
 	}
+	if deps.Profile.Use == KegV2Profile().Use {
+		subcommands = append(subcommands,
+			NewNodeCmd(deps),
+			NewExportCmd(deps),
+			NewImportCmd(deps),
+		)
+	}
 	cmd.AddCommand(subcommands...)
 
 	return cmd
