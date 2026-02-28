@@ -32,7 +32,8 @@ go.work.sum
 
 # Editor/IDE
 .idea/
-.vscode/
+.vscode/*
+!.vscode/settings.json
 
 # Taskfile
 .task
