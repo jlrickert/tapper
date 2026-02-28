@@ -12,21 +12,38 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func NewNodeCmd(deps *Deps) *cobra.Command {
+func NewSnapshotCmd(deps *Deps) *cobra.Command {
+	var opts tapper.NodeSnapshotOptions
+
 	cmd := &cobra.Command{
-		Use:   "node",
-		Short: "manage node history",
+		Use:   "snapshot [NODE_ID]",
+		Short: "create and manage node snapshots",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 0 {
+				return cmd.Help()
+			}
+			applyKegTargetProfile(deps, &opts.KegTargetOptions)
+			opts.NodeID = args[0]
+			snap, err := deps.Tap.NodeSnapshot(cmd.Context(), opts)
+			if err != nil {
+				return err
+			}
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "%d\n", snap.ID)
+			return err
+		},
 	}
 
+	cmd.Flags().StringVarP(&opts.Message, "message", "m", "", "snapshot message")
+	bindKegTargetFlags(cmd, deps, &opts.KegTargetOptions, "alias of the keg containing the node")
 	cmd.AddCommand(
-		NewNodeHistoryCmd(deps),
-		NewNodeSnapshotCmd(deps),
-		NewNodeRestoreCmd(deps),
+		NewSnapshotHistoryCmd(deps),
+		NewSnapshotRestoreCmd(deps),
 	)
 	return cmd
 }
 
-func NewNodeHistoryCmd(deps *Deps) *cobra.Command {
+func NewSnapshotHistoryCmd(deps *Deps) *cobra.Command {
 	var opts tapper.NodeHistoryOptions
 
 	cmd := &cobra.Command{
@@ -60,31 +77,7 @@ func NewNodeHistoryCmd(deps *Deps) *cobra.Command {
 	return cmd
 }
 
-func NewNodeSnapshotCmd(deps *Deps) *cobra.Command {
-	var opts tapper.NodeSnapshotOptions
-
-	cmd := &cobra.Command{
-		Use:   "snapshot NODE_ID",
-		Short: "append a snapshot for the current node state",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			applyKegTargetProfile(deps, &opts.KegTargetOptions)
-			opts.NodeID = args[0]
-			snap, err := deps.Tap.NodeSnapshot(cmd.Context(), opts)
-			if err != nil {
-				return err
-			}
-			_, err = fmt.Fprintf(cmd.OutOrStdout(), "%d\n", snap.ID)
-			return err
-		},
-	}
-
-	cmd.Flags().StringVarP(&opts.Message, "message", "m", "", "snapshot message")
-	bindKegTargetFlags(cmd, deps, &opts.KegTargetOptions, "alias of the keg containing the node")
-	return cmd
-}
-
-func NewNodeRestoreCmd(deps *Deps) *cobra.Command {
+func NewSnapshotRestoreCmd(deps *Deps) *cobra.Command {
 	var (
 		opts tapper.NodeRestoreOptions
 		yes  bool
@@ -103,7 +96,7 @@ func NewNodeRestoreCmd(deps *Deps) *cobra.Command {
 				if !deps.Runtime.Stream().IsTTY {
 					return fmt.Errorf("restore requires confirmation; rerun with --yes")
 				}
-				ok, err := confirmNodeRestore(cmd, opts.NodeID, opts.Rev)
+				ok, err := confirmSnapshotRestore(cmd, opts.NodeID, opts.Rev)
 				if err != nil {
 					return err
 				}
@@ -121,7 +114,7 @@ func NewNodeRestoreCmd(deps *Deps) *cobra.Command {
 	return cmd
 }
 
-func confirmNodeRestore(cmd *cobra.Command, nodeID string, rev string) (bool, error) {
+func confirmSnapshotRestore(cmd *cobra.Command, nodeID string, rev string) (bool, error) {
 	_, err := fmt.Fprintf(cmd.ErrOrStderr(), "Restore node %s to revision %s? [y/N]: ", nodeID, rev)
 	if err != nil {
 		return false, err

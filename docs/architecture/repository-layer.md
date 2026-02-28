@@ -50,7 +50,8 @@ centralized and testable.
   revision content blobs, and revision metadata/stats files
 
 This powers `tap` and `kegv2` snapshot/history commands plus archive
-import/export workflows.
+import/export workflows. Archive import reuses source node IDs and overwrites
+matching nodes in the target keg.
 
 ## Why The Boundary Matters
 

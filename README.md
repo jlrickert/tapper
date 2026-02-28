@@ -60,6 +60,9 @@ tap completion zsh > "${fpath[1]}/_tap"
 kegv2 completion zsh > "${fpath[1]}/_kegv2"
 ```
 
+If new commands do not appear in tab completion after an upgrade, regenerate the
+completion files and reload your shell.
+
 ## Quick Start
 
 Run the CLI:
@@ -77,8 +80,8 @@ tap repo init tapper --project
 Create and inspect node history in a project keg:
 
 ```bash
-kegv2 node snapshot 12 -m "before refactor"
-kegv2 node history 12
+kegv2 snapshot 12 -m "before refactor"
+kegv2 snapshot history 12
 ```
 
 The same snapshot and archive commands are also available under `tap`. Use
@@ -86,16 +89,19 @@ The same snapshot and archive commands are also available under `tap`. Use
 you want alias- or path-driven targeting.
 
 ```bash
-tap node history 12 --keg personal
-tap export --keg personal --with-history -o notes.keg.tar.gz
+tap snapshot history 12 --keg personal
+tap archive export --keg personal --with-history -o notes.keg.tar.gz
 ```
 
 Export and import a keg archive:
 
 ```bash
-kegv2 export --with-history -o notes.keg.tar.gz
-kegv2 import notes.keg.tar.gz
+kegv2 archive export --with-history -o notes.keg.tar.gz
+kegv2 archive import notes.keg.tar.gz
 ```
+
+Archive import overwrites matching node IDs in the target keg instead of
+allocating new node IDs.
 
 Show merged repo configuration:
 
