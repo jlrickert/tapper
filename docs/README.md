@@ -38,6 +38,8 @@ If you are unsure where to start, read [Configuration Overview](configuration/RE
 - Restore a node snapshot: `kegv2 node restore NODE_ID REV --yes`
 - Export a keg archive: `kegv2 export --with-history -o out.keg.tar.gz`
 - Import a keg archive: `kegv2 import out.keg.tar.gz`
+- Run the same workflows against a configured or explicit keg:
+  `tap node|export|import ... --keg ALIAS` or `--path PATH`
 
 ## Common Scenarios
 

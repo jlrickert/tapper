@@ -81,6 +81,15 @@ kegv2 node snapshot 12 -m "before refactor"
 kegv2 node history 12
 ```
 
+The same snapshot and archive commands are also available under `tap`. Use
+`kegv2` when you want project-local resolution by default, and use `tap` when
+you want alias- or path-driven targeting.
+
+```bash
+tap node history 12 --keg personal
+tap export --keg personal --with-history -o notes.keg.tar.gz
+```
+
 Export and import a keg archive:
 
 ```bash

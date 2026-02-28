@@ -121,15 +121,18 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 		NewCatCmd(deps),
 		NewCreateCmd(deps),
 		NewEditCmd(deps),
+		NewExportCmd(deps),
 		NewFileCmd(deps),
 		NewGraphCmd(deps),
 		NewGrepCmd(deps),
 		NewImageCmd(deps),
+		NewImportCmd(deps),
 		NewIndexCmd(deps),
 		NewInfoCmd(deps),
 		NewListCmd(deps),
 		NewMetaCmd(deps),
 		NewMoveCmd(deps),
+		NewNodeCmd(deps),
 		NewPwdCmd(deps),
 		NewReindexCmd(deps),
 		NewRemoveCmd(deps),
@@ -141,13 +144,6 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 	}
 	if deps.Profile.IncludeRepoCommand {
 		subcommands = append(subcommands, NewRepoCmd(deps))
-	}
-	if deps.Profile.Use == KegV2Profile().Use {
-		subcommands = append(subcommands,
-			NewNodeCmd(deps),
-			NewExportCmd(deps),
-			NewImportCmd(deps),
-		)
 	}
 	cmd.AddCommand(subcommands...)
 

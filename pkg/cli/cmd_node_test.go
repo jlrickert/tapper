@@ -88,3 +88,41 @@ func TestKegV2ExportImportRoundTrip(t *testing.T) {
 	require.NoError(t, res.Err)
 	require.Contains(t, string(res.Stdout), "before export")
 }
+
+func TestTapSnapshotArchiveCommandsWithAliasAndPath(t *testing.T) {
+	t.Parallel()
+
+	sb := NewSandbox(t,
+		testutils.WithFixture("joe", "~"),
+		testutils.WithWd("~/kegs/personal"),
+	)
+
+	res := NewProcess(t, false, "node", "snapshot", "1", "--keg", "personal", "-m", "tap snapshot").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+	require.Equal(t, "1\n", string(res.Stdout))
+
+	res = NewProcess(t, false, "node", "history", "1", "--keg", "personal").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+	require.Contains(t, string(res.Stdout), "tap snapshot")
+
+	exportPath := "~/tap-export.keg.tar.gz"
+	res = NewProcess(t, false, "export", "--keg", "personal", "--nodes", "1", "--with-history", "-o", exportPath).Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+	require.Contains(t, string(res.Stdout), "tap-export.keg.tar.gz")
+
+	targetRepo := keg.NewFsRepo("~/tap-import-target", sb.Runtime())
+	targetKeg := keg.NewKeg(targetRepo, sb.Runtime())
+	require.NoError(t, targetKeg.Init(sb.Context()))
+
+	res = NewProcess(t, false, "import", exportPath, "--path", "~/tap-import-target").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+	require.Equal(t, "1\n", string(res.Stdout))
+
+	res = NewProcess(t, false, "cat", "1", "--path", "~/tap-import-target").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+	require.Contains(t, string(res.Stdout), "Personal Overview")
+
+	res = NewProcess(t, false, "node", "history", "1", "--path", "~/tap-import-target").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+	require.Contains(t, string(res.Stdout), "tap snapshot")
+}

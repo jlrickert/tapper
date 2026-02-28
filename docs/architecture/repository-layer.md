@@ -49,8 +49,8 @@ centralized and testable.
 - `FsRepo` stores per-node history under `snapshots/` with `index.json`,
   revision content blobs, and revision metadata/stats files
 
-This powers `kegv2 node history`, `kegv2 node snapshot`, `kegv2 node restore`,
-and archive import/export workflows.
+This powers `tap` and `kegv2` snapshot/history commands plus archive
+import/export workflows.
 
 ## Why The Boundary Matters
 
