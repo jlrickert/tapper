@@ -33,6 +33,11 @@ If you are unsure where to start, read [Configuration Overview](configuration/RE
 - Edit user/project config: `tap repo config edit --user|--project`
 - Show active keg config: `tap config`
 - Edit active keg config: `tap config --edit`
+- List node history in a project keg: `kegv2 node history NODE_ID`
+- Capture a node snapshot: `kegv2 node snapshot NODE_ID -m "message"`
+- Restore a node snapshot: `kegv2 node restore NODE_ID REV --yes`
+- Export a keg archive: `kegv2 export --with-history -o out.keg.tar.gz`
+- Import a keg archive: `kegv2 import out.keg.tar.gz`
 
 ## Common Scenarios
 
