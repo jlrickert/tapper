@@ -1,0 +1,13 @@
+{
+  "name": "tapper-graph",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "bun build src/main.ts --bundle --minify --outfile ../../pkg/cli/assets/graph.bundle.js"
+  },
+  "dependencies": {
+    "graphology": "^0.26.0",
+    "graphology-layout-forceatlas2": "^0.10.1",
+    "sigma": "^3.0.2"
+  }
+}
