@@ -14,6 +14,11 @@ import (
 type ListOptions struct {
 	KegTargetOptions
 
+	// Query is an optional boolean expression that filters nodes. Supports both
+	// plain tag names ("golang") and key=value attribute predicates
+	// ("entity=plan"). When empty, all nodes are listed.
+	Query string
+
 	// Format to use. %i is node id, %d
 	// %i is node id
 	// %d is date
@@ -66,7 +71,13 @@ type GrepOptions struct {
 type TagsOptions struct {
 	KegTargetOptions
 
-	// Tag filters nodes by tag. When empty, all tags are listed.
+	// Query is an optional boolean expression that filters nodes. Supports both
+	// plain tag names ("golang") and key=value attribute predicates
+	// ("entity=plan"). When non-empty it takes precedence over Tag.
+	Query string
+
+	// Tag filters nodes by tag expression. Deprecated: use Query instead.
+	// When empty and Query is also empty, all tags are listed.
 	Tag string
 
 	// Format to use. %i is node id
@@ -96,6 +107,34 @@ func (t *Tap) List(ctx context.Context, opts ListOptions) ([]string, error) {
 	}
 
 	entries := dex.Nodes(ctx)
+
+	if q := strings.TrimSpace(opts.Query); q != "" {
+		matchedIDs, evalErr := evalQueryExpr(ctx, k, dex, entries, q)
+		if evalErr != nil {
+			return []string{}, fmt.Errorf("invalid query expression: %w", evalErr)
+		}
+		filtered := make([]keg.NodeIndexEntry, 0, len(matchedIDs))
+		entryByID := make(map[string]keg.NodeIndexEntry, len(entries)*2)
+		for _, e := range entries {
+			entryByID[e.ID] = e
+			id, parseErr := keg.ParseNode(e.ID)
+			if parseErr == nil && id != nil {
+				entryByID[id.Path()] = e
+			}
+		}
+		seen := make(map[string]struct{})
+		for nodeID := range matchedIDs {
+			if e, ok := entryByID[nodeID]; ok {
+				if _, dup := seen[e.ID]; !dup {
+					seen[e.ID] = struct{}{}
+					filtered = append(filtered, e)
+				}
+			}
+		}
+		sortNodeIndexEntries(filtered)
+		entries = filtered
+	}
+
 	return renderNodeEntries(entries, opts.Format, opts.IdOnly, opts.Reverse), nil
 }
 
@@ -207,8 +246,13 @@ func (t *Tap) Tags(ctx context.Context, opts TagsOptions) ([]string, error) {
 		return []string{}, fmt.Errorf("unable to read dex: %w", err)
 	}
 
-	tag := strings.TrimSpace(opts.Tag)
-	if tag == "" {
+	// Prefer Query over the legacy Tag field.
+	queryExpr := strings.TrimSpace(opts.Query)
+	if queryExpr == "" {
+		queryExpr = strings.TrimSpace(opts.Tag)
+	}
+
+	if queryExpr == "" {
 		tags := dex.TagList(ctx)
 		sortStringsAsc(tags)
 		if opts.Reverse {
@@ -217,51 +261,50 @@ func (t *Tap) Tags(ctx context.Context, opts TagsOptions) ([]string, error) {
 		return tags, nil
 	}
 
-	expr, err := parseTagExpression(tag)
-	if err != nil {
-		return []string{}, fmt.Errorf("invalid tag expression: %w", err)
-	}
-
 	indexEntries := dex.Nodes(ctx)
-	universe := make(map[string]struct{}, len(indexEntries))
-	entryByID := make(map[string]keg.NodeIndexEntry, len(indexEntries))
+	entryByID := make(map[string]keg.NodeIndexEntry, len(indexEntries)*2)
 	for _, entry := range indexEntries {
 		entryByID[entry.ID] = entry
-		universe[entry.ID] = struct{}{}
 		node, parseErr := keg.ParseNode(entry.ID)
 		if parseErr == nil && node != nil {
-			path := node.Path()
-			entryByID[path] = entry
-			universe[path] = struct{}{}
+			entryByID[node.Path()] = entry
 		}
 	}
 
-	matchedIDs := evaluateTagExpression(expr, universe, func(tagName string) map[string]struct{} {
-		nodes, ok := dex.TagNodes(ctx, tagName)
-		if !ok || len(nodes) == 0 {
-			return map[string]struct{}{}
-		}
-		return setFromNodeIDs(nodes)
-	})
+	matchedIDs, evalErr := evalQueryExpr(ctx, k, dex, indexEntries, queryExpr)
+	if evalErr != nil {
+		return []string{}, fmt.Errorf("invalid query expression: %w", evalErr)
+	}
 	if len(matchedIDs) == 0 {
 		return []string{}, nil
 	}
 
+	seen := make(map[string]struct{})
 	entries := make([]keg.NodeIndexEntry, 0, len(matchedIDs))
 	for nodeID := range matchedIDs {
 		if entry, ok := entryByID[nodeID]; ok {
-			entries = append(entries, entry)
+			if _, dup := seen[entry.ID]; !dup {
+				seen[entry.ID] = struct{}{}
+				entries = append(entries, entry)
+			}
 			continue
 		}
 		node, parseErr := keg.ParseNode(nodeID)
 		if parseErr == nil && node != nil {
+			if _, dup := seen[node.Path()]; dup {
+				continue
+			}
+			seen[node.Path()] = struct{}{}
 			ref := dex.GetRef(ctx, *node)
 			if ref != nil {
 				entries = append(entries, *ref)
 				continue
 			}
 		}
-		entries = append(entries, keg.NodeIndexEntry{ID: nodeID})
+		if _, dup := seen[nodeID]; !dup {
+			seen[nodeID] = struct{}{}
+			entries = append(entries, keg.NodeIndexEntry{ID: nodeID})
+		}
 	}
 	sortNodeIndexEntries(entries)
 	return renderNodeEntries(entries, opts.Format, opts.IdOnly, opts.Reverse), nil
