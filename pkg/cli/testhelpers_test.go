@@ -3,6 +3,7 @@ package cli_test
 import (
 	"context"
 	"embed"
+	"strings"
 	"testing"
 
 	tu "github.com/jlrickert/cli-toolkit/sandbox"
@@ -45,6 +46,7 @@ func NewKegV2Process(t *testing.T, isTTY bool, args ...string) *tu.Process {
 }
 
 func NewCompletionProcess(t *testing.T, isTTY bool, pos int, words ...string) *tu.Process {
+	_ = pos
 	return tu.NewProcess(func(ctx context.Context, rt *toolkit.Runtime) (int, error) {
 		// Build completion request arguments for cobra
 		args := []string{"__complete"}
@@ -52,4 +54,25 @@ func NewCompletionProcess(t *testing.T, isTTY bool, pos int, words ...string) *t
 
 		return cli.Run(ctx, rt, args)
 	}, isTTY)
+}
+
+// parseCompletionSuggestions parses the raw output of a cobra __complete
+// invocation and returns the suggestion strings, stopping at the directive line.
+func parseCompletionSuggestions(raw string) []string {
+	lines := strings.Split(raw, "\n")
+	out := make([]string, 0)
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if strings.HasPrefix(line, ":") {
+			break
+		}
+		if strings.Contains(line, "\t") {
+			line = strings.SplitN(line, "\t", 2)[0]
+		}
+		out = append(out, line)
+	}
+	return out
 }

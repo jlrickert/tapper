@@ -12,10 +12,11 @@ func NewStatsCmd(deps *Deps) *cobra.Command {
 	var opts tapper.StatsOptions
 
 	cmd := &cobra.Command{
-		Use:   "stats NODE_ID",
-		Short: "display node stats",
-		Long:  "Display programmatic stats for a node.",
-		Args:  cobra.ExactArgs(1),
+		Use:               "stats NODE_ID",
+		Short:             "display node stats",
+		Long:              "Display programmatic stats for a node.",
+		Args:              cobra.ExactArgs(1),
+		ValidArgsFunction: nodeIDCompletionFunc(deps, 1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts.NodeID = args[0]
 			applyKegTargetProfile(deps, &opts.KegTargetOptions)

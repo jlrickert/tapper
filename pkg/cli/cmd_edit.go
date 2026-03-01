@@ -10,9 +10,10 @@ func NewEditCmd(deps *Deps) *cobra.Command {
 	var opts tapper.EditOptions
 
 	cmd := &cobra.Command{
-		Use:     "edit NODE_ID",
-		Aliases: []string{"e"},
-		Short:   "edit a node using a temporary markdown file",
+		Use:               "edit NODE_ID",
+		Aliases:           []string{"e"},
+		Short:             "edit a node using a temporary markdown file",
+		ValidArgsFunction: nodeIDCompletionFunc(deps, 1),
 		Long: `Edit a node in a temporary markdown file.
 
 If the file includes YAML frontmatter, it is written to meta.yaml.
