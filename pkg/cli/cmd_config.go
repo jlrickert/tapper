@@ -13,11 +13,10 @@ import (
 //
 //	tap config
 //	tap config --keg myalias
-//	tap config --edit
-//	tap config --edit --keg myalias
+//	tap config edit
+//	tap config edit --keg myalias
 func NewConfigCmd(deps *Deps) *cobra.Command {
 	var opts tapper.InfoOptions
-	var edit bool
 
 	cmd := &cobra.Command{
 		Use:   "config",
@@ -25,20 +24,12 @@ func NewConfigCmd(deps *Deps) *cobra.Command {
 		Long: `Display the keg configuration (keg file contents).
 
 Shows metadata about the keg including title, creator, entities, tags, and
-other configuration properties. Use '--edit' to modify the keg
+other configuration properties. Use 'tap config edit' to modify the keg
 configuration.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			applyKegTargetProfile(deps, &opts.KegTargetOptions)
-			ctx := cmd.Context()
 
-			if edit {
-				return deps.Tap.KegConfigEdit(ctx, tapper.KegConfigEditOptions{
-					KegTargetOptions: opts.KegTargetOptions,
-					Stream:           deps.Runtime.Stream(),
-				})
-			}
-
-			output, err := deps.Tap.Info(ctx, opts)
+			output, err := deps.Tap.Info(cmd.Context(), opts)
 			if err != nil {
 				return err
 			}
@@ -47,7 +38,7 @@ configuration.`,
 			return err
 		},
 	}
-	cmd.Flags().BoolVar(&edit, "edit", false, "edit keg configuration with default editor")
+	cmd.AddCommand(NewConfigEditCmd(deps))
 
 	return cmd
 }
