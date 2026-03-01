@@ -64,8 +64,7 @@ contents of that index file.`,
 	if deps.Profile.withDefaults().AllowKegAliasFlags {
 		cmd.Flags().StringVar(&opts.Keg, "alias", "", "alias of the keg (deprecated; use --keg)")
 		_ = cmd.RegisterFlagCompletionFunc("alias", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-			kegs, _ := deps.Tap.ListKegs(true)
-			return kegs, cobra.ShellCompDirectiveNoFileComp
+			return listKegsFiltered(deps, cmd.Context(), toComplete), cobra.ShellCompDirectiveNoFileComp
 		})
 	}
 

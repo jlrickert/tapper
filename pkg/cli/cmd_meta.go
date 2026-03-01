@@ -11,8 +11,9 @@ func NewMetaCmd(deps *Deps) *cobra.Command {
 	var opts tapper.MetaOptions
 
 	cmd := &cobra.Command{
-		Use:   "meta NODE_ID",
-		Short: "print or edit node metadata",
+		Use:               "meta NODE_ID",
+		Short:             "print or edit node metadata",
+		ValidArgsFunction: nodeIDCompletionFunc(deps, 1),
 		Long: `Print node metadata (meta.yaml) for NODE_ID.
 
 If stdin is piped, the piped yaml replaces metadata after validation.

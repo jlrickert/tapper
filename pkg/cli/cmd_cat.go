@@ -19,9 +19,10 @@ func NewCatCmd(deps *Deps) *cobra.Command {
 	var opts tapper.CatOptions
 
 	cmd := &cobra.Command{
-		Use:     "cat [NODE_ID...]",
-		Short:   "display node(s) content with metadata as frontmatter",
-		Aliases: []string{"show"},
+		Use:               "cat [NODE_ID...]",
+		Short:             "display node(s) content with metadata as frontmatter",
+		Aliases:           []string{"show"},
+		ValidArgsFunction: nodeIDCompletionFunc(deps, 0),
 		Args: func(cmd *cobra.Command, args []string) error {
 			if opts.Tag != "" {
 				return nil

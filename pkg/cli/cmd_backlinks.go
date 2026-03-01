@@ -11,10 +11,11 @@ func NewBacklinksCmd(deps *Deps) *cobra.Command {
 	var opts tapper.BacklinksOptions
 
 	cmd := &cobra.Command{
-		Use:   "backlinks NODE_ID",
-		Short: "list nodes that link to a node",
-		Long:  `List nodes that link to NODE_ID. -f "%i %d %t" is the default.`,
-		Args:  cobra.ExactArgs(1),
+		Use:               "backlinks NODE_ID",
+		Short:             "list nodes that link to a node",
+		Long:              `List nodes that link to NODE_ID. -f "%i %d %t" is the default.`,
+		Args:              cobra.ExactArgs(1),
+		ValidArgsFunction: nodeIDCompletionFunc(deps, 1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts.NodeID = args[0]
 			applyKegTargetProfile(deps, &opts.KegTargetOptions)

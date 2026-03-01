@@ -70,8 +70,7 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 			deps.Root = wd
 			if deps.Profile.withDefaults().AllowKegAliasFlags {
 				_ = cmd.Root().RegisterFlagCompletionFunc("keg", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-					kegs, _ := deps.Tap.ListKegs(true)
-					return kegs, cobra.ShellCompDirectiveNoFileComp
+					return listKegsFiltered(deps, cmd.Context(), toComplete), cobra.ShellCompDirectiveNoFileComp
 				})
 			}
 
