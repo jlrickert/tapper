@@ -36,7 +36,7 @@ If you are unsure where to start, read [Configuration Overview](configuration/RE
 - Print starter templates: `tap repo config --template --user|--project`
 - Edit user/project config: `tap repo config edit --user|--project`
 - Show active keg config: `tap config`
-- Edit active keg config: `tap config --edit`
+- Edit active keg config: `tap config edit`
 - Capture a node snapshot: `tap snapshot create NODE_ID --keg ALIAS -m "message"`
 - List node history: `tap snapshot history NODE_ID --keg ALIAS`
 - Restore a node snapshot: `tap snapshot restore NODE_ID REV --keg ALIAS --yes`
