@@ -45,8 +45,6 @@ func newFileLsCmd(deps *Deps) *cobra.Command {
 			return err
 		},
 	}
-
-	bindKegTargetFlags(cmd, deps, &opts.KegTargetOptions, "alias of the keg")
 	return cmd
 }
 
@@ -71,7 +69,6 @@ func newFileUploadCmd(deps *Deps) *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&opts.Name, "name", "", "stored filename (default: basename of LOCAL_PATH)")
-	bindKegTargetFlags(cmd, deps, &opts.KegTargetOptions, "alias of the keg")
 	return cmd
 }
 
@@ -96,7 +93,6 @@ func newFileDownloadCmd(deps *Deps) *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&opts.Dest, "dest", "", "destination path (default: ./<NAME>)")
-	bindKegTargetFlags(cmd, deps, &opts.KegTargetOptions, "alias of the keg")
 	return cmd
 }
 
@@ -115,7 +111,5 @@ func newFileRmCmd(deps *Deps) *cobra.Command {
 			return deps.Tap.DeleteFile(cmd.Context(), opts)
 		},
 	}
-
-	bindKegTargetFlags(cmd, deps, &opts.KegTargetOptions, "alias of the keg")
 	return cmd
 }

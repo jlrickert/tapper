@@ -20,7 +20,5 @@ func NewMoveCmd(deps *Deps) *cobra.Command {
 			return deps.Tap.Move(cmd.Context(), opts)
 		},
 	}
-
-	bindKegTargetFlags(cmd, deps, &opts.KegTargetOptions, "alias of the keg to move the node in")
 	return cmd
 }

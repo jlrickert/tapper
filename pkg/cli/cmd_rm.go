@@ -19,7 +19,5 @@ func NewRemoveCmd(deps *Deps) *cobra.Command {
 			return deps.Tap.Remove(cmd.Context(), opts)
 		},
 	}
-
-	bindKegTargetFlags(cmd, deps, &opts.KegTargetOptions, "alias of the keg to remove the node from")
 	return cmd
 }

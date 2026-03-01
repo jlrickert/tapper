@@ -62,7 +62,6 @@ or written to a file with --output.`,
 	}
 
 	cmd.Flags().StringVarP(&outputPath, "output", "o", "", "write graph HTML to file (default: stdout)")
-	bindKegTargetFlags(cmd, deps, &opts.KegTargetOptions, "alias of the keg to visualize")
 
 	return cmd
 }

@@ -25,10 +25,13 @@ how the same command framework can be pruned through profile-based behavior.
 
 `pkg/cli/cmd_root.go` wires common lifecycle logic:
 
-1. `PersistentPreRunE` resolves working directory from runtime.
-2. Creates `deps.Tap` with `tapper.NewTap(...)`.
-3. Applies optional logger settings.
-4. Attaches all subcommands.
+1. Root persistent flags register shared KEG targeting options for `tap`
+   (`--keg`, `--project`, `--path`, `--cwd`).
+2. `PersistentPreRunE` resolves working directory from runtime.
+3. Creates `deps.Tap` with `tapper.NewTap(...)`.
+4. Registers root-level keg completion after `deps.Tap` exists.
+5. Applies optional logger settings.
+6. Attaches all subcommands.
 
 Every subcommand receives the same `*Deps`, so command handlers do not
 reconstruct core services.
@@ -37,8 +40,8 @@ reconstruct core services.
 
 Most commands follow this shape:
 
-1. Bind flags into a typed options struct.
-2. Apply profile-specific target behavior.
+1. Bind command-specific flags into a typed options struct.
+2. Merge root KEG target defaults and apply profile-specific target behavior.
    `tap` uses the full profile.
    `kegv2` uses a pruned profile that forces project resolution and drops
    config/repo command surfaces.

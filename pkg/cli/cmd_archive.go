@@ -49,7 +49,6 @@ func NewArchiveExportCmd(deps *Deps) *cobra.Command {
 	cmd.Flags().StringVarP(&opts.OutputPath, "output", "o", "", "archive output path")
 	_ = cmd.MarkFlagRequired("output")
 	_ = cmd.MarkFlagFilename("output", "tar", "tar.gz", "tgz", "gz")
-	bindKegTargetFlags(cmd, deps, &opts.KegTargetOptions, "alias of the keg to export from")
 	return cmd
 }
 
@@ -81,8 +80,6 @@ func NewArchiveImportCmd(deps *Deps) *cobra.Command {
 			return nil
 		},
 	}
-
-	bindKegTargetFlags(cmd, deps, &opts.KegTargetOptions, "alias of the keg to import into")
 	return cmd
 }
 

@@ -28,7 +28,5 @@ is launched.`,
 		},
 	}
 
-	bindKegTargetFlags(cmd, deps, &opts.KegTargetOptions, "alias of the keg to edit from")
-
 	return cmd
 }

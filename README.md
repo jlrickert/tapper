@@ -89,6 +89,13 @@ Run the CLI:
 tap --help
 ```
 
+Target a keg from the root command:
+
+```bash
+tap --keg personal list
+tap --path ~/Documents/kegs/pub snapshot history 12
+```
+
 Initialize a project-local keg:
 
 ```bash
