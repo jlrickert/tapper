@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	appCtx "github.com/jlrickert/cli-toolkit/apppaths"
-	"github.com/jlrickert/cli-toolkit/toolkit"
 	"github.com/jlrickert/tapper/pkg/keg"
 	kegurl "github.com/jlrickert/tapper/pkg/keg_url"
 )
@@ -38,6 +37,10 @@ type InitOptions struct {
 	Keg     string
 }
 
+func (o InitOptions) LocalDestination() bool {
+	return o.Project || o.Cwd || strings.TrimSpace(o.Path) != ""
+}
+
 // InitKeg creates a keg entry for the given name.
 //
 // It validates destination flags, infers an alias when needed, and initializes
@@ -51,7 +54,7 @@ func (t *Tap) InitKeg(ctx context.Context, name string, options InitOptions) (*k
 	}
 
 	enabled := 0
-	if options.Project {
+	if options.LocalDestination() {
 		enabled++
 	}
 	if options.User {
@@ -61,10 +64,7 @@ func (t *Tap) InitKeg(ctx context.Context, name string, options InitOptions) (*k
 		enabled++
 	}
 	if enabled > 1 {
-		return nil, fmt.Errorf("only one destination may be selected: --project, --user, or --registry")
-	}
-	if options.Cwd && !options.Project {
-		return nil, fmt.Errorf("--cwd can only be used with --project")
+		return nil, fmt.Errorf("only one destination may be selected: local (--project/--cwd/--path), --user, or --registry")
 	}
 
 	alias := strings.TrimSpace(options.Keg)
@@ -87,7 +87,7 @@ func (t *Tap) InitKeg(ctx context.Context, name string, options InitOptions) (*k
 
 	destination := "user"
 	switch {
-	case options.Project:
+	case options.LocalDestination():
 		destination = "project"
 	case options.Registry:
 		destination = "registry"
@@ -132,8 +132,7 @@ func (t *Tap) InitKeg(ctx context.Context, name string, options InitOptions) (*k
 			}
 			projectPath = filepath.Join(base, "kegs", options.Keg)
 		}
-		projectPath = toolkit.ExpandEnv(t.Runtime, projectPath)
-		projectPath, err = toolkit.ExpandPath(t.Runtime, projectPath)
+		projectPath, err = t.Runtime.ResolvePath(projectPath, false)
 		if err != nil {
 			return nil, fmt.Errorf("unable to resolve project path %q: %w", options.Path, err)
 		}

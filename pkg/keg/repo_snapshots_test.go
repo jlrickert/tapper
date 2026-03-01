@@ -37,10 +37,12 @@ func TestRepositorySnapshots_Contract(t *testing.T) {
 
 			stats1 := snapshotStats(time.Date(2026, 2, 26, 9, 0, 0, 0, time.UTC), "alpha", "alpha lead", "h1")
 			writeSnapshotState(t, ctx, sr.repo, id, "# Alpha\n\nFirst.\n", "title: Alpha\n", stats1)
+			snap1CreatedAt := time.Date(2026, 2, 26, 9, 5, 0, 0, time.UTC)
 
 			snap1, err := sr.repo.AppendSnapshot(ctx, id, keg.SnapshotWrite{
 				ExpectedParent: 0,
 				Message:        "initial",
+				CreatedAt:      snap1CreatedAt,
 				Meta:           []byte("title: Alpha\n"),
 				Stats:          stats1,
 				Content: keg.SnapshotContentWrite{
@@ -50,6 +52,7 @@ func TestRepositorySnapshots_Contract(t *testing.T) {
 			})
 			require.NoError(t, err)
 			require.Equal(t, keg.RevisionID(1), snap1.ID)
+			require.True(t, snap1.CreatedAt.Equal(snap1CreatedAt))
 			require.True(t, snap1.IsCheckpoint)
 
 			stats2 := snapshotStats(time.Date(2026, 2, 26, 10, 0, 0, 0, time.UTC), "beta", "beta lead", "h2")
@@ -73,6 +76,7 @@ func TestRepositorySnapshots_Contract(t *testing.T) {
 			require.NoError(t, err)
 			require.Len(t, list, 2)
 			require.Equal(t, snap1.ID, list[0].ID)
+			require.True(t, list[0].CreatedAt.Equal(snap1CreatedAt))
 			require.Equal(t, snap2.ID, list[1].ID)
 
 			content1, err := sr.repo.ReadContentAt(ctx, id, snap1.ID)
