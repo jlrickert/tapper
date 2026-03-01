@@ -101,13 +101,17 @@ func (t *Tap) ImportFromKeg(ctx context.Context, opts ImportFromKegOptions) ([]I
 	slices.SortFunc(srcIDs, func(a, b keg.NodeId) int { return a.Compare(b) })
 
 	// Pass 1: allocate target IDs. Build the full mapping before writing anything.
+	// Next() scans existing nodes without reserving, so call it once and
+	// compute subsequent IDs by incrementing from the base.
 	mapping := make(map[string]keg.NodeId, len(srcIDs)) // srcID numeric string → newID
-	for _, srcID := range srcIDs {
-		newID, err := tgtKeg.Repo.Next(ctx)
+	if len(srcIDs) > 0 {
+		baseID, err := tgtKeg.Repo.Next(ctx)
 		if err != nil {
-			return nil, fmt.Errorf("unable to allocate node ID for import of %s: %w", srcID.Path(), err)
+			return nil, fmt.Errorf("unable to allocate node ID for import: %w", err)
 		}
-		mapping[srcID.Path()] = newID
+		for i, srcID := range srcIDs {
+			mapping[srcID.Path()] = keg.NodeId{ID: baseID.ID + i}
+		}
 	}
 
 	// Pass 2: rewrite links and write each node to the target.
