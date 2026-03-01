@@ -15,7 +15,7 @@ Use these docs when you are:
 
 ## Layered Model
 
-1. CLI entrypoints (`cmd/tap`, `cmd/kegv2`)
+1. CLI entrypoints (`cmd/tap`, plus optional profile entrypoints such as `cmd/kegv2`)
 2. Cobra command tree and shared dependencies (`pkg/cli`)
 3. Tap client and service layer (`pkg/tapper`)
 4. KEG domain and repository abstraction (`pkg/keg`)

@@ -1,6 +1,7 @@
 package cli_test
 
 import (
+	"archive/tar"
 	"bytes"
 	"compress/gzip"
 	"io"
@@ -20,7 +21,7 @@ func TestKegV2SnapshotHistoryAndRestore(t *testing.T) {
 		testutils.WithWd("~/kegs/personal"),
 	)
 
-	res := NewKegV2Process(t, false, "snapshot", "1", "-m", "before change").Run(sb.Context(), sb.Runtime())
+	res := NewKegV2Process(t, false, "snapshot", "create", "1", "-m", "before change").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 	require.Equal(t, "1\n", string(res.Stdout))
 
@@ -29,7 +30,7 @@ func TestKegV2SnapshotHistoryAndRestore(t *testing.T) {
 	res = NewKegV2Process(t, false, "reindex").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 
-	res = NewKegV2Process(t, false, "snapshot", "1", "-m", "after change").Run(sb.Context(), sb.Runtime())
+	res = NewKegV2Process(t, false, "snapshot", "create", "1", "-m", "after change").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 	require.Equal(t, "2\n", string(res.Stdout))
 
@@ -60,11 +61,11 @@ func TestKegV2ArchiveImportOverwritesExistingNodes(t *testing.T) {
 		testutils.WithWd("~/kegs/personal"),
 	)
 
-	res := NewKegV2Process(t, false, "snapshot", "1", "-m", "before export").Run(sb.Context(), sb.Runtime())
+	res := NewKegV2Process(t, false, "snapshot", "create", "1", "-m", "before export").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 
 	exportPath := "~/export.keg.tar.gz"
-	res = NewKegV2Process(t, false, "archive", "export", "--nodes", "1,2,3", "--with-history", "-o", exportPath).Run(sb.Context(), sb.Runtime())
+	res = NewKegV2Process(t, false, "archive", "export", "--nodes", "1,2,3", "-o", exportPath).Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 	require.Contains(t, string(res.Stdout), "export.keg.tar.gz")
 
@@ -112,7 +113,7 @@ func TestTapSnapshotArchiveCommandsWithAliasAndPath(t *testing.T) {
 		testutils.WithWd("~/kegs/personal"),
 	)
 
-	res := NewProcess(t, false, "snapshot", "1", "--keg", "personal", "-m", "tap snapshot").Run(sb.Context(), sb.Runtime())
+	res := NewProcess(t, false, "snapshot", "create", "1", "--keg", "personal", "-m", "tap snapshot").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 	require.Equal(t, "1\n", string(res.Stdout))
 
@@ -121,7 +122,7 @@ func TestTapSnapshotArchiveCommandsWithAliasAndPath(t *testing.T) {
 	require.Contains(t, string(res.Stdout), "tap snapshot")
 
 	exportPath := "~/tap-export.keg.tar.gz"
-	res = NewProcess(t, false, "archive", "export", "--keg", "personal", "--nodes", "1", "--with-history", "-o", exportPath).Run(sb.Context(), sb.Runtime())
+	res = NewProcess(t, false, "archive", "export", "--keg", "personal", "--nodes", "1", "-o", exportPath).Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 	require.Contains(t, string(res.Stdout), "tap-export.keg.tar.gz")
 
@@ -156,6 +157,20 @@ func TestRootCompletionSuggestsSnapshotArchiveCommands(t *testing.T) {
 	require.NotContains(t, suggestions, "node")
 	require.NotContains(t, suggestions, "import")
 	require.NotContains(t, suggestions, "export")
+}
+
+func TestSnapshotCommand_SuggestsCreateHistoryAndRestore(t *testing.T) {
+	t.Parallel()
+
+	sb := NewSandbox(t)
+
+	comp := NewCompletionProcess(t, false, 0, "snapshot", "").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, comp.Err)
+
+	suggestions := parseCompletionSuggestions(string(comp.Stdout))
+	require.Contains(t, suggestions, "create")
+	require.Contains(t, suggestions, "history")
+	require.Contains(t, suggestions, "restore")
 }
 
 func TestArchiveCommand_SuggestsImportAndExport(t *testing.T) {
@@ -221,4 +236,95 @@ func TestArchiveImportCommand_AcceptsPlainTarArchive(t *testing.T) {
 	res = NewProcess(t, false, "archive", "import", plainTarPath, "--path", "~/plain-import-target").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 	require.Equal(t, "1\n", string(res.Stdout))
+}
+
+func TestArchiveExportCommand_NoHistoryOmitsSnapshots(t *testing.T) {
+	t.Parallel()
+
+	sb := NewSandbox(t,
+		testutils.WithFixture("joe", "~"),
+		testutils.WithWd("~/kegs/personal"),
+	)
+
+	res := NewProcess(t, false, "snapshot", "create", "1", "--keg", "personal", "-m", "before export").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+
+	exportPath := "~/no-history.keg.tar.gz"
+	res = NewProcess(t, false, "archive", "export", "--keg", "personal", "--nodes", "1", "--no-history", "-o", exportPath).Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+
+	targetRepo := keg.NewFsRepo("~/no-history-import-target", sb.Runtime())
+	targetKeg := keg.NewKeg(targetRepo, sb.Runtime())
+	require.NoError(t, targetKeg.Init(sb.Context()))
+
+	res = NewProcess(t, false, "archive", "import", exportPath, "--path", "~/no-history-import-target").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+
+	res = NewProcess(t, false, "snapshot", "history", "1", "--path", "~/no-history-import-target").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+	require.NotContains(t, string(res.Stdout), "before export")
+}
+
+func TestArchiveImportCommand_FailsWhenHistoryIndexMissing(t *testing.T) {
+	t.Parallel()
+
+	sb := NewSandbox(t,
+		testutils.WithFixture("joe", "~"),
+		testutils.WithWd("~/kegs/personal"),
+	)
+
+	res := NewProcess(t, false, "snapshot", "create", "1", "--keg", "personal", "-m", "before export").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+
+	exportPath := "~/broken-history.keg.tar.gz"
+	res = NewProcess(t, false, "archive", "export", "--keg", "personal", "--nodes", "1", "-o", exportPath).Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+
+	broken := dropArchivePath(t, sb.MustReadFile(exportPath), "keg-archive/nodes/1/snapshots/index.json")
+	brokenPath := "~/broken-history-missing-index.keg.tar.gz"
+	sb.MustWriteFile(brokenPath, broken, 0o644)
+
+	targetRepo := keg.NewFsRepo("~/broken-history-import-target", sb.Runtime())
+	targetKeg := keg.NewKeg(targetRepo, sb.Runtime())
+	require.NoError(t, targetKeg.Init(sb.Context()))
+
+	res = NewProcess(t, false, "archive", "import", brokenPath, "--path", "~/broken-history-import-target").Run(sb.Context(), sb.Runtime())
+	require.Error(t, res.Err)
+	require.Contains(t, string(res.Stderr), "missing snapshots/index.json")
+}
+
+func dropArchivePath(t *testing.T, archive []byte, dropPath string) []byte {
+	t.Helper()
+
+	gzr, err := gzip.NewReader(bytes.NewReader(archive))
+	require.NoError(t, err)
+	defer gzr.Close()
+
+	var raw bytes.Buffer
+	tr := tar.NewReader(gzr)
+	gzw := gzip.NewWriter(&raw)
+	tw := tar.NewWriter(gzw)
+
+	for {
+		header, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		require.NoError(t, err)
+		payload, err := io.ReadAll(tr)
+		require.NoError(t, err)
+		if header.Name == dropPath {
+			continue
+		}
+
+		copyHeader := *header
+		copyHeader.Size = int64(len(payload))
+		require.NoError(t, tw.WriteHeader(&copyHeader))
+		_, err = tw.Write(payload)
+		require.NoError(t, err)
+	}
+
+	require.NoError(t, tw.Close())
+	require.NoError(t, gzw.Close())
+	return raw.Bytes()
 }
