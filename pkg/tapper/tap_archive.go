@@ -215,6 +215,10 @@ func (t *Tap) Import(ctx context.Context, opts ImportOptions) ([]keg.NodeId, err
 	if err != nil {
 		return nil, err
 	}
+	manifestNodes := make(map[string]archiveManifestNode, len(manifest.Nodes))
+	for _, node := range manifest.Nodes {
+		manifestNodes[node.SourceID] = node
+	}
 
 	preservedAssets := make(map[string]importedNodeAssets, len(ordered))
 	for _, sourceID := range ordered {
@@ -240,14 +244,21 @@ func (t *Tap) Import(ctx context.Context, opts ImportOptions) ([]keg.NodeId, err
 
 	for _, sourceID := range ordered {
 		newID := mapping[sourceID]
+		nodeManifest := manifestNodes[sourceID]
 		base := filepath.ToSlash(filepath.Join("keg-archive", "nodes", sourceID))
 
-		content, ok := entries[base+"/README.md"]
-		if !ok {
-			return nil, fmt.Errorf("archive node %s missing README.md: %w", sourceID, keg.ErrInvalid)
+		content, err := readRequiredArchiveEntry(entries, base+"/README.md")
+		if err != nil {
+			return nil, fmt.Errorf("archive node %s missing README.md: %w", sourceID, err)
 		}
-		meta := entries[base+"/meta.yaml"]
-		statsBytes := entries[base+"/stats.json"]
+		meta, err := readRequiredArchiveEntry(entries, base+"/meta.yaml")
+		if err != nil {
+			return nil, fmt.Errorf("archive node %s missing meta.yaml: %w", sourceID, err)
+		}
+		statsBytes, err := readRequiredArchiveEntry(entries, base+"/stats.json")
+		if err != nil {
+			return nil, fmt.Errorf("archive node %s missing stats.json: %w", sourceID, err)
+		}
 
 		content = rewriteImportedLinks(content, mapping)
 		stats, err := keg.ParseStats(ctx, statsBytes)
@@ -274,12 +285,26 @@ func (t *Tap) Import(ctx context.Context, opts ImportOptions) ([]keg.NodeId, err
 				if err := json.Unmarshal(rawIndex, &history); err != nil {
 					return nil, fmt.Errorf("unable to parse snapshot history for node %s: %w", sourceID, err)
 				}
+				if nodeManifest.RevisionCount > 0 && len(history) != nodeManifest.RevisionCount {
+					return nil, fmt.Errorf("archive snapshot history count mismatch for node %s: expected %d, got %d: %w",
+						sourceID, nodeManifest.RevisionCount, len(history), keg.ErrInvalid)
+				}
 
 				var expectedParent keg.RevisionID
 				for _, snap := range history {
-					content := rewriteImportedLinks(entries[base+"/snapshots/"+fmt.Sprintf("%d.full", snap.ID)], mapping)
-					meta := entries[base+"/snapshots/"+fmt.Sprintf("%d.meta", snap.ID)]
-					statsBytes := entries[base+"/snapshots/"+fmt.Sprintf("%d.stats", snap.ID)]
+					content, err := readRequiredArchiveEntry(entries, base+"/snapshots/"+fmt.Sprintf("%d.full", snap.ID))
+					if err != nil {
+						return nil, fmt.Errorf("archive snapshot %d for node %s missing .full payload: %w", snap.ID, sourceID, err)
+					}
+					content = rewriteImportedLinks(content, mapping)
+					meta, err := readRequiredArchiveEntry(entries, base+"/snapshots/"+fmt.Sprintf("%d.meta", snap.ID))
+					if err != nil {
+						return nil, fmt.Errorf("archive snapshot %d for node %s missing .meta payload: %w", snap.ID, sourceID, err)
+					}
+					statsBytes, err := readRequiredArchiveEntry(entries, base+"/snapshots/"+fmt.Sprintf("%d.stats", snap.ID))
+					if err != nil {
+						return nil, fmt.Errorf("archive snapshot %d for node %s missing .stats payload: %w", snap.ID, sourceID, err)
+					}
 					stats, err := keg.ParseStats(ctx, statsBytes)
 					if err != nil {
 						return nil, fmt.Errorf("unable to parse snapshot %d stats for node %s: %w", snap.ID, sourceID, err)
@@ -302,6 +327,8 @@ func (t *Tap) Import(ctx context.Context, opts ImportOptions) ([]keg.NodeId, err
 					}
 					expectedParent = imported.ID
 				}
+			} else if nodeManifest.RevisionCount > 0 {
+				return nil, fmt.Errorf("archive node %s missing snapshots/index.json: %w", sourceID, keg.ErrInvalid)
 			}
 		}
 		if assets, ok := preservedAssets[sourceID]; ok {
@@ -472,6 +499,14 @@ func readTarEntries(tr *tar.Reader) (map[string][]byte, error) {
 		entries[filepath.ToSlash(header.Name)] = payload
 	}
 	return entries, nil
+}
+
+func readRequiredArchiveEntry(entries map[string][]byte, path string) ([]byte, error) {
+	value, ok := entries[path]
+	if !ok {
+		return nil, keg.ErrInvalid
+	}
+	return value, nil
 }
 
 func resolveImportedNodeIDs(nodes []archiveManifestNode) (map[string]keg.NodeId, []string, error) {

@@ -2,6 +2,9 @@
 
 This documentation is for end users and contributors working with tapper.
 
+`tap` is the primary CLI. `kegv2` is a narrower project-focused profile built
+from the same command tree.
+
 ## Audience And Goals
 
 Use these docs if you need to:
@@ -33,13 +36,16 @@ If you are unsure where to start, read [Configuration Overview](configuration/RE
 - Edit user/project config: `tap repo config edit --user|--project`
 - Show active keg config: `tap config`
 - Edit active keg config: `tap config --edit`
-- List node history in a project keg: `kegv2 snapshot history NODE_ID`
-- Capture a node snapshot: `kegv2 snapshot NODE_ID -m "message"`
-- Restore a node snapshot: `kegv2 snapshot restore NODE_ID REV --yes`
-- Export a keg archive: `kegv2 archive export --with-history -o out.keg.tar.gz`
-- Import a keg archive: `kegv2 archive import out.keg.tar.gz`
-- Run the same workflows against a configured or explicit keg:
-  `tap snapshot|archive ... --keg ALIAS` or `--path PATH`
+- Capture a node snapshot: `tap snapshot create NODE_ID --keg ALIAS -m "message"`
+- List node history: `tap snapshot history NODE_ID --keg ALIAS`
+- Restore a node snapshot: `tap snapshot restore NODE_ID REV --keg ALIAS --yes`
+- Export a keg archive: `tap archive export --keg ALIAS -o out.keg.tar.gz`
+- Import a keg archive: `tap archive import out.keg.tar.gz --keg ALIAS`
+- Use the project-local profile when you want that narrowed workflow:
+  `kegv2 snapshot|archive ...`
+
+Snapshot history is included in archives by default. Use `--no-history` to omit
+it.
 
 ## Common Scenarios
 

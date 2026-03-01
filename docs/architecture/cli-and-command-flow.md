@@ -1,15 +1,16 @@
 # CLI And Command Flow
 
-This page describes how `tap` and `kegv2` execute a command from process start
-to service call.
+This page describes how `tap` executes a command from process start to service
+call, and how optional secondary binaries such as `kegv2` reuse the same
+machinery with a different profile.
 
 ## Entrypoints
 
 - `cmd/tap/tap.go` calls `cli.Run(ctx, rt, os.Args[1:])`
 - `cmd/kegv2/keg.go` calls `cli.RunWithProfile(..., cli.KegV2Profile())`
 
-The two binaries share the same command framework, with profile-based behavior
-differences.
+`tap` is the primary binary. `kegv2` is a secondary binary that demonstrates
+how the same command framework can be pruned through profile-based behavior.
 
 ## Run Wrapper
 
@@ -37,8 +38,10 @@ reconstruct core services.
 Most commands follow this shape:
 
 1. Bind flags into a typed options struct.
-2. Apply profile-specific target behavior (for example force project mode in
-   `kegv2`).
+2. Apply profile-specific target behavior.
+   `tap` uses the full profile.
+   `kegv2` uses a pruned profile that forces project resolution and drops
+   config/repo command surfaces.
 3. Call a single method on `deps.Tap`.
 4. Write returned output to stdout.
 
@@ -59,3 +62,17 @@ Profiles are defined in `pkg/cli/profile.go`.
   are shared by both profiles. The main difference is target resolution:
   `kegv2` resolves against the active project by default, while `tap` can
   target configured aliases or explicit paths.
+
+## Why The Profile Technique Matters
+
+The command tree is defined once in `pkg/cli/cmd_root.go` and then filtered by
+the selected `Profile`.
+
+That gives you:
+
+- one implementation path for shared commands
+- one service graph (`deps.Tap`) regardless of binary name
+- the ability to publish a narrower binary without forking command logic
+
+In practice, `tap` stays the canonical interface and smaller binaries can be
+added later when a focused workflow benefits from a reduced surface area.
