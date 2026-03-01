@@ -39,6 +39,40 @@ func TestInitCommand_TableDriven(t *testing.T) {
 			description: "When --project and name is not '.', destination should default to kegs/<alias> under project root",
 		},
 		{
+			name: "local_keg_with_cwd_without_project",
+			args: []string{
+				"repo", "init",
+				"power",
+				"--cwd",
+				"--creator", "me",
+			},
+			expectedAlias:    "power",
+			expectedLocation: "~/myproject/kegs/power",
+			expectedStdout: []string{
+				"keg power created at",
+				"/myproject/kegs/power",
+			},
+			cwd:         strPtr("~/myproject"),
+			description: "When --cwd is set without --project, destination should still resolve as a local keg under the current working directory",
+		},
+		{
+			name: "local_keg_with_path_without_project",
+			args: []string{
+				"repo", "init",
+				"workspace",
+				"--path", ".",
+				"--creator", "me",
+			},
+			expectedAlias:    "workspace",
+			expectedLocation: "~/myproject",
+			expectedStdout: []string{
+				"keg workspace created at",
+				"/myproject",
+			},
+			cwd:         strPtr("~/myproject"),
+			description: "When --path is set without --project, destination should resolve as a local keg at the explicit path",
+		},
+		{
 			name: "local_keg_with_dot_infers_type",
 			args: []string{
 				"repo", "init",
@@ -247,14 +281,14 @@ func TestInitCommand_DestinationValidation(t *testing.T) {
 		require.Contains(innerT, string(res.Stderr), "only one destination may be selected")
 	})
 
-	t.Run("cwd_requires_project_flag", func(innerT *testing.T) {
+	t.Run("cwd_conflicts_with_user_flag", func(innerT *testing.T) {
 		innerT.Parallel()
 		sb := NewSandbox(innerT)
 
-		h := NewProcess(innerT, false, "repo", "init", "blog", "--cwd")
+		h := NewProcess(innerT, false, "repo", "init", "blog", "--cwd", "--user")
 		res := h.Run(sb.Context(), sb.Runtime())
 
 		require.Error(innerT, res.Err)
-		require.Contains(innerT, string(res.Stderr), "--cwd can only be used with --project")
+		require.Contains(innerT, string(res.Stderr), "only one destination may be selected")
 	})
 }

@@ -314,6 +314,7 @@ func (t *Tap) Import(ctx context.Context, opts ImportOptions) ([]keg.NodeId, err
 					imported, err := snapshotRepo.AppendSnapshot(ctx, newID, keg.SnapshotWrite{
 						ExpectedParent: expectedParent,
 						Message:        snap.Message,
+						CreatedAt:      snap.CreatedAt,
 						Meta:           meta,
 						Stats:          stats,
 						Content: keg.SnapshotContentWrite{

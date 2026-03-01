@@ -161,6 +161,9 @@ type SnapshotContentWrite struct {
 type SnapshotWrite struct {
 	ExpectedParent RevisionID
 	Message        string
+	// CreatedAt preserves an externally supplied revision timestamp. When zero,
+	// repositories stamp the snapshot with the current runtime clock time.
+	CreatedAt time.Time
 
 	Meta  []byte
 	Stats *NodeStats
@@ -177,6 +180,8 @@ type SnapshotReadOptions struct {
 // RepositorySnapshots provides revision-based history operations.
 type RepositorySnapshots interface {
 	// AppendSnapshot appends a new revision with optimistic parent check.
+	// Implementations should preserve SnapshotWrite.CreatedAt when supplied and
+	// otherwise stamp the revision with the current runtime clock time.
 	AppendSnapshot(ctx context.Context, id NodeId, in SnapshotWrite) (Snapshot, error)
 
 	// GetSnapshot returns snapshot metadata and optional state payloads.

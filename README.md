@@ -102,6 +102,13 @@ Initialize a project-local keg:
 tap repo init tapper --project
 ```
 
+Use the current working directory instead of git root:
+
+```bash
+tap repo init tapper --cwd
+tap repo init tapper --path .
+```
+
 Create and inspect node history with `tap`:
 
 ```bash

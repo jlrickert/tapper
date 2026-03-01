@@ -61,6 +61,10 @@ func (f *FsRepo) appendSnapshotLocked(ctx context.Context, id NodeId, in Snapsho
 		return Snapshot{}, err
 	}
 	contentHash, metaHash, statsHash := snapshotWriteHashes(f.runtime, content, meta, statsBytes)
+	createdAt := in.CreatedAt
+	if createdAt.IsZero() {
+		createdAt = f.runtime.Clock().Now()
+	}
 
 	storeFull := len(index) == 0 || in.Content.Kind == SnapshotContentKindFull
 	if !storeFull && f.snapshotCheckpointInterval() > 0 {
@@ -80,7 +84,7 @@ func (f *FsRepo) appendSnapshotLocked(ctx context.Context, id NodeId, in Snapsho
 		ID:           parent + 1,
 		Node:         id,
 		Parent:       parent,
-		CreatedAt:    f.runtime.Clock().Now(),
+		CreatedAt:    createdAt,
 		Message:      in.Message,
 		ContentHash:  contentHash,
 		MetaHash:     metaHash,

@@ -7,6 +7,7 @@ import (
 	"io"
 	"strings"
 	"testing"
+	"time"
 
 	testutils "github.com/jlrickert/cli-toolkit/sandbox"
 	"github.com/jlrickert/tapper/pkg/keg"
@@ -141,6 +142,61 @@ func TestTapSnapshotArchiveCommandsWithAliasAndPath(t *testing.T) {
 	res = NewProcess(t, false, "snapshot", "history", "1", "--path", "~/tap-import-target").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 	require.Contains(t, string(res.Stdout), "tap snapshot")
+}
+
+func TestArchiveImportPreservesSnapshotTimestamps(t *testing.T) {
+	t.Parallel()
+
+	sb := NewSandbox(t,
+		testutils.WithFixture("joe", "~"),
+		testutils.WithWd("~/kegs/personal"),
+	)
+
+	sourceRepo := keg.NewFsRepo("~/kegs/personal", sb.Runtime())
+	nodeID := keg.NodeId{ID: 1}
+
+	res := NewProcess(t, false, "snapshot", "create", "1", "--keg", "personal", "-m", "baseline").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+
+	sourceHistory, err := sourceRepo.ListSnapshots(sb.Context(), nodeID)
+	require.NoError(t, err)
+	require.Len(t, sourceHistory, 1)
+
+	sb.Advance(45 * time.Minute)
+	sb.MustWriteFile("~/kegs/personal/1/README.md", []byte("# Personal Overview\n\nTimestamp preservation update.\n\n- [Project Alpha](../2)\n"), 0o644)
+
+	res = NewProcess(t, false, "reindex", "--alias", "personal").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+
+	res = NewProcess(t, false, "snapshot", "create", "1", "--keg", "personal", "-m", "updated").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+
+	sourceHistory, err = sourceRepo.ListSnapshots(sb.Context(), nodeID)
+	require.NoError(t, err)
+	require.Len(t, sourceHistory, 2)
+
+	exportPath := "~/timestamp-history.keg.tar.gz"
+	res = NewProcess(t, false, "archive", "export", "--keg", "personal", "--nodes", "1", "-o", exportPath).Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+
+	sb.Advance(4 * time.Hour)
+
+	targetRepo := keg.NewFsRepo("~/timestamp-import-target", sb.Runtime())
+	targetKeg := keg.NewKeg(targetRepo, sb.Runtime())
+	require.NoError(t, targetKeg.Init(sb.Context()))
+
+	res = NewProcess(t, false, "archive", "import", exportPath, "--path", "~/timestamp-import-target").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+
+	importedHistory, err := targetRepo.ListSnapshots(sb.Context(), nodeID)
+	require.NoError(t, err)
+	require.Len(t, importedHistory, len(sourceHistory))
+
+	for i := range sourceHistory {
+		require.True(t, importedHistory[i].CreatedAt.Equal(sourceHistory[i].CreatedAt))
+		require.Equal(t, sourceHistory[i].Message, importedHistory[i].Message)
+	}
+	require.False(t, importedHistory[0].CreatedAt.Equal(sb.Now()))
 }
 
 func TestRootCompletionSuggestsSnapshotArchiveCommands(t *testing.T) {

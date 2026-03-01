@@ -30,12 +30,16 @@ func (r *MemoryRepo) appendSnapshotLocked(ctx context.Context, id NodeId, in Sna
 		return Snapshot{}, err
 	}
 	contentHash, metaHash, statsHash := snapshotWriteHashes(r.runtime, content, meta, statsBytes)
+	createdAt := in.CreatedAt
+	if createdAt.IsZero() {
+		createdAt = r.runtime.Clock().Now()
+	}
 
 	snapshot := Snapshot{
 		ID:           parent + 1,
 		Node:         id,
 		Parent:       parent,
-		CreatedAt:    r.runtime.Clock().Now(),
+		CreatedAt:    createdAt,
 		Message:      in.Message,
 		ContentHash:  contentHash,
 		MetaHash:     metaHash,
