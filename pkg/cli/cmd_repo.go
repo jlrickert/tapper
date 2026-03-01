@@ -17,6 +17,7 @@ func NewRepoCmd(deps *Deps) *cobra.Command {
 		NewRepoConfigCmd(deps),
 		NewRepoKegListCmd(deps),
 		NewInitCmd(deps),
+		NewRepoRmCmd(deps),
 	)
 
 	return cmd

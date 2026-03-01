@@ -601,6 +601,26 @@ func (cfg *Config) AddKeg(alias string, target kegurl.Target) error {
 	return nil
 }
 
+// RemoveKeg removes a keg entry from the Config by alias.
+//
+// Returns an error when the alias is not registered.
+func (cfg *Config) RemoveKeg(alias string) error {
+	if cfg == nil {
+		return fmt.Errorf("config is nil")
+	}
+	if alias == "" {
+		return fmt.Errorf("alias is required")
+	}
+	if cfg.data == nil || cfg.data.Kegs == nil {
+		return fmt.Errorf("keg alias not found: %s", alias)
+	}
+	if _, ok := cfg.data.Kegs[alias]; !ok {
+		return fmt.Errorf("keg alias not found: %s", alias)
+	}
+	delete(cfg.data.Kegs, alias)
+	return nil
+}
+
 // AddKegMap adds or updates a keg map entry in the Config.
 func (cfg *Config) AddKegMap(entry KegMapEntry) error {
 	if cfg == nil {
