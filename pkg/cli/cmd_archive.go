@@ -24,6 +24,9 @@ func NewArchiveCmd(deps *Deps) *cobra.Command {
 func NewArchiveExportCmd(deps *Deps) *cobra.Command {
 	var opts tapper.ExportOptions
 	var rawNodes string
+	var noHistory bool
+
+	opts.WithHistory = true
 
 	cmd := &cobra.Command{
 		Use:   "export",
@@ -31,6 +34,7 @@ func NewArchiveExportCmd(deps *Deps) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			applyKegTargetProfile(deps, &opts.KegTargetOptions)
 			opts.NodeIDs = splitArchiveNodeList(rawNodes)
+			opts.WithHistory = !noHistory
 			path, err := deps.Tap.Export(cmd.Context(), opts)
 			if err != nil {
 				return err
@@ -41,7 +45,7 @@ func NewArchiveExportCmd(deps *Deps) *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&rawNodes, "nodes", "", "comma-separated node IDs to export (default all nodes)")
-	cmd.Flags().BoolVar(&opts.WithHistory, "with-history", false, "include snapshot history")
+	cmd.Flags().BoolVar(&noHistory, "no-history", false, "omit snapshot history from the archive")
 	cmd.Flags().StringVarP(&opts.OutputPath, "output", "o", "", "archive output path")
 	_ = cmd.MarkFlagRequired("output")
 	_ = cmd.MarkFlagFilename("output", "tar", "tar.gz", "tgz", "gz")

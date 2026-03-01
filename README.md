@@ -2,10 +2,15 @@
 
 `tapper` is a CLI for building knowledge systems with KEGs (Knowledge Exchange
 Graphs), including personal knowledge management and agent memory workflows across
-domains. It provides two entrypoints:
+domains.
 
-- `tap` for repo, config, and node workflows
-- `kegv2` for project-keg focused workflows
+Primary entrypoint:
+
+- `tap` for the full CLI surface
+
+Optional secondary entrypoint:
+
+- `kegv2` as a pruned, project-focused profile built from the same command system
 
 ## Problem This Solves
 
@@ -45,18 +50,31 @@ Verify installation:
 
 ```bash
 tap --help
+```
+
+Optional: verify the pruned project-focused binary too:
+
+```bash
 kegv2 --help
 ```
 
-Set up shell completions:
+Set up shell completions for `tap`:
 
 ```bash
 # zsh (current session)
 source <(tap completion zsh)
-source <(kegv2 completion zsh)
 
 # zsh (persist)
 tap completion zsh > "${fpath[1]}/_tap"
+```
+
+Optional: install completions for `kegv2` if you use the pruned binary:
+
+```bash
+# zsh (current session)
+source <(kegv2 completion zsh)
+
+# zsh (persist)
 kegv2 completion zsh > "${fpath[1]}/_kegv2"
 ```
 
@@ -77,31 +95,55 @@ Initialize a project-local keg:
 tap repo init tapper --project
 ```
 
-Create and inspect node history in a project keg:
+Create and inspect node history with `tap`:
 
 ```bash
-kegv2 snapshot 12 -m "before refactor"
+tap snapshot create 12 --keg personal -m "before refactor"
+tap snapshot history 12 --keg personal
+```
+
+Use `kegv2` only when you specifically want the pruned project-local profile:
+
+```bash
+kegv2 snapshot create 12 -m "before refactor"
 kegv2 snapshot history 12
 ```
 
-The same snapshot and archive commands are also available under `tap`. Use
-`kegv2` when you want project-local resolution by default, and use `tap` when
-you want alias- or path-driven targeting.
+`tap` is the main command. `kegv2` exists to prove that the same Cobra tree can
+be exposed through a narrower profile with project-local defaults.
 
 ```bash
+tap snapshot create 12 --keg personal -m "before refactor"
 tap snapshot history 12 --keg personal
-tap archive export --keg personal --with-history -o notes.keg.tar.gz
+tap archive export --keg personal -o notes.keg.tar.gz
 ```
 
 Export and import a keg archive:
 
 ```bash
-kegv2 archive export --with-history -o notes.keg.tar.gz
+kegv2 archive export -o notes.keg.tar.gz
+kegv2 archive import notes.keg.tar.gz
+```
+
+Primary `tap` workflow:
+
+```bash
+tap archive export --keg personal -o notes.keg.tar.gz
+tap archive import notes.keg.tar.gz --keg personal
+```
+
+Project-local `kegv2` workflow:
+
+```bash
+kegv2 archive export -o notes.keg.tar.gz
 kegv2 archive import notes.keg.tar.gz
 ```
 
 Archive import overwrites matching node IDs in the target keg instead of
 allocating new node IDs.
+
+Snapshot history is included in archives by default. Use `--no-history` when
+you want to export only the current node state.
 
 Show merged repo configuration:
 

@@ -13,16 +13,44 @@ import (
 )
 
 func NewSnapshotCmd(deps *Deps) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "snapshot",
+		Short: "manage node snapshots",
+		Long: `Manage snapshot history for a node.
+
+Use "snapshot create" to capture the current node state, "snapshot history" to
+list revisions, and "snapshot restore" to restore a prior revision.`,
+		Example: strings.TrimSpace(`
+tap snapshot create 12 --keg personal -m "before refactor"
+tap snapshot history 12 --keg personal
+tap snapshot restore 12 1 --keg personal --yes
+`),
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return cmd.Help()
+		},
+	}
+
+	cmd.AddCommand(
+		NewSnapshotCreateCmd(deps),
+		NewSnapshotHistoryCmd(deps),
+		NewSnapshotRestoreCmd(deps),
+	)
+	return cmd
+}
+
+func NewSnapshotCreateCmd(deps *Deps) *cobra.Command {
 	var opts tapper.NodeSnapshotOptions
 
 	cmd := &cobra.Command{
-		Use:   "snapshot [NODE_ID]",
-		Short: "create and manage node snapshots",
-		Args:  cobra.MaximumNArgs(1),
+		Use:   "create NODE_ID",
+		Short: "create a snapshot for the current node state",
+		Example: strings.TrimSpace(`
+tap snapshot create 12 --keg personal -m "before refactor"
+kegv2 snapshot create 12 -m "before refactor"
+`),
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if len(args) == 0 {
-				return cmd.Help()
-			}
 			applyKegTargetProfile(deps, &opts.KegTargetOptions)
 			opts.NodeID = args[0]
 			snap, err := deps.Tap.NodeSnapshot(cmd.Context(), opts)
@@ -36,10 +64,6 @@ func NewSnapshotCmd(deps *Deps) *cobra.Command {
 
 	cmd.Flags().StringVarP(&opts.Message, "message", "m", "", "snapshot message")
 	bindKegTargetFlags(cmd, deps, &opts.KegTargetOptions, "alias of the keg containing the node")
-	cmd.AddCommand(
-		NewSnapshotHistoryCmd(deps),
-		NewSnapshotRestoreCmd(deps),
-	)
 	return cmd
 }
 
