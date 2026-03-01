@@ -210,8 +210,8 @@ func TestRootCompletionSuggestsSnapshotArchiveCommands(t *testing.T) {
 	suggestions := parseCompletionSuggestions(string(comp.Stdout))
 	require.Contains(t, suggestions, "snapshot")
 	require.Contains(t, suggestions, "archive")
+	require.Contains(t, suggestions, "import")
 	require.NotContains(t, suggestions, "node")
-	require.NotContains(t, suggestions, "import")
 	require.NotContains(t, suggestions, "export")
 }
 

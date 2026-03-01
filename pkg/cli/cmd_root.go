@@ -142,6 +142,7 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 		NewGraphCmd(deps),
 		NewGrepCmd(deps),
 		NewImageCmd(deps),
+		NewImportCmd(deps),
 		NewIndexCmd(deps),
 		NewInfoCmd(deps),
 		NewListCmd(deps),
