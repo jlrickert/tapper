@@ -30,7 +30,7 @@ func TestTagsCommand_TableDrivenErrors(t *testing.T) {
 			name:        "invalid_expression",
 			args:        []string{"tags", "a and (b", "--keg", "personal"},
 			fixture:     strPtr("joe"),
-			expectedErr: "invalid tag expression",
+			expectedErr: "invalid query expression",
 		},
 	}
 

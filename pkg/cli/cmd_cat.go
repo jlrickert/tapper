@@ -51,6 +51,7 @@ func NewCatCmd(deps *Deps) *cobra.Command {
 	cmd.Flags().BoolVar(&opts.MetaOnly, "meta-only", false, "display node metadata only")
 	cmd.Flags().BoolVar(&opts.Edit, "edit", false, "edit node in a temporary file")
 	cmd.Flags().StringVar(&opts.Tag, "tag", "", `tag expression to select nodes (e.g., "fire", "fire and not archived")`)
+	cmd.Flags().StringVar(&opts.Tag, "query", "", `boolean expression supporting tags and key=value attrs (e.g., "entity=plan and golang")`)
 
 	return cmd
 }
