@@ -1,7 +1,6 @@
 package cli_test
 
 import (
-	"strings"
 	"testing"
 
 	testutils "github.com/jlrickert/cli-toolkit/sandbox"
@@ -44,21 +43,3 @@ func TestTagsCommand_CompletionFiltersByPrefix(t *testing.T) {
 	require.ElementsMatch(t, []string{"alpha", "alpine"}, suggestions)
 }
 
-func parseCompletionSuggestions(raw string) []string {
-	lines := strings.Split(raw, "\n")
-	out := make([]string, 0)
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		if strings.HasPrefix(line, ":") {
-			break
-		}
-		if strings.Contains(line, "\t") {
-			line = strings.SplitN(line, "\t", 2)[0]
-		}
-		out = append(out, line)
-	}
-	return out
-}
