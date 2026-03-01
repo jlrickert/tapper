@@ -84,7 +84,6 @@ Examples:
 	cmd.Flags().BoolVarP(&opts.IdOnly, "id-only", "", false, "show only ids when TAG is provided")
 	cmd.Flags().BoolVar(&opts.Reverse, "reverse", false, "list in reverse order")
 	cmd.Flags().StringVarP(&opts.Format, "format", "f", "", "output format when TAG is provided")
-	bindKegTargetFlags(cmd, deps, &opts.KegTargetOptions, "alias of the keg to read from")
 
 	return cmd
 }

@@ -30,7 +30,5 @@ func NewStatsCmd(deps *Deps) *cobra.Command {
 		},
 	}
 
-	bindKegTargetFlags(cmd, deps, &opts.KegTargetOptions, "alias of the keg to read from")
-
 	return cmd
 }

@@ -33,7 +33,6 @@ func NewBacklinksCmd(deps *Deps) *cobra.Command {
 	cmd.Flags().BoolVarP(&opts.IdOnly, "id-only", "", false, "show only ids")
 	cmd.Flags().BoolVar(&opts.Reverse, "reverse", false, "list nodes in reverse order")
 	cmd.Flags().StringVarP(&opts.Format, "format", "f", "", "output format")
-	bindKegTargetFlags(cmd, deps, &opts.KegTargetOptions, "alias of the keg to read from")
 
 	return cmd
 }

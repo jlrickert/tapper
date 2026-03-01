@@ -29,8 +29,6 @@ Use --rebuild to scan all nodes and regenerate the full dex.`,
 			return nil
 		},
 	}
-
-	bindKegTargetFlags(cmd, deps, &opts.KegTargetOptions, "alias of the keg to reindex")
 	if deps.Profile.withDefaults().AllowKegAliasFlags {
 		cmd.Flags().StringVar(&opts.Keg, "alias", "", "alias of the keg to reindex (deprecated; use --keg)")
 	}

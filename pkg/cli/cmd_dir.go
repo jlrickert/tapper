@@ -31,7 +31,5 @@ With NODE_ID, prints the node directory (<keg>/<node_id>) for local file-backed 
 			return err
 		},
 	}
-
-	bindKegTargetFlags(cmd, deps, &opts.KegTargetOptions, "alias of the keg to read from")
 	return cmd
 }

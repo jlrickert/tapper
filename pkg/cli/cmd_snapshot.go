@@ -63,7 +63,6 @@ kegv2 snapshot create 12 -m "before refactor"
 	}
 
 	cmd.Flags().StringVarP(&opts.Message, "message", "m", "", "snapshot message")
-	bindKegTargetFlags(cmd, deps, &opts.KegTargetOptions, "alias of the keg containing the node")
 	return cmd
 }
 
@@ -96,8 +95,6 @@ func NewSnapshotHistoryCmd(deps *Deps) *cobra.Command {
 			return tw.Flush()
 		},
 	}
-
-	bindKegTargetFlags(cmd, deps, &opts.KegTargetOptions, "alias of the keg containing the node")
 	return cmd
 }
 
@@ -134,7 +131,6 @@ func NewSnapshotRestoreCmd(deps *Deps) *cobra.Command {
 	}
 
 	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "skip confirmation")
-	bindKegTargetFlags(cmd, deps, &opts.KegTargetOptions, "alias of the keg containing the node")
 	return cmd
 }
 

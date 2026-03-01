@@ -47,8 +47,6 @@ configuration.`,
 			return err
 		},
 	}
-
-	bindKegTargetFlags(cmd, deps, &opts.KegTargetOptions, "alias of the keg to display configuration for")
 	cmd.Flags().BoolVar(&edit, "edit", false, "edit keg configuration with default editor")
 
 	return cmd
