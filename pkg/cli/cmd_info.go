@@ -36,7 +36,5 @@ asset summary data useful for troubleshooting.`,
 		},
 	}
 
-	bindKegTargetFlags(cmd, deps, &opts.KegTargetOptions, "alias of the keg to inspect")
-
 	return cmd
 }

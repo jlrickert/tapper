@@ -34,7 +34,6 @@ func NewGrepCmd(deps *Deps) *cobra.Command {
 	cmd.Flags().BoolVar(&opts.Reverse, "reverse", false, "list nodes in reverse order")
 	cmd.Flags().StringVarP(&opts.Format, "format", "f", "", "output format")
 	cmd.Flags().BoolVarP(&opts.IgnoreCase, "ignore-case", "i", false, "perform case-insensitive matching")
-	bindKegTargetFlags(cmd, deps, &opts.KegTargetOptions, "alias of the keg to read from")
 
 	return cmd
 }

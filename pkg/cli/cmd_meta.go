@@ -36,7 +36,6 @@ Use --edit to edit metadata in a temporary file with your editor.`,
 	}
 
 	cmd.Flags().BoolVar(&opts.Edit, "edit", false, "edit node metadata in a temporary file")
-	bindKegTargetFlags(cmd, deps, &opts.KegTargetOptions, "alias of the keg to read from")
 
 	return cmd
 }

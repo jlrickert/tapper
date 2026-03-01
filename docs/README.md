@@ -29,6 +29,7 @@ If you are unsure where to start, read [Configuration Overview](configuration/RE
 
 ## Command Quick Reference
 
+- Target any command from the root: `tap --keg ALIAS ...` or `tap --path PATH ...`
 - Show merged config: `tap repo config`
 - Show user config: `tap repo config --user`
 - Show project config: `tap repo config --project`
