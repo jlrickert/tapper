@@ -53,6 +53,30 @@ func TestTap_RootPersistentKegFlagBeforeCommand(t *testing.T) {
 	require.Contains(t, string(res.Stdout), "# Personal Overview")
 }
 
+func TestTap_RootPersistentShortKegFlagNumericShorthandUsesCat(t *testing.T) {
+	t.Parallel()
+
+	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
+
+	res := NewProcess(t, false, "-k", "personal", "1").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+	require.Contains(t, string(res.Stdout), "# Personal Overview")
+}
+
+func TestTap_RootPersistentKegFlagNumericShorthandCompletionUsesCat(t *testing.T) {
+	t.Parallel()
+
+	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
+
+	comp := NewCompletionProcess(t, false, 0, "-k", "personal", "1", "").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, comp.Err)
+
+	suggestions := parseCompletionSuggestions(string(comp.Stdout))
+	require.Contains(t, suggestions, "0")
+	require.Contains(t, suggestions, "2")
+	require.Contains(t, suggestions, "3")
+}
+
 func TestTap_RootPersistentKegFlagCompletionSuggestsKegs(t *testing.T) {
 	t.Parallel()
 
