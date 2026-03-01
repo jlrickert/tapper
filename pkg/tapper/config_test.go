@@ -65,6 +65,18 @@ kegs:
 	require.NotContains(t, out, "# keep this inline")
 }
 
+func TestParseConfig_AcceptsUnknownFields(t *testing.T) {
+	t.Parallel()
+
+	raw := `defaultKeg: main
+unknownKey: value
+`
+
+	cfg, err := tapper.ParseConfig([]byte(raw))
+	require.NoError(t, err)
+	require.Equal(t, "main", cfg.DefaultKeg())
+}
+
 func TestParseUserConfig_KegExamples(t *testing.T) {
 	t.Parallel()
 

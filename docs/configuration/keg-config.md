@@ -14,7 +14,8 @@ tap config
 tap config --keg <alias>
 tap config --project
 tap config --path <path>
-tap config --edit
+tap config edit
+cat keg.yaml | tap config edit --path <path>
 ```
 
 Use `tap config` commands for keg metadata. Use `tap repo config` for user/project resolver
@@ -42,7 +43,8 @@ Common keg fields:
 
 ## Validation And Safe Editing Tips
 
-- Prefer `tap config --edit` to edit with validation.
+- Prefer `tap config edit` to edit with validation.
+- Pipe YAML to `tap config edit` when you want non-interactive updates.
 - Keep YAML valid and key names consistent.
 - Save small changes and re-run `tap config` to confirm output.
 - Use `tap info` to confirm the resolved keg directory when debugging target selection.

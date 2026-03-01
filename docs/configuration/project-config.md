@@ -13,6 +13,7 @@ Project config defines repository-specific defaults.
 tap repo config --project
 tap repo config edit --project
 tap repo config --template --project
+cat config.yaml | tap repo config edit --project
 ```
 
 ## Override Behavior

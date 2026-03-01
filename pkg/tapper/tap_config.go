@@ -1,8 +1,11 @@
 package tapper
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -60,7 +63,7 @@ func (t *Tap) Config(opts ConfigOptions) (string, error) {
 	return string(data), nil
 }
 
-// ConfigEditOptions configures behavior for Tap.UserConfigEdit.
+// ConfigEditOptions configures behavior for Tap.ConfigEdit.
 type ConfigEditOptions struct {
 	// Project indicates whether to edit local config instead of user config
 	Project bool
@@ -68,10 +71,16 @@ type ConfigEditOptions struct {
 	User bool
 
 	ConfigPath string
+
+	Stream *toolkit.Stream
 }
 
-// UserConfigEdit opens the configuration file in the default editor.
-func (t *Tap) UserConfigEdit(ctx context.Context, opts ConfigEditOptions) error {
+// ConfigEdit edits the selected tap config file.
+//
+// If stdin is piped with non-empty content, the piped YAML is validated and
+// written directly without opening an editor. Otherwise the file is opened in
+// the configured editor.
+func (t *Tap) ConfigEdit(ctx context.Context, opts ConfigEditOptions) error {
 	var configPath string
 	if opts.ConfigPath != "" {
 		configPath = opts.ConfigPath
@@ -81,21 +90,75 @@ func (t *Tap) UserConfigEdit(ctx context.Context, opts ConfigEditOptions) error 
 		configPath = t.PathService.UserConfig()
 	}
 
-	// If config doesn't exist, create a default one
-	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+	resolvedPath, err := t.Runtime.ResolvePath(configPath, false)
+	if err != nil {
+		return fmt.Errorf("unable to resolve config path: %w", err)
+	}
+
+	// If config doesn't exist, create a default one.
+	if _, err := t.Runtime.ReadFile(resolvedPath); err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("unable to inspect config file: %w", err)
+		}
 		var cfg *Config
 		if opts.Project {
 			cfg = DefaultProjectConfig("project", "kegs")
 		} else {
 			cfg = DefaultUserConfig("public", defaultUserKegSearchPath(t.Runtime))
 		}
-		if err := cfg.Write(t.Runtime, configPath); err != nil {
+		if err := cfg.Write(t.Runtime, resolvedPath); err != nil {
 			return fmt.Errorf("unable to create default config: %w", err)
 		}
 	}
 
-	err := toolkit.Edit(ctx, t.Runtime, configPath)
-	return err
+	originalRaw, err := t.Runtime.ReadFile(resolvedPath)
+	if err != nil {
+		return fmt.Errorf("unable to read config file: %w", err)
+	}
+
+	saveConfig := func(data []byte) error {
+		if err := t.Runtime.AtomicWriteFile(resolvedPath, data, 0o644); err != nil {
+			return fmt.Errorf("unable to save edited config: %w", err)
+		}
+		return nil
+	}
+
+	if opts.Stream != nil && opts.Stream.IsPiped {
+		pipedRaw, readErr := io.ReadAll(opts.Stream.In)
+		if readErr != nil {
+			return fmt.Errorf("unable to read piped input: %w", readErr)
+		}
+		if len(bytes.TrimSpace(pipedRaw)) > 0 {
+			if bytes.Equal(pipedRaw, originalRaw) {
+				return nil
+			}
+			if _, parseErr := ParseConfig(pipedRaw); parseErr != nil {
+				return fmt.Errorf("tap config from stdin is invalid: %w", parseErr)
+			}
+			return saveConfig(pipedRaw)
+		}
+	}
+
+	tempPath, err := newEditorTempFilePath(t.Runtime, "tap-config-", ".yaml")
+	if err != nil {
+		return fmt.Errorf("unable to create temp config path: %w", err)
+	}
+	if err := t.Runtime.WriteFile(tempPath, originalRaw, 0o600); err != nil {
+		return fmt.Errorf("unable to write temp config file: %w", err)
+	}
+	defer func() {
+		_ = t.Runtime.Remove(tempPath, false)
+	}()
+
+	if err := editWithLiveSaves(ctx, t.Runtime, tempPath, func(editedRaw []byte) error {
+		if _, err := ParseConfig(editedRaw); err != nil {
+			return fmt.Errorf("tap config is invalid after editing: %w", err)
+		}
+		return saveConfig(editedRaw)
+	}); err != nil {
+		return fmt.Errorf("unable to edit tap config: %w", err)
+	}
+	return nil
 }
 
 func defaultUserKegSearchPath(rt *toolkit.Runtime) string {
