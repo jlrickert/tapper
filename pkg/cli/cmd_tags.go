@@ -84,6 +84,7 @@ Examples:
 	cmd.Flags().BoolVarP(&opts.IdOnly, "id-only", "", false, "show only ids when TAG is provided")
 	cmd.Flags().BoolVar(&opts.Reverse, "reverse", false, "list in reverse order")
 	cmd.Flags().StringVarP(&opts.Format, "format", "f", "", "output format when TAG is provided")
+	cmd.Flags().StringVar(&opts.Query, "query", "", `boolean expression supporting tags and key=value attrs (e.g., "entity=plan and golang")`)
 
 	return cmd
 }

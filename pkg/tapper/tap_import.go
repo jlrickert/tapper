@@ -247,37 +247,23 @@ func parseImportNodeIDs(rawIDs []string) ([]keg.NodeId, error) {
 	return ids, nil
 }
 
-// collectImportNodesByTag evaluates a boolean tag expression against the source keg's dex.
+// collectImportNodesByTag evaluates a boolean query expression (supporting both
+// tag names and key=value attribute predicates) against the source keg's dex.
 func collectImportNodesByTag(ctx context.Context, k *keg.Keg, query string) ([]keg.NodeId, error) {
 	dex, err := k.Dex(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("unable to load source dex: %w", err)
 	}
-	expr, err := parseTagExpression(query)
-	if err != nil {
-		return nil, fmt.Errorf("invalid tag expression: %w", err)
-	}
 	indexEntries := dex.Nodes(ctx)
-	universe := make(map[string]struct{}, len(indexEntries)*2)
-	for _, entry := range indexEntries {
-		universe[entry.ID] = struct{}{}
-		node, parseErr := keg.ParseNode(entry.ID)
-		if parseErr == nil && node != nil {
-			universe[node.Path()] = struct{}{}
-		}
+	matchedPaths, err := evalQueryExpr(ctx, k, dex, indexEntries, query)
+	if err != nil {
+		return nil, fmt.Errorf("invalid query expression: %w", err)
 	}
-	matchedPaths := evaluateTagExpression(expr, universe, func(tagName string) map[string]struct{} {
-		nodes, ok := dex.TagNodes(ctx, tagName)
-		if !ok {
-			return map[string]struct{}{}
-		}
-		return setFromNodeIDs(nodes)
-	})
 	ids := make([]keg.NodeId, 0, len(matchedPaths))
 	seen := make(map[int]struct{}, len(matchedPaths))
 	for path := range matchedPaths {
-		n, err := keg.ParseNode(path)
-		if err != nil || n == nil {
+		n, parseErr := keg.ParseNode(path)
+		if parseErr != nil || n == nil {
 			continue
 		}
 		if _, ok := seen[n.ID]; ok {

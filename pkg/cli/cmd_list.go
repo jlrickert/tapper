@@ -36,6 +36,7 @@ func NewListCmd(deps *Deps) *cobra.Command {
 	cmd.Flags().BoolVarP(&opts.IdOnly, "id-only", "", false, "show only ids")
 	cmd.Flags().BoolVar(&opts.Reverse, "reverse", false, "list nodes in reverse order")
 	cmd.Flags().StringVarP(&opts.Format, "format", "f", "", "output format")
+	cmd.Flags().StringVar(&opts.Query, "query", "", `boolean expression supporting tags and key=value attrs (e.g., "entity=plan and golang")`)
 
 	return cmd
 }
