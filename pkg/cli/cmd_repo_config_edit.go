@@ -20,7 +20,7 @@ func NewRepoConfigEditCmd(deps *Deps) *cobra.Command {
 		Long: `Open the configuration file in your default editor for editing.
 
 By default, edits the user configuration. Use '--project' to edit project
-configuration.
+configuration. Use '--config' to edit an explicit config file instead.
 
 If stdin is piped with non-empty YAML, the piped content is validated and
 written directly instead of opening an editor.

@@ -12,7 +12,7 @@ Project config defines repository-specific defaults.
 ```bash
 tap repo config --project
 tap repo config edit --project
-tap repo config --template --project
+tap repo config template project
 cat config.yaml | tap repo config edit --project
 ```
 

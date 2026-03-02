@@ -16,8 +16,8 @@ import (
 //	tap repo config
 //	tap repo config --project
 //	tap repo config --user
-//	tap repo config --template
-//	tap repo config --template --project
+//	tap repo config template user
+//	tap repo config template project
 //	tap repo config edit
 //	tap repo config edit --project
 func NewRepoConfigCmd(deps *Deps) *cobra.Command {
@@ -30,8 +30,9 @@ func NewRepoConfigCmd(deps *Deps) *cobra.Command {
 
 Use 'tap repo config edit' to modify configuration files.
 Use '--project' to view only project configuration.
-Use '--template' to print starter config with defaultKeg, fallbackKeg, and kegSearchPaths.`,
+Use 'tap repo config template {user|project}' to print starter config.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			opts.ConfigPath = deps.ConfigPath
 			output, err := deps.Tap.Config(opts)
 			if errors.Is(err, os.ErrNotExist) {
 				return fmt.Errorf("no configuration available: %w", err)
@@ -47,8 +48,8 @@ Use '--template' to print starter config with defaultKeg, fallbackKeg, and kegSe
 
 	cmd.Flags().BoolVar(&opts.Project, "project", false, "display project configuration")
 	cmd.Flags().BoolVar(&opts.User, "user", false, "display user configuration")
-	cmd.Flags().BoolVar(&opts.Template, "template", false, "display template configuration (includes defaultKeg, fallbackKeg, kegSearchPaths)")
 
+	cmd.AddCommand(NewRepoConfigTemplateCmd(deps))
 	cmd.AddCommand(NewRepoConfigEditCmd(deps))
 
 	return cmd

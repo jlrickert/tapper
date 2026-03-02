@@ -12,7 +12,7 @@ User config defines machine-wide defaults for tapper.
 ```bash
 tap repo config --user
 tap repo config edit --user
-tap repo config --template --user
+tap repo config template user
 cat config.yaml | tap repo config edit --user
 ```
 

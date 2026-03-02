@@ -35,7 +35,7 @@ func TestConfigCommand_DisplaysMergedConfig(t *testing.T) {
 		},
 		{
 			name:         "config_template_user_includes_new_keys",
-			args:         []string{"repo", "config", "--template"},
+			args:         []string{"repo", "config", "template", "user"},
 			setupFixture: strPtr("joe"),
 			expectedInStdout: []string{
 				"# yaml-language-server: $schema=https://raw.githubusercontent.com/jlrickert/tapper/main/schemas/tap-config.json",
@@ -46,7 +46,7 @@ func TestConfigCommand_DisplaysMergedConfig(t *testing.T) {
 		},
 		{
 			name:         "config_template_project_includes_new_keys",
-			args:         []string{"repo", "config", "--template", "--project"},
+			args:         []string{"repo", "config", "template", "project"},
 			setupFixture: strPtr("joe"),
 			expectedInStdout: []string{
 				"# yaml-language-server: $schema=https://raw.githubusercontent.com/jlrickert/tapper/main/schemas/tap-config.json",
@@ -83,7 +83,7 @@ func TestConfigCommand_DisplaysMergedConfig(t *testing.T) {
 						"expected output to contain %q, got:\n%s", expected, stdout)
 				}
 
-				if strings.Contains(strings.Join(tt.args, " "), "--template") {
+				if strings.Contains(strings.Join(tt.args, " "), "template") {
 					require.True(innerT, strings.HasPrefix(stdout, "# yaml-language-server: $schema="),
 						"template output should start with yaml-language-server modeline")
 				}
@@ -124,4 +124,57 @@ func TestConfigCommand_IntegrationWithInit(t *testing.T) {
 		require.Contains(innerT, stdout, "kegs:", "output should contain kegs section")
 		require.Contains(innerT, stdout, "newstudy", "output should contain the new keg alias")
 	})
+}
+
+func TestConfigCommand_ReadsExplicitConfigPath(t *testing.T) {
+	t.Parallel()
+	sb := NewSandbox(t)
+
+	const configPath = "/tmp/custom-tap-config.yaml"
+	const raw = "fallbackKeg: custom\nunknownKey: keep-me\n"
+	require.NoError(t, sb.Runtime().AtomicWriteFile(configPath, []byte(raw), 0o644))
+
+	res := NewProcess(t, false, "-c", configPath, "repo", "config").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+	require.Equal(t, raw, string(res.Stdout))
+}
+
+func TestConfigCommand_RejectsScopedFlagsWithExplicitConfigPath(t *testing.T) {
+	t.Parallel()
+	sb := NewSandbox(t)
+
+	const configPath = "/tmp/custom-tap-config.yaml"
+	require.NoError(t, sb.Runtime().AtomicWriteFile(configPath, []byte("fallbackKeg: custom\n"), 0o644))
+
+	tests := [][]string{
+		{"-c", configPath, "repo", "config", "--user"},
+		{"-c", configPath, "repo", "config", "--project"},
+	}
+
+	for _, args := range tests {
+		res := NewProcess(t, false, args...).Run(sb.Context(), sb.Runtime())
+		require.Error(t, res.Err)
+		require.Contains(t, string(res.Stderr), "--config cannot be combined with --user or --project")
+	}
+}
+
+func TestConfigTemplateCommand_RejectsExplicitConfigPath(t *testing.T) {
+	t.Parallel()
+	sb := NewSandbox(t)
+
+	res := NewProcess(t, false, "-c", "/tmp/custom-tap-config.yaml", "repo", "config", "template", "user").Run(sb.Context(), sb.Runtime())
+	require.Error(t, res.Err)
+	require.Contains(t, string(res.Stderr), "--config cannot be used with repo config template")
+}
+
+func TestConfigTemplateCommand_Completion(t *testing.T) {
+	t.Parallel()
+	sb := NewSandbox(t)
+
+	comp := NewCompletionProcess(t, false, 0, "repo", "config", "template", "").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, comp.Err)
+
+	suggestions := parseCompletionSuggestions(string(comp.Stdout))
+	require.Contains(t, suggestions, "user")
+	require.Contains(t, suggestions, "project")
 }
