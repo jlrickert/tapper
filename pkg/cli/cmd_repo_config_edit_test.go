@@ -35,6 +35,29 @@ defaultRegistry: ""
 	require.Equal(t, input, saved)
 }
 
+func TestRepoConfigEdit_RejectsScopedFlagsWithExplicitConfigPath(t *testing.T) {
+	t.Parallel()
+	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
+
+	const configPath = "/tmp/custom-tap-config.yaml"
+	require.NoError(t, sb.Runtime().AtomicWriteFile(configPath, []byte("fallbackKeg: custom\n"), 0o644))
+
+	tests := [][]string{
+		{"-c", configPath, "repo", "config", "edit", "--user"},
+		{"-c", configPath, "repo", "config", "edit", "--project"},
+	}
+
+	for _, args := range tests {
+		res := NewProcess(t, false, args...).RunWithIO(
+			sb.Context(),
+			sb.Runtime(),
+			strings.NewReader(""),
+		)
+		require.Error(t, res.Err)
+		require.Contains(t, string(res.Stderr), "--config cannot be combined with --user or --project")
+	}
+}
+
 func TestRepoConfigEdit_UserRejectsInvalidPipedStdin(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
