@@ -21,25 +21,27 @@ type ConfigOptions struct {
 	// User indicates whether to display user config
 	User bool
 
-	// Template prints out a templated. Combine with either project or user
-	// flag. Defaults to user template values.
-	Template bool
+	// ConfigPath directly selects a config file to display.
+	ConfigPath string
 }
 
 // Config displays the merged or project configuration.
 func (t *Tap) Config(opts ConfigOptions) (string, error) {
-	var cfg *Config
-	if opts.Template {
-		if opts.Project {
-			cfg := DefaultProjectConfig("project", "kegs")
-			data, err := cfg.ToYAML()
-			return string(data), err
-		}
-		cfg := DefaultUserConfig("pub", defaultUserKegSearchPath(t.Runtime))
-		data, err := cfg.ToYAML()
-		return string(data), err
+	if err := validateConfigSelection(opts.ConfigPath, opts.Project, opts.User); err != nil {
+		return "", err
 	}
-	if opts.Project {
+
+	var cfg *Config
+	if opts.ConfigPath != "" {
+		raw, err := t.Runtime.ReadFile(opts.ConfigPath)
+		if err != nil {
+			return "", err
+		}
+		if _, err := ParseConfig(raw); err != nil {
+			return "", err
+		}
+		return string(raw), nil
+	} else if opts.Project {
 		lCfg, err := t.ConfigService.ProjectConfig(false)
 		if err != nil {
 			return "", err
@@ -75,12 +77,43 @@ type ConfigEditOptions struct {
 	Stream *toolkit.Stream
 }
 
+type ConfigTemplateOptions struct {
+	Project bool
+}
+
+func validateConfigSelection(configPath string, project, user bool) error {
+	switch {
+	case project && user:
+		return fmt.Errorf("--user and --project cannot be combined")
+	case configPath != "" && (project || user):
+		return fmt.Errorf("--config cannot be combined with --user or --project")
+	default:
+		return nil
+	}
+}
+
+// ConfigTemplate returns starter YAML for either user or project config.
+func (t *Tap) ConfigTemplate(opts ConfigTemplateOptions) (string, error) {
+	var cfg *Config
+	if opts.Project {
+		cfg = DefaultProjectConfig("project", "kegs")
+	} else {
+		cfg = DefaultUserConfig("pub", defaultUserKegSearchPath(t.Runtime))
+	}
+	data, err := cfg.ToYAML()
+	return string(data), err
+}
+
 // ConfigEdit edits the selected tap config file.
 //
 // If stdin is piped with non-empty content, the piped YAML is validated and
 // written directly without opening an editor. Otherwise the file is opened in
 // the configured editor.
 func (t *Tap) ConfigEdit(ctx context.Context, opts ConfigEditOptions) error {
+	if err := validateConfigSelection(opts.ConfigPath, opts.Project, opts.User); err != nil {
+		return err
+	}
+
 	var configPath string
 	if opts.ConfigPath != "" {
 		configPath = opts.ConfigPath

@@ -33,7 +33,8 @@ If you are unsure where to start, read [Configuration Overview](configuration/RE
 - Show merged config: `tap repo config`
 - Show user config: `tap repo config --user`
 - Show project config: `tap repo config --project`
-- Print starter templates: `tap repo config --template --user|--project`
+- Print starter templates:
+  `tap repo config template user|project`
 - Edit user/project config: `tap repo config edit --user|--project`
 - Show active keg config: `tap config`
 - Edit active keg config: `tap config edit`
