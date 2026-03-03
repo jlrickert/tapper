@@ -71,13 +71,13 @@ func TestKegV2Profile_NoKegFlagCompletion(t *testing.T) {
 	require.Empty(t, kegSuggestions)
 }
 
-// TestAliasFlagCompletion_Index verifies that completing --alias "" on the
-// index command returns configured keg aliases.
-func TestAliasFlagCompletion_Index(t *testing.T) {
+// TestAliasFlagCompletion_IndexList verifies that completing --alias "" on the
+// index list command returns configured keg aliases.
+func TestAliasFlagCompletion_IndexList(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
 
-	comp := NewCompletionProcess(t, false, 0, "index", "--alias", "").Run(sb.Context(), sb.Runtime())
+	comp := NewCompletionProcess(t, false, 0, "index", "list", "--alias", "").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, comp.Err)
 
 	suggestions := parseCompletionSuggestions(string(comp.Stdout))
@@ -85,13 +85,13 @@ func TestAliasFlagCompletion_Index(t *testing.T) {
 	require.Contains(t, suggestions, "work")
 }
 
-// TestAliasFlagCompletion_Reindex verifies that completing --alias "" on the
-// reindex command returns configured keg aliases.
-func TestAliasFlagCompletion_Reindex(t *testing.T) {
+// TestAliasFlagCompletion_IndexRebuild verifies that completing --alias "" on
+// the index rebuild command returns configured keg aliases.
+func TestAliasFlagCompletion_IndexRebuild(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
 
-	comp := NewCompletionProcess(t, false, 0, "reindex", "--alias", "").Run(sb.Context(), sb.Runtime())
+	comp := NewCompletionProcess(t, false, 0, "index", "rebuild", "--alias", "").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, comp.Err)
 
 	suggestions := parseCompletionSuggestions(string(comp.Stdout))
