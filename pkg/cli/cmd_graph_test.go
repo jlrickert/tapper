@@ -70,7 +70,7 @@ Beta lead paragraph with [alpha](../%s).
 	idTwo := strings.TrimSpace(string(res.Stdout))
 	require.NotEmpty(t, idTwo)
 
-	res = NewProcess(t, false, "reindex", "--alias", "personal").Run(sb.Context(), sb.Runtime())
+	res = NewProcess(t, false, "index", "rebuild", "--alias", "personal").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 
 	res = NewProcess(t, false, "graph", "--keg", "personal").Run(sb.Context(), sb.Runtime())

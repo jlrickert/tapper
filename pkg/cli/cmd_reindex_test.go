@@ -18,7 +18,7 @@ type statsJSON struct {
 	Links   []string `json:"links"`
 }
 
-func TestReindexCommand_TableDrivenErrorHandling(t *testing.T) {
+func TestIndexRebuildCommand_TableDrivenErrorHandling(t *testing.T) {
 	tests := []struct {
 		name         string
 		args         []string
@@ -27,15 +27,15 @@ func TestReindexCommand_TableDrivenErrorHandling(t *testing.T) {
 		description  string
 	}{
 		{
-			name:         "reindex_nonexistent_alias",
-			args:         []string{"reindex", "--alias", "nonexistent"},
+			name:         "rebuild_nonexistent_alias",
+			args:         []string{"index", "rebuild", "--alias", "nonexistent"},
 			setupFixture: strPtr("joe"),
 			expectedErr:  "keg alias not found",
 			description:  "Error when keg alias does not exist",
 		},
 		{
-			name:        "reindex_no_keg_configured",
-			args:        []string{"reindex"},
+			name:        "rebuild_no_keg_configured",
+			args:        []string{"index", "rebuild"},
 			expectedErr: "no keg configured",
 			description: "Error when no keg is configured",
 		},
@@ -61,7 +61,7 @@ func TestReindexCommand_TableDrivenErrorHandling(t *testing.T) {
 	}
 }
 
-func TestReindexCommand_WithJoeFixture(t *testing.T) {
+func TestIndexRebuildCommand_WithJoeFixture(t *testing.T) {
 	tests := []struct {
 		name             string
 		args             []string
@@ -71,31 +71,31 @@ func TestReindexCommand_WithJoeFixture(t *testing.T) {
 		description      string
 	}{
 		{
-			name:             "reindex_personal_keg_from_default_location",
-			args:             []string{"reindex"},
+			name:             "rebuild_personal_keg_from_default_location",
+			args:             []string{"index", "rebuild"},
 			setupFixture:     strPtr("joe"),
 			expectedInStdout: []string{"Indices rebuilt"},
 			description:      "Rebuild indices for default personal keg",
 		},
 		{
-			name:             "reindex_work_keg_from_work_directory",
-			args:             []string{"reindex"},
+			name:             "rebuild_work_keg_from_work_directory",
+			args:             []string{"index", "rebuild"},
 			setupFixture:     strPtr("joe"),
 			cwd:              strPtr("~/repos/work/spy-things"),
 			expectedInStdout: []string{"Indices rebuilt"},
 			description:      "Rebuild indices for work keg when in work directory",
 		},
 		{
-			name:             "reindex_explicit_alias_overrides_path_resolution",
-			args:             []string{"reindex", "--alias", "example"},
+			name:             "rebuild_explicit_alias_overrides_path_resolution",
+			args:             []string{"index", "rebuild", "--alias", "example"},
 			setupFixture:     strPtr("joe"),
 			cwd:              strPtr("~/repos/work/spy-things"),
 			expectedInStdout: []string{"Indices rebuilt"},
 			description:      "Explicit alias overrides path-based keg resolution",
 		},
 		{
-			name:             "reindex_personal_keg_explicit_alias",
-			args:             []string{"reindex", "--alias", "personal"},
+			name:             "rebuild_personal_keg_explicit_alias",
+			args:             []string{"index", "rebuild", "--alias", "personal"},
 			setupFixture:     strPtr("joe"),
 			expectedInStdout: []string{"Indices rebuilt"},
 			description:      "Rebuild indices for personal keg with explicit alias",
@@ -118,7 +118,7 @@ func TestReindexCommand_WithJoeFixture(t *testing.T) {
 			h := NewProcess(innerT, false, tt.args...)
 			res := h.Run(sb.Context(), sb.Runtime())
 
-			require.NoError(innerT, res.Err, "reindex command should succeed - %s", tt.description)
+			require.NoError(innerT, res.Err, "index rebuild command should succeed - %s", tt.description)
 			stdout := string(res.Stdout)
 
 			for _, expected := range tt.expectedInStdout {
@@ -129,8 +129,8 @@ func TestReindexCommand_WithJoeFixture(t *testing.T) {
 	}
 }
 
-func TestReindexCommand_IntegrationWithInit(t *testing.T) {
-	t.Run("reindex_after_init", func(innerT *testing.T) {
+func TestIndexRebuildCommand_IntegrationWithInit(t *testing.T) {
+	t.Run("rebuild_after_init", func(innerT *testing.T) {
 		innerT.Parallel()
 		opts := []testutils.Option{
 			testutils.WithFixture("testuser", "~"),
@@ -147,16 +147,16 @@ func TestReindexCommand_IntegrationWithInit(t *testing.T) {
 		require.NoError(innerT, initRes.Err, "init should succeed")
 		require.Contains(innerT, string(initRes.Stdout), "keg newstudy created")
 
-		reindexCmd := NewProcess(innerT, false, "reindex", "--alias", "newstudy")
-		reindexRes := reindexCmd.Run(sb.Context(), sb.Runtime())
-		require.NoError(innerT, reindexRes.Err, "reindex should succeed")
+		rebuildCmd := NewProcess(innerT, false, "index", "rebuild", "--alias", "newstudy")
+		rebuildRes := rebuildCmd.Run(sb.Context(), sb.Runtime())
+		require.NoError(innerT, rebuildRes.Err, "index rebuild should succeed")
 
-		stdout := string(reindexRes.Stdout)
+		stdout := string(rebuildRes.Stdout)
 		require.Contains(innerT, stdout, "Indices rebuilt", "output should indicate successful rebuild")
 	})
 }
 
-func TestReindexCommand_CreatesMissingMetaAndStatsFiles(t *testing.T) {
+func TestIndexRebuildCommand_CreatesMissingMetaAndStatsFiles(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
 
@@ -166,9 +166,9 @@ func TestReindexCommand_CreatesMissingMetaAndStatsFiles(t *testing.T) {
 	require.NoError(t, sb.Runtime().Remove(metaPath, false))
 	_ = sb.Runtime().Remove(statsPath, false)
 
-	h := NewProcess(t, false, "reindex", "--alias", "example")
+	h := NewProcess(t, false, "index", "rebuild", "--alias", "example")
 	res := h.Run(sb.Context(), sb.Runtime())
-	require.NoError(t, res.Err, "reindex should repair missing node files")
+	require.NoError(t, res.Err, "index rebuild should repair missing node files")
 
 	_, err := sb.Runtime().Stat(metaPath, false)
 	require.NoError(t, err, "meta.yaml should be recreated")
@@ -185,7 +185,7 @@ func TestReindexCommand_CreatesMissingMetaAndStatsFiles(t *testing.T) {
 	require.NotEmpty(t, got.Lead)
 }
 
-func TestReindexCommand_UpdatesStatsFromNodeContent(t *testing.T) {
+func TestIndexRebuildCommand_UpdatesStatsFromNodeContent(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
 
@@ -197,9 +197,9 @@ func TestReindexCommand_UpdatesStatsFromNodeContent(t *testing.T) {
 	bogus := []byte(`{"title":"WRONG","hash":"bad-hash","updated":"` + oldUpdated + `","created":"` + oldCreated + `","lead":"wrong lead","links":["9999"]}`)
 	sb.MustWriteFile(statsPath, bogus, 0o644)
 
-	h := NewProcess(t, false, "reindex", "--alias", "example")
+	h := NewProcess(t, false, "index", "rebuild", "--alias", "example")
 	res := h.Run(sb.Context(), sb.Runtime())
-	require.NoError(t, res.Err, "reindex should refresh stale stats")
+	require.NoError(t, res.Err, "index rebuild should refresh stale stats")
 
 	contentRaw := sb.MustReadFile(contentPath)
 	parsed, err := keg.ParseContent(sb.Runtime(), contentRaw, keg.FormatMarkdown)
@@ -217,16 +217,16 @@ func TestReindexCommand_UpdatesStatsFromNodeContent(t *testing.T) {
 	require.Empty(t, got.Links, "links should reflect parsed content")
 }
 
-func TestReindexCommand_CreatesDexArtifactsWhenMissing(t *testing.T) {
+func TestIndexRebuildCommand_CreatesDexArtifactsWhenMissing(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
 
 	dexDir := "~/kegs/example/dex"
 	require.NoError(t, sb.Runtime().Remove(dexDir, true))
 
-	h := NewProcess(t, false, "reindex", "--alias", "example")
+	h := NewProcess(t, false, "index", "rebuild", "--alias", "example")
 	res := h.Run(sb.Context(), sb.Runtime())
-	require.NoError(t, res.Err, "reindex should recreate dex artifacts")
+	require.NoError(t, res.Err, "index rebuild should recreate dex artifacts")
 
 	for _, path := range []string{
 		"~/kegs/example/dex/nodes.tsv",
@@ -239,17 +239,17 @@ func TestReindexCommand_CreatesDexArtifactsWhenMissing(t *testing.T) {
 	}
 }
 
-func TestReindexCommand_FailsOnMalformedMeta(t *testing.T) {
+func TestIndexRebuildCommand_FailsOnMalformedMeta(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
 
 	metaPath := "~/kegs/example/0/meta.yaml"
 	sb.MustWriteFile(metaPath, []byte("title: [\n"), 0o644)
 
-	h := NewProcess(t, false, "reindex", "--alias", "example")
+	h := NewProcess(t, false, "index", "rebuild", "--alias", "example")
 	res := h.Run(sb.Context(), sb.Runtime())
 
-	require.Error(t, res.Err, "reindex should fail for malformed meta")
+	require.Error(t, res.Err, "index rebuild should fail for malformed meta")
 	stderr := string(res.Stderr)
 	require.Contains(t, stderr, "unable to rebuild indices")
 	require.Contains(t, stderr, "failed to parse meta yaml")

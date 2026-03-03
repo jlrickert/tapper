@@ -28,7 +28,7 @@ func TestKegV2SnapshotHistoryAndRestore(t *testing.T) {
 
 	sb.MustWriteFile("~/kegs/personal/1/README.md", []byte("# Personal Overview\n\nUpdated snapshot body.\n\n- [Project Alpha](../2)\n- [Meeting Notes](../3)\n"), 0o644)
 
-	res = NewKegV2Process(t, false, "reindex").Run(sb.Context(), sb.Runtime())
+	res = NewKegV2Process(t, false, "index", "rebuild").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 
 	res = NewKegV2Process(t, false, "snapshot", "create", "1", "-m", "after change").Run(sb.Context(), sb.Runtime())
@@ -165,7 +165,7 @@ func TestArchiveImportPreservesSnapshotTimestamps(t *testing.T) {
 	sb.Advance(45 * time.Minute)
 	sb.MustWriteFile("~/kegs/personal/1/README.md", []byte("# Personal Overview\n\nTimestamp preservation update.\n\n- [Project Alpha](../2)\n"), 0o644)
 
-	res = NewProcess(t, false, "reindex", "--alias", "personal").Run(sb.Context(), sb.Runtime())
+	res = NewProcess(t, false, "index", "rebuild", "--alias", "personal").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 
 	res = NewProcess(t, false, "snapshot", "create", "1", "--keg", "personal", "-m", "updated").Run(sb.Context(), sb.Runtime())
