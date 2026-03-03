@@ -12,8 +12,14 @@ func NewListCmd(deps *Deps) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "list",
-		Short: "list all notes",
-		Long:  `list all notes. -f "%i %d %t" is the default`,
+		Short: "list all indexed nodes",
+		Long: `List indexed nodes for the resolved keg.
+
+Format placeholders: %i (node id), %d (date), %t (title), %% (literal %).
+Default format: "%i\t%d\t%t".
+
+Use --query to filter by boolean tag/attribute expressions.
+Use --limit (-n) to cap output (default 50, 0 for no limit).`,
 
 		Aliases: []string{"ls"},
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -35,6 +41,7 @@ func NewListCmd(deps *Deps) *cobra.Command {
 
 	cmd.Flags().BoolVarP(&opts.IdOnly, "id-only", "", false, "show only ids")
 	cmd.Flags().BoolVar(&opts.Reverse, "reverse", false, "list nodes in reverse order")
+	cmd.Flags().IntVarP(&opts.Limit, "limit", "n", 50, "maximum number of results (0 for no limit)")
 	cmd.Flags().StringVarP(&opts.Format, "format", "f", "", "output format")
 	cmd.Flags().StringVar(&opts.Query, "query", "", `boolean expression supporting tags and key=value attrs (e.g., "entity=plan and golang")`)
 
