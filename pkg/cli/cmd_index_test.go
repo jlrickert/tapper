@@ -16,21 +16,21 @@ func TestIndexCommand_ErrorHandling(t *testing.T) {
 		description  string
 	}{
 		{
-			name:         "index_nonexistent_alias",
-			args:         []string{"index", "--alias", "nonexistent"},
+			name:         "index_list_nonexistent_alias",
+			args:         []string{"index", "list", "--alias", "nonexistent"},
 			setupFixture: strPtr("joe"),
 			expectedErr:  "keg alias not found",
 			description:  "Error when keg alias does not exist",
 		},
 		{
-			name:        "index_no_keg_configured",
-			args:        []string{"index"},
+			name:        "index_list_no_keg_configured",
+			args:        []string{"index", "list"},
 			expectedErr: "no keg configured",
 			description: "Error when no keg is configured",
 		},
 		{
-			name:         "index_cat_unknown_index",
-			args:         []string{"index", "--alias", "example", "does-not-exist.md"},
+			name:         "index_get_unknown_index",
+			args:         []string{"index", "get", "--alias", "example", "does-not-exist.md"},
 			setupFixture: strPtr("testuser"),
 			expectedErr:  "not found",
 			description:  "Error when named index does not exist",
@@ -57,16 +57,16 @@ func TestIndexCommand_ErrorHandling(t *testing.T) {
 	}
 }
 
-func TestIndexCommand_ListIndexes(t *testing.T) {
+func TestIndexListCommand_ListIndexes(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
 
 	// Ensure dex artifacts exist first
-	reindex := NewProcess(t, false, "reindex", "--alias", "example")
-	res := reindex.Run(sb.Context(), sb.Runtime())
+	rebuild := NewProcess(t, false, "index", "rebuild", "--alias", "example")
+	res := rebuild.Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 
-	h := NewProcess(t, false, "index", "--alias", "example")
+	h := NewProcess(t, false, "index", "list", "--alias", "example")
 	res = h.Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err, "index list should succeed")
 
@@ -75,33 +75,33 @@ func TestIndexCommand_ListIndexes(t *testing.T) {
 	require.Contains(t, stdout, "tags")
 }
 
-func TestIndexCommand_CatNamedIndex(t *testing.T) {
+func TestIndexGetCommand_CatNamedIndex(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
 
 	// Ensure dex artifacts exist first
-	reindex := NewProcess(t, false, "reindex", "--alias", "example")
-	res := reindex.Run(sb.Context(), sb.Runtime())
+	rebuild := NewProcess(t, false, "index", "rebuild", "--alias", "example")
+	res := rebuild.Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 
-	h := NewProcess(t, false, "index", "--alias", "example", "nodes.tsv")
+	h := NewProcess(t, false, "index", "get", "--alias", "example", "nodes.tsv")
 	res = h.Run(sb.Context(), sb.Runtime())
-	require.NoError(t, res.Err, "index cat should succeed")
+	require.NoError(t, res.Err, "index get should succeed")
 
 	stdout := string(res.Stdout)
 	require.NotEmpty(t, stdout, "nodes.tsv should have content")
 }
 
-func TestIndexCommand_CompletionSuggestsIndexNames(t *testing.T) {
+func TestIndexGetCommand_CompletionSuggestsIndexNames(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
 
 	// Ensure dex artifacts exist
-	reindex := NewProcess(t, false, "reindex", "--alias", "example")
-	res := reindex.Run(sb.Context(), sb.Runtime())
+	rebuild := NewProcess(t, false, "index", "rebuild", "--alias", "example")
+	res := rebuild.Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 
-	comp := NewCompletionProcess(t, false, 0, "index", "--alias", "example", "").Run(sb.Context(), sb.Runtime())
+	comp := NewCompletionProcess(t, false, 0, "index", "get", "--alias", "example", "").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, comp.Err)
 
 	suggestions := parseCompletionSuggestions(string(comp.Stdout))
