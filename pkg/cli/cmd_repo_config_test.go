@@ -107,7 +107,6 @@ func TestConfigCommand_IntegrationWithInit(t *testing.T) {
 		// First, initialize a user keg
 		initCmd := NewProcess(innerT, false,
 			"repo", "init",
-			"newstudy",
 			"--user",
 			"--keg", "newstudy",
 			"--creator", "test-user",

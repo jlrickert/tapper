@@ -55,11 +55,11 @@ func (s *KegService) Resolve(ctx context.Context, opts ResolveKegOptions) (*keg.
 	alias := strings.TrimSpace(opts.Keg)
 	explicitPath := strings.TrimSpace(opts.Path)
 
-	if alias != "" && (opts.Project || explicitPath != "") {
-		return nil, fmt.Errorf("--keg cannot be used with --project or --path")
+	if alias != "" && (opts.Project || opts.Cwd || explicitPath != "") {
+		return nil, fmt.Errorf("--keg cannot be used with --project, --cwd, or --path")
 	}
-	if opts.Cwd && !opts.Project && explicitPath == "" {
-		return nil, fmt.Errorf("--cwd can only be used with --project")
+	if opts.Project && explicitPath != "" {
+		return nil, fmt.Errorf("--project cannot be used with --path")
 	}
 
 	base := strings.TrimSpace(opts.Root)
@@ -74,7 +74,7 @@ func (s *KegService) Resolve(ctx context.Context, opts ResolveKegOptions) (*keg.
 	if explicitPath != "" {
 		return s.resolveProjectTarget(ctx, explicitPath, cache)
 	}
-	if opts.Project {
+	if opts.Project || opts.Cwd {
 		if !opts.Cwd {
 			if gitRoot := appCtx.FindGitRoot(ctx, s.Runtime, base); gitRoot != "" {
 				base = gitRoot
