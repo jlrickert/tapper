@@ -586,3 +586,62 @@ func TestRemove_NotFound(t *testing.T) {
 	require.Error(t, err)
 	require.ErrorIs(t, err, kegpkg.ErrNotExist)
 }
+
+// TestIndex_ContentOnlyNodeGetsIndexed verifies that a node with only
+// README.md (no meta.yaml, no stats.json) is still included in the index
+// after a rebuild.
+func TestIndex_ContentOnlyNodeGetsIndexed(t *testing.T) {
+	t.Parallel()
+	f := NewSandbox(t)
+
+	repo := kegpkg.NewMemoryRepo(f.Runtime())
+	k := kegpkg.NewKeg(repo, f.Runtime())
+	require.NoError(t, k.Init(f.Context()))
+
+	// Write content directly without meta or stats.
+	bareID := kegpkg.NodeId{ID: 42}
+	require.NoError(t, repo.WriteContent(f.Context(), bareID, []byte("# Bare Node\n\nNo meta or stats.\n")))
+
+	// Rebuild index — should not skip this node.
+	err := k.Index(f.Context(), kegpkg.IndexOptions{Rebuild: true})
+	require.NoError(t, err)
+
+	dex, err := k.Dex(f.Context())
+	require.NoError(t, err)
+
+	ref := dex.GetRef(f.Context(), bareID)
+	require.NotNil(t, ref, "content-only node should appear in the index")
+	require.Equal(t, "42", ref.ID)
+	require.Equal(t, "Bare Node", ref.Title)
+}
+
+// TestIndex_MalformedMetaNodeGetsIndexed verifies that a node whose meta.yaml
+// is malformed YAML still gets indexed (the content is used for title/lead).
+func TestIndex_MalformedMetaNodeGetsIndexed(t *testing.T) {
+	t.Parallel()
+	f := NewSandbox(t)
+
+	repo := kegpkg.NewMemoryRepo(f.Runtime())
+	k := kegpkg.NewKeg(repo, f.Runtime())
+	require.NoError(t, k.Init(f.Context()))
+
+	// Create a node normally first, then corrupt its meta.
+	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "Good Node"})
+	require.NoError(t, err)
+
+	// Overwrite meta with invalid YAML.
+	require.NoError(t, repo.WriteMeta(f.Context(), id, []byte("{{{invalid yaml")))
+
+	// Rebuild — the node should still appear.
+	err = k.Index(f.Context(), kegpkg.IndexOptions{Rebuild: true})
+	// Index may return aggregated errors for the malformed meta, but the node
+	// should still be in the dex.
+	_ = err
+
+	dex, err := k.Dex(f.Context())
+	require.NoError(t, err)
+
+	ref := dex.GetRef(f.Context(), id)
+	require.NotNil(t, ref, "node with malformed meta should still appear in index")
+	require.Equal(t, "Good Node", ref.Title)
+}
