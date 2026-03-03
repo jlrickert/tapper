@@ -48,11 +48,7 @@ func NewKegV2Process(t *testing.T, isTTY bool, args ...string) *tu.Process {
 func NewCompletionProcess(t *testing.T, isTTY bool, pos int, words ...string) *tu.Process {
 	_ = pos
 	return tu.NewProcess(func(ctx context.Context, rt *toolkit.Runtime) (int, error) {
-		// Build completion request arguments for cobra
-		args := []string{"__complete"}
-		args = append(args, words...)
-
-		return cli.Run(ctx, rt, args)
+		return cli.RunCompletion(ctx, rt, words)
 	}, isTTY)
 }
 

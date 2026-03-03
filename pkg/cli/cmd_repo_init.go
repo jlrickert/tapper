@@ -5,7 +5,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/jlrickert/tapper/pkg/keg"
 	"github.com/jlrickert/tapper/pkg/tapper"
 	"github.com/spf13/cobra"
 )
@@ -14,17 +13,18 @@ import (
 //
 // Usage examples:
 //
-//	tap repo init NAME
-//	tap repo init . --project
-//	tap repo init blog --cwd
-//	tap repo init blog --registry --repo knut --namespace me
-//	tap repo init blog --path ./kegs/blog --title "Blog" --creator "me"
+//	tap repo init --keg blog
+//	tap repo init --project
+//	tap repo init --keg blog --cwd
+//	tap repo init --keg blog --registry --repo knut --namespace me
+//	tap repo init --keg blog --path ./kegs/blog --title "Blog" --creator "me"
 func NewInitCmd(deps *Deps) *cobra.Command {
 	initOpts := tapper.InitOptions{}
 
 	cmd := &cobra.Command{
-		Use:   "init NAME",
+		Use:   "init",
 		Short: "create a new keg target",
+		Args:  cobra.NoArgs,
 		Long: strings.TrimSpace(`
 Create a keg target and initialize it in one of three destinations:
 
@@ -44,45 +44,31 @@ Create a keg target and initialize it in one of three destinations:
    Creates a registry/API keg target and stores it in config without creating
    local keg files.
 
-Alias and name behavior:
-- --keg sets the alias written to config.
-- If --keg is omitted, alias is inferred from NAME (or cwd basename when NAME=".").
-- In user mode, NAME selects the directory name under the first kegSearchPaths entry.
+Alias behavior:
+- --keg sets the alias written to config and the directory name.
+- If --keg is omitted, alias is inferred from the current working directory basename.
 
 Metadata:
 - --title and --creator are written into the keg config for filesystem-backed kegs.
 `),
 		Example: strings.TrimSpace(`
-tap repo init blog
-tap repo init . --project
-tap repo init blog --cwd
-tap repo init blog --path ./kegs/blog
-tap repo init blog --path .
-tap repo init blog --user --keg myblog
-tap repo init blog --registry --repo knut --namespace me
+tap repo init --keg blog
+tap repo init --project --cwd
+tap repo init --keg blog --cwd
+tap repo init --keg blog --path ./kegs/blog
+tap repo init --keg blog --user
+tap repo init --keg blog --registry --repo knut --namespace me
 `),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if len(args) == 0 {
-				return fmt.Errorf("NAME is required: %w", keg.ErrInvalid)
-			}
-			name := args[0]
-
-			if initOpts.User && strings.TrimSpace(initOpts.Name) == "" {
-				initOpts.Name = name
-			}
 			if strings.TrimSpace(initOpts.Keg) == "" {
-				if name == "." {
-					cwd, err := deps.Runtime.Getwd()
-					if err != nil {
-						return fmt.Errorf("unable to determine working directory for alias inference: %w", err)
-					}
-					initOpts.Keg = filepath.Base(cwd)
-				} else {
-					initOpts.Keg = filepath.Base(name)
+				cwd, err := deps.Runtime.Getwd()
+				if err != nil {
+					return fmt.Errorf("unable to determine working directory for alias inference: %w", err)
 				}
+				initOpts.Keg = filepath.Base(cwd)
 			}
 
-			target, err := deps.Tap.InitKeg(cmd.Context(), name, initOpts)
+			target, err := deps.Tap.InitKeg(cmd.Context(), initOpts)
 			if err != nil {
 				return err
 			}

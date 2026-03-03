@@ -78,7 +78,8 @@ type KegTargetOptions struct {
 	// Project resolves using project-local keg discovery.
 	Project bool
 
-	// Cwd, when combined with Project, uses cwd as the base instead of git root.
+	// Cwd resolves project keg at the current working directory instead of git root.
+	// Works standalone or combined with Project.
 	Cwd bool
 
 	// Path is an explicit local project path used for project keg discovery.

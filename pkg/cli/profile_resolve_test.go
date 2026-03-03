@@ -15,7 +15,6 @@ func TestTap_ProjectResolutionFlags(t *testing.T) {
 
 	initCmd := NewProcess(t, false,
 		"repo", "init",
-		".",
 		"--project",
 		"--cwd",
 		"--keg", "project",
@@ -54,7 +53,6 @@ func TestTap_AliasResolvesProjectKegUnderKegsDir(t *testing.T) {
 
 	initCmd := NewProcess(t, false,
 		"repo", "init",
-		".",
 		"--project",
 		"--cwd",
 		"--keg", "tapper",
@@ -93,9 +91,9 @@ func TestKegV2_UsesProjectKegOnly(t *testing.T) {
 
 		legacyInit := NewProcess(innerT, false,
 			"repo", "init",
-			"legacy",
 			"--project",
 			"--path", "~/docs",
+			"--keg", "legacy",
 			"--creator", "test-user",
 		)
 		legacyRes := legacyInit.Run(sb.Context(), sb.Runtime())
@@ -116,7 +114,6 @@ func TestKegV2_UsesProjectKegOnly(t *testing.T) {
 
 		initCmd := NewProcess(innerT, false,
 			"repo", "init",
-			".",
 			"--project",
 			"--cwd",
 			"--keg", "project",
@@ -144,4 +141,29 @@ func TestKegV2_UsesProjectKegOnly(t *testing.T) {
 		require.Error(innerT, res.Err)
 		require.Contains(innerT, string(res.Stderr), "unknown flag: --keg")
 	})
+}
+
+func TestTap_CwdStandaloneResolution(t *testing.T) {
+	t.Parallel()
+
+	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
+	sb.Setwd("~")
+
+	initCmd := NewProcess(t, false,
+		"repo", "init",
+		"--cwd",
+		"--keg", "project",
+		"--creator", "test-user",
+	)
+	initRes := initCmd.Run(sb.Context(), sb.Runtime())
+	require.NoError(t, initRes.Err, "init with --cwd should succeed")
+	_ = sb.MustReadFile("~/kegs/project/keg")
+
+	catCmd := NewProcess(t, false,
+		"cat", "0",
+		"--cwd",
+	)
+	catRes := catCmd.Run(sb.Context(), sb.Runtime())
+	require.NoError(t, catRes.Err, "cat with standalone --cwd should resolve local project keg")
+	require.Contains(t, string(catRes.Stdout), "# Sorry, planned but not yet available")
 }

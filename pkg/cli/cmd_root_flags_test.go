@@ -89,6 +89,50 @@ func TestTap_RootPersistentKegFlagCompletionSuggestsKegs(t *testing.T) {
 	require.Contains(t, suggestions, "personal")
 }
 
+func TestTap_GlobalFlagsMutuallyExclusive(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		args        []string
+		errFragment string
+	}{
+		{
+			name:        "keg_and_project_conflict",
+			args:        []string{"cat", "0", "--keg", "foo", "--project"},
+			errFragment: "--keg cannot be used with --project, --cwd, or --path",
+		},
+		{
+			name:        "keg_and_cwd_conflict",
+			args:        []string{"cat", "0", "--keg", "foo", "--cwd"},
+			errFragment: "--keg cannot be used with --project, --cwd, or --path",
+		},
+		{
+			name:        "keg_and_path_conflict",
+			args:        []string{"cat", "0", "--keg", "foo", "--path", "/tmp"},
+			errFragment: "--keg cannot be used with --project, --cwd, or --path",
+		},
+		{
+			name:        "project_and_path_conflict",
+			args:        []string{"cat", "0", "--project", "--path", "/tmp"},
+			errFragment: "--project cannot be used with --path",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(innerT *testing.T) {
+			innerT.Parallel()
+			sb := NewSandbox(innerT, testutils.WithFixture("testuser", "~"))
+
+			h := NewProcess(innerT, false, tt.args...)
+			res := h.Run(sb.Context(), sb.Runtime())
+
+			require.Error(innerT, res.Err)
+			require.Contains(innerT, string(res.Stderr), tt.errFragment)
+		})
+	}
+}
+
 func TestKegV2Help_HidesPersistentKegTargetFlags(t *testing.T) {
 	t.Parallel()
 

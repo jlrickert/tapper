@@ -12,25 +12,17 @@ import (
 )
 
 type InitOptions struct {
-	// Destination selection. Exactly one may be true.
-	Project  bool
-	User     bool
+	// Destination selection. Exactly one group may be set.
+	Project bool
+	User    bool
+	Cwd     bool   // use cwd as the project root base instead of git root
+	Path    string // explicit filesystem path; implies local destination
 	Registry bool
-
-	// For project destination: when true, use cwd as the project root base.
-	// Otherwise git root is preferred (falling back to cwd).
-	Cwd bool
 
 	// Registry-specific options.
 	Repo     string // registry name
 	UserName string // registry namespace
 	TokenEnv string
-
-	// Keg name (user destination)
-	Name string
-
-	// Explicit filesystem path for local destinations.
-	Path string
 
 	Creator string
 	Title   string
@@ -41,16 +33,16 @@ func (o InitOptions) LocalDestination() bool {
 	return o.Project || o.Cwd || strings.TrimSpace(o.Path) != ""
 }
 
-// InitKeg creates a keg entry for the given name.
+// InitKeg creates a keg with the alias specified in options.Keg.
 //
-// It validates destination flags, infers an alias when needed, and initializes
-// one of three destinations:
+// It validates destination flags and initializes one of three destinations:
 //   - user: filesystem-backed keg under the first configured kegSearchPaths entry
 //   - project: filesystem-backed keg under project path or explicit --path
 //   - registry: API target entry written to config only
-func (t *Tap) InitKeg(ctx context.Context, name string, options InitOptions) (*kegurl.Target, error) {
-	if strings.TrimSpace(name) == "" {
-		return nil, fmt.Errorf("name is required: %w", keg.ErrInvalid)
+func (t *Tap) InitKeg(ctx context.Context, options InitOptions) (*kegurl.Target, error) {
+	alias := strings.TrimSpace(options.Keg)
+	if alias == "" {
+		return nil, fmt.Errorf("keg alias is required: %w", keg.ErrInvalid)
 	}
 
 	enabled := 0
@@ -66,24 +58,6 @@ func (t *Tap) InitKeg(ctx context.Context, name string, options InitOptions) (*k
 	if enabled > 1 {
 		return nil, fmt.Errorf("only one destination may be selected: local (--project/--cwd/--path), --user, or --registry")
 	}
-
-	alias := strings.TrimSpace(options.Keg)
-	if alias == "" {
-		switch name {
-		case ".":
-			cwd, err := t.Runtime.Getwd()
-			if err != nil {
-				return nil, fmt.Errorf("unable to determine working directory for alias inference: %w", err)
-			}
-			alias = filepath.Base(cwd)
-		default:
-			alias = filepath.Base(name)
-		}
-	}
-	if alias == "" {
-		return nil, fmt.Errorf("keg alias is required: %w", keg.ErrInvalid)
-	}
-	options.Keg = alias
 
 	destination := "user"
 	switch {
@@ -110,13 +84,6 @@ func (t *Tap) InitKeg(ctx context.Context, name string, options InitOptions) (*k
 			Creator:       options.Creator,
 		})
 	case "user":
-		if options.Name == "" || options.Name == "." {
-			if name == "." {
-				options.Name = options.Keg
-			} else {
-				options.Name = name
-			}
-		}
 		target, err = t.initUserKeg(ctx, options)
 	case "project":
 		projectPath := strings.TrimSpace(options.Path)
@@ -186,7 +153,7 @@ func (t *Tap) initUserKeg(ctx context.Context, opts InitOptions) (*kegurl.Target
 		return nil, fmt.Errorf("kegSearchPaths not defined in user config (set via tap repo config --user): %w", keg.ErrNotExist)
 	}
 
-	kegPath := filepath.Join(repoPath, opts.Name)
+	kegPath := filepath.Join(repoPath, opts.Keg)
 
 	target := kegurl.NewFile(kegPath)
 	k, err := keg.NewKegFromTarget(ctx, target, t.Runtime)
@@ -206,9 +173,6 @@ func (t *Tap) initUserKeg(ctx context.Context, opts InitOptions) (*kegurl.Target
 	}
 
 	alias := opts.Keg
-	if alias == "" {
-		alias = opts.Name
-	}
 	if alias != "" {
 		userCfg, err := t.ConfigService.UserConfig(false)
 		if err != nil {

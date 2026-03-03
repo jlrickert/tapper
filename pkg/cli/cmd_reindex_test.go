@@ -139,7 +139,6 @@ func TestReindexCommand_IntegrationWithInit(t *testing.T) {
 
 		initCmd := NewProcess(innerT, false,
 			"repo", "init",
-			"newstudy",
 			"--user",
 			"--keg", "newstudy",
 			"--creator", "test-user",

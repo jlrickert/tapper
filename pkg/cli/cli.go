@@ -57,6 +57,14 @@ func RunWithProfile(ctx context.Context, rt *toolkit.Runtime, args []string, pro
 	return 0, nil
 }
 
+func RunCompletion(ctx context.Context, rt *toolkit.Runtime, args []string) (int, error) {
+	return Run(ctx, rt, append([]string{"__complete"}, args...))
+}
+
+func RunCompletionWithProfile(ctx context.Context, rt *toolkit.Runtime, args []string, profile Profile) (int, error) {
+	return RunWithProfile(ctx, rt, append([]string{"__complete"}, args...), profile)
+}
+
 func rewriteDefaultCatArgs(args []string) ([]string, bool) {
 	if len(args) == 0 {
 		return nil, false
