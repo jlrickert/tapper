@@ -596,10 +596,9 @@ func (k *Keg) Index(ctx context.Context, opts IndexOptions) error {
 			continue
 		}
 
-		data, err := k.getNode(ctx, id)
-		if err != nil {
-			errs = append(errs, err)
-			continue
+		data, nodeErrs := k.getNodeBestEffort(ctx, id)
+		if len(nodeErrs) > 0 {
+			errs = append(errs, nodeErrs...)
 		}
 
 		if data.Meta == nil {
@@ -1041,16 +1040,10 @@ func (k *Keg) nodeFilesMissing(ctx context.Context, id NodeId) (bool, bool, erro
 	}
 
 	rawMeta, err := k.Repo.ReadMeta(ctx, id)
-	if err != nil && !errors.Is(err, ErrNotExist) {
-		return false, false, fmt.Errorf("failed to probe meta for node %s: %w", id.Path(), err)
-	}
-	metaMissing := errors.Is(err, ErrNotExist) || len(bytes.TrimSpace(rawMeta)) == 0
+	metaMissing := err != nil || len(bytes.TrimSpace(rawMeta)) == 0
 
 	_, statsErr := k.Repo.ReadStats(ctx, id)
-	if statsErr != nil && !errors.Is(statsErr, ErrNotExist) {
-		return false, false, fmt.Errorf("failed to probe stats for node %s: %w", id.Path(), statsErr)
-	}
-	statsMissing := errors.Is(statsErr, ErrNotExist)
+	statsMissing := statsErr != nil
 
 	return metaMissing, statsMissing, nil
 }
@@ -1097,6 +1090,46 @@ func (k *Keg) getMetaAndStats(ctx context.Context, id NodeId) (*NodeMeta, *NodeS
 		return nil, nil, err
 	}
 	return meta, stats, nil
+}
+
+// getNodeBestEffort builds a NodeData by loading each component independently.
+// Unlike getNode, it does not abort on the first error. Whichever components
+// load successfully are populated; failed components are left nil. The returned
+// errors slice contains one wrapped error per failed component.
+func (k *Keg) getNodeBestEffort(ctx context.Context, n NodeId) (*NodeData, []error) {
+	var errs []error
+	data := &NodeData{ID: n}
+
+	content, err := k.getContent(ctx, n)
+	if err != nil {
+		errs = append(errs, fmt.Errorf("node %s content: %w", n.Path(), err))
+	} else {
+		data.Content = content
+	}
+
+	meta, stats, err := k.getMetaAndStats(ctx, n)
+	if err != nil {
+		errs = append(errs, fmt.Errorf("node %s meta/stats: %w", n.Path(), err))
+	} else {
+		data.Meta = meta
+		data.Stats = stats
+	}
+
+	items, err := repoListFiles(ctx, k.Repo, n)
+	if err != nil {
+		errs = append(errs, fmt.Errorf("node %s files: %w", n.Path(), err))
+	} else {
+		data.Items = items
+	}
+
+	images, err := repoListImages(ctx, k.Repo, n)
+	if err != nil {
+		errs = append(errs, fmt.Errorf("node %s images: %w", n.Path(), err))
+	} else {
+		data.Images = images
+	}
+
+	return data, errs
 }
 
 // getNode builds a complete NodeData from a node's content, metadata, and attachments.

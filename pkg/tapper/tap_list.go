@@ -108,6 +108,25 @@ func (t *Tap) List(ctx context.Context, opts ListOptions) ([]string, error) {
 
 	entries := dex.Nodes(ctx)
 
+	// Warn when the index appears significantly stale compared to on-disk nodes.
+	if onDisk, listErr := k.Repo.ListNodes(ctx); listErr == nil {
+		indexed := len(entries)
+		total := len(onDisk)
+		gap := total - indexed
+		threshold := total / 10 // 10%
+		if threshold < 5 {
+			threshold = 5
+		}
+		if gap >= threshold {
+			t.Runtime.Logger().Warn(
+				"index appears stale: run `tap reindex --rebuild` to fix",
+				"indexed", indexed,
+				"on_disk", total,
+				"missing", gap,
+			)
+		}
+	}
+
 	if q := strings.TrimSpace(opts.Query); q != "" {
 		matchedIDs, evalErr := evalQueryExpr(ctx, k, dex, entries, q)
 		if evalErr != nil {
