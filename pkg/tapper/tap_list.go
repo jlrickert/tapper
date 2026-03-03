@@ -29,6 +29,9 @@ type ListOptions struct {
 	IdOnly bool
 
 	Reverse bool
+
+	// Limit caps the number of results returned. 0 means no limit.
+	Limit int
 }
 
 type BacklinksOptions struct {
@@ -152,6 +155,10 @@ func (t *Tap) List(ctx context.Context, opts ListOptions) ([]string, error) {
 		}
 		sortNodeIndexEntries(filtered)
 		entries = filtered
+	}
+
+	if opts.Limit > 0 && len(entries) > opts.Limit {
+		entries = entries[:opts.Limit]
 	}
 
 	return renderNodeEntries(entries, opts.Format, opts.IdOnly, opts.Reverse), nil
