@@ -74,7 +74,7 @@ references. All must come from the same source keg.`,
 	}
 
 	cmd.Flags().StringVar(&fromKeg, "from", "", "source keg alias; required when using bare node IDs")
-	cmd.Flags().StringVar(&opts.TagQuery, "query", "", `boolean expression supporting tags and key=value attrs (e.g., "entity=plan and golang")`)
+	cmd.Flags().StringVar(&opts.TagQuery, "query", "", `boolean expression (see "tap docs query-expressions" for syntax)`)
 	cmd.Flags().BoolVar(&opts.LeaveStubs, "leave-stubs", false, "write forwarding stubs at source node locations after import")
 	cmd.Flags().BoolVar(&opts.SkipZeroNode, "skip-zero", true, "skip source node 0 (default true)")
 

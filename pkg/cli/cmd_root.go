@@ -135,6 +135,7 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 		NewBacklinksCmd(deps),
 		NewCatCmd(deps),
 		NewCreateCmd(deps),
+		NewDocsCmd(deps),
 		NewEditCmd(deps),
 		NewArchiveCmd(deps),
 		NewFileCmd(deps),
