@@ -128,7 +128,7 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 		cmd.PersistentFlags().StringVarP(&deps.KegTargetOptions.Keg, "keg", "k", "", "alias of the keg to use")
 		cmd.PersistentFlags().BoolVar(&deps.KegTargetOptions.Project, "project", false, "resolve against the project-local keg")
 		cmd.PersistentFlags().StringVar(&deps.KegTargetOptions.Path, "path", "", "explicit project path to resolve a local keg")
-		cmd.PersistentFlags().BoolVar(&deps.KegTargetOptions.Cwd, "cwd", false, "with --project, use cwd instead of git root")
+		cmd.PersistentFlags().BoolVar(&deps.KegTargetOptions.Cwd, "cwd", false, "resolve project keg at current working directory")
 	}
 
 	subcommands := []*cobra.Command{

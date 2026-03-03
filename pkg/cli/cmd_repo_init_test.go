@@ -26,8 +26,8 @@ func TestInitCommand_TableDriven(t *testing.T) {
 			name: "local_keg_named_project_defaults_to_kegs_alias",
 			args: []string{
 				"repo", "init",
-				"power",
 				"--project",
+				"--keg", "power",
 				"--creator", "me",
 			},
 			expectedAlias:    "power",
@@ -36,14 +36,14 @@ func TestInitCommand_TableDriven(t *testing.T) {
 				"keg power created at",
 				"/kegs/power",
 			},
-			description: "When --project and name is not '.', destination should default to kegs/<alias> under project root",
+			description: "When --project, destination should default to kegs/<alias> under project root",
 		},
 		{
 			name: "local_keg_with_cwd_without_project",
 			args: []string{
 				"repo", "init",
-				"power",
 				"--cwd",
+				"--keg", "power",
 				"--creator", "me",
 			},
 			expectedAlias:    "power",
@@ -59,8 +59,8 @@ func TestInitCommand_TableDriven(t *testing.T) {
 			name: "local_keg_with_path_without_project",
 			args: []string{
 				"repo", "init",
-				"workspace",
 				"--path", ".",
+				"--keg", "workspace",
 				"--creator", "me",
 			},
 			expectedAlias:    "workspace",
@@ -73,49 +73,45 @@ func TestInitCommand_TableDriven(t *testing.T) {
 			description: "When --path is set without --project, destination should resolve as a local keg at the explicit path",
 		},
 		{
-			name: "local_keg_with_dot_infers_type",
+			name: "local_keg_with_explicit_alias",
 			args: []string{
 				"repo", "init",
-				".",
 				"--project",
 				"--keg", "myalias",
 				"--creator", "me",
 			},
 			expectedAlias:    "myalias",
 			expectedLocation: "~/kegs/myalias",
-			description:      "When --project and name is '.', default destination should be kegs/<alias> under project root",
+			description:      "When --project with explicit --keg, default destination should be kegs/<alias> under project root",
 		},
 		{
-			name: "local_keg_with_dot_infers_alias",
+			name: "local_keg_infers_alias_from_cwd",
 			args: []string{
 				"repo", "init",
-				".",
 				"--project",
 				"--creator", "me",
 			},
 			expectedAlias:    "myproject",
 			expectedLocation: "~/myproject/kegs/myproject",
 			cwd:              strPtr("~/myproject"),
-			description:      "Project keg with '.' should infer alias from current working directory base when not provided",
+			description:      "Project keg should infer alias from current working directory base when --keg not provided",
 		},
 		{
-			name: "local_keg_with_dot_explicit_type",
+			name: "local_keg_project_explicit_alias",
 			args: []string{
 				"repo", "init",
-				".",
 				"--project",
 				"--keg", "myalias",
 				"--creator", "me",
 			},
 			expectedAlias:    "myalias",
 			expectedLocation: "~/kegs/myalias",
-			description:      "Project keg with explicit --project flag",
+			description:      "Project keg with explicit --project and --keg flags",
 		},
 		{
 			name: "user_keg_defaults_to_user_type",
 			args: []string{
 				"repo", "init",
-				"public",
 				"--keg", "public",
 				"--creator", "testcreator",
 			},
@@ -123,13 +119,12 @@ func TestInitCommand_TableDriven(t *testing.T) {
 			expectedLocation:   "~/.local/share/tapper/kegs/public",
 			expectConfigUpdate: true,
 			setupFixture:       strPtr("testuser"),
-			description:        "When no destination flag is provided and name is not '.', default destination should be user",
+			description:        "When no destination flag is provided, default destination should be user",
 		},
 		{
 			name: "user_keg_with_explicit_type",
 			args: []string{
 				"repo", "init",
-				"public",
 				"--user",
 				"--keg", "public",
 				"--creator", "testcreator",
@@ -141,23 +136,22 @@ func TestInitCommand_TableDriven(t *testing.T) {
 			description:        "User keg with explicit --user flag",
 		},
 		{
-			name: "user_keg_infers_alias",
+			name: "user_keg_with_explicit_alias",
 			args: []string{
 				"repo", "init",
-				"myblog",
+				"--keg", "myblog",
 				"--creator", "me",
 			},
 			expectedAlias:      "myblog",
 			expectedLocation:   "~/.local/share/tapper/kegs/myblog",
 			expectConfigUpdate: true,
 			setupFixture:       strPtr("testuser"),
-			description:        "User keg should infer alias from name when not provided",
+			description:        "User keg should use --keg alias for directory name",
 		},
 		{
-			name: "dot_with_user_type_infers_alias",
+			name: "user_type_infers_alias_from_cwd",
 			args: []string{
 				"repo", "init",
-				".",
 				"--user",
 				"--creator", "me",
 			},
@@ -166,7 +160,7 @@ func TestInitCommand_TableDriven(t *testing.T) {
 			expectConfigUpdate: true,
 			setupFixture:       strPtr("testuser"),
 			cwd:                strPtr("/home/testuser/myproject"),
-			description:        "When name is '.' with --user, alias should infer from current working directory base",
+			description:        "When --keg is omitted with --user, alias should infer from current working directory base",
 		},
 	}
 
@@ -274,7 +268,7 @@ func TestInitCommand_DestinationValidation(t *testing.T) {
 		innerT.Parallel()
 		sb := NewSandbox(innerT)
 
-		h := NewProcess(innerT, false, "repo", "init", "blog", "--project", "--user")
+		h := NewProcess(innerT, false, "repo", "init", "--keg", "blog", "--project", "--user")
 		res := h.Run(sb.Context(), sb.Runtime())
 
 		require.Error(innerT, res.Err)
@@ -285,7 +279,7 @@ func TestInitCommand_DestinationValidation(t *testing.T) {
 		innerT.Parallel()
 		sb := NewSandbox(innerT)
 
-		h := NewProcess(innerT, false, "repo", "init", "blog", "--cwd", "--user")
+		h := NewProcess(innerT, false, "repo", "init", "--keg", "blog", "--cwd", "--user")
 		res := h.Run(sb.Context(), sb.Runtime())
 
 		require.Error(innerT, res.Err)

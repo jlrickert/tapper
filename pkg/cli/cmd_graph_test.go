@@ -122,7 +122,7 @@ func TestKegV2GraphCommand_WorksOnProjectKeg(t *testing.T) {
 	sb.Setwd("~")
 
 	initRes := NewProcess(t, false,
-		"repo", "init", ".", "--project", "--cwd", "--keg", "project", "--creator", "test-user",
+		"repo", "init", "--project", "--cwd", "--keg", "project", "--creator", "test-user",
 	).Run(sb.Context(), sb.Runtime())
 	require.NoError(t, initRes.Err)
 
