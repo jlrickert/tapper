@@ -11,9 +11,13 @@ func NewRemoveCmd(deps *Deps) *cobra.Command {
 	var opts tapper.RemoveOptions
 
 	cmd := &cobra.Command{
-		Use:               "rm [NODE_ID...]",
-		Short:             "remove a node",
-		Aliases:           []string{"remove"},
+		Use:   "rm [NODE_ID...]",
+		Short: "remove nodes from the keg",
+		Long: `Remove one or more nodes and update the index.
+
+Nodes can be specified as positional arguments or selected via --query.
+Inbound links from other nodes are cleaned up.`,
+		Aliases: []string{"remove"},
 		ValidArgsFunction: nodeIDCompletionFunc(deps, 0),
 		Args: func(cmd *cobra.Command, args []string) error {
 			if opts.Query != "" {
@@ -31,7 +35,7 @@ func NewRemoveCmd(deps *Deps) *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&opts.Query, "query", "", `boolean expression supporting tags and key=value attrs (e.g., "entity=plan and golang")`)
+	cmd.Flags().StringVar(&opts.Query, "query", "", `boolean expression (see "tap docs query-expressions" for syntax)`)
 
 	return cmd
 }

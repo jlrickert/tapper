@@ -43,7 +43,7 @@ Use --limit (-n) to cap output (default 50, 0 for no limit).`,
 	cmd.Flags().BoolVar(&opts.Reverse, "reverse", false, "list nodes in reverse order")
 	cmd.Flags().IntVarP(&opts.Limit, "limit", "n", 50, "maximum number of results (0 for no limit)")
 	cmd.Flags().StringVarP(&opts.Format, "format", "f", "", "output format")
-	cmd.Flags().StringVar(&opts.Query, "query", "", `boolean expression supporting tags and key=value attrs (e.g., "entity=plan and golang")`)
+	cmd.Flags().StringVar(&opts.Query, "query", "", `boolean expression (see "tap docs query-expressions" for syntax)`)
 
 	return cmd
 }
