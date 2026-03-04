@@ -99,14 +99,14 @@ tap --path ~/Documents/kegs/pub snapshot history 12
 Initialize a project-local keg:
 
 ```bash
-tap repo init tapper --project
+tap repo init --keg tapper --project
 ```
 
 Use the current working directory instead of git root:
 
 ```bash
-tap repo init tapper --cwd
-tap repo init tapper --path .
+tap repo init --keg tapper --cwd
+tap repo init --keg tapper --path .
 ```
 
 Create and inspect node history with `tap`:
