@@ -22,6 +22,8 @@ Use these docs if you need to:
 - I want to inspect or edit a keg: [Keg Config](configuration/keg-config.md)
 - I want to design entities/tags and node conventions:
   [KEG Structure Patterns](keg-structure/README.md)
+- I want to understand node revision history:
+  [Node Snapshots](node-snapshots.md)
 - I want to understand internals and code flow:
   [Architecture Overview](architecture/README.md)
 - I want to configure AI coding agents (Claude Code, Codex):
@@ -112,6 +114,7 @@ Use the project-local profile when you want that narrowed workflow:
 
 - [Configuration Overview](configuration/README.md)
 - [KEG Structure Patterns](keg-structure/README.md)
+- [Node Snapshots](node-snapshots.md)
 - [Query Expressions](query-expressions.md)
 - [Architecture Overview](architecture/README.md)
 - [AI Coding Agent Configuration](ai-coding-agents/README.md)
