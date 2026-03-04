@@ -165,7 +165,7 @@ func TestArchiveImportPreservesSnapshotTimestamps(t *testing.T) {
 	sb.Advance(45 * time.Minute)
 	sb.MustWriteFile("~/kegs/personal/1/README.md", []byte("# Personal Overview\n\nTimestamp preservation update.\n\n- [Project Alpha](../2)\n"), 0o644)
 
-	res = NewProcess(t, false, "index", "rebuild", "--alias", "personal").Run(sb.Context(), sb.Runtime())
+	res = NewProcess(t, false, "index", "rebuild", "--keg", "personal").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 
 	res = NewProcess(t, false, "snapshot", "create", "1", "--keg", "personal", "-m", "updated").Run(sb.Context(), sb.Runtime())

@@ -17,7 +17,7 @@ func TestIndexCommand_ErrorHandling(t *testing.T) {
 	}{
 		{
 			name:         "index_list_nonexistent_alias",
-			args:         []string{"index", "list", "--alias", "nonexistent"},
+			args:         []string{"index", "list", "--keg", "nonexistent"},
 			setupFixture: strPtr("joe"),
 			expectedErr:  "keg alias not found",
 			description:  "Error when keg alias does not exist",
@@ -30,7 +30,7 @@ func TestIndexCommand_ErrorHandling(t *testing.T) {
 		},
 		{
 			name:         "index_get_unknown_index",
-			args:         []string{"index", "get", "--alias", "example", "does-not-exist.md"},
+			args:         []string{"index", "get", "--keg", "example", "does-not-exist.md"},
 			setupFixture: strPtr("testuser"),
 			expectedErr:  "not found",
 			description:  "Error when named index does not exist",
@@ -62,11 +62,11 @@ func TestIndexListCommand_ListIndexes(t *testing.T) {
 	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
 
 	// Ensure dex artifacts exist first
-	rebuild := NewProcess(t, false, "index", "rebuild", "--alias", "example")
+	rebuild := NewProcess(t, false, "index", "rebuild", "--keg", "example")
 	res := rebuild.Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 
-	h := NewProcess(t, false, "index", "list", "--alias", "example")
+	h := NewProcess(t, false, "index", "list", "--keg", "example")
 	res = h.Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err, "index list should succeed")
 
@@ -80,11 +80,11 @@ func TestIndexGetCommand_CatNamedIndex(t *testing.T) {
 	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
 
 	// Ensure dex artifacts exist first
-	rebuild := NewProcess(t, false, "index", "rebuild", "--alias", "example")
+	rebuild := NewProcess(t, false, "index", "rebuild", "--keg", "example")
 	res := rebuild.Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 
-	h := NewProcess(t, false, "index", "get", "--alias", "example", "nodes.tsv")
+	h := NewProcess(t, false, "index", "get", "--keg", "example", "nodes.tsv")
 	res = h.Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err, "index get should succeed")
 
@@ -97,11 +97,11 @@ func TestIndexGetCommand_CompletionSuggestsIndexNames(t *testing.T) {
 	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
 
 	// Ensure dex artifacts exist
-	rebuild := NewProcess(t, false, "index", "rebuild", "--alias", "example")
+	rebuild := NewProcess(t, false, "index", "rebuild", "--keg", "example")
 	res := rebuild.Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 
-	comp := NewCompletionProcess(t, false, 0, "index", "get", "--alias", "example", "").Run(sb.Context(), sb.Runtime())
+	comp := NewCompletionProcess(t, false, 0, "index", "get", "--keg", "example", "").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, comp.Err)
 
 	suggestions := parseCompletionSuggestions(string(comp.Stdout))
