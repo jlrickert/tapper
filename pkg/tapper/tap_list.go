@@ -158,7 +158,7 @@ func (t *Tap) List(ctx context.Context, opts ListOptions) ([]string, error) {
 	}
 
 	if opts.Limit > 0 && len(entries) > opts.Limit {
-		entries = entries[:opts.Limit]
+		entries = entries[len(entries)-opts.Limit:]
 	}
 
 	return renderNodeEntries(entries, opts.Format, opts.IdOnly, opts.Reverse), nil
