@@ -37,3 +37,5 @@ go.work.sum
 
 # Taskfile
 .task
+
+node_modules
