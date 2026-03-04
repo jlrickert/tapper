@@ -161,9 +161,11 @@ func (n *NodeData) Tags() []string {
 // malformed ParseNode may fail and the function will fall back to a zero NodeId.
 func (n *NodeData) Ref() NodeIndexEntry {
 	return NodeIndexEntry{
-		ID:      n.ID.Path(),
-		Title:   n.Title(),
-		Updated: n.Updated(),
+		ID:       n.ID.Path(),
+		Title:    n.Title(),
+		Updated:  n.Updated(),
+		Created:  n.Created(),
+		Accessed: n.Accessed(),
 	}
 }
 
