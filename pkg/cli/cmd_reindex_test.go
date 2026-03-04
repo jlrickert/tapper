@@ -28,7 +28,7 @@ func TestIndexRebuildCommand_TableDrivenErrorHandling(t *testing.T) {
 	}{
 		{
 			name:         "rebuild_nonexistent_alias",
-			args:         []string{"index", "rebuild", "--alias", "nonexistent"},
+			args:         []string{"index", "rebuild", "--keg", "nonexistent"},
 			setupFixture: strPtr("joe"),
 			expectedErr:  "keg alias not found",
 			description:  "Error when keg alias does not exist",
@@ -87,7 +87,7 @@ func TestIndexRebuildCommand_WithJoeFixture(t *testing.T) {
 		},
 		{
 			name:             "rebuild_explicit_alias_overrides_path_resolution",
-			args:             []string{"index", "rebuild", "--alias", "example"},
+			args:             []string{"index", "rebuild", "--keg", "example"},
 			setupFixture:     strPtr("joe"),
 			cwd:              strPtr("~/repos/work/spy-things"),
 			expectedInStdout: []string{"Indices rebuilt"},
@@ -95,7 +95,7 @@ func TestIndexRebuildCommand_WithJoeFixture(t *testing.T) {
 		},
 		{
 			name:             "rebuild_personal_keg_explicit_alias",
-			args:             []string{"index", "rebuild", "--alias", "personal"},
+			args:             []string{"index", "rebuild", "--keg", "personal"},
 			setupFixture:     strPtr("joe"),
 			expectedInStdout: []string{"Indices rebuilt"},
 			description:      "Rebuild indices for personal keg with explicit alias",
@@ -147,7 +147,7 @@ func TestIndexRebuildCommand_IntegrationWithInit(t *testing.T) {
 		require.NoError(innerT, initRes.Err, "init should succeed")
 		require.Contains(innerT, string(initRes.Stdout), "keg newstudy created")
 
-		rebuildCmd := NewProcess(innerT, false, "index", "rebuild", "--alias", "newstudy")
+		rebuildCmd := NewProcess(innerT, false, "index", "rebuild", "--keg", "newstudy")
 		rebuildRes := rebuildCmd.Run(sb.Context(), sb.Runtime())
 		require.NoError(innerT, rebuildRes.Err, "index rebuild should succeed")
 
@@ -166,7 +166,7 @@ func TestIndexRebuildCommand_CreatesMissingMetaAndStatsFiles(t *testing.T) {
 	require.NoError(t, sb.Runtime().Remove(metaPath, false))
 	_ = sb.Runtime().Remove(statsPath, false)
 
-	h := NewProcess(t, false, "index", "rebuild", "--alias", "example")
+	h := NewProcess(t, false, "index", "rebuild", "--keg", "example")
 	res := h.Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err, "index rebuild should repair missing node files")
 
@@ -197,7 +197,7 @@ func TestIndexRebuildCommand_UpdatesStatsFromNodeContent(t *testing.T) {
 	bogus := []byte(`{"title":"WRONG","hash":"bad-hash","updated":"` + oldUpdated + `","created":"` + oldCreated + `","lead":"wrong lead","links":["9999"]}`)
 	sb.MustWriteFile(statsPath, bogus, 0o644)
 
-	h := NewProcess(t, false, "index", "rebuild", "--alias", "example")
+	h := NewProcess(t, false, "index", "rebuild", "--keg", "example")
 	res := h.Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err, "index rebuild should refresh stale stats")
 
@@ -224,7 +224,7 @@ func TestIndexRebuildCommand_CreatesDexArtifactsWhenMissing(t *testing.T) {
 	dexDir := "~/kegs/example/dex"
 	require.NoError(t, sb.Runtime().Remove(dexDir, true))
 
-	h := NewProcess(t, false, "index", "rebuild", "--alias", "example")
+	h := NewProcess(t, false, "index", "rebuild", "--keg", "example")
 	res := h.Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err, "index rebuild should recreate dex artifacts")
 
@@ -246,7 +246,7 @@ func TestIndexRebuildCommand_FailsOnMalformedMeta(t *testing.T) {
 	metaPath := "~/kegs/example/0/meta.yaml"
 	sb.MustWriteFile(metaPath, []byte("title: [\n"), 0o644)
 
-	h := NewProcess(t, false, "index", "rebuild", "--alias", "example")
+	h := NewProcess(t, false, "index", "rebuild", "--keg", "example")
 	res := h.Run(sb.Context(), sb.Runtime())
 
 	require.Error(t, res.Err, "index rebuild should fail for malformed meta")
