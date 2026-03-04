@@ -2,7 +2,53 @@
 
 All notable changes to this project are documented in this file.
 
-## Unreleased
+## v0.4.0 - 2026-03-04
+
+
+
+### ⚙️ Miscellaneous
+- refactor release workflow to resolve version before changelog generation
+- add TypeScript configuration for graph frontend
+
+
+### 🐛 Bug Fixes
+- preserve snapshot imports and local init paths
+- support numeric shorthand after root flags
+
+
+### 📚 Documentation
+- add comprehensive descriptions to keg and tap config JSON schemas
+- clarify tapper's role in knowledge systems and problem statement
+
+
+### 🚀 Features
+- Add JSON Schema editor hints to tapper config files
+- add interactive graph visualization command
+- add node snapshots and archive import/export
+- make snapshot and archive commands available to both tap and kegv2
+- reorganize snapshot and archive workflows
+- include snapshots in archive exports
+- move KEG target flags to tap root
+- add tap import command for live keg-to-keg node import
+- add node ID ValidArgsFunction and completion tests for all phases
+- add --query flag with key=value attribute predicate support
+- add --query flag to tap rm
+- add tap repo rm command to remove a keg alias
+- normalize config edit workflows
+- simplify repo config commands
+- make global keg flags mutually exclusive and drop repo init positional arg
+
+
+### 🚜 Refactor
+- remove deprecated --tags flag from tap import
+
+
+### 🧪 Testing
+- cover unsupported snapshot backends
+- add unit and CLI integration tests for tap import
+
+
+## v0.3.0 - 2026-02-26
 
 
 
