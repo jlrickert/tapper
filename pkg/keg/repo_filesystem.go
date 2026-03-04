@@ -3,11 +3,13 @@ package keg
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
+	"syscall"
 	"time"
 
 	appCtx "github.com/jlrickert/cli-toolkit/apppaths"
@@ -267,7 +269,74 @@ func (f *FsRepo) Runtime() *toolkit.Runtime {
 	return f.runtime
 }
 
+// lockInfo is the JSON structure written into lock files for process-aware
+// stale lock detection.
+type lockInfo struct {
+	PID       int    `json:"pid"`
+	Hostname  string `json:"hostname"`
+	StartedAt string `json:"started_at"`
+	UID       string `json:"uid"`
+}
+
+// isLockStale reads a lock file and checks whether the owning process is still
+// alive. Returns true if the lock is definitely stale (process dead or file
+// unreadable/corrupt), false otherwise.
+func (f *FsRepo) isLockStale(lockPath string) bool {
+	data, err := f.runtime.ReadFile(lockPath)
+	if err != nil {
+		return false
+	}
+	var info lockInfo
+	if json.Unmarshal(data, &info) != nil {
+		// Corrupt lock file — treat as stale.
+		return true
+	}
+	if info.PID <= 0 {
+		return true
+	}
+	proc, err := os.FindProcess(info.PID)
+	if err != nil {
+		return true
+	}
+	// Signal 0 checks existence without killing.
+	if err := proc.Signal(syscall.Signal(0)); err != nil {
+		return true // process is dead
+	}
+	return false
+}
+
+// writeLockMetadata writes process identity JSON into the lock directory.
+func (f *FsRepo) writeLockMetadata(lockPath string) {
+	pi := f.runtime.Process()
+	if pi == nil {
+		return
+	}
+	info := lockInfo{
+		PID:       pi.PID,
+		Hostname:  pi.Hostname,
+		StartedAt: pi.StartedAt.Format(time.RFC3339Nano),
+		UID:       pi.UID,
+	}
+	data, err := json.Marshal(info)
+	if err != nil {
+		return
+	}
+	metaPath := filepath.Join(lockPath, "owner.json")
+	_ = f.runtime.WriteFile(metaPath, data, 0o644)
+}
+
+// lockMetadataPath returns the path to the owner metadata file inside the lock
+// directory.
+func lockMetadataPath(lockPath string) string {
+	return filepath.Join(lockPath, "owner.json")
+}
+
 // WithNodeLock executes fn while holding an exclusive lock for node id.
+// The lock uses atomic mkdir with optional process metadata for stale lock
+// detection. When process info is available (via runtime.Process()), a JSON
+// metadata file is written inside the lock directory. If the lock directory
+// already exists and the owning process is dead, the stale lock is removed and
+// acquisition is retried.
 func (f *FsRepo) WithNodeLock(ctx context.Context, id NodeId, fn func(context.Context) error) error {
 	if fn == nil {
 		return fmt.Errorf("fn required")
@@ -285,9 +354,18 @@ func (f *FsRepo) WithNodeLock(ctx context.Context, id NodeId, fn func(context.Co
 	for {
 		err := f.runtime.Mkdir(lockPath, 0o700, false)
 		if err == nil {
+			// Lock acquired — write process metadata if available.
+			f.writeLockMetadata(lockPath)
 			break
 		}
 		if os.IsExist(err) {
+			// Check for stale lock when process info is available.
+			metaFile := lockMetadataPath(lockPath)
+			if f.isLockStale(metaFile) {
+				// Remove the stale lock and retry immediately.
+				_ = f.runtime.Remove(lockPath, true)
+				continue
+			}
 			select {
 			case <-ctx.Done():
 				return fmt.Errorf("%w: %w", ErrLockTimeout, ctx.Err())
@@ -317,26 +395,37 @@ func (f *FsRepo) Next(ctx context.Context) (NodeId, error) {
 		return NodeId{}, NewBackendError(f.Name(), "Next", 0, statErr, false)
 	}
 
-	entries, err := f.runtime.ReadDir(f.Root)
-	if err != nil {
-		return NodeId{}, NewBackendError(f.Name(), "Next", 0, err, false)
-	}
-
-	maxID := -1
-	for _, e := range entries {
-		if !e.IsDir() {
-			continue
+	for {
+		entries, err := f.runtime.ReadDir(f.Root)
+		if err != nil {
+			return NodeId{}, NewBackendError(f.Name(), "Next", 0, err, false)
 		}
-		// Accept directory names that parse as valid NodeId ids, e.g. "42" or "42-0001".
-		if n, perr := ParseNode(e.Name()); perr == nil && n != nil {
-			if n.ID > maxID {
-				maxID = n.ID
+
+		maxID := -1
+		for _, e := range entries {
+			if !e.IsDir() {
+				continue
+			}
+			if n, perr := ParseNode(e.Name()); perr == nil && n != nil {
+				if n.ID > maxID {
+					maxID = n.ID
+				}
 			}
 		}
-	}
 
-	next := maxID + 1
-	return NodeId{ID: next}, nil
+		candidate := maxID + 1
+		nodeDir := filepath.Join(f.Root, NodeId{ID: candidate}.Path())
+		// Atomic mkdir — if another process created this directory between
+		// our ReadDir and Mkdir, we get EEXIST and retry with a fresh scan.
+		err = f.runtime.Mkdir(nodeDir, 0o755, false)
+		if err == nil {
+			return NodeId{ID: candidate}, nil
+		}
+		if os.IsExist(err) {
+			continue // retry with fresh scan
+		}
+		return NodeId{}, NewBackendError(f.Name(), "Next", 0, err, false)
+	}
 }
 
 // ReadContent implements Repository.

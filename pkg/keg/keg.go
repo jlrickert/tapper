@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jlrickert/cli-toolkit/toolkit"
@@ -28,6 +29,8 @@ type Keg struct {
 	// Runtime provides clock/hash/fs helpers used by high-level keg operations.
 	Runtime *toolkit.Runtime
 
+	// dexMu guards lazy initialization of dex.
+	dexMu sync.Mutex
 	// dex is an optional in-memory index of nodes, lazily loaded from repo
 	dex *Dex
 }
@@ -539,6 +542,7 @@ func (k *Keg) Index(ctx context.Context, opts IndexOptions) error {
 		return err
 	}
 
+	k.dexMu.Lock()
 	if opts.Rebuild {
 		if k.dex == nil {
 			k.dex = &Dex{}
@@ -552,16 +556,19 @@ func (k *Keg) Index(ctx context.Context, opts IndexOptions) error {
 			k.dex.Clear(ctx)
 		}
 	} else {
+		k.dexMu.Unlock()
 		dex, dexErr := k.Dex(ctx)
 		if dexErr != nil {
 			return dexErr
 		}
+		k.dexMu.Lock()
 		if dex == nil {
 			k.dex = &Dex{}
 		} else {
 			k.dex = dex
 		}
 	}
+	k.dexMu.Unlock()
 
 	ids, err := k.Repo.ListNodes(ctx)
 	if err != nil {
@@ -857,6 +864,9 @@ func (k *Keg) Dex(ctx context.Context) (*Dex, error) {
 	if err := k.checkKegExists(ctx); err != nil {
 		return nil, fmt.Errorf("failed to retrieve dex: %w", err)
 	}
+
+	k.dexMu.Lock()
+	defer k.dexMu.Unlock()
 
 	if k.dex != nil {
 		return k.dex, nil

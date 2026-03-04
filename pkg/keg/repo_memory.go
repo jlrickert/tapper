@@ -105,11 +105,8 @@ func (r *MemoryRepo) Runtime() *toolkit.Runtime {
 	return r.runtime
 }
 
-// Next returns a new NodeID. The context is accepted to satisfy the repository
-// interface but is not used by this in-memory implementation.
-//
-// This implementation finds the highest existing node id and returns that value
-// + 1. If no nodes exist, it returns 0.
+// Next returns a new NodeID and reserves it by inserting an empty node entry.
+// This prevents concurrent callers from receiving the same ID.
 func (r *MemoryRepo) Next(ctx context.Context) (NodeId, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -122,13 +119,14 @@ func (r *MemoryRepo) Next(ctx context.Context) (NodeId, error) {
 		}
 	}
 
-	if max < 0 {
-		// No nodes yet, start at 0.
-		return NodeId{ID: 0}, nil
-	}
-
 	next := max + 1
-	return NodeId{ID: next}, nil
+	id := NodeId{ID: next}
+
+	// Reserve the ID by creating a placeholder node entry so that
+	// subsequent calls to Next() will see it and allocate beyond it.
+	r.ensureNode(id)
+
+	return id, nil
 }
 
 // ReadContent returns the primary content for the given node id.
