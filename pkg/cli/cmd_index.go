@@ -15,7 +15,7 @@ import (
 //	tap index get changes.md
 //	tap index get -k ecw nodes.tsv
 //	tap index rebuild
-//	tap index rebuild -r
+//	tap index rebuild --full
 func NewIndexCmd(deps *Deps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "index",
@@ -54,12 +54,6 @@ func newIndexListCmd(deps *Deps) *cobra.Command {
 			}
 			return nil
 		},
-	}
-	if deps.Profile.withDefaults().AllowKegAliasFlags {
-		cmd.Flags().StringVar(&opts.Keg, "alias", "", "alias of the keg (deprecated; use --keg)")
-		_ = cmd.RegisterFlagCompletionFunc("alias", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-			return listKegsFiltered(deps, cmd.Context(), toComplete), cobra.ShellCompDirectiveNoFileComp
-		})
 	}
 
 	return cmd
@@ -101,12 +95,6 @@ INDEX is the index file name, e.g. "changes.md", "nodes.tsv", or "tags".`,
 			return nil
 		},
 	}
-	if deps.Profile.withDefaults().AllowKegAliasFlags {
-		cmd.Flags().StringVar(&opts.Keg, "alias", "", "alias of the keg (deprecated; use --keg)")
-		_ = cmd.RegisterFlagCompletionFunc("alias", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-			return listKegsFiltered(deps, cmd.Context(), toComplete), cobra.ShellCompDirectiveNoFileComp
-		})
-	}
 
 	return cmd
 }
@@ -133,16 +121,7 @@ Use --full to scan all nodes and regenerate the full dex.`,
 			return nil
 		},
 	}
-	if deps.Profile.withDefaults().AllowKegAliasFlags {
-		cmd.Flags().StringVar(&opts.Keg, "alias", "", "alias of the keg to reindex (deprecated; use --keg)")
-	}
 	cmd.Flags().BoolVarP(&opts.Rebuild, "full", "f", false, "full rebuild from scratch (scan all nodes and regenerate dex)")
-
-	if deps.Profile.withDefaults().AllowKegAliasFlags {
-		_ = cmd.RegisterFlagCompletionFunc("alias", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-			return listKegsFiltered(deps, cmd.Context(), toComplete), cobra.ShellCompDirectiveNoFileComp
-		})
-	}
 
 	return cmd
 }
