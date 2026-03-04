@@ -9,6 +9,8 @@ github.com/jlrickert/cli-toolkit v1.0.0 h1:2SQupLa4W9GL6uZ41vcl8qdqrpasiH4waKKvf
 github.com/jlrickert/cli-toolkit v1.0.0/go.mod h1:TXxkV2AsE0MMsA0zg1GfPcIlxlmI7QB05cA719XMIZs=
 github.com/jlrickert/cli-toolkit v1.0.2 h1:9owLaPYJki+kyvwQJDBhOU3RP3otUBQwJJZO9Gah3z4=
 github.com/jlrickert/cli-toolkit v1.0.2/go.mod h1:4LJ65Rl8IA3IHSzFKbuWBESqESkp8QrzZUPwGVYI5Tw=
+github.com/jlrickert/cli-toolkit v1.1.0 h1:FnNKdnK38RK0dHzj9X754OqYe8YsYBfGCEFO/fSTRC8=
+github.com/jlrickert/cli-toolkit v1.1.0/go.mod h1:4LJ65Rl8IA3IHSzFKbuWBESqESkp8QrzZUPwGVYI5Tw=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
 github.com/russross/blackfriday/v2 v2.1.0/go.mod h1:+Rmxgy9KzJVeS9/2gXHxylqXiyQDYRxCVz55jmeOWTM=
