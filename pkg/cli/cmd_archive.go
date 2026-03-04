@@ -12,6 +12,7 @@ func NewArchiveCmd(deps *Deps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "archive",
 		Short: "import and export keg archives",
+		Long:  `Export nodes to a tar archive or import nodes from one.`,
 	}
 
 	cmd.AddCommand(
