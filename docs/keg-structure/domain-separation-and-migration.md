@@ -34,7 +34,7 @@ interaction.
 Create a user-level destination keg target:
 
 ```bash
-tap repo init domain-x --user
+tap repo init --keg domain-x --user
 ```
 
 Inspect and edit new keg config:
