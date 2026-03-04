@@ -324,16 +324,23 @@ func (dex *Dex) Write(ctx context.Context, repo Repository) error {
 	defer dex.mu.Unlock()
 
 	var errs []error
+	var errsMu sync.Mutex
 	var wg sync.WaitGroup
+
+	appendErr := func(err error) {
+		errsMu.Lock()
+		errs = append(errs, err)
+		errsMu.Unlock()
+	}
 
 	wg.Go(func() {
 		nodesData, err := dex.nodes.Data(ctx)
 		name := "nodes.tsv"
 		if err != nil {
-			errs = append(errs, fmt.Errorf("unable to create `%s` index: %w", name, err))
+			appendErr(fmt.Errorf("unable to create `%s` index: %w", name, err))
 		}
 		if e := repo.WriteIndex(ctx, name, nodesData); e != nil {
-			errs = append(errs, fmt.Errorf("unable to write `%s` index: %w", name, err))
+			appendErr(fmt.Errorf("unable to write `%s` index: %w", name, e))
 		}
 	})
 
@@ -341,10 +348,10 @@ func (dex *Dex) Write(ctx context.Context, repo Repository) error {
 		data, err := dex.tags.Data(ctx)
 		name := "tags"
 		if err != nil {
-			errs = append(errs, fmt.Errorf("unable to create `%s` index: %w", name, err))
+			appendErr(fmt.Errorf("unable to create `%s` index: %w", name, err))
 		}
 		if err := repo.WriteIndex(ctx, name, data); err != nil {
-			errs = append(errs, fmt.Errorf("unable to write `%s` index: %w", name, err))
+			appendErr(fmt.Errorf("unable to write `%s` index: %w", name, err))
 		}
 	})
 
@@ -352,10 +359,10 @@ func (dex *Dex) Write(ctx context.Context, repo Repository) error {
 		data, err := dex.links.Data(ctx)
 		name := "links"
 		if err != nil {
-			errs = append(errs, fmt.Errorf("unable to create `%s` index: %w", name, err))
+			appendErr(fmt.Errorf("unable to create `%s` index: %w", name, err))
 		}
 		if err := repo.WriteIndex(ctx, name, data); err != nil {
-			errs = append(errs, fmt.Errorf("unable to write `%s` index: %w", name, err))
+			appendErr(fmt.Errorf("unable to write `%s` index: %w", name, err))
 		}
 	})
 
@@ -363,10 +370,10 @@ func (dex *Dex) Write(ctx context.Context, repo Repository) error {
 		data, err := dex.backlinks.Data(ctx)
 		name := "backlinks"
 		if err != nil {
-			errs = append(errs, fmt.Errorf("unable to create `%s` index: %w", name, err))
+			appendErr(fmt.Errorf("unable to create `%s` index: %w", name, err))
 		}
 		if err := repo.WriteIndex(ctx, name, data); err != nil {
-			errs = append(errs, fmt.Errorf("unable to write `%s` index: %w", name, err))
+			appendErr(fmt.Errorf("unable to write `%s` index: %w", name, err))
 		}
 	})
 
@@ -374,10 +381,10 @@ func (dex *Dex) Write(ctx context.Context, repo Repository) error {
 		data, err := dex.changes.Data(ctx)
 		name := "changes.md"
 		if err != nil {
-			errs = append(errs, fmt.Errorf("unable to create `%s` index: %w", name, err))
+			appendErr(fmt.Errorf("unable to create `%s` index: %w", name, err))
 		}
 		if err := repo.WriteIndex(ctx, name, data); err != nil {
-			errs = append(errs, fmt.Errorf("unable to write `%s` index: %w", name, err))
+			appendErr(fmt.Errorf("unable to write `%s` index: %w", name, err))
 		}
 	})
 
@@ -387,10 +394,10 @@ func (dex *Dex) Write(ctx context.Context, repo Repository) error {
 			data, err := c.Data(ctx)
 			name := c.Name()
 			if err != nil {
-				errs = append(errs, fmt.Errorf("unable to create `%s` index: %w", name, err))
+				appendErr(fmt.Errorf("unable to create `%s` index: %w", name, err))
 			}
 			if err := repo.WriteIndex(ctx, name, data); err != nil {
-				errs = append(errs, fmt.Errorf("unable to write `%s` index: %w", name, err))
+				appendErr(fmt.Errorf("unable to write `%s` index: %w", name, err))
 			}
 		})
 	}

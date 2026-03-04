@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	appCtx "github.com/jlrickert/cli-toolkit/apppaths"
 	"github.com/jlrickert/cli-toolkit/toolkit"
@@ -20,6 +21,8 @@ type KegService struct {
 	// ConfigService resolves configured keg aliases and targets.
 	ConfigService *ConfigService
 
+	// cacheMu guards kegCache for concurrent access.
+	cacheMu sync.Mutex
 	// kegCache memoizes resolved kegs by alias or file-derived cache key.
 	kegCache map[string]*keg.Keg
 }
@@ -49,6 +52,8 @@ func (s *KegService) ensureCache() {
 
 // Resolve returns a keg using explicit path, project, alias, or configured fallback resolution.
 func (s *KegService) Resolve(ctx context.Context, opts ResolveKegOptions) (*keg.Keg, error) {
+	s.cacheMu.Lock()
+	defer s.cacheMu.Unlock()
 	s.ensureCache()
 	cache := !opts.NoCache
 
