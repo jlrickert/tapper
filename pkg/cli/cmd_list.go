@@ -19,7 +19,8 @@ Format placeholders: %i (node id), %d (date), %t (title), %% (literal %).
 Default format: "%i\t%d\t%t".
 
 Use --query to filter by boolean tag/attribute expressions.
-Use --limit (-n) to cap output (default 50, 0 for no limit).`,
+Use --limit (-n) to cap output (default 50, 0 for no limit).
+Use --sort to order by "id", "updated", "created", or "accessed".`,
 
 		Aliases: []string{"ls"},
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -44,6 +45,10 @@ Use --limit (-n) to cap output (default 50, 0 for no limit).`,
 	cmd.Flags().IntVarP(&opts.Limit, "limit", "n", 50, "maximum number of results (0 for no limit)")
 	cmd.Flags().StringVarP(&opts.Format, "format", "f", "", "output format")
 	cmd.Flags().StringVar(&opts.Query, "query", "", `boolean expression (see "tap docs query-expressions" for syntax)`)
+	cmd.Flags().StringVar((*string)(&opts.Sort), "sort", "", `sort order: "id", "updated", "created", or "accessed"`)
+	_ = cmd.RegisterFlagCompletionFunc("sort", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		return []string{"id", "updated", "created", "accessed"}, cobra.ShellCompDirectiveNoFileComp
+	})
 
 	return cmd
 }

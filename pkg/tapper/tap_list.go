@@ -11,6 +11,17 @@ import (
 	"github.com/jlrickert/tapper/pkg/keg"
 )
 
+// ListSortType controls the ordering of listed nodes.
+type ListSortType string
+
+const (
+	SortByDefault  ListSortType = ""         // default: same as SortByID
+	SortByID       ListSortType = "id"       // ascending node ID
+	SortByUpdated  ListSortType = "updated"  // ascending by last-updated timestamp
+	SortByCreated  ListSortType = "created"  // ascending by creation timestamp
+	SortByAccessed ListSortType = "accessed" // ascending by last-accessed timestamp
+)
+
 type ListOptions struct {
 	KegTargetOptions
 
@@ -29,6 +40,9 @@ type ListOptions struct {
 	IdOnly bool
 
 	Reverse bool
+
+	// Sort selects the sort order. Empty string means sort by node ID (default).
+	Sort ListSortType
 
 	// Limit caps the number of results returned. 0 means no limit.
 	Limit int
@@ -155,6 +169,19 @@ func (t *Tap) List(ctx context.Context, opts ListOptions) ([]string, error) {
 		}
 		sortNodeIndexEntries(filtered)
 		entries = filtered
+	}
+
+	switch opts.Sort {
+	case SortByDefault, SortByID:
+		// already sorted by ID from dex.Nodes() / sortNodeIndexEntries
+	case SortByUpdated:
+		sortNodeIndexEntriesByTime(entries, func(e keg.NodeIndexEntry) time.Time { return e.Updated })
+	case SortByCreated:
+		sortNodeIndexEntriesByTime(entries, func(e keg.NodeIndexEntry) time.Time { return e.Created })
+	case SortByAccessed:
+		sortNodeIndexEntriesByTime(entries, func(e keg.NodeIndexEntry) time.Time { return e.Accessed })
+	default:
+		return []string{}, fmt.Errorf("unknown sort type: %q", opts.Sort)
 	}
 
 	if opts.Limit > 0 && len(entries) > opts.Limit {
@@ -416,6 +443,17 @@ func renderNodeEntries(entries []keg.NodeIndexEntry, format string, idOnly bool,
 		lines = append(lines, line)
 	}
 	return lines
+}
+
+func sortNodeIndexEntriesByTime(entries []keg.NodeIndexEntry, timeFunc func(keg.NodeIndexEntry) time.Time) {
+	for i := 1; i < len(entries); i++ {
+		for j := i; j > 0; j-- {
+			if !timeFunc(entries[j]).Before(timeFunc(entries[j-1])) {
+				break
+			}
+			entries[j-1], entries[j] = entries[j], entries[j-1]
+		}
+	}
 }
 
 func sortNodeIndexEntries(entries []keg.NodeIndexEntry) {

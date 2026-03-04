@@ -42,11 +42,16 @@ type NodeIndex struct {
 //     entire input (for example severe encoding issues). Minor line-level parse
 //     problems are tolerated and do not cause an error.
 //
-// Example input:
+// Example input (5-column, current format):
 //
-//	"42\t2025-01-02T15:04:05Z\tMy Title\n0\t2024-12-01T12:00:00Z\tZero NodeId\n"
+//	"42\t2025-01-02T15:04:05Z\t2024-06-01T10:00:00Z\t2025-01-03T08:00:00Z\tMy Title\n"
 //
-// Note: the expected column order is: id<TAB>updated<TAB>title
+// Legacy input (3-column, backward compatible):
+//
+//	"42\t2025-01-02T15:04:05Z\tMy Title\n"
+//
+// Column order (5-col): id<TAB>updated<TAB>created<TAB>accessed<TAB>title
+// Column order (3-col): id<TAB>updated<TAB>title
 func ParseNodeIndex(ctx context.Context, data []byte) (NodeIndex, error) {
 	_ = ctx
 	idx := NodeIndex{data: []NodeIndexEntry{}}
@@ -63,8 +68,7 @@ func ParseNodeIndex(ctx context.Context, data []byte) (NodeIndex, error) {
 			continue
 		}
 
-		// Expect columns: id<TAB>updated<TAB>title
-		parts := strings.SplitN(ln, "\t", 3)
+		parts := strings.SplitN(ln, "\t", 6)
 		if len(parts) < 3 {
 			// malformed line; skip
 			continue
@@ -72,33 +76,37 @@ func ParseNodeIndex(ctx context.Context, data []byte) (NodeIndex, error) {
 
 		id := strings.TrimSpace(parts[0])
 		if id == "" {
-			// missing id; skip
 			continue
 		}
 
-		updated := strings.TrimSpace(parts[1])
-		if updated == "" {
-			continue
-		}
-		var u time.Time
-		if strings.TrimSpace(parts[1]) != "" {
-			if t, err := time.Parse(time.RFC3339, strings.TrimSpace(parts[1])); err == nil {
-				u = t
-			}
-			// if parse fails, leave updated zero and continue; tolerate malformed timestamps
+		var entry NodeIndexEntry
+		entry.ID = id
+
+		if len(parts) >= 5 {
+			// 5-column format: id \t updated \t created \t accessed \t title
+			entry.Updated = parseTimestamp(parts[1])
+			entry.Created = parseTimestamp(parts[2])
+			entry.Accessed = parseTimestamp(parts[3])
+			entry.Title = strings.TrimSpace(parts[4])
+		} else {
+			// 3-column legacy format: id \t updated \t title
+			entry.Updated = parseTimestamp(parts[1])
+			entry.Title = strings.TrimSpace(parts[2])
 		}
 
-		title := strings.TrimSpace(parts[2])
-
-		entry := NodeIndexEntry{
-			ID:      id,
-			Title:   title,
-			Updated: u,
-		}
 		idx.data = append(idx.data, entry)
 	}
 
 	return idx, nil
+}
+
+func parseTimestamp(s string) time.Time {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return time.Time{}
+	}
+	t, _ := time.Parse(time.RFC3339, s)
+	return t
 }
 
 // Add inserts the provided node into the index. The index should remain sorted
@@ -216,7 +224,7 @@ func (idx *NodeIndex) Rm(ctx context.Context, node NodeId) error {
 //
 // Serialization rules:
 //   - Each entry produces a single line in the form used by the repository's
-//     nodes index. Common column order is: id<TAB>title<TAB>updated<LF>.
+//     nodes index. Column order is: id<TAB>updated<TAB>created<TAB>accessed<TAB>title<LF>.
 //   - Entries must be emitted in ascending node id order.
 //   - An empty index returns an empty byte slice.
 //
@@ -238,6 +246,14 @@ func (idx *NodeIndex) Data(ctx context.Context) ([]byte, error) {
 		b.WriteByte('\t')
 		if !e.Updated.IsZero() {
 			b.WriteString(e.Updated.Format(time.RFC3339))
+		}
+		b.WriteByte('\t')
+		if !e.Created.IsZero() {
+			b.WriteString(e.Created.Format(time.RFC3339))
+		}
+		b.WriteByte('\t')
+		if !e.Accessed.IsZero() {
+			b.WriteString(e.Accessed.Format(time.RFC3339))
 		}
 		b.WriteByte('\t')
 		b.WriteString(e.Title)
