@@ -188,11 +188,13 @@ func (id NodeId) Valid() bool { return id.ID >= 0 }
 
 // NodeIndexEntry is a small descriptor for a node used by repository listings
 // and indices. It contains the node id as a string, a human-friendly title,
-// and the last updated timestamp.
+// and timestamps for updated, created, and accessed.
 type NodeIndexEntry struct {
-	ID      string    `json:"id" yaml:"id"`
-	Title   string    `json:"title" yaml:"title"`
-	Updated time.Time `json:"updated" yaml:"updated"`
+	ID       string    `json:"id" yaml:"id"`
+	Title    string    `json:"title" yaml:"title"`
+	Updated  time.Time `json:"updated" yaml:"updated"`
+	Created  time.Time `json:"created" yaml:"created"`
+	Accessed time.Time `json:"accessed" yaml:"accessed"`
 }
 
 // Equals reports whether two Nodes are identical in ID and Code.
