@@ -19,108 +19,108 @@
     },
     "title": {
       "type": "string",
-      "description": "Human-readable title for this keg.",
-      "url": {
-        "type": "string",
-        "description": "Primary URL for the keg or project."
-      },
-      "creator": {
-        "type": "string",
-        "description": "Creator identifier, profile URL, or repository URL."
-      },
-      "state": {
-        "type": "string",
-        "description": "Lifecycle state for the keg, such as living or archived."
-      },
-      "summary": {
-        "type": "string",
-        "description": "Short summary of the keg's purpose and contents."
-      },
-      "links": {
-        "type": "array",
-        "description": "Named external links or related keg references.",
-        "items": {
-          "type": "object",
-          "description": "A single named link entry.",
-          "properties": {
-            "alias": {
-              "type": "string",
-              "description": "Unique alias used to reference the link."
-            },
-            "url": {
-              "type": "string",
-              "description": "Destination URL or keg target."
-            }
-          },
-          "required": [
-            "alias",
-            "url"
-          ],
-          "additionalProperties": true
-        }
-      },
-      "indexes": {
-        "type": "array",
-        "description": "Configured index outputs and optional tag filters.",
-        "items": {
-          "type": "object",
-          "description": "A single index declaration.",
-          "properties": {
-            "file": {
-              "type": "string",
-              "description": "Path to the generated index file relative to the keg root."
-            },
-            "summary": {
-              "type": "string",
-              "description": "Short description of what this index contains."
-            },
-            "tags": {
-              "type": "string",
-              "description": "Optional boolean tag query used to filter index contents."
-            }
-          },
-          "required": [
-            "file",
-            "summary"
-          ],
-          "additionalProperties": true
-        }
-      },
-      "entities": {
+      "description": "Human-readable title for this keg."
+    },
+    "url": {
+      "type": "string",
+      "description": "Primary URL for the keg or project."
+    },
+    "creator": {
+      "type": "string",
+      "description": "Creator identifier, profile URL, or repository URL."
+    },
+    "state": {
+      "type": "string",
+      "description": "Lifecycle state for the keg, such as living or archived."
+    },
+    "summary": {
+      "type": "string",
+      "description": "Short summary of the keg's purpose and contents."
+    },
+    "links": {
+      "type": "array",
+      "description": "Named external links or related keg references.",
+      "items": {
         "type": "object",
-        "description": "Entity map keyed by entity name.",
-        "additionalProperties": {
-          "type": "object",
-          "description": "Metadata for a single entity.",
-          "properties": {
-            "id": {
-              "type": "integer",
-              "description": "Node ID associated with the entity.",
-              "minimum": 0
-            },
-            "summary": {
-              "type": "string",
-              "description": "Short description of the entity."
-            }
+        "description": "A single named link entry.",
+        "properties": {
+          "alias": {
+            "type": "string",
+            "description": "Unique alias used to reference the link."
           },
-          "required": [
-            "id"
-          ],
-          "additionalProperties": false
-        }
-      },
-      "tags": {
-        "type": "object",
-        "description": "Tag descriptions keyed by tag name.",
-        "additionalProperties": {
-          "type": "string",
-          "description": "Human-readable description for a tag."
-        }
+          "url": {
+            "type": "string",
+            "description": "Destination URL or keg target."
+          }
+        },
+        "required": [
+          "alias",
+          "url"
+        ],
+        "additionalProperties": true
       }
     },
-    "required": [
-      "kegv"
-    ],
-    "additionalProperties": true
-  }
+    "indexes": {
+      "type": "array",
+      "description": "Configured index outputs and optional tag filters.",
+      "items": {
+        "type": "object",
+        "description": "A single index declaration.",
+        "properties": {
+          "file": {
+            "type": "string",
+            "description": "Path to the generated index file relative to the keg root."
+          },
+          "summary": {
+            "type": "string",
+            "description": "Short description of what this index contains."
+          },
+          "tags": {
+            "type": "string",
+            "description": "Optional boolean tag query used to filter index contents."
+          }
+        },
+        "required": [
+          "file",
+          "summary"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "entities": {
+      "type": "object",
+      "description": "Entity map keyed by entity name.",
+      "additionalProperties": {
+        "type": "object",
+        "description": "Metadata for a single entity.",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "description": "Node ID associated with the entity.",
+            "minimum": 0
+          },
+          "summary": {
+            "type": "string",
+            "description": "Short description of the entity."
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "tags": {
+      "type": "object",
+      "description": "Tag descriptions keyed by tag name.",
+      "additionalProperties": {
+        "type": "string",
+        "description": "Human-readable description for a tag."
+      }
+    }
+  },
+  "required": [
+    "kegv"
+  ],
+  "additionalProperties": true
 }
