@@ -79,9 +79,11 @@ func (t *Tap) KegInfo(ctx context.Context, opts KegInfoOptions) (string, error) 
 	}
 	type diagnostics struct {
 		WorkingDirectory string `yaml:"working_directory"`
+		Alias            string `yaml:"alias,omitempty"`
 		Target           string `yaml:"target,omitempty"`
 		Scheme           string `yaml:"scheme,omitempty"`
 		KegDirectory     string `yaml:"keg_directory,omitempty"`
+		Summary          string `yaml:"summary,omitempty"`
 
 		NodeCount int `yaml:"node_count"`
 
@@ -96,7 +98,16 @@ func (t *Tap) KegInfo(ctx context.Context, opts KegInfoOptions) (string, error) 
 		NodeCount:        len(nodeIDs),
 	}
 
+	// Populate summary from the keg config.
+	cfg, cfgErr := k.Config(ctx)
+	if cfgErr == nil && cfg.Summary != "" {
+		out.Summary = cfg.Summary
+	}
+
 	if k.Target != nil {
+		// Reverse-lookup the alias from tap config.
+		tapCfg := t.KegService.ConfigService.Config(true)
+		out.Alias = tapCfg.LookupAliasForTarget(t.Runtime, k.Target.String())
 		out.Target = k.Target.String()
 		out.Scheme = k.Target.Scheme()
 		if k.Target.Scheme() == kegurl.SchemeFile {
