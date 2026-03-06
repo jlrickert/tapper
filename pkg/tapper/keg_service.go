@@ -102,6 +102,12 @@ func (s *KegService) resolveProjectTarget(ctx context.Context, base string, cach
 		expandedBase = filepath.Clean(p)
 	}
 
+	// Check whether the base directory itself exists before searching for keg files.
+	info, statErr := s.Runtime.Stat(expandedBase, false)
+	if statErr != nil || !info.IsDir() {
+		return nil, &PathNotFoundError{Path: base}
+	}
+
 	baseCandidates := []string{rawBase}
 	if expandedBase != "" && expandedBase != rawBase {
 		baseCandidates = append(baseCandidates, expandedBase)
