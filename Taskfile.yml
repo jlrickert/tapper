@@ -21,6 +21,7 @@ tasks:
       - go test ./pkg/... {{.CLI_ARGS}}
     sources:
       - ./pkg/**/*.go
+      - ./doc/**/*.md
     silent: true
   install-keg:
     desc: Install the keg CLI (go install ./cmd/keg) and generate Zsh completions (~/.cache/dotfiles/zsh/completions/_keg).
@@ -30,6 +31,7 @@ tasks:
     sources:
       - cmd/**
       - pkg/**
+      - docs/**/*.md
   install-tap:
     desc: Install the tap CLI (go install ./cmd/tap) and generate Zsh completions (~/.cache/dotfiles/zsh/completions/_tap).
     cmds:
@@ -38,6 +40,7 @@ tasks:
     sources:
       - cmd/**/*.go
       - pkg/**/*.go
+      - docs/**/*.md
   install-tapper:
     desc: Install the tapper CLI (go install ./cmd/tap) and generate Zsh completions (~/.cache/dotfiles/zsh/completions/_tap).
     cmds:
