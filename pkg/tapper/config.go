@@ -645,6 +645,8 @@ func (cfg *Config) RemoveKeg(alias string) error {
 }
 
 // AddKegMap adds or updates a keg map entry in the Config.
+// Entries are matched by alias + pathPrefix + pathRegex. An entry with the same
+// alias but a different path pattern is treated as a separate mapping.
 func (cfg *Config) AddKegMap(entry KegMapEntry) error {
 	if cfg == nil {
 		return fmt.Errorf("config is nil")
@@ -656,19 +658,13 @@ func (cfg *Config) AddKegMap(entry KegMapEntry) error {
 		cfg.data = &configDTO{}
 	}
 
-	// Find and update or append to struct
-	found := false
 	for i, e := range cfg.data.KegMap {
-		if e.Alias == entry.Alias {
+		if e.Alias == entry.Alias && e.PathPrefix == entry.PathPrefix && e.PathRegex == entry.PathRegex {
 			cfg.data.KegMap[i] = entry
-			found = true
-			break
+			return nil
 		}
 	}
-	if !found {
-		cfg.data.KegMap = append(cfg.data.KegMap, entry)
-	}
-
+	cfg.data.KegMap = append(cfg.data.KegMap, entry)
 	return nil
 }
 

@@ -173,12 +173,14 @@ func (s *KegService) resolveFileKeg(ctx context.Context, root string, cache bool
 }
 
 // resolvePath resolves the effective keg alias from config for the given path and returns its keg.
+//
+// Precedence: kegMap (path-specific) → defaultKeg (general) → fallbackKeg (last resort).
 func (s *KegService) resolvePath(ctx context.Context, path string, cache bool) (*keg.Keg, error) {
 	s.ensureCache()
 	cfg := s.ConfigService.Config(true)
-	kegAlias := cfg.DefaultKeg()
+	kegAlias := cfg.LookupAlias(s.Runtime, path)
 	if kegAlias == "" {
-		kegAlias = cfg.LookupAlias(s.Runtime, path)
+		kegAlias = cfg.DefaultKeg()
 	}
 	if kegAlias == "" {
 		kegAlias = cfg.FallbackKeg()
