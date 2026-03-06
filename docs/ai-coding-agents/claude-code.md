@@ -113,17 +113,17 @@ Run the test suite for $ARGUMENTS:
 
 ### Frontmatter Fields
 
-| Field | Default | Purpose |
-|-------|---------|---------|
-| `name` | directory name | Display name for `/name` invocation |
-| `description` | — | When Claude should use this skill |
-| `disable-model-invocation` | `false` | `true` prevents Claude from auto-invoking |
-| `user-invocable` | `true` | `false` hides from `/` menu |
-| `allowed-tools` | — | Tools usable without asking (e.g., `Read, Grep`) |
-| `model` | `inherit` | `sonnet`, `opus`, `haiku`, or `inherit` |
-| `argument-hint` | — | Autocomplete hint (e.g., `"[filename]"`) |
-| `context` | — | `fork` to run in isolated subagent context |
-| `agent` | — | Subagent type when `context: fork` (e.g., `Explore`) |
+| Field                      | Default        | Purpose                                              |
+| -------------------------- | -------------- | ---------------------------------------------------- |
+| `name`                     | directory name | Display name for `/name` invocation                  |
+| `description`              | —              | When Claude should use this skill                    |
+| `disable-model-invocation` | `false`        | `true` prevents Claude from auto-invoking            |
+| `user-invocable`           | `true`         | `false` hides from `/` menu                          |
+| `allowed-tools`            | —              | Tools usable without asking (e.g., `Read, Grep`)     |
+| `model`                    | `inherit`      | `sonnet`, `opus`, `haiku`, or `inherit`              |
+| `argument-hint`            | —              | Autocomplete hint (e.g., `"[filename]"`)             |
+| `context`                  | —              | `fork` to run in isolated subagent context           |
+| `agent`                    | —              | Subagent type when `context: fork` (e.g., `Explore`) |
 
 ### String Substitutions
 
@@ -185,19 +185,19 @@ You are a code reviewer. When invoked:
 
 ### Agent Frontmatter Fields
 
-| Field | Purpose |
-|-------|---------|
-| `name` | Unique identifier (lowercase, hyphens) |
-| `description` | When Claude should delegate to this agent |
-| `tools` | Allowed tools (e.g., `Read, Grep, Bash`) |
-| `disallowedTools` | Tools to deny from the inherited set |
-| `model` | `sonnet`, `opus`, `haiku`, or `inherit` |
-| `maxTurns` | Maximum agentic turns before stopping |
-| `memory` | Persistent memory: `user`, `project`, or `local` |
-| `background` | `true` to run as a background task |
-| `isolation` | `worktree` for isolated git worktree |
-| `skills` | Skills to preload as context |
-| `hooks` | Lifecycle hooks scoped to this agent |
+| Field             | Purpose                                          |
+| ----------------- | ------------------------------------------------ |
+| `name`            | Unique identifier (lowercase, hyphens)           |
+| `description`     | When Claude should delegate to this agent        |
+| `tools`           | Allowed tools (e.g., `Read, Grep, Bash`)         |
+| `disallowedTools` | Tools to deny from the inherited set             |
+| `model`           | `sonnet`, `opus`, `haiku`, or `inherit`          |
+| `maxTurns`        | Maximum agentic turns before stopping            |
+| `memory`          | Persistent memory: `user`, `project`, or `local` |
+| `background`      | `true` to run as a background task               |
+| `isolation`       | `worktree` for isolated git worktree             |
+| `skills`          | Skills to preload as context                     |
+| `hooks`           | Lifecycle hooks scoped to this agent             |
 
 ### Agent Memory
 
@@ -222,14 +222,14 @@ settings files.
 
 ### Available Events
 
-| Event | When It Fires |
-|-------|---------------|
-| `PreToolUse` | Before a tool executes (can block it) |
-| `PostToolUse` | After a tool succeeds |
-| `UserPromptSubmit` | When you submit a prompt |
-| `SessionStart` | When a session begins |
-| `Stop` | When Claude finishes responding |
-| `Notification` | When Claude needs attention |
+| Event              | When It Fires                         |
+| ------------------ | ------------------------------------- |
+| `PreToolUse`       | Before a tool executes (can block it) |
+| `PostToolUse`      | After a tool succeeds                 |
+| `UserPromptSubmit` | When you submit a prompt              |
+| `SessionStart`     | When a session begins                 |
+| `Stop`             | When Claude finishes responding       |
+| `Notification`     | When Claude needs attention           |
 
 ### Configuration
 
@@ -274,16 +274,10 @@ Add hooks to any settings file (`.claude/settings.json`,
 ```json
 {
   "permissions": {
-    "allow": [
-      "Bash(go test:*)",
-      "Bash(go build:*)",
-      "Read(pkg/**)"
-    ],
-    "deny": [
-      "Read(.env*)"
-    ]
+    "allow": ["Bash(go test:*)", "Bash(go build:*)", "Read(pkg/**)"],
+    "deny": ["Read(.env*)"]
   },
-  "hooks": { },
+  "hooks": {},
   "model": "claude-sonnet-4-6",
   "env": {
     "GOFLAGS": "-count=1"

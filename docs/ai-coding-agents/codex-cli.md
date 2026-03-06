@@ -99,20 +99,20 @@ Codex stores global settings in `~/.codex/`:
 
 Codex supports three levels of autonomy:
 
-| Mode | Behavior |
-|------|----------|
-| `suggest` | Suggests changes but does not execute them |
+| Mode        | Behavior                                                |
+| ----------- | ------------------------------------------------------- |
+| `suggest`   | Suggests changes but does not execute them              |
 | `auto-edit` | Edits files automatically, asks before running commands |
-| `full-auto` | Edits files and runs commands without asking |
+| `full-auto` | Edits files and runs commands without asking            |
 
 Set the mode in config or via CLI flag.
 
 ### Environment Variables
 
-| Variable | Purpose |
-|----------|---------|
-| `OPENAI_API_KEY` | Required for authentication |
-| `CODEX_HOME` | Override the config directory location |
+| Variable         | Purpose                                |
+| ---------------- | -------------------------------------- |
+| `OPENAI_API_KEY` | Required for authentication            |
+| `CODEX_HOME`     | Override the config directory location |
 
 ### Model Selection
 
@@ -130,14 +130,14 @@ The sandbox prevents unintended side effects when running in `full-auto` mode.
 
 ## Comparison With Claude Code
 
-| Aspect | Claude Code | Codex CLI |
-|--------|------------|-----------|
-| Instruction file | `CLAUDE.md` | `AGENTS.md` |
-| Discovery | Walks directory tree | Walks directory tree |
-| Custom commands | Skills (`.claude/skills/`) | None |
-| Custom agents | Subagents (`.claude/agents/`) | None |
-| Hooks | Lifecycle hooks in settings | None |
-| Format | Markdown | Markdown |
+| Aspect           | Claude Code                   | Codex CLI            |
+| ---------------- | ----------------------------- | -------------------- |
+| Instruction file | `CLAUDE.md`                   | `AGENTS.md`          |
+| Discovery        | Walks directory tree          | Walks directory tree |
+| Custom commands  | Skills (`.claude/skills/`)    | None                 |
+| Custom agents    | Subagents (`.claude/agents/`) | None                 |
+| Hooks            | Lifecycle hooks in settings   | None                 |
+| Format           | Markdown                      | Markdown             |
 
 ## Recommended AGENTS.md For This Project
 
