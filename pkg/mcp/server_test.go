@@ -90,6 +90,15 @@ func TestMCP_ToolsList(t *testing.T) {
 	require.Contains(t, names, "keg_info")
 	require.Contains(t, names, "stats")
 	require.Contains(t, names, "dir")
+	require.Contains(t, names, "create")
+	require.Contains(t, names, "edit")
+	require.Contains(t, names, "meta")
+	require.Contains(t, names, "remove")
+	require.Contains(t, names, "move")
+	require.Contains(t, names, "index")
+	require.Contains(t, names, "list_indexes")
+	require.Contains(t, names, "index_cat")
+	require.Contains(t, names, "doctor")
 }
 
 func TestMCP_Cat(t *testing.T) {
@@ -517,6 +526,71 @@ func TestMCP_Move(t *testing.T) {
 	newText := extractText(t, newRes)
 	require.False(t, newRes.IsError, "cat returned error: %s", newText)
 	require.Contains(t, newText, "Movable Node")
+}
+
+// --- index and diagnostics tool tests ---
+
+func TestMCP_ListIndexes(t *testing.T) {
+	t.Parallel()
+	session, ctx := newTestSession(t)
+
+	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name:      "list_indexes",
+		Arguments: map[string]any{},
+	})
+	require.NoError(t, err)
+	text := extractText(t, res)
+	require.False(t, res.IsError, "list_indexes returned error: %s", text)
+	require.Contains(t, text, "nodes.tsv")
+	require.Contains(t, text, "tags")
+}
+
+func TestMCP_IndexCat(t *testing.T) {
+	t.Parallel()
+	session, ctx := newTestSession(t)
+
+	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "index_cat",
+		Arguments: map[string]any{
+			"name": "nodes.tsv",
+		},
+	})
+	require.NoError(t, err)
+	text := extractText(t, res)
+	require.False(t, res.IsError, "index_cat returned error: %s", text)
+	require.Contains(t, text, "Personal Overview")
+	require.Contains(t, text, "Hello World")
+}
+
+func TestMCP_IndexRebuild(t *testing.T) {
+	t.Parallel()
+	session, ctx := newTestSession(t)
+
+	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "index",
+		Arguments: map[string]any{
+			"rebuild": true,
+		},
+	})
+	require.NoError(t, err)
+	text := extractText(t, res)
+	require.False(t, res.IsError, "index returned error: %s", text)
+	require.Contains(t, text, "Indices rebuilt")
+}
+
+func TestMCP_Doctor(t *testing.T) {
+	t.Parallel()
+	session, ctx := newTestSession(t)
+
+	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name:      "doctor",
+		Arguments: map[string]any{},
+	})
+	require.NoError(t, err)
+	text := extractText(t, res)
+	require.False(t, res.IsError, "doctor returned error: %s", text)
+	// The fixture may or may not have issues; just verify it returns something.
+	require.NotEmpty(t, text)
 }
 
 func extractText(t *testing.T, res *sdkmcp.CallToolResult) string {
