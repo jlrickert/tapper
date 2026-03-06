@@ -99,6 +99,13 @@ func TestMCP_ToolsList(t *testing.T) {
 	require.Contains(t, names, "list_indexes")
 	require.Contains(t, names, "index_cat")
 	require.Contains(t, names, "doctor")
+	require.Contains(t, names, "node_history")
+	require.Contains(t, names, "node_snapshot")
+	require.Contains(t, names, "node_restore")
+	require.Contains(t, names, "list_files")
+	require.Contains(t, names, "list_images")
+	require.Contains(t, names, "delete_file")
+	require.Contains(t, names, "delete_image")
 }
 
 func TestMCP_Cat(t *testing.T) {
@@ -526,6 +533,87 @@ func TestMCP_Move(t *testing.T) {
 	newText := extractText(t, newRes)
 	require.False(t, newRes.IsError, "cat returned error: %s", newText)
 	require.Contains(t, newText, "Movable Node")
+}
+
+// --- snapshot and file tool tests ---
+
+func TestMCP_NodeHistory_Empty(t *testing.T) {
+	t.Parallel()
+	session, ctx := newTestSession(t)
+
+	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "node_history",
+		Arguments: map[string]any{
+			"node_id": "0",
+		},
+	})
+	require.NoError(t, err)
+	text := extractText(t, res)
+	require.False(t, res.IsError, "node_history returned error: %s", text)
+	require.Contains(t, text, "no snapshots")
+}
+
+func TestMCP_NodeSnapshotAndHistory(t *testing.T) {
+	t.Parallel()
+	session, ctx := newTestSession(t)
+
+	// Snapshot node 0.
+	snapRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "node_snapshot",
+		Arguments: map[string]any{
+			"node_id": "0",
+			"message": "initial snapshot",
+		},
+	})
+	require.NoError(t, err)
+	snapText := extractText(t, snapRes)
+	require.False(t, snapRes.IsError, "node_snapshot returned error: %s", snapText)
+	require.Contains(t, snapText, "snapshot rev")
+
+	// Check history.
+	histRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "node_history",
+		Arguments: map[string]any{
+			"node_id": "0",
+		},
+	})
+	require.NoError(t, err)
+	histText := extractText(t, histRes)
+	require.False(t, histRes.IsError, "node_history returned error: %s", histText)
+	require.Contains(t, histText, "rev 1")
+	require.Contains(t, histText, "initial snapshot")
+}
+
+func TestMCP_ListFiles_Empty(t *testing.T) {
+	t.Parallel()
+	session, ctx := newTestSession(t)
+
+	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "list_files",
+		Arguments: map[string]any{
+			"node_id": "0",
+		},
+	})
+	require.NoError(t, err)
+	text := extractText(t, res)
+	require.False(t, res.IsError, "list_files returned error: %s", text)
+	require.Contains(t, text, "no files")
+}
+
+func TestMCP_ListImages_Empty(t *testing.T) {
+	t.Parallel()
+	session, ctx := newTestSession(t)
+
+	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "list_images",
+		Arguments: map[string]any{
+			"node_id": "0",
+		},
+	})
+	require.NoError(t, err)
+	text := extractText(t, res)
+	require.False(t, res.IsError, "list_images returned error: %s", text)
+	require.Contains(t, text, "no images")
 }
 
 // --- index and diagnostics tool tests ---
