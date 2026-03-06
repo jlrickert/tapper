@@ -158,6 +158,29 @@ func (cfg *Config) PrimaryKegSearchPath() string {
 	return ""
 }
 
+// LookupAliasForTarget returns the alias whose configured target matches the
+// given target string. Returns empty string if no match is found.
+func (cfg *Config) LookupAliasForTarget(rt *toolkit.Runtime, target string) string {
+	if cfg.data == nil || cfg.data.Kegs == nil || target == "" {
+		return ""
+	}
+	// Normalize the target for comparison.
+	norm := toolkit.ExpandEnv(rt, target)
+	if expanded, err := toolkit.ExpandPath(rt, norm); err == nil {
+		norm = filepath.Clean(expanded)
+	}
+	for alias, t := range cfg.data.Kegs {
+		candidate := toolkit.ExpandEnv(rt, t.String())
+		if expanded, err := toolkit.ExpandPath(rt, candidate); err == nil {
+			candidate = filepath.Clean(expanded)
+		}
+		if candidate == norm {
+			return alias
+		}
+	}
+	return ""
+}
+
 // Kegs returns a map of keg aliases to their targets.
 func (cfg *Config) Kegs() map[string]kegurl.Target {
 	if cfg.data == nil {
