@@ -172,22 +172,11 @@ func (t *Tap) ConfigEdit(ctx context.Context, opts ConfigEditOptions) error {
 		}
 	}
 
-	tempPath, err := newEditorTempFilePath(t.Runtime, "tap-config-", ".yaml")
-	if err != nil {
-		return fmt.Errorf("unable to create temp config path: %w", err)
-	}
-	if err := t.Runtime.WriteFile(tempPath, originalRaw, 0o600); err != nil {
-		return fmt.Errorf("unable to write temp config file: %w", err)
-	}
-	defer func() {
-		_ = t.Runtime.Remove(tempPath, false)
-	}()
-
-	if err := editWithLiveSaves(ctx, t.Runtime, tempPath, func(editedRaw []byte) error {
+	if err := editWithLiveSaves(ctx, t.Runtime, resolvedPath, func(editedRaw []byte) error {
 		if _, err := ParseConfig(editedRaw); err != nil {
 			return fmt.Errorf("tap config is invalid after editing: %w", err)
 		}
-		return saveConfig(editedRaw)
+		return nil
 	}); err != nil {
 		return fmt.Errorf("unable to edit tap config: %w", err)
 	}
