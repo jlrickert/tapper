@@ -1,0 +1,5 @@
+defaultKeg: personal
+kegSearchPaths:
+  - ~/kegs
+kegs:
+  personal: ~/kegs/personal
