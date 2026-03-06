@@ -30,6 +30,8 @@ Both tools follow the same general pattern:
 
 ## Guides
 
+- [MCP Server Setup](mcp-setup.md) — configure `tap mcp` for permission-free
+  KEG access from any MCP-compatible agent
 - [Claude Code Skills And Agents](claude-code.md) — creating skills, subagents,
   hooks, and configuring `CLAUDE.md`
 - [Codex CLI Configuration](codex-cli.md) — writing `AGENTS.md` and setting up
