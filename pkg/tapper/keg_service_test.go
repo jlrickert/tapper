@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestResolve_DefaultKegOverridesKegMap(t *testing.T) {
+func TestResolve_KegMapOverridesDefaultKeg(t *testing.T) {
 	t.Parallel()
 
 	fx := NewSandbox(t, sandbox.WithFixture("example", "/home/testuser"))
@@ -24,7 +24,7 @@ func TestResolve_DefaultKegOverridesKegMap(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	userCfg := []byte(`fallbackKeg: pub
+	userCfg := []byte(`fallbackKeg: fallback
 kegMap:
   - alias: pub
     pathPrefix: ~/repos/github.com
@@ -46,16 +46,19 @@ defaultRegistry: ""
 
 	require.NoError(t, fx.Runtime().Mkdir("/home/testuser/Documents/kegs/pub", 0o755, true))
 	require.NoError(t, fx.Runtime().Mkdir("/home/testuser/Documents/kegs/ecw", 0o755, true))
+	require.NoError(t, fx.Runtime().Mkdir("/home/testuser/Documents/kegs/fallback", 0o755, true))
 	require.NoError(t, fx.Runtime().AtomicWriteFile("/home/testuser/Documents/kegs/pub/keg", []byte(""), 0o644))
 	require.NoError(t, fx.Runtime().AtomicWriteFile("/home/testuser/Documents/kegs/ecw/keg", []byte(""), 0o644))
+	require.NoError(t, fx.Runtime().AtomicWriteFile("/home/testuser/Documents/kegs/fallback/keg", []byte(""), 0o644))
 
+	// kegMap matches the working directory path, so it should win over defaultKeg.
 	k, err := tap.KegService.Resolve(context.Background(), tapper.ResolveKegOptions{
 		Root: root,
 	})
 	require.NoError(t, err)
 	require.NotNil(t, k)
 	require.NotNil(t, k.Target)
-	require.Equal(t, filepath.Clean("/home/testuser/Documents/kegs/ecw"), filepath.Clean(k.Target.Path()))
+	require.Equal(t, filepath.Clean("/home/testuser/Documents/kegs/pub"), filepath.Clean(k.Target.Path()))
 }
 
 func TestResolve_FullPrecedenceChain(t *testing.T) {
@@ -113,11 +116,11 @@ defaultRegistry: ""
 		require.Equal(innerT, filepath.Clean("/home/testuser/Documents/kegs/explicit"), filepath.Clean(k.Target.Path()))
 	})
 
-	t.Run("default_used_before_map", func(innerT *testing.T) {
+	t.Run("map_wins_over_default_when_path_matches", func(innerT *testing.T) {
 		innerT.Parallel()
 		fx, tap, root := newTap(innerT)
 
-		writeCfg(innerT, fx, tap, `fallbackKeg: pub
+		writeCfg(innerT, fx, tap, `fallbackKeg: fallback
 kegMap:
   - alias: pub
     pathPrefix: ~/repos/github.com
@@ -131,13 +134,45 @@ kegs: {}
 defaultRegistry: ""
 `)
 
-		for _, alias := range []string{"pub", "ecw"} {
+		for _, alias := range []string{"pub", "ecw", "fallback"} {
 			require.NoError(innerT, fx.Runtime().Mkdir(filepath.Join("/home/testuser/Documents/kegs", alias), 0o755, true))
 			require.NoError(innerT, fx.Runtime().AtomicWriteFile(filepath.Join("/home/testuser/Documents/kegs", alias, "keg"), []byte(""), 0o644))
 		}
 
+		// kegMap matches the path, so it wins over defaultKeg.
 		k, err := tap.KegService.Resolve(context.Background(), tapper.ResolveKegOptions{
 			Root: root,
+		})
+		require.NoError(innerT, err)
+		require.Equal(innerT, filepath.Clean("/home/testuser/Documents/kegs/pub"), filepath.Clean(k.Target.Path()))
+	})
+
+	t.Run("default_used_when_map_does_not_match", func(innerT *testing.T) {
+		innerT.Parallel()
+		fx, tap, _ := newTap(innerT)
+
+		writeCfg(innerT, fx, tap, `fallbackKeg: fallback
+kegMap:
+  - alias: pub
+    pathPrefix: ~/repos/gitlab.com
+kegs: {}
+defaultRegistry: ""
+kegSearchPaths:
+  - ~/Documents/kegs
+`, `defaultKeg: ecw
+kegMap: []
+kegs: {}
+defaultRegistry: ""
+`)
+
+		for _, alias := range []string{"pub", "ecw", "fallback"} {
+			require.NoError(innerT, fx.Runtime().Mkdir(filepath.Join("/home/testuser/Documents/kegs", alias), 0o755, true))
+			require.NoError(innerT, fx.Runtime().AtomicWriteFile(filepath.Join("/home/testuser/Documents/kegs", alias, "keg"), []byte(""), 0o644))
+		}
+
+		// kegMap does NOT match (gitlab.com vs github.com), so defaultKeg wins.
+		k, err := tap.KegService.Resolve(context.Background(), tapper.ResolveKegOptions{
+			Root: "/home/testuser/repos/github.com/jlrickert/tapper",
 		})
 		require.NoError(innerT, err)
 		require.Equal(innerT, filepath.Clean("/home/testuser/Documents/kegs/ecw"), filepath.Clean(k.Target.Path()))
@@ -196,6 +231,55 @@ defaultRegistry: ""
 		require.NoError(innerT, err)
 		require.Equal(innerT, filepath.Clean("/home/testuser/Documents/kegs/fallback"), filepath.Clean(k.Target.Path()))
 	})
+}
+
+func TestResolve_KegMapMissFallsToDefaultThenFallback(t *testing.T) {
+	t.Parallel()
+
+	fx := NewSandbox(t, sandbox.WithFixture("example", "/home/testuser"))
+	root := "/home/testuser/repos/bitbucket.org/ecw-devel/rohne.202602"
+	require.NoError(t, fx.Setwd(root))
+	require.NoError(t, fx.Runtime().Mkdir(root, 0o755, true))
+
+	tap, err := tapper.NewTap(tapper.TapOptions{
+		Root:    root,
+		Runtime: fx.Runtime(),
+	})
+	require.NoError(t, err)
+
+	require.NoError(t, fx.Runtime().Mkdir(filepath.Dir(tap.PathService.UserConfig()), 0o755, true))
+	require.NoError(t, fx.Runtime().Mkdir(filepath.Dir(tap.PathService.ProjectConfig()), 0o755, true))
+
+	// kegMap points to a prefix that does NOT match the working directory.
+	// defaultKeg is set, so it should be used when kegMap misses.
+	userCfg := `fallbackKeg: pub
+defaultKeg: dev
+kegMap:
+  - alias: ecw
+    pathPrefix: ~/sandbox/ecw/
+kegs: {}
+defaultRegistry: ""
+kegSearchPaths:
+  - ~/Documents/kegs
+`
+	projectCfg := `kegMap: []
+kegs: {}
+defaultRegistry: ""
+`
+	require.NoError(t, fx.Runtime().AtomicWriteFile(tap.PathService.UserConfig(), []byte(userCfg), 0o644))
+	require.NoError(t, fx.Runtime().AtomicWriteFile(tap.PathService.ProjectConfig(), []byte(projectCfg), 0o644))
+
+	for _, alias := range []string{"pub", "ecw", "dev"} {
+		require.NoError(t, fx.Runtime().Mkdir(filepath.Join("/home/testuser/Documents/kegs", alias), 0o755, true))
+		require.NoError(t, fx.Runtime().AtomicWriteFile(filepath.Join("/home/testuser/Documents/kegs", alias, "keg"), []byte(""), 0o644))
+	}
+
+	k, err := tap.KegService.Resolve(context.Background(), tapper.ResolveKegOptions{
+		Root: root,
+	})
+	require.NoError(t, err)
+	// kegMap misses, so defaultKeg ("dev") should be used, NOT fallbackKeg ("pub").
+	require.Equal(t, filepath.Clean("/home/testuser/Documents/kegs/dev"), filepath.Clean(k.Target.Path()))
 }
 
 func TestResolveTarget_DiscoveryPathCollisionLaterWins(t *testing.T) {

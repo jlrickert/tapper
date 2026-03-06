@@ -347,6 +347,55 @@ func TestAddKegMap_ReturnsErrorOnNilOrEmptyAlias(t *testing.T) {
 	require.Contains(t, err.Error(), "alias is required")
 }
 
+func TestAddKegMap_PreservesMultipleEntriesWithSameAlias(t *testing.T) {
+	t.Parallel()
+
+	raw := `kegMap:
+  - alias: ecw
+    pathPrefix: ~/repos/bitbucket.org/ecw-devel/
+  - alias: ecw
+    pathPrefix: ~/repos/bitbucket.org/jared52/
+`
+	cfg, err := tapper.ParseConfig([]byte(raw))
+	require.NoError(t, err)
+
+	kegMap := cfg.KegMap()
+	require.Len(t, kegMap, 2, "both ecw entries should be preserved after parse")
+
+	// Verify both prefixes are present.
+	var prefixes []string
+	for _, e := range kegMap {
+		if e.Alias == "ecw" {
+			prefixes = append(prefixes, e.PathPrefix)
+		}
+	}
+	require.ElementsMatch(t, []string{
+		"~/repos/bitbucket.org/ecw-devel/",
+		"~/repos/bitbucket.org/jared52/",
+	}, prefixes)
+}
+
+func TestMergeConfig_PreservesMultipleEntriesWithSameAlias(t *testing.T) {
+	t.Parallel()
+
+	userRaw := `kegMap:
+  - alias: ecw
+    pathPrefix: ~/repos/bitbucket.org/ecw-devel/
+  - alias: ecw
+    pathPrefix: ~/repos/bitbucket.org/jared52/
+`
+	projectRaw := `kegMap: []
+`
+	user, err := tapper.ParseConfig([]byte(userRaw))
+	require.NoError(t, err)
+	project, err := tapper.ParseConfig([]byte(projectRaw))
+	require.NoError(t, err)
+
+	merged := tapper.MergeConfig(user, project)
+	kegMap := merged.KegMap()
+	require.Len(t, kegMap, 2, "both ecw entries should survive merge")
+}
+
 func TestParseConfig_KegSearchPathsScalar(t *testing.T) {
 	t.Parallel()
 
