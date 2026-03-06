@@ -65,6 +65,23 @@ type BacklinksOptions struct {
 	Reverse bool
 }
 
+type LinksOptions struct {
+	KegTargetOptions
+
+	// NodeID is the source node to inspect outgoing links for.
+	NodeID string
+
+	// Format to use. %i is node id
+	// %d is date
+	// %t is node title
+	// %% for literal %
+	Format string
+
+	IdOnly bool
+
+	Reverse bool
+}
+
 type GrepOptions struct {
 	KegTargetOptions
 
@@ -231,6 +248,51 @@ func (t *Tap) Backlinks(ctx context.Context, opts BacklinksOptions) ([]string, e
 			continue
 		}
 		entries = append(entries, keg.NodeIndexEntry{ID: source.Path()})
+	}
+	sortNodeIndexEntries(entries)
+	return renderNodeEntries(entries, opts.Format, opts.IdOnly, opts.Reverse), nil
+}
+
+func (t *Tap) Links(ctx context.Context, opts LinksOptions) ([]string, error) {
+	k, err := t.resolveKeg(ctx, opts.KegTargetOptions)
+	if err != nil {
+		return []string{}, fmt.Errorf("unable to open keg: %w", err)
+	}
+	dex, err := k.Dex(ctx)
+	if err != nil {
+		return []string{}, fmt.Errorf("unable to read dex: %w", err)
+	}
+
+	node, err := keg.ParseNode(opts.NodeID)
+	if err != nil {
+		return []string{}, fmt.Errorf("invalid node ID %q: %w", opts.NodeID, err)
+	}
+	if node == nil {
+		return []string{}, fmt.Errorf("invalid node ID %q: %w", opts.NodeID, keg.ErrInvalid)
+	}
+	id := keg.NodeId{ID: node.ID, Code: node.Code}
+
+	exists, err := k.Repo.HasNode(ctx, id)
+	if err != nil {
+		return []string{}, fmt.Errorf("unable to inspect node: %w", err)
+	}
+	if !exists {
+		return []string{}, fmt.Errorf("node %s not found", id.Path())
+	}
+
+	links, ok := dex.Links(ctx, id)
+	if !ok || len(links) == 0 {
+		return []string{}, nil
+	}
+
+	entries := make([]keg.NodeIndexEntry, 0, len(links))
+	for _, target := range links {
+		ref := dex.GetRef(ctx, target)
+		if ref != nil {
+			entries = append(entries, *ref)
+			continue
+		}
+		entries = append(entries, keg.NodeIndexEntry{ID: target.Path()})
 	}
 	sortNodeIndexEntries(entries)
 	return renderNodeEntries(entries, opts.Format, opts.IdOnly, opts.Reverse), nil
