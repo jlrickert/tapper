@@ -114,6 +114,25 @@ The `github.com/jlrickert/cli-toolkit` module (local at `../cli-toolkit`) provid
 - Typed errors: `BackendError` (with Retryable), `RateLimitError`, `TransientError`.
 - Check with `errors.Is()` for sentinels, `errors.As()` for typed errors.
 
+## Feature Surface Checklist
+
+Every new capability added to the Tap API (`pkg/tapper`) must be propagated to all consumer surfaces. Missing a surface leads to incomplete features — for example, an MCP tool that exists but has no matching CLI command, or a CLI command with no documentation node.
+
+When adding or modifying a feature, update each of these:
+
+1. **Tap API** (`pkg/tapper/tap_*.go`) — business logic method with tests
+2. **CLI command** (`pkg/cli/cmd_*.go`) — Cobra command wiring flags to the Tap method
+3. **Shell completions** — register `ValidArgsFunction` and custom completers for all flags and positional arguments (node IDs, keg aliases, tags, etc.)
+4. **MCP tool** (`pkg/mcp/tools_*.go`) — MCP tool exposing the same capability over JSON-RPC, with input struct and `jsonschema` tags
+5. **Documentation node** — a Feature entity in the dev keg describing usage, flags, and examples
+6. **Tests** — unit tests for the Tap method, CLI integration tests, MCP tool tests, and completion tests
+
+**Configuration changes:** Any change to configuration structure must also update the JSON Schema files under `schemas/`:
+- `schemas/tap-config.json` — tap user/project config schema
+- `schemas/keg-config.json` — keg config schema
+
+These schemas are referenced by editors for validation and completion hints. A config field added without a schema update will lack editor support and validation.
+
 ## Gotchas
 
 - A keg must be initialized (`keg.Init(ctx)`) before Create/SetContent/etc. Init writes the config file and zero node.
