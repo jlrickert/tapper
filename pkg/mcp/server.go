@@ -22,6 +22,8 @@ func NewServer(tap *tapper.Tap, version string, defaults KegDefaults) *sdkmcp.Se
 
 	registerReadTools(srv, tap, defaults)
 	registerWriteTools(srv, tap, defaults)
+	registerIndexTools(srv, tap, defaults)
+	registerDoctorTools(srv, tap, defaults)
 
 	return srv
 }
