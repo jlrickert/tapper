@@ -13,6 +13,11 @@ func renderUserError(err error, deps *Deps) string {
 		return ""
 	}
 
+	var pathErr *tapper.PathNotFoundError
+	if errors.As(err, &pathErr) {
+		return pathErr.Error()
+	}
+
 	var projectErr *tapper.ProjectKegNotFoundError
 	if errors.As(err, &projectErr) {
 		if isDebugLogLevel(deps) && len(projectErr.Tried) > 0 {

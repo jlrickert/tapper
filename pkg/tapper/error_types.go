@@ -36,3 +36,12 @@ func newProjectKegNotFoundError(paths []string) error {
 	}
 	return &ProjectKegNotFoundError{Tried: cleaned}
 }
+
+// PathNotFoundError indicates that the explicit --path target does not exist on disk.
+type PathNotFoundError struct {
+	Path string
+}
+
+func (e *PathNotFoundError) Error() string {
+	return fmt.Sprintf("keg not found at path %q: directory does not exist", e.Path)
+}

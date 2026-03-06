@@ -133,6 +133,18 @@ func TestTap_GlobalFlagsMutuallyExclusive(t *testing.T) {
 	}
 }
 
+func TestTap_PathFlagNonexistentDirectoryShowsClearError(t *testing.T) {
+	t.Parallel()
+
+	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
+
+	res := NewProcess(t, false, "--path", "jiberish", "cat", "0").Run(sb.Context(), sb.Runtime())
+	require.Error(t, res.Err)
+	stderr := string(res.Stderr)
+	require.Contains(t, stderr, "jiberish")
+	require.Contains(t, stderr, "does not exist")
+}
+
 func TestKegV2Help_HidesPersistentKegTargetFlags(t *testing.T) {
 	t.Parallel()
 
