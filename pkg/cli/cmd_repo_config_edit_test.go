@@ -145,7 +145,7 @@ func TestRepoConfigEdit_ProjectRejectsInvalidPipedStdin(t *testing.T) {
 	require.Equal(t, before, after)
 }
 
-func TestRepoConfigEdit_UsesTempFileAndPreservesUnknownFields(t *testing.T) {
+func TestRepoConfigEdit_EditsRealConfigFileAndPreservesUnknownFields(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
 
@@ -186,11 +186,11 @@ EOF
 	require.NoError(t, err)
 	editorArg := strings.TrimSpace(string(rawArg))
 	require.NotEmpty(t, editorArg)
-	require.True(t, strings.HasSuffix(editorArg, ".yaml"))
-	require.NotEqual(t, "/home/testuser/.config/tapper/config.yaml", editorArg)
+	expectedPath := filepath.Join(jail, "home/testuser/.config/tapper/config.yaml")
+	require.Equal(t, expectedPath, editorArg)
 }
 
-func TestRepoConfigEdit_LiveSavePreservesEarlierValidConfigOnLaterInvalidSave(t *testing.T) {
+func TestRepoConfigEdit_ReturnsErrorWhenEditorLeavesInvalidYAML(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
 
@@ -203,11 +203,6 @@ func TestRepoConfigEdit_LiveSavePreservesEarlierValidConfigOnLaterInvalidSave(t 
 
 	scriptPath := filepath.Join(jail, "edit-repo-config-live.sh")
 	script := `#!/bin/sh
-cat > "$1" <<'EOF'
-defaultKeg: valid
-unknownKey: keep-me
-EOF
-sleep 1
 cat > "$1" <<'EOF'
 defaultKeg: [
 EOF
@@ -222,9 +217,6 @@ EOF
 		sb.Runtime(),
 		strings.NewReader(""),
 	)
-	require.NoError(t, res.Err)
-
-	saved := string(sb.MustReadFile("~/.config/tapper/config.yaml"))
-	require.Contains(t, saved, "defaultKeg: valid")
-	require.Contains(t, saved, "unknownKey: keep-me")
+	require.Error(t, res.Err)
+	require.Contains(t, res.Err.Error(), "tap config is invalid after editing")
 }
