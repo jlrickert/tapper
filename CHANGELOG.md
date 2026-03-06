@@ -2,6 +2,54 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.5.0 - 2026-03-06
+
+
+
+### ⚙️ Miscellaneous
+- add node_modules to .gitignore
+- tidy go.mod after MCP SDK addition
+- add docs to Taskfile source watches
+
+
+### 🐛 Bug Fixes
+- make index resilient to missing/malformed node metadata
+- make tap list --limit show most recent nodes instead of oldest
+- resolve data races and add process-aware node locking
+- open real config file in repo config edit instead of temp copy
+- show clear error when --path points to nonexistent directory
+
+
+### 📚 Documentation
+- update repo init examples to use --keg flag
+- add long descriptions to backlinks, archive, create, mv, and stats commands
+- overhaul entity structure examples
+- add node snapshots documentation
+- Add query expressions documentation
+- add MCP server setup guide and update CLAUDE.md
+
+
+### 🚀 Features
+- restructure index commands under `tap index` parent
+- add --limit flag to tap list with default of 50
+- add tap docs command and AI coding agent documentation
+- add tap doctor command for keg health checks
+- add --sort flag to tap list with index expansion
+- add tap links command for outgoing node links
+- add MCP server with read-only KEG tools
+- add MCP write tools for node creation and modification
+- add MCP index and doctor tools
+- add MCP snapshot and file management tools
+
+
+### 🚜 Refactor
+- remove deprecated --alias flag from index subcommands
+
+
+### 🧪 Testing
+- add CLI concurrency tests
+
+
 ## v0.4.0 - 2026-03-04
 
 
