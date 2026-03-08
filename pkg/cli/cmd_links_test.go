@@ -80,7 +80,7 @@ func TestLinksCommand_ListsOutgoingLinks(t *testing.T) {
 	require.Equal(t, "3", strings.TrimSpace(string(source.Stdout)))
 
 	// Reindex so the links index is populated.
-	reindex := NewProcess(t, false, "index", "rebuild", "--full").Run(sb.Context(), sb.Runtime())
+	reindex := NewProcess(t, false, "index", "rebuild").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, reindex.Err)
 
 	idOnly := NewProcess(t, false, "links", "3", "--id-only").Run(sb.Context(), sb.Runtime())

@@ -11,9 +11,6 @@ import (
 type IndexOptions struct {
 	KegTargetOptions
 
-	// Rebuild rebuilds the full index
-	Rebuild bool
-
 	// NoUpdate skips updating node meta information
 	NoUpdate bool
 }
@@ -51,8 +48,8 @@ func (t *Tap) IndexCat(ctx context.Context, opts IndexCatOptions) (string, error
 	return string(data), nil
 }
 
-// Index updates indices for a keg (nodes.tsv, tags, links, backlinks).
-// Default behavior is incremental. Set opts.Rebuild to force a full rebuild.
+// Index rebuilds all indices for a keg (nodes.tsv, tags, links, backlinks)
+// from scratch.
 func (t *Tap) Index(ctx context.Context, opts IndexOptions) (string, error) {
 	k, err := t.resolveKeg(ctx, opts.KegTargetOptions)
 	if err != nil {
@@ -60,7 +57,6 @@ func (t *Tap) Index(ctx context.Context, opts IndexOptions) (string, error) {
 	}
 
 	err = k.Index(ctx, keg.IndexOptions{
-		Rebuild:  opts.Rebuild,
 		NoUpdate: opts.NoUpdate,
 	})
 	if err != nil {

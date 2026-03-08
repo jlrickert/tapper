@@ -603,7 +603,7 @@ func TestIndex_ContentOnlyNodeGetsIndexed(t *testing.T) {
 	require.NoError(t, repo.WriteContent(f.Context(), bareID, []byte("# Bare Node\n\nNo meta or stats.\n")))
 
 	// Rebuild index — should not skip this node.
-	err := k.Index(f.Context(), kegpkg.IndexOptions{Rebuild: true})
+	err := k.Index(f.Context(), kegpkg.IndexOptions{})
 	require.NoError(t, err)
 
 	dex, err := k.Dex(f.Context())
@@ -633,7 +633,7 @@ func TestIndex_MalformedMetaNodeGetsIndexed(t *testing.T) {
 	require.NoError(t, repo.WriteMeta(f.Context(), id, []byte("{{{invalid yaml")))
 
 	// Rebuild — the node should still appear.
-	err = k.Index(f.Context(), kegpkg.IndexOptions{Rebuild: true})
+	err = k.Index(f.Context(), kegpkg.IndexOptions{})
 	// Index may return aggregated errors for the malformed meta, but the node
 	// should still be in the dex.
 	_ = err
