@@ -524,73 +524,34 @@ func (k *Keg) IndexNode(ctx context.Context, id NodeId) error {
 }
 
 type IndexOptions struct {
-	Rebuild  bool
 	NoUpdate bool
 }
 
-// Index updates the keg indices.
-// With Rebuild=true, all index artifacts are rebuilt from scratch.
-// With Rebuild=false, only nodes updated since config.updated (plus missing
-// metadata/stats files) are indexed.
+// Index rebuilds all keg indices from scratch.
+// Every node is scanned, metadata and stats are refreshed (unless
+// NoUpdate is set), and the full dex is regenerated.
 func (k *Keg) Index(ctx context.Context, opts IndexOptions) error {
 	if err := k.checkKegExists(ctx); err != nil {
 		return fmt.Errorf("failed to re index keg: %w", err)
 	}
 
-	indexedAt, err := k.readIndexWatermark(ctx)
-	if err != nil {
-		return err
-	}
-
 	k.dexMu.Lock()
-	if opts.Rebuild {
-		if k.dex == nil {
-			k.dex = &Dex{}
-			// Apply config-driven options (e.g. tag-filtered indexes) to the new Dex.
-			dexOpts, _ := k.dexOptions(ctx)
-			for _, opt := range dexOpts {
-				_ = opt(k.dex)
-			}
-		} else {
-			// Clear preserves registered custom IndexBuilders while emptying their data.
-			k.dex.Clear(ctx)
+	if k.dex == nil {
+		k.dex = &Dex{}
+		// Apply config-driven options (e.g. tag-filtered indexes) to the new Dex.
+		dexOpts, _ := k.dexOptions(ctx)
+		for _, opt := range dexOpts {
+			_ = opt(k.dex)
 		}
 	} else {
-		k.dexMu.Unlock()
-		dex, dexErr := k.Dex(ctx)
-		if dexErr != nil {
-			return dexErr
-		}
-		k.dexMu.Lock()
-		if dex == nil {
-			k.dex = &Dex{}
-		} else {
-			k.dex = dex
-		}
+		// Clear preserves registered custom IndexBuilders while emptying their data.
+		k.dex.Clear(ctx)
 	}
 	k.dexMu.Unlock()
 
 	ids, err := k.Repo.ListNodes(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to list nodes: %w", err)
-	}
-	currentNodes := make(map[string]struct{}, len(ids))
-	for _, id := range ids {
-		currentNodes[id.Path()] = struct{}{}
-	}
-
-	if !opts.Rebuild {
-		for _, ref := range k.dex.Nodes(ctx) {
-			id, perr := ParseNode(ref.ID)
-			if perr != nil || id == nil {
-				continue
-			}
-			if _, ok := currentNodes[id.Path()]; !ok {
-				if err := k.dex.Remove(ctx, *id); err != nil {
-					return fmt.Errorf("failed removing stale node %s from dex: %w", id.Path(), err)
-				}
-			}
-		}
 	}
 
 	var errs []error
@@ -615,20 +576,12 @@ func (k *Keg) Index(ctx context.Context, opts IndexOptions) error {
 			data.Stats = &NodeStats{}
 		}
 
-		changed := data.ContentChanged()
-		statsUpdated := data.Stats.Updated()
-		updatedSinceLastIndex := indexedAt.IsZero() ||
-			statsUpdated.IsZero() ||
-			statsUpdated.After(indexedAt)
-		hasRequiredStats := data.Stats.Title() != "" &&
-			data.Stats.Hash() != "" &&
-			!data.Stats.Created().IsZero() &&
-			!data.Stats.Updated().IsZero()
-
-		needsRefresh := opts.Rebuild ||
-			metaMissing ||
+		needsRefresh := metaMissing ||
 			statsMissing ||
-			(!opts.NoUpdate && (changed || updatedSinceLastIndex || !hasRequiredStats))
+			(!opts.NoUpdate && (data.ContentChanged() || data.Stats.Title() == "" ||
+				data.Stats.Hash() == "" ||
+				data.Stats.Created().IsZero() ||
+				data.Stats.Updated().IsZero()))
 
 		if needsRefresh {
 			err := data.UpdateMeta(ctx, &now)
@@ -640,7 +593,7 @@ func (k *Keg) Index(ctx context.Context, opts IndexOptions) error {
 
 		data.Stats.EnsureTimes(now)
 
-		needsPersist := opts.Rebuild || metaMissing || statsMissing || needsRefresh
+		needsPersist := metaMissing || statsMissing || needsRefresh
 		if needsPersist {
 			err := k.withNodeLock(ctx, id, func(lockCtx context.Context) error {
 				if err := k.Repo.WriteMeta(lockCtx, id, []byte(data.Meta.ToYAML())); err != nil {
@@ -657,16 +610,8 @@ func (k *Keg) Index(ctx context.Context, opts IndexOptions) error {
 			}
 		}
 
-		// Always add to the dex when custom (tag-filtered) indexes are
-		// registered: they start empty and have no on-disk representation to
-		// load from, so every node must pass through Add to populate them.
-		needsDexUpdate := opts.Rebuild || needsRefresh || needsPersist ||
-			k.dex.GetRef(ctx, id) == nil || updatedSinceLastIndex ||
-			len(k.dex.custom) > 0
-		if needsDexUpdate {
-			if err := k.dex.Add(ctx, data); err != nil {
-				errs = append(errs, fmt.Errorf("failed to add node %s: %w", id, err))
-			}
+		if err := k.dex.Add(ctx, data); err != nil {
+			errs = append(errs, fmt.Errorf("failed to add node %s: %w", id, err))
 		}
 	}
 
@@ -1027,17 +972,6 @@ func patchConfigUpdatedField(raw []byte, updated string) ([]byte, error) {
 		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: updated},
 	)
 	return yaml.Marshal(&doc)
-}
-
-func (k *Keg) readIndexWatermark(ctx context.Context) (time.Time, error) {
-	cfg, err := k.Repo.ReadConfig(ctx)
-	if err != nil {
-		if errors.Is(err, ErrNotExist) {
-			return time.Time{}, nil
-		}
-		return time.Time{}, fmt.Errorf("failed to read keg config: %w", err)
-	}
-	return parseStatsTime(cfg.Updated), nil
 }
 
 func (k *Keg) nodeFilesMissing(ctx context.Context, id NodeId) (bool, bool, error) {

@@ -15,7 +15,6 @@ import (
 //	tap index get changes.md
 //	tap index get -k ecw nodes.tsv
 //	tap index rebuild
-//	tap index rebuild --full
 func NewIndexCmd(deps *Deps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "index",
@@ -106,10 +105,7 @@ func newIndexRebuildCmd(deps *Deps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "rebuild",
 		Short: "rebuild indices for a keg",
-		Long: `Rebuild indices for a keg (nodes.tsv, tags, links, backlinks, changes.md).
-
-By default this runs incremental indexing using the keg config timestamp.
-Use --full to scan all nodes and regenerate the full dex.`,
+		Long:  `Rebuild all indices for a keg from scratch (nodes.tsv, tags, links, backlinks, changes.md).`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			applyKegTargetProfile(deps, &opts.KegTargetOptions)
 			ctx := cmd.Context()
@@ -121,7 +117,6 @@ Use --full to scan all nodes and regenerate the full dex.`,
 			return nil
 		},
 	}
-	cmd.Flags().BoolVarP(&opts.Rebuild, "full", "f", false, "full rebuild from scratch (scan all nodes and regenerate dex)")
 
 	return cmd
 }

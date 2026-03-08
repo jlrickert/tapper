@@ -459,7 +459,7 @@ func TestConcurrent_Reads_And_Edits_IndexConsistency(t *testing.T) {
 	// Node data on disk is correct (per-node locking guarantees this),
 	// but the dex may be stale since each process had its own copy.
 	// Rebuild to reconcile.
-	rebuildRes := NewProcess(t, false, "index", "rebuild", "--full").Run(fx.Context(), fx.Runtime())
+	rebuildRes := NewProcess(t, false, "index", "rebuild").Run(fx.Context(), fx.Runtime())
 	require.NoError(t, rebuildRes.Err, "index rebuild should succeed")
 
 	// Verify tag index: all edited nodes should have the "updated" tag.
@@ -562,7 +562,7 @@ func TestConcurrent_Creates_And_Edits_IndexConsistency(t *testing.T) {
 	}
 
 	// Rebuild to reconcile the dex after concurrent writers.
-	rebuildRes := NewProcess(t, false, "index", "rebuild", "--full").Run(fx.Context(), fx.Runtime())
+	rebuildRes := NewProcess(t, false, "index", "rebuild").Run(fx.Context(), fx.Runtime())
 	require.NoError(t, rebuildRes.Err, "index rebuild should succeed")
 
 	// Verify total node count in the index.
