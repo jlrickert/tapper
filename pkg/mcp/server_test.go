@@ -655,10 +655,8 @@ func TestMCP_IndexRebuild(t *testing.T) {
 	session, ctx := newTestSession(t)
 
 	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "index",
-		Arguments: map[string]any{
-			"rebuild": true,
-		},
+		Name:      "index",
+		Arguments: map[string]any{},
 	})
 	require.NoError(t, err)
 	text := extractText(t, res)

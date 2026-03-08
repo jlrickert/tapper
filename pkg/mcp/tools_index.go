@@ -18,18 +18,16 @@ func registerIndexTools(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefault
 // --- index (rebuild) ---
 
 type indexInput struct {
-	Rebuild bool   `json:"rebuild,omitempty" jsonschema:"force a full index rebuild"`
-	Keg     string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
+	Keg string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
 }
 
 func registerIndex(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "index",
-		Description: "Rebuild KEG indexes (nodes, tags, links, backlinks)",
+		Description: "Rebuild all KEG indexes from scratch (nodes, tags, links, backlinks)",
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in indexInput) (*sdkmcp.CallToolResult, any, error) {
 		opts := tapper.IndexOptions{
 			KegTargetOptions: resolveKegTarget(in.Keg, defaults),
-			Rebuild:          in.Rebuild,
 		}
 		result, err := tap.Index(ctx, opts)
 		if err != nil {

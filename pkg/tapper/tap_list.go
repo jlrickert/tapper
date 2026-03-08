@@ -153,7 +153,7 @@ func (t *Tap) List(ctx context.Context, opts ListOptions) ([]string, error) {
 		}
 		if gap >= threshold {
 			t.Runtime.Logger().Warn(
-				"index appears stale: run `tap index rebuild --full` to fix",
+				"index appears stale: run `tap index rebuild` to fix",
 				"indexed", indexed,
 				"on_disk", total,
 				"missing", gap,
