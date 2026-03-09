@@ -968,6 +968,21 @@ func (f *FsRepo) WriteConfig(ctx context.Context, config *Config) error {
 	return nil
 }
 
+// ContentFilePath returns the absolute filesystem path to a node's content file.
+func (f *FsRepo) ContentFilePath(id NodeId) string {
+	return filepath.Join(f.Root, id.Path(), f.ContentFilename)
+}
+
+// MetaFilePath returns the absolute filesystem path to a node's metadata file.
+func (f *FsRepo) MetaFilePath(id NodeId) string {
+	return filepath.Join(f.Root, id.Path(), f.MetaFilename)
+}
+
+// NodeDirPath returns the absolute filesystem path to a node's directory.
+func (f *FsRepo) NodeDirPath(id NodeId) string {
+	return filepath.Join(f.Root, id.Path())
+}
+
 var _ Repository = (*FsRepo)(nil)
 var _ RepositoryFiles = (*FsRepo)(nil)
 var _ RepositoryImages = (*FsRepo)(nil)
