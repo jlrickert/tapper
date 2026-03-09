@@ -9,8 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
-	"time"
 
 	"github.com/jlrickert/cli-toolkit/toolkit"
 	"github.com/jlrickert/tapper/pkg/keg"
@@ -195,17 +193,13 @@ func (t *Tap) editWithTempFile(ctx context.Context, k *keg.Keg, id keg.NodeId) e
 	editCtx, editCancel := context.WithCancel(ctx)
 	defer editCancel()
 
-	// Track when we write to the repo so the reverse sync can suppress
-	// events caused by our own saves.
-	tracker := &saveTracker{}
-
 	// Start reverse sync: watch real node files and update temp file.
 	if fsRepo, ok := k.Repo.(*keg.FsRepo); ok {
 		w, watchErr := fsRepo.WatchEvents()
 		if watchErr == nil {
 			ch, chErr := w.Watch(editCtx, id)
 			if chErr == nil {
-				go reverseSync(editCtx, t.Runtime, k, id, resolvedTempPath, ch, tracker)
+				go reverseSync(editCtx, k, id, resolvedTempPath, ch)
 			} else {
 				_ = w.Close()
 			}
@@ -218,7 +212,6 @@ func (t *Tap) editWithTempFile(ctx context.Context, k *keg.Keg, id keg.NodeId) e
 	}
 
 	if err := editWithLiveSaves(editCtx, t.Runtime, tempPath, func(editedRaw []byte) error {
-		tracker.markSave()
 		return t.applyEditedNodeRaw(ctx, k, id, editedRaw)
 	}); err != nil {
 		return fmt.Errorf("unable to edit node: %w", err)
@@ -226,37 +219,17 @@ func (t *Tap) editWithTempFile(ctx context.Context, k *keg.Keg, id keg.NodeId) e
 	return nil
 }
 
-// saveTracker tracks when the editing flow writes to the repo so the reverse
-// sync can distinguish our own writes from external changes.
-type saveTracker struct {
-	mu       sync.Mutex
-	lastSave time.Time
-}
-
-func (s *saveTracker) markSave() {
-	s.mu.Lock()
-	s.lastSave = time.Now()
-	s.mu.Unlock()
-}
-
-func (s *saveTracker) recentlySaved(window time.Duration) bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return time.Since(s.lastSave) < window
-}
-
 // reverseSync watches for real node file changes and re-composes the temp
 // file so the editor can reload with :e! to pick up external modifications.
+// It compares the composed content against the current temp file to avoid
+// writing when our own saves caused the real file change.
 func reverseSync(
 	ctx context.Context,
-	rt *toolkit.Runtime,
 	k *keg.Keg,
 	id keg.NodeId,
 	tempPath string,
 	ch <-chan keg.NodeEvent,
-	tracker *saveTracker,
 ) {
-	stream := rt.Stream()
 	for {
 		select {
 		case <-ctx.Done():
@@ -264,10 +237,6 @@ func reverseSync(
 		case ev, ok := <-ch:
 			if !ok {
 				return
-			}
-			// Skip events caused by our own saves.
-			if tracker.recentlySaved(500 * time.Millisecond) {
-				continue
 			}
 			// Only sync on content or meta changes.
 			if ev.Field != "content" && ev.Field != "meta" {
@@ -283,12 +252,23 @@ func reverseSync(
 				continue
 			}
 			composed := composeEditNodeFile(meta, content)
+
+			// Compare with what the temp file already contains. If
+			// the content matches, the change was caused by our own
+			// save — skip the write to avoid triggering the editor's
+			// "file changed" warning.
+			if current, readErr := os.ReadFile(tempPath); readErr == nil {
+				if bytes.Equal(current, composed) {
+					continue
+				}
+			}
+
 			if writeErr := os.WriteFile(tempPath, composed, 0o600); writeErr != nil {
-				_, _ = fmt.Fprintf(stream.Err,
+				_, _ = fmt.Fprintf(os.Stderr,
 					"Warning: failed to sync external change to temp file: %v\n", writeErr)
 				continue
 			}
-			_, _ = fmt.Fprintf(stream.Err,
+			_, _ = fmt.Fprintf(os.Stderr,
 				"Info: node %s updated externally (%s) — reload with :e! to see changes\n",
 				id.Path(), ev.Field)
 		}
