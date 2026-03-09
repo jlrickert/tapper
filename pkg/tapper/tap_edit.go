@@ -98,17 +98,18 @@ func (t *Tap) Meta(ctx context.Context, opts MetaOptions) (string, error) {
 	return strings.TrimRight(metaNode.ToYAML(), "\n"), nil
 }
 
-// Edit opens a node in an editor using a temporary markdown file.
+// Edit opens a node in an editor. When the repository is an FsRepo, the real
+// README.md is opened directly for in-place editing. Otherwise a temporary
+// file with frontmatter is used and changes are split back on save.
 //
-// The temp file format is:
+// The temp file format (non-FsRepo) is:
 //
 //	---
 //	<meta yaml>
 //	---
 //	<markdown body>
 //
-// If stdin is piped, it seeds the temp file content. On save, frontmatter is
-// written to meta.yaml and the body is written to the node content file.
+// If stdin is piped, it seeds the content directly without opening an editor.
 func (t *Tap) Edit(ctx context.Context, opts EditOptions) error {
 	k, err := t.resolveKeg(ctx, opts.KegTargetOptions)
 	if err != nil {
@@ -132,6 +133,41 @@ func (t *Tap) Edit(ctx context.Context, opts EditOptions) error {
 		return fmt.Errorf("node %s not found", id.Path())
 	}
 
+	// Handle piped stdin: apply content directly without opening an editor.
+	if opts.Stream != nil && opts.Stream.IsPiped {
+		pipedRaw, readErr := io.ReadAll(opts.Stream.In)
+		if readErr != nil {
+			return fmt.Errorf("unable to read piped input: %w", readErr)
+		}
+		if len(bytes.TrimSpace(pipedRaw)) > 0 {
+			return t.applyEditedNodeRaw(ctx, k, id, pipedRaw)
+		}
+	}
+
+	// In-place editing: when the repo is FsRepo, open the real README.md.
+	if fsRepo, ok := k.Repo.(*keg.FsRepo); ok {
+		return t.editInPlace(ctx, k, fsRepo, id)
+	}
+
+	return t.editWithTempFile(ctx, k, id)
+}
+
+// editInPlace opens the real README.md in the editor and post-processes
+// changes through SetContent to update stats and indexes.
+func (t *Tap) editInPlace(ctx context.Context, k *keg.Keg, fsRepo *keg.FsRepo, id keg.NodeId) error {
+	contentPath := fsRepo.ContentFilePath(id)
+
+	if err := editWithLiveSaves(ctx, t.Runtime, contentPath, func(editedRaw []byte) error {
+		return k.SetContent(ctx, id, editedRaw)
+	}); err != nil {
+		return fmt.Errorf("unable to edit node: %w", err)
+	}
+	return nil
+}
+
+// editWithTempFile is the original editing flow that composes frontmatter +
+// body into a temporary file for non-FsRepo backends.
+func (t *Tap) editWithTempFile(ctx context.Context, k *keg.Keg, id keg.NodeId) error {
 	content, err := k.Repo.ReadContent(ctx, id)
 	if err != nil {
 		return fmt.Errorf("unable to read node content: %w", err)
@@ -144,17 +180,7 @@ func (t *Tap) Edit(ctx context.Context, opts EditOptions) error {
 		meta = nil
 	}
 
-	originalRaw := composeEditNodeFile(meta, content)
-	if opts.Stream != nil && opts.Stream.IsPiped {
-		pipedRaw, readErr := io.ReadAll(opts.Stream.In)
-		if readErr != nil {
-			return fmt.Errorf("unable to read piped input: %w", readErr)
-		}
-		if len(bytes.TrimSpace(pipedRaw)) > 0 {
-			return t.applyEditedNodeRaw(ctx, k, id, pipedRaw)
-		}
-	}
-	initialRaw := originalRaw
+	initialRaw := composeEditNodeFile(meta, content)
 
 	tempPath, err := newEditorTempFilePath(t.Runtime, "tap-edit-"+id.String()+"-", ".md")
 	if err != nil {
