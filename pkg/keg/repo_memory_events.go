@@ -5,9 +5,10 @@ import (
 	"sync"
 )
 
-// memoryRepoWatcher implements RepositoryEvents for MemoryRepo, enabling
-// event-driven testing without filesystem dependencies.
-type memoryRepoWatcher struct {
+// MemoryRepoWatcher implements RepositoryEvents for MemoryRepo, enabling
+// event-driven testing without filesystem dependencies. The Emit method
+// allows test code to simulate repository changes.
+type MemoryRepoWatcher struct {
 	repo *MemoryRepo
 
 	mu     sync.Mutex
@@ -22,13 +23,13 @@ type memorySub struct {
 }
 
 // WatchEvents returns a RepositoryEvents implementation for the MemoryRepo.
-func (r *MemoryRepo) WatchEvents() RepositoryEvents {
-	return &memoryRepoWatcher{repo: r}
+func (r *MemoryRepo) WatchEvents() *MemoryRepoWatcher {
+	return &MemoryRepoWatcher{repo: r}
 }
 
 // Emit sends a NodeEvent to all active subscribers whose filters match.
 // This is intended to be called from test code to simulate repository changes.
-func (w *memoryRepoWatcher) Emit(ev NodeEvent) {
+func (w *MemoryRepoWatcher) Emit(ev NodeEvent) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if w.closed {
@@ -48,7 +49,7 @@ func (w *memoryRepoWatcher) Emit(ev NodeEvent) {
 
 // Watch begins observing changes for the specified node IDs (or all nodes
 // when no IDs are given).
-func (w *memoryRepoWatcher) Watch(ctx context.Context, ids ...NodeId) (<-chan NodeEvent, error) {
+func (w *MemoryRepoWatcher) Watch(ctx context.Context, ids ...NodeId) (<-chan NodeEvent, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if w.closed {
@@ -77,7 +78,7 @@ func (w *memoryRepoWatcher) Watch(ctx context.Context, ids ...NodeId) (<-chan No
 }
 
 // Close releases all watcher resources and closes subscriber channels.
-func (w *memoryRepoWatcher) Close() error {
+func (w *MemoryRepoWatcher) Close() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if w.closed {
@@ -91,7 +92,7 @@ func (w *memoryRepoWatcher) Close() error {
 	return nil
 }
 
-func (w *memoryRepoWatcher) removeSub(sub *memorySub) {
+func (w *MemoryRepoWatcher) removeSub(sub *memorySub) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	for i, s := range w.subs {
@@ -102,4 +103,4 @@ func (w *memoryRepoWatcher) removeSub(sub *memorySub) {
 	}
 }
 
-var _ RepositoryEvents = (*memoryRepoWatcher)(nil)
+var _ RepositoryEvents = (*MemoryRepoWatcher)(nil)

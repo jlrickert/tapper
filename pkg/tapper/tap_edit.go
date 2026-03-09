@@ -144,21 +144,18 @@ func (t *Tap) Edit(ctx context.Context, opts EditOptions) error {
 		}
 	}
 
-	// In-place editing: when the repo is FsRepo, open the real README.md.
-	if fsRepo, ok := k.Repo.(*keg.FsRepo); ok {
-		return t.editInPlace(ctx, k, fsRepo, id)
-	}
-
 	return t.editWithTempFile(ctx, k, id)
 }
 
 // editInPlace opens the real README.md in the editor and post-processes
-// changes through SetContent to update stats and indexes.
+// changes through SetContent to update stats and indexes. If the edited
+// content contains frontmatter delimiters, the frontmatter is split out
+// and written to meta.yaml for backward compatibility.
 func (t *Tap) editInPlace(ctx context.Context, k *keg.Keg, fsRepo *keg.FsRepo, id keg.NodeId) error {
 	contentPath := fsRepo.ContentFilePath(id)
 
 	if err := editWithLiveSaves(ctx, t.Runtime, contentPath, func(editedRaw []byte) error {
-		return k.SetContent(ctx, id, editedRaw)
+		return t.applyEditedNodeRaw(ctx, k, id, editedRaw)
 	}); err != nil {
 		return fmt.Errorf("unable to edit node: %w", err)
 	}
