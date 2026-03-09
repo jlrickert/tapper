@@ -24,7 +24,9 @@ type memorySub struct {
 
 // WatchEvents returns a RepositoryEvents implementation for the MemoryRepo.
 func (r *MemoryRepo) WatchEvents() *MemoryRepoWatcher {
-	return &MemoryRepoWatcher{repo: r}
+	w := &MemoryRepoWatcher{repo: r}
+	r.registerWatcher(w)
+	return w
 }
 
 // Emit sends a NodeEvent to all active subscribers whose filters match.
@@ -89,6 +91,7 @@ func (w *MemoryRepoWatcher) Close() error {
 		s.cancel()
 	}
 	w.subs = nil
+	w.repo.unregisterWatcher(w)
 	return nil
 }
 

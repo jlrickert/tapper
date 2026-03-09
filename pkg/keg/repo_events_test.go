@@ -154,6 +154,38 @@ func TestMemoryRepoEvents_ContextCancellation(t *testing.T) {
 	}
 }
 
+func TestMemoryRepoEvents_ReadContentEmitsAccessed(t *testing.T) {
+	t.Parallel()
+	fx := NewSandbox(t)
+	repo := keg.NewMemoryRepo(fx.Runtime())
+
+	ctx := fx.Context()
+	id := keg.NodeId{ID: 1}
+	require.NoError(t, repo.WriteContent(ctx, id, []byte("# Hello\n")))
+
+	w := repo.WatchEvents()
+	defer w.Close()
+
+	watchCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+
+	ch, err := w.Watch(watchCtx, id)
+	require.NoError(t, err)
+
+	// Reading content should emit an accessed event.
+	_, readErr := repo.ReadContent(ctx, id)
+	require.NoError(t, readErr)
+
+	select {
+	case got := <-ch:
+		require.Equal(t, keg.NodeEventAccessed, got.Kind)
+		require.Equal(t, id, got.NodeID)
+		require.Equal(t, "content", got.Field)
+	case <-watchCtx.Done():
+		t.Fatal("timed out waiting for accessed event")
+	}
+}
+
 // ---------- FsRepo event tests ----------
 
 func TestFsRepoEvents_WatchDetectsContentChange(t *testing.T) {
@@ -222,5 +254,6 @@ func TestNodeEventKind_String(t *testing.T) {
 	require.Equal(t, "created", keg.NodeEventCreated.String())
 	require.Equal(t, "modified", keg.NodeEventModified.String())
 	require.Equal(t, "deleted", keg.NodeEventDeleted.String())
+	require.Equal(t, "accessed", keg.NodeEventAccessed.String())
 	require.Equal(t, "unknown", keg.NodeEventKind(0).String())
 }

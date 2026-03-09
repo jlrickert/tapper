@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"sync"
 	"syscall"
 	"time"
 
@@ -43,6 +44,10 @@ type FsRepo struct {
 	SnapshotCheckpointInterval int
 
 	runtime *toolkit.Runtime
+
+	// watchersMu guards the watchers slice for access event emission.
+	watchersMu sync.Mutex
+	watchers   []*fsRepoWatcher
 }
 
 // NewFsRepo constructs a filesystem repository with the provided root/runtime.
@@ -447,6 +452,7 @@ func (f *FsRepo) ReadContent(ctx context.Context, id NodeId) ([]byte, error) {
 		}
 		return nil, NewBackendError(f.Name(), "ReadContent", 0, err, false)
 	}
+	f.emitToWatchers(NodeEvent{Kind: NodeEventAccessed, NodeID: id, Field: "content"})
 	return b, nil
 }
 
@@ -981,6 +987,34 @@ func (f *FsRepo) MetaFilePath(id NodeId) string {
 // NodeDirPath returns the absolute filesystem path to a node's directory.
 func (f *FsRepo) NodeDirPath(id NodeId) string {
 	return filepath.Join(f.Root, id.Path())
+}
+
+// registerWatcher adds a watcher to the active set for access event emission.
+func (f *FsRepo) registerWatcher(w *fsRepoWatcher) {
+	f.watchersMu.Lock()
+	f.watchers = append(f.watchers, w)
+	f.watchersMu.Unlock()
+}
+
+// unregisterWatcher removes a watcher from the active set.
+func (f *FsRepo) unregisterWatcher(w *fsRepoWatcher) {
+	f.watchersMu.Lock()
+	defer f.watchersMu.Unlock()
+	for i, active := range f.watchers {
+		if active == w {
+			f.watchers = append(f.watchers[:i], f.watchers[i+1:]...)
+			return
+		}
+	}
+}
+
+// emitToWatchers broadcasts a NodeEvent to all active watchers.
+func (f *FsRepo) emitToWatchers(ev NodeEvent) {
+	f.watchersMu.Lock()
+	defer f.watchersMu.Unlock()
+	for _, w := range f.watchers {
+		w.Emit(ev)
+	}
 }
 
 var _ Repository = (*FsRepo)(nil)
