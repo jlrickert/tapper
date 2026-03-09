@@ -2,6 +2,37 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.6.0 - 2026-03-09
+
+
+
+### 🐛 Bug Fixes
+- correct malformed property nesting in keg-config.json schema
+- correct keg resolution precedence and kegMap merge
+- use content comparison to prevent self-triggered editor warnings
+- parallelize index rebuild for dirty nodes
+
+
+### 📚 Documentation
+- add feature surface checklist to CLAUDE.md
+
+
+### 🚀 Features
+- show alias and summary in tap info output
+- add RepositoryEvents interface for live node change notifications
+- implement FsRepo file watcher with fsnotify
+- implement in-place editing for FsRepo
+- add event-aware conflict warnings for non-fs backend editing
+- add MemoryRepo event support for testing
+- add event system tests and fix path resolution
+- add reverse sync to update temp file on external node changes
+- add NodeEventAccessed and emit on content reads
+
+
+### 🚜 Refactor
+- remove incremental indexing, always full rebuild
+
+
 ## v0.5.0 - 2026-03-06
 
 
