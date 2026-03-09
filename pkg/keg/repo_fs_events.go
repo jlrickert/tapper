@@ -13,8 +13,9 @@ import (
 
 // fsRepoWatcher implements RepositoryEvents for FsRepo using fsnotify.
 type fsRepoWatcher struct {
-	repo    *FsRepo
-	watcher *fsnotify.Watcher
+	repo         *FsRepo
+	watcher      *fsnotify.Watcher
+	resolvedRoot string // real filesystem path for fsnotify and classify
 
 	mu      sync.Mutex
 	closed  bool
@@ -28,7 +29,20 @@ func (f *FsRepo) WatchEvents() (RepositoryEvents, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &fsRepoWatcher{repo: f, watcher: w}, nil
+	// Resolve the root path through the runtime so that jailed/sandboxed
+	// paths are expanded to real filesystem paths for fsnotify.
+	resolved := f.Root
+	if f.runtime != nil {
+		if r, resolveErr := f.runtime.ResolvePath(f.Root, false); resolveErr == nil {
+			resolved = r
+		}
+		// Apply jail prefix for sandboxed environments.
+		if jail := strings.TrimSpace(f.runtime.GetJail()); jail != "" {
+			trimmed := strings.TrimPrefix(resolved, string(filepath.Separator))
+			resolved = filepath.Join(jail, trimmed)
+		}
+	}
+	return &fsRepoWatcher{repo: f, watcher: w, resolvedRoot: resolved}, nil
 }
 
 // Watch begins observing changes for the specified node IDs. When no IDs are
@@ -43,13 +57,13 @@ func (fw *fsRepoWatcher) Watch(ctx context.Context, ids ...NodeId) (<-chan NodeE
 	}
 	fw.mu.Unlock()
 
-	// Determine which directories to watch.
+	// Determine which directories to watch using resolved paths.
 	var dirs []string
 	if len(ids) == 0 {
-		dirs = append(dirs, fw.repo.Root)
+		dirs = append(dirs, fw.resolvedRoot)
 	} else {
 		for _, id := range ids {
-			dirs = append(dirs, filepath.Join(fw.repo.Root, id.Path()))
+			dirs = append(dirs, filepath.Join(fw.resolvedRoot, id.Path()))
 		}
 	}
 
@@ -148,7 +162,7 @@ func (fw *fsRepoWatcher) loop(ctx context.Context, ch chan<- NodeEvent, watchRoo
 func (fw *fsRepoWatcher) classify(ev fsnotify.Event, watchRoot bool) (NodeEvent, bool) {
 	// Determine which file changed and derive node ID + field.
 	abs := ev.Name
-	rel, err := filepath.Rel(fw.repo.Root, abs)
+	rel, err := filepath.Rel(fw.resolvedRoot, abs)
 	if err != nil {
 		return NodeEvent{}, false
 	}
