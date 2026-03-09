@@ -238,7 +238,10 @@ func reverseSync(
 			if !ok {
 				return
 			}
-			// Only sync on content or meta changes.
+			// Only sync on content or meta modifications, not access events.
+			if ev.Kind == keg.NodeEventAccessed {
+				continue
+			}
 			if ev.Field != "content" && ev.Field != "meta" {
 				continue
 			}

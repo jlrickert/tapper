@@ -12,6 +12,8 @@ const (
 	NodeEventModified
 	// NodeEventDeleted indicates a node or node file was removed.
 	NodeEventDeleted
+	// NodeEventAccessed indicates a node's content or metadata was read.
+	NodeEventAccessed
 )
 
 // String returns a human-readable label for the event kind.
@@ -23,15 +25,17 @@ func (k NodeEventKind) String() string {
 		return "modified"
 	case NodeEventDeleted:
 		return "deleted"
+	case NodeEventAccessed:
+		return "accessed"
 	default:
 		return "unknown"
 	}
 }
 
-// NodeEvent describes a single change observed on a node. Field identifies
-// which part of the node changed: "content" for README.md, "meta" for
-// meta.yaml, "stats" for stats.json, or "" when the change applies to the
-// node as a whole (e.g. creation or deletion of the entire directory).
+// NodeEvent describes a single change or access observed on a node. Field
+// identifies which part of the node was affected: "content" for README.md,
+// "meta" for meta.yaml, "stats" for stats.json, or "" when the event applies
+// to the node as a whole (e.g. creation or deletion of the entire directory).
 type NodeEvent struct {
 	Kind   NodeEventKind
 	NodeID NodeId
@@ -51,5 +55,9 @@ type NodeEvent struct {
 // are closed and no further events are delivered.
 type RepositoryEvents interface {
 	Watch(ctx context.Context, ids ...NodeId) (<-chan NodeEvent, error)
+	// Emit sends a NodeEvent to all active subscribers whose filters match.
+	// This is used for programmatic events (e.g. access tracking) that
+	// cannot be detected by filesystem watchers.
+	Emit(ev NodeEvent)
 	Close() error
 }
