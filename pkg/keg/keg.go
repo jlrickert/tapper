@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -554,64 +555,51 @@ func (k *Keg) Index(ctx context.Context, opts IndexOptions) error {
 		return fmt.Errorf("failed to list nodes: %w", err)
 	}
 
-	var errs []error
 	now := k.Runtime.Clock().Now()
 
-	for _, id := range ids {
-		metaMissing, statsMissing, probeErr := k.nodeFilesMissing(ctx, id)
-		if probeErr != nil {
-			errs = append(errs, probeErr)
-			continue
-		}
+	// Process nodes in parallel. Each node's probe, read, refresh, and
+	// persist steps are independent. Results are collected and fed to
+	// dex.Add sequentially after all workers complete.
+	type indexResult struct {
+		id   NodeId
+		data *NodeData
+		errs []error
+	}
 
-		data, nodeErrs := k.getNodeBestEffort(ctx, id)
-		if len(nodeErrs) > 0 {
-			errs = append(errs, nodeErrs...)
-		}
+	workers := runtime.NumCPU()
+	if workers > 16 {
+		workers = 16
+	}
+	if workers < 1 {
+		workers = 1
+	}
 
-		if data.Meta == nil {
-			data.Meta = NewMeta(ctx, time.Time{})
-		}
-		if data.Stats == nil {
-			data.Stats = &NodeStats{}
-		}
+	sem := make(chan struct{}, workers)
+	results := make([]indexResult, len(ids))
 
-		needsRefresh := metaMissing ||
-			statsMissing ||
-			(!opts.NoUpdate && (data.ContentChanged() || data.Stats.Title() == "" ||
-				data.Stats.Hash() == "" ||
-				data.Stats.Created().IsZero() ||
-				data.Stats.Updated().IsZero()))
+	var wg sync.WaitGroup
+	for i, id := range ids {
+		wg.Add(1)
+		go func(idx int, nodeID NodeId) {
+			defer wg.Done()
+			sem <- struct{}{}        // acquire
+			defer func() { <-sem }() // release
 
-		if needsRefresh {
-			err := data.UpdateMeta(ctx, &now)
-			if err != nil {
-				errs = append(errs, err)
-				continue
+			res := indexResult{id: nodeID}
+			res.data, res.errs = k.indexNode(ctx, nodeID, opts, now)
+			results[idx] = res
+		}(i, id)
+	}
+	wg.Wait()
+
+	// Sequentially add results to the dex and collect errors.
+	var errs []error
+	for _, res := range results {
+		errs = append(errs, res.errs...)
+		if res.data != nil {
+			if err := k.dex.Add(ctx, res.data); err != nil {
+				errs = append(errs, fmt.Errorf("failed to add node %s: %w", res.id, err))
 			}
-		}
-
-		data.Stats.EnsureTimes(now)
-
-		needsPersist := metaMissing || statsMissing || needsRefresh
-		if needsPersist {
-			err := k.withNodeLock(ctx, id, func(lockCtx context.Context) error {
-				if err := k.Repo.WriteMeta(lockCtx, id, []byte(data.Meta.ToYAML())); err != nil {
-					return fmt.Errorf("failed to write node meta %s: %w", id.Path(), err)
-				}
-				if err := k.Repo.WriteStats(lockCtx, id, data.Stats); err != nil {
-					return fmt.Errorf("failed to write node stats %s: %w", id.Path(), err)
-				}
-				return nil
-			})
-			if err != nil {
-				errs = append(errs, err)
-				continue
-			}
-		}
-
-		if err := k.dex.Add(ctx, data); err != nil {
-			errs = append(errs, fmt.Errorf("failed to add node %s: %w", id, err))
 		}
 	}
 
@@ -623,6 +611,65 @@ func (k *Keg) Index(ctx context.Context, opts IndexOptions) error {
 	}
 
 	return errors.Join(errs...)
+}
+
+// indexNode processes a single node for index rebuild: probes for missing
+// files, reads content/meta/stats, refreshes if needed, and persists
+// changes. It is safe to call concurrently for different nodes.
+func (k *Keg) indexNode(ctx context.Context, id NodeId, opts IndexOptions, now time.Time) (*NodeData, []error) {
+	var errs []error
+
+	metaMissing, statsMissing, probeErr := k.nodeFilesMissing(ctx, id)
+	if probeErr != nil {
+		return nil, []error{probeErr}
+	}
+
+	data, nodeErrs := k.getNodeBestEffort(ctx, id)
+	if len(nodeErrs) > 0 {
+		errs = append(errs, nodeErrs...)
+	}
+
+	if data.Meta == nil {
+		data.Meta = NewMeta(ctx, time.Time{})
+	}
+	if data.Stats == nil {
+		data.Stats = &NodeStats{}
+	}
+
+	needsRefresh := metaMissing ||
+		statsMissing ||
+		(!opts.NoUpdate && (data.ContentChanged() || data.Stats.Title() == "" ||
+			data.Stats.Hash() == "" ||
+			data.Stats.Created().IsZero() ||
+			data.Stats.Updated().IsZero()))
+
+	if needsRefresh {
+		if err := data.UpdateMeta(ctx, &now); err != nil {
+			errs = append(errs, err)
+			return nil, errs
+		}
+	}
+
+	data.Stats.EnsureTimes(now)
+
+	needsPersist := metaMissing || statsMissing || needsRefresh
+	if needsPersist {
+		err := k.withNodeLock(ctx, id, func(lockCtx context.Context) error {
+			if err := k.Repo.WriteMeta(lockCtx, id, []byte(data.Meta.ToYAML())); err != nil {
+				return fmt.Errorf("failed to write node meta %s: %w", id.Path(), err)
+			}
+			if err := k.Repo.WriteStats(lockCtx, id, data.Stats); err != nil {
+				return fmt.Errorf("failed to write node stats %s: %w", id.Path(), err)
+			}
+			return nil
+		})
+		if err != nil {
+			errs = append(errs, err)
+			return nil, errs
+		}
+	}
+
+	return data, errs
 }
 
 // Move renames a node from src to dst and rewrites in-content links that
