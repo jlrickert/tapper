@@ -20,6 +20,13 @@ type fsRepoWatcher struct {
 	mu      sync.Mutex
 	closed  bool
 	cancels []context.CancelFunc
+	subs    []*fsSub // active subscribers for Emit broadcasts
+}
+
+// fsSub tracks a single Watch subscriber for Emit delivery.
+type fsSub struct {
+	ch  chan NodeEvent
+	ids map[NodeId]struct{} // empty means all nodes
 }
 
 // WatchEvents returns a RepositoryEvents implementation for the FsRepo.
@@ -42,7 +49,9 @@ func (f *FsRepo) WatchEvents() (RepositoryEvents, error) {
 			resolved = filepath.Join(jail, trimmed)
 		}
 	}
-	return &fsRepoWatcher{repo: f, watcher: w, resolvedRoot: resolved}, nil
+	fw := &fsRepoWatcher{repo: f, watcher: w, resolvedRoot: resolved}
+	f.registerWatcher(fw)
+	return fw, nil
 }
 
 // Watch begins observing changes for the specified node IDs. When no IDs are
@@ -74,13 +83,56 @@ func (fw *fsRepoWatcher) Watch(ctx context.Context, ids ...NodeId) (<-chan NodeE
 	}
 
 	watchCtx, cancel := context.WithCancel(ctx)
-	fw.mu.Lock()
-	fw.cancels = append(fw.cancels, cancel)
-	fw.mu.Unlock()
 
 	ch := make(chan NodeEvent, 16)
+	idSet := make(map[NodeId]struct{}, len(ids))
+	for _, id := range ids {
+		idSet[id] = struct{}{}
+	}
+	sub := &fsSub{ch: ch, ids: idSet}
+
+	fw.mu.Lock()
+	fw.cancels = append(fw.cancels, cancel)
+	fw.subs = append(fw.subs, sub)
+	fw.mu.Unlock()
+
+	// Remove subscriber when context is done.
+	go func() {
+		<-watchCtx.Done()
+		fw.removeSub(sub)
+	}()
+
 	go fw.loop(watchCtx, ch, len(ids) == 0)
 	return ch, nil
+}
+
+// Emit sends a NodeEvent to all active subscribers whose filters match.
+func (fw *fsRepoWatcher) Emit(ev NodeEvent) {
+	fw.mu.Lock()
+	defer fw.mu.Unlock()
+	if fw.closed {
+		return
+	}
+	for _, s := range fw.subs {
+		_, match := s.ids[ev.NodeID]
+		if len(s.ids) == 0 || match {
+			select {
+			case s.ch <- ev:
+			default:
+			}
+		}
+	}
+}
+
+func (fw *fsRepoWatcher) removeSub(sub *fsSub) {
+	fw.mu.Lock()
+	defer fw.mu.Unlock()
+	for i, s := range fw.subs {
+		if s == sub {
+			fw.subs = append(fw.subs[:i], fw.subs[i+1:]...)
+			return
+		}
+	}
 }
 
 // Close releases all watcher resources and cancels active Watch goroutines.
@@ -95,6 +147,8 @@ func (fw *fsRepoWatcher) Close() error {
 		cancel()
 	}
 	fw.cancels = nil
+	fw.subs = nil
+	fw.repo.unregisterWatcher(fw)
 	return fw.watcher.Close()
 }
 

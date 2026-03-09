@@ -44,6 +44,10 @@ type MemoryRepo struct {
 	config *Config
 
 	runtime *toolkit.Runtime
+
+	// watchersMu guards the watchers slice for access event emission.
+	watchersMu sync.Mutex
+	watchers   []*MemoryRepoWatcher
 }
 
 type memoryNode struct {
@@ -148,6 +152,7 @@ func (r *MemoryRepo) ReadContent(ctx context.Context, id NodeId) ([]byte, error)
 	}
 	cp := make([]byte, len(n.content))
 	copy(cp, n.content)
+	r.emitToWatchers(NodeEvent{Kind: NodeEventAccessed, NodeID: id, Field: "content"})
 	return cp, nil
 }
 
@@ -621,6 +626,34 @@ func (r *MemoryRepo) WithNodeLock(ctx context.Context, id NodeId, fn func(contex
 	runErr := fn(lockedCtx)
 	unlockErr := unlock()
 	return errors.Join(runErr, unlockErr)
+}
+
+// registerWatcher adds a watcher to the active set for access event emission.
+func (r *MemoryRepo) registerWatcher(w *MemoryRepoWatcher) {
+	r.watchersMu.Lock()
+	r.watchers = append(r.watchers, w)
+	r.watchersMu.Unlock()
+}
+
+// unregisterWatcher removes a watcher from the active set.
+func (r *MemoryRepo) unregisterWatcher(w *MemoryRepoWatcher) {
+	r.watchersMu.Lock()
+	defer r.watchersMu.Unlock()
+	for i, active := range r.watchers {
+		if active == w {
+			r.watchers = append(r.watchers[:i], r.watchers[i+1:]...)
+			return
+		}
+	}
+}
+
+// emitToWatchers broadcasts a NodeEvent to all active watchers.
+func (r *MemoryRepo) emitToWatchers(ev NodeEvent) {
+	r.watchersMu.Lock()
+	defer r.watchersMu.Unlock()
+	for _, w := range r.watchers {
+		w.Emit(ev)
+	}
 }
 
 // Ensure MemoryRepo implements Repository at compile time.
