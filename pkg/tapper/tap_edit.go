@@ -6,7 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/jlrickert/cli-toolkit/toolkit"
 	"github.com/jlrickert/tapper/pkg/keg"
@@ -147,25 +151,11 @@ func (t *Tap) Edit(ctx context.Context, opts EditOptions) error {
 	return t.editWithTempFile(ctx, k, id)
 }
 
-// editInPlace opens the real README.md in the editor and post-processes
-// changes through SetContent to update stats and indexes. If the edited
-// content contains frontmatter delimiters, the frontmatter is split out
-// and written to meta.yaml for backward compatibility.
-func (t *Tap) editInPlace(ctx context.Context, k *keg.Keg, fsRepo *keg.FsRepo, id keg.NodeId) error {
-	contentPath := fsRepo.ContentFilePath(id)
-
-	if err := editWithLiveSaves(ctx, t.Runtime, contentPath, func(editedRaw []byte) error {
-		return t.applyEditedNodeRaw(ctx, k, id, editedRaw)
-	}); err != nil {
-		return fmt.Errorf("unable to edit node: %w", err)
-	}
-	return nil
-}
-
 // editWithTempFile is the editing flow that composes frontmatter + body into
-// a temporary file for non-FsRepo backends. When the repository supports
-// RepositoryEvents, a watcher is started to warn about remote changes that
-// arrive while the user is editing.
+// a temporary file. When the repository is an FsRepo, a reverse sync watcher
+// monitors the real node files (README.md, meta.yaml) and re-composes the
+// temp file when external changes are detected, so the editor can reload
+// with :e! to pick up changes from other tap instances.
 func (t *Tap) editWithTempFile(ctx context.Context, k *keg.Keg, id keg.NodeId) error {
 	content, err := k.Repo.ReadContent(ctx, id)
 	if err != nil {
@@ -192,33 +182,117 @@ func (t *Tap) editWithTempFile(ctx context.Context, k *keg.Keg, id keg.NodeId) e
 		_ = t.Runtime.Remove(tempPath, false)
 	}()
 
-	// If the backend supports events, watch for remote changes during edit.
+	// Resolve the real temp file path for os.WriteFile in the sync goroutine.
+	resolvedTempPath := tempPath
+	if rp, resolveErr := t.Runtime.ResolvePath(tempPath, false); resolveErr == nil {
+		resolvedTempPath = rp
+	}
+	if jail := strings.TrimSpace(t.Runtime.GetJail()); jail != "" {
+		trimmed := strings.TrimPrefix(resolvedTempPath, string(filepath.Separator))
+		resolvedTempPath = filepath.Join(jail, trimmed)
+	}
+
 	editCtx, editCancel := context.WithCancel(ctx)
 	defer editCancel()
-	if evRepo, ok := k.Repo.(keg.RepositoryEvents); ok {
-		ch, watchErr := evRepo.Watch(editCtx, id)
+
+	// Track when we write to the repo so the reverse sync can suppress
+	// events caused by our own saves.
+	tracker := &saveTracker{}
+
+	// Start reverse sync: watch real node files and update temp file.
+	if fsRepo, ok := k.Repo.(*keg.FsRepo); ok {
+		w, watchErr := fsRepo.WatchEvents()
 		if watchErr == nil {
-			stream := t.Runtime.Stream()
+			ch, chErr := w.Watch(editCtx, id)
+			if chErr == nil {
+				go reverseSync(editCtx, t.Runtime, k, id, resolvedTempPath, ch, tracker)
+			} else {
+				_ = w.Close()
+			}
+			// Close watcher when edit context is done.
 			go func() {
-				for ev := range ch {
-					field := ev.Field
-					if field == "" {
-						field = "node"
-					}
-					_, _ = fmt.Fprintf(stream.Err,
-						"Warning: remote %s change detected on node %s (%s) — save may overwrite\n",
-						ev.Kind, ev.NodeID.Path(), field)
-				}
+				<-editCtx.Done()
+				_ = w.Close()
 			}()
 		}
 	}
 
 	if err := editWithLiveSaves(editCtx, t.Runtime, tempPath, func(editedRaw []byte) error {
+		tracker.markSave()
 		return t.applyEditedNodeRaw(ctx, k, id, editedRaw)
 	}); err != nil {
 		return fmt.Errorf("unable to edit node: %w", err)
 	}
 	return nil
+}
+
+// saveTracker tracks when the editing flow writes to the repo so the reverse
+// sync can distinguish our own writes from external changes.
+type saveTracker struct {
+	mu       sync.Mutex
+	lastSave time.Time
+}
+
+func (s *saveTracker) markSave() {
+	s.mu.Lock()
+	s.lastSave = time.Now()
+	s.mu.Unlock()
+}
+
+func (s *saveTracker) recentlySaved(window time.Duration) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return time.Since(s.lastSave) < window
+}
+
+// reverseSync watches for real node file changes and re-composes the temp
+// file so the editor can reload with :e! to pick up external modifications.
+func reverseSync(
+	ctx context.Context,
+	rt *toolkit.Runtime,
+	k *keg.Keg,
+	id keg.NodeId,
+	tempPath string,
+	ch <-chan keg.NodeEvent,
+	tracker *saveTracker,
+) {
+	stream := rt.Stream()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case ev, ok := <-ch:
+			if !ok {
+				return
+			}
+			// Skip events caused by our own saves.
+			if tracker.recentlySaved(500 * time.Millisecond) {
+				continue
+			}
+			// Only sync on content or meta changes.
+			if ev.Field != "content" && ev.Field != "meta" {
+				continue
+			}
+			// Re-read the real files and recompose.
+			content, err := k.Repo.ReadContent(ctx, id)
+			if err != nil {
+				continue
+			}
+			meta, err := k.Repo.ReadMeta(ctx, id)
+			if err != nil && !errors.Is(err, keg.ErrNotExist) {
+				continue
+			}
+			composed := composeEditNodeFile(meta, content)
+			if writeErr := os.WriteFile(tempPath, composed, 0o600); writeErr != nil {
+				_, _ = fmt.Fprintf(stream.Err,
+					"Warning: failed to sync external change to temp file: %v\n", writeErr)
+				continue
+			}
+			_, _ = fmt.Fprintf(stream.Err,
+				"Info: node %s updated externally (%s) — reload with :e! to see changes\n",
+				id.Path(), ev.Field)
+		}
+	}
 }
 
 func (t *Tap) applyEditedNodeRaw(ctx context.Context, k *keg.Keg, id keg.NodeId, editedRaw []byte) error {
