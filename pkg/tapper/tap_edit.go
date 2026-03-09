@@ -165,8 +165,10 @@ func (t *Tap) editInPlace(ctx context.Context, k *keg.Keg, fsRepo *keg.FsRepo, i
 	return nil
 }
 
-// editWithTempFile is the original editing flow that composes frontmatter +
-// body into a temporary file for non-FsRepo backends.
+// editWithTempFile is the editing flow that composes frontmatter + body into
+// a temporary file for non-FsRepo backends. When the repository supports
+// RepositoryEvents, a watcher is started to warn about remote changes that
+// arrive while the user is editing.
 func (t *Tap) editWithTempFile(ctx context.Context, k *keg.Keg, id keg.NodeId) error {
 	content, err := k.Repo.ReadContent(ctx, id)
 	if err != nil {
@@ -193,7 +195,28 @@ func (t *Tap) editWithTempFile(ctx context.Context, k *keg.Keg, id keg.NodeId) e
 		_ = t.Runtime.Remove(tempPath, false)
 	}()
 
-	if err := editWithLiveSaves(ctx, t.Runtime, tempPath, func(editedRaw []byte) error {
+	// If the backend supports events, watch for remote changes during edit.
+	editCtx, editCancel := context.WithCancel(ctx)
+	defer editCancel()
+	if evRepo, ok := k.Repo.(keg.RepositoryEvents); ok {
+		ch, watchErr := evRepo.Watch(editCtx, id)
+		if watchErr == nil {
+			stream := t.Runtime.Stream()
+			go func() {
+				for ev := range ch {
+					field := ev.Field
+					if field == "" {
+						field = "node"
+					}
+					_, _ = fmt.Fprintf(stream.Err,
+						"Warning: remote %s change detected on node %s (%s) — save may overwrite\n",
+						ev.Kind, ev.NodeID.Path(), field)
+				}
+			}()
+		}
+	}
+
+	if err := editWithLiveSaves(editCtx, t.Runtime, tempPath, func(editedRaw []byte) error {
 		return t.applyEditedNodeRaw(ctx, k, id, editedRaw)
 	}); err != nil {
 		return fmt.Errorf("unable to edit node: %w", err)
