@@ -167,6 +167,12 @@ func (t *Tap) editWithTempFile(ctx context.Context, k *keg.Keg, id keg.NodeId) e
 		meta = nil
 	}
 
+	// Bump access_count for interactive editing sessions. This records
+	// that the user accessed the node before the editor opens.
+	if err := k.Touch(ctx, id); err != nil {
+		return fmt.Errorf("unable to update node access: %w", err)
+	}
+
 	initialRaw := composeEditNodeFile(meta, content)
 
 	tempPath, err := newEditorTempFilePath(t.Runtime, "tap-edit-"+id.String()+"-", ".md")

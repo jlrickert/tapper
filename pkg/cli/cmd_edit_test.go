@@ -1,6 +1,7 @@
 package cli_test
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -139,4 +140,64 @@ EOF
 	require.Contains(t, meta, "- live")
 	require.Contains(t, content, "# Saved First")
 	require.NotContains(t, content, "# Broken Final")
+}
+
+// TestEdit_InteractiveEdit_BumpsAccessCount verifies that opening a node in
+// the editor (interactive edit via editWithTempFile) increments access_count.
+func TestEdit_InteractiveEdit_BumpsAccessCount(t *testing.T) {
+	t.Parallel()
+	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
+
+	jail := sb.Runtime().GetJail()
+	require.NotEmpty(t, jail)
+	resolvedJail, err := filepath.EvalSymlinks(jail)
+	require.NoError(t, err)
+	require.NoError(t, sb.Runtime().SetJail(resolvedJail))
+	jail = resolvedJail
+
+	// Editor that immediately exits without changes.
+	scriptPath := filepath.Join(jail, "edit-noop.sh")
+	script := "#!/bin/sh\ntrue\n"
+	require.NoError(t, os.WriteFile(scriptPath, []byte(script), 0o755))
+	require.NoError(t, sb.Runtime().Set("EDITOR", "/bin/sh "+scriptPath))
+	sb.Runtime().Unset("VISUAL")
+
+	statsPath := "~/kegs/personal/0/stats.json"
+	sb.MustWriteFile(statsPath, []byte(`{"accessed":"2001-01-01T00:00:00Z","access_count":3}`), 0o644)
+
+	res := NewProcess(t, false, "edit", "0", "--keg", "personal").
+		RunWithIO(sb.Context(), sb.Runtime(), strings.NewReader(""))
+	require.NoError(t, res.Err)
+
+	var stats catStatsJSON
+	require.NoError(t, json.Unmarshal(sb.MustReadFile(statsPath), &stats))
+	require.Equal(t, 4, stats.AccessCount,
+		"interactive edit should bump access_count")
+}
+
+// TestEdit_PipedEdit_DoesNotBumpAccessCount verifies that piped edits
+// (content via stdin) do not increment access_count.
+func TestEdit_PipedEdit_DoesNotBumpAccessCount(t *testing.T) {
+	t.Parallel()
+	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
+	require.NoError(t, sb.Runtime().Set("EDITOR", "/bin/false"))
+	sb.Runtime().Unset("VISUAL")
+
+	statsPath := "~/kegs/personal/0/stats.json"
+	sb.MustWriteFile(statsPath, []byte(`{"accessed":"2001-01-01T00:00:00Z","access_count":3}`), 0o644)
+
+	stdin := strings.NewReader(`---
+tags:
+  - piped-count-test
+---
+# Piped Count Test
+`)
+	res := NewProcess(t, false, "edit", "0", "--keg", "personal").
+		RunWithIO(sb.Context(), sb.Runtime(), stdin)
+	require.NoError(t, res.Err)
+
+	var stats catStatsJSON
+	require.NoError(t, json.Unmarshal(sb.MustReadFile(statsPath), &stats))
+	require.Equal(t, 3, stats.AccessCount,
+		"piped edit should not bump access_count")
 }
