@@ -11,14 +11,14 @@ builds:
     env: [CGO_ENABLED=0, GOWORK=off]
     goos: [linux, darwin, windows]
     goarch: [amd64, arm64]
-    ldflags: ["-s -w"]
+    ldflags: ["-s -w -X github.com/jlrickert/tapper/pkg/cli.Version={{.Version}}"]
   - id: keg
     binary: keg
     main: ./cmd/keg
     env: [CGO_ENABLED=0, GOWORK=off]
     goos: [linux, darwin, windows]
     goarch: [amd64, arm64]
-    ldflags: ["-s -w"]
+    ldflags: ["-s -w -X github.com/jlrickert/tapper/pkg/cli.Version={{.Version}}"]
 
 archives:
   - id: tap
