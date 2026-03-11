@@ -2,6 +2,18 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.9.0 - 2026-03-11
+
+
+
+### 🐛 Bug Fixes
+- correct license to Apache-2.0 in Homebrew formulas
+
+
+### 🚀 Features
+- add version subcommand and inject version via ldflags
+
+
 ## v0.8.0 - 2026-03-11
 
 
