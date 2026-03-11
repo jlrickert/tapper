@@ -26,19 +26,28 @@ maintaining shared memory.
 
 ## Installation
 
-Prerequisite: Go `1.26.0` or newer.
-
-Recommendation: install using the newest release tag (currently `v0.2.0`).
-
-Install binaries from the newest tag:
+### Homebrew (macOS and Linux)
 
 ```bash
-go install github.com/jlrickert/tapper/cmd/tap@v0.2.0
-go install github.com/jlrickert/tapper/cmd/keg@v0.2.0
+brew install jlrickert/formulae/tapper
 ```
 
-Precompiled binaries are also published on GitHub Releases:
-<https://github.com/jlrickert/tapper/releases> (use the newest tag).
+Optional: install the pruned project-local binary too:
+
+```bash
+brew install jlrickert/formulae/keg
+```
+
+Shell completions for zsh, bash, and fish are installed automatically.
+
+### From source
+
+Prerequisite: Go `1.26.0` or newer.
+
+```bash
+go install github.com/jlrickert/tapper/cmd/tap@latest
+go install github.com/jlrickert/tapper/cmd/keg@latest
+```
 
 If needed, add your Go bin directory to `PATH`:
 
@@ -46,40 +55,22 @@ If needed, add your Go bin directory to `PATH`:
 export PATH="$(go env GOPATH)/bin:$PATH"
 ```
 
+Set up shell completions manually:
+
+```bash
+# zsh (persist)
+tap completion zsh > "${fpath[1]}/_tap"
+```
+
+### Precompiled binaries
+
+Download from [GitHub Releases](https://github.com/jlrickert/tapper/releases).
+
 Verify installation:
 
 ```bash
 tap --help
 ```
-
-Optional: verify the pruned project-focused binary too:
-
-```bash
-keg --help
-```
-
-Set up shell completions for `tap`:
-
-```bash
-# zsh (current session)
-source <(tap completion zsh)
-
-# zsh (persist)
-tap completion zsh > "${fpath[1]}/_tap"
-```
-
-Optional: install completions for `keg` if you use the pruned binary:
-
-```bash
-# zsh (current session)
-source <(keg completion zsh)
-
-# zsh (persist)
-keg completion zsh > "${fpath[1]}/_keg"
-```
-
-If new commands do not appear in tab completion after an upgrade, regenerate the
-completion files and reload your shell.
 
 ## Quick Start
 
