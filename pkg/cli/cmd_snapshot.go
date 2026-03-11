@@ -47,7 +47,7 @@ func NewSnapshotCreateCmd(deps *Deps) *cobra.Command {
 		Short: "create a snapshot for the current node state",
 		Example: strings.TrimSpace(`
 tap snapshot create 12 --keg personal -m "before refactor"
-kegv2 snapshot create 12 -m "before refactor"
+keg snapshot create 12 -m "before refactor"
 `),
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {

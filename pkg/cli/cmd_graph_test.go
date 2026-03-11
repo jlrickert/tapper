@@ -115,7 +115,7 @@ func TestGraphCommand_WritesOutputFile(t *testing.T) {
 	require.Contains(t, out, "window.__KEG__ = ")
 }
 
-func TestKegV2GraphCommand_WorksOnProjectKeg(t *testing.T) {
+func TestKegGraphCommand_WorksOnProjectKeg(t *testing.T) {
 	t.Parallel()
 
 	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
@@ -126,7 +126,7 @@ func TestKegV2GraphCommand_WorksOnProjectKeg(t *testing.T) {
 	).Run(sb.Context(), sb.Runtime())
 	require.NoError(t, initRes.Err)
 
-	res := NewKegV2Process(t, false, "graph").Run(sb.Context(), sb.Runtime())
+	res := NewKegProcess(t, false, "graph").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 	require.Contains(t, string(res.Stdout), "<!DOCTYPE html>")
 	require.Contains(t, string(res.Stdout), "window.__KEG__ = ")

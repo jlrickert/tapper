@@ -2,7 +2,7 @@
 
 This documentation is for end users and contributors working with tapper.
 
-`tap` is the primary CLI. `kegv2` is a narrower project-focused profile built
+`tap` is the primary CLI. `keg` is a narrower project-focused profile built
 from the same command tree.
 
 ## Audience And Goals
@@ -92,7 +92,7 @@ it.
 - `tap repo config template user|project` — print starter config templates
 
 Use the project-local profile when you want that narrowed workflow:
-`kegv2 snapshot|archive ...`
+`keg snapshot|archive ...`
 
 ## Common Scenarios
 

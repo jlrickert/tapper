@@ -1,15 +1,15 @@
 # CLI And Command Flow
 
 This page describes how `tap` executes a command from process start to service
-call, and how optional secondary binaries such as `kegv2` reuse the same
+call, and how optional secondary binaries such as `keg` reuse the same
 machinery with a different profile.
 
 ## Entrypoints
 
 - `cmd/tap/tap.go` calls `cli.Run(ctx, rt, os.Args[1:])`
-- `cmd/kegv2/keg.go` calls `cli.RunWithProfile(..., cli.KegV2Profile())`
+- `cmd/keg/keg.go` calls `cli.RunWithProfile(..., cli.KegProfile())`
 
-`tap` is the primary binary. `kegv2` is a secondary binary that demonstrates
+`tap` is the primary binary. `keg` is a secondary binary that demonstrates
 how the same command framework can be pruned through profile-based behavior.
 
 ## Run Wrapper
@@ -43,7 +43,7 @@ Most commands follow this shape:
 1. Bind command-specific flags into a typed options struct.
 2. Merge root KEG target defaults and apply profile-specific target behavior.
    `tap` uses the full profile.
-   `kegv2` uses a pruned profile that forces project resolution and drops
+   `keg` uses a pruned profile that forces project resolution and drops
    config/repo command surfaces.
 3. Call a single method on `deps.Tap`.
 4. Write returned output to stdout.
@@ -59,11 +59,11 @@ Example command files:
 Profiles are defined in `pkg/cli/profile.go`.
 
 - `TapProfile` enables repo/config commands and alias flags.
-- `KegV2Profile` forces project-style resolution and disables alias/config/repo
+- `KegProfile` forces project-style resolution and disables alias/config/repo
   command surfaces.
 - Snapshot/archive commands (`snapshot`, `archive import`, `archive export`)
   are shared by both profiles. The main difference is target resolution:
-  `kegv2` resolves against the active project by default, while `tap` can
+  `keg` resolves against the active project by default, while `tap` can
   target configured aliases or explicit paths.
 
 ## Why The Profile Technique Matters

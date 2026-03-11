@@ -71,13 +71,13 @@ func TestTap_AliasResolvesProjectKegUnderKegsDir(t *testing.T) {
 	require.Contains(t, string(catRes.Stdout), "# Sorry, planned but not yet available")
 }
 
-func TestKegV2_UsesProjectKegOnly(t *testing.T) {
+func TestKeg_UsesProjectKegOnly(t *testing.T) {
 	t.Run("errors_when_project_keg_missing", func(innerT *testing.T) {
 		innerT.Parallel()
 		sb := NewSandbox(innerT, testutils.WithFixture("testuser", "~"))
 		sb.Setwd("~")
 
-		h := NewKegV2Process(innerT, false, "cat", "0")
+		h := NewKegProcess(innerT, false, "cat", "0")
 		res := h.Run(sb.Context(), sb.Runtime())
 
 		require.Error(innerT, res.Err)
@@ -100,7 +100,7 @@ func TestKegV2_UsesProjectKegOnly(t *testing.T) {
 		require.NoError(innerT, legacyRes.Err, "legacy docs keg init should succeed")
 		_ = sb.MustReadFile("~/docs/keg")
 
-		h := NewKegV2Process(innerT, false, "cat", "0")
+		h := NewKegProcess(innerT, false, "cat", "0")
 		res := h.Run(sb.Context(), sb.Runtime())
 
 		require.Error(innerT, res.Err)
@@ -123,7 +123,7 @@ func TestKegV2_UsesProjectKegOnly(t *testing.T) {
 		require.NoError(innerT, initRes.Err, "project init should succeed")
 		_ = sb.MustReadFile("~/kegs/project/keg")
 
-		h := NewKegV2Process(innerT, false, "cat", "0")
+		h := NewKegProcess(innerT, false, "cat", "0")
 		res := h.Run(sb.Context(), sb.Runtime())
 
 		require.NoError(innerT, res.Err)
@@ -135,7 +135,7 @@ func TestKegV2_UsesProjectKegOnly(t *testing.T) {
 		innerT.Parallel()
 		sb := NewSandbox(innerT, testutils.WithFixture("testuser", "~"))
 
-		h := NewKegV2Process(innerT, false, "cat", "0", "--keg", "example")
+		h := NewKegProcess(innerT, false, "cat", "0", "--keg", "example")
 		res := h.Run(sb.Context(), sb.Runtime())
 
 		require.Error(innerT, res.Err)

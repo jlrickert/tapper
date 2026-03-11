@@ -52,9 +52,9 @@ func TestKegFlagCompletion_EmptyConfig(t *testing.T) {
 	require.Empty(t, suggestions)
 }
 
-// TestKegV2Profile_NoKegFlagCompletion verifies that the kegv2 binary (which
+// TestKegProfile_NoKegFlagCompletion verifies that the keg binary (which
 // sets AllowKegAliasFlags=false) returns no suggestions for --keg.
-func TestKegV2Profile_NoKegFlagCompletion(t *testing.T) {
+func TestKegProfile_NoKegFlagCompletion(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
 
@@ -65,8 +65,8 @@ func TestKegV2Profile_NoKegFlagCompletion(t *testing.T) {
 	tapSuggestions := parseCompletionSuggestions(string(comp.Stdout))
 	require.NotEmpty(t, tapSuggestions)
 
-	// kegv2 has no --keg flag; __complete should return no matches for it.
-	kegComp := NewKegV2Process(t, false, "__complete", "--keg", "").Run(sb.Context(), sb.Runtime())
+	// keg has no --keg flag; __complete should return no matches for it.
+	kegComp := NewKegProcess(t, false, "__complete", "--keg", "").Run(sb.Context(), sb.Runtime())
 	kegSuggestions := parseCompletionSuggestions(string(kegComp.Stdout))
 	require.Empty(t, kegSuggestions)
 }

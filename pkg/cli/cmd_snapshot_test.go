@@ -14,7 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestKegV2SnapshotHistoryAndRestore(t *testing.T) {
+func TestKegSnapshotHistoryAndRestore(t *testing.T) {
 	t.Parallel()
 
 	sb := NewSandbox(t,
@@ -22,39 +22,39 @@ func TestKegV2SnapshotHistoryAndRestore(t *testing.T) {
 		testutils.WithWd("~/kegs/personal"),
 	)
 
-	res := NewKegV2Process(t, false, "snapshot", "create", "1", "-m", "before change").Run(sb.Context(), sb.Runtime())
+	res := NewKegProcess(t, false, "snapshot", "create", "1", "-m", "before change").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 	require.Equal(t, "1\n", string(res.Stdout))
 
 	sb.MustWriteFile("~/kegs/personal/1/README.md", []byte("# Personal Overview\n\nUpdated snapshot body.\n\n- [Project Alpha](../2)\n- [Meeting Notes](../3)\n"), 0o644)
 
-	res = NewKegV2Process(t, false, "index", "rebuild").Run(sb.Context(), sb.Runtime())
+	res = NewKegProcess(t, false, "index", "rebuild").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 
-	res = NewKegV2Process(t, false, "snapshot", "create", "1", "-m", "after change").Run(sb.Context(), sb.Runtime())
+	res = NewKegProcess(t, false, "snapshot", "create", "1", "-m", "after change").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 	require.Equal(t, "2\n", string(res.Stdout))
 
-	res = NewKegV2Process(t, false, "snapshot", "history", "1").Run(sb.Context(), sb.Runtime())
+	res = NewKegProcess(t, false, "snapshot", "history", "1").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 	stdout := string(res.Stdout)
 	require.Contains(t, stdout, "before change")
 	require.Contains(t, stdout, "after change")
 
-	res = NewKegV2Process(t, false, "snapshot", "restore", "1", "1", "--yes").Run(sb.Context(), sb.Runtime())
+	res = NewKegProcess(t, false, "snapshot", "restore", "1", "1", "--yes").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 
-	res = NewKegV2Process(t, false, "cat", "1").Run(sb.Context(), sb.Runtime())
+	res = NewKegProcess(t, false, "cat", "1").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 	require.Contains(t, string(res.Stdout), "An index of personal notes and projects.")
 	require.NotContains(t, string(res.Stdout), "Updated snapshot body.")
 
-	res = NewKegV2Process(t, false, "snapshot", "history", "1").Run(sb.Context(), sb.Runtime())
+	res = NewKegProcess(t, false, "snapshot", "history", "1").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 	require.Contains(t, string(res.Stdout), "restore from rev 1")
 }
 
-func TestKegV2ArchiveImportOverwritesExistingNodes(t *testing.T) {
+func TestKegArchiveImportOverwritesExistingNodes(t *testing.T) {
 	t.Parallel()
 
 	sb := NewSandbox(t,
@@ -62,11 +62,11 @@ func TestKegV2ArchiveImportOverwritesExistingNodes(t *testing.T) {
 		testutils.WithWd("~/kegs/personal"),
 	)
 
-	res := NewKegV2Process(t, false, "snapshot", "create", "1", "-m", "before export").Run(sb.Context(), sb.Runtime())
+	res := NewKegProcess(t, false, "snapshot", "create", "1", "-m", "before export").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 
 	exportPath := "~/export.keg.tar.gz"
-	res = NewKegV2Process(t, false, "archive", "export", "--nodes", "1,2,3", "-o", exportPath).Run(sb.Context(), sb.Runtime())
+	res = NewKegProcess(t, false, "archive", "export", "--nodes", "1,2,3", "-o", exportPath).Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 	require.Contains(t, string(res.Stdout), "export.keg.tar.gz")
 
@@ -81,12 +81,12 @@ func TestKegV2ArchiveImportOverwritesExistingNodes(t *testing.T) {
 	require.NoError(t, targetRepo.WriteFile(sb.Context(), id, "keep.txt", []byte("keep me")))
 	require.NoError(t, sb.Runtime().Setwd("~/import-target"))
 
-	res = NewKegV2Process(t, false, "archive", "import", exportPath).Run(sb.Context(), sb.Runtime())
+	res = NewKegProcess(t, false, "archive", "import", exportPath).Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 	lines := strings.Fields(string(res.Stdout))
 	require.Equal(t, []string{"1", "2", "3"}, lines)
 
-	res = NewKegV2Process(t, false, "cat", "1").Run(sb.Context(), sb.Runtime())
+	res = NewKegProcess(t, false, "cat", "1").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 	stdout := string(res.Stdout)
 	require.Contains(t, stdout, "Personal Overview")
@@ -96,7 +96,7 @@ func TestKegV2ArchiveImportOverwritesExistingNodes(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, hasNode4)
 
-	res = NewKegV2Process(t, false, "snapshot", "history", "1").Run(sb.Context(), sb.Runtime())
+	res = NewKegProcess(t, false, "snapshot", "history", "1").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 	require.Contains(t, string(res.Stdout), "before export")
 	require.NotContains(t, string(res.Stdout), "old target")

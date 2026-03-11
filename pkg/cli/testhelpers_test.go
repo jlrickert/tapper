@@ -39,10 +39,17 @@ func NewProcess(t *testing.T, isTTY bool, args ...string) *tu.Process {
 	}, isTTY)
 }
 
-func NewKegV2Process(t *testing.T, isTTY bool, args ...string) *tu.Process {
+func NewKegProcess(t *testing.T, isTTY bool, args ...string) *tu.Process {
 	return tu.NewProcess(func(ctx context.Context, rt *toolkit.Runtime) (int, error) {
-		return cli.RunWithProfile(ctx, rt, args, cli.KegV2Profile())
+		return cli.RunWithProfile(ctx, rt, args, cli.KegProfile())
 	}, isTTY)
+}
+
+// NewKegV2Process is an alias for NewKegProcess, kept for backward compatibility.
+//
+// Deprecated: Use NewKegProcess instead.
+func NewKegV2Process(t *testing.T, isTTY bool, args ...string) *tu.Process {
+	return NewKegProcess(t, isTTY, args...)
 }
 
 func NewCompletionProcess(t *testing.T, isTTY bool, pos int, words ...string) *tu.Process {

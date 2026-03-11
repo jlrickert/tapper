@@ -145,12 +145,12 @@ func TestTap_PathFlagNonexistentDirectoryShowsClearError(t *testing.T) {
 	require.Contains(t, stderr, "does not exist")
 }
 
-func TestKegV2Help_HidesPersistentKegTargetFlags(t *testing.T) {
+func TestKegHelp_HidesPersistentKegTargetFlags(t *testing.T) {
 	t.Parallel()
 
 	sb := NewSandbox(t)
 
-	res := NewKegV2Process(t, false, "--help").Run(sb.Context(), sb.Runtime())
+	res := NewKegProcess(t, false, "--help").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 	stdout := string(res.Stdout)
 	require.NotContains(t, stdout, "--keg")
