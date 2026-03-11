@@ -12,9 +12,9 @@ builds:
     goos: [linux, darwin, windows]
     goarch: [amd64, arm64]
     ldflags: ["-s -w"]
-  - id: kegv2
-    binary: kegv2
-    main: ./cmd/kegv2
+  - id: keg
+    binary: keg
+    main: ./cmd/keg
     env: [CGO_ENABLED=0, GOWORK=off]
     goos: [linux, darwin, windows]
     goarch: [amd64, arm64]
@@ -28,13 +28,45 @@ archives:
       - goos: windows
         formats: [zip]
     files: [LICENSE, README.md, CHANGELOG.md]
-  - id: kegv2
-    ids: [kegv2]
-    name_template: "kegv2_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+  - id: keg
+    ids: [keg]
+    name_template: "keg_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     format_overrides:
       - goos: windows
         formats: [zip]
     files: [LICENSE, README.md, CHANGELOG.md]
+
+brews:
+  - ids: [tap]
+    name: tapper
+    repository:
+      owner: jlrickert
+      name: homebrew-formulae
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    directory: Formula
+    homepage: "https://github.com/jlrickert/tapper"
+    description: "CLI toolset for managing KEGs (Knowledge Exchange Graphs)"
+    license: "MIT"
+    install: |
+      bin.install "tap"
+      generate_completions_from_executable(bin/"tap", "completion")
+    test: |
+      system "#{bin}/tap", "--version"
+  - ids: [keg]
+    name: keg
+    repository:
+      owner: jlrickert
+      name: homebrew-formulae
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    directory: Formula
+    homepage: "https://github.com/jlrickert/tapper"
+    description: "Project-focused KEG CLI with pruned command surface"
+    license: "MIT"
+    install: |
+      bin.install "keg"
+      generate_completions_from_executable(bin/"keg", "completion")
+    test: |
+      system "#{bin}/keg", "--version"
 
 checksum:
   name_template: "checksums.txt"
