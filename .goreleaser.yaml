@@ -46,7 +46,7 @@ brews:
     directory: Formula
     homepage: "https://github.com/jlrickert/tapper"
     description: "CLI toolset for managing KEGs (Knowledge Exchange Graphs)"
-    license: "MIT"
+    license: "Apache-2.0"
     install: |
       bin.install "tap"
       generate_completions_from_executable(bin/"tap", "completion")
@@ -61,7 +61,7 @@ brews:
     directory: Formula
     homepage: "https://github.com/jlrickert/tapper"
     description: "Project-focused KEG CLI with pruned command surface"
-    license: "MIT"
+    license: "Apache-2.0"
     install: |
       bin.install "keg"
       generate_completions_from_executable(bin/"keg", "completion")
