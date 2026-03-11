@@ -88,6 +88,21 @@ func (t *Tap) Cat(ctx context.Context, opts CatOptions) (string, error) {
 		})
 	}
 
+	// Interactive TTY with a single node and no output-mode flags: delegate
+	// to the edit flow so the user gets the full editor experience (live
+	// sync, frontmatter editing) instead of a dump to stdout. The check
+	// uses IsTTY (stdout is a terminal) as the primary signal; IsPiped
+	// (stdin) is not checked because cat does not consume stdin.
+	if len(nodeIDs) == 1 &&
+		!opts.ContentOnly && !opts.StatsOnly && !opts.MetaOnly &&
+		opts.Stream != nil && opts.Stream.IsTTY {
+		return "", t.Edit(ctx, EditOptions{
+			NodeID:           nodeIDs[0],
+			KegTargetOptions: opts.KegTargetOptions,
+			Stream:           opts.Stream,
+		})
+	}
+
 	k, err := t.resolveKeg(ctx, opts.KegTargetOptions)
 	if err != nil {
 		return "", fmt.Errorf("unable to open keg: %w", err)

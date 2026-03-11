@@ -511,3 +511,164 @@ func TestCatCommand_SingleNode_NoIDField(t *testing.T) {
 	out := string(res.Stdout)
 	require.NotContains(t, out, `id: "0"`, "single-node output should not have injected id field")
 }
+
+// TestCatCommand_TTY_SingleNode_DelegatesToEdit verifies that when stdout is a
+// TTY and a single node is requested with no output-mode flags, cat delegates
+// to the edit flow (editor is opened, no content printed to stdout).
+func TestCatCommand_TTY_SingleNode_DelegatesToEdit(t *testing.T) {
+	t.Parallel()
+	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
+
+	jail := sb.Runtime().GetJail()
+	require.NotEmpty(t, jail)
+	resolvedJail, err := filepath.EvalSymlinks(jail)
+	require.NoError(t, err)
+	require.NoError(t, sb.Runtime().SetJail(resolvedJail))
+	jail = resolvedJail
+
+	// Editor script that writes known content so we can verify edit ran.
+	scriptPath := filepath.Join(jail, "cat-tty-edit.sh")
+	script := `#!/bin/sh
+cat > "$1" <<'EOF'
+---
+tags:
+  - tty-edited
+---
+# TTY Cat Edit
+EOF
+`
+	require.NoError(t, os.WriteFile(scriptPath, []byte(script), 0o755))
+	require.NoError(t, sb.Runtime().Set("EDITOR", "/bin/sh "+scriptPath))
+	sb.Runtime().Unset("VISUAL")
+
+	// isTTY=true: should delegate to editor, no stdout output.
+	res := NewProcess(t, true, "cat", "0", "--keg", "personal").
+		RunWithIO(sb.Context(), sb.Runtime(), strings.NewReader(""))
+	require.NoError(t, res.Err)
+	require.Equal(t, "", strings.TrimSpace(string(res.Stdout)),
+		"interactive TTY cat should not print to stdout")
+
+	// Verify editor was invoked by checking the node was modified.
+	content := string(sb.MustReadFile("~/kegs/personal/0/README.md"))
+	require.Contains(t, content, "# TTY Cat Edit",
+		"editor should have modified the node content")
+	meta := string(sb.MustReadFile("~/kegs/personal/0/meta.yaml"))
+	require.Contains(t, meta, "- tty-edited",
+		"editor should have modified the node metadata")
+}
+
+// TestCatCommand_NonTTY_SingleNode_PrintsToStdout verifies that when stdout is
+// not a TTY, cat prints content to stdout as usual.
+func TestCatCommand_NonTTY_SingleNode_PrintsToStdout(t *testing.T) {
+	t.Parallel()
+	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
+
+	// isTTY=false: should print to stdout, not open editor.
+	res := NewProcess(t, false, "cat", "0", "--keg", "personal").
+		Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+
+	out := string(res.Stdout)
+	require.Contains(t, out, "---", "non-TTY cat should print frontmatter")
+	require.Contains(t, out, "# Sorry, planned but not yet available",
+		"non-TTY cat should print node content to stdout")
+}
+
+// TestCatCommand_TTY_OutputModeFlags_OverrideTTY verifies that output-mode
+// flags (--content-only, --stats-only, --meta-only) force stdout output even
+// when the terminal is interactive.
+func TestCatCommand_TTY_OutputModeFlags_OverrideTTY(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		flag     string
+		expected string
+	}{
+		{
+			name:     "content-only overrides TTY",
+			flag:     "--content-only",
+			expected: "# Sorry, planned but not yet available",
+		},
+		{
+			name:     "meta-only overrides TTY",
+			flag:     "--meta-only",
+			expected: "tags:",
+		},
+		{
+			name:     "stats-only overrides TTY",
+			flag:     "--stats-only",
+			expected: "hash:",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(innerT *testing.T) {
+			innerT.Parallel()
+			sb := NewSandbox(innerT, testutils.WithFixture("joe", "~"))
+
+			// isTTY=true but output-mode flag set: should print to stdout.
+			res := NewProcess(innerT, true, "cat", "0", "--keg", "personal", tt.flag).
+				Run(sb.Context(), sb.Runtime())
+			require.NoError(innerT, res.Err)
+
+			out := string(res.Stdout)
+			require.Contains(innerT, out, tt.expected,
+				"output-mode flag should force stdout output even with TTY")
+		})
+	}
+}
+
+// TestCatCommand_TTY_MultipleNodes_PrintsToStdout verifies that requesting
+// multiple nodes always prints to stdout even on an interactive terminal.
+func TestCatCommand_TTY_MultipleNodes_PrintsToStdout(t *testing.T) {
+	t.Parallel()
+	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
+
+	// Create a second node so we have two to cat.
+	createRes := NewProcess(t, false, "create", "--keg", "personal", "--title", "Second node").
+		Run(sb.Context(), sb.Runtime())
+	require.NoError(t, createRes.Err, "create should succeed")
+
+	// isTTY=true with multiple nodes: should still print to stdout.
+	res := NewProcess(t, true, "cat", "0", "1", "--keg", "personal").
+		Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+
+	out := string(res.Stdout)
+	require.Contains(t, out, `id: "0"`, "multi-node output should have id for first node")
+	require.Contains(t, out, `id: "1"`, "multi-node output should have id for second node")
+}
+
+// TestCatCommand_TTY_BumpsAccessCount verifies that interactive TTY cat
+// increments access_count via the edit flow's Touch call.
+func TestCatCommand_TTY_BumpsAccessCount(t *testing.T) {
+	t.Parallel()
+	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
+
+	jail := sb.Runtime().GetJail()
+	require.NotEmpty(t, jail)
+	resolvedJail, err := filepath.EvalSymlinks(jail)
+	require.NoError(t, err)
+	require.NoError(t, sb.Runtime().SetJail(resolvedJail))
+	jail = resolvedJail
+
+	// Editor that immediately exits without changes.
+	scriptPath := filepath.Join(jail, "cat-tty-noop.sh")
+	script := "#!/bin/sh\ntrue\n"
+	require.NoError(t, os.WriteFile(scriptPath, []byte(script), 0o755))
+	require.NoError(t, sb.Runtime().Set("EDITOR", "/bin/sh "+scriptPath))
+	sb.Runtime().Unset("VISUAL")
+
+	statsPath := "~/kegs/personal/0/stats.json"
+	sb.MustWriteFile(statsPath, []byte(`{"accessed":"2001-01-01T00:00:00Z","access_count":5}`), 0o644)
+
+	res := NewProcess(t, true, "cat", "0", "--keg", "personal").
+		RunWithIO(sb.Context(), sb.Runtime(), strings.NewReader(""))
+	require.NoError(t, res.Err)
+
+	var stats catStatsJSON
+	require.NoError(t, json.Unmarshal(sb.MustReadFile(statsPath), &stats))
+	require.Equal(t, 6, stats.AccessCount,
+		"interactive TTY cat should bump access_count")
+}
