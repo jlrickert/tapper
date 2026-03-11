@@ -25,7 +25,7 @@ kegMap:
   - alias: pub
     pathPrefix: ~/repos/github.com
   - alias: work
-    pathPrefix: ~/repos/bitbucket.org
+    pathPrefix: ~/repos/github.com/work
 kegs: {}
 defaultRegistry: knut
 ```

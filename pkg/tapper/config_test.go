@@ -352,9 +352,9 @@ func TestAddKegMap_PreservesMultipleEntriesWithSameAlias(t *testing.T) {
 
 	raw := `kegMap:
   - alias: work
-    pathPrefix: ~/repos/bitbucket.org/work-devel/
+    pathPrefix: ~/repos/github.com/work-devel/
   - alias: work
-    pathPrefix: ~/repos/bitbucket.org/jared52/
+    pathPrefix: ~/repos/github.com/jared52/
 `
 	cfg, err := tapper.ParseConfig([]byte(raw))
 	require.NoError(t, err)
@@ -370,8 +370,8 @@ func TestAddKegMap_PreservesMultipleEntriesWithSameAlias(t *testing.T) {
 		}
 	}
 	require.ElementsMatch(t, []string{
-		"~/repos/bitbucket.org/work-devel/",
-		"~/repos/bitbucket.org/jared52/",
+		"~/repos/github.com/work-devel/",
+		"~/repos/github.com/jared52/",
 	}, prefixes)
 }
 
@@ -380,9 +380,9 @@ func TestMergeConfig_PreservesMultipleEntriesWithSameAlias(t *testing.T) {
 
 	userRaw := `kegMap:
   - alias: work
-    pathPrefix: ~/repos/bitbucket.org/work-devel/
+    pathPrefix: ~/repos/github.com/work-devel/
   - alias: work
-    pathPrefix: ~/repos/bitbucket.org/jared52/
+    pathPrefix: ~/repos/github.com/jared52/
 `
 	projectRaw := `kegMap: []
 `

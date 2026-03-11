@@ -237,7 +237,7 @@ func TestResolve_KegMapMissFallsToDefaultThenFallback(t *testing.T) {
 	t.Parallel()
 
 	fx := NewSandbox(t, sandbox.WithFixture("example", "/home/testuser"))
-	root := "/home/testuser/repos/bitbucket.org/work-devel/project.202602"
+	root := "/home/testuser/repos/github.com/work-devel/project.202602"
 	require.NoError(t, fx.Setwd(root))
 	require.NoError(t, fx.Runtime().Mkdir(root, 0o755, true))
 

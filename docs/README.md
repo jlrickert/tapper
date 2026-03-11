@@ -57,8 +57,7 @@ If you are unsure where to start, read [Configuration Overview](configuration/RE
 ### Keg operations
 
 - `tap dir [NODE_ID]` — print keg or node directory path
-- `tap index` — rebuild keg indices
-- `tap reindex` — full reindex of all nodes
+- `tap index rebuild` — rebuild keg indices
 - `tap info` — show keg diagnostics
 - `tap config` — show active keg config
 - `tap config edit` — edit active keg config (reads stdin)
