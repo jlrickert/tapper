@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -28,10 +29,11 @@ func newFileLsCmd(deps *Deps) *cobra.Command {
 	var opts tapper.ListFilesOptions
 
 	cmd := &cobra.Command{
-		Use:     "ls NODE_ID",
-		Short:   "list file attachments for a node",
-		Aliases: []string{"list"},
-		Args:    cobra.ExactArgs(1),
+		Use:               "ls NODE_ID",
+		Short:             "list file attachments for a node",
+		Aliases:           []string{"list"},
+		Args:              cobra.ExactArgs(1),
+		ValidArgsFunction: nodeIDCompletionFunc(deps, 1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts.NodeID = args[0]
 			applyKegTargetProfile(deps, &opts.KegTargetOptions)
@@ -52,9 +54,10 @@ func newFileUploadCmd(deps *Deps) *cobra.Command {
 	var opts tapper.UploadFileOptions
 
 	cmd := &cobra.Command{
-		Use:   "upload NODE_ID LOCAL_PATH",
-		Short: "upload a file attachment to a node",
-		Args:  cobra.ExactArgs(2),
+		Use:               "upload NODE_ID LOCAL_PATH",
+		Short:             "upload a file attachment to a node",
+		Args:              cobra.ExactArgs(2),
+		ValidArgsFunction: nodeIDWithLocalFileCompletionFunc(deps),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts.NodeID = args[0]
 			opts.FilePath = args[1]
@@ -79,6 +82,12 @@ func newFileDownloadCmd(deps *Deps) *cobra.Command {
 		Use:   "download NODE_ID NAME",
 		Short: "download a file attachment from a node",
 		Args:  cobra.ExactArgs(2),
+		ValidArgsFunction: nodeAndNameCompletionFunc(deps, func(ctx context.Context, nodeID string, kegOpts tapper.KegTargetOptions) ([]string, error) {
+			return deps.Tap.ListFiles(ctx, tapper.ListFilesOptions{
+				KegTargetOptions: kegOpts,
+				NodeID:           nodeID,
+			})
+		}),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts.NodeID = args[0]
 			opts.Name = args[1]
@@ -104,6 +113,12 @@ func newFileRmCmd(deps *Deps) *cobra.Command {
 		Short:   "remove a file attachment from a node",
 		Aliases: []string{"remove"},
 		Args:    cobra.ExactArgs(2),
+		ValidArgsFunction: nodeAndNameCompletionFunc(deps, func(ctx context.Context, nodeID string, kegOpts tapper.KegTargetOptions) ([]string, error) {
+			return deps.Tap.ListFiles(ctx, tapper.ListFilesOptions{
+				KegTargetOptions: kegOpts,
+				NodeID:           nodeID,
+			})
+		}),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts.NodeID = args[0]
 			opts.Name = args[1]
