@@ -8,14 +8,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Two CLI entrypoints share the same Cobra command tree:
 - `tap` — full CLI surface with multi-keg support and user/project config resolution
-- `kegv2` — pruned profile with project-local defaults
+- `keg` — pruned profile with project-local defaults
 
 ## Build & Development Commands
 
 ```bash
 # Build
 go build ./cmd/tap
-go build ./cmd/kegv2
+go build ./cmd/keg
 
 # Test
 go test ./...                              # all tests
@@ -25,7 +25,7 @@ go test -race ./pkg/keg/...               # with race detector
 
 # Install (requires go-task)
 task install-tap                           # install tap + zsh completions
-task install-keg                           # install kegv2 + zsh completions
+task install-keg                           # install keg + zsh completions
 task test                                  # cached test run of ./pkg/...
 
 # Lint

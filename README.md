@@ -10,7 +10,7 @@ Primary entrypoint:
 
 Optional secondary entrypoint:
 
-- `kegv2` as a pruned, project-focused profile built from the same command system
+- `keg` as a pruned, project-focused profile built from the same command system
 
 ## Problem This Solves
 
@@ -34,7 +34,7 @@ Install binaries from the newest tag:
 
 ```bash
 go install github.com/jlrickert/tapper/cmd/tap@v0.2.0
-go install github.com/jlrickert/tapper/cmd/kegv2@v0.2.0
+go install github.com/jlrickert/tapper/cmd/keg@v0.2.0
 ```
 
 Precompiled binaries are also published on GitHub Releases:
@@ -55,7 +55,7 @@ tap --help
 Optional: verify the pruned project-focused binary too:
 
 ```bash
-kegv2 --help
+keg --help
 ```
 
 Set up shell completions for `tap`:
@@ -68,14 +68,14 @@ source <(tap completion zsh)
 tap completion zsh > "${fpath[1]}/_tap"
 ```
 
-Optional: install completions for `kegv2` if you use the pruned binary:
+Optional: install completions for `keg` if you use the pruned binary:
 
 ```bash
 # zsh (current session)
-source <(kegv2 completion zsh)
+source <(keg completion zsh)
 
 # zsh (persist)
-kegv2 completion zsh > "${fpath[1]}/_kegv2"
+keg completion zsh > "${fpath[1]}/_keg"
 ```
 
 If new commands do not appear in tab completion after an upgrade, regenerate the
@@ -116,14 +116,14 @@ tap snapshot create 12 --keg personal -m "before refactor"
 tap snapshot history 12 --keg personal
 ```
 
-Use `kegv2` only when you specifically want the pruned project-local profile:
+Use `keg` only when you specifically want the pruned project-local profile:
 
 ```bash
-kegv2 snapshot create 12 -m "before refactor"
-kegv2 snapshot history 12
+keg snapshot create 12 -m "before refactor"
+keg snapshot history 12
 ```
 
-`tap` is the main command. `kegv2` exists to prove that the same Cobra tree can
+`tap` is the main command. `keg` exists to prove that the same Cobra tree can
 be exposed through a narrower profile with project-local defaults.
 
 ```bash
@@ -135,8 +135,8 @@ tap archive export --keg personal -o notes.keg.tar.gz
 Export and import a keg archive:
 
 ```bash
-kegv2 archive export -o notes.keg.tar.gz
-kegv2 archive import notes.keg.tar.gz
+keg archive export -o notes.keg.tar.gz
+keg archive import notes.keg.tar.gz
 ```
 
 Primary `tap` workflow:
@@ -146,11 +146,11 @@ tap archive export --keg personal -o notes.keg.tar.gz
 tap archive import notes.keg.tar.gz --keg personal
 ```
 
-Project-local `kegv2` workflow:
+Project-local `keg` workflow:
 
 ```bash
-kegv2 archive export -o notes.keg.tar.gz
-kegv2 archive import notes.keg.tar.gz
+keg archive export -o notes.keg.tar.gz
+keg archive import notes.keg.tar.gz
 ```
 
 Archive import overwrites matching node IDs in the target keg instead of
@@ -214,7 +214,7 @@ issues, see [docs/configuration/troubleshooting.md](docs/configuration/troublesh
 ## Repository Layout
 
 - `cmd/tap` - `tap` entrypoint
-- `cmd/kegv2` - `kegv2` entrypoint
+- `cmd/keg` - `keg` entrypoint
 - `pkg/tapper` - config, resolution, and init services
 - `pkg/keg` - KEG primitives and repository implementation
 - `kegs/tapper` - repository KEG content

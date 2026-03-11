@@ -29,14 +29,21 @@ func TapProfile() Profile {
 	}
 }
 
-func KegV2Profile() Profile {
+func KegProfile() Profile {
 	return Profile{
-		Use:                    "kegv2",
+		Use:                    "keg",
 		ForceProjectResolution: true,
 		AllowKegAliasFlags:     false,
 		IncludeConfigCommand:   false,
 		IncludeRepoCommand:     false,
 	}
+}
+
+// KegV2Profile is an alias for KegProfile, kept for backward compatibility.
+//
+// Deprecated: Use KegProfile instead.
+func KegV2Profile() Profile {
+	return KegProfile()
 }
 
 func (p Profile) withDefaults() Profile {

@@ -22,7 +22,7 @@ func main() {
 		ctx,
 		rt,
 		os.Args[1:],
-		cli.KegV2Profile(),
+		cli.KegProfile(),
 	); err != nil {
 		os.Exit(exitCode)
 	}

@@ -26,8 +26,8 @@ tasks:
   install-keg:
     desc: Install the keg CLI (go install ./cmd/keg) and generate Zsh completions (~/.cache/dotfiles/zsh/completions/_keg).
     cmds:
-      - go install ./cmd/kegv2
-      - kegv2 completion zsh > '{{env "HOME"}}/.cache/dotfiles/zsh/completions/_kegv2'
+      - go install ./cmd/keg
+      - keg completion zsh > '{{env "HOME"}}/.cache/dotfiles/zsh/completions/_keg'
     sources:
       - cmd/**
       - pkg/**
