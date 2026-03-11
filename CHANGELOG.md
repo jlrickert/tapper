@@ -2,151 +2,7 @@
 
 All notable changes to this project are documented in this file.
 
-## v0.5.0 - 2026-03-06
-
-
-
-### ⚙️ Miscellaneous
-- add node_modules to .gitignore
-- tidy go.mod after MCP SDK addition
-- add docs to Taskfile source watches
-
-
-### 🐛 Bug Fixes
-- make index resilient to missing/malformed node metadata
-- make tap list --limit show most recent nodes instead of oldest
-- resolve data races and add process-aware node locking
-- open real config file in repo config edit instead of temp copy
-- show clear error when --path points to nonexistent directory
-
-
-### 📚 Documentation
-- update repo init examples to use --keg flag
-- add long descriptions to backlinks, archive, create, mv, and stats commands
-- overhaul entity structure examples
-- add node snapshots documentation
-- Add query expressions documentation
-- add MCP server setup guide and update CLAUDE.md
-
-
-### 🚀 Features
-- restructure index commands under `tap index` parent
-- add --limit flag to tap list with default of 50
-- add tap docs command and AI coding agent documentation
-- add tap doctor command for keg health checks
-- add --sort flag to tap list with index expansion
-- add tap links command for outgoing node links
-- add MCP server with read-only KEG tools
-- add MCP write tools for node creation and modification
-- add MCP index and doctor tools
-- add MCP snapshot and file management tools
-
-
-### 🚜 Refactor
-- remove deprecated --alias flag from index subcommands
-
-
-### 🧪 Testing
-- add CLI concurrency tests
-
-
-## v0.4.0 - 2026-03-04
-
-
-
-### ⚙️ Miscellaneous
-- refactor release workflow to resolve version before changelog generation
-- add TypeScript configuration for graph frontend
-
-
-### 🐛 Bug Fixes
-- preserve snapshot imports and local init paths
-- support numeric shorthand after root flags
-
-
-### 📚 Documentation
-- add comprehensive descriptions to keg and tap config JSON schemas
-- clarify tapper's role in knowledge systems and problem statement
-
-
-### 🚀 Features
-- Add JSON Schema editor hints to tapper config files
-- add interactive graph visualization command
-- add node snapshots and archive import/export
-- make snapshot and archive commands available to both tap and kegv2
-- reorganize snapshot and archive workflows
-- include snapshots in archive exports
-- move KEG target flags to tap root
-- add tap import command for live keg-to-keg node import
-- add node ID ValidArgsFunction and completion tests for all phases
-- add --query flag with key=value attribute predicate support
-- add --query flag to tap rm
-- add tap repo rm command to remove a keg alias
-- normalize config edit workflows
-- simplify repo config commands
-- make global keg flags mutually exclusive and drop repo init positional arg
-
-
-### 🚜 Refactor
-- remove deprecated --tags flag from tap import
-
-
-### 🧪 Testing
-- cover unsupported snapshot backends
-- add unit and CLI integration tests for tap import
-
-
-## v0.3.0 - 2026-02-26
-
-
-
-### 📚 Documentation
-- expand README with quick start and configuration overview
-- add installation instructions to README
-
-
-### 🚀 Features
-- return target path from InitKeg and update init command output
-
-
-## v0.2.0 - 2026-02-26
-
-
-
-### ⚙️ Miscellaneous
-- add CI/CD automation with testing and release workflows
-- migrate release process to GitHub Actions workflow
-- improve code documentation and update dependencies
-- update .gitignore and upgrade cli-toolkit dependency
-
-
-### 🐛 Bug Fixes
-- align keg defaults and resolver precedence coverage
-- correct release workflow version detection
-
-
-### 📚 Documentation
-- improve config error messages and template output
-
-
-### 🚀 Features
-- refactor tap package into focused modules and add file/image management
-- add dex/changes.md index and tag-filtered custom indexes
-- split index command into list and cat operations, add reindex command
-- evolve config schema to support ordered keg search paths
-- add project-local keg alias resolution in kegs/ directory
-
-
-### 🚜 Refactor
-- rename command files to cmd_ prefix convention
-- rename config edit methods and consolidate temp file utilities
-
-
-### 🧪 Testing
-- expand mv and rm commands with comprehensive test coverage
-
-
-## v0.1.0 - 2026-02-24
+## v0.7.0 - 2026-03-11
 
 
 
@@ -157,6 +13,15 @@ All notable changes to this project are documented in this file.
 - upgrade cli-toolkit to v0.4.0 and cobra to v1.10.2
 - add Apache License and update dependencies
 - add release automation with goreleaser and git-cliff
+- add CI/CD automation with testing and release workflows
+- migrate release process to GitHub Actions workflow
+- improve code documentation and update dependencies
+- update .gitignore and upgrade cli-toolkit dependency
+- refactor release workflow to resolve version before changelog generation
+- add TypeScript configuration for graph frontend
+- add node_modules to .gitignore
+- tidy go.mod after MCP SDK addition
+- add docs to Taskfile source watches
 
 
 ### 🐛 Bug Fixes
@@ -165,6 +30,19 @@ All notable changes to this project are documented in this file.
 - keg mapping for various commands
 - remove context dependencies from service layer
 - preserve unknown config fields when updating timestamp
+- align keg defaults and resolver precedence coverage
+- correct release workflow version detection
+- preserve snapshot imports and local init paths
+- support numeric shorthand after root flags
+- make index resilient to missing/malformed node metadata
+- make tap list --limit show most recent nodes instead of oldest
+- resolve data races and add process-aware node locking
+- open real config file in repo config edit instead of temp copy
+- show clear error when --path points to nonexistent directory
+- correct malformed property nesting in keg-config.json schema
+- correct keg resolution precedence and kegMap merge
+- use content comparison to prevent self-triggered editor warnings
+- parallelize index rebuild for dirty nodes
 
 
 ### 📚 Documentation
@@ -173,6 +51,18 @@ All notable changes to this project are documented in this file.
 - add Tapper, KEG CLI, Zeke extension, and storage docs
 - Improve MemoryRepo docs and simplify tests
 - add CLI design patterns and update Tapper docs
+- improve config error messages and template output
+- expand README with quick start and configuration overview
+- add installation instructions to README
+- add comprehensive descriptions to keg and tap config JSON schemas
+- clarify tapper's role in knowledge systems and problem statement
+- update repo init examples to use --keg flag
+- add long descriptions to backlinks, archive, create, mv, and stats commands
+- overhaul entity structure examples
+- add node snapshots documentation
+- Add query expressions documentation
+- add MCP server setup guide and update CLAUDE.md
+- add feature surface checklist to CLAUDE.md
 
 
 ### 🚀 Features
@@ -229,6 +119,47 @@ All notable changes to this project are documented in this file.
 - support bulk node removal and interactive create with live editing
 - add multi-node support and tag filtering to cat command
 - inject node ID into all multi-node cat output modes
+- refactor tap package into focused modules and add file/image management
+- add dex/changes.md index and tag-filtered custom indexes
+- split index command into list and cat operations, add reindex command
+- evolve config schema to support ordered keg search paths
+- add project-local keg alias resolution in kegs/ directory
+- return target path from InitKeg and update init command output
+- Add JSON Schema editor hints to tapper config files
+- add interactive graph visualization command
+- add node snapshots and archive import/export
+- make snapshot and archive commands available to both tap and kegv2
+- reorganize snapshot and archive workflows
+- include snapshots in archive exports
+- move KEG target flags to tap root
+- add tap import command for live keg-to-keg node import
+- add node ID ValidArgsFunction and completion tests for all phases
+- add --query flag with key=value attribute predicate support
+- add --query flag to tap rm
+- add tap repo rm command to remove a keg alias
+- normalize config edit workflows
+- simplify repo config commands
+- make global keg flags mutually exclusive and drop repo init positional arg
+- restructure index commands under `tap index` parent
+- add --limit flag to tap list with default of 50
+- add tap docs command and AI coding agent documentation
+- add tap doctor command for keg health checks
+- add --sort flag to tap list with index expansion
+- add tap links command for outgoing node links
+- add MCP server with read-only KEG tools
+- add MCP write tools for node creation and modification
+- add MCP index and doctor tools
+- add MCP snapshot and file management tools
+- show alias and summary in tap info output
+- add RepositoryEvents interface for live node change notifications
+- implement FsRepo file watcher with fsnotify
+- implement in-place editing for FsRepo
+- add event-aware conflict warnings for non-fs backend editing
+- add MemoryRepo event support for testing
+- add event system tests and fix path resolution
+- add reverse sync to update temp file on external node changes
+- add NodeEventAccessed and emit on content reads
+- add shell completions for file and image subcommands
 
 
 ### 🚜 Refactor
@@ -271,6 +202,11 @@ All notable changes to this project are documented in this file.
 - Store Runtime in Keg and Node to simplify runtime access
 - restructure config and info commands into separate repo and keg namespaces
 - convert config edit subcommand to flag
+- rename command files to cmd_ prefix convention
+- rename config edit methods and consolidate temp file utilities
+- remove deprecated --tags flag from tap import
+- remove deprecated --alias flag from index subcommands
+- remove incremental indexing, always full rebuild
 
 
 ### 🧪 Testing
@@ -284,4 +220,8 @@ All notable changes to this project are documented in this file.
 - Add info edit command tests and refactor temp file handling
 - remove stats injection from default frontmatter output
 - Add live save tests and implement live editor with validation
+- expand mv and rm commands with comprehensive test coverage
+- cover unsupported snapshot backends
+- add unit and CLI integration tests for tap import
+- add CLI concurrency tests
 
