@@ -44,6 +44,7 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:           deps.Profile.Use,
+		Version:       Version,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
