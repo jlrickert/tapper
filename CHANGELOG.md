@@ -2,6 +2,22 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.10.0 - 2026-03-11
+
+
+
+### ⚙️ Miscellaneous
+- upgrade GitHub Actions to Node.js 24 compatible versions
+
+
+### 🐛 Bug Fixes
+- add --version flag to root command for Homebrew test compatibility
+
+
+### 🚀 Features
+- interactive terminal editing for tap cat and access tracking
+
+
 ## v0.9.0 - 2026-03-11
 
 
