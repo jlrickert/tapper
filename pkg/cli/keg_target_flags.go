@@ -47,6 +47,68 @@ func nodeIDCompletionFunc(deps *Deps, maxArgs int) func(*cobra.Command, []string
 	}
 }
 
+// nodeAndNameCompletionFunc returns a ValidArgsFunction that suggests node IDs
+// for arg 0 and names from nameFn for arg 1. No completions after arg 1.
+func nodeAndNameCompletionFunc(
+	deps *Deps,
+	nameFn func(ctx context.Context, nodeID string, kegOpts tapper.KegTargetOptions) ([]string, error),
+) func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
+	return func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		if deps.Tap == nil {
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		}
+		var kegOpts tapper.KegTargetOptions
+		applyKegTargetProfile(deps, &kegOpts)
+
+		switch len(args) {
+		case 0:
+			ids, err := deps.Tap.List(cmd.Context(), tapper.ListOptions{
+				KegTargetOptions: kegOpts,
+				IdOnly:           true,
+			})
+			if err != nil {
+				return nil, cobra.ShellCompDirectiveNoFileComp
+			}
+			return filterByPrefix(ids, toComplete), cobra.ShellCompDirectiveNoFileComp
+		case 1:
+			names, err := nameFn(cmd.Context(), args[0], kegOpts)
+			if err != nil {
+				return nil, cobra.ShellCompDirectiveNoFileComp
+			}
+			return filterByPrefix(names, toComplete), cobra.ShellCompDirectiveNoFileComp
+		default:
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		}
+	}
+}
+
+// nodeIDWithLocalFileCompletionFunc returns a ValidArgsFunction that suggests
+// node IDs for arg 0 and allows default filesystem completion for arg 1.
+func nodeIDWithLocalFileCompletionFunc(deps *Deps) func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
+	return func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		if deps.Tap == nil {
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		}
+		switch len(args) {
+		case 0:
+			var kegOpts tapper.KegTargetOptions
+			applyKegTargetProfile(deps, &kegOpts)
+			ids, err := deps.Tap.List(cmd.Context(), tapper.ListOptions{
+				KegTargetOptions: kegOpts,
+				IdOnly:           true,
+			})
+			if err != nil {
+				return nil, cobra.ShellCompDirectiveNoFileComp
+			}
+			return filterByPrefix(ids, toComplete), cobra.ShellCompDirectiveNoFileComp
+		case 1:
+			return nil, cobra.ShellCompDirectiveDefault
+		default:
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		}
+	}
+}
+
 // listKegsFiltered returns keg aliases filtered by toComplete prefix.
 func listKegsFiltered(deps *Deps, _ context.Context, toComplete string) []string {
 	kegs, _ := deps.Tap.ListKegs(true)
