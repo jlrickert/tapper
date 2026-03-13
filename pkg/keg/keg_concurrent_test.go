@@ -1,11 +1,13 @@
 package keg_test
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/jlrickert/cli-toolkit/sandbox"
 	kegpkg "github.com/jlrickert/tapper/pkg/keg"
@@ -311,4 +313,75 @@ func TestWithNodeLock_StaleLockRecovery(t *testing.T) {
 	content, err := k.GetContent(f.Context(), id)
 	require.NoError(t, err)
 	require.Equal(t, "# Updated after stale lock\n", string(content))
+}
+
+// TestConcurrentCrossLock_OnlyOneWins verifies that concurrent AcquireLock
+// calls on the same node result in exactly one winner, with the rest timing out.
+func TestConcurrentCrossLock_OnlyOneWins(t *testing.T) {
+	t.Parallel()
+	f := NewSandbox(t)
+
+	repo := kegpkg.NewMemoryRepo(f.Runtime())
+	k := kegpkg.NewKeg(repo, f.Runtime())
+	require.NoError(t, k.Init(f.Context()))
+
+	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "Lock Race"})
+	require.NoError(t, err)
+
+	const N = 10
+	tokens := make([]kegpkg.LockToken, N)
+	errs := make([]error, N)
+
+	var wg sync.WaitGroup
+	for i := range N {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			ctx, cancel := context.WithTimeout(f.Context(), 300*time.Millisecond)
+			defer cancel()
+			tokens[idx], errs[idx] = repo.AcquireLock(ctx, id)
+		}(i)
+	}
+	wg.Wait()
+
+	winners := 0
+	for i := range N {
+		if errs[i] == nil {
+			winners++
+			require.NotEmpty(t, tokens[i])
+		}
+	}
+	require.Equal(t, 1, winners, "exactly one goroutine should acquire the lock")
+}
+
+// TestCrossLock_DoesNotBlockWithNodeLock verifies that holding a cross-process
+// lock does not prevent WithNodeLock (process-scoped) from succeeding.
+func TestCrossLock_DoesNotBlockWithNodeLock(t *testing.T) {
+	t.Parallel()
+	f := NewSandbox(t)
+
+	repo := kegpkg.NewMemoryRepo(f.Runtime())
+	k := kegpkg.NewKeg(repo, f.Runtime())
+	require.NoError(t, k.Init(f.Context()))
+
+	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "Lock Independence"})
+	require.NoError(t, err)
+
+	// Acquire cross-process lock.
+	token, err := repo.AcquireLock(f.Context(), id)
+	require.NoError(t, err)
+
+	// WithNodeLock should still succeed — they're independent.
+	err = repo.WithNodeLock(f.Context(), id, func(ctx context.Context) error {
+		return k.SetContent(ctx, id, []byte("# Written under process lock\n"))
+	})
+	require.NoError(t, err)
+
+	// Cross-process lock still held.
+	info, err := repo.LockStatus(f.Context(), id)
+	require.NoError(t, err)
+	require.Equal(t, token, info.Token)
+
+	// Release cross-process lock.
+	require.NoError(t, repo.ReleaseLock(f.Context(), id, token))
 }
