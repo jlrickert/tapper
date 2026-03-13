@@ -130,6 +130,40 @@ func TestEdit_WithoutLockToken_NoLockHeld(t *testing.T) {
 	require.NoError(t, editRes.Err)
 }
 
+func TestEdit_WithoutLockToken_LockHeld(t *testing.T) {
+	t.Parallel()
+	fx := NewSandbox(t, testutils.WithFixture("testuser", "~"))
+
+	// Acquire lock.
+	acquireRes := NewProcess(t, false, "lock", "acquire", "0").
+		Run(fx.Context(), fx.Runtime())
+	require.NoError(t, acquireRes.Err)
+
+	// Edit without --lock-token when a lock IS held should fail.
+	stdin := strings.NewReader("# Should be blocked\n")
+	editRes := NewProcess(t, false, "edit", "0").
+		RunWithIO(fx.Context(), fx.Runtime(), stdin)
+	require.Error(t, editRes.Err)
+	require.Contains(t, string(editRes.Stderr), "mismatch")
+}
+
+func TestMeta_WithoutLockToken_LockHeld(t *testing.T) {
+	t.Parallel()
+	fx := NewSandbox(t, testutils.WithFixture("testuser", "~"))
+
+	// Acquire lock.
+	acquireRes := NewProcess(t, false, "lock", "acquire", "0").
+		Run(fx.Context(), fx.Runtime())
+	require.NoError(t, acquireRes.Err)
+
+	// Meta write without --lock-token when a lock IS held should fail.
+	stdin := strings.NewReader("tags:\n  - should-fail\n")
+	metaRes := NewProcess(t, false, "meta", "0").
+		RunWithIO(fx.Context(), fx.Runtime(), stdin)
+	require.Error(t, metaRes.Err)
+	require.Contains(t, string(metaRes.Stderr), "mismatch")
+}
+
 func TestMeta_WithCorrectLockToken(t *testing.T) {
 	t.Parallel()
 	fx := NewSandbox(t, testutils.WithFixture("testuser", "~"))

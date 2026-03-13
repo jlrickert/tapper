@@ -140,17 +140,13 @@ func (t *Tap) ForceUnlock(ctx context.Context, opts ForceUnlockOptions) error {
 	return locker.ForceReleaseLock(ctx, id)
 }
 
-// validateLockToken checks an optional lock token against any held cross-process
-// lock. Rules:
-//   - If lockToken is empty, no validation is performed (backward compatible).
+// validateLockToken checks a lock token against any held cross-process lock.
+// Rules:
 //   - If the repo does not support RepositoryLock, the token is ignored.
-//   - If no lock is held, the command proceeds.
+//   - If no lock is held, the command proceeds regardless of token.
 //   - If a lock is held and the token matches, the command proceeds.
-//   - If a lock is held and the token does not match, an error is returned.
+//   - If a lock is held and the token is empty or mismatched, an error is returned.
 func validateLockToken(ctx context.Context, repo keg.Repository, id keg.NodeId, lockToken string) error {
-	if lockToken == "" {
-		return nil
-	}
 	locker, ok := repo.(keg.RepositoryLock)
 	if !ok {
 		return nil
