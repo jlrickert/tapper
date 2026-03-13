@@ -42,6 +42,8 @@ type MemoryRepo struct {
 	snapshots map[NodeId][]memorySnapshotEntry
 	// config holds the in-memory Config if written.
 	config *Config
+	// crossLocks holds cross-process lock state per node.
+	crossLocks map[NodeId]*memoryLockEntry
 
 	runtime *toolkit.Runtime
 

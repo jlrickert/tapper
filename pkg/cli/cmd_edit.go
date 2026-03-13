@@ -29,5 +29,6 @@ is launched.`,
 		},
 	}
 
+	cmd.Flags().StringVar(&opts.LockToken, "lock-token", "", "cross-process lock token for this node")
 	return cmd
 }

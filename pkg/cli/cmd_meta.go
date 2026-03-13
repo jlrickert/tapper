@@ -37,6 +37,7 @@ Use --edit to edit metadata in a temporary file with your editor.`,
 	}
 
 	cmd.Flags().BoolVar(&opts.Edit, "edit", false, "edit node metadata in a temporary file")
+	cmd.Flags().StringVar(&opts.LockToken, "lock-token", "", "cross-process lock token for this node")
 
 	return cmd
 }

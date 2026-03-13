@@ -21,6 +21,10 @@ type EditOptions struct {
 
 	KegTargetOptions
 
+	// LockToken is an optional cross-process lock token. When provided, the
+	// command validates it against any held lock before proceeding.
+	LockToken string
+
 	// Stream carries stdin piping information.
 	Stream *toolkit.Stream
 }
@@ -31,6 +35,10 @@ type MetaOptions struct {
 	NodeID string
 
 	KegTargetOptions
+
+	// LockToken is an optional cross-process lock token. When provided, the
+	// command validates it against any held lock before proceeding.
+	LockToken string
 
 	// Edit opens metadata in the editor.
 	Edit bool
@@ -66,6 +74,9 @@ func (t *Tap) Meta(ctx context.Context, opts MetaOptions) (string, error) {
 	}
 
 	if opts.Edit {
+		if err := validateLockToken(ctx, k.Repo, id, opts.LockToken); err != nil {
+			return "", err
+		}
 		if err := t.editMeta(ctx, k, id, opts.Stream); err != nil {
 			return "", err
 		}
@@ -78,6 +89,9 @@ func (t *Tap) Meta(ctx context.Context, opts MetaOptions) (string, error) {
 			return "", fmt.Errorf("unable to read piped input: %w", readErr)
 		}
 		if len(bytes.TrimSpace(pipedRaw)) > 0 {
+			if err := validateLockToken(ctx, k.Repo, id, opts.LockToken); err != nil {
+				return "", err
+			}
 			metaNode, parseErr := keg.ParseMeta(ctx, pipedRaw)
 			if parseErr != nil {
 				return "", fmt.Errorf("metadata from stdin is invalid: %w", parseErr)
@@ -133,6 +147,10 @@ func (t *Tap) Edit(ctx context.Context, opts EditOptions) error {
 	}
 	if !exists {
 		return fmt.Errorf("node %s not found", id.Path())
+	}
+
+	if err := validateLockToken(ctx, k.Repo, id, opts.LockToken); err != nil {
+		return err
 	}
 
 	// Handle piped stdin: apply content directly without opening an editor.
