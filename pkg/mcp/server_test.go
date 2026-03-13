@@ -106,6 +106,10 @@ func TestMCP_ToolsList(t *testing.T) {
 	require.Contains(t, names, "list_images")
 	require.Contains(t, names, "delete_file")
 	require.Contains(t, names, "delete_image")
+	require.Contains(t, names, "lock_acquire")
+	require.Contains(t, names, "lock_release")
+	require.Contains(t, names, "lock_status")
+	require.Contains(t, names, "lock_force_release")
 }
 
 func TestMCP_Cat(t *testing.T) {
@@ -677,6 +681,121 @@ func TestMCP_Doctor(t *testing.T) {
 	require.False(t, res.IsError, "doctor returned error: %s", text)
 	// The fixture may or may not have issues; just verify it returns something.
 	require.NotEmpty(t, text)
+}
+
+// --- lock tool tests ---
+
+func TestMCP_LockAcquireAndRelease(t *testing.T) {
+	t.Parallel()
+	session, ctx := newTestSession(t)
+
+	// Acquire lock on node 0.
+	acquireRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "lock_acquire",
+		Arguments: map[string]any{
+			"node_id": "0",
+		},
+	})
+	require.NoError(t, err)
+	token := extractText(t, acquireRes)
+	require.False(t, acquireRes.IsError, "lock_acquire returned error: %s", token)
+	require.NotEmpty(t, token)
+
+	// Status should show locked.
+	statusRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "lock_status",
+		Arguments: map[string]any{
+			"node_id": "0",
+		},
+	})
+	require.NoError(t, err)
+	statusText := extractText(t, statusRes)
+	require.False(t, statusRes.IsError)
+	require.Contains(t, statusText, "locked")
+	require.Contains(t, statusText, token)
+
+	// Release with correct token.
+	releaseRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "lock_release",
+		Arguments: map[string]any{
+			"node_id": "0",
+			"token":   token,
+		},
+	})
+	require.NoError(t, err)
+	require.False(t, releaseRes.IsError, "lock_release returned error: %s", extractText(t, releaseRes))
+
+	// Status should show unlocked.
+	statusRes2, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "lock_status",
+		Arguments: map[string]any{
+			"node_id": "0",
+		},
+	})
+	require.NoError(t, err)
+	require.Contains(t, extractText(t, statusRes2), "unlocked")
+}
+
+func TestMCP_LockForceRelease(t *testing.T) {
+	t.Parallel()
+	session, ctx := newTestSession(t)
+
+	// Acquire lock.
+	acquireRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "lock_acquire",
+		Arguments: map[string]any{
+			"node_id": "0",
+		},
+	})
+	require.NoError(t, err)
+	require.False(t, acquireRes.IsError)
+
+	// Force release without knowing the token.
+	forceRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "lock_force_release",
+		Arguments: map[string]any{
+			"node_id": "0",
+		},
+	})
+	require.NoError(t, err)
+	require.False(t, forceRes.IsError, "lock_force_release returned error: %s", extractText(t, forceRes))
+
+	// Status should show unlocked.
+	statusRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "lock_status",
+		Arguments: map[string]any{
+			"node_id": "0",
+		},
+	})
+	require.NoError(t, err)
+	require.Contains(t, extractText(t, statusRes), "unlocked")
+}
+
+func TestMCP_LockReleaseTokenMismatch(t *testing.T) {
+	t.Parallel()
+	session, ctx := newTestSession(t)
+
+	// Acquire lock.
+	acquireRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "lock_acquire",
+		Arguments: map[string]any{
+			"node_id": "0",
+		},
+	})
+	require.NoError(t, err)
+	require.False(t, acquireRes.IsError)
+
+	// Release with wrong token should fail.
+	releaseRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "lock_release",
+		Arguments: map[string]any{
+			"node_id": "0",
+			"token":   "wrong-token",
+		},
+	})
+	require.NoError(t, err)
+	require.True(t, releaseRes.IsError, "expected error for token mismatch")
+	require.Contains(t, extractText(t, releaseRes), "mismatch")
 }
 
 func extractText(t *testing.T, res *sdkmcp.CallToolResult) string {

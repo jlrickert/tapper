@@ -26,6 +26,7 @@ func NewServer(tap *tapper.Tap, version string, defaults KegDefaults) *sdkmcp.Se
 	registerDoctorTools(srv, tap, defaults)
 	registerSnapshotTools(srv, tap, defaults)
 	registerFileTools(srv, tap, defaults)
+	registerLockTools(srv, tap, defaults)
 
 	return srv
 }
