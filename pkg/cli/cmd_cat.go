@@ -52,6 +52,7 @@ func NewCatCmd(deps *Deps) *cobra.Command {
 	cmd.Flags().BoolVar(&opts.Edit, "edit", false, "edit node in a temporary file")
 	cmd.Flags().StringVar(&opts.Tag, "tag", "", `tag expression to select nodes (e.g., "fire", "fire and not archived")`)
 	cmd.Flags().StringVar(&opts.Tag, "query", "", `boolean expression (see "tap docs query-expressions" for syntax)`)
+	cmd.Flags().StringVar(&opts.LockToken, "lock-token", "", "cross-process lock token (required when node is locked)")
 
 	return cmd
 }

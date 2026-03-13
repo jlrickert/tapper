@@ -36,6 +36,9 @@ type CatOptions struct {
 
 	// Stream carries stdin piping information when editing.
 	Stream *toolkit.Stream
+
+	// LockToken is an optional cross-process lock token for edit operations.
+	LockToken string
 }
 
 func (t *Tap) Cat(ctx context.Context, opts CatOptions) (string, error) {
@@ -85,6 +88,7 @@ func (t *Tap) Cat(ctx context.Context, opts CatOptions) (string, error) {
 			NodeID:           nodeIDs[0],
 			KegTargetOptions: opts.KegTargetOptions,
 			Stream:           opts.Stream,
+			LockToken:        opts.LockToken,
 		})
 	}
 
@@ -100,6 +104,7 @@ func (t *Tap) Cat(ctx context.Context, opts CatOptions) (string, error) {
 			NodeID:           nodeIDs[0],
 			KegTargetOptions: opts.KegTargetOptions,
 			Stream:           opts.Stream,
+			LockToken:        opts.LockToken,
 		})
 	}
 
