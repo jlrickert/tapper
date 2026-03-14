@@ -24,6 +24,8 @@ Use these docs if you need to:
   [KEG Structure Patterns](keg-structure/README.md)
 - I want to understand node revision history:
   [Node Snapshots](node-snapshots.md)
+- I want to back up or migrate a keg:
+  [Backups And Archives](backups-and-archives.md)
 - I want to understand internals and code flow:
   [Architecture Overview](architecture/README.md)
 - I want to configure AI coding agents (Claude Code, Codex):
@@ -107,20 +109,21 @@ Use the project-local profile when you want that narrowed workflow:
   [Configuration Examples](configuration/examples.md#project-override-setup)
 - Resolution and precedence details:
   [Resolution Order](configuration/resolution-order.md)
-- Structuring entities/tags for long-lived notes:
-  [Entity And Tag Patterns](keg-structure/entity-and-tag-patterns.md)
 - Starting layout examples by domain:
   [Example Keg Structures](keg-structure/example-structures.md)
 - Writing consistent KEG note markdown:
   [Markdown Style Guide](keg-structure/markdown-style-guide.md)
 - Understanding command and service internals:
   [Architecture Overview](architecture/README.md)
+- Backing up, restoring, or migrating a keg:
+  [Backups And Archives](backups-and-archives.md)
 
 ## Next Steps
 
 - [Configuration Overview](configuration/README.md)
 - [KEG Structure Patterns](keg-structure/README.md)
 - [Node Snapshots](node-snapshots.md)
+- [Backups And Archives](backups-and-archives.md)
 - [Query Expressions](query-expressions.md)
 - [Architecture Overview](architecture/README.md)
 - [AI Coding Agent Configuration](ai-coding-agents/README.md)

@@ -8,9 +8,10 @@ If you pass explicit flags, they take precedence:
 
 - `--path` resolves a keg from a specific filesystem path
 - `--project` resolves from project-local locations
+- `--cwd` resolves from the keg in the current working directory
 - `--keg` resolves an alias
 
-`--keg` cannot be combined with `--project` or `--path`.
+These flags are mutually exclusive.
 
 ## 2. No Explicit Keg Flow
 

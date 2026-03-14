@@ -160,6 +160,9 @@ tap archive export -o archive.keg.tar.gz --no-history  # excludes snapshots/
 The archive preserves the full `snapshots/` directory structure so that
 imported nodes retain their revision history.
 
+For full backup and restore workflows, see
+[Backups And Archives](backups-and-archives.md).
+
 ## Key Source Files
 
 | File | Purpose |

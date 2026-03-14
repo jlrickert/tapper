@@ -74,13 +74,75 @@ tap --help
 
 ## Quick Start
 
-Run the CLI:
+Create your first keg and start taking notes in under a minute.
+
+**1. Set up configuration**
 
 ```bash
-tap --help
+tap repo config edit
 ```
 
-Target a keg from the root command:
+Opens your editor with the user config file (`~/.config/tapper/config.yaml`).
+Set `fallbackKeg` to `personal` (or your preferred alias) and configure
+`kegSearchPaths` so tapper knows where to find your kegs. Save and close.
+
+**2. Initialize a keg**
+
+```bash
+tap repo init --keg personal
+```
+
+Creates a keg under your first `kegSearchPaths` entry and registers the alias.
+
+**3. Create a node**
+
+```bash
+tap create
+```
+
+Opens your editor with a frontmatter template. Write your note, save, and
+close. Since `fallbackKeg` is set, no `--keg` flag needed.
+
+**4. View and edit a node**
+
+```bash
+tap cat 1
+```
+
+On a terminal this opens the node in your editor for viewing and editing.
+
+**5. List all nodes**
+
+```bash
+tap list
+```
+
+**6. Search**
+
+```bash
+tap grep "first"
+```
+
+That's it — you have a working knowledge base. See [More Examples](#more-examples)
+for snapshots, archives, and automation workflows.
+
+## Using With Claude Code
+
+Register tapper as an MCP server to give Claude Code full access to your kegs:
+
+```bash
+claude mcp add --transport stdio tapper -- tap mcp
+```
+
+This exposes 31 KEG tools (read, write, search, index, snapshot, lock) directly
+in Claude Code — no per-command permission prompts needed.
+
+See [MCP Server Setup](docs/ai-coding-agents/mcp-setup.md) for details on
+per-tool keg targeting, manual JSON config, and troubleshooting.
+
+## More Examples
+
+Target a specific keg from any command:
 
 ```bash
 tap --keg personal list
@@ -93,68 +155,43 @@ Initialize a project-local keg:
 tap repo init --keg tapper --project
 ```
 
-Use the current working directory instead of git root:
-
-```bash
-tap repo init --keg tapper --cwd
-tap repo init --keg tapper --path .
-```
-
-Create and inspect node history with `tap`:
+Create and inspect node history:
 
 ```bash
 tap snapshot create 12 --keg personal -m "before refactor"
 tap snapshot history 12 --keg personal
-```
-
-Use `keg` only when you specifically want the pruned project-local profile:
-
-```bash
-keg snapshot create 12 -m "before refactor"
-keg snapshot history 12
-```
-
-`tap` is the main command. `keg` exists to prove that the same Cobra tree can
-be exposed through a narrower profile with project-local defaults.
-
-```bash
-tap snapshot create 12 --keg personal -m "before refactor"
-tap snapshot history 12 --keg personal
-tap archive export --keg personal -o notes.keg.tar.gz
 ```
 
 Export and import a keg archive:
-
-```bash
-keg archive export -o notes.keg.tar.gz
-keg archive import notes.keg.tar.gz
-```
-
-Primary `tap` workflow:
 
 ```bash
 tap archive export --keg personal -o notes.keg.tar.gz
 tap archive import notes.keg.tar.gz --keg personal
 ```
 
-Project-local `keg` workflow:
-
-```bash
-keg archive export -o notes.keg.tar.gz
-keg archive import notes.keg.tar.gz
-```
-
 Archive import overwrites matching node IDs in the target keg instead of
-allocating new node IDs.
+allocating new node IDs. Snapshot history is included by default; use
+`--no-history` to export only the current node state.
 
-Snapshot history is included in archives by default. Use `--no-history` when
-you want to export only the current node state.
-
-Show merged repo configuration:
+The `keg` binary provides the same commands with project-local defaults:
 
 ```bash
-tap repo config
+keg snapshot create 12 -m "before refactor"
+keg archive export -o notes.keg.tar.gz
 ```
+
+### Automation and scripting
+
+Commands accept piped stdin for non-interactive use:
+
+```bash
+echo "Automated note" | tap create --keg personal
+tap cat 1 --keg personal --content-only
+```
+
+When stdin is piped, no editor is launched. Use `--content-only`,
+`--stats-only`, or `--meta-only` with `tap cat` to get machine-readable
+output.
 
 ## Configuration Quick Map
 
@@ -181,10 +218,11 @@ Project docs live under `docs/`:
 - [Troubleshooting](docs/configuration/troubleshooting.md)
 - [KEG Structure Patterns](docs/keg-structure/README.md)
 - [Minimum Keg Node](docs/keg-structure/minimum-node.md)
-- [Entity And Tag Patterns](docs/keg-structure/entity-and-tag-patterns.md)
 - [Domain Separation And Migration](docs/keg-structure/domain-separation-and-migration.md)
 - [Example Keg Structures](docs/keg-structure/example-structures.md)
 - [Markdown Style Guide](docs/keg-structure/markdown-style-guide.md)
+- [AI Coding Agent Configuration](docs/ai-coding-agents/README.md)
+- [MCP Server Setup](docs/ai-coding-agents/mcp-setup.md)
 
 ## Config Precedence At A Glance
 
