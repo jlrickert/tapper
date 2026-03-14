@@ -61,23 +61,6 @@ tags:
   - release
 ```
 
-## Pattern: Software Notes
-
-For software-heavy kegs, a useful starter set:
-
-- `project`
-- `feature`
-- `task`
-- `patch`
-- `concept`
-- `guide`
-
-Tag dimensions that usually scale well:
-
-- language (`golang`, `typescript`)
-- subsystem (`config`, `resolver`, `cli`)
-- lifecycle (`planned`, `active`, `done`)
-
 ## Pattern: Domain-Specific Notes
 
 For any focused domain, define entities around stable object types and note intent.

@@ -64,6 +64,13 @@ If you are unsure where to start, read [Configuration Overview](configuration/RE
 - `tap graph` — output keg link graph
 - `tap import FILE` — import nodes from a file
 
+### Locking
+
+- `tap lock acquire NODE_ID` — acquire a cross-process lock on a node
+- `tap lock release NODE_ID` — release a lock on a node
+- `tap lock status NODE_ID` — check the lock state of a node
+- `tap lock force-release NODE_ID` — unconditionally remove a lock
+
 ### Attachments
 
 - `tap file ls|upload|download|rm` — manage node file attachments

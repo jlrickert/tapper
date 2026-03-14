@@ -14,7 +14,7 @@ Register the MCP server with a single command:
 claude mcp add --transport stdio tapper -- tap mcp
 ```
 
-This adds tapper to your Claude Code MCP configuration. All 27 KEG tools become
+This adds tapper to your Claude Code MCP configuration. All 31 KEG tools become
 available immediately.
 
 To target a specific default keg:
@@ -53,7 +53,7 @@ With a default keg:
 
 ## Available Tools
 
-The MCP server registers 27 tools organized by category:
+The MCP server registers 31 tools organized by category:
 
 ### Read (11 tools)
 
@@ -102,6 +102,15 @@ The MCP server registers 27 tools organized by category:
 | `node_history`  | List snapshot revisions for a node       |
 | `node_snapshot` | Create a snapshot of a node's state      |
 | `node_restore`  | Restore a node to a previous revision    |
+
+### Locking (4 tools)
+
+| Tool                | Description                                      |
+| ------------------- | ------------------------------------------------ |
+| `lock_acquire`      | Acquire a cross-process lock on a node           |
+| `lock_release`      | Release a cross-process lock on a node           |
+| `lock_status`       | Check the lock state of a node                   |
+| `lock_force_release`| Unconditionally remove a lock on a node          |
 
 ### Files (4 tools)
 
