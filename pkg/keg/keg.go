@@ -41,8 +41,11 @@ type Option func(*Keg)
 
 // NewKegFromTarget constructs a Keg from a kegurl.Target. It automatically
 // selects the appropriate repository implementation based on the target's scheme:
-// - memory:// targets use an in-memory repository
-// - file:// targets use a filesystem repository
+//   - memory:// targets use an in-memory repository
+//   - file:// targets use a filesystem repository
+//   - http:// and https:// targets use an API repository (ApiRepo)
+//   - registry targets use an API repository resolved from repo/user/keg fields
+//
 // Returns an error if the target scheme is not supported.
 func NewKegFromTarget(ctx context.Context, target kegurl.Target, rt *toolkit.Runtime) (*Keg, error) {
 	switch target.Scheme() {
@@ -60,8 +63,35 @@ func NewKegFromTarget(ctx context.Context, target kegurl.Target, rt *toolkit.Run
 		}
 		keg := Keg{Target: &target, Repo: &repo, Runtime: rt}
 		return &keg, nil
+	case kegurl.SchemeHTTP, kegurl.SchemeHTTPs:
+		token := resolveTargetToken(&target, rt)
+		baseURL := strings.TrimRight(target.Url, "/")
+		repo := NewApiRepo(baseURL, token)
+		keg := Keg{Target: &target, Repo: repo, Runtime: rt}
+		return &keg, nil
+	case kegurl.SchemeRegistry:
+		token := resolveTargetToken(&target, rt)
+		// Build the API base URL from the registry repo, user, and keg fields.
+		// Convention: https://<repo>/api/v1/kegs/@<user>/<keg>
+		baseURL := fmt.Sprintf("https://%s/api/v1/kegs/@%s/%s",
+			target.Repo, target.User, target.Keg)
+		repo := NewApiRepo(baseURL, token)
+		keg := Keg{Target: &target, Repo: repo, Runtime: rt}
+		return &keg, nil
 	}
 	return nil, fmt.Errorf("unsupported target scheme: %s", target.Scheme())
+}
+
+// resolveTargetToken extracts the bearer token from a Target. It prefers
+// TokenEnv (environment variable name) over a literal Token value. Returns an
+// empty string when no credential is configured.
+func resolveTargetToken(target *kegurl.Target, rt *toolkit.Runtime) string {
+	if target.TokenEnv != "" {
+		if v := rt.Get(target.TokenEnv); v != "" {
+			return v
+		}
+	}
+	return target.Token
 }
 
 // NewKeg returns a Keg service backed by the provided repository.
