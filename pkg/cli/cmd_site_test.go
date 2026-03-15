@@ -99,7 +99,51 @@ func TestSiteServeCommand_HelpOutput(t *testing.T) {
 	require.Contains(t, stdout, "--base-url")
 }
 
-func TestSiteServeCommand_Completions(t *testing.T) {
+func TestSiteCommand_CompletesSubcommands(t *testing.T) {
+	t.Parallel()
+
+	sb := NewSandbox(t)
+
+	comp := NewCompletionProcess(t, false, 0, "site", "").
+		Run(sb.Context(), sb.Runtime())
+	require.NoError(t, comp.Err)
+
+	suggestions := parseCompletionSuggestions(string(comp.Stdout))
+	require.Contains(t, suggestions, "build")
+	require.Contains(t, suggestions, "serve")
+}
+
+func TestSiteBuildCommand_NoPositionalCompletions(t *testing.T) {
+	t.Parallel()
+
+	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
+
+	comp := NewCompletionProcess(t, false, 0, "site", "build", "").
+		Run(sb.Context(), sb.Runtime())
+	require.NoError(t, comp.Err)
+
+	// The directive line should contain :4 (ShellCompDirectiveNoFileComp)
+	// and there should be no file suggestions.
+	stdout := string(comp.Stdout)
+	suggestions := parseCompletionSuggestions(stdout)
+	require.Empty(t, suggestions, "site build should not suggest positional args, got: %v", suggestions)
+}
+
+func TestSiteServeCommand_NoPositionalCompletions(t *testing.T) {
+	t.Parallel()
+
+	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
+
+	comp := NewCompletionProcess(t, false, 0, "site", "serve", "").
+		Run(sb.Context(), sb.Runtime())
+	require.NoError(t, comp.Err)
+
+	stdout := string(comp.Stdout)
+	suggestions := parseCompletionSuggestions(stdout)
+	require.Empty(t, suggestions, "site serve should not suggest positional args, got: %v", suggestions)
+}
+
+func TestSiteServeCommand_HostCompletions(t *testing.T) {
 	t.Parallel()
 
 	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
@@ -120,4 +164,27 @@ func TestSiteServeCommand_Completions(t *testing.T) {
 		}
 	}
 	require.True(t, found, "expected host suggestion in completions, got: %v", suggestions)
+}
+
+func TestSiteServeCommand_PortCompletions(t *testing.T) {
+	t.Parallel()
+
+	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
+
+	comp := NewCompletionProcess(t, false, 3, "site", "serve", "--port", "").
+		Run(sb.Context(), sb.Runtime())
+	require.NoError(t, comp.Err)
+
+	stdout := string(comp.Stdout)
+	suggestions := parseCompletionSuggestions(stdout)
+	require.True(t, len(suggestions) > 0, "expected port completions, got: %s", stdout)
+
+	found := false
+	for _, s := range suggestions {
+		if s == "8080" || s == "3000" || s == "9090" {
+			found = true
+			break
+		}
+	}
+	require.True(t, found, "expected port suggestion in completions, got: %v", suggestions)
 }
