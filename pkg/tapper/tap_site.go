@@ -223,38 +223,21 @@ func (t *Tap) Site(ctx context.Context, opts SiteOptions) (*SiteResult, error) {
 		nodeByID[id] = ref
 	}
 
-	// Generate node pages.
-	nodeCount := 0
-	for _, entry := range entries {
-		nid, err := keg.ParseNode(entry.ID)
-		if err != nil || nid == nil {
-			continue
-		}
-
-		if err := t.generateNodePage(ctx, k, dex, tmpl, *nid, entry, nodeByID, absOutput, siteTitle, baseURL); err != nil {
-			// Log the error but continue generating other pages.
-			rt.Logger().Warn(fmt.Sprintf("site: skip node %s: %s", entry.ID, err))
-			continue
-		}
-		nodeCount++
-	}
-
-	// Generate index page.
-	if err := t.generateIndexPage(tmpl, entries, nodeByID, absOutput, siteTitle, summary, baseURL, false); err != nil {
-		return nil, fmt.Errorf("unable to generate index page: %w", err)
-	}
-
-	// Generate tag pages.
+	// Build tag data for generation.
 	tagList := dex.TagList(ctx)
 	sort.Strings(tagList)
 
-	tagCount := 0
+	type tagGenData struct {
+		name  string
+		nodes []siteNodeRef
+	}
+	var tagGenList []tagGenData
+	tagRefs := make([]siteTagRef, 0, len(tagList))
 	for _, tag := range tagList {
 		nodes, ok := dex.TagNodes(ctx, tag)
 		if !ok || len(nodes) == 0 {
 			continue
 		}
-
 		refs := make([]siteNodeRef, 0, len(nodes))
 		for _, n := range nodes {
 			if ref, ok := nodeByID[n.Path()]; ok {
@@ -262,27 +245,11 @@ func (t *Tap) Site(ctx context.Context, opts SiteOptions) (*SiteResult, error) {
 			}
 		}
 		sortNodeRefsByUpdated(refs)
-
-		if err := t.generateTagPage(tmpl, tag, refs, absOutput, siteTitle, baseURL, false); err != nil {
-			return nil, fmt.Errorf("unable to generate tag page for %q: %w", tag, err)
-		}
-		tagCount++
-	}
-
-	// Generate tags index page.
-	tagRefs := make([]siteTagRef, 0, len(tagList))
-	for _, tag := range tagList {
-		nodes, ok := dex.TagNodes(ctx, tag)
-		if !ok {
-			continue
-		}
+		tagGenList = append(tagGenList, tagGenData{name: tag, nodes: refs})
 		tagRefs = append(tagRefs, siteTagRef{Name: tag, Count: len(nodes)})
 	}
-	if err := t.generateTagsIndexPage(tmpl, tagRefs, absOutput, siteTitle, baseURL, false); err != nil {
-		return nil, fmt.Errorf("unable to generate tags index: %w", err)
-	}
 
-	// Generate changes page.
+	// Build changes data.
 	changeNodes := make([]siteNodeRef, 0, len(entries))
 	for _, e := range entries {
 		if ref, ok := nodeByID[e.ID]; ok {
@@ -290,8 +257,51 @@ func (t *Tap) Site(ctx context.Context, opts SiteOptions) (*SiteResult, error) {
 		}
 	}
 	sortNodeRefsByUpdated(changeNodes)
-	if err := t.generateChangesPage(tmpl, changeNodes, absOutput, siteTitle, baseURL, false); err != nil {
-		return nil, fmt.Errorf("unable to generate changes page: %w", err)
+
+	// generateAllPages writes all HTML pages with the given hasSearch flag.
+	// On the first call, it also writes raw/converted data files and copies
+	// assets (skipped on subsequent calls via writeAssets=false).
+	generateAllPages := func(hasSearch bool, writeAssets bool) (int, int, error) {
+		nodeCount := 0
+		for _, entry := range entries {
+			nid, err := keg.ParseNode(entry.ID)
+			if err != nil || nid == nil {
+				continue
+			}
+			if err := t.generateNodePage(ctx, k, dex, tmpl, *nid, entry, nodeByID, absOutput, siteTitle, baseURL, hasSearch, writeAssets); err != nil {
+				rt.Logger().Warn(fmt.Sprintf("site: skip node %s: %s", entry.ID, err))
+				continue
+			}
+			nodeCount++
+		}
+
+		if err := t.generateIndexPage(tmpl, entries, nodeByID, absOutput, siteTitle, summary, baseURL, hasSearch); err != nil {
+			return 0, 0, fmt.Errorf("unable to generate index page: %w", err)
+		}
+
+		tagCount := 0
+		for _, tg := range tagGenList {
+			if err := t.generateTagPage(tmpl, tg.name, tg.nodes, absOutput, siteTitle, baseURL, hasSearch); err != nil {
+				return 0, 0, fmt.Errorf("unable to generate tag page for %q: %w", tg.name, err)
+			}
+			tagCount++
+		}
+
+		if err := t.generateTagsIndexPage(tmpl, tagRefs, absOutput, siteTitle, baseURL, hasSearch); err != nil {
+			return 0, 0, fmt.Errorf("unable to generate tags index: %w", err)
+		}
+
+		if err := t.generateChangesPage(tmpl, changeNodes, absOutput, siteTitle, baseURL, hasSearch); err != nil {
+			return 0, 0, fmt.Errorf("unable to generate changes page: %w", err)
+		}
+
+		return nodeCount, tagCount, nil
+	}
+
+	// First pass: generate all pages without search.
+	nodeCount, tagCount, err := generateAllPages(false, true)
+	if err != nil {
+		return nil, err
 	}
 
 	// Run Pagefind if available and not disabled.
@@ -299,31 +309,9 @@ func (t *Tap) Site(ctx context.Context, opts SiteOptions) (*SiteResult, error) {
 	if !opts.NoSearch {
 		hasSearch = t.runPagefind(absOutput)
 		if hasSearch {
-			// Re-generate pages with search enabled.
-			for _, entry := range entries {
-				nid, err := keg.ParseNode(entry.ID)
-				if err != nil || nid == nil {
-					continue
-				}
-				_ = t.generateNodePage(ctx, k, dex, tmpl, *nid, entry, nodeByID, absOutput, siteTitle, baseURL)
-			}
-			_ = t.generateIndexPage(tmpl, entries, nodeByID, absOutput, siteTitle, summary, baseURL, true)
-			for _, tag := range tagList {
-				nodes, ok := dex.TagNodes(ctx, tag)
-				if !ok || len(nodes) == 0 {
-					continue
-				}
-				refs := make([]siteNodeRef, 0, len(nodes))
-				for _, n := range nodes {
-					if ref, ok := nodeByID[n.Path()]; ok {
-						refs = append(refs, ref)
-					}
-				}
-				sortNodeRefsByUpdated(refs)
-				_ = t.generateTagPage(tmpl, tag, refs, absOutput, siteTitle, baseURL, true)
-			}
-			_ = t.generateTagsIndexPage(tmpl, tagRefs, absOutput, siteTitle, baseURL, true)
-			_ = t.generateChangesPage(tmpl, changeNodes, absOutput, siteTitle, baseURL, true)
+			// Second pass: re-generate HTML pages with search UI enabled.
+			// Assets (README.md, meta, stats, images) are already written.
+			_, _, _ = generateAllPages(true, false)
 		}
 	}
 
@@ -344,6 +332,8 @@ func (t *Tap) generateNodePage(
 	entry keg.NodeIndexEntry,
 	nodeByID map[string]siteNodeRef,
 	outputDir, siteTitle, baseURL string,
+	hasSearch bool,
+	writeAssets bool,
 ) error {
 	rt := t.Runtime
 
@@ -421,6 +411,7 @@ func (t *Tap) generateNodePage(
 		Title:     entry.Title,
 		SiteTitle: siteTitle,
 		BaseURL:   baseURL,
+		HasSearch: hasSearch,
 		Content:   template.HTML(nodeBuf.String()),
 	}
 	var pageBuf bytes.Buffer
@@ -439,53 +430,55 @@ func (t *Tap) generateNodePage(
 		return fmt.Errorf("write index.html: %w", err)
 	}
 
-	// Write raw README.md.
-	if err := rt.AtomicWriteFile(filepath.Join(nodeDir, "README.md"), rawContent, 0o644); err != nil {
-		return fmt.Errorf("write README.md: %w", err)
-	}
-
-	// Write raw meta.yaml.
-	if len(rawMeta) > 0 {
-		if err := rt.AtomicWriteFile(filepath.Join(nodeDir, "meta.yaml"), rawMeta, 0o644); err != nil {
-			return fmt.Errorf("write meta.yaml: %w", err)
+	if writeAssets {
+		// Write raw README.md.
+		if err := rt.AtomicWriteFile(filepath.Join(nodeDir, "README.md"), rawContent, 0o644); err != nil {
+			return fmt.Errorf("write README.md: %w", err)
 		}
-	}
 
-	// Write meta.json (converted).
-	if meta != nil {
-		metaMap := map[string]any{"tags": meta.Tags()}
-		if entity != "" {
-			metaMap["entity"] = entity
+		// Write raw meta.yaml.
+		if len(rawMeta) > 0 {
+			if err := rt.AtomicWriteFile(filepath.Join(nodeDir, "meta.yaml"), rawMeta, 0o644); err != nil {
+				return fmt.Errorf("write meta.yaml: %w", err)
+			}
 		}
-		if mj, err := json.MarshalIndent(metaMap, "", "  "); err == nil {
-			_ = rt.AtomicWriteFile(filepath.Join(nodeDir, "meta.json"), mj, 0o644)
-		}
-	}
 
-	// Write raw stats.json.
-	if stats != nil {
-		if sj, err := stats.ToJSON(); err == nil {
-			_ = rt.AtomicWriteFile(filepath.Join(nodeDir, "stats.json"), sj, 0o644)
+		// Write meta.json (converted).
+		if meta != nil {
+			metaMap := map[string]any{"tags": meta.Tags()}
+			if entity != "" {
+				metaMap["entity"] = entity
+			}
+			if mj, err := json.MarshalIndent(metaMap, "", "  "); err == nil {
+				_ = rt.AtomicWriteFile(filepath.Join(nodeDir, "meta.json"), mj, 0o644)
+			}
 		}
-	}
 
-	// Write stats.yaml (converted).
-	if stats != nil {
-		if sj, err := stats.ToJSON(); err == nil {
-			var statsMap map[string]any
-			if json.Unmarshal(sj, &statsMap) == nil {
-				if sy, err := yaml.Marshal(statsMap); err == nil {
-					_ = rt.AtomicWriteFile(filepath.Join(nodeDir, "stats.yaml"), sy, 0o644)
+		// Write raw stats.json.
+		if stats != nil {
+			if sj, err := stats.ToJSON(); err == nil {
+				_ = rt.AtomicWriteFile(filepath.Join(nodeDir, "stats.json"), sj, 0o644)
+			}
+		}
+
+		// Write stats.yaml (converted).
+		if stats != nil {
+			if sj, err := stats.ToJSON(); err == nil {
+				var statsMap map[string]any
+				if json.Unmarshal(sj, &statsMap) == nil {
+					if sy, err := yaml.Marshal(statsMap); err == nil {
+						_ = rt.AtomicWriteFile(filepath.Join(nodeDir, "stats.yaml"), sy, 0o644)
+					}
 				}
 			}
 		}
+
+		// Copy images.
+		t.copyNodeAssets(ctx, k, nid, nodeDir, keg.AssetKindImage)
+
+		// Copy file attachments.
+		t.copyNodeAssets(ctx, k, nid, nodeDir, keg.AssetKindItem)
 	}
-
-	// Copy images.
-	t.copyNodeAssets(ctx, k, nid, nodeDir, keg.AssetKindImage)
-
-	// Copy file attachments.
-	t.copyNodeAssets(ctx, k, nid, nodeDir, keg.AssetKindItem)
 
 	return nil
 }
