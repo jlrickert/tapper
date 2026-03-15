@@ -28,7 +28,9 @@ per-command permission prompts.`,
 			defaults := mcp.KegDefaults{
 				KegTargetOptions: deps.KegTargetOptions,
 			}
-			srv := mcp.NewServer(deps.Tap, Version, defaults)
+			srv := mcp.NewServer(deps.Tap, Version, defaults, mcp.ServerOptions{
+				LicenseText: LicenseText,
+			})
 			err := srv.Run(cmd.Context(), &sdkmcp.StdioTransport{})
 			if err != nil && errors.Is(err, io.EOF) {
 				return nil
