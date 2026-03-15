@@ -3,5 +3,6 @@ package cli
 const traceIDKey = "trace-id"
 
 var (
-	Version string = "dev"
+	Version     string = "dev"
+	LicenseText string
 )
