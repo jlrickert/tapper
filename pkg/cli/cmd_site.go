@@ -55,6 +55,10 @@ a landing page, and a changes page are also generated.
 
 If pagefind is installed, client-side full-text search is added automatically.
 Use --no-search to skip search indexing.`,
+		Args: cobra.NoArgs,
+		ValidArgsFunction: func(_ *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			applyKegTargetProfile(deps, &opts.KegTargetOptions)
 
@@ -122,6 +126,10 @@ Routes:
   /changes/         changes page
 
 Press Ctrl+C to stop the server.`,
+		Args: cobra.NoArgs,
+		ValidArgsFunction: func(_ *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			applyKegTargetProfile(deps, &opts.KegTargetOptions)
 
@@ -148,8 +156,6 @@ Press Ctrl+C to stop the server.`,
 
 	// Suppress usage output on error -- the help text is long.
 	cmd.SilenceUsage = true
-
-	_ = cmd.Flags().SetAnnotation("port", cobra.BashCompCustom, []string{fmt.Sprintf("__tap_no_file_comp")})
 
 	return cmd
 }
