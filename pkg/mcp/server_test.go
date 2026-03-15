@@ -148,6 +148,20 @@ func TestMCP_ToolsList(t *testing.T) {
 	require.Contains(t, names, "lock_status")
 	require.Contains(t, names, "lock_force_release")
 	require.Contains(t, names, "license")
+
+	// New tools added in plan 440.
+	require.Contains(t, names, "repo_init")
+	require.Contains(t, names, "repo_rm")
+	require.Contains(t, names, "config")
+	require.Contains(t, names, "config_template")
+	require.Contains(t, names, "import_from_keg")
+	require.Contains(t, names, "export")
+	require.Contains(t, names, "import")
+	require.Contains(t, names, "upload_file")
+	require.Contains(t, names, "download_file")
+	require.Contains(t, names, "upload_image")
+	require.Contains(t, names, "download_image")
+	require.Contains(t, names, "graph")
 }
 
 func TestMCP_Cat(t *testing.T) {
@@ -1361,6 +1375,39 @@ func TestMCP_ImportMissingFile(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.True(t, res.IsError, "expected error for missing archive file")
+}
+
+// --- graph tool tests ---
+
+func TestMCP_ToolsList_IncludesGraphTool(t *testing.T) {
+	t.Parallel()
+	session, ctx := newTestSession(t)
+
+	res, err := session.ListTools(ctx, nil)
+	require.NoError(t, err)
+
+	names := make([]string, len(res.Tools))
+	for i, tool := range res.Tools {
+		names[i] = tool.Name
+	}
+
+	require.Contains(t, names, "graph")
+}
+
+func TestMCP_Graph(t *testing.T) {
+	t.Parallel()
+	session, ctx := newTestSession(t)
+
+	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name:      "graph",
+		Arguments: map[string]any{},
+	})
+	require.NoError(t, err)
+	text := extractText(t, res)
+	require.False(t, res.IsError, "graph returned error: %s", text)
+	require.Contains(t, text, "<!DOCTYPE html>")
+	require.Contains(t, text, "KEG Graph")
+	require.Contains(t, text, "__KEG__")
 }
 
 func extractText(t *testing.T, res *sdkmcp.CallToolResult) string {
