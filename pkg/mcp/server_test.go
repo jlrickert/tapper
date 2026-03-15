@@ -1117,6 +1117,163 @@ func TestMCP_ImportFromKegSameKegError(t *testing.T) {
 	require.True(t, res.IsError, "expected error importing from same keg")
 }
 
+// --- file transfer tool tests ---
+
+func TestMCP_ToolsList_IncludesFileTransferTools(t *testing.T) {
+	t.Parallel()
+	session, ctx := newTestSession(t)
+
+	res, err := session.ListTools(ctx, nil)
+	require.NoError(t, err)
+
+	names := make([]string, len(res.Tools))
+	for i, tool := range res.Tools {
+		names[i] = tool.Name
+	}
+
+	require.Contains(t, names, "upload_file")
+	require.Contains(t, names, "download_file")
+	require.Contains(t, names, "upload_image")
+	require.Contains(t, names, "download_image")
+}
+
+func TestMCP_UploadAndDownloadFile(t *testing.T) {
+	t.Parallel()
+	session, ctx := newTestSession(t)
+
+	// Create a node to attach files to.
+	createRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "create",
+		Arguments: map[string]any{
+			"title": "File Test Node",
+		},
+	})
+	require.NoError(t, err)
+	nodeID := extractText(t, createRes)
+
+	// Upload a file (base64 of "hello world").
+	content := "aGVsbG8gd29ybGQ=" // base64("hello world")
+	uploadRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "upload_file",
+		Arguments: map[string]any{
+			"node_id":        nodeID,
+			"filename":       "test.txt",
+			"content_base64": content,
+		},
+	})
+	require.NoError(t, err)
+	uploadText := extractText(t, uploadRes)
+	require.False(t, uploadRes.IsError, "upload_file returned error: %s", uploadText)
+	require.Contains(t, uploadText, "uploaded file")
+
+	// List files to verify.
+	listRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "list_files",
+		Arguments: map[string]any{
+			"node_id": nodeID,
+		},
+	})
+	require.NoError(t, err)
+	require.Contains(t, extractText(t, listRes), "test.txt")
+
+	// Download the file.
+	downloadRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "download_file",
+		Arguments: map[string]any{
+			"node_id":  nodeID,
+			"filename": "test.txt",
+		},
+	})
+	require.NoError(t, err)
+	downloadText := extractText(t, downloadRes)
+	require.False(t, downloadRes.IsError, "download_file returned error: %s", downloadText)
+	require.Equal(t, content, downloadText)
+}
+
+func TestMCP_UploadAndDownloadImage(t *testing.T) {
+	t.Parallel()
+	session, ctx := newTestSession(t)
+
+	// Create a node to attach images to.
+	createRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "create",
+		Arguments: map[string]any{
+			"title": "Image Test Node",
+		},
+	})
+	require.NoError(t, err)
+	nodeID := extractText(t, createRes)
+
+	// Upload an image (base64 of "fake png data").
+	content := "ZmFrZSBwbmcgZGF0YQ==" // base64("fake png data")
+	uploadRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "upload_image",
+		Arguments: map[string]any{
+			"node_id":        nodeID,
+			"filename":       "test.png",
+			"content_base64": content,
+		},
+	})
+	require.NoError(t, err)
+	uploadText := extractText(t, uploadRes)
+	require.False(t, uploadRes.IsError, "upload_image returned error: %s", uploadText)
+	require.Contains(t, uploadText, "uploaded image")
+
+	// List images to verify.
+	listRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "list_images",
+		Arguments: map[string]any{
+			"node_id": nodeID,
+		},
+	})
+	require.NoError(t, err)
+	require.Contains(t, extractText(t, listRes), "test.png")
+
+	// Download the image.
+	downloadRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "download_image",
+		Arguments: map[string]any{
+			"node_id":  nodeID,
+			"filename": "test.png",
+		},
+	})
+	require.NoError(t, err)
+	downloadText := extractText(t, downloadRes)
+	require.False(t, downloadRes.IsError, "download_image returned error: %s", downloadText)
+	require.Equal(t, content, downloadText)
+}
+
+func TestMCP_UploadFileInvalidBase64(t *testing.T) {
+	t.Parallel()
+	session, ctx := newTestSession(t)
+
+	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "upload_file",
+		Arguments: map[string]any{
+			"node_id":        "0",
+			"filename":       "test.txt",
+			"content_base64": "not-valid-base64!!!",
+		},
+	})
+	require.NoError(t, err)
+	require.True(t, res.IsError, "expected error for invalid base64")
+}
+
+func TestMCP_DownloadFileNotFound(t *testing.T) {
+	t.Parallel()
+	session, ctx := newTestSession(t)
+
+	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "download_file",
+		Arguments: map[string]any{
+			"node_id":  "0",
+			"filename": "nonexistent.txt",
+		},
+	})
+	require.NoError(t, err)
+	require.True(t, res.IsError, "expected error for missing file")
+}
+
 // --- archive tool tests ---
 
 func TestMCP_ToolsList_IncludesArchiveTools(t *testing.T) {
