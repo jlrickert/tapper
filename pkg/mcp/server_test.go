@@ -870,6 +870,176 @@ func TestMCP_License_Empty(t *testing.T) {
 	require.Contains(t, text, "no license text available")
 }
 
+// --- repo and config tool tests ---
+
+func TestMCP_ToolsList_IncludesNewTools(t *testing.T) {
+	t.Parallel()
+	session, ctx := newTestSession(t)
+
+	res, err := session.ListTools(ctx, nil)
+	require.NoError(t, err)
+
+	names := make([]string, len(res.Tools))
+	for i, tool := range res.Tools {
+		names[i] = tool.Name
+	}
+
+	require.Contains(t, names, "repo_init")
+	require.Contains(t, names, "repo_rm")
+	require.Contains(t, names, "config")
+	require.Contains(t, names, "config_template")
+}
+
+func TestMCP_Config(t *testing.T) {
+	t.Parallel()
+	session, ctx := newTestSession(t)
+
+	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name:      "config",
+		Arguments: map[string]any{},
+	})
+	require.NoError(t, err)
+	text := extractText(t, res)
+	require.False(t, res.IsError, "config returned error: %s", text)
+	require.Contains(t, text, "personal")
+}
+
+func TestMCP_ConfigUser(t *testing.T) {
+	t.Parallel()
+	session, ctx := newTestSession(t)
+
+	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "config",
+		Arguments: map[string]any{
+			"scope": "user",
+		},
+	})
+	require.NoError(t, err)
+	text := extractText(t, res)
+	require.False(t, res.IsError, "config user returned error: %s", text)
+	require.Contains(t, text, "defaultKeg")
+}
+
+func TestMCP_ConfigInvalidScope(t *testing.T) {
+	t.Parallel()
+	session, ctx := newTestSession(t)
+
+	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "config",
+		Arguments: map[string]any{
+			"scope": "invalid",
+		},
+	})
+	require.NoError(t, err)
+	require.True(t, res.IsError, "expected error for invalid scope")
+}
+
+func TestMCP_ConfigTemplate(t *testing.T) {
+	t.Parallel()
+	session, ctx := newTestSession(t)
+
+	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name:      "config_template",
+		Arguments: map[string]any{},
+	})
+	require.NoError(t, err)
+	text := extractText(t, res)
+	require.False(t, res.IsError, "config_template returned error: %s", text)
+	require.Contains(t, text, "fallbackKeg")
+}
+
+func TestMCP_ConfigTemplateProject(t *testing.T) {
+	t.Parallel()
+	session, ctx := newTestSession(t)
+
+	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "config_template",
+		Arguments: map[string]any{
+			"scope": "project",
+		},
+	})
+	require.NoError(t, err)
+	text := extractText(t, res)
+	require.False(t, res.IsError, "config_template project returned error: %s", text)
+	require.Contains(t, text, "defaultKeg")
+}
+
+func TestMCP_RepoInit(t *testing.T) {
+	t.Parallel()
+	session, ctx := newTestSession(t)
+
+	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "repo_init",
+		Arguments: map[string]any{
+			"keg":   "newkeg",
+			"user":  true,
+			"title": "New Test KEG",
+		},
+	})
+	require.NoError(t, err)
+	text := extractText(t, res)
+	require.False(t, res.IsError, "repo_init returned error: %s", text)
+	require.Contains(t, text, "initialized keg")
+	require.Contains(t, text, "newkeg")
+}
+
+func TestMCP_RepoInitMissingAlias(t *testing.T) {
+	t.Parallel()
+	session, ctx := newTestSession(t)
+
+	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "repo_init",
+		Arguments: map[string]any{
+			"keg": "",
+		},
+	})
+	require.NoError(t, err)
+	require.True(t, res.IsError, "expected error for missing alias")
+}
+
+func TestMCP_RepoRm(t *testing.T) {
+	t.Parallel()
+	session, ctx := newTestSession(t)
+
+	// Init a new keg first so we can remove it.
+	initRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "repo_init",
+		Arguments: map[string]any{
+			"keg":  "ephemeral",
+			"user": true,
+		},
+	})
+	require.NoError(t, err)
+	require.False(t, initRes.IsError, "repo_init returned error: %s", extractText(t, initRes))
+
+	// Remove it.
+	rmRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "repo_rm",
+		Arguments: map[string]any{
+			"alias": "ephemeral",
+		},
+	})
+	require.NoError(t, err)
+	text := extractText(t, rmRes)
+	require.False(t, rmRes.IsError, "repo_rm returned error: %s", text)
+	require.Contains(t, text, "removed keg alias")
+}
+
+func TestMCP_RepoRmDefaultRequiresForce(t *testing.T) {
+	t.Parallel()
+	session, ctx := newTestSession(t)
+
+	// Trying to remove the default keg without force should fail.
+	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "repo_rm",
+		Arguments: map[string]any{
+			"alias": "personal",
+		},
+	})
+	require.NoError(t, err)
+	require.True(t, res.IsError, "expected error removing default keg without force")
+}
+
 func extractText(t *testing.T, res *sdkmcp.CallToolResult) string {
 	t.Helper()
 	var parts []string
