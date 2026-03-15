@@ -86,7 +86,22 @@ type ConfigV2 struct {
 
 	Tags map[string]string `yaml:"tags,omitempty"`
 
+	// Site holds static site generation defaults for `tap site`.
+	Site *SiteConfig `yaml:"site,omitempty"`
+
 	path string
+}
+
+// SiteConfig holds static site generation defaults stored in the keg config.
+type SiteConfig struct {
+	// Output is the default output directory.
+	Output string `yaml:"output,omitempty" json:"output,omitempty"`
+	// Title is the site title.
+	Title string `yaml:"title,omitempty" json:"title,omitempty"`
+	// BaseURL is the base URL prefix for absolute links.
+	BaseURL string `yaml:"baseUrl,omitempty" json:"baseUrl,omitempty"`
+	// Search enables or disables Pagefind search indexing.
+	Search *bool `yaml:"search,omitempty" json:"search,omitempty"`
 }
 
 // LinkEntry represents a named link in the KEG configuration.

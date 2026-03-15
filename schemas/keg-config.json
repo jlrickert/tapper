@@ -117,6 +117,32 @@
         "type": "string",
         "description": "Human-readable description for a tag."
       }
+    },
+    "site": {
+      "type": "object",
+      "description": "Static site generation defaults for `tap site`.",
+      "properties": {
+        "output": {
+          "type": "string",
+          "description": "Default output directory for the generated site.",
+          "default": "./site"
+        },
+        "title": {
+          "type": "string",
+          "description": "Site title shown in navigation and page titles."
+        },
+        "baseUrl": {
+          "type": "string",
+          "description": "Base URL prefix for absolute links (e.g. https://keg.example.com/).",
+          "default": "/"
+        },
+        "search": {
+          "type": "boolean",
+          "description": "Enable client-side search via Pagefind. Set to false to disable.",
+          "default": true
+        }
+      },
+      "additionalProperties": false
     }
   },
   "required": [
