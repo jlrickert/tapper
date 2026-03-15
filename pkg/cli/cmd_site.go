@@ -64,5 +64,7 @@ Use --no-search to skip search indexing.`,
 	cmd.Flags().StringVar(&opts.BaseURL, "base-url", "", "base URL for absolute links (default: /)")
 	cmd.Flags().BoolVar(&opts.NoSearch, "no-search", false, "skip pagefind search indexing")
 
+	_ = cmd.MarkFlagDirname("output")
+
 	return cmd
 }
