@@ -2,6 +2,32 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.12.0 - 2026-03-15
+
+
+
+### ⚙️ Miscellaneous
+- run go mod tidy
+
+
+### 🐛 Bug Fixes
+- add missing shell completions for site build and serve
+
+
+### 🚀 Features
+- embed LICENSE in binary and expose via --license flag
+- add MCP license tool for license text retrieval
+- add repo_init, repo_rm, config, config_template MCP tools
+- add import_from_keg MCP tool for cross-keg node import
+- add export and import MCP tools for keg archives
+- add upload/download file and image MCP tools
+- add graph MCP tool for KEG visualization
+
+
+### 🧪 Testing
+- add tests for --license flag, MCP license tool, and completions
+
+
 ## v0.11.0 - 2026-03-15
 
 
