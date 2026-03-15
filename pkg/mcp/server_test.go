@@ -1117,6 +1117,95 @@ func TestMCP_ImportFromKegSameKegError(t *testing.T) {
 	require.True(t, res.IsError, "expected error importing from same keg")
 }
 
+// --- archive tool tests ---
+
+func TestMCP_ToolsList_IncludesArchiveTools(t *testing.T) {
+	t.Parallel()
+	session, ctx := newTestSession(t)
+
+	res, err := session.ListTools(ctx, nil)
+	require.NoError(t, err)
+
+	names := make([]string, len(res.Tools))
+	for i, tool := range res.Tools {
+		names[i] = tool.Name
+	}
+
+	require.Contains(t, names, "export")
+	require.Contains(t, names, "import")
+}
+
+func TestMCP_ExportAndImport(t *testing.T) {
+	t.Parallel()
+	session, ctx := newTestSession(t)
+
+	// Export the default keg.
+	exportRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "export",
+		Arguments: map[string]any{
+			"output_path": "~/export-test.tar.gz",
+		},
+	})
+	require.NoError(t, err)
+	text := extractText(t, exportRes)
+	require.False(t, exportRes.IsError, "export returned error: %s", text)
+	require.Contains(t, text, "exported to")
+
+	// Create a second keg to import into.
+	initRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "repo_init",
+		Arguments: map[string]any{
+			"keg":   "importtarget",
+			"user":  true,
+			"title": "Import Target",
+		},
+	})
+	require.NoError(t, err)
+	require.False(t, initRes.IsError, "repo_init returned error: %s", extractText(t, initRes))
+
+	// Import the archive into the second keg.
+	importRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "import",
+		Arguments: map[string]any{
+			"keg":  "importtarget",
+			"path": "~/export-test.tar.gz",
+		},
+	})
+	require.NoError(t, err)
+	importText := extractText(t, importRes)
+	require.False(t, importRes.IsError, "import returned error: %s", importText)
+	require.Contains(t, importText, "imported")
+	require.Contains(t, importText, "node(s)")
+}
+
+func TestMCP_ExportMissingPath(t *testing.T) {
+	t.Parallel()
+	session, ctx := newTestSession(t)
+
+	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "export",
+		Arguments: map[string]any{
+			"output_path": "",
+		},
+	})
+	require.NoError(t, err)
+	require.True(t, res.IsError, "expected error for empty output path")
+}
+
+func TestMCP_ImportMissingFile(t *testing.T) {
+	t.Parallel()
+	session, ctx := newTestSession(t)
+
+	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "import",
+		Arguments: map[string]any{
+			"path": "~/nonexistent-archive.tar.gz",
+		},
+	})
+	require.NoError(t, err)
+	require.True(t, res.IsError, "expected error for missing archive file")
+}
+
 func extractText(t *testing.T, res *sdkmcp.CallToolResult) string {
 	t.Helper()
 	var parts []string
