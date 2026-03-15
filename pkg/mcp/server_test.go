@@ -29,6 +29,43 @@ func newTestSandbox(t *testing.T) *sandbox.Sandbox {
 	)
 }
 
+func newTestSessionWithOpts(t *testing.T, opts ...mcp.ServerOptions) (*sdkmcp.ClientSession, context.Context) {
+	t.Helper()
+	ctx := context.Background()
+
+	sb := newTestSandbox(t)
+	rt := sb.Runtime()
+
+	tap, err := tapper.NewTap(tapper.TapOptions{
+		Runtime: rt,
+	})
+	require.NoError(t, err)
+
+	srv := mcp.NewServer(tap, "test", mcp.KegDefaults{}, opts...)
+	serverTransport, clientTransport := sdkmcp.NewInMemoryTransports()
+
+	// Connect server in background.
+	done := make(chan error, 1)
+	go func() {
+		done <- srv.Run(ctx, serverTransport)
+	}()
+	t.Cleanup(func() {
+		<-done
+	})
+
+	client := sdkmcp.NewClient(&sdkmcp.Implementation{
+		Name:    "test-client",
+		Version: "0.1",
+	}, nil)
+	session, err := client.Connect(ctx, clientTransport, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		session.Close()
+	})
+
+	return session, ctx
+}
+
 func newTestSession(t *testing.T) (*sdkmcp.ClientSession, context.Context) {
 	t.Helper()
 	ctx := context.Background()
@@ -110,6 +147,7 @@ func TestMCP_ToolsList(t *testing.T) {
 	require.Contains(t, names, "lock_release")
 	require.Contains(t, names, "lock_status")
 	require.Contains(t, names, "lock_force_release")
+	require.Contains(t, names, "license")
 }
 
 func TestMCP_Cat(t *testing.T) {
@@ -796,6 +834,40 @@ func TestMCP_LockReleaseTokenMismatch(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, releaseRes.IsError, "expected error for token mismatch")
 	require.Contains(t, extractText(t, releaseRes), "mismatch")
+}
+
+// --- license tool tests ---
+
+func TestMCP_License(t *testing.T) {
+	t.Parallel()
+	licenseText := "Apache License\nVersion 2.0, January 2004\nFull license content here."
+	session, ctx := newTestSessionWithOpts(t, mcp.ServerOptions{
+		LicenseText: licenseText,
+	})
+
+	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name:      "license",
+		Arguments: map[string]any{},
+	})
+	require.NoError(t, err)
+	text := extractText(t, res)
+	require.False(t, res.IsError, "license returned error: %s", text)
+	require.Contains(t, text, "Apache License")
+	require.Contains(t, text, "Version 2.0")
+}
+
+func TestMCP_License_Empty(t *testing.T) {
+	t.Parallel()
+	session, ctx := newTestSession(t)
+
+	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name:      "license",
+		Arguments: map[string]any{},
+	})
+	require.NoError(t, err)
+	text := extractText(t, res)
+	require.False(t, res.IsError, "license returned error: %s", text)
+	require.Contains(t, text, "no license text available")
 }
 
 func extractText(t *testing.T, res *sdkmcp.CallToolResult) string {
