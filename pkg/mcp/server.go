@@ -39,6 +39,7 @@ func NewServer(tap *tapper.Tap, version string, defaults KegDefaults, opts ...Se
 	registerLockTools(srv, tap, defaults)
 	registerServeTools(srv, tap, defaults)
 	registerSiteTools(srv, tap, defaults)
+	registerRepoTools(srv, tap, defaults)
 	registerLicenseTools(srv, opt.LicenseText)
 
 	return srv
