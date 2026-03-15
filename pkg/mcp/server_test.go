@@ -1040,6 +1040,83 @@ func TestMCP_RepoRmDefaultRequiresForce(t *testing.T) {
 	require.True(t, res.IsError, "expected error removing default keg without force")
 }
 
+// --- import tool tests ---
+
+func TestMCP_ToolsList_IncludesImportTool(t *testing.T) {
+	t.Parallel()
+	session, ctx := newTestSession(t)
+
+	res, err := session.ListTools(ctx, nil)
+	require.NoError(t, err)
+
+	names := make([]string, len(res.Tools))
+	for i, tool := range res.Tools {
+		names[i] = tool.Name
+	}
+
+	require.Contains(t, names, "import_from_keg")
+}
+
+func TestMCP_ImportFromKeg(t *testing.T) {
+	t.Parallel()
+	session, ctx := newTestSession(t)
+
+	// First, init a second keg to import from.
+	initRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "repo_init",
+		Arguments: map[string]any{
+			"keg":   "source",
+			"user":  true,
+			"title": "Source KEG",
+		},
+	})
+	require.NoError(t, err)
+	require.False(t, initRes.IsError, "repo_init returned error: %s", extractText(t, initRes))
+
+	// Create a node in the source keg.
+	createRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "create",
+		Arguments: map[string]any{
+			"title": "Imported Node",
+			"lead":  "This node will be imported.",
+			"keg":   "source",
+		},
+	})
+	require.NoError(t, err)
+	require.False(t, createRes.IsError, "create returned error: %s", extractText(t, createRes))
+	srcNodeID := extractText(t, createRes)
+
+	// Import from source into personal (default).
+	importRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "import_from_keg",
+		Arguments: map[string]any{
+			"source_keg":     "source",
+			"node_ids":       []string{srcNodeID},
+			"target_keg":     "personal",
+			"skip_zero_node": true,
+		},
+	})
+	require.NoError(t, err)
+	text := extractText(t, importRes)
+	require.False(t, importRes.IsError, "import_from_keg returned error: %s", text)
+	require.Contains(t, text, "imported 1 node(s)")
+}
+
+func TestMCP_ImportFromKegSameKegError(t *testing.T) {
+	t.Parallel()
+	session, ctx := newTestSession(t)
+
+	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "import_from_keg",
+		Arguments: map[string]any{
+			"source_keg": "personal",
+			"target_keg": "personal",
+		},
+	})
+	require.NoError(t, err)
+	require.True(t, res.IsError, "expected error importing from same keg")
+}
+
 func extractText(t *testing.T, res *sdkmcp.CallToolResult) string {
 	t.Helper()
 	var parts []string

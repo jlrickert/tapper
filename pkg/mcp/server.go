@@ -40,6 +40,7 @@ func NewServer(tap *tapper.Tap, version string, defaults KegDefaults, opts ...Se
 	registerServeTools(srv, tap, defaults)
 	registerSiteTools(srv, tap, defaults)
 	registerRepoTools(srv, tap, defaults)
+	registerImportTools(srv, tap, defaults)
 	registerLicenseTools(srv, opt.LicenseText)
 
 	return srv
