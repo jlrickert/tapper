@@ -156,7 +156,6 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 		NewSnapshotCmd(deps),
 		NewPwdCmd(deps),
 		NewRemoveCmd(deps),
-		NewServeCmd(deps),
 		NewSiteCmd(deps),
 		NewStatsCmd(deps),
 		NewTagsCmd(deps),
