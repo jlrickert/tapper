@@ -1,0 +1,11 @@
+<h1>Changes</h1>
+<ul class="node-list">
+  {{range .Nodes}}
+  <li>
+    <div class="node-title"><a href="{{$.BaseURL}}{{.ID}}/">{{.Title}}</a></div>
+    <div class="node-meta">
+      {{if not .Updated.IsZero}}<span>{{.Updated.Format "2006-01-02 15:04"}}</span>{{end}}
+    </div>
+  </li>
+  {{end}}
+</ul>
