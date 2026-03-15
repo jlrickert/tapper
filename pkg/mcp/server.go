@@ -13,8 +13,18 @@ type KegDefaults struct {
 	tapper.KegTargetOptions
 }
 
+// ServerOptions holds configuration for creating an MCP server.
+type ServerOptions struct {
+	LicenseText string
+}
+
 // NewServer builds an MCP server with all registered tools.
-func NewServer(tap *tapper.Tap, version string, defaults KegDefaults) *sdkmcp.Server {
+func NewServer(tap *tapper.Tap, version string, defaults KegDefaults, opts ...ServerOptions) *sdkmcp.Server {
+	var opt ServerOptions
+	if len(opts) > 0 {
+		opt = opts[0]
+	}
+
 	srv := sdkmcp.NewServer(&sdkmcp.Implementation{
 		Name:    "tap",
 		Version: version,
@@ -29,6 +39,7 @@ func NewServer(tap *tapper.Tap, version string, defaults KegDefaults) *sdkmcp.Se
 	registerLockTools(srv, tap, defaults)
 	registerServeTools(srv, tap, defaults)
 	registerSiteTools(srv, tap, defaults)
+	registerLicenseTools(srv, opt.LicenseText)
 
 	return srv
 }
