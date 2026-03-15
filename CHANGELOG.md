@@ -2,35 +2,7 @@
 
 All notable changes to this project are documented in this file.
 
-## v0.9.0 - 2026-03-11
-
-
-
-### 🐛 Bug Fixes
-- correct license to Apache-2.0 in Homebrew formulas
-
-
-### 🚀 Features
-- add version subcommand and inject version via ldflags
-
-
-## v0.8.0 - 2026-03-11
-
-
-
-### 📚 Documentation
-- add Homebrew installation instructions to README
-
-
-### 🚀 Features
-- add Homebrew formula generation via GoReleaser
-
-
-### 🚜 Refactor
-- rename kegv2 binary to keg
-
-
-## v0.7.0 - 2026-03-11
+## v0.11.0 - 2026-03-15
 
 
 
@@ -50,6 +22,7 @@ All notable changes to this project are documented in this file.
 - add node_modules to .gitignore
 - tidy go.mod after MCP SDK addition
 - add docs to Taskfile source watches
+- upgrade GitHub Actions to Node.js 24 compatible versions
 
 
 ### 🐛 Bug Fixes
@@ -71,6 +44,9 @@ All notable changes to this project are documented in this file.
 - correct keg resolution precedence and kegMap merge
 - use content comparison to prevent self-triggered editor warnings
 - parallelize index rebuild for dirty nodes
+- correct license to Apache-2.0 in Homebrew formulas
+- add --version flag to root command for Homebrew test compatibility
+- block writes to locked nodes when no lock token is provided
 
 
 ### 📚 Documentation
@@ -91,6 +67,10 @@ All notable changes to this project are documented in this file.
 - Add query expressions documentation
 - add MCP server setup guide and update CLAUDE.md
 - add feature surface checklist to CLAUDE.md
+- add Homebrew installation instructions to README
+- update tool counts, add lock commands, and trim redundant sections
+- add backup docs, trim redundant sections, and document --cwd flag
+- replace license summary with full Apache 2.0 text
 
 
 ### 🚀 Features
@@ -188,6 +168,17 @@ All notable changes to this project are documented in this file.
 - add reverse sync to update temp file on external node changes
 - add NodeEventAccessed and emit on content reads
 - add shell completions for file and image subcommands
+- add Homebrew formula generation via GoReleaser
+- add version subcommand and inject version via ldflags
+- interactive terminal editing for tap cat and access tracking
+- add cross-process node locking with tap lock command
+- add MCP lock tools for cross-process node locking
+- add --lock-token flag to tap cat for edit paths
+- add ApiRepo HTTP repository backend for remote keg access
+- add tap site command for static HTML site generation
+- add directory completion for tap site --output flag
+- move links/backlinks to right sidebar with mobile flyout
+- add tap serve command with dynamic KEG HTTP server
 
 
 ### 🚜 Refactor
@@ -235,6 +226,10 @@ All notable changes to this project are documented in this file.
 - remove deprecated --tags flag from tap import
 - remove deprecated --alias flag from index subcommands
 - remove incremental indexing, always full rebuild
+- rename kegv2 binary to keg
+- remove work-specific references from codebase
+- clean up site generation two-pass search integration
+- move serve under site parent, rename site to site build
 
 
 ### 🧪 Testing
@@ -252,4 +247,7 @@ All notable changes to this project are documented in this file.
 - cover unsupported snapshot backends
 - add unit and CLI integration tests for tap import
 - add CLI concurrency tests
+- add comprehensive lock integration and concurrency tests
+- add comprehensive tests for tap site command
+- add benchmark tests for tap site serve handlers
 
