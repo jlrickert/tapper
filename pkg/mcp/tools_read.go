@@ -230,16 +230,22 @@ func registerListKegs(srv *sdkmcp.Server, tap *tapper.Tap) {
 // --- info ---
 
 type infoInput struct {
-	Keg string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
+	Keg     string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
+	Minimal *bool  `json:"minimal,omitempty" jsonschema:"return only core config fields (default true)"`
 }
 
 func registerInfo(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "info",
-		Description: "Show KEG config (keg file contents)",
+		Description: "Show KEG config (keg file contents). Returns minimal output by default; set minimal=false for full config.",
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in infoInput) (*sdkmcp.CallToolResult, any, error) {
+		minimal := true
+		if in.Minimal != nil {
+			minimal = *in.Minimal
+		}
 		opts := tapper.InfoOptions{
 			KegTargetOptions: resolveKegTarget(in.Keg, defaults),
+			Minimal:          minimal,
 		}
 		result, err := tap.Info(ctx, opts)
 		if err != nil {

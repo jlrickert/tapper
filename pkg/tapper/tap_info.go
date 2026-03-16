@@ -17,6 +17,11 @@ import (
 // InfoOptions configures behavior for Tap.Info.
 type InfoOptions struct {
 	KegTargetOptions
+
+	// Minimal strips large sections (tags, entities, indexes) from the output,
+	// returning only core config fields. Useful for MCP tools where response
+	// size must stay small.
+	Minimal bool
 }
 
 // Info displays the keg metadata (keg.yaml file contents).
@@ -24,6 +29,10 @@ func (t *Tap) Info(ctx context.Context, opts InfoOptions) (string, error) {
 	k, err := t.resolveKeg(ctx, opts.KegTargetOptions)
 	if err != nil {
 		return "", fmt.Errorf("unable to open keg: %w", err)
+	}
+
+	if opts.Minimal {
+		return t.infoMinimal(ctx, k)
 	}
 
 	// For file-backed kegs, return the raw config contents so unknown sections
@@ -45,6 +54,34 @@ func (t *Tap) Info(ctx context.Context, opts InfoOptions) (string, error) {
 
 	// Convert config to YAML format
 	return cfg.String(), nil
+}
+
+// infoMinimal returns a compact version of the keg config with only core fields.
+func (t *Tap) infoMinimal(ctx context.Context, k *keg.Keg) (string, error) {
+	cfg, err := k.Config(ctx)
+	if err != nil {
+		return "", fmt.Errorf("unable to read keg config: %w", err)
+	}
+
+	type minimalConfig struct {
+		Kegv    string `yaml:"kegv,omitempty"`
+		Title   string `yaml:"title,omitempty"`
+		Summary string `yaml:"summary,omitempty"`
+		Updated string `yaml:"updated,omitempty"`
+	}
+
+	out := minimalConfig{
+		Kegv:    cfg.Kegv,
+		Title:   cfg.Title,
+		Summary: cfg.Summary,
+		Updated: cfg.Updated,
+	}
+
+	b, err := yaml.Marshal(out)
+	if err != nil {
+		return "", fmt.Errorf("unable to marshal minimal config: %w", err)
+	}
+	return string(b), nil
 }
 
 // KegInfoOptions configures behavior for Tap.KegInfo.
