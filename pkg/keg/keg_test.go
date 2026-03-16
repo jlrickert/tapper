@@ -298,6 +298,10 @@ func TestCreateAndUpdateNodesWithFsRepo(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "new lead from fs", stats.Lead())
 
+	// Re-acquire dex since SetContent invalidates the cached dex.
+	dex, err = k.Dex(f.Context())
+	require.NoError(t, err)
+
 	// Dex entry should have a newer updated timestamp.
 	ref2 := dex.GetRef(f.Context(), id)
 	require.NotNil(t, ref2)

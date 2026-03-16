@@ -971,6 +971,9 @@ func (k *Keg) indexNodeLocked(ctx context.Context, id NodeId) (*NodeData, bool, 
 }
 
 func (k *Keg) writeNodeToDex(ctx context.Context, id NodeId, data *NodeData) error {
+	// Invalidate the cached dex to pick up external changes before writing.
+	k.InvalidateDex()
+
 	dex, err := k.Dex(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to retrieve dex: %w", err)
@@ -1217,9 +1220,22 @@ func (k *Keg) getNode(ctx context.Context, n NodeId) (*NodeData, error) {
 	}, nil
 }
 
+// InvalidateDex clears the cached dex so the next Dex() call reloads from
+// the repository. This is useful when external processes may have modified
+// the index files.
+func (k *Keg) InvalidateDex() {
+	k.dexMu.Lock()
+	k.dex = nil
+	k.dexMu.Unlock()
+}
+
 // addNodeToDex adds a node to the dex, writes dex changes to the repository,
 // and updates the keg's Updated timestamp to the provided time (or now if not specified).
 func (k *Keg) addNodeToDex(ctx context.Context, data *NodeData, now *time.Time) error {
+	// Invalidate the cached dex before loading to pick up changes made
+	// by other processes (e.g., CLI updates while MCP server is running).
+	k.InvalidateDex()
+
 	dex, err := k.Dex(ctx)
 	if err != nil {
 		return err
