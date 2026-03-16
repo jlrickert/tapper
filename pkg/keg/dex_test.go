@@ -284,6 +284,65 @@ func TestDex_WithConfig_CustomIndex(t *testing.T) {
 	require.NotContains(t, s, "Python async")
 }
 
+// TestTagIndex_Add_RemovesStaleTags verifies that when a node's tags change,
+// the old tag associations are removed and only the current tags remain.
+// Reproduction test for bug 261 sub-issue 3.
+func TestTagIndex_Add_RemovesStaleTags(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	idx := TagIndex{data: map[string][]NodeId{}}
+
+	// Add node 1 with tags "golang" and "concurrency"
+	n1 := makeNodeData(1, "Go patterns", []string{"golang", "concurrency"}, time.Now())
+	require.NoError(t, idx.Add(ctx, n1))
+
+	// Verify initial state
+	golangNodes, ok := idx.data["golang"]
+	require.True(t, ok, "golang tag should exist")
+	require.Len(t, golangNodes, 1)
+	concNodes, ok := idx.data["concurrency"]
+	require.True(t, ok, "concurrency tag should exist")
+	require.Len(t, concNodes, 1)
+
+	// Now update node 1: remove "concurrency", keep "golang", add "patterns"
+	n1Updated := makeNodeData(1, "Go patterns", []string{"golang", "patterns"}, time.Now())
+	require.NoError(t, idx.Add(ctx, n1Updated))
+
+	// "concurrency" should no longer contain node 1
+	concNodes, ok = idx.data["concurrency"]
+	require.False(t, ok, "concurrency tag should be removed when no nodes reference it")
+
+	// "golang" should still contain node 1
+	golangNodes, ok = idx.data["golang"]
+	require.True(t, ok, "golang tag should still exist")
+	require.Len(t, golangNodes, 1)
+
+	// "patterns" should now contain node 1
+	patternNodes, ok := idx.data["patterns"]
+	require.True(t, ok, "patterns tag should exist")
+	require.Len(t, patternNodes, 1)
+}
+
+// TestTagIndex_Add_NoTagsRemovesAll verifies that when a node's tags are
+// cleared, all associations are removed.
+func TestTagIndex_Add_NoTagsRemovesAll(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	idx := TagIndex{data: map[string][]NodeId{}}
+
+	// Add node 1 with tags
+	n1 := makeNodeData(1, "Tagged node", []string{"alpha", "beta"}, time.Now())
+	require.NoError(t, idx.Add(ctx, n1))
+	require.Len(t, idx.data, 2)
+
+	// Update node 1 with no tags -- should remove from all tag lists
+	n1NoTags := makeNodeData(1, "Untagged node", nil, time.Now())
+	require.NoError(t, idx.Add(ctx, n1NoTags))
+	require.Len(t, idx.data, 0, "all tags should be removed when node has no tags")
+}
+
 // TestDex_WithConfig_CoreIndexSkipped verifies that core index names in
 // cfg.Indexes with Tags set are not added as custom tag-filtered indexes.
 func TestDex_WithConfig_CoreIndexSkipped(t *testing.T) {

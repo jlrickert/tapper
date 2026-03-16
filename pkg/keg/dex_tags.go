@@ -92,6 +92,11 @@ func (idx *TagIndex) Add(ctx context.Context, data *NodeData) error {
 	if idx.data == nil {
 		idx.data = map[string][]NodeId{}
 	}
+
+	// First, remove the node from all existing tag lists so stale
+	// associations are cleaned up when tags change.
+	idx.Rm(ctx, data.ID)
+
 	tags := data.Tags()
 	if len(tags) == 0 {
 		return nil
@@ -102,21 +107,12 @@ func (idx *TagIndex) Add(ctx context.Context, data *NodeData) error {
 			continue
 		}
 		list := idx.data[tag]
-		dup := false
-		for _, n := range list {
-			if n.Equals(data.ID) {
-				dup = true
-				break
-			}
-		}
-		if !dup {
-			list = append(list, data.ID)
-			// keep list deterministic by sorting after append
-			slices.SortFunc(list, func(a NodeId, b NodeId) int {
-				return a.Compare(b)
-			})
-			idx.data[tag] = list
-		}
+		list = append(list, data.ID)
+		// keep list deterministic by sorting after append
+		slices.SortFunc(list, func(a NodeId, b NodeId) int {
+			return a.Compare(b)
+		})
+		idx.data[tag] = list
 	}
 
 	return nil
