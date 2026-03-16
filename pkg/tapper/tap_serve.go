@@ -67,7 +67,7 @@ func (t *Tap) Serve(ctx context.Context, opts ServeOptions) (*ServeResult, error
 	url := fmt.Sprintf("http://%s:%d/", actualAddr.IP, actualAddr.Port)
 
 	// Print the URL to stdout so callers can parse it.
-	fmt.Fprintf(os.Stdout, "Serving KEG at %s\n", url)
+	fmt.Fprintf(t.Runtime.Stream().Out, "Serving KEG at %s\n", url)
 
 	srv := &http.Server{Handler: handler}
 
