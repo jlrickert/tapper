@@ -45,11 +45,14 @@ go vet ./...
 
 ### Key Types and Flow
 
-**Keg** (`pkg/keg/keg.go`) is the central service. It wraps a `Repository` interface and a `*toolkit.Runtime` (from `cli-toolkit`). All node operations flow through Keg:
+**Keg** (`pkg/keg/keg.go`) is the central service. It wraps a `Repository` interface and a `*toolkit.Runtime` (from `cli-toolkit`). All node operations flow through Keg via two parallel entry points:
 
 ```
-CLI command → pkg/cli (Cobra) → pkg/tapper.Tap → pkg/keg.Keg → Repository
+CLI command   → pkg/cli (Cobra)    → pkg/tapper.Tap → pkg/keg.Keg → Repository
+MCP tool call → pkg/mcp (JSON-RPC) → pkg/tapper.Tap → pkg/keg.Keg → Repository
 ```
+
+Both paths converge at `pkg/tapper.Tap`, sharing the same method and `*Options` struct for each feature. The CLI path uses `applyKegTargetProfile()` to resolve Cobra flags into options and writes results to stdout. The MCP path uses `resolveKegTarget()` with input structs annotated via `jsonschema` tags and returns `CallToolResult` values. Server wiring in `NewServer()` calls 14 `register*Tools()` functions to expose the full Tap surface over stdio JSON-RPC.
 
 **Repository** (`pkg/keg/repository.go`) is the storage contract with two implementations:
 - `MemoryRepo` (`repo_memory.go`) — in-memory, used in tests
@@ -118,6 +121,7 @@ All I/O in `pkg/keg`, `pkg/tapper`, and `pkg/cli` must go through `toolkit.Runti
 - **MemoryRepo for speed**: Prefer `NewMemoryRepo(rt)` for unit tests; use FsRepo + sandbox only when testing filesystem behavior.
 - **Testify**: Uses `github.com/stretchr/testify/require` for assertions.
 - **Race detection**: Run `go test -race ./pkg/keg/...` and `go test -race ./pkg/tapper/...` to verify concurrent safety.
+- **Parity tests**: `pkg/parity/` contains table-driven tests that verify CLI commands and MCP tools produce equivalent results for the same Tap API operations. The coverage test (`TestCoverage_AllTapMethodsHaveBothSurfaces`) uses reflection to check that every exported Tap method has both a CLI command and MCP tool registered. When adding a new feature, add a parity test case to the appropriate file (`parity_read_test.go`, `parity_write_test.go`, or `parity_utility_test.go`). Run with `go test ./pkg/parity/...` and `go test -race ./pkg/parity/...`.
 
 ## Error Handling
 
@@ -125,9 +129,32 @@ All I/O in `pkg/keg`, `pkg/tapper`, and `pkg/cli` must go through `toolkit.Runti
 - Typed errors: `BackendError` (with Retryable), `RateLimitError`, `TransientError`.
 - Check with `errors.Is()` for sentinels, `errors.As()` for typed errors.
 
-## Feature Surface Checklist
+## Feature Organization
 
-Every new capability added to the Tap API (`pkg/tapper`) must be propagated to all consumer surfaces. Missing a surface leads to incomplete features — for example, an MCP tool that exists but has no matching CLI command.
+Features are vertical slices: each capability cuts through every layer from the Tap API down to tests. CLI and MCP are peer surfaces — both must expose the same features at parity.
+
+### Feature anatomy
+
+| Layer              | Location pattern           | Purpose                                                    |
+| ------------------ | -------------------------- | ---------------------------------------------------------- |
+| **Tap API**        | `pkg/tapper/tap_*.go`      | Business logic method + `*Options` struct                  |
+| **CLI command**    | `pkg/cli/cmd_*.go`         | Cobra command wiring flags to the Tap method               |
+| **Completions**    | `pkg/cli/cmd_*.go`         | `ValidArgsFunction` and custom completers for flags/args   |
+| **MCP tool**       | `pkg/mcp/tools_*.go`       | JSON-RPC tool with input struct and `jsonschema` tags      |
+| **Tests**          | `*_test.go` in each pkg    | Unit, integration, completion, and MCP tool tests          |
+| **Documentation**  | `docs/`                    | User-facing docs for the capability                        |
+
+**Example — `create`:**
+`Tap.Create()` in `tap_create.go` → `createCmd` in `cmd_create.go` (with node-ID completions) → `registerCreateTools()` in `tools_create.go` → tests in each package.
+
+### Parity rules
+
+- CLI and MCP must expose the same features. A missing surface is a bug.
+- Both accept equivalent parameters that map 1:1 to the shared `*Options` struct.
+- Tests verify both surfaces produce equivalent results for the same input.
+- Docs document features, not surfaces — one description covers both CLI and MCP usage.
+
+### Checklist
 
 When adding or modifying a feature, update each of these:
 
