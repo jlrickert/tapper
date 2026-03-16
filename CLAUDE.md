@@ -92,6 +92,17 @@ Config is merged by `ConfigService` in `pkg/tapper/config_service.go`. Project c
 
 The `github.com/jlrickert/cli-toolkit` module (local at `../cli-toolkit`) provides `toolkit.Runtime` — the explicit dependency container carrying filesystem, env, clock, logger, hasher, stream, and process identity. All I/O in tapper flows through Runtime, enabling sandboxed test environments.
 
+### Runtime Abstraction Rule
+
+All I/O in `pkg/keg`, `pkg/tapper`, and `pkg/cli` must go through `toolkit.Runtime`. Direct stdlib calls bypass the sandboxed test environment and break test isolation. Specifically:
+
+- **File I/O**: Use `rt.ReadFile` / `rt.WriteFile` — never `os.ReadFile` / `os.WriteFile`.
+- **Streams**: Use `rt.Stream().Out` / `rt.Stream().Err` — never `os.Stdout` / `os.Stderr` directly.
+- **Clock**: Use `rt.Clock().Now()` — never `time.Now()`.
+- **Commands**: Use `exec.CommandContext(ctx, ...)` — never bare `exec.Command(...)`.
+- **Exception — fsnotify debounce**: Filesystem-event debounce timers in `repo_fs_events.go` must use `time.Now()` because the test clock is frozen and wall-clock timing is required for real event coalescing.
+- **Exception — append-mode log files**: `os.OpenFile` is acceptable when Runtime doesn't provide an equivalent (e.g., opening a file in append mode for logging).
+
 ### Concurrency Model
 
 - **Per-node locking**: `Repository.WithNodeLock(ctx, id, fn)` serializes operations on a single node. FsRepo uses atomic `mkdir` of a `.keg-lock` directory with optional process metadata for stale lock detection. MemoryRepo uses in-process mutex + map.
