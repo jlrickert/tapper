@@ -681,7 +681,10 @@ func (k *Keg) indexNode(ctx context.Context, id NodeId, opts IndexOptions, now t
 	if needsRefresh {
 		if err := data.UpdateMeta(ctx, &now); err != nil {
 			errs = append(errs, err)
-			return nil, errs
+			// Still return data so the node is not silently dropped
+			// from the index. The best-effort data is better than
+			// losing the node entirely.
+			return data, errs
 		}
 	}
 
@@ -700,7 +703,9 @@ func (k *Keg) indexNode(ctx context.Context, id NodeId, opts IndexOptions, now t
 		})
 		if err != nil {
 			errs = append(errs, err)
-			return nil, errs
+			// Still return data so the node is not silently dropped
+			// from the index on persist failure.
+			return data, errs
 		}
 	}
 
