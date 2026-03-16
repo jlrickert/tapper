@@ -270,6 +270,42 @@ func TestConcurrentCreateAndEdit(t *testing.T) {
 	require.Equal(t, 1+preCreated+creators, len(ids))
 }
 
+// TestTwoKegInstances_DexNotOverwritten verifies that two Keg instances
+// sharing the same MemoryRepo do not overwrite each other's dex entries.
+// Reproduction test for bug 327/328 (stale dex cache in MCP server).
+func TestTwoKegInstances_DexNotOverwritten(t *testing.T) {
+	t.Parallel()
+	f := NewSandbox(t)
+
+	repo := kegpkg.NewMemoryRepo(f.Runtime())
+
+	// Create two Keg instances sharing the same repo (simulates MCP server + CLI)
+	k1 := kegpkg.NewKeg(repo, f.Runtime())
+	require.NoError(t, k1.Init(f.Context()))
+
+	k2 := kegpkg.NewKeg(repo, f.Runtime())
+
+	// k1 creates node 1
+	id1, err := k1.Create(f.Context(), &kegpkg.CreateOptions{Title: "From K1"})
+	require.NoError(t, err)
+	require.Equal(t, 1, id1.ID)
+
+	// k2 creates node 2 -- its dex should include node 1 from k1
+	id2, err := k2.Create(f.Context(), &kegpkg.CreateOptions{Title: "From K2"})
+	require.NoError(t, err)
+	require.Equal(t, 2, id2.ID)
+
+	// Now load the dex fresh from the repo to verify both nodes are present
+	dex, err := kegpkg.NewDexFromRepo(f.Context(), repo)
+	require.NoError(t, err)
+
+	ref1 := dex.GetRef(f.Context(), id1)
+	require.NotNil(t, ref1, "node 1 (created by k1) should be in the dex")
+
+	ref2 := dex.GetRef(f.Context(), id2)
+	require.NotNil(t, ref2, "node 2 (created by k2) should be in the dex")
+}
+
 // TestWithNodeLock_StaleLockRecovery writes a fake lock file with a dead PID
 // and verifies that the lock is acquired after stale detection removes it.
 func TestWithNodeLock_StaleLockRecovery(t *testing.T) {
