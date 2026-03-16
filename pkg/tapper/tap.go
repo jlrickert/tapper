@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/jlrickert/cli-toolkit/toolkit"
 	"github.com/jlrickert/tapper/pkg/keg"
@@ -151,7 +150,7 @@ func newEditorTempFilePath(rt *toolkit.Runtime, prefix string, suffix string) (s
 
 	for i := 0; i < 64; i++ {
 		path := filepath.Join(expanded,
-			fmt.Sprintf("%s%d-%02d%s", prefix, time.Now().UnixNano(), i, suffix))
+			fmt.Sprintf("%s%d-%02d%s", prefix, rt.Clock().Now().UnixNano(), i, suffix))
 		if _, err := rt.Stat(path, false); err == nil {
 			continue
 		} else if os.IsNotExist(err) {
