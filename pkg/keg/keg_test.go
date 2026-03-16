@@ -587,6 +587,51 @@ func TestRemove_NotFound(t *testing.T) {
 	require.ErrorIs(t, err, kegpkg.ErrNotExist)
 }
 
+// TestSetMeta_PreservesLinksInDex verifies that calling SetMeta followed by
+// SetContent with unchanged body does not lose link index entries.
+// Reproduction test for bug 261 sub-issue 1.
+func TestSetMeta_PreservesLinksInDex(t *testing.T) {
+	t.Parallel()
+	f := NewSandbox(t)
+
+	repo := kegpkg.NewMemoryRepo(f.Runtime())
+	k := kegpkg.NewKeg(repo, f.Runtime())
+	require.NoError(t, k.Init(f.Context()))
+
+	// Create two nodes
+	id1, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "Source"})
+	require.NoError(t, err)
+	id2, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "Target"})
+	require.NoError(t, err)
+
+	// Set content with a link from node 1 to node 2
+	body := []byte("# Source\n\nSee [target](../2)\n")
+	require.NoError(t, k.SetContent(f.Context(), id1, body))
+
+	// Verify links exist
+	dex, err := k.Dex(f.Context())
+	require.NoError(t, err)
+	links, ok := dex.Links(f.Context(), id1)
+	require.True(t, ok, "node 1 should have outgoing links after SetContent")
+	require.Len(t, links, 1)
+	require.Equal(t, id2.ID, links[0].ID)
+
+	// Now simulate what tap edit does: SetMeta then SetContent with same body
+	meta, err := k.GetMeta(f.Context(), id1)
+	require.NoError(t, err)
+	meta.SetTags([]string{"new-tag"})
+	require.NoError(t, k.SetMeta(f.Context(), id1, meta))
+
+	// SetContent with unchanged body -- should not lose links
+	require.NoError(t, k.SetContent(f.Context(), id1, body))
+
+	// Links should still be present
+	links, ok = dex.Links(f.Context(), id1)
+	require.True(t, ok, "links should survive SetMeta + SetContent no-op")
+	require.Len(t, links, 1)
+	require.Equal(t, id2.ID, links[0].ID)
+}
+
 // TestIndex_ContentOnlyNodeGetsIndexed verifies that a node with only
 // README.md (no meta.yaml, no stats.json) is still included in the index
 // after a rebuild.

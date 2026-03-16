@@ -434,7 +434,12 @@ func (k *Keg) SetMeta(ctx context.Context, id NodeId, meta *NodeMeta) error {
 			return fmt.Errorf("UpdateMeta: write stats to backend %s: %w", k.Repo.Name(), err)
 		}
 
-		nodeData = &NodeData{ID: id, Meta: meta, Stats: stats}
+		// Read content so the dex entry has complete data (links, title
+		// fallback). Without content, link indexes would be lost when
+		// SetContent later skips due to unchanged hash.
+		content, _ := k.getContent(lockCtx, id)
+
+		nodeData = &NodeData{ID: id, Content: content, Meta: meta, Stats: stats}
 		return nil
 	})
 	if err != nil {
