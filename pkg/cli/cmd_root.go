@@ -5,6 +5,7 @@ package cli
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -81,12 +82,13 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 			}
 
 			if deps.LogFile != "" || deps.LogJSON || deps.LogLevel != "" {
-				// create a logger out-> stderr or file
-				var out = os.Stderr
-				var f *os.File
+				// Default log output is the runtime stderr stream.
+				var out io.Writer = rt.Stream().Err
 				if deps.LogFile != "" {
-					var err error
-					f, err = os.OpenFile(deps.LogFile, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+					// os.OpenFile is required here because the Runtime
+					// FileSystem interface does not provide an io.Writer
+					// handle for append-mode log output.
+					f, err := os.OpenFile(deps.LogFile, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 					if err != nil {
 						return err
 					}

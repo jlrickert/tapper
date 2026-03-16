@@ -78,7 +78,7 @@ func editWithLiveSaves(ctx context.Context, rt *toolkit.Runtime, path string, on
 		lastApplyErr error
 	)
 
-	if initial, err := os.ReadFile(editorPath); err == nil {
+	if initial, err := rt.ReadFile(path); err == nil {
 		lastHash = sha256.Sum256(initial)
 		hasHash = true
 	} else if !os.IsNotExist(err) {
@@ -86,7 +86,7 @@ func editWithLiveSaves(ctx context.Context, rt *toolkit.Runtime, path string, on
 	}
 
 	process := func() {
-		raw, err := os.ReadFile(editorPath)
+		raw, err := rt.ReadFile(path)
 		if err != nil {
 			if os.IsNotExist(err) {
 				return

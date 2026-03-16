@@ -6,8 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/jlrickert/cli-toolkit/toolkit"
@@ -204,16 +202,6 @@ func (t *Tap) editWithTempFile(ctx context.Context, k *keg.Keg, id keg.NodeId) e
 		_ = t.Runtime.Remove(tempPath, false)
 	}()
 
-	// Resolve the real temp file path for os.WriteFile in the sync goroutine.
-	resolvedTempPath := tempPath
-	if rp, resolveErr := t.Runtime.ResolvePath(tempPath, false); resolveErr == nil {
-		resolvedTempPath = rp
-	}
-	if jail := strings.TrimSpace(t.Runtime.GetJail()); jail != "" {
-		trimmed := strings.TrimPrefix(resolvedTempPath, string(filepath.Separator))
-		resolvedTempPath = filepath.Join(jail, trimmed)
-	}
-
 	editCtx, editCancel := context.WithCancel(ctx)
 	defer editCancel()
 
@@ -223,7 +211,7 @@ func (t *Tap) editWithTempFile(ctx context.Context, k *keg.Keg, id keg.NodeId) e
 		if watchErr == nil {
 			ch, chErr := w.Watch(editCtx, id)
 			if chErr == nil {
-				go reverseSync(editCtx, k, id, resolvedTempPath, ch)
+				go reverseSync(editCtx, t.Runtime, k, id, tempPath, ch)
 			} else {
 				_ = w.Close()
 			}
@@ -249,11 +237,13 @@ func (t *Tap) editWithTempFile(ctx context.Context, k *keg.Keg, id keg.NodeId) e
 // writing when our own saves caused the real file change.
 func reverseSync(
 	ctx context.Context,
+	rt *toolkit.Runtime,
 	k *keg.Keg,
 	id keg.NodeId,
 	tempPath string,
 	ch <-chan keg.NodeEvent,
 ) {
+	errOut := rt.Stream().Err
 	for {
 		select {
 		case <-ctx.Done():
@@ -284,18 +274,18 @@ func reverseSync(
 			// the content matches, the change was caused by our own
 			// save — skip the write to avoid triggering the editor's
 			// "file changed" warning.
-			if current, readErr := os.ReadFile(tempPath); readErr == nil {
+			if current, readErr := rt.ReadFile(tempPath); readErr == nil {
 				if bytes.Equal(current, composed) {
 					continue
 				}
 			}
 
-			if writeErr := os.WriteFile(tempPath, composed, 0o600); writeErr != nil {
-				_, _ = fmt.Fprintf(os.Stderr,
+			if writeErr := rt.WriteFile(tempPath, composed, 0o600); writeErr != nil {
+				_, _ = fmt.Fprintf(errOut,
 					"Warning: failed to sync external change to temp file: %v\n", writeErr)
 				continue
 			}
-			_, _ = fmt.Fprintf(os.Stderr,
+			_, _ = fmt.Fprintf(errOut,
 				"Info: node %s updated externally (%s) — reload with :e! to see changes\n",
 				id.Path(), ev.Field)
 		}
