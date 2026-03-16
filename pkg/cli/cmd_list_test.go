@@ -164,6 +164,31 @@ func TestListCommand_SortUpdated_WithLimit(t *testing.T) {
 	require.Equal(t, "3", trimmed[1])
 }
 
+// TestListCommand_FormatCreatedTimestamp verifies the %c format placeholder
+// outputs the created timestamp.
+func TestListCommand_FormatCreatedTimestamp(t *testing.T) {
+	t.Parallel()
+	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
+
+	sb.Advance(1 * time.Hour)
+	res := NewProcess(t, false, "create", "--title", "FormatTest").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+
+	// Use %c to show created timestamp
+	listRes := NewProcess(t, false, "list", "-f", "%i\t%c\t%t", "--sort", "created").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, listRes.Err)
+	out := strings.TrimSpace(string(listRes.Stdout))
+	require.NotEmpty(t, out)
+
+	// Each line should have a valid RFC3339 timestamp in the second column
+	for _, line := range strings.Split(out, "\n") {
+		parts := strings.SplitN(strings.TrimSpace(line), "\t", 3)
+		require.GreaterOrEqual(t, len(parts), 2)
+		_, parseErr := time.Parse(time.RFC3339, parts[1])
+		require.NoError(t, parseErr, "expected %c to produce valid RFC3339 timestamp, got %q", parts[1])
+	}
+}
+
 func TestListCommand_SortInvalid(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))

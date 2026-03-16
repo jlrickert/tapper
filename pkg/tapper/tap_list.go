@@ -501,6 +501,8 @@ func renderNodeEntries(entries []keg.NodeIndexEntry, format string, idOnly bool,
 		line := lineFormat
 		line = strings.Replace(line, "%i", entry.ID, -1)
 		line = strings.Replace(line, "%d", entry.Updated.Format(time.RFC3339), -1)
+		line = strings.Replace(line, "%c", entry.Created.Format(time.RFC3339), -1)
+		line = strings.Replace(line, "%a", entry.Accessed.Format(time.RFC3339), -1)
 		line = strings.Replace(line, "%t", entry.Title, -1)
 		lines = append(lines, line)
 	}
