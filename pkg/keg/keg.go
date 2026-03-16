@@ -384,6 +384,13 @@ func (k *Keg) SetContent(ctx context.Context, id NodeId, data []byte) error {
 			return fmt.Errorf("node %s not found: %w", id.Path(), ErrNotExist)
 		}
 
+		// Compare new content with existing on-disk content. Skip the
+		// write entirely when bytes are identical.
+		existing, readErr := k.Repo.ReadContent(lockCtx, id)
+		if readErr == nil && bytes.Equal(existing, data) {
+			return nil
+		}
+
 		if err := k.Repo.WriteContent(lockCtx, id, data); err != nil {
 			return fmt.Errorf("unable to write content: %w", err)
 		}
@@ -422,6 +429,8 @@ func (k *Keg) GetStats(ctx context.Context, id NodeId) (*NodeStats, error) {
 }
 
 // SetMeta writes metadata for a node and updates the dex.
+// If the new meta bytes are identical to the existing on-disk meta,
+// the write and dex/config update are skipped entirely.
 func (k *Keg) SetMeta(ctx context.Context, id NodeId, meta *NodeMeta) error {
 	if err := k.checkKegExists(ctx); err != nil {
 		return fmt.Errorf("failed to update node meta: %w", err)
@@ -437,7 +446,19 @@ func (k *Keg) SetMeta(ctx context.Context, id NodeId, meta *NodeMeta) error {
 			stats = &NodeStats{}
 		}
 
-		if err := k.Repo.WriteMeta(lockCtx, id, []byte(meta.ToYAML())); err != nil {
+		// Compare new meta with existing on-disk meta. Skip the write
+		// and dex update when the bytes are identical.
+		newMetaBytes := []byte(meta.ToYAML())
+		existingMeta, readErr := k.Repo.ReadMeta(lockCtx, id)
+		if readErr == nil && bytes.Equal(
+			bytes.TrimSpace(existingMeta),
+			bytes.TrimSpace(newMetaBytes),
+		) {
+			// Meta unchanged — skip write and dex update.
+			return nil
+		}
+
+		if err := k.Repo.WriteMeta(lockCtx, id, newMetaBytes); err != nil {
 			return fmt.Errorf("UpdateMeta: write meta to backend %s: %w", k.Repo.Name(), err)
 		}
 		if err := k.Repo.WriteStats(lockCtx, id, stats); err != nil {
@@ -454,6 +475,11 @@ func (k *Keg) SetMeta(ctx context.Context, id NodeId, meta *NodeMeta) error {
 	})
 	if err != nil {
 		return err
+	}
+
+	// nodeData is nil when meta was unchanged — skip dex and config update.
+	if nodeData == nil {
+		return nil
 	}
 
 	now := k.Runtime.Clock().Now()

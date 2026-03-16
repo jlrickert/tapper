@@ -716,3 +716,232 @@ func TestIndex_MalformedMetaNodeGetsIndexed(t *testing.T) {
 	require.NotNil(t, ref, "node with malformed meta should still appear in index")
 	require.Equal(t, "Good Node", ref.Title)
 }
+
+// TestSetContent_NoChangeSkipsDexAndConfig verifies that calling SetContent
+// with identical content does not modify the dex or keg config timestamp.
+func TestSetContent_NoChangeSkipsDexAndConfig(t *testing.T) {
+	t.Parallel()
+	f := NewSandbox(t, sandbox.WithFixture("empty", "repo_noop"))
+
+	k, err := kegpkg.NewKegFromTarget(f.Context(), kegurl.NewFile("repo_noop"), f.Runtime())
+	require.NoError(t, err)
+	require.NoError(t, k.Init(f.Context()))
+
+	body := []byte("# NoOp Node\n\nOriginal content.\n")
+	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Body: body})
+	require.NoError(t, err)
+
+	// Record keg config updated timestamp after create.
+	cfg1, err := k.Config(f.Context())
+	require.NoError(t, err)
+	updatedAfterCreate := cfg1.Updated
+
+	// Advance clock so any new timestamp would differ.
+	f.Advance(5 * time.Minute)
+
+	// SetContent with identical bytes — should be a no-op.
+	require.NoError(t, k.SetContent(f.Context(), id, body))
+
+	// Config timestamp should not have changed.
+	cfg2, err := k.Config(f.Context())
+	require.NoError(t, err)
+	require.Equal(t, updatedAfterCreate, cfg2.Updated,
+		"keg config updated timestamp should not change when content is unchanged")
+}
+
+// TestSetMeta_NoChangeSkipsDexAndConfig verifies that calling SetMeta
+// with identical metadata does not modify the dex or keg config timestamp.
+func TestSetMeta_NoChangeSkipsDexAndConfig(t *testing.T) {
+	t.Parallel()
+	f := NewSandbox(t, sandbox.WithFixture("empty", "repo_meta_noop"))
+
+	k, err := kegpkg.NewKegFromTarget(f.Context(), kegurl.NewFile("repo_meta_noop"), f.Runtime())
+	require.NoError(t, err)
+	require.NoError(t, k.Init(f.Context()))
+
+	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{
+		Title: "Meta NoOp",
+		Tags:  []string{"test"},
+	})
+	require.NoError(t, err)
+
+	// Normalize on-disk meta format by doing one round-trip through
+	// GetMeta/SetMeta. This ensures the on-disk bytes match the
+	// ToYAML() output format used by SetMeta's comparison.
+	meta, err := k.GetMeta(f.Context(), id)
+	require.NoError(t, err)
+	require.NoError(t, k.SetMeta(f.Context(), id, meta))
+
+	// Record keg config updated timestamp after normalization.
+	cfg1, err := k.Config(f.Context())
+	require.NoError(t, err)
+	updatedAfterNormalize := cfg1.Updated
+
+	// Advance clock so any new timestamp would differ.
+	f.Advance(5 * time.Minute)
+
+	// Read existing meta and set it back unchanged — this should be a no-op.
+	meta, err = k.GetMeta(f.Context(), id)
+	require.NoError(t, err)
+	require.NoError(t, k.SetMeta(f.Context(), id, meta))
+
+	// Config timestamp should not have changed.
+	cfg2, err := k.Config(f.Context())
+	require.NoError(t, err)
+	require.Equal(t, updatedAfterNormalize, cfg2.Updated,
+		"keg config updated timestamp should not change when meta is unchanged")
+}
+
+// TestSetMeta_WithChangeUpdatesDexAndConfig verifies that calling SetMeta
+// with different metadata does update the dex and keg config timestamp.
+func TestSetMeta_WithChangeUpdatesDexAndConfig(t *testing.T) {
+	t.Parallel()
+	f := NewSandbox(t, sandbox.WithFixture("empty", "repo_meta_change"))
+
+	k, err := kegpkg.NewKegFromTarget(f.Context(), kegurl.NewFile("repo_meta_change"), f.Runtime())
+	require.NoError(t, err)
+	require.NoError(t, k.Init(f.Context()))
+
+	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{
+		Title: "Meta Change",
+		Tags:  []string{"old-tag"},
+	})
+	require.NoError(t, err)
+
+	// Record keg config updated timestamp after create.
+	cfg1, err := k.Config(f.Context())
+	require.NoError(t, err)
+	updatedAfterCreate := cfg1.Updated
+
+	// Advance clock so the new timestamp will differ.
+	f.Advance(5 * time.Minute)
+
+	// Read existing meta, change tags, and set it back.
+	meta, err := k.GetMeta(f.Context(), id)
+	require.NoError(t, err)
+	meta.SetTags([]string{"new-tag"})
+	require.NoError(t, k.SetMeta(f.Context(), id, meta))
+
+	// Config timestamp should have been updated.
+	cfg2, err := k.Config(f.Context())
+	require.NoError(t, err)
+	require.NotEqual(t, updatedAfterCreate, cfg2.Updated,
+		"keg config updated timestamp should change when meta is modified")
+
+	// Verify the tag actually changed in the dex.
+	dex, err := k.Dex(f.Context())
+	require.NoError(t, err)
+	tags := dex.TagList(f.Context())
+	require.Contains(t, tags, "new-tag")
+}
+
+// TestSetContent_WithChangeUpdatesDexAndConfig verifies that calling SetContent
+// with different content does update the dex and keg config timestamp.
+func TestSetContent_WithChangeUpdatesDexAndConfig(t *testing.T) {
+	t.Parallel()
+	f := NewSandbox(t, sandbox.WithFixture("empty", "repo_content_change"))
+
+	k, err := kegpkg.NewKegFromTarget(f.Context(), kegurl.NewFile("repo_content_change"), f.Runtime())
+	require.NoError(t, err)
+	require.NoError(t, k.Init(f.Context()))
+
+	body := []byte("# Change Node\n\nOriginal content.\n")
+	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Body: body})
+	require.NoError(t, err)
+
+	// Record keg config updated timestamp after create.
+	cfg1, err := k.Config(f.Context())
+	require.NoError(t, err)
+	updatedAfterCreate := cfg1.Updated
+
+	// Advance clock so the new timestamp will differ.
+	f.Advance(5 * time.Minute)
+
+	// SetContent with different bytes — should update dex and config.
+	newBody := []byte("# Change Node\n\nUpdated content.\n")
+	require.NoError(t, k.SetContent(f.Context(), id, newBody))
+
+	// Config timestamp should have been updated.
+	cfg2, err := k.Config(f.Context())
+	require.NoError(t, err)
+	require.NotEqual(t, updatedAfterCreate, cfg2.Updated,
+		"keg config updated timestamp should change when content is modified")
+
+	// Verify content was actually written.
+	got, err := k.GetContent(f.Context(), id)
+	require.NoError(t, err)
+	require.Equal(t, string(newBody), string(got))
+}
+
+// TestEditNoChange_SimulatesSaveWithoutChanges simulates the tap edit
+// flow where SetMeta and SetContent are called with unchanged data.
+// After the first normalization round-trip, neither the dex files nor the
+// keg config should be modified on a second save-without-changes.
+func TestEditNoChange_SimulatesSaveWithoutChanges(t *testing.T) {
+	t.Parallel()
+	f := NewSandbox(t, sandbox.WithFixture("empty", "repo_edit_noop"))
+
+	k, err := kegpkg.NewKegFromTarget(f.Context(), kegurl.NewFile("repo_edit_noop"), f.Runtime())
+	require.NoError(t, err)
+	require.NoError(t, k.Init(f.Context()))
+
+	body := []byte("# Edit NoOp\n\nSome content.\n")
+	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{
+		Body: body,
+		Tags: []string{"edit-test"},
+	})
+	require.NoError(t, err)
+
+	// First round-trip normalizes the on-disk meta format from Create's
+	// struct serialization to ParseMeta/ToYAML tree serialization.
+	meta, err := k.GetMeta(f.Context(), id)
+	require.NoError(t, err)
+	require.NoError(t, k.SetMeta(f.Context(), id, meta))
+	require.NoError(t, k.SetContent(f.Context(), id, body))
+
+	// Record keg config updated timestamp after normalization.
+	cfg1, err := k.Config(f.Context())
+	require.NoError(t, err)
+	updatedAfterNormalize := cfg1.Updated
+
+	// Advance clock so any new write would produce a different timestamp.
+	f.Advance(10 * time.Minute)
+
+	// Simulate tap edit save-without-changes: SetMeta then SetContent
+	// with identical data (this is what applyEditedNodeRaw does).
+	meta, err = k.GetMeta(f.Context(), id)
+	require.NoError(t, err)
+	require.NoError(t, k.SetMeta(f.Context(), id, meta))
+	require.NoError(t, k.SetContent(f.Context(), id, body))
+
+	// Config timestamp should not have changed.
+	cfg2, err := k.Config(f.Context())
+	require.NoError(t, err)
+	require.Equal(t, updatedAfterNormalize, cfg2.Updated,
+		"keg config should not change when editing saves without modifications")
+}
+
+// TestCreateAlwaysTriggersUpdate verifies that Create always updates dex
+// and config, regardless of content.
+func TestCreateAlwaysTriggersUpdate(t *testing.T) {
+	t.Parallel()
+	f := NewSandbox(t, sandbox.WithFixture("empty", "repo_create_always"))
+
+	k, err := kegpkg.NewKegFromTarget(f.Context(), kegurl.NewFile("repo_create_always"), f.Runtime())
+	require.NoError(t, err)
+	require.NoError(t, k.Init(f.Context()))
+
+	cfg1, err := k.Config(f.Context())
+	require.NoError(t, err)
+	updatedAfterInit := cfg1.Updated
+
+	f.Advance(5 * time.Minute)
+
+	_, err = k.Create(f.Context(), &kegpkg.CreateOptions{Title: "New Node"})
+	require.NoError(t, err)
+
+	cfg2, err := k.Config(f.Context())
+	require.NoError(t, err)
+	require.NotEqual(t, updatedAfterInit, cfg2.Updated,
+		"keg config should always update after Create")
+}
