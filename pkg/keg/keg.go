@@ -374,6 +374,16 @@ func (k *Keg) SetContent(ctx context.Context, id NodeId, data []byte) error {
 
 	var nodeData *NodeData
 	err := k.withNodeLock(ctx, id, func(lockCtx context.Context) error {
+		// Verify the node still exists under the lock to prevent
+		// resurrecting a concurrently removed node.
+		exists, err := k.Repo.HasNode(lockCtx, id)
+		if err != nil {
+			return fmt.Errorf("unable to check node existence: %w", err)
+		}
+		if !exists {
+			return fmt.Errorf("node %s not found: %w", id.Path(), ErrNotExist)
+		}
+
 		if err := k.Repo.WriteContent(lockCtx, id, data); err != nil {
 			return fmt.Errorf("unable to write content: %w", err)
 		}
@@ -816,6 +826,8 @@ func (k *Keg) Remove(ctx context.Context, id NodeId) error {
 		return fmt.Errorf("node 0 cannot be removed: %w", ErrInvalid)
 	}
 
+	// Check existence before acquiring the lock because FsRepo.WithNodeLock
+	// creates the node directory as a side effect of lock acquisition.
 	exists, err := k.Repo.HasNode(ctx, id)
 	if err != nil {
 		return fmt.Errorf("failed to check node existence: %w", err)
@@ -824,8 +836,19 @@ func (k *Keg) Remove(ctx context.Context, id NodeId) error {
 		return fmt.Errorf("node %s not found: %w", id.Path(), ErrNotExist)
 	}
 
-	if err := k.Repo.DeleteNode(ctx, id); err != nil {
-		return fmt.Errorf("failed to delete node %s: %w", id.Path(), err)
+	// Acquire node lock to prevent concurrent writes from resurrecting
+	// the node directory after deletion. Re-check existence under lock.
+	if err := k.withNodeLock(ctx, id, func(lockCtx context.Context) error {
+		exists, err := k.Repo.HasNode(lockCtx, id)
+		if err != nil {
+			return fmt.Errorf("failed to check node existence: %w", err)
+		}
+		if !exists {
+			return fmt.Errorf("node %s not found: %w", id.Path(), ErrNotExist)
+		}
+		return k.Repo.DeleteNode(lockCtx, id)
+	}); err != nil {
+		return err
 	}
 
 	// Rewrite all links that pointed to the removed node so they point to

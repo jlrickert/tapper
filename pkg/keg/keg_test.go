@@ -574,6 +574,28 @@ func TestRemove_DeletesNodeAndUpdatesDex(t *testing.T) {
 	}
 }
 
+// TestSetContent_OnRemovedNode verifies that SetContent fails with ErrNotExist
+// when the node has been removed, preventing resurrection of deleted nodes.
+// Reproduction test for bug 325/326.
+func TestSetContent_OnRemovedNode(t *testing.T) {
+	t.Parallel()
+	f := NewSandbox(t)
+
+	repo := kegpkg.NewMemoryRepo(f.Runtime())
+	k := kegpkg.NewKeg(repo, f.Runtime())
+	require.NoError(t, k.Init(f.Context()))
+
+	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "Doomed"})
+	require.NoError(t, err)
+
+	require.NoError(t, k.Remove(f.Context(), id))
+
+	// Attempt to write content to the removed node should fail.
+	err = k.SetContent(f.Context(), id, []byte("# Resurrected\n"))
+	require.Error(t, err)
+	require.ErrorIs(t, err, kegpkg.ErrNotExist)
+}
+
 func TestRemove_NotFound(t *testing.T) {
 	t.Parallel()
 	f := NewSandbox(t)
