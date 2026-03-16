@@ -209,52 +209,34 @@ func (t *Tap) List(ctx context.Context, opts ListOptions) ([]string, error) {
 }
 
 func (t *Tap) Backlinks(ctx context.Context, opts BacklinksOptions) ([]string, error) {
-	k, err := t.resolveKeg(ctx, opts.KegTargetOptions)
-	if err != nil {
-		return []string{}, fmt.Errorf("unable to open keg: %w", err)
-	}
-	dex, err := k.Dex(ctx)
-	if err != nil {
-		return []string{}, fmt.Errorf("unable to read dex: %w", err)
-	}
-
-	node, err := keg.ParseNode(opts.NodeID)
-	if err != nil {
-		return []string{}, fmt.Errorf("invalid node ID %q: %w", opts.NodeID, err)
-	}
-	if node == nil {
-		return []string{}, fmt.Errorf("invalid node ID %q: %w", opts.NodeID, keg.ErrInvalid)
-	}
-	id := keg.NodeId{ID: node.ID, Code: node.Code}
-
-	exists, err := k.Repo.HasNode(ctx, id)
-	if err != nil {
-		return []string{}, fmt.Errorf("unable to inspect node: %w", err)
-	}
-	if !exists {
-		return []string{}, fmt.Errorf("node %s not found", id.Path())
-	}
-
-	backlinks, ok := dex.Backlinks(ctx, id)
-	if !ok || len(backlinks) == 0 {
-		return []string{}, nil
-	}
-
-	entries := make([]keg.NodeIndexEntry, 0, len(backlinks))
-	for _, source := range backlinks {
-		ref := dex.GetRef(ctx, source)
-		if ref != nil {
-			entries = append(entries, *ref)
-			continue
-		}
-		entries = append(entries, keg.NodeIndexEntry{ID: source.Path()})
-	}
-	sortNodeIndexEntries(entries)
-	return renderNodeEntries(entries, opts.Format, opts.IdOnly, opts.Reverse), nil
+	return t.resolveAndLookupLinks(ctx, opts.KegTargetOptions, opts.NodeID,
+		opts.Format, opts.IdOnly, opts.Reverse,
+		func(d *keg.Dex, id keg.NodeId) ([]keg.NodeId, bool) {
+			return d.Backlinks(ctx, id)
+		})
 }
 
 func (t *Tap) Links(ctx context.Context, opts LinksOptions) ([]string, error) {
-	k, err := t.resolveKeg(ctx, opts.KegTargetOptions)
+	return t.resolveAndLookupLinks(ctx, opts.KegTargetOptions, opts.NodeID,
+		opts.Format, opts.IdOnly, opts.Reverse,
+		func(d *keg.Dex, id keg.NodeId) ([]keg.NodeId, bool) {
+			return d.Links(ctx, id)
+		})
+}
+
+// resolveAndLookupLinks is a shared helper for Backlinks and Links. It resolves
+// the keg, validates the node ID, calls the provided lookup function against the
+// dex, and renders the resulting entries.
+func (t *Tap) resolveAndLookupLinks(
+	ctx context.Context,
+	kegOpts KegTargetOptions,
+	nodeID string,
+	format string,
+	idOnly bool,
+	reverse bool,
+	lookup func(*keg.Dex, keg.NodeId) ([]keg.NodeId, bool),
+) ([]string, error) {
+	k, err := t.resolveKeg(ctx, kegOpts)
 	if err != nil {
 		return []string{}, fmt.Errorf("unable to open keg: %w", err)
 	}
@@ -263,12 +245,12 @@ func (t *Tap) Links(ctx context.Context, opts LinksOptions) ([]string, error) {
 		return []string{}, fmt.Errorf("unable to read dex: %w", err)
 	}
 
-	node, err := keg.ParseNode(opts.NodeID)
+	node, err := keg.ParseNode(nodeID)
 	if err != nil {
-		return []string{}, fmt.Errorf("invalid node ID %q: %w", opts.NodeID, err)
+		return []string{}, fmt.Errorf("invalid node ID %q: %w", nodeID, err)
 	}
 	if node == nil {
-		return []string{}, fmt.Errorf("invalid node ID %q: %w", opts.NodeID, keg.ErrInvalid)
+		return []string{}, fmt.Errorf("invalid node ID %q: %w", nodeID, keg.ErrInvalid)
 	}
 	id := keg.NodeId{ID: node.ID, Code: node.Code}
 
@@ -280,22 +262,22 @@ func (t *Tap) Links(ctx context.Context, opts LinksOptions) ([]string, error) {
 		return []string{}, fmt.Errorf("node %s not found", id.Path())
 	}
 
-	links, ok := dex.Links(ctx, id)
-	if !ok || len(links) == 0 {
+	related, ok := lookup(dex, id)
+	if !ok || len(related) == 0 {
 		return []string{}, nil
 	}
 
-	entries := make([]keg.NodeIndexEntry, 0, len(links))
-	for _, target := range links {
-		ref := dex.GetRef(ctx, target)
+	entries := make([]keg.NodeIndexEntry, 0, len(related))
+	for _, rel := range related {
+		ref := dex.GetRef(ctx, rel)
 		if ref != nil {
 			entries = append(entries, *ref)
 			continue
 		}
-		entries = append(entries, keg.NodeIndexEntry{ID: target.Path()})
+		entries = append(entries, keg.NodeIndexEntry{ID: rel.Path()})
 	}
 	sortNodeIndexEntries(entries)
-	return renderNodeEntries(entries, opts.Format, opts.IdOnly, opts.Reverse), nil
+	return renderNodeEntries(entries, format, idOnly, reverse), nil
 }
 
 func (t *Tap) Grep(ctx context.Context, opts GrepOptions) ([]string, error) {
