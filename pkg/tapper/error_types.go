@@ -25,6 +25,15 @@ func (e *ProjectKegNotFoundError) Error() string {
 	}
 }
 
+// UserMessage returns a CLI-context-aware message. When debug is true and
+// search paths are available, they are included in the output.
+func (e *ProjectKegNotFoundError) UserMessage(debug bool) string {
+	if debug && len(e.Tried) > 0 {
+		return fmt.Sprintf("project keg not found in this project (searched: %s)", strings.Join(e.Tried, ", "))
+	}
+	return "project keg not found in this project"
+}
+
 func newProjectKegNotFoundError(paths []string) error {
 	cleaned := make([]string, 0, len(paths))
 	for _, p := range paths {

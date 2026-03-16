@@ -2,28 +2,28 @@ package cli
 
 import (
 	"errors"
-	"fmt"
 	"strings"
-
-	"github.com/jlrickert/tapper/pkg/tapper"
 )
+
+// UserMessager is implemented by error types that can produce a user-facing
+// message tailored to the current CLI context (e.g. log level). New error
+// types should implement this interface instead of adding branches to
+// renderUserError.
+type UserMessager interface {
+	UserMessage(debug bool) string
+}
 
 func renderUserError(err error, deps *Deps) string {
 	if err == nil {
 		return ""
 	}
 
-	var pathErr *tapper.PathNotFoundError
-	if errors.As(err, &pathErr) {
-		return pathErr.Error()
-	}
+	debug := isDebugLogLevel(deps)
 
-	var projectErr *tapper.ProjectKegNotFoundError
-	if errors.As(err, &projectErr) {
-		if isDebugLogLevel(deps) && len(projectErr.Tried) > 0 {
-			return fmt.Sprintf("project keg not found in this project (searched: %s)", strings.Join(projectErr.Tried, ", "))
-		}
-		return "project keg not found in this project"
+	// Walk the error chain looking for a UserMessager implementation.
+	var um UserMessager
+	if errors.As(err, &um) {
+		return um.UserMessage(debug)
 	}
 
 	return err.Error()
