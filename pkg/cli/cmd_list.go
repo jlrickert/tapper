@@ -15,7 +15,14 @@ func NewListCmd(deps *Deps) *cobra.Command {
 		Short: "list all indexed nodes",
 		Long: `List indexed nodes for the resolved keg.
 
-Format placeholders: %i (node id), %d (date), %t (title), %% (literal %).
+Format placeholders:
+  %i  node id
+  %d  updated date
+  %c  created date
+  %a  accessed date
+  %t  title
+  %%  literal percent
+
 Default format: "%i\t%d\t%t".
 
 Use --query to filter by boolean tag/attribute expressions.
