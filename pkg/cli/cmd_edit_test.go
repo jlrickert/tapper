@@ -110,6 +110,9 @@ func TestEdit_LiveSavePreservesEarlierValidContentOnLaterInvalidSave(t *testing.
 	jail = resolvedJail
 
 	scriptPath := filepath.Join(jail, "edit-live-valid-then-invalid.sh")
+	// The sleep between saves must exceed the fsnotify debounce window
+	// (120ms ticker + 120ms debounce = ~240ms minimum). Use 3 seconds to
+	// avoid flakiness under the race detector, where I/O overhead is higher.
 	script := `#!/bin/sh
 cat > "$1" <<'EOF'
 ---
@@ -119,7 +122,7 @@ tags:
 ---
 # Saved First
 EOF
-sleep 1
+sleep 3
 cat > "$1" <<'EOF'
 ---
 tags: [
