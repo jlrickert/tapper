@@ -133,7 +133,7 @@ When adding or modifying a feature, update each of these:
 
 1. **Tap API** (`pkg/tapper/tap_*.go`) — business logic method with tests
 2. **CLI command** (`pkg/cli/cmd_*.go`) — Cobra command wiring flags to the Tap method
-3. **Shell completions** — register `ValidArgsFunction` and custom completers for all flags and positional arguments (node IDs, keg aliases, tags, etc.)
+3. **Shell completions** — register `ValidArgsFunction` and custom completers for all flags and positional arguments (node IDs, keg aliases, tags, etc.). Verify with `go test ./pkg/cli/... -run Completion`
 4. **MCP tool** (`pkg/mcp/tools_*.go`) — MCP tool exposing the same capability over JSON-RPC, with input struct and `jsonschema` tags
 5. **Documentation** — user-facing docs for the new capability
 6. **Tests** — unit tests for the Tap method, CLI integration tests, MCP tool tests, and completion tests
