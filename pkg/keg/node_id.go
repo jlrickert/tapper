@@ -24,8 +24,10 @@ type NodeId struct {
 }
 
 func RandomCode(context.Context) string {
-	// generate a 0..9999 number using crypto/rand, fallback to nanotime if rand
-	// fails
+	// Generate a 0..9999 number using crypto/rand, fallback to nanotime if
+	// rand fails. The time.Now() fallback is an accepted deviation from the
+	// Runtime Clock abstraction because crypto/rand almost never fails and
+	// the value is only used for randomness, not time accuracy.
 	b := make([]byte, 2)
 	var num int
 	if _, err := crand.Read(b); err == nil {
