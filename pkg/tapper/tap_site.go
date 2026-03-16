@@ -307,7 +307,7 @@ func (t *Tap) Site(ctx context.Context, opts SiteOptions) (*SiteResult, error) {
 	// Run Pagefind if available and not disabled.
 	hasSearch := false
 	if !opts.NoSearch {
-		hasSearch = t.runPagefind(absOutput)
+		hasSearch = t.runPagefind(ctx, absOutput)
 		if hasSearch {
 			// Second pass: re-generate HTML pages with search UI enabled.
 			// Assets (README.md, meta, stats, images) are already written.
@@ -681,12 +681,12 @@ func sortNodeRefsByUpdated(refs []siteNodeRef) {
 
 // runPagefind attempts to run pagefind on the output directory.
 // Returns true if pagefind ran successfully.
-func (t *Tap) runPagefind(outputDir string) bool {
+func (t *Tap) runPagefind(ctx context.Context, outputDir string) bool {
 	rt := t.Runtime
 
 	// Try pagefind directly.
 	if path, err := exec.LookPath("pagefind"); err == nil {
-		cmd := exec.Command(path, "--site", outputDir)
+		cmd := exec.CommandContext(ctx, path, "--site", outputDir)
 		if err := cmd.Run(); err == nil {
 			return true
 		}
@@ -694,7 +694,7 @@ func (t *Tap) runPagefind(outputDir string) bool {
 
 	// Try npx pagefind.
 	if path, err := exec.LookPath("npx"); err == nil {
-		cmd := exec.Command(path, "pagefind", "--site", outputDir)
+		cmd := exec.CommandContext(ctx, path, "pagefind", "--site", outputDir)
 		if err := cmd.Run(); err == nil {
 			return true
 		}
