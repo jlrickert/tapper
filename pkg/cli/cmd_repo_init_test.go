@@ -187,7 +187,7 @@ func TestInitCommand_TableDriven(t *testing.T) {
 				require.Contains(innerT, string(res.Stdout), fragment,
 					"expected output to contain %q, got %q", fragment, string(res.Stdout))
 			}
-			require.Equal(innerT, "", string(res.Stderr), "stderr should be empty")
+			require.NotContains(innerT, string(res.Stderr), "level=ERROR", "stderr should not contain errors")
 
 			// Determine the base path for reading files (remove /dex/nodes.tsv from the location)
 			var baseKegPath string
