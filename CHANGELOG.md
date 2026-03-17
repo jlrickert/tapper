@@ -2,6 +2,44 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.13.0 - 2026-03-17
+
+
+
+### 🐛 Bug Fixes
+- remove stale tag associations in TagIndex.Add
+- include content in SetMeta dex write to preserve link indexes
+- prevent index rebuild from silently dropping nodes on error
+- add node lock to Remove and existence check in SetContent
+- invalidate cached dex before writes to prevent stale overwrites
+- add %c and %a format placeholders for created and accessed dates
+- add minimal mode to info tool to reduce MCP response size
+- replace direct os/stream usage with Runtime abstractions
+- replace fmt.Fprintf(os.Stdout) with Runtime stream in Serve
+- replace time.Now() with rt.Clock().Now() in temp file naming
+- replace exec.Command with exec.CommandContext in runPagefind
+- stabilize flaky TestEdit_LiveSave test under race detector
+- prevent node resurrection on concurrent remove during edit
+- revert anti-resurrection guards, upgrade cli-toolkit to v1.2.0
+- remove zsh completion generation from install tasks
+- prevent node resurrection in Remove link rewriting loop
+
+
+### 📚 Documentation
+- document Runtime abstraction rule in CLAUDE.md
+- add shell completion verification to feature surface checklist
+
+
+### 🚀 Features
+- skip index and keg config updates when content unchanged
+- add CLI-MCP parity test suite
+
+
+### 🚜 Refactor
+- extract resolveAndLookupLinks helper for Links/Backlinks
+- replace renderUserError if-else chain with UserMessager interface
+
+
 ## v0.12.0 - 2026-03-15
 
 
