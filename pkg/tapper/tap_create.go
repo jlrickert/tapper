@@ -36,53 +36,24 @@ func (t *Tap) Create(ctx context.Context, opts CreateOptions) (keg.NodeId, error
 	}
 
 	if shouldUseLiveEditorOnCreate(opts) {
-		nextID, peekErr := k.Next(ctx)
-		if peekErr != nil {
-			return keg.NodeId{}, fmt.Errorf("unable to peek next node id: %w", peekErr)
-		}
-		initialRaw := buildCreateEditorInitialRaw(ctx, t.Runtime, opts, nextID)
-		tempPath, pathErr := newEditorTempFilePath(t.Runtime, "tap-create-"+nextID.String()+"-", ".md")
-		if pathErr != nil {
-			return keg.NodeId{}, fmt.Errorf("unable to create temp file path: %w", pathErr)
-		}
-		if writeErr := t.Runtime.WriteFile(tempPath, initialRaw, 0o600); writeErr != nil {
-			return keg.NodeId{}, fmt.Errorf("unable to write temp create file: %w", writeErr)
-		}
-		defer func() {
-			_ = t.Runtime.Remove(tempPath, false)
-		}()
-
-		var (
-			created   bool
-			createdID keg.NodeId
-		)
-		if editErr := editWithLiveSaves(ctx, t.Runtime, tempPath, func(editedRaw []byte) error {
-			if !created {
-				id, err := t.createNodeFromRaw(ctx, k, editedRaw, opts)
-				if err != nil {
-					return err
-				}
-				createdID = id
-				created = true
-				return nil
-			}
-			return t.applyEditedNodeRaw(ctx, k, createdID, editedRaw)
-		}); editErr != nil {
-			return keg.NodeId{}, fmt.Errorf("unable to create node: %w", editErr)
-		}
-		if created {
-			return createdID, nil
-		}
-
-		finalRaw, readErr := t.Runtime.ReadFile(tempPath)
-		if readErr != nil {
-			return keg.NodeId{}, fmt.Errorf("unable to read temp create file: %w", readErr)
-		}
-		node, createErr := t.createNodeFromRaw(ctx, k, finalRaw, opts)
+		// Create the node first (single allocation), then open the editor
+		// on the already-persisted node. This avoids the double-allocation
+		// bug where Next() was called for the editor scaffold and then
+		// Create() called Next() again internally.
+		attrs := createAttrsFromStrings(opts.Attrs)
+		createdID, createErr := k.Create(ctx, &keg.CreateOptions{
+			Title: opts.Title,
+			Lead:  opts.Lead,
+			Tags:  opts.Tags,
+			Attrs: attrs,
+		})
 		if createErr != nil {
-			return keg.NodeId{}, createErr
+			return keg.NodeId{}, fmt.Errorf("unable to create node: %w", createErr)
 		}
-		return node, nil
+		if editErr := t.editWithTempFile(ctx, k, createdID); editErr != nil {
+			return keg.NodeId{}, fmt.Errorf("unable to edit new node: %w", editErr)
+		}
+		return createdID, nil
 	}
 
 	attrs := createAttrsFromStrings(opts.Attrs)
@@ -120,30 +91,6 @@ func shouldUseLiveEditorOnCreate(opts CreateOptions) bool {
 		return false
 	}
 	return true
-}
-
-func buildCreateEditorInitialRaw(ctx context.Context, rt *toolkit.Runtime, opts CreateOptions, nextID keg.NodeId) []byte {
-	meta := keg.NewMeta(ctx, rt.Clock().Now())
-	if len(opts.Tags) > 0 {
-		meta.SetTags(opts.Tags)
-	}
-	if len(opts.Attrs) > 0 {
-		meta.SetAttrs(ctx, createAttrsFromStrings(opts.Attrs))
-	}
-
-	var body strings.Builder
-	if strings.TrimSpace(opts.Title) != "" {
-		body.WriteString(fmt.Sprintf("# %s\n", opts.Title))
-	} else {
-		body.WriteString(fmt.Sprintf("# %s\n", nextID.Path()))
-	}
-	if strings.TrimSpace(opts.Lead) != "" {
-		body.WriteString("\n")
-		body.WriteString(opts.Lead)
-		body.WriteString("\n")
-	}
-
-	return composeEditNodeFile([]byte(meta.ToYAML()), []byte(body.String()))
 }
 
 func (t *Tap) createNodeFromRaw(ctx context.Context, k *keg.Keg, raw []byte, defaults CreateOptions) (keg.NodeId, error) {
