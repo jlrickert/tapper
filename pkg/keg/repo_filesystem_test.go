@@ -24,9 +24,11 @@ func TestFsRepo_WriteReadMetaAndContent(t *testing.T) {
 	content := []byte("# hello\n")
 	meta := []byte("title: test\nupdated: 2025-08-11 00:00:00Z\n")
 
-	// Write content (creates node dir)
+	// Pre-create node directory (simulating what Next() does during allocation).
+	nodeDir := filepath.Join("~/empty", id.Path())
+	require.NoError(t, fx.Runtime().Mkdir(nodeDir, 0o755, false))
+
 	require.NoError(t, r.WriteContent(ctx, id, content))
-	// WriteMeta expects node dir to exist (WriteContent created it).
 	require.NoError(t, r.WriteMeta(ctx, id, meta))
 
 	gotContent, err := r.ReadContent(ctx, id)
@@ -49,6 +51,10 @@ func TestFsRepo_HasNode(t *testing.T) {
 	exists, err := r.HasNode(ctx, id)
 	require.NoError(t, err)
 	require.False(t, exists)
+
+	// Pre-create node directory (simulating what Next() does).
+	nodeDir := filepath.Join("~/empty", id.Path())
+	require.NoError(t, fx.Runtime().Mkdir(nodeDir, 0o755, false))
 
 	require.NoError(t, r.WriteContent(ctx, id, []byte("# hello\n")))
 
@@ -106,6 +112,9 @@ func TestFsRepo_MoveDeleteNodeAndDestinationExists(t *testing.T) {
 	other := keg.NodeId{ID: 31}
 	content := []byte("content")
 
+	// Pre-create node directories (simulating what Next() does).
+	require.NoError(t, fx.Runtime().Mkdir(filepath.Join(tmp, src.Path()), 0o755, true))
+
 	// prepare src node
 	require.NoError(t, r.WriteContent(ctx, src, content))
 	require.NoError(t, r.WriteMeta(ctx, src, []byte("title: src\n")))
@@ -122,6 +131,9 @@ func TestFsRepo_MoveDeleteNodeAndDestinationExists(t *testing.T) {
 	got, err := r.ReadContent(ctx, dst)
 	require.NoError(t, err)
 	require.Equal(t, content, got)
+
+	// Pre-create other node directory.
+	require.NoError(t, fx.Runtime().Mkdir(filepath.Join(tmp, other.Path()), 0o755, true))
 
 	// create other and attempt move dst -> other to force destination-exists
 	require.NoError(t, r.WriteContent(ctx, other, []byte("x")))
@@ -149,6 +161,8 @@ func TestFsRepo_UploadAndListImagesAndItems(t *testing.T) {
 	r := keg.NewFsRepo(tmp, fx.Runtime())
 
 	id := keg.NodeId{ID: 40}
+	// Pre-create node directory (simulating what Next() does).
+	require.NoError(t, fx.Runtime().Mkdir(filepath.Join(tmp, id.Path()), 0o755, true))
 	// ensure node exists
 	require.NoError(t, r.WriteContent(ctx, id, []byte("c")))
 	require.NoError(t, r.WriteMeta(ctx, id, []byte("title: i\n")))
@@ -192,6 +206,8 @@ func TestFsRepo_WriteReadStats(t *testing.T) {
 	r := keg.NewFsRepo(tmp, fx.Runtime())
 
 	id := keg.NodeId{ID: 88}
+	// Pre-create node directory (simulating what Next() does).
+	require.NoError(t, fx.Runtime().Mkdir(filepath.Join(tmp, id.Path()), 0o755, true))
 	require.NoError(t, r.WriteMeta(ctx, id, []byte("title: keep-me\nfoo: bar\n")))
 
 	now := time.Date(2026, 2, 14, 12, 0, 0, 0, time.UTC)
@@ -284,4 +300,51 @@ func TestFsRepo_WithNodeLockReentrantAndCleanup(t *testing.T) {
 	_, err = fx.Runtime().Stat(lockPath, false)
 	require.Error(t, err)
 	require.True(t, os.IsNotExist(err))
+}
+
+// TestFsRepo_WriteContentWithoutDirectory verifies that WriteContent returns
+// ErrNotExist when the node directory does not exist, instead of silently
+// creating it. This is a defense-in-depth check — FsRepo.Next() creates
+// directories during allocation, and WriteContent must not recreate them
+// after deletion.
+func TestFsRepo_WriteContentWithoutDirectory(t *testing.T) {
+	t.Parallel()
+	fx := NewSandbox(t, sandbox.WithFixture("empty", "~/empty"))
+	ctx := fx.Context()
+
+	r := keg.NewFsRepo("~/empty", fx.Runtime())
+	id := keg.NodeId{ID: 99}
+
+	// Node directory does not exist — WriteContent should fail.
+	err := r.WriteContent(ctx, id, []byte("# Ghost\n"))
+	require.Error(t, err)
+	require.ErrorIs(t, err, keg.ErrNotExist)
+
+	// Verify no directory was created as a side effect.
+	exists, err := r.HasNode(ctx, id)
+	require.NoError(t, err)
+	require.False(t, exists, "WriteContent should not create node directory")
+}
+
+// TestFsRepo_WriteMetaWithoutDirectory verifies that WriteMeta returns
+// ErrNotExist when the node directory does not exist, matching the
+// WriteContent behavior and preventing node resurrection at the Repository
+// layer.
+func TestFsRepo_WriteMetaWithoutDirectory(t *testing.T) {
+	t.Parallel()
+	fx := NewSandbox(t, sandbox.WithFixture("empty", "~/empty"))
+	ctx := fx.Context()
+
+	r := keg.NewFsRepo("~/empty", fx.Runtime())
+	id := keg.NodeId{ID: 99}
+
+	// Node directory does not exist — WriteMeta should fail.
+	err := r.WriteMeta(ctx, id, []byte("title: ghost\n"))
+	require.Error(t, err)
+	require.ErrorIs(t, err, keg.ErrNotExist)
+
+	// Verify no directory was created as a side effect.
+	exists, err := r.HasNode(ctx, id)
+	require.NoError(t, err)
+	require.False(t, exists, "WriteMeta should not create node directory")
 }

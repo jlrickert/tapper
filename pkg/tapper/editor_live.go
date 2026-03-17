@@ -3,6 +3,7 @@ package tapper
 import (
 	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -12,7 +13,68 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/jlrickert/cli-toolkit/toolkit"
+	"github.com/jlrickert/tapper/pkg/keg"
 )
+
+// liveSaveState holds the mutable and immutable dependencies for live-save
+// processing, extracted from the editWithLiveSaves closure for explicit state
+// access.
+type liveSaveState struct {
+	// immutable
+	rt     *toolkit.Runtime
+	path   string
+	stream *toolkit.Stream
+	onSave func([]byte) error
+
+	// mutable
+	hasHash      bool
+	lastHash     [sha256.Size]byte
+	attempted    bool
+	applied      bool
+	lastApplyErr error
+	nodeRemoved  bool
+}
+
+func (s *liveSaveState) process() {
+	// Once we detect the node was removed, stop attempting saves.
+	if s.nodeRemoved {
+		return
+	}
+
+	raw, err := s.rt.ReadFile(s.path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return
+		}
+		s.attempted = true
+		s.lastApplyErr = fmt.Errorf("unable to read edited file: %w", err)
+		_, _ = fmt.Fprintf(s.stream.Err, "Warning: %v\n", s.lastApplyErr)
+		return
+	}
+
+	sum := sha256.Sum256(raw)
+	if s.hasHash && sum == s.lastHash {
+		return
+	}
+	s.lastHash = sum
+	s.hasHash = true
+	s.attempted = true
+
+	if err := s.onSave(raw); err != nil {
+		// Detect node removal: stop further save attempts and
+		// warn the user that the node was deleted externally.
+		if errors.Is(err, keg.ErrNotExist) {
+			s.nodeRemoved = true
+			s.lastApplyErr = fmt.Errorf("node was removed while editing — save aborted: %w", err)
+			_, _ = fmt.Fprintf(s.stream.Err, "Warning: %v\n", s.lastApplyErr)
+			return
+		}
+		s.lastApplyErr = err
+		_, _ = fmt.Fprintf(s.stream.Err, "Warning: %v\n", err)
+		return
+	}
+	s.applied = true
+}
 
 // editWithLiveSaves runs the user's editor and invokes onSave whenever the
 // edited file is saved with changed content.
@@ -70,47 +132,18 @@ func editWithLiveSaves(ctx context.Context, rt *toolkit.Runtime, path string, on
 		return fmt.Errorf("watch edit directory: %w", err)
 	}
 
-	var (
-		hasHash      bool
-		lastHash     [sha256.Size]byte
-		attempted    bool
-		applied      bool
-		lastApplyErr error
-	)
-
-	if initial, err := rt.ReadFile(path); err == nil {
-		lastHash = sha256.Sum256(initial)
-		hasHash = true
-	} else if !os.IsNotExist(err) {
-		return fmt.Errorf("read edit file: %w", err)
+	state := &liveSaveState{
+		rt:     rt,
+		path:   path,
+		stream: stream,
+		onSave: onSave,
 	}
 
-	process := func() {
-		raw, err := rt.ReadFile(path)
-		if err != nil {
-			if os.IsNotExist(err) {
-				return
-			}
-			attempted = true
-			lastApplyErr = fmt.Errorf("unable to read edited file: %w", err)
-			_, _ = fmt.Fprintf(stream.Err, "Warning: %v\n", lastApplyErr)
-			return
-		}
-
-		sum := sha256.Sum256(raw)
-		if hasHash && sum == lastHash {
-			return
-		}
-		lastHash = sum
-		hasHash = true
-		attempted = true
-
-		if err := onSave(raw); err != nil {
-			lastApplyErr = err
-			_, _ = fmt.Fprintf(stream.Err, "Warning: %v\n", err)
-			return
-		}
-		applied = true
+	if initial, err := rt.ReadFile(path); err == nil {
+		state.lastHash = sha256.Sum256(initial)
+		state.hasHash = true
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("read edit file: %w", err)
 	}
 
 	if err := cmd.Start(); err != nil {
@@ -133,7 +166,7 @@ func editWithLiveSaves(ctx context.Context, rt *toolkit.Runtime, path string, on
 		select {
 		case <-ticker.C:
 			if pending && time.Since(pendingFrom) >= 120*time.Millisecond {
-				process()
+				state.process()
 				pending = false
 			}
 		case event, ok := <-watcher.Events:
@@ -150,12 +183,12 @@ func editWithLiveSaves(ctx context.Context, rt *toolkit.Runtime, path string, on
 			}
 			_, _ = fmt.Fprintf(stream.Err, "Warning: editor file watcher error: %v\n", watchErr)
 		case err := <-done:
-			process()
+			state.process()
 			if err != nil {
 				return fmt.Errorf("running editor %q: %w", editor, err)
 			}
-			if attempted && !applied && lastApplyErr != nil {
-				return lastApplyErr
+			if state.attempted && !state.applied && state.lastApplyErr != nil {
+				return state.lastApplyErr
 			}
 			return nil
 		case <-ctx.Done():

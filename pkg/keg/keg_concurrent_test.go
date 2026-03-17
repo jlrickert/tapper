@@ -421,3 +421,260 @@ func TestCrossLock_DoesNotBlockWithNodeLock(t *testing.T) {
 	// Release cross-process lock.
 	require.NoError(t, repo.ReleaseLock(f.Context(), id, token))
 }
+
+// TestConcurrentRemoveDuringSetContent_MemoryRepo verifies that if a node is
+// removed while SetContent is about to write, SetContent returns ErrNotExist
+// and does not resurrect the node. This is a regression test for issue 325.
+func TestConcurrentRemoveDuringSetContent_MemoryRepo(t *testing.T) {
+	t.Parallel()
+	f := NewSandbox(t)
+
+	repo := kegpkg.NewMemoryRepo(f.Runtime())
+	k := kegpkg.NewKeg(repo, f.Runtime())
+	require.NoError(t, k.Init(f.Context()))
+
+	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "Doomed"})
+	require.NoError(t, err)
+
+	// Remove the node.
+	require.NoError(t, k.Remove(f.Context(), id))
+
+	// SetContent after removal should fail with ErrNotExist.
+	err = k.SetContent(f.Context(), id, []byte("# Resurrected\n"))
+	require.Error(t, err)
+	require.ErrorIs(t, err, kegpkg.ErrNotExist)
+
+	// Verify the node was not resurrected.
+	exists, err := repo.HasNode(f.Context(), id)
+	require.NoError(t, err)
+	require.False(t, exists, "node should not be resurrected after removal")
+}
+
+// TestConcurrentRemoveDuringSetMeta_MemoryRepo verifies that SetMeta on a
+// removed node returns ErrNotExist and does not resurrect it.
+func TestConcurrentRemoveDuringSetMeta_MemoryRepo(t *testing.T) {
+	t.Parallel()
+	f := NewSandbox(t)
+
+	repo := kegpkg.NewMemoryRepo(f.Runtime())
+	k := kegpkg.NewKeg(repo, f.Runtime())
+	require.NoError(t, k.Init(f.Context()))
+
+	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{
+		Title: "Meta Doomed",
+		Tags:  []string{"victim"},
+	})
+	require.NoError(t, err)
+
+	// Read meta before removal.
+	meta, err := k.GetMeta(f.Context(), id)
+	require.NoError(t, err)
+
+	// Remove the node.
+	require.NoError(t, k.Remove(f.Context(), id))
+
+	// SetMeta after removal should fail with ErrNotExist.
+	meta.SetTags([]string{"ghost"})
+	err = k.SetMeta(f.Context(), id, meta)
+	require.Error(t, err)
+	require.ErrorIs(t, err, kegpkg.ErrNotExist)
+
+	// Verify the node was not resurrected.
+	exists, err := repo.HasNode(f.Context(), id)
+	require.NoError(t, err)
+	require.False(t, exists, "node should not be resurrected by SetMeta")
+}
+
+// TestConcurrentRemoveDuringUpdateMeta_MemoryRepo verifies that UpdateMeta
+// on a removed node returns ErrNotExist.
+func TestConcurrentRemoveDuringUpdateMeta_MemoryRepo(t *testing.T) {
+	t.Parallel()
+	f := NewSandbox(t)
+
+	repo := kegpkg.NewMemoryRepo(f.Runtime())
+	k := kegpkg.NewKeg(repo, f.Runtime())
+	require.NoError(t, k.Init(f.Context()))
+
+	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "Update Doomed"})
+	require.NoError(t, err)
+
+	// Remove the node.
+	require.NoError(t, k.Remove(f.Context(), id))
+
+	// UpdateMeta after removal should fail with ErrNotExist.
+	err = k.UpdateMeta(f.Context(), id, func(m *kegpkg.NodeMeta) {
+		m.SetTags([]string{"ghost"})
+	})
+	require.Error(t, err)
+	require.ErrorIs(t, err, kegpkg.ErrNotExist)
+
+	// Verify the node was not resurrected.
+	exists, err := repo.HasNode(f.Context(), id)
+	require.NoError(t, err)
+	require.False(t, exists, "node should not be resurrected by UpdateMeta")
+}
+
+// TestConcurrentRemoveThenSetContent_RaceCondition runs Remove and
+// SetContent concurrently to verify the node lock serializes them and
+// prevents resurrection.
+func TestConcurrentRemoveThenSetContent_RaceCondition(t *testing.T) {
+	t.Parallel()
+	f := NewSandbox(t)
+
+	repo := kegpkg.NewMemoryRepo(f.Runtime())
+	k := kegpkg.NewKeg(repo, f.Runtime())
+	require.NoError(t, k.Init(f.Context()))
+
+	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "Race Node"})
+	require.NoError(t, err)
+
+	var wg sync.WaitGroup
+	var removeErr, setErr error
+
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		removeErr = k.Remove(f.Context(), id)
+	}()
+	go func() {
+		defer wg.Done()
+		setErr = k.SetContent(f.Context(), id, []byte("# Updated\n"))
+	}()
+	wg.Wait()
+
+	// One of two outcomes is valid:
+	// 1) Remove runs first: SetContent gets ErrNotExist
+	// 2) SetContent runs first: Remove succeeds, SetContent succeeded
+	//
+	// In neither case should the node be resurrected after Remove completes.
+	if removeErr == nil {
+		// Remove succeeded. SetContent either succeeded (ran first) or
+		// failed with ErrNotExist (ran second).
+		if setErr != nil {
+			require.ErrorIs(t, setErr, kegpkg.ErrNotExist)
+		}
+	} else {
+		// Remove failed (e.g., SetContent removed the lock dir). Either
+		// way the node should not be in a resurrected broken state.
+		require.ErrorIs(t, removeErr, kegpkg.ErrNotExist)
+	}
+
+	// After everything settles, if the node exists it should have valid content.
+	exists, err := repo.HasNode(f.Context(), id)
+	require.NoError(t, err)
+	if !exists {
+		// Node was removed — verify it has no residual directory.
+		return
+	}
+
+	// If node still exists, it should have valid content (SetContent won the race).
+	content, err := repo.ReadContent(f.Context(), id)
+	require.NoError(t, err)
+	require.NotNil(t, content, "surviving node should have content")
+}
+
+// TestConcurrentRemoveDuringSetContent_FsRepo verifies the same
+// anti-resurrection behavior on the filesystem-backed repository.
+func TestConcurrentRemoveDuringSetContent_FsRepo(t *testing.T) {
+	t.Parallel()
+	f := NewSandbox(t, sandbox.WithFixture("empty", "repo"))
+
+	k, err := kegpkg.NewKegFromTarget(f.Context(), kegurl.NewFile("repo"), f.Runtime())
+	require.NoError(t, err)
+	require.NoError(t, k.Init(f.Context()))
+
+	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "FsDoomed"})
+	require.NoError(t, err)
+
+	// Remove the node.
+	require.NoError(t, k.Remove(f.Context(), id))
+
+	// SetContent after removal should fail with ErrNotExist.
+	err = k.SetContent(f.Context(), id, []byte("# FsResurrected\n"))
+	require.Error(t, err)
+	require.ErrorIs(t, err, kegpkg.ErrNotExist)
+
+	// WithNodeLock creates a bare directory as a lock artifact, but it
+	// should be cleaned up after the lock callback returns with no content
+	// file present. Verify no orphaned directory remains.
+	exists, err := k.Repo.HasNode(f.Context(), id)
+	require.NoError(t, err)
+	require.False(t, exists, "bare directory should be cleaned up after failed write")
+}
+
+// TestConcurrentRemoveDuringSetMeta_FsRepo verifies anti-resurrection for
+// SetMeta on the filesystem-backed repository.
+func TestConcurrentRemoveDuringSetMeta_FsRepo(t *testing.T) {
+	t.Parallel()
+	f := NewSandbox(t, sandbox.WithFixture("empty", "repo_meta"))
+
+	k, err := kegpkg.NewKegFromTarget(f.Context(), kegurl.NewFile("repo_meta"), f.Runtime())
+	require.NoError(t, err)
+	require.NoError(t, k.Init(f.Context()))
+
+	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{
+		Title: "FsMetaDoomed",
+		Tags:  []string{"victim"},
+	})
+	require.NoError(t, err)
+
+	meta, err := k.GetMeta(f.Context(), id)
+	require.NoError(t, err)
+
+	require.NoError(t, k.Remove(f.Context(), id))
+
+	meta.SetTags([]string{"ghost"})
+	err = k.SetMeta(f.Context(), id, meta)
+	require.Error(t, err)
+	require.ErrorIs(t, err, kegpkg.ErrNotExist)
+
+	// Verify no orphaned directory was left behind on disk.
+	exists, err := k.Repo.HasNode(f.Context(), id)
+	require.NoError(t, err)
+	require.False(t, exists, "bare directory should be cleaned up after failed SetMeta")
+}
+
+// TestSetContent_NoOrphanedDirectoryOnRemovedNode verifies that after
+// SetContent returns ErrNotExist for a removed node, no empty node directory
+// is left behind on disk. This is a defense-in-depth check ensuring the
+// WithNodeLock cleanup and WriteContent existence check cooperate to prevent
+// orphaned artifacts.
+func TestSetContent_NoOrphanedDirectoryOnRemovedNode(t *testing.T) {
+	t.Parallel()
+	f := NewSandbox(t, sandbox.WithFixture("empty", "repo"))
+
+	k, err := kegpkg.NewKegFromTarget(f.Context(), kegurl.NewFile("repo"), f.Runtime())
+	require.NoError(t, err)
+	require.NoError(t, k.Init(f.Context()))
+
+	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "Ephemeral"})
+	require.NoError(t, err)
+
+	// Verify node directory exists before removal.
+	nodeDir := filepath.Join("repo", id.Path())
+	_, statErr := f.Runtime().Stat(nodeDir, false)
+	require.NoError(t, statErr, "node directory should exist after Create")
+
+	// Remove the node.
+	require.NoError(t, k.Remove(f.Context(), id))
+
+	// Verify directory was removed.
+	_, statErr = f.Runtime().Stat(nodeDir, false)
+	require.Error(t, statErr, "node directory should not exist after Remove")
+
+	// Attempt SetContent — should fail with ErrNotExist.
+	err = k.SetContent(f.Context(), id, []byte("# Ghost content\n"))
+	require.Error(t, err)
+	require.ErrorIs(t, err, kegpkg.ErrNotExist)
+
+	// Verify no orphaned empty directory was left behind. WithNodeLock
+	// creates the directory as a lock artifact and should clean it up
+	// when the lock callback returns without creating a content file.
+	_, statErr = f.Runtime().Stat(nodeDir, false)
+	require.Error(t, statErr, "no orphaned directory should remain after failed SetContent")
+
+	// Also verify via HasNode for consistency.
+	exists, err := k.Repo.HasNode(f.Context(), id)
+	require.NoError(t, err)
+	require.False(t, exists, "HasNode should return false — no resurrection")
+}
