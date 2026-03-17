@@ -7,7 +7,7 @@ import (
 	"strings"
 	"sync"
 
-	appCtx "github.com/jlrickert/cli-toolkit/apppaths"
+	appCtx "github.com/jlrickert/cli-toolkit/appctx"
 	"github.com/jlrickert/cli-toolkit/toolkit"
 	"github.com/jlrickert/tapper/pkg/keg"
 	kegurl "github.com/jlrickert/tapper/pkg/keg_url"

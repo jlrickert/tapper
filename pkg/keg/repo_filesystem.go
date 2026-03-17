@@ -13,7 +13,7 @@ import (
 	"syscall"
 	"time"
 
-	appCtx "github.com/jlrickert/cli-toolkit/apppaths"
+	appCtx "github.com/jlrickert/cli-toolkit/appctx"
 	"github.com/jlrickert/cli-toolkit/toolkit"
 )
 
@@ -625,20 +625,13 @@ func (f *FsRepo) ListAssets(ctx context.Context, id NodeId, kind AssetKind) ([]s
 }
 
 // WriteContent implements Repository.
-//
-// The node directory must already exist (created by Next() during node
-// allocation). WriteContent does not auto-create directories to prevent
-// silent resurrection of deleted nodes.
 func (f *FsRepo) WriteContent(ctx context.Context, id NodeId, data []byte) error {
 	nodeDir := filepath.Join(f.Root, id.Path())
 	contentPath := filepath.Join(nodeDir, f.ContentFilename)
 
-	// Verify the node directory exists — do not create it. Next() handles
-	// directory creation during node allocation.
-	if _, err := f.runtime.Stat(nodeDir, false); err != nil {
-		if os.IsNotExist(err) {
-			return ErrNotExist
-		}
+	// Create parent directory if it doesn't exist.
+	dir := filepath.Dir(contentPath)
+	if err := f.runtime.Mkdir(dir, 0o755, true); err != nil {
 		return NewBackendError(f.Name(), "WriteContent", 0, err, false)
 	}
 
@@ -650,20 +643,13 @@ func (f *FsRepo) WriteContent(ctx context.Context, id NodeId, data []byte) error
 }
 
 // WriteMeta implements Repository.
-//
-// The node directory must already exist (created by Next() during node
-// allocation). WriteMeta does not auto-create directories to prevent
-// silent resurrection of deleted nodes.
 func (f *FsRepo) WriteMeta(ctx context.Context, id NodeId, data []byte) error {
 	nodeDir := filepath.Join(f.Root, id.Path())
 	metaPath := filepath.Join(nodeDir, f.MetaFilename)
 
-	// Verify the node directory exists — do not create it. Next() handles
-	// directory creation during node allocation.
-	if _, err := f.runtime.Stat(nodeDir, false); err != nil {
-		if os.IsNotExist(err) {
-			return ErrNotExist
-		}
+	// Create parent directory if it doesn't exist.
+	dir := filepath.Dir(metaPath)
+	if err := f.runtime.Mkdir(dir, 0o755, true); err != nil {
 		return NewBackendError(f.Name(), "WriteMeta", 0, err, false)
 	}
 
