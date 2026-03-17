@@ -1,18 +1,6 @@
 # https://taskfile.dev
 
 version: "3"
-vars:
-  CLIFF_IMG: orhunp/git-cliff:latest
-  GR_IMG: goreleaser/goreleaser:latest
-  CLIFF_RUN: >-
-    docker run --rm
-    -v {{.ROOT_DIR}}:/app -w /app
-    {{.CLIFF_IMG}}
-  GR_RUN: >-
-    docker run --rm --privileged
-    -v {{.ROOT_DIR}}:/go/src/github.com/jlrickert/tapper
-    -w /go/src/github.com/jlrickert/tapper
-    {{.GR_IMG}}
 
 tasks:
   run: go run "./cmd/keg" {{.CLI_ARGS}}
@@ -24,7 +12,7 @@ tasks:
       - ./doc/**/*.md
     silent: true
   install-keg:
-    desc: Install the keg CLI (go install ./cmd/keg) and generate Zsh completions (~/.cache/dotfiles/zsh/completions/_keg).
+    desc: Install the keg CLI (go install ./cmd/keg).
     cmds:
       - go install ./cmd/keg
     sources:
@@ -32,33 +20,10 @@ tasks:
       - pkg/**
       - docs/**/*.md
   install-tap:
-    desc: Install the tap CLI (go install ./cmd/tap) and generate Zsh completions (~/.cache/dotfiles/zsh/completions/_tap).
+    desc: Install the tap CLI (go install ./cmd/tap).
     cmds:
       - go install ./cmd/tap
     sources:
       - cmd/**/*.go
       - pkg/**/*.go
       - docs/**/*.md
-  install-tapper:
-    desc: Install the tapper CLI (go install ./cmd/tap) and generate Zsh completions (~/.cache/dotfiles/zsh/completions/_tap).
-    cmds:
-      - go install ./cmd/tap
-
-  changelog:
-    desc: Regenerate CHANGELOG.md via git-cliff (Docker).
-    cmds:
-      - "{{.CLIFF_RUN}} -o CHANGELOG.md"
-    generates:
-      - CHANGELOG.md
-
-  release-dry-run:
-    desc: Snapshot build to validate goreleaser config (Docker, no publish).
-    cmds:
-      - "{{.GR_RUN}} release --snapshot --clean"
-
-  release:
-    desc: |
-      Bump version, update changelog, commit, tag, push.
-      GitHub Actions then runs goreleaser automatically.
-    cmds:
-      - open https://github.com/jlrickert/tapper/actions/workflows/release.yml
