@@ -27,7 +27,6 @@ tasks:
     desc: Install the keg CLI (go install ./cmd/keg) and generate Zsh completions (~/.cache/dotfiles/zsh/completions/_keg).
     cmds:
       - go install ./cmd/keg
-      - keg completion zsh > '{{env "HOME"}}/.cache/dotfiles/zsh/completions/_keg'
     sources:
       - cmd/**
       - pkg/**
@@ -36,7 +35,6 @@ tasks:
     desc: Install the tap CLI (go install ./cmd/tap) and generate Zsh completions (~/.cache/dotfiles/zsh/completions/_tap).
     cmds:
       - go install ./cmd/tap
-      - tap completion zsh > '{{env "HOME"}}/.cache/dotfiles/zsh/completions/_tap'
     sources:
       - cmd/**/*.go
       - pkg/**/*.go
@@ -45,7 +43,6 @@ tasks:
     desc: Install the tapper CLI (go install ./cmd/tap) and generate Zsh completions (~/.cache/dotfiles/zsh/completions/_tap).
     cmds:
       - go install ./cmd/tap
-      - tap completion zsh > '{{env "HOME"}}/.cache/dotfiles/zsh/completions/_tap'
 
   changelog:
     desc: Regenerate CHANGELOG.md via git-cliff (Docker).
