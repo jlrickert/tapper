@@ -19,8 +19,8 @@ github.com/google/jsonschema-go v0.4.2 h1:tmrUohrwoLZZS/P3x7ex0WAVknEkBZM46iALbc
 github.com/google/jsonschema-go v0.4.2/go.mod h1:r5quNTdLOYEz95Ru18zA0ydNbBuYoo9tgaYcxEYhJVE=
 github.com/inconshreveable/mousetrap v1.1.0 h1:wN+x4NVGpMsO7ErUn/mUI3vEoE6Jt13X2s0bqwp9tc8=
 github.com/inconshreveable/mousetrap v1.1.0/go.mod h1:vpF70FUmC8bwa3OWnCshd2FqLfsEA9PFc4w1p2J65bw=
-github.com/jlrickert/cli-toolkit v1.1.0 h1:FnNKdnK38RK0dHzj9X754OqYe8YsYBfGCEFO/fSTRC8=
-github.com/jlrickert/cli-toolkit v1.1.0/go.mod h1:4LJ65Rl8IA3IHSzFKbuWBESqESkp8QrzZUPwGVYI5Tw=
+github.com/jlrickert/cli-toolkit v1.2.0 h1:FagfYV8gyggzIoXC4B/V15JAeDs1ggN1KaM08OS8rNA=
+github.com/jlrickert/cli-toolkit v1.2.0/go.mod h1:4LJ65Rl8IA3IHSzFKbuWBESqESkp8QrzZUPwGVYI5Tw=
 github.com/modelcontextprotocol/go-sdk v1.4.0 h1:u0kr8lbJc1oBcawK7Df+/ajNMpIDFE41OEPxdeTLOn8=
 github.com/modelcontextprotocol/go-sdk v1.4.0/go.mod h1:Nxc2n+n/GdCebUaqCOhTetptS17SXXNu9IfNTaLDi1E=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=

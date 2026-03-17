@@ -3,7 +3,7 @@ package tapper
 import (
 	"path/filepath"
 
-	appctx "github.com/jlrickert/cli-toolkit/apppaths"
+	"github.com/jlrickert/cli-toolkit/appctx"
 	"github.com/jlrickert/cli-toolkit/toolkit"
 )
 

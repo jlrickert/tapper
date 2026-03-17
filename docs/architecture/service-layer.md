@@ -16,7 +16,7 @@ client.
 ## PathService
 
 `pkg/tapper/path_service.go` wraps app path resolution from
-`cli-toolkit/apppaths` and exposes common paths:
+`cli-toolkit/appctx` and exposes common paths:
 
 - user config path
 - project config path
