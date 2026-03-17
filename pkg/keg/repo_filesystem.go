@@ -351,6 +351,12 @@ func (f *FsRepo) WithNodeLock(ctx context.Context, id NodeId, fn func(context.Co
 	}
 
 	nodeDir := filepath.Join(f.Root, id.Path())
+
+	// Track whether the node directory pre-existed so we can clean up bare
+	// directories created solely as a lock artifact.
+	_, preStat := f.runtime.Stat(nodeDir, false)
+	dirExistedBefore := preStat == nil
+
 	if err := f.runtime.Mkdir(nodeDir, 0o755, true); err != nil {
 		return errors.Join(ErrLock, NewBackendError(f.Name(), "WithNodeLock", 0, err, false))
 	}
@@ -389,6 +395,16 @@ func (f *FsRepo) WithNodeLock(ctx context.Context, id NodeId, fn func(context.Co
 		unlockErr = errors.Join(ErrLock, NewBackendError(f.Name(), "WithNodeLockUnlock", 0, unlockErr, false))
 	} else {
 		unlockErr = nil
+	}
+
+	// Clean up bare directories created solely as a lock artifact. If the
+	// node directory did not exist before locking and now contains no content
+	// file, remove it to prevent HasNode/ListNodes false positives.
+	if !dirExistedBefore {
+		contentPath := filepath.Join(nodeDir, f.ContentFilename)
+		if _, statErr := f.runtime.Stat(contentPath, false); statErr != nil && os.IsNotExist(statErr) {
+			_ = f.runtime.Remove(nodeDir, true)
+		}
 	}
 
 	return errors.Join(runErr, unlockErr)
@@ -609,13 +625,20 @@ func (f *FsRepo) ListAssets(ctx context.Context, id NodeId, kind AssetKind) ([]s
 }
 
 // WriteContent implements Repository.
+//
+// The node directory must already exist (created by Next() during node
+// allocation). WriteContent does not auto-create directories to prevent
+// silent resurrection of deleted nodes.
 func (f *FsRepo) WriteContent(ctx context.Context, id NodeId, data []byte) error {
 	nodeDir := filepath.Join(f.Root, id.Path())
 	contentPath := filepath.Join(nodeDir, f.ContentFilename)
 
-	// Create parent directory if it doesn't exist
-	dir := filepath.Dir(contentPath)
-	if err := f.runtime.Mkdir(dir, 0o755, true); err != nil {
+	// Verify the node directory exists — do not create it. Next() handles
+	// directory creation during node allocation.
+	if _, err := f.runtime.Stat(nodeDir, false); err != nil {
+		if os.IsNotExist(err) {
+			return ErrNotExist
+		}
 		return NewBackendError(f.Name(), "WriteContent", 0, err, false)
 	}
 
@@ -627,13 +650,20 @@ func (f *FsRepo) WriteContent(ctx context.Context, id NodeId, data []byte) error
 }
 
 // WriteMeta implements Repository.
+//
+// The node directory must already exist (created by Next() during node
+// allocation). WriteMeta does not auto-create directories to prevent
+// silent resurrection of deleted nodes.
 func (f *FsRepo) WriteMeta(ctx context.Context, id NodeId, data []byte) error {
 	nodeDir := filepath.Join(f.Root, id.Path())
 	metaPath := filepath.Join(nodeDir, f.MetaFilename)
 
-	// Create a parent directory if it doesn't exist
-	dir := filepath.Dir(metaPath)
-	if err := f.runtime.Mkdir(dir, 0o755, true); err != nil {
+	// Verify the node directory exists — do not create it. Next() handles
+	// directory creation during node allocation.
+	if _, err := f.runtime.Stat(nodeDir, false); err != nil {
+		if os.IsNotExist(err) {
+			return ErrNotExist
+		}
 		return NewBackendError(f.Name(), "WriteMeta", 0, err, false)
 	}
 

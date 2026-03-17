@@ -374,9 +374,11 @@ func (k *Keg) SetContent(ctx context.Context, id NodeId, data []byte) error {
 
 	var nodeData *NodeData
 	err := k.withNodeLock(ctx, id, func(lockCtx context.Context) error {
-		// Verify the node still exists under the lock to prevent
-		// resurrecting a concurrently removed node.
-		exists, err := k.Repo.HasNode(lockCtx, id)
+		// Verify the node truly exists (has content) under the lock to
+		// prevent resurrecting a concurrently removed node. HasNode
+		// alone is not enough for FsRepo because WithNodeLock creates
+		// the node directory as a side effect.
+		exists, err := k.nodeExistsWithContent(lockCtx, id)
 		if err != nil {
 			return fmt.Errorf("unable to check node existence: %w", err)
 		}
@@ -438,6 +440,16 @@ func (k *Keg) SetMeta(ctx context.Context, id NodeId, meta *NodeMeta) error {
 
 	var nodeData *NodeData
 	err := k.withNodeLock(ctx, id, func(lockCtx context.Context) error {
+		// Verify the node truly exists (has content) under the lock to
+		// prevent resurrecting a concurrently removed node.
+		exists, err := k.nodeExistsWithContent(lockCtx, id)
+		if err != nil {
+			return fmt.Errorf("unable to check node existence: %w", err)
+		}
+		if !exists {
+			return fmt.Errorf("node %s not found: %w", id.Path(), ErrNotExist)
+		}
+
 		stats, err := k.getStats(lockCtx, id)
 		if err != nil && !errors.Is(err, ErrNotExist) {
 			return fmt.Errorf("failed to read node stats: %w", err)
@@ -496,6 +508,16 @@ func (k *Keg) UpdateMeta(ctx context.Context, id NodeId, f func(*NodeMeta)) erro
 	now := k.Runtime.Clock().Now()
 
 	return k.withNodeLock(ctx, id, func(lockCtx context.Context) error {
+		// Verify the node truly exists (has content) under the lock to
+		// prevent resurrecting a concurrently removed node.
+		exists, exErr := k.nodeExistsWithContent(lockCtx, id)
+		if exErr != nil {
+			return fmt.Errorf("unable to check node existence: %w", exErr)
+		}
+		if !exists {
+			return fmt.Errorf("node %s not found: %w", id.Path(), ErrNotExist)
+		}
+
 		m, stats, err := k.getMetaAndStats(lockCtx, id)
 		if errors.Is(err, ErrNotExist) {
 			m = NewMeta(lockCtx, now)
@@ -528,6 +550,15 @@ func (k *Keg) Touch(ctx context.Context, id NodeId) error {
 	now := k.Runtime.Clock().Now()
 
 	return k.withNodeLock(ctx, id, func(lockCtx context.Context) error {
+		// Verify the node truly exists (has content) under the lock.
+		exists, exErr := k.nodeExistsWithContent(lockCtx, id)
+		if exErr != nil {
+			return fmt.Errorf("unable to check node existence: %w", exErr)
+		}
+		if !exists {
+			return fmt.Errorf("node %s not found: %w", id.Path(), ErrNotExist)
+		}
+
 		meta, stats, err := k.getMetaAndStats(lockCtx, id)
 		if errors.Is(err, ErrNotExist) {
 			meta = NewMeta(lockCtx, now)
@@ -852,8 +883,9 @@ func (k *Keg) Remove(ctx context.Context, id NodeId) error {
 		return fmt.Errorf("node 0 cannot be removed: %w", ErrInvalid)
 	}
 
-	// Check existence before acquiring the lock because FsRepo.WithNodeLock
-	// creates the node directory as a side effect of lock acquisition.
+	// Check existence before acquiring the lock. WithNodeLock will also
+	// return ErrNotExist for missing nodes, but this check provides a
+	// clearer error message.
 	exists, err := k.Repo.HasNode(ctx, id)
 	if err != nil {
 		return fmt.Errorf("failed to check node existence: %w", err)
@@ -979,6 +1011,25 @@ func (k *Keg) withNodeLock(ctx context.Context, id NodeId, fn func(context.Conte
 		return fn(ctx)
 	}
 	return k.Repo.WithNodeLock(ctx, id, fn)
+}
+
+// nodeExistsWithContent checks whether a node truly exists by verifying it has
+// content (or at minimum an entry in the repo). For FsRepo, WithNodeLock
+// creates a bare directory as a side effect of lock acquisition, so HasNode
+// alone is insufficient — a bare directory without README.md is not a real
+// node. This helper reads the content file to confirm the node was properly
+// created via Create/Init and not merely a lock artifact.
+func (k *Keg) nodeExistsWithContent(ctx context.Context, id NodeId) (bool, error) {
+	raw, err := k.Repo.ReadContent(ctx, id)
+	if err != nil {
+		if errors.Is(err, ErrNotExist) {
+			return false, nil
+		}
+		return false, err
+	}
+	// FsRepo returns (nil, nil) when the directory exists but README.md is
+	// missing. Treat that as "not a real node" for write-back purposes.
+	return raw != nil, nil
 }
 
 func (k *Keg) indexNodeLocked(ctx context.Context, id NodeId) (*NodeData, bool, error) {

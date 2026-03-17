@@ -242,6 +242,15 @@ func newFilesystemSnapshotRepo(t *testing.T) (context.Context, snapshotRepo) {
 
 func writeSnapshotState(t *testing.T, ctx context.Context, repo keg.Repository, id keg.NodeId, content string, meta string, stats *keg.NodeStats) {
 	t.Helper()
+	// FsRepo.WriteContent no longer auto-creates node directories.
+	// Ensure the directory exists before writing (simulating what Next() does).
+	if fsRepo, ok := repo.(*keg.FsRepo); ok {
+		nodeDir := fsRepo.NodeDirPath(id)
+		// Use runtime.Mkdir to go through the sandbox filesystem layer.
+		if rt := fsRepo.Runtime(); rt != nil {
+			_ = rt.Mkdir(nodeDir, 0o755, true)
+		}
+	}
 	require.NoError(t, repo.WriteContent(ctx, id, []byte(content)))
 	require.NoError(t, repo.WriteMeta(ctx, id, []byte(meta)))
 	require.NoError(t, repo.WriteStats(ctx, id, stats))
