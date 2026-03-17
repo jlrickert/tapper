@@ -923,7 +923,13 @@ func (k *Keg) Remove(ctx context.Context, id NodeId) error {
 		}
 		updated, changed := rewriteNodeLinks(raw, id, zeroID)
 		if changed {
-			_ = k.Repo.WriteContent(ctx, otherID, updated)
+			_ = k.withNodeLock(ctx, otherID, func(lockCtx context.Context) error {
+				exists, err := k.nodeExistsWithContent(lockCtx, otherID)
+				if err != nil || !exists {
+					return nil // node was concurrently removed, skip rewrite
+				}
+				return k.Repo.WriteContent(lockCtx, otherID, updated)
+			})
 		}
 	}
 

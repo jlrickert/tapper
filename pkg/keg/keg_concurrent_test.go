@@ -678,3 +678,77 @@ func TestSetContent_NoOrphanedDirectoryOnRemovedNode(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, exists, "HasNode should return false — no resurrection")
 }
+
+// TestConcurrentRemoveDuringTouch_MemoryRepo verifies that Touch on a removed
+// node returns ErrNotExist and does not resurrect the node.
+func TestConcurrentRemoveDuringTouch_MemoryRepo(t *testing.T) {
+	t.Parallel()
+	f := NewSandbox(t)
+
+	repo := kegpkg.NewMemoryRepo(f.Runtime())
+	k := kegpkg.NewKeg(repo, f.Runtime())
+	require.NoError(t, k.Init(f.Context()))
+
+	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "Touch Doomed"})
+	require.NoError(t, err)
+
+	require.NoError(t, k.Remove(f.Context(), id))
+
+	err = k.Touch(f.Context(), id)
+	require.Error(t, err)
+	require.ErrorIs(t, err, kegpkg.ErrNotExist)
+
+	exists, err := repo.HasNode(f.Context(), id)
+	require.NoError(t, err)
+	require.False(t, exists, "node should not be resurrected by Touch")
+}
+
+// TestConcurrentRemoveDuringTouch_FsRepo verifies that Touch on a removed
+// node returns ErrNotExist on the filesystem-backed repository.
+func TestConcurrentRemoveDuringTouch_FsRepo(t *testing.T) {
+	t.Parallel()
+	f := NewSandbox(t, sandbox.WithFixture("empty", "repo"))
+
+	k, err := kegpkg.NewKegFromTarget(f.Context(), kegurl.NewFile("repo"), f.Runtime())
+	require.NoError(t, err)
+	require.NoError(t, k.Init(f.Context()))
+
+	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "FsTouchDoomed"})
+	require.NoError(t, err)
+
+	require.NoError(t, k.Remove(f.Context(), id))
+
+	err = k.Touch(f.Context(), id)
+	require.Error(t, err)
+	require.ErrorIs(t, err, kegpkg.ErrNotExist)
+
+	exists, err := k.Repo.HasNode(f.Context(), id)
+	require.NoError(t, err)
+	require.False(t, exists, "bare directory should be cleaned up after failed Touch")
+}
+
+// TestConcurrentRemoveDuringUpdateMeta_FsRepo verifies that UpdateMeta on a
+// removed node returns ErrNotExist on the filesystem-backed repository.
+func TestConcurrentRemoveDuringUpdateMeta_FsRepo(t *testing.T) {
+	t.Parallel()
+	f := NewSandbox(t, sandbox.WithFixture("empty", "repo"))
+
+	k, err := kegpkg.NewKegFromTarget(f.Context(), kegurl.NewFile("repo"), f.Runtime())
+	require.NoError(t, err)
+	require.NoError(t, k.Init(f.Context()))
+
+	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "FsUpdateDoomed"})
+	require.NoError(t, err)
+
+	require.NoError(t, k.Remove(f.Context(), id))
+
+	err = k.UpdateMeta(f.Context(), id, func(m *kegpkg.NodeMeta) {
+		m.SetTags([]string{"ghost"})
+	})
+	require.Error(t, err)
+	require.ErrorIs(t, err, kegpkg.ErrNotExist)
+
+	exists, err := k.Repo.HasNode(f.Context(), id)
+	require.NoError(t, err)
+	require.False(t, exists, "bare directory should be cleaned up after failed UpdateMeta")
+}
