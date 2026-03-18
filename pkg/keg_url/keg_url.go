@@ -83,7 +83,9 @@ const (
 	SchemeSSH      = "ssh"
 	SchemeHTTP     = "http"
 	SchemeHTTPs    = "https"
-	SchemaAlias    = "keg"
+	SchemeAlias    = "keg"
+	// Deprecated: Use SchemeAlias instead. SchemaAlias is a misspelling retained for backward compatibility.
+	SchemaAlias = SchemeAlias
 	SchemeRegistry = "registry"
 	SchemeS3       = "s3"
 )

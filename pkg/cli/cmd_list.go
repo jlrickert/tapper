@@ -53,7 +53,7 @@ Use --sort to order by "id", "updated", "created", or "accessed".`,
 	cmd.Flags().StringVarP(&opts.Format, "format", "f", "", "output format")
 	cmd.Flags().StringVar(&opts.Query, "query", "", `boolean expression (see "tap docs query-expressions" for syntax)`)
 	cmd.Flags().StringVar((*string)(&opts.Sort), "sort", "", `sort order: "id", "updated", "created", or "accessed"`)
-	_ = cmd.RegisterFlagCompletionFunc("sort", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	mustRegisterFlagCompletion(cmd, "sort", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		return []string{"id", "updated", "created", "accessed"}, cobra.ShellCompDirectiveNoFileComp
 	})
 

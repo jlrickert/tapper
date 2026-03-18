@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/jlrickert/cli-toolkit/toolkit"
+	"github.com/spf13/cobra"
 )
 
 func Run(ctx context.Context, rt *toolkit.Runtime, args []string) (int, error) {
@@ -63,6 +64,16 @@ func RunCompletion(ctx context.Context, rt *toolkit.Runtime, args []string) (int
 
 func RunCompletionWithProfile(ctx context.Context, rt *toolkit.Runtime, args []string, profile Profile) (int, error) {
 	return RunWithProfile(ctx, rt, append([]string{"__complete"}, args...), profile)
+}
+
+// mustRegisterFlagCompletion registers a shell completion function for a flag,
+// panicking if the registration fails. Failures here indicate a programming
+// error (e.g., the flag name does not match a registered flag) and should be
+// caught immediately during development rather than silently ignored.
+func mustRegisterFlagCompletion(cmd *cobra.Command, flagName string, f func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective)) {
+	if err := cmd.RegisterFlagCompletionFunc(flagName, f); err != nil {
+		panic(fmt.Sprintf("cli: failed to register completion for flag %q: %v", flagName, err))
+	}
 }
 
 func rewriteDefaultCatArgs(args []string) ([]string, bool) {

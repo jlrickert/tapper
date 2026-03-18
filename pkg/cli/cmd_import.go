@@ -78,7 +78,7 @@ references. All must come from the same source keg.`,
 	cmd.Flags().BoolVar(&opts.LeaveStubs, "leave-stubs", false, "write forwarding stubs at source node locations after import")
 	cmd.Flags().BoolVar(&opts.SkipZeroNode, "skip-zero", true, "skip source node 0 (default true)")
 
-	_ = cmd.RegisterFlagCompletionFunc("from", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	mustRegisterFlagCompletion(cmd, "from", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		if deps.Tap == nil {
 			return nil, cobra.ShellCompDirectiveNoFileComp
 		}

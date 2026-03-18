@@ -44,15 +44,11 @@ func (t *Tap) Lock(ctx context.Context, opts LockOptions) (keg.LockToken, error)
 		return "", fmt.Errorf("repository does not support cross-process locking")
 	}
 
-	node, err := keg.ParseNode(opts.NodeID)
+	id, err := parseNodeID(opts.NodeID)
 	if err != nil {
-		return "", fmt.Errorf("invalid node ID %q: %w", opts.NodeID, err)
-	}
-	if node == nil {
-		return "", fmt.Errorf("invalid node ID %q: %w", opts.NodeID, keg.ErrInvalid)
+		return "", err
 	}
 
-	id := keg.NodeId{ID: node.ID, Code: node.Code}
 	exists, err := k.Repo.HasNode(ctx, id)
 	if err != nil {
 		return "", fmt.Errorf("unable to inspect node: %w", err)
@@ -80,15 +76,11 @@ func (t *Tap) Unlock(ctx context.Context, opts UnlockOptions) error {
 		return fmt.Errorf("repository does not support cross-process locking")
 	}
 
-	node, err := keg.ParseNode(opts.NodeID)
+	id, err := parseNodeID(opts.NodeID)
 	if err != nil {
-		return fmt.Errorf("invalid node ID %q: %w", opts.NodeID, err)
-	}
-	if node == nil {
-		return fmt.Errorf("invalid node ID %q: %w", opts.NodeID, keg.ErrInvalid)
+		return err
 	}
 
-	id := keg.NodeId{ID: node.ID, Code: node.Code}
 	return locker.ReleaseLock(ctx, id, keg.LockToken(opts.Token))
 }
 
@@ -104,15 +96,11 @@ func (t *Tap) LockStatus(ctx context.Context, opts LockStatusOptions) (keg.LockI
 		return keg.LockInfo{}, fmt.Errorf("repository does not support cross-process locking")
 	}
 
-	node, err := keg.ParseNode(opts.NodeID)
+	id, err := parseNodeID(opts.NodeID)
 	if err != nil {
-		return keg.LockInfo{}, fmt.Errorf("invalid node ID %q: %w", opts.NodeID, err)
-	}
-	if node == nil {
-		return keg.LockInfo{}, fmt.Errorf("invalid node ID %q: %w", opts.NodeID, keg.ErrInvalid)
+		return keg.LockInfo{}, err
 	}
 
-	id := keg.NodeId{ID: node.ID, Code: node.Code}
 	return locker.LockStatus(ctx, id)
 }
 
@@ -128,15 +116,11 @@ func (t *Tap) ForceUnlock(ctx context.Context, opts ForceUnlockOptions) error {
 		return fmt.Errorf("repository does not support cross-process locking")
 	}
 
-	node, err := keg.ParseNode(opts.NodeID)
+	id, err := parseNodeID(opts.NodeID)
 	if err != nil {
-		return fmt.Errorf("invalid node ID %q: %w", opts.NodeID, err)
-	}
-	if node == nil {
-		return fmt.Errorf("invalid node ID %q: %w", opts.NodeID, keg.ErrInvalid)
+		return err
 	}
 
-	id := keg.NodeId{ID: node.ID, Code: node.Code}
 	return locker.ForceReleaseLock(ctx, id)
 }
 

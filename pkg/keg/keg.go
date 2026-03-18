@@ -699,18 +699,30 @@ func (k *Keg) Index(ctx context.Context, opts IndexOptions) error {
 
 	var wg sync.WaitGroup
 	for i, id := range ids {
+		// Check for cancellation before spawning each goroutine.
+		if ctx.Err() != nil {
+			break
+		}
 		wg.Add(1)
 		go func(idx int, nodeID NodeId) {
 			defer wg.Done()
 			sem <- struct{}{}        // acquire
 			defer func() { <-sem }() // release
 
+			// Skip work if context was cancelled while waiting for the semaphore.
+			if ctx.Err() != nil {
+				return
+			}
 			res := indexResult{id: nodeID}
 			res.data, res.errs = k.indexNode(ctx, nodeID, opts, now)
 			results[idx] = res
 		}(i, id)
 	}
 	wg.Wait()
+
+	if ctx.Err() != nil {
+		return fmt.Errorf("index rebuild cancelled: %w", ctx.Err())
+	}
 
 	// Sequentially add results to the dex and collect errors.
 	var errs []error
