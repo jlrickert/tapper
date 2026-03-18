@@ -34,6 +34,9 @@ type Keg struct {
 	dexMu sync.Mutex
 	// dex is an optional in-memory index of nodes, lazily loaded from repo
 	dex *Dex
+
+	// configMu guards the read-modify-write cycle in UpdateConfig.
+	configMu sync.Mutex
 }
 
 // Option is a functional option for configuring Keg behavior
@@ -319,6 +322,9 @@ func (k *Keg) UpdateConfig(ctx context.Context, f func(*Config)) error {
 		return fmt.Errorf("unable to update config: %w", err)
 	}
 
+	k.configMu.Lock()
+	defer k.configMu.Unlock()
+
 	// Read config directly from the repository to allow InitKeg to create it when
 	// the keg is not yet fully initiated.
 	cfg, err := k.Repo.ReadConfig(ctx)
@@ -507,7 +513,8 @@ func (k *Keg) UpdateMeta(ctx context.Context, id NodeId, f func(*NodeMeta)) erro
 
 	now := k.Runtime.Clock().Now()
 
-	return k.withNodeLock(ctx, id, func(lockCtx context.Context) error {
+	var nodeData *NodeData
+	err := k.withNodeLock(ctx, id, func(lockCtx context.Context) error {
 		// Verify the node truly exists (has content) under the lock to
 		// prevent resurrecting a concurrently removed node.
 		exists, exErr := k.nodeExistsWithContent(lockCtx, id)
@@ -537,8 +544,19 @@ func (k *Keg) UpdateMeta(ctx context.Context, id NodeId, f func(*NodeMeta)) erro
 		if err := k.Repo.WriteStats(lockCtx, id, stats); err != nil {
 			return fmt.Errorf("UpdateMeta: write stats to backend %s: %w", k.Repo.Name(), err)
 		}
+
+		// Read content so the dex entry has complete data (links, title).
+		content, _ := k.getContent(lockCtx, id)
+		nodeData = &NodeData{ID: id, Content: content, Meta: m, Stats: stats}
 		return nil
 	})
+	if err != nil {
+		return err
+	}
+	if nodeData == nil {
+		return nil
+	}
+	return k.addNodeToDex(ctx, nodeData, &now)
 }
 
 // Touch updates the access time of a node to the current time.
@@ -911,6 +929,7 @@ func (k *Keg) Remove(ctx context.Context, id NodeId) error {
 
 	// Rewrite all links that pointed to the removed node so they point to
 	// the zero node (../0) instead of dangling.
+	var errs []error
 	zeroID := NodeId{ID: 0}
 	nodeIDs, listErr := k.Repo.ListNodes(ctx)
 	if listErr != nil {
@@ -919,21 +938,24 @@ func (k *Keg) Remove(ctx context.Context, id NodeId) error {
 	for _, otherID := range nodeIDs {
 		raw, readErr := k.Repo.ReadContent(ctx, otherID)
 		if readErr != nil {
+			if !errors.Is(readErr, ErrNotExist) {
+				errs = append(errs, fmt.Errorf("failed to read node %s for link rewrite: %w", otherID.Path(), readErr))
+			}
 			continue
 		}
 		updated, changed := rewriteNodeLinks(raw, id, zeroID)
 		if changed {
-			_ = k.withNodeLock(ctx, otherID, func(lockCtx context.Context) error {
-				exists, err := k.nodeExistsWithContent(lockCtx, otherID)
-				if err != nil || !exists {
+			if err := k.withNodeLock(ctx, otherID, func(lockCtx context.Context) error {
+				exists, exErr := k.nodeExistsWithContent(lockCtx, otherID)
+				if exErr != nil || !exists {
 					return nil // node was concurrently removed, skip rewrite
 				}
 				return k.Repo.WriteContent(lockCtx, otherID, updated)
-			})
+			}); err != nil {
+				errs = append(errs, fmt.Errorf("failed to rewrite links in node %s: %w", otherID.Path(), err))
+			}
 		}
 	}
-
-	var errs []error
 	dex, err := k.Dex(ctx)
 	if err != nil {
 		errs = append(errs, fmt.Errorf("failed to retrieve dex after remove: %w", err))

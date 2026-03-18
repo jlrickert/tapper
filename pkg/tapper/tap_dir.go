@@ -68,7 +68,10 @@ func (t *Tap) Dir(ctx context.Context, opts DirOptions) (string, error) {
 // ListKegs returns available keg aliases from local discovery paths and config.
 // When cache is true, cached config values may be used.
 func (t *Tap) ListKegs(cache bool) ([]string, error) {
-	cfg := t.ConfigService.Config(cache)
+	cfg, err := t.ConfigService.Config(cache)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list kegs: %w", err)
+	}
 	var results []string
 	if localKegs, err := t.ConfigService.DiscoveredKegAliases(cache); err == nil {
 		results = append(results, localKegs...)
