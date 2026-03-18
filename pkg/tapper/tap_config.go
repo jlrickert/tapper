@@ -54,7 +54,11 @@ func (t *Tap) Config(opts ConfigOptions) (string, error) {
 		}
 		cfg = uCfg
 	} else {
-		cfg = t.ConfigService.Config(true)
+		var err error
+		cfg, err = t.ConfigService.Config(true)
+		if err != nil {
+			return "", err
+		}
 	}
 
 	data, err := cfg.ToYAML()

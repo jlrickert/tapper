@@ -219,6 +219,8 @@ func (dex *Dex) TagList(ctx context.Context) []string {
 
 // Links returns the parsed outgoing links index (map[src] -> []dst).
 func (dex *Dex) Links(ctx context.Context, node NodeId) ([]NodeId, bool) {
+	dex.mu.RLock()
+	defer dex.mu.RUnlock()
 	list, ok := dex.links.data[node.Path()]
 	return list, ok
 }
@@ -226,6 +228,8 @@ func (dex *Dex) Links(ctx context.Context, node NodeId) ([]NodeId, bool) {
 // Backlinks returns the parsed backlinks index (map[dst] -> []src).
 // NOTE: not intended to be mutated
 func (dex *Dex) Backlinks(ctx context.Context, node NodeId) ([]NodeId, bool) {
+	dex.mu.RLock()
+	defer dex.mu.RUnlock()
 	list, ok := dex.backlinks.data[node.Path()]
 	return list, ok
 }
@@ -415,5 +419,7 @@ func (dex *Dex) GetRef(ctx context.Context, id NodeId) *NodeIndexEntry {
 	if dex == nil {
 		return nil
 	}
+	dex.mu.RLock()
+	defer dex.mu.RUnlock()
 	return dex.nodes.Get(ctx, id)
 }

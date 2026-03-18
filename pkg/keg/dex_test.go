@@ -367,3 +367,65 @@ func TestDex_WithConfig_CoreIndexSkipped(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, dex.custom, "core index names should not produce custom indexes")
 }
+
+// TestDex_ConcurrentReadWrite exercises concurrent reads (Links, Backlinks,
+// GetRef, Nodes, TagList) alongside writes (Add, Clear) to verify the Dex
+// mutex guards prevent data races. Run with: go test -race -run TestDex_ConcurrentReadWrite
+func TestDex_ConcurrentReadWrite(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+
+	rt, err := toolkit.NewTestRuntime(t.TempDir(), "/home/testuser", "testuser")
+	require.NoError(t, err)
+	mem := NewMemoryRepo(rt)
+
+	dex, err := NewDexFromRepo(ctx, mem)
+	require.NoError(t, err)
+
+	// Seed with initial data so readers have something to access.
+	t0 := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	for i := range 10 {
+		nd := makeNodeData(i, "node", []string{"tag"}, t0)
+		require.NoError(t, dex.Add(ctx, nd))
+	}
+
+	const goroutines = 20
+	const iterations = 200
+
+	done := make(chan struct{})
+
+	// Concurrent writers: Add and Clear.
+	for g := range goroutines / 2 {
+		go func(offset int) {
+			defer func() { done <- struct{}{} }()
+			for i := range iterations {
+				id := 100 + offset*iterations + i
+				nd := makeNodeData(id, "concurrent", []string{"race"}, t0)
+				_ = dex.Add(ctx, nd)
+				if i%50 == 0 {
+					dex.Clear(ctx)
+				}
+			}
+		}(g)
+	}
+
+	// Concurrent readers: Links, Backlinks, GetRef, Nodes, TagList.
+	for range goroutines / 2 {
+		go func() {
+			defer func() { done <- struct{}{} }()
+			for range iterations {
+				_ = dex.Nodes(ctx)
+				dex.Links(ctx, NodeId{ID: 1})
+				dex.Backlinks(ctx, NodeId{ID: 1})
+				dex.GetRef(ctx, NodeId{ID: 0})
+				dex.TagList(ctx)
+				dex.TagNodes(ctx, "tag")
+			}
+		}()
+	}
+
+	for range goroutines {
+		<-done
+	}
+}

@@ -147,7 +147,10 @@ func (t *Tap) initProjectKeg(ctx context.Context, opts initLocalOptions) (*kegur
 }
 
 func (t *Tap) initUserKeg(ctx context.Context, opts InitOptions) (*kegurl.Target, error) {
-	cfg := t.ConfigService.Config(true)
+	cfg, err := t.ConfigService.Config(true)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load config: %w", err)
+	}
 	repoPath := cfg.PrimaryKegSearchPath()
 	if repoPath == "" {
 		return nil, fmt.Errorf("kegSearchPaths not defined in user config (set via tap repo config --user): %w", keg.ErrNotExist)
@@ -210,7 +213,7 @@ func (t *Tap) initRegistry(opts initRegistryOptions) (*kegurl.Target, error) {
 	// Determine repo (registry) name. Prefer explicit flag, then project config.
 	repoName := opts.Repo
 	if repoName == "" {
-		cfg := t.ConfigService.Config(true)
+		cfg, _ := t.ConfigService.Config(true)
 		if cfg != nil && cfg.DefaultRegistry() != "" {
 			repoName = cfg.DefaultRegistry()
 		}
@@ -228,7 +231,7 @@ func (t *Tap) initRegistry(opts initRegistryOptions) (*kegurl.Target, error) {
 			user = u
 		} else {
 			// try to fall back to project-local default if present
-			if cfg := t.ConfigService.Config(true); cfg != nil && cfg.DefaultKeg() != "" {
+			if cfg, cfgErr := t.ConfigService.Config(true); cfgErr == nil && cfg != nil && cfg.DefaultKeg() != "" {
 				// ignore: best-effort only
 				user = cfg.DefaultKeg()
 			}

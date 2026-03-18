@@ -32,6 +32,9 @@ type Deps struct {
 
 	Tap *tapper.Tap
 	Err error
+
+	// logFileHandle is the opened log file; closed in PersistentPostRunE.
+	logFileHandle *os.File
 }
 
 func NewRootCmd(deps *Deps) *cobra.Command {
@@ -92,6 +95,7 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 					if err != nil {
 						return err
 					}
+					deps.logFileHandle = f
 					out = f
 				}
 				lg := mylog.NewLogger(mylog.LoggerConfig{
@@ -109,6 +113,11 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 			return nil
 		},
 		PersistentPostRunE: func(cmd *cobra.Command, args []string) error {
+			// Close log file handle if one was opened.
+			if deps.logFileHandle != nil {
+				_ = deps.logFileHandle.Close()
+				deps.logFileHandle = nil
+			}
 			// invoke shutdown if present
 			if v := cmd.Context().Value(shutdownKey{}); v != nil {
 				if sd, ok := v.(func()); ok && sd != nil {

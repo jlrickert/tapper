@@ -78,25 +78,27 @@ func (s *ConfigService) ProjectConfig(cache bool) (*Config, error) {
 // If cache is true and a merged config exists, it returns the cached version.
 // Otherwise, it retrieves both configs, merges them, caches the result, and returns it.
 // When ConfigPath is set, it directly reads that file and bypasses normal merge behavior.
-func (s *ConfigService) Config(cache bool) *Config {
+func (s *ConfigService) Config(cache bool) (*Config, error) {
 	if cache && s.mergedCache != nil {
-		return s.mergedCache
+		return s.mergedCache, nil
 	}
 
 	if s.ConfigPath != "" {
-		// FIXME: propagate this error up. Thus function is missing error type
-		cfg, _ := ReadConfig(s.Runtime, s.ConfigPath)
+		cfg, err := ReadConfig(s.Runtime, s.ConfigPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read config at %s: %w", s.ConfigPath, err)
+		}
 		if cfg == nil {
 			cfg = &Config{}
 		}
 		s.mergedCache = cfg
-		return cfg
+		return cfg, nil
 	}
 
 	user, _ := s.UserConfig(cache)
 	project, _ := s.ProjectConfig(cache)
 	s.mergedCache = MergeConfig(user, project)
-	return s.mergedCache
+	return s.mergedCache, nil
 }
 
 // DiscoveredKegAliases returns aliases discovered from configured kegSearchPaths.
@@ -117,7 +119,10 @@ func (s *ConfigService) DiscoveredKegAliases(cache bool) ([]string, error) {
 // Resolution order is: explicit configured alias, discovered local keg alias.
 // When alias is empty it uses defaultKeg, then fallbackKeg.
 func (s *ConfigService) ResolveTarget(alias string, cache bool) (*kegurl.Target, error) {
-	cfg := s.Config(cache)
+	cfg, err := s.Config(cache)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve target: %w", err)
+	}
 	requestedAlias := alias
 	if requestedAlias == "" {
 		requestedAlias = cfg.DefaultKeg()
@@ -151,7 +156,10 @@ func (s *ConfigService) ResolveTarget(alias string, cache bool) (*kegurl.Target,
 // localRepoKegTargets scans kegSearchPaths and returns alias-to-path mappings.
 // Paths listed later in kegSearchPaths take precedence for alias collisions.
 func (s *ConfigService) localRepoKegTargets(cache bool) (map[string]string, error) {
-	cfg := s.Config(cache)
+	cfg, err := s.Config(cache)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load config for keg discovery: %w", err)
+	}
 	searchPaths := cfg.KegSearchPaths()
 	if len(searchPaths) == 0 {
 		return nil, fmt.Errorf("kegSearchPaths not defined in config (set kegSearchPaths in tap repo config --user)")

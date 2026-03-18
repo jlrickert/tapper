@@ -143,8 +143,10 @@ func (t *Tap) KegInfo(ctx context.Context, opts KegInfoOptions) (string, error) 
 
 	if k.Target != nil {
 		// Reverse-lookup the alias from tap config.
-		tapCfg := t.KegService.ConfigService.Config(true)
-		out.Alias = tapCfg.LookupAliasForTarget(t.Runtime, k.Target.String())
+		tapCfg, _ := t.KegService.ConfigService.Config(true)
+		if tapCfg != nil {
+			out.Alias = tapCfg.LookupAliasForTarget(t.Runtime, k.Target.String())
+		}
 		out.Target = k.Target.String()
 		out.Scheme = k.Target.Scheme()
 		if k.Target.Scheme() == kegurl.SchemeFile {

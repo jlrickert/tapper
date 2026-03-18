@@ -177,7 +177,10 @@ func (s *KegService) resolveFileKeg(ctx context.Context, root string, cache bool
 // Precedence: kegMap (path-specific) → defaultKeg (general) → fallbackKeg (last resort).
 func (s *KegService) resolvePath(ctx context.Context, path string, cache bool) (*keg.Keg, error) {
 	s.ensureCache()
-	cfg := s.ConfigService.Config(true)
+	cfg, err := s.ConfigService.Config(true)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve path config: %w", err)
+	}
 	kegAlias := cfg.LookupAlias(s.Runtime, path)
 	if kegAlias == "" {
 		kegAlias = cfg.DefaultKeg()
@@ -201,7 +204,10 @@ func (s *KegService) resolveKegAlias(ctx context.Context, kegAlias string, proje
 		return s.kegCache[kegAlias], nil
 	}
 
-	cfg := s.ConfigService.Config(cache)
+	cfg, cfgErr := s.ConfigService.Config(cache)
+	if cfgErr != nil {
+		return nil, fmt.Errorf("failed to resolve keg alias config: %w", cfgErr)
+	}
 	_, configured := cfg.Kegs()[kegAlias]
 
 	target, err := s.ConfigService.ResolveTarget(kegAlias, cache)
@@ -229,18 +235,12 @@ func (s *KegService) resolveKegAlias(ctx context.Context, kegAlias string, proje
 		}
 	}
 
+	// ResolveTarget failed and no project-local fallback was found.
 	if err != nil {
 		return nil, err
 	}
 
-	k, err := keg.NewKegFromTarget(ctx, *target, s.Runtime)
-	if err != nil {
-		return k, err
-	}
-	if k != nil {
-		s.kegCache[kegAlias] = k
-	}
-	return k, err
+	return nil, fmt.Errorf("keg alias %q could not be resolved", kegAlias)
 }
 
 // resolveProjectAlias resolves a project-local alias at <project>/kegs/<alias>/keg when present.
