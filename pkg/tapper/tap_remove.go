@@ -57,15 +57,11 @@ func (t *Tap) Remove(ctx context.Context, opts RemoveOptions) error {
 	}
 
 	for _, nodeID := range nodeIDs {
-		node, err := keg.ParseNode(nodeID)
+		id, err := parseNodeID(nodeID)
 		if err != nil {
-			return fmt.Errorf("invalid node ID %q: %w", nodeID, err)
-		}
-		if node == nil {
-			return fmt.Errorf("invalid node ID %q: %w", nodeID, keg.ErrInvalid)
+			return err
 		}
 
-		id := keg.NodeId{ID: node.ID, Code: node.Code}
 		if err := k.Remove(ctx, id); err != nil {
 			if errors.Is(err, keg.ErrNotExist) {
 				return fmt.Errorf("node %s not found", id.Path())

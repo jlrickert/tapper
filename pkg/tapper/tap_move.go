@@ -21,24 +21,16 @@ func (t *Tap) Move(ctx context.Context, opts MoveOptions) error {
 		return fmt.Errorf("unable to open keg: %w", err)
 	}
 
-	src, err := keg.ParseNode(opts.SourceID)
+	srcID, err := parseNodeID(opts.SourceID)
 	if err != nil {
-		return fmt.Errorf("invalid source node ID %q: %w", opts.SourceID, err)
-	}
-	if src == nil {
-		return fmt.Errorf("invalid source node ID %q: %w", opts.SourceID, keg.ErrInvalid)
+		return err
 	}
 
-	dst, err := keg.ParseNode(opts.DestID)
+	dstID, err := parseNodeID(opts.DestID)
 	if err != nil {
-		return fmt.Errorf("invalid destination node ID %q: %w", opts.DestID, err)
-	}
-	if dst == nil {
-		return fmt.Errorf("invalid destination node ID %q: %w", opts.DestID, keg.ErrInvalid)
+		return err
 	}
 
-	srcID := keg.NodeId{ID: src.ID, Code: src.Code}
-	dstID := keg.NodeId{ID: dst.ID, Code: dst.Code}
 	if err := k.Move(ctx, srcID, dstID); err != nil {
 		if errors.Is(err, keg.ErrNotExist) {
 			return fmt.Errorf("node %s not found", srcID.Path())

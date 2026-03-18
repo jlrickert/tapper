@@ -149,15 +149,12 @@ func (t *Tap) Cat(ctx context.Context, opts CatOptions) (string, error) {
 
 // catSingleNode reads and formats a single node's content according to opts.
 func (t *Tap) catSingleNode(ctx context.Context, k *keg.Keg, nodeID string, opts CatOptions) (string, error) {
-	node, err := keg.ParseNode(nodeID)
+	node, err := parseNodeID(nodeID)
 	if err != nil {
-		return "", fmt.Errorf("invalid node ID %q: %w", nodeID, err)
-	}
-	if node == nil {
-		return "", fmt.Errorf("invalid node ID %q: %w", nodeID, keg.ErrInvalid)
+		return "", err
 	}
 
-	content, err := k.Repo.ReadContent(ctx, *node)
+	content, err := k.Repo.ReadContent(ctx, node)
 	if err != nil {
 		if errors.Is(err, keg.ErrNotExist) {
 			return "", fmt.Errorf("node %s not found", node.Path())
@@ -165,12 +162,12 @@ func (t *Tap) catSingleNode(ctx context.Context, k *keg.Keg, nodeID string, opts
 		return "", fmt.Errorf("unable to read node content: %w", err)
 	}
 
-	meta, err := k.Repo.ReadMeta(ctx, *node)
+	meta, err := k.Repo.ReadMeta(ctx, node)
 	if err != nil && !errors.Is(err, keg.ErrNotExist) {
 		return "", fmt.Errorf("unable to read node metadata: %w", err)
 	}
 
-	if err := k.Touch(ctx, *node); err != nil {
+	if err := k.Touch(ctx, node); err != nil {
 		return "", fmt.Errorf("unable to update node access: %w", err)
 	}
 
@@ -179,7 +176,7 @@ func (t *Tap) catSingleNode(ctx context.Context, k *keg.Keg, nodeID string, opts
 	}
 
 	if opts.StatsOnly {
-		stats, err := k.Repo.ReadStats(ctx, *node)
+		stats, err := k.Repo.ReadStats(ctx, node)
 		if err != nil {
 			if errors.Is(err, keg.ErrNotExist) {
 				stats = &keg.NodeStats{}
@@ -232,15 +229,12 @@ func formatContentWithID(id string, content []byte) string {
 // stream output. It injects the node ID into every output mode so each
 // document is self-identifying.
 func (t *Tap) catSingleNodeForStream(ctx context.Context, k *keg.Keg, nodeID string, opts CatOptions) (string, error) {
-	node, err := keg.ParseNode(nodeID)
+	node, err := parseNodeID(nodeID)
 	if err != nil {
-		return "", fmt.Errorf("invalid node ID %q: %w", nodeID, err)
-	}
-	if node == nil {
-		return "", fmt.Errorf("invalid node ID %q: %w", nodeID, keg.ErrInvalid)
+		return "", err
 	}
 
-	content, err := k.Repo.ReadContent(ctx, *node)
+	content, err := k.Repo.ReadContent(ctx, node)
 	if err != nil {
 		if errors.Is(err, keg.ErrNotExist) {
 			return "", fmt.Errorf("node %s not found", node.Path())
@@ -248,12 +242,12 @@ func (t *Tap) catSingleNodeForStream(ctx context.Context, k *keg.Keg, nodeID str
 		return "", fmt.Errorf("unable to read node content: %w", err)
 	}
 
-	meta, err := k.Repo.ReadMeta(ctx, *node)
+	meta, err := k.Repo.ReadMeta(ctx, node)
 	if err != nil && !errors.Is(err, keg.ErrNotExist) {
 		return "", fmt.Errorf("unable to read node metadata: %w", err)
 	}
 
-	if err := k.Touch(ctx, *node); err != nil {
+	if err := k.Touch(ctx, node); err != nil {
 		return "", fmt.Errorf("unable to update node access: %w", err)
 	}
 
@@ -264,7 +258,7 @@ func (t *Tap) catSingleNodeForStream(ctx context.Context, k *keg.Keg, nodeID str
 	}
 
 	if opts.StatsOnly {
-		stats, readErr := k.Repo.ReadStats(ctx, *node)
+		stats, readErr := k.Repo.ReadStats(ctx, node)
 		if readErr != nil {
 			if errors.Is(readErr, keg.ErrNotExist) {
 				stats = &keg.NodeStats{}

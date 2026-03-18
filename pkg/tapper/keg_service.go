@@ -154,8 +154,16 @@ func (s *KegService) resolveProjectTarget(ctx context.Context, base string, cach
 }
 
 // resolveFileKeg resolves a keg from a filesystem root and caches it by normalized path.
+// Symlinks are resolved before generating the cache key so that symlinks or
+// mounts pointing to the same underlying directory share a single cache entry.
 func (s *KegService) resolveFileKeg(ctx context.Context, root string, cache bool) (*keg.Keg, error) {
-	key := "file:" + filepath.Clean(root)
+	cleanRoot := filepath.Clean(root)
+	// Resolve symlinks so different paths that point to the same physical
+	// directory produce identical cache keys.
+	if resolved, err := filepath.EvalSymlinks(cleanRoot); err == nil {
+		cleanRoot = resolved
+	}
+	key := "file:" + cleanRoot
 	if cache && s.kegCache[key] != nil {
 		return s.kegCache[key], nil
 	}

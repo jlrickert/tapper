@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/jlrickert/cli-toolkit/toolkit"
-	"github.com/jlrickert/tapper/pkg/keg"
 	kegurl "github.com/jlrickert/tapper/pkg/keg_url"
 )
 
@@ -38,14 +37,10 @@ func (t *Tap) Dir(ctx context.Context, opts DirOptions) (string, error) {
 			return kegDir, nil
 		}
 
-		node, err := keg.ParseNode(opts.NodeID)
+		id, err := parseNodeID(opts.NodeID)
 		if err != nil {
-			return "", fmt.Errorf("invalid node ID %q: %w", opts.NodeID, err)
+			return "", err
 		}
-		if node == nil {
-			return "", fmt.Errorf("invalid node ID %q: %w", opts.NodeID, keg.ErrInvalid)
-		}
-		id := keg.NodeId{ID: node.ID, Code: node.Code}
 
 		exists, err := k.Repo.HasNode(ctx, id)
 		if err != nil {

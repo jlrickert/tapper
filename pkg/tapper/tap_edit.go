@@ -54,15 +54,11 @@ func (t *Tap) Meta(ctx context.Context, opts MetaOptions) (string, error) {
 		return "", fmt.Errorf("unable to open keg: %w", err)
 	}
 
-	node, err := keg.ParseNode(opts.NodeID)
+	id, err := parseNodeID(opts.NodeID)
 	if err != nil {
-		return "", fmt.Errorf("invalid node ID %q: %w", opts.NodeID, err)
-	}
-	if node == nil {
-		return "", fmt.Errorf("invalid node ID %q: %w", opts.NodeID, keg.ErrInvalid)
+		return "", err
 	}
 
-	id := keg.NodeId{ID: node.ID, Code: node.Code}
 	exists, err := k.Repo.HasNode(ctx, id)
 	if err != nil {
 		return "", fmt.Errorf("unable to inspect node: %w", err)
@@ -130,15 +126,11 @@ func (t *Tap) Edit(ctx context.Context, opts EditOptions) error {
 		return fmt.Errorf("unable to open keg: %w", err)
 	}
 
-	node, err := keg.ParseNode(opts.NodeID)
+	id, err := parseNodeID(opts.NodeID)
 	if err != nil {
-		return fmt.Errorf("invalid node ID %q: %w", opts.NodeID, err)
-	}
-	if node == nil {
-		return fmt.Errorf("invalid node ID %q: %w", opts.NodeID, keg.ErrInvalid)
+		return err
 	}
 
-	id := keg.NodeId{ID: node.ID, Code: node.Code}
 	exists, err := k.Repo.HasNode(ctx, id)
 	if err != nil {
 		return fmt.Errorf("unable to inspect node: %w", err)

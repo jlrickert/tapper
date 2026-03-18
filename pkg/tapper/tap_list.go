@@ -245,14 +245,10 @@ func (t *Tap) resolveAndLookupLinks(
 		return []string{}, fmt.Errorf("unable to read dex: %w", err)
 	}
 
-	node, err := keg.ParseNode(nodeID)
+	id, err := parseNodeID(nodeID)
 	if err != nil {
-		return []string{}, fmt.Errorf("invalid node ID %q: %w", nodeID, err)
+		return []string{}, err
 	}
-	if node == nil {
-		return []string{}, fmt.Errorf("invalid node ID %q: %w", nodeID, keg.ErrInvalid)
-	}
-	id := keg.NodeId{ID: node.ID, Code: node.Code}
 
 	exists, err := k.Repo.HasNode(ctx, id)
 	if err != nil {

@@ -147,10 +147,10 @@ Press Ctrl+C to stop the server.`,
 	cmd.Flags().StringVar(&opts.BaseURL, "base-url", "", "base URL for links (default: /)")
 
 	// Register flag completions.
-	_ = cmd.RegisterFlagCompletionFunc("port", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	mustRegisterFlagCompletion(cmd, "port", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		return []string{"8080", "3000", "9090"}, cobra.ShellCompDirectiveNoFileComp
 	})
-	_ = cmd.RegisterFlagCompletionFunc("host", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	mustRegisterFlagCompletion(cmd, "host", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		return []string{"127.0.0.1", "0.0.0.0", "localhost"}, cobra.ShellCompDirectiveNoFileComp
 	})
 

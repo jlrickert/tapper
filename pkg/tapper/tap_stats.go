@@ -21,15 +21,12 @@ func (t *Tap) Stats(ctx context.Context, opts StatsOptions) (string, error) {
 		return "", fmt.Errorf("unable to open keg: %w", err)
 	}
 
-	node, err := keg.ParseNode(opts.NodeID)
+	node, err := parseNodeID(opts.NodeID)
 	if err != nil {
-		return "", fmt.Errorf("invalid node ID %q: %w", opts.NodeID, err)
-	}
-	if node == nil {
-		return "", fmt.Errorf("invalid node ID %q: %w", opts.NodeID, keg.ErrInvalid)
+		return "", err
 	}
 
-	exists, err := k.Repo.HasNode(ctx, *node)
+	exists, err := k.Repo.HasNode(ctx, node)
 	if err != nil {
 		return "", fmt.Errorf("unable to inspect node: %w", err)
 	}
@@ -37,7 +34,7 @@ func (t *Tap) Stats(ctx context.Context, opts StatsOptions) (string, error) {
 		return "", fmt.Errorf("node %s not found", node.Path())
 	}
 
-	stats, err := k.Repo.ReadStats(ctx, *node)
+	stats, err := k.Repo.ReadStats(ctx, node)
 	if err != nil {
 		if errors.Is(err, keg.ErrNotExist) {
 			stats = &keg.NodeStats{}

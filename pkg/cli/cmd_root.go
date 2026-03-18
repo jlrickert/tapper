@@ -74,9 +74,11 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 			deps.Tap = tap
 			deps.Root = wd
 			if deps.Profile.withDefaults().AllowKegAliasFlags {
-				_ = cmd.Root().RegisterFlagCompletionFunc("keg", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+				if regErr := cmd.Root().RegisterFlagCompletionFunc("keg", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 					return listKegsFiltered(deps, cmd.Context(), toComplete), cobra.ShellCompDirectiveNoFileComp
-				})
+				}); regErr != nil {
+					return fmt.Errorf("failed to register --keg completion: %w", regErr)
+				}
 			}
 
 			if deps.ConfigPath != "" {

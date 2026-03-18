@@ -75,14 +75,10 @@ func (t *Tap) ListFiles(ctx context.Context, opts ListFilesOptions) ([]string, e
 	if !ok {
 		return nil, fmt.Errorf("keg backend does not support file attachments")
 	}
-	node, err := keg.ParseNode(opts.NodeID)
+	id, err := parseNodeID(opts.NodeID)
 	if err != nil {
-		return nil, fmt.Errorf("invalid node ID %q: %w", opts.NodeID, err)
+		return nil, err
 	}
-	if node == nil {
-		return nil, fmt.Errorf("invalid node ID %q: %w", opts.NodeID, keg.ErrInvalid)
-	}
-	id := keg.NodeId{ID: node.ID, Code: node.Code}
 	return repoFiles.ListFiles(ctx, id)
 }
 
@@ -97,14 +93,10 @@ func (t *Tap) UploadFile(ctx context.Context, opts UploadFileOptions) (string, e
 	if !ok {
 		return "", fmt.Errorf("keg backend does not support file attachments")
 	}
-	node, err := keg.ParseNode(opts.NodeID)
+	id, err := parseNodeID(opts.NodeID)
 	if err != nil {
-		return "", fmt.Errorf("invalid node ID %q: %w", opts.NodeID, err)
+		return "", err
 	}
-	if node == nil {
-		return "", fmt.Errorf("invalid node ID %q: %w", opts.NodeID, keg.ErrInvalid)
-	}
-	id := keg.NodeId{ID: node.ID, Code: node.Code}
 	exists, err := k.Repo.HasNode(ctx, id)
 	if err != nil {
 		return "", fmt.Errorf("unable to inspect node: %w", err)
@@ -137,14 +129,10 @@ func (t *Tap) DownloadFile(ctx context.Context, opts DownloadFileOptions) (strin
 	if !ok {
 		return "", fmt.Errorf("keg backend does not support file attachments")
 	}
-	node, err := keg.ParseNode(opts.NodeID)
+	id, err := parseNodeID(opts.NodeID)
 	if err != nil {
-		return "", fmt.Errorf("invalid node ID %q: %w", opts.NodeID, err)
+		return "", err
 	}
-	if node == nil {
-		return "", fmt.Errorf("invalid node ID %q: %w", opts.NodeID, keg.ErrInvalid)
-	}
-	id := keg.NodeId{ID: node.ID, Code: node.Code}
 	data, err := repoFiles.ReadFile(ctx, id, opts.Name)
 	if err != nil {
 		return "", fmt.Errorf("unable to download file %q: %w", opts.Name, err)
@@ -173,14 +161,10 @@ func (t *Tap) DeleteFile(ctx context.Context, opts DeleteFileOptions) error {
 	if !ok {
 		return fmt.Errorf("keg backend does not support file attachments")
 	}
-	node, err := keg.ParseNode(opts.NodeID)
+	id, err := parseNodeID(opts.NodeID)
 	if err != nil {
-		return fmt.Errorf("invalid node ID %q: %w", opts.NodeID, err)
+		return err
 	}
-	if node == nil {
-		return fmt.Errorf("invalid node ID %q: %w", opts.NodeID, keg.ErrInvalid)
-	}
-	id := keg.NodeId{ID: node.ID, Code: node.Code}
 	if err := repoFiles.DeleteFile(ctx, id, opts.Name); err != nil {
 		return fmt.Errorf("unable to delete file %q: %w", opts.Name, err)
 	}
@@ -197,14 +181,10 @@ func (t *Tap) ListImages(ctx context.Context, opts ListImagesOptions) ([]string,
 	if !ok {
 		return nil, fmt.Errorf("keg backend does not support image storage")
 	}
-	node, err := keg.ParseNode(opts.NodeID)
+	id, err := parseNodeID(opts.NodeID)
 	if err != nil {
-		return nil, fmt.Errorf("invalid node ID %q: %w", opts.NodeID, err)
+		return nil, err
 	}
-	if node == nil {
-		return nil, fmt.Errorf("invalid node ID %q: %w", opts.NodeID, keg.ErrInvalid)
-	}
-	id := keg.NodeId{ID: node.ID, Code: node.Code}
 	return repoImages.ListImages(ctx, id)
 }
 
@@ -219,14 +199,10 @@ func (t *Tap) UploadImage(ctx context.Context, opts UploadImageOptions) (string,
 	if !ok {
 		return "", fmt.Errorf("keg backend does not support image storage")
 	}
-	node, err := keg.ParseNode(opts.NodeID)
+	id, err := parseNodeID(opts.NodeID)
 	if err != nil {
-		return "", fmt.Errorf("invalid node ID %q: %w", opts.NodeID, err)
+		return "", err
 	}
-	if node == nil {
-		return "", fmt.Errorf("invalid node ID %q: %w", opts.NodeID, keg.ErrInvalid)
-	}
-	id := keg.NodeId{ID: node.ID, Code: node.Code}
 	exists, err := k.Repo.HasNode(ctx, id)
 	if err != nil {
 		return "", fmt.Errorf("unable to inspect node: %w", err)
@@ -259,14 +235,10 @@ func (t *Tap) DownloadImage(ctx context.Context, opts DownloadImageOptions) (str
 	if !ok {
 		return "", fmt.Errorf("keg backend does not support image storage")
 	}
-	node, err := keg.ParseNode(opts.NodeID)
+	id, err := parseNodeID(opts.NodeID)
 	if err != nil {
-		return "", fmt.Errorf("invalid node ID %q: %w", opts.NodeID, err)
+		return "", err
 	}
-	if node == nil {
-		return "", fmt.Errorf("invalid node ID %q: %w", opts.NodeID, keg.ErrInvalid)
-	}
-	id := keg.NodeId{ID: node.ID, Code: node.Code}
 	data, err := repoImages.ReadImage(ctx, id, opts.Name)
 	if err != nil {
 		return "", fmt.Errorf("unable to download image %q: %w", opts.Name, err)
@@ -295,14 +267,10 @@ func (t *Tap) DeleteImage(ctx context.Context, opts DeleteImageOptions) error {
 	if !ok {
 		return fmt.Errorf("keg backend does not support image storage")
 	}
-	node, err := keg.ParseNode(opts.NodeID)
+	id, err := parseNodeID(opts.NodeID)
 	if err != nil {
-		return fmt.Errorf("invalid node ID %q: %w", opts.NodeID, err)
+		return err
 	}
-	if node == nil {
-		return fmt.Errorf("invalid node ID %q: %w", opts.NodeID, keg.ErrInvalid)
-	}
-	id := keg.NodeId{ID: node.ID, Code: node.Code}
 	if err := repoImages.DeleteImage(ctx, id, opts.Name); err != nil {
 		return fmt.Errorf("unable to delete image %q: %w", opts.Name, err)
 	}
