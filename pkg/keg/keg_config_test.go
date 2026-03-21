@@ -94,6 +94,42 @@ tags:
 	require.Equal(t, "Client of work", config.Tags["client"])
 }
 
+func TestParseConfigV2_DoctorNilWhenAbsent(t *testing.T) {
+	yamlData := `
+kegv: "2025-07"
+title: "No doctor config"
+`
+	config, err := keg.ParseKegConfig([]byte(yamlData))
+	require.NoError(t, err)
+	require.Nil(t, config.Doctor, "Doctor should be nil when omitted from config")
+}
+
+func TestParseConfigV2_DoctorEntityCheckEnabled(t *testing.T) {
+	yamlData := `
+kegv: "2025-07"
+title: "With doctor config"
+doctor:
+  entityCheck: true
+`
+	config, err := keg.ParseKegConfig([]byte(yamlData))
+	require.NoError(t, err)
+	require.NotNil(t, config.Doctor, "Doctor should be present")
+	require.True(t, config.Doctor.EntityCheck, "EntityCheck should be true")
+}
+
+func TestParseConfigV2_DoctorEntityCheckDisabled(t *testing.T) {
+	yamlData := `
+kegv: "2025-07"
+title: "With doctor config disabled"
+doctor:
+  entityCheck: false
+`
+	config, err := keg.ParseKegConfig([]byte(yamlData))
+	require.NoError(t, err)
+	require.NotNil(t, config.Doctor, "Doctor should be present when explicitly set")
+	require.False(t, config.Doctor.EntityCheck, "EntityCheck should be false")
+}
+
 func TestParseConfigDataInvalidVersion(t *testing.T) {
 	invalidYaml := `
 kegv: "invalid-version"

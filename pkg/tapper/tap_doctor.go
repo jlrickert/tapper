@@ -51,29 +51,28 @@ func (t *Tap) Doctor(ctx context.Context, opts DoctorOptions) ([]Issue, error) {
 		nodeSet[id.ID] = struct{}{}
 	}
 
-	// 3. Entity validation — config entities reference existing nodes
-	for name, entity := range cfg.Entities {
-		entityNode := keg.NodeId{ID: entity.ID}
-		exists, hasErr := k.Repo.HasNode(ctx, entityNode)
-		if hasErr != nil {
-			issues = append(issues, Issue{
-				Level:   "error",
-				Kind:    "entity-missing",
-				Message: fmt.Sprintf("entity %q references node %d but check failed: %v", name, entity.ID, hasErr),
-			})
-		} else if !exists {
-			issues = append(issues, Issue{
-				Level:   "error",
-				Kind:    "entity-missing",
-				Message: fmt.Sprintf("entity %q references node %d which does not exist", name, entity.ID),
-			})
-		}
-	}
+	// Determine whether entity checks are enabled (off by default).
+	entityCheckEnabled := cfg.Doctor != nil && cfg.Doctor.EntityCheck
 
-	// Build reverse map: entity node ID -> entity name for later per-node checks
-	entityByNodeID := make(map[int]string, len(cfg.Entities))
-	for name, entity := range cfg.Entities {
-		entityByNodeID[entity.ID] = name
+	// 3. Entity validation — config entities reference existing nodes (only when entity check enabled)
+	if entityCheckEnabled {
+		for name, entity := range cfg.Entities {
+			entityNode := keg.NodeId{ID: entity.ID}
+			exists, hasErr := k.Repo.HasNode(ctx, entityNode)
+			if hasErr != nil {
+				issues = append(issues, Issue{
+					Level:   "error",
+					Kind:    "entity-missing",
+					Message: fmt.Sprintf("entity %q references node %d but check failed: %v", name, entity.ID, hasErr),
+				})
+			} else if !exists {
+				issues = append(issues, Issue{
+					Level:   "error",
+					Kind:    "entity-missing",
+					Message: fmt.Sprintf("entity %q references node %d which does not exist", name, entity.ID),
+				})
+			}
+		}
 	}
 
 	// Build tag set from config
@@ -125,10 +124,11 @@ func (t *Tap) Doctor(ctx context.Context, opts DoctorOptions) ([]Issue, error) {
 			if parseErr != nil {
 				issues = append(issues, Issue{Level: "error", Kind: "meta", NodeID: nodePath, Message: fmt.Sprintf("unable to parse metadata: %v", parseErr)})
 			} else {
-				// Entity attr check: node declares entity not in config
-				if entityVal, ok := meta.Get("entity"); ok && entityVal != "" {
-					if _, inCfg := cfg.Entities[entityVal]; !inCfg {
-						issues = append(issues, Issue{Level: "warning", Kind: "entity-attr", NodeID: nodePath, Message: fmt.Sprintf("entity attribute %q not defined in keg config", entityVal)})
+				// Entity attr check: when enabled, warn if node lacks entity attribute
+				if entityCheckEnabled {
+					entityVal, hasEntity := meta.Get("entity")
+					if !hasEntity || entityVal == "" {
+						issues = append(issues, Issue{Level: "warning", Kind: "entity-attr", NodeID: nodePath, Message: "missing entity attribute in metadata"})
 					}
 				}
 

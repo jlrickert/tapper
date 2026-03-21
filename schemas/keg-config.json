@@ -118,6 +118,18 @@
         "description": "Human-readable description for a tag."
       }
     },
+    "doctor": {
+      "type": "object",
+      "description": "Configuration for `tap doctor` health checks.",
+      "properties": {
+        "entityCheck": {
+          "type": "boolean",
+          "description": "Enable per-node entity attribute validation. When true, doctor warns about nodes missing an entity attribute in metadata. Default: false.",
+          "default": false
+        }
+      },
+      "additionalProperties": false
+    },
     "site": {
       "type": "object",
       "description": "Static site generation defaults for `tap site`.",
