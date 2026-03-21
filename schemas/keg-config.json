@@ -126,6 +126,11 @@
           "type": "boolean",
           "description": "Enable per-node entity attribute validation. When true, doctor warns about nodes missing an entity attribute in metadata. Default: false.",
           "default": false
+        },
+        "tagCheck": {
+          "type": "boolean",
+          "description": "Enable per-node tag validation against the keg config tag map. When true, doctor warns about tags used in node metadata that are not documented in the keg config. Default: false.",
+          "default": false
         }
       },
       "additionalProperties": false

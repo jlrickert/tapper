@@ -130,6 +130,47 @@ doctor:
 	require.False(t, config.Doctor.EntityCheck, "EntityCheck should be false")
 }
 
+func TestParseConfigV2_DoctorTagCheckEnabled(t *testing.T) {
+	yamlData := `
+kegv: "2025-07"
+title: "With doctor tag check"
+doctor:
+  tagCheck: true
+`
+	config, err := keg.ParseKegConfig([]byte(yamlData))
+	require.NoError(t, err)
+	require.NotNil(t, config.Doctor, "Doctor should be present")
+	require.True(t, config.Doctor.TagCheck, "TagCheck should be true")
+}
+
+func TestParseConfigV2_DoctorTagCheckDisabled(t *testing.T) {
+	yamlData := `
+kegv: "2025-07"
+title: "With doctor tag check disabled"
+doctor:
+  tagCheck: false
+`
+	config, err := keg.ParseKegConfig([]byte(yamlData))
+	require.NoError(t, err)
+	require.NotNil(t, config.Doctor, "Doctor should be present when explicitly set")
+	require.False(t, config.Doctor.TagCheck, "TagCheck should be false")
+}
+
+func TestParseConfigV2_DoctorBothChecks(t *testing.T) {
+	yamlData := `
+kegv: "2025-07"
+title: "With both doctor checks"
+doctor:
+  entityCheck: true
+  tagCheck: true
+`
+	config, err := keg.ParseKegConfig([]byte(yamlData))
+	require.NoError(t, err)
+	require.NotNil(t, config.Doctor, "Doctor should be present")
+	require.True(t, config.Doctor.EntityCheck, "EntityCheck should be true")
+	require.True(t, config.Doctor.TagCheck, "TagCheck should be true")
+}
+
 func TestParseConfigDataInvalidVersion(t *testing.T) {
 	invalidYaml := `
 kegv: "invalid-version"
