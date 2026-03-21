@@ -2,6 +2,7 @@ package keg
 
 import (
 	"context"
+	"sort"
 	"strings"
 	"time"
 )
@@ -143,48 +144,23 @@ func (idx *NodeIndex) Add(ctx context.Context, data *NodeData) error {
 		return nil
 	}
 
-	// comparator: returns negative if a < b, 0 if equal, positive if a > b
-	cmp := func(a, b string) int {
-		na, ea := ParseNode(a)
-		nb, eb := ParseNode(b)
-		if ea == nil && eb == nil {
-			return na.Compare(*nb)
-		}
-		if ea == nil {
-			return -1
-		}
-		if eb == nil {
-			return 1
-		}
-		if a < b {
-			return -1
-		}
-		if a > b {
-			return 1
-		}
-		return 0
+	// Use binary search to find the insertion point in O(log N).
+	// The data slice is maintained in ascending order by node ID using
+	// the same parse-aware comparator as before.
+	i := sort.Search(len(idx.data), func(j int) bool {
+		return nodeIDCompare(idx.data[j].ID, entry.ID) >= 0
+	})
+
+	// If we found an exact match, replace in place.
+	if i < len(idx.data) && idx.data[i].ID == entry.ID {
+		idx.data[i] = entry
+		return nil
 	}
 
-	// find existing entry or insertion point
-	for i := range idx.data {
-		// if equal id, replace
-		if idx.data[i].ID == entry.ID {
-			idx.data[i] = entry
-			return nil
-		}
-		// if current id > new id, insert before
-		if cmp(idx.data[i].ID, entry.ID) > 0 {
-			// insert at i
-			newSlice := make([]NodeIndexEntry, 0, len(idx.data)+1)
-			newSlice = append(newSlice, idx.data[:i]...)
-			newSlice = append(newSlice, entry)
-			newSlice = append(newSlice, idx.data[i:]...)
-			idx.data = newSlice
-			return nil
-		}
-	}
-	// append at end
-	idx.data = append(idx.data, entry)
+	// Insert at position i.
+	idx.data = append(idx.data, NodeIndexEntry{})
+	copy(idx.data[i+1:], idx.data[i:])
+	idx.data[i] = entry
 	return nil
 }
 
@@ -210,12 +186,12 @@ func (idx *NodeIndex) Rm(ctx context.Context, node NodeId) error {
 		return nil
 	}
 	target := node.Path()
-	for i := range idx.data {
-		if idx.data[i].ID == target {
-			// remove element i
-			idx.data = append(idx.data[:i], idx.data[i+1:]...)
-			return nil
-		}
+	// Binary search for O(log N) lookup.
+	i := sort.Search(len(idx.data), func(j int) bool {
+		return nodeIDCompare(idx.data[j].ID, target) >= 0
+	})
+	if i < len(idx.data) && idx.data[i].ID == target {
+		idx.data = append(idx.data[:i], idx.data[i+1:]...)
 	}
 	return nil
 }
@@ -283,10 +259,12 @@ func (idx *NodeIndex) Get(ctx context.Context, node NodeId) *NodeIndexEntry {
 		return nil
 	}
 	id := node.Path()
-	for i := range idx.data {
-		if idx.data[i].ID == id {
-			return &idx.data[i]
-		}
+	// Binary search for O(log N) lookup.
+	i := sort.Search(len(idx.data), func(j int) bool {
+		return nodeIDCompare(idx.data[j].ID, id) >= 0
+	})
+	if i < len(idx.data) && idx.data[i].ID == id {
+		return &idx.data[i]
 	}
 	return nil
 }
@@ -322,4 +300,29 @@ func (idx *NodeIndex) Next(ctx context.Context) NodeId {
 		return NodeId{ID: 0, Code: ""}
 	}
 	return NodeId{ID: maxID + 1, Code: ""}
+}
+
+// nodeIDCompare compares two node ID strings using parse-aware ordering.
+// Returns negative if a < b, 0 if equal, positive if a > b.
+// Numeric node IDs are compared numerically; non-parsable IDs fall back
+// to lexicographic comparison.
+func nodeIDCompare(a, b string) int {
+	na, ea := ParseNode(a)
+	nb, eb := ParseNode(b)
+	if ea == nil && eb == nil {
+		return na.Compare(*nb)
+	}
+	if ea == nil {
+		return -1
+	}
+	if eb == nil {
+		return 1
+	}
+	if a < b {
+		return -1
+	}
+	if a > b {
+		return 1
+	}
+	return 0
 }

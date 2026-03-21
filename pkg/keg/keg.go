@@ -30,10 +30,18 @@ type Keg struct {
 	// Runtime provides clock/hash/fs helpers used by high-level keg operations.
 	Runtime *toolkit.Runtime
 
-	// dexMu guards lazy initialization of dex.
+	// dexMu guards lazy initialization of dex and the mtime/gen fields below.
 	dexMu sync.Mutex
 	// dex is an optional in-memory index of nodes, lazily loaded from repo
 	dex *Dex
+	// dexWriteGen is a monotonic counter bumped after every successful
+	// Dex.Write by this process. Used for diagnostics.
+	dexWriteGen uint64
+	// dexLoadMtime records the ModTime of dex/nodes.tsv at the time the
+	// cached dex was last loaded from disk. Used by dexStale() to detect
+	// whether another process has modified the index files since this
+	// process last read them.
+	dexLoadMtime time.Time
 
 	// configMu guards the read-modify-write cycle in UpdateConfig.
 	configMu sync.Mutex
@@ -371,13 +379,12 @@ func (k *Keg) GetContent(ctx context.Context, id NodeId) ([]byte, error) {
 	return b, nil
 }
 
-// SetContent writes content for a node and updates its metadata by re-indexing.
-// This ensures the node's title, lead, and other metadata are kept in sync with content changes.
-func (k *Keg) SetContent(ctx context.Context, id NodeId, data []byte) error {
-	if err := k.checkKegExists(ctx); err != nil {
-		return fmt.Errorf("failed to set node content: %w", err)
-	}
-
+// setContentNoDex writes content for a node and updates its metadata by
+// re-indexing the node locally, but does NOT write the dex to disk. This
+// allows callers (e.g. Move, Remove) to batch multiple content changes and
+// perform a single dex write at the end. Returns the updated NodeData if
+// content changed, nil if content was identical, and any error encountered.
+func (k *Keg) setContentNoDex(ctx context.Context, id NodeId, data []byte) (*NodeData, error) {
 	var nodeData *NodeData
 	err := k.withNodeLock(ctx, id, func(lockCtx context.Context) error {
 		// Verify the node truly exists (has content) under the lock to
@@ -411,6 +418,17 @@ func (k *Keg) SetContent(ctx context.Context, id NodeId, data []byte) error {
 		}
 		return nil
 	})
+	return nodeData, err
+}
+
+// SetContent writes content for a node and updates its metadata by re-indexing.
+// This ensures the node's title, lead, and other metadata are kept in sync with content changes.
+func (k *Keg) SetContent(ctx context.Context, id NodeId, data []byte) error {
+	if err := k.checkKegExists(ctx); err != nil {
+		return fmt.Errorf("failed to set node content: %w", err)
+	}
+
+	nodeData, err := k.setContentNoDex(ctx, id, data)
 	if err != nil {
 		return err
 	}
@@ -853,7 +871,11 @@ func (k *Keg) Move(ctx context.Context, src NodeId, dst NodeId) error {
 		return fmt.Errorf("failed to list nodes for link rewrite: %w", err)
 	}
 
+	// Rewrite links in all nodes, collecting changed NodeData without
+	// writing the dex after each individual change. A single batched dex
+	// write follows the loop.
 	var errs []error
+	var changedNodes []*NodeData
 	for _, id := range ids {
 		raw, readErr := k.Repo.ReadContent(ctx, id)
 		if readErr != nil {
@@ -868,12 +890,18 @@ func (k *Keg) Move(ctx context.Context, src NodeId, dst NodeId) error {
 		if !changed {
 			continue
 		}
-		if err := k.SetContent(ctx, id, updated); err != nil {
+		nd, err := k.setContentNoDex(ctx, id, updated)
+		if err != nil {
 			errs = append(errs, fmt.Errorf("failed to rewrite links for node %s: %w", id.Path(), err))
+			continue
+		}
+		if nd != nil {
+			changedNodes = append(changedNodes, nd)
 		}
 	}
 
-	dex, err := k.Dex(ctx)
+	// Single batched dex update: load fresh dex, apply all changes, write once.
+	dex, err := k.ensureDexFresh(ctx)
 	if err != nil {
 		errs = append(errs, fmt.Errorf("failed to retrieve dex after move: %w", err))
 	} else {
@@ -886,8 +914,22 @@ func (k *Keg) Move(ctx context.Context, src NodeId, dst NodeId) error {
 		} else if err := dex.Add(ctx, movedData); err != nil {
 			errs = append(errs, fmt.Errorf("failed to add moved node %s to dex: %w", dst.Path(), err))
 		}
+		for _, nd := range changedNodes {
+			// Remove stale entry first so Add replaces rather than merges
+			// with outdated link/tag data.
+			if err := dex.Remove(ctx, nd.ID); err != nil {
+				errs = append(errs, fmt.Errorf("failed to remove stale dex entry for %s: %w", nd.ID.Path(), err))
+			}
+			if err := dex.Add(ctx, nd); err != nil {
+				errs = append(errs, fmt.Errorf("failed to add changed node %s to dex: %w", nd.ID.Path(), err))
+			}
+		}
 		if err := dex.Write(ctx, k.Repo); err != nil {
 			errs = append(errs, fmt.Errorf("failed to write dex after move: %w", err))
+		} else {
+			k.dexMu.Lock()
+			k.recordDexWrite()
+			k.dexMu.Unlock()
 		}
 	}
 
@@ -940,7 +982,9 @@ func (k *Keg) Remove(ctx context.Context, id NodeId) error {
 	}
 
 	// Rewrite all links that pointed to the removed node so they point to
-	// the zero node (../0) instead of dangling.
+	// the zero node (../0) instead of dangling. These are cosmetic content
+	// rewrites that don't need per-node dex updates -- the Remove dex update
+	// handles the index cleanup via dex.Remove(id).
 	var errs []error
 	zeroID := NodeId{ID: 0}
 	nodeIDs, listErr := k.Repo.ListNodes(ctx)
@@ -968,7 +1012,9 @@ func (k *Keg) Remove(ctx context.Context, id NodeId) error {
 			}
 		}
 	}
-	dex, err := k.Dex(ctx)
+
+	// Single batched dex update: remove deleted node, write once.
+	dex, err := k.ensureDexFresh(ctx)
 	if err != nil {
 		errs = append(errs, fmt.Errorf("failed to retrieve dex after remove: %w", err))
 	} else {
@@ -977,6 +1023,10 @@ func (k *Keg) Remove(ctx context.Context, id NodeId) error {
 		}
 		if err := dex.Write(ctx, k.Repo); err != nil {
 			errs = append(errs, fmt.Errorf("failed to write dex after remove: %w", err))
+		} else {
+			k.dexMu.Lock()
+			k.recordDexWrite()
+			k.dexMu.Unlock()
 		}
 	}
 
@@ -1027,6 +1077,7 @@ func (k *Keg) Dex(ctx context.Context) (*Dex, error) {
 	opts, _ := k.dexOptions(ctx)
 	dex, err := NewDexFromRepo(ctx, k.Repo, opts...)
 	k.dex = dex
+	k.dexLoadMtime = k.indexFileMtime()
 	return dex, err
 }
 
@@ -1087,11 +1138,69 @@ func (k *Keg) indexNodeLocked(ctx context.Context, id NodeId) (*NodeData, bool, 
 	return n.data, true, nil
 }
 
-func (k *Keg) writeNodeToDex(ctx context.Context, id NodeId, data *NodeData) error {
-	// Invalidate the cached dex to pick up external changes before writing.
-	k.InvalidateDex()
+// indexFileMtime returns the ModTime of dex/nodes.tsv for FsRepo backends.
+// For non-filesystem repos (e.g. MemoryRepo) it returns time.Time{} (zero).
+func (k *Keg) indexFileMtime() time.Time {
+	fsRepo, ok := k.Repo.(*FsRepo)
+	if !ok {
+		return time.Time{}
+	}
+	idxPath := filepath.Join(fsRepo.Root, "dex", "nodes.tsv")
+	info, err := fsRepo.runtime.Stat(idxPath, false)
+	if err != nil {
+		return time.Time{}
+	}
+	return info.ModTime()
+}
 
-	dex, err := k.Dex(ctx)
+// dexStale reports whether the cached dex is out of date with respect to the
+// on-disk index files. For MemoryRepo (single-process) this always returns
+// false because there are no external writers. For FsRepo it compares the
+// current mtime of dex/nodes.tsv against the mtime recorded when the dex was
+// last loaded.
+//
+// Caller must hold k.dexMu.
+func (k *Keg) dexStale() bool {
+	if _, ok := k.Repo.(*FsRepo); !ok {
+		return false
+	}
+	current := k.indexFileMtime()
+	if current.IsZero() {
+		// File doesn't exist — treat as stale so we rebuild.
+		return true
+	}
+	return !current.Equal(k.dexLoadMtime)
+}
+
+// ensureDexFresh returns the cached dex if it is still current, otherwise
+// reloads it from disk. This replaces the pattern of InvalidateDex() +
+// Dex(ctx) which unconditionally discarded the cache.
+//
+// ensureDexFresh acquires k.dexMu internally; callers must NOT hold it.
+func (k *Keg) ensureDexFresh(ctx context.Context) (*Dex, error) {
+	k.dexMu.Lock()
+	defer k.dexMu.Unlock()
+
+	if k.dex != nil && !k.dexStale() {
+		return k.dex, nil
+	}
+
+	opts, _ := k.dexOptions(ctx)
+	dex, err := NewDexFromRepo(ctx, k.Repo, opts...)
+	k.dex = dex
+	k.dexLoadMtime = k.indexFileMtime()
+	return dex, err
+}
+
+// recordDexWrite updates the mtime cache and generation counter after a
+// successful Dex.Write. Caller must hold k.dexMu.
+func (k *Keg) recordDexWrite() {
+	k.dexLoadMtime = k.indexFileMtime()
+	k.dexWriteGen++
+}
+
+func (k *Keg) writeNodeToDex(ctx context.Context, id NodeId, data *NodeData) error {
+	dex, err := k.ensureDexFresh(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to retrieve dex: %w", err)
 	}
@@ -1101,6 +1210,11 @@ func (k *Keg) writeNodeToDex(ctx context.Context, id NodeId, data *NodeData) err
 	if err := dex.Write(ctx, k.Repo); err != nil {
 		return fmt.Errorf("failed to write dex: %w", err)
 	}
+
+	k.dexMu.Lock()
+	k.recordDexWrite()
+	k.dexMu.Unlock()
+
 	return k.touchConfigUpdated(ctx, k.Runtime.Clock().Now())
 }
 
@@ -1349,11 +1463,7 @@ func (k *Keg) InvalidateDex() {
 // addNodeToDex adds a node to the dex, writes dex changes to the repository,
 // and updates the keg's Updated timestamp to the provided time (or now if not specified).
 func (k *Keg) addNodeToDex(ctx context.Context, data *NodeData, now *time.Time) error {
-	// Invalidate the cached dex before loading to pick up changes made
-	// by other processes (e.g., CLI updates while MCP server is running).
-	k.InvalidateDex()
-
-	dex, err := k.Dex(ctx)
+	dex, err := k.ensureDexFresh(ctx)
 	if err != nil {
 		return err
 	}
@@ -1364,6 +1474,10 @@ func (k *Keg) addNodeToDex(ctx context.Context, data *NodeData, now *time.Time) 
 		if err := dex.Write(ctx, k.Repo); err != nil {
 			return err
 		}
+
+		k.dexMu.Lock()
+		k.recordDexWrite()
+		k.dexMu.Unlock()
 
 		if err := k.touchConfigUpdated(ctx, *now); err != nil {
 			return err
