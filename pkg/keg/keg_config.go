@@ -86,6 +86,9 @@ type ConfigV2 struct {
 
 	Tags map[string]string `yaml:"tags,omitempty"`
 
+	// Doctor holds `tap doctor` check configuration.
+	Doctor *DoctorConfig `yaml:"doctor,omitempty"`
+
 	// Site holds static site generation defaults for `tap site`.
 	Site *SiteConfig `yaml:"site,omitempty"`
 
@@ -102,6 +105,13 @@ type SiteConfig struct {
 	BaseURL string `yaml:"baseUrl,omitempty" json:"baseUrl,omitempty"`
 	// Search enables or disables Pagefind search indexing.
 	Search *bool `yaml:"search,omitempty" json:"search,omitempty"`
+}
+
+// DoctorConfig holds options that control which checks `tap doctor` performs.
+type DoctorConfig struct {
+	// EntityCheck enables per-node entity attribute validation.
+	// When true, doctor reports nodes that lack an `entity` attribute in meta.
+	EntityCheck bool `yaml:"entityCheck,omitempty" json:"entityCheck,omitempty"`
 }
 
 // LinkEntry represents a named link in the KEG configuration.
