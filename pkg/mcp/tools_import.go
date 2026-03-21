@@ -29,6 +29,10 @@ func registerImportFromKeg(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefa
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "import_from_keg",
 		Description: "Import nodes from one KEG into another, rewriting links",
+		Annotations: &sdkmcp.ToolAnnotations{
+			DestructiveHint: boolPtr(false),
+			OpenWorldHint:   boolPtr(false),
+		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in importFromKegInput) (*sdkmcp.CallToolResult, any, error) {
 		opts := tapper.ImportFromKegOptions{
 			Source:       tapper.KegTargetOptions{Keg: in.SourceKeg},

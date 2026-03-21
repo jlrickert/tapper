@@ -70,6 +70,10 @@ func linesResult(lines []string) *sdkmcp.CallToolResult {
 	return textResult(strings.Join(lines, "\n"))
 }
 
+// boolPtr returns a pointer to b. Used for ToolAnnotations fields that
+// default to true when nil (DestructiveHint, OpenWorldHint).
+func boolPtr(b bool) *bool { return &b }
+
 // errorResult returns a CallToolResult with IsError set.
 func errorResult(err error) *sdkmcp.CallToolResult {
 	return &sdkmcp.CallToolResult{

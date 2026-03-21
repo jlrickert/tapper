@@ -25,6 +25,11 @@ func registerIndex(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "index",
 		Description: "Rebuild all KEG indexes from scratch (nodes, tags, links, backlinks)",
+		Annotations: &sdkmcp.ToolAnnotations{
+			DestructiveHint: boolPtr(false),
+			IdempotentHint:  true,
+			OpenWorldHint:   boolPtr(false),
+		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in indexInput) (*sdkmcp.CallToolResult, any, error) {
 		opts := tapper.IndexOptions{
 			KegTargetOptions: resolveKegTarget(in.Keg, defaults),
@@ -47,6 +52,10 @@ func registerListIndexes(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaul
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "list_indexes",
 		Description: "List available index files for a KEG",
+		Annotations: &sdkmcp.ToolAnnotations{
+			ReadOnlyHint:  true,
+			OpenWorldHint: boolPtr(false),
+		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in listIndexesInput) (*sdkmcp.CallToolResult, any, error) {
 		opts := tapper.IndexCatOptions{
 			KegTargetOptions: resolveKegTarget(in.Keg, defaults),
@@ -70,6 +79,10 @@ func registerIndexCat(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults)
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "index_cat",
 		Description: "Read the raw contents of a KEG index file",
+		Annotations: &sdkmcp.ToolAnnotations{
+			ReadOnlyHint:  true,
+			OpenWorldHint: boolPtr(false),
+		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in indexCatInput) (*sdkmcp.CallToolResult, any, error) {
 		opts := tapper.IndexCatOptions{
 			KegTargetOptions: resolveKegTarget(in.Keg, defaults),
