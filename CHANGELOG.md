@@ -2,6 +2,32 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.14.0 - 2026-03-21
+
+
+
+### ⚙️ Miscellaneous
+- remove unused Docker and release tasks from Taskfile
+
+
+### ⚡ Performance
+- reduce dex invalidation overhead with parallel I/O and caching
+
+
+### 🐛 Bug Fixes
+- resolve double node ID allocation in interactive tap create
+- remediate critical and high-severity architecture findings
+
+
+### 🚀 Features
+- disable doctor entity check by default
+- add doctor.tagCheck config to gate tag validation
+
+
+### 🚜 Refactor
+- remediate medium and low severity architecture findings
+
+
 ## v0.13.0 - 2026-03-17
 
 
