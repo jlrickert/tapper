@@ -112,6 +112,11 @@ type DoctorConfig struct {
 	// EntityCheck enables per-node entity attribute validation.
 	// When true, doctor reports nodes that lack an `entity` attribute in meta.
 	EntityCheck bool `yaml:"entityCheck,omitempty" json:"entityCheck,omitempty"`
+
+	// TagCheck enables per-node tag validation against the keg config's tag map.
+	// When true, doctor warns about tags used in node metadata that are not
+	// documented in the keg config.
+	TagCheck bool `yaml:"tagCheck,omitempty" json:"tagCheck,omitempty"`
 }
 
 // LinkEntry represents a named link in the KEG configuration.

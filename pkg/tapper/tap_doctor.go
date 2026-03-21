@@ -51,8 +51,9 @@ func (t *Tap) Doctor(ctx context.Context, opts DoctorOptions) ([]Issue, error) {
 		nodeSet[id.ID] = struct{}{}
 	}
 
-	// Determine whether entity checks are enabled (off by default).
+	// Determine whether optional checks are enabled (off by default).
 	entityCheckEnabled := cfg.Doctor != nil && cfg.Doctor.EntityCheck
+	tagCheckEnabled := cfg.Doctor != nil && cfg.Doctor.TagCheck
 
 	// 3. Entity validation — config entities reference existing nodes (only when entity check enabled)
 	if entityCheckEnabled {
@@ -132,10 +133,12 @@ func (t *Tap) Doctor(ctx context.Context, opts DoctorOptions) ([]Issue, error) {
 					}
 				}
 
-				// Tag check: tags used but not in config
-				for _, tag := range meta.Tags() {
-					if _, inCfg := configTags[tag]; !inCfg {
-						issues = append(issues, Issue{Level: "warning", Kind: "tag-missing", NodeID: nodePath, Message: fmt.Sprintf("tag %q not documented in keg config", tag)})
+				// Tag check: tags used but not in config (only when tag check enabled)
+				if tagCheckEnabled {
+					for _, tag := range meta.Tags() {
+						if _, inCfg := configTags[tag]; !inCfg {
+							issues = append(issues, Issue{Level: "warning", Kind: "tag-missing", NodeID: nodePath, Message: fmt.Sprintf("tag %q not documented in keg config", tag)})
+						}
 					}
 				}
 			}
