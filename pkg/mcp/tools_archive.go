@@ -28,6 +28,10 @@ func registerExport(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "export",
 		Description: "Export KEG nodes to a tar.gz archive file",
+		Annotations: &sdkmcp.ToolAnnotations{
+			DestructiveHint: boolPtr(false),
+			OpenWorldHint:   boolPtr(false),
+		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in exportInput) (*sdkmcp.CallToolResult, any, error) {
 		opts := tapper.ExportOptions{
 			KegTargetOptions: resolveKegTarget(in.Keg, defaults),
@@ -55,6 +59,10 @@ func registerImport(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "import",
 		Description: "Import nodes from a keg archive tar.gz file",
+		Annotations: &sdkmcp.ToolAnnotations{
+			DestructiveHint: boolPtr(false),
+			OpenWorldHint:   boolPtr(false),
+		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in importInput) (*sdkmcp.CallToolResult, any, error) {
 		opts := tapper.ImportOptions{
 			KegTargetOptions: resolveKegTarget(in.Keg, defaults),

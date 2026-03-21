@@ -28,6 +28,10 @@ func registerLockAcquire(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaul
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "lock_acquire",
 		Description: "Acquire a cross-process lock on a node and return the token",
+		Annotations: &sdkmcp.ToolAnnotations{
+			DestructiveHint: boolPtr(false),
+			OpenWorldHint:   boolPtr(false),
+		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in lockAcquireInput) (*sdkmcp.CallToolResult, any, error) {
 		opts := tapper.LockOptions{
 			KegTargetOptions: resolveKegTarget(in.Keg, defaults),
@@ -53,6 +57,10 @@ func registerLockRelease(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaul
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "lock_release",
 		Description: "Release a cross-process lock on a node",
+		Annotations: &sdkmcp.ToolAnnotations{
+			DestructiveHint: boolPtr(false),
+			OpenWorldHint:   boolPtr(false),
+		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in lockReleaseInput) (*sdkmcp.CallToolResult, any, error) {
 		opts := tapper.UnlockOptions{
 			KegTargetOptions: resolveKegTarget(in.Keg, defaults),
@@ -77,6 +85,10 @@ func registerLockStatus(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefault
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "lock_status",
 		Description: "Check the lock state of a node",
+		Annotations: &sdkmcp.ToolAnnotations{
+			ReadOnlyHint:  true,
+			OpenWorldHint: boolPtr(false),
+		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in lockStatusInput) (*sdkmcp.CallToolResult, any, error) {
 		opts := tapper.LockStatusOptions{
 			KegTargetOptions: resolveKegTarget(in.Keg, defaults),
@@ -109,6 +121,10 @@ func registerLockForceRelease(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegD
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "lock_force_release",
 		Description: "Unconditionally remove a lock on a node",
+		Annotations: &sdkmcp.ToolAnnotations{
+			DestructiveHint: boolPtr(true),
+			OpenWorldHint:   boolPtr(false),
+		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in lockForceReleaseInput) (*sdkmcp.CallToolResult, any, error) {
 		opts := tapper.ForceUnlockOptions{
 			KegTargetOptions: resolveKegTarget(in.Keg, defaults),

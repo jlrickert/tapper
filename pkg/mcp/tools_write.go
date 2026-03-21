@@ -34,6 +34,10 @@ func registerCreate(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "create",
 		Description: "Create a new KEG node",
+		Annotations: &sdkmcp.ToolAnnotations{
+			DestructiveHint: boolPtr(false),
+			OpenWorldHint:   boolPtr(false),
+		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in createInput) (*sdkmcp.CallToolResult, any, error) {
 		opts := tapper.CreateOptions{
 			KegTargetOptions: resolveKegTarget(in.Keg, defaults),
@@ -70,6 +74,10 @@ func registerEdit(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "edit",
 		Description: "Replace the content of a KEG node",
+		Annotations: &sdkmcp.ToolAnnotations{
+			DestructiveHint: boolPtr(false),
+			OpenWorldHint:   boolPtr(false),
+		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in editInput) (*sdkmcp.CallToolResult, any, error) {
 		opts := tapper.EditOptions{
 			KegTargetOptions: resolveKegTarget(in.Keg, defaults),
@@ -99,6 +107,10 @@ func registerMeta(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "meta",
 		Description: "Read or write node metadata (tags, attributes)",
+		Annotations: &sdkmcp.ToolAnnotations{
+			DestructiveHint: boolPtr(false),
+			OpenWorldHint:   boolPtr(false),
+		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in metaInput) (*sdkmcp.CallToolResult, any, error) {
 		opts := tapper.MetaOptions{
 			KegTargetOptions: resolveKegTarget(in.Keg, defaults),
@@ -134,6 +146,10 @@ func registerRemove(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "remove",
 		Description: "Remove one or more KEG nodes",
+		Annotations: &sdkmcp.ToolAnnotations{
+			DestructiveHint: boolPtr(true),
+			OpenWorldHint:   boolPtr(false),
+		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in removeInput) (*sdkmcp.CallToolResult, any, error) {
 		opts := tapper.RemoveOptions{
 			KegTargetOptions: resolveKegTarget(in.Keg, defaults),
@@ -159,6 +175,10 @@ func registerMove(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "move",
 		Description: "Move (rename) a KEG node to a new ID",
+		Annotations: &sdkmcp.ToolAnnotations{
+			DestructiveHint: boolPtr(true),
+			OpenWorldHint:   boolPtr(false),
+		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in moveInput) (*sdkmcp.CallToolResult, any, error) {
 		opts := tapper.MoveOptions{
 			KegTargetOptions: resolveKegTarget(in.Keg, defaults),

@@ -27,6 +27,10 @@ func registerNodeHistory(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaul
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "node_history",
 		Description: "List snapshot history for a node",
+		Annotations: &sdkmcp.ToolAnnotations{
+			ReadOnlyHint:  true,
+			OpenWorldHint: boolPtr(false),
+		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in nodeHistoryInput) (*sdkmcp.CallToolResult, any, error) {
 		opts := tapper.NodeHistoryOptions{
 			KegTargetOptions: resolveKegTarget(in.Keg, defaults),
@@ -63,6 +67,10 @@ func registerNodeSnapshot(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefau
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "node_snapshot",
 		Description: "Create a snapshot of a node's current state",
+		Annotations: &sdkmcp.ToolAnnotations{
+			DestructiveHint: boolPtr(false),
+			OpenWorldHint:   boolPtr(false),
+		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in nodeSnapshotInput) (*sdkmcp.CallToolResult, any, error) {
 		opts := tapper.NodeSnapshotOptions{
 			KegTargetOptions: resolveKegTarget(in.Keg, defaults),
@@ -89,6 +97,10 @@ func registerNodeRestore(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaul
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "node_restore",
 		Description: "Restore a node to a previous snapshot revision",
+		Annotations: &sdkmcp.ToolAnnotations{
+			DestructiveHint: boolPtr(true),
+			OpenWorldHint:   boolPtr(false),
+		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in nodeRestoreInput) (*sdkmcp.CallToolResult, any, error) {
 		opts := tapper.NodeRestoreOptions{
 			KegTargetOptions: resolveKegTarget(in.Keg, defaults),

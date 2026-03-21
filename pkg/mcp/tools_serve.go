@@ -27,6 +27,10 @@ func registerServe(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "serve",
 		Description: "Start an HTTP server that renders KEG pages dynamically. Blocks until cancelled.",
+		Annotations: &sdkmcp.ToolAnnotations{
+			DestructiveHint: boolPtr(false),
+			OpenWorldHint:   boolPtr(false),
+		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in serveInput) (*sdkmcp.CallToolResult, any, error) {
 		opts := tapper.ServeOptions{
 			KegTargetOptions: resolveKegTarget(in.Keg, defaults),

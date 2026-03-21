@@ -33,6 +33,10 @@ func registerListFiles(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "list_files",
 		Description: "List file attachments for a node",
+		Annotations: &sdkmcp.ToolAnnotations{
+			ReadOnlyHint:  true,
+			OpenWorldHint: boolPtr(false),
+		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in listFilesInput) (*sdkmcp.CallToolResult, any, error) {
 		opts := tapper.ListFilesOptions{
 			KegTargetOptions: resolveKegTarget(in.Keg, defaults),
@@ -60,6 +64,10 @@ func registerListImages(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefault
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "list_images",
 		Description: "List image attachments for a node",
+		Annotations: &sdkmcp.ToolAnnotations{
+			ReadOnlyHint:  true,
+			OpenWorldHint: boolPtr(false),
+		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in listImagesInput) (*sdkmcp.CallToolResult, any, error) {
 		opts := tapper.ListImagesOptions{
 			KegTargetOptions: resolveKegTarget(in.Keg, defaults),
@@ -88,6 +96,10 @@ func registerDeleteFile(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefault
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "delete_file",
 		Description: "Delete a file attachment from a node",
+		Annotations: &sdkmcp.ToolAnnotations{
+			DestructiveHint: boolPtr(true),
+			OpenWorldHint:   boolPtr(false),
+		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in deleteFileInput) (*sdkmcp.CallToolResult, any, error) {
 		opts := tapper.DeleteFileOptions{
 			KegTargetOptions: resolveKegTarget(in.Keg, defaults),
@@ -113,6 +125,10 @@ func registerDeleteImage(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaul
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "delete_image",
 		Description: "Delete an image attachment from a node",
+		Annotations: &sdkmcp.ToolAnnotations{
+			DestructiveHint: boolPtr(true),
+			OpenWorldHint:   boolPtr(false),
+		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in deleteImageInput) (*sdkmcp.CallToolResult, any, error) {
 		opts := tapper.DeleteImageOptions{
 			KegTargetOptions: resolveKegTarget(in.Keg, defaults),
@@ -139,6 +155,10 @@ func registerUploadFile(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefault
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "upload_file",
 		Description: "Upload a file attachment to a node (base64 encoded)",
+		Annotations: &sdkmcp.ToolAnnotations{
+			DestructiveHint: boolPtr(false),
+			OpenWorldHint:   boolPtr(false),
+		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in uploadFileInput) (*sdkmcp.CallToolResult, any, error) {
 		data, err := base64.StdEncoding.DecodeString(in.ContentBase64)
 		if err != nil {
@@ -183,6 +203,10 @@ func registerDownloadFile(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefau
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "download_file",
 		Description: "Download a file attachment from a node (returns base64 encoded content)",
+		Annotations: &sdkmcp.ToolAnnotations{
+			ReadOnlyHint:  true,
+			OpenWorldHint: boolPtr(false),
+		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in downloadFileInput) (*sdkmcp.CallToolResult, any, error) {
 		tmpDir, err := mcpTempDir(tap)
 		if err != nil {
@@ -226,6 +250,10 @@ func registerUploadImage(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaul
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "upload_image",
 		Description: "Upload an image attachment to a node (base64 encoded)",
+		Annotations: &sdkmcp.ToolAnnotations{
+			DestructiveHint: boolPtr(false),
+			OpenWorldHint:   boolPtr(false),
+		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in uploadImageInput) (*sdkmcp.CallToolResult, any, error) {
 		data, err := base64.StdEncoding.DecodeString(in.ContentBase64)
 		if err != nil {
@@ -270,6 +298,10 @@ func registerDownloadImage(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefa
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "download_image",
 		Description: "Download an image attachment from a node (returns base64 encoded content)",
+		Annotations: &sdkmcp.ToolAnnotations{
+			ReadOnlyHint:  true,
+			OpenWorldHint: boolPtr(false),
+		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in downloadImageInput) (*sdkmcp.CallToolResult, any, error) {
 		tmpDir, err := mcpTempDir(tap)
 		if err != nil {

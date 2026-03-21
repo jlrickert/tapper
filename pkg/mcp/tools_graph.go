@@ -22,6 +22,10 @@ func registerGraph(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "graph",
 		Description: "Generate a self-contained HTML page visualizing the KEG node graph",
+		Annotations: &sdkmcp.ToolAnnotations{
+			DestructiveHint: boolPtr(false),
+			OpenWorldHint:   boolPtr(false),
+		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in graphInput) (*sdkmcp.CallToolResult, any, error) {
 		opts := tapper.GraphOptions{
 			KegTargetOptions: resolveKegTarget(in.Keg, defaults),

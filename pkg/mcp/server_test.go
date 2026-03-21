@@ -1420,3 +1420,78 @@ func extractText(t *testing.T, res *sdkmcp.CallToolResult) string {
 	}
 	return strings.Join(parts, "\n")
 }
+
+func TestMCP_ToolAnnotations_AllPresent(t *testing.T) {
+	t.Parallel()
+	session, ctx := newTestSession(t)
+
+	res, err := session.ListTools(ctx, nil)
+	require.NoError(t, err)
+	require.NotEmpty(t, res.Tools)
+
+	// Every tool must have non-nil Annotations.
+	for _, tool := range res.Tools {
+		require.NotNilf(t, tool.Annotations, "tool %q is missing Annotations", tool.Name)
+	}
+
+	// Build a name->tool map for spot checks.
+	byName := make(map[string]*sdkmcp.Tool, len(res.Tools))
+	for _, tool := range res.Tools {
+		byName[tool.Name] = tool
+	}
+
+	// --- read-only tools ---
+	readOnlyTools := []string{
+		"cat", "list", "grep", "tags", "backlinks", "links",
+		"list_kegs", "info", "keg_info", "stats", "dir",
+		"list_files", "list_images", "download_file", "download_image",
+		"list_indexes", "index_cat",
+		"doctor", "lock_status", "license", "node_history",
+	}
+	for _, name := range readOnlyTools {
+		tool, ok := byName[name]
+		require.Truef(t, ok, "read-only tool %q not found", name)
+		require.Truef(t, tool.Annotations.ReadOnlyHint, "tool %q should have ReadOnlyHint=true", name)
+		require.NotNilf(t, tool.Annotations.OpenWorldHint, "tool %q should have OpenWorldHint set", name)
+		require.Falsef(t, *tool.Annotations.OpenWorldHint, "tool %q should have OpenWorldHint=false", name)
+	}
+
+	// --- destructive tools ---
+	destructiveTools := []string{
+		"remove", "move", "node_restore",
+		"delete_file", "delete_image",
+		"repo_rm", "lock_force_release",
+	}
+	for _, name := range destructiveTools {
+		tool, ok := byName[name]
+		require.Truef(t, ok, "destructive tool %q not found", name)
+		require.NotNilf(t, tool.Annotations.DestructiveHint, "tool %q should have DestructiveHint set", name)
+		require.Truef(t, *tool.Annotations.DestructiveHint, "tool %q should have DestructiveHint=true", name)
+	}
+
+	// --- write non-destructive tools ---
+	writeTools := []string{
+		"create", "edit", "meta",
+		"node_snapshot",
+		"upload_file", "upload_image",
+		"lock_acquire", "lock_release",
+		"repo_init", "config", "config_template",
+		"export", "import", "import_from_keg",
+		"site", "serve", "graph",
+	}
+	for _, name := range writeTools {
+		tool, ok := byName[name]
+		require.Truef(t, ok, "write tool %q not found", name)
+		require.NotNilf(t, tool.Annotations.DestructiveHint, "tool %q should have DestructiveHint set", name)
+		require.Falsef(t, *tool.Annotations.DestructiveHint, "tool %q should have DestructiveHint=false", name)
+	}
+
+	// --- idempotent tool ---
+	indexTool, ok := byName["index"]
+	require.True(t, ok, "index tool not found")
+	require.NotNil(t, indexTool.Annotations.DestructiveHint, "index should have DestructiveHint set")
+	require.False(t, *indexTool.Annotations.DestructiveHint, "index should have DestructiveHint=false")
+	require.True(t, indexTool.Annotations.IdempotentHint, "index should have IdempotentHint=true")
+	require.NotNil(t, indexTool.Annotations.OpenWorldHint, "index should have OpenWorldHint set")
+	require.False(t, *indexTool.Annotations.OpenWorldHint, "index should have OpenWorldHint=false")
+}

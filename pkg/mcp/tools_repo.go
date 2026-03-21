@@ -31,6 +31,10 @@ func registerRepoInit(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults)
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "repo_init",
 		Description: "Initialize a new KEG repository",
+		Annotations: &sdkmcp.ToolAnnotations{
+			DestructiveHint: boolPtr(false),
+			OpenWorldHint:   boolPtr(false),
+		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in repoInitInput) (*sdkmcp.CallToolResult, any, error) {
 		opts := tapper.InitOptions{
 			Keg:     in.Keg,
@@ -65,6 +69,10 @@ func registerRepoRm(srv *sdkmcp.Server, tap *tapper.Tap) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "repo_rm",
 		Description: "Remove a registered KEG alias from user configuration",
+		Annotations: &sdkmcp.ToolAnnotations{
+			DestructiveHint: boolPtr(true),
+			OpenWorldHint:   boolPtr(false),
+		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in repoRmInput) (*sdkmcp.CallToolResult, any, error) {
 		opts := tapper.RemoveRepoOptions{
 			Alias: in.Alias,
@@ -88,6 +96,10 @@ func registerConfig(srv *sdkmcp.Server, tap *tapper.Tap) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "config",
 		Description: "Read tap configuration (merged, user, or project scope)",
+		Annotations: &sdkmcp.ToolAnnotations{
+			DestructiveHint: boolPtr(false),
+			OpenWorldHint:   boolPtr(false),
+		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in configInput) (*sdkmcp.CallToolResult, any, error) {
 		opts := tapper.ConfigOptions{}
 		switch in.Scope {
@@ -119,6 +131,10 @@ func registerConfigTemplate(srv *sdkmcp.Server, tap *tapper.Tap) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "config_template",
 		Description: "Return starter YAML template for tap configuration",
+		Annotations: &sdkmcp.ToolAnnotations{
+			DestructiveHint: boolPtr(false),
+			OpenWorldHint:   boolPtr(false),
+		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in configTemplateInput) (*sdkmcp.CallToolResult, any, error) {
 		opts := tapper.ConfigTemplateOptions{}
 		switch in.Scope {

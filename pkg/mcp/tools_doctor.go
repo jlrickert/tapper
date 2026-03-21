@@ -24,6 +24,10 @@ func registerDoctor(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "doctor",
 		Description: "Check KEG health and report issues",
+		Annotations: &sdkmcp.ToolAnnotations{
+			ReadOnlyHint:  true,
+			OpenWorldHint: boolPtr(false),
+		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in doctorInput) (*sdkmcp.CallToolResult, any, error) {
 		opts := tapper.DoctorOptions{
 			KegTargetOptions: resolveKegTarget(in.Keg, defaults),

@@ -37,6 +37,10 @@ func registerCat(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "cat",
 		Description: "Read the content of one or more KEG nodes",
+		Annotations: &sdkmcp.ToolAnnotations{
+			ReadOnlyHint:  true,
+			OpenWorldHint: boolPtr(false),
+		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in catInput) (*sdkmcp.CallToolResult, any, error) {
 		opts := tapper.CatOptions{
 			NodeIDs:          in.NodeIDs,
@@ -69,6 +73,10 @@ func registerList(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "list",
 		Description: "List KEG nodes, optionally filtered by a query expression",
+		Annotations: &sdkmcp.ToolAnnotations{
+			ReadOnlyHint:  true,
+			OpenWorldHint: boolPtr(false),
+		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in listInput) (*sdkmcp.CallToolResult, any, error) {
 		opts := tapper.ListOptions{
 			KegTargetOptions: resolveKegTarget(in.Keg, defaults),
@@ -101,6 +109,10 @@ func registerGrep(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "grep",
 		Description: "Search KEG node content with a regex pattern",
+		Annotations: &sdkmcp.ToolAnnotations{
+			ReadOnlyHint:  true,
+			OpenWorldHint: boolPtr(false),
+		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in grepInput) (*sdkmcp.CallToolResult, any, error) {
 		opts := tapper.GrepOptions{
 			KegTargetOptions: resolveKegTarget(in.Keg, defaults),
@@ -133,6 +145,10 @@ func registerTags(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "tags",
 		Description: "List tags or filter nodes by tag expression",
+		Annotations: &sdkmcp.ToolAnnotations{
+			ReadOnlyHint:  true,
+			OpenWorldHint: boolPtr(false),
+		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in tagsInput) (*sdkmcp.CallToolResult, any, error) {
 		opts := tapper.TagsOptions{
 			KegTargetOptions: resolveKegTarget(in.Keg, defaults),
@@ -164,6 +180,10 @@ func registerBacklinks(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "backlinks",
 		Description: "List nodes that link to a given node",
+		Annotations: &sdkmcp.ToolAnnotations{
+			ReadOnlyHint:  true,
+			OpenWorldHint: boolPtr(false),
+		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in backlinksInput) (*sdkmcp.CallToolResult, any, error) {
 		opts := tapper.BacklinksOptions{
 			KegTargetOptions: resolveKegTarget(in.Keg, defaults),
@@ -194,6 +214,10 @@ func registerLinks(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "links",
 		Description: "List outgoing links from a node",
+		Annotations: &sdkmcp.ToolAnnotations{
+			ReadOnlyHint:  true,
+			OpenWorldHint: boolPtr(false),
+		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in linksInput) (*sdkmcp.CallToolResult, any, error) {
 		opts := tapper.LinksOptions{
 			KegTargetOptions: resolveKegTarget(in.Keg, defaults),
@@ -218,6 +242,10 @@ func registerListKegs(srv *sdkmcp.Server, tap *tapper.Tap) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "list_kegs",
 		Description: "List available KEG aliases",
+		Annotations: &sdkmcp.ToolAnnotations{
+			ReadOnlyHint:  true,
+			OpenWorldHint: boolPtr(false),
+		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in listKegsInput) (*sdkmcp.CallToolResult, any, error) {
 		kegs, err := tap.ListKegs(false)
 		if err != nil {
@@ -238,6 +266,10 @@ func registerInfo(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "info",
 		Description: "Show KEG config (keg file contents). Returns minimal output by default; set minimal=false for full config.",
+		Annotations: &sdkmcp.ToolAnnotations{
+			ReadOnlyHint:  true,
+			OpenWorldHint: boolPtr(false),
+		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in infoInput) (*sdkmcp.CallToolResult, any, error) {
 		minimal := true
 		if in.Minimal != nil {
@@ -265,6 +297,10 @@ func registerKegInfo(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) 
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "keg_info",
 		Description: "Show diagnostics for a resolved KEG (alias, path, node count)",
+		Annotations: &sdkmcp.ToolAnnotations{
+			ReadOnlyHint:  true,
+			OpenWorldHint: boolPtr(false),
+		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in kegInfoInput) (*sdkmcp.CallToolResult, any, error) {
 		opts := tapper.KegInfoOptions{
 			KegTargetOptions: resolveKegTarget(in.Keg, defaults),
@@ -288,6 +324,10 @@ func registerStats(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "stats",
 		Description: "Show stats (hash, timestamps, access count) for a node",
+		Annotations: &sdkmcp.ToolAnnotations{
+			ReadOnlyHint:  true,
+			OpenWorldHint: boolPtr(false),
+		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in statsInput) (*sdkmcp.CallToolResult, any, error) {
 		opts := tapper.StatsOptions{
 			KegTargetOptions: resolveKegTarget(in.Keg, defaults),
@@ -312,6 +352,10 @@ func registerDir(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "dir",
 		Description: "Show the filesystem path of a keg or node directory",
+		Annotations: &sdkmcp.ToolAnnotations{
+			ReadOnlyHint:  true,
+			OpenWorldHint: boolPtr(false),
+		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in dirInput) (*sdkmcp.CallToolResult, any, error) {
 		opts := tapper.DirOptions{
 			KegTargetOptions: resolveKegTarget(in.Keg, defaults),

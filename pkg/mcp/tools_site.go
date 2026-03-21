@@ -27,6 +27,10 @@ func registerSite(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "site",
 		Description: "Generate a static HTML website from a KEG",
+		Annotations: &sdkmcp.ToolAnnotations{
+			DestructiveHint: boolPtr(false),
+			OpenWorldHint:   boolPtr(false),
+		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in siteInput) (*sdkmcp.CallToolResult, any, error) {
 		opts := tapper.SiteOptions{
 			KegTargetOptions: resolveKegTarget(in.Keg, defaults),
