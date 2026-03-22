@@ -91,7 +91,7 @@ func TestConfigCommand_WithJoeFixture(t *testing.T) {
 			name:             "info_with_explicit_alias",
 			args:             []string{"config", "--keg", "personal"},
 			setupFixture:     strPtr("joe"),
-			expectedInStdout: []string{"kegv:", "zekia:"},
+			expectedInStdout: []string{"kegv:", "indexes:"},
 			description:      "Display info for explicitly specified keg alias",
 		},
 		{

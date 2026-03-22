@@ -36,7 +36,7 @@ func (t *Tap) Info(ctx context.Context, opts InfoOptions) (string, error) {
 	}
 
 	// For file-backed kegs, return the raw config contents so unknown sections
-	// (for example custom fields, entities, zekia blocks) are preserved.
+	// (for example custom fields and entities) are preserved.
 	if k.Target != nil && k.Target.Scheme() == kegurl.SchemeFile {
 		raw, rawErr := readRawKegConfig(t.Runtime, k.Target.Path())
 		if rawErr == nil {

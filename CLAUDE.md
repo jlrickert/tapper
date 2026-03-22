@@ -51,7 +51,6 @@ go vet ./...
   and `pkg/keg`.
 - **`pkg/keg_url/`** — Target URL parsing (file://, memory://, API schemes) and
   expansion.
-- **`pkg/lsp/`** — Language Server Protocol support (stub).
 - **`pkg/mcp/`** — MCP server: 31 tools exposing the full Tap surface over stdio
   JSON-RPC. See `docs/ai-coding-agents/mcp-setup.md`.
 
