@@ -24,3 +24,12 @@ func (t *SSEBroadcasterForTest) Broadcast() {
 func (t *SSEBroadcasterForTest) Count() int {
 	return t.b.count()
 }
+
+// BroadcastForTest triggers an SSE broadcast on the ServeHandler.
+// This is only available in tests. It is a no-op if the handler has
+// no SSE broadcaster (watch mode disabled).
+func (h *ServeHandler) BroadcastForTest() {
+	if h.sse != nil {
+		h.sse.broadcast()
+	}
+}

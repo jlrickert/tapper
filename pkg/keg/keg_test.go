@@ -945,3 +945,90 @@ func TestCreateAlwaysTriggersUpdate(t *testing.T) {
 	require.NotEqual(t, updatedAfterInit, cfg2.Updated,
 		"keg config should always update after Create")
 }
+
+// TestDexFresh_ReloadsAfterExternalModification verifies that DexFresh
+// detects when the on-disk dex has been modified by an external process and
+// reloads it. This is the core mechanism that makes the serve handler show
+// fresh data without a server restart.
+func TestDexFresh_ReloadsAfterExternalModification(t *testing.T) {
+	t.Parallel()
+	f := NewSandbox(t, sandbox.WithFixture("empty", "repofs_dexfresh"))
+
+	k, err := kegpkg.NewKegFromTarget(f.Context(), kegurl.NewFile("repofs_dexfresh"), f.Runtime())
+	require.NoError(t, err)
+	require.NoError(t, k.Init(f.Context()))
+
+	// Create a node so the dex has content.
+	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{
+		Title: "Original Node",
+		Lead:  "original lead",
+		Tags:  []string{"alpha"},
+	})
+	require.NoError(t, err)
+
+	// Load the dex via DexFresh and verify initial state.
+	dex1, err := k.DexFresh(f.Context())
+	require.NoError(t, err)
+	ref1 := dex1.GetRef(f.Context(), id)
+	require.NotNil(t, ref1)
+	require.Equal(t, "Original Node", ref1.Title)
+
+	// Simulate an external process creating a second node by directly
+	// using a second Keg instance pointing at the same repo. This writes
+	// new dex files to disk, changing the mtime.
+	f.Advance(2 * time.Minute)
+	k2, err := kegpkg.NewKegFromTarget(f.Context(), kegurl.NewFile("repofs_dexfresh"), f.Runtime())
+	require.NoError(t, err)
+	_, err = k2.Create(f.Context(), &kegpkg.CreateOptions{
+		Title: "External Node",
+		Lead:  "added externally",
+		Tags:  []string{"beta"},
+	})
+	require.NoError(t, err)
+
+	// The original keg instance's cached dex is now stale. DexFresh should
+	// detect the mtime change and reload.
+	dex2, err := k.DexFresh(f.Context())
+	require.NoError(t, err)
+
+	// Verify the externally-added node appears.
+	extRef := dex2.GetRef(f.Context(), kegpkg.NodeId{ID: 2})
+	require.NotNil(t, extRef, "DexFresh should reload and include the externally-added node")
+	require.Equal(t, "External Node", extRef.Title)
+
+	// The original node should still be present.
+	origRef := dex2.GetRef(f.Context(), id)
+	require.NotNil(t, origRef)
+	require.Equal(t, "Original Node", origRef.Title)
+
+	// Verify tag index also refreshed.
+	tagList := dex2.TagList(f.Context())
+	require.Contains(t, tagList, "alpha")
+	require.Contains(t, tagList, "beta")
+}
+
+// TestDexFresh_ReturnsCachedWhenUnchanged verifies that DexFresh returns
+// the same cached dex when no external modification has occurred, avoiding
+// unnecessary reloads.
+func TestDexFresh_ReturnsCachedWhenUnchanged(t *testing.T) {
+	t.Parallel()
+	f := NewSandbox(t, sandbox.WithFixture("empty", "repofs_dexcache"))
+
+	k, err := kegpkg.NewKegFromTarget(f.Context(), kegurl.NewFile("repofs_dexcache"), f.Runtime())
+	require.NoError(t, err)
+	require.NoError(t, k.Init(f.Context()))
+
+	_, err = k.Create(f.Context(), &kegpkg.CreateOptions{
+		Title: "Cached Node",
+	})
+	require.NoError(t, err)
+
+	// Load dex twice without any external changes.
+	dex1, err := k.DexFresh(f.Context())
+	require.NoError(t, err)
+	dex2, err := k.DexFresh(f.Context())
+	require.NoError(t, err)
+
+	// Both should return the same pointer (no reload occurred).
+	require.Same(t, dex1, dex2, "DexFresh should return cached dex when mtime unchanged")
+}

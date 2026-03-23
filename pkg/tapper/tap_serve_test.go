@@ -1,11 +1,13 @@
 package tapper_test
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/jlrickert/tapper/pkg/keg"
 	kegurl "github.com/jlrickert/tapper/pkg/keg_url"
@@ -486,4 +488,166 @@ func TestServe_SSEBroadcaster(t *testing.T) {
 		t.Fatal("ch1 should not receive a broadcast after unsubscribe")
 	default:
 	}
+}
+
+// TestServe_DexFreshness_NewNodeAppearsOnNextRequest verifies that creating
+// a new node via the Tap API between two HTTP requests causes the second
+// response to include the new node in the landing page, tag pages, and
+// changes page. This is the core end-to-end test for the live content
+// refresh feature.
+func TestServe_DexFreshness_NewNodeAppearsOnNextRequest(t *testing.T) {
+	t.Parallel()
+	sb, tap := setupSiteKeg(t)
+	ctx := sb.Context()
+
+	watchOff := false
+	url := serveKeg(t, tap, tapper.ServeOptions{
+		Title: "Freshness KEG",
+		Watch: &watchOff,
+	})
+
+	// First request: verify initial state with 3 nodes (plus zero node).
+	resp, err := http.Get(url + "/")
+	require.NoError(t, err)
+	body, err := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	require.NoError(t, err)
+	html := string(body)
+	require.Contains(t, html, "First Node")
+	require.Contains(t, html, "Second Node")
+	require.NotContains(t, html, "Fresh Node")
+
+	// Create a new node via the Tap API (simulating an external edit).
+	_, err = tap.Create(ctx, tapper.CreateOptions{
+		Title: "Fresh Node",
+		Lead:  "This node was created after the server started.",
+		Tags:  []string{"delta"},
+	})
+	require.NoError(t, err)
+
+	// Second request: the landing page should now include the new node.
+	resp2, err := http.Get(url + "/")
+	require.NoError(t, err)
+	body2, err := io.ReadAll(resp2.Body)
+	resp2.Body.Close()
+	require.NoError(t, err)
+	html2 := string(body2)
+	require.Contains(t, html2, "Fresh Node", "landing page should show newly created node")
+
+	// Tags index should now include the new "delta" tag.
+	resp3, err := http.Get(url + "/tags/")
+	require.NoError(t, err)
+	body3, err := io.ReadAll(resp3.Body)
+	resp3.Body.Close()
+	require.NoError(t, err)
+	html3 := string(body3)
+	require.Contains(t, html3, "delta", "tags index should include the new tag")
+
+	// The delta tag page should list the new node.
+	resp4, err := http.Get(url + "/tags/delta/")
+	require.NoError(t, err)
+	body4, err := io.ReadAll(resp4.Body)
+	resp4.Body.Close()
+	require.NoError(t, err)
+	html4 := string(body4)
+	require.Contains(t, html4, "Fresh Node", "delta tag page should list the new node")
+
+	// Changes page should include the new node.
+	resp5, err := http.Get(url + "/changes/")
+	require.NoError(t, err)
+	body5, err := io.ReadAll(resp5.Body)
+	resp5.Body.Close()
+	require.NoError(t, err)
+	html5 := string(body5)
+	require.Contains(t, html5, "Fresh Node", "changes page should include the new node")
+}
+
+// TestServe_DexFreshness_EditedNodeUpdatesOnNextRequest verifies that
+// editing an existing node's content between requests causes the next
+// response to reflect the updated title.
+func TestServe_DexFreshness_EditedNodeUpdatesOnNextRequest(t *testing.T) {
+	t.Parallel()
+	sb, tap := setupSiteKeg(t)
+	ctx := sb.Context()
+
+	watchOff := false
+	url := serveKeg(t, tap, tapper.ServeOptions{
+		Title: "Edit Freshness KEG",
+		Watch: &watchOff,
+	})
+
+	// First request: node 1 should show "First Node".
+	resp, err := http.Get(url + "/1/")
+	require.NoError(t, err)
+	body, err := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	require.NoError(t, err)
+	require.Contains(t, string(body), "First Node")
+
+	// Edit node 1 via the keg API to change its title.
+	k, err := tap.LookupKeg(ctx, "test")
+	require.NoError(t, err)
+	err = k.SetContent(ctx, keg.NodeId{ID: 1}, []byte("# Updated First Node\n\nNew content after edit.\n"))
+	require.NoError(t, err)
+
+	// Second request: node 1 should now show the updated title.
+	resp2, err := http.Get(url + "/1/")
+	require.NoError(t, err)
+	body2, err := io.ReadAll(resp2.Body)
+	resp2.Body.Close()
+	require.NoError(t, err)
+	html2 := string(body2)
+	require.Contains(t, html2, "Updated First Node", "node page should reflect edited title")
+
+	// The landing page should also show the updated title.
+	resp3, err := http.Get(url + "/")
+	require.NoError(t, err)
+	body3, err := io.ReadAll(resp3.Body)
+	resp3.Body.Close()
+	require.NoError(t, err)
+	html3 := string(body3)
+	require.Contains(t, html3, "Updated First Node", "landing page should reflect edited title")
+}
+
+// TestServe_SSE_EventDelivery verifies that the SSE endpoint delivers
+// reload events when a broadcast is triggered.
+func TestServe_SSE_EventDelivery(t *testing.T) {
+	t.Parallel()
+	sb, tap := setupSiteKeg(t)
+	_ = sb
+
+	handler, err := tap.NewServeHandler(t.Context(), tapper.ServeOptions{
+		Title: "SSE KEG",
+	})
+	require.NoError(t, err)
+	t.Cleanup(handler.Close)
+
+	srv := httptest.NewServer(handler)
+	t.Cleanup(srv.Close)
+
+	// Connect to the SSE endpoint in a goroutine.
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, "GET", srv.URL+"/events", nil)
+	require.NoError(t, err)
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	require.Equal(t, "text/event-stream", resp.Header.Get("Content-Type"))
+
+	// Trigger a broadcast via the exported test helper.
+	// The handler's internal SSE broadcaster is accessed through the
+	// ServeHandler. We broadcast by calling BroadcastForTest.
+	handler.BroadcastForTest()
+
+	// Read the SSE data from the response body.
+	buf := make([]byte, 256)
+	n, err := resp.Body.Read(buf)
+	require.NoError(t, err)
+	data := string(buf[:n])
+	require.Contains(t, data, "data: reload", "SSE endpoint should deliver reload event")
 }
