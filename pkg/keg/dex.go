@@ -32,8 +32,13 @@ type Dex struct {
 	// changes is the reverse-chronological list of all nodes.
 	changes ChangesIndex
 
-	// custom holds config-driven tag-filtered index builders.
+	// custom holds config-driven query-filtered index builders.
 	custom []IndexBuilder
+
+	// queryResolver is an optional callback injected via WithQueryResolver.
+	// When non-nil, it is passed to QueryFilteredIndex constructors to enable
+	// query terms beyond plain tags (e.g. key=value attribute predicates).
+	queryResolver func(term string, data *NodeData) bool
 
 	mu sync.RWMutex
 }
@@ -42,12 +47,16 @@ type Dex struct {
 type DexOption func(*Dex) error
 
 // WithConfig builds DexOptions from a keg Config. It iterates cfg.Indexes and
-// creates a TagFilteredIndex for each entry that:
-//   - has a non-empty Tags field, and
+// creates a QueryFilteredIndex for each entry that:
+//   - has a non-empty Query (or deprecated Tags) field, and
 //   - is not one of the core protected index names.
 //
 // The short file name used with repo.WriteIndex is derived by stripping any
 // leading "dex/" prefix from entry.File.
+//
+// By default, the index evaluates tag expressions against node tag sets. To
+// support richer query terms (e.g. key=value attribute predicates), pass
+// WithQueryResolver to inject a custom resolver callback.
 func WithConfig(cfg *Config) DexOption {
 	return func(d *Dex) error {
 		if cfg == nil {
@@ -57,17 +66,30 @@ func WithConfig(cfg *Config) DexOption {
 			if IsCoreIndex(entry.File) {
 				continue
 			}
-			if entry.Tags == "" {
+			query := entry.QueryOrTags()
+			if query == "" {
 				continue
 			}
 			// Strip the "dex/" prefix to get the short name for repo.WriteIndex.
 			shortName := strings.TrimPrefix(entry.File, "dex/")
-			idx, err := NewTagFilteredIndex(shortName, entry.Tags)
+			idx, err := NewQueryFilteredIndex(shortName, query, d.queryResolver)
 			if err != nil {
 				return fmt.Errorf("dex: config index %q: %w", entry.File, err)
 			}
 			d.custom = append(d.custom, idx)
 		}
+		return nil
+	}
+}
+
+// WithQueryResolver sets a custom query term resolver for config-driven custom
+// indexes. When set, each term in a query expression is resolved by calling
+// resolve(term, data) for each node, instead of the default tag-only resolver.
+// This enables key=value attribute predicates and other term types defined in
+// higher-level packages (e.g. pkg/tapper).
+func WithQueryResolver(resolve func(term string, data *NodeData) bool) DexOption {
+	return func(d *Dex) error {
+		d.queryResolver = resolve
 		return nil
 	}
 }

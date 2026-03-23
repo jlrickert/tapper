@@ -1062,7 +1062,7 @@ func (k *Keg) Commit(ctx context.Context, id NodeId) error {
 
 // Dex returns the keg's index, loading it from the repository on first access.
 // The dex is lazily loaded and cached in memory for efficient access.
-// Config-driven tag-filtered indexes are applied automatically via WithConfig.
+// Config-driven query-filtered indexes are applied automatically via WithConfig.
 func (k *Keg) Dex(ctx context.Context) (*Dex, error) {
 	if err := k.checkKegExists(ctx); err != nil {
 		return nil, fmt.Errorf("failed to retrieve dex: %w", err)

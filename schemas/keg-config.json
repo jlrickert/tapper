@@ -75,9 +75,14 @@
             "type": "string",
             "description": "Short description of what this index contains."
           },
+          "query": {
+            "type": "string",
+            "description": "Boolean query expression to filter index contents. Supports tag names, key=value attribute predicates, and boolean operators (and/or/not)."
+          },
           "tags": {
             "type": "string",
-            "description": "Optional boolean tag query used to filter index contents."
+            "description": "Deprecated: use query instead. Boolean tag query used to filter index contents.",
+            "deprecated": true
           }
         },
         "required": [

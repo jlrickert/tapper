@@ -126,10 +126,24 @@ type LinkEntry struct {
 }
 
 // IndexEntry represents an entry in the indexes list in the KEG configuration.
+// The Query field holds a boolean query expression used to filter index
+// contents (tag names, key=value attribute predicates, boolean operators).
+// The deprecated Tags field is accepted for backward compatibility; Query
+// takes precedence when both are present.
 type IndexEntry struct {
 	File    string `yaml:"file"`
 	Summary string `yaml:"summary"`
-	Tags    string `yaml:"tags,omitempty"` // boolean tag query; omit for core/unfiltered indexes
+	Query   string `yaml:"query,omitempty"` // boolean query expression; omit for core/unfiltered indexes
+	Tags    string `yaml:"tags,omitempty"`  // deprecated: use query instead
+}
+
+// QueryOrTags returns the effective query string for the index entry. It
+// prefers Query when set, falling back to the deprecated Tags field.
+func (ie *IndexEntry) QueryOrTags() string {
+	if ie.Query != "" {
+		return ie.Query
+	}
+	return ie.Tags
 }
 
 type EntityEntry struct {

@@ -368,6 +368,146 @@ func TestDex_WithConfig_CoreIndexSkipped(t *testing.T) {
 	require.Empty(t, dex.custom, "core index names should not produce custom indexes")
 }
 
+// TestDex_WithConfig_QueryField verifies that WithConfig reads the Query
+// field (via QueryOrTags) and creates a QueryFilteredIndex.
+func TestDex_WithConfig_QueryField(t *testing.T) {
+	t.Parallel()
+
+	rt, err := toolkit.NewTestRuntime(t.TempDir(), "/home/testuser", "testuser")
+	require.NoError(t, err)
+	mem := NewMemoryRepo(rt)
+
+	cfg := &Config{
+		Indexes: []IndexEntry{
+			{File: "dex/concepts.md", Summary: "concept nodes", Query: "golang"},
+		},
+	}
+
+	dex, err := NewDexFromRepo(t.Context(), mem, WithConfig(cfg))
+	require.NoError(t, err)
+	require.Len(t, dex.custom, 1, "should create one custom index from Query field")
+
+	t1 := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	goNode := makeNodeData(10, "Go patterns", []string{"golang"}, t1)
+	pyNode := makeNodeData(11, "Python async", []string{"python"}, t1)
+
+	require.NoError(t, dex.Add(t.Context(), goNode))
+	require.NoError(t, dex.Add(t.Context(), pyNode))
+
+	require.NoError(t, dex.Write(t.Context(), mem))
+
+	raw, err := mem.GetIndex(t.Context(), "concepts.md")
+	require.NoError(t, err)
+	s := string(raw)
+	require.Contains(t, s, "Go patterns")
+	require.NotContains(t, s, "Python async")
+}
+
+// TestDex_WithConfig_TagsFieldBackwardCompat verifies that the deprecated Tags
+// field still works via QueryOrTags when Query is not set.
+func TestDex_WithConfig_TagsFieldBackwardCompat(t *testing.T) {
+	t.Parallel()
+
+	rt, err := toolkit.NewTestRuntime(t.TempDir(), "/home/testuser", "testuser")
+	require.NoError(t, err)
+	mem := NewMemoryRepo(rt)
+
+	cfg := &Config{
+		Indexes: []IndexEntry{
+			{File: "dex/golang.md", Summary: "Go nodes", Tags: "golang"},
+		},
+	}
+
+	dex, err := NewDexFromRepo(t.Context(), mem, WithConfig(cfg))
+	require.NoError(t, err)
+	require.Len(t, dex.custom, 1, "deprecated Tags field should still create a custom index")
+
+	t1 := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	goNode := makeNodeData(10, "Go patterns", []string{"golang"}, t1)
+	require.NoError(t, dex.Add(t.Context(), goNode))
+	require.NoError(t, dex.Write(t.Context(), mem))
+
+	raw, err := mem.GetIndex(t.Context(), "golang.md")
+	require.NoError(t, err)
+	require.Contains(t, string(raw), "Go patterns")
+}
+
+// TestDex_WithQueryResolver verifies that WithQueryResolver injects a custom
+// resolver into config-driven custom indexes.
+func TestDex_WithQueryResolver(t *testing.T) {
+	t.Parallel()
+
+	rt, err := toolkit.NewTestRuntime(t.TempDir(), "/home/testuser", "testuser")
+	require.NoError(t, err)
+	mem := NewMemoryRepo(rt)
+
+	resolver := func(term string, data *NodeData) bool {
+		// Simple resolver: treat "entity=concept" as a term match
+		if term == "entity=concept" {
+			if data.Meta == nil {
+				return false
+			}
+			got, ok := data.Meta.Get("entity")
+			return ok && got == "concept"
+		}
+		// Tag matching
+		for _, tag := range data.Tags() {
+			if tag == term {
+				return true
+			}
+		}
+		return false
+	}
+
+	cfg := &Config{
+		Indexes: []IndexEntry{
+			{File: "dex/concepts.md", Summary: "concepts", Query: "entity=concept"},
+		},
+	}
+
+	// WithQueryResolver must come before WithConfig so the resolver is available
+	dex, err := NewDexFromRepo(t.Context(), mem, WithQueryResolver(resolver), WithConfig(cfg))
+	require.NoError(t, err)
+	require.Len(t, dex.custom, 1)
+
+	t1 := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	ctx := t.Context()
+
+	conceptMeta := NewMeta(ctx, time.Time{})
+	conceptMeta.SetTags([]string{"golang"})
+	_ = conceptMeta.SetAttrs(ctx, map[string]any{"entity": "concept"})
+	conceptStats := NewStats(t1)
+	conceptStats.SetTitle("Go Concurrency")
+	conceptStats.SetUpdated(t1)
+	conceptNode := &NodeData{
+		ID:    NodeId{ID: 10},
+		Meta:  conceptMeta,
+		Stats: conceptStats,
+	}
+
+	taskMeta := NewMeta(ctx, time.Time{})
+	taskMeta.SetTags([]string{"golang"})
+	_ = taskMeta.SetAttrs(ctx, map[string]any{"entity": "task"})
+	taskStats := NewStats(t1)
+	taskStats.SetTitle("Go Task")
+	taskStats.SetUpdated(t1)
+	taskNode := &NodeData{
+		ID:    NodeId{ID: 11},
+		Meta:  taskMeta,
+		Stats: taskStats,
+	}
+
+	require.NoError(t, dex.Add(ctx, conceptNode))
+	require.NoError(t, dex.Add(ctx, taskNode))
+	require.NoError(t, dex.Write(ctx, mem))
+
+	raw, err := mem.GetIndex(ctx, "concepts.md")
+	require.NoError(t, err)
+	s := string(raw)
+	require.Contains(t, s, "Go Concurrency", "concept node should match entity=concept")
+	require.NotContains(t, s, "Go Task", "task node should not match entity=concept")
+}
+
 // TestDex_ConcurrentReadWrite exercises concurrent reads (Links, Backlinks,
 // GetRef, Nodes, TagList) alongside writes (Add, Clear) to verify the Dex
 // mutex guards prevent data races. Run with: go test -race -run TestDex_ConcurrentReadWrite

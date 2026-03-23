@@ -246,3 +246,214 @@ func TestTagFilteredIndex_Name(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "my-index.md", idx.Name())
 }
+
+// --------------------------------------------------------------------------
+// QueryFilteredIndex tests
+// --------------------------------------------------------------------------
+
+func TestQueryFilteredIndex_NewError(t *testing.T) {
+	t.Parallel()
+
+	_, err := NewQueryFilteredIndex("golang.md", "", nil)
+	require.Error(t, err, "empty query should return error")
+
+	_, err = NewQueryFilteredIndex("golang.md", "a and (b", nil)
+	require.Error(t, err, "invalid expression should return error")
+}
+
+func TestQueryFilteredIndex_TagOnlyFallback(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	// With nil resolver, QueryFilteredIndex should behave like TagFilteredIndex.
+	idx, err := NewQueryFilteredIndex("golang.md", "golang", nil)
+	require.NoError(t, err)
+
+	t1 := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	t2 := time.Date(2025, 2, 1, 0, 0, 0, 0, time.UTC)
+
+	goNode := makeNodeData(1, "Go tricks", []string{"golang", "trick"}, t1)
+	pyNode := makeNodeData(2, "Python tricks", []string{"python", "trick"}, t2)
+
+	require.NoError(t, idx.Add(ctx, goNode))
+	require.NoError(t, idx.Add(ctx, pyNode))
+
+	data, err := idx.Data(ctx)
+	require.NoError(t, err)
+
+	s := string(data)
+	require.Contains(t, s, "Go tricks", "golang node should be included")
+	require.NotContains(t, s, "Python tricks", "python node should be excluded")
+}
+
+func TestQueryFilteredIndex_WithResolver(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	// Custom resolver that supports key=value attribute predicates.
+	resolve := func(term string, data *NodeData) bool {
+		if strings.Contains(term, "=") {
+			parts := strings.SplitN(term, "=", 2)
+			if data.Meta == nil {
+				return false
+			}
+			got, ok := data.Meta.Get(parts[0])
+			return ok && got == parts[1]
+		}
+		// Default: tag matching
+		for _, tag := range data.Tags() {
+			if tag == term {
+				return true
+			}
+		}
+		return false
+	}
+
+	idx, err := NewQueryFilteredIndex("favorites.md", "entity=concept", resolve)
+	require.NoError(t, err)
+
+	t1 := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+
+	conceptNode := makeNodeDataWithAttr(1, "Go concept", []string{"golang"}, t1, map[string]any{"entity": "concept"})
+	taskNode := makeNodeDataWithAttr(2, "Go task", []string{"golang"}, t1, map[string]any{"entity": "task"})
+	noEntityNode := makeNodeData(3, "No entity", []string{"golang"}, t1)
+
+	require.NoError(t, idx.Add(ctx, conceptNode))
+	require.NoError(t, idx.Add(ctx, taskNode))
+	require.NoError(t, idx.Add(ctx, noEntityNode))
+
+	data, err := idx.Data(ctx)
+	require.NoError(t, err)
+
+	s := string(data)
+	require.Contains(t, s, "Go concept", "concept node should match entity=concept")
+	require.NotContains(t, s, "Go task", "task node should not match entity=concept")
+	require.NotContains(t, s, "No entity", "node without entity should not match")
+}
+
+func TestQueryFilteredIndex_AndExpression(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	idx, err := NewQueryFilteredIndex("golang-tricks.md", "golang && trick", nil)
+	require.NoError(t, err)
+
+	t1 := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+
+	goTrick := makeNodeData(1, "Go trick", []string{"golang", "trick"}, t1)
+	goOnly := makeNodeData(2, "Go only", []string{"golang"}, t1)
+	trickOnly := makeNodeData(3, "Trick only", []string{"trick"}, t1)
+
+	require.NoError(t, idx.Add(ctx, goTrick))
+	require.NoError(t, idx.Add(ctx, goOnly))
+	require.NoError(t, idx.Add(ctx, trickOnly))
+
+	data, err := idx.Data(ctx)
+	require.NoError(t, err)
+
+	s := string(data)
+	require.Contains(t, s, "Go trick")
+	require.NotContains(t, s, "Go only")
+	require.NotContains(t, s, "Trick only")
+}
+
+func TestQueryFilteredIndex_Remove(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	idx, err := NewQueryFilteredIndex("golang.md", "golang", nil)
+	require.NoError(t, err)
+
+	t1 := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	t2 := time.Date(2025, 2, 1, 0, 0, 0, 0, time.UTC)
+
+	require.NoError(t, idx.Add(ctx, makeNodeData(1, "Go A", []string{"golang"}, t1)))
+	require.NoError(t, idx.Add(ctx, makeNodeData(2, "Go B", []string{"golang"}, t2)))
+
+	require.NoError(t, idx.Remove(ctx, NodeId{ID: 1}))
+
+	data, err := idx.Data(ctx)
+	require.NoError(t, err)
+	s := string(data)
+	require.NotContains(t, s, "Go A")
+	require.Contains(t, s, "Go B")
+}
+
+func TestQueryFilteredIndex_Name(t *testing.T) {
+	t.Parallel()
+
+	idx, err := NewQueryFilteredIndex("my-index.md", "golang", nil)
+	require.NoError(t, err)
+	require.Equal(t, "my-index.md", idx.Name())
+}
+
+func TestQueryFilteredIndex_Clear(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	idx, err := NewQueryFilteredIndex("test.md", "golang", nil)
+	require.NoError(t, err)
+
+	require.NoError(t, idx.Add(ctx, makeNodeData(1, "Node", []string{"golang"}, time.Now())))
+	require.NoError(t, idx.Clear(ctx))
+
+	data, err := idx.Data(ctx)
+	require.NoError(t, err)
+	require.Empty(t, data)
+}
+
+func TestQueryFilteredIndex_MixedResolverTerms(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	// Resolver supports both tags and key=value attributes.
+	resolve := func(term string, data *NodeData) bool {
+		if strings.Contains(term, "=") {
+			parts := strings.SplitN(term, "=", 2)
+			if data.Meta == nil {
+				return false
+			}
+			got, ok := data.Meta.Get(parts[0])
+			return ok && got == parts[1]
+		}
+		for _, tag := range data.Tags() {
+			if tag == term {
+				return true
+			}
+		}
+		return false
+	}
+
+	// Query: must be entity=concept AND have the golang tag
+	idx, err := NewQueryFilteredIndex("go-concepts.md", "entity=concept && golang", resolve)
+	require.NoError(t, err)
+
+	t1 := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+
+	goConcept := makeNodeDataWithAttr(1, "Go Concurrency", []string{"golang"}, t1, map[string]any{"entity": "concept"})
+	goTask := makeNodeDataWithAttr(2, "Go Refactor", []string{"golang"}, t1, map[string]any{"entity": "task"})
+	pyConcept := makeNodeDataWithAttr(3, "Python Concept", []string{"python"}, t1, map[string]any{"entity": "concept"})
+
+	require.NoError(t, idx.Add(ctx, goConcept))
+	require.NoError(t, idx.Add(ctx, goTask))
+	require.NoError(t, idx.Add(ctx, pyConcept))
+
+	data, err := idx.Data(ctx)
+	require.NoError(t, err)
+
+	s := string(data)
+	require.Contains(t, s, "Go Concurrency", "matches both entity=concept and golang")
+	require.NotContains(t, s, "Go Refactor", "entity=task should not match")
+	require.NotContains(t, s, "Python Concept", "missing golang tag should not match")
+}
+
+// makeNodeDataWithAttr is a test helper that extends makeNodeData with
+// arbitrary metadata attributes (e.g. entity, status).
+func makeNodeDataWithAttr(id int, title string, tags []string, updated time.Time, attrs map[string]any) *NodeData {
+	nd := makeNodeData(id, title, tags, updated)
+	if nd.Meta != nil && len(attrs) > 0 {
+		ctx := context.Background()
+		nd.Meta.SetAttrs(ctx, attrs)
+	}
+	return nd
+}
