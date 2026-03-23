@@ -1081,6 +1081,18 @@ func (k *Keg) Dex(ctx context.Context) (*Dex, error) {
 	return dex, err
 }
 
+// DexFresh returns the keg's index, reloading from disk if the on-disk index
+// files have changed since the last load. This is the correct method for
+// long-lived processes (serve handlers, MCP servers) where another process may
+// update the dex between calls. For FsRepo backends, it compares the mtime of
+// dex/nodes.tsv; for MemoryRepo (single-process) it behaves identically to Dex.
+func (k *Keg) DexFresh(ctx context.Context) (*Dex, error) {
+	if err := k.checkKegExists(ctx); err != nil {
+		return nil, fmt.Errorf("failed to retrieve dex: %w", err)
+	}
+	return k.ensureDexFresh(ctx)
+}
+
 // dexOptions reads the keg config and returns DexOptions to apply when
 // constructing or initialising a Dex. If the config is absent or cannot be
 // read, an empty (nil) slice is returned so callers can proceed without error.

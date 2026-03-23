@@ -257,7 +257,7 @@ func (sh *serveHandler) renderPage(w http.ResponseWriter, templateName string, d
 // buildNodeByID loads the dex and builds a map of node references.
 // Timestamps are converted to the keg's configured timezone for display.
 func (sh *serveHandler) buildNodeByID(ctx context.Context) (map[string]siteNodeRef, []keg.NodeIndexEntry, error) {
-	dex, err := sh.keg.Dex(ctx)
+	dex, err := sh.keg.DexFresh(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -363,7 +363,7 @@ func (sh *serveHandler) handleNodePage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Build dex data for links/backlinks.
-	dex, err := sh.keg.Dex(ctx)
+	dex, err := sh.keg.DexFresh(ctx)
 	if err != nil {
 		http.Error(w, "unable to read index", http.StatusInternalServerError)
 		return
@@ -589,7 +589,7 @@ func (sh *serveHandler) handleNodeAsset(w http.ResponseWriter, r *http.Request) 
 func (sh *serveHandler) handleTagsIndex(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	dex, err := sh.keg.Dex(ctx)
+	dex, err := sh.keg.DexFresh(ctx)
 	if err != nil {
 		http.Error(w, "unable to read index", http.StatusInternalServerError)
 		return
@@ -616,7 +616,7 @@ func (sh *serveHandler) handleTag(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	tagName := r.PathValue("tag")
 
-	dex, err := sh.keg.Dex(ctx)
+	dex, err := sh.keg.DexFresh(ctx)
 	if err != nil {
 		http.Error(w, "unable to read index", http.StatusInternalServerError)
 		return
