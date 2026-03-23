@@ -21,6 +21,7 @@ type serveInput struct {
 	Port    int    `json:"port,omitempty" jsonschema:"port to listen on (default: 0 for random)"`
 	Title   string `json:"title,omitempty" jsonschema:"override site title"`
 	BaseURL string `json:"base_url,omitempty" jsonschema:"base URL for links (default: /)"`
+	Watch   *bool  `json:"watch,omitempty" jsonschema:"enable filesystem watcher and browser auto-refresh via SSE (default: true)"`
 }
 
 func registerServe(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
@@ -38,6 +39,7 @@ func registerServe(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 			Port:             in.Port,
 			Title:            in.Title,
 			BaseURL:          in.BaseURL,
+			Watch:            in.Watch,
 		}
 
 		result, err := tap.Serve(ctx, opts)

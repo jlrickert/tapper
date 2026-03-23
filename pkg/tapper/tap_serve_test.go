@@ -355,3 +355,135 @@ func TestServe_LinkRewriting(t *testing.T) {
 	require.Contains(t, html, `href="/mysite/1/"`)
 	require.NotContains(t, html, `href="../1"`)
 }
+
+func TestServe_WatchEnabled_InjectsSSEScript(t *testing.T) {
+	t.Parallel()
+	sb, tap := setupSiteKeg(t)
+	_ = sb
+
+	// Default watch=nil means enabled.
+	url := serveKeg(t, tap, tapper.ServeOptions{
+		Title: "Watch KEG",
+	})
+
+	resp, err := http.Get(url + "/")
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	html := string(body)
+
+	require.Contains(t, html, "EventSource")
+	require.Contains(t, html, "/events")
+}
+
+func TestServe_WatchDisabled_NoSSEScript(t *testing.T) {
+	t.Parallel()
+	sb, tap := setupSiteKeg(t)
+	_ = sb
+
+	watchOff := false
+	url := serveKeg(t, tap, tapper.ServeOptions{
+		Title: "No Watch KEG",
+		Watch: &watchOff,
+	})
+
+	resp, err := http.Get(url + "/")
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	html := string(body)
+
+	require.NotContains(t, html, "EventSource")
+	require.NotContains(t, html, "/events")
+}
+
+func TestServe_WatchEnabled_NodePage_HasSSEScript(t *testing.T) {
+	t.Parallel()
+	sb, tap := setupSiteKeg(t)
+	_ = sb
+
+	url := serveKeg(t, tap, tapper.ServeOptions{
+		Title: "Watch KEG",
+	})
+
+	resp, err := http.Get(url + "/1/")
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	html := string(body)
+
+	require.Contains(t, html, "EventSource")
+}
+
+func TestServe_WatchDisabled_NotFoundPage_NoSSEScript(t *testing.T) {
+	t.Parallel()
+	sb, tap := setupSiteKeg(t)
+	_ = sb
+
+	watchOff := false
+	url := serveKeg(t, tap, tapper.ServeOptions{
+		Title: "No Watch KEG",
+		Watch: &watchOff,
+	})
+
+	resp, err := http.Get(url + "/9999/")
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	html := string(body)
+
+	require.NotContains(t, html, "EventSource")
+}
+
+func TestServe_SSEBroadcaster(t *testing.T) {
+	t.Parallel()
+
+	// Test the broadcaster in isolation.
+	b := tapper.NewSSEBroadcasterForTest()
+
+	// Subscribe two clients.
+	ch1 := b.Subscribe()
+	ch2 := b.Subscribe()
+	require.Equal(t, 2, b.Count())
+
+	// Broadcast should send to both.
+	b.Broadcast()
+
+	select {
+	case <-ch1:
+	default:
+		t.Fatal("ch1 should have received a broadcast")
+	}
+	select {
+	case <-ch2:
+	default:
+		t.Fatal("ch2 should have received a broadcast")
+	}
+
+	// Unsubscribe one.
+	b.Unsubscribe(ch1)
+	require.Equal(t, 1, b.Count())
+
+	// Broadcast should only reach ch2.
+	b.Broadcast()
+	select {
+	case <-ch2:
+	default:
+		t.Fatal("ch2 should have received a broadcast after ch1 unsubscribed")
+	}
+
+	// ch1 should not receive anything.
+	select {
+	case <-ch1:
+		t.Fatal("ch1 should not receive a broadcast after unsubscribe")
+	default:
+	}
+}

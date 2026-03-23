@@ -97,6 +97,8 @@ func TestSiteServeCommand_HelpOutput(t *testing.T) {
 	require.Contains(t, stdout, "--host")
 	require.Contains(t, stdout, "--title")
 	require.Contains(t, stdout, "--base-url")
+	require.Contains(t, stdout, "--watch")
+	require.Contains(t, stdout, "SSE")
 }
 
 func TestSiteCommand_CompletesSubcommands(t *testing.T) {
@@ -187,4 +189,16 @@ func TestSiteServeCommand_PortCompletions(t *testing.T) {
 		}
 	}
 	require.True(t, found, "expected port suggestion in completions, got: %v", suggestions)
+}
+
+func TestSiteServeCommand_WatchFlagRegistered(t *testing.T) {
+	t.Parallel()
+
+	sb := NewSandbox(t)
+	res := NewProcess(t, false, "site", "serve", "--help").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+
+	stdout := string(res.Stdout)
+	require.Contains(t, stdout, "--watch")
+	require.Contains(t, stdout, "auto-refresh")
 }

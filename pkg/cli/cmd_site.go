@@ -100,6 +100,8 @@ Use --no-search to skip search indexing.`,
 // newSiteServeCmd returns the `site serve` subcommand (formerly `tap serve`).
 func newSiteServeCmd(deps *Deps) *cobra.Command {
 	var opts tapper.ServeOptions
+	var watchFlag bool
+	var watchSet bool
 
 	cmd := &cobra.Command{
 		Use:   "serve",
@@ -111,6 +113,10 @@ refresh without a rebuild step.
 By default the server binds to 127.0.0.1 on a random available port.
 Use --port to specify an explicit port and --host to change the bind
 address.
+
+When --watch is enabled (the default), the server watches for file
+changes and pushes reload events to connected browsers via Server-Sent
+Events (SSE) at GET /events. Use --watch=false to disable this.
 
 Routes:
   /              landing page (node list sorted by last modified)
@@ -124,6 +130,7 @@ Routes:
   /tags/            tag index
   /tags/{tag}/      individual tag page
   /changes/         changes page
+  /events           SSE endpoint for auto-refresh (when --watch is enabled)
 
 Press Ctrl+C to stop the server.`,
 		Args: cobra.NoArgs,
@@ -132,6 +139,11 @@ Press Ctrl+C to stop the server.`,
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			applyKegTargetProfile(deps, &opts.KegTargetOptions)
+
+			// Only set Watch if the flag was explicitly provided.
+			if watchSet {
+				opts.Watch = &watchFlag
+			}
 
 			_, err := deps.Tap.Serve(cmd.Context(), opts)
 			if err != nil {
@@ -145,6 +157,12 @@ Press Ctrl+C to stop the server.`,
 	cmd.Flags().StringVar(&opts.Host, "host", "127.0.0.1", "bind address")
 	cmd.Flags().StringVar(&opts.Title, "title", "", "override site title")
 	cmd.Flags().StringVar(&opts.BaseURL, "base-url", "", "base URL for links (default: /)")
+	cmd.Flags().BoolVar(&watchFlag, "watch", true, "enable filesystem watcher and browser auto-refresh via SSE")
+
+	// Track whether --watch was explicitly set.
+	cmd.PreRun = func(cmd *cobra.Command, args []string) {
+		watchSet = cmd.Flags().Changed("watch")
+	}
 
 	// Register flag completions.
 	mustRegisterFlagCompletion(cmd, "port", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
@@ -152,6 +170,9 @@ Press Ctrl+C to stop the server.`,
 	})
 	mustRegisterFlagCompletion(cmd, "host", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		return []string{"127.0.0.1", "0.0.0.0", "localhost"}, cobra.ShellCompDirectiveNoFileComp
+	})
+	mustRegisterFlagCompletion(cmd, "watch", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		return []string{"true", "false"}, cobra.ShellCompDirectiveNoFileComp
 	})
 
 	// Suppress usage output on error -- the help text is long.

@@ -70,6 +70,7 @@ type layoutData struct {
 	SiteTitle string
 	BaseURL   string
 	HasSearch bool
+	HasWatch  bool // SSE auto-refresh (serve mode only)
 	Content   template.HTML
 }
 

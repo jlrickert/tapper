@@ -15,12 +15,64 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
 	"github.com/jlrickert/tapper/pkg/keg"
 	"gopkg.in/yaml.v3"
 )
+
+// sseBroadcaster manages connected SSE clients and broadcasts reload events.
+// It is safe for concurrent use.
+type sseBroadcaster struct {
+	mu      sync.Mutex
+	clients map[chan struct{}]struct{}
+}
+
+func newSSEBroadcaster() *sseBroadcaster {
+	return &sseBroadcaster{
+		clients: make(map[chan struct{}]struct{}),
+	}
+}
+
+// subscribe registers a new SSE client and returns its event channel.
+// The caller must call unsubscribe when done.
+func (b *sseBroadcaster) subscribe() chan struct{} {
+	ch := make(chan struct{}, 1)
+	b.mu.Lock()
+	b.clients[ch] = struct{}{}
+	b.mu.Unlock()
+	return ch
+}
+
+// unsubscribe removes a client channel from the broadcaster.
+func (b *sseBroadcaster) unsubscribe(ch chan struct{}) {
+	b.mu.Lock()
+	delete(b.clients, ch)
+	b.mu.Unlock()
+}
+
+// broadcast sends a reload signal to all connected clients.
+// Non-blocking: if a client's buffer is full, the event is skipped for
+// that client (it will get the next one).
+func (b *sseBroadcaster) broadcast() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for ch := range b.clients {
+		select {
+		case ch <- struct{}{}:
+		default:
+		}
+	}
+}
+
+// count returns the number of connected SSE clients.
+func (b *sseBroadcaster) count() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return len(b.clients)
+}
 
 // ServeOptions configures the embedded HTTP server.
 type ServeOptions struct {
@@ -37,6 +89,10 @@ type ServeOptions struct {
 
 	// BaseURL is the base URL for absolute links. Defaults to "/".
 	BaseURL string
+
+	// Watch enables the filesystem watcher and SSE endpoint for automatic
+	// browser refresh when node files change. When nil, defaults to true.
+	Watch *bool
 }
 
 // ServeResult is returned when the server shuts down.
@@ -96,6 +152,7 @@ type ServeHandler struct {
 	mux          *http.ServeMux
 	sh           *serveHandler
 	watcherClose func() // nil when no watcher is active
+	sse          *sseBroadcaster // nil when watch mode is disabled
 }
 
 // ServeHTTP implements http.Handler.
@@ -157,6 +214,12 @@ func (t *Tap) NewServeHandler(ctx context.Context, opts ServeOptions) (*ServeHan
 		return nil, fmt.Errorf("unable to parse site templates: %w", err)
 	}
 
+	// Determine whether watch mode is enabled. Default to true.
+	watchEnabled := true
+	if opts.Watch != nil {
+		watchEnabled = *opts.Watch
+	}
+
 	sh := &serveHandler{
 		tap:       t,
 		keg:       k,
@@ -164,6 +227,7 @@ func (t *Tap) NewServeHandler(ctx context.Context, opts ServeOptions) (*ServeHan
 		siteTitle: siteTitle,
 		baseURL:   baseURL,
 		loc:       cfg.Location(),
+		watch:     watchEnabled,
 	}
 
 	mux := http.NewServeMux()
@@ -177,19 +241,49 @@ func (t *Tap) NewServeHandler(ctx context.Context, opts ServeOptions) (*ServeHan
 	// Start a filesystem watcher for proactive dex invalidation. When node
 	// files change on disk, the watcher invalidates the cached dex so the
 	// next request gets fresh data without waiting for an mtime check.
-	if fsRepo, ok := k.Repo.(*keg.FsRepo); ok {
-		w, watchErr := fsRepo.WatchEvents()
-		if watchErr == nil {
-			ch, chErr := w.Watch(ctx)
-			if chErr == nil {
-				go func() {
-					for range ch {
-						k.InvalidateDex()
-					}
-				}()
-				handler.watcherClose = func() { _ = w.Close() }
-			} else {
-				_ = w.Close()
+	// When watch mode is enabled, also set up SSE broadcasting so
+	// connected browsers reload automatically.
+	if watchEnabled {
+		if fsRepo, ok := k.Repo.(*keg.FsRepo); ok {
+			sse := newSSEBroadcaster()
+			handler.sse = sse
+
+			// Register the SSE endpoint.
+			mux.HandleFunc("GET /events", sh.handleSSE(sse))
+
+			w, watchErr := fsRepo.WatchEvents()
+			if watchErr == nil {
+				ch, chErr := w.Watch(ctx)
+				if chErr == nil {
+					go func() {
+						for range ch {
+							k.InvalidateDex()
+							sse.broadcast()
+						}
+					}()
+					handler.watcherClose = func() { _ = w.Close() }
+				} else {
+					_ = w.Close()
+				}
+			}
+		}
+	} else {
+		// Watch disabled: still start the watcher for dex invalidation
+		// but without SSE broadcasting.
+		if fsRepo, ok := k.Repo.(*keg.FsRepo); ok {
+			w, watchErr := fsRepo.WatchEvents()
+			if watchErr == nil {
+				ch, chErr := w.Watch(ctx)
+				if chErr == nil {
+					go func() {
+						for range ch {
+							k.InvalidateDex()
+						}
+					}()
+					handler.watcherClose = func() { _ = w.Close() }
+				} else {
+					_ = w.Close()
+				}
 			}
 		}
 	}
@@ -205,6 +299,45 @@ type serveHandler struct {
 	siteTitle string
 	baseURL   string
 	loc       *time.Location
+	watch     bool // whether SSE auto-refresh is active
+}
+
+// handleSSE returns an HTTP handler that serves Server-Sent Events for
+// browser auto-refresh. Each connected client receives "data: reload"
+// events whenever the watcher detects node changes.
+func (sh *serveHandler) handleSSE(sse *sseBroadcaster) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			http.Error(w, "streaming not supported", http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+
+		ch := sse.subscribe()
+		defer sse.unsubscribe(ch)
+
+		// Flush headers immediately so the browser's EventSource connects.
+		flusher.Flush()
+
+		ctx := r.Context()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case _, ok := <-ch:
+				if !ok {
+					return
+				}
+				fmt.Fprintf(w, "data: reload\n\n")
+				flusher.Flush()
+			}
+		}
+	}
 }
 
 // dispatch routes requests based on URL path structure.
@@ -288,6 +421,7 @@ func (sh *serveHandler) renderPage(w http.ResponseWriter, templateName string, d
 		SiteTitle: sh.siteTitle,
 		BaseURL:   sh.baseURL,
 		HasSearch: false,
+		HasWatch:  sh.watch,
 		Content:   template.HTML(contentBuf.String()),
 	}
 
@@ -733,6 +867,7 @@ func (sh *serveHandler) handleNotFound(w http.ResponseWriter, _ *http.Request) {
 		SiteTitle: sh.siteTitle,
 		BaseURL:   sh.baseURL,
 		HasSearch: false,
+		HasWatch:  sh.watch,
 		Content:   template.HTML(content),
 	}
 

@@ -222,5 +222,21 @@
     });
   </script>
   {{end}}
+  {{if .HasWatch}}
+  <script>
+    (function() {
+      var es = new EventSource('{{.BaseURL}}events');
+      es.onmessage = function(e) {
+        if (e.data === 'reload') {
+          location.reload();
+        }
+      };
+      es.onerror = function() {
+        // Reconnect automatically handled by EventSource.
+        // After max retries the browser gives up gracefully.
+      };
+    })();
+  </script>
+  {{end}}
 </body>
 </html>
