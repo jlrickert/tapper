@@ -52,6 +52,7 @@ func (t *Tap) Serve(ctx context.Context, opts ServeOptions) (*ServeResult, error
 	if err != nil {
 		return nil, err
 	}
+	defer handler.Close()
 
 	host := opts.Host
 	if host == "" {
@@ -88,10 +89,34 @@ func (t *Tap) Serve(ctx context.Context, opts ServeOptions) (*ServeResult, error
 	return &ServeResult{URL: url}, nil
 }
 
-// NewServeHandler builds an http.Handler that dynamically renders KEG pages.
+// ServeHandler wraps the HTTP handler for serving KEG pages. It implements
+// http.Handler and provides a Close method to release background resources
+// such as the filesystem watcher used for proactive dex invalidation.
+type ServeHandler struct {
+	mux          *http.ServeMux
+	sh           *serveHandler
+	watcherClose func() // nil when no watcher is active
+}
+
+// ServeHTTP implements http.Handler.
+func (h *ServeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	h.mux.ServeHTTP(w, r)
+}
+
+// Close releases background resources. It is safe to call multiple times.
+func (h *ServeHandler) Close() {
+	if h.watcherClose != nil {
+		h.watcherClose()
+		h.watcherClose = nil
+	}
+}
+
+// NewServeHandler builds a ServeHandler that dynamically renders KEG pages.
 // Templates are parsed once at creation time. Each request reads fresh data
-// from the keg.
-func (t *Tap) NewServeHandler(ctx context.Context, opts ServeOptions) (http.Handler, error) {
+// from the keg. If the keg is backed by a filesystem repository, a background
+// watcher proactively invalidates the dex cache when node files change.
+// Callers should call Close when the handler is no longer needed.
+func (t *Tap) NewServeHandler(ctx context.Context, opts ServeOptions) (*ServeHandler, error) {
 	k, err := t.resolveKeg(ctx, opts.KegTargetOptions)
 	if err != nil {
 		return nil, fmt.Errorf("unable to open keg: %w", err)
@@ -147,7 +172,29 @@ func (t *Tap) NewServeHandler(ctx context.Context, opts ServeOptions) (http.Hand
 	// like /tags/ and /changes/. Manual dispatch avoids this.
 	mux.HandleFunc("GET /{path...}", sh.dispatch)
 
-	return mux, nil
+	handler := &ServeHandler{mux: mux, sh: sh}
+
+	// Start a filesystem watcher for proactive dex invalidation. When node
+	// files change on disk, the watcher invalidates the cached dex so the
+	// next request gets fresh data without waiting for an mtime check.
+	if fsRepo, ok := k.Repo.(*keg.FsRepo); ok {
+		w, watchErr := fsRepo.WatchEvents()
+		if watchErr == nil {
+			ch, chErr := w.Watch(ctx)
+			if chErr == nil {
+				go func() {
+					for range ch {
+						k.InvalidateDex()
+					}
+				}()
+				handler.watcherClose = func() { _ = w.Close() }
+			} else {
+				_ = w.Close()
+			}
+		}
+	}
+
+	return handler, nil
 }
 
 // serveHandler holds shared state for all HTTP handlers.
