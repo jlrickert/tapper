@@ -123,6 +123,11 @@
         "description": "Human-readable description for a tag."
       }
     },
+    "timezone": {
+      "type": "string",
+      "description": "IANA timezone for resolving ambiguous timestamps within this keg (e.g. America/Chicago). Defaults to UTC.",
+      "default": "UTC"
+    },
     "doctor": {
       "type": "object",
       "description": "Configuration for `tap doctor` health checks.",

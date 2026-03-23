@@ -340,3 +340,58 @@ indexes:
 	require.Equal(t, "golang", config.Indexes[0].Tags)
 	require.Equal(t, "entity=concept && golang", config.Indexes[0].QueryOrTags(), "Query should take precedence")
 }
+
+func TestParseConfigV2_TimezoneDefaultsToUTC(t *testing.T) {
+	yamlData := `
+kegv: "2025-07"
+title: "No timezone"
+`
+	config, err := keg.ParseKegConfig([]byte(yamlData))
+	require.NoError(t, err)
+	require.Equal(t, "UTC", config.Timezone, "Timezone should default to UTC when omitted")
+}
+
+func TestParseConfigV2_TimezoneExplicit(t *testing.T) {
+	yamlData := `
+kegv: "2025-07"
+title: "With timezone"
+timezone: "America/Chicago"
+`
+	config, err := keg.ParseKegConfig([]byte(yamlData))
+	require.NoError(t, err)
+	require.Equal(t, "America/Chicago", config.Timezone)
+}
+
+func TestConfigLocation_UTC(t *testing.T) {
+	cfg := &keg.Config{Kegv: keg.ConfigV2VersionString}
+	loc := cfg.Location()
+	require.Equal(t, "UTC", loc.String())
+}
+
+func TestConfigLocation_ValidTimezone(t *testing.T) {
+	cfg := &keg.Config{Kegv: keg.ConfigV2VersionString, Timezone: "America/Chicago"}
+	loc := cfg.Location()
+	require.Equal(t, "America/Chicago", loc.String())
+}
+
+func TestConfigLocation_InvalidTimezoneDefaultsToUTC(t *testing.T) {
+	cfg := &keg.Config{Kegv: keg.ConfigV2VersionString, Timezone: "Invalid/Zone"}
+	loc := cfg.Location()
+	require.Equal(t, "UTC", loc.String())
+}
+
+func TestConfigLocation_EmptyTimezoneDefaultsToUTC(t *testing.T) {
+	cfg := &keg.Config{Kegv: keg.ConfigV2VersionString, Timezone: ""}
+	loc := cfg.Location()
+	require.Equal(t, "UTC", loc.String())
+}
+
+func TestConfigV1_MigratedToV2_TimezoneDefaultsToUTC(t *testing.T) {
+	v1Yaml := `
+kegv: "2023-01"
+title: "V1 KEG"
+`
+	config, err := keg.ParseKegConfig([]byte(v1Yaml))
+	require.NoError(t, err)
+	require.Equal(t, "UTC", config.Timezone, "V1 migrated to V2 should default timezone to UTC")
+}

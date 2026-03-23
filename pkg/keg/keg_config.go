@@ -86,6 +86,10 @@ type ConfigV2 struct {
 
 	Tags map[string]string `yaml:"tags,omitempty"`
 
+	// Timezone is the IANA timezone for resolving ambiguous timestamps
+	// within this keg (e.g. "America/Chicago"). Defaults to "UTC".
+	Timezone string `yaml:"timezone,omitempty"`
+
 	// Doctor holds `tap doctor` check configuration.
 	Doctor *DoctorConfig `yaml:"doctor,omitempty"`
 
@@ -194,6 +198,7 @@ func NewConfig(options ...ConfigOption) *Config {
 	- The zero node (0/) is a placeholder for planned content.
 	- Indices under dex/ are generated automatically by keg tooling.
 	- Use tags in node meta.yaml to organize and filter content.`,
+		Timezone: "UTC",
 		Indexes: []IndexEntry{
 			{
 				File: "dex/backlinks", Summary: "all incoming links",
@@ -242,7 +247,9 @@ func ParseKegConfig(data []byte) (*Config, error) {
 		if err := yaml.Unmarshal(data, &configV1); err != nil {
 			return &configV2, err
 		}
-		return configV1.toV2(), nil
+		cfg := configV1.toV2()
+		cfg.applyDefaults()
+		return cfg, nil
 	case ConfigV2VersionString:
 		if err := yaml.Unmarshal(data, &configV2); err != nil {
 			return &configV2, err
@@ -251,7 +258,29 @@ func ParseKegConfig(data []byte) (*Config, error) {
 		return &configV2, fmt.Errorf("unsupported config version: %s", version)
 	}
 
+	configV2.applyDefaults()
 	return &configV2, nil
+}
+
+// applyDefaults fills in zero-value fields with their documented defaults.
+func (kc *ConfigV2) applyDefaults() {
+	if kc.Timezone == "" {
+		kc.Timezone = "UTC"
+	}
+}
+
+// Location returns the *time.Location for the configured Timezone.
+// It returns time.UTC if the Timezone field is empty or invalid.
+func (kc *Config) Location() *time.Location {
+	tz := kc.Timezone
+	if tz == "" {
+		return time.UTC
+	}
+	loc, err := time.LoadLocation(tz)
+	if err != nil {
+		return time.UTC
+	}
+	return loc
 }
 
 func (kc *Config) ResolveAlias(alias string) (*kegurl.Target, error) {

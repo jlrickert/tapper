@@ -199,6 +199,9 @@ func (t *Tap) Site(ctx context.Context, opts SiteOptions) (*SiteResult, error) {
 		return nil, fmt.Errorf("unable to create output directory: %w", err)
 	}
 
+	// Resolve the keg's configured timezone for timestamp display.
+	loc := cfg.Location()
+
 	// Build node index for lookups.
 	entries := dex.Nodes(ctx)
 	nodeByID := map[string]siteNodeRef{}
@@ -206,8 +209,8 @@ func (t *Tap) Site(ctx context.Context, opts SiteOptions) (*SiteResult, error) {
 		nodeByID[e.ID] = siteNodeRef{
 			ID:      e.ID,
 			Title:   e.Title,
-			Updated: e.Updated,
-			Created: e.Created,
+			Updated: e.Updated.In(loc),
+			Created: e.Created.In(loc),
 		}
 	}
 
@@ -268,7 +271,7 @@ func (t *Tap) Site(ctx context.Context, opts SiteOptions) (*SiteResult, error) {
 			if err != nil || nid == nil {
 				continue
 			}
-			if err := t.generateNodePage(ctx, k, dex, tmpl, *nid, entry, nodeByID, absOutput, siteTitle, baseURL, hasSearch, writeAssets); err != nil {
+			if err := t.generateNodePage(ctx, k, dex, tmpl, *nid, entry, nodeByID, absOutput, siteTitle, baseURL, hasSearch, writeAssets, loc); err != nil {
 				rt.Logger().Warn(fmt.Sprintf("site: skip node %s: %s", entry.ID, err))
 				continue
 			}
@@ -334,6 +337,7 @@ func (t *Tap) generateNodePage(
 	outputDir, siteTitle, baseURL string,
 	hasSearch bool,
 	writeAssets bool,
+	loc *time.Location,
 ) error {
 	rt := t.Runtime
 
@@ -389,12 +393,13 @@ func (t *Tap) generateNodePage(
 	}
 
 	// Execute node template.
+	// Timestamps are converted to the keg's configured timezone.
 	nd := nodeData{
 		ID:              entry.ID,
 		Title:           entry.Title,
 		Entity:          entity,
-		Updated:         entry.Updated,
-		Created:         entry.Created,
+		Updated:         entry.Updated.In(loc),
+		Created:         entry.Created.In(loc),
 		Tags:            tags,
 		RenderedContent: template.HTML(rendered),
 		OutLinks:        outLinks,

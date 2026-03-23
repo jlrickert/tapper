@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/jlrickert/tapper/pkg/keg"
 	"gopkg.in/yaml.v3"
@@ -137,6 +138,7 @@ func (t *Tap) NewServeHandler(ctx context.Context, opts ServeOptions) (http.Hand
 		tmpl:      tmpl,
 		siteTitle: siteTitle,
 		baseURL:   baseURL,
+		loc:       cfg.Location(),
 	}
 
 	mux := http.NewServeMux()
@@ -155,6 +157,7 @@ type serveHandler struct {
 	tmpl      *template.Template
 	siteTitle string
 	baseURL   string
+	loc       *time.Location
 }
 
 // dispatch routes requests based on URL path structure.
@@ -252,6 +255,7 @@ func (sh *serveHandler) renderPage(w http.ResponseWriter, templateName string, d
 }
 
 // buildNodeByID loads the dex and builds a map of node references.
+// Timestamps are converted to the keg's configured timezone for display.
 func (sh *serveHandler) buildNodeByID(ctx context.Context) (map[string]siteNodeRef, []keg.NodeIndexEntry, error) {
 	dex, err := sh.keg.Dex(ctx)
 	if err != nil {
@@ -264,8 +268,8 @@ func (sh *serveHandler) buildNodeByID(ctx context.Context) (map[string]siteNodeR
 		nodeByID[e.ID] = siteNodeRef{
 			ID:      e.ID,
 			Title:   e.Title,
-			Updated: e.Updated,
-			Created: e.Created,
+			Updated: e.Updated.In(sh.loc),
+			Created: e.Created.In(sh.loc),
 		}
 	}
 
@@ -392,8 +396,9 @@ func (sh *serveHandler) handleNodePage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Determine title and timestamps from the node index or stats.
+	// Timestamps are converted to the keg's configured timezone.
 	title := idStr
-	var updated, created = stats.Updated(), stats.Created()
+	var updated, created = stats.Updated().In(sh.loc), stats.Created().In(sh.loc)
 	if entry, ok := nodeByID[idStr]; ok {
 		title = entry.Title
 		updated = entry.Updated
