@@ -226,8 +226,15 @@
   <script>
     (function() {
       var es = new EventSource('{{.BaseURL}}events');
+      var lastReload = 0;
+      var cooldown = 2000; // ignore reload events within 2s of last reload
       es.onmessage = function(e) {
         if (e.data === 'reload') {
+          var now = Date.now();
+          if (now - lastReload < cooldown) {
+            return; // still in cooldown, skip this reload
+          }
+          lastReload = now;
           location.reload();
         }
       };

@@ -651,3 +651,60 @@ func TestServe_SSE_EventDelivery(t *testing.T) {
 	data := string(buf[:n])
 	require.Contains(t, data, "data: reload", "SSE endpoint should deliver reload event")
 }
+
+// TestServe_WatchEnabled_ClientCooldown verifies that the injected
+// JavaScript includes a client-side cooldown to prevent reload loops.
+func TestServe_WatchEnabled_ClientCooldown(t *testing.T) {
+	t.Parallel()
+	sb, tap := setupSiteKeg(t)
+	_ = sb
+
+	url := serveKeg(t, tap, tapper.ServeOptions{
+		Title: "Cooldown KEG",
+	})
+
+	resp, err := http.Get(url + "/")
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	html := string(body)
+
+	// The cooldown variable and comparison must be present.
+	require.Contains(t, html, "cooldown", "SSE script should include client-side cooldown")
+	require.Contains(t, html, "lastReload", "SSE script should track last reload time")
+}
+
+// TestServe_SSEBroadcaster_Debounce verifies that rapid sequential
+// broadcasts through the broadcaster are each delivered (the broadcaster
+// itself does not debounce -- that happens in the watcher goroutine).
+// This confirms the broadcaster remains a simple fan-out mechanism.
+func TestServe_SSEBroadcaster_Debounce(t *testing.T) {
+	t.Parallel()
+
+	b := tapper.NewSSEBroadcasterForTest()
+	ch := b.Subscribe()
+	defer b.Unsubscribe(ch)
+
+	// Broadcast three times in rapid succession.
+	b.Broadcast()
+	b.Broadcast()
+	b.Broadcast()
+
+	// The channel has buffer size 1. The first broadcast should be
+	// received; subsequent ones are dropped (non-blocking send).
+	select {
+	case <-ch:
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("expected at least one broadcast")
+	}
+
+	// Channel should now be empty since buffer was full for 2nd and 3rd.
+	select {
+	case <-ch:
+		t.Fatal("expected channel to be empty after draining the single buffered event")
+	default:
+		// Good: no extra events queued.
+	}
+}

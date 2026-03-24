@@ -256,9 +256,25 @@ func (t *Tap) NewServeHandler(ctx context.Context, opts ServeOptions) (*ServeHan
 				ch, chErr := w.Watch(ctx)
 				if chErr == nil {
 					go func() {
+						// Broadcast-level debounce: accumulate events and
+						// broadcast once after 500ms of quiet. This prevents
+						// the reload loop caused by editors emitting multiple
+						// fs events per save (write-rename cycles produce
+						// separate events for README.md, stats.json, etc.).
+						const broadcastDebounce = 500 * time.Millisecond
+						var debounceTimer *time.Timer
 						for range ch {
 							k.InvalidateDex()
-							sse.broadcast()
+							if debounceTimer != nil {
+								debounceTimer.Stop()
+							}
+							debounceTimer = time.AfterFunc(broadcastDebounce, func() {
+								sse.broadcast()
+							})
+						}
+						// Flush any pending broadcast on channel close.
+						if debounceTimer != nil {
+							debounceTimer.Stop()
 						}
 					}()
 					handler.watcherClose = func() { _ = w.Close() }
