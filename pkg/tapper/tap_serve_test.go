@@ -622,6 +622,9 @@ func TestServe_SSE_EventDelivery(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(handler.Close)
 
+	// Disable the grace period so broadcasts reach clients immediately.
+	handler.DisableSSEGraceForTest()
+
 	srv := httptest.NewServer(handler)
 	t.Cleanup(srv.Close)
 
@@ -671,9 +674,10 @@ func TestServe_WatchEnabled_ClientCooldown(t *testing.T) {
 	require.NoError(t, err)
 	html := string(body)
 
-	// The cooldown variable and comparison must be present.
+	// The cooldown variable, sessionStorage persistence, and comparison must be present.
 	require.Contains(t, html, "cooldown", "SSE script should include client-side cooldown")
 	require.Contains(t, html, "lastReload", "SSE script should track last reload time")
+	require.Contains(t, html, "sessionStorage", "SSE script should persist reload timestamp across page loads")
 }
 
 // TestServe_SSEBroadcaster_Debounce verifies that rapid sequential

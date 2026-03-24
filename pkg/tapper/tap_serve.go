@@ -23,45 +23,69 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// sseClient tracks a single SSE subscriber along with its registration time.
+// The subscribedAt timestamp lets the broadcaster skip events that arrive
+// within a grace period after connection, preventing reload cascades when
+// the browser reconnects EventSource after a page reload.
+type sseClient struct {
+	ch           chan struct{}
+	subscribedAt time.Time
+}
+
 // sseBroadcaster manages connected SSE clients and broadcasts reload events.
 // It is safe for concurrent use.
 type sseBroadcaster struct {
 	mu      sync.Mutex
-	clients map[chan struct{}]struct{}
+	clients map[*sseClient]struct{}
+
+	// clientGrace is the minimum time a client must be connected before it
+	// receives broadcast events. This prevents the reload loop where:
+	//   event -> broadcast -> reload -> reconnect -> pending broadcast -> reload
+	clientGrace time.Duration
 }
 
 func newSSEBroadcaster() *sseBroadcaster {
 	return &sseBroadcaster{
-		clients: make(map[chan struct{}]struct{}),
+		clients:     make(map[*sseClient]struct{}),
+		clientGrace: 2 * time.Second,
 	}
 }
 
 // subscribe registers a new SSE client and returns its event channel.
 // The caller must call unsubscribe when done.
-func (b *sseBroadcaster) subscribe() chan struct{} {
-	ch := make(chan struct{}, 1)
+func (b *sseBroadcaster) subscribe() *sseClient {
+	c := &sseClient{
+		ch:           make(chan struct{}, 1),
+		subscribedAt: time.Now(),
+	}
 	b.mu.Lock()
-	b.clients[ch] = struct{}{}
+	b.clients[c] = struct{}{}
 	b.mu.Unlock()
-	return ch
+	return c
 }
 
-// unsubscribe removes a client channel from the broadcaster.
-func (b *sseBroadcaster) unsubscribe(ch chan struct{}) {
+// unsubscribe removes a client from the broadcaster.
+func (b *sseBroadcaster) unsubscribe(c *sseClient) {
 	b.mu.Lock()
-	delete(b.clients, ch)
+	delete(b.clients, c)
 	b.mu.Unlock()
 }
 
-// broadcast sends a reload signal to all connected clients.
+// broadcast sends a reload signal to all connected clients that have been
+// subscribed longer than the grace period. Clients that connected recently
+// (e.g., right after a reload) are skipped to break the reload cascade.
 // Non-blocking: if a client's buffer is full, the event is skipped for
 // that client (it will get the next one).
 func (b *sseBroadcaster) broadcast() {
+	now := time.Now()
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	for ch := range b.clients {
+	for c := range b.clients {
+		if now.Sub(c.subscribedAt) < b.clientGrace {
+			continue // still in grace period, skip
+		}
 		select {
-		case ch <- struct{}{}:
+		case c.ch <- struct{}{}:
 		default:
 		}
 	}
@@ -334,8 +358,8 @@ func (sh *serveHandler) handleSSE(sse *sseBroadcaster) http.HandlerFunc {
 		w.Header().Set("Connection", "keep-alive")
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 
-		ch := sse.subscribe()
-		defer sse.unsubscribe(ch)
+		client := sse.subscribe()
+		defer sse.unsubscribe(client)
 
 		// Flush headers immediately so the browser's EventSource connects.
 		flusher.Flush()
@@ -345,7 +369,7 @@ func (sh *serveHandler) handleSSE(sse *sseBroadcaster) http.HandlerFunc {
 			select {
 			case <-ctx.Done():
 				return
-			case _, ok := <-ch:
+			case _, ok := <-client.ch:
 				if !ok {
 					return
 				}
@@ -453,9 +477,11 @@ func (sh *serveHandler) renderPage(w http.ResponseWriter, templateName string, d
 
 // buildNodeByID loads the dex and builds a map of node references.
 // Timestamps are converted to the keg's configured timezone for display.
+// Non-fatal dex errors (e.g. a malformed custom index) are tolerated as
+// long as the dex itself is usable.
 func (sh *serveHandler) buildNodeByID(ctx context.Context) (map[string]siteNodeRef, []keg.NodeIndexEntry, error) {
 	dex, err := sh.keg.DexFresh(ctx)
-	if err != nil {
+	if err != nil && dex == nil {
 		return nil, nil, err
 	}
 
@@ -559,9 +585,10 @@ func (sh *serveHandler) handleNodePage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Build dex data for links/backlinks.
+	// Build dex data for links/backlinks. Tolerate non-fatal dex errors
+	// (e.g. a malformed custom index) as long as the dex is usable.
 	dex, err := sh.keg.DexFresh(ctx)
-	if err != nil {
+	if err != nil && dex == nil {
 		http.Error(w, "unable to read index", http.StatusInternalServerError)
 		return
 	}
@@ -787,7 +814,7 @@ func (sh *serveHandler) handleTagsIndex(w http.ResponseWriter, r *http.Request) 
 	ctx := r.Context()
 
 	dex, err := sh.keg.DexFresh(ctx)
-	if err != nil {
+	if err != nil && dex == nil {
 		http.Error(w, "unable to read index", http.StatusInternalServerError)
 		return
 	}
@@ -814,7 +841,7 @@ func (sh *serveHandler) handleTag(w http.ResponseWriter, r *http.Request) {
 	tagName := r.PathValue("tag")
 
 	dex, err := sh.keg.DexFresh(ctx)
-	if err != nil {
+	if err != nil && dex == nil {
 		http.Error(w, "unable to read index", http.StatusInternalServerError)
 		return
 	}

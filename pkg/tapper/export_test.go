@@ -1,20 +1,42 @@
 package tapper
 
+import "time"
+
 // SSEBroadcasterForTest wraps sseBroadcaster for testing.
 type SSEBroadcasterForTest struct {
 	b *sseBroadcaster
 }
 
+// NewSSEBroadcasterForTest creates a broadcaster with zero grace period so
+// that broadcasts are delivered immediately. Production code uses a 2s grace.
 func NewSSEBroadcasterForTest() *SSEBroadcasterForTest {
-	return &SSEBroadcasterForTest{b: newSSEBroadcaster()}
+	b := newSSEBroadcaster()
+	b.clientGrace = 0
+	return &SSEBroadcasterForTest{b: b}
+}
+
+// NewSSEBroadcasterForTestWithGrace creates a broadcaster with a custom grace period.
+// Use zero to disable the grace period in tests where you want immediate delivery.
+func NewSSEBroadcasterForTestWithGrace(grace time.Duration) *SSEBroadcasterForTest {
+	b := newSSEBroadcaster()
+	b.clientGrace = grace
+	return &SSEBroadcasterForTest{b: b}
 }
 
 func (t *SSEBroadcasterForTest) Subscribe() chan struct{} {
-	return t.b.subscribe()
+	return t.b.subscribe().ch
 }
 
 func (t *SSEBroadcasterForTest) Unsubscribe(ch chan struct{}) {
-	t.b.unsubscribe(ch)
+	// Find and remove the client with the matching channel.
+	t.b.mu.Lock()
+	defer t.b.mu.Unlock()
+	for c := range t.b.clients {
+		if c.ch == ch {
+			delete(t.b.clients, c)
+			return
+		}
+	}
 }
 
 func (t *SSEBroadcasterForTest) Broadcast() {
@@ -31,5 +53,15 @@ func (t *SSEBroadcasterForTest) Count() int {
 func (h *ServeHandler) BroadcastForTest() {
 	if h.sse != nil {
 		h.sse.broadcast()
+	}
+}
+
+// DisableSSEGraceForTest sets the SSE client grace period to zero on
+// the ServeHandler so that broadcasts are delivered immediately. This
+// is necessary for integration tests that subscribe and broadcast in
+// quick succession.
+func (h *ServeHandler) DisableSSEGraceForTest() {
+	if h.sse != nil {
+		h.sse.clientGrace = 0
 	}
 }

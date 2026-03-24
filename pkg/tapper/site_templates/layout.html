@@ -226,15 +226,21 @@
   <script>
     (function() {
       var es = new EventSource('{{.BaseURL}}events');
-      var lastReload = 0;
-      var cooldown = 2000; // ignore reload events within 2s of last reload
+      var cooldown = 3000; // ignore reload events within 3s of last reload
+
+      // Persist the last-reload timestamp across page reloads via
+      // sessionStorage. A plain variable resets to 0 on every page load,
+      // making the cooldown useless against the reload cascade.
+      var storageKey = '__keg_last_reload';
+      var lastReload = parseInt(sessionStorage.getItem(storageKey), 10) || 0;
+
       es.onmessage = function(e) {
         if (e.data === 'reload') {
           var now = Date.now();
           if (now - lastReload < cooldown) {
             return; // still in cooldown, skip this reload
           }
-          lastReload = now;
+          sessionStorage.setItem(storageKey, String(now));
           location.reload();
         }
       };
