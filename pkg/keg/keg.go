@@ -45,10 +45,32 @@ type Keg struct {
 
 	// configMu guards the read-modify-write cycle in UpdateConfig.
 	configMu sync.Mutex
+
+	// extraDexOpts holds additional DexOptions injected by higher-level
+	// packages (e.g. pkg/tapper) via SetExtraDexOpts. These are prepended
+	// before WithConfig in dexOptions() so that, for example, a
+	// WithQueryResolver is available when WithConfig creates
+	// QueryFilteredIndex instances.
+	extraDexOpts []DexOption
 }
 
 // Option is a functional option for configuring Keg behavior
 type Option func(*Keg)
+
+// SetExtraDexOpts stores additional DexOptions that will be included whenever
+// the dex is loaded or refreshed. These options are prepended before
+// WithConfig so that injected resolvers (e.g. WithQueryResolver) are available
+// when WithConfig creates QueryFilteredIndex instances.
+//
+// This is the injection point for higher-level packages (e.g. pkg/tapper) to
+// provide capabilities that pkg/keg cannot import directly.
+func (k *Keg) SetExtraDexOpts(opts ...DexOption) {
+	k.dexMu.Lock()
+	defer k.dexMu.Unlock()
+	k.extraDexOpts = opts
+	// Invalidate the cached dex so the next access rebuilds with the new options.
+	k.dex = nil
+}
 
 // NewKegFromTarget constructs a Keg from a kegurl.Target. It automatically
 // selects the appropriate repository implementation based on the target's scheme:
@@ -1096,6 +1118,10 @@ func (k *Keg) DexFresh(ctx context.Context) (*Dex, error) {
 // dexOptions reads the keg config and returns DexOptions to apply when
 // constructing or initialising a Dex. If the config is absent or cannot be
 // read, an empty (nil) slice is returned so callers can proceed without error.
+//
+// Extra options injected via SetExtraDexOpts are prepended before WithConfig
+// so that resolvers (e.g. WithQueryResolver) are installed on the Dex before
+// WithConfig creates QueryFilteredIndex instances that reference them.
 func (k *Keg) dexOptions(ctx context.Context) ([]DexOption, error) {
 	cfg, err := k.Repo.ReadConfig(ctx)
 	if err != nil {
@@ -1104,7 +1130,11 @@ func (k *Keg) dexOptions(ctx context.Context) ([]DexOption, error) {
 		}
 		return nil, err
 	}
-	return []DexOption{WithConfig(cfg)}, nil
+	// Prepend extraDexOpts so resolvers are set before WithConfig runs.
+	opts := make([]DexOption, 0, len(k.extraDexOpts)+1)
+	opts = append(opts, k.extraDexOpts...)
+	opts = append(opts, WithConfig(cfg))
+	return opts, nil
 }
 
 // -- private utility functions

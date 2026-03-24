@@ -13,6 +13,35 @@ import (
 	kegurl "github.com/jlrickert/tapper/pkg/keg_url"
 )
 
+// nodeQueryResolver evaluates a single query term against a node's data.
+// For key=value terms, it checks the node's meta.yaml attributes.
+// For plain terms, it checks the node's tag set.
+// This bridges the gap between pkg/tapper's resolveQueryTerm (which needs a
+// Keg and Dex) and pkg/keg's per-node callback signature.
+func nodeQueryResolver(term string, data *keg.NodeData) bool {
+	if data == nil {
+		return false
+	}
+	idx := strings.IndexByte(term, '=')
+	if idx < 0 {
+		// Plain tag — check node's tag set.
+		for _, t := range data.Tags() {
+			if t == term {
+				return true
+			}
+		}
+		return false
+	}
+	// Attribute predicate: key=value — check node's meta.
+	key := term[:idx]
+	val := term[idx+1:]
+	if data.Meta == nil {
+		return false
+	}
+	got, ok := data.Meta.Get(key)
+	return ok && got == val
+}
+
 // KegService resolves keg targets from config, project paths, and explicit filesystem locations.
 type KegService struct {
 	// Runtime provides filesystem and environment access used to resolve kegs.
@@ -48,6 +77,16 @@ func (s *KegService) ensureCache() {
 	if s.kegCache == nil {
 		s.kegCache = map[string]*keg.Keg{}
 	}
+}
+
+// injectDexOpts installs the standard set of extra DexOptions on a resolved
+// keg. This provides the query resolver that enables key=value attribute
+// predicates in config-driven custom indexes (e.g. query: "favorite=true").
+func (s *KegService) injectDexOpts(k *keg.Keg) {
+	if k == nil {
+		return
+	}
+	k.SetExtraDexOpts(keg.WithQueryResolver(nodeQueryResolver))
 }
 
 // Resolve returns a keg using explicit path, project, alias, or configured fallback resolution.
@@ -173,6 +212,7 @@ func (s *KegService) resolveFileKeg(ctx context.Context, root string, cache bool
 	if err != nil {
 		return nil, err
 	}
+	s.injectDexOpts(k)
 
 	if cache {
 		s.kegCache[key] = k
@@ -225,6 +265,7 @@ func (s *KegService) resolveKegAlias(ctx context.Context, kegAlias string, proje
 			return k, err
 		}
 		if k != nil {
+			s.injectDexOpts(k)
 			s.kegCache[kegAlias] = k
 		}
 		return k, nil
