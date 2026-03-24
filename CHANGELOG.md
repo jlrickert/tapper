@@ -2,6 +2,33 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.15.0 - 2026-03-24
+
+
+
+### 🐛 Bug Fixes
+- use mtime-gated dex in serve handlers to prevent stale indexes
+- resolve SSE redirect loop with broadcast debounce and client cooldown
+- wire query resolver into KegService keg resolution
+- SSE reload cascade and tolerant dex error handling in serve
+
+
+### 🚀 Features
+- add MCP tool annotations for agent auto-approval
+- add QueryFilteredIndex with injected resolver callback
+- add per-keg timezone configuration
+- add filesystem watcher for proactive dex invalidation in serve handler
+- add browser auto-refresh via SSE for live content updates
+
+
+### 🚜 Refactor
+- remove unused lsp/zekia stubs and genericize keg config templates
+
+
+### 🧪 Testing
+- add dex freshness and SSE event delivery tests
+
+
 ## v0.14.0 - 2026-03-21
 
 
