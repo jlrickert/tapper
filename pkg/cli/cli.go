@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strconv"
 	"strings"
 
@@ -46,16 +47,71 @@ func RunWithProfile(ctx context.Context, rt *toolkit.Runtime, args []string, pro
 	cmd.SetOut(streams.Out)
 	cmd.SetErr(streams.Err)
 
-	if err := cmd.ExecuteContext(ctx); err != nil {
-		_, _ = fmt.Fprintf(streams.Err, "Error: %s\n", renderUserError(err, deps))
+	execErr := cmd.ExecuteContext(ctx)
 
-		if errors.Is(err, context.Canceled) ||
-			errors.Is(err, context.DeadlineExceeded) {
-			return 130, err
+	// Emit CLI invocation log entry. This runs after ExecuteContext
+	// regardless of success or failure, ensuring every invocation is
+	// logged. We log before error rendering so the entry is captured
+	// even when the command fails.
+	logCLIInvocation(deps, args, execErr)
+
+	// Sync and close the log file handle unconditionally. Sync ensures the
+	// invocation entry written by logCLIInvocation is flushed to disk
+	// before the process exits. PersistentPostRunE does not close the
+	// handle (the comment there explains why), so we close here after
+	// the invocation log entry has been written.
+	if deps.logFileHandle != nil {
+		_ = deps.logFileHandle.Sync()
+		_ = deps.logFileHandle.Close()
+		deps.logFileHandle = nil
+	}
+
+	if execErr != nil {
+		_, _ = fmt.Fprintf(streams.Err, "Error: %s\n", renderUserError(execErr, deps))
+
+		if errors.Is(execErr, context.Canceled) ||
+			errors.Is(execErr, context.DeadlineExceeded) {
+			return 130, execErr
 		}
-		return 1, err
+		return 1, execErr
 	}
 	return 0, nil
+}
+
+// logCLIInvocation emits a structured log entry for a CLI command invocation.
+// It is a no-op when the runtime or start time is unavailable (e.g., when
+// PersistentPreRunE failed before recording the start time).
+func logCLIInvocation(deps *Deps, args []string, execErr error) {
+	if deps.Runtime == nil || deps.startTime.IsZero() {
+		return
+	}
+	rt := deps.Runtime
+	duration := rt.Clock().Now().Sub(deps.startTime)
+	success := execErr == nil
+
+	attrs := []slog.Attr{
+		slog.String("surface", "cli"),
+		slog.String("command", strings.Join(args, " ")),
+		slog.Any("args", args),
+		slog.Int64("duration_ms", duration.Milliseconds()),
+		slog.Bool("success", success),
+	}
+	if deps.KegTargetOptions.Keg != "" {
+		attrs = append(attrs, slog.String("keg", deps.KegTargetOptions.Keg))
+	}
+	if execErr != nil {
+		attrs = append(attrs, slog.String("error", execErr.Error()))
+	}
+	// Completions fire frequently during tab-complete; log them at debug
+	// level to avoid spamming the log with noise.
+	level := slog.LevelInfo
+	for _, a := range args {
+		if a == "__complete" {
+			level = slog.LevelDebug
+			break
+		}
+	}
+	rt.Logger().LogAttrs(context.Background(), level, "invocation", attrs...)
 }
 
 func RunCompletion(ctx context.Context, rt *toolkit.Runtime, args []string) (int, error) {

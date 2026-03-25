@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -88,7 +89,11 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 			if cfgErr == nil && cfg != nil {
 				if !cmd.Flags().Changed("log-file") {
 					if v := cfg.LogFile(); v != "" {
-						deps.LogFile = v
+						if expanded, err := toolkit.ExpandPath(rt, v); err == nil {
+							deps.LogFile = expanded
+						} else {
+							deps.LogFile = v
+						}
 					}
 				}
 				if !cmd.Flags().Changed("log-level") {
@@ -111,6 +116,16 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 				deps.Err = err
 			}
 
+			// Auto-detect JSON log format from the log file extension
+			// when --log-json was not explicitly set. This lets users
+			// configure `logFile: ~/.local/state/tapper/log.json` and
+			// get JSON output without a separate flag.
+			if !cmd.Flags().Changed("log-json") && deps.LogFile != "" {
+				if strings.EqualFold(filepath.Ext(deps.LogFile), ".json") {
+					deps.LogJSON = true
+				}
+			}
+
 			if deps.LogFile != "" || deps.LogJSON || deps.LogLevel != "" {
 				// Default log output is the runtime stderr stream.
 				var out io.Writer = rt.Stream().Err
@@ -118,6 +133,9 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 					// os.OpenFile is required here because the Runtime
 					// FileSystem interface does not provide an io.Writer
 					// handle for append-mode log output.
+					if err := os.MkdirAll(filepath.Dir(deps.LogFile), 0o755); err != nil {
+						return err
+					}
 					f, err := os.OpenFile(deps.LogFile, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 					if err != nil {
 						return err
@@ -156,11 +174,13 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 			return nil
 		},
 		PersistentPostRunE: func(cmd *cobra.Command, args []string) error {
-			// Close log file handle if one was opened.
-			if deps.logFileHandle != nil {
-				_ = deps.logFileHandle.Close()
-				deps.logFileHandle = nil
-			}
+			// NOTE: Do NOT close deps.logFileHandle here.
+			// RunWithProfile calls logCLIInvocation after
+			// ExecuteContext returns (which includes this hook),
+			// so the file must remain open for the invocation
+			// log entry. RunWithProfile closes the handle after
+			// logCLIInvocation completes.
+
 			// invoke shutdown if present
 			if v := cmd.Context().Value(shutdownKey{}); v != nil {
 				if sd, ok := v.(func()); ok && sd != nil {
