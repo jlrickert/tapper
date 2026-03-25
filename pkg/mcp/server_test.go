@@ -3,9 +3,12 @@ package mcp_test
 import (
 	"context"
 	"embed"
+	"log/slog"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/jlrickert/cli-toolkit/mylog"
 	"github.com/jlrickert/cli-toolkit/sandbox"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/require"
@@ -1494,4 +1497,95 @@ func TestMCP_ToolAnnotations_AllPresent(t *testing.T) {
 	require.True(t, indexTool.Annotations.IdempotentHint, "index should have IdempotentHint=true")
 	require.NotNil(t, indexTool.Annotations.OpenWorldHint, "index should have OpenWorldHint set")
 	require.False(t, *indexTool.Annotations.OpenWorldHint, "index should have OpenWorldHint=false")
+}
+
+func TestMCP_InvocationLogging(t *testing.T) {
+	t.Parallel()
+
+	_, th := mylog.NewTestLogger(t, slog.LevelDebug)
+	lg := slog.New(th)
+
+	session, ctx := newTestSessionWithOpts(t, mcp.ServerOptions{
+		Logger: lg,
+	})
+
+	// Call a known tool to trigger the middleware.
+	_, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "list_kegs",
+	})
+	require.NoError(t, err)
+
+	// The middleware logs asynchronously from the server goroutine, so
+	// use RequireEntry with a short timeout.
+	entry := mylog.RequireEntry(t, th, func(e mylog.LoggedEntry) bool {
+		return e.Msg == "invocation"
+	}, 2*time.Second)
+
+	require.Equal(t, slog.LevelInfo, entry.Level)
+	require.Equal(t, "mcp", entry.Attrs["surface"])
+	require.Equal(t, "list_kegs", entry.Attrs["tool"])
+	require.Equal(t, true, entry.Attrs["success"])
+
+	// duration_ms should be present and non-negative. Sandbox tests use a
+	// frozen clock, so the value may be 0.
+	durationRaw, hasDuration := entry.Attrs["duration_ms"]
+	require.True(t, hasDuration, "log entry should include duration_ms")
+	durationMs, ok := durationRaw.(int64)
+	require.True(t, ok, "duration_ms should be an int64")
+	require.GreaterOrEqual(t, durationMs, int64(0), "duration_ms should be non-negative")
+
+	// Client metadata from the test client.
+	require.Equal(t, "test-client", entry.Attrs["client.name"])
+	require.Equal(t, "0.1", entry.Attrs["client.version"])
+}
+
+func TestMCP_InvocationLogging_ToolError(t *testing.T) {
+	t.Parallel()
+
+	_, th := mylog.NewTestLogger(t, slog.LevelDebug)
+	lg := slog.New(th)
+
+	session, ctx := newTestSessionWithOpts(t, mcp.ServerOptions{
+		Logger: lg,
+	})
+
+	// Call a tool that will return an error result (nonexistent node).
+	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name:      "cat",
+		Arguments: map[string]any{"node_ids": []string{"99999"}},
+	})
+	require.NoError(t, err) // RPC itself succeeds; the tool returns IsError.
+	require.True(t, res.IsError, "tool should return an error result")
+
+	entry := mylog.RequireEntry(t, th, func(e mylog.LoggedEntry) bool {
+		return e.Msg == "invocation" && e.Attrs["tool"] == "cat"
+	}, 2*time.Second)
+
+	require.Equal(t, false, entry.Attrs["success"],
+		"invocation log should reflect tool-level failure")
+	require.Equal(t, "cat", entry.Attrs["tool"])
+}
+
+func TestMCP_InvocationLogging_WithKegAlias(t *testing.T) {
+	t.Parallel()
+
+	_, th := mylog.NewTestLogger(t, slog.LevelDebug)
+	lg := slog.New(th)
+
+	session, ctx := newTestSessionWithOpts(t, mcp.ServerOptions{
+		Logger: lg,
+	})
+
+	// Call a tool with an explicit keg alias in arguments.
+	_, _ = session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name:      "list",
+		Arguments: map[string]any{"keg": "personal"},
+	})
+
+	entry := mylog.RequireEntry(t, th, func(e mylog.LoggedEntry) bool {
+		return e.Msg == "invocation" && e.Attrs["tool"] == "list"
+	}, 2*time.Second)
+
+	require.Equal(t, "personal", entry.Attrs["keg"],
+		"invocation log should include keg alias from tool arguments")
 }
