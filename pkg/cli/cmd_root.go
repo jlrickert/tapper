@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/jlrickert/cli-toolkit/mylog"
 	"github.com/jlrickert/cli-toolkit/toolkit"
@@ -35,6 +36,10 @@ type Deps struct {
 
 	// logFileHandle is the opened log file; closed in PersistentPostRunE.
 	logFileHandle *os.File
+
+	// startTime records when PersistentPreRunE began, used for CLI
+	// invocation duration logging in logCLIInvocation.
+	startTime time.Time
 }
 
 func NewRootCmd(deps *Deps) *cobra.Command {
@@ -59,6 +64,9 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 				return fmt.Errorf("runtime is required")
 			}
 
+			// Record invocation start time for duration logging.
+			deps.startTime = rt.Clock().Now()
+
 			wd, err := rt.Getwd()
 			if err != nil {
 				return err
@@ -73,6 +81,23 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 			}
 			deps.Tap = tap
 			deps.Root = wd
+
+			// Fall back to config values when CLI flags are not
+			// explicitly set.  Precedence: CLI flag > config > default.
+			cfg, cfgErr := tap.ConfigService.Config(true)
+			if cfgErr == nil && cfg != nil {
+				if !cmd.Flags().Changed("log-file") {
+					if v := cfg.LogFile(); v != "" {
+						deps.LogFile = v
+					}
+				}
+				if !cmd.Flags().Changed("log-level") {
+					if v := cfg.LogLevel(); v != "" {
+						deps.LogLevel = v
+					}
+				}
+			}
+
 			if deps.Profile.withDefaults().AllowKegAliasFlags {
 				if regErr := cmd.Root().RegisterFlagCompletionFunc("keg", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 					return listKegsFiltered(deps, cmd.Context(), toComplete), cobra.ShellCompDirectiveNoFileComp
@@ -98,7 +123,7 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 						return err
 					}
 					deps.logFileHandle = f
-					out = f
+					out = io.MultiWriter(f, rt.Stream().Err)
 				}
 				lg := mylog.NewLogger(mylog.LoggerConfig{
 					Out:     out,
@@ -107,6 +132,22 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 					Version: Version,
 				})
 				if err := deps.Runtime.SetLogger(lg); err != nil {
+					return err
+				}
+			}
+
+			// When no logging is explicitly configured (no --log-file, no
+			// config logFile, no --log-level, no --log-json), default to
+			// error-level logging on stderr so genuine problems surface in
+			// CLI output. The MCP subcommand overrides the logger in its
+			// own RunE, so this fallback does not interfere with MCP.
+			if deps.LogFile == "" && !deps.LogJSON && deps.LogLevel == "" {
+				lg := mylog.NewLogger(mylog.LoggerConfig{
+					Out:     rt.Stream().Err,
+					Level:   mylog.ParseLevel("error"),
+					Version: Version,
+				})
+				if err := rt.SetLogger(lg); err != nil {
 					return err
 				}
 			}
@@ -135,7 +176,7 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 	}
 
 	cmd.PersistentFlags().StringVar(&deps.LogFile, "log-file", "", "write logs to file (default stderr)")
-	cmd.PersistentFlags().StringVar(&deps.LogLevel, "log-level", "info", "minimum log level")
+	cmd.PersistentFlags().StringVar(&deps.LogLevel, "log-level", "", "minimum log level (default \"error\")")
 	cmd.PersistentFlags().BoolVar(&deps.LogJSON, "log-json", false, "output logs as JSON")
 	cmd.PersistentFlags().StringVarP(&deps.ConfigPath, "config", "c", "", "path to config file")
 	if deps.Profile.withDefaults().AllowKegAliasFlags {
