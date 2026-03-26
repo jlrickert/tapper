@@ -2,6 +2,19 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.16.0 - 2026-03-26
+
+
+
+### 🐛 Bug Fixes
+- fan CLI log output to both file and stderr when --log-file is set
+- address deferred items from invocation logging implementation
+
+
+### 🚀 Features
+- add invocation logging for CLI commands and MCP tools
+
+
 ## v0.15.0 - 2026-03-24
 
 
