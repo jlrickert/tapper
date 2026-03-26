@@ -3,8 +3,10 @@ package cli
 import (
 	"errors"
 	"io"
+	"log/slog"
 
 	"github.com/jlrickert/cli-toolkit/mylog"
+	"github.com/jlrickert/cli-toolkit/toolkit"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/jlrickert/tapper/pkg/mcp"
@@ -28,36 +30,17 @@ per-command permission prompts.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			rt := deps.Runtime
 
-			// Ensure the logger writes to stderr for the MCP server when
-			// no explicit --log-file was provided. The default runtime
-			// logger is a discard logger; MCP servers on stdio should
-			// always log to stderr so operational data is visible without
-			// requiring explicit flags.
-			//
-			// When --log-file is set, PersistentPreRunE already opened the
-			// file and configured the logger to write there. Override the
-			// logger to fan out to both the file and stderr so operators
-			// can observe MCP traffic live while also persisting it.
-			if deps.LogFile == "" {
-				lg := mylog.NewLogger(mylog.LoggerConfig{
-					Out:     rt.Stream().Err,
-					Level:   mylog.ParseLevel(deps.LogLevel),
-					JSON:    deps.LogJSON,
-					Version: Version,
-				})
-				if err := rt.SetLogger(lg); err != nil {
-					return err
-				}
-			} else if deps.logFileHandle != nil {
-				lg := mylog.NewLogger(mylog.LoggerConfig{
-					Out:     io.MultiWriter(deps.logFileHandle, rt.Stream().Err),
-					Level:   mylog.ParseLevel(deps.LogLevel),
-					JSON:    deps.LogJSON,
-					Version: Version,
-				})
-				if err := rt.SetLogger(lg); err != nil {
-					return err
-				}
+			// MCP servers communicate over stdio, so the logger must
+			// write to stderr. When no --log-file is provided, use
+			// stderr at the requested level. When a log file is set,
+			// fan out to both the file and stderr so operators can
+			// observe MCP traffic live while also persisting it.
+			lg, err := buildMCPLogger(rt, deps)
+			if err != nil {
+				return err
+			}
+			if err := rt.SetLogger(lg); err != nil {
+				return err
 			}
 
 			defaults := mcp.KegDefaults{
@@ -67,7 +50,7 @@ per-command permission prompts.`,
 				LicenseText: LicenseText,
 				Logger:      rt.Logger(),
 			})
-			err := srv.Run(cmd.Context(), &sdkmcp.StdioTransport{})
+			err = srv.Run(cmd.Context(), &sdkmcp.StdioTransport{})
 			if err != nil && errors.Is(err, io.EOF) {
 				return nil
 			}
@@ -75,4 +58,41 @@ per-command permission prompts.`,
 		},
 	}
 	return cmd
+}
+
+// buildMCPLogger constructs the structured logger for the MCP server.
+// Unlike CLI commands, MCP always logs to stderr because stdout is reserved
+// for JSON-RPC. When a log file is also configured, entries fan out to both.
+func buildMCPLogger(rt *toolkit.Runtime, deps *Deps) (*slog.Logger, error) {
+	level := mylog.ParseLevel(deps.LogLevel)
+
+	if deps.LogFile == "" {
+		// No log file — stderr at the requested level and format.
+		lg := mylog.NewLogger(mylog.LoggerConfig{
+			Out:     rt.Stream().Err,
+			Level:   level,
+			JSON:    deps.LogJSON,
+			Version: Version,
+		})
+		return lg, nil
+	}
+
+	// Log file is set — fan out to both file and stderr at the same level.
+	if deps.logFileHandle == nil {
+		// Should not happen: PersistentPreRunE opens the file. Defensive.
+		lg := mylog.NewLogger(mylog.LoggerConfig{
+			Out:     rt.Stream().Err,
+			Level:   level,
+			JSON:    deps.LogJSON,
+			Version: Version,
+		})
+		return lg, nil
+	}
+	lg := mylog.NewLogger(mylog.LoggerConfig{
+		Out:     io.MultiWriter(deps.logFileHandle, rt.Stream().Err),
+		Level:   level,
+		JSON:    deps.LogJSON,
+		Version: Version,
+	})
+	return lg, nil
 }

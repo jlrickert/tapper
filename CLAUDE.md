@@ -140,9 +140,9 @@ break test isolation. Specifically:
 - **Exception — fsnotify debounce**: Filesystem-event debounce timers in
   `repo_fs_events.go` must use `time.Now()` because the test clock is frozen and
   wall-clock timing is required for real event coalescing.
-- **Exception — append-mode log files**: `os.OpenFile` is acceptable when
-  Runtime doesn't provide an equivalent (e.g., opening a file in append mode for
-  logging).
+- **Log files use `rt.OpenFile`**: Since cli-toolkit v1.3.0, log file
+  initialization goes through `Runtime.OpenFile` instead of `os.OpenFile`. This
+  enables sandbox-based log file tests.
 
 ### Concurrency Model
 
@@ -258,3 +258,26 @@ validation.
   must handle pre-existing directories.
 - Commit conventions: conventional commits (`feat:`, `fix:`, `refactor:`),
   summaries ≤72 chars.
+- **Cobra skips PersistentPostRunE when RunE returns an error.** Any cleanup
+  or logging that must run on both success and failure paths cannot rely on
+  PersistentPostRunE. In tapper, invocation logging and log file cleanup are
+  performed in `RunWithProfile` after `ExecuteContext` returns, bypassing this
+  Cobra limitation.
+- **`duration_ms` in invocation logs includes editor wait time.** For `tap edit`
+  and `tap cat` (which open an editor on TTY), the logged duration includes the
+  time the user spends in the editor. This is a known limitation of the
+  invocation logging system, not a bug. The `interactive` field in the log entry
+  can help distinguish interactive from non-interactive invocations.
+- **`tap site serve --watch` shares the log file with short CLI commands.**
+  Long-lived commands like serve write operational logs (index rebuild, SSE
+  events) to the same file as CLI audit entries. If this becomes problematic,
+  options include: a per-command `--log-file` override, a separate `serveLogFile`
+  config key, or filtering by a `long_lived` field in log entries. No separation
+  is implemented yet.
+- **`tap list` may hang when `tap site serve --watch` is running.** This is
+  likely lock contention between serve's index rebuilds (which acquire `dexMu`
+  and per-node locks during `RebuildDex`) and list's dex reads. The serve
+  command holds `dexMu` during full index rebuilds triggered by filesystem
+  events, which can block concurrent CLI commands that need to load the dex.
+  Related: dex invalidation reduction, stale dex cache issue, lock command
+  retrospect.

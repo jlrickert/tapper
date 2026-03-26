@@ -4,7 +4,7 @@ go 1.26.0
 
 require (
 	github.com/fsnotify/fsnotify v1.9.0
-	github.com/jlrickert/cli-toolkit v1.2.0
+	github.com/jlrickert/cli-toolkit v1.3.0
 	github.com/modelcontextprotocol/go-sdk v1.4.1
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.11.1

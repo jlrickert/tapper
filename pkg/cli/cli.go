@@ -61,7 +61,10 @@ func RunWithProfile(ctx context.Context, rt *toolkit.Runtime, args []string, pro
 	// handle (the comment there explains why), so we close here after
 	// the invocation log entry has been written.
 	if deps.logFileHandle != nil {
-		_ = deps.logFileHandle.Sync()
+		// Sync if the underlying writer supports it (e.g., *os.File).
+		if syncer, ok := deps.logFileHandle.(interface{ Sync() error }); ok {
+			_ = syncer.Sync()
+		}
 		_ = deps.logFileHandle.Close()
 		deps.logFileHandle = nil
 	}
@@ -89,12 +92,14 @@ func logCLIInvocation(deps *Deps, args []string, execErr error) {
 	duration := rt.Clock().Now().Sub(deps.startTime)
 	success := execErr == nil
 
+	truncatedArgs := truncateArgs(args)
 	attrs := []slog.Attr{
 		slog.String("surface", "cli"),
-		slog.String("command", strings.Join(args, " ")),
-		slog.Any("args", args),
+		slog.String("command", strings.Join(truncatedArgs, " ")),
+		slog.Any("args", truncatedArgs),
 		slog.Int64("duration_ms", duration.Milliseconds()),
 		slog.Bool("success", success),
+		slog.Bool("interactive", rt.Stream().IsTTY),
 	}
 	if deps.KegTargetOptions.Keg != "" {
 		attrs = append(attrs, slog.String("keg", deps.KegTargetOptions.Keg))
@@ -112,6 +117,26 @@ func logCLIInvocation(deps *Deps, args []string, execErr error) {
 		}
 	}
 	rt.Logger().LogAttrs(context.Background(), level, "invocation", attrs...)
+}
+
+// maxArgBytes is the maximum byte length for a single CLI argument in
+// invocation log entries. Arguments longer than this are truncated with a
+// trailing ellipsis. This prevents tap edit and tap create from dumping
+// full file contents into the log.
+const maxArgBytes = 512
+
+// truncateArgs returns a copy of args with individual values truncated to
+// maxArgBytes. Short arguments are returned as-is.
+func truncateArgs(args []string) []string {
+	out := make([]string, len(args))
+	for i, a := range args {
+		if len(a) > maxArgBytes {
+			out[i] = a[:maxArgBytes] + "...(truncated)"
+		} else {
+			out[i] = a
+		}
+	}
+	return out
 }
 
 func RunCompletion(ctx context.Context, rt *toolkit.Runtime, args []string) (int, error) {
