@@ -119,7 +119,7 @@ func invocationLoggingMiddleware(lg *slog.Logger) sdkmcp.Middleware {
 			// Extract tool name and arguments from params.
 			if params, ok := req.GetParams().(*sdkmcp.CallToolParamsRaw); ok {
 				attrs = append(attrs, slog.String("tool", params.Name))
-				attrs = append(attrs, slog.String("args", string(params.Arguments)))
+				attrs = append(attrs, slog.String("args", truncatePayload(string(params.Arguments), maxPayloadBytes)))
 
 				// Try to extract keg alias from arguments.
 				var argMap map[string]json.RawMessage
@@ -160,4 +160,18 @@ func invocationLoggingMiddleware(lg *slog.Logger) sdkmcp.Middleware {
 			return result, err
 		}
 	}
+}
+
+// maxPayloadBytes is the maximum byte length for argument payloads in MCP
+// invocation log entries. Payloads exceeding this limit are truncated with
+// an indicator to prevent large content from bloating the log.
+const maxPayloadBytes = 512
+
+// truncatePayload returns s unchanged if it is within limit bytes;
+// otherwise it returns the first limit bytes followed by a truncation marker.
+func truncatePayload(s string, limit int) string {
+	if len(s) <= limit {
+		return s
+	}
+	return s[:limit] + "...(truncated)"
 }

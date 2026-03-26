@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -35,8 +36,8 @@ type Deps struct {
 	Tap *tapper.Tap
 	Err error
 
-	// logFileHandle is the opened log file; closed in PersistentPostRunE.
-	logFileHandle *os.File
+	// logFileHandle is the opened log file; closed after invocation logging.
+	logFileHandle io.WriteCloser
 
 	// startTime records when PersistentPreRunE began, used for CLI
 	// invocation duration logging in logCLIInvocation.
@@ -126,48 +127,16 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 				}
 			}
 
-			if deps.LogFile != "" || deps.LogJSON || deps.LogLevel != "" {
-				// Default log output is the runtime stderr stream.
-				var out io.Writer = rt.Stream().Err
-				if deps.LogFile != "" {
-					// os.OpenFile is required here because the Runtime
-					// FileSystem interface does not provide an io.Writer
-					// handle for append-mode log output.
-					if err := os.MkdirAll(filepath.Dir(deps.LogFile), 0o755); err != nil {
-						return err
-					}
-					f, err := os.OpenFile(deps.LogFile, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
-					if err != nil {
-						return err
-					}
-					deps.logFileHandle = f
-					out = io.MultiWriter(f, rt.Stream().Err)
-				}
-				lg := mylog.NewLogger(mylog.LoggerConfig{
-					Out:     out,
-					Level:   mylog.ParseLevel(deps.LogLevel),
-					JSON:    deps.LogJSON,
-					Version: Version,
-				})
-				if err := deps.Runtime.SetLogger(lg); err != nil {
-					return err
-				}
+			// Build the logger with separate handlers for file and stderr.
+			// Stderr always uses text format at error level so CLI users
+			// only see genuine problems. The log file (when configured)
+			// receives all entries at the requested level and format.
+			lg, err := buildCLILogger(rt, deps)
+			if err != nil {
+				return err
 			}
-
-			// When no logging is explicitly configured (no --log-file, no
-			// config logFile, no --log-level, no --log-json), default to
-			// error-level logging on stderr so genuine problems surface in
-			// CLI output. The MCP subcommand overrides the logger in its
-			// own RunE, so this fallback does not interfere with MCP.
-			if deps.LogFile == "" && !deps.LogJSON && deps.LogLevel == "" {
-				lg := mylog.NewLogger(mylog.LoggerConfig{
-					Out:     rt.Stream().Err,
-					Level:   mylog.ParseLevel("error"),
-					Version: Version,
-				})
-				if err := rt.SetLogger(lg); err != nil {
-					return err
-				}
+			if err := rt.SetLogger(lg); err != nil {
+				return err
 			}
 
 			cmd.SetContext(ctx)
@@ -199,6 +168,16 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 	cmd.PersistentFlags().StringVar(&deps.LogLevel, "log-level", "", "minimum log level (default \"error\")")
 	cmd.PersistentFlags().BoolVar(&deps.LogJSON, "log-json", false, "output logs as JSON")
 	cmd.PersistentFlags().StringVarP(&deps.ConfigPath, "config", "c", "", "path to config file")
+	mustRegisterFlagCompletion(cmd, "log-level", func(_ *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		levels := []string{"debug", "info", "warn", "error"}
+		var out []string
+		for _, l := range levels {
+			if strings.HasPrefix(l, strings.ToLower(toComplete)) {
+				out = append(out, l)
+			}
+		}
+		return out, cobra.ShellCompDirectiveNoFileComp
+	})
 	if deps.Profile.withDefaults().AllowKegAliasFlags {
 		cmd.PersistentFlags().StringVarP(&deps.KegTargetOptions.Keg, "keg", "k", "", "alias of the keg to use")
 		cmd.PersistentFlags().BoolVar(&deps.KegTargetOptions.Project, "project", false, "resolve against the project-local keg")
@@ -296,4 +275,81 @@ func isRepoTargetFlagHelpLine(line string) bool {
 		strings.Contains(line, "--project") ||
 		strings.Contains(line, "--path") ||
 		strings.Contains(line, "--cwd")
+}
+
+// buildCLILogger constructs the structured logger for CLI commands.
+//
+// When a log file is configured, two separate handlers are used: the file
+// receives entries at the requested level and format, while stderr receives
+// only error-level entries in text format. This prevents INFO-level noise
+// from reaching CLI users while preserving full logs in the file.
+//
+// When no log file is configured, stderr is the only destination. The user's
+// explicit flags (--log-level, --log-json) apply directly to stderr since
+// that is the only place logs can go.
+//
+// The MCP subcommand overrides the logger in its own RunE, so this function
+// only governs normal CLI command logging.
+func buildCLILogger(rt *toolkit.Runtime, deps *Deps) (*slog.Logger, error) {
+	fileLevel := mylog.ParseLevel(deps.LogLevel)
+
+	if deps.LogFile == "" {
+		// No log file — stderr is the only destination.
+		// Honor explicit flags for level and format.
+		stderrLevel := slog.LevelError
+		if deps.LogLevel != "" {
+			stderrLevel = fileLevel
+		} else if deps.LogJSON {
+			// When --log-json is set without --log-level, the user
+			// explicitly wants structured output. Default to info.
+			stderrLevel = slog.LevelInfo
+		}
+		var stderrHandler slog.Handler
+		if deps.LogJSON {
+			stderrHandler = slog.NewJSONHandler(rt.Stream().Err, &slog.HandlerOptions{Level: stderrLevel})
+		} else {
+			stderrHandler = slog.NewTextHandler(rt.Stream().Err, &slog.HandlerOptions{Level: stderrLevel})
+		}
+		lg := newLoggerWithAttrs(stderrHandler, Version)
+		return lg, nil
+	}
+
+	// Open the log file through the Runtime abstraction so sandbox tests
+	// can capture log output.
+	f, err := rt.OpenFile(deps.LogFile, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		return nil, err
+	}
+	deps.logFileHandle = f
+
+	// File handler: requested level and format.
+	var fileHandler slog.Handler
+	if deps.LogJSON {
+		fileHandler = slog.NewJSONHandler(f, &slog.HandlerOptions{Level: fileLevel})
+	} else {
+		fileHandler = slog.NewTextHandler(f, &slog.HandlerOptions{Level: fileLevel})
+	}
+
+	// Stderr handler: always text format at error level when a file is
+	// present. The file captures everything; stderr shows only problems.
+	stderrHandler := slog.NewTextHandler(rt.Stream().Err, &slog.HandlerOptions{
+		Level: slog.LevelError,
+	})
+
+	// Fan out to both destinations with independent filtering.
+	combined := newMultiHandler(fileHandler, stderrHandler)
+	lg := newLoggerWithAttrs(combined, Version)
+	return lg, nil
+}
+
+// newLoggerWithAttrs wraps a handler in a slog.Logger with standard
+// per-process attributes (version, host, pid).
+func newLoggerWithAttrs(h slog.Handler, version string) *slog.Logger {
+	host, _ := os.Hostname()
+	pid := os.Getpid()
+	return slog.New(h).With(
+		slog.String("version", version),
+		slog.String("host", host),
+		slog.Int("pid", pid),
+	)
 }
