@@ -73,6 +73,16 @@ Use 'tap repo config template {user|project}' to print starter config.`,
 	cmd.Flags().StringVar(&explainField, "explain", "", "show provenance for a specific config field")
 	cmd.Flags().BoolVar(&showSources, "show-sources", false, "show all fields with their resolved source")
 
+	mustRegisterFlagCompletion(cmd, "explain", func(_ *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		var out []string
+		for _, f := range tapper.ConfigExplainFields {
+			if strings.HasPrefix(f, toComplete) {
+				out = append(out, f)
+			}
+		}
+		return out, cobra.ShellCompDirectiveNoFileComp
+	})
+
 	cmd.AddCommand(NewRepoConfigTemplateCmd(deps))
 	cmd.AddCommand(NewRepoConfigEditCmd(deps))
 
