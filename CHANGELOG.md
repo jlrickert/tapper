@@ -2,6 +2,28 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.17.0 - 2026-03-27
+
+
+
+### ⚙️ Miscellaneous
+- update cli-toolkit to v1.4.0 and goldmark to v1.8.2
+
+
+### 🐛 Bug Fixes
+- add shell completion for --explain flag field names
+
+
+### 📚 Documentation
+- document config cascade and env var overrides in schema and CLAUDE.md
+
+
+### 🚀 Features
+- surface config load errors and add --strict flag
+- wire cfgcascade into ConfigService and add TAP_* env var overrides
+- add transparent config layering with --explain and --show-sources
+
+
 ## v0.16.0 - 2026-03-26
 
 
