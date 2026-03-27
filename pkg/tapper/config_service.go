@@ -3,10 +3,12 @@ package tapper
 import (
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 
+	"github.com/jlrickert/cli-toolkit/cfgcascade"
 	"github.com/jlrickert/cli-toolkit/toolkit"
 	"github.com/jlrickert/tapper/pkg/keg"
 	kegurl "github.com/jlrickert/tapper/pkg/keg_url"
@@ -92,8 +94,9 @@ func (s *ConfigService) ProjectConfig(cache bool) (*Config, error) {
 
 // Config returns the merged user and project configuration with optional caching.
 // If cache is true and a merged config exists, it returns the cached version.
-// Otherwise, it retrieves both configs, merges them, caches the result, and returns it.
-// When ConfigPath is set, it directly reads that file and bypasses normal merge behavior.
+// Otherwise, it uses a cfgcascade.Cascade to resolve configuration from three
+// providers in rank order: user config file, project config file, TAP_* env vars.
+// When ConfigPath is set, it directly reads that file and bypasses the cascade.
 func (s *ConfigService) Config(cache bool) (*Config, error) {
 	if cache && s.mergedCache != nil {
 		return s.mergedCache, nil
@@ -113,37 +116,96 @@ func (s *ConfigService) Config(cache bool) (*Config, error) {
 
 	s.LoadWarnings = nil
 
-	var user *Config
-	if u, err := s.UserConfig(cache); err != nil {
-		if !errors.Is(err, keg.ErrNotExist) {
-			path := filepath.Join(s.PathService.ConfigRoot, "config.yaml")
-			s.LoadWarnings = append(s.LoadWarnings, ConfigLoadWarning{
-				Source:  "user config",
-				Path:    path,
-				Message: fmt.Sprintf("failed to load user config at %s: %v", path, err),
-				Err:     err,
-			})
-		}
-	} else {
-		user = u
+	userPath := filepath.Join(s.PathService.ConfigRoot, "config.yaml")
+	projectPath := filepath.Join(s.PathService.LocalConfigRoot, "config.yaml")
+
+	cascade := &cfgcascade.Cascade[*Config]{
+		Layers: []cfgcascade.Layer[*Config]{
+			{
+				Rank: 1,
+				Provider: &cfgcascade.FuncProvider[*Config]{
+					ProviderName: "user config",
+					Fn: func(_ func(string) string) (*Config, error) {
+						cfg, err := s.UserConfig(cache)
+						if err != nil {
+							if errors.Is(err, keg.ErrNotExist) {
+								return nil, os.ErrNotExist
+							}
+							return nil, err
+						}
+						return cfg, nil
+					},
+				},
+			},
+			{
+				Rank: 2,
+				Provider: &cfgcascade.FuncProvider[*Config]{
+					ProviderName: "project config",
+					Fn: func(_ func(string) string) (*Config, error) {
+						cfg, err := s.ProjectConfig(cache)
+						if err != nil {
+							if errors.Is(err, keg.ErrNotExist) {
+								return nil, os.ErrNotExist
+							}
+							return nil, err
+						}
+						return cfg, nil
+					},
+				},
+			},
+			{
+				Rank: 3,
+				Provider: &cfgcascade.FuncProvider[*Config]{
+					ProviderName: "env vars",
+					Fn: func(getenv func(string) string) (*Config, error) {
+						envProvider := &cfgcascade.EnvProvider{
+							ProviderName: "env vars",
+							Prefix:       tapEnvPrefix,
+							Keys:         tapEnvVarKeys,
+						}
+						envMap, err := envProvider.Load(getenv)
+						if err != nil {
+							return nil, err
+						}
+						cfg := configFromEnvMap(envMap)
+						if cfg == nil {
+							return nil, os.ErrNotExist
+						}
+						return cfg, nil
+					},
+				},
+			},
+		},
+		MergeFn: func(base, overlay *Config) *Config {
+			return MergeConfig(base, overlay)
+		},
 	}
 
-	var project *Config
-	if p, err := s.ProjectConfig(cache); err != nil {
-		if !errors.Is(err, keg.ErrNotExist) {
-			path := filepath.Join(s.PathService.LocalConfigRoot, "config.yaml")
-			s.LoadWarnings = append(s.LoadWarnings, ConfigLoadWarning{
-				Source:  "project config",
-				Path:    path,
-				Message: fmt.Sprintf("failed to load project config at %s: %v", path, err),
-				Err:     err,
-			})
+	rv := cascade.Resolve(s.Runtime.Env().Get)
+
+	// Map cascade provider errors to LoadWarnings.
+	for _, pe := range rv.Errors {
+		var path string
+		switch pe.Name {
+		case "user config":
+			path = userPath
+		case "project config":
+			path = projectPath
 		}
-	} else {
-		project = p
+		s.LoadWarnings = append(s.LoadWarnings, ConfigLoadWarning{
+			Source:  pe.Name,
+			Path:    path,
+			Message: fmt.Sprintf("failed to load %s at %s: %v", pe.Name, path, pe.Err),
+			Err:     pe.Err,
+		})
 	}
 
-	s.mergedCache = MergeConfig(user, project)
+	merged := rv.Value
+	if merged == nil {
+		merged = &Config{data: &configDTO{}}
+	}
+
+	s.mergedCache = merged
 	return s.mergedCache, nil
 }
 
