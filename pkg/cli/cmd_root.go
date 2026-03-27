@@ -32,6 +32,7 @@ type Deps struct {
 	LogFile    string
 	LogLevel   string
 	LogJSON    bool
+	Strict     bool
 
 	Tap *tapper.Tap
 	Err error
@@ -87,6 +88,21 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 			// Fall back to config values when CLI flags are not
 			// explicitly set.  Precedence: CLI flag > config > default.
 			cfg, cfgErr := tap.ConfigService.Config(true)
+
+			// Surface config load warnings (corrupt YAML, permission errors).
+			if warnings := tap.ConfigService.LoadWarnings; len(warnings) > 0 {
+				if deps.Strict {
+					var msgs []string
+					for _, w := range warnings {
+						msgs = append(msgs, w.Message)
+					}
+					return fmt.Errorf("config errors (--strict): %s", strings.Join(msgs, "; "))
+				}
+				for _, w := range warnings {
+					fmt.Fprintf(rt.Stream().Err, "warning: %s\n", w.Message)
+				}
+			}
+
 			if cfgErr == nil && cfg != nil {
 				if !cmd.Flags().Changed("log-file") {
 					if v := cfg.LogFile(); v != "" {
@@ -168,6 +184,7 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 	cmd.PersistentFlags().StringVar(&deps.LogLevel, "log-level", "", "minimum log level (default \"error\")")
 	cmd.PersistentFlags().BoolVar(&deps.LogJSON, "log-json", false, "output logs as JSON")
 	cmd.PersistentFlags().StringVarP(&deps.ConfigPath, "config", "c", "", "path to config file")
+	cmd.PersistentFlags().BoolVar(&deps.Strict, "strict", false, "treat config warnings as errors")
 	mustRegisterFlagCompletion(cmd, "log-level", func(_ *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		levels := []string{"debug", "info", "warn", "error"}
 		var out []string

@@ -103,6 +103,7 @@ var tapMethodsExcluded = map[string]string{
 	"ConfigEdit":      "interactive editor; not exposed via MCP",
 	"LookupKeg":       "internal resolution helper; not a user-facing operation",
 	"NewServeHandler": "internal HTTP handler factory; used by Serve",
+	"DoctorConfig":    "tapper-config health check helper; called by Doctor CLI/MCP surfaces",
 }
 
 // TestCoverage_AllTapMethodsHaveBothSurfaces uses reflection to enumerate
