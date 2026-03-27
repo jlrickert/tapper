@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -89,7 +90,8 @@ func registerRepoRm(srv *sdkmcp.Server, tap *tapper.Tap) {
 // --- config ---
 
 type configInput struct {
-	Scope string `json:"scope,omitempty" jsonschema:"config scope: user, project, or empty for merged"`
+	Scope   string `json:"scope,omitempty" jsonschema:"config scope: user, project, or empty for merged"`
+	Explain string `json:"explain,omitempty" jsonschema:"when set, return provenance for this field (or 'all' for all fields) instead of config dump"`
 }
 
 func registerConfig(srv *sdkmcp.Server, tap *tapper.Tap) {
@@ -101,6 +103,21 @@ func registerConfig(srv *sdkmcp.Server, tap *tapper.Tap) {
 			OpenWorldHint:   boolPtr(false),
 		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in configInput) (*sdkmcp.CallToolResult, any, error) {
+		// When explain is set, return provenance instead of the config dump.
+		if in.Explain != "" {
+			field := in.Explain
+			if field == "all" {
+				field = ""
+			}
+			results, err := tap.ConfigExplain(ctx, tapper.ConfigExplainOptions{
+				Field: field,
+			})
+			if err != nil {
+				return errorResult(err), nil, nil
+			}
+			return textResult(formatExplainResults(results)), nil, nil
+		}
+
 		opts := tapper.ConfigOptions{}
 		switch in.Scope {
 		case "user":
@@ -119,6 +136,19 @@ func registerConfig(srv *sdkmcp.Server, tap *tapper.Tap) {
 		}
 		return textResult(result), nil, nil
 	})
+}
+
+// formatExplainResults formats ConfigExplainResults into a human-readable string.
+func formatExplainResults(results []tapper.ConfigExplainResult) string {
+	var parts []string
+	for _, r := range results {
+		val := r.Value
+		if val == "" {
+			val = `""`
+		}
+		parts = append(parts, fmt.Sprintf("%s = %s  [%s]", r.Field, val, r.Source))
+	}
+	return strings.Join(parts, "\n")
 }
 
 // --- config_template ---

@@ -36,6 +36,10 @@ type ConfigService struct {
 	// YAML, permission errors, etc. are recorded here.
 	LoadWarnings []ConfigLoadWarning
 
+	// ResolvedSources lists provider names that contributed to the merged config,
+	// most-specific first. Populated after Config() runs the cascade.
+	ResolvedSources []string
+
 	// Cached configs.
 	userCache    *Config
 	projectCache *Config
@@ -61,6 +65,7 @@ func (s *ConfigService) ResetCache() {
 	s.userCache = nil
 	s.projectCache = nil
 	s.LoadWarnings = nil
+	s.ResolvedSources = nil
 }
 
 // UserConfig returns the global user configuration.
@@ -182,6 +187,7 @@ func (s *ConfigService) Config(cache bool) (*Config, error) {
 	}
 
 	rv := cascade.Resolve(s.Runtime.Env().Get)
+	s.ResolvedSources = rv.Sources
 
 	// Map cascade provider errors to LoadWarnings.
 	for _, pe := range rv.Errors {
