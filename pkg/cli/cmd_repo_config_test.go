@@ -178,6 +178,19 @@ func TestConfigTemplateCommand_Completion(t *testing.T) {
 	require.Contains(t, suggestions, "project")
 }
 
+func TestConfigCommand_ExplainFlagCompletion(t *testing.T) {
+	t.Parallel()
+	sb := NewSandbox(t)
+
+	comp := NewCompletionProcess(t, false, 0, "repo", "config", "--explain", "d").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, comp.Err)
+
+	suggestions := parseCompletionSuggestions(string(comp.Stdout))
+	require.Contains(t, suggestions, "defaultKeg")
+	require.Contains(t, suggestions, "defaultRegistry")
+	require.NotContains(t, suggestions, "logLevel")
+}
+
 func TestConfigCommand_ExplainFlag(t *testing.T) {
 	t.Parallel()
 

@@ -200,8 +200,8 @@ type ConfigExplainOptions struct {
 	Field string
 }
 
-// configExplainFields lists the scalar config fields eligible for explain.
-var configExplainFields = []string{
+// ConfigExplainFields lists the scalar config fields eligible for explain.
+var ConfigExplainFields = []string{
 	"defaultKeg",
 	"fallbackKeg",
 	"logFile",
@@ -250,17 +250,17 @@ func (t *Tap) ConfigExplain(ctx context.Context, opts ConfigExplainOptions) ([]C
 	// Build env config by checking TAP_* env vars.
 	envCfg := t.loadEnvConfig()
 
-	fields := configExplainFields
+	fields := ConfigExplainFields
 	if opts.Field != "" {
 		found := false
-		for _, f := range configExplainFields {
+		for _, f := range ConfigExplainFields {
 			if f == opts.Field {
 				found = true
 				break
 			}
 		}
 		if !found {
-			return nil, fmt.Errorf("unknown config field %q; valid fields: %s", opts.Field, strings.Join(configExplainFields, ", "))
+			return nil, fmt.Errorf("unknown config field %q; valid fields: %s", opts.Field, strings.Join(ConfigExplainFields, ", "))
 		}
 		fields = []string{opts.Field}
 	}
