@@ -32,10 +32,12 @@ func registerDoctor(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 		opts := tapper.DoctorOptions{
 			KegTargetOptions: resolveKegTarget(in.Keg, defaults),
 		}
-		issues, err := tap.Doctor(ctx, opts)
+		configIssues := tap.DoctorConfig()
+		kegIssues, err := tap.Doctor(ctx, opts)
 		if err != nil {
 			return errorResult(err), nil, nil
 		}
+		issues := append(configIssues, kegIssues...)
 
 		if len(issues) == 0 {
 			return textResult("ok: keg is healthy"), nil, nil

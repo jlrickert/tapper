@@ -1,14 +1,24 @@
 package tapper
 
 import (
+	"errors"
 	"fmt"
 	"path/filepath"
 	"sort"
 	"strings"
 
 	"github.com/jlrickert/cli-toolkit/toolkit"
+	"github.com/jlrickert/tapper/pkg/keg"
 	kegurl "github.com/jlrickert/tapper/pkg/keg_url"
 )
+
+// ConfigLoadWarning represents a non-fatal issue encountered while loading config.
+type ConfigLoadWarning struct {
+	Source  string // "user config" or "project config"
+	Path    string // file path that caused the issue
+	Message string // human-readable description
+	Err     error  // underlying error
+}
 
 // ConfigService loads, merges, and resolves tapper configuration state.
 type ConfigService struct {
@@ -18,6 +28,11 @@ type ConfigService struct {
 
 	// ConfigPath is the path to the config file.
 	ConfigPath string
+
+	// LoadWarnings accumulates non-fatal issues from the last Config() call.
+	// Missing config files are not warnings (graceful degradation). Corrupt
+	// YAML, permission errors, etc. are recorded here.
+	LoadWarnings []ConfigLoadWarning
 
 	// Cached configs.
 	userCache    *Config
@@ -43,6 +58,7 @@ func (s *ConfigService) ResetCache() {
 	s.mergedCache = nil
 	s.userCache = nil
 	s.projectCache = nil
+	s.LoadWarnings = nil
 }
 
 // UserConfig returns the global user configuration.
@@ -95,8 +111,38 @@ func (s *ConfigService) Config(cache bool) (*Config, error) {
 		return cfg, nil
 	}
 
-	user, _ := s.UserConfig(cache)
-	project, _ := s.ProjectConfig(cache)
+	s.LoadWarnings = nil
+
+	var user *Config
+	if u, err := s.UserConfig(cache); err != nil {
+		if !errors.Is(err, keg.ErrNotExist) {
+			path := filepath.Join(s.PathService.ConfigRoot, "config.yaml")
+			s.LoadWarnings = append(s.LoadWarnings, ConfigLoadWarning{
+				Source:  "user config",
+				Path:    path,
+				Message: fmt.Sprintf("failed to load user config at %s: %v", path, err),
+				Err:     err,
+			})
+		}
+	} else {
+		user = u
+	}
+
+	var project *Config
+	if p, err := s.ProjectConfig(cache); err != nil {
+		if !errors.Is(err, keg.ErrNotExist) {
+			path := filepath.Join(s.PathService.LocalConfigRoot, "config.yaml")
+			s.LoadWarnings = append(s.LoadWarnings, ConfigLoadWarning{
+				Source:  "project config",
+				Path:    path,
+				Message: fmt.Sprintf("failed to load project config at %s: %v", path, err),
+				Err:     err,
+			})
+		}
+	} else {
+		project = p
+	}
+
 	s.mergedCache = MergeConfig(user, project)
 	return s.mergedCache, nil
 }

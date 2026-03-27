@@ -20,18 +20,24 @@ func NewDoctorCmd(deps *Deps) *cobra.Command {
 		Short: "check keg health and report issues",
 		Long: `Scan the resolved keg and report health issues.
 
-Checks include: config validation, entity and tag consistency,
+Checks include: tapper config validation, entity and tag consistency,
 node structural integrity, and broken link detection.
 
 Exit code 0 when no errors found, 1 when errors are present.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			applyKegTargetProfile(deps, &opts.KegTargetOptions)
 			ctx := cmd.Context()
-			issues, err := deps.Tap.Doctor(ctx, opts)
+
+			// Tapper-level config checks (no keg required).
+			configIssues := deps.Tap.DoctorConfig()
+
+			// Keg-level health checks.
+			kegIssues, err := deps.Tap.Doctor(ctx, opts)
 			if err != nil {
 				return err
 			}
 
+			issues := append(configIssues, kegIssues...)
 			out := cmd.OutOrStdout()
 
 			if tagsMissing {
