@@ -110,12 +110,30 @@ config precedence: explicit alias → `defaultKeg` → `kegMap` path match →
 
 ### Config Hierarchy
 
-- User config: `~/.config/tapper/config.yaml`
-- Project config: `.tapper/config.yaml`
-- Keg config: `<keg-root>/keg`
+Tapper config is resolved via a five-tier cascade (most specific wins):
 
-Config is merged by `ConfigService` in `pkg/tapper/config_service.go`. Project
-config overrides user config for `defaultKeg`.
+| Rank | Source | Discovery |
+| ---- | ------ | --------- |
+| 5 | CLI flags (`--log-level`, etc.) | Cobra `cmd.Flags().Changed()` |
+| 4 | Env vars (`TAP_*`) | `rt.Env().Get()` prefix scan |
+| 3 | Project config | `.tapper/config.yaml` (fixed path) |
+| 2 | User config | `~/.config/tapper/config.yaml` (fixed path) |
+| 1 | Defaults | Hardcoded in code |
+
+Tiers 1-4 are resolved by `cfgcascade.Cascade[*Config]` in
+`ConfigService.Config()` (`pkg/tapper/config_service.go`). Tier 5 (CLI flags)
+is handled by Cobra's `Changed()` check in `PersistentPreRunE`.
+
+Supported env vars: `TAP_DEFAULT_KEG`, `TAP_FALLBACK_KEG`, `TAP_LOG_FILE`,
+`TAP_LOG_LEVEL`, `TAP_DEFAULT_REGISTRY`, `TAP_KEG_SEARCH_PATHS`
+(colon-separated).
+
+Use `tap config --explain FIELD` to see which source set a value, or
+`tap config --show-sources` for all fields. The `--strict` flag makes config
+load warnings (corrupt YAML) into hard errors.
+
+Keg config (`<keg-root>/keg`) is separate from tapper config — different
+schema, different purpose (keg metadata vs tapper resolution).
 
 ### Dependency: cli-toolkit
 

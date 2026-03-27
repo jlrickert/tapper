@@ -7,18 +7,18 @@
   "properties": {
     "defaultKeg": {
       "type": "string",
-      "description": "Alias used when no explicit keg is requested."
+      "description": "Alias used when no explicit keg is requested. Override with TAP_DEFAULT_KEG env var."
     },
     "fallbackKeg": {
       "type": "string",
-      "description": "Last-resort keg alias used when no mapped or default alias resolves."
+      "description": "Last-resort keg alias used when no mapped or default alias resolves. Override with TAP_FALLBACK_KEG env var."
     },
     "defaultRegistry": {
       "type": "string",
-      "description": "Registry name used by default for API-style targets."
+      "description": "Registry name used by default for API-style targets. Override with TAP_DEFAULT_REGISTRY env var."
     },
     "kegSearchPaths": {
-      "description": "One path or a list of paths scanned for file-backed kegs.",
+      "description": "One path or a list of paths scanned for file-backed kegs. Override with TAP_KEG_SEARCH_PATHS env var (colon-separated).",
       "oneOf": [
         {
           "type": "string",
@@ -148,11 +148,11 @@
     },
     "logFile": {
       "type": "string",
-      "description": "Path to the log output file."
+      "description": "Path to the log output file. Override with TAP_LOG_FILE env var."
     },
     "logLevel": {
       "type": "string",
-      "description": "Log verbosity level."
+      "description": "Log verbosity level (debug, info, warn, error). Override with TAP_LOG_LEVEL env var."
     },
     "updated": {
       "type": "string",
