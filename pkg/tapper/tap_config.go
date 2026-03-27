@@ -187,6 +187,121 @@ func (t *Tap) ConfigEdit(ctx context.Context, opts ConfigEditOptions) error {
 	return nil
 }
 
+// ConfigExplainResult describes the provenance of a single config field.
+type ConfigExplainResult struct {
+	Field  string // field name (e.g. "defaultKeg")
+	Value  string // resolved value in the merged config
+	Source string // which provider set this value ("user config", "project config", "env vars", "default")
+}
+
+// ConfigExplainOptions configures behavior for Tap.ConfigExplain.
+type ConfigExplainOptions struct {
+	// Field limits the result to a single field. Empty means all fields.
+	Field string
+}
+
+// configExplainFields lists the scalar config fields eligible for explain.
+var configExplainFields = []string{
+	"defaultKeg",
+	"fallbackKeg",
+	"logFile",
+	"logLevel",
+	"defaultRegistry",
+	"kegSearchPaths",
+}
+
+// configFieldGetter returns the string value of a named field from a Config.
+func configFieldGetter(cfg *Config, field string) string {
+	if cfg == nil {
+		return ""
+	}
+	switch field {
+	case "defaultKeg":
+		return cfg.DefaultKeg()
+	case "fallbackKeg":
+		return cfg.FallbackKeg()
+	case "logFile":
+		return cfg.LogFile()
+	case "logLevel":
+		return cfg.LogLevel()
+	case "defaultRegistry":
+		return cfg.DefaultRegistry()
+	case "kegSearchPaths":
+		return strings.Join(cfg.KegSearchPaths(), ":")
+	default:
+		return ""
+	}
+}
+
+// ConfigExplain returns provenance for config fields, showing which source set
+// each value. It loads each tier individually and walks from most-specific to
+// least-specific to determine the effective source.
+func (t *Tap) ConfigExplain(ctx context.Context, opts ConfigExplainOptions) ([]ConfigExplainResult, error) {
+	// Load the merged config to get final values.
+	merged, err := t.ConfigService.Config(true)
+	if err != nil {
+		return nil, fmt.Errorf("unable to load merged config: %w", err)
+	}
+
+	// Load each tier individually. Missing configs are nil (not errors).
+	userCfg, _ := t.ConfigService.UserConfig(true)
+	projectCfg, _ := t.ConfigService.ProjectConfig(true)
+
+	// Build env config by checking TAP_* env vars.
+	envCfg := t.loadEnvConfig()
+
+	fields := configExplainFields
+	if opts.Field != "" {
+		found := false
+		for _, f := range configExplainFields {
+			if f == opts.Field {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return nil, fmt.Errorf("unknown config field %q; valid fields: %s", opts.Field, strings.Join(configExplainFields, ", "))
+		}
+		fields = []string{opts.Field}
+	}
+
+	var results []ConfigExplainResult
+	for _, field := range fields {
+		mergedVal := configFieldGetter(merged, field)
+
+		// Walk from most-specific to least-specific to find which source set this value.
+		source := "default"
+		if envVal := configFieldGetter(envCfg, field); envVal != "" {
+			source = "env vars"
+		} else if projVal := configFieldGetter(projectCfg, field); projVal != "" {
+			source = "project config"
+		} else if userVal := configFieldGetter(userCfg, field); userVal != "" {
+			source = "user config"
+		}
+
+		results = append(results, ConfigExplainResult{
+			Field:  field,
+			Value:  mergedVal,
+			Source: source,
+		})
+	}
+
+	return results, nil
+}
+
+// loadEnvConfig builds a Config from TAP_* env vars, or returns nil if none are set.
+func (t *Tap) loadEnvConfig() *Config {
+	getenv := t.Runtime.Env().Get
+	envMap := make(map[string]string)
+	for _, key := range tapEnvVarKeys {
+		val := getenv(tapEnvPrefix + key)
+		if val != "" {
+			envMap[strings.ToLower(key)] = val
+		}
+	}
+	return configFromEnvMap(envMap)
+}
+
 func defaultUserKegSearchPath(rt *toolkit.Runtime) string {
 	switch runtime.GOOS {
 	case "darwin", "linux":

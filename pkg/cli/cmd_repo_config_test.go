@@ -177,3 +177,64 @@ func TestConfigTemplateCommand_Completion(t *testing.T) {
 	require.Contains(t, suggestions, "user")
 	require.Contains(t, suggestions, "project")
 }
+
+func TestConfigCommand_ExplainFlag(t *testing.T) {
+	t.Parallel()
+
+	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
+	require.NoError(t, sb.Setwd("/home/testuser"))
+
+	res := NewProcess(t, false, "repo", "config", "--explain", "defaultKeg").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+
+	stdout := string(res.Stdout)
+	require.Contains(t, stdout, "defaultKeg =")
+	require.Contains(t, stdout, "source:")
+}
+
+func TestConfigCommand_ExplainFlagWithEnvVar(t *testing.T) {
+	t.Parallel()
+
+	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
+	require.NoError(t, sb.Setwd("/home/testuser"))
+	require.NoError(t, sb.Runtime().Env().Set("TAP_DEFAULT_KEG", "envkeg"))
+
+	res := NewProcess(t, false, "repo", "config", "--explain", "defaultKeg").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+
+	stdout := string(res.Stdout)
+	require.Contains(t, stdout, "defaultKeg = envkeg")
+	require.Contains(t, stdout, "source: env vars")
+}
+
+func TestConfigCommand_ShowSourcesFlag(t *testing.T) {
+	t.Parallel()
+
+	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
+	require.NoError(t, sb.Setwd("/home/testuser"))
+
+	res := NewProcess(t, false, "repo", "config", "--show-sources").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+
+	stdout := string(res.Stdout)
+	// Should contain all field names.
+	require.Contains(t, stdout, "defaultKeg")
+	require.Contains(t, stdout, "fallbackKeg")
+	require.Contains(t, stdout, "logFile")
+	require.Contains(t, stdout, "logLevel")
+	require.Contains(t, stdout, "defaultRegistry")
+	require.Contains(t, stdout, "kegSearchPaths")
+	// Should have source annotations in brackets.
+	require.Contains(t, stdout, "[")
+}
+
+func TestConfigCommand_ExplainUnknownField(t *testing.T) {
+	t.Parallel()
+
+	sb := NewSandbox(t)
+	require.NoError(t, sb.Setwd("/home/testuser"))
+
+	res := NewProcess(t, false, "repo", "config", "--explain", "nonexistent").Run(sb.Context(), sb.Runtime())
+	require.Error(t, res.Err)
+	require.Contains(t, string(res.Stderr), "unknown config field")
+}
