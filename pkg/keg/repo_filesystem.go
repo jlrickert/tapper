@@ -138,7 +138,8 @@ func NewFsRepoFromEnvOrSearch(ctx context.Context, rt *toolkit.Runtime) (*FsRepo
 	}
 
 	// 5) fallback default: use XDG config dir or $HOME/.config/keg
-	if cfgDir, err := toolkit.UserConfigPath(rt); err == nil {
+	cfgDir, cfgErr := toolkit.UserConfigPath(rt)
+	if cfgErr == nil {
 		defDir := filepath.Join(cfgDir, "keg")
 		// create directory if missing? only choose as root, don't create file.
 		f := &FsRepo{
@@ -155,7 +156,7 @@ func NewFsRepoFromEnvOrSearch(ctx context.Context, rt *toolkit.Runtime) (*FsRepo
 		f.Name(),
 		"NewFsRepoFromEnvOrSearch",
 		0,
-		errors.New("could not determine fallback config dir"),
+		fmt.Errorf("could not determine fallback config dir: %w", cfgErr),
 		false,
 	)
 }

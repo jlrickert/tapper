@@ -175,8 +175,9 @@ func (t *Tap) Serve(ctx context.Context, opts ServeOptions) (*ServeResult, error
 type ServeHandler struct {
 	mux          *http.ServeMux
 	sh           *serveHandler
-	watcherClose func() // nil when no watcher is active
+	watcherClose func()          // nil when no watcher is active
 	sse          *sseBroadcaster // nil when watch mode is disabled
+	wg           sync.WaitGroup  // tracks background goroutines
 }
 
 // ServeHTTP implements http.Handler.
@@ -184,12 +185,14 @@ func (h *ServeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.mux.ServeHTTP(w, r)
 }
 
-// Close releases background resources. It is safe to call multiple times.
+// Close releases background resources and waits for all background
+// goroutines to drain. It is safe to call multiple times.
 func (h *ServeHandler) Close() {
 	if h.watcherClose != nil {
 		h.watcherClose()
 		h.watcherClose = nil
 	}
+	h.wg.Wait()
 }
 
 // NewServeHandler builds a ServeHandler that dynamically renders KEG pages.
@@ -279,7 +282,9 @@ func (t *Tap) NewServeHandler(ctx context.Context, opts ServeOptions) (*ServeHan
 			if watchErr == nil {
 				ch, chErr := w.Watch(ctx)
 				if chErr == nil {
+					handler.wg.Add(1)
 					go func() {
+						defer handler.wg.Done()
 						// Broadcast-level debounce: accumulate events and
 						// broadcast once after 500ms of quiet. This prevents
 						// the reload loop caused by editors emitting multiple
@@ -315,7 +320,9 @@ func (t *Tap) NewServeHandler(ctx context.Context, opts ServeOptions) (*ServeHan
 			if watchErr == nil {
 				ch, chErr := w.Watch(ctx)
 				if chErr == nil {
+					handler.wg.Add(1)
 					go func() {
+						defer handler.wg.Done()
 						for range ch {
 							k.InvalidateDex()
 						}

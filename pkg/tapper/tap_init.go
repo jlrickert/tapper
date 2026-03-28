@@ -13,10 +13,10 @@ import (
 
 type InitOptions struct {
 	// Destination selection. Exactly one group may be set.
-	Project bool
-	User    bool
-	Cwd     bool   // use cwd as the project root base instead of git root
-	Path    string // explicit filesystem path; implies local destination
+	Project  bool
+	User     bool
+	Cwd      bool   // use cwd as the project root base instead of git root
+	Path     string // explicit filesystem path; implies local destination
 	Registry bool
 
 	// Registry-specific options.

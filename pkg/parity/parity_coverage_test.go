@@ -27,21 +27,21 @@ var tapMethodToSurfaces = map[string]struct {
 	MCP string // MCP tool name (e.g., "list", "repo_init", "index")
 }{
 	// Read operations
-	"Cat":          {CLI: "cat", MCP: "cat"},
-	"List":         {CLI: "list", MCP: "list"},
-	"Grep":         {CLI: "grep", MCP: "grep"},
-	"Tags":         {CLI: "tags", MCP: "tags"},
-	"Backlinks":    {CLI: "backlinks", MCP: "backlinks"},
-	"Links":        {CLI: "links", MCP: "links"},
-	"ListKegs":     {CLI: "repo list", MCP: "list_kegs"},
-	"Info":         {CLI: "config", MCP: "info"},
-	"KegInfo":      {CLI: "info", MCP: "keg_info"},
-	"Stats":        {CLI: "stats", MCP: "stats"},
-	"Dir":          {CLI: "dir", MCP: "dir"},
-	"Graph":        {CLI: "graph", MCP: "graph"},
-	"ListIndexes":  {CLI: "index list", MCP: "list_indexes"},
-	"IndexCat":     {CLI: "index get", MCP: "index_cat"},
-	"Doctor":       {CLI: "doctor", MCP: "doctor"},
+	"Cat":         {CLI: "cat", MCP: "cat"},
+	"List":        {CLI: "list", MCP: "list"},
+	"Grep":        {CLI: "grep", MCP: "grep"},
+	"Tags":        {CLI: "tags", MCP: "tags"},
+	"Backlinks":   {CLI: "backlinks", MCP: "backlinks"},
+	"Links":       {CLI: "links", MCP: "links"},
+	"ListKegs":    {CLI: "repo list", MCP: "list_kegs"},
+	"Info":        {CLI: "config", MCP: "info"},
+	"KegInfo":     {CLI: "info", MCP: "keg_info"},
+	"Stats":       {CLI: "stats", MCP: "stats"},
+	"Dir":         {CLI: "dir", MCP: "dir"},
+	"Graph":       {CLI: "graph", MCP: "graph"},
+	"ListIndexes": {CLI: "index list", MCP: "list_indexes"},
+	"IndexCat":    {CLI: "index get", MCP: "index_cat"},
+	"Doctor":      {CLI: "doctor", MCP: "doctor"},
 
 	// Write operations
 	"Create": {CLI: "create", MCP: "create"},
@@ -59,13 +59,13 @@ var tapMethodToSurfaces = map[string]struct {
 	"NodeRestore":  {CLI: "snapshot restore", MCP: "node_restore"},
 
 	// File operations
-	"ListFiles":    {CLI: "file ls", MCP: "list_files"},
-	"ListImages":   {CLI: "image ls", MCP: "list_images"},
-	"DeleteFile":   {CLI: "file rm", MCP: "delete_file"},
-	"DeleteImage":  {CLI: "image rm", MCP: "delete_image"},
-	"UploadFile":   {CLI: "file upload", MCP: "upload_file"},
-	"DownloadFile": {CLI: "file download", MCP: "download_file"},
-	"UploadImage":  {CLI: "image upload", MCP: "upload_image"},
+	"ListFiles":     {CLI: "file ls", MCP: "list_files"},
+	"ListImages":    {CLI: "image ls", MCP: "list_images"},
+	"DeleteFile":    {CLI: "file rm", MCP: "delete_file"},
+	"DeleteImage":   {CLI: "image rm", MCP: "delete_image"},
+	"UploadFile":    {CLI: "file upload", MCP: "upload_file"},
+	"DownloadFile":  {CLI: "file download", MCP: "download_file"},
+	"UploadImage":   {CLI: "image upload", MCP: "upload_image"},
 	"DownloadImage": {CLI: "image download", MCP: "download_image"},
 
 	// Lock operations

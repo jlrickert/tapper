@@ -16,8 +16,10 @@ func main() {
 	cli.LicenseText = licenseText
 
 	ctx := context.Background()
-	//ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
-	//defer cancel()
+	// Signal handling is intentionally not registered at the entrypoint.
+	// Long-lived commands (e.g., serve) install their own signal handlers
+	// with narrower scope so that short-lived commands exit immediately
+	// without intercepting SIGINT.
 
 	rt, err := toolkit.NewRuntime()
 	if err != nil {

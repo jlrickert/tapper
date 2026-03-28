@@ -29,7 +29,7 @@ type ChangesIndex struct {
 // ParseChangesIndex parses the serialized dex/changes.md bytes into a
 // ChangesIndex. Each non-empty line must be in the format:
 //
-//	* YYYY-MM-DD HH:MM:SSZ [TITLE](../ID)
+//   - YYYY-MM-DD HH:MM:SSZ [TITLE](../ID)
 //
 // Malformed lines are silently skipped. An empty input yields an empty
 // ChangesIndex with no error.
@@ -84,8 +84,8 @@ func parseChangesLine(line string) (NodeIndexEntry, bool) {
 	if sep < 0 {
 		return NodeIndexEntry{}, false
 	}
-	title := rest[1:sep]                  // skip leading "["
-	id := rest[sep+5 : len(rest)-1]       // skip "](../" and trailing ")"
+	title := rest[1:sep]            // skip leading "["
+	id := rest[sep+5 : len(rest)-1] // skip "](../" and trailing ")"
 
 	if id == "" {
 		return NodeIndexEntry{}, false
@@ -161,7 +161,7 @@ func (idx *ChangesIndex) Clear(ctx context.Context) error {
 // Data serializes the ChangesIndex to the canonical dex/changes.md format.
 // Each entry is emitted as:
 //
-//	* YYYY-MM-DD HH:MM:SSZ [TITLE](../ID)
+//   - YYYY-MM-DD HH:MM:SSZ [TITLE](../ID)
 //
 // Entries are in reverse-chronological order (newest first). An empty index
 // returns an empty byte slice.

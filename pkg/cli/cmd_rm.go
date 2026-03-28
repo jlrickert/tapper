@@ -17,7 +17,7 @@ func NewRemoveCmd(deps *Deps) *cobra.Command {
 
 Nodes can be specified as positional arguments or selected via --query.
 Inbound links from other nodes are cleaned up.`,
-		Aliases: []string{"remove"},
+		Aliases:           []string{"remove"},
 		ValidArgsFunction: nodeIDCompletionFunc(deps, 0),
 		Args: func(cmd *cobra.Command, args []string) error {
 			if opts.Query != "" {

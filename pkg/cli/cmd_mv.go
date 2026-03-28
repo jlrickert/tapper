@@ -15,7 +15,7 @@ func NewMoveCmd(deps *Deps) *cobra.Command {
 
 All ../SRC references in other nodes are rewritten to ../DST. The
 destination must not already exist. Node 0 cannot be moved.`,
-		Aliases: []string{"move"},
+		Aliases:           []string{"move"},
 		Args:              cobra.ExactArgs(2),
 		ValidArgsFunction: nodeIDCompletionFunc(deps, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {

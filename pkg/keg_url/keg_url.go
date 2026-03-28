@@ -77,15 +77,15 @@ type TargetOption = func(t *Target)
 type HTTPOption = func(t *Target)
 
 const (
-	SchemeMemory   = "memory"
-	SchemeFile     = "file"
-	SchemeGit      = "git"
-	SchemeSSH      = "ssh"
-	SchemeHTTP     = "http"
-	SchemeHTTPs    = "https"
-	SchemeAlias    = "keg"
+	SchemeMemory = "memory"
+	SchemeFile   = "file"
+	SchemeGit    = "git"
+	SchemeSSH    = "ssh"
+	SchemeHTTP   = "http"
+	SchemeHTTPs  = "https"
+	SchemeAlias  = "keg"
 	// Deprecated: Use SchemeAlias instead. SchemaAlias is a misspelling retained for backward compatibility.
-	SchemaAlias = SchemeAlias
+	SchemaAlias    = SchemeAlias
 	SchemeRegistry = "registry"
 	SchemeS3       = "s3"
 )

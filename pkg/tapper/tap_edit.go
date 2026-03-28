@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"sync"
 
 	"github.com/jlrickert/cli-toolkit/toolkit"
 	"github.com/jlrickert/tapper/pkg/keg"
@@ -197,28 +198,47 @@ func (t *Tap) editWithTempFile(ctx context.Context, k *keg.Keg, id keg.NodeId) e
 	editCtx, editCancel := context.WithCancel(ctx)
 	defer editCancel()
 
+	// wg tracks background goroutines so we can wait for them to drain
+	// before returning. This prevents silent resource leaks if the editor
+	// exits before the goroutines finish processing events.
+	var wg sync.WaitGroup
+
 	// Start reverse sync: watch real node files and update temp file.
 	if fsRepo, ok := k.Repo.(*keg.FsRepo); ok {
 		w, watchErr := fsRepo.WatchEvents()
 		if watchErr == nil {
 			ch, chErr := w.Watch(editCtx, id)
 			if chErr == nil {
-				go reverseSync(editCtx, t.Runtime, k, id, tempPath, ch)
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					reverseSync(editCtx, t.Runtime, k, id, tempPath, ch)
+				}()
 			} else {
 				_ = w.Close()
 			}
-			// Close watcher when edit context is done.
+			// Close watcher when edit context is done. This unblocks
+			// reverseSync by closing the event channel.
+			wg.Add(1)
 			go func() {
+				defer wg.Done()
 				<-editCtx.Done()
 				_ = w.Close()
 			}()
 		}
 	}
 
-	if err := editWithLiveSaves(editCtx, t.Runtime, tempPath, func(editedRaw []byte) error {
+	editErr := editWithLiveSaves(editCtx, t.Runtime, tempPath, func(editedRaw []byte) error {
 		return t.applyEditedNodeRaw(ctx, k, id, editedRaw)
-	}); err != nil {
-		return fmt.Errorf("unable to edit node: %w", err)
+	})
+
+	// Cancel the edit context to signal goroutines, then wait for them
+	// to drain before returning.
+	editCancel()
+	wg.Wait()
+
+	if editErr != nil {
+		return fmt.Errorf("unable to edit node: %w", editErr)
 	}
 	return nil
 }

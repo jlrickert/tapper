@@ -107,11 +107,11 @@ func NewDexFromRepo(ctx context.Context, repo Repository, opts ...DexOption) (*D
 
 	// Each goroutine writes to its own result slot; no shared mutable state.
 	var (
-		nodes    NodeIndex
-		tags     TagIndex
-		links    LinkIndex
+		nodes     NodeIndex
+		tags      TagIndex
+		links     LinkIndex
 		backlinks BacklinkIndex
-		changes  ChangesIndex
+		changes   ChangesIndex
 
 		nodeErr     error
 		tagErr      error

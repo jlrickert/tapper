@@ -12,10 +12,11 @@ import (
 // supports key=value attribute predicates from meta.yaml.
 //
 // Fixture state (joe/kegs/personal):
-//   node 0 - meta: {tags: [planned]}
-//   node 1 - meta: {entity: trick, tags: [planned]}
-//   node 2 - meta: {entity: concept}
-//   node 3 - meta: {}
+//
+//	node 0 - meta: {tags: [planned]}
+//	node 1 - meta: {entity: trick, tags: [planned]}
+//	node 2 - meta: {entity: concept}
+//	node 3 - meta: {}
 func TestQuery_AttrPredicate_Tags(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

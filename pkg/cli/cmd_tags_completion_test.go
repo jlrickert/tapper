@@ -42,4 +42,3 @@ func TestTagsCommand_CompletionFiltersByPrefix(t *testing.T) {
 	suggestions := parseCompletionSuggestions(string(comp.Stdout))
 	require.ElementsMatch(t, []string{"alpha", "alpine"}, suggestions)
 }
-
