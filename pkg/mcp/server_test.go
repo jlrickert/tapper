@@ -232,6 +232,64 @@ func TestMCP_ListIdOnly(t *testing.T) {
 	require.Contains(t, text, "1")
 }
 
+func TestMCP_ListDefaultLimit(t *testing.T) {
+	t.Parallel()
+	session, ctx := newTestSession(t)
+
+	// Omitting limit should apply the MCP default (50). The test fixture
+	// has only 2 nodes, so all are returned — but the important thing is
+	// that the call succeeds with the default applied.
+	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "list",
+		Arguments: map[string]any{
+			"id_only": true,
+		},
+	})
+	require.NoError(t, err)
+	require.False(t, res.IsError)
+	text := extractText(t, res)
+	require.Contains(t, text, "0")
+	require.Contains(t, text, "1")
+}
+
+func TestMCP_ListUnlimitedWithNegativeOne(t *testing.T) {
+	t.Parallel()
+	session, ctx := newTestSession(t)
+
+	// Passing limit=-1 should request unlimited results (no cap).
+	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "list",
+		Arguments: map[string]any{
+			"id_only": true,
+			"limit":   -1,
+		},
+	})
+	require.NoError(t, err)
+	require.False(t, res.IsError)
+	text := extractText(t, res)
+	require.Contains(t, text, "0")
+	require.Contains(t, text, "1")
+}
+
+func TestMCP_ListExplicitLimit(t *testing.T) {
+	t.Parallel()
+	session, ctx := newTestSession(t)
+
+	// Passing limit=1 should cap at 1 result.
+	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "list",
+		Arguments: map[string]any{
+			"id_only": true,
+			"limit":   1,
+		},
+	})
+	require.NoError(t, err)
+	require.False(t, res.IsError)
+	text := extractText(t, res)
+	lines := strings.Split(strings.TrimSpace(text), "\n")
+	require.Len(t, lines, 1, "limit=1 should return exactly 1 result")
+}
+
 func TestMCP_Grep(t *testing.T) {
 	t.Parallel()
 	session, ctx := newTestSession(t)

@@ -94,32 +94,35 @@ func TestParity_ReadOperations(t *testing.T) {
 		},
 
 		// --- list (Tap.List) ---
-		// Note: CLI defaults to --limit 50; passing -n 0 means unlimited.
-		// MCP defaults to limit=0 (Go zero value), which also means unlimited.
-		// Both surfaces produce the same result here, but the defaults differ.
+		// CLI defaults to --limit 0 (unlimited). MCP defaults to 50 when limit
+		// is omitted (0); passing -1 requests unlimited. Both surfaces use
+		// explicit unlimited here so output matches.
 		{
 			Name:    "list/id_only",
-			CLIArgs: []string{"list", "--id-only", "-n", "0"},
+			CLIArgs: []string{"list", "--id-only"},
 			MCPTool: "list",
 			MCPInput: map[string]any{
 				"id_only": true,
+				"limit":   -1,
 			},
 		},
 		{
 			Name:    "list/id_only_reverse",
-			CLIArgs: []string{"list", "--id-only", "--reverse", "-n", "0"},
+			CLIArgs: []string{"list", "--id-only", "--reverse"},
 			MCPTool: "list",
 			MCPInput: map[string]any{
 				"id_only": true,
 				"reverse": true,
+				"limit":   -1,
 			},
 		},
 		{
 			Name:    "list/custom_format",
-			CLIArgs: []string{"list", "-f", "%i %t", "-n", "0"},
+			CLIArgs: []string{"list", "-f", "%i %t"},
 			MCPTool: "list",
 			MCPInput: map[string]any{
 				"format": "%i %t",
+				"limit":  -1,
 			},
 		},
 
@@ -131,6 +134,7 @@ func TestParity_ReadOperations(t *testing.T) {
 			MCPInput: map[string]any{
 				"query":   "Hello",
 				"id_only": true,
+				"limit":   -1,
 			},
 		},
 		{
@@ -139,6 +143,7 @@ func TestParity_ReadOperations(t *testing.T) {
 			MCPTool: "grep",
 			MCPInput: map[string]any{
 				"query": "Hello",
+				"limit": -1,
 			},
 		},
 		{
@@ -148,6 +153,7 @@ func TestParity_ReadOperations(t *testing.T) {
 			MCPInput: map[string]any{
 				"query":   "ZZZZNOTFOUND",
 				"id_only": true,
+				"limit":   -1,
 			},
 			Compare: func(t *testing.T, cliOut, mcpOut string) {
 				t.Helper()
@@ -159,10 +165,12 @@ func TestParity_ReadOperations(t *testing.T) {
 
 		// --- tags (Tap.Tags) ---
 		{
-			Name:     "tags/list_all",
-			CLIArgs:  []string{"tags"},
-			MCPTool:  "tags",
-			MCPInput: map[string]any{},
+			Name:    "tags/list_all",
+			CLIArgs: []string{"tags"},
+			MCPTool: "tags",
+			MCPInput: map[string]any{
+				"limit": -1,
+			},
 			Compare: func(t *testing.T, cliOut, mcpOut string) {
 				t.Helper()
 				// Both should list the same tags; order may vary.
@@ -177,6 +185,7 @@ func TestParity_ReadOperations(t *testing.T) {
 			MCPInput: map[string]any{
 				"query":   "test",
 				"id_only": true,
+				"limit":   -1,
 			},
 		},
 
@@ -188,6 +197,7 @@ func TestParity_ReadOperations(t *testing.T) {
 			MCPInput: map[string]any{
 				"node_id": "0",
 				"id_only": true,
+				"limit":   -1,
 			},
 		},
 
@@ -199,6 +209,102 @@ func TestParity_ReadOperations(t *testing.T) {
 			MCPInput: map[string]any{
 				"node_id": "1",
 				"id_only": true,
+				"limit":   -1,
+			},
+		},
+
+		// --- list with offset (Tap.List) ---
+		{
+			Name:    "list/offset_skips_results",
+			CLIArgs: []string{"list", "--id-only", "--offset", "1"},
+			MCPTool: "list",
+			MCPInput: map[string]any{
+				"id_only": true,
+				"offset":  1,
+				"limit":   -1,
+			},
+		},
+
+		// --- tags with offset (Tap.Tags) ---
+		{
+			Name:    "tags/offset_skips_tag_list",
+			CLIArgs: []string{"tags", "--offset", "1"},
+			MCPTool: "tags",
+			MCPInput: map[string]any{
+				"offset": 1,
+				"limit":  -1,
+			},
+			Compare: func(t *testing.T, cliOut, mcpOut string) {
+				t.Helper()
+				// Fixture has 3 tags: hello, overview, test (sorted).
+				// Offset 1 skips "hello", leaving "overview" and "test".
+				require.ElementsMatch(t, normalizeLines(cliOut), normalizeLines(mcpOut),
+					"tags with offset should match.\nCLI:\n%s\n\nMCP:\n%s", cliOut, mcpOut)
+			},
+		},
+		{
+			Name:    "tags/offset_with_filter",
+			CLIArgs: []string{"tags", "--query", "test or overview", "--id-only", "--offset", "1"},
+			MCPTool: "tags",
+			MCPInput: map[string]any{
+				"query":   "test or overview",
+				"id_only": true,
+				"offset":  1,
+				"limit":   -1,
+			},
+		},
+
+		// --- grep with offset (Tap.Grep) ---
+		{
+			Name:    "grep/offset_skips_results",
+			CLIArgs: []string{"grep", "node", "--id-only", "--ignore-case", "--offset", "1"},
+			MCPTool: "grep",
+			MCPInput: map[string]any{
+				"query":       "node",
+				"id_only":     true,
+				"ignore_case": true,
+				"offset":      1,
+				"limit":       -1,
+			},
+		},
+
+		// --- backlinks with offset (Tap.Backlinks) ---
+		{
+			Name:    "backlinks/offset_skips_results",
+			CLIArgs: []string{"backlinks", "0", "--id-only", "--offset", "1"},
+			MCPTool: "backlinks",
+			MCPInput: map[string]any{
+				"node_id": "0",
+				"id_only": true,
+				"offset":  1,
+				"limit":   -1,
+			},
+			Compare: func(t *testing.T, cliOut, mcpOut string) {
+				t.Helper()
+				// Fixture has 1 backlink to node 0 (from node 1). Offset 1
+				// skips it, leaving empty output on both surfaces.
+				require.Empty(t, strings.TrimSpace(cliOut), "CLI should return empty after offset")
+				require.Empty(t, strings.TrimSpace(mcpOut), "MCP should return empty after offset")
+			},
+		},
+
+		// --- links with offset (Tap.Links) ---
+		{
+			Name:    "links/offset_skips_results",
+			CLIArgs: []string{"links", "1", "--id-only", "--offset", "1"},
+			MCPTool: "links",
+			MCPInput: map[string]any{
+				"node_id": "1",
+				"id_only": true,
+				"offset":  1,
+				"limit":   -1,
+			},
+			Compare: func(t *testing.T, cliOut, mcpOut string) {
+				t.Helper()
+				// Fixture has 1 link from node 1 (to node 0). Offset 1
+				// skips it, leaving empty output on both surfaces.
+				require.Empty(t, strings.TrimSpace(cliOut), "CLI should return empty after offset")
+				require.Empty(t, strings.TrimSpace(mcpOut), "MCP should return empty after offset")
 			},
 		},
 

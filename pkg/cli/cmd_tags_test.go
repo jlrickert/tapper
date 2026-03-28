@@ -133,3 +133,45 @@ func TestTagsCommand_NoMatchesReturnsEmptyOutput(t *testing.T) {
 	require.NoError(t, res.Err)
 	require.Equal(t, "", strings.TrimSpace(string(res.Stdout)))
 }
+
+func TestTagsCommand_OffsetWithTagFilter(t *testing.T) {
+	t.Parallel()
+	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
+
+	for _, title := range []string{"A", "B", "C"} {
+		res := NewProcess(t, false, "create", "--title", title, "--tags", "group").Run(sb.Context(), sb.Runtime())
+		require.NoError(t, res.Err)
+	}
+
+	// Without offset: nodes 1,2,3 match "group".
+	all := NewProcess(t, false, "tags", "group", "--id-only").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, all.Err)
+	require.Equal(t, "1\n2\n3", strings.TrimSpace(string(all.Stdout)))
+
+	// Offset 1: skip first match.
+	offset := NewProcess(t, false, "tags", "group", "--id-only", "--offset", "1").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, offset.Err)
+	require.Equal(t, "2\n3", strings.TrimSpace(string(offset.Stdout)))
+
+	// Offset 1 skips node 1, leaving (2,3). Limit 2 takes first 2: (2,3).
+	combined := NewProcess(t, false, "tags", "group", "--id-only", "-n", "2", "--offset", "1").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, combined.Err)
+	require.Equal(t, "2\n3", strings.TrimSpace(string(combined.Stdout)))
+}
+
+func TestTagsCommand_OffsetListAllTags(t *testing.T) {
+	t.Parallel()
+	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
+
+	res := NewProcess(t, false, "create", "--title", "One", "--tags", "alpha").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+	res = NewProcess(t, false, "create", "--title", "Two", "--tags", "beta").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+	res = NewProcess(t, false, "create", "--title", "Three", "--tags", "gamma").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+
+	// Offset 1 on tag list: skip "alpha", get "beta" and "gamma".
+	offset := NewProcess(t, false, "tags", "--offset", "1").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, offset.Err)
+	require.Equal(t, "beta\ngamma", strings.TrimSpace(string(offset.Stdout)))
+}

@@ -92,6 +92,33 @@ func TestBacklinksCommand_NoBacklinksReturnsEmptyOutput(t *testing.T) {
 	require.Equal(t, "", strings.TrimSpace(string(res.Stdout)))
 }
 
+func TestBacklinksCommand_OffsetSkipsResults(t *testing.T) {
+	t.Parallel()
+	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
+
+	targetCreate := NewProcess(t, false, "create", "--title", "Target").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, targetCreate.Err)
+
+	createWithLinkToTarget(t, sb, "# Source A\n\nSee [target](../1).\n")
+	createWithLinkToTarget(t, sb, "# Source B\n\nAnother link to [target](../1).\n")
+	createWithLinkToTarget(t, sb, "# Source C\n\nYet another [target](../1).\n")
+
+	// Without offset: nodes 2,3,4.
+	all := NewProcess(t, false, "backlinks", "1", "--id-only").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, all.Err)
+	require.Equal(t, "2\n3\n4", strings.TrimSpace(string(all.Stdout)))
+
+	// Offset 1: skip first backlink.
+	offset := NewProcess(t, false, "backlinks", "1", "--id-only", "--offset", "1").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, offset.Err)
+	require.Equal(t, "3\n4", strings.TrimSpace(string(offset.Stdout)))
+
+	// Offset 1 skips node 2, leaving (3,4). Limit 2 takes first 2: (3,4).
+	combined := NewProcess(t, false, "backlinks", "1", "--id-only", "-n", "2", "--offset", "1").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, combined.Err)
+	require.Equal(t, "3\n4", strings.TrimSpace(string(combined.Stdout)))
+}
+
 func createWithLinkToTarget(t *testing.T, sb *testutils.Sandbox, content string) {
 	t.Helper()
 

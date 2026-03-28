@@ -98,6 +98,45 @@ func TestLinksCommand_ListsOutgoingLinks(t *testing.T) {
 	require.Contains(t, out, "2|Target B")
 }
 
+func TestLinksCommand_OffsetSkipsResults(t *testing.T) {
+	t.Parallel()
+	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
+
+	// Create 3 target nodes.
+	for _, title := range []string{"Target A", "Target B", "Target C"} {
+		res := NewProcess(t, false, "create", "--title", title).Run(sb.Context(), sb.Runtime())
+		require.NoError(t, res.Err)
+	}
+
+	// Create source node linking to all three.
+	source := NewProcess(t, true, "create").RunWithIO(
+		sb.Context(),
+		sb.Runtime(),
+		strings.NewReader("# Source\n\nLinks to [A](../1), [B](../2), and [C](../3).\n"),
+	)
+	require.NoError(t, source.Err)
+	require.Equal(t, "4", strings.TrimSpace(string(source.Stdout)))
+
+	// Reindex.
+	reindex := NewProcess(t, false, "index", "rebuild").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, reindex.Err)
+
+	// Without offset: links are 1,2,3.
+	all := NewProcess(t, false, "links", "4", "--id-only").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, all.Err)
+	require.Equal(t, "1\n2\n3", strings.TrimSpace(string(all.Stdout)))
+
+	// Offset 1: skip first link.
+	offset := NewProcess(t, false, "links", "4", "--id-only", "--offset", "1").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, offset.Err)
+	require.Equal(t, "2\n3", strings.TrimSpace(string(offset.Stdout)))
+
+	// Offset 1 skips node 1, leaving (2,3). Limit 2 takes first 2: (2,3).
+	combined := NewProcess(t, false, "links", "4", "--id-only", "-n", "2", "--offset", "1").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, combined.Err)
+	require.Equal(t, "2\n3", strings.TrimSpace(string(combined.Stdout)))
+}
+
 func TestLinksCommand_NoLinksReturnsEmptyOutput(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))

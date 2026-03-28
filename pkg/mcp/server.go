@@ -85,6 +85,27 @@ func linesResult(lines []string) *sdkmcp.CallToolResult {
 // default to true when nil (DestructiveHint, OpenWorldHint).
 func boolPtr(b bool) *bool { return &b }
 
+// mcpDefaultLimitValue is the default maximum number of results returned by MCP
+// read tools when the caller does not specify a limit. CLI tools default to
+// unlimited (0) because shell pipelines handle truncation; MCP callers are
+// typically AI agents that benefit from bounded context windows.
+const mcpDefaultLimitValue = 50
+
+// mcpDefaultLimit resolves the limit value for MCP tools. When the caller
+// omits limit (JSON zero value 0), the default of 50 is applied. Passing -1
+// explicitly requests unlimited results (converted to 0 for the Tap API).
+// Any positive value is passed through unchanged.
+func mcpDefaultLimit(limit int) int {
+	switch {
+	case limit < 0:
+		return 0 // unlimited
+	case limit == 0:
+		return mcpDefaultLimitValue
+	default:
+		return limit
+	}
+}
+
 // errorResult returns a CallToolResult with IsError set.
 func errorResult(err error) *sdkmcp.CallToolResult {
 	return &sdkmcp.CallToolResult{

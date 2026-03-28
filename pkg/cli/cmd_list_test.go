@@ -150,7 +150,7 @@ func TestListCommand_SortUpdated_WithLimit(t *testing.T) {
 	res = NewProcess(t, false, "create", "--title", "C").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 
-	// Limit to 2 most recently updated.
+	// Limit to first 2 by updated order (oldest first).
 	listRes := NewProcess(t, false, "list", "--id-only", "--sort", "updated", "-n", "2").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, listRes.Err)
 	lines := strings.Split(strings.TrimSpace(string(listRes.Stdout)), "\n")
@@ -159,9 +159,9 @@ func TestListCommand_SortUpdated_WithLimit(t *testing.T) {
 	for i, l := range lines {
 		trimmed[i] = strings.TrimSpace(l)
 	}
-	// Should be the 2 most recently updated: nodes 2 and 3.
-	require.Equal(t, "2", trimmed[0])
-	require.Equal(t, "3", trimmed[1])
+	// Should be the 2 oldest updated: nodes 0 and 1.
+	require.Equal(t, "0", trimmed[0])
+	require.Equal(t, "1", trimmed[1])
 }
 
 // TestListCommand_FormatCreatedTimestamp verifies the %c format placeholder
@@ -210,4 +210,67 @@ func TestListCommand_SortFlagCompletion(t *testing.T) {
 	require.Contains(t, suggestions, "updated")
 	require.Contains(t, suggestions, "created")
 	require.Contains(t, suggestions, "accessed")
+}
+
+func TestListCommand_OffsetSkipsResults(t *testing.T) {
+	t.Parallel()
+	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
+
+	// Create 3 nodes (plus zero node = 4 total).
+	for _, title := range []string{"One", "Two", "Three"} {
+		res := NewProcess(t, false, "create", "--title", title).Run(sb.Context(), sb.Runtime())
+		require.NoError(t, res.Err)
+	}
+
+	// Without offset: should see 0,1,2,3.
+	all := NewProcess(t, false, "list", "--id-only").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, all.Err)
+	allLines := strings.Split(strings.TrimSpace(string(all.Stdout)), "\n")
+	require.Len(t, allLines, 4)
+
+	// Offset 2: skip first 2 nodes.
+	offset := NewProcess(t, false, "list", "--id-only", "--offset", "2").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, offset.Err)
+	offsetLines := strings.Split(strings.TrimSpace(string(offset.Stdout)), "\n")
+	require.Len(t, offsetLines, 2)
+	require.Equal(t, "2", strings.TrimSpace(offsetLines[0]))
+	require.Equal(t, "3", strings.TrimSpace(offsetLines[1]))
+}
+
+func TestListCommand_OffsetWithLimit(t *testing.T) {
+	t.Parallel()
+	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
+
+	for _, title := range []string{"A", "B", "C", "D", "E"} {
+		res := NewProcess(t, false, "create", "--title", title).Run(sb.Context(), sb.Runtime())
+		require.NoError(t, res.Err)
+	}
+
+	// 6 total nodes (0-5). Offset 1 skips node 0, leaving (1,2,3,4,5). Limit 4 takes first 4: (1,2,3,4).
+	res := NewProcess(t, false, "list", "--id-only", "-n", "4", "--offset", "1").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+	lines := strings.Split(strings.TrimSpace(string(res.Stdout)), "\n")
+	require.Len(t, lines, 4)
+	require.Equal(t, "1", strings.TrimSpace(lines[0]))
+	require.Equal(t, "2", strings.TrimSpace(lines[1]))
+	require.Equal(t, "3", strings.TrimSpace(lines[2]))
+	require.Equal(t, "4", strings.TrimSpace(lines[3]))
+}
+
+func TestListCommand_NegativeOffsetErrors(t *testing.T) {
+	t.Parallel()
+	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
+
+	res := NewProcess(t, false, "list", "--id-only", "--offset", "-1").Run(sb.Context(), sb.Runtime())
+	require.Error(t, res.Err)
+	require.Contains(t, string(res.Stderr), "offset must be >= 0")
+}
+
+func TestListCommand_OffsetBeyondRange(t *testing.T) {
+	t.Parallel()
+	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
+
+	res := NewProcess(t, false, "list", "--id-only", "--offset", "9999").Run(sb.Context(), sb.Runtime())
+	// Should error because no nodes found after offset.
+	require.Error(t, res.Err)
 }

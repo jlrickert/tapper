@@ -66,7 +66,8 @@ type listInput struct {
 	Format  string `json:"format,omitempty" jsonschema:"output format (%i=id %d=date %t=title)"`
 	IdOnly  bool   `json:"id_only,omitempty" jsonschema:"return node IDs only"`
 	Reverse bool   `json:"reverse,omitempty" jsonschema:"reverse output order"`
-	Limit   int    `json:"limit,omitempty" jsonschema:"maximum number of results (0=unlimited)"`
+	Limit   int    `json:"limit,omitempty" jsonschema:"maximum results to return (default: 50, 0 in request means use default, -1 for unlimited)"`
+	Offset  int    `json:"offset,omitempty" jsonschema:"skip the first N results (for pagination)"`
 }
 
 func registerList(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
@@ -84,7 +85,8 @@ func registerList(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 			Format:           in.Format,
 			IdOnly:           in.IdOnly,
 			Reverse:          in.Reverse,
-			Limit:            in.Limit,
+			Limit:            mcpDefaultLimit(in.Limit),
+			Offset:           in.Offset,
 		}
 		lines, err := tap.List(ctx, opts)
 		if err != nil {
@@ -103,6 +105,8 @@ type grepInput struct {
 	IdOnly     bool   `json:"id_only,omitempty" jsonschema:"return node IDs only"`
 	Reverse    bool   `json:"reverse,omitempty" jsonschema:"reverse output order"`
 	IgnoreCase bool   `json:"ignore_case,omitempty" jsonschema:"case-insensitive matching"`
+	Limit      int    `json:"limit,omitempty" jsonschema:"maximum results to return (default: 50, 0 in request means use default, -1 for unlimited)"`
+	Offset     int    `json:"offset,omitempty" jsonschema:"skip the first N results (for pagination)"`
 }
 
 func registerGrep(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
@@ -121,6 +125,8 @@ func registerGrep(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 			IdOnly:           in.IdOnly,
 			Reverse:          in.Reverse,
 			IgnoreCase:       in.IgnoreCase,
+			Limit:            mcpDefaultLimit(in.Limit),
+			Offset:           in.Offset,
 		}
 		lines, err := tap.Grep(ctx, opts)
 		if err != nil {
@@ -139,6 +145,8 @@ type tagsInput struct {
 	Format  string `json:"format,omitempty" jsonschema:"output format (%i=id %d=date %t=title)"`
 	IdOnly  bool   `json:"id_only,omitempty" jsonschema:"return node IDs only"`
 	Reverse bool   `json:"reverse,omitempty" jsonschema:"reverse output order"`
+	Limit   int    `json:"limit,omitempty" jsonschema:"maximum results to return (default: 50, 0 in request means use default, -1 for unlimited)"`
+	Offset  int    `json:"offset,omitempty" jsonschema:"skip the first N results (for pagination)"`
 }
 
 func registerTags(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
@@ -157,6 +165,8 @@ func registerTags(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 			Format:           in.Format,
 			IdOnly:           in.IdOnly,
 			Reverse:          in.Reverse,
+			Limit:            mcpDefaultLimit(in.Limit),
+			Offset:           in.Offset,
 		}
 		lines, err := tap.Tags(ctx, opts)
 		if err != nil {
@@ -174,6 +184,8 @@ type backlinksInput struct {
 	Format  string `json:"format,omitempty" jsonschema:"output format (%i=id %d=date %t=title)"`
 	IdOnly  bool   `json:"id_only,omitempty" jsonschema:"return node IDs only"`
 	Reverse bool   `json:"reverse,omitempty" jsonschema:"reverse output order"`
+	Limit   int    `json:"limit,omitempty" jsonschema:"maximum results to return (default: 50, 0 in request means use default, -1 for unlimited)"`
+	Offset  int    `json:"offset,omitempty" jsonschema:"skip the first N results (for pagination)"`
 }
 
 func registerBacklinks(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
@@ -191,6 +203,8 @@ func registerBacklinks(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults
 			Format:           in.Format,
 			IdOnly:           in.IdOnly,
 			Reverse:          in.Reverse,
+			Limit:            mcpDefaultLimit(in.Limit),
+			Offset:           in.Offset,
 		}
 		lines, err := tap.Backlinks(ctx, opts)
 		if err != nil {
@@ -208,6 +222,8 @@ type linksInput struct {
 	Format  string `json:"format,omitempty" jsonschema:"output format (%i=id %d=date %t=title)"`
 	IdOnly  bool   `json:"id_only,omitempty" jsonschema:"return node IDs only"`
 	Reverse bool   `json:"reverse,omitempty" jsonschema:"reverse output order"`
+	Limit   int    `json:"limit,omitempty" jsonschema:"maximum results to return (default: 50, 0 in request means use default, -1 for unlimited)"`
+	Offset  int    `json:"offset,omitempty" jsonschema:"skip the first N results (for pagination)"`
 }
 
 func registerLinks(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
@@ -225,6 +241,8 @@ func registerLinks(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 			Format:           in.Format,
 			IdOnly:           in.IdOnly,
 			Reverse:          in.Reverse,
+			Limit:            mcpDefaultLimit(in.Limit),
+			Offset:           in.Offset,
 		}
 		lines, err := tap.Links(ctx, opts)
 		if err != nil {

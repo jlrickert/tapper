@@ -112,6 +112,30 @@ func TestGrepCommand_NoMatchesReturnsEmptyOutput(t *testing.T) {
 	require.Equal(t, "", strings.TrimSpace(string(res.Stdout)))
 }
 
+func TestGrepCommand_OffsetSkipsMatchingNodes(t *testing.T) {
+	t.Parallel()
+	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
+
+	createNodeWithBodyFromStdin(t, sb, "# Alpha\n\nfire one\n")
+	createNodeWithBodyFromStdin(t, sb, "# Beta\n\nwildfire item\n")
+	createNodeWithBodyFromStdin(t, sb, "# Gamma\n\nfire three\n")
+
+	// Without offset: all three match "fire" (nodes 1,2,3).
+	all := NewProcess(t, false, "grep", "fire", "--id-only").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, all.Err)
+	require.Equal(t, "1\n2\n3", strings.TrimSpace(string(all.Stdout)))
+
+	// Offset 1: skip first match.
+	offset := NewProcess(t, false, "grep", "fire", "--id-only", "--offset", "1").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, offset.Err)
+	require.Equal(t, "2\n3", strings.TrimSpace(string(offset.Stdout)))
+
+	// Offset 1 skips node 1, leaving (2,3). Limit 2 takes first 2: (2,3).
+	combined := NewProcess(t, false, "grep", "fire", "--id-only", "-n", "2", "--offset", "1").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, combined.Err)
+	require.Equal(t, "2\n3", strings.TrimSpace(string(combined.Stdout)))
+}
+
 func createNodeWithBodyFromStdin(t *testing.T, sb *testutils.Sandbox, content string) string {
 	t.Helper()
 

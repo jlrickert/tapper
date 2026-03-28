@@ -46,6 +46,9 @@ type ListOptions struct {
 
 	// Limit caps the number of results returned. 0 means no limit.
 	Limit int
+
+	// Offset skips the first N results before applying limit. Must be >= 0.
+	Offset int
 }
 
 type BacklinksOptions struct {
@@ -63,6 +66,12 @@ type BacklinksOptions struct {
 	IdOnly bool
 
 	Reverse bool
+
+	// Limit caps the number of results returned. 0 means no limit.
+	Limit int
+
+	// Offset skips the first N results before applying limit. Must be >= 0.
+	Offset int
 }
 
 type LinksOptions struct {
@@ -80,6 +89,12 @@ type LinksOptions struct {
 	IdOnly bool
 
 	Reverse bool
+
+	// Limit caps the number of results returned. 0 means no limit.
+	Limit int
+
+	// Offset skips the first N results before applying limit. Must be >= 0.
+	Offset int
 }
 
 type GrepOptions struct {
@@ -100,6 +115,12 @@ type GrepOptions struct {
 
 	// IgnoreCase enables case-insensitive regex matching.
 	IgnoreCase bool
+
+	// Limit caps the number of results returned. 0 means no limit.
+	Limit int
+
+	// Offset skips the first N results before applying limit. Must be >= 0.
+	Offset int
 }
 
 type TagsOptions struct {
@@ -123,6 +144,12 @@ type TagsOptions struct {
 	IdOnly bool
 
 	Reverse bool
+
+	// Limit caps the number of results returned. 0 means no limit.
+	Limit int
+
+	// Offset skips the first N results before applying limit. Must be >= 0.
+	Offset int
 }
 
 type grepMatch struct {
@@ -131,6 +158,10 @@ type grepMatch struct {
 }
 
 func (t *Tap) List(ctx context.Context, opts ListOptions) ([]string, error) {
+	if opts.Offset < 0 {
+		return []string{}, fmt.Errorf("offset must be >= 0, got %d", opts.Offset)
+	}
+
 	k, err := t.resolveKeg(ctx, opts.KegTargetOptions)
 	if err != nil {
 		return []string{}, fmt.Errorf("unable to open keg: %w", err)
@@ -201,24 +232,32 @@ func (t *Tap) List(ctx context.Context, opts ListOptions) ([]string, error) {
 		return []string{}, fmt.Errorf("unknown sort type: %q", opts.Sort)
 	}
 
+	entries = applyOffset(entries, opts.Offset)
+
 	if opts.Limit > 0 && len(entries) > opts.Limit {
-		entries = entries[len(entries)-opts.Limit:]
+		entries = entries[:opts.Limit]
 	}
 
 	return renderNodeEntries(entries, opts.Format, opts.IdOnly, opts.Reverse), nil
 }
 
 func (t *Tap) Backlinks(ctx context.Context, opts BacklinksOptions) ([]string, error) {
+	if opts.Offset < 0 {
+		return []string{}, fmt.Errorf("offset must be >= 0, got %d", opts.Offset)
+	}
 	return t.resolveAndLookupLinks(ctx, opts.KegTargetOptions, opts.NodeID,
-		opts.Format, opts.IdOnly, opts.Reverse,
+		opts.Format, opts.IdOnly, opts.Reverse, opts.Limit, opts.Offset,
 		func(d *keg.Dex, id keg.NodeId) ([]keg.NodeId, bool) {
 			return d.Backlinks(ctx, id)
 		})
 }
 
 func (t *Tap) Links(ctx context.Context, opts LinksOptions) ([]string, error) {
+	if opts.Offset < 0 {
+		return []string{}, fmt.Errorf("offset must be >= 0, got %d", opts.Offset)
+	}
 	return t.resolveAndLookupLinks(ctx, opts.KegTargetOptions, opts.NodeID,
-		opts.Format, opts.IdOnly, opts.Reverse,
+		opts.Format, opts.IdOnly, opts.Reverse, opts.Limit, opts.Offset,
 		func(d *keg.Dex, id keg.NodeId) ([]keg.NodeId, bool) {
 			return d.Links(ctx, id)
 		})
@@ -234,6 +273,8 @@ func (t *Tap) resolveAndLookupLinks(
 	format string,
 	idOnly bool,
 	reverse bool,
+	limit int,
+	offset int,
 	lookup func(*keg.Dex, keg.NodeId) ([]keg.NodeId, bool),
 ) ([]string, error) {
 	k, err := t.resolveKeg(ctx, kegOpts)
@@ -273,10 +314,21 @@ func (t *Tap) resolveAndLookupLinks(
 		entries = append(entries, keg.NodeIndexEntry{ID: rel.Path()})
 	}
 	sortNodeIndexEntries(entries)
+
+	entries = applyOffset(entries, offset)
+
+	if limit > 0 && len(entries) > limit {
+		entries = entries[:limit]
+	}
+
 	return renderNodeEntries(entries, format, idOnly, reverse), nil
 }
 
 func (t *Tap) Grep(ctx context.Context, opts GrepOptions) ([]string, error) {
+	if opts.Offset < 0 {
+		return []string{}, fmt.Errorf("offset must be >= 0, got %d", opts.Offset)
+	}
+
 	k, err := t.resolveKeg(ctx, opts.KegTargetOptions)
 	if err != nil {
 		return []string{}, fmt.Errorf("unable to open keg: %w", err)
@@ -319,6 +371,12 @@ func (t *Tap) Grep(ctx context.Context, opts GrepOptions) ([]string, error) {
 		}
 	}
 
+	matches = applyOffsetSlice(matches, opts.Offset)
+
+	if opts.Limit > 0 && len(matches) > opts.Limit {
+		matches = matches[:opts.Limit]
+	}
+
 	matchedEntries := make([]keg.NodeIndexEntry, 0, len(matches))
 	for _, match := range matches {
 		matchedEntries = append(matchedEntries, match.entry)
@@ -330,6 +388,10 @@ func (t *Tap) Grep(ctx context.Context, opts GrepOptions) ([]string, error) {
 }
 
 func (t *Tap) Tags(ctx context.Context, opts TagsOptions) ([]string, error) {
+	if opts.Offset < 0 {
+		return []string{}, fmt.Errorf("offset must be >= 0, got %d", opts.Offset)
+	}
+
 	k, err := t.resolveKeg(ctx, opts.KegTargetOptions)
 	if err != nil {
 		return []string{}, fmt.Errorf("unable to open keg: %w", err)
@@ -348,6 +410,10 @@ func (t *Tap) Tags(ctx context.Context, opts TagsOptions) ([]string, error) {
 	if queryExpr == "" {
 		tags := dex.TagList(ctx)
 		sortStringsAsc(tags)
+		tags = applyOffsetStrings(tags, opts.Offset)
+		if opts.Limit > 0 && len(tags) > opts.Limit {
+			tags = tags[:opts.Limit]
+		}
 		if opts.Reverse {
 			reverseStrings(tags)
 		}
@@ -400,6 +466,13 @@ func (t *Tap) Tags(ctx context.Context, opts TagsOptions) ([]string, error) {
 		}
 	}
 	sortNodeIndexEntries(entries)
+
+	entries = applyOffset(entries, opts.Offset)
+
+	if opts.Limit > 0 && len(entries) > opts.Limit {
+		entries = entries[:opts.Limit]
+	}
+
 	return renderNodeEntries(entries, opts.Format, opts.IdOnly, opts.Reverse), nil
 }
 
@@ -524,6 +597,39 @@ func reverseStrings(values []string) {
 	for i, j := 0, len(values)-1; i < j; i, j = i+1, j-1 {
 		values[i], values[j] = values[j], values[i]
 	}
+}
+
+// applyOffset skips the first n entries. If n >= len(entries), returns empty.
+func applyOffset(entries []keg.NodeIndexEntry, n int) []keg.NodeIndexEntry {
+	if n <= 0 {
+		return entries
+	}
+	if n >= len(entries) {
+		return nil
+	}
+	return entries[n:]
+}
+
+// applyOffsetSlice skips the first n elements of a grepMatch slice.
+func applyOffsetSlice(matches []grepMatch, n int) []grepMatch {
+	if n <= 0 {
+		return matches
+	}
+	if n >= len(matches) {
+		return nil
+	}
+	return matches[n:]
+}
+
+// applyOffsetStrings skips the first n elements of a string slice.
+func applyOffsetStrings(values []string, n int) []string {
+	if n <= 0 {
+		return values
+	}
+	if n >= len(values) {
+		return nil
+	}
+	return values[n:]
 }
 
 func compareNodeEntryID(a, b string) int {

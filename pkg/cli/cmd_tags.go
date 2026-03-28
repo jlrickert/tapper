@@ -83,6 +83,8 @@ Examples:
 
 	cmd.Flags().BoolVarP(&opts.IdOnly, "id-only", "", false, "show only ids when TAG is provided")
 	cmd.Flags().BoolVar(&opts.Reverse, "reverse", false, "list in reverse order")
+	cmd.Flags().IntVarP(&opts.Limit, "limit", "n", 0, "maximum number of results (0 for no limit)")
+	cmd.Flags().IntVar(&opts.Offset, "offset", 0, "skip the first N results")
 	cmd.Flags().StringVarP(&opts.Format, "format", "f", "", "output format when TAG is provided")
 	cmd.Flags().StringVar(&opts.Query, "query", "", `boolean expression (see "tap docs query-expressions" for syntax)`)
 
