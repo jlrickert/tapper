@@ -457,3 +457,148 @@ func makeNodeDataWithAttr(id int, title string, tags []string, updated time.Time
 	}
 	return nd
 }
+
+// makeNodeDataWithTimes is a test helper that constructs a NodeData with
+// distinct updated, created, and accessed timestamps.
+func makeNodeDataWithTimes(id int, title string, tags []string, updated, created, accessed time.Time) *NodeData {
+	nd := makeNodeData(id, title, tags, updated)
+	nd.Stats.SetCreated(created)
+	nd.Stats.SetAccessed(accessed)
+	return nd
+}
+
+// --------------------------------------------------------------------------
+// QueryFilteredIndex sort tests
+// --------------------------------------------------------------------------
+
+func TestQueryFilteredIndex_SortByID(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	idx, err := NewQueryFilteredIndexWithSort("test.md", "golang", nil, QFSortID)
+	require.NoError(t, err)
+
+	t1 := time.Date(2025, 3, 1, 0, 0, 0, 0, time.UTC)
+
+	// Add nodes in non-ID order to verify sorting.
+	require.NoError(t, idx.Add(ctx, makeNodeData(3, "Node C", []string{"golang"}, t1)))
+	require.NoError(t, idx.Add(ctx, makeNodeData(1, "Node A", []string{"golang"}, t1)))
+	require.NoError(t, idx.Add(ctx, makeNodeData(2, "Node B", []string{"golang"}, t1)))
+
+	data, err := idx.Data(ctx)
+	require.NoError(t, err)
+
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	require.Len(t, lines, 3)
+	require.Contains(t, lines[0], "[Node A](../1)", "first entry should be ID 1")
+	require.Contains(t, lines[1], "[Node B](../2)", "second entry should be ID 2")
+	require.Contains(t, lines[2], "[Node C](../3)", "third entry should be ID 3")
+}
+
+func TestQueryFilteredIndex_SortByUpdated(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	// QFSortUpdated is the default (empty string).
+	idx, err := NewQueryFilteredIndexWithSort("test.md", "golang", nil, QFSortUpdated)
+	require.NoError(t, err)
+
+	t1 := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	t2 := time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)
+	t3 := time.Date(2025, 3, 1, 0, 0, 0, 0, time.UTC)
+
+	require.NoError(t, idx.Add(ctx, makeNodeData(1, "Old", []string{"golang"}, t1)))
+	require.NoError(t, idx.Add(ctx, makeNodeData(2, "Newest", []string{"golang"}, t2)))
+	require.NoError(t, idx.Add(ctx, makeNodeData(3, "Middle", []string{"golang"}, t3)))
+
+	data, err := idx.Data(ctx)
+	require.NoError(t, err)
+
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	require.Len(t, lines, 3)
+	// Updated descending: newest first.
+	require.Contains(t, lines[0], "[Newest](../2)", "newest updated should be first")
+	require.Contains(t, lines[1], "[Middle](../3)", "middle updated should be second")
+	require.Contains(t, lines[2], "[Old](../1)", "oldest updated should be last")
+}
+
+func TestQueryFilteredIndex_SortByCreated(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	idx, err := NewQueryFilteredIndexWithSort("test.md", "golang", nil, QFSortCreated)
+	require.NoError(t, err)
+
+	// All nodes have the same updated time but different created times.
+	baseUpdated := time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)
+	c1 := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC) // oldest created
+	c2 := time.Date(2025, 5, 1, 0, 0, 0, 0, time.UTC) // newest created
+	c3 := time.Date(2025, 3, 1, 0, 0, 0, 0, time.UTC) // middle created
+	baseAccessed := time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)
+
+	require.NoError(t, idx.Add(ctx, makeNodeDataWithTimes(1, "Oldest Created", []string{"golang"}, baseUpdated, c1, baseAccessed)))
+	require.NoError(t, idx.Add(ctx, makeNodeDataWithTimes(2, "Newest Created", []string{"golang"}, baseUpdated, c2, baseAccessed)))
+	require.NoError(t, idx.Add(ctx, makeNodeDataWithTimes(3, "Middle Created", []string{"golang"}, baseUpdated, c3, baseAccessed)))
+
+	data, err := idx.Data(ctx)
+	require.NoError(t, err)
+
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	require.Len(t, lines, 3)
+	// Created descending: newest first.
+	require.Contains(t, lines[0], "[Newest Created](../2)", "newest created should be first")
+	require.Contains(t, lines[1], "[Middle Created](../3)", "middle created should be second")
+	require.Contains(t, lines[2], "[Oldest Created](../1)", "oldest created should be last")
+}
+
+func TestQueryFilteredIndex_SortByAccessed(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	idx, err := NewQueryFilteredIndexWithSort("test.md", "golang", nil, QFSortAccessed)
+	require.NoError(t, err)
+
+	// All nodes have the same updated/created times but different accessed times.
+	baseUpdated := time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)
+	baseCreated := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	a1 := time.Date(2025, 2, 1, 0, 0, 0, 0, time.UTC) // oldest accessed
+	a2 := time.Date(2025, 5, 1, 0, 0, 0, 0, time.UTC) // newest accessed
+	a3 := time.Date(2025, 3, 1, 0, 0, 0, 0, time.UTC) // middle accessed
+
+	require.NoError(t, idx.Add(ctx, makeNodeDataWithTimes(1, "Oldest Accessed", []string{"golang"}, baseUpdated, baseCreated, a1)))
+	require.NoError(t, idx.Add(ctx, makeNodeDataWithTimes(2, "Newest Accessed", []string{"golang"}, baseUpdated, baseCreated, a2)))
+	require.NoError(t, idx.Add(ctx, makeNodeDataWithTimes(3, "Middle Accessed", []string{"golang"}, baseUpdated, baseCreated, a3)))
+
+	data, err := idx.Data(ctx)
+	require.NoError(t, err)
+
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	require.Len(t, lines, 3)
+	// Accessed descending: newest first.
+	require.Contains(t, lines[0], "[Newest Accessed](../2)", "newest accessed should be first")
+	require.Contains(t, lines[1], "[Middle Accessed](../3)", "middle accessed should be second")
+	require.Contains(t, lines[2], "[Oldest Accessed](../1)", "oldest accessed should be last")
+}
+
+func TestQueryFilteredIndex_DefaultSortIsUpdated(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	// NewQueryFilteredIndex (without explicit sort) should default to updated descending.
+	idx, err := NewQueryFilteredIndex("test.md", "golang", nil)
+	require.NoError(t, err)
+
+	t1 := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	t2 := time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)
+
+	require.NoError(t, idx.Add(ctx, makeNodeData(1, "Older", []string{"golang"}, t1)))
+	require.NoError(t, idx.Add(ctx, makeNodeData(2, "Newer", []string{"golang"}, t2)))
+
+	data, err := idx.Data(ctx)
+	require.NoError(t, err)
+
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	require.Len(t, lines, 2)
+	require.Contains(t, lines[0], "[Newer](../2)", "default sort should place newest updated first")
+	require.Contains(t, lines[1], "[Older](../1)", "default sort should place oldest updated last")
+}

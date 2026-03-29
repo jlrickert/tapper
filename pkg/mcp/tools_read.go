@@ -61,11 +61,12 @@ func registerCat(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 // --- list ---
 
 type listInput struct {
-	Query   string `json:"query,omitempty" jsonschema:"boolean query expression to filter nodes (e.g. 'golang and entity=concept')"`
+	Query   string `json:"query,omitempty" jsonschema:"boolean query expression to filter nodes. Supports tags ('golang'), key=value attributes ('entity=plan'), and dot-prefix stats fields ('.created>2026-01-01', '.accessCount>=5', '.hash=abc123'). Combine with 'and', 'or', 'not'."`
 	Keg     string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
 	Format  string `json:"format,omitempty" jsonschema:"output format (%i=id %d=date %t=title)"`
 	IdOnly  bool   `json:"id_only,omitempty" jsonschema:"return node IDs only"`
 	Reverse bool   `json:"reverse,omitempty" jsonschema:"reverse output order"`
+	Sort    string `json:"sort,omitempty" jsonschema:"sort order: 'id' (default), 'updated', 'created', or 'accessed'"`
 	Limit   int    `json:"limit,omitempty" jsonschema:"maximum results to return (default: 50, 0 in request means use default, -1 for unlimited)"`
 	Offset  int    `json:"offset,omitempty" jsonschema:"skip the first N results (for pagination)"`
 }
@@ -85,6 +86,7 @@ func registerList(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 			Format:           in.Format,
 			IdOnly:           in.IdOnly,
 			Reverse:          in.Reverse,
+			Sort:             tapper.ListSortType(in.Sort),
 			Limit:            mcpDefaultLimit(in.Limit),
 			Offset:           in.Offset,
 		}
@@ -139,7 +141,7 @@ func registerGrep(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 // --- tags ---
 
 type tagsInput struct {
-	Query   string `json:"query,omitempty" jsonschema:"boolean expression to filter by tags and attributes"`
+	Query   string `json:"query,omitempty" jsonschema:"boolean expression to filter by tags, attributes, and dot-prefix stats fields (e.g. '.created>2026-01-01 and entity=plan')"`
 	Tag     string `json:"tag,omitempty" jsonschema:"single tag name to filter by"`
 	Keg     string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
 	Format  string `json:"format,omitempty" jsonschema:"output format (%i=id %d=date %t=title)"`

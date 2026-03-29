@@ -2,7 +2,9 @@ package cli
 
 import (
 	"fmt"
+	"strings"
 
+	"github.com/jlrickert/tapper/pkg/keg"
 	"github.com/jlrickert/tapper/pkg/tapper"
 	"github.com/spf13/cobra"
 )
@@ -26,6 +28,13 @@ Format placeholders:
 Default format: "%i\t%d\t%t".
 
 Use --query to filter by boolean tag/attribute expressions.
+Query expressions support:
+  - Tags: "golang"
+  - Attributes: "entity=plan"
+  - Stats fields: ".created>2026-01-01", ".accessCount>=5", ".hash=abc123"
+  - Boolean operators: "and", "or", "not", parentheses
+  - Dot-prefix boolean: ".created" (non-zero check)
+
 Use --limit (-n) to cap output (0 for no limit).
 Use --offset to skip the first N results (for pagination).
 Use --sort to order by "id", "updated", "created", or "accessed".`,
@@ -57,6 +66,16 @@ Use --sort to order by "id", "updated", "created", or "accessed".`,
 	cmd.Flags().StringVar((*string)(&opts.Sort), "sort", "", `sort order: "id", "updated", "created", or "accessed"`)
 	mustRegisterFlagCompletion(cmd, "sort", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		return []string{"id", "updated", "created", "accessed"}, cobra.ShellCompDirectiveNoFileComp
+	})
+	mustRegisterFlagCompletion(cmd, "query", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		if strings.HasPrefix(toComplete, ".") || toComplete == "" {
+			suggestions := make([]string, len(keg.StatsFieldNames))
+			for i, name := range keg.StatsFieldNames {
+				suggestions[i] = "." + name
+			}
+			return suggestions, cobra.ShellCompDirectiveNoFileComp
+		}
+		return nil, cobra.ShellCompDirectiveNoFileComp
 	})
 
 	return cmd

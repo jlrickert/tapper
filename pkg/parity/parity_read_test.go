@@ -126,6 +126,18 @@ func TestParity_ReadOperations(t *testing.T) {
 			},
 		},
 
+		// --- list with sort (Tap.List) ---
+		{
+			Name:    "list/sort_updated",
+			CLIArgs: []string{"list", "--id-only", "--sort", "updated"},
+			MCPTool: "list",
+			MCPInput: map[string]any{
+				"id_only": true,
+				"sort":    "updated",
+				"limit":   -1,
+			},
+		},
+
 		// --- grep (Tap.Grep) ---
 		{
 			Name:    "grep/id_only",

@@ -94,9 +94,9 @@ func decodeStats(title, hash, updated, created, accessed string, accesses int, l
 	stats := &NodeStats{
 		title:    title,
 		hash:     hash,
-		updated:  parseStatsTime(updated),
-		created:  parseStatsTime(created),
-		accessed: parseStatsTime(accessed),
+		updated:  ParseStatsTime(updated),
+		created:  ParseStatsTime(created),
+		accessed: ParseStatsTime(accessed),
 		accesses: accesses,
 		lead:     lead,
 		links:    make([]NodeId, 0, len(rawLinks)),
@@ -113,7 +113,10 @@ func decodeStats(title, hash, updated, created, accessed string, accesses int, l
 	return stats
 }
 
-func parseStatsTime(raw string) time.Time {
+// ParseStatsTime parses a time string using the same format layouts accepted
+// by stats.json timestamps: RFC3339Nano, RFC3339, and several date-only and
+// datetime variants. Returns the zero time if raw is empty or unparseable.
+func ParseStatsTime(raw string) time.Time {
 	value := strings.TrimSpace(raw)
 	if value == "" {
 		return time.Time{}

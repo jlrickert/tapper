@@ -2,7 +2,9 @@ package tapper
 
 import (
 	"context"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/jlrickert/tapper/pkg/keg"
 )
@@ -11,16 +13,6 @@ import (
 // This is a thin wrapper around keg.ParseTagExpression.
 func parseTagExpression(raw string) (keg.TagExpr, error) {
 	return keg.ParseTagExpression(raw)
-}
-
-// evaluateTagExpression evaluates a compiled tag expression against a universe
-// of identifiers. This is a thin wrapper around keg.EvaluateTagExpression.
-func evaluateTagExpression(
-	expr keg.TagExpr,
-	universe map[string]struct{},
-	resolve func(tag string) map[string]struct{},
-) map[string]struct{} {
-	return keg.EvaluateTagExpression(expr, universe, resolve)
 }
 
 // setFromNodeIDs converts a slice of NodeId to a set of path strings.
@@ -84,9 +76,229 @@ func resolveQueryTerm(
 	return out
 }
 
-// evalQueryExpr parses expr as a boolean expression that supports both plain
-// tag names and key=value attribute predicates, then evaluates it against the
-// provided universe of node index entries.
+// resolveStatsCompare resolves a dot-prefix stats field comparison against the
+// provided node index entries.
+//
+// Index-backed fields (.updated, .created, .accessed) are resolved from the
+// NodeIndexEntry timestamps without additional I/O.
+//
+// Non-indexed fields (.hash, .accessCount, .lead) require reading stats.json
+// per node via k.Repo.ReadStats.
+//
+// When op is empty, the predicate acts as a boolean check: the field must be
+// non-empty (strings) or non-zero (numbers/times).
+func resolveStatsCompare(
+	ctx context.Context,
+	k *keg.Keg,
+	entries []keg.NodeIndexEntry,
+	field, op, value string,
+) map[string]struct{} {
+	out := make(map[string]struct{})
+
+	switch field {
+	case "updated", "created", "accessed":
+		resolveTimeField(entries, field, op, value, out)
+	case "hash", "lead":
+		resolveStringStatsField(ctx, k, entries, field, op, value, out)
+	case "accessCount":
+		resolveNumericStatsField(ctx, k, entries, field, op, value, out)
+	default:
+		// Unknown field: match nothing.
+	}
+
+	return out
+}
+
+// resolveTimeField handles .updated, .created, .accessed comparisons using
+// the in-memory NodeIndexEntry timestamps (no I/O).
+func resolveTimeField(
+	entries []keg.NodeIndexEntry,
+	field, op, value string,
+	out map[string]struct{},
+) {
+	var compareTime time.Time
+	if value != "" {
+		compareTime = keg.ParseStatsTime(value)
+		if compareTime.IsZero() {
+			// Unparseable date value: match nothing for comparison ops.
+			if op != "" {
+				return
+			}
+		}
+	}
+
+	for _, entry := range entries {
+		var entryTime time.Time
+		switch field {
+		case "updated":
+			entryTime = entry.Updated
+		case "created":
+			entryTime = entry.Created
+		case "accessed":
+			entryTime = entry.Accessed
+		}
+
+		if matchTime(entryTime, op, compareTime) {
+			id, err := keg.ParseNode(entry.ID)
+			if err == nil && id != nil {
+				out[id.Path()] = struct{}{}
+			}
+			out[entry.ID] = struct{}{}
+		}
+	}
+}
+
+// resolveStringStatsField handles .hash and .lead comparisons by reading
+// stats.json per node.
+func resolveStringStatsField(
+	ctx context.Context,
+	k *keg.Keg,
+	entries []keg.NodeIndexEntry,
+	field, op, value string,
+	out map[string]struct{},
+) {
+	for _, entry := range entries {
+		id, err := keg.ParseNode(entry.ID)
+		if err != nil || id == nil {
+			continue
+		}
+
+		stats, err := k.Repo.ReadStats(ctx, *id)
+		if err != nil || stats == nil {
+			continue
+		}
+
+		var fieldValue string
+		switch field {
+		case "hash":
+			fieldValue = stats.Hash()
+		case "lead":
+			fieldValue = stats.Lead()
+		}
+
+		if matchString(fieldValue, op, value) {
+			out[id.Path()] = struct{}{}
+			out[entry.ID] = struct{}{}
+		}
+	}
+}
+
+// resolveNumericStatsField handles .accessCount comparisons by reading
+// stats.json per node.
+func resolveNumericStatsField(
+	ctx context.Context,
+	k *keg.Keg,
+	entries []keg.NodeIndexEntry,
+	field, op, value string,
+	out map[string]struct{},
+) {
+	var compareNum int
+	if value != "" {
+		n, err := strconv.Atoi(value)
+		if err != nil {
+			// Non-numeric value for a numeric field: match nothing for
+			// comparison ops.
+			if op != "" {
+				return
+			}
+		}
+		compareNum = n
+	}
+
+	for _, entry := range entries {
+		id, err := keg.ParseNode(entry.ID)
+		if err != nil || id == nil {
+			continue
+		}
+
+		stats, err := k.Repo.ReadStats(ctx, *id)
+		if err != nil || stats == nil {
+			continue
+		}
+
+		var fieldNum int
+		switch field {
+		case "accessCount":
+			fieldNum = stats.AccessCount()
+		}
+
+		if matchInt(fieldNum, op, compareNum) {
+			out[id.Path()] = struct{}{}
+			out[entry.ID] = struct{}{}
+		}
+	}
+}
+
+// matchTime compares entryTime against compareTime using op. For boolean
+// checks (op == ""), returns true if entryTime is non-zero.
+func matchTime(entryTime time.Time, op string, compareTime time.Time) bool {
+	switch op {
+	case "":
+		return !entryTime.IsZero()
+	case ">":
+		return entryTime.After(compareTime)
+	case ">=":
+		return !entryTime.Before(compareTime)
+	case "<":
+		return entryTime.Before(compareTime)
+	case "<=":
+		return !entryTime.After(compareTime)
+	case "=":
+		return entryTime.Equal(compareTime)
+	case "!=":
+		return !entryTime.Equal(compareTime)
+	}
+	return false
+}
+
+// matchString compares fieldValue against value using op. For boolean
+// checks (op == ""), returns true if fieldValue is non-empty.
+func matchString(fieldValue, op, value string) bool {
+	switch op {
+	case "":
+		return fieldValue != ""
+	case "=":
+		return fieldValue == value
+	case "!=":
+		return fieldValue != value
+	case ">":
+		return fieldValue > value
+	case ">=":
+		return fieldValue >= value
+	case "<":
+		return fieldValue < value
+	case "<=":
+		return fieldValue <= value
+	}
+	return false
+}
+
+// matchInt compares fieldNum against compareNum using op. For boolean
+// checks (op == ""), returns true if fieldNum is non-zero.
+func matchInt(fieldNum int, op string, compareNum int) bool {
+	switch op {
+	case "":
+		return fieldNum != 0
+	case ">":
+		return fieldNum > compareNum
+	case ">=":
+		return fieldNum >= compareNum
+	case "<":
+		return fieldNum < compareNum
+	case "<=":
+		return fieldNum <= compareNum
+	case "=":
+		return fieldNum == compareNum
+	case "!=":
+		return fieldNum != compareNum
+	}
+	return false
+}
+
+// evalQueryExpr parses expr as a boolean expression that supports plain
+// tag names, key=value attribute predicates, and .field{op}value stats
+// predicates, then evaluates it against the provided universe of node index
+// entries.
 //
 // Returns the matched set of node path strings, or an error if the expression
 // cannot be parsed.
@@ -111,8 +323,14 @@ func evalQueryExpr(
 		}
 	}
 
-	matched := evaluateTagExpression(parsed, universe, func(term string) map[string]struct{} {
+	resolveTag := func(term string) map[string]struct{} {
 		return resolveQueryTerm(ctx, k, d, entries, term)
-	})
+	}
+
+	resolveCompare := func(field, op, value string) map[string]struct{} {
+		return resolveStatsCompare(ctx, k, entries, field, op, value)
+	}
+
+	matched := keg.EvaluateTagExpressionWithCompare(parsed, universe, resolveTag, resolveCompare)
 	return matched, nil
 }

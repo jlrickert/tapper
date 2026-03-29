@@ -274,3 +274,113 @@ func TestListCommand_OffsetBeyondRange(t *testing.T) {
 	// Should error because no nodes found after offset.
 	require.Error(t, res.Err)
 }
+
+func TestListCommand_DotPrefixQuery_CreatedGT(t *testing.T) {
+	t.Parallel()
+	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
+
+	// Create nodes with advancing clock so they have different created timestamps.
+	// The zero node is created at the sandbox base time (2000-01-01 00:00:00 UTC
+	// is the default for test sandboxes).
+	sb.Advance(1 * time.Hour)
+	res := NewProcess(t, false, "create", "--title", "Early").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+
+	sb.Advance(48 * time.Hour)
+	res = NewProcess(t, false, "create", "--title", "Late").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+
+	// First, get the actual timestamps from the list output to compute a midpoint.
+	fullRes := NewProcess(t, false, "list", "-f", "%i\t%c").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, fullRes.Err)
+	// Parse the created timestamp of node 1 ("Early") to use as a boundary.
+	var earlyCreated, lateCreated time.Time
+	for _, line := range strings.Split(strings.TrimSpace(string(fullRes.Stdout)), "\n") {
+		parts := strings.SplitN(strings.TrimSpace(line), "\t", 2)
+		if len(parts) < 2 {
+			continue
+		}
+		ts, parseErr := time.Parse(time.RFC3339, parts[1])
+		if parseErr != nil {
+			continue
+		}
+		switch parts[0] {
+		case "1":
+			earlyCreated = ts
+		case "2":
+			lateCreated = ts
+		}
+	}
+	require.False(t, earlyCreated.IsZero(), "should have parsed early created time")
+	require.False(t, lateCreated.IsZero(), "should have parsed late created time")
+
+	// Compute a midpoint date between the two nodes.
+	midpoint := earlyCreated.Add(lateCreated.Sub(earlyCreated) / 2)
+	queryDate := midpoint.Format("2006-01-02T15:04:05Z")
+
+	listRes := NewProcess(t, false, "list", "--id-only", "--query", fmt.Sprintf(".created>%s", queryDate)).Run(sb.Context(), sb.Runtime())
+	require.NoError(t, listRes.Err)
+	lines := strings.Split(strings.TrimSpace(string(listRes.Stdout)), "\n")
+	trimmed := make([]string, len(lines))
+	for i, l := range lines {
+		trimmed[i] = strings.TrimSpace(l)
+	}
+	require.Contains(t, trimmed, "2", "late node should match .created> query")
+	require.NotContains(t, trimmed, "0", "zero node should not match .created> query")
+}
+
+func TestListCommand_DotPrefixQuery_CombinedWithAttribute(t *testing.T) {
+	t.Parallel()
+	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
+
+	// The zero node exists from the fixture. Create an additional node and
+	// query with a stats field combined with a tag.
+	sb.Advance(1 * time.Hour)
+	res := NewProcess(t, false, "create", "--title", "Tagged", "--tags", "golang").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+
+	sb.Advance(1 * time.Hour)
+	res = NewProcess(t, false, "create", "--title", "Untagged").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+
+	// ".created and golang" should return only the tagged node.
+	listRes := NewProcess(t, false, "list", "--id-only", "--query", ".created and golang").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, listRes.Err)
+	lines := strings.Split(strings.TrimSpace(string(listRes.Stdout)), "\n")
+	trimmed := make([]string, len(lines))
+	for i, l := range lines {
+		trimmed[i] = strings.TrimSpace(l)
+	}
+	require.Contains(t, trimmed, "1", "tagged node should match combined query")
+	require.NotContains(t, trimmed, "2", "untagged node should not match combined query")
+}
+
+func TestListCommand_DotPrefixQuery_BooleanCheck(t *testing.T) {
+	t.Parallel()
+	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
+
+	sb.Advance(1 * time.Hour)
+	res := NewProcess(t, false, "create", "--title", "A").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+
+	sb.Advance(1 * time.Hour)
+	res = NewProcess(t, false, "create", "--title", "B").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+
+	// ".created" without operator is a boolean check: all nodes with a
+	// non-zero created timestamp should match. The fixture zero node may
+	// have a zero created time if its dex entry lacks it, so we only
+	// check that at least the newly created nodes appear.
+	listRes := NewProcess(t, false, "list", "--id-only", "--query", ".created").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, listRes.Err)
+	out := strings.TrimSpace(string(listRes.Stdout))
+	require.NotEmpty(t, out)
+
+	lines := strings.Split(out, "\n")
+	trimmed := make([]string, len(lines))
+	for i, l := range lines {
+		trimmed[i] = strings.TrimSpace(l)
+	}
+	require.Contains(t, trimmed, "1", "newly created node 1 should match .created boolean")
+	require.Contains(t, trimmed, "2", "newly created node 2 should match .created boolean")
+}

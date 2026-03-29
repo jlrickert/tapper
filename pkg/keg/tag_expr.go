@@ -6,6 +6,18 @@ import (
 	"unicode"
 )
 
+// StatsFieldNames lists the dot-prefix stats field names recognized by the
+// query expression parser. These correspond to fields in stats.json and
+// NodeIndexEntry.
+var StatsFieldNames = []string{
+	"updated",
+	"created",
+	"accessed",
+	"hash",
+	"accessCount",
+	"lead",
+}
+
 // TagExpr is an opaque compiled tag boolean expression. Callers obtain one via
 // ParseTagExpression and pass it to EvaluateTagExpression. The underlying AST
 // is unexported; external packages cannot inspect or implement it.
@@ -24,6 +36,12 @@ func ParseTagExpression(raw string) (TagExpr, error) {
 	return TagExpr{root: node}, nil
 }
 
+// CompareResolver is an optional callback for evaluating dot-prefix stats
+// comparisons (e.g., ".created>2026-01-01"). When set, the evaluator calls
+// it with field, op, and value and expects the set of matching identifiers.
+// When nil, dot-prefix comparisons match nothing.
+type CompareResolver func(field, op, value string) map[string]struct{}
+
 // EvaluateTagExpression evaluates expr against a universe of string identifiers.
 // universe is the full candidate set (e.g. node paths). resolve maps a tag
 // name to the subset of universe that carries that tag. Returns the subset of
@@ -33,7 +51,27 @@ func EvaluateTagExpression(
 	universe map[string]struct{},
 	resolve func(tag string) map[string]struct{},
 ) map[string]struct{} {
-	return evaluateTagExpression(expr.root, universe, resolve)
+	return EvaluateTagExpressionWithCompare(expr, universe, resolve, nil)
+}
+
+// EvaluateTagExpressionWithCompare evaluates expr with full support for
+// dot-prefix stats comparisons. resolveCompare handles ".field op value"
+// predicates. When resolveCompare is nil, dot-prefix comparisons match nothing.
+func EvaluateTagExpressionWithCompare(
+	expr TagExpr,
+	universe map[string]struct{},
+	resolve func(tag string) map[string]struct{},
+	resolveCompare CompareResolver,
+) map[string]struct{} {
+	if expr.root == nil {
+		return map[string]struct{}{}
+	}
+	ctx := &tagEvalCtx{
+		resolve:        resolve,
+		resolveCompare: resolveCompare,
+		universe:       copySet(universe),
+	}
+	return expr.root.run(ctx)
 }
 
 // --------------------------------------------------------------------------
@@ -41,19 +79,20 @@ func EvaluateTagExpression(
 // --------------------------------------------------------------------------
 
 type tagExprNode interface {
-	eval(ctx *tagEvalContext) map[string]struct{}
+	run(ctx *tagEvalCtx) map[string]struct{}
 }
 
-type tagEvalContext struct {
-	resolve  func(tag string) map[string]struct{}
-	universe map[string]struct{}
+type tagEvalCtx struct {
+	resolve        func(tag string) map[string]struct{}
+	resolveCompare CompareResolver
+	universe       map[string]struct{}
 }
 
 type tagLiteralNode struct {
 	tag string
 }
 
-func (n *tagLiteralNode) eval(ctx *tagEvalContext) map[string]struct{} {
+func (n *tagLiteralNode) run(ctx *tagEvalCtx) map[string]struct{} {
 	if n == nil || ctx == nil || ctx.resolve == nil {
 		return map[string]struct{}{}
 	}
@@ -64,11 +103,11 @@ type tagNotNode struct {
 	node tagExprNode
 }
 
-func (n *tagNotNode) eval(ctx *tagEvalContext) map[string]struct{} {
+func (n *tagNotNode) run(ctx *tagEvalCtx) map[string]struct{} {
 	if n == nil || ctx == nil || n.node == nil {
 		return map[string]struct{}{}
 	}
-	return complementSet(ctx.universe, n.node.eval(ctx))
+	return complementSet(ctx.universe, n.node.run(ctx))
 }
 
 type tagAndNode struct {
@@ -76,11 +115,11 @@ type tagAndNode struct {
 	right tagExprNode
 }
 
-func (n *tagAndNode) eval(ctx *tagEvalContext) map[string]struct{} {
+func (n *tagAndNode) run(ctx *tagEvalCtx) map[string]struct{} {
 	if n == nil || ctx == nil || n.left == nil || n.right == nil {
 		return map[string]struct{}{}
 	}
-	return intersectSets(n.left.eval(ctx), n.right.eval(ctx))
+	return intersectSets(n.left.run(ctx), n.right.run(ctx))
 }
 
 type tagOrNode struct {
@@ -88,11 +127,30 @@ type tagOrNode struct {
 	right tagExprNode
 }
 
-func (n *tagOrNode) eval(ctx *tagEvalContext) map[string]struct{} {
+func (n *tagOrNode) run(ctx *tagEvalCtx) map[string]struct{} {
 	if n == nil || ctx == nil || n.left == nil || n.right == nil {
 		return map[string]struct{}{}
 	}
-	return unionSets(n.left.eval(ctx), n.right.eval(ctx))
+	return unionSets(n.left.run(ctx), n.right.run(ctx))
+}
+
+// tagCompareNode represents a dot-prefix stats field predicate such as
+// ".created>2026-01-01" or ".hash=abc123". When op and value are empty,
+// it acts as a boolean existence check (field is non-empty / non-zero).
+type tagCompareNode struct {
+	field string // e.g., "created", "hash", "accessCount"
+	op    string // e.g., ">", "<", ">=", "<=", "=", "!=" — empty for boolean
+	value string // comparison value; empty for boolean check
+}
+
+func (n *tagCompareNode) run(ctx *tagEvalCtx) map[string]struct{} {
+	if n == nil || ctx == nil {
+		return map[string]struct{}{}
+	}
+	if ctx.resolveCompare == nil {
+		return map[string]struct{}{}
+	}
+	return ctx.resolveCompare(n.field, n.op, n.value)
 }
 
 type tagTokenType int
@@ -105,6 +163,7 @@ const (
 	tagTokenNot
 	tagTokenLParen
 	tagTokenRParen
+	tagTokenDotIdent // ".fieldname" or ".fieldname>=value"
 )
 
 type tagToken struct {
@@ -142,17 +201,6 @@ func parseTagExpression(raw string) (tagExprNode, error) {
 	}
 
 	return root, nil
-}
-
-func evaluateTagExpression(root tagExprNode, universe map[string]struct{}, resolve func(tag string) map[string]struct{}) map[string]struct{} {
-	if root == nil {
-		return map[string]struct{}{}
-	}
-	ctx := &tagEvalContext{
-		resolve:  resolve,
-		universe: copySet(universe),
-	}
-	return root.eval(ctx)
 }
 
 func tokenizeTagExpression(raw string) ([]tagToken, error) {
@@ -197,27 +245,60 @@ func tokenizeTagExpression(raw string) ([]tagToken, error) {
 				continue
 			}
 			return nil, fmt.Errorf("unexpected token %q at position %d", string(in[pos]), pos+1)
-		case '\'', '"':
-			quote := in[pos]
-			start := pos
-			pos++
-			var b strings.Builder
-			for pos < len(in) {
-				ch := in[pos]
-				if ch == '\\' && pos+1 < len(in) {
-					b.WriteByte(in[pos+1])
-					pos += 2
-					continue
-				}
-				if ch == quote {
+		case '.':
+			// Dot-prefix stats field: ".fieldname" optionally followed by
+			// a comparison operator and value, e.g. ".created>2026-01-01".
+			// The entire ".field>=value" or ".lead!=deprecated" is consumed
+			// as a single token.
+			if pos+1 < len(in) && unicode.IsLetter(rune(in[pos+1])) {
+				start := pos
+				pos++ // skip the dot
+				for pos < len(in) {
+					c := rune(in[pos])
+					if unicode.IsSpace(c) || c == '(' || c == ')' || c == '&' || c == '|' || c == '\'' || c == '"' {
+						break
+					}
+					// '!' breaks the scan only if it is NOT part of "!="
+					if c == '!' {
+						if pos+1 < len(in) && in[pos+1] == '=' {
+							// "!=" is a comparison operator inside the dot-ident;
+							// continue scanning to include the value.
+							pos += 2
+							continue
+						}
+						break
+					}
 					pos++
-					tokens = append(tokens, tagToken{typ: tagTokenIdent, value: b.String(), pos: start})
-					goto nextToken
 				}
-				b.WriteByte(ch)
-				pos++
+				tokens = append(tokens, tagToken{typ: tagTokenDotIdent, value: in[start:pos], pos: start})
+				continue
 			}
-			return nil, fmt.Errorf("unterminated quoted tag at position %d", start+1)
+			// Lone dot — fall through to default word handling.
+			fallthrough
+		case '\'', '"':
+			if in[pos] == '\'' || in[pos] == '"' {
+				quote := in[pos]
+				start := pos
+				pos++
+				var b strings.Builder
+				for pos < len(in) {
+					ch := in[pos]
+					if ch == '\\' && pos+1 < len(in) {
+						b.WriteByte(in[pos+1])
+						pos += 2
+						continue
+					}
+					if ch == quote {
+						pos++
+						tokens = append(tokens, tagToken{typ: tagTokenIdent, value: b.String(), pos: start})
+						goto nextToken
+					}
+					b.WriteByte(ch)
+					pos++
+				}
+				return nil, fmt.Errorf("unterminated quoted tag at position %d", start+1)
+			}
+			fallthrough
 		default:
 			start := pos
 			for pos < len(in) {
@@ -332,6 +413,9 @@ func (p *tagExprParser) parsePrimary() (tagExprNode, error) {
 	case tagTokenIdent:
 		p.next()
 		return &tagLiteralNode{tag: tok.value}, nil
+	case tagTokenDotIdent:
+		p.next()
+		return parseDotIdent(tok.value)
 	case tagTokenLParen:
 		p.next()
 		expr, err := p.parseOr()
@@ -351,6 +435,57 @@ func (p *tagExprParser) parsePrimary() (tagExprNode, error) {
 	default:
 		return nil, fmt.Errorf("unexpected token %q at position %d", tok.value, tok.pos+1)
 	}
+}
+
+// parseDotIdent parses a dot-ident token value like ".created>2026-01-01",
+// ".accessCount>=5", ".hash=abc123", or ".created" (boolean check) into a
+// tagCompareNode.
+func parseDotIdent(raw string) (*tagCompareNode, error) {
+	// Strip leading dot.
+	s := raw[1:]
+
+	// Find the operator boundary: first char that is one of > < = !
+	opIdx := -1
+	for i, c := range s {
+		if c == '>' || c == '<' || c == '=' || c == '!' {
+			opIdx = i
+			break
+		}
+	}
+
+	if opIdx < 0 {
+		// No operator: boolean existence check.
+		return &tagCompareNode{field: s, op: "", value: ""}, nil
+	}
+
+	field := s[:opIdx]
+	rest := s[opIdx:]
+
+	// Extract operator (1 or 2 chars).
+	var op string
+	switch {
+	case strings.HasPrefix(rest, ">="):
+		op = ">="
+	case strings.HasPrefix(rest, "<="):
+		op = "<="
+	case strings.HasPrefix(rest, "!="):
+		op = "!="
+	case strings.HasPrefix(rest, ">"):
+		op = ">"
+	case strings.HasPrefix(rest, "<"):
+		op = "<"
+	case strings.HasPrefix(rest, "="):
+		op = "="
+	default:
+		return nil, fmt.Errorf("invalid comparison operator in %q", raw)
+	}
+
+	value := rest[len(op):]
+	if value == "" {
+		return nil, fmt.Errorf("missing value after operator in %q", raw)
+	}
+
+	return &tagCompareNode{field: field, op: op, value: value}, nil
 }
 
 // --------------------------------------------------------------------------

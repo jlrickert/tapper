@@ -139,6 +139,7 @@ type IndexEntry struct {
 	Summary string `yaml:"summary"`
 	Query   string `yaml:"query,omitempty"` // boolean query expression; omit for core/unfiltered indexes
 	Tags    string `yaml:"tags,omitempty"`  // deprecated: use query instead
+	Sort    string `yaml:"sort,omitempty"`  // sort order for query-filtered indexes: "updated" (default), "id", "created", "accessed"
 }
 
 // QueryOrTags returns the effective query string for the index entry. It
