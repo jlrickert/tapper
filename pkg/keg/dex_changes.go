@@ -224,7 +224,7 @@ type TagFilteredIndex struct {
 	// name is the short index filename used with repo.WriteIndex, e.g. "golang.md".
 	name string
 	// expr is the compiled tag expression evaluated per Add call.
-	expr TagExpr
+	expr QueryExpr
 	// data holds matched entries sorted by Updated descending (newest first).
 	data []NodeIndexEntry
 }
@@ -237,7 +237,7 @@ type TagFilteredIndex struct {
 // name should be the short filename (without the "dex/" prefix) used when
 // writing to the repository, e.g. "golang.md".
 func NewTagFilteredIndex(name, tagQuery string) (*TagFilteredIndex, error) {
-	expr, err := ParseTagExpression(tagQuery)
+	expr, err := ParseQueryExpression(tagQuery)
 	if err != nil {
 		return nil, fmt.Errorf("invalid tag expression for %q: %w", name, err)
 	}
@@ -258,7 +258,7 @@ func (idx *TagFilteredIndex) Name() string {
 
 // Add evaluates the tag expression against the node and, if it matches,
 // inserts or updates the node entry maintaining reverse-chronological order.
-// A node matches when EvaluateTagExpression returns a non-empty set.
+// A node matches when EvaluateQueryExpression returns a non-empty set.
 func (idx *TagFilteredIndex) Add(ctx context.Context, data *NodeData) error {
 	_ = ctx
 	if idx == nil || data == nil {
@@ -274,7 +274,7 @@ func (idx *TagFilteredIndex) Add(ctx context.Context, data *NodeData) error {
 		tagSet[t] = struct{}{}
 	}
 
-	result := EvaluateTagExpression(idx.expr, universe, func(tag string) map[string]struct{} {
+	result := EvaluateQueryExpression(idx.expr, universe, func(tag string) map[string]struct{} {
 		if _, ok := tagSet[tag]; ok {
 			return map[string]struct{}{path: {}}
 		}
@@ -397,7 +397,7 @@ type QueryFilteredIndex struct {
 	// name is the short index filename used with repo.WriteIndex, e.g. "golang.md".
 	name string
 	// expr is the compiled query expression evaluated per Add call.
-	expr TagExpr
+	expr QueryExpr
 	// resolve is an optional callback that evaluates a single query term
 	// against a node. When nil, terms are matched as tag names only.
 	resolve func(term string, data *NodeData) bool
@@ -424,7 +424,7 @@ func NewQueryFilteredIndex(name, query string, resolve func(term string, data *N
 // sort order. The sortOrder parameter accepts "id", "created", "accessed", or
 // empty string (default: sort by Updated descending).
 func NewQueryFilteredIndexWithSort(name, query string, resolve func(term string, data *NodeData) bool, sortOrder QueryFilteredSortOrder) (*QueryFilteredIndex, error) {
-	expr, err := ParseTagExpression(query)
+	expr, err := ParseQueryExpression(query)
 	if err != nil {
 		return nil, fmt.Errorf("invalid query expression for %q: %w", name, err)
 	}
@@ -457,7 +457,7 @@ func (idx *QueryFilteredIndex) Add(ctx context.Context, data *NodeData) error {
 	universe := map[string]struct{}{path: {}}
 
 	resolve := idx.resolverForNode(data)
-	result := EvaluateTagExpression(idx.expr, universe, resolve)
+	result := EvaluateQueryExpression(idx.expr, universe, resolve)
 	entry := data.Ref()
 
 	if len(result) == 0 {

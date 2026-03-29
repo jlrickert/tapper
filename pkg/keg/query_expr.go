@@ -18,22 +18,22 @@ var StatsFieldNames = []string{
 	"lead",
 }
 
-// TagExpr is an opaque compiled tag boolean expression. Callers obtain one via
-// ParseTagExpression and pass it to EvaluateTagExpression. The underlying AST
+// QueryExpr is an opaque compiled tag boolean expression. Callers obtain one via
+// ParseQueryExpression and pass it to EvaluateQueryExpression. The underlying AST
 // is unexported; external packages cannot inspect or implement it.
-type TagExpr struct {
-	root tagExprNode
+type QueryExpr struct {
+	root queryExprNode
 }
 
-// ParseTagExpression compiles raw into a TagExpr that can be evaluated with
-// EvaluateTagExpression. Returns an error if raw is empty or syntactically
+// ParseQueryExpression compiles raw into a QueryExpr that can be evaluated with
+// EvaluateQueryExpression. Returns an error if raw is empty or syntactically
 // invalid.
-func ParseTagExpression(raw string) (TagExpr, error) {
-	node, err := parseTagExpression(raw)
+func ParseQueryExpression(raw string) (QueryExpr, error) {
+	node, err := parseQueryExpression(raw)
 	if err != nil {
-		return TagExpr{}, err
+		return QueryExpr{}, err
 	}
-	return TagExpr{root: node}, nil
+	return QueryExpr{root: node}, nil
 }
 
 // CompareResolver is an optional callback for evaluating dot-prefix stats
@@ -42,23 +42,23 @@ func ParseTagExpression(raw string) (TagExpr, error) {
 // When nil, dot-prefix comparisons match nothing.
 type CompareResolver func(field, op, value string) map[string]struct{}
 
-// EvaluateTagExpression evaluates expr against a universe of string identifiers.
+// EvaluateQueryExpression evaluates expr against a universe of string identifiers.
 // universe is the full candidate set (e.g. node paths). resolve maps a tag
 // name to the subset of universe that carries that tag. Returns the subset of
 // universe that satisfies the expression.
-func EvaluateTagExpression(
-	expr TagExpr,
+func EvaluateQueryExpression(
+	expr QueryExpr,
 	universe map[string]struct{},
 	resolve func(tag string) map[string]struct{},
 ) map[string]struct{} {
-	return EvaluateTagExpressionWithCompare(expr, universe, resolve, nil)
+	return EvaluateQueryExpressionWithCompare(expr, universe, resolve, nil)
 }
 
-// EvaluateTagExpressionWithCompare evaluates expr with full support for
+// EvaluateQueryExpressionWithCompare evaluates expr with full support for
 // dot-prefix stats comparisons. resolveCompare handles ".field op value"
 // predicates. When resolveCompare is nil, dot-prefix comparisons match nothing.
-func EvaluateTagExpressionWithCompare(
-	expr TagExpr,
+func EvaluateQueryExpressionWithCompare(
+	expr QueryExpr,
 	universe map[string]struct{},
 	resolve func(tag string) map[string]struct{},
 	resolveCompare CompareResolver,
@@ -66,7 +66,7 @@ func EvaluateTagExpressionWithCompare(
 	if expr.root == nil {
 		return map[string]struct{}{}
 	}
-	ctx := &tagEvalCtx{
+	ctx := &queryEvalCtx{
 		resolve:        resolve,
 		resolveCompare: resolveCompare,
 		universe:       copySet(universe),
@@ -78,72 +78,72 @@ func EvaluateTagExpressionWithCompare(
 // Internal AST and parser (unexported)
 // --------------------------------------------------------------------------
 
-type tagExprNode interface {
-	run(ctx *tagEvalCtx) map[string]struct{}
+type queryExprNode interface {
+	run(ctx *queryEvalCtx) map[string]struct{}
 }
 
-type tagEvalCtx struct {
+type queryEvalCtx struct {
 	resolve        func(tag string) map[string]struct{}
 	resolveCompare CompareResolver
 	universe       map[string]struct{}
 }
 
-type tagLiteralNode struct {
+type queryLiteralNode struct {
 	tag string
 }
 
-func (n *tagLiteralNode) run(ctx *tagEvalCtx) map[string]struct{} {
+func (n *queryLiteralNode) run(ctx *queryEvalCtx) map[string]struct{} {
 	if n == nil || ctx == nil || ctx.resolve == nil {
 		return map[string]struct{}{}
 	}
 	return copySet(ctx.resolve(n.tag))
 }
 
-type tagNotNode struct {
-	node tagExprNode
+type queryNotNode struct {
+	node queryExprNode
 }
 
-func (n *tagNotNode) run(ctx *tagEvalCtx) map[string]struct{} {
+func (n *queryNotNode) run(ctx *queryEvalCtx) map[string]struct{} {
 	if n == nil || ctx == nil || n.node == nil {
 		return map[string]struct{}{}
 	}
 	return complementSet(ctx.universe, n.node.run(ctx))
 }
 
-type tagAndNode struct {
-	left  tagExprNode
-	right tagExprNode
+type queryAndNode struct {
+	left  queryExprNode
+	right queryExprNode
 }
 
-func (n *tagAndNode) run(ctx *tagEvalCtx) map[string]struct{} {
+func (n *queryAndNode) run(ctx *queryEvalCtx) map[string]struct{} {
 	if n == nil || ctx == nil || n.left == nil || n.right == nil {
 		return map[string]struct{}{}
 	}
 	return intersectSets(n.left.run(ctx), n.right.run(ctx))
 }
 
-type tagOrNode struct {
-	left  tagExprNode
-	right tagExprNode
+type queryOrNode struct {
+	left  queryExprNode
+	right queryExprNode
 }
 
-func (n *tagOrNode) run(ctx *tagEvalCtx) map[string]struct{} {
+func (n *queryOrNode) run(ctx *queryEvalCtx) map[string]struct{} {
 	if n == nil || ctx == nil || n.left == nil || n.right == nil {
 		return map[string]struct{}{}
 	}
 	return unionSets(n.left.run(ctx), n.right.run(ctx))
 }
 
-// tagCompareNode represents a dot-prefix stats field predicate such as
+// queryCompareNode represents a dot-prefix stats field predicate such as
 // ".created>2026-01-01" or ".hash=abc123". When op and value are empty,
 // it acts as a boolean existence check (field is non-empty / non-zero).
-type tagCompareNode struct {
+type queryCompareNode struct {
 	field string // e.g., "created", "hash", "accessCount"
 	op    string // e.g., ">", "<", ">=", "<=", "=", "!=" — empty for boolean
 	value string // comparison value; empty for boolean check
 }
 
-func (n *tagCompareNode) run(ctx *tagEvalCtx) map[string]struct{} {
+func (n *queryCompareNode) run(ctx *queryEvalCtx) map[string]struct{} {
 	if n == nil || ctx == nil {
 		return map[string]struct{}{}
 	}
@@ -153,32 +153,32 @@ func (n *tagCompareNode) run(ctx *tagEvalCtx) map[string]struct{} {
 	return ctx.resolveCompare(n.field, n.op, n.value)
 }
 
-type tagTokenType int
+type queryTokenType int
 
 const (
-	tagTokenEOF tagTokenType = iota
-	tagTokenIdent
-	tagTokenAnd
-	tagTokenOr
-	tagTokenNot
-	tagTokenLParen
-	tagTokenRParen
-	tagTokenDotIdent // ".fieldname" or ".fieldname>=value"
+	queryTokenEOF queryTokenType = iota
+	queryTokenIdent
+	queryTokenAnd
+	queryTokenOr
+	queryTokenNot
+	queryTokenLParen
+	queryTokenRParen
+	queryTokenDotIdent // ".fieldname" or ".fieldname>=value"
 )
 
-type tagToken struct {
-	typ   tagTokenType
+type queryToken struct {
+	typ   queryTokenType
 	value string
 	pos   int
 }
 
-type tagExprParser struct {
-	tokens []tagToken
+type queryExprParser struct {
+	tokens []queryToken
 	index  int
 }
 
-func parseTagExpression(raw string) (tagExprNode, error) {
-	tokens, err := tokenizeTagExpression(raw)
+func parseQueryExpression(raw string) (queryExprNode, error) {
+	tokens, err := tokenizeQueryExpression(raw)
 	if err != nil {
 		return nil, err
 	}
@@ -186,7 +186,7 @@ func parseTagExpression(raw string) (tagExprNode, error) {
 		return nil, fmt.Errorf("expression is empty")
 	}
 
-	p := &tagExprParser{
+	p := &queryExprParser{
 		tokens: tokens,
 	}
 
@@ -196,16 +196,16 @@ func parseTagExpression(raw string) (tagExprNode, error) {
 	}
 
 	tok := p.peek()
-	if tok.typ != tagTokenEOF {
+	if tok.typ != queryTokenEOF {
 		return nil, fmt.Errorf("unexpected token %q at position %d", tok.value, tok.pos+1)
 	}
 
 	return root, nil
 }
 
-func tokenizeTagExpression(raw string) ([]tagToken, error) {
+func tokenizeQueryExpression(raw string) ([]queryToken, error) {
 	in := strings.TrimSpace(raw)
-	tokens := make([]tagToken, 0)
+	tokens := make([]queryToken, 0)
 	if in == "" {
 		return tokens, nil
 	}
@@ -220,27 +220,27 @@ func tokenizeTagExpression(raw string) ([]tagToken, error) {
 
 		switch in[pos] {
 		case '(':
-			tokens = append(tokens, tagToken{typ: tagTokenLParen, value: "(", pos: pos})
+			tokens = append(tokens, queryToken{typ: queryTokenLParen, value: "(", pos: pos})
 			pos++
 			continue
 		case ')':
-			tokens = append(tokens, tagToken{typ: tagTokenRParen, value: ")", pos: pos})
+			tokens = append(tokens, queryToken{typ: queryTokenRParen, value: ")", pos: pos})
 			pos++
 			continue
 		case '!':
-			tokens = append(tokens, tagToken{typ: tagTokenNot, value: "!", pos: pos})
+			tokens = append(tokens, queryToken{typ: queryTokenNot, value: "!", pos: pos})
 			pos++
 			continue
 		case '&':
 			if pos+1 < len(in) && in[pos+1] == '&' {
-				tokens = append(tokens, tagToken{typ: tagTokenAnd, value: "&&", pos: pos})
+				tokens = append(tokens, queryToken{typ: queryTokenAnd, value: "&&", pos: pos})
 				pos += 2
 				continue
 			}
 			return nil, fmt.Errorf("unexpected token %q at position %d", string(in[pos]), pos+1)
 		case '|':
 			if pos+1 < len(in) && in[pos+1] == '|' {
-				tokens = append(tokens, tagToken{typ: tagTokenOr, value: "||", pos: pos})
+				tokens = append(tokens, queryToken{typ: queryTokenOr, value: "||", pos: pos})
 				pos += 2
 				continue
 			}
@@ -270,7 +270,7 @@ func tokenizeTagExpression(raw string) ([]tagToken, error) {
 					}
 					pos++
 				}
-				tokens = append(tokens, tagToken{typ: tagTokenDotIdent, value: in[start:pos], pos: start})
+				tokens = append(tokens, queryToken{typ: queryTokenDotIdent, value: in[start:pos], pos: start})
 				continue
 			}
 			// Lone dot — fall through to default word handling.
@@ -290,7 +290,7 @@ func tokenizeTagExpression(raw string) ([]tagToken, error) {
 					}
 					if ch == quote {
 						pos++
-						tokens = append(tokens, tagToken{typ: tagTokenIdent, value: b.String(), pos: start})
+						tokens = append(tokens, queryToken{typ: queryTokenIdent, value: b.String(), pos: start})
 						goto nextToken
 					}
 					b.WriteByte(ch)
@@ -320,33 +320,33 @@ func tokenizeTagExpression(raw string) ([]tagToken, error) {
 			lower := strings.ToLower(word)
 			switch lower {
 			case "and":
-				tokens = append(tokens, tagToken{typ: tagTokenAnd, value: word, pos: start})
+				tokens = append(tokens, queryToken{typ: queryTokenAnd, value: word, pos: start})
 			case "or":
-				tokens = append(tokens, tagToken{typ: tagTokenOr, value: word, pos: start})
+				tokens = append(tokens, queryToken{typ: queryTokenOr, value: word, pos: start})
 			case "not":
-				tokens = append(tokens, tagToken{typ: tagTokenNot, value: word, pos: start})
+				tokens = append(tokens, queryToken{typ: queryTokenNot, value: word, pos: start})
 			default:
-				tokens = append(tokens, tagToken{typ: tagTokenIdent, value: word, pos: start})
+				tokens = append(tokens, queryToken{typ: queryTokenIdent, value: word, pos: start})
 			}
 		}
 	nextToken:
 	}
 
-	tokens = append(tokens, tagToken{typ: tagTokenEOF, value: "", pos: len(in)})
+	tokens = append(tokens, queryToken{typ: queryTokenEOF, value: "", pos: len(in)})
 	return tokens, nil
 }
 
-func (p *tagExprParser) peek() tagToken {
+func (p *queryExprParser) peek() queryToken {
 	if p.index >= len(p.tokens) {
 		if len(p.tokens) == 0 {
-			return tagToken{typ: tagTokenEOF, pos: 0}
+			return queryToken{typ: queryTokenEOF, pos: 0}
 		}
 		return p.tokens[len(p.tokens)-1]
 	}
 	return p.tokens[p.index]
 }
 
-func (p *tagExprParser) next() tagToken {
+func (p *queryExprParser) next() queryToken {
 	tok := p.peek()
 	if p.index < len(p.tokens) {
 		p.index++
@@ -354,14 +354,14 @@ func (p *tagExprParser) next() tagToken {
 	return tok
 }
 
-func (p *tagExprParser) parseOr() (tagExprNode, error) {
+func (p *queryExprParser) parseOr() (queryExprNode, error) {
 	left, err := p.parseAnd()
 	if err != nil {
 		return nil, err
 	}
 	for {
 		tok := p.peek()
-		if tok.typ != tagTokenOr {
+		if tok.typ != queryTokenOr {
 			break
 		}
 		p.next()
@@ -369,19 +369,19 @@ func (p *tagExprParser) parseOr() (tagExprNode, error) {
 		if err != nil {
 			return nil, err
 		}
-		left = &tagOrNode{left: left, right: right}
+		left = &queryOrNode{left: left, right: right}
 	}
 	return left, nil
 }
 
-func (p *tagExprParser) parseAnd() (tagExprNode, error) {
+func (p *queryExprParser) parseAnd() (queryExprNode, error) {
 	left, err := p.parseUnary()
 	if err != nil {
 		return nil, err
 	}
 	for {
 		tok := p.peek()
-		if tok.typ != tagTokenAnd {
+		if tok.typ != queryTokenAnd {
 			break
 		}
 		p.next()
@@ -389,48 +389,48 @@ func (p *tagExprParser) parseAnd() (tagExprNode, error) {
 		if err != nil {
 			return nil, err
 		}
-		left = &tagAndNode{left: left, right: right}
+		left = &queryAndNode{left: left, right: right}
 	}
 	return left, nil
 }
 
-func (p *tagExprParser) parseUnary() (tagExprNode, error) {
+func (p *queryExprParser) parseUnary() (queryExprNode, error) {
 	tok := p.peek()
-	if tok.typ == tagTokenNot {
+	if tok.typ == queryTokenNot {
 		p.next()
 		node, err := p.parseUnary()
 		if err != nil {
 			return nil, err
 		}
-		return &tagNotNode{node: node}, nil
+		return &queryNotNode{node: node}, nil
 	}
 	return p.parsePrimary()
 }
 
-func (p *tagExprParser) parsePrimary() (tagExprNode, error) {
+func (p *queryExprParser) parsePrimary() (queryExprNode, error) {
 	tok := p.peek()
 	switch tok.typ {
-	case tagTokenIdent:
+	case queryTokenIdent:
 		p.next()
-		return &tagLiteralNode{tag: tok.value}, nil
-	case tagTokenDotIdent:
+		return &queryLiteralNode{tag: tok.value}, nil
+	case queryTokenDotIdent:
 		p.next()
 		return parseDotIdent(tok.value)
-	case tagTokenLParen:
+	case queryTokenLParen:
 		p.next()
 		expr, err := p.parseOr()
 		if err != nil {
 			return nil, err
 		}
 		closing := p.next()
-		if closing.typ != tagTokenRParen {
-			if closing.typ == tagTokenEOF {
+		if closing.typ != queryTokenRParen {
+			if closing.typ == queryTokenEOF {
 				return nil, fmt.Errorf("expected ')' before end of expression")
 			}
 			return nil, fmt.Errorf("expected ')' before position %d", closing.pos+1)
 		}
 		return expr, nil
-	case tagTokenEOF:
+	case queryTokenEOF:
 		return nil, fmt.Errorf("unexpected end of expression")
 	default:
 		return nil, fmt.Errorf("unexpected token %q at position %d", tok.value, tok.pos+1)
@@ -439,8 +439,8 @@ func (p *tagExprParser) parsePrimary() (tagExprNode, error) {
 
 // parseDotIdent parses a dot-ident token value like ".created>2026-01-01",
 // ".accessCount>=5", ".hash=abc123", or ".created" (boolean check) into a
-// tagCompareNode.
-func parseDotIdent(raw string) (*tagCompareNode, error) {
+// queryCompareNode.
+func parseDotIdent(raw string) (*queryCompareNode, error) {
 	// Strip leading dot.
 	s := raw[1:]
 
@@ -455,7 +455,7 @@ func parseDotIdent(raw string) (*tagCompareNode, error) {
 
 	if opIdx < 0 {
 		// No operator: boolean existence check.
-		return &tagCompareNode{field: s, op: "", value: ""}, nil
+		return &queryCompareNode{field: s, op: "", value: ""}, nil
 	}
 
 	field := s[:opIdx]
@@ -485,7 +485,7 @@ func parseDotIdent(raw string) (*tagCompareNode, error) {
 		return nil, fmt.Errorf("missing value after operator in %q", raw)
 	}
 
-	return &tagCompareNode{field: field, op: op, value: value}, nil
+	return &queryCompareNode{field: field, op: op, value: value}, nil
 }
 
 // --------------------------------------------------------------------------

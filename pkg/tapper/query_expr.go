@@ -9,10 +9,10 @@ import (
 	"github.com/jlrickert/tapper/pkg/keg"
 )
 
-// parseTagExpression compiles a boolean tag expression string.
-// This is a thin wrapper around keg.ParseTagExpression.
-func parseTagExpression(raw string) (keg.TagExpr, error) {
-	return keg.ParseTagExpression(raw)
+// parseQueryExpression compiles a boolean query expression string.
+// This is a thin wrapper around keg.ParseQueryExpression.
+func parseQueryExpression(raw string) (keg.QueryExpr, error) {
+	return keg.ParseQueryExpression(raw)
 }
 
 // setFromNodeIDs converts a slice of NodeId to a set of path strings.
@@ -309,7 +309,7 @@ func evalQueryExpr(
 	entries []keg.NodeIndexEntry,
 	expr string,
 ) (map[string]struct{}, error) {
-	parsed, err := parseTagExpression(expr)
+	parsed, err := parseQueryExpression(expr)
 	if err != nil {
 		return nil, err
 	}
@@ -331,6 +331,6 @@ func evalQueryExpr(
 		return resolveStatsCompare(ctx, k, entries, field, op, value)
 	}
 
-	matched := keg.EvaluateTagExpressionWithCompare(parsed, universe, resolveTag, resolveCompare)
+	matched := keg.EvaluateQueryExpressionWithCompare(parsed, universe, resolveTag, resolveCompare)
 	return matched, nil
 }
