@@ -384,3 +384,149 @@ func TestListCommand_DotPrefixQuery_BooleanCheck(t *testing.T) {
 	require.Contains(t, trimmed, "1", "newly created node 1 should match .created boolean")
 	require.Contains(t, trimmed, "2", "newly created node 2 should match .created boolean")
 }
+
+func TestListCommand_AttrCompare_EntityNotEqual(t *testing.T) {
+	t.Parallel()
+	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
+
+	// Create nodes with different entity values.
+	sb.Advance(1 * time.Hour)
+	res := NewProcess(t, false, "create", "--title", "Plan node").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+	// Set meta for node 1: entity=plan
+	stdin := strings.NewReader("entity: plan\ntags:\n  - golang\n")
+	res = NewProcess(t, false, "meta", "1").RunWithIO(sb.Context(), sb.Runtime(), stdin)
+	require.NoError(t, res.Err)
+
+	sb.Advance(1 * time.Hour)
+	res = NewProcess(t, false, "create", "--title", "Task node").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+	// Set meta for node 2: entity=task
+	stdin = strings.NewReader("entity: task\ntags:\n  - golang\n")
+	res = NewProcess(t, false, "meta", "2").RunWithIO(sb.Context(), sb.Runtime(), stdin)
+	require.NoError(t, res.Err)
+
+	sb.Advance(1 * time.Hour)
+	res = NewProcess(t, false, "create", "--title", "Concept node").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+	// Set meta for node 3: entity=concept
+	stdin = strings.NewReader("entity: concept\n")
+	res = NewProcess(t, false, "meta", "3").RunWithIO(sb.Context(), sb.Runtime(), stdin)
+	require.NoError(t, res.Err)
+
+	// "entity!=plan" should return nodes that are NOT entity=plan.
+	// Node 0 (zero node) has no entity, node 1 is plan, node 2 is task, node 3 is concept.
+	listRes := NewProcess(t, false, "list", "--id-only", "--query", "entity!=plan").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, listRes.Err)
+	lines := strings.Split(strings.TrimSpace(string(listRes.Stdout)), "\n")
+	trimmed := make([]string, len(lines))
+	for i, l := range lines {
+		trimmed[i] = strings.TrimSpace(l)
+	}
+	require.NotContains(t, trimmed, "1", "plan node should NOT match entity!=plan")
+	require.Contains(t, trimmed, "2", "task node should match entity!=plan")
+	require.Contains(t, trimmed, "3", "concept node should match entity!=plan")
+}
+
+func TestListCommand_AttrCompare_OmegaGte(t *testing.T) {
+	t.Parallel()
+	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
+
+	// Create nodes with different omega values.
+	sb.Advance(1 * time.Hour)
+	res := NewProcess(t, false, "create", "--title", "Low omega").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+	stdin := strings.NewReader("omega: 0.3\n")
+	res = NewProcess(t, false, "meta", "1").RunWithIO(sb.Context(), sb.Runtime(), stdin)
+	require.NoError(t, res.Err)
+
+	sb.Advance(1 * time.Hour)
+	res = NewProcess(t, false, "create", "--title", "Mid omega").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+	stdin = strings.NewReader("omega: 0.5\n")
+	res = NewProcess(t, false, "meta", "2").RunWithIO(sb.Context(), sb.Runtime(), stdin)
+	require.NoError(t, res.Err)
+
+	sb.Advance(1 * time.Hour)
+	res = NewProcess(t, false, "create", "--title", "High omega").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+	stdin = strings.NewReader("omega: 0.8\n")
+	res = NewProcess(t, false, "meta", "3").RunWithIO(sb.Context(), sb.Runtime(), stdin)
+	require.NoError(t, res.Err)
+
+	// "omega>=0.5" should return nodes with omega >= 0.5.
+	listRes := NewProcess(t, false, "list", "--id-only", "--query", "omega>=0.5").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, listRes.Err)
+	lines := strings.Split(strings.TrimSpace(string(listRes.Stdout)), "\n")
+	trimmed := make([]string, len(lines))
+	for i, l := range lines {
+		trimmed[i] = strings.TrimSpace(l)
+	}
+	require.NotContains(t, trimmed, "1", "omega=0.3 should NOT match omega>=0.5")
+	require.Contains(t, trimmed, "2", "omega=0.5 should match omega>=0.5")
+	require.Contains(t, trimmed, "3", "omega=0.8 should match omega>=0.5")
+}
+
+func TestListCommand_AttrCompare_BackwardCompat_EntityEquals(t *testing.T) {
+	t.Parallel()
+	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
+
+	// Create a node with entity=plan.
+	sb.Advance(1 * time.Hour)
+	res := NewProcess(t, false, "create", "--title", "Plan node").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+	stdin := strings.NewReader("entity: plan\ntags:\n  - golang\n")
+	res = NewProcess(t, false, "meta", "1").RunWithIO(sb.Context(), sb.Runtime(), stdin)
+	require.NoError(t, res.Err)
+
+	sb.Advance(1 * time.Hour)
+	res = NewProcess(t, false, "create", "--title", "Task node").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+	stdin = strings.NewReader("entity: task\n")
+	res = NewProcess(t, false, "meta", "2").RunWithIO(sb.Context(), sb.Runtime(), stdin)
+	require.NoError(t, res.Err)
+
+	// "entity=plan" (bare =) should continue to work as before.
+	listRes := NewProcess(t, false, "list", "--id-only", "--query", "entity=plan").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, listRes.Err)
+	lines := strings.Split(strings.TrimSpace(string(listRes.Stdout)), "\n")
+	trimmed := make([]string, len(lines))
+	for i, l := range lines {
+		trimmed[i] = strings.TrimSpace(l)
+	}
+	require.Contains(t, trimmed, "1", "entity=plan should match the plan node")
+	require.NotContains(t, trimmed, "2", "entity=plan should NOT match the task node")
+}
+
+func TestListCommand_AttrCompare_MixedWithDotPrefix(t *testing.T) {
+	t.Parallel()
+	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
+
+	// Create nodes: one is entity=plan, one is entity=task.
+	sb.Advance(1 * time.Hour)
+	res := NewProcess(t, false, "create", "--title", "Plan node").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+	stdin := strings.NewReader("entity: plan\n")
+	res = NewProcess(t, false, "meta", "1").RunWithIO(sb.Context(), sb.Runtime(), stdin)
+	require.NoError(t, res.Err)
+
+	sb.Advance(1 * time.Hour)
+	res = NewProcess(t, false, "create", "--title", "Task node").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+	stdin = strings.NewReader("entity: task\n")
+	res = NewProcess(t, false, "meta", "2").RunWithIO(sb.Context(), sb.Runtime(), stdin)
+	require.NoError(t, res.Err)
+
+	// "entity!=plan and .created" combines attribute comparison with dot-prefix boolean.
+	listRes := NewProcess(t, false, "list", "--id-only", "--query", "entity!=plan and .created").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, listRes.Err)
+	out := strings.TrimSpace(string(listRes.Stdout))
+	require.NotEmpty(t, out, "should have results for combined attr+stats query")
+	lines := strings.Split(out, "\n")
+	trimmed := make([]string, len(lines))
+	for i, l := range lines {
+		trimmed[i] = strings.TrimSpace(l)
+	}
+	require.NotContains(t, trimmed, "1", "plan node should NOT match entity!=plan")
+	require.Contains(t, trimmed, "2", "task node should match entity!=plan and .created")
+}
