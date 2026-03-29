@@ -267,6 +267,92 @@ func TestResolveTimeField(t *testing.T) {
 	}
 }
 
+func TestMatchFloat(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name  string
+		field float64
+		op    string
+		cmp   float64
+		want  bool
+	}{
+		{"eq_true", 0.5, "=", 0.5, true},
+		{"eq_false", 0.5, "=", 0.7, false},
+		{"neq_true", 0.5, "!=", 0.7, true},
+		{"neq_false", 0.5, "!=", 0.5, false},
+		{"gt_true", 0.7, ">", 0.5, true},
+		{"gt_false", 0.3, ">", 0.5, false},
+		{"gt_equal", 0.5, ">", 0.5, false},
+		{"gte_true", 0.5, ">=", 0.5, true},
+		{"gte_greater", 0.7, ">=", 0.5, true},
+		{"gte_less", 0.3, ">=", 0.5, false},
+		{"lt_true", 0.3, "<", 0.5, true},
+		{"lt_false", 0.7, "<", 0.5, false},
+		{"lt_equal", 0.5, "<", 0.5, false},
+		{"lte_true", 0.5, "<=", 0.5, true},
+		{"lte_less", 0.3, "<=", 0.5, true},
+		{"lte_greater", 0.7, "<=", 0.5, false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(innerT *testing.T) {
+			innerT.Parallel()
+			got := matchFloat(tc.field, tc.op, tc.cmp)
+			require.Equal(innerT, tc.want, got)
+		})
+	}
+}
+
+func TestCompareAttrValues(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		got  string
+		op   string
+		val  string
+		want bool
+	}{
+		// Float comparison.
+		{"float_eq", "0.5", "=", "0.5", true},
+		{"float_neq", "0.5", "!=", "0.7", true},
+		{"float_gte", "0.5", ">=", "0.5", true},
+		{"float_gt", "0.7", ">", "0.5", true},
+		{"float_lt", "0.3", "<", "0.5", true},
+		{"float_lte", "0.3", "<=", "0.5", true},
+		{"float_gt_false", "0.3", ">", "0.5", false},
+
+		// Integer values parsed as float.
+		{"int_as_float_eq", "5", "=", "5", true},
+		{"int_as_float_gt", "10", ">", "5", true},
+		{"int_as_float_lt", "3", "<", "5", true},
+
+		// String comparison fallback.
+		{"string_eq", "plan", "=", "plan", true},
+		{"string_neq", "plan", "!=", "task", true},
+		{"string_neq_false", "plan", "!=", "plan", false},
+		{"string_gt", "task", ">", "plan", true},
+		{"string_lt", "concept", "<", "plan", true},
+
+		// Date comparison.
+		{"date_gt", "2026-04-01", ">", "2026-03-01", true},
+		{"date_lt", "2026-02-01", "<", "2026-03-01", true},
+		{"date_eq", "2026-03-01", "=", "2026-03-01", true},
+
+		// Mixed types fall back to string.
+		{"mixed_string_vs_num", "abc", ">", "0.5", true}, // string comparison
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(innerT *testing.T) {
+			innerT.Parallel()
+			got := compareAttrValues(tc.got, tc.op, tc.val)
+			require.Equal(innerT, tc.want, got)
+		})
+	}
+}
+
 func setKeys(m map[string]struct{}) []string {
 	out := make([]string, 0, len(m))
 	for key := range m {

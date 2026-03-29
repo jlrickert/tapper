@@ -295,6 +295,102 @@ func matchInt(fieldNum int, op string, compareNum int) bool {
 	return false
 }
 
+// resolveAttrCompare resolves a meta.yaml attribute comparison against the
+// provided node index entries (e.g., "entity!=plan", "omega>=0.5").
+//
+// Type detection uses try-parse: date first (most specific), then float,
+// then string fallback. Both the predicate value and the stored meta value
+// are parsed the same way to ensure consistent comparison.
+func resolveAttrCompare(
+	ctx context.Context,
+	k *keg.Keg,
+	entries []keg.NodeIndexEntry,
+	field, op, value string,
+) map[string]struct{} {
+	out := make(map[string]struct{})
+
+	for _, entry := range entries {
+		id, err := keg.ParseNode(entry.ID)
+		if err != nil || id == nil {
+			continue
+		}
+		raw, err := k.Repo.ReadMeta(ctx, *id)
+		if err != nil {
+			continue
+		}
+		meta, err := keg.ParseMeta(ctx, raw)
+		if err != nil {
+			continue
+		}
+		got, ok := meta.Get(field)
+		if !ok {
+			// Field not present: only matches boolean false (op == "")
+			// and != comparisons (missing != "anything" is true).
+			if op == "!=" {
+				out[id.Path()] = struct{}{}
+				out[entry.ID] = struct{}{}
+			}
+			continue
+		}
+
+		if op == "" {
+			// Boolean: field exists and is non-empty.
+			if got != "" {
+				out[id.Path()] = struct{}{}
+				out[entry.ID] = struct{}{}
+			}
+			continue
+		}
+
+		if compareAttrValues(got, op, value) {
+			out[id.Path()] = struct{}{}
+			out[entry.ID] = struct{}{}
+		}
+	}
+
+	return out
+}
+
+// compareAttrValues compares two attribute values using try-parse type
+// detection: date first, then float, then string fallback.
+func compareAttrValues(got, op, value string) bool {
+	// Try date comparison first (most specific format).
+	gotTime := keg.ParseStatsTime(got)
+	valTime := keg.ParseStatsTime(value)
+	if !gotTime.IsZero() && !valTime.IsZero() {
+		return matchTime(gotTime, op, valTime)
+	}
+
+	// Try float comparison.
+	gotFloat, gotErr := strconv.ParseFloat(got, 64)
+	valFloat, valErr := strconv.ParseFloat(value, 64)
+	if gotErr == nil && valErr == nil {
+		return matchFloat(gotFloat, op, valFloat)
+	}
+
+	// Fall back to string comparison.
+	return matchString(got, op, value)
+}
+
+// matchFloat compares two float64 values using op.
+func matchFloat(fieldVal float64, op string, compareVal float64) bool {
+	switch op {
+	case "=":
+		return fieldVal == compareVal
+	case "!=":
+		return fieldVal != compareVal
+	case ">":
+		return fieldVal > compareVal
+	case ">=":
+		return fieldVal >= compareVal
+	case "<":
+		return fieldVal < compareVal
+	case "<=":
+		return fieldVal <= compareVal
+	}
+	return false
+}
+
 // evalQueryExpr parses expr as a boolean expression that supports plain
 // tag names, key=value attribute predicates, and .field{op}value stats
 // predicates, then evaluates it against the provided universe of node index
@@ -327,8 +423,11 @@ func evalQueryExpr(
 		return resolveQueryTerm(ctx, k, d, entries, term)
 	}
 
-	resolveCompare := func(field, op, value string) map[string]struct{} {
-		return resolveStatsCompare(ctx, k, entries, field, op, value)
+	resolveCompare := func(dotPrefix bool, field, op, value string) map[string]struct{} {
+		if dotPrefix {
+			return resolveStatsCompare(ctx, k, entries, field, op, value)
+		}
+		return resolveAttrCompare(ctx, k, entries, field, op, value)
 	}
 
 	matched := keg.EvaluateQueryExpressionWithCompare(parsed, universe, resolveTag, resolveCompare)

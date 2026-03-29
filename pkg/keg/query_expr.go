@@ -36,11 +36,13 @@ func ParseQueryExpression(raw string) (QueryExpr, error) {
 	return QueryExpr{root: node}, nil
 }
 
-// CompareResolver is an optional callback for evaluating dot-prefix stats
-// comparisons (e.g., ".created>2026-01-01"). When set, the evaluator calls
-// it with field, op, and value and expects the set of matching identifiers.
-// When nil, dot-prefix comparisons match nothing.
-type CompareResolver func(field, op, value string) map[string]struct{}
+// CompareResolver is an optional callback for evaluating comparison
+// predicates (e.g., ".created>2026-01-01" or "entity!=plan"). When set,
+// the evaluator calls it with dotPrefix, field, op, and value and expects
+// the set of matching identifiers. dotPrefix is true for dot-prefix stats
+// fields (e.g., ".created>2026-01-01") and false for plain attribute
+// comparisons (e.g., "entity!=plan"). When nil, comparisons match nothing.
+type CompareResolver func(dotPrefix bool, field, op, value string) map[string]struct{}
 
 // EvaluateQueryExpression evaluates expr against a universe of string identifiers.
 // universe is the full candidate set (e.g. node paths). resolve maps a tag
@@ -134,13 +136,16 @@ func (n *queryOrNode) run(ctx *queryEvalCtx) map[string]struct{} {
 	return unionSets(n.left.run(ctx), n.right.run(ctx))
 }
 
-// queryCompareNode represents a dot-prefix stats field predicate such as
-// ".created>2026-01-01" or ".hash=abc123". When op and value are empty,
-// it acts as a boolean existence check (field is non-empty / non-zero).
+// queryCompareNode represents a comparison predicate. When dotPrefix is true
+// the field refers to a stats.json / index field (e.g., ".created>2026-01-01").
+// When dotPrefix is false the field refers to a meta.yaml attribute (e.g.,
+// "entity!=plan", "omega>=0.5"). When op and value are empty it acts as a
+// boolean existence check (field is non-empty / non-zero).
 type queryCompareNode struct {
-	field string // e.g., "created", "hash", "accessCount"
-	op    string // e.g., ">", "<", ">=", "<=", "=", "!=" — empty for boolean
-	value string // comparison value; empty for boolean check
+	dotPrefix bool   // true for dot-prefix stats fields, false for meta attributes
+	field     string // e.g., "created", "hash", "entity", "omega"
+	op        string // e.g., ">", "<", ">=", "<=", "=", "!=" — empty for boolean
+	value     string // comparison value; empty for boolean check
 }
 
 func (n *queryCompareNode) run(ctx *queryEvalCtx) map[string]struct{} {
@@ -150,7 +155,7 @@ func (n *queryCompareNode) run(ctx *queryEvalCtx) map[string]struct{} {
 	if ctx.resolveCompare == nil {
 		return map[string]struct{}{}
 	}
-	return ctx.resolveCompare(n.field, n.op, n.value)
+	return ctx.resolveCompare(n.dotPrefix, n.field, n.op, n.value)
 }
 
 type queryTokenType int
@@ -307,7 +312,16 @@ func tokenizeQueryExpression(raw string) ([]queryToken, error) {
 					break
 				}
 				switch in[pos] {
-				case '(', ')', '!', '&', '|', '\'', '"':
+				case '(', ')', '&', '|', '\'', '"':
+					goto emitWord
+				case '!':
+					// '!' breaks the scan only if it is NOT part of "!="
+					if pos+1 < len(in) && in[pos+1] == '=' {
+						// "!=" is a comparison operator inside the ident;
+						// continue scanning to include the value.
+						pos += 2
+						continue
+					}
 					goto emitWord
 				}
 				pos++
@@ -412,6 +426,13 @@ func (p *queryExprParser) parsePrimary() (queryExprNode, error) {
 	switch tok.typ {
 	case queryTokenIdent:
 		p.next()
+		// Check if the ident contains a non-bare-= comparison operator,
+		// indicating an attribute comparison (e.g., "entity!=plan",
+		// "omega>=0.5", "omega>0.3"). Bare "key=value" keeps the
+		// existing literal path for backward compatibility.
+		if node, ok := tryParseAttrCompare(tok.value); ok {
+			return node, nil
+		}
 		return &queryLiteralNode{tag: tok.value}, nil
 	case queryTokenDotIdent:
 		p.next()
@@ -437,6 +458,34 @@ func (p *queryExprParser) parsePrimary() (queryExprNode, error) {
 	}
 }
 
+// tryParseAttrCompare checks whether raw contains a non-bare-= comparison
+// operator (!=, >=, <=, >, <) and, if so, parses it into a queryCompareNode
+// with dotPrefix=false. Returns (node, true) on success. If raw contains
+// only a bare = or no operator at all, returns (nil, false) so the caller
+// can fall back to the literal path.
+func tryParseAttrCompare(raw string) (*queryCompareNode, bool) {
+	// Order matters: check two-char operators before single-char.
+	for _, op := range []string{"!=", ">=", "<="} {
+		if idx := strings.Index(raw, op); idx > 0 {
+			field := raw[:idx]
+			value := raw[idx+len(op):]
+			if field != "" && value != "" {
+				return &queryCompareNode{dotPrefix: false, field: field, op: op, value: value}, true
+			}
+		}
+	}
+	for _, op := range []string{">", "<"} {
+		if idx := strings.Index(raw, op); idx > 0 {
+			field := raw[:idx]
+			value := raw[idx+len(op):]
+			if field != "" && value != "" {
+				return &queryCompareNode{dotPrefix: false, field: field, op: op, value: value}, true
+			}
+		}
+	}
+	return nil, false
+}
+
 // parseDotIdent parses a dot-ident token value like ".created>2026-01-01",
 // ".accessCount>=5", ".hash=abc123", or ".created" (boolean check) into a
 // queryCompareNode.
@@ -455,7 +504,7 @@ func parseDotIdent(raw string) (*queryCompareNode, error) {
 
 	if opIdx < 0 {
 		// No operator: boolean existence check.
-		return &queryCompareNode{field: s, op: "", value: ""}, nil
+		return &queryCompareNode{dotPrefix: true, field: s, op: "", value: ""}, nil
 	}
 
 	field := s[:opIdx]
@@ -485,7 +534,7 @@ func parseDotIdent(raw string) (*queryCompareNode, error) {
 		return nil, fmt.Errorf("missing value after operator in %q", raw)
 	}
 
-	return &queryCompareNode{field: field, op: op, value: value}, nil
+	return &queryCompareNode{dotPrefix: true, field: field, op: op, value: value}, nil
 }
 
 // --------------------------------------------------------------------------

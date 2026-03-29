@@ -108,7 +108,7 @@ func TestEvaluateQueryExpression_DotPrefix(t *testing.T) {
 	}
 
 	// resolveCompare simulates stats field resolution.
-	resolveCompare := func(field, op, value string) map[string]struct{} {
+	resolveCompare := func(dotPrefix bool, field, op, value string) map[string]struct{} {
 		switch field {
 		case "created":
 			// Simulate: node 1 created 2026-02-01, node 2 created 2026-04-01, others 2025-01-01
@@ -242,6 +242,198 @@ func TestEvaluateQueryExpression_NilCompareResolver(t *testing.T) {
 	)
 
 	require.Empty(t, gotSet, "dot-prefix should match nothing without a compare resolver")
+}
+
+func TestParseQueryExpression_AttrCompare(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name    string
+		expr    string
+		wantErr bool
+	}{
+		{
+			name: "attr_not_equal",
+			expr: "entity!=plan",
+		},
+		{
+			name: "attr_gte_numeric",
+			expr: "omega>=0.5",
+		},
+		{
+			name: "attr_gt_numeric",
+			expr: "omega>0.3",
+		},
+		{
+			name: "attr_lt_numeric",
+			expr: "omega<1.0",
+		},
+		{
+			name: "attr_lte_numeric",
+			expr: "omega<=0.8",
+		},
+		{
+			name: "attr_bare_eq_backward_compat",
+			expr: "entity=plan",
+		},
+		{
+			name: "attr_ne_combined_with_tag",
+			expr: "entity!=plan and golang",
+		},
+		{
+			name: "attr_ne_combined_with_dot_prefix",
+			expr: "entity!=plan and .created>2026-01-01",
+		},
+		{
+			name: "status_ne",
+			expr: "status!=done",
+		},
+		{
+			name: "complex_mixed",
+			expr: "(entity!=plan or omega>=0.5) and golang",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(innerT *testing.T) {
+			innerT.Parallel()
+			_, err := keg.ParseQueryExpression(tc.expr)
+			if tc.wantErr {
+				require.Error(innerT, err)
+			} else {
+				require.NoError(innerT, err)
+			}
+		})
+	}
+}
+
+func TestEvaluateQueryExpression_AttrCompare(t *testing.T) {
+	t.Parallel()
+
+	universe := map[string]struct{}{
+		"0": {},
+		"1": {},
+		"2": {},
+		"3": {},
+	}
+
+	byTag := map[string]map[string]struct{}{
+		"golang": {"1": {}, "2": {}},
+		"rust":   {"3": {}},
+	}
+
+	// resolveCompare simulates both stats and attribute resolution.
+	resolveCompare := func(dotPrefix bool, field, op, value string) map[string]struct{} {
+		if dotPrefix {
+			// Stats field simulation.
+			if field == "created" && op == ">" && value == "2026-01-01" {
+				return map[string]struct{}{"1": {}, "2": {}}
+			}
+			return map[string]struct{}{}
+		}
+		// Attribute field simulation.
+		// Simulated meta: node 0: entity=plan, omega=0.3
+		//                 node 1: entity=task, omega=0.7
+		//                 node 2: entity=plan, omega=0.5
+		//                 node 3: entity=concept, (no omega)
+		attrs := map[string]map[string]string{
+			"0": {"entity": "plan", "omega": "0.3"},
+			"1": {"entity": "task", "omega": "0.7"},
+			"2": {"entity": "plan", "omega": "0.5"},
+			"3": {"entity": "concept"},
+		}
+		out := make(map[string]struct{})
+		for id, meta := range attrs {
+			got, ok := meta[field]
+			if !ok {
+				if op == "!=" {
+					out[id] = struct{}{}
+				}
+				continue
+			}
+			if op == "=" && got == value {
+				out[id] = struct{}{}
+			} else if op == "!=" && got != value {
+				out[id] = struct{}{}
+			} else if op == ">=" || op == ">" || op == "<=" || op == "<" {
+				// Simple numeric simulation for omega.
+				// This is a simulation — the real resolver does try-parse.
+				if got >= value && op == ">=" {
+					out[id] = struct{}{}
+				} else if got > value && op == ">" {
+					out[id] = struct{}{}
+				} else if got <= value && op == "<=" {
+					out[id] = struct{}{}
+				} else if got < value && op == "<" {
+					out[id] = struct{}{}
+				}
+			}
+		}
+		return out
+	}
+
+	cases := []struct {
+		name string
+		expr string
+		want []string
+	}{
+		{
+			name: "entity_ne_plan",
+			expr: "entity!=plan",
+			want: []string{"1", "3"},
+		},
+		{
+			name: "omega_gte_0.5",
+			expr: "omega>=0.5",
+			want: []string{"1", "2"},
+		},
+		{
+			name: "entity_ne_and_tag",
+			expr: "entity!=plan and golang",
+			want: []string{"1"},
+		},
+		{
+			name: "attr_ne_combined_with_dot_prefix",
+			expr: "entity!=plan and .created>2026-01-01",
+			want: []string{"1"},
+		},
+		{
+			name: "bare_eq_backward_compat",
+			// "entity=plan" still goes through the literal path,
+			// so it resolves via the tag resolver as key=value.
+			expr: "entity=plan",
+			// byTag does not have "entity=plan" as a tag, so
+			// this returns empty unless the tag resolver handles it.
+			want: []string{},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(innerT *testing.T) {
+			innerT.Parallel()
+
+			parsed, err := keg.ParseQueryExpression(tc.expr)
+			require.NoError(innerT, err)
+
+			gotSet := keg.EvaluateQueryExpressionWithCompare(
+				parsed,
+				universe,
+				func(tag string) map[string]struct{} {
+					if ids, ok := byTag[tag]; ok {
+						return ids
+					}
+					return map[string]struct{}{}
+				},
+				resolveCompare,
+			)
+
+			got := setKeys(gotSet)
+			want := append([]string{}, tc.want...)
+			slices.Sort(got)
+			slices.Sort(want)
+			require.Equal(innerT, want, got)
+		})
+	}
 }
 
 func setKeys(m map[string]struct{}) []string {
