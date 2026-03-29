@@ -72,7 +72,8 @@ func WithConfig(cfg *Config) DexOption {
 			}
 			// Strip the "dex/" prefix to get the short name for repo.WriteIndex.
 			shortName := strings.TrimPrefix(entry.File, "dex/")
-			idx, err := NewQueryFilteredIndex(shortName, query, d.queryResolver)
+			sortOrder := QueryFilteredSortOrder(entry.Sort)
+			idx, err := NewQueryFilteredIndexWithSort(shortName, query, d.queryResolver, sortOrder)
 			if err != nil {
 				return fmt.Errorf("dex: config index %q: %w", entry.File, err)
 			}

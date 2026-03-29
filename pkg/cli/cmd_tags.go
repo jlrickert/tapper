@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/jlrickert/tapper/pkg/keg"
 	"github.com/jlrickert/tapper/pkg/tapper"
 	"github.com/spf13/cobra"
 )
@@ -20,6 +21,8 @@ When EXPR is provided, return nodes matching a boolean tag expression.
 
 Expression language:
   - Literals: fire, project_x, "and"
+  - Attributes: entity=plan, status=done
+  - Stats fields: .created>2026-01-01, .accessCount>=5, .hash=abc123
   - Operators: and, or, not
   - Symbol operators: &&, ||, !
   - Grouping: parentheses ()
@@ -30,6 +33,7 @@ Examples:
   tap tags fire
   tap tags "fire and (project or guide)"
   tap tags "fire and not archived" --id-only
+  tap tags ".created>2026-01-01 and entity=plan"
   tap tags "client && !draft" --format "%i|%t"`,
 		Example: `  tap tags
   tap tags fire
@@ -87,6 +91,16 @@ Examples:
 	cmd.Flags().IntVar(&opts.Offset, "offset", 0, "skip the first N results")
 	cmd.Flags().StringVarP(&opts.Format, "format", "f", "", "output format when TAG is provided")
 	cmd.Flags().StringVar(&opts.Query, "query", "", `boolean expression (see "tap docs query-expressions" for syntax)`)
+	mustRegisterFlagCompletion(cmd, "query", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		if strings.HasPrefix(toComplete, ".") || toComplete == "" {
+			suggestions := make([]string, len(keg.StatsFieldNames))
+			for i, name := range keg.StatsFieldNames {
+				suggestions[i] = "." + name
+			}
+			return suggestions, cobra.ShellCompDirectiveNoFileComp
+		}
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	})
 
 	return cmd
 }

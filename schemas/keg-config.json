@@ -77,12 +77,18 @@
           },
           "query": {
             "type": "string",
-            "description": "Boolean query expression to filter index contents. Supports tag names, key=value attribute predicates, and boolean operators (and/or/not)."
+            "description": "Boolean query expression to filter index contents. Supports tag names, key=value attribute predicates, dot-prefix stats fields (.created>2026-01-01, .accessCount>=5), and boolean operators (and/or/not)."
           },
           "tags": {
             "type": "string",
             "description": "Deprecated: use query instead. Boolean tag query used to filter index contents.",
             "deprecated": true
+          },
+          "sort": {
+            "type": "string",
+            "description": "Sort order for query-filtered index entries.",
+            "enum": ["id", "updated", "created", "accessed"],
+            "default": "updated"
           }
         },
         "required": [

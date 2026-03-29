@@ -377,6 +377,22 @@ func (idx *TagFilteredIndex) Data(ctx context.Context) ([]byte, error) {
 //
 // Concurrency note: QueryFilteredIndex does not perform internal
 // synchronization. Callers should guard access with a mutex when needed.
+// QueryFilteredSortOrder controls the sort order of entries in a
+// QueryFilteredIndex.
+type QueryFilteredSortOrder string
+
+const (
+	// QFSortUpdated sorts by Updated descending (newest first). This is the
+	// default when no sort order is specified.
+	QFSortUpdated QueryFilteredSortOrder = ""
+	// QFSortID sorts by node ID ascending.
+	QFSortID QueryFilteredSortOrder = "id"
+	// QFSortCreated sorts by Created descending (newest first).
+	QFSortCreated QueryFilteredSortOrder = "created"
+	// QFSortAccessed sorts by Accessed descending (newest first).
+	QFSortAccessed QueryFilteredSortOrder = "accessed"
+)
+
 type QueryFilteredIndex struct {
 	// name is the short index filename used with repo.WriteIndex, e.g. "golang.md".
 	name string
@@ -385,7 +401,9 @@ type QueryFilteredIndex struct {
 	// resolve is an optional callback that evaluates a single query term
 	// against a node. When nil, terms are matched as tag names only.
 	resolve func(term string, data *NodeData) bool
-	// data holds matched entries sorted by Updated descending (newest first).
+	// sortOrder controls how matched entries are ordered.
+	sortOrder QueryFilteredSortOrder
+	// data holds matched entries sorted according to sortOrder.
 	data []NodeIndexEntry
 }
 
@@ -399,15 +417,23 @@ type QueryFilteredIndex struct {
 // name should be the short filename (without the "dex/" prefix) used when
 // writing to the repository, e.g. "golang.md".
 func NewQueryFilteredIndex(name, query string, resolve func(term string, data *NodeData) bool) (*QueryFilteredIndex, error) {
+	return NewQueryFilteredIndexWithSort(name, query, resolve, QFSortUpdated)
+}
+
+// NewQueryFilteredIndexWithSort creates a QueryFilteredIndex with an explicit
+// sort order. The sortOrder parameter accepts "id", "created", "accessed", or
+// empty string (default: sort by Updated descending).
+func NewQueryFilteredIndexWithSort(name, query string, resolve func(term string, data *NodeData) bool, sortOrder QueryFilteredSortOrder) (*QueryFilteredIndex, error) {
 	expr, err := ParseTagExpression(query)
 	if err != nil {
 		return nil, fmt.Errorf("invalid query expression for %q: %w", name, err)
 	}
 	return &QueryFilteredIndex{
-		name:    name,
-		expr:    expr,
-		resolve: resolve,
-		data:    []NodeIndexEntry{},
+		name:      name,
+		expr:      expr,
+		resolve:   resolve,
+		sortOrder: sortOrder,
+		data:      []NodeIndexEntry{},
 	}, nil
 }
 
@@ -420,7 +446,7 @@ func (idx *QueryFilteredIndex) Name() string {
 }
 
 // Add evaluates the query expression against the node and, if it matches,
-// inserts or updates the node entry maintaining reverse-chronological order.
+// inserts or updates the node entry maintaining the configured sort order.
 func (idx *QueryFilteredIndex) Add(ctx context.Context, data *NodeData) error {
 	_ = ctx
 	if idx == nil || data == nil {
@@ -443,17 +469,41 @@ func (idx *QueryFilteredIndex) Add(ctx context.Context, data *NodeData) error {
 	for i := range idx.data {
 		if idx.data[i].ID == entry.ID {
 			idx.data[i] = entry
-			sort.SliceStable(idx.data, func(a, b int) bool {
-				return idx.data[a].Updated.After(idx.data[b].Updated)
-			})
+			idx.sortData()
 			return nil
 		}
 	}
 	idx.data = append(idx.data, entry)
-	sort.SliceStable(idx.data, func(a, b int) bool {
-		return idx.data[a].Updated.After(idx.data[b].Updated)
-	})
+	idx.sortData()
 	return nil
+}
+
+// sortData sorts idx.data according to idx.sortOrder.
+func (idx *QueryFilteredIndex) sortData() {
+	switch idx.sortOrder {
+	case QFSortID:
+		sort.SliceStable(idx.data, func(a, b int) bool {
+			na, ea := ParseNode(idx.data[a].ID)
+			nb, eb := ParseNode(idx.data[b].ID)
+			if ea == nil && eb == nil && na != nil && nb != nil {
+				return na.Compare(*nb) < 0
+			}
+			return idx.data[a].ID < idx.data[b].ID
+		})
+	case QFSortCreated:
+		sort.SliceStable(idx.data, func(a, b int) bool {
+			return idx.data[a].Created.After(idx.data[b].Created)
+		})
+	case QFSortAccessed:
+		sort.SliceStable(idx.data, func(a, b int) bool {
+			return idx.data[a].Accessed.After(idx.data[b].Accessed)
+		})
+	default:
+		// QFSortUpdated or empty: sort by Updated descending.
+		sort.SliceStable(idx.data, func(a, b int) bool {
+			return idx.data[a].Updated.After(idx.data[b].Updated)
+		})
+	}
 }
 
 // resolverForNode returns a tag expression resolver function for a single node.
