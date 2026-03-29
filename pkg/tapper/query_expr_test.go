@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestTagExpression_Evaluate(t *testing.T) {
+func TestQueryExpression_Evaluate(t *testing.T) {
 	t.Parallel()
 
 	universe := map[string]struct{}{
@@ -66,10 +66,10 @@ func TestTagExpression_Evaluate(t *testing.T) {
 		t.Run(tc.name, func(innerT *testing.T) {
 			innerT.Parallel()
 
-			root, err := keg.ParseTagExpression(tc.expr)
+			root, err := keg.ParseQueryExpression(tc.expr)
 			require.NoError(innerT, err)
 
-			gotSet := keg.EvaluateTagExpression(root, universe, func(tag string) map[string]struct{} {
+			gotSet := keg.EvaluateQueryExpression(root, universe, func(tag string) map[string]struct{} {
 				if ids, ok := byTag[tag]; ok {
 					return ids
 				}
@@ -85,7 +85,7 @@ func TestTagExpression_Evaluate(t *testing.T) {
 	}
 }
 
-func TestTagExpression_ParseErrors(t *testing.T) {
+func TestQueryExpression_ParseErrors(t *testing.T) {
 	t.Parallel()
 
 	cases := []string{
@@ -98,7 +98,7 @@ func TestTagExpression_ParseErrors(t *testing.T) {
 	for _, expr := range cases {
 		t.Run(expr, func(innerT *testing.T) {
 			innerT.Parallel()
-			_, err := keg.ParseTagExpression(expr)
+			_, err := keg.ParseQueryExpression(expr)
 			require.Error(innerT, err)
 		})
 	}

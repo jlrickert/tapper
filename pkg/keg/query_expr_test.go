@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestParseTagExpression_DotPrefix(t *testing.T) {
+func TestParseQueryExpression_DotPrefix(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
@@ -82,7 +82,7 @@ func TestParseTagExpression_DotPrefix(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(innerT *testing.T) {
 			innerT.Parallel()
-			_, err := keg.ParseTagExpression(tc.expr)
+			_, err := keg.ParseQueryExpression(tc.expr)
 			if tc.wantErr {
 				require.Error(innerT, err)
 			} else {
@@ -92,7 +92,7 @@ func TestParseTagExpression_DotPrefix(t *testing.T) {
 	}
 }
 
-func TestEvaluateTagExpression_DotPrefix(t *testing.T) {
+func TestEvaluateQueryExpression_DotPrefix(t *testing.T) {
 	t.Parallel()
 
 	universe := map[string]struct{}{
@@ -195,10 +195,10 @@ func TestEvaluateTagExpression_DotPrefix(t *testing.T) {
 		t.Run(tc.name, func(innerT *testing.T) {
 			innerT.Parallel()
 
-			parsed, err := keg.ParseTagExpression(tc.expr)
+			parsed, err := keg.ParseQueryExpression(tc.expr)
 			require.NoError(innerT, err)
 
-			gotSet := keg.EvaluateTagExpressionWithCompare(
+			gotSet := keg.EvaluateQueryExpressionWithCompare(
 				parsed,
 				universe,
 				func(tag string) map[string]struct{} {
@@ -219,9 +219,9 @@ func TestEvaluateTagExpression_DotPrefix(t *testing.T) {
 	}
 }
 
-// TestEvaluateTagExpression_NilCompareResolver verifies that dot-prefix nodes
+// TestEvaluateQueryExpression_NilCompareResolver verifies that dot-prefix nodes
 // match nothing when no CompareResolver is provided (backward compatibility).
-func TestEvaluateTagExpression_NilCompareResolver(t *testing.T) {
+func TestEvaluateQueryExpression_NilCompareResolver(t *testing.T) {
 	t.Parallel()
 
 	universe := map[string]struct{}{
@@ -229,11 +229,11 @@ func TestEvaluateTagExpression_NilCompareResolver(t *testing.T) {
 		"1": {},
 	}
 
-	parsed, err := keg.ParseTagExpression(".created>2026-01-01")
+	parsed, err := keg.ParseQueryExpression(".created>2026-01-01")
 	require.NoError(t, err)
 
-	// Use the original EvaluateTagExpression (no compare resolver).
-	gotSet := keg.EvaluateTagExpression(
+	// Use the original EvaluateQueryExpression (no compare resolver).
+	gotSet := keg.EvaluateQueryExpression(
 		parsed,
 		universe,
 		func(tag string) map[string]struct{} {
