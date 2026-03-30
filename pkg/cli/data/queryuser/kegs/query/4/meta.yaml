@@ -1,0 +1,6 @@
+entity: task
+omega: "0.3"
+status: pending
+tags:
+  - backend
+  - database

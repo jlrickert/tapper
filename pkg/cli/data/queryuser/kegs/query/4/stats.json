@@ -1,0 +1,1 @@
+{"title":"Database Migration Task","hash":"d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1","updated":"2025-07-10T14:00:00Z","created":"2025-06-01T11:00:00Z","accessed":"2025-08-01T10:00:00Z","access_count":2,"lead":"Migrate the legacy database schema to the new normalized design. Includes data transformation scripts and rollback procedures."}

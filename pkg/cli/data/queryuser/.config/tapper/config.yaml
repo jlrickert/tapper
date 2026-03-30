@@ -1,0 +1,6 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/jlrickert/tapper/main/schemas/tap-config.json
+defaultKeg: query
+kegSearchPaths:
+  - ~/.local/share/tapper/kegs
+kegs:
+  query: ~/kegs/query

@@ -1,0 +1,6 @@
+entity: concept
+omega: "0.7"
+status: done
+tags:
+  - backend
+  - logging
