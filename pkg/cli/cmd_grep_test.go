@@ -136,6 +136,33 @@ func TestGrepCommand_OffsetSkipsMatchingNodes(t *testing.T) {
 	require.Equal(t, "2\n3", strings.TrimSpace(string(combined.Stdout)))
 }
 
+func TestGrepCommand_MaxLinesTruncatesPerNode(t *testing.T) {
+	t.Parallel()
+	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
+
+	createNodeWithBodyFromStdin(
+		t,
+		sb,
+		"# Alpha\n\nfire one\nfire two\nfire three\nfire four\n",
+	)
+
+	// Without --max-lines: all 4 lines match.
+	all := NewProcess(t, false, "grep", "fire").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, all.Err)
+	lines := strings.Split(strings.TrimSpace(string(all.Stdout)), "\n")
+	// Header + 4 match lines = 5 lines total.
+	require.Equal(t, 5, len(lines))
+
+	// With --max-lines 2: only first 2 match lines per node.
+	truncated := NewProcess(t, false, "grep", "fire", "--max-lines", "2").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, truncated.Err)
+	tlines := strings.Split(strings.TrimSpace(string(truncated.Stdout)), "\n")
+	// Header + 2 match lines = 3 lines total.
+	require.Equal(t, 3, len(tlines))
+	require.Contains(t, tlines[1], "fire one")
+	require.Contains(t, tlines[2], "fire two")
+}
+
 func createNodeWithBodyFromStdin(t *testing.T, sb *testutils.Sandbox, content string) string {
 	t.Helper()
 

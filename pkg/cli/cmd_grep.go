@@ -36,6 +36,7 @@ func NewGrepCmd(deps *Deps) *cobra.Command {
 	cmd.Flags().IntVar(&opts.Offset, "offset", 0, "skip the first N results")
 	cmd.Flags().StringVarP(&opts.Format, "format", "f", "", "output format")
 	cmd.Flags().BoolVarP(&opts.IgnoreCase, "ignore-case", "i", false, "perform case-insensitive matching")
+	cmd.Flags().IntVar(&opts.MaxLines, "max-lines", 0, "maximum matched lines per node (0 for unlimited)")
 
 	return cmd
 }

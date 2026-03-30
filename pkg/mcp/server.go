@@ -106,6 +106,27 @@ func mcpDefaultLimit(limit int) int {
 	}
 }
 
+// mcpDefaultMaxLinesValue is the default maximum number of matched lines per
+// node returned by MCP grep when the caller does not specify max_lines. CLI
+// defaults to unlimited (0); MCP callers benefit from bounded output to
+// reduce token usage.
+const mcpDefaultMaxLinesValue = 3
+
+// mcpDefaultMaxLines resolves the max_lines value for MCP grep. When the
+// caller omits max_lines (JSON zero value 0), the default of 3 is applied.
+// Passing -1 explicitly requests unlimited (converted to 0 for the Tap API).
+// Any positive value is passed through unchanged.
+func mcpDefaultMaxLines(maxLines int) int {
+	switch {
+	case maxLines < 0:
+		return 0 // unlimited
+	case maxLines == 0:
+		return mcpDefaultMaxLinesValue
+	default:
+		return maxLines
+	}
+}
+
 // errorResult returns a CallToolResult with IsError set.
 func errorResult(err error) *sdkmcp.CallToolResult {
 	return &sdkmcp.CallToolResult{
