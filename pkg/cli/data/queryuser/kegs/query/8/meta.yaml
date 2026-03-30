@@ -1,0 +1,6 @@
+entity: plan
+omega: "0.3"
+status: in-progress
+tags:
+  - ci
+  - devops

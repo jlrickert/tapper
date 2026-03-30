@@ -1,0 +1,6 @@
+entity: plan
+omega: "0.7"
+status: done
+tags:
+  - api
+  - design

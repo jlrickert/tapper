@@ -1,0 +1,20 @@
+kegv: 2025-07
+updated: "2026-01-15T12:00:00Z"
+title: Query Test KEG
+url: git@github.com:test/query-keg.git
+creator: git@github.com:test/test.git
+state: living
+summary: |-
+    A test KEG for query expression integration tests. Contains nodes
+    with varied omega, entity, status, and stats values.
+indexes:
+    - file: dex/backlinks
+      summary: all incoming links
+    - file: dex/changes.md
+      summary: latest changes
+    - file: dex/links
+      summary: all outgoing links
+    - file: dex/nodes.tsv
+      summary: all nodes by id
+    - file: dex/tags
+      summary: all tags

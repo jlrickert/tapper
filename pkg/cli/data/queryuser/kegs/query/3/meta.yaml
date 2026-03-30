@@ -1,0 +1,6 @@
+entity: concept
+omega: "1.0"
+status: done
+tags:
+  - api
+  - rest
