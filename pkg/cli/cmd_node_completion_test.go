@@ -98,9 +98,25 @@ func TestNodeCompletion_Backlinks(t *testing.T) {
 			wantAll: true,
 		},
 		{
-			name:      "stops_after_one_arg",
-			words:     []string{"backlinks", "--keg", "personal", "1", ""},
-			wantEmpty: true,
+			name:    "continues_after_one_arg",
+			words:   []string{"backlinks", "--keg", "personal", "1", ""},
+			wantAll: true,
+		},
+	})
+}
+
+func TestNodeCompletion_Links(t *testing.T) {
+	t.Parallel()
+	runNodeCompletionCases(t, []nodeCompletionCase{
+		{
+			name:    "lists_all_ids",
+			words:   []string{"links", "--keg", "personal", ""},
+			wantAll: true,
+		},
+		{
+			name:    "continues_after_one_arg",
+			words:   []string{"links", "--keg", "personal", "1", ""},
+			wantAll: true,
 		},
 	})
 }
