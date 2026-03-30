@@ -103,10 +103,11 @@ func registerList(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 type grepInput struct {
 	Query      string `json:"query" jsonschema:"regex pattern to search node content"`
 	Keg        string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
-	Format     string `json:"format,omitempty" jsonschema:"output format (%i=id %d=date %t=title)"`
-	IdOnly     bool   `json:"id_only,omitempty" jsonschema:"return node IDs only"`
+	Format     string `json:"format,omitempty" jsonschema:"output format (%i=id %d=date %t=title); use id_only for compact MCP output"`
+	IdOnly     bool   `json:"id_only,omitempty" jsonschema:"return node IDs only (recommended for MCP to reduce token usage)"`
 	Reverse    bool   `json:"reverse,omitempty" jsonschema:"reverse output order"`
 	IgnoreCase bool   `json:"ignore_case,omitempty" jsonschema:"case-insensitive matching"`
+	MaxLines   int    `json:"max_lines,omitempty" jsonschema:"max matched lines per node (default: unlimited for CLI, 3 for MCP)"`
 	Limit      int    `json:"limit,omitempty" jsonschema:"maximum results to return (default: 50, 0 in request means use default, -1 for unlimited)"`
 	Offset     int    `json:"offset,omitempty" jsonschema:"skip the first N results (for pagination)"`
 }
@@ -127,6 +128,7 @@ func registerGrep(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 			IdOnly:           in.IdOnly,
 			Reverse:          in.Reverse,
 			IgnoreCase:       in.IgnoreCase,
+			MaxLines:         mcpDefaultMaxLines(in.MaxLines),
 			Limit:            mcpDefaultLimit(in.Limit),
 			Offset:           in.Offset,
 		}
@@ -181,13 +183,13 @@ func registerTags(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 // --- backlinks ---
 
 type backlinksInput struct {
-	NodeID  string `json:"node_id" jsonschema:"target node ID to find incoming links for"`
-	Keg     string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
-	Format  string `json:"format,omitempty" jsonschema:"output format (%i=id %d=date %t=title)"`
-	IdOnly  bool   `json:"id_only,omitempty" jsonschema:"return node IDs only"`
-	Reverse bool   `json:"reverse,omitempty" jsonschema:"reverse output order"`
-	Limit   int    `json:"limit,omitempty" jsonschema:"maximum results to return (default: 50, 0 in request means use default, -1 for unlimited)"`
-	Offset  int    `json:"offset,omitempty" jsonschema:"skip the first N results (for pagination)"`
+	NodeIDs []string `json:"node_ids" jsonschema:"target node IDs to find incoming links for (results merged and deduplicated)"`
+	Keg     string   `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
+	Format  string   `json:"format,omitempty" jsonschema:"output format (%i=id %d=date %t=title)"`
+	IdOnly  bool     `json:"id_only,omitempty" jsonschema:"return node IDs only"`
+	Reverse bool     `json:"reverse,omitempty" jsonschema:"reverse output order"`
+	Limit   int      `json:"limit,omitempty" jsonschema:"maximum results to return (default: 50, 0 in request means use default, -1 for unlimited)"`
+	Offset  int      `json:"offset,omitempty" jsonschema:"skip the first N results (for pagination)"`
 }
 
 func registerBacklinks(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
@@ -201,7 +203,7 @@ func registerBacklinks(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in backlinksInput) (*sdkmcp.CallToolResult, any, error) {
 		opts := tapper.BacklinksOptions{
 			KegTargetOptions: resolveKegTarget(in.Keg, defaults),
-			NodeID:           in.NodeID,
+			NodeIDs:          in.NodeIDs,
 			Format:           in.Format,
 			IdOnly:           in.IdOnly,
 			Reverse:          in.Reverse,
@@ -219,13 +221,13 @@ func registerBacklinks(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults
 // --- links ---
 
 type linksInput struct {
-	NodeID  string `json:"node_id" jsonschema:"source node ID to find outgoing links for"`
-	Keg     string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
-	Format  string `json:"format,omitempty" jsonschema:"output format (%i=id %d=date %t=title)"`
-	IdOnly  bool   `json:"id_only,omitempty" jsonschema:"return node IDs only"`
-	Reverse bool   `json:"reverse,omitempty" jsonschema:"reverse output order"`
-	Limit   int    `json:"limit,omitempty" jsonschema:"maximum results to return (default: 50, 0 in request means use default, -1 for unlimited)"`
-	Offset  int    `json:"offset,omitempty" jsonschema:"skip the first N results (for pagination)"`
+	NodeIDs []string `json:"node_ids" jsonschema:"source node IDs to find outgoing links for (results merged and deduplicated)"`
+	Keg     string   `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
+	Format  string   `json:"format,omitempty" jsonschema:"output format (%i=id %d=date %t=title)"`
+	IdOnly  bool     `json:"id_only,omitempty" jsonschema:"return node IDs only"`
+	Reverse bool     `json:"reverse,omitempty" jsonschema:"reverse output order"`
+	Limit   int      `json:"limit,omitempty" jsonschema:"maximum results to return (default: 50, 0 in request means use default, -1 for unlimited)"`
+	Offset  int      `json:"offset,omitempty" jsonschema:"skip the first N results (for pagination)"`
 }
 
 func registerLinks(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
@@ -239,7 +241,7 @@ func registerLinks(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in linksInput) (*sdkmcp.CallToolResult, any, error) {
 		opts := tapper.LinksOptions{
 			KegTargetOptions: resolveKegTarget(in.Keg, defaults),
-			NodeID:           in.NodeID,
+			NodeIDs:          in.NodeIDs,
 			Format:           in.Format,
 			IdOnly:           in.IdOnly,
 			Reverse:          in.Reverse,

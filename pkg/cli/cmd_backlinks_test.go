@@ -18,7 +18,7 @@ func TestBacklinksCommand_TableDrivenErrors(t *testing.T) {
 		{
 			name:        "missing_node_id",
 			args:        []string{"backlinks"},
-			expectedErr: "accepts 1 arg",
+			expectedErr: "requires at least 1 arg",
 		},
 		{
 			name:        "invalid_node_id",
@@ -117,6 +117,35 @@ func TestBacklinksCommand_OffsetSkipsResults(t *testing.T) {
 	combined := NewProcess(t, false, "backlinks", "1", "--id-only", "-n", "2", "--offset", "1").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, combined.Err)
 	require.Equal(t, "3\n4", strings.TrimSpace(string(combined.Stdout)))
+}
+
+func TestBacklinksCommand_MultipleNodeIDsMergesResults(t *testing.T) {
+	t.Parallel()
+	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
+
+	// Create two target nodes.
+	target1 := NewProcess(t, false, "create", "--title", "Target1").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, target1.Err)
+	require.Equal(t, "1", strings.TrimSpace(string(target1.Stdout)))
+
+	target2 := NewProcess(t, false, "create", "--title", "Target2").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, target2.Err)
+	require.Equal(t, "2", strings.TrimSpace(string(target2.Stdout)))
+
+	// Create source nodes that link to different targets.
+	createWithLinkToTarget(t, sb, "# Source A\n\nLinks to [1](../1).\n")       // node 3 -> 1
+	createWithLinkToTarget(t, sb, "# Source B\n\nLinks to [2](../2).\n")       // node 4 -> 2
+	createWithLinkToTarget(t, sb, "# Source C\n\nLinks to [1](../1) and [2](../2).\n") // node 5 -> 1,2
+
+	// Query backlinks for both targets at once: should merge and deduplicate.
+	res := NewProcess(t, false, "backlinks", "1", "2", "--id-only").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+	require.Equal(t, "3\n4\n5", strings.TrimSpace(string(res.Stdout)))
+
+	// Single-ID still works.
+	single := NewProcess(t, false, "backlinks", "1", "--id-only").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, single.Err)
+	require.Equal(t, "3\n5", strings.TrimSpace(string(single.Stdout)))
 }
 
 func createWithLinkToTarget(t *testing.T, sb *testutils.Sandbox, content string) {

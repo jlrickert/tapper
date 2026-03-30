@@ -54,8 +54,9 @@ type ListOptions struct {
 type BacklinksOptions struct {
 	KegTargetOptions
 
-	// NodeID is the target node to inspect incoming links for.
-	NodeID string
+	// NodeIDs are the target nodes to inspect incoming links for.
+	// Results from all node IDs are merged and deduplicated.
+	NodeIDs []string
 
 	// Format to use. %i is node id
 	// %d is date
@@ -77,8 +78,9 @@ type BacklinksOptions struct {
 type LinksOptions struct {
 	KegTargetOptions
 
-	// NodeID is the source node to inspect outgoing links for.
-	NodeID string
+	// NodeIDs are the source nodes to inspect outgoing links for.
+	// Results from all node IDs are merged and deduplicated.
+	NodeIDs []string
 
 	// Format to use. %i is node id
 	// %d is date
@@ -115,6 +117,11 @@ type GrepOptions struct {
 
 	// IgnoreCase enables case-insensitive regex matching.
 	IgnoreCase bool
+
+	// MaxLines caps the number of matched lines returned per node.
+	// 0 means unlimited. When > 0, only the first MaxLines matching lines
+	// are included per node.
+	MaxLines int
 
 	// Limit caps the number of results returned. 0 means no limit.
 	Limit int
@@ -245,7 +252,7 @@ func (t *Tap) Backlinks(ctx context.Context, opts BacklinksOptions) ([]string, e
 	if opts.Offset < 0 {
 		return []string{}, fmt.Errorf("offset must be >= 0, got %d", opts.Offset)
 	}
-	return t.resolveAndLookupLinks(ctx, opts.KegTargetOptions, opts.NodeID,
+	return t.resolveAndLookupLinks(ctx, opts.KegTargetOptions, opts.NodeIDs,
 		opts.Format, opts.IdOnly, opts.Reverse, opts.Limit, opts.Offset,
 		func(d *keg.Dex, id keg.NodeId) ([]keg.NodeId, bool) {
 			return d.Backlinks(ctx, id)
@@ -256,7 +263,7 @@ func (t *Tap) Links(ctx context.Context, opts LinksOptions) ([]string, error) {
 	if opts.Offset < 0 {
 		return []string{}, fmt.Errorf("offset must be >= 0, got %d", opts.Offset)
 	}
-	return t.resolveAndLookupLinks(ctx, opts.KegTargetOptions, opts.NodeID,
+	return t.resolveAndLookupLinks(ctx, opts.KegTargetOptions, opts.NodeIDs,
 		opts.Format, opts.IdOnly, opts.Reverse, opts.Limit, opts.Offset,
 		func(d *keg.Dex, id keg.NodeId) ([]keg.NodeId, bool) {
 			return d.Links(ctx, id)
@@ -264,12 +271,12 @@ func (t *Tap) Links(ctx context.Context, opts LinksOptions) ([]string, error) {
 }
 
 // resolveAndLookupLinks is a shared helper for Backlinks and Links. It resolves
-// the keg, validates the node ID, calls the provided lookup function against the
-// dex, and renders the resulting entries.
+// the keg, validates the node IDs, calls the provided lookup function against the
+// dex for each node, merges and deduplicates results, and renders the entries.
 func (t *Tap) resolveAndLookupLinks(
 	ctx context.Context,
 	kegOpts KegTargetOptions,
-	nodeID string,
+	nodeIDs []string,
 	format string,
 	idOnly bool,
 	reverse bool,
@@ -277,6 +284,10 @@ func (t *Tap) resolveAndLookupLinks(
 	offset int,
 	lookup func(*keg.Dex, keg.NodeId) ([]keg.NodeId, bool),
 ) ([]string, error) {
+	if len(nodeIDs) == 0 {
+		return []string{}, fmt.Errorf("at least one node ID is required")
+	}
+
 	k, err := t.resolveKeg(ctx, kegOpts)
 	if err != nil {
 		return []string{}, fmt.Errorf("unable to open keg: %w", err)
@@ -286,26 +297,43 @@ func (t *Tap) resolveAndLookupLinks(
 		return []string{}, fmt.Errorf("unable to read dex: %w", err)
 	}
 
-	id, err := parseNodeID(nodeID)
-	if err != nil {
-		return []string{}, err
+	// Collect and deduplicate results across all node IDs.
+	seen := make(map[string]struct{})
+	var allRelated []keg.NodeId
+
+	for _, nodeID := range nodeIDs {
+		id, err := parseNodeID(nodeID)
+		if err != nil {
+			return []string{}, err
+		}
+
+		exists, err := k.Repo.HasNode(ctx, id)
+		if err != nil {
+			return []string{}, fmt.Errorf("unable to inspect node: %w", err)
+		}
+		if !exists {
+			return []string{}, fmt.Errorf("node %s not found", id.Path())
+		}
+
+		related, ok := lookup(dex, id)
+		if !ok {
+			continue
+		}
+		for _, rel := range related {
+			key := rel.Path()
+			if _, dup := seen[key]; !dup {
+				seen[key] = struct{}{}
+				allRelated = append(allRelated, rel)
+			}
+		}
 	}
 
-	exists, err := k.Repo.HasNode(ctx, id)
-	if err != nil {
-		return []string{}, fmt.Errorf("unable to inspect node: %w", err)
-	}
-	if !exists {
-		return []string{}, fmt.Errorf("node %s not found", id.Path())
-	}
-
-	related, ok := lookup(dex, id)
-	if !ok || len(related) == 0 {
+	if len(allRelated) == 0 {
 		return []string{}, nil
 	}
 
-	entries := make([]keg.NodeIndexEntry, 0, len(related))
-	for _, rel := range related {
+	entries := make([]keg.NodeIndexEntry, 0, len(allRelated))
+	for _, rel := range allRelated {
 		ref := dex.GetRef(ctx, rel)
 		if ref != nil {
 			entries = append(entries, *ref)
@@ -363,6 +391,9 @@ func (t *Tap) Grep(ctx context.Context, opts GrepOptions) ([]string, error) {
 			return []string{}, fmt.Errorf("unable to read node content: %w", contentErr)
 		}
 		lineMatches := grepContentLineMatches(re, contentRaw)
+		if opts.MaxLines > 0 && len(lineMatches) > opts.MaxLines {
+			lineMatches = lineMatches[:opts.MaxLines]
+		}
 		if len(lineMatches) > 0 {
 			matches = append(matches, grepMatch{
 				entry: entry,

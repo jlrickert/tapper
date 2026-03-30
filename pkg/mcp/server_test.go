@@ -329,7 +329,7 @@ func TestMCP_Backlinks(t *testing.T) {
 	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
 		Name: "backlinks",
 		Arguments: map[string]any{
-			"node_id": "0",
+			"node_ids": []string{"0"},
 		},
 	})
 	require.NoError(t, err)
@@ -345,7 +345,7 @@ func TestMCP_Links(t *testing.T) {
 	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
 		Name: "links",
 		Arguments: map[string]any{
-			"node_id": "1",
+			"node_ids": []string{"1"},
 		},
 	})
 	require.NoError(t, err)
