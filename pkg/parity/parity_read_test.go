@@ -207,9 +207,9 @@ func TestParity_ReadOperations(t *testing.T) {
 			CLIArgs: []string{"backlinks", "0", "--id-only"},
 			MCPTool: "backlinks",
 			MCPInput: map[string]any{
-				"node_id": "0",
-				"id_only": true,
-				"limit":   -1,
+				"node_ids": []string{"0"},
+				"id_only":  true,
+				"limit":    -1,
 			},
 		},
 
@@ -219,9 +219,9 @@ func TestParity_ReadOperations(t *testing.T) {
 			CLIArgs: []string{"links", "1", "--id-only"},
 			MCPTool: "links",
 			MCPInput: map[string]any{
-				"node_id": "1",
-				"id_only": true,
-				"limit":   -1,
+				"node_ids": []string{"1"},
+				"id_only":  true,
+				"limit":    -1,
 			},
 		},
 
@@ -286,10 +286,10 @@ func TestParity_ReadOperations(t *testing.T) {
 			CLIArgs: []string{"backlinks", "0", "--id-only", "--offset", "1"},
 			MCPTool: "backlinks",
 			MCPInput: map[string]any{
-				"node_id": "0",
-				"id_only": true,
-				"offset":  1,
-				"limit":   -1,
+				"node_ids": []string{"0"},
+				"id_only":  true,
+				"offset":   1,
+				"limit":    -1,
 			},
 			Compare: func(t *testing.T, cliOut, mcpOut string) {
 				t.Helper()
@@ -306,10 +306,10 @@ func TestParity_ReadOperations(t *testing.T) {
 			CLIArgs: []string{"links", "1", "--id-only", "--offset", "1"},
 			MCPTool: "links",
 			MCPInput: map[string]any{
-				"node_id": "1",
-				"id_only": true,
-				"offset":  1,
-				"limit":   -1,
+				"node_ids": []string{"1"},
+				"id_only":  true,
+				"offset":   1,
+				"limit":    -1,
 			},
 			Compare: func(t *testing.T, cliOut, mcpOut string) {
 				t.Helper()
@@ -386,6 +386,49 @@ func TestParity_ReadOperations(t *testing.T) {
 				// Just verify they produce the same result.
 				require.Equal(t, strings.TrimSpace(cliOut), strings.TrimSpace(mcpOut),
 					"stats output should match exactly")
+			},
+		},
+
+		// --- multi-ID backlinks (Tap.Backlinks) ---
+		//
+		// The testuser fixture has node 1 linking to node 0. Querying
+		// backlinks for both nodes at once should produce the same merged
+		// result on both surfaces.
+		{
+			Name:    "backlinks/multi_id_merged",
+			CLIArgs: []string{"backlinks", "0", "1", "--id-only"},
+			MCPTool: "backlinks",
+			MCPInput: map[string]any{
+				"node_ids": []string{"0", "1"},
+				"id_only":  true,
+				"limit":    -1,
+			},
+		},
+
+		// --- multi-ID links (Tap.Links) ---
+		{
+			Name:    "links/multi_id_merged",
+			CLIArgs: []string{"links", "0", "1", "--id-only"},
+			MCPTool: "links",
+			MCPInput: map[string]any{
+				"node_ids": []string{"0", "1"},
+				"id_only":  true,
+				"limit":    -1,
+			},
+		},
+
+		// --- grep max_lines (Tap.Grep) ---
+		//
+		// CLI with --max-lines 3 and MCP with default max_lines (0, which
+		// resolves to 3 for MCP) should produce the same output.
+		{
+			Name:    "grep/max_lines_default_parity",
+			CLIArgs: []string{"grep", "node", "--max-lines", "3", "--ignore-case"},
+			MCPTool: "grep",
+			MCPInput: map[string]any{
+				"query":       "node",
+				"ignore_case": true,
+				"limit":       -1,
 			},
 		},
 

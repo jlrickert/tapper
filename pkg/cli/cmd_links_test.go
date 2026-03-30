@@ -18,7 +18,7 @@ func TestLinksCommand_TableDrivenErrors(t *testing.T) {
 		{
 			name:        "missing_node_id",
 			args:        []string{"links"},
-			expectedErr: "accepts 1 arg",
+			expectedErr: "requires at least 1 arg",
 		},
 		{
 			name:        "invalid_node_id",
@@ -135,6 +135,50 @@ func TestLinksCommand_OffsetSkipsResults(t *testing.T) {
 	combined := NewProcess(t, false, "links", "4", "--id-only", "-n", "2", "--offset", "1").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, combined.Err)
 	require.Equal(t, "2\n3", strings.TrimSpace(string(combined.Stdout)))
+}
+
+func TestLinksCommand_MultipleNodeIDsMergesResults(t *testing.T) {
+	t.Parallel()
+	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
+
+	// Create target nodes.
+	for _, title := range []string{"Target A", "Target B", "Target C"} {
+		res := NewProcess(t, false, "create", "--title", title).Run(sb.Context(), sb.Runtime())
+		require.NoError(t, res.Err)
+	}
+
+	// Create source node 4 linking to A(1) and B(2).
+	source1 := NewProcess(t, true, "create").RunWithIO(
+		sb.Context(),
+		sb.Runtime(),
+		strings.NewReader("# Source1\n\nLinks to [A](../1) and [B](../2).\n"),
+	)
+	require.NoError(t, source1.Err)
+	require.Equal(t, "4", strings.TrimSpace(string(source1.Stdout)))
+
+	// Create source node 5 linking to B(2) and C(3).
+	source2 := NewProcess(t, true, "create").RunWithIO(
+		sb.Context(),
+		sb.Runtime(),
+		strings.NewReader("# Source2\n\nLinks to [B](../2) and [C](../3).\n"),
+	)
+	require.NoError(t, source2.Err)
+	require.Equal(t, "5", strings.TrimSpace(string(source2.Stdout)))
+
+	// Reindex so link index is populated.
+	reindex := NewProcess(t, false, "index", "rebuild").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, reindex.Err)
+
+	// Query links for both source nodes at once: should merge and deduplicate.
+	res := NewProcess(t, false, "links", "4", "5", "--id-only").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+	// Node 4 links to 1,2. Node 5 links to 2,3. Merged+dedup: 1,2,3.
+	require.Equal(t, "1\n2\n3", strings.TrimSpace(string(res.Stdout)))
+
+	// Single-ID still works.
+	single := NewProcess(t, false, "links", "4", "--id-only").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, single.Err)
+	require.Equal(t, "1\n2", strings.TrimSpace(string(single.Stdout)))
 }
 
 func TestLinksCommand_NoLinksReturnsEmptyOutput(t *testing.T) {
