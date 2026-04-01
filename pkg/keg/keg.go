@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/jlrickert/cli-toolkit/toolkit"
@@ -45,6 +46,11 @@ type Keg struct {
 
 	// configMu guards the read-modify-write cycle in UpdateConfig.
 	configMu sync.Mutex
+
+	// kegExistsVerified is set to true after the first successful
+	// checkKegExists call. Once a keg is confirmed to exist, it won't
+	// un-exist, so subsequent checks are skipped.
+	kegExistsVerified atomic.Bool
 
 	// extraDexOpts holds additional DexOptions injected by higher-level
 	// packages (e.g. pkg/tapper) via SetExtraDexOpts. These are prepended
@@ -239,6 +245,7 @@ func (k *Keg) Init(ctx context.Context) error {
 		return fmt.Errorf("failed to index zero node: %w", err)
 	}
 
+	k.kegExistsVerified.Store(true)
 	return nil
 }
 
@@ -898,6 +905,7 @@ func (k *Keg) Move(ctx context.Context, src NodeId, dst NodeId) error {
 	// write follows the loop.
 	var errs []error
 	var changedNodes []*NodeData
+	linkRE := compileNodeLinkPattern(src)
 	for _, id := range ids {
 		raw, readErr := k.Repo.ReadContent(ctx, id)
 		if readErr != nil {
@@ -908,7 +916,7 @@ func (k *Keg) Move(ctx context.Context, src NodeId, dst NodeId) error {
 			continue
 		}
 
-		updated, changed := rewriteNodeLinks(raw, src, dst)
+		updated, changed := rewriteNodeLinks(raw, linkRE, dst)
 		if !changed {
 			continue
 		}
@@ -1009,6 +1017,7 @@ func (k *Keg) Remove(ctx context.Context, id NodeId) error {
 	// handles the index cleanup via dex.Remove(id).
 	var errs []error
 	zeroID := NodeId{ID: 0}
+	linkRE := compileNodeLinkPattern(id)
 	nodeIDs, listErr := k.Repo.ListNodes(ctx)
 	if listErr != nil {
 		return fmt.Errorf("failed to list nodes for link rewrite after remove: %w", listErr)
@@ -1021,7 +1030,7 @@ func (k *Keg) Remove(ctx context.Context, id NodeId) error {
 			}
 			continue
 		}
-		updated, changed := rewriteNodeLinks(raw, id, zeroID)
+		updated, changed := rewriteNodeLinks(raw, linkRE, zeroID)
 		if changed {
 			if err := k.withNodeLock(ctx, otherID, func(lockCtx context.Context) error {
 				exists, exErr := k.nodeExistsWithContent(lockCtx, otherID)
@@ -1153,16 +1162,14 @@ func (k *Keg) withNodeLock(ctx context.Context, id NodeId, fn func(context.Conte
 // node. This helper reads the content file to confirm the node was properly
 // created via Create/Init and not merely a lock artifact.
 func (k *Keg) nodeExistsWithContent(ctx context.Context, id NodeId) (bool, error) {
-	raw, err := k.Repo.ReadContent(ctx, id)
+	_, err := k.Repo.ReadContent(ctx, id)
 	if err != nil {
 		if errors.Is(err, ErrNotExist) {
 			return false, nil
 		}
 		return false, err
 	}
-	// FsRepo returns (nil, nil) when the directory exists but README.md is
-	// missing. Treat that as "not a real node" for write-back purposes.
-	return raw != nil, nil
+	return true, nil
 }
 
 func (k *Keg) indexNodeLocked(ctx context.Context, id NodeId) (*NodeData, bool, error) {
@@ -1260,18 +1267,21 @@ func (k *Keg) writeNodeToDex(ctx context.Context, id NodeId, data *NodeData) err
 	return k.touchConfigUpdated(ctx, k.Runtime.Clock().Now())
 }
 
-func rewriteNodeLinks(raw []byte, src NodeId, dst NodeId) ([]byte, bool) {
+// compileNodeLinkPattern builds a regexp that matches canonical relative node
+// links "../N" for the given source node ID. Pre-compile once and pass to
+// rewriteNodeLinks to avoid recompilation per call.
+func compileNodeLinkPattern(src NodeId) *regexp.Regexp {
 	oldID := src.Path()
-	newID := dst.Path()
-	if oldID == "" || newID == "" || oldID == newID || len(raw) == 0 {
-		return raw, false
-	}
-
-	// Match canonical relative node links "../N" with optional spaces after "../".
-	// Keep trailing delimiter so only whole node ids are rewritten.
 	delimiters := `[[:space:]\)\]\}\>\.,;:!?'\"#]`
 	pattern := `\.\./\s*` + regexp.QuoteMeta(oldID) + `(` + delimiters + `|$)`
-	re := regexp.MustCompile(pattern)
+	return regexp.MustCompile(pattern)
+}
+
+func rewriteNodeLinks(raw []byte, re *regexp.Regexp, dst NodeId) ([]byte, bool) {
+	newID := dst.Path()
+	if newID == "" || len(raw) == 0 {
+		return raw, false
+	}
 
 	original := string(raw)
 	rewritten := re.ReplaceAllString(original, "../"+newID+`$1`)
@@ -1510,7 +1520,9 @@ func (k *Keg) addNodeToDex(ctx context.Context, data *NodeData, now *time.Time) 
 		return err
 	}
 
-	dex.Add(ctx, data)
+	if err := dex.Add(ctx, data); err != nil {
+		return err
+	}
 
 	if now != nil {
 		if err := dex.Write(ctx, k.Repo); err != nil {
@@ -1535,6 +1547,10 @@ func (k *Keg) checkKegExists(ctx context.Context) error {
 		return fmt.Errorf("no repository configured")
 	}
 
+	if k.kegExistsVerified.Load() {
+		return nil
+	}
+
 	exists, err := RepoContainsKeg(ctx, k.Repo)
 	if err != nil {
 		return fmt.Errorf("failed to check keg existence: %w", err)
@@ -1542,5 +1558,6 @@ func (k *Keg) checkKegExists(ctx context.Context) error {
 	if !exists {
 		return fmt.Errorf("keg not initialized: %w", ErrNotExist)
 	}
+	k.kegExistsVerified.Store(true)
 	return nil
 }

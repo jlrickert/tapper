@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -464,7 +465,7 @@ func (a *ApiRepo) WriteStats(ctx context.Context, id NodeId, stats *NodeStats) e
 
 // GetIndex implements Repository.
 func (a *ApiRepo) GetIndex(ctx context.Context, name string) ([]byte, error) {
-	path := "/indexes/" + name
+	path := "/indexes/" + url.PathEscape(name)
 	resp, err := a.do(ctx, http.MethodGet, path, nil, "")
 	if err != nil {
 		return nil, err
@@ -474,7 +475,7 @@ func (a *ApiRepo) GetIndex(ctx context.Context, name string) ([]byte, error) {
 
 // WriteIndex implements Repository.
 func (a *ApiRepo) WriteIndex(ctx context.Context, name string, data []byte) error {
-	path := "/indexes/" + name
+	path := "/indexes/" + url.PathEscape(name)
 	resp, err := a.do(ctx, http.MethodPut, path, bytes.NewReader(data), "application/octet-stream")
 	if err != nil {
 		return err
@@ -570,7 +571,7 @@ func (a *ApiRepo) ListFiles(ctx context.Context, id NodeId) ([]string, error) {
 
 // ReadFile implements RepositoryFiles.
 func (a *ApiRepo) ReadFile(ctx context.Context, id NodeId, name string) ([]byte, error) {
-	path := fmt.Sprintf("/nodes/%d/files/%s", id.ID, name)
+	path := fmt.Sprintf("/nodes/%d/files/%s", id.ID, url.PathEscape(name))
 	resp, err := a.do(ctx, http.MethodGet, path, nil, "")
 	if err != nil {
 		return nil, err
@@ -580,7 +581,7 @@ func (a *ApiRepo) ReadFile(ctx context.Context, id NodeId, name string) ([]byte,
 
 // WriteFile implements RepositoryFiles.
 func (a *ApiRepo) WriteFile(ctx context.Context, id NodeId, name string, data []byte) error {
-	path := fmt.Sprintf("/nodes/%d/files/%s", id.ID, name)
+	path := fmt.Sprintf("/nodes/%d/files/%s", id.ID, url.PathEscape(name))
 	resp, err := a.do(ctx, http.MethodPut, path, bytes.NewReader(data), "application/octet-stream")
 	if err != nil {
 		return err
@@ -591,7 +592,7 @@ func (a *ApiRepo) WriteFile(ctx context.Context, id NodeId, name string, data []
 
 // DeleteFile implements RepositoryFiles.
 func (a *ApiRepo) DeleteFile(ctx context.Context, id NodeId, name string) error {
-	path := fmt.Sprintf("/nodes/%d/files/%s", id.ID, name)
+	path := fmt.Sprintf("/nodes/%d/files/%s", id.ID, url.PathEscape(name))
 	resp, err := a.do(ctx, http.MethodDelete, path, nil, "")
 	if err != nil {
 		return err
@@ -621,7 +622,7 @@ func (a *ApiRepo) ListImages(ctx context.Context, id NodeId) ([]string, error) {
 
 // ReadImage implements RepositoryImages.
 func (a *ApiRepo) ReadImage(ctx context.Context, id NodeId, name string) ([]byte, error) {
-	path := fmt.Sprintf("/nodes/%d/images/%s", id.ID, name)
+	path := fmt.Sprintf("/nodes/%d/images/%s", id.ID, url.PathEscape(name))
 	resp, err := a.do(ctx, http.MethodGet, path, nil, "")
 	if err != nil {
 		return nil, err
@@ -631,7 +632,7 @@ func (a *ApiRepo) ReadImage(ctx context.Context, id NodeId, name string) ([]byte
 
 // WriteImage implements RepositoryImages.
 func (a *ApiRepo) WriteImage(ctx context.Context, id NodeId, name string, data []byte) error {
-	path := fmt.Sprintf("/nodes/%d/images/%s", id.ID, name)
+	path := fmt.Sprintf("/nodes/%d/images/%s", id.ID, url.PathEscape(name))
 	resp, err := a.do(ctx, http.MethodPut, path, bytes.NewReader(data), "application/octet-stream")
 	if err != nil {
 		return err
@@ -642,7 +643,7 @@ func (a *ApiRepo) WriteImage(ctx context.Context, id NodeId, name string, data [
 
 // DeleteImage implements RepositoryImages.
 func (a *ApiRepo) DeleteImage(ctx context.Context, id NodeId, name string) error {
-	path := fmt.Sprintf("/nodes/%d/images/%s", id.ID, name)
+	path := fmt.Sprintf("/nodes/%d/images/%s", id.ID, url.PathEscape(name))
 	resp, err := a.do(ctx, http.MethodDelete, path, nil, "")
 	if err != nil {
 		return err

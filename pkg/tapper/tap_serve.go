@@ -37,6 +37,7 @@ type sseClient struct {
 type sseBroadcaster struct {
 	mu      sync.Mutex
 	clients map[*sseClient]struct{}
+	now     func() time.Time
 
 	// clientGrace is the minimum time a client must be connected before it
 	// receives broadcast events. This prevents the reload loop where:
@@ -44,9 +45,10 @@ type sseBroadcaster struct {
 	clientGrace time.Duration
 }
 
-func newSSEBroadcaster() *sseBroadcaster {
+func newSSEBroadcaster(now func() time.Time) *sseBroadcaster {
 	return &sseBroadcaster{
 		clients:     make(map[*sseClient]struct{}),
+		now:         now,
 		clientGrace: 2 * time.Second,
 	}
 }
@@ -56,7 +58,7 @@ func newSSEBroadcaster() *sseBroadcaster {
 func (b *sseBroadcaster) subscribe() *sseClient {
 	c := &sseClient{
 		ch:           make(chan struct{}, 1),
-		subscribedAt: time.Now(),
+		subscribedAt: b.now(),
 	}
 	b.mu.Lock()
 	b.clients[c] = struct{}{}
@@ -77,7 +79,7 @@ func (b *sseBroadcaster) unsubscribe(c *sseClient) {
 // Non-blocking: if a client's buffer is full, the event is skipped for
 // that client (it will get the next one).
 func (b *sseBroadcaster) broadcast() {
-	now := time.Now()
+	now := b.now()
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	for c := range b.clients {
@@ -272,7 +274,7 @@ func (t *Tap) NewServeHandler(ctx context.Context, opts ServeOptions) (*ServeHan
 	// connected browsers reload automatically.
 	if watchEnabled {
 		if fsRepo, ok := k.Repo.(*keg.FsRepo); ok {
-			sse := newSSEBroadcaster()
+			sse := newSSEBroadcaster(k.Runtime.Clock().Now)
 			handler.sse = sse
 
 			// Register the SSE endpoint.

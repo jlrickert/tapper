@@ -10,7 +10,7 @@ type SSEBroadcasterForTest struct {
 // NewSSEBroadcasterForTest creates a broadcaster with zero grace period so
 // that broadcasts are delivered immediately. Production code uses a 2s grace.
 func NewSSEBroadcasterForTest() *SSEBroadcasterForTest {
-	b := newSSEBroadcaster()
+	b := newSSEBroadcaster(time.Now)
 	b.clientGrace = 0
 	return &SSEBroadcasterForTest{b: b}
 }
@@ -18,7 +18,7 @@ func NewSSEBroadcasterForTest() *SSEBroadcasterForTest {
 // NewSSEBroadcasterForTestWithGrace creates a broadcaster with a custom grace period.
 // Use zero to disable the grace period in tests where you want immediate delivery.
 func NewSSEBroadcasterForTestWithGrace(grace time.Duration) *SSEBroadcasterForTest {
-	b := newSSEBroadcaster()
+	b := newSSEBroadcaster(time.Now)
 	b.clientGrace = grace
 	return &SSEBroadcasterForTest{b: b}
 }
