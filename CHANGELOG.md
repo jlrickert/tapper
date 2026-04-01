@@ -2,6 +2,31 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.18.0 - 2026-04-01
+
+
+
+### 🐛 Bug Fixes
+- resolve Go idiom violations from dev/646 audit
+- update completion tests for multi-ID backlinks and add links coverage
+
+
+### 🚀 Features
+- add offset pagination and fix default limits across surfaces
+- add dot-prefix stats field access to query expressions
+- unify comparison operators for meta.yaml attributes
+- accept multiple node IDs in backlinks and links commands
+- add max-lines to grep and improve MCP output hints
+
+
+### 🚜 Refactor
+- rename tag_expr to query_expr
+
+
+### 🧪 Testing
+- add query expression fixture with omega and comprehensive tests
+
+
 ## v0.17.0 - 2026-03-27
 
 
