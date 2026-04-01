@@ -313,6 +313,7 @@ func (dex *Dex) Backlinks(ctx context.Context, node NodeId) ([]NodeId, bool) {
 // Clear resets all in-memory index data held by the Dex instance.
 func (dex *Dex) Clear(ctx context.Context) {
 	dex.mu.Lock()
+	defer dex.mu.Unlock()
 	dex.nodes = NodeIndex{}
 	dex.tags = TagIndex{}
 	dex.links = LinkIndex{}
@@ -321,13 +322,13 @@ func (dex *Dex) Clear(ctx context.Context) {
 	for _, c := range dex.custom {
 		_ = c.Clear(ctx)
 	}
-	dex.mu.Unlock()
 }
 
 // Add adds the provided node to all managed indexes. This implements the
 // IndexBuilder contract for convenience when using Dex as an aggregated builder.
 func (dex *Dex) Add(ctx context.Context, data *NodeData) error {
 	dex.mu.Lock()
+	defer dex.mu.Unlock()
 
 	var errs []error
 	if err := dex.nodes.Add(ctx, data); err != nil {
@@ -350,7 +351,6 @@ func (dex *Dex) Add(ctx context.Context, data *NodeData) error {
 			errs = append(errs, err)
 		}
 	}
-	dex.mu.Unlock()
 	if len(errs) == 0 {
 		return nil
 	}
@@ -361,6 +361,7 @@ func (dex *Dex) Add(ctx context.Context, data *NodeData) error {
 // implements the IndexBuilder contract for convenience when using Dex.
 func (dex *Dex) Remove(ctx context.Context, node NodeId) error {
 	dex.mu.Lock()
+	defer dex.mu.Unlock()
 
 	var errs []error
 	if err := dex.nodes.Rm(ctx, node); err != nil {
@@ -383,7 +384,6 @@ func (dex *Dex) Remove(ctx context.Context, node NodeId) error {
 			errs = append(errs, err)
 		}
 	}
-	dex.mu.Unlock()
 	if len(errs) == 0 {
 		return nil
 	}

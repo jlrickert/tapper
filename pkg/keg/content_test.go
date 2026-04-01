@@ -142,3 +142,23 @@ Lead paragraph following the fallback title.
 	// Body should not contain frontmatter markers
 	require.False(t, strings.HasPrefix(c.Body, "---"))
 }
+
+func TestParseContent_MixedGoldmarkAndBareLinks(t *testing.T) {
+	t.Parallel()
+	rt := testRuntime(t)
+
+	md := `# Mixed Links
+
+See [node 42](../42) for the goldmark link.
+
+Also reference bare ../99 in text and ../42 again.
+`
+
+	c, err := keg.ParseContent(rt, []byte(md), "README.md")
+	require.NoError(t, err)
+
+	// Both goldmark-parsed link (42) and bare text reference (99) should be found,
+	// deduplicated and sorted.
+	expected := []keg.NodeId{{ID: 42}, {ID: 99}}
+	require.Equal(t, expected, c.Links)
+}

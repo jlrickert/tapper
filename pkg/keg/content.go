@@ -319,16 +319,16 @@ func extractNumericLinks(data []byte) []NodeId {
 		return gm_ast.WalkContinue, nil
 	})
 
-	// If goldmark produced no nodes (unlikely) or out is empty, fall back to scanning the raw bytes.
-	if len(out) == 0 {
-		matches := numericLinkRE.FindAllSubmatch(data, -1)
-		for _, m := range matches {
-			if len(m) < 2 {
-				continue
-			}
-			if id, err := ParseNode(string(m[1])); err == nil {
-				out = append(out, *id)
-			}
+	// Also scan raw bytes for bare "../N" references that goldmark may not
+	// capture (e.g., in plain text, code blocks, or non-standard syntax).
+	// Results are merged with goldmark links; deduplication is left to callers.
+	matches := numericLinkRE.FindAllSubmatch(data, -1)
+	for _, m := range matches {
+		if len(m) < 2 {
+			continue
+		}
+		if id, err := ParseNode(string(m[1])); err == nil {
+			out = append(out, *id)
 		}
 	}
 

@@ -130,8 +130,17 @@ type queryOrNode struct {
 }
 
 func (n *queryOrNode) run(ctx *queryEvalCtx) map[string]struct{} {
-	if n == nil || ctx == nil || n.left == nil || n.right == nil {
+	if n == nil || ctx == nil {
 		return map[string]struct{}{}
+	}
+	if n.left == nil && n.right == nil {
+		return map[string]struct{}{}
+	}
+	if n.left == nil {
+		return n.right.run(ctx)
+	}
+	if n.right == nil {
+		return n.left.run(ctx)
 	}
 	return unionSets(n.left.run(ctx), n.right.run(ctx))
 }

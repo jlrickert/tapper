@@ -74,7 +74,6 @@ func NewFsRepo(root string, rt *toolkit.Runtime) *FsRepo {
 // Returns a pointer to an initialized FsRepo and the path of the discovered keg
 // file (or "" if using fallback path).
 func NewFsRepoFromEnvOrSearch(ctx context.Context, rt *toolkit.Runtime) (*FsRepo, error) {
-	f := &FsRepo{}
 	// candidate names we consider a keg file
 	candidates := []string{"keg", "keg.yaml", "keg.yml"}
 
@@ -96,7 +95,7 @@ func NewFsRepoFromEnvOrSearch(ctx context.Context, rt *toolkit.Runtime) (*FsRepo
 	// 2) current directory
 	cwd, err := rt.Getwd()
 	if err != nil {
-		return nil, NewBackendError(f.Name(),
+		return nil, NewBackendError("fs",
 			"NewFsRepoFromEnvOrSearch", 0, err, false)
 	}
 	if kp := findKegInDir(ctx, rt, cwd, candidates); kp != "" {
@@ -153,7 +152,7 @@ func NewFsRepoFromEnvOrSearch(ctx context.Context, rt *toolkit.Runtime) (*FsRepo
 	}
 
 	return nil, NewBackendError(
-		f.Name(),
+		"fs",
 		"NewFsRepoFromEnvOrSearch",
 		0,
 		fmt.Errorf("could not determine fallback config dir: %w", cfgErr),
@@ -233,15 +232,14 @@ func findKegRecursive(root string, candidates []string) string {
 	// use WalkDir for efficiency; stop early on first found.
 	var found string
 	filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
-		if err != nil || found != "" {
-			// skip on error or already found
+		if err != nil {
 			return nil
 		}
 		if d.Type().IsRegular() {
 			base := filepath.Base(path)
 			if slices.Contains(candidates, base) {
 				found = path
-				return nil
+				return filepath.SkipAll
 			}
 		}
 		return nil
@@ -464,8 +462,7 @@ func (f *FsRepo) ReadContent(ctx context.Context, id NodeId) ([]byte, error) {
 	b, err := f.runtime.ReadFile(contentPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			// node exists but no content
-			return []byte(nil), nil
+			return nil, ErrNotExist
 		}
 		return nil, NewBackendError(f.Name(), "ReadContent", 0, err, false)
 	}
@@ -571,17 +568,7 @@ func (f *FsRepo) ListNodes(ctx context.Context) ([]NodeId, error) {
 		}
 	}
 	// sort ascending using NodeId.Compare for deterministic ordering
-	for i := 0; i < len(ids); i++ {
-		min := i
-		for j := i + 1; j < len(ids); j++ {
-			if ids[j].Compare(ids[min]) < 0 {
-				min = j
-			}
-		}
-		if min != i {
-			ids[i], ids[min] = ids[min], ids[i]
-		}
-	}
+	slices.SortFunc(ids, func(a, b NodeId) int { return a.Compare(b) })
 	return ids, nil
 }
 
@@ -1041,18 +1028,5 @@ var _ RepositoryImages = (*FsRepo)(nil)
 // ----------------- small helpers -----------------
 
 func sortStrings(ss []string) {
-	if len(ss) <= 1 {
-		return
-	}
-	for i := range ss {
-		min := i
-		for j := i + 1; j < len(ss); j++ {
-			if ss[j] < ss[min] {
-				min = j
-			}
-		}
-		if min != i {
-			ss[i], ss[min] = ss[min], ss[i]
-		}
-	}
+	slices.Sort(ss)
 }

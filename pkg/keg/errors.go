@@ -62,10 +62,6 @@ func (e *InvalidConfigError) Error() string {
 	return fmt.Sprintf("invalid tapper config: %s", e.Msg)
 }
 
-func (e *InvalidConfigError) Is(target error) bool {
-	return target == ErrInvalid
-}
-
 func (e *InvalidConfigError) Unwrap() error { return ErrInvalid }
 
 // NewInvalidConfigError creates an InvalidConfigError with a human message.
