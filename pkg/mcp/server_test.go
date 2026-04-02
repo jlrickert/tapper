@@ -1532,7 +1532,7 @@ func TestMCP_ToolAnnotations_AllPresent(t *testing.T) {
 	readOnlyTools := []string{
 		"cat", "list", "grep", "tags", "backlinks", "links",
 		"list_kegs", "info", "keg_info", "stats", "dir",
-		"list_files", "list_images", "download_file", "download_image",
+		"list_files", "list_images",
 		"list_indexes", "index_cat",
 		"doctor", "lock_status", "license", "node_history",
 	}

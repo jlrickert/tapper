@@ -186,7 +186,6 @@ func registerDownloadFile(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefau
 		Name:        "download_file",
 		Description: "Download a file attachment from a node to a local file path",
 		Annotations: &sdkmcp.ToolAnnotations{
-			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(false),
 		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in downloadFileInput) (*sdkmcp.CallToolResult, any, error) {
@@ -250,7 +249,6 @@ func registerDownloadImage(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefa
 		Name:        "download_image",
 		Description: "Download an image attachment from a node to a local file path",
 		Annotations: &sdkmcp.ToolAnnotations{
-			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(false),
 		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in downloadImageInput) (*sdkmcp.CallToolResult, any, error) {

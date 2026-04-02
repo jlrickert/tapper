@@ -399,4 +399,25 @@ func TestParity_ImageUploadDownload(t *testing.T) {
 	mcpGot, err := rt.ReadFile(mcpDestPath)
 	require.NoError(t, err)
 	require.Equal(t, "fake png parity", string(mcpGot))
+
+	// Clean up and re-upload via MCP.
+	_, err = env.runCLI("image", "rm", "0", "parity.png")
+	require.NoError(t, err)
+
+	_, err = env.runMCP("upload_image", map[string]any{
+		"node_id":     "0",
+		"filename":    "parity.png",
+		"source_path": srcPath,
+	})
+	require.NoError(t, err)
+
+	// Download via CLI to verify MCP upload worked.
+	cliDestPath := "/home/testuser/parity-cli-image.png"
+	cliDownload, err := env.runCLI("image", "download", "0", "parity.png", "--dest", cliDestPath)
+	require.NoError(t, err)
+	require.Contains(t, cliDownload, cliDestPath)
+
+	cliGot, err := rt.ReadFile(cliDestPath)
+	require.NoError(t, err)
+	require.Equal(t, "fake png parity", string(cliGot))
 }
