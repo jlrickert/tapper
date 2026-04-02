@@ -715,6 +715,7 @@ func (k *Keg) Index(ctx context.Context, opts IndexOptions) error {
 		// Clear preserves registered custom IndexBuilders while emptying their data.
 		k.dex.Clear(ctx)
 	}
+	dex := k.dex // capture pointer under lock for use after unlock
 	k.dexMu.Unlock()
 
 	ids, err := k.Repo.ListNodes(ctx)
@@ -776,14 +777,18 @@ func (k *Keg) Index(ctx context.Context, opts IndexOptions) error {
 	for _, res := range results {
 		errs = append(errs, res.errs...)
 		if res.data != nil {
-			if err := k.dex.Add(ctx, res.data); err != nil {
+			if err := dex.Add(ctx, res.data); err != nil {
 				errs = append(errs, fmt.Errorf("failed to add node %s: %w", res.id, err))
 			}
 		}
 	}
 
-	if err := k.dex.Write(ctx, k.Repo); err != nil {
+	if err := dex.Write(ctx, k.Repo); err != nil {
 		errs = append(errs, fmt.Errorf("failed to save dex: %w", err))
+	} else {
+		k.dexMu.Lock()
+		k.recordDexWrite()
+		k.dexMu.Unlock()
 	}
 	if err := k.touchConfigUpdated(ctx, now); err != nil {
 		errs = append(errs, fmt.Errorf("failed to update index timestamp: %w", err))
@@ -796,6 +801,15 @@ func (k *Keg) Index(ctx context.Context, opts IndexOptions) error {
 // files, reads content/meta/stats, refreshes if needed, and persists
 // changes. It is safe to call concurrently for different nodes.
 func (k *Keg) indexNode(ctx context.Context, id NodeId, opts IndexOptions, now time.Time) (*NodeData, []error) {
+	// Skip bare directories created by Next() but not yet populated by Create().
+	exists, existErr := k.nodeExistsWithContent(ctx, id)
+	if existErr != nil {
+		return nil, []error{existErr}
+	}
+	if !exists {
+		return nil, nil
+	}
+
 	var errs []error
 
 	metaMissing, statsMissing, probeErr := k.nodeFilesMissing(ctx, id)
