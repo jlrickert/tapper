@@ -159,9 +159,13 @@ func (fw *fsRepoWatcher) Close() error {
 	}
 	fw.cancels = nil
 	fw.subs = nil
-	fw.repo.unregisterWatcher(fw)
 	err := fw.watcher.Close()
 	fw.mu.Unlock()
+
+	// Unregister after releasing fw.mu to preserve lock ordering
+	// (FsRepo.watchersMu -> fsRepoWatcher.mu). The closed flag is already
+	// set, so Emit calls will no-op even before unregistration completes.
+	fw.repo.unregisterWatcher(fw)
 
 	// Wait for all loop and cleanup goroutines to exit before returning.
 	fw.wg.Wait()
