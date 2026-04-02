@@ -2,9 +2,7 @@ package mcp
 
 import (
 	"context"
-	"encoding/base64"
 	"fmt"
-	"path/filepath"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -145,42 +143,25 @@ func registerDeleteImage(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaul
 // --- upload_file ---
 
 type uploadFileInput struct {
-	NodeID        string `json:"node_id" jsonschema:"node ID to attach the file to"`
-	Filename      string `json:"filename" jsonschema:"filename for the attachment"`
-	ContentBase64 string `json:"content_base64" jsonschema:"file content encoded as base64"`
-	Keg           string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
+	NodeID     string `json:"node_id" jsonschema:"node ID to attach the file to"`
+	Filename   string `json:"filename" jsonschema:"filename for the attachment"`
+	SourcePath string `json:"source_path" jsonschema:"absolute path to the source file"`
+	Keg        string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
 }
 
 func registerUploadFile(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "upload_file",
-		Description: "Upload a file attachment to a node (base64 encoded)",
+		Description: "Upload a file attachment to a node from a local file path",
 		Annotations: &sdkmcp.ToolAnnotations{
 			DestructiveHint: boolPtr(false),
 			OpenWorldHint:   boolPtr(false),
 		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in uploadFileInput) (*sdkmcp.CallToolResult, any, error) {
-		data, err := base64.StdEncoding.DecodeString(in.ContentBase64)
-		if err != nil {
-			return errorResult(fmt.Errorf("invalid base64 content: %w", err)), nil, nil
-		}
-
-		tmpDir, err := mcpTempDir(tap)
-		if err != nil {
-			return errorResult(err), nil, nil
-		}
-		tmpPath := filepath.Join(tmpDir, in.Filename)
-		if err := tap.Runtime.Mkdir(tmpDir, 0o755, true); err != nil {
-			return errorResult(fmt.Errorf("unable to create temp directory: %w", err)), nil, nil
-		}
-		if err := tap.Runtime.WriteFile(tmpPath, data, 0o644); err != nil {
-			return errorResult(fmt.Errorf("unable to write temp file: %w", err)), nil, nil
-		}
-
 		opts := tapper.UploadFileOptions{
 			KegTargetOptions: resolveKegTarget(in.Keg, defaults),
 			NodeID:           in.NodeID,
-			FilePath:         tmpPath,
+			FilePath:         in.SourcePath,
 			Name:             in.Filename,
 		}
 		name, err := tap.UploadFile(ctx, opts)
@@ -196,86 +177,55 @@ func registerUploadFile(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefault
 type downloadFileInput struct {
 	NodeID   string `json:"node_id" jsonschema:"node ID containing the file"`
 	Filename string `json:"filename" jsonschema:"filename to download"`
+	DestPath string `json:"dest_path" jsonschema:"absolute path to write the downloaded file"`
 	Keg      string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
 }
 
 func registerDownloadFile(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "download_file",
-		Description: "Download a file attachment from a node (returns base64 encoded content)",
+		Description: "Download a file attachment from a node to a local file path",
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(false),
 		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in downloadFileInput) (*sdkmcp.CallToolResult, any, error) {
-		tmpDir, err := mcpTempDir(tap)
-		if err != nil {
-			return errorResult(err), nil, nil
-		}
-		destPath := filepath.Join(tmpDir, in.Filename)
-		if err := tap.Runtime.Mkdir(tmpDir, 0o755, true); err != nil {
-			return errorResult(fmt.Errorf("unable to create temp directory: %w", err)), nil, nil
-		}
-
 		opts := tapper.DownloadFileOptions{
 			KegTargetOptions: resolveKegTarget(in.Keg, defaults),
 			NodeID:           in.NodeID,
 			Name:             in.Filename,
-			Dest:             destPath,
+			Dest:             in.DestPath,
 		}
-		_, err = tap.DownloadFile(ctx, opts)
+		dest, err := tap.DownloadFile(ctx, opts)
 		if err != nil {
 			return errorResult(err), nil, nil
 		}
-
-		data, err := tap.Runtime.ReadFile(destPath)
-		if err != nil {
-			return errorResult(fmt.Errorf("unable to read downloaded file: %w", err)), nil, nil
-		}
-		encoded := base64.StdEncoding.EncodeToString(data)
-		return textResult(encoded), nil, nil
+		return textResult(fmt.Sprintf("downloaded file %q to %s", in.Filename, dest)), nil, nil
 	})
 }
 
 // --- upload_image ---
 
 type uploadImageInput struct {
-	NodeID        string `json:"node_id" jsonschema:"node ID to attach the image to"`
-	Filename      string `json:"filename" jsonschema:"image filename for the attachment"`
-	ContentBase64 string `json:"content_base64" jsonschema:"image content encoded as base64"`
-	Keg           string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
+	NodeID     string `json:"node_id" jsonschema:"node ID to attach the image to"`
+	Filename   string `json:"filename" jsonschema:"image filename for the attachment"`
+	SourcePath string `json:"source_path" jsonschema:"absolute path to the source image file"`
+	Keg        string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
 }
 
 func registerUploadImage(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "upload_image",
-		Description: "Upload an image attachment to a node (base64 encoded)",
+		Description: "Upload an image attachment to a node from a local file path",
 		Annotations: &sdkmcp.ToolAnnotations{
 			DestructiveHint: boolPtr(false),
 			OpenWorldHint:   boolPtr(false),
 		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in uploadImageInput) (*sdkmcp.CallToolResult, any, error) {
-		data, err := base64.StdEncoding.DecodeString(in.ContentBase64)
-		if err != nil {
-			return errorResult(fmt.Errorf("invalid base64 content: %w", err)), nil, nil
-		}
-
-		tmpDir, err := mcpTempDir(tap)
-		if err != nil {
-			return errorResult(err), nil, nil
-		}
-		tmpPath := filepath.Join(tmpDir, in.Filename)
-		if err := tap.Runtime.Mkdir(tmpDir, 0o755, true); err != nil {
-			return errorResult(fmt.Errorf("unable to create temp directory: %w", err)), nil, nil
-		}
-		if err := tap.Runtime.WriteFile(tmpPath, data, 0o644); err != nil {
-			return errorResult(fmt.Errorf("unable to write temp file: %w", err)), nil, nil
-		}
-
 		opts := tapper.UploadImageOptions{
 			KegTargetOptions: resolveKegTarget(in.Keg, defaults),
 			NodeID:           in.NodeID,
-			FilePath:         tmpPath,
+			FilePath:         in.SourcePath,
 			Name:             in.Filename,
 		}
 		name, err := tap.UploadImage(ctx, opts)
@@ -291,52 +241,29 @@ func registerUploadImage(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaul
 type downloadImageInput struct {
 	NodeID   string `json:"node_id" jsonschema:"node ID containing the image"`
 	Filename string `json:"filename" jsonschema:"image filename to download"`
+	DestPath string `json:"dest_path" jsonschema:"absolute path to write the downloaded image"`
 	Keg      string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
 }
 
 func registerDownloadImage(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "download_image",
-		Description: "Download an image attachment from a node (returns base64 encoded content)",
+		Description: "Download an image attachment from a node to a local file path",
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(false),
 		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in downloadImageInput) (*sdkmcp.CallToolResult, any, error) {
-		tmpDir, err := mcpTempDir(tap)
-		if err != nil {
-			return errorResult(err), nil, nil
-		}
-		destPath := filepath.Join(tmpDir, in.Filename)
-		if err := tap.Runtime.Mkdir(tmpDir, 0o755, true); err != nil {
-			return errorResult(fmt.Errorf("unable to create temp directory: %w", err)), nil, nil
-		}
-
 		opts := tapper.DownloadImageOptions{
 			KegTargetOptions: resolveKegTarget(in.Keg, defaults),
 			NodeID:           in.NodeID,
 			Name:             in.Filename,
-			Dest:             destPath,
+			Dest:             in.DestPath,
 		}
-		_, err = tap.DownloadImage(ctx, opts)
+		dest, err := tap.DownloadImage(ctx, opts)
 		if err != nil {
 			return errorResult(err), nil, nil
 		}
-
-		data, err := tap.Runtime.ReadFile(destPath)
-		if err != nil {
-			return errorResult(fmt.Errorf("unable to read downloaded image: %w", err)), nil, nil
-		}
-		encoded := base64.StdEncoding.EncodeToString(data)
-		return textResult(encoded), nil, nil
+		return textResult(fmt.Sprintf("downloaded image %q to %s", in.Filename, dest)), nil, nil
 	})
-}
-
-// mcpTempDir returns a temporary directory path for MCP file operations.
-func mcpTempDir(tap *tapper.Tap) (string, error) {
-	home, err := tap.Runtime.GetHome()
-	if err != nil {
-		return "", fmt.Errorf("unable to determine home directory: %w", err)
-	}
-	return filepath.Join(home, ".cache", "tapper", "mcp-tmp"), nil
 }

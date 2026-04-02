@@ -317,3 +317,86 @@ func TestParity_FileOperations(t *testing.T) {
 
 	runParityTests(t, cases)
 }
+
+// TestParity_FileUploadDownload verifies that CLI and MCP upload/download
+// produce equivalent results using file-path handles.
+func TestParity_FileUploadDownload(t *testing.T) {
+	t.Parallel()
+	env := newParityEnv(t)
+	rt := env.sb.Runtime()
+
+	// Write a source file in the sandbox. Name matches desired attachment name.
+	srcPath := "/home/testuser/parity.txt"
+	require.NoError(t, rt.WriteFile(srcPath, []byte("parity test data"), 0o644))
+
+	// Upload via CLI: tap file upload NODE_ID LOCAL_PATH (name derived from path).
+	cliUpload, err := env.runCLI("file", "upload", "0", srcPath)
+	require.NoError(t, err)
+	require.Contains(t, cliUpload, "parity.txt")
+
+	// Download via MCP to verify CLI upload worked.
+	mcpDestPath := "/home/testuser/parity-mcp-download.txt"
+	mcpDownload, err := env.runMCP("download_file", map[string]any{
+		"node_id":   "0",
+		"filename":  "parity.txt",
+		"dest_path": mcpDestPath,
+	})
+	require.NoError(t, err)
+	require.Contains(t, mcpDownload, mcpDestPath)
+
+	mcpGot, err := rt.ReadFile(mcpDestPath)
+	require.NoError(t, err)
+	require.Equal(t, "parity test data", string(mcpGot))
+
+	// Clean up and re-upload via MCP.
+	_, err = env.runCLI("file", "rm", "0", "parity.txt")
+	require.NoError(t, err)
+
+	_, err = env.runMCP("upload_file", map[string]any{
+		"node_id":     "0",
+		"filename":    "parity.txt",
+		"source_path": srcPath,
+	})
+	require.NoError(t, err)
+
+	// Download via CLI to verify MCP upload worked.
+	cliDestPath := "/home/testuser/parity-cli-download.txt"
+	cliDownload, err := env.runCLI("file", "download", "0", "parity.txt", "--dest", cliDestPath)
+	require.NoError(t, err)
+	require.Contains(t, cliDownload, cliDestPath)
+
+	cliGot, err := rt.ReadFile(cliDestPath)
+	require.NoError(t, err)
+	require.Equal(t, "parity test data", string(cliGot))
+}
+
+// TestParity_ImageUploadDownload verifies that CLI and MCP image upload/download
+// produce equivalent results using file-path handles.
+func TestParity_ImageUploadDownload(t *testing.T) {
+	t.Parallel()
+	env := newParityEnv(t)
+	rt := env.sb.Runtime()
+
+	// Write a source image in the sandbox. Name matches desired attachment name.
+	srcPath := "/home/testuser/parity.png"
+	require.NoError(t, rt.WriteFile(srcPath, []byte("fake png parity"), 0o644))
+
+	// Upload via CLI: tap image upload NODE_ID LOCAL_PATH (name derived from path).
+	cliUpload, err := env.runCLI("image", "upload", "0", srcPath)
+	require.NoError(t, err)
+	require.Contains(t, cliUpload, "parity.png")
+
+	// Download via MCP to verify CLI upload worked.
+	mcpDestPath := "/home/testuser/parity-mcp-image.png"
+	mcpDownload, err := env.runMCP("download_image", map[string]any{
+		"node_id":   "0",
+		"filename":  "parity.png",
+		"dest_path": mcpDestPath,
+	})
+	require.NoError(t, err)
+	require.Contains(t, mcpDownload, mcpDestPath)
+
+	mcpGot, err := rt.ReadFile(mcpDestPath)
+	require.NoError(t, err)
+	require.Equal(t, "fake png parity", string(mcpGot))
+}

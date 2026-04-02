@@ -10,6 +10,7 @@ import (
 
 	"github.com/jlrickert/cli-toolkit/mylog"
 	"github.com/jlrickert/cli-toolkit/sandbox"
+	"github.com/jlrickert/cli-toolkit/toolkit"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/require"
 
@@ -70,6 +71,11 @@ func newTestSessionWithOpts(t *testing.T, opts ...mcp.ServerOptions) (*sdkmcp.Cl
 }
 
 func newTestSession(t *testing.T) (*sdkmcp.ClientSession, context.Context) {
+	session, _, ctx := newTestSessionWithRuntime(t)
+	return session, ctx
+}
+
+func newTestSessionWithRuntime(t *testing.T) (*sdkmcp.ClientSession, *toolkit.Runtime, context.Context) {
 	t.Helper()
 	ctx := context.Background()
 
@@ -103,7 +109,7 @@ func newTestSession(t *testing.T) (*sdkmcp.ClientSession, context.Context) {
 		session.Close()
 	})
 
-	return session, ctx
+	return session, rt, ctx
 }
 
 func TestMCP_ToolsList(t *testing.T) {
@@ -1214,7 +1220,7 @@ func TestMCP_ToolsList_IncludesFileTransferTools(t *testing.T) {
 
 func TestMCP_UploadAndDownloadFile(t *testing.T) {
 	t.Parallel()
-	session, ctx := newTestSession(t)
+	session, rt, ctx := newTestSessionWithRuntime(t)
 
 	// Create a node to attach files to.
 	createRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
@@ -1226,14 +1232,17 @@ func TestMCP_UploadAndDownloadFile(t *testing.T) {
 	require.NoError(t, err)
 	nodeID := extractText(t, createRes)
 
-	// Upload a file (base64 of "hello world").
-	content := "aGVsbG8gd29ybGQ=" // base64("hello world")
+	// Write a source file in the sandbox.
+	srcPath := "/home/testuser/upload-test.txt"
+	require.NoError(t, rt.WriteFile(srcPath, []byte("hello world"), 0o644))
+
+	// Upload the file via source_path.
 	uploadRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
 		Name: "upload_file",
 		Arguments: map[string]any{
-			"node_id":        nodeID,
-			"filename":       "test.txt",
-			"content_base64": content,
+			"node_id":     nodeID,
+			"filename":    "test.txt",
+			"source_path": srcPath,
 		},
 	})
 	require.NoError(t, err)
@@ -1251,23 +1260,30 @@ func TestMCP_UploadAndDownloadFile(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, extractText(t, listRes), "test.txt")
 
-	// Download the file.
+	// Download the file to a dest_path.
+	destPath := "/home/testuser/download-test.txt"
 	downloadRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
 		Name: "download_file",
 		Arguments: map[string]any{
-			"node_id":  nodeID,
-			"filename": "test.txt",
+			"node_id":   nodeID,
+			"filename":  "test.txt",
+			"dest_path": destPath,
 		},
 	})
 	require.NoError(t, err)
 	downloadText := extractText(t, downloadRes)
 	require.False(t, downloadRes.IsError, "download_file returned error: %s", downloadText)
-	require.Equal(t, content, downloadText)
+	require.Contains(t, downloadText, destPath)
+
+	// Verify the downloaded file contents match.
+	got, err := rt.ReadFile(destPath)
+	require.NoError(t, err)
+	require.Equal(t, "hello world", string(got))
 }
 
 func TestMCP_UploadAndDownloadImage(t *testing.T) {
 	t.Parallel()
-	session, ctx := newTestSession(t)
+	session, rt, ctx := newTestSessionWithRuntime(t)
 
 	// Create a node to attach images to.
 	createRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
@@ -1279,14 +1295,17 @@ func TestMCP_UploadAndDownloadImage(t *testing.T) {
 	require.NoError(t, err)
 	nodeID := extractText(t, createRes)
 
-	// Upload an image (base64 of "fake png data").
-	content := "ZmFrZSBwbmcgZGF0YQ==" // base64("fake png data")
+	// Write a source image in the sandbox.
+	srcPath := "/home/testuser/upload-test.png"
+	require.NoError(t, rt.WriteFile(srcPath, []byte("fake png data"), 0o644))
+
+	// Upload the image via source_path.
 	uploadRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
 		Name: "upload_image",
 		Arguments: map[string]any{
-			"node_id":        nodeID,
-			"filename":       "test.png",
-			"content_base64": content,
+			"node_id":     nodeID,
+			"filename":    "test.png",
+			"source_path": srcPath,
 		},
 	})
 	require.NoError(t, err)
@@ -1304,34 +1323,41 @@ func TestMCP_UploadAndDownloadImage(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, extractText(t, listRes), "test.png")
 
-	// Download the image.
+	// Download the image to a dest_path.
+	destPath := "/home/testuser/download-test.png"
 	downloadRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
 		Name: "download_image",
 		Arguments: map[string]any{
-			"node_id":  nodeID,
-			"filename": "test.png",
+			"node_id":   nodeID,
+			"filename":  "test.png",
+			"dest_path": destPath,
 		},
 	})
 	require.NoError(t, err)
 	downloadText := extractText(t, downloadRes)
 	require.False(t, downloadRes.IsError, "download_image returned error: %s", downloadText)
-	require.Equal(t, content, downloadText)
+	require.Contains(t, downloadText, destPath)
+
+	// Verify the downloaded image contents match.
+	got, err := rt.ReadFile(destPath)
+	require.NoError(t, err)
+	require.Equal(t, "fake png data", string(got))
 }
 
-func TestMCP_UploadFileInvalidBase64(t *testing.T) {
+func TestMCP_UploadFileMissingSource(t *testing.T) {
 	t.Parallel()
 	session, ctx := newTestSession(t)
 
 	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
 		Name: "upload_file",
 		Arguments: map[string]any{
-			"node_id":        "0",
-			"filename":       "test.txt",
-			"content_base64": "not-valid-base64!!!",
+			"node_id":     "0",
+			"filename":    "test.txt",
+			"source_path": "/nonexistent/path/test.txt",
 		},
 	})
 	require.NoError(t, err)
-	require.True(t, res.IsError, "expected error for invalid base64")
+	require.True(t, res.IsError, "expected error for missing source file")
 }
 
 func TestMCP_DownloadFileNotFound(t *testing.T) {
@@ -1341,8 +1367,9 @@ func TestMCP_DownloadFileNotFound(t *testing.T) {
 	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
 		Name: "download_file",
 		Arguments: map[string]any{
-			"node_id":  "0",
-			"filename": "nonexistent.txt",
+			"node_id":   "0",
+			"filename":  "nonexistent.txt",
+			"dest_path": "/home/testuser/should-not-exist.txt",
 		},
 	})
 	require.NoError(t, err)
