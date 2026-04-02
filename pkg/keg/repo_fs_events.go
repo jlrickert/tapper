@@ -21,12 +21,14 @@ type fsRepoWatcher struct {
 	closed  bool
 	cancels []context.CancelFunc
 	subs    []*fsSub // active subscribers for Emit broadcasts
+	wg      sync.WaitGroup
 }
 
 // fsSub tracks a single Watch subscriber for Emit delivery.
 type fsSub struct {
-	ch  chan NodeEvent
-	ids map[NodeId]struct{} // empty means all nodes
+	ch   chan NodeEvent
+	ids  map[NodeId]struct{} // empty means all nodes
+	done chan struct{}        // closed when loop exits
 }
 
 // WatchEvents returns a RepositoryEvents implementation for the FsRepo.
@@ -89,24 +91,32 @@ func (fw *fsRepoWatcher) Watch(ctx context.Context, ids ...NodeId) (<-chan NodeE
 	for _, id := range ids {
 		idSet[id] = struct{}{}
 	}
-	sub := &fsSub{ch: ch, ids: idSet}
+	sub := &fsSub{ch: ch, ids: idSet, done: make(chan struct{})}
 
 	fw.mu.Lock()
 	fw.cancels = append(fw.cancels, cancel)
 	fw.subs = append(fw.subs, sub)
 	fw.mu.Unlock()
 
-	// Remove subscriber when context is done.
+	// Cleanup goroutine: wait for context cancellation, remove the subscriber
+	// (preventing further Emit sends), wait for loop to exit, then close the
+	// channel. This ordering ensures no sends race with the close.
+	fw.wg.Add(1)
 	go func() {
+		defer fw.wg.Done()
 		<-watchCtx.Done()
 		fw.removeSub(sub)
+		<-sub.done
+		close(ch)
 	}()
 
-	go fw.loop(watchCtx, ch, len(ids) == 0)
+	go fw.loop(watchCtx, ch, sub, len(ids) == 0)
 	return ch, nil
 }
 
 // Emit sends a NodeEvent to all active subscribers whose filters match.
+// Lock ordering: FsRepo.watchersMu -> fsRepoWatcher.mu. Sends are
+// non-blocking to avoid deadlock when the channel buffer is full.
 func (fw *fsRepoWatcher) Emit(ev NodeEvent) {
 	fw.mu.Lock()
 	defer fw.mu.Unlock()
@@ -136,10 +146,11 @@ func (fw *fsRepoWatcher) removeSub(sub *fsSub) {
 }
 
 // Close releases all watcher resources and cancels active Watch goroutines.
+// Blocks until all loop and cleanup goroutines have exited.
 func (fw *fsRepoWatcher) Close() error {
 	fw.mu.Lock()
-	defer fw.mu.Unlock()
 	if fw.closed {
+		fw.mu.Unlock()
 		return nil
 	}
 	fw.closed = true
@@ -149,12 +160,18 @@ func (fw *fsRepoWatcher) Close() error {
 	fw.cancels = nil
 	fw.subs = nil
 	fw.repo.unregisterWatcher(fw)
-	return fw.watcher.Close()
+	err := fw.watcher.Close()
+	fw.mu.Unlock()
+
+	// Wait for all loop and cleanup goroutines to exit before returning.
+	fw.wg.Wait()
+	return err
 }
 
 // loop reads fsnotify events, debounces them, and emits NodeEvents.
-func (fw *fsRepoWatcher) loop(ctx context.Context, ch chan<- NodeEvent, watchRoot bool) {
-	defer close(ch)
+// Signals completion by closing sub.done when it returns.
+func (fw *fsRepoWatcher) loop(ctx context.Context, ch chan<- NodeEvent, sub *fsSub, watchRoot bool) {
+	defer close(sub.done)
 
 	// pending tracks debounce state per file path.
 	type pendingEvent struct {
@@ -170,13 +187,6 @@ func (fw *fsRepoWatcher) loop(ctx context.Context, ch chan<- NodeEvent, watchRoo
 	for {
 		select {
 		case <-ctx.Done():
-			// Flush remaining pending events.
-			for _, p := range pending {
-				select {
-				case ch <- p.event:
-				default:
-				}
-			}
 			return
 
 		case fsEvent, ok := <-fw.watcher.Events:
