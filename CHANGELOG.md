@@ -2,6 +2,19 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.18.1 - 2026-04-03
+
+
+
+### 🐛 Bug Fixes
+- resolve 6 bugs and 7 refactoring issues across pkg/keg and pkg/tapper
+- resolve fsRepoWatcher channel race between Emit sends and loop close
+- prevent ABBA deadlock in Close by releasing fw.mu before unregisterWatcher
+- replace base64 encoding with file-path handles in MCP file/image tools
+- correct download tool annotations and complete image parity test
+- skip bare directories in Index and fix dex pointer race
+
+
 ## v0.18.0 - 2026-04-01
 
 
