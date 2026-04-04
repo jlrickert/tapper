@@ -102,13 +102,27 @@ func TestFileDownload_WritesToDest(t *testing.T) {
 	NewProcess(t, false, "file", "upload", "0", "~/test-images/default.png").
 		Run(sb.Context(), sb.Runtime())
 
-	res := NewProcess(t, false, "file", "download", "0", "default.png", "--dest", "~/dl-default.png").
+	res := NewProcess(t, false, "file", "download", "0", "default.png", "~/dl-default.png").
 		Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 	require.Contains(t, string(res.Stdout), "dl-default.png")
 
 	got := sb.MustReadFile("~/dl-default.png")
 	require.Equal(t, original, got)
+}
+
+func TestFileDownload_StdoutMode(t *testing.T) {
+	t.Parallel()
+	sb := fileFixture(t)
+
+	original := sb.MustReadFile("~/test-images/default.png")
+	NewProcess(t, false, "file", "upload", "0", "~/test-images/default.png").
+		Run(sb.Context(), sb.Runtime())
+
+	res := NewProcess(t, false, "file", "download", "0", "default.png", "-").
+		Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+	require.Equal(t, original, res.Stdout, "stdout should contain raw file content")
 }
 
 func TestFileDownload_DefaultDestIsNameInCwd(t *testing.T) {

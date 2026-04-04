@@ -48,10 +48,13 @@ func nodeIDCompletionFunc(deps *Deps, maxArgs int) func(*cobra.Command, []string
 }
 
 // nodeAndNameCompletionFunc returns a ValidArgsFunction that suggests node IDs
-// for arg 0 and names from nameFn for arg 1. No completions after arg 1.
+// for arg 0 and names from nameFn for arg 1. When withDest is true, arg 2
+// offers filesystem path completion (for download commands); otherwise no
+// completions after arg 1.
 func nodeAndNameCompletionFunc(
 	deps *Deps,
 	nameFn func(ctx context.Context, nodeID string, kegOpts tapper.KegTargetOptions) ([]string, error),
+	withDest bool,
 ) func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
 	return func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		if deps.Tap == nil {
@@ -76,6 +79,11 @@ func nodeAndNameCompletionFunc(
 				return nil, cobra.ShellCompDirectiveNoFileComp
 			}
 			return filterByPrefix(names, toComplete), cobra.ShellCompDirectiveNoFileComp
+		case 2:
+			if withDest {
+				return nil, cobra.ShellCompDirectiveDefault
+			}
+			return nil, cobra.ShellCompDirectiveNoFileComp
 		default:
 			return nil, cobra.ShellCompDirectiveNoFileComp
 		}

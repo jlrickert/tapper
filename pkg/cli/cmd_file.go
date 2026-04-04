@@ -79,29 +79,32 @@ func newFileDownloadCmd(deps *Deps) *cobra.Command {
 	var opts tapper.DownloadFileOptions
 
 	cmd := &cobra.Command{
-		Use:   "download NODE_ID NAME",
+		Use:   "download NODE_ID NAME [DEST]",
 		Short: "download a file attachment from a node",
-		Args:  cobra.ExactArgs(2),
+		Args:  cobra.RangeArgs(2, 3),
 		ValidArgsFunction: nodeAndNameCompletionFunc(deps, func(ctx context.Context, nodeID string, kegOpts tapper.KegTargetOptions) ([]string, error) {
 			return deps.Tap.ListFiles(ctx, tapper.ListFilesOptions{
 				KegTargetOptions: kegOpts,
 				NodeID:           nodeID,
 			})
-		}),
+		}, true),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts.NodeID = args[0]
 			opts.Name = args[1]
+			if len(args) == 3 {
+				opts.Dest = args[2]
+			}
 			applyKegTargetProfile(deps, &opts.KegTargetOptions)
 			dest, err := deps.Tap.DownloadFile(cmd.Context(), opts)
 			if err != nil {
 				return err
 			}
-			_, err = fmt.Fprintln(cmd.OutOrStdout(), dest)
+			if dest != "" {
+				_, err = fmt.Fprintln(cmd.OutOrStdout(), dest)
+			}
 			return err
 		},
 	}
-
-	cmd.Flags().StringVar(&opts.Dest, "dest", "", "destination path (default: ./<NAME>)")
 	return cmd
 }
 
@@ -118,7 +121,7 @@ func newFileRmCmd(deps *Deps) *cobra.Command {
 				KegTargetOptions: kegOpts,
 				NodeID:           nodeID,
 			})
-		}),
+		}, false),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts.NodeID = args[0]
 			opts.Name = args[1]
