@@ -361,7 +361,7 @@ func TestParity_FileUploadDownload(t *testing.T) {
 
 	// Download via CLI to verify MCP upload worked.
 	cliDestPath := "/home/testuser/parity-cli-download.txt"
-	cliDownload, err := env.runCLI("file", "download", "0", "parity.txt", "--dest", cliDestPath)
+	cliDownload, err := env.runCLI("file", "download", "0", "parity.txt", cliDestPath)
 	require.NoError(t, err)
 	require.Contains(t, cliDownload, cliDestPath)
 
@@ -413,7 +413,7 @@ func TestParity_ImageUploadDownload(t *testing.T) {
 
 	// Download via CLI to verify MCP upload worked.
 	cliDestPath := "/home/testuser/parity-cli-image.png"
-	cliDownload, err := env.runCLI("image", "download", "0", "parity.png", "--dest", cliDestPath)
+	cliDownload, err := env.runCLI("image", "download", "0", "parity.png", cliDestPath)
 	require.NoError(t, err)
 	require.Contains(t, cliDownload, cliDestPath)
 

@@ -72,11 +72,25 @@ func TestFileCompletion_DownloadCompletesFileNames(t *testing.T) {
 	require.Contains(t, suggestions, "default.png")
 }
 
-func TestFileCompletion_DownloadStopsAfterTwoArgs(t *testing.T) {
+func TestFileCompletion_DownloadOffersPathsForThirdArg(t *testing.T) {
 	t.Parallel()
 	sb := fileFixture(t)
 
 	comp := NewCompletionProcess(t, false, 0, "file", "download", "0", "default.png", "").
+		Run(sb.Context(), sb.Runtime())
+	require.NoError(t, comp.Err)
+
+	// The third arg (DEST) should trigger default filesystem completion.
+	out := string(comp.Stdout)
+	require.True(t, strings.Contains(out, ":0"),
+		"expected ShellCompDirectiveDefault directive for filesystem completion")
+}
+
+func TestFileCompletion_DownloadStopsAfterThreeArgs(t *testing.T) {
+	t.Parallel()
+	sb := fileFixture(t)
+
+	comp := NewCompletionProcess(t, false, 0, "file", "download", "0", "default.png", "/tmp/out", "").
 		Run(sb.Context(), sb.Runtime())
 	require.NoError(t, comp.Err)
 

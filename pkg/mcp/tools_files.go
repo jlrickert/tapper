@@ -189,6 +189,9 @@ func registerDownloadFile(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefau
 			OpenWorldHint: boolPtr(false),
 		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in downloadFileInput) (*sdkmcp.CallToolResult, any, error) {
+		if in.DestPath == "-" {
+			return errorResult(fmt.Errorf("stdout mode is not supported over MCP")), nil, nil
+		}
 		opts := tapper.DownloadFileOptions{
 			KegTargetOptions: resolveKegTarget(in.Keg, defaults),
 			NodeID:           in.NodeID,
@@ -252,6 +255,9 @@ func registerDownloadImage(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefa
 			OpenWorldHint: boolPtr(false),
 		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in downloadImageInput) (*sdkmcp.CallToolResult, any, error) {
+		if in.DestPath == "-" {
+			return errorResult(fmt.Errorf("stdout mode is not supported over MCP")), nil, nil
+		}
 		opts := tapper.DownloadImageOptions{
 			KegTargetOptions: resolveKegTarget(in.Keg, defaults),
 			NodeID:           in.NodeID,

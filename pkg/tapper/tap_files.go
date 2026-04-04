@@ -138,6 +138,12 @@ func (t *Tap) DownloadFile(ctx context.Context, opts DownloadFileOptions) (strin
 		return "", fmt.Errorf("unable to download file %q: %w", opts.Name, err)
 	}
 	dest := opts.Dest
+	if dest == "-" {
+		if _, err := t.Runtime.Stream().Out.Write(data); err != nil {
+			return "", fmt.Errorf("unable to write to stdout: %w", err)
+		}
+		return "", nil
+	}
 	if dest == "" {
 		cwd, cwdErr := t.Runtime.Getwd()
 		if cwdErr != nil {
@@ -244,6 +250,12 @@ func (t *Tap) DownloadImage(ctx context.Context, opts DownloadImageOptions) (str
 		return "", fmt.Errorf("unable to download image %q: %w", opts.Name, err)
 	}
 	dest := opts.Dest
+	if dest == "-" {
+		if _, err := t.Runtime.Stream().Out.Write(data); err != nil {
+			return "", fmt.Errorf("unable to write to stdout: %w", err)
+		}
+		return "", nil
+	}
 	if dest == "" {
 		cwd, cwdErr := t.Runtime.Getwd()
 		if cwdErr != nil {
