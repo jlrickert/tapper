@@ -173,7 +173,7 @@ func (t *Tap) List(ctx context.Context, opts ListOptions) ([]string, error) {
 	if err != nil {
 		return []string{}, fmt.Errorf("unable to open keg: %w", err)
 	}
-	dex, err := k.Dex(ctx)
+	dex, err := k.DexFresh(ctx)
 	if err != nil {
 		return []string{}, fmt.Errorf("unable to read dex: %w", err)
 	}
@@ -292,7 +292,7 @@ func (t *Tap) resolveAndLookupLinks(
 	if err != nil {
 		return []string{}, fmt.Errorf("unable to open keg: %w", err)
 	}
-	dex, err := k.Dex(ctx)
+	dex, err := k.DexFresh(ctx)
 	if err != nil {
 		return []string{}, fmt.Errorf("unable to read dex: %w", err)
 	}
@@ -307,7 +307,7 @@ func (t *Tap) resolveAndLookupLinks(
 			return []string{}, err
 		}
 
-		exists, err := k.Repo.HasNode(ctx, id)
+		exists, err := t.nodeExistsWithContent(ctx, k, id)
 		if err != nil {
 			return []string{}, fmt.Errorf("unable to inspect node: %w", err)
 		}
@@ -361,7 +361,7 @@ func (t *Tap) Grep(ctx context.Context, opts GrepOptions) ([]string, error) {
 	if err != nil {
 		return []string{}, fmt.Errorf("unable to open keg: %w", err)
 	}
-	dex, err := k.Dex(ctx)
+	dex, err := k.DexFresh(ctx)
 	if err != nil {
 		return []string{}, fmt.Errorf("unable to read dex: %w", err)
 	}
@@ -427,7 +427,7 @@ func (t *Tap) Tags(ctx context.Context, opts TagsOptions) ([]string, error) {
 	if err != nil {
 		return []string{}, fmt.Errorf("unable to open keg: %w", err)
 	}
-	dex, err := k.Dex(ctx)
+	dex, err := k.DexFresh(ctx)
 	if err != nil {
 		return []string{}, fmt.Errorf("unable to read dex: %w", err)
 	}
