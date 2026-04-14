@@ -6,9 +6,13 @@ import (
 	"time"
 )
 
-// memoryLockEntry holds cross-process lock state for a single node.
+// memoryLockEntry holds cross-process lock state for a single node. The
+// waiters channel is closed when the entry is released (or force-released),
+// so blocked AcquireLock callers wake deterministically without having to
+// poll on a wall-clock ticker.
 type memoryLockEntry struct {
-	info LockInfo
+	info    LockInfo
+	waiters chan struct{}
 }
 
 // AcquireLock implements RepositoryLock.
@@ -28,16 +32,38 @@ func (r *MemoryRepo) AcquireLock(ctx context.Context, id NodeId) (LockToken, err
 			if r.crossLocks == nil {
 				r.crossLocks = make(map[NodeId]*memoryLockEntry)
 			}
-			r.crossLocks[key] = &memoryLockEntry{info: info}
+			// If we are taking over a stale entry, wake any waiters that
+			// were parked on its channel before overwriting the slot.
+			if held && entry != nil && entry.waiters != nil {
+				close(entry.waiters)
+			}
+			r.crossLocks[key] = &memoryLockEntry{
+				info:    info,
+				waiters: make(chan struct{}),
+			}
 			r.mu.Unlock()
 			return token, nil
 		}
+		// Capture the waiters channel under the lock so we cannot miss
+		// the close that will be performed by a concurrent release.
+		waiters := entry.waiters
 		r.mu.Unlock()
 
+		if waiters == nil {
+			// Defensive fallback: entry was constructed without a waiter
+			// channel. Yield briefly via context to avoid a tight loop.
+			select {
+			case <-ctx.Done():
+				return "", fmt.Errorf("%w: %w", ErrLockTimeout, ctx.Err())
+			default:
+			}
+			continue
+		}
 		select {
 		case <-ctx.Done():
 			return "", fmt.Errorf("%w: %w", ErrLockTimeout, ctx.Err())
-		case <-time.After(50 * time.Millisecond):
+		case <-waiters:
+			// Holder released; retry acquisition.
 		}
 	}
 }
@@ -56,6 +82,9 @@ func (r *MemoryRepo) ReleaseLock(ctx context.Context, id NodeId, token LockToken
 		return fmt.Errorf("%w: lock held by %q", ErrLockTokenMismatch, entry.info.Holder)
 	}
 	delete(r.crossLocks, key)
+	if entry.waiters != nil {
+		close(entry.waiters)
+	}
 	return nil
 }
 
@@ -80,7 +109,12 @@ func (r *MemoryRepo) ForceReleaseLock(ctx context.Context, id NodeId) error {
 	key := lockNodeKey(id)
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	delete(r.crossLocks, key)
+	if entry, held := r.crossLocks[key]; held {
+		delete(r.crossLocks, key)
+		if entry.waiters != nil {
+			close(entry.waiters)
+		}
+	}
 	return nil
 }
 

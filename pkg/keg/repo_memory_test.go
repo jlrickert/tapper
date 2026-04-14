@@ -269,3 +269,115 @@ func TestMemoryRepo_WithNodeLockReentrant(t *testing.T) {
 	})
 	require.NoError(t, err)
 }
+
+// TestMemoryRepo_WithNodeLockContentionWakesWithoutWallClock verifies that a
+// goroutine blocked on WithNodeLock acquires the lock as soon as the current
+// holder releases it, with no dependence on a wall-clock retry interval. The
+// test drives contention on a frozen sandbox clock so any reliance on
+// time.Ticker / time.After would deadlock the waiter.
+func TestMemoryRepo_WithNodeLockContentionWakesWithoutWallClock(t *testing.T) {
+	t.Parallel()
+	fx := NewSandbox(t)
+	ctx := fx.Context()
+
+	r := keg.NewMemoryRepo(fx.Runtime())
+	id := keg.NodeId{ID: 57}
+
+	holderEntered := make(chan struct{})
+	releaseHolder := make(chan struct{})
+	holderDone := make(chan error, 1)
+
+	go func() {
+		holderDone <- r.WithNodeLock(ctx, id, func(context.Context) error {
+			close(holderEntered)
+			<-releaseHolder
+			return nil
+		})
+	}()
+
+	// Wait until the holder has acquired the lock before starting the waiter.
+	select {
+	case <-holderEntered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("holder never acquired the lock")
+	}
+
+	waiterAcquired := make(chan struct{})
+	waiterDone := make(chan error, 1)
+	go func() {
+		waiterDone <- r.WithNodeLock(ctx, id, func(context.Context) error {
+			close(waiterAcquired)
+			return nil
+		})
+	}()
+
+	// Give the waiter a moment to park on the release signal. This is purely
+	// a scheduler yield; the waiter must not be able to acquire the lock
+	// until the holder releases it.
+	select {
+	case <-waiterAcquired:
+		t.Fatal("waiter acquired lock while holder still held it")
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	// Release the holder. The waiter should wake immediately via the
+	// channel broadcast, with no dependence on a polling retry interval.
+	close(releaseHolder)
+
+	select {
+	case <-waiterAcquired:
+	case <-time.After(5 * time.Second):
+		t.Fatal("waiter did not wake after holder released the lock")
+	}
+
+	require.NoError(t, <-holderDone)
+	require.NoError(t, <-waiterDone)
+}
+
+// TestMemoryRepo_AcquireLockContentionWakesWithoutWallClock is the cross-lock
+// analog of the WithNodeLock contention test above: a waiter blocked in
+// AcquireLock must wake as soon as the current holder calls ReleaseLock, with
+// no wall-clock retry interval involved.
+func TestMemoryRepo_AcquireLockContentionWakesWithoutWallClock(t *testing.T) {
+	t.Parallel()
+	fx := NewSandbox(t)
+	ctx := fx.Context()
+
+	r := keg.NewMemoryRepo(fx.Runtime())
+	id := keg.NodeId{ID: 58}
+
+	firstToken, err := r.AcquireLock(ctx, id)
+	require.NoError(t, err)
+
+	waiterAcquired := make(chan keg.LockToken, 1)
+	waiterErr := make(chan error, 1)
+	go func() {
+		tok, err := r.AcquireLock(ctx, id)
+		if err != nil {
+			waiterErr <- err
+			return
+		}
+		waiterAcquired <- tok
+	}()
+
+	// Waiter must not acquire while the first holder is still active.
+	select {
+	case tok := <-waiterAcquired:
+		t.Fatalf("waiter acquired lock while first holder still held it: %q", tok)
+	case err := <-waiterErr:
+		t.Fatalf("waiter errored before release: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	require.NoError(t, r.ReleaseLock(ctx, id, firstToken))
+
+	select {
+	case tok := <-waiterAcquired:
+		require.NotEqual(t, firstToken, tok, "waiter should receive a fresh token")
+		require.NoError(t, r.ReleaseLock(ctx, id, tok))
+	case err := <-waiterErr:
+		t.Fatalf("waiter errored after release: %v", err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("waiter did not wake after first holder released")
+	}
+}
