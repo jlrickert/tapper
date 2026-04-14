@@ -5,10 +5,10 @@ import (
 	"encoding/json"
 	"log/slog"
 	"strings"
-	"time"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/jlrickert/cli-toolkit/clock"
 	"github.com/jlrickert/tapper/pkg/tapper"
 )
 
@@ -53,7 +53,11 @@ func NewServer(tap *tapper.Tap, version string, defaults KegDefaults, opts ...Se
 	registerLicenseTools(srv, opt.LicenseText)
 
 	if opt.Logger != nil {
-		srv.AddReceivingMiddleware(invocationLoggingMiddleware(opt.Logger))
+		var clk clock.Clock
+		if tap != nil && tap.Runtime != nil {
+			clk = tap.Runtime.Clock()
+		}
+		srv.AddReceivingMiddleware(invocationLoggingMiddleware(opt.Logger, clk))
 	}
 
 	return srv
@@ -138,20 +142,22 @@ func errorResult(err error) *sdkmcp.CallToolResult {
 }
 
 // invocationLoggingMiddleware returns an MCP middleware that logs every
-// tools/call request with timing and client metadata.
-func invocationLoggingMiddleware(lg *slog.Logger) sdkmcp.Middleware {
+// tools/call request with timing and client metadata. Timing is measured
+// via the provided Clock so that sandboxed tests can inject a fake clock
+// and production uses the real wall clock via the OS clock implementation.
+// A nil clock falls back to the package default clock to keep the middleware
+// safe to construct without a runtime.
+func invocationLoggingMiddleware(lg *slog.Logger, clk clock.Clock) sdkmcp.Middleware {
+	clk = clock.OrDefault(clk)
 	return func(next sdkmcp.MethodHandler) sdkmcp.MethodHandler {
 		return func(ctx context.Context, method string, req sdkmcp.Request) (sdkmcp.Result, error) {
 			if method != "tools/call" {
 				return next(ctx, method, req)
 			}
 
-			// Wall-clock time is correct here: middleware signature does not carry
-			// a Runtime, and server-side timing requires real elapsed time
-			// (analogous to the fsnotify debounce exception in repo_fs_events.go).
-			start := time.Now()
+			start := clk.Now()
 			result, err := next(ctx, method, req)
-			duration := time.Since(start)
+			duration := clk.Now().Sub(start)
 
 			attrs := []slog.Attr{
 				slog.String("surface", "mcp"),

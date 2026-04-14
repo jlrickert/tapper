@@ -34,8 +34,10 @@ type MemoryRepo struct {
 	mu sync.RWMutex
 	// nodes stores per-node data keyed by NodeID.
 	nodes map[NodeId]*memoryNode
-	// nodeLocks tracks active per-node lock ownership.
-	nodeLocks map[NodeId]struct{}
+	// nodeLocks tracks active per-node lock ownership. Each entry holds a
+	// "waiters" channel that is closed when the lock is released so that
+	// goroutines blocked in LockNode wake immediately instead of polling.
+	nodeLocks map[NodeId]*memoryNodeLockEntry
 	// indexes stores raw index files by name (for example: "nodes.tsv").
 	indexes map[string][]byte
 	// snapshots stores revision history per node.
@@ -60,6 +62,13 @@ type memoryNode struct {
 	images  map[string][]byte
 }
 
+// memoryNodeLockEntry tracks a held per-node lock and a channel that is
+// closed when the lock is released. Waiters block on the channel and wake
+// deterministically on release, removing any dependency on wall-clock polling.
+type memoryNodeLockEntry struct {
+	waiters chan struct{}
+}
+
 type memorySnapshotEntry struct {
 	snapshot Snapshot
 	content  []byte
@@ -71,7 +80,7 @@ type memorySnapshotEntry struct {
 func NewMemoryRepo(rt *toolkit.Runtime) *MemoryRepo {
 	return &MemoryRepo{
 		nodes:     make(map[NodeId]*memoryNode),
-		nodeLocks: make(map[NodeId]struct{}),
+		nodeLocks: make(map[NodeId]*memoryNodeLockEntry),
 		indexes:   make(map[string][]byte),
 		snapshots: make(map[NodeId][]memorySnapshotEntry),
 		runtime:   rt,
@@ -535,74 +544,68 @@ func (r *MemoryRepo) WriteConfig(ctx context.Context, config *Config) error {
 	return nil
 }
 
-// ClearNodeLock removes an active per-node lock marker.
+// ClearNodeLock removes an active per-node lock marker and wakes any waiters
+// that were blocked on it.
 func (r *MemoryRepo) ClearNodeLock(ctx context.Context, id NodeId) error {
 	_ = ctx
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	delete(r.nodeLocks, lockNodeKey(id))
+	key := lockNodeKey(id)
+	if entry, held := r.nodeLocks[key]; held {
+		delete(r.nodeLocks, key)
+		close(entry.waiters)
+	}
 	return nil
 }
 
-// LockNode attempts to acquire a per-node lock. It will retry at the provided
-// retryInterval until the context is cancelled. On success it returns an unlock
-// function which the caller MUST call to release the lock.
+// LockNode attempts to acquire a per-node lock, blocking until the lock is
+// released by the current holder or the context is cancelled. On success it
+// returns an unlock function which the caller MUST call to release the lock.
 //
 // Behavior notes:
 //
-// - If retryInterval <= 0, a sensible default is used.
-// - If ctx is cancelled while waiting, ErrLockTimeout is returned.
+//   - The retryInterval argument is retained for API compatibility but is no
+//     longer used. Waiters are woken directly by the releasing goroutine via a
+//     per-entry channel, eliminating the need for wall-clock polling and
+//     making contention handling deterministic under a frozen test clock.
+//   - If ctx is cancelled while waiting, ErrLockTimeout is returned.
 func (r *MemoryRepo) LockNode(ctx context.Context, id NodeId, retryInterval time.Duration) (func() error, error) {
+	_ = retryInterval
 	key := lockNodeKey(id)
 
-	// Default retry interval if caller gives zero or negative.
-	if retryInterval <= 0 {
-		retryInterval = 100 * time.Millisecond
-	}
+	for {
+		r.mu.Lock()
+		if _, locked := r.nodeLocks[key]; !locked {
+			entry := &memoryNodeLockEntry{waiters: make(chan struct{})}
+			r.nodeLocks[key] = entry
+			r.mu.Unlock()
 
-	// Fast path: try to acquire immediately.
-	r.mu.Lock()
-	if _, locked := r.nodeLocks[key]; !locked {
-		// Acquire lock immediately.
-		r.nodeLocks[key] = struct{}{}
+			unlock := func() error {
+				r.mu.Lock()
+				defer r.mu.Unlock()
+				// Only delete if we still own the entry. ForceReleaseLock or
+				// ClearNodeLock may have removed it concurrently, in which
+				// case waiters have already been signaled.
+				if current, held := r.nodeLocks[key]; held && current == entry {
+					delete(r.nodeLocks, key)
+					close(entry.waiters)
+				}
+				return nil
+			}
+			return unlock, nil
+		}
+		// Another goroutine holds the lock. Grab a reference to its waiters
+		// channel while still under r.mu so we cannot miss the close signal,
+		// then release r.mu before blocking.
+		waiters := r.nodeLocks[key].waiters
 		r.mu.Unlock()
 
-		unlock := func() error {
-			r.mu.Lock()
-			defer r.mu.Unlock()
-			delete(r.nodeLocks, key)
-			return nil
-		}
-		return unlock, nil
-	}
-	r.mu.Unlock()
-
-	// Wait/retry loop until ctx is done or we acquire the lock.
-	ticker := time.NewTicker(retryInterval)
-	defer ticker.Stop()
-
-	for {
 		select {
 		case <-ctx.Done():
-			// Per package semantics, use ErrLockTimeout to indicate the lock
-			// acquisition was canceled/timed out.
 			return nil, fmt.Errorf("%w: %w", ErrLockTimeout, ctx.Err())
-		case <-ticker.C:
-			r.mu.Lock()
-			if _, locked := r.nodeLocks[key]; !locked {
-				r.nodeLocks[key] = struct{}{}
-				r.mu.Unlock()
-
-				unlock := func() error {
-					r.mu.Lock()
-					defer r.mu.Unlock()
-					delete(r.nodeLocks, key)
-					return nil
-				}
-				return unlock, nil
-			}
-			r.mu.Unlock()
-			// continue retrying
+		case <-waiters:
+			// Holder released; retry acquisition. Another waiter may win
+			// the race, in which case we loop again.
 		}
 	}
 }

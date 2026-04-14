@@ -155,12 +155,42 @@ break test isolation. Specifically:
 - **Clock**: Use `rt.Clock().Now()` — never `time.Now()`.
 - **Commands**: Use `exec.CommandContext(ctx, ...)` — never bare
   `exec.Command(...)`.
-- **Exception — fsnotify debounce**: Filesystem-event debounce timers in
-  `repo_fs_events.go` must use `time.Now()` because the test clock is frozen and
-  wall-clock timing is required for real event coalescing.
 - **Log files use `rt.OpenFile`**: Since cli-toolkit v1.3.0, log file
   initialization goes through `Runtime.OpenFile` instead of `os.OpenFile`. This
   enables sandbox-based log file tests.
+
+The `cli-toolkit` `clock.Clock` interface only exposes `Now()`; it does not
+provide `After`, `NewTicker`, `AfterFunc`, or similar scheduling primitives.
+For in-memory timing that must remain deterministic under a frozen test clock,
+prefer channel/condition-variable signalling (see `MemoryRepo.LockNode` for the
+pattern) rather than polling. The following call sites use the standard `time`
+package directly because each one is either (a) coalescing real filesystem or
+network events whose timing is wall-clock by definition, or (b) a non-time
+use of `time.Now()` that cannot be driven by a fake clock:
+
+- `pkg/keg/repo_fs_events.go` (watcher debounce ticker and coalescence
+  window): filesystem event delivery is wall-clock; the debounce window must
+  measure real elapsed time between bursts.
+- `pkg/tapper/editor_live.go` (live-save ticker, `pendingFrom` timestamp, and
+  120ms debounce check): debounces real fsnotify events emitted by the user's
+  editor subprocess. The 100ms cadence and 120ms settle window are load-bearing
+  for editor write-rename cycles and exercised by the existing live-save test,
+  which runs an actual shell subprocess.
+- `pkg/tapper/tap_serve.go` (500ms SSE broadcast debounce via `time.AfterFunc`):
+  coalesces real filesystem events into a single browser reload; same shape as
+  the `repo_fs_events.go` exception.
+- `pkg/keg/repo_api.go` (remote lease renewal ticker at half-TTL): the remote
+  HTTP server's TTL is measured in wall-clock seconds, so renewals must fire in
+  real time regardless of the local test clock.
+- `pkg/keg/repo_filesystem.go` (100ms retry delay in `FsRepo.WithNodeLock`):
+  waits on a cross-process `mkdir` lock directory. The retry interval is a
+  real-time yield between filesystem attempts; there is no in-process signal
+  the sibling process could deliver.
+- `pkg/keg/repo_filesystem_lock.go` (100ms retry delay in `FsRepo.AcquireLock`):
+  same rationale as `repo_filesystem.go` — cross-process filesystem lock retry.
+- `pkg/keg/node_id.go` (crypto/rand fallback uses `time.Now().UnixNano()`):
+  used as an entropy source for a short random code when `crypto/rand` fails,
+  not as a time measurement.
 
 ### Concurrency Model
 
