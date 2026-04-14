@@ -42,7 +42,7 @@ func (t *Tap) Dir(ctx context.Context, opts DirOptions) (string, error) {
 			return "", err
 		}
 
-		exists, err := k.Repo.HasNode(ctx, id)
+		exists, err := t.nodeExistsWithContent(ctx, k, id)
 		if err != nil {
 			return "", fmt.Errorf("unable to check node existence: %w", err)
 		}

@@ -223,7 +223,7 @@ func (t *Tap) Import(ctx context.Context, opts ImportOptions) ([]keg.NodeId, err
 	preservedAssets := make(map[string]importedNodeAssets, len(ordered))
 	for _, sourceID := range ordered {
 		newID := mapping[sourceID]
-		exists, err := k.Repo.HasNode(ctx, newID)
+		exists, err := t.nodeExistsWithContent(ctx, k, newID)
 		if err != nil {
 			return nil, fmt.Errorf("unable to check existing node %s before import: %w", sourceID, err)
 		}
@@ -626,7 +626,7 @@ func restoreImportedNodeAssets(ctx context.Context, repo keg.Repository, id keg.
 }
 
 func rebuildDexFromRepo(ctx context.Context, k *keg.Keg) error {
-	dex, err := k.Dex(ctx)
+	dex, err := k.DexFresh(ctx)
 	if err != nil {
 		return fmt.Errorf("unable to load dex after import: %w", err)
 	}

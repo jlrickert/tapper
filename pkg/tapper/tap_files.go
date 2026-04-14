@@ -97,7 +97,7 @@ func (t *Tap) UploadFile(ctx context.Context, opts UploadFileOptions) (string, e
 	if err != nil {
 		return "", err
 	}
-	exists, err := k.Repo.HasNode(ctx, id)
+	exists, err := t.nodeExistsWithContent(ctx, k, id)
 	if err != nil {
 		return "", fmt.Errorf("unable to inspect node: %w", err)
 	}
@@ -209,7 +209,7 @@ func (t *Tap) UploadImage(ctx context.Context, opts UploadImageOptions) (string,
 	if err != nil {
 		return "", err
 	}
-	exists, err := k.Repo.HasNode(ctx, id)
+	exists, err := t.nodeExistsWithContent(ctx, k, id)
 	if err != nil {
 		return "", fmt.Errorf("unable to inspect node: %w", err)
 	}

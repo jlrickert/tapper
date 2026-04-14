@@ -29,7 +29,7 @@ func (t *Tap) Remove(ctx context.Context, opts RemoveOptions) error {
 	nodeIDs := opts.NodeIDs
 
 	if q := strings.TrimSpace(opts.Query); q != "" {
-		dex, dexErr := k.Dex(ctx)
+		dex, dexErr := k.DexFresh(ctx)
 		if dexErr != nil {
 			return fmt.Errorf("unable to read dex: %w", dexErr)
 		}

@@ -250,7 +250,7 @@ func parseImportNodeIDs(rawIDs []string) ([]keg.NodeId, error) {
 // collectImportNodesByTag evaluates a boolean query expression (supporting both
 // tag names and key=value attribute predicates) against the source keg's dex.
 func collectImportNodesByTag(ctx context.Context, k *keg.Keg, query string) ([]keg.NodeId, error) {
-	dex, err := k.Dex(ctx)
+	dex, err := k.DexFresh(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("unable to load source dex: %w", err)
 	}

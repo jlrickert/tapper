@@ -123,7 +123,7 @@ func (t *Tap) Site(ctx context.Context, opts SiteOptions) (*SiteResult, error) {
 		return nil, fmt.Errorf("unable to open keg: %w", err)
 	}
 
-	dex, err := k.Dex(ctx)
+	dex, err := k.DexFresh(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("unable to read dex: %w", err)
 	}

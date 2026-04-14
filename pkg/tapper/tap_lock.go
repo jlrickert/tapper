@@ -49,7 +49,7 @@ func (t *Tap) Lock(ctx context.Context, opts LockOptions) (keg.LockToken, error)
 		return "", err
 	}
 
-	exists, err := k.Repo.HasNode(ctx, id)
+	exists, err := t.nodeExistsWithContent(ctx, k, id)
 	if err != nil {
 		return "", fmt.Errorf("unable to inspect node: %w", err)
 	}

@@ -60,7 +60,7 @@ func (t *Tap) Meta(ctx context.Context, opts MetaOptions) (string, error) {
 		return "", err
 	}
 
-	exists, err := k.Repo.HasNode(ctx, id)
+	exists, err := t.nodeExistsWithContent(ctx, k, id)
 	if err != nil {
 		return "", fmt.Errorf("unable to inspect node: %w", err)
 	}
@@ -132,7 +132,7 @@ func (t *Tap) Edit(ctx context.Context, opts EditOptions) error {
 		return err
 	}
 
-	exists, err := k.Repo.HasNode(ctx, id)
+	exists, err := t.nodeExistsWithContent(ctx, k, id)
 	if err != nil {
 		return fmt.Errorf("unable to inspect node: %w", err)
 	}

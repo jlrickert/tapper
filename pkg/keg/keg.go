@@ -889,7 +889,11 @@ func (k *Keg) Move(ctx context.Context, src NodeId, dst NodeId) error {
 		return nil
 	}
 
-	srcExists, err := k.Repo.HasNode(ctx, src)
+	// Use content-aware existence checks so shadow reservations created by
+	// FsRepo.Next() / FsRepo.WithNodeLock() do not masquerade as real nodes
+	// (F11 of report 842). These are pre-lock gates; the under-lock
+	// authoritative check runs inside Repo.MoveNode.
+	srcExists, err := k.nodeExistsWithContent(ctx, src)
 	if err != nil {
 		return fmt.Errorf("failed to check source node: %w", err)
 	}
@@ -897,7 +901,7 @@ func (k *Keg) Move(ctx context.Context, src NodeId, dst NodeId) error {
 		return fmt.Errorf("source node %s not found: %w", src.Path(), ErrNotExist)
 	}
 
-	dstExists, err := k.Repo.HasNode(ctx, dst)
+	dstExists, err := k.nodeExistsWithContent(ctx, dst)
 	if err != nil {
 		return fmt.Errorf("failed to check destination node: %w", err)
 	}
@@ -1001,8 +1005,10 @@ func (k *Keg) Remove(ctx context.Context, id NodeId) error {
 
 	// Check existence before acquiring the lock. WithNodeLock will also
 	// return ErrNotExist for missing nodes, but this check provides a
-	// clearer error message.
-	exists, err := k.Repo.HasNode(ctx, id)
+	// clearer error message. Use the content-aware helper so shadow
+	// reservations (bare directories from FsRepo.Next() / WithNodeLock)
+	// are not mistaken for real nodes — F11 of report 842.
+	exists, err := k.nodeExistsWithContent(ctx, id)
 	if err != nil {
 		return fmt.Errorf("failed to check node existence: %w", err)
 	}
@@ -1013,7 +1019,7 @@ func (k *Keg) Remove(ctx context.Context, id NodeId) error {
 	// Acquire node lock to prevent concurrent writes from resurrecting
 	// the node directory after deletion. Re-check existence under lock.
 	if err := k.withNodeLock(ctx, id, func(lockCtx context.Context) error {
-		exists, err := k.Repo.HasNode(lockCtx, id)
+		exists, err := k.nodeExistsWithContent(lockCtx, id)
 		if err != nil {
 			return fmt.Errorf("failed to check node existence: %w", err)
 		}

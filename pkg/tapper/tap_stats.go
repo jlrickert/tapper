@@ -26,7 +26,7 @@ func (t *Tap) Stats(ctx context.Context, opts StatsOptions) (string, error) {
 		return "", err
 	}
 
-	exists, err := k.Repo.HasNode(ctx, node)
+	exists, err := t.nodeExistsWithContent(ctx, k, node)
 	if err != nil {
 		return "", fmt.Errorf("unable to inspect node: %w", err)
 	}
