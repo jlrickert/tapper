@@ -95,7 +95,7 @@ func (t *Tap) Doctor(ctx context.Context, opts DoctorOptions) ([]Issue, error) {
 	if entityCheckEnabled {
 		for name, entity := range cfg.Entities {
 			entityNode := keg.NodeId{ID: entity.ID}
-			exists, hasErr := k.Repo.HasNode(ctx, entityNode)
+			exists, hasErr := t.nodeExistsWithContent(ctx, k, entityNode)
 			if hasErr != nil {
 				issues = append(issues, Issue{
 					Level:   "error",

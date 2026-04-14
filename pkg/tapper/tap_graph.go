@@ -51,7 +51,7 @@ func (t *Tap) Graph(ctx context.Context, opts GraphOptions) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("unable to open keg: %w", err)
 	}
-	dex, err := k.Dex(ctx)
+	dex, err := k.DexFresh(ctx)
 	if err != nil {
 		return "", fmt.Errorf("unable to read dex: %w", err)
 	}
