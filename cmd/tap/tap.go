@@ -7,6 +7,10 @@ import (
 
 	"github.com/jlrickert/cli-toolkit/toolkit"
 	"github.com/jlrickert/tapper/pkg/cli"
+
+	// Register integration adapters so the MCP server's Resources
+	// surface and `tap integrate` can enumerate them.
+	_ "github.com/jlrickert/tapper/pkg/integrations/adapters"
 )
 
 //go:embed LICENSE
