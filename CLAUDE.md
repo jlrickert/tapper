@@ -112,13 +112,13 @@ config precedence: explicit alias → `defaultKeg` → `kegMap` path match →
 
 Tapper config is resolved via a five-tier cascade (most specific wins):
 
-| Rank | Source | Discovery |
-| ---- | ------ | --------- |
-| 5 | CLI flags (`--log-level`, etc.) | Cobra `cmd.Flags().Changed()` |
-| 4 | Env vars (`TAP_*`) | `rt.Env().Get()` prefix scan |
-| 3 | Project config | `.tapper/config.yaml` (fixed path) |
-| 2 | User config | `~/.config/tapper/config.yaml` (fixed path) |
-| 1 | Defaults | Hardcoded in code |
+| Rank | Source                          | Discovery                                   |
+| ---- | ------------------------------- | ------------------------------------------- |
+| 5    | CLI flags (`--log-level`, etc.) | Cobra `cmd.Flags().Changed()`               |
+| 4    | Env vars (`TAP_*`)              | `rt.Env().Get()` prefix scan                |
+| 3    | Project config                  | `.tapper/config.yaml` (fixed path)          |
+| 2    | User config                     | `~/.config/tapper/config.yaml` (fixed path) |
+| 1    | Defaults                        | Hardcoded in code                           |
 
 Tiers 1-4 are resolved by `cfgcascade.Cascade[*Config]` in
 `ConfigService.Config()` (`pkg/tapper/config_service.go`). Tier 5 (CLI flags)
@@ -144,9 +144,9 @@ tapper flows through Runtime, enabling sandboxed test environments.
 
 ### Runtime Abstraction Rule
 
-All I/O in `pkg/keg`, `pkg/tapper`, and `pkg/cli` must go through
-`toolkit.Runtime`. Direct stdlib calls bypass the sandboxed test environment and
-break test isolation. Specifically:
+All I/O in `pkg/keg`, `pkg/tapper`, `pkg/cli`, and `pkg/integrations` must go
+through `toolkit.Runtime`. Direct stdlib calls bypass the sandboxed test
+environment and break test isolation. Specifically:
 
 - **File I/O**: Use `rt.ReadFile` / `rt.WriteFile` — never `os.ReadFile` /
   `os.WriteFile`.
