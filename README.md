@@ -126,19 +126,39 @@ tap grep "first"
 That's it — you have a working knowledge base. See [More Examples](#more-examples)
 for snapshots, archives, and automation workflows.
 
-## Using With Claude Code
+## Using With AI Agents
 
-Register tapper as an MCP server to give Claude Code full access to your kegs:
+Tapper ships integration bundles for Claude Code and Codex. Pick the one-command
+install that matches your agent. For advanced setups — manual MCP registration,
+JSON config for other hosts, per-tool keg targeting — see
+[MCP Server Setup](docs/ai-coding-agents/mcp-setup.md).
+
+### Claude Code
 
 ```bash
-claude mcp add --transport stdio tapper -- tap mcp
+tap integrate claude
 ```
 
-This exposes 31 KEG tools (read, write, search, index, snapshot, lock) directly
-in Claude Code — no per-command permission prompts needed.
+Writes a Claude Code plugin tree to `~/.claude/plugins/tapper/` containing the
+MCP server registration, the bundled `/tapper` skill, and the orientation
+prompts. Restart Claude Code to pick it up. Preview target paths first with
+`--dry-run`.
 
-See [MCP Server Setup](docs/ai-coding-agents/mcp-setup.md) for details on
-per-tool keg targeting, manual JSON config, and troubleshooting.
+### Codex
+
+```bash
+tap integrate codex
+```
+
+Writes `~/.codex/AGENTS.md`, saved prompts under `~/.codex/prompts/`, and
+`~/.codex/config-snippet.toml`. Merge the config snippet into your
+`~/.codex/config.toml` to register the MCP server.
+
+Both install paths expose the full KEG tool surface over MCP — read, write,
+search, index, snapshot, lock — plus a tiered `orient` tool that lets an agent
+bootstrap against any keg in a bounded token budget. See
+[Using Tapper From AI Agents](docs/ai-coding-agents/README.md) for the full
+reference.
 
 ## More Examples
 

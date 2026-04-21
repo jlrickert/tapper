@@ -1,13 +1,17 @@
 # MCP Server Setup
 
 The `tap mcp` command starts a Model Context Protocol server on stdio,
-exposing all KEG operations as tools. This page covers manual setup —
-how to register `tap mcp` with an MCP host that is not using the
+exposing all KEG operations as tools. This page is the advanced / manual
+path — registering `tap mcp` with an MCP host that is not using the
 Claude Code plugin, and the full tool reference.
 
-If you are using Claude Code, see [Claude Code Plugin](claude-code-plugin.md)
-for a one-command install that covers everything on this page
-automatically.
+Most users should start with the one-command installs in the project
+README's [Using With AI Agents](../../README.md#using-with-ai-agents)
+section. `tap integrate claude` and `tap integrate codex` cover
+everything on this page automatically and also deliver the bundled
+skill, prompts, and orientation content. Come back here if you want
+fine-grained control (a different host, a non-default keg, a custom
+transport) or you prefer a manual JSON config.
 
 ## Quick Start
 
@@ -17,8 +21,9 @@ automatically.
 claude mcp add --transport stdio tapper -- tap mcp
 ```
 
-This adds `tapper` to your Claude Code MCP configuration. All 31 KEG
-tools become available immediately. To target a specific default keg:
+This adds `tapper` to your Claude Code MCP configuration. The full KEG
+tool surface becomes available immediately. To target a specific default
+keg:
 
 ```bash
 claude mcp add --transport stdio tapper -- tap mcp --keg notes
