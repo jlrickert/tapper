@@ -93,6 +93,10 @@ var tapMethodToSurfaces = map[string]struct {
 	// Site and serve (CLI-only or with MCP equivalents)
 	"Site":  {CLI: "site", MCP: "site"},
 	"Serve": {CLI: "mcp", MCP: "serve"},
+
+	// Agent integrations (Phase 3 / Phase 5)
+	"Orient":    {CLI: "orient", MCP: "orient"},
+	"Integrate": {CLI: "integrate", MCP: "integrate"},
 }
 
 // tapMethodsExcluded lists Tap methods that are intentionally excluded from
@@ -105,7 +109,6 @@ var tapMethodsExcluded = map[string]string{
 	"NewServeHandler": "internal HTTP handler factory; used by Serve",
 	"DoctorConfig":    "tapper-config health check helper; called by Doctor CLI/MCP surfaces",
 	"ConfigExplain":   "shares surface with Config via --explain flag / explain field",
-	"Orient":          "MCP tool and Resources live in pkg/mcp; the matching `tap orient` CLI command lands in a later phase alongside `tap integrate`",
 }
 
 // TestCoverage_AllTapMethodsHaveBothSurfaces uses reflection to enumerate

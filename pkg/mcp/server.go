@@ -52,6 +52,7 @@ func NewServer(tap *tapper.Tap, version string, defaults KegDefaults, opts ...Se
 	registerGraphTools(srv, tap, defaults)
 	registerOrientTools(srv, tap, defaults)
 	registerResourceTools(srv, tap, defaults)
+	registerIntegrateTools(srv, tap, defaults)
 	registerLicenseTools(srv, opt.LicenseText)
 
 	if opt.Logger != nil {
