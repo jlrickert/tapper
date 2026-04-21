@@ -2,6 +2,11 @@
 
 All notable changes to this project are documented in this file.
 
+## [Unreleased]
+
+### 🚀 Features
+- embed agent integrations, expose via `mcp__tapper__orient` and `tap integrate`
+
 ## v0.18.1 - 2026-04-03
 
 

@@ -38,8 +38,14 @@ In a new Claude Code session, typing `/tapper` should surface the
 | `.claude-plugin/.mcp.json` | Registers `tap mcp` as the `tapper` MCP server on stdio. |
 | `skills/tapper/SKILL.md` | The `tapper` skill — conventions for MCP-first KEG workflows. |
 
-All three live under `integrations/claude/` in the tapper repository.
-The plugin is a thin wrapper that points Claude Code at them.
+All three live under `integrations/rendered/claude/` in the tapper repository,
+produced from canonical content by the Claude adapter. The plugin is a thin
+wrapper that points Claude Code at them.
+
+The same rendered tree is embedded in the `tap` binary. Agents that prefer
+not to install the plugin can reach equivalent orientation content through
+the `mcp__tapper__orient` tool or the `tapper://orient/claude/tier-<n>`
+MCP resources — see [Orientation Surface](orient.md).
 
 ## What the plugin does not contain
 
