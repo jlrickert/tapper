@@ -64,5 +64,5 @@ func run() error {
 	content := os.DirFS(canonicalAbs)
 
 	dst := integrations.NewDirWriter(rt, renderedDir)
-	return integrations.RenderAll(content, dst, integrations.DefaultAdapters())
+	return integrations.RenderAll(rt, content, dst, integrations.DefaultAdapters())
 }

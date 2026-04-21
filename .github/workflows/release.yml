@@ -83,13 +83,19 @@ jobs:
           config: cliff.toml
           args: --tag ${{ steps.version.outputs.version }} -o CHANGELOG.md
 
-      - name: Commit changelog and create tag
+      - name: Re-render integrations with release version
+        env:
+          TAPPER_PLUGIN_VERSION: ${{ steps.version.outputs.version }}
+        run: go run ./cmd/render-integrations
+
+      - name: Commit changelog, rendered integrations, and create tag
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
-          VERSION="${{ steps.version.outputs.version }}"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add CHANGELOG.md
-          git commit -m "chore: release $VERSION" || echo "No changelog changes to commit"
+          git add CHANGELOG.md integrations/rendered
+          git commit -m "chore: release $VERSION" || echo "No release changes to commit"
           git tag -a "$VERSION" -m "$VERSION"
           git push origin HEAD:main --follow-tags
 

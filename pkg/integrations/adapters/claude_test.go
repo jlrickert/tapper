@@ -6,8 +6,24 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/jlrickert/cli-toolkit/sandbox"
+	"github.com/jlrickert/cli-toolkit/toolkit"
+
 	"github.com/jlrickert/tapper/pkg/integrations"
 )
+
+// newTestRuntime builds a sandbox-backed runtime so adapter tests stay
+// insulated from the process environment. The Claude adapter consults
+// rt.Env().Get for release-time configuration; a sandbox runtime keeps
+// that lookup predictable across parallel tests.
+func newTestRuntime(t *testing.T) *toolkit.Runtime {
+	t.Helper()
+	sb := sandbox.NewSandbox(t, &sandbox.Options{
+		Home: filepath.FromSlash("/home/testuser"),
+		User: "testuser",
+	})
+	return sb.Runtime()
+}
 
 // TestClaudeAdapter_GoldenByteParity is the load-bearing test for Phase 1:
 // running ClaudeAdapter against the canonical fixtures in testdata/canonical
@@ -15,9 +31,10 @@ import (
 // testdata/claude/. If this test drifts, either the canonical content has
 // changed or the adapter has — both must be reviewed deliberately.
 func TestClaudeAdapter_GoldenByteParity(t *testing.T) {
+	rt := newTestRuntime(t)
 	canonical := os.DirFS("testdata/canonical")
 	mem := integrations.NewMemWriter()
-	if err := (ClaudeAdapter{}).Render(canonical, mem); err != nil {
+	if err := (ClaudeAdapter{}).Render(rt, canonical, mem); err != nil {
 		t.Fatalf("Render: %v", err)
 	}
 
@@ -72,9 +89,10 @@ func TestClaudeAdapter_GoldenByteParity(t *testing.T) {
 // four of the five canonical files declare their own H1 for standalone
 // readability.
 func TestClaudeAdapter_SKILLMDHasSingleH1(t *testing.T) {
+	rt := newTestRuntime(t)
 	canonical := os.DirFS("testdata/canonical")
 	mem := integrations.NewMemWriter()
-	if err := (ClaudeAdapter{}).Render(canonical, mem); err != nil {
+	if err := (ClaudeAdapter{}).Render(rt, canonical, mem); err != nil {
 		t.Fatalf("Render: %v", err)
 	}
 	body := mem.Files()["claude/skills/tapper/SKILL.md"]

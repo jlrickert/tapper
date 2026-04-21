@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jlrickert/cli-toolkit/sandbox"
+
 	"github.com/jlrickert/tapper/pkg/integrations"
 
 	// Blank import so ClaudeAdapter (and any future adapter) registers
@@ -33,8 +35,17 @@ func TestRenderedTreeMatchesAdapters(t *testing.T) {
 		t.Fatalf("fs.Sub(content): %v", err)
 	}
 
+	// A sandbox runtime keeps the Claude adapter's env lookup jailed to
+	// "dev" regardless of the host's TAPPER_PLUGIN_VERSION, so the
+	// embedded-vs-adapter comparison is reproducible.
+	sb := sandbox.NewSandbox(t, &sandbox.Options{
+		Home: filepath.FromSlash("/home/testuser"),
+		User: "testuser",
+	})
+	rt := sb.Runtime()
+
 	mem := integrations.NewMemWriter()
-	if err := integrations.RenderAll(contentFS, mem, integrations.DefaultAdapters()); err != nil {
+	if err := integrations.RenderAll(rt, contentFS, mem, integrations.DefaultAdapters()); err != nil {
 		t.Fatalf("RenderAll: %v", err)
 	}
 
