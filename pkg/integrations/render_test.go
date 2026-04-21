@@ -10,6 +10,7 @@ import (
 	"testing/fstest"
 
 	"github.com/jlrickert/cli-toolkit/sandbox"
+	"github.com/jlrickert/cli-toolkit/toolkit"
 )
 
 func TestMemWriter_StoresAndReportsPaths(t *testing.T) {
@@ -94,14 +95,27 @@ func TestDirWriter_NilRuntime(t *testing.T) {
 	}
 }
 
+// newTestRuntime builds a sandbox-backed runtime for render-layer tests.
+// Every RenderAll caller needs one so env lookups from within adapters
+// stay jailed.
+func newTestRuntime(t *testing.T) *toolkit.Runtime {
+	t.Helper()
+	sb := sandbox.NewSandbox(t, &sandbox.Options{
+		Home: filepath.FromSlash("/home/testuser"),
+		User: "testuser",
+	})
+	return sb.Runtime()
+}
+
 func TestRenderAll_IteratesInCallerOrder(t *testing.T) {
+	rt := newTestRuntime(t)
 	content := fstest.MapFS{"x.md": &fstest.MapFile{Data: []byte("clean\n")}}
 	mem := NewMemWriter()
 	adapters := []Adapter{
 		&testAdapter{n: "bravo"},
 		&testAdapter{n: "alpha"},
 	}
-	if err := RenderAll(content, mem, adapters); err != nil {
+	if err := RenderAll(rt, content, mem, adapters); err != nil {
 		t.Fatalf("RenderAll: %v", err)
 	}
 	paths := mem.Paths()
@@ -112,22 +126,27 @@ func TestRenderAll_IteratesInCallerOrder(t *testing.T) {
 }
 
 func TestRenderAll_AbortsOnAdapterError(t *testing.T) {
+	rt := newTestRuntime(t)
 	content := fstest.MapFS{"x.md": &fstest.MapFile{Data: []byte("clean\n")}}
 	mem := NewMemWriter()
 	sentinel := errors.New("boom")
 	adapters := []Adapter{&testAdapter{n: "broken", err: sentinel}}
-	err := RenderAll(content, mem, adapters)
+	err := RenderAll(rt, content, mem, adapters)
 	if err == nil || !errors.Is(err, sentinel) {
 		t.Errorf("RenderAll err = %v, want wrap of %v", err, sentinel)
 	}
 }
 
 func TestRenderAll_RejectsNilArgs(t *testing.T) {
-	if err := RenderAll(nil, NewMemWriter(), nil); err == nil {
+	rt := newTestRuntime(t)
+	content := fstest.MapFS{}
+	if err := RenderAll(nil, content, NewMemWriter(), nil); err == nil {
+		t.Errorf("expected error for nil runtime")
+	}
+	if err := RenderAll(rt, nil, NewMemWriter(), nil); err == nil {
 		t.Errorf("expected error for nil content")
 	}
-	content := fstest.MapFS{}
-	if err := RenderAll(content, nil, nil); err == nil {
+	if err := RenderAll(rt, content, nil, nil); err == nil {
 		t.Errorf("expected error for nil dst")
 	}
 }
@@ -137,9 +156,10 @@ func TestRenderAll_NilAdaptersUsesDefault(t *testing.T) {
 	prev := registry
 	t.Cleanup(func() { registry = prev })
 	registry = []Adapter{&testAdapter{n: "defaulted"}}
+	rt := newTestRuntime(t)
 	content := fstest.MapFS{}
 	mem := NewMemWriter()
-	if err := RenderAll(content, mem, nil); err != nil {
+	if err := RenderAll(rt, content, mem, nil); err != nil {
 		t.Fatalf("RenderAll with nil adapters: %v", err)
 	}
 	if _, ok := mem.Files()["defaulted/marker.txt"]; !ok {
@@ -184,7 +204,7 @@ type testAdapter struct {
 
 func (a *testAdapter) Name() string { return a.n }
 
-func (a *testAdapter) Render(content fs.FS, dst DestWriter) error {
+func (a *testAdapter) Render(_ *toolkit.Runtime, content fs.FS, dst DestWriter) error {
 	if a.err != nil {
 		return a.err
 	}

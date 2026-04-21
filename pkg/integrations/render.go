@@ -104,8 +104,13 @@ type Adapter interface {
 	Name() string
 
 	// Render reads canonical from content and writes every host-specific
-	// file to dst with a path prefix of Name()+"/".
-	Render(content fs.FS, dst DestWriter) error
+	// file to dst with a path prefix of Name()+"/". The runtime carries
+	// env, clock, and filesystem access for adapters that need them
+	// (for example to consult release-time configuration through
+	// rt.Env().Get). rt is required and must not be nil; tests that do
+	// not want to touch the real process environment should use
+	// sandbox.NewSandbox to construct a jailed runtime.
+	Render(rt *toolkit.Runtime, content fs.FS, dst DestWriter) error
 }
 
 // registry holds the package-level adapter set. Registration happens in
@@ -138,8 +143,14 @@ func DefaultAdapters() []Adapter {
 // onto dst. Adapters are invoked in DefaultAdapters() order. The first
 // adapter error aborts the render; partial writes to dst are left in place
 // for inspection by the caller, which for DirWriter means they sit in the
-// staging directory and never become user-visible.
-func RenderAll(content fs.FS, dst DestWriter, adapters []Adapter) error {
+// staging directory and never become user-visible. rt is required — it
+// carries env, clock, and filesystem access that adapters consult for
+// release-time configuration. Tests construct a sandbox runtime via
+// sandbox.NewSandbox so environment lookups stay jailed.
+func RenderAll(rt *toolkit.Runtime, content fs.FS, dst DestWriter, adapters []Adapter) error {
+	if rt == nil {
+		return fmt.Errorf("integrations: runtime is nil")
+	}
 	if content == nil {
 		return fmt.Errorf("integrations: canonical fs.FS is nil")
 	}
@@ -150,7 +161,7 @@ func RenderAll(content fs.FS, dst DestWriter, adapters []Adapter) error {
 		adapters = DefaultAdapters()
 	}
 	for _, a := range adapters {
-		if err := a.Render(content, dst); err != nil {
+		if err := a.Render(rt, content, dst); err != nil {
 			return fmt.Errorf("integrations: adapter %q: %w", a.Name(), err)
 		}
 	}

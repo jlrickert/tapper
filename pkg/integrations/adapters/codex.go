@@ -6,6 +6,8 @@ import (
 	"io/fs"
 	"path"
 
+	"github.com/jlrickert/cli-toolkit/toolkit"
+
 	"github.com/jlrickert/tapper/pkg/integrations"
 )
 
@@ -105,8 +107,11 @@ func (CodexAdapter) Name() string { return "codex" }
 
 // Render emits the Codex install tree under dst. The three output
 // groups (AGENTS.md, prompts, config snippet) are independent; a
-// failure on any one aborts the render.
-func (a CodexAdapter) Render(content fs.FS, dst integrations.DestWriter) error {
+// failure on any one aborts the render. rt is accepted for interface
+// consistency — the Codex adapter has no release-time configuration
+// today — and is not consulted.
+func (a CodexAdapter) Render(rt *toolkit.Runtime, content fs.FS, dst integrations.DestWriter) error {
+	_ = rt
 	agents, err := renderCodexAGENTS(content)
 	if err != nil {
 		return err

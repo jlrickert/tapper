@@ -10,6 +10,8 @@ import (
 	"io/fs"
 	"path"
 
+	"github.com/jlrickert/cli-toolkit/toolkit"
+
 	"github.com/jlrickert/tapper/pkg/integrations"
 )
 
@@ -19,10 +21,35 @@ import (
 const (
 	claudePluginName        = "tapper"
 	claudePluginDescription = "Tapper KEG CLI integration — registers the `tap mcp` server and ships the `/tapper` skill for MCP-first KEG workflows. Requires the `tap` binary on PATH."
-	claudePluginVersion     = "0.18.1"
 	claudePluginAuthorName  = "Jared Rickert"
 	claudePluginHomepage    = "https://github.com/jlrickert/tapper"
 )
+
+// claudePluginVersionEnv names the environment variable the release
+// pipeline sets so the plugin manifest carries the tagged version at
+// release time. Local `task render-integrations` runs leave it unset,
+// which produces `claudePluginVersionDefault` — a visible signal that
+// the rendered tree came from a developer checkout, not a release.
+const (
+	claudePluginVersionEnv     = "TAPPER_PLUGIN_VERSION"
+	claudePluginVersionDefault = "dev"
+)
+
+// claudePluginVersion returns the version string baked into the
+// rendered plugin.json. The release workflow sets TAPPER_PLUGIN_VERSION
+// to the resolved release tag (for example "v0.19.0") so the shipped
+// plugin manifest tracks the goreleaser-injected `pkg/cli.Version`.
+// Other invocations fall back to "dev".
+//
+// rt is required. Callers always have a runtime available — the cmd
+// shim constructs the real one and tests use sandbox.NewSandbox — so
+// there is no code path that would legitimately pass nil.
+func claudePluginVersion(rt *toolkit.Runtime) string {
+	if v := rt.Env().Get(claudePluginVersionEnv); v != "" {
+		return v
+	}
+	return claudePluginVersionDefault
+}
 
 // claudeSKILLFrontmatter is the YAML frontmatter prepended to the concat
 // SKILL.md. The description string ends with "MCP-first workflow." to match
@@ -53,10 +80,12 @@ type ClaudeAdapter struct{}
 // Name returns the adapter's subdirectory under the rendered root.
 func (ClaudeAdapter) Name() string { return "claude" }
 
-// Render emits the three Claude plugin files into dst.
-func (a ClaudeAdapter) Render(content fs.FS, dst integrations.DestWriter) error {
+// Render emits the three Claude plugin files into dst. rt is consulted
+// for release-time configuration (TAPPER_PLUGIN_VERSION); a nil runtime
+// falls back to the default "dev" version.
+func (a ClaudeAdapter) Render(rt *toolkit.Runtime, content fs.FS, dst integrations.DestWriter) error {
 	// 1. plugin.json — byte-parity with today's file via the struct encoder.
-	plugin, err := renderClaudePluginJSON()
+	plugin, err := renderClaudePluginJSON(rt)
 	if err != nil {
 		return err
 	}
@@ -100,12 +129,14 @@ type claudePluginJSON struct {
 }
 
 // renderClaudePluginJSON builds plugin.json using encoding/json with 2-space
-// indent. The encoder appends a trailing newline for us.
-func renderClaudePluginJSON() ([]byte, error) {
+// indent. The encoder appends a trailing newline for us. rt is routed
+// through claudePluginVersion so the rendered version tracks the env
+// var set by the release workflow.
+func renderClaudePluginJSON(rt *toolkit.Runtime) ([]byte, error) {
 	v := claudePluginJSON{
 		Name:        claudePluginName,
 		Description: claudePluginDescription,
-		Version:     claudePluginVersion,
+		Version:     claudePluginVersion(rt),
 		Author:      claudePluginAuthor{Name: claudePluginAuthorName},
 		Homepage:    claudePluginHomepage,
 	}
