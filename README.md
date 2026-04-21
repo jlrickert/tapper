@@ -221,8 +221,10 @@ Project docs live under `docs/`:
 - [Domain Separation And Migration](docs/keg-structure/domain-separation-and-migration.md)
 - [Example Keg Structures](docs/keg-structure/example-structures.md)
 - [Markdown Style Guide](docs/keg-structure/markdown-style-guide.md)
-- [AI Coding Agent Configuration](docs/ai-coding-agents/README.md)
+- [Using Tapper From AI Agents](docs/ai-coding-agents/README.md)
+- [Claude Code Plugin](docs/ai-coding-agents/claude-code-plugin.md)
 - [MCP Server Setup](docs/ai-coding-agents/mcp-setup.md)
+- [Agent Conventions](docs/ai-coding-agents/agent-conventions.md)
 
 ## Config Precedence At A Glance
 

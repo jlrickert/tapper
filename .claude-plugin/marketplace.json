@@ -1,0 +1,14 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "jlrickert-tapper",
+  "description": "Tapper KEG CLI — MCP server and tapper skill",
+  "owner": { "name": "Jared Rickert" },
+  "plugins": [
+    {
+      "name": "tapper",
+      "source": "./integrations/claude",
+      "category": "productivity",
+      "homepage": "https://github.com/jlrickert/tapper"
+    }
+  ]
+}

@@ -1,31 +1,32 @@
 # MCP Server Setup
 
-The `tap mcp` command starts a Model Context Protocol (MCP) server on stdio,
-exposing all KEG operations as tools. Once configured, AI agents can read,
-search, create, and manage notes without per-command permission prompts.
+The `tap mcp` command starts a Model Context Protocol server on stdio,
+exposing all KEG operations as tools. This page covers manual setup —
+how to register `tap mcp` with an MCP host that is not using the
+Claude Code plugin, and the full tool reference.
+
+If you are using Claude Code, see [Claude Code Plugin](claude-code-plugin.md)
+for a one-command install that covers everything on this page
+automatically.
 
 ## Quick Start
 
-### Claude Code
-
-Register the MCP server with a single command:
+### Claude Code (manual)
 
 ```bash
 claude mcp add --transport stdio tapper -- tap mcp
 ```
 
-This adds tapper to your Claude Code MCP configuration. All 31 KEG tools become
-available immediately.
-
-To target a specific default keg:
+This adds `tapper` to your Claude Code MCP configuration. All 31 KEG
+tools become available immediately. To target a specific default keg:
 
 ```bash
-claude mcp add --transport stdio tapper -- tap mcp --keg dev
+claude mcp add --transport stdio tapper -- tap mcp --keg notes
 ```
 
-### Manual Configuration
+### Generic MCP host (JSON config)
 
-For agents that use a JSON config file, add the following to your MCP settings:
+For any MCP host that reads a JSON configuration file, add:
 
 ```json
 {
@@ -45,7 +46,7 @@ With a default keg:
   "mcpServers": {
     "tapper": {
       "command": "tap",
-      "args": ["mcp", "--keg", "dev"]
+      "args": ["mcp", "--keg", "notes"]
     }
   }
 }
@@ -53,7 +54,7 @@ With a default keg:
 
 ## Available Tools
 
-The MCP server registers 31 tools organized by category:
+The MCP server registers 31 tools organized by category.
 
 ### Read (11 tools)
 
@@ -62,11 +63,11 @@ The MCP server registers 31 tools organized by category:
 | `cat`        | Read content of one or more nodes        |
 | `list`       | List nodes with optional query filtering |
 | `grep`       | Full-text search across node content     |
-| `tags`       | List tags or find nodes by tag           |
+| `tags`       | List tags or find nodes by query         |
 | `backlinks`  | Find nodes linking to a given node       |
 | `links`      | List outgoing links from a node          |
 | `list_kegs`  | List available keg aliases               |
-| `info`       | Show current keg info                    |
+| `info`       | Show tapper info and environment         |
 | `keg_info`   | Read keg configuration                   |
 | `stats`      | Show node statistics                     |
 | `dir`        | Show keg directory path                  |
@@ -105,12 +106,12 @@ The MCP server registers 31 tools organized by category:
 
 ### Locking (4 tools)
 
-| Tool                | Description                                      |
-| ------------------- | ------------------------------------------------ |
-| `lock_acquire`      | Acquire a cross-process lock on a node           |
-| `lock_release`      | Release a cross-process lock on a node           |
-| `lock_status`       | Check the lock state of a node                   |
-| `lock_force_release`| Unconditionally remove a lock on a node          |
+| Tool                 | Description                                 |
+| -------------------- | ------------------------------------------- |
+| `lock_acquire`       | Acquire a cross-process lock on a node      |
+| `lock_release`       | Release a cross-process lock on a node      |
+| `lock_status`        | Check the lock state of a node              |
+| `lock_force_release` | Unconditionally remove a lock on a node     |
 
 ### Files (4 tools)
 
@@ -123,19 +124,21 @@ The MCP server registers 31 tools organized by category:
 
 ## Keg Targeting
 
-Every tool accepts an optional `keg` parameter to override the server default.
-This enables multi-keg workflows without restarting the server:
+Every tool accepts an optional `keg` parameter to override the server
+default. This enables multi-keg workflows without restarting the
+server:
 
-- **Server default**: set via `tap mcp --keg ALIAS` at startup
-- **Per-tool override**: pass `"keg": "other-alias"` in any tool call
-- **Fallback**: if neither is set, uses the standard tapper config resolution
-  (project config, user config, keg search paths)
+- **Server default:** set via `tap mcp --keg ALIAS` at startup.
+- **Per-tool override:** pass `"keg": "other-alias"` in any tool call.
+- **Fallback:** if neither is set, tapper resolves the target via the
+  standard config cascade (CLI flags, `TAP_*` env vars, project
+  config, user config, keg search paths).
 
 ## Troubleshooting
 
 ### Server not responding
 
-Verify tapper is installed and on PATH:
+Verify tapper is installed and on `PATH`:
 
 ```bash
 which tap
@@ -144,8 +147,8 @@ tap mcp --help
 
 ### Logs
 
-The MCP server uses stdio for JSON-RPC, so diagnostic output goes to stderr by
-default. Use `--log-file` to capture logs:
+The MCP server uses stdio for JSON-RPC, so diagnostic output goes to
+stderr by default. Use `--log-file` to capture logs to disk:
 
 ```bash
 claude mcp add --transport stdio tapper -- tap mcp --log-file /tmp/tap-mcp.log
@@ -158,3 +161,10 @@ Send a `tools/list` request to verify the server starts correctly:
 ```bash
 echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | tap mcp
 ```
+
+## See also
+
+- [Claude Code Plugin](claude-code-plugin.md) — one-command install
+  that wires both the MCP server and the `tapper` skill.
+- [Agent Conventions](agent-conventions.md) — rules an agent should
+  follow when operating against a tapper KEG.
