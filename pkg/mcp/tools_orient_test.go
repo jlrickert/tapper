@@ -102,6 +102,22 @@ func TestMCP_OrientTool_Tier2ClaudeIncludesSKILLBytes(t *testing.T) {
 	require.Contains(t, text, want)
 }
 
+func TestMCP_OrientTool_Tier2CodexIncludesAGENTSBytes(t *testing.T) {
+	t.Parallel()
+	session, ctx := newTestSession(t)
+
+	text := orientCall(t, session, ctx, map[string]any{
+		"tier": 2,
+		"host": "codex",
+	})
+
+	wantBytes, err := fs.ReadFile(integrations.IntegrationsFS, "rendered/codex/AGENTS.md")
+	require.NoError(t, err)
+	want := strings.TrimRight(string(wantBytes), "\n")
+	require.Contains(t, text, "## Host: codex")
+	require.Contains(t, text, want)
+}
+
 func TestMCP_OrientTool_UnknownHostReturnsError(t *testing.T) {
 	t.Parallel()
 	session, ctx := newTestSession(t)
@@ -147,6 +163,9 @@ func TestMCP_Resources_ListPerHostTier(t *testing.T) {
 	require.Contains(t, uris, "tapper://orient/claude/tier-0")
 	require.Contains(t, uris, "tapper://orient/claude/tier-1")
 	require.Contains(t, uris, "tapper://orient/claude/tier-2")
+	require.Contains(t, uris, "tapper://orient/codex/tier-0")
+	require.Contains(t, uris, "tapper://orient/codex/tier-1")
+	require.Contains(t, uris, "tapper://orient/codex/tier-2")
 }
 
 func TestMCP_Resources_ReadMatchesToolBytes(t *testing.T) {
