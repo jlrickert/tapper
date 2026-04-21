@@ -27,3 +27,17 @@ tasks:
       - cmd/**/*.go
       - pkg/**/*.go
       - docs/**/*.md
+  setup:
+    desc: Wire repo-local git hooks (run once after clone).
+    cmds:
+      - git config core.hooksPath .githooks
+  render-integrations:
+    desc: Render canonical integrations/content into integrations/rendered/.
+    cmds:
+      - go run ./cmd/render-integrations
+    sources:
+      - integrations/content/**/*.md
+      - pkg/integrations/**/*.go
+      - cmd/render-integrations/**/*.go
+    generates:
+      - integrations/rendered/**

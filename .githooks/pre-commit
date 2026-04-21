@@ -1,0 +1,12 @@
+#!/usr/bin/env sh
+set -e
+# Regenerate and fail if rendered tree drifted from canonical content.
+if command -v task >/dev/null 2>&1; then
+  task render-integrations
+else
+  go run ./cmd/render-integrations
+fi
+if ! git diff --quiet -- integrations/rendered/; then
+  echo "integrations/rendered/ is out of date. run 'task render-integrations' and stage the result." >&2
+  exit 1
+fi

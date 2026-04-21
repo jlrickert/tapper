@@ -6,7 +6,7 @@
   "plugins": [
     {
       "name": "tapper",
-      "source": "./integrations/claude",
+      "source": "./integrations/rendered/claude",
       "category": "productivity",
       "homepage": "https://github.com/jlrickert/tapper"
     }
