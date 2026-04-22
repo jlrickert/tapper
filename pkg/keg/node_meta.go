@@ -347,6 +347,7 @@ func applyStatsToMapping(root *yaml.Node, stats *NodeStats) {
 }
 
 func removeProgrammaticFromMapping(root *yaml.Node) {
+	removeFromMapping(root, "id")
 	removeFromMapping(root, "title")
 	removeFromMapping(root, "hash")
 	removeFromMapping(root, "updated")

@@ -316,6 +316,43 @@ func TestParity_WriteOperations(t *testing.T) {
 		require.Contains(t, mcpTags, nodeID, "MCP tags should list node with updated-meta tag")
 	})
 
+	// Regression for https://github.com/jlrickert/tapper/issues/29: writing
+	// metadata that contains a synthetic `id:` field (e.g. piped from a
+	// multi-node `cat --meta-only` stream) must not persist the `id:` into
+	// meta.yaml. Otherwise successive cat → edit round-trips accumulate
+	// duplicate `id:` lines.
+	t.Run("meta/id_field_not_persisted", func(t *testing.T) {
+		t.Parallel()
+		env := newParityEnv(t)
+
+		out, err := env.runMCP("create", map[string]any{
+			"title": "Id Strip Test",
+		})
+		require.NoError(t, err)
+		nodeID := strings.TrimSpace(out)
+
+		_, err = env.runMCP("meta", map[string]any{
+			"node_id": nodeID,
+			"content": "id: \"" + nodeID + "\"\ntags:\n  - round-trip\n",
+		})
+		require.NoError(t, err, "MCP meta write should succeed")
+
+		first, err := env.runCLI("cat", nodeID, "--meta-only")
+		require.NoError(t, err)
+		require.NotContains(t, first, "id:", "id field must not be persisted to meta.yaml")
+		require.Contains(t, first, "round-trip")
+
+		_, err = env.runMCP("meta", map[string]any{
+			"node_id": nodeID,
+			"content": first,
+		})
+		require.NoError(t, err, "second MCP meta write should succeed")
+
+		second, err := env.runCLI("cat", nodeID, "--meta-only")
+		require.NoError(t, err)
+		require.Equal(t, first, second, "round-trip cat → meta write → cat must be byte-identical")
+	})
+
 	t.Run("meta/cli_and_mcp_read_same_metadata", func(t *testing.T) {
 		t.Parallel()
 		env := newParityEnv(t)

@@ -40,11 +40,29 @@ func TestProgrammaticKeysAreRemovedFromMetaYAML(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
-	m := keg.NewMeta(ctx, time.Now())
-	require.NoError(t, m.Set(ctx, "hash", "abc123"))
+	raw := []byte(`id: "42"
+title: programmatic
+hash: abc123
+updated: 2025-01-01T00:00:00Z
+created: 2025-01-01T00:00:00Z
+accessed: 2025-01-01T00:00:00Z
+access_count: 3
+lead: a summary
+links:
+  - ../7/README.md
+note: keep-me
+`)
+	m, err := keg.ParseMeta(ctx, raw)
+	require.NoError(t, err)
 
 	out := m.ToYAML()
-	require.NotContains(t, out, "hash:")
+	for _, key := range []string{
+		"id:", "title:", "hash:", "updated:", "created:",
+		"accessed:", "access_count:", "lead:", "links:",
+	} {
+		require.NotContains(t, out, key)
+	}
+	require.Contains(t, out, "note: keep-me")
 }
 
 func TestParseMeta_TagsInMeta(t *testing.T) {
