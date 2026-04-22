@@ -58,6 +58,35 @@ orientation:
 Pass `id_only: true` to `grep` and `tags` when you only need IDs for follow-up
 reads — it keeps token consumption bounded on large result sets.
 
+## Query expressions
+
+`mcp__tapper__list` (via `query`), `mcp__tapper__tags` (via `query`), and
+`mcp__tapper__cat` (via `tag`) accept a boolean expression language that
+filters nodes. Three predicate kinds combine with the standard boolean
+operators:
+
+| Predicate   | Example                                  | Matches                   |
+| ----------- | ---------------------------------------- | ------------------------- |
+| Tag         | `golang`                                 | nodes tagged `golang`     |
+| Attribute   | `status=done`, `status!=draft`           | values in `meta.yaml`     |
+| Stats field | `.created>2026-01-01`, `.accessCount>=5` | values in `stats.json`    |
+
+Operators: `and` (`&&`), `or` (`||`), `not` (`!`), plus parentheses for
+grouping. Precedence is `not` > `and` > `or`, so `a or b and not c`
+parses as `a or (b and (not c))`.
+
+Examples:
+
+- `tapper and .created>2026-01-01` — tapper-tagged nodes created this year
+- `(golang or rust) and status=done` — done nodes tagged with either language
+- `status=draft or not shipped` — drafts or anything not shipped
+
+Prefer a targeted query over reading many nodes and filtering in your own
+code; the index does the work in O(matches) rather than O(total).
+
+`mcp__tapper__import` also accepts the expression via `tag_query` for
+selecting source nodes to import.
+
 ## Maintenance
 
 | Tool                                                                           | Purpose                                                                                                               |
