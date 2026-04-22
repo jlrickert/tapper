@@ -111,6 +111,18 @@ type Adapter interface {
 	// not want to touch the real process environment should use
 	// sandbox.NewSandbox to construct a jailed runtime.
 	Render(rt *toolkit.Runtime, content fs.FS, dst DestWriter) error
+
+	// OrientPath returns the path inside the embedded IntegrationsFS
+	// whose bytes are appended to a tier-2 orient payload for this
+	// host. An empty return means the adapter has no orient artifact,
+	// in which case it does not contribute to OrientableHosts and
+	// tier-2 orient calls with this host error out.
+	//
+	// The path is relative to the IntegrationsFS root (for example
+	// "rendered/claude/skills/tapper/SKILL.md"), not to the adapter's
+	// own output namespace, because the payload builder reads it with
+	// fs.ReadFile against IntegrationsFS directly.
+	OrientPath() string
 }
 
 // registry holds the package-level adapter set. Registration happens in
