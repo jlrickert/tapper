@@ -2,6 +2,8 @@ package cli
 
 import (
 	"fmt"
+	"strconv"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -40,6 +42,11 @@ over MCP.`,
 	cmd.Flags().IntVar(&opts.Tier, "tier", 0, "payload depth: 0 (bounded), 1 (linking + snapshot), 2 (full body + host)")
 
 	registerHostCompletion(cmd, "host")
+	mustRegisterFlagCompletion(cmd, "tier", tierCompletion)
+	// --flight is a free-form identifier reserved for the future
+	// manifest design; suppress filesystem completion so the shell
+	// does not pollute suggestions with arbitrary paths.
+	mustRegisterFlagCompletion(cmd, "flight", noFileCompletion)
 
 	return cmd
 }
@@ -50,7 +57,29 @@ over MCP.`,
 // tapper.IntegrateHosts, which intersects the adapter registry with
 // the orient-surface map.
 func registerHostCompletion(cmd *cobra.Command, flagName string) {
-	_ = cmd.RegisterFlagCompletionFunc(flagName, func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-		return tapper.IntegrateHosts(), cobra.ShellCompDirectiveNoFileComp
+	mustRegisterFlagCompletion(cmd, flagName, func(_ *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		return filterByPrefix(tapper.IntegrateHosts(), toComplete), cobra.ShellCompDirectiveNoFileComp
 	})
+}
+
+// tierCompletion suggests the valid --tier values ("0", "1", "2") for
+// shell completion. Keeping the string list in sync with the
+// tapper.OrientTierMin / OrientTierMax bounds means a future tier
+// addition only needs to bump the constants.
+func tierCompletion(_ *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	var tiers []string
+	for t := tapper.OrientTierMin; t <= tapper.OrientTierMax; t++ {
+		s := strconv.Itoa(t)
+		if toComplete == "" || strings.HasPrefix(s, toComplete) {
+			tiers = append(tiers, s)
+		}
+	}
+	return tiers, cobra.ShellCompDirectiveNoFileComp
+}
+
+// noFileCompletion is the completion hook for flags whose values are
+// free-form strings with no enumerable options; it suppresses the
+// shell's default filesystem path completion.
+func noFileCompletion(_ *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
+	return nil, cobra.ShellCompDirectiveNoFileComp
 }

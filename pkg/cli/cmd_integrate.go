@@ -58,5 +58,11 @@ paths it would create so the caller can review them first.`,
 	cmd.Flags().BoolVar(&opts.DryRun, "dry-run", false, "print target paths without writing any files")
 	cmd.Flags().StringVar(&opts.Target, "target", "", "override the default install directory")
 
+	// --target is a directory path; ShellCompDirectiveFilterDirs asks
+	// the shell to only offer directories, not files.
+	mustRegisterFlagCompletion(cmd, "target", func(_ *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
+		return nil, cobra.ShellCompDirectiveFilterDirs
+	})
+
 	return cmd
 }
