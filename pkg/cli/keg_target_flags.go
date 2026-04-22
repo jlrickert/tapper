@@ -21,6 +21,9 @@ func applyKegTargetProfile(deps *Deps, opts *tapper.KegTargetOptions) {
 	if !opts.Cwd {
 		opts.Cwd = deps.KegTargetOptions.Cwd
 	}
+	if opts.Flight == "" {
+		opts.Flight = deps.KegTargetOptions.Flight
+	}
 	if deps.Profile.withDefaults().ForceProjectResolution {
 		opts.Project = true
 	}

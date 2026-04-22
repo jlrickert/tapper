@@ -33,10 +33,11 @@ func registerOrient(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 			OpenWorldHint: boolPtr(false),
 		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in orientInput) (*sdkmcp.CallToolResult, any, error) {
+		kegOpts := resolveKegTarget(in.Keg, defaults)
+		kegOpts.Flight = in.Flight
 		opts := tapper.OrientOptions{
-			KegTargetOptions: resolveKegTarget(in.Keg, defaults),
+			KegTargetOptions: kegOpts,
 			Host:             in.Host,
-			Flight:           in.Flight,
 			Tier:             in.Tier,
 		}
 		payload, err := tap.Orient(ctx, opts)

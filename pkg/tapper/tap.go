@@ -83,6 +83,13 @@ type KegTargetOptions struct {
 
 	// Path is an explicit local project path used for project keg discovery.
 	Path string
+
+	// Flight is a cross-keg work-scope identifier. It is mutually
+	// exclusive with Keg, Project, Cwd, and Path at the CLI: a flight
+	// names a manifest that spans kegs, while the other fields pin
+	// resolution to a single keg. Today only Tap.Orient consults it;
+	// other surfaces hold the slot for future manifest-aware commands.
+	Flight string
 }
 
 func (t *Tap) LookupKeg(ctx context.Context, kegAlias string) (*keg.Keg, error) {
