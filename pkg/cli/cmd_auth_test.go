@@ -236,6 +236,15 @@ func newMockHubForCLI(t *testing.T) *httptest.Server {
 	// pkg/tapper auth flow tests.
 	var challenge atomic.Value // string
 	mux := http.NewServeMux()
+	mux.HandleFunc("/.well-known/oauth-authorization-server", func(w http.ResponseWriter, r *http.Request) {
+		base := "http://" + r.Host
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"authorization_endpoint":           base + "/oauth/authorize",
+			"token_endpoint":                   base + "/oauth/token",
+			"code_challenge_methods_supported": []string{"S256"},
+		})
+	})
 	mux.HandleFunc("/oauth/authorize", func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
 		challenge.Store(q.Get("code_challenge"))

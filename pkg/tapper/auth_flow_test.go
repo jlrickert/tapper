@@ -33,10 +33,27 @@ import (
 //
 // We keep the captured challenge in a pointer so both handlers share
 // the same state without globals.
+// registerHubMetadata advertises RFC 8414 authorization server
+// metadata on the mock hub. Endpoints are written relative to the
+// incoming request's Host so the values are correct regardless of
+// which loopback alias (127.0.0.1 vs localhost) the test client hit.
+func registerHubMetadata(mux *http.ServeMux) {
+	mux.HandleFunc("/.well-known/oauth-authorization-server", func(w http.ResponseWriter, r *http.Request) {
+		base := "http://" + r.Host
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"authorization_endpoint":           base + "/oauth/authorize",
+			"token_endpoint":                   base + "/oauth/token",
+			"code_challenge_methods_supported": []string{"S256"},
+		})
+	})
+}
+
 func newMockHub(t *testing.T, accessToken string, expiresIn int64) (*httptest.Server, *atomic.Value /* string */) {
 	t.Helper()
 	var capturedChallenge atomic.Value // string
 	mux := http.NewServeMux()
+	registerHubMetadata(mux)
 
 	mux.HandleFunc("/oauth/authorize", func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
@@ -183,6 +200,7 @@ func TestAuthLogin_InvalidScheme_Errors(t *testing.T) {
 func TestAuthLogin_StateMismatch(t *testing.T) {
 	t.Parallel()
 	mux := http.NewServeMux()
+	registerHubMetadata(mux)
 	mux.HandleFunc("/oauth/authorize", func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
 		redir := q.Get("redirect_uri")
@@ -216,6 +234,7 @@ func TestAuthLogin_StateMismatch(t *testing.T) {
 func TestAuthLogin_HubReturnsError(t *testing.T) {
 	t.Parallel()
 	mux := http.NewServeMux()
+	registerHubMetadata(mux)
 	mux.HandleFunc("/oauth/authorize", func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
 		u, err := url.Parse(q.Get("redirect_uri"))
@@ -250,6 +269,7 @@ func TestAuthLogin_HubReturnsError(t *testing.T) {
 func TestAuthLogin_TokenEndpoint500(t *testing.T) {
 	t.Parallel()
 	mux := http.NewServeMux()
+	registerHubMetadata(mux)
 	mux.HandleFunc("/oauth/authorize", func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
 		u, _ := url.Parse(q.Get("redirect_uri"))
@@ -281,12 +301,23 @@ func TestAuthLogin_TokenEndpoint500(t *testing.T) {
 }
 
 // TestAuthLogin_Timeout fires when the browser never opens; the flow
-// should surface a timeout error rather than hanging.
+// should surface a timeout error rather than hanging. We stand up a
+// hub that serves metadata correctly so discovery succeeds, then the
+// no-op BrowserOpener ensures no callback is ever driven — forcing the
+// select-arm timeout to fire.
 func TestAuthLogin_Timeout(t *testing.T) {
 	t.Parallel()
+	mux := http.NewServeMux()
+	registerHubMetadata(mux)
+	// No /oauth/authorize handler — the BrowserOpener is a no-op below,
+	// so the authorize endpoint is never hit. The callback listener sits
+	// idle until the flow's timeout elapses.
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
 	fx := NewSandbox(t)
 	_, err := tapper.AuthLogin(fx.Context(), fx.Runtime(), tapper.AuthLoginOptions{
-		HubURL:   "http://127.0.0.1:1",
+		HubURL:   srv.URL,
 		ClientID: "tapper-cli",
 		Timeout:  100 * time.Millisecond,
 		ListenerFactory: func() (net.Listener, error) {
@@ -303,16 +334,23 @@ func TestAuthLogin_Timeout(t *testing.T) {
 
 // TestAuthLogin_ContextCanceled exercises the ctx.Done() branch of the
 // select — a caller cancellation must abort the flow without waiting
-// for the full Timeout to elapse.
+// for the full Timeout to elapse. The mock hub advertises metadata so
+// discovery succeeds, then the no-op BrowserOpener parks the flow on
+// the loopback listener until ctx is canceled.
 func TestAuthLogin_ContextCanceled(t *testing.T) {
 	t.Parallel()
+	mux := http.NewServeMux()
+	registerHubMetadata(mux)
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
 	fx := NewSandbox(t)
 	ctx, cancel := context.WithCancel(fx.Context())
 
 	done := make(chan error, 1)
 	go func() {
 		_, err := tapper.AuthLogin(ctx, fx.Runtime(), tapper.AuthLoginOptions{
-			HubURL:   "http://127.0.0.1:1",
+			HubURL:   srv.URL,
 			ClientID: "tapper-cli",
 			Timeout:  10 * time.Second,
 			ListenerFactory: func() (net.Listener, error) {
@@ -453,6 +491,7 @@ func TestAuthLogin_AuthorizeURLContainsPKCEParams(t *testing.T) {
 
 	var gotQuery atomic.Value // url.Values
 	mux := http.NewServeMux()
+	registerHubMetadata(mux)
 	mux.HandleFunc("/oauth/authorize", func(w http.ResponseWriter, r *http.Request) {
 		gotQuery.Store(r.URL.Query())
 		q := r.URL.Query()
@@ -503,6 +542,7 @@ func TestAuthLogin_ScopeOmittedWhenEmpty(t *testing.T) {
 
 	var gotQuery atomic.Value
 	mux := http.NewServeMux()
+	registerHubMetadata(mux)
 	mux.HandleFunc("/oauth/authorize", func(w http.ResponseWriter, r *http.Request) {
 		gotQuery.Store(r.URL.Query())
 		q := r.URL.Query()

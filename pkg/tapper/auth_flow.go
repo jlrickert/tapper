@@ -2,11 +2,14 @@
 //
 // AuthLogin drives the end-to-end handshake:
 //
-//  1. generate PKCE verifier/challenge + CSRF state
-//  2. bind a loopback listener on 127.0.0.1:0 and derive redirect_uri
-//  3. open the user's browser to the hub's /oauth/authorize
-//  4. accept exactly one callback, validate state, extract the code
-//  5. exchange the code at /oauth/token for an access token
+//  1. discover the hub's authorize/token endpoints via RFC 8414
+//     (/.well-known/oauth-authorization-server)
+//  2. generate PKCE verifier/challenge + CSRF state
+//  3. bind a loopback listener on 127.0.0.1:0 and derive redirect_uri
+//  4. open the user's browser to the discovered authorization endpoint
+//  5. accept exactly one callback, validate state, extract the code
+//  6. exchange the code at the discovered token endpoint for an access
+//     token
 //
 // The flow returns a populated AuthEntry on success. It never touches
 // the on-disk AuthStore — persistence is the caller's job — so callers
@@ -71,7 +74,7 @@ type AuthLoginOptions struct {
 	// that drives authURL via http.Get.
 	BrowserOpener func(ctx context.Context, rt *toolkit.Runtime, url string) error
 
-	// HTTPClient executes the /oauth/token POST. Default: http.DefaultClient.
+	// HTTPClient executes the metadata GET and token POST. Default: http.DefaultClient.
 	HTTPClient *http.Client
 
 	// RandReader is the entropy source for verifier + state. Default:
@@ -79,13 +82,23 @@ type AuthLoginOptions struct {
 	RandReader io.Reader
 }
 
-// tokenResponse is the parsed /oauth/token JSON reply. Fields mirror
+// tokenResponse is the parsed token endpoint JSON reply. Fields mirror
 // the RFC 6749 §5.1 success response; ExpiresIn is seconds from now.
 type tokenResponse struct {
 	AccessToken string `json:"access_token"`
 	TokenType   string `json:"token_type"`
 	ExpiresIn   int64  `json:"expires_in"`
 	Scope       string `json:"scope"`
+}
+
+// authServerMetadata is the RFC 8414 subset we actually use. The hub
+// must advertise both endpoints; we fail closed rather than guessing
+// paths because a wrong-URL POST can leak the authorization code to an
+// unintended origin.
+type authServerMetadata struct {
+	AuthorizationEndpoint         string   `json:"authorization_endpoint"`
+	TokenEndpoint                 string   `json:"token_endpoint"`
+	CodeChallengeMethodsSupported []string `json:"code_challenge_methods_supported,omitempty"`
 }
 
 // AuthLogin runs the browser-based PKCE flow against the hub described
@@ -130,6 +143,11 @@ func AuthLogin(ctx context.Context, rt *toolkit.Runtime, opts AuthLoginOptions) 
 		browserOpener = openBrowser
 	}
 
+	metadata, err := discoverAuthServerMetadata(ctx, httpClient, hubURL)
+	if err != nil {
+		return nil, err
+	}
+
 	verifier, err := GeneratePKCEVerifier(randReader)
 	if err != nil {
 		return nil, fmt.Errorf("auth login: %w", err)
@@ -156,7 +174,7 @@ func AuthLogin(ctx context.Context, rt *toolkit.Runtime, opts AuthLoginOptions) 
 	}
 	redirectURI := fmt.Sprintf("http://127.0.0.1:%d/callback", tcpAddr.Port)
 
-	authURL, err := buildAuthorizeURL(hubURL, opts.ClientID, redirectURI, challenge, state, opts.Scope)
+	authURL, err := buildAuthorizeURL(metadata.AuthorizationEndpoint, opts.ClientID, redirectURI, challenge, state, opts.Scope)
 	if err != nil {
 		return nil, err
 	}
@@ -170,7 +188,7 @@ func AuthLogin(ctx context.Context, rt *toolkit.Runtime, opts AuthLoginOptions) 
 		return nil, err
 	}
 
-	tok, err := exchangeCode(ctx, httpClient, hubURL, opts.ClientID, code, verifier, redirectURI)
+	tok, err := exchangeCode(ctx, httpClient, metadata.TokenEndpoint, opts.ClientID, code, verifier, redirectURI)
 	if err != nil {
 		return nil, err
 	}
@@ -220,11 +238,59 @@ func CanonicalHubURL(s string) string {
 	return strings.TrimRight(parsed.String(), "/")
 }
 
-// buildAuthorizeURL assembles the /oauth/authorize URL with all PKCE
-// parameters. Using url.Values guarantees correct percent-encoding for
-// the challenge (which contains base64url chars but never + or /).
-func buildAuthorizeURL(hubURL, clientID, redirectURI, challenge, state, scope string) (string, error) {
-	u, err := url.Parse(hubURL + "/oauth/authorize")
+// discoverAuthServerMetadata fetches RFC 8414 authorization server
+// metadata from the hub. Tapper requires the hub to advertise its
+// endpoints explicitly rather than assuming path conventions — a POST
+// to a wrong token URL would leak the authorization code to whoever
+// happens to own the guessed path.
+func discoverAuthServerMetadata(ctx context.Context, client *http.Client, hubURL string) (*authServerMetadata, error) {
+	metadataURL := hubURL + "/.well-known/oauth-authorization-server"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, metadataURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("auth login: build metadata request: %w", err)
+	}
+	req.Header.Set("Accept", "application/json")
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("auth login: fetch oauth metadata: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("auth login: hub returned %s for %s", resp.Status, metadataURL)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("auth login: read oauth metadata: %w", err)
+	}
+	var md authServerMetadata
+	if err := json.Unmarshal(body, &md); err != nil {
+		return nil, fmt.Errorf("auth login: parse oauth metadata: %w", err)
+	}
+	if md.AuthorizationEndpoint == "" || md.TokenEndpoint == "" {
+		return nil, fmt.Errorf("auth login: hub metadata missing authorization_endpoint or token_endpoint")
+	}
+	if len(md.CodeChallengeMethodsSupported) > 0 {
+		supportsS256 := false
+		for _, m := range md.CodeChallengeMethodsSupported {
+			if m == "S256" {
+				supportsS256 = true
+				break
+			}
+		}
+		if !supportsS256 {
+			return nil, fmt.Errorf("auth login: hub does not advertise PKCE S256 support (advertised: %v)", md.CodeChallengeMethodsSupported)
+		}
+	}
+	return &md, nil
+}
+
+// buildAuthorizeURL assembles the authorization endpoint URL with all
+// PKCE parameters. Using url.Values guarantees correct percent-encoding
+// for the challenge (which contains base64url chars but never + or /).
+// The endpoint is taken verbatim from the hub's RFC 8414 metadata so
+// non-standard paths (e.g. /authorize vs /oauth/authorize) are honored.
+func buildAuthorizeURL(authorizeEndpoint, clientID, redirectURI, challenge, state, scope string) (string, error) {
+	u, err := url.Parse(authorizeEndpoint)
 	if err != nil {
 		return "", fmt.Errorf("auth login: build authorize URL: %w", err)
 	}
@@ -358,7 +424,7 @@ func writeCallbackResponse(w io.Writer, status int, message string) {
 // exchangeCode POSTs the form-encoded token request and decodes the
 // JSON response. Non-2xx status codes surface the body in the error so
 // hub-side misconfigurations are visible at the CLI.
-func exchangeCode(ctx context.Context, client *http.Client, hubURL, clientID, code, verifier, redirectURI string) (*tokenResponse, error) {
+func exchangeCode(ctx context.Context, client *http.Client, tokenEndpoint, clientID, code, verifier, redirectURI string) (*tokenResponse, error) {
 	form := url.Values{}
 	form.Set("grant_type", "authorization_code")
 	form.Set("code", code)
@@ -366,7 +432,7 @@ func exchangeCode(ctx context.Context, client *http.Client, hubURL, clientID, co
 	form.Set("code_verifier", verifier)
 	form.Set("client_id", clientID)
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, hubURL+"/oauth/token", strings.NewReader(form.Encode()))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, tokenEndpoint, strings.NewReader(form.Encode()))
 	if err != nil {
 		return nil, fmt.Errorf("auth login: build token request: %w", err)
 	}
