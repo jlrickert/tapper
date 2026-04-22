@@ -136,13 +136,17 @@ JSON config for other hosts, per-tool keg targeting — see
 ### Claude Code
 
 ```bash
-tap integrate claude
+claude plugin marketplace add jlrickert/tapper
+claude plugin install tapper@jlrickert-tapper
 ```
 
-Writes a Claude Code plugin tree to `~/.claude/plugins/tapper/` containing the
-MCP server registration, the bundled `/tapper` skill, and the orientation
-prompts. Restart Claude Code to pick it up. Preview target paths first with
-`--dry-run`.
+Installs tapper as a Claude Code plugin: the MCP server registration, the
+bundled `/tapper` skill, and the orientation prompts in one step. Verify with
+`claude /mcp` — `tapper` should appear in the server list.
+
+Prefer a local install without the marketplace? `tap integrate claude` writes
+the same plugin tree to `~/.claude/plugins/tapper/`; preview target paths
+first with `--dry-run`.
 
 ### Codex
 
