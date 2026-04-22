@@ -2,10 +2,42 @@
 
 All notable changes to this project are documented in this file.
 
-## [Unreleased]
+## v0.19.0 - 2026-04-22
+
+
+
+### ⚙️ Miscellaneous
+- drive plugin manifest version from the release workflow
+
+
+### 🐛 Bug Fixes
+- prevent stale MCP reads and shadow-reservation existence races
+- eliminate wall-clock polling from in-memory lock waits
+
+
+### 📚 Documentation
+- lead with tap integrate for AI agent setup and route manual MCP registration to the advanced guide
+- document orient surface and codex install path
+- document the tapper query expression language in installed skills
+
 
 ### 🚀 Features
-- embed agent integrations, expose via `mcp__tapper__orient` and `tap integrate`
+- replace --dest flag with positional dest arg and add stdout mode on download
+- scaffold .claude-plugin/ manifest and placeholder
+- ship Claude Code plugin with bundled tapper skill and MCP server
+- embed integration content trees in the tap binary
+- add tiered orient endpoint with MCP tool and resource URIs
+- ship codex install tree with agents guide, prompts, and mcp config
+- install tapper integrations and print orientation payloads from the command line
+- add shell completion for tap orient --tier/--flight and tap integrate --target
+
+
+### 🚜 Refactor
+- author editor integrations via canonical content and adapters
+- route orient payload through the shared tap API
+- push host-path map behind Adapter.OrientPath and close codex test gap
+- promote --flight to a root persistent flag mutually exclusive with --keg selectors
+
 
 ## v0.18.1 - 2026-04-03
 
