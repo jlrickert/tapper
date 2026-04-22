@@ -57,6 +57,11 @@ func orientPathFor(host string) (string, bool) {
 // OrientOptions is the input to Tap.Orient. Every field is optional: a
 // zero-valued call returns the tier-0 payload with the target keg
 // resolved from KegTargetOptions and no host-specific content.
+//
+// Flight is part of the embedded KegTargetOptions rather than a
+// top-level field so the CLI's root persistent --flight flag and the
+// MCP tool's flight parameter flow through the same plumbing every
+// other keg-target field uses.
 type OrientOptions struct {
 	KegTargetOptions
 
@@ -64,10 +69,6 @@ type OrientOptions struct {
 	// host artifact (SKILL.md, AGENTS.md, etc.). An unknown host
 	// returns an error.
 	Host string
-
-	// Flight reserves a parameter for flight-scoped manifest payloads.
-	// Currently emits a placeholder at tier 1 and above.
-	Flight string
 
 	// Tier selects payload depth in [OrientTierMin, OrientTierMax].
 	// Out-of-range values clamp to the nearest valid tier.

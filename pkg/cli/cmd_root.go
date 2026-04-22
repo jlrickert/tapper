@@ -200,6 +200,18 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 		cmd.PersistentFlags().BoolVar(&deps.KegTargetOptions.Project, "project", false, "resolve against the project-local keg")
 		cmd.PersistentFlags().StringVar(&deps.KegTargetOptions.Path, "path", "", "explicit project path to resolve a local keg")
 		cmd.PersistentFlags().BoolVar(&deps.KegTargetOptions.Cwd, "cwd", false, "resolve project keg at current working directory")
+		cmd.PersistentFlags().StringVar(&deps.KegTargetOptions.Flight, "flight", "", "flight identifier for cross-keg work scope (mutually exclusive with --keg, --project, --path, --cwd)")
+		mustRegisterFlagCompletion(cmd, "flight", func(_ *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		})
+		// --flight names a cross-keg work scope and cannot combine
+		// with any of the single-keg selectors. Pairwise mutex
+		// preserves the existing ability to combine --project with
+		// --path / --cwd.
+		cmd.MarkFlagsMutuallyExclusive("flight", "keg")
+		cmd.MarkFlagsMutuallyExclusive("flight", "project")
+		cmd.MarkFlagsMutuallyExclusive("flight", "path")
+		cmd.MarkFlagsMutuallyExclusive("flight", "cwd")
 	}
 
 	subcommands := []*cobra.Command{

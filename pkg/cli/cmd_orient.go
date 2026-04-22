@@ -38,15 +38,13 @@ over MCP.`,
 	}
 
 	cmd.Flags().StringVar(&opts.Host, "host", "", "host identifier for host-specific payload (e.g. claude, codex)")
-	cmd.Flags().StringVar(&opts.Flight, "flight", "", "flight identifier; reserved for flight-scoped manifest payloads")
 	cmd.Flags().IntVar(&opts.Tier, "tier", 0, "payload depth: 0 (bounded), 1 (linking + snapshot), 2 (full body + host)")
 
 	registerHostCompletion(cmd, "host")
 	mustRegisterFlagCompletion(cmd, "tier", tierCompletion)
-	// --flight is a free-form identifier reserved for the future
-	// manifest design; suppress filesystem completion so the shell
-	// does not pollute suggestions with arbitrary paths.
-	mustRegisterFlagCompletion(cmd, "flight", noFileCompletion)
+	// --flight lives on the root persistent flag set (see cmd_root.go)
+	// and is picked up automatically by applyKegTargetProfile; orient
+	// does not register a command-local copy.
 
 	return cmd
 }
@@ -77,9 +75,3 @@ func tierCompletion(_ *cobra.Command, _ []string, toComplete string) ([]string, 
 	return tiers, cobra.ShellCompDirectiveNoFileComp
 }
 
-// noFileCompletion is the completion hook for flags whose values are
-// free-form strings with no enumerable options; it suppresses the
-// shell's default filesystem path completion.
-func noFileCompletion(_ *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
-	return nil, cobra.ShellCompDirectiveNoFileComp
-}

@@ -32,7 +32,7 @@ All three surfaces accept the same four optional parameters.
 | --------- | ------------------------------- | ---------------------------------------------------------------------------------------- |
 | `host`    | `claude`, `codex`               | Tier 2 appends the rendered host artifact. Unknown hosts return an error.                |
 | `keg`     | keg alias (e.g. `notes`)        | Labels the active keg in tier 0; tier 1+ emits a per-keg manifest placeholder.           |
-| `flight`  | flight identifier               | Tier 1+ emits a flight-scoped manifest placeholder.                                      |
+| `flight`  | flight identifier               | Tier 1+ emits a flight-scoped manifest placeholder. Mutually exclusive with `keg` on the CLI. |
 | `tier`    | `0`, `1`, `2` (default `0`)     | Selects payload depth.                                                                   |
 
 ## MCP tool
@@ -89,9 +89,16 @@ tap orient --tier 1                   # tier 1, no host
 tap orient --host claude --tier 2     # full claude payload
 tap orient --host codex --tier 2      # full codex payload
 tap orient --keg notes --tier 1       # tier 1 with an explicit keg label
+tap orient --flight release-42 --tier 1  # tier 1 scoped to a flight
 ```
 
-Flag completion on `--host` enumerates the hosts the binary knows about.
+`--flight` is a root persistent flag (available on every command that accepts
+`--keg`) and is mutually exclusive with `--keg`, `--project`, `--path`, and
+`--cwd`: a flight names a cross-keg work scope, while the other selectors pin
+resolution to a single keg. The CLI rejects calls that combine them. Flag
+completion on `--host` enumerates the hosts the binary knows about; `--tier`
+completes `0 1 2`; `--flight` is free-form and suppresses filesystem
+completion.
 
 ## Host matrix
 

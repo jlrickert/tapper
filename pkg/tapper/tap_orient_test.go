@@ -80,6 +80,33 @@ func TestTap_Orient_TierClampsToBounds(t *testing.T) {
 	require.Contains(t, low, "tier 0")
 }
 
+func TestTap_Orient_FlightAtTier1EmitsPlaceholder(t *testing.T) {
+	t.Parallel()
+	tap := newOrientTap(t)
+	payload, err := tap.Orient(context.Background(), tapper.OrientOptions{
+		Tier: 1,
+		KegTargetOptions: tapper.KegTargetOptions{
+			Flight: "f-demo",
+		},
+	})
+	require.NoError(t, err)
+	require.Contains(t, payload, "## Flight `f-demo`")
+	require.Contains(t, payload, "not yet populated")
+}
+
+func TestTap_Orient_FlightAtTier0IsIgnored(t *testing.T) {
+	t.Parallel()
+	tap := newOrientTap(t)
+	payload, err := tap.Orient(context.Background(), tapper.OrientOptions{
+		Tier: 0,
+		KegTargetOptions: tapper.KegTargetOptions{
+			Flight: "f-demo",
+		},
+	})
+	require.NoError(t, err)
+	require.NotContains(t, payload, "Flight")
+}
+
 func TestTap_OrientableHosts_IsSortedAndIncludesClaude(t *testing.T) {
 	t.Parallel()
 	hosts := tapper.OrientableHosts()

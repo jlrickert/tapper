@@ -76,6 +76,22 @@ func TestOrientCompletion_TierFlagFiltersByPrefix(t *testing.T) {
 	require.Equal(t, []string{"1"}, suggestions)
 }
 
+func TestRootCompletion_FlightFlagSuppressesFileCompletion(t *testing.T) {
+	t.Parallel()
+	sb := NewSandbox(t)
+
+	comp := NewCompletionProcess(t, false, 0, "--flight", "").
+		Run(sb.Context(), sb.Runtime())
+	require.NoError(t, comp.Err)
+
+	// --flight is a free-form identifier; the completion hook must
+	// return ShellCompDirectiveNoFileComp so the shell does not
+	// propose arbitrary filesystem paths.
+	out := string(comp.Stdout)
+	expected := fmt.Sprintf(":%d", cobra.ShellCompDirectiveNoFileComp)
+	require.Contains(t, out, expected)
+}
+
 func TestIntegrateCompletion_TargetFlagRequestsDirectoryCompletion(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t)

@@ -19,6 +19,36 @@ func TestTapHelp_ShowsPersistentKegTargetFlags(t *testing.T) {
 	require.Contains(t, stdout, "--project")
 	require.Contains(t, stdout, "--path")
 	require.Contains(t, stdout, "--cwd")
+	require.Contains(t, stdout, "--flight")
+}
+
+func TestTap_FlightFlagMutuallyExclusiveWithKegTargetFlags(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		args []string
+	}{
+		{"keg", []string{"--flight", "f1", "--keg", "personal", "orient"}},
+		{"project", []string{"--flight", "f1", "--project", "orient"}},
+		{"path", []string{"--flight", "f1", "--path", "/tmp", "orient"}},
+		{"cwd", []string{"--flight", "f1", "--cwd", "orient"}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			sb := NewSandbox(t)
+
+			res := NewProcess(t, false, c.args...).Run(sb.Context(), sb.Runtime())
+			require.Error(t, res.Err, "expected mutex error combining --flight with --%s", c.name)
+			combined := string(res.Stdout) + string(res.Stderr)
+			// Cobra's MarkFlagsMutuallyExclusive error format:
+			// "if any flags in the group [flight <other>] are set none of the others can be".
+			require.Contains(t, combined, "none of the others can be")
+			require.Contains(t, combined, "flight")
+			require.Contains(t, combined, c.name)
+		})
+	}
 }
 
 func TestRepoHelp_HidesInheritedKegTargetFlags(t *testing.T) {
