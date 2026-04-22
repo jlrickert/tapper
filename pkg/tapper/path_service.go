@@ -32,3 +32,10 @@ func (s *PathService) ProjectConfig() string {
 func (s *PathService) UserConfig() string {
 	return filepath.Join(s.ConfigRoot, "config.yaml")
 }
+
+// AuthStorePath returns the on-disk location of the hub-auth credentials
+// store. The file is stored under StateRoot (not ConfigRoot) because it
+// holds mutable per-host tokens rather than user-edited configuration.
+func (s *PathService) AuthStorePath() string {
+	return filepath.Join(s.StateRoot, "auth.yaml")
+}
