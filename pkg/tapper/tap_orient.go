@@ -34,20 +34,24 @@ const orientRulesSummary = "Rules:\n" +
 	"- Take a snapshot before non-trivial edits. Snapshots do not protect against `remove`; preserve content some other way before deletion.\n" +
 	"- Intra-keg links use `[title](../NODEID)`; cross-keg links use `keg:ALIAS/NODEID`.\n"
 
-// hostRenderedPath maps a registered adapter name to the file inside the
-// embedded rendered tree whose bytes are appended to a tier-2 payload
-// when the caller specifies that host. The mapping is small and
-// deliberate; if a host exposes multiple artifacts (Codex has AGENTS.md
-// plus prompts), the value points at the primary orient surface.
-//
-// The map lives in pkg/tapper because orient is a tapper-level concept
-// shared by every surface (MCP tool, MCP Resources, eventual CLI). A
-// richer Adapter interface in pkg/integrations will replace the map in
-// a later phase; for now, host additions happen in lockstep with
-// adapter additions in a single package.
-var hostRenderedPath = map[string]string{
-	"claude": "rendered/claude/skills/tapper/SKILL.md",
-	"codex":  "rendered/codex/AGENTS.md",
+// orientPathFor returns the rendered artifact path inside IntegrationsFS
+// for the given host, or "", false if no registered adapter names host or
+// the registered adapter has no orient artifact. The lookup walks
+// integrations.DefaultAdapters() rather than consulting a parallel map,
+// so adapter registration is the single source of truth for which hosts
+// the orient surface can serve.
+func orientPathFor(host string) (string, bool) {
+	for _, a := range integrations.DefaultAdapters() {
+		if a.Name() != host {
+			continue
+		}
+		p := a.OrientPath()
+		if p == "" {
+			return "", false
+		}
+		return p, true
+	}
+	return "", false
 }
 
 // OrientOptions is the input to Tap.Orient. Every field is optional: a
@@ -72,12 +76,17 @@ type OrientOptions struct {
 
 // OrientableHosts returns the host names that have a configured orient
 // surface, sorted lexicographically. Callers that enumerate (host, tier)
-// pairs for resource registration consult this instead of reaching into
-// the package-private host map.
+// pairs for resource registration consult this instead of walking the
+// adapter registry themselves. The set is derived from
+// integrations.DefaultAdapters() filtered on OrientPath() != "".
 func OrientableHosts() []string {
-	out := make([]string, 0, len(hostRenderedPath))
-	for h := range hostRenderedPath {
-		out = append(out, h)
+	adapters := integrations.DefaultAdapters()
+	out := make([]string, 0, len(adapters))
+	for _, a := range adapters {
+		if a.OrientPath() == "" {
+			continue
+		}
+		out = append(out, a.Name())
 	}
 	sort.Strings(out)
 	return out
@@ -106,10 +115,13 @@ func buildOrientPayload(host, keg, flight string, tier int) (string, error) {
 	if tier > OrientTierMax {
 		tier = OrientTierMax
 	}
+	var hostPath string
 	if host != "" {
-		if _, ok := hostRenderedPath[host]; !ok {
+		p, ok := orientPathFor(host)
+		if !ok {
 			return "", fmt.Errorf("orient: unknown host %q", host)
 		}
+		hostPath = p
 	}
 
 	var b strings.Builder
@@ -176,10 +188,9 @@ func buildOrientPayload(host, keg, flight string, tier int) (string, error) {
 	}
 
 	if host != "" {
-		path := hostRenderedPath[host]
-		hostBytes, err := fs.ReadFile(integrations.IntegrationsFS, path)
+		hostBytes, err := fs.ReadFile(integrations.IntegrationsFS, hostPath)
 		if err != nil {
-			return "", fmt.Errorf("orient: host %s bytes at %s: %w", host, path, err)
+			return "", fmt.Errorf("orient: host %s bytes at %s: %w", host, hostPath, err)
 		}
 		b.WriteString("\n## Host: ")
 		b.WriteString(host)

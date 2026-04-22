@@ -85,6 +85,24 @@ To recover, list prior revisions with ` + "`mcp__tapper__node_history`" + ` and 
 Snapshots do NOT protect against ` + "`mcp__tapper__remove`" + `. Before any destructive operation, read the content with ` + "`mcp__tapper__cat`" + ` and keep it in the working context or copy it into another node first.
 `
 
+// codexPromptCrossKeg covers the cross-keg read workflow. The tapper
+// MCP tools accept an optional `keg` parameter that overrides the
+// server-default target; this prompt walks the agent through reading
+// a node from a non-default keg without restarting the server. Flagged
+// by a Phase 4 reviewer as a common workflow the original prompt set
+// missed.
+const codexPromptCrossKeg = `Read or list nodes from a tapper keg other than the active default.
+
+Every tapper MCP tool accepts an optional ` + "`keg`" + ` parameter that overrides the server's current target. Use it instead of restarting the server or switching directories.
+
+1. Call ` + "`mcp__tapper__list_kegs`" + ` to see which keg aliases the server knows about.
+2. Call ` + "`mcp__tapper__keg_info`" + ` with ` + "`keg: \"ALIAS\"`" + ` to confirm the resolved path and node count of the target keg.
+3. Call ` + "`mcp__tapper__cat`" + ` with ` + "`keg: \"ALIAS\"`" + ` and the node IDs to read. Pass ` + "`content_only: true`" + ` or ` + "`meta_only: true`" + ` to bound the payload.
+4. For searches, call ` + "`mcp__tapper__list`" + ` or ` + "`mcp__tapper__grep`" + ` with the same ` + "`keg`" + ` override.
+
+Report the node IDs read, the keg they came from, and a one-line summary of each.
+`
+
 // codexPrompts is the manifest of Codex saved prompts the adapter
 // emits. Adding a prompt is one struct entry plus the body string above.
 var codexPrompts = []struct {
@@ -94,6 +112,7 @@ var codexPrompts = []struct {
 	{"tapper-orient.md", codexPromptOrient},
 	{"tapper-search.md", codexPromptSearch},
 	{"tapper-snapshot.md", codexPromptSnapshot},
+	{"tapper-cross-keg.md", codexPromptCrossKeg},
 }
 
 // CodexAdapter renders the Codex install tree:
@@ -104,6 +123,14 @@ type CodexAdapter struct{}
 
 // Name returns the adapter's subdirectory under the rendered root.
 func (CodexAdapter) Name() string { return "codex" }
+
+// OrientPath returns the rendered AGENTS.md path inside IntegrationsFS.
+// Tier-2 orient calls with host="codex" append these bytes to the
+// canonical body; Codex users see the same preamble and concat as
+// the install-tree AGENTS.md.
+func (CodexAdapter) OrientPath() string {
+	return "rendered/codex/AGENTS.md"
+}
 
 // Render emits the Codex install tree under dst. The three output
 // groups (AGENTS.md, prompts, config snippet) are independent; a
