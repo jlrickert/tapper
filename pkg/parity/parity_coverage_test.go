@@ -98,8 +98,11 @@ var tapMethodToSurfaces = map[string]struct {
 	"Orient":    {CLI: "orient", MCP: "orient"},
 	"Integrate": {CLI: "integrate", MCP: "integrate"},
 
-	// Auth: status has both surfaces; login/logout are CLI-only by
-	// design (see tools_auth.go for the rationale).
+	// Auth: Status has both surfaces (agents need to check auth before
+	// remote calls); Login stays as a package-level tapper.AuthLogin
+	// function (not a *Tap method, so it doesn't appear in this map);
+	// Logout is a *Tap method intentionally excluded from MCP for
+	// security — see tapMethodsExcluded below.
 	"AuthStatus": {CLI: "auth status", MCP: "auth_status"},
 }
 
@@ -113,6 +116,7 @@ var tapMethodsExcluded = map[string]string{
 	"NewServeHandler": "internal HTTP handler factory; used by Serve",
 	"DoctorConfig":    "tapper-config health check helper; called by Doctor CLI/MCP surfaces",
 	"ConfigExplain":   "shares surface with Config via --explain flag / explain field",
+	"AuthLogout":      "security: MCP agents must not be able to revoke hub credentials; CLI-only by design",
 }
 
 // TestCoverage_AllTapMethodsHaveBothSurfaces uses reflection to enumerate

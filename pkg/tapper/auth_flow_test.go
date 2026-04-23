@@ -585,3 +585,80 @@ func TestAuthFlow_Smoke(t *testing.T) {
 	_ = fmt.Sprintf // reserved for future debug prints
 	_ = (*tapper.AuthEntry)(nil)
 }
+
+// TestAuthLoginOptions_WithDefaults pins the contract of the
+// withDefaults extraction: zero values get replaced by production
+// defaults, non-zero values pass through untouched, and the caller's
+// struct is never mutated (value-receiver + value-return semantics).
+func TestAuthLoginOptions_WithDefaults(t *testing.T) {
+	t.Parallel()
+
+	t.Run("zero values get replaced", func(t *testing.T) {
+		t.Parallel()
+		out := tapper.AuthLoginOptionsWithDefaultsForTest(tapper.AuthLoginOptions{
+			HubURL:   "https://hub.example.com",
+			ClientID: "tapper-cli",
+		})
+		require.Equal(t, tapper.DefaultAuthTimeoutForTest(), out.Timeout,
+			"zero Timeout must default to defaultAuthTimeout")
+		require.NotNil(t, out.RandReader, "nil RandReader must default to crypto/rand.Reader")
+		require.NotNil(t, out.HTTPClient, "nil HTTPClient must default to http.DefaultClient")
+		require.Equal(t, http.DefaultClient, out.HTTPClient)
+		require.NotNil(t, out.ListenerFactory, "nil ListenerFactory must be defaulted")
+		require.NotNil(t, out.BrowserOpener, "nil BrowserOpener must be defaulted")
+		// HubURL / ClientID / Scope are user-provided and must survive.
+		require.Equal(t, "https://hub.example.com", out.HubURL)
+		require.Equal(t, "tapper-cli", out.ClientID)
+	})
+
+	t.Run("non-zero values are preserved", func(t *testing.T) {
+		t.Parallel()
+		customTimeout := 42 * time.Second
+		customClient := &http.Client{}
+		var customReader bytes.Buffer
+		customListener := func() (net.Listener, error) { return nil, fmt.Errorf("stub") }
+		customOpener := func(context.Context, *toolkit.Runtime, string) error { return nil }
+
+		in := tapper.AuthLoginOptions{
+			HubURL:          "https://hub.example.com",
+			ClientID:        "tapper-cli",
+			Scope:           "read write",
+			Timeout:         customTimeout,
+			RandReader:      &customReader,
+			HTTPClient:      customClient,
+			ListenerFactory: customListener,
+			BrowserOpener:   customOpener,
+		}
+		out := tapper.AuthLoginOptionsWithDefaultsForTest(in)
+
+		require.Equal(t, customTimeout, out.Timeout)
+		require.Same(t, customClient, out.HTTPClient,
+			"caller-supplied HTTPClient must be used verbatim")
+		// Pointer-equality on RandReader via interface identity check.
+		require.Equal(t, &customReader, out.RandReader)
+		// Function identity is hard to assert cleanly in Go; exercising
+		// the closures is enough: the ListenerFactory closure returns
+		// the stub error ("stub") we embedded, proving it was preserved.
+		_, listErr := out.ListenerFactory()
+		require.Error(t, listErr)
+		require.Contains(t, listErr.Error(), "stub")
+		require.NoError(t, out.BrowserOpener(context.Background(), nil, "https://ignored"))
+	})
+
+	t.Run("caller's struct is not mutated", func(t *testing.T) {
+		t.Parallel()
+		// Value receiver + value return — the original must be pristine
+		// after the call so the caller can log/inspect what it handed in.
+		in := tapper.AuthLoginOptions{
+			HubURL:   "https://hub.example.com",
+			ClientID: "tapper-cli",
+		}
+		_ = tapper.AuthLoginOptionsWithDefaultsForTest(in)
+
+		require.Zero(t, in.Timeout, "Timeout must not be mutated on caller's struct")
+		require.Nil(t, in.RandReader, "RandReader must not be mutated on caller's struct")
+		require.Nil(t, in.HTTPClient, "HTTPClient must not be mutated on caller's struct")
+		require.Nil(t, in.ListenerFactory, "ListenerFactory must not be mutated on caller's struct")
+		require.Nil(t, in.BrowserOpener, "BrowserOpener must not be mutated on caller's struct")
+	})
+}

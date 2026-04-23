@@ -124,12 +124,12 @@ opened or the user does not complete the handshake within --timeout.`,
 	return cmd
 }
 
-// newAuthLogoutCmd wires `tap auth logout`. Unlike login, logout does
-// NOT go through *Tap: it's a purely local-state mutation with no
-// remote side effects and no need for MCP exposure (an agent should
-// never be able to yank a user's hub token out from under them).
-// Treating "no stored entry" as a soft success keeps the command
-// idempotent for scripts that re-run cleanup unconditionally.
+// newAuthLogoutCmd wires `tap auth logout`. Business logic lives in
+// Tap.AuthLogout; this command is a thin shell that routes the result's
+// Formatted line to stdout (on removal) or stderr (on soft-success).
+// Logout is exposed only via CLI — intentionally excluded from MCP so
+// agents cannot revoke a user's hub credentials (see the godoc on
+// Tap.AuthLogout for the full rationale).
 func newAuthLogoutCmd(deps *Deps) *cobra.Command {
 	var hubURL string
 
@@ -149,46 +149,18 @@ casing the already-logged-out state.`,
 			ctx := cmd.Context()
 			rt := deps.Runtime
 
-			storePath := deps.Tap.PathService.AuthStorePath()
-			store, err := tapper.LoadAuthStore(ctx, rt, storePath)
+			result, err := deps.Tap.AuthLogout(ctx, tapper.AuthLogoutOptions{Hub: hubURL})
 			if err != nil {
 				return err
 			}
-
-			// Resolve the target. Single-hub auto-resolve matches the
-			// AuthStatus behavior so both commands feel interchangeable
-			// from the user's point of view.
-			var hub string
-			if hubURL != "" {
-				hub = tapper.CanonicalHubURL(hubURL)
-			} else {
-				hubs := store.Hubs()
-				switch len(hubs) {
-				case 0:
-					// Nothing to do. Soft-success for script-friendliness.
-					_, _ = fmt.Fprintln(rt.Stream().Err, "No hub logins stored.")
-					return nil
-				case 1:
-					hub = hubs[0]
-				default:
-					return fmt.Errorf("--hub is required when multiple hubs are stored")
-				}
+			// Stream routing: removal → stdout (the action happened),
+			// soft-success → stderr (so stdout stays clean for scripts
+			// that pipe output unconditionally).
+			stream := rt.Stream().Out
+			if !result.Removed {
+				stream = rt.Stream().Err
 			}
-
-			if !store.Delete(hub) {
-				// Already absent — not an error. Communicate on stderr
-				// so stdout remains clean for scripts that pipe output.
-				_, _ = fmt.Fprintf(rt.Stream().Err, "No login stored for %s\n", hub)
-				return nil
-			}
-
-			// Save removes the file when the store is empty, which
-			// leaves the filesystem in the canonical "no credentials"
-			// state after the last logout.
-			if err := store.Save(ctx, rt, storePath); err != nil {
-				return err
-			}
-			_, _ = fmt.Fprintf(rt.Stream().Out, "Logged out of %s\n", hub)
+			_, _ = fmt.Fprint(stream, result.Formatted)
 			return nil
 		},
 	}
