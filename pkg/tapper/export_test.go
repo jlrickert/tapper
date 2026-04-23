@@ -65,3 +65,16 @@ func (h *ServeHandler) DisableSSEGraceForTest() {
 		h.sse.clientGrace = 0
 	}
 }
+
+// AuthLoginOptionsWithDefaultsForTest exposes the unexported
+// withDefaults method so the external _test package can exercise the
+// defaulting contract (zero values replaced, non-zero preserved,
+// caller's struct not mutated).
+func AuthLoginOptionsWithDefaultsForTest(o AuthLoginOptions) AuthLoginOptions {
+	return o.withDefaults()
+}
+
+// DefaultAuthTimeoutForTest exposes the package-level defaultAuthTimeout
+// so the external _test package can assert it is applied when the
+// caller passes a zero timeout.
+func DefaultAuthTimeoutForTest() time.Duration { return defaultAuthTimeout }

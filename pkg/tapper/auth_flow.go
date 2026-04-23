@@ -82,6 +82,33 @@ type AuthLoginOptions struct {
 	RandReader io.Reader
 }
 
+// withDefaults returns a copy of o with all nil/zero injectable
+// dependencies replaced by production defaults. Value receiver + value
+// return by design — the caller's struct is never mutated. Callers
+// (AuthLogin) guard the runtime dependency on the public entry point,
+// so no rt parameter is threaded here: openBrowser receives rt as a
+// normal argument when it's eventually called, not as a bound default.
+func (o AuthLoginOptions) withDefaults() AuthLoginOptions {
+	if o.Timeout <= 0 {
+		o.Timeout = defaultAuthTimeout
+	}
+	if o.RandReader == nil {
+		o.RandReader = rand.Reader
+	}
+	if o.HTTPClient == nil {
+		o.HTTPClient = http.DefaultClient
+	}
+	if o.ListenerFactory == nil {
+		o.ListenerFactory = func() (net.Listener, error) {
+			return net.Listen("tcp", "127.0.0.1:0")
+		}
+	}
+	if o.BrowserOpener == nil {
+		o.BrowserOpener = openBrowser
+	}
+	return o
+}
+
 // tokenResponse is the parsed token endpoint JSON reply. Fields mirror
 // the RFC 6749 §5.1 success response; ExpiresIn is seconds from now.
 type tokenResponse struct {
@@ -120,45 +147,24 @@ func AuthLogin(ctx context.Context, rt *toolkit.Runtime, opts AuthLoginOptions) 
 		return nil, err
 	}
 
-	timeout := opts.Timeout
-	if timeout <= 0 {
-		timeout = defaultAuthTimeout
-	}
-	randReader := opts.RandReader
-	if randReader == nil {
-		randReader = rand.Reader
-	}
-	httpClient := opts.HTTPClient
-	if httpClient == nil {
-		httpClient = http.DefaultClient
-	}
-	listenerFactory := opts.ListenerFactory
-	if listenerFactory == nil {
-		listenerFactory = func() (net.Listener, error) {
-			return net.Listen("tcp", "127.0.0.1:0")
-		}
-	}
-	browserOpener := opts.BrowserOpener
-	if browserOpener == nil {
-		browserOpener = openBrowser
-	}
+	opts = opts.withDefaults()
 
-	metadata, err := discoverAuthServerMetadata(ctx, httpClient, hubURL)
+	metadata, err := discoverAuthServerMetadata(ctx, opts.HTTPClient, hubURL)
 	if err != nil {
 		return nil, err
 	}
 
-	verifier, err := GeneratePKCEVerifier(randReader)
+	verifier, err := GeneratePKCEVerifier(opts.RandReader)
 	if err != nil {
 		return nil, fmt.Errorf("auth login: %w", err)
 	}
 	challenge := PKCEChallenge(verifier)
-	state, err := GenerateState(randReader)
+	state, err := GenerateState(opts.RandReader)
 	if err != nil {
 		return nil, fmt.Errorf("auth login: %w", err)
 	}
 
-	listener, err := listenerFactory()
+	listener, err := opts.ListenerFactory()
 	if err != nil {
 		return nil, fmt.Errorf("auth login: bind loopback listener: %w", err)
 	}
@@ -179,16 +185,16 @@ func AuthLogin(ctx context.Context, rt *toolkit.Runtime, opts AuthLoginOptions) 
 		return nil, err
 	}
 
-	if err := browserOpener(ctx, rt, authURL); err != nil {
+	if err := opts.BrowserOpener(ctx, rt, authURL); err != nil {
 		return nil, fmt.Errorf("auth login: open browser: %w", err)
 	}
 
-	code, err := awaitCallback(ctx, listener, state, timeout)
+	code, err := awaitCallback(ctx, listener, state, opts.Timeout)
 	if err != nil {
 		return nil, err
 	}
 
-	tok, err := exchangeCode(ctx, httpClient, metadata.TokenEndpoint, opts.ClientID, code, verifier, redirectURI)
+	tok, err := exchangeCode(ctx, opts.HTTPClient, metadata.TokenEndpoint, opts.ClientID, code, verifier, redirectURI)
 	if err != nil {
 		return nil, err
 	}
