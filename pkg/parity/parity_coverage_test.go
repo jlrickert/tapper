@@ -97,6 +97,10 @@ var tapMethodToSurfaces = map[string]struct {
 	// Agent integrations (Phase 3 / Phase 5)
 	"Orient":    {CLI: "orient", MCP: "orient"},
 	"Integrate": {CLI: "integrate", MCP: "integrate"},
+
+	// Auth: status has both surfaces; login/logout are CLI-only by
+	// design (see tools_auth.go for the rationale).
+	"AuthStatus": {CLI: "auth status", MCP: "auth_status"},
 }
 
 // tapMethodsExcluded lists Tap methods that are intentionally excluded from

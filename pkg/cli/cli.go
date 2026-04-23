@@ -16,6 +16,39 @@ func Run(ctx context.Context, rt *toolkit.Runtime, args []string) (int, error) {
 	return RunWithProfile(ctx, rt, args, TapProfile())
 }
 
+// testDepsHookKey types values stashed in the context by
+// WithTestDepsHook. Using a package-private type prevents cross-package
+// collision on context.Value keys. Production callers never set this;
+// it exists only for test helpers in cmd_auth_test.go.
+type testDepsHookKey struct{}
+
+// WithTestDepsHook returns a context carrying a per-invocation hook
+// that Run will apply to the freshly-constructed Deps. Parallel tests
+// attach their own hook to their own ctx, so there is no shared state
+// for the race detector to flag.
+//
+// Exported so tests in this package (and sibling test packages in
+// pkg/cli_test) can drive the seam without reaching into unexported
+// state. Production callers must not use it — wiring AuthLoginFn into
+// Deps directly is the intended seam for non-test callers.
+func WithTestDepsHook(ctx context.Context, hook func(*Deps)) context.Context {
+	if hook == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, testDepsHookKey{}, hook)
+}
+
+// testDepsHookFromContext extracts a hook attached via WithTestDepsHook.
+// Returns nil when the context carries no hook, which is the common
+// production case.
+func testDepsHookFromContext(ctx context.Context) func(*Deps) {
+	if ctx == nil {
+		return nil
+	}
+	v, _ := ctx.Value(testDepsHookKey{}).(func(*Deps))
+	return v
+}
+
 func RunWithProfile(ctx context.Context, rt *toolkit.Runtime, args []string, profile Profile) (int, error) {
 	if rt == nil {
 		var err error
@@ -40,6 +73,13 @@ func RunWithProfile(ctx context.Context, rt *toolkit.Runtime, args []string, pro
 		Runtime:  rt,
 		Shutdown: func() {},
 		Profile:  profile,
+	}
+	// testDepsHookFromContext gives tests a chance to mutate the
+	// freshly-constructed Deps (e.g. swap AuthLoginFn) before NewRootCmd
+	// applies lazy defaults. Production callers pass a ctx with no hook,
+	// so this is a cheap type-assertion in the hot path.
+	if hook := testDepsHookFromContext(ctx); hook != nil {
+		hook(deps)
 	}
 	cmd := NewRootCmd(deps)
 	cmd.SetArgs(args)
