@@ -1,8 +1,9 @@
 package cli
 
-// `tap auth` — hub authentication commands. Ships `login` for OAuth2
-// PKCE-based hub authentication; additional subcommands may be added
-// here as new child constructors.
+// `tap auth` — hub authentication commands. Provides `login`, `logout`,
+// and `status` subcommands. The `login` and `logout` paths are CLI-layer
+// helpers that read/write the AuthStore directly; `status` delegates to
+// Tap.AuthStatus so the MCP tool can share the exact pre-formatted output.
 
 import (
 	"fmt"
@@ -29,6 +30,8 @@ $XDG_STATE_HOME/tapper/auth.yaml with owner-only permissions.`,
 		},
 	}
 	cmd.AddCommand(newAuthLoginCmd(deps))
+	cmd.AddCommand(newAuthLogoutCmd(deps))
+	cmd.AddCommand(newAuthStatusCmd(deps))
 	return cmd
 }
 
@@ -68,7 +71,7 @@ opened or the user does not complete the handshake within --timeout.`,
 			ctx := cmd.Context()
 			rt := deps.Runtime
 
-			entry, err := authLoginFn(ctx, rt, tapper.AuthLoginOptions{
+			entry, err := deps.AuthLoginFn(ctx, rt, tapper.AuthLoginOptions{
 				HubURL:   hubURL,
 				ClientID: clientID,
 				Scope:    scope,
@@ -121,7 +124,115 @@ opened or the user does not complete the handshake within --timeout.`,
 	return cmd
 }
 
-// authLoginFn is the seam tests swap to drive the PKCE flow without a
-// real browser + loopback handshake. Production code uses the real
-// AuthLogin verbatim; tests restore this after overriding.
-var authLoginFn = tapper.AuthLogin
+// newAuthLogoutCmd wires `tap auth logout`. Unlike login, logout does
+// NOT go through *Tap: it's a purely local-state mutation with no
+// remote side effects and no need for MCP exposure (an agent should
+// never be able to yank a user's hub token out from under them).
+// Treating "no stored entry" as a soft success keeps the command
+// idempotent for scripts that re-run cleanup unconditionally.
+func newAuthLogoutCmd(deps *Deps) *cobra.Command {
+	var hubURL string
+
+	cmd := &cobra.Command{
+		Use:   "logout",
+		Short: "Remove a stored hub login from the local auth store",
+		Long: `Delete the cached credentials for a tapper hub. With --hub, removes
+that specific hub's entry (canonicalized before lookup). With no --hub,
+removes the only stored entry when exactly one is present; errors when
+multiple hubs are stored (the caller must disambiguate).
+
+"No login stored for <hub>" is a soft success, not an error — logout
+is idempotent by design so cleanup scripts can re-run without special
+casing the already-logged-out state.`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			ctx := cmd.Context()
+			rt := deps.Runtime
+
+			storePath := deps.Tap.PathService.AuthStorePath()
+			store, err := tapper.LoadAuthStore(ctx, rt, storePath)
+			if err != nil {
+				return err
+			}
+
+			// Resolve the target. Single-hub auto-resolve matches the
+			// AuthStatus behavior so both commands feel interchangeable
+			// from the user's point of view.
+			var hub string
+			if hubURL != "" {
+				hub = tapper.CanonicalHubURL(hubURL)
+			} else {
+				hubs := store.Hubs()
+				switch len(hubs) {
+				case 0:
+					// Nothing to do. Soft-success for script-friendliness.
+					_, _ = fmt.Fprintln(rt.Stream().Err, "No hub logins stored.")
+					return nil
+				case 1:
+					hub = hubs[0]
+				default:
+					return fmt.Errorf("--hub is required when multiple hubs are stored")
+				}
+			}
+
+			if !store.Delete(hub) {
+				// Already absent — not an error. Communicate on stderr
+				// so stdout remains clean for scripts that pipe output.
+				_, _ = fmt.Fprintf(rt.Stream().Err, "No login stored for %s\n", hub)
+				return nil
+			}
+
+			// Save removes the file when the store is empty, which
+			// leaves the filesystem in the canonical "no credentials"
+			// state after the last logout.
+			if err := store.Save(ctx, rt, storePath); err != nil {
+				return err
+			}
+			_, _ = fmt.Fprintf(rt.Stream().Out, "Logged out of %s\n", hub)
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&hubURL, "hub", "", "Hub base URL to log out of (required when multiple hubs are stored)")
+	mustRegisterFlagCompletion(cmd, "hub", func(_ *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	})
+
+	return cmd
+}
+
+// newAuthStatusCmd wires `tap auth status`. This is the only `auth`
+// subcommand that goes through *Tap — status reporting has a natural
+// MCP exposure (agents should be able to check whether they can
+// authenticate before attempting a remote call) and the pre-formatted
+// Result.Formatted field lets both surfaces emit byte-identical output.
+func newAuthStatusCmd(deps *Deps) *cobra.Command {
+	var hubURL string
+
+	cmd := &cobra.Command{
+		Use:   "status",
+		Short: "Show the login status for a stored tapper hub",
+		Long: `Report whether a hub has a cached login, the token type, scope,
+and expiry. With --hub, reports on that specific hub; with no --hub
+and exactly one stored entry, auto-resolves to it. The access token
+itself is never printed — only the last 4 characters as a suffix.`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			ctx := cmd.Context()
+			rt := deps.Runtime
+			result, err := deps.Tap.AuthStatus(ctx, tapper.AuthStatusOptions{Hub: hubURL})
+			if err != nil {
+				return err
+			}
+			_, _ = fmt.Fprint(rt.Stream().Out, result.Formatted)
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&hubURL, "hub", "", "Hub base URL to query (optional when exactly one hub is stored)")
+	mustRegisterFlagCompletion(cmd, "hub", func(_ *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	})
+
+	return cmd
+}

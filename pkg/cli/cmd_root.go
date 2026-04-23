@@ -4,6 +4,7 @@ package cli
 // initializes services from explicit runtime dependencies.
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"log/slog"
@@ -37,6 +38,14 @@ type Deps struct {
 	Tap *tapper.Tap
 	Err error
 
+	// AuthLoginFn is the seam through which `tap auth login` drives the
+	// browser-based PKCE handshake. Tests set their own function before
+	// NewRootCmd runs (via Run's testDepsHook or by constructing Deps
+	// directly) so the real listener + browser opener are never invoked.
+	// A nil value is lazy-defaulted to tapper.AuthLogin in NewRootCmd so
+	// production callers need not populate it.
+	AuthLoginFn func(ctx context.Context, rt *toolkit.Runtime, opts tapper.AuthLoginOptions) (*tapper.AuthEntry, error)
+
 	// logFileHandle is the opened log file; closed after invocation logging.
 	logFileHandle io.WriteCloser
 
@@ -52,6 +61,11 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 	deps.Profile = deps.Profile.withDefaults()
 	if deps.Shutdown == nil {
 		deps.Shutdown = func() {}
+	}
+	// Lazy-default: a test that sets its own AuthLoginFn before
+	// NewRootCmd wins. We do NOT overwrite a populated value.
+	if deps.AuthLoginFn == nil {
+		deps.AuthLoginFn = tapper.AuthLogin
 	}
 
 	cmd := &cobra.Command{

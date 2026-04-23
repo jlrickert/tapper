@@ -1,11 +1,12 @@
 package cli
 
-// Integration-ish tests for `tap auth login`. We exercise the wiring
-// (flag parsing, hub requirement, store persistence, stdout discipline)
-// but stub the PKCE handshake through the authLoginFn seam. The full
-// browser/PKCE round trip is tested in pkg/tapper/auth_flow_test.go
-// against an httptest hub — duplicating that here would only couple
-// the CLI test to the transport.
+// Integration-ish tests for `tap auth login/logout/status`. Each test
+// exercises the Cobra wiring end-to-end and injects a per-test
+// AuthLoginFn through the WithTestDepsHook seam in cli.go. Because the
+// hook is stashed on each invocation's context (not on a package-level
+// var), every test can run with t.Parallel() — closures capture their
+// own stub and there is no shared mutable state for the race detector
+// to flag.
 
 import (
 	"context"
@@ -27,25 +28,28 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// withStubAuthLogin swaps authLoginFn for the duration of a test. We
-// restore the original in a t.Cleanup so parallel tests that don't
-// touch the seam are unaffected by leaked state if this helper ever
-// returns early on failure.
-func withStubAuthLogin(t *testing.T, fn func(context.Context, *toolkit.Runtime, tapper.AuthLoginOptions) (*tapper.AuthEntry, error)) {
-	t.Helper()
-	prev := authLoginFn
-	authLoginFn = fn
-	t.Cleanup(func() { authLoginFn = prev })
+// stubAuthLoginHook returns a Deps hook that installs fn as AuthLoginFn
+// and otherwise leaves Deps untouched. Attach via WithTestDepsHook so
+// parallel tests each stash their own hook on their own context without
+// touching any shared mutable state.
+func stubAuthLoginHook(fn func(context.Context, *toolkit.Runtime, tapper.AuthLoginOptions) (*tapper.AuthEntry, error)) func(*Deps) {
+	return func(d *Deps) {
+		d.AuthLoginFn = fn
+	}
 }
 
-// newStubbedAuthProcess builds a Process running `tap auth login ...`.
-// It's a thin wrapper around the production Run so we go through the
-// same Cobra wiring real users hit.
-func newStubbedAuthProcess(t *testing.T, isTTY bool, args ...string) *sandbox.Process {
+// newAuthProcess builds a Process running `tap auth ...`. A nil hook
+// runs the unaltered production wiring; otherwise the hook is attached
+// to the ctx via WithTestDepsHook and applied to Deps before NewRootCmd
+// runs.
+func newAuthProcess(t *testing.T, hook func(*Deps), args ...string) *sandbox.Process {
 	t.Helper()
 	return sandbox.NewProcess(func(ctx context.Context, rt *toolkit.Runtime) (int, error) {
+		if hook != nil {
+			ctx = WithTestDepsHook(ctx, hook)
+		}
 		return Run(ctx, rt, args)
-	}, isTTY)
+	}, false)
 }
 
 func newTestSandbox(t *testing.T) *sandbox.Sandbox {
@@ -56,17 +60,40 @@ func newTestSandbox(t *testing.T) *sandbox.Sandbox {
 	})
 }
 
+// atomicOptionsSlot is a tiny helper that lets parallel tests capture
+// the AuthLoginOptions their stub saw without a sync.Mutex. Using
+// atomic.Value keeps the race detector happy; a plain variable would
+// race between the Cobra goroutine and the test goroutine.
+type atomicOptionsSlot struct{ v atomic.Value }
+
+func (s *atomicOptionsSlot) Store(opts tapper.AuthLoginOptions) { s.v.Store(opts) }
+func (s *atomicOptionsSlot) Load() tapper.AuthLoginOptions {
+	v, ok := s.v.Load().(tapper.AuthLoginOptions)
+	if !ok {
+		return tapper.AuthLoginOptions{}
+	}
+	return v
+}
+
+// keysOf is a tiny helper so failure messages are readable when the
+// store layout changes unexpectedly.
+func keysOf[V any](m map[string]V) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
+}
+
 func TestAuthLoginCmd_MissingHub_Errors(t *testing.T) {
-	// NOTE: no t.Parallel — this test suite mutates the package-level
-	// authLoginFn seam, so concurrent test runs would race. The suite
-	// is small enough that serial execution is not a bottleneck.
-	withStubAuthLogin(t, func(context.Context, *toolkit.Runtime, tapper.AuthLoginOptions) (*tapper.AuthEntry, error) {
+	t.Parallel()
+	hook := stubAuthLoginHook(func(context.Context, *toolkit.Runtime, tapper.AuthLoginOptions) (*tapper.AuthEntry, error) {
 		t.Fatal("authLoginFn should not be called when --hub is missing")
 		return nil, nil
 	})
 
 	sb := newTestSandbox(t)
-	proc := newStubbedAuthProcess(t, false, "auth", "login")
+	proc := newAuthProcess(t, hook, "auth", "login")
 	res := proc.Run(sb.Context(), sb.Runtime())
 
 	require.Error(t, res.Err)
@@ -74,16 +101,12 @@ func TestAuthLoginCmd_MissingHub_Errors(t *testing.T) {
 }
 
 func TestAuthLoginCmd_PersistsStoreAndPrintsHub(t *testing.T) {
-	// NOTE: no t.Parallel — this test suite mutates the package-level
-	// authLoginFn seam, so concurrent test runs would race. The suite
-	// is small enough that serial execution is not a bottleneck.
+	t.Parallel()
 	sb := newTestSandbox(t)
 
-	// Capture the options AuthLogin receives so we can assert the CLI
-	// passed flag values through unchanged.
-	var captured tapper.AuthLoginOptions
-	withStubAuthLogin(t, func(_ context.Context, _ *toolkit.Runtime, opts tapper.AuthLoginOptions) (*tapper.AuthEntry, error) {
-		captured = opts
+	var capturedMu atomicOptionsSlot
+	hook := stubAuthLoginHook(func(_ context.Context, _ *toolkit.Runtime, opts tapper.AuthLoginOptions) (*tapper.AuthEntry, error) {
+		capturedMu.Store(opts)
 		return &tapper.AuthEntry{
 			AccessToken: "stub-access-token",
 			TokenType:   "Bearer",
@@ -91,7 +114,7 @@ func TestAuthLoginCmd_PersistsStoreAndPrintsHub(t *testing.T) {
 		}, nil
 	})
 
-	proc := newStubbedAuthProcess(t, false,
+	proc := newAuthProcess(t, hook,
 		"auth", "login",
 		"--hub", "https://Hub.Example.COM/",
 		"--client-id", "tapper-cli",
@@ -106,7 +129,7 @@ func TestAuthLoginCmd_PersistsStoreAndPrintsHub(t *testing.T) {
 	require.Contains(t, out, "Logged in to https://Hub.Example.COM/")
 	require.NotContains(t, out, "stub-access-token")
 
-	// Options passed through correctly.
+	captured := capturedMu.Load()
 	require.Equal(t, "https://Hub.Example.COM/", captured.HubURL)
 	require.Equal(t, "tapper-cli", captured.ClientID)
 	require.Equal(t, "read write", captured.Scope)
@@ -131,49 +154,34 @@ func TestAuthLoginCmd_PersistsStoreAndPrintsHub(t *testing.T) {
 	require.Equal(t, "read write", entry.Scope)
 }
 
-// keysOf is a tiny helper so failure messages are readable when the
-// store layout changes unexpectedly.
-func keysOf[V any](m map[string]V) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	return out
-}
-
 func TestAuthLoginCmd_DefaultClientID(t *testing.T) {
-	// NOTE: no t.Parallel — this test suite mutates the package-level
-	// authLoginFn seam, so concurrent test runs would race. The suite
-	// is small enough that serial execution is not a bottleneck.
+	t.Parallel()
 	sb := newTestSandbox(t)
 
-	var captured tapper.AuthLoginOptions
-	withStubAuthLogin(t, func(_ context.Context, _ *toolkit.Runtime, opts tapper.AuthLoginOptions) (*tapper.AuthEntry, error) {
-		captured = opts
+	var capturedMu atomicOptionsSlot
+	hook := stubAuthLoginHook(func(_ context.Context, _ *toolkit.Runtime, opts tapper.AuthLoginOptions) (*tapper.AuthEntry, error) {
+		capturedMu.Store(opts)
 		return &tapper.AuthEntry{AccessToken: "t"}, nil
 	})
 
-	proc := newStubbedAuthProcess(t, false, "auth", "login", "--hub", "https://hub.example.com")
+	proc := newAuthProcess(t, hook, "auth", "login", "--hub", "https://hub.example.com")
 	res := proc.Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
-	require.Equal(t, "tapper-cli", captured.ClientID, "client-id should default to tapper-cli")
+	require.Equal(t, "tapper-cli", capturedMu.Load().ClientID, "client-id should default to tapper-cli")
 }
 
 func TestAuthLoginCmd_PropagatesFlowError(t *testing.T) {
-	// NOTE: no t.Parallel — this test suite mutates the package-level
-	// authLoginFn seam, so concurrent test runs would race. The suite
-	// is small enough that serial execution is not a bottleneck.
+	t.Parallel()
 	sb := newTestSandbox(t)
 
-	withStubAuthLogin(t, func(context.Context, *toolkit.Runtime, tapper.AuthLoginOptions) (*tapper.AuthEntry, error) {
+	hook := stubAuthLoginHook(func(context.Context, *toolkit.Runtime, tapper.AuthLoginOptions) (*tapper.AuthEntry, error) {
 		return nil, &stubAuthError{msg: "simulated browser failure"}
 	})
 
-	proc := newStubbedAuthProcess(t, false, "auth", "login", "--hub", "https://hub.example.com")
+	proc := newAuthProcess(t, hook, "auth", "login", "--hub", "https://hub.example.com")
 	res := proc.Run(sb.Context(), sb.Runtime())
 	require.Error(t, res.Err)
 	require.Contains(t, res.Err.Error(), "simulated browser failure")
-	// No store file should have been created.
 	_, statErr := sb.Runtime().Stat("/home/testuser/.local/state/tapper/auth.yaml", false)
 	require.Error(t, statErr, "store file should not exist when the flow errors")
 }
@@ -183,21 +191,18 @@ type stubAuthError struct{ msg string }
 func (e *stubAuthError) Error() string { return e.msg }
 
 // TestAuthLoginCmd_EndToEnd_AgainstMockHub runs the real tapper.AuthLogin
-// implementation (no seam override) against a local httptest hub, with
-// a browser-opener that drives /authorize by HTTP. This is the only
-// CLI test that exercises the full PKCE + loopback path end-to-end.
+// implementation against a local httptest hub with a browser-opener
+// that drives /authorize by HTTP. Only CLI test that exercises the full
+// PKCE + loopback path end-to-end.
 func TestAuthLoginCmd_EndToEnd_AgainstMockHub(t *testing.T) {
-	// NOTE: no t.Parallel — this test suite mutates the package-level
-	// authLoginFn seam, so concurrent test runs would race. The suite
-	// is small enough that serial execution is not a bottleneck.
-
+	t.Parallel()
 	hub := newMockHubForCLI(t)
 	defer hub.Close()
 
 	// The CLI command has no way to inject BrowserOpener from flags,
-	// so we route through the seam: call the real AuthLogin but
-	// pre-inject the BrowserOpener that drives the authorize endpoint.
-	withStubAuthLogin(t, func(ctx context.Context, rt *toolkit.Runtime, opts tapper.AuthLoginOptions) (*tapper.AuthEntry, error) {
+	// so we route through the seam: call the real AuthLogin but pre-
+	// inject the BrowserOpener that drives the authorize endpoint.
+	hook := stubAuthLoginHook(func(ctx context.Context, rt *toolkit.Runtime, opts tapper.AuthLoginOptions) (*tapper.AuthEntry, error) {
 		opts.BrowserOpener = driveAuthorizeForCLI()
 		opts.ListenerFactory = func() (net.Listener, error) {
 			return net.Listen("tcp", "127.0.0.1:0")
@@ -209,7 +214,7 @@ func TestAuthLoginCmd_EndToEnd_AgainstMockHub(t *testing.T) {
 	})
 
 	sb := newTestSandbox(t)
-	proc := newStubbedAuthProcess(t, false,
+	proc := newAuthProcess(t, hook,
 		"auth", "login",
 		"--hub", hub.URL,
 		"--client-id", "tapper-cli",
@@ -232,8 +237,8 @@ func newMockHubForCLI(t *testing.T) *httptest.Server {
 	// Cross-handler shared state: /oauth/authorize captures the challenge,
 	// /oauth/token validates the posted verifier against it. httptest runs
 	// each handler in its own goroutine, so the shared slot must be
-	// synchronized; atomic.Value mirrors the pattern used in the
-	// pkg/tapper auth flow tests.
+	// synchronized; atomic.Value mirrors the pattern used in pkg/tapper's
+	// auth flow tests.
 	var challenge atomic.Value // string
 	mux := http.NewServeMux()
 	mux.HandleFunc("/.well-known/oauth-authorization-server", func(w http.ResponseWriter, r *http.Request) {
@@ -292,16 +297,14 @@ func driveAuthorizeForCLI() func(ctx context.Context, rt *toolkit.Runtime, u str
 // TestAuthLoginCmd_CanonicalizesHubKey confirms the store key is the
 // canonical form even when the user types a mixed-case URL.
 func TestAuthLoginCmd_CanonicalizesHubKey(t *testing.T) {
-	// NOTE: no t.Parallel — this test suite mutates the package-level
-	// authLoginFn seam, so concurrent test runs would race. The suite
-	// is small enough that serial execution is not a bottleneck.
+	t.Parallel()
 	sb := newTestSandbox(t)
 
-	withStubAuthLogin(t, func(context.Context, *toolkit.Runtime, tapper.AuthLoginOptions) (*tapper.AuthEntry, error) {
+	hook := stubAuthLoginHook(func(context.Context, *toolkit.Runtime, tapper.AuthLoginOptions) (*tapper.AuthEntry, error) {
 		return &tapper.AuthEntry{AccessToken: "t"}, nil
 	})
 
-	proc := newStubbedAuthProcess(t, false, "auth", "login", "--hub", "HTTPS://HUB.EXAMPLE.COM/")
+	proc := newAuthProcess(t, hook, "auth", "login", "--hub", "HTTPS://HUB.EXAMPLE.COM/")
 	res := proc.Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 
@@ -314,13 +317,228 @@ func TestAuthLoginCmd_CanonicalizesHubKey(t *testing.T) {
 // TestAuthCmd_NoArgs_ShowsHelp guards the parent's cobra wiring: calling
 // `tap auth` with no child should not error and should print help.
 func TestAuthCmd_NoArgs_ShowsHelp(t *testing.T) {
-	// NOTE: no t.Parallel — this test suite mutates the package-level
-	// authLoginFn seam, so concurrent test runs would race. The suite
-	// is small enough that serial execution is not a bottleneck.
+	t.Parallel()
 	sb := newTestSandbox(t)
-	proc := newStubbedAuthProcess(t, false, "auth")
+	proc := newAuthProcess(t, nil, "auth")
 	res := proc.Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 	out := string(res.Stdout) + string(res.Stderr)
 	require.Contains(t, out, "login")
+	// Help text must advertise logout and status alongside login.
+	require.Contains(t, out, "logout")
+	require.Contains(t, out, "status")
+}
+
+// --- logout ---
+
+// seedAuthStore writes an auth.yaml fixture into the sandbox's state
+// root directly — it's the fastest way to arrange a pre-existing login
+// without running the full PKCE flow. Returns the first canonical key
+// written (handy when a caller seeds just one entry).
+func seedAuthStore(t *testing.T, sb *sandbox.Sandbox, entries map[string]tapper.AuthEntry) string {
+	t.Helper()
+	rt := sb.Runtime()
+	ctx := sb.Context()
+
+	tap, err := tapper.NewTap(tapper.TapOptions{Runtime: rt})
+	require.NoError(t, err)
+	storePath := tap.PathService.AuthStorePath()
+
+	store, err := tapper.LoadAuthStore(ctx, rt, storePath)
+	require.NoError(t, err)
+	var firstKey string
+	for k, v := range entries {
+		canon := tapper.CanonicalHubURL(k)
+		if firstKey == "" {
+			firstKey = canon
+		}
+		store.Set(canon, v)
+	}
+	require.NoError(t, store.Save(ctx, rt, storePath))
+	return firstKey
+}
+
+func TestAuthLogoutCmd_SingleHub_AutoResolves(t *testing.T) {
+	t.Parallel()
+	sb := newTestSandbox(t)
+	hub := seedAuthStore(t, sb, map[string]tapper.AuthEntry{
+		"https://hub.example.com": {AccessToken: "xyz", TokenType: "Bearer"},
+	})
+
+	proc := newAuthProcess(t, nil, "auth", "logout")
+	res := proc.Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+	require.Contains(t, string(res.Stdout), "Logged out of "+hub)
+
+	// Empty store → the file should be removed (AuthStore.Save contract).
+	_, statErr := sb.Runtime().Stat("/home/testuser/.local/state/tapper/auth.yaml", false)
+	require.Error(t, statErr, "auth store file should be removed when empty")
+}
+
+func TestAuthLogoutCmd_MultipleHubs_RequiresFlag(t *testing.T) {
+	t.Parallel()
+	sb := newTestSandbox(t)
+	seedAuthStore(t, sb, map[string]tapper.AuthEntry{
+		"https://hub-a.example.com": {AccessToken: "a"},
+		"https://hub-b.example.com": {AccessToken: "b"},
+	})
+
+	proc := newAuthProcess(t, nil, "auth", "logout")
+	res := proc.Run(sb.Context(), sb.Runtime())
+	require.Error(t, res.Err)
+	require.Contains(t, res.Err.Error(), "--hub is required")
+}
+
+func TestAuthLogoutCmd_ExplicitHub_Canonicalizes(t *testing.T) {
+	t.Parallel()
+	sb := newTestSandbox(t)
+	seedAuthStore(t, sb, map[string]tapper.AuthEntry{
+		"https://hub.example.com": {AccessToken: "xyz"},
+	})
+
+	proc := newAuthProcess(t, nil, "auth", "logout", "--hub", "HTTPS://Hub.Example.COM/")
+	res := proc.Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+	require.Contains(t, string(res.Stdout), "Logged out of https://hub.example.com")
+}
+
+func TestAuthLogoutCmd_UnknownHub_SoftSuccess(t *testing.T) {
+	t.Parallel()
+	sb := newTestSandbox(t)
+	seedAuthStore(t, sb, map[string]tapper.AuthEntry{
+		"https://hub.example.com": {AccessToken: "xyz"},
+	})
+
+	proc := newAuthProcess(t, nil, "auth", "logout", "--hub", "https://ghost.example.com")
+	res := proc.Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err, "unknown hub is a soft success, not an error")
+	require.Contains(t, string(res.Stderr), "No login stored for https://ghost.example.com")
+	raw := sb.MustReadFile("~/.local/state/tapper/auth.yaml")
+	require.Contains(t, string(raw), "https://hub.example.com")
+}
+
+func TestAuthLogoutCmd_EmptyStore_NoOp(t *testing.T) {
+	t.Parallel()
+	sb := newTestSandbox(t)
+
+	proc := newAuthProcess(t, nil, "auth", "logout")
+	res := proc.Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+	require.Contains(t, string(res.Stderr), "No hub logins stored.")
+}
+
+// --- status ---
+
+func TestAuthStatusCmd_EmptyStore_DirectedMessage(t *testing.T) {
+	t.Parallel()
+	sb := newTestSandbox(t)
+	proc := newAuthProcess(t, nil, "auth", "status")
+	res := proc.Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+	require.Contains(t, string(res.Stdout), "No hub logins stored")
+	require.Contains(t, string(res.Stdout), "tap auth login --hub URL")
+}
+
+func TestAuthStatusCmd_SingleHub_FormatsStatus(t *testing.T) {
+	t.Parallel()
+	sb := newTestSandbox(t)
+	seedAuthStore(t, sb, map[string]tapper.AuthEntry{
+		"https://hub.example.com": {
+			AccessToken: "supersecretXXYZ",
+			TokenType:   "Bearer",
+			Scope:       "read write",
+		},
+	})
+
+	proc := newAuthProcess(t, nil, "auth", "status")
+	res := proc.Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+	out := string(res.Stdout)
+	require.Contains(t, out, "Logged in to https://hub.example.com")
+	require.Contains(t, out, "token: ...XXYZ (Bearer)")
+	require.Contains(t, out, "scope: read write")
+	require.Contains(t, out, "expires: unknown")
+	require.NotContains(t, out, "supersecretXXYZ")
+}
+
+func TestAuthStatusCmd_ShortToken_UsesPlaceholder(t *testing.T) {
+	t.Parallel()
+	sb := newTestSandbox(t)
+	seedAuthStore(t, sb, map[string]tapper.AuthEntry{
+		"https://hub.example.com": {AccessToken: "abc"},
+	})
+
+	proc := newAuthProcess(t, nil, "auth", "status")
+	res := proc.Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+	require.Contains(t, string(res.Stdout), "token: [set]")
+}
+
+func TestAuthStatusCmd_MultipleHubs_RequiresFlag(t *testing.T) {
+	t.Parallel()
+	sb := newTestSandbox(t)
+	seedAuthStore(t, sb, map[string]tapper.AuthEntry{
+		"https://hub-a.example.com": {AccessToken: "a"},
+		"https://hub-b.example.com": {AccessToken: "b"},
+	})
+
+	proc := newAuthProcess(t, nil, "auth", "status")
+	res := proc.Run(sb.Context(), sb.Runtime())
+	require.Error(t, res.Err)
+	require.Contains(t, res.Err.Error(), "--hub is required")
+}
+
+func TestAuthStatusCmd_UnknownHub_NotPresent(t *testing.T) {
+	t.Parallel()
+	sb := newTestSandbox(t)
+	seedAuthStore(t, sb, map[string]tapper.AuthEntry{
+		"https://hub.example.com": {AccessToken: "xyz"},
+	})
+
+	proc := newAuthProcess(t, nil, "auth", "status", "--hub", "https://ghost.example.com")
+	res := proc.Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+	require.Contains(t, string(res.Stdout), "No login stored for https://ghost.example.com")
+}
+
+// --- completion ---
+
+// The completion tests live in the internal cli package because we need
+// direct access to Run to exercise the full Cobra tree. Cobra's
+// __complete handler prints suggestions to stdout followed by a `:N`
+// directive line.
+
+func runCompletionViaProcess(t *testing.T, words ...string) *sandbox.ProcessResult {
+	t.Helper()
+	sb := newTestSandbox(t)
+	proc := sandbox.NewProcess(func(ctx context.Context, rt *toolkit.Runtime) (int, error) {
+		return RunCompletion(ctx, rt, words)
+	}, false)
+	return proc.Run(sb.Context(), sb.Runtime())
+}
+
+func TestAuthCompletion_LogoutHubFlag_NoFileComp(t *testing.T) {
+	t.Parallel()
+	res := runCompletionViaProcess(t, "auth", "logout", "--hub", "")
+	require.NoError(t, res.Err)
+	// :4 == ShellCompDirectiveNoFileComp. Cobra prints the directive
+	// on the last line as ":<bitmask>".
+	require.Contains(t, string(res.Stdout), ":4")
+}
+
+func TestAuthCompletion_StatusHubFlag_NoFileComp(t *testing.T) {
+	t.Parallel()
+	res := runCompletionViaProcess(t, "auth", "status", "--hub", "")
+	require.NoError(t, res.Err)
+	require.Contains(t, string(res.Stdout), ":4")
+}
+
+func TestAuthCompletion_ParentLists_LoginLogoutStatus(t *testing.T) {
+	t.Parallel()
+	res := runCompletionViaProcess(t, "auth", "")
+	require.NoError(t, res.Err)
+	out := string(res.Stdout)
+	for _, sub := range []string{"login", "logout", "status"} {
+		require.Contains(t, out, sub, "auth subcommand %q missing from completion output:\n%s", sub, out)
+	}
 }
