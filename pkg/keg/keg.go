@@ -78,6 +78,34 @@ func (k *Keg) SetExtraDexOpts(opts ...DexOption) {
 	k.dex = nil
 }
 
+// TokenResolver supplies bearer tokens for remote targets when no token is
+// configured inline on the target or via TokenEnv. Implementations typically
+// look up credentials in a persistent auth store keyed by the target's hub
+// root. A resolver returns "" when no credential is available; a nil
+// TokenResolver is legal and means "no fallback".
+type TokenResolver interface {
+	ResolveToken(target *kegurl.Target) string
+}
+
+// TargetOption customises NewKegFromTarget without breaking existing callers.
+// Variadic options keep the common case (no resolver, no extras) a zero-cost
+// invocation.
+type TargetOption func(*targetOptions)
+
+type targetOptions struct {
+	resolver TokenResolver
+}
+
+// WithTokenResolver installs a TokenResolver consulted as the third and final
+// fallback when a remote target has neither a TokenEnv-sourced value nor an
+// inline Token. Pass a nil resolver to explicitly opt out of fallback; the
+// option itself is a no-op in that case.
+func WithTokenResolver(r TokenResolver) TargetOption {
+	return func(o *targetOptions) {
+		o.resolver = r
+	}
+}
+
 // NewKegFromTarget constructs a Keg from a kegurl.Target. It automatically
 // selects the appropriate repository implementation based on the target's scheme:
 //   - memory:// targets use an in-memory repository
@@ -86,7 +114,11 @@ func (k *Keg) SetExtraDexOpts(opts ...DexOption) {
 //   - registry targets use an API repository resolved from repo/user/keg fields
 //
 // Returns an error if the target scheme is not supported.
-func NewKegFromTarget(ctx context.Context, target kegurl.Target, rt *toolkit.Runtime) (*Keg, error) {
+func NewKegFromTarget(ctx context.Context, target kegurl.Target, rt *toolkit.Runtime, opts ...TargetOption) (*Keg, error) {
+	var o targetOptions
+	for _, apply := range opts {
+		apply(&o)
+	}
 	switch target.Scheme() {
 	case kegurl.SchemeMemory:
 		repo := NewMemoryRepo(rt)
@@ -103,13 +135,13 @@ func NewKegFromTarget(ctx context.Context, target kegurl.Target, rt *toolkit.Run
 		keg := Keg{Target: &target, Repo: &repo, Runtime: rt}
 		return &keg, nil
 	case kegurl.SchemeHTTP, kegurl.SchemeHTTPs:
-		token := resolveTargetToken(&target, rt)
+		token := resolveTargetToken(&target, rt, o.resolver)
 		baseURL := strings.TrimRight(target.Url, "/")
 		repo := NewApiRepo(baseURL, token)
 		keg := Keg{Target: &target, Repo: repo, Runtime: rt}
 		return &keg, nil
 	case kegurl.SchemeRegistry:
-		token := resolveTargetToken(&target, rt)
+		token := resolveTargetToken(&target, rt, o.resolver)
 		// Build the API base URL from the registry repo, user, and keg fields.
 		// Convention: https://<repo>/api/v1/kegs/@<user>/<keg>
 		baseURL := fmt.Sprintf("https://%s/api/v1/kegs/@%s/%s",
@@ -121,16 +153,23 @@ func NewKegFromTarget(ctx context.Context, target kegurl.Target, rt *toolkit.Run
 	return nil, fmt.Errorf("unsupported target scheme: %s", target.Scheme())
 }
 
-// resolveTargetToken extracts the bearer token from a Target. It prefers
-// TokenEnv (environment variable name) over a literal Token value. Returns an
-// empty string when no credential is configured.
-func resolveTargetToken(target *kegurl.Target, rt *toolkit.Runtime) string {
+// resolveTargetToken extracts the bearer token from a Target. Precedence:
+// TokenEnv (environment variable name) → literal Token → resolver fallback.
+// A nil resolver skips the fallback. Returns an empty string when no
+// credential is available.
+func resolveTargetToken(target *kegurl.Target, rt *toolkit.Runtime, r TokenResolver) string {
 	if target.TokenEnv != "" {
 		if v := rt.Get(target.TokenEnv); v != "" {
 			return v
 		}
 	}
-	return target.Token
+	if target.Token != "" {
+		return target.Token
+	}
+	if r != nil {
+		return r.ResolveToken(target)
+	}
+	return ""
 }
 
 // NewKeg returns a Keg service backed by the provided repository.
