@@ -1,0 +1,31 @@
+services:
+  sandbox:
+    build:
+      context: .
+      args:
+        APP_UID: "1000"
+        APP_GID: "1000"
+    image: tapper-sandbox:local
+    container_name: tapper-sandbox
+    hostname: tapper-sandbox
+    init: true
+    tty: true
+    stdin_open: true
+    restart: unless-stopped
+    working_dir: /workspace/tapper
+    command: ["sleep", "infinity"]
+    environment:
+      GOPATH: /home/jlrickert/go
+      GOCACHE: /home/jlrickert/.cache/go-build
+      # Ignore go.work; use go.mod-pinned module versions like CI does.
+      GOWORK: "off"
+    volumes:
+      - ../:/workspace/tapper:cached
+      - tapper-go-mod:/home/jlrickert/go
+      - tapper-go-build:/home/jlrickert/.cache/go-build
+      - tapper-state:/home/jlrickert/.local/state/tapper
+
+volumes:
+  tapper-go-mod:
+  tapper-go-build:
+  tapper-state:
