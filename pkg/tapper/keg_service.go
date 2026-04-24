@@ -54,6 +54,14 @@ type KegService struct {
 	cacheMu sync.Mutex
 	// kegCache memoizes resolved kegs by alias or file-derived cache key.
 	kegCache map[string]*keg.Keg
+
+	// authStoreOnce guards the lazy load of authStore. We only touch the
+	// auth file on first remote-keg resolution so local-only workflows
+	// never pay for a disk read they don't need.
+	authStoreOnce sync.Once
+	// authStore is the loaded auth store, or nil when the file is missing
+	// or failed to parse. Nil is valid: the resolver short-circuits to "".
+	authStore *AuthStore
 }
 
 // ResolveKegOptions controls how KegService resolves a keg target.
@@ -87,6 +95,28 @@ func (s *KegService) injectDexOpts(k *keg.Keg) {
 		return
 	}
 	k.SetExtraDexOpts(keg.WithQueryResolver(nodeQueryResolver))
+}
+
+// tokenResolver returns a keg.TokenResolver backed by the service's lazily
+// loaded AuthStore. Load failures are swallowed (logged at debug) and yield
+// a nil-backed resolver that always returns "" — a missing or corrupt auth
+// file must never block keg resolution for local or token-pinned targets.
+func (s *KegService) tokenResolver() keg.TokenResolver {
+	s.authStoreOnce.Do(func() {
+		if s.ConfigService == nil || s.ConfigService.PathService == nil {
+			return
+		}
+		path := s.ConfigService.PathService.AuthStorePath()
+		store, err := LoadAuthStore(context.Background(), s.Runtime, path)
+		if err != nil {
+			if logger := s.Runtime.Logger(); logger != nil {
+				logger.Debug("auth store load failed", "path", path, "err", err)
+			}
+			return
+		}
+		s.authStore = store
+	})
+	return NewAuthStoreTokenResolver(s.authStore)
 }
 
 // Resolve returns a keg using explicit path, project, alias, or configured fallback resolution.
@@ -208,7 +238,7 @@ func (s *KegService) resolveFileKeg(ctx context.Context, root string, cache bool
 	}
 
 	target := kegurl.NewFile(root)
-	k, err := keg.NewKegFromTarget(ctx, target, s.Runtime)
+	k, err := keg.NewKegFromTarget(ctx, target, s.Runtime, keg.WithTokenResolver(s.tokenResolver()))
 	if err != nil {
 		return nil, err
 	}
@@ -260,7 +290,7 @@ func (s *KegService) resolveKegAlias(ctx context.Context, kegAlias string, proje
 
 	target, err := s.ConfigService.ResolveTarget(kegAlias, cache)
 	if err == nil && target != nil {
-		k, err := keg.NewKegFromTarget(ctx, *target, s.Runtime)
+		k, err := keg.NewKegFromTarget(ctx, *target, s.Runtime, keg.WithTokenResolver(s.tokenResolver()))
 		if err != nil {
 			return k, err
 		}
