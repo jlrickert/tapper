@@ -1,0 +1,63 @@
+version: "3"
+
+tasks:
+  build:
+    desc: Build or refresh the sandbox image.
+    cmds:
+      - docker compose build
+
+  up:
+    desc: Start the long-lived sandbox container in the background.
+    cmds:
+      - docker compose up -d
+
+  down:
+    desc: Stop and remove the container (keeps named volumes).
+    cmds:
+      - docker compose down
+
+  restart:
+    desc: Bounce the sandbox container.
+    cmds:
+      - docker compose restart sandbox
+
+  rebuild:
+    desc: Rebuild the image and recreate the container.
+    cmds:
+      - docker compose up -d --build --force-recreate
+
+  shell:
+    desc: Open an interactive zsh login shell in the sandbox.
+    interactive: true
+    cmds:
+      - docker compose exec sandbox zsh -l
+
+  exec:
+    desc: Run an arbitrary command in the sandbox (use `--` to separate).
+    cmds:
+      - docker compose exec sandbox {{.CLI_ARGS}}
+
+  logs:
+    desc: Follow the sandbox container logs.
+    cmds:
+      - docker compose logs -f sandbox
+
+  status:
+    desc: Show the sandbox container state.
+    cmds:
+      - docker compose ps
+
+  rebuild-tap:
+    desc: Rebuild tap and keg binaries inside the sandbox from current source.
+    cmds:
+      - docker compose exec sandbox bash -lc 'cd /workspace/tapper && go install ./cmd/tap ./cmd/keg'
+
+  test:
+    desc: Run the Go test suite inside the sandbox.
+    cmds:
+      - docker compose exec sandbox bash -lc 'cd /workspace/tapper && go test ./...'
+
+  clean:
+    desc: Remove the container AND named volumes (nukes caches and state).
+    cmds:
+      - docker compose down -v

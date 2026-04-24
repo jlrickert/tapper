@@ -2,6 +2,11 @@
 
 version: "3"
 
+includes:
+  sandbox:
+    taskfile: ./test-env/Taskfile.yml
+    dir: ./test-env
+
 tasks:
   run: go run "./cmd/keg" {{.CLI_ARGS}}
   test:
