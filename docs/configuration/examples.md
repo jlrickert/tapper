@@ -79,11 +79,11 @@ kegMap: []
 kegs:
   pub:
     hub: knut
-    user: jlrickert
+    user: me
     keg: public
 ```
 
-Use this when aliases should resolve to API-style hub targets instead of local file paths.
+Use this when aliases should resolve to API-style hub targets instead of local file paths. Replace `me` with your hub username.
 
 ## Air-Gapped / SOC2 Setup
 

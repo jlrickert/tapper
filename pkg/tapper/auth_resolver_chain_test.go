@@ -41,8 +41,8 @@ func TestResolveLoginHubURL(t *testing.T) {
 		},
 		{
 			name: "step 2: DefaultHub names a Hubs entry",
-			yaml: "defaultHub: knut\nhubs:\n  - name: other\n    url: other.example.com\n  - name: knut\n    url: keg.jlrickert.me\n",
-			want: "https://keg.jlrickert.me",
+			yaml: "defaultHub: primary\nhubs:\n  - name: other\n    url: other.example.com\n  - name: primary\n    url: keg.example.com\n",
+			want: "https://keg.example.com",
 		},
 		{
 			name: "step 2: DefaultHub entry already has scheme",
