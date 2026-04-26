@@ -15,7 +15,11 @@
     },
     "defaultHub": {
       "type": "string",
-      "description": "Hub URL used by default for API-style targets. Override with TAP_DEFAULT_HUB env var."
+      "description": "Name of the default entry in 'hubs' used for login resolution and API-style targets. Override with TAP_DEFAULT_HUB env var."
+    },
+    "disableDefaultHub": {
+      "type": "boolean",
+      "description": "When true, the compiled-in DefaultHubURL fallback (https://keg.foldwise.ai) is suppressed and hub-dependent commands fail with a clear error if no other hub is configured. Override with TAP_DISABLE_DEFAULT_HUB env var (1/true/yes/on)."
     },
     "kegSearchPaths": {
       "description": "One path or a list of paths scanned for file-backed kegs. Override with TAP_KEG_SEARCH_PATHS env var (colon-separated).",

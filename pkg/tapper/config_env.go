@@ -12,6 +12,7 @@ var tapEnvVarKeys = []string{
 	"LOG_FILE",
 	"LOG_LEVEL",
 	"DEFAULT_HUB",
+	"DISABLE_DEFAULT_HUB",
 	"KEG_SEARCH_PATHS",
 }
 
@@ -41,6 +42,9 @@ func configFromEnvMap(envMap map[string]string) *Config {
 	if v, ok := envMap["default_hub"]; ok {
 		cfg.data.DefaultHub = v
 	}
+	if v, ok := envMap["disable_default_hub"]; ok {
+		cfg.data.DisableDefaultHub = parseEnvBool(v)
+	}
 	if v, ok := envMap["keg_search_paths"]; ok {
 		// Colon-separated on Unix.
 		paths := strings.Split(v, ":")
@@ -56,4 +60,17 @@ func configFromEnvMap(envMap map[string]string) *Config {
 	}
 
 	return cfg
+}
+
+// parseEnvBool maps the conventional shell truthy values to true. Anything
+// else, including the empty string, is false. Kept private so the truthy
+// vocabulary is centralized — adding a new value is one edit, not a sweep
+// across every TAP_*_BOOL env var.
+func parseEnvBool(v string) bool {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
 }

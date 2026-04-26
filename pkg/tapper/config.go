@@ -22,6 +22,15 @@ import (
 const (
 	TapConfigSchemaURL      = "https://raw.githubusercontent.com/jlrickert/tapper/main/schemas/tap-config.json"
 	tapConfigSchemaModeline = "# yaml-language-server: $schema=" + TapConfigSchemaURL + "\n"
+
+	// DefaultHubURL is the compiled-in fallback hub used by ResolveLoginHubURL
+	// when no explicit hub, defaultHub, or single-entry hub is configured and
+	// the implicit default has not been disabled. The constant exists so the
+	// fallback target is auditable: a deployment that needs to prove no
+	// implicit network calls happen sets disableDefaultHub: true (or
+	// TAP_DISABLE_DEFAULT_HUB=1) and the chain errors out instead of falling
+	// through here.
+	DefaultHubURL = "https://keg.foldwise.ai"
 )
 
 // Package tapper provides helpers for the tapper CLI related to user and
@@ -51,8 +60,18 @@ type configDTO struct {
 	Kegs map[string]kegurl.Target `yaml:"kegs"`
 
 	// defaultHub is the named hub used by default when creating
-	// API style kegs. The CLI default value is "knut".
-	DefaultHub string `yaml:"defaultHub"`
+	// API style kegs and when resolving the login target. The value is
+	// looked up in Hubs by name; if Hubs has exactly one entry,
+	// ResolveLoginHubURL uses it without consulting DefaultHub.
+	DefaultHub string `yaml:"defaultHub,omitempty"`
+
+	// disableDefaultHub turns off the compiled-in DefaultHubURL fallback
+	// at the end of ResolveLoginHubURL. When true and no other branch of
+	// the chain matches, hub-dependent commands fail with a clear error
+	// instead of silently reaching out to the default hub. Auditable for
+	// SOC2: a deployment that needs to prove no implicit network targets
+	// exist sets this to true (or exports TAP_DISABLE_DEFAULT_HUB=1).
+	DisableDefaultHub bool `yaml:"disableDefaultHub,omitempty"`
 
 	// kegSearchPaths are local directories scanned for discovered kegs.
 	KegSearchPaths stringList `yaml:"kegSearchPaths,omitempty"`
@@ -193,12 +212,23 @@ func (cfg *Config) Kegs() map[string]kegurl.Target {
 	return cfg.data.Kegs
 }
 
-// DefaultHub returns the default hub name.
+// DefaultHub returns the default hub name. The value is looked up by
+// name in Hubs() to find the corresponding URL.
 func (cfg *Config) DefaultHub() string {
 	if cfg.data == nil {
 		cfg.data = &configDTO{}
 	}
 	return cfg.data.DefaultHub
+}
+
+// DisableDefaultHub returns true when the compiled-in DefaultHubURL
+// fallback is suppressed. Used by ResolveLoginHubURL to fail closed at
+// step 4 of the resolution chain instead of falling through to step 5.
+func (cfg *Config) DisableDefaultHub() bool {
+	if cfg.data == nil {
+		cfg.data = &configDTO{}
+	}
+	return cfg.data.DisableDefaultHub
 }
 
 // KegMap returns the list of path/regex to keg alias mappings.
@@ -282,6 +312,15 @@ func (cfg *Config) SetDefaultHub(_ context.Context, hub string) error {
 		cfg.data = &configDTO{}
 	}
 	cfg.data.DefaultHub = hub
+	return nil
+}
+
+// SetDisableDefaultHub toggles the compiled-in DefaultHubURL fallback.
+func (cfg *Config) SetDisableDefaultHub(disable bool) error {
+	if cfg.data == nil {
+		cfg.data = &configDTO{}
+	}
+	cfg.data.DisableDefaultHub = disable
 	return nil
 }
 
@@ -582,6 +621,13 @@ func MergeConfig(cfgs ...*Config) *Config {
 		}
 		if c.data.DefaultHub != "" {
 			out.data.DefaultHub = c.data.DefaultHub
+		}
+		// DisableDefaultHub: any tier that sets it to true wins. False
+		// is the zero value so we cannot distinguish "explicitly false"
+		// from "unset"; that ambiguity is acceptable because the safe
+		// outcome (fail closed) requires an explicit true anyway.
+		if c.data.DisableDefaultHub {
+			out.data.DisableDefaultHub = true
 		}
 
 		for alias, target := range c.data.Kegs {

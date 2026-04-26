@@ -147,7 +147,8 @@ func TestConfigExplain_AllFields(t *testing.T) {
 
 	results, err := tap.ConfigExplain(context.Background(), tapper.ConfigExplainOptions{})
 	require.NoError(t, err)
-	require.Len(t, results, 6, "should return all 6 config fields")
+	require.Len(t, results, len(tapper.ConfigExplainFields),
+		"should return one entry per ConfigExplainFields")
 
 	// Build a map for easier assertions.
 	byField := map[string]tapper.ConfigExplainResult{}
