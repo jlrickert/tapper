@@ -38,6 +38,15 @@ func stubAuthLoginHook(fn func(context.Context, *toolkit.Runtime, tapper.AuthLog
 	}
 }
 
+// stubAuthLoginDeviceHook is the device-flow analogue of stubAuthLoginHook.
+// Used by tests that exercise the --device branch of `tap auth login` and
+// want to capture the AuthLoginDeviceOptions the CLI passed.
+func stubAuthLoginDeviceHook(fn func(context.Context, *toolkit.Runtime, tapper.AuthLoginDeviceOptions) (*tapper.AuthEntry, error)) func(*Deps) {
+	return func(d *Deps) {
+		d.AuthLoginDeviceFn = fn
+	}
+}
+
 // newAuthProcess builds a Process running `tap auth ...`. A nil hook
 // runs the unaltered production wiring; otherwise the hook is attached
 // to the ctx via WithTestDepsHook and applied to Deps before NewRootCmd
@@ -189,6 +198,43 @@ func TestAuthLoginCmd_PropagatesFlowError(t *testing.T) {
 type stubAuthError struct{ msg string }
 
 func (e *stubAuthError) Error() string { return e.msg }
+
+// TestAuthLoginCmd_DeviceFlagDispatchesToDeviceLogin asserts that --device
+// routes the command through AuthLoginDeviceFn and not the browser-based
+// AuthLoginFn. The stub for the unused branch fails the test if invoked, so
+// regressions in the dispatch are surfaced immediately.
+func TestAuthLoginCmd_DeviceFlagDispatchesToDeviceLogin(t *testing.T) {
+	t.Parallel()
+	sb := newTestSandbox(t)
+
+	var deviceCaptured atomic.Value // tapper.AuthLoginDeviceOptions
+	hook := func(d *Deps) {
+		d.AuthLoginFn = func(context.Context, *toolkit.Runtime, tapper.AuthLoginOptions) (*tapper.AuthEntry, error) {
+			t.Fatal("browser AuthLoginFn must not be called when --device is set")
+			return nil, nil
+		}
+		d.AuthLoginDeviceFn = func(_ context.Context, _ *toolkit.Runtime, opts tapper.AuthLoginDeviceOptions) (*tapper.AuthEntry, error) {
+			deviceCaptured.Store(opts)
+			return &tapper.AuthEntry{AccessToken: "stub-device-token", TokenType: "Bearer"}, nil
+		}
+	}
+
+	proc := newAuthProcess(t, hook,
+		"auth", "login",
+		"--hub", "https://hub.example.com",
+		"--device",
+	)
+	res := proc.Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+
+	captured, ok := deviceCaptured.Load().(tapper.AuthLoginDeviceOptions)
+	require.True(t, ok, "device login fn should have been called")
+	require.Equal(t, "https://hub.example.com", captured.HubURL)
+	require.Equal(t, "tapper-cli", captured.ClientID)
+	// User did not pass --timeout, so the CLI should pass zero through and
+	// let the device-flow default (10m) win in withDefaults.
+	require.Equal(t, time.Duration(0), captured.Timeout)
+}
 
 // TestAuthLoginCmd_EndToEnd_AgainstMockHub runs the real tapper.AuthLogin
 // implementation against a local httptest hub with a browser-opener
