@@ -38,14 +38,19 @@ var dupSlashRE = regexp.MustCompile(`/+`)
 // - Hub API shorthand and structured form:
 //   - Compact scalar shorthand "hub:@user/keg" (canonical), with
 //     "hub:user/keg" and "hub:/@user/keg" accepted as input variants.
-//   - Mapping form with "hub", "user", and "keg" fields.
+//   - Mapping form with "hub", "namespace", and "kegName" fields.
 //
 // Fields:
 //
 //   - File: filesystem path for a local keg target.
 //   - Hub: hub name when using an API style target.
 //   - Url: canonical URL when provided or parsed from a scalar.
-//   - User/Keg: structured hub pieces used to compose API paths.
+//   - Namespace/KegName: structured hub pieces used to compose API paths.
+//     Namespace is the owner — a user's default namespace shares their
+//     username, but organizations and other namespace types are also valid.
+//     The "@" sigil is implied and not stored.
+//   - BasicAuthUser: HTTP basic-auth username for URL targets. Distinct
+//     from Namespace, which addresses a hub-scheme namespace owner.
 //   - Password/Token/TokenEnv: credential hints. TokenEnv is preferred for
 //     production usage.
 //   - Readonly: when true the target was requested read only.
@@ -53,7 +58,7 @@ type Target struct {
 	// File is the file to use when the Target is a file
 	File string `yaml:"file,omitempty"`
 
-	// Hub is the hub name used to resolve the User and Keg into an API target
+	// Hub is the hub name used to resolve the Namespace and KegName into an API target
 	Hub string `yaml:"hub,omitempty"`
 
 	// Url is the url for the target when represented as a scalar or explicit
@@ -62,9 +67,18 @@ type Target struct {
 
 	Memory bool
 
-	// Other options
-	User     string `yaml:"user,omitempty"`
-	Keg      string `yaml:"keg,omitempty"`
+	// Namespace is the namespace owner for hub targets. The "@" sigil is
+	// implied; do not store it. A user's default namespace shares their
+	// username; organizations and other namespace types use the same field.
+	Namespace string `yaml:"namespace,omitempty"`
+
+	// KegName is the keg's name within the Namespace.
+	KegName string `yaml:"kegName,omitempty"`
+
+	// BasicAuthUser is the HTTP basic-auth username for URL targets.
+	// Distinct from Namespace, which addresses a hub-scheme namespace owner.
+	BasicAuthUser string `yaml:"basicAuthUser,omitempty"`
+
 	Password string `yaml:"password,omitempty"`
 	Token    string `yaml:"token,omitempty"`
 	TokenEnv string `yaml:"tokenEnv,omitempty"`
@@ -89,12 +103,13 @@ const (
 	SchemeS3     = "s3"
 )
 
-// NewApi constructs a Target representing a keg API endpoint.
-func NewApi(hub string, user, keg string, opts ...TargetOption) Target {
+// NewApi constructs a Target representing a keg API endpoint. namespace is
+// the namespace owner (no "@" sigil); kegName is the keg's name within it.
+func NewApi(hub string, namespace, kegName string, opts ...TargetOption) Target {
 	t := Target{
-		Hub:  hub,
-		User: user,
-		Keg:  keg,
+		Hub:       hub,
+		Namespace: namespace,
+		KegName:   kegName,
 	}
 	for _, o := range opts {
 		o(&t)
@@ -117,8 +132,8 @@ func NewFile(path string, opts ...TargetOption) Target {
 
 func NewMemory(kegalias string, opts ...TargetOption) Target {
 	t := Target{
-		Memory: true,
-		Keg:    kegalias,
+		Memory:  true,
+		KegName: kegalias,
 	}
 	for _, o := range opts {
 		o(&t)
@@ -134,7 +149,7 @@ func WithReadonly() TargetOption {
 
 func WithBasicAuth(user, pass string) HTTPOption {
 	return func(target *Target) {
-		target.User = user
+		target.BasicAuthUser = user
 		target.Password = pass
 	}
 }
@@ -185,15 +200,15 @@ func Parse(raw string) (*Target, error) {
 			if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
 				return nil, fmt.Errorf("malformed target shorthand: %s", raw)
 			}
-			user := strings.TrimPrefix(parts[0], "@")
-			if user == "" {
+			namespace := strings.TrimPrefix(parts[0], "@")
+			if namespace == "" {
 				return nil, fmt.Errorf("malformed target shorthand: %s", raw)
 			}
-			keg := parts[1]
+			kegName := parts[1]
 			t := Target{
-				Hub:  hub,
-				User: user,
-				Keg:  keg,
+				Hub:       hub,
+				Namespace: namespace,
+				KegName:   kegName,
 			}
 			return &t, nil
 		}
@@ -226,9 +241,9 @@ func Parse(raw string) (*Target, error) {
 	}
 
 	kt := Target{
-		Url:      value,
-		User:     user,
-		Password: pass,
+		Url:           value,
+		BasicAuthUser: user,
+		Password:      pass,
 	}
 
 	// Honor common truthy query values for readonly.
@@ -332,7 +347,7 @@ func (kt *Target) String() string {
 	case SchemeFile:
 		return kt.File
 	case SchemeHub:
-		return kt.Hub + ":@" + kt.User + "/" + kt.Keg
+		return kt.Hub + ":@" + kt.Namespace + "/" + kt.KegName
 	case SchemeHTTP, SchemeHTTPs:
 		return kt.Url
 	default:
@@ -384,8 +399,8 @@ func (kt *Target) Path() string {
 	case SchemeFile:
 		return filepath.Clean(kt.File)
 	case SchemeHub:
-		// Preserve a leading @ on user when composing a path for display.
-		return filepath.Join("@"+kt.User, kt.Keg)
+		// Re-apply the @ sigil on the namespace; the stored value never carries it.
+		return filepath.Join("@"+kt.Namespace, kt.KegName)
 	default:
 		u, _ := url.Parse(kt.Url)
 		return u.Path

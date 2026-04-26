@@ -64,7 +64,7 @@ func TestAuthStoreTokenResolver_ResolveToken(t *testing.T) {
 		{
 			name:   "hub target derives https://<hub>",
 			store:  newStore(),
-			target: kegurl.Target{Hub: altHubHost, User: "me", Keg: "demo"},
+			target: kegurl.Target{Hub: altHubHost, Namespace: "me", KegName: "demo"},
 			want:   altHubToken,
 		},
 		{
@@ -76,7 +76,7 @@ func TestAuthStoreTokenResolver_ResolveToken(t *testing.T) {
 		{
 			name:   "memory target short-circuits to empty",
 			store:  newStore(),
-			target: kegurl.Target{Memory: true, Keg: "m"},
+			target: kegurl.Target{Memory: true, KegName: "m"},
 			want:   "",
 		},
 		{

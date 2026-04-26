@@ -67,13 +67,17 @@
                 "type": "boolean",
                 "description": "When true, use an in-memory keg target."
               },
-              "user": {
+              "namespace": {
                 "type": "string",
-                "description": "User or namespace component for API-style targets."
+                "description": "Namespace owner for hub-style targets (user, organization, or other namespace type). The @ sigil is implied; do not include it."
               },
-              "keg": {
+              "kegName": {
                 "type": "string",
-                "description": "Keg name component for API-style targets."
+                "description": "Keg name within the namespace for hub-style targets."
+              },
+              "basicAuthUser": {
+                "type": "string",
+                "description": "HTTP basic-auth username for URL targets. Distinct from namespace, which addresses a hub-scheme namespace owner."
               },
               "password": {
                 "type": "string",

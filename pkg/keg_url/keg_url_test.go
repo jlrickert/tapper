@@ -83,18 +83,18 @@ func TestParse_File_TableDriven(t *testing.T) {
 // These ensure both scalar and mapping forms decode to the expected Target.
 func TestUnmarshalYAML_TableDriven(t *testing.T) {
 	cases := []struct {
-		name       string
-		rawYAML    []byte
-		wantErr    bool
-		wantSchema string
-		wantHost   string
-		wantPath   string
-		wantToken  string
-		wantHub    string
-		wantUser   string
-		wantKeg    string
-		wantFile   string
-		wantUrl    string
+		name          string
+		rawYAML       []byte
+		wantErr       bool
+		wantSchema    string
+		wantHost      string
+		wantPath      string
+		wantToken     string
+		wantHub       string
+		wantNamespace string
+		wantKegName   string
+		wantFile      string
+		wantUrl       string
 	}{
 		{
 			name:       "https: simple url mapping",
@@ -125,20 +125,20 @@ token: secret123
 			wantToken:  "secret123",
 		},
 		{
-			name:       "api: structured hub+user+keg mapping",
-			rawYAML:    []byte("hub: jlr\nuser: jlrickert\nkeg: tapper\n"),
-			wantSchema: kegurl.SchemeHub,
-			wantHub:    "jlr",
-			wantUser:   "jlrickert",
-			wantKeg:    "tapper",
+			name:          "api: structured hub+namespace+kegName mapping",
+			rawYAML:       []byte("hub: jlr\nnamespace: jlrickert\nkegName: tapper\n"),
+			wantSchema:    kegurl.SchemeHub,
+			wantHub:       "jlr",
+			wantNamespace: "jlrickert",
+			wantKegName:   "tapper",
 		},
 		{
-			name:       "api: scalar shorthand as yaml string",
-			rawYAML:    []byte("jlr:jlrickert/tapper"),
-			wantSchema: kegurl.SchemeHub,
-			wantHub:    "jlr",
-			wantUser:   "jlrickert",
-			wantKeg:    "tapper",
+			name:          "api: scalar shorthand as yaml string",
+			rawYAML:       []byte("jlr:jlrickert/tapper"),
+			wantSchema:    kegurl.SchemeHub,
+			wantHub:       "jlr",
+			wantNamespace: "jlrickert",
+			wantKegName:   "tapper",
 		},
 		{
 			name:       "file: simple path",
@@ -211,11 +211,11 @@ token: secret123
 			if tc.wantToken != "" {
 				require.Equal(t, tc.wantToken, kt.Token)
 			}
-			if tc.wantUser != "" {
-				require.Equal(t, tc.wantUser, kt.User)
+			if tc.wantNamespace != "" {
+				require.Equal(t, tc.wantNamespace, kt.Namespace)
 			}
-			if tc.wantKeg != "" {
-				require.Equal(t, tc.wantKeg, kt.Keg)
+			if tc.wantKegName != "" {
+				require.Equal(t, tc.wantKegName, kt.KegName)
 			}
 			// Ensure the String result is parseable as a URL when non-empty.
 			if kt.String() != "" {
@@ -277,8 +277,8 @@ func TestParse_HubShorthand_Canonicalization(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, kegurl.SchemeHub, kt.Scheme())
 			require.Equal(t, "jlr", kt.Hub)
-			require.Equal(t, "jlrickert", kt.User, "@ sigil must be stripped on parse")
-			require.Equal(t, "tapper", kt.Keg)
+			require.Equal(t, "jlrickert", kt.Namespace, "@ sigil must be stripped on parse")
+			require.Equal(t, "tapper", kt.KegName)
 			require.Equal(t, "jlr:@jlrickert/tapper", kt.String(), "String() must emit canonical form")
 			require.Equal(t, filepath.Join("@jlrickert", "tapper"), kt.Path(), "Path() must re-apply @ exactly once")
 		})
