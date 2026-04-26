@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	kegpkg "github.com/jlrickert/tapper/pkg/keg"
-	kegurl "github.com/jlrickert/tapper/pkg/keg_url"
 	"github.com/stretchr/testify/require"
 )
 
@@ -16,7 +15,7 @@ type stubResolver struct {
 	called int
 }
 
-func (s *stubResolver) ResolveToken(_ *kegurl.Target) string {
+func (s *stubResolver) ResolveToken(_ *kegpkg.Target) string {
 	s.called++
 	return s.token
 }
@@ -36,14 +35,14 @@ func TestResolveTargetToken_Precedence(t *testing.T) {
 	cases := []struct {
 		name     string
 		env      map[string]string
-		target   kegurl.Target
+		target   kegpkg.Target
 		resolver *stubResolver
 		want     want
 	}{
 		{
 			name: "env wins when TokenEnv is set and value is present",
 			env:  map[string]string{"HUB_TOKEN": "env-value"},
-			target: kegurl.Target{
+			target: kegpkg.Target{
 				Url:      "https://hub.example.com",
 				TokenEnv: "HUB_TOKEN",
 				Token:    "literal-ignored",
@@ -53,7 +52,7 @@ func TestResolveTargetToken_Precedence(t *testing.T) {
 		},
 		{
 			name: "literal Token wins when TokenEnv is empty/unset",
-			target: kegurl.Target{
+			target: kegpkg.Target{
 				Url:      "https://hub.example.com",
 				TokenEnv: "HUB_TOKEN",
 				Token:    "literal-value",
@@ -63,7 +62,7 @@ func TestResolveTargetToken_Precedence(t *testing.T) {
 		},
 		{
 			name: "resolver fills in when env and literal are both empty",
-			target: kegurl.Target{
+			target: kegpkg.Target{
 				Url: "https://hub.example.com",
 			},
 			resolver: &stubResolver{token: "resolver-value"},
@@ -71,7 +70,7 @@ func TestResolveTargetToken_Precedence(t *testing.T) {
 		},
 		{
 			name: "nil resolver is safe; no credentials means empty token",
-			target: kegurl.Target{
+			target: kegpkg.Target{
 				Url: "https://hub.example.com",
 			},
 			resolver: nil,
@@ -88,7 +87,7 @@ func TestResolveTargetToken_Precedence(t *testing.T) {
 				require.NoError(t, f.Runtime().Set(k, v))
 			}
 
-			var opts []kegpkg.TargetOption
+			var opts []kegpkg.KegOption
 			if tc.resolver != nil {
 				opts = append(opts, kegpkg.WithTokenResolver(tc.resolver))
 			}

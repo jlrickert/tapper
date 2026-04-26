@@ -1,4 +1,4 @@
-package kegurl_test
+package keg_test
 
 import (
 	"net/url"
@@ -7,12 +7,12 @@ import (
 	"testing"
 
 	"github.com/jlrickert/cli-toolkit/toolkit"
-	kegurl "github.com/jlrickert/tapper/pkg/keg_url"
+	kegpkg "github.com/jlrickert/tapper/pkg/keg"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 )
 
-// Tests for parsing and YAML unmarshalling of kegurl.Target values.
+// Tests for parsing and YAML unmarshalling of kegpkg.Target values.
 // The table driven tests cover file paths, file URIs, tilde expansion,
 // relative paths, shorthand hub:@user/keg form, and HTTP/HTTPS URLs.
 func TestParse_File_TableDriven(t *testing.T) {
@@ -33,26 +33,26 @@ func TestParse_File_TableDriven(t *testing.T) {
 		{
 			name:       "absolute path",
 			raw:        absTmpKeg,
-			wantSchema: kegurl.SchemeFile,
+			wantSchema: kegpkg.SchemeFile,
 			wantFile:   absTmpKeg,
 		},
 		{
 			name:       "file uri",
 			raw:        fileURI,
-			wantSchema: kegurl.SchemeFile,
+			wantSchema: kegpkg.SchemeFile,
 			wantFile:   absTmpKeg,
 		},
 		{
 			name:       "tilde path expands to home",
 			raw:        "~/kegs/work",
 			expand:     true,
-			wantSchema: kegurl.SchemeFile,
+			wantSchema: kegpkg.SchemeFile,
 			wantFile:   "~/kegs/work",
 		},
 		{
 			name:       "relative path",
 			raw:        "kegs/work",
-			wantSchema: kegurl.SchemeFile,
+			wantSchema: kegpkg.SchemeFile,
 			wantFile:   "kegs/work",
 		},
 	}
@@ -60,7 +60,7 @@ func TestParse_File_TableDriven(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			kt, err := kegurl.Parse(tc.raw)
+			kt, err := kegpkg.Parse(tc.raw)
 			require.NoError(t, err)
 			if tc.expand {
 				err = kt.Expand(&toolkit.OsEnv{})
@@ -99,7 +99,7 @@ func TestUnmarshalYAML_TableDriven(t *testing.T) {
 		{
 			name:       "https: simple url mapping",
 			rawYAML:    []byte("url: example.com/owner/repo"),
-			wantSchema: kegurl.SchemeHTTPs,
+			wantSchema: kegpkg.SchemeHTTPs,
 			wantHost:   "example.com",
 			wantPath:   "/owner/repo",
 			wantUrl:    "https://example.com/owner/repo",
@@ -107,7 +107,7 @@ func TestUnmarshalYAML_TableDriven(t *testing.T) {
 		{
 			name:       "https: simple url scalar",
 			rawYAML:    []byte("example.com/owner/repo"),
-			wantSchema: kegurl.SchemeHTTPs,
+			wantSchema: kegpkg.SchemeHTTPs,
 			wantHost:   "example.com",
 			wantPath:   "/owner/repo",
 			wantUrl:    "https://example.com/owner/repo",
@@ -118,7 +118,7 @@ func TestUnmarshalYAML_TableDriven(t *testing.T) {
 			rawYAML: []byte(`url: https://keg.example.com/@user/keg
 token: secret123
 `),
-			wantSchema: kegurl.SchemeHTTPs,
+			wantSchema: kegpkg.SchemeHTTPs,
 			wantUrl:    "https://keg.example.com/@user/keg",
 			wantHost:   "keg.example.com",
 			wantPath:   "/@user/keg",
@@ -127,7 +127,7 @@ token: secret123
 		{
 			name:          "api: structured hub+namespace+kegName mapping",
 			rawYAML:       []byte("hub: jlr\nnamespace: jlrickert\nkegName: tapper\n"),
-			wantSchema:    kegurl.SchemeHub,
+			wantSchema:    kegpkg.SchemeHub,
 			wantHub:       "jlr",
 			wantNamespace: "jlrickert",
 			wantKegName:   "tapper",
@@ -135,7 +135,7 @@ token: secret123
 		{
 			name:          "api: scalar shorthand as yaml string",
 			rawYAML:       []byte("jlr:jlrickert/tapper"),
-			wantSchema:    kegurl.SchemeHub,
+			wantSchema:    kegpkg.SchemeHub,
 			wantHub:       "jlr",
 			wantNamespace: "jlrickert",
 			wantKegName:   "tapper",
@@ -143,37 +143,37 @@ token: secret123
 		{
 			name:       "file: simple path",
 			rawYAML:    []byte("/home/testuser/kegs/public"),
-			wantSchema: kegurl.SchemeFile,
+			wantSchema: kegpkg.SchemeFile,
 			wantFile:   "/home/testuser/kegs/public",
 		},
 		{
 			name:       "file: with home expansion",
 			rawYAML:    []byte("~/kegs/public"),
-			wantSchema: kegurl.SchemeFile,
+			wantSchema: kegpkg.SchemeFile,
 			wantFile:   "~/kegs/public",
 		},
 		{
 			name:       "file: relative path",
 			rawYAML:    []byte("../../kegs/public"),
-			wantSchema: kegurl.SchemeFile,
+			wantSchema: kegpkg.SchemeFile,
 			wantFile:   "../../kegs/public",
 		},
 		{
 			name:       "file: screwy relative path",
 			rawYAML:    []byte("..//../kegs/public"),
-			wantSchema: kegurl.SchemeFile,
+			wantSchema: kegpkg.SchemeFile,
 			wantFile:   "../../kegs/public",
 		},
 		{
 			name:       "file: with explicit scheme",
 			rawYAML:    []byte("file:///home/testuser/kegs/public"),
-			wantSchema: kegurl.SchemeFile,
+			wantSchema: kegpkg.SchemeFile,
 			wantFile:   "/home/testuser/kegs/public",
 		},
 		{
 			name:       "file: path w/ explicit scheme and home",
 			rawYAML:    []byte("file://~/kegs/public"),
-			wantSchema: kegurl.SchemeFile,
+			wantSchema: kegpkg.SchemeFile,
 			wantFile:   "~/kegs/public",
 		},
 	}
@@ -181,7 +181,7 @@ token: secret123
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			var kt kegurl.Target
+			var kt kegpkg.Target
 			err := yaml.Unmarshal(tc.rawYAML, &kt)
 			if tc.wantErr {
 				require.Error(t, err, tc.name)
@@ -237,7 +237,7 @@ func TestTargetExpand_ExpandsEnvironmentVariables(t *testing.T) {
 	require.NoError(t, env.Set("SECRET_TOKEN", "secret-token"))
 	require.NoError(t, env.Set("TOKEN_ENV_KEY", "TAPPER_TOKEN"))
 
-	kt := kegurl.Target{
+	kt := kegpkg.Target{
 		File:     "~/${KEG_NAME}/keg",
 		Url:      "https://example.com/${USER}/${KEG_NAME}",
 		Hub:      "${HUB_NAME}",
@@ -273,9 +273,9 @@ func TestParse_HubShorthand_Canonicalization(t *testing.T) {
 	for _, raw := range variants {
 		t.Run(raw, func(t *testing.T) {
 			t.Parallel()
-			kt, err := kegurl.Parse(raw)
+			kt, err := kegpkg.Parse(raw)
 			require.NoError(t, err)
-			require.Equal(t, kegurl.SchemeHub, kt.Scheme())
+			require.Equal(t, kegpkg.SchemeHub, kt.Scheme())
 			require.Equal(t, "jlr", kt.Hub)
 			require.Equal(t, "jlrickert", kt.Namespace, "@ sigil must be stripped on parse")
 			require.Equal(t, "tapper", kt.KegName)

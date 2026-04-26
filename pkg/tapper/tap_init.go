@@ -8,7 +8,6 @@ import (
 
 	appCtx "github.com/jlrickert/cli-toolkit/appctx"
 	"github.com/jlrickert/tapper/pkg/keg"
-	kegurl "github.com/jlrickert/tapper/pkg/keg_url"
 )
 
 type InitOptions struct {
@@ -38,7 +37,7 @@ func (o InitOptions) LocalDestination() bool {
 //   - user: filesystem-backed keg under the first configured kegSearchPaths entry
 //   - project: filesystem-backed keg under project path or explicit --path
 //   - hub: API target entry written to config only
-func (t *Tap) InitKeg(ctx context.Context, options InitOptions) (*kegurl.Target, error) {
+func (t *Tap) InitKeg(ctx context.Context, options InitOptions) (*keg.Target, error) {
 	alias := strings.TrimSpace(options.Keg)
 	if alias == "" {
 		return nil, fmt.Errorf("keg alias is required: %w", keg.ErrInvalid)
@@ -69,7 +68,7 @@ func (t *Tap) InitKeg(ctx context.Context, options InitOptions) (*kegurl.Target,
 	}
 
 	var (
-		target *kegurl.Target
+		target *keg.Target
 		err    error
 	)
 	switch destination {
@@ -128,8 +127,8 @@ type initLocalOptions struct {
 //
 // The destination directory is created and initialized via keg.Init, then
 // creator/title metadata is applied to the generated keg config.
-func (t *Tap) initProjectKeg(ctx context.Context, opts initLocalOptions) (*kegurl.Target, error) {
-	target := kegurl.NewFile(opts.Path)
+func (t *Tap) initProjectKeg(ctx context.Context, opts initLocalOptions) (*keg.Target, error) {
+	target := keg.NewFile(opts.Path)
 	k, err := keg.NewKegFromTarget(ctx, target, t.Runtime)
 	if err != nil {
 		return nil, fmt.Errorf("unable to init keg: %w", err)
@@ -145,7 +144,7 @@ func (t *Tap) initProjectKeg(ctx context.Context, opts initLocalOptions) (*kegur
 	return k.Target, err
 }
 
-func (t *Tap) initUserKeg(ctx context.Context, opts InitOptions) (*kegurl.Target, error) {
+func (t *Tap) initUserKeg(ctx context.Context, opts InitOptions) (*keg.Target, error) {
 	cfg, err := t.ConfigService.Config(true)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load config: %w", err)
@@ -157,7 +156,7 @@ func (t *Tap) initUserKeg(ctx context.Context, opts InitOptions) (*kegurl.Target
 
 	kegPath := filepath.Join(repoPath, opts.Keg)
 
-	target := kegurl.NewFile(kegPath)
+	target := keg.NewFile(kegPath)
 	k, err := keg.NewKegFromTarget(ctx, target, t.Runtime)
 	if err != nil {
 		return nil, fmt.Errorf("unable to init keg: %w", err)
@@ -204,7 +203,7 @@ type initHubOptions struct {
 }
 
 // initHub creates an API target and optionally stores it in user config.
-func (t *Tap) initHub(opts initHubOptions) (*kegurl.Target, error) {
+func (t *Tap) initHub(opts initHubOptions) (*keg.Target, error) {
 	if opts.Alias == "" {
 		return nil, fmt.Errorf("alias required: %w", keg.ErrInvalid)
 	}
@@ -242,7 +241,7 @@ func (t *Tap) initHub(opts initHubOptions) (*kegurl.Target, error) {
 		}
 	}
 
-	target := kegurl.NewApi(hubName, namespace, opts.Alias)
+	target := keg.NewApi(hubName, namespace, opts.Alias)
 
 	if opts.AddUserConfig {
 		userCfg, err := t.ConfigService.UserConfig(false)

@@ -11,7 +11,6 @@ import (
 	"github.com/jlrickert/cli-toolkit/cfgcascade"
 	"github.com/jlrickert/cli-toolkit/toolkit"
 	"github.com/jlrickert/tapper/pkg/keg"
-	kegurl "github.com/jlrickert/tapper/pkg/keg_url"
 )
 
 // ConfigLoadWarning represents a non-fatal issue encountered while loading config.
@@ -232,7 +231,7 @@ func (s *ConfigService) DiscoveredKegAliases(cache bool) ([]string, error) {
 // ResolveTarget resolves an alias to a keg target.
 // Resolution order is: explicit configured alias, discovered local keg alias.
 // When alias is empty it uses defaultKeg, then fallbackKeg.
-func (s *ConfigService) ResolveTarget(alias string, cache bool) (*kegurl.Target, error) {
+func (s *ConfigService) ResolveTarget(alias string, cache bool) (*keg.Target, error) {
 	cfg, err := s.Config(cache)
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve target: %w", err)
@@ -260,7 +259,7 @@ func (s *ConfigService) ResolveTarget(alias string, cache bool) (*kegurl.Target,
 		return nil, err
 	}
 	if path, ok := localTargets[requestedAlias]; ok {
-		t := kegurl.NewFile(path)
+		t := keg.NewFile(path)
 		return &t, nil
 	}
 

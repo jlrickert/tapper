@@ -8,7 +8,6 @@ import (
 
 	"github.com/jlrickert/cli-toolkit/sandbox"
 	kegpkg "github.com/jlrickert/tapper/pkg/keg"
-	kegurl "github.com/jlrickert/tapper/pkg/keg_url"
 	"github.com/stretchr/testify/require"
 )
 
@@ -18,7 +17,7 @@ func TestInitWhenRepoIsExample(t *testing.T) {
 	t.Parallel()
 	f := NewSandbox(t, sandbox.WithFixture("example", "~/repos/example"))
 
-	k, err := kegpkg.NewKegFromTarget(f.Context(), kegurl.NewFile("~/repos/example"), f.Runtime())
+	k, err := kegpkg.NewKegFromTarget(f.Context(), kegpkg.NewFile("~/repos/example"), f.Runtime())
 	require.NoError(t, err, "NewKegFromTarget failed")
 
 	err = k.Init(f.Context())
@@ -36,7 +35,7 @@ func TestInitOnEmptyRepo(t *testing.T) {
 	t.Parallel()
 	f := NewSandbox(t, sandbox.WithFixture("empty", "repo"))
 
-	k, err := kegpkg.NewKegFromTarget(f.Context(), kegurl.NewFile("repo"), f.Runtime())
+	k, err := kegpkg.NewKegFromTarget(f.Context(), kegpkg.NewFile("repo"), f.Runtime())
 	require.NoError(t, err, "NewKegFromTarget failed")
 
 	require.NoError(t, k.Init(f.Context()), "InitKeg failed")
@@ -89,7 +88,7 @@ func TestKegExistsWithFsRepo(t *testing.T) {
 	t.Parallel()
 	f := NewSandbox(t, sandbox.WithFixture("empty", "repofs"))
 
-	k, err := kegpkg.NewKegFromTarget(f.Context(), kegurl.NewFile("repofs"), f.Runtime())
+	k, err := kegpkg.NewKegFromTarget(f.Context(), kegpkg.NewFile("repofs"), f.Runtime())
 	require.NoError(t, err, "NewKegFromTarget failed")
 
 	// Uninitialized on disk.
@@ -258,7 +257,7 @@ func TestCreateAndUpdateNodesWithFsRepo(t *testing.T) {
 	// Use the empty fixture as a filesystem-backed repo.
 	f := NewSandbox(t, sandbox.WithFixture("empty", "repofs_fs"))
 
-	k, err := kegpkg.NewKegFromTarget(f.Context(), kegurl.NewFile("repofs_fs"), f.Runtime())
+	k, err := kegpkg.NewKegFromTarget(f.Context(), kegpkg.NewFile("repofs_fs"), f.Runtime())
 	require.NoError(t, err, "NewKegFromTarget failed")
 
 	// Initialize on disk.
@@ -396,7 +395,7 @@ func TestIndexFilesHaveExpectedData(t *testing.T) {
 	t.Parallel()
 	f := NewSandbox(t, sandbox.WithFixture("example", "~/repo"))
 
-	k, err := kegpkg.NewKegFromTarget(f.Context(), kegurl.NewFile("~/repo"), f.Runtime())
+	k, err := kegpkg.NewKegFromTarget(f.Context(), kegpkg.NewFile("~/repo"), f.Runtime())
 	require.NoError(t, err, "NewKegFromTarget failed")
 
 	// Load dex via NewDexFromRepo which reads the index artifacts.
@@ -440,7 +439,7 @@ func TestIndex_PreservesUnknownConfigFields(t *testing.T) {
 	t.Parallel()
 	f := NewSandbox(t, sandbox.WithFixture("empty", "repofs_config"))
 
-	k, err := kegpkg.NewKegFromTarget(f.Context(), kegurl.NewFile("repofs_config"), f.Runtime())
+	k, err := kegpkg.NewKegFromTarget(f.Context(), kegpkg.NewFile("repofs_config"), f.Runtime())
 	require.NoError(t, err, "NewKegFromTarget failed")
 	require.NoError(t, k.Init(f.Context()), "InitKeg failed")
 
@@ -723,7 +722,7 @@ func TestSetContent_NoChangeSkipsDexAndConfig(t *testing.T) {
 	t.Parallel()
 	f := NewSandbox(t, sandbox.WithFixture("empty", "repo_noop"))
 
-	k, err := kegpkg.NewKegFromTarget(f.Context(), kegurl.NewFile("repo_noop"), f.Runtime())
+	k, err := kegpkg.NewKegFromTarget(f.Context(), kegpkg.NewFile("repo_noop"), f.Runtime())
 	require.NoError(t, err)
 	require.NoError(t, k.Init(f.Context()))
 
@@ -755,7 +754,7 @@ func TestSetMeta_NoChangeSkipsDexAndConfig(t *testing.T) {
 	t.Parallel()
 	f := NewSandbox(t, sandbox.WithFixture("empty", "repo_meta_noop"))
 
-	k, err := kegpkg.NewKegFromTarget(f.Context(), kegurl.NewFile("repo_meta_noop"), f.Runtime())
+	k, err := kegpkg.NewKegFromTarget(f.Context(), kegpkg.NewFile("repo_meta_noop"), f.Runtime())
 	require.NoError(t, err)
 	require.NoError(t, k.Init(f.Context()))
 
@@ -798,7 +797,7 @@ func TestSetMeta_WithChangeUpdatesDexAndConfig(t *testing.T) {
 	t.Parallel()
 	f := NewSandbox(t, sandbox.WithFixture("empty", "repo_meta_change"))
 
-	k, err := kegpkg.NewKegFromTarget(f.Context(), kegurl.NewFile("repo_meta_change"), f.Runtime())
+	k, err := kegpkg.NewKegFromTarget(f.Context(), kegpkg.NewFile("repo_meta_change"), f.Runtime())
 	require.NoError(t, err)
 	require.NoError(t, k.Init(f.Context()))
 
@@ -841,7 +840,7 @@ func TestSetContent_WithChangeUpdatesDexAndConfig(t *testing.T) {
 	t.Parallel()
 	f := NewSandbox(t, sandbox.WithFixture("empty", "repo_content_change"))
 
-	k, err := kegpkg.NewKegFromTarget(f.Context(), kegurl.NewFile("repo_content_change"), f.Runtime())
+	k, err := kegpkg.NewKegFromTarget(f.Context(), kegpkg.NewFile("repo_content_change"), f.Runtime())
 	require.NoError(t, err)
 	require.NoError(t, k.Init(f.Context()))
 
@@ -881,7 +880,7 @@ func TestEditNoChange_SimulatesSaveWithoutChanges(t *testing.T) {
 	t.Parallel()
 	f := NewSandbox(t, sandbox.WithFixture("empty", "repo_edit_noop"))
 
-	k, err := kegpkg.NewKegFromTarget(f.Context(), kegurl.NewFile("repo_edit_noop"), f.Runtime())
+	k, err := kegpkg.NewKegFromTarget(f.Context(), kegpkg.NewFile("repo_edit_noop"), f.Runtime())
 	require.NoError(t, err)
 	require.NoError(t, k.Init(f.Context()))
 
@@ -927,7 +926,7 @@ func TestCreateAlwaysTriggersUpdate(t *testing.T) {
 	t.Parallel()
 	f := NewSandbox(t, sandbox.WithFixture("empty", "repo_create_always"))
 
-	k, err := kegpkg.NewKegFromTarget(f.Context(), kegurl.NewFile("repo_create_always"), f.Runtime())
+	k, err := kegpkg.NewKegFromTarget(f.Context(), kegpkg.NewFile("repo_create_always"), f.Runtime())
 	require.NoError(t, err)
 	require.NoError(t, k.Init(f.Context()))
 
@@ -954,7 +953,7 @@ func TestDexFresh_ReloadsAfterExternalModification(t *testing.T) {
 	t.Parallel()
 	f := NewSandbox(t, sandbox.WithFixture("empty", "repofs_dexfresh"))
 
-	k, err := kegpkg.NewKegFromTarget(f.Context(), kegurl.NewFile("repofs_dexfresh"), f.Runtime())
+	k, err := kegpkg.NewKegFromTarget(f.Context(), kegpkg.NewFile("repofs_dexfresh"), f.Runtime())
 	require.NoError(t, err)
 	require.NoError(t, k.Init(f.Context()))
 
@@ -977,7 +976,7 @@ func TestDexFresh_ReloadsAfterExternalModification(t *testing.T) {
 	// using a second Keg instance pointing at the same repo. This writes
 	// new dex files to disk, changing the mtime.
 	f.Advance(2 * time.Minute)
-	k2, err := kegpkg.NewKegFromTarget(f.Context(), kegurl.NewFile("repofs_dexfresh"), f.Runtime())
+	k2, err := kegpkg.NewKegFromTarget(f.Context(), kegpkg.NewFile("repofs_dexfresh"), f.Runtime())
 	require.NoError(t, err)
 	_, err = k2.Create(f.Context(), &kegpkg.CreateOptions{
 		Title: "External Node",
@@ -1014,7 +1013,7 @@ func TestDexFresh_ReturnsCachedWhenUnchanged(t *testing.T) {
 	t.Parallel()
 	f := NewSandbox(t, sandbox.WithFixture("empty", "repofs_dexcache"))
 
-	k, err := kegpkg.NewKegFromTarget(f.Context(), kegurl.NewFile("repofs_dexcache"), f.Runtime())
+	k, err := kegpkg.NewKegFromTarget(f.Context(), kegpkg.NewFile("repofs_dexcache"), f.Runtime())
 	require.NoError(t, err)
 	require.NoError(t, k.Init(f.Context()))
 

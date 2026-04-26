@@ -7,7 +7,6 @@ import (
 
 	"github.com/jlrickert/cli-toolkit/sandbox"
 	"github.com/jlrickert/tapper/pkg/keg"
-	kegurl "github.com/jlrickert/tapper/pkg/keg_url"
 	"github.com/jlrickert/tapper/pkg/tapper"
 	"github.com/stretchr/testify/require"
 )
@@ -43,7 +42,7 @@ kegSearchPaths:
 	// Create and init the keg directly (Init writes a proper config file).
 	kegDir := "/home/testuser/kegs/test"
 	require.NoError(t, fx.Runtime().Mkdir(kegDir, 0o755, true))
-	initKeg, err := keg.NewKegFromTarget(fx.Context(), kegurl.NewFile(kegDir), fx.Runtime())
+	initKeg, err := keg.NewKegFromTarget(fx.Context(), keg.NewFile(kegDir), fx.Runtime())
 	require.NoError(t, err)
 	require.NoError(t, initKeg.Init(fx.Context()))
 
@@ -139,7 +138,7 @@ func TestKegService_QueryResolver_ProjectKeg(t *testing.T) {
 	))
 
 	// Init the keg.
-	initKeg, err := keg.NewKegFromTarget(fx.Context(), kegurl.NewFile(kegDir), fx.Runtime())
+	initKeg, err := keg.NewKegFromTarget(fx.Context(), keg.NewFile(kegDir), fx.Runtime())
 	require.NoError(t, err)
 	require.NoError(t, initKeg.Init(fx.Context()))
 

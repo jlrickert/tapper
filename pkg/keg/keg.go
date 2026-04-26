@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/jlrickert/cli-toolkit/toolkit"
-	kegurl "github.com/jlrickert/tapper/pkg/keg_url"
 	"gopkg.in/yaml.v3"
 )
 
@@ -25,7 +24,7 @@ import (
 // maintains an in-memory dex for indexing.
 type Keg struct {
 	// Target is the keg URL/location (nil for memory-backed kegs)
-	Target *kegurl.Target
+	Target *Target
 	// Repo is the storage backend implementation
 	Repo Repository
 	// Runtime provides clock/hash/fs helpers used by high-level keg operations.
@@ -84,15 +83,15 @@ func (k *Keg) SetExtraDexOpts(opts ...DexOption) {
 // root. A resolver returns "" when no credential is available; a nil
 // TokenResolver is legal and means "no fallback".
 type TokenResolver interface {
-	ResolveToken(target *kegurl.Target) string
+	ResolveToken(target *Target) string
 }
 
-// TargetOption customises NewKegFromTarget without breaking existing callers.
+// KegOption customises NewKegFromTarget without breaking existing callers.
 // Variadic options keep the common case (no resolver, no extras) a zero-cost
 // invocation.
-type TargetOption func(*targetOptions)
+type KegOption func(*kegOptions)
 
-type targetOptions struct {
+type kegOptions struct {
 	resolver TokenResolver
 }
 
@@ -100,13 +99,13 @@ type targetOptions struct {
 // fallback when a remote target has neither a TokenEnv-sourced value nor an
 // inline Token. Pass a nil resolver to explicitly opt out of fallback; the
 // option itself is a no-op in that case.
-func WithTokenResolver(r TokenResolver) TargetOption {
-	return func(o *targetOptions) {
+func WithTokenResolver(r TokenResolver) KegOption {
+	return func(o *kegOptions) {
 		o.resolver = r
 	}
 }
 
-// NewKegFromTarget constructs a Keg from a kegurl.Target. It automatically
+// NewKegFromTarget constructs a Keg from a Target. It automatically
 // selects the appropriate repository implementation based on the target's scheme:
 //   - memory:// targets use an in-memory repository
 //   - file:// targets use a filesystem repository
@@ -114,17 +113,17 @@ func WithTokenResolver(r TokenResolver) TargetOption {
 //   - hub targets use an API repository resolved from repo/user/keg fields
 //
 // Returns an error if the target scheme is not supported.
-func NewKegFromTarget(ctx context.Context, target kegurl.Target, rt *toolkit.Runtime, opts ...TargetOption) (*Keg, error) {
-	var o targetOptions
+func NewKegFromTarget(ctx context.Context, target Target, rt *toolkit.Runtime, opts ...KegOption) (*Keg, error) {
+	var o kegOptions
 	for _, apply := range opts {
 		apply(&o)
 	}
 	switch target.Scheme() {
-	case kegurl.SchemeMemory:
+	case SchemeMemory:
 		repo := NewMemoryRepo(rt)
 		keg := Keg{Repo: repo, Runtime: rt}
 		return &keg, nil
-	case kegurl.SchemeFile:
+	case SchemeFile:
 		repo := FsRepo{
 			Root:            filepath.Clean(target.Path()),
 			ContentFilename: MarkdownContentFilename,
@@ -134,13 +133,13 @@ func NewKegFromTarget(ctx context.Context, target kegurl.Target, rt *toolkit.Run
 		}
 		keg := Keg{Target: &target, Repo: &repo, Runtime: rt}
 		return &keg, nil
-	case kegurl.SchemeHTTP, kegurl.SchemeHTTPs:
+	case SchemeHTTP, SchemeHTTPs:
 		token := resolveTargetToken(&target, rt, o.resolver)
 		baseURL := strings.TrimRight(target.Url, "/")
 		repo := NewApiRepo(baseURL, token)
 		keg := Keg{Target: &target, Repo: repo, Runtime: rt}
 		return &keg, nil
-	case kegurl.SchemeHub:
+	case SchemeHub:
 		token := resolveTargetToken(&target, rt, o.resolver)
 		// Build the API base URL from the hub, namespace, and keg-name fields.
 		// Convention: https://<hub>/api/v1/kegs/@<namespace>/<kegName>
@@ -157,7 +156,7 @@ func NewKegFromTarget(ctx context.Context, target kegurl.Target, rt *toolkit.Run
 // TokenEnv (environment variable name) → literal Token → resolver fallback.
 // A nil resolver skips the fallback. Returns an empty string when no
 // credential is available.
-func resolveTargetToken(target *kegurl.Target, rt *toolkit.Runtime, r TokenResolver) string {
+func resolveTargetToken(target *Target, rt *toolkit.Runtime, r TokenResolver) string {
 	if target.TokenEnv != "" {
 		if v := rt.Get(target.TokenEnv); v != "" {
 			return v

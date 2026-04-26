@@ -1,4 +1,4 @@
-package kegurl
+package keg
 
 import (
 	"errors"

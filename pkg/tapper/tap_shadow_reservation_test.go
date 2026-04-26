@@ -8,7 +8,6 @@ import (
 	"github.com/jlrickert/cli-toolkit/sandbox"
 	"github.com/jlrickert/cli-toolkit/toolkit"
 	"github.com/jlrickert/tapper/pkg/keg"
-	kegurl "github.com/jlrickert/tapper/pkg/keg_url"
 	"github.com/jlrickert/tapper/pkg/tapper"
 	"github.com/stretchr/testify/require"
 )
@@ -25,7 +24,7 @@ func allocateShadowReservation(t *testing.T, fx *sandbox.Sandbox) string {
 	t.Helper()
 	k, err := keg.NewKegFromTarget(
 		fx.Context(),
-		kegurl.NewFile("/home/testuser/kegs/test"),
+		keg.NewFile("/home/testuser/kegs/test"),
 		fx.Runtime(),
 	)
 	require.NoError(t, err)
