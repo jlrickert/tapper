@@ -2,6 +2,7 @@ package integrations_test
 
 import (
 	"bytes"
+	"encoding/json"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -35,14 +36,35 @@ func TestRenderedTreeMatchesAdapters(t *testing.T) {
 		t.Fatalf("fs.Sub(content): %v", err)
 	}
 
-	// A sandbox runtime keeps the Claude adapter's env lookup jailed to
-	// "dev" regardless of the host's TAPPER_PLUGIN_VERSION, so the
-	// embedded-vs-adapter comparison is reproducible.
+	// The embedded rendered/claude/.claude-plugin/plugin.json is the
+	// source of truth for the Claude adapter's "version" field: the
+	// release workflow bakes the tag into it, and Claude Code uses that
+	// field as its update gate. Read the embedded value and feed it to
+	// the sandbox runtime via TAPPER_PLUGIN_VERSION so the adapter
+	// re-renders the same bytes whether main carries "dev" (developer
+	// checkout) or "v0.X.0" (post-release).
+	pluginJSON, err := fs.ReadFile(integrations.IntegrationsFS, "rendered/claude/.claude-plugin/plugin.json")
+	if err != nil {
+		t.Fatalf("read embedded plugin.json: %v", err)
+	}
+	var pluginMeta struct {
+		Version string `json:"version"`
+	}
+	if err := json.Unmarshal(pluginJSON, &pluginMeta); err != nil {
+		t.Fatalf("parse embedded plugin.json: %v", err)
+	}
+	if pluginMeta.Version == "" {
+		t.Fatalf("embedded plugin.json has empty version field; real drift")
+	}
+
 	sb := sandbox.NewSandbox(t, &sandbox.Options{
 		Home: filepath.FromSlash("/home/testuser"),
 		User: "testuser",
 	})
 	rt := sb.Runtime()
+	if err := rt.Env().Set("TAPPER_PLUGIN_VERSION", pluginMeta.Version); err != nil {
+		t.Fatalf("set TAPPER_PLUGIN_VERSION: %v", err)
+	}
 
 	mem := integrations.NewMemWriter()
 	if err := integrations.RenderAll(rt, contentFS, mem, integrations.DefaultAdapters()); err != nil {
