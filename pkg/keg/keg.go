@@ -111,7 +111,7 @@ func WithTokenResolver(r TokenResolver) TargetOption {
 //   - memory:// targets use an in-memory repository
 //   - file:// targets use a filesystem repository
 //   - http:// and https:// targets use an API repository (ApiRepo)
-//   - registry targets use an API repository resolved from repo/user/keg fields
+//   - hub targets use an API repository resolved from repo/user/keg fields
 //
 // Returns an error if the target scheme is not supported.
 func NewKegFromTarget(ctx context.Context, target kegurl.Target, rt *toolkit.Runtime, opts ...TargetOption) (*Keg, error) {
@@ -140,12 +140,12 @@ func NewKegFromTarget(ctx context.Context, target kegurl.Target, rt *toolkit.Run
 		repo := NewApiRepo(baseURL, token)
 		keg := Keg{Target: &target, Repo: repo, Runtime: rt}
 		return &keg, nil
-	case kegurl.SchemeRegistry:
+	case kegurl.SchemeHub:
 		token := resolveTargetToken(&target, rt, o.resolver)
-		// Build the API base URL from the registry repo, user, and keg fields.
-		// Convention: https://<repo>/api/v1/kegs/@<user>/<keg>
+		// Build the API base URL from the hub, user, and keg fields.
+		// Convention: https://<hub>/api/v1/kegs/@<user>/<keg>
 		baseURL := fmt.Sprintf("https://%s/api/v1/kegs/@%s/%s",
-			target.Repo, target.User, target.Keg)
+			target.Hub, target.User, target.Keg)
 		repo := NewApiRepo(baseURL, token)
 		keg := Keg{Target: &target, Repo: repo, Runtime: rt}
 		return &keg, nil

@@ -13,15 +13,14 @@ import (
 
 type InitOptions struct {
 	// Destination selection. Exactly one group may be set.
-	Project  bool
-	User     bool
-	Cwd      bool   // use cwd as the project root base instead of git root
-	Path     string // explicit filesystem path; implies local destination
-	Registry bool
+	Project bool
+	User    bool
+	Cwd     bool   // use cwd as the project root base instead of git root
+	Path    string // explicit filesystem path; implies local destination
+	Hub     string // non-empty selects hub destination; value is the hub name
 
-	// Registry-specific options.
-	Repo     string // registry name
-	UserName string // registry namespace
+	// Hub-specific options.
+	UserName string // hub namespace
 	TokenEnv string
 
 	Creator string
@@ -38,7 +37,7 @@ func (o InitOptions) LocalDestination() bool {
 // It validates destination flags and initializes one of three destinations:
 //   - user: filesystem-backed keg under the first configured kegSearchPaths entry
 //   - project: filesystem-backed keg under project path or explicit --path
-//   - registry: API target entry written to config only
+//   - hub: API target entry written to config only
 func (t *Tap) InitKeg(ctx context.Context, options InitOptions) (*kegurl.Target, error) {
 	alias := strings.TrimSpace(options.Keg)
 	if alias == "" {
@@ -52,19 +51,19 @@ func (t *Tap) InitKeg(ctx context.Context, options InitOptions) (*kegurl.Target,
 	if options.User {
 		enabled++
 	}
-	if options.Registry {
+	if options.Hub != "" {
 		enabled++
 	}
 	if enabled > 1 {
-		return nil, fmt.Errorf("only one destination may be selected: local (--project/--cwd/--path), --user, or --registry")
+		return nil, fmt.Errorf("only one destination may be selected: local (--project/--cwd/--path), --user, or --hub")
 	}
 
 	destination := "user"
 	switch {
 	case options.LocalDestination():
 		destination = "project"
-	case options.Registry:
-		destination = "registry"
+	case options.Hub != "":
+		destination = "hub"
 	case options.User:
 		destination = "user"
 	}
@@ -74,11 +73,11 @@ func (t *Tap) InitKeg(ctx context.Context, options InitOptions) (*kegurl.Target,
 		err    error
 	)
 	switch destination {
-	case "registry":
-		target, err = t.initRegistry(initRegistryOptions{
+	case "hub":
+		target, err = t.initHub(initHubOptions{
 			Alias:         options.Keg,
 			User:          options.UserName,
-			Repo:          options.Repo,
+			Hub:           options.Hub,
 			AddUserConfig: true,
 			Title:         options.Title,
 			Creator:       options.Creator,
@@ -192,8 +191,8 @@ func (t *Tap) initUserKeg(ctx context.Context, opts InitOptions) (*kegurl.Target
 	return k.Target, nil
 }
 
-type initRegistryOptions struct {
-	Repo  string
+type initHubOptions struct {
+	Hub   string
 	User  string
 	Alias string
 
@@ -204,23 +203,23 @@ type initRegistryOptions struct {
 	Title   string
 }
 
-// initRegistry creates an API target and optionally stores it in user config.
-func (t *Tap) initRegistry(opts initRegistryOptions) (*kegurl.Target, error) {
+// initHub creates an API target and optionally stores it in user config.
+func (t *Tap) initHub(opts initHubOptions) (*kegurl.Target, error) {
 	if opts.Alias == "" {
 		return nil, fmt.Errorf("alias required: %w", keg.ErrInvalid)
 	}
 
-	// Determine repo (registry) name. Prefer explicit flag, then project config.
-	repoName := opts.Repo
-	if repoName == "" {
+	// Determine hub name. Prefer explicit flag, then project config.
+	hubName := opts.Hub
+	if hubName == "" {
 		cfg, _ := t.ConfigService.Config(true)
-		if cfg != nil && cfg.DefaultRegistry() != "" {
-			repoName = cfg.DefaultRegistry()
+		if cfg != nil && cfg.DefaultHub() != "" {
+			hubName = cfg.DefaultHub()
 		}
 	}
-	if repoName == "" {
+	if hubName == "" {
 		// final fallback
-		repoName = "knut"
+		hubName = "knut"
 	}
 
 	// Determine user namespace.
@@ -241,7 +240,7 @@ func (t *Tap) initRegistry(opts initRegistryOptions) (*kegurl.Target, error) {
 		}
 	}
 
-	target := kegurl.NewApi(repoName, user, opts.Alias)
+	target := kegurl.NewApi(hubName, user, opts.Alias)
 
 	if opts.AddUserConfig {
 		userCfg, err := t.ConfigService.UserConfig(false)

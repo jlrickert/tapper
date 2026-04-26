@@ -33,7 +33,7 @@ func setupTapWithKeg(t *testing.T, fx *sandbox.Sandbox) *tapper.Tap {
 	// Write user config with kegSearchPaths and fallback.
 	userCfg := `fallbackKeg: test
 kegs: {}
-defaultRegistry: ""
+defaultHub: ""
 kegSearchPaths:
   - /home/testuser/kegs
 `

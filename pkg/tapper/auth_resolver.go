@@ -53,12 +53,12 @@ func hubRootFromTarget(target *kegurl.Target) string {
 			return ""
 		}
 		return fmt.Sprintf("%s://%s", parsed.Scheme, parsed.Host)
-	case kegurl.SchemeRegistry:
-		repo := strings.TrimSpace(target.Repo)
-		if repo == "" {
+	case kegurl.SchemeHub:
+		hub := strings.TrimSpace(target.Hub)
+		if hub == "" {
 			return ""
 		}
-		return "https://" + repo
+		return "https://" + hub
 	}
 	return ""
 }

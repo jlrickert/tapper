@@ -11,7 +11,7 @@ var tapEnvVarKeys = []string{
 	"FALLBACK_KEG",
 	"LOG_FILE",
 	"LOG_LEVEL",
-	"DEFAULT_REGISTRY",
+	"DEFAULT_HUB",
 	"KEG_SEARCH_PATHS",
 }
 
@@ -38,8 +38,8 @@ func configFromEnvMap(envMap map[string]string) *Config {
 	if v, ok := envMap["log_level"]; ok {
 		cfg.data.LogLevel = v
 	}
-	if v, ok := envMap["default_registry"]; ok {
-		cfg.data.DefaultRegistry = v
+	if v, ok := envMap["default_hub"]; ok {
+		cfg.data.DefaultHub = v
 	}
 	if v, ok := envMap["keg_search_paths"]; ok {
 		// Colon-separated on Unix.

@@ -403,7 +403,7 @@ func TestParseConfig_KegSearchPathsScalar(t *testing.T) {
 kegSearchPaths: ~/Documents/kegs
 kegMap: []
 kegs: {}
-defaultRegistry: ""
+defaultHub: ""
 `
 	cfg, err := tapper.ParseConfig([]byte(raw))
 	require.NoError(t, err)
@@ -425,7 +425,7 @@ func TestParseConfig_SearchPathModes(t *testing.T) {
 		raw := `userRepoPath: ~/Documents/kegs
 kegMap: []
 kegs: {}
-defaultRegistry: ""
+defaultHub: ""
 `
 		cfg, err := tapper.ParseConfig([]byte(raw))
 		require.NoError(innerT, err)
@@ -441,7 +441,7 @@ kegSearchPaths:
   - ~/repos/kegs
 kegMap: []
 kegs: {}
-defaultRegistry: ""
+defaultHub: ""
 `
 		cfg, err := tapper.ParseConfig([]byte(raw))
 		require.NoError(innerT, err)
@@ -456,7 +456,7 @@ defaultRegistry: ""
   - ~/repos/kegs
 kegMap: []
 kegs: {}
-defaultRegistry: ""
+defaultHub: ""
 `
 		cfg, err := tapper.ParseConfig([]byte(raw))
 		require.NoError(innerT, err)
@@ -474,7 +474,7 @@ kegSearchPaths:
   - ~/repos/kegs
 kegMap: []
 kegs: {}
-defaultRegistry: ""
+defaultHub: ""
 `
 	projectRaw := `defaultKeg: work
 fallbackKeg: work
@@ -483,7 +483,7 @@ kegSearchPaths:
   - ~/Documents/kegs
 kegMap: []
 kegs: {}
-defaultRegistry: ""
+defaultHub: ""
 `
 
 	userCfg, err := tapper.ParseConfig([]byte(userRaw))

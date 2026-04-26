@@ -22,7 +22,7 @@ kegSearchPaths:
   - ~/Documents/kegs
 kegMap: []
 kegs: {}
-defaultRegistry: ""
+defaultHub: ""
 `
 	res := NewProcess(t, false, "repo", "config", "edit", "--user").RunWithIO(
 		sb.Context(),
@@ -109,7 +109,7 @@ func TestRepoConfigEdit_ProjectUsesPipedStdinWithoutEditor(t *testing.T) {
 	input := `defaultKeg: stdin-project
 kegMap: []
 kegs: {}
-defaultRegistry: ""
+defaultHub: ""
 `
 	res := NewProcess(t, false, "repo", "config", "edit", "--project").RunWithIO(
 		sb.Context(),

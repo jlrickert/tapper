@@ -13,9 +13,9 @@
       "type": "string",
       "description": "Last-resort keg alias used when no mapped or default alias resolves. Override with TAP_FALLBACK_KEG env var."
     },
-    "defaultRegistry": {
+    "defaultHub": {
       "type": "string",
-      "description": "Registry name used by default for API-style targets. Override with TAP_DEFAULT_REGISTRY env var."
+      "description": "Hub URL used by default for API-style targets. Override with TAP_DEFAULT_HUB env var."
     },
     "kegSearchPaths": {
       "description": "One path or a list of paths scanned for file-backed kegs. Override with TAP_KEG_SEARCH_PATHS env var (colon-separated).",
@@ -51,9 +51,9 @@
                 "type": "string",
                 "description": "Filesystem path for a local keg target."
               },
-              "repo": {
+              "hub": {
                 "type": "string",
-                "description": "Registry name for an API-style target."
+                "description": "Hub name for an API-style target."
               },
               "url": {
                 "type": "string",
@@ -77,7 +77,7 @@
               },
               "token": {
                 "type": "string",
-                "description": "Inline token credential for URL or registry targets."
+                "description": "Inline token credential for URL or hub targets."
               },
               "tokenEnv": {
                 "type": "string",
@@ -113,34 +113,32 @@
             "description": "Regular expression used to match the current path."
           }
         },
-        "required": [
-          "alias"
-        ],
+        "required": ["alias"],
         "additionalProperties": false
       }
     },
-    "registries": {
+    "hubs": {
       "type": "array",
-      "description": "List of named registry connection definitions.",
+      "description": "List of named hub connection definitions.",
       "items": {
         "type": "object",
-        "description": "Single registry configuration entry.",
+        "description": "Single hub configuration entry.",
         "properties": {
           "name": {
             "type": "string",
-            "description": "Registry identifier referenced by targets and defaults."
+            "description": "Hub identifier referenced by targets and defaults."
           },
           "url": {
             "type": "string",
-            "description": "Base URL or host for the registry."
+            "description": "Base URL or host for the hub."
           },
           "token": {
             "type": "string",
-            "description": "Inline token credential for registry access."
+            "description": "Inline token credential for hub access."
           },
           "tokenEnv": {
             "type": "string",
-            "description": "Environment variable name containing the registry token."
+            "description": "Environment variable name containing the hub token."
           }
         },
         "additionalProperties": false

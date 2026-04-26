@@ -29,7 +29,7 @@ func setupDoctorKeg(t *testing.T, mutate func(*keg.Config)) (*tapper.Tap, contex
 
 	userCfg := `fallbackKeg: test
 kegs: {}
-defaultRegistry: ""
+defaultHub: ""
 kegSearchPaths:
   - /home/testuser/kegs
 `
@@ -106,7 +106,7 @@ func TestDoctor_TagCheckDisabledByDefault(t *testing.T) {
 
 	userCfg := `fallbackKeg: test
 kegs: {}
-defaultRegistry: ""
+defaultHub: ""
 kegSearchPaths:
   - /home/testuser/kegs
 `
@@ -152,7 +152,7 @@ func TestDoctor_TagCheckEnabledReportsMissingTag(t *testing.T) {
 
 	userCfg := `fallbackKeg: test
 kegs: {}
-defaultRegistry: ""
+defaultHub: ""
 kegSearchPaths:
   - /home/testuser/kegs
 `

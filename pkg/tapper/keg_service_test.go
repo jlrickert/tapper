@@ -29,14 +29,14 @@ kegMap:
   - alias: pub
     pathPrefix: ~/repos/github.com
 kegs: {}
-defaultRegistry: ""
+defaultHub: ""
 kegSearchPaths:
   - ~/Documents/kegs
 `)
 	projectCfg := []byte(`defaultKeg: work
 kegMap: []
 kegs: {}
-defaultRegistry: ""
+defaultHub: ""
 `)
 
 	require.NoError(t, fx.Runtime().Mkdir(filepath.Dir(tap.PathService.UserConfig()), 0o755, true))
@@ -94,13 +94,13 @@ kegMap:
   - alias: pub
     pathPrefix: ~/repos/github.com
 kegs: {}
-defaultRegistry: ""
+defaultHub: ""
 kegSearchPaths:
   - ~/Documents/kegs
 `, `defaultKeg: work
 kegMap: []
 kegs: {}
-defaultRegistry: ""
+defaultHub: ""
 `)
 
 		for _, alias := range []string{"pub", "work", "explicit"} {
@@ -125,13 +125,13 @@ kegMap:
   - alias: pub
     pathPrefix: ~/repos/github.com
 kegs: {}
-defaultRegistry: ""
+defaultHub: ""
 kegSearchPaths:
   - ~/Documents/kegs
 `, `defaultKeg: work
 kegMap: []
 kegs: {}
-defaultRegistry: ""
+defaultHub: ""
 `)
 
 		for _, alias := range []string{"pub", "work", "fallback"} {
@@ -156,13 +156,13 @@ kegMap:
   - alias: pub
     pathPrefix: ~/repos/gitlab.com
 kegs: {}
-defaultRegistry: ""
+defaultHub: ""
 kegSearchPaths:
   - ~/Documents/kegs
 `, `defaultKeg: work
 kegMap: []
 kegs: {}
-defaultRegistry: ""
+defaultHub: ""
 `)
 
 		for _, alias := range []string{"pub", "work", "fallback"} {
@@ -187,12 +187,12 @@ kegMap:
   - alias: pub
     pathPrefix: ~/repos/github.com
 kegs: {}
-defaultRegistry: ""
+defaultHub: ""
 kegSearchPaths:
   - ~/Documents/kegs
 `, `kegMap: []
 kegs: {}
-defaultRegistry: ""
+defaultHub: ""
 `)
 
 		for _, alias := range []string{"pub", "fallback"} {
@@ -214,12 +214,12 @@ defaultRegistry: ""
 		writeCfg(innerT, fx, tap, `fallbackKeg: fallback
 kegMap: []
 kegs: {}
-defaultRegistry: ""
+defaultHub: ""
 kegSearchPaths:
   - ~/Documents/kegs
 `, `kegMap: []
 kegs: {}
-defaultRegistry: ""
+defaultHub: ""
 `)
 
 		require.NoError(innerT, fx.Runtime().Mkdir("/home/testuser/Documents/kegs/fallback", 0o755, true))
@@ -258,13 +258,13 @@ kegMap:
   - alias: work
     pathPrefix: ~/sandbox/work/
 kegs: {}
-defaultRegistry: ""
+defaultHub: ""
 kegSearchPaths:
   - ~/Documents/kegs
 `
 	projectCfg := `kegMap: []
 kegs: {}
-defaultRegistry: ""
+defaultHub: ""
 `
 	require.NoError(t, fx.Runtime().AtomicWriteFile(tap.PathService.UserConfig(), []byte(userCfg), 0o644))
 	require.NoError(t, fx.Runtime().AtomicWriteFile(tap.PathService.ProjectConfig(), []byte(projectCfg), 0o644))
@@ -302,14 +302,14 @@ func TestResolveTarget_DiscoveryPathCollisionLaterWins(t *testing.T) {
 fallbackKeg: pub
 kegMap: []
 kegs: {}
-defaultRegistry: ""
+defaultHub: ""
 kegSearchPaths:
   - ~/Documents/kegs-a
   - ~/Documents/kegs-b
 `
 	projectCfg := `kegMap: []
 kegs: {}
-defaultRegistry: ""
+defaultHub: ""
 `
 	require.NoError(t, fx.Runtime().AtomicWriteFile(tap.PathService.UserConfig(), []byte(userCfg), 0o644))
 	require.NoError(t, fx.Runtime().AtomicWriteFile(tap.PathService.ProjectConfig(), []byte(projectCfg), 0o644))

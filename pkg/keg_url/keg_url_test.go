@@ -14,7 +14,7 @@ import (
 
 // Tests for parsing and YAML unmarshalling of kegurl.Target values.
 // The table driven tests cover file paths, file URIs, tilde expansion,
-// relative paths, shorthand registry:user/keg form, and HTTP/HTTPS URLs.
+// relative paths, shorthand hub:user/keg form, and HTTP/HTTPS URLs.
 func TestParse_File_TableDriven(t *testing.T) {
 	// Use OS-specific temp dir so tests work across platforms.
 	tmpDir := os.TempDir()
@@ -90,7 +90,7 @@ func TestUnmarshalYAML_TableDriven(t *testing.T) {
 		wantHost   string
 		wantPath   string
 		wantToken  string
-		wantRepo   string
+		wantHub    string
 		wantUser   string
 		wantKeg    string
 		wantFile   string
@@ -125,18 +125,18 @@ token: secret123
 			wantToken:  "secret123",
 		},
 		{
-			name:       "api: structured repo+user+keg mapping",
-			rawYAML:    []byte("repo: jlr\nuser: jlrickert\nkeg: tapper\n"),
-			wantSchema: kegurl.SchemeRegistry,
-			wantRepo:   "jlr",
+			name:       "api: structured hub+user+keg mapping",
+			rawYAML:    []byte("hub: jlr\nuser: jlrickert\nkeg: tapper\n"),
+			wantSchema: kegurl.SchemeHub,
+			wantHub:    "jlr",
 			wantUser:   "jlrickert",
 			wantKeg:    "tapper",
 		},
 		{
 			name:       "api: scalar shorthand as yaml string",
 			rawYAML:    []byte("jlr:jlrickert/tapper"),
-			wantSchema: kegurl.SchemeRegistry,
-			wantRepo:   "jlr",
+			wantSchema: kegurl.SchemeHub,
+			wantHub:    "jlr",
 			wantUser:   "jlrickert",
 			wantKeg:    "tapper",
 		},
@@ -196,8 +196,8 @@ token: secret123
 				exp := filepath.FromSlash(tc.wantFile)
 				require.Equal(t, exp, kt.File)
 			}
-			if tc.wantRepo != "" {
-				require.Equal(t, tc.wantRepo, kt.Repo)
+			if tc.wantHub != "" {
+				require.Equal(t, tc.wantHub, kt.Hub)
 			}
 			if tc.wantUrl != "" {
 				require.Equal(t, tc.wantUrl, kt.Url)
@@ -233,14 +233,14 @@ func TestTargetExpand_ExpandsEnvironmentVariables(t *testing.T) {
 	home := filepath.Join(string(filepath.Separator), "home", "tester")
 	env := toolkit.NewTestEnv(jail, home, "tester")
 	require.NoError(t, env.Set("KEG_NAME", "blog"))
-	require.NoError(t, env.Set("REPO_NAME", "knut"))
+	require.NoError(t, env.Set("HUB_NAME", "knut"))
 	require.NoError(t, env.Set("SECRET_TOKEN", "secret-token"))
 	require.NoError(t, env.Set("TOKEN_ENV_KEY", "TAPPER_TOKEN"))
 
 	kt := kegurl.Target{
 		File:     "~/${KEG_NAME}/keg",
 		Url:      "https://example.com/${USER}/${KEG_NAME}",
-		Repo:     "${REPO_NAME}",
+		Hub:      "${HUB_NAME}",
 		Password: "${SECRET_TOKEN}",
 		Token:    "${SECRET_TOKEN}",
 		TokenEnv: "${TOKEN_ENV_KEY}",
@@ -250,7 +250,7 @@ func TestTargetExpand_ExpandsEnvironmentVariables(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, filepath.Join(home, "blog", "keg"), kt.File)
 	require.Equal(t, "https://example.com/tester/blog", kt.Url)
-	require.Equal(t, "knut", kt.Repo)
+	require.Equal(t, "knut", kt.Hub)
 	require.Equal(t, "secret-token", kt.Password)
 	require.Equal(t, "secret-token", kt.Token)
 	require.Equal(t, "TAPPER_TOKEN", kt.TokenEnv)

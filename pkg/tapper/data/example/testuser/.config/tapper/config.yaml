@@ -1,4 +1,4 @@
 defaultKeg: mykeg
 kegMap: []
 kegs: {}
-defaultRegistry: ""
+defaultHub: ""
