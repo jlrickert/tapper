@@ -101,9 +101,11 @@ func ResolveLoginHubURL(cfg *Config, explicit string) (string, error) {
 }
 
 // hubURLWithScheme adds an https:// prefix when the configured Hubs entry
-// stores a bare host (the existing default user config writes
-// "keg.jlrickert.me" without a scheme). Existing scheme prefixes pass
-// through unchanged so http://-only test hubs keep working.
+// stores a bare host (e.g. "keg.example.com"). The existing
+// DefaultUserConfig template writes a hostname without a scheme, so this
+// helper protects the chain from KegHub.Url shapes that do not round-trip
+// through url.Parse. Existing scheme prefixes pass through unchanged so
+// http://-only test hubs keep working.
 func hubURLWithScheme(raw string) string {
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" {
