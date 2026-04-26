@@ -29,7 +29,7 @@ const (
 //
 // The comments in this file document the behavior expected by the CLI. The
 // task design for "tap init" is reflected in the semantics described for
-// default registries and path handling.
+// default hubs and path handling.
 
 type configDTO struct {
 	LogFile  string `yaml:"logFile,omitempty"`
@@ -50,15 +50,15 @@ type configDTO struct {
 	// kegs maps an alias to a keg Target.
 	Kegs map[string]kegurl.Target `yaml:"kegs"`
 
-	// defaultRegistry is the named registry used by default when creating
+	// defaultHub is the named hub used by default when creating
 	// API style kegs. The CLI default value is "knut".
-	DefaultRegistry string `yaml:"defaultRegistry"`
+	DefaultHub string `yaml:"defaultHub"`
 
 	// kegSearchPaths are local directories scanned for discovered kegs.
 	KegSearchPaths stringList `yaml:"kegSearchPaths,omitempty"`
 
-	// registries describes configured registries available to the user.
-	Registries []KegRegistry `yaml:"registries,omitempty"`
+	// hubs describes configured hubs available to the user.
+	Hubs []KegHub `yaml:"hubs,omitempty"`
 }
 
 // Config represents the user's tapper configuration.
@@ -77,8 +77,8 @@ type KegMapEntry struct {
 	PathRegex  string `yaml:"pathRegex,omitempty"`
 }
 
-// KegRegistry describes a named registry configuration entry.
-type KegRegistry struct {
+// KegHub describes a named hub configuration entry.
+type KegHub struct {
 	Name     string `yaml:"name,omitempty"`
 	Url      string `yaml:"url,omitempty"`
 	Token    string `yaml:"token,omitempty"`
@@ -193,12 +193,12 @@ func (cfg *Config) Kegs() map[string]kegurl.Target {
 	return cfg.data.Kegs
 }
 
-// DefaultRegistry returns the default registry name.
-func (cfg *Config) DefaultRegistry() string {
+// DefaultHub returns the default hub name.
+func (cfg *Config) DefaultHub() string {
 	if cfg.data == nil {
 		cfg.data = &configDTO{}
 	}
-	return cfg.data.DefaultRegistry
+	return cfg.data.DefaultHub
 }
 
 // KegMap returns the list of path/regex to keg alias mappings.
@@ -212,15 +212,15 @@ func (cfg *Config) KegMap() []KegMapEntry {
 	return cfg.data.KegMap
 }
 
-// Registries return the list of configured registries.
-func (cfg *Config) Registries() []KegRegistry {
+// Hubs return the list of configured hubs.
+func (cfg *Config) Hubs() []KegHub {
 	if cfg.data == nil {
 		cfg.data = &configDTO{}
 	}
-	if cfg.data.Registries == nil {
-		return []KegRegistry{}
+	if cfg.data.Hubs == nil {
+		return []KegHub{}
 	}
-	return cfg.data.Registries
+	return cfg.data.Hubs
 }
 
 // LogFile returns the log file path.
@@ -276,12 +276,12 @@ func (cfg *Config) SetKegSearchPaths(paths []string) error {
 	return nil
 }
 
-// SetDefaultRegistry sets the default registry.
-func (cfg *Config) SetDefaultRegistry(_ context.Context, registry string) error {
+// SetDefaultHub sets the default hub.
+func (cfg *Config) SetDefaultHub(_ context.Context, hub string) error {
 	if cfg.data == nil {
 		cfg.data = &configDTO{}
 	}
-	cfg.data.DefaultRegistry = registry
+	cfg.data.DefaultHub = hub
 	return nil
 }
 
@@ -447,19 +447,19 @@ func ReadConfig(rt *toolkit.Runtime, path string) (*Config, error) {
 // DefaultUserConfig returns a sensible default Config for a new user.
 //
 // The returned Config is a fully populated in-memory config suitable as a
-// starting point when no on-disk config is available. The DefaultRegistry is
+// starting point when no on-disk config is available. The DefaultHub is
 // set to "knut", default/fallback aliases are initialized to name, and
 // kegSearchPaths starts with userRepos.
 func DefaultUserConfig(name string, userRepos string) *Config {
 	return &Config{
 		data: &configDTO{
-			DefaultRegistry: "knut",
-			KegMap:          []KegMapEntry{},
-			DefaultKeg:      "",
-			FallbackKeg:     name,
-			KegSearchPaths:  stringList{filepath.Join(userRepos)},
-			Kegs:            map[string]kegurl.Target{},
-			Registries: []KegRegistry{
+			DefaultHub:     "knut",
+			KegMap:         []KegMapEntry{},
+			DefaultKeg:     "",
+			FallbackKeg:    name,
+			KegSearchPaths: stringList{filepath.Join(userRepos)},
+			Kegs:           map[string]kegurl.Target{},
+			Hubs: []KegHub{
 				{
 					Name:     "knut",
 					Url:      "keg.jlrickert.me",
@@ -485,15 +485,15 @@ func DefaultProjectConfig(user, userKegRepo string) *Config {
 
 	return &Config{
 		data: &configDTO{
-			DefaultRegistry: "knut",
-			KegMap:          []KegMapEntry{},
-			DefaultKeg:      alias,
-			FallbackKeg:     alias,
+			DefaultHub:  "knut",
+			KegMap:      []KegMapEntry{},
+			DefaultKeg:  alias,
+			FallbackKeg: alias,
 			Kegs: map[string]kegurl.Target{
 				alias: kegurl.NewFile(filepath.Join(userKegRepo, alias)),
 			},
 			KegSearchPaths: searchPaths,
-			Registries: []KegRegistry{
+			Hubs: []KegHub{
 				{
 					Name:     "knut",
 					Url:      "keg.jlrickert.me",
@@ -577,11 +577,11 @@ func MergeConfig(cfgs ...*Config) *Config {
 		if !c.data.Updated.IsZero() {
 			out.data.Updated = c.data.Updated
 		}
-		if len(c.data.Registries) > 0 {
-			out.data.Registries = append([]KegRegistry(nil), c.data.Registries...)
+		if len(c.data.Hubs) > 0 {
+			out.data.Hubs = append([]KegHub(nil), c.data.Hubs...)
 		}
-		if c.data.DefaultRegistry != "" {
-			out.data.DefaultRegistry = c.data.DefaultRegistry
+		if c.data.DefaultHub != "" {
+			out.data.DefaultHub = c.data.DefaultHub
 		}
 
 		for alias, target := range c.data.Kegs {

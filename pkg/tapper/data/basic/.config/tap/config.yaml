@@ -7,8 +7,8 @@ kegs:
   blog: knut:jlrickert/blog
   pub: ~/kegs/public
   priv: ~/kegs/private
-defaultRegistry: knut
-registries:
+defaultHub: knut
+hubs:
   - name: knut
     url: https://registry.knut.com
     tokenEnv: TAP_REGISTRY_TOKEN

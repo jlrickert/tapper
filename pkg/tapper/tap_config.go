@@ -206,7 +206,7 @@ var ConfigExplainFields = []string{
 	"fallbackKeg",
 	"logFile",
 	"logLevel",
-	"defaultRegistry",
+	"defaultHub",
 	"kegSearchPaths",
 }
 
@@ -224,8 +224,8 @@ func configFieldGetter(cfg *Config, field string) string {
 		return cfg.LogFile()
 	case "logLevel":
 		return cfg.LogLevel()
-	case "defaultRegistry":
-		return cfg.DefaultRegistry()
+	case "defaultHub":
+		return cfg.DefaultHub()
 	case "kegSearchPaths":
 		return strings.Join(cfg.KegSearchPaths(), ":")
 	default:

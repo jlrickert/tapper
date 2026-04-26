@@ -33,7 +33,7 @@ func TestKegService_QueryResolver_FavoriteIndex(t *testing.T) {
 	// Write user config pointing to keg search path.
 	userCfg := `fallbackKeg: test
 kegs: {}
-defaultRegistry: ""
+defaultHub: ""
 kegSearchPaths:
   - /home/testuser/kegs
 `
@@ -134,7 +134,7 @@ func TestKegService_QueryResolver_ProjectKeg(t *testing.T) {
 	require.NoError(t, fx.Runtime().Mkdir(tap.PathService.ConfigRoot, 0o755, true))
 	require.NoError(t, fx.Runtime().AtomicWriteFile(
 		tap.PathService.UserConfig(),
-		[]byte("kegs: {}\ndefaultRegistry: \"\"\n"),
+		[]byte("kegs: {}\ndefaultHub: \"\"\n"),
 		0o644,
 	))
 

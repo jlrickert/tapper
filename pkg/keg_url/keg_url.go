@@ -35,16 +35,16 @@ var dupSlashRE = regexp.MustCompile(`/+`)
 //   - Mapping form with "url" and optional user/password/token/tokenEnv.
 //     Query params like "readonly", "token", and "token-env" are honored.
 //
-// - Registry API shorthand and structured form:
-//   - Compact scalar shorthand "registry:user/keg" or "registry:/@user/keg".
-//   - Mapping form with "repo", "user", and "keg" fields.
+// - Hub API shorthand and structured form:
+//   - Compact scalar shorthand "hub:user/keg" or "hub:/@user/keg".
+//   - Mapping form with "hub", "user", and "keg" fields.
 //
 // Fields:
 //
 //   - File: filesystem path for a local keg target.
-//   - Repo: registry name when using an API style target.
+//   - Hub: hub name when using an API style target.
 //   - Url: canonical URL when provided or parsed from a scalar.
-//   - User/Keg: structured registry pieces used to compose API paths.
+//   - User/Keg: structured hub pieces used to compose API paths.
 //   - Password/Token/TokenEnv: credential hints. TokenEnv is preferred for
 //     production usage.
 //   - Readonly: when true the target was requested read only.
@@ -52,8 +52,8 @@ type Target struct {
 	// File is the file to use when the Target is a file
 	File string `yaml:"file,omitempty"`
 
-	// Repo is the repo to use to resolve the User and Keg
-	Repo string `yaml:"repo,omitempty"`
+	// Hub is the hub name used to resolve the User and Keg into an API target
+	Hub string `yaml:"hub,omitempty"`
 
 	// Url is the url for the target when represented as a scalar or explicit
 	// mapping value. Url is used when the target was http/s, git, ssh, etc
@@ -84,16 +84,14 @@ const (
 	SchemeHTTP   = "http"
 	SchemeHTTPs  = "https"
 	SchemeAlias  = "keg"
-	// Deprecated: Use SchemeAlias instead. SchemaAlias is a misspelling retained for backward compatibility.
-	SchemaAlias    = SchemeAlias
-	SchemeRegistry = "registry"
-	SchemeS3       = "s3"
+	SchemeHub    = "hub"
+	SchemeS3     = "s3"
 )
 
 // NewApi constructs a Target representing a keg API endpoint.
-func NewApi(repo string, user, keg string, opts ...TargetOption) Target {
+func NewApi(hub string, user, keg string, opts ...TargetOption) Target {
 	t := Target{
-		Repo: repo,
+		Hub:  hub,
 		User: user,
 		Keg:  keg,
 	}
@@ -151,7 +149,7 @@ func WithToken(token string) HTTPOption {
 // Accepted input forms:
 //   - File paths (absolute, ./, ../, ~, Windows drive). These produce File
 //     targets.
-//   - Compact registry shorthand "registry:user/keg" or "registry:/@user/keg".
+//   - Compact hub shorthand "hub:user/keg" or "hub:/@user/keg".
 //   - HTTP/HTTPS URL scalars.
 //   - Any URL-like scalar parsed by url.Parse.
 //
@@ -170,11 +168,11 @@ func Parse(raw string) (*Target, error) {
 			File: filepath.Clean(strings.TrimPrefix(value, "file://")),
 		}
 		return &t, nil
-	case SchemeRegistry:
-		// Accept compact registry shorthand: "registry:user/keg" or
-		// "registry:/@user/keg".
+	case SchemeHub:
+		// Accept compact hub shorthand: "hub:user/keg" or
+		// "hub:/@user/keg".
 		if m := scalarApiRE.FindStringSubmatch(value); m != nil {
-			repo := m[1]
+			hub := m[1]
 			rest := strings.TrimSpace(m[2])
 			rest = strings.TrimPrefix(rest, "/")
 			parts := strings.SplitN(rest, "/", 2)
@@ -184,7 +182,7 @@ func Parse(raw string) (*Target, error) {
 			user := parts[0]
 			keg := parts[1]
 			t := Target{
-				Repo: repo,
+				Hub:  hub,
 				User: user,
 				Keg:  keg,
 			}
@@ -244,7 +242,7 @@ func Parse(raw string) (*Target, error) {
 }
 
 // Expand replaces environment variables and expands a leading tilde in File
-// and Repo-related fields. It uses std.ExpandEnv and std.ExpandPath so behavior
+// and Hub-related fields. It uses std.ExpandEnv and std.ExpandPath so behavior
 // matches the rest of the code base.
 //
 // Errors from ExpandPath are collected and returned as a joined error so callers
@@ -263,7 +261,7 @@ func (k *Target) Expand(env toolkit.Env) error {
 	}
 	k.File = expand(k.File)
 	k.Url = toolkit.ExpandEnv(env, k.Url)
-	k.Repo = toolkit.ExpandEnv(env, k.Repo)
+	k.Hub = toolkit.ExpandEnv(env, k.Hub)
 	k.Password = toolkit.ExpandEnv(env, k.Password)
 	k.Token = toolkit.ExpandEnv(env, k.Token)
 	k.TokenEnv = toolkit.ExpandEnv(env, k.TokenEnv)
@@ -272,10 +270,10 @@ func (k *Target) Expand(env toolkit.Env) error {
 
 // UnmarshalYAML accepts either a scalar string (the URL or shorthand or file)
 // or a mapping node that decodes into the full Target struct. Mapping form may
-// include structured repo/user/keg or an explicit file field.
+// include structured hub/user/keg or an explicit file field.
 //
 // When a scalar is provided the value is parsed via Parse which recognizes
-// file scalars, shorthand registry forms, and URL scalars.
+// file scalars, shorthand hub forms, and URL scalars.
 func (k *Target) UnmarshalYAML(node *yaml.Node) error {
 	if node == nil {
 		return nil
@@ -317,15 +315,15 @@ func (k *Target) UnmarshalYAML(node *yaml.Node) error {
 	}
 }
 
-// String returns a human-friendly representation of the target. For registry
-// API form it returns "repo:user/keg". For file it returns the file path. For
+// String returns a human-friendly representation of the target. For hub
+// API form it returns "hub:user/keg". For file it returns the file path. For
 // HTTP targets it returns the canonical Url.
 func (kt *Target) String() string {
 	switch kt.Scheme() {
 	case SchemeFile:
 		return kt.File
-	case SchemeRegistry:
-		return kt.Repo + ":" + kt.User + "/" + kt.Keg
+	case SchemeHub:
+		return kt.Hub + ":" + kt.User + "/" + kt.Keg
 	case SchemeHTTP, SchemeHTTPs:
 		return kt.Url
 	default:
@@ -334,15 +332,15 @@ func (kt *Target) String() string {
 	}
 }
 
-// Scheme reports the inferred scheme for this Target value. Repo implies the
+// Scheme reports the inferred scheme for this Target value. Hub implies the
 // keg API scheme. File implies a local file scheme. Otherwise we fall back to
 // detectScheme on the Url.
 func (kt *Target) Scheme() string {
 	if kt.File != "" {
 		return SchemeFile
 	}
-	if kt.Repo != "" {
-		return SchemeRegistry
+	if kt.Hub != "" {
+		return SchemeHub
 	}
 	return detectScheme(kt.Url)
 }
@@ -376,7 +374,7 @@ func (kt *Target) Path() string {
 	switch kt.Scheme() {
 	case SchemeFile:
 		return filepath.Clean(kt.File)
-	case SchemeRegistry:
+	case SchemeHub:
 		// Preserve a leading @ on user when composing a path for display.
 		return filepath.Join("@"+kt.User, kt.Keg)
 	default:
@@ -386,7 +384,7 @@ func (kt *Target) Path() string {
 }
 
 // detectScheme returns SchemeHTTPs or SchemeFile based on the form of raw.
-// It recognizes explicit http/https/file schemes and the compact registry
+// It recognizes explicit http/https/file schemes and the compact hub
 // shorthand form. Typical filesystem path forms are classified as SchemeFile.
 func detectScheme(raw string) string {
 	if raw == "" {
@@ -397,7 +395,7 @@ func detectScheme(raw string) string {
 		rest = strings.TrimPrefix(rest, "/")
 		parts := strings.SplitN(rest, "/", 2)
 		if len(parts) == 2 && parts[0] != "" && parts[1] != "" {
-			return SchemeRegistry
+			return SchemeHub
 		}
 	}
 
@@ -436,7 +434,7 @@ func detectScheme(raw string) string {
 		return SchemeFile
 	}
 
-	// Fallback: treat as a local or repo file path.
+	// Fallback: treat as a local file path.
 	return SchemeFile
 }
 

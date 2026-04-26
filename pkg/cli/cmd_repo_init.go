@@ -16,7 +16,7 @@ import (
 //	tap repo init --keg blog
 //	tap repo init --project
 //	tap repo init --keg blog --cwd
-//	tap repo init --keg blog --registry --repo knut --namespace me
+//	tap repo init --keg blog --hub knut --namespace me
 //	tap repo init --keg blog --path ./kegs/blog --title "Blog" --creator "me"
 func NewInitCmd(deps *Deps) *cobra.Command {
 	initOpts := tapper.InitOptions{}
@@ -40,9 +40,9 @@ Create a keg target and initialize it in one of three destinations:
    location. --path implies a local destination even when --project is not
    passed.
 
-3. registry (--registry)
-   Creates a registry/API keg target and stores it in config without creating
-   local keg files.
+3. hub (--hub <name>)
+   Creates a hub/API keg target named <name> and stores it in config without
+   creating local keg files. The hub name is required when --hub is used.
 
 Alias behavior:
 - --keg sets the alias written to config and the directory name.
@@ -57,7 +57,7 @@ tap repo init --project --cwd
 tap repo init --keg blog --cwd
 tap repo init --keg blog --path ./kegs/blog
 tap repo init --keg blog --user
-tap repo init --keg blog --registry --repo knut --namespace me
+tap repo init --keg blog --hub knut --namespace me
 `),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if strings.TrimSpace(initOpts.Keg) == "" {
@@ -85,11 +85,10 @@ tap repo init --keg blog --registry --repo knut --namespace me
 
 	cmd.Flags().BoolVar(&initOpts.Project, "project", false, "create a project-local keg")
 	cmd.Flags().BoolVar(&initOpts.User, "user", false, "create a user keg under the first configured kegSearchPaths entry")
-	cmd.Flags().BoolVar(&initOpts.Registry, "registry", false, "create a registry target")
+	cmd.Flags().StringVar(&initOpts.Hub, "hub", "", "hub name (selects API-style hub target when set)")
 	cmd.Flags().BoolVar(&initOpts.Cwd, "cwd", false, "use cwd instead of git root for local destination resolution")
 	cmd.Flags().StringVar(&initOpts.Path, "path", "", "explicit local destination path; implies local mode")
-	cmd.Flags().StringVar(&initOpts.Repo, "repo", "", "registry name to use with --registry")
-	cmd.Flags().StringVar(&initOpts.UserName, "namespace", "", "registry namespace/user to use with --registry")
+	cmd.Flags().StringVar(&initOpts.UserName, "namespace", "", "hub namespace/user to use with --hub")
 	cmd.Flags().StringVarP(&initOpts.Keg, "keg", "k", "", "alias of keg to add to config")
 	cmd.Flags().StringVar(&initOpts.Title, "title", "", "human title to write into the keg config")
 	cmd.Flags().StringVar(&initOpts.Creator, "creator", "", "creator identifier to include in the keg config")

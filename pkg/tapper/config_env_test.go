@@ -130,7 +130,7 @@ func TestConfigService_MultipleEnvVarsSet(t *testing.T) {
 	require.NoError(t, fx.Runtime().Env().Set("TAP_LOG_LEVEL", "debug"))
 	require.NoError(t, fx.Runtime().Env().Set("TAP_LOG_FILE", "/new/path.log"))
 	require.NoError(t, fx.Runtime().Env().Set("TAP_FALLBACK_KEG", "personal"))
-	require.NoError(t, fx.Runtime().Env().Set("TAP_DEFAULT_REGISTRY", "custom"))
+	require.NoError(t, fx.Runtime().Env().Set("TAP_DEFAULT_HUB", "custom"))
 
 	cfg, err := tap.ConfigService.Config(false)
 	require.NoError(t, err)
@@ -139,7 +139,7 @@ func TestConfigService_MultipleEnvVarsSet(t *testing.T) {
 	require.Equal(t, "debug", cfg.LogLevel())
 	require.Equal(t, "/new/path.log", cfg.LogFile())
 	require.Equal(t, "personal", cfg.FallbackKeg())
-	require.Equal(t, "custom", cfg.DefaultRegistry())
+	require.Equal(t, "custom", cfg.DefaultHub())
 }
 
 func TestConfigService_EnvOverrideWithStrict(t *testing.T) {

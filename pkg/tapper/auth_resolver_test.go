@@ -14,14 +14,14 @@ func TestAuthStoreTokenResolver_ResolveToken(t *testing.T) {
 	t.Parallel()
 
 	const hubURL = "https://hub.example.com"
-	const registryHost = "registry.example.com"
+	const altHubHost = "alt-hub.example.com"
 	const hubToken = "hub-token"
-	const registryToken = "registry-token"
+	const altHubToken = "alt-hub-token"
 
 	newStore := func() *tapper.AuthStore {
 		s := &tapper.AuthStore{}
 		s.Set(tapper.CanonicalHubURL(hubURL), tapper.AuthEntry{AccessToken: hubToken})
-		s.Set(tapper.CanonicalHubURL("https://"+registryHost), tapper.AuthEntry{AccessToken: registryToken})
+		s.Set(tapper.CanonicalHubURL("https://"+altHubHost), tapper.AuthEntry{AccessToken: altHubToken})
 		return s
 	}
 
@@ -62,10 +62,10 @@ func TestAuthStoreTokenResolver_ResolveToken(t *testing.T) {
 			want:   "",
 		},
 		{
-			name:   "registry target derives https://<repo>",
+			name:   "hub target derives https://<hub>",
 			store:  newStore(),
-			target: kegurl.Target{Repo: registryHost, User: "me", Keg: "demo"},
-			want:   registryToken,
+			target: kegurl.Target{Hub: altHubHost, User: "me", Keg: "demo"},
+			want:   altHubToken,
 		},
 		{
 			name:   "file target short-circuits to empty",

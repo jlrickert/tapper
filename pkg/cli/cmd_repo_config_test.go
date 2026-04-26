@@ -187,7 +187,7 @@ func TestConfigCommand_ExplainFlagCompletion(t *testing.T) {
 
 	suggestions := parseCompletionSuggestions(string(comp.Stdout))
 	require.Contains(t, suggestions, "defaultKeg")
-	require.Contains(t, suggestions, "defaultRegistry")
+	require.Contains(t, suggestions, "defaultHub")
 	require.NotContains(t, suggestions, "logLevel")
 }
 
@@ -235,7 +235,7 @@ func TestConfigCommand_ShowSourcesFlag(t *testing.T) {
 	require.Contains(t, stdout, "fallbackKeg")
 	require.Contains(t, stdout, "logFile")
 	require.Contains(t, stdout, "logLevel")
-	require.Contains(t, stdout, "defaultRegistry")
+	require.Contains(t, stdout, "defaultHub")
 	require.Contains(t, stdout, "kegSearchPaths")
 	// Should have source annotations in brackets.
 	require.Contains(t, stdout, "[")
