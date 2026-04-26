@@ -2,6 +2,50 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.20.0 - 2026-04-26
+
+
+
+### ⚙️ Miscellaneous
+- add isolated Ubuntu docker sandbox for local testing
+- scrub personal references introduced by the hub rename pass
+- disable auth subcommand to unblock unrelated work
+
+
+### 🐛 Bug Fixes
+- strip id field from persisted meta.yaml
+- canonicalize @ sigil in hub: shorthand
+- allow auth cli
+- pin embed drift test to embedded plugin version
+
+
+### 📚 Documentation
+- lead Claude Code install with plugin marketplace
+- document hub resolution chain and finish registry → hub rename
+
+
+### 🚀 Features
+- add auth store module and state path accessor
+- add tap auth login with OAuth2 PKCE loopback flow
+- discover OAuth2 endpoints via RFC 8414 metadata
+- add tap auth status, logout, and MCP auth_status tool
+- consult auth store when resolving remote keg tokens
+- add OAuth 2.0 device authorization grant flow to tap auth login
+- add default hub mechanism with five-step resolveLoginHubURL chain
+- resolve active keg in tap orient instead of printing a placeholder hint
+
+
+### 🚜 Refactor
+- consolidate auth logout and hub resolution in service layer
+- rename registry → hub across tapper config, kegurl, and CLI
+- rename Target.User to Namespace, split BasicAuthUser, rename Keg to KegName
+- fold pkg/keg_url into pkg/keg
+
+
+### 🧪 Testing
+- cover ResolveLoginHubURL chain and TAP_DISABLE_DEFAULT_HUB env var
+
+
 ## v0.19.0 - 2026-04-22
 
 
