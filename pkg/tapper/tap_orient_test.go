@@ -3,6 +3,7 @@ package tapper_test
 import (
 	"context"
 	"io/fs"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -105,6 +106,115 @@ func TestTap_Orient_FlightAtTier0IsIgnored(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.NotContains(t, payload, "Flight")
+}
+
+// TestTap_Orient_ActiveKeg_NoneConfigured covers the bootstrap case:
+// a fresh sandbox with no kegs anywhere on disk. The active-keg line
+// must surface a directed hint that names the next concrete step
+// (`tap repo init`) instead of the previous "(auto-detect from working
+// directory)" placeholder, which described mechanism without telling
+// the user how to advance.
+func TestTap_Orient_ActiveKeg_NoneConfigured(t *testing.T) {
+	t.Parallel()
+	tap := newOrientTap(t)
+	payload, err := tap.Orient(context.Background(), tapper.OrientOptions{Tier: 0})
+	require.NoError(t, err)
+	require.Contains(t, payload, "Active keg: (none configured; run `tap repo init` to register one)")
+	require.NotContains(t, payload, "auto-detect from working directory")
+}
+
+// TestTap_Orient_ActiveKeg_AliasResolutionFromCwd covers the common
+// case: a registered alias whose path matches the working directory.
+// Resolution should surface the alias plus a tilde-anchored path so
+// the user sees both the symbol the rest of the CLI uses and the
+// concrete location the next operation hits.
+func TestTap_Orient_ActiveKeg_AliasResolutionFromCwd(t *testing.T) {
+	t.Parallel()
+	fx := NewSandbox(t)
+	root := "/home/testuser/work"
+	require.NoError(t, fx.Runtime().Mkdir(root, 0o755, true))
+	require.NoError(t, fx.Setwd(root))
+
+	tap, err := tapper.NewTap(tapper.TapOptions{Root: root, Runtime: fx.Runtime()})
+	require.NoError(t, err)
+
+	require.NoError(t, fx.Runtime().Mkdir(filepath.Dir(tap.PathService.UserConfig()), 0o755, true))
+	require.NoError(t, fx.Runtime().AtomicWriteFile(tap.PathService.UserConfig(), []byte(`fallbackKeg: notes
+kegMap:
+  - alias: notes
+    pathPrefix: ~/work
+kegs:
+  notes: ~/Documents/kegs/notes
+`), 0o644))
+	require.NoError(t, fx.Runtime().Mkdir("/home/testuser/Documents/kegs/notes", 0o755, true))
+	require.NoError(t, fx.Runtime().AtomicWriteFile("/home/testuser/Documents/kegs/notes/keg", []byte(""), 0o644))
+
+	payload, err := tap.Orient(context.Background(), tapper.OrientOptions{Tier: 0})
+	require.NoError(t, err)
+	require.Contains(t, payload, "Active keg: `notes` → ~/Documents/kegs/notes")
+}
+
+// TestTap_Orient_ActiveKeg_NoAliasFallback covers a project-local keg
+// resolved from the working directory but not registered under any
+// alias in tap config — the same shape the `keg` CLI hits via its
+// ForceProjectResolution profile, and what `tap orient --project`
+// produces. The active-keg line surfaces the path with a "(no alias)"
+// suffix so the user knows the keg works without `--keg` but cannot be
+// referenced by name elsewhere.
+func TestTap_Orient_ActiveKeg_NoAliasFallback(t *testing.T) {
+	t.Parallel()
+	fx := NewSandbox(t)
+	root := "/home/testuser/loose"
+	kegDir := root + "/kegs/loose"
+	require.NoError(t, fx.Runtime().Mkdir(kegDir, 0o755, true))
+	require.NoError(t, fx.Runtime().AtomicWriteFile(kegDir+"/keg", []byte(""), 0o644))
+	require.NoError(t, fx.Setwd(root))
+
+	tap, err := tapper.NewTap(tapper.TapOptions{Root: root, Runtime: fx.Runtime()})
+	require.NoError(t, err)
+
+	payload, err := tap.Orient(context.Background(), tapper.OrientOptions{
+		Tier:             0,
+		KegTargetOptions: tapper.KegTargetOptions{Project: true},
+	})
+	require.NoError(t, err)
+	require.Contains(t, payload, "Active keg:")
+	require.Contains(t, payload, "(no alias)")
+	require.Contains(t, payload, "~/loose/kegs/loose")
+}
+
+// TestTap_Orient_ActiveKeg_ExplicitOverride confirms that an explicit
+// keg passed through OrientOptions wins over auto-resolution from cwd.
+// This mirrors how every other tap command treats --keg: explicit beats
+// implicit. The active-keg line must reflect what the next call would
+// hit, not what cwd would have suggested.
+func TestTap_Orient_ActiveKeg_ExplicitOverride(t *testing.T) {
+	t.Parallel()
+	fx := NewSandbox(t)
+	root := "/home/testuser/work"
+	require.NoError(t, fx.Runtime().Mkdir(root, 0o755, true))
+	require.NoError(t, fx.Setwd(root))
+
+	tap, err := tapper.NewTap(tapper.TapOptions{Root: root, Runtime: fx.Runtime()})
+	require.NoError(t, err)
+
+	require.NoError(t, fx.Runtime().Mkdir(filepath.Dir(tap.PathService.UserConfig()), 0o755, true))
+	require.NoError(t, fx.Runtime().AtomicWriteFile(tap.PathService.UserConfig(), []byte(`kegs:
+  archive: ~/Documents/kegs/archive
+  notes: ~/Documents/kegs/notes
+`), 0o644))
+	for _, dir := range []string{"/home/testuser/Documents/kegs/archive", "/home/testuser/Documents/kegs/notes"} {
+		require.NoError(t, fx.Runtime().Mkdir(dir, 0o755, true))
+		require.NoError(t, fx.Runtime().AtomicWriteFile(dir+"/keg", []byte(""), 0o644))
+	}
+
+	payload, err := tap.Orient(context.Background(), tapper.OrientOptions{
+		Tier:             0,
+		KegTargetOptions: tapper.KegTargetOptions{Keg: "archive"},
+	})
+	require.NoError(t, err)
+	require.Contains(t, payload, "Active keg: `archive` → ~/Documents/kegs/archive")
+	require.NotContains(t, payload, "notes")
 }
 
 func TestTap_OrientableHosts_IsSortedAndIncludesClaude(t *testing.T) {

@@ -11,10 +11,10 @@ escalate to tier 1 or tier 2 only when more context is required.
 
 ## Tiers
 
-| Tier | Content                                                                  | Intended use                                     |
-| ---- | ------------------------------------------------------------------------ | ------------------------------------------------ |
-| 0    | Purpose paragraph, active keg, rules summary                             | Bounded bootstrap (~300 tokens)                  |
-| 1    | Tier 0 plus linking conventions and snapshot policy                      | Enough context to read and edit safely           |
+| Tier | Content                                                                  | Intended use                                                |
+| ---- | ------------------------------------------------------------------------ | ----------------------------------------------------------- |
+| 0    | Purpose paragraph, active keg, rules summary                             | Bounded bootstrap (~300 tokens)                             |
+| 1    | Tier 0 plus linking conventions and snapshot policy                      | Enough context to read and edit safely                      |
 | 2    | Tier 1 plus full canonical agent guidance and the rendered host artifact | Full orientation (SKILL.md for Claude, AGENTS.md for Codex) |
 
 Tier 1 emits a manifest placeholder when `keg` is supplied and a flight
@@ -28,12 +28,12 @@ erroring.
 
 All three surfaces accept the same four optional parameters.
 
-| Parameter | Values                          | Effect                                                                                   |
-| --------- | ------------------------------- | ---------------------------------------------------------------------------------------- |
-| `host`    | `claude`, `codex`               | Tier 2 appends the rendered host artifact. Unknown hosts return an error.                |
-| `keg`     | keg alias (e.g. `notes`)        | Labels the active keg in tier 0; tier 1+ emits a per-keg manifest placeholder.           |
-| `flight`  | flight identifier               | Tier 1+ emits a flight-scoped manifest placeholder. Mutually exclusive with `keg` on the CLI. |
-| `tier`    | `0`, `1`, `2` (default `0`)     | Selects payload depth.                                                                   |
+| Parameter | Values                      | Effect                                                                                                                 |
+| --------- | --------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `host`    | `claude`, `codex`           | Tier 2 appends the rendered host artifact. Unknown hosts return an error.                                              |
+| `keg`     | keg alias (e.g. `notes`)    | Pins the active keg in tier 0 (overriding working-directory resolution); tier 1+ emits a per-keg manifest placeholder. |
+| `flight`  | flight identifier           | Tier 1+ emits a flight-scoped manifest placeholder. Mutually exclusive with `keg` on the CLI.                          |
+| `tier`    | `0`, `1`, `2` (default `0`) | Selects payload depth.                                                                                                 |
 
 ## MCP tool
 
@@ -102,11 +102,11 @@ completion.
 
 ## Host matrix
 
-| Host     | Tier 0 | Tier 1 | Tier 2                                          |
-| -------- | ------ | ------ | ----------------------------------------------- |
-| (none)   | yes    | yes    | canonical body only                             |
-| `claude` | yes    | yes    | canonical body + rendered `SKILL.md`            |
-| `codex`  | yes    | yes    | canonical body + rendered `AGENTS.md`           |
+| Host     | Tier 0 | Tier 1 | Tier 2                                |
+| -------- | ------ | ------ | ------------------------------------- |
+| (none)   | yes    | yes    | canonical body only                   |
+| `claude` | yes    | yes    | canonical body + rendered `SKILL.md`  |
+| `codex`  | yes    | yes    | canonical body + rendered `AGENTS.md` |
 
 A new host becomes orientable by registering an adapter and mapping it to a
 rendered artifact; the resource list and CLI completion pick it up
@@ -121,12 +121,12 @@ artifacts appended at tier 2 match what ships inside the binary.
 
 ## When to use which surface
 
-| You are…                                               | Use                                          |
-| ------------------------------------------------------ | -------------------------------------------- |
-| An agent bootstrapping a new session                   | `orient` tool at tier 0, escalate as needed  |
-| An MCP host that caches resources                      | `tapper://orient/<host>/tier-<n>` resources  |
-| A shell user or CI script previewing the payload       | `tap orient`                                 |
-| Debugging a tier boundary or diffing payloads          | `tap orient --tier N > /tmp/tier-N.md`       |
+| You are…                                         | Use                                         |
+| ------------------------------------------------ | ------------------------------------------- |
+| An agent bootstrapping a new session             | `orient` tool at tier 0, escalate as needed |
+| An MCP host that caches resources                | `tapper://orient/<host>/tier-<n>` resources |
+| A shell user or CI script previewing the payload | `tap orient`                                |
+| Debugging a tier boundary or diffing payloads    | `tap orient --tier N > /tmp/tier-N.md`      |
 
 ## See also
 

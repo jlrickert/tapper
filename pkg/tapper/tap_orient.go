@@ -4,11 +4,14 @@ import (
 	"context"
 	"fmt"
 	"io/fs"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 
+	"github.com/jlrickert/cli-toolkit/toolkit"
 	"github.com/jlrickert/tapper/pkg/integrations"
+	kegurl "github.com/jlrickert/tapper/pkg/keg_url"
 )
 
 // OrientTierMin / OrientTierMax are the valid tier bounds for Tap.Orient.
@@ -97,19 +100,110 @@ func OrientableHosts() []string {
 // See OrientTierMin / OrientTierMax for tier semantics. MCP tool,
 // MCP Resources, and the eventual `tap orient` CLI all delegate here
 // so every surface produces identical bytes at matching inputs.
+//
+// Active-keg resolution runs against the live KegService so the payload
+// names the keg the next mcp__tapper__* call would actually hit, rather
+// than a placeholder hint about auto-detection. Resolution failures are
+// not propagated — orient is a bootstrap surface and must still describe
+// tapper when no keg exists.
 func (t *Tap) Orient(ctx context.Context, opts OrientOptions) (string, error) {
-	_ = ctx // reserved for future keg-manifest lookups that will need a runtime-aware call site
-	return buildOrientPayload(opts.Host, opts.Keg, opts.Flight, opts.Tier)
+	activeKeg := t.resolveActiveKegLabel(ctx, opts.KegTargetOptions)
+	return buildOrientPayload(opts.Host, activeKeg, opts.Keg, opts.Flight, opts.Tier)
+}
+
+// activeKegLabel is the structured outcome of orient's active-keg
+// resolution. Exposing alias and target separately lets the renderer
+// format them differently (e.g. "alias → target", "target (no alias)",
+// or the "(none configured)" fallback) without re-deriving from a
+// pre-formatted string.
+type activeKegLabel struct {
+	// Alias is the configured alias for the resolved keg, or "" when
+	// the resolution succeeded but no alias matches the target (e.g. an
+	// ad-hoc cwd keg that is not registered in tap config).
+	Alias string
+	// Target is a human-readable target reference: a tilde-anchored
+	// filesystem path for file kegs, the URL string otherwise. Empty
+	// when no keg resolved.
+	Target string
+	// Unresolved is true when KegService could not find any keg for the
+	// current selection (no kegs configured, no matching alias, etc.).
+	// Renderers surface a directed hint instead of a path.
+	Unresolved bool
+}
+
+// resolveActiveKegLabel runs the same resolution KegService.Resolve does
+// for any other tap command and returns a structured label suitable for
+// display. It never propagates errors: when resolution fails for an
+// implicit (cwd-driven) selection, Unresolved=true so the renderer
+// surfaces a directed "(none configured)" hint. When resolution fails
+// for an explicit `opts.Keg`, the alias is echoed back without a target
+// — orient is a description surface and must not lie about what the
+// user typed, even if the alias is not registered yet (the per-alias
+// manifest section is independent of resolvability).
+func (t *Tap) resolveActiveKegLabel(ctx context.Context, opts KegTargetOptions) activeKegLabel {
+	if t == nil || t.KegService == nil {
+		return activeKegLabel{Unresolved: true}
+	}
+	k, err := t.resolveKeg(ctx, opts)
+	if err != nil || k == nil || k.Target == nil {
+		if alias := strings.TrimSpace(opts.Keg); alias != "" {
+			return activeKegLabel{Alias: alias}
+		}
+		return activeKegLabel{Unresolved: true}
+	}
+
+	label := activeKegLabel{Target: kegTargetDisplay(t.Runtime, k.Target)}
+	if cfg, _ := t.KegService.ConfigService.Config(true); cfg != nil {
+		label.Alias = cfg.LookupAliasForTarget(t.Runtime, k.Target.String())
+	}
+	return label
+}
+
+// kegTargetDisplay renders a keg.Target for the active-keg line. File
+// targets show a tilde-anchored path when the resolved location lives
+// under the user's home; everything else falls back to the canonical
+// target string. Keeps the orient output stable across machines without
+// hiding the path's location entirely.
+func kegTargetDisplay(rt *toolkit.Runtime, target *kegurl.Target) string {
+	if target == nil {
+		return ""
+	}
+	raw := target.String()
+	if target.Scheme() != kegurl.SchemeFile || rt == nil {
+		return raw
+	}
+	path := toolkit.ExpandEnv(rt, target.Path())
+	if expanded, err := toolkit.ExpandPath(rt, path); err == nil {
+		path = expanded
+	}
+	path = filepath.Clean(path)
+	if home, err := rt.GetHome(); err == nil && home != "" {
+		cleanHome := filepath.Clean(home)
+		if rel, err := filepath.Rel(cleanHome, path); err == nil && !strings.HasPrefix(rel, "..") {
+			if rel == "." {
+				return "~"
+			}
+			return "~/" + filepath.ToSlash(rel)
+		}
+	}
+	return path
 }
 
 // buildOrientPayload assembles the orient bytes at tier for the given
-// host, keg, and flight. Exposed to other packages via Tap.Orient.
+// host, active-keg label, manifest-keg, and flight. Exposed to other
+// packages via Tap.Orient.
+//
+// active is the resolved active-keg label used for the tier-0 "Active
+// keg" line. manifestKeg is the explicit alias passed to the API
+// (opts.Keg) and gates the tier-1 entity-kind manifest placeholder; the
+// two are different because the manifest section is per-alias, while
+// the active-keg line names whichever keg would actually be operated on.
 //
 // tier is clamped to [OrientTierMin, OrientTierMax]. An unknown host
 // returns an error immediately; a known-but-unrendered host (for
 // example codex before its adapter ships) surfaces the underlying
 // fs.ReadFile error.
-func buildOrientPayload(host, keg, flight string, tier int) (string, error) {
+func buildOrientPayload(host string, active activeKegLabel, manifestKeg, flight string, tier int) (string, error) {
 	if tier < OrientTierMin {
 		tier = OrientTierMin
 	}
@@ -134,13 +228,7 @@ func buildOrientPayload(host, keg, flight string, tier int) (string, error) {
 	b.WriteString(orientPurpose)
 	b.WriteString("\n\n")
 	b.WriteString("Active keg: ")
-	if keg != "" {
-		b.WriteString("`")
-		b.WriteString(keg)
-		b.WriteString("`")
-	} else {
-		b.WriteString("(auto-detect from working directory)")
-	}
+	b.WriteString(formatActiveKegLine(active))
 	b.WriteString("\n\n")
 	b.WriteString(orientRulesSummary)
 
@@ -157,9 +245,9 @@ func buildOrientPayload(host, keg, flight string, tier int) (string, error) {
 	if err := appendCanonical(&b, "snapshot-policy.md"); err != nil {
 		return "", err
 	}
-	if keg != "" {
+	if manifestKeg != "" {
 		b.WriteString("\n## Entity-kind manifest for `")
-		b.WriteString(keg)
+		b.WriteString(manifestKeg)
 		b.WriteString("`\n\n")
 		b.WriteString("(Per-keg manifest is not yet populated; the orient surface reserves the field for a future release.)\n")
 	}
@@ -203,6 +291,32 @@ func buildOrientPayload(host, keg, flight string, tier int) (string, error) {
 	}
 
 	return b.String(), nil
+}
+
+// formatActiveKegLine renders the right-hand side of the "Active keg:"
+// line for tier 0. Three shapes:
+//
+//	Unresolved:        "(none configured; run `tap repo init` to register one)"
+//	Alias + target:    "`alias` → ~/path/to/keg"
+//	Target only:       "~/path/to/keg (no alias)"
+//
+// The directed hint on the unresolved branch matches the surface area
+// users land on when they bootstrap tapper for the first time, so it
+// names the next concrete step instead of saying nothing.
+func formatActiveKegLine(active activeKegLabel) string {
+	if active.Unresolved {
+		return "(none configured; run `tap repo init` to register one)"
+	}
+	if active.Alias != "" {
+		if active.Target == "" {
+			return "`" + active.Alias + "`"
+		}
+		return "`" + active.Alias + "` → " + active.Target
+	}
+	if active.Target != "" {
+		return active.Target + " (no alias)"
+	}
+	return "(none configured; run `tap repo init` to register one)"
 }
 
 // appendCanonical reads integrations/content/<name> from the embedded
