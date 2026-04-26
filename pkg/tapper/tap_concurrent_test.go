@@ -10,7 +10,6 @@ import (
 	"github.com/jlrickert/cli-toolkit/sandbox"
 	"github.com/jlrickert/cli-toolkit/toolkit"
 	"github.com/jlrickert/tapper/pkg/keg"
-	kegurl "github.com/jlrickert/tapper/pkg/keg_url"
 	"github.com/jlrickert/tapper/pkg/tapper"
 	"github.com/stretchr/testify/require"
 )
@@ -46,7 +45,7 @@ kegSearchPaths:
 	kegDir := "/home/testuser/kegs/test"
 	require.NoError(t, fx.Runtime().Mkdir(kegDir, 0o755, true))
 
-	k, err := keg.NewKegFromTarget(fx.Context(), kegurl.NewFile(kegDir), fx.Runtime())
+	k, err := keg.NewKegFromTarget(fx.Context(), keg.NewFile(kegDir), fx.Runtime())
 	require.NoError(t, err)
 	require.NoError(t, k.Init(fx.Context()))
 

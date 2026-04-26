@@ -11,7 +11,6 @@ import (
 	"github.com/jlrickert/cli-toolkit/clock"
 	"github.com/jlrickert/cli-toolkit/toolkit"
 	"github.com/jlrickert/tapper/pkg/keg"
-	kegurl "github.com/jlrickert/tapper/pkg/keg_url"
 	"github.com/jlrickert/tapper/pkg/tapper"
 	"github.com/stretchr/testify/require"
 )
@@ -51,7 +50,7 @@ func newBenchHandler(b *testing.B) http.Handler {
 	// Create and init keg.
 	kegDir := "/home/benchuser/kegs/bench"
 	require.NoError(b, rt.Mkdir(kegDir, 0o755, true))
-	k, err := keg.NewKegFromTarget(b.Context(), kegurl.NewFile(kegDir), rt)
+	k, err := keg.NewKegFromTarget(b.Context(), keg.NewFile(kegDir), rt)
 	require.NoError(b, err)
 	require.NoError(b, k.Init(b.Context()))
 

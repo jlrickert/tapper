@@ -3,7 +3,7 @@ package tapper_test
 import (
 	"testing"
 
-	kegurl "github.com/jlrickert/tapper/pkg/keg_url"
+	"github.com/jlrickert/tapper/pkg/keg"
 	"github.com/jlrickert/tapper/pkg/tapper"
 	"github.com/stretchr/testify/require"
 )
@@ -28,67 +28,67 @@ func TestAuthStoreTokenResolver_ResolveToken(t *testing.T) {
 	cases := []struct {
 		name   string
 		store  *tapper.AuthStore
-		target kegurl.Target
+		target keg.Target
 		want   string
 	}{
 		{
 			name:   "http target with matching hub root hits",
 			store:  newStore(),
-			target: kegurl.Target{Url: "http://hub.example.com/api/v1/kegs/@me/demo"},
+			target: keg.Target{Url: "http://hub.example.com/api/v1/kegs/@me/demo"},
 			want:   "", // no http entry seeded; ensures scheme-sensitivity
 		},
 		{
 			name:   "https target with matching hub root hits",
 			store:  newStore(),
-			target: kegurl.Target{Url: "https://hub.example.com/api/v1/kegs/@me/demo"},
+			target: keg.Target{Url: "https://hub.example.com/api/v1/kegs/@me/demo"},
 			want:   hubToken,
 		},
 		{
 			name:   "https target with trailing slash still matches",
 			store:  newStore(),
-			target: kegurl.Target{Url: "https://hub.example.com/"},
+			target: keg.Target{Url: "https://hub.example.com/"},
 			want:   hubToken,
 		},
 		{
 			name:   "uppercase scheme still matches via canonicalisation",
 			store:  newStore(),
-			target: kegurl.Target{Url: "HTTPS://Hub.Example.com/api/v1/kegs/@me/demo"},
+			target: keg.Target{Url: "HTTPS://Hub.Example.com/api/v1/kegs/@me/demo"},
 			want:   hubToken,
 		},
 		{
 			name:   "https store miss returns empty",
 			store:  newStore(),
-			target: kegurl.Target{Url: "https://other.example.com"},
+			target: keg.Target{Url: "https://other.example.com"},
 			want:   "",
 		},
 		{
 			name:   "hub target derives https://<hub>",
 			store:  newStore(),
-			target: kegurl.Target{Hub: altHubHost, Namespace: "me", KegName: "demo"},
+			target: keg.Target{Hub: altHubHost, Namespace: "me", KegName: "demo"},
 			want:   altHubToken,
 		},
 		{
 			name:   "file target short-circuits to empty",
 			store:  newStore(),
-			target: kegurl.Target{File: "/tmp/keg"},
+			target: keg.Target{File: "/tmp/keg"},
 			want:   "",
 		},
 		{
 			name:   "memory target short-circuits to empty",
 			store:  newStore(),
-			target: kegurl.Target{Memory: true, KegName: "m"},
+			target: keg.Target{Memory: true, KegName: "m"},
 			want:   "",
 		},
 		{
 			name:   "nil store yields empty for every input",
 			store:  nil,
-			target: kegurl.Target{Url: "https://hub.example.com"},
+			target: keg.Target{Url: "https://hub.example.com"},
 			want:   "",
 		},
 		{
 			name:   "malformed url yields empty without panicking",
 			store:  newStore(),
-			target: kegurl.Target{Url: "https://"},
+			target: keg.Target{Url: "https://"},
 			want:   "",
 		},
 	}

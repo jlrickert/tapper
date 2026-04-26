@@ -11,7 +11,7 @@ import (
 
 	"github.com/jlrickert/cli-toolkit/toolkit"
 	"github.com/jlrickert/tapper/pkg/integrations"
-	kegurl "github.com/jlrickert/tapper/pkg/keg_url"
+	"github.com/jlrickert/tapper/pkg/keg"
 )
 
 // OrientTierMin / OrientTierMax are the valid tier bounds for Tap.Orient.
@@ -164,12 +164,12 @@ func (t *Tap) resolveActiveKegLabel(ctx context.Context, opts KegTargetOptions) 
 // under the user's home; everything else falls back to the canonical
 // target string. Keeps the orient output stable across machines without
 // hiding the path's location entirely.
-func kegTargetDisplay(rt *toolkit.Runtime, target *kegurl.Target) string {
+func kegTargetDisplay(rt *toolkit.Runtime, target *keg.Target) string {
 	if target == nil {
 		return ""
 	}
 	raw := target.String()
-	if target.Scheme() != kegurl.SchemeFile || rt == nil {
+	if target.Scheme() != keg.SchemeFile || rt == nil {
 		return raw
 	}
 	path := toolkit.ExpandEnv(rt, target.Path())

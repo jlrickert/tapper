@@ -10,7 +10,6 @@ import (
 
 	"github.com/jlrickert/cli-toolkit/toolkit"
 	"github.com/jlrickert/tapper/pkg/keg"
-	kegurl "github.com/jlrickert/tapper/pkg/keg_url"
 	"gopkg.in/yaml.v3"
 )
 
@@ -37,7 +36,7 @@ func (t *Tap) Info(ctx context.Context, opts InfoOptions) (string, error) {
 
 	// For file-backed kegs, return the raw config contents so unknown sections
 	// (for example custom fields and entities) are preserved.
-	if k.Target != nil && k.Target.Scheme() == kegurl.SchemeFile {
+	if k.Target != nil && k.Target.Scheme() == keg.SchemeFile {
 		raw, rawErr := readRawKegConfig(t.Runtime, k.Target.Path())
 		if rawErr == nil {
 			return string(raw), nil
@@ -149,7 +148,7 @@ func (t *Tap) KegInfo(ctx context.Context, opts KegInfoOptions) (string, error) 
 		}
 		out.Target = k.Target.String()
 		out.Scheme = k.Target.Scheme()
-		if k.Target.Scheme() == kegurl.SchemeFile {
+		if k.Target.Scheme() == keg.SchemeFile {
 			path := toolkit.ExpandEnv(t.Runtime, k.Target.Path())
 			if expanded, expandErr := toolkit.ExpandPath(t.Runtime, path); expandErr == nil {
 				path = expanded
@@ -248,7 +247,7 @@ func (t *Tap) KegConfigEdit(ctx context.Context, opts KegConfigEditOptions) erro
 		configPath  string
 		originalRaw []byte
 	)
-	if k.Target != nil && k.Target.Scheme() == kegurl.SchemeFile {
+	if k.Target != nil && k.Target.Scheme() == keg.SchemeFile {
 		path, raw, readErr := readRawKegConfigWithPath(t.Runtime, k.Target.Path())
 		if readErr != nil {
 			return fmt.Errorf("unable to read keg config: %w", readErr)

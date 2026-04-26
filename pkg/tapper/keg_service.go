@@ -10,7 +10,6 @@ import (
 	appCtx "github.com/jlrickert/cli-toolkit/appctx"
 	"github.com/jlrickert/cli-toolkit/toolkit"
 	"github.com/jlrickert/tapper/pkg/keg"
-	kegurl "github.com/jlrickert/tapper/pkg/keg_url"
 )
 
 // nodeQueryResolver evaluates a single query term against a node's data.
@@ -237,7 +236,7 @@ func (s *KegService) resolveFileKeg(ctx context.Context, root string, cache bool
 		return s.kegCache[key], nil
 	}
 
-	target := kegurl.NewFile(root)
+	target := keg.NewFile(root)
 	k, err := keg.NewKegFromTarget(ctx, target, s.Runtime, keg.WithTokenResolver(s.tokenResolver()))
 	if err != nil {
 		return nil, err

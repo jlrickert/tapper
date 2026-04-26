@@ -12,7 +12,6 @@ import (
 	"strings"
 	"time"
 
-	kegurl "github.com/jlrickert/tapper/pkg/keg_url"
 	"gopkg.in/yaml.v3"
 )
 
@@ -284,10 +283,10 @@ func (kc *Config) Location() *time.Location {
 	return loc
 }
 
-func (kc *Config) ResolveAlias(alias string) (*kegurl.Target, error) {
+func (kc *Config) ResolveAlias(alias string) (*Target, error) {
 	for _, entry := range kc.Links {
 		if alias == entry.Alias {
-			kt, err := kegurl.Parse(entry.URL)
+			kt, err := Parse(entry.URL)
 			if err != nil {
 				return nil, fmt.Errorf("could resolve alias: %w", err)
 			}

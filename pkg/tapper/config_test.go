@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	kegurl "github.com/jlrickert/tapper/pkg/keg_url"
+	"github.com/jlrickert/tapper/pkg/keg"
 	"github.com/jlrickert/tapper/pkg/tapper"
 	"github.com/stretchr/testify/require"
 )
@@ -218,7 +218,7 @@ func TestAddKeg_AddsAndUpdatesEntries(t *testing.T) {
 	require.NoError(t, err)
 
 	// Add a new keg
-	newTarget := kegurl.NewFile("/path/to/keg")
+	newTarget := keg.NewFile("/path/to/keg")
 	err = cfg.AddKeg("newkeg", newTarget)
 	require.NoError(t, err)
 
@@ -232,7 +232,7 @@ func TestAddKeg_AddsAndUpdatesEntries(t *testing.T) {
 	require.Contains(t, kegs, "existing")
 
 	// Update an existing keg
-	updatedTarget := kegurl.NewFile("/path/to/updated")
+	updatedTarget := keg.NewFile("/path/to/updated")
 	err = cfg.AddKeg("existing", updatedTarget)
 	require.NoError(t, err)
 
@@ -255,12 +255,12 @@ func TestAddKeg_ReturnsErrorOnNilOrEmptyAlias(t *testing.T) {
 
 	// Test nil config
 	var nilCfg *tapper.Config
-	err := nilCfg.AddKeg("test", kegurl.NewFile("/path"))
+	err := nilCfg.AddKeg("test", keg.NewFile("/path"))
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "config is nil")
 
 	// Test empty alias
-	err = cfg.AddKeg("", kegurl.NewFile("/path"))
+	err = cfg.AddKeg("", keg.NewFile("/path"))
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "alias is required")
 }

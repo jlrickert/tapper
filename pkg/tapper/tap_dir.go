@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/jlrickert/cli-toolkit/toolkit"
-	kegurl "github.com/jlrickert/tapper/pkg/keg_url"
+	"github.com/jlrickert/tapper/pkg/keg"
 )
 
 type DirOptions struct {
@@ -25,7 +25,7 @@ func (t *Tap) Dir(ctx context.Context, opts DirOptions) (string, error) {
 		return "", fmt.Errorf("keg target is not configured")
 	}
 
-	if k.Target.Scheme() == kegurl.SchemeFile {
+	if k.Target.Scheme() == keg.SchemeFile {
 		path := toolkit.ExpandEnv(t.Runtime, k.Target.File)
 		expanded, err := toolkit.ExpandPath(t.Runtime, path)
 		if err != nil {

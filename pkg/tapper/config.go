@@ -15,7 +15,6 @@ import (
 
 	"github.com/jlrickert/cli-toolkit/toolkit"
 	"github.com/jlrickert/tapper/pkg/keg"
-	kegurl "github.com/jlrickert/tapper/pkg/keg_url"
 	"gopkg.in/yaml.v3"
 )
 
@@ -57,7 +56,7 @@ type configDTO struct {
 	KegMap []KegMapEntry `yaml:"kegMap"`
 
 	// kegs maps an alias to a keg Target.
-	Kegs map[string]kegurl.Target `yaml:"kegs"`
+	Kegs map[string]keg.Target `yaml:"kegs"`
 
 	// defaultHub is the named hub used by default when creating
 	// API style kegs and when resolving the login target. The value is
@@ -201,13 +200,13 @@ func (cfg *Config) LookupAliasForTarget(rt *toolkit.Runtime, target string) stri
 }
 
 // Kegs returns a map of keg aliases to their targets.
-func (cfg *Config) Kegs() map[string]kegurl.Target {
+func (cfg *Config) Kegs() map[string]keg.Target {
 	if cfg.data == nil {
 		cfg.data = &configDTO{}
 	}
 	if cfg.data.Kegs == nil {
 
-		return map[string]kegurl.Target{}
+		return map[string]keg.Target{}
 	}
 	return cfg.data.Kegs
 }
@@ -361,18 +360,18 @@ func (cfg *Config) Clone() *Config {
 // ResolveAlias looks up the keg by alias and returns a parsed Target.
 //
 // Returns (nil, error) when not found or parse fails.
-func (cfg *Config) ResolveAlias(alias string) (*kegurl.Target, error) {
+func (cfg *Config) ResolveAlias(alias string) (*keg.Target, error) {
 	if cfg.data == nil {
 		cfg.data = &configDTO{}
 	}
 	if cfg.data.Kegs == nil {
-		cfg.data.Kegs = map[string]kegurl.Target{}
+		cfg.data.Kegs = map[string]keg.Target{}
 	}
 	u, ok := cfg.data.Kegs[alias]
 	if !ok {
 		return nil, fmt.Errorf("keg alias not found: %s", alias)
 	}
-	return kegurl.Parse(u.String())
+	return keg.Parse(u.String())
 }
 
 // LookupAlias returns the keg alias matching the given project root path.
@@ -443,13 +442,13 @@ func (cfg *Config) LookupAlias(rt *toolkit.Runtime, projectRoot string) string {
 //
 // The function expands env vars and tildes prior to comparisons, so stored
 // prefixes and patterns may contain ~ or $VAR values.
-func (cfg *Config) ResolveKegMap(rt *toolkit.Runtime, projectRoot string) (*kegurl.Target, error) {
+func (cfg *Config) ResolveKegMap(rt *toolkit.Runtime, projectRoot string) (*keg.Target, error) {
 	alias := cfg.LookupAlias(rt, projectRoot)
 	return cfg.ResolveAlias(alias)
 }
 
 // ResolveDefault resolves the current DefaultKeg alias to a target.
-func (cfg *Config) ResolveDefault(rt *toolkit.Runtime) (*kegurl.Target, error) {
+func (cfg *Config) ResolveDefault(rt *toolkit.Runtime) (*keg.Target, error) {
 	if cfg.data == nil {
 		cfg.data = &configDTO{}
 		return nil, nil
@@ -497,7 +496,7 @@ func DefaultUserConfig(name string, userRepos string) *Config {
 			DefaultKeg:     "",
 			FallbackKeg:    name,
 			KegSearchPaths: stringList{filepath.Join(userRepos)},
-			Kegs:           map[string]kegurl.Target{},
+			Kegs:           map[string]keg.Target{},
 			Hubs: []KegHub{
 				{
 					Name:     "knut",
@@ -528,8 +527,8 @@ func DefaultProjectConfig(user, userKegRepo string) *Config {
 			KegMap:      []KegMapEntry{},
 			DefaultKeg:  alias,
 			FallbackKeg: alias,
-			Kegs: map[string]kegurl.Target{
-				alias: kegurl.NewFile(filepath.Join(userKegRepo, alias)),
+			Kegs: map[string]keg.Target{
+				alias: keg.NewFile(filepath.Join(userKegRepo, alias)),
 			},
 			KegSearchPaths: searchPaths,
 			Hubs: []KegHub{
@@ -586,7 +585,7 @@ func MergeConfig(cfgs ...*Config) *Config {
 
 	out := &Config{
 		data: &configDTO{
-			Kegs:   make(map[string]kegurl.Target),
+			Kegs:   make(map[string]keg.Target),
 			KegMap: make([]KegMapEntry, 0),
 		},
 	}
@@ -650,7 +649,7 @@ func (cfg *Config) Touch(rt *toolkit.Runtime) {
 }
 
 // AddKeg adds or updates a keg entry in the Config.
-func (cfg *Config) AddKeg(alias string, target kegurl.Target) error {
+func (cfg *Config) AddKeg(alias string, target keg.Target) error {
 	if cfg == nil {
 		return fmt.Errorf("config is nil")
 	}
@@ -663,7 +662,7 @@ func (cfg *Config) AddKeg(alias string, target kegurl.Target) error {
 
 	// Add/update in struct
 	if cfg.data.Kegs == nil {
-		cfg.data.Kegs = make(map[string]kegurl.Target)
+		cfg.data.Kegs = make(map[string]keg.Target)
 	}
 	cfg.data.Kegs[alias] = target
 

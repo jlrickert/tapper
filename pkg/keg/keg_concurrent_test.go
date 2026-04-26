@@ -11,7 +11,6 @@ import (
 
 	"github.com/jlrickert/cli-toolkit/sandbox"
 	kegpkg "github.com/jlrickert/tapper/pkg/keg"
-	kegurl "github.com/jlrickert/tapper/pkg/keg_url"
 	"github.com/stretchr/testify/require"
 )
 
@@ -60,7 +59,7 @@ func TestConcurrentCreate_FsRepo(t *testing.T) {
 	t.Parallel()
 	f := NewSandbox(t, sandbox.WithFixture("empty", "repo"))
 
-	k, err := kegpkg.NewKegFromTarget(f.Context(), kegurl.NewFile("repo"), f.Runtime())
+	k, err := kegpkg.NewKegFromTarget(f.Context(), kegpkg.NewFile("repo"), f.Runtime())
 	require.NoError(t, err)
 	require.NoError(t, k.Init(f.Context()))
 
@@ -312,7 +311,7 @@ func TestWithNodeLock_StaleLockRecovery(t *testing.T) {
 	t.Parallel()
 	f := NewSandbox(t, sandbox.WithFixture("empty", "repo"))
 
-	k, err := kegpkg.NewKegFromTarget(f.Context(), kegurl.NewFile("repo"), f.Runtime())
+	k, err := kegpkg.NewKegFromTarget(f.Context(), kegpkg.NewFile("repo"), f.Runtime())
 	require.NoError(t, err)
 	require.NoError(t, k.Init(f.Context()))
 
@@ -579,7 +578,7 @@ func TestConcurrentRemoveDuringSetContent_FsRepo(t *testing.T) {
 	t.Parallel()
 	f := NewSandbox(t, sandbox.WithFixture("empty", "repo"))
 
-	k, err := kegpkg.NewKegFromTarget(f.Context(), kegurl.NewFile("repo"), f.Runtime())
+	k, err := kegpkg.NewKegFromTarget(f.Context(), kegpkg.NewFile("repo"), f.Runtime())
 	require.NoError(t, err)
 	require.NoError(t, k.Init(f.Context()))
 
@@ -608,7 +607,7 @@ func TestConcurrentRemoveDuringSetMeta_FsRepo(t *testing.T) {
 	t.Parallel()
 	f := NewSandbox(t, sandbox.WithFixture("empty", "repo_meta"))
 
-	k, err := kegpkg.NewKegFromTarget(f.Context(), kegurl.NewFile("repo_meta"), f.Runtime())
+	k, err := kegpkg.NewKegFromTarget(f.Context(), kegpkg.NewFile("repo_meta"), f.Runtime())
 	require.NoError(t, err)
 	require.NoError(t, k.Init(f.Context()))
 
@@ -643,7 +642,7 @@ func TestSetContent_NoOrphanedDirectoryOnRemovedNode(t *testing.T) {
 	t.Parallel()
 	f := NewSandbox(t, sandbox.WithFixture("empty", "repo"))
 
-	k, err := kegpkg.NewKegFromTarget(f.Context(), kegurl.NewFile("repo"), f.Runtime())
+	k, err := kegpkg.NewKegFromTarget(f.Context(), kegpkg.NewFile("repo"), f.Runtime())
 	require.NoError(t, err)
 	require.NoError(t, k.Init(f.Context()))
 
@@ -709,7 +708,7 @@ func TestConcurrentRemoveDuringTouch_FsRepo(t *testing.T) {
 	t.Parallel()
 	f := NewSandbox(t, sandbox.WithFixture("empty", "repo"))
 
-	k, err := kegpkg.NewKegFromTarget(f.Context(), kegurl.NewFile("repo"), f.Runtime())
+	k, err := kegpkg.NewKegFromTarget(f.Context(), kegpkg.NewFile("repo"), f.Runtime())
 	require.NoError(t, err)
 	require.NoError(t, k.Init(f.Context()))
 
@@ -733,7 +732,7 @@ func TestConcurrentRemoveDuringUpdateMeta_FsRepo(t *testing.T) {
 	t.Parallel()
 	f := NewSandbox(t, sandbox.WithFixture("empty", "repo"))
 
-	k, err := kegpkg.NewKegFromTarget(f.Context(), kegurl.NewFile("repo"), f.Runtime())
+	k, err := kegpkg.NewKegFromTarget(f.Context(), kegpkg.NewFile("repo"), f.Runtime())
 	require.NoError(t, err)
 	require.NoError(t, k.Init(f.Context()))
 
