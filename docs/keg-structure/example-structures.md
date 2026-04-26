@@ -128,7 +128,7 @@ kegs:
     file: kegs/tapper
 kegSearchPaths:
   - kegs
-defaultRegistry: knut
+defaultHub: knut
 ```
 
 ## Baker KEG Example

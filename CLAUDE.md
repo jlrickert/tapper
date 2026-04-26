@@ -125,8 +125,9 @@ Tiers 1-4 are resolved by `cfgcascade.Cascade[*Config]` in
 is handled by Cobra's `Changed()` check in `PersistentPreRunE`.
 
 Supported env vars: `TAP_DEFAULT_KEG`, `TAP_FALLBACK_KEG`, `TAP_LOG_FILE`,
-`TAP_LOG_LEVEL`, `TAP_DEFAULT_REGISTRY`, `TAP_KEG_SEARCH_PATHS`
-(colon-separated).
+`TAP_LOG_LEVEL`, `TAP_DEFAULT_HUB`, `TAP_DISABLE_DEFAULT_HUB`
+(`1`/`true`/`yes`/`on` → suppress the compiled-in `DefaultHubURL` fallback),
+`TAP_KEG_SEARCH_PATHS` (colon-separated).
 
 Use `tap config --explain FIELD` to see which source set a value, or
 `tap config --show-sources` for all fields. The `--strict` flag makes config

@@ -23,8 +23,24 @@ cat config.yaml | tap repo config edit --user
 - `kegSearchPaths`: ordered directories scanned for discovered file-backed kegs
 - `kegs`: explicit alias-to-target map
 - `kegMap`: path-based alias mapping (`pathRegex` first, then longest `pathPrefix`)
-- `defaultRegistry`: default registry name for registry/API style targets
-- `registries`: registry definitions (name, url, token/tokenEnv)
+- `defaultHub`: name of the default entry in `hubs` used by `tap auth login`
+  and API-style targets when no hub is specified explicitly
+- `disableDefaultHub`: when `true`, suppress the compiled-in `DefaultHubURL`
+  fallback (`https://keg.foldwise.ai`) — hub-dependent commands fail with a
+  clear error if no other hub is configured. Useful for SOC2-audited
+  deployments that need to prove no implicit network targets exist.
+- `hubs`: list of named hub definitions (name, url, token/tokenEnv)
+
+## Hub Resolution Chain
+
+`tap auth login` and other hub-dependent commands resolve the target hub
+in this order, stopping at the first match:
+
+1. Explicit `--hub URL` flag → use it (canonicalized)
+2. `defaultHub: NAME` → look up `NAME` in `hubs` and use its URL
+3. Exactly one entry in `hubs` → use it
+4. `disableDefaultHub: true` (or `TAP_DISABLE_DEFAULT_HUB=1`) → error
+5. Fall back to the compiled-in `DefaultHubURL` (`https://keg.foldwise.ai`)
 
 ## Recommended Baseline Config
 
@@ -36,8 +52,8 @@ kegMap:
   - alias: pub
     pathPrefix: ~/repos/github.com
 kegs: {}
-defaultRegistry: knut
-registries:
+defaultHub: knut
+hubs:
   - name: knut
     url: keg.jlrickert.me
     tokenEnv: KNUT_API_KEY

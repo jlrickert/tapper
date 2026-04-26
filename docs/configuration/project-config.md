@@ -40,7 +40,7 @@ kegMap: []
 kegs:
   tapper:
     file: kegs/tapper
-defaultRegistry: knut
+defaultHub: knut
 kegSearchPaths:
   - kegs
 ```
