@@ -237,7 +237,7 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 	}
 
 	subcommands := []*cobra.Command{
-		//NewAuthCmd(deps),
+		NewAuthCmd(deps),
 		NewBacklinksCmd(deps),
 		NewCatCmd(deps),
 		NewCreateCmd(deps),
