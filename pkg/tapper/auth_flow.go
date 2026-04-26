@@ -126,6 +126,11 @@ type authServerMetadata struct {
 	AuthorizationEndpoint         string   `json:"authorization_endpoint"`
 	TokenEndpoint                 string   `json:"token_endpoint"`
 	CodeChallengeMethodsSupported []string `json:"code_challenge_methods_supported,omitempty"`
+	// DeviceAuthorizationEndpoint is the RFC 8628 §3.1 endpoint, advertised
+	// only by hubs that support the device flow. Empty on older hubs;
+	// AuthLoginDevice surfaces a clear error in that case rather than
+	// guessing the path.
+	DeviceAuthorizationEndpoint string `json:"device_authorization_endpoint,omitempty"`
 }
 
 // AuthLogin runs the browser-based PKCE flow against the hub described

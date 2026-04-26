@@ -45,17 +45,23 @@ func newAuthLoginCmd(deps *Deps) *cobra.Command {
 		clientID string
 		scope    string
 		timeout  time.Duration
+		device   bool
 	)
 
 	cmd := &cobra.Command{
 		Use:   "login",
-		Short: "Authenticate with a tapper hub via browser-based OAuth2 PKCE",
-		Long: `Open a browser window to complete an OAuth2 authorization_code
-grant with PKCE against the specified hub. A loopback listener on
+		Short: "Authenticate with a tapper hub",
+		Long: `Authenticate with a tapper hub. Two flows are available:
+
+Default: browser-based OAuth2 PKCE (RFC 7636). A loopback listener on
 127.0.0.1 receives the redirect, the resulting code is exchanged for an
 access token, and the token is stored at ~/.local/state/tapper/auth.yaml
-(location varies by platform). The flow aborts if the browser cannot be
-opened or the user does not complete the handshake within --timeout.`,
+(location varies by platform).
+
+--device: OAuth2 device authorization grant (RFC 8628). Tap prints a short
+user code and a verification URL; you open the URL in any browser, enter
+the code, and Tap collects the token by polling the hub. Use this when the
+loopback flow can't reach you (containers, remote shells, headless boxes).`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if hubURL == "" {
@@ -71,12 +77,35 @@ opened or the user does not complete the handshake within --timeout.`,
 			ctx := cmd.Context()
 			rt := deps.Runtime
 
-			entry, err := deps.AuthLoginFn(ctx, rt, tapper.AuthLoginOptions{
-				HubURL:   hubURL,
-				ClientID: clientID,
-				Scope:    scope,
-				Timeout:  timeout,
-			})
+			// Pass the user-supplied timeout only when explicitly set, so
+			// the per-flow default (2m for browser, 10m for device) wins
+			// when the user didn't pick one. The device flow's longer
+			// default exists because it includes the user-side switch to
+			// a different machine.
+			var passedTimeout time.Duration
+			if cmd.Flags().Changed("timeout") {
+				passedTimeout = timeout
+			}
+
+			var (
+				entry *tapper.AuthEntry
+				err   error
+			)
+			if device {
+				entry, err = deps.AuthLoginDeviceFn(ctx, rt, tapper.AuthLoginDeviceOptions{
+					HubURL:   hubURL,
+					ClientID: clientID,
+					Scope:    scope,
+					Timeout:  passedTimeout,
+				})
+			} else {
+				entry, err = deps.AuthLoginFn(ctx, rt, tapper.AuthLoginOptions{
+					HubURL:   hubURL,
+					ClientID: clientID,
+					Scope:    scope,
+					Timeout:  passedTimeout,
+				})
+			}
 			if err != nil {
 				return err
 			}
@@ -105,7 +134,8 @@ opened or the user does not complete the handshake within --timeout.`,
 	cmd.Flags().StringVar(&hubURL, "hub", "", "Hub base URL (required)")
 	cmd.Flags().StringVar(&clientID, "client-id", "", "OAuth2 client ID (default: tapper-cli)")
 	cmd.Flags().StringVar(&scope, "scope", "", "Requested OAuth2 scopes (space-separated)")
-	cmd.Flags().DurationVar(&timeout, "timeout", 2*time.Minute, "Timeout for the browser flow")
+	cmd.Flags().DurationVar(&timeout, "timeout", 2*time.Minute, "Timeout for the browser flow (or 10m for --device)")
+	cmd.Flags().BoolVar(&device, "device", false, "Use the RFC 8628 device authorization grant instead of opening a browser locally")
 
 	// --hub is an arbitrary URL; file completion would be misleading.
 	mustRegisterFlagCompletion(cmd, "hub", func(_ *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {

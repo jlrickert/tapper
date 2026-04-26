@@ -46,6 +46,11 @@ type Deps struct {
 	// production callers need not populate it.
 	AuthLoginFn func(ctx context.Context, rt *toolkit.Runtime, opts tapper.AuthLoginOptions) (*tapper.AuthEntry, error)
 
+	// AuthLoginDeviceFn is the analogous seam for the RFC 8628 device
+	// authorization grant, used when the user passes --device to
+	// `tap auth login`. Same lazy-default discipline as AuthLoginFn.
+	AuthLoginDeviceFn func(ctx context.Context, rt *toolkit.Runtime, opts tapper.AuthLoginDeviceOptions) (*tapper.AuthEntry, error)
+
 	// logFileHandle is the opened log file; closed after invocation logging.
 	logFileHandle io.WriteCloser
 
@@ -66,6 +71,9 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 	// NewRootCmd wins. We do NOT overwrite a populated value.
 	if deps.AuthLoginFn == nil {
 		deps.AuthLoginFn = tapper.AuthLogin
+	}
+	if deps.AuthLoginDeviceFn == nil {
+		deps.AuthLoginDeviceFn = tapper.AuthLoginDevice
 	}
 
 	cmd := &cobra.Command{
