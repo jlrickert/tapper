@@ -9,7 +9,7 @@ kegSearchPaths:
   - ~/Documents/kegs
 kegMap: []
 kegs: {}
-defaultRegistry: knut
+defaultHub: knut
 ```
 
 Use this when your local kegs live in one directory and no repo-specific overrides are needed.
@@ -27,7 +27,7 @@ kegMap:
   - alias: work
     pathPrefix: ~/repos/github.com/work
 kegs: {}
-defaultRegistry: knut
+defaultHub: knut
 ```
 
 This routes different repo roots to different aliases.
@@ -44,7 +44,7 @@ kegs:
     file: kegs/tapper
 kegSearchPaths:
   - kegs
-defaultRegistry: knut
+defaultHub: knut
 ```
 
 This makes the repository default to `kegs/tapper`.
@@ -63,13 +63,13 @@ Example:
 tap info --keg tapper
 ```
 
-## Registry-Oriented Setup
+## Hub-Oriented Setup
 
 ```yaml
 # ~/.config/tapper/config.yaml
 fallbackKeg: pub
-defaultRegistry: knut
-registries:
+defaultHub: knut
+hubs:
   - name: knut
     url: keg.jlrickert.me
     tokenEnv: KNUT_API_KEY
@@ -78,7 +78,27 @@ kegSearchPaths:
 kegMap: []
 kegs:
   pub:
-    api: keg:knut:@jlrickert/public
+    hub: knut
+    user: jlrickert
+    keg: public
 ```
 
-Use this when aliases should resolve to API/registry targets instead of local file paths.
+Use this when aliases should resolve to API-style hub targets instead of local file paths.
+
+## Air-Gapped / SOC2 Setup
+
+```yaml
+# ~/.config/tapper/config.yaml
+fallbackKeg: local
+disableDefaultHub: true
+kegSearchPaths:
+  - ~/Documents/kegs
+kegs:
+  local:
+    file: ~/Documents/kegs/local
+```
+
+Use this when the deployment must prove no implicit network calls happen.
+With `disableDefaultHub: true` and no `hubs` entries, hub-dependent commands
+(like `tap auth login` with no `--hub`) error with `no hub configured;
+implicit default disabled` instead of silently reaching `https://keg.foldwise.ai`.
