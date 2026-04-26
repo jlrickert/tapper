@@ -8,6 +8,7 @@ on:
         default: ''
 permissions:
   contents: write
+  pull-requests: write
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -88,16 +89,44 @@ jobs:
           TAPPER_PLUGIN_VERSION: ${{ steps.version.outputs.version }}
         run: go run ./cmd/render-integrations
 
-      - name: Commit changelog, rendered integrations, and create tag
+      - name: Build release commit on release branch
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          BRANCH="release/$VERSION"
+          git checkout -b "$BRANCH"
           git add CHANGELOG.md integrations/rendered
-          git commit -m "chore: release $VERSION" || echo "No release changes to commit"
+          if git diff --staged --quiet; then
+            echo "No release artifacts to commit; release branch tracks dispatch ref"
+          else
+            git commit -m "chore: release $VERSION"
+          fi
+          git push origin "$BRANCH"
+
+      - name: Open and merge release PR into main
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          BRANCH="release/$VERSION"
+          PR_URL=$(gh pr create \
+            --base main \
+            --head "$BRANCH" \
+            --title "chore: release $VERSION" \
+            --body "Automated release PR for $VERSION.")
+          gh pr merge "$PR_URL" --rebase --delete-branch
+
+      - name: Tag release on main
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          git fetch origin main --tags
+          git checkout main
+          git reset --hard origin/main
           git tag -a "$VERSION" -m "$VERSION"
-          git push origin HEAD:main --follow-tags
+          git push origin "refs/tags/$VERSION"
 
       - name: Ensure clean git state for goreleaser
         run: |
