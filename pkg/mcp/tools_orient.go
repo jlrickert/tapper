@@ -9,11 +9,12 @@ import (
 )
 
 // orientInput is the parameter surface of mcp__tapper__orient. Every
-// field is optional: a bare call returns the tier-0 payload with an
-// auto-detected keg and no host-specific content.
+// field is optional: a bare call returns the tier-0 payload with the
+// active keg resolved from the working directory and no host-specific
+// content.
 type orientInput struct {
 	Host   string `json:"host,omitempty"   jsonschema:"host identifier for host-specific payload (e.g. 'claude' or 'codex')"`
-	Keg    string `json:"keg,omitempty"    jsonschema:"keg alias; reserved for per-keg manifest payloads"`
+	Keg    string `json:"keg,omitempty"    jsonschema:"keg alias; pins active-keg resolution and gates the per-keg manifest section at tier 1"`
 	Flight string `json:"flight,omitempty" jsonschema:"flight identifier; reserved for flight-scoped manifest payloads"`
 	Tier   int    `json:"tier,omitempty"   jsonschema:"payload depth: 0 (purpose + active keg + rules summary), 1 (adds linking + snapshot), 2 (adds full canonical body and host-rendered bytes)"`
 }
