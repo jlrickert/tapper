@@ -36,7 +36,8 @@ var dupSlashRE = regexp.MustCompile(`/+`)
 //     Query params like "readonly", "token", and "token-env" are honored.
 //
 // - Hub API shorthand and structured form:
-//   - Compact scalar shorthand "hub:user/keg" or "hub:/@user/keg".
+//   - Compact scalar shorthand "hub:@user/keg" (canonical), with
+//     "hub:user/keg" and "hub:/@user/keg" accepted as input variants.
 //   - Mapping form with "hub", "user", and "keg" fields.
 //
 // Fields:
@@ -149,7 +150,10 @@ func WithToken(token string) HTTPOption {
 // Accepted input forms:
 //   - File paths (absolute, ./, ../, ~, Windows drive). These produce File
 //     targets.
-//   - Compact hub shorthand "hub:user/keg" or "hub:/@user/keg".
+//   - Compact hub shorthand "hub:@user/keg" (canonical) or its accepted
+//     variants "hub:user/keg" and "hub:/@user/keg". The leading "@"
+//     sigil marks the namespace; it is stripped on parse so the stored
+//     User never carries it, and re-applied by Path() and String().
 //   - HTTP/HTTPS URL scalars.
 //   - Any URL-like scalar parsed by url.Parse.
 //
@@ -169,8 +173,10 @@ func Parse(raw string) (*Target, error) {
 		}
 		return &t, nil
 	case SchemeHub:
-		// Accept compact hub shorthand: "hub:user/keg" or
-		// "hub:/@user/keg".
+		// Accept compact hub shorthand. Canonical form is
+		// "hub:@user/keg"; "hub:user/keg" and "hub:/@user/keg" parse
+		// equivalently. The "@" sigil is stripped here so the stored
+		// User never carries it; Path() and String() re-apply it.
 		if m := scalarApiRE.FindStringSubmatch(value); m != nil {
 			hub := m[1]
 			rest := strings.TrimSpace(m[2])
@@ -179,7 +185,10 @@ func Parse(raw string) (*Target, error) {
 			if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
 				return nil, fmt.Errorf("malformed target shorthand: %s", raw)
 			}
-			user := parts[0]
+			user := strings.TrimPrefix(parts[0], "@")
+			if user == "" {
+				return nil, fmt.Errorf("malformed target shorthand: %s", raw)
+			}
 			keg := parts[1]
 			t := Target{
 				Hub:  hub,
@@ -316,14 +325,14 @@ func (k *Target) UnmarshalYAML(node *yaml.Node) error {
 }
 
 // String returns a human-friendly representation of the target. For hub
-// API form it returns "hub:user/keg". For file it returns the file path. For
-// HTTP targets it returns the canonical Url.
+// API form it returns the canonical "hub:@user/keg" form. For file it
+// returns the file path. For HTTP targets it returns the canonical Url.
 func (kt *Target) String() string {
 	switch kt.Scheme() {
 	case SchemeFile:
 		return kt.File
 	case SchemeHub:
-		return kt.Hub + ":" + kt.User + "/" + kt.Keg
+		return kt.Hub + ":@" + kt.User + "/" + kt.Keg
 	case SchemeHTTP, SchemeHTTPs:
 		return kt.Url
 	default:

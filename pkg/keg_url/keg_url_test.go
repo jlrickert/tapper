@@ -14,7 +14,7 @@ import (
 
 // Tests for parsing and YAML unmarshalling of kegurl.Target values.
 // The table driven tests cover file paths, file URIs, tilde expansion,
-// relative paths, shorthand hub:user/keg form, and HTTP/HTTPS URLs.
+// relative paths, shorthand hub:@user/keg form, and HTTP/HTTPS URLs.
 func TestParse_File_TableDriven(t *testing.T) {
 	// Use OS-specific temp dir so tests work across platforms.
 	tmpDir := os.TempDir()
@@ -254,4 +254,33 @@ func TestTargetExpand_ExpandsEnvironmentVariables(t *testing.T) {
 	require.Equal(t, "secret-token", kt.Password)
 	require.Equal(t, "secret-token", kt.Token)
 	require.Equal(t, "TAPPER_TOKEN", kt.TokenEnv)
+}
+
+// TestParse_HubShorthand_Canonicalization pins that all three accepted
+// input variants of the hub shorthand parse to the same Target and that
+// String() emits the canonical "hub:@user/keg" form. The "@" sigil is
+// stripped on parse so the stored User never carries it; Path() and
+// String() re-apply it.
+func TestParse_HubShorthand_Canonicalization(t *testing.T) {
+	t.Parallel()
+
+	variants := []string{
+		"jlr:jlrickert/tapper",
+		"jlr:@jlrickert/tapper",
+		"jlr:/@jlrickert/tapper",
+	}
+
+	for _, raw := range variants {
+		t.Run(raw, func(t *testing.T) {
+			t.Parallel()
+			kt, err := kegurl.Parse(raw)
+			require.NoError(t, err)
+			require.Equal(t, kegurl.SchemeHub, kt.Scheme())
+			require.Equal(t, "jlr", kt.Hub)
+			require.Equal(t, "jlrickert", kt.User, "@ sigil must be stripped on parse")
+			require.Equal(t, "tapper", kt.Keg)
+			require.Equal(t, "jlr:@jlrickert/tapper", kt.String(), "String() must emit canonical form")
+			require.Equal(t, filepath.Join("@jlrickert", "tapper"), kt.Path(), "Path() must re-apply @ exactly once")
+		})
+	}
 }
