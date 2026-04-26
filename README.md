@@ -136,9 +136,16 @@ JSON config for other hosts, per-tool keg targeting — see
 ### Claude Code
 
 ```bash
-claude plugin marketplace add jlrickert/tapper
+claude plugin marketplace add jlrickert/tapper@main
 claude plugin install tapper@jlrickert-tapper
 ```
+
+`claude plugin marketplace add` resolves a bare `owner/repo` against the
+repository's GitHub default branch, which for tapper is `dev` (development
+surface). Pin with `@main` — `main` always equals the most recent tagged
+release. See [Branching Model](#branching-model). The `@jlrickert-tapper`
+argument on the `install` line is a marketplace name, not a git ref — it
+is unaffected by this pin.
 
 Installs tapper as a Claude Code plugin: the MCP server registration, the
 bundled `/tapper` skill, and the orientation prompts in one step. Verify with
