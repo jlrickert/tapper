@@ -222,25 +222,27 @@ func (t *Tap) initHub(opts initHubOptions) (*kegurl.Target, error) {
 		hubName = "knut"
 	}
 
-	// Determine user namespace.
-	user := opts.User
-	if user == "" {
+	// Determine namespace owner. Defaults to the OS user, whose default
+	// namespace shares their username; falls back to the configured
+	// default keg, then a literal "user" placeholder.
+	namespace := opts.User
+	if namespace == "" {
 		u, _ := t.Runtime.GetUser()
 		if u != "" {
-			user = u
+			namespace = u
 		} else {
 			// try to fall back to project-local default if present
 			if cfg, cfgErr := t.ConfigService.Config(true); cfgErr == nil && cfg != nil && cfg.DefaultKeg() != "" {
 				// ignore: best-effort only
-				user = cfg.DefaultKeg()
+				namespace = cfg.DefaultKeg()
 			}
 		}
-		if user == "" {
-			user = "user"
+		if namespace == "" {
+			namespace = "user"
 		}
 	}
 
-	target := kegurl.NewApi(hubName, user, opts.Alias)
+	target := kegurl.NewApi(hubName, namespace, opts.Alias)
 
 	if opts.AddUserConfig {
 		userCfg, err := t.ConfigService.UserConfig(false)

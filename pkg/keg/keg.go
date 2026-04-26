@@ -142,10 +142,10 @@ func NewKegFromTarget(ctx context.Context, target kegurl.Target, rt *toolkit.Run
 		return &keg, nil
 	case kegurl.SchemeHub:
 		token := resolveTargetToken(&target, rt, o.resolver)
-		// Build the API base URL from the hub, user, and keg fields.
-		// Convention: https://<hub>/api/v1/kegs/@<user>/<keg>
+		// Build the API base URL from the hub, namespace, and keg-name fields.
+		// Convention: https://<hub>/api/v1/kegs/@<namespace>/<kegName>
 		baseURL := fmt.Sprintf("https://%s/api/v1/kegs/@%s/%s",
-			target.Hub, target.User, target.Keg)
+			target.Hub, target.Namespace, target.KegName)
 		repo := NewApiRepo(baseURL, token)
 		keg := Keg{Target: &target, Repo: repo, Runtime: rt}
 		return &keg, nil
@@ -689,7 +689,7 @@ func (k *Keg) Touch(ctx context.Context, id NodeId) error {
 func (k *Keg) Node(id NodeId) *Node {
 	alias := id.Alias
 	if k.Target != nil {
-		alias = k.Target.Keg
+		alias = k.Target.KegName
 	}
 	return &Node{
 		ID: NodeId{
