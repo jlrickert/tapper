@@ -94,19 +94,48 @@ func keysOf[V any](m map[string]V) []string {
 	return out
 }
 
-func TestAuthLoginCmd_MissingHub_Errors(t *testing.T) {
+// TestAuthLoginCmd_MissingHub_FallsBackToDefault confirms the resolution
+// chain (decision keg-dev/1035) lets an unflagged login land on the
+// compiled-in DefaultHubURL when no Config.Hubs entry, no DefaultHub, and
+// no DisableDefaultHub override are present. The empty sandbox is
+// equivalent to "no config at all" — the cleanest test of step 5.
+func TestAuthLoginCmd_MissingHub_FallsBackToDefault(t *testing.T) {
 	t.Parallel()
+	sb := newTestSandbox(t)
+
+	var capturedMu atomicOptionsSlot
+	hook := stubAuthLoginHook(func(_ context.Context, _ *toolkit.Runtime, opts tapper.AuthLoginOptions) (*tapper.AuthEntry, error) {
+		capturedMu.Store(opts)
+		return &tapper.AuthEntry{AccessToken: "stub", TokenType: "Bearer"}, nil
+	})
+
+	proc := newAuthProcess(t, hook, "auth", "login")
+	res := proc.Run(sb.Context(), sb.Runtime())
+
+	require.NoError(t, res.Err)
+	require.Equal(t, tapper.DefaultHubURL, capturedMu.Load().HubURL,
+		"unflagged login should resolve to DefaultHubURL via step 5 of the chain")
+}
+
+// TestAuthLoginCmd_DisableDefaultHubViaEnv_Errors confirms the SOC2-
+// auditability opt-out: setting TAP_DISABLE_DEFAULT_HUB=1 with no other
+// hub configuration produces a clear error rather than silently routing
+// to DefaultHubURL.
+func TestAuthLoginCmd_DisableDefaultHubViaEnv_Errors(t *testing.T) {
+	t.Parallel()
+	sb := newTestSandbox(t)
+	require.NoError(t, sb.Runtime().Env().Set("TAP_DISABLE_DEFAULT_HUB", "1"))
+
 	hook := stubAuthLoginHook(func(context.Context, *toolkit.Runtime, tapper.AuthLoginOptions) (*tapper.AuthEntry, error) {
-		t.Fatal("authLoginFn should not be called when --hub is missing")
+		t.Fatal("authLoginFn must not be called when the default hub is disabled and no other hub is configured")
 		return nil, nil
 	})
 
-	sb := newTestSandbox(t)
 	proc := newAuthProcess(t, hook, "auth", "login")
 	res := proc.Run(sb.Context(), sb.Runtime())
 
 	require.Error(t, res.Err)
-	require.Contains(t, res.Err.Error(), "--hub")
+	require.Contains(t, res.Err.Error(), "implicit default disabled")
 }
 
 func TestAuthLoginCmd_PersistsStoreAndPrintsHub(t *testing.T) {
@@ -132,14 +161,15 @@ func TestAuthLoginCmd_PersistsStoreAndPrintsHub(t *testing.T) {
 	res := proc.Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 
-	// Success line: mentions the hub (as the user typed it) and does
-	// NOT leak the access token.
+	// Success line: mentions the canonical hub URL (the chain
+	// canonicalizes before passing to AuthLogin) and does NOT leak
+	// the access token.
 	out := string(res.Stdout)
-	require.Contains(t, out, "Logged in to https://Hub.Example.COM/")
+	require.Contains(t, out, "Logged in to https://hub.example.com")
 	require.NotContains(t, out, "stub-access-token")
 
 	captured := capturedMu.Load()
-	require.Equal(t, "https://Hub.Example.COM/", captured.HubURL)
+	require.Equal(t, "https://hub.example.com", captured.HubURL)
 	require.Equal(t, "tapper-cli", captured.ClientID)
 	require.Equal(t, "read write", captured.Scope)
 

@@ -207,10 +207,14 @@ var ConfigExplainFields = []string{
 	"logFile",
 	"logLevel",
 	"defaultHub",
+	"disableDefaultHub",
 	"kegSearchPaths",
 }
 
 // configFieldGetter returns the string value of a named field from a Config.
+// Boolean fields render as "true" when set and "" when zero so the env-var
+// cascade (which uses non-empty as the "set by this tier" signal) works
+// without a parallel "is-set" predicate.
 func configFieldGetter(cfg *Config, field string) string {
 	if cfg == nil {
 		return ""
@@ -226,6 +230,11 @@ func configFieldGetter(cfg *Config, field string) string {
 		return cfg.LogLevel()
 	case "defaultHub":
 		return cfg.DefaultHub()
+	case "disableDefaultHub":
+		if cfg.DisableDefaultHub() {
+			return "true"
+		}
+		return ""
 	case "kegSearchPaths":
 		return strings.Join(cfg.KegSearchPaths(), ":")
 	default:

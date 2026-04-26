@@ -64,18 +64,29 @@ the code, and Tap collects the token by polling the hub. Use this when the
 loopback flow can't reach you (containers, remote shells, headless boxes).`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if hubURL == "" {
-				return fmt.Errorf("--hub is required")
+			ctx := cmd.Context()
+			rt := deps.Runtime
+
+			// Resolve hub via the five-step chain (decision keg-dev/1035)
+			// so an unflagged login lands on the configured default —
+			// or the compiled-in DefaultHubURL — without forcing every
+			// invocation to repeat --hub. Explicit --hub still wins.
+			cfg, err := deps.Tap.ConfigService.Config(true)
+			if err != nil {
+				return err
 			}
+			resolvedHub, err := tapper.ResolveLoginHubURL(cfg, hubURL)
+			if err != nil {
+				return err
+			}
+			hubURL = resolvedHub
+
 			if clientID == "" {
 				// Production default: the stock public client ID. Users
 				// running against a hub that issues per-org client IDs
 				// pass --client-id explicitly.
 				clientID = "tapper-cli"
 			}
-
-			ctx := cmd.Context()
-			rt := deps.Runtime
 
 			// Pass the user-supplied timeout only when explicitly set, so
 			// the per-flow default (2m for browser, 10m for device) wins
@@ -87,10 +98,7 @@ loopback flow can't reach you (containers, remote shells, headless boxes).`,
 				passedTimeout = timeout
 			}
 
-			var (
-				entry *tapper.AuthEntry
-				err   error
-			)
+			var entry *tapper.AuthEntry
 			if device {
 				entry, err = deps.AuthLoginDeviceFn(ctx, rt, tapper.AuthLoginDeviceOptions{
 					HubURL:   hubURL,
@@ -131,7 +139,7 @@ loopback flow can't reach you (containers, remote shells, headless boxes).`,
 		},
 	}
 
-	cmd.Flags().StringVar(&hubURL, "hub", "", "Hub base URL (required)")
+	cmd.Flags().StringVar(&hubURL, "hub", "", "Hub base URL (defaults via config: defaultHub → single hubs entry → compiled-in default)")
 	cmd.Flags().StringVar(&clientID, "client-id", "", "OAuth2 client ID (default: tapper-cli)")
 	cmd.Flags().StringVar(&scope, "scope", "", "Requested OAuth2 scopes (space-separated)")
 	cmd.Flags().DurationVar(&timeout, "timeout", 2*time.Minute, "Timeout for the browser flow (or 10m for --device)")
