@@ -38,6 +38,18 @@ task test                                  # cached test run of ./pkg/...
 go vet ./...
 ```
 
+## Branching Model
+
+- `dev` is the default branch. All development commits and PRs target `dev`.
+- `main` is release-only and advances only via the Release workflow, which opens
+  a `release/$VERSION` PR into `main`, merges it via rebase, then tags. Direct
+  pushes to `main` are blocked by a repository ruleset.
+- When committing or opening PRs, base on `dev` unless explicitly cutting a
+  release.
+
+Decision: keg:dev/1051 (Adopt dev branch + main release-only pattern across
+caldera-managed repos).
+
 ## Architecture
 
 ### Package Map

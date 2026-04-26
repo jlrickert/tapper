@@ -266,6 +266,21 @@ Alias lookup then prefers explicit `kegs` entries, then discovered aliases from
 For common errors such as `no keg configured`, `keg alias not found`, and discovery path
 issues, see [docs/configuration/troubleshooting.md](docs/configuration/troubleshooting.md).
 
+## Branching Model
+
+This repo uses a `dev` (development) + `main` (release-only) split:
+
+- `dev` — default branch. All development commits and PRs target `dev`. CI runs on
+  pushes and PRs against `dev`.
+- `main` — release-only. Advances only when the Release workflow runs; `main` HEAD
+  always equals a tagged release.
+
+To contribute, branch off `dev` and open PRs against `dev`. Releases are cut by
+dispatching the [Release workflow](.github/workflows/release.yml), which opens a
+short-lived `release/$VERSION` PR into `main`, merges it via rebase, tags the
+commit, and runs goreleaser. Direct pushes to `main` are blocked by a repository
+ruleset.
+
 ## Repository Layout
 
 - `cmd/tap` - `tap` entrypoint
