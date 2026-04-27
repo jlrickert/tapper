@@ -1,5 +1,8 @@
 version: "3"
 
+vars:
+  WORK_COMPOSE: docker compose -f docker-compose.yml -f docker-compose.work.yml
+
 tasks:
   build:
     desc: Build or refresh the sandbox image.
@@ -61,3 +64,58 @@ tasks:
     desc: Remove the container AND named volumes (nukes caches and state).
     cmds:
       - docker compose down -v
+
+  # ---- Work mode (uses local cli-toolkit via go.work) ----
+
+  up-work:
+    desc: |
+      Start the work-mode sandbox container with the local cli-toolkit
+      bind-mounted alongside tapper. Uses go.work so builds and tests
+      resolve cli-toolkit to the working tree instead of the pinned
+      go.mod version.
+    deps: [_ensure-go-work]
+    cmds:
+      - "{{.WORK_COMPOSE}} up -d sandbox-work"
+
+  shell-work:
+    desc: Open an interactive zsh login shell in the work-mode sandbox.
+    interactive: true
+    deps: [up-work]
+    cmds:
+      - "{{.WORK_COMPOSE}} exec sandbox-work zsh -l"
+
+  down-work:
+    desc: Stop and remove the work-mode container (keeps named volumes).
+    cmds:
+      - "{{.WORK_COMPOSE}} down sandbox-work"
+
+  exec-work:
+    desc: Run an arbitrary command in the work-mode sandbox (use `--`).
+    cmds:
+      - "{{.WORK_COMPOSE}} exec sandbox-work {{.CLI_ARGS}}"
+
+  test-work:
+    desc: Run the Go test suite inside the work-mode sandbox.
+    cmds:
+      - "{{.WORK_COMPOSE}} exec sandbox-work bash -lc 'cd /workspace/tapper && go test ./...'"
+
+  rebuild-tap-work:
+    desc: Rebuild tap and keg in work mode (links local cli-toolkit).
+    cmds:
+      - "{{.WORK_COMPOSE}} exec sandbox-work bash -lc 'cd /workspace/tapper && go install ./cmd/tap ./cmd/keg'"
+
+  _ensure-go-work:
+    desc: Bootstrap ../go.work referencing ../cli-toolkit if missing.
+    internal: true
+    status:
+      - test -f ../go.work
+    cmds:
+      - |
+        cat > ../go.work <<'EOF'
+        go 1.26.0
+
+        use (
+            .
+            ../cli-toolkit
+        )
+        EOF
