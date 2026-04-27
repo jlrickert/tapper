@@ -11,7 +11,11 @@ REPO="/workspace/tapper"
 # Disable go.work so the in-container build uses the pinned cli-toolkit
 # module version from go.mod instead of chasing ../cli-toolkit out of the
 # bind-mount. Matches what tapper's CI does.
-export GOWORK=off
+#
+# `${GOWORK-off}` only falls back when GOWORK is unset, not when it is
+# set-but-empty. The work-mode compose overlay sets GOWORK="" on purpose
+# so the workspace file at /workspace/tapper/go.work is honored.
+export GOWORK="${GOWORK-off}"
 
 if [[ ! -f "${SENTINEL}" && -d "${REPO}" ]]; then
     echo "[sandbox] First boot: installing tap and keg from ${REPO}..."

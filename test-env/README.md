@@ -37,6 +37,32 @@ task sandbox:shell     # drop into an interactive zsh login shell
 | `task sandbox:test`        | Run `go test ./...` inside the container.                 |
 | `task sandbox:clean`       | Remove container AND named volumes (nukes caches).        |
 
+## Work mode (local cli-toolkit)
+
+The default `sandbox` mirrors CI: builds use the `go.mod`-pinned cli-toolkit
+release. To iterate against a local cli-toolkit working tree instead, use
+the parallel `sandbox-work` service. It bind-mounts the cli-toolkit checkout
+at `/workspace/cli-toolkit` and leaves `GOWORK` unset so the host's `go.work`
+(referencing `../cli-toolkit`) is honored inside the container.
+
+| Task                            | What it does                                                    |
+| ------------------------------- | --------------------------------------------------------------- |
+| `task sandbox:up-work`          | Start the work-mode container; bootstraps `go.work` if missing. |
+| `task sandbox:shell-work`       | Interactive zsh login shell in the work-mode container.         |
+| `task sandbox:exec-work`        | Run an arbitrary command in the work-mode container (`-- ...`). |
+| `task sandbox:test-work`        | `go test ./...` against the local cli-toolkit.                  |
+| `task sandbox:rebuild-tap-work` | Reinstall `tap`/`keg` linking the local cli-toolkit.            |
+| `task sandbox:down-work`        | Stop and remove the work-mode container (keeps named volumes).  |
+
+Prerequisites:
+
+- cli-toolkit checked out at `../../cli-toolkit` relative to `test-env/`
+  (i.e., a sibling of the tapper repo). Override with the
+  `CLI_TOOLKIT_PATH` host environment variable if it lives elsewhere.
+- The work-mode container is **separate** from the default `sandbox` and
+  has its own first-boot install of `tap`/`keg`. Named caches (Go module,
+  Go build, tapper state) are shared with `sandbox`.
+
 ## Inside the container
 
 - Repo: `/workspace/tapper` (bind mount, read-write, host edits appear live).
