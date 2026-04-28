@@ -1,0 +1,64 @@
+name: Release Publish
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: write
+jobs:
+  publish:
+    if: "startsWith(github.event.head_commit.message, 'chore: release v')"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: Run tests
+        run: go test ./...
+
+      - name: Parse version from release commit
+        id: version
+        run: |
+          FIRST_LINE="$(git log -1 --pretty=%s HEAD)"
+          if [[ ! "$FIRST_LINE" =~ ^chore:\ release\ (v[0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+            echo "Error: head commit subject does not match 'chore: release vX.Y.Z'." >&2
+            echo "Subject was: $FIRST_LINE" >&2
+            exit 1
+          fi
+          VERSION="${BASH_REMATCH[1]}"
+          echo "Publishing $VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Tag release if not already tagged
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if git rev-parse -q --verify "refs/tags/$VERSION" >/dev/null; then
+            echo "Tag $VERSION already exists; skipping tag creation"
+          else
+            git tag -a "$VERSION" -m "$VERSION"
+            git push origin "refs/tags/$VERSION"
+          fi
+
+      - name: Ensure clean git state for goreleaser
+        run: |
+          git clean -ffdx
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "Error: working tree is dirty before goreleaser." >&2
+            git status --porcelain
+            exit 1
+          fi
+
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          version: latest
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
