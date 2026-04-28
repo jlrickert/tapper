@@ -25,7 +25,7 @@ func TestInitCommand_TableDriven(t *testing.T) {
 		{
 			name: "local_keg_named_project_defaults_to_kegs_alias",
 			args: []string{
-				"repo", "init",
+				"init",
 				"--project",
 				"--keg", "power",
 				"--creator", "me",
@@ -41,7 +41,7 @@ func TestInitCommand_TableDriven(t *testing.T) {
 		{
 			name: "local_keg_with_cwd_without_project",
 			args: []string{
-				"repo", "init",
+				"init",
 				"--cwd",
 				"--keg", "power",
 				"--creator", "me",
@@ -58,7 +58,7 @@ func TestInitCommand_TableDriven(t *testing.T) {
 		{
 			name: "local_keg_with_path_without_project",
 			args: []string{
-				"repo", "init",
+				"init",
 				"--path", ".",
 				"--keg", "workspace",
 				"--creator", "me",
@@ -75,7 +75,7 @@ func TestInitCommand_TableDriven(t *testing.T) {
 		{
 			name: "local_keg_with_explicit_alias",
 			args: []string{
-				"repo", "init",
+				"init",
 				"--project",
 				"--keg", "myalias",
 				"--creator", "me",
@@ -87,7 +87,7 @@ func TestInitCommand_TableDriven(t *testing.T) {
 		{
 			name: "local_keg_infers_alias_from_cwd",
 			args: []string{
-				"repo", "init",
+				"init",
 				"--project",
 				"--creator", "me",
 			},
@@ -99,7 +99,7 @@ func TestInitCommand_TableDriven(t *testing.T) {
 		{
 			name: "local_keg_project_explicit_alias",
 			args: []string{
-				"repo", "init",
+				"init",
 				"--project",
 				"--keg", "myalias",
 				"--creator", "me",
@@ -111,7 +111,7 @@ func TestInitCommand_TableDriven(t *testing.T) {
 		{
 			name: "user_keg_defaults_to_user_type",
 			args: []string{
-				"repo", "init",
+				"init",
 				"--keg", "public",
 				"--creator", "testcreator",
 			},
@@ -124,7 +124,7 @@ func TestInitCommand_TableDriven(t *testing.T) {
 		{
 			name: "user_keg_with_explicit_type",
 			args: []string{
-				"repo", "init",
+				"init",
 				"--user",
 				"--keg", "public",
 				"--creator", "testcreator",
@@ -138,7 +138,7 @@ func TestInitCommand_TableDriven(t *testing.T) {
 		{
 			name: "user_keg_with_explicit_alias",
 			args: []string{
-				"repo", "init",
+				"init",
 				"--keg", "myblog",
 				"--creator", "me",
 			},
@@ -151,7 +151,7 @@ func TestInitCommand_TableDriven(t *testing.T) {
 		{
 			name: "user_type_infers_alias_from_cwd",
 			args: []string{
-				"repo", "init",
+				"init",
 				"--user",
 				"--creator", "me",
 			},
@@ -268,7 +268,7 @@ func TestInitCommand_DestinationValidation(t *testing.T) {
 		innerT.Parallel()
 		sb := NewSandbox(innerT)
 
-		h := NewProcess(innerT, false, "repo", "init", "--keg", "blog", "--project", "--user")
+		h := NewProcess(innerT, false, "init", "--keg", "blog", "--project", "--user")
 		res := h.Run(sb.Context(), sb.Runtime())
 
 		require.Error(innerT, res.Err)
@@ -279,7 +279,7 @@ func TestInitCommand_DestinationValidation(t *testing.T) {
 		innerT.Parallel()
 		sb := NewSandbox(innerT)
 
-		h := NewProcess(innerT, false, "repo", "init", "--keg", "blog", "--cwd", "--user")
+		h := NewProcess(innerT, false, "init", "--keg", "blog", "--cwd", "--user")
 		res := h.Run(sb.Context(), sb.Runtime())
 
 		require.Error(innerT, res.Err)

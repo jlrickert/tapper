@@ -91,7 +91,7 @@ it.
 
 ### Repository management
 
-- `tap repo init [--keg ALIAS]` — initialize a keg with repo config
+- `tap init [--keg ALIAS]` — initialize a keg target
 - `tap repo rm ALIAS` — remove a keg alias
 - `tap repo list` — list configured keg aliases
 - `tap repo config` — show merged repo config

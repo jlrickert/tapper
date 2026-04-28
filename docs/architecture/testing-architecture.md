@@ -33,7 +33,7 @@ sandbox runtime, which acts like an in-memory workflow pipeline.
 
 Example sequence:
 
-1. `tap repo init ...`
+1. `tap init ...`
 2. `tap create ...`
 3. `tap cat ...`
 

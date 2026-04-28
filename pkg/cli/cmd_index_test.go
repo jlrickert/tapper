@@ -240,7 +240,7 @@ func TestIndexRebuildCommand_IntegrationWithInit(t *testing.T) {
 		sb := NewSandbox(innerT, opts...)
 
 		initCmd := NewProcess(innerT, false,
-			"repo", "init",
+			"init",
 			"--user",
 			"--keg", "newstudy",
 			"--creator", "test-user",
