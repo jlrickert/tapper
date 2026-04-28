@@ -111,7 +111,7 @@ func TestTap_Orient_FlightAtTier0IsIgnored(t *testing.T) {
 // TestTap_Orient_ActiveKeg_NoneConfigured covers the bootstrap case:
 // a fresh sandbox with no kegs anywhere on disk. The active-keg line
 // must surface a directed hint that names the next concrete step
-// (`tap repo init`) instead of the previous "(auto-detect from working
+// (`tap init`) instead of the previous "(auto-detect from working
 // directory)" placeholder, which described mechanism without telling
 // the user how to advance.
 func TestTap_Orient_ActiveKeg_NoneConfigured(t *testing.T) {
@@ -119,7 +119,7 @@ func TestTap_Orient_ActiveKeg_NoneConfigured(t *testing.T) {
 	tap := newOrientTap(t)
 	payload, err := tap.Orient(context.Background(), tapper.OrientOptions{Tier: 0})
 	require.NoError(t, err)
-	require.Contains(t, payload, "Active keg: (none configured; run `tap repo init` to register one)")
+	require.Contains(t, payload, "Active keg: (none configured; run `tap init` to register one)")
 	require.NotContains(t, payload, "auto-detect from working directory")
 }
 

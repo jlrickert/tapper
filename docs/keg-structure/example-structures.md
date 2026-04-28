@@ -81,7 +81,7 @@ graph with project-scoped defaults.
 ### Bootstrap Commands
 
 ```bash
-tap repo init --keg tapper --project
+tap init --keg tapper --project
 tap repo config --project
 tap config --project
 ```

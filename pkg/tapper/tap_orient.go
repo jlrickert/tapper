@@ -296,7 +296,7 @@ func buildOrientPayload(host string, active activeKegLabel, manifestKeg, flight 
 // formatActiveKegLine renders the right-hand side of the "Active keg:"
 // line for tier 0. Three shapes:
 //
-//	Unresolved:        "(none configured; run `tap repo init` to register one)"
+//	Unresolved:        "(none configured; run `tap init` to register one)"
 //	Alias + target:    "`alias` → ~/path/to/keg"
 //	Target only:       "~/path/to/keg (no alias)"
 //
@@ -305,7 +305,7 @@ func buildOrientPayload(host string, active activeKegLabel, manifestKeg, flight 
 // names the next concrete step instead of saying nothing.
 func formatActiveKegLine(active activeKegLabel) string {
 	if active.Unresolved {
-		return "(none configured; run `tap repo init` to register one)"
+		return "(none configured; run `tap init` to register one)"
 	}
 	if active.Alias != "" {
 		if active.Target == "" {
@@ -316,7 +316,7 @@ func formatActiveKegLine(active activeKegLabel) string {
 	if active.Target != "" {
 		return active.Target + " (no alias)"
 	}
-	return "(none configured; run `tap repo init` to register one)"
+	return "(none configured; run `tap init` to register one)"
 }
 
 // appendCanonical reads integrations/content/<name> from the embedded

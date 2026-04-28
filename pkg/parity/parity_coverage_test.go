@@ -75,7 +75,9 @@ var tapMethodToSurfaces = map[string]struct {
 	"ForceUnlock": {CLI: "lock force-release", MCP: "lock_force_release"},
 
 	// Repo management
-	"InitKeg":    {CLI: "repo init", MCP: "repo_init"},
+	// MCP tool name kept as "repo_init" for backward compatibility with
+	// existing agent integrations; CLI surface is the top-level `tap init`.
+	"InitKeg":    {CLI: "init", MCP: "repo_init"},
 	"RemoveRepo": {CLI: "repo rm", MCP: "repo_rm"},
 
 	// Config operations

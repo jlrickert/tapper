@@ -9,15 +9,15 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// NewInitCmd returns the `tap repo init` cobra command.
+// NewInitCmd returns the `tap init` cobra command.
 //
 // Usage examples:
 //
-//	tap repo init --keg blog
-//	tap repo init --project
-//	tap repo init --keg blog --cwd
-//	tap repo init --keg blog --hub knut --namespace me
-//	tap repo init --keg blog --path ./kegs/blog --title "Blog" --creator "me"
+//	tap init --keg blog
+//	tap init --project
+//	tap init --keg blog --cwd
+//	tap init --keg blog --hub knut --namespace me
+//	tap init --keg blog --path ./kegs/blog --title "Blog" --creator "me"
 func NewInitCmd(deps *Deps) *cobra.Command {
 	initOpts := tapper.InitOptions{}
 
@@ -52,12 +52,12 @@ Metadata:
 - --title and --creator are written into the keg config for filesystem-backed kegs.
 `),
 		Example: strings.TrimSpace(`
-tap repo init --keg blog
-tap repo init --project --cwd
-tap repo init --keg blog --cwd
-tap repo init --keg blog --path ./kegs/blog
-tap repo init --keg blog --user
-tap repo init --keg blog --hub knut --namespace me
+tap init --keg blog
+tap init --project --cwd
+tap init --keg blog --cwd
+tap init --keg blog --path ./kegs/blog
+tap init --keg blog --user
+tap init --keg blog --hub knut --namespace me
 `),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if strings.TrimSpace(initOpts.Keg) == "" {

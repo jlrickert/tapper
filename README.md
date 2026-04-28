@@ -89,7 +89,7 @@ Set `fallbackKeg` to `personal` (or your preferred alias) and configure
 **2. Initialize a keg**
 
 ```bash
-tap repo init --keg personal
+tap init --keg personal
 ```
 
 Creates a keg under your first `kegSearchPaths` entry and registers the alias.
@@ -183,7 +183,7 @@ tap --path ~/Documents/kegs/pub snapshot history 12
 Initialize a project-local keg:
 
 ```bash
-tap repo init --keg tapper --project
+tap init --keg tapper --project
 ```
 
 Create and inspect node history:

@@ -272,13 +272,22 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 		subcommands = append(subcommands, NewConfigCmd(deps))
 	}
 	var repoCmd *cobra.Command
+	var initCmd *cobra.Command
 	if deps.Profile.IncludeRepoCommand {
 		repoCmd = NewRepoCmd(deps)
-		subcommands = append(subcommands, repoCmd)
+		initCmd = NewInitCmd(deps)
+		subcommands = append(subcommands, repoCmd, initCmd)
 	}
 	cmd.AddCommand(subcommands...)
 	if repoCmd != nil {
 		filterRepoTargetFlagsInHelp(repoCmd)
+	}
+	// `tap init` re-binds --keg/--project/--path/--cwd locally with
+	// create-time semantics. Strip the inherited keg-target persistent
+	// flags from its "Global Flags" help section so users don't see two
+	// entries for each name.
+	if initCmd != nil && deps.Profile.withDefaults().AllowKegAliasFlags {
+		filterRepoTargetFlagsInHelp(initCmd)
 	}
 
 	return cmd

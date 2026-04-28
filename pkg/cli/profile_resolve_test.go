@@ -14,7 +14,7 @@ func TestTap_ProjectResolutionFlags(t *testing.T) {
 	sb.Setwd("~")
 
 	initCmd := NewProcess(t, false,
-		"repo", "init",
+		"init",
 		"--project",
 		"--cwd",
 		"--keg", "project",
@@ -52,7 +52,7 @@ func TestTap_AliasResolvesProjectKegUnderKegsDir(t *testing.T) {
 	sb.Setwd("~/myproject")
 
 	initCmd := NewProcess(t, false,
-		"repo", "init",
+		"init",
 		"--project",
 		"--cwd",
 		"--keg", "tapper",
@@ -90,7 +90,7 @@ func TestKeg_UsesProjectKegOnly(t *testing.T) {
 		sb.Setwd("~")
 
 		legacyInit := NewProcess(innerT, false,
-			"repo", "init",
+			"init",
 			"--project",
 			"--path", "~/docs",
 			"--keg", "legacy",
@@ -113,7 +113,7 @@ func TestKeg_UsesProjectKegOnly(t *testing.T) {
 		sb.Setwd("~")
 
 		initCmd := NewProcess(innerT, false,
-			"repo", "init",
+			"init",
 			"--project",
 			"--cwd",
 			"--keg", "project",
@@ -150,7 +150,7 @@ func TestTap_CwdStandaloneResolution(t *testing.T) {
 	sb.Setwd("~")
 
 	initCmd := NewProcess(t, false,
-		"repo", "init",
+		"init",
 		"--cwd",
 		"--keg", "project",
 		"--creator", "test-user",
