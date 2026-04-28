@@ -2,6 +2,25 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.21.0 - 2026-04-28
+
+
+
+### ⚙️ Miscellaneous
+- trigger on dev branch instead of main
+- **release:** merge release commit via PR instead of pushing to main
+- bump cli-toolkit to v1.5.1
+
+
+### 📚 Documentation
+- document dev/main branching model
+- pin Claude plugin marketplace install to @main
+
+
+### 🚀 Features
+- **test-env:** add work-mode sandbox with local cli-toolkit
+
+
 ## v0.20.0 - 2026-04-26
 
 
