@@ -63,6 +63,9 @@ func (t *Tap) Index(ctx context.Context, opts IndexOptions) (string, error) {
 		return "", fmt.Errorf("unable to rebuild indices: %w", err)
 	}
 
-	output := fmt.Sprintf("Indices rebuilt for %s\n", k.Target.Path())
-	return output, nil
+	label := KegBackendLabel(k.Target)
+	if label == "" {
+		return "Indices rebuilt\n", nil
+	}
+	return fmt.Sprintf("Indices rebuilt (%s)\n", label), nil
 }

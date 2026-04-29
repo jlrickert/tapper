@@ -4,14 +4,11 @@ import (
 	"context"
 	"fmt"
 	"io/fs"
-	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 
-	"github.com/jlrickert/cli-toolkit/toolkit"
 	"github.com/jlrickert/tapper/pkg/integrations"
-	"github.com/jlrickert/tapper/pkg/keg"
 )
 
 // OrientTierMin / OrientTierMax are the valid tier bounds for Tap.Orient.
@@ -112,19 +109,25 @@ func (t *Tap) Orient(ctx context.Context, opts OrientOptions) (string, error) {
 }
 
 // activeKegLabel is the structured outcome of orient's active-keg
-// resolution. Exposing alias and target separately lets the renderer
-// format them differently (e.g. "alias → target", "target (no alias)",
-// or the "(none configured)" fallback) without re-deriving from a
-// pre-formatted string.
+// resolution. Exposing alias and backend separately lets the renderer
+// format them differently (e.g. "alias (backend)", "(backend) (no
+// alias)", or the "(none configured)" fallback) without re-deriving
+// from a pre-formatted string.
+//
+// Backend deliberately omits the filesystem path or remote URL: orient
+// is the description surface, not the locator. `tap info` is the
+// dedicated "where is this keg" command and is allowed to surface
+// paths; orient stays path-free so that tier-0 output is portable
+// across machines and safe to paste into transcripts.
 type activeKegLabel struct {
 	// Alias is the configured alias for the resolved keg, or "" when
 	// the resolution succeeded but no alias matches the target (e.g. an
 	// ad-hoc cwd keg that is not registered in tap config).
 	Alias string
-	// Target is a human-readable target reference: a tilde-anchored
-	// filesystem path for file kegs, the URL string otherwise. Empty
-	// when no keg resolved.
-	Target string
+	// Backend is a path-free identifier describing the storage backend
+	// (e.g. "file-backed", "knut:@alice/blog", "in-memory"). Empty when
+	// no keg resolved.
+	Backend string
 	// Unresolved is true when KegService could not find any keg for the
 	// current selection (no kegs configured, no matching alias, etc.).
 	// Renderers surface a directed hint instead of a path.
@@ -152,41 +155,11 @@ func (t *Tap) resolveActiveKegLabel(ctx context.Context, opts KegTargetOptions) 
 		return activeKegLabel{Unresolved: true}
 	}
 
-	label := activeKegLabel{Target: kegTargetDisplay(t.Runtime, k.Target)}
+	label := activeKegLabel{Backend: KegBackendLabel(k.Target)}
 	if cfg, _ := t.KegService.ConfigService.Config(true); cfg != nil {
 		label.Alias = cfg.LookupAliasForTarget(t.Runtime, k.Target.String())
 	}
 	return label
-}
-
-// kegTargetDisplay renders a keg.Target for the active-keg line. File
-// targets show a tilde-anchored path when the resolved location lives
-// under the user's home; everything else falls back to the canonical
-// target string. Keeps the orient output stable across machines without
-// hiding the path's location entirely.
-func kegTargetDisplay(rt *toolkit.Runtime, target *keg.Target) string {
-	if target == nil {
-		return ""
-	}
-	raw := target.String()
-	if target.Scheme() != keg.SchemeFile || rt == nil {
-		return raw
-	}
-	path := toolkit.ExpandEnv(rt, target.Path())
-	if expanded, err := toolkit.ExpandPath(rt, path); err == nil {
-		path = expanded
-	}
-	path = filepath.Clean(path)
-	if home, err := rt.GetHome(); err == nil && home != "" {
-		cleanHome := filepath.Clean(home)
-		if rel, err := filepath.Rel(cleanHome, path); err == nil && !strings.HasPrefix(rel, "..") {
-			if rel == "." {
-				return "~"
-			}
-			return "~/" + filepath.ToSlash(rel)
-		}
-	}
-	return path
 }
 
 // buildOrientPayload assembles the orient bytes at tier for the given
@@ -296,25 +269,27 @@ func buildOrientPayload(host string, active activeKegLabel, manifestKeg, flight 
 // formatActiveKegLine renders the right-hand side of the "Active keg:"
 // line for tier 0. Three shapes:
 //
-//	Unresolved:        "(none configured; run `tap init` to register one)"
-//	Alias + target:    "`alias` → ~/path/to/keg"
-//	Target only:       "~/path/to/keg (no alias)"
+//	Unresolved:         "(none configured; run `tap init` to register one)"
+//	Alias + backend:    "`alias` (file-backed)"
+//	Backend only:       "(file-backed; no alias)"
 //
 // The directed hint on the unresolved branch matches the surface area
 // users land on when they bootstrap tapper for the first time, so it
-// names the next concrete step instead of saying nothing.
+// names the next concrete step instead of saying nothing. Backend is a
+// path-free identifier (see KegBackendLabel) so orient output never
+// reveals filesystem location — `tap info` is the dedicated locator.
 func formatActiveKegLine(active activeKegLabel) string {
 	if active.Unresolved {
 		return "(none configured; run `tap init` to register one)"
 	}
 	if active.Alias != "" {
-		if active.Target == "" {
+		if active.Backend == "" {
 			return "`" + active.Alias + "`"
 		}
-		return "`" + active.Alias + "` → " + active.Target
+		return "`" + active.Alias + "` (" + active.Backend + ")"
 	}
-	if active.Target != "" {
-		return active.Target + " (no alias)"
+	if active.Backend != "" {
+		return "(" + active.Backend + "; no alias)"
 	}
 	return "(none configured; run `tap init` to register one)"
 }

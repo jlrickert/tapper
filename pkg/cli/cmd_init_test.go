@@ -2,6 +2,7 @@ package cli_test
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 
 	testutils "github.com/jlrickert/cli-toolkit/sandbox"
@@ -33,8 +34,7 @@ func TestInitCommand_TableDriven(t *testing.T) {
 			expectedAlias:    "power",
 			expectedLocation: "~/kegs/power",
 			expectedStdout: []string{
-				"keg power created at",
-				"/kegs/power",
+				"keg power created (file-backed)",
 			},
 			description: "When --project, destination should default to kegs/<alias> under project root",
 		},
@@ -49,8 +49,7 @@ func TestInitCommand_TableDriven(t *testing.T) {
 			expectedAlias:    "power",
 			expectedLocation: "~/myproject/kegs/power",
 			expectedStdout: []string{
-				"keg power created at",
-				"/myproject/kegs/power",
+				"keg power created (file-backed)",
 			},
 			cwd:         strPtr("~/myproject"),
 			description: "When --cwd is set without --project, destination should still resolve as a local keg under the current working directory",
@@ -66,8 +65,7 @@ func TestInitCommand_TableDriven(t *testing.T) {
 			expectedAlias:    "workspace",
 			expectedLocation: "~/myproject",
 			expectedStdout: []string{
-				"keg workspace created at",
-				"/myproject",
+				"keg workspace created (file-backed)",
 			},
 			cwd:         strPtr("~/myproject"),
 			description: "When --path is set without --project, destination should resolve as a local keg at the explicit path",
@@ -329,4 +327,62 @@ func TestInitCommand_RejectsInvalidAlias(t *testing.T) {
 			require.Contains(innerT, string(res.Stderr), "invalid keg alias")
 		})
 	}
+}
+
+// TestInitCommand_InteractivePrompt covers the TTY-gated prompt path:
+// when stdin is a TTY and no destination flags are supplied, tap init
+// asks for alias / location / title / creator. We pipe scripted answers
+// via RunWithIO and assert that the resulting keg uses the alias from
+// the prompt (not cwd basename) and lands in the user destination.
+func TestInitCommand_InteractivePrompt(t *testing.T) {
+	t.Parallel()
+	sb := NewSandbox(t)
+
+	answers := strings.Join([]string{
+		"diary",      // alias
+		"user",       // location
+		"My Diary",   // title
+		"me@example", // creator
+		"",           // trailing newline buffer
+	}, "\n")
+
+	h := NewProcess(t, true, "init")
+	res := h.RunWithIO(sb.Context(), sb.Runtime(), strings.NewReader(answers))
+	require.NoError(t, res.Err, "interactive init should succeed: stderr=%q", string(res.Stderr))
+	require.Contains(t, string(res.Stdout), "keg diary created (file-backed)")
+
+	keg := sb.MustReadFile("~/.local/share/tapper/kegs/diary/keg")
+	require.Contains(t, string(keg), "$schema=", "interactive init should have written the platform-default user keg")
+	require.Contains(t, string(keg), "title: My Diary")
+	require.Contains(t, string(keg), "creator: me@example")
+}
+
+// TestInitCommand_NonInteractiveFlagSkipsPrompt confirms that
+// --non-interactive bypasses the TTY prompt even when stdin is a TTY,
+// so scripted invocations on attended terminals can rely on flag
+// defaults without piping answers.
+func TestInitCommand_NonInteractiveFlagSkipsPrompt(t *testing.T) {
+	t.Parallel()
+	sb := NewSandbox(t)
+
+	h := NewProcess(t, true, "init", "--non-interactive", "--keg", "ci", "--user", "--creator", "ci-bot")
+	res := h.Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err, "init --non-interactive on TTY should succeed without piped stdin")
+	require.Contains(t, string(res.Stdout), "keg ci created (file-backed)")
+	require.NotContains(t, string(res.Stderr), "keg alias [")
+}
+
+// TestInitCommand_NonTTYSkipsPrompt confirms that bare `tap init`
+// without a TTY (CI, MCP, pipes) does not block waiting for prompt
+// answers — it falls back to alias inference from cwd and the platform
+// default user destination. This is the behavior MCP relies on.
+func TestInitCommand_NonTTYSkipsPrompt(t *testing.T) {
+	t.Parallel()
+	sb := NewSandbox(t)
+	require.NoError(t, sb.Setwd("/home/testuser/scratch"))
+
+	h := NewProcess(t, false, "init")
+	res := h.Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err, "non-TTY bare init should succeed via cwd-inferred alias")
+	require.Contains(t, string(res.Stdout), "keg scratch created (file-backed)")
 }
