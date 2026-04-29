@@ -39,6 +39,7 @@ jobs:
 
       - name: Determine version via git-cliff
         id: cliff
+        continue-on-error: true
         uses: orhun/git-cliff-action@v4
         with:
           config: cliff.toml
