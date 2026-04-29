@@ -53,12 +53,40 @@ tasks:
   rebuild-tap:
     desc: Rebuild tap and keg binaries inside the sandbox from current source.
     cmds:
-      - docker compose exec sandbox bash -lc 'cd /workspace/tapper && go install ./cmd/tap ./cmd/keg'
+      - |
+        docker compose exec sandbox bash -lc '
+          set -e
+          cd /usr/local/src/tapper && go install ./cmd/tap ./cmd/keg
+          tap completion zsh > /usr/local/share/zsh/site-functions/_tap
+          keg completion zsh > /usr/local/share/zsh/site-functions/_keg
+        '
+
+  refresh-dotfiles:
+    desc: |
+      Rebuild the sandbox image with the current dotfiles HEAD, then
+      recreate the container. Use after pushing to dotfiles when you
+      do not want to bump DOTFILES_REV in the Dockerfile by hand.
+    vars:
+      DOTFILES_HEAD:
+        sh: git ls-remote https://github.com/jlrickert/dotfiles.git HEAD | cut -f1
+    cmds:
+      - docker compose build --build-arg DOTFILES_REV={{.DOTFILES_HEAD}} sandbox
+      - docker compose up -d --force-recreate sandbox
+
+  populate:
+    desc: |
+      Seed the sandbox with a keg fixture from test-env/fixtures/.
+      Examples:
+        task sandbox:populate -- --list
+        task sandbox:populate -- minimal
+        task sandbox:populate -- --all
+    cmds:
+      - docker compose exec sandbox bash /usr/local/src/tapper/test-env/scripts/populate.sh {{.CLI_ARGS}}
 
   test:
     desc: Run the Go test suite inside the sandbox.
     cmds:
-      - docker compose exec sandbox bash -lc 'cd /workspace/tapper && go test ./...'
+      - docker compose exec sandbox bash -lc 'cd /usr/local/src/tapper && go test ./...'
 
   clean:
     desc: Remove the container AND named volumes (nukes caches and state).
@@ -97,12 +125,18 @@ tasks:
   test-work:
     desc: Run the Go test suite inside the work-mode sandbox.
     cmds:
-      - "{{.WORK_COMPOSE}} exec sandbox-work bash -lc 'cd /workspace/tapper && go test ./...'"
+      - "{{.WORK_COMPOSE}} exec sandbox-work bash -lc 'cd /usr/local/src/tapper && go test ./...'"
 
   rebuild-tap-work:
     desc: Rebuild tap and keg in work mode (links local cli-toolkit).
     cmds:
-      - "{{.WORK_COMPOSE}} exec sandbox-work bash -lc 'cd /workspace/tapper && go install ./cmd/tap ./cmd/keg'"
+      - |
+        {{.WORK_COMPOSE}} exec sandbox-work bash -lc '
+          set -e
+          cd /usr/local/src/tapper && go install ./cmd/tap ./cmd/keg
+          tap completion zsh > /usr/local/share/zsh/site-functions/_tap
+          keg completion zsh > /usr/local/share/zsh/site-functions/_keg
+        '
 
   _ensure-go-work:
     desc: Bootstrap ../go.work referencing ../cli-toolkit if missing.

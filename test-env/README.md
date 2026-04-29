@@ -2,10 +2,15 @@
 
 ## Purpose
 
-An isolated Ubuntu 24.04 container preloaded with the Go toolchain, common dev
-tooling, and the user's `dots`-bootstrapped dotfiles. The tapper repo is bind
-mounted at `/workspace/tapper` so host edits appear live inside the container,
-while Go module and build caches live in named volumes for speed.
+An isolated Ubuntu 24.04 container for testing tapper as a real user would
+encounter it. The tapper source is bind-mounted **read-only** at
+`/usr/local/src/tapper` purely as a build input -- the interactive shell
+lands in the user's home (`/home/jlrickert`) with no project context, so
+`tap init` and friends behave the same as on a vanilla machine.
+
+Go module and build caches live in named volumes for speed; user-created
+kegs live in the container's writable layer so they survive `restart` and
+shell re-entry but are wiped on `rebuild` / `clean`.
 
 ## Prerequisites
 
@@ -22,28 +27,31 @@ task sandbox:shell     # drop into an interactive zsh login shell
 
 ## Task reference
 
-| Task                       | What it does                                              |
-| -------------------------- | --------------------------------------------------------- |
-| `task sandbox:build`       | Build or refresh the sandbox image.                       |
-| `task sandbox:up`          | Start the container in the background.                    |
-| `task sandbox:down`        | Stop and remove the container (keeps named volumes).      |
-| `task sandbox:restart`     | Bounce the running container.                             |
-| `task sandbox:rebuild`     | Rebuild the image and recreate the container.             |
-| `task sandbox:shell`       | Interactive zsh login shell inside the container.         |
-| `task sandbox:exec`        | Run an arbitrary command (`task sandbox:exec -- ls -la`). |
-| `task sandbox:logs`        | Follow container logs.                                    |
-| `task sandbox:status`      | Show container state.                                     |
-| `task sandbox:rebuild-tap` | Reinstall `tap` and `keg` from the bind-mounted source.   |
-| `task sandbox:test`        | Run `go test ./...` inside the container.                 |
-| `task sandbox:clean`       | Remove container AND named volumes (nukes caches).        |
+| Task                            | What it does                                              |
+| ------------------------------- | --------------------------------------------------------- |
+| `task sandbox:build`            | Build or refresh the sandbox image.                       |
+| `task sandbox:up`               | Start the container in the background.                    |
+| `task sandbox:down`             | Stop and remove the container (keeps named volumes).      |
+| `task sandbox:restart`          | Bounce the running container.                             |
+| `task sandbox:rebuild`          | Rebuild the image and recreate the container.             |
+| `task sandbox:shell`            | Interactive zsh login shell inside the container.         |
+| `task sandbox:exec`             | Run an arbitrary command (`task sandbox:exec -- ls -la`). |
+| `task sandbox:logs`             | Follow container logs.                                    |
+| `task sandbox:status`           | Show container state.                                     |
+| `task sandbox:rebuild-tap`      | Reinstall `tap` and `keg` from the bind-mounted source.   |
+| `task sandbox:refresh-dotfiles` | Rebuild image against live dotfiles HEAD; recreate.       |
+| `task sandbox:populate`         | Seed the sandbox with a fixture keg (`-- <name>`).        |
+| `task sandbox:test`             | Run `go test ./...` inside the container.                 |
+| `task sandbox:clean`            | Remove container AND named volumes (nukes caches).        |
 
 ## Work mode (local cli-toolkit)
 
 The default `sandbox` mirrors CI: builds use the `go.mod`-pinned cli-toolkit
 release. To iterate against a local cli-toolkit working tree instead, use
 the parallel `sandbox-work` service. It bind-mounts the cli-toolkit checkout
-at `/workspace/cli-toolkit` and leaves `GOWORK` unset so the host's `go.work`
-(referencing `../cli-toolkit`) is honored inside the container.
+at `/usr/local/src/cli-toolkit` (read-only) and leaves `GOWORK` unset so the
+host's `go.work` (referencing `../cli-toolkit`) is honored inside the
+container.
 
 | Task                            | What it does                                                    |
 | ------------------------------- | --------------------------------------------------------------- |
@@ -65,21 +73,71 @@ Prerequisites:
 
 ## Inside the container
 
-- Repo: `/workspace/tapper` (bind mount, read-write, host edits appear live).
-- Dotfiles: `~/dots-config` with `dots` already initialized.
+- Working directory at shell start: `/home/jlrickert` (the user's home).
+- Source (build input only): `/usr/local/src/tapper` (read-only bind mount).
+  Host edits appear live; the sandbox cannot mutate the host tree.
 - `GOPATH=/home/jlrickert/go`, `GOCACHE=/home/jlrickert/.cache/go-build`
   (both backed by named volumes).
 - Tapper state: `~/.local/state/tapper` (named volume).
-- `tap` and `keg` are on `$PATH` after the first boot.
+- User-created kegs default to `~/.local/share/tapper/kegs/<alias>/` (in
+  the container's writable layer; persists through `restart`, wiped on
+  `rebuild`).
+- `tap` and `keg` are on `$PATH` after the first boot, with zsh tab
+  completion for both registered automatically (entrypoint drops
+  Cobra-generated `_tap` and `_keg` files into
+  `/usr/local/share/zsh/site-functions/`, which is in zsh's default
+  fpath). The dir is `chown`d to `jlrickert` in the Dockerfile so the
+  unprivileged user can write there.
+- Personal dotfiles packages installed: `common-shell` (transitive),
+  `zsh`, `zellij`. Source lives at
+  `/home/jlrickert/.local/state/dots/taps/jlrickert/`. To add or remove
+  packages, edit the `dots install` line in `test-env/Dockerfile` and
+  `task sandbox:rebuild`.
+
+## Fixtures
+
+`test-env/fixtures/` holds named keg trees that can be loaded into a
+running sandbox:
+
+```sh
+task sandbox:populate -- --list      # show available fixtures
+task sandbox:populate -- minimal     # copy 'minimal' into ~/.local/share/tapper/kegs/
+task sandbox:populate -- --all       # copy every fixture
+```
+
+The first populate also writes a minimal `~/.config/tapper/config.yaml`
+with the fixture root in `kegSearchPaths` so `tap list-kegs` discovers
+them. If you've already run `tap init`, the script leaves your config
+alone and prints a hint.
+
+To add a fixture, create `test-env/fixtures/<name>/` with a `keg` config
+file and a `0/README.md`. See `test-env/fixtures/README.md`.
+
+## Updating dotfiles
+
+The Dockerfile pins the dotfiles checkout via `ARG DOTFILES_REV=<sha>` so
+layer caching is deterministic. Two ways to refresh:
+
+- **Track HEAD live:** `task sandbox:refresh-dotfiles` resolves
+  `git@github.com/jlrickert/dotfiles HEAD`, rebuilds the image with that
+  SHA as `DOTFILES_REV`, and recreates the container. No Dockerfile edit.
+- **Pin a specific SHA:** edit `DOTFILES_REV` in `test-env/Dockerfile` to
+  the SHA you want, then `task sandbox:rebuild`. Use this when committing
+  a known-good dotfiles version alongside other sandbox changes.
+
+The same shape applies to `DOTS_REV` (the `dots` binary itself), bumped
+manually when a newer release lands.
 
 ## Caveats
 
 - First `task sandbox:up` is slow: downloads Ubuntu base, installs Go, runs
   `dots init`, and performs the initial `go install ./cmd/tap ./cmd/keg`.
-- Host edits appear live under `/workspace/tapper`, but rebuilt binaries only
-  land on `$PATH` after `task sandbox:rebuild-tap`.
+- Host edits appear live under `/usr/local/src/tapper`, but rebuilt
+  binaries only land on `$PATH` after `task sandbox:rebuild-tap`.
 - `task sandbox:clean` destroys the Go module cache, build cache, and tapper
   state; expect the next `up` to behave like a first boot.
+- The source bind is read-only -- write inside the container ends up in
+  the container's writable layer, not on the host. Edit on the host.
 
 ## Troubleshooting
 

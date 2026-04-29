@@ -1,0 +1,14 @@
+updated: 2026-04-29 00:00:00Z
+kegv: 2023-01
+title: Minimal sandbox fixture
+creator: tapper sandbox
+state: living
+summary: |
+  A minimal keg fixture with a single zero node. Useful for exercising
+  list / cat / orient / doctor against a non-empty keg without the noise
+  of a fully populated example.
+indexes:
+  - file: dex/changes.md
+    summary: latest changes
+  - file: dex/nodes.tsv
+    summary: all nodes by id
