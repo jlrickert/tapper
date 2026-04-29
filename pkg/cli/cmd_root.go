@@ -261,7 +261,6 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 		NewMoveCmd(deps),
 		NewOrientCmd(deps),
 		NewSnapshotCmd(deps),
-		NewPwdCmd(deps),
 		NewRemoveCmd(deps),
 		NewSiteCmd(deps),
 		NewStatsCmd(deps),

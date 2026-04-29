@@ -37,7 +37,6 @@ var tapMethodToSurfaces = map[string]struct {
 	"Info":        {CLI: "config", MCP: "info"},
 	"KegInfo":     {CLI: "info", MCP: "keg_info"},
 	"Stats":       {CLI: "stats", MCP: "stats"},
-	"Dir":         {CLI: "dir", MCP: "dir"},
 	"Graph":       {CLI: "graph", MCP: "graph"},
 	"ListIndexes": {CLI: "index list", MCP: "list_indexes"},
 	"IndexCat":    {CLI: "index get", MCP: "index_cat"},

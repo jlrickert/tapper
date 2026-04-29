@@ -2,11 +2,13 @@ package tapper
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
 
 	appCtx "github.com/jlrickert/cli-toolkit/appctx"
+	"github.com/jlrickert/cli-toolkit/toolkit"
 	"github.com/jlrickert/tapper/pkg/keg"
 )
 
@@ -39,9 +41,10 @@ func (o InitOptions) LocalDestination() bool {
 //   - hub: API target entry written to config only
 func (t *Tap) InitKeg(ctx context.Context, options InitOptions) (*keg.Target, error) {
 	alias := strings.TrimSpace(options.Keg)
-	if alias == "" {
-		return nil, fmt.Errorf("keg alias is required: %w", keg.ErrInvalid)
+	if err := ValidateKegAlias(alias); err != nil {
+		return nil, err
 	}
+	options.Keg = alias
 
 	enabled := 0
 	if options.LocalDestination() {
@@ -151,7 +154,10 @@ func (t *Tap) initUserKeg(ctx context.Context, opts InitOptions) (*keg.Target, e
 	}
 	repoPath := cfg.PrimaryKegSearchPath()
 	if repoPath == "" {
-		return nil, fmt.Errorf("kegSearchPaths not defined in user config (set via tap repo config --user): %w", keg.ErrNotExist)
+		repoPath, err = defaultUserKegRoot(t.Runtime)
+		if err != nil {
+			return nil, fmt.Errorf("kegSearchPaths not configured and platform default unavailable: %w", err)
+		}
 	}
 
 	kegPath := filepath.Join(repoPath, opts.Keg)
@@ -177,7 +183,10 @@ func (t *Tap) initUserKeg(ctx context.Context, opts InitOptions) (*keg.Target, e
 	if alias != "" {
 		userCfg, err := t.ConfigService.UserConfig(false)
 		if err != nil {
-			return nil, err
+			if !errors.Is(err, keg.ErrNotExist) {
+				return nil, err
+			}
+			userCfg = &Config{data: &configDTO{}}
 		}
 		if err := userCfg.AddKeg(alias, target); err != nil {
 			return nil, err
@@ -204,8 +213,8 @@ type initHubOptions struct {
 
 // initHub creates an API target and optionally stores it in user config.
 func (t *Tap) initHub(opts initHubOptions) (*keg.Target, error) {
-	if opts.Alias == "" {
-		return nil, fmt.Errorf("alias required: %w", keg.ErrInvalid)
+	if err := ValidateKegAlias(opts.Alias); err != nil {
+		return nil, err
 	}
 
 	// Determine hub name. Prefer explicit flag, then project config.
@@ -246,7 +255,10 @@ func (t *Tap) initHub(opts initHubOptions) (*keg.Target, error) {
 	if opts.AddUserConfig {
 		userCfg, err := t.ConfigService.UserConfig(false)
 		if err != nil {
-			return nil, err
+			if !errors.Is(err, keg.ErrNotExist) {
+				return nil, err
+			}
+			userCfg = &Config{data: &configDTO{}}
 		}
 		if err := userCfg.AddKeg(opts.Alias, target); err != nil {
 			return nil, err
@@ -258,4 +270,17 @@ func (t *Tap) initHub(opts initHubOptions) (*keg.Target, error) {
 	}
 
 	return &target, nil
+}
+
+// defaultUserKegRoot returns the platform-default directory under which user
+// kegs are created when no kegSearchPaths is configured. Linux/macOS resolve
+// to <XDG_DATA_HOME or ~/.local/share>/tapper/kegs; Windows resolves to
+// %LOCALAPPDATA%\data\tapper\kegs. Resolution flows through the cli-toolkit
+// runtime so sandboxed tests get the same answer as production.
+func defaultUserKegRoot(rt *toolkit.Runtime) (string, error) {
+	dataDir, err := toolkit.UserDataPath(rt)
+	if err != nil {
+		return "", fmt.Errorf("resolve user data dir: %w", err)
+	}
+	return filepath.Join(dataDir, "tapper", "kegs"), nil
 }

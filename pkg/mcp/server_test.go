@@ -135,7 +135,6 @@ func TestMCP_ToolsList(t *testing.T) {
 	require.Contains(t, names, "info")
 	require.Contains(t, names, "keg_info")
 	require.Contains(t, names, "stats")
-	require.Contains(t, names, "dir")
 	require.Contains(t, names, "create")
 	require.Contains(t, names, "edit")
 	require.Contains(t, names, "meta")
@@ -1531,7 +1530,7 @@ func TestMCP_ToolAnnotations_AllPresent(t *testing.T) {
 	// --- read-only tools ---
 	readOnlyTools := []string{
 		"cat", "list", "grep", "tags", "backlinks", "links",
-		"list_kegs", "info", "keg_info", "stats", "dir",
+		"list_kegs", "info", "keg_info", "stats",
 		"list_files", "list_images",
 		"list_indexes", "index_cat",
 		"doctor", "lock_status", "license", "node_history",

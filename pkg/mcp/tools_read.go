@@ -19,7 +19,6 @@ func registerReadTools(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults
 	registerInfo(srv, tap, defaults)
 	registerKegInfo(srv, tap, defaults)
 	registerStats(srv, tap, defaults)
-	registerDir(srv, tap, defaults)
 }
 
 // --- cat ---
@@ -356,34 +355,6 @@ func registerStats(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 			NodeID:           in.NodeID,
 		}
 		result, err := tap.Stats(ctx, opts)
-		if err != nil {
-			return errorResult(err), nil, nil
-		}
-		return textResult(result), nil, nil
-	})
-}
-
-// --- dir ---
-
-type dirInput struct {
-	NodeID string `json:"node_id,omitempty" jsonschema:"node ID (omit for keg root directory)"`
-	Keg    string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
-}
-
-func registerDir(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
-	sdkmcp.AddTool(srv, &sdkmcp.Tool{
-		Name:        "dir",
-		Description: "Show the filesystem path of a keg or node directory",
-		Annotations: &sdkmcp.ToolAnnotations{
-			ReadOnlyHint:  true,
-			OpenWorldHint: boolPtr(false),
-		},
-	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in dirInput) (*sdkmcp.CallToolResult, any, error) {
-		opts := tapper.DirOptions{
-			KegTargetOptions: resolveKegTarget(in.Keg, defaults),
-			NodeID:           in.NodeID,
-		}
-		result, err := tap.Dir(ctx, opts)
 		if err != nil {
 			return errorResult(err), nil, nil
 		}
