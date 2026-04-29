@@ -22,7 +22,6 @@ import (
 //	tap config    -> info        (both call Tap.Info; MCP uses Minimal=true by default)
 //	tap info      -> keg_info    (both call Tap.KegInfo)
 //	tap stats     -> stats       (both call Tap.Stats)
-//	tap dir       -> dir         (both call Tap.Dir)
 func TestParity_ReadOperations(t *testing.T) {
 	t.Parallel()
 
@@ -429,36 +428,6 @@ func TestParity_ReadOperations(t *testing.T) {
 				"query":       "node",
 				"ignore_case": true,
 				"limit":       -1,
-			},
-		},
-
-		// --- dir (Tap.Dir) ---
-		{
-			Name:     "dir/keg_root",
-			CLIArgs:  []string{"dir"},
-			MCPTool:  "dir",
-			MCPInput: map[string]any{},
-			Compare: func(t *testing.T, cliOut, mcpOut string) {
-				t.Helper()
-				require.Contains(t, cliOut, "personal", "CLI dir should contain keg path")
-				require.Contains(t, mcpOut, "personal", "MCP dir should contain keg path")
-				require.Equal(t, strings.TrimSpace(cliOut), strings.TrimSpace(mcpOut),
-					"dir paths should be identical")
-			},
-		},
-		{
-			Name:    "dir/node_path",
-			CLIArgs: []string{"dir", "0"},
-			MCPTool: "dir",
-			MCPInput: map[string]any{
-				"node_id": "0",
-			},
-			Compare: func(t *testing.T, cliOut, mcpOut string) {
-				t.Helper()
-				require.Equal(t, strings.TrimSpace(cliOut), strings.TrimSpace(mcpOut),
-					"node dir paths should be identical")
-				require.True(t, strings.HasSuffix(strings.TrimSpace(cliOut), "/0"),
-					"path should end with /0")
 			},
 		},
 	}

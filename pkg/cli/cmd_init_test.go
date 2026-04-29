@@ -286,3 +286,47 @@ func TestInitCommand_DestinationValidation(t *testing.T) {
 		require.Contains(innerT, string(res.Stderr), "only one destination may be selected")
 	})
 }
+
+func TestInitCommand_FallsBackToPlatformDefaultWhenSearchPathsUnset(t *testing.T) {
+	t.Parallel()
+
+	sb := NewSandbox(t)
+
+	h := NewProcess(t, false, "init", "--user", "--keg", "fresh", "--creator", "me")
+	res := h.Run(sb.Context(), sb.Runtime())
+
+	require.NoError(t, res.Err, "init should succeed without preconfigured kegSearchPaths")
+	require.Contains(t, string(res.Stdout), "keg fresh created")
+
+	keg := sb.MustReadFile("~/.local/share/tapper/kegs/fresh/keg")
+	require.Contains(t, string(keg), "$schema=",
+		"keg config should have been written under platform default data dir")
+}
+
+func TestInitCommand_RejectsInvalidAlias(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name  string
+		alias string
+	}{
+		{"uppercase", "Blog"},
+		{"space", "my blog"},
+		{"slash", "kegs/blog"},
+		{"dot", "blog.keg"},
+	}
+
+	for _, c := range cases {
+		c := c
+		t.Run(c.name, func(innerT *testing.T) {
+			innerT.Parallel()
+			sb := NewSandbox(innerT, testutils.WithFixture("testuser", "~"))
+
+			h := NewProcess(innerT, false, "init", "--user", "--keg", c.alias)
+			res := h.Run(sb.Context(), sb.Runtime())
+
+			require.Error(innerT, res.Err)
+			require.Contains(innerT, string(res.Stderr), "invalid keg alias")
+		})
+	}
+}

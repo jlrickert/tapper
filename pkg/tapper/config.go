@@ -653,8 +653,8 @@ func (cfg *Config) AddKeg(alias string, target keg.Target) error {
 	if cfg == nil {
 		return fmt.Errorf("config is nil")
 	}
-	if alias == "" {
-		return fmt.Errorf("alias is required")
+	if err := ValidateKegAlias(alias); err != nil {
+		return err
 	}
 	if cfg.data == nil {
 		cfg.data = &configDTO{}
