@@ -1,7 +1,10 @@
 package cli
 
 import (
+	"bufio"
+	"errors"
 	"fmt"
+	"io"
 	"path/filepath"
 	"strings"
 
@@ -50,6 +53,12 @@ Alias behavior:
 
 Metadata:
 - --title and --creator are written into the keg config for filesystem-backed kegs.
+
+Interactive mode:
+- When stdin is a TTY and no destination/alias flags are provided, tap init
+  prompts for the alias, location category, title, and creator. Pass
+  --non-interactive to skip the prompt and rely on flag-driven defaults
+  (e.g. for CI or scripted invocations).
 `),
 		Example: strings.TrimSpace(`
 tap init --keg blog
@@ -60,6 +69,12 @@ tap init --keg blog --user
 tap init --keg blog --hub knut --namespace me
 `),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if shouldPromptInit(deps, &initOpts) {
+				if err := promptInitOptions(cmd, deps, &initOpts); err != nil {
+					return err
+				}
+			}
+
 			if strings.TrimSpace(initOpts.Keg) == "" {
 				cwd, err := deps.Runtime.Getwd()
 				if err != nil {
@@ -73,12 +88,12 @@ tap init --keg blog --hub knut --namespace me
 				return err
 			}
 
-			if initOpts.LocalDestination() && target != nil {
-				_, err = fmt.Fprintf(cmd.OutOrStdout(), "keg %s created at %s", initOpts.Keg, target.Path())
+			label := tapper.KegBackendLabel(target)
+			if label == "" {
+				_, err = fmt.Fprintf(cmd.OutOrStdout(), "keg %s created", initOpts.Keg)
 				return err
 			}
-
-			_, err = fmt.Fprintf(cmd.OutOrStdout(), "keg %s created", initOpts.Keg)
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "keg %s created (%s)", initOpts.Keg, label)
 			return err
 		},
 	}
@@ -93,6 +108,114 @@ tap init --keg blog --hub knut --namespace me
 	cmd.Flags().StringVar(&initOpts.Title, "title", "", "human title to write into the keg config")
 	cmd.Flags().StringVar(&initOpts.Creator, "creator", "", "creator identifier to include in the keg config")
 	cmd.Flags().StringVar(&initOpts.TokenEnv, "token-env", "", "environment variable name to store token reference (API targets)")
+	cmd.Flags().BoolVar(&initOpts.NonInteractive, "non-interactive", false, "skip the interactive prompt even when stdin is a TTY")
 
 	return cmd
+}
+
+// shouldPromptInit reports whether the cobra RunE handler should fire the
+// interactive `tap init` prompt. The prompt is gated on three conditions:
+// stdin is a TTY, --non-interactive is not set, and the user has supplied no
+// destination flags or alias on the command line. Any explicit flag means the
+// user has already declared their intent; only the bare `tap init` invocation
+// triggers the conversational path.
+func shouldPromptInit(deps *Deps, opts *tapper.InitOptions) bool {
+	if deps == nil || deps.Runtime == nil {
+		return false
+	}
+	if !deps.Runtime.Stream().IsTTY {
+		return false
+	}
+	if opts.NonInteractive {
+		return false
+	}
+	if opts.User || opts.Project || opts.Cwd {
+		return false
+	}
+	if strings.TrimSpace(opts.Path) != "" || strings.TrimSpace(opts.Hub) != "" {
+		return false
+	}
+	if strings.TrimSpace(opts.Keg) != "" {
+		return false
+	}
+	return true
+}
+
+// promptInitOptions walks the user through alias / location / metadata when
+// `tap init` is invoked bare on a TTY. Prompts go to stderr (so stdout stays
+// clean for the success line that downstream tooling may pipe), and answers
+// come from cmd.InOrStdin() so tests can pipe scripted answers via
+// Process.RunWithIO.
+//
+// The hub branch is intentionally skipped: hub init still requires the user
+// to pass --hub explicitly, since hub setup needs a namespace + token and the
+// terse prompt is not the right place to teach that flow.
+func promptInitOptions(cmd *cobra.Command, deps *Deps, opts *tapper.InitOptions) error {
+	reader := bufio.NewReader(cmd.InOrStdin())
+	stderr := cmd.ErrOrStderr()
+
+	defaultAlias := ""
+	if deps != nil && deps.Runtime != nil {
+		if cwd, err := deps.Runtime.Getwd(); err == nil && cwd != "" {
+			defaultAlias = filepath.Base(cwd)
+		}
+	}
+
+	alias, err := promptLine(stderr, reader, fmt.Sprintf("keg alias [%s]: ", defaultAlias))
+	if err != nil {
+		return err
+	}
+	if alias == "" {
+		alias = defaultAlias
+	}
+	if err := tapper.ValidateKegAlias(alias); err != nil {
+		return err
+	}
+	opts.Keg = alias
+
+	location, err := promptLine(stderr, reader, "location [user/project] (default user): ")
+	if err != nil {
+		return err
+	}
+	switch strings.ToLower(strings.TrimSpace(location)) {
+	case "", "user", "u":
+		opts.User = true
+	case "project", "p":
+		opts.Project = true
+	default:
+		return fmt.Errorf("invalid location %q: expected user or project", location)
+	}
+
+	title, err := promptLine(stderr, reader, "title (optional): ")
+	if err != nil {
+		return err
+	}
+	if title != "" {
+		opts.Title = title
+	}
+
+	creator, err := promptLine(stderr, reader, "creator (optional): ")
+	if err != nil {
+		return err
+	}
+	if creator != "" {
+		opts.Creator = creator
+	}
+
+	return nil
+}
+
+// promptLine writes prompt to w, reads a single line from r, and returns the
+// trimmed answer. Treats io.EOF as a terminating empty answer so a piped
+// stdin that closes after fewer responses than prompts behaves as if each
+// remaining prompt accepted its default.
+func promptLine(w io.Writer, r *bufio.Reader, prompt string) (string, error) {
+	if _, err := fmt.Fprint(w, prompt); err != nil {
+		return "", err
+	}
+	line, err := r.ReadString('\n')
+	if err != nil && !errors.Is(err, io.EOF) {
+		return "", err
+	}
+	return strings.TrimSpace(line), nil
 }

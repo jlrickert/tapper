@@ -27,6 +27,14 @@ type InitOptions struct {
 	Creator string
 	Title   string
 	Keg     string
+
+	// NonInteractive suppresses interactive prompts when set, forcing the
+	// caller to rely on flag-driven defaults (platform user-data dir, alias
+	// inferred from cwd, etc.) even when the surface is attached to a TTY.
+	// The Tap method itself does not consult this field — TTY handling is a
+	// CLI/MCP concern — but the option lives on InitOptions so both the CLI
+	// flag and the MCP input field map to the same canonical contract.
+	NonInteractive bool
 }
 
 func (o InitOptions) LocalDestination() bool {
@@ -102,7 +110,7 @@ func (t *Tap) InitKeg(ctx context.Context, options InitOptions) (*keg.Target, er
 		}
 		projectPath, err = t.Runtime.ResolvePath(projectPath, false)
 		if err != nil {
-			return nil, fmt.Errorf("unable to resolve project path %q: %w", options.Path, err)
+			return nil, fmt.Errorf("unable to resolve project path %q: %w", projectPath, err)
 		}
 		target, err = t.initProjectKeg(ctx, initLocalOptions{
 			Path:    projectPath,

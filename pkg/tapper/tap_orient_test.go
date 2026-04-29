@@ -125,9 +125,9 @@ func TestTap_Orient_ActiveKeg_NoneConfigured(t *testing.T) {
 
 // TestTap_Orient_ActiveKeg_AliasResolutionFromCwd covers the common
 // case: a registered alias whose path matches the working directory.
-// Resolution should surface the alias plus a tilde-anchored path so
-// the user sees both the symbol the rest of the CLI uses and the
-// concrete location the next operation hits.
+// Resolution should surface the alias plus a path-free backend label so
+// the user sees the symbol the rest of the CLI uses without leaking the
+// underlying filesystem location into the description surface.
 func TestTap_Orient_ActiveKeg_AliasResolutionFromCwd(t *testing.T) {
 	t.Parallel()
 	fx := NewSandbox(t)
@@ -151,16 +151,18 @@ kegs:
 
 	payload, err := tap.Orient(context.Background(), tapper.OrientOptions{Tier: 0})
 	require.NoError(t, err)
-	require.Contains(t, payload, "Active keg: `notes` → ~/Documents/kegs/notes")
+	require.Contains(t, payload, "Active keg: `notes` (file-backed)")
+	require.NotContains(t, payload, "Documents/kegs/notes")
 }
 
 // TestTap_Orient_ActiveKeg_NoAliasFallback covers a project-local keg
 // resolved from the working directory but not registered under any
 // alias in tap config — the same shape the `keg` CLI hits via its
 // ForceProjectResolution profile, and what `tap orient --project`
-// produces. The active-keg line surfaces the path with a "(no alias)"
-// suffix so the user knows the keg works without `--keg` but cannot be
-// referenced by name elsewhere.
+// produces. The active-keg line surfaces the backend label with a
+// "; no alias" suffix so the user knows the keg works without `--keg`
+// but cannot be referenced by name elsewhere. The filesystem path is
+// intentionally omitted — `tap info` is the dedicated locator.
 func TestTap_Orient_ActiveKeg_NoAliasFallback(t *testing.T) {
 	t.Parallel()
 	fx := NewSandbox(t)
@@ -179,8 +181,8 @@ func TestTap_Orient_ActiveKeg_NoAliasFallback(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Contains(t, payload, "Active keg:")
-	require.Contains(t, payload, "(no alias)")
-	require.Contains(t, payload, "~/loose/kegs/loose")
+	require.Contains(t, payload, "(file-backed; no alias)")
+	require.NotContains(t, payload, "loose/kegs/loose")
 }
 
 // TestTap_Orient_ActiveKeg_ExplicitOverride confirms that an explicit
@@ -213,7 +215,8 @@ func TestTap_Orient_ActiveKeg_ExplicitOverride(t *testing.T) {
 		KegTargetOptions: tapper.KegTargetOptions{Keg: "archive"},
 	})
 	require.NoError(t, err)
-	require.Contains(t, payload, "Active keg: `archive` → ~/Documents/kegs/archive")
+	require.Contains(t, payload, "Active keg: `archive` (file-backed)")
+	require.NotContains(t, payload, "Documents/kegs/archive")
 	require.NotContains(t, payload, "notes")
 }
 

@@ -20,12 +20,13 @@ func registerRepoTools(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults
 // --- repo_init ---
 
 type repoInitInput struct {
-	Keg     string `json:"keg" jsonschema:"keg alias for the new repository"`
-	User    bool   `json:"user,omitempty" jsonschema:"create under user keg search path (default true)"`
-	Project bool   `json:"project,omitempty" jsonschema:"create under project path"`
-	Path    string `json:"path,omitempty" jsonschema:"explicit filesystem path (implies project destination)"`
-	Title   string `json:"title,omitempty" jsonschema:"keg title"`
-	Creator string `json:"creator,omitempty" jsonschema:"keg creator identifier"`
+	Keg            string `json:"keg" jsonschema:"keg alias for the new repository"`
+	User           bool   `json:"user,omitempty" jsonschema:"create under user keg search path (default true)"`
+	Project        bool   `json:"project,omitempty" jsonschema:"create under project path"`
+	Path           string `json:"path,omitempty" jsonschema:"explicit filesystem path (implies project destination)"`
+	Title          string `json:"title,omitempty" jsonschema:"keg title"`
+	Creator        string `json:"creator,omitempty" jsonschema:"keg creator identifier"`
+	NonInteractive bool   `json:"non_interactive,omitempty" jsonschema:"skip interactive prompts (always true in MCP context)"`
 }
 
 func registerRepoInit(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
@@ -38,13 +39,15 @@ func registerRepoInit(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults)
 		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in repoInitInput) (*sdkmcp.CallToolResult, any, error) {
 		opts := tapper.InitOptions{
-			Keg:     in.Keg,
-			User:    in.User,
-			Project: in.Project,
-			Path:    in.Path,
-			Title:   in.Title,
-			Creator: in.Creator,
+			Keg:            in.Keg,
+			User:           in.User,
+			Project:        in.Project,
+			Path:           in.Path,
+			Title:          in.Title,
+			Creator:        in.Creator,
+			NonInteractive: true,
 		}
+		_ = in.NonInteractive // MCP never prompts; field exists for parity with the CLI flag
 
 		// Default to user destination when nothing else is set.
 		if !opts.User && !opts.Project && opts.Path == "" {
@@ -55,7 +58,11 @@ func registerRepoInit(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults)
 		if err != nil {
 			return errorResult(err), nil, nil
 		}
-		return textResult(fmt.Sprintf("initialized keg %q at %s", in.Keg, target.String())), nil, nil
+		label := tapper.KegBackendLabel(target)
+		if label == "" {
+			return textResult(fmt.Sprintf("initialized keg %q", in.Keg)), nil, nil
+		}
+		return textResult(fmt.Sprintf("initialized keg %q (%s)", in.Keg, label)), nil, nil
 	})
 }
 

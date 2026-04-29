@@ -76,51 +76,48 @@ tap --help
 
 Create your first keg and start taking notes in under a minute.
 
-**1. Set up configuration**
+**1. Initialize a keg**
 
 ```bash
-tap repo config edit
+tap init --keg personal --user
 ```
 
-Opens your editor with the user config file (`~/.config/tapper/config.yaml`).
-Set `fallbackKeg` to `personal` (or your preferred alias) and configure
-`kegSearchPaths` so tapper knows where to find your kegs. Save and close.
+Creates a keg under your first `kegSearchPaths` entry — or under the
+platform user-data directory if no `kegSearchPaths` is configured — and
+registers the alias in your user config.
 
-**2. Initialize a keg**
+> Tip: run `tap repo config edit` first if you want to set `fallbackKeg`
+> (so later commands don't need `--keg`) or customize `kegSearchPaths`.
+> Without configuration, tapper picks sensible platform defaults.
 
-```bash
-tap init --keg personal
-```
-
-Creates a keg under your first `kegSearchPaths` entry and registers the alias.
-
-**3. Create a node**
+**2. Create a node**
 
 ```bash
-tap create
+tap create --keg personal
 ```
 
 Opens your editor with a frontmatter template. Write your note, save, and
-close. Since `fallbackKeg` is set, no `--keg` flag needed.
+close. Set `fallbackKeg` in user config to skip the `--keg` flag on later
+commands.
 
-**4. View and edit a node**
+**3. View and edit a node**
 
 ```bash
-tap cat 1
+tap cat 1 --keg personal
 ```
 
 On a terminal this opens the node in your editor for viewing and editing.
 
-**5. List all nodes**
+**4. List all nodes**
 
 ```bash
-tap list
+tap list --keg personal
 ```
 
-**6. Search**
+**5. Search**
 
 ```bash
-tap grep "first"
+tap grep "first" --keg personal
 ```
 
 That's it — you have a working knowledge base. See [More Examples](#more-examples)
