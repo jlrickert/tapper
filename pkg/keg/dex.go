@@ -51,8 +51,10 @@ type DexOption func(*Dex) error
 //   - has a non-empty Query (or deprecated Tags) field, and
 //   - is not one of the core protected index names.
 //
-// The short file name used with repo.WriteIndex is derived by stripping any
-// leading "dex/" prefix from entry.File.
+// IndexEntry.File is canonically the bare filename (e.g. "concepts.md");
+// ParseKegConfig and applyDefaults strip any legacy "dex/" prefix at parse
+// time. The TrimPrefix below is defensive for inline-constructed entries
+// that may still carry the legacy prefix.
 //
 // By default, the index evaluates tag expressions against node tag sets. To
 // support richer query terms (e.g. key=value attribute predicates), pass
@@ -70,7 +72,8 @@ func WithConfig(cfg *Config) DexOption {
 			if query == "" {
 				continue
 			}
-			// Strip the "dex/" prefix to get the short name for repo.WriteIndex.
+			// Defensive: strip any "dex/" prefix in case the entry was
+			// constructed inline rather than parsed via ParseKegConfig.
 			shortName := strings.TrimPrefix(entry.File, "dex/")
 			sortOrder := QueryFilteredSortOrder(entry.Sort)
 			idx, err := NewQueryFilteredIndexWithSort(shortName, query, d.queryResolver, sortOrder)

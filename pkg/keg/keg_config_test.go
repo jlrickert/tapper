@@ -341,6 +341,91 @@ indexes:
 	require.Equal(t, "entity=concept && golang", config.Indexes[0].QueryOrTags(), "Query should take precedence")
 }
 
+func TestParseConfigV2_IndexFileNormalizesDexPrefix(t *testing.T) {
+	yamlData := `
+kegv: "2025-07"
+title: "Legacy prefixed indexes"
+indexes:
+  - file: "dex/backlinks"
+    summary: "all incoming links"
+  - file: "dex/concepts.md"
+    summary: "concept nodes"
+    query: "entity=concept"
+`
+	config, err := keg.ParseKegConfig([]byte(yamlData))
+	require.NoError(t, err)
+	require.Len(t, config.Indexes, 2)
+	require.Equal(t, "backlinks", config.Indexes[0].File, "leading dex/ should be stripped at parse")
+	require.Equal(t, "concepts.md", config.Indexes[1].File, "leading dex/ should be stripped at parse")
+}
+
+func TestParseConfigV2_IndexFileBareForm(t *testing.T) {
+	yamlData := `
+kegv: "2025-07"
+title: "Bare-form indexes"
+indexes:
+  - file: "backlinks"
+    summary: "all incoming links"
+  - file: "concepts.md"
+    summary: "concept nodes"
+    query: "entity=concept"
+`
+	config, err := keg.ParseKegConfig([]byte(yamlData))
+	require.NoError(t, err)
+	require.Len(t, config.Indexes, 2)
+	require.Equal(t, "backlinks", config.Indexes[0].File)
+	require.Equal(t, "concepts.md", config.Indexes[1].File)
+}
+
+func TestParseConfigV1_IndexFileNormalizesDexPrefix(t *testing.T) {
+	v1Yaml := `
+kegv: "2023-01"
+title: "V1 legacy prefixed"
+indexes:
+  - file: "dex/backlinks"
+    summary: "all incoming links"
+`
+	config, err := keg.ParseKegConfig([]byte(v1Yaml))
+	require.NoError(t, err)
+	require.Len(t, config.Indexes, 1)
+	require.Equal(t, "backlinks", config.Indexes[0].File, "V1 → V2 migration should normalize index file paths")
+}
+
+func TestNewConfig_DefaultIndexesAreBareForm(t *testing.T) {
+	cfg := keg.NewConfig()
+	require.NotEmpty(t, cfg.Indexes)
+	for _, entry := range cfg.Indexes {
+		require.NotEmpty(t, entry.File)
+		require.False(t, strings.HasPrefix(entry.File, "dex/"),
+			"default indexes should use bare form, got %q", entry.File)
+	}
+}
+
+func TestParseConfig_RoundTripCanonicalizesIndexFile(t *testing.T) {
+	yamlData := `
+kegv: "2025-07"
+title: "Round-trip test"
+indexes:
+  - file: "dex/backlinks"
+    summary: "all incoming links"
+  - file: "concepts.md"
+    summary: "concept nodes"
+    query: "entity=concept"
+`
+	first, err := keg.ParseKegConfig([]byte(yamlData))
+	require.NoError(t, err)
+
+	out, err := first.ToYAML()
+	require.NoError(t, err)
+	require.NotContains(t, string(out), "file: dex/", "ToYAML should emit bare-form index file paths")
+
+	second, err := keg.ParseKegConfig(out)
+	require.NoError(t, err)
+	require.Len(t, second.Indexes, 2)
+	require.Equal(t, "backlinks", second.Indexes[0].File)
+	require.Equal(t, "concepts.md", second.Indexes[1].File)
+}
+
 func TestParseConfigV2_TimezoneDefaultsToUTC(t *testing.T) {
 	yamlData := `
 kegv: "2025-07"

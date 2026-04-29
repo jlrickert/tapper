@@ -7,7 +7,9 @@ import "context"
 // in-memory state via Add / Remove / Clear and produce the serialized bytes to
 // write via Data.
 type IndexBuilder interface {
-	// Name returns the canonical index filename (for example "dex/tags").
+	// Name returns the bare index filename used with repo.WriteIndex
+	// (for example "tags" or "concepts.md"). The "dex/" directory prefix
+	// is implicit and applied by the repository at write time.
 	Name() string
 
 	// Add incorporates information from a node into the index's in-memory state.
