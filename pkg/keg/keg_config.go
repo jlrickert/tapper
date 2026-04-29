@@ -129,6 +129,13 @@ type LinkEntry struct {
 }
 
 // IndexEntry represents an entry in the indexes list in the KEG configuration.
+//
+// File is the bare filename of the generated index artifact, e.g. "backlinks"
+// or "concepts.md". The on-disk path is always under the keg's dex/ directory
+// (the prefix is implicit and applied at write time). For backward
+// compatibility, a leading "dex/" in the parsed YAML is stripped during
+// ParseKegConfig and applyDefaults so callers consistently see the bare form.
+//
 // The Query field holds a boolean query expression used to filter index
 // contents (tag names, key=value attribute predicates, boolean operators).
 // The deprecated Tags field is accepted for backward compatibility; Query
@@ -139,6 +146,22 @@ type IndexEntry struct {
 	Query   string `yaml:"query,omitempty"` // boolean query expression; omit for core/unfiltered indexes
 	Tags    string `yaml:"tags,omitempty"`  // deprecated: use query instead
 	Sort    string `yaml:"sort,omitempty"`  // sort order for query-filtered indexes: "updated" (default), "id", "created", "accessed"
+}
+
+// normalizeIndexFile returns the bare filename for an index entry, stripping
+// a leading "dex/" prefix if present. This canonicalizes both the legacy
+// prefixed form ("dex/backlinks") and the new bare form ("backlinks") to a
+// single representation in the in-memory struct.
+func normalizeIndexFile(file string) string {
+	return strings.TrimPrefix(file, "dex/")
+}
+
+// normalizeIndexEntries canonicalizes the File field of each entry by
+// stripping any leading "dex/" prefix.
+func normalizeIndexEntries(entries []IndexEntry) {
+	for i := range entries {
+		entries[i].File = normalizeIndexFile(entries[i].File)
+	}
 }
 
 // QueryOrTags returns the effective query string for the index entry. It
@@ -201,19 +224,19 @@ func NewConfig(options ...ConfigOption) *Config {
 		Timezone: "UTC",
 		Indexes: []IndexEntry{
 			{
-				File: "dex/backlinks", Summary: "all incoming links",
+				File: "backlinks", Summary: "all incoming links",
 			},
 			{
-				File: "dex/changes.md", Summary: "latest changes",
+				File: "changes.md", Summary: "latest changes",
 			},
 			{
-				File: "dex/links", Summary: "all outgoing links",
+				File: "links", Summary: "all outgoing links",
 			},
 			{
-				File: "dex/nodes.tsv", Summary: "all nodes by id",
+				File: "nodes.tsv", Summary: "all nodes by id",
 			},
 			{
-				File: "dex/tags", Summary: "all tags",
+				File: "tags", Summary: "all tags",
 			},
 		},
 	}
@@ -262,11 +285,13 @@ func ParseKegConfig(data []byte) (*Config, error) {
 	return &configV2, nil
 }
 
-// applyDefaults fills in zero-value fields with their documented defaults.
+// applyDefaults fills in zero-value fields with their documented defaults
+// and normalizes index entry filenames to the canonical bare form.
 func (kc *ConfigV2) applyDefaults() {
 	if kc.Timezone == "" {
 		kc.Timezone = "UTC"
 	}
+	normalizeIndexEntries(kc.Indexes)
 }
 
 // Location returns the *time.Location for the configured Timezone.

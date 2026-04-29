@@ -193,22 +193,23 @@ func (idx *ChangesIndex) Data(ctx context.Context) ([]byte, error) {
 // TagFilteredIndex
 // --------------------------------------------------------------------------
 
-// coreIndexNames is the set of built-in index names (using the dex/ prefix as
-// used in keg config Indexes entries) that cannot be overridden by
-// config-driven tag-filtered indexes.
+// coreIndexNames is the set of built-in index filenames (in canonical bare
+// form, without the "dex/" prefix) that cannot be overridden by config-driven
+// tag-filtered indexes.
 var coreIndexNames = map[string]bool{
-	"dex/changes.md": true,
-	"dex/nodes.tsv":  true,
-	"dex/links":      true,
-	"dex/backlinks":  true,
-	"dex/tags":       true,
+	"changes.md": true,
+	"nodes.tsv":  true,
+	"links":      true,
+	"backlinks":  true,
+	"tags":       true,
 }
 
-// IsCoreIndex reports whether the given index file path (as used in a keg
-// config Indexes entry, e.g. "dex/changes.md") is one of the built-in
-// protected index names.
+// IsCoreIndex reports whether the given index file name is one of the
+// built-in protected index names. Both the canonical bare form
+// ("changes.md") and the legacy prefixed form ("dex/changes.md") are
+// accepted; the prefix is stripped before lookup.
 func IsCoreIndex(name string) bool {
-	return coreIndexNames[name]
+	return coreIndexNames[strings.TrimPrefix(name, "dex/")]
 }
 
 // TagFilteredIndex is an in-memory index of nodes that match a boolean tag

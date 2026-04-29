@@ -343,6 +343,48 @@ func TestTagIndex_Add_NoTagsRemovesAll(t *testing.T) {
 	require.Len(t, idx.data, 0, "all tags should be removed when node has no tags")
 }
 
+// TestIsCoreIndex_BothForms verifies that IsCoreIndex accepts both the
+// canonical bare form and the legacy "dex/"-prefixed form.
+func TestIsCoreIndex_BothForms(t *testing.T) {
+	t.Parallel()
+	for _, name := range []string{"changes.md", "nodes.tsv", "links", "backlinks", "tags"} {
+		require.True(t, IsCoreIndex(name), "bare form %q should be a core index", name)
+		require.True(t, IsCoreIndex("dex/"+name), "prefixed form dex/%s should be a core index", name)
+	}
+	require.False(t, IsCoreIndex("custom.md"))
+	require.False(t, IsCoreIndex("dex/custom.md"))
+}
+
+// TestDex_WithConfig_BareFormCustomIndex verifies that a bare-form custom
+// index entry (no "dex/" prefix) creates a custom index that lands at
+// dex/<name> on disk via repo.WriteIndex.
+func TestDex_WithConfig_BareFormCustomIndex(t *testing.T) {
+	t.Parallel()
+
+	rt, err := toolkit.NewTestRuntime(t.TempDir(), "/home/testuser", "testuser")
+	require.NoError(t, err)
+	mem := NewMemoryRepo(rt)
+
+	cfg := &Config{
+		Indexes: []IndexEntry{
+			{File: "golang.md", Summary: "Go nodes", Query: "golang"},
+		},
+	}
+
+	dex, err := NewDexFromRepo(t.Context(), mem, WithConfig(cfg))
+	require.NoError(t, err)
+	require.Len(t, dex.custom, 1)
+
+	t1 := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	goNode := makeNodeData(10, "Go patterns", []string{"golang"}, t1)
+	require.NoError(t, dex.Add(t.Context(), goNode))
+	require.NoError(t, dex.Write(t.Context(), mem))
+
+	raw, err := mem.GetIndex(t.Context(), "golang.md")
+	require.NoError(t, err)
+	require.Contains(t, string(raw), "Go patterns")
+}
+
 // TestDex_WithConfig_CoreIndexSkipped verifies that core index names in
 // cfg.Indexes with Tags set are not added as custom tag-filtered indexes.
 func TestDex_WithConfig_CoreIndexSkipped(t *testing.T) {

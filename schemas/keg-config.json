@@ -8,9 +8,7 @@
     "kegv": {
       "type": "string",
       "description": "Configuration schema version.",
-      "enum": [
-        "2025-07"
-      ]
+      "enum": ["2025-07"]
     },
     "updated": {
       "type": "string",
@@ -53,10 +51,7 @@
             "description": "Destination URL or keg target."
           }
         },
-        "required": [
-          "alias",
-          "url"
-        ],
+        "required": ["alias", "url"],
         "additionalProperties": true
       }
     },
@@ -69,7 +64,7 @@
         "properties": {
           "file": {
             "type": "string",
-            "description": "Path to the generated index file relative to the keg root."
+            "description": "Filename of the generated index artifact. The canonical form is the bare filename (e.g. \"backlinks\", \"concepts.md\"); the on-disk path is always under the keg's dex/ directory and the prefix is applied at write time. A legacy \"dex/\"-prefixed value is accepted at parse and normalized to the bare form."
           },
           "summary": {
             "type": "string",
@@ -91,10 +86,7 @@
             "default": "updated"
           }
         },
-        "required": [
-          "file",
-          "summary"
-        ],
+        "required": ["file", "summary"],
         "additionalProperties": true
       }
     },
@@ -115,9 +107,7 @@
             "description": "Short description of the entity."
           }
         },
-        "required": [
-          "id"
-        ],
+        "required": ["id"],
         "additionalProperties": false
       }
     },
@@ -178,8 +168,6 @@
       "additionalProperties": false
     }
   },
-  "required": [
-    "kegv"
-  ],
+  "required": ["kegv"],
   "additionalProperties": true
 }
