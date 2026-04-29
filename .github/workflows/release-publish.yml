@@ -1,12 +1,11 @@
 name: Release Publish
 on:
   push:
-    branches: [main]
+    tags: ["v*"]
 permissions:
   contents: write
 jobs:
   publish:
-    if: "startsWith(github.event.head_commit.message, 'chore: release v')"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -17,34 +16,16 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Run tests
-        run: go test ./...
-
-      - name: Parse version from release commit
+      - name: Parse version from tag
         id: version
         run: |
-          FIRST_LINE="$(git log -1 --pretty=%s HEAD)"
-          if [[ ! "$FIRST_LINE" =~ ^chore:\ release\ (v[0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
-            echo "Error: head commit subject does not match 'chore: release vX.Y.Z'." >&2
-            echo "Subject was: $FIRST_LINE" >&2
+          TAG="${GITHUB_REF#refs/tags/}"
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Error: tag '$TAG' is not semver (vX.Y.Z); skipping publish." >&2
             exit 1
           fi
-          VERSION="${BASH_REMATCH[1]}"
-          echo "Publishing $VERSION"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-
-      - name: Tag release if not already tagged
-        env:
-          VERSION: ${{ steps.version.outputs.version }}
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          if git rev-parse -q --verify "refs/tags/$VERSION" >/dev/null; then
-            echo "Tag $VERSION already exists; skipping tag creation"
-          else
-            git tag -a "$VERSION" -m "$VERSION"
-            git push origin "refs/tags/$VERSION"
-          fi
+          echo "Publishing $TAG"
+          echo "version=$TAG" >> "$GITHUB_OUTPUT"
 
       - name: Ensure clean git state for goreleaser
         run: |

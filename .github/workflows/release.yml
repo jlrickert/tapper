@@ -1,4 +1,4 @@
-name: Release PR
+name: Release
 on:
   workflow_dispatch:
     inputs:
@@ -8,26 +8,25 @@ on:
         default: ""
 permissions:
   contents: write
-  pull-requests: write
 jobs:
   test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: dev
+          ref: main
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
       - run: go test ./...
 
-  open-pr:
+  release:
     needs: test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: dev
+          ref: main
           fetch-depth: 0
           fetch-tags: true
       - uses: actions/setup-go@v6
@@ -36,6 +35,11 @@ jobs:
 
       - name: Ensure tags are available
         run: git fetch --force --tags
+
+      - name: Configure git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
 
       - name: Determine version via git-cliff
         id: cliff
@@ -100,31 +104,21 @@ jobs:
           TAPPER_PLUGIN_VERSION: ${{ steps.version.outputs.version }}
         run: go run ./cmd/render-integrations
 
-      - name: Commit release on dev and cut release branch
+      - name: Commit release on main
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
           git add CHANGELOG.md integrations/rendered
           if git diff --staged --quiet; then
             echo "Error: no release artifacts staged. Expected CHANGELOG and rendered integrations to change." >&2
             exit 1
           fi
           git commit -m "chore: release $VERSION"
-          git push origin dev
-          BRANCH="release/$VERSION"
-          git checkout -b "$BRANCH"
-          git push origin "$BRANCH"
+          git push origin main
 
-      - name: Open release PR into main
+      - name: Tag and push
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ steps.version.outputs.version }}
         run: |
-          BRANCH="release/$VERSION"
-          gh pr create \
-            --base main \
-            --head "$BRANCH" \
-            --title "chore: release $VERSION" \
-            --body "Automated release PR for $VERSION."
+          git tag -a "$VERSION" -m "$VERSION"
+          git push origin "refs/tags/$VERSION"
