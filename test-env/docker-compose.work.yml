@@ -1,8 +1,8 @@
 # Work-mode overlay for the tapper sandbox.
 #
 # Defines a parallel `sandbox-work` service that bind-mounts the local
-# cli-toolkit working tree at /workspace/cli-toolkit alongside tapper at
-# /workspace/tapper, and leaves GOWORK unset so the host's go.work
+# cli-toolkit working tree at /usr/local/src/cli-toolkit alongside tapper
+# at /usr/local/src/tapper, and leaves GOWORK unset so the host's go.work
 # (which references ../cli-toolkit) is honored. Builds and tests run
 # inside the container then resolve cli-toolkit to the local working
 # tree instead of the go.mod-pinned version.
@@ -29,17 +29,16 @@ services:
     tty: true
     stdin_open: true
     restart: unless-stopped
-    working_dir: /workspace/tapper
     command: ["sleep", "infinity"]
     environment:
       GOPATH: /home/jlrickert/go
       GOCACHE: /home/jlrickert/.cache/go-build
       # Empty (set, but no value) so entrypoint's `${GOWORK-off}` fallback
-      # does not kick in and Go auto-detects /workspace/tapper/go.work.
+      # does not kick in and Go auto-detects /usr/local/src/tapper/go.work.
       GOWORK: ""
     volumes:
-      - ../:/workspace/tapper:cached
-      - ${CLI_TOOLKIT_PATH:-../../cli-toolkit}:/workspace/cli-toolkit:cached
+      - ../:/usr/local/src/tapper:cached,ro
+      - ${CLI_TOOLKIT_PATH:-../../cli-toolkit}:/usr/local/src/cli-toolkit:cached,ro
       - tapper-go-mod:/home/jlrickert/go
       - tapper-go-build:/home/jlrickert/.cache/go-build
       - tapper-state:/home/jlrickert/.local/state/tapper

@@ -6,7 +6,7 @@
 set -euo pipefail
 
 SENTINEL="${HOME}/.sandbox-initialized"
-REPO="/workspace/tapper"
+REPO="/usr/local/src/tapper"
 
 # Disable go.work so the in-container build uses the pinned cli-toolkit
 # module version from go.mod instead of chasing ../cli-toolkit out of the
@@ -20,8 +20,17 @@ export GOWORK="${GOWORK-off}"
 if [[ ! -f "${SENTINEL}" && -d "${REPO}" ]]; then
     echo "[sandbox] First boot: installing tap and keg from ${REPO}..."
     (cd "${REPO}" && go install ./cmd/tap ./cmd/keg)
+
+    # Drop Cobra-generated completion files into the system zsh site-functions
+    # dir (already in default fpath, chown'd to jlrickert in the Dockerfile).
+    # task sandbox:rebuild-tap mirrors this regeneration step for binary
+    # updates after first boot.
+    COMPDIR="/usr/local/share/zsh/site-functions"
+    "${HOME}/go/bin/tap" completion zsh > "${COMPDIR}/_tap"
+    "${HOME}/go/bin/keg" completion zsh > "${COMPDIR}/_keg"
+
     touch "${SENTINEL}"
-    echo "[sandbox] Ready. tap and keg are on PATH."
+    echo "[sandbox] Ready. tap and keg are on PATH; completion installed."
 fi
 
 exec "$@"

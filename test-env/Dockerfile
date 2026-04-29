@@ -87,15 +87,36 @@ ENV GOPATH=/home/jlrickert/go \
 ARG DOTS_REV=81f31990bbae1bc5e0dddf337f351feab43bbf87
 RUN go install "github.com/jlrickert/dots/cmd/dots@${DOTS_REV}"
 
-RUN dots init --from https://github.com/jlrickert/dotfiles.git \
-              --path dots-config \
-              --name jlrickert
+# DOTFILES_REV pins the dotfiles checkout. dots init has no --ref flag, so
+# embedding the SHA in the layer command is what makes Docker invalidate
+# and re-clone when this changes. Bump manually here, or use
+# `task sandbox:refresh-dotfiles` to rebuild against the live HEAD.
+ARG DOTFILES_REV=eef53375d9aaac923c1aded0bfcd648bf9d24558
+RUN echo "dotfiles@${DOTFILES_REV}" \
+    && dots init --from https://github.com/jlrickert/dotfiles.git \
+                 --path dots-config \
+                 --name jlrickert
+
+# Install personal dotfile packages (common-shell pulls in transitively as a
+# requires of zsh). SHELL=/bin/bash works around a dots bug where post_install
+# hooks are invoked under POSIX sh; the zsh package's hook needs bash. Drop
+# the prefix once dots is updated. dots install takes one package per call.
+RUN SHELL=/bin/bash dots install jlrickert/zsh \
+ && SHELL=/bin/bash dots install jlrickert/zellij
 
 # Pre-create directories that the docker-compose volumes will mount over, so
 # the first boot does not race on directory creation with the bind mounts.
 RUN mkdir -p /home/jlrickert/go \
              /home/jlrickert/.cache/go-build \
              /home/jlrickert/.local/state/tapper
+
+# zsh's default fpath includes /usr/local/share/zsh/site-functions; chown it
+# to jlrickert so entrypoint.sh can drop Cobra-generated _tap / _keg files
+# there at first boot without escalating. This keeps the dotfiles' zshrc out
+# of the completion-wiring loop entirely.
+USER root
+RUN chown jlrickert:jlrickert /usr/local/share/zsh/site-functions
+USER jlrickert
 
 # Install the entrypoint. We briefly flip to root to COPY into /usr/local/bin
 # and set the executable bit, then restore the unprivileged user so the

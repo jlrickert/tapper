@@ -12,7 +12,6 @@ services:
     tty: true
     stdin_open: true
     restart: unless-stopped
-    working_dir: /workspace/tapper
     command: ["sleep", "infinity"]
     environment:
       GOPATH: /home/jlrickert/go
@@ -20,7 +19,12 @@ services:
       # Ignore go.work; use go.mod-pinned module versions like CI does.
       GOWORK: "off"
     volumes:
-      - ../:/workspace/tapper:cached
+      # Source is a build input only -- mounted read-only so the sandbox
+      # cannot mutate the host tree, and out of /workspace so the user's
+      # home is the natural cwd. Kegs created at runtime live in the
+      # container's writable layer (~/.local/share/tapper/kegs); they
+      # survive `restart` but are wiped by `rebuild` / `clean`.
+      - ../:/usr/local/src/tapper:cached,ro
       - tapper-go-mod:/home/jlrickert/go
       - tapper-go-build:/home/jlrickert/.cache/go-build
       - tapper-state:/home/jlrickert/.local/state/tapper
