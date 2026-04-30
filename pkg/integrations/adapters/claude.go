@@ -88,20 +88,13 @@ func (ClaudeAdapter) OrientPath() string {
 	return "rendered/claude/skills/tapper/SKILL.md"
 }
 
-// Render emits the three Claude plugin files into dst. rt is consulted
-// for release-time configuration (TAPPER_PLUGIN_VERSION); a nil runtime
-// falls back to the default "dev" version.
+// Render emits the Claude plugin files into dst. rt is consulted for
+// release-time configuration (TAPPER_PLUGIN_VERSION); a nil runtime
+// falls back to the default "dev" version. Outputs are written in
+// alphabetical order of their rendered path so the test fixtures and
+// drift detector see a deterministic emission sequence.
 func (a ClaudeAdapter) Render(rt *toolkit.Runtime, content fs.FS, dst integrations.DestWriter) error {
-	// 1. plugin.json — byte-parity with today's file via the struct encoder.
-	plugin, err := renderClaudePluginJSON(rt)
-	if err != nil {
-		return err
-	}
-	if err := dst.Write(path.Join(a.Name(), ".claude-plugin", "plugin.json"), plugin); err != nil {
-		return err
-	}
-
-	// 2. .mcp.json — hand-formatted to preserve today's inline "args" array.
+	// 1. .mcp.json — hand-formatted to preserve today's inline "args" array.
 	// json.Encoder with SetIndent always expands slice elements onto their
 	// own lines; today's file keeps ["mcp"] inline, so the adapter owns the
 	// template to guarantee byte-parity.
@@ -110,7 +103,37 @@ func (a ClaudeAdapter) Render(rt *toolkit.Runtime, content fs.FS, dst integratio
 		return err
 	}
 
-	// 3. SKILL.md — frontmatter injected by the adapter, then canonical
+	// 2. plugin.json — byte-parity with today's file via the struct encoder.
+	plugin, err := renderClaudePluginJSON(rt)
+	if err != nil {
+		return err
+	}
+	if err := dst.Write(path.Join(a.Name(), ".claude-plugin", "plugin.json"), plugin); err != nil {
+		return err
+	}
+
+	// 3. hooks/block-tap-cli.py and hooks/hooks.json — canonical-source
+	// bytes supplied by the render-time content FS overlay. The actual
+	// source lives in pkg/integrations/renderdata/claude/hooks/ and is
+	// embedded only by cmd/render-integrations, never by cmd/tap or
+	// cmd/keg, so the user binaries do not duplicate the canonical
+	// bytes (the rendered tree is what they ship via integrations/embed.go).
+	hookPy, err := fs.ReadFile(content, "claude/hooks/block-tap-cli.py")
+	if err != nil {
+		return fmt.Errorf("claude: read hook block-tap-cli.py: %w", err)
+	}
+	if err := dst.Write(path.Join(a.Name(), "hooks", "block-tap-cli.py"), hookPy); err != nil {
+		return err
+	}
+	hookJSON, err := fs.ReadFile(content, "claude/hooks/hooks.json")
+	if err != nil {
+		return fmt.Errorf("claude: read hook hooks.json: %w", err)
+	}
+	if err := dst.Write(path.Join(a.Name(), "hooks", "hooks.json"), hookJSON); err != nil {
+		return err
+	}
+
+	// 4. SKILL.md — frontmatter injected by the adapter, then canonical
 	// bodies concatenated in claudeSKILLOrder. agent-orient keeps its H1;
 	// the other four files drop theirs.
 	skill, err := renderClaudeSKILL(content)

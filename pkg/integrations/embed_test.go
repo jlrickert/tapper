@@ -3,6 +3,7 @@ package integrations_test
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -18,7 +19,33 @@ import (
 	// DefaultAdapters(). Without it the registry would be empty under
 	// `go test ./pkg/integrations/` and the drift test would vacuously pass.
 	_ "github.com/jlrickert/tapper/pkg/integrations/adapters"
+
+	// renderdata supplies host-specific canonical-source bytes (Claude
+	// hooks today) that cmd/render-integrations overlays onto the
+	// canonical content tree. The drift test must replicate that overlay
+	// so the adapter sees the same content shape it does at render time.
+	// This is an external test package, so importing renderdata here
+	// does not pull those bytes into cmd/tap or cmd/keg.
+	"github.com/jlrickert/tapper/pkg/integrations/renderdata"
 )
+
+// overlayFS composes two fs.FS views so the drift test can mirror the
+// content-FS shape that cmd/render-integrations builds at runtime. Path
+// lookups consult secondary first; misses fall through to primary.
+type overlayFS struct {
+	primary, secondary fs.FS
+}
+
+func (o overlayFS) Open(name string) (fs.File, error) {
+	f, err := o.secondary.Open(name)
+	if err == nil {
+		return f, nil
+	}
+	if !errors.Is(err, fs.ErrNotExist) {
+		return nil, err
+	}
+	return o.primary.Open(name)
+}
 
 // TestRenderedTreeMatchesAdapters re-runs every registered adapter over
 // the embedded canonical content and compares the output to the embedded
@@ -35,6 +62,10 @@ func TestRenderedTreeMatchesAdapters(t *testing.T) {
 	if err != nil {
 		t.Fatalf("fs.Sub(content): %v", err)
 	}
+	// Mirror cmd/render-integrations: overlay renderdata.FS onto the
+	// canonical content. Without this, the Claude adapter cannot find
+	// "claude/hooks/..." in the content FS and Render fails.
+	content := overlayFS{primary: contentFS, secondary: renderdata.FS}
 
 	// The embedded rendered/claude/.claude-plugin/plugin.json is the
 	// source of truth for the Claude adapter's "version" field: the
@@ -67,7 +98,7 @@ func TestRenderedTreeMatchesAdapters(t *testing.T) {
 	}
 
 	mem := integrations.NewMemWriter()
-	if err := integrations.RenderAll(rt, contentFS, mem, integrations.DefaultAdapters()); err != nil {
+	if err := integrations.RenderAll(rt, content, mem, integrations.DefaultAdapters()); err != nil {
 		t.Fatalf("RenderAll: %v", err)
 	}
 
