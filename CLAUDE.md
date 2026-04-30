@@ -40,15 +40,17 @@ go vet ./...
 
 ## Branching Model
 
-- `dev` is the default branch. All development commits and PRs target `dev`.
-- `main` is release-only and advances only via the Release workflow, which opens
-  a `release/$VERSION` PR into `main`, merges it via rebase, then tags. Direct
-  pushes to `main` are blocked by a repository ruleset.
-- When committing or opening PRs, base on `dev` unless explicitly cutting a
-  release.
-
-Decision: keg:dev/1051 (Adopt dev branch + main release-only pattern across
-caldera-managed repos).
+- `main` is the GitHub default branch and the de-facto working branch.
+- `dev` exists and is preserved as a dev/main split for embedded-version
+  coherence in the Claude plugin, but the supporting rulesets ("Protect main",
+  "Force push protection") are currently disabled on this repo, so direct
+  pushes and direct-to-main PRs are not blocked.
+- The release pipeline is a single workflow: `release.yml` runs on
+  `workflow_dispatch` against `main`, writes the changelog commit and tag,
+  then runs goreleaser inline.
+- When opening a PR, base on `main` unless explicitly asked to route through
+  `dev`. If `dev` is reactivated (rulesets re-enabled, default branch
+  switched back), revisit this section.
 
 ## Architecture
 
@@ -63,8 +65,9 @@ caldera-managed repos).
   and `pkg/keg`.
 - **`pkg/keg_url/`** — Target URL parsing (file://, memory://, API schemes) and
   expansion.
-- **`pkg/mcp/`** — MCP server: 31 tools exposing the full Tap surface over stdio
-  JSON-RPC. See `docs/ai-coding-agents/mcp-setup.md`.
+- **`pkg/mcp/`** — MCP server: 50 tools exposing the full Tap surface over
+  stdio JSON-RPC, wired by 18 `register*Tools()` functions in `server.go`. See
+  `docs/ai-coding-agents/mcp-setup.md`.
 
 ### Key Types and Flow
 
