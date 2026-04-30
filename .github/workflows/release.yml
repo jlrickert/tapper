@@ -9,19 +9,7 @@ on:
 permissions:
   contents: write
 jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          ref: main
-      - uses: actions/setup-go@v6
-        with:
-          go-version-file: go.mod
-      - run: go test ./...
-
   release:
-    needs: test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -41,9 +29,11 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
+      - name: Run tests
+        run: go test ./...
+
       - name: Determine version via git-cliff
         id: cliff
-        continue-on-error: true
         uses: orhun/git-cliff-action@v4
         with:
           config: cliff.toml
@@ -56,29 +46,12 @@ jobs:
           INPUT_VERSION: ${{ inputs.version }}
         run: |
           DETECTED_VERSION="$(echo "$CLIFF_OUTPUT" | tr -d '[:space:]')"
-          if [ -z "$DETECTED_VERSION" ]; then
-            LAST_TAG="$(git tag --list 'v*' --sort=-version:refname | head -n1)"
-            if [[ -z "$LAST_TAG" ]]; then
-              DETECTED_VERSION="v0.1.0"
-              echo "git-cliff returned empty; no prior tags found. Falling back to $DETECTED_VERSION"
-            elif [[ "$LAST_TAG" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
-              MAJOR="${BASH_REMATCH[1]}"
-              MINOR="${BASH_REMATCH[2]}"
-              PATCH="${BASH_REMATCH[3]}"
-              DETECTED_VERSION="v${MAJOR}.${MINOR}.$((PATCH + 1))"
-              echo "git-cliff returned empty; falling back to patch bump from $LAST_TAG -> $DETECTED_VERSION"
-            else
-              echo "Error: latest tag '$LAST_TAG' is not semver (vX.Y.Z). Set workflow input 'version'." >&2
-              exit 1
-            fi
-          fi
-
           VERSION="$INPUT_VERSION"
           if [ -z "$VERSION" ]; then
             VERSION="$DETECTED_VERSION"
           fi
           if [ -z "$VERSION" ]; then
-            echo "Error: could not determine version. git-cliff returned nothing (no prior tags?). Use the version override input." >&2
+            echo "Error: could not determine version. Use the version override input." >&2
             exit 1
           fi
           if [[ ! "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
@@ -89,7 +62,6 @@ jobs:
             echo "Error: tag '$VERSION' already exists. Set workflow input 'version' to a new value." >&2
             exit 1
           fi
-
           echo "Releasing $VERSION"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
@@ -104,7 +76,7 @@ jobs:
           TAPPER_PLUGIN_VERSION: ${{ steps.version.outputs.version }}
         run: go run ./cmd/render-integrations
 
-      - name: Commit release on main
+      - name: Commit and push release atomically
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
@@ -114,11 +86,20 @@ jobs:
             exit 1
           fi
           git commit -m "chore: release $VERSION"
-          git push origin main
-
-      - name: Tag and push
-        env:
-          VERSION: ${{ steps.version.outputs.version }}
-        run: |
           git tag -a "$VERSION" -m "$VERSION"
-          git push origin "refs/tags/$VERSION"
+          git push origin main "refs/tags/$VERSION"
+
+      - name: Ensure clean tree for goreleaser
+        run: |
+          git clean -ffdx
+          test -z "$(git status --porcelain)" || { git status --porcelain; exit 1; }
+
+      - name: Run goreleaser
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
