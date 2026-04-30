@@ -2,15 +2,64 @@ package adapters
 
 import (
 	"bytes"
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
+	"testing/fstest"
 
 	"github.com/jlrickert/cli-toolkit/sandbox"
 	"github.com/jlrickert/cli-toolkit/toolkit"
 
 	"github.com/jlrickert/tapper/pkg/integrations"
 )
+
+// claudeContentFS layers an in-memory hook fixture over the on-disk
+// canonical markdown fixtures. The Claude adapter expects the canonical
+// markdown bodies at the root of the content FS and the hook bytes under
+// "claude/hooks/...", which is exactly the shape cmd/render-integrations
+// constructs at runtime by overlaying renderdata.FS onto
+// integrations/content. Building the same shape here keeps the adapter
+// test self-contained — it does not import renderdata, so the test does
+// not pull the canonical-source bytes into the adapter package.
+func claudeContentFS(t *testing.T) fs.FS {
+	t.Helper()
+	hookPy, err := os.ReadFile(filepath.FromSlash("testdata/claude/hooks/block-tap-cli.py"))
+	if err != nil {
+		t.Fatalf("read hook fixture block-tap-cli.py: %v", err)
+	}
+	hookJSON, err := os.ReadFile(filepath.FromSlash("testdata/claude/hooks/hooks.json"))
+	if err != nil {
+		t.Fatalf("read hook fixture hooks.json: %v", err)
+	}
+	hookOverlay := fstest.MapFS{
+		"claude/hooks/block-tap-cli.py": &fstest.MapFile{Data: hookPy},
+		"claude/hooks/hooks.json":       &fstest.MapFile{Data: hookJSON},
+	}
+	return overlayFS{
+		primary:   os.DirFS("testdata/canonical"),
+		secondary: hookOverlay,
+	}
+}
+
+// overlayFS mirrors the merged-FS shape used by cmd/render-integrations
+// without taking a dependency on it. Secondary takes precedence on
+// overlap; missing paths fall through to primary.
+type overlayFS struct {
+	primary, secondary fs.FS
+}
+
+func (o overlayFS) Open(name string) (fs.File, error) {
+	f, err := o.secondary.Open(name)
+	if err == nil {
+		return f, nil
+	}
+	if !errors.Is(err, fs.ErrNotExist) {
+		return nil, err
+	}
+	return o.primary.Open(name)
+}
 
 // newTestRuntime builds a sandbox-backed runtime so adapter tests stay
 // insulated from the process environment. The Claude adapter consults
@@ -32,9 +81,9 @@ func newTestRuntime(t *testing.T) *toolkit.Runtime {
 // changed or the adapter has — both must be reviewed deliberately.
 func TestClaudeAdapter_GoldenByteParity(t *testing.T) {
 	rt := newTestRuntime(t)
-	canonical := os.DirFS("testdata/canonical")
+	content := claudeContentFS(t)
 	mem := integrations.NewMemWriter()
-	if err := (ClaudeAdapter{}).Render(rt, canonical, mem); err != nil {
+	if err := (ClaudeAdapter{}).Render(rt, content, mem); err != nil {
 		t.Fatalf("Render: %v", err)
 	}
 
@@ -49,6 +98,14 @@ func TestClaudeAdapter_GoldenByteParity(t *testing.T) {
 		{
 			rendered: "claude/.claude-plugin/.mcp.json",
 			golden:   "testdata/claude/.claude-plugin/.mcp.json",
+		},
+		{
+			rendered: "claude/hooks/block-tap-cli.py",
+			golden:   "testdata/claude/hooks/block-tap-cli.py",
+		},
+		{
+			rendered: "claude/hooks/hooks.json",
+			golden:   "testdata/claude/hooks/hooks.json",
 		},
 		{
 			rendered: "claude/skills/tapper/SKILL.md",
@@ -90,9 +147,9 @@ func TestClaudeAdapter_GoldenByteParity(t *testing.T) {
 // readability.
 func TestClaudeAdapter_SKILLMDHasSingleH1(t *testing.T) {
 	rt := newTestRuntime(t)
-	canonical := os.DirFS("testdata/canonical")
+	content := claudeContentFS(t)
 	mem := integrations.NewMemWriter()
-	if err := (ClaudeAdapter{}).Render(rt, canonical, mem); err != nil {
+	if err := (ClaudeAdapter{}).Render(rt, content, mem); err != nil {
 		t.Fatalf("Render: %v", err)
 	}
 	body := mem.Files()["claude/skills/tapper/SKILL.md"]

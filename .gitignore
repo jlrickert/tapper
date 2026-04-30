@@ -35,6 +35,13 @@ go.work.sum
 .vscode/*
 !.vscode/settings.json
 
+# macOS
+.DS_Store
+
+# Python (for embedded hook scripts)
+__pycache__/
+*.pyc
+
 # Taskfile
 .task
 
