@@ -2,6 +2,29 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.22.0 - 2026-04-30
+
+
+
+### ⚙️ Miscellaneous
+- **release:** split release into PR and publish workflows
+- **release:** rework to manual dev→main PR flow + tag-push publish
+- consolidate release-publish into release workflow
+
+
+### 🐛 Bug Fixes
+- **release-pr:** tolerate git-cliff failure on first release
+
+
+### 🚀 Features
+- **config:** canonicalize index file paths to bare form
+- **cli:** promote tap repo init to top-level tap init
+- **cli:** tighten tap init — alias regex, platform default, drop tap dir
+- **cli:** TTY prompt for tap init, path-free user surfaces
+- **sandbox:** isolate from host, add fixtures + dotfiles packages
+- **integrations:** add PreToolUse hook blocking direct tap/keg CLI use
+
+
 ## v0.21.0 - 2026-04-28
 
 
