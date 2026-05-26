@@ -2,6 +2,18 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.22.1 - 2026-05-26
+
+
+
+### ⚙️ Miscellaneous
+- **deps:** bump cli-toolkit, mcp go-sdk, fsnotify, and transitives
+
+
+### 📚 Documentation
+- align CLAUDE.md branching model and MCP tool count with reality
+
+
 ## v0.22.0 - 2026-04-30
 
 
