@@ -160,14 +160,18 @@ func (t *Tap) initUserKeg(ctx context.Context, opts InitOptions) (*keg.Target, e
 	if err != nil {
 		return nil, fmt.Errorf("failed to load config: %w", err)
 	}
-	repoPath := cfg.PrimaryKegSearchPath()
+	// User kegs live under the built-in local hub's basePath, laid out as
+	// <basePath>/@local/<alias> to match Config.ResolveRef's local mapping.
+	repoPath := ""
+	if hub, ok := cfg.Hub(LocalHubName); ok {
+		repoPath = strings.TrimSpace(hub.BasePath)
+	}
 	if repoPath == "" {
 		repoPath, err = defaultUserKegRoot(t.Runtime)
 		if err != nil {
-			return nil, fmt.Errorf("kegSearchPaths not configured and platform default unavailable: %w", err)
+			return nil, fmt.Errorf("local hub basePath not configured and platform default unavailable: %w", err)
 		}
 	}
-
 	kegPath := filepath.Join(repoPath, opts.Keg)
 
 	target := keg.NewFile(kegPath)
@@ -196,7 +200,8 @@ func (t *Tap) initUserKeg(ctx context.Context, opts InitOptions) (*keg.Target, e
 			}
 			userCfg = &Config{data: &configDTO{}}
 		}
-		if err := userCfg.AddKeg(alias, target); err != nil {
+		ref := KegRef{Hub: LocalHubName, Namespace: LocalHubName, Name: alias}
+		if err := userCfg.AddKeg(alias, ref); err != nil {
 			return nil, err
 		}
 		if err := userCfg.Write(t.Runtime, t.PathService.UserConfig()); err != nil {
@@ -235,7 +240,7 @@ func (t *Tap) initHub(opts initHubOptions) (*keg.Target, error) {
 	}
 	if hubName == "" {
 		// final fallback
-		hubName = "knut"
+		hubName = DefaultHubName
 	}
 
 	// Determine namespace owner. Defaults to the OS user, whose default
@@ -268,7 +273,8 @@ func (t *Tap) initHub(opts initHubOptions) (*keg.Target, error) {
 			}
 			userCfg = &Config{data: &configDTO{}}
 		}
-		if err := userCfg.AddKeg(opts.Alias, target); err != nil {
+		ref := KegRef{Hub: hubName, Namespace: namespace, Name: opts.Alias}
+		if err := userCfg.AddKeg(opts.Alias, ref); err != nil {
 			return nil, err
 		}
 		if err := userCfg.Write(t.Runtime, t.PathService.UserConfig()); err != nil {

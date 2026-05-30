@@ -62,7 +62,7 @@ func TestConfigService_EnvOverridesLogLevel(t *testing.T) {
 	require.Equal(t, "debug", cfg.LogLevel(), "TAP_LOG_LEVEL should override user config")
 }
 
-func TestConfigService_EnvKegSearchPathsColonSeparated(t *testing.T) {
+func TestConfigService_EnvDefaultNamespaceOverride(t *testing.T) {
 	t.Parallel()
 
 	fx := NewSandbox(t, sandbox.WithFixture("basic", "/home/testuser"))
@@ -74,12 +74,12 @@ func TestConfigService_EnvKegSearchPathsColonSeparated(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	require.NoError(t, fx.Runtime().Env().Set("TAP_KEG_SEARCH_PATHS", "/path/a:/path/b:/path/c"))
+	require.NoError(t, fx.Runtime().Env().Set("TAP_DEFAULT_NAMESPACE", "envteam"))
 
 	cfg, err := tap.ConfigService.Config(false)
 	require.NoError(t, err)
 	require.NotNil(t, cfg)
-	require.Equal(t, []string{"/path/a", "/path/b", "/path/c"}, cfg.KegSearchPaths())
+	require.Equal(t, "envteam", cfg.DefaultNamespace(), "TAP_DEFAULT_NAMESPACE should set the default namespace")
 }
 
 func TestConfigService_EnvAbsentFallsThrough(t *testing.T) {

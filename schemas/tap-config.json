@@ -15,90 +15,49 @@
     },
     "defaultHub": {
       "type": "string",
-      "description": "Name of the default entry in 'hubs' used for login resolution and API-style targets. Override with TAP_DEFAULT_HUB env var."
+      "description": "High-precedence hub name used when a keg reference omits its hub. The authoritative choice; set it in project config. Override with TAP_DEFAULT_HUB env var."
+    },
+    "fallbackHub": {
+      "type": "string",
+      "description": "Last-resort hub name used when a keg reference omits its hub and no defaultHub applies. Set it in the global user config so references need not specify a hub. Override with TAP_FALLBACK_HUB env var."
+    },
+    "defaultNamespace": {
+      "type": "string",
+      "description": "High-precedence namespace used when a keg reference omits its namespace. Set it in project config. Override with TAP_DEFAULT_NAMESPACE env var."
+    },
+    "fallbackNamespace": {
+      "type": "string",
+      "description": "Last-resort namespace used when a keg reference omits its namespace and no defaultNamespace applies. Set it in the global user config. Override with TAP_FALLBACK_NAMESPACE env var."
     },
     "disableDefaultHub": {
       "type": "boolean",
-      "description": "When true, the compiled-in DefaultHubURL fallback (https://keg.foldwise.ai) is suppressed and hub-dependent commands fail with a clear error if no other hub is configured. Override with TAP_DISABLE_DEFAULT_HUB env var (1/true/yes/on)."
-    },
-    "kegSearchPaths": {
-      "description": "One path or a list of paths scanned for file-backed kegs. Override with TAP_KEG_SEARCH_PATHS env var (colon-separated).",
-      "oneOf": [
-        {
-          "type": "string",
-          "description": "Single directory path used for keg discovery."
-        },
-        {
-          "type": "array",
-          "description": "Ordered list of directory paths used for keg discovery.",
-          "items": {
-            "type": "string",
-            "description": "Directory path used for keg discovery."
-          }
-        }
-      ]
+      "description": "When true, the compiled-in DefaultHubURL fallback (https://atlas.foldwise.ai) is suppressed and hub-dependent commands fail with a clear error if no other hub is configured. Override with TAP_DISABLE_DEFAULT_HUB env var (1/true/yes/on)."
     },
     "kegs": {
       "type": "object",
-      "description": "Map of alias names to keg target definitions.",
+      "description": "Map of alias names to (hub, namespace, name) keg references.",
       "additionalProperties": {
-        "oneOf": [
-          {
+        "type": "object",
+        "description": "A keg reference. Use the (hub, namespace, name) triple; an empty hub falls back to defaultHub/fallbackHub and an empty namespace falls back to defaultNamespace/fallbackNamespace. 'path' is a legacy/explicit local-filesystem escape hatch that takes precedence over the triple.",
+        "properties": {
+          "hub": {
             "type": "string",
-            "description": "Scalar keg target shorthand."
+            "description": "Hub name this keg lives on. Empty uses defaultHub then fallbackHub."
           },
-          {
-            "type": "object",
-            "description": "Structured keg target definition.",
-            "properties": {
-              "file": {
-                "type": "string",
-                "description": "Filesystem path for a local keg target."
-              },
-              "hub": {
-                "type": "string",
-                "description": "Hub name for an API-style target."
-              },
-              "url": {
-                "type": "string",
-                "description": "Full URL target for remote access."
-              },
-              "memory": {
-                "type": "boolean",
-                "description": "When true, use an in-memory keg target."
-              },
-              "namespace": {
-                "type": "string",
-                "description": "Namespace owner for hub-style targets (user, organization, or other namespace type). The @ sigil is implied; do not include it."
-              },
-              "kegName": {
-                "type": "string",
-                "description": "Keg name within the namespace for hub-style targets."
-              },
-              "basicAuthUser": {
-                "type": "string",
-                "description": "HTTP basic-auth username for URL targets. Distinct from namespace, which addresses a hub-scheme namespace owner."
-              },
-              "password": {
-                "type": "string",
-                "description": "Basic-auth password for URL targets."
-              },
-              "token": {
-                "type": "string",
-                "description": "Inline token credential for URL or hub targets."
-              },
-              "tokenEnv": {
-                "type": "string",
-                "description": "Environment variable name containing a token credential."
-              },
-              "readonly": {
-                "type": "boolean",
-                "description": "Marks the target as read-only."
-              }
-            },
-            "additionalProperties": false
+          "namespace": {
+            "type": "string",
+            "description": "Namespace owner. The @ sigil is implied; do not include it. Empty uses defaultNamespace then fallbackNamespace."
+          },
+          "name": {
+            "type": "string",
+            "description": "Keg name within the namespace."
+          },
+          "path": {
+            "type": "string",
+            "description": "Explicit local filesystem path. When set it takes precedence over the triple (legacy/escape hatch)."
           }
-        ]
+        },
+        "additionalProperties": false
       }
     },
     "kegMap": {
@@ -126,19 +85,24 @@
       }
     },
     "hubs": {
-      "type": "array",
-      "description": "List of named hub connection definitions.",
-      "items": {
+      "type": "object",
+      "description": "Map of hub name to hub definition. A hub is a backend kegs are addressed against.",
+      "additionalProperties": {
         "type": "object",
         "description": "Single hub configuration entry.",
         "properties": {
-          "name": {
+          "kind": {
             "type": "string",
-            "description": "Hub identifier referenced by targets and defaults."
+            "enum": ["remote", "local", "readonly"],
+            "description": "Hub backend kind: 'remote' (read-write HTTP, the default when omitted), 'local' (filesystem on this machine), or 'readonly' (read-only HTTP)."
           },
           "url": {
             "type": "string",
-            "description": "Base URL or host for the hub."
+            "description": "Base URL for remote/readonly hubs."
+          },
+          "basePath": {
+            "type": "string",
+            "description": "Filesystem root for local hubs. Kegs resolve to <basePath>/<name>."
           },
           "token": {
             "type": "string",

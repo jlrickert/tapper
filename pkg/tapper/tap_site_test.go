@@ -29,10 +29,10 @@ func setupSiteKeg(t *testing.T) (*sandbox.Sandbox, *tapper.Tap) {
 	})
 	require.NoError(t, err)
 
-	// Write user config with kegSearchPaths.
+	// Write user config with an explicit local keg.
 	userCfg := `fallbackKeg: test
-kegSearchPaths:
-  - /home/testuser/kegs
+kegs:
+  test: { path: /home/testuser/kegs/test }
 `
 	require.NoError(t, rt.Mkdir(tap.PathService.ConfigRoot, 0o755, true))
 	require.NoError(t, rt.AtomicWriteFile(tap.PathService.UserConfig(), []byte(userCfg), 0o644))

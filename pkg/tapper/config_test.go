@@ -6,7 +6,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jlrickert/tapper/pkg/keg"
 	"github.com/jlrickert/tapper/pkg/tapper"
 	"github.com/stretchr/testify/require"
 )
@@ -80,70 +79,63 @@ unknownKey: value
 func TestParseUserConfig_KegExamples(t *testing.T) {
 	t.Parallel()
 
-	// Examples of different keg value forms:
-	// - api scheme
-	// - https URL with username and password
-	// - a value that is only a URL-like host/path without scheme
-	// - another api example
-	raw := `kegs:
+	// Keg values are (hub, namespace, name) triples. Hub shorthand
+	// ("hub:@ns/name") is accepted on input and normalized to the triple form.
+	raw := `hubs:
   work:
-    api: work.com/keg/api
-    token: ${WORK_TOKEN}
-    readonly: true
-  api: "api://api.example.com/v1"
-  https_keg: "https://alice:secret@secure.example.com/project"
-  only_url: "keg.only.example/path"
-  api_alt: "api://other.example"
+    kind: remote
+    url: https://work.example.com
+    tokenEnv: WORK_TOKEN
+kegs:
+  notes: { hub: work, namespace: alice, name: notes }
+  short: "work:@bob/blog"
 `
 
 	uc, err := tapper.ParseConfig([]byte(raw))
 	require.NoError(t, err, "ParseConfig failed")
 
+	kegs := uc.Kegs()
+	require.Equal(t, tapper.KegRef{Hub: "work", Namespace: "alice", Name: "notes"}, kegs["notes"])
+	require.Equal(t, tapper.KegRef{Hub: "work", Namespace: "bob", Name: "blog"}, kegs["short"])
+
 	data, err := uc.ToYAML()
+	require.NoError(t, err)
 	out := string(data)
 
-	// Ensure the various keg examples were preserved in the serialized YAML.
-	require.Contains(t, out, "api:/api.example.com/v1", "expected api URL present")
-	require.Contains(t, out, "https://alice:secret@secure.example.com/project",
-		"expected https URL with user:pass present")
-	require.Contains(t, out, "keg.only.example/path",
-		"expected only-url style value present")
-	require.Contains(t, out, "api:/other.example", "expected second api URL present")
-
-	// Also ensure the nested mapping and token were preserved for the 'work' keg.
-	require.Contains(t, out, "work:", "expected 'work' keg mapping present")
-	require.Contains(t, out, "${WORK_TOKEN}", "expected token env var preserved")
-	require.Contains(t, out, "readonly: true", "expected readonly flag preserved")
+	// The canonical triple form and the hub definition round-trip.
+	require.Contains(t, out, "name: notes")
+	require.Contains(t, out, "namespace: alice")
+	require.Contains(t, out, "url: https://work.example.com")
 }
 
 func TestResolveAlias_Behavior(t *testing.T) {
 	t.Parallel()
+	fx := NewSandbox(t)
 
-	// Create a small config with one alias and one complex form.
-	raw := `kegs:
-  main: "https://example.com/main"
-  nested:
-    url: "api.example.com/v1"
+	raw := `hubs:
+  remote:
+    kind: remote
+    url: https://example.com
+kegs:
+  main: { hub: remote, namespace: alice, name: main }
+  nested: { hub: remote, namespace: bob, name: notes }
 `
 	uc, err := tapper.ParseConfig([]byte(raw))
 	require.NoError(t, err)
 
-	t.Log(uc.Kegs())
 	// Successful resolve
-	kt, err := uc.ResolveAlias("main")
+	kt, err := uc.ResolveAlias(fx.Runtime(), "main")
 	require.NoError(t, err, "expected ResolveAlias to succeed for existing alias")
 	require.NotNil(t, kt)
-	require.Contains(t, kt.String(), "https://example.com/main")
+	require.Equal(t, "remote:@alice/main", kt.String())
 
-	// Nested mapping should also be present as a keg entry
-	kt2, err := uc.ResolveAlias("nested")
+	kt2, err := uc.ResolveAlias(fx.Runtime(), "nested")
 	require.NoError(t, err, "expected ResolveAlias to succeed for nested mapping")
 	require.NotNil(t, kt2)
-	// The Parse behavior may normalize to an api scheme or similar; ensure non-empty.
-	require.NotZero(t, kt2.String())
+	require.Equal(t, "remote:@bob/notes", kt2.String())
 
 	// Missing alias yields an error
-	_, err = uc.ResolveAlias("missing")
+	_, err = uc.ResolveAlias(fx.Runtime(), "missing")
 	require.Error(t, err, "expected ResolveAlias to error for unknown alias")
 }
 
@@ -153,12 +145,16 @@ func TestResolveProjectKeg_PrefixAndRegexPrecedence(t *testing.T) {
 
 	// Build a config exercising regex precedence and longest-prefix selection.
 	raw := fmt.Sprintf(`defaultKeg: default
+hubs:
+  remote:
+    kind: remote
+    url: https://example.com
 kegs:
-  regex: "https://example.com/regex"
-  proj: "https://example.com/proj"
-  projfoo: "https://example.com/projfoo"
-  default: "https://example.com/default"
-  work: "example.com/default"
+  regex: { hub: remote, namespace: ns, name: regex }
+  proj: { hub: remote, namespace: ns, name: proj }
+  projfoo: { hub: remote, namespace: ns, name: projfoo }
+  default: { hub: remote, namespace: ns, name: default }
+  work: { hub: remote, namespace: ns, name: work }
 kegMap:
   - alias: regex
     pathRegex: "^%s/.*/special$"
@@ -175,28 +171,30 @@ kegMap:
 	pathRegexMatch := filepath.Join(fx.GetJail(), "x", "special")
 	kt, err := uc.ResolveKegMap(fx.Runtime(), pathRegexMatch)
 	require.NoError(t, err, "expected ResolveProjectKeg to match regex")
-	require.Contains(t, kt.String(), "https://example.com/regex")
+	require.Equal(t, "remote:@ns/regex", kt.String())
 
 	// Path that matches both proj and projfoo should choose the longest prefix
 	pathLongPrefix := filepath.Join(fx.GetJail(), "projects", "foo", "bar")
 	kt2, err := uc.ResolveKegMap(fx.Runtime(), pathLongPrefix)
 	require.NoError(t, err, "expected ResolveProjectKeg to match a prefix")
-	require.Contains(t, kt2.String(), "https://example.com/projfoo")
+	require.Equal(t, "remote:@ns/projfoo", kt2.String())
 
 	// Path that only matches proj prefix
 	pathProj := filepath.Join(fx.GetJail(), "projects", "other")
 	kt3, err := uc.ResolveKegMap(fx.Runtime(), pathProj)
 	require.NoError(t, err, "expected ResolveProjectKeg to match proj prefix")
-	require.Contains(t, kt3.String(), "https://example.com/proj")
+	require.Equal(t, "remote:@ns/proj", kt3.String())
 
-	// Path that matches nothing falls back to defaultKeg
+	// Path that matches nothing yields an alias-not-found error
 	pathNone := filepath.Join(fx.GetJail(), "unmatched")
 	_, err = uc.ResolveKegMap(fx.Runtime(), pathNone)
 	require.Error(t, err, "expected ResolveProjectKeg not return anything")
 
 	// If no default and no match, expect an error.
-	rawNoDefault := fmt.Sprintf(`kegs:
-  proj: "https://example.com/proj"
+	rawNoDefault := fmt.Sprintf(`hubs:
+  remote: { kind: remote, url: https://example.com }
+kegs:
+  proj: { hub: remote, namespace: ns, name: proj }
 kegMap:
   - alias: proj
     pathPrefix: "%s/projects"
@@ -212,40 +210,36 @@ func TestAddKeg_AddsAndUpdatesEntries(t *testing.T) {
 	t.Parallel()
 
 	raw := `kegs:
-  existing: "https://example.com/existing"
+  existing: { hub: atlas, namespace: alice, name: existing }
 `
 	cfg, err := tapper.ParseConfig([]byte(raw))
 	require.NoError(t, err)
 
 	// Add a new keg
-	newTarget := keg.NewFile("/path/to/keg")
-	err = cfg.AddKeg("newkeg", newTarget)
+	newRef := tapper.KegRef{Hub: "local", Namespace: "local", Name: "newkeg"}
+	err = cfg.AddKeg("newkeg", newRef)
 	require.NoError(t, err)
 
 	// Verify it's in the kegs map
 	kegs := cfg.Kegs()
 	require.Contains(t, kegs, "newkeg")
-	target := kegs["newkeg"]
-	require.Equal(t, newTarget.String(), target.String())
+	require.Equal(t, newRef, kegs["newkeg"])
 
 	// Verify the existing entry is still there
 	require.Contains(t, kegs, "existing")
 
 	// Update an existing keg
-	updatedTarget := keg.NewFile("/path/to/updated")
-	err = cfg.AddKeg("existing", updatedTarget)
+	updatedRef := tapper.KegRef{Hub: "atlas", Namespace: "alice", Name: "renamed"}
+	err = cfg.AddKeg("existing", updatedRef)
 	require.NoError(t, err)
-
-	kegs = cfg.Kegs()
-	target = kegs["existing"]
-	require.Equal(t, updatedTarget.String(), target.String())
+	require.Equal(t, updatedRef, cfg.Kegs()["existing"])
 
 	// Serialize and verify the changes are present
 	data, err := cfg.ToYAML()
 	require.NoError(t, err)
 	out := string(data)
 	require.Contains(t, out, "newkeg")
-	require.Contains(t, out, "/path/to/keg")
+	require.Contains(t, out, "name: newkeg")
 }
 
 func TestAddKeg_ReturnsErrorOnNilOrEmptyAlias(t *testing.T) {
@@ -255,12 +249,12 @@ func TestAddKeg_ReturnsErrorOnNilOrEmptyAlias(t *testing.T) {
 
 	// Test nil config
 	var nilCfg *tapper.Config
-	err := nilCfg.AddKeg("test", keg.NewFile("/path"))
+	err := nilCfg.AddKeg("test", tapper.KegRef{Name: "test"})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "config is nil")
 
 	// Test empty alias
-	err = cfg.AddKeg("", keg.NewFile("/path"))
+	err = cfg.AddKeg("", tapper.KegRef{Name: "x"})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "alias is required")
 }
@@ -396,94 +390,45 @@ func TestMergeConfig_PreservesMultipleEntriesWithSameAlias(t *testing.T) {
 	require.Len(t, kegMap, 2, "both work entries should survive merge")
 }
 
-func TestParseConfig_KegSearchPathsScalar(t *testing.T) {
+func TestParseConfig_LegacyKegSearchPathsIgnored(t *testing.T) {
 	t.Parallel()
 
+	// kegSearchPaths was removed; legacy configs that still carry it (and any
+	// other unknown keys) must load without error, with the key ignored and
+	// dropped on re-serialization.
 	raw := `fallbackKeg: pub
-kegSearchPaths: ~/Documents/kegs
-kegMap: []
-kegs: {}
-defaultHub: ""
-`
-	cfg, err := tapper.ParseConfig([]byte(raw))
-	require.NoError(t, err)
-	require.Equal(t, []string{"~/Documents/kegs"}, cfg.KegSearchPaths())
-
-	out, err := cfg.ToYAML()
-	require.NoError(t, err)
-	y := string(out)
-	require.Contains(t, y, "kegSearchPaths:")
-	require.Contains(t, y, "- ~/Documents/kegs")
-}
-
-func TestParseConfig_SearchPathModes(t *testing.T) {
-	t.Parallel()
-
-	t.Run("legacy_only_userRepoPath_is_ignored", func(innerT *testing.T) {
-		innerT.Parallel()
-
-		raw := `userRepoPath: ~/Documents/kegs
-kegMap: []
-kegs: {}
-defaultHub: ""
-`
-		cfg, err := tapper.ParseConfig([]byte(raw))
-		require.NoError(innerT, err)
-		require.Empty(innerT, cfg.KegSearchPaths())
-	})
-
-	t.Run("mixed_legacy_and_new_uses_kegSearchPaths", func(innerT *testing.T) {
-		innerT.Parallel()
-
-		raw := `userRepoPath: ~/Documents/legacy
 kegSearchPaths:
   - ~/Documents/kegs
   - ~/repos/kegs
+userRepoPath: ~/Documents/legacy
 kegMap: []
 kegs: {}
-defaultHub: ""
 `
-		cfg, err := tapper.ParseConfig([]byte(raw))
-		require.NoError(innerT, err)
-		require.Equal(innerT, []string{"~/Documents/kegs", "~/repos/kegs"}, cfg.KegSearchPaths())
-	})
+	cfg, err := tapper.ParseConfig([]byte(raw))
+	require.NoError(t, err)
+	require.Equal(t, "pub", cfg.FallbackKeg())
 
-	t.Run("new_only_sequence_parses", func(innerT *testing.T) {
-		innerT.Parallel()
-
-		raw := `kegSearchPaths:
-  - ~/Documents/kegs
-  - ~/repos/kegs
-kegMap: []
-kegs: {}
-defaultHub: ""
-`
-		cfg, err := tapper.ParseConfig([]byte(raw))
-		require.NoError(innerT, err)
-		require.Equal(innerT, []string{"~/Documents/kegs", "~/repos/kegs"}, cfg.KegSearchPaths())
-	})
+	out, err := cfg.ToYAML()
+	require.NoError(t, err)
+	require.NotContains(t, string(out), "kegSearchPaths")
 }
 
-func TestMergeConfig_DefaultFallbackAndSearchPathPrecedence(t *testing.T) {
+func TestMergeConfig_DefaultFallbackPrecedence(t *testing.T) {
 	t.Parallel()
 
 	userRaw := `defaultKeg: pub
 fallbackKeg: pub
-kegSearchPaths:
-  - ~/Documents/kegs
-  - ~/repos/kegs
+fallbackHub: atlas
+fallbackNamespace: pub
 kegMap: []
 kegs: {}
-defaultHub: ""
 `
 	projectRaw := `defaultKeg: work
 fallbackKeg: work
-kegSearchPaths:
-  - ~/work/kegs
-  - ~/Documents/kegs
+defaultHub: atlas
+defaultNamespace: work
 kegMap: []
 kegs: {}
-defaultHub: ""
 `
 
 	userCfg, err := tapper.ParseConfig([]byte(userRaw))
@@ -494,7 +439,11 @@ defaultHub: ""
 	merged := tapper.MergeConfig(userCfg, projectCfg)
 	require.Equal(t, "work", merged.DefaultKeg())
 	require.Equal(t, "work", merged.FallbackKeg())
-	require.Equal(t, []string{"~/Documents/kegs", "~/repos/kegs", "~/work/kegs"}, merged.KegSearchPaths())
+	// Project defaults and user fallbacks both survive the merge.
+	require.Equal(t, "atlas", merged.DefaultHub())
+	require.Equal(t, "atlas", merged.FallbackHub())
+	require.Equal(t, "work", merged.DefaultNamespace())
+	require.Equal(t, "pub", merged.FallbackNamespace())
 }
 
 func TestConfigToYAML_PrependsSchemaModeline(t *testing.T) {

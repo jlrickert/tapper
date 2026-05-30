@@ -12,8 +12,10 @@ var tapEnvVarKeys = []string{
 	"LOG_FILE",
 	"LOG_LEVEL",
 	"DEFAULT_HUB",
+	"FALLBACK_HUB",
+	"DEFAULT_NAMESPACE",
+	"FALLBACK_NAMESPACE",
 	"DISABLE_DEFAULT_HUB",
-	"KEG_SEARCH_PATHS",
 }
 
 const tapEnvPrefix = "TAP_"
@@ -42,21 +44,17 @@ func configFromEnvMap(envMap map[string]string) *Config {
 	if v, ok := envMap["default_hub"]; ok {
 		cfg.data.DefaultHub = v
 	}
+	if v, ok := envMap["fallback_hub"]; ok {
+		cfg.data.FallbackHub = v
+	}
+	if v, ok := envMap["default_namespace"]; ok {
+		cfg.data.DefaultNamespace = v
+	}
+	if v, ok := envMap["fallback_namespace"]; ok {
+		cfg.data.FallbackNamespace = v
+	}
 	if v, ok := envMap["disable_default_hub"]; ok {
 		cfg.data.DisableDefaultHub = parseEnvBool(v)
-	}
-	if v, ok := envMap["keg_search_paths"]; ok {
-		// Colon-separated on Unix.
-		paths := strings.Split(v, ":")
-		var filtered []string
-		for _, p := range paths {
-			if strings.TrimSpace(p) != "" {
-				filtered = append(filtered, p)
-			}
-		}
-		if len(filtered) > 0 {
-			cfg.data.KegSearchPaths = stringList(filtered)
-		}
 	}
 
 	return cfg

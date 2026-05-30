@@ -39,10 +39,11 @@ func TestConfigCommand_DisplaysMergedConfig(t *testing.T) {
 			setupFixture: strPtr("joe"),
 			expectedInStdout: []string{
 				"# yaml-language-server: $schema=https://raw.githubusercontent.com/jlrickert/tapper/main/schemas/tap-config.json",
-				"fallbackKeg:",
-				"kegSearchPaths:",
+				"fallbackHub:",
+				"fallbackNamespace:",
+				"hubs:",
 			},
-			description: "Template output should include new config keys",
+			description: "User template should include the fallback hub/namespace and hubs map",
 		},
 		{
 			name:         "config_template_project_includes_new_keys",
@@ -51,9 +52,10 @@ func TestConfigCommand_DisplaysMergedConfig(t *testing.T) {
 			expectedInStdout: []string{
 				"# yaml-language-server: $schema=https://raw.githubusercontent.com/jlrickert/tapper/main/schemas/tap-config.json",
 				"defaultKeg:",
-				"kegSearchPaths:",
+				"defaultHub:",
+				"defaultNamespace:",
 			},
-			description: "Project template output should include new config keys",
+			description: "Project template should include the default hub/namespace keys",
 		},
 	}
 
@@ -236,7 +238,9 @@ func TestConfigCommand_ShowSourcesFlag(t *testing.T) {
 	require.Contains(t, stdout, "logFile")
 	require.Contains(t, stdout, "logLevel")
 	require.Contains(t, stdout, "defaultHub")
-	require.Contains(t, stdout, "kegSearchPaths")
+	require.Contains(t, stdout, "fallbackHub")
+	require.Contains(t, stdout, "defaultNamespace")
+	require.Contains(t, stdout, "fallbackNamespace")
 	// Should have source annotations in brackets.
 	require.Contains(t, stdout, "[")
 }

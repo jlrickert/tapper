@@ -61,6 +61,13 @@ type Target struct {
 	// Hub is the hub name used to resolve the Namespace and KegName into an API target
 	Hub string `yaml:"hub,omitempty"`
 
+	// HubURL is the resolved base URL for the hub (for example
+	// "https://atlas.foldwise.ai"). It is derived at resolution time from the
+	// tapper config's hubs map and is intentionally not serialized. When empty,
+	// NewKegFromTarget falls back to the legacy "https://<Hub>/..." composition
+	// for backward compatibility.
+	HubURL string `yaml:"-"`
+
 	// Url is the url for the target when represented as a scalar or explicit
 	// mapping value. Url is used when the target was http/s, git, ssh, etc
 	Url string `yaml:"url,omitempty"`
@@ -144,6 +151,15 @@ func NewMemory(kegalias string, opts ...TargetOption) Target {
 func WithReadonly() TargetOption {
 	return func(t *Target) {
 		t.Readonly = true
+	}
+}
+
+// WithHubURL sets the resolved hub base URL on a hub Target. The tapper layer
+// uses this to push the URL looked up from the configured hubs map down into
+// the Target so NewKegFromTarget composes the API endpoint against it.
+func WithHubURL(hubURL string) TargetOption {
+	return func(t *Target) {
+		t.HubURL = hubURL
 	}
 }
 
@@ -286,6 +302,7 @@ func (k *Target) Expand(env toolkit.Env) error {
 	k.File = expand(k.File)
 	k.Url = toolkit.ExpandEnv(env, k.Url)
 	k.Hub = toolkit.ExpandEnv(env, k.Hub)
+	k.HubURL = toolkit.ExpandEnv(env, k.HubURL)
 	k.Password = toolkit.ExpandEnv(env, k.Password)
 	k.Token = toolkit.ExpandEnv(env, k.Token)
 	k.TokenEnv = toolkit.ExpandEnv(env, k.TokenEnv)

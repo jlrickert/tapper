@@ -3,13 +3,23 @@ package tapper_test
 import (
 	"context"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/jlrickert/cli-toolkit/sandbox"
 	"github.com/jlrickert/tapper/pkg/tapper"
 	"github.com/stretchr/testify/require"
 )
+
+// kegsBlock is a kegs: section registering each alias as an explicit local
+// path under ~/Documents/kegs/<alias>. Tests create only the directories they
+// resolve; unreferenced entries are harmless.
+const kegsBlock = `kegs:
+  pub: { path: ~/Documents/kegs/pub }
+  work: { path: ~/Documents/kegs/work }
+  fallback: { path: ~/Documents/kegs/fallback }
+  explicit: { path: ~/Documents/kegs/explicit }
+  dev: { path: ~/Documents/kegs/dev }
+`
 
 func TestResolve_KegMapOverridesDefaultKeg(t *testing.T) {
 	t.Parallel()
@@ -28,15 +38,10 @@ func TestResolve_KegMapOverridesDefaultKeg(t *testing.T) {
 kegMap:
   - alias: pub
     pathPrefix: ~/repos/github.com
-kegs: {}
-defaultHub: ""
-kegSearchPaths:
-  - ~/Documents/kegs
-`)
+` + kegsBlock)
 	projectCfg := []byte(`defaultKeg: work
 kegMap: []
 kegs: {}
-defaultHub: ""
 `)
 
 	require.NoError(t, fx.Runtime().Mkdir(filepath.Dir(tap.PathService.UserConfig()), 0o755, true))
@@ -85,6 +90,14 @@ func TestResolve_FullPrecedenceChain(t *testing.T) {
 		require.NoError(innerT, fx.Runtime().AtomicWriteFile(tap.PathService.ProjectConfig(), []byte(projectCfg), 0o644))
 	}
 
+	mkKegs := func(innerT *testing.T, fx *sandbox.Sandbox, aliases ...string) {
+		innerT.Helper()
+		for _, alias := range aliases {
+			require.NoError(innerT, fx.Runtime().Mkdir(filepath.Join("/home/testuser/Documents/kegs", alias), 0o755, true))
+			require.NoError(innerT, fx.Runtime().AtomicWriteFile(filepath.Join("/home/testuser/Documents/kegs", alias, "keg"), []byte(""), 0o644))
+		}
+	}
+
 	t.Run("explicit_alias_wins", func(innerT *testing.T) {
 		innerT.Parallel()
 		fx, tap, root := newTap(innerT)
@@ -93,20 +106,12 @@ func TestResolve_FullPrecedenceChain(t *testing.T) {
 kegMap:
   - alias: pub
     pathPrefix: ~/repos/github.com
-kegs: {}
-defaultHub: ""
-kegSearchPaths:
-  - ~/Documents/kegs
-`, `defaultKeg: work
+`+kegsBlock, `defaultKeg: work
 kegMap: []
 kegs: {}
-defaultHub: ""
 `)
 
-		for _, alias := range []string{"pub", "work", "explicit"} {
-			require.NoError(innerT, fx.Runtime().Mkdir(filepath.Join("/home/testuser/Documents/kegs", alias), 0o755, true))
-			require.NoError(innerT, fx.Runtime().AtomicWriteFile(filepath.Join("/home/testuser/Documents/kegs", alias, "keg"), []byte(""), 0o644))
-		}
+		mkKegs(innerT, fx, "pub", "work", "explicit")
 
 		k, err := tap.KegService.Resolve(context.Background(), tapper.ResolveKegOptions{
 			Root: root,
@@ -124,20 +129,12 @@ defaultHub: ""
 kegMap:
   - alias: pub
     pathPrefix: ~/repos/github.com
-kegs: {}
-defaultHub: ""
-kegSearchPaths:
-  - ~/Documents/kegs
-`, `defaultKeg: work
+`+kegsBlock, `defaultKeg: work
 kegMap: []
 kegs: {}
-defaultHub: ""
 `)
 
-		for _, alias := range []string{"pub", "work", "fallback"} {
-			require.NoError(innerT, fx.Runtime().Mkdir(filepath.Join("/home/testuser/Documents/kegs", alias), 0o755, true))
-			require.NoError(innerT, fx.Runtime().AtomicWriteFile(filepath.Join("/home/testuser/Documents/kegs", alias, "keg"), []byte(""), 0o644))
-		}
+		mkKegs(innerT, fx, "pub", "work", "fallback")
 
 		// kegMap matches the path, so it wins over defaultKeg.
 		k, err := tap.KegService.Resolve(context.Background(), tapper.ResolveKegOptions{
@@ -155,20 +152,12 @@ defaultHub: ""
 kegMap:
   - alias: pub
     pathPrefix: ~/repos/gitlab.com
-kegs: {}
-defaultHub: ""
-kegSearchPaths:
-  - ~/Documents/kegs
-`, `defaultKeg: work
+`+kegsBlock, `defaultKeg: work
 kegMap: []
 kegs: {}
-defaultHub: ""
 `)
 
-		for _, alias := range []string{"pub", "work", "fallback"} {
-			require.NoError(innerT, fx.Runtime().Mkdir(filepath.Join("/home/testuser/Documents/kegs", alias), 0o755, true))
-			require.NoError(innerT, fx.Runtime().AtomicWriteFile(filepath.Join("/home/testuser/Documents/kegs", alias, "keg"), []byte(""), 0o644))
-		}
+		mkKegs(innerT, fx, "pub", "work", "fallback")
 
 		// kegMap does NOT match (gitlab.com vs github.com), so defaultKeg wins.
 		k, err := tap.KegService.Resolve(context.Background(), tapper.ResolveKegOptions{
@@ -186,19 +175,11 @@ defaultHub: ""
 kegMap:
   - alias: pub
     pathPrefix: ~/repos/github.com
+`+kegsBlock, `kegMap: []
 kegs: {}
-defaultHub: ""
-kegSearchPaths:
-  - ~/Documents/kegs
-`, `kegMap: []
-kegs: {}
-defaultHub: ""
 `)
 
-		for _, alias := range []string{"pub", "fallback"} {
-			require.NoError(innerT, fx.Runtime().Mkdir(filepath.Join("/home/testuser/Documents/kegs", alias), 0o755, true))
-			require.NoError(innerT, fx.Runtime().AtomicWriteFile(filepath.Join("/home/testuser/Documents/kegs", alias, "keg"), []byte(""), 0o644))
-		}
+		mkKegs(innerT, fx, "pub", "fallback")
 
 		k, err := tap.KegService.Resolve(context.Background(), tapper.ResolveKegOptions{
 			Root: root,
@@ -213,17 +194,11 @@ defaultHub: ""
 
 		writeCfg(innerT, fx, tap, `fallbackKeg: fallback
 kegMap: []
+`+kegsBlock, `kegMap: []
 kegs: {}
-defaultHub: ""
-kegSearchPaths:
-  - ~/Documents/kegs
-`, `kegMap: []
-kegs: {}
-defaultHub: ""
 `)
 
-		require.NoError(innerT, fx.Runtime().Mkdir("/home/testuser/Documents/kegs/fallback", 0o755, true))
-		require.NoError(innerT, fx.Runtime().AtomicWriteFile("/home/testuser/Documents/kegs/fallback/keg", []byte(""), 0o644))
+		mkKegs(innerT, fx, "fallback")
 
 		k, err := tap.KegService.Resolve(context.Background(), tapper.ResolveKegOptions{
 			Root: "/home/testuser/unmapped/workspace",
@@ -257,14 +232,9 @@ defaultKeg: dev
 kegMap:
   - alias: work
     pathPrefix: ~/sandbox/work/
-kegs: {}
-defaultHub: ""
-kegSearchPaths:
-  - ~/Documents/kegs
-`
+` + kegsBlock
 	projectCfg := `kegMap: []
 kegs: {}
-defaultHub: ""
 `
 	require.NoError(t, fx.Runtime().AtomicWriteFile(tap.PathService.UserConfig(), []byte(userCfg), 0o644))
 	require.NoError(t, fx.Runtime().AtomicWriteFile(tap.PathService.ProjectConfig(), []byte(projectCfg), 0o644))
@@ -280,47 +250,4 @@ defaultHub: ""
 	require.NoError(t, err)
 	// kegMap misses, so defaultKeg ("dev") should be used, NOT fallbackKeg ("pub").
 	require.Equal(t, filepath.Clean("/home/testuser/Documents/kegs/dev"), filepath.Clean(k.Target.Path()))
-}
-
-func TestResolveTarget_DiscoveryPathCollisionLaterWins(t *testing.T) {
-	t.Parallel()
-
-	fx := NewSandbox(t, sandbox.WithFixture("example", "/home/testuser"))
-	root := "/home/testuser/repos/github.com/jlrickert/tapper"
-	require.NoError(t, fx.Setwd(root))
-
-	tap, err := tapper.NewTap(tapper.TapOptions{
-		Root:    root,
-		Runtime: fx.Runtime(),
-	})
-	require.NoError(t, err)
-
-	require.NoError(t, fx.Runtime().Mkdir(filepath.Dir(tap.PathService.UserConfig()), 0o755, true))
-	require.NoError(t, fx.Runtime().Mkdir(filepath.Dir(tap.PathService.ProjectConfig()), 0o755, true))
-
-	userCfg := `defaultKeg: pub
-fallbackKeg: pub
-kegMap: []
-kegs: {}
-defaultHub: ""
-kegSearchPaths:
-  - ~/Documents/kegs-a
-  - ~/Documents/kegs-b
-`
-	projectCfg := `kegMap: []
-kegs: {}
-defaultHub: ""
-`
-	require.NoError(t, fx.Runtime().AtomicWriteFile(tap.PathService.UserConfig(), []byte(userCfg), 0o644))
-	require.NoError(t, fx.Runtime().AtomicWriteFile(tap.PathService.ProjectConfig(), []byte(projectCfg), 0o644))
-
-	for _, path := range []string{"/home/testuser/Documents/kegs-a/pub", "/home/testuser/Documents/kegs-b/pub"} {
-		require.NoError(t, fx.Runtime().Mkdir(path, 0o755, true))
-		require.NoError(t, fx.Runtime().AtomicWriteFile(filepath.Join(path, "keg"), []byte(""), 0o644))
-	}
-
-	target, err := tap.ConfigService.ResolveTarget("pub", false)
-	require.NoError(t, err)
-	require.NotNil(t, target)
-	require.True(t, strings.HasSuffix(filepath.Clean(target.Path()), filepath.Clean("/home/testuser/Documents/kegs-b/pub")))
 }

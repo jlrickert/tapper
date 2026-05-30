@@ -39,8 +39,12 @@ func TestKegService_Resolve_ThreadsAuthStoreToken(t *testing.T) {
 	require.NoError(t, store.Save(fx.Context(), fx.Runtime(), tap.PathService.AuthStorePath()))
 
 	userCfg := fmt.Sprintf(`defaultKeg: remote
+hubs:
+  example:
+    kind: remote
+    url: %s
 kegs:
-  remote: "%s/api/v1/kegs/@me/demo"
+  remote: { hub: example, namespace: me, name: demo }
 `, hubURL)
 	require.NoError(t, fx.Runtime().Mkdir(filepath.Dir(tap.PathService.UserConfig()), 0o755, true))
 	require.NoError(t, fx.Runtime().AtomicWriteFile(tap.PathService.UserConfig(), []byte(userCfg), 0o644))
@@ -82,8 +86,13 @@ func TestKegService_Resolve_TokenEnvStillWinsOverAuthStore(t *testing.T) {
 	require.NoError(t, fx.Runtime().Set("HUB_TOKEN", "env-token"))
 
 	userCfg := fmt.Sprintf(`defaultKeg: remote
+hubs:
+  example:
+    kind: remote
+    url: %s
+    tokenEnv: HUB_TOKEN
 kegs:
-  remote: "%s/api/v1/kegs/@me/demo?token-env=HUB_TOKEN"
+  remote: { hub: example, namespace: me, name: demo }
 `, hubURL)
 	require.NoError(t, fx.Runtime().Mkdir(filepath.Dir(tap.PathService.UserConfig()), 0o755, true))
 	require.NoError(t, fx.Runtime().AtomicWriteFile(tap.PathService.UserConfig(), []byte(userCfg), 0o644))
