@@ -29,12 +29,10 @@ func setupTapWithKeg(t *testing.T, fx *sandbox.Sandbox) *tapper.Tap {
 	})
 	require.NoError(t, err)
 
-	// Write user config with kegSearchPaths and fallback.
+	// Write user config with an explicit local keg and fallback.
 	userCfg := `fallbackKeg: test
-kegs: {}
-defaultHub: ""
-kegSearchPaths:
-  - /home/testuser/kegs
+kegs:
+  test: { path: /home/testuser/kegs/test }
 `
 	require.NoError(t, fx.Runtime().Mkdir(tap.PathService.ConfigRoot, 0o755, true))
 	require.NoError(t, fx.Runtime().AtomicWriteFile(tap.PathService.UserConfig(), []byte(userCfg), 0o644))

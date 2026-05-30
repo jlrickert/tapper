@@ -207,8 +207,10 @@ var ConfigExplainFields = []string{
 	"logFile",
 	"logLevel",
 	"defaultHub",
+	"fallbackHub",
+	"defaultNamespace",
+	"fallbackNamespace",
 	"disableDefaultHub",
-	"kegSearchPaths",
 }
 
 // configFieldGetter returns the string value of a named field from a Config.
@@ -230,13 +232,17 @@ func configFieldGetter(cfg *Config, field string) string {
 		return cfg.LogLevel()
 	case "defaultHub":
 		return cfg.DefaultHub()
+	case "fallbackHub":
+		return cfg.FallbackHub()
+	case "defaultNamespace":
+		return cfg.DefaultNamespace()
+	case "fallbackNamespace":
+		return cfg.FallbackNamespace()
 	case "disableDefaultHub":
 		if cfg.DisableDefaultHub() {
 			return "true"
 		}
 		return ""
-	case "kegSearchPaths":
-		return strings.Join(cfg.KegSearchPaths(), ":")
 	default:
 		return ""
 	}

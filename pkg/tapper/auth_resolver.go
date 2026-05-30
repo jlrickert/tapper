@@ -72,24 +72,24 @@ func ResolveLoginHubURL(cfg *Config, explicit string) (string, error) {
 	}
 
 	if name := strings.TrimSpace(cfg.DefaultHub()); name != "" {
-		hubs := cfg.Hubs()
-		for _, h := range hubs {
-			if h.Name == name {
-				if strings.TrimSpace(h.Url) == "" {
-					return "", fmt.Errorf("auth: default hub %q has no URL configured", name)
-				}
-				return CanonicalHubURL(hubURLWithScheme(h.Url)), nil
-			}
+		h, ok := cfg.Hub(name)
+		if !ok {
+			return "", fmt.Errorf("auth: default hub %q not found in hubs", name)
 		}
-		return "", fmt.Errorf("auth: default hub %q not found in hubs", name)
+		if strings.TrimSpace(h.URL) == "" {
+			return "", fmt.Errorf("auth: default hub %q has no URL configured", name)
+		}
+		return CanonicalHubURL(hubURLWithScheme(h.URL)), nil
 	}
 
 	hubs := cfg.Hubs()
 	if len(hubs) == 1 {
-		if strings.TrimSpace(hubs[0].Url) == "" {
-			return "", fmt.Errorf("auth: hub %q has no URL configured", hubs[0].Name)
+		for name, h := range hubs {
+			if strings.TrimSpace(h.URL) == "" {
+				return "", fmt.Errorf("auth: hub %q has no URL configured", name)
+			}
+			return CanonicalHubURL(hubURLWithScheme(h.URL)), nil
 		}
-		return CanonicalHubURL(hubURLWithScheme(hubs[0].Url)), nil
 	}
 
 	if cfg.DisableDefaultHub() {
@@ -128,11 +128,22 @@ func hubRootFromTarget(target *keg.Target) string {
 		}
 		return fmt.Sprintf("%s://%s", parsed.Scheme, parsed.Host)
 	case keg.SchemeHub:
-		hub := strings.TrimSpace(target.Hub)
-		if hub == "" {
+		// Prefer the resolved hub URL (set from the configured hubs map) so the
+		// auth store is keyed by the real host. Fall back to the legacy
+		// "https://<hub-name>" form when HubURL is unset.
+		base := strings.TrimSpace(target.HubURL)
+		if base == "" {
+			hub := strings.TrimSpace(target.Hub)
+			if hub == "" {
+				return ""
+			}
+			base = "https://" + hub
+		}
+		parsed, err := url.Parse(hubURLWithScheme(base))
+		if err != nil || parsed.Host == "" {
 			return ""
 		}
-		return "https://" + hub
+		return fmt.Sprintf("%s://%s", parsed.Scheme, parsed.Host)
 	}
 	return ""
 }

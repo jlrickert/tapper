@@ -1025,7 +1025,7 @@ func TestMCP_ConfigTemplate(t *testing.T) {
 	require.NoError(t, err)
 	text := extractText(t, res)
 	require.False(t, res.IsError, "config_template returned error: %s", text)
-	require.Contains(t, text, "fallbackKeg")
+	require.Contains(t, text, "fallbackHub")
 }
 
 func TestMCP_ConfigTemplateProject(t *testing.T) {

@@ -142,9 +142,18 @@ func NewKegFromTarget(ctx context.Context, target Target, rt *toolkit.Runtime, o
 	case SchemeHub:
 		token := resolveTargetToken(&target, rt, o.resolver)
 		// Build the API base URL from the hub, namespace, and keg-name fields.
-		// Convention: https://<hub>/api/v1/kegs/@<namespace>/<kegName>
-		baseURL := fmt.Sprintf("https://%s/api/v1/kegs/@%s/%s",
-			target.Hub, target.Namespace, target.KegName)
+		// Convention: <hubURL>/api/v1/kegs/@<namespace>/<kegName>
+		//
+		// Prefer the resolved HubURL pushed down by the tapper layer from the
+		// configured hubs map. Fall back to the legacy "https://<hub>/..."
+		// composition (hub name used as host) when HubURL is unset so old
+		// configs and direct callers keep working.
+		base := strings.TrimRight(target.HubURL, "/")
+		if base == "" {
+			base = "https://" + target.Hub
+		}
+		baseURL := fmt.Sprintf("%s/api/v1/kegs/@%s/%s",
+			base, target.Namespace, target.KegName)
 		repo := NewApiRepo(baseURL, token)
 		keg := Keg{Target: &target, Repo: repo, Runtime: rt}
 		return &keg, nil

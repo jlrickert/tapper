@@ -27,10 +27,8 @@ func setupDoctorKeg(t *testing.T, mutate func(*keg.Config)) (*tapper.Tap, contex
 	require.NoError(t, err)
 
 	userCfg := `fallbackKeg: test
-kegs: {}
-defaultHub: ""
-kegSearchPaths:
-  - /home/testuser/kegs
+kegs:
+  test: { path: /home/testuser/kegs/test }
 `
 	require.NoError(t, fx.Runtime().Mkdir(tap.PathService.ConfigRoot, 0o755, true))
 	require.NoError(t, fx.Runtime().AtomicWriteFile(tap.PathService.UserConfig(), []byte(userCfg), 0o644))
@@ -104,10 +102,8 @@ func TestDoctor_TagCheckDisabledByDefault(t *testing.T) {
 	require.NoError(t, err)
 
 	userCfg := `fallbackKeg: test
-kegs: {}
-defaultHub: ""
-kegSearchPaths:
-  - /home/testuser/kegs
+kegs:
+  test: { path: /home/testuser/kegs/test }
 `
 	require.NoError(t, fx.Runtime().Mkdir(tap.PathService.ConfigRoot, 0o755, true))
 	require.NoError(t, fx.Runtime().AtomicWriteFile(tap.PathService.UserConfig(), []byte(userCfg), 0o644))
@@ -150,10 +146,8 @@ func TestDoctor_TagCheckEnabledReportsMissingTag(t *testing.T) {
 	require.NoError(t, err)
 
 	userCfg := `fallbackKeg: test
-kegs: {}
-defaultHub: ""
-kegSearchPaths:
-  - /home/testuser/kegs
+kegs:
+  test: { path: /home/testuser/kegs/test }
 `
 	require.NoError(t, fx.Runtime().Mkdir(tap.PathService.ConfigRoot, 0o755, true))
 	require.NoError(t, fx.Runtime().AtomicWriteFile(tap.PathService.UserConfig(), []byte(userCfg), 0o644))

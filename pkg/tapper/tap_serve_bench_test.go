@@ -43,7 +43,7 @@ func newBenchHandler(b *testing.B) http.Handler {
 	require.NoError(b, err)
 
 	// Write user config.
-	userCfg := "fallbackKeg: bench\nkegSearchPaths:\n  - /home/benchuser/kegs\n"
+	userCfg := "fallbackKeg: bench\nkegs:\n  bench: { path: /home/benchuser/kegs/bench }\n"
 	require.NoError(b, rt.Mkdir(tap.PathService.ConfigRoot, 0o755, true))
 	require.NoError(b, rt.AtomicWriteFile(tap.PathService.UserConfig(), []byte(userCfg), 0o644))
 
