@@ -118,6 +118,7 @@ var tapMethodsExcluded = map[string]string{
 	"DoctorConfig":    "tapper-config health check helper; called by Doctor CLI/MCP surfaces",
 	"ConfigExplain":   "shares surface with Config via --explain flag / explain field",
 	"AuthLogout":      "security: MCP agents must not be able to revoke hub credentials; CLI-only by design",
+	"Bootstrap":       "CLI-only onboarding; writes user config + drives interactive login, not an MCP operation",
 }
 
 // TestCoverage_AllTapMethodsHaveBothSurfaces uses reflection to enumerate

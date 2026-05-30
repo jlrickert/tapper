@@ -6,6 +6,7 @@ package cli
 // Tap.AuthStatus so the MCP tool can share the exact pre-formatted output.
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -35,9 +36,83 @@ $XDG_STATE_HOME/tapper/auth.yaml with owner-only permissions.`,
 	return cmd
 }
 
+// authLoginParams carries the resolved inputs runAuthLogin needs. It is the
+// shared contract between `tap auth login` and `tap bootstrap`, both of which
+// drive the same resolve → flow-select → persist sequence.
+type authLoginParams struct {
+	HubURL   string        // explicit hub URL, or "" to resolve via the config chain
+	ClientID string        // "" defaults to "tapper-cli"
+	Scope    string        // space-separated OAuth2 scopes
+	Timeout  time.Duration // zero lets the per-flow default win
+	Device   bool          // true selects the RFC 8628 device flow
+}
+
+// runAuthLogin resolves the hub, runs the selected OAuth2 flow through the
+// deps seam, and persists the resulting token to the AuthStore. It returns the
+// canonical hub URL the token was stored under so callers can print their own
+// success line without re-resolving. `tap auth login` and `tap bootstrap` share
+// it so the listener/PKCE plumbing lives in exactly one place.
+func runAuthLogin(ctx context.Context, deps *Deps, p authLoginParams) (string, error) {
+	rt := deps.Runtime
+
+	// Resolve hub via the five-step chain (decision keg-dev/1035) so an
+	// unflagged login lands on the configured default — or the compiled-in
+	// DefaultHubURL — without forcing every invocation to repeat --hub. An
+	// explicit URL still wins.
+	cfg, err := deps.Tap.ConfigService.Config(true)
+	if err != nil {
+		return "", err
+	}
+	hubURL, err := tapper.ResolveLoginHubURL(cfg, p.HubURL)
+	if err != nil {
+		return "", err
+	}
+
+	clientID := p.ClientID
+	if clientID == "" {
+		// Production default: the stock public client ID. Users running
+		// against a hub that issues per-org client IDs pass --client-id.
+		clientID = "tapper-cli"
+	}
+
+	var entry *tapper.AuthEntry
+	if p.Device {
+		entry, err = deps.AuthLoginDeviceFn(ctx, rt, tapper.AuthLoginDeviceOptions{
+			HubURL:   hubURL,
+			ClientID: clientID,
+			Scope:    p.Scope,
+			Timeout:  p.Timeout,
+		})
+	} else {
+		entry, err = deps.AuthLoginFn(ctx, rt, tapper.AuthLoginOptions{
+			HubURL:   hubURL,
+			ClientID: clientID,
+			Scope:    p.Scope,
+			Timeout:  p.Timeout,
+		})
+	}
+	if err != nil {
+		return "", err
+	}
+
+	// Persist via AuthStore. The Tap is already constructed by
+	// PersistentPreRunE, so PathService is available for the store location —
+	// no second resolution pass needed.
+	storePath := deps.Tap.PathService.AuthStorePath()
+	store, err := tapper.LoadAuthStore(ctx, rt, storePath)
+	if err != nil {
+		return "", err
+	}
+	store.Set(tapper.CanonicalHubURL(hubURL), *entry)
+	if err := store.Save(ctx, rt, storePath); err != nil {
+		return "", err
+	}
+	return hubURL, nil
+}
+
 // newAuthLoginCmd wires the `tap auth login` child. The command is a
-// thin shell over tapper.AuthLogin + the AuthStore — keeping the flow
-// inside pkg/tapper lets MCP and any future surface share the same
+// thin shell over runAuthLogin + the AuthStore — keeping the flow in a
+// shared helper lets bootstrap and any future surface reuse the same
 // implementation without duplicating the listener/PKCE plumbing.
 func newAuthLoginCmd(deps *Deps) *cobra.Command {
 	var (
@@ -64,30 +139,6 @@ the code, and Tap collects the token by polling the hub. Use this when the
 loopback flow can't reach you (containers, remote shells, headless boxes).`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			ctx := cmd.Context()
-			rt := deps.Runtime
-
-			// Resolve hub via the five-step chain (decision keg-dev/1035)
-			// so an unflagged login lands on the configured default —
-			// or the compiled-in DefaultHubURL — without forcing every
-			// invocation to repeat --hub. Explicit --hub still wins.
-			cfg, err := deps.Tap.ConfigService.Config(true)
-			if err != nil {
-				return err
-			}
-			resolvedHub, err := tapper.ResolveLoginHubURL(cfg, hubURL)
-			if err != nil {
-				return err
-			}
-			hubURL = resolvedHub
-
-			if clientID == "" {
-				// Production default: the stock public client ID. Users
-				// running against a hub that issues per-org client IDs
-				// pass --client-id explicitly.
-				clientID = "tapper-cli"
-			}
-
 			// Pass the user-supplied timeout only when explicitly set, so
 			// the per-flow default (2m for browser, 10m for device) wins
 			// when the user didn't pick one. The device flow's longer
@@ -98,43 +149,21 @@ loopback flow can't reach you (containers, remote shells, headless boxes).`,
 				passedTimeout = timeout
 			}
 
-			var entry *tapper.AuthEntry
-			if device {
-				entry, err = deps.AuthLoginDeviceFn(ctx, rt, tapper.AuthLoginDeviceOptions{
-					HubURL:   hubURL,
-					ClientID: clientID,
-					Scope:    scope,
-					Timeout:  passedTimeout,
-				})
-			} else {
-				entry, err = deps.AuthLoginFn(ctx, rt, tapper.AuthLoginOptions{
-					HubURL:   hubURL,
-					ClientID: clientID,
-					Scope:    scope,
-					Timeout:  passedTimeout,
-				})
-			}
+			resolvedHub, err := runAuthLogin(cmd.Context(), deps, authLoginParams{
+				HubURL:   hubURL,
+				ClientID: clientID,
+				Scope:    scope,
+				Timeout:  passedTimeout,
+				Device:   device,
+			})
 			if err != nil {
-				return err
-			}
-
-			// Persist via AuthStore. The Tap is already constructed by
-			// PersistentPreRunE, so PathService is available for the
-			// store location — no second resolution pass needed.
-			storePath := deps.Tap.PathService.AuthStorePath()
-			store, err := tapper.LoadAuthStore(ctx, rt, storePath)
-			if err != nil {
-				return err
-			}
-			store.Set(tapper.CanonicalHubURL(hubURL), *entry)
-			if err := store.Save(ctx, rt, storePath); err != nil {
 				return err
 			}
 
 			// Intentionally minimal success output: never echo the token
 			// on stdout, even at debug level. The store file itself is
 			// the source of truth.
-			_, _ = fmt.Fprintf(rt.Stream().Out, "Logged in to %s\n", hubURL)
+			_, _ = fmt.Fprintf(deps.Runtime.Stream().Out, "Logged in to %s\n", resolvedHub)
 			return nil
 		},
 	}

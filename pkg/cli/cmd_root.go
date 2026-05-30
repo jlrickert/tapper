@@ -269,6 +269,7 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 	}
 	if deps.Profile.IncludeConfigCommand {
 		subcommands = append(subcommands, NewConfigCmd(deps))
+		subcommands = append(subcommands, NewBootstrapCmd(deps))
 	}
 	var repoCmd *cobra.Command
 	var initCmd *cobra.Command
