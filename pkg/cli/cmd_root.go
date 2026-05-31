@@ -38,18 +38,25 @@ type Deps struct {
 	Tap *tapper.Tap
 	Err error
 
-	// AuthLoginFn is the seam through which `tap auth login` drives the
-	// browser-based PKCE handshake. Tests set their own function before
-	// NewRootCmd runs (via Run's testDepsHook or by constructing Deps
-	// directly) so the real listener + browser opener are never invoked.
-	// A nil value is lazy-defaulted to tapper.AuthLogin in NewRootCmd so
-	// production callers need not populate it.
-	AuthLoginFn func(ctx context.Context, rt *toolkit.Runtime, opts tapper.AuthLoginOptions) (*tapper.AuthEntry, error)
-
-	// AuthLoginDeviceFn is the analogous seam for the RFC 8628 device
-	// authorization grant, used when the user passes --device to
-	// `tap auth login`. Same lazy-default discipline as AuthLoginFn.
+	// AuthLoginDeviceFn is the seam through which `tap auth login` drives the
+	// RFC 8628 device authorization grant — the single browser-based login
+	// flow. Tests set their own function before NewRootCmd runs (via Run's
+	// testDepsHook or by constructing Deps directly) so the real browser
+	// opener and hub polling are never invoked. A nil value is lazy-defaulted
+	// to tapper.AuthLoginDevice in NewRootCmd so production callers need not
+	// populate it.
 	AuthLoginDeviceFn func(ctx context.Context, rt *toolkit.Runtime, opts tapper.AuthLoginDeviceOptions) (*tapper.AuthEntry, error)
+
+	// AuthValidateTokenFn backs the "paste an authentication token" login
+	// path: it checks a pasted bearer token against the hub's whoami probe
+	// before the token is written to the AuthStore. Nil is lazy-defaulted to
+	// tapper.ValidateToken; tests inject a stub to avoid the network call.
+	AuthValidateTokenFn func(ctx context.Context, rt *toolkit.Runtime, hubURL, token string) (*tapper.WhoAmI, error)
+
+	// AuthPrompter renders the interactive hub / method / URL / token prompts
+	// for `tap auth login`. Nil is lazy-defaulted to the huh-backed prompter;
+	// tests inject a scripted fake so the command logic runs without a TTY.
+	AuthPrompter AuthPrompter
 
 	// logFileHandle is the opened log file; closed after invocation logging.
 	logFileHandle io.WriteCloser
@@ -67,13 +74,16 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 	if deps.Shutdown == nil {
 		deps.Shutdown = func() {}
 	}
-	// Lazy-default: a test that sets its own AuthLoginFn before
-	// NewRootCmd wins. We do NOT overwrite a populated value.
-	if deps.AuthLoginFn == nil {
-		deps.AuthLoginFn = tapper.AuthLogin
-	}
+	// Lazy-default: a test that sets its own seam before NewRootCmd wins.
+	// We do NOT overwrite a populated value.
 	if deps.AuthLoginDeviceFn == nil {
 		deps.AuthLoginDeviceFn = tapper.AuthLoginDevice
+	}
+	if deps.AuthValidateTokenFn == nil {
+		deps.AuthValidateTokenFn = tapper.ValidateToken
+	}
+	if deps.AuthPrompter == nil {
+		deps.AuthPrompter = huhAuthPrompter{}
 	}
 
 	cmd := &cobra.Command{

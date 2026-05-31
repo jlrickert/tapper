@@ -29,8 +29,8 @@ type testDepsHookKey struct{}
 //
 // Exported so tests in this package (and sibling test packages in
 // pkg/cli_test) can drive the seam without reaching into unexported
-// state. Production callers must not use it — wiring AuthLoginFn into
-// Deps directly is the intended seam for non-test callers.
+// state. Production callers must not use it — wiring AuthLoginDeviceFn
+// into Deps directly is the intended seam for non-test callers.
 func WithTestDepsHook(ctx context.Context, hook func(*Deps)) context.Context {
 	if hook == nil {
 		return ctx
@@ -75,9 +75,9 @@ func RunWithProfile(ctx context.Context, rt *toolkit.Runtime, args []string, pro
 		Profile:  profile,
 	}
 	// testDepsHookFromContext gives tests a chance to mutate the
-	// freshly-constructed Deps (e.g. swap AuthLoginFn) before NewRootCmd
-	// applies lazy defaults. Production callers pass a ctx with no hook,
-	// so this is a cheap type-assertion in the hot path.
+	// freshly-constructed Deps (e.g. swap AuthLoginDeviceFn) before
+	// NewRootCmd applies lazy defaults. Production callers pass a ctx with
+	// no hook, so this is a cheap type-assertion in the hot path.
 	if hook := testDepsHookFromContext(ctx); hook != nil {
 		hook(deps)
 	}
