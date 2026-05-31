@@ -100,10 +100,10 @@ var tapMethodToSurfaces = map[string]struct {
 	"Integrate": {CLI: "integrate", MCP: "integrate"},
 
 	// Auth: Status has both surfaces (agents need to check auth before
-	// remote calls); Login stays as a package-level tapper.AuthLogin
-	// function (not a *Tap method, so it doesn't appear in this map);
-	// Logout is a *Tap method intentionally excluded from MCP for
-	// security — see tapMethodsExcluded below.
+	// remote calls); Login is CLI-only — it drives the interactive device
+	// flow via package-level tapper.AuthLoginDevice (not a *Tap method, so
+	// it doesn't appear in this map); Logout is a *Tap method intentionally
+	// excluded from MCP for security — see tapMethodsExcluded below.
 	"AuthStatus": {CLI: "auth status", MCP: "auth_status"},
 }
 

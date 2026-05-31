@@ -31,7 +31,6 @@ func NewBootstrapCmd(deps *Deps) *cobra.Command {
 		hubName        string
 		login          bool
 		noLogin        bool
-		device         bool
 		nonInteractive bool
 	)
 
@@ -127,7 +126,7 @@ logs in.
 					}
 				}
 				if doLogin {
-					resolvedHub, lerr := runAuthLogin(ctx, deps, authLoginParams{HubURL: res.HubURL, Device: device})
+					resolvedHub, lerr := runAuthLogin(ctx, deps, authLoginParams{HubURL: res.HubURL, Method: methodBrowser})
 					if lerr != nil {
 						if login {
 							return lerr
@@ -165,7 +164,6 @@ logs in.
 	cmd.Flags().StringVar(&hubName, "hub-name", "", "name to record an enterprise hub under (default: derived from the endpoint host)")
 	cmd.Flags().BoolVar(&login, "login", false, "log in to the hub after writing config (cloud/enterprise)")
 	cmd.Flags().BoolVar(&noLogin, "no-login", false, "skip the login step even on a TTY")
-	cmd.Flags().BoolVar(&device, "device", false, "use the device authorization grant when logging in")
 	cmd.Flags().BoolVar(&nonInteractive, "non-interactive", false, "skip interactive prompts even when stdin is a TTY")
 
 	mustRegisterFlagCompletion(cmd, "kind", func(_ *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {

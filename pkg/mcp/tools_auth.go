@@ -2,9 +2,10 @@ package mcp
 
 // MCP surface for the auth subsystem. Today the tool set is read-only:
 // only `auth_status` is exposed. `login` stays CLI-only because it
-// requires a loopback listener + browser round-trip that an agent
-// cannot complete, and `logout` stays CLI-only because silent revocation
-// by an agent is a surprise factor we are not willing to underwrite.
+// requires an interactive browser round-trip (the device flow) or a
+// pasted token that an agent cannot complete, and `logout` stays CLI-only
+// because silent revocation by an agent is a surprise factor we are not
+// willing to underwrite.
 //
 // If a future use case demands an MCP writer, prefer adding a
 // narrowly-scoped "auth_revoke" with explicit consent annotations over

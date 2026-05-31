@@ -1,24 +1,26 @@
 // Package tapper — RFC 8628 OAuth2 Device Authorization Grant.
 //
-// AuthLoginDevice drives the device flow handshake against a hub:
+// AuthLoginDevice is the single browser-based login flow behind
+// `tap auth login`. It drives the device flow handshake against a hub:
 //
 //  1. discover the hub's device + token endpoints via RFC 8414
 //  2. POST to /oauth/device_authorization with the public client_id
-//  3. print the user_code + verification URI to the caller's prompt
-//     stream so the user can switch to a browser on any machine
+//  3. present the user_code + verification URI — via the caller's
+//     OnUserCode handler when set (the CLI opens a browser on Enter,
+//     gh-style), otherwise a plain copy/paste prompt to PromptOut
 //  4. poll the token endpoint with grant_type=device_code, honoring
 //     RFC 8628 §3.5 (authorization_pending, slow_down, access_denied,
 //     expired_token)
 //  5. return the populated AuthEntry on success
 //
-// Unlike AuthLogin, this flow never binds a loopback listener and never
-// opens a browser — it works in containers, remote shells, and other
-// contexts where the loopback PKCE flow can't deliver the callback.
+// Because the user completes the handshake in a browser keyed to a short
+// code, the flow works everywhere — desktops, containers, remote shells —
+// without binding any local callback listener.
 //
-// Like AuthLogin, the store is not touched; the caller persists the
-// result. All injectable dependencies (HTTP client, output writer,
-// clock, sleeper) default to production values and tests substitute
-// stubs against an httptest mock hub.
+// The store is not touched; the caller persists the result. All injectable
+// dependencies (HTTP client, output writer, clock, sleeper, OnUserCode)
+// default to production values and tests substitute stubs against an
+// httptest mock hub.
 
 package tapper
 
@@ -83,6 +85,16 @@ type AuthLoginDeviceOptions struct {
 	// stream when Out is nil; an in-memory buffer in tests.
 	PromptOut io.Writer
 
+	// OnUserCode, when non-nil, is invoked once the hub has issued the
+	// user_code + verification URI and before polling begins. It owns the
+	// user-facing presentation: the CLI installs a handler that prints the
+	// code, offers to open the browser (gh-style "press Enter to open"),
+	// and falls back to printing the URL for manual copy/paste. When nil,
+	// the flow prints a plain copy/paste prompt to PromptOut — the library
+	// default never opens a browser, keeping pkg/tapper free of any
+	// interactive/TTY dependency. A non-nil error aborts the login.
+	OnUserCode func(context.Context, DeviceUserPrompt) error
+
 	// Now returns the current time. Default: time.Now. Tests inject a fake
 	// clock to control timeout behavior deterministically.
 	Now func() time.Time
@@ -108,6 +120,39 @@ func (o AuthLoginDeviceOptions) withDefaults() AuthLoginDeviceOptions {
 		o.Sleep = time.Sleep
 	}
 	return o
+}
+
+// DeviceUserPrompt is the subset of the RFC 8628 device_authorization
+// response an OnUserCode handler needs to drive the user-facing step. It
+// is the exported projection of deviceAuthResponse so callers in other
+// packages (the CLI) can present the code without seeing the wire type.
+// VerificationURIComplete embeds the user_code in the URL; prefer it when
+// non-empty so the website pre-fills the code.
+type DeviceUserPrompt struct {
+	UserCode                string
+	VerificationURI         string
+	VerificationURIComplete string
+	ExpiresIn               int64
+}
+
+// VerificationURL returns the URL the user should open, always including the
+// user_code so a copied or auto-opened link pre-fills the code instead of
+// forcing the user to type it. It prefers the hub-provided
+// verification_uri_complete (RFC 8628 §3.2) and, when the hub omits it (older
+// hubs do), appends ?user_code=<code> to verification_uri — matching the
+// query parameter the hub's /device page reads.
+func (p DeviceUserPrompt) VerificationURL() string {
+	if strings.TrimSpace(p.VerificationURIComplete) != "" {
+		return p.VerificationURIComplete
+	}
+	if strings.TrimSpace(p.UserCode) == "" {
+		return p.VerificationURI
+	}
+	sep := "?"
+	if strings.Contains(p.VerificationURI, "?") {
+		sep = "&"
+	}
+	return p.VerificationURI + sep + "user_code=" + url.QueryEscape(p.UserCode)
 }
 
 // deviceAuthResponse is the parsed RFC 8628 §3.2 device_authorization JSON
@@ -168,7 +213,23 @@ func AuthLoginDevice(ctx context.Context, rt *toolkit.Runtime, opts AuthLoginDev
 		return nil, err
 	}
 
-	printDevicePrompt(opts.PromptOut, dar)
+	// Present the code + verification URI. A caller-supplied OnUserCode
+	// owns the interaction (the CLI opens the browser on Enter); otherwise
+	// fall back to the plain copy/paste prompt so the library default never
+	// reaches for a TTY or a browser.
+	prompt := DeviceUserPrompt{
+		UserCode:                dar.UserCode,
+		VerificationURI:         dar.VerificationURI,
+		VerificationURIComplete: dar.VerificationURIComplete,
+		ExpiresIn:               dar.ExpiresIn,
+	}
+	if opts.OnUserCode != nil {
+		if err := opts.OnUserCode(ctx, prompt); err != nil {
+			return nil, err
+		}
+	} else {
+		printDevicePrompt(opts.PromptOut, prompt)
+	}
 
 	tok, err := pollForDeviceToken(ctx, opts, metadata.TokenEndpoint, dar)
 	if err != nil {
@@ -234,16 +295,13 @@ func requestDeviceAuthorization(ctx context.Context, client *http.Client, endpoi
 
 // printDevicePrompt writes the user-facing instructions to out. The format
 // matches the gh / aws sso convention so the message is recognizable to
-// anyone who has used a device flow before.
-func printDevicePrompt(out io.Writer, dar *deviceAuthResponse) {
-	verificationURI := dar.VerificationURIComplete
-	if verificationURI == "" {
-		verificationURI = dar.VerificationURI
-	}
-	_, _ = fmt.Fprintf(out, "\nOpen this URL in a browser and enter the code below to continue:\n\n  %s\n  Code: %s\n\n",
-		verificationURI, dar.UserCode)
-	if dar.ExpiresIn > 0 {
-		_, _ = fmt.Fprintf(out, "  (Code expires in %d minutes.)\n\n", dar.ExpiresIn/60)
+// anyone who has used a device flow before. The URL always carries the code
+// (see DeviceUserPrompt.VerificationURL), so visiting it pre-fills the code.
+func printDevicePrompt(out io.Writer, p DeviceUserPrompt) {
+	_, _ = fmt.Fprintf(out, "\nOpen this URL in a browser to continue (the code is pre-filled):\n\n  %s\n  Code: %s\n\n",
+		p.VerificationURL(), p.UserCode)
+	if p.ExpiresIn > 0 {
+		_, _ = fmt.Fprintf(out, "  (Code expires in %d minutes.)\n\n", p.ExpiresIn/60)
 	}
 	_, _ = fmt.Fprintf(out, "Waiting for approval...\n")
 }

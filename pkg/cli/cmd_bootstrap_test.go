@@ -1,8 +1,9 @@
 package cli
 
 // Tests for `tap bootstrap`. They live in the internal cli package so they can
-// install a fake AuthLoginFn via the WithTestDepsHook seam (see cmd_auth_test.go
-// for the shared helpers newTestSandbox / stubAuthLoginHook / runCompletionViaProcess).
+// install a fake login seam via the WithTestDepsHook mechanism (see
+// cmd_auth_test.go for the shared helpers newTestSandbox / stubDeviceLoginHook /
+// runCompletionViaProcess). Bootstrap's login drives the browser (device) flow.
 
 import (
 	"context"
@@ -63,7 +64,7 @@ func TestBootstrapCmd_Local_NoLogin(t *testing.T) {
 	t.Parallel()
 	sb := newTestSandbox(t)
 
-	hook := stubAuthLoginHook(func(context.Context, *toolkit.Runtime, tapper.AuthLoginOptions) (*tapper.AuthEntry, error) {
+	hook := stubDeviceLoginHook(func(context.Context, *toolkit.Runtime, tapper.AuthLoginDeviceOptions) (*tapper.AuthEntry, error) {
 		t.Fatal("local bootstrap must never log in")
 		return nil, nil
 	})
@@ -85,10 +86,10 @@ func TestBootstrapCmd_Interactive_Enterprise(t *testing.T) {
 	sb := newTestSandbox(t)
 
 	answers := strings.Join([]string{
-		"enterprise",            // kind
-		"https://keg.acme.com",  // endpoint
-		"n",                     // log in now? -> no
-		"",                      // trailing buffer
+		"enterprise",           // kind
+		"https://keg.acme.com", // endpoint
+		"n",                    // log in now? -> no
+		"",                     // trailing buffer
 	}, "\n")
 
 	proc := newBootstrapProcess(t, nil, true, "bootstrap")
@@ -109,8 +110,8 @@ func TestBootstrapCmd_Cloud_Login(t *testing.T) {
 	t.Parallel()
 	sb := newTestSandbox(t)
 
-	var captured atomicOptionsSlot
-	hook := stubAuthLoginHook(func(_ context.Context, _ *toolkit.Runtime, opts tapper.AuthLoginOptions) (*tapper.AuthEntry, error) {
+	var captured atomicDeviceOptsSlot
+	hook := stubDeviceLoginHook(func(_ context.Context, _ *toolkit.Runtime, opts tapper.AuthLoginDeviceOptions) (*tapper.AuthEntry, error) {
 		captured.Store(opts)
 		return &tapper.AuthEntry{AccessToken: "stub-cloud-token", TokenType: "Bearer"}, nil
 	})
@@ -131,8 +132,8 @@ func TestBootstrapCmd_Enterprise_Login(t *testing.T) {
 	t.Parallel()
 	sb := newTestSandbox(t)
 
-	var captured atomicOptionsSlot
-	hook := stubAuthLoginHook(func(_ context.Context, _ *toolkit.Runtime, opts tapper.AuthLoginOptions) (*tapper.AuthEntry, error) {
+	var captured atomicDeviceOptsSlot
+	hook := stubDeviceLoginHook(func(_ context.Context, _ *toolkit.Runtime, opts tapper.AuthLoginDeviceOptions) (*tapper.AuthEntry, error) {
 		captured.Store(opts)
 		return &tapper.AuthEntry{AccessToken: "stub-ent-token", TokenType: "Bearer"}, nil
 	})
