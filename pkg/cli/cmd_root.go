@@ -114,6 +114,10 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			// Route the auth-validation seam onto the Tap so `tap auth
+			// status`'s live whoami probe shares the same stub tests inject
+			// via Deps.AuthValidateTokenFn (defaulted above to ValidateToken).
+			tap.AuthValidateFn = deps.AuthValidateTokenFn
 			deps.Tap = tap
 			deps.Root = wd
 

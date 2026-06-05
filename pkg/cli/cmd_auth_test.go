@@ -14,6 +14,7 @@ package cli
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -588,6 +589,13 @@ func TestAuthStatusCmd_EmptyStore_DirectedMessage(t *testing.T) {
 	require.Contains(t, string(res.Stdout), "tap auth login --hub URL")
 }
 
+// stubWhoAmIHook installs fn as the status validation seam (it flows from
+// Deps.AuthValidateTokenFn onto Tap.AuthValidateFn), so `tap auth status` can
+// be exercised without contacting a hub.
+func stubWhoAmIHook(fn func(context.Context, *toolkit.Runtime, string, string) (*tapper.WhoAmI, error)) func(*Deps) {
+	return func(d *Deps) { d.AuthValidateTokenFn = fn }
+}
+
 func TestAuthStatusCmd_SingleHub_FormatsStatus(t *testing.T) {
 	t.Parallel()
 	sb := newTestSandbox(t)
@@ -599,15 +607,92 @@ func TestAuthStatusCmd_SingleHub_FormatsStatus(t *testing.T) {
 		},
 	})
 
-	proc := newAuthProcess(t, nil, "auth", "status")
+	hook := stubWhoAmIHook(func(_ context.Context, _ *toolkit.Runtime, _, _ string) (*tapper.WhoAmI, error) {
+		return &tapper.WhoAmI{Username: "jdoe", DisplayName: "Jane Doe"}, nil
+	})
+	proc := newAuthProcess(t, hook, "auth", "status")
 	res := proc.Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 	out := string(res.Stdout)
-	require.Contains(t, out, "Logged in to https://hub.example.com")
-	require.Contains(t, out, "token: ...XXYZ (Bearer)")
-	require.Contains(t, out, "scope: read write")
-	require.Contains(t, out, "expires: unknown")
+	// Bare host header + gh-style "Logged in ... account <user> (<name>)".
+	require.Contains(t, out, "Logged in to hub.example.com account jdoe (Jane Doe)")
+	// Token shown by its 12-char prefix (matches the hub UI), not its suffix.
+	require.Contains(t, out, "- Token: supersecretX... (Bearer)")
+	require.Contains(t, out, "- Token scopes: read, write")
 	require.NotContains(t, out, "supersecretXXYZ")
+}
+
+func TestAuthStatusCmd_NoDisplayName_OmitsParens(t *testing.T) {
+	t.Parallel()
+	sb := newTestSandbox(t)
+	seedAuthStore(t, sb, map[string]tapper.AuthEntry{
+		"https://hub.example.com": {AccessToken: "thub_abcdef0123456789", TokenType: "Bearer"},
+	})
+
+	hook := stubWhoAmIHook(func(_ context.Context, _ *toolkit.Runtime, _, _ string) (*tapper.WhoAmI, error) {
+		return &tapper.WhoAmI{Username: "jdoe"}, nil
+	})
+	proc := newAuthProcess(t, hook, "auth", "status")
+	res := proc.Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+	out := string(res.Stdout)
+	require.Contains(t, out, "Logged in to hub.example.com account jdoe")
+	require.NotContains(t, out, "jdoe (")
+	require.Contains(t, out, "- Token: thub_abcdef0... (Bearer)")
+}
+
+func TestAuthStatusCmd_RejectedToken(t *testing.T) {
+	t.Parallel()
+	sb := newTestSandbox(t)
+	seedAuthStore(t, sb, map[string]tapper.AuthEntry{
+		"https://hub.example.com": {AccessToken: "thub_revokedtoken123", TokenType: "Bearer"},
+	})
+
+	hook := stubWhoAmIHook(func(_ context.Context, _ *toolkit.Runtime, _, _ string) (*tapper.WhoAmI, error) {
+		return nil, fmt.Errorf("auth: %w (401 Unauthorized)", tapper.ErrTokenRejected)
+	})
+	proc := newAuthProcess(t, hook, "auth", "status")
+	res := proc.Run(sb.Context(), sb.Runtime())
+	// A rejected token is reported, not a command failure.
+	require.NoError(t, res.Err)
+	out := string(res.Stdout)
+	require.Contains(t, out, "Failed to validate token: hub rejected the token (401 Unauthorized)")
+	require.Contains(t, out, "- Token: thub_revoked... (Bearer)")
+}
+
+func TestAuthStatusCmd_UnreachableHub_Degrades(t *testing.T) {
+	t.Parallel()
+	sb := newTestSandbox(t)
+	seedAuthStore(t, sb, map[string]tapper.AuthEntry{
+		"https://hub.example.com": {AccessToken: "thub_sometoken12345", TokenType: "Bearer"},
+	})
+
+	hook := stubWhoAmIHook(func(_ context.Context, _ *toolkit.Runtime, _, _ string) (*tapper.WhoAmI, error) {
+		return nil, fmt.Errorf("auth: contact hub: dial tcp: connection refused")
+	})
+	proc := newAuthProcess(t, hook, "auth", "status")
+	res := proc.Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+	out := string(res.Stdout)
+	require.Contains(t, out, "Could not reach hub to validate token")
+	require.Contains(t, out, "- Token: thub_sometok... (Bearer)")
+}
+
+func TestAuthStatusCmd_Offline_SkipsValidation(t *testing.T) {
+	t.Parallel()
+	sb := newTestSandbox(t)
+	seedAuthStore(t, sb, map[string]tapper.AuthEntry{
+		"https://hub.example.com": {AccessToken: "thub_offlinetoken99", TokenType: "Bearer"},
+	})
+
+	// No validation hook: --offline must not reach the network at all.
+	proc := newAuthProcess(t, nil, "auth", "status", "--offline")
+	res := proc.Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+	out := string(res.Stdout)
+	require.Contains(t, out, "Logged in to hub.example.com (offline; token not validated)")
+	require.Contains(t, out, "- Token: thub_offline... (Bearer)")
+	require.NotContains(t, out, "account")
 }
 
 func TestAuthStatusCmd_ShortToken_UsesPlaceholder(t *testing.T) {
@@ -617,10 +702,13 @@ func TestAuthStatusCmd_ShortToken_UsesPlaceholder(t *testing.T) {
 		"https://hub.example.com": {AccessToken: "abc"},
 	})
 
-	proc := newAuthProcess(t, nil, "auth", "status")
+	hook := stubWhoAmIHook(func(_ context.Context, _ *toolkit.Runtime, _, _ string) (*tapper.WhoAmI, error) {
+		return &tapper.WhoAmI{Username: "jdoe"}, nil
+	})
+	proc := newAuthProcess(t, hook, "auth", "status")
 	res := proc.Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
-	require.Contains(t, string(res.Stdout), "token: [set]")
+	require.Contains(t, string(res.Stdout), "- Token: [set]")
 }
 
 func TestAuthStatusCmd_MultipleHubs_RequiresFlag(t *testing.T) {

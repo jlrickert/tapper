@@ -359,20 +359,28 @@ casing the already-logged-out state.`,
 // authenticate before attempting a remote call) and the pre-formatted
 // Result.Formatted field lets both surfaces emit byte-identical output.
 func newAuthStatusCmd(deps *Deps) *cobra.Command {
-	var hubURL string
+	var (
+		hubURL  string
+		offline bool
+	)
 
 	cmd := &cobra.Command{
 		Use:   "status",
 		Short: "Show the login status for a stored tapper hub",
-		Long: `Report whether a hub has a cached login, the token type, scope,
-and expiry. With --hub, reports on that specific hub; with no --hub
-and exactly one stored entry, auto-resolves to it. The access token
-itself is never printed — only the last 4 characters as a suffix.`,
+		Long: `Report whether a hub has a cached login and validate the stored
+token against the hub. On success it shows the account it resolves to;
+a rejected token or an unreachable hub is reported without failing the
+command. With --hub, reports on that specific hub; with no --hub and
+exactly one stored entry, auto-resolves to it. Pass --offline to skip
+the network check and report purely from the local store.
+
+The access token itself is never printed — only a short, non-secret
+prefix matching the one shown in the hub's account UI.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx := cmd.Context()
 			rt := deps.Runtime
-			result, err := deps.Tap.AuthStatus(ctx, tapper.AuthStatusOptions{Hub: hubURL})
+			result, err := deps.Tap.AuthStatus(ctx, tapper.AuthStatusOptions{Hub: hubURL, Offline: offline})
 			if err != nil {
 				return err
 			}
@@ -382,6 +390,7 @@ itself is never printed — only the last 4 characters as a suffix.`,
 	}
 
 	cmd.Flags().StringVar(&hubURL, "hub", "", "Hub base URL to query (optional when exactly one hub is stored)")
+	cmd.Flags().BoolVar(&offline, "offline", false, "Skip the live hub check and report from the local store only")
 	mustRegisterFlagCompletion(cmd, "hub", func(_ *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	})

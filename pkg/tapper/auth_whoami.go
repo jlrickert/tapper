@@ -10,6 +10,7 @@ package tapper
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -23,13 +24,22 @@ import (
 // route group. The wire shape mirrors the hub's handler.WhoamiResponse.
 const whoamiPath = "/api/v1/whoami"
 
+// ErrTokenRejected marks a token the hub actively refused (HTTP 401/403), as
+// distinct from a transport failure (hub unreachable). Callers use errors.Is
+// to tell "your token is bad" apart from "we couldn't reach the hub" — see
+// Tap.AuthStatus, which renders those two cases differently.
+var ErrTokenRejected = errors.New("hub rejected the token")
+
 // WhoAmI is the authenticated user the hub reports for a token. It mirrors
-// the hub's GET /api/v1/whoami JSON body.
+// the hub's GET /api/v1/whoami JSON body. DisplayName is the human name and is
+// empty when the hub omits it (older hub, or no display name set), in which
+// case callers fall back to the username alone.
 type WhoAmI struct {
-	UserID    int64     `json:"user_id"`
-	Username  string    `json:"username"`
-	Email     string    `json:"email"`
-	CreatedAt time.Time `json:"created_at"`
+	UserID      int64     `json:"user_id"`
+	Username    string    `json:"username"`
+	DisplayName string    `json:"display_name"`
+	Email       string    `json:"email"`
+	CreatedAt   time.Time `json:"created_at"`
 }
 
 // ValidateToken calls GET {hubURL}/api/v1/whoami with the bearer token and
@@ -66,7 +76,9 @@ func ValidateToken(ctx context.Context, rt *toolkit.Runtime, hubURL, token strin
 	case http.StatusOK:
 		// fall through to decode
 	case http.StatusUnauthorized, http.StatusForbidden:
-		return nil, fmt.Errorf("auth: hub rejected the token (%s); check that it was copied correctly and has not been revoked", resp.Status)
+		// Wrap ErrTokenRejected so callers can branch on errors.Is while the
+		// message keeps the actionable hint and the hub's status line.
+		return nil, fmt.Errorf("auth: %w (%s); check that it was copied correctly and has not been revoked", ErrTokenRejected, resp.Status)
 	default:
 		return nil, fmt.Errorf("auth: hub returned %s for %s", resp.Status, whoamiPath)
 	}

@@ -16,6 +16,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -59,6 +60,11 @@ type AuthStatusOptions struct {
 	// otherwise an empty Hub with zero or multiple stored hubs surfaces
 	// a directed error/empty message (see AuthStatus docs).
 	Hub string
+
+	// Offline skips the live whoami probe and reports purely from the
+	// on-disk store (no network, no account name). Useful for scripts,
+	// air-gapped use, or when an agent must not make outbound calls.
+	Offline bool
 }
 
 // AuthStatusResult is the pre-formatted human-readable status line
@@ -73,14 +79,34 @@ type AuthStatusResult struct {
 	// caller omitted --hub and the store is empty.
 	HubURL string
 
-	// TokenSuffix is the last 4 chars of the access token, prefixed
-	// with "..." — or "[set]" when the token is shorter than 4 chars.
-	// The raw token is never exposed here.
-	TokenSuffix string
+	// TokenPrefix is the first 12 chars of the access token followed by
+	// "..." — matching the non-secret prefix the hub stores and shows in
+	// its account UI — or "[set]" when the token is too short for a
+	// meaningful prefix. The raw token is never exposed here.
+	TokenPrefix string
 
 	// TokenType mirrors the stored entry (e.g. "Bearer"). Empty when
 	// the hub returned a bare token with no type.
 	TokenType string
+
+	// Account is the username the hub reported for this token via the
+	// live whoami probe. Empty when validation was skipped (--offline) or
+	// failed.
+	Account string
+
+	// DisplayName is the human name the hub reported alongside Account.
+	// Empty when the hub omits it or validation didn't run.
+	DisplayName string
+
+	// Valid is true when the live whoami probe confirmed the token. False
+	// when the token was rejected, the hub was unreachable, or --offline
+	// skipped the check.
+	Valid bool
+
+	// ValidationError is the error message from a failed/ skipped probe,
+	// empty on success. Lets structured consumers branch without parsing
+	// Formatted.
+	ValidationError string
 
 	// Scope mirrors the stored entry. Empty when no scope was granted.
 	Scope string
@@ -141,12 +167,15 @@ func (t *Tap) AuthStatus(ctx context.Context, opts AuthStatusOptions) (*AuthStat
 		}, nil
 	}
 
-	// Redact to the last four chars. Inline because a single call site
-	// doesn't justify a shared utility — per scanner guidelines, wait
-	// for a second redaction site before abstracting.
-	tokenSuffix := "[set]"
-	if n := len(entry.AccessToken); n >= 4 {
-		tokenSuffix = "..." + entry.AccessToken[n-4:]
+	// Token prefix, matching the hub exactly: the hub mints `thub_<hex>` and
+	// publishes token[:12] as the non-secret, DB-indexed prefix (rendered in
+	// the account UI). Showing the same 12-char prefix lets the user correlate
+	// the CLI with the hub's token list — the old last-4 suffix could not be.
+	// Tokens too short for a meaningful prefix report "[set]" so the raw value
+	// never leaks.
+	tokenPrefix := "[set]"
+	if len(entry.AccessToken) > 12 {
+		tokenPrefix = entry.AccessToken[:12] + "..."
 	}
 
 	// Three-way coproduct: unknown (no expiry), valid (future), expired (past).
@@ -162,34 +191,90 @@ func (t *Tap) AuthStatus(ctx context.Context, opts AuthStatusOptions) (*AuthStat
 		}
 	}
 
-	scopeDisplay := entry.Scope
-	if scopeDisplay == "" {
-		scopeDisplay = "(none)"
-	}
-
 	tokenTypeDisplay := entry.TokenType
 	if tokenTypeDisplay == "" {
 		tokenTypeDisplay = "unknown"
 	}
 
-	// Formatted is load-bearing: CLI and MCP both emit it verbatim, and
-	// the parity test asserts byte-equality. Any change here must update
-	// both surface tests in lockstep.
+	// Bare host for the gh-style header line (gh: "github.com").
+	host := hub
+	if u, err := url.Parse(hub); err == nil && u.Host != "" {
+		host = u.Host
+	}
+
+	// Live validation against the hub's whoami probe (skipped by --offline).
+	// This turns `status` from a local-store dump into a real "is my token
+	// still good?" check, gh-style. It degrades gracefully: a refused token
+	// shows "x", an unreachable hub shows "!", and in both cases we still
+	// print the cached token/expiry so the user can correlate and diagnose.
+	var (
+		account    string
+		display    string
+		valid      bool
+		validErr   string
+		statusLine string
+	)
+	switch {
+	case opts.Offline:
+		statusLine = fmt.Sprintf("  Logged in to %s (offline; token not validated)", host)
+	default:
+		validateFn := t.AuthValidateFn
+		if validateFn == nil {
+			validateFn = ValidateToken
+		}
+		vctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		who, verr := validateFn(vctx, t.Runtime, hub, entry.AccessToken)
+		cancel()
+		switch {
+		case verr == nil:
+			valid = true
+			account = who.Username
+			display = who.DisplayName
+			ident := account
+			if display != "" {
+				ident = fmt.Sprintf("%s (%s)", account, display)
+			}
+			statusLine = fmt.Sprintf("  ✓ Logged in to %s account %s", host, ident)
+		case errors.Is(verr, ErrTokenRejected):
+			validErr = verr.Error()
+			// Trim the package "auth: " prefix so the reason reads cleanly;
+			// the wrapped message keeps the status code and the what-to-do hint.
+			statusLine = fmt.Sprintf("  x Failed to validate token: %s", strings.TrimPrefix(verr.Error(), "auth: "))
+		default:
+			validErr = verr.Error()
+			statusLine = "  ! Could not reach hub to validate token (offline?)"
+		}
+	}
+
+	// Formatted is load-bearing: CLI and MCP both emit it verbatim, and the
+	// parity test asserts byte-equality. Any change here must update both
+	// surface tests in lockstep. No ANSI color — MCP receives this string too.
 	var b strings.Builder
-	fmt.Fprintf(&b, "Logged in to %s\n", hub)
-	fmt.Fprintf(&b, "  token: %s (%s)\n", tokenSuffix, tokenTypeDisplay)
-	fmt.Fprintf(&b, "  scope: %s\n", scopeDisplay)
-	fmt.Fprintf(&b, "  expires: %s\n", renderExpiry(expiryStatus, entry.ExpiresAt, now))
+	fmt.Fprintf(&b, "%s\n", host)
+	fmt.Fprintf(&b, "%s\n", statusLine)
+	fmt.Fprintf(&b, "  - Token: %s (%s)\n", tokenPrefix, tokenTypeDisplay)
+	if entry.Scope != "" {
+		// Only personal API tokens are scopeless; an OAuth2 device-flow login
+		// may carry scopes worth showing. Space-separated → comma-joined.
+		fmt.Fprintf(&b, "  - Token scopes: %s\n", strings.Join(strings.Fields(entry.Scope), ", "))
+	}
+	if expiryStatus != "unknown" {
+		fmt.Fprintf(&b, "  - Expires: %s\n", renderExpiry(expiryStatus, entry.ExpiresAt, now))
+	}
 
 	return &AuthStatusResult{
-		Present:      true,
-		HubURL:       hub,
-		TokenSuffix:  tokenSuffix,
-		TokenType:    entry.TokenType,
-		Scope:        entry.Scope,
-		ExpiresAt:    entry.ExpiresAt,
-		ExpiryStatus: expiryStatus,
-		Formatted:    b.String(),
+		Present:         true,
+		HubURL:          hub,
+		TokenPrefix:     tokenPrefix,
+		TokenType:       entry.TokenType,
+		Account:         account,
+		DisplayName:     display,
+		Valid:           valid,
+		ValidationError: validErr,
+		Scope:           entry.Scope,
+		ExpiresAt:       entry.ExpiresAt,
+		ExpiryStatus:    expiryStatus,
+		Formatted:       b.String(),
 	}, nil
 }
 

@@ -19,12 +19,12 @@ import (
 	"github.com/jlrickert/tapper/pkg/tapper"
 )
 
-// authStatusInput mirrors AuthStatusOptions: flat (no keg target) and
-// single-field because auth state is user-level, not keg-level. Agents
-// that omit Hub get the single-hub auto-resolve behavior, the same as
-// the CLI.
+// authStatusInput mirrors AuthStatusOptions: flat (no keg target) because
+// auth state is user-level, not keg-level. Agents that omit Hub get the
+// single-hub auto-resolve behavior, the same as the CLI.
 type authStatusInput struct {
-	Hub string `json:"hub,omitempty" jsonschema:"hub URL to query; omit when exactly one hub is stored"`
+	Hub     string `json:"hub,omitempty" jsonschema:"hub URL to query; omit when exactly one hub is stored"`
+	Offline bool   `json:"offline,omitempty" jsonschema:"skip the live hub check and report from the local store only"`
 }
 
 // registerAuthTools omits the KegDefaults parameter that sibling
@@ -35,16 +35,16 @@ type authStatusInput struct {
 func registerAuthTools(srv *sdkmcp.Server, tap *tapper.Tap) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "auth_status",
-		Description: "Report the login status for a tapper hub stored in the auth store.",
+		Description: "Report the login status for a tapper hub and validate the stored token against the hub (pass offline:true to check the local store only).",
 		Annotations: &sdkmcp.ToolAnnotations{
-			// Status is a pure read over local state — no network,
-			// no mutation. ReadOnlyHint lets clients cache and
-			// OpenWorldHint=false signals no external effects.
+			// Read-only (no mutation), but it now reaches the hub to
+			// validate the token, so OpenWorldHint=true. Agents that must
+			// avoid outbound calls pass offline:true.
 			ReadOnlyHint:  true,
-			OpenWorldHint: boolPtr(false),
+			OpenWorldHint: boolPtr(true),
 		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in authStatusInput) (*sdkmcp.CallToolResult, any, error) {
-		result, err := tap.AuthStatus(ctx, tapper.AuthStatusOptions{Hub: in.Hub})
+		result, err := tap.AuthStatus(ctx, tapper.AuthStatusOptions{Hub: in.Hub, Offline: in.Offline})
 		if err != nil {
 			return errorResult(err), nil, nil
 		}
