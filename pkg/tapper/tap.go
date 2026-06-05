@@ -19,6 +19,12 @@ type Tap struct {
 	PathService   *PathService
 	ConfigService *ConfigService
 	KegService    *KegService
+
+	// AuthValidateFn is the seam AuthStatus uses for its live whoami probe.
+	// Defaulted to ValidateToken in NewTap; tests override it (or point the
+	// hub at an httptest server) to avoid real network I/O. Both the CLI and
+	// MCP surfaces share the same *Tap, so overriding it covers both.
+	AuthValidateFn func(ctx context.Context, rt *toolkit.Runtime, hubURL, token string) (*WhoAmI, error)
 }
 
 type TapOptions struct {
@@ -61,11 +67,12 @@ func NewTap(opts TapOptions) (*Tap, error) {
 		ConfigService: configService,
 	}
 	return &Tap{
-		Runtime:       rt,
-		Root:          opts.Root,
-		PathService:   pathService,
-		ConfigService: configService,
-		KegService:    kegService,
+		Runtime:        rt,
+		Root:           opts.Root,
+		PathService:    pathService,
+		ConfigService:  configService,
+		KegService:     kegService,
+		AuthValidateFn: ValidateToken,
 	}, nil
 }
 
