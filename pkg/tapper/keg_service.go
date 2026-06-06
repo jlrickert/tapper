@@ -61,6 +61,9 @@ type KegService struct {
 	// authStore is the loaded auth store, or nil when the file is missing
 	// or failed to parse. Nil is valid: the resolver short-circuits to "".
 	authStore *AuthStore
+	// authStorePath is the path authStore was loaded from, handed to the
+	// resolver so it can persist a refreshed token back to disk.
+	authStorePath string
 }
 
 // ResolveKegOptions controls how KegService resolves a keg target.
@@ -114,8 +117,9 @@ func (s *KegService) tokenResolver() keg.TokenResolver {
 			return
 		}
 		s.authStore = store
+		s.authStorePath = path
 	})
-	return NewAuthStoreTokenResolver(s.authStore)
+	return NewAuthStoreTokenResolver(s.authStore, s.Runtime, s.authStorePath)
 }
 
 // Resolve returns a keg using explicit path, project, alias, or configured fallback resolution.

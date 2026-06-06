@@ -137,8 +137,15 @@ func deviceUserCodeHandler(deps *Deps) func(context.Context, tapper.DeviceUserPr
 		_, _ = fmt.Fprintf(out, "  Then open this URL to continue:\n    %s\n\n", verifyURL)
 
 		if rt.Stream().IsTTY {
-			open, err := deps.AuthPrompter.ConfirmOpenBrowser(hostOf(p.VerificationURI))
+			open, err := deps.AuthPrompter.ConfirmOpenBrowser(ctx, hostOf(p.VerificationURI))
 			if err != nil {
+				// A cancelled ctx means the device flow already obtained the
+				// token and tore this prompt down — the user approved before
+				// answering. That's success, not failure: swallow it so login
+				// completes cleanly instead of surfacing huh's cancellation.
+				if ctx.Err() != nil {
+					return nil
+				}
 				return err
 			}
 			if open {

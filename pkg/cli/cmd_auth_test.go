@@ -64,7 +64,7 @@ type fakeAuthPrompter struct {
 	selectMethod func() (loginMethod, error)
 	endpoint     func() (string, error)
 	token        func() (string, error)
-	confirmOpen  func(string) (bool, error)
+	confirmOpen  func(context.Context, string) (bool, error)
 }
 
 func (f *fakeAuthPrompter) SelectHub(c []hubChoice) (hubChoice, error) {
@@ -95,11 +95,11 @@ func (f *fakeAuthPrompter) PromptToken() (string, error) {
 	return f.token()
 }
 
-func (f *fakeAuthPrompter) ConfirmOpenBrowser(host string) (bool, error) {
+func (f *fakeAuthPrompter) ConfirmOpenBrowser(ctx context.Context, host string) (bool, error) {
 	if f.confirmOpen == nil {
 		f.t.Fatal("unexpected ConfirmOpenBrowser call")
 	}
-	return f.confirmOpen(host)
+	return f.confirmOpen(ctx, host)
 }
 
 // newAuthProcess builds a non-TTY Process running `tap auth ...`. A nil hook
@@ -389,7 +389,7 @@ func TestAuthLoginCmd_Interactive_BrowserFlow(t *testing.T) {
 		t:            t,
 		selectHub:    func(choices []hubChoice) (hubChoice, error) { return choices[0], nil }, // atlas
 		selectMethod: func() (loginMethod, error) { return methodBrowser, nil },
-		confirmOpen:  func(string) (bool, error) { return false, nil }, // copy URL, do not launch
+		confirmOpen:  func(context.Context, string) (bool, error) { return false, nil }, // copy URL, do not launch
 	}
 
 	var captured atomicDeviceOptsSlot
@@ -615,10 +615,12 @@ func TestAuthStatusCmd_SingleHub_FormatsStatus(t *testing.T) {
 	require.NoError(t, res.Err)
 	out := string(res.Stdout)
 	// Bare host header + gh-style "Logged in ... account <user> (<name>)".
-	require.Contains(t, out, "Logged in to hub.example.com account jdoe (Jane Doe)")
+	require.Contains(t, out, "Logged in as jdoe (Jane Doe)")
+	// Host appears once (header line), not repeated in the status line.
+	require.Equal(t, 1, strings.Count(out, "hub.example.com"))
 	// Token shown by its 12-char prefix (matches the hub UI), not its suffix.
 	require.Contains(t, out, "- Token: supersecretX... (Bearer)")
-	require.Contains(t, out, "- Token scopes: read, write")
+	require.Contains(t, out, "- Scopes: read, write")
 	require.NotContains(t, out, "supersecretXXYZ")
 }
 
@@ -636,7 +638,7 @@ func TestAuthStatusCmd_NoDisplayName_OmitsParens(t *testing.T) {
 	res := proc.Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 	out := string(res.Stdout)
-	require.Contains(t, out, "Logged in to hub.example.com account jdoe")
+	require.Contains(t, out, "Logged in as jdoe")
 	require.NotContains(t, out, "jdoe (")
 	require.Contains(t, out, "- Token: thub_abcdef0... (Bearer)")
 }
@@ -690,8 +692,9 @@ func TestAuthStatusCmd_Offline_SkipsValidation(t *testing.T) {
 	res := proc.Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 	out := string(res.Stdout)
-	require.Contains(t, out, "Logged in to hub.example.com (offline; token not validated)")
+	require.Contains(t, out, "Logged in (offline; token not validated)")
 	require.Contains(t, out, "- Token: thub_offline... (Bearer)")
+	require.Contains(t, out, "- Method: API token (no expiry)")
 	require.NotContains(t, out, "account")
 }
 

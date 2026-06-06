@@ -119,6 +119,17 @@ type AuthStatusResult struct {
 	// to re-derive from ExpiresAt vs clock.
 	ExpiryStatus string
 
+	// LoginMethod records how the credential was obtained: "device" for the
+	// OAuth2 browser/device flow (carries client + refresh + token endpoint),
+	// "token" for a pasted API token. Lets structured consumers branch without
+	// parsing Formatted.
+	LoginMethod string
+
+	// Renewable is true when a refresh token is stored — i.e. the access token
+	// renews silently on expiry rather than forcing a re-login. Always false
+	// for a pasted API token.
+	Renewable bool
+
 	// Formatted is the exact string the CLI prints; MCP returns it
 	// verbatim as text content. Terminated with a trailing newline.
 	Formatted string
@@ -165,6 +176,19 @@ func (t *Tap) AuthStatus(ctx context.Context, opts AuthStatusOptions) (*AuthStat
 			HubURL:    hub,
 			Formatted: fmt.Sprintf("No login stored for %s\n", hub),
 		}, nil
+	}
+
+	// Renew an expired (or nearly expired) OAuth2 access token via its refresh
+	// token before reporting, so status reflects a usable session rather than an
+	// "expired" one. Best-effort and skipped under --offline; on failure we fall
+	// through to the normal expired/rejected rendering below.
+	if !opts.Offline && entry.RefreshToken != "" && !entry.ExpiresAt.IsZero() &&
+		!t.Runtime.Clock().Now().Add(refreshSkew).Before(entry.ExpiresAt) {
+		if next, rerr := RefreshHubToken(ctx, t.Runtime, hub, entry); rerr == nil {
+			store.Set(hub, *next)
+			_ = store.Save(ctx, t.Runtime, storePath)
+			entry = next
+		}
 	}
 
 	// Token prefix, matching the hub exactly: the hub mints `thub_<hex>` and
@@ -216,7 +240,8 @@ func (t *Tap) AuthStatus(ctx context.Context, opts AuthStatusOptions) (*AuthStat
 	)
 	switch {
 	case opts.Offline:
-		statusLine = fmt.Sprintf("  Logged in to %s (offline; token not validated)", host)
+		// Host is already the header line above; don't repeat it here.
+		statusLine = "  Logged in (offline; token not validated)"
 	default:
 		validateFn := t.AuthValidateFn
 		if validateFn == nil {
@@ -234,7 +259,10 @@ func (t *Tap) AuthStatus(ctx context.Context, opts AuthStatusOptions) (*AuthStat
 			if display != "" {
 				ident = fmt.Sprintf("%s (%s)", account, display)
 			}
-			statusLine = fmt.Sprintf("  ✓ Logged in to %s account %s", host, ident)
+			// Host is the header line above; "as <ident>" avoids printing the
+			// hub twice (it read as a duplicate in the old "Logged in to <host>
+			// account <ident>" form).
+			statusLine = fmt.Sprintf("  ✓ Logged in as %s", ident)
 		case errors.Is(verr, ErrTokenRejected):
 			validErr = verr.Error()
 			// Trim the package "auth: " prefix so the reason reads cleanly;
@@ -246,19 +274,54 @@ func (t *Tap) AuthStatus(ctx context.Context, opts AuthStatusOptions) (*AuthStat
 		}
 	}
 
+	// How the credential was obtained, derived from the stored entry: the
+	// device flow populates ClientID / RefreshToken / TokenEndpoint, while a
+	// pasted API token leaves all three empty (see AuthEntry). The two render
+	// differently so the user can tell a renewable OAuth2 session from a
+	// static token. Renewable narrows that to "a refresh token is present",
+	// which is what actually lets the CLI renew silently on expiry.
+	loginMethod := "token"
+	methodLine := "  - Method: API token (no expiry)"
+	isDevice := entry.ClientID != "" || entry.RefreshToken != "" || entry.TokenEndpoint != ""
+	if isDevice {
+		loginMethod = "device"
+		methodLine = "  - Method: browser (device flow)"
+	}
+	renewable := entry.RefreshToken != ""
+	if renewable {
+		// The access token renews silently, so neither a token prefix nor an
+		// expiry tells the user anything actionable; note the auto-renew on the
+		// Method line so the session never reads as "about to be logged out".
+		methodLine += ", renews automatically"
+	}
+
 	// Formatted is load-bearing: CLI and MCP both emit it verbatim, and the
 	// parity test asserts byte-equality. Any change here must update both
 	// surface tests in lockstep. No ANSI color — MCP receives this string too.
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s\n", host)
 	fmt.Fprintf(&b, "%s\n", statusLine)
-	fmt.Fprintf(&b, "  - Token: %s (%s)\n", tokenPrefix, tokenTypeDisplay)
+	fmt.Fprintf(&b, "%s\n", methodLine)
+	// The token prefix is only useful for a pasted API token: the hub lists
+	// token[:12] in the account UI, so showing the same prefix lets the user
+	// correlate the CLI with that list. OAuth2 device-flow access tokens are
+	// never shown in the portal, so the prefix would be a dead end — omit the
+	// Token line for the device flow.
+	if !isDevice {
+		fmt.Fprintf(&b, "  - Token: %s (%s)\n", tokenPrefix, tokenTypeDisplay)
+	}
 	if entry.Scope != "" {
 		// Only personal API tokens are scopeless; an OAuth2 device-flow login
 		// may carry scopes worth showing. Space-separated → comma-joined.
-		fmt.Fprintf(&b, "  - Token scopes: %s\n", strings.Join(strings.Fields(entry.Scope), ", "))
+		fmt.Fprintf(&b, "  - Scopes: %s\n", strings.Join(strings.Fields(entry.Scope), ", "))
 	}
-	if expiryStatus != "unknown" {
+	if expiryStatus != "unknown" && !renewable {
+		// A renewable (refresh-token) login renews its access token silently, so
+		// the short-lived access-token expiry is noise — "renews automatically"
+		// on the Method line already says what matters. Only surface Expires
+		// when the credential actually lapses for good: a refresh-less device
+		// login (older hub) forces a re-login on expiry. A pasted API token has
+		// no expiry and never reaches here.
 		fmt.Fprintf(&b, "  - Expires: %s\n", renderExpiry(expiryStatus, entry.ExpiresAt, now))
 	}
 
@@ -274,6 +337,8 @@ func (t *Tap) AuthStatus(ctx context.Context, opts AuthStatusOptions) (*AuthStat
 		Scope:           entry.Scope,
 		ExpiresAt:       entry.ExpiresAt,
 		ExpiryStatus:    expiryStatus,
+		LoginMethod:     loginMethod,
+		Renewable:       renewable,
 		Formatted:       b.String(),
 	}, nil
 }

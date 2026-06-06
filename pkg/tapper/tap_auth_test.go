@@ -9,6 +9,9 @@ package tapper_test
 import (
 	"context"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -200,7 +203,9 @@ func TestTap_AuthStatus(t *testing.T) {
 		require.Equal(t, "Alice Liddell", res.DisplayName)
 		require.Equal(t, tok[:12]+"...", res.TokenPrefix)
 		require.Contains(t, res.Formatted, "hub.example.com\n")
-		require.Contains(t, res.Formatted, "✓ Logged in to hub.example.com account alice (Alice Liddell)")
+		require.Contains(t, res.Formatted, "✓ Logged in as alice (Alice Liddell)")
+		// Host appears once (the header line), not repeated in the status line.
+		require.Equal(t, 1, strings.Count(res.Formatted, "hub.example.com"))
 		require.Contains(t, res.Formatted, "- Token: "+tok[:12]+"... (Bearer)")
 		require.NotContains(t, res.Formatted, tok)
 	})
@@ -216,7 +221,7 @@ func TestTap_AuthStatus(t *testing.T) {
 
 		res, err := tap.AuthStatus(sb.Context(), tapper.AuthStatusOptions{})
 		require.NoError(t, err)
-		require.Contains(t, res.Formatted, "account bob")
+		require.Contains(t, res.Formatted, "Logged in as bob")
 		require.NotContains(t, res.Formatted, "bob (")
 	})
 
@@ -274,8 +279,9 @@ func TestTap_AuthStatus(t *testing.T) {
 		require.NoError(t, err)
 		require.False(t, res.Valid)
 		require.Empty(t, res.Account)
-		require.Contains(t, res.Formatted, "Logged in to hub.example.com (offline; token not validated)")
+		require.Contains(t, res.Formatted, "Logged in (offline; token not validated)")
 		require.Contains(t, res.Formatted, "- Token: thub_offline... (Bearer)")
+		require.Equal(t, "token", res.LoginMethod)
 	})
 
 	t.Run("scope shown only when present", func(t *testing.T) {
@@ -290,7 +296,7 @@ func TestTap_AuthStatus(t *testing.T) {
 		})
 		res, err := tap.AuthStatus(sb.Context(), tapper.AuthStatusOptions{})
 		require.NoError(t, err)
-		require.NotContains(t, res.Formatted, "Token scopes:")
+		require.NotContains(t, res.Formatted, "Scopes:")
 
 		// Scope present (OAuth2 flow) → comma-joined line.
 		seedStore(t, sb, tap, map[string]tapper.AuthEntry{
@@ -298,7 +304,7 @@ func TestTap_AuthStatus(t *testing.T) {
 		})
 		res, err = tap.AuthStatus(sb.Context(), tapper.AuthStatusOptions{})
 		require.NoError(t, err)
-		require.Contains(t, res.Formatted, "- Token scopes: read, write")
+		require.Contains(t, res.Formatted, "- Scopes: read, write")
 	})
 
 	t.Run("expiry line shown only when known", func(t *testing.T) {
@@ -339,5 +345,76 @@ func TestTap_AuthStatus(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, "[set]", res.TokenPrefix)
 		require.Contains(t, res.Formatted, "- Token: [set]")
+	})
+
+	t.Run("expired oauth token is refreshed before reporting", func(t *testing.T) {
+		t.Parallel()
+		sb := NewSandbox(t)
+		tap := newTestTap(t, sb)
+
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"access_token":"thub_refreshednew99","token_type":"Bearer",` +
+				`"expires_in":900,"refresh_token":"rt-rotated"}`))
+		}))
+		defer srv.Close()
+
+		past := sb.Runtime().Clock().Now().Add(-time.Hour)
+		seedStore(t, sb, tap, map[string]tapper.AuthEntry{
+			"https://hub.example.com": {
+				AccessToken:   "thub_expiredtok00",
+				TokenType:     "Bearer",
+				ExpiresAt:     past,
+				RefreshToken:  "rt-old",
+				ClientID:      "tapper-cli",
+				TokenEndpoint: srv.URL,
+			},
+		})
+		tap.AuthValidateFn = okWhoAmI("alice", "")
+
+		res, err := tap.AuthStatus(sb.Context(), tapper.AuthStatusOptions{})
+		require.NoError(t, err)
+		require.True(t, res.Valid)
+		// Reported token is the refreshed one ("thub_refreshednew99"[:12]); the
+		// prefix lives in the structured field for consumers that want it...
+		require.Equal(t, "thub_refresh...", res.TokenPrefix)
+		require.Contains(t, res.Formatted, "✓ Logged in as alice")
+		// A device-flow login (client + refresh + token endpoint set) renders
+		// the browser method with the auto-renew note...
+		require.Equal(t, "device", res.LoginMethod)
+		require.True(t, res.Renewable)
+		require.Contains(t, res.Formatted, "- Method: browser (device flow), renews automatically")
+		// ...but the access-token prefix (never shown in the account portal) and
+		// the silently-renewed expiry are both omitted from the display.
+		require.NotContains(t, res.Formatted, "- Token:")
+		require.NotContains(t, res.Formatted, "- Expires:")
+	})
+
+	t.Run("offline does not refresh an expired token", func(t *testing.T) {
+		t.Parallel()
+		sb := NewSandbox(t)
+		tap := newTestTap(t, sb)
+		// A token endpoint that fails the test if it is ever called.
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			t.Errorf("offline status must not contact the token endpoint")
+			w.WriteHeader(http.StatusInternalServerError)
+		}))
+		defer srv.Close()
+
+		past := sb.Runtime().Clock().Now().Add(-time.Hour)
+		seedStore(t, sb, tap, map[string]tapper.AuthEntry{
+			"https://hub.example.com": {
+				AccessToken:   "thub_expiredtok00",
+				TokenType:     "Bearer",
+				ExpiresAt:     past,
+				RefreshToken:  "rt-old",
+				ClientID:      "tapper-cli",
+				TokenEndpoint: srv.URL,
+			},
+		})
+
+		res, err := tap.AuthStatus(sb.Context(), tapper.AuthStatusOptions{Offline: true})
+		require.NoError(t, err)
+		require.Contains(t, res.Formatted, "offline; token not validated")
 	})
 }

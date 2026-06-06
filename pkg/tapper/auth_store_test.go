@@ -132,10 +132,13 @@ func TestAuthStore_RoundTrip_MultiHub(t *testing.T) {
 
 	orig := &tapper.AuthStore{}
 	orig.Set("https://a.example.com", tapper.AuthEntry{
-		AccessToken: "a-token",
-		TokenType:   "Bearer",
-		ExpiresAt:   exp,
-		Scope:       "read",
+		AccessToken:   "a-token",
+		TokenType:     "Bearer",
+		ExpiresAt:     exp,
+		Scope:         "read",
+		RefreshToken:  "a-refresh",
+		ClientID:      "tapper-cli",
+		TokenEndpoint: "https://a.example.com/oauth/token",
 	})
 	orig.Set("https://b.example.com", tapper.AuthEntry{
 		AccessToken: "b-token",
@@ -153,12 +156,16 @@ func TestAuthStore_RoundTrip_MultiHub(t *testing.T) {
 	require.Equal(t, "Bearer", a.TokenType)
 	require.True(t, a.ExpiresAt.Equal(exp))
 	require.Equal(t, "read", a.Scope)
+	require.Equal(t, "a-refresh", a.RefreshToken)
+	require.Equal(t, "tapper-cli", a.ClientID)
+	require.Equal(t, "https://a.example.com/oauth/token", a.TokenEndpoint)
 
 	b, ok := loaded.Get("https://b.example.com")
 	require.True(t, ok)
 	require.Equal(t, "b-token", b.AccessToken)
 	require.Empty(t, b.TokenType)
 	require.True(t, b.ExpiresAt.IsZero())
+	require.Empty(t, b.RefreshToken)
 }
 
 func TestAuthStore_Delete_Entry(t *testing.T) {

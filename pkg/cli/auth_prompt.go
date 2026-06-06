@@ -7,6 +7,7 @@ package cli
 // never has to drive a real terminal.
 
 import (
+	"context"
 	"fmt"
 	"net/url"
 	"sort"
@@ -47,8 +48,10 @@ type AuthPrompter interface {
 	PromptToken() (string, error)
 	// ConfirmOpenBrowser gates the device-flow browser open. It returns true
 	// to open the browser (the default — pressing Enter), false when the user
-	// would rather copy the URL themselves.
-	ConfirmOpenBrowser(host string) (bool, error)
+	// would rather copy the URL themselves. It takes a context so the device
+	// flow can tear the prompt down once the token arrives (the user approved
+	// before answering): a cancelled ctx ends the prompt without an answer.
+	ConfirmOpenBrowser(ctx context.Context, host string) (bool, error)
 }
 
 // huhAuthPrompter is the production AuthPrompter. It carries no state — each
@@ -111,15 +114,19 @@ func (huhAuthPrompter) PromptToken() (string, error) {
 	return strings.TrimSpace(s), err
 }
 
-func (huhAuthPrompter) ConfirmOpenBrowser(host string) (bool, error) {
+func (huhAuthPrompter) ConfirmOpenBrowser(ctx context.Context, host string) (bool, error) {
 	open := true
+	// RunWithContext (not Run) so the device flow can dismiss this prompt the
+	// instant the token arrives: cancelling ctx kills the bubbletea program and
+	// returns here, instead of leaving an already-approved user stuck at the
+	// confirm.
 	err := huh.NewForm(huh.NewGroup(
 		huh.NewConfirm().
 			Title(fmt.Sprintf("Press Enter to open %s in your browser", host)).
 			Affirmative("Open browser").
 			Negative("Copy the URL instead").
 			Value(&open),
-	)).Run()
+	)).RunWithContext(ctx)
 	return open, err
 }
 
