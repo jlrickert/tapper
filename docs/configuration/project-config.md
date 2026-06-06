@@ -10,10 +10,10 @@ Project config defines repository-specific defaults.
 ## View And Edit
 
 ```bash
-tap repo config --project
-tap repo config edit --project
-tap repo config template project
-cat config.yaml | tap repo config edit --project
+tap config --project
+tap config edit --project
+tap config template project
+cat config.yaml | tap config edit --project
 ```
 
 ## Override Behavior

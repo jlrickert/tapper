@@ -281,9 +281,14 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 		NewTagsCmd(deps),
 		NewVersionCmd(deps),
 	}
+	var configCmd *cobra.Command
 	if deps.Profile.IncludeConfigCommand {
-		subcommands = append(subcommands, NewConfigCmd(deps))
-		subcommands = append(subcommands, NewBootstrapCmd(deps))
+		configCmd = NewConfigCmd(deps)
+		subcommands = append(subcommands,
+			NewSettingsCmd(deps),
+			NewBootstrapCmd(deps),
+			configCmd,
+		)
 	}
 	var repoCmd *cobra.Command
 	var initCmd *cobra.Command
@@ -295,6 +300,13 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 	cmd.AddCommand(subcommands...)
 	if repoCmd != nil {
 		filterRepoTargetFlagsInHelp(repoCmd)
+	}
+	// The top-level `config` command defines local --project/--user flags that
+	// shadow the persistent keg-target --project/--path/--cwd flags; strip the
+	// inherited entries from its "Global Flags" help so users don't see two
+	// --project entries.
+	if configCmd != nil {
+		filterRepoTargetFlagsInHelp(configCmd)
 	}
 	// `tap init` re-binds --keg/--project/--path/--cwd locally with
 	// create-time semantics. Strip the inherited keg-target persistent

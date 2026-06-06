@@ -86,7 +86,7 @@ Creates a keg under your first `kegSearchPaths` entry — or under the
 platform user-data directory if no `kegSearchPaths` is configured — and
 registers the alias in your user config.
 
-> Tip: run `tap repo config edit` first if you want to set `fallbackKeg`
+> Tip: run `tap config edit` first if you want to set `fallbackKeg`
 > (so later commands don't need `--keg`) or customize `kegSearchPaths`.
 > Without configuration, tapper picks sensible platform defaults.
 

@@ -10,10 +10,10 @@ User config defines machine-wide defaults for tapper.
 ## View And Edit
 
 ```bash
-tap repo config --user
-tap repo config edit --user
-tap repo config template user
-cat config.yaml | tap repo config edit --user
+tap config --user
+tap config edit --user
+tap config template user
+cat config.yaml | tap config edit --user
 ```
 
 ## Key Reference
