@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestInfoEdit_UsesTempFileAndSaves(t *testing.T) {
+func TestSettingsEdit_UsesTempFileAndSaves(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
 
@@ -42,7 +42,7 @@ EOF
 	require.NoError(t, sb.Runtime().Set("EDITOR", "/bin/sh "+scriptPath))
 	sb.Runtime().Unset("VISUAL")
 
-	res := NewProcess(t, false, "config", "edit", "--keg", "example").RunWithIO(sb.Context(), sb.Runtime(), strings.NewReader(""))
+	res := NewProcess(t, false, "settings", "edit", "--keg", "example").RunWithIO(sb.Context(), sb.Runtime(), strings.NewReader(""))
 	require.NoError(t, res.Err)
 
 	edited := string(sb.MustReadFile("~/kegs/example/keg"))
@@ -58,7 +58,7 @@ EOF
 	require.NotEqual(t, "/home/testuser/kegs/example/keg", editorArg)
 }
 
-func TestInfoEdit_InvalidEditsDoNotPersist(t *testing.T) {
+func TestSettingsEdit_InvalidEditsDoNotPersist(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
 
@@ -80,7 +80,7 @@ EOF
 	sb.Runtime().Unset("VISUAL")
 
 	before := sb.MustReadFile("~/kegs/example/keg")
-	res := NewProcess(t, false, "config", "edit", "--keg", "example").RunWithIO(sb.Context(), sb.Runtime(), strings.NewReader(""))
+	res := NewProcess(t, false, "settings", "edit", "--keg", "example").RunWithIO(sb.Context(), sb.Runtime(), strings.NewReader(""))
 	require.Error(t, res.Err)
 	require.Contains(t, string(res.Stderr), "keg config is invalid after editing")
 
@@ -88,7 +88,7 @@ EOF
 	require.Equal(t, string(before), string(after))
 }
 
-func TestInfoEdit_UsesPipedStdinWithoutEditor(t *testing.T) {
+func TestSettingsEdit_UsesPipedStdinWithoutEditor(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
 
@@ -105,7 +105,7 @@ func TestInfoEdit_UsesPipedStdinWithoutEditor(t *testing.T) {
 title: Final Title
 summary: piped content
 `)
-	res := NewProcess(t, false, "config", "edit", "--keg", "example").RunWithIO(sb.Context(), sb.Runtime(), stdin)
+	res := NewProcess(t, false, "settings", "edit", "--keg", "example").RunWithIO(sb.Context(), sb.Runtime(), stdin)
 	require.NoError(t, res.Err)
 
 	saved := string(sb.MustReadFile("~/kegs/example/keg"))
@@ -113,7 +113,7 @@ summary: piped content
 	require.Contains(t, saved, "summary: piped content")
 }
 
-func TestInfoEdit_RejectsInvalidPipedStdin(t *testing.T) {
+func TestSettingsEdit_RejectsInvalidPipedStdin(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
 
@@ -128,7 +128,7 @@ func TestInfoEdit_RejectsInvalidPipedStdin(t *testing.T) {
 
 	before := sb.MustReadFile("~/kegs/example/keg")
 	stdin := strings.NewReader("kegv: [\n")
-	res := NewProcess(t, false, "config", "edit", "--keg", "example").RunWithIO(sb.Context(), sb.Runtime(), stdin)
+	res := NewProcess(t, false, "settings", "edit", "--keg", "example").RunWithIO(sb.Context(), sb.Runtime(), stdin)
 	require.Error(t, res.Err)
 	require.Contains(t, string(res.Stderr), "keg config from stdin is invalid")
 
@@ -136,7 +136,7 @@ func TestInfoEdit_RejectsInvalidPipedStdin(t *testing.T) {
 	require.Equal(t, string(before), string(after))
 }
 
-func TestInfoEdit_LiveSavePreservesEarlierValidConfigOnLaterInvalidSave(t *testing.T) {
+func TestSettingsEdit_LiveSavePreservesEarlierValidConfigOnLaterInvalidSave(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
 
@@ -163,7 +163,7 @@ EOF
 	require.NoError(t, sb.Runtime().Set("EDITOR", "/bin/sh "+scriptPath))
 	sb.Runtime().Unset("VISUAL")
 
-	res := NewProcess(t, false, "config", "edit", "--keg", "example").RunWithIO(sb.Context(), sb.Runtime(), strings.NewReader(""))
+	res := NewProcess(t, false, "settings", "edit", "--keg", "example").RunWithIO(sb.Context(), sb.Runtime(), strings.NewReader(""))
 	require.NoError(t, res.Err)
 
 	saved := string(sb.MustReadFile("~/kegs/example/keg"))
@@ -171,22 +171,22 @@ EOF
 	require.Contains(t, saved, "summary: saved once")
 }
 
-func TestConfigHelp_UsesEditSubcommand(t *testing.T) {
+func TestSettingsHelp_UsesEditSubcommand(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
 
-	res := NewProcess(t, false, "config", "--help").Run(sb.Context(), sb.Runtime())
+	res := NewProcess(t, false, "settings", "--help").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 
 	stdout := string(res.Stdout)
 	require.Contains(t, stdout, "edit")
 	require.NotContains(t, stdout, "--edit")
 
-	editRes := NewProcess(t, false, "config", "edit", "--help").Run(sb.Context(), sb.Runtime())
+	editRes := NewProcess(t, false, "settings", "edit", "--help").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, editRes.Err)
 	require.Contains(t, string(editRes.Stdout), "piped")
 
-	oldRes := NewProcess(t, false, "config", "--edit").Run(sb.Context(), sb.Runtime())
+	oldRes := NewProcess(t, false, "settings", "--edit").Run(sb.Context(), sb.Runtime())
 	require.Error(t, oldRes.Err)
 	require.Contains(t, string(oldRes.Stderr), "unknown flag: --edit")
 }

@@ -10,23 +10,35 @@ import (
 // Usage examples:
 //
 //	tap config edit
-//	tap config edit --keg myalias
+//	tap config edit --project
 func NewConfigEditCmd(deps *Deps) *cobra.Command {
-	var opts tapper.KegConfigEditOptions
+	var opts tapper.ConfigEditOptions
 
 	cmd := &cobra.Command{
 		Use:   "edit",
-		Short: "edit keg configuration with default editor",
-		Long: `Open the keg configuration in your default editor for editing.
+		Short: "edit tap configuration with default editor",
+		Long: `Open the configuration file in your default editor for editing.
+
+By default, edits the user configuration. Use '--project' to edit project
+configuration. Use '--config' to edit an explicit config file instead.
 
 If stdin is piped with non-empty YAML, the piped content is validated and
-written directly instead of opening an editor.`,
+written directly instead of opening an editor.
+
+The editor is determined by the EDITOR environment variable, defaulting to 'vim'.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			applyKegTargetProfile(deps, &opts.KegTargetOptions)
+			ctx := cmd.Context()
+
+			if deps.ConfigPath != "" {
+				opts.ConfigPath = deps.ConfigPath
+			}
 			opts.Stream = deps.Runtime.Stream()
-			return deps.Tap.KegConfigEdit(cmd.Context(), opts)
+			return deps.Tap.ConfigEdit(ctx, opts)
 		},
 	}
+
+	cmd.Flags().BoolVar(&opts.Project, "project", false, "edit project configuration")
+	cmd.Flags().BoolVar(&opts.User, "user", false, "edit user configuration")
 
 	return cmd
 }

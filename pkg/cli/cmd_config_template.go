@@ -7,10 +7,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var repoConfigTemplateKinds = []string{"user", "project"}
+var configTemplateKinds = []string{"user", "project"}
 
-// NewRepoConfigTemplateCmd returns the `repo config template` cobra subcommand.
-func NewRepoConfigTemplateCmd(deps *Deps) *cobra.Command {
+// NewConfigTemplateCmd returns the `config template` cobra subcommand.
+func NewConfigTemplateCmd(deps *Deps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "template {user|project}",
 		Short: "print a starter tap config template",
@@ -19,11 +19,11 @@ func NewRepoConfigTemplateCmd(deps *Deps) *cobra.Command {
 			if len(args) > 0 {
 				return nil, cobra.ShellCompDirectiveNoFileComp
 			}
-			return filterByPrefix(repoConfigTemplateKinds, toComplete), cobra.ShellCompDirectiveNoFileComp
+			return filterByPrefix(configTemplateKinds, toComplete), cobra.ShellCompDirectiveNoFileComp
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if deps.ConfigPath != "" {
-				return fmt.Errorf("--config cannot be used with repo config template")
+				return fmt.Errorf("--config cannot be used with config template")
 			}
 
 			var opts tapper.ConfigTemplateOptions

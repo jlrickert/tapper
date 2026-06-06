@@ -21,21 +21,21 @@ func TestConfigCommand_DisplaysMergedConfig(t *testing.T) {
 	tests := []configTestCase{
 		{
 			name:             "config_displays_merged_config",
-			args:             []string{"repo", "config"},
+			args:             []string{"config"},
 			setupFixture:     strPtr("joe"),
 			expectedInStdout: []string{"defaultKeg:", "kegs:"},
 			description:      "Display merged configuration from user config",
 		},
 		{
 			name:         "config_with_project_flag",
-			args:         []string{"repo", "config", "--project"},
+			args:         []string{"config", "--project"},
 			setupFixture: strPtr("joe"),
 			expectedErr:  "no configuration available",
 			description:  "Project config may not exist and should error gracefully",
 		},
 		{
 			name:         "config_template_user_includes_new_keys",
-			args:         []string{"repo", "config", "template", "user"},
+			args:         []string{"config", "template", "user"},
 			setupFixture: strPtr("joe"),
 			expectedInStdout: []string{
 				"# yaml-language-server: $schema=https://raw.githubusercontent.com/jlrickert/tapper/main/schemas/tap-config.json",
@@ -47,7 +47,7 @@ func TestConfigCommand_DisplaysMergedConfig(t *testing.T) {
 		},
 		{
 			name:         "config_template_project_includes_new_keys",
-			args:         []string{"repo", "config", "template", "project"},
+			args:         []string{"config", "template", "project"},
 			setupFixture: strPtr("joe"),
 			expectedInStdout: []string{
 				"# yaml-language-server: $schema=https://raw.githubusercontent.com/jlrickert/tapper/main/schemas/tap-config.json",
@@ -77,7 +77,7 @@ func TestConfigCommand_DisplaysMergedConfig(t *testing.T) {
 				require.Contains(innerT, stderr, tt.expectedErr,
 					"error message should contain %q, got stderr: %s", tt.expectedErr, stderr)
 			} else {
-				require.NoError(innerT, res.Err, "repo config command should succeed - %s", tt.description)
+				require.NoError(innerT, res.Err, "config command should succeed - %s", tt.description)
 				stdout := string(res.Stdout)
 
 				for _, expected := range tt.expectedInStdout {
@@ -116,10 +116,10 @@ func TestConfigCommand_IntegrationWithInit(t *testing.T) {
 		initRes := initCmd.Run(sb.Context(), sb.Runtime())
 		require.NoError(innerT, initRes.Err, "init should succeed")
 
-		// Now display the repo config
-		configCmd := NewProcess(innerT, false, "repo", "config")
+		// Now display the tap config
+		configCmd := NewProcess(innerT, false, "config")
 		configRes := configCmd.Run(sb.Context(), sb.Runtime())
-		require.NoError(innerT, configRes.Err, "repo config should succeed after init")
+		require.NoError(innerT, configRes.Err, "config should succeed after init")
 
 		stdout := string(configRes.Stdout)
 		require.Contains(innerT, stdout, "kegs:", "output should contain kegs section")
@@ -135,7 +135,7 @@ func TestConfigCommand_ReadsExplicitConfigPath(t *testing.T) {
 	const raw = "fallbackKeg: custom\nunknownKey: keep-me\n"
 	require.NoError(t, sb.Runtime().AtomicWriteFile(configPath, []byte(raw), 0o644))
 
-	res := NewProcess(t, false, "-c", configPath, "repo", "config").Run(sb.Context(), sb.Runtime())
+	res := NewProcess(t, false, "-c", configPath, "config").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 	require.Equal(t, raw, string(res.Stdout))
 }
@@ -148,8 +148,8 @@ func TestConfigCommand_RejectsScopedFlagsWithExplicitConfigPath(t *testing.T) {
 	require.NoError(t, sb.Runtime().AtomicWriteFile(configPath, []byte("fallbackKeg: custom\n"), 0o644))
 
 	tests := [][]string{
-		{"-c", configPath, "repo", "config", "--user"},
-		{"-c", configPath, "repo", "config", "--project"},
+		{"-c", configPath, "config", "--user"},
+		{"-c", configPath, "config", "--project"},
 	}
 
 	for _, args := range tests {
@@ -163,16 +163,16 @@ func TestConfigTemplateCommand_RejectsExplicitConfigPath(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t)
 
-	res := NewProcess(t, false, "-c", "/tmp/custom-tap-config.yaml", "repo", "config", "template", "user").Run(sb.Context(), sb.Runtime())
+	res := NewProcess(t, false, "-c", "/tmp/custom-tap-config.yaml", "config", "template", "user").Run(sb.Context(), sb.Runtime())
 	require.Error(t, res.Err)
-	require.Contains(t, string(res.Stderr), "--config cannot be used with repo config template")
+	require.Contains(t, string(res.Stderr), "--config cannot be used with config template")
 }
 
 func TestConfigTemplateCommand_Completion(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t)
 
-	comp := NewCompletionProcess(t, false, 0, "repo", "config", "template", "").Run(sb.Context(), sb.Runtime())
+	comp := NewCompletionProcess(t, false, 0, "config", "template", "").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, comp.Err)
 
 	suggestions := parseCompletionSuggestions(string(comp.Stdout))
@@ -184,7 +184,7 @@ func TestConfigCommand_ExplainFlagCompletion(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t)
 
-	comp := NewCompletionProcess(t, false, 0, "repo", "config", "--explain", "d").Run(sb.Context(), sb.Runtime())
+	comp := NewCompletionProcess(t, false, 0, "config", "--explain", "d").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, comp.Err)
 
 	suggestions := parseCompletionSuggestions(string(comp.Stdout))
@@ -199,7 +199,7 @@ func TestConfigCommand_ExplainFlag(t *testing.T) {
 	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
 	require.NoError(t, sb.Setwd("/home/testuser"))
 
-	res := NewProcess(t, false, "repo", "config", "--explain", "defaultKeg").Run(sb.Context(), sb.Runtime())
+	res := NewProcess(t, false, "config", "--explain", "defaultKeg").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 
 	stdout := string(res.Stdout)
@@ -214,7 +214,7 @@ func TestConfigCommand_ExplainFlagWithEnvVar(t *testing.T) {
 	require.NoError(t, sb.Setwd("/home/testuser"))
 	require.NoError(t, sb.Runtime().Env().Set("TAP_DEFAULT_KEG", "envkeg"))
 
-	res := NewProcess(t, false, "repo", "config", "--explain", "defaultKeg").Run(sb.Context(), sb.Runtime())
+	res := NewProcess(t, false, "config", "--explain", "defaultKeg").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 
 	stdout := string(res.Stdout)
@@ -228,7 +228,7 @@ func TestConfigCommand_ShowSourcesFlag(t *testing.T) {
 	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
 	require.NoError(t, sb.Setwd("/home/testuser"))
 
-	res := NewProcess(t, false, "repo", "config", "--show-sources").Run(sb.Context(), sb.Runtime())
+	res := NewProcess(t, false, "config", "--show-sources").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 
 	stdout := string(res.Stdout)
@@ -251,7 +251,7 @@ func TestConfigCommand_ExplainUnknownField(t *testing.T) {
 	sb := NewSandbox(t)
 	require.NoError(t, sb.Setwd("/home/testuser"))
 
-	res := NewProcess(t, false, "repo", "config", "--explain", "nonexistent").Run(sb.Context(), sb.Runtime())
+	res := NewProcess(t, false, "config", "--explain", "nonexistent").Run(sb.Context(), sb.Runtime())
 	require.Error(t, res.Err)
 	require.Contains(t, string(res.Stderr), "unknown config field")
 }

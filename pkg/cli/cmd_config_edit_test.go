@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestRepoConfigEdit_UserUsesPipedStdinWithoutEditor(t *testing.T) {
+func TestConfigEdit_UserUsesPipedStdinWithoutEditor(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
 
@@ -24,7 +24,7 @@ kegMap: []
 kegs: {}
 defaultHub: ""
 `
-	res := NewProcess(t, false, "repo", "config", "edit", "--user").RunWithIO(
+	res := NewProcess(t, false, "config", "edit", "--user").RunWithIO(
 		sb.Context(),
 		sb.Runtime(),
 		strings.NewReader(input),
@@ -35,7 +35,7 @@ defaultHub: ""
 	require.Equal(t, input, saved)
 }
 
-func TestRepoConfigEdit_RejectsScopedFlagsWithExplicitConfigPath(t *testing.T) {
+func TestConfigEdit_RejectsScopedFlagsWithExplicitConfigPath(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
 
@@ -43,8 +43,8 @@ func TestRepoConfigEdit_RejectsScopedFlagsWithExplicitConfigPath(t *testing.T) {
 	require.NoError(t, sb.Runtime().AtomicWriteFile(configPath, []byte("fallbackKeg: custom\n"), 0o644))
 
 	tests := [][]string{
-		{"-c", configPath, "repo", "config", "edit", "--user"},
-		{"-c", configPath, "repo", "config", "edit", "--project"},
+		{"-c", configPath, "config", "edit", "--user"},
+		{"-c", configPath, "config", "edit", "--project"},
 	}
 
 	for _, args := range tests {
@@ -58,7 +58,7 @@ func TestRepoConfigEdit_RejectsScopedFlagsWithExplicitConfigPath(t *testing.T) {
 	}
 }
 
-func TestRepoConfigEdit_UserRejectsInvalidPipedStdin(t *testing.T) {
+func TestConfigEdit_UserRejectsInvalidPipedStdin(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
 
@@ -66,7 +66,7 @@ func TestRepoConfigEdit_UserRejectsInvalidPipedStdin(t *testing.T) {
 	sb.Runtime().Unset("VISUAL")
 
 	before := string(sb.MustReadFile("~/.config/tapper/config.yaml"))
-	res := NewProcess(t, false, "repo", "config", "edit", "--user").RunWithIO(
+	res := NewProcess(t, false, "config", "edit", "--user").RunWithIO(
 		sb.Context(),
 		sb.Runtime(),
 		strings.NewReader("fallbackKeg: [\n"),
@@ -78,7 +78,7 @@ func TestRepoConfigEdit_UserRejectsInvalidPipedStdin(t *testing.T) {
 	require.Equal(t, before, after)
 }
 
-func TestRepoConfigEdit_UserAcceptsUnknownFieldsFromStdin(t *testing.T) {
+func TestConfigEdit_UserAcceptsUnknownFieldsFromStdin(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
 
@@ -86,7 +86,7 @@ func TestRepoConfigEdit_UserAcceptsUnknownFieldsFromStdin(t *testing.T) {
 	sb.Runtime().Unset("VISUAL")
 
 	input := "defaultKeg: example\nunknownKey: value\n"
-	res := NewProcess(t, false, "repo", "config", "edit", "--user").RunWithIO(
+	res := NewProcess(t, false, "config", "edit", "--user").RunWithIO(
 		sb.Context(),
 		sb.Runtime(),
 		strings.NewReader(input),
@@ -97,7 +97,7 @@ func TestRepoConfigEdit_UserAcceptsUnknownFieldsFromStdin(t *testing.T) {
 	require.Equal(t, input, after)
 }
 
-func TestRepoConfigEdit_ProjectUsesPipedStdinWithoutEditor(t *testing.T) {
+func TestConfigEdit_ProjectUsesPipedStdinWithoutEditor(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
 
@@ -111,7 +111,7 @@ kegMap: []
 kegs: {}
 defaultHub: ""
 `
-	res := NewProcess(t, false, "repo", "config", "edit", "--project").RunWithIO(
+	res := NewProcess(t, false, "config", "edit", "--project").RunWithIO(
 		sb.Context(),
 		sb.Runtime(),
 		strings.NewReader(input),
@@ -122,7 +122,7 @@ defaultHub: ""
 	require.Equal(t, input, saved)
 }
 
-func TestRepoConfigEdit_ProjectRejectsInvalidPipedStdin(t *testing.T) {
+func TestConfigEdit_ProjectRejectsInvalidPipedStdin(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
 
@@ -133,7 +133,7 @@ func TestRepoConfigEdit_ProjectRejectsInvalidPipedStdin(t *testing.T) {
 	sb.Runtime().Unset("VISUAL")
 
 	before := string(sb.MustReadFile("~/project/.tapper/config.yaml"))
-	res := NewProcess(t, false, "repo", "config", "edit", "--project").RunWithIO(
+	res := NewProcess(t, false, "config", "edit", "--project").RunWithIO(
 		sb.Context(),
 		sb.Runtime(),
 		strings.NewReader("defaultKeg: [\n"),
@@ -145,7 +145,7 @@ func TestRepoConfigEdit_ProjectRejectsInvalidPipedStdin(t *testing.T) {
 	require.Equal(t, before, after)
 }
 
-func TestRepoConfigEdit_EditsRealConfigFileAndPreservesUnknownFields(t *testing.T) {
+func TestConfigEdit_EditsRealConfigFileAndPreservesUnknownFields(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
 
@@ -171,7 +171,7 @@ EOF
 	require.NoError(t, sb.Runtime().Set("EDITOR", "/bin/sh "+scriptPath))
 	sb.Runtime().Unset("VISUAL")
 
-	res := NewProcess(t, false, "repo", "config", "edit", "--user").RunWithIO(
+	res := NewProcess(t, false, "config", "edit", "--user").RunWithIO(
 		sb.Context(),
 		sb.Runtime(),
 		strings.NewReader(""),
@@ -190,7 +190,7 @@ EOF
 	require.Equal(t, expectedPath, editorArg)
 }
 
-func TestRepoConfigEdit_ReturnsErrorWhenEditorLeavesInvalidYAML(t *testing.T) {
+func TestConfigEdit_ReturnsErrorWhenEditorLeavesInvalidYAML(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
 
@@ -212,7 +212,7 @@ EOF
 	require.NoError(t, sb.Runtime().Set("EDITOR", "/bin/sh "+scriptPath))
 	sb.Runtime().Unset("VISUAL")
 
-	res := NewProcess(t, false, "repo", "config", "edit", "--user").RunWithIO(
+	res := NewProcess(t, false, "config", "edit", "--user").RunWithIO(
 		sb.Context(),
 		sb.Runtime(),
 		strings.NewReader(""),

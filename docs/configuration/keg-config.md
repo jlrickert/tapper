@@ -10,15 +10,15 @@ Keg config is metadata stored in a keg repository itself.
 ## View And Edit
 
 ```bash
-tap config
-tap config --keg <alias>
-tap config --project
-tap config --path <path>
-tap config edit
-cat keg.yaml | tap config edit --path <path>
+tap settings
+tap settings --keg <alias>
+tap settings --project
+tap settings --path <path>
+tap settings edit
+cat keg.yaml | tap settings edit --path <path>
 ```
 
-Use `tap config` commands for keg metadata. Use `tap repo config` for user/project resolver
+Use `tap settings` commands for keg metadata. Use `tap config` for user/project resolver
 settings.
 
 ## Field Reference (User-Facing)
@@ -43,8 +43,8 @@ Common keg fields:
 
 ## Validation And Safe Editing Tips
 
-- Prefer `tap config edit` to edit with validation.
-- Pipe YAML to `tap config edit` when you want non-interactive updates.
+- Prefer `tap settings edit` to edit with validation.
+- Pipe YAML to `tap settings edit` when you want non-interactive updates.
 - Keep YAML valid and key names consistent.
-- Save small changes and re-run `tap config` to confirm output.
+- Save small changes and re-run `tap settings` to confirm output.
 - Use `tap info` to confirm the resolved keg directory when debugging target selection.

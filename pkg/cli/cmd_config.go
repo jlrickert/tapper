@@ -1,7 +1,10 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
+	"os"
+	"strings"
 
 	"github.com/jlrickert/tapper/pkg/tapper"
 	"github.com/spf13/cobra"
@@ -12,24 +15,50 @@ import (
 // Usage examples:
 //
 //	tap config
-//	tap config --keg myalias
+//	tap config --project
+//	tap config --user
+//	tap config --explain defaultKeg
+//	tap config --show-sources
+//	tap config template user
+//	tap config template project
 //	tap config edit
-//	tap config edit --keg myalias
+//	tap config edit --project
 func NewConfigCmd(deps *Deps) *cobra.Command {
-	var opts tapper.InfoOptions
+	var opts tapper.ConfigOptions
+	var explainField string
+	var showSources bool
 
 	cmd := &cobra.Command{
 		Use:   "config",
-		Short: "display keg configuration",
-		Long: `Display the keg configuration (keg file contents).
+		Short: "display tap configuration",
+		Long: `Display the merged tap configuration (user + project).
 
-Shows metadata about the keg including title, creator, entities, tags, and
-other configuration properties. Use 'tap config edit' to modify the keg
-configuration.`,
+Use 'tap config edit' to modify configuration files.
+Use '--project' to view only project configuration.
+Use '--explain FIELD' to show which source set a field value.
+Use '--show-sources' to show all fields with their source.
+Use 'tap config template {user|project}' to print starter config.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			applyKegTargetProfile(deps, &opts.KegTargetOptions)
+			// --explain and --show-sources take precedence over normal display.
+			if showSources || explainField != "" {
+				explainOpts := tapper.ConfigExplainOptions{
+					Field: explainField,
+				}
+				results, err := deps.Tap.ConfigExplain(cmd.Context(), explainOpts)
+				if err != nil {
+					return err
+				}
+				if showSources {
+					return printShowSources(cmd, results)
+				}
+				return printExplain(cmd, results)
+			}
 
-			output, err := deps.Tap.Info(cmd.Context(), opts)
+			opts.ConfigPath = deps.ConfigPath
+			output, err := deps.Tap.Config(opts)
+			if errors.Is(err, os.ErrNotExist) {
+				return fmt.Errorf("no configuration available: %w", err)
+			}
 			if err != nil {
 				return err
 			}
@@ -38,7 +67,54 @@ configuration.`,
 			return err
 		},
 	}
+
+	cmd.Flags().BoolVar(&opts.Project, "project", false, "display project configuration")
+	cmd.Flags().BoolVar(&opts.User, "user", false, "display user configuration")
+	cmd.Flags().StringVar(&explainField, "explain", "", "show provenance for a specific config field")
+	cmd.Flags().BoolVar(&showSources, "show-sources", false, "show all fields with their resolved source")
+
+	mustRegisterFlagCompletion(cmd, "explain", func(_ *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		var out []string
+		for _, f := range tapper.ConfigExplainFields {
+			if strings.HasPrefix(f, toComplete) {
+				out = append(out, f)
+			}
+		}
+		return out, cobra.ShellCompDirectiveNoFileComp
+	})
+
+	cmd.AddCommand(NewConfigTemplateCmd(deps))
 	cmd.AddCommand(NewConfigEditCmd(deps))
 
 	return cmd
+}
+
+// printExplain formats --explain output for a single field (or all fields if
+// multiple results are returned).
+func printExplain(cmd *cobra.Command, results []tapper.ConfigExplainResult) error {
+	var sb strings.Builder
+	for _, r := range results {
+		val := r.Value
+		if val == "" {
+			val = `""`
+		}
+		sb.WriteString(fmt.Sprintf("%s = %s\n", r.Field, val))
+		sb.WriteString(fmt.Sprintf("  source: %s\n", r.Source))
+	}
+	_, err := fmt.Fprint(cmd.OutOrStdout(), sb.String())
+	return err
+}
+
+// printShowSources formats --show-sources output: all fields with their source annotation.
+func printShowSources(cmd *cobra.Command, results []tapper.ConfigExplainResult) error {
+	var sb strings.Builder
+	for _, r := range results {
+		val := r.Value
+		if val == "" {
+			val = `""`
+		}
+		sb.WriteString(fmt.Sprintf("%s = %s  [%s]\n", r.Field, val, r.Source))
+	}
+	_, err := fmt.Fprint(cmd.OutOrStdout(), sb.String())
+	return err
 }

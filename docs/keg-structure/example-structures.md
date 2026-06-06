@@ -82,8 +82,8 @@ graph with project-scoped defaults.
 
 ```bash
 tap init --keg tapper --project
-tap repo config --project
 tap config --project
+tap settings --project
 ```
 
 ### Example Layout

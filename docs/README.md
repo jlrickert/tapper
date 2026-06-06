@@ -60,8 +60,8 @@ If you are unsure where to start, read [Configuration Overview](configuration/RE
 
 - `tap index rebuild` — rebuild keg indices
 - `tap info` — show keg diagnostics
-- `tap config` — show active keg config
-- `tap config edit` — edit active keg config (reads stdin)
+- `tap settings` — show active keg config
+- `tap settings edit` — edit active keg config (reads stdin)
 - `tap graph` — output keg link graph
 - `tap import FILE` — import nodes from a file
 
@@ -93,10 +93,10 @@ it.
 - `tap init [--keg ALIAS]` — initialize a keg target
 - `tap repo rm ALIAS` — remove a keg alias
 - `tap repo list` — list configured keg aliases
-- `tap repo config` — show merged repo config
-- `tap repo config --user|--project` — show user or project config
-- `tap repo config edit --user|--project` — edit user or project config (reads stdin)
-- `tap repo config template user|project` — print starter config templates
+- `tap config` — show merged tap config
+- `tap config --user|--project` — show user or project config
+- `tap config edit --user|--project` — edit user or project config (reads stdin)
+- `tap config template user|project` — print starter config templates
 
 Use the project-local profile when you want that narrowed workflow:
 `keg snapshot|archive ...`

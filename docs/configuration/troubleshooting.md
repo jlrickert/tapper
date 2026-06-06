@@ -53,14 +53,14 @@ kegSearchPaths:
 
 ```bash
 # Show merged config
-tap repo config
+tap config
 
 # Inspect user and project configs separately
-tap repo config --user
-tap repo config --project
+tap config --user
+tap config --project
 
 # Show active keg config (resolved target)
-tap config
+tap settings
 
 # Confirm resolution for a specific alias
 tap info --keg <alias>

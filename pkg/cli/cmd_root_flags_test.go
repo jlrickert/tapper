@@ -64,7 +64,10 @@ func TestRepoHelp_HidesInheritedKegTargetFlags(t *testing.T) {
 	require.NotContains(t, stdout, "--path")
 	require.NotContains(t, stdout, "--cwd")
 
-	res = NewProcess(t, false, "repo", "config", "edit", "--help").Run(sb.Context(), sb.Runtime())
+	// `config` moved to the top level but still defines a local --project flag
+	// that shadows the persistent keg-target flags; its help should likewise
+	// hide --keg/--path/--cwd while keeping its own --project.
+	res = NewProcess(t, false, "config", "edit", "--help").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 	stdout = string(res.Stdout)
 	require.NotContains(t, stdout, "--keg")

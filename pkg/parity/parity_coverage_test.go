@@ -34,7 +34,7 @@ var tapMethodToSurfaces = map[string]struct {
 	"Backlinks":   {CLI: "backlinks", MCP: "backlinks"},
 	"Links":       {CLI: "links", MCP: "links"},
 	"ListKegs":    {CLI: "repo list", MCP: "list_kegs"},
-	"Info":        {CLI: "config", MCP: "info"},
+	"Info":        {CLI: "settings", MCP: "info"},
 	"KegInfo":     {CLI: "info", MCP: "keg_info"},
 	"Stats":       {CLI: "stats", MCP: "stats"},
 	"Graph":       {CLI: "graph", MCP: "graph"},
@@ -80,8 +80,8 @@ var tapMethodToSurfaces = map[string]struct {
 	"RemoveRepo": {CLI: "repo rm", MCP: "repo_rm"},
 
 	// Config operations
-	"Config":         {CLI: "repo config", MCP: "config"},
-	"ConfigTemplate": {CLI: "repo config template", MCP: "config_template"},
+	"Config":         {CLI: "config", MCP: "config"},
+	"ConfigTemplate": {CLI: "config template", MCP: "config_template"},
 
 	// Archive operations
 	// Note: "import" at top level is ImportFromKeg (live keg import).
@@ -239,7 +239,7 @@ func collectCLICommandPaths(t *testing.T) map[string]bool {
 
 // walkCommands recursively walks a Cobra command tree, collecting command paths
 // relative to the root. Leaf commands and parent commands that have their own
-// RunE are both included (e.g., "repo config" is both a parent and a runnable
+// RunE are both included (e.g., "config" is both a parent and a runnable
 // command).
 func walkCommands(cmd *cobra.Command, prefix string, paths map[string]bool) {
 	for _, child := range cmd.Commands() {

@@ -34,13 +34,13 @@ func (t *Tap) RemoveRepo(ctx context.Context, opts RemoveRepoOptions) error {
 	if !opts.Force {
 		if def := userCfg.DefaultKeg(); def == opts.Alias {
 			return fmt.Errorf(
-				"alias %q is the defaultKeg; use --force to remove it (consider setting a new default first with `tap repo config --default`)",
+				"alias %q is the defaultKeg; use --force to remove it (consider setting a new default first with `tap config --default`)",
 				opts.Alias,
 			)
 		}
 		if fb := userCfg.FallbackKeg(); fb == opts.Alias {
 			return fmt.Errorf(
-				"alias %q is the fallbackKeg; use --force to remove it (consider setting a new fallback first with `tap repo config --fallback`)",
+				"alias %q is the fallbackKeg; use --force to remove it (consider setting a new fallback first with `tap config --fallback`)",
 				opts.Alias,
 			)
 		}
