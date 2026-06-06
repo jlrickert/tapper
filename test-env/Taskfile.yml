@@ -1,60 +1,71 @@
 version: "3"
 
 vars:
-  WORK_COMPOSE: docker compose -f docker-compose.yml -f docker-compose.work.yml
+  # Local dev runs on Podman v5+ via its native `podman compose` subcommand.
+  # Centralized so a future runtime swap is one edit.
+  COMPOSE: podman compose
+  WORK_COMPOSE: podman compose -f docker-compose.yml -f docker-compose.work.yml
 
 tasks:
   build:
     desc: Build or refresh the sandbox image.
     cmds:
-      - docker compose build
+      - "{{.COMPOSE}} build"
 
   up:
     desc: Start the long-lived sandbox container in the background.
     cmds:
-      - docker compose up -d
+      - "{{.COMPOSE}} up -d"
 
   down:
     desc: Stop and remove the container (keeps named volumes).
     cmds:
-      - docker compose down
+      - "{{.COMPOSE}} down"
 
   restart:
     desc: Bounce the sandbox container.
     cmds:
-      - docker compose restart sandbox
+      - "{{.COMPOSE}} restart sandbox"
 
   rebuild:
     desc: Rebuild the image and recreate the container.
     cmds:
-      - docker compose up -d --build --force-recreate
+      - "{{.COMPOSE}} up -d --build --force-recreate"
 
   shell:
     desc: Open an interactive zsh login shell in the sandbox.
+    deps: [up]
     interactive: true
     cmds:
-      - docker compose exec sandbox zsh -l
+      # Direct `podman exec` rather than `podman compose exec`: the latter
+      # delegates to the Python podman-compose shim, which SIGKILLs the
+      # exec'd process during teardown and surfaces as exit 137 on clean
+      # zsh exit. Compose still owns lifecycle (`up`/`down`); native
+      # podman owns interactive attach.
+      - podman exec -it tapper-sandbox zsh -l
 
   exec:
     desc: Run an arbitrary command in the sandbox (use `--` to separate).
+    deps: [up]
     cmds:
-      - docker compose exec sandbox {{.CLI_ARGS}}
+      - podman exec -i tapper-sandbox {{.CLI_ARGS}}
 
   logs:
     desc: Follow the sandbox container logs.
     cmds:
-      - docker compose logs -f sandbox
+      - "{{.COMPOSE}} logs -f sandbox"
 
   status:
     desc: Show the sandbox container state.
     cmds:
-      - docker compose ps
+      - "{{.COMPOSE}} ps"
 
   rebuild-tap:
     desc: Rebuild tap and keg binaries inside the sandbox from current source.
+    deps: [up]
     cmds:
       - |
-        docker compose exec sandbox bash -lc '
+        podman exec -i tapper-sandbox bash -lc '
           set -e
           cd /usr/local/src/tapper && go install ./cmd/tap ./cmd/keg
           tap completion zsh > /usr/local/share/zsh/site-functions/_tap
@@ -70,8 +81,8 @@ tasks:
       DOTFILES_HEAD:
         sh: git ls-remote https://github.com/jlrickert/dotfiles.git HEAD | cut -f1
     cmds:
-      - docker compose build --build-arg DOTFILES_REV={{.DOTFILES_HEAD}} sandbox
-      - docker compose up -d --force-recreate sandbox
+      - "{{.COMPOSE}} build --build-arg DOTFILES_REV={{.DOTFILES_HEAD}} sandbox"
+      - "{{.COMPOSE}} up -d --force-recreate sandbox"
 
   populate:
     desc: |
@@ -80,18 +91,20 @@ tasks:
         task sandbox:populate -- --list
         task sandbox:populate -- minimal
         task sandbox:populate -- --all
+    deps: [up]
     cmds:
-      - docker compose exec sandbox bash /usr/local/src/tapper/test-env/scripts/populate.sh {{.CLI_ARGS}}
+      - podman exec -i tapper-sandbox bash /usr/local/src/tapper/test-env/scripts/populate.sh {{.CLI_ARGS}}
 
   test:
     desc: Run the Go test suite inside the sandbox.
+    deps: [up]
     cmds:
-      - docker compose exec sandbox bash -lc 'cd /usr/local/src/tapper && go test ./...'
+      - podman exec -i tapper-sandbox bash -lc 'cd /usr/local/src/tapper && go test ./...'
 
   clean:
     desc: Remove the container AND named volumes (nukes caches and state).
     cmds:
-      - docker compose down -v
+      - "{{.COMPOSE}} down -v"
 
   # ---- Work mode (uses local cli-toolkit via go.work) ----
 
@@ -110,7 +123,7 @@ tasks:
     interactive: true
     deps: [up-work]
     cmds:
-      - "{{.WORK_COMPOSE}} exec sandbox-work zsh -l"
+      - podman exec -it tapper-sandbox-work zsh -l
 
   down-work:
     desc: Stop and remove the work-mode container (keeps named volumes).
@@ -119,19 +132,22 @@ tasks:
 
   exec-work:
     desc: Run an arbitrary command in the work-mode sandbox (use `--`).
+    deps: [up-work]
     cmds:
-      - "{{.WORK_COMPOSE}} exec sandbox-work {{.CLI_ARGS}}"
+      - podman exec -i tapper-sandbox-work {{.CLI_ARGS}}
 
   test-work:
     desc: Run the Go test suite inside the work-mode sandbox.
+    deps: [up-work]
     cmds:
-      - "{{.WORK_COMPOSE}} exec sandbox-work bash -lc 'cd /usr/local/src/tapper && go test ./...'"
+      - podman exec -i tapper-sandbox-work bash -lc 'cd /usr/local/src/tapper && go test ./...'
 
   rebuild-tap-work:
     desc: Rebuild tap and keg in work mode (links local cli-toolkit).
+    deps: [up-work]
     cmds:
       - |
-        {{.WORK_COMPOSE}} exec sandbox-work bash -lc '
+        podman exec -i tapper-sandbox-work bash -lc '
           set -e
           cd /usr/local/src/tapper && go install ./cmd/tap ./cmd/keg
           tap completion zsh > /usr/local/share/zsh/site-functions/_tap
