@@ -240,10 +240,19 @@ func TestAuthLoginDevice_OnUserCodeInvoked(t *testing.T) {
 	}
 }
 
-// TestAuthLoginDevice_OnUserCodeError confirms a handler error aborts the flow
-// before any polling happens.
+// TestAuthLoginDevice_OnUserCodeError confirms a genuine prompt error — the
+// user aborts before approving — ends the flow. Polling now runs concurrently
+// with the prompt, so the hub is modeled as not-yet-approved
+// (authorization_pending), matching reality: an abort means the user never
+// approved, so the token endpoint keeps returning pending and the abort error
+// wins. The old "no polling happens" guarantee no longer holds — a harmless
+// pending poll may race out before the synchronous abort is observed — so we
+// assert only that the abort propagates.
 func TestAuthLoginDevice_OnUserCodeError(t *testing.T) {
-	hub := newFakeHub(t, []*tokenErrorResponse{nil})
+	hub := newFakeHub(t, []*tokenErrorResponse{
+		{Error: "authorization_pending"},
+		{Error: "authorization_pending"},
+	})
 	rt, _ := toolkit.NewRuntime()
 	opts, _, _ := newDeviceFlowOpts(t, hub)
 
@@ -255,8 +264,54 @@ func TestAuthLoginDevice_OnUserCodeError(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "user aborted") {
 		t.Fatalf("expected OnUserCode error to propagate; got %v", err)
 	}
-	if atomic.LoadInt32(&hub.PollCount) != 0 {
-		t.Errorf("token endpoint should not be polled when OnUserCode fails; got %d polls", hub.PollCount)
+}
+
+// TestAuthLoginDevice_PollSucceedsWhilePromptBlocks is the regression test for
+// the "CLI hangs after Approve" bug. Polling must run concurrently with the
+// browser-open prompt: an approval that lands while the prompt is still up has
+// to complete the login and tear the prompt down, not wait for the user to
+// dismiss it. The OnUserCode handler here blocks until its context is cancelled
+// — standing in for the gh-style confirm the user hasn't answered — so the only
+// thing that can unblock it is the device flow cancelling the prompt once the
+// token arrives. Under the old (sequential) code this would hang forever.
+func TestAuthLoginDevice_PollSucceedsWhilePromptBlocks(t *testing.T) {
+	hub := newFakeHub(t, []*tokenErrorResponse{nil}) // approval already granted
+	rt, _ := toolkit.NewRuntime()
+	opts, _, _ := newDeviceFlowOpts(t, hub)
+
+	promptTorn := make(chan struct{})
+	opts.OnUserCode = func(ctx context.Context, _ DeviceUserPrompt) error {
+		<-ctx.Done() // user hasn't answered; only teardown unblocks us
+		close(promptTorn)
+		return ctx.Err()
+	}
+
+	type result struct {
+		entry *AuthEntry
+		err   error
+	}
+	done := make(chan result, 1)
+	go func() {
+		entry, err := AuthLoginDevice(context.Background(), rt, opts)
+		done <- result{entry, err}
+	}()
+
+	select {
+	case r := <-done:
+		if r.err != nil {
+			t.Fatalf("AuthLoginDevice should succeed while the prompt blocks; got %v", r.err)
+		}
+		if r.entry.AccessToken != hub.IssuedToken {
+			t.Errorf("expected token %q, got %q", hub.IssuedToken, r.entry.AccessToken)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("AuthLoginDevice hung — polling did not run concurrently with the prompt")
+	}
+
+	select {
+	case <-promptTorn:
+	default:
+		t.Error("prompt was not torn down after the token arrived")
 	}
 }
 

@@ -29,10 +29,11 @@ import (
 // tokenResponse is the parsed token endpoint JSON reply. Fields mirror
 // the RFC 6749 §5.1 success response; ExpiresIn is seconds from now.
 type tokenResponse struct {
-	AccessToken string `json:"access_token"`
-	TokenType   string `json:"token_type"`
-	ExpiresIn   int64  `json:"expires_in"`
-	Scope       string `json:"scope"`
+	AccessToken  string `json:"access_token"`
+	TokenType    string `json:"token_type"`
+	ExpiresIn    int64  `json:"expires_in"`
+	Scope        string `json:"scope"`
+	RefreshToken string `json:"refresh_token"`
 }
 
 // authServerMetadata is the RFC 8414 subset we actually use. The hub

@@ -97,7 +97,7 @@ func TestAuthStoreTokenResolver_ResolveToken(t *testing.T) {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			resolver := tapper.NewAuthStoreTokenResolver(tc.store)
+			resolver := tapper.NewAuthStoreTokenResolver(tc.store, nil, "")
 			require.NotNil(t, resolver)
 			got := resolver.ResolveToken(&tc.target)
 			require.Equal(t, tc.want, got)
@@ -113,6 +113,6 @@ func TestAuthStoreTokenResolver_NilTargetSafe(t *testing.T) {
 	store := &tapper.AuthStore{}
 	store.Set(tapper.CanonicalHubURL("https://hub.example.com"), tapper.AuthEntry{AccessToken: "t"})
 
-	resolver := tapper.NewAuthStoreTokenResolver(store)
+	resolver := tapper.NewAuthStoreTokenResolver(store, nil, "")
 	require.Equal(t, "", resolver.ResolveToken(nil))
 }

@@ -223,23 +223,73 @@ func AuthLoginDevice(ctx context.Context, rt *toolkit.Runtime, opts AuthLoginDev
 		VerificationURIComplete: dar.VerificationURIComplete,
 		ExpiresIn:               dar.ExpiresIn,
 	}
+
+	// Poll the token endpoint concurrently with the user-facing prompt.
+	// Polling MUST begin immediately — not after the prompt is dismissed —
+	// because the browser-open prompt (OnUserCode) blocks on the user, and a
+	// user who approves in the browser before answering it would otherwise see
+	// the CLI sit idle until they re-touch the prompt. flowCtx ties the poll
+	// goroutine's lifetime to this call (defer cancel() reaps it on every
+	// return path; pollForDeviceToken checks ctx.Err() each iteration and
+	// threads ctx into every request). Once polling resolves, the goroutine
+	// cancels flowCtx so a still-displayed prompt tears itself down (the CLI's
+	// huh confirm honors RunWithContext) instead of stranding an
+	// already-approved user at a now-pointless "open browser?" question.
+	flowCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	pollDone := make(chan pollResult, 1)
+	go func() {
+		tok, err := pollForDeviceToken(flowCtx, opts, metadata.TokenEndpoint, dar)
+		pollDone <- pollResult{tok: tok, err: err}
+		cancel() // resolved — dismiss the prompt if it is still up
+	}()
+
 	if opts.OnUserCode != nil {
-		if err := opts.OnUserCode(ctx, prompt); err != nil {
-			return nil, err
+		if err := opts.OnUserCode(flowCtx, prompt); err != nil {
+			// Distinguish a genuine user abort from our own teardown: when the
+			// poll goroutine has already cancelled flowCtx (a token arrived or a
+			// terminal poll error occurred), the prompt's error is just the
+			// cancellation signal — ignore it and report the poll outcome
+			// below. Only an error raised while flowCtx is still live is a real
+			// abort that should end the login.
+			if flowCtx.Err() == nil {
+				return nil, err
+			}
 		}
 	} else {
 		printDevicePrompt(opts.PromptOut, prompt)
 	}
 
-	tok, err := pollForDeviceToken(ctx, opts, metadata.TokenEndpoint, dar)
-	if err != nil {
-		return nil, err
-	}
+	res := <-pollDone
+	return finishDeviceLogin(rt, opts, metadata.TokenEndpoint, res)
+}
 
+// pollResult carries pollForDeviceToken's outcome out of the goroutine that
+// runs it concurrently with the user-facing prompt.
+type pollResult struct {
+	tok *tokenResponse
+	err error
+}
+
+// finishDeviceLogin maps a completed poll into an AuthEntry. The refresh token
+// plus the client + token endpoint it must be presented to are persisted so a
+// later command can renew the short-lived access token without re-running the
+// device flow (RefreshToken is empty when the hub omits one — an older hub —
+// and the CLI then falls back to re-login). ExpiresAt is set only when the hub
+// advertised a lifetime.
+func finishDeviceLogin(rt *toolkit.Runtime, opts AuthLoginDeviceOptions, tokenEndpoint string, res pollResult) (*AuthEntry, error) {
+	if res.err != nil {
+		return nil, res.err
+	}
+	tok := res.tok
 	entry := &AuthEntry{
-		AccessToken: tok.AccessToken,
-		TokenType:   tok.TokenType,
-		Scope:       tok.Scope,
+		AccessToken:   tok.AccessToken,
+		TokenType:     tok.TokenType,
+		Scope:         tok.Scope,
+		RefreshToken:  tok.RefreshToken,
+		ClientID:      opts.ClientID,
+		TokenEndpoint: tokenEndpoint,
 	}
 	if tok.ExpiresIn > 0 {
 		entry.ExpiresAt = rt.Clock().Now().Add(time.Duration(tok.ExpiresIn) * time.Second)

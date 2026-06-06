@@ -1,32 +1,51 @@
 package tapper
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/url"
 	"strings"
+	"sync"
+	"time"
+
+	"github.com/jlrickert/cli-toolkit/toolkit"
 
 	"github.com/jlrickert/tapper/pkg/keg"
 )
 
+// refreshSkew is how far ahead of the access-token expiry the resolver renews,
+// so an in-flight request doesn't race a 401 against a token that lapses
+// mid-call.
+const refreshSkew = 30 * time.Second
+
 // authStoreTokenResolver implements keg.TokenResolver by looking up bearer
 // tokens in an AuthStore, keyed by the canonical hub root derived from the
-// remote target URL. Expired tokens are returned as-is — the hub's 401 is
-// the authoritative signal, and refresh lives in the auth flow, not here.
+// remote target URL. When the cached access token is OAuth2-issued (carries a
+// refresh token) and has expired or is about to, the resolver renews it via
+// RefreshHubToken and persists the rotated pair before returning. A pasted
+// `thub_` API token has no refresh token and is returned as-is.
 type authStoreTokenResolver struct {
-	store *AuthStore
+	store     *AuthStore
+	rt        *toolkit.Runtime
+	storePath string
+	mu        sync.Mutex // serializes refresh so concurrent resolves don't double-renew
 }
 
-// NewAuthStoreTokenResolver returns a keg.TokenResolver backed by store.
-// A nil store yields a resolver that always returns "", matching the
-// nil-safe contract of AuthStore itself.
-func NewAuthStoreTokenResolver(store *AuthStore) keg.TokenResolver {
-	return &authStoreTokenResolver{store: store}
+// NewAuthStoreTokenResolver returns a keg.TokenResolver backed by store. rt and
+// storePath enable in-place refresh of expired OAuth2 tokens; pass the same
+// runtime and AuthStorePath the store was loaded from. A nil store yields a
+// resolver that always returns "", matching AuthStore's nil-safe contract.
+func NewAuthStoreTokenResolver(store *AuthStore, rt *toolkit.Runtime, storePath string) keg.TokenResolver {
+	return &authStoreTokenResolver{store: store, rt: rt, storePath: storePath}
 }
 
-// ResolveToken derives the canonical hub root from target and returns the
-// cached access token, or "" when the target scheme has no hub concept
-// (file, memory) or the store has no entry.
+// ResolveToken derives the canonical hub root from target and returns a usable
+// access token, refreshing first when the cached one is expired (or near it)
+// and a refresh token is available. Returns "" when the target scheme has no
+// hub concept (file, memory) or the store has no entry. Refresh is best-effort:
+// any failure falls back to the cached token, leaving the hub's 401 as the
+// backstop signal.
 func (r *authStoreTokenResolver) ResolveToken(target *keg.Target) string {
 	if r == nil || r.store == nil || target == nil {
 		return ""
@@ -35,11 +54,57 @@ func (r *authStoreTokenResolver) ResolveToken(target *keg.Target) string {
 	if hubRoot == "" {
 		return ""
 	}
-	entry, ok := r.store.Get(CanonicalHubURL(hubRoot))
+	key := CanonicalHubURL(hubRoot)
+	entry, ok := r.store.Get(key)
 	if !ok || entry == nil {
 		return ""
 	}
+	if r.shouldRefresh(entry) {
+		if next := r.refresh(hubRoot, key, entry); next != nil {
+			return next.AccessToken
+		}
+	}
 	return entry.AccessToken
+}
+
+// shouldRefresh reports whether entry has a refresh token and an access token
+// that is expired or within refreshSkew of expiring.
+func (r *authStoreTokenResolver) shouldRefresh(entry *AuthEntry) bool {
+	if entry == nil || entry.RefreshToken == "" || entry.ExpiresAt.IsZero() || r.rt == nil {
+		return false
+	}
+	return !r.rt.Clock().Now().Add(refreshSkew).Before(entry.ExpiresAt)
+}
+
+// refresh renews the token under a lock and persists the rotated pair. Returns
+// the fresh entry, or nil on failure (callers fall back to the cached token).
+func (r *authStoreTokenResolver) refresh(hubURL, key string, entry *AuthEntry) *AuthEntry {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	// Re-read under the lock: a sibling resolve may have already renewed it.
+	if cur, ok := r.store.Get(key); ok && cur != nil && !r.shouldRefresh(cur) {
+		return cur
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	next, err := RefreshHubToken(ctx, r.rt, hubURL, entry)
+	if err != nil {
+		if logger := r.rt.Logger(); logger != nil {
+			logger.Debug("token refresh failed", "hub", hubURL, "err", err)
+		}
+		return nil
+	}
+
+	r.store.Set(key, *next)
+	if err := r.store.Save(ctx, r.rt, r.storePath); err != nil {
+		// The in-memory token is still fresh for this process; a persist
+		// failure only costs us the renewal on the next invocation.
+		if logger := r.rt.Logger(); logger != nil {
+			logger.Debug("token refresh persist failed", "hub", hubURL, "err", err)
+		}
+	}
+	return next
 }
 
 // ErrDefaultHubDisabled is returned by ResolveLoginHubURL when the chain

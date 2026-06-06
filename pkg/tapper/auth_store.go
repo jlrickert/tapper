@@ -36,6 +36,14 @@ type AuthEntry struct {
 	TokenType   string    `yaml:"token_type,omitempty"`
 	ExpiresAt   time.Time `yaml:"expires_at,omitempty"`
 	Scope       string    `yaml:"scope,omitempty"`
+
+	// RefreshToken, ClientID, and TokenEndpoint are populated by the OAuth2
+	// device-login flow so the CLI can silently renew an expired AccessToken
+	// without a re-login (see RefreshHubToken). All three are empty for a
+	// pasted `thub_` API token, which never expires and cannot be refreshed.
+	RefreshToken  string `yaml:"refresh_token,omitempty"`
+	ClientID      string `yaml:"client_id,omitempty"`
+	TokenEndpoint string `yaml:"token_endpoint,omitempty"`
 }
 
 // authStoreDTO is the on-disk shape. Private so callers can't couple to

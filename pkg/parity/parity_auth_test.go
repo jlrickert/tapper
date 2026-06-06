@@ -85,7 +85,7 @@ func TestParity_AuthStatus(t *testing.T) {
 
 		require.Equal(t, cliOut, mcpOut,
 			"CLI and MCP auth status must be byte-identical")
-		require.Contains(t, cliOut, "account alice (Alice Liddell)")
+		require.Contains(t, cliOut, "Logged in as alice (Alice Liddell)")
 		// Token rendered by its leading prefix (matches the hub UI), not suffix.
 		require.Contains(t, cliOut, "- Token: thub_parityt... (Bearer)")
 		// The raw access token must never leak through either surface.
