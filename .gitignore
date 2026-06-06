@@ -46,3 +46,7 @@ __pycache__/
 .task
 
 node_modules
+
+# Local scratch task notes — never tracked
+task.md
+TASK.md
