@@ -19,7 +19,12 @@ export GOWORK="${GOWORK-off}"
 
 if [[ ! -f "${SENTINEL}" && -d "${REPO}" ]]; then
     echo "[sandbox] First boot: installing tap and keg from ${REPO}..."
-    (cd "${REPO}" && go install ./cmd/tap ./cmd/keg)
+    # -buildvcs=false: source is bind-mounted ro and on macOS the .git
+    # directory's host uid doesn't match the in-container jlrickert,
+    # so Go's VCS stamping fails with exit 128 and crashes the
+    # entrypoint into a restart loop. Sandbox binaries don't need
+    # VCS stamps anyway.
+    (cd "${REPO}" && go install -buildvcs=false ./cmd/tap ./cmd/keg)
 
     # Drop Cobra-generated completion files into the system zsh site-functions
     # dir (already in default fpath, chown'd to jlrickert in the Dockerfile).
