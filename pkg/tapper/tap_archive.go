@@ -361,6 +361,9 @@ func exportNodeIDs(ctx context.Context, k *keg.Keg, raw []string) ([]keg.NodeId,
 	}
 	out := make([]keg.NodeId, 0, len(raw))
 	for _, value := range raw {
+		// Export ids are scoped to the single source keg k passed in by the
+		// caller; a cross-keg redirect is meaningless for a one-keg export, so
+		// these stay bare. (Also a free function with no *Tap receiver.)
 		id, err := parseNodeID(value)
 		if err != nil {
 			return nil, err
@@ -514,6 +517,8 @@ func resolveImportedNodeIDs(nodes []archiveManifestNode) (map[string]keg.NodeId,
 	mapping := make(map[string]keg.NodeId, len(nodes))
 	ordered := make([]string, 0, len(nodes))
 	for _, node := range nodes {
+		// SourceID comes from the archive manifest, not a CLI argument, so it is
+		// always a bare id and must not be routed through resolveNodeArg.
 		id, err := parseNodeID(node.SourceID)
 		if err != nil {
 			return nil, nil, fmt.Errorf("invalid archive source node %q: %w", node.SourceID, err)

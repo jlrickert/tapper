@@ -91,6 +91,22 @@ func TestParity_ReadOperations(t *testing.T) {
 			},
 			WantErr: true,
 		},
+		// --- cat with a keg:<alias>/<id> ref (Tap.Cat via resolveNodeArg) ---
+		//
+		// The fixture registers the current keg under the "personal" alias, so
+		// "keg:personal/0" resolves that alias through the tap-config kegs map
+		// back to the same keg. Both surfaces must route the prefixed ref through
+		// the shared Tap.resolveNodeArg choke point and read node 0's content,
+		// identical to passing a bare "0".
+		{
+			Name:    "cat/alias_ref_resolves_same_keg",
+			CLIArgs: []string{"cat", "keg:personal/0", "--content-only"},
+			MCPTool: "cat",
+			MCPInput: map[string]any{
+				"node_ids":     []string{"keg:personal/0"},
+				"content_only": true,
+			},
+		},
 
 		// --- list (Tap.List) ---
 		// CLI defaults to --limit 0 (unlimited). MCP defaults to 50 when limit

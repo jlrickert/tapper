@@ -96,13 +96,17 @@
             "enum": ["remote", "local", "readonly"],
             "description": "Hub backend kind: 'remote' (read-write HTTP, the default when omitted), 'local' (filesystem on this machine), or 'readonly' (read-only HTTP)."
           },
+          "namespace": {
+            "type": "string",
+            "description": "Default namespace for kegs resolved against this hub when the reference omits its namespace. A hub hosts many namespaces; this is only the default. The @ sigil is implied; do not include it. For the local hub this is 'local' (addressed as @local). Takes precedence over the global defaultNamespace/fallbackNamespace."
+          },
           "url": {
             "type": "string",
             "description": "Base URL for remote/readonly hubs."
           },
           "basePath": {
             "type": "string",
-            "description": "Filesystem root for local hubs. Kegs resolve to <basePath>/<name>."
+            "description": "Filesystem root for local hubs. Kegs resolve to <basePath>/@<namespace>/<name>."
           },
           "token": {
             "type": "string",

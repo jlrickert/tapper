@@ -69,7 +69,9 @@ func (t *Tap) resolveSnapshotNode(ctx context.Context, targetOpts KegTargetOptio
 	if err != nil {
 		return nil, keg.NodeId{}, fmt.Errorf("unable to open keg: %w", err)
 	}
-	id, err := parseNodeID(nodeID)
+	// A cross-keg ref redirects to its owning keg; history/snapshot/restore then
+	// run against that keg. A bare id stays on the resolved current keg.
+	k, id, err := t.resolveNodeArg(ctx, k, nodeID)
 	if err != nil {
 		return nil, keg.NodeId{}, err
 	}

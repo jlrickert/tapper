@@ -128,11 +128,15 @@ type KegMapEntry struct {
 // readonly hubs use URL; local hubs use BasePath as the filesystem root that
 // holds @<namespace>/<name> keg directories.
 type HubEntry struct {
-	Kind     string `yaml:"kind,omitempty"`
-	URL      string `yaml:"url,omitempty"`
-	BasePath string `yaml:"basePath,omitempty"`
-	Token    string `yaml:"token,omitempty"`
-	TokenEnv string `yaml:"tokenEnv,omitempty"`
+	Kind string `yaml:"kind,omitempty"`
+	// Namespace is this hub's default namespace, used when a reference resolved
+	// against this hub omits its namespace. A hub hosts many namespaces; this is
+	// only the default. The "@" sigil is implied — store the bare value.
+	Namespace string `yaml:"namespace,omitempty"`
+	URL       string `yaml:"url,omitempty"`
+	BasePath  string `yaml:"basePath,omitempty"`
+	Token     string `yaml:"token,omitempty"`
+	TokenEnv  string `yaml:"tokenEnv,omitempty"`
 }
 
 // KegRef is the (hub, namespace, name) triple a keg alias resolves to. An empty
@@ -567,14 +571,28 @@ func (cfg *Config) resolveHubName() string {
 	return DefaultHubName
 }
 
-// resolveNamespace applies namespace precedence for an omitted namespace:
-// defaultNamespace → fallbackNamespace. (Auth-derived username and the @local
-// default are applied by callers that have the resolved hub in hand.)
-func (cfg *Config) resolveNamespace() string {
-	if ns := strings.TrimSpace(cfg.DefaultNamespace()); ns != "" {
-		return ns
+// localHubName returns the name of the local (filesystem) hub used when the
+// reserved "local" namespace pins a reference to this machine. It prefers
+// defaultHub when that hub is local, otherwise the alphabetically-first
+// local-kind hub, and falls back to the reserved LocalHubName when no local hub
+// is configured (Config.Hub synthesizes the built-in "local" hub in that case).
+func (cfg *Config) localHubName() string {
+	if h := strings.TrimSpace(cfg.DefaultHub()); h != "" {
+		if e, ok := cfg.Hubs()[h]; ok && strings.TrimSpace(e.Kind) == HubKindLocal {
+			return h
+		}
 	}
-	return strings.TrimSpace(cfg.FallbackNamespace())
+	names := make([]string, 0)
+	for n, e := range cfg.Hubs() {
+		if strings.TrimSpace(e.Kind) == HubKindLocal {
+			names = append(names, n)
+		}
+	}
+	if len(names) > 0 {
+		sort.Strings(names)
+		return names[0]
+	}
+	return LocalHubName
 }
 
 // ResolveRef resolves a (hub, namespace, name) reference into a concrete
@@ -599,15 +617,17 @@ func (cfg *Config) ResolveRef(rt *toolkit.Runtime, ref KegRef) (*keg.Target, err
 	if name == "" {
 		return nil, fmt.Errorf("keg reference is missing a name")
 	}
+	// Namespace may be given explicitly; otherwise it is resolved below once the
+	// hub is known so the hub's own default namespace can participate.
 	ns := strings.TrimSpace(ref.Namespace)
-	if ns == "" {
-		ns = cfg.resolveNamespace()
-	}
 
+	// Resolve the hub. An explicit hub wins. Otherwise the reserved "local"
+	// namespace pins this machine's filesystem hub; any other reference uses the
+	// hub precedence chain (defaultHub → fallbackHub → sole hub → atlas).
 	hubName := strings.TrimSpace(ref.Hub)
 	if hubName == "" {
 		if ns == LocalHubName {
-			hubName = LocalHubName
+			hubName = cfg.localHubName()
 		} else {
 			hubName = cfg.resolveHubName()
 		}
@@ -622,12 +642,26 @@ func (cfg *Config) ResolveRef(rt *toolkit.Runtime, ref KegRef) (*keg.Target, err
 		kind = HubKindRemote
 	}
 
+	// Resolve the namespace now that the hub is known. Precedence:
+	// explicit ref → per-hub namespace → defaultNamespace → fallbackNamespace →
+	// @local (local hub) / error (remote hub).
 	if ns == "" {
-		if kind == HubKindLocal {
+		switch {
+		case strings.TrimSpace(entry.Namespace) != "":
+			ns = strings.TrimSpace(entry.Namespace)
+		case strings.TrimSpace(cfg.DefaultNamespace()) != "":
+			ns = strings.TrimSpace(cfg.DefaultNamespace())
+		case strings.TrimSpace(cfg.FallbackNamespace()) != "":
+			ns = strings.TrimSpace(cfg.FallbackNamespace())
+		case kind == HubKindLocal:
 			ns = LocalHubName
-		} else {
-			return nil, fmt.Errorf("keg reference %q has no namespace and no default/fallback namespace is configured", name)
+		default:
+			return nil, fmt.Errorf("keg reference %q has no namespace and no per-hub, default, or fallback namespace is configured", name)
 		}
+	}
+
+	if err := ValidateNamespace(ns); err != nil {
+		return nil, fmt.Errorf("keg reference %q: %w", name, err)
 	}
 
 	switch kind {
@@ -644,7 +678,7 @@ func (cfg *Config) ResolveRef(rt *toolkit.Runtime, ref KegRef) (*keg.Target, err
 		if expanded, err := toolkit.ExpandPath(rt, base); err == nil {
 			base = expanded
 		}
-		path := filepath.Join(base, name)
+		path := filepath.Join(base, "@"+ns, name)
 		t := keg.NewFile(path)
 		return &t, nil
 	case HubKindRemote, HubKindReadonly:
@@ -786,6 +820,29 @@ func ReadConfig(rt *toolkit.Runtime, path string) (*Config, error) {
 		return nil, err
 	}
 	return ParseConfig(b)
+}
+
+// stripUntrustedFields removes configuration a walked (project) config layer is
+// not permitted to set. Hub definitions and their credentials are user-config
+// only, so a repository you cd into cannot introduce a hub target or harvest a
+// token environment variable. It returns a human-readable description of each
+// removed field for surfacing as a load warning. Project layers may still set
+// kegMap/kegs and the default*/fallback* selectors.
+func stripUntrustedFields(cfg *Config) []string {
+	if cfg == nil || cfg.data == nil {
+		return nil
+	}
+	var removed []string
+	if len(cfg.data.Hubs) > 0 {
+		names := make([]string, 0, len(cfg.data.Hubs))
+		for n := range cfg.data.Hubs {
+			names = append(names, n)
+		}
+		sort.Strings(names)
+		removed = append(removed, fmt.Sprintf("hubs (%s)", strings.Join(names, ", ")))
+		cfg.data.Hubs = nil
+	}
+	return removed
 }
 
 // DefaultUserConfig returns a sensible default global/user Config.

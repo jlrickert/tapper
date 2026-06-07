@@ -30,16 +30,27 @@ commands.
 `pkg/tapper/config_service.go` provides stateful config APIs:
 
 - read user config
-- read project config
-- merge effective config
+- walk and merge project config
+- merge effective config via a `cfgcascade.Cascade`
 - cache user/project/merged configs
-- resolve aliases and discovered kegs
+- resolve aliases to concrete keg targets
 
 Notable behavior:
 
-1. Alias resolution checks explicit `kegs:` first.
-2. Discovered aliases come from `kegSearchPaths`.
-3. Later `kegSearchPaths` entries override earlier entries on collisions.
+1. `ProjectConfig` (`WalkConfigsUp`) walks from the workspace root up to the
+   filesystem root, collecting **every** `.tapper/config.yaml`, and merges them
+   so a deeper directory overrides a shallower one.
+2. The walked project layers, the user config, and `TAP_*` env vars are then
+   resolved by `cfgcascade.Cascade[*Config]` (user = base, project = overlay,
+   env = top).
+3. **Trust boundary:** `stripUntrustedFields` removes `hubs{}` and
+   `token`/`tokenEnv` from any walked project config (user config only). Each
+   strip becomes a `ConfigLoadWarning` surfaced by `Config()`; `--strict`
+   escalates warnings to errors.
+4. Alias resolution (`Config.ResolveAlias` → `ResolveRef`) looks the alias up in
+   the merged `kegs` map and applies the hub and namespace default/fallback
+   chains plus the per-hub-kind backend mapping (local → `<basePath>/@<ns>/<name>`;
+   remote/readonly → `<hub-url>/api/v1/kegs/@<ns>/<name>`).
 
 ## KegService
 
@@ -60,3 +71,13 @@ Default implicit order:
 
 Project-local fallback for aliases is supported at `<project>/kegs/<alias>`
 when an alias is not explicitly configured.
+
+## FlightService and flight gating
+
+`pkg/tapper/flight.go` discovers flights for the active hub. A flight is an
+optional restriction on which kegs are available plus a block of agent
+instructions. After a keg is resolved, an active `--flight` gates the result:
+`Tap.enforceFlight` rejects a keg that falls outside the flight's `allowedKegs`
+allow-list (an empty allow-list restricts nothing). `--flight` composes with the
+single-keg selectors rather than replacing them. See
+[Flights](../configuration/flights.md).

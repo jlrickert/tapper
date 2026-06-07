@@ -72,11 +72,11 @@ func TestBootstrapCmd_Local_NoLogin(t *testing.T) {
 	proc := newBootstrapProcess(t, hook, false, "bootstrap", "--kind", "local")
 	res := proc.Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
-	require.Contains(t, string(res.Stdout), "fallback hub:       local")
+	require.Contains(t, string(res.Stdout), "fallback hub:       testhost")
 	require.NotContains(t, string(res.Stdout), "tap auth login")
 
 	raw := sb.MustReadFile("~/.config/tapper/config.yaml")
-	require.Contains(t, string(raw), "fallbackHub: local")
+	require.Contains(t, string(raw), "fallbackHub: testhost")
 }
 
 // TestBootstrapCmd_Interactive_Enterprise drives the TTY prompts: kind ->

@@ -8,10 +8,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestDefaultUserKegSearchPath(t *testing.T) {
+func TestDefaultTemplateKegRoot(t *testing.T) {
 	t.Parallel()
 
-	got := defaultUserKegSearchPath(nil)
+	got := defaultTemplateKegRoot(nil)
 
 	switch runtime.GOOS {
 	case "darwin", "linux":

@@ -122,14 +122,19 @@ my-project/
 ```yaml
 defaultKeg: tapper
 fallbackKeg: tapper
+defaultHub: local
+defaultNamespace: local
 kegMap: []
 kegs:
   tapper:
-    file: kegs/tapper
-kegSearchPaths:
-  - kegs
-defaultHub: knut
+    hub: local
+    namespace: local
+    name: tapper
 ```
+
+A local-hub keg resolves on disk to `<basePath>/@<namespace>/<name>` — for
+example `~/Documents/kegs/@local/tapper`. The `@` sigil is part of the directory
+name and the reserved `@local` namespace addresses this machine's local hub.
 
 ## Baker KEG Example
 
@@ -199,8 +204,13 @@ Interlinking is a core KEG behavior. Notes should be atomic and linked explicitl
 
 - Keep each note focused on one idea or one execution unit.
 - Link between related notes rather than combining multiple topics in one note.
-- Use relative KEG links for local notes (for example `../42`).
-- Use cross-KEG links for references across kegs (for example `keg:pub/921`).
+- Use a bare id for local notes (for example `42` or `42-a1b2`).
+- Cross-keg references take one of two forms:
+  - `keg:<alias>/<id>[-<code>]` — the alias resolves via the current keg's Links
+    table, then the tap-config `kegs` map (for example `keg:pub/921`).
+  - `keg:@<namespace>/<keg>/<id>[-<code>]` — fully qualified; the hub is implied
+    from the current keg's hub, and `@local` pins the local hub (for example
+    `keg:@me/public/921`).
 
 ## Notes
 

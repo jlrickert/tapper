@@ -5,10 +5,32 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"os"
 	"strings"
 
+	"github.com/jlrickert/cli-toolkit/toolkit"
 	"github.com/jlrickert/tapper/pkg/keg"
 )
+
+// localHubKey returns the map key for this machine's built-in local hub: the
+// sanitized machine hostname, falling back to LocalHubName when the hostname is
+// unavailable. Keying by hostname keeps a config that travels between machines
+// unambiguous, while the reserved @local namespace stays the portable handle
+// for references. The hostname is read from the runtime environment first (so
+// it is deterministic under a sandboxed runtime and overridable in CI) and from
+// the OS otherwise.
+func localHubKey(rt *toolkit.Runtime) string {
+	host := strings.TrimSpace(rt.Env().Get("HOSTNAME"))
+	if host == "" {
+		if h, err := os.Hostname(); err == nil {
+			host = h
+		}
+	}
+	if name := sanitizeHubName(host); name != "" {
+		return name
+	}
+	return LocalHubName
+}
 
 // Bootstrap deployment kinds. Each maps onto an existing hub kind/shape — there
 // is no new config field, only a guided way to pick one.
@@ -111,10 +133,12 @@ func (t *Tap) Bootstrap(ctx context.Context, opts BootstrapOptions) (*BootstrapR
 	}
 
 	// The built-in local hub is always available so local kegs work regardless
-	// of the chosen deployment. DefaultUserConfig already seeds it on the fresh
-	// path; this only fires when updating a sparse pre-existing config.
-	if _, ok := cfg.Hubs()[LocalHubName]; !ok {
-		if err := cfg.SetHub(LocalHubName, HubEntry{Kind: HubKindLocal, BasePath: localRoot}); err != nil {
+	// of the chosen deployment. It is keyed by the machine hostname and defaults
+	// to the reserved @local namespace; on-disk kegs live at
+	// <basePath>/@local/<name>.
+	localKey := localHubKey(t.Runtime)
+	if _, ok := cfg.Hubs()[localKey]; !ok {
+		if err := cfg.SetHub(localKey, HubEntry{Kind: HubKindLocal, Namespace: LocalHubName, BasePath: localRoot}); err != nil {
 			return nil, err
 		}
 	}
@@ -127,13 +151,13 @@ func (t *Tap) Bootstrap(ctx context.Context, opts BootstrapOptions) (*BootstrapR
 	)
 	switch kind {
 	case BootstrapKindLocal:
-		hubName = LocalHubName
+		hubName = localKey
 
 	case BootstrapKindCloud:
 		hubName = DefaultHubName
 		hubURL = DefaultHubURL
 		if _, ok := cfg.Hubs()[hubName]; !ok {
-			if err := cfg.SetHub(hubName, HubEntry{Kind: HubKindRemote, URL: DefaultHubURL, TokenEnv: DefaultHubTokenEnv}); err != nil {
+			if err := cfg.SetHub(hubName, HubEntry{Kind: HubKindRemote, Namespace: namespace, URL: DefaultHubURL, TokenEnv: DefaultHubTokenEnv}); err != nil {
 				return nil, err
 			}
 		}
@@ -156,7 +180,7 @@ func (t *Tap) Bootstrap(ctx context.Context, opts BootstrapOptions) (*BootstrapR
 		// Avoid clobbering an unrelated hub of the same derived name: only reuse
 		// the slot when it already points at this URL, else suffix it.
 		hubName = uniqueHubName(cfg, hubName, hubURL)
-		if err := cfg.SetHub(hubName, HubEntry{Kind: HubKindRemote, URL: hubURL}); err != nil {
+		if err := cfg.SetHub(hubName, HubEntry{Kind: HubKindRemote, Namespace: namespace, URL: hubURL}); err != nil {
 			return nil, err
 		}
 	}

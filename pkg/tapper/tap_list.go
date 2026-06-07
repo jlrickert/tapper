@@ -302,6 +302,12 @@ func (t *Tap) resolveAndLookupLinks(
 	var allRelated []keg.NodeId
 
 	for _, nodeID := range nodeIDs {
+		// Intentionally NOT routed through resolveNodeArg: a cross-keg ref would
+		// produce related nodes owned by a different keg, but the dedup key
+		// (rel.Path()) and the entry rendering below (dex.GetRef) both assume a
+		// single owning dex. Carrying each related node's home keg through dedup,
+		// sort, offset/limit, and render is a larger change than this slice
+		// covers, so links/backlinks stay scoped to the current keg.
 		id, err := parseNodeID(nodeID)
 		if err != nil {
 			return []string{}, err

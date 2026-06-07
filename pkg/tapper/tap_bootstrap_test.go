@@ -9,8 +9,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// testHost is the deterministic hostname pinned in bootstrap tests so the
+// machine-keyed local hub is stable across machines and CI.
+const testHost = "testhost"
+
 func newBootstrapTap(t *testing.T, fx *sandbox.Sandbox) *tapper.Tap {
 	t.Helper()
+	require.NoError(t, fx.Runtime().Set("HOSTNAME", testHost))
 	tap, err := tapper.NewTap(tapper.TapOptions{
 		Root:    "/home/testuser",
 		Runtime: fx.Runtime(),
@@ -31,18 +36,19 @@ func TestBootstrap_Local(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, res.Created)
 	require.Equal(t, tapper.BootstrapKindLocal, res.Kind)
-	require.Equal(t, tapper.LocalHubName, res.Hub)
+	require.Equal(t, testHost, res.Hub)
 	require.Empty(t, res.HubURL, "local has no remote URL to log in against")
 	require.Equal(t, "testuser", res.Namespace)
 
 	cfg, err := tap.ConfigService.UserConfig(false)
 	require.NoError(t, err)
-	require.Equal(t, tapper.LocalHubName, cfg.FallbackHub())
+	require.Equal(t, testHost, cfg.FallbackHub())
 	require.Equal(t, "testuser", cfg.FallbackNamespace())
 	hubs := cfg.Hubs()
-	require.Contains(t, hubs, tapper.LocalHubName)
-	require.Equal(t, tapper.HubKindLocal, hubs[tapper.LocalHubName].Kind)
-	require.NotEmpty(t, hubs[tapper.LocalHubName].BasePath)
+	require.Contains(t, hubs, testHost)
+	require.Equal(t, tapper.HubKindLocal, hubs[testHost].Kind)
+	require.Equal(t, tapper.LocalHubName, hubs[testHost].Namespace, "local hub defaults to @local")
+	require.NotEmpty(t, hubs[testHost].BasePath)
 	require.NotContains(t, hubs, tapper.DefaultHubName, "a fresh local bootstrap should not seed an atlas hub")
 }
 
@@ -64,7 +70,7 @@ func TestBootstrap_Cloud(t *testing.T) {
 	require.Equal(t, tapper.DefaultHubName, cfg.FallbackHub())
 	hubs := cfg.Hubs()
 	require.Contains(t, hubs, tapper.DefaultHubName)
-	require.Contains(t, hubs, tapper.LocalHubName, "local hub is always ensured")
+	require.Contains(t, hubs, testHost, "local hub is always ensured")
 	require.Equal(t, tapper.HubKindRemote, hubs[tapper.DefaultHubName].Kind)
 	require.Equal(t, tapper.DefaultHubURL, hubs[tapper.DefaultHubName].URL)
 }
@@ -93,7 +99,7 @@ func TestBootstrap_Enterprise(t *testing.T) {
 	require.Contains(t, hubs, "acme")
 	require.Equal(t, tapper.HubKindRemote, hubs["acme"].Kind)
 	require.Equal(t, "https://keg.acme.com", hubs["acme"].URL)
-	require.Contains(t, hubs, tapper.LocalHubName)
+	require.Contains(t, hubs, testHost)
 }
 
 // TestBootstrap_Enterprise_SchemeAddedAndHubNameOverride covers a bare host

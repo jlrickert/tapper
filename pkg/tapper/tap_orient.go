@@ -105,7 +105,17 @@ func OrientableHosts() []string {
 // tapper when no keg exists.
 func (t *Tap) Orient(ctx context.Context, opts OrientOptions) (string, error) {
 	activeKeg := t.resolveActiveKegLabel(ctx, opts.KegTargetOptions)
-	return buildOrientPayload(opts.Host, activeKeg, opts.Keg, opts.Flight, opts.Tier)
+	var flight *Flight
+	if name := strings.TrimSpace(opts.Flight); name != "" {
+		// Orient is a description surface and must never hard-fail: an unknown
+		// flight renders a short note rather than erroring.
+		if f, err := t.FlightService.GetFlight(ctx, name); err == nil {
+			flight = f
+		} else {
+			flight = &Flight{Name: name}
+		}
+	}
+	return buildOrientPayload(opts.Host, activeKeg, opts.Keg, flight, opts.Tier)
 }
 
 // activeKegLabel is the structured outcome of orient's active-keg
@@ -176,7 +186,7 @@ func (t *Tap) resolveActiveKegLabel(ctx context.Context, opts KegTargetOptions) 
 // returns an error immediately; a known-but-unrendered host (for
 // example codex before its adapter ships) surfaces the underlying
 // fs.ReadFile error.
-func buildOrientPayload(host string, active activeKegLabel, manifestKeg, flight string, tier int) (string, error) {
+func buildOrientPayload(host string, active activeKegLabel, manifestKeg string, flight *Flight, tier int) (string, error) {
 	if tier < OrientTierMin {
 		tier = OrientTierMin
 	}
@@ -224,11 +234,27 @@ func buildOrientPayload(host string, active activeKegLabel, manifestKeg, flight 
 		b.WriteString("`\n\n")
 		b.WriteString("(Per-keg manifest is not yet populated; the orient surface reserves the field for a future release.)\n")
 	}
-	if flight != "" {
+	if flight != nil {
 		b.WriteString("\n## Flight `")
-		b.WriteString(flight)
+		b.WriteString(flight.Name)
 		b.WriteString("`\n\n")
-		b.WriteString("(Flight-scoped manifest is not yet populated; the orient surface reserves the field for a future release.)\n")
+		if flight.Title != "" {
+			b.WriteString(flight.Title)
+			b.WriteString("\n\n")
+		}
+		if len(flight.AllowedKegs) > 0 {
+			b.WriteString("Available kegs in this flight: ")
+			b.WriteString(strings.Join(flight.AllowedKegs, ", "))
+			b.WriteString("\n\n")
+		}
+		if flight.Instructions != "" {
+			b.WriteString(flight.Instructions)
+			if !strings.HasSuffix(flight.Instructions, "\n") {
+				b.WriteString("\n")
+			}
+		} else {
+			b.WriteString("(flight not found or carries no instructions)\n")
+		}
 	}
 
 	if tier < 2 {

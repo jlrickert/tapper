@@ -39,14 +39,14 @@ func (t *Tap) Lock(ctx context.Context, opts LockOptions) (keg.LockToken, error)
 		return "", fmt.Errorf("unable to open keg: %w", err)
 	}
 
+	k, id, err := t.resolveNodeArg(ctx, k, opts.NodeID)
+	if err != nil {
+		return "", err
+	}
+
 	locker, ok := k.Repo.(keg.RepositoryLock)
 	if !ok {
 		return "", fmt.Errorf("repository does not support cross-process locking")
-	}
-
-	id, err := parseNodeID(opts.NodeID)
-	if err != nil {
-		return "", err
 	}
 
 	exists, err := t.nodeExistsWithContent(ctx, k, id)
@@ -71,14 +71,14 @@ func (t *Tap) Unlock(ctx context.Context, opts UnlockOptions) error {
 		return fmt.Errorf("unable to open keg: %w", err)
 	}
 
+	k, id, err := t.resolveNodeArg(ctx, k, opts.NodeID)
+	if err != nil {
+		return err
+	}
+
 	locker, ok := k.Repo.(keg.RepositoryLock)
 	if !ok {
 		return fmt.Errorf("repository does not support cross-process locking")
-	}
-
-	id, err := parseNodeID(opts.NodeID)
-	if err != nil {
-		return err
 	}
 
 	return locker.ReleaseLock(ctx, id, keg.LockToken(opts.Token))
@@ -91,14 +91,14 @@ func (t *Tap) LockStatus(ctx context.Context, opts LockStatusOptions) (keg.LockI
 		return keg.LockInfo{}, fmt.Errorf("unable to open keg: %w", err)
 	}
 
+	k, id, err := t.resolveNodeArg(ctx, k, opts.NodeID)
+	if err != nil {
+		return keg.LockInfo{}, err
+	}
+
 	locker, ok := k.Repo.(keg.RepositoryLock)
 	if !ok {
 		return keg.LockInfo{}, fmt.Errorf("repository does not support cross-process locking")
-	}
-
-	id, err := parseNodeID(opts.NodeID)
-	if err != nil {
-		return keg.LockInfo{}, err
 	}
 
 	return locker.LockStatus(ctx, id)
@@ -111,14 +111,14 @@ func (t *Tap) ForceUnlock(ctx context.Context, opts ForceUnlockOptions) error {
 		return fmt.Errorf("unable to open keg: %w", err)
 	}
 
+	k, id, err := t.resolveNodeArg(ctx, k, opts.NodeID)
+	if err != nil {
+		return err
+	}
+
 	locker, ok := k.Repo.(keg.RepositoryLock)
 	if !ok {
 		return fmt.Errorf("repository does not support cross-process locking")
-	}
-
-	id, err := parseNodeID(opts.NodeID)
-	if err != nil {
-		return err
 	}
 
 	return locker.ForceReleaseLock(ctx, id)

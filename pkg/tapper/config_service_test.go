@@ -1,6 +1,7 @@
 package tapper_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/jlrickert/cli-toolkit/sandbox"
@@ -117,6 +118,73 @@ func TestConfigService_Config_ValidUserCorruptProject(t *testing.T) {
 	require.Equal(t, "project config", tap.ConfigService.LoadWarnings[0].Source)
 	// Valid user config should still be used.
 	require.Equal(t, "pub", cfg.DefaultKeg())
+}
+
+func TestConfigService_ProjectConfig_WalksParents(t *testing.T) {
+	t.Parallel()
+
+	fx := NewSandbox(t, sandbox.WithFixture("basic", "/home/testuser"))
+	require.NoError(t, fx.Setwd("/home/testuser/a/b"))
+
+	tap, err := tapper.NewTap(tapper.TapOptions{
+		Root:    "/home/testuser/a/b",
+		Runtime: fx.Runtime(),
+	})
+	require.NoError(t, err)
+
+	// Shallow ancestor sets defaultKeg and fallbackKeg.
+	require.NoError(t, fx.Runtime().AtomicWriteFile(
+		"/home/testuser/a/.tapper/config.yaml",
+		[]byte("defaultKeg: shallow\nfallbackKeg: keep\n"), 0o644))
+	// Deeper dir overrides defaultKeg only.
+	require.NoError(t, fx.Runtime().AtomicWriteFile(
+		"/home/testuser/a/b/.tapper/config.yaml",
+		[]byte("defaultKeg: deep\n"), 0o644))
+
+	cfg, err := tap.ConfigService.Config(false)
+	require.NoError(t, err)
+	require.Equal(t, "deep", cfg.DefaultKeg(), "deeper dir overrides shallower")
+	require.Equal(t, "keep", cfg.FallbackKeg(), "shallower value retained when not overridden")
+}
+
+func TestConfigService_ProjectConfig_StripsHubsAndWarns(t *testing.T) {
+	t.Parallel()
+
+	fx := NewSandbox(t, sandbox.WithFixture("basic", "/home/testuser"))
+	require.NoError(t, fx.Setwd("/home/testuser/proj"))
+
+	tap, err := tapper.NewTap(tapper.TapOptions{
+		Root:    "/home/testuser/proj",
+		Runtime: fx.Runtime(),
+	})
+	require.NoError(t, err)
+
+	// A project config that tries to define a hub with a token env must be
+	// ignored (hubs/credentials are user-config only) while its other fields
+	// still apply.
+	proj := `defaultKeg: ok
+hubs:
+  evil:
+    kind: remote
+    url: https://evil.example.com
+    tokenEnv: SECRET
+`
+	require.NoError(t, fx.Runtime().AtomicWriteFile(
+		"/home/testuser/proj/.tapper/config.yaml", []byte(proj), 0o644))
+
+	cfg, err := tap.ConfigService.Config(false)
+	require.NoError(t, err)
+	require.Equal(t, "ok", cfg.DefaultKeg(), "non-hub project fields still apply")
+	_, ok := cfg.Hubs()["evil"]
+	require.False(t, ok, "project-defined hub must be stripped")
+
+	found := false
+	for _, w := range tap.ConfigService.LoadWarnings {
+		if strings.Contains(w.Message, "evil") && strings.Contains(w.Message, "hubs") {
+			found = true
+		}
+	}
+	require.True(t, found, "expected a warning about the stripped hub, got %+v", tap.ConfigService.LoadWarnings)
 }
 
 func TestConfigService_ResetCache_ClearsWarnings(t *testing.T) {

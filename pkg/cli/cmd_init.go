@@ -32,7 +32,8 @@ func NewInitCmd(deps *Deps) *cobra.Command {
 Create a keg target and initialize it in one of three destinations:
 
 1. user (default)
-   Creates a filesystem-backed keg under your first configured kegSearchPaths entry and
+   Creates a filesystem-backed keg on the local hub at <basePath>/@local/<alias>
+   (the local hub's basePath, or the platform default when unset) and
    writes/updates the alias in user config.
 
 2. local (--project, --cwd, or --path)
@@ -99,7 +100,7 @@ tap init --keg blog --hub knut --namespace me
 	}
 
 	cmd.Flags().BoolVar(&initOpts.Project, "project", false, "create a project-local keg")
-	cmd.Flags().BoolVar(&initOpts.User, "user", false, "create a user keg under the first configured kegSearchPaths entry")
+	cmd.Flags().BoolVar(&initOpts.User, "user", false, "create a user keg on the local hub at <basePath>/@local/<alias>")
 	cmd.Flags().StringVar(&initOpts.Hub, "hub", "", "hub name (selects API-style hub target when set)")
 	cmd.Flags().BoolVar(&initOpts.Cwd, "cwd", false, "use cwd instead of git root for local destination resolution")
 	cmd.Flags().StringVar(&initOpts.Path, "path", "", "explicit local destination path; implies local mode")

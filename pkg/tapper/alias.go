@@ -26,3 +26,24 @@ func ValidateKegAlias(alias string) error {
 	}
 	return nil
 }
+
+// namespacePattern restricts namespaces to a portable, filesystem-safe single
+// path segment: lowercase letters, digits, hyphen, underscore. The absence of a
+// dot is load-bearing — it guarantees a namespace directory <basePath>/@<ns>
+// can never collide with a reserved sentinel directory such as flights.d (which
+// holds local flight manifests beside the @<namespace> dirs).
+var namespacePattern = regexp.MustCompile(`^[a-z0-9_-]+$`)
+
+// ValidateNamespace returns nil when ns is a legal namespace segment and a
+// wrapped keg.ErrInvalid otherwise. Empty input is rejected explicitly. The "@"
+// sigil is never part of the stored value; pass the bare namespace.
+func ValidateNamespace(ns string) error {
+	if ns == "" {
+		return fmt.Errorf("namespace is required: %w", keg.ErrInvalid)
+	}
+	if !namespacePattern.MatchString(ns) {
+		return fmt.Errorf("invalid namespace %q: must match %s (no dots or slashes): %w",
+			ns, namespacePattern.String(), keg.ErrInvalid)
+	}
+	return nil
+}

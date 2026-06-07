@@ -80,11 +80,15 @@ func NewTempNode(ctx context.Context, id string) *NodeId {
 //	NodeId{ID:42, Keg:"work"} -> "keg:work/42"
 func (id NodeId) Path() string {
 	if id.Alias != "" {
-		if id.Code != "" {
-			return "keg:" + id.Alias + "/" + strconv.Itoa(id.ID) + "-" + id.Code
-		}
-		return "keg:" + id.Alias + "/" + strconv.Itoa(id.ID)
+		return "keg:" + id.Alias + "/" + id.PathNumeric()
 	}
+	return id.PathNumeric()
+}
+
+// PathNumeric returns just the "<id>" or "<id>-<code>" portion of the node
+// identifier, without any "keg:<alias>/" prefix. It is the canonical tail
+// shared by every reference form.
+func (id NodeId) PathNumeric() string {
 	if id.Code != "" {
 		return strconv.Itoa(id.ID) + "-" + id.Code
 	}
@@ -134,7 +138,17 @@ func ParseNode(s string) (*NodeId, error) {
 		s = rest[slash+1:]
 	}
 
-	// find hyphen if present
+	id, code, err := parseIdCode(s)
+	if err != nil {
+		return nil, err
+	}
+	return &NodeId{ID: id, Code: code, Alias: alias}, nil
+}
+
+// parseIdCode parses the "<id>" or "<id>-<code>" tail shared by every node
+// reference form. id must be a non-negative integer without leading zeros
+// (except the single digit "0"); code, when present, must be exactly 4 digits.
+func parseIdCode(s string) (id int, code string, err error) {
 	i := strings.IndexByte(s, '-')
 	var idPart, codePart string
 	if i >= 0 {
@@ -142,47 +156,40 @@ func ParseNode(s string) (*NodeId, error) {
 		codePart = s[i+1:]
 	} else {
 		idPart = s
-		codePart = ""
 	}
 
-	// idPart must be digits
 	if idPart == "" {
-		return nil, fmt.Errorf("parse node id %q: empty id part", s)
+		return 0, "", fmt.Errorf("parse node id %q: empty id part", s)
 	}
 	for j := 0; j < len(idPart); j++ {
-		c := idPart[j]
-		if c < '0' || c > '9' {
-			return nil, fmt.Errorf("parse node id %q: non-digit in id", s)
+		if c := idPart[j]; c < '0' || c > '9' {
+			return 0, "", fmt.Errorf("parse node id %q: non-digit in id", s)
 		}
 	}
 	// disallow leading zeros except for the single digit "0"
 	if len(idPart) > 1 && idPart[0] == '0' {
-		return nil, fmt.Errorf("parse node id %q: invalid leading zeros", s)
+		return 0, "", fmt.Errorf("parse node id %q: invalid leading zeros", s)
 	}
 
-	n, err := strconv.Atoi(idPart)
-	if err != nil {
-		return nil, fmt.Errorf("parse node id %q: %w", s, err)
+	n, convErr := strconv.Atoi(idPart)
+	if convErr != nil {
+		return 0, "", fmt.Errorf("parse node id %q: %w", s, convErr)
 	}
 	if n < 0 {
-		return nil, fmt.Errorf("parse node id %q: negative id", s)
+		return 0, "", fmt.Errorf("parse node id %q: negative id", s)
 	}
 
-	// If there is a code part, validate it's exactly 4 digits.
 	if codePart != "" {
 		if len(codePart) != 4 {
-			return nil, fmt.Errorf("parse node id %q: code must be 4 digits", s)
+			return 0, "", fmt.Errorf("parse node id %q: code must be 4 digits", s)
 		}
 		for j := 0; j < 4; j++ {
-			c := codePart[j]
-			if c < '0' || c > '9' {
-				return nil, fmt.Errorf("parse node id %q: code must be numeric", s)
+			if c := codePart[j]; c < '0' || c > '9' {
+				return 0, "", fmt.Errorf("parse node id %q: code must be numeric", s)
 			}
 		}
-		return &NodeId{ID: n, Code: codePart, Alias: alias}, nil
 	}
-
-	return &NodeId{ID: n, Alias: alias}, nil
+	return n, codePart, nil
 }
 
 // Valid reports whether the NodeId ID is a non-negative integer.
