@@ -93,14 +93,22 @@ func (t *Tap) Bootstrap(ctx context.Context, opts BootstrapOptions) (*BootstrapR
 		return nil, fmt.Errorf("unknown bootstrap kind %q (expected local, cloud, or enterprise)", opts.Kind)
 	}
 
-	// Namespace fallback chain (Phase 6 will add @<logged-in-user>; until then
-	// the OS user is the best available signal, then the local hub name).
+	// Provisional fallback namespace. For a local deployment the home namespace
+	// is the reserved @local. For cloud/enterprise the authoritative value is the
+	// logged-in user's home namespace, which only the hub knows; the CLI adopts
+	// it after login via SetBootstrapNamespace. Until then (and on --no-login)
+	// the OS user is the best local signal, falling back to the local hub name.
 	namespace := strings.TrimSpace(opts.Namespace)
 	if namespace == "" {
-		if u, _ := t.Runtime.GetUser(); strings.TrimSpace(u) != "" {
-			namespace = strings.TrimSpace(u)
-		} else {
+		switch kind {
+		case BootstrapKindLocal:
 			namespace = LocalHubName
+		default:
+			if u, _ := t.Runtime.GetUser(); strings.TrimSpace(u) != "" {
+				namespace = strings.TrimSpace(u)
+			} else {
+				namespace = LocalHubName
+			}
 		}
 	}
 
@@ -209,6 +217,43 @@ func (t *Tap) Bootstrap(ctx context.Context, opts BootstrapOptions) (*BootstrapR
 		Namespace: namespace,
 		Warnings:  warnings,
 	}, nil
+}
+
+// SetBootstrapNamespace adopts namespace as both the user config's fallback
+// namespace and the named hub's default namespace, then persists the config. It
+// is the post-login step of `tap bootstrap`: once a cloud/enterprise login
+// resolves the authenticated user's home namespace (from the hub's whoami
+// probe), the CLI calls this so plain references land in the user's own
+// namespace instead of the provisional OS-user guess Bootstrap wrote.
+//
+// It is idempotent and a no-op when namespace is blank. Only the named hub is
+// touched, so the always-present local hub keeps its reserved @local namespace.
+// An unknown hubName updates just the fallback namespace (the per-hub write is
+// skipped), keeping the call safe even if the hub entry is missing.
+func (t *Tap) SetBootstrapNamespace(ctx context.Context, hubName, namespace string) error {
+	namespace = strings.TrimSpace(namespace)
+	if namespace == "" {
+		return nil
+	}
+	cfg, err := t.ConfigService.UserConfig(false)
+	if err != nil {
+		return fmt.Errorf("unable to load user config: %w", err)
+	}
+	if entry, ok := cfg.Hubs()[hubName]; ok {
+		entry.Namespace = namespace
+		if err := cfg.SetHub(hubName, entry); err != nil {
+			return err
+		}
+	}
+	if err := cfg.SetFallbackNamespace(namespace); err != nil {
+		return err
+	}
+	if err := cfg.Write(t.Runtime, t.PathService.UserConfig()); err != nil {
+		return err
+	}
+	// Drop the cached config so the next resolution reflects the adopted value.
+	t.ConfigService.ResetCache()
+	return nil
 }
 
 // deriveHubName turns an endpoint host into a short hub key: it drops a leading

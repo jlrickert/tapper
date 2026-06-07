@@ -31,15 +31,24 @@ const whoamiPath = "/api/v1/whoami"
 var ErrTokenRejected = errors.New("hub rejected the token")
 
 // WhoAmI is the authenticated user the hub reports for a token. It mirrors
-// the hub's GET /api/v1/whoami JSON body. DisplayName is the human name and is
-// empty when the hub omits it (older hub, or no display name set), in which
-// case callers fall back to the username alone.
+// the hub's GET /api/v1/whoami JSON body (handler.WhoamiResponse) — keep the
+// two structs in sync. DisplayName is the human name and is empty when the hub
+// omits it (older hub, or no display name set), in which case callers fall back
+// to the username alone.
+//
+// DefaultNamespace is the user's home namespace as the hub sees it (its name
+// equals the username by construction). `tap bootstrap` adopts it as the
+// fallback namespace so the hub, not the client, decides which namespace a
+// fresh login lands in. Namespaces lists every namespace the user belongs to
+// (personal + orgs) and is empty when the hub omits it (older hub).
 type WhoAmI struct {
-	UserID      int64     `json:"user_id"`
-	Username    string    `json:"username"`
-	DisplayName string    `json:"display_name"`
-	Email       string    `json:"email"`
-	CreatedAt   time.Time `json:"created_at"`
+	UserID           int64     `json:"user_id"`
+	Username         string    `json:"username"`
+	DisplayName      string    `json:"display_name"`
+	Email            string    `json:"email"`
+	CreatedAt        time.Time `json:"created_at"`
+	DefaultNamespace string    `json:"default_namespace"`
+	Namespaces       []string  `json:"namespaces,omitempty"`
 }
 
 // ValidateToken calls GET {hubURL}/api/v1/whoami with the bearer token and

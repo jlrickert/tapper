@@ -8,9 +8,11 @@ package cli
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/jlrickert/tapper/pkg/tapper"
 	"github.com/spf13/cobra"
@@ -135,6 +137,17 @@ logs in.
 					} else {
 						loggedIn = true
 						_, _ = fmt.Fprintf(stderr, "Logged in to %s\n", resolvedHub)
+						// Adopt the user's home namespace from the hub so plain
+						// references land in the user's own namespace rather than
+						// the provisional OS-user guess bootstrap wrote. Best-effort:
+						// a probe failure leaves the provisional namespace in place.
+						if ns := bootstrapHubNamespace(ctx, deps, resolvedHub); ns != "" {
+							if serr := deps.Tap.SetBootstrapNamespace(ctx, res.Hub, ns); serr != nil {
+								_, _ = fmt.Fprintf(stderr, "warning: could not adopt namespace from hub: %v\n", serr)
+							} else {
+								res.Namespace = ns
+							}
+						}
 					}
 				}
 			}
@@ -202,4 +215,33 @@ func hostOf(rawURL string) string {
 		return u.Host
 	}
 	return rawURL
+}
+
+// bootstrapHubNamespace probes the hub for the just-authenticated user's home
+// namespace so `tap bootstrap` can adopt it. It reads the token runAuthLogin
+// just persisted, calls the hub's whoami endpoint through the same seam
+// `tap auth login --with-token` validates against, and returns
+// default_namespace (falling back to the username). Best-effort by design: any
+// failure — no stored token, hub unreachable, rejected token — yields "" and
+// the caller keeps the provisional namespace rather than failing the bootstrap.
+func bootstrapHubNamespace(ctx context.Context, deps *Deps, hubURL string) string {
+	rt := deps.Runtime
+	store, err := tapper.LoadAuthStore(ctx, rt, deps.Tap.PathService.AuthStorePath())
+	if err != nil {
+		return ""
+	}
+	entry, ok := store.Get(tapper.CanonicalHubURL(hubURL))
+	if !ok || entry == nil {
+		return ""
+	}
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	who, err := deps.AuthValidateTokenFn(ctx, rt, hubURL, entry.AccessToken)
+	if err != nil || who == nil {
+		return ""
+	}
+	if ns := strings.TrimSpace(who.DefaultNamespace); ns != "" {
+		return ns
+	}
+	return strings.TrimSpace(who.Username)
 }
