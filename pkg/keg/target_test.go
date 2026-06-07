@@ -125,18 +125,18 @@ token: secret123
 			wantToken:  "secret123",
 		},
 		{
-			name:          "api: structured hub+namespace+kegName mapping",
+			name:          "api: structured hub+namespace+kegName mapping pins the hub",
 			rawYAML:       []byte("hub: jlr\nnamespace: jlrickert\nkegName: tapper\n"),
-			wantSchema:    kegpkg.SchemeHub,
+			wantSchema:    kegpkg.SchemeAlias,
 			wantHub:       "jlr",
 			wantNamespace: "jlrickert",
 			wantKegName:   "tapper",
 		},
 		{
-			name:          "api: scalar shorthand as yaml string",
-			rawYAML:       []byte("jlr:jlrickert/tapper"),
-			wantSchema:    kegpkg.SchemeHub,
-			wantHub:       "jlr",
+			name:          "api: canonical keg scalar (hub resolved from namespace)",
+			rawYAML:       []byte("keg:@jlrickert/tapper"),
+			wantSchema:    kegpkg.SchemeAlias,
+			wantHub:       "",
 			wantNamespace: "jlrickert",
 			wantKegName:   "tapper",
 		},
@@ -256,18 +256,17 @@ func TestTargetExpand_ExpandsEnvironmentVariables(t *testing.T) {
 	require.Equal(t, "TAPPER_TOKEN", kt.TokenEnv)
 }
 
-// TestParse_HubShorthand_Canonicalization pins that all three accepted
-// input variants of the hub shorthand parse to the same Target and that
-// String() emits the canonical "hub:@user/keg" form. The "@" sigil is
-// stripped on parse so the stored User never carries it; Path() and
-// String() re-apply it.
-func TestParse_HubShorthand_Canonicalization(t *testing.T) {
+// TestParse_KegScheme_Canonicalization pins that the accepted input variants of
+// the "keg:" scheme parse to the same hub-agnostic Target and round-trip
+// through String() as the canonical "keg:@namespace/keg" form. The "@" sigil is
+// stripped on parse so the stored namespace never carries it; Path() and
+// String() re-apply it. The hub is resolved from the namespace, never encoded.
+func TestParse_KegScheme_Canonicalization(t *testing.T) {
 	t.Parallel()
 
 	variants := []string{
-		"jlr:jlrickert/tapper",
-		"jlr:@jlrickert/tapper",
-		"jlr:/@jlrickert/tapper",
+		"keg:@jlrickert/tapper",
+		"keg:/@jlrickert/tapper",
 	}
 
 	for _, raw := range variants {
@@ -275,12 +274,21 @@ func TestParse_HubShorthand_Canonicalization(t *testing.T) {
 			t.Parallel()
 			kt, err := kegpkg.Parse(raw)
 			require.NoError(t, err)
-			require.Equal(t, kegpkg.SchemeHub, kt.Scheme())
-			require.Equal(t, "jlr", kt.Hub)
+			require.Equal(t, kegpkg.SchemeAlias, kt.Scheme())
+			require.Equal(t, "", kt.Hub, "the keg scheme never pins a hub")
 			require.Equal(t, "jlrickert", kt.Namespace, "@ sigil must be stripped on parse")
 			require.Equal(t, "tapper", kt.KegName)
-			require.Equal(t, "jlr:@jlrickert/tapper", kt.String(), "String() must emit canonical form")
+			require.Equal(t, "keg:@jlrickert/tapper", kt.String(), "String() must emit the canonical keg scheme")
 			require.Equal(t, filepath.Join("@jlrickert", "tapper"), kt.Path(), "Path() must re-apply @ exactly once")
 		})
 	}
+
+	// A "<hub>:@ns/keg" form is not a keg reference — there is no such scheme.
+	// It is not classified as the keg scheme (it falls through to file/url).
+	t.Run("hub-prefixed form is not a keg reference", func(t *testing.T) {
+		t.Parallel()
+		kt, err := kegpkg.Parse("jlr:@jlrickert/tapper")
+		require.NoError(t, err)
+		require.NotEqual(t, kegpkg.SchemeAlias, kt.Scheme(), "a non-keg scheme prefix is not a keg reference")
+	})
 }

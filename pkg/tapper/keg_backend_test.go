@@ -23,10 +23,12 @@ func TestKegBackendLabel(t *testing.T) {
 		require.Equal(t, "file-backed", tapper.KegBackendLabel(&target))
 	})
 
-	t.Run("hub_target_renders_canonical_shorthand", func(t *testing.T) {
+	t.Run("hub_target_renders_canonical_keg_ref", func(t *testing.T) {
 		t.Parallel()
+		// The hub ("knut") is resolution metadata, not part of the reference:
+		// the label is the canonical, hub-agnostic keg scheme.
 		target := keg.NewApi("knut", "alice", "blog")
-		require.Equal(t, "knut:@alice/blog", tapper.KegBackendLabel(&target))
+		require.Equal(t, "keg:@alice/blog", tapper.KegBackendLabel(&target))
 	})
 
 	t.Run("memory_target_collapses_to_in_memory", func(t *testing.T) {

@@ -13,15 +13,22 @@ import (
 )
 
 type InitOptions struct {
-	// Destination selection. Exactly one group may be set.
+	// Local (filesystem) project destination selectors. Any of these forces a
+	// project-local keg under the git root / cwd / explicit path; namespace and
+	// hub resolution do not apply.
 	Project bool
-	User    bool
+	User    bool   // pin the reserved @local namespace (this machine's local hub)
 	Cwd     bool   // use cwd as the project root base instead of git root
-	Path    string // explicit filesystem path; implies local destination
-	Hub     string // non-empty selects hub destination; value is the hub name
+	Path    string // explicit filesystem path; implies a local project destination
 
-	// Hub-specific options.
-	UserName string // hub namespace
+	// Destination overrides for the namespace-centric resolution. An empty
+	// Namespace defers to config (kegs[name].Namespace → default/fallback); an
+	// empty Hub defers to namespaces[ns].Hub → default/fallback. A bare name
+	// thus resolves to the default namespace+hub — typically a remote create —
+	// while "@local/<name>" pins the filesystem hub.
+	Namespace string
+	Hub       string
+
 	TokenEnv string
 
 	Creator string
@@ -37,95 +44,203 @@ type InitOptions struct {
 	NonInteractive bool
 }
 
+// LocalDestination reports whether the options force a project-local
+// filesystem keg (as opposed to the namespace-resolved user/hub destination).
 func (o InitOptions) LocalDestination() bool {
 	return o.Project || o.Cwd || strings.TrimSpace(o.Path) != ""
 }
 
-// InitKeg creates a keg with the alias specified in options.Keg.
+// InitKeg creates a keg named options.Keg and initializes it at the resolved
+// destination. Destination resolution is namespace-centric:
 //
-// It validates destination flags and initializes one of three destinations:
-//   - user: filesystem-backed keg on the local hub at <basePath>/@local/<alias>
-//     (the local hub's basePath, or the platform default when unset)
-//   - project: filesystem-backed keg under project path or explicit --path
-//   - hub: API target entry written to config only
+//   - --project/--cwd/--path → a project-local filesystem keg under the git
+//     root (or cwd / explicit path).
+//   - otherwise the name resolves through namespace → hub (with --namespace and
+//     --hub as overrides, and --user pinning @local): a local hub yields a
+//     filesystem keg at <basePath>/@<namespace>/<name>; a remote hub creates
+//     the keg on the hub (POST /api/v1/@<namespace>/kegs), failing if it
+//     already exists. On success the keg is recorded in user config.
 func (t *Tap) InitKeg(ctx context.Context, options InitOptions) (*keg.Target, error) {
-	alias := strings.TrimSpace(options.Keg)
-	if err := ValidateKegAlias(alias); err != nil {
+	name := strings.TrimSpace(options.Keg)
+	if err := ValidateKegAlias(name); err != nil {
 		return nil, err
 	}
-	options.Keg = alias
+	options.Keg = name
 
-	enabled := 0
+	// Explicit project-local destination: pure filesystem, no namespace/hub.
 	if options.LocalDestination() {
-		enabled++
-	}
-	if options.User {
-		enabled++
-	}
-	if options.Hub != "" {
-		enabled++
-	}
-	if enabled > 1 {
-		return nil, fmt.Errorf("only one destination may be selected: local (--project/--cwd/--path), --user, or --hub")
-	}
-
-	destination := "user"
-	switch {
-	case options.LocalDestination():
-		destination = "project"
-	case options.Hub != "":
-		destination = "hub"
-	case options.User:
-		destination = "user"
-	}
-
-	var (
-		target *keg.Target
-		err    error
-	)
-	switch destination {
-	case "hub":
-		target, err = t.initHub(initHubOptions{
-			Alias:         options.Keg,
-			User:          options.UserName,
-			Hub:           options.Hub,
-			AddUserConfig: true,
-			Title:         options.Title,
-			Creator:       options.Creator,
-		})
-	case "user":
-		target, err = t.initUserKeg(ctx, options)
-	case "project":
-		projectPath := strings.TrimSpace(options.Path)
-		if projectPath == "" {
-			base, resolveErr := t.Runtime.Getwd()
-			if resolveErr != nil {
-				return nil, fmt.Errorf("unable to determine working directory: %w", resolveErr)
-			}
-			if !options.Cwd {
-				if gitRoot := appCtx.FindGitRoot(ctx, t.Runtime, base); gitRoot != "" {
-					base = gitRoot
-				}
-			}
-			projectPath = filepath.Join(base, "kegs", options.Keg)
+		if options.User {
+			return nil, fmt.Errorf("--user cannot be combined with a local destination (--project/--cwd/--path)")
 		}
-		projectPath, err = t.Runtime.ResolvePath(projectPath, false)
-		if err != nil {
-			return nil, fmt.Errorf("unable to resolve project path %q: %w", projectPath, err)
+		if strings.TrimSpace(options.Hub) != "" {
+			return nil, fmt.Errorf("--hub cannot be combined with a local destination (--project/--cwd/--path)")
 		}
-		target, err = t.initProjectKeg(ctx, initLocalOptions{
-			Path:    projectPath,
-			Title:   options.Title,
-			Creator: options.Creator,
-		})
-	default:
-		return nil, fmt.Errorf("invalid init destination")
+		return t.initProjectDestination(ctx, options)
 	}
 
+	cfg, err := t.ConfigService.Config(true)
 	if err != nil {
+		return nil, fmt.Errorf("failed to load config: %w", err)
+	}
+
+	// Resolve the namespace then the hosting hub, mirroring Config.ResolveRef's
+	// precedence so we can both create and record the keg. --user pins @local.
+	explicitNS := strings.TrimSpace(options.Namespace) != ""
+	explicitHub := strings.TrimSpace(options.Hub) != ""
+	namespace := strings.TrimSpace(options.Namespace)
+	if namespace == "" && options.User {
+		namespace = LocalHubName
+	}
+	if namespace == "" {
+		namespace = cfg.resolveNamespaceForName(name)
+	}
+	hubName := strings.TrimSpace(options.Hub)
+	if hubName == "" {
+		hubName = cfg.resolveHubForNamespace(namespace)
+	}
+	entry, ok := cfg.Hub(hubName)
+	if !ok {
+		return nil, fmt.Errorf("hub %q is not configured", hubName)
+	}
+	kind := strings.TrimSpace(entry.Kind)
+	if kind == "" {
+		kind = HubKindRemote
+	}
+	if namespace == "" {
+		switch {
+		case kind == HubKindLocal:
+			namespace = LocalHubName
+		case explicitHub || explicitNS:
+			// The caller explicitly steered at a remote hub but gave no
+			// namespace and none is configured — surface it rather than guess.
+			return nil, fmt.Errorf("cannot init %q: no namespace given (try @<namespace>/%s)", name, name)
+		default:
+			// Unconfigured bare init: fall back to the local hub so `tap init
+			// <name>` still works without setup. A configured default/fallback
+			// namespace (e.g. from `tap bootstrap`) routes bare names to the
+			// remote hub instead.
+			namespace = LocalHubName
+			hubName = cfg.localHubName()
+			if entry, ok = cfg.Hub(hubName); !ok {
+				return nil, fmt.Errorf("local hub %q is not configured", hubName)
+			}
+			kind = HubKindLocal
+		}
+	}
+
+	target, err := cfg.ResolveRef(t.Runtime, KegRef{Hub: hubName, Namespace: namespace, Name: name})
+	if err != nil {
+		return nil, fmt.Errorf("resolve init destination: %w", err)
+	}
+
+	if kind == HubKindLocal {
+		return t.initLocalKeg(ctx, options, target, namespace, name)
+	}
+	return t.initRemoteKeg(ctx, options, target, hubName, namespace, name)
+}
+
+// initProjectDestination creates a project-local filesystem keg under the git
+// root (or cwd / explicit --path) at <root>/kegs/<name>.
+func (t *Tap) initProjectDestination(ctx context.Context, options InitOptions) (*keg.Target, error) {
+	projectPath := strings.TrimSpace(options.Path)
+	if projectPath == "" {
+		base, err := t.Runtime.Getwd()
+		if err != nil {
+			return nil, fmt.Errorf("unable to determine working directory: %w", err)
+		}
+		if !options.Cwd {
+			if gitRoot := appCtx.FindGitRoot(ctx, t.Runtime, base); gitRoot != "" {
+				base = gitRoot
+			}
+		}
+		projectPath = filepath.Join(base, "kegs", options.Keg)
+	}
+	resolved, err := t.Runtime.ResolvePath(projectPath, false)
+	if err != nil {
+		return nil, fmt.Errorf("unable to resolve project path %q: %w", projectPath, err)
+	}
+	return t.initProjectKeg(ctx, initLocalOptions{
+		Path:    resolved,
+		Title:   options.Title,
+		Creator: options.Creator,
+	})
+}
+
+// initLocalKeg materializes a filesystem-backed keg at the resolved local
+// target and records it in user config under (name → namespace).
+func (t *Tap) initLocalKeg(ctx context.Context, options InitOptions, target *keg.Target, namespace, name string) (*keg.Target, error) {
+	k, err := keg.NewKegFromTarget(ctx, *target, t.Runtime)
+	if err != nil {
+		return nil, fmt.Errorf("unable to init keg: %w", err)
+	}
+	if err := k.Init(ctx); err != nil {
+		return nil, err
+	}
+	if err := k.UpdateConfig(ctx, func(kc *keg.Config) {
+		kc.Creator = options.Creator
+		kc.Title = options.Title
+	}); err != nil {
+		return nil, err
+	}
+	// Local namespaces resolve their hub via localHubName(), so no namespaces
+	// entry is recorded — only the name→namespace mapping.
+	if err := t.recordInitKeg("", namespace, name, false); err != nil {
+		return nil, err
+	}
+	return k.Target, nil
+}
+
+// initRemoteKeg creates the keg on the hub (POST /api/v1/@<namespace>/kegs),
+// surfacing a 409 as an "already exists" error, then records the keg in user
+// config (name → namespace and namespace → hub).
+func (t *Tap) initRemoteKeg(ctx context.Context, options InitOptions, target *keg.Target, hubName, namespace, name string) (*keg.Target, error) {
+	hubURL := strings.TrimSpace(target.HubURL)
+	if hubURL == "" {
+		hubURL = strings.TrimSpace(target.Url)
+	}
+	if hubURL == "" {
+		return nil, fmt.Errorf("remote init requires a hub url; none resolved for hub %q", hubName)
+	}
+	token := t.hubTokenForTarget(target)
+	if token == "" {
+		return nil, fmt.Errorf("not logged in to hub %q (run `tap auth login --hub %s`)", hubName, hubURL)
+	}
+	if err := CreateKeg(ctx, hubURL, token, namespace, name, options.Title, ""); err != nil {
+		return nil, err
+	}
+	if err := t.recordInitKeg(hubName, namespace, name, true); err != nil {
 		return nil, err
 	}
 	return target, nil
+}
+
+// recordInitKeg persists a freshly-created keg in user config so future
+// references resolve it: kegs[name] carries the name→namespace mapping, and
+// when recordHub is set, namespaces[namespace] pins the hosting hub.
+func (t *Tap) recordInitKeg(hubName, namespace, name string, recordHub bool) error {
+	userCfg, err := t.ConfigService.UserConfig(false)
+	if err != nil {
+		if !errors.Is(err, keg.ErrNotExist) {
+			return err
+		}
+		userCfg = &Config{data: &configDTO{}}
+	}
+	// Hub is omitted from the keg ref so it stays portable; the namespace→hub
+	// mapping (recorded below for remote kegs, or localHubName() for @local)
+	// supplies the hub at read time.
+	if err := userCfg.AddKeg(name, KegRef{Namespace: namespace, Name: name}); err != nil {
+		return err
+	}
+	if recordHub && namespace != "" && hubName != "" {
+		if err := userCfg.SetNamespace(namespace, NamespaceRef{Hub: hubName}); err != nil {
+			return err
+		}
+	}
+	if err := userCfg.Write(t.Runtime, t.PathService.UserConfig()); err != nil {
+		return err
+	}
+	t.ConfigService.ResetCache()
+	return nil
 }
 
 type initLocalOptions struct {
@@ -154,131 +269,6 @@ func (t *Tap) initProjectKeg(ctx context.Context, opts initLocalOptions) (*keg.T
 		kc.Title = opts.Title
 	})
 	return k.Target, err
-}
-
-func (t *Tap) initUserKeg(ctx context.Context, opts InitOptions) (*keg.Target, error) {
-	cfg, err := t.ConfigService.Config(true)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load config: %w", err)
-	}
-	// User kegs live on the local hub under <basePath>/@local/<alias>. Resolve
-	// the on-disk location through Config.ResolveRef so the @<namespace>/<name>
-	// layout has a single source of truth shared with read-side resolution. The
-	// reserved "local" namespace pins the reference to this machine's local hub.
-	target, err := cfg.ResolveRef(t.Runtime, KegRef{Namespace: LocalHubName, Name: opts.Keg})
-	if err != nil {
-		return nil, fmt.Errorf("resolve local keg location: %w", err)
-	}
-
-	k, err := keg.NewKegFromTarget(ctx, *target, t.Runtime)
-	if err != nil {
-		return nil, fmt.Errorf("unable to init keg: %w", err)
-	}
-	if err := k.Init(ctx); err != nil {
-		return nil, err
-	}
-	if err := k.UpdateConfig(ctx, func(kc *keg.Config) {
-		kc.Creator = opts.Creator
-		kc.Title = opts.Title
-	}); err != nil {
-		return nil, err
-	}
-
-	alias := opts.Keg
-	if alias != "" {
-		userCfg, err := t.ConfigService.UserConfig(false)
-		if err != nil {
-			if !errors.Is(err, keg.ErrNotExist) {
-				return nil, err
-			}
-			userCfg = &Config{data: &configDTO{}}
-		}
-		// Hub is omitted so the reference stays portable across machines: the
-		// reserved "local" namespace pins it to the local hub at read time.
-		ref := KegRef{Namespace: LocalHubName, Name: alias}
-		if err := userCfg.AddKeg(alias, ref); err != nil {
-			return nil, err
-		}
-		if err := userCfg.Write(t.Runtime, t.PathService.UserConfig()); err != nil {
-			return nil, err
-		}
-		t.ConfigService.ResetCache()
-	}
-	return k.Target, nil
-}
-
-type initHubOptions struct {
-	Hub   string
-	User  string
-	Alias string
-
-	AddUserConfig  bool
-	AddLocalConfig bool
-
-	Creator string
-	Title   string
-}
-
-// initHub creates an API target and optionally stores it in user config.
-func (t *Tap) initHub(opts initHubOptions) (*keg.Target, error) {
-	if err := ValidateKegAlias(opts.Alias); err != nil {
-		return nil, err
-	}
-
-	// Determine hub name. Prefer explicit flag, then project config.
-	hubName := opts.Hub
-	if hubName == "" {
-		cfg, _ := t.ConfigService.Config(true)
-		if cfg != nil && cfg.DefaultHub() != "" {
-			hubName = cfg.DefaultHub()
-		}
-	}
-	if hubName == "" {
-		// final fallback
-		hubName = DefaultHubName
-	}
-
-	// Determine namespace owner. Defaults to the OS user, whose default
-	// namespace shares their username; falls back to the configured
-	// default keg, then a literal "user" placeholder.
-	namespace := opts.User
-	if namespace == "" {
-		u, _ := t.Runtime.GetUser()
-		if u != "" {
-			namespace = u
-		} else {
-			// try to fall back to project-local default if present
-			if cfg, cfgErr := t.ConfigService.Config(true); cfgErr == nil && cfg != nil && cfg.DefaultKeg() != "" {
-				// ignore: best-effort only
-				namespace = cfg.DefaultKeg()
-			}
-		}
-		if namespace == "" {
-			namespace = "user"
-		}
-	}
-
-	target := keg.NewApi(hubName, namespace, opts.Alias)
-
-	if opts.AddUserConfig {
-		userCfg, err := t.ConfigService.UserConfig(false)
-		if err != nil {
-			if !errors.Is(err, keg.ErrNotExist) {
-				return nil, err
-			}
-			userCfg = &Config{data: &configDTO{}}
-		}
-		ref := KegRef{Hub: hubName, Namespace: namespace, Name: opts.Alias}
-		if err := userCfg.AddKeg(opts.Alias, ref); err != nil {
-			return nil, err
-		}
-		if err := userCfg.Write(t.Runtime, t.PathService.UserConfig()); err != nil {
-			return nil, err
-		}
-		t.ConfigService.ResetCache()
-	}
-
-	return &target, nil
 }
 
 // defaultUserKegRoot returns the platform-default directory under which user

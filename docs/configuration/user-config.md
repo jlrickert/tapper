@@ -26,11 +26,19 @@ below).
 
 - `fallbackKeg`: last-resort alias when no default/map match resolves
 - `defaultKeg`: optional alias used first when no keg flag is provided
-- `kegs`: explicit map of alias → `(hub, namespace, name)` keg reference
-- `kegMap`: path-based alias mapping (`pathRegex` first, then longest `pathPrefix`)
+- `kegs`: map of keg name → keg reference. Primary role: disambiguate which
+  **namespace** a keg name belongs to (`kegs[name].namespace`) when the same
+  name could resolve into more than one. The full `(hub, namespace, name)`
+  triple is still honored for explicit pins and legacy configs.
+- `namespaces`: map of namespace → hosting hub
+  (`namespaces[ns].hub`, or the scalar shorthand `ns: hub`). Role: disambiguate
+  which **hub** a namespace lives on when it could exist on more than one. An
+  entry wins over `defaultHub`/`fallbackHub` during namespace→hub resolution.
+- `kegMap`: path-based alias mapping (`pathRegex` first, then longest
+  `pathPrefix`). Picks the active flight and default keg from the working dir.
 - `fallbackHub`: last-resort hub name used when a reference omits its hub and no
-  `defaultHub` applies. The user-config convention — set it here so references
-  need not specify a hub.
+  `defaultHub`/`namespaces[ns]` applies. The user-config convention — set it
+  here so references need not specify a hub.
 - `fallbackNamespace`: last-resort namespace used when a reference omits its
   namespace and no `defaultNamespace`/per-hub namespace applies.
 - `defaultHub` / `defaultNamespace`: high-precedence slots. Usually set in
@@ -127,6 +135,9 @@ kegs:
   pub:
     namespace: local
     name: public
+namespaces:
+  # which hub hosts each namespace (the namespace→hub conflict resolver)
+  local: my-laptop          # scalar shorthand for {hub: my-laptop}
 hubs:
   my-laptop:
     kind: local

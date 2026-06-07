@@ -74,8 +74,18 @@ type configDTO struct {
 	// kegMap maps a project path or pattern to a keg alias.
 	KegMap []KegMapEntry `yaml:"kegMap"`
 
-	// kegs maps an alias to a (hub, namespace, name) keg reference.
+	// kegs maps a keg name to a keg reference. Its primary role is to
+	// disambiguate which namespace a keg name belongs to when the same name
+	// could resolve into more than one namespace (kegs[name].Namespace). The
+	// full {hub, namespace, name, path} triple is still honored for explicit
+	// pins and legacy configs.
 	Kegs map[string]KegRef `yaml:"kegs"`
+
+	// namespaces maps a namespace name to the hub that hosts it. Its role is to
+	// disambiguate which hub a namespace lives on when the same namespace could
+	// exist on more than one configured hub. An entry here wins over the
+	// defaultHub / fallbackHub chain during namespace→hub resolution.
+	Namespaces map[string]NamespaceRef `yaml:"namespaces,omitempty"`
 
 	// defaultHub names the hub used when a keg reference omits its hub. It is
 	// the high-precedence slot (the authoritative choice); set it in project
@@ -156,10 +166,11 @@ type KegRef struct {
 
 // UnmarshalYAML accepts the canonical mapping form ({hub, namespace, name}) and
 // also tolerates legacy forms so old configs keep loading: the legacy "kegName"
-// key is read as Name, and scalar shorthands are parsed via keg.Parse — hub
-// shorthand "hub:@ns/name" becomes the triple, while bare file/url scalars map
-// onto the built-in local hub (best effort; the directory component is not
-// preserved). Writes always serialize the canonical mapping form.
+// key is read as Name, and scalar shorthands are parsed via keg.Parse — the
+// canonical keg shorthand "keg:@ns/name" sets {namespace, name} (the hub is
+// resolved from the namespace, never encoded), while bare file/url scalars map
+// onto a Path. To pin a hub, use the mapping form's "hub" field. Writes always
+// serialize the canonical mapping form.
 func (r *KegRef) UnmarshalYAML(node *yaml.Node) error {
 	if node == nil {
 		return nil
@@ -199,21 +210,56 @@ func (r *KegRef) UnmarshalYAML(node *yaml.Node) error {
 			return fmt.Errorf("decode keg ref scalar %q: %w", s, err)
 		}
 		switch {
-		case t.Hub != "":
-			// Hub shorthand "hub:@ns/name" → canonical triple.
+		case t.KegName != "":
+			// Keg reference: canonical "keg:@ns/name" (hub resolved from the
+			// namespace) or a structured scalar carrying a hub pin.
 			r.Hub = t.Hub
 			r.Namespace = t.Namespace
 			r.Name = t.KegName
 		case t.File != "":
-			// Legacy file-path scalar → explicit local path.
+			// File-path scalar → explicit local path.
 			r.Path = t.File
 		default:
-			// Any other legacy scalar (e.g. a bare URL): keep verbatim.
+			// Any other scalar (e.g. a bare URL): keep verbatim.
 			r.Path = s
 		}
 		return nil
 	default:
 		return fmt.Errorf("unsupported yaml node kind %d for keg ref", node.Kind)
+	}
+}
+
+// NamespaceRef names the hub that hosts a namespace. It is the conflict
+// resolver for namespace→hub: when a namespace could live on more than one
+// configured hub, an entry here pins which one. An empty Hub falls back to the
+// hub precedence chain (see Config.resolveHubForNamespace).
+type NamespaceRef struct {
+	Hub string `yaml:"hub,omitempty"`
+}
+
+// UnmarshalYAML accepts the canonical mapping form ({hub: name}) and the scalar
+// shorthand (a bare hub name), so both `jlrickert: atlas` and `jlrickert: {hub:
+// atlas}` load. Writes always serialize the mapping form.
+func (r *NamespaceRef) UnmarshalYAML(node *yaml.Node) error {
+	if node == nil {
+		return nil
+	}
+	switch node.Kind {
+	case yaml.MappingNode:
+		type rawRef struct {
+			Hub string `yaml:"hub"`
+		}
+		var x rawRef
+		if err := node.Decode(&x); err != nil {
+			return fmt.Errorf("decode namespace ref mapping: %w", err)
+		}
+		r.Hub = strings.TrimSpace(x.Hub)
+		return nil
+	case yaml.ScalarNode:
+		r.Hub = strings.TrimSpace(node.Value)
+		return nil
+	default:
+		return fmt.Errorf("unsupported yaml node kind %d for namespace ref", node.Kind)
 	}
 }
 
@@ -408,6 +454,46 @@ func (cfg *Config) Hub(name string) (HubEntry, bool) {
 	return HubEntry{}, false
 }
 
+// Namespaces returns the map of namespace name to hosting hub reference.
+func (cfg *Config) Namespaces() map[string]NamespaceRef {
+	if cfg.data == nil {
+		cfg.data = &configDTO{}
+	}
+	if cfg.data.Namespaces == nil {
+		return map[string]NamespaceRef{}
+	}
+	return cfg.data.Namespaces
+}
+
+// Namespace returns the namespace reference registered under name.
+func (cfg *Config) Namespace(name string) (NamespaceRef, bool) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return NamespaceRef{}, false
+	}
+	ref, ok := cfg.Namespaces()[name]
+	return ref, ok
+}
+
+// SetNamespace adds or replaces the hub mapping for a namespace.
+func (cfg *Config) SetNamespace(name string, ref NamespaceRef) error {
+	if cfg == nil {
+		return fmt.Errorf("config is nil")
+	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return fmt.Errorf("namespace name is required")
+	}
+	if cfg.data == nil {
+		cfg.data = &configDTO{}
+	}
+	if cfg.data.Namespaces == nil {
+		cfg.data.Namespaces = map[string]NamespaceRef{}
+	}
+	cfg.data.Namespaces[name] = ref
+	return nil
+}
+
 // LogFile returns the log file path.
 func (cfg *Config) LogFile() string {
 	if cfg.data == nil {
@@ -550,6 +636,48 @@ func (cfg *Config) Clone() *Config {
 	return uCfg
 }
 
+// resolveNamespaceForName applies namespace precedence for a keg name in the
+// namespace-centric model: the keg's configured namespace
+// (kegs[name].Namespace) → defaultNamespace → fallbackNamespace. It returns ""
+// when none applies, leaving the per-hub default and the local-hub fallback in
+// ResolveRef to have the final say once the hub kind is known.
+func (cfg *Config) resolveNamespaceForName(name string) string {
+	name = strings.TrimSpace(name)
+	if name != "" {
+		if ref, ok := cfg.Kegs()[name]; ok {
+			if ns := strings.TrimSpace(ref.Namespace); ns != "" {
+				return ns
+			}
+		}
+	}
+	if ns := strings.TrimSpace(cfg.DefaultNamespace()); ns != "" {
+		return ns
+	}
+	if ns := strings.TrimSpace(cfg.FallbackNamespace()); ns != "" {
+		return ns
+	}
+	return ""
+}
+
+// resolveHubForNamespace applies hub precedence for a namespace: an explicit
+// namespaces[ns].Hub mapping → this machine's filesystem hub for the reserved
+// "local" namespace → the general hub precedence chain (defaultHub →
+// fallbackHub → sole/alphabetically-first hub → the compiled-in default hub).
+func (cfg *Config) resolveHubForNamespace(ns string) string {
+	ns = strings.TrimSpace(ns)
+	if ns != "" {
+		if ref, ok := cfg.Namespaces()[ns]; ok {
+			if h := strings.TrimSpace(ref.Hub); h != "" {
+				return h
+			}
+		}
+	}
+	if ns == LocalHubName {
+		return cfg.localHubName()
+	}
+	return cfg.resolveHubName()
+}
+
 // resolveHubName applies hub-name precedence: defaultHub → fallbackHub →
 // the sole/alphabetically-first configured hub → the compiled-in default hub.
 func (cfg *Config) resolveHubName() string {
@@ -596,8 +724,10 @@ func (cfg *Config) localHubName() string {
 }
 
 // ResolveRef resolves a (hub, namespace, name) reference into a concrete
-// keg.Target, applying hub and namespace default/fallback chains and the
-// per-kind backend mapping:
+// keg.Target. It applies the namespace-centric chains — namespace first
+// (kegs[name].Namespace → default/fallback), then the hub that hosts that
+// namespace (namespaces[ns].Hub → default/fallback) — and the per-kind backend
+// mapping:
 //
 //   - local:    <basePath>/@<namespace>/<name> as a file target
 //   - remote:   <hub.url>/api/v1/kegs/@<namespace>/<name> as a hub target
@@ -617,20 +747,22 @@ func (cfg *Config) ResolveRef(rt *toolkit.Runtime, ref KegRef) (*keg.Target, err
 	if name == "" {
 		return nil, fmt.Errorf("keg reference is missing a name")
 	}
-	// Namespace may be given explicitly; otherwise it is resolved below once the
-	// hub is known so the hub's own default namespace can participate.
-	ns := strings.TrimSpace(ref.Namespace)
 
-	// Resolve the hub. An explicit hub wins. Otherwise the reserved "local"
-	// namespace pins this machine's filesystem hub; any other reference uses the
-	// hub precedence chain (defaultHub → fallbackHub → sole hub → atlas).
+	// Resolve the namespace first (the namespace-centric model). Precedence:
+	// explicit ref → kegs[name].Namespace → defaultNamespace → fallbackNamespace.
+	// It may still be empty here; the per-hub default and the local-hub fallback
+	// below get the final say once the hub kind is known.
+	ns := strings.TrimSpace(ref.Namespace)
+	if ns == "" {
+		ns = cfg.resolveNamespaceForName(name)
+	}
+
+	// Resolve the hub from the namespace. An explicit hub wins; otherwise the
+	// namespace→hub map pins it, the reserved "local" namespace selects this
+	// machine's filesystem hub, and finally the hub precedence chain applies.
 	hubName := strings.TrimSpace(ref.Hub)
 	if hubName == "" {
-		if ns == LocalHubName {
-			hubName = cfg.localHubName()
-		} else {
-			hubName = cfg.resolveHubName()
-		}
+		hubName = cfg.resolveHubForNamespace(ns)
 	}
 
 	entry, ok := cfg.Hub(hubName)
@@ -642,17 +774,13 @@ func (cfg *Config) ResolveRef(rt *toolkit.Runtime, ref KegRef) (*keg.Target, err
 		kind = HubKindRemote
 	}
 
-	// Resolve the namespace now that the hub is known. Precedence:
-	// explicit ref → per-hub namespace → defaultNamespace → fallbackNamespace →
-	// @local (local hub) / error (remote hub).
+	// Last-resort namespace once the hub is known: the hub's own default
+	// namespace (a lower-precedence source than the default/fallback chain in
+	// the namespace-centric model), then @local for a local hub, else an error.
 	if ns == "" {
 		switch {
 		case strings.TrimSpace(entry.Namespace) != "":
 			ns = strings.TrimSpace(entry.Namespace)
-		case strings.TrimSpace(cfg.DefaultNamespace()) != "":
-			ns = strings.TrimSpace(cfg.DefaultNamespace())
-		case strings.TrimSpace(cfg.FallbackNamespace()) != "":
-			ns = strings.TrimSpace(cfg.FallbackNamespace())
 		case kind == HubKindLocal:
 			ns = LocalHubName
 		default:
@@ -858,6 +986,7 @@ func DefaultUserConfig(name string, localKegRoot string) *Config {
 			FallbackNamespace: name,
 			KegMap:            []KegMapEntry{},
 			Kegs:              map[string]KegRef{},
+			Namespaces:        map[string]NamespaceRef{},
 			Hubs: hubMap{
 				DefaultHubName: {
 					Kind:     HubKindRemote,
@@ -891,7 +1020,8 @@ func DefaultProjectConfig(user, userKegRepo string) *Config {
 			Kegs: map[string]KegRef{
 				alias: {Hub: LocalHubName, Namespace: LocalHubName, Name: alias},
 			},
-			Hubs: hubMap{},
+			Namespaces: map[string]NamespaceRef{},
+			Hubs:       hubMap{},
 		},
 	}
 }
@@ -939,9 +1069,10 @@ func MergeConfig(cfgs ...*Config) *Config {
 
 	out := &Config{
 		data: &configDTO{
-			Kegs:   make(map[string]KegRef),
-			KegMap: make([]KegMapEntry, 0),
-			Hubs:   make(hubMap),
+			Kegs:       make(map[string]KegRef),
+			Namespaces: make(map[string]NamespaceRef),
+			KegMap:     make([]KegMapEntry, 0),
+			Hubs:       make(hubMap),
 		},
 	}
 
@@ -989,6 +1120,10 @@ func MergeConfig(cfgs ...*Config) *Config {
 
 		for alias, ref := range c.data.Kegs {
 			out.data.Kegs[alias] = ref
+		}
+
+		for ns, ref := range c.data.Namespaces {
+			out.data.Namespaces[ns] = ref
 		}
 
 		// Merge KegMap entries. Preserve order but override by alias when provided.

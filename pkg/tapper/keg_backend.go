@@ -12,15 +12,15 @@ import (
 // Mapping by scheme:
 //
 //   - file-backed:  "file-backed"
-//   - hub:          "hub:<hub>/@<namespace>/<kegName>"
+//   - hub:          "keg:@<namespace>/<kegName>"
 //   - http(s):      "http" or "https"
 //   - in-memory:    "in-memory"
 //   - other/unknown: the scheme string, or "" when target is nil
 //
-// The hub label re-applies the "@" sigil so the rendered string round-trips
-// with the canonical hub shorthand the user originally typed. File-backed
-// kegs intentionally collapse to a single token: the alias is the user-
-// visible handle, and the path lives only behind `tap info`.
+// The hub label is the canonical keg reference (Target.String): the real "keg"
+// scheme with the hub resolved from the namespace, never encoded in the string.
+// File-backed kegs intentionally collapse to a single token: the alias is the
+// user-visible handle, and the path lives only behind `tap info`.
 func KegBackendLabel(target *keg.Target) string {
 	if target == nil {
 		return ""
@@ -35,8 +35,10 @@ func KegBackendLabel(target *keg.Target) string {
 	switch target.Scheme() {
 	case keg.SchemeFile:
 		return "file-backed"
-	case keg.SchemeHub:
-		return target.Hub + ":@" + target.Namespace + "/" + target.KegName
+	case keg.SchemeAlias:
+		// A keg reference renders with the real "keg" scheme; the hub is
+		// resolution metadata, not part of the reference. Mirror Target.String().
+		return target.String()
 	case keg.SchemeMemory:
 		return "in-memory"
 	case keg.SchemeHTTP:

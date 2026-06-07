@@ -139,18 +139,16 @@ func NewKegFromTarget(ctx context.Context, target Target, rt *toolkit.Runtime, o
 		repo := NewApiRepo(baseURL, token)
 		keg := Keg{Target: &target, Repo: repo, Runtime: rt}
 		return &keg, nil
-	case SchemeHub:
+	case SchemeAlias:
 		token := resolveTargetToken(&target, rt, o.resolver)
-		// Build the API base URL from the hub, namespace, and keg-name fields.
-		// Convention: <hubURL>/api/v1/kegs/@<namespace>/<kegName>
-		//
-		// Prefer the resolved HubURL pushed down by the tapper layer from the
-		// configured hubs map. Fall back to the legacy "https://<hub>/..."
-		// composition (hub name used as host) when HubURL is unset so old
-		// configs and direct callers keep working.
+		// Build the API base URL from the resolved hub URL, namespace, and
+		// keg-name fields. Convention: <hubURL>/api/v1/kegs/@<namespace>/<kegName>.
+		// HubURL is pushed down by the tapper layer from the configured hubs map
+		// during resolution; a keg reference that reaches here without it was not
+		// resolved against a hub.
 		base := strings.TrimRight(target.HubURL, "/")
 		if base == "" {
-			base = "https://" + target.Hub
+			return nil, fmt.Errorf("keg reference %q has no resolved hub url", target.String())
 		}
 		baseURL := fmt.Sprintf("%s/api/v1/kegs/@%s/%s",
 			base, target.Namespace, target.KegName)
@@ -327,58 +325,50 @@ func (k *Keg) Create(ctx context.Context, opts *CreateOptions) (NodeId, error) {
 		opts = &CreateOptions{}
 	}
 
+	now := k.Runtime.Clock().Now()
+
+	// Single-round-trip create for backends that allocate the id and persist
+	// the initial payload in one operation (e.g. the HTTP API's POST /nodes).
+	// The id is assigned by the backend, so the default heading can't embed it.
+	if creator, ok := k.Repo.(RepositoryNodeCreator); ok {
+		nodeData, err := k.buildNodeData(ctx, opts, now, "New Node")
+		if err != nil {
+			return NodeId{}, err
+		}
+		id, err := creator.CreateNode(ctx, NodeCreate{
+			Content: []byte(nodeData.Content.Body),
+			Meta:    []byte(nodeData.Meta.ToYAML()),
+			Stats:   nodeData.Stats,
+		})
+		if err != nil {
+			return NodeId{}, fmt.Errorf("create: %w", err)
+		}
+		nodeData.ID = id
+		return id, k.addNodeToDex(ctx, nodeData, &now)
+	}
+
 	// Reserve next ID
 	id, err := k.Repo.Next(ctx)
 	if err != nil {
 		return NodeId{}, fmt.Errorf("failed to allocate node id: %w", err)
 	}
 
-	now := k.Runtime.Clock().Now()
-
-	var rawContent []byte
-	if len(opts.Body) > 0 {
-		rawContent = opts.Body
-	} else {
-		// Build default content/meta for a new node
-		b := strings.Builder{}
-		if opts.Title != "" {
-			b.WriteString(fmt.Sprintf("# %s\n", opts.Title))
-		} else {
-			b.WriteString(fmt.Sprintf("# NodeId %s\n", id.Path()))
-		}
-
-		if opts.Lead != "" {
-			b.WriteString(fmt.Sprintf("\n%s\n", opts.Lead))
-		}
-		rawContent = []byte(b.String())
-	}
-
-	content, err := ParseContent(k.Runtime, rawContent, MarkdownContentFilename)
+	// The default heading embeds the freshly-allocated id when no title/body.
+	nodeData, err := k.buildNodeData(ctx, opts, now, fmt.Sprintf("NodeId %s", id.Path()))
 	if err != nil {
-		return NodeId{}, fmt.Errorf("invalid content: %w", err)
+		return NodeId{}, err
 	}
-	m := NewMeta(ctx, now)
-	if len(opts.Attrs) > 0 {
-		m.SetAttrs(ctx, opts.Attrs)
-	}
-
-	stats := NewStats(now)
-	if len(opts.Tags) > 0 {
-		m.SetTags(opts.Tags)
-	}
-	nodeData := &NodeData{ID: id, Content: content, Meta: m, Stats: stats}
-	_ = nodeData.UpdateMeta(ctx, &now)
-	nodeData.Stats.EnsureTimes(now)
+	nodeData.ID = id
 
 	// Persist content and metadata atomically for this node.
 	if err := k.withNodeLock(ctx, id, func(lockCtx context.Context) error {
-		if err := k.Repo.WriteContent(lockCtx, id, []byte(content.Body)); err != nil {
+		if err := k.Repo.WriteContent(lockCtx, id, []byte(nodeData.Content.Body)); err != nil {
 			return fmt.Errorf("create: write content to backend %s: %w", k.Repo.Name(), err)
 		}
-		if err := k.Repo.WriteMeta(lockCtx, id, []byte(m.ToYAML())); err != nil {
+		if err := k.Repo.WriteMeta(lockCtx, id, []byte(nodeData.Meta.ToYAML())); err != nil {
 			return fmt.Errorf("create: write meta to backend %s: %w", k.Repo.Name(), err)
 		}
-		if err := k.Repo.WriteStats(lockCtx, id, stats); err != nil {
+		if err := k.Repo.WriteStats(lockCtx, id, nodeData.Stats); err != nil {
 			return fmt.Errorf("create: write stats to backend %s: %w", k.Repo.Name(), err)
 		}
 		return nil
@@ -387,6 +377,46 @@ func (k *Keg) Create(ctx context.Context, opts *CreateOptions) (NodeId, error) {
 	}
 
 	return id, k.addNodeToDex(ctx, nodeData, &now)
+}
+
+// buildNodeData assembles the content/meta/stats for a new node from opts. The
+// node id is not part of the result (callers set it once known) except via
+// fallbackHeading, the H1 used when opts carries neither a Body nor a Title —
+// local creates pass "NodeId <id>" there; remote creates, where the id is
+// assigned later, pass a generic heading.
+func (k *Keg) buildNodeData(ctx context.Context, opts *CreateOptions, now time.Time, fallbackHeading string) (*NodeData, error) {
+	var rawContent []byte
+	if len(opts.Body) > 0 {
+		rawContent = opts.Body
+	} else {
+		b := strings.Builder{}
+		if opts.Title != "" {
+			b.WriteString(fmt.Sprintf("# %s\n", opts.Title))
+		} else {
+			b.WriteString(fmt.Sprintf("# %s\n", fallbackHeading))
+		}
+		if opts.Lead != "" {
+			b.WriteString(fmt.Sprintf("\n%s\n", opts.Lead))
+		}
+		rawContent = []byte(b.String())
+	}
+
+	content, err := ParseContent(k.Runtime, rawContent, MarkdownContentFilename)
+	if err != nil {
+		return nil, fmt.Errorf("invalid content: %w", err)
+	}
+	m := NewMeta(ctx, now)
+	if len(opts.Attrs) > 0 {
+		m.SetAttrs(ctx, opts.Attrs)
+	}
+	stats := NewStats(now)
+	if len(opts.Tags) > 0 {
+		m.SetTags(opts.Tags)
+	}
+	nodeData := &NodeData{Content: content, Meta: m, Stats: stats}
+	_ = nodeData.UpdateMeta(ctx, &now)
+	nodeData.Stats.EnsureTimes(now)
+	return nodeData, nil
 }
 
 // Config returns the keg's configuration.

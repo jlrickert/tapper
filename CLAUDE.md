@@ -143,11 +143,25 @@ from any walked project config (recorded as a load warning; `--strict` makes it
 a hard error). The merged project layer, the user config, and env vars are then
 resolved by `cfgcascade.Cascade[*Config]` in `ConfigService.Config()`.
 
-**Hub / namespace resolution** (`Config.ResolveRef`): a keg reference's
-namespace resolves explicit → per-hub `namespace` → `defaultNamespace` →
-`fallbackNamespace` → `@local` (local hub) / error (remote). The local hub is
-keyed by hostname (via `tap bootstrap`), uses the reserved `@local` namespace,
-and stores kegs at `<basePath>/@<namespace>/<keg>`.
+**Hub / namespace resolution** (`Config.ResolveRef`) is namespace-centric:
+**keg name → namespace → hub → backend**. The namespace resolves first
+(explicit → `kegs[name].namespace` → `defaultNamespace` → `fallbackNamespace` →
+per-hub default / `@local` / error), then the hub is resolved *from* the
+namespace (explicit → `namespaces[ns].hub` → `@local`→local hub → `defaultHub` →
+`fallbackHub` → sole/alpha hub → compiled-in `atlas`). The `kegs` map
+disambiguates name→namespace; the `namespaces` map disambiguates namespace→hub.
+The local hub is keyed by hostname (via `tap bootstrap`), uses the reserved
+`@local` namespace, and stores kegs at `<basePath>/@<namespace>/<keg>`.
+
+A keg reference renders as the `keg` scheme — `keg:@<namespace>/<name>` (and
+`keg:@<namespace>/<name>/<nodeID>` for a node). The hub is resolution metadata,
+never part of the reference string; there is no `<hub>:@ns/name` form. To pin a
+hub explicitly, use the structured `kegs` mapping form's `hub` field.
+
+**`tap init`** is namespace-centric too: a bare `tap init <name>` resolves the
+default namespace+hub (typically a remote create via `POST /api/v1/@<ns>/kegs`,
+failing on 409); `tap init @local/<name>` pins the local filesystem hub. When
+nothing is configured it falls back to a local `@local` keg.
 
 Supported env vars: `TAP_DEFAULT_KEG`, `TAP_FALLBACK_KEG`, `TAP_LOG_FILE`,
 `TAP_LOG_LEVEL`, `TAP_DEFAULT_HUB`, `TAP_FALLBACK_HUB`, `TAP_DEFAULT_NAMESPACE`,

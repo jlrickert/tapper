@@ -1,6 +1,7 @@
 package keg_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -81,14 +82,37 @@ func (h *mockHub) handler() http.Handler {
 		return true
 	}
 
-	// POST /nodes/next
-	mux.HandleFunc("POST /nodes/next", func(w http.ResponseWriter, r *http.Request) {
+	// POST /nodes — reserve the next id and, when a payload is supplied,
+	// persist the node's content/meta/stats in the same call. A bare POST
+	// (empty body) just reserves the id, as Next() does.
+	mux.HandleFunc("POST /nodes", func(w http.ResponseWriter, r *http.Request) {
 		if !checkAuth(w, r) {
 			return
 		}
+		body, _ := io.ReadAll(r.Body)
+		var req struct {
+			Content *string         `json:"content"`
+			Meta    *string         `json:"meta"`
+			Stats   json.RawMessage `json:"stats"`
+		}
+		if len(bytes.TrimSpace(body)) > 0 {
+			if err := json.Unmarshal(body, &req); err != nil {
+				writeJSONError(w, http.StatusBadRequest, "BAD_REQUEST", "invalid JSON body")
+				return
+			}
+		}
 		h.mu.Lock()
 		id := h.nextID
-		h.ensureNode(id)
+		n := h.ensureNode(id)
+		if req.Content != nil {
+			n.content = []byte(*req.Content)
+		}
+		if req.Meta != nil {
+			n.meta = []byte(*req.Meta)
+		}
+		if len(bytes.TrimSpace(req.Stats)) > 0 {
+			n.stats = req.Stats
+		}
 		h.nextID++
 		h.mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
@@ -657,6 +681,28 @@ func TestApiRepo_Next(t *testing.T) {
 	require.Equal(t, 0, id1.ID)
 
 	id2, err := repo.Next(ctx)
+	require.NoError(t, err)
+	require.Equal(t, 1, id2.ID)
+}
+
+func TestApiRepo_CreateNode(t *testing.T) {
+	repo, _, _ := setupApiRepo(t)
+	ctx := context.Background()
+
+	creator, ok := any(repo).(keg.RepositoryNodeCreator)
+	require.True(t, ok, "ApiRepo must implement RepositoryNodeCreator")
+
+	id, err := creator.CreateNode(ctx, keg.NodeCreate{Content: []byte("# Created\n")})
+	require.NoError(t, err)
+	require.Equal(t, 0, id.ID)
+
+	// The content persisted by the single create call reads back.
+	got, err := repo.ReadContent(ctx, id)
+	require.NoError(t, err)
+	require.Equal(t, "# Created\n", string(got))
+
+	// A second create reserves the next id.
+	id2, err := creator.CreateNode(ctx, keg.NodeCreate{Content: []byte("# Second\n")})
 	require.NoError(t, err)
 	require.Equal(t, 1, id2.ID)
 }

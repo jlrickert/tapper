@@ -25,9 +25,9 @@ func NewInitCmd(deps *Deps) *cobra.Command {
 	initOpts := tapper.InitOptions{}
 
 	cmd := &cobra.Command{
-		Use:   "init",
+		Use:   "init [name | @namespace/name]",
 		Short: "create a new keg target",
-		Args:  cobra.NoArgs,
+		Args:  cobra.MaximumNArgs(1),
 		Long: strings.TrimSpace(`
 Create a keg target and initialize it in one of three destinations:
 
@@ -70,6 +70,22 @@ tap init --keg blog --user
 tap init --keg blog --hub knut --namespace me
 `),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// A positional argument names the keg, optionally namespace-qualified
+			// as "@namespace/name". An explicit --namespace flag still overrides
+			// the parsed namespace.
+			if len(args) == 1 {
+				ns, name, parseErr := parseKegArg(args[0])
+				if parseErr != nil {
+					return parseErr
+				}
+				if name != "" {
+					initOpts.Keg = name
+				}
+				if ns != "" && strings.TrimSpace(initOpts.Namespace) == "" {
+					initOpts.Namespace = ns
+				}
+			}
+
 			if shouldPromptInit(deps, &initOpts) {
 				if err := promptInitOptions(cmd, deps, &initOpts); err != nil {
 					return err
@@ -104,7 +120,7 @@ tap init --keg blog --hub knut --namespace me
 	cmd.Flags().StringVar(&initOpts.Hub, "hub", "", "hub name (selects API-style hub target when set)")
 	cmd.Flags().BoolVar(&initOpts.Cwd, "cwd", false, "use cwd instead of git root for local destination resolution")
 	cmd.Flags().StringVar(&initOpts.Path, "path", "", "explicit local destination path; implies local mode")
-	cmd.Flags().StringVar(&initOpts.UserName, "namespace", "", "hub namespace/user to use with --hub")
+	cmd.Flags().StringVar(&initOpts.Namespace, "namespace", "", "namespace the keg belongs to (overrides @namespace/ and config resolution)")
 	cmd.Flags().StringVarP(&initOpts.Keg, "keg", "k", "", "alias of keg to add to config")
 	cmd.Flags().StringVar(&initOpts.Title, "title", "", "human title to write into the keg config")
 	cmd.Flags().StringVar(&initOpts.Creator, "creator", "", "creator identifier to include in the keg config")
@@ -112,6 +128,30 @@ tap init --keg blog --hub knut --namespace me
 	cmd.Flags().BoolVar(&initOpts.NonInteractive, "non-interactive", false, "skip the interactive prompt even when stdin is a TTY")
 
 	return cmd
+}
+
+// parseKegArg splits an init positional argument into an optional namespace and
+// a keg name. Forms: "name" → ("", "name"); "@namespace/name" → ("namespace",
+// "name"). A bare "name" containing "/" (without the @ sigil) is rejected so a
+// path-like typo doesn't silently become a keg name.
+func parseKegArg(arg string) (namespace, name string, err error) {
+	arg = strings.TrimSpace(arg)
+	if arg == "" {
+		return "", "", nil
+	}
+	if strings.HasPrefix(arg, "@") {
+		ns, n, ok := strings.Cut(strings.TrimPrefix(arg, "@"), "/")
+		ns = strings.TrimSpace(ns)
+		n = strings.TrimSpace(n)
+		if !ok || ns == "" || n == "" {
+			return "", "", fmt.Errorf("invalid keg reference %q: expected @namespace/name", arg)
+		}
+		return ns, n, nil
+	}
+	if strings.Contains(arg, "/") {
+		return "", "", fmt.Errorf("invalid keg name %q: use @namespace/name to qualify a namespace", arg)
+	}
+	return "", arg, nil
 }
 
 // shouldPromptInit reports whether the cobra RunE handler should fire the

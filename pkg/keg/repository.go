@@ -94,6 +94,26 @@ type Repository interface {
 	WriteConfig(ctx context.Context, config *Config) error
 }
 
+// NodeCreate carries the initial payload for an atomic node create. Any field
+// may be nil/empty: a bare create just reserves an id. Content and Meta are the
+// raw node bytes (README.md / meta.yaml); Stats is the parsed programmatic
+// stats.
+type NodeCreate struct {
+	Content []byte
+	Meta    []byte
+	Stats   *NodeStats
+}
+
+// RepositoryNodeCreator is an optional capability for backends that can
+// allocate an id and persist a node's initial content/meta/stats in a single
+// operation — for example the HTTP API's POST /nodes. Keg.Create uses it when
+// present (one round-trip remote create) and otherwise falls back to Next()
+// followed by WriteContent/WriteMeta/WriteStats. Local backends (FsRepo,
+// MemoryRepo) intentionally do not implement it.
+type RepositoryNodeCreator interface {
+	CreateNode(ctx context.Context, in NodeCreate) (NodeId, error)
+}
+
 // RepositoryFiles provides optional per-node file attachment access.
 type RepositoryFiles interface {
 	// ListFiles lists file attachment names for a node.
