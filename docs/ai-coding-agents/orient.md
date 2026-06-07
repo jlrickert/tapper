@@ -17,9 +17,10 @@ escalate to tier 1 or tier 2 only when more context is required.
 | 1    | Tier 0 plus linking conventions and snapshot policy                      | Enough context to read and edit safely                      |
 | 2    | Tier 1 plus full canonical agent guidance and the rendered host artifact | Full orientation (SKILL.md for Claude, AGENTS.md for Codex) |
 
-Tier 1 emits a manifest placeholder when `keg` is supplied and a flight
-placeholder when `flight` is supplied. Both placeholders point at the future
-per-keg manifest design; the shape is wired today, the payload will follow.
+Tier 1 emits a per-keg manifest placeholder when `keg` is supplied (the shape is
+wired today; the payload will follow). When `flight` is supplied, tier 1+ injects
+the resolved flight: its title, available kegs, and the flight's agent
+instructions. See [Flights](../configuration/flights.md).
 
 Requesting an out-of-range tier clamps to the nearest valid tier rather than
 erroring.
@@ -32,7 +33,7 @@ All three surfaces accept the same four optional parameters.
 | --------- | --------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
 | `host`    | `claude`, `codex`           | Tier 2 appends the rendered host artifact. Unknown hosts return an error.                                              |
 | `keg`     | keg alias (e.g. `notes`)    | Pins the active keg in tier 0 (overriding working-directory resolution); tier 1+ emits a per-keg manifest placeholder. |
-| `flight`  | flight identifier           | Tier 1+ emits a flight-scoped manifest placeholder. Mutually exclusive with `keg` on the CLI.                          |
+| `flight`  | flight identifier           | Tier 1+ injects the flight's title, available kegs, and instructions. Composes with `keg` — a flight is an overlay, not a target selector. |
 | `tier`    | `0`, `1`, `2` (default `0`) | Selects payload depth.                                                                                                 |
 
 ## MCP tool
@@ -93,9 +94,10 @@ tap orient --flight release-42 --tier 1  # tier 1 scoped to a flight
 ```
 
 `--flight` is a root persistent flag (available on every command that accepts
-`--keg`) and is mutually exclusive with `--keg`, `--project`, `--path`, and
-`--cwd`: a flight names a cross-keg work scope, while the other selectors pin
-resolution to a single keg. The CLI rejects calls that combine them. Flag
+`--keg`). It is an overlay — a keg restriction plus agent instructions — so it
+**composes** with `--keg`, `--project`, `--path`, and `--cwd` rather than
+excluding them: the selectors pin which keg you operate on, and the flight gates
+and annotates the result. A keg outside the flight's allow-list is rejected. Flag
 completion on `--host` enumerates the hosts the binary knows about; `--tier`
 completes `0 1 2`; `--flight` is free-form and suppresses filesystem
 completion.

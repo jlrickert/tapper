@@ -124,10 +124,14 @@ func newAuthProcessTTY(t *testing.T, hook func(*Deps), isTTY bool, args ...strin
 
 func newTestSandbox(t *testing.T) *sandbox.Sandbox {
 	t.Helper()
-	return sandbox.NewSandbox(t, &sandbox.Options{
+	sb := sandbox.NewSandbox(t, &sandbox.Options{
 		Home: "/home/testuser",
 		User: "testuser",
 	})
+	// Pin a deterministic hostname so the machine-keyed local hub is stable
+	// across machines and CI (bootstrap keys the local hub by hostname).
+	require.NoError(t, sb.Runtime().Set("HOSTNAME", "testhost"))
+	return sb
 }
 
 // atomicDeviceOptsSlot lets parallel tests capture the AuthLoginDeviceOptions

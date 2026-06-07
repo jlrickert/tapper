@@ -102,7 +102,7 @@ func (t *Tap) ConfigTemplate(opts ConfigTemplateOptions) (string, error) {
 	if opts.Project {
 		cfg = DefaultProjectConfig("project", "kegs")
 	} else {
-		cfg = DefaultUserConfig("pub", defaultUserKegSearchPath(t.Runtime))
+		cfg = DefaultUserConfig("pub", defaultTemplateKegRoot(t.Runtime))
 	}
 	data, err := cfg.ToYAML()
 	return string(data), err
@@ -141,7 +141,7 @@ func (t *Tap) ConfigEdit(ctx context.Context, opts ConfigEditOptions) error {
 		if opts.Project {
 			cfg = DefaultProjectConfig("project", "kegs")
 		} else {
-			cfg = DefaultUserConfig("public", defaultUserKegSearchPath(t.Runtime))
+			cfg = DefaultUserConfig("public", defaultTemplateKegRoot(t.Runtime))
 		}
 		if err := cfg.Write(t.Runtime, resolvedPath); err != nil {
 			return fmt.Errorf("unable to create default config: %w", err)
@@ -317,7 +317,10 @@ func (t *Tap) loadEnvConfig() *Config {
 	return configFromEnvMap(envMap)
 }
 
-func defaultUserKegSearchPath(rt *toolkit.Runtime) string {
+// defaultTemplateKegRoot returns the user-visible default basePath written into
+// a starter config's local hub (~/Documents/kegs). It is distinct from
+// defaultUserKegRoot, the platform data-dir fallback used at resolve time.
+func defaultTemplateKegRoot(rt *toolkit.Runtime) string {
 	switch runtime.GOOS {
 	case "darwin", "linux":
 		return "~/Documents/kegs"

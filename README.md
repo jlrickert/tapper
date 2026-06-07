@@ -82,13 +82,14 @@ Create your first keg and start taking notes in under a minute.
 tap init --keg personal --user
 ```
 
-Creates a keg under your first `kegSearchPaths` entry — or under the
-platform user-data directory if no `kegSearchPaths` is configured — and
-registers the alias in your user config.
+Creates a keg on your local hub at `<basePath>/@<namespace>/personal` — under
+the platform user-data directory when no local hub `basePath` is configured —
+and registers the alias in your user config.
 
-> Tip: run `tap config edit` first if you want to set `fallbackKeg`
-> (so later commands don't need `--keg`) or customize `kegSearchPaths`.
-> Without configuration, tapper picks sensible platform defaults.
+> Tip: run `tap bootstrap` first to write a sensible user config (the fallback
+> hub + namespace and the built-in local hub), or `tap config edit` to set
+> `fallbackKeg` so later commands don't need `--keg`. Without configuration,
+> tapper picks sensible platform defaults.
 
 **2. Create a node**
 
@@ -201,6 +202,22 @@ Archive import overwrites matching node IDs in the target keg instead of
 allocating new node IDs. Snapshot history is included by default; use
 `--no-history` to export only the current node state.
 
+List the kegs on a hub, qualified as `@namespace/keg`:
+
+```bash
+tap hub list                  # kegs on the local hub
+tap hub list --hub atlas      # (remote listing not yet supported)
+```
+
+Scope a session to a flight — a restriction on which kegs are available plus a
+block of agent instructions:
+
+```bash
+tap flight list               # discover flights
+tap flight show release-42    # inspect allowed kegs + instructions
+tap --flight release-42 list  # --flight composes with --keg/--project/--path/--cwd
+```
+
 The `keg` binary provides the same commands with project-local defaults:
 
 ```bash
@@ -243,6 +260,7 @@ Project docs live under `docs/`:
 - [Keg Config](docs/configuration/keg-config.md)
 - [Resolution Order](docs/configuration/resolution-order.md)
 - [Configuration Examples](docs/configuration/examples.md)
+- [Flights](docs/configuration/flights.md)
 - [Troubleshooting](docs/configuration/troubleshooting.md)
 - [KEG Structure Patterns](docs/keg-structure/README.md)
 - [Minimum Keg Node](docs/keg-structure/minimum-node.md)
@@ -256,14 +274,22 @@ Project docs live under `docs/`:
 
 ## Config Precedence At A Glance
 
-When no explicit keg target is provided, tapper resolves in this order:
+When no explicit keg target is provided, tapper resolves the alias in this order:
 
 1. `defaultKeg`
 2. `kegMap` path match (`pathRegex` first, then longest `pathPrefix`)
 3. `fallbackKeg`
 
-Alias lookup then prefers explicit `kegs` entries, then discovered aliases from
-`kegSearchPaths`, then project-local alias fallback at `./kegs/<alias>`.
+The alias is looked up in the merged `kegs` map and resolved to a target. An
+omitted hub resolves `defaultHub` → `fallbackHub` → sole hub → compiled-in
+`atlas`; an omitted namespace resolves per-hub `namespace` → `defaultNamespace`
+→ `fallbackNamespace` → `@local`. Local kegs live at `<basePath>/@<namespace>/<name>`.
+
+Config itself cascades: the user config is the base, every `.tapper/config.yaml`
+from the workspace root up to `/` is walked and merged (deeper wins), then env
+vars (`TAP_*`) and CLI flags. Only the user config may define `hubs{}` and
+credentials; those are stripped from project configs. See
+[Resolution Order](docs/configuration/resolution-order.md).
 
 ## Troubleshooting
 

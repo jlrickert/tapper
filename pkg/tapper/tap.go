@@ -19,6 +19,7 @@ type Tap struct {
 	PathService   *PathService
 	ConfigService *ConfigService
 	KegService    *KegService
+	FlightService *FlightService
 
 	// AuthValidateFn is the seam AuthStatus uses for its live whoami probe.
 	// Defaulted to ValidateToken in NewTap; tests override it (or point the
@@ -66,12 +67,17 @@ func NewTap(opts TapOptions) (*Tap, error) {
 		Runtime:       rt,
 		ConfigService: configService,
 	}
+	flightService := &FlightService{
+		Runtime:       rt,
+		ConfigService: configService,
+	}
 	return &Tap{
 		Runtime:        rt,
 		Root:           opts.Root,
 		PathService:    pathService,
 		ConfigService:  configService,
 		KegService:     kegService,
+		FlightService:  flightService,
 		AuthValidateFn: ValidateToken,
 	}, nil
 }
@@ -91,11 +97,10 @@ type KegTargetOptions struct {
 	// Path is an explicit local project path used for project keg discovery.
 	Path string
 
-	// Flight is a cross-keg work-scope identifier. It is mutually
-	// exclusive with Keg, Project, Cwd, and Path at the CLI: a flight
-	// names a manifest that spans kegs, while the other fields pin
-	// resolution to a single keg. Today only Tap.Orient consults it;
-	// other surfaces hold the slot for future manifest-aware commands.
+	// Flight is an optional overlay that restricts which kegs are available and
+	// injects agent instructions. It composes with the single-keg selectors
+	// (Keg/Project/Cwd/Path): the selector picks a keg and the flight gates it.
+	// A keg outside the flight's allow-list is rejected at resolution.
 	Flight string
 }
 
@@ -128,7 +133,7 @@ func firstDir(path string) string {
 }
 
 func (t *Tap) resolveKeg(ctx context.Context, opts KegTargetOptions) (*keg.Keg, error) {
-	return t.KegService.Resolve(ctx, ResolveKegOptions{
+	k, err := t.KegService.Resolve(ctx, ResolveKegOptions{
 		Root:    t.Root,
 		Keg:     opts.Keg,
 		Project: opts.Project,
@@ -136,6 +141,15 @@ func (t *Tap) resolveKeg(ctx context.Context, opts KegTargetOptions) (*keg.Keg, 
 		Path:    opts.Path,
 		NoCache: false,
 	})
+	if err != nil {
+		return nil, err
+	}
+	// An active flight restricts which kegs are available; a keg outside the
+	// flight's allow-list is rejected.
+	if err := t.enforceFlight(ctx, opts.Flight, k); err != nil {
+		return nil, err
+	}
+	return k, nil
 }
 
 func newEditorTempFilePath(rt *toolkit.Runtime, prefix string, suffix string) (string, error) {

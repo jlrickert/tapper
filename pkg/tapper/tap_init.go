@@ -44,7 +44,8 @@ func (o InitOptions) LocalDestination() bool {
 // InitKeg creates a keg with the alias specified in options.Keg.
 //
 // It validates destination flags and initializes one of three destinations:
-//   - user: filesystem-backed keg under the first configured kegSearchPaths entry
+//   - user: filesystem-backed keg on the local hub at <basePath>/@local/<alias>
+//     (the local hub's basePath, or the platform default when unset)
 //   - project: filesystem-backed keg under project path or explicit --path
 //   - hub: API target entry written to config only
 func (t *Tap) InitKeg(ctx context.Context, options InitOptions) (*keg.Target, error) {
@@ -160,34 +161,26 @@ func (t *Tap) initUserKeg(ctx context.Context, opts InitOptions) (*keg.Target, e
 	if err != nil {
 		return nil, fmt.Errorf("failed to load config: %w", err)
 	}
-	// User kegs live under the built-in local hub's basePath, laid out as
-	// <basePath>/@local/<alias> to match Config.ResolveRef's local mapping.
-	repoPath := ""
-	if hub, ok := cfg.Hub(LocalHubName); ok {
-		repoPath = strings.TrimSpace(hub.BasePath)
+	// User kegs live on the local hub under <basePath>/@local/<alias>. Resolve
+	// the on-disk location through Config.ResolveRef so the @<namespace>/<name>
+	// layout has a single source of truth shared with read-side resolution. The
+	// reserved "local" namespace pins the reference to this machine's local hub.
+	target, err := cfg.ResolveRef(t.Runtime, KegRef{Namespace: LocalHubName, Name: opts.Keg})
+	if err != nil {
+		return nil, fmt.Errorf("resolve local keg location: %w", err)
 	}
-	if repoPath == "" {
-		repoPath, err = defaultUserKegRoot(t.Runtime)
-		if err != nil {
-			return nil, fmt.Errorf("local hub basePath not configured and platform default unavailable: %w", err)
-		}
-	}
-	kegPath := filepath.Join(repoPath, opts.Keg)
 
-	target := keg.NewFile(kegPath)
-	k, err := keg.NewKegFromTarget(ctx, target, t.Runtime)
+	k, err := keg.NewKegFromTarget(ctx, *target, t.Runtime)
 	if err != nil {
 		return nil, fmt.Errorf("unable to init keg: %w", err)
 	}
-	err = k.Init(ctx)
-	if err != nil {
+	if err := k.Init(ctx); err != nil {
 		return nil, err
 	}
-	err = k.UpdateConfig(ctx, func(kc *keg.Config) {
+	if err := k.UpdateConfig(ctx, func(kc *keg.Config) {
 		kc.Creator = opts.Creator
 		kc.Title = opts.Title
-	})
-	if err != nil {
+	}); err != nil {
 		return nil, err
 	}
 
@@ -200,7 +193,9 @@ func (t *Tap) initUserKeg(ctx context.Context, opts InitOptions) (*keg.Target, e
 			}
 			userCfg = &Config{data: &configDTO{}}
 		}
-		ref := KegRef{Hub: LocalHubName, Namespace: LocalHubName, Name: alias}
+		// Hub is omitted so the reference stays portable across machines: the
+		// reserved "local" namespace pins it to the local hub at read time.
+		ref := KegRef{Namespace: LocalHubName, Name: alias}
 		if err := userCfg.AddKeg(alias, ref); err != nil {
 			return nil, err
 		}
@@ -287,8 +282,8 @@ func (t *Tap) initHub(opts initHubOptions) (*keg.Target, error) {
 }
 
 // defaultUserKegRoot returns the platform-default directory under which user
-// kegs are created when no kegSearchPaths is configured. Linux/macOS resolve
-// to <XDG_DATA_HOME or ~/.local/share>/tapper/kegs; Windows resolves to
+// kegs are created when the local hub has no basePath configured. Linux/macOS
+// resolve to <XDG_DATA_HOME or ~/.local/share>/tapper/kegs; Windows resolves to
 // %LOCALAPPDATA%\data\tapper\kegs. Resolution flows through the cli-toolkit
 // runtime so sandboxed tests get the same answer as production.
 func defaultUserKegRoot(rt *toolkit.Runtime) (string, error) {

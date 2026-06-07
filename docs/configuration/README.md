@@ -17,7 +17,7 @@ inside a specific keg.
 
 ## Which File Should I Edit?
 
-- Need machine defaults and discovery paths: [User Config](user-config.md)
+- Need machine defaults, hubs, and credentials: [User Config](user-config.md)
 - Need repo-specific defaults for teammates: [Project Config](project-config.md)
 - Need title/creator/links/indexes for a keg: [Keg Config](keg-config.md)
 
@@ -28,4 +28,5 @@ inside a specific keg.
 - [Keg Config](keg-config.md)
 - [Resolution Order](resolution-order.md)
 - [Configuration Examples](examples.md)
+- [Flights](flights.md)
 - [Troubleshooting](troubleshooting.md)

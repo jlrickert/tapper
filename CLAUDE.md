@@ -99,8 +99,8 @@ deterministic TSV/markdown files under `dex/`.
 
 **KegService** (`pkg/tapper/keg_service.go`) resolves which keg to use via
 config precedence: explicit alias → `defaultKeg` → `kegMap` path match →
-`fallbackKeg` → discovered aliases from `kegSearchPaths` → project-local
-`./kegs/<alias>`.
+`fallbackKeg` → project-local `./kegs/<alias>`. An active `--flight` then gates
+the result against the flight's keg allow-list (`Tap.resolveKeg`).
 
 ### Storage Model
 
@@ -125,24 +125,34 @@ config precedence: explicit alias → `defaultKeg` → `kegMap` path match →
 
 ### Config Hierarchy
 
-Tapper config is resolved via a five-tier cascade (most specific wins):
+Tapper config is resolved via a cascade (most specific wins):
 
-| Rank | Source                          | Discovery                                   |
-| ---- | ------------------------------- | ------------------------------------------- |
-| 5    | CLI flags (`--log-level`, etc.) | Cobra `cmd.Flags().Changed()`               |
-| 4    | Env vars (`TAP_*`)              | `rt.Env().Get()` prefix scan                |
-| 3    | Project config                  | `.tapper/config.yaml` (fixed path)          |
-| 2    | User config                     | `~/.config/tapper/config.yaml` (fixed path) |
-| 1    | Defaults                        | Hardcoded in code                           |
+| Rank | Source                          | Discovery                                          |
+| ---- | ------------------------------- | -------------------------------------------------- |
+| top  | CLI flags (`--log-level`, etc.) | Cobra `cmd.Flags().Changed()`                      |
+| ↑    | Env vars (`TAP_*`)              | `rt.Env().Get()` prefix scan                       |
+| ↑    | Project configs (deepest→…)     | every `.tapper/config.yaml` from cwd up to `/`     |
+| base | User config                     | `~/.config/tapper/config.yaml`                     |
+| —    | Defaults                        | Hardcoded in code                                  |
 
-Tiers 1-4 are resolved by `cfgcascade.Cascade[*Config]` in
-`ConfigService.Config()` (`pkg/tapper/config_service.go`). Tier 5 (CLI flags)
-is handled by Cobra's `Changed()` check in `PersistentPreRunE`.
+`ProjectConfig` walks from the workspace root up to the filesystem root
+(`WalkConfigsUp`), collecting every `.tapper/config.yaml`, and merges them so a
+deeper directory overrides a shallower one. **Trust boundary:** only the user
+config may define `hubs{}` and `token`/`tokenEnv`; those fields are stripped
+from any walked project config (recorded as a load warning; `--strict` makes it
+a hard error). The merged project layer, the user config, and env vars are then
+resolved by `cfgcascade.Cascade[*Config]` in `ConfigService.Config()`.
+
+**Hub / namespace resolution** (`Config.ResolveRef`): a keg reference's
+namespace resolves explicit → per-hub `namespace` → `defaultNamespace` →
+`fallbackNamespace` → `@local` (local hub) / error (remote). The local hub is
+keyed by hostname (via `tap bootstrap`), uses the reserved `@local` namespace,
+and stores kegs at `<basePath>/@<namespace>/<keg>`.
 
 Supported env vars: `TAP_DEFAULT_KEG`, `TAP_FALLBACK_KEG`, `TAP_LOG_FILE`,
-`TAP_LOG_LEVEL`, `TAP_DEFAULT_HUB`, `TAP_DISABLE_DEFAULT_HUB`
-(`1`/`true`/`yes`/`on` → suppress the compiled-in `DefaultHubURL` fallback),
-`TAP_KEG_SEARCH_PATHS` (colon-separated).
+`TAP_LOG_LEVEL`, `TAP_DEFAULT_HUB`, `TAP_FALLBACK_HUB`, `TAP_DEFAULT_NAMESPACE`,
+`TAP_FALLBACK_NAMESPACE`, `TAP_DISABLE_DEFAULT_HUB`
+(`1`/`true`/`yes`/`on` → suppress the compiled-in `DefaultHubURL` fallback).
 
 Use `tap config --explain FIELD` to see which source set a value, or
 `tap config --show-sources` for all fields. The `--strict` flag makes config

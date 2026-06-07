@@ -81,7 +81,7 @@ func TestTap_Orient_TierClampsToBounds(t *testing.T) {
 	require.Contains(t, low, "tier 0")
 }
 
-func TestTap_Orient_FlightAtTier1EmitsPlaceholder(t *testing.T) {
+func TestTap_Orient_UnknownFlightEmitsNote(t *testing.T) {
 	t.Parallel()
 	tap := newOrientTap(t)
 	payload, err := tap.Orient(context.Background(), tapper.OrientOptions{
@@ -90,9 +90,32 @@ func TestTap_Orient_FlightAtTier1EmitsPlaceholder(t *testing.T) {
 			Flight: "f-demo",
 		},
 	})
-	require.NoError(t, err)
+	require.NoError(t, err, "orient must never hard-fail on an unknown flight")
 	require.Contains(t, payload, "## Flight `f-demo`")
-	require.Contains(t, payload, "not yet populated")
+	require.Contains(t, payload, "flight not found or carries no instructions")
+}
+
+func TestTap_Orient_FlightInjectsInstructions(t *testing.T) {
+	t.Parallel()
+	sb := sandbox.NewSandbox(t, &sandbox.Options{Home: "/home/testuser", User: "testuser"})
+	require.NoError(t, sb.Setwd("/home/testuser"))
+	tap, err := tapper.NewTap(tapper.TapOptions{Root: "/home/testuser", Runtime: sb.Runtime()})
+	require.NoError(t, err)
+
+	require.NoError(t, sb.Runtime().AtomicWriteFile(tap.PathService.UserConfig(),
+		[]byte("hubs:\n  home:\n    kind: local\n    namespace: local\n    basePath: /home/testuser/kegs\n"), 0o644))
+	require.NoError(t, sb.Runtime().AtomicWriteFile(
+		"/home/testuser/kegs/flights.d/backend.yaml",
+		[]byte("title: Backend\nallowedKegs: [personal]\ninstructions: Touch only backend kegs.\n"), 0o644))
+
+	payload, err := tap.Orient(context.Background(), tapper.OrientOptions{
+		Tier:             1,
+		KegTargetOptions: tapper.KegTargetOptions{Flight: "backend"},
+	})
+	require.NoError(t, err)
+	require.Contains(t, payload, "## Flight `backend`")
+	require.Contains(t, payload, "Touch only backend kegs.")
+	require.Contains(t, payload, "personal")
 }
 
 func TestTap_Orient_FlightAtTier0IsIgnored(t *testing.T) {

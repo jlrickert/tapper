@@ -21,6 +21,10 @@ func (t *Tap) Move(ctx context.Context, opts MoveOptions) error {
 		return fmt.Errorf("unable to open keg: %w", err)
 	}
 
+	// Move is an intra-keg rename: k.Move relocates a node from one id to
+	// another within a single keg. A cross-keg redirect has no meaning here
+	// (source and destination must share a keg), so both ids stay scoped to the
+	// resolved current keg via parseNodeID.
 	srcID, err := parseNodeID(opts.SourceID)
 	if err != nil {
 		return err

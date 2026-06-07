@@ -41,6 +41,10 @@ type ConfigService struct {
 	userCache    *Config
 	projectCache *Config
 
+	// projectWarnings holds load/trust-boundary warnings produced by the most
+	// recent project-config walk, surfaced through LoadWarnings by Config().
+	projectWarnings []ConfigLoadWarning
+
 	mergedCache *Config
 }
 
@@ -61,6 +65,7 @@ func (s *ConfigService) ResetCache() {
 	s.mergedCache = nil
 	s.userCache = nil
 	s.projectCache = nil
+	s.projectWarnings = nil
 	s.LoadWarnings = nil
 	s.ResolvedSources = nil
 }
@@ -79,19 +84,87 @@ func (s *ConfigService) UserConfig(cache bool) (*Config, error) {
 	return cfg, nil
 }
 
-// ProjectConfig returns the project-level configuration with optional caching.
-// If cache is true and a cached config exists, it returns the cached version.
-// Otherwise, it reads the config from the local config root and caches the result.
+// WalkConfigsUp returns the absolute paths of every existing rel file found by
+// walking from start up to the filesystem root, ordered DEEPEST-FIRST (nearest
+// to start first). Missing candidates are skipped. The user-global config is
+// not included; callers layer it underneath the returned project configs.
+func WalkConfigsUp(rt *toolkit.Runtime, start, rel string) []string {
+	var out []string
+	seen := map[string]bool{}
+	p := filepath.Clean(start)
+	for {
+		candidate := filepath.Join(p, rel)
+		if _, err := rt.Stat(candidate, false); err == nil && !seen[candidate] {
+			out = append(out, candidate)
+			seen[candidate] = true
+		}
+		parent := filepath.Dir(p)
+		if parent == p {
+			break
+		}
+		p = parent
+	}
+	return out
+}
+
+// ProjectConfig returns the merged project-level configuration with optional
+// caching. It walks from the workspace root up to the filesystem root,
+// collecting every .tapper/config.yaml, and merges them so a deeper directory
+// overrides a shallower one. Hub definitions and credentials are stripped from
+// project layers — only the user config may define them — and each strip is
+// recorded as a load warning surfaced by Config(). Returns keg.ErrNotExist when
+// no project config exists.
 func (s *ConfigService) ProjectConfig(cache bool) (*Config, error) {
 	if cache && s.projectCache != nil {
 		return s.projectCache, nil
 	}
-	cfg, err := ReadConfig(s.Runtime, filepath.Join(s.PathService.LocalConfigRoot, "config.yaml"))
-	if err != nil {
-		return nil, err
+
+	relDir := filepath.Base(s.PathService.LocalConfigRoot) // ".tapper"
+	rel := filepath.Join(relDir, "config.yaml")
+	paths := WalkConfigsUp(s.Runtime, s.PathService.Root, rel)
+
+	var (
+		merged   *Config
+		warnings []ConfigLoadWarning
+	)
+	// paths is deepest-first; merge shallowest→deepest so a deeper directory's
+	// values win.
+	for i := len(paths) - 1; i >= 0; i-- {
+		p := paths[i]
+		cfg, err := ReadConfig(s.Runtime, p)
+		if err != nil {
+			if errors.Is(err, keg.ErrNotExist) {
+				continue
+			}
+			warnings = append(warnings, ConfigLoadWarning{
+				Source:  "project config",
+				Path:    p,
+				Message: fmt.Sprintf("failed to load project config at %s: %v", p, err),
+				Err:     err,
+			})
+			continue
+		}
+		for _, field := range stripUntrustedFields(cfg) {
+			warnings = append(warnings, ConfigLoadWarning{
+				Source:  "project config",
+				Path:    p,
+				Message: fmt.Sprintf("ignored %s in project config at %s (hubs and credentials may only be set in the user config)", field, p),
+			})
+		}
+		if merged == nil {
+			merged = cfg
+		} else {
+			merged = MergeConfig(merged, cfg)
+		}
 	}
-	s.projectCache = cfg
-	return cfg, nil
+
+	s.projectWarnings = warnings
+	if merged == nil {
+		s.projectCache = nil
+		return nil, keg.ErrNotExist
+	}
+	s.projectCache = merged
+	return merged, nil
 }
 
 // Config returns the merged user and project configuration with optional caching.
@@ -185,6 +258,10 @@ func (s *ConfigService) Config(cache bool) (*Config, error) {
 
 	rv := cascade.Resolve(s.Runtime.Env().Get)
 	s.ResolvedSources = rv.Sources
+
+	// Surface trust-boundary / per-layer warnings accumulated by the project
+	// config walk (the cascade only sees the merged result).
+	s.LoadWarnings = append(s.LoadWarnings, s.projectWarnings...)
 
 	// Map cascade provider errors to LoadWarnings.
 	for _, pe := range rv.Errors {

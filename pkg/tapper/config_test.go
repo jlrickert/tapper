@@ -139,6 +139,100 @@ kegs:
 	require.Error(t, err, "expected ResolveAlias to error for unknown alias")
 }
 
+func TestResolveRef_NamespacePrecedence(t *testing.T) {
+	t.Parallel()
+	fx := NewSandbox(t)
+
+	raw := `defaultNamespace: defns
+fallbackNamespace: fbns
+hubs:
+  cloud:
+    kind: remote
+    url: https://example.com
+    namespace: hubns
+  bare:
+    kind: remote
+    url: https://bare.example.com
+kegs:
+  explicit: { hub: cloud, namespace: own, name: k }
+  perhub:   { hub: cloud, name: k }
+  defns:    { hub: bare, name: k }
+`
+	uc, err := tapper.ParseConfig([]byte(raw))
+	require.NoError(t, err)
+
+	// Explicit namespace on the ref wins over everything.
+	kt, err := uc.ResolveAlias(fx.Runtime(), "explicit")
+	require.NoError(t, err)
+	require.Equal(t, "cloud:@own/k", kt.String())
+
+	// Per-hub namespace beats the global defaultNamespace.
+	kt, err = uc.ResolveAlias(fx.Runtime(), "perhub")
+	require.NoError(t, err)
+	require.Equal(t, "cloud:@hubns/k", kt.String())
+
+	// A hub without its own namespace falls back to defaultNamespace.
+	kt, err = uc.ResolveAlias(fx.Runtime(), "defns")
+	require.NoError(t, err)
+	require.Equal(t, "bare:@defns/k", kt.String())
+
+	// fallbackNamespace applies only when no default/per-hub namespace exists.
+	rawFb := `fallbackNamespace: fbns
+hubs:
+  bare: { kind: remote, url: https://bare.example.com }
+kegs:
+  k: { hub: bare, name: k }
+`
+	ucFb, err := tapper.ParseConfig([]byte(rawFb))
+	require.NoError(t, err)
+	kt, err = ucFb.ResolveAlias(fx.Runtime(), "k")
+	require.NoError(t, err)
+	require.Equal(t, "bare:@fbns/k", kt.String())
+
+	// A remote hub with no namespace anywhere is an error.
+	rawErr := `hubs:
+  bare: { kind: remote, url: https://bare.example.com }
+kegs:
+  k: { hub: bare, name: k }
+`
+	ucErr, err := tapper.ParseConfig([]byte(rawErr))
+	require.NoError(t, err)
+	_, err = ucErr.ResolveAlias(fx.Runtime(), "k")
+	require.Error(t, err, "remote ref with no namespace must error")
+
+	// An invalid namespace (flights.d) is rejected at resolve time.
+	rawBad := `hubs:
+  bare: { kind: remote, url: https://x.example.com }
+kegs:
+  k: { hub: bare, namespace: flights.d, name: k }
+`
+	ucBad, err := tapper.ParseConfig([]byte(rawBad))
+	require.NoError(t, err)
+	_, err = ucBad.ResolveAlias(fx.Runtime(), "k")
+	require.Error(t, err, "flights.d namespace must be rejected")
+}
+
+func TestResolveRef_LocalLayout(t *testing.T) {
+	t.Parallel()
+	fx := NewSandbox(t)
+
+	raw := `hubs:
+  home:
+    kind: local
+    namespace: local
+    basePath: ` + filepath.Join(fx.GetJail(), "data", "kegs") + `
+kegs:
+  notes: { hub: home, name: notes }
+`
+	uc, err := tapper.ParseConfig([]byte(raw))
+	require.NoError(t, err)
+
+	kt, err := uc.ResolveAlias(fx.Runtime(), "notes")
+	require.NoError(t, err)
+	// Local kegs live under <basePath>/@<namespace>/<name>.
+	require.Contains(t, kt.String(), filepath.Join("@local", "notes"))
+}
+
 func TestResolveProjectKeg_PrefixAndRegexPrecedence(t *testing.T) {
 	t.Parallel()
 	fx := NewSandbox(t)

@@ -114,7 +114,7 @@ func TestInitCommand_TableDriven(t *testing.T) {
 				"--creator", "testcreator",
 			},
 			expectedAlias:      "public",
-			expectedLocation:   "~/.local/share/tapper/kegs/public",
+			expectedLocation:   "~/.local/share/tapper/kegs/@local/public",
 			expectConfigUpdate: true,
 			setupFixture:       strPtr("testuser"),
 			description:        "When no destination flag is provided, default destination should be user",
@@ -128,7 +128,7 @@ func TestInitCommand_TableDriven(t *testing.T) {
 				"--creator", "testcreator",
 			},
 			expectedAlias:      "public",
-			expectedLocation:   "~/.local/share/tapper/kegs/public",
+			expectedLocation:   "~/.local/share/tapper/kegs/@local/public",
 			expectConfigUpdate: true,
 			setupFixture:       strPtr("testuser"),
 			description:        "User keg with explicit --user flag",
@@ -141,7 +141,7 @@ func TestInitCommand_TableDriven(t *testing.T) {
 				"--creator", "me",
 			},
 			expectedAlias:      "myblog",
-			expectedLocation:   "~/.local/share/tapper/kegs/myblog",
+			expectedLocation:   "~/.local/share/tapper/kegs/@local/myblog",
 			expectConfigUpdate: true,
 			setupFixture:       strPtr("testuser"),
 			description:        "User keg should use --keg alias for directory name",
@@ -154,7 +154,7 @@ func TestInitCommand_TableDriven(t *testing.T) {
 				"--creator", "me",
 			},
 			expectedAlias:      "myproject",
-			expectedLocation:   "~/.local/share/tapper/kegs/myproject",
+			expectedLocation:   "~/.local/share/tapper/kegs/@local/myproject",
 			expectConfigUpdate: true,
 			setupFixture:       strPtr("testuser"),
 			cwd:                strPtr("/home/testuser/myproject"),
@@ -190,8 +190,8 @@ func TestInitCommand_TableDriven(t *testing.T) {
 			// Determine the base path for reading files (remove /dex/nodes.tsv from the location)
 			var baseKegPath string
 			if tt.setupFixture != nil {
-				// User kegs are at .local/share/tapper/kegs/{alias}
-				baseKegPath = "~/.local/share/tapper/kegs/" + tt.expectedAlias
+				// User kegs are at .local/share/tapper/kegs/@local/{alias}
+				baseKegPath = "~/.local/share/tapper/kegs/@local/" + tt.expectedAlias
 			} else {
 				// Project kegs are at the repo root
 				baseKegPath = ""
@@ -296,7 +296,7 @@ func TestInitCommand_FallsBackToPlatformDefaultWhenSearchPathsUnset(t *testing.T
 	require.NoError(t, res.Err, "init should succeed without preconfigured kegSearchPaths")
 	require.Contains(t, string(res.Stdout), "keg fresh created")
 
-	keg := sb.MustReadFile("~/.local/share/tapper/kegs/fresh/keg")
+	keg := sb.MustReadFile("~/.local/share/tapper/kegs/@local/fresh/keg")
 	require.Contains(t, string(keg), "$schema=",
 		"keg config should have been written under platform default data dir")
 }
@@ -351,7 +351,7 @@ func TestInitCommand_InteractivePrompt(t *testing.T) {
 	require.NoError(t, res.Err, "interactive init should succeed: stderr=%q", string(res.Stderr))
 	require.Contains(t, string(res.Stdout), "keg diary created (file-backed)")
 
-	keg := sb.MustReadFile("~/.local/share/tapper/kegs/diary/keg")
+	keg := sb.MustReadFile("~/.local/share/tapper/kegs/@local/diary/keg")
 	require.Contains(t, string(keg), "$schema=", "interactive init should have written the platform-default user keg")
 	require.Contains(t, string(keg), "title: My Diary")
 	require.Contains(t, string(keg), "creator: me@example")

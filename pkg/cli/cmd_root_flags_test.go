@@ -22,9 +22,14 @@ func TestTapHelp_ShowsPersistentKegTargetFlags(t *testing.T) {
 	require.Contains(t, stdout, "--flight")
 }
 
-func TestTap_FlightFlagMutuallyExclusiveWithKegTargetFlags(t *testing.T) {
+func TestTap_FlightFlagComposesWithKegTargetFlags(t *testing.T) {
 	t.Parallel()
 
+	// A flight is an overlay (keg restriction + instructions), not a target
+	// selector, so combining --flight with a single-keg selector must NOT raise
+	// the old cobra mutual-exclusivity error. The command may still fail for
+	// unrelated reasons (e.g. the flight not existing), but never with the mutex
+	// error.
 	cases := []struct {
 		name string
 		args []string
@@ -40,13 +45,9 @@ func TestTap_FlightFlagMutuallyExclusiveWithKegTargetFlags(t *testing.T) {
 			sb := NewSandbox(t)
 
 			res := NewProcess(t, false, c.args...).Run(sb.Context(), sb.Runtime())
-			require.Error(t, res.Err, "expected mutex error combining --flight with --%s", c.name)
 			combined := string(res.Stdout) + string(res.Stderr)
-			// Cobra's MarkFlagsMutuallyExclusive error format:
-			// "if any flags in the group [flight <other>] are set none of the others can be".
-			require.Contains(t, combined, "none of the others can be")
-			require.Contains(t, combined, "flight")
-			require.Contains(t, combined, c.name)
+			require.NotContains(t, combined, "none of the others can be",
+				"--flight must compose with --%s, not be mutually exclusive", c.name)
 		})
 	}
 }

@@ -95,6 +95,13 @@ var tapMethodToSurfaces = map[string]struct {
 	"Site":  {CLI: "site", MCP: "site"},
 	"Serve": {CLI: "mcp", MCP: "serve"},
 
+	// Flights (keg restriction + agent instructions)
+	"ListFlights": {CLI: "flight list", MCP: "list_flights"},
+	"GetFlight":   {CLI: "flight show", MCP: "flight_show"},
+
+	// Hub keg enumeration
+	"HubListKegs": {CLI: "hub list", MCP: "hub_list"},
+
 	// Agent integrations (Phase 3 / Phase 5)
 	"Orient":    {CLI: "orient", MCP: "orient"},
 	"Integrate": {CLI: "integrate", MCP: "integrate"},
@@ -114,6 +121,7 @@ var tapMethodsExcluded = map[string]string{
 	"KegConfigEdit":   "interactive editor; not exposed via MCP",
 	"ConfigEdit":      "interactive editor; not exposed via MCP",
 	"LookupKeg":       "internal resolution helper; not a user-facing operation",
+	"ResolveNodeRef":  "internal node-reference resolver shared by surfaces; not a user-facing operation",
 	"NewServeHandler": "internal HTTP handler factory; used by Serve",
 	"DoctorConfig":    "tapper-config health check helper; called by Doctor CLI/MCP surfaces",
 	"ConfigExplain":   "shares surface with Config via --explain flag / explain field",

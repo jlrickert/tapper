@@ -21,7 +21,7 @@ func (t *Tap) Stats(ctx context.Context, opts StatsOptions) (string, error) {
 		return "", fmt.Errorf("unable to open keg: %w", err)
 	}
 
-	node, err := parseNodeID(opts.NodeID)
+	k, node, err := t.resolveNodeArg(ctx, k, opts.NodeID)
 	if err != nil {
 		return "", err
 	}

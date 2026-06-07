@@ -57,6 +57,11 @@ func (t *Tap) Remove(ctx context.Context, opts RemoveOptions) error {
 	}
 
 	for _, nodeID := range nodeIDs {
+		// Intentionally NOT routed through resolveNodeArg. Query-derived ids come
+		// from the current keg's dex and are bare; mixing them with cross-keg
+		// refs that redirect a destructive Remove to another keg would be a
+		// surprising, hard-to-audit deletion. Remove stays scoped to the keg the
+		// caller selected with --keg.
 		id, err := parseNodeID(nodeID)
 		if err != nil {
 			return err

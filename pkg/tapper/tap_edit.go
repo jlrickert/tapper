@@ -55,7 +55,7 @@ func (t *Tap) Meta(ctx context.Context, opts MetaOptions) (string, error) {
 		return "", fmt.Errorf("unable to open keg: %w", err)
 	}
 
-	id, err := parseNodeID(opts.NodeID)
+	k, id, err := t.resolveNodeArg(ctx, k, opts.NodeID)
 	if err != nil {
 		return "", err
 	}
@@ -127,7 +127,7 @@ func (t *Tap) Edit(ctx context.Context, opts EditOptions) error {
 		return fmt.Errorf("unable to open keg: %w", err)
 	}
 
-	id, err := parseNodeID(opts.NodeID)
+	k, id, err := t.resolveNodeArg(ctx, k, opts.NodeID)
 	if err != nil {
 		return err
 	}

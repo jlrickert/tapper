@@ -149,7 +149,9 @@ func (t *Tap) Cat(ctx context.Context, opts CatOptions) (string, error) {
 
 // catSingleNode reads and formats a single node's content according to opts.
 func (t *Tap) catSingleNode(ctx context.Context, k *keg.Keg, nodeID string, opts CatOptions) (string, error) {
-	node, err := parseNodeID(nodeID)
+	// A cross-keg ref (keg:<alias>/<id> or keg:@<ns>/<keg>/<id>) redirects to
+	// its owning keg; a bare id stays on the passed-in current keg.
+	k, node, err := t.resolveNodeArg(ctx, k, nodeID)
 	if err != nil {
 		return "", err
 	}
@@ -229,7 +231,9 @@ func formatContentWithID(id string, content []byte) string {
 // stream output. It injects the node ID into every output mode so each
 // document is self-identifying.
 func (t *Tap) catSingleNodeForStream(ctx context.Context, k *keg.Keg, nodeID string, opts CatOptions) (string, error) {
-	node, err := parseNodeID(nodeID)
+	// Each streamed node resolves independently, so a multi-node cat may mix
+	// bare ids (current keg) with cross-keg refs that redirect elsewhere.
+	k, node, err := t.resolveNodeArg(ctx, k, nodeID)
 	if err != nil {
 		return "", err
 	}

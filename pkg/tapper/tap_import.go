@@ -234,7 +234,11 @@ func resolveImportSourceAlias(rawIDs []string, fromFlag string) (string, []strin
 	return alias, bareIDs, nil
 }
 
-// parseImportNodeIDs converts raw node ID strings to NodeId values.
+// parseImportNodeIDs converts raw node ID strings to NodeId values. These ids
+// are scoped to the import's source keg, which import selects through its own
+// --from alias / "alias/id" syntax, so they are deliberately parsed as bare ids
+// rather than routed through resolveNodeArg (whose keg: redirect would collide
+// with import's own keg-selection mechanism).
 func parseImportNodeIDs(rawIDs []string) ([]keg.NodeId, error) {
 	ids := make([]keg.NodeId, 0, len(rawIDs))
 	for _, raw := range rawIDs {
