@@ -118,15 +118,16 @@ var tapMethodToSurfaces = map[string]struct {
 // surface coverage checks. These are internal helpers, config accessors, or
 // methods that are not meant to be directly exposed as standalone tools.
 var tapMethodsExcluded = map[string]string{
-	"KegConfigEdit":   "interactive editor; not exposed via MCP",
-	"ConfigEdit":      "interactive editor; not exposed via MCP",
-	"LookupKeg":       "internal resolution helper; not a user-facing operation",
-	"ResolveNodeRef":  "internal node-reference resolver shared by surfaces; not a user-facing operation",
-	"NewServeHandler": "internal HTTP handler factory; used by Serve",
-	"DoctorConfig":    "tapper-config health check helper; called by Doctor CLI/MCP surfaces",
-	"ConfigExplain":   "shares surface with Config via --explain flag / explain field",
-	"AuthLogout":      "security: MCP agents must not be able to revoke hub credentials; CLI-only by design",
-	"Bootstrap":       "CLI-only onboarding; writes user config + drives interactive login, not an MCP operation",
+	"KegConfigEdit":         "interactive editor; not exposed via MCP",
+	"ConfigEdit":            "interactive editor; not exposed via MCP",
+	"LookupKeg":             "internal resolution helper; not a user-facing operation",
+	"ResolveNodeRef":        "internal node-reference resolver shared by surfaces; not a user-facing operation",
+	"NewServeHandler":       "internal HTTP handler factory; used by Serve",
+	"DoctorConfig":          "tapper-config health check helper; called by Doctor CLI/MCP surfaces",
+	"ConfigExplain":         "shares surface with Config via --explain flag / explain field",
+	"AuthLogout":            "security: MCP agents must not be able to revoke hub credentials; CLI-only by design",
+	"Bootstrap":             "CLI-only onboarding; writes user config + drives interactive login, not an MCP operation",
+	"SetBootstrapNamespace": "CLI-only bootstrap step; adopts the hub's default namespace after login, not an MCP operation",
 }
 
 // TestCoverage_AllTapMethodsHaveBothSurfaces uses reflection to enumerate
