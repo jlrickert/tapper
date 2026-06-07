@@ -62,9 +62,9 @@ func TestAuthStoreTokenResolver_ResolveToken(t *testing.T) {
 			want:   "",
 		},
 		{
-			name:   "hub target derives https://<hub>",
+			name:   "keg target keyed by resolved HubURL",
 			store:  newStore(),
-			target: keg.Target{Hub: altHubHost, Namespace: "me", KegName: "demo"},
+			target: keg.Target{Hub: "alt", Namespace: "me", KegName: "demo", HubURL: "https://" + altHubHost},
 			want:   altHubToken,
 		},
 		{

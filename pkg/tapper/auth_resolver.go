@@ -192,17 +192,13 @@ func hubRootFromTarget(target *keg.Target) string {
 			return ""
 		}
 		return fmt.Sprintf("%s://%s", parsed.Scheme, parsed.Host)
-	case keg.SchemeHub:
-		// Prefer the resolved hub URL (set from the configured hubs map) so the
-		// auth store is keyed by the real host. Fall back to the legacy
-		// "https://<hub-name>" form when HubURL is unset.
+	case keg.SchemeAlias:
+		// Key the auth store by the resolved hub host. HubURL is set from the
+		// configured hubs map during resolution; without it there is no hub to
+		// authenticate against.
 		base := strings.TrimSpace(target.HubURL)
 		if base == "" {
-			hub := strings.TrimSpace(target.Hub)
-			if hub == "" {
-				return ""
-			}
-			base = "https://" + hub
+			return ""
 		}
 		parsed, err := url.Parse(hubURLWithScheme(base))
 		if err != nil || parsed.Host == "" {

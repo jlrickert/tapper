@@ -35,10 +35,11 @@ var dupSlashRE = regexp.MustCompile(`/+`)
 //   - Mapping form with "url" and optional user/password/token/tokenEnv.
 //     Query params like "readonly", "token", and "token-env" are honored.
 //
-// - Hub API shorthand and structured form:
-//   - Compact scalar shorthand "hub:@user/keg" (canonical), with
-//     "hub:user/keg" and "hub:/@user/keg" accepted as input variants.
-//   - Mapping form with "hub", "namespace", and "kegName" fields.
+// - Keg reference shorthand and structured form:
+//   - Compact scalar shorthand "keg:@namespace/keg" (canonical; namespace
+//     optional as "keg:keg"). The hub is resolved from the namespace, never
+//     encoded. "keg:/@namespace/keg" is accepted as an input variant.
+//   - Mapping form with "namespace" and "kegName" (and an optional "hub" pin).
 //
 // Fields:
 //
@@ -58,14 +59,16 @@ type Target struct {
 	// File is the file to use when the Target is a file
 	File string `yaml:"file,omitempty"`
 
-	// Hub is the hub name used to resolve the Namespace and KegName into an API target
+	// Hub is an optional explicit hub pin for a keg reference. It is normally
+	// empty: the hub is resolved from the Namespace via the tapper config's
+	// namespaces map. The canonical keg reference does not carry a hub.
 	Hub string `yaml:"hub,omitempty"`
 
 	// HubURL is the resolved base URL for the hub (for example
 	// "https://atlas.foldwise.ai"). It is derived at resolution time from the
-	// tapper config's hubs map and is intentionally not serialized. When empty,
-	// NewKegFromTarget falls back to the legacy "https://<Hub>/..." composition
-	// for backward compatibility.
+	// tapper config's hubs map and is intentionally not serialized. A keg
+	// reference that reaches NewKegFromTarget without it was never resolved
+	// against a hub and is rejected.
 	HubURL string `yaml:"-"`
 
 	// Url is the url for the target when represented as a scalar or explicit
@@ -106,7 +109,6 @@ const (
 	SchemeHTTP   = "http"
 	SchemeHTTPs  = "https"
 	SchemeAlias  = "keg"
-	SchemeHub    = "hub"
 	SchemeS3     = "s3"
 )
 
@@ -181,15 +183,16 @@ func WithToken(token string) HTTPOption {
 // Accepted input forms:
 //   - File paths (absolute, ./, ../, ~, Windows drive). These produce File
 //     targets.
-//   - Compact hub shorthand "hub:@user/keg" (canonical) or its accepted
-//     variants "hub:user/keg" and "hub:/@user/keg". The leading "@"
-//     sigil marks the namespace; it is stripped on parse so the stored
-//     User never carries it, and re-applied by Path() and String().
+//   - Canonical keg reference "keg:@namespace/keg" (namespace optional as
+//     "keg:keg"); "keg:/@namespace/keg" is an accepted variant. The leading
+//     "@" sigil marks the namespace and is stripped on parse so the stored
+//     namespace never carries it; Path() and String() re-apply it. The hub is
+//     resolved from the namespace, never encoded in the reference.
 //   - HTTP/HTTPS URL scalars.
 //   - Any URL-like scalar parsed by url.Parse.
 //
 // The function is permissive with common variants (extra whitespace, duplicate
-// slashes). It returns an error for empty or malformed shorthand inputs.
+// slashes). It returns an error for empty or malformed keg references.
 func Parse(raw string) (*Target, error) {
 	value := strings.TrimSpace(raw)
 	if value == "" {
@@ -203,31 +206,29 @@ func Parse(raw string) (*Target, error) {
 			File: filepath.Clean(strings.TrimPrefix(value, "file://")),
 		}
 		return &t, nil
-	case SchemeHub:
-		// Accept compact hub shorthand. Canonical form is
-		// "hub:@user/keg"; "hub:user/keg" and "hub:/@user/keg" parse
-		// equivalently. The "@" sigil is stripped here so the stored
-		// User never carries it; Path() and String() re-apply it.
-		if m := scalarApiRE.FindStringSubmatch(value); m != nil {
-			hub := m[1]
-			rest := strings.TrimSpace(m[2])
-			rest = strings.TrimPrefix(rest, "/")
-			parts := strings.SplitN(rest, "/", 2)
+	case SchemeAlias:
+		// Canonical keg reference: "keg:@namespace/kegName" (namespace optional →
+		// "keg:kegName"). The hub is NOT encoded — it is resolved from the
+		// namespace via config. "keg:/@ns/keg" parses equivalently. The "@" sigil
+		// is stripped here; Path() and String() re-apply it. To pin a hub, use
+		// the structured mapping form ({hub, namespace, name}).
+		body := strings.TrimSpace(strings.TrimPrefix(value, SchemeAlias+":"))
+		body = strings.TrimPrefix(body, "/")
+		var t Target
+		if ns, ok := strings.CutPrefix(body, "@"); ok {
+			parts := strings.SplitN(ns, "/", 2)
 			if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-				return nil, fmt.Errorf("malformed target shorthand: %s", raw)
+				return nil, fmt.Errorf("malformed keg reference %q: expected keg:@namespace/keg", raw)
 			}
-			namespace := strings.TrimPrefix(parts[0], "@")
-			if namespace == "" {
-				return nil, fmt.Errorf("malformed target shorthand: %s", raw)
+			t.Namespace = parts[0]
+			t.KegName = parts[1]
+		} else {
+			if body == "" {
+				return nil, fmt.Errorf("malformed keg reference %q", raw)
 			}
-			kegName := parts[1]
-			t := Target{
-				Hub:       hub,
-				Namespace: namespace,
-				KegName:   kegName,
-			}
-			return &t, nil
+			t.KegName = body
 		}
+		return &t, nil
 	case SchemeHTTP:
 		if !strings.HasPrefix(value, "http://") {
 			value = "http://" + value
@@ -356,15 +357,21 @@ func (k *Target) UnmarshalYAML(node *yaml.Node) error {
 	}
 }
 
-// String returns a human-friendly representation of the target. For hub
-// API form it returns the canonical "hub:@user/keg" form. For file it
-// returns the file path. For HTTP targets it returns the canonical Url.
+// String returns a human-friendly representation of the target. A keg
+// reference renders in the canonical "keg:@namespace/kegName" form (namespace
+// omitted as "keg:kegName" when unset). The hub is NOT part of the reference —
+// it is resolved from the namespace via config — so the scheme is always the
+// real "keg" scheme, never a hub name. File targets return the file path; HTTP
+// targets return the canonical Url.
 func (kt *Target) String() string {
 	switch kt.Scheme() {
 	case SchemeFile:
 		return kt.File
-	case SchemeHub:
-		return kt.Hub + ":@" + kt.Namespace + "/" + kt.KegName
+	case SchemeAlias:
+		if kt.Namespace != "" {
+			return SchemeAlias + ":@" + kt.Namespace + "/" + kt.KegName
+		}
+		return SchemeAlias + ":" + kt.KegName
 	case SchemeHTTP, SchemeHTTPs:
 		return kt.Url
 	default:
@@ -373,15 +380,16 @@ func (kt *Target) String() string {
 	}
 }
 
-// Scheme reports the inferred scheme for this Target value. Hub implies the
-// keg API scheme. File implies a local file scheme. Otherwise we fall back to
+// Scheme reports the inferred scheme for this Target value. A keg reference
+// (identified by a Namespace owner, or an explicit Hub pin) implies the keg
+// scheme. File implies a local file scheme. Otherwise we fall back to
 // detectScheme on the Url.
 func (kt *Target) Scheme() string {
 	if kt.File != "" {
 		return SchemeFile
 	}
-	if kt.Hub != "" {
-		return SchemeHub
+	if kt.Hub != "" || kt.Namespace != "" {
+		return SchemeAlias
 	}
 	return detectScheme(kt.Url)
 }
@@ -415,7 +423,7 @@ func (kt *Target) Path() string {
 	switch kt.Scheme() {
 	case SchemeFile:
 		return filepath.Clean(kt.File)
-	case SchemeHub:
+	case SchemeAlias:
 		// Re-apply the @ sigil on the namespace; the stored value never carries it.
 		return filepath.Join("@"+kt.Namespace, kt.KegName)
 	default:
@@ -424,20 +432,18 @@ func (kt *Target) Path() string {
 	}
 }
 
-// detectScheme returns SchemeHTTPs or SchemeFile based on the form of raw.
-// It recognizes explicit http/https/file schemes and the compact hub
-// shorthand form. Typical filesystem path forms are classified as SchemeFile.
+// detectScheme classifies raw into a scheme. It recognizes the explicit
+// http/https/file URL schemes, the "keg:" keg-reference scheme, and otherwise
+// treats typical filesystem path forms as SchemeFile.
 func detectScheme(raw string) string {
 	if raw == "" {
 		return SchemeFile
 	}
-	if m := scalarApiRE.FindStringSubmatch(raw); m != nil {
-		rest := strings.TrimSpace(m[2])
-		rest = strings.TrimPrefix(rest, "/")
-		parts := strings.SplitN(rest, "/", 2)
-		if len(parts) == 2 && parts[0] != "" && parts[1] != "" {
-			return SchemeHub
-		}
+	// The keg scheme is the only "<scheme>:<rest>" scalar we own. A prefix that
+	// is not "keg" is not a keg reference (it falls through to URL/file
+	// classification) — there is no "<hub>:@ns/keg" shorthand.
+	if m := scalarApiRE.FindStringSubmatch(raw); m != nil && m[1] == SchemeAlias {
+		return SchemeAlias
 	}
 
 	// Try to parse as a URL first. This catches explicit schemes like

@@ -270,7 +270,7 @@ func TestInitCommand_DestinationValidation(t *testing.T) {
 		res := h.Run(sb.Context(), sb.Runtime())
 
 		require.Error(innerT, res.Err)
-		require.Contains(innerT, string(res.Stderr), "only one destination may be selected")
+		require.Contains(innerT, string(res.Stderr), "cannot be combined with a local destination")
 	})
 
 	t.Run("cwd_conflicts_with_user_flag", func(innerT *testing.T) {
@@ -281,7 +281,7 @@ func TestInitCommand_DestinationValidation(t *testing.T) {
 		res := h.Run(sb.Context(), sb.Runtime())
 
 		require.Error(innerT, res.Err)
-		require.Contains(innerT, string(res.Stderr), "only one destination may be selected")
+		require.Contains(innerT, string(res.Stderr), "cannot be combined with a local destination")
 	})
 }
 

@@ -205,9 +205,11 @@ func (a *ApiRepo) HasNode(ctx context.Context, id NodeId) (bool, error) {
 	}
 }
 
-// Next implements Repository.
+// Next implements Repository. There is no /nodes/next endpoint; a bare
+// POST /nodes reserves the next id server-side (the same reservation the old
+// allocate endpoint performed) and returns it without persisting any content.
 func (a *ApiRepo) Next(ctx context.Context) (NodeId, error) {
-	resp, err := a.do(ctx, http.MethodPost, "/nodes/next", nil, "")
+	resp, err := a.do(ctx, http.MethodPost, "/nodes", nil, "")
 	if err != nil {
 		return NodeId{}, err
 	}
@@ -221,6 +223,53 @@ func (a *ApiRepo) Next(ctx context.Context) (NodeId, error) {
 	}
 	if err := json.Unmarshal(body, &result); err != nil {
 		return NodeId{}, NewBackendError(a.Name(), "Next", 0,
+			fmt.Errorf("invalid response: %w", err), false)
+	}
+	return NodeId{ID: result.ID}, nil
+}
+
+// CreateNode implements RepositoryNodeCreator: it allocates an id and persists
+// the node's initial content/meta/stats in a single POST /nodes call. content
+// and meta travel as JSON strings; stats as the same JSON shape the
+// /nodes/{id}/stats endpoint accepts. Returns the server-assigned id.
+func (a *ApiRepo) CreateNode(ctx context.Context, in NodeCreate) (NodeId, error) {
+	var req struct {
+		Content *string         `json:"content,omitempty"`
+		Meta    *string         `json:"meta,omitempty"`
+		Stats   json.RawMessage `json:"stats,omitempty"`
+	}
+	if in.Content != nil {
+		s := string(in.Content)
+		req.Content = &s
+	}
+	if in.Meta != nil {
+		s := string(in.Meta)
+		req.Meta = &s
+	}
+	if in.Stats != nil {
+		sb, err := in.Stats.ToJSON()
+		if err != nil {
+			return NodeId{}, NewBackendError(a.Name(), "CreateNode", 0, err, false)
+		}
+		req.Stats = sb
+	}
+	payload, err := json.Marshal(req)
+	if err != nil {
+		return NodeId{}, NewBackendError(a.Name(), "CreateNode", 0, err, false)
+	}
+	resp, err := a.do(ctx, http.MethodPost, "/nodes", bytes.NewReader(payload), "application/json")
+	if err != nil {
+		return NodeId{}, err
+	}
+	body, err := a.readBody(resp, "CreateNode", http.StatusCreated, http.StatusOK)
+	if err != nil {
+		return NodeId{}, err
+	}
+	var result struct {
+		ID int `json:"id"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return NodeId{}, NewBackendError(a.Name(), "CreateNode", 0,
 			fmt.Errorf("invalid response: %w", err), false)
 	}
 	return NodeId{ID: result.ID}, nil

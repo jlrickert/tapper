@@ -20,8 +20,10 @@ func registerRepoTools(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults
 // --- repo_init ---
 
 type repoInitInput struct {
-	Keg            string `json:"keg" jsonschema:"keg alias for the new repository"`
-	User           bool   `json:"user,omitempty" jsonschema:"create under user keg search path (default true)"`
+	Keg            string `json:"keg" jsonschema:"keg name for the new repository"`
+	Namespace      string `json:"namespace,omitempty" jsonschema:"namespace the keg belongs to; empty resolves via config. Use 'local' to pin this machine's filesystem hub"`
+	Hub            string `json:"hub,omitempty" jsonschema:"hub override; empty resolves the hub from the namespace"`
+	User           bool   `json:"user,omitempty" jsonschema:"pin the reserved @local namespace (filesystem hub)"`
 	Project        bool   `json:"project,omitempty" jsonschema:"create under project path"`
 	Path           string `json:"path,omitempty" jsonschema:"explicit filesystem path (implies project destination)"`
 	Title          string `json:"title,omitempty" jsonschema:"keg title"`
@@ -40,6 +42,8 @@ func registerRepoInit(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults)
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in repoInitInput) (*sdkmcp.CallToolResult, any, error) {
 		opts := tapper.InitOptions{
 			Keg:            in.Keg,
+			Namespace:      in.Namespace,
+			Hub:            in.Hub,
 			User:           in.User,
 			Project:        in.Project,
 			Path:           in.Path,
@@ -49,10 +53,9 @@ func registerRepoInit(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults)
 		}
 		_ = in.NonInteractive // MCP never prompts; field exists for parity with the CLI flag
 
-		// Default to user destination when nothing else is set.
-		if !opts.User && !opts.Project && opts.Path == "" {
-			opts.User = true
-		}
+		// Destination resolves namespace→hub: a bare name lands in the default
+		// namespace+hub (typically a remote create); namespace "local" or --user
+		// pins this machine's filesystem hub. No implicit local default here.
 
 		target, err := tap.InitKeg(ctx, opts)
 		if err != nil {

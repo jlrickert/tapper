@@ -35,18 +35,18 @@
     },
     "kegs": {
       "type": "object",
-      "description": "Map of alias names to (hub, namespace, name) keg references.",
+      "description": "Map of keg name to keg reference. Primary role: disambiguate which namespace a keg name belongs to when the same name could resolve into more than one namespace (set 'namespace'). The full (hub, namespace, name) triple is still honored for explicit pins and legacy configs.",
       "additionalProperties": {
         "type": "object",
-        "description": "A keg reference. Use the (hub, namespace, name) triple; an empty hub falls back to defaultHub/fallbackHub and an empty namespace falls back to defaultNamespace/fallbackNamespace. 'path' is a legacy/explicit local-filesystem escape hatch that takes precedence over the triple.",
+        "description": "A keg reference. Set 'namespace' to pin which namespace this keg name resolves into (the common case). The (hub, name) fields explicitly pin the rest; an empty hub falls back through namespaces[ns].hub then defaultHub/fallbackHub. 'path' is a legacy/explicit local-filesystem escape hatch that takes precedence over the triple.",
         "properties": {
           "hub": {
             "type": "string",
-            "description": "Hub name this keg lives on. Empty uses defaultHub then fallbackHub."
+            "description": "Hub name this keg lives on. Empty resolves from the namespace (namespaces[ns].hub) then defaultHub/fallbackHub."
           },
           "namespace": {
             "type": "string",
-            "description": "Namespace owner. The @ sigil is implied; do not include it. Empty uses defaultNamespace then fallbackNamespace."
+            "description": "Namespace this keg name belongs to. The @ sigil is implied; do not include it. Empty uses defaultNamespace then fallbackNamespace."
           },
           "name": {
             "type": "string",
@@ -55,6 +55,21 @@
           "path": {
             "type": "string",
             "description": "Explicit local filesystem path. When set it takes precedence over the triple (legacy/escape hatch)."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "namespaces": {
+      "type": "object",
+      "description": "Map of namespace name to the hub that hosts it. Role: disambiguate which hub a namespace lives on when the same namespace could exist on more than one configured hub. An entry here wins over the defaultHub/fallbackHub chain during namespace→hub resolution.",
+      "additionalProperties": {
+        "type": "object",
+        "description": "A namespace reference. The scalar shorthand (a bare hub name) is also accepted on load and normalized to {hub: <name>}.",
+        "properties": {
+          "hub": {
+            "type": "string",
+            "description": "Hub name that hosts this namespace. Empty falls back to the hub precedence chain (defaultHub → fallbackHub → sole hub → compiled-in default)."
           }
         },
         "additionalProperties": false
@@ -98,7 +113,7 @@
           },
           "namespace": {
             "type": "string",
-            "description": "Default namespace for kegs resolved against this hub when the reference omits its namespace. A hub hosts many namespaces; this is only the default. The @ sigil is implied; do not include it. For the local hub this is 'local' (addressed as @local). Takes precedence over the global defaultNamespace/fallbackNamespace."
+            "description": "Default namespace for kegs resolved against this hub when the reference omits its namespace. A hub hosts many namespaces; this is only the default. The @ sigil is implied; do not include it. For the local hub this is 'local' (addressed as @local). In the namespace-centric model this is a LOWER-precedence source than defaultNamespace/fallbackNamespace — it applies only on hub-first paths after those chains yield nothing."
           },
           "url": {
             "type": "string",

@@ -24,49 +24,59 @@ When no explicit target is supplied, tapper resolves the alias in this order:
 2. `kegMap` match (`pathRegex` first, then longest `pathPrefix`)
 3. `fallbackKeg`
 
-## 3. Alias Resolution
+## 3. Namespace-centric model
 
-A selected alias is looked up in the `kegs` map and resolved to a concrete
-target. Each `kegs` entry is a `(hub, namespace, name)` triple — an empty `hub`
-or `namespace` is filled in by the chains below. A legacy `path` field is an
-explicit local-filesystem escape hatch that takes precedence over the triple.
+Resolution flows **keg name → namespace → hub → backend**. A keg is identified
+by `@<namespace>/<name>`; the namespace determines which hub hosts it. Two
+config maps disambiguate each hop:
 
-## 4. Hub Precedence
+- **`kegs`** maps a keg name to the namespace it belongs in — the conflict
+  resolver for a name that could live in more than one namespace. The full
+  `(hub, namespace, name)` triple is still honored for explicit pins and legacy
+  configs; a legacy `path` field is an explicit local-filesystem escape hatch.
+- **`namespaces`** maps a namespace to the hub that hosts it — the conflict
+  resolver for a namespace that could live on more than one hub. The scalar
+  shorthand `myns: atlas` is accepted and normalized to `myns: {hub: atlas}`.
 
-When a keg reference omits its `hub`, tapper picks one in this order, stopping at
-the first match:
+## 4. Namespace Precedence
 
-1. explicit `hub` on the reference
-2. `defaultHub` (high-precedence slot — set in project config)
-3. `fallbackHub` (last-resort slot — set in user config)
-4. the sole configured hub (or the alphabetically-first when several exist)
-5. the compiled-in `atlas` remote hub (`https://atlas.foldwise.ai`)
-
-Setting `disableDefaultHub: true` (or `TAP_DISABLE_DEFAULT_HUB=1`) removes step
-5: hub-dependent commands then fail with a clear error instead of silently
-reaching the compiled-in default.
-
-The reserved `local` namespace is a special case — a reference whose namespace
-is `local` and whose hub is empty pins this machine's local (filesystem) hub
-rather than walking the chain above.
-
-## 5. Namespace Precedence
-
-Once the hub is known, an omitted `namespace` is resolved in this order:
+An omitted `namespace` is resolved **first**, in this order:
 
 1. explicit `namespace` on the reference
-2. the hub's own `namespace` (its default — a hub hosts many namespaces)
+2. `kegs[name].namespace` (the name → namespace map)
 3. `defaultNamespace` (high-precedence slot — set in project config)
 4. `fallbackNamespace` (last-resort slot — set in user config)
-5. for a local hub, the reserved `local` namespace (addressed as `@local`); for
-   a remote hub, an error (no namespace could be resolved)
+5. once the hub is known: the hub's own `namespace` default, then the reserved
+   `local` namespace for a local hub; a remote hub with nothing resolved is an
+   error
 
 Namespaces must be a single portable path segment (`[a-z0-9_-]+`, no dots or
 slashes).
 
-## 6. On-Disk Layout For Local Kegs
+## 5. Hub Precedence
 
-A local-hub keg resolves to a file target at:
+The hosting hub is resolved **from the namespace**, in this order:
+
+1. explicit `hub` on the reference
+2. `namespaces[ns].hub` (the namespace → hub map)
+3. the reserved `local` namespace pins this machine's local (filesystem) hub
+4. `defaultHub` (high-precedence slot — set in project config)
+5. `fallbackHub` (last-resort slot — set in user config)
+6. the sole configured hub (or the alphabetically-first when several exist)
+7. the compiled-in `atlas` remote hub (`https://atlas.foldwise.ai`)
+
+Setting `disableDefaultHub: true` (or `TAP_DISABLE_DEFAULT_HUB=1`) removes step
+7: hub-dependent commands then fail with a clear error instead of silently
+reaching the compiled-in default.
+
+## 6. Keg references and on-disk layout
+
+A keg reference is the `keg` scheme — `keg:@<namespace>/<name>` (the namespace is
+optional: `keg:<name>`). The hub is **not** part of the reference; it is
+resolved from the namespace via the chains above. A node within a keg appends
+the node id: `keg:@<namespace>/<name>/<nodeID>`.
+
+A local-hub keg resolves to a file target on disk at:
 
 ```text
 <basePath>/@<namespace>/<name>

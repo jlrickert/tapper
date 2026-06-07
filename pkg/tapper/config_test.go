@@ -79,8 +79,9 @@ unknownKey: value
 func TestParseUserConfig_KegExamples(t *testing.T) {
 	t.Parallel()
 
-	// Keg values are (hub, namespace, name) triples. Hub shorthand
-	// ("hub:@ns/name") is accepted on input and normalized to the triple form.
+	// Keg values are (hub, namespace, name) triples. The canonical keg scalar
+	// shorthand ("keg:@ns/name") is accepted on input and normalized to the
+	// triple form; the hub is resolved from the namespace, so it is not pinned.
 	raw := `hubs:
   work:
     kind: remote
@@ -88,7 +89,7 @@ func TestParseUserConfig_KegExamples(t *testing.T) {
     tokenEnv: WORK_TOKEN
 kegs:
   notes: { hub: work, namespace: alice, name: notes }
-  short: "work:@bob/blog"
+  short: "keg:@bob/blog"
 `
 
 	uc, err := tapper.ParseConfig([]byte(raw))
@@ -96,7 +97,7 @@ kegs:
 
 	kegs := uc.Kegs()
 	require.Equal(t, tapper.KegRef{Hub: "work", Namespace: "alice", Name: "notes"}, kegs["notes"])
-	require.Equal(t, tapper.KegRef{Hub: "work", Namespace: "bob", Name: "blog"}, kegs["short"])
+	require.Equal(t, tapper.KegRef{Namespace: "bob", Name: "blog"}, kegs["short"])
 
 	data, err := uc.ToYAML()
 	require.NoError(t, err)
@@ -127,12 +128,12 @@ kegs:
 	kt, err := uc.ResolveAlias(fx.Runtime(), "main")
 	require.NoError(t, err, "expected ResolveAlias to succeed for existing alias")
 	require.NotNil(t, kt)
-	require.Equal(t, "remote:@alice/main", kt.String())
+	require.Equal(t, "keg:@alice/main", kt.String())
 
 	kt2, err := uc.ResolveAlias(fx.Runtime(), "nested")
 	require.NoError(t, err, "expected ResolveAlias to succeed for nested mapping")
 	require.NotNil(t, kt2)
-	require.Equal(t, "remote:@bob/notes", kt2.String())
+	require.Equal(t, "keg:@bob/notes", kt2.String())
 
 	// Missing alias yields an error
 	_, err = uc.ResolveAlias(fx.Runtime(), "missing")
@@ -164,17 +165,34 @@ kegs:
 	// Explicit namespace on the ref wins over everything.
 	kt, err := uc.ResolveAlias(fx.Runtime(), "explicit")
 	require.NoError(t, err)
-	require.Equal(t, "cloud:@own/k", kt.String())
+	require.Equal(t, "keg:@own/k", kt.String())
 
-	// Per-hub namespace beats the global defaultNamespace.
+	// In the namespace-centric model the global defaultNamespace outranks the
+	// per-hub default namespace (the per-hub default is now a last resort).
 	kt, err = uc.ResolveAlias(fx.Runtime(), "perhub")
 	require.NoError(t, err)
-	require.Equal(t, "cloud:@hubns/k", kt.String())
+	require.Equal(t, "keg:@defns/k", kt.String())
 
 	// A hub without its own namespace falls back to defaultNamespace.
 	kt, err = uc.ResolveAlias(fx.Runtime(), "defns")
 	require.NoError(t, err)
-	require.Equal(t, "bare:@defns/k", kt.String())
+	require.Equal(t, "keg:@defns/k", kt.String())
+
+	// The per-hub namespace applies only as a last resort: when no explicit,
+	// kegs[name], defaultNamespace, or fallbackNamespace value exists.
+	rawPerhubLast := `hubs:
+  cloud:
+    kind: remote
+    url: https://example.com
+    namespace: hubns
+kegs:
+  k: { hub: cloud, name: k }
+`
+	ucPerhub, err := tapper.ParseConfig([]byte(rawPerhubLast))
+	require.NoError(t, err)
+	kt, err = ucPerhub.ResolveAlias(fx.Runtime(), "k")
+	require.NoError(t, err)
+	require.Equal(t, "keg:@hubns/k", kt.String())
 
 	// fallbackNamespace applies only when no default/per-hub namespace exists.
 	rawFb := `fallbackNamespace: fbns
@@ -187,7 +205,7 @@ kegs:
 	require.NoError(t, err)
 	kt, err = ucFb.ResolveAlias(fx.Runtime(), "k")
 	require.NoError(t, err)
-	require.Equal(t, "bare:@fbns/k", kt.String())
+	require.Equal(t, "keg:@fbns/k", kt.String())
 
 	// A remote hub with no namespace anywhere is an error.
 	rawErr := `hubs:
@@ -210,6 +228,56 @@ kegs:
 	require.NoError(t, err)
 	_, err = ucBad.ResolveAlias(fx.Runtime(), "k")
 	require.Error(t, err, "flights.d namespace must be rejected")
+}
+
+func TestResolveRef_NamespaceCentric(t *testing.T) {
+	t.Parallel()
+	fx := NewSandbox(t)
+
+	// kegs[name].Namespace disambiguates the namespace; namespaces[ns].Hub
+	// (struct form) and the scalar shorthand both pin the hosting hub.
+	raw := `defaultHub: cloud
+hubs:
+  cloud:
+    kind: remote
+    url: https://cloud.example.com
+  work:
+    kind: remote
+    url: https://work.example.com
+namespaces:
+  teamns: { hub: work }
+  scalarns: cloud
+kegs:
+  example: { namespace: teamns }
+`
+	uc, err := tapper.ParseConfig([]byte(raw))
+	require.NoError(t, err)
+
+	// name "example" → namespace "teamns" (kegs) → hub "work" (namespaces).
+	// Assert on the resolved fields rather than String() so the test is
+	// independent of the hub target's textual representation.
+	kt, err := uc.ResolveRef(fx.Runtime(), tapper.KegRef{Name: "example"})
+	require.NoError(t, err)
+	require.Equal(t, "work", kt.Hub)
+	require.Equal(t, "teamns", kt.Namespace)
+	require.Equal(t, "example", kt.KegName)
+
+	// An explicit namespace with a scalar-shorthand namespaces entry.
+	kt, err = uc.ResolveRef(fx.Runtime(), tapper.KegRef{Namespace: "scalarns", Name: "k"})
+	require.NoError(t, err)
+	require.Equal(t, "cloud", kt.Hub)
+	require.Equal(t, "scalarns", kt.Namespace)
+
+	// A namespace with no namespaces[ns] entry falls back to defaultHub.
+	kt, err = uc.ResolveRef(fx.Runtime(), tapper.KegRef{Namespace: "lone", Name: "k"})
+	require.NoError(t, err)
+	require.Equal(t, "cloud", kt.Hub)
+	require.Equal(t, "lone", kt.Namespace)
+
+	// The reserved @local namespace pins this machine's filesystem hub.
+	kt, err = uc.ResolveRef(fx.Runtime(), tapper.KegRef{Namespace: tapper.LocalHubName, Name: "notes"})
+	require.NoError(t, err)
+	require.Contains(t, kt.String(), filepath.Join("@local", "notes"))
 }
 
 func TestResolveRef_LocalLayout(t *testing.T) {
@@ -265,19 +333,19 @@ kegMap:
 	pathRegexMatch := filepath.Join(fx.GetJail(), "x", "special")
 	kt, err := uc.ResolveKegMap(fx.Runtime(), pathRegexMatch)
 	require.NoError(t, err, "expected ResolveProjectKeg to match regex")
-	require.Equal(t, "remote:@ns/regex", kt.String())
+	require.Equal(t, "keg:@ns/regex", kt.String())
 
 	// Path that matches both proj and projfoo should choose the longest prefix
 	pathLongPrefix := filepath.Join(fx.GetJail(), "projects", "foo", "bar")
 	kt2, err := uc.ResolveKegMap(fx.Runtime(), pathLongPrefix)
 	require.NoError(t, err, "expected ResolveProjectKeg to match a prefix")
-	require.Equal(t, "remote:@ns/projfoo", kt2.String())
+	require.Equal(t, "keg:@ns/projfoo", kt2.String())
 
 	// Path that only matches proj prefix
 	pathProj := filepath.Join(fx.GetJail(), "projects", "other")
 	kt3, err := uc.ResolveKegMap(fx.Runtime(), pathProj)
 	require.NoError(t, err, "expected ResolveProjectKeg to match proj prefix")
-	require.Equal(t, "remote:@ns/proj", kt3.String())
+	require.Equal(t, "keg:@ns/proj", kt3.String())
 
 	// Path that matches nothing yields an alias-not-found error
 	pathNone := filepath.Join(fx.GetJail(), "unmatched")

@@ -199,6 +199,14 @@ func (t *Tap) Bootstrap(ctx context.Context, opts BootstrapOptions) (*BootstrapR
 	if err := cfg.SetFallbackNamespace(namespace); err != nil {
 		return nil, err
 	}
+	// Record the namespace→hub mapping so namespace-centric resolution routes
+	// this namespace to the bootstrapped hub. With it set, a bare `tap init
+	// <name>` resolves through fallbackNamespace → this hub.
+	if namespace != "" {
+		if err := cfg.SetNamespace(namespace, NamespaceRef{Hub: hubName}); err != nil {
+			return nil, err
+		}
+	}
 
 	warnings := ValidateConfig(cfg)
 
@@ -247,6 +255,14 @@ func (t *Tap) SetBootstrapNamespace(ctx context.Context, hubName, namespace stri
 	}
 	if err := cfg.SetFallbackNamespace(namespace); err != nil {
 		return err
+	}
+	// Adopt the namespace→hub mapping so the user's home namespace routes to
+	// the hub they logged into (the conflict resolver in the namespace-centric
+	// model). Skipped when hubName is unknown/blank.
+	if strings.TrimSpace(hubName) != "" {
+		if err := cfg.SetNamespace(namespace, NamespaceRef{Hub: hubName}); err != nil {
+			return err
+		}
 	}
 	if err := cfg.Write(t.Runtime, t.PathService.UserConfig()); err != nil {
 		return err
