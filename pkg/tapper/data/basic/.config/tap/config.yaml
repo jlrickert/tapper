@@ -3,10 +3,6 @@ defaultKeg: blog
 kegMap:
   - alias: blog
     pathPrefix: ./
-kegs:
-  blog: knut:jlrickert/blog
-  pub: ~/kegs/public
-  priv: ~/kegs/private
 defaultHub: knut
 hubs:
   - name: knut
