@@ -24,12 +24,10 @@ below).
 
 ## Key Reference
 
-- `fallbackKeg`: last-resort alias when no default/map match resolves
-- `defaultKeg`: optional alias used first when no keg flag is provided
-- `kegs`: map of keg name → keg reference. Primary role: disambiguate which
-  **namespace** a keg name belongs to (`kegs[name].namespace`) when the same
-  name could resolve into more than one. The full `(hub, namespace, name)`
-  triple is still honored for explicit pins and legacy configs.
+- `fallbackKeg`: last-resort keg reference when no default/map match resolves
+- `defaultKeg`: optional keg reference used first when no keg flag is provided.
+  A reference is a bare name, `@namespace/name`, `keg:@namespace/name`, or a path
+  — resolved through the namespace-centric chain (there is no `kegs` alias map).
 - `namespaces`: map of namespace → hosting hub
   (`namespaces[ns].hub`, or the scalar shorthand `ns: hub`). Role: disambiguate
   which **hub** a namespace lives on when it could exist on more than one. An
@@ -105,10 +103,22 @@ kind:
 
 It always writes a local hub **keyed by the machine hostname** with
 `namespace: local` (the reserved `@local`), plus the remote hub for
-cloud/enterprise. It writes the **fallback** slots (`fallbackHub` /
-`fallbackNamespace`), not the default slots — the project config owns the
-high-precedence `default*` slots. It is idempotent: re-running only touches the
-fallback slots and the kind's hub entry, leaving your `kegs`/`kegMap` untouched.
+cloud/enterprise. It writes the **fallback** hub (`fallbackHub`), not the
+default slot — the project config owns the high-precedence `default*` slots.
+
+It does **not** write a global `fallbackNamespace` or a per-user `namespaces`
+entry. The preferred namespace comes from the resolved hub's own `namespace`
+field: `@local` for the local hub, and your home namespace for cloud/enterprise
+(left empty until `tap auth login` adopts it from the hub's whoami probe). The
+only `namespaces` entry written is `local → <local hub>`, pinning `@local` to
+this machine.
+
+It is idempotent: re-running only touches the fallback hub, the local namespace
+mapping, and the kind's hub entry, leaving your `kegMap` and any
+`fallbackNamespace` you set by hand untouched. It also asks for a default keg and
+records it as `fallbackKeg` (the global-user slot) so plain `tap` commands
+resolve one after setup, while a project's `defaultKeg` or a `kegMap` rule can
+still override it.
 
 ## Hub Resolution Chain
 
@@ -131,10 +141,6 @@ fallbackKeg: pub
 kegMap:
   - alias: pub
     pathPrefix: ~/repos/github.com
-kegs:
-  pub:
-    namespace: local
-    name: public
 namespaces:
   # which hub hosts each namespace (the namespace→hub conflict resolver)
   local: my-laptop          # scalar shorthand for {hub: my-laptop}
@@ -145,10 +151,15 @@ hubs:
     basePath: ~/Documents/kegs
 ```
 
+Here `fallbackKeg: pub` and the `kegMap` alias `pub` are both keg references —
+bare name `pub`, resolved via `fallbackNamespace: local` to `@local/pub` at
+`~/Documents/kegs/@local/pub`.
+
 ## Common Mistakes
 
-- Alias mismatch: `defaultKeg`, `fallbackKeg`, or `kegMap.alias` points to an
-  alias that does not exist in `kegs`.
+- Unresolvable reference: `defaultKeg`, `fallbackKeg`, or `kegMap.alias` is a
+  bare name with no `defaultNamespace`/`fallbackNamespace`, or names a keg that
+  does not exist on the resolved hub.
 - No namespace resolvable: a remote-hub reference with no explicit, per-hub,
   default, or fallback namespace errors out. Local-hub references fall back to
   `@local`.

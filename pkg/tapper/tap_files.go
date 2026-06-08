@@ -102,7 +102,7 @@ func (t *Tap) UploadFile(ctx context.Context, opts UploadFileOptions) (string, e
 		return "", fmt.Errorf("unable to inspect node: %w", err)
 	}
 	if !exists {
-		return "", fmt.Errorf("node %s not found", id.Path())
+		return "", fmt.Errorf("node %s not found in %s", id.Path(), describeKeg(k))
 	}
 	data, err := t.Runtime.ReadFile(opts.FilePath)
 	if err != nil {
@@ -214,7 +214,7 @@ func (t *Tap) UploadImage(ctx context.Context, opts UploadImageOptions) (string,
 		return "", fmt.Errorf("unable to inspect node: %w", err)
 	}
 	if !exists {
-		return "", fmt.Errorf("node %s not found", id.Path())
+		return "", fmt.Errorf("node %s not found in %s", id.Path(), describeKeg(k))
 	}
 	data, err := t.Runtime.ReadFile(opts.FilePath)
 	if err != nil {

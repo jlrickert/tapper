@@ -3,8 +3,52 @@ package tapper
 import (
 	"testing"
 
+	"github.com/jlrickert/tapper/pkg/keg"
 	"github.com/stretchr/testify/require"
 )
+
+func TestDescribeKeg(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		k    *keg.Keg
+		want string
+	}{
+		{
+			name: "nil keg",
+			k:    nil,
+			want: "the resolved keg",
+		},
+		{
+			name: "nil target",
+			k:    &keg.Keg{},
+			want: "the resolved keg",
+		},
+		{
+			name: "remote keg shows ref and hub url",
+			k:    &keg.Keg{Target: &keg.Target{Namespace: "jlrickert", KegName: "example", HubURL: "https://tapper-1-jlrickert.dev.foldwise.ai"}},
+			want: "keg:@jlrickert/example (hub https://tapper-1-jlrickert.dev.foldwise.ai)",
+		},
+		{
+			name: "local keg shows ref without hub",
+			k:    &keg.Keg{Target: &keg.Target{Namespace: "local", KegName: "example"}},
+			want: "keg:@local/example",
+		},
+		{
+			name: "file keg shows path",
+			k:    &keg.Keg{Target: &keg.Target{File: "/home/me/kegs/notes"}},
+			want: "/home/me/kegs/notes",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, tt.want, describeKeg(tt.k))
+		})
+	}
+}
 
 func TestFormatFrontmatter_ClosingDelimiterOnOwnLine(t *testing.T) {
 	t.Parallel()

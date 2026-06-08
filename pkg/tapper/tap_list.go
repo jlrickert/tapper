@@ -318,7 +318,7 @@ func (t *Tap) resolveAndLookupLinks(
 			return []string{}, fmt.Errorf("unable to inspect node: %w", err)
 		}
 		if !exists {
-			return []string{}, fmt.Errorf("node %s not found", id.Path())
+			return []string{}, fmt.Errorf("node %s not found in %s", id.Path(), describeKeg(k))
 		}
 
 		related, ok := lookup(dex, id)

@@ -2,7 +2,8 @@
 
 These examples use the current config shape: hubs are a name-keyed map, each
 with its own default `namespace`, and local kegs live at
-`<basePath>/@<namespace>/<name>`.
+`<basePath>/@<namespace>/<name>`. A keg is named by reference — a bare name, an
+`@namespace/name` reference, or a path — there is no `kegs` alias map.
 
 ## Single Laptop Setup
 
@@ -12,7 +13,6 @@ fallbackHub: my-laptop
 fallbackNamespace: local
 fallbackKeg: pub
 kegMap: []
-kegs: {}
 hubs:
   my-laptop:
     kind: local
@@ -36,7 +36,6 @@ kegMap:
     pathPrefix: ~/repos/github.com
   - alias: work
     pathPrefix: ~/repos/github.com/work
-kegs: {}
 hubs:
   my-laptop:
     kind: local
@@ -44,7 +43,9 @@ hubs:
     basePath: ~/Documents/kegs
 ```
 
-This routes different repo roots to different aliases.
+This routes different repo roots to different kegs. Each `alias` is a keg
+reference (here the bare names `pub` and `work`, which resolve to
+`@local/pub` and `@local/work`).
 
 ## Project Override Setup
 
@@ -55,16 +56,12 @@ fallbackKeg: tapper
 defaultHub: my-laptop
 defaultNamespace: local
 kegMap: []
-kegs:
-  tapper:
-    hub: local
-    namespace: local
-    name: tapper
 ```
 
 This makes the repository default to the `tapper` keg on the local hub
-(`<basePath>/@local/tapper`). Hubs and credentials cannot be set here — only in
-user config.
+(`<basePath>/@local/tapper`): `defaultKeg: tapper` resolves its namespace from
+`defaultNamespace: local`, and the local namespace selects the local hub. Hubs
+and credentials cannot be set here — only in user config.
 
 ## Hub-Oriented Setup
 
@@ -72,13 +69,8 @@ user config.
 # ~/.config/tapper/config.yaml
 fallbackHub: knut
 fallbackNamespace: me
-fallbackKeg: pub
+fallbackKeg: public
 kegMap: []
-kegs:
-  pub:
-    hub: knut
-    namespace: me
-    name: public
 hubs:
   knut:
     kind: remote
@@ -87,9 +79,10 @@ hubs:
     tokenEnv: KNUT_API_KEY
 ```
 
-Use this when aliases should resolve to API-style hub targets instead of local
-file paths. Because the `knut` hub sets `namespace: me`, references against it
-omit their namespace and still resolve under `@me`.
+Use this when references should resolve to API-style hub targets instead of
+local file paths. `fallbackKeg: public` resolves its namespace from
+`fallbackNamespace: me` and its hub from that namespace, yielding
+`keg:@me/public` on the `knut` hub.
 
 ## Air-Gapped / SOC2 Setup
 
@@ -99,11 +92,6 @@ fallbackHub: my-laptop
 fallbackNamespace: local
 fallbackKeg: local
 disableDefaultHub: true
-kegs:
-  local:
-    hub: my-laptop
-    namespace: local
-    name: local
 hubs:
   my-laptop:
     kind: local
@@ -126,5 +114,10 @@ tap bootstrap --kind local             # local hub only
 tap bootstrap --kind enterprise --endpoint keg.acme.com
 ```
 
-Bootstrap writes the fallback slots and the built-in local hub (keyed by the
-machine hostname); see [User Config](user-config.md#tap-bootstrap).
+Bootstrap writes `fallbackHub`, the built-in local hub (keyed by the machine
+hostname), and the `local → <local hub>` namespace mapping, then asks for a
+default keg and records it as `fallbackKeg` so plain `tap` commands resolve one
+immediately (a project's `defaultKeg` or `kegMap` still overrides it). It does
+not write a global `fallbackNamespace`: the namespace comes from the resolved
+hub's own `namespace` field (adopted from the hub at login for cloud/enterprise).
+See [User Config](user-config.md#tap-bootstrap).

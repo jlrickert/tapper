@@ -69,7 +69,7 @@ func (t *Tap) Remove(ctx context.Context, opts RemoveOptions) error {
 
 		if err := k.Remove(ctx, id); err != nil {
 			if errors.Is(err, keg.ErrNotExist) {
-				return fmt.Errorf("node %s not found", id.Path())
+				return fmt.Errorf("node %s not found in %s", id.Path(), describeKeg(k))
 			}
 			return fmt.Errorf("unable to remove node %s: %w", id.Path(), err)
 		}

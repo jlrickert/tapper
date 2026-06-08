@@ -23,7 +23,7 @@ func TestConfigCommand_DisplaysMergedConfig(t *testing.T) {
 			name:             "config_displays_merged_config",
 			args:             []string{"config"},
 			setupFixture:     strPtr("joe"),
-			expectedInStdout: []string{"defaultKeg:", "kegs:"},
+			expectedInStdout: []string{"defaultKeg:", "hubs:"},
 			description:      "Display merged configuration from user config",
 		},
 		{
@@ -40,10 +40,11 @@ func TestConfigCommand_DisplaysMergedConfig(t *testing.T) {
 			expectedInStdout: []string{
 				"# yaml-language-server: $schema=https://raw.githubusercontent.com/jlrickert/tapper/main/schemas/tap-config.json",
 				"fallbackHub:",
-				"fallbackNamespace:",
+				"namespaces:",
+				"namespace: pub",
 				"hubs:",
 			},
-			description: "User template should include the fallback hub/namespace and hubs map",
+			description: "User template should include the fallback hub, the local namespace mapping, the per-hub namespace, and the hubs map",
 		},
 		{
 			name:         "config_template_project_includes_new_keys",
@@ -106,7 +107,9 @@ func TestConfigCommand_IntegrationWithInit(t *testing.T) {
 		}
 		sb := NewSandbox(innerT, opts...)
 
-		// First, initialize a user keg
+		// First, initialize a user keg. With the namespace-centric model the
+		// keg lands on the local hub on disk; init no longer mutates the user
+		// config to register an alias.
 		initCmd := NewProcess(innerT, false,
 			"init",
 			"--user",
@@ -116,14 +119,20 @@ func TestConfigCommand_IntegrationWithInit(t *testing.T) {
 		initRes := initCmd.Run(sb.Context(), sb.Runtime())
 		require.NoError(innerT, initRes.Err, "init should succeed")
 
-		// Now display the tap config
+		// The keg directory exists on the local hub under @local/.
+		newstudyKeg := sb.MustReadFile("~/kegs/@local/newstudy/keg")
+		require.Contains(innerT, string(newstudyKeg), "$schema=",
+			"init should have written the keg under the local hub")
+
+		// Now display the tap config; it should still render the user config
+		// (hubs + defaultKeg) and remain unmodified by init.
 		configCmd := NewProcess(innerT, false, "config")
 		configRes := configCmd.Run(sb.Context(), sb.Runtime())
 		require.NoError(innerT, configRes.Err, "config should succeed after init")
 
 		stdout := string(configRes.Stdout)
-		require.Contains(innerT, stdout, "kegs:", "output should contain kegs section")
-		require.Contains(innerT, stdout, "newstudy", "output should contain the new keg alias")
+		require.Contains(innerT, stdout, "hubs:", "output should contain hubs section")
+		require.Contains(innerT, stdout, "defaultKeg:", "output should contain defaultKeg")
 	})
 }
 

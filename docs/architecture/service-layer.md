@@ -47,10 +47,10 @@ Notable behavior:
    `token`/`tokenEnv` from any walked project config (user config only). Each
    strip becomes a `ConfigLoadWarning` surfaced by `Config()`; `--strict`
    escalates warnings to errors.
-4. Alias resolution (`Config.ResolveAlias` → `ResolveRef`) looks the alias up in
-   the merged `kegs` map and applies the hub and namespace default/fallback
-   chains plus the per-hub-kind backend mapping (local → `<basePath>/@<ns>/<name>`;
-   remote/readonly → `<hub-url>/api/v1/kegs/@<ns>/<name>`).
+4. Reference resolution (`Config.ResolveAlias` → `ResolveRef`) parses the keg
+   selector into a reference (`parseKegRef`) and applies the hub and namespace
+   default/fallback chains plus the per-hub-kind backend mapping (local →
+   `<basePath>/@<ns>/<name>`; remote/readonly → `<hub-url>/api/v1/@<ns>/kegs/@<name>`).
 
 ## KegService
 

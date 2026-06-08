@@ -33,7 +33,6 @@ var tapMethodToSurfaces = map[string]struct {
 	"Tags":        {CLI: "tags", MCP: "tags"},
 	"Backlinks":   {CLI: "backlinks", MCP: "backlinks"},
 	"Links":       {CLI: "links", MCP: "links"},
-	"ListKegs":    {CLI: "repo list", MCP: "list_kegs"},
 	"Info":        {CLI: "settings", MCP: "info"},
 	"KegInfo":     {CLI: "info", MCP: "keg_info"},
 	"Stats":       {CLI: "stats", MCP: "stats"},
@@ -76,8 +75,7 @@ var tapMethodToSurfaces = map[string]struct {
 	// Repo management
 	// MCP tool name kept as "repo_init" for backward compatibility with
 	// existing agent integrations; CLI surface is the top-level `tap init`.
-	"InitKeg":    {CLI: "init", MCP: "repo_init"},
-	"RemoveRepo": {CLI: "repo rm", MCP: "repo_rm"},
+	"InitKeg": {CLI: "init", MCP: "repo_init"},
 
 	// Config operations
 	"Config":         {CLI: "config", MCP: "config"},
@@ -128,6 +126,7 @@ var tapMethodsExcluded = map[string]string{
 	"AuthLogout":            "security: MCP agents must not be able to revoke hub credentials; CLI-only by design",
 	"Bootstrap":             "CLI-only onboarding; writes user config + drives interactive login, not an MCP operation",
 	"SetBootstrapNamespace": "CLI-only bootstrap step; adopts the hub's default namespace after login, not an MCP operation",
+	"SetFallbackKeg":        "CLI-only bootstrap step; persists the chosen keg as the user-level fallback after login, not an MCP operation",
 }
 
 // TestCoverage_AllTapMethodsHaveBothSurfaces uses reflection to enumerate

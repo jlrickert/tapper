@@ -255,16 +255,19 @@ func (s *KegService) resolveFileKeg(ctx context.Context, root string, cache bool
 
 // resolvePath resolves the effective keg alias from config for the given path and returns its keg.
 //
-// Precedence: kegMap (path-specific) → defaultKeg (general) → fallbackKeg (last resort).
+// Precedence: defaultKeg (authoritative, project-set) → kegMap (path-specific)
+// → fallbackKeg (global-user last resort). The default* slots are meant for
+// project config and win first; kegMap routes by path; fallback* are what
+// `tap bootstrap` writes for the global user so anything more specific overrides.
 func (s *KegService) resolvePath(ctx context.Context, path string, cache bool) (*keg.Keg, error) {
 	s.ensureCache()
 	cfg, err := s.ConfigService.Config(true)
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve path config: %w", err)
 	}
-	kegAlias := cfg.LookupAlias(s.Runtime, path)
+	kegAlias := cfg.DefaultKeg()
 	if kegAlias == "" {
-		kegAlias = cfg.DefaultKeg()
+		kegAlias = cfg.LookupAlias(s.Runtime, path)
 	}
 	if kegAlias == "" {
 		kegAlias = cfg.FallbackKeg()
@@ -275,7 +278,13 @@ func (s *KegService) resolvePath(ctx context.Context, path string, cache bool) (
 	return s.resolveKegAlias(ctx, kegAlias, path, cache)
 }
 
-// resolveKegAlias resolves a keg alias from config and optionally falls back to project-local alias resolution.
+// resolveKegAlias resolves a keg selector from config and falls back to
+// project-local resolution. The selector is a keg reference string (a bare
+// name, @ns/name, keg:..., or a path), resolved via the namespace-centric
+// chain in ConfigService.ResolveTarget. When that yields no target — e.g. a
+// bare name with no namespace/hub configured — a project-local keg at
+// <project>/kegs/<name> answers instead, so local project kegs work without
+// any config (the documented last-resort tier).
 func (s *KegService) resolveKegAlias(ctx context.Context, kegAlias string, projectRoot string, cache bool) (*keg.Keg, error) {
 	s.ensureCache()
 	if kegAlias == "" {
@@ -285,17 +294,11 @@ func (s *KegService) resolveKegAlias(ctx context.Context, kegAlias string, proje
 		return s.kegCache[kegAlias], nil
 	}
 
-	cfg, cfgErr := s.ConfigService.Config(cache)
-	if cfgErr != nil {
-		return nil, fmt.Errorf("failed to resolve keg alias config: %w", cfgErr)
-	}
-	_, configured := cfg.Kegs()[kegAlias]
-
 	target, err := s.ConfigService.ResolveTarget(kegAlias, cache)
 	if err == nil && target != nil {
-		k, err := keg.NewKegFromTarget(ctx, *target, s.Runtime, keg.WithTokenResolver(s.tokenResolver()))
-		if err != nil {
-			return k, err
+		k, kerr := keg.NewKegFromTarget(ctx, *target, s.Runtime, keg.WithTokenResolver(s.tokenResolver()))
+		if kerr != nil {
+			return k, kerr
 		}
 		if k != nil {
 			s.injectDexOpts(k)
@@ -304,10 +307,12 @@ func (s *KegService) resolveKegAlias(ctx context.Context, kegAlias string, proje
 		return k, nil
 	}
 
-	// If alias is not configured, allow project-local alias fallback: <project>/kegs/<alias>.
-	// This supports local project kegs without requiring config entries.
-	if !configured {
-		if projectKeg, found, projectErr := s.resolveProjectAlias(ctx, projectRoot, kegAlias, cache); projectErr != nil {
+	// ResolveTarget could not turn the selector into a target. A bare keg name
+	// (no namespace, hub, or path) may instead name a project-local keg at
+	// <project>/kegs/<name> — resolve it so local project kegs work without
+	// requiring any config entries.
+	if ref := parseKegRef(kegAlias); ref.Name != "" && ref.Namespace == "" && ref.Hub == "" && ref.Path == "" {
+		if projectKeg, found, projectErr := s.resolveProjectAlias(ctx, projectRoot, ref.Name, cache); projectErr != nil {
 			return nil, projectErr
 		} else if found {
 			if cache && projectKeg != nil {
@@ -322,7 +327,7 @@ func (s *KegService) resolveKegAlias(ctx context.Context, kegAlias string, proje
 		return nil, err
 	}
 
-	return nil, fmt.Errorf("keg alias %q could not be resolved", kegAlias)
+	return nil, fmt.Errorf("keg %q could not be resolved", kegAlias)
 }
 
 // resolveProjectAlias resolves a project-local alias at <project>/kegs/<alias>/keg when present.

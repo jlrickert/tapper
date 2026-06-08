@@ -159,9 +159,9 @@ func (t *Tap) catSingleNode(ctx context.Context, k *keg.Keg, nodeID string, opts
 	content, err := k.Repo.ReadContent(ctx, node)
 	if err != nil {
 		if errors.Is(err, keg.ErrNotExist) {
-			return "", fmt.Errorf("node %s not found", node.Path())
+			return "", fmt.Errorf("node %s not found in %s: %w", node.Path(), describeKeg(k), err)
 		}
-		return "", fmt.Errorf("unable to read node content: %w", err)
+		return "", fmt.Errorf("unable to read node %s in %s: %w", node.Path(), describeKeg(k), err)
 	}
 
 	meta, err := k.Repo.ReadMeta(ctx, node)
@@ -241,9 +241,9 @@ func (t *Tap) catSingleNodeForStream(ctx context.Context, k *keg.Keg, nodeID str
 	content, err := k.Repo.ReadContent(ctx, node)
 	if err != nil {
 		if errors.Is(err, keg.ErrNotExist) {
-			return "", fmt.Errorf("node %s not found", node.Path())
+			return "", fmt.Errorf("node %s not found in %s: %w", node.Path(), describeKeg(k), err)
 		}
-		return "", fmt.Errorf("unable to read node content: %w", err)
+		return "", fmt.Errorf("unable to read node %s in %s: %w", node.Path(), describeKeg(k), err)
 	}
 
 	meta, err := k.Repo.ReadMeta(ctx, node)
