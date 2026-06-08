@@ -29,16 +29,20 @@ func TestKegService_QueryResolver_FavoriteIndex(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Write user config with an explicit local keg.
+	// Write user config with a local hub; the bare name "test" resolves to
+	// @local/test under the hub's basePath.
 	userCfg := `fallbackKeg: test
-kegs:
-  test: { path: /home/testuser/kegs/test }
+fallbackNamespace: local
+hubs:
+  home:
+    kind: local
+    basePath: /home/testuser/kegs
 `
 	require.NoError(t, fx.Runtime().Mkdir(tap.PathService.ConfigRoot, 0o755, true))
 	require.NoError(t, fx.Runtime().AtomicWriteFile(tap.PathService.UserConfig(), []byte(userCfg), 0o644))
 
 	// Create and init the keg directly (Init writes a proper config file).
-	kegDir := "/home/testuser/kegs/test"
+	kegDir := "/home/testuser/kegs/@local/test"
 	require.NoError(t, fx.Runtime().Mkdir(kegDir, 0o755, true))
 	initKeg, err := keg.NewKegFromTarget(fx.Context(), keg.NewFile(kegDir), fx.Runtime())
 	require.NoError(t, err)

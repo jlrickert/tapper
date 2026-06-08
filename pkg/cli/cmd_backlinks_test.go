@@ -30,7 +30,7 @@ func TestBacklinksCommand_TableDrivenErrors(t *testing.T) {
 			name:        "missing_alias",
 			args:        []string{"backlinks", "0", "--keg", "missing"},
 			fixture:     strPtr("joe"),
-			expectedErr: "keg alias not found",
+			expectedErr: "keg not initialized",
 		},
 		{
 			name:        "missing_node",

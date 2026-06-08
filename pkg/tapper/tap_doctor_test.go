@@ -27,13 +27,16 @@ func setupDoctorKeg(t *testing.T, mutate func(*keg.Config)) (*tapper.Tap, contex
 	require.NoError(t, err)
 
 	userCfg := `fallbackKeg: test
-kegs:
-  test: { path: /home/testuser/kegs/test }
+fallbackNamespace: local
+hubs:
+  home:
+    kind: local
+    basePath: /home/testuser/kegs
 `
 	require.NoError(t, fx.Runtime().Mkdir(tap.PathService.ConfigRoot, 0o755, true))
 	require.NoError(t, fx.Runtime().AtomicWriteFile(tap.PathService.UserConfig(), []byte(userCfg), 0o644))
 
-	kegDir := "/home/testuser/kegs/test"
+	kegDir := "/home/testuser/kegs/@local/test"
 	require.NoError(t, fx.Runtime().Mkdir(kegDir, 0o755, true))
 
 	k, err := keg.NewKegFromTarget(ctx, keg.NewFile(kegDir), fx.Runtime())
@@ -102,13 +105,16 @@ func TestDoctor_TagCheckDisabledByDefault(t *testing.T) {
 	require.NoError(t, err)
 
 	userCfg := `fallbackKeg: test
-kegs:
-  test: { path: /home/testuser/kegs/test }
+fallbackNamespace: local
+hubs:
+  home:
+    kind: local
+    basePath: /home/testuser/kegs
 `
 	require.NoError(t, fx.Runtime().Mkdir(tap.PathService.ConfigRoot, 0o755, true))
 	require.NoError(t, fx.Runtime().AtomicWriteFile(tap.PathService.UserConfig(), []byte(userCfg), 0o644))
 
-	kegDir := "/home/testuser/kegs/test"
+	kegDir := "/home/testuser/kegs/@local/test"
 	require.NoError(t, fx.Runtime().Mkdir(kegDir, 0o755, true))
 
 	k, err := keg.NewKegFromTarget(ctx, keg.NewFile(kegDir), fx.Runtime())
@@ -146,13 +152,16 @@ func TestDoctor_TagCheckEnabledReportsMissingTag(t *testing.T) {
 	require.NoError(t, err)
 
 	userCfg := `fallbackKeg: test
-kegs:
-  test: { path: /home/testuser/kegs/test }
+fallbackNamespace: local
+hubs:
+  home:
+    kind: local
+    basePath: /home/testuser/kegs
 `
 	require.NoError(t, fx.Runtime().Mkdir(tap.PathService.ConfigRoot, 0o755, true))
 	require.NoError(t, fx.Runtime().AtomicWriteFile(tap.PathService.UserConfig(), []byte(userCfg), 0o644))
 
-	kegDir := "/home/testuser/kegs/test"
+	kegDir := "/home/testuser/kegs/@local/test"
 	require.NoError(t, fx.Runtime().Mkdir(kegDir, 0o755, true))
 
 	k, err := keg.NewKegFromTarget(ctx, keg.NewFile(kegDir), fx.Runtime())

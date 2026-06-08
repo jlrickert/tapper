@@ -18,7 +18,6 @@ import (
 //	tap tags      -> tags        (both call Tap.Tags)
 //	tap backlinks -> backlinks   (both call Tap.Backlinks)
 //	tap links     -> links       (both call Tap.Links)
-//	tap repo list -> list_kegs   (both call Tap.ListKegs; CLI joins with spaces, MCP with newlines)
 //	tap config    -> info        (both call Tap.Info; MCP uses Minimal=true by default)
 //	tap info      -> keg_info    (both call Tap.KegInfo)
 //	tap stats     -> stats       (both call Tap.Stats)
@@ -332,23 +331,6 @@ func TestParity_ReadOperations(t *testing.T) {
 				// skips it, leaving empty output on both surfaces.
 				require.Empty(t, strings.TrimSpace(cliOut), "CLI should return empty after offset")
 				require.Empty(t, strings.TrimSpace(mcpOut), "MCP should return empty after offset")
-			},
-		},
-
-		// --- list_kegs (Tap.ListKegs) ---
-		//
-		// Known divergence: CLI joins aliases with spaces, MCP joins with
-		// newlines. CLI passes cache=true, MCP passes cache=false. The
-		// underlying aliases are the same.
-		{
-			Name:     "list_kegs/both_contain_personal",
-			CLIArgs:  []string{"repo", "list"},
-			MCPTool:  "list_kegs",
-			MCPInput: map[string]any{},
-			Compare: func(t *testing.T, cliOut, mcpOut string) {
-				t.Helper()
-				require.Contains(t, cliOut, "personal", "CLI should list personal keg")
-				require.Contains(t, mcpOut, "personal", "MCP should list personal keg")
 			},
 		},
 

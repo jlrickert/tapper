@@ -44,8 +44,9 @@ func TestClone_CopiesData(t *testing.T) {
 
 	raw := `# config header
 defaultKeg: main
-kegs:
-  main: "~/keg" # keep this inline
+kegMap:
+  - alias: main
+    pathPrefix: "~/projects" # keep this inline
 `
 
 	uc, err := tapper.ParseConfig([]byte(raw))
@@ -59,7 +60,7 @@ kegs:
 	out := string(data)
 
 	require.Contains(t, out, "defaultKeg: main")
-	require.Contains(t, out, "main:")
+	require.Contains(t, out, "pathPrefix: ~/projects")
 	require.NotContains(t, out, "# config header")
 	require.NotContains(t, out, "# keep this inline")
 }
@@ -76,68 +77,62 @@ unknownKey: value
 	require.Equal(t, "main", cfg.DefaultKeg())
 }
 
-func TestParseUserConfig_KegExamples(t *testing.T) {
+func TestParseUserConfig_IgnoresLegacyKegsBlock(t *testing.T) {
 	t.Parallel()
 
-	// Keg values are (hub, namespace, name) triples. The canonical keg scalar
-	// shorthand ("keg:@ns/name") is accepted on input and normalized to the
-	// triple form; the hub is resolved from the namespace, so it is not pinned.
-	raw := `hubs:
-  work:
-    kind: remote
-    url: https://work.example.com
-    tokenEnv: WORK_TOKEN
+	// The kegs alias map was removed; a config that still carries one must load
+	// without error (the block is silently ignored) so older configs keep
+	// working, and the block is dropped on re-serialize.
+	raw := `defaultKeg: notes
+fallbackNamespace: alice
 kegs:
   notes: { hub: work, namespace: alice, name: notes }
   short: "keg:@bob/blog"
 `
 
 	uc, err := tapper.ParseConfig([]byte(raw))
-	require.NoError(t, err, "ParseConfig failed")
-
-	kegs := uc.Kegs()
-	require.Equal(t, tapper.KegRef{Hub: "work", Namespace: "alice", Name: "notes"}, kegs["notes"])
-	require.Equal(t, tapper.KegRef{Namespace: "bob", Name: "blog"}, kegs["short"])
+	require.NoError(t, err, "ParseConfig must ignore a legacy kegs block")
+	require.Equal(t, "notes", uc.DefaultKeg())
 
 	data, err := uc.ToYAML()
 	require.NoError(t, err)
-	out := string(data)
-
-	// The canonical triple form and the hub definition round-trip.
-	require.Contains(t, out, "name: notes")
-	require.Contains(t, out, "namespace: alice")
-	require.Contains(t, out, "url: https://work.example.com")
+	require.NotContains(t, string(data), "kegs:", "the removed kegs block must not round-trip")
 }
 
 func TestResolveAlias_Behavior(t *testing.T) {
 	t.Parallel()
 	fx := NewSandbox(t)
 
-	raw := `hubs:
+	// ResolveAlias parses its argument as a keg reference (there is no alias
+	// table) and resolves it through the namespace-centric ResolveRef chain.
+	raw := `defaultHub: remote
+hubs:
   remote:
     kind: remote
     url: https://example.com
-kegs:
-  main: { hub: remote, namespace: alice, name: main }
-  nested: { hub: remote, namespace: bob, name: notes }
 `
 	uc, err := tapper.ParseConfig([]byte(raw))
 	require.NoError(t, err)
 
-	// Successful resolve
-	kt, err := uc.ResolveAlias(fx.Runtime(), "main")
-	require.NoError(t, err, "expected ResolveAlias to succeed for existing alias")
+	// A @namespace/name reference resolves namespace-centrically.
+	kt, err := uc.ResolveAlias(fx.Runtime(), "@alice/main")
+	require.NoError(t, err, "expected ResolveAlias to succeed for a qualified reference")
 	require.NotNil(t, kt)
 	require.Equal(t, "keg:@alice/main", kt.String())
 
-	kt2, err := uc.ResolveAlias(fx.Runtime(), "nested")
-	require.NoError(t, err, "expected ResolveAlias to succeed for nested mapping")
+	// The keg: scheme is accepted too.
+	kt2, err := uc.ResolveAlias(fx.Runtime(), "keg:@bob/notes")
+	require.NoError(t, err)
 	require.NotNil(t, kt2)
 	require.Equal(t, "keg:@bob/notes", kt2.String())
 
-	// Missing alias yields an error
+	// An empty selector errors.
+	_, err = uc.ResolveAlias(fx.Runtime(), "")
+	require.Error(t, err, "expected ResolveAlias to error for an empty selector")
+
+	// A bare name with no resolvable namespace errors (remote hub, no namespace).
 	_, err = uc.ResolveAlias(fx.Runtime(), "missing")
-	require.Error(t, err, "expected ResolveAlias to error for unknown alias")
+	require.Error(t, err, "expected ResolveAlias to error when no namespace resolves")
 }
 
 func TestResolveRef_NamespacePrecedence(t *testing.T) {
@@ -154,43 +149,37 @@ hubs:
   bare:
     kind: remote
     url: https://bare.example.com
-kegs:
-  explicit: { hub: cloud, namespace: own, name: k }
-  perhub:   { hub: cloud, name: k }
-  defns:    { hub: bare, name: k }
 `
 	uc, err := tapper.ParseConfig([]byte(raw))
 	require.NoError(t, err)
 
 	// Explicit namespace on the ref wins over everything.
-	kt, err := uc.ResolveAlias(fx.Runtime(), "explicit")
+	kt, err := uc.ResolveRef(fx.Runtime(), tapper.KegRef{Hub: "cloud", Namespace: "own", Name: "k"})
 	require.NoError(t, err)
 	require.Equal(t, "keg:@own/k", kt.String())
 
 	// In the namespace-centric model the global defaultNamespace outranks the
 	// per-hub default namespace (the per-hub default is now a last resort).
-	kt, err = uc.ResolveAlias(fx.Runtime(), "perhub")
+	kt, err = uc.ResolveRef(fx.Runtime(), tapper.KegRef{Hub: "cloud", Name: "k"})
 	require.NoError(t, err)
 	require.Equal(t, "keg:@defns/k", kt.String())
 
 	// A hub without its own namespace falls back to defaultNamespace.
-	kt, err = uc.ResolveAlias(fx.Runtime(), "defns")
+	kt, err = uc.ResolveRef(fx.Runtime(), tapper.KegRef{Hub: "bare", Name: "k"})
 	require.NoError(t, err)
 	require.Equal(t, "keg:@defns/k", kt.String())
 
 	// The per-hub namespace applies only as a last resort: when no explicit,
-	// kegs[name], defaultNamespace, or fallbackNamespace value exists.
+	// defaultNamespace, or fallbackNamespace value exists.
 	rawPerhubLast := `hubs:
   cloud:
     kind: remote
     url: https://example.com
     namespace: hubns
-kegs:
-  k: { hub: cloud, name: k }
 `
 	ucPerhub, err := tapper.ParseConfig([]byte(rawPerhubLast))
 	require.NoError(t, err)
-	kt, err = ucPerhub.ResolveAlias(fx.Runtime(), "k")
+	kt, err = ucPerhub.ResolveRef(fx.Runtime(), tapper.KegRef{Hub: "cloud", Name: "k"})
 	require.NoError(t, err)
 	require.Equal(t, "keg:@hubns/k", kt.String())
 
@@ -198,35 +187,29 @@ kegs:
 	rawFb := `fallbackNamespace: fbns
 hubs:
   bare: { kind: remote, url: https://bare.example.com }
-kegs:
-  k: { hub: bare, name: k }
 `
 	ucFb, err := tapper.ParseConfig([]byte(rawFb))
 	require.NoError(t, err)
-	kt, err = ucFb.ResolveAlias(fx.Runtime(), "k")
+	kt, err = ucFb.ResolveRef(fx.Runtime(), tapper.KegRef{Hub: "bare", Name: "k"})
 	require.NoError(t, err)
 	require.Equal(t, "keg:@fbns/k", kt.String())
 
 	// A remote hub with no namespace anywhere is an error.
 	rawErr := `hubs:
   bare: { kind: remote, url: https://bare.example.com }
-kegs:
-  k: { hub: bare, name: k }
 `
 	ucErr, err := tapper.ParseConfig([]byte(rawErr))
 	require.NoError(t, err)
-	_, err = ucErr.ResolveAlias(fx.Runtime(), "k")
+	_, err = ucErr.ResolveRef(fx.Runtime(), tapper.KegRef{Hub: "bare", Name: "k"})
 	require.Error(t, err, "remote ref with no namespace must error")
 
 	// An invalid namespace (flights.d) is rejected at resolve time.
 	rawBad := `hubs:
   bare: { kind: remote, url: https://x.example.com }
-kegs:
-  k: { hub: bare, namespace: flights.d, name: k }
 `
 	ucBad, err := tapper.ParseConfig([]byte(rawBad))
 	require.NoError(t, err)
-	_, err = ucBad.ResolveAlias(fx.Runtime(), "k")
+	_, err = ucBad.ResolveRef(fx.Runtime(), tapper.KegRef{Hub: "bare", Namespace: "flights.d", Name: "k"})
 	require.Error(t, err, "flights.d namespace must be rejected")
 }
 
@@ -247,16 +230,14 @@ hubs:
 namespaces:
   teamns: { hub: work }
   scalarns: cloud
-kegs:
-  example: { namespace: teamns }
 `
 	uc, err := tapper.ParseConfig([]byte(raw))
 	require.NoError(t, err)
 
-	// name "example" → namespace "teamns" (kegs) → hub "work" (namespaces).
-	// Assert on the resolved fields rather than String() so the test is
+	// An explicit namespace "teamns" routes to hub "work" via the namespaces
+	// map. Assert on the resolved fields rather than String() so the test is
 	// independent of the hub target's textual representation.
-	kt, err := uc.ResolveRef(fx.Runtime(), tapper.KegRef{Name: "example"})
+	kt, err := uc.ResolveRef(fx.Runtime(), tapper.KegRef{Namespace: "teamns", Name: "example"})
 	require.NoError(t, err)
 	require.Equal(t, "work", kt.Hub)
 	require.Equal(t, "teamns", kt.Namespace)
@@ -289,12 +270,11 @@ func TestResolveRef_LocalLayout(t *testing.T) {
     kind: local
     namespace: local
     basePath: ` + filepath.Join(fx.GetJail(), "data", "kegs") + `
-kegs:
-  notes: { hub: home, name: notes }
 `
 	uc, err := tapper.ParseConfig([]byte(raw))
 	require.NoError(t, err)
 
+	// A bare name resolves through the sole local hub (namespace "local").
 	kt, err := uc.ResolveAlias(fx.Runtime(), "notes")
 	require.NoError(t, err)
 	// Local kegs live under <basePath>/@<namespace>/<name>.
@@ -306,23 +286,18 @@ func TestResolveProjectKeg_PrefixAndRegexPrecedence(t *testing.T) {
 	fx := NewSandbox(t)
 
 	// Build a config exercising regex precedence and longest-prefix selection.
-	raw := fmt.Sprintf(`defaultKeg: default
+	// kegMap aliases are keg references (@namespace/name) resolved via ResolveRef.
+	raw := fmt.Sprintf(`defaultKeg: "@ns/default"
 hubs:
   remote:
     kind: remote
     url: https://example.com
-kegs:
-  regex: { hub: remote, namespace: ns, name: regex }
-  proj: { hub: remote, namespace: ns, name: proj }
-  projfoo: { hub: remote, namespace: ns, name: projfoo }
-  default: { hub: remote, namespace: ns, name: default }
-  work: { hub: remote, namespace: ns, name: work }
 kegMap:
-  - alias: regex
+  - alias: "@ns/regex"
     pathRegex: "^%s/.*/special$"
-  - alias: projfoo
+  - alias: "@ns/projfoo"
     pathPrefix: "%s/projects/foo"
-  - alias: proj
+  - alias: "@ns/proj"
     pathPrefix: "%s/projects"
 `, fx.GetJail(), fx.GetJail(), fx.GetJail())
 
@@ -355,10 +330,8 @@ kegMap:
 	// If no default and no match, expect an error.
 	rawNoDefault := fmt.Sprintf(`hubs:
   remote: { kind: remote, url: https://example.com }
-kegs:
-  proj: { hub: remote, namespace: ns, name: proj }
 kegMap:
-  - alias: proj
+  - alias: "@ns/proj"
     pathPrefix: "%s/projects"
 `, fx.GetJail())
 	uc2, err := tapper.ParseConfig([]byte(rawNoDefault))
@@ -366,59 +339,6 @@ kegMap:
 
 	_, err = uc2.ResolveKegMap(fx.Runtime(), filepath.Join(fx.GetJail(), "nope"))
 	require.Error(t, err, "expected ResolveProjectKeg to error when no match and no default")
-}
-
-func TestAddKeg_AddsAndUpdatesEntries(t *testing.T) {
-	t.Parallel()
-
-	raw := `kegs:
-  existing: { hub: atlas, namespace: alice, name: existing }
-`
-	cfg, err := tapper.ParseConfig([]byte(raw))
-	require.NoError(t, err)
-
-	// Add a new keg
-	newRef := tapper.KegRef{Hub: "local", Namespace: "local", Name: "newkeg"}
-	err = cfg.AddKeg("newkeg", newRef)
-	require.NoError(t, err)
-
-	// Verify it's in the kegs map
-	kegs := cfg.Kegs()
-	require.Contains(t, kegs, "newkeg")
-	require.Equal(t, newRef, kegs["newkeg"])
-
-	// Verify the existing entry is still there
-	require.Contains(t, kegs, "existing")
-
-	// Update an existing keg
-	updatedRef := tapper.KegRef{Hub: "atlas", Namespace: "alice", Name: "renamed"}
-	err = cfg.AddKeg("existing", updatedRef)
-	require.NoError(t, err)
-	require.Equal(t, updatedRef, cfg.Kegs()["existing"])
-
-	// Serialize and verify the changes are present
-	data, err := cfg.ToYAML()
-	require.NoError(t, err)
-	out := string(data)
-	require.Contains(t, out, "newkeg")
-	require.Contains(t, out, "name: newkeg")
-}
-
-func TestAddKeg_ReturnsErrorOnNilOrEmptyAlias(t *testing.T) {
-	t.Parallel()
-
-	cfg := tapper.DefaultUserConfig("testuser", "/tmp")
-
-	// Test nil config
-	var nilCfg *tapper.Config
-	err := nilCfg.AddKeg("test", tapper.KegRef{Name: "test"})
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "config is nil")
-
-	// Test empty alias
-	err = cfg.AddKeg("", tapper.KegRef{Name: "x"})
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "alias is required")
 }
 
 func TestAddKegMap_AddsAndUpdatesEntries(t *testing.T) {

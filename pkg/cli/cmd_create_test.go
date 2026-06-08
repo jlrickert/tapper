@@ -80,7 +80,7 @@ func TestCreate_Table(t *testing.T) {
 			}
 
 			// Verify README expectations.
-			readmePath := "~/kegs/example/1/README.md"
+			readmePath := "~/kegs/@local/example/1/README.md"
 			if tc.wantReadmeNotEmpty || len(tc.readmeContains) > 0 {
 				content := fx.MustReadFile(readmePath)
 				if tc.wantReadmeNotEmpty {
@@ -92,7 +92,7 @@ func TestCreate_Table(t *testing.T) {
 			}
 
 			// Verify meta expectations.
-			metaPath := "~/kegs/example/1/meta.yaml"
+			metaPath := "~/kegs/@local/example/1/meta.yaml"
 			if len(tc.metaContains) > 0 {
 				meta := fx.MustReadFile(metaPath)
 				ms := string(meta)
@@ -105,7 +105,7 @@ func TestCreate_Table(t *testing.T) {
 			}
 
 			// Verify stats expectations.
-			statsPath := "~/kegs/example/1/stats.json"
+			statsPath := "~/kegs/@local/example/1/stats.json"
 			if len(tc.statsContains) > 0 {
 				stats := fx.MustReadFile(statsPath)
 				ss := string(stats)
@@ -142,7 +142,7 @@ func TestCreate_FromStdin(t *testing.T) {
 	require.Regexp(t, `^\d+`, out)
 
 	// Verify the created README contains the stdin content.
-	readmePath := "~/kegs/example/1/README.md"
+	readmePath := "~/kegs/@local/example/1/README.md"
 	content := fx.MustReadFile(readmePath)
 	require.Contains(t, string(content), "This content came from stdin.")
 }

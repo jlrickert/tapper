@@ -31,14 +31,14 @@ func TestImportCmd_BasicCopyWithLinkRewrite(t *testing.T) {
 	require.Contains(t, out, "imported 2 node(s)")
 
 	// Work node 1 (was personal/1): ../2 is imported → stays ../2; ../3 not imported → keg:personal/3
-	node1 := string(sb.MustReadFile("~/kegs/work/1/README.md"))
+	node1 := string(sb.MustReadFile("~/kegs/@local/work/1/README.md"))
 	require.Contains(t, node1, "# Personal Overview")
 	require.Contains(t, node1, "../2", "link to imported node 2 should remain relative")
 	require.Contains(t, node1, "keg:personal/3", "link to non-imported node 3 should be cross-keg")
 	require.NotContains(t, node1, "../3", "bare ../3 must not remain")
 
 	// Work node 2 (was personal/2): ../1 imported → ../1; ../3 not imported → keg:personal/3
-	node2 := string(sb.MustReadFile("~/kegs/work/2/README.md"))
+	node2 := string(sb.MustReadFile("~/kegs/@local/work/2/README.md"))
 	require.Contains(t, node2, "# Project Alpha")
 	require.Contains(t, node2, "keg:personal/3")
 }
@@ -72,7 +72,7 @@ func TestImportCmd_AllNodesSkipsZero(t *testing.T) {
 
 	// Node 0 from personal must NOT be present in work (work already has its own 0).
 	// Work's node 0 content should be unchanged.
-	node0 := string(sb.MustReadFile("~/kegs/work/0/README.md"))
+	node0 := string(sb.MustReadFile("~/kegs/@local/work/0/README.md"))
 	require.Contains(t, node0, "Sorry, planned but not yet available")
 }
 
@@ -102,7 +102,7 @@ func TestImportCmd_LeaveStubs(t *testing.T) {
 	require.NoError(t, res.Err)
 
 	// personal/1/README.md should now be a stub.
-	stub := string(sb.MustReadFile("~/kegs/personal/1/README.md"))
+	stub := string(sb.MustReadFile("~/kegs/@local/personal/1/README.md"))
 	require.Contains(t, stub, "Personal Overview")
 	require.Contains(t, stub, "keg:work/")
 	require.Contains(t, stub, "Moved to")

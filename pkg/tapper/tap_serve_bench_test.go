@@ -42,13 +42,14 @@ func newBenchHandler(b *testing.B) http.Handler {
 	})
 	require.NoError(b, err)
 
-	// Write user config.
-	userCfg := "fallbackKeg: bench\nkegs:\n  bench: { path: /home/benchuser/kegs/bench }\n"
+	// Write user config with a local hub; the bare name "bench" resolves to
+	// @local/bench under the hub's basePath.
+	userCfg := "fallbackKeg: bench\nfallbackNamespace: local\nhubs:\n  home:\n    kind: local\n    basePath: /home/benchuser/kegs\n"
 	require.NoError(b, rt.Mkdir(tap.PathService.ConfigRoot, 0o755, true))
 	require.NoError(b, rt.AtomicWriteFile(tap.PathService.UserConfig(), []byte(userCfg), 0o644))
 
 	// Create and init keg.
-	kegDir := "/home/benchuser/kegs/bench"
+	kegDir := "/home/benchuser/kegs/@local/bench"
 	require.NoError(b, rt.Mkdir(kegDir, 0o755, true))
 	k, err := keg.NewKegFromTarget(b.Context(), keg.NewFile(kegDir), rt)
 	require.NoError(b, err)

@@ -45,7 +45,7 @@ EOF
 	res := NewProcess(t, false, "settings", "edit", "--keg", "example").RunWithIO(sb.Context(), sb.Runtime(), strings.NewReader(""))
 	require.NoError(t, res.Err)
 
-	edited := string(sb.MustReadFile("~/kegs/example/keg"))
+	edited := string(sb.MustReadFile("~/kegs/@local/example/keg"))
 	require.Contains(t, edited, "title: Edited Title")
 	require.Contains(t, edited, "entities:")
 	require.Contains(t, edited, "custom_block:")
@@ -55,7 +55,7 @@ EOF
 	editorArg := strings.TrimSpace(string(rawArg))
 	require.NotEmpty(t, editorArg)
 	require.True(t, strings.HasSuffix(editorArg, ".yaml"), "editor should receive a temp yaml file")
-	require.NotEqual(t, "/home/testuser/kegs/example/keg", editorArg)
+	require.NotEqual(t, "/home/testuser/kegs/@local/example/keg", editorArg)
 }
 
 func TestSettingsEdit_InvalidEditsDoNotPersist(t *testing.T) {
@@ -79,12 +79,12 @@ EOF
 	require.NoError(t, sb.Runtime().Set("EDITOR", "/bin/sh "+scriptPath))
 	sb.Runtime().Unset("VISUAL")
 
-	before := sb.MustReadFile("~/kegs/example/keg")
+	before := sb.MustReadFile("~/kegs/@local/example/keg")
 	res := NewProcess(t, false, "settings", "edit", "--keg", "example").RunWithIO(sb.Context(), sb.Runtime(), strings.NewReader(""))
 	require.Error(t, res.Err)
 	require.Contains(t, string(res.Stderr), "keg config is invalid after editing")
 
-	after := sb.MustReadFile("~/kegs/example/keg")
+	after := sb.MustReadFile("~/kegs/@local/example/keg")
 	require.Equal(t, string(before), string(after))
 }
 
@@ -108,7 +108,7 @@ summary: piped content
 	res := NewProcess(t, false, "settings", "edit", "--keg", "example").RunWithIO(sb.Context(), sb.Runtime(), stdin)
 	require.NoError(t, res.Err)
 
-	saved := string(sb.MustReadFile("~/kegs/example/keg"))
+	saved := string(sb.MustReadFile("~/kegs/@local/example/keg"))
 	require.Contains(t, saved, "title: Final Title")
 	require.Contains(t, saved, "summary: piped content")
 }
@@ -126,13 +126,13 @@ func TestSettingsEdit_RejectsInvalidPipedStdin(t *testing.T) {
 	require.NoError(t, sb.Runtime().Set("EDITOR", "/bin/false"))
 	sb.Runtime().Unset("VISUAL")
 
-	before := sb.MustReadFile("~/kegs/example/keg")
+	before := sb.MustReadFile("~/kegs/@local/example/keg")
 	stdin := strings.NewReader("kegv: [\n")
 	res := NewProcess(t, false, "settings", "edit", "--keg", "example").RunWithIO(sb.Context(), sb.Runtime(), stdin)
 	require.Error(t, res.Err)
 	require.Contains(t, string(res.Stderr), "keg config from stdin is invalid")
 
-	after := sb.MustReadFile("~/kegs/example/keg")
+	after := sb.MustReadFile("~/kegs/@local/example/keg")
 	require.Equal(t, string(before), string(after))
 }
 
@@ -166,7 +166,7 @@ EOF
 	res := NewProcess(t, false, "settings", "edit", "--keg", "example").RunWithIO(sb.Context(), sb.Runtime(), strings.NewReader(""))
 	require.NoError(t, res.Err)
 
-	saved := string(sb.MustReadFile("~/kegs/example/keg"))
+	saved := string(sb.MustReadFile("~/kegs/@local/example/keg"))
 	require.Contains(t, saved, "title: First Valid Config")
 	require.Contains(t, saved, "summary: saved once")
 }

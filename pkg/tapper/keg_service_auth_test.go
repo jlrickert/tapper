@@ -38,20 +38,20 @@ func TestKegService_Resolve_ThreadsAuthStoreToken(t *testing.T) {
 	store.Set(tapper.CanonicalHubURL(hubURL), tapper.AuthEntry{AccessToken: hubToken})
 	require.NoError(t, store.Save(fx.Context(), fx.Runtime(), tap.PathService.AuthStorePath()))
 
-	userCfg := fmt.Sprintf(`defaultKeg: remote
+	userCfg := fmt.Sprintf(`defaultKeg: "@me/demo"
+namespaces:
+  me: { hub: example }
 hubs:
   example:
     kind: remote
     url: %s
-kegs:
-  remote: { hub: example, namespace: me, name: demo }
 `, hubURL)
 	require.NoError(t, fx.Runtime().Mkdir(filepath.Dir(tap.PathService.UserConfig()), 0o755, true))
 	require.NoError(t, fx.Runtime().AtomicWriteFile(tap.PathService.UserConfig(), []byte(userCfg), 0o644))
 
 	k, err := tap.KegService.Resolve(context.Background(), tapper.ResolveKegOptions{
 		Root: root,
-		Keg:  "remote",
+		Keg:  "@me/demo",
 	})
 	require.NoError(t, err)
 	require.NotNil(t, k)
@@ -85,21 +85,21 @@ func TestKegService_Resolve_TokenEnvStillWinsOverAuthStore(t *testing.T) {
 
 	require.NoError(t, fx.Runtime().Set("HUB_TOKEN", "env-token"))
 
-	userCfg := fmt.Sprintf(`defaultKeg: remote
+	userCfg := fmt.Sprintf(`defaultKeg: "@me/demo"
+namespaces:
+  me: { hub: example }
 hubs:
   example:
     kind: remote
     url: %s
     tokenEnv: HUB_TOKEN
-kegs:
-  remote: { hub: example, namespace: me, name: demo }
 `, hubURL)
 	require.NoError(t, fx.Runtime().Mkdir(filepath.Dir(tap.PathService.UserConfig()), 0o755, true))
 	require.NoError(t, fx.Runtime().AtomicWriteFile(tap.PathService.UserConfig(), []byte(userCfg), 0o644))
 
 	k, err := tap.KegService.Resolve(context.Background(), tapper.ResolveKegOptions{
 		Root: root,
-		Keg:  "remote",
+		Keg:  "@me/demo",
 	})
 	require.NoError(t, err)
 

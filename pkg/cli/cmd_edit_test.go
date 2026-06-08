@@ -42,8 +42,8 @@ EOF
 	res := NewProcess(t, false, "edit", "0", "--keg", "personal").RunWithIO(sb.Context(), sb.Runtime(), strings.NewReader(""))
 	require.NoError(t, res.Err)
 
-	meta := string(sb.MustReadFile("~/kegs/personal/0/meta.yaml"))
-	content := string(sb.MustReadFile("~/kegs/personal/0/README.md"))
+	meta := string(sb.MustReadFile("~/kegs/@local/personal/0/meta.yaml"))
+	content := string(sb.MustReadFile("~/kegs/@local/personal/0/README.md"))
 	require.Contains(t, meta, "tags:")
 	require.Contains(t, meta, "- edited")
 	require.Contains(t, meta, "summary: updated in editor")
@@ -67,8 +67,8 @@ summary: from stdin
 	res := NewProcess(t, false, "edit", "0", "--keg", "personal").RunWithIO(sb.Context(), sb.Runtime(), stdin)
 	require.NoError(t, res.Err)
 
-	meta := string(sb.MustReadFile("~/kegs/personal/0/meta.yaml"))
-	content := string(sb.MustReadFile("~/kegs/personal/0/README.md"))
+	meta := string(sb.MustReadFile("~/kegs/@local/personal/0/meta.yaml"))
+	content := string(sb.MustReadFile("~/kegs/@local/personal/0/README.md"))
 	require.Contains(t, meta, "summary: from stdin")
 	require.Contains(t, meta, "- piped")
 	require.Contains(t, content, "# Piped Body")
@@ -80,8 +80,8 @@ func TestEdit_RejectsInvalidPipedFrontmatter(t *testing.T) {
 	require.NoError(t, sb.Runtime().Set("EDITOR", "/bin/false"))
 	sb.Runtime().Unset("VISUAL")
 
-	beforeMeta := string(sb.MustReadFile("~/kegs/personal/0/meta.yaml"))
-	beforeContent := string(sb.MustReadFile("~/kegs/personal/0/README.md"))
+	beforeMeta := string(sb.MustReadFile("~/kegs/@local/personal/0/meta.yaml"))
+	beforeContent := string(sb.MustReadFile("~/kegs/@local/personal/0/README.md"))
 
 	stdin := strings.NewReader(`---
 tags: [
@@ -92,8 +92,8 @@ tags: [
 	require.Error(t, res.Err)
 	require.Contains(t, string(res.Stderr), "invalid frontmatter yaml")
 
-	afterMeta := string(sb.MustReadFile("~/kegs/personal/0/meta.yaml"))
-	afterContent := string(sb.MustReadFile("~/kegs/personal/0/README.md"))
+	afterMeta := string(sb.MustReadFile("~/kegs/@local/personal/0/meta.yaml"))
+	afterContent := string(sb.MustReadFile("~/kegs/@local/personal/0/README.md"))
 	require.Equal(t, beforeMeta, afterMeta)
 	require.Equal(t, beforeContent, afterContent)
 }
@@ -137,8 +137,8 @@ EOF
 	res := NewProcess(t, false, "edit", "0", "--keg", "personal").RunWithIO(sb.Context(), sb.Runtime(), strings.NewReader(""))
 	require.NoError(t, res.Err)
 
-	meta := string(sb.MustReadFile("~/kegs/personal/0/meta.yaml"))
-	content := string(sb.MustReadFile("~/kegs/personal/0/README.md"))
+	meta := string(sb.MustReadFile("~/kegs/@local/personal/0/meta.yaml"))
+	content := string(sb.MustReadFile("~/kegs/@local/personal/0/README.md"))
 	require.Contains(t, meta, "summary: first valid save")
 	require.Contains(t, meta, "- live")
 	require.Contains(t, content, "# Saved First")
@@ -165,7 +165,7 @@ func TestEdit_InteractiveEdit_BumpsAccessCount(t *testing.T) {
 	require.NoError(t, sb.Runtime().Set("EDITOR", "/bin/sh "+scriptPath))
 	sb.Runtime().Unset("VISUAL")
 
-	statsPath := "~/kegs/personal/0/stats.json"
+	statsPath := "~/kegs/@local/personal/0/stats.json"
 	sb.MustWriteFile(statsPath, []byte(`{"accessed":"2001-01-01T00:00:00Z","access_count":3}`), 0o644)
 
 	res := NewProcess(t, false, "edit", "0", "--keg", "personal").
@@ -186,7 +186,7 @@ func TestEdit_PipedEdit_DoesNotBumpAccessCount(t *testing.T) {
 	require.NoError(t, sb.Runtime().Set("EDITOR", "/bin/false"))
 	sb.Runtime().Unset("VISUAL")
 
-	statsPath := "~/kegs/personal/0/stats.json"
+	statsPath := "~/kegs/@local/personal/0/stats.json"
 	sb.MustWriteFile(statsPath, []byte(`{"accessed":"2001-01-01T00:00:00Z","access_count":3}`), 0o644)
 
 	stdin := strings.NewReader(`---

@@ -21,8 +21,6 @@ logLevel: info
 kegMap:
   - alias: pub
     pathPrefix: ~/Documents/kegs
-kegs:
-  pub: ~/Documents/kegs/pub
 `))
 	require.NoError(t, err)
 	require.Empty(t, tapper.ValidateConfig(cfg))

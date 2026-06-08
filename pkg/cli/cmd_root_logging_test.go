@@ -205,13 +205,18 @@ func TestCLI_Logging_TildeExpansion(t *testing.T) {
 		testutils.WithFixture("joe", "~"),
 	)
 
-	// Write a config with a tilde-prefixed logFile path.
+	// Write a config with a tilde-prefixed logFile path. The keg resolves
+	// namespace-centrically: a bare `personal` reference under the local hub
+	// (fallbackNamespace: local) lands at ~/kegs/@local/personal.
 	rt := sb.Runtime()
 	configContent := []byte(`defaultKeg: personal
 logFile: ~/logs/tap.log
 logLevel: info
-kegs:
-  personal: ~/kegs/personal
+fallbackNamespace: local
+hubs:
+  home:
+    kind: local
+    basePath: ~/kegs
 `)
 	err := rt.WriteFile(".config/tapper/config.yaml", configContent, 0o644)
 	require.NoError(t, err)
