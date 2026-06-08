@@ -1,5 +1,6 @@
 defaultKeg: personal
-kegSearchPaths:
-  - ~/kegs
-kegs:
-  personal: ~/kegs/personal
+fallbackNamespace: local
+hubs:
+  home:
+    kind: local
+    basePath: ~/kegs

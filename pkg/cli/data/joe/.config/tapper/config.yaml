@@ -1,11 +1,10 @@
 # yaml-language-server: $schema=https://raw.githubusercontent.com/jlrickert/tapper/main/schemas/tap-config.json
 defaultKeg: personal
-kegSearchPaths:
-  - ~/.local/share/tapper/kegs
+fallbackNamespace: local
 kegMap:
   - alias: work
     pathPrefix: ~/repos/work
-kegs:
-  example: ~/kegs/example
-  personal: ~/kegs/personal
-  work: ~/kegs/work
+hubs:
+  home:
+    kind: local
+    basePath: ~/kegs
