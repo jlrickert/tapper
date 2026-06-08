@@ -12,7 +12,6 @@ import (
 
 func registerRepoTools(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	registerRepoInit(srv, tap, defaults)
-	registerRepoRm(srv, tap)
 	registerConfig(srv, tap)
 	registerConfigTemplate(srv, tap)
 }
@@ -66,34 +65,6 @@ func registerRepoInit(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults)
 			return textResult(fmt.Sprintf("initialized keg %q", in.Keg)), nil, nil
 		}
 		return textResult(fmt.Sprintf("initialized keg %q (%s)", in.Keg, label)), nil, nil
-	})
-}
-
-// --- repo_rm ---
-
-type repoRmInput struct {
-	Alias string `json:"alias" jsonschema:"keg alias to remove from config"`
-	Force bool   `json:"force,omitempty" jsonschema:"force removal even if alias is the default or fallback keg"`
-}
-
-func registerRepoRm(srv *sdkmcp.Server, tap *tapper.Tap) {
-	sdkmcp.AddTool(srv, &sdkmcp.Tool{
-		Name:        "repo_rm",
-		Description: "Remove a registered KEG alias from user configuration",
-		Annotations: &sdkmcp.ToolAnnotations{
-			DestructiveHint: boolPtr(true),
-			OpenWorldHint:   boolPtr(false),
-		},
-	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in repoRmInput) (*sdkmcp.CallToolResult, any, error) {
-		opts := tapper.RemoveRepoOptions{
-			Alias: in.Alias,
-			Force: in.Force,
-		}
-
-		if err := tap.RemoveRepo(ctx, opts); err != nil {
-			return errorResult(err), nil, nil
-		}
-		return textResult(fmt.Sprintf("removed keg alias %q", in.Alias)), nil, nil
 	})
 }
 

@@ -116,22 +116,6 @@ func (t *Tap) LookupKeg(ctx context.Context, kegAlias string) (*keg.Keg, error) 
 	return k, nil
 }
 
-func firstDir(path string) string {
-	// Clean path first
-	path = filepath.Clean(path)
-
-	// Split by OS separator
-	parts := strings.Split(path, string(filepath.Separator))
-
-	// Skip the empty first part (from absolute paths like /foo or C:\foo)
-	for i := 0; i < len(parts); i++ {
-		if parts[i] != "" {
-			return parts[i]
-		}
-	}
-	return ""
-}
-
 func (t *Tap) resolveKeg(ctx context.Context, opts KegTargetOptions) (*keg.Keg, error) {
 	k, err := t.KegService.Resolve(ctx, ResolveKegOptions{
 		Root:    t.Root,
