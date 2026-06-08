@@ -25,11 +25,12 @@ the conventions an agent should follow when operating against a tapper KEG.
 
 Every MCP tool accepts an optional `keg` parameter naming the keg alias. Leave
 it empty to use the configured default; set it to target another keg. To
-discover which alias is active:
+discover which keg is active:
 
 - `mcp__tapper__keg_info` — resolves the active keg and reports its path and
   node count.
-- `mcp__tapper__list_kegs` — lists every configured keg alias.
+- `mcp__tapper__hub_list` — lists the kegs the configured hubs expose
+  (qualified as `@namespace/keg`).
 
 ## Bootstrapping a session
 
@@ -37,7 +38,7 @@ When starting work against an unfamiliar keg, these tools give a compact
 orientation:
 
 - `mcp__tapper__info` — tapper version and environment summary.
-- `mcp__tapper__list_kegs` — configured keg aliases.
+- `mcp__tapper__hub_list` — kegs the configured hubs expose (`@namespace/keg`).
 - `mcp__tapper__keg_info` — resolved target keg, path, node count.
 - `mcp__tapper__tags` — tag inventory for the target keg (call with no
   arguments to list all tags).
