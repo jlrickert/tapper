@@ -51,13 +51,16 @@ func TestBootstrapCmd_NonInteractive_DefaultsToCloud(t *testing.T) {
 
 	out := string(res.Stdout)
 	require.Contains(t, out, "Wrote")
-	require.Contains(t, out, "kind:               cloud")
-	require.Contains(t, out, "fallback hub:       atlas")
-	require.Contains(t, out, "fallback namespace: testuser")
+	require.Contains(t, out, "kind:         cloud")
+	require.Contains(t, out, "fallback hub: atlas")
+	require.NotContains(t, out, "namespace:",
+		"no login yet, so the cloud hub has no namespace to report")
 	require.Contains(t, out, "tap auth login") // no login happened
 
 	raw := sb.MustReadFile("~/.config/tapper/config.yaml")
 	require.Contains(t, string(raw), "fallbackHub: atlas")
+	require.NotContains(t, string(raw), "fallbackNamespace:",
+		"namespace comes from the hub, not a global fallback")
 }
 
 func TestBootstrapCmd_Local_NoLogin(t *testing.T) {
@@ -72,14 +75,17 @@ func TestBootstrapCmd_Local_NoLogin(t *testing.T) {
 	proc := newBootstrapProcess(t, hook, false, "bootstrap", "--kind", "local")
 	res := proc.Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
-	require.Contains(t, string(res.Stdout), "fallback hub:       testhost")
-	require.Contains(t, string(res.Stdout), "fallback namespace: local",
+	require.Contains(t, string(res.Stdout), "fallback hub: testhost")
+	require.Contains(t, string(res.Stdout), "namespace:    local",
 		"a local deployment defaults to the @local namespace, not the OS user")
 	require.NotContains(t, string(res.Stdout), "tap auth login")
 
 	raw := sb.MustReadFile("~/.config/tapper/config.yaml")
 	require.Contains(t, string(raw), "fallbackHub: testhost")
-	require.Contains(t, string(raw), "fallbackNamespace: local")
+	require.NotContains(t, string(raw), "fallbackNamespace:",
+		"namespace comes from the local hub, not a global fallback")
+	require.Contains(t, string(raw), "namespace: local",
+		"the local hub carries the @local namespace")
 }
 
 // TestBootstrapCmd_Interactive_Enterprise drives the TTY prompts: kind ->
@@ -100,8 +106,8 @@ func TestBootstrapCmd_Interactive_Enterprise(t *testing.T) {
 	require.NoError(t, res.Err, "interactive enterprise bootstrap should succeed: stderr=%q", string(res.Stderr))
 
 	out := string(res.Stdout)
-	require.Contains(t, out, "kind:               enterprise")
-	require.Contains(t, out, "fallback hub:       acme")
+	require.Contains(t, out, "kind:         enterprise")
+	require.Contains(t, out, "fallback hub: acme")
 
 	raw := sb.MustReadFile("~/.config/tapper/config.yaml")
 	require.Contains(t, string(raw), "url: https://keg.acme.com")
@@ -116,7 +122,7 @@ func TestBootstrapCmd_Cloud_Login(t *testing.T) {
 	var captured atomicDeviceOptsSlot
 	// Compose the device-login stub with a whoami stub so the post-login
 	// namespace probe stays offline and deterministic: the hub reports alice's
-	// home namespace, which bootstrap adopts as the fallback namespace.
+	// home namespace, which bootstrap adopts onto the cloud hub's namespace field.
 	hook := combineHooks(
 		stubDeviceLoginHook(func(_ context.Context, _ *toolkit.Runtime, opts tapper.AuthLoginDeviceOptions) (*tapper.AuthEntry, error) {
 			captured.Store(opts)
@@ -133,14 +139,17 @@ func TestBootstrapCmd_Cloud_Login(t *testing.T) {
 
 	require.Equal(t, tapper.CanonicalHubURL(tapper.DefaultHubURL), captured.Load().HubURL)
 	require.Contains(t, string(res.Stdout), "Wrote")
-	require.Contains(t, string(res.Stdout), "fallback namespace: alice",
+	require.Contains(t, string(res.Stdout), "namespace:    alice",
 		"cloud bootstrap adopts the hub's default_namespace after login")
 
 	storeRaw := sb.MustReadFile("~/.local/state/tapper/auth.yaml")
 	require.Contains(t, string(storeRaw), "stub-cloud-token")
 
 	cfgRaw := sb.MustReadFile("~/.config/tapper/config.yaml")
-	require.Contains(t, string(cfgRaw), "fallbackNamespace: alice")
+	require.NotContains(t, string(cfgRaw), "fallbackNamespace:",
+		"the adopted namespace lives on the hub, not as a global fallback")
+	require.Contains(t, string(cfgRaw), "namespace: alice",
+		"the adopted namespace becomes the cloud hub's per-hub default")
 }
 
 // TestBootstrapCmd_Enterprise_Login confirms --login targets the custom endpoint.
@@ -165,13 +174,14 @@ func TestBootstrapCmd_Enterprise_Login(t *testing.T) {
 	require.NoError(t, res.Err)
 
 	require.Equal(t, tapper.CanonicalHubURL("https://keg.acme.com"), captured.Load().HubURL)
-	require.Contains(t, string(res.Stdout), "fallback hub:       acme")
-	require.Contains(t, string(res.Stdout), "fallback namespace: bob",
+	require.Contains(t, string(res.Stdout), "fallback hub: acme")
+	require.Contains(t, string(res.Stdout), "namespace:    bob",
 		"enterprise bootstrap adopts the hub's default_namespace after login")
 
 	cfgRaw := sb.MustReadFile("~/.config/tapper/config.yaml")
-	require.Contains(t, string(cfgRaw), "fallbackNamespace: bob")
-	// The adopted namespace also becomes the enterprise hub's per-hub default.
+	require.NotContains(t, string(cfgRaw), "fallbackNamespace:",
+		"the adopted namespace lives on the hub, not as a global fallback")
+	// The adopted namespace becomes the enterprise hub's per-hub default.
 	require.Contains(t, string(cfgRaw), "namespace: bob")
 }
 

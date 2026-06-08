@@ -75,13 +75,19 @@ type BootstrapResult struct {
 
 // Bootstrap creates or refreshes the user-level config for a chosen deployment
 // kind so plain `tap` commands resolve without per-invocation flags. It writes
-// the FALLBACK hub + namespace (the user/global convention — project config
-// owns the high-precedence default* slots) and always ensures the built-in
-// local hub is present.
+// the FALLBACK hub (the user/global convention — project config owns the
+// high-precedence default* slots) and always ensures the built-in local hub is
+// present and that the reserved @local namespace maps to it.
 //
-// It is idempotent: an existing config is loaded and only the fallback slots
-// and the kind's hub entry are touched, so user-defined kegs/kegMap survive a
-// re-run untouched.
+// It does not write a global fallbackNamespace or a per-user namespace→hub
+// entry: the preferred namespace comes from the resolved hub's own namespace
+// field. For local that is @local; for cloud/enterprise it is the logged-in
+// user's home namespace, adopted onto the hub after login by
+// SetBootstrapNamespace. The only namespace→hub entry written is local→localHub.
+//
+// It is idempotent: an existing config is loaded and only the fallback hub, the
+// local namespace mapping, and the kind's hub entry are touched, so user-defined
+// kegs/kegMap survive a re-run untouched.
 func (t *Tap) Bootstrap(ctx context.Context, opts BootstrapOptions) (*BootstrapResult, error) {
 	kind := strings.TrimSpace(strings.ToLower(opts.Kind))
 	if kind == "" {
@@ -93,23 +99,16 @@ func (t *Tap) Bootstrap(ctx context.Context, opts BootstrapOptions) (*BootstrapR
 		return nil, fmt.Errorf("unknown bootstrap kind %q (expected local, cloud, or enterprise)", opts.Kind)
 	}
 
-	// Provisional fallback namespace. For a local deployment the home namespace
-	// is the reserved @local. For cloud/enterprise the authoritative value is the
-	// logged-in user's home namespace, which only the hub knows; the CLI adopts
-	// it after login via SetBootstrapNamespace. Until then (and on --no-login)
-	// the OS user is the best local signal, falling back to the local hub name.
+	// Namespace stored on the kind's hub entry. For a local deployment the home
+	// namespace is the reserved @local. For cloud/enterprise the authoritative
+	// value is the logged-in user's home namespace, which only the hub knows; it
+	// is adopted after login via SetBootstrapNamespace and lives on the hub's own
+	// namespace field. Until then it stays empty rather than guessing the OS user
+	// — a bogus guess would resolve bare references to the wrong namespace
+	// instead of erroring clearly. An explicit opts.Namespace always wins.
 	namespace := strings.TrimSpace(opts.Namespace)
-	if namespace == "" {
-		switch kind {
-		case BootstrapKindLocal:
-			namespace = LocalHubName
-		default:
-			if u, _ := t.Runtime.GetUser(); strings.TrimSpace(u) != "" {
-				namespace = strings.TrimSpace(u)
-			} else {
-				namespace = LocalHubName
-			}
-		}
+	if namespace == "" && kind == BootstrapKindLocal {
+		namespace = LocalHubName
 	}
 
 	localRoot, err := defaultUserKegRoot(t.Runtime)
@@ -134,7 +133,7 @@ func (t *Tap) Bootstrap(ctx context.Context, opts BootstrapOptions) (*BootstrapR
 		// below adds the remote hub it needs, so a `local` bootstrap stays
 		// local-only instead of carrying an unsolicited atlas entry. The
 		// always-ensure step seeds the built-in local hub.
-		cfg = &Config{data: &configDTO{Kegs: map[string]KegRef{}, KegMap: []KegMapEntry{}}}
+		cfg = &Config{data: &configDTO{KegMap: []KegMapEntry{}}}
 		created = true
 	default:
 		return nil, fmt.Errorf("unable to load user config: %w", err)
@@ -149,6 +148,13 @@ func (t *Tap) Bootstrap(ctx context.Context, opts BootstrapOptions) (*BootstrapR
 		if err := cfg.SetHub(localKey, HubEntry{Kind: HubKindLocal, Namespace: LocalHubName, BasePath: localRoot}); err != nil {
 			return nil, err
 		}
+	}
+	// Pin the reserved @local namespace to this machine's local hub. This is the
+	// only namespace→hub entry bootstrap writes: every other namespace's hub is
+	// resolved from the default/fallback hub chain, and the preferred namespace
+	// comes from that hub's own namespace field — so no per-user entry is needed.
+	if err := cfg.SetNamespace(LocalHubName, NamespaceRef{Hub: localKey}); err != nil {
+		return nil, err
 	}
 
 	// Resolve the kind-specific hub: its config entry, the fallbackHub name,
@@ -196,17 +202,6 @@ func (t *Tap) Bootstrap(ctx context.Context, opts BootstrapOptions) (*BootstrapR
 	if err := cfg.SetFallbackHub(hubName); err != nil {
 		return nil, err
 	}
-	if err := cfg.SetFallbackNamespace(namespace); err != nil {
-		return nil, err
-	}
-	// Record the namespace→hub mapping so namespace-centric resolution routes
-	// this namespace to the bootstrapped hub. With it set, a bare `tap init
-	// <name>` resolves through fallbackNamespace → this hub.
-	if namespace != "" {
-		if err := cfg.SetNamespace(namespace, NamespaceRef{Hub: hubName}); err != nil {
-			return nil, err
-		}
-	}
 
 	warnings := ValidateConfig(cfg)
 
@@ -227,17 +222,17 @@ func (t *Tap) Bootstrap(ctx context.Context, opts BootstrapOptions) (*BootstrapR
 	}, nil
 }
 
-// SetBootstrapNamespace adopts namespace as both the user config's fallback
-// namespace and the named hub's default namespace, then persists the config. It
-// is the post-login step of `tap bootstrap`: once a cloud/enterprise login
-// resolves the authenticated user's home namespace (from the hub's whoami
-// probe), the CLI calls this so plain references land in the user's own
-// namespace instead of the provisional OS-user guess Bootstrap wrote.
+// SetBootstrapNamespace adopts namespace as the named hub's default namespace,
+// then persists the config. It is the post-login step of `tap bootstrap`: once a
+// cloud/enterprise login resolves the authenticated user's home namespace (from
+// the hub's whoami probe), the CLI calls this so plain references resolved
+// against that hub land in the user's own namespace. The namespace lives on the
+// hub entry so each hub carries its own default — there is no global
+// fallbackNamespace and no per-user namespace→hub entry to maintain.
 //
-// It is idempotent and a no-op when namespace is blank. Only the named hub is
-// touched, so the always-present local hub keeps its reserved @local namespace.
-// An unknown hubName updates just the fallback namespace (the per-hub write is
-// skipped), keeping the call safe even if the hub entry is missing.
+// It is idempotent and a no-op when namespace is blank, or when hubName is
+// unknown/blank (nothing to adopt onto), keeping the call safe in either case.
+// The always-present local hub keeps its reserved @local namespace.
 func (t *Tap) SetBootstrapNamespace(ctx context.Context, hubName, namespace string) error {
 	namespace = strings.TrimSpace(namespace)
 	if namespace == "" {
@@ -247,27 +242,49 @@ func (t *Tap) SetBootstrapNamespace(ctx context.Context, hubName, namespace stri
 	if err != nil {
 		return fmt.Errorf("unable to load user config: %w", err)
 	}
-	if entry, ok := cfg.Hubs()[hubName]; ok {
-		entry.Namespace = namespace
-		if err := cfg.SetHub(hubName, entry); err != nil {
-			return err
-		}
+	entry, ok := cfg.Hubs()[hubName]
+	if !ok {
+		return nil
 	}
-	if err := cfg.SetFallbackNamespace(namespace); err != nil {
+	entry.Namespace = namespace
+	if err := cfg.SetHub(hubName, entry); err != nil {
 		return err
-	}
-	// Adopt the namespace→hub mapping so the user's home namespace routes to
-	// the hub they logged into (the conflict resolver in the namespace-centric
-	// model). Skipped when hubName is unknown/blank.
-	if strings.TrimSpace(hubName) != "" {
-		if err := cfg.SetNamespace(namespace, NamespaceRef{Hub: hubName}); err != nil {
-			return err
-		}
 	}
 	if err := cfg.Write(t.Runtime, t.PathService.UserConfig()); err != nil {
 		return err
 	}
 	// Drop the cached config so the next resolution reflects the adopted value.
+	t.ConfigService.ResetCache()
+	return nil
+}
+
+// SetFallbackKeg sets the user config's fallbackKeg to ref and persists it. It
+// is the post-login step of `tap bootstrap`: once the user picks a keg (from the
+// hub's list or by typing one), plain `tap` commands resolve it without
+// per-invocation flags. It writes the FALLBACK slot (the global-user convention)
+// rather than defaultKeg, so a project's defaultKeg or a kegMap path rule still
+// overrides it. ref is a keg reference — a bare name, @namespace/name, keg:...,
+// or a path — stored verbatim and resolved later by ResolveRef. A blank ref is a
+// no-op.
+func (t *Tap) SetFallbackKeg(ctx context.Context, ref string) error {
+	ref = strings.TrimSpace(ref)
+	if ref == "" {
+		return nil
+	}
+	cfg, err := t.ConfigService.UserConfig(false)
+	if err != nil {
+		if !errors.Is(err, keg.ErrNotExist) {
+			return fmt.Errorf("unable to load user config: %w", err)
+		}
+		cfg = &Config{data: &configDTO{}}
+	}
+	if err := cfg.SetFallbackKeg(ref); err != nil {
+		return err
+	}
+	if err := cfg.Write(t.Runtime, t.PathService.UserConfig()); err != nil {
+		return err
+	}
+	// Drop the cached config so the next resolution reflects the chosen keg.
 	t.ConfigService.ResetCache()
 	return nil
 }

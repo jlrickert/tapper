@@ -37,7 +37,7 @@ func (t *Tap) Move(ctx context.Context, opts MoveOptions) error {
 
 	if err := k.Move(ctx, srcID, dstID); err != nil {
 		if errors.Is(err, keg.ErrNotExist) {
-			return fmt.Errorf("node %s not found", srcID.Path())
+			return fmt.Errorf("node %s not found in %s", srcID.Path(), describeKeg(k))
 		}
 		if errors.Is(err, keg.ErrDestinationExists) {
 			return fmt.Errorf("destination node %s already exists", dstID.Path())

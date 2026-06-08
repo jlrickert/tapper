@@ -34,8 +34,8 @@ type apiErrorResponse struct {
 
 // ApiRepo implements [Repository] using tapper-hub's REST API as the storage
 // backend. It maps each Repository method to an HTTP call against
-// `/api/v1/kegs/@{keg}/...` endpoints, with bearer token authentication on
-// every request.
+// `/api/v1/@{namespace}/kegs/@{keg}/...` endpoints, with bearer token
+// authentication on every request.
 //
 // ApiRepo also maintains a per-node ETag cache for optimistic concurrency
 // control, following the decision in KEG node 307. Reads populate the cache,
@@ -43,7 +43,7 @@ type apiErrorResponse struct {
 // response maps to [ErrConflict].
 type ApiRepo struct {
 	// BaseURL is the full URL prefix including the keg path, for example
-	// "https://hub.example.com/api/v1/kegs/@mykeg". No trailing slash.
+	// "https://hub.example.com/api/v1/@myns/kegs/@mykeg". No trailing slash.
 	BaseURL string
 
 	// Token is the bearer token sent in the Authorization header on every
@@ -138,21 +138,29 @@ func (a *ApiRepo) mapError(resp *http.Response, op string) error {
 		msg = resp.Status
 	}
 
+	// Include the request method + URL so the error names exactly which hub,
+	// namespace, keg, and node were targeted. A bare "404 not found" can't tell a
+	// missing keg from a missing node from an auth-masked resource; the URL can.
+	where := op
+	if resp.Request != nil && resp.Request.URL != nil {
+		where = fmt.Sprintf("%s %s %s", op, resp.Request.Method, resp.Request.URL)
+	}
+
 	switch resp.StatusCode {
 	case http.StatusNotFound:
-		return fmt.Errorf("%w: %s: %s", ErrNotExist, op, msg)
+		return fmt.Errorf("%w: %s: %s", ErrNotExist, where, msg)
 	case http.StatusConflict:
-		return fmt.Errorf("%w: %s: %s", ErrConflict, op, msg)
+		return fmt.Errorf("%w: %s: %s", ErrConflict, where, msg)
 	case http.StatusUnauthorized:
-		return fmt.Errorf("%w: %s: %s", ErrUnauthorized, op, msg)
+		return fmt.Errorf("%w: %s: %s", ErrUnauthorized, where, msg)
 	case http.StatusForbidden:
-		return fmt.Errorf("%w: %s: %s", ErrForbidden, op, msg)
+		return fmt.Errorf("%w: %s: %s", ErrForbidden, where, msg)
 	case http.StatusTooManyRequests:
 		retryAfter := parseRetryAfter(resp.Header.Get("Retry-After"))
 		return NewRateLimitError(retryAfter, msg, nil)
 	default:
 		transient := resp.StatusCode >= 500
-		return NewBackendError(a.Name(), op, resp.StatusCode, errors.New(msg), transient)
+		return NewBackendError(a.Name(), where, resp.StatusCode, errors.New(msg), transient)
 	}
 }
 

@@ -65,7 +65,7 @@ go vet ./...
   and `pkg/keg`.
 - **`pkg/keg_url/`** — Target URL parsing (file://, memory://, API schemes) and
   expansion.
-- **`pkg/mcp/`** — MCP server: 50 tools exposing the full Tap surface over
+- **`pkg/mcp/`** — MCP server: 48 tools exposing the full Tap surface over
   stdio JSON-RPC, wired by 18 `register*Tools()` functions in `server.go`. See
   `docs/ai-coding-agents/mcp-setup.md`.
 
@@ -98,9 +98,14 @@ NodeIndex, TagIndex, LinkIndex, BacklinkIndex, and ChangesIndex. Written as
 deterministic TSV/markdown files under `dex/`.
 
 **KegService** (`pkg/tapper/keg_service.go`) resolves which keg to use via
-config precedence: explicit alias → `defaultKeg` → `kegMap` path match →
-`fallbackKeg` → project-local `./kegs/<alias>`. An active `--flight` then gates
-the result against the flight's keg allow-list (`Tap.resolveKeg`).
+config precedence: explicit `--keg` reference → `defaultKeg` → `kegMap` path
+match → `fallbackKeg`, each a keg reference resolved through `ResolveRef`. The
+`default*` slots are authoritative (project config sets them) and win over a
+`kegMap` path rule; `fallback*` is the global-user last resort that `tap
+bootstrap` writes, so anything more specific overrides it. A bare name that
+resolves to nothing falls back to a project-local `./kegs/<name>` keg. An active
+`--flight` then gates the result against the flight's keg allow-list
+(`Tap.resolveKeg`).
 
 ### Storage Model
 
@@ -144,19 +149,24 @@ a hard error). The merged project layer, the user config, and env vars are then
 resolved by `cfgcascade.Cascade[*Config]` in `ConfigService.Config()`.
 
 **Hub / namespace resolution** (`Config.ResolveRef`) is namespace-centric:
-**keg name → namespace → hub → backend**. The namespace resolves first
-(explicit → `kegs[name].namespace` → `defaultNamespace` → `fallbackNamespace` →
-per-hub default / `@local` / error), then the hub is resolved *from* the
-namespace (explicit → `namespaces[ns].hub` → `@local`→local hub → `defaultHub` →
-`fallbackHub` → sole/alpha hub → compiled-in `atlas`). The `kegs` map
-disambiguates name→namespace; the `namespaces` map disambiguates namespace→hub.
-The local hub is keyed by hostname (via `tap bootstrap`), uses the reserved
-`@local` namespace, and stores kegs at `<basePath>/@<namespace>/<keg>`.
+**keg name → namespace → hub → backend**. There is no `kegs` alias map — a keg
+selector (`defaultKeg`, `fallbackKeg`, `--keg`, a `kegMap` alias) is parsed as a
+keg reference by `parseKegRef` and resolved directly. The namespace resolves
+first (explicit → `defaultNamespace` → `fallbackNamespace` → per-hub default /
+`@local` / error), then the hub is resolved *from* the namespace (explicit →
+`namespaces[ns].hub` → `@local`→local hub → `defaultHub` → `fallbackHub` →
+sole/alpha hub → compiled-in `atlas`). The `namespaces` map disambiguates
+namespace→hub. The local hub is keyed by hostname (via `tap bootstrap`), uses
+the reserved `@local` namespace, and stores kegs at `<basePath>/@<namespace>/<keg>`.
 
 A keg reference renders as the `keg` scheme — `keg:@<namespace>/<name>` (and
 `keg:@<namespace>/<name>/<nodeID>` for a node). The hub is resolution metadata,
 never part of the reference string; there is no `<hub>:@ns/name` form. To pin a
-hub explicitly, use the structured `kegs` mapping form's `hub` field.
+hub explicitly, set `defaultHub`/`namespaces[ns].hub` so the namespace routes to
+that hub.
+
+To **list** available kegs, query a hub: `tap hub list` / the `hub_list` MCP
+tool (backed by `GET /api/v1/kegs`). There is no local keg-alias listing.
 
 **`tap init`** is namespace-centric too: a bare `tap init <name>` resolves the
 default namespace+hub (typically a remote create via `POST /api/v1/@<ns>/kegs`,

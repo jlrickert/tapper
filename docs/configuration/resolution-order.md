@@ -27,13 +27,11 @@ When no explicit target is supplied, tapper resolves the alias in this order:
 ## 3. Namespace-centric model
 
 Resolution flows **keg name → namespace → hub → backend**. A keg is identified
-by `@<namespace>/<name>`; the namespace determines which hub hosts it. Two
-config maps disambiguate each hop:
+by `@<namespace>/<name>`; the namespace determines which hub hosts it. A keg
+selector (`defaultKeg`, `fallbackKeg`, `--keg`, a `kegMap` alias) is a keg
+reference — a bare name, `@namespace/name`, `keg:@namespace/name`, or a path —
+there is no `kegs` alias map. One config map disambiguates the namespace→hub hop:
 
-- **`kegs`** maps a keg name to the namespace it belongs in — the conflict
-  resolver for a name that could live in more than one namespace. The full
-  `(hub, namespace, name)` triple is still honored for explicit pins and legacy
-  configs; a legacy `path` field is an explicit local-filesystem escape hatch.
 - **`namespaces`** maps a namespace to the hub that hosts it — the conflict
   resolver for a namespace that could live on more than one hub. The scalar
   shorthand `myns: atlas` is accepted and normalized to `myns: {hub: atlas}`.
@@ -43,10 +41,9 @@ config maps disambiguate each hop:
 An omitted `namespace` is resolved **first**, in this order:
 
 1. explicit `namespace` on the reference
-2. `kegs[name].namespace` (the name → namespace map)
-3. `defaultNamespace` (high-precedence slot — set in project config)
-4. `fallbackNamespace` (last-resort slot — set in user config)
-5. once the hub is known: the hub's own `namespace` default, then the reserved
+2. `defaultNamespace` (high-precedence slot — set in project config)
+3. `fallbackNamespace` (last-resort slot — set in user config)
+4. once the hub is known: the hub's own `namespace` default, then the reserved
    `local` namespace for a local hub; a remote hub with nothing resolved is an
    error
 
@@ -84,7 +81,8 @@ A local-hub keg resolves to a file target on disk at:
 
 The `@` sigil is part of the directory name. The reserved `@local` namespace
 addresses this machine's local hub. Remote and read-only hubs resolve to
-`<hub-url>/api/v1/kegs/@<namespace>/<name>` instead.
+`<hub-url>/api/v1/@<namespace>/kegs/@<name>` instead (namespace first, both
+segments carry the `@` sigil — matching the tapper-hub route layout).
 
 ## 7. Config Cascade
 
@@ -108,8 +106,8 @@ Only the **user** config may define `hubs{}` and the `token` / `tokenEnv`
 credentials. Those fields are stripped from any walked project config so a
 repository you `cd` into cannot introduce a hub target or harvest a token
 environment variable. Each strip is recorded as a load warning; `--strict`
-turns the warning into a hard error. Project configs may still set `kegMap`,
-`kegs`, and the `default*` / `fallback*` selectors.
+turns the warning into a hard error. Project configs may still set `kegMap` and
+the `default*` / `fallback*` selectors.
 
 ## 8. Worked Examples
 

@@ -825,6 +825,21 @@ func TestApiRepo_DeleteNode_NotExist(t *testing.T) {
 	require.True(t, errors.Is(err, keg.ErrNotExist))
 }
 
+// TestApiRepo_NotFoundError_IncludesRequestURL verifies the 404 error names the
+// exact request URL (method + path), so a caller (and the user) can see which
+// hub/namespace/keg/node was actually read — not just a bare "not found".
+func TestApiRepo_NotFoundError_IncludesRequestURL(t *testing.T) {
+	repo, _, srv := setupApiRepo(t)
+	ctx := context.Background()
+
+	_, err := repo.ReadContent(ctx, keg.NodeId{ID: 0})
+	require.Error(t, err)
+	require.True(t, errors.Is(err, keg.ErrNotExist))
+	require.Contains(t, err.Error(), srv.URL+"/nodes/0/content",
+		"error should include the full request URL that 404'd")
+	require.Contains(t, err.Error(), http.MethodGet)
+}
+
 func TestApiRepo_IndexReadWrite(t *testing.T) {
 	repo, _, _ := setupApiRepo(t)
 	ctx := context.Background()

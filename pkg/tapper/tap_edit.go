@@ -65,7 +65,7 @@ func (t *Tap) Meta(ctx context.Context, opts MetaOptions) (string, error) {
 		return "", fmt.Errorf("unable to inspect node: %w", err)
 	}
 	if !exists {
-		return "", fmt.Errorf("node %s not found", id.Path())
+		return "", fmt.Errorf("node %s not found in %s", id.Path(), describeKeg(k))
 	}
 
 	if opts.Edit {
@@ -137,7 +137,7 @@ func (t *Tap) Edit(ctx context.Context, opts EditOptions) error {
 		return fmt.Errorf("unable to inspect node: %w", err)
 	}
 	if !exists {
-		return fmt.Errorf("node %s not found", id.Path())
+		return fmt.Errorf("node %s not found in %s", id.Path(), describeKeg(k))
 	}
 
 	if err := validateLockToken(ctx, k.Repo, id, opts.LockToken); err != nil {

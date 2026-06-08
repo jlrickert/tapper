@@ -54,7 +54,7 @@ func (t *Tap) Lock(ctx context.Context, opts LockOptions) (keg.LockToken, error)
 		return "", fmt.Errorf("unable to inspect node: %w", err)
 	}
 	if !exists {
-		return "", fmt.Errorf("node %s not found", id.Path())
+		return "", fmt.Errorf("node %s not found in %s", id.Path(), describeKeg(k))
 	}
 
 	token, err := locker.AcquireLock(ctx, id)
