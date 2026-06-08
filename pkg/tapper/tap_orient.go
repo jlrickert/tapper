@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/jlrickert/tapper/pkg/integrations"
+	"github.com/jlrickert/tapper/pkg/keg"
 )
 
 // OrientTierMin / OrientTierMax are the valid tier bounds for Tap.Orient.
@@ -166,10 +167,33 @@ func (t *Tap) resolveActiveKegLabel(ctx context.Context, opts KegTargetOptions) 
 	}
 
 	label := activeKegLabel{Backend: KegBackendLabel(k.Target)}
-	if cfg, _ := t.KegService.ConfigService.Config(true); cfg != nil {
-		label.Alias = cfg.LookupAliasForTarget(t.Runtime, k.Target.String())
+	// Name the keg the way the user can reference it. An explicit --keg
+	// selector is echoed verbatim; otherwise derive the @namespace/name
+	// reference from the resolved target. A bare file-path keg (no name)
+	// leaves the label empty so the renderer shows "(backend; no alias)".
+	if selector := strings.TrimSpace(opts.Keg); selector != "" {
+		label.Alias = selector
+	} else {
+		label.Alias = kegRefLabel(k.Target)
 	}
 	return label
+}
+
+// kegRefLabel renders a target's keg reference for the active-keg line:
+// "@namespace/name" for a hub keg, the bare name when no namespace is set, and
+// "" for a file-path target that carries no name (an ad-hoc cwd/project keg).
+func kegRefLabel(target *keg.Target) string {
+	if target == nil {
+		return ""
+	}
+	name := strings.TrimSpace(target.KegName)
+	if name == "" {
+		return ""
+	}
+	if ns := strings.TrimSpace(target.Namespace); ns != "" {
+		return "@" + ns + "/" + name
+	}
+	return name
 }
 
 // buildOrientPayload assembles the orient bytes at tier for the given

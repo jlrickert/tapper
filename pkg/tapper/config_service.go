@@ -289,10 +289,10 @@ func (s *ConfigService) Config(cache bool) (*Config, error) {
 	return s.mergedCache, nil
 }
 
-// ResolveTarget resolves an alias to a keg target via the configured kegs map.
-// When alias is empty it uses defaultKeg, then fallbackKeg. The resolved alias
-// is turned into a concrete target by Config.ResolveAlias (hub/namespace
-// default+fallback chains and per-hub-kind backend mapping).
+// ResolveTarget resolves a keg selector to a keg target. When the selector is
+// empty it uses defaultKeg, then fallbackKeg. The selector is parsed as a keg
+// reference and turned into a concrete target by Config.ResolveAlias (the
+// namespace-centric ResolveRef chain and per-hub-kind backend mapping).
 func (s *ConfigService) ResolveTarget(alias string, cache bool) (*keg.Target, error) {
 	cfg, err := s.Config(cache)
 	if err != nil {
@@ -306,7 +306,7 @@ func (s *ConfigService) ResolveTarget(alias string, cache bool) (*keg.Target, er
 		requestedAlias = cfg.FallbackKeg()
 	}
 	if requestedAlias == "" {
-		return nil, fmt.Errorf("no keg configured (set defaultKeg/fallbackKeg, use --keg, or configure kegs in config)")
+		return nil, fmt.Errorf("no keg configured (set defaultKeg/fallbackKeg or use --keg)")
 	}
 
 	return cfg.ResolveAlias(s.Runtime, requestedAlias)

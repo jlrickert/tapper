@@ -92,7 +92,7 @@ func (t *Tap) InitKeg(ctx context.Context, options InitOptions) (*keg.Target, er
 		namespace = LocalHubName
 	}
 	if namespace == "" {
-		namespace = cfg.resolveNamespaceForName(name)
+		namespace = cfg.resolveNamespaceForName()
 	}
 	hubName := strings.TrimSpace(options.Hub)
 	if hubName == "" {
@@ -182,9 +182,10 @@ func (t *Tap) initLocalKeg(ctx context.Context, options InitOptions, target *keg
 	}); err != nil {
 		return nil, err
 	}
-	// Local namespaces resolve their hub via localHubName(), so no namespaces
-	// entry is recorded — only the name→namespace mapping.
-	if err := t.recordInitKeg("", namespace, name, false); err != nil {
+	// Local namespaces resolve their hub via localHubName() and a local keg name
+	// resolves through the namespace-centric chain, so there is nothing to
+	// record for a local keg.
+	if err := t.recordInitKeg("", namespace); err != nil {
 		return nil, err
 	}
 	return k.Target, nil
@@ -208,16 +209,22 @@ func (t *Tap) initRemoteKeg(ctx context.Context, options InitOptions, target *ke
 	if err := CreateKeg(ctx, hubURL, token, namespace, name, options.Title, ""); err != nil {
 		return nil, err
 	}
-	if err := t.recordInitKeg(hubName, namespace, name, true); err != nil {
+	if err := t.recordInitKeg(hubName, namespace); err != nil {
 		return nil, err
 	}
 	return target, nil
 }
 
-// recordInitKeg persists a freshly-created keg in user config so future
-// references resolve it: kegs[name] carries the name→namespace mapping, and
-// when recordHub is set, namespaces[namespace] pins the hosting hub.
-func (t *Tap) recordInitKeg(hubName, namespace, name string, recordHub bool) error {
+// recordInitKeg persists routing for a freshly-created keg so future
+// references resolve it. With the kegs alias table removed, a keg name resolves
+// through the namespace-centric chain, so the only thing worth recording is the
+// namespace→hub mapping for a remote keg (namespaces[namespace] pins the
+// hosting hub). A local keg — or one with no namespace/hub to pin — needs
+// nothing recorded and this is a no-op.
+func (t *Tap) recordInitKeg(hubName, namespace string) error {
+	if strings.TrimSpace(namespace) == "" || strings.TrimSpace(hubName) == "" {
+		return nil
+	}
 	userCfg, err := t.ConfigService.UserConfig(false)
 	if err != nil {
 		if !errors.Is(err, keg.ErrNotExist) {
@@ -225,16 +232,8 @@ func (t *Tap) recordInitKeg(hubName, namespace, name string, recordHub bool) err
 		}
 		userCfg = &Config{data: &configDTO{}}
 	}
-	// Hub is omitted from the keg ref so it stays portable; the namespace→hub
-	// mapping (recorded below for remote kegs, or localHubName() for @local)
-	// supplies the hub at read time.
-	if err := userCfg.AddKeg(name, KegRef{Namespace: namespace, Name: name}); err != nil {
+	if err := userCfg.SetNamespace(namespace, NamespaceRef{Hub: hubName}); err != nil {
 		return err
-	}
-	if recordHub && namespace != "" && hubName != "" {
-		if err := userCfg.SetNamespace(namespace, NamespaceRef{Hub: hubName}); err != nil {
-			return err
-		}
 	}
 	if err := userCfg.Write(t.Runtime, t.PathService.UserConfig()); err != nil {
 		return err
