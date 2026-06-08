@@ -24,7 +24,7 @@ func allocateShadowReservation(t *testing.T, fx *sandbox.Sandbox) string {
 	t.Helper()
 	k, err := keg.NewKegFromTarget(
 		fx.Context(),
-		keg.NewFile("/home/testuser/kegs/test"),
+		keg.NewFile("/home/testuser/kegs/@local/test"),
 		fx.Runtime(),
 	)
 	require.NoError(t, err)

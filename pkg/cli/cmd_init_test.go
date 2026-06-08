@@ -114,8 +114,8 @@ func TestInitCommand_TableDriven(t *testing.T) {
 				"--creator", "testcreator",
 			},
 			expectedAlias:      "public",
-			expectedLocation:   "~/.local/share/tapper/kegs/@local/public",
-			expectConfigUpdate: true,
+			expectedLocation:   "~/kegs/@local/public",
+			expectConfigUpdate: false,
 			setupFixture:       strPtr("testuser"),
 			description:        "When no destination flag is provided, default destination should be user",
 		},
@@ -128,8 +128,8 @@ func TestInitCommand_TableDriven(t *testing.T) {
 				"--creator", "testcreator",
 			},
 			expectedAlias:      "public",
-			expectedLocation:   "~/.local/share/tapper/kegs/@local/public",
-			expectConfigUpdate: true,
+			expectedLocation:   "~/kegs/@local/public",
+			expectConfigUpdate: false,
 			setupFixture:       strPtr("testuser"),
 			description:        "User keg with explicit --user flag",
 		},
@@ -141,8 +141,8 @@ func TestInitCommand_TableDriven(t *testing.T) {
 				"--creator", "me",
 			},
 			expectedAlias:      "myblog",
-			expectedLocation:   "~/.local/share/tapper/kegs/@local/myblog",
-			expectConfigUpdate: true,
+			expectedLocation:   "~/kegs/@local/myblog",
+			expectConfigUpdate: false,
 			setupFixture:       strPtr("testuser"),
 			description:        "User keg should use --keg alias for directory name",
 		},
@@ -154,8 +154,8 @@ func TestInitCommand_TableDriven(t *testing.T) {
 				"--creator", "me",
 			},
 			expectedAlias:      "myproject",
-			expectedLocation:   "~/.local/share/tapper/kegs/@local/myproject",
-			expectConfigUpdate: true,
+			expectedLocation:   "~/kegs/@local/myproject",
+			expectConfigUpdate: false,
 			setupFixture:       strPtr("testuser"),
 			cwd:                strPtr("/home/testuser/myproject"),
 			description:        "When --keg is omitted with --user, alias should infer from current working directory base",
@@ -190,8 +190,8 @@ func TestInitCommand_TableDriven(t *testing.T) {
 			// Determine the base path for reading files (remove /dex/nodes.tsv from the location)
 			var baseKegPath string
 			if tt.setupFixture != nil {
-				// User kegs are at .local/share/tapper/kegs/@local/{alias}
-				baseKegPath = "~/.local/share/tapper/kegs/@local/" + tt.expectedAlias
+				// User kegs land on the local hub at <basePath>/@local/{alias}
+				baseKegPath = "~/kegs/@local/" + tt.expectedAlias
 			} else {
 				// Project kegs are at the repo root
 				baseKegPath = ""

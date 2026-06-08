@@ -36,7 +36,7 @@ func TestImageUpload_StoresInImagesDir(t *testing.T) {
 		Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 
-	uploaded := sb.MustReadFile("~/kegs/example/0/images/default.png")
+	uploaded := sb.MustReadFile("~/kegs/@local/example/0/images/default.png")
 	require.NotEmpty(t, uploaded)
 }
 
@@ -49,7 +49,7 @@ func TestImageUpload_CustomName(t *testing.T) {
 	require.NoError(t, res.Err)
 	require.Equal(t, "hero.png", strings.TrimSpace(string(res.Stdout)))
 
-	uploaded := sb.MustReadFile("~/kegs/example/0/images/hero.png")
+	uploaded := sb.MustReadFile("~/kegs/@local/example/0/images/hero.png")
 	require.NotEmpty(t, uploaded)
 }
 
@@ -62,7 +62,7 @@ func TestImageUpload_ContentsPreserved(t *testing.T) {
 	NewProcess(t, false, "image", "upload", "0", "~/test-images/default.png").
 		Run(sb.Context(), sb.Runtime())
 
-	stored := sb.MustReadFile("~/kegs/example/0/images/default.png")
+	stored := sb.MustReadFile("~/kegs/@local/example/0/images/default.png")
 	require.Equal(t, original, stored)
 }
 

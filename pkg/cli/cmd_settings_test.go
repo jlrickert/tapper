@@ -98,8 +98,8 @@ func TestSettingsCommand_WithJoeFixture(t *testing.T) {
 			name:         "info_with_nonexistent_alias",
 			args:         []string{"settings", "--keg", "nonexistent"},
 			setupFixture: strPtr("joe"),
-			expectedErr:  "keg alias not found",
-			description:  "Error when keg alias does not exist",
+			expectedErr:  "keg not initialized",
+			description:  "Error when keg does not exist on disk",
 		},
 	}
 
@@ -148,7 +148,7 @@ tags:
 custom_block:
   enabled: true
 `
-	sb.MustWriteFile("~/kegs/example/keg", []byte(custom), 0o644)
+	sb.MustWriteFile("~/kegs/@local/example/keg", []byte(custom), 0o644)
 
 	infoCmd := NewProcess(t, false, "settings", "--keg", "example")
 	infoRes := infoCmd.Run(sb.Context(), sb.Runtime())

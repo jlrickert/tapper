@@ -18,7 +18,7 @@ func TestRemoveCommand_DeletesNode(t *testing.T) {
 	res = NewProcess(t, false, "rm", "1").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 
-	_, err := sb.Runtime().Stat("~/kegs/example/1", false)
+	_, err := sb.Runtime().Stat("~/kegs/@local/example/1", false)
 	require.Error(t, err, "node directory should be removed")
 
 	catRes := NewProcess(t, false, "cat", "1").Run(sb.Context(), sb.Runtime())
@@ -56,16 +56,16 @@ func TestRemoveCommand_RedirectsLinksToZero(t *testing.T) {
 	res := NewProcess(t, false, "rm", "2", "--keg", "personal").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 
-	_, err := sb.Runtime().Stat("~/kegs/personal/2", false)
+	_, err := sb.Runtime().Stat("~/kegs/@local/personal/2", false)
 	require.Error(t, err, "node 2 directory should be deleted")
 
 	// Node 1: [Project Alpha](../2) → [Project Alpha](../0)
-	content1 := string(sb.MustReadFile("~/kegs/personal/1/README.md"))
+	content1 := string(sb.MustReadFile("~/kegs/@local/personal/1/README.md"))
 	require.Contains(t, content1, "../0", "node 1 should redirect stale link to node 0")
 	require.NotContains(t, content1, "../2", "node 1 must not keep stale ref to removed node 2")
 
 	// Node 3: [Project Alpha](../2) and bare ../2 → both become ../0
-	content3 := string(sb.MustReadFile("~/kegs/personal/3/README.md"))
+	content3 := string(sb.MustReadFile("~/kegs/@local/personal/3/README.md"))
 	require.Contains(t, content3, "../0", "node 3 should redirect stale link to node 0")
 	require.NotContains(t, content3, "../2", "node 3 must not keep stale ref to removed node 2")
 }
@@ -95,10 +95,10 @@ func TestRemoveCommand_RedirectsLinksCreatedViaStdin(t *testing.T) {
 	res = NewProcess(t, false, "rm", "5", "--keg", "personal").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 
-	_, err := sb.Runtime().Stat("~/kegs/personal/5", false)
+	_, err := sb.Runtime().Stat("~/kegs/@local/personal/5", false)
 	require.Error(t, err, "node 5 directory should be deleted")
 
-	content4 := string(sb.MustReadFile("~/kegs/personal/4/README.md"))
+	content4 := string(sb.MustReadFile("~/kegs/@local/personal/4/README.md"))
 	require.Contains(t, content4, "../0", "references to removed node should point to 0")
 	require.NotContains(t, content4, "../5", "stale ref to removed node must be gone")
 }
@@ -113,12 +113,12 @@ func TestRemoveCommand_MultipleNodes(t *testing.T) {
 	res := NewProcess(t, false, "rm", "2", "3", "--keg", "personal").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 
-	_, err := sb.Runtime().Stat("~/kegs/personal/2", false)
+	_, err := sb.Runtime().Stat("~/kegs/@local/personal/2", false)
 	require.Error(t, err)
-	_, err = sb.Runtime().Stat("~/kegs/personal/3", false)
+	_, err = sb.Runtime().Stat("~/kegs/@local/personal/3", false)
 	require.Error(t, err)
 
-	content1 := string(sb.MustReadFile("~/kegs/personal/1/README.md"))
+	content1 := string(sb.MustReadFile("~/kegs/@local/personal/1/README.md"))
 	require.NotContains(t, content1, "../2")
 	require.NotContains(t, content1, "../3")
 	require.Contains(t, content1, "../0")

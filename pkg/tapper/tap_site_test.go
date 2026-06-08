@@ -29,16 +29,20 @@ func setupSiteKeg(t *testing.T) (*sandbox.Sandbox, *tapper.Tap) {
 	})
 	require.NoError(t, err)
 
-	// Write user config with an explicit local keg.
+	// Write user config with a local hub; the bare name "test" resolves to
+	// @local/test under the hub's basePath.
 	userCfg := `fallbackKeg: test
-kegs:
-  test: { path: /home/testuser/kegs/test }
+fallbackNamespace: local
+hubs:
+  home:
+    kind: local
+    basePath: /home/testuser/kegs
 `
 	require.NoError(t, rt.Mkdir(tap.PathService.ConfigRoot, 0o755, true))
 	require.NoError(t, rt.AtomicWriteFile(tap.PathService.UserConfig(), []byte(userCfg), 0o644))
 
 	// Create and initialize the keg.
-	kegDir := "/home/testuser/kegs/test"
+	kegDir := "/home/testuser/kegs/@local/test"
 	require.NoError(t, rt.Mkdir(kegDir, 0o755, true))
 
 	k, err := keg.NewKegFromTarget(sb.Context(), keg.NewFile(kegDir), rt)

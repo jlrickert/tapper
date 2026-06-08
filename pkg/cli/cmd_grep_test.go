@@ -30,7 +30,7 @@ func TestGrepCommand_TableDrivenErrors(t *testing.T) {
 			name:        "missing_alias",
 			args:        []string{"grep", "anything", "--keg", "missing"},
 			fixture:     strPtr("joe"),
-			expectedErr: "keg alias not found",
+			expectedErr: "keg not initialized",
 		},
 	}
 

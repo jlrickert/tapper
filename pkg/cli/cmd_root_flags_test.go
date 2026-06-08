@@ -52,25 +52,22 @@ func TestTap_FlightFlagComposesWithKegTargetFlags(t *testing.T) {
 	}
 }
 
-func TestRepoHelp_HidesInheritedKegTargetFlags(t *testing.T) {
+// TestConfigHelp_HidesInheritedKegTargetFlags verifies that a command which
+// re-binds a local --project flag (here `config edit`) hides the inherited
+// persistent keg-target flags from its help so users don't see duplicate
+// entries. (The old `repo` alias group is gone; kegs are listed via
+// `tap hub list`, so only `config`/`init` still filter these flags.)
+func TestConfigHelp_HidesInheritedKegTargetFlags(t *testing.T) {
 	t.Parallel()
 
 	sb := NewSandbox(t)
 
-	res := NewProcess(t, false, "repo", "list", "--help").Run(sb.Context(), sb.Runtime())
+	// `config` moved to the top level but still defines a local --project flag
+	// that shadows the persistent keg-target flags; its help should hide
+	// --keg/--path/--cwd while keeping its own --project.
+	res := NewProcess(t, false, "config", "edit", "--help").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 	stdout := string(res.Stdout)
-	require.NotContains(t, stdout, "--keg")
-	require.NotContains(t, stdout, "--project")
-	require.NotContains(t, stdout, "--path")
-	require.NotContains(t, stdout, "--cwd")
-
-	// `config` moved to the top level but still defines a local --project flag
-	// that shadows the persistent keg-target flags; its help should likewise
-	// hide --keg/--path/--cwd while keeping its own --project.
-	res = NewProcess(t, false, "config", "edit", "--help").Run(sb.Context(), sb.Runtime())
-	require.NoError(t, res.Err)
-	stdout = string(res.Stdout)
 	require.NotContains(t, stdout, "--keg")
 	require.NotContains(t, stdout, "--path")
 	require.NotContains(t, stdout, "--cwd")
@@ -111,7 +108,10 @@ func TestTap_RootPersistentKegFlagNumericShorthandCompletionUsesCat(t *testing.T
 	require.Contains(t, suggestions, "3")
 }
 
-func TestTap_RootPersistentKegFlagCompletionSuggestsKegs(t *testing.T) {
+// TestTap_RootPersistentKegFlagCompletion verifies the root persistent --keg
+// flag completer is registered and returns no suggestions without erroring:
+// with the alias map removed, kegs are no longer enumerable from config.
+func TestTap_RootPersistentKegFlagCompletion(t *testing.T) {
 	t.Parallel()
 
 	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
@@ -120,7 +120,7 @@ func TestTap_RootPersistentKegFlagCompletionSuggestsKegs(t *testing.T) {
 	require.NoError(t, comp.Err)
 
 	suggestions := parseCompletionSuggestions(string(comp.Stdout))
-	require.Contains(t, suggestions, "personal")
+	require.Empty(t, suggestions)
 }
 
 func TestTap_GlobalFlagsMutuallyExclusive(t *testing.T) {

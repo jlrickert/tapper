@@ -81,7 +81,7 @@ func TestListCommand_StaleIndexDoesNotCrash(t *testing.T) {
 	// Write bare node directories directly on disk (content only, no dex update).
 	// This simulates an external tool adding nodes without rebuilding the index.
 	rt := sb.Runtime()
-	kegRoot := "~/kegs/example"
+	kegRoot := "~/kegs/@local/example"
 	for i := 100; i < 110; i++ {
 		dir := fmt.Sprintf("%s/%d", kegRoot, i)
 		require.NoError(t, rt.Mkdir(dir, 0o755, true))

@@ -131,7 +131,6 @@ func TestMCP_ToolsList(t *testing.T) {
 	require.Contains(t, names, "tags")
 	require.Contains(t, names, "backlinks")
 	require.Contains(t, names, "links")
-	require.Contains(t, names, "list_kegs")
 	require.Contains(t, names, "info")
 	require.Contains(t, names, "keg_info")
 	require.Contains(t, names, "stats")
@@ -159,7 +158,6 @@ func TestMCP_ToolsList(t *testing.T) {
 
 	// New tools added in plan 440.
 	require.Contains(t, names, "repo_init")
-	require.Contains(t, names, "repo_rm")
 	require.Contains(t, names, "config")
 	require.Contains(t, names, "config_template")
 	require.Contains(t, names, "import_from_keg")
@@ -357,20 +355,6 @@ func TestMCP_Links(t *testing.T) {
 	require.False(t, res.IsError, "links returned error: %v", res.Content)
 	text := extractText(t, res)
 	require.Contains(t, text, "Personal Overview")
-}
-
-func TestMCP_ListKegs(t *testing.T) {
-	t.Parallel()
-	session, ctx := newTestSession(t)
-
-	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name:      "list_kegs",
-		Arguments: map[string]any{},
-	})
-	require.NoError(t, err)
-	require.False(t, res.IsError, "list_kegs returned error: %v", res.Content)
-	text := extractText(t, res)
-	require.Contains(t, text, "personal")
 }
 
 func TestMCP_Info(t *testing.T) {
@@ -965,7 +949,6 @@ func TestMCP_ToolsList_IncludesNewTools(t *testing.T) {
 	}
 
 	require.Contains(t, names, "repo_init")
-	require.Contains(t, names, "repo_rm")
 	require.Contains(t, names, "config")
 	require.Contains(t, names, "config_template")
 }
@@ -1075,49 +1058,6 @@ func TestMCP_RepoInitMissingAlias(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.True(t, res.IsError, "expected error for missing alias")
-}
-
-func TestMCP_RepoRm(t *testing.T) {
-	t.Parallel()
-	session, ctx := newTestSession(t)
-
-	// Init a new keg first so we can remove it.
-	initRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "repo_init",
-		Arguments: map[string]any{
-			"keg":  "ephemeral",
-			"user": true,
-		},
-	})
-	require.NoError(t, err)
-	require.False(t, initRes.IsError, "repo_init returned error: %s", extractText(t, initRes))
-
-	// Remove it.
-	rmRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "repo_rm",
-		Arguments: map[string]any{
-			"alias": "ephemeral",
-		},
-	})
-	require.NoError(t, err)
-	text := extractText(t, rmRes)
-	require.False(t, rmRes.IsError, "repo_rm returned error: %s", text)
-	require.Contains(t, text, "removed keg alias")
-}
-
-func TestMCP_RepoRmDefaultRequiresForce(t *testing.T) {
-	t.Parallel()
-	session, ctx := newTestSession(t)
-
-	// Trying to remove the default keg without force should fail.
-	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "repo_rm",
-		Arguments: map[string]any{
-			"alias": "personal",
-		},
-	})
-	require.NoError(t, err)
-	require.True(t, res.IsError, "expected error removing default keg without force")
 }
 
 // --- import tool tests ---
@@ -1530,7 +1470,7 @@ func TestMCP_ToolAnnotations_AllPresent(t *testing.T) {
 	// --- read-only tools ---
 	readOnlyTools := []string{
 		"cat", "list", "grep", "tags", "backlinks", "links",
-		"list_kegs", "info", "keg_info", "stats",
+		"info", "keg_info", "stats",
 		"list_files", "list_images",
 		"list_indexes", "index_cat",
 		"doctor", "lock_status", "license", "node_history",
@@ -1547,7 +1487,7 @@ func TestMCP_ToolAnnotations_AllPresent(t *testing.T) {
 	destructiveTools := []string{
 		"remove", "move", "node_restore",
 		"delete_file", "delete_image",
-		"repo_rm", "lock_force_release",
+		"lock_force_release",
 	}
 	for _, name := range destructiveTools {
 		tool, ok := byName[name]
@@ -1595,7 +1535,7 @@ func TestMCP_InvocationLogging(t *testing.T) {
 
 	// Call a known tool to trigger the middleware.
 	_, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "list_kegs",
+		Name: "config",
 	})
 	require.NoError(t, err)
 
@@ -1607,7 +1547,7 @@ func TestMCP_InvocationLogging(t *testing.T) {
 
 	require.Equal(t, slog.LevelInfo, entry.Level)
 	require.Equal(t, "mcp", entry.Attrs["surface"])
-	require.Equal(t, "list_kegs", entry.Attrs["tool"])
+	require.Equal(t, "config", entry.Attrs["tool"])
 	require.Equal(t, true, entry.Attrs["success"])
 
 	// duration_ms should be present and non-negative. Sandbox tests use a

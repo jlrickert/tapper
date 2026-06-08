@@ -27,11 +27,11 @@ func TestIndexCommand_ErrorHandling(t *testing.T) {
 		description  string
 	}{
 		{
-			name:         "index_list_nonexistent_alias",
-			args:         []string{"index", "list", "--keg", "nonexistent"},
+			name:         "index_get_nonexistent_alias",
+			args:         []string{"index", "get", "--keg", "nonexistent", "nodes.tsv"},
 			setupFixture: strPtr("joe"),
-			expectedErr:  "keg alias not found",
-			description:  "Error when keg alias does not exist",
+			expectedErr:  "not found",
+			description:  "Error when keg does not exist on disk",
 		},
 		{
 			name:        "index_list_no_keg_configured",
@@ -132,8 +132,8 @@ func TestIndexRebuildCommand_TableDrivenErrorHandling(t *testing.T) {
 			name:         "rebuild_nonexistent_alias",
 			args:         []string{"index", "rebuild", "--keg", "nonexistent"},
 			setupFixture: strPtr("joe"),
-			expectedErr:  "keg alias not found",
-			description:  "Error when keg alias does not exist",
+			expectedErr:  "keg not initialized",
+			description:  "Error when keg does not exist on disk",
 		},
 		{
 			name:        "rebuild_no_keg_configured",
@@ -262,8 +262,8 @@ func TestIndexRebuildCommand_CreatesMissingMetaAndStatsFiles(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
 
-	metaPath := "~/kegs/example/0/meta.yaml"
-	statsPath := "~/kegs/example/0/stats.json"
+	metaPath := "~/kegs/@local/example/0/meta.yaml"
+	statsPath := "~/kegs/@local/example/0/stats.json"
 
 	require.NoError(t, sb.Runtime().Remove(metaPath, false))
 	_ = sb.Runtime().Remove(statsPath, false)
@@ -291,8 +291,8 @@ func TestIndexRebuildCommand_UpdatesStatsFromNodeContent(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
 
-	contentPath := "~/kegs/example/0/README.md"
-	statsPath := "~/kegs/example/0/stats.json"
+	contentPath := "~/kegs/@local/example/0/README.md"
+	statsPath := "~/kegs/@local/example/0/stats.json"
 	oldUpdated := "2001-01-01T00:00:00Z"
 	oldCreated := "2001-01-01T00:00:00Z"
 
@@ -323,7 +323,7 @@ func TestIndexRebuildCommand_CreatesDexArtifactsWhenMissing(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
 
-	dexDir := "~/kegs/example/dex"
+	dexDir := "~/kegs/@local/example/dex"
 	require.NoError(t, sb.Runtime().Remove(dexDir, true))
 
 	h := NewProcess(t, false, "index", "rebuild", "--keg", "example")
@@ -331,10 +331,10 @@ func TestIndexRebuildCommand_CreatesDexArtifactsWhenMissing(t *testing.T) {
 	require.NoError(t, res.Err, "index rebuild should recreate dex artifacts")
 
 	for _, path := range []string{
-		"~/kegs/example/dex/nodes.tsv",
-		"~/kegs/example/dex/tags",
-		"~/kegs/example/dex/links",
-		"~/kegs/example/dex/backlinks",
+		"~/kegs/@local/example/dex/nodes.tsv",
+		"~/kegs/@local/example/dex/tags",
+		"~/kegs/@local/example/dex/links",
+		"~/kegs/@local/example/dex/backlinks",
 	} {
 		_, err := sb.Runtime().Stat(path, false)
 		require.NoError(t, err, "expected dex artifact to exist: %s", path)
@@ -345,7 +345,7 @@ func TestIndexRebuildCommand_FailsOnMalformedMeta(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
 
-	metaPath := "~/kegs/example/0/meta.yaml"
+	metaPath := "~/kegs/@local/example/0/meta.yaml"
 	sb.MustWriteFile(metaPath, []byte("title: [\n"), 0o644)
 
 	h := NewProcess(t, false, "index", "rebuild", "--keg", "example")

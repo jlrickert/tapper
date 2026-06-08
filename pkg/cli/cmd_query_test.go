@@ -11,7 +11,7 @@ import (
 // TestQuery_AttrPredicate_Tags verifies that --query on the tags command
 // supports key=value attribute predicates from meta.yaml.
 //
-// Fixture state (joe/kegs/personal):
+// Fixture state (joe/kegs/@local/personal):
 //
 //	node 0 - meta: {tags: [planned]}
 //	node 1 - meta: {entity: trick, tags: [planned]}

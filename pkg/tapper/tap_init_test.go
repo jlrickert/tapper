@@ -47,10 +47,12 @@ func TestInitKeg_RemoteCreate_Success(t *testing.T) {
 	require.Equal(t, "teamns", target.Namespace)
 	require.Equal(t, "example", target.KegName)
 
-	// The keg and its namespace→hub mapping are recorded in user config.
+	// recordInitKeg no longer writes a kegs alias entry; with the alias table
+	// removed it records only the namespace→hub mapping for the remote keg, so
+	// future bare-name references route through the namespace-centric chain.
 	cfg := string(fx.MustReadFile(tap.PathService.UserConfig()))
-	require.Contains(t, cfg, "example:")
 	require.Contains(t, cfg, "teamns:")
+	require.Contains(t, cfg, "hub: atlas")
 }
 
 func TestInitKeg_RemoteCreate_Conflict(t *testing.T) {

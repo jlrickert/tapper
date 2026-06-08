@@ -45,7 +45,12 @@ func TestTap_ProjectResolutionFlags(t *testing.T) {
 	require.NotContains(t, string(catRes.Stdout), "access_count:")
 }
 
-func TestTap_AliasResolvesProjectKegUnderKegsDir(t *testing.T) {
+// TestTap_ResolvesProjectKegUnderKegsDir verifies that a project-local keg
+// initialized under <project>/kegs/<name>/ is resolvable via project-target
+// resolution (--cwd). Under the namespace-centric model a bare --keg <name>
+// routes to the local hub (fallbackNamespace: local) rather than the project
+// tree, so project kegs are reached through the project-target flags.
+func TestTap_ResolvesProjectKegUnderKegsDir(t *testing.T) {
 	t.Parallel()
 
 	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
@@ -64,10 +69,10 @@ func TestTap_AliasResolvesProjectKegUnderKegsDir(t *testing.T) {
 
 	catCmd := NewProcess(t, false,
 		"cat", "0",
-		"--keg", "tapper",
+		"--cwd",
 	)
 	catRes := catCmd.Run(sb.Context(), sb.Runtime())
-	require.NoError(t, catRes.Err, "cat with --keg should resolve local project keg by alias")
+	require.NoError(t, catRes.Err, "cat with --cwd should resolve the project keg under kegs/")
 	require.Contains(t, string(catRes.Stdout), "# Sorry, planned but not yet available")
 }
 

@@ -45,8 +45,8 @@ func TestCatCommand_TableDrivenErrorHandling(t *testing.T) {
 			name:         "cat_nonexistent_alias",
 			args:         []string{"cat", "0", "--keg", "nonexistent"},
 			setupFixture: strPtr("joe"),
-			expectedErr:  "keg alias not found",
-			description:  "Error when keg alias does not exist",
+			expectedErr:  "node 0 not found",
+			description:  "Error when keg does not exist on disk",
 		},
 		{
 			name:         "cat_nonexistent_node",
@@ -332,7 +332,7 @@ func TestCatCommand_BumpsAccessedAndAccessCount(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
 
-	statsPath := "~/kegs/personal/0/stats.json"
+	statsPath := "~/kegs/@local/personal/0/stats.json"
 	oldAccessed := "2001-01-01T00:00:00Z"
 	sb.MustWriteFile(statsPath, []byte(`{"accessed":"`+oldAccessed+`","access_count":7}`), 0o644)
 
@@ -358,7 +358,7 @@ func TestCatCommand_DefaultFrontmatterDoesNotInjectStats(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
 
-	statsPath := "~/kegs/personal/0/stats.json"
+	statsPath := "~/kegs/@local/personal/0/stats.json"
 	sb.MustWriteFile(statsPath, []byte(`{"accessed":"2025-01-01T00:00:00Z","access_count":123}`), 0o644)
 
 	res := NewProcess(t, false, "cat", "0", "--keg", "personal").Run(sb.Context(), sb.Runtime())
@@ -401,8 +401,8 @@ EOF
 	require.NoError(t, res.Err)
 	require.Equal(t, "", strings.TrimSpace(string(res.Stdout)))
 
-	meta := string(sb.MustReadFile("~/kegs/personal/0/meta.yaml"))
-	content := string(sb.MustReadFile("~/kegs/personal/0/README.md"))
+	meta := string(sb.MustReadFile("~/kegs/@local/personal/0/meta.yaml"))
+	content := string(sb.MustReadFile("~/kegs/@local/personal/0/README.md"))
 	require.Contains(t, meta, "- edited-via-cat")
 	require.Contains(t, meta, "summary: changed by cat edit")
 	require.Contains(t, content, "# Cat Edited")
@@ -549,10 +549,10 @@ EOF
 		"interactive TTY cat should not print to stdout")
 
 	// Verify editor was invoked by checking the node was modified.
-	content := string(sb.MustReadFile("~/kegs/personal/0/README.md"))
+	content := string(sb.MustReadFile("~/kegs/@local/personal/0/README.md"))
 	require.Contains(t, content, "# TTY Cat Edit",
 		"editor should have modified the node content")
-	meta := string(sb.MustReadFile("~/kegs/personal/0/meta.yaml"))
+	meta := string(sb.MustReadFile("~/kegs/@local/personal/0/meta.yaml"))
 	require.Contains(t, meta, "- tty-edited",
 		"editor should have modified the node metadata")
 }
@@ -700,7 +700,7 @@ func TestCatCommand_TTY_BumpsAccessCount(t *testing.T) {
 	require.NoError(t, sb.Runtime().Set("EDITOR", "/bin/sh "+scriptPath))
 	sb.Runtime().Unset("VISUAL")
 
-	statsPath := "~/kegs/personal/0/stats.json"
+	statsPath := "~/kegs/@local/personal/0/stats.json"
 	sb.MustWriteFile(statsPath, []byte(`{"accessed":"2001-01-01T00:00:00Z","access_count":5}`), 0o644)
 
 	res := NewProcess(t, true, "cat", "0", "--keg", "personal").

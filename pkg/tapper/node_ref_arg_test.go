@@ -12,11 +12,11 @@ import (
 )
 
 // twoLocalKegs materializes a local filesystem hub with two kegs laid out at
-// <basePath>/@local/<name> and registered in tap config under the same alias as
-// their name. Each keg gets one node whose body names the keg, so a reader can
-// tell which keg a node argument actually resolved to. "current" is the keg a
-// command resolves for a bare id (via --keg current); "other" is the redirect
-// target a cross-keg ref must reach.
+// <basePath>/@local/<name>. The hub's default namespace is local, so a bare keg
+// name N resolves to @local/N. Each keg gets one node whose body names the keg,
+// so a reader can tell which keg a node argument actually resolved to.
+// "current" is the keg a command resolves for a bare id (via --keg current);
+// "other" is the redirect target a cross-keg ref must reach.
 //
 // Returns the Tap plus the node ids created in each keg.
 func twoLocalKegs(t *testing.T, fx *sandbox.Sandbox) (tap *tapper.Tap, currentID, otherID keg.NodeId) {
@@ -34,9 +34,6 @@ hubs:
     kind: local
     namespace: local
     basePath: ` + basePath + `
-kegs:
-  current: { hub: home, name: current }
-  other:   { hub: home, name: other }
 `
 	require.NoError(t, rt.Mkdir(tap.PathService.ConfigRoot, 0o755, true))
 	require.NoError(t, rt.AtomicWriteFile(tap.PathService.UserConfig(), []byte(userCfg), 0o644))

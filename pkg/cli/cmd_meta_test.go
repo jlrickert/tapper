@@ -32,7 +32,7 @@ func TestMetaCommand_TableDrivenErrors(t *testing.T) {
 			name:        "missing_alias",
 			args:        []string{"meta", "0", "--keg", "missing"},
 			fixture:     strPtr("joe"),
-			expectedErr: "keg alias not found",
+			expectedErr: "node 0 not found",
 		},
 		{
 			name:        "missing_node",
@@ -63,7 +63,7 @@ func TestMetaCommand_PrintsFormattedMeta(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
 
-	sb.MustWriteFile("~/kegs/personal/0/meta.yaml", []byte(`tags:
+	sb.MustWriteFile("~/kegs/@local/personal/0/meta.yaml", []byte(`tags:
   - beta
   - alpha
 summary: hello world
@@ -93,7 +93,7 @@ tags:
 	require.NoError(t, res.Err)
 	require.Equal(t, "", strings.TrimSpace(string(res.Stdout)))
 
-	meta := string(sb.MustReadFile("~/kegs/personal/0/meta.yaml"))
+	meta := string(sb.MustReadFile("~/kegs/@local/personal/0/meta.yaml"))
 	require.Contains(t, meta, "summary: replaced")
 	require.Contains(t, meta, "- alpha")
 	require.Contains(t, meta, "- zeta")
@@ -104,20 +104,20 @@ func TestMetaCommand_ReplaceFromStdinRejectsInvalidYaml(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
 
-	before := string(sb.MustReadFile("~/kegs/personal/0/meta.yaml"))
+	before := string(sb.MustReadFile("~/kegs/@local/personal/0/meta.yaml"))
 	stdin := strings.NewReader("tags: [\n")
 	res := NewProcess(t, false, "meta", "0", "--keg", "personal").RunWithIO(sb.Context(), sb.Runtime(), stdin)
 	require.Error(t, res.Err)
 	require.Contains(t, string(res.Stderr), "metadata from stdin is invalid")
 
-	after := string(sb.MustReadFile("~/kegs/personal/0/meta.yaml"))
+	after := string(sb.MustReadFile("~/kegs/@local/personal/0/meta.yaml"))
 	require.Equal(t, before, after)
 }
 
 func TestMetaCommand_Edit_UsesTempFileAndSaves(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
-	sb.MustWriteFile("~/kegs/personal/0/meta.yaml", []byte("summary: before\n"), 0o644)
+	sb.MustWriteFile("~/kegs/@local/personal/0/meta.yaml", []byte("summary: before\n"), 0o644)
 
 	jail := sb.Runtime().GetJail()
 	require.NotEmpty(t, jail)
@@ -145,7 +145,7 @@ EOF
 	res := NewProcess(t, false, "meta", "0", "--keg", "personal", "--edit").RunWithIO(sb.Context(), sb.Runtime(), strings.NewReader(""))
 	require.NoError(t, res.Err)
 
-	meta := string(sb.MustReadFile("~/kegs/personal/0/meta.yaml"))
+	meta := string(sb.MustReadFile("~/kegs/@local/personal/0/meta.yaml"))
 	require.Contains(t, meta, "summary: after edit")
 	require.Contains(t, meta, "- docs")
 	require.Contains(t, meta, "- ops")
@@ -156,13 +156,13 @@ EOF
 	editorArg := strings.TrimSpace(string(rawArg))
 	require.NotEmpty(t, editorArg)
 	require.True(t, strings.HasSuffix(editorArg, ".yaml"))
-	require.NotEqual(t, "/home/testuser/kegs/personal/0/meta.yaml", editorArg)
+	require.NotEqual(t, "/home/testuser/kegs/@local/personal/0/meta.yaml", editorArg)
 }
 
 func TestMetaCommand_Edit_InvalidEditsDoNotPersist(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
-	sb.MustWriteFile("~/kegs/personal/0/meta.yaml", []byte("summary: before\n"), 0o644)
+	sb.MustWriteFile("~/kegs/@local/personal/0/meta.yaml", []byte("summary: before\n"), 0o644)
 
 	jail := sb.Runtime().GetJail()
 	require.NotEmpty(t, jail)
@@ -181,12 +181,12 @@ EOF
 	require.NoError(t, sb.Runtime().Set("EDITOR", "/bin/sh "+scriptPath))
 	sb.Runtime().Unset("VISUAL")
 
-	before := string(sb.MustReadFile("~/kegs/personal/0/meta.yaml"))
+	before := string(sb.MustReadFile("~/kegs/@local/personal/0/meta.yaml"))
 	res := NewProcess(t, false, "meta", "0", "--keg", "personal", "--edit").RunWithIO(sb.Context(), sb.Runtime(), strings.NewReader(""))
 	require.Error(t, res.Err)
 	require.Contains(t, string(res.Stderr), "node metadata is invalid after editing")
 
-	after := string(sb.MustReadFile("~/kegs/personal/0/meta.yaml"))
+	after := string(sb.MustReadFile("~/kegs/@local/personal/0/meta.yaml"))
 	require.Equal(t, before, after)
 }
 
@@ -228,7 +228,7 @@ tags:
 	require.Contains(t, string(initialRaw), "summary: from stdin")
 	require.Contains(t, string(initialRaw), "- draft")
 
-	meta := string(sb.MustReadFile("~/kegs/personal/0/meta.yaml"))
+	meta := string(sb.MustReadFile("~/kegs/@local/personal/0/meta.yaml"))
 	require.Contains(t, meta, "summary: saved from editor")
 	require.Contains(t, meta, "- final")
 }
@@ -236,7 +236,7 @@ tags:
 func TestMetaCommand_Edit_LiveSavePreservesEarlierValidMetaOnLaterInvalidSave(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
-	sb.MustWriteFile("~/kegs/personal/0/meta.yaml", []byte("summary: before\n"), 0o644)
+	sb.MustWriteFile("~/kegs/@local/personal/0/meta.yaml", []byte("summary: before\n"), 0o644)
 
 	jail := sb.Runtime().GetJail()
 	require.NotEmpty(t, jail)
@@ -264,7 +264,7 @@ EOF
 	res := NewProcess(t, false, "meta", "0", "--keg", "personal", "--edit").RunWithIO(sb.Context(), sb.Runtime(), strings.NewReader(""))
 	require.NoError(t, res.Err)
 
-	meta := string(sb.MustReadFile("~/kegs/personal/0/meta.yaml"))
+	meta := string(sb.MustReadFile("~/kegs/@local/personal/0/meta.yaml"))
 	require.Contains(t, meta, "summary: first valid meta")
 	require.Contains(t, meta, "- live")
 }

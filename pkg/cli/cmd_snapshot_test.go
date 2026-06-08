@@ -19,14 +19,14 @@ func TestKegSnapshotHistoryAndRestore(t *testing.T) {
 
 	sb := NewSandbox(t,
 		testutils.WithFixture("joe", "~"),
-		testutils.WithWd("~/kegs/personal"),
+		testutils.WithWd("~/kegs/@local/personal"),
 	)
 
 	res := NewKegProcess(t, false, "snapshot", "create", "1", "-m", "before change").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 	require.Equal(t, "1\n", string(res.Stdout))
 
-	sb.MustWriteFile("~/kegs/personal/1/README.md", []byte("# Personal Overview\n\nUpdated snapshot body.\n\n- [Project Alpha](../2)\n- [Meeting Notes](../3)\n"), 0o644)
+	sb.MustWriteFile("~/kegs/@local/personal/1/README.md", []byte("# Personal Overview\n\nUpdated snapshot body.\n\n- [Project Alpha](../2)\n- [Meeting Notes](../3)\n"), 0o644)
 
 	res = NewKegProcess(t, false, "index", "rebuild").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
@@ -59,7 +59,7 @@ func TestKegArchiveImportOverwritesExistingNodes(t *testing.T) {
 
 	sb := NewSandbox(t,
 		testutils.WithFixture("joe", "~"),
-		testutils.WithWd("~/kegs/personal"),
+		testutils.WithWd("~/kegs/@local/personal"),
 	)
 
 	res := NewKegProcess(t, false, "snapshot", "create", "1", "-m", "before export").Run(sb.Context(), sb.Runtime())
@@ -111,7 +111,7 @@ func TestTapSnapshotArchiveCommandsWithAliasAndPath(t *testing.T) {
 
 	sb := NewSandbox(t,
 		testutils.WithFixture("joe", "~"),
-		testutils.WithWd("~/kegs/personal"),
+		testutils.WithWd("~/kegs/@local/personal"),
 	)
 
 	res := NewProcess(t, false, "snapshot", "create", "1", "--keg", "personal", "-m", "tap snapshot").Run(sb.Context(), sb.Runtime())
@@ -149,10 +149,10 @@ func TestArchiveImportPreservesSnapshotTimestamps(t *testing.T) {
 
 	sb := NewSandbox(t,
 		testutils.WithFixture("joe", "~"),
-		testutils.WithWd("~/kegs/personal"),
+		testutils.WithWd("~/kegs/@local/personal"),
 	)
 
-	sourceRepo := keg.NewFsRepo("~/kegs/personal", sb.Runtime())
+	sourceRepo := keg.NewFsRepo("~/kegs/@local/personal", sb.Runtime())
 	nodeID := keg.NodeId{ID: 1}
 
 	res := NewProcess(t, false, "snapshot", "create", "1", "--keg", "personal", "-m", "baseline").Run(sb.Context(), sb.Runtime())
@@ -163,7 +163,7 @@ func TestArchiveImportPreservesSnapshotTimestamps(t *testing.T) {
 	require.Len(t, sourceHistory, 1)
 
 	sb.Advance(45 * time.Minute)
-	sb.MustWriteFile("~/kegs/personal/1/README.md", []byte("# Personal Overview\n\nTimestamp preservation update.\n\n- [Project Alpha](../2)\n"), 0o644)
+	sb.MustWriteFile("~/kegs/@local/personal/1/README.md", []byte("# Personal Overview\n\nTimestamp preservation update.\n\n- [Project Alpha](../2)\n"), 0o644)
 
 	res = NewProcess(t, false, "index", "rebuild", "--keg", "personal").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
@@ -268,7 +268,7 @@ func TestArchiveImportCommand_AcceptsPlainTarArchive(t *testing.T) {
 
 	sb := NewSandbox(t,
 		testutils.WithFixture("joe", "~"),
-		testutils.WithWd("~/kegs/personal"),
+		testutils.WithWd("~/kegs/@local/personal"),
 	)
 
 	exportPath := "~/plain-export.keg.tar.gz"
@@ -299,7 +299,7 @@ func TestArchiveExportCommand_NoHistoryOmitsSnapshots(t *testing.T) {
 
 	sb := NewSandbox(t,
 		testutils.WithFixture("joe", "~"),
-		testutils.WithWd("~/kegs/personal"),
+		testutils.WithWd("~/kegs/@local/personal"),
 	)
 
 	res := NewProcess(t, false, "snapshot", "create", "1", "--keg", "personal", "-m", "before export").Run(sb.Context(), sb.Runtime())
@@ -326,7 +326,7 @@ func TestArchiveImportCommand_FailsWhenHistoryIndexMissing(t *testing.T) {
 
 	sb := NewSandbox(t,
 		testutils.WithFixture("joe", "~"),
-		testutils.WithWd("~/kegs/personal"),
+		testutils.WithWd("~/kegs/@local/personal"),
 	)
 
 	res := NewProcess(t, false, "snapshot", "create", "1", "--keg", "personal", "-m", "before export").Run(sb.Context(), sb.Runtime())

@@ -147,10 +147,11 @@ func TestTap_Orient_ActiveKeg_NoneConfigured(t *testing.T) {
 }
 
 // TestTap_Orient_ActiveKeg_AliasResolutionFromCwd covers the common
-// case: a registered alias whose path matches the working directory.
-// Resolution should surface the alias plus a path-free backend label so
-// the user sees the symbol the rest of the CLI uses without leaking the
-// underlying filesystem location into the description surface.
+// case: a kegMap entry whose pathPrefix matches the working directory
+// resolves the keg from cwd. The keg lives on the local hub, so the
+// resolved target is a bare file backend with no keg name; the active-keg
+// line surfaces the path-free backend label with a "no alias" suffix and
+// never leaks the underlying filesystem location.
 func TestTap_Orient_ActiveKeg_AliasResolutionFromCwd(t *testing.T) {
 	t.Parallel()
 	fx := NewSandbox(t)
@@ -163,18 +164,24 @@ func TestTap_Orient_ActiveKeg_AliasResolutionFromCwd(t *testing.T) {
 
 	require.NoError(t, fx.Runtime().Mkdir(filepath.Dir(tap.PathService.UserConfig()), 0o755, true))
 	require.NoError(t, fx.Runtime().AtomicWriteFile(tap.PathService.UserConfig(), []byte(`fallbackKeg: notes
+fallbackNamespace: local
 kegMap:
   - alias: notes
     pathPrefix: ~/work
-kegs:
-  notes: ~/Documents/kegs/notes
+hubs:
+  home:
+    kind: local
+    basePath: ~/Documents/kegs
 `), 0o644))
-	require.NoError(t, fx.Runtime().Mkdir("/home/testuser/Documents/kegs/notes", 0o755, true))
-	require.NoError(t, fx.Runtime().AtomicWriteFile("/home/testuser/Documents/kegs/notes/keg", []byte(""), 0o644))
+	require.NoError(t, fx.Runtime().Mkdir("/home/testuser/Documents/kegs/@local/notes", 0o755, true))
+	require.NoError(t, fx.Runtime().AtomicWriteFile("/home/testuser/Documents/kegs/@local/notes/keg", []byte(""), 0o644))
 
 	payload, err := tap.Orient(context.Background(), tapper.OrientOptions{Tier: 0})
 	require.NoError(t, err)
-	require.Contains(t, payload, "Active keg: `notes` (file-backed)")
+	// No explicit --keg: resolution succeeds to the local-hub file backend, but
+	// a local file target carries no keg name, so the active-keg line surfaces
+	// the backend with a "no alias" suffix and never leaks the filesystem path.
+	require.Contains(t, payload, "Active keg: (file-backed; no alias)")
 	require.NotContains(t, payload, "Documents/kegs/notes")
 }
 
@@ -224,11 +231,13 @@ func TestTap_Orient_ActiveKeg_ExplicitOverride(t *testing.T) {
 	require.NoError(t, err)
 
 	require.NoError(t, fx.Runtime().Mkdir(filepath.Dir(tap.PathService.UserConfig()), 0o755, true))
-	require.NoError(t, fx.Runtime().AtomicWriteFile(tap.PathService.UserConfig(), []byte(`kegs:
-  archive: ~/Documents/kegs/archive
-  notes: ~/Documents/kegs/notes
+	require.NoError(t, fx.Runtime().AtomicWriteFile(tap.PathService.UserConfig(), []byte(`fallbackNamespace: local
+hubs:
+  home:
+    kind: local
+    basePath: ~/Documents/kegs
 `), 0o644))
-	for _, dir := range []string{"/home/testuser/Documents/kegs/archive", "/home/testuser/Documents/kegs/notes"} {
+	for _, dir := range []string{"/home/testuser/Documents/kegs/@local/archive", "/home/testuser/Documents/kegs/@local/notes"} {
 		require.NoError(t, fx.Runtime().Mkdir(dir, 0o755, true))
 		require.NoError(t, fx.Runtime().AtomicWriteFile(dir+"/keg", []byte(""), 0o644))
 	}
