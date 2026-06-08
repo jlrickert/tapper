@@ -79,11 +79,9 @@ references. All must come from the same source keg.`,
 	cmd.Flags().BoolVar(&opts.SkipZeroNode, "skip-zero", true, "skip source node 0 (default true)")
 
 	mustRegisterFlagCompletion(cmd, "from", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-		if deps.Tap == nil {
-			return nil, cobra.ShellCompDirectiveNoFileComp
-		}
-		kegs, _ := deps.Tap.ListKegs(true)
-		return kegs, cobra.ShellCompDirectiveNoFileComp
+		// Kegs are no longer enumerable from config (the alias map is gone); the
+		// source keg must be typed as a reference (@ns/name or a path).
+		return nil, cobra.ShellCompDirectiveNoFileComp
 	})
 
 	cmd.ValidArgsFunction = func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {

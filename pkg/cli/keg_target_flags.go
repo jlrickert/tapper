@@ -120,12 +120,6 @@ func nodeIDWithLocalFileCompletionFunc(deps *Deps) func(*cobra.Command, []string
 	}
 }
 
-// listKegsFiltered returns keg aliases filtered by toComplete prefix.
-func listKegsFiltered(deps *Deps, _ context.Context, toComplete string) []string {
-	kegs, _ := deps.Tap.ListKegs(true)
-	return filterByPrefix(kegs, toComplete)
-}
-
 // filterByPrefix returns items whose lowercase form starts with the lowercase
 // prefix. Returns items unchanged when prefix is empty.
 func filterByPrefix(items []string, prefix string) []string {

@@ -7,11 +7,11 @@
   "properties": {
     "defaultKeg": {
       "type": "string",
-      "description": "Alias used when no explicit keg is requested. Override with TAP_DEFAULT_KEG env var."
+      "description": "Keg reference resolved when no explicit keg is requested: a bare name, @namespace/name, keg:@namespace/name, or a filesystem path. Resolved through the namespace-centric chain. Override with TAP_DEFAULT_KEG env var."
     },
     "fallbackKeg": {
       "type": "string",
-      "description": "Last-resort keg alias used when no mapped or default alias resolves. Override with TAP_FALLBACK_KEG env var."
+      "description": "Last-resort keg reference used when no mapped or default keg resolves. Same reference forms as defaultKeg. Override with TAP_FALLBACK_KEG env var."
     },
     "defaultHub": {
       "type": "string",
@@ -32,33 +32,6 @@
     "disableDefaultHub": {
       "type": "boolean",
       "description": "When true, the compiled-in DefaultHubURL fallback (https://atlas.foldwise.ai) is suppressed and hub-dependent commands fail with a clear error if no other hub is configured. Override with TAP_DISABLE_DEFAULT_HUB env var (1/true/yes/on)."
-    },
-    "kegs": {
-      "type": "object",
-      "description": "Map of keg name to keg reference. Primary role: disambiguate which namespace a keg name belongs to when the same name could resolve into more than one namespace (set 'namespace'). The full (hub, namespace, name) triple is still honored for explicit pins and legacy configs.",
-      "additionalProperties": {
-        "type": "object",
-        "description": "A keg reference. Set 'namespace' to pin which namespace this keg name resolves into (the common case). The (hub, name) fields explicitly pin the rest; an empty hub falls back through namespaces[ns].hub then defaultHub/fallbackHub. 'path' is a legacy/explicit local-filesystem escape hatch that takes precedence over the triple.",
-        "properties": {
-          "hub": {
-            "type": "string",
-            "description": "Hub name this keg lives on. Empty resolves from the namespace (namespaces[ns].hub) then defaultHub/fallbackHub."
-          },
-          "namespace": {
-            "type": "string",
-            "description": "Namespace this keg name belongs to. The @ sigil is implied; do not include it. Empty uses defaultNamespace then fallbackNamespace."
-          },
-          "name": {
-            "type": "string",
-            "description": "Keg name within the namespace."
-          },
-          "path": {
-            "type": "string",
-            "description": "Explicit local filesystem path. When set it takes precedence over the triple (legacy/escape hatch)."
-          }
-        },
-        "additionalProperties": false
-      }
     },
     "namespaces": {
       "type": "object",

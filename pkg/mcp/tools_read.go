@@ -15,7 +15,6 @@ func registerReadTools(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults
 	registerTags(srv, tap, defaults)
 	registerBacklinks(srv, tap, defaults)
 	registerLinks(srv, tap, defaults)
-	registerListKegs(srv, tap)
 	registerInfo(srv, tap, defaults)
 	registerKegInfo(srv, tap, defaults)
 	registerStats(srv, tap, defaults)
@@ -252,27 +251,6 @@ func registerLinks(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 			return errorResult(err), nil, nil
 		}
 		return linesResult(lines), nil, nil
-	})
-}
-
-// --- list_kegs ---
-
-type listKegsInput struct{}
-
-func registerListKegs(srv *sdkmcp.Server, tap *tapper.Tap) {
-	sdkmcp.AddTool(srv, &sdkmcp.Tool{
-		Name:        "list_kegs",
-		Description: "List available KEG aliases",
-		Annotations: &sdkmcp.ToolAnnotations{
-			ReadOnlyHint:  true,
-			OpenWorldHint: boolPtr(false),
-		},
-	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in listKegsInput) (*sdkmcp.CallToolResult, any, error) {
-		kegs, err := tap.ListKegs(false)
-		if err != nil {
-			return errorResult(err), nil, nil
-		}
-		return linesResult(kegs), nil, nil
 	})
 }
 
