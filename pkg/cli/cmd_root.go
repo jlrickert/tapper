@@ -158,7 +158,9 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 
 			if deps.Profile.withDefaults().AllowKegAliasFlags {
 				if regErr := cmd.Root().RegisterFlagCompletionFunc("keg", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-					return listKegsFiltered(deps, cmd.Context(), toComplete), cobra.ShellCompDirectiveNoFileComp
+					// Kegs are no longer enumerable from config (the alias map is
+					// gone); offer no completions rather than stray file paths.
+					return nil, cobra.ShellCompDirectiveNoFileComp
 				}); regErr != nil {
 					return fmt.Errorf("failed to register --keg completion: %w", regErr)
 				}
@@ -287,17 +289,15 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 			configCmd,
 		)
 	}
-	var repoCmd *cobra.Command
+	// IncludeRepoCommand gates the keg-creation surface. The `repo` alias group
+	// is gone (kegs are addressed by reference, listed via `tap hub list`), so
+	// only `tap init` remains under this profile flag.
 	var initCmd *cobra.Command
 	if deps.Profile.IncludeRepoCommand {
-		repoCmd = NewRepoCmd(deps)
 		initCmd = NewInitCmd(deps)
-		subcommands = append(subcommands, repoCmd, initCmd)
+		subcommands = append(subcommands, initCmd)
 	}
 	cmd.AddCommand(subcommands...)
-	if repoCmd != nil {
-		filterRepoTargetFlagsInHelp(repoCmd)
-	}
 	// The top-level `config` command defines local --project/--user flags that
 	// shadow the persistent keg-target --project/--path/--cwd flags; strip the
 	// inherited entries from its "Global Flags" help so users don't see two
