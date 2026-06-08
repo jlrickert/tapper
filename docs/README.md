@@ -90,9 +90,8 @@ it.
 
 ### Repository management
 
-- `tap init [--keg ALIAS]` — initialize a keg target
-- `tap repo rm ALIAS` — remove a keg alias
-- `tap repo list` — list configured keg aliases
+- `tap init [--keg REF]` — initialize a keg target
+- `tap hub list` — list the kegs the configured hubs expose
 - `tap config` — show merged tap config
 - `tap config --user|--project` — show user or project config
 - `tap config edit --user|--project` — edit user or project config (reads stdin)

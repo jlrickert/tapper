@@ -41,7 +41,7 @@ Typical usage:
 | `defaultKeg`, `fallbackKeg` | `hubs{}`                    |
 | `defaultHub`, `defaultNamespace` | `token` / `tokenEnv`   |
 | `fallbackHub`, `fallbackNamespace` |                      |
-| `kegs`, `kegMap`          |                              |
+| `kegMap`                  |                              |
 
 **Trust boundary:** `hubs{}` and the `token` / `tokenEnv` credentials are
 stripped from any walked project config (recorded as a load warning; `--strict`
@@ -66,9 +66,8 @@ fallbackKeg: tapper
 defaultHub: my-laptop
 defaultNamespace: local
 kegMap: []
-kegs:
-  tapper:
-    hub: local
-    namespace: local
-    name: tapper
 ```
+
+`defaultKeg: tapper` is a keg reference: the bare name `tapper` resolves its
+namespace from `defaultNamespace: local` and its hub from that namespace,
+landing on the local hub at `<basePath>/@local/tapper`.

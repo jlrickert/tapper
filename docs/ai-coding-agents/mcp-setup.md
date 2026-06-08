@@ -61,7 +61,7 @@ With a default keg:
 
 The MCP server registers 31 tools organized by category.
 
-### Read (11 tools)
+### Read (10 tools)
 
 | Tool         | Description                              |
 | ------------ | ---------------------------------------- |
@@ -71,7 +71,6 @@ The MCP server registers 31 tools organized by category.
 | `tags`       | List tags or find nodes by query         |
 | `backlinks`  | Find nodes linking to a given node       |
 | `links`      | List outgoing links from a node          |
-| `list_kegs`  | List available keg aliases               |
 | `info`       | Show tapper info and environment         |
 | `keg_info`   | Read keg configuration                   |
 | `stats`      | Show node statistics                     |

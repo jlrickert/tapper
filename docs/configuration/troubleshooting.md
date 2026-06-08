@@ -11,16 +11,22 @@ Fix:
 - Set at least `fallbackKeg` in user or project config.
 - Or run commands with an explicit target (`--keg`, `--project`, or `--path`).
 
-## "keg alias not found"
+## A keg reference fails to resolve
 
 Cause:
 
-- Alias does not exist in the `kegs` map of any active config layer.
+- The reference resolves to no namespace/hub — e.g. a bare name with no
+  `defaultNamespace`/`fallbackNamespace`, or a name that does not exist on the
+  resolved hub. (The legacy `kegs` alias map was removed; there is no alias
+  table to miss.)
 
 Fix:
 
-- Add the alias under `kegs:` in user or project config.
-- Verify alias spelling in `defaultKeg`, `fallbackKeg`, and `kegMap` entries.
+- Set `defaultKeg`/`fallbackKeg` to a resolvable reference: a bare name plus a
+  `fallbackNamespace`, an explicit `@namespace/name`, or a path.
+- Verify the reference in `defaultKeg`, `fallbackKeg`, and `kegMap` entries, and
+  that the namespace routes to a hub via `defaultHub`/`namespaces`.
+- Run `tap hub list` to see the kegs the configured hubs actually expose.
 
 ## "has no namespace and no per-hub, default, or fallback namespace is configured"
 
@@ -31,7 +37,7 @@ Cause:
 
 Fix:
 
-- Give the `kegs` entry an explicit `namespace`, or
+- Use an explicit `@namespace/name` reference, or
 - Set the hub's own `namespace` (its default), or
 - Set `defaultNamespace` (project) / `fallbackNamespace` (user).
 
