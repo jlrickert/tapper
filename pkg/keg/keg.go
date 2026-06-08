@@ -724,19 +724,17 @@ func (k *Keg) Touch(ctx context.Context, id NodeId) error {
 	})
 }
 
-// Node retrieves complete node data including content, metadata, items, and images for a given node ID.
-// Returns an error if any component fails to load.
+// Node returns a Node handle bound to this keg's repository and runtime for the
+// given id. It performs no I/O; content, metadata, and stats are loaded lazily
+// by the Node's own methods.
 func (k *Keg) Node(id NodeId) *Node {
-	alias := id.Alias
-	if k.Target != nil {
-		alias = k.Target.KegName
-	}
+	// id is already the correct local identifier (ID + optional Code). Do not
+	// stamp the keg name onto it: a keg's own indexes store bare numeric IDs,
+	// and the keg: prefix would leak into dex/nodes.tsv (and the tags/links/
+	// backlinks/changes sub-indexes) via NodeId.Path(). Cross-keg addressing is
+	// handled separately by NodeRef.
 	return &Node{
-		ID: NodeId{
-			ID:    id.ID,
-			Alias: alias,
-			Code:  id.Code,
-		},
+		ID:      id,
 		Repo:    k.Repo,
 		Runtime: k.Runtime,
 	}

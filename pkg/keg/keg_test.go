@@ -1031,3 +1031,83 @@ func TestDexFresh_ReturnsCachedWhenUnchanged(t *testing.T) {
 	// Both should return the same pointer (no reload occurred).
 	require.Same(t, dex1, dex2, "DexFresh should return cached dex when mtime unchanged")
 }
+
+// withKegName sets Target.KegName on a file target. The bug being guarded
+// against only fires when KegName is populated (production namespace
+// resolution sets it); plain NewFile leaves it empty, which is why no existing
+// file-based test reproduced the prefix leak.
+func withKegName(name string) kegpkg.TargetOption {
+	return func(t *kegpkg.Target) { t.KegName = name }
+}
+
+// TestSetContent_LocalNodeIDStaysBare guards the regression where the
+// single-node index write path stamped the keg name onto a local node id,
+// producing "keg:<name>/<id>" entries in dex/nodes.tsv instead of a bare id.
+// SetContent reaches the formerly buggy Keg.Node() via indexNodeLocked.
+func TestSetContent_LocalNodeIDStaysBare(t *testing.T) {
+	t.Parallel()
+	f := NewSandbox(t, sandbox.WithFixture("empty", "repo"))
+
+	k, err := kegpkg.NewKegFromTarget(
+		f.Context(),
+		kegpkg.NewFile("repo", withKegName("example")),
+		f.Runtime(),
+	)
+	require.NoError(t, err)
+	require.NoError(t, k.Init(f.Context()))
+	require.Equal(t, "example", k.Target.KegName, "KegName must be set to reproduce the bug")
+
+	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "Node 2"})
+	require.NoError(t, err)
+
+	// SetContent is the edit path that previously tainted the dex entry.
+	require.NoError(t, k.SetContent(f.Context(), id, []byte("# Node 2\n\nedited body\n")))
+
+	dex, err := k.DexFresh(f.Context())
+	require.NoError(t, err)
+	for _, e := range dex.Nodes(f.Context()) {
+		require.NotContains(t, e.ID, "keg:", "local node id must be bare, got %q", e.ID)
+	}
+
+	// The edited node resolves under its bare id, and there is no stale
+	// keg:-prefixed duplicate row left behind.
+	require.NotNil(t, dex.GetRef(f.Context(), id), "edited node should be indexed under its bare id")
+	raw, err := k.Repo.GetIndex(f.Context(), "nodes.tsv")
+	require.NoError(t, err)
+	require.NotContains(t, string(raw), "keg:", "nodes.tsv must not contain keg: prefixes")
+}
+
+// TestMove_LocalNodeIDStaysBare covers the third taint vector: Move rewrites
+// the in-content links of every node that referenced the moved node and
+// re-indexes them through setContentNoDex -> indexNodeLocked. Both the rewritten
+// node and the link/backlink sub-indexes must stay free of keg: prefixes.
+func TestMove_LocalNodeIDStaysBare(t *testing.T) {
+	t.Parallel()
+	f := NewSandbox(t, sandbox.WithFixture("empty", "repo"))
+
+	k, err := kegpkg.NewKegFromTarget(
+		f.Context(),
+		kegpkg.NewFile("repo", withKegName("example")),
+		f.Runtime(),
+	)
+	require.NoError(t, err)
+	require.NoError(t, k.Init(f.Context()))
+
+	target, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "Target"})
+	require.NoError(t, err)
+	referrer, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "Referrer"})
+	require.NoError(t, err)
+
+	// Referrer links to target via a canonical relative node link.
+	require.NoError(t, k.SetContent(f.Context(), referrer,
+		[]byte("# Referrer\n\nsee [target](../"+target.Path()+")\n")))
+
+	// Move the target; this rewrites referrer's link and re-indexes it.
+	require.NoError(t, k.Move(f.Context(), target, kegpkg.NodeId{ID: target.ID + 10}))
+
+	for _, name := range []string{"nodes.tsv", "links", "backlinks"} {
+		raw, err := k.Repo.GetIndex(f.Context(), name)
+		require.NoError(t, err)
+		require.NotContains(t, string(raw), "keg:", "%s must not contain keg: prefixes", name)
+	}
+}
