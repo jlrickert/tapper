@@ -213,15 +213,15 @@ func (a *ApiRepo) HasNode(ctx context.Context, id NodeId) (bool, error) {
 	}
 }
 
-// Next implements Repository. There is no /nodes/next endpoint; a bare
-// POST /nodes reserves the next id server-side (the same reservation the old
-// allocate endpoint performed) and returns it without persisting any content.
+// Next implements Repository. Hub exposes next-id lookup as a read-only probe:
+// GET /nodes/next returns the next available id without creating or reserving
+// it. Use Keg.Create for one-round-trip titled node creation.
 func (a *ApiRepo) Next(ctx context.Context) (NodeId, error) {
-	resp, err := a.do(ctx, http.MethodPost, "/nodes", nil, "")
+	resp, err := a.do(ctx, http.MethodGet, "/nodes/next", nil, "")
 	if err != nil {
 		return NodeId{}, err
 	}
-	body, err := a.readBody(resp, "Next", http.StatusOK, http.StatusCreated)
+	body, err := a.readBody(resp, "Next", http.StatusOK)
 	if err != nil {
 		return NodeId{}, err
 	}
