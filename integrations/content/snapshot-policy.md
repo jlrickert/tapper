@@ -34,8 +34,10 @@ Recover with:
 
 - `mcp__tapper__node_history` — lists available snapshots for a node,
   most recent first.
-- `mcp__tapper__node_restore` — rolls a node back to a specific snapshot
-  revision.
+- `mcp__tapper__node_snapshot_view` — reads a prior revision without
+  changing the current node.
+- `mcp__tapper__node_restore` — recovers the current node from a specific
+  snapshot revision.
 
 If you are unsure whether an in-place edit warrants a snapshot, take
 one. The cost is negligible. For `remove`, a snapshot is not a

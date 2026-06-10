@@ -605,6 +605,215 @@ func (a *ApiRepo) WriteConfig(ctx context.Context, config *Config) error {
 	return err
 }
 
+// --- RepositorySnapshots ---
+
+type apiSnapshotEntry struct {
+	ID           int64  `json:"id"`
+	Node         int    `json:"node"`
+	Parent       int64  `json:"parent"`
+	CreatedAt    string `json:"created_at"`
+	Message      string `json:"message"`
+	ContentHash  string `json:"content_hash,omitempty"`
+	MetaHash     string `json:"meta_hash,omitempty"`
+	StatsHash    string `json:"stats_hash,omitempty"`
+	IsCheckpoint bool   `json:"is_checkpoint"`
+}
+
+type apiSnapshotResponse struct {
+	apiSnapshotEntry
+	Content []byte          `json:"content,omitempty"`
+	Meta    []byte          `json:"meta,omitempty"`
+	Stats   json.RawMessage `json:"stats,omitempty"`
+}
+
+func apiSnapshotFromEntry(entry apiSnapshotEntry) (Snapshot, error) {
+	createdAt := time.Time{}
+	if strings.TrimSpace(entry.CreatedAt) != "" {
+		t, err := time.Parse(time.RFC3339, entry.CreatedAt)
+		if err != nil {
+			return Snapshot{}, err
+		}
+		createdAt = t
+	}
+	return Snapshot{
+		ID:           RevisionID(entry.ID),
+		Node:         NodeId{ID: entry.Node},
+		Parent:       RevisionID(entry.Parent),
+		CreatedAt:    createdAt,
+		Message:      entry.Message,
+		ContentHash:  entry.ContentHash,
+		MetaHash:     entry.MetaHash,
+		StatsHash:    entry.StatsHash,
+		IsCheckpoint: entry.IsCheckpoint,
+	}, nil
+}
+
+func apiEntryFromSnapshot(s Snapshot) apiSnapshotEntry {
+	return apiSnapshotEntry{
+		ID:           int64(s.ID),
+		Node:         s.Node.ID,
+		Parent:       int64(s.Parent),
+		CreatedAt:    s.CreatedAt.Format(time.RFC3339),
+		Message:      s.Message,
+		ContentHash:  s.ContentHash,
+		MetaHash:     s.MetaHash,
+		StatsHash:    s.StatsHash,
+		IsCheckpoint: s.IsCheckpoint,
+	}
+}
+
+// AppendSnapshot implements RepositorySnapshots.
+func (a *ApiRepo) AppendSnapshot(ctx context.Context, id NodeId, in SnapshotWrite) (Snapshot, error) {
+	var stats json.RawMessage
+	if in.Stats != nil {
+		data, err := in.Stats.ToJSON()
+		if err != nil {
+			return Snapshot{}, NewBackendError(a.Name(), "AppendSnapshot", 0, err, false)
+		}
+		stats = data
+	}
+	req := struct {
+		ExpectedParent int64           `json:"expected_parent"`
+		Message        string          `json:"message"`
+		CreatedAt      string          `json:"created_at,omitempty"`
+		Meta           []byte          `json:"meta,omitempty"`
+		Stats          json.RawMessage `json:"stats,omitempty"`
+		Content        struct {
+			Kind      string `json:"kind"`
+			Base      int64  `json:"base"`
+			Algorithm string `json:"algorithm,omitempty"`
+			Data      []byte `json:"data"`
+			Hash      string `json:"hash"`
+		} `json:"content"`
+	}{
+		ExpectedParent: int64(in.ExpectedParent),
+		Message:        in.Message,
+		Meta:           in.Meta,
+		Stats:          stats,
+	}
+	if !in.CreatedAt.IsZero() {
+		req.CreatedAt = in.CreatedAt.Format(time.RFC3339)
+	}
+	req.Content.Kind = string(in.Content.Kind)
+	req.Content.Base = int64(in.Content.Base)
+	req.Content.Algorithm = in.Content.Algorithm
+	req.Content.Data = in.Content.Data
+	req.Content.Hash = in.Content.Hash
+
+	payload, err := json.Marshal(req)
+	if err != nil {
+		return Snapshot{}, NewBackendError(a.Name(), "AppendSnapshot", 0, err, false)
+	}
+
+	path := fmt.Sprintf("/nodes/%d/snapshots", id.ID)
+	resp, err := a.do(ctx, http.MethodPost, path, bytes.NewReader(payload), "application/json")
+	if err != nil {
+		return Snapshot{}, err
+	}
+	body, err := a.readBody(resp, "AppendSnapshot", http.StatusCreated, http.StatusOK)
+	if err != nil {
+		return Snapshot{}, err
+	}
+	var result apiSnapshotEntry
+	if err := json.Unmarshal(body, &result); err != nil {
+		return Snapshot{}, NewBackendError(a.Name(), "AppendSnapshot", 0,
+			fmt.Errorf("invalid response: %w", err), false)
+	}
+	snap, err := apiSnapshotFromEntry(result)
+	if err != nil {
+		return Snapshot{}, NewBackendError(a.Name(), "AppendSnapshot", 0,
+			fmt.Errorf("invalid response timestamp: %w", err), false)
+	}
+	return snap, nil
+}
+
+// GetSnapshot implements RepositorySnapshots.
+func (a *ApiRepo) GetSnapshot(ctx context.Context, id NodeId, rev RevisionID, opts SnapshotReadOptions) (Snapshot, []byte, []byte, *NodeStats, error) {
+	path := fmt.Sprintf("/nodes/%d/snapshots/%d", id.ID, int64(rev))
+	if opts.ResolveContent {
+		path += "?resolve_content=true"
+	}
+	resp, err := a.do(ctx, http.MethodGet, path, nil, "")
+	if err != nil {
+		return Snapshot{}, nil, nil, nil, err
+	}
+	body, err := a.readBody(resp, "GetSnapshot", http.StatusOK)
+	if err != nil {
+		return Snapshot{}, nil, nil, nil, err
+	}
+	var result apiSnapshotResponse
+	if err := json.Unmarshal(body, &result); err != nil {
+		return Snapshot{}, nil, nil, nil, NewBackendError(a.Name(), "GetSnapshot", 0,
+			fmt.Errorf("invalid response: %w", err), false)
+	}
+	snap, err := apiSnapshotFromEntry(result.apiSnapshotEntry)
+	if err != nil {
+		return Snapshot{}, nil, nil, nil, NewBackendError(a.Name(), "GetSnapshot", 0,
+			fmt.Errorf("invalid response timestamp: %w", err), false)
+	}
+	var stats *NodeStats
+	if len(bytes.TrimSpace(result.Stats)) > 0 && !bytes.Equal(bytes.TrimSpace(result.Stats), []byte("null")) {
+		stats, err = ParseStats(ctx, result.Stats)
+		if err != nil {
+			return Snapshot{}, nil, nil, nil, NewBackendError(a.Name(), "GetSnapshot", 0,
+				fmt.Errorf("invalid stats response: %w", err), false)
+		}
+	}
+	return snap, result.Content, result.Meta, stats, nil
+}
+
+// ListSnapshots implements RepositorySnapshots.
+func (a *ApiRepo) ListSnapshots(ctx context.Context, id NodeId) ([]Snapshot, error) {
+	path := fmt.Sprintf("/nodes/%d/snapshots", id.ID)
+	resp, err := a.do(ctx, http.MethodGet, path, nil, "")
+	if err != nil {
+		return nil, err
+	}
+	body, err := a.readBody(resp, "ListSnapshots", http.StatusOK)
+	if err != nil {
+		return nil, err
+	}
+	var entries []apiSnapshotEntry
+	if err := json.Unmarshal(body, &entries); err != nil {
+		return nil, NewBackendError(a.Name(), "ListSnapshots", 0,
+			fmt.Errorf("invalid response: %w", err), false)
+	}
+	result := make([]Snapshot, len(entries))
+	for i, entry := range entries {
+		snap, err := apiSnapshotFromEntry(entry)
+		if err != nil {
+			return nil, NewBackendError(a.Name(), "ListSnapshots", 0,
+				fmt.Errorf("invalid response timestamp: %w", err), false)
+		}
+		result[i] = snap
+	}
+	return result, nil
+}
+
+// ReadContentAt implements RepositorySnapshots.
+func (a *ApiRepo) ReadContentAt(ctx context.Context, id NodeId, rev RevisionID) ([]byte, error) {
+	path := fmt.Sprintf("/nodes/%d/snapshots/%d/content", id.ID, int64(rev))
+	resp, err := a.do(ctx, http.MethodGet, path, nil, "")
+	if err != nil {
+		return nil, err
+	}
+	return a.readBody(resp, "ReadContentAt", http.StatusOK)
+}
+
+// RestoreSnapshot implements RepositorySnapshots.
+func (a *ApiRepo) RestoreSnapshot(ctx context.Context, id NodeId, rev RevisionID, createRestoreSnapshot bool) error {
+	path := fmt.Sprintf("/nodes/%d/snapshots/%d/restore", id.ID, int64(rev))
+	payload, _ := json.Marshal(struct {
+		CreateRestoreSnapshot bool `json:"create_restore_snapshot"`
+	}{CreateRestoreSnapshot: createRestoreSnapshot})
+	resp, err := a.do(ctx, http.MethodPost, path, bytes.NewReader(payload), "application/json")
+	if err != nil {
+		return err
+	}
+	_, err = a.readBody(resp, "RestoreSnapshot", http.StatusOK, http.StatusNoContent)
+	return err
+}
+
 // --- Optional interfaces ---
 
 // ListFiles implements RepositoryFiles.
@@ -714,3 +923,4 @@ func (a *ApiRepo) DeleteImage(ctx context.Context, id NodeId, name string) error
 var _ Repository = (*ApiRepo)(nil)
 var _ RepositoryFiles = (*ApiRepo)(nil)
 var _ RepositoryImages = (*ApiRepo)(nil)
+var _ RepositorySnapshots = (*ApiRepo)(nil)

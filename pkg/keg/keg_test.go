@@ -11,6 +11,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+type externalMemoryRepo struct {
+	*kegpkg.MemoryRepo
+}
+
+func (r *externalMemoryRepo) Name() string {
+	return "external-memory"
+}
+
 // TestInitWhenRepoIsExample attempts to InitKeg a keg when the repo already
 // contains the example data. InitKeg should fail with ErrExist.
 func TestInitWhenRepoIsExample(t *testing.T) {
@@ -1030,6 +1038,35 @@ func TestDexFresh_ReturnsCachedWhenUnchanged(t *testing.T) {
 
 	// Both should return the same pointer (no reload occurred).
 	require.Same(t, dex1, dex2, "DexFresh should return cached dex when mtime unchanged")
+}
+
+func TestDexFresh_ReloadsForExternalRepoImplementations(t *testing.T) {
+	t.Parallel()
+	f := NewSandbox(t)
+	repo := &externalMemoryRepo{MemoryRepo: kegpkg.NewMemoryRepo(f.Runtime())}
+
+	k := kegpkg.NewKeg(repo, f.Runtime())
+	require.NoError(t, k.Init(f.Context()))
+
+	_, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "Original Node"})
+	require.NoError(t, err)
+
+	dex1, err := k.DexFresh(f.Context())
+	require.NoError(t, err)
+
+	externalKeg := kegpkg.NewKeg(repo, f.Runtime())
+	externalID, err := externalKeg.Create(f.Context(), &kegpkg.CreateOptions{Title: "External Node"})
+	require.NoError(t, err)
+
+	require.Nil(t, dex1.GetRef(f.Context(), externalID), "primed dex should not mutate behind the caller")
+
+	dex2, err := k.DexFresh(f.Context())
+	require.NoError(t, err)
+	require.NotSame(t, dex1, dex2, "external repo DexFresh should reload instead of returning the cached dex")
+
+	extRef := dex2.GetRef(f.Context(), externalID)
+	require.NotNil(t, extRef, "DexFresh should reload and include the externally added node")
+	require.Equal(t, "External Node", extRef.Title)
 }
 
 // withKegName sets Target.KegName on a file target. The bug being guarded

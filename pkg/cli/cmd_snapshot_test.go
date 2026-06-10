@@ -41,7 +41,12 @@ func TestKegSnapshotHistoryAndRestore(t *testing.T) {
 	require.Contains(t, stdout, "before change")
 	require.Contains(t, stdout, "after change")
 
-	res = NewKegProcess(t, false, "snapshot", "restore", "1", "1", "--yes").Run(sb.Context(), sb.Runtime())
+	res = NewKegProcess(t, false, "snapshot", "view", "1", "1").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+	require.Contains(t, string(res.Stdout), "An index of personal notes and projects.")
+	require.NotContains(t, string(res.Stdout), "Updated snapshot body.")
+
+	res = NewKegProcess(t, false, "snapshot", "restore", "1", "1").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 
 	res = NewKegProcess(t, false, "cat", "1").Run(sb.Context(), sb.Runtime())
@@ -226,6 +231,7 @@ func TestSnapshotCommand_SuggestsCreateHistoryAndRestore(t *testing.T) {
 	suggestions := parseCompletionSuggestions(string(comp.Stdout))
 	require.Contains(t, suggestions, "create")
 	require.Contains(t, suggestions, "history")
+	require.Contains(t, suggestions, "view")
 	require.Contains(t, suggestions, "restore")
 }
 

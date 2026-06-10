@@ -13,6 +13,7 @@ import (
 func registerSnapshotTools(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	registerNodeHistory(srv, tap, defaults)
 	registerNodeSnapshot(srv, tap, defaults)
+	registerNodeSnapshotView(srv, tap, defaults)
 	registerNodeRestore(srv, tap, defaults)
 }
 
@@ -82,6 +83,36 @@ func registerNodeSnapshot(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefau
 			return errorResult(err), nil, nil
 		}
 		return textResult(fmt.Sprintf("snapshot rev %d created", snap.ID)), nil, nil
+	})
+}
+
+// --- node_snapshot_view ---
+
+type nodeSnapshotViewInput struct {
+	NodeID string `json:"node_id" jsonschema:"node ID to view"`
+	Rev    string `json:"rev" jsonschema:"revision number to view"`
+	Keg    string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
+}
+
+func registerNodeSnapshotView(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
+	sdkmcp.AddTool(srv, &sdkmcp.Tool{
+		Name:        "node_snapshot_view",
+		Description: "View read-only content for a previous snapshot revision",
+		Annotations: &sdkmcp.ToolAnnotations{
+			ReadOnlyHint:  true,
+			OpenWorldHint: boolPtr(false),
+		},
+	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in nodeSnapshotViewInput) (*sdkmcp.CallToolResult, any, error) {
+		opts := tapper.NodeSnapshotViewOptions{
+			KegTargetOptions: resolveKegTarget(in.Keg, defaults),
+			NodeID:           in.NodeID,
+			Rev:              in.Rev,
+		}
+		content, err := tap.NodeSnapshotView(ctx, opts)
+		if err != nil {
+			return errorResult(err), nil, nil
+		}
+		return textResult(string(content)), nil, nil
 	})
 }
 

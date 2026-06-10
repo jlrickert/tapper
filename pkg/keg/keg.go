@@ -1197,9 +1197,9 @@ func (k *Keg) Commit(ctx context.Context, id NodeId) error {
 // This is correct for short-lived CLI invocations, which read the dex once
 // and exit. Long-lived processes that hold a *Keg across calls (the MCP
 // server, tap site serve, anything sharing an FsRepo with external writers)
-// MUST use DexFresh instead, which compares the mtime of dex/nodes.tsv and
-// reloads when the on-disk index has changed. Calling Dex from a long-lived
-// process risks serving stale results until the process restarts.
+// MUST use DexFresh instead, which reloads when the repository may have been
+// updated externally. Calling Dex from a long-lived process risks serving stale
+// results until the process restarts.
 func (k *Keg) Dex(ctx context.Context) (*Dex, error) {
 	if err := k.checkKegExists(ctx); err != nil {
 		return nil, fmt.Errorf("failed to retrieve dex: %w", err)
@@ -1218,11 +1218,12 @@ func (k *Keg) Dex(ctx context.Context) (*Dex, error) {
 	return dex, err
 }
 
-// DexFresh returns the keg's index, reloading from disk if the on-disk index
-// files have changed since the last load. This is the correct method for
-// long-lived processes (serve handlers, MCP servers) where another process may
-// update the dex between calls. For FsRepo backends, it compares the mtime of
+// DexFresh returns the keg's index, reloading if the repository may have
+// changed since the last load. This is the correct method for long-lived
+// processes (serve handlers, MCP servers) where another process may update the
+// dex between calls. For FsRepo backends, it compares the mtime of
 // dex/nodes.tsv; for MemoryRepo (single-process) it behaves identically to Dex.
+// Other repository implementations are treated as external and reloaded.
 func (k *Keg) DexFresh(ctx context.Context) (*Dex, error) {
 	if err := k.checkKegExists(ctx); err != nil {
 		return nil, fmt.Errorf("failed to retrieve dex: %w", err)
@@ -1308,16 +1309,19 @@ func (k *Keg) indexFileMtime() time.Time {
 	return info.ModTime()
 }
 
-// dexStale reports whether the cached dex is out of date with respect to the
-// on-disk index files. For MemoryRepo (single-process) this always returns
-// false because there are no external writers. For FsRepo it compares the
-// current mtime of dex/nodes.tsv against the mtime recorded when the dex was
-// last loaded.
+// dexStale reports whether the cached dex is out of date. For MemoryRepo
+// (single-process) this always returns false because there are no external
+// writers. For FsRepo it compares the current mtime of dex/nodes.tsv against
+// the mtime recorded when the dex was last loaded. Other repository
+// implementations are treated as external and always stale.
 //
 // Caller must hold k.dexMu.
 func (k *Keg) dexStale() bool {
-	if _, ok := k.Repo.(*FsRepo); !ok {
+	if _, ok := k.Repo.(*MemoryRepo); ok {
 		return false
+	}
+	if _, ok := k.Repo.(*FsRepo); !ok {
+		return true
 	}
 	current := k.indexFileMtime()
 	if current.IsZero() {
