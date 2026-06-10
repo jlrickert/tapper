@@ -97,7 +97,8 @@ selecting source nodes to import.
 | `mcp__tapper__move`                                                            | Relocate a node or rename its ID.                                                                                     |
 | `mcp__tapper__remove`, `mcp__tapper__delete_file`, `mcp__tapper__delete_image` | Destructive operations — see the Snapshots section below before calling.                                             |
 | `mcp__tapper__node_snapshot`                                                   | Capture a revision before a destructive or large edit.                                                                |
-| `mcp__tapper__node_history`, `mcp__tapper__node_restore`                       | Inspect or roll back to prior revisions.                                                                              |
+| `mcp__tapper__node_history`, `mcp__tapper__node_snapshot_view`                 | Inspect read-only prior revisions.                                                                                    |
+| `mcp__tapper__node_restore`                                                    | Recover the current node from a prior revision.                                                                       |
 
 ## Snapshots
 
@@ -133,8 +134,10 @@ Recover with:
 
 - `mcp__tapper__node_history` — lists available snapshots for a node,
   most recent first.
-- `mcp__tapper__node_restore` — rolls a node back to a specific snapshot
-  revision.
+- `mcp__tapper__node_snapshot_view` — reads a prior revision without
+  changing the current node.
+- `mcp__tapper__node_restore` — recovers the current node from a specific
+  snapshot revision.
 
 If you are unsure whether an in-place edit warrants a snapshot, take
 one. The cost is negligible. For `remove`, a snapshot is not a

@@ -145,6 +145,7 @@ func TestMCP_ToolsList(t *testing.T) {
 	require.Contains(t, names, "doctor")
 	require.Contains(t, names, "node_history")
 	require.Contains(t, names, "node_snapshot")
+	require.Contains(t, names, "node_snapshot_view")
 	require.Contains(t, names, "node_restore")
 	require.Contains(t, names, "list_files")
 	require.Contains(t, names, "list_images")
@@ -688,6 +689,30 @@ func TestMCP_NodeSnapshotAndHistory(t *testing.T) {
 	require.False(t, histRes.IsError, "node_history returned error: %s", histText)
 	require.Contains(t, histText, "rev 1")
 	require.Contains(t, histText, "initial snapshot")
+
+	viewRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "node_snapshot_view",
+		Arguments: map[string]any{
+			"node_id": "0",
+			"rev":     "1",
+		},
+	})
+	require.NoError(t, err)
+	viewText := extractText(t, viewRes)
+	require.False(t, viewRes.IsError, "node_snapshot_view returned error: %s", viewText)
+	require.Contains(t, viewText, "This is the zero node of the personal KEG.")
+
+	currentRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "cat",
+		Arguments: map[string]any{
+			"node_ids":     []string{"0"},
+			"content_only": true,
+		},
+	})
+	require.NoError(t, err)
+	currentText := extractText(t, currentRes)
+	require.False(t, currentRes.IsError, "cat returned error: %s", currentText)
+	require.Contains(t, currentText, "This is the zero node of the personal KEG.")
 }
 
 func TestMCP_ListFiles_Empty(t *testing.T) {
@@ -1473,7 +1498,7 @@ func TestMCP_ToolAnnotations_AllPresent(t *testing.T) {
 		"info", "keg_info", "stats",
 		"list_files", "list_images",
 		"list_indexes", "index_cat",
-		"doctor", "lock_status", "license", "node_history",
+		"doctor", "lock_status", "license", "node_history", "node_snapshot_view",
 	}
 	for _, name := range readOnlyTools {
 		tool, ok := byName[name]

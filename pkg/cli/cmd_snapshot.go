@@ -1,10 +1,7 @@
 package cli
 
 import (
-	"bufio"
-	"errors"
 	"fmt"
-	"io"
 	"strings"
 	"text/tabwriter"
 
@@ -19,11 +16,13 @@ func NewSnapshotCmd(deps *Deps) *cobra.Command {
 		Long: `Manage snapshot history for a node.
 
 Use "snapshot create" to capture the current node state, "snapshot history" to
-list revisions, and "snapshot restore" to restore a prior revision.`,
+list revisions, "snapshot view" to read a prior revision, and "snapshot restore"
+to recover the current node from a prior revision.`,
 		Example: strings.TrimSpace(`
 tap snapshot create 12 --keg personal -m "before refactor"
 tap snapshot history 12 --keg personal
-tap snapshot restore 12 1 --keg personal --yes
+tap snapshot view 12 1 --keg personal
+tap snapshot restore 12 1 --keg personal
 `),
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -34,6 +33,7 @@ tap snapshot restore 12 1 --keg personal --yes
 	cmd.AddCommand(
 		NewSnapshotCreateCmd(deps),
 		NewSnapshotHistoryCmd(deps),
+		NewSnapshotViewCmd(deps),
 		NewSnapshotRestoreCmd(deps),
 	)
 	return cmd
@@ -98,58 +98,49 @@ func NewSnapshotHistoryCmd(deps *Deps) *cobra.Command {
 	return cmd
 }
 
+func NewSnapshotViewCmd(deps *Deps) *cobra.Command {
+	var opts tapper.NodeSnapshotViewOptions
+
+	cmd := &cobra.Command{
+		Use:   "view NODE_ID REV",
+		Short: "view a read-only snapshot revision",
+		Example: strings.TrimSpace(`
+tap snapshot view 12 1 --keg personal
+keg snapshot view 12 1
+`),
+		Args: cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			applyKegTargetProfile(deps, &opts.KegTargetOptions)
+			opts.NodeID = args[0]
+			opts.Rev = args[1]
+
+			content, err := deps.Tap.NodeSnapshotView(cmd.Context(), opts)
+			if err != nil {
+				return err
+			}
+			_, err = cmd.OutOrStdout().Write(content)
+			return err
+		},
+	}
+	return cmd
+}
+
 func NewSnapshotRestoreCmd(deps *Deps) *cobra.Command {
-	var (
-		opts tapper.NodeRestoreOptions
-		yes  bool
-	)
+	var opts tapper.NodeRestoreOptions
 
 	cmd := &cobra.Command{
 		Use:   "restore NODE_ID REV",
-		Short: "restore a node to a prior snapshot",
+		Short: "recover the current node from a prior snapshot",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			applyKegTargetProfile(deps, &opts.KegTargetOptions)
 			opts.NodeID = args[0]
 			opts.Rev = args[1]
 
-			if !yes {
-				if !deps.Runtime.Stream().IsTTY {
-					return fmt.Errorf("restore requires confirmation; rerun with --yes")
-				}
-				ok, err := confirmSnapshotRestore(cmd, opts.NodeID, opts.Rev)
-				if err != nil {
-					return err
-				}
-				if !ok {
-					return fmt.Errorf("restore canceled")
-				}
-			}
-
 			return deps.Tap.NodeRestore(cmd.Context(), opts)
 		},
 	}
-
-	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "skip confirmation")
 	return cmd
-}
-
-func confirmSnapshotRestore(cmd *cobra.Command, nodeID string, rev string) (bool, error) {
-	_, err := fmt.Fprintf(cmd.ErrOrStderr(), "Restore node %s to revision %s? [y/N]: ", nodeID, rev)
-	if err != nil {
-		return false, err
-	}
-
-	line, err := bufio.NewReader(cmd.InOrStdin()).ReadString('\n')
-	if err != nil && !errors.Is(err, io.EOF) {
-		return false, err
-	}
-	switch strings.ToLower(strings.TrimSpace(line)) {
-	case "y", "yes":
-		return true, nil
-	default:
-		return false, nil
-	}
 }
 
 func shortHash(value string) string {

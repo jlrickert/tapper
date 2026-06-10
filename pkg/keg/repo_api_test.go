@@ -24,6 +24,7 @@ import (
 type mockHub struct {
 	mu     sync.Mutex
 	nodes  map[int]*mockNode
+	snaps  map[int][]mockSnapshot
 	config *keg.Config
 	idxs   map[string][]byte
 	nextID int
@@ -43,9 +44,17 @@ type mockNode struct {
 	images  map[string][]byte
 }
 
+type mockSnapshot struct {
+	snap    keg.Snapshot
+	content []byte
+	meta    []byte
+	stats   []byte
+}
+
 func newMockHub() *mockHub {
 	return &mockHub{
 		nodes:  make(map[int]*mockNode),
+		snaps:  make(map[int][]mockSnapshot),
 		idxs:   make(map[string][]byte),
 		locks:  make(map[int]string),
 		nextID: 0,
@@ -164,6 +173,7 @@ func (h *mockHub) handler() http.Handler {
 				return
 			}
 			delete(h.nodes, id)
+			delete(h.snaps, id)
 			h.mu.Unlock()
 			w.WriteHeader(http.StatusNoContent)
 		default:
@@ -200,6 +210,10 @@ func (h *mockHub) handler() http.Handler {
 			return
 		}
 		h.nodes[body.Dst] = src
+		if snaps, ok := h.snaps[id]; ok {
+			h.snaps[body.Dst] = snaps
+			delete(h.snaps, id)
+		}
 		delete(h.nodes, id)
 		w.WriteHeader(http.StatusNoContent)
 	})
@@ -301,6 +315,213 @@ func (h *mockHub) handler() http.Handler {
 		default:
 			w.WriteHeader(http.StatusMethodNotAllowed)
 		}
+	})
+
+	// Snapshot endpoints
+	mux.HandleFunc("GET /nodes/{id}/snapshots", func(w http.ResponseWriter, r *http.Request) {
+		if !checkAuth(w, r) {
+			return
+		}
+		id := parseID(r.PathValue("id"))
+		if id < 0 {
+			http.NotFound(w, r)
+			return
+		}
+		h.mu.Lock()
+		snaps := append([]mockSnapshot(nil), h.snaps[id]...)
+		h.mu.Unlock()
+
+		result := make([]map[string]any, len(snaps))
+		for i, s := range snaps {
+			result[i] = snapshotMap(s.snap)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(result)
+	})
+
+	mux.HandleFunc("POST /nodes/{id}/snapshots", func(w http.ResponseWriter, r *http.Request) {
+		if !checkAuth(w, r) {
+			return
+		}
+		id := parseID(r.PathValue("id"))
+		if id < 0 {
+			http.NotFound(w, r)
+			return
+		}
+		var req struct {
+			ExpectedParent int64           `json:"expected_parent"`
+			Message        string          `json:"message"`
+			CreatedAt      string          `json:"created_at"`
+			Meta           []byte          `json:"meta"`
+			Stats          json.RawMessage `json:"stats"`
+			Content        struct {
+				Kind string `json:"kind"`
+				Data []byte `json:"data"`
+				Hash string `json:"hash"`
+			} `json:"content"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeJSONError(w, http.StatusBadRequest, "BAD_REQUEST", "invalid JSON body")
+			return
+		}
+		if req.Content.Kind != "" && req.Content.Kind != string(keg.SnapshotContentKindFull) {
+			writeJSONError(w, http.StatusBadRequest, "BAD_REQUEST", "unsupported snapshot content kind")
+			return
+		}
+
+		createdAt := time.Now().UTC()
+		if strings.TrimSpace(req.CreatedAt) != "" {
+			parsed, err := time.Parse(time.RFC3339, req.CreatedAt)
+			if err != nil {
+				writeJSONError(w, http.StatusBadRequest, "BAD_REQUEST", "invalid created_at")
+				return
+			}
+			createdAt = parsed
+		}
+
+		h.mu.Lock()
+		defer h.mu.Unlock()
+		if _, ok := h.nodes[id]; !ok {
+			writeJSONError(w, http.StatusNotFound, "NOT_FOUND", "node not found")
+			return
+		}
+		existing := h.snaps[id]
+		latest := int64(0)
+		if len(existing) > 0 {
+			latest = int64(existing[len(existing)-1].snap.ID)
+		}
+		if req.ExpectedParent != latest {
+			writeJSONError(w, http.StatusConflict, "CONFLICT", "snapshot parent mismatch")
+			return
+		}
+		snap := keg.Snapshot{
+			ID:           keg.RevisionID(latest + 1),
+			Node:         keg.NodeId{ID: id},
+			Parent:       keg.RevisionID(latest),
+			CreatedAt:    createdAt,
+			Message:      req.Message,
+			ContentHash:  req.Content.Hash,
+			IsCheckpoint: true,
+		}
+		if len(req.Meta) > 0 {
+			snap.MetaHash = "meta"
+		}
+		if len(req.Stats) > 0 {
+			snap.StatsHash = "stats"
+		}
+		h.snaps[id] = append(existing, mockSnapshot{
+			snap:    snap,
+			content: append([]byte(nil), req.Content.Data...),
+			meta:    append([]byte(nil), req.Meta...),
+			stats:   append([]byte(nil), req.Stats...),
+		})
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(snapshotMap(snap))
+	})
+
+	mux.HandleFunc("GET /nodes/{id}/snapshots/{rev}", func(w http.ResponseWriter, r *http.Request) {
+		if !checkAuth(w, r) {
+			return
+		}
+		id := parseID(r.PathValue("id"))
+		rev := parseID(r.PathValue("rev"))
+		if id < 0 || rev <= 0 {
+			http.NotFound(w, r)
+			return
+		}
+		h.mu.Lock()
+		snap, ok := h.findSnapshotLocked(id, keg.RevisionID(rev))
+		h.mu.Unlock()
+		if !ok {
+			writeJSONError(w, http.StatusNotFound, "NOT_FOUND", "snapshot not found")
+			return
+		}
+		result := snapshotMap(snap.snap)
+		if r.URL.Query().Get("resolve_content") == "true" {
+			result["content"] = snap.content
+			result["meta"] = snap.meta
+			if len(bytes.TrimSpace(snap.stats)) > 0 {
+				result["stats"] = json.RawMessage(snap.stats)
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(result)
+	})
+
+	mux.HandleFunc("GET /nodes/{id}/snapshots/{rev}/content", func(w http.ResponseWriter, r *http.Request) {
+		if !checkAuth(w, r) {
+			return
+		}
+		id := parseID(r.PathValue("id"))
+		rev := parseID(r.PathValue("rev"))
+		if id < 0 || rev <= 0 {
+			http.NotFound(w, r)
+			return
+		}
+		h.mu.Lock()
+		snap, ok := h.findSnapshotLocked(id, keg.RevisionID(rev))
+		h.mu.Unlock()
+		if !ok {
+			writeJSONError(w, http.StatusNotFound, "NOT_FOUND", "snapshot not found")
+			return
+		}
+		w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
+		w.Write(snap.content)
+	})
+
+	mux.HandleFunc("POST /nodes/{id}/snapshots/{rev}/restore", func(w http.ResponseWriter, r *http.Request) {
+		if !checkAuth(w, r) {
+			return
+		}
+		id := parseID(r.PathValue("id"))
+		rev := parseID(r.PathValue("rev"))
+		if id < 0 || rev <= 0 {
+			http.NotFound(w, r)
+			return
+		}
+		var req struct {
+			CreateRestoreSnapshot bool `json:"create_restore_snapshot"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&req)
+
+		h.mu.Lock()
+		snap, ok := h.findSnapshotLocked(id, keg.RevisionID(rev))
+		if !ok {
+			h.mu.Unlock()
+			writeJSONError(w, http.StatusNotFound, "NOT_FOUND", "snapshot not found")
+			return
+		}
+		n := h.ensureNode(id)
+		n.content = append([]byte(nil), snap.content...)
+		n.meta = append([]byte(nil), snap.meta...)
+		n.stats = append([]byte(nil), snap.stats...)
+		if req.CreateRestoreSnapshot {
+			existing := h.snaps[id]
+			latest := int64(0)
+			if len(existing) > 0 {
+				latest = int64(existing[len(existing)-1].snap.ID)
+			}
+			restoreSnap := keg.Snapshot{
+				ID:           keg.RevisionID(latest + 1),
+				Node:         keg.NodeId{ID: id},
+				Parent:       keg.RevisionID(latest),
+				CreatedAt:    time.Now().UTC(),
+				Message:      "restore from rev " + strconv.Itoa(rev),
+				ContentHash:  snap.snap.ContentHash,
+				MetaHash:     snap.snap.MetaHash,
+				StatsHash:    snap.snap.StatsHash,
+				IsCheckpoint: true,
+			}
+			h.snaps[id] = append(existing, mockSnapshot{
+				snap:    restoreSnap,
+				content: append([]byte(nil), snap.content...),
+				meta:    append([]byte(nil), snap.meta...),
+				stats:   append([]byte(nil), snap.stats...),
+			})
+		}
+		h.mu.Unlock()
+		w.WriteHeader(http.StatusNoContent)
 	})
 
 	// Index endpoints
@@ -619,6 +840,29 @@ func parseID(s string) int {
 	return id
 }
 
+func (h *mockHub) findSnapshotLocked(id int, rev keg.RevisionID) (mockSnapshot, bool) {
+	for _, snap := range h.snaps[id] {
+		if snap.snap.ID == rev {
+			return snap, true
+		}
+	}
+	return mockSnapshot{}, false
+}
+
+func snapshotMap(s keg.Snapshot) map[string]any {
+	return map[string]any{
+		"id":            int64(s.ID),
+		"node":          s.Node.ID,
+		"parent":        int64(s.Parent),
+		"created_at":    s.CreatedAt.Format(time.RFC3339),
+		"message":       s.Message,
+		"content_hash":  s.ContentHash,
+		"meta_hash":     s.MetaHash,
+		"stats_hash":    s.StatsHash,
+		"is_checkpoint": s.IsCheckpoint,
+	}
+}
+
 func writeJSONError(w http.ResponseWriter, status int, code, msg string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
@@ -739,6 +983,64 @@ func TestApiRepo_ContentReadWrite(t *testing.T) {
 	got, err := repo.ReadContent(ctx, keg.NodeId{ID: 1})
 	require.NoError(t, err)
 	require.Equal(t, content, got)
+}
+
+func TestApiRepo_Snapshots(t *testing.T) {
+	repo, hub, _ := setupApiRepo(t)
+	ctx := context.Background()
+
+	hub.mu.Lock()
+	n := hub.ensureNode(1)
+	n.content = []byte("# Current\n")
+	n.meta = []byte("tags: []\n")
+	n.stats = []byte(`{"title":"Current"}`)
+	hub.mu.Unlock()
+
+	snapRepo, ok := any(repo).(keg.RepositorySnapshots)
+	require.True(t, ok, "ApiRepo must implement RepositorySnapshots")
+
+	stats, err := keg.ParseStats(ctx, []byte(`{"title":"Historical"}`))
+	require.NoError(t, err)
+	snap, err := snapRepo.AppendSnapshot(ctx, keg.NodeId{ID: 1}, keg.SnapshotWrite{
+		ExpectedParent: 0,
+		Message:        "before change",
+		Meta:           []byte("tags:\n- old\n"),
+		Stats:          stats,
+		Content: keg.SnapshotContentWrite{
+			Kind: keg.SnapshotContentKindFull,
+			Data: []byte("# Historical\n"),
+			Hash: "abc123",
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, keg.RevisionID(1), snap.ID)
+
+	history, err := snapRepo.ListSnapshots(ctx, keg.NodeId{ID: 1})
+	require.NoError(t, err)
+	require.Len(t, history, 1)
+	require.Equal(t, "before change", history[0].Message)
+
+	content, err := snapRepo.ReadContentAt(ctx, keg.NodeId{ID: 1}, 1)
+	require.NoError(t, err)
+	require.Equal(t, "# Historical\n", string(content))
+
+	loaded, loadedContent, loadedMeta, loadedStats, err := snapRepo.GetSnapshot(ctx, keg.NodeId{ID: 1}, 1, keg.SnapshotReadOptions{ResolveContent: true})
+	require.NoError(t, err)
+	require.Equal(t, snap.ID, loaded.ID)
+	require.Equal(t, "# Historical\n", string(loadedContent))
+	require.Equal(t, "tags:\n- old\n", string(loadedMeta))
+	require.Equal(t, "Historical", loadedStats.Title())
+
+	err = snapRepo.RestoreSnapshot(ctx, keg.NodeId{ID: 1}, 1, true)
+	require.NoError(t, err)
+	current, err := repo.ReadContent(ctx, keg.NodeId{ID: 1})
+	require.NoError(t, err)
+	require.Equal(t, "# Historical\n", string(current))
+
+	history, err = snapRepo.ListSnapshots(ctx, keg.NodeId{ID: 1})
+	require.NoError(t, err)
+	require.Len(t, history, 2)
+	require.Contains(t, history[1].Message, "restore from rev 1")
 }
 
 func TestApiRepo_MetaReadWrite(t *testing.T) {
@@ -1046,6 +1348,7 @@ func TestApiRepo_CompileTimeInterfaceChecks(t *testing.T) {
 	var _ keg.Repository = (*keg.ApiRepo)(nil)
 	var _ keg.RepositoryFiles = (*keg.ApiRepo)(nil)
 	var _ keg.RepositoryImages = (*keg.ApiRepo)(nil)
+	var _ keg.RepositorySnapshots = (*keg.ApiRepo)(nil)
 }
 
 // Suppress unused import warnings -- strings is used by the mock server

@@ -52,9 +52,10 @@ var tapMethodToSurfaces = map[string]struct {
 	"Index": {CLI: "index rebuild", MCP: "index"},
 
 	// Snapshot operations
-	"NodeSnapshot": {CLI: "snapshot create", MCP: "node_snapshot"},
-	"NodeHistory":  {CLI: "snapshot history", MCP: "node_history"},
-	"NodeRestore":  {CLI: "snapshot restore", MCP: "node_restore"},
+	"NodeSnapshot":     {CLI: "snapshot create", MCP: "node_snapshot"},
+	"NodeHistory":      {CLI: "snapshot history", MCP: "node_history"},
+	"NodeSnapshotView": {CLI: "snapshot view", MCP: "node_snapshot_view"},
+	"NodeRestore":      {CLI: "snapshot restore", MCP: "node_restore"},
 
 	// File operations
 	"ListFiles":     {CLI: "file ls", MCP: "list_files"},

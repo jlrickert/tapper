@@ -19,6 +19,12 @@ type NodeSnapshotOptions struct {
 	Message string
 }
 
+type NodeSnapshotViewOptions struct {
+	KegTargetOptions
+	NodeID string
+	Rev    string
+}
+
 type NodeRestoreOptions struct {
 	KegTargetOptions
 	NodeID string
@@ -47,6 +53,22 @@ func (t *Tap) NodeSnapshot(ctx context.Context, opts NodeSnapshotOptions) (keg.S
 		return keg.Snapshot{}, fmt.Errorf("unable to append snapshot: %w", err)
 	}
 	return snap, nil
+}
+
+func (t *Tap) NodeSnapshotView(ctx context.Context, opts NodeSnapshotViewOptions) ([]byte, error) {
+	k, id, err := t.resolveSnapshotNode(ctx, opts.KegTargetOptions, opts.NodeID)
+	if err != nil {
+		return nil, err
+	}
+	rev, err := parseRevision(opts.Rev)
+	if err != nil {
+		return nil, err
+	}
+	content, err := k.ReadContentAt(ctx, id, rev)
+	if err != nil {
+		return nil, fmt.Errorf("unable to read snapshot: %w", err)
+	}
+	return content, nil
 }
 
 func (t *Tap) NodeRestore(ctx context.Context, opts NodeRestoreOptions) error {
