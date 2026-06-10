@@ -91,9 +91,18 @@ func (h *mockHub) handler() http.Handler {
 		return true
 	}
 
-	// POST /nodes — reserve the next id and, when a payload is supplied,
-	// persist the node's content/meta/stats in the same call. A bare POST
-	// (empty body) just reserves the id, as Next() does.
+	mux.HandleFunc("GET /nodes/next", func(w http.ResponseWriter, r *http.Request) {
+		if !checkAuth(w, r) {
+			return
+		}
+		h.mu.Lock()
+		id := h.nextID
+		h.mu.Unlock()
+		writeJSON(w, http.StatusOK, map[string]int{"id": id})
+	})
+
+	// POST /nodes persists the node's content/meta/stats in the same call.
+	// Content is required and must contain an explicit markdown H1 title.
 	mux.HandleFunc("POST /nodes", func(w http.ResponseWriter, r *http.Request) {
 		if !checkAuth(w, r) {
 			return
@@ -104,11 +113,17 @@ func (h *mockHub) handler() http.Handler {
 			Meta    *string         `json:"meta"`
 			Stats   json.RawMessage `json:"stats"`
 		}
-		if len(bytes.TrimSpace(body)) > 0 {
-			if err := json.Unmarshal(body, &req); err != nil {
-				writeJSONError(w, http.StatusBadRequest, "BAD_REQUEST", "invalid JSON body")
-				return
-			}
+		if len(bytes.TrimSpace(body)) == 0 {
+			writeJSONError(w, http.StatusBadRequest, "BAD_REQUEST", "node title is required")
+			return
+		}
+		if err := json.Unmarshal(body, &req); err != nil {
+			writeJSONError(w, http.StatusBadRequest, "BAD_REQUEST", "invalid JSON body")
+			return
+		}
+		if req.Content == nil || mockExplicitMarkdownTitle(*req.Content) == "" {
+			writeJSONError(w, http.StatusBadRequest, "BAD_REQUEST", "node title is required")
+			return
 		}
 		h.mu.Lock()
 		id := h.nextID
@@ -863,10 +878,36 @@ func snapshotMap(s keg.Snapshot) map[string]any {
 	}
 }
 
+func mockExplicitMarkdownTitle(content string) string {
+	lines := strings.Split(content, "\n")
+	start := 0
+	if len(lines) > 0 && strings.TrimSpace(lines[0]) == "---" {
+		for i := 1; i < len(lines); i++ {
+			if strings.TrimSpace(lines[i]) == "---" {
+				start = i + 1
+				break
+			}
+		}
+	}
+	for _, line := range lines[start:] {
+		trimmed := strings.TrimSpace(line)
+		if title, ok := strings.CutPrefix(trimmed, "# "); ok {
+			return strings.TrimSpace(title)
+		}
+	}
+	return ""
+}
+
 func writeJSONError(w http.ResponseWriter, status int, code, msg string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(map[string]string{"error": msg, "code": code})
+}
+
+func writeJSON(w http.ResponseWriter, status int, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	json.NewEncoder(w).Encode(v)
 }
 
 // --- Test helpers ---
@@ -926,7 +967,17 @@ func TestApiRepo_Next(t *testing.T) {
 
 	id2, err := repo.Next(ctx)
 	require.NoError(t, err)
-	require.Equal(t, 1, id2.ID)
+	require.Equal(t, 0, id2.ID, "Next should report without reserving")
+
+	creator, ok := any(repo).(keg.RepositoryNodeCreator)
+	require.True(t, ok)
+	created, err := creator.CreateNode(ctx, keg.NodeCreate{Content: []byte("# Created\n")})
+	require.NoError(t, err)
+	require.Equal(t, 0, created.ID)
+
+	id3, err := repo.Next(ctx)
+	require.NoError(t, err)
+	require.Equal(t, 1, id3.ID)
 }
 
 func TestApiRepo_CreateNode(t *testing.T) {
@@ -945,7 +996,7 @@ func TestApiRepo_CreateNode(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "# Created\n", string(got))
 
-	// A second create reserves the next id.
+	// A second create uses the next available id.
 	id2, err := creator.CreateNode(ctx, keg.NodeCreate{Content: []byte("# Second\n")})
 	require.NoError(t, err)
 	require.Equal(t, 1, id2.ID)
