@@ -253,7 +253,7 @@ func parseImportNodeIDs(rawIDs []string) ([]keg.NodeId, error) {
 
 // collectImportNodesByTag evaluates a boolean query expression (supporting both
 // tag names and key=value attribute predicates) against the source keg's dex.
-func collectImportNodesByTag(ctx context.Context, k *keg.Keg, query string) ([]keg.NodeId, error) {
+func collectImportNodesByTag(ctx context.Context, k *keg.LocalKeg, query string) ([]keg.NodeId, error) {
 	dex, err := k.DexFresh(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("unable to load source dex: %w", err)
@@ -305,7 +305,7 @@ func filterZeroImportNode(ids []keg.NodeId) []keg.NodeId {
 }
 
 // kegsAreSame reports whether two kegs refer to the same underlying storage.
-func kegsAreSame(a, b *keg.Keg) bool {
+func kegsAreSame(a, b *keg.LocalKeg) bool {
 	if a == b {
 		return true
 	}

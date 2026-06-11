@@ -119,7 +119,7 @@ func TestComposeEditNodeFile_NormalizesJSONMeta(t *testing.T) {
 
 func TestEditorTempFilePrefix_UsesLogicalKegIdentity(t *testing.T) {
 	t.Parallel()
-	k := &keg.Keg{Target: &keg.Target{Namespace: "jlrickert", KegName: "example"}}
+	k := &keg.LocalKeg{Target: &keg.Target{Namespace: "jlrickert", KegName: "example"}}
 
 	got := editorTempFilePrefix(k, keg.NodeId{ID: 2}, "edit")
 
@@ -128,7 +128,7 @@ func TestEditorTempFilePrefix_UsesLogicalKegIdentity(t *testing.T) {
 
 func TestEditorTempFilePrefix_MetadataUsesSameLogicalIdentity(t *testing.T) {
 	t.Parallel()
-	k := &keg.Keg{Target: &keg.Target{Namespace: "jlrickert", KegName: "example"}}
+	k := &keg.LocalKeg{Target: &keg.Target{Namespace: "jlrickert", KegName: "example"}}
 
 	got := editorTempFilePrefix(k, keg.NodeId{ID: 2}, "meta")
 
@@ -137,7 +137,7 @@ func TestEditorTempFilePrefix_MetadataUsesSameLogicalIdentity(t *testing.T) {
 
 func TestEditorTempFilePrefix_FileTargetDoesNotUsePathSegments(t *testing.T) {
 	t.Parallel()
-	k := &keg.Keg{Target: &keg.Target{File: "/Users/jlrickert/kegs/example"}}
+	k := &keg.LocalKeg{Target: &keg.Target{File: "/Users/jlrickert/kegs/example"}}
 
 	got := editorTempFilePrefix(k, keg.NodeId{ID: 2}, "edit")
 
@@ -148,7 +148,7 @@ func TestEditorTempFilePrefix_FileTargetDoesNotUsePathSegments(t *testing.T) {
 
 func TestEditorTempFilePrefix_SanitizesUnsafeCharacters(t *testing.T) {
 	t.Parallel()
-	k := &keg.Keg{Target: &keg.Target{
+	k := &keg.LocalKeg{Target: &keg.Target{
 		Namespace: "team/foo @bar",
 		KegName:   "notes:bad/thing",
 	}}

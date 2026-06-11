@@ -6,7 +6,7 @@ import (
 	"fmt"
 )
 
-func (k *Keg) AppendSnapshot(ctx context.Context, id NodeId, msg string) (Snapshot, error) {
+func (k *LocalKeg) AppendSnapshot(ctx context.Context, id NodeId, msg string) (Snapshot, error) {
 	if err := k.checkKegExists(ctx); err != nil {
 		return Snapshot{}, fmt.Errorf("failed to snapshot node: %w", err)
 	}
@@ -58,7 +58,7 @@ func (k *Keg) AppendSnapshot(ctx context.Context, id NodeId, msg string) (Snapsh
 	return out, err
 }
 
-func (k *Keg) ListSnapshots(ctx context.Context, id NodeId) ([]Snapshot, error) {
+func (k *LocalKeg) ListSnapshots(ctx context.Context, id NodeId) ([]Snapshot, error) {
 	if err := k.checkKegExists(ctx); err != nil {
 		return nil, fmt.Errorf("failed to list snapshots: %w", err)
 	}
@@ -69,7 +69,7 @@ func (k *Keg) ListSnapshots(ctx context.Context, id NodeId) ([]Snapshot, error) 
 	return snapshots.ListSnapshots(ctx, id)
 }
 
-func (k *Keg) ReadContentAt(ctx context.Context, id NodeId, rev RevisionID) ([]byte, error) {
+func (k *LocalKeg) ReadContentAt(ctx context.Context, id NodeId, rev RevisionID) ([]byte, error) {
 	if err := k.checkKegExists(ctx); err != nil {
 		return nil, fmt.Errorf("failed to read snapshot content: %w", err)
 	}
@@ -80,7 +80,7 @@ func (k *Keg) ReadContentAt(ctx context.Context, id NodeId, rev RevisionID) ([]b
 	return snapshots.ReadContentAt(ctx, id, rev)
 }
 
-func (k *Keg) RestoreSnapshot(ctx context.Context, id NodeId, rev RevisionID) error {
+func (k *LocalKeg) RestoreSnapshot(ctx context.Context, id NodeId, rev RevisionID) error {
 	if err := k.checkKegExists(ctx); err != nil {
 		return fmt.Errorf("failed to restore snapshot: %w", err)
 	}

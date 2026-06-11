@@ -338,7 +338,7 @@ func (t *Tap) NewServeHandler(ctx context.Context, opts ServeOptions) (*ServeHan
 // serveHandler holds shared state for all HTTP handlers.
 type serveHandler struct {
 	tap       *Tap
-	keg       *keg.Keg
+	keg       *keg.LocalKeg
 	tmpl      *template.Template
 	siteTitle string
 	baseURL   string

@@ -86,7 +86,7 @@ func (t *Tap) NodeRestore(ctx context.Context, opts NodeRestoreOptions) error {
 	return nil
 }
 
-func (t *Tap) resolveSnapshotNode(ctx context.Context, targetOpts KegTargetOptions, nodeID string) (*keg.Keg, keg.NodeId, error) {
+func (t *Tap) resolveSnapshotNode(ctx context.Context, targetOpts KegTargetOptions, nodeID string) (*keg.LocalKeg, keg.NodeId, error) {
 	k, err := t.resolveKeg(ctx, targetOpts)
 	if err != nil {
 		return nil, keg.NodeId{}, fmt.Errorf("unable to open keg: %w", err)

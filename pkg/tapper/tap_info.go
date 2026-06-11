@@ -56,7 +56,7 @@ func (t *Tap) Info(ctx context.Context, opts InfoOptions) (string, error) {
 }
 
 // infoMinimal returns a compact version of the keg config with only core fields.
-func (t *Tap) infoMinimal(ctx context.Context, k *keg.Keg) (string, error) {
+func (t *Tap) infoMinimal(ctx context.Context, k *keg.LocalKeg) (string, error) {
 	cfg, err := k.Config(ctx)
 	if err != nil {
 		return "", fmt.Errorf("unable to read keg config: %w", err)

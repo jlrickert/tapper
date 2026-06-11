@@ -69,7 +69,7 @@ func (t *Tap) Graph(ctx context.Context, opts GraphOptions) (string, error) {
 	return out, nil
 }
 
-func buildGraphPayload(ctx context.Context, rt *toolkit.Runtime, k *keg.Keg, dex *keg.Dex) graphPayload {
+func buildGraphPayload(ctx context.Context, rt *toolkit.Runtime, k *keg.LocalKeg, dex *keg.Dex) graphPayload {
 	payload := graphPayload{
 		Nodes: []graphNode{},
 		Edges: []graphEdge{},

@@ -76,7 +76,7 @@ func TestKegArchiveImportOverwritesExistingNodes(t *testing.T) {
 	require.Contains(t, string(res.Stdout), "export.keg.tar.gz")
 
 	targetRepo := keg.NewFsRepo("~/import-target", sb.Runtime())
-	targetKeg := keg.NewKeg(targetRepo, sb.Runtime())
+	targetKeg := keg.NewLocalKeg(targetRepo, sb.Runtime())
 	require.NoError(t, targetKeg.Init(sb.Context()))
 	id, err := targetKeg.Create(sb.Context(), &keg.CreateOptions{Title: "Existing node"})
 	require.NoError(t, err)
@@ -133,7 +133,7 @@ func TestTapSnapshotArchiveCommandsWithAliasAndPath(t *testing.T) {
 	require.Contains(t, string(res.Stdout), "tap-export.keg.tar.gz")
 
 	targetRepo := keg.NewFsRepo("~/tap-import-target", sb.Runtime())
-	targetKeg := keg.NewKeg(targetRepo, sb.Runtime())
+	targetKeg := keg.NewLocalKeg(targetRepo, sb.Runtime())
 	require.NoError(t, targetKeg.Init(sb.Context()))
 
 	res = NewProcess(t, false, "archive", "import", exportPath, "--path", "~/tap-import-target").Run(sb.Context(), sb.Runtime())
@@ -187,7 +187,7 @@ func TestArchiveImportPreservesSnapshotTimestamps(t *testing.T) {
 	sb.Advance(4 * time.Hour)
 
 	targetRepo := keg.NewFsRepo("~/timestamp-import-target", sb.Runtime())
-	targetKeg := keg.NewKeg(targetRepo, sb.Runtime())
+	targetKeg := keg.NewLocalKeg(targetRepo, sb.Runtime())
 	require.NoError(t, targetKeg.Init(sb.Context()))
 
 	res = NewProcess(t, false, "archive", "import", exportPath, "--path", "~/timestamp-import-target").Run(sb.Context(), sb.Runtime())
@@ -292,7 +292,7 @@ func TestArchiveImportCommand_AcceptsPlainTarArchive(t *testing.T) {
 	sb.MustWriteFile(plainTarPath, tarData, 0o644)
 
 	targetRepo := keg.NewFsRepo("~/plain-import-target", sb.Runtime())
-	targetKeg := keg.NewKeg(targetRepo, sb.Runtime())
+	targetKeg := keg.NewLocalKeg(targetRepo, sb.Runtime())
 	require.NoError(t, targetKeg.Init(sb.Context()))
 
 	res = NewProcess(t, false, "archive", "import", plainTarPath, "--path", "~/plain-import-target").Run(sb.Context(), sb.Runtime())
@@ -316,7 +316,7 @@ func TestArchiveExportCommand_NoHistoryOmitsSnapshots(t *testing.T) {
 	require.NoError(t, res.Err)
 
 	targetRepo := keg.NewFsRepo("~/no-history-import-target", sb.Runtime())
-	targetKeg := keg.NewKeg(targetRepo, sb.Runtime())
+	targetKeg := keg.NewLocalKeg(targetRepo, sb.Runtime())
 	require.NoError(t, targetKeg.Init(sb.Context()))
 
 	res = NewProcess(t, false, "archive", "import", exportPath, "--path", "~/no-history-import-target").Run(sb.Context(), sb.Runtime())
@@ -347,7 +347,7 @@ func TestArchiveImportCommand_FailsWhenHistoryIndexMissing(t *testing.T) {
 	sb.MustWriteFile(brokenPath, broken, 0o644)
 
 	targetRepo := keg.NewFsRepo("~/broken-history-import-target", sb.Runtime())
-	targetKeg := keg.NewKeg(targetRepo, sb.Runtime())
+	targetKeg := keg.NewLocalKeg(targetRepo, sb.Runtime())
 	require.NoError(t, targetKeg.Init(sb.Context()))
 
 	res = NewProcess(t, false, "archive", "import", brokenPath, "--path", "~/broken-history-import-target").Run(sb.Context(), sb.Runtime())

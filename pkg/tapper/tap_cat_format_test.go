@@ -13,7 +13,7 @@ func TestDescribeKeg(t *testing.T) {
 
 	tests := []struct {
 		name string
-		k    *keg.Keg
+		k    *keg.LocalKeg
 		want string
 	}{
 		{
@@ -23,22 +23,22 @@ func TestDescribeKeg(t *testing.T) {
 		},
 		{
 			name: "nil target",
-			k:    &keg.Keg{},
+			k:    &keg.LocalKeg{},
 			want: "the resolved keg",
 		},
 		{
 			name: "remote keg shows ref and hub url",
-			k:    &keg.Keg{Target: &keg.Target{Namespace: "jlrickert", KegName: "example", HubURL: "https://tapper-1-jlrickert.dev.foldwise.ai"}},
+			k:    &keg.LocalKeg{Target: &keg.Target{Namespace: "jlrickert", KegName: "example", HubURL: "https://tapper-1-jlrickert.dev.foldwise.ai"}},
 			want: "keg:@jlrickert/example (hub https://tapper-1-jlrickert.dev.foldwise.ai)",
 		},
 		{
 			name: "local keg shows ref without hub",
-			k:    &keg.Keg{Target: &keg.Target{Namespace: "local", KegName: "example"}},
+			k:    &keg.LocalKeg{Target: &keg.Target{Namespace: "local", KegName: "example"}},
 			want: "keg:@local/example",
 		},
 		{
 			name: "file keg shows path",
-			k:    &keg.Keg{Target: &keg.Target{File: "/home/me/kegs/notes"}},
+			k:    &keg.LocalKeg{Target: &keg.Target{File: "/home/me/kegs/notes"}},
 			want: "/home/me/kegs/notes",
 		},
 	}

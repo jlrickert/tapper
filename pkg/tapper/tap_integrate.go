@@ -134,4 +134,3 @@ func (t *Tap) defaultIntegrateTarget(host string) (string, error) {
 func IntegrateHosts() []string {
 	return OrientableHosts()
 }
-

@@ -21,7 +21,7 @@ func TestConcurrentCreate_UniqueIDs(t *testing.T) {
 	f := NewSandbox(t)
 
 	repo := kegpkg.NewMemoryRepo(f.Runtime())
-	k := kegpkg.NewKeg(repo, f.Runtime())
+	k := kegpkg.NewLocalKeg(repo, f.Runtime())
 	require.NoError(t, k.Init(f.Context()))
 
 	const N = 20
@@ -99,7 +99,7 @@ func TestConcurrentSetContent_DifferentNodes(t *testing.T) {
 	f := NewSandbox(t)
 
 	repo := kegpkg.NewMemoryRepo(f.Runtime())
-	k := kegpkg.NewKeg(repo, f.Runtime())
+	k := kegpkg.NewLocalKeg(repo, f.Runtime())
 	require.NoError(t, k.Init(f.Context()))
 
 	const N = 10
@@ -144,7 +144,7 @@ func TestConcurrentSetContent_SameNode(t *testing.T) {
 	f := NewSandbox(t)
 
 	repo := kegpkg.NewMemoryRepo(f.Runtime())
-	k := kegpkg.NewKeg(repo, f.Runtime())
+	k := kegpkg.NewLocalKeg(repo, f.Runtime())
 	require.NoError(t, k.Init(f.Context()))
 
 	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "Shared"})
@@ -180,7 +180,7 @@ func TestConcurrentSetMeta_SameNode(t *testing.T) {
 	f := NewSandbox(t)
 
 	repo := kegpkg.NewMemoryRepo(f.Runtime())
-	k := kegpkg.NewKeg(repo, f.Runtime())
+	k := kegpkg.NewLocalKeg(repo, f.Runtime())
 	require.NoError(t, k.Init(f.Context()))
 
 	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "Shared Meta"})
@@ -212,7 +212,7 @@ func TestConcurrentCreateAndEdit(t *testing.T) {
 	f := NewSandbox(t)
 
 	repo := kegpkg.NewMemoryRepo(f.Runtime())
-	k := kegpkg.NewKeg(repo, f.Runtime())
+	k := kegpkg.NewLocalKeg(repo, f.Runtime())
 	require.NoError(t, k.Init(f.Context()))
 
 	// Pre-create some nodes for editing.
@@ -279,10 +279,10 @@ func TestTwoKegInstances_DexNotOverwritten(t *testing.T) {
 	repo := kegpkg.NewMemoryRepo(f.Runtime())
 
 	// Create two Keg instances sharing the same repo (simulates MCP server + CLI)
-	k1 := kegpkg.NewKeg(repo, f.Runtime())
+	k1 := kegpkg.NewLocalKeg(repo, f.Runtime())
 	require.NoError(t, k1.Init(f.Context()))
 
-	k2 := kegpkg.NewKeg(repo, f.Runtime())
+	k2 := kegpkg.NewLocalKeg(repo, f.Runtime())
 
 	// k1 creates node 1
 	id1, err := k1.Create(f.Context(), &kegpkg.CreateOptions{Title: "From K1"})
@@ -357,7 +357,7 @@ func TestConcurrentCrossLock_OnlyOneWins(t *testing.T) {
 	f := NewSandbox(t)
 
 	repo := kegpkg.NewMemoryRepo(f.Runtime())
-	k := kegpkg.NewKeg(repo, f.Runtime())
+	k := kegpkg.NewLocalKeg(repo, f.Runtime())
 	require.NoError(t, k.Init(f.Context()))
 
 	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "Lock Race"})
@@ -396,7 +396,7 @@ func TestCrossLock_DoesNotBlockWithNodeLock(t *testing.T) {
 	f := NewSandbox(t)
 
 	repo := kegpkg.NewMemoryRepo(f.Runtime())
-	k := kegpkg.NewKeg(repo, f.Runtime())
+	k := kegpkg.NewLocalKeg(repo, f.Runtime())
 	require.NoError(t, k.Init(f.Context()))
 
 	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "Lock Independence"})
@@ -429,7 +429,7 @@ func TestConcurrentRemoveDuringSetContent_MemoryRepo(t *testing.T) {
 	f := NewSandbox(t)
 
 	repo := kegpkg.NewMemoryRepo(f.Runtime())
-	k := kegpkg.NewKeg(repo, f.Runtime())
+	k := kegpkg.NewLocalKeg(repo, f.Runtime())
 	require.NoError(t, k.Init(f.Context()))
 
 	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "Doomed"})
@@ -456,7 +456,7 @@ func TestConcurrentRemoveDuringSetMeta_MemoryRepo(t *testing.T) {
 	f := NewSandbox(t)
 
 	repo := kegpkg.NewMemoryRepo(f.Runtime())
-	k := kegpkg.NewKeg(repo, f.Runtime())
+	k := kegpkg.NewLocalKeg(repo, f.Runtime())
 	require.NoError(t, k.Init(f.Context()))
 
 	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{
@@ -491,7 +491,7 @@ func TestConcurrentRemoveDuringUpdateMeta_MemoryRepo(t *testing.T) {
 	f := NewSandbox(t)
 
 	repo := kegpkg.NewMemoryRepo(f.Runtime())
-	k := kegpkg.NewKeg(repo, f.Runtime())
+	k := kegpkg.NewLocalKeg(repo, f.Runtime())
 	require.NoError(t, k.Init(f.Context()))
 
 	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "Update Doomed"})
@@ -521,7 +521,7 @@ func TestConcurrentRemoveThenSetContent_RaceCondition(t *testing.T) {
 	f := NewSandbox(t)
 
 	repo := kegpkg.NewMemoryRepo(f.Runtime())
-	k := kegpkg.NewKeg(repo, f.Runtime())
+	k := kegpkg.NewLocalKeg(repo, f.Runtime())
 	require.NoError(t, k.Init(f.Context()))
 
 	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "Race Node"})
@@ -685,7 +685,7 @@ func TestConcurrentRemoveDuringTouch_MemoryRepo(t *testing.T) {
 	f := NewSandbox(t)
 
 	repo := kegpkg.NewMemoryRepo(f.Runtime())
-	k := kegpkg.NewKeg(repo, f.Runtime())
+	k := kegpkg.NewLocalKeg(repo, f.Runtime())
 	require.NoError(t, k.Init(f.Context()))
 
 	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "Touch Doomed"})

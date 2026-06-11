@@ -355,7 +355,7 @@ func (t *Tap) Import(ctx context.Context, opts ImportOptions) ([]keg.NodeId, err
 	return imported, nil
 }
 
-func exportNodeIDs(ctx context.Context, k *keg.Keg, raw []string) ([]keg.NodeId, error) {
+func exportNodeIDs(ctx context.Context, k *keg.LocalKeg, raw []string) ([]keg.NodeId, error) {
 	if len(raw) == 0 {
 		return k.Repo.ListNodes(ctx)
 	}
@@ -630,7 +630,7 @@ func restoreImportedNodeAssets(ctx context.Context, repo keg.Repository, id keg.
 	return nil
 }
 
-func rebuildDexFromRepo(ctx context.Context, k *keg.Keg) error {
+func rebuildDexFromRepo(ctx context.Context, k *keg.LocalKeg) error {
 	dex, err := k.DexFresh(ctx)
 	if err != nil {
 		return fmt.Errorf("unable to load dex after import: %w", err)
@@ -658,7 +658,7 @@ func rebuildDexFromRepo(ctx context.Context, k *keg.Keg) error {
 	return nil
 }
 
-func loadNodeDataForDex(ctx context.Context, k *keg.Keg, id keg.NodeId) (*keg.NodeData, error) {
+func loadNodeDataForDex(ctx context.Context, k *keg.LocalKeg, id keg.NodeId) (*keg.NodeData, error) {
 	contentBytes, err := k.Repo.ReadContent(ctx, id)
 	if err != nil {
 		return nil, err

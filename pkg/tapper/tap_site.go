@@ -329,7 +329,7 @@ func (t *Tap) Site(ctx context.Context, opts SiteOptions) (*SiteResult, error) {
 
 func (t *Tap) generateNodePage(
 	ctx context.Context,
-	k *keg.Keg,
+	k *keg.LocalKeg,
 	dex *keg.Dex,
 	tmpl *template.Template,
 	nid keg.NodeId,
@@ -489,7 +489,7 @@ func (t *Tap) generateNodePage(
 	return nil
 }
 
-func (t *Tap) copyNodeAssets(ctx context.Context, k *keg.Keg, nid keg.NodeId, nodeDir string, kind keg.AssetKind) {
+func (t *Tap) copyNodeAssets(ctx context.Context, k *keg.LocalKeg, nid keg.NodeId, nodeDir string, kind keg.AssetKind) {
 	rt := t.Runtime
 	var names []string
 	var readFn func(context.Context, keg.NodeId, string) ([]byte, error)

@@ -41,7 +41,7 @@ func (e *FlightRestrictionError) Error() string {
 // enforceFlight rejects a resolved keg that falls outside the active flight's
 // allow-list. A blank flight or an instructions-only flight (empty allow-list)
 // restricts nothing.
-func (t *Tap) enforceFlight(ctx context.Context, flightName string, k *keg.Keg) error {
+func (t *Tap) enforceFlight(ctx context.Context, flightName string, k *keg.LocalKeg) error {
 	flightName = strings.TrimSpace(flightName)
 	if flightName == "" || k == nil {
 		return nil
