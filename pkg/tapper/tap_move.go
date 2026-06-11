@@ -35,7 +35,7 @@ func (t *Tap) Move(ctx context.Context, opts MoveOptions) error {
 		return err
 	}
 
-	if err := k.Move(ctx, srcID, dstID); err != nil {
+	if _, err := k.Move(ctx, srcID, dstID); err != nil {
 		if errors.Is(err, keg.ErrNotExist) {
 			return fmt.Errorf("node %s not found in %s", srcID.Path(), describeKeg(k))
 		}

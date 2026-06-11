@@ -23,47 +23,25 @@ func (k *LocalKeg) SetExtraDexOpts(opts ...DexOption) {
 	k.dex = nil
 }
 
-// Dex returns the keg's index, loading it from the repository on first access.
-// The dex is lazily loaded and cached in memory for efficient access.
-// Config-driven query-filtered indexes are applied automatically via WithConfig.
-//
-// Dex is the cache-only fast path: it returns whatever is already in memory
-// and does not check whether another process has updated the on-disk index.
-// This is correct for short-lived CLI invocations, which read the dex once
-// and exit. Long-lived processes that hold a *LocalKeg across calls (the MCP
-// server, tap site serve, anything sharing an FsRepo with external writers)
-// MUST use DexFresh instead, which reloads when the repository may have been
-// updated externally. Calling Dex from a long-lived process risks serving stale
-// results until the process restarts.
+// Dex returns the keg's index with always-fresh semantics: the cached dex is
+// reused only while it is provably current (see dexStale), otherwise it is
+// reloaded from the repository. Config-driven query-filtered indexes are
+// applied automatically via WithConfig. Safe for both short-lived CLI
+// invocations and long-lived processes (serve handlers, MCP servers) where
+// another process may update the index between calls.
 func (k *LocalKeg) Dex(ctx context.Context) (*Dex, error) {
 	if err := k.checkKegExists(ctx); err != nil {
 		return nil, fmt.Errorf("failed to retrieve dex: %w", err)
 	}
-
-	k.dexMu.Lock()
-	defer k.dexMu.Unlock()
-
-	if k.dex != nil {
-		return k.dex, nil
-	}
-	opts, _ := k.dexOptions(ctx)
-	dex, err := NewDexFromRepo(ctx, k.Repo, opts...)
-	k.dex = dex
-	k.dexLoadMtime = k.indexFileMtime()
-	return dex, err
+	return k.ensureDexFresh(ctx)
 }
 
-// DexFresh returns the keg's index, reloading if the repository may have
-// changed since the last load. This is the correct method for long-lived
-// processes (serve handlers, MCP servers) where another process may update the
-// dex between calls. For FsRepo backends, it compares the mtime of
-// dex/nodes.tsv; for MemoryRepo (single-process) it behaves identically to Dex.
-// Other repository implementations are treated as external and reloaded.
+// DexFresh is an alias of Dex retained for transition; Dex now always returns
+// a current index.
+//
+// Deprecated: call Dex instead.
 func (k *LocalKeg) DexFresh(ctx context.Context) (*Dex, error) {
-	if err := k.checkKegExists(ctx); err != nil {
-		return nil, fmt.Errorf("failed to retrieve dex: %w", err)
-	}
-	return k.ensureDexFresh(ctx)
+	return k.Dex(ctx)
 }
 
 // dexOptions reads the keg config and returns DexOptions to apply when

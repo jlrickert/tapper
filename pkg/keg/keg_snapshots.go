@@ -69,6 +69,19 @@ func (k *LocalKeg) ListSnapshots(ctx context.Context, id NodeId) ([]Snapshot, er
 	return snapshots.ListSnapshots(ctx, id)
 }
 
+// GetSnapshot returns revision metadata and, per opts, resolved content,
+// meta, and stats payloads.
+func (k *LocalKeg) GetSnapshot(ctx context.Context, id NodeId, rev RevisionID, opts SnapshotReadOptions) (Snapshot, []byte, []byte, *NodeStats, error) {
+	if err := k.checkKegExists(ctx); err != nil {
+		return Snapshot{}, nil, nil, nil, fmt.Errorf("failed to read snapshot: %w", err)
+	}
+	snapshots, ok := repoSnapshots(k.Repo)
+	if !ok {
+		return Snapshot{}, nil, nil, nil, ErrNotSupported
+	}
+	return snapshots.GetSnapshot(ctx, id, rev, opts)
+}
+
 func (k *LocalKeg) ReadContentAt(ctx context.Context, id NodeId, rev RevisionID) ([]byte, error) {
 	if err := k.checkKegExists(ctx); err != nil {
 		return nil, fmt.Errorf("failed to read snapshot content: %w", err)
