@@ -175,11 +175,11 @@ func (t *Tap) Serve(ctx context.Context, opts ServeOptions) (*ServeResult, error
 // http.Handler and provides a Close method to release background resources
 // such as the filesystem watcher used for proactive dex invalidation.
 type ServeHandler struct {
-	mux          *http.ServeMux
-	sh           *serveHandler
-	watcherClose func()          // nil when no watcher is active
-	sse          *sseBroadcaster // nil when watch mode is disabled
-	wg           sync.WaitGroup  // tracks background goroutines
+	mux           *http.ServeMux
+	sh            *serveHandler
+	watcherCancel context.CancelFunc // nil when no watcher is active
+	sse           *sseBroadcaster    // nil when watch mode is disabled
+	wg            sync.WaitGroup     // tracks background goroutines
 }
 
 // ServeHTTP implements http.Handler.
@@ -190,9 +190,9 @@ func (h *ServeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // Close releases background resources and waits for all background
 // goroutines to drain. It is safe to call multiple times.
 func (h *ServeHandler) Close() {
-	if h.watcherClose != nil {
-		h.watcherClose()
-		h.watcherClose = nil
+	if h.watcherCancel != nil {
+		h.watcherCancel()
+		h.watcherCancel = nil
 	}
 	h.wg.Wait()
 }
@@ -267,72 +267,67 @@ func (t *Tap) NewServeHandler(ctx context.Context, opts ServeOptions) (*ServeHan
 
 	handler := &ServeHandler{mux: mux, sh: sh}
 
-	// Start a filesystem watcher for proactive dex invalidation. When node
+	// Start a repository watcher for proactive dex invalidation. When node
 	// files change on disk, the watcher invalidates the cached dex so the
 	// next request gets fresh data without waiting for an mtime check.
 	// When watch mode is enabled, also set up SSE broadcasting so
-	// connected browsers reload automatically.
+	// connected browsers reload automatically. The watch is scoped to its
+	// own cancellable context so Close can unblock the drain goroutine.
 	if watchEnabled {
-		if fsRepo, ok := k.Repo.(*keg.FsRepo); ok {
+		if events, ok := k.Repo.(keg.RepositoryEvents); ok {
 			sse := newSSEBroadcaster(k.Runtime.Clock().Now)
 			handler.sse = sse
 
 			// Register the SSE endpoint.
 			mux.HandleFunc("GET /events", sh.handleSSE(sse))
 
-			w, watchErr := fsRepo.WatchEvents()
-			if watchErr == nil {
-				ch, chErr := w.Watch(ctx)
-				if chErr == nil {
-					handler.wg.Add(1)
-					go func() {
-						defer handler.wg.Done()
-						// Broadcast-level debounce: accumulate events and
-						// broadcast once after 500ms of quiet. This prevents
-						// the reload loop caused by editors emitting multiple
-						// fs events per save (write-rename cycles produce
-						// separate events for README.md, stats.json, etc.).
-						const broadcastDebounce = 500 * time.Millisecond
-						var debounceTimer *time.Timer
-						for range ch {
-							k.InvalidateDex()
-							if debounceTimer != nil {
-								debounceTimer.Stop()
-							}
-							debounceTimer = time.AfterFunc(broadcastDebounce, func() {
-								sse.broadcast()
-							})
-						}
-						// Flush any pending broadcast on channel close.
+			watchCtx, watchCancel := context.WithCancel(ctx)
+			if ch, chErr := events.Watch(watchCtx); chErr == nil {
+				handler.watcherCancel = watchCancel
+				handler.wg.Add(1)
+				go func() {
+					defer handler.wg.Done()
+					// Broadcast-level debounce: accumulate events and
+					// broadcast once after 500ms of quiet. This prevents
+					// the reload loop caused by editors emitting multiple
+					// fs events per save (write-rename cycles produce
+					// separate events for README.md, stats.json, etc.).
+					const broadcastDebounce = 500 * time.Millisecond
+					var debounceTimer *time.Timer
+					for range ch {
+						k.InvalidateDex()
 						if debounceTimer != nil {
 							debounceTimer.Stop()
 						}
-					}()
-					handler.watcherClose = func() { _ = w.Close() }
-				} else {
-					_ = w.Close()
-				}
+						debounceTimer = time.AfterFunc(broadcastDebounce, func() {
+							sse.broadcast()
+						})
+					}
+					// Flush any pending broadcast on channel close.
+					if debounceTimer != nil {
+						debounceTimer.Stop()
+					}
+				}()
+			} else {
+				watchCancel()
 			}
 		}
 	} else {
 		// Watch disabled: still start the watcher for dex invalidation
 		// but without SSE broadcasting.
-		if fsRepo, ok := k.Repo.(*keg.FsRepo); ok {
-			w, watchErr := fsRepo.WatchEvents()
-			if watchErr == nil {
-				ch, chErr := w.Watch(ctx)
-				if chErr == nil {
-					handler.wg.Add(1)
-					go func() {
-						defer handler.wg.Done()
-						for range ch {
-							k.InvalidateDex()
-						}
-					}()
-					handler.watcherClose = func() { _ = w.Close() }
-				} else {
-					_ = w.Close()
-				}
+		if events, ok := k.Repo.(keg.RepositoryEvents); ok {
+			watchCtx, watchCancel := context.WithCancel(ctx)
+			if ch, chErr := events.Watch(watchCtx); chErr == nil {
+				handler.watcherCancel = watchCancel
+				handler.wg.Add(1)
+				go func() {
+					defer handler.wg.Done()
+					for range ch {
+						k.InvalidateDex()
+					}
+				}()
+			} else {
+				watchCancel()
 			}
 		}
 	}

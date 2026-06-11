@@ -57,13 +57,14 @@ after a fixed number of events, and --timeout to exit after a duration.`,
 				defer cancel()
 			}
 
-			ch, cleanup, err := deps.Tap.WatchNode(ctx, opts)
+			// The watch is ctx-scoped: cancelling ctx (timeout, interrupt)
+			// closes the channel and releases all watch resources.
+			ctx, cancel := context.WithCancel(ctx)
+			defer cancel()
+			ch, err := deps.Tap.WatchNode(ctx, opts)
 			if err != nil {
 				return err
 			}
-			defer func() {
-				_ = cleanup()
-			}()
 
 			out := deps.Runtime.Stream().Out
 			seen := 0

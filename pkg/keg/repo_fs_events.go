@@ -5,39 +5,32 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
 )
 
-// fsRepoWatcher implements RepositoryEvents for FsRepo using fsnotify.
-type fsRepoWatcher struct {
+// fsWatch is the per-Watch handle for FsRepo live events: one fsnotify
+// watcher and one subscriber channel, both scoped to the Watch context.
+type fsWatch struct {
 	repo         *FsRepo
 	watcher      *fsnotify.Watcher
 	resolvedRoot string // real filesystem path for fsnotify and classify
-
-	mu      sync.Mutex
-	closed  bool
-	cancels []context.CancelFunc
-	subs    []*fsSub // active subscribers for Emit broadcasts
-	wg      sync.WaitGroup
+	ch           chan NodeEvent
+	ids          map[NodeId]struct{} // empty means all nodes
+	done         chan struct{}       // closed when loop exits
 }
 
-// fsSub tracks a single Watch subscriber for Emit delivery.
-type fsSub struct {
-	ch   chan NodeEvent
-	ids  map[NodeId]struct{} // empty means all nodes
-	done chan struct{}        // closed when loop exits
-}
-
-// WatchEvents returns a RepositoryEvents implementation for the FsRepo.
-// Each call creates a fresh watcher; callers must call Close when done.
-func (f *FsRepo) WatchEvents() (RepositoryEvents, error) {
+// Watch implements RepositoryEvents for FsRepo using fsnotify. When no IDs
+// are given, the entire keg root is watched and events for any node are
+// emitted. Events are delivered on the returned channel until ctx is
+// cancelled, at which point the channel is closed.
+func (f *FsRepo) Watch(ctx context.Context, ids ...NodeId) (<-chan NodeEvent, error) {
 	w, err := fsnotify.NewWatcher()
 	if err != nil {
 		return nil, err
 	}
+
 	// Resolve the root path through the runtime so that jailed/sandboxed
 	// paths are expanded to real filesystem paths for fsnotify.
 	resolved := f.Root
@@ -51,131 +44,78 @@ func (f *FsRepo) WatchEvents() (RepositoryEvents, error) {
 			resolved = filepath.Join(jail, trimmed)
 		}
 	}
-	fw := &fsRepoWatcher{repo: f, watcher: w, resolvedRoot: resolved}
-	f.registerWatcher(fw)
-	return fw, nil
-}
-
-// Watch begins observing changes for the specified node IDs. When no IDs are
-// given, the entire keg root is watched and events for any node are emitted.
-// Events are delivered on the returned channel until ctx is cancelled or
-// Close is called.
-func (fw *fsRepoWatcher) Watch(ctx context.Context, ids ...NodeId) (<-chan NodeEvent, error) {
-	fw.mu.Lock()
-	if fw.closed {
-		fw.mu.Unlock()
-		return nil, ErrNotSupported
-	}
-	fw.mu.Unlock()
 
 	// Determine which directories to watch using resolved paths.
 	var dirs []string
 	if len(ids) == 0 {
-		dirs = append(dirs, fw.resolvedRoot)
+		dirs = append(dirs, resolved)
 	} else {
 		for _, id := range ids {
-			dirs = append(dirs, filepath.Join(fw.resolvedRoot, id.Path()))
+			dirs = append(dirs, filepath.Join(resolved, id.Path()))
 		}
 	}
-
 	for _, d := range dirs {
-		if err := fw.watcher.Add(d); err != nil {
+		if err := w.Add(d); err != nil {
+			_ = w.Close()
 			return nil, err
 		}
 	}
 
-	watchCtx, cancel := context.WithCancel(ctx)
-
-	ch := make(chan NodeEvent, 16)
 	idSet := make(map[NodeId]struct{}, len(ids))
 	for _, id := range ids {
 		idSet[id] = struct{}{}
 	}
-	sub := &fsSub{ch: ch, ids: idSet, done: make(chan struct{})}
+	fw := &fsWatch{
+		repo:         f,
+		watcher:      w,
+		resolvedRoot: resolved,
+		ch:           make(chan NodeEvent, 16),
+		ids:          idSet,
+		done:         make(chan struct{}),
+	}
+	f.registerWatcher(fw)
 
-	fw.mu.Lock()
-	fw.cancels = append(fw.cancels, cancel)
-	fw.subs = append(fw.subs, sub)
-	fw.mu.Unlock()
+	go fw.loop(ctx, len(ids) == 0)
 
-	// Cleanup goroutine: wait for context cancellation, remove the subscriber
-	// (preventing further Emit sends), wait for loop to exit, then close the
-	// channel. This ordering ensures no sends race with the close.
-	fw.wg.Add(1)
+	// Cleanup: when ctx ends, unregister the subscriber first (Emit holds
+	// watchersMu, so no programmatic send can race the close), close the
+	// fsnotify watcher (unblocks the loop), wait for the loop to exit, then
+	// close the channel.
 	go func() {
-		defer fw.wg.Done()
-		<-watchCtx.Done()
-		fw.removeSub(sub)
-		<-sub.done
-		close(ch)
+		<-ctx.Done()
+		f.unregisterWatcher(fw)
+		_ = w.Close()
+		<-fw.done
+		close(fw.ch)
 	}()
 
-	go fw.loop(watchCtx, ch, sub, len(ids) == 0)
-	return ch, nil
+	return fw.ch, nil
 }
 
-// Emit sends a NodeEvent to all active subscribers whose filters match.
-// Lock ordering: FsRepo.watchersMu -> fsRepoWatcher.mu. Sends are
-// non-blocking to avoid deadlock when the channel buffer is full.
-func (fw *fsRepoWatcher) Emit(ev NodeEvent) {
-	fw.mu.Lock()
-	defer fw.mu.Unlock()
-	if fw.closed {
-		return
-	}
-	for _, s := range fw.subs {
-		_, match := s.ids[ev.NodeID]
-		if len(s.ids) == 0 || match {
-			select {
-			case s.ch <- ev:
-			default:
-			}
+// Emit implements RepositoryEvents. It broadcasts a programmatic event
+// (access bumps, test simulation) to all active Watch subscribers whose
+// filters match.
+func (f *FsRepo) Emit(ev NodeEvent) {
+	f.emitToWatchers(ev)
+}
+
+// emit delivers a programmatic event to this subscriber. Called by
+// FsRepo.emitToWatchers under watchersMu; sends are non-blocking so a slow
+// consumer cannot deadlock the emitter.
+func (fw *fsWatch) emit(ev NodeEvent) {
+	_, match := fw.ids[ev.NodeID]
+	if len(fw.ids) == 0 || match {
+		select {
+		case fw.ch <- ev:
+		default:
 		}
 	}
-}
-
-func (fw *fsRepoWatcher) removeSub(sub *fsSub) {
-	fw.mu.Lock()
-	defer fw.mu.Unlock()
-	for i, s := range fw.subs {
-		if s == sub {
-			fw.subs = append(fw.subs[:i], fw.subs[i+1:]...)
-			return
-		}
-	}
-}
-
-// Close releases all watcher resources and cancels active Watch goroutines.
-// Blocks until all loop and cleanup goroutines have exited.
-func (fw *fsRepoWatcher) Close() error {
-	fw.mu.Lock()
-	if fw.closed {
-		fw.mu.Unlock()
-		return nil
-	}
-	fw.closed = true
-	for _, cancel := range fw.cancels {
-		cancel()
-	}
-	fw.cancels = nil
-	fw.subs = nil
-	err := fw.watcher.Close()
-	fw.mu.Unlock()
-
-	// Unregister after releasing fw.mu to preserve lock ordering
-	// (FsRepo.watchersMu -> fsRepoWatcher.mu). The closed flag is already
-	// set, so Emit calls will no-op even before unregistration completes.
-	fw.repo.unregisterWatcher(fw)
-
-	// Wait for all loop and cleanup goroutines to exit before returning.
-	fw.wg.Wait()
-	return err
 }
 
 // loop reads fsnotify events, debounces them, and emits NodeEvents.
-// Signals completion by closing sub.done when it returns.
-func (fw *fsRepoWatcher) loop(ctx context.Context, ch chan<- NodeEvent, sub *fsSub, watchRoot bool) {
-	defer close(sub.done)
+// Signals completion by closing fw.done when it returns.
+func (fw *fsWatch) loop(ctx context.Context, watchRoot bool) {
+	defer close(fw.done)
 
 	// pending tracks debounce state per file path.
 	type pendingEvent struct {
@@ -214,7 +154,7 @@ func (fw *fsRepoWatcher) loop(ctx context.Context, ch chan<- NodeEvent, sub *fsS
 			for path, p := range pending {
 				if now.Sub(p.first) >= debounce {
 					select {
-					case ch <- p.event:
+					case fw.ch <- p.event:
 					case <-ctx.Done():
 						return
 					}
@@ -227,7 +167,7 @@ func (fw *fsRepoWatcher) loop(ctx context.Context, ch chan<- NodeEvent, sub *fsS
 
 // classify maps an fsnotify.Event to a NodeEvent, returning false when the
 // event does not correspond to a recognized node file.
-func (fw *fsRepoWatcher) classify(ev fsnotify.Event, watchRoot bool) (NodeEvent, bool) {
+func (fw *fsWatch) classify(ev fsnotify.Event, watchRoot bool) (NodeEvent, bool) {
 	// Determine which file changed and derive node ID + field.
 	abs := ev.Name
 	rel, err := filepath.Rel(fw.resolvedRoot, abs)
@@ -281,4 +221,4 @@ func (fw *fsRepoWatcher) classify(ev fsnotify.Event, watchRoot bool) (NodeEvent,
 	return NodeEvent{Kind: kind, NodeID: id, Field: field}, true
 }
 
-var _ RepositoryEvents = (*fsRepoWatcher)(nil)
+var _ RepositoryEvents = (*FsRepo)(nil)

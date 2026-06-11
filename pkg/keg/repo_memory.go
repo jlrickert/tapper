@@ -51,7 +51,7 @@ type MemoryRepo struct {
 
 	// watchersMu guards the watchers slice for access event emission.
 	watchersMu sync.Mutex
-	watchers   []*MemoryRepoWatcher
+	watchers   []*memoryWatch
 }
 
 type memoryNode struct {
@@ -633,15 +633,15 @@ func (r *MemoryRepo) WithNodeLock(ctx context.Context, id NodeId, fn func(contex
 	return errors.Join(runErr, unlockErr)
 }
 
-// registerWatcher adds a watcher to the active set for access event emission.
-func (r *MemoryRepo) registerWatcher(w *MemoryRepoWatcher) {
+// registerWatcher adds a watch subscriber to the active set for access event emission.
+func (r *MemoryRepo) registerWatcher(w *memoryWatch) {
 	r.watchersMu.Lock()
 	r.watchers = append(r.watchers, w)
 	r.watchersMu.Unlock()
 }
 
-// unregisterWatcher removes a watcher from the active set.
-func (r *MemoryRepo) unregisterWatcher(w *MemoryRepoWatcher) {
+// unregisterWatcher removes a watch subscriber from the active set.
+func (r *MemoryRepo) unregisterWatcher(w *memoryWatch) {
 	r.watchersMu.Lock()
 	defer r.watchersMu.Unlock()
 	for i, active := range r.watchers {
@@ -652,12 +652,12 @@ func (r *MemoryRepo) unregisterWatcher(w *MemoryRepoWatcher) {
 	}
 }
 
-// emitToWatchers broadcasts a NodeEvent to all active watchers.
+// emitToWatchers broadcasts a NodeEvent to all active watch subscribers.
 func (r *MemoryRepo) emitToWatchers(ev NodeEvent) {
 	r.watchersMu.Lock()
 	defer r.watchersMu.Unlock()
 	for _, w := range r.watchers {
-		w.Emit(ev)
+		w.emit(ev)
 	}
 }
 

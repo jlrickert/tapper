@@ -22,7 +22,6 @@ type nodeResourceSubscriptions struct {
 
 type nodeResourceWatch struct {
 	cancel   context.CancelFunc
-	cleanup  func() error
 	sessions map[string]bool
 }
 
@@ -49,7 +48,7 @@ func (s *nodeResourceSubscriptions) Subscribe(ctx context.Context, req *sdkmcp.S
 		return nil
 	}
 	watchCtx, cancel := context.WithCancel(context.Background())
-	ch, cleanup, err := s.tap.WatchNode(watchCtx, tapper.WatchNodeOptions{
+	ch, err := s.tap.WatchNode(watchCtx, tapper.WatchNodeOptions{
 		NodeID:           ref.nodeID,
 		KegTargetOptions: resolveKegTarget(ref.keg, s.defaults),
 	})
@@ -60,7 +59,6 @@ func (s *nodeResourceSubscriptions) Subscribe(ctx context.Context, req *sdkmcp.S
 	}
 	s.watches[req.Params.URI] = &nodeResourceWatch{
 		cancel:   cancel,
-		cleanup:  cleanup,
 		sessions: map[string]bool{sessionID: true},
 	}
 	s.mu.Unlock()
@@ -87,9 +85,6 @@ func (s *nodeResourceSubscriptions) Unsubscribe(ctx context.Context, req *sdkmcp
 	s.mu.Unlock()
 
 	watch.cancel()
-	if watch.cleanup != nil {
-		_ = watch.cleanup()
-	}
 	_ = ctx
 	return nil
 }
@@ -131,8 +126,5 @@ func (s *nodeResourceSubscriptions) removeWatch(uri string) {
 	s.mu.Unlock()
 	if ok {
 		watch.cancel()
-		if watch.cleanup != nil {
-			_ = watch.cleanup()
-		}
 	}
 }

@@ -43,21 +43,18 @@ type NodeEvent struct {
 }
 
 // RepositoryEvents is an optional interface that Repository implementations
-// may satisfy to provide live change notifications. The editing layer uses a
-// type assertion to check whether the underlying repository supports events.
+// may satisfy to provide live change notifications. Consumers use a type
+// assertion to check whether the underlying repository supports events.
 //
 // Watch begins observing changes for the specified node IDs (or all nodes
-// when no IDs are given). Events are delivered on the returned channel until
-// the context is cancelled or Close is called. Implementations must close
-// the channel when observation ends.
-//
-// Close releases all watcher resources. After Close returns, event channels
-// are closed and no further events are delivered.
+// when no IDs are given). The watch is scoped to ctx: events are delivered
+// on the returned channel until ctx is cancelled, and implementations must
+// close the channel when observation ends. There is no separate teardown —
+// cancelling ctx releases all per-watch resources.
 type RepositoryEvents interface {
 	Watch(ctx context.Context, ids ...NodeId) (<-chan NodeEvent, error)
 	// Emit sends a NodeEvent to all active subscribers whose filters match.
 	// This is used for programmatic events (e.g. access tracking) that
 	// cannot be detected by filesystem watchers.
 	Emit(ev NodeEvent)
-	Close() error
 }
