@@ -92,6 +92,76 @@ func TestServe_NodeRawReadme(t *testing.T) {
 	require.Contains(t, string(body), "# First Node")
 }
 
+func TestServe_NodeAssetSubdirs(t *testing.T) {
+	t.Parallel()
+	sb, tap := setupSiteKeg(t)
+	ctx := sb.Context()
+	rt := sb.Runtime()
+
+	require.NoError(t, rt.AtomicWriteFile("/home/testuser/work/d.png", []byte("png-bytes"), 0o644))
+	require.NoError(t, rt.AtomicWriteFile("/home/testuser/work/doc.txt", []byte("attachment-bytes"), 0o644))
+	_, err := tap.UploadImage(ctx, tapper.UploadImageOptions{NodeID: "1", FilePath: "/home/testuser/work/d.png"})
+	require.NoError(t, err)
+	_, err = tap.UploadFile(ctx, tapper.UploadFileOptions{NodeID: "1", FilePath: "/home/testuser/work/doc.txt"})
+	require.NoError(t, err)
+
+	url := serveKeg(t, tap, tapper.ServeOptions{})
+
+	// Subdirectory paths mirror the on-disk node layout.
+	resp, err := http.Get(url + "/1/images/d.png")
+	require.NoError(t, err)
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	require.Equal(t, "png-bytes", string(body))
+	require.Contains(t, resp.Header.Get("Content-Type"), "image/png")
+
+	resp, err = http.Get(url + "/1/assets/doc.txt")
+	require.NoError(t, err)
+	body, _ = io.ReadAll(resp.Body)
+	resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	require.Equal(t, "attachment-bytes", string(body))
+
+	// An image is not reachable under /assets/ and vice versa.
+	resp, err = http.Get(url + "/1/assets/d.png")
+	require.NoError(t, err)
+	resp.Body.Close()
+	require.Equal(t, http.StatusNotFound, resp.StatusCode)
+
+	// Flat fallback still serves both kinds.
+	resp, err = http.Get(url + "/1/d.png")
+	require.NoError(t, err)
+	resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+}
+
+func TestServe_NodePageResolvesRelativeLinks(t *testing.T) {
+	t.Parallel()
+	sb, tap := setupSiteKeg(t)
+	ctx := sb.Context()
+
+	k, err := keg.NewKegFromTarget(ctx, keg.NewFile("/home/testuser/kegs/@local/test"), sb.Runtime())
+	require.NoError(t, err)
+	nid, err := keg.ParseNode("1")
+	require.NoError(t, err)
+	content := "# First Node\n\nSee [two](../2) and ![d](./images/d.png).\n"
+	require.NoError(t, k.SetContent(ctx, *nid, []byte(content)))
+
+	url := serveKeg(t, tap, tapper.ServeOptions{})
+
+	resp, err := http.Get(url + "/1/")
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	html := string(body)
+	require.Contains(t, html, `href="/2/"`)
+	require.Contains(t, html, `src="/1/images/d.png"`)
+}
+
 func TestServe_NodeRawMetaYAML(t *testing.T) {
 	t.Parallel()
 	sb, tap := setupSiteKeg(t)

@@ -428,6 +428,14 @@ func (sh *serveHandler) dispatch(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		// /{id}/images/{name} and /{id}/assets/{name} mirror the on-disk
+		// node layout, so ./images/X and ./assets/X links resolve.
+		if len(parts) == 3 && (parts[1] == keg.NodeImagesDir || parts[1] == keg.NodeAttachmentsDir) {
+			r.SetPathValue("asset", parts[2])
+			sh.handleNodeAssetKind(parts[1])(w, r)
+			return
+		}
+
 		// /{id}/{something}
 		subpath := parts[1]
 		r.SetPathValue("asset", subpath)
@@ -583,7 +591,7 @@ func (sh *serveHandler) handleNodePage(w http.ResponseWriter, r *http.Request) {
 	stats, _ := sh.keg.Repo.ReadStats(ctx, *nid)
 
 	// Render markdown.
-	rendered, err := keg.RenderMarkdown(rawContent, keg.RenderOptions{BaseURL: sh.baseURL})
+	rendered, err := keg.RenderMarkdown(rawContent, keg.RenderOptions{BaseURL: sh.baseURL, NodeID: idStr})
 	if err != nil {
 		http.Error(w, "render error", http.StatusInternalServerError)
 		return
@@ -770,7 +778,8 @@ func (sh *serveHandler) handleNodeStatsYAML(w http.ResponseWriter, r *http.Reque
 	w.Write(data)
 }
 
-// handleNodeAsset serves images and file attachments from a node directory.
+// handleNodeAsset serves images and file attachments from a node directory
+// addressed flat as /{id}/{name}, trying images then file attachments.
 func (sh *serveHandler) handleNodeAsset(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	idStr := r.PathValue("id")
@@ -782,35 +791,71 @@ func (sh *serveHandler) handleNodeAsset(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Try images first.
-	if ri, ok := sh.keg.Repo.(keg.RepositoryImages); ok {
-		data, err := ri.ReadImage(ctx, *nid, asset)
-		if err == nil && len(data) > 0 {
-			contentType := mime.TypeByExtension(filepath.Ext(asset))
-			if contentType == "" {
-				contentType = "application/octet-stream"
-			}
-			w.Header().Set("Content-Type", contentType)
-			w.Write(data)
-			return
-		}
+	if sh.serveNodeImage(ctx, w, *nid, asset) || sh.serveNodeFile(ctx, w, *nid, asset) {
+		return
 	}
-
-	// Try file attachments.
-	if rf, ok := sh.keg.Repo.(keg.RepositoryFiles); ok {
-		data, err := rf.ReadFile(ctx, *nid, asset)
-		if err == nil && len(data) > 0 {
-			contentType := mime.TypeByExtension(filepath.Ext(asset))
-			if contentType == "" {
-				contentType = "application/octet-stream"
-			}
-			w.Header().Set("Content-Type", contentType)
-			w.Write(data)
-			return
-		}
-	}
-
 	sh.handleNotFound(w, r)
+}
+
+// handleNodeAssetKind serves /{id}/images/{name} or /{id}/assets/{name},
+// reading only from the store matching the named subdirectory.
+func (sh *serveHandler) handleNodeAssetKind(kind string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		idStr := r.PathValue("id")
+		asset := r.PathValue("asset")
+
+		nid, err := keg.ParseNode(idStr)
+		if err != nil || nid == nil {
+			sh.handleNotFound(w, r)
+			return
+		}
+
+		var served bool
+		if kind == keg.NodeImagesDir {
+			served = sh.serveNodeImage(ctx, w, *nid, asset)
+		} else {
+			served = sh.serveNodeFile(ctx, w, *nid, asset)
+		}
+		if !served {
+			sh.handleNotFound(w, r)
+		}
+	}
+}
+
+func (sh *serveHandler) serveNodeImage(ctx context.Context, w http.ResponseWriter, nid keg.NodeId, asset string) bool {
+	ri, ok := sh.keg.Repo.(keg.RepositoryImages)
+	if !ok {
+		return false
+	}
+	data, err := ri.ReadImage(ctx, nid, asset)
+	if err != nil || len(data) == 0 {
+		return false
+	}
+	writeAsset(w, asset, data)
+	return true
+}
+
+func (sh *serveHandler) serveNodeFile(ctx context.Context, w http.ResponseWriter, nid keg.NodeId, asset string) bool {
+	rf, ok := sh.keg.Repo.(keg.RepositoryFiles)
+	if !ok {
+		return false
+	}
+	data, err := rf.ReadFile(ctx, nid, asset)
+	if err != nil || len(data) == 0 {
+		return false
+	}
+	writeAsset(w, asset, data)
+	return true
+}
+
+func writeAsset(w http.ResponseWriter, name string, data []byte) {
+	contentType := mime.TypeByExtension(filepath.Ext(name))
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	w.Header().Set("Content-Type", contentType)
+	w.Write(data)
 }
 
 // handleTagsIndex serves the tag index page.
