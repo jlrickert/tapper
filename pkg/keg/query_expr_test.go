@@ -73,8 +73,8 @@ func TestParseQueryExpression_DotPrefix(t *testing.T) {
 			expr: "a and (b or c)",
 		},
 		{
-			name: "missing_value_after_operator",
-			expr: ".created>",
+			name:    "missing_value_after_operator",
+			expr:    ".created>",
 			wantErr: true,
 		},
 	}

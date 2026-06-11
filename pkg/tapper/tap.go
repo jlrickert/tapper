@@ -104,7 +104,7 @@ type KegTargetOptions struct {
 	Flight string
 }
 
-func (t *Tap) LookupKeg(ctx context.Context, kegAlias string) (*keg.Keg, error) {
+func (t *Tap) LookupKeg(ctx context.Context, kegAlias string) (*keg.LocalKeg, error) {
 	k, err := t.KegService.Resolve(ctx, ResolveKegOptions{
 		Root:    t.Root,
 		Keg:     kegAlias,
@@ -116,7 +116,7 @@ func (t *Tap) LookupKeg(ctx context.Context, kegAlias string) (*keg.Keg, error) 
 	return k, nil
 }
 
-func (t *Tap) resolveKeg(ctx context.Context, opts KegTargetOptions) (*keg.Keg, error) {
+func (t *Tap) resolveKeg(ctx context.Context, opts KegTargetOptions) (*keg.LocalKeg, error) {
 	k, err := t.KegService.Resolve(ctx, ResolveKegOptions{
 		Root:    t.Root,
 		Keg:     opts.Keg,

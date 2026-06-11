@@ -17,7 +17,7 @@ func TestKegSnapshots_ReturnErrNotSupportedWithoutSnapshotBackend(t *testing.T) 
 	fx := NewSandbox(t)
 	base := kegpkg.NewMemoryRepo(fx.Runtime())
 	repo := &repoWithoutSnapshots{Repository: base}
-	k := kegpkg.NewKeg(repo, fx.Runtime())
+	k := kegpkg.NewLocalKeg(repo, fx.Runtime())
 
 	require.NoError(t, k.Init(fx.Context()))
 

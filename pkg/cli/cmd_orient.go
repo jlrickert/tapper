@@ -74,4 +74,3 @@ func tierCompletion(_ *cobra.Command, _ []string, toComplete string) ([]string, 
 	}
 	return tiers, cobra.ShellCompDirectiveNoFileComp
 }
-

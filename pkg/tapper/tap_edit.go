@@ -164,7 +164,7 @@ func (t *Tap) Edit(ctx context.Context, opts EditOptions) error {
 // monitors the real node files (README.md, meta.yaml) and re-composes the
 // temp file when external changes are detected, so the editor can reload
 // with :e! to pick up changes from other tap instances.
-func (t *Tap) editWithTempFile(ctx context.Context, k *keg.Keg, id keg.NodeId) error {
+func (t *Tap) editWithTempFile(ctx context.Context, k *keg.LocalKeg, id keg.NodeId) error {
 	content, err := k.Repo.ReadContent(ctx, id)
 	if err != nil {
 		return fmt.Errorf("unable to read node content: %w", err)
@@ -244,7 +244,7 @@ func (t *Tap) editWithTempFile(ctx context.Context, k *keg.Keg, id keg.NodeId) e
 // composeCurrentNodeFile reads the node's current content and meta from the
 // repository and composes the edit-file representation. ok is false when the
 // reads fail (e.g. the node vanished mid-edit).
-func composeCurrentNodeFile(ctx context.Context, k *keg.Keg, id keg.NodeId) ([]byte, bool) {
+func composeCurrentNodeFile(ctx context.Context, k *keg.LocalKeg, id keg.NodeId) ([]byte, bool) {
 	content, err := k.Repo.ReadContent(ctx, id)
 	if err != nil {
 		return nil, false
@@ -275,7 +275,7 @@ func tempMatchesComposed(ctx context.Context, rt *toolkit.Runtime, tempPath stri
 func reverseSync(
 	ctx context.Context,
 	rt *toolkit.Runtime,
-	k *keg.Keg,
+	k *keg.LocalKeg,
 	id keg.NodeId,
 	tempPath string,
 	external *externalWrites,
@@ -346,7 +346,7 @@ func reverseSync(
 	}
 }
 
-func (t *Tap) applyEditedNodeRaw(ctx context.Context, k *keg.Keg, id keg.NodeId, editedRaw []byte) error {
+func (t *Tap) applyEditedNodeRaw(ctx context.Context, k *keg.LocalKeg, id keg.NodeId, editedRaw []byte) error {
 	hasFrontmatter, frontmatterRaw, bodyRaw, err := splitEditNodeFile(editedRaw)
 	if err != nil {
 		return err
@@ -489,7 +489,7 @@ func splitEditNodeFile(raw []byte) (bool, []byte, []byte, error) {
 	return true, frontmatter, body, nil
 }
 
-func (t *Tap) editMeta(ctx context.Context, k *keg.Keg, id keg.NodeId, stream *toolkit.Stream) error {
+func (t *Tap) editMeta(ctx context.Context, k *keg.LocalKeg, id keg.NodeId, stream *toolkit.Stream) error {
 	raw, err := k.Repo.ReadMeta(ctx, id)
 	if err != nil && !errors.Is(err, keg.ErrNotExist) {
 		return fmt.Errorf("unable to read node metadata: %w", err)
@@ -536,7 +536,7 @@ func (t *Tap) editMeta(ctx context.Context, k *keg.Keg, id keg.NodeId, stream *t
 	return nil
 }
 
-func editorTempFilePrefix(k *keg.Keg, id keg.NodeId, action string) string {
+func editorTempFilePrefix(k *keg.LocalKeg, id keg.NodeId, action string) string {
 	namespace, kegName := logicalKegTempNameParts(k)
 	return fmt.Sprintf("tap-%s-%s-%s-%s-",
 		sanitizeEditorTempSegment(action, "edit"),
@@ -545,7 +545,7 @@ func editorTempFilePrefix(k *keg.Keg, id keg.NodeId, action string) string {
 		sanitizeEditorTempSegment(id.PathNumeric(), "node"))
 }
 
-func logicalKegTempNameParts(k *keg.Keg) (string, string) {
+func logicalKegTempNameParts(k *keg.LocalKeg) (string, string) {
 	if k == nil || k.Target == nil {
 		return "unknown", "keg"
 	}

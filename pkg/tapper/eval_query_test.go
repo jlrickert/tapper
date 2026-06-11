@@ -19,7 +19,7 @@ import (
 //	1 - meta: {entity: trick, tags: [planned]}
 //	2 - meta: {entity: concept}
 //	3 - meta: {} (empty)
-func makeQueryKeg(t *testing.T) (*keg.Keg, *keg.Dex) {
+func makeQueryKeg(t *testing.T) (*keg.LocalKeg, *keg.Dex) {
 	t.Helper()
 	ctx := context.Background()
 
@@ -55,7 +55,7 @@ func makeQueryKeg(t *testing.T) (*keg.Keg, *keg.Dex) {
 	nodesTSV := []byte("0\t2026-01-01T00:00:00Z\t2026-01-01T00:00:00Z\t2026-01-01T00:00:00Z\tNode 0\n1\t2026-01-01T00:00:00Z\t2026-01-01T00:00:00Z\t2026-01-01T00:00:00Z\tNode 1\n2\t2026-01-01T00:00:00Z\t2026-01-01T00:00:00Z\t2026-01-01T00:00:00Z\tNode 2\n3\t2026-01-01T00:00:00Z\t2026-01-01T00:00:00Z\t2026-01-01T00:00:00Z\tNode 3\n")
 	require.NoError(t, repo.WriteIndex(ctx, "nodes.tsv", nodesTSV))
 
-	k := keg.NewKeg(repo, rt)
+	k := keg.NewLocalKeg(repo, rt)
 
 	// Use NewDexFromRepo which does not require an initialized keg.
 	d, err := keg.NewDexFromRepo(ctx, repo)

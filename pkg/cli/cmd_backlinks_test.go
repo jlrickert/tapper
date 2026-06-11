@@ -133,8 +133,8 @@ func TestBacklinksCommand_MultipleNodeIDsMergesResults(t *testing.T) {
 	require.Equal(t, "2", strings.TrimSpace(string(target2.Stdout)))
 
 	// Create source nodes that link to different targets.
-	createWithLinkToTarget(t, sb, "# Source A\n\nLinks to [1](../1).\n")       // node 3 -> 1
-	createWithLinkToTarget(t, sb, "# Source B\n\nLinks to [2](../2).\n")       // node 4 -> 2
+	createWithLinkToTarget(t, sb, "# Source A\n\nLinks to [1](../1).\n")               // node 3 -> 1
+	createWithLinkToTarget(t, sb, "# Source B\n\nLinks to [2](../2).\n")               // node 4 -> 2
 	createWithLinkToTarget(t, sb, "# Source C\n\nLinks to [1](../1) and [2](../2).\n") // node 5 -> 1,2
 
 	// Query backlinks for both targets at once: should merge and deduplicate.

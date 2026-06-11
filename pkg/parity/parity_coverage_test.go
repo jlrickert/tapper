@@ -117,10 +117,10 @@ var tapMethodToSurfaces = map[string]struct {
 // surface coverage checks. These are internal helpers, config accessors, or
 // methods that are not meant to be directly exposed as standalone tools.
 var tapMethodsExcluded = map[string]string{
-	"KegConfigEdit":         "interactive editor; not exposed via MCP",
-	"ConfigEdit":            "interactive editor; not exposed via MCP",
-	"LookupKeg":             "internal resolution helper; not a user-facing operation",
-	"ResolveNodeRef":        "internal node-reference resolver shared by surfaces; not a user-facing operation",
+	"KegConfigEdit":  "interactive editor; not exposed via MCP",
+	"ConfigEdit":     "interactive editor; not exposed via MCP",
+	"LookupKeg":      "internal resolution helper; not a user-facing operation",
+	"ResolveNodeRef": "internal node-reference resolver shared by surfaces; not a user-facing operation",
 	"WatchNode": "streaming, not request/response: CLI surface is `tap watch` (long-lived stream); " +
 		"MCP surface is the resources/subscribe protocol capability (not a tool), wired via " +
 		"SubscribeHandler in pkg/mcp/server.go. Payload parity is impossible — MCP notifications " +

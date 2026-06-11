@@ -1151,4 +1151,3 @@ func LocalGitData(ctx context.Context, rt *toolkit.Runtime, projectPath, key str
 	lg.Debug("git data read", "projectPath", projectPath, "data", data)
 	return data, nil
 }
-

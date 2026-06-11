@@ -35,7 +35,7 @@ func setFromNodeIDs(ids []keg.NodeId) map[string]struct{} {
 // Otherwise the term is treated as a tag name and resolved via the dex index.
 func resolveQueryTerm(
 	ctx context.Context,
-	k *keg.Keg,
+	k *keg.LocalKeg,
 	d *keg.Dex,
 	entries []keg.NodeIndexEntry,
 	term string,
@@ -89,7 +89,7 @@ func resolveQueryTerm(
 // non-empty (strings) or non-zero (numbers/times).
 func resolveStatsCompare(
 	ctx context.Context,
-	k *keg.Keg,
+	k *keg.LocalKeg,
 	entries []keg.NodeIndexEntry,
 	field, op, value string,
 ) map[string]struct{} {
@@ -152,7 +152,7 @@ func resolveTimeField(
 // stats.json per node.
 func resolveStringStatsField(
 	ctx context.Context,
-	k *keg.Keg,
+	k *keg.LocalKeg,
 	entries []keg.NodeIndexEntry,
 	field, op, value string,
 	out map[string]struct{},
@@ -187,7 +187,7 @@ func resolveStringStatsField(
 // stats.json per node.
 func resolveNumericStatsField(
 	ctx context.Context,
-	k *keg.Keg,
+	k *keg.LocalKeg,
 	entries []keg.NodeIndexEntry,
 	field, op, value string,
 	out map[string]struct{},
@@ -303,7 +303,7 @@ func matchInt(fieldNum int, op string, compareNum int) bool {
 // are parsed the same way to ensure consistent comparison.
 func resolveAttrCompare(
 	ctx context.Context,
-	k *keg.Keg,
+	k *keg.LocalKeg,
 	entries []keg.NodeIndexEntry,
 	field, op, value string,
 ) map[string]struct{} {
@@ -400,7 +400,7 @@ func matchFloat(fieldVal float64, op string, compareVal float64) bool {
 // cannot be parsed.
 func evalQueryExpr(
 	ctx context.Context,
-	k *keg.Keg,
+	k *keg.LocalKeg,
 	d *keg.Dex,
 	entries []keg.NodeIndexEntry,
 	expr string,
