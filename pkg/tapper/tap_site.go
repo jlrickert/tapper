@@ -364,7 +364,7 @@ func (t *Tap) generateNodePage(
 	stats, _ := k.Repo.ReadStats(ctx, nid)
 
 	// Render markdown to HTML.
-	rendered, err := keg.RenderMarkdown(rawContent, keg.RenderOptions{BaseURL: baseURL})
+	rendered, err := keg.RenderMarkdown(rawContent, keg.RenderOptions{BaseURL: baseURL, NodeID: entry.ID})
 	if err != nil {
 		return fmt.Errorf("render markdown: %w", err)
 	}
@@ -493,6 +493,7 @@ func (t *Tap) copyNodeAssets(ctx context.Context, k *keg.Keg, nid keg.NodeId, no
 	rt := t.Runtime
 	var names []string
 	var readFn func(context.Context, keg.NodeId, string) ([]byte, error)
+	var subDir string
 
 	switch kind {
 	case keg.AssetKindImage:
@@ -503,6 +504,7 @@ func (t *Tap) copyNodeAssets(ctx context.Context, k *keg.Keg, nid keg.NodeId, no
 				return
 			}
 			readFn = ri.ReadImage
+			subDir = keg.NodeImagesDir
 		}
 	case keg.AssetKindItem:
 		if rf, ok := k.Repo.(keg.RepositoryFiles); ok {
@@ -512,6 +514,7 @@ func (t *Tap) copyNodeAssets(ctx context.Context, k *keg.Keg, nid keg.NodeId, no
 				return
 			}
 			readFn = rf.ReadFile
+			subDir = keg.NodeAttachmentsDir
 		}
 	}
 
@@ -520,6 +523,11 @@ func (t *Tap) copyNodeAssets(ctx context.Context, k *keg.Keg, nid keg.NodeId, no
 		if err != nil {
 			continue
 		}
+		// Mirror the on-disk node layout so ./images/X and ./assets/X links
+		// resolve in the generated site.
+		_ = rt.Mkdir(filepath.Join(nodeDir, subDir), 0o755, true)
+		_ = rt.AtomicWriteFile(filepath.Join(nodeDir, subDir, name), data, 0o644)
+		// Flat copy kept for back-compat with hand-written /{id}/{name} links.
 		_ = rt.AtomicWriteFile(filepath.Join(nodeDir, name), data, 0o644)
 	}
 }
