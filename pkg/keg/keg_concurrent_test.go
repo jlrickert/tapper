@@ -436,7 +436,7 @@ func TestConcurrentRemoveDuringSetContent_MemoryRepo(t *testing.T) {
 	require.NoError(t, err)
 
 	// Remove the node.
-	require.NoError(t, k.Remove(f.Context(), id))
+	require.NoError(t, errOnly(k.Remove(f.Context(), id)))
 
 	// SetContent after removal should fail with ErrNotExist.
 	err = k.SetContent(f.Context(), id, []byte("# Resurrected\n"))
@@ -470,7 +470,7 @@ func TestConcurrentRemoveDuringSetMeta_MemoryRepo(t *testing.T) {
 	require.NoError(t, err)
 
 	// Remove the node.
-	require.NoError(t, k.Remove(f.Context(), id))
+	require.NoError(t, errOnly(k.Remove(f.Context(), id)))
 
 	// SetMeta after removal should fail with ErrNotExist.
 	meta.SetTags([]string{"ghost"})
@@ -498,7 +498,7 @@ func TestConcurrentRemoveDuringUpdateMeta_MemoryRepo(t *testing.T) {
 	require.NoError(t, err)
 
 	// Remove the node.
-	require.NoError(t, k.Remove(f.Context(), id))
+	require.NoError(t, errOnly(k.Remove(f.Context(), id)))
 
 	// UpdateMeta after removal should fail with ErrNotExist.
 	err = k.UpdateMeta(f.Context(), id, func(m *kegpkg.NodeMeta) {
@@ -533,7 +533,7 @@ func TestConcurrentRemoveThenSetContent_RaceCondition(t *testing.T) {
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		removeErr = k.Remove(f.Context(), id)
+		_, removeErr = k.Remove(f.Context(), id)
 	}()
 	go func() {
 		defer wg.Done()
@@ -586,7 +586,7 @@ func TestConcurrentRemoveDuringSetContent_FsRepo(t *testing.T) {
 	require.NoError(t, err)
 
 	// Remove the node.
-	require.NoError(t, k.Remove(f.Context(), id))
+	require.NoError(t, errOnly(k.Remove(f.Context(), id)))
 
 	// SetContent after removal should fail with ErrNotExist.
 	err = k.SetContent(f.Context(), id, []byte("# FsResurrected\n"))
@@ -620,7 +620,7 @@ func TestConcurrentRemoveDuringSetMeta_FsRepo(t *testing.T) {
 	meta, err := k.GetMeta(f.Context(), id)
 	require.NoError(t, err)
 
-	require.NoError(t, k.Remove(f.Context(), id))
+	require.NoError(t, errOnly(k.Remove(f.Context(), id)))
 
 	meta.SetTags([]string{"ghost"})
 	err = k.SetMeta(f.Context(), id, meta)
@@ -655,7 +655,7 @@ func TestSetContent_NoOrphanedDirectoryOnRemovedNode(t *testing.T) {
 	require.NoError(t, statErr, "node directory should exist after Create")
 
 	// Remove the node.
-	require.NoError(t, k.Remove(f.Context(), id))
+	require.NoError(t, errOnly(k.Remove(f.Context(), id)))
 
 	// Verify directory was removed.
 	_, statErr = f.Runtime().Stat(nodeDir, false)
@@ -691,7 +691,7 @@ func TestConcurrentRemoveDuringTouch_MemoryRepo(t *testing.T) {
 	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "Touch Doomed"})
 	require.NoError(t, err)
 
-	require.NoError(t, k.Remove(f.Context(), id))
+	require.NoError(t, errOnly(k.Remove(f.Context(), id)))
 
 	err = k.Touch(f.Context(), id)
 	require.Error(t, err)
@@ -715,7 +715,7 @@ func TestConcurrentRemoveDuringTouch_FsRepo(t *testing.T) {
 	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "FsTouchDoomed"})
 	require.NoError(t, err)
 
-	require.NoError(t, k.Remove(f.Context(), id))
+	require.NoError(t, errOnly(k.Remove(f.Context(), id)))
 
 	err = k.Touch(f.Context(), id)
 	require.Error(t, err)
@@ -739,7 +739,7 @@ func TestConcurrentRemoveDuringUpdateMeta_FsRepo(t *testing.T) {
 	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "FsUpdateDoomed"})
 	require.NoError(t, err)
 
-	require.NoError(t, k.Remove(f.Context(), id))
+	require.NoError(t, errOnly(k.Remove(f.Context(), id)))
 
 	err = k.UpdateMeta(f.Context(), id, func(m *kegpkg.NodeMeta) {
 		m.SetTags([]string{"ghost"})

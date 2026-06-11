@@ -1,0 +1,720 @@
+package keg
+
+import (
+	"archive/tar"
+	"bytes"
+	"compress/gzip"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"path/filepath"
+	"regexp"
+	"slices"
+	"time"
+)
+
+// Archive format identifiers. v2 adds optional per-node files/ and images/
+// entries; v1 archives (no assets) remain importable.
+const (
+	kegArchiveFormatV1 = "keg-archive/v1"
+	kegArchiveFormatV2 = "keg-archive/v2"
+)
+
+type archiveManifest struct {
+	Format      string                `json:"format"`
+	Source      string                `json:"source,omitempty"`
+	ExportedAt  time.Time             `json:"exported_at"`
+	WithHistory bool                  `json:"with_history,omitempty"`
+	Nodes       []archiveManifestNode `json:"nodes"`
+}
+
+type archiveManifestNode struct {
+	SourceID      string `json:"source_id"`
+	RevisionCount int    `json:"revision_count,omitempty"`
+}
+
+// ExportNodes streams a keg-archive (gzip tar) of the selected nodes. With
+// empty opts.NodeIDs every node is exported. The archive is produced
+// incrementally through a pipe; the caller must Close the returned reader,
+// and a mid-stream failure surfaces as the reader's error.
+func (k *LocalKeg) ExportNodes(ctx context.Context, opts ExportNodesOptions) (io.ReadCloser, error) {
+	if err := k.checkKegExists(ctx); err != nil {
+		return nil, fmt.Errorf("failed to export nodes: %w", err)
+	}
+
+	ids := opts.NodeIDs
+	if len(ids) == 0 {
+		var err error
+		ids, err = k.Repo.ListNodes(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("unable to list nodes: %w", err)
+		}
+	}
+	ids = append([]NodeId(nil), ids...)
+	slices.SortFunc(ids, func(a, b NodeId) int { return a.Compare(b) })
+
+	var snapshotRepo RepositorySnapshots
+	if opts.WithHistory {
+		var ok bool
+		snapshotRepo, ok = repoSnapshots(k.Repo)
+		if !ok {
+			return nil, ErrNotSupported
+		}
+	}
+
+	pr, pw := io.Pipe()
+	go func() {
+		err := k.writeArchive(ctx, pw, ids, snapshotRepo, opts)
+		pw.CloseWithError(err)
+	}()
+	return pr, nil
+}
+
+// writeArchive produces the archive stream onto w. Split from ExportNodes so
+// the pipe goroutine stays trivial.
+func (k *LocalKeg) writeArchive(ctx context.Context, w io.Writer, ids []NodeId, snapshotRepo RepositorySnapshots, opts ExportNodesOptions) error {
+	gz := gzip.NewWriter(w)
+	tw := tar.NewWriter(gz)
+
+	manifest := archiveManifest{
+		Format:      kegArchiveFormatV2,
+		Source:      opts.Source,
+		ExportedAt:  k.Runtime.Clock().Now().UTC(),
+		WithHistory: opts.WithHistory,
+	}
+
+	for _, id := range ids {
+		content, err := k.Repo.ReadContent(ctx, id)
+		if err != nil {
+			return fmt.Errorf("unable to read node %s content: %w", id.Path(), err)
+		}
+		meta, err := k.Repo.ReadMeta(ctx, id)
+		if err != nil && !errors.Is(err, ErrNotExist) {
+			return fmt.Errorf("unable to read node %s metadata: %w", id.Path(), err)
+		}
+		stats, err := k.Repo.ReadStats(ctx, id)
+		if err != nil && !errors.Is(err, ErrNotExist) {
+			return fmt.Errorf("unable to read node %s stats: %w", id.Path(), err)
+		}
+		if stats == nil {
+			stats = &NodeStats{}
+		}
+		statsBytes, err := stats.ToJSON()
+		if err != nil {
+			return fmt.Errorf("unable to encode node %s stats: %w", id.Path(), err)
+		}
+
+		base := filepath.ToSlash(filepath.Join("keg-archive", "nodes", id.Path()))
+		if err := writeTarFile(tw, base+"/README.md", content); err != nil {
+			return err
+		}
+		if err := writeTarFile(tw, base+"/meta.yaml", meta); err != nil {
+			return err
+		}
+		if err := writeTarFile(tw, base+"/stats.json", statsBytes); err != nil {
+			return err
+		}
+
+		if opts.WithAssets {
+			if err := k.writeArchiveAssets(ctx, tw, base, id); err != nil {
+				return err
+			}
+		}
+
+		entry := archiveManifestNode{SourceID: id.Path()}
+		if opts.WithHistory {
+			count, err := k.writeArchiveHistory(ctx, tw, base, id, snapshotRepo)
+			if err != nil {
+				return err
+			}
+			entry.RevisionCount = count
+		}
+		manifest.Nodes = append(manifest.Nodes, entry)
+	}
+
+	rawManifest, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		return fmt.Errorf("unable to encode archive manifest: %w", err)
+	}
+	if err := writeTarFile(tw, "keg-archive/manifest.json", rawManifest); err != nil {
+		return err
+	}
+	if err := tw.Close(); err != nil {
+		return fmt.Errorf("unable to finalize archive: %w", err)
+	}
+	if err := gz.Close(); err != nil {
+		return fmt.Errorf("unable to finalize archive compression: %w", err)
+	}
+	return nil
+}
+
+// writeArchiveAssets adds files/ and images/ entries for one node.
+func (k *LocalKeg) writeArchiveAssets(ctx context.Context, tw *tar.Writer, base string, id NodeId) error {
+	if files, ok := k.Repo.(RepositoryFiles); ok {
+		names, err := files.ListFiles(ctx, id)
+		if err != nil && !errors.Is(err, ErrNotExist) {
+			return fmt.Errorf("unable to list files for node %s: %w", id.Path(), err)
+		}
+		for _, name := range names {
+			data, err := files.ReadFile(ctx, id, name)
+			if err != nil {
+				return fmt.Errorf("unable to read file %s for node %s: %w", name, id.Path(), err)
+			}
+			if err := writeTarFile(tw, base+"/files/"+name, data); err != nil {
+				return err
+			}
+		}
+	}
+	if images, ok := k.Repo.(RepositoryImages); ok {
+		names, err := images.ListImages(ctx, id)
+		if err != nil && !errors.Is(err, ErrNotExist) {
+			return fmt.Errorf("unable to list images for node %s: %w", id.Path(), err)
+		}
+		for _, name := range names {
+			data, err := images.ReadImage(ctx, id, name)
+			if err != nil {
+				return fmt.Errorf("unable to read image %s for node %s: %w", name, id.Path(), err)
+			}
+			if err := writeTarFile(tw, base+"/images/"+name, data); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// writeArchiveHistory adds snapshot payloads and the per-node snapshot index
+// for one node, returning the revision count.
+func (k *LocalKeg) writeArchiveHistory(ctx context.Context, tw *tar.Writer, base string, id NodeId, snapshotRepo RepositorySnapshots) (int, error) {
+	history, err := snapshotRepo.ListSnapshots(ctx, id)
+	if err != nil {
+		return 0, fmt.Errorf("unable to list snapshots for node %s: %w", id.Path(), err)
+	}
+	if len(history) == 0 {
+		return 0, nil
+	}
+
+	exportHistory := make([]Snapshot, 0, len(history))
+	for _, snap := range history {
+		_, snapContent, snapMeta, snapStats, err := snapshotRepo.GetSnapshot(ctx, id, snap.ID, SnapshotReadOptions{ResolveContent: true})
+		if err != nil {
+			return 0, fmt.Errorf("unable to load snapshot %d for node %s: %w", snap.ID, id.Path(), err)
+		}
+		snap.IsCheckpoint = true
+		exportHistory = append(exportHistory, snap)
+
+		statsBytes, err := snapStats.ToJSON()
+		if err != nil {
+			return 0, fmt.Errorf("unable to encode snapshot %d stats for node %s: %w", snap.ID, id.Path(), err)
+		}
+		snapBase := base + "/snapshots/" + fmt.Sprintf("%d", snap.ID)
+		if err := writeTarFile(tw, snapBase+".full", snapContent); err != nil {
+			return 0, err
+		}
+		if err := writeTarFile(tw, snapBase+".meta", snapMeta); err != nil {
+			return 0, err
+		}
+		if err := writeTarFile(tw, snapBase+".stats", statsBytes); err != nil {
+			return 0, err
+		}
+	}
+	rawIndex, err := json.MarshalIndent(exportHistory, "", "  ")
+	if err != nil {
+		return 0, fmt.Errorf("unable to encode snapshot index for node %s: %w", id.Path(), err)
+	}
+	if err := writeTarFile(tw, base+"/snapshots/index.json", rawIndex); err != nil {
+		return 0, err
+	}
+	return len(history), nil
+}
+
+// ImportNodes loads a keg-archive stream into the keg. Nodes land on their
+// archive ids, replacing existing nodes (whose assets are preserved unless the
+// archive carries its own). Derived state (dex, config updated stamp) is
+// rebuilt once after all nodes import.
+func (k *LocalKeg) ImportNodes(ctx context.Context, r io.Reader, opts ImportNodesOptions) ([]ImportedNode, error) {
+	_ = opts
+	if err := k.checkKegExists(ctx); err != nil {
+		return nil, fmt.Errorf("failed to import nodes: %w", err)
+	}
+
+	data, err := io.ReadAll(r)
+	if err != nil {
+		return nil, fmt.Errorf("unable to read archive stream: %w", err)
+	}
+	entries, err := readArchiveEntries(data)
+	if err != nil {
+		return nil, err
+	}
+
+	rawManifest, ok := entries["keg-archive/manifest.json"]
+	if !ok {
+		return nil, fmt.Errorf("archive manifest missing: %w", ErrInvalid)
+	}
+
+	var manifest archiveManifest
+	if err := json.Unmarshal(rawManifest, &manifest); err != nil {
+		return nil, fmt.Errorf("unable to parse archive manifest: %w", err)
+	}
+	if manifest.Format != kegArchiveFormatV1 && manifest.Format != kegArchiveFormatV2 {
+		return nil, fmt.Errorf("unsupported archive format %q: %w", manifest.Format, ErrInvalid)
+	}
+
+	snapshotRepo, hasSnapshots := repoSnapshots(k.Repo)
+	if manifest.WithHistory && !hasSnapshots {
+		return nil, ErrNotSupported
+	}
+
+	mapping, ordered, err := resolveImportedNodeIDs(manifest.Nodes)
+	if err != nil {
+		return nil, err
+	}
+	manifestNodes := make(map[string]archiveManifestNode, len(manifest.Nodes))
+	for _, node := range manifest.Nodes {
+		manifestNodes[node.SourceID] = node
+	}
+
+	// Preserve assets of nodes about to be replaced, then delete them so the
+	// archive payload lands on clean state.
+	preservedAssets := make(map[string]importedNodeAssets, len(ordered))
+	for _, sourceID := range ordered {
+		newID := mapping[sourceID]
+		exists, err := k.nodeExistsWithContent(ctx, newID)
+		if err != nil {
+			return nil, fmt.Errorf("unable to check existing node %s before import: %w", sourceID, err)
+		}
+		if !exists {
+			continue
+		}
+
+		assets, err := readImportedNodeAssets(ctx, k.Repo, newID)
+		if err != nil {
+			return nil, fmt.Errorf("unable to read existing assets for node %s: %w", sourceID, err)
+		}
+		preservedAssets[sourceID] = assets
+
+		if err := k.Repo.DeleteNode(ctx, newID); err != nil {
+			return nil, fmt.Errorf("unable to replace imported node %s: %w", sourceID, err)
+		}
+	}
+
+	for _, sourceID := range ordered {
+		newID := mapping[sourceID]
+		nodeManifest := manifestNodes[sourceID]
+		base := filepath.ToSlash(filepath.Join("keg-archive", "nodes", sourceID))
+
+		content, err := readRequiredArchiveEntry(entries, base+"/README.md")
+		if err != nil {
+			return nil, fmt.Errorf("archive node %s missing README.md: %w", sourceID, err)
+		}
+		meta, err := readRequiredArchiveEntry(entries, base+"/meta.yaml")
+		if err != nil {
+			return nil, fmt.Errorf("archive node %s missing meta.yaml: %w", sourceID, err)
+		}
+		statsBytes, err := readRequiredArchiveEntry(entries, base+"/stats.json")
+		if err != nil {
+			return nil, fmt.Errorf("archive node %s missing stats.json: %w", sourceID, err)
+		}
+
+		content = rewriteImportedLinks(content, mapping)
+		stats, err := ParseStats(ctx, statsBytes)
+		if err != nil {
+			return nil, fmt.Errorf("unable to parse imported stats for node %s: %w", sourceID, err)
+		}
+		remapStatsLinks(stats, mapping)
+
+		if err := k.Repo.WriteContent(ctx, newID, content); err != nil {
+			return nil, fmt.Errorf("unable to write imported content for node %s: %w", sourceID, err)
+		}
+		if err := k.Repo.WriteMeta(ctx, newID, meta); err != nil {
+			return nil, fmt.Errorf("unable to write imported metadata for node %s: %w", sourceID, err)
+		}
+		if err := k.Repo.WriteStats(ctx, newID, stats); err != nil {
+			return nil, fmt.Errorf("unable to write imported stats for node %s: %w", sourceID, err)
+		}
+
+		if manifest.WithHistory {
+			if err := k.importNodeHistory(ctx, entries, base, sourceID, newID, nodeManifest, mapping, snapshotRepo); err != nil {
+				return nil, err
+			}
+		}
+
+		if assets, ok := preservedAssets[sourceID]; ok {
+			if err := restoreImportedNodeAssets(ctx, k.Repo, newID, assets); err != nil {
+				return nil, fmt.Errorf("unable to restore existing assets for node %s: %w", sourceID, err)
+			}
+		}
+		// Archive-carried assets (v2) land last so they win over preserved ones.
+		if err := writeArchiveEntriesAssets(ctx, k.Repo, entries, base, newID); err != nil {
+			return nil, fmt.Errorf("unable to write archived assets for node %s: %w", sourceID, err)
+		}
+	}
+
+	if err := k.rebuildDexFromRepo(ctx); err != nil {
+		return nil, err
+	}
+	if err := k.touchConfigUpdated(ctx, k.Runtime.Clock().Now()); err != nil {
+		return nil, fmt.Errorf("unable to update keg config after import: %w", err)
+	}
+
+	imported := make([]ImportedNode, 0, len(ordered))
+	for _, sourceID := range ordered {
+		imported = append(imported, ImportedNode{SourceID: sourceID, ID: mapping[sourceID]})
+	}
+	return imported, nil
+}
+
+// importNodeHistory replays a node's archived snapshot revisions.
+func (k *LocalKeg) importNodeHistory(
+	ctx context.Context,
+	entries map[string][]byte,
+	base, sourceID string,
+	newID NodeId,
+	nodeManifest archiveManifestNode,
+	mapping map[string]NodeId,
+	snapshotRepo RepositorySnapshots,
+) error {
+	rawIndex, ok := entries[base+"/snapshots/index.json"]
+	if !ok {
+		if nodeManifest.RevisionCount > 0 {
+			return fmt.Errorf("archive node %s missing snapshots/index.json: %w", sourceID, ErrInvalid)
+		}
+		return nil
+	}
+
+	var history []Snapshot
+	if err := json.Unmarshal(rawIndex, &history); err != nil {
+		return fmt.Errorf("unable to parse snapshot history for node %s: %w", sourceID, err)
+	}
+	if nodeManifest.RevisionCount > 0 && len(history) != nodeManifest.RevisionCount {
+		return fmt.Errorf("archive snapshot history count mismatch for node %s: expected %d, got %d: %w",
+			sourceID, nodeManifest.RevisionCount, len(history), ErrInvalid)
+	}
+
+	var expectedParent RevisionID
+	for _, snap := range history {
+		content, err := readRequiredArchiveEntry(entries, base+"/snapshots/"+fmt.Sprintf("%d.full", snap.ID))
+		if err != nil {
+			return fmt.Errorf("archive snapshot %d for node %s missing .full payload: %w", snap.ID, sourceID, err)
+		}
+		content = rewriteImportedLinks(content, mapping)
+		meta, err := readRequiredArchiveEntry(entries, base+"/snapshots/"+fmt.Sprintf("%d.meta", snap.ID))
+		if err != nil {
+			return fmt.Errorf("archive snapshot %d for node %s missing .meta payload: %w", snap.ID, sourceID, err)
+		}
+		statsBytes, err := readRequiredArchiveEntry(entries, base+"/snapshots/"+fmt.Sprintf("%d.stats", snap.ID))
+		if err != nil {
+			return fmt.Errorf("archive snapshot %d for node %s missing .stats payload: %w", snap.ID, sourceID, err)
+		}
+		stats, err := ParseStats(ctx, statsBytes)
+		if err != nil {
+			return fmt.Errorf("unable to parse snapshot %d stats for node %s: %w", snap.ID, sourceID, err)
+		}
+		remapStatsLinks(stats, mapping)
+
+		imported, err := snapshotRepo.AppendSnapshot(ctx, newID, SnapshotWrite{
+			ExpectedParent: expectedParent,
+			Message:        snap.Message,
+			CreatedAt:      snap.CreatedAt,
+			Meta:           meta,
+			Stats:          stats,
+			Content: SnapshotContentWrite{
+				Kind: SnapshotContentKindFull,
+				Base: expectedParent,
+				Data: content,
+			},
+		})
+		if err != nil {
+			return fmt.Errorf("unable to import snapshot %d for node %s: %w", snap.ID, sourceID, err)
+		}
+		expectedParent = imported.ID
+	}
+	return nil
+}
+
+// rebuildDexFromRepo clears the dex and re-adds every node from repository
+// state, then persists the result. Used after bulk imports where incremental
+// dex updates would be wasteful.
+func (k *LocalKeg) rebuildDexFromRepo(ctx context.Context) error {
+	dex, err := k.ensureDexFresh(ctx)
+	if err != nil {
+		return fmt.Errorf("unable to load dex after import: %w", err)
+	}
+	dex.Clear(ctx)
+
+	ids, err := k.Repo.ListNodes(ctx)
+	if err != nil {
+		return fmt.Errorf("unable to list nodes after import: %w", err)
+	}
+
+	for _, id := range ids {
+		nodeData, err := k.loadNodeDataForDex(ctx, id)
+		if err != nil {
+			return fmt.Errorf("unable to read node %s for dex rebuild: %w", id.Path(), err)
+		}
+		if err := dex.Add(ctx, nodeData); err != nil {
+			return fmt.Errorf("unable to add node %s to dex after import: %w", id.Path(), err)
+		}
+	}
+
+	if err := dex.Write(ctx, k.Repo); err != nil {
+		return fmt.Errorf("unable to write dex after import: %w", err)
+	}
+	k.dexMu.Lock()
+	k.recordDexWrite()
+	k.dexMu.Unlock()
+	return nil
+}
+
+// loadNodeDataForDex assembles NodeData from repository state, tolerating
+// missing meta/stats.
+func (k *LocalKeg) loadNodeDataForDex(ctx context.Context, id NodeId) (*NodeData, error) {
+	contentBytes, err := k.Repo.ReadContent(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	content, err := ParseContent(k.Runtime, contentBytes, FormatMarkdown)
+	if err != nil {
+		return nil, err
+	}
+
+	metaBytes, err := k.Repo.ReadMeta(ctx, id)
+	if err != nil && !errors.Is(err, ErrNotExist) {
+		return nil, err
+	}
+	var meta *NodeMeta
+	if errors.Is(err, ErrNotExist) {
+		meta = NewMeta(ctx, time.Time{})
+	} else {
+		meta, err = ParseMeta(ctx, metaBytes)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	stats, err := k.Repo.ReadStats(ctx, id)
+	if err != nil {
+		if errors.Is(err, ErrNotExist) {
+			stats = &NodeStats{}
+		} else {
+			return nil, err
+		}
+	}
+
+	return &NodeData{
+		ID:      id,
+		Content: content,
+		Meta:    meta,
+		Stats:   stats,
+	}, nil
+}
+
+// -- archive entry helpers
+
+func writeTarFile(tw *tar.Writer, name string, data []byte) error {
+	header := &tar.Header{
+		Name:     filepath.ToSlash(name),
+		Mode:     0o644,
+		Size:     int64(len(data)),
+		Typeflag: tar.TypeReg,
+	}
+	if err := tw.WriteHeader(header); err != nil {
+		return fmt.Errorf("unable to write archive header for %s: %w", name, err)
+	}
+	if _, err := tw.Write(data); err != nil {
+		return fmt.Errorf("unable to write archive payload for %s: %w", name, err)
+	}
+	return nil
+}
+
+func readArchiveEntries(data []byte) (map[string][]byte, error) {
+	gz, err := gzip.NewReader(bytes.NewReader(data))
+	if err == nil {
+		defer gz.Close()
+		return readTarEntries(tar.NewReader(gz))
+	}
+
+	entries, tarErr := readTarEntries(tar.NewReader(bytes.NewReader(data)))
+	if tarErr == nil {
+		return entries, nil
+	}
+
+	return nil, fmt.Errorf("unable to open archive stream: gzip=%v; tar=%v", err, tarErr)
+}
+
+func readTarEntries(tr *tar.Reader) (map[string][]byte, error) {
+	entries := map[string][]byte{}
+	for {
+		header, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, fmt.Errorf("unable to read archive entry: %w", err)
+		}
+		if header.FileInfo().IsDir() {
+			continue
+		}
+		payload, err := io.ReadAll(tr)
+		if err != nil {
+			return nil, fmt.Errorf("unable to read archive payload %s: %w", header.Name, err)
+		}
+		entries[filepath.ToSlash(header.Name)] = payload
+	}
+	return entries, nil
+}
+
+func readRequiredArchiveEntry(entries map[string][]byte, path string) ([]byte, error) {
+	value, ok := entries[path]
+	if !ok {
+		return nil, ErrInvalid
+	}
+	return value, nil
+}
+
+func resolveImportedNodeIDs(nodes []archiveManifestNode) (map[string]NodeId, []string, error) {
+	mapping := make(map[string]NodeId, len(nodes))
+	ordered := make([]string, 0, len(nodes))
+	for _, node := range nodes {
+		// SourceID comes from the archive manifest, so it is always a bare id.
+		id, err := ParseNode(node.SourceID)
+		if err != nil || id == nil {
+			return nil, nil, fmt.Errorf("invalid archive source node %q: %w", node.SourceID, ErrInvalid)
+		}
+		if _, exists := mapping[node.SourceID]; exists {
+			return nil, nil, fmt.Errorf("duplicate archive source node %q: %w", node.SourceID, ErrInvalid)
+		}
+		mapping[node.SourceID] = *id
+		ordered = append(ordered, node.SourceID)
+	}
+	return mapping, ordered, nil
+}
+
+var importedNodeLinkRE = regexp.MustCompile(`\.\./\s*([0-9]+)([[:space:]\)\]\}\>\.,;:!?'\"#]|$)`)
+
+func rewriteImportedLinks(raw []byte, mapping map[string]NodeId) []byte {
+	if len(raw) == 0 || len(mapping) == 0 {
+		return raw
+	}
+	rewritten := importedNodeLinkRE.ReplaceAllStringFunc(string(raw), func(match string) string {
+		parts := importedNodeLinkRE.FindStringSubmatch(match)
+		if len(parts) != 3 {
+			return match
+		}
+		dst, ok := mapping[parts[1]]
+		if !ok {
+			return match
+		}
+		return "../" + dst.Path() + parts[2]
+	})
+	if rewritten == string(raw) {
+		return raw
+	}
+	return []byte(rewritten)
+}
+
+func remapStatsLinks(stats *NodeStats, mapping map[string]NodeId) {
+	if stats == nil || len(mapping) == 0 {
+		return
+	}
+	links := stats.Links()
+	for i := range links {
+		if dst, ok := mapping[links[i].Path()]; ok {
+			links[i] = dst
+		}
+	}
+	stats.SetLinks(links)
+}
+
+type importedNodeAssets struct {
+	files  map[string][]byte
+	images map[string][]byte
+}
+
+func readImportedNodeAssets(ctx context.Context, repo Repository, id NodeId) (importedNodeAssets, error) {
+	assets := importedNodeAssets{
+		files:  map[string][]byte{},
+		images: map[string][]byte{},
+	}
+
+	if filesRepo, ok := repo.(RepositoryFiles); ok {
+		names, err := filesRepo.ListFiles(ctx, id)
+		if err != nil && !errors.Is(err, ErrNotExist) {
+			return importedNodeAssets{}, err
+		}
+		for _, name := range names {
+			data, err := filesRepo.ReadFile(ctx, id, name)
+			if err != nil {
+				return importedNodeAssets{}, err
+			}
+			assets.files[name] = append([]byte(nil), data...)
+		}
+	}
+
+	if imagesRepo, ok := repo.(RepositoryImages); ok {
+		names, err := imagesRepo.ListImages(ctx, id)
+		if err != nil && !errors.Is(err, ErrNotExist) {
+			return importedNodeAssets{}, err
+		}
+		for _, name := range names {
+			data, err := imagesRepo.ReadImage(ctx, id, name)
+			if err != nil {
+				return importedNodeAssets{}, err
+			}
+			assets.images[name] = append([]byte(nil), data...)
+		}
+	}
+
+	return assets, nil
+}
+
+func restoreImportedNodeAssets(ctx context.Context, repo Repository, id NodeId, assets importedNodeAssets) error {
+	if filesRepo, ok := repo.(RepositoryFiles); ok {
+		for name, data := range assets.files {
+			if err := filesRepo.WriteFile(ctx, id, name, data); err != nil {
+				return err
+			}
+		}
+	}
+
+	if imagesRepo, ok := repo.(RepositoryImages); ok {
+		for name, data := range assets.images {
+			if err := imagesRepo.WriteImage(ctx, id, name, data); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+// writeArchiveEntriesAssets writes a v2 archive's files/ and images/ payloads
+// for one node onto the repository.
+func writeArchiveEntriesAssets(ctx context.Context, repo Repository, entries map[string][]byte, base string, id NodeId) error {
+	filesRepo, hasFiles := repo.(RepositoryFiles)
+	imagesRepo, hasImages := repo.(RepositoryImages)
+
+	filePrefix := base + "/files/"
+	imagePrefix := base + "/images/"
+	for name, data := range entries {
+		switch {
+		case len(name) > len(filePrefix) && name[:len(filePrefix)] == filePrefix:
+			if !hasFiles {
+				return ErrNotSupported
+			}
+			if err := filesRepo.WriteFile(ctx, id, name[len(filePrefix):], data); err != nil {
+				return err
+			}
+		case len(name) > len(imagePrefix) && name[:len(imagePrefix)] == imagePrefix:
+			if !hasImages {
+				return ErrNotSupported
+			}
+			if err := imagesRepo.WriteImage(ctx, id, name[len(imagePrefix):], data); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}

@@ -8,22 +8,23 @@ import (
 )
 
 // Move renames a node from src to dst and rewrites in-content links that
-// target src (../N) across the keg.
-func (k *LocalKeg) Move(ctx context.Context, src NodeId, dst NodeId) error {
+// target src (../N) across the keg. It returns the ids of nodes whose content
+// was rewritten to follow the move.
+func (k *LocalKeg) Move(ctx context.Context, src NodeId, dst NodeId) ([]NodeId, error) {
 	if err := k.checkKegExists(ctx); err != nil {
-		return fmt.Errorf("failed to move node: %w", err)
+		return nil, fmt.Errorf("failed to move node: %w", err)
 	}
 
 	src = NodeId{ID: src.ID, Code: src.Code}
 	dst = NodeId{ID: dst.ID, Code: dst.Code}
 	if !src.Valid() || !dst.Valid() {
-		return fmt.Errorf("invalid node id: %w", ErrInvalid)
+		return nil, fmt.Errorf("invalid node id: %w", ErrInvalid)
 	}
 	if src.ID == 0 || dst.ID == 0 {
-		return fmt.Errorf("node 0 cannot be moved: %w", ErrInvalid)
+		return nil, fmt.Errorf("node 0 cannot be moved: %w", ErrInvalid)
 	}
 	if src.Equals(dst) {
-		return nil
+		return nil, nil
 	}
 
 	// Use content-aware existence checks so shadow reservations created by
@@ -32,27 +33,27 @@ func (k *LocalKeg) Move(ctx context.Context, src NodeId, dst NodeId) error {
 	// inside Repo.MoveNode.
 	srcExists, err := k.nodeExistsWithContent(ctx, src)
 	if err != nil {
-		return fmt.Errorf("failed to check source node: %w", err)
+		return nil, fmt.Errorf("failed to check source node: %w", err)
 	}
 	if !srcExists {
-		return fmt.Errorf("source node %s not found: %w", src.Path(), ErrNotExist)
+		return nil, fmt.Errorf("source node %s not found: %w", src.Path(), ErrNotExist)
 	}
 
 	dstExists, err := k.nodeExistsWithContent(ctx, dst)
 	if err != nil {
-		return fmt.Errorf("failed to check destination node: %w", err)
+		return nil, fmt.Errorf("failed to check destination node: %w", err)
 	}
 	if dstExists {
-		return fmt.Errorf("destination node %s already exists: %w", dst.Path(), ErrDestinationExists)
+		return nil, fmt.Errorf("destination node %s already exists: %w", dst.Path(), ErrDestinationExists)
 	}
 
 	if err := k.Repo.MoveNode(ctx, src, dst); err != nil {
-		return fmt.Errorf("failed to move node %s to %s: %w", src.Path(), dst.Path(), err)
+		return nil, fmt.Errorf("failed to move node %s to %s: %w", src.Path(), dst.Path(), err)
 	}
 
 	ids, err := k.Repo.ListNodes(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to list nodes for link rewrite: %w", err)
+		return nil, fmt.Errorf("failed to list nodes for link rewrite: %w", err)
 	}
 
 	// Rewrite links in all nodes, collecting changed NodeData without
@@ -123,21 +124,27 @@ func (k *LocalKeg) Move(ctx context.Context, src NodeId, dst NodeId) error {
 		errs = append(errs, fmt.Errorf("failed to update config after move: %w", err))
 	}
 
-	return errors.Join(errs...)
+	rewritten := make([]NodeId, 0, len(changedNodes))
+	for _, nd := range changedNodes {
+		rewritten = append(rewritten, nd.ID)
+	}
+	return rewritten, errors.Join(errs...)
 }
 
 // Remove deletes a node from the repository and updates dex/config artifacts.
-func (k *LocalKeg) Remove(ctx context.Context, id NodeId) error {
+// It returns the ids of nodes whose content was rewritten to drop links to the
+// removed node.
+func (k *LocalKeg) Remove(ctx context.Context, id NodeId) ([]NodeId, error) {
 	if err := k.checkKegExists(ctx); err != nil {
-		return fmt.Errorf("failed to remove node: %w", err)
+		return nil, fmt.Errorf("failed to remove node: %w", err)
 	}
 
 	id = NodeId{ID: id.ID, Code: id.Code}
 	if !id.Valid() {
-		return fmt.Errorf("invalid node id: %w", ErrInvalid)
+		return nil, fmt.Errorf("invalid node id: %w", ErrInvalid)
 	}
 	if id.ID == 0 {
-		return fmt.Errorf("node 0 cannot be removed: %w", ErrInvalid)
+		return nil, fmt.Errorf("node 0 cannot be removed: %w", ErrInvalid)
 	}
 
 	// Check existence before acquiring the lock. WithNodeLock will also
@@ -147,10 +154,10 @@ func (k *LocalKeg) Remove(ctx context.Context, id NodeId) error {
 	// are not mistaken for real nodes.
 	exists, err := k.nodeExistsWithContent(ctx, id)
 	if err != nil {
-		return fmt.Errorf("failed to check node existence: %w", err)
+		return nil, fmt.Errorf("failed to check node existence: %w", err)
 	}
 	if !exists {
-		return fmt.Errorf("node %s not found: %w", id.Path(), ErrNotExist)
+		return nil, fmt.Errorf("node %s not found: %w", id.Path(), ErrNotExist)
 	}
 
 	// Acquire node lock to prevent concurrent writes from resurrecting
@@ -165,7 +172,7 @@ func (k *LocalKeg) Remove(ctx context.Context, id NodeId) error {
 		}
 		return k.Repo.DeleteNode(lockCtx, id)
 	}); err != nil {
-		return err
+		return nil, err
 	}
 
 	// Rewrite all links that pointed to the removed node so they point to
@@ -173,11 +180,12 @@ func (k *LocalKeg) Remove(ctx context.Context, id NodeId) error {
 	// rewrites that don't need per-node dex updates -- the Remove dex update
 	// handles the index cleanup via dex.Remove(id).
 	var errs []error
+	var rewritten []NodeId
 	zeroID := NodeId{ID: 0}
 	linkRE := compileNodeLinkPattern(id)
 	nodeIDs, listErr := k.Repo.ListNodes(ctx)
 	if listErr != nil {
-		return fmt.Errorf("failed to list nodes for link rewrite after remove: %w", listErr)
+		return nil, fmt.Errorf("failed to list nodes for link rewrite after remove: %w", listErr)
 	}
 	for _, otherID := range nodeIDs {
 		raw, readErr := k.Repo.ReadContent(ctx, otherID)
@@ -194,7 +202,11 @@ func (k *LocalKeg) Remove(ctx context.Context, id NodeId) error {
 				if exErr != nil || !exists {
 					return nil // node was concurrently removed, skip rewrite
 				}
-				return k.Repo.WriteContent(lockCtx, otherID, updated)
+				if err := k.Repo.WriteContent(lockCtx, otherID, updated); err != nil {
+					return err
+				}
+				rewritten = append(rewritten, otherID)
+				return nil
 			}); err != nil {
 				errs = append(errs, fmt.Errorf("failed to rewrite links in node %s: %w", otherID.Path(), err))
 			}
@@ -223,7 +235,7 @@ func (k *LocalKeg) Remove(ctx context.Context, id NodeId) error {
 		errs = append(errs, fmt.Errorf("failed to update config after remove: %w", err))
 	}
 
-	return errors.Join(errs...)
+	return rewritten, errors.Join(errs...)
 }
 
 // compileNodeLinkPattern builds a regexp that matches canonical relative node

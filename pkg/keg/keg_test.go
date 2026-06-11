@@ -499,7 +499,7 @@ func TestMove_RewritesLinksAndUpdatesDex(t *testing.T) {
 	// Add canonical and bare links to node 2.
 	require.NoError(t, k.SetContent(f.Context(), id1, []byte("# One\n\nSee [two](../2).\nAlso ../2.\n")))
 
-	require.NoError(t, k.Move(f.Context(), kegpkg.NodeId{ID: 2}, kegpkg.NodeId{ID: 3}))
+	require.NoError(t, errOnly(k.Move(f.Context(), kegpkg.NodeId{ID: 2}, kegpkg.NodeId{ID: 3})))
 
 	exists, err := k.Repo.HasNode(f.Context(), kegpkg.NodeId{ID: 2})
 	require.NoError(t, err)
@@ -544,7 +544,7 @@ func TestMove_DestinationExists(t *testing.T) {
 	_, err = k.Create(f.Context(), &kegpkg.CreateOptions{Title: "Three"})
 	require.NoError(t, err)
 
-	err = k.Move(f.Context(), kegpkg.NodeId{ID: 2}, kegpkg.NodeId{ID: 3})
+	_, err = k.Move(f.Context(), kegpkg.NodeId{ID: 2}, kegpkg.NodeId{ID: 3})
 	require.Error(t, err)
 	require.ErrorIs(t, err, kegpkg.ErrDestinationExists)
 }
@@ -564,7 +564,7 @@ func TestRemove_DeletesNodeAndUpdatesDex(t *testing.T) {
 
 	require.NoError(t, k.SetContent(f.Context(), id1, []byte("# One\n\nSee [two](../2).\n")))
 
-	require.NoError(t, k.Remove(f.Context(), id2))
+	require.NoError(t, errOnly(k.Remove(f.Context(), id2)))
 
 	exists, err := k.Repo.HasNode(f.Context(), id2)
 	require.NoError(t, err)
@@ -599,7 +599,7 @@ func TestSetContent_OnRemovedNode(t *testing.T) {
 	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "Doomed"})
 	require.NoError(t, err)
 
-	require.NoError(t, k.Remove(f.Context(), id))
+	require.NoError(t, errOnly(k.Remove(f.Context(), id)))
 
 	// Attempt to write content to the removed node should fail.
 	err = k.SetContent(f.Context(), id, []byte("# Resurrected\n"))
@@ -615,7 +615,7 @@ func TestRemove_NotFound(t *testing.T) {
 	k := kegpkg.NewLocalKeg(repo, f.Runtime())
 	require.NoError(t, k.Init(f.Context()))
 
-	err := k.Remove(f.Context(), kegpkg.NodeId{ID: 4242})
+	_, err := k.Remove(f.Context(), kegpkg.NodeId{ID: 4242})
 	require.Error(t, err)
 	require.ErrorIs(t, err, kegpkg.ErrNotExist)
 }
@@ -1140,11 +1140,17 @@ func TestMove_LocalNodeIDStaysBare(t *testing.T) {
 		[]byte("# Referrer\n\nsee [target](../"+target.Path()+")\n")))
 
 	// Move the target; this rewrites referrer's link and re-indexes it.
-	require.NoError(t, k.Move(f.Context(), target, kegpkg.NodeId{ID: target.ID + 10}))
+	require.NoError(t, errOnly(k.Move(f.Context(), target, kegpkg.NodeId{ID: target.ID + 10})))
 
 	for _, name := range []string{"nodes.tsv", "links", "backlinks"} {
 		raw, err := k.Repo.GetIndex(f.Context(), name)
 		require.NoError(t, err)
 		require.NotContains(t, string(raw), "keg:", "%s must not contain keg: prefixes", name)
 	}
+}
+
+// errOnly discards the first result of a two-value call (e.g. Move/Remove
+// rewritten-node lists) so tests can assert only on the error.
+func errOnly[T any](_ T, err error) error {
+	return err
 }
