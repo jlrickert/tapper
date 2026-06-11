@@ -47,10 +47,6 @@ func (a *ApiRepo) Watch(ctx context.Context, ids ...NodeId) (<-chan NodeEvent, e
 // events, and local writes publish by going through Hub's REST handlers.
 func (a *ApiRepo) Emit(NodeEvent) {}
 
-// Close implements RepositoryEvents. ApiRepo watchers are scoped to their
-// Watch context, so there are no repository-wide resources to release.
-func (a *ApiRepo) Close() error { return nil }
-
 func (a *ApiRepo) watchNodeEvents(ctx context.Context, id NodeId, out chan<- NodeEvent) {
 	backoff := 250 * time.Millisecond
 	for ctx.Err() == nil {

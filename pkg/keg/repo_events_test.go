@@ -19,13 +19,11 @@ func TestMemoryRepoEvents_WatchReceivesEmittedEvents(t *testing.T) {
 	t.Parallel()
 	fx := NewSandbox(t)
 	repo := keg.NewMemoryRepo(fx.Runtime())
-	w := repo.WatchEvents()
-	defer w.Close()
 
 	ctx, cancel := context.WithTimeout(fx.Context(), 2*time.Second)
 	defer cancel()
 
-	ch, err := w.Watch(ctx, keg.NodeId{ID: 5})
+	ch, err := repo.Watch(ctx, keg.NodeId{ID: 5})
 	require.NoError(t, err)
 
 	expected := keg.NodeEvent{
@@ -33,7 +31,7 @@ func TestMemoryRepoEvents_WatchReceivesEmittedEvents(t *testing.T) {
 		NodeID: keg.NodeId{ID: 5},
 		Field:  "content",
 	}
-	w.Emit(expected)
+	repo.Emit(expected)
 
 	select {
 	case got := <-ch:
@@ -49,24 +47,22 @@ func TestMemoryRepoEvents_FilterByNodeID(t *testing.T) {
 	t.Parallel()
 	fx := NewSandbox(t)
 	repo := keg.NewMemoryRepo(fx.Runtime())
-	w := repo.WatchEvents()
-	defer w.Close()
 
 	ctx, cancel := context.WithTimeout(fx.Context(), 2*time.Second)
 	defer cancel()
 
 	// Watch only node 3.
-	ch, err := w.Watch(ctx, keg.NodeId{ID: 3})
+	ch, err := repo.Watch(ctx, keg.NodeId{ID: 3})
 	require.NoError(t, err)
 
 	// Emit event for node 7 — should not be received.
-	w.Emit(keg.NodeEvent{
+	repo.Emit(keg.NodeEvent{
 		Kind:   keg.NodeEventCreated,
 		NodeID: keg.NodeId{ID: 7},
 		Field:  "content",
 	})
 	// Emit event for node 3 — should be received.
-	w.Emit(keg.NodeEvent{
+	repo.Emit(keg.NodeEvent{
 		Kind:   keg.NodeEventModified,
 		NodeID: keg.NodeId{ID: 3},
 		Field:  "meta",
@@ -85,17 +81,15 @@ func TestMemoryRepoEvents_WatchAllNodes(t *testing.T) {
 	t.Parallel()
 	fx := NewSandbox(t)
 	repo := keg.NewMemoryRepo(fx.Runtime())
-	w := repo.WatchEvents()
-	defer w.Close()
 
 	ctx, cancel := context.WithTimeout(fx.Context(), 2*time.Second)
 	defer cancel()
 
 	// Watch all nodes (no IDs specified).
-	ch, err := w.Watch(ctx)
+	ch, err := repo.Watch(ctx)
 	require.NoError(t, err)
 
-	w.Emit(keg.NodeEvent{
+	repo.Emit(keg.NodeEvent{
 		Kind:   keg.NodeEventCreated,
 		NodeID: keg.NodeId{ID: 42},
 		Field:  "content",
@@ -109,38 +103,13 @@ func TestMemoryRepoEvents_WatchAllNodes(t *testing.T) {
 	}
 }
 
-func TestMemoryRepoEvents_CloseStopsDelivery(t *testing.T) {
-	t.Parallel()
-	fx := NewSandbox(t)
-	repo := keg.NewMemoryRepo(fx.Runtime())
-	w := repo.WatchEvents()
-
-	ctx, cancel := context.WithTimeout(fx.Context(), 2*time.Second)
-	defer cancel()
-
-	ch, err := w.Watch(ctx)
-	require.NoError(t, err)
-
-	require.NoError(t, w.Close())
-
-	// Channel should be closed after Close.
-	select {
-	case _, ok := <-ch:
-		require.False(t, ok, "channel should be closed after Close")
-	case <-time.After(500 * time.Millisecond):
-		t.Fatal("channel was not closed after Close")
-	}
-}
-
 func TestMemoryRepoEvents_ContextCancellation(t *testing.T) {
 	t.Parallel()
 	fx := NewSandbox(t)
 	repo := keg.NewMemoryRepo(fx.Runtime())
-	w := repo.WatchEvents()
-	defer w.Close()
 
 	ctx, cancel := context.WithCancel(fx.Context())
-	ch, err := w.Watch(ctx)
+	ch, err := repo.Watch(ctx)
 	require.NoError(t, err)
 
 	cancel()
@@ -154,6 +123,36 @@ func TestMemoryRepoEvents_ContextCancellation(t *testing.T) {
 	}
 }
 
+func TestMemoryRepoEvents_CancelledWatchStopsDelivery(t *testing.T) {
+	t.Parallel()
+	fx := NewSandbox(t)
+	repo := keg.NewMemoryRepo(fx.Runtime())
+
+	ctx, cancel := context.WithCancel(fx.Context())
+	ch, err := repo.Watch(ctx, keg.NodeId{ID: 1})
+	require.NoError(t, err)
+
+	cancel()
+
+	// Drain until close, then Emit must not panic (subscriber is gone).
+	deadline := time.After(time.Second)
+	for {
+		select {
+		case _, ok := <-ch:
+			if !ok {
+				repo.Emit(keg.NodeEvent{
+					Kind:   keg.NodeEventModified,
+					NodeID: keg.NodeId{ID: 1},
+					Field:  "content",
+				})
+				return
+			}
+		case <-deadline:
+			t.Fatal("channel was not closed after cancel")
+		}
+	}
+}
+
 func TestMemoryRepoEvents_ReadContentEmitsAccessed(t *testing.T) {
 	t.Parallel()
 	fx := NewSandbox(t)
@@ -163,13 +162,10 @@ func TestMemoryRepoEvents_ReadContentEmitsAccessed(t *testing.T) {
 	id := keg.NodeId{ID: 1}
 	require.NoError(t, repo.WriteContent(ctx, id, []byte("# Hello\n")))
 
-	w := repo.WatchEvents()
-	defer w.Close()
-
 	watchCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 
-	ch, err := w.Watch(watchCtx, id)
+	ch, err := repo.Watch(watchCtx, id)
 	require.NoError(t, err)
 
 	// Reading content should emit an accessed event.
@@ -195,12 +191,9 @@ func TestFsRepoEvents_WatchDetectsContentChange(t *testing.T) {
 	defer cancel()
 
 	repo := keg.NewFsRepo("~/testrepo", fx.Runtime())
-	w, err := repo.WatchEvents()
-	require.NoError(t, err)
-	defer w.Close()
 
 	id := keg.NodeId{ID: 0}
-	ch, watchErr := w.Watch(ctx, id)
+	ch, watchErr := repo.Watch(ctx, id)
 	require.NoError(t, watchErr)
 
 	// Modify the content file on disk using the real filesystem path.
@@ -223,27 +216,24 @@ func TestFsRepoEvents_WatchDetectsContentChange(t *testing.T) {
 	}
 }
 
-func TestFsRepoEvents_CloseStopsWatcher(t *testing.T) {
+func TestFsRepoEvents_CancelStopsWatcher(t *testing.T) {
 	t.Parallel()
 	fx := NewSandbox(t, sandbox.WithFixture("example", "~/testrepo"))
-	ctx, cancel := context.WithTimeout(fx.Context(), 2*time.Second)
-	defer cancel()
 
 	repo := keg.NewFsRepo("~/testrepo", fx.Runtime())
-	w, err := repo.WatchEvents()
-	require.NoError(t, err)
 
-	ch, watchErr := w.Watch(ctx, keg.NodeId{ID: 0})
+	ctx, cancel := context.WithCancel(fx.Context())
+	ch, watchErr := repo.Watch(ctx, keg.NodeId{ID: 0})
 	require.NoError(t, watchErr)
 
-	require.NoError(t, w.Close())
+	cancel()
 
 	// Channel should eventually close.
 	select {
 	case _, ok := <-ch:
-		require.False(t, ok, "channel should be closed after Close")
+		require.False(t, ok, "channel should be closed after cancel")
 	case <-time.After(1 * time.Second):
-		t.Fatal("channel was not closed after Close")
+		t.Fatal("channel was not closed after cancel")
 	}
 }
 

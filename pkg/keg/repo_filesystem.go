@@ -47,7 +47,7 @@ type FsRepo struct {
 
 	// watchersMu guards the watchers slice for access event emission.
 	watchersMu sync.Mutex
-	watchers   []*fsRepoWatcher
+	watchers   []*fsWatch
 }
 
 // NewFsRepo constructs a filesystem repository with the provided root/runtime.
@@ -993,15 +993,15 @@ func (f *FsRepo) NodeDirPath(id NodeId) string {
 	return filepath.Join(f.Root, id.Path())
 }
 
-// registerWatcher adds a watcher to the active set for access event emission.
-func (f *FsRepo) registerWatcher(w *fsRepoWatcher) {
+// registerWatcher adds a watch subscriber to the active set for access event emission.
+func (f *FsRepo) registerWatcher(w *fsWatch) {
 	f.watchersMu.Lock()
 	f.watchers = append(f.watchers, w)
 	f.watchersMu.Unlock()
 }
 
-// unregisterWatcher removes a watcher from the active set.
-func (f *FsRepo) unregisterWatcher(w *fsRepoWatcher) {
+// unregisterWatcher removes a watch subscriber from the active set.
+func (f *FsRepo) unregisterWatcher(w *fsWatch) {
 	f.watchersMu.Lock()
 	defer f.watchersMu.Unlock()
 	for i, active := range f.watchers {
@@ -1012,12 +1012,12 @@ func (f *FsRepo) unregisterWatcher(w *fsRepoWatcher) {
 	}
 }
 
-// emitToWatchers broadcasts a NodeEvent to all active watchers.
+// emitToWatchers broadcasts a NodeEvent to all active watch subscribers.
 func (f *FsRepo) emitToWatchers(ev NodeEvent) {
 	f.watchersMu.Lock()
 	defer f.watchersMu.Unlock()
 	for _, w := range f.watchers {
-		w.Emit(ev)
+		w.emit(ev)
 	}
 }
 

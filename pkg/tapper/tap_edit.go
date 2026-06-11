@@ -204,37 +204,25 @@ func (t *Tap) editWithTempFile(ctx context.Context, k *keg.Keg, id keg.NodeId) e
 	var wg sync.WaitGroup
 
 	// Start reverse sync: watch the backing repository and update the temp
-	// file when another client changes the node. external marks reverse-sync
-	// writes so the live-save watcher does not push them back as an echo.
+	// file when another client changes the node. The watch is scoped to
+	// editCtx — cancelling it closes the event channel and unblocks
+	// reverseSync. external marks reverse-sync writes so the live-save
+	// watcher does not push them back as an echo.
 	external := &externalWrites{}
-	if w, watchErr := repositoryEvents(k.Repo); watchErr == nil {
-		ch, chErr := w.Watch(editCtx, id)
-		if chErr == nil {
+	if events, ok := k.Repo.(keg.RepositoryEvents); ok {
+		if ch, chErr := events.Watch(editCtx, id); chErr == nil {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
 				reverseSync(editCtx, t.Runtime, k, id, tempPath, external, ch)
 			}()
-		} else {
-			if lg := t.Runtime.Logger(); lg != nil {
-				lg.Debug("edit: live reverse sync unavailable",
-					"node", id.String(), "error", chErr)
-			}
-			_ = w.Close()
-		}
-		// Close watcher when edit context is done. This unblocks
-		// reverseSync by closing the event channel.
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			<-editCtx.Done()
-			_ = w.Close()
-		}()
-	} else {
-		if lg := t.Runtime.Logger(); lg != nil {
+		} else if lg := t.Runtime.Logger(); lg != nil {
 			lg.Debug("edit: live reverse sync unavailable",
-				"node", id.String(), "error", watchErr)
+				"node", id.String(), "error", chErr)
 		}
+	} else if lg := t.Runtime.Logger(); lg != nil {
+		lg.Debug("edit: live reverse sync unavailable",
+			"node", id.String(), "reason", "repository does not support live events")
 	}
 
 	editErr := editWithLiveSaves(editCtx, t.Runtime, tempPath, external, func(editedRaw []byte) error {
@@ -321,19 +309,6 @@ func reverseSync(
 				id.Path(), ev.Field)
 		}
 	}
-}
-
-func repositoryEvents(repo keg.Repository) (keg.RepositoryEvents, error) {
-	if fsRepo, ok := repo.(*keg.FsRepo); ok {
-		return fsRepo.WatchEvents()
-	}
-	if memRepo, ok := repo.(*keg.MemoryRepo); ok {
-		return memRepo.WatchEvents(), nil
-	}
-	if events, ok := repo.(keg.RepositoryEvents); ok {
-		return events, nil
-	}
-	return nil, fmt.Errorf("repository does not support live events")
 }
 
 func (t *Tap) applyEditedNodeRaw(ctx context.Context, k *keg.Keg, id keg.NodeId, editedRaw []byte) error {

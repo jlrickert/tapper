@@ -2,108 +2,57 @@ package keg
 
 import (
 	"context"
-	"sync"
 )
 
-// MemoryRepoWatcher implements RepositoryEvents for MemoryRepo, enabling
-// event-driven testing without filesystem dependencies. The Emit method
-// allows test code to simulate repository changes.
-type MemoryRepoWatcher struct {
-	repo *MemoryRepo
-
-	mu     sync.Mutex
-	closed bool
-	subs   []*memorySub
+// memoryWatch is the per-Watch subscriber handle for MemoryRepo live events.
+// MemoryRepo has no external change source, so events arrive exclusively via
+// Emit (access bumps from the repo itself, or test code simulating changes).
+type memoryWatch struct {
+	ch  chan NodeEvent
+	ids map[NodeId]struct{} // empty means all nodes
 }
 
-type memorySub struct {
-	ch     chan NodeEvent
-	ids    map[NodeId]struct{} // empty means all nodes
-	cancel context.CancelFunc
-}
-
-// WatchEvents returns a RepositoryEvents implementation for the MemoryRepo.
-func (r *MemoryRepo) WatchEvents() *MemoryRepoWatcher {
-	w := &MemoryRepoWatcher{repo: r}
-	r.registerWatcher(w)
-	return w
-}
-
-// Emit sends a NodeEvent to all active subscribers whose filters match.
-// This is intended to be called from test code to simulate repository changes.
-func (w *MemoryRepoWatcher) Emit(ev NodeEvent) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	if w.closed {
-		return
-	}
-	for _, s := range w.subs {
-		_, match := s.ids[ev.NodeID]
-		if len(s.ids) == 0 || match {
-			select {
-			case s.ch <- ev:
-			default:
-				// Drop event if subscriber is slow.
-			}
-		}
-	}
-}
-
-// Watch begins observing changes for the specified node IDs (or all nodes
-// when no IDs are given).
-func (w *MemoryRepoWatcher) Watch(ctx context.Context, ids ...NodeId) (<-chan NodeEvent, error) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	if w.closed {
-		return nil, ErrNotSupported
-	}
-
-	watchCtx, cancel := context.WithCancel(ctx)
-	ch := make(chan NodeEvent, 16)
-
+// Watch implements RepositoryEvents for MemoryRepo. Events are delivered on
+// the returned channel until ctx is cancelled, at which point the channel is
+// closed.
+func (r *MemoryRepo) Watch(ctx context.Context, ids ...NodeId) (<-chan NodeEvent, error) {
 	idSet := make(map[NodeId]struct{}, len(ids))
 	for _, id := range ids {
 		idSet[id] = struct{}{}
 	}
+	w := &memoryWatch{ch: make(chan NodeEvent, 16), ids: idSet}
+	r.registerWatcher(w)
 
-	sub := &memorySub{ch: ch, ids: idSet, cancel: cancel}
-	w.subs = append(w.subs, sub)
-
-	// Clean up when context is done.
+	// Cleanup: unregister first (Emit holds watchersMu, so no send can race
+	// the close), then close the channel.
 	go func() {
-		<-watchCtx.Done()
-		w.removeSub(sub)
-		close(ch)
+		<-ctx.Done()
+		r.unregisterWatcher(w)
+		close(w.ch)
 	}()
 
-	return ch, nil
+	return w.ch, nil
 }
 
-// Close releases all watcher resources and closes subscriber channels.
-func (w *MemoryRepoWatcher) Close() error {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	if w.closed {
-		return nil
-	}
-	w.closed = true
-	for _, s := range w.subs {
-		s.cancel()
-	}
-	w.subs = nil
-	w.repo.unregisterWatcher(w)
-	return nil
+// Emit implements RepositoryEvents. It broadcasts a programmatic event to
+// all active Watch subscribers whose filters match. Test code uses this to
+// simulate repository changes.
+func (r *MemoryRepo) Emit(ev NodeEvent) {
+	r.emitToWatchers(ev)
 }
 
-func (w *MemoryRepoWatcher) removeSub(sub *memorySub) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	for i, s := range w.subs {
-		if s == sub {
-			w.subs = append(w.subs[:i], w.subs[i+1:]...)
-			return
+// emit delivers an event to this subscriber. Called by
+// MemoryRepo.emitToWatchers under watchersMu; sends are non-blocking so a
+// slow consumer cannot deadlock the emitter.
+func (w *memoryWatch) emit(ev NodeEvent) {
+	_, match := w.ids[ev.NodeID]
+	if len(w.ids) == 0 || match {
+		select {
+		case w.ch <- ev:
+		default:
+			// Drop event if subscriber is slow.
 		}
 	}
 }
 
-var _ RepositoryEvents = (*MemoryRepoWatcher)(nil)
+var _ RepositoryEvents = (*MemoryRepo)(nil)
