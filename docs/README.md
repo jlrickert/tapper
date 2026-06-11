@@ -55,6 +55,7 @@ If you are unsure where to start, read [Configuration Overview](configuration/RE
 - `tap grep QUERY` — search node content
 - `tap tags [EXPR]` — list tags or nodes matching a tag expression (supports [`--query`](query-expressions.md))
 - `tap backlinks NODE_ID` — show nodes linking to a given node
+- `tap watch NODE_ID` — stream live change events for a node (`--json`, `--count`, `--timeout`)
 
 ### Keg operations
 

@@ -89,6 +89,23 @@ func TestNodeCompletion_Edit(t *testing.T) {
 	})
 }
 
+func TestNodeCompletion_Watch(t *testing.T) {
+	t.Parallel()
+	runNodeCompletionCases(t, []nodeCompletionCase{
+		{
+			name:    "lists_all_ids",
+			words:   []string{"watch", "--keg", "personal", ""},
+			wantAll: true,
+		},
+		{
+			// watch takes exactly 1 arg: no completions after first
+			name:      "stops_after_one_arg",
+			words:     []string{"watch", "--keg", "personal", "1", ""},
+			wantEmpty: true,
+		},
+	})
+}
+
 func TestNodeCompletion_Backlinks(t *testing.T) {
 	t.Parallel()
 	runNodeCompletionCases(t, []nodeCompletionCase{

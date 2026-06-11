@@ -279,6 +279,7 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 		NewStatsCmd(deps),
 		NewTagsCmd(deps),
 		NewVersionCmd(deps),
+		NewWatchCmd(deps),
 	}
 	var configCmd *cobra.Command
 	if deps.Profile.IncludeConfigCommand {
