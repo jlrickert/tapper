@@ -506,3 +506,29 @@ func matchFloat(fieldVal float64, op string, compareVal float64) bool {
 	}
 	return false
 }
+
+// defaultNodeQueryResolver evaluates a single query term against a node's
+// data: key=value terms check meta attributes, plain terms check the tag set.
+// It is the default resolver for config-driven query-filtered indexes; a
+// custom resolver may be injected with WithQueryResolver.
+func defaultNodeQueryResolver(term string, data *NodeData) bool {
+	if data == nil {
+		return false
+	}
+	key, val, isAttr := strings.Cut(term, "=")
+	if !isAttr {
+		// Plain tag — check node's tag set.
+		for _, t := range data.Tags() {
+			if t == term {
+				return true
+			}
+		}
+		return false
+	}
+	// Attribute predicate: key=value — check node's meta.
+	if data.Meta == nil {
+		return false
+	}
+	got, ok := data.Meta.Get(key)
+	return ok && got == val
+}

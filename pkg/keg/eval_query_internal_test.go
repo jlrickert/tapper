@@ -1,4 +1,4 @@
-package tapper
+package keg
 
 import (
 	"context"
@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/jlrickert/cli-toolkit/toolkit"
-	"github.com/jlrickert/tapper/pkg/keg"
 	"github.com/stretchr/testify/require"
 )
 
@@ -19,14 +18,14 @@ import (
 //	1 - meta: {entity: trick, tags: [planned]}
 //	2 - meta: {entity: concept}
 //	3 - meta: {} (empty)
-func makeQueryKeg(t *testing.T) (*keg.LocalKeg, *keg.Dex) {
+func makeQueryKeg(t *testing.T) (*LocalKeg, *Dex) {
 	t.Helper()
 	ctx := context.Background()
 
 	rt, err := toolkit.NewTestRuntime(t.TempDir(), "/home/testuser", "testuser")
 	require.NoError(t, err)
 
-	repo := keg.NewMemoryRepo(rt)
+	repo := NewMemoryRepo(rt)
 
 	nodes := []struct {
 		id   int
@@ -39,7 +38,7 @@ func makeQueryKeg(t *testing.T) (*keg.LocalKeg, *keg.Dex) {
 	}
 
 	for _, n := range nodes {
-		id := keg.NodeId{ID: n.id}
+		id := NodeId{ID: n.id}
 		require.NoError(t, repo.WriteContent(ctx, id, []byte("# Node\n")))
 		if len(n.meta) > 0 {
 			require.NoError(t, repo.WriteMeta(ctx, id, n.meta))
@@ -55,10 +54,10 @@ func makeQueryKeg(t *testing.T) (*keg.LocalKeg, *keg.Dex) {
 	nodesTSV := []byte("0\t2026-01-01T00:00:00Z\t2026-01-01T00:00:00Z\t2026-01-01T00:00:00Z\tNode 0\n1\t2026-01-01T00:00:00Z\t2026-01-01T00:00:00Z\t2026-01-01T00:00:00Z\tNode 1\n2\t2026-01-01T00:00:00Z\t2026-01-01T00:00:00Z\t2026-01-01T00:00:00Z\tNode 2\n3\t2026-01-01T00:00:00Z\t2026-01-01T00:00:00Z\t2026-01-01T00:00:00Z\tNode 3\n")
 	require.NoError(t, repo.WriteIndex(ctx, "nodes.tsv", nodesTSV))
 
-	k := keg.NewLocalKeg(repo, rt)
+	k := NewLocalKeg(repo, rt)
 
-	// Use NewDexFromRepo which does not require an initialized keg.
-	d, err := keg.NewDexFromRepo(ctx, repo)
+	// Use NewDexFromRepo which does not require an initialized
+	d, err := NewDexFromRepo(ctx, repo)
 	require.NoError(t, err)
 
 	return k, d
@@ -132,7 +131,7 @@ func TestEvalQueryExpr(t *testing.T) {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			got, err := evalQueryExpr(ctx, k, d, entries, tc.expr)
+			got, err := k.evalQueryExpr(ctx, d, entries, tc.expr)
 			if tc.wantErr {
 				require.Error(t, err)
 				return
@@ -143,7 +142,7 @@ func TestEvalQueryExpr(t *testing.T) {
 			seen := make(map[string]struct{})
 			ids := make([]string, 0, len(got))
 			for p := range got {
-				n, parseErr := keg.ParseNode(p)
+				n, parseErr := ParseNode(p)
 				if parseErr != nil || n == nil {
 					continue
 				}

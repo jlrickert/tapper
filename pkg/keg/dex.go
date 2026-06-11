@@ -70,7 +70,11 @@ func WithConfig(cfg *Config) DexOption {
 				continue
 			}
 			sortOrder := QueryFilteredSortOrder(entry.Sort)
-			idx, err := NewQueryFilteredIndexWithSort(entry.File, query, d.queryResolver, sortOrder)
+			resolver := d.queryResolver
+			if resolver == nil {
+				resolver = defaultNodeQueryResolver
+			}
+			idx, err := NewQueryFilteredIndexWithSort(entry.File, query, resolver, sortOrder)
 			if err != nil {
 				return fmt.Errorf("dex: config index %q: %w", entry.File, err)
 			}

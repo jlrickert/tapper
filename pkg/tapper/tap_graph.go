@@ -51,7 +51,7 @@ func (t *Tap) Graph(ctx context.Context, opts GraphOptions) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("unable to open keg: %w", err)
 	}
-	dex, err := k.DexFresh(ctx)
+	dex, err := k.Dex(ctx)
 	if err != nil {
 		return "", fmt.Errorf("unable to read dex: %w", err)
 	}
@@ -69,7 +69,7 @@ func (t *Tap) Graph(ctx context.Context, opts GraphOptions) (string, error) {
 	return out, nil
 }
 
-func buildGraphPayload(ctx context.Context, rt *toolkit.Runtime, k *keg.LocalKeg, dex *keg.Dex) graphPayload {
+func buildGraphPayload(ctx context.Context, rt *toolkit.Runtime, k keg.Keg, dex *keg.Dex) graphPayload {
 	payload := graphPayload{
 		Nodes: []graphNode{},
 		Edges: []graphEdge{},
@@ -101,7 +101,7 @@ func buildGraphPayload(ctx context.Context, rt *toolkit.Runtime, k *keg.LocalKeg
 			URL:     "",
 		}
 		if parsed, err := keg.ParseNode(id); err == nil && parsed != nil {
-			node.Summary = readNodeSummary(ctx, rt, k.Repo, *parsed)
+			node.Summary = readNodeSummary(ctx, rt, k, *parsed)
 		}
 		nodeByID[id] = node
 	}
@@ -179,11 +179,11 @@ func addEdgeAndNode(payload *graphPayload, seen map[string]struct{}, nodeByID ma
 	}
 }
 
-func readNodeSummary(ctx context.Context, rt *toolkit.Runtime, repo keg.Repository, id keg.NodeId) string {
-	if repo == nil || rt == nil {
+func readNodeSummary(ctx context.Context, rt *toolkit.Runtime, k keg.Keg, id keg.NodeId) string {
+	if k == nil || rt == nil {
 		return ""
 	}
-	if stats, err := repo.ReadStats(ctx, id); err == nil {
+	if stats, err := k.GetStats(ctx, id); err == nil {
 		if lead := compactWhitespace(stats.Lead()); lead != "" {
 			return lead
 		}
@@ -191,7 +191,7 @@ func readNodeSummary(ctx context.Context, rt *toolkit.Runtime, repo keg.Reposito
 		return ""
 	}
 
-	raw, err := repo.ReadContent(ctx, id)
+	raw, err := k.GetContent(ctx, id)
 	if err != nil {
 		return ""
 	}

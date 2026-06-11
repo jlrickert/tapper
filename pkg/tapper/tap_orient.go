@@ -159,14 +159,14 @@ func (t *Tap) resolveActiveKegLabel(ctx context.Context, opts KegTargetOptions) 
 		return activeKegLabel{Unresolved: true}
 	}
 	k, err := t.resolveKeg(ctx, opts)
-	if err != nil || k == nil || k.Target == nil {
+	if err != nil || k == nil || k.Target() == nil {
 		if alias := strings.TrimSpace(opts.Keg); alias != "" {
 			return activeKegLabel{Alias: alias}
 		}
 		return activeKegLabel{Unresolved: true}
 	}
 
-	label := activeKegLabel{Backend: KegBackendLabel(k.Target)}
+	label := activeKegLabel{Backend: KegBackendLabel(k.Target())}
 	// Name the keg the way the user can reference it. An explicit --keg
 	// selector is echoed verbatim; otherwise derive the @namespace/name
 	// reference from the resolved target. A bare file-path keg (no name)
@@ -174,7 +174,7 @@ func (t *Tap) resolveActiveKegLabel(ctx context.Context, opts KegTargetOptions) 
 	if selector := strings.TrimSpace(opts.Keg); selector != "" {
 		label.Alias = selector
 	} else {
-		label.Alias = kegRefLabel(k.Target)
+		label.Alias = kegRefLabel(k.Target())
 	}
 	return label
 }

@@ -28,15 +28,15 @@ func allocateShadowReservation(t *testing.T, fx *sandbox.Sandbox) string {
 		fx.Runtime(),
 	)
 	require.NoError(t, err)
-	id, err := k.Repo.Next(fx.Context())
+	id, err := k.(*keg.LocalKeg).Repo.Next(fx.Context())
 	require.NoError(t, err)
 
 	// Sanity: HasNode is true (the bare dir exists), but ReadContent is
 	// ErrNotExist (no README.md). This is the shape we want to exercise.
-	has, err := k.Repo.HasNode(fx.Context(), id)
+	has, err := k.(*keg.LocalKeg).Repo.HasNode(fx.Context(), id)
 	require.NoError(t, err)
 	require.True(t, has, "shadow reservation should make HasNode true")
-	_, err = k.Repo.ReadContent(fx.Context(), id)
+	_, err = k.(*keg.LocalKeg).Repo.ReadContent(fx.Context(), id)
 	require.ErrorIs(t, err, keg.ErrNotExist,
 		"shadow reservation must have no content")
 

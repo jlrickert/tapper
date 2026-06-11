@@ -245,7 +245,18 @@ type ExportNodesOptions struct {
 }
 
 // ImportNodesOptions configures Keg.ImportNodes.
-type ImportNodesOptions struct{}
+type ImportNodesOptions struct {
+	// AssignNewIDs allocates fresh sequential node ids for the archive's
+	// nodes instead of landing them on their archive ids. Links between
+	// imported nodes are rewritten to the new ids.
+	AssignNewIDs bool
+	// SourceAlias, when set, rewrites relative links that point at
+	// un-imported source nodes to keg:SourceAlias/N cross-keg links.
+	SourceAlias string
+	// TargetAlias, when set, rewrites keg:TargetAlias/N links in imported
+	// content to relative ../N links.
+	TargetAlias string
+}
 
 // ImportedNode maps an archive source id to the node id it landed on.
 type ImportedNode struct {

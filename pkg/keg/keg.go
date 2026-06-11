@@ -19,8 +19,8 @@ import (
 // LocalKeg delegates low-level storage operations to its underlying repository and
 // maintains an in-memory dex for indexing.
 type LocalKeg struct {
-	// Target is the keg URL/location (nil for memory-backed kegs)
-	Target *Target
+	// target is the keg URL/location (nil for memory-backed kegs)
+	target *Target
 	// Repo is the storage backend implementation
 	Repo Repository
 	// Runtime provides clock/hash/fs helpers used by high-level keg operations.
@@ -46,13 +46,6 @@ type LocalKeg struct {
 	// checkKegExists call. Once a keg is confirmed to exist, it won't
 	// un-exist, so subsequent checks are skipped.
 	kegExistsVerified atomic.Bool
-
-	// extraDexOpts holds additional DexOptions injected by higher-level
-	// packages (e.g. pkg/tapper) via SetExtraDexOpts. These are prepended
-	// before WithConfig in dexOptions() so that, for example, a
-	// WithQueryResolver is available when WithConfig creates
-	// QueryFilteredIndex instances.
-	extraDexOpts []DexOption
 }
 
 // Option is a functional option for configuring LocalKeg behavior
@@ -94,7 +87,7 @@ func WithTokenResolver(r TokenResolver) KegOption {
 //   - hub targets use an API repository resolved from repo/user/keg fields
 //
 // Returns an error if the target scheme is not supported.
-func NewKegFromTarget(ctx context.Context, target Target, rt *toolkit.Runtime, opts ...KegOption) (*LocalKeg, error) {
+func NewKegFromTarget(ctx context.Context, target Target, rt *toolkit.Runtime, opts ...KegOption) (Keg, error) {
 	var o kegOptions
 	for _, apply := range opts {
 		apply(&o)
@@ -112,14 +105,14 @@ func NewKegFromTarget(ctx context.Context, target Target, rt *toolkit.Runtime, o
 			StatsFilename:   JSONStatsFilename,
 			runtime:         rt,
 		}
-		keg := LocalKeg{Target: &target, Repo: &repo, Runtime: rt}
+		keg := LocalKeg{target: &target, Repo: &repo, Runtime: rt}
 		return &keg, nil
 	case SchemeHTTP, SchemeHTTPs:
 		token := resolveTargetToken(&target, rt, o.resolver)
 		baseURL := strings.TrimRight(target.Url, "/")
 		repo := NewApiRepo(baseURL, token)
 		repo.Logger = rt.Logger()
-		keg := LocalKeg{Target: &target, Repo: repo, Runtime: rt}
+		keg := LocalKeg{target: &target, Repo: repo, Runtime: rt}
 		return &keg, nil
 	case SchemeAlias:
 		token := resolveTargetToken(&target, rt, o.resolver)
@@ -139,7 +132,7 @@ func NewKegFromTarget(ctx context.Context, target Target, rt *toolkit.Runtime, o
 			base, target.Namespace, target.KegName)
 		repo := NewApiRepo(baseURL, token)
 		repo.Logger = rt.Logger()
-		keg := LocalKeg{Target: &target, Repo: repo, Runtime: rt}
+		keg := LocalKeg{target: &target, Repo: repo, Runtime: rt}
 		return &keg, nil
 	}
 	return nil, fmt.Errorf("unsupported target scheme: %s", target.Scheme())
@@ -236,3 +229,22 @@ func (k *LocalKeg) checkKegExists(ctx context.Context) error {
 	k.kegExistsVerified.Store(true)
 	return nil
 }
+
+// Target returns the keg's resolved location, or nil for anonymous
+// (memory-backed) kegs.
+func (k *LocalKeg) Target() *Target {
+	if k == nil {
+		return nil
+	}
+	return k.target
+}
+
+// SetTarget records the keg's resolved location. Construction paths that
+// cannot pass the target through a literal (e.g. the hub opening a keg by
+// namespace/alias) use this to label the keg after the fact.
+func (k *LocalKeg) SetTarget(target *Target) {
+	k.target = target
+}
+
+// LocalKeg implements the full Keg interface.
+var _ Keg = (*LocalKeg)(nil)

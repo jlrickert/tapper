@@ -78,7 +78,7 @@ func (t *Tap) Doctor(ctx context.Context, opts DoctorOptions) ([]Issue, error) {
 	}
 
 	// 2. List all nodes and build existence set
-	nodeIDs, err := k.Repo.ListNodes(ctx)
+	nodeIDs, err := k.ListNodes(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("unable to list nodes: %w", err)
 	}
@@ -123,7 +123,7 @@ func (t *Tap) Doctor(ctx context.Context, opts DoctorOptions) ([]Issue, error) {
 		nodePath := id.Path()
 
 		// Content check
-		rawContent, contentErr := k.Repo.ReadContent(ctx, id)
+		rawContent, contentErr := k.GetContent(ctx, id)
 		if contentErr != nil {
 			if errors.Is(contentErr, keg.ErrNotExist) {
 				issues = append(issues, Issue{Level: "error", Kind: "content", NodeID: nodePath, Message: "missing content (README.md)"})
@@ -133,7 +133,7 @@ func (t *Tap) Doctor(ctx context.Context, opts DoctorOptions) ([]Issue, error) {
 		} else if len(rawContent) == 0 {
 			issues = append(issues, Issue{Level: "warning", Kind: "content", NodeID: nodePath, Message: "content is empty"})
 		} else {
-			content, parseErr := keg.ParseContent(k.Runtime, rawContent, keg.MarkdownContentFilename)
+			content, parseErr := keg.ParseContent(t.Runtime, rawContent, keg.MarkdownContentFilename)
 			if parseErr != nil {
 				issues = append(issues, Issue{Level: "error", Kind: "content", NodeID: nodePath, Message: fmt.Sprintf("unable to parse content: %v", parseErr)})
 			} else {
@@ -153,7 +153,7 @@ func (t *Tap) Doctor(ctx context.Context, opts DoctorOptions) ([]Issue, error) {
 		}
 
 		// Meta check
-		rawMeta, metaErr := k.Repo.ReadMeta(ctx, id)
+		rawMeta, metaErr := k.GetMetaRaw(ctx, id)
 		if metaErr != nil && !errors.Is(metaErr, keg.ErrNotExist) {
 			issues = append(issues, Issue{Level: "error", Kind: "meta", NodeID: nodePath, Message: fmt.Sprintf("unable to read metadata: %v", metaErr)})
 		} else if metaErr == nil {
@@ -181,7 +181,7 @@ func (t *Tap) Doctor(ctx context.Context, opts DoctorOptions) ([]Issue, error) {
 		}
 
 		// Stats check
-		stats, statsErr := k.Repo.ReadStats(ctx, id)
+		stats, statsErr := k.GetStats(ctx, id)
 		if statsErr != nil && !errors.Is(statsErr, keg.ErrNotExist) {
 			issues = append(issues, Issue{Level: "error", Kind: "stats", NodeID: nodePath, Message: fmt.Sprintf("unable to read stats: %v", statsErr)})
 		} else if statsErr == nil {

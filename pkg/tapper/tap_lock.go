@@ -2,6 +2,7 @@ package tapper
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/jlrickert/tapper/pkg/keg"
@@ -44,12 +45,7 @@ func (t *Tap) Lock(ctx context.Context, opts LockOptions) (keg.LockToken, error)
 		return "", err
 	}
 
-	locker, ok := k.Repo.(keg.RepositoryLock)
-	if !ok {
-		return "", fmt.Errorf("repository does not support cross-process locking")
-	}
-
-	exists, err := t.nodeExistsWithContent(ctx, k, id)
+	exists, err := k.NodeExists(ctx, id)
 	if err != nil {
 		return "", fmt.Errorf("unable to inspect node: %w", err)
 	}
@@ -57,8 +53,11 @@ func (t *Tap) Lock(ctx context.Context, opts LockOptions) (keg.LockToken, error)
 		return "", fmt.Errorf("node %s not found in %s", id.Path(), describeKeg(k))
 	}
 
-	token, err := locker.AcquireLock(ctx, id)
+	token, err := k.Lock(ctx, id)
 	if err != nil {
+		if errors.Is(err, keg.ErrNotSupported) {
+			return "", fmt.Errorf("repository does not support cross-process locking")
+		}
 		return "", fmt.Errorf("unable to acquire lock: %w", err)
 	}
 	return token, nil
@@ -76,12 +75,13 @@ func (t *Tap) Unlock(ctx context.Context, opts UnlockOptions) error {
 		return err
 	}
 
-	locker, ok := k.Repo.(keg.RepositoryLock)
-	if !ok {
-		return fmt.Errorf("repository does not support cross-process locking")
+	if err := k.Unlock(ctx, id, keg.LockToken(opts.Token)); err != nil {
+		if errors.Is(err, keg.ErrNotSupported) {
+			return fmt.Errorf("repository does not support cross-process locking")
+		}
+		return err
 	}
-
-	return locker.ReleaseLock(ctx, id, keg.LockToken(opts.Token))
+	return nil
 }
 
 // LockStatus returns the lock state for a node.
@@ -96,12 +96,14 @@ func (t *Tap) LockStatus(ctx context.Context, opts LockStatusOptions) (keg.LockI
 		return keg.LockInfo{}, err
 	}
 
-	locker, ok := k.Repo.(keg.RepositoryLock)
-	if !ok {
-		return keg.LockInfo{}, fmt.Errorf("repository does not support cross-process locking")
+	info, err := k.LockStatus(ctx, id)
+	if err != nil {
+		if errors.Is(err, keg.ErrNotSupported) {
+			return keg.LockInfo{}, fmt.Errorf("repository does not support cross-process locking")
+		}
+		return keg.LockInfo{}, err
 	}
-
-	return locker.LockStatus(ctx, id)
+	return info, nil
 }
 
 // ForceUnlock unconditionally removes a cross-process lock on a node.
@@ -116,12 +118,13 @@ func (t *Tap) ForceUnlock(ctx context.Context, opts ForceUnlockOptions) error {
 		return err
 	}
 
-	locker, ok := k.Repo.(keg.RepositoryLock)
-	if !ok {
-		return fmt.Errorf("repository does not support cross-process locking")
+	if err := k.ForceUnlock(ctx, id); err != nil {
+		if errors.Is(err, keg.ErrNotSupported) {
+			return fmt.Errorf("repository does not support cross-process locking")
+		}
+		return err
 	}
-
-	return locker.ForceReleaseLock(ctx, id)
+	return nil
 }
 
 // validateLockToken checks a lock token against any held cross-process lock.
@@ -130,13 +133,12 @@ func (t *Tap) ForceUnlock(ctx context.Context, opts ForceUnlockOptions) error {
 //   - If no lock is held, the command proceeds regardless of token.
 //   - If a lock is held and the token matches, the command proceeds.
 //   - If a lock is held and the token is empty or mismatched, an error is returned.
-func validateLockToken(ctx context.Context, repo keg.Repository, id keg.NodeId, lockToken string) error {
-	locker, ok := repo.(keg.RepositoryLock)
-	if !ok {
-		return nil
-	}
-	info, err := locker.LockStatus(ctx, id)
+func validateLockToken(ctx context.Context, k keg.Keg, id keg.NodeId, lockToken string) error {
+	info, err := k.LockStatus(ctx, id)
 	if err != nil {
+		if errors.Is(err, keg.ErrNotSupported) {
+			return nil
+		}
 		return fmt.Errorf("unable to check lock status: %w", err)
 	}
 	if info.Token == "" {

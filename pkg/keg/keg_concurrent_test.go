@@ -596,7 +596,7 @@ func TestConcurrentRemoveDuringSetContent_FsRepo(t *testing.T) {
 	// WithNodeLock creates a bare directory as a lock artifact, but it
 	// should be cleaned up after the lock callback returns with no content
 	// file present. Verify no orphaned directory remains.
-	exists, err := k.Repo.HasNode(f.Context(), id)
+	exists, err := k.(*kegpkg.LocalKeg).Repo.HasNode(f.Context(), id)
 	require.NoError(t, err)
 	require.False(t, exists, "bare directory should be cleaned up after failed write")
 }
@@ -628,7 +628,7 @@ func TestConcurrentRemoveDuringSetMeta_FsRepo(t *testing.T) {
 	require.ErrorIs(t, err, kegpkg.ErrNotExist)
 
 	// Verify no orphaned directory was left behind on disk.
-	exists, err := k.Repo.HasNode(f.Context(), id)
+	exists, err := k.(*kegpkg.LocalKeg).Repo.HasNode(f.Context(), id)
 	require.NoError(t, err)
 	require.False(t, exists, "bare directory should be cleaned up after failed SetMeta")
 }
@@ -673,7 +673,7 @@ func TestSetContent_NoOrphanedDirectoryOnRemovedNode(t *testing.T) {
 	require.Error(t, statErr, "no orphaned directory should remain after failed SetContent")
 
 	// Also verify via HasNode for consistency.
-	exists, err := k.Repo.HasNode(f.Context(), id)
+	exists, err := k.(*kegpkg.LocalKeg).Repo.HasNode(f.Context(), id)
 	require.NoError(t, err)
 	require.False(t, exists, "HasNode should return false — no resurrection")
 }
@@ -721,7 +721,7 @@ func TestConcurrentRemoveDuringTouch_FsRepo(t *testing.T) {
 	require.Error(t, err)
 	require.ErrorIs(t, err, kegpkg.ErrNotExist)
 
-	exists, err := k.Repo.HasNode(f.Context(), id)
+	exists, err := k.(*kegpkg.LocalKeg).Repo.HasNode(f.Context(), id)
 	require.NoError(t, err)
 	require.False(t, exists, "bare directory should be cleaned up after failed Touch")
 }
@@ -741,13 +741,13 @@ func TestConcurrentRemoveDuringUpdateMeta_FsRepo(t *testing.T) {
 
 	require.NoError(t, errOnly(k.Remove(f.Context(), id)))
 
-	err = k.UpdateMeta(f.Context(), id, func(m *kegpkg.NodeMeta) {
+	err = k.(*kegpkg.LocalKeg).UpdateMeta(f.Context(), id, func(m *kegpkg.NodeMeta) {
 		m.SetTags([]string{"ghost"})
 	})
 	require.Error(t, err)
 	require.ErrorIs(t, err, kegpkg.ErrNotExist)
 
-	exists, err := k.Repo.HasNode(f.Context(), id)
+	exists, err := k.(*kegpkg.LocalKeg).Repo.HasNode(f.Context(), id)
 	require.NoError(t, err)
 	require.False(t, exists, "bare directory should be cleaned up after failed UpdateMeta")
 }

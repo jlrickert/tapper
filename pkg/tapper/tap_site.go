@@ -123,7 +123,7 @@ func (t *Tap) Site(ctx context.Context, opts SiteOptions) (*SiteResult, error) {
 		return nil, fmt.Errorf("unable to open keg: %w", err)
 	}
 
-	dex, err := k.DexFresh(ctx)
+	dex, err := k.Dex(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("unable to read dex: %w", err)
 	}
@@ -221,7 +221,7 @@ func (t *Tap) Site(ctx context.Context, opts SiteOptions) (*SiteResult, error) {
 		if err != nil || nid == nil {
 			continue
 		}
-		if stats, err := k.Repo.ReadStats(ctx, *nid); err == nil {
+		if stats, err := k.GetStats(ctx, *nid); err == nil {
 			ref.Lead = stats.Lead()
 		}
 		nodeByID[id] = ref
@@ -329,7 +329,7 @@ func (t *Tap) Site(ctx context.Context, opts SiteOptions) (*SiteResult, error) {
 
 func (t *Tap) generateNodePage(
 	ctx context.Context,
-	k *keg.LocalKeg,
+	k keg.Keg,
 	dex *keg.Dex,
 	tmpl *template.Template,
 	nid keg.NodeId,
@@ -342,14 +342,13 @@ func (t *Tap) generateNodePage(
 ) error {
 	rt := t.Runtime
 
-	// Read raw content.
-	rawContent, err := k.Repo.ReadContent(ctx, nid)
+	// Read the node's full state (content, meta, stats) in one operation.
+	view, err := k.ReadNode(ctx, nid)
 	if err != nil {
 		return fmt.Errorf("read content: %w", err)
 	}
-
-	// Read meta for tags and entity.
-	rawMeta, _ := k.Repo.ReadMeta(ctx, nid)
+	rawContent := view.Content
+	rawMeta := view.Meta
 	meta, _ := keg.ParseMeta(ctx, rawMeta)
 	var tags []string
 	var entity string
@@ -360,8 +359,7 @@ func (t *Tap) generateNodePage(
 		}
 	}
 
-	// Read stats.
-	stats, _ := k.Repo.ReadStats(ctx, nid)
+	stats := view.Stats
 
 	// Render markdown to HTML.
 	rendered, err := keg.RenderMarkdown(rawContent, keg.RenderOptions{BaseURL: baseURL, NodeID: entry.ID})
@@ -489,7 +487,7 @@ func (t *Tap) generateNodePage(
 	return nil
 }
 
-func (t *Tap) copyNodeAssets(ctx context.Context, k *keg.LocalKeg, nid keg.NodeId, nodeDir string, kind keg.AssetKind) {
+func (t *Tap) copyNodeAssets(ctx context.Context, k keg.Keg, nid keg.NodeId, nodeDir string, kind keg.AssetKind) {
 	rt := t.Runtime
 	var names []string
 	var readFn func(context.Context, keg.NodeId, string) ([]byte, error)
@@ -497,25 +495,21 @@ func (t *Tap) copyNodeAssets(ctx context.Context, k *keg.LocalKeg, nid keg.NodeI
 
 	switch kind {
 	case keg.AssetKindImage:
-		if ri, ok := k.Repo.(keg.RepositoryImages); ok {
-			var err error
-			names, err = ri.ListImages(ctx, nid)
-			if err != nil {
-				return
-			}
-			readFn = ri.ReadImage
-			subDir = keg.NodeImagesDir
+		var err error
+		names, err = k.ListImages(ctx, nid)
+		if err != nil {
+			return
 		}
+		readFn = k.ReadImage
+		subDir = keg.NodeImagesDir
 	case keg.AssetKindItem:
-		if rf, ok := k.Repo.(keg.RepositoryFiles); ok {
-			var err error
-			names, err = rf.ListFiles(ctx, nid)
-			if err != nil {
-				return
-			}
-			readFn = rf.ReadFile
-			subDir = keg.NodeAttachmentsDir
+		var err error
+		names, err = k.ListFiles(ctx, nid)
+		if err != nil {
+			return
 		}
+		readFn = k.ReadFile
+		subDir = keg.NodeAttachmentsDir
 	}
 
 	for _, name := range names {

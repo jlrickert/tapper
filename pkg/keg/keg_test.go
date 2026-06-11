@@ -49,12 +49,12 @@ func TestInitOnEmptyRepo(t *testing.T) {
 	require.NoError(t, k.Init(f.Context()), "InitKeg failed")
 
 	// Repo should now report a keg exists.
-	exists, err := kegpkg.RepoContainsKeg(f.Context(), k.Repo)
+	exists, err := kegpkg.RepoContainsKeg(f.Context(), k.(*kegpkg.LocalKeg).Repo)
 	require.NoError(t, err, "KegExists returned error")
 	require.True(t, exists, "KegExists expected true after InitKeg")
 
 	// Ensure a zero node is present.
-	ids, err := k.Repo.ListNodes(f.Context())
+	ids, err := k.(*kegpkg.LocalKeg).Repo.ListNodes(f.Context())
 	require.NoError(t, err, "ListNodes failed")
 	foundZero := false
 	for _, n := range ids {
@@ -100,14 +100,14 @@ func TestKegExistsWithFsRepo(t *testing.T) {
 	require.NoError(t, err, "NewKegFromTarget failed")
 
 	// Uninitialized on disk.
-	exists, err := kegpkg.RepoContainsKeg(f.Context(), k.Repo)
+	exists, err := kegpkg.RepoContainsKeg(f.Context(), k.(*kegpkg.LocalKeg).Repo)
 	require.NoError(t, err)
 	require.False(t, exists, "expected KegExists false for empty fs repo")
 
 	// Initialize and verify.
 	require.NoError(t, k.Init(f.Context()), "InitKeg failed for fs repo")
 
-	exists, err = kegpkg.RepoContainsKeg(f.Context(), k.Repo)
+	exists, err = kegpkg.RepoContainsKeg(f.Context(), k.(*kegpkg.LocalKeg).Repo)
 	require.NoError(t, err)
 	require.True(t, exists, "expected KegExists true after InitKeg")
 }
@@ -407,7 +407,7 @@ func TestIndexFilesHaveExpectedData(t *testing.T) {
 	require.NoError(t, err, "NewKegFromTarget failed")
 
 	// Load dex via NewDexFromRepo which reads the index artifacts.
-	dex, err := kegpkg.NewDexFromRepo(f.Context(), k.Repo)
+	dex, err := kegpkg.NewDexFromRepo(f.Context(), k.(*kegpkg.LocalKeg).Repo)
 	require.NoError(t, err, "NewDexFromRepo failed")
 
 	// nodes.tsv should contain the zero node entry.
@@ -415,13 +415,13 @@ func TestIndexFilesHaveExpectedData(t *testing.T) {
 	require.NotNil(t, zeroRef, "nodes.tsv should include zero node entry")
 
 	// changes.md is expected to exist in the example fixture under dex/.
-	changes, err := k.Repo.GetIndex(f.Context(), "changes.md")
+	changes, err := k.(*kegpkg.LocalKeg).Repo.GetIndex(f.Context(), "changes.md")
 	require.NoError(t, err, "expected dex/changes.md to exist")
 	require.Greater(t, len(changes), 0, "dex/changes.md should not be empty")
 
 	// tags may be absent for the example fixture. If absent, Dex.TagList should
 	// be empty. If present, ensure we can read it without error.
-	if _, err := k.Repo.GetIndex(f.Context(), "tags"); err != nil {
+	if _, err := k.(*kegpkg.LocalKeg).Repo.GetIndex(f.Context(), "tags"); err != nil {
 		require.True(t, errors.Is(err, kegpkg.ErrNotExist),
 			"expected missing tags index to return ErrNotExist, got: %v", err)
 		require.Empty(t, dex.TagList(f.Context()), "expected no tags when tags index is absent")
@@ -431,7 +431,7 @@ func TestIndexFilesHaveExpectedData(t *testing.T) {
 	}
 
 	// backlinks may be absent. If absent, expect no backlinks for the zero node.
-	if _, err := k.Repo.GetIndex(f.Context(), "backlinks"); err != nil {
+	if _, err := k.(*kegpkg.LocalKeg).Repo.GetIndex(f.Context(), "backlinks"); err != nil {
 		require.True(t, errors.Is(err, kegpkg.ErrNotExist),
 			"expected missing backlinks index to return ErrNotExist, got: %v", err)
 		_, ok := dex.Backlinks(f.Context(), kegpkg.NodeId{ID: 0})
@@ -475,7 +475,7 @@ custom_block:
 	require.Contains(t, out, "nested:")
 	require.Contains(t, out, "item: value")
 
-	cfg, err := k.Repo.ReadConfig(f.Context())
+	cfg, err := k.(*kegpkg.LocalKeg).Repo.ReadConfig(f.Context())
 	require.NoError(t, err)
 	require.NotEqual(t, "2020-01-01T00:00:00Z", cfg.Updated)
 }
@@ -974,7 +974,7 @@ func TestDexFresh_ReloadsAfterExternalModification(t *testing.T) {
 	require.NoError(t, err)
 
 	// Load the dex via DexFresh and verify initial state.
-	dex1, err := k.DexFresh(f.Context())
+	dex1, err := k.Dex(f.Context())
 	require.NoError(t, err)
 	ref1 := dex1.GetRef(f.Context(), id)
 	require.NotNil(t, ref1)
@@ -995,7 +995,7 @@ func TestDexFresh_ReloadsAfterExternalModification(t *testing.T) {
 
 	// The original keg instance's cached dex is now stale. DexFresh should
 	// detect the mtime change and reload.
-	dex2, err := k.DexFresh(f.Context())
+	dex2, err := k.Dex(f.Context())
 	require.NoError(t, err)
 
 	// Verify the externally-added node appears.
@@ -1031,9 +1031,9 @@ func TestDexFresh_ReturnsCachedWhenUnchanged(t *testing.T) {
 	require.NoError(t, err)
 
 	// Load dex twice without any external changes.
-	dex1, err := k.DexFresh(f.Context())
+	dex1, err := k.Dex(f.Context())
 	require.NoError(t, err)
-	dex2, err := k.DexFresh(f.Context())
+	dex2, err := k.Dex(f.Context())
 	require.NoError(t, err)
 
 	// Both should return the same pointer (no reload occurred).
@@ -1051,7 +1051,7 @@ func TestDexFresh_ReloadsForExternalRepoImplementations(t *testing.T) {
 	_, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "Original Node"})
 	require.NoError(t, err)
 
-	dex1, err := k.DexFresh(f.Context())
+	dex1, err := k.Dex(f.Context())
 	require.NoError(t, err)
 
 	externalKeg := kegpkg.NewLocalKeg(repo, f.Runtime())
@@ -1060,7 +1060,7 @@ func TestDexFresh_ReloadsForExternalRepoImplementations(t *testing.T) {
 
 	require.Nil(t, dex1.GetRef(f.Context(), externalID), "primed dex should not mutate behind the caller")
 
-	dex2, err := k.DexFresh(f.Context())
+	dex2, err := k.Dex(f.Context())
 	require.NoError(t, err)
 	require.NotSame(t, dex1, dex2, "external repo DexFresh should reload instead of returning the cached dex")
 
@@ -1092,7 +1092,7 @@ func TestSetContent_LocalNodeIDStaysBare(t *testing.T) {
 	)
 	require.NoError(t, err)
 	require.NoError(t, k.Init(f.Context()))
-	require.Equal(t, "example", k.Target.KegName, "KegName must be set to reproduce the bug")
+	require.Equal(t, "example", k.Target().KegName, "KegName must be set to reproduce the bug")
 
 	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "Node 2"})
 	require.NoError(t, err)
@@ -1100,7 +1100,7 @@ func TestSetContent_LocalNodeIDStaysBare(t *testing.T) {
 	// SetContent is the edit path that previously tainted the dex entry.
 	require.NoError(t, k.SetContent(f.Context(), id, []byte("# Node 2\n\nedited body\n")))
 
-	dex, err := k.DexFresh(f.Context())
+	dex, err := k.Dex(f.Context())
 	require.NoError(t, err)
 	for _, e := range dex.Nodes(f.Context()) {
 		require.NotContains(t, e.ID, "keg:", "local node id must be bare, got %q", e.ID)
@@ -1109,7 +1109,7 @@ func TestSetContent_LocalNodeIDStaysBare(t *testing.T) {
 	// The edited node resolves under its bare id, and there is no stale
 	// keg:-prefixed duplicate row left behind.
 	require.NotNil(t, dex.GetRef(f.Context(), id), "edited node should be indexed under its bare id")
-	raw, err := k.Repo.GetIndex(f.Context(), "nodes.tsv")
+	raw, err := k.(*kegpkg.LocalKeg).Repo.GetIndex(f.Context(), "nodes.tsv")
 	require.NoError(t, err)
 	require.NotContains(t, string(raw), "keg:", "nodes.tsv must not contain keg: prefixes")
 }
@@ -1143,7 +1143,7 @@ func TestMove_LocalNodeIDStaysBare(t *testing.T) {
 	require.NoError(t, errOnly(k.Move(f.Context(), target, kegpkg.NodeId{ID: target.ID + 10})))
 
 	for _, name := range []string{"nodes.tsv", "links", "backlinks"} {
-		raw, err := k.Repo.GetIndex(f.Context(), name)
+		raw, err := k.(*kegpkg.LocalKeg).Repo.GetIndex(f.Context(), name)
 		require.NoError(t, err)
 		require.NotContains(t, string(raw), "keg:", "%s must not contain keg: prefixes", name)
 	}

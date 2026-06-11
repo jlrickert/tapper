@@ -2,11 +2,11 @@ package tapper
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
 	"slices"
 	"strings"
-	"time"
 
 	"github.com/jlrickert/tapper/pkg/keg"
 )
@@ -38,12 +38,6 @@ type ImportedNode struct {
 
 // kegArgRefRE matches a bare keg:ALIAS/N argument (full string).
 var kegArgRefRE = regexp.MustCompile(`^keg:([a-zA-Z0-9][a-zA-Z0-9_-]*)/([0-9]+)$`)
-
-// kegLinkInTextRE matches keg:ALIAS/N links anywhere in content.
-var kegLinkInTextRE = regexp.MustCompile(`keg:([a-zA-Z0-9][a-zA-Z0-9_-]*)/([0-9]+)`)
-
-// relImportLinkRE matches ../N links in content (same pattern as importedNodeLinkRE in tap_archive.go).
-var relImportLinkRE = regexp.MustCompile(`\.\./\s*([0-9]+)([[:space:]\)\]\}\>\.,;:!?'"#]|$)`)
 
 // ImportFromKeg copies nodes from a source keg into the target keg. Each node
 // is assigned a fresh ID via targetRepo.Next() and all links in the copied
@@ -88,7 +82,7 @@ func (t *Tap) ImportFromKeg(ctx context.Context, opts ImportFromKegOptions) ([]I
 
 	// Default to all nodes when nothing is specified.
 	if len(srcIDs) == 0 && opts.TagQuery == "" {
-		all, err := srcKeg.Repo.ListNodes(ctx)
+		all, err := srcKeg.ListNodes(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("unable to list source nodes: %w", err)
 		}
@@ -100,108 +94,78 @@ func (t *Tap) ImportFromKeg(ctx context.Context, opts ImportFromKegOptions) ([]I
 	}
 	slices.SortFunc(srcIDs, func(a, b keg.NodeId) int { return a.Compare(b) })
 
-	// Pass 1: allocate target IDs. Build the full mapping before writing anything.
-	// Next() scans existing nodes without reserving, so call it once and
-	// compute subsequent IDs by incrementing from the base.
-	mapping := make(map[string]keg.NodeId, len(srcIDs)) // srcID numeric string → newID
-	if len(srcIDs) > 0 {
-		baseID, err := tgtKeg.Repo.Next(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("unable to allocate node ID for import: %w", err)
-		}
-		for i, srcID := range srcIDs {
-			mapping[srcID.Path()] = keg.NodeId{ID: baseID.ID + i}
-		}
+	if len(srcIDs) == 0 {
+		return []ImportedNode{}, nil
 	}
 
-	// Pass 2: rewrite links and write each node to the target.
-	for _, srcID := range srcIDs {
-		newID := mapping[srcID.Path()]
+	// History travels only when both ends support snapshots; probing with
+	// ListSnapshots maps ErrNotSupported from either side.
+	withHistory := kegSupportsSnapshots(ctx, srcKeg) && kegSupportsSnapshots(ctx, tgtKeg)
 
-		content, err := srcKeg.Repo.ReadContent(ctx, srcID)
-		if err != nil {
-			return nil, fmt.Errorf("unable to read content for node %s: %w", srcID.Path(), err)
-		}
-		meta, err := readOptionalNodeMeta(ctx, srcKeg.Repo, srcID)
-		if err != nil {
-			return nil, fmt.Errorf("unable to read meta for node %s: %w", srcID.Path(), err)
-		}
-		statsBytes, err := readOptionalNodeStats(ctx, srcKeg.Repo, srcID)
-		if err != nil {
-			return nil, fmt.Errorf("unable to read stats for node %s: %w", srcID.Path(), err)
-		}
-		statsObj, err := keg.ParseStats(ctx, statsBytes)
-		if err != nil {
-			return nil, fmt.Errorf("unable to parse stats for node %s: %w", srcID.Path(), err)
-		}
+	// Stream source nodes through a keg-archive and land them on fresh target
+	// ids. The archive import rewrites links between imported nodes and
+	// retargets cross-keg references via the source/target aliases.
+	rc, err := srcKeg.ExportNodes(ctx, keg.ExportNodesOptions{
+		NodeIDs:     srcIDs,
+		WithHistory: withHistory,
+		WithAssets:  true,
+		Source:      srcAlias,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("unable to export source nodes: %w", err)
+	}
+	defer rc.Close()
 
-		content = rewriteLiveImportLinks(content, srcAlias, tgtAlias, mapping)
-		remapStatsLinks(statsObj, mapping)
+	imported, err := tgtKeg.ImportNodes(ctx, rc, keg.ImportNodesOptions{
+		AssignNewIDs: true,
+		SourceAlias:  srcAlias,
+		TargetAlias:  tgtAlias,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("unable to import nodes: %w", err)
+	}
 
-		srcAssets, err := readImportedNodeAssets(ctx, srcKeg.Repo, srcID)
-		if err != nil {
-			return nil, fmt.Errorf("unable to read assets for node %s: %w", srcID.Path(), err)
-		}
-
-		var snapshots []importSnapshotPayload
-		if snapRepo, ok := srcKeg.Repo.(keg.RepositorySnapshots); ok {
-			snapshots, err = collectImportSnapshots(ctx, snapRepo, srcID, srcAlias, tgtAlias, mapping)
-			if err != nil {
-				return nil, fmt.Errorf("unable to read snapshots for node %s: %w", srcID.Path(), err)
-			}
-		}
-
-		if err := tgtKeg.Repo.WriteContent(ctx, newID, content); err != nil {
-			return nil, fmt.Errorf("unable to write content for imported node %s: %w", srcID.Path(), err)
-		}
-		if err := tgtKeg.Repo.WriteMeta(ctx, newID, meta); err != nil {
-			return nil, fmt.Errorf("unable to write meta for imported node %s: %w", srcID.Path(), err)
-		}
-		if err := tgtKeg.Repo.WriteStats(ctx, newID, statsObj); err != nil {
-			return nil, fmt.Errorf("unable to write stats for imported node %s: %w", srcID.Path(), err)
-		}
-		if err := restoreImportedNodeAssets(ctx, tgtKeg.Repo, newID, srcAssets); err != nil {
-			return nil, fmt.Errorf("unable to write assets for imported node %s: %w", srcID.Path(), err)
-		}
-		if tgtSnapRepo, ok := tgtKeg.Repo.(keg.RepositorySnapshots); ok && len(snapshots) > 0 {
-			if err := replayImportSnapshots(ctx, tgtSnapRepo, newID, snapshots); err != nil {
-				return nil, fmt.Errorf("unable to replay snapshots for imported node %s: %w", srcID.Path(), err)
-			}
-		}
+	mapping := make(map[string]keg.NodeId, len(imported))
+	for _, node := range imported {
+		mapping[node.SourceID] = node.ID
 	}
 
 	// Write forwarding stubs at source locations if requested.
 	if opts.LeaveStubs && tgtAlias != "" {
 		for _, srcID := range srcIDs {
-			newID := mapping[srcID.Path()]
-			statsBytes, _ := readOptionalNodeStats(ctx, srcKeg.Repo, srcID)
-			statsObj, _ := keg.ParseStats(ctx, statsBytes)
-			title := statsObj.Title()
+			newID, ok := mapping[srcID.Path()]
+			if !ok {
+				continue
+			}
+			title := ""
+			if stats, statsErr := srcKeg.GetStats(ctx, srcID); statsErr == nil && stats != nil {
+				title = stats.Title()
+			}
 			if title == "" {
 				title = srcID.Path()
 			}
 			stub := fmt.Sprintf("# %s\n\nMoved to [keg:%s/%s](keg:%s/%s).\n",
 				title, tgtAlias, newID.Path(), tgtAlias, newID.Path())
-			if err := srcKeg.Repo.WriteContent(ctx, srcID, []byte(stub)); err != nil {
+			if err := srcKeg.SetContent(ctx, srcID, []byte(stub)); err != nil {
 				return nil, fmt.Errorf("unable to write stub for source node %s: %w", srcID.Path(), err)
 			}
 		}
 	}
 
-	if err := rebuildDexFromRepo(ctx, tgtKeg); err != nil {
-		return nil, err
-	}
-	if err := tgtKeg.UpdateConfig(ctx, func(cfg *keg.Config) {
-		cfg.Updated = t.Runtime.Clock().Now().UTC().Format(time.RFC3339)
-	}); err != nil {
-		return nil, fmt.Errorf("unable to update target keg config after import: %w", err)
-	}
-
-	result := make([]ImportedNode, len(srcIDs))
-	for i, srcID := range srcIDs {
-		result[i] = ImportedNode{SourceID: srcID, TargetID: mapping[srcID.Path()]}
+	result := make([]ImportedNode, 0, len(srcIDs))
+	for _, srcID := range srcIDs {
+		if newID, ok := mapping[srcID.Path()]; ok {
+			result = append(result, ImportedNode{SourceID: srcID, TargetID: newID})
+		}
 	}
 	return result, nil
+}
+
+// kegSupportsSnapshots probes snapshot support by listing revisions for the
+// zero node and checking for ErrNotSupported.
+func kegSupportsSnapshots(ctx context.Context, k keg.Keg) bool {
+	_, err := k.ListSnapshots(ctx, keg.NodeId{ID: 0})
+	return !errors.Is(err, keg.ErrNotSupported)
 }
 
 // resolveImportSourceAlias extracts the source keg alias from keg:ALIAS/N
@@ -253,20 +217,15 @@ func parseImportNodeIDs(rawIDs []string) ([]keg.NodeId, error) {
 
 // collectImportNodesByTag evaluates a boolean query expression (supporting both
 // tag names and key=value attribute predicates) against the source keg's dex.
-func collectImportNodesByTag(ctx context.Context, k *keg.LocalKeg, query string) ([]keg.NodeId, error) {
-	dex, err := k.DexFresh(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("unable to load source dex: %w", err)
-	}
-	indexEntries := dex.Nodes(ctx)
-	matchedPaths, err := evalQueryExpr(ctx, k, dex, indexEntries, query)
+func collectImportNodesByTag(ctx context.Context, k keg.Keg, query string) ([]keg.NodeId, error) {
+	entries, err := k.Query(ctx, keg.QueryOptions{Expr: query})
 	if err != nil {
 		return nil, fmt.Errorf("invalid query expression: %w", err)
 	}
-	ids := make([]keg.NodeId, 0, len(matchedPaths))
-	seen := make(map[int]struct{}, len(matchedPaths))
-	for path := range matchedPaths {
-		n, parseErr := keg.ParseNode(path)
+	ids := make([]keg.NodeId, 0, len(entries))
+	seen := make(map[int]struct{}, len(entries))
+	for _, entry := range entries {
+		n, parseErr := keg.ParseNode(entry.ID)
 		if parseErr != nil || n == nil {
 			continue
 		}
@@ -305,144 +264,12 @@ func filterZeroImportNode(ids []keg.NodeId) []keg.NodeId {
 }
 
 // kegsAreSame reports whether two kegs refer to the same underlying storage.
-func kegsAreSame(a, b *keg.LocalKeg) bool {
+func kegsAreSame(a, b keg.Keg) bool {
 	if a == b {
 		return true
 	}
-	if a.Target == nil || b.Target == nil {
+	if a.Target() == nil || b.Target() == nil {
 		return false
 	}
-	return strings.EqualFold(a.Target.String(), b.Target.String())
-}
-
-// rewriteLiveImportLinks rewrites links in content according to the six rules:
-//
-//  1. ../N (imported)          → ../NEW_ID
-//  2. ../N (not imported)      → keg:srcAlias/N  (only when srcAlias is known)
-//  3. keg:tgtAlias/N           → ../N            (only when tgtAlias is known)
-//  4. keg:srcAlias/N (imported)→ ../NEW_ID       (only when srcAlias is known)
-//  5. keg:srcAlias/N (other)   → unchanged
-//  6. keg:otherAlias/N         → unchanged
-//
-// Two sequential passes are used: relative links first, then cross-keg links.
-// This ordering prevents pass-2 output from being re-processed by pass-1.
-func rewriteLiveImportLinks(raw []byte, srcAlias, tgtAlias string, mapping map[string]keg.NodeId) []byte {
-	if len(raw) == 0 {
-		return raw
-	}
-	s := string(raw)
-
-	// Pass 1: ../N links.
-	s = relImportLinkRE.ReplaceAllStringFunc(s, func(match string) string {
-		parts := relImportLinkRE.FindStringSubmatch(match)
-		if len(parts) != 3 {
-			return match
-		}
-		nodeNum, suffix := parts[1], parts[2]
-		if dst, ok := mapping[nodeNum]; ok {
-			return "../" + dst.Path() + suffix
-		}
-		if srcAlias != "" {
-			return "keg:" + srcAlias + "/" + nodeNum + suffix
-		}
-		return match
-	})
-
-	// Pass 2: keg:ALIAS/N links.
-	if srcAlias != "" || tgtAlias != "" {
-		s = kegLinkInTextRE.ReplaceAllStringFunc(s, func(match string) string {
-			parts := kegLinkInTextRE.FindStringSubmatch(match)
-			if len(parts) != 3 {
-				return match
-			}
-			alias, nodeNum := parts[1], parts[2]
-			if tgtAlias != "" && alias == tgtAlias {
-				return "../" + nodeNum
-			}
-			if srcAlias != "" && alias == srcAlias {
-				if dst, ok := mapping[nodeNum]; ok {
-					return "../" + dst.Path()
-				}
-				return match
-			}
-			return match
-		})
-	}
-
-	if s == string(raw) {
-		return raw
-	}
-	return []byte(s)
-}
-
-// importSnapshotPayload holds a fully-materialized snapshot ready to be
-// replayed onto the target node.
-type importSnapshotPayload struct {
-	snap    keg.Snapshot
-	content []byte
-	meta    []byte
-	stats   *keg.NodeStats
-}
-
-// collectImportSnapshots reads all snapshots for a source node and rewrites
-// their content links using the same rules as rewriteLiveImportLinks.
-func collectImportSnapshots(
-	ctx context.Context,
-	snapRepo keg.RepositorySnapshots,
-	srcID keg.NodeId,
-	srcAlias, tgtAlias string,
-	mapping map[string]keg.NodeId,
-) ([]importSnapshotPayload, error) {
-	history, err := snapRepo.ListSnapshots(ctx, srcID)
-	if err != nil {
-		return nil, err
-	}
-	payloads := make([]importSnapshotPayload, 0, len(history))
-	for _, snap := range history {
-		_, snapContent, snapMeta, snapStats, err := snapRepo.GetSnapshot(
-			ctx, srcID, snap.ID, keg.SnapshotReadOptions{ResolveContent: true},
-		)
-		if err != nil {
-			return nil, fmt.Errorf("unable to load snapshot %d: %w", snap.ID, err)
-		}
-		snapContent = rewriteLiveImportLinks(snapContent, srcAlias, tgtAlias, mapping)
-		remapStatsLinks(snapStats, mapping)
-		payloads = append(payloads, importSnapshotPayload{
-			snap:    snap,
-			content: snapContent,
-			meta:    snapMeta,
-			stats:   snapStats,
-		})
-	}
-	return payloads, nil
-}
-
-// replayImportSnapshots appends snapshot payloads onto a target node in
-// chronological order, preserving original CreatedAt timestamps and messages.
-func replayImportSnapshots(
-	ctx context.Context,
-	snapRepo keg.RepositorySnapshots,
-	newID keg.NodeId,
-	payloads []importSnapshotPayload,
-) error {
-	var expectedParent keg.RevisionID
-	for _, p := range payloads {
-		imported, err := snapRepo.AppendSnapshot(ctx, newID, keg.SnapshotWrite{
-			ExpectedParent: expectedParent,
-			Message:        p.snap.Message,
-			CreatedAt:      p.snap.CreatedAt,
-			Meta:           p.meta,
-			Stats:          p.stats,
-			Content: keg.SnapshotContentWrite{
-				Kind: keg.SnapshotContentKindFull,
-				Base: expectedParent,
-				Data: p.content,
-			},
-		})
-		if err != nil {
-			return err
-		}
-		expectedParent = imported.ID
-	}
-	return nil
+	return strings.EqualFold(a.Target().String(), b.Target().String())
 }

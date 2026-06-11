@@ -2,6 +2,7 @@ package tapper
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 
@@ -75,11 +76,14 @@ func (t *Tap) ListFiles(ctx context.Context, opts ListFilesOptions) ([]string, e
 	if err != nil {
 		return nil, err
 	}
-	repoFiles, ok := k.Repo.(keg.RepositoryFiles)
-	if !ok {
-		return nil, fmt.Errorf("keg backend does not support file attachments")
+	names, err := k.ListFiles(ctx, id)
+	if err != nil {
+		if errors.Is(err, keg.ErrNotSupported) {
+			return nil, fmt.Errorf("keg backend does not support file attachments")
+		}
+		return nil, err
 	}
-	return repoFiles.ListFiles(ctx, id)
+	return names, nil
 }
 
 // UploadFile reads a local file and stores it as a node file attachment.
@@ -92,10 +96,6 @@ func (t *Tap) UploadFile(ctx context.Context, opts UploadFileOptions) (string, e
 	k, id, err := t.resolveNodeArg(ctx, k, opts.NodeID)
 	if err != nil {
 		return "", err
-	}
-	repoFiles, ok := k.Repo.(keg.RepositoryFiles)
-	if !ok {
-		return "", fmt.Errorf("keg backend does not support file attachments")
 	}
 	exists, err := t.nodeExistsWithContent(ctx, k, id)
 	if err != nil {
@@ -112,7 +112,7 @@ func (t *Tap) UploadFile(ctx context.Context, opts UploadFileOptions) (string, e
 	if name == "" {
 		name = filepath.Base(opts.FilePath)
 	}
-	if err := repoFiles.WriteFile(ctx, id, name, data); err != nil {
+	if err := k.WriteFile(ctx, id, name, data); err != nil {
 		return "", fmt.Errorf("unable to upload file: %w", err)
 	}
 	return name, nil
@@ -129,11 +129,7 @@ func (t *Tap) DownloadFile(ctx context.Context, opts DownloadFileOptions) (strin
 	if err != nil {
 		return "", err
 	}
-	repoFiles, ok := k.Repo.(keg.RepositoryFiles)
-	if !ok {
-		return "", fmt.Errorf("keg backend does not support file attachments")
-	}
-	data, err := repoFiles.ReadFile(ctx, id, opts.Name)
+	data, err := k.ReadFile(ctx, id, opts.Name)
 	if err != nil {
 		return "", fmt.Errorf("unable to download file %q: %w", opts.Name, err)
 	}
@@ -167,11 +163,7 @@ func (t *Tap) DeleteFile(ctx context.Context, opts DeleteFileOptions) error {
 	if err != nil {
 		return err
 	}
-	repoFiles, ok := k.Repo.(keg.RepositoryFiles)
-	if !ok {
-		return fmt.Errorf("keg backend does not support file attachments")
-	}
-	if err := repoFiles.DeleteFile(ctx, id, opts.Name); err != nil {
+	if err := k.DeleteFile(ctx, id, opts.Name); err != nil {
 		return fmt.Errorf("unable to delete file %q: %w", opts.Name, err)
 	}
 	return nil
@@ -187,11 +179,14 @@ func (t *Tap) ListImages(ctx context.Context, opts ListImagesOptions) ([]string,
 	if err != nil {
 		return nil, err
 	}
-	repoImages, ok := k.Repo.(keg.RepositoryImages)
-	if !ok {
-		return nil, fmt.Errorf("keg backend does not support image storage")
+	names, err := k.ListImages(ctx, id)
+	if err != nil {
+		if errors.Is(err, keg.ErrNotSupported) {
+			return nil, fmt.Errorf("keg backend does not support image storage")
+		}
+		return nil, err
 	}
-	return repoImages.ListImages(ctx, id)
+	return names, nil
 }
 
 // UploadImage reads a local file and stores it as a node image.
@@ -204,10 +199,6 @@ func (t *Tap) UploadImage(ctx context.Context, opts UploadImageOptions) (string,
 	k, id, err := t.resolveNodeArg(ctx, k, opts.NodeID)
 	if err != nil {
 		return "", err
-	}
-	repoImages, ok := k.Repo.(keg.RepositoryImages)
-	if !ok {
-		return "", fmt.Errorf("keg backend does not support image storage")
 	}
 	exists, err := t.nodeExistsWithContent(ctx, k, id)
 	if err != nil {
@@ -224,7 +215,7 @@ func (t *Tap) UploadImage(ctx context.Context, opts UploadImageOptions) (string,
 	if name == "" {
 		name = filepath.Base(opts.FilePath)
 	}
-	if err := repoImages.WriteImage(ctx, id, name, data); err != nil {
+	if err := k.WriteImage(ctx, id, name, data); err != nil {
 		return "", fmt.Errorf("unable to upload image: %w", err)
 	}
 	return name, nil
@@ -241,11 +232,7 @@ func (t *Tap) DownloadImage(ctx context.Context, opts DownloadImageOptions) (str
 	if err != nil {
 		return "", err
 	}
-	repoImages, ok := k.Repo.(keg.RepositoryImages)
-	if !ok {
-		return "", fmt.Errorf("keg backend does not support image storage")
-	}
-	data, err := repoImages.ReadImage(ctx, id, opts.Name)
+	data, err := k.ReadImage(ctx, id, opts.Name)
 	if err != nil {
 		return "", fmt.Errorf("unable to download image %q: %w", opts.Name, err)
 	}
@@ -279,11 +266,7 @@ func (t *Tap) DeleteImage(ctx context.Context, opts DeleteImageOptions) error {
 	if err != nil {
 		return err
 	}
-	repoImages, ok := k.Repo.(keg.RepositoryImages)
-	if !ok {
-		return fmt.Errorf("keg backend does not support image storage")
-	}
-	if err := repoImages.DeleteImage(ctx, id, opts.Name); err != nil {
+	if err := k.DeleteImage(ctx, id, opts.Name); err != nil {
 		return fmt.Errorf("unable to delete image %q: %w", opts.Name, err)
 	}
 	return nil

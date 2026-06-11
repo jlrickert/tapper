@@ -230,7 +230,7 @@ func TestSite_ConfigDefaults(t *testing.T) {
 	k, err := tap.LookupKeg(ctx, "test")
 	require.NoError(t, err)
 	searchFalse := false
-	err = k.UpdateConfig(ctx, func(cfg *keg.Config) {
+	err = keg.UpdateConfig(ctx, k, func(cfg *keg.Config) {
 		cfg.Site = &keg.SiteConfig{
 			Output:  "/home/testuser/configured-output",
 			Title:   "Configured Title",
@@ -260,7 +260,7 @@ func TestSite_CLIFlagsOverrideConfig(t *testing.T) {
 	// Set up site config.
 	k, err := tap.LookupKeg(ctx, "test")
 	require.NoError(t, err)
-	err = k.UpdateConfig(ctx, func(cfg *keg.Config) {
+	err = keg.UpdateConfig(ctx, k, func(cfg *keg.Config) {
 		cfg.Site = &keg.SiteConfig{
 			Title: "Config Title",
 		}

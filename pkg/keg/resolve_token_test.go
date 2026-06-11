@@ -96,8 +96,8 @@ func TestResolveTargetToken_Precedence(t *testing.T) {
 			require.NoError(t, err)
 			require.NotNil(t, k)
 
-			apiRepo, ok := k.Repo.(*kegpkg.ApiRepo)
-			require.True(t, ok, "expected ApiRepo, got %T", k.Repo)
+			apiRepo, ok := k.(*kegpkg.LocalKeg).Repo.(*kegpkg.ApiRepo)
+			require.True(t, ok, "expected ApiRepo, got %T", k.(*kegpkg.LocalKeg).Repo)
 			require.Equal(t, tc.want.token, apiRepo.Token)
 			if tc.resolver != nil {
 				if tc.want.resolverCalled {

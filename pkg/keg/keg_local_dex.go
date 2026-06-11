@@ -8,21 +8,6 @@ import (
 	"time"
 )
 
-// SetExtraDexOpts stores additional DexOptions that will be included whenever
-// the dex is loaded or refreshed. These options are prepended before
-// WithConfig so that injected resolvers (e.g. WithQueryResolver) are available
-// when WithConfig creates QueryFilteredIndex instances.
-//
-// This is the injection point for higher-level packages (e.g. pkg/tapper) to
-// provide capabilities that pkg/keg cannot import directly.
-func (k *LocalKeg) SetExtraDexOpts(opts ...DexOption) {
-	k.dexMu.Lock()
-	defer k.dexMu.Unlock()
-	k.extraDexOpts = opts
-	// Invalidate the cached dex so the next access rebuilds with the new options.
-	k.dex = nil
-}
-
 // Dex returns the keg's index with always-fresh semantics: the cached dex is
 // reused only while it is provably current (see dexStale), otherwise it is
 // reloaded from the repository. Config-driven query-filtered indexes are
@@ -36,21 +21,9 @@ func (k *LocalKeg) Dex(ctx context.Context) (*Dex, error) {
 	return k.ensureDexFresh(ctx)
 }
 
-// DexFresh is an alias of Dex retained for transition; Dex now always returns
-// a current index.
-//
-// Deprecated: call Dex instead.
-func (k *LocalKeg) DexFresh(ctx context.Context) (*Dex, error) {
-	return k.Dex(ctx)
-}
-
 // dexOptions reads the keg config and returns DexOptions to apply when
 // constructing or initialising a Dex. If the config is absent or cannot be
 // read, an empty (nil) slice is returned so callers can proceed without error.
-//
-// Extra options injected via SetExtraDexOpts are prepended before WithConfig
-// so that resolvers (e.g. WithQueryResolver) are installed on the Dex before
-// WithConfig creates QueryFilteredIndex instances that reference them.
 func (k *LocalKeg) dexOptions(ctx context.Context) ([]DexOption, error) {
 	cfg, err := k.Repo.ReadConfig(ctx)
 	if err != nil {
@@ -59,11 +32,7 @@ func (k *LocalKeg) dexOptions(ctx context.Context) ([]DexOption, error) {
 		}
 		return nil, err
 	}
-	// Prepend extraDexOpts so resolvers are set before WithConfig runs.
-	opts := make([]DexOption, 0, len(k.extraDexOpts)+1)
-	opts = append(opts, k.extraDexOpts...)
-	opts = append(opts, WithConfig(cfg))
-	return opts, nil
+	return []DexOption{WithConfig(cfg)}, nil
 }
 
 // -- private utility functions

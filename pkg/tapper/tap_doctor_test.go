@@ -50,7 +50,7 @@ hubs:
 	require.NoError(t, err)
 
 	if mutate != nil {
-		require.NoError(t, k.UpdateConfig(ctx, mutate))
+		require.NoError(t, keg.UpdateConfig(ctx, k, mutate))
 	}
 
 	return tap, ctx
@@ -176,7 +176,7 @@ hubs:
 	require.NoError(t, err)
 
 	// Enable tag check.
-	require.NoError(t, k.UpdateConfig(ctx, func(cfg *keg.Config) {
+	require.NoError(t, keg.UpdateConfig(ctx, k, func(cfg *keg.Config) {
 		cfg.Doctor = &keg.DoctorConfig{TagCheck: true}
 	}))
 

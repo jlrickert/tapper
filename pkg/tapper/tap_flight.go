@@ -41,7 +41,7 @@ func (e *FlightRestrictionError) Error() string {
 // enforceFlight rejects a resolved keg that falls outside the active flight's
 // allow-list. A blank flight or an instructions-only flight (empty allow-list)
 // restricts nothing.
-func (t *Tap) enforceFlight(ctx context.Context, flightName string, k *keg.LocalKeg) error {
+func (t *Tap) enforceFlight(ctx context.Context, flightName string, k keg.Keg) error {
 	flightName = strings.TrimSpace(flightName)
 	if flightName == "" || k == nil {
 		return nil
@@ -55,11 +55,11 @@ func (t *Tap) enforceFlight(ctx context.Context, flightName string, k *keg.Local
 	}
 
 	var alias, namespace, kegName string
-	if k.Target != nil {
-		namespace = k.Target.Namespace
-		kegName = k.Target.KegName
+	if k.Target() != nil {
+		namespace = k.Target().Namespace
+		kegName = k.Target().KegName
 		if cfg, cErr := t.ConfigService.Config(true); cErr == nil {
-			alias = cfg.LookupAliasForTarget(t.Runtime, k.Target.String())
+			alias = cfg.LookupAliasForTarget(t.Runtime, k.Target().String())
 		}
 	}
 	if flight.allows(alias, namespace, kegName) {
@@ -70,8 +70,8 @@ func (t *Tap) enforceFlight(ctx context.Context, flightName string, k *keg.Local
 	if label == "" && kegName != "" {
 		label = "@" + namespace + "/" + kegName
 	}
-	if label == "" && k.Target != nil {
-		label = k.Target.String()
+	if label == "" && k.Target() != nil {
+		label = k.Target().String()
 	}
 	return &FlightRestrictionError{Flight: flightName, Keg: label}
 }

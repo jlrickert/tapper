@@ -2,7 +2,6 @@ package tapper
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"regexp"
 	"strings"
@@ -169,7 +168,7 @@ func (t *Tap) List(ctx context.Context, opts ListOptions) ([]string, error) {
 	if err != nil {
 		return []string{}, fmt.Errorf("unable to open keg: %w", err)
 	}
-	dex, err := k.DexFresh(ctx)
+	dex, err := k.Dex(ctx)
 	if err != nil {
 		return []string{}, fmt.Errorf("unable to read dex: %w", err)
 	}
@@ -177,7 +176,7 @@ func (t *Tap) List(ctx context.Context, opts ListOptions) ([]string, error) {
 	entries := dex.Nodes(ctx)
 
 	// Warn when the index appears significantly stale compared to on-disk nodes.
-	if onDisk, listErr := k.Repo.ListNodes(ctx); listErr == nil {
+	if onDisk, listErr := k.ListNodes(ctx); listErr == nil {
 		indexed := len(entries)
 		total := len(onDisk)
 		gap := total - indexed
@@ -196,27 +195,9 @@ func (t *Tap) List(ctx context.Context, opts ListOptions) ([]string, error) {
 	}
 
 	if q := strings.TrimSpace(opts.Query); q != "" {
-		matchedIDs, evalErr := evalQueryExpr(ctx, k, dex, entries, q)
+		filtered, evalErr := k.Query(ctx, keg.QueryOptions{Expr: q})
 		if evalErr != nil {
 			return []string{}, fmt.Errorf("invalid query expression: %w", evalErr)
-		}
-		filtered := make([]keg.NodeIndexEntry, 0, len(matchedIDs))
-		entryByID := make(map[string]keg.NodeIndexEntry, len(entries)*2)
-		for _, e := range entries {
-			entryByID[e.ID] = e
-			id, parseErr := keg.ParseNode(e.ID)
-			if parseErr == nil && id != nil {
-				entryByID[id.Path()] = e
-			}
-		}
-		seen := make(map[string]struct{})
-		for nodeID := range matchedIDs {
-			if e, ok := entryByID[nodeID]; ok {
-				if _, dup := seen[e.ID]; !dup {
-					seen[e.ID] = struct{}{}
-					filtered = append(filtered, e)
-				}
-			}
 		}
 		sortNodeIndexEntries(filtered)
 		entries = filtered
@@ -288,7 +269,7 @@ func (t *Tap) resolveAndLookupLinks(
 	if err != nil {
 		return []string{}, fmt.Errorf("unable to open keg: %w", err)
 	}
-	dex, err := k.DexFresh(ctx)
+	dex, err := k.Dex(ctx)
 	if err != nil {
 		return []string{}, fmt.Errorf("unable to read dex: %w", err)
 	}
@@ -363,45 +344,18 @@ func (t *Tap) Grep(ctx context.Context, opts GrepOptions) ([]string, error) {
 	if err != nil {
 		return []string{}, fmt.Errorf("unable to open keg: %w", err)
 	}
-	dex, err := k.DexFresh(ctx)
-	if err != nil {
-		return []string{}, fmt.Errorf("unable to read dex: %w", err)
-	}
 
-	pattern := opts.Query
-	if opts.IgnoreCase {
-		pattern = "(?i)" + pattern
-	}
-	re, err := regexp.Compile(pattern)
+	kegMatches, err := k.Grep(ctx, keg.GrepOptions{
+		Pattern:    opts.Query,
+		IgnoreCase: opts.IgnoreCase,
+		MaxLines:   opts.MaxLines,
+	})
 	if err != nil {
 		return []string{}, fmt.Errorf("invalid query regex %q: %w", opts.Query, err)
 	}
-
-	entries := dex.Nodes(ctx)
-	matches := make([]grepMatch, 0)
-	for _, entry := range entries {
-		id, parseErr := keg.ParseNode(entry.ID)
-		if parseErr != nil || id == nil {
-			continue
-		}
-
-		contentRaw, contentErr := k.Repo.ReadContent(ctx, *id)
-		if contentErr != nil {
-			if errors.Is(contentErr, keg.ErrNotExist) {
-				continue
-			}
-			return []string{}, fmt.Errorf("unable to read node content: %w", contentErr)
-		}
-		lineMatches := grepContentLineMatches(re, contentRaw)
-		if opts.MaxLines > 0 && len(lineMatches) > opts.MaxLines {
-			lineMatches = lineMatches[:opts.MaxLines]
-		}
-		if len(lineMatches) > 0 {
-			matches = append(matches, grepMatch{
-				entry: entry,
-				lines: lineMatches,
-			})
-		}
+	matches := make([]grepMatch, 0, len(kegMatches))
+	for _, m := range kegMatches {
+		matches = append(matches, grepMatch{entry: m.Entry, lines: m.Lines})
 	}
 
 	matches = applyOffsetSlice(matches, opts.Offset)
@@ -429,7 +383,7 @@ func (t *Tap) Tags(ctx context.Context, opts TagsOptions) ([]string, error) {
 	if err != nil {
 		return []string{}, fmt.Errorf("unable to open keg: %w", err)
 	}
-	dex, err := k.DexFresh(ctx)
+	dex, err := k.Dex(ctx)
 	if err != nil {
 		return []string{}, fmt.Errorf("unable to read dex: %w", err)
 	}
@@ -459,12 +413,19 @@ func (t *Tap) Tags(ctx context.Context, opts TagsOptions) ([]string, error) {
 		}
 	}
 
-	matchedIDs, evalErr := evalQueryExpr(ctx, k, dex, indexEntries, queryExpr)
+	matchedEntries, evalErr := k.Query(ctx, keg.QueryOptions{Expr: queryExpr})
 	if evalErr != nil {
 		return []string{}, fmt.Errorf("invalid query expression: %w", evalErr)
 	}
-	if len(matchedIDs) == 0 {
+	if len(matchedEntries) == 0 {
 		return []string{}, nil
+	}
+	matchedIDs := make(map[string]struct{}, len(matchedEntries)*2)
+	for _, entry := range matchedEntries {
+		matchedIDs[entry.ID] = struct{}{}
+		if node, parseErr := keg.ParseNode(entry.ID); parseErr == nil && node != nil {
+			matchedIDs[node.Path()] = struct{}{}
+		}
 	}
 
 	seen := make(map[string]struct{})

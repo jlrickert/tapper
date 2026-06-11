@@ -1,11 +1,10 @@
-package tapper
+package keg
 
 import (
 	"slices"
 	"testing"
 	"time"
 
-	"github.com/jlrickert/tapper/pkg/keg"
 	"github.com/stretchr/testify/require"
 )
 
@@ -66,10 +65,10 @@ func TestQueryExpression_Evaluate(t *testing.T) {
 		t.Run(tc.name, func(innerT *testing.T) {
 			innerT.Parallel()
 
-			root, err := keg.ParseQueryExpression(tc.expr)
+			root, err := ParseQueryExpression(tc.expr)
 			require.NoError(innerT, err)
 
-			gotSet := keg.EvaluateQueryExpression(root, universe, func(tag string) map[string]struct{} {
+			gotSet := EvaluateQueryExpression(root, universe, func(tag string) map[string]struct{} {
 				if ids, ok := byTag[tag]; ok {
 					return ids
 				}
@@ -98,7 +97,7 @@ func TestQueryExpression_ParseErrors(t *testing.T) {
 	for _, expr := range cases {
 		t.Run(expr, func(innerT *testing.T) {
 			innerT.Parallel()
-			_, err := keg.ParseQueryExpression(expr)
+			_, err := ParseQueryExpression(expr)
 			require.Error(innerT, err)
 		})
 	}
@@ -210,7 +209,7 @@ func TestMatchInt(t *testing.T) {
 func TestResolveTimeField(t *testing.T) {
 	t.Parallel()
 
-	entries := []keg.NodeIndexEntry{
+	entries := []NodeIndexEntry{
 		{ID: "0", Updated: time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC), Created: time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)},
 		{ID: "1", Updated: time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC), Created: time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC)},
 		{ID: "2", Updated: time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC), Created: time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)},

@@ -18,7 +18,7 @@ import (
 // The bug: Tap.List used k.Dex(ctx), the cache-only fast path, so after
 // an external writer added nodes the next List call on the MCP server
 // returned the stale cached view. The fix flips Tap.List (and the other
-// MCP read surfaces) to k.DexFresh(ctx), which checks the mtime of
+// MCP read surfaces) to k.Dex(ctx), which checks the mtime of
 // dex/nodes.tsv and reloads when the on-disk index has changed.
 //
 // The two Tap instances below share the same FsRepo root but each has

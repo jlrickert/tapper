@@ -235,7 +235,6 @@ func (k *LocalKeg) writeArchiveHistory(ctx context.Context, tw *tar.Writer, base
 // archive carries its own). Derived state (dex, config updated stamp) is
 // rebuilt once after all nodes import.
 func (k *LocalKeg) ImportNodes(ctx context.Context, r io.Reader, opts ImportNodesOptions) ([]ImportedNode, error) {
-	_ = opts
 	if err := k.checkKegExists(ctx); err != nil {
 		return nil, fmt.Errorf("failed to import nodes: %w", err)
 	}
@@ -270,6 +269,17 @@ func (k *LocalKeg) ImportNodes(ctx context.Context, r io.Reader, opts ImportNode
 	mapping, ordered, err := resolveImportedNodeIDs(manifest.Nodes)
 	if err != nil {
 		return nil, err
+	}
+	if opts.AssignNewIDs && len(ordered) > 0 {
+		// Next() scans existing nodes without reserving, so call it once and
+		// compute subsequent ids by incrementing from the base.
+		base, nextErr := k.Repo.Next(ctx)
+		if nextErr != nil {
+			return nil, fmt.Errorf("unable to allocate node ids for import: %w", nextErr)
+		}
+		for i, sourceID := range ordered {
+			mapping[sourceID] = NodeId{ID: base.ID + i}
+		}
 	}
 	manifestNodes := make(map[string]archiveManifestNode, len(manifest.Nodes))
 	for _, node := range manifest.Nodes {
@@ -318,7 +328,7 @@ func (k *LocalKeg) ImportNodes(ctx context.Context, r io.Reader, opts ImportNode
 			return nil, fmt.Errorf("archive node %s missing stats.json: %w", sourceID, err)
 		}
 
-		content = rewriteImportedLinks(content, mapping)
+		content = rewriteArchiveLinks(content, opts.SourceAlias, opts.TargetAlias, mapping)
 		stats, err := ParseStats(ctx, statsBytes)
 		if err != nil {
 			return nil, fmt.Errorf("unable to parse imported stats for node %s: %w", sourceID, err)
@@ -336,7 +346,7 @@ func (k *LocalKeg) ImportNodes(ctx context.Context, r io.Reader, opts ImportNode
 		}
 
 		if manifest.WithHistory {
-			if err := k.importNodeHistory(ctx, entries, base, sourceID, newID, nodeManifest, mapping, snapshotRepo); err != nil {
+			if err := k.importNodeHistory(ctx, entries, base, sourceID, newID, nodeManifest, mapping, snapshotRepo, opts); err != nil {
 				return nil, err
 			}
 		}
@@ -375,6 +385,7 @@ func (k *LocalKeg) importNodeHistory(
 	nodeManifest archiveManifestNode,
 	mapping map[string]NodeId,
 	snapshotRepo RepositorySnapshots,
+	opts ImportNodesOptions,
 ) error {
 	rawIndex, ok := entries[base+"/snapshots/index.json"]
 	if !ok {
@@ -399,7 +410,7 @@ func (k *LocalKeg) importNodeHistory(
 		if err != nil {
 			return fmt.Errorf("archive snapshot %d for node %s missing .full payload: %w", snap.ID, sourceID, err)
 		}
-		content = rewriteImportedLinks(content, mapping)
+		content = rewriteArchiveLinks(content, opts.SourceAlias, opts.TargetAlias, mapping)
 		meta, err := readRequiredArchiveEntry(entries, base+"/snapshots/"+fmt.Sprintf("%d.meta", snap.ID))
 		if err != nil {
 			return fmt.Errorf("archive snapshot %d for node %s missing .meta payload: %w", snap.ID, sourceID, err)
@@ -592,27 +603,68 @@ func resolveImportedNodeIDs(nodes []archiveManifestNode) (map[string]NodeId, []s
 	return mapping, ordered, nil
 }
 
-var importedNodeLinkRE = regexp.MustCompile(`\.\./\s*([0-9]+)([[:space:]\)\]\}\>\.,;:!?'\"#]|$)`)
+// archiveRelLinkRE matches relative ../N node links in content.
+var archiveRelLinkRE = regexp.MustCompile(`\.\./\s*([0-9]+)([[:space:]\)\]\}\>\.,;:!?'\"#]|$)`)
 
-func rewriteImportedLinks(raw []byte, mapping map[string]NodeId) []byte {
-	if len(raw) == 0 || len(mapping) == 0 {
+// archiveKegLinkRE matches keg:ALIAS/N cross-keg links anywhere in content.
+var archiveKegLinkRE = regexp.MustCompile(`keg:([a-zA-Z0-9][a-zA-Z0-9_-]*)/([0-9]+)`)
+
+// rewriteArchiveLinks rewrites node links in imported content:
+//
+//  1. ../N (imported)           → ../NEW_ID
+//  2. ../N (not imported)       → keg:srcAlias/N  (only when srcAlias is set)
+//  3. keg:tgtAlias/N            → ../N            (only when tgtAlias is set)
+//  4. keg:srcAlias/N (imported) → ../NEW_ID       (only when srcAlias is set)
+//  5. keg:srcAlias/N (other)    → unchanged
+//  6. keg:otherAlias/N          → unchanged
+//
+// Relative links rewrite first, then cross-keg links, so pass-2 output is not
+// re-processed by pass-1.
+func rewriteArchiveLinks(raw []byte, srcAlias, tgtAlias string, mapping map[string]NodeId) []byte {
+	if len(raw) == 0 {
 		return raw
 	}
-	rewritten := importedNodeLinkRE.ReplaceAllStringFunc(string(raw), func(match string) string {
-		parts := importedNodeLinkRE.FindStringSubmatch(match)
+	s := string(raw)
+
+	s = archiveRelLinkRE.ReplaceAllStringFunc(s, func(match string) string {
+		parts := archiveRelLinkRE.FindStringSubmatch(match)
 		if len(parts) != 3 {
 			return match
 		}
-		dst, ok := mapping[parts[1]]
-		if !ok {
-			return match
+		nodeNum, suffix := parts[1], parts[2]
+		if dst, ok := mapping[nodeNum]; ok {
+			return "../" + dst.Path() + suffix
 		}
-		return "../" + dst.Path() + parts[2]
+		if srcAlias != "" {
+			return "keg:" + srcAlias + "/" + nodeNum + suffix
+		}
+		return match
 	})
-	if rewritten == string(raw) {
+
+	if srcAlias != "" || tgtAlias != "" {
+		s = archiveKegLinkRE.ReplaceAllStringFunc(s, func(match string) string {
+			parts := archiveKegLinkRE.FindStringSubmatch(match)
+			if len(parts) != 3 {
+				return match
+			}
+			alias, nodeNum := parts[1], parts[2]
+			if tgtAlias != "" && alias == tgtAlias {
+				return "../" + nodeNum
+			}
+			if srcAlias != "" && alias == srcAlias {
+				if dst, ok := mapping[nodeNum]; ok {
+					return "../" + dst.Path()
+				}
+				return match
+			}
+			return match
+		})
+	}
+
+	if s == string(raw) {
 		return raw
 	}
-	return []byte(rewritten)
+	return []byte(s)
 }
 
 func remapStatsLinks(stats *NodeStats, mapping map[string]NodeId) {

@@ -49,7 +49,7 @@ hubs:
 	require.NoError(t, initKeg.Init(fx.Context()))
 
 	// Add the "favorite" custom index to the keg config.
-	require.NoError(t, initKeg.UpdateConfig(fx.Context(), func(cfg *keg.Config) {
+	require.NoError(t, keg.UpdateConfig(fx.Context(), initKeg, func(cfg *keg.Config) {
 		cfg.Indexes = append(cfg.Indexes, keg.IndexEntry{
 			File:    "favorite",
 			Summary: "favorite nodes",
@@ -145,7 +145,7 @@ func TestKegService_QueryResolver_ProjectKeg(t *testing.T) {
 	require.NoError(t, initKeg.Init(fx.Context()))
 
 	// Add "pinned" custom index.
-	require.NoError(t, initKeg.UpdateConfig(fx.Context(), func(cfg *keg.Config) {
+	require.NoError(t, keg.UpdateConfig(fx.Context(), initKeg, func(cfg *keg.Config) {
 		cfg.Indexes = append(cfg.Indexes, keg.IndexEntry{
 			File:    "pinned",
 			Summary: "pinned notes",
