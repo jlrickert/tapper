@@ -33,22 +33,19 @@ func TestParseNodeIndex_FiveColumnFormat(t *testing.T) {
 	require.Equal(t, time.Date(2024, 12, 2, 9, 0, 0, 0, time.UTC), entries[1].Accessed)
 }
 
-func TestParseNodeIndex_ThreeColumnLegacy(t *testing.T) {
+func TestParseNodeIndex_SkipsUnderfilledLines(t *testing.T) {
 	t.Parallel()
+	// Lines with fewer than 5 columns are malformed and skipped.
 	data := []byte("42\t2025-01-02T15:04:05Z\tMy Title\n" +
-		"0\t2024-12-01T12:00:00Z\tZero Node\n")
+		"0\t2024-12-01T12:00:00Z\t2024-01-01T00:00:00Z\t2024-12-02T09:00:00Z\tZero Node\n")
 
 	idx, err := keg.ParseNodeIndex(context.Background(), data)
 	require.NoError(t, err)
 
 	entries := idx.List(context.Background())
-	require.Len(t, entries, 2)
-
-	require.Equal(t, "42", entries[0].ID)
-	require.Equal(t, "My Title", entries[0].Title)
-	require.Equal(t, time.Date(2025, 1, 2, 15, 4, 5, 0, time.UTC), entries[0].Updated)
-	require.True(t, entries[0].Created.IsZero(), "created should be zero for legacy format")
-	require.True(t, entries[0].Accessed.IsZero(), "accessed should be zero for legacy format")
+	require.Len(t, entries, 1, "the 3-column line should be skipped")
+	require.Equal(t, "0", entries[0].ID)
+	require.Equal(t, "Zero Node", entries[0].Title)
 }
 
 func TestNodeIndex_DataEmitsFiveColumns(t *testing.T) {
@@ -100,8 +97,8 @@ func TestNodeIndex_DataZeroTimestampsOmitted(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
-	// Legacy 3-col parse: created/accessed will be zero
-	input := "42\t2025-01-02T15:04:05Z\tMy Title\n"
+	// 5-col input with empty created/accessed columns.
+	input := "42\t2025-01-02T15:04:05Z\t\t\tMy Title\n"
 	idx, err := keg.ParseNodeIndex(ctx, []byte(input))
 	require.NoError(t, err)
 

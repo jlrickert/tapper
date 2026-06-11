@@ -22,7 +22,7 @@ func TestNewKegFromTargetHubURL(t *testing.T) {
 		repo, ok := k.Repo.(*kegpkg.ApiRepo)
 		require.True(t, ok, "expected *ApiRepo, got %T", k.Repo)
 		require.Equal(t,
-			"https://atlas.foldwise.ai/api/v1/@jared/kegs/@work",
+			"https://atlas.foldwise.ai/api/v1/@jared/kegs/work",
 			repo.BaseURL,
 		)
 	})
@@ -35,7 +35,7 @@ func TestNewKegFromTargetHubURL(t *testing.T) {
 		repo, ok := k.Repo.(*kegpkg.ApiRepo)
 		require.True(t, ok, "expected *ApiRepo, got %T", k.Repo)
 		require.Equal(t,
-			"https://atlas.foldwise.ai/api/v1/@jared/kegs/@work",
+			"https://atlas.foldwise.ai/api/v1/@jared/kegs/work",
 			repo.BaseURL,
 		)
 	})

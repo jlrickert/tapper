@@ -43,16 +43,11 @@ type NodeIndex struct {
 //     entire input (for example severe encoding issues). Minor line-level parse
 //     problems are tolerated and do not cause an error.
 //
-// Example input (5-column, current format):
+// Example input (5-column format):
 //
 //	"42\t2025-01-02T15:04:05Z\t2024-06-01T10:00:00Z\t2025-01-03T08:00:00Z\tMy Title\n"
 //
-// Legacy input (3-column, backward compatible):
-//
-//	"42\t2025-01-02T15:04:05Z\tMy Title\n"
-//
-// Column order (5-col): id<TAB>updated<TAB>created<TAB>accessed<TAB>title
-// Column order (3-col): id<TAB>updated<TAB>title
+// Column order: id<TAB>updated<TAB>created<TAB>accessed<TAB>title
 func ParseNodeIndex(ctx context.Context, data []byte) (NodeIndex, error) {
 	_ = ctx
 	idx := NodeIndex{data: []NodeIndexEntry{}}
@@ -70,7 +65,7 @@ func ParseNodeIndex(ctx context.Context, data []byte) (NodeIndex, error) {
 		}
 
 		parts := strings.SplitN(ln, "\t", 6)
-		if len(parts) < 3 {
+		if len(parts) < 5 {
 			// malformed line; skip
 			continue
 		}
@@ -80,20 +75,13 @@ func ParseNodeIndex(ctx context.Context, data []byte) (NodeIndex, error) {
 			continue
 		}
 
+		// 5-column format: id \t updated \t created \t accessed \t title
 		var entry NodeIndexEntry
 		entry.ID = id
-
-		if len(parts) >= 5 {
-			// 5-column format: id \t updated \t created \t accessed \t title
-			entry.Updated = parseTimestamp(parts[1])
-			entry.Created = parseTimestamp(parts[2])
-			entry.Accessed = parseTimestamp(parts[3])
-			entry.Title = strings.TrimSpace(parts[4])
-		} else {
-			// 3-column legacy format: id \t updated \t title
-			entry.Updated = parseTimestamp(parts[1])
-			entry.Title = strings.TrimSpace(parts[2])
-		}
+		entry.Updated = parseTimestamp(parts[1])
+		entry.Created = parseTimestamp(parts[2])
+		entry.Accessed = parseTimestamp(parts[3])
+		entry.Title = strings.TrimSpace(parts[4])
 
 		idx.data = append(idx.data, entry)
 	}

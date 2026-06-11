@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"maps"
 	"slices"
-	"strings"
 	"sync"
 )
 
@@ -48,13 +47,11 @@ type DexOption func(*Dex) error
 
 // WithConfig builds DexOptions from a keg Config. It iterates cfg.Indexes and
 // creates a QueryFilteredIndex for each entry that:
-//   - has a non-empty Query (or deprecated Tags) field, and
+//   - has a non-empty Query field, and
 //   - is not one of the core protected index names.
 //
-// IndexEntry.File is canonically the bare filename (e.g. "concepts.md");
-// ParseKegConfig and applyDefaults strip any legacy "dex/" prefix at parse
-// time. The TrimPrefix below is defensive for inline-constructed entries
-// that may still carry the legacy prefix.
+// IndexEntry.File is the bare filename (e.g. "concepts.md"); the on-disk path
+// is under the keg's dex/ directory.
 //
 // By default, the index evaluates tag expressions against node tag sets. To
 // support richer query terms (e.g. key=value attribute predicates), pass
@@ -68,15 +65,12 @@ func WithConfig(cfg *Config) DexOption {
 			if IsCoreIndex(entry.File) {
 				continue
 			}
-			query := entry.QueryOrTags()
+			query := entry.Query
 			if query == "" {
 				continue
 			}
-			// Defensive: strip any "dex/" prefix in case the entry was
-			// constructed inline rather than parsed via ParseKegConfig.
-			shortName := strings.TrimPrefix(entry.File, "dex/")
 			sortOrder := QueryFilteredSortOrder(entry.Sort)
-			idx, err := NewQueryFilteredIndexWithSort(shortName, query, d.queryResolver, sortOrder)
+			idx, err := NewQueryFilteredIndexWithSort(entry.File, query, d.queryResolver, sortOrder)
 			if err != nil {
 				return fmt.Errorf("dex: config index %q: %w", entry.File, err)
 			}

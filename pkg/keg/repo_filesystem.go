@@ -505,12 +505,14 @@ func (f *FsRepo) ReadStats(ctx context.Context, id NodeId) (*NodeStats, error) {
 	raw, err := f.runtime.ReadFile(statsPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			// Compatibility path: parse stats from legacy meta.yaml content.
-			legacy, lerr := f.ReadMeta(ctx, id)
-			if lerr != nil || len(bytes.TrimSpace(legacy)) == 0 {
+			// No stats.json: fall back to stats embedded in the node's meta
+			// file. ParseStats expects JSON, so a YAML-only meta yields
+			// ErrNotExist.
+			meta, lerr := f.ReadMeta(ctx, id)
+			if lerr != nil || len(bytes.TrimSpace(meta)) == 0 {
 				return nil, ErrNotExist
 			}
-			stats, perr := ParseStats(ctx, legacy)
+			stats, perr := ParseStats(ctx, meta)
 			if perr != nil {
 				return nil, ErrNotExist
 			}

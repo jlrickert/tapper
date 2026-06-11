@@ -176,7 +176,7 @@ func TestFsRepo_WriteGetAndListIndexes(t *testing.T) {
 
 	data, err := r.GetIndex(ctx, "nodes.tsv")
 	require.NoError(t, err, "expect to be able to read nodes.tsv index")
-	require.Equal(t, string(data), "0\t2025-10-04 18:30:01Z\tSorry, planned but not yet available\n")
+	require.Equal(t, string(data), "0\t2025-10-04 18:30:01Z\t2025-10-04 18:30:01Z\t2025-10-04 18:30:01Z\tSorry, planned but not yet available\n")
 }
 
 func TestFsRepo_WriteReadStats(t *testing.T) {

@@ -437,8 +437,8 @@ func (p *queryExprParser) parsePrimary() (queryExprNode, error) {
 		p.next()
 		// Check if the ident contains a non-bare-= comparison operator,
 		// indicating an attribute comparison (e.g., "entity!=plan",
-		// "omega>=0.5", "omega>0.3"). Bare "key=value" keeps the
-		// existing literal path for backward compatibility.
+		// "omega>=0.5", "omega>0.3"). Bare "key=value" is parsed through the
+		// literal path so it resolves as a tag/attribute term.
 		if node, ok := tryParseAttrCompare(tok.value); ok {
 			return node, nil
 		}

@@ -50,7 +50,7 @@ Notable behavior:
 4. Reference resolution (`Config.ResolveAlias` → `ResolveRef`) parses the keg
    selector into a reference (`parseKegRef`) and applies the hub and namespace
    default/fallback chains plus the per-hub-kind backend mapping (local →
-   `<basePath>/@<ns>/<name>`; remote/readonly → `<hub-url>/api/v1/@<ns>/kegs/@<name>`).
+   `<basePath>/@<ns>/<name>`; remote/readonly → `<hub-url>/api/v1/@<ns>/kegs/<name>`).
 
 ## KegService
 

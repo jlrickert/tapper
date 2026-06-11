@@ -132,45 +132,15 @@ type LinkEntry struct {
 //
 // File is the bare filename of the generated index artifact, e.g. "backlinks"
 // or "concepts.md". The on-disk path is always under the keg's dex/ directory
-// (the prefix is implicit and applied at write time). For backward
-// compatibility, a leading "dex/" in the parsed YAML is stripped during
-// ParseKegConfig and applyDefaults so callers consistently see the bare form.
+// (the prefix is implicit and applied at write time).
 //
 // The Query field holds a boolean query expression used to filter index
 // contents (tag names, key=value attribute predicates, boolean operators).
-// The deprecated Tags field is accepted for backward compatibility; Query
-// takes precedence when both are present.
 type IndexEntry struct {
 	File    string `yaml:"file"`
 	Summary string `yaml:"summary"`
 	Query   string `yaml:"query,omitempty"` // boolean query expression; omit for core/unfiltered indexes
-	Tags    string `yaml:"tags,omitempty"`  // deprecated: use query instead
 	Sort    string `yaml:"sort,omitempty"`  // sort order for query-filtered indexes: "updated" (default), "id", "created", "accessed"
-}
-
-// normalizeIndexFile returns the bare filename for an index entry, stripping
-// a leading "dex/" prefix if present. This canonicalizes both the legacy
-// prefixed form ("dex/backlinks") and the new bare form ("backlinks") to a
-// single representation in the in-memory struct.
-func normalizeIndexFile(file string) string {
-	return strings.TrimPrefix(file, "dex/")
-}
-
-// normalizeIndexEntries canonicalizes the File field of each entry by
-// stripping any leading "dex/" prefix.
-func normalizeIndexEntries(entries []IndexEntry) {
-	for i := range entries {
-		entries[i].File = normalizeIndexFile(entries[i].File)
-	}
-}
-
-// QueryOrTags returns the effective query string for the index entry. It
-// prefers Query when set, falling back to the deprecated Tags field.
-func (ie *IndexEntry) QueryOrTags() string {
-	if ie.Query != "" {
-		return ie.Query
-	}
-	return ie.Tags
 }
 
 type EntityEntry struct {
@@ -285,13 +255,11 @@ func ParseKegConfig(data []byte) (*Config, error) {
 	return &configV2, nil
 }
 
-// applyDefaults fills in zero-value fields with their documented defaults
-// and normalizes index entry filenames to the canonical bare form.
+// applyDefaults fills in zero-value fields with their documented defaults.
 func (kc *ConfigV2) applyDefaults() {
 	if kc.Timezone == "" {
 		kc.Timezone = "UTC"
 	}
-	normalizeIndexEntries(kc.Indexes)
 }
 
 // Location returns the *time.Location for the configured Timezone.

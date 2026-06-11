@@ -81,8 +81,9 @@ A local-hub keg resolves to a file target on disk at:
 
 The `@` sigil is part of the directory name. The reserved `@local` namespace
 addresses this machine's local hub. Remote and read-only hubs resolve to
-`<hub-url>/api/v1/@<namespace>/kegs/@<name>` instead (namespace first, both
-segments carry the `@` sigil — matching the tapper-hub route layout).
+`<hub-url>/api/v1/@<namespace>/kegs/<name>` instead (namespace first; only the
+namespace segment carries the `@` sigil — keg aliases are bare in the
+tapper-hub route layout).
 
 ## 7. Config Cascade
 

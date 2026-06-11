@@ -8,8 +8,6 @@ import (
 	"slices"
 	"strings"
 	"time"
-
-	"gopkg.in/yaml.v3"
 )
 
 type statsJSON struct {
@@ -21,18 +19,6 @@ type statsJSON struct {
 	Accesses int      `json:"access_count,omitempty"`
 	Lead     string   `json:"lead,omitempty"`
 	Links    []string `json:"links,omitempty"`
-}
-
-// statsYAML is kept for compatibility with historical on-disk stats encodings.
-type statsYAML struct {
-	Title    string   `yaml:"title,omitempty"`
-	Hash     string   `yaml:"hash,omitempty"`
-	Updated  string   `yaml:"updated,omitempty"`
-	Created  string   `yaml:"created,omitempty"`
-	Accessed string   `yaml:"accessed,omitempty"`
-	Accesses int      `yaml:"access_count,omitempty"`
-	Lead     string   `yaml:"lead,omitempty"`
-	Links    []string `yaml:"links,omitempty"`
 }
 
 // NodeStats contains programmatic node data derived by tooling.
@@ -55,8 +41,7 @@ func NewStats(now time.Time) *NodeStats {
 	}
 }
 
-// ParseStats extracts programmatic node stats from raw bytes.
-// The canonical encoding is JSON; YAML is accepted as a compatibility fallback.
+// ParseStats extracts programmatic node stats from raw JSON bytes.
 func ParseStats(ctx context.Context, raw []byte) (*NodeStats, error) {
 	_ = ctx
 
@@ -66,24 +51,10 @@ func ParseStats(ctx context.Context, raw []byte) (*NodeStats, error) {
 	}
 
 	var js statsJSON
-	if err := json.Unmarshal(trimmed, &js); err == nil {
-		return decodeStats(js.Title, js.Hash, js.Updated, js.Created, js.Accessed, js.Accesses, js.Lead, js.Links), nil
-	}
-
-	// Compatibility path for legacy YAML stats payloads.
-	var doc yaml.Node
-	if err := yaml.Unmarshal(trimmed, &doc); err != nil {
+	if err := json.Unmarshal(trimmed, &js); err != nil {
 		return nil, fmt.Errorf("failed to parse node stats json: %w", err)
 	}
-	var ys statsYAML
-	if len(doc.Content) > 0 {
-		if err := doc.Content[0].Decode(&ys); err != nil {
-			if err2 := doc.Decode(&ys); err2 != nil {
-				return nil, fmt.Errorf("failed to decode node stats yaml: %w", err)
-			}
-		}
-	}
-	return decodeStats(ys.Title, ys.Hash, ys.Updated, ys.Created, ys.Accessed, ys.Accesses, ys.Lead, ys.Links), nil
+	return decodeStats(js.Title, js.Hash, js.Updated, js.Created, js.Accessed, js.Accesses, js.Lead, js.Links), nil
 }
 
 func decodeStats(title, hash, updated, created, accessed string, accesses int, lead string, rawLinks []string) *NodeStats {

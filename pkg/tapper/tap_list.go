@@ -135,12 +135,8 @@ type TagsOptions struct {
 
 	// Query is an optional boolean expression that filters nodes. Supports both
 	// plain tag names ("golang") and key=value attribute predicates
-	// ("entity=plan"). When non-empty it takes precedence over Tag.
+	// ("entity=plan"). When empty, all tags are listed.
 	Query string
-
-	// Tag filters nodes by tag expression. Deprecated: use Query instead.
-	// When empty and Query is also empty, all tags are listed.
-	Tag string
 
 	// Format to use. %i is node id
 	// %d is date
@@ -438,11 +434,7 @@ func (t *Tap) Tags(ctx context.Context, opts TagsOptions) ([]string, error) {
 		return []string{}, fmt.Errorf("unable to read dex: %w", err)
 	}
 
-	// Prefer Query over the legacy Tag field.
 	queryExpr := strings.TrimSpace(opts.Query)
-	if queryExpr == "" {
-		queryExpr = strings.TrimSpace(opts.Tag)
-	}
 
 	if queryExpr == "" {
 		tags := dex.TagList(ctx)

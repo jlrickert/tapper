@@ -13,11 +13,10 @@ import (
 //
 //	tap cat 0
 //	tap cat 0 1 2
-//	tap cat --tag "fire and not archived"
+//	tap cat --query "fire and not archived"
 //	tap cat 0 --keg myalias
 func NewCatCmd(deps *Deps) *cobra.Command {
 	var opts tapper.CatOptions
-	var query string
 
 	cmd := &cobra.Command{
 		Use:               "cat [NODE_ID...]",
@@ -25,7 +24,7 @@ func NewCatCmd(deps *Deps) *cobra.Command {
 		Aliases:           []string{"show"},
 		ValidArgsFunction: nodeIDCompletionFunc(deps, 0),
 		Args: func(cmd *cobra.Command, args []string) error {
-			if opts.Tag != "" || query != "" {
+			if opts.Query != "" {
 				return nil
 			}
 			if len(args) == 0 {
@@ -34,12 +33,6 @@ func NewCatCmd(deps *Deps) *cobra.Command {
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if opts.Tag != "" && query != "" {
-				return fmt.Errorf("--tag and --query are mutually exclusive")
-			}
-			if query != "" {
-				opts.Tag = query
-			}
 			opts.NodeIDs = args
 			opts.Stream = deps.Runtime.Stream()
 			applyKegTargetProfile(deps, &opts.KegTargetOptions)
@@ -57,8 +50,7 @@ func NewCatCmd(deps *Deps) *cobra.Command {
 	cmd.Flags().BoolVar(&opts.StatsOnly, "stats-only", false, "display node stats only")
 	cmd.Flags().BoolVar(&opts.MetaOnly, "meta-only", false, "display node metadata only")
 	cmd.Flags().BoolVar(&opts.Edit, "edit", false, "edit node in a temporary file")
-	cmd.Flags().StringVar(&opts.Tag, "tag", "", `tag expression to select nodes (e.g., "fire", "fire and not archived")`)
-	cmd.Flags().StringVar(&query, "query", "", `boolean expression (see "tap docs query-expressions" for syntax)`)
+	cmd.Flags().StringVar(&opts.Query, "query", "", `boolean expression (see "tap docs query-expressions" for syntax)`)
 	cmd.Flags().StringVar(&opts.LockToken, "lock-token", "", "cross-process lock token (required when node is locked)")
 
 	return cmd

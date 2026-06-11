@@ -28,7 +28,7 @@ type catInput struct {
 	ContentOnly bool     `json:"content_only,omitempty" jsonschema:"return content without frontmatter"`
 	MetaOnly    bool     `json:"meta_only,omitempty" jsonschema:"return metadata only"`
 	StatsOnly   bool     `json:"stats_only,omitempty" jsonschema:"return stats only"`
-	Tag         string   `json:"tag,omitempty" jsonschema:"tag expression to select nodes (alternative to node_ids)"`
+	Query       string   `json:"query,omitempty" jsonschema:"boolean expression to select nodes (alternative to node_ids)"`
 }
 
 func registerCat(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
@@ -42,7 +42,7 @@ func registerCat(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in catInput) (*sdkmcp.CallToolResult, any, error) {
 		opts := tapper.CatOptions{
 			NodeIDs:          in.NodeIDs,
-			Tag:              in.Tag,
+			Query:            in.Query,
 			KegTargetOptions: resolveKegTarget(in.Keg, defaults),
 			ContentOnly:      in.ContentOnly,
 			MetaOnly:         in.MetaOnly,
@@ -142,7 +142,6 @@ func registerGrep(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 
 type tagsInput struct {
 	Query   string `json:"query,omitempty" jsonschema:"boolean expression to filter by tags, attributes, and dot-prefix stats fields (e.g. '.created>2026-01-01 and entity=plan')"`
-	Tag     string `json:"tag,omitempty" jsonschema:"single tag name to filter by"`
 	Keg     string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
 	Format  string `json:"format,omitempty" jsonschema:"output format (%i=id %d=date %t=title)"`
 	IdOnly  bool   `json:"id_only,omitempty" jsonschema:"return node IDs only"`
@@ -163,7 +162,6 @@ func registerTags(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 		opts := tapper.TagsOptions{
 			KegTargetOptions: resolveKegTarget(in.Keg, defaults),
 			Query:            in.Query,
-			Tag:              in.Tag,
 			Format:           in.Format,
 			IdOnly:           in.IdOnly,
 			Reverse:          in.Reverse,
