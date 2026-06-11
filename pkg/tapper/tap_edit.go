@@ -8,6 +8,7 @@ import (
 	"io"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/jlrickert/cli-toolkit/toolkit"
 	"github.com/jlrickert/tapper/pkg/keg"
@@ -182,7 +183,7 @@ func (t *Tap) editWithTempFile(ctx context.Context, k *keg.Keg, id keg.NodeId) e
 		return fmt.Errorf("unable to update node access: %w", err)
 	}
 
-	initialRaw := composeEditNodeFile(meta, content)
+	initialRaw := composeEditNodeFile(ctx, meta, content)
 
 	tempPath, err := newEditorTempFilePath(t.Runtime, "tap-edit-"+id.String()+"-", ".md")
 	if err != nil {
@@ -240,6 +241,33 @@ func (t *Tap) editWithTempFile(ctx context.Context, k *keg.Keg, id keg.NodeId) e
 	return nil
 }
 
+// composeCurrentNodeFile reads the node's current content and meta from the
+// repository and composes the edit-file representation. ok is false when the
+// reads fail (e.g. the node vanished mid-edit).
+func composeCurrentNodeFile(ctx context.Context, k *keg.Keg, id keg.NodeId) ([]byte, bool) {
+	content, err := k.Repo.ReadContent(ctx, id)
+	if err != nil {
+		return nil, false
+	}
+	meta, err := k.Repo.ReadMeta(ctx, id)
+	if err != nil && !errors.Is(err, keg.ErrNotExist) {
+		return nil, false
+	}
+	return composeEditNodeFile(ctx, meta, content), true
+}
+
+// tempMatchesComposed reports whether the temp file already reflects the
+// composed repository state — byte-for-byte, or semantically modulo meta
+// serialization and trailing-newline drift. A match means the repository
+// change was caused by our own save, so the editor should not be disturbed.
+func tempMatchesComposed(ctx context.Context, rt *toolkit.Runtime, tempPath string, composed []byte) bool {
+	current, err := rt.ReadFile(tempPath)
+	if err != nil {
+		return false
+	}
+	return bytes.Equal(current, composed) || editFilesEquivalent(ctx, current, composed)
+}
+
 // reverseSync watches for real node file changes and re-composes the temp
 // file so the editor can reload with :e! to pick up external modifications.
 // It compares the composed content against the current temp file to avoid
@@ -275,25 +303,32 @@ func reverseSync(
 			if ev.Field != "content" && ev.Field != "meta" {
 				continue
 			}
-			// Re-read the real files and recompose.
-			content, err := k.Repo.ReadContent(ctx, id)
-			if err != nil {
+			composed, ok := composeCurrentNodeFile(ctx, k, id)
+			if !ok {
 				continue
 			}
-			meta, err := k.Repo.ReadMeta(ctx, id)
-			if err != nil && !errors.Is(err, keg.ErrNotExist) {
+			if tempMatchesComposed(ctx, rt, tempPath, composed) {
 				continue
 			}
-			composed := composeEditNodeFile(meta, content)
 
-			// Compare with what the temp file already contains. If
-			// the content matches, the change was caused by our own
-			// save — skip the write to avoid triggering the editor's
-			// "file changed" warning.
-			if current, readErr := rt.ReadFile(tempPath); readErr == nil {
-				if bytes.Equal(current, composed) {
-					continue
-				}
+			// The repo state differs from the temp file. That can still be
+			// our own save observed mid-flight: a save writes meta and
+			// content as separate requests, so the event for the first
+			// write may arrive before the second lands. Wait for the
+			// repository to settle, recompose, and only notify if the
+			// difference persists. The delay is wall-clock by nature —
+			// it spans real network round-trips.
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(500 * time.Millisecond):
+			}
+			composed, ok = composeCurrentNodeFile(ctx, k, id)
+			if !ok {
+				continue
+			}
+			if tempMatchesComposed(ctx, rt, tempPath, composed) {
+				continue
 			}
 
 			// Record the hash before writing so the live-save watcher
@@ -334,9 +369,73 @@ func (t *Tap) applyEditedNodeRaw(ctx context.Context, k *keg.Keg, id keg.NodeId,
 	return nil
 }
 
-func composeEditNodeFile(meta []byte, content []byte) []byte {
-	metaText := strings.TrimRight(string(meta), "\n")
+// normalizeMetaYAML renders raw repository metadata as block-style YAML.
+// Hub-backed repositories store metadata as JSON (Postgres JSONB), so the
+// raw bytes may be `{}` or `{"tags":["test"]}`; JSON is a YAML subset, so a
+// parse + re-emit round trip yields YAML regardless of backend. All fields
+// are preserved — this is a formatting pass, not the field-filtering
+// serialization NodeMeta.ToYAML performs. Empty metadata yields "" rather
+// than `{}`; unparseable bytes are returned trimmed but otherwise unchanged.
+func normalizeMetaYAML(ctx context.Context, raw []byte) string {
+	_ = ctx
+	if len(bytes.TrimSpace(raw)) == 0 {
+		return ""
+	}
+	var doc yaml.Node
+	if err := yaml.Unmarshal(raw, &doc); err != nil {
+		return strings.TrimRight(string(raw), "\n")
+	}
+	// Clear flow style recursively so JSON input re-renders as block YAML;
+	// the emitter re-adds any quoting a scalar actually requires.
+	clearYAMLStyle(&doc)
+
+	var buf bytes.Buffer
+	enc := yaml.NewEncoder(&buf)
+	enc.SetIndent(2)
+	if err := enc.Encode(&doc); err != nil {
+		return strings.TrimRight(string(raw), "\n")
+	}
+	_ = enc.Close()
+
+	out := strings.TrimRight(buf.String(), "\n")
+	if out == "{}" || out == "null" {
+		return ""
+	}
+	return out
+}
+
+// clearYAMLStyle recursively resets node styles so the emitter chooses
+// block style instead of preserving JSON/flow formatting from the source.
+func clearYAMLStyle(n *yaml.Node) {
+	if n == nil {
+		return
+	}
+	n.Style = 0
+	for _, c := range n.Content {
+		clearYAMLStyle(c)
+	}
+}
+
+func composeEditNodeFile(ctx context.Context, meta []byte, content []byte) []byte {
+	metaText := normalizeMetaYAML(ctx, meta)
 	return []byte(fmt.Sprintf("---\n%s\n---\n%s", metaText, string(content)))
+}
+
+// editFilesEquivalent reports whether two composed edit files describe the
+// same node state, ignoring metadata serialization differences and trailing
+// newline drift in the body. reverseSync uses it to recognize the echo of
+// the user's own save (which round-trips through the repository's storage
+// encoding) and skip the rewrite + notification.
+func editFilesEquivalent(ctx context.Context, a, b []byte) bool {
+	_, aMeta, aBody, aErr := splitEditNodeFile(a)
+	_, bMeta, bBody, bErr := splitEditNodeFile(b)
+	if aErr != nil || bErr != nil {
+		return false
+	}
+	if !bytes.Equal(bytes.TrimRight(aBody, "\r\n"), bytes.TrimRight(bBody, "\r\n")) {
+		return false
+	}
+	return normalizeMetaYAML(ctx, aMeta) == normalizeMetaYAML(ctx, bMeta)
 }
 
 func splitEditNodeFile(raw []byte) (bool, []byte, []byte, error) {

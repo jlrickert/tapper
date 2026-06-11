@@ -190,27 +190,30 @@ func (t *Tap) catSingleNode(ctx context.Context, k *keg.Keg, nodeID string, opts
 	}
 
 	if opts.MetaOnly {
-		return string(meta), nil
+		return normalizeMetaYAML(ctx, meta), nil
 	}
 
-	return formatFrontmatter(meta, content), nil
+	return formatFrontmatter(ctx, meta, content), nil
 }
 
-func formatFrontmatter(meta []byte, content []byte) string {
-	metaText := strings.TrimRight(string(meta), "\n")
+// formatFrontmatter renders meta as canonical YAML frontmatter ahead of the
+// content body. Raw repository bytes may be JSON (hub kegs store meta as
+// JSONB), so the meta always passes through normalizeMetaYAML.
+func formatFrontmatter(ctx context.Context, meta []byte, content []byte) string {
+	metaText := normalizeMetaYAML(ctx, meta)
 	return fmt.Sprintf("---\n%s\n---\n%s", metaText, string(content))
 }
 
 // formatFrontmatterWithID is like formatFrontmatter but prepends an `id` field.
-func formatFrontmatterWithID(id string, meta []byte, content []byte) string {
-	metaText := strings.TrimRight(string(meta), "\n")
+func formatFrontmatterWithID(ctx context.Context, id string, meta []byte, content []byte) string {
+	metaText := normalizeMetaYAML(ctx, meta)
 	return fmt.Sprintf("---\nid: %q\n%s\n---\n%s", id, metaText, string(content))
 }
 
-// formatMetaWithID wraps a raw meta YAML block as a `---`-delimited document
-// with an injected `id` field at the top.
-func formatMetaWithID(id string, meta []byte) string {
-	metaText := strings.TrimRight(string(meta), "\n")
+// formatMetaWithID wraps a meta block as a `---`-delimited document with an
+// injected `id` field at the top, normalizing the meta to YAML first.
+func formatMetaWithID(ctx context.Context, id string, meta []byte) string {
+	metaText := normalizeMetaYAML(ctx, meta)
 	return fmt.Sprintf("---\nid: %q\n%s", id, metaText)
 }
 
@@ -274,10 +277,10 @@ func (t *Tap) catSingleNodeForStream(ctx context.Context, k *keg.Keg, nodeID str
 	}
 
 	if opts.MetaOnly {
-		return formatMetaWithID(id, meta), nil
+		return formatMetaWithID(ctx, id, meta), nil
 	}
 
-	return formatFrontmatterWithID(id, meta, content), nil
+	return formatFrontmatterWithID(ctx, id, meta, content), nil
 }
 
 func formatStatsOnlyYAML(ctx context.Context, stats *keg.NodeStats) string {

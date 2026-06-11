@@ -229,6 +229,11 @@ use of `time.Now()` that cannot be driven by a fake clock:
 - `pkg/tapper/tap_serve.go` (500ms SSE broadcast debounce via `time.AfterFunc`):
   coalesces real filesystem events into a single browser reload; same shape as
   the `repo_fs_events.go` exception.
+- `pkg/tapper/tap_edit.go` (500ms settle delay in `reverseSync` via
+  `time.After`): a save writes meta and content as separate network requests,
+  so the live event for the first write can observe repository state where
+  the second hasn't landed yet. The settle window spans real round-trips to
+  the hub before deciding a change is genuinely external.
 - `pkg/keg/repo_api.go` (remote lease renewal ticker at half-TTL): the remote
   HTTP server's TTL is measured in wall-clock seconds, so renewals must fire in
   real time regardless of the local test clock.
