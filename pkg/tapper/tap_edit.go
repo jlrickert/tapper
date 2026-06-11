@@ -185,7 +185,7 @@ func (t *Tap) editWithTempFile(ctx context.Context, k *keg.Keg, id keg.NodeId) e
 
 	initialRaw := composeEditNodeFile(ctx, meta, content)
 
-	tempPath, err := newEditorTempFilePath(t.Runtime, "tap-edit-"+id.String()+"-", ".md")
+	tempPath, err := newEditorTempFilePath(t.Runtime, editorTempFilePrefix(k, id, "edit"), ".md")
 	if err != nil {
 		return fmt.Errorf("unable to create temp file path: %w", err)
 	}
@@ -510,7 +510,7 @@ func (t *Tap) editMeta(ctx context.Context, k *keg.Keg, id keg.NodeId, stream *t
 		}
 	}
 
-	tempPath, err := newEditorTempFilePath(t.Runtime, "tap-meta-"+id.String()+"-", ".yaml")
+	tempPath, err := newEditorTempFilePath(t.Runtime, editorTempFilePrefix(k, id, "meta"), ".yaml")
 	if err != nil {
 		return fmt.Errorf("unable to create temp file path: %w", err)
 	}
@@ -534,4 +534,61 @@ func (t *Tap) editMeta(ctx context.Context, k *keg.Keg, id keg.NodeId, stream *t
 		return fmt.Errorf("unable to edit node metadata: %w", err)
 	}
 	return nil
+}
+
+func editorTempFilePrefix(k *keg.Keg, id keg.NodeId, action string) string {
+	namespace, kegName := logicalKegTempNameParts(k)
+	return fmt.Sprintf("tap-%s-%s-%s-%s-",
+		sanitizeEditorTempSegment(action, "edit"),
+		sanitizeEditorTempSegment(namespace, "unknown"),
+		sanitizeEditorTempSegment(kegName, "keg"),
+		sanitizeEditorTempSegment(id.PathNumeric(), "node"))
+}
+
+func logicalKegTempNameParts(k *keg.Keg) (string, string) {
+	if k == nil || k.Target == nil {
+		return "unknown", "keg"
+	}
+
+	namespace := strings.TrimSpace(k.Target.Namespace)
+	kegName := strings.TrimSpace(k.Target.KegName)
+	if namespace != "" && kegName != "" {
+		return namespace, kegName
+	}
+	if namespace != "" {
+		return namespace, "keg"
+	}
+	if kegName != "" {
+		return "local", kegName
+	}
+	if strings.TrimSpace(k.Target.File) != "" {
+		return "local", "keg"
+	}
+	return "unknown", "keg"
+}
+
+func sanitizeEditorTempSegment(value string, fallback string) string {
+	value = strings.TrimSpace(value)
+	var b strings.Builder
+	lastDash := false
+	for i := 0; i < len(value); i++ {
+		c := value[i]
+		if (c >= 'a' && c <= 'z') ||
+			(c >= 'A' && c <= 'Z') ||
+			(c >= '0' && c <= '9') ||
+			c == '.' || c == '_' || c == '-' {
+			b.WriteByte(c)
+			lastDash = false
+			continue
+		}
+		if !lastDash && b.Len() > 0 {
+			b.WriteByte('-')
+			lastDash = true
+		}
+	}
+	clean := strings.Trim(b.String(), ".-_")
+	if clean == "" {
+		return fallback
+	}
+	return clean
 }
