@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
@@ -16,15 +17,43 @@ import (
 	"github.com/jlrickert/tapper/pkg/keg"
 )
 
+// externalWrites tracks the hash of content that reverse sync wrote to the
+// edit file on behalf of another client. Live-save consults it so bytes that
+// originated from the repository are not pushed straight back, which would
+// publish a spurious echo event for every external change.
+type externalWrites struct {
+	mu   sync.Mutex
+	hash [sha256.Size]byte
+	has  bool
+}
+
+// note records raw as the most recent externally-sourced file content. Call
+// it before writing the file so the live-save watcher cannot observe the
+// write ahead of the record.
+func (e *externalWrites) note(raw []byte) {
+	sum := sha256.Sum256(raw)
+	e.mu.Lock()
+	e.hash = sum
+	e.has = true
+	e.mu.Unlock()
+}
+
+func (e *externalWrites) matches(sum [sha256.Size]byte) bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.has && sum == e.hash
+}
+
 // liveSaveState holds the mutable and immutable dependencies for live-save
 // processing, extracted from the editWithLiveSaves closure for explicit state
 // access.
 type liveSaveState struct {
 	// immutable
-	rt     *toolkit.Runtime
-	path   string
-	stream *toolkit.Stream
-	onSave func([]byte) error
+	rt       *toolkit.Runtime
+	path     string
+	stream   *toolkit.Stream
+	onSave   func([]byte) error
+	external *externalWrites
 
 	// mutable
 	hasHash      bool
@@ -56,6 +85,13 @@ func (s *liveSaveState) process() {
 	if s.hasHash && sum == s.lastHash {
 		return
 	}
+	// Skip content that reverse sync placed in the file — it already lives
+	// in the repository, so saving it back would only echo the event.
+	if s.external != nil && s.external.matches(sum) {
+		s.lastHash = sum
+		s.hasHash = true
+		return
+	}
 	s.lastHash = sum
 	s.hasHash = true
 	s.attempted = true
@@ -77,8 +113,10 @@ func (s *liveSaveState) process() {
 }
 
 // editWithLiveSaves runs the user's editor and invokes onSave whenever the
-// edited file is saved with changed content.
-func editWithLiveSaves(ctx context.Context, rt *toolkit.Runtime, path string, onSave func([]byte) error) error {
+// edited file is saved with changed content. external, when non-nil, marks
+// file contents written by reverse sync so they are not saved back to the
+// repository.
+func editWithLiveSaves(ctx context.Context, rt *toolkit.Runtime, path string, external *externalWrites, onSave func([]byte) error) error {
 	if rt == nil {
 		return fmt.Errorf("runtime is required")
 	}
@@ -133,10 +171,11 @@ func editWithLiveSaves(ctx context.Context, rt *toolkit.Runtime, path string, on
 	}
 
 	state := &liveSaveState{
-		rt:     rt,
-		path:   path,
-		stream: stream,
-		onSave: onSave,
+		rt:       rt,
+		path:     path,
+		stream:   stream,
+		onSave:   onSave,
+		external: external,
 	}
 
 	if initial, err := rt.ReadFile(path); err == nil {

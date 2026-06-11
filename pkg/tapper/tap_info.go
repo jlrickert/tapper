@@ -307,7 +307,7 @@ func (t *Tap) KegConfigEdit(ctx context.Context, opts KegConfigEditOptions) erro
 		_ = t.Runtime.Remove(tempPath, false)
 	}()
 
-	if err := editWithLiveSaves(ctx, t.Runtime, tempPath, func(editedRaw []byte) error {
+	if err := editWithLiveSaves(ctx, t.Runtime, tempPath, nil, func(editedRaw []byte) error {
 		if _, err := keg.ParseKegConfig(editedRaw); err != nil {
 			return fmt.Errorf("keg config is invalid after editing: %w", err)
 		}

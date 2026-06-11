@@ -176,7 +176,7 @@ func (t *Tap) ConfigEdit(ctx context.Context, opts ConfigEditOptions) error {
 		}
 	}
 
-	if err := editWithLiveSaves(ctx, t.Runtime, resolvedPath, func(editedRaw []byte) error {
+	if err := editWithLiveSaves(ctx, t.Runtime, resolvedPath, nil, func(editedRaw []byte) error {
 		if _, err := ParseConfig(editedRaw); err != nil {
 			return fmt.Errorf("tap config is invalid after editing: %w", err)
 		}

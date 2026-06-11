@@ -137,6 +137,7 @@ func NewKegFromTarget(ctx context.Context, target Target, rt *toolkit.Runtime, o
 		token := resolveTargetToken(&target, rt, o.resolver)
 		baseURL := strings.TrimRight(target.Url, "/")
 		repo := NewApiRepo(baseURL, token)
+		repo.Logger = rt.Logger()
 		keg := Keg{Target: &target, Repo: repo, Runtime: rt}
 		return &keg, nil
 	case SchemeAlias:
@@ -155,6 +156,7 @@ func NewKegFromTarget(ctx context.Context, target Target, rt *toolkit.Runtime, o
 		baseURL := fmt.Sprintf("%s/api/v1/@%s/kegs/@%s",
 			base, target.Namespace, target.KegName)
 		repo := NewApiRepo(baseURL, token)
+		repo.Logger = rt.Logger()
 		keg := Keg{Target: &target, Repo: repo, Runtime: rt}
 		return &keg, nil
 	}
