@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/jlrickert/tapper/pkg/keg"
 	"github.com/stretchr/testify/require"
 )
 
@@ -114,4 +115,48 @@ func TestComposeEditNodeFile_NormalizesJSONMeta(t *testing.T) {
 	got := composeEditNodeFile(context.Background(),
 		[]byte(`{"tags":["test"]}`), []byte("# Title\n"))
 	require.Equal(t, "---\ntags:\n  - test\n---\n# Title\n", string(got))
+}
+
+func TestEditorTempFilePrefix_UsesLogicalKegIdentity(t *testing.T) {
+	t.Parallel()
+	k := &keg.Keg{Target: &keg.Target{Namespace: "jlrickert", KegName: "example"}}
+
+	got := editorTempFilePrefix(k, keg.NodeId{ID: 2}, "edit")
+
+	require.Equal(t, "tap-edit-jlrickert-example-2-", got)
+}
+
+func TestEditorTempFilePrefix_MetadataUsesSameLogicalIdentity(t *testing.T) {
+	t.Parallel()
+	k := &keg.Keg{Target: &keg.Target{Namespace: "jlrickert", KegName: "example"}}
+
+	got := editorTempFilePrefix(k, keg.NodeId{ID: 2}, "meta")
+
+	require.Equal(t, "tap-meta-jlrickert-example-2-", got)
+}
+
+func TestEditorTempFilePrefix_FileTargetDoesNotUsePathSegments(t *testing.T) {
+	t.Parallel()
+	k := &keg.Keg{Target: &keg.Target{File: "/Users/jlrickert/kegs/example"}}
+
+	got := editorTempFilePrefix(k, keg.NodeId{ID: 2}, "edit")
+
+	require.Equal(t, "tap-edit-local-keg-2-", got)
+	require.NotContains(t, got, "jlrickert")
+	require.NotContains(t, got, "example")
+}
+
+func TestEditorTempFilePrefix_SanitizesUnsafeCharacters(t *testing.T) {
+	t.Parallel()
+	k := &keg.Keg{Target: &keg.Target{
+		Namespace: "team/foo @bar",
+		KegName:   "notes:bad/thing",
+	}}
+
+	got := editorTempFilePrefix(k, keg.NodeId{ID: 2}, "edit")
+
+	require.Equal(t, "tap-edit-team-foo-bar-notes-bad-thing-2-", got)
+	require.NotContains(t, got, "/")
+	require.NotContains(t, got, " ")
+	require.NotContains(t, got, ":")
 }
