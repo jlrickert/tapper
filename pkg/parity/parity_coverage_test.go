@@ -121,6 +121,11 @@ var tapMethodsExcluded = map[string]string{
 	"ConfigEdit":            "interactive editor; not exposed via MCP",
 	"LookupKeg":             "internal resolution helper; not a user-facing operation",
 	"ResolveNodeRef":        "internal node-reference resolver shared by surfaces; not a user-facing operation",
+	"WatchNode": "streaming, not request/response: CLI surface is `tap watch` (long-lived stream); " +
+		"MCP surface is the resources/subscribe protocol capability (not a tool), wired via " +
+		"SubscribeHandler in pkg/mcp/server.go. Payload parity is impossible — MCP notifications " +
+		"are spec-thin (URI only) while the CLI stream carries kind/field — but both surfaces " +
+		"observe the same Tap.WatchNode events",
 	"NewServeHandler":       "internal HTTP handler factory; used by Serve",
 	"DoctorConfig":          "tapper-config health check helper; called by Doctor CLI/MCP surfaces",
 	"ConfigExplain":         "shares surface with Config via --explain flag / explain field",

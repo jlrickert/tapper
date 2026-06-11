@@ -14,6 +14,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/coder/websocket"
+	"github.com/coder/websocket/wsjson"
 	"github.com/jlrickert/tapper/pkg/keg"
 	"github.com/stretchr/testify/require"
 )
@@ -936,6 +938,51 @@ func setupApiRepoWithAuth(t *testing.T, token string) (*keg.ApiRepo, *mockHub, *
 func TestApiRepo_Name(t *testing.T) {
 	repo := keg.NewApiRepo("http://example.com", "")
 	require.Equal(t, "api", repo.Name())
+}
+
+func TestApiRepo_WatchReceivesNodeEvents(t *testing.T) {
+	const token = "test-token"
+	mux := http.NewServeMux()
+	mux.HandleFunc("/nodes/7/events", func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Authorization"); got != "Bearer "+token {
+			http.Error(w, "bad auth", http.StatusUnauthorized)
+			t.Errorf("Authorization = %q, want Bearer %s", got, token)
+			return
+		}
+		conn, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			t.Errorf("Accept: %v", err)
+			return
+		}
+		defer conn.CloseNow()
+		ctx, cancel := context.WithTimeout(r.Context(), time.Second)
+		defer cancel()
+		err = wsjson.Write(ctx, conn, map[string]any{
+			"type":    "node.updated",
+			"node_id": 7,
+			"fields":  []string{"content"},
+		})
+		if err != nil {
+			t.Errorf("Write event: %v", err)
+		}
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	repo := keg.NewApiRepo(srv.URL, token)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	ch, err := repo.Watch(ctx, keg.NodeId{ID: 7})
+	require.NoError(t, err)
+
+	select {
+	case ev := <-ch:
+		require.Equal(t, keg.NodeEventModified, ev.Kind)
+		require.Equal(t, keg.NodeId{ID: 7}, ev.NodeID)
+		require.Equal(t, "content", ev.Field)
+	case <-ctx.Done():
+		t.Fatal("timed out waiting for api repo event")
+	}
 }
 
 func TestApiRepo_HasNode(t *testing.T) {

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -53,6 +54,10 @@ type ApiRepo struct {
 	// Client is the HTTP client used for all requests. When nil,
 	// http.DefaultClient is used.
 	Client *http.Client
+
+	// Logger receives diagnostic output (live watch retries and
+	// terminations). When nil, diagnostics are dropped.
+	Logger *slog.Logger
 
 	// etagMu guards the etags map.
 	etagMu sync.RWMutex

@@ -32,10 +32,19 @@ func NewServer(tap *tapper.Tap, version string, defaults KegDefaults, opts ...Se
 		opt = opts[0]
 	}
 
-	srv := sdkmcp.NewServer(&sdkmcp.Implementation{
+	var srv *sdkmcp.Server
+	nodeSubs := newNodeResourceSubscriptions(tap, defaults, func(ctx context.Context, uri string) {
+		if srv != nil {
+			_ = srv.ResourceUpdated(ctx, &sdkmcp.ResourceUpdatedNotificationParams{URI: uri})
+		}
+	})
+	srv = sdkmcp.NewServer(&sdkmcp.Implementation{
 		Name:    "tap",
 		Version: version,
-	}, nil)
+	}, &sdkmcp.ServerOptions{
+		SubscribeHandler:   nodeSubs.Subscribe,
+		UnsubscribeHandler: nodeSubs.Unsubscribe,
+	})
 
 	registerReadTools(srv, tap, defaults)
 	registerWriteTools(srv, tap, defaults)

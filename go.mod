@@ -4,6 +4,7 @@ go 1.26.0
 
 require (
 	github.com/charmbracelet/huh v1.0.0
+	github.com/coder/websocket v1.8.14
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/jlrickert/cli-toolkit v1.5.2
 	github.com/modelcontextprotocol/go-sdk v1.6.1
