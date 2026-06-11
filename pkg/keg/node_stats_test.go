@@ -14,16 +14,15 @@ func TestParseStats_ParsesProgrammaticFields(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
-	raw := []byte(`hash: abc
-updated: 2024-01-02T03:04:05Z
-created: 2024-01-01T03:04:05Z
-accessed: 2024-01-03T03:04:05Z
-access_count: 3
-lead: short
-links:
-  - 1
-  - 2
-`)
+	raw := []byte(`{
+  "hash": "abc",
+  "updated": "2024-01-02T03:04:05Z",
+  "created": "2024-01-01T03:04:05Z",
+  "accessed": "2024-01-03T03:04:05Z",
+  "access_count": 3,
+  "lead": "short",
+  "links": ["1", "2"]
+}`)
 
 	s, err := keg.ParseStats(ctx, raw)
 	require.NoError(t, err)
@@ -39,14 +38,15 @@ links:
 	require.Equal(t, 2, links[1].ID)
 }
 
-func TestParseStats_ParsesLegacyTimeFormat(t *testing.T) {
+func TestParseStats_ParsesSpaceSeparatedTimeFormat(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
-	raw := []byte(`updated: 2025-09-22 11:18
-created: 2025-09-21 10:15
-accessed: 2025-09-23 14:21
-`)
+	raw := []byte(`{
+  "updated": "2025-09-22 11:18",
+  "created": "2025-09-21 10:15",
+  "accessed": "2025-09-23 14:21"
+}`)
 
 	s, err := keg.ParseStats(ctx, raw)
 	require.NoError(t, err)
@@ -59,11 +59,12 @@ func TestParseStats_IgnoresInvalidTimeValues(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
-	raw := []byte(`updated: not-a-time
-created: 2024-01-01T03:04:05Z
-accessed: also-not-a-time
-access_count: -7
-`)
+	raw := []byte(`{
+  "updated": "not-a-time",
+  "created": "2024-01-01T03:04:05Z",
+  "accessed": "also-not-a-time",
+  "access_count": -7
+}`)
 
 	s, err := keg.ParseStats(ctx, raw)
 	require.NoError(t, err)

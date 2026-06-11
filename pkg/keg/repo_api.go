@@ -35,7 +35,7 @@ type apiErrorResponse struct {
 
 // ApiRepo implements [Repository] using tapper-hub's REST API as the storage
 // backend. It maps each Repository method to an HTTP call against
-// `/api/v1/@{namespace}/kegs/@{keg}/...` endpoints, with bearer token
+// `/api/v1/@{namespace}/kegs/{keg}/...` endpoints, with bearer token
 // authentication on every request.
 //
 // ApiRepo also maintains a per-node ETag cache for optimistic concurrency
@@ -44,7 +44,7 @@ type apiErrorResponse struct {
 // response maps to [ErrConflict].
 type ApiRepo struct {
 	// BaseURL is the full URL prefix including the keg path, for example
-	// "https://hub.example.com/api/v1/@myns/kegs/@mykeg". No trailing slash.
+	// "https://hub.example.com/api/v1/@myns/kegs/mykeg". No trailing slash.
 	BaseURL string
 
 	// Token is the bearer token sent in the Authorization header on every

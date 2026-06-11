@@ -190,12 +190,11 @@ func (idx *ChangesIndex) Data(ctx context.Context) ([]byte, error) {
 }
 
 // --------------------------------------------------------------------------
-// TagFilteredIndex
+// Core index names
 // --------------------------------------------------------------------------
 
-// coreIndexNames is the set of built-in index filenames (in canonical bare
-// form, without the "dex/" prefix) that cannot be overridden by config-driven
-// tag-filtered indexes.
+// coreIndexNames is the set of built-in index filenames (bare form) that
+// cannot be overridden by config-driven query-filtered indexes.
 var coreIndexNames = map[string]bool{
 	"changes.md": true,
 	"nodes.tsv":  true,
@@ -205,158 +204,9 @@ var coreIndexNames = map[string]bool{
 }
 
 // IsCoreIndex reports whether the given index file name is one of the
-// built-in protected index names. Both the canonical bare form
-// ("changes.md") and the legacy prefixed form ("dex/changes.md") are
-// accepted; the prefix is stripped before lookup.
+// built-in protected index names (e.g. "changes.md").
 func IsCoreIndex(name string) bool {
-	return coreIndexNames[strings.TrimPrefix(name, "dex/")]
-}
-
-// TagFilteredIndex is an in-memory index of nodes that match a boolean tag
-// expression. It is used to build custom dex/NAME.md index artifacts driven
-// by keg config Indexes entries with a non-empty Tags field.
-//
-// Deprecated: Use QueryFilteredIndex instead, which supports the full query
-// expression system including key=value attribute predicates.
-//
-// Concurrency note: TagFilteredIndex does not perform internal
-// synchronization. Callers should guard access with a mutex when needed.
-type TagFilteredIndex struct {
-	// name is the short index filename used with repo.WriteIndex, e.g. "golang.md".
-	name string
-	// expr is the compiled tag expression evaluated per Add call.
-	expr QueryExpr
-	// data holds matched entries sorted by Updated descending (newest first).
-	data []NodeIndexEntry
-}
-
-// NewTagFilteredIndex creates a TagFilteredIndex for the given index file name
-// and boolean tag query string. Returns an error if tagQuery fails to parse.
-//
-// Deprecated: Use NewQueryFilteredIndex instead.
-//
-// name should be the short filename (without the "dex/" prefix) used when
-// writing to the repository, e.g. "golang.md".
-func NewTagFilteredIndex(name, tagQuery string) (*TagFilteredIndex, error) {
-	expr, err := ParseQueryExpression(tagQuery)
-	if err != nil {
-		return nil, fmt.Errorf("invalid tag expression for %q: %w", name, err)
-	}
-	return &TagFilteredIndex{
-		name: name,
-		expr: expr,
-		data: []NodeIndexEntry{},
-	}, nil
-}
-
-// Name returns the short index filename used with repo.WriteIndex.
-func (idx *TagFilteredIndex) Name() string {
-	if idx == nil {
-		return ""
-	}
-	return idx.name
-}
-
-// Add evaluates the tag expression against the node and, if it matches,
-// inserts or updates the node entry maintaining reverse-chronological order.
-// A node matches when EvaluateQueryExpression returns a non-empty set.
-func (idx *TagFilteredIndex) Add(ctx context.Context, data *NodeData) error {
-	_ = ctx
-	if idx == nil || data == nil {
-		return nil
-	}
-
-	path := data.ID.Path()
-	universe := map[string]struct{}{path: {}}
-
-	nodeTags := data.Tags()
-	tagSet := make(map[string]struct{}, len(nodeTags))
-	for _, t := range nodeTags {
-		tagSet[t] = struct{}{}
-	}
-
-	result := EvaluateQueryExpression(idx.expr, universe, func(tag string) map[string]struct{} {
-		if _, ok := tagSet[tag]; ok {
-			return map[string]struct{}{path: {}}
-		}
-		return map[string]struct{}{}
-	})
-
-	entry := data.Ref()
-
-	if len(result) == 0 {
-		// Node does not match; ensure it is not in the index.
-		return idx.Remove(ctx, data.ID)
-	}
-
-	// Upsert: replace existing entry or append.
-	for i := range idx.data {
-		if idx.data[i].ID == entry.ID {
-			idx.data[i] = entry
-			sort.SliceStable(idx.data, func(a, b int) bool {
-				return idx.data[a].Updated.After(idx.data[b].Updated)
-			})
-			return nil
-		}
-	}
-	idx.data = append(idx.data, entry)
-	sort.SliceStable(idx.data, func(a, b int) bool {
-		return idx.data[a].Updated.After(idx.data[b].Updated)
-	})
-	return nil
-}
-
-// Remove removes the node identified by node from the index. If the node is
-// not present the call is a no-op.
-func (idx *TagFilteredIndex) Remove(ctx context.Context, node NodeId) error {
-	_ = ctx
-	if idx == nil || idx.data == nil {
-		return nil
-	}
-	target := node.Path()
-	for i := range idx.data {
-		if idx.data[i].ID == target {
-			idx.data = append(idx.data[:i], idx.data[i+1:]...)
-			return nil
-		}
-	}
-	return nil
-}
-
-// Clear resets the index to an empty state.
-func (idx *TagFilteredIndex) Clear(ctx context.Context) error {
-	_ = ctx
-	if idx == nil {
-		return nil
-	}
-	idx.data = []NodeIndexEntry{}
-	return nil
-}
-
-// Data serializes the TagFilteredIndex to the same markdown format as
-// ChangesIndex.Data. Entries are in reverse-chronological order.
-func (idx *TagFilteredIndex) Data(ctx context.Context) ([]byte, error) {
-	_ = ctx
-	if idx == nil || len(idx.data) == 0 {
-		return []byte{}, nil
-	}
-	var b strings.Builder
-	for _, e := range idx.data {
-		b.WriteString("* ")
-		if !e.Updated.IsZero() {
-			b.WriteString(e.Updated.UTC().Format(changesTimeFmt))
-		} else {
-			b.WriteString("0001-01-01 00:00:00Z")
-		}
-		b.WriteByte(' ')
-		b.WriteByte('[')
-		b.WriteString(e.Title)
-		b.WriteString("](../")
-		b.WriteString(e.ID)
-		b.WriteByte(')')
-		b.WriteByte('\n')
-	}
-	return []byte(b.String()), nil
+	return coreIndexNames[name]
 }
 
 // --------------------------------------------------------------------------
@@ -413,10 +263,10 @@ type QueryFilteredIndex struct {
 // key=value attribute predicates and other term types.
 //
 // When resolve is nil, terms are evaluated as tag names against the node's
-// tag set (equivalent to TagFilteredIndex behavior).
+// tag set.
 //
-// name should be the short filename (without the "dex/" prefix) used when
-// writing to the repository, e.g. "golang.md".
+// name should be the bare filename used when writing to the repository, e.g.
+// "golang.md".
 func NewQueryFilteredIndex(name, query string, resolve func(term string, data *NodeData) bool) (*QueryFilteredIndex, error) {
 	return NewQueryFilteredIndexWithSort(name, query, resolve, QFSortUpdated)
 }
@@ -522,7 +372,7 @@ func (idx *QueryFilteredIndex) resolverForNode(data *NodeData) func(term string)
 		}
 	}
 
-	// Default: tag-only matching (same as TagFilteredIndex).
+	// Default: tag-only matching.
 	nodeTags := data.Tags()
 	tagSet := make(map[string]struct{}, len(nodeTags))
 	for _, t := range nodeTags {

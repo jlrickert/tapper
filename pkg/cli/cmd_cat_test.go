@@ -640,22 +640,10 @@ func TestCatCommand_TTY_MultipleNodes_PrintsToStdout(t *testing.T) {
 	require.Contains(t, out, `id: "1"`, "multi-node output should have id for second node")
 }
 
-// TestCatCommand_TagAndQueryFlags verifies that --tag and --query are
-// independently functional (not aliased to the same variable) and that
-// using both simultaneously produces an error.
-func TestCatCommand_TagAndQueryFlags(t *testing.T) {
+// TestCatCommand_QueryFlag verifies that --query selects nodes by a boolean
+// expression.
+func TestCatCommand_QueryFlag(t *testing.T) {
 	t.Parallel()
-
-	t.Run("tag_flag_selects_nodes", func(innerT *testing.T) {
-		innerT.Parallel()
-		sb := NewSandbox(innerT, testutils.WithFixture("joe", "~"))
-
-		res := NewProcess(innerT, false, "cat", "--tag", "planned", "--keg", "personal", "--content-only").
-			Run(sb.Context(), sb.Runtime())
-		require.NoError(innerT, res.Err, "--tag should select nodes by tag expression")
-		require.Contains(innerT, string(res.Stdout), "Sorry, planned but not yet available",
-			"--tag should return content for matching nodes")
-	})
 
 	t.Run("query_flag_selects_nodes", func(innerT *testing.T) {
 		innerT.Parallel()
@@ -663,20 +651,9 @@ func TestCatCommand_TagAndQueryFlags(t *testing.T) {
 
 		res := NewProcess(innerT, false, "cat", "--query", "planned", "--keg", "personal", "--content-only").
 			Run(sb.Context(), sb.Runtime())
-		require.NoError(innerT, res.Err, "--query should select nodes by tag expression")
+		require.NoError(innerT, res.Err, "--query should select nodes by expression")
 		require.Contains(innerT, string(res.Stdout), "Sorry, planned but not yet available",
 			"--query should return content for matching nodes")
-	})
-
-	t.Run("tag_and_query_mutually_exclusive", func(innerT *testing.T) {
-		innerT.Parallel()
-		sb := NewSandbox(innerT, testutils.WithFixture("joe", "~"))
-
-		res := NewProcess(innerT, false, "cat", "--tag", "planned", "--query", "planned", "--keg", "personal").
-			Run(sb.Context(), sb.Runtime())
-		require.Error(innerT, res.Err, "using both --tag and --query should error")
-		require.Contains(innerT, string(res.Stderr), "mutually exclusive",
-			"error should mention mutual exclusivity")
 	})
 }
 

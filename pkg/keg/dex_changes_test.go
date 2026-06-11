@@ -154,100 +154,6 @@ func TestChangesIndex_ParseMalformed(t *testing.T) {
 }
 
 // --------------------------------------------------------------------------
-// TagFilteredIndex tests
-// --------------------------------------------------------------------------
-
-func TestTagFilteredIndex_NewError(t *testing.T) {
-	t.Parallel()
-
-	_, err := NewTagFilteredIndex("golang.md", "")
-	require.Error(t, err, "empty tag query should return error")
-
-	_, err = NewTagFilteredIndex("golang.md", "a and (b")
-	require.Error(t, err, "invalid expression should return error")
-}
-
-func TestTagFilteredIndex_MatchAndExclude(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-
-	idx, err := NewTagFilteredIndex("golang.md", "golang")
-	require.NoError(t, err)
-
-	t1 := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
-	t2 := time.Date(2025, 2, 1, 0, 0, 0, 0, time.UTC)
-
-	goNode := makeNodeData(1, "Go tricks", []string{"golang", "trick"}, t1)
-	pyNode := makeNodeData(2, "Python tricks", []string{"python", "trick"}, t2)
-
-	require.NoError(t, idx.Add(ctx, goNode))
-	require.NoError(t, idx.Add(ctx, pyNode))
-
-	data, err := idx.Data(ctx)
-	require.NoError(t, err)
-
-	s := string(data)
-	require.Contains(t, s, "Go tricks", "golang node should be included")
-	require.NotContains(t, s, "Python tricks", "python node should be excluded")
-}
-
-func TestTagFilteredIndex_AndExpression(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-
-	idx, err := NewTagFilteredIndex("golang-tricks.md", "golang && trick")
-	require.NoError(t, err)
-
-	t1 := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
-
-	goTrick := makeNodeData(1, "Go trick", []string{"golang", "trick"}, t1)
-	goOnly := makeNodeData(2, "Go only", []string{"golang"}, t1)
-	trickOnly := makeNodeData(3, "Trick only", []string{"trick"}, t1)
-
-	require.NoError(t, idx.Add(ctx, goTrick))
-	require.NoError(t, idx.Add(ctx, goOnly))
-	require.NoError(t, idx.Add(ctx, trickOnly))
-
-	data, err := idx.Data(ctx)
-	require.NoError(t, err)
-
-	s := string(data)
-	require.Contains(t, s, "Go trick")
-	require.NotContains(t, s, "Go only")
-	require.NotContains(t, s, "Trick only")
-}
-
-func TestTagFilteredIndex_Remove(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-
-	idx, err := NewTagFilteredIndex("golang.md", "golang")
-	require.NoError(t, err)
-
-	t1 := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
-	t2 := time.Date(2025, 2, 1, 0, 0, 0, 0, time.UTC)
-
-	require.NoError(t, idx.Add(ctx, makeNodeData(1, "Go A", []string{"golang"}, t1)))
-	require.NoError(t, idx.Add(ctx, makeNodeData(2, "Go B", []string{"golang"}, t2)))
-
-	require.NoError(t, idx.Remove(ctx, NodeId{ID: 1}))
-
-	data, err := idx.Data(ctx)
-	require.NoError(t, err)
-	s := string(data)
-	require.NotContains(t, s, "Go A")
-	require.Contains(t, s, "Go B")
-}
-
-func TestTagFilteredIndex_Name(t *testing.T) {
-	t.Parallel()
-
-	idx, err := NewTagFilteredIndex("my-index.md", "golang")
-	require.NoError(t, err)
-	require.Equal(t, "my-index.md", idx.Name())
-}
-
-// --------------------------------------------------------------------------
 // QueryFilteredIndex tests
 // --------------------------------------------------------------------------
 
@@ -265,7 +171,7 @@ func TestQueryFilteredIndex_TagOnlyFallback(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
-	// With nil resolver, QueryFilteredIndex should behave like TagFilteredIndex.
+	// With a nil resolver, QueryFilteredIndex matches on tags only.
 	idx, err := NewQueryFilteredIndex("golang.md", "golang", nil)
 	require.NoError(t, err)
 

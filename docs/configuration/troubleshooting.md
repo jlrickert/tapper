@@ -17,8 +17,8 @@ Cause:
 
 - The reference resolves to no namespace/hub — e.g. a bare name with no
   `defaultNamespace`/`fallbackNamespace`, or a name that does not exist on the
-  resolved hub. (The legacy `kegs` alias map was removed; there is no alias
-  table to miss.)
+  resolved hub. (There is no `kegs` alias map; resolution is namespace-centric,
+  so there is no alias table to miss.)
 
 Fix:
 

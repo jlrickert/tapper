@@ -317,7 +317,7 @@ func TestMCP_Tags(t *testing.T) {
 	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
 		Name: "tags",
 		Arguments: map[string]any{
-			"tag": "test",
+			"query": "test",
 		},
 	})
 	require.NoError(t, err)

@@ -52,7 +52,7 @@ func makeQueryKeg(t *testing.T) (*keg.Keg, *keg.Dex) {
 	require.NoError(t, repo.WriteIndex(ctx, "tags", tagsData))
 
 	// Write a minimal nodes.tsv so the dex knows about all nodes.
-	nodesTSV := []byte("0\t2026-01-01T00:00:00Z\tNode 0\n1\t2026-01-01T00:00:00Z\tNode 1\n2\t2026-01-01T00:00:00Z\tNode 2\n3\t2026-01-01T00:00:00Z\tNode 3\n")
+	nodesTSV := []byte("0\t2026-01-01T00:00:00Z\t2026-01-01T00:00:00Z\t2026-01-01T00:00:00Z\tNode 0\n1\t2026-01-01T00:00:00Z\t2026-01-01T00:00:00Z\t2026-01-01T00:00:00Z\tNode 1\n2\t2026-01-01T00:00:00Z\t2026-01-01T00:00:00Z\t2026-01-01T00:00:00Z\tNode 2\n3\t2026-01-01T00:00:00Z\t2026-01-01T00:00:00Z\t2026-01-01T00:00:00Z\tNode 3\n")
 	require.NoError(t, repo.WriteIndex(ctx, "nodes.tsv", nodesTSV))
 
 	k := keg.NewKeg(repo, rt)

@@ -27,11 +27,11 @@ func TestReadFromDex_Table(t *testing.T) {
 		{
 			name: "basic",
 			nodesTSV: "" +
-				"0\t2025-08-04T22:03:53Z\tSorry, planned but not yet available\n" +
-				"1\t2025-08-04T23:06:30Z\tConfiguration (config)\n" +
-				"3\t2025-08-09T17:44:04Z\tZeke AI utility (zeke)\n" +
+				"0\t2025-08-04T22:03:53Z\t2025-08-04T22:03:53Z\t2025-08-04T22:03:53Z\tSorry, planned but not yet available\n" +
+				"1\t2025-08-04T23:06:30Z\t2025-08-04T23:06:30Z\t2025-08-04T23:06:30Z\tConfiguration (config)\n" +
+				"3\t2025-08-09T17:44:04Z\t2025-08-09T17:44:04Z\t2025-08-09T17:44:04Z\tZeke AI utility (zeke)\n" +
 				"badline-without-tabs\n" + // malformed - should be skipped
-				"999\tnot-a-time\tTitle with bad time\n", // id parses, time parse will produce zero time
+				"999\tnot-a-time\t\t\tTitle with bad time\n", // id parses, time parse will produce zero time
 			tagsData: "" +
 				"zeke\t3 10 45\n" +
 				"keg\t5 10 15 42\n" +
@@ -249,7 +249,7 @@ func TestDex_WritesChanges(t *testing.T) {
 }
 
 // TestDex_WithConfig_CustomIndex verifies that WithConfig registers
-// tag-filtered custom indexes that are written on Dex.Write.
+// query-filtered custom indexes that are written on Dex.Write.
 func TestDex_WithConfig_CustomIndex(t *testing.T) {
 	t.Parallel()
 
@@ -259,8 +259,8 @@ func TestDex_WithConfig_CustomIndex(t *testing.T) {
 
 	cfg := &Config{
 		Indexes: []IndexEntry{
-			{File: "dex/golang.md", Summary: "Go nodes", Tags: "golang"},
-			{File: "dex/changes.md", Summary: "latest changes"}, // core: should be ignored
+			{File: "golang.md", Summary: "Go nodes", Query: "golang"},
+			{File: "changes.md", Summary: "latest changes"}, // core: should be ignored
 		},
 	}
 
@@ -343,16 +343,14 @@ func TestTagIndex_Add_NoTagsRemovesAll(t *testing.T) {
 	require.Len(t, idx.data, 0, "all tags should be removed when node has no tags")
 }
 
-// TestIsCoreIndex_BothForms verifies that IsCoreIndex accepts both the
-// canonical bare form and the legacy "dex/"-prefixed form.
-func TestIsCoreIndex_BothForms(t *testing.T) {
+// TestIsCoreIndex_BareForm verifies that IsCoreIndex recognizes the built-in
+// index names in their bare form.
+func TestIsCoreIndex_BareForm(t *testing.T) {
 	t.Parallel()
 	for _, name := range []string{"changes.md", "nodes.tsv", "links", "backlinks", "tags"} {
 		require.True(t, IsCoreIndex(name), "bare form %q should be a core index", name)
-		require.True(t, IsCoreIndex("dex/"+name), "prefixed form dex/%s should be a core index", name)
 	}
 	require.False(t, IsCoreIndex("custom.md"))
-	require.False(t, IsCoreIndex("dex/custom.md"))
 }
 
 // TestDex_WithConfig_BareFormCustomIndex verifies that a bare-form custom
@@ -386,18 +384,18 @@ func TestDex_WithConfig_BareFormCustomIndex(t *testing.T) {
 }
 
 // TestDex_WithConfig_CoreIndexSkipped verifies that core index names in
-// cfg.Indexes with Tags set are not added as custom tag-filtered indexes.
+// cfg.Indexes with a Query set are not added as custom query-filtered indexes.
 func TestDex_WithConfig_CoreIndexSkipped(t *testing.T) {
 	t.Parallel()
 
 	cfg := &Config{
 		Indexes: []IndexEntry{
-			// All of these are core names and should be skipped even if Tags is set.
-			{File: "dex/changes.md", Tags: "golang"},
-			{File: "dex/nodes.tsv", Tags: "golang"},
-			{File: "dex/links", Tags: "golang"},
-			{File: "dex/backlinks", Tags: "golang"},
-			{File: "dex/tags", Tags: "golang"},
+			// All of these are core names and should be skipped even if Query is set.
+			{File: "changes.md", Query: "golang"},
+			{File: "nodes.tsv", Query: "golang"},
+			{File: "links", Query: "golang"},
+			{File: "backlinks", Query: "golang"},
+			{File: "tags", Query: "golang"},
 		},
 	}
 
@@ -411,7 +409,7 @@ func TestDex_WithConfig_CoreIndexSkipped(t *testing.T) {
 }
 
 // TestDex_WithConfig_QueryField verifies that WithConfig reads the Query
-// field (via QueryOrTags) and creates a QueryFilteredIndex.
+// field and creates a QueryFilteredIndex.
 func TestDex_WithConfig_QueryField(t *testing.T) {
 	t.Parallel()
 
@@ -421,7 +419,7 @@ func TestDex_WithConfig_QueryField(t *testing.T) {
 
 	cfg := &Config{
 		Indexes: []IndexEntry{
-			{File: "dex/concepts.md", Summary: "concept nodes", Query: "golang"},
+			{File: "concepts.md", Summary: "concept nodes", Query: "golang"},
 		},
 	}
 
@@ -443,35 +441,6 @@ func TestDex_WithConfig_QueryField(t *testing.T) {
 	s := string(raw)
 	require.Contains(t, s, "Go patterns")
 	require.NotContains(t, s, "Python async")
-}
-
-// TestDex_WithConfig_TagsFieldBackwardCompat verifies that the deprecated Tags
-// field still works via QueryOrTags when Query is not set.
-func TestDex_WithConfig_TagsFieldBackwardCompat(t *testing.T) {
-	t.Parallel()
-
-	rt, err := toolkit.NewTestRuntime(t.TempDir(), "/home/testuser", "testuser")
-	require.NoError(t, err)
-	mem := NewMemoryRepo(rt)
-
-	cfg := &Config{
-		Indexes: []IndexEntry{
-			{File: "dex/golang.md", Summary: "Go nodes", Tags: "golang"},
-		},
-	}
-
-	dex, err := NewDexFromRepo(t.Context(), mem, WithConfig(cfg))
-	require.NoError(t, err)
-	require.Len(t, dex.custom, 1, "deprecated Tags field should still create a custom index")
-
-	t1 := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
-	goNode := makeNodeData(10, "Go patterns", []string{"golang"}, t1)
-	require.NoError(t, dex.Add(t.Context(), goNode))
-	require.NoError(t, dex.Write(t.Context(), mem))
-
-	raw, err := mem.GetIndex(t.Context(), "golang.md")
-	require.NoError(t, err)
-	require.Contains(t, string(raw), "Go patterns")
 }
 
 // TestDex_WithQueryResolver verifies that WithQueryResolver injects a custom
@@ -503,7 +472,7 @@ func TestDex_WithQueryResolver(t *testing.T) {
 
 	cfg := &Config{
 		Indexes: []IndexEntry{
-			{File: "dex/concepts.md", Summary: "concepts", Query: "entity=concept"},
+			{File: "concepts.md", Summary: "concepts", Query: "entity=concept"},
 		},
 	}
 

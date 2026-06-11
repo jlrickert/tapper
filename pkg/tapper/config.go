@@ -149,10 +149,9 @@ type HubEntry struct {
 // Hub falls back to defaultHub/fallbackHub; an empty Namespace falls back to
 // defaultNamespace/fallbackNamespace (see Config.ResolveRef).
 //
-// Path is an explicit local-filesystem escape hatch used for legacy file-path
-// kegs and direct local references. When set it takes precedence over the
-// triple and resolves to a file target at that path. The triple is the
-// canonical, encouraged form; Path exists for backward compatibility.
+// Path addresses a keg by an explicit local filesystem path. When set it takes
+// precedence over the triple and resolves to a file target at that path. The
+// triple addresses a keg by namespace; Path addresses one directly on disk.
 type KegRef struct {
 	Hub       string `yaml:"hub,omitempty"`
 	Namespace string `yaml:"namespace,omitempty"`
@@ -160,13 +159,12 @@ type KegRef struct {
 	Path      string `yaml:"path,omitempty"`
 }
 
-// UnmarshalYAML accepts the canonical mapping form ({hub, namespace, name}) and
-// also tolerates legacy forms so old configs keep loading: the legacy "kegName"
-// key is read as Name, and scalar shorthands are parsed via keg.Parse — the
-// canonical keg shorthand "keg:@ns/name" sets {namespace, name} (the hub is
-// resolved from the namespace, never encoded), while bare file/url scalars map
-// onto a Path. To pin a hub, use the mapping form's "hub" field. Writes always
-// serialize the canonical mapping form.
+// UnmarshalYAML accepts the canonical mapping form ({hub, namespace, name,
+// path}) and a scalar shorthand parsed via keg.Parse — the canonical keg
+// shorthand "keg:@ns/name" sets {namespace, name} (the hub is resolved from the
+// namespace, never encoded), while a bare file/url scalar maps onto a Path. To
+// pin a hub, use the mapping form's "hub" field. Writes always serialize the
+// canonical mapping form.
 func (r *KegRef) UnmarshalYAML(node *yaml.Node) error {
 	if node == nil {
 		return nil
@@ -178,8 +176,6 @@ func (r *KegRef) UnmarshalYAML(node *yaml.Node) error {
 			Namespace string `yaml:"namespace"`
 			Name      string `yaml:"name"`
 			Path      string `yaml:"path"`
-			KegName   string `yaml:"kegName"` // legacy alias for name
-			File      string `yaml:"file"`    // legacy explicit file path
 		}
 		var x rawRef
 		if err := node.Decode(&x); err != nil {
@@ -188,13 +184,7 @@ func (r *KegRef) UnmarshalYAML(node *yaml.Node) error {
 		r.Hub = strings.TrimSpace(x.Hub)
 		r.Namespace = strings.TrimSpace(x.Namespace)
 		r.Name = strings.TrimSpace(x.Name)
-		if r.Name == "" {
-			r.Name = strings.TrimSpace(x.KegName)
-		}
 		r.Path = strings.TrimSpace(x.Path)
-		if r.Path == "" {
-			r.Path = strings.TrimSpace(x.File)
-		}
 		return nil
 	case yaml.ScalarNode:
 		s := strings.TrimSpace(node.Value)
@@ -259,12 +249,10 @@ func (r *NamespaceRef) UnmarshalYAML(node *yaml.Node) error {
 	}
 }
 
-// hubMap is a name-keyed map of hubs that also accepts the legacy sequence form
-// (a list of {name, url, token, tokenEnv}) on load so old configs keep working.
+// hubMap is a name-keyed map of hubs.
 type hubMap map[string]HubEntry
 
-// UnmarshalYAML accepts either the canonical mapping form or the legacy list
-// form (entries keyed by their "name" field, defaulting to the remote kind).
+// UnmarshalYAML decodes the canonical mapping form ({name: {url, token, ...}}).
 func (h *hubMap) UnmarshalYAML(node *yaml.Node) error {
 	if node == nil {
 		return nil
@@ -274,31 +262,6 @@ func (h *hubMap) UnmarshalYAML(node *yaml.Node) error {
 		m := map[string]HubEntry{}
 		if err := node.Decode(&m); err != nil {
 			return fmt.Errorf("decode hubs mapping: %w", err)
-		}
-		*h = m
-		return nil
-	case yaml.SequenceNode:
-		var list []struct {
-			Name     string `yaml:"name"`
-			Url      string `yaml:"url"`
-			Token    string `yaml:"token"`
-			TokenEnv string `yaml:"tokenEnv"`
-		}
-		if err := node.Decode(&list); err != nil {
-			return fmt.Errorf("decode legacy hubs sequence: %w", err)
-		}
-		m := map[string]HubEntry{}
-		for _, e := range list {
-			name := strings.TrimSpace(e.Name)
-			if name == "" {
-				continue
-			}
-			m[name] = HubEntry{
-				Kind:     HubKindRemote,
-				URL:      e.Url,
-				Token:    e.Token,
-				TokenEnv: e.TokenEnv,
-			}
 		}
 		*h = m
 		return nil
@@ -682,10 +645,11 @@ func (cfg *Config) localHubName() string {
 // (namespaces[ns].Hub → default/fallback) — and the per-kind backend mapping:
 //
 //   - local:    <basePath>/@<namespace>/<name> as a file target
-//   - remote:   <hub.url>/api/v1/@<namespace>/kegs/@<name> as a hub target
+//   - remote:   <hub.url>/api/v1/@<namespace>/kegs/<name> as a hub target
 //   - readonly: same URL as remote, with Target.Readonly set
 func (cfg *Config) ResolveRef(rt *toolkit.Runtime, ref KegRef) (*keg.Target, error) {
-	// Explicit local path takes precedence over the triple (legacy/escape hatch).
+	// An explicit local path addresses a file keg directly and takes precedence
+	// over the namespace triple.
 	if p := strings.TrimSpace(ref.Path); p != "" {
 		p = toolkit.ExpandEnv(rt, p)
 		if expanded, err := toolkit.ExpandPath(rt, p); err == nil {
@@ -787,7 +751,7 @@ func (cfg *Config) ResolveRef(rt *toolkit.Runtime, ref KegRef) (*keg.Target, err
 //     keg.Parse; the hub is resolved from the namespace, never encoded).
 //   - "@ns/name"                  — a namespace-qualified reference.
 //   - a filesystem path           — "/abs", "~/p", "./p", "../p", or a "://"
-//     URL: kept verbatim as KegRef.Path (the legacy file-path escape hatch).
+//     URL: kept verbatim as KegRef.Path (explicit file-keg addressing).
 //   - "name"                      — a bare keg name; its namespace and hub are
 //     supplied by ResolveRef's default/fallback chains.
 func parseKegRef(s string) KegRef {
@@ -819,7 +783,7 @@ func parseKegRef(s string) KegRef {
 		}
 		// Malformed @-ref falls through to a bare name.
 	}
-	// Filesystem path escape hatch (legacy file-path kegs).
+	// Explicit filesystem-path keg.
 	if strings.HasPrefix(s, "/") || strings.HasPrefix(s, "~") ||
 		strings.HasPrefix(s, ".") || strings.Contains(s, "://") {
 		return KegRef{Path: s}
@@ -926,9 +890,8 @@ func (cfg *Config) ResolveDefault(rt *toolkit.Runtime) (*keg.Target, error) {
 	return cfg.ResolveAlias(rt, alias)
 }
 
-// ParseConfig parses raw YAML into a Config data model. Unknown keys (such as
-// the removed kegSearchPaths and the removed kegs alias map) are ignored, and
-// the legacy hubs sequence shape is upgraded by its tolerant UnmarshalYAML.
+// ParseConfig parses raw YAML into a Config data model. Unknown keys are
+// ignored by the decoder.
 func ParseConfig(raw []byte) (*Config, error) {
 	uc := &Config{data: &configDTO{}}
 	if err := yaml.Unmarshal(raw, uc.data); err != nil {

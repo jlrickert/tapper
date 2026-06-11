@@ -50,8 +50,8 @@ below).
   `basePath`, `token`/`tokenEnv`). **User config only** — see the trust boundary
   below.
 
-> Note: `kegSearchPaths` has been removed. A legacy config that still carries it
-> is parsed but ignored (dropped on the next re-serialize). There is no
+> Note: `kegSearchPaths` is not a recognized key. A config that carries it is
+> parsed but the key is ignored (dropped on the next re-serialize). There is no
 > `TAP_KEG_SEARCH_PATHS` env var.
 
 ## Hubs

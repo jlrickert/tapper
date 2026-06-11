@@ -77,12 +77,12 @@ unknownKey: value
 	require.Equal(t, "main", cfg.DefaultKeg())
 }
 
-func TestParseUserConfig_IgnoresLegacyKegsBlock(t *testing.T) {
+func TestParseUserConfig_IgnoresUnknownKeys(t *testing.T) {
 	t.Parallel()
 
-	// The kegs alias map was removed; a config that still carries one must load
-	// without error (the block is silently ignored) so older configs keep
-	// working, and the block is dropped on re-serialize.
+	// The config decoder ignores keys it does not recognize (here a `kegs`
+	// block, which the schema does not define). Parsing succeeds and the
+	// unknown block does not round-trip on re-serialize.
 	raw := `defaultKeg: notes
 fallbackNamespace: alice
 kegs:
@@ -91,12 +91,12 @@ kegs:
 `
 
 	uc, err := tapper.ParseConfig([]byte(raw))
-	require.NoError(t, err, "ParseConfig must ignore a legacy kegs block")
+	require.NoError(t, err, "ParseConfig must ignore unknown keys")
 	require.Equal(t, "notes", uc.DefaultKeg())
 
 	data, err := uc.ToYAML()
 	require.NoError(t, err)
-	require.NotContains(t, string(data), "kegs:", "the removed kegs block must not round-trip")
+	require.NotContains(t, string(data), "kegs:", "the unknown kegs block must not round-trip")
 }
 
 func TestResolveAlias_Behavior(t *testing.T) {
@@ -472,17 +472,17 @@ func TestMergeConfig_PreservesMultipleEntriesWithSameAlias(t *testing.T) {
 	require.Len(t, kegMap, 2, "both work entries should survive merge")
 }
 
-func TestParseConfig_LegacyKegSearchPathsIgnored(t *testing.T) {
+func TestParseConfig_UnknownKeysIgnored(t *testing.T) {
 	t.Parallel()
 
-	// kegSearchPaths was removed; legacy configs that still carry it (and any
-	// other unknown keys) must load without error, with the key ignored and
-	// dropped on re-serialization.
+	// The decoder ignores keys it does not recognize (e.g. kegSearchPaths,
+	// userRepoPath, kegs). Parsing succeeds and those keys are dropped on
+	// re-serialization.
 	raw := `fallbackKeg: pub
 kegSearchPaths:
   - ~/Documents/kegs
   - ~/repos/kegs
-userRepoPath: ~/Documents/legacy
+userRepoPath: ~/Documents/other
 kegMap: []
 kegs: {}
 `

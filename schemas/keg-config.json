@@ -64,7 +64,7 @@
         "properties": {
           "file": {
             "type": "string",
-            "description": "Filename of the generated index artifact. The canonical form is the bare filename (e.g. \"backlinks\", \"concepts.md\"); the on-disk path is always under the keg's dex/ directory and the prefix is applied at write time. A legacy \"dex/\"-prefixed value is accepted at parse and normalized to the bare form."
+            "description": "Bare filename of the generated index artifact (e.g. \"backlinks\", \"concepts.md\"); the on-disk path is always under the keg's dex/ directory and the prefix is applied at write time."
           },
           "summary": {
             "type": "string",
@@ -73,11 +73,6 @@
           "query": {
             "type": "string",
             "description": "Boolean query expression to filter index contents. Supports tag names, key=value attribute predicates, dot-prefix stats fields (.created>2026-01-01, .accessCount>=5), and boolean operators (and/or/not)."
-          },
-          "tags": {
-            "type": "string",
-            "description": "Deprecated: use query instead. Boolean tag query used to filter index contents.",
-            "deprecated": true
           },
           "sort": {
             "type": "string",

@@ -29,7 +29,7 @@ func TestResolveLoginHubURL(t *testing.T) {
 	cases := []tc{
 		{
 			name:     "step 1: explicit URL wins over everything",
-			yaml:     "defaultHub: knut\ndisableDefaultHub: true\nhubs:\n  - name: knut\n    url: keg.example.com\n",
+			yaml:     "defaultHub: knut\ndisableDefaultHub: true\nhubs:\n  knut:\n    url: keg.example.com\n",
 			explicit: "https://override.example.com",
 			want:     "https://override.example.com",
 		},
@@ -41,27 +41,27 @@ func TestResolveLoginHubURL(t *testing.T) {
 		},
 		{
 			name: "step 2: DefaultHub names a Hubs entry",
-			yaml: "defaultHub: primary\nhubs:\n  - name: other\n    url: other.example.com\n  - name: primary\n    url: keg.example.com\n",
+			yaml: "defaultHub: primary\nhubs:\n  other:\n    url: other.example.com\n  primary:\n    url: keg.example.com\n",
 			want: "https://keg.example.com",
 		},
 		{
 			name: "step 2: DefaultHub entry already has scheme",
-			yaml: "defaultHub: knut\nhubs:\n  - name: knut\n    url: http://localhost:8080\n",
+			yaml: "defaultHub: knut\nhubs:\n  knut:\n    url: http://localhost:8080\n",
 			want: "http://localhost:8080",
 		},
 		{
 			name:     "step 2: DefaultHub names missing entry → error",
-			yaml:     "defaultHub: missing\nhubs:\n  - name: knut\n    url: keg.example.com\n",
+			yaml:     "defaultHub: missing\nhubs:\n  knut:\n    url: keg.example.com\n",
 			errMatch: `default hub "missing" not found`,
 		},
 		{
 			name:     "step 2: named entry with empty URL → error",
-			yaml:     "defaultHub: empty\nhubs:\n  - name: empty\n",
+			yaml:     "defaultHub: empty\nhubs:\n  empty: {}\n",
 			errMatch: `default hub "empty" has no URL configured`,
 		},
 		{
 			name: "step 3: exactly one Hubs entry, no DefaultHub",
-			yaml: "hubs:\n  - name: solo\n    url: solo.example.com\n",
+			yaml: "hubs:\n  solo:\n    url: solo.example.com\n",
 			want: "https://solo.example.com",
 		},
 		{
@@ -71,7 +71,7 @@ func TestResolveLoginHubURL(t *testing.T) {
 		},
 		{
 			name:    "step 4: DisableDefaultHub fires even with multiple Hubs entries",
-			yaml:    "disableDefaultHub: true\nhubs:\n  - name: a\n    url: a.example.com\n  - name: b\n    url: b.example.com\n",
+			yaml:    "disableDefaultHub: true\nhubs:\n  a:\n    url: a.example.com\n  b:\n    url: b.example.com\n",
 			wantErr: tapper.ErrDefaultHubDisabled,
 		},
 		{
@@ -81,7 +81,7 @@ func TestResolveLoginHubURL(t *testing.T) {
 		},
 		{
 			name: "step 5: multiple Hubs without DefaultHub falls through to DefaultHubURL",
-			yaml: "hubs:\n  - name: a\n    url: a.example.com\n  - name: b\n    url: b.example.com\n",
+			yaml: "hubs:\n  a:\n    url: a.example.com\n  b:\n    url: b.example.com\n",
 			want: tapper.DefaultHubURL,
 		},
 		{
@@ -128,7 +128,7 @@ func TestResolveLoginHubURL_StepOrdering(t *testing.T) {
 	t.Parallel()
 
 	cfg, err := tapper.ParseConfig([]byte(
-		"defaultHub: a\ndisableDefaultHub: true\nhubs:\n  - name: a\n    url: a.example.com\n  - name: b\n    url: b.example.com\n",
+		"defaultHub: a\ndisableDefaultHub: true\nhubs:\n  a:\n    url: a.example.com\n  b:\n    url: b.example.com\n",
 	))
 	require.NoError(t, err)
 

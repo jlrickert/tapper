@@ -49,8 +49,8 @@ makes it a hard error) so a repository you `cd` into cannot introduce a hub
 target or harvest a token environment variable. See
 [Resolution Order](resolution-order.md#trust-boundary).
 
-> Note: `kegSearchPaths` has been removed and is silently ignored if still
-> present in a legacy file.
+> Note: `kegSearchPaths` is not a recognized key and is silently ignored if
+> present.
 
 ## Team Setup Pattern
 

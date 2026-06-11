@@ -16,9 +16,9 @@ type CatOptions struct {
 	// Multiple IDs produce concatenated output separated by blank lines.
 	NodeIDs []string
 
-	// Tag is an optional tag expression (same syntax as tap tags) used to
-	// select nodes. Mutually exclusive with NodeIDs.
-	Tag string
+	// Query is an optional boolean expression (same syntax as tap tags) used
+	// to select nodes. Mutually exclusive with NodeIDs.
+	Query string
 
 	KegTargetOptions
 
@@ -59,21 +59,21 @@ func (t *Tap) Cat(ctx context.Context, opts CatOptions) (string, error) {
 		return "", fmt.Errorf("only one output mode may be selected: --edit, --content-only, --stats-only, --meta-only")
 	}
 
-	// Resolve node IDs from tag expression or direct args.
+	// Resolve node IDs from a query expression or direct args.
 	nodeIDs := opts.NodeIDs
-	if opts.Tag != "" {
+	if opts.Query != "" {
 		if len(nodeIDs) > 0 {
-			return "", fmt.Errorf("cannot specify both node IDs and --tag")
+			return "", fmt.Errorf("cannot specify both node IDs and --query")
 		}
-		tagIDs, err := t.Tags(ctx, TagsOptions{
+		queryIDs, err := t.Tags(ctx, TagsOptions{
 			KegTargetOptions: opts.KegTargetOptions,
-			Tag:              opts.Tag,
+			Query:            opts.Query,
 			IdOnly:           true,
 		})
 		if err != nil {
-			return "", fmt.Errorf("unable to query by tag: %w", err)
+			return "", fmt.Errorf("unable to query by expression: %w", err)
 		}
-		nodeIDs = tagIDs
+		nodeIDs = queryIDs
 	}
 
 	if len(nodeIDs) == 0 {

@@ -144,8 +144,9 @@ func NewKegFromTarget(ctx context.Context, target Target, rt *toolkit.Runtime, o
 		token := resolveTargetToken(&target, rt, o.resolver)
 		// Build the API base URL from the resolved hub URL, namespace, and
 		// keg-name fields. The hub routes per-keg endpoints under
-		// <hubURL>/api/v1/@<namespace>/kegs/@<kegName> (namespace first, both
-		// segments carry the @ sigil — see tapper-hub server.go mountKegRoutes).
+		// <hubURL>/api/v1/@<namespace>/kegs/<kegName> — only the namespace
+		// segment carries the @ sigil; keg aliases are bare (see tapper-hub
+		// server.go mountKegRoutes).
 		// HubURL is pushed down by the tapper layer from the configured hubs map
 		// during resolution; a keg reference that reaches here without it was not
 		// resolved against a hub.
@@ -153,7 +154,7 @@ func NewKegFromTarget(ctx context.Context, target Target, rt *toolkit.Runtime, o
 		if base == "" {
 			return nil, fmt.Errorf("keg reference %q has no resolved hub url", target.String())
 		}
-		baseURL := fmt.Sprintf("%s/api/v1/@%s/kegs/@%s",
+		baseURL := fmt.Sprintf("%s/api/v1/@%s/kegs/%s",
 			base, target.Namespace, target.KegName)
 		repo := NewApiRepo(baseURL, token)
 		repo.Logger = rt.Logger()
