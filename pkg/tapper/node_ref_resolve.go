@@ -12,7 +12,7 @@ import (
 // keg-local alias against that keg's Links table and imply the hub for a
 // qualified reference from the current keg's hub.
 type RefContext struct {
-	CurrentKeg *keg.LocalKeg
+	CurrentKeg keg.Keg
 }
 
 // ResolveNodeRef resolves a parsed node reference into the keg that holds it and
@@ -25,7 +25,7 @@ type RefContext struct {
 //   - RefQualified: a (hub, namespace, keg) reference whose hub is implied from
 //     the current keg's hub; the reserved @local namespace pins
 //     the local hub regardless of the current keg's hub.
-func (t *Tap) ResolveNodeRef(ctx context.Context, ref *keg.NodeRef, rc RefContext) (*keg.LocalKeg, keg.NodeId, error) {
+func (t *Tap) ResolveNodeRef(ctx context.Context, ref *keg.NodeRef, rc RefContext) (keg.Keg, keg.NodeId, error) {
 	if ref == nil {
 		return nil, keg.NodeId{}, fmt.Errorf("nil node ref")
 	}
@@ -54,8 +54,8 @@ func (t *Tap) ResolveNodeRef(ctx context.Context, ref *keg.NodeRef, rc RefContex
 		// @local pins the local hub; any other namespace implies the current
 		// keg's hub from context.
 		hub := ""
-		if ref.Namespace != LocalHubName && rc.CurrentKeg != nil && rc.CurrentKeg.Target != nil {
-			hub = strings.TrimSpace(rc.CurrentKeg.Target.Hub)
+		if ref.Namespace != LocalHubName && rc.CurrentKeg != nil && rc.CurrentKeg.Target() != nil {
+			hub = strings.TrimSpace(rc.CurrentKeg.Target().Hub)
 		}
 		cfg, err := t.ConfigService.Config(true)
 		if err != nil {
@@ -90,7 +90,7 @@ func (t *Tap) ResolveNodeRef(ctx context.Context, ref *keg.NodeRef, rc RefContex
 // supplies the RefLocal target and the context a relative ref resolves against.
 // The returned keg is the one the operation must run on, so a redirected ref
 // reads/writes the right keg rather than silently acting on currentKeg.
-func (t *Tap) resolveNodeArg(ctx context.Context, currentKeg *keg.LocalKeg, raw string) (*keg.LocalKeg, keg.NodeId, error) {
+func (t *Tap) resolveNodeArg(ctx context.Context, currentKeg keg.Keg, raw string) (keg.Keg, keg.NodeId, error) {
 	ref, err := keg.ParseNodeRef(raw)
 	if err != nil {
 		return nil, keg.NodeId{}, fmt.Errorf("invalid node ID %q: %w", raw, err)
@@ -121,6 +121,6 @@ func (t *Tap) resolveRefAlias(ctx context.Context, alias string, rc RefContext) 
 }
 
 // openTarget opens a keg at the resolved target using the shared token resolver.
-func (t *Tap) openTarget(ctx context.Context, target *keg.Target) (*keg.LocalKeg, error) {
+func (t *Tap) openTarget(ctx context.Context, target *keg.Target) (keg.Keg, error) {
 	return keg.NewKegFromTarget(ctx, *target, t.Runtime, keg.WithTokenResolver(t.KegService.tokenResolver()))
 }

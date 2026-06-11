@@ -64,7 +64,7 @@ kegs: {}
 	require.NoError(t, err)
 	require.NotNil(t, k)
 	require.NotNil(t, k.Target)
-	require.Equal(t, filepath.Clean("/home/testuser/Documents/kegs/@local/work"), filepath.Clean(k.Target.Path()))
+	require.Equal(t, filepath.Clean("/home/testuser/Documents/kegs/@local/work"), filepath.Clean(k.Target().Path()))
 }
 
 func TestResolve_FullPrecedenceChain(t *testing.T) {
@@ -119,7 +119,7 @@ kegs: {}
 			Keg:  "explicit",
 		})
 		require.NoError(innerT, err)
-		require.Equal(innerT, filepath.Clean("/home/testuser/Documents/kegs/@local/explicit"), filepath.Clean(k.Target.Path()))
+		require.Equal(innerT, filepath.Clean("/home/testuser/Documents/kegs/@local/explicit"), filepath.Clean(k.Target().Path()))
 	})
 
 	t.Run("default_wins_over_map_when_path_matches", func(innerT *testing.T) {
@@ -143,7 +143,7 @@ kegs: {}
 			Root: root,
 		})
 		require.NoError(innerT, err)
-		require.Equal(innerT, filepath.Clean("/home/testuser/Documents/kegs/@local/work"), filepath.Clean(k.Target.Path()))
+		require.Equal(innerT, filepath.Clean("/home/testuser/Documents/kegs/@local/work"), filepath.Clean(k.Target().Path()))
 	})
 
 	t.Run("default_used_when_map_does_not_match", func(innerT *testing.T) {
@@ -166,7 +166,7 @@ kegs: {}
 			Root: "/home/testuser/repos/github.com/jlrickert/tapper",
 		})
 		require.NoError(innerT, err)
-		require.Equal(innerT, filepath.Clean("/home/testuser/Documents/kegs/@local/work"), filepath.Clean(k.Target.Path()))
+		require.Equal(innerT, filepath.Clean("/home/testuser/Documents/kegs/@local/work"), filepath.Clean(k.Target().Path()))
 	})
 
 	t.Run("map_used_when_default_empty", func(innerT *testing.T) {
@@ -187,7 +187,7 @@ kegs: {}
 			Root: root,
 		})
 		require.NoError(innerT, err)
-		require.Equal(innerT, filepath.Clean("/home/testuser/Documents/kegs/@local/pub"), filepath.Clean(k.Target.Path()))
+		require.Equal(innerT, filepath.Clean("/home/testuser/Documents/kegs/@local/pub"), filepath.Clean(k.Target().Path()))
 	})
 
 	t.Run("fallback_used_when_default_and_map_missing", func(innerT *testing.T) {
@@ -206,7 +206,7 @@ kegs: {}
 			Root: "/home/testuser/unmapped/workspace",
 		})
 		require.NoError(innerT, err)
-		require.Equal(innerT, filepath.Clean("/home/testuser/Documents/kegs/@local/fallback"), filepath.Clean(k.Target.Path()))
+		require.Equal(innerT, filepath.Clean("/home/testuser/Documents/kegs/@local/fallback"), filepath.Clean(k.Target().Path()))
 	})
 }
 
@@ -251,5 +251,5 @@ kegs: {}
 	})
 	require.NoError(t, err)
 	// kegMap misses, so defaultKeg ("dev") should be used, NOT fallbackKeg ("pub").
-	require.Equal(t, filepath.Clean("/home/testuser/Documents/kegs/@local/dev"), filepath.Clean(k.Target.Path()))
+	require.Equal(t, filepath.Clean("/home/testuser/Documents/kegs/@local/dev"), filepath.Clean(k.Target().Path()))
 }

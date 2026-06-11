@@ -87,12 +87,12 @@ func TestCreate_DoubleNextBugReproduction(t *testing.T) {
 
 	// The node at nextID should exist (Next creates the directory) but
 	// have no meaningful content -- it's an orphan from the double allocation.
-	exists, err := k.Repo.HasNode(fx.Context(), nextID)
+	exists, err := k.(*keg.LocalKeg).Repo.HasNode(fx.Context(), nextID)
 	require.NoError(t, err)
 	require.True(t, exists, "Next() should have reserved a directory for nextID")
 
 	// The actual content should be at createID, not nextID.
-	body, err := k.Repo.ReadContent(fx.Context(), createID)
+	body, err := k.(*keg.LocalKeg).Repo.ReadContent(fx.Context(), createID)
 	require.NoError(t, err)
 	require.Contains(t, string(body), "Bug Reproduction")
 }

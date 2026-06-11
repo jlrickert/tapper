@@ -273,62 +273,44 @@ func (t *Tap) NewServeHandler(ctx context.Context, opts ServeOptions) (*ServeHan
 	// When watch mode is enabled, also set up SSE broadcasting so
 	// connected browsers reload automatically. The watch is scoped to its
 	// own cancellable context so Close can unblock the drain goroutine.
+	// Dex freshness needs no watcher: Keg.Dex has always-fresh semantics and
+	// reloads when the on-disk index changes. The watch below exists solely
+	// to drive SSE browser reloads.
 	if watchEnabled {
-		if events, ok := k.Repo.(keg.RepositoryEvents); ok {
-			sse := newSSEBroadcaster(k.Runtime.Clock().Now)
-			handler.sse = sse
+		sse := newSSEBroadcaster(t.Runtime.Clock().Now)
+		handler.sse = sse
 
-			// Register the SSE endpoint.
-			mux.HandleFunc("GET /events", sh.handleSSE(sse))
+		// Register the SSE endpoint.
+		mux.HandleFunc("GET /events", sh.handleSSE(sse))
 
-			watchCtx, watchCancel := context.WithCancel(ctx)
-			if ch, chErr := events.Watch(watchCtx); chErr == nil {
-				handler.watcherCancel = watchCancel
-				handler.wg.Add(1)
-				go func() {
-					defer handler.wg.Done()
-					// Broadcast-level debounce: accumulate events and
-					// broadcast once after 500ms of quiet. This prevents
-					// the reload loop caused by editors emitting multiple
-					// fs events per save (write-rename cycles produce
-					// separate events for README.md, stats.json, etc.).
-					const broadcastDebounce = 500 * time.Millisecond
-					var debounceTimer *time.Timer
-					for range ch {
-						k.InvalidateDex()
-						if debounceTimer != nil {
-							debounceTimer.Stop()
-						}
-						debounceTimer = time.AfterFunc(broadcastDebounce, func() {
-							sse.broadcast()
-						})
-					}
-					// Flush any pending broadcast on channel close.
+		watchCtx, watchCancel := context.WithCancel(ctx)
+		if ch, chErr := k.Watch(watchCtx); chErr == nil {
+			handler.watcherCancel = watchCancel
+			handler.wg.Add(1)
+			go func() {
+				defer handler.wg.Done()
+				// Broadcast-level debounce: accumulate events and
+				// broadcast once after 500ms of quiet. This prevents
+				// the reload loop caused by editors emitting multiple
+				// fs events per save (write-rename cycles produce
+				// separate events for README.md, stats.json, etc.).
+				const broadcastDebounce = 500 * time.Millisecond
+				var debounceTimer *time.Timer
+				for range ch {
 					if debounceTimer != nil {
 						debounceTimer.Stop()
 					}
-				}()
-			} else {
-				watchCancel()
-			}
-		}
-	} else {
-		// Watch disabled: still start the watcher for dex invalidation
-		// but without SSE broadcasting.
-		if events, ok := k.Repo.(keg.RepositoryEvents); ok {
-			watchCtx, watchCancel := context.WithCancel(ctx)
-			if ch, chErr := events.Watch(watchCtx); chErr == nil {
-				handler.watcherCancel = watchCancel
-				handler.wg.Add(1)
-				go func() {
-					defer handler.wg.Done()
-					for range ch {
-						k.InvalidateDex()
-					}
-				}()
-			} else {
-				watchCancel()
-			}
+					debounceTimer = time.AfterFunc(broadcastDebounce, func() {
+						sse.broadcast()
+					})
+				}
+				// Flush any pending broadcast on channel close.
+				if debounceTimer != nil {
+					debounceTimer.Stop()
+				}
+			}()
+		} else {
+			watchCancel()
 		}
 	}
 
@@ -338,7 +320,7 @@ func (t *Tap) NewServeHandler(ctx context.Context, opts ServeOptions) (*ServeHan
 // serveHandler holds shared state for all HTTP handlers.
 type serveHandler struct {
 	tap       *Tap
-	keg       *keg.LocalKeg
+	keg       keg.Keg
 	tmpl      *template.Template
 	siteTitle string
 	baseURL   string
@@ -492,7 +474,7 @@ func (sh *serveHandler) renderPage(w http.ResponseWriter, templateName string, d
 // Non-fatal dex errors (e.g. a malformed custom index) are tolerated as
 // long as the dex itself is usable.
 func (sh *serveHandler) buildNodeByID(ctx context.Context) (map[string]siteNodeRef, []keg.NodeIndexEntry, error) {
-	dex, err := sh.keg.DexFresh(ctx)
+	dex, err := sh.keg.Dex(ctx)
 	if err != nil && dex == nil {
 		return nil, nil, err
 	}
@@ -514,7 +496,7 @@ func (sh *serveHandler) buildNodeByID(ctx context.Context) (map[string]siteNodeR
 		if err != nil || nid == nil {
 			continue
 		}
-		if stats, err := sh.keg.Repo.ReadStats(ctx, *nid); err == nil {
+		if stats, err := sh.keg.GetStats(ctx, *nid); err == nil {
 			ref.Lead = stats.Lead()
 		}
 		nodeByID[id] = ref
@@ -568,15 +550,14 @@ func (sh *serveHandler) handleNodePage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Read raw content.
-	rawContent, err := sh.keg.Repo.ReadContent(ctx, *nid)
+	// Read the node's full state (content, meta, stats) in one operation.
+	view, err := sh.keg.ReadNode(ctx, *nid)
 	if err != nil {
 		sh.handleNotFound(w, r)
 		return
 	}
-
-	// Read meta.
-	rawMeta, _ := sh.keg.Repo.ReadMeta(ctx, *nid)
+	rawContent := view.Content
+	rawMeta := view.Meta
 	meta, _ := keg.ParseMeta(ctx, rawMeta)
 	var tags []string
 	var entity string
@@ -587,8 +568,7 @@ func (sh *serveHandler) handleNodePage(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Read stats.
-	stats, _ := sh.keg.Repo.ReadStats(ctx, *nid)
+	stats := view.Stats
 
 	// Render markdown.
 	rendered, err := keg.RenderMarkdown(rawContent, keg.RenderOptions{BaseURL: sh.baseURL, NodeID: idStr})
@@ -599,7 +579,7 @@ func (sh *serveHandler) handleNodePage(w http.ResponseWriter, r *http.Request) {
 
 	// Build dex data for links/backlinks. Tolerate non-fatal dex errors
 	// (e.g. a malformed custom index) as long as the dex is usable.
-	dex, err := sh.keg.DexFresh(ctx)
+	dex, err := sh.keg.Dex(ctx)
 	if err != nil && dex == nil {
 		http.Error(w, "unable to read index", http.StatusInternalServerError)
 		return
@@ -674,13 +654,13 @@ func (sh *serveHandler) handleNodeRaw(filename string) http.HandlerFunc {
 
 		switch filename {
 		case "README.md":
-			data, err = sh.keg.Repo.ReadContent(ctx, *nid)
+			data, err = sh.keg.GetContent(ctx, *nid)
 			contentType = "text/markdown; charset=utf-8"
 		case "meta.yaml":
-			data, err = sh.keg.Repo.ReadMeta(ctx, *nid)
+			data, err = sh.keg.GetMetaRaw(ctx, *nid)
 			contentType = "application/x-yaml; charset=utf-8"
 		case "stats.json":
-			stats, serr := sh.keg.Repo.ReadStats(ctx, *nid)
+			stats, serr := sh.keg.GetStats(ctx, *nid)
 			if serr != nil {
 				err = serr
 			} else if stats != nil {
@@ -712,7 +692,7 @@ func (sh *serveHandler) handleNodeMetaJSON(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	rawMeta, err := sh.keg.Repo.ReadMeta(ctx, *nid)
+	rawMeta, err := sh.keg.GetMetaRaw(ctx, *nid)
 	if err != nil || len(rawMeta) == 0 {
 		sh.handleNotFound(w, r)
 		return
@@ -750,7 +730,7 @@ func (sh *serveHandler) handleNodeStatsYAML(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	stats, err := sh.keg.Repo.ReadStats(ctx, *nid)
+	stats, err := sh.keg.GetStats(ctx, *nid)
 	if err != nil || stats == nil {
 		sh.handleNotFound(w, r)
 		return
@@ -824,11 +804,7 @@ func (sh *serveHandler) handleNodeAssetKind(kind string) http.HandlerFunc {
 }
 
 func (sh *serveHandler) serveNodeImage(ctx context.Context, w http.ResponseWriter, nid keg.NodeId, asset string) bool {
-	ri, ok := sh.keg.Repo.(keg.RepositoryImages)
-	if !ok {
-		return false
-	}
-	data, err := ri.ReadImage(ctx, nid, asset)
+	data, err := sh.keg.ReadImage(ctx, nid, asset)
 	if err != nil || len(data) == 0 {
 		return false
 	}
@@ -837,11 +813,7 @@ func (sh *serveHandler) serveNodeImage(ctx context.Context, w http.ResponseWrite
 }
 
 func (sh *serveHandler) serveNodeFile(ctx context.Context, w http.ResponseWriter, nid keg.NodeId, asset string) bool {
-	rf, ok := sh.keg.Repo.(keg.RepositoryFiles)
-	if !ok {
-		return false
-	}
-	data, err := rf.ReadFile(ctx, nid, asset)
+	data, err := sh.keg.ReadFile(ctx, nid, asset)
 	if err != nil || len(data) == 0 {
 		return false
 	}
@@ -862,7 +834,7 @@ func writeAsset(w http.ResponseWriter, name string, data []byte) {
 func (sh *serveHandler) handleTagsIndex(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	dex, err := sh.keg.DexFresh(ctx)
+	dex, err := sh.keg.Dex(ctx)
 	if err != nil && dex == nil {
 		http.Error(w, "unable to read index", http.StatusInternalServerError)
 		return
@@ -889,7 +861,7 @@ func (sh *serveHandler) handleTag(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	tagName := r.PathValue("tag")
 
-	dex, err := sh.keg.DexFresh(ctx)
+	dex, err := sh.keg.Dex(ctx)
 	if err != nil && dex == nil {
 		http.Error(w, "unable to read index", http.StatusInternalServerError)
 		return

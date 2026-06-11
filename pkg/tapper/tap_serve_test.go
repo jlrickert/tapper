@@ -374,7 +374,7 @@ hubs:
 
 	// Set timezone to America/Chicago (UTC-6 / UTC-5).
 	ctx := sb.Context()
-	require.NoError(t, k.UpdateConfig(ctx, func(cfg *keg.Config) {
+	require.NoError(t, keg.UpdateConfig(ctx, k, func(cfg *keg.Config) {
 		cfg.Timezone = "America/Chicago"
 	}))
 

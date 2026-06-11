@@ -148,7 +148,7 @@ func (t *Tap) Cat(ctx context.Context, opts CatOptions) (string, error) {
 }
 
 // catSingleNode reads and formats a single node's content according to opts.
-func (t *Tap) catSingleNode(ctx context.Context, k *keg.LocalKeg, nodeID string, opts CatOptions) (string, error) {
+func (t *Tap) catSingleNode(ctx context.Context, k keg.Keg, nodeID string, opts CatOptions) (string, error) {
 	// A cross-keg ref (keg:<alias>/<id> or keg:@<ns>/<keg>/<id>) redirects to
 	// its owning keg; a bare id stays on the passed-in current keg.
 	k, node, err := t.resolveNodeArg(ctx, k, nodeID)
@@ -156,18 +156,14 @@ func (t *Tap) catSingleNode(ctx context.Context, k *keg.LocalKeg, nodeID string,
 		return "", err
 	}
 
-	content, err := k.Repo.ReadContent(ctx, node)
+	view, err := k.ReadNode(ctx, node)
 	if err != nil {
 		if errors.Is(err, keg.ErrNotExist) {
 			return "", fmt.Errorf("node %s not found in %s: %w", node.Path(), describeKeg(k), err)
 		}
 		return "", fmt.Errorf("unable to read node %s in %s: %w", node.Path(), describeKeg(k), err)
 	}
-
-	meta, err := k.Repo.ReadMeta(ctx, node)
-	if err != nil && !errors.Is(err, keg.ErrNotExist) {
-		return "", fmt.Errorf("unable to read node metadata: %w", err)
-	}
+	content, meta := view.Content, view.Meta
 
 	if err := k.Touch(ctx, node); err != nil {
 		return "", fmt.Errorf("unable to update node access: %w", err)
@@ -178,15 +174,7 @@ func (t *Tap) catSingleNode(ctx context.Context, k *keg.LocalKeg, nodeID string,
 	}
 
 	if opts.StatsOnly {
-		stats, err := k.Repo.ReadStats(ctx, node)
-		if err != nil {
-			if errors.Is(err, keg.ErrNotExist) {
-				stats = &keg.NodeStats{}
-			} else {
-				return "", fmt.Errorf("unable to read node stats: %w", err)
-			}
-		}
-		return formatStatsOnlyYAML(ctx, stats), nil
+		return formatStatsOnlyYAML(ctx, view.Stats), nil
 	}
 
 	if opts.MetaOnly {
@@ -233,7 +221,7 @@ func formatContentWithID(id string, content []byte) string {
 // catSingleNodeForStream reads and formats a single node for multi-document
 // stream output. It injects the node ID into every output mode so each
 // document is self-identifying.
-func (t *Tap) catSingleNodeForStream(ctx context.Context, k *keg.LocalKeg, nodeID string, opts CatOptions) (string, error) {
+func (t *Tap) catSingleNodeForStream(ctx context.Context, k keg.Keg, nodeID string, opts CatOptions) (string, error) {
 	// Each streamed node resolves independently, so a multi-node cat may mix
 	// bare ids (current keg) with cross-keg refs that redirect elsewhere.
 	k, node, err := t.resolveNodeArg(ctx, k, nodeID)
@@ -241,18 +229,14 @@ func (t *Tap) catSingleNodeForStream(ctx context.Context, k *keg.LocalKeg, nodeI
 		return "", err
 	}
 
-	content, err := k.Repo.ReadContent(ctx, node)
+	view, err := k.ReadNode(ctx, node)
 	if err != nil {
 		if errors.Is(err, keg.ErrNotExist) {
 			return "", fmt.Errorf("node %s not found in %s: %w", node.Path(), describeKeg(k), err)
 		}
 		return "", fmt.Errorf("unable to read node %s in %s: %w", node.Path(), describeKeg(k), err)
 	}
-
-	meta, err := k.Repo.ReadMeta(ctx, node)
-	if err != nil && !errors.Is(err, keg.ErrNotExist) {
-		return "", fmt.Errorf("unable to read node metadata: %w", err)
-	}
+	content, meta := view.Content, view.Meta
 
 	if err := k.Touch(ctx, node); err != nil {
 		return "", fmt.Errorf("unable to update node access: %w", err)
@@ -265,15 +249,7 @@ func (t *Tap) catSingleNodeForStream(ctx context.Context, k *keg.LocalKeg, nodeI
 	}
 
 	if opts.StatsOnly {
-		stats, readErr := k.Repo.ReadStats(ctx, node)
-		if readErr != nil {
-			if errors.Is(readErr, keg.ErrNotExist) {
-				stats = &keg.NodeStats{}
-			} else {
-				return "", fmt.Errorf("unable to read node stats: %w", readErr)
-			}
-		}
-		return formatStatsWithID(id, formatStatsOnlyYAML(ctx, stats)), nil
+		return formatStatsWithID(id, formatStatsOnlyYAML(ctx, view.Stats)), nil
 	}
 
 	if opts.MetaOnly {

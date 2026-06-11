@@ -29,18 +29,13 @@ func (t *Tap) Remove(ctx context.Context, opts RemoveOptions) error {
 	nodeIDs := opts.NodeIDs
 
 	if q := strings.TrimSpace(opts.Query); q != "" {
-		dex, dexErr := k.DexFresh(ctx)
-		if dexErr != nil {
-			return fmt.Errorf("unable to read dex: %w", dexErr)
-		}
-		entries := dex.Nodes(ctx)
-		matchedPaths, evalErr := evalQueryExpr(ctx, k, dex, entries, q)
+		matchedEntries, evalErr := k.Query(ctx, keg.QueryOptions{Expr: q})
 		if evalErr != nil {
 			return fmt.Errorf("invalid query expression: %w", evalErr)
 		}
 		seen := make(map[string]struct{})
-		for path := range matchedPaths {
-			n, parseErr := keg.ParseNode(path)
+		for _, entry := range matchedEntries {
+			n, parseErr := keg.ParseNode(entry.ID)
 			if parseErr != nil || n == nil {
 				continue
 			}

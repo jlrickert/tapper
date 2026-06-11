@@ -29,7 +29,7 @@ func (t *Tap) ListIndexes(ctx context.Context, opts IndexCatOptions) ([]string, 
 	if err != nil {
 		return nil, fmt.Errorf("unable to determine keg: %w", err)
 	}
-	return k.Repo.ListIndexes(ctx)
+	return k.ListIndexes(ctx)
 }
 
 // IndexCat returns the raw contents of a named dex index file.
@@ -41,7 +41,7 @@ func (t *Tap) IndexCat(ctx context.Context, opts IndexCatOptions) (string, error
 	}
 
 	name := strings.TrimPrefix(opts.Name, "dex/")
-	data, err := k.Repo.GetIndex(ctx, name)
+	data, err := k.ReadIndex(ctx, name)
 	if err != nil {
 		return "", fmt.Errorf("index %q not found: %w", opts.Name, err)
 	}
@@ -63,7 +63,7 @@ func (t *Tap) Index(ctx context.Context, opts IndexOptions) (string, error) {
 		return "", fmt.Errorf("unable to rebuild indices: %w", err)
 	}
 
-	label := KegBackendLabel(k.Target)
+	label := KegBackendLabel(k.Target())
 	if label == "" {
 		return "Indices rebuilt\n", nil
 	}

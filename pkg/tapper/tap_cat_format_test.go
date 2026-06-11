@@ -28,17 +28,17 @@ func TestDescribeKeg(t *testing.T) {
 		},
 		{
 			name: "remote keg shows ref and hub url",
-			k:    &keg.LocalKeg{Target: &keg.Target{Namespace: "jlrickert", KegName: "example", HubURL: "https://tapper-1-jlrickert.dev.foldwise.ai"}},
+			k:    kegWithTarget(&keg.Target{Namespace: "jlrickert", KegName: "example", HubURL: "https://tapper-1-jlrickert.dev.foldwise.ai"}),
 			want: "keg:@jlrickert/example (hub https://tapper-1-jlrickert.dev.foldwise.ai)",
 		},
 		{
 			name: "local keg shows ref without hub",
-			k:    &keg.LocalKeg{Target: &keg.Target{Namespace: "local", KegName: "example"}},
+			k:    kegWithTarget(&keg.Target{Namespace: "local", KegName: "example"}),
 			want: "keg:@local/example",
 		},
 		{
 			name: "file keg shows path",
-			k:    &keg.LocalKeg{Target: &keg.Target{File: "/home/me/kegs/notes"}},
+			k:    kegWithTarget(&keg.Target{File: "/home/me/kegs/notes"}),
 			want: "/home/me/kegs/notes",
 		},
 	}
@@ -70,4 +70,12 @@ func TestFormatFrontmatter_NoExtraBlankLineWhenMetaEndsWithNewline(t *testing.T)
 	got := formatFrontmatter(context.Background(), meta, content)
 
 	require.Equal(t, "---\ntitle: Example\n---\nbody", got)
+}
+
+// kegWithTarget builds a LocalKeg labeled with the given target for
+// formatting tests.
+func kegWithTarget(target *keg.Target) *keg.LocalKeg {
+	k := &keg.LocalKeg{}
+	k.SetTarget(target)
+	return k
 }

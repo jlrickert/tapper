@@ -93,7 +93,7 @@ func shouldUseLiveEditorOnCreate(opts CreateOptions) bool {
 	return true
 }
 
-func (t *Tap) createNodeFromRaw(ctx context.Context, k *keg.LocalKeg, raw []byte, defaults CreateOptions) (keg.NodeId, error) {
+func (t *Tap) createNodeFromRaw(ctx context.Context, k keg.Keg, raw []byte, defaults CreateOptions) (keg.NodeId, error) {
 	createOpts := &keg.CreateOptions{
 		Title: defaults.Title,
 		Lead:  defaults.Lead,

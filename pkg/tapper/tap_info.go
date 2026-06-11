@@ -36,8 +36,8 @@ func (t *Tap) Info(ctx context.Context, opts InfoOptions) (string, error) {
 
 	// For file-backed kegs, return the raw config contents so unknown sections
 	// (for example custom fields and entities) are preserved.
-	if k.Target != nil && k.Target.Scheme() == keg.SchemeFile {
-		raw, rawErr := readRawKegConfig(t.Runtime, k.Target.Path())
+	if k.Target() != nil && k.Target().Scheme() == keg.SchemeFile {
+		raw, rawErr := readRawKegConfig(t.Runtime, k.Target().Path())
 		if rawErr == nil {
 			return string(raw), nil
 		}
@@ -56,7 +56,7 @@ func (t *Tap) Info(ctx context.Context, opts InfoOptions) (string, error) {
 }
 
 // infoMinimal returns a compact version of the keg config with only core fields.
-func (t *Tap) infoMinimal(ctx context.Context, k *keg.LocalKeg) (string, error) {
+func (t *Tap) infoMinimal(ctx context.Context, k keg.Keg) (string, error) {
 	cfg, err := k.Config(ctx)
 	if err != nil {
 		return "", fmt.Errorf("unable to read keg config: %w", err)
@@ -103,7 +103,7 @@ func (t *Tap) KegInfo(ctx context.Context, opts KegInfoOptions) (string, error) 
 		return "", fmt.Errorf("unable to get working directory: %w", err)
 	}
 
-	nodeIDs, err := k.Repo.ListNodes(ctx)
+	summary, err := k.Summary(ctx)
 	if err != nil {
 		return "", fmt.Errorf("unable to list nodes: %w", err)
 	}
@@ -131,7 +131,7 @@ func (t *Tap) KegInfo(ctx context.Context, opts KegInfoOptions) (string, error) 
 
 	out := diagnostics{
 		WorkingDirectory: workingDir,
-		NodeCount:        len(nodeIDs),
+		NodeCount:        summary.NodeCount,
 	}
 
 	// Populate summary from the keg config.
@@ -140,51 +140,34 @@ func (t *Tap) KegInfo(ctx context.Context, opts KegInfoOptions) (string, error) 
 		out.Summary = cfg.Summary
 	}
 
-	if k.Target != nil {
+	if k.Target() != nil {
 		// Reverse-lookup the alias from tap config.
 		tapCfg, _ := t.KegService.ConfigService.Config(true)
 		if tapCfg != nil {
-			out.Alias = tapCfg.LookupAliasForTarget(t.Runtime, k.Target.String())
+			out.Alias = tapCfg.LookupAliasForTarget(t.Runtime, k.Target().String())
 		}
-		out.Target = k.Target.String()
-		out.Scheme = k.Target.Scheme()
-		if k.Target.Scheme() == keg.SchemeFile {
-			path := toolkit.ExpandEnv(t.Runtime, k.Target.Path())
+		out.Target = k.Target().String()
+		out.Scheme = k.Target().Scheme()
+		if k.Target().Scheme() == keg.SchemeFile {
+			path := toolkit.ExpandEnv(t.Runtime, k.Target().Path())
 			if expanded, expandErr := toolkit.ExpandPath(t.Runtime, path); expandErr == nil {
 				path = expanded
 			}
 			out.KegDirectory = filepath.Clean(path)
 		} else {
-			out.KegDirectory = k.Target.Path()
+			out.KegDirectory = k.Target().Path()
 		}
 	}
 
-	if repoFiles, ok := k.Repo.(keg.RepositoryFiles); ok {
-		out.Assets.Files.Supported = true
-		for _, id := range nodeIDs {
-			names, listErr := repoFiles.ListFiles(ctx, id)
-			if listErr != nil {
-				return "", fmt.Errorf("unable to list files for node %s: %w", id.Path(), listErr)
-			}
-			if len(names) > 0 {
-				out.Assets.Files.NodesWithAssets++
-			}
-			out.Assets.Files.TotalAssets += len(names)
-		}
+	out.Assets.Files = assetDiagnostics{
+		Supported:       summary.Files.Supported,
+		NodesWithAssets: summary.Files.NodesWithAssets,
+		TotalAssets:     summary.Files.TotalAssets,
 	}
-
-	if repoImages, ok := k.Repo.(keg.RepositoryImages); ok {
-		out.Assets.Images.Supported = true
-		for _, id := range nodeIDs {
-			names, listErr := repoImages.ListImages(ctx, id)
-			if listErr != nil {
-				return "", fmt.Errorf("unable to list images for node %s: %w", id.Path(), listErr)
-			}
-			if len(names) > 0 {
-				out.Assets.Images.NodesWithAssets++
-			}
-			out.Assets.Images.TotalAssets += len(names)
-		}
+	out.Assets.Images = assetDiagnostics{
+		Supported:       summary.Images.Supported,
+		NodesWithAssets: summary.Images.NodesWithAssets,
+		TotalAssets:     summary.Images.TotalAssets,
 	}
 
 	b, err := yaml.Marshal(out)
@@ -247,8 +230,8 @@ func (t *Tap) KegConfigEdit(ctx context.Context, opts KegConfigEditOptions) erro
 		configPath  string
 		originalRaw []byte
 	)
-	if k.Target != nil && k.Target.Scheme() == keg.SchemeFile {
-		path, raw, readErr := readRawKegConfigWithPath(t.Runtime, k.Target.Path())
+	if k.Target() != nil && k.Target().Scheme() == keg.SchemeFile {
+		path, raw, readErr := readRawKegConfigWithPath(t.Runtime, k.Target().Path())
 		if readErr != nil {
 			return fmt.Errorf("unable to read keg config: %w", readErr)
 		}

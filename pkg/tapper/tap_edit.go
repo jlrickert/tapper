@@ -70,7 +70,7 @@ func (t *Tap) Meta(ctx context.Context, opts MetaOptions) (string, error) {
 	}
 
 	if opts.Edit {
-		if err := validateLockToken(ctx, k.Repo, id, opts.LockToken); err != nil {
+		if err := validateLockToken(ctx, k, id, opts.LockToken); err != nil {
 			return "", err
 		}
 		if err := t.editMeta(ctx, k, id, opts.Stream); err != nil {
@@ -85,7 +85,7 @@ func (t *Tap) Meta(ctx context.Context, opts MetaOptions) (string, error) {
 			return "", fmt.Errorf("unable to read piped input: %w", readErr)
 		}
 		if len(bytes.TrimSpace(pipedRaw)) > 0 {
-			if err := validateLockToken(ctx, k.Repo, id, opts.LockToken); err != nil {
+			if err := validateLockToken(ctx, k, id, opts.LockToken); err != nil {
 				return "", err
 			}
 			metaNode, parseErr := keg.ParseMeta(ctx, pipedRaw)
@@ -99,7 +99,7 @@ func (t *Tap) Meta(ctx context.Context, opts MetaOptions) (string, error) {
 		}
 	}
 
-	raw, err := k.Repo.ReadMeta(ctx, id)
+	raw, err := k.GetMetaRaw(ctx, id)
 	if err != nil && !errors.Is(err, keg.ErrNotExist) {
 		return "", fmt.Errorf("unable to read node metadata: %w", err)
 	}
@@ -141,7 +141,7 @@ func (t *Tap) Edit(ctx context.Context, opts EditOptions) error {
 		return fmt.Errorf("node %s not found in %s", id.Path(), describeKeg(k))
 	}
 
-	if err := validateLockToken(ctx, k.Repo, id, opts.LockToken); err != nil {
+	if err := validateLockToken(ctx, k, id, opts.LockToken); err != nil {
 		return err
 	}
 
@@ -164,12 +164,12 @@ func (t *Tap) Edit(ctx context.Context, opts EditOptions) error {
 // monitors the real node files (README.md, meta.yaml) and re-composes the
 // temp file when external changes are detected, so the editor can reload
 // with :e! to pick up changes from other tap instances.
-func (t *Tap) editWithTempFile(ctx context.Context, k *keg.LocalKeg, id keg.NodeId) error {
-	content, err := k.Repo.ReadContent(ctx, id)
+func (t *Tap) editWithTempFile(ctx context.Context, k keg.Keg, id keg.NodeId) error {
+	content, err := k.GetContent(ctx, id)
 	if err != nil {
 		return fmt.Errorf("unable to read node content: %w", err)
 	}
-	meta, err := k.Repo.ReadMeta(ctx, id)
+	meta, err := k.GetMetaRaw(ctx, id)
 	if err != nil {
 		if !errors.Is(err, keg.ErrNotExist) {
 			return fmt.Errorf("unable to read node metadata: %w", err)
@@ -210,20 +210,15 @@ func (t *Tap) editWithTempFile(ctx context.Context, k *keg.LocalKeg, id keg.Node
 	// reverseSync. external marks reverse-sync writes so the live-save
 	// watcher does not push them back as an echo.
 	external := &externalWrites{}
-	if events, ok := k.Repo.(keg.RepositoryEvents); ok {
-		if ch, chErr := events.Watch(editCtx, id); chErr == nil {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				reverseSync(editCtx, t.Runtime, k, id, tempPath, external, ch)
-			}()
-		} else if lg := t.Runtime.Logger(); lg != nil {
-			lg.Debug("edit: live reverse sync unavailable",
-				"node", id.String(), "error", chErr)
-		}
+	if ch, chErr := k.Watch(editCtx, id); chErr == nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			reverseSync(editCtx, t.Runtime, k, id, tempPath, external, ch)
+		}()
 	} else if lg := t.Runtime.Logger(); lg != nil {
 		lg.Debug("edit: live reverse sync unavailable",
-			"node", id.String(), "reason", "repository does not support live events")
+			"node", id.String(), "error", chErr)
 	}
 
 	editErr := editWithLiveSaves(editCtx, t.Runtime, tempPath, external, func(editedRaw []byte) error {
@@ -244,12 +239,12 @@ func (t *Tap) editWithTempFile(ctx context.Context, k *keg.LocalKeg, id keg.Node
 // composeCurrentNodeFile reads the node's current content and meta from the
 // repository and composes the edit-file representation. ok is false when the
 // reads fail (e.g. the node vanished mid-edit).
-func composeCurrentNodeFile(ctx context.Context, k *keg.LocalKeg, id keg.NodeId) ([]byte, bool) {
-	content, err := k.Repo.ReadContent(ctx, id)
+func composeCurrentNodeFile(ctx context.Context, k keg.Keg, id keg.NodeId) ([]byte, bool) {
+	content, err := k.GetContent(ctx, id)
 	if err != nil {
 		return nil, false
 	}
-	meta, err := k.Repo.ReadMeta(ctx, id)
+	meta, err := k.GetMetaRaw(ctx, id)
 	if err != nil && !errors.Is(err, keg.ErrNotExist) {
 		return nil, false
 	}
@@ -275,7 +270,7 @@ func tempMatchesComposed(ctx context.Context, rt *toolkit.Runtime, tempPath stri
 func reverseSync(
 	ctx context.Context,
 	rt *toolkit.Runtime,
-	k *keg.LocalKeg,
+	k keg.Keg,
 	id keg.NodeId,
 	tempPath string,
 	external *externalWrites,
@@ -346,7 +341,7 @@ func reverseSync(
 	}
 }
 
-func (t *Tap) applyEditedNodeRaw(ctx context.Context, k *keg.LocalKeg, id keg.NodeId, editedRaw []byte) error {
+func (t *Tap) applyEditedNodeRaw(ctx context.Context, k keg.Keg, id keg.NodeId, editedRaw []byte) error {
 	hasFrontmatter, frontmatterRaw, bodyRaw, err := splitEditNodeFile(editedRaw)
 	if err != nil {
 		return err
@@ -489,8 +484,8 @@ func splitEditNodeFile(raw []byte) (bool, []byte, []byte, error) {
 	return true, frontmatter, body, nil
 }
 
-func (t *Tap) editMeta(ctx context.Context, k *keg.LocalKeg, id keg.NodeId, stream *toolkit.Stream) error {
-	raw, err := k.Repo.ReadMeta(ctx, id)
+func (t *Tap) editMeta(ctx context.Context, k keg.Keg, id keg.NodeId, stream *toolkit.Stream) error {
+	raw, err := k.GetMetaRaw(ctx, id)
 	if err != nil && !errors.Is(err, keg.ErrNotExist) {
 		return fmt.Errorf("unable to read node metadata: %w", err)
 	}
@@ -536,7 +531,7 @@ func (t *Tap) editMeta(ctx context.Context, k *keg.LocalKeg, id keg.NodeId, stre
 	return nil
 }
 
-func editorTempFilePrefix(k *keg.LocalKeg, id keg.NodeId, action string) string {
+func editorTempFilePrefix(k keg.Keg, id keg.NodeId, action string) string {
 	namespace, kegName := logicalKegTempNameParts(k)
 	return fmt.Sprintf("tap-%s-%s-%s-%s-",
 		sanitizeEditorTempSegment(action, "edit"),
@@ -545,13 +540,13 @@ func editorTempFilePrefix(k *keg.LocalKeg, id keg.NodeId, action string) string 
 		sanitizeEditorTempSegment(id.PathNumeric(), "node"))
 }
 
-func logicalKegTempNameParts(k *keg.LocalKeg) (string, string) {
-	if k == nil || k.Target == nil {
+func logicalKegTempNameParts(k keg.Keg) (string, string) {
+	if k == nil || k.Target() == nil {
 		return "unknown", "keg"
 	}
 
-	namespace := strings.TrimSpace(k.Target.Namespace)
-	kegName := strings.TrimSpace(k.Target.KegName)
+	namespace := strings.TrimSpace(k.Target().Namespace)
+	kegName := strings.TrimSpace(k.Target().KegName)
 	if namespace != "" && kegName != "" {
 		return namespace, kegName
 	}
@@ -561,7 +556,7 @@ func logicalKegTempNameParts(k *keg.LocalKeg) (string, string) {
 	if kegName != "" {
 		return "local", kegName
 	}
-	if strings.TrimSpace(k.Target.File) != "" {
+	if strings.TrimSpace(k.Target().File) != "" {
 		return "local", "keg"
 	}
 	return "unknown", "keg"

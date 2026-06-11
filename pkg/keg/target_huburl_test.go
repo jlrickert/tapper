@@ -19,8 +19,8 @@ func TestNewKegFromTargetHubURL(t *testing.T) {
 			kegpkg.WithHubURL("https://atlas.foldwise.ai"))
 		k, err := kegpkg.NewKegFromTarget(f.Context(), target, f.Runtime())
 		require.NoError(t, err)
-		repo, ok := k.Repo.(*kegpkg.ApiRepo)
-		require.True(t, ok, "expected *ApiRepo, got %T", k.Repo)
+		repo, ok := k.(*kegpkg.LocalKeg).Repo.(*kegpkg.ApiRepo)
+		require.True(t, ok, "expected *ApiRepo, got %T", k.(*kegpkg.LocalKeg).Repo)
 		require.Equal(t,
 			"https://atlas.foldwise.ai/api/v1/@jared/kegs/work",
 			repo.BaseURL,
@@ -32,8 +32,8 @@ func TestNewKegFromTargetHubURL(t *testing.T) {
 			kegpkg.WithHubURL("https://atlas.foldwise.ai/"))
 		k, err := kegpkg.NewKegFromTarget(f.Context(), target, f.Runtime())
 		require.NoError(t, err)
-		repo, ok := k.Repo.(*kegpkg.ApiRepo)
-		require.True(t, ok, "expected *ApiRepo, got %T", k.Repo)
+		repo, ok := k.(*kegpkg.LocalKeg).Repo.(*kegpkg.ApiRepo)
+		require.True(t, ok, "expected *ApiRepo, got %T", k.(*kegpkg.LocalKeg).Repo)
 		require.Equal(t,
 			"https://atlas.foldwise.ai/api/v1/@jared/kegs/work",
 			repo.BaseURL,

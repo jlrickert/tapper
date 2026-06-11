@@ -56,8 +56,8 @@ hubs:
 	require.NoError(t, err)
 	require.NotNil(t, k)
 
-	apiRepo, ok := k.Repo.(*keg.ApiRepo)
-	require.True(t, ok, "expected ApiRepo, got %T", k.Repo)
+	apiRepo, ok := k.(*keg.LocalKeg).Repo.(*keg.ApiRepo)
+	require.True(t, ok, "expected ApiRepo, got %T", k.(*keg.LocalKeg).Repo)
 	require.Equal(t, hubToken, apiRepo.Token, "auth store token should flow into ApiRepo")
 }
 
@@ -103,7 +103,7 @@ hubs:
 	})
 	require.NoError(t, err)
 
-	apiRepo, ok := k.Repo.(*keg.ApiRepo)
+	apiRepo, ok := k.(*keg.LocalKeg).Repo.(*keg.ApiRepo)
 	require.True(t, ok)
 	require.Equal(t, "env-token", apiRepo.Token, "TokenEnv must win over auth store")
 }

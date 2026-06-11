@@ -176,7 +176,7 @@ func (t *Tap) initLocalKeg(ctx context.Context, options InitOptions, target *keg
 	if err := k.Init(ctx); err != nil {
 		return nil, err
 	}
-	if err := k.UpdateConfig(ctx, func(kc *keg.Config) {
+	if err := keg.UpdateConfig(ctx, k, func(kc *keg.Config) {
 		kc.Creator = options.Creator
 		kc.Title = options.Title
 	}); err != nil {
@@ -188,7 +188,7 @@ func (t *Tap) initLocalKeg(ctx context.Context, options InitOptions, target *keg
 	if err := t.recordInitKeg("", namespace); err != nil {
 		return nil, err
 	}
-	return k.Target, nil
+	return k.Target(), nil
 }
 
 // initRemoteKeg creates the keg on the hub (POST /api/v1/@<namespace>/kegs),
@@ -263,11 +263,11 @@ func (t *Tap) initProjectKeg(ctx context.Context, opts initLocalOptions) (*keg.T
 	if err != nil {
 		return nil, err
 	}
-	err = k.UpdateConfig(ctx, func(kc *keg.Config) {
+	err = keg.UpdateConfig(ctx, k, func(kc *keg.Config) {
 		kc.Creator = opts.Creator
 		kc.Title = opts.Title
 	})
-	return k.Target, err
+	return k.Target(), err
 }
 
 // defaultUserKegRoot returns the platform-default directory under which user

@@ -2,6 +2,7 @@ package tapper
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/jlrickert/tapper/pkg/keg"
@@ -24,9 +25,12 @@ func (t *Tap) WatchNode(ctx context.Context, opts WatchNodeOptions) (<-chan keg.
 	if err != nil {
 		return nil, err
 	}
-	events, ok := k.Repo.(keg.RepositoryEvents)
-	if !ok {
-		return nil, fmt.Errorf("repository does not support live events")
+	ch, err := k.Watch(ctx, id)
+	if err != nil {
+		if errors.Is(err, keg.ErrNotSupported) {
+			return nil, fmt.Errorf("repository does not support live events")
+		}
+		return nil, err
 	}
-	return events.Watch(ctx, id)
+	return ch, nil
 }

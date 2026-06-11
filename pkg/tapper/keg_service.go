@@ -12,35 +12,6 @@ import (
 	"github.com/jlrickert/tapper/pkg/keg"
 )
 
-// nodeQueryResolver evaluates a single query term against a node's data.
-// For key=value terms, it checks the node's meta.yaml attributes.
-// For plain terms, it checks the node's tag set.
-// This bridges the gap between pkg/tapper's resolveQueryTerm (which needs a
-// Keg and Dex) and pkg/keg's per-node callback signature.
-func nodeQueryResolver(term string, data *keg.NodeData) bool {
-	if data == nil {
-		return false
-	}
-	idx := strings.IndexByte(term, '=')
-	if idx < 0 {
-		// Plain tag — check node's tag set.
-		for _, t := range data.Tags() {
-			if t == term {
-				return true
-			}
-		}
-		return false
-	}
-	// Attribute predicate: key=value — check node's meta.
-	key := term[:idx]
-	val := term[idx+1:]
-	if data.Meta == nil {
-		return false
-	}
-	got, ok := data.Meta.Get(key)
-	return ok && got == val
-}
-
 // KegService resolves keg targets from config, project paths, and explicit filesystem locations.
 type KegService struct {
 	// Runtime provides filesystem and environment access used to resolve kegs.
@@ -52,7 +23,7 @@ type KegService struct {
 	// cacheMu guards kegCache for concurrent access.
 	cacheMu sync.Mutex
 	// kegCache memoizes resolved kegs by alias or file-derived cache key.
-	kegCache map[string]*keg.LocalKeg
+	kegCache map[string]keg.Keg
 
 	// authStoreOnce guards the lazy load of authStore. We only touch the
 	// auth file on first remote-keg resolution so local-only workflows
@@ -85,18 +56,8 @@ type ResolveKegOptions struct {
 // ensureCache initializes the in-memory keg cache when needed.
 func (s *KegService) ensureCache() {
 	if s.kegCache == nil {
-		s.kegCache = map[string]*keg.LocalKeg{}
+		s.kegCache = map[string]keg.Keg{}
 	}
-}
-
-// injectDexOpts installs the standard set of extra DexOptions on a resolved
-// keg. This provides the query resolver that enables key=value attribute
-// predicates in config-driven custom indexes (e.g. query: "favorite=true").
-func (s *KegService) injectDexOpts(k *keg.LocalKeg) {
-	if k == nil {
-		return
-	}
-	k.SetExtraDexOpts(keg.WithQueryResolver(nodeQueryResolver))
 }
 
 // tokenResolver returns a keg.TokenResolver backed by the service's lazily
@@ -123,7 +84,7 @@ func (s *KegService) tokenResolver() keg.TokenResolver {
 }
 
 // Resolve returns a keg using explicit path, project, alias, or configured fallback resolution.
-func (s *KegService) Resolve(ctx context.Context, opts ResolveKegOptions) (*keg.LocalKeg, error) {
+func (s *KegService) Resolve(ctx context.Context, opts ResolveKegOptions) (keg.Keg, error) {
 	s.cacheMu.Lock()
 	defer s.cacheMu.Unlock()
 	s.ensureCache()
@@ -167,7 +128,7 @@ func (s *KegService) Resolve(ctx context.Context, opts ResolveKegOptions) (*keg.
 }
 
 // resolveProjectTarget resolves a filesystem-backed keg under known project keg locations.
-func (s *KegService) resolveProjectTarget(ctx context.Context, base string, cache bool) (*keg.LocalKeg, error) {
+func (s *KegService) resolveProjectTarget(ctx context.Context, base string, cache bool) (keg.Keg, error) {
 	rawBase := filepath.Clean(toolkit.ExpandEnv(s.Runtime, base))
 	expandedBase := rawBase
 	if p, err := toolkit.ExpandPath(s.Runtime, rawBase); err == nil {
@@ -228,7 +189,7 @@ func (s *KegService) resolveProjectTarget(ctx context.Context, base string, cach
 // resolveFileKeg resolves a keg from a filesystem root and caches it by normalized path.
 // Symlinks are resolved before generating the cache key so that symlinks or
 // mounts pointing to the same underlying directory share a single cache entry.
-func (s *KegService) resolveFileKeg(ctx context.Context, root string, cache bool) (*keg.LocalKeg, error) {
+func (s *KegService) resolveFileKeg(ctx context.Context, root string, cache bool) (keg.Keg, error) {
 	cleanRoot := filepath.Clean(root)
 	// Resolve symlinks so different paths that point to the same physical
 	// directory produce identical cache keys.
@@ -245,7 +206,6 @@ func (s *KegService) resolveFileKeg(ctx context.Context, root string, cache bool
 	if err != nil {
 		return nil, err
 	}
-	s.injectDexOpts(k)
 
 	if cache {
 		s.kegCache[key] = k
@@ -259,7 +219,7 @@ func (s *KegService) resolveFileKeg(ctx context.Context, root string, cache bool
 // → fallbackKeg (global-user last resort). The default* slots are meant for
 // project config and win first; kegMap routes by path; fallback* are what
 // `tap bootstrap` writes for the global user so anything more specific overrides.
-func (s *KegService) resolvePath(ctx context.Context, path string, cache bool) (*keg.LocalKeg, error) {
+func (s *KegService) resolvePath(ctx context.Context, path string, cache bool) (keg.Keg, error) {
 	s.ensureCache()
 	cfg, err := s.ConfigService.Config(true)
 	if err != nil {
@@ -285,7 +245,7 @@ func (s *KegService) resolvePath(ctx context.Context, path string, cache bool) (
 // bare name with no namespace/hub configured — a project-local keg at
 // <project>/kegs/<name> answers instead, so local project kegs work without
 // any config (the documented last-resort tier).
-func (s *KegService) resolveKegAlias(ctx context.Context, kegAlias string, projectRoot string, cache bool) (*keg.LocalKeg, error) {
+func (s *KegService) resolveKegAlias(ctx context.Context, kegAlias string, projectRoot string, cache bool) (keg.Keg, error) {
 	s.ensureCache()
 	if kegAlias == "" {
 		return nil, fmt.Errorf("no keg configured")
@@ -301,7 +261,6 @@ func (s *KegService) resolveKegAlias(ctx context.Context, kegAlias string, proje
 			return k, kerr
 		}
 		if k != nil {
-			s.injectDexOpts(k)
 			s.kegCache[kegAlias] = k
 		}
 		return k, nil
@@ -331,7 +290,7 @@ func (s *KegService) resolveKegAlias(ctx context.Context, kegAlias string, proje
 }
 
 // resolveProjectAlias resolves a project-local alias at <project>/kegs/<alias>/keg when present.
-func (s *KegService) resolveProjectAlias(ctx context.Context, base string, alias string, cache bool) (*keg.LocalKeg, bool, error) {
+func (s *KegService) resolveProjectAlias(ctx context.Context, base string, alias string, cache bool) (keg.Keg, bool, error) {
 	base = strings.TrimSpace(base)
 	alias = strings.TrimSpace(alias)
 	if base == "" || alias == "" {
