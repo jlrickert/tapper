@@ -35,7 +35,10 @@ type flightDeleteInput struct {
 }
 
 // registerFlightTools exposes flight discovery and management over MCP at
-// parity with the `tap flight list/show/create/update/delete` CLI commands.
+// parity with the `tap flight list/show/create/edit/delete` CLI commands.
+// flight_update is the agent-facing equivalent of the CLI's piped
+// `flight edit`: agents cannot open editors, so the partial-update tool
+// (omitted fields keep their current values) remains the MCP surface.
 func registerFlightTools(srv *sdkmcp.Server, tap *tapper.Tap, _ KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "list_flights",

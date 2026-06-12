@@ -19,13 +19,13 @@ func NewFlightCmd(deps *Deps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "flight",
 		Short: "manage flights",
-		Long:  `A flight restricts which kegs are available and carries agent instructions. Discover flights with "flight list", inspect one with "flight show", and manage Hub-backed flights with create/update/delete.`,
+		Long:  `A flight restricts which kegs are available and carries agent instructions. Discover flights with "flight list", inspect one with "flight show", and manage Hub-backed flights with create/edit/delete.`,
 	}
 	cmd.AddCommand(
 		newFlightListCmd(deps),
 		newFlightShowCmd(deps),
 		newFlightCreateCmd(deps),
-		newFlightUpdateCmd(deps),
+		newFlightEditCmd(deps),
 		newFlightDeleteCmd(deps),
 	)
 	return cmd
@@ -125,36 +125,17 @@ func newFlightCreateCmd(deps *Deps) *cobra.Command {
 	return cmd
 }
 
-func newFlightUpdateCmd(deps *Deps) *cobra.Command {
-	var title, instructions, instructionsFile string
-	var coverSpecs []string
+func newFlightEditCmd(deps *Deps) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "update <ref>",
-		Short: "update a Hub-backed flight",
+		Use:   "edit <ref>",
+		Short: "edit a Hub-backed flight's manifest in the default editor",
+		Long:  `Opens the flight manifest (title, cover, instructions) as YAML in the configured editor; every save is applied to the hub. Piped stdin applies a full manifest without opening an editor.`,
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			// Unset flags stay nil so Tap.UpdateFlight keeps the flight's
-			// current values; the read-merge-write happens there against
-			// the same resolved ref the PUT targets.
-			opts := tapper.UpdateFlightOptions{Ref: args[0]}
-			if cmd.Flags().Changed("title") {
-				opts.Title = &title
-			}
-			if cmd.Flags().Changed("instructions") || cmd.Flags().Changed("instructions-file") {
-				body, err := readFlightInstructions(deps, instructions, instructionsFile)
-				if err != nil {
-					return err
-				}
-				opts.Instructions = &body
-			}
-			if cmd.Flags().Changed("cover") {
-				cover, err := parseFlightCoverSpecs(coverSpecs)
-				if err != nil {
-					return err
-				}
-				opts.Cover = &cover
-			}
-			flight, err := deps.Tap.UpdateFlight(cmd.Context(), opts)
+			flight, err := deps.Tap.EditFlight(cmd.Context(), tapper.EditFlightOptions{
+				Ref:    args[0],
+				Stream: deps.Runtime.Stream(),
+			})
 			if err != nil {
 				return err
 			}
@@ -162,7 +143,6 @@ func newFlightUpdateCmd(deps *Deps) *cobra.Command {
 			return nil
 		},
 	}
-	addFlightWriteFlags(cmd, &title, &instructions, &instructionsFile, &coverSpecs)
 	cmd.ValidArgsFunction = flightArgCompletionFunc(deps)
 	return cmd
 }
