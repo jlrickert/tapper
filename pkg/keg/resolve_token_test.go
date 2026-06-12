@@ -21,7 +21,7 @@ func (s *stubResolver) ResolveToken(_ *kegpkg.Target) string {
 }
 
 // TestResolveTargetToken_Precedence exercises the TokenEnv → Token → resolver
-// precedence indirectly through NewKegFromTarget, inspecting ApiRepo.Token
+// precedence indirectly through NewKegFromTarget, inspecting RemoteKeg.Token
 // on the resulting keg. Using the public entry point keeps the test honest:
 // it verifies the wiring, not just the raw helper.
 func TestResolveTargetToken_Precedence(t *testing.T) {
@@ -96,9 +96,9 @@ func TestResolveTargetToken_Precedence(t *testing.T) {
 			require.NoError(t, err)
 			require.NotNil(t, k)
 
-			apiRepo, ok := k.(*kegpkg.LocalKeg).Repo.(*kegpkg.ApiRepo)
-			require.True(t, ok, "expected ApiRepo, got %T", k.(*kegpkg.LocalKeg).Repo)
-			require.Equal(t, tc.want.token, apiRepo.Token)
+			remote, ok := k.(*kegpkg.RemoteKeg)
+			require.True(t, ok, "expected *RemoteKeg, got %T", k)
+			require.Equal(t, tc.want.token, remote.Token())
 			if tc.resolver != nil {
 				if tc.want.resolverCalled {
 					require.Equal(t, 1, tc.resolver.called, "resolver should have been consulted")

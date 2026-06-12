@@ -11,20 +11,20 @@ import (
 // when writing a response, and RemoteKeg maps (code, status) back to the
 // sentinel when decoding one. Keep the two sides symmetric.
 const (
-	RemoteCodeNotFound      = "NOT_FOUND"
-	RemoteCodeExist         = "EXIST"
-	RemoteCodeDestExists    = "DEST_EXISTS"
-	RemoteCodeConflict      = "CONFLICT"
-	RemoteCodeInvalid       = "INVALID"
-	RemoteCodeLockMismatch  = "LOCK_MISMATCH"
-	RemoteCodeNotLocked     = "NOT_LOCKED"
-	RemoteCodeLock          = "LOCK"
-	RemoteCodeLockTimeout   = "LOCK_TIMEOUT"
-	RemoteCodeNotSupported  = "NOT_SUPPORTED"
-	RemoteCodeUnauthorized  = "UNAUTHORIZED"
-	RemoteCodeForbidden     = "FORBIDDEN"
-	RemoteCodeBadRequest    = "BAD_REQUEST"
-	RemoteCodeInternal      = "INTERNAL"
+	RemoteCodeNotFound     = "NOT_FOUND"
+	RemoteCodeExist        = "EXIST"
+	RemoteCodeDestExists   = "DEST_EXISTS"
+	RemoteCodeConflict     = "CONFLICT"
+	RemoteCodeInvalid      = "INVALID"
+	RemoteCodeLockMismatch = "LOCK_MISMATCH"
+	RemoteCodeNotLocked    = "NOT_LOCKED"
+	RemoteCodeLock         = "LOCK"
+	RemoteCodeLockTimeout  = "LOCK_TIMEOUT"
+	RemoteCodeNotSupported = "NOT_SUPPORTED"
+	RemoteCodeUnauthorized = "UNAUTHORIZED"
+	RemoteCodeForbidden    = "FORBIDDEN"
+	RemoteCodeBadRequest   = "BAD_REQUEST"
+	RemoteCodeInternal     = "INTERNAL"
 )
 
 // remoteCodeTable pairs each sentinel with its wire code and HTTP status.

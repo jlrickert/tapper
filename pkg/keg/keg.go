@@ -83,8 +83,9 @@ func WithTokenResolver(r TokenResolver) KegOption {
 // selects the appropriate repository implementation based on the target's scheme:
 //   - memory:// targets use an in-memory repository
 //   - file:// targets use a filesystem repository
-//   - http:// and https:// targets use an API repository (ApiRepo)
-//   - hub targets use an API repository resolved from repo/user/keg fields
+//   - http:// and https:// targets use a RemoteKeg speaking the hub's
+//     operation API
+//   - hub targets use a RemoteKeg resolved from repo/user/keg fields
 //
 // Returns an error if the target scheme is not supported.
 func NewKegFromTarget(ctx context.Context, target Target, rt *toolkit.Runtime, opts ...KegOption) (Keg, error) {
@@ -110,10 +111,9 @@ func NewKegFromTarget(ctx context.Context, target Target, rt *toolkit.Runtime, o
 	case SchemeHTTP, SchemeHTTPs:
 		token := resolveTargetToken(&target, rt, o.resolver)
 		baseURL := strings.TrimRight(target.Url, "/")
-		repo := NewApiRepo(baseURL, token)
-		repo.Logger = rt.Logger()
-		keg := LocalKeg{target: &target, Repo: repo, Runtime: rt}
-		return &keg, nil
+		keg := NewRemoteKeg(baseURL, token, rt)
+		keg.SetTarget(&target)
+		return keg, nil
 	case SchemeAlias:
 		token := resolveTargetToken(&target, rt, o.resolver)
 		// Build the API base URL from the resolved hub URL, namespace, and
@@ -130,10 +130,9 @@ func NewKegFromTarget(ctx context.Context, target Target, rt *toolkit.Runtime, o
 		}
 		baseURL := fmt.Sprintf("%s/api/v1/@%s/kegs/%s",
 			base, target.Namespace, target.KegName)
-		repo := NewApiRepo(baseURL, token)
-		repo.Logger = rt.Logger()
-		keg := LocalKeg{target: &target, Repo: repo, Runtime: rt}
-		return &keg, nil
+		keg := NewRemoteKeg(baseURL, token, rt)
+		keg.SetTarget(&target)
+		return keg, nil
 	}
 	return nil, fmt.Errorf("unsupported target scheme: %s", target.Scheme())
 }

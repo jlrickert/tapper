@@ -1,7 +1,7 @@
 // Package tapper — hub keg-catalog client calls.
 //
 // These talk to a remote hub's namespace/keg-catalog endpoints (as opposed to
-// the per-keg node API in pkg/keg/repo_api.go): creating a keg and listing the
+// the per-keg operation API in pkg/keg/keg_remote.go): creating a keg and listing the
 // kegs a user can reach. They mirror the slim, dependency-free shape of
 // ValidateToken (auth_whoami.go) — a stand-alone function over
 // http.DefaultClient so tests can point hubURL at an httptest.Server.

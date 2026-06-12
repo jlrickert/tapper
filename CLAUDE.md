@@ -234,9 +234,9 @@ use of `time.Now()` that cannot be driven by a fake clock:
   so the live event for the first write can observe repository state where
   the second hasn't landed yet. The settle window spans real round-trips to
   the hub before deciding a change is genuinely external.
-- `pkg/keg/repo_api.go` (remote lease renewal ticker at half-TTL): the remote
-  HTTP server's TTL is measured in wall-clock seconds, so renewals must fire in
-  real time regardless of the local test clock.
+- `pkg/keg/keg_remote_events.go` (websocket reconnect backoff timer): the
+  live watch retries real network dials against the hub, so the backoff must
+  measure wall-clock time regardless of the local test clock.
 - `pkg/keg/repo_filesystem.go` (100ms retry delay in `FsRepo.WithNodeLock`):
   waits on a cross-process `mkdir` lock directory. The retry interval is a
   real-time yield between filesystem attempts; there is no in-process signal

@@ -15,7 +15,7 @@ import (
 // when `tap auth login` has written a token for a hub and a later
 // command resolves a remote keg pointing at that hub with no TokenEnv
 // or inline Token, KegService must feed the stored token into the
-// resulting ApiRepo. Verifying ApiRepo.Token directly keeps the test
+// resulting RemoteKeg. Verifying RemoteKeg.Token directly keeps the test
 // hermetic — no httptest server needed to observe the observable.
 func TestKegService_Resolve_ThreadsAuthStoreToken(t *testing.T) {
 	t.Parallel()
@@ -56,9 +56,9 @@ hubs:
 	require.NoError(t, err)
 	require.NotNil(t, k)
 
-	apiRepo, ok := k.(*keg.LocalKeg).Repo.(*keg.ApiRepo)
-	require.True(t, ok, "expected ApiRepo, got %T", k.(*keg.LocalKeg).Repo)
-	require.Equal(t, hubToken, apiRepo.Token, "auth store token should flow into ApiRepo")
+	remote, ok := k.(*keg.RemoteKeg)
+	require.True(t, ok, "expected *RemoteKeg, got %T", k)
+	require.Equal(t, hubToken, remote.Token(), "auth store token should flow into RemoteKeg")
 }
 
 // TestKegService_Resolve_TokenEnvStillWinsOverAuthStore guards the
@@ -103,7 +103,7 @@ hubs:
 	})
 	require.NoError(t, err)
 
-	apiRepo, ok := k.(*keg.LocalKeg).Repo.(*keg.ApiRepo)
+	remote, ok := k.(*keg.RemoteKeg)
 	require.True(t, ok)
-	require.Equal(t, "env-token", apiRepo.Token, "TokenEnv must win over auth store")
+	require.Equal(t, "env-token", remote.Token(), "TokenEnv must win over auth store")
 }

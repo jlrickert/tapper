@@ -12,6 +12,8 @@ import (
 	"github.com/coder/websocket/wsjson"
 )
 
+// apiNodeEvent is the hub's live node event wire shape, delivered over the
+// /nodes/{id}/events websocket.
 type apiNodeEvent struct {
 	Type              string   `json:"type"`
 	NodeID            int      `json:"node_id"`
@@ -19,10 +21,11 @@ type apiNodeEvent struct {
 	DestinationNodeID int      `json:"destination_node_id"`
 }
 
-// Watch implements RepositoryEvents for Hub-backed repositories.
-func (a *ApiRepo) Watch(ctx context.Context, ids ...NodeId) (<-chan NodeEvent, error) {
+// Watch implements Keg by subscribing to the hub's per-node websocket event
+// stream (/nodes/{id}/events) for each requested node.
+func (k *RemoteKeg) Watch(ctx context.Context, ids ...NodeId) (<-chan NodeEvent, error) {
 	if len(ids) == 0 {
-		return nil, fmt.Errorf("api live watch requires at least one node id")
+		return nil, fmt.Errorf("remote live watch requires at least one node id")
 	}
 	watchCtx, cancel := context.WithCancel(ctx)
 	out := make(chan NodeEvent, 16)
@@ -32,7 +35,7 @@ func (a *ApiRepo) Watch(ctx context.Context, ids ...NodeId) (<-chan NodeEvent, e
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			a.watchNodeEvents(watchCtx, id, out)
+			k.watchNodeEvents(watchCtx, id, out)
 		}()
 	}
 	go func() {
@@ -43,25 +46,21 @@ func (a *ApiRepo) Watch(ctx context.Context, ids ...NodeId) (<-chan NodeEvent, e
 	return out, nil
 }
 
-// Emit is a no-op for ApiRepo. Hub is the source of truth for API-backed live
-// events, and local writes publish by going through Hub's REST handlers.
-func (a *ApiRepo) Emit(NodeEvent) {}
-
-func (a *ApiRepo) watchNodeEvents(ctx context.Context, id NodeId, out chan<- NodeEvent) {
+func (k *RemoteKeg) watchNodeEvents(ctx context.Context, id NodeId, out chan<- NodeEvent) {
 	backoff := 250 * time.Millisecond
 	for ctx.Err() == nil {
-		conn, resp, err := websocket.Dial(ctx, a.eventsURL(id), &websocket.DialOptions{
-			HTTPClient: a.httpClient(),
-			HTTPHeader: a.eventsHeader(),
+		conn, resp, err := websocket.Dial(ctx, k.eventsURL(id), &websocket.DialOptions{
+			HTTPClient: k.httpClient(),
+			HTTPHeader: k.eventsHeader(),
 		})
 		if err != nil {
 			if resp != nil && isPermanentWatchStatus(resp.StatusCode) {
-				a.logDebug("api live watch terminated",
-					"url", a.eventsURL(id), "status", resp.StatusCode)
+				k.logDebug("remote live watch terminated",
+					"url", k.eventsURL(id), "status", resp.StatusCode)
 				return
 			}
-			a.logDebug("api live watch dial failed; retrying",
-				"url", a.eventsURL(id), "error", err, "backoff", backoff)
+			k.logDebug("remote live watch dial failed; retrying",
+				"url", k.eventsURL(id), "error", err, "backoff", backoff)
 			if sleepContext(ctx, backoff) {
 				return
 			}
@@ -93,17 +92,17 @@ func (a *ApiRepo) watchNodeEvents(ctx context.Context, id NodeId, out chan<- Nod
 	}
 }
 
-// logDebug emits a diagnostic line when a Logger is configured. Live watch
+// logDebug emits a diagnostic line when a logger is configured. Live watch
 // failures are otherwise invisible to the user, so every terminal path in
 // watchNodeEvents must pass through here.
-func (a *ApiRepo) logDebug(msg string, args ...any) {
-	if a.Logger != nil {
-		a.Logger.Debug(msg, args...)
+func (k *RemoteKeg) logDebug(msg string, args ...any) {
+	if k.logger != nil {
+		k.logger.Debug(msg, args...)
 	}
 }
 
-func (a *ApiRepo) eventsURL(id NodeId) string {
-	raw := a.BaseURL + fmt.Sprintf("/nodes/%d/events", id.ID)
+func (k *RemoteKeg) eventsURL(id NodeId) string {
+	raw := k.baseURL + fmt.Sprintf("/nodes/%d/events", id.ID)
 	u, err := url.Parse(raw)
 	if err != nil {
 		return raw
@@ -117,10 +116,10 @@ func (a *ApiRepo) eventsURL(id NodeId) string {
 	return u.String()
 }
 
-func (a *ApiRepo) eventsHeader() http.Header {
+func (k *RemoteKeg) eventsHeader() http.Header {
 	h := make(http.Header)
-	if a.Token != "" {
-		h.Set("Authorization", "Bearer "+a.Token)
+	if k.token != "" {
+		h.Set("Authorization", "Bearer "+k.token)
 	}
 	return h
 }
@@ -176,5 +175,3 @@ func (ev apiNodeEvent) nodeEvents(fallback NodeId) []NodeEvent {
 	}
 	return out
 }
-
-var _ RepositoryEvents = (*ApiRepo)(nil)
