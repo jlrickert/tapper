@@ -9,9 +9,10 @@ flights live in their own manifests and are selected per-invocation with
 
 A flight carries two independent things, either of which may be empty:
 
-1. **A keg allow-list** (`allowedKegs`). When non-empty, any keg resolved during
-   the session must be on the list or the command is rejected. An empty
-   allow-list restricts nothing (an instructions-only flight).
+1. **A keg cover** (`cover`). When non-empty, any keg resolved during the
+   session must be covered or the command is rejected. Each cover entry has a
+   `viewer` or `editor` cap; writes require `editor`. An empty cover restricts
+   nothing for local instructions-only flights.
 2. **Agent instructions** (`instructions`). These are injected into the `tap
    orient` payload at tiers 1–2, so an agent that orients under a flight sees the
    flight's guidance.
@@ -36,35 +37,50 @@ manifest has three optional fields:
 ```yaml
 # <basePath>/flights.d/release-42.yaml
 title: Release 42 cut
-allowedKegs:
-  - tapper            # an alias, or…
-  - "@me/public"      # a fully qualified @namespace/keg
+cover:
+  - namespace: me
+    keg: release-notes
+    role: editor
+  - namespace: me
+    keg: public
+    role: viewer
 instructions: |
   Only touch the release notes and changelog kegs.
   Snapshot every node before editing.
 ```
 
-`allowedKegs` entries are matched either as a config alias or as a qualified
-`@namespace/keg` reference, so both naming styles work.
+A cover entry without an explicit `role` defaults to `viewer` — the same
+default applies to `--cover` specs on the CLI and MCP surfaces; `editor` must
+be requested explicitly.
 
-Remote flights (served by the hub API) are **not yet implemented**; only local
-filesystem flights are discovered today.
+Older local manifests that use `allowedKegs` still load; each bare entry is
+treated as an `editor` cover row for backward compatibility, while an entry
+with an explicit `=viewer` suffix keeps its viewer cap.
+
+Remote flights are served by Hub and addressed canonically as
+`@namespace/+slug`. `tap flight create/update/delete` manage Hub-backed flights;
+local `flights.d` manifests remain read-only files.
 
 ## Commands
 
 | Goal                                  | Command                                   |
 | ------------------------------------- | ----------------------------------------- |
 | List discovered flights               | `tap flight list`                         |
-| Show a flight's allow-list + body     | `tap flight show <name>`                  |
-| Run a command under a flight overlay  | `tap --flight <name> <command>`           |
+| Show a flight's cover + body          | `tap flight show @namespace/+slug`        |
+| Run a command under a flight overlay  | `tap --flight @namespace/+slug <command>` |
+| Create a Hub-backed flight            | `tap flight create @namespace/+slug --cover @namespace/keg=viewer` |
+| Update a Hub-backed flight            | `tap flight update @namespace/+slug --title "..."` (unset flags keep current values) |
+| Delete a Hub-backed flight            | `tap flight delete @namespace/+slug`      |
 
-The same surface is exposed over MCP as the `list_flights` and `flight_show`
-tools, and the `--flight` parameter flows through `orient`.
+The same surface is exposed over MCP as the `list_flights`, `flight_show`,
+`flight_create`, `flight_update`, and `flight_delete` tools, and the
+`--flight` parameter flows through `orient`.
 
 ## Behavior
 
-- A keg outside the active flight's `allowedKegs` is rejected with a
+- A keg outside the active flight's cover is rejected with a
   "keg … is not available in flight …" error.
+- A write against a `viewer` cover row is rejected as viewer-only.
 - A missing `flights.d` directory means "no flights", not an error.
-- `tap orient --flight <name> --tier 1` (or higher) injects the flight's title,
+- `tap orient --flight @namespace/+slug --tier 1` (or higher) injects the flight's title,
   available kegs, and instructions into the orientation payload.

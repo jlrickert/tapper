@@ -51,11 +51,11 @@ func (t *Tap) ImportFromKeg(ctx context.Context, opts ImportFromKegOptions) ([]I
 	}
 	opts.Source.Keg = srcAlias
 
-	srcKeg, err := t.resolveKeg(ctx, opts.Source)
+	srcKeg, err := t.resolveKegForRole(ctx, opts.Source, FlightRoleViewer)
 	if err != nil {
 		return nil, fmt.Errorf("unable to open source keg: %w", err)
 	}
-	tgtKeg, err := t.resolveKeg(ctx, opts.Target)
+	tgtKeg, err := t.resolveKegForRole(ctx, opts.Target, FlightRoleEditor)
 	if err != nil {
 		return nil, fmt.Errorf("unable to open target keg: %w", err)
 	}

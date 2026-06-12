@@ -15,7 +15,7 @@ import (
 type orientInput struct {
 	Host   string `json:"host,omitempty"   jsonschema:"host identifier for host-specific payload (e.g. 'claude' or 'codex')"`
 	Keg    string `json:"keg,omitempty"    jsonschema:"keg alias; pins active-keg resolution and gates the per-keg manifest section at tier 1"`
-	Flight string `json:"flight,omitempty" jsonschema:"flight identifier; reserved for flight-scoped manifest payloads"`
+	Flight string `json:"flight,omitempty" jsonschema:"flight ref to cap available kegs (uses server default if empty)"`
 	Tier   int    `json:"tier,omitempty"   jsonschema:"payload depth: 0 (purpose + active keg + rules summary), 1 (adds linking + snapshot), 2 (adds full canonical body and host-rendered bytes)"`
 }
 
@@ -34,8 +34,7 @@ func registerOrient(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 			OpenWorldHint: boolPtr(false),
 		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in orientInput) (*sdkmcp.CallToolResult, any, error) {
-		kegOpts := resolveKegTarget(in.Keg, defaults)
-		kegOpts.Flight = in.Flight
+		kegOpts := resolveKegTargetWithFlight(in.Keg, in.Flight, defaults)
 		opts := tapper.OrientOptions{
 			KegTargetOptions: kegOpts,
 			Host:             in.Host,

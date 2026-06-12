@@ -21,7 +21,7 @@ type CreateOptions struct {
 }
 
 func (t *Tap) Create(ctx context.Context, opts CreateOptions) (keg.NodeId, error) {
-	k, err := t.resolveKeg(ctx, opts.KegTargetOptions)
+	k, err := t.resolveKegForRole(ctx, opts.KegTargetOptions, FlightRoleEditor)
 	if err != nil {
 		return keg.NodeId{}, fmt.Errorf("unable to determine default keg: %w", err)
 	}

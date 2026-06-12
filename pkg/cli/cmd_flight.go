@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/jlrickert/tapper/pkg/tapper"
 	"github.com/spf13/cobra"
@@ -13,13 +14,20 @@ import (
 //
 //	tap flight list
 //	tap flight show <name>
+//	tap flight create @ns/+slug --cover @ns/keg=viewer
 func NewFlightCmd(deps *Deps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "flight",
-		Short: "list and inspect flights",
-		Long:  `A flight restricts which kegs are available and carries agent instructions. Discover flights with "flight list" and inspect one with "flight show".`,
+		Short: "manage flights",
+		Long:  `A flight restricts which kegs are available and carries agent instructions. Discover flights with "flight list", inspect one with "flight show", and manage Hub-backed flights with create/update/delete.`,
 	}
-	cmd.AddCommand(newFlightListCmd(deps), newFlightShowCmd(deps))
+	cmd.AddCommand(
+		newFlightListCmd(deps),
+		newFlightShowCmd(deps),
+		newFlightCreateCmd(deps),
+		newFlightUpdateCmd(deps),
+		newFlightDeleteCmd(deps),
+	)
 	return cmd
 }
 
@@ -29,9 +37,13 @@ func newFlightListCmd(deps *Deps) *cobra.Command {
 		Short: "list available flights",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			names, err := deps.Tap.ListFlights(cmd.Context(), tapper.ListFlightsOptions{})
+			var warnings []string
+			names, err := deps.Tap.ListFlights(cmd.Context(), tapper.ListFlightsOptions{Warnings: &warnings})
 			if err != nil {
 				return err
+			}
+			for _, w := range warnings {
+				fmt.Fprintf(cmd.ErrOrStderr(), "warning: %s\n", w)
 			}
 			for _, n := range names {
 				fmt.Fprintln(cmd.OutOrStdout(), n)
@@ -43,8 +55,8 @@ func newFlightListCmd(deps *Deps) *cobra.Command {
 
 func newFlightShowCmd(deps *Deps) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "show <name>",
-		Short: "show a flight's allowed kegs and instructions",
+		Use:   "show <ref>",
+		Short: "show a flight's cover roles and instructions",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			flight, err := deps.Tap.GetFlight(cmd.Context(), tapper.GetFlightOptions{Name: args[0]})
@@ -57,10 +69,18 @@ func newFlightShowCmd(deps *Deps) *cobra.Command {
 				fmt.Fprintf(out, "title:  %s\n", flight.Title)
 			}
 			fmt.Fprintf(out, "source: %s\n", flight.Source)
-			if len(flight.AllowedKegs) > 0 {
-				fmt.Fprintf(out, "allowed kegs: %v\n", flight.AllowedKegs)
+			if len(flight.Cover) > 0 {
+				fmt.Fprintln(out, "cover:")
+				for _, c := range flight.Cover {
+					ns := c.Namespace
+					if ns != "" {
+						fmt.Fprintf(out, "  @%s/%s=%s\n", ns, c.Keg, c.Role)
+					} else {
+						fmt.Fprintf(out, "  %s=%s\n", c.Keg, c.Role)
+					}
+				}
 			} else {
-				fmt.Fprintln(out, "allowed kegs: (none — restricts nothing)")
+				fmt.Fprintln(out, "cover: (none; restricts nothing)")
 			}
 			if flight.Instructions != "" {
 				fmt.Fprintf(out, "\n%s\n", flight.Instructions)
@@ -68,12 +88,129 @@ func newFlightShowCmd(deps *Deps) *cobra.Command {
 			return nil
 		},
 	}
-	cmd.ValidArgsFunction = func(cmd *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	cmd.ValidArgsFunction = flightArgCompletionFunc(deps)
+	return cmd
+}
+
+func newFlightCreateCmd(deps *Deps) *cobra.Command {
+	var title, instructions, instructionsFile string
+	var coverSpecs []string
+	cmd := &cobra.Command{
+		Use:   "create <ref>",
+		Short: "create a Hub-backed flight",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cover, err := parseFlightCoverSpecs(coverSpecs)
+			if err != nil {
+				return err
+			}
+			body, err := readFlightInstructions(deps, instructions, instructionsFile)
+			if err != nil {
+				return err
+			}
+			flight, err := deps.Tap.CreateFlight(cmd.Context(), tapper.CreateFlightOptions{
+				Ref:          args[0],
+				Title:        title,
+				Instructions: body,
+				Cover:        cover,
+			})
+			if err != nil {
+				return err
+			}
+			fmt.Fprintln(cmd.OutOrStdout(), flight.Name)
+			return nil
+		},
+	}
+	addFlightWriteFlags(cmd, &title, &instructions, &instructionsFile, &coverSpecs)
+	return cmd
+}
+
+func newFlightUpdateCmd(deps *Deps) *cobra.Command {
+	var title, instructions, instructionsFile string
+	var coverSpecs []string
+	cmd := &cobra.Command{
+		Use:   "update <ref>",
+		Short: "update a Hub-backed flight",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			// Unset flags stay nil so Tap.UpdateFlight keeps the flight's
+			// current values; the read-merge-write happens there against
+			// the same resolved ref the PUT targets.
+			opts := tapper.UpdateFlightOptions{Ref: args[0]}
+			if cmd.Flags().Changed("title") {
+				opts.Title = &title
+			}
+			if cmd.Flags().Changed("instructions") || cmd.Flags().Changed("instructions-file") {
+				body, err := readFlightInstructions(deps, instructions, instructionsFile)
+				if err != nil {
+					return err
+				}
+				opts.Instructions = &body
+			}
+			if cmd.Flags().Changed("cover") {
+				cover, err := parseFlightCoverSpecs(coverSpecs)
+				if err != nil {
+					return err
+				}
+				opts.Cover = &cover
+			}
+			flight, err := deps.Tap.UpdateFlight(cmd.Context(), opts)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintln(cmd.OutOrStdout(), flight.Name)
+			return nil
+		},
+	}
+	addFlightWriteFlags(cmd, &title, &instructions, &instructionsFile, &coverSpecs)
+	cmd.ValidArgsFunction = flightArgCompletionFunc(deps)
+	return cmd
+}
+
+func newFlightDeleteCmd(deps *Deps) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "delete <ref>",
+		Short: "delete a Hub-backed flight",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return deps.Tap.DeleteFlight(cmd.Context(), tapper.DeleteFlightOptions{Ref: args[0]})
+		},
+	}
+	cmd.ValidArgsFunction = flightArgCompletionFunc(deps)
+	return cmd
+}
+
+func addFlightWriteFlags(cmd *cobra.Command, title, instructions, instructionsFile *string, cover *[]string) {
+	cmd.Flags().StringVar(title, "title", "", "flight title")
+	cmd.Flags().StringVar(instructions, "instructions", "", "markdown instructions")
+	cmd.Flags().StringVar(instructionsFile, "instructions-file", "", "read markdown instructions from a file")
+	cmd.Flags().StringArrayVar(cover, "cover", nil, "covered keg and role cap, e.g. @ns/keg=viewer or @ns/keg=editor")
+}
+
+func flightArgCompletionFunc(deps *Deps) func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
+	return func(cmd *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		names, err := deps.Tap.ListFlights(cmd.Context(), tapper.ListFlightsOptions{})
 		if err != nil {
 			return nil, cobra.ShellCompDirectiveNoFileComp
 		}
 		return filterByPrefix(names, toComplete), cobra.ShellCompDirectiveNoFileComp
 	}
-	return cmd
+}
+
+func parseFlightCoverSpecs(specs []string) ([]tapper.FlightCover, error) {
+	return tapper.ParseFlightCoverSpecs(specs)
+}
+
+func readFlightInstructions(deps *Deps, inline, file string) (string, error) {
+	if strings.TrimSpace(file) == "" {
+		return inline, nil
+	}
+	if deps == nil || deps.Runtime == nil {
+		return "", fmt.Errorf("runtime is required")
+	}
+	b, err := deps.Runtime.ReadFile(file)
+	if err != nil {
+		return "", fmt.Errorf("read instructions file: %w", err)
+	}
+	return string(b), nil
 }

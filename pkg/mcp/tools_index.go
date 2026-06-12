@@ -18,7 +18,8 @@ func registerIndexTools(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefault
 // --- index (rebuild) ---
 
 type indexInput struct {
-	Keg string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
+	Keg    string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
+	Flight string `json:"flight,omitempty" jsonschema:"flight ref to cap available kegs (uses server default if empty)"`
 }
 
 func registerIndex(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
@@ -32,7 +33,7 @@ func registerIndex(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in indexInput) (*sdkmcp.CallToolResult, any, error) {
 		opts := tapper.IndexOptions{
-			KegTargetOptions: resolveKegTarget(in.Keg, defaults),
+			KegTargetOptions: resolveKegTargetWithFlight(in.Keg, in.Flight, defaults),
 		}
 		result, err := tap.Index(ctx, opts)
 		if err != nil {
@@ -45,7 +46,8 @@ func registerIndex(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 // --- list_indexes ---
 
 type listIndexesInput struct {
-	Keg string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
+	Keg    string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
+	Flight string `json:"flight,omitempty" jsonschema:"flight ref to cap available kegs (uses server default if empty)"`
 }
 
 func registerListIndexes(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
@@ -58,7 +60,7 @@ func registerListIndexes(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaul
 		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in listIndexesInput) (*sdkmcp.CallToolResult, any, error) {
 		opts := tapper.IndexCatOptions{
-			KegTargetOptions: resolveKegTarget(in.Keg, defaults),
+			KegTargetOptions: resolveKegTargetWithFlight(in.Keg, in.Flight, defaults),
 		}
 		names, err := tap.ListIndexes(ctx, opts)
 		if err != nil {
@@ -71,8 +73,9 @@ func registerListIndexes(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaul
 // --- index_cat ---
 
 type indexCatInput struct {
-	Name string `json:"name" jsonschema:"index file name (e.g. nodes.tsv, tags, links, backlinks, changes.md)"`
-	Keg  string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
+	Name   string `json:"name" jsonschema:"index file name (e.g. nodes.tsv, tags, links, backlinks, changes.md)"`
+	Keg    string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
+	Flight string `json:"flight,omitempty" jsonschema:"flight ref to cap available kegs (uses server default if empty)"`
 }
 
 func registerIndexCat(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
@@ -85,7 +88,7 @@ func registerIndexCat(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults)
 		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in indexCatInput) (*sdkmcp.CallToolResult, any, error) {
 		opts := tapper.IndexCatOptions{
-			KegTargetOptions: resolveKegTarget(in.Keg, defaults),
+			KegTargetOptions: resolveKegTargetWithFlight(in.Keg, in.Flight, defaults),
 			Name:             in.Name,
 		}
 		result, err := tap.IndexCat(ctx, opts)

@@ -22,12 +22,13 @@ func registerWriteTools(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefault
 // --- create ---
 
 type createInput struct {
-	Title string            `json:"title,omitempty" jsonschema:"node title (H1 heading)"`
-	Lead  string            `json:"lead,omitempty" jsonschema:"lead paragraph after the title"`
-	Body  string            `json:"body,omitempty" jsonschema:"full markdown content (overrides title and lead if set)"`
-	Tags  []string          `json:"tags,omitempty" jsonschema:"metadata tags"`
-	Attrs map[string]string `json:"attrs,omitempty" jsonschema:"metadata attributes (e.g. entity=task)"`
-	Keg   string            `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
+	Title  string            `json:"title,omitempty" jsonschema:"node title (H1 heading)"`
+	Lead   string            `json:"lead,omitempty" jsonschema:"lead paragraph after the title"`
+	Body   string            `json:"body,omitempty" jsonschema:"full markdown content (overrides title and lead if set)"`
+	Tags   []string          `json:"tags,omitempty" jsonschema:"metadata tags"`
+	Attrs  map[string]string `json:"attrs,omitempty" jsonschema:"metadata attributes (e.g. entity=task)"`
+	Keg    string            `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
+	Flight string            `json:"flight,omitempty" jsonschema:"flight ref to cap available kegs (uses server default if empty)"`
 }
 
 func registerCreate(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
@@ -40,7 +41,7 @@ func registerCreate(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in createInput) (*sdkmcp.CallToolResult, any, error) {
 		opts := tapper.CreateOptions{
-			KegTargetOptions: resolveKegTarget(in.Keg, defaults),
+			KegTargetOptions: resolveKegTargetWithFlight(in.Keg, in.Flight, defaults),
 			Title:            in.Title,
 			Lead:             in.Lead,
 			Tags:             in.Tags,
@@ -68,6 +69,7 @@ type editInput struct {
 	NodeID  string `json:"node_id" jsonschema:"node ID to edit"`
 	Content string `json:"content" jsonschema:"full markdown content with optional YAML frontmatter"`
 	Keg     string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
+	Flight  string `json:"flight,omitempty" jsonschema:"flight ref to cap available kegs (uses server default if empty)"`
 }
 
 func registerEdit(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
@@ -80,7 +82,7 @@ func registerEdit(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in editInput) (*sdkmcp.CallToolResult, any, error) {
 		opts := tapper.EditOptions{
-			KegTargetOptions: resolveKegTarget(in.Keg, defaults),
+			KegTargetOptions: resolveKegTargetWithFlight(in.Keg, in.Flight, defaults),
 			NodeID:           in.NodeID,
 			Stream: &toolkit.Stream{
 				IsPiped: true,
@@ -101,6 +103,7 @@ type metaInput struct {
 	NodeID  string `json:"node_id" jsonschema:"node ID to inspect or update"`
 	Content string `json:"content,omitempty" jsonschema:"YAML metadata to write (omit to read current metadata)"`
 	Keg     string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
+	Flight  string `json:"flight,omitempty" jsonschema:"flight ref to cap available kegs (uses server default if empty)"`
 }
 
 func registerMeta(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
@@ -113,7 +116,7 @@ func registerMeta(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in metaInput) (*sdkmcp.CallToolResult, any, error) {
 		opts := tapper.MetaOptions{
-			KegTargetOptions: resolveKegTarget(in.Keg, defaults),
+			KegTargetOptions: resolveKegTargetWithFlight(in.Keg, in.Flight, defaults),
 			NodeID:           in.NodeID,
 		}
 
@@ -140,6 +143,7 @@ func registerMeta(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 type removeInput struct {
 	NodeIDs []string `json:"node_ids" jsonschema:"node IDs to remove"`
 	Keg     string   `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
+	Flight  string   `json:"flight,omitempty" jsonschema:"flight ref to cap available kegs (uses server default if empty)"`
 }
 
 func registerRemove(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
@@ -152,7 +156,7 @@ func registerRemove(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in removeInput) (*sdkmcp.CallToolResult, any, error) {
 		opts := tapper.RemoveOptions{
-			KegTargetOptions: resolveKegTarget(in.Keg, defaults),
+			KegTargetOptions: resolveKegTargetWithFlight(in.Keg, in.Flight, defaults),
 			NodeIDs:          in.NodeIDs,
 		}
 
@@ -169,6 +173,7 @@ type moveInput struct {
 	SourceID string `json:"source_id" jsonschema:"source node ID"`
 	DestID   string `json:"dest_id" jsonschema:"destination node ID"`
 	Keg      string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
+	Flight   string `json:"flight,omitempty" jsonschema:"flight ref to cap available kegs (uses server default if empty)"`
 }
 
 func registerMove(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
@@ -181,7 +186,7 @@ func registerMove(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in moveInput) (*sdkmcp.CallToolResult, any, error) {
 		opts := tapper.MoveOptions{
-			KegTargetOptions: resolveKegTarget(in.Keg, defaults),
+			KegTargetOptions: resolveKegTargetWithFlight(in.Keg, in.Flight, defaults),
 			SourceID:         in.SourceID,
 			DestID:           in.DestID,
 		}

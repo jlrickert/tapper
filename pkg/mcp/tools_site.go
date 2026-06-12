@@ -17,6 +17,7 @@ func registerSiteTools(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults
 
 type siteInput struct {
 	Keg      string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
+	Flight   string `json:"flight,omitempty" jsonschema:"flight ref to cap available kegs (uses server default if empty)"`
 	Output   string `json:"output,omitempty" jsonschema:"output directory (default: ./site)"`
 	Title    string `json:"title,omitempty" jsonschema:"override site title"`
 	BaseURL  string `json:"base_url,omitempty" jsonschema:"base URL for absolute links (default: /)"`
@@ -33,7 +34,7 @@ func registerSite(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in siteInput) (*sdkmcp.CallToolResult, any, error) {
 		opts := tapper.SiteOptions{
-			KegTargetOptions: resolveKegTarget(in.Keg, defaults),
+			KegTargetOptions: resolveKegTargetWithFlight(in.Keg, in.Flight, defaults),
 			Output:           in.Output,
 			Title:            in.Title,
 			BaseURL:          in.BaseURL,

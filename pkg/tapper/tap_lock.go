@@ -35,7 +35,7 @@ type ForceUnlockOptions struct {
 
 // Lock acquires a cross-process lock on a node and returns the token.
 func (t *Tap) Lock(ctx context.Context, opts LockOptions) (keg.LockToken, error) {
-	k, err := t.resolveKeg(ctx, opts.KegTargetOptions)
+	k, err := t.resolveKegForRole(ctx, opts.KegTargetOptions, FlightRoleEditor)
 	if err != nil {
 		return "", fmt.Errorf("unable to open keg: %w", err)
 	}
@@ -65,7 +65,7 @@ func (t *Tap) Lock(ctx context.Context, opts LockOptions) (keg.LockToken, error)
 
 // Unlock releases a cross-process lock on a node.
 func (t *Tap) Unlock(ctx context.Context, opts UnlockOptions) error {
-	k, err := t.resolveKeg(ctx, opts.KegTargetOptions)
+	k, err := t.resolveKegForRole(ctx, opts.KegTargetOptions, FlightRoleEditor)
 	if err != nil {
 		return fmt.Errorf("unable to open keg: %w", err)
 	}
@@ -108,7 +108,7 @@ func (t *Tap) LockStatus(ctx context.Context, opts LockStatusOptions) (keg.LockI
 
 // ForceUnlock unconditionally removes a cross-process lock on a node.
 func (t *Tap) ForceUnlock(ctx context.Context, opts ForceUnlockOptions) error {
-	k, err := t.resolveKeg(ctx, opts.KegTargetOptions)
+	k, err := t.resolveKegForRole(ctx, opts.KegTargetOptions, FlightRoleEditor)
 	if err != nil {
 		return fmt.Errorf("unable to open keg: %w", err)
 	}

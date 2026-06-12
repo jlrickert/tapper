@@ -95,8 +95,11 @@ var tapMethodToSurfaces = map[string]struct {
 	"Serve": {CLI: "mcp", MCP: "serve"},
 
 	// Flights (keg restriction + agent instructions)
-	"ListFlights": {CLI: "flight list", MCP: "list_flights"},
-	"GetFlight":   {CLI: "flight show", MCP: "flight_show"},
+	"ListFlights":  {CLI: "flight list", MCP: "list_flights"},
+	"GetFlight":    {CLI: "flight show", MCP: "flight_show"},
+	"CreateFlight": {CLI: "flight create", MCP: "flight_create"},
+	"UpdateFlight": {CLI: "flight update", MCP: "flight_update"},
+	"DeleteFlight": {CLI: "flight delete", MCP: "flight_delete"},
 
 	// Hub keg enumeration
 	"HubListKegs": {CLI: "hub list", MCP: "hub_list"},

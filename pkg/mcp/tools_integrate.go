@@ -15,6 +15,7 @@ import (
 type integrateInput struct {
 	Host   string `json:"host"              jsonschema:"host identifier (e.g. 'claude' or 'codex')"`
 	Keg    string `json:"keg,omitempty"     jsonschema:"keg alias; reserved for future per-keg customization"`
+	Flight string `json:"flight,omitempty" jsonschema:"flight ref to cap available kegs (uses server default if empty)"`
 	DryRun bool   `json:"dry_run,omitempty" jsonschema:"when true, return target paths without writing any files"`
 	Target string `json:"target,omitempty"  jsonschema:"override the default install directory (absolute path)"`
 }
@@ -34,7 +35,7 @@ func registerIntegrate(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults
 		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in integrateInput) (*sdkmcp.CallToolResult, any, error) {
 		opts := tapper.IntegrateOptions{
-			KegTargetOptions: resolveKegTarget(in.Keg, defaults),
+			KegTargetOptions: resolveKegTargetWithFlight(in.Keg, in.Flight, defaults),
 			Host:             in.Host,
 			DryRun:           in.DryRun,
 			Target:           in.Target,

@@ -77,7 +77,8 @@ when an alias is not explicitly configured.
 `pkg/tapper/flight.go` discovers flights for the active hub. A flight is an
 optional restriction on which kegs are available plus a block of agent
 instructions. After a keg is resolved, an active `--flight` gates the result:
-`Tap.enforceFlight` rejects a keg that falls outside the flight's `allowedKegs`
-allow-list (an empty allow-list restricts nothing). `--flight` composes with the
-single-keg selectors rather than replacing them. See
+`Tap.enforceFlight` rejects a keg that falls outside the flight's cover or tries
+to write through a `viewer` cap. Local instructions-only flights with an empty
+cover restrict nothing. `--flight` composes with the single-keg selectors rather
+than replacing them. See
 [Flights](../configuration/flights.md).

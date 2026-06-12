@@ -21,7 +21,7 @@ type RemoveOptions struct {
 }
 
 func (t *Tap) Remove(ctx context.Context, opts RemoveOptions) error {
-	k, err := t.resolveKeg(ctx, opts.KegTargetOptions)
+	k, err := t.resolveKegForRole(ctx, opts.KegTargetOptions, FlightRoleEditor)
 	if err != nil {
 		return fmt.Errorf("unable to open keg: %w", err)
 	}
