@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/jlrickert/cli-toolkit/toolkit"
 )
 
 // Init initializes a new keg by creating the config file, zero node with default
@@ -105,26 +107,6 @@ func (k *LocalKeg) Create(ctx context.Context, opts *CreateOptions) (NodeId, err
 
 	now := k.Runtime.Clock().Now()
 
-	// Single-round-trip create for backends that allocate the id and persist
-	// the initial payload in one operation (e.g. the HTTP API's POST /nodes).
-	// The id is assigned by the backend, so the default heading can't embed it.
-	if creator, ok := k.Repo.(RepositoryNodeCreator); ok {
-		nodeData, err := k.buildNodeData(ctx, opts, now, "New Node")
-		if err != nil {
-			return NodeId{}, err
-		}
-		id, err := creator.CreateNode(ctx, NodeCreate{
-			Content: []byte(nodeData.Content.Body),
-			Meta:    []byte(nodeData.Meta.ToYAML()),
-			Stats:   nodeData.Stats,
-		})
-		if err != nil {
-			return NodeId{}, fmt.Errorf("create: %w", err)
-		}
-		nodeData.ID = id
-		return id, k.addNodeToDex(ctx, nodeData, &now)
-	}
-
 	// Reserve next ID
 	id, err := k.Repo.Next(ctx)
 	if err != nil {
@@ -157,12 +139,19 @@ func (k *LocalKeg) Create(ctx context.Context, opts *CreateOptions) (NodeId, err
 	return id, k.addNodeToDex(ctx, nodeData, &now)
 }
 
-// buildNodeData assembles the content/meta/stats for a new node from opts. The
-// node id is not part of the result (callers set it once known) except via
-// fallbackHeading, the H1 used when opts carries neither a Body nor a Title —
-// local creates pass "NodeId <id>" there; remote creates, where the id is
-// assigned later, pass a generic heading.
+// buildNodeData assembles the content/meta/stats for a new node from opts. It
+// delegates to the package-level buildCreateNodeData; see that function for
+// the fallbackHeading contract.
 func (k *LocalKeg) buildNodeData(ctx context.Context, opts *CreateOptions, now time.Time, fallbackHeading string) (*NodeData, error) {
+	return buildCreateNodeData(ctx, k.Runtime, opts, now, fallbackHeading)
+}
+
+// buildCreateNodeData assembles the content/meta/stats for a new node from
+// opts. The node id is not part of the result (callers set it once known)
+// except via fallbackHeading, the H1 used when opts carries neither a Body nor
+// a Title — local creates pass "NodeId <id>" there; remote creates, where the
+// id is assigned by the hub, pass a generic heading.
+func buildCreateNodeData(ctx context.Context, rt *toolkit.Runtime, opts *CreateOptions, now time.Time, fallbackHeading string) (*NodeData, error) {
 	var rawContent []byte
 	if len(opts.Body) > 0 {
 		rawContent = opts.Body
@@ -179,7 +168,7 @@ func (k *LocalKeg) buildNodeData(ctx context.Context, opts *CreateOptions, now t
 		rawContent = []byte(b.String())
 	}
 
-	content, err := ParseContent(k.Runtime, rawContent, MarkdownContentFilename)
+	content, err := ParseContent(rt, rawContent, MarkdownContentFilename)
 	if err != nil {
 		return nil, fmt.Errorf("invalid content: %w", err)
 	}
