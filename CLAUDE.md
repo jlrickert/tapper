@@ -71,14 +71,28 @@ go vet ./...
 
 ### Key Types and Flow
 
-**Keg** (`pkg/keg/keg.go`) is the central service. It wraps a `Repository`
-interface and a `*toolkit.Runtime` (from `cli-toolkit`). All node operations
-flow through Keg via two parallel entry points:
+**Keg** (`pkg/keg/keg_iface.go`) is the single-keg business **interface**:
+every method is one logical operation, and implementations own their
+orchestration internally (locking discipline, dex/index maintenance, stats
+touching). Two implementations exist:
+
+- `*keg.LocalKeg` (`keg.go` + `keg_local_*.go`) orchestrates a `Repository`
+  (`FsRepo`, `MemoryRepo`, or the hub's server-side `PgRepo`) and maintains
+  derived state itself.
+- `*keg.RemoteKeg` (`keg_remote.go`) speaks tapper-hub's operation-level HTTP
+  API — one request per operation; all orchestration happens server-side.
+
+`pkg/tapper` resolves a keg via `keg.NewKegFromTarget`, which returns the
+interface; `pkg/tapper` never touches `Repository` directly. All node
+operations flow through the Keg interface via two parallel entry points:
 
 ```
-CLI command   → pkg/cli (Cobra)    → pkg/tapper.Tap → pkg/keg.Keg → Repository
-MCP tool call → pkg/mcp (JSON-RPC) → pkg/tapper.Tap → pkg/keg.Keg → Repository
+CLI command   → pkg/cli (Cobra)    → pkg/tapper.Tap → keg.Keg → storage
+MCP tool call → pkg/mcp (JSON-RPC) → pkg/tapper.Tap → keg.Keg → storage
 ```
+
+where `keg.Keg` is a `LocalKeg` over `FsRepo`/`MemoryRepo` for local kegs, or
+a `RemoteKeg` over the hub's operation API for remote kegs.
 
 Both paths converge at `pkg/tapper.Tap`, sharing the same method and `*Options`
 struct for each feature. The CLI path uses `applyKegTargetProfile()` to resolve
@@ -87,11 +101,15 @@ Cobra flags into options and writes results to stdout. The MCP path uses
 returns `CallToolResult` values. Server wiring in `NewServer()` calls 14
 `register*Tools()` functions to expose the full Tap surface over stdio JSON-RPC.
 
-**Repository** (`pkg/keg/repository.go`) is the storage contract with two
-implementations:
+**Repository** (`pkg/keg/repository.go`) is the **local-only** storage
+contract — remote kegs do not go through it (RemoteKeg talks to the hub's
+operation API instead). Two implementations live in this repo:
 
 - `MemoryRepo` (`repo_memory.go`) — in-memory, used in tests
 - `FsRepo` (`repo_filesystem.go`) — filesystem-backed, numbered directories
+
+(tapper-hub provides a third, Postgres-backed `PgRepo`, driven by a
+server-side `LocalKeg`.)
 
 **Dex** (`pkg/keg/dex.go`) is the in-memory index aggregator. It holds
 NodeIndex, TagIndex, LinkIndex, BacklinkIndex, and ChangesIndex. Written as
@@ -255,12 +273,22 @@ use of `time.Now()` that cannot be driven by a fake clock:
   uses in-process mutex + map.
 - **Lock context propagation**: `contextWithNodeLock`/`contextHasNodeLock` allow
   re-entrant locking within the same call chain.
-- **Dex mutex**: `Dex.mu sync.RWMutex` guards index data; `Keg.dexMu` guards
-  lazy initialization.
+- **Dex mutex**: `Dex.mu sync.RWMutex` guards index data; `LocalKeg.dexMu`
+  guards lazy initialization.
 - **FsRepo.Next()**: Uses atomic mkdir loop to prevent duplicate ID allocation
   across concurrent callers.
 - **KegService cache**: `cacheMu sync.Mutex` guards the shared keg resolution
   cache.
+- **Remote operations are single-request**: each `RemoteKeg` method is one
+  HTTP round trip, and the hub serializes per-node writes server-side
+  (`pg_advisory_xact_lock`). There is no client-side lock lease or dex write
+  over HTTP.
+- **Cross-process locks are session primitives**: `Keg.Lock`/`Unlock`/
+  `LockStatus`/`ForceUnlock` (used by `tap lock` / `tap edit`) are opt-in
+  advisory locks — backed by `RepositoryLock` locally and the hub's
+  `/nodes/{id}/lock` endpoints remotely. Leases carry a TTL
+  (`DefaultLockTTL`, 5 minutes) with **no renewal**: a session that outlives
+  the TTL loses the lock.
 
 ## Testing
 
@@ -353,8 +381,10 @@ validation.
   writes the config file and zero node.
 - The Dex is lazily loaded and cached; direct `k.dex` assignment is guarded by
   `k.dexMu`.
-- Node content (README.md) and meta (meta.yaml) and stats (stats.json) are
-  separate reads.
+- Node content (README.md), meta (meta.yaml), and stats (stats.json) are
+  separate reads **at the Repository layer**. At the business layer,
+  `Keg.ReadNode` returns the full node state (content, raw meta, stats, asset
+  lists) in one operation — a single round trip on RemoteKeg.
 - The keg config file is named `keg` (no extension), though `keg.yaml` and
   `keg.yml` are also accepted.
 - `FsRepo.Next()` creates the node directory as a reservation — `WriteContent`
