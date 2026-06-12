@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -156,16 +157,6 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 				}
 			}
 
-			if deps.Profile.withDefaults().AllowKegAliasFlags {
-				if regErr := cmd.Root().RegisterFlagCompletionFunc("keg", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-					// Kegs are no longer enumerable from config (the alias map is
-					// gone); offer no completions rather than stray file paths.
-					return nil, cobra.ShellCompDirectiveNoFileComp
-				}); regErr != nil {
-					return fmt.Errorf("failed to register --keg completion: %w", regErr)
-				}
-			}
-
 			if deps.ConfigPath != "" {
 				_, err := tapper.ReadConfig(deps.Runtime, deps.ConfigPath)
 				deps.Err = err
@@ -235,6 +226,7 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 	})
 	if deps.Profile.withDefaults().AllowKegAliasFlags {
 		cmd.PersistentFlags().StringVarP(&deps.KegTargetOptions.Keg, "keg", "k", "", "alias of the keg to use")
+		mustRegisterFlagCompletion(cmd, "keg", kegFlagCompletionFunc(deps))
 		cmd.PersistentFlags().BoolVar(&deps.KegTargetOptions.Project, "project", false, "resolve against the project-local keg")
 		cmd.PersistentFlags().StringVar(&deps.KegTargetOptions.Path, "path", "", "explicit project path to resolve a local keg")
 		cmd.PersistentFlags().BoolVar(&deps.KegTargetOptions.Cwd, "cwd", false, "resolve project keg at current working directory")
@@ -315,6 +307,122 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 	}
 
 	return cmd
+}
+
+const kegFlagCompletionTimeout = 750 * time.Millisecond
+
+func kegFlagCompletionFunc(deps *Deps) func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
+	return func(cmd *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		return kegFlagCompletions(cmd.Context(), deps, toComplete), cobra.ShellCompDirectiveNoFileComp
+	}
+}
+
+func kegFlagCompletions(ctx context.Context, deps *Deps, toComplete string) []string {
+	if deps == nil || deps.Runtime == nil {
+		return nil
+	}
+	tap, err := completionTap(deps)
+	if err != nil {
+		return nil
+	}
+
+	cfg, _ := tap.ConfigService.Config(true)
+	bareNamespace := completionBareNamespace(deps.Runtime, cfg)
+
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	listCtx, cancel := context.WithTimeout(ctx, kegFlagCompletionTimeout)
+	defer cancel()
+
+	kegs, err := tap.HubListKegs(listCtx, tapper.HubListOptions{})
+	if err != nil {
+		return nil
+	}
+
+	seen := map[string]struct{}{}
+	var out []string
+	add := func(s string) {
+		if !strings.HasPrefix(s, toComplete) {
+			return
+		}
+		if _, ok := seen[s]; ok {
+			return
+		}
+		seen[s] = struct{}{}
+		out = append(out, s)
+	}
+
+	for _, ref := range kegs {
+		add(ref)
+		ns, name, ok := splitCanonicalKegRef(ref)
+		if ok && ns == bareNamespace {
+			add(name)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+func completionTap(deps *Deps) (*tapper.Tap, error) {
+	if deps.Tap != nil {
+		return deps.Tap, nil
+	}
+	wd, err := deps.Runtime.Getwd()
+	if err != nil {
+		return nil, err
+	}
+	return tapper.NewTap(tapper.TapOptions{
+		Root:       wd,
+		ConfigPath: deps.ConfigPath,
+		Runtime:    deps.Runtime,
+	})
+}
+
+func completionBareNamespace(rt *toolkit.Runtime, cfg *tapper.Config) string {
+	if cfg == nil {
+		return ""
+	}
+	if ns := strings.TrimSpace(cfg.DefaultNamespace()); ns != "" {
+		return ns
+	}
+	if ns := strings.TrimSpace(cfg.FallbackNamespace()); ns != "" {
+		return ns
+	}
+	target, err := cfg.ResolveAlias(rt, "__tap_completion_probe__")
+	if err == nil && target != nil {
+		if ns := strings.TrimSpace(target.Namespace); ns != "" {
+			return ns
+		}
+	}
+
+	hubName := strings.TrimSpace(cfg.DefaultHub())
+	if hubName == "" {
+		hubName = strings.TrimSpace(cfg.FallbackHub())
+	}
+	if hubName != "" {
+		if entry, ok := cfg.Hub(hubName); ok {
+			if ns := strings.TrimSpace(entry.Namespace); ns != "" {
+				return ns
+			}
+			if strings.TrimSpace(entry.Kind) == tapper.HubKindLocal {
+				return tapper.LocalHubName
+			}
+		}
+	}
+	return ""
+}
+
+func splitCanonicalKegRef(ref string) (string, string, bool) {
+	ref = strings.TrimSpace(ref)
+	if !strings.HasPrefix(ref, "@") {
+		return "", "", false
+	}
+	ns, name, ok := strings.Cut(strings.TrimPrefix(ref, "@"), "/")
+	if !ok || ns == "" || name == "" {
+		return "", "", false
+	}
+	return ns, name, true
 }
 
 func filterRepoTargetFlagsInHelp(cmd *cobra.Command) {

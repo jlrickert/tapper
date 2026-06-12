@@ -109,8 +109,7 @@ func TestTap_RootPersistentKegFlagNumericShorthandCompletionUsesCat(t *testing.T
 }
 
 // TestTap_RootPersistentKegFlagCompletion verifies the root persistent --keg
-// flag completer is registered and returns no suggestions without erroring:
-// with the alias map removed, kegs are no longer enumerable from config.
+// flag completer is registered and returns logical keg references.
 func TestTap_RootPersistentKegFlagCompletion(t *testing.T) {
 	t.Parallel()
 
@@ -120,7 +119,8 @@ func TestTap_RootPersistentKegFlagCompletion(t *testing.T) {
 	require.NoError(t, comp.Err)
 
 	suggestions := parseCompletionSuggestions(string(comp.Stdout))
-	require.Empty(t, suggestions)
+	require.Contains(t, suggestions, "@local/personal")
+	require.Contains(t, suggestions, "personal")
 }
 
 func TestTap_GlobalFlagsMutuallyExclusive(t *testing.T) {
