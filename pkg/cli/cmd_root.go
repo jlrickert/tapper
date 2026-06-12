@@ -231,9 +231,7 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 		cmd.PersistentFlags().StringVar(&deps.KegTargetOptions.Path, "path", "", "explicit project path to resolve a local keg")
 		cmd.PersistentFlags().BoolVar(&deps.KegTargetOptions.Cwd, "cwd", false, "resolve project keg at current working directory")
 		cmd.PersistentFlags().StringVar(&deps.KegTargetOptions.Flight, "flight", "", "restrict available kegs and inject flight instructions; composes with --keg/--project/--path/--cwd")
-		mustRegisterFlagCompletion(cmd, "flight", func(_ *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
-			return nil, cobra.ShellCompDirectiveNoFileComp
-		})
+		mustRegisterFlagCompletion(cmd, "flight", flightFlagCompletionFunc(deps))
 		// A flight is an overlay (a keg restriction plus instructions), not a
 		// target selector, so it composes with the single-keg selectors rather
 		// than excluding them.
@@ -315,6 +313,32 @@ func kegFlagCompletionFunc(deps *Deps) func(*cobra.Command, []string, string) ([
 	return func(cmd *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		return kegFlagCompletions(cmd.Context(), deps, toComplete), cobra.ShellCompDirectiveNoFileComp
 	}
+}
+
+func flightFlagCompletionFunc(deps *Deps) func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
+	return func(cmd *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		return flightFlagCompletions(cmd.Context(), deps, toComplete), cobra.ShellCompDirectiveNoFileComp
+	}
+}
+
+func flightFlagCompletions(ctx context.Context, deps *Deps, toComplete string) []string {
+	if deps == nil || deps.Runtime == nil {
+		return nil
+	}
+	tap, err := completionTap(deps)
+	if err != nil {
+		return nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	listCtx, cancel := context.WithTimeout(ctx, kegFlagCompletionTimeout)
+	defer cancel()
+	flights, err := tap.ListFlights(listCtx, tapper.ListFlightsOptions{})
+	if err != nil {
+		return nil
+	}
+	return filterByPrefix(flights, toComplete)
 }
 
 func kegFlagCompletions(ctx context.Context, deps *Deps, toComplete string) []string {

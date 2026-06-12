@@ -113,7 +113,7 @@ func TestTap_Orient_FlightInjectsInstructions(t *testing.T) {
 		KegTargetOptions: tapper.KegTargetOptions{Flight: "backend"},
 	})
 	require.NoError(t, err)
-	require.Contains(t, payload, "## Flight `backend`")
+	require.Contains(t, payload, "## Flight `@local/+backend`")
 	require.Contains(t, payload, "Touch only backend kegs.")
 	require.Contains(t, payload, "personal")
 }

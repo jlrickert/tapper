@@ -266,9 +266,17 @@ func buildOrientPayload(host string, active activeKegLabel, manifestKeg string, 
 			b.WriteString(flight.Title)
 			b.WriteString("\n\n")
 		}
-		if len(flight.AllowedKegs) > 0 {
+		if len(flight.Cover) > 0 {
+			parts := make([]string, 0, len(flight.Cover))
+			for _, c := range flight.Cover {
+				ref := c.Keg
+				if c.Namespace != "" {
+					ref = "@" + c.Namespace + "/" + c.Keg
+				}
+				parts = append(parts, ref+"="+string(c.Role))
+			}
 			b.WriteString("Available kegs in this flight: ")
-			b.WriteString(strings.Join(flight.AllowedKegs, ", "))
+			b.WriteString(strings.Join(parts, ", "))
 			b.WriteString("\n\n")
 		}
 		if flight.Instructions != "" {

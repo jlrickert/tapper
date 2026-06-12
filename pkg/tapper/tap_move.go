@@ -16,7 +16,7 @@ type MoveOptions struct {
 }
 
 func (t *Tap) Move(ctx context.Context, opts MoveOptions) error {
-	k, err := t.resolveKeg(ctx, opts.KegTargetOptions)
+	k, err := t.resolveKegForRole(ctx, opts.KegTargetOptions, FlightRoleEditor)
 	if err != nil {
 		return fmt.Errorf("unable to open keg: %w", err)
 	}

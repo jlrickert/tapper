@@ -70,6 +70,7 @@ func NewTap(opts TapOptions) (*Tap, error) {
 	flightService := &FlightService{
 		Runtime:       rt,
 		ConfigService: configService,
+		KegService:    kegService,
 	}
 	return &Tap{
 		Runtime:        rt,
@@ -117,6 +118,10 @@ func (t *Tap) LookupKeg(ctx context.Context, kegAlias string) (keg.Keg, error) {
 }
 
 func (t *Tap) resolveKeg(ctx context.Context, opts KegTargetOptions) (keg.Keg, error) {
+	return t.resolveKegForRole(ctx, opts, FlightRoleViewer)
+}
+
+func (t *Tap) resolveKegForRole(ctx context.Context, opts KegTargetOptions, role FlightRole) (keg.Keg, error) {
 	k, err := t.KegService.Resolve(ctx, ResolveKegOptions{
 		Root:    t.Root,
 		Keg:     opts.Keg,
@@ -129,8 +134,8 @@ func (t *Tap) resolveKeg(ctx context.Context, opts KegTargetOptions) (keg.Keg, e
 		return nil, err
 	}
 	// An active flight restricts which kegs are available; a keg outside the
-	// flight's allow-list is rejected.
-	if err := t.enforceFlight(ctx, opts.Flight, k); err != nil {
+	// flight's cover is rejected, and writes require an editor-cap cover row.
+	if err := t.enforceFlight(ctx, opts.Flight, k, role); err != nil {
 		return nil, err
 	}
 	return k, nil

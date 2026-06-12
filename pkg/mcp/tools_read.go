@@ -25,6 +25,7 @@ func registerReadTools(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults
 type catInput struct {
 	NodeIDs     []string `json:"node_ids" jsonschema:"node IDs to read"`
 	Keg         string   `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
+	Flight      string   `json:"flight,omitempty" jsonschema:"flight ref to cap available kegs (uses server default if empty)"`
 	ContentOnly bool     `json:"content_only,omitempty" jsonschema:"return content without frontmatter"`
 	MetaOnly    bool     `json:"meta_only,omitempty" jsonschema:"return metadata only"`
 	StatsOnly   bool     `json:"stats_only,omitempty" jsonschema:"return stats only"`
@@ -43,7 +44,7 @@ func registerCat(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 		opts := tapper.CatOptions{
 			NodeIDs:          in.NodeIDs,
 			Query:            in.Query,
-			KegTargetOptions: resolveKegTarget(in.Keg, defaults),
+			KegTargetOptions: resolveKegTargetWithFlight(in.Keg, in.Flight, defaults),
 			ContentOnly:      in.ContentOnly,
 			MetaOnly:         in.MetaOnly,
 			StatsOnly:        in.StatsOnly,
@@ -61,6 +62,7 @@ func registerCat(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 type listInput struct {
 	Query   string `json:"query,omitempty" jsonschema:"boolean query expression to filter nodes. Supports tags ('golang'), key=value attributes ('entity=plan'), and dot-prefix stats fields ('.created>2026-01-01', '.accessCount>=5', '.hash=abc123'). Combine with 'and', 'or', 'not'."`
 	Keg     string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
+	Flight  string `json:"flight,omitempty" jsonschema:"flight ref to cap available kegs (uses server default if empty)"`
 	Format  string `json:"format,omitempty" jsonschema:"output format (%i=id %d=date %t=title)"`
 	IdOnly  bool   `json:"id_only,omitempty" jsonschema:"return node IDs only"`
 	Reverse bool   `json:"reverse,omitempty" jsonschema:"reverse output order"`
@@ -79,7 +81,7 @@ func registerList(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in listInput) (*sdkmcp.CallToolResult, any, error) {
 		opts := tapper.ListOptions{
-			KegTargetOptions: resolveKegTarget(in.Keg, defaults),
+			KegTargetOptions: resolveKegTargetWithFlight(in.Keg, in.Flight, defaults),
 			Query:            in.Query,
 			Format:           in.Format,
 			IdOnly:           in.IdOnly,
@@ -101,6 +103,7 @@ func registerList(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 type grepInput struct {
 	Query      string `json:"query" jsonschema:"regex pattern to search node content"`
 	Keg        string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
+	Flight     string `json:"flight,omitempty" jsonschema:"flight ref to cap available kegs (uses server default if empty)"`
 	Format     string `json:"format,omitempty" jsonschema:"output format (%i=id %d=date %t=title); use id_only for compact MCP output"`
 	IdOnly     bool   `json:"id_only,omitempty" jsonschema:"return node IDs only (recommended for MCP to reduce token usage)"`
 	Reverse    bool   `json:"reverse,omitempty" jsonschema:"reverse output order"`
@@ -120,7 +123,7 @@ func registerGrep(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in grepInput) (*sdkmcp.CallToolResult, any, error) {
 		opts := tapper.GrepOptions{
-			KegTargetOptions: resolveKegTarget(in.Keg, defaults),
+			KegTargetOptions: resolveKegTargetWithFlight(in.Keg, in.Flight, defaults),
 			Query:            in.Query,
 			Format:           in.Format,
 			IdOnly:           in.IdOnly,
@@ -143,6 +146,7 @@ func registerGrep(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 type tagsInput struct {
 	Query   string `json:"query,omitempty" jsonschema:"boolean expression to filter by tags, attributes, and dot-prefix stats fields (e.g. '.created>2026-01-01 and entity=plan')"`
 	Keg     string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
+	Flight  string `json:"flight,omitempty" jsonschema:"flight ref to cap available kegs (uses server default if empty)"`
 	Format  string `json:"format,omitempty" jsonschema:"output format (%i=id %d=date %t=title)"`
 	IdOnly  bool   `json:"id_only,omitempty" jsonschema:"return node IDs only"`
 	Reverse bool   `json:"reverse,omitempty" jsonschema:"reverse output order"`
@@ -160,7 +164,7 @@ func registerTags(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in tagsInput) (*sdkmcp.CallToolResult, any, error) {
 		opts := tapper.TagsOptions{
-			KegTargetOptions: resolveKegTarget(in.Keg, defaults),
+			KegTargetOptions: resolveKegTargetWithFlight(in.Keg, in.Flight, defaults),
 			Query:            in.Query,
 			Format:           in.Format,
 			IdOnly:           in.IdOnly,
@@ -181,6 +185,7 @@ func registerTags(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 type backlinksInput struct {
 	NodeIDs []string `json:"node_ids" jsonschema:"target node IDs to find incoming links for (results merged and deduplicated)"`
 	Keg     string   `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
+	Flight  string   `json:"flight,omitempty" jsonschema:"flight ref to cap available kegs (uses server default if empty)"`
 	Format  string   `json:"format,omitempty" jsonschema:"output format (%i=id %d=date %t=title)"`
 	IdOnly  bool     `json:"id_only,omitempty" jsonschema:"return node IDs only"`
 	Reverse bool     `json:"reverse,omitempty" jsonschema:"reverse output order"`
@@ -198,7 +203,7 @@ func registerBacklinks(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults
 		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in backlinksInput) (*sdkmcp.CallToolResult, any, error) {
 		opts := tapper.BacklinksOptions{
-			KegTargetOptions: resolveKegTarget(in.Keg, defaults),
+			KegTargetOptions: resolveKegTargetWithFlight(in.Keg, in.Flight, defaults),
 			NodeIDs:          in.NodeIDs,
 			Format:           in.Format,
 			IdOnly:           in.IdOnly,
@@ -219,6 +224,7 @@ func registerBacklinks(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults
 type linksInput struct {
 	NodeIDs []string `json:"node_ids" jsonschema:"source node IDs to find outgoing links for (results merged and deduplicated)"`
 	Keg     string   `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
+	Flight  string   `json:"flight,omitempty" jsonschema:"flight ref to cap available kegs (uses server default if empty)"`
 	Format  string   `json:"format,omitempty" jsonschema:"output format (%i=id %d=date %t=title)"`
 	IdOnly  bool     `json:"id_only,omitempty" jsonschema:"return node IDs only"`
 	Reverse bool     `json:"reverse,omitempty" jsonschema:"reverse output order"`
@@ -236,7 +242,7 @@ func registerLinks(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in linksInput) (*sdkmcp.CallToolResult, any, error) {
 		opts := tapper.LinksOptions{
-			KegTargetOptions: resolveKegTarget(in.Keg, defaults),
+			KegTargetOptions: resolveKegTargetWithFlight(in.Keg, in.Flight, defaults),
 			NodeIDs:          in.NodeIDs,
 			Format:           in.Format,
 			IdOnly:           in.IdOnly,
@@ -256,6 +262,7 @@ func registerLinks(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 
 type infoInput struct {
 	Keg     string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
+	Flight  string `json:"flight,omitempty" jsonschema:"flight ref to cap available kegs (uses server default if empty)"`
 	Minimal *bool  `json:"minimal,omitempty" jsonschema:"return only core config fields (default true)"`
 }
 
@@ -273,7 +280,7 @@ func registerInfo(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 			minimal = *in.Minimal
 		}
 		opts := tapper.InfoOptions{
-			KegTargetOptions: resolveKegTarget(in.Keg, defaults),
+			KegTargetOptions: resolveKegTargetWithFlight(in.Keg, in.Flight, defaults),
 			Minimal:          minimal,
 		}
 		result, err := tap.Info(ctx, opts)
@@ -287,7 +294,8 @@ func registerInfo(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 // --- keg_info ---
 
 type kegInfoInput struct {
-	Keg string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
+	Keg    string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
+	Flight string `json:"flight,omitempty" jsonschema:"flight ref to cap available kegs (uses server default if empty)"`
 }
 
 func registerKegInfo(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
@@ -300,7 +308,7 @@ func registerKegInfo(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) 
 		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in kegInfoInput) (*sdkmcp.CallToolResult, any, error) {
 		opts := tapper.KegInfoOptions{
-			KegTargetOptions: resolveKegTarget(in.Keg, defaults),
+			KegTargetOptions: resolveKegTargetWithFlight(in.Keg, in.Flight, defaults),
 		}
 		result, err := tap.KegInfo(ctx, opts)
 		if err != nil {
@@ -315,6 +323,7 @@ func registerKegInfo(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) 
 type statsInput struct {
 	NodeID string `json:"node_id" jsonschema:"node ID to inspect"`
 	Keg    string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
+	Flight string `json:"flight,omitempty" jsonschema:"flight ref to cap available kegs (uses server default if empty)"`
 }
 
 func registerStats(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
@@ -327,7 +336,7 @@ func registerStats(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in statsInput) (*sdkmcp.CallToolResult, any, error) {
 		opts := tapper.StatsOptions{
-			KegTargetOptions: resolveKegTarget(in.Keg, defaults),
+			KegTargetOptions: resolveKegTargetWithFlight(in.Keg, in.Flight, defaults),
 			NodeID:           in.NodeID,
 		}
 		result, err := tap.Stats(ctx, opts)

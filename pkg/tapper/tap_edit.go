@@ -51,7 +51,13 @@ type MetaOptions struct {
 //
 
 func (t *Tap) Meta(ctx context.Context, opts MetaOptions) (string, error) {
-	k, err := t.resolveKeg(ctx, opts.KegTargetOptions)
+	// Meta only writes when editing or consuming piped input; a plain
+	// read must stay available under a viewer-cap flight cover.
+	role := FlightRoleViewer
+	if opts.Edit || (opts.Stream != nil && opts.Stream.IsPiped) {
+		role = FlightRoleEditor
+	}
+	k, err := t.resolveKegForRole(ctx, opts.KegTargetOptions, role)
 	if err != nil {
 		return "", fmt.Errorf("unable to open keg: %w", err)
 	}
@@ -123,7 +129,7 @@ func (t *Tap) Meta(ctx context.Context, opts MetaOptions) (string, error) {
 //
 // If stdin is piped, it seeds the content directly without opening an editor.
 func (t *Tap) Edit(ctx context.Context, opts EditOptions) error {
-	k, err := t.resolveKeg(ctx, opts.KegTargetOptions)
+	k, err := t.resolveKegForRole(ctx, opts.KegTargetOptions, FlightRoleEditor)
 	if err != nil {
 		return fmt.Errorf("unable to open keg: %w", err)
 	}

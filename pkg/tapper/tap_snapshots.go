@@ -32,7 +32,7 @@ type NodeRestoreOptions struct {
 }
 
 func (t *Tap) NodeHistory(ctx context.Context, opts NodeHistoryOptions) ([]keg.Snapshot, error) {
-	k, id, err := t.resolveSnapshotNode(ctx, opts.KegTargetOptions, opts.NodeID)
+	k, id, err := t.resolveSnapshotNode(ctx, opts.KegTargetOptions, opts.NodeID, FlightRoleViewer)
 	if err != nil {
 		return nil, err
 	}
@@ -44,7 +44,7 @@ func (t *Tap) NodeHistory(ctx context.Context, opts NodeHistoryOptions) ([]keg.S
 }
 
 func (t *Tap) NodeSnapshot(ctx context.Context, opts NodeSnapshotOptions) (keg.Snapshot, error) {
-	k, id, err := t.resolveSnapshotNode(ctx, opts.KegTargetOptions, opts.NodeID)
+	k, id, err := t.resolveSnapshotNode(ctx, opts.KegTargetOptions, opts.NodeID, FlightRoleEditor)
 	if err != nil {
 		return keg.Snapshot{}, err
 	}
@@ -56,7 +56,7 @@ func (t *Tap) NodeSnapshot(ctx context.Context, opts NodeSnapshotOptions) (keg.S
 }
 
 func (t *Tap) NodeSnapshotView(ctx context.Context, opts NodeSnapshotViewOptions) ([]byte, error) {
-	k, id, err := t.resolveSnapshotNode(ctx, opts.KegTargetOptions, opts.NodeID)
+	k, id, err := t.resolveSnapshotNode(ctx, opts.KegTargetOptions, opts.NodeID, FlightRoleViewer)
 	if err != nil {
 		return nil, err
 	}
@@ -72,7 +72,7 @@ func (t *Tap) NodeSnapshotView(ctx context.Context, opts NodeSnapshotViewOptions
 }
 
 func (t *Tap) NodeRestore(ctx context.Context, opts NodeRestoreOptions) error {
-	k, id, err := t.resolveSnapshotNode(ctx, opts.KegTargetOptions, opts.NodeID)
+	k, id, err := t.resolveSnapshotNode(ctx, opts.KegTargetOptions, opts.NodeID, FlightRoleEditor)
 	if err != nil {
 		return err
 	}
@@ -86,8 +86,8 @@ func (t *Tap) NodeRestore(ctx context.Context, opts NodeRestoreOptions) error {
 	return nil
 }
 
-func (t *Tap) resolveSnapshotNode(ctx context.Context, targetOpts KegTargetOptions, nodeID string) (keg.Keg, keg.NodeId, error) {
-	k, err := t.resolveKeg(ctx, targetOpts)
+func (t *Tap) resolveSnapshotNode(ctx context.Context, targetOpts KegTargetOptions, nodeID string, role FlightRole) (keg.Keg, keg.NodeId, error) {
+	k, err := t.resolveKegForRole(ctx, targetOpts, role)
 	if err != nil {
 		return nil, keg.NodeId{}, fmt.Errorf("unable to open keg: %w", err)
 	}

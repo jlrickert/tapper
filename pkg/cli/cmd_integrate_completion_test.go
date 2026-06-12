@@ -92,6 +92,21 @@ func TestRootCompletion_FlightFlagSuppressesFileCompletion(t *testing.T) {
 	require.Contains(t, out, expected)
 }
 
+func TestRootCompletion_FlightFlagSuggestsLocalFlights(t *testing.T) {
+	t.Parallel()
+	sb := NewSandbox(t)
+	sb.MustWriteFile("~/.config/tapper/config.yaml", []byte("hubs:\n  home:\n    kind: local\n    namespace: local\n    basePath: /home/testuser/kegs\n"), 0o644)
+	sb.MustWriteFile("/home/testuser/kegs/flights.d/backend.yaml", []byte("title: Backend\ninstructions: Stay focused.\n"), 0o644)
+
+	comp := NewCompletionProcess(t, false, 0, "--flight", "").
+		Run(sb.Context(), sb.Runtime())
+	require.NoError(t, comp.Err)
+
+	suggestions := parseCompletionSuggestions(string(comp.Stdout))
+	require.Contains(t, suggestions, "@local/+backend")
+	require.Contains(t, string(comp.Stdout), fmt.Sprintf(":%d", cobra.ShellCompDirectiveNoFileComp))
+}
+
 func TestIntegrateCompletion_TargetFlagRequestsDirectoryCompletion(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t)

@@ -17,7 +17,8 @@ func registerDoctorTools(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaul
 // --- doctor ---
 
 type doctorInput struct {
-	Keg string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
+	Keg    string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
+	Flight string `json:"flight,omitempty" jsonschema:"flight ref to cap available kegs (uses server default if empty)"`
 }
 
 func registerDoctor(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
@@ -30,7 +31,7 @@ func registerDoctor(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in doctorInput) (*sdkmcp.CallToolResult, any, error) {
 		opts := tapper.DoctorOptions{
-			KegTargetOptions: resolveKegTarget(in.Keg, defaults),
+			KegTargetOptions: resolveKegTargetWithFlight(in.Keg, in.Flight, defaults),
 		}
 		configIssues := tap.DoctorConfig()
 		kegIssues, err := tap.Doctor(ctx, opts)

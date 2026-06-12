@@ -89,7 +89,7 @@ func (t *Tap) ListFiles(ctx context.Context, opts ListFilesOptions) ([]string, e
 // UploadFile reads a local file and stores it as a node file attachment.
 // Returns the stored filename.
 func (t *Tap) UploadFile(ctx context.Context, opts UploadFileOptions) (string, error) {
-	k, err := t.resolveKeg(ctx, opts.KegTargetOptions)
+	k, err := t.resolveKegForRole(ctx, opts.KegTargetOptions, FlightRoleEditor)
 	if err != nil {
 		return "", fmt.Errorf("unable to open keg: %w", err)
 	}
@@ -155,7 +155,7 @@ func (t *Tap) DownloadFile(ctx context.Context, opts DownloadFileOptions) (strin
 
 // DeleteFile removes a file attachment from a node.
 func (t *Tap) DeleteFile(ctx context.Context, opts DeleteFileOptions) error {
-	k, err := t.resolveKeg(ctx, opts.KegTargetOptions)
+	k, err := t.resolveKegForRole(ctx, opts.KegTargetOptions, FlightRoleEditor)
 	if err != nil {
 		return fmt.Errorf("unable to open keg: %w", err)
 	}
@@ -192,7 +192,7 @@ func (t *Tap) ListImages(ctx context.Context, opts ListImagesOptions) ([]string,
 // UploadImage reads a local file and stores it as a node image.
 // Returns the stored filename.
 func (t *Tap) UploadImage(ctx context.Context, opts UploadImageOptions) (string, error) {
-	k, err := t.resolveKeg(ctx, opts.KegTargetOptions)
+	k, err := t.resolveKegForRole(ctx, opts.KegTargetOptions, FlightRoleEditor)
 	if err != nil {
 		return "", fmt.Errorf("unable to open keg: %w", err)
 	}
@@ -258,7 +258,7 @@ func (t *Tap) DownloadImage(ctx context.Context, opts DownloadImageOptions) (str
 
 // DeleteImage removes an image from a node.
 func (t *Tap) DeleteImage(ctx context.Context, opts DeleteImageOptions) error {
-	k, err := t.resolveKeg(ctx, opts.KegTargetOptions)
+	k, err := t.resolveKegForRole(ctx, opts.KegTargetOptions, FlightRoleEditor)
 	if err != nil {
 		return fmt.Errorf("unable to open keg: %w", err)
 	}

@@ -80,10 +80,21 @@ func NewServer(tap *tapper.Tap, version string, defaults KegDefaults, opts ...Se
 
 // resolveKegTarget merges a per-tool keg alias with server-wide defaults.
 func resolveKegTarget(perToolKeg string, defaults KegDefaults) tapper.KegTargetOptions {
+	return resolveKegTargetWithFlight(perToolKeg, "", defaults)
+}
+
+func resolveKegTargetWithFlight(perToolKeg string, perToolFlight string, defaults KegDefaults) tapper.KegTargetOptions {
+	out := defaults.KegTargetOptions
 	if perToolKeg != "" {
-		return tapper.KegTargetOptions{Keg: perToolKeg}
+		out.Keg = perToolKeg
+		out.Project = false
+		out.Cwd = false
+		out.Path = ""
 	}
-	return defaults.KegTargetOptions
+	if perToolFlight != "" {
+		out.Flight = perToolFlight
+	}
+	return out
 }
 
 // textResult wraps a string in a CallToolResult.

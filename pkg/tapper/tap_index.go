@@ -51,7 +51,7 @@ func (t *Tap) IndexCat(ctx context.Context, opts IndexCatOptions) (string, error
 // Index rebuilds all indices for a keg (nodes.tsv, tags, links, backlinks)
 // from scratch.
 func (t *Tap) Index(ctx context.Context, opts IndexOptions) (string, error) {
-	k, err := t.resolveKeg(ctx, opts.KegTargetOptions)
+	k, err := t.resolveKegForRole(ctx, opts.KegTargetOptions, FlightRoleEditor)
 	if err != nil {
 		return "", fmt.Errorf("unable to determine keg: %w", err)
 	}

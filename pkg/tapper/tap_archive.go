@@ -30,7 +30,7 @@ type ImportOptions struct {
 // Export writes a keg-archive of the selected nodes (all nodes when none are
 // named) to opts.OutputPath and returns the resolved output path.
 func (t *Tap) Export(ctx context.Context, opts ExportOptions) (string, error) {
-	k, err := t.resolveKeg(ctx, opts.KegTargetOptions)
+	k, err := t.resolveKegForRole(ctx, opts.KegTargetOptions, FlightRoleViewer)
 	if err != nil {
 		return "", fmt.Errorf("unable to open keg: %w", err)
 	}
@@ -76,7 +76,7 @@ func (t *Tap) Export(ctx context.Context, opts ExportOptions) (string, error) {
 // Import loads a keg-archive from a file path or http(s) URL into the
 // resolved keg and returns the imported node ids.
 func (t *Tap) Import(ctx context.Context, opts ImportOptions) ([]keg.NodeId, error) {
-	k, err := t.resolveKeg(ctx, opts.KegTargetOptions)
+	k, err := t.resolveKegForRole(ctx, opts.KegTargetOptions, FlightRoleEditor)
 	if err != nil {
 		return nil, fmt.Errorf("unable to open keg: %w", err)
 	}
