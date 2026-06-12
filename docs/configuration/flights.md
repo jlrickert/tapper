@@ -58,7 +58,7 @@ treated as an `editor` cover row for backward compatibility, while an entry
 with an explicit `=viewer` suffix keeps its viewer cap.
 
 Remote flights are served by Hub and addressed canonically as
-`@namespace/+slug`. `tap flight create/update/delete` manage Hub-backed flights;
+`@namespace/+slug`. `tap flight create/edit/delete` manage Hub-backed flights;
 local `flights.d` manifests remain read-only files.
 
 ## Commands
@@ -69,12 +69,15 @@ local `flights.d` manifests remain read-only files.
 | Show a flight's cover + body          | `tap flight show @namespace/+slug`        |
 | Run a command under a flight overlay  | `tap --flight @namespace/+slug <command>` |
 | Create a Hub-backed flight            | `tap flight create @namespace/+slug --cover @namespace/keg=viewer` |
-| Update a Hub-backed flight            | `tap flight update @namespace/+slug --title "..."` (unset flags keep current values) |
+| Edit a Hub-backed flight in $EDITOR   | `tap flight edit @namespace/+slug` (the manifest opens as YAML; every save is applied) |
+| Apply a manifest from a script        | `cat manifest.yaml \| tap flight edit @namespace/+slug` |
 | Delete a Hub-backed flight            | `tap flight delete @namespace/+slug`      |
 
 The same surface is exposed over MCP as the `list_flights`, `flight_show`,
 `flight_create`, `flight_update`, and `flight_delete` tools, and the
-`--flight` parameter flows through `orient`.
+`--flight` parameter flows through `orient`. `flight_update` (partial update;
+omitted fields keep current values) is the agent-facing equivalent of the
+CLI's piped `flight edit`, since agents cannot open editors.
 
 ## Behavior
 

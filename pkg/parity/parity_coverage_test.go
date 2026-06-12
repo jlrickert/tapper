@@ -95,7 +95,6 @@ var tapMethodToSurfaces = map[string]struct {
 	"ListFlights":  {CLI: "flight list", MCP: "list_flights"},
 	"GetFlight":    {CLI: "flight show", MCP: "flight_show"},
 	"CreateFlight": {CLI: "flight create", MCP: "flight_create"},
-	"UpdateFlight": {CLI: "flight update", MCP: "flight_update"},
 	"DeleteFlight": {CLI: "flight delete", MCP: "flight_delete"},
 
 	// Keg administration (hub-side). HubListKegs backs `tap keg list`.
@@ -129,8 +128,11 @@ var tapMethodToSurfaces = map[string]struct {
 // surface coverage checks. These are internal helpers, config accessors, or
 // methods that are not meant to be directly exposed as standalone tools.
 var tapMethodsExcluded = map[string]string{
-	"KegConfigEdit":  "interactive editor; not exposed via MCP",
-	"ConfigEdit":     "interactive editor; not exposed via MCP",
+	"KegConfigEdit": "interactive editor; not exposed via MCP",
+	"ConfigEdit":    "interactive editor; not exposed via MCP",
+	"EditFlight":    "interactive editor + piped stdin; CLI-only — the MCP equivalent is flight_update",
+	"UpdateFlight": "MCP-only: the CLI surface was replaced by `flight edit` (editor + piped YAML); " +
+		"flight_update stays because agents cannot open editors",
 	"LookupKeg":      "internal resolution helper; not a user-facing operation",
 	"ResolveNodeRef": "internal node-reference resolver shared by surfaces; not a user-facing operation",
 	"WatchNode": "streaming, not request/response: CLI surface is `tap watch` (long-lived stream); " +
