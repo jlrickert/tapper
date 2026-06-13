@@ -3,6 +3,7 @@ package keg
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -24,6 +25,15 @@ const changesTimeFmt = "2006-01-02 15:04:05Z"
 // Callers that require concurrent access should guard an instance with a mutex.
 type ChangesIndex struct {
 	data []NodeIndexEntry // sorted by Updated descending (newest first)
+}
+
+// Entries returns a copy of the parsed node-list entries.
+func (idx ChangesIndex) Entries(ctx context.Context) []NodeIndexEntry {
+	_ = ctx
+	if idx.data == nil {
+		return []NodeIndexEntry{}
+	}
+	return slices.Clone(idx.data)
 }
 
 // ParseChangesIndex parses the serialized dex/changes.md bytes into a
@@ -193,20 +203,10 @@ func (idx *ChangesIndex) Data(ctx context.Context) ([]byte, error) {
 // Core index names
 // --------------------------------------------------------------------------
 
-// coreIndexNames is the set of built-in index filenames (bare form) that
-// cannot be overridden by config-driven query-filtered indexes.
-var coreIndexNames = map[string]bool{
-	"changes.md": true,
-	"nodes.tsv":  true,
-	"links":      true,
-	"backlinks":  true,
-	"tags":       true,
-}
-
 // IsCoreIndex reports whether the given index file name is one of the
 // built-in protected index names (e.g. "changes.md").
 func IsCoreIndex(name string) bool {
-	return coreIndexNames[name]
+	return IsSystemIndex(name)
 }
 
 // --------------------------------------------------------------------------

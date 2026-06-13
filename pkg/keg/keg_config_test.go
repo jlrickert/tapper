@@ -29,9 +29,10 @@ indexes:
 
 	require.Equal(t, keg.ConfigV2VersionString, config.Kegv)
 	require.Equal(t, "Test KEG V1", config.Title)
-	require.Len(t, config.Indexes, 2)
-	require.Equal(t, "index1.md", config.Indexes[0].File)
-	require.Equal(t, "index2.md", config.Indexes[1].File)
+	userIndexes := config.UserIndexEntries()
+	require.Len(t, userIndexes, 2)
+	require.Equal(t, "index1.md", userIndexes[0].File)
+	require.Equal(t, "index2.md", userIndexes[1].File)
 	require.Empty(t, config.Links)
 }
 
@@ -80,8 +81,9 @@ tags:
 	require.Equal(t, "https://keg.example.com/@user/home", links["home"])
 	require.Equal(t, "https://keg.example.com/@user/docs", links["docs"])
 
-	require.Len(t, config.Indexes, 1)
-	require.Equal(t, "index1.md", config.Indexes[0].File)
+	userIndexes := config.UserIndexEntries()
+	require.Len(t, userIndexes, 1)
+	require.Equal(t, "index1.md", userIndexes[0].File)
 
 	require.Len(t, config.Entities, 2)
 	require.Equal(t, 2045, config.Entities["entity"].ID)
@@ -274,8 +276,9 @@ indexes:
 `
 	config, err := keg.ParseKegConfig([]byte(yamlData))
 	require.NoError(t, err)
-	require.Len(t, config.Indexes, 1)
-	require.Equal(t, "entity=concept", config.Indexes[0].Query)
+	userIndexes := config.UserIndexEntries()
+	require.Len(t, userIndexes, 1)
+	require.Equal(t, "entity=concept", userIndexes[0].Query)
 }
 
 func TestParseConfigV2_IndexFileBareForm(t *testing.T) {
@@ -291,19 +294,87 @@ indexes:
 `
 	config, err := keg.ParseKegConfig([]byte(yamlData))
 	require.NoError(t, err)
-	require.Len(t, config.Indexes, 2)
-	require.Equal(t, "backlinks", config.Indexes[0].File)
-	require.Equal(t, "concepts.md", config.Indexes[1].File)
+	userIndexes := config.UserIndexEntries()
+	require.Len(t, userIndexes, 1)
+	require.Equal(t, "concepts.md", userIndexes[0].File)
+	require.Contains(t, indexFiles(config.Indexes), "backlinks")
 }
 
-func TestNewConfig_DefaultIndexesAreBareForm(t *testing.T) {
+func TestNewConfig_SystemIndexesAreRuntimeOnly(t *testing.T) {
 	cfg := keg.NewConfig()
 	require.NotEmpty(t, cfg.Indexes)
+	require.Empty(t, cfg.UserIndexEntries())
 	for _, entry := range cfg.Indexes {
 		require.NotEmpty(t, entry.File)
 		require.False(t, strings.HasPrefix(entry.File, "dex/"),
 			"default indexes should use bare form, got %q", entry.File)
 	}
+	out, err := cfg.ToYAML()
+	require.NoError(t, err)
+	require.NotContains(t, string(out), "nodes.tsv")
+	require.NotContains(t, string(out), "changes.md")
+}
+
+func TestParseConfigV2_MaterializesSystemIndexes(t *testing.T) {
+	yamlData := `
+kegv: "2025-07"
+title: "No indexes"
+`
+	config, err := keg.ParseKegConfig([]byte(yamlData))
+	require.NoError(t, err)
+	require.Equal(t,
+		[]string{"nodes.tsv", "changes.md", "tags", "links", "backlinks"},
+		indexFiles(config.Indexes)[:len(keg.SystemIndexEntries())],
+	)
+	require.Empty(t, config.UserIndexEntries())
+}
+
+func TestParseConfigStrict_RejectsSystemIndex(t *testing.T) {
+	yamlData := `
+kegv: "2025-07"
+title: "Bad indexes"
+indexes:
+  - file: "changes.md"
+    summary: "try to override"
+`
+	_, err := keg.ParseKegConfigStrict([]byte(yamlData))
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "required system index")
+}
+
+func TestParseConfigStrict_RejectsDuplicateUserIndex(t *testing.T) {
+	yamlData := `
+kegv: "2025-07"
+title: "Bad indexes"
+indexes:
+  - file: "concepts.md"
+    summary: "one"
+  - file: "concepts.md"
+    summary: "two"
+`
+	_, err := keg.ParseKegConfigStrict([]byte(yamlData))
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "duplicate user index")
+}
+
+func TestParseConfig_ToleratesLegacySystemIndex(t *testing.T) {
+	yamlData := `
+kegv: "2025-07"
+title: "Legacy indexes"
+indexes:
+  - file: "changes.md"
+    summary: "old"
+  - file: "concepts.md"
+    summary: "concept nodes"
+`
+	config, err := keg.ParseKegConfig([]byte(yamlData))
+	require.NoError(t, err)
+	require.Equal(t, []string{"concepts.md"}, indexFiles(config.UserIndexEntries()))
+
+	out, err := config.ToYAML()
+	require.NoError(t, err)
+	require.NotContains(t, string(out), `file: changes.md`)
+	require.Contains(t, string(out), `file: concepts.md`)
 }
 
 func TestParseConfigV2_TimezoneDefaultsToUTC(t *testing.T) {
@@ -359,4 +430,12 @@ title: "V1 KEG"
 	config, err := keg.ParseKegConfig([]byte(v1Yaml))
 	require.NoError(t, err)
 	require.Equal(t, "UTC", config.Timezone, "V1 migrated to V2 should default timezone to UTC")
+}
+
+func indexFiles(entries []keg.IndexEntry) []string {
+	out := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		out = append(out, entry.File)
+	}
+	return out
 }
