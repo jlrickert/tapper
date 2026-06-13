@@ -270,6 +270,28 @@ func (dex *Dex) Nodes(ctx context.Context) []NodeIndexEntry {
 	return dex.nodes.List(ctx)
 }
 
+// Changes returns a copy of the parsed changes index, newest entry first.
+func (dex *Dex) Changes(ctx context.Context) []NodeIndexEntry {
+	dex.mu.RLock()
+	defer dex.mu.RUnlock()
+	if dex.changes.data == nil {
+		return []NodeIndexEntry{}
+	}
+	return slices.Clone(dex.changes.data)
+}
+
+// NodeListIndex returns a node-list-compatible system index by filename.
+func (dex *Dex) NodeListIndex(ctx context.Context, name string) ([]NodeIndexEntry, bool) {
+	switch name {
+	case "", "nodes.tsv":
+		return dex.Nodes(ctx), true
+	case "changes.md":
+		return dex.Changes(ctx), true
+	default:
+		return nil, false
+	}
+}
+
 // TagLinks Tags returns the parsed tags index (map[tag] -> []NodeID).
 func (dex *Dex) TagLinks(ctx context.Context, node NodeId) ([]NodeId, bool) {
 	return dex.TagNodes(ctx, node.Path())
