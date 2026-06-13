@@ -677,6 +677,9 @@ func (f *FsRepo) WriteStats(ctx context.Context, id NodeId, stats *NodeStats) er
 
 // WriteAsset implements Repository.
 func (f *FsRepo) WriteAsset(ctx context.Context, id NodeId, kind AssetKind, name string, data []byte) error {
+	if err := validAssetName(name); err != nil {
+		return err
+	}
 	nodeDir := filepath.Join(f.Root, id.Path())
 	exists, err := f.HasNode(ctx, id)
 	if err != nil {
@@ -825,6 +828,9 @@ func (f *FsRepo) DeleteNode(ctx context.Context, id NodeId) error {
 
 // DeleteAsset implements Repository.
 func (f *FsRepo) DeleteAsset(ctx context.Context, id NodeId, kind AssetKind, name string) error {
+	if err := validAssetName(name); err != nil {
+		return err
+	}
 	nodeDir := filepath.Join(f.Root, id.Path())
 
 	// Ensure node exists
@@ -880,6 +886,9 @@ func (f *FsRepo) ListImages(ctx context.Context, id NodeId) ([]string, error) {
 }
 
 func (f *FsRepo) ReadFile(ctx context.Context, id NodeId, name string) ([]byte, error) {
+	if err := validAssetName(name); err != nil {
+		return nil, err
+	}
 	exists, err := f.HasNode(ctx, id)
 	if err != nil {
 		return nil, err
@@ -902,6 +911,9 @@ func (f *FsRepo) ReadFile(ctx context.Context, id NodeId, name string) ([]byte, 
 }
 
 func (f *FsRepo) ReadImage(ctx context.Context, id NodeId, name string) ([]byte, error) {
+	if err := validAssetName(name); err != nil {
+		return nil, err
+	}
 	exists, err := f.HasNode(ctx, id)
 	if err != nil {
 		return nil, err
