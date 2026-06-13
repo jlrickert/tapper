@@ -19,6 +19,12 @@ var (
 	ErrRateLimited   = errors.New("rate limited")
 	ErrNotSupported  = errors.New("not supported")
 
+	// ErrInvalidAssetName is returned when a node asset name is not a single safe
+	// path component (empty, ".", "..", contains a path separator, or absolute).
+	// Such names could let filepath.Join resolve outside the keg root, so they
+	// are rejected at the repository boundary.
+	ErrInvalidAssetName = errors.New("invalid asset name")
+
 	// ErrDestinationExists is returned when a move/rename cannot proceed because
 	// the destination node id already exists. Prefer returning a typed
 	// DestinationExistsError that unwraps to this sentinel when callers may need
