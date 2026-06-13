@@ -54,7 +54,7 @@ func (k *LocalKeg) SetConfig(ctx context.Context, data []byte) error {
 	if err := k.checkKegExists(ctx); err != nil {
 		return fmt.Errorf("unable to set config: %w", err)
 	}
-	cfg, err := ParseKegConfig(data)
+	cfg, err := ParseKegConfigStrict(data)
 	if err != nil {
 		return fmt.Errorf("unable to parse config: %w", err)
 	}

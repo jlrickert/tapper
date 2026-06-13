@@ -532,15 +532,20 @@ func (r *MemoryRepo) ReadConfig(ctx context.Context) (*Config, error) {
 		return nil, ErrNotExist
 	}
 	c := *r.config
+	c.materializeSystemIndexes()
 	return &c, nil
 }
 
 // WriteConfig stores the provided Config in-memory. A copy of the value is kept.
 func (r *MemoryRepo) WriteConfig(ctx context.Context, config *Config) error {
+	persisted, err := config.persistedCopy()
+	if err != nil {
+		return err
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	c := config
-	r.config = c
+	c := *persisted
+	r.config = &c
 	return nil
 }
 

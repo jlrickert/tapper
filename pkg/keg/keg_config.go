@@ -188,31 +188,16 @@ func NewConfig(options ...ConfigOption) *Config {
 	- Edit this summary to describe your keg's purpose.
 	- Update the url and creator fields to point to your keg's repo and
 	  your profile.
-	- The zero node (0/) is a placeholder for planned content.
-	- Indices under dex/ are generated automatically by keg tooling.
-	- Use tags in node meta.yaml to organize and filter content.`,
+		- The zero node (0/) is a placeholder for planned content.
+		- Indices under dex/ are generated automatically by keg tooling.
+		- Use tags in node meta.yaml to organize and filter content.`,
 		Timezone: "UTC",
-		Indexes: []IndexEntry{
-			{
-				File: "backlinks", Summary: "all incoming links",
-			},
-			{
-				File: "changes.md", Summary: "latest changes",
-			},
-			{
-				File: "links", Summary: "all outgoing links",
-			},
-			{
-				File: "nodes.tsv", Summary: "all nodes by id",
-			},
-			{
-				File: "tags", Summary: "all tags",
-			},
-		},
+		Indexes:  SystemIndexEntries(),
 	}
 	for _, f := range options {
 		f(cfg)
 	}
+	cfg.materializeSystemIndexes()
 	return cfg
 }
 
@@ -220,6 +205,17 @@ func NewConfig(options ...ConfigOption) *Config {
 // It detects the "kegv" version field and performs migration from earlier
 // versions when necessary.
 func ParseKegConfig(data []byte) (*Config, error) {
+	return parseKegConfig(data, false)
+}
+
+// ParseKegConfigStrict parses raw user-supplied config data for persistence.
+// It rejects user-defined index entries that collide with required system
+// indexes or duplicate another user index.
+func ParseKegConfigStrict(data []byte) (*Config, error) {
+	return parseKegConfig(data, true)
+}
+
+func parseKegConfig(data []byte, strict bool) (*Config, error) {
 	var configV2 ConfigV2
 
 	// Detect version by unmarshaling into a generic map
@@ -242,6 +238,9 @@ func ParseKegConfig(data []byte) (*Config, error) {
 		}
 		cfg := configV1.toV2()
 		cfg.applyDefaults()
+		if err := cfg.normalizeIndexes(strict); err != nil {
+			return cfg, err
+		}
 		return cfg, nil
 	case ConfigV2VersionString:
 		if err := yaml.Unmarshal(data, &configV2); err != nil {
@@ -252,6 +251,9 @@ func ParseKegConfig(data []byte) (*Config, error) {
 	}
 
 	configV2.applyDefaults()
+	if err := configV2.normalizeIndexes(strict); err != nil {
+		return &configV2, err
+	}
 	return &configV2, nil
 }
 
@@ -260,6 +262,97 @@ func (kc *ConfigV2) applyDefaults() {
 	if kc.Timezone == "" {
 		kc.Timezone = "UTC"
 	}
+}
+
+func (kc *ConfigV2) normalizeIndexes(strict bool) error {
+	if kc == nil {
+		return nil
+	}
+	user, err := userIndexEntries(kc.Indexes, strict)
+	if err != nil {
+		return err
+	}
+	kc.Indexes = append(SystemIndexEntries(), user...)
+	return nil
+}
+
+func (kc *ConfigV2) materializeSystemIndexes() {
+	_ = kc.normalizeIndexes(false)
+}
+
+// MaterializeSystemIndexes ensures required system indexes are present in the
+// runtime config view and removes any legacy persisted declarations of those
+// indexes.
+func (kc *ConfigV2) MaterializeSystemIndexes() {
+	kc.materializeSystemIndexes()
+}
+
+func (kc *ConfigV2) persistedCopy() (*ConfigV2, error) {
+	if kc == nil {
+		return nil, fmt.Errorf("config is nil")
+	}
+	out := *kc
+	user, err := userIndexEntries(kc.Indexes, false)
+	if err != nil {
+		return nil, err
+	}
+	out.Indexes = user
+	return &out, nil
+}
+
+func userIndexEntries(entries []IndexEntry, strict bool) ([]IndexEntry, error) {
+	out := make([]IndexEntry, 0, len(entries))
+	seen := map[string]struct{}{}
+	for _, entry := range entries {
+		name := strings.TrimSpace(entry.File)
+		entry.File = name
+		if name == "" {
+			continue
+		}
+		if IsSystemIndex(name) {
+			if strict {
+				return nil, fmt.Errorf("index %q is a required system index and cannot be configured", name)
+			}
+			continue
+		}
+		if _, ok := seen[name]; ok {
+			return nil, fmt.Errorf("duplicate user index %q", name)
+		}
+		seen[name] = struct{}{}
+		out = append(out, entry)
+	}
+	return out, nil
+}
+
+// SystemIndexEntries returns the required indexes that every keg has at
+// runtime. Callers receive a fresh slice so entries can be appended safely.
+func SystemIndexEntries() []IndexEntry {
+	return []IndexEntry{
+		{File: "nodes.tsv", Summary: "all nodes by id"},
+		{File: "changes.md", Summary: "latest changes"},
+		{File: "tags", Summary: "all tags"},
+		{File: "links", Summary: "all outgoing links"},
+		{File: "backlinks", Summary: "all incoming links"},
+	}
+}
+
+// IsSystemIndex reports whether name is a required generated index.
+func IsSystemIndex(name string) bool {
+	switch strings.TrimSpace(name) {
+	case "nodes.tsv", "changes.md", "tags", "links", "backlinks":
+		return true
+	default:
+		return false
+	}
+}
+
+// UserIndexEntries returns the user-defined indexes from a runtime config.
+func (kc *Config) UserIndexEntries() []IndexEntry {
+	if kc == nil {
+		return nil
+	}
+	user, _ := userIndexEntries(kc.Indexes, false)
+	return user
 }
 
 // Location returns the *time.Location for the configured Timezone.
@@ -291,7 +384,11 @@ func (kc *Config) ResolveAlias(alias string) (*Target, error) {
 
 // ToYAML serializes the Config to YAML.
 func (kc *Config) ToYAML() ([]byte, error) {
-	body, err := yaml.Marshal(kc)
+	persisted, err := kc.persistedCopy()
+	if err != nil {
+		return nil, err
+	}
+	body, err := yaml.Marshal(persisted)
 	if err != nil {
 		return nil, err
 	}
@@ -300,7 +397,11 @@ func (kc *Config) ToYAML() ([]byte, error) {
 
 // ToJSON serializes the Config to JSON.
 func (kc *Config) ToJSON() ([]byte, error) {
-	return json.Marshal(kc)
+	persisted, err := kc.persistedCopy()
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(persisted)
 }
 
 func (kc *Config) String() string {
