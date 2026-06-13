@@ -353,6 +353,9 @@ func (r *MemoryRepo) WriteStats(ctx context.Context, id NodeId, stats *NodeStats
 
 // WriteAsset stores a named asset blob for a node.
 func (r *MemoryRepo) WriteAsset(ctx context.Context, id NodeId, kind AssetKind, name string, data []byte) error {
+	if err := validAssetName(name); err != nil {
+		return err
+	}
 	_ = ctx
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -439,6 +442,9 @@ func (r *MemoryRepo) DeleteNode(ctx context.Context, id NodeId) error {
 
 // DeleteAsset removes an asset by name for a node.
 func (r *MemoryRepo) DeleteAsset(ctx context.Context, id NodeId, kind AssetKind, name string) error {
+	if err := validAssetName(name); err != nil {
+		return err
+	}
 	_ = ctx
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -473,6 +479,9 @@ func (r *MemoryRepo) ListImages(ctx context.Context, id NodeId) ([]string, error
 }
 
 func (r *MemoryRepo) ReadFile(ctx context.Context, id NodeId, name string) ([]byte, error) {
+	if err := validAssetName(name); err != nil {
+		return nil, err
+	}
 	_ = ctx
 	n, ok := r.getNode(id)
 	if !ok {
@@ -490,6 +499,9 @@ func (r *MemoryRepo) ReadFile(ctx context.Context, id NodeId, name string) ([]by
 }
 
 func (r *MemoryRepo) ReadImage(ctx context.Context, id NodeId, name string) ([]byte, error) {
+	if err := validAssetName(name); err != nil {
+		return nil, err
+	}
 	_ = ctx
 	n, ok := r.getNode(id)
 	if !ok {

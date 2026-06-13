@@ -568,6 +568,9 @@ func readTarEntries(tr *tar.Reader) (map[string][]byte, error) {
 		if header.FileInfo().IsDir() {
 			continue
 		}
+		if !safeArchiveEntryName(header.Name) {
+			return nil, fmt.Errorf("unsafe archive entry %q: %w", header.Name, ErrInvalid)
+		}
 		payload, err := io.ReadAll(tr)
 		if err != nil {
 			return nil, fmt.Errorf("unable to read archive payload %s: %w", header.Name, err)
