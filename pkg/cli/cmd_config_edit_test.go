@@ -122,6 +122,73 @@ defaultHub: ""
 	require.Equal(t, input, saved)
 }
 
+func TestConfigEdit_DefaultsToProjectWithoutFlag(t *testing.T) {
+	t.Parallel()
+	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
+
+	require.NoError(t, sb.Runtime().Mkdir("/home/testuser/project/.tapper", 0o755, true))
+	sb.Setwd("~/project")
+	require.NoError(t, sb.Runtime().Set("EDITOR", "/bin/false"))
+	sb.Runtime().Unset("VISUAL")
+
+	input := `defaultKeg: stdin-default
+kegMap: []
+kegs: {}
+defaultHub: ""
+`
+	// No --project/--user flag: the default target is the project config.
+	res := NewProcess(t, false, "config", "edit").RunWithIO(
+		sb.Context(),
+		sb.Runtime(),
+		strings.NewReader(input),
+	)
+	require.NoError(t, res.Err)
+
+	saved := string(sb.MustReadFile("~/project/.tapper/config.yaml"))
+	require.Equal(t, input, saved)
+}
+
+func TestConfigEdit_ProjectCreateIsInert(t *testing.T) {
+	t.Parallel()
+	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
+
+	require.NoError(t, sb.Runtime().Mkdir("/home/testuser/project/.tapper", 0o755, true))
+	sb.Setwd("~/project")
+
+	// A no-op editor that succeeds without modifying the file, simulating an
+	// abandoned edit. The created project config must remain inert.
+	jail := sb.Runtime().GetJail()
+	require.NotEmpty(t, jail)
+	resolvedJail, err := filepath.EvalSymlinks(jail)
+	require.NoError(t, err)
+	require.NoError(t, sb.Runtime().SetJail(resolvedJail))
+	jail = resolvedJail
+	scriptPath := filepath.Join(jail, "noop-editor.sh")
+	require.NoError(t, os.WriteFile(scriptPath, []byte("#!/bin/sh\nexit 0\n"), 0o755))
+	require.NoError(t, sb.Runtime().Set("EDITOR", "/bin/sh "+scriptPath))
+	sb.Runtime().Unset("VISUAL")
+
+	res := NewProcess(t, false, "config", "edit").RunWithIO(
+		sb.Context(),
+		sb.Runtime(),
+		strings.NewReader(""),
+	)
+	require.NoError(t, res.Err)
+
+	saved := string(sb.MustReadFile("~/project/.tapper/config.yaml"))
+	// Schema modeline present and the fields are discoverable (commented).
+	require.Contains(t, saved, "yaml-language-server")
+	require.Contains(t, saved, "# defaultKeg")
+	// No active authoritative slots — an abandoned edit cannot hijack resolution.
+	for _, line := range strings.Split(saved, "\n") {
+		trimmed := strings.TrimSpace(line)
+		for _, field := range []string{"defaultKeg:", "defaultNamespace:", "defaultHub:"} {
+			require.Falsef(t, strings.HasPrefix(trimmed, field),
+				"created project config must not have an active %s line; got:\n%s", field, saved)
+		}
+	}
+}
+
 func TestConfigEdit_ProjectRejectsInvalidPipedStdin(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))

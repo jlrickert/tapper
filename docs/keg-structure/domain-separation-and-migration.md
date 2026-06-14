@@ -40,8 +40,8 @@ tap init --keg domain-x --user
 Inspect and edit new keg config:
 
 ```bash
-tap settings --keg domain-x
-tap settings edit --keg domain-x
+tap keg settings --keg domain-x
+tap keg settings edit --keg domain-x
 ```
 
 ## Guardrails During Migration

@@ -273,19 +273,23 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 	}
 	var configCmd *cobra.Command
 	if deps.Profile.IncludeConfigCommand {
+		// keg/namespace administration is a full-`tap` concern (multi-keg, hub
+		// ACLs), gated with config/bootstrap so the pruned `keg` binary stays
+		// project-local and avoids an awkward `keg keg` subcommand.
 		configCmd = NewConfigCmd(deps)
 		subcommands = append(subcommands,
-			NewSettingsCmd(deps),
+			NewKegCmd(deps),
+			NewNamespaceCmd(deps),
 			NewBootstrapCmd(deps),
 			configCmd,
 		)
 	}
-	// IncludeRepoCommand gates the keg-creation surface. The `repo` alias group
-	// is gone (kegs are addressed by reference, listed via `tap hub list`), so
-	// only `tap init` remains under this profile flag.
+	// IncludeRepoCommand gates the keg-creation surface. `tap keg create` is the
+	// canonical command (added inside NewKegCmd under the same flag); `tap init`
+	// remains here as a hidden back-compat alias.
 	var initCmd *cobra.Command
 	if deps.Profile.IncludeRepoCommand {
-		initCmd = NewInitCmd(deps)
+		initCmd = newInitCompatCmd(deps)
 		subcommands = append(subcommands, initCmd)
 	}
 	cmd.AddCommand(subcommands...)
