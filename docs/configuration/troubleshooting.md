@@ -26,7 +26,7 @@ Fix:
   `fallbackNamespace`, an explicit `@namespace/name`, or a path.
 - Verify the reference in `defaultKeg`, `fallbackKeg`, and `kegMap` entries, and
   that the namespace routes to a hub via `defaultHub`/`namespaces`.
-- Run `tap hub list` to see the kegs the configured hubs actually expose.
+- Run `tap keg list` to see the kegs the configured hubs actually expose.
 
 ## "has no namespace and no per-hub, default, or fallback namespace is configured"
 
@@ -100,7 +100,7 @@ tap config --explain defaultKeg
 tap config --show-sources
 
 # Show active keg config (resolved target)
-tap settings
+tap keg settings
 
 # Confirm resolution for a specific alias
 tap info --keg <alias>

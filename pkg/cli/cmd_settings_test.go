@@ -20,7 +20,7 @@ func TestSettingsCommand_DisplaysKegMetadata(t *testing.T) {
 	tests := []infoTestCase{
 		{
 			name:        "info_no_alias_error",
-			args:        []string{"settings"},
+			args:        []string{"keg", "settings"},
 			expectedErr: "no keg configured",
 			description: "Error when no keg is configured and no alias specified",
 		},
@@ -75,7 +75,7 @@ func TestSettingsCommand_IntegrationWithInit(t *testing.T) {
 		require.NoError(innerT, initRes.Err, "init should succeed")
 
 		// Now display the keg config
-		infoCmd := NewProcess(innerT, false, "settings", "--keg", "newstudy")
+		infoCmd := NewProcess(innerT, false, "keg", "settings", "--keg", "newstudy")
 		infoRes := infoCmd.Run(sb.Context(), sb.Runtime())
 		require.NoError(innerT, infoRes.Err, "settings should succeed after init")
 
@@ -89,14 +89,14 @@ func TestSettingsCommand_WithJoeFixture(t *testing.T) {
 	tests := []infoTestCase{
 		{
 			name:             "info_with_explicit_alias",
-			args:             []string{"settings", "--keg", "personal"},
+			args:             []string{"keg", "settings", "--keg", "personal"},
 			setupFixture:     strPtr("joe"),
 			expectedInStdout: []string{"kegv:", "indexes:"},
 			description:      "Display info for explicitly specified keg alias",
 		},
 		{
 			name:         "info_with_nonexistent_alias",
-			args:         []string{"settings", "--keg", "nonexistent"},
+			args:         []string{"keg", "settings", "--keg", "nonexistent"},
 			setupFixture: strPtr("joe"),
 			expectedErr:  "keg not initialized",
 			description:  "Error when keg does not exist on disk",
@@ -150,7 +150,7 @@ custom_block:
 `
 	sb.MustWriteFile("~/kegs/@local/example/keg", []byte(custom), 0o644)
 
-	infoCmd := NewProcess(t, false, "settings", "--keg", "example")
+	infoCmd := NewProcess(t, false, "keg", "settings", "--keg", "example")
 	infoRes := infoCmd.Run(sb.Context(), sb.Runtime())
 	require.NoError(t, infoRes.Err)
 

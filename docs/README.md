@@ -61,8 +61,8 @@ If you are unsure where to start, read [Configuration Overview](configuration/RE
 
 - `tap index rebuild` — rebuild keg indices
 - `tap info` — show keg diagnostics
-- `tap settings` — show active keg config
-- `tap settings edit` — edit active keg config (reads stdin)
+- `tap keg settings` — show active keg config
+- `tap keg settings edit` — edit active keg config (reads stdin)
 - `tap graph` — output keg link graph
 - `tap import FILE` — import nodes from a file
 
@@ -89,13 +89,17 @@ If you are unsure where to start, read [Configuration Overview](configuration/RE
 Snapshot history is included in archives by default. Use `--no-history` to omit
 it.
 
-### Repository management
+### Keg, namespace, and hub administration
 
-- `tap init [--keg REF]` — initialize a keg target
-- `tap hub list` — list the kegs the configured hubs expose
+- `tap keg create [--keg REF]` — create and initialize a keg target (formerly `tap init`)
+- `tap keg list` — list the kegs the configured hubs expose
+- `tap keg grant|grants|revoke <keg> ...` — manage a keg's access grants
+- `tap keg visibility <keg> public|private` — set a keg's visibility
+- `tap namespace list|members|add-member|set-role|remove-member|create` — manage namespaces and membership
+- `tap hub list|status|add|remove|set-default` — manage and inspect hub connections
 - `tap config` — show merged tap config
 - `tap config --user|--project` — show user or project config
-- `tap config edit --user|--project` — edit user or project config (reads stdin)
+- `tap config edit [--user]` — edit project config (default) or user config (reads stdin)
 - `tap config template user|project` — print starter config templates
 
 Use the project-local profile when you want that narrowed workflow:

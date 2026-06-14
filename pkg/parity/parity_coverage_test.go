@@ -33,7 +33,7 @@ var tapMethodToSurfaces = map[string]struct {
 	"Tags":        {CLI: "tags", MCP: "tags"},
 	"Backlinks":   {CLI: "backlinks", MCP: "backlinks"},
 	"Links":       {CLI: "links", MCP: "links"},
-	"Info":        {CLI: "settings", MCP: "info"},
+	"Info":        {CLI: "keg settings", MCP: "info"},
 	"KegInfo":     {CLI: "info", MCP: "keg_info"},
 	"Stats":       {CLI: "stats", MCP: "stats"},
 	"Graph":       {CLI: "graph", MCP: "graph"},
@@ -75,8 +75,9 @@ var tapMethodToSurfaces = map[string]struct {
 
 	// Repo management
 	// MCP tool name kept as "repo_init" for backward compatibility with
-	// existing agent integrations; CLI surface is the top-level `tap init`.
-	"InitKeg": {CLI: "init", MCP: "repo_init"},
+	// existing agent integrations; CLI surface is the canonical `tap keg create`
+	// (a hidden top-level `tap init` alias also runs it).
+	"InitKeg": {CLI: "keg create", MCP: "repo_init"},
 
 	// Config operations
 	"Config":         {CLI: "config", MCP: "config"},
@@ -101,8 +102,20 @@ var tapMethodToSurfaces = map[string]struct {
 	"UpdateFlight": {CLI: "flight update", MCP: "flight_update"},
 	"DeleteFlight": {CLI: "flight delete", MCP: "flight_delete"},
 
-	// Hub keg enumeration
-	"HubListKegs": {CLI: "hub list", MCP: "hub_list"},
+	// Keg administration (hub-side). HubListKegs backs `tap keg list`.
+	"HubListKegs":   {CLI: "keg list", MCP: "keg_list"},
+	"KegGrants":     {CLI: "keg grants", MCP: "keg_grants"},
+	"KegGrant":      {CLI: "keg grant", MCP: "keg_grant"},
+	"KegRevoke":     {CLI: "keg revoke", MCP: "keg_revoke"},
+	"KegVisibility": {CLI: "keg visibility", MCP: "keg_visibility"},
+
+	// Namespace administration.
+	"NamespaceList":         {CLI: "namespace list", MCP: "namespace_list"},
+	"NamespaceMembers":      {CLI: "namespace members", MCP: "namespace_members"},
+	"NamespaceAddMember":    {CLI: "namespace add-member", MCP: "namespace_add_member"},
+	"NamespaceSetRole":      {CLI: "namespace set-role", MCP: "namespace_set_role"},
+	"NamespaceRemoveMember": {CLI: "namespace remove-member", MCP: "namespace_remove_member"},
+	"NamespaceCreate":       {CLI: "namespace create", MCP: "namespace_create"},
 
 	// Agent integrations (Phase 3 / Phase 5)
 	"Orient":    {CLI: "orient", MCP: "orient"},
@@ -133,6 +146,10 @@ var tapMethodsExcluded = map[string]string{
 	"DoctorConfig":          "tapper-config health check helper; called by Doctor CLI/MCP surfaces",
 	"ConfigExplain":         "shares surface with Config via --explain flag / explain field",
 	"AuthLogout":            "security: MCP agents must not be able to revoke hub credentials; CLI-only by design",
+	"HubList":               "lists local hub connections (config inspection); CLI-only via `tap hub list`",
+	"HubAdd":                "security: writes hub connections (incl. token refs) to user config; CLI-only by design",
+	"HubRemove":             "security: mutates hub connections in user config; CLI-only by design",
+	"HubSetDefault":         "writes the default hub to project/user config; CLI-only by design",
 	"Bootstrap":             "CLI-only onboarding; writes user config + drives interactive login, not an MCP operation",
 	"SetBootstrapNamespace": "CLI-only bootstrap step; adopts the hub's default namespace after login, not an MCP operation",
 	"SetFallbackKeg":        "CLI-only bootstrap step; persists the chosen keg as the user-level fallback after login, not an MCP operation",

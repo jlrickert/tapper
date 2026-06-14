@@ -527,6 +527,40 @@ func (cfg *Config) SetHub(name string, entry HubEntry) error {
 	return nil
 }
 
+// DeleteHub removes a hub entry by name, reporting whether it was present.
+func (cfg *Config) DeleteHub(name string) (bool, error) {
+	if cfg == nil {
+		return false, fmt.Errorf("config is nil")
+	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return false, fmt.Errorf("hub name is required")
+	}
+	if cfg.data == nil || cfg.data.Hubs == nil {
+		return false, nil
+	}
+	if _, ok := cfg.data.Hubs[name]; !ok {
+		return false, nil
+	}
+	delete(cfg.data.Hubs, name)
+	return true, nil
+}
+
+// DeleteNamespace removes a namespace→hub mapping by name, reporting whether it
+// was present. `tap hub remove` uses it to prune namespace pins that route to a
+// hub being removed.
+func (cfg *Config) DeleteNamespace(name string) bool {
+	if cfg == nil || cfg.data == nil || cfg.data.Namespaces == nil {
+		return false
+	}
+	name = strings.TrimSpace(name)
+	if _, ok := cfg.data.Namespaces[name]; !ok {
+		return false
+	}
+	delete(cfg.data.Namespaces, name)
+	return true
+}
+
 // SetLogFile sets the log file path.
 func (cfg *Config) SetLogFile(_ context.Context, path string) error {
 	if cfg.data == nil {
@@ -991,6 +1025,37 @@ func DefaultProjectConfig(user, userKegRepo string) *Config {
 			Hubs:             hubMap{},
 		},
 	}
+}
+
+// projectConfigTemplate returns a fully commented-out starter project config:
+// the schema modeline, a short header, and the illustrative DefaultProjectConfig
+// example with every field line commented. It is what `tap config edit` writes
+// when no project config exists yet, so an abandoned or empty edit leaves an
+// INERT file — none of the authoritative default* slots are active, so a stray
+// project config can't silently override user-level keg/namespace/hub
+// resolution. Parsing it yields an empty Config.
+func projectConfigTemplate() ([]byte, error) {
+	example := DefaultProjectConfig("project", "kegs")
+	body, err := yaml.Marshal(example.data)
+	if err != nil {
+		return nil, fmt.Errorf("render project config template: %w", err)
+	}
+	var b strings.Builder
+	b.WriteString(tapConfigSchemaModeline)
+	b.WriteString("# Project config. Uncomment and edit fields below to override the user\n")
+	b.WriteString("# config for this directory tree. While everything stays commented this\n")
+	b.WriteString("# file is inert. Note: hubs and tokens may only live in the user config\n")
+	b.WriteString("# (they are stripped from project config).\n")
+	for _, line := range strings.Split(strings.TrimRight(string(body), "\n"), "\n") {
+		if strings.TrimSpace(line) == "" {
+			b.WriteByte('\n')
+			continue
+		}
+		b.WriteString("# ")
+		b.WriteString(line)
+		b.WriteByte('\n')
+	}
+	return []byte(b.String()), nil
 }
 
 // ToYAML serializes the Config to YAML bytes.

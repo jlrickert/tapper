@@ -121,10 +121,11 @@ func (t *Tap) ConfigEdit(ctx context.Context, opts ConfigEditOptions) error {
 	var configPath string
 	if opts.ConfigPath != "" {
 		configPath = opts.ConfigPath
-	} else if opts.Project {
-		configPath = t.PathService.ProjectConfig()
-	} else {
+	} else if opts.User {
 		configPath = t.PathService.UserConfig()
+	} else {
+		// Default (and explicit --project) edit the project config.
+		configPath = t.PathService.ProjectConfig()
 	}
 
 	resolvedPath, err := t.Runtime.ResolvePath(configPath, false)
@@ -137,14 +138,24 @@ func (t *Tap) ConfigEdit(ctx context.Context, opts ConfigEditOptions) error {
 		if !errors.Is(err, os.ErrNotExist) {
 			return fmt.Errorf("unable to inspect config file: %w", err)
 		}
-		var cfg *Config
-		if opts.Project {
-			cfg = DefaultProjectConfig("project", "kegs")
+		if opts.User {
+			// User config is the base layer — seed it with real onboarding
+			// defaults (hubs, local namespace, etc.).
+			cfg := DefaultUserConfig("public", defaultTemplateKegRoot(t.Runtime))
+			if err := cfg.Write(t.Runtime, resolvedPath); err != nil {
+				return fmt.Errorf("unable to create default config: %w", err)
+			}
 		} else {
-			cfg = DefaultUserConfig("public", defaultTemplateKegRoot(t.Runtime))
-		}
-		if err := cfg.Write(t.Runtime, resolvedPath); err != nil {
-			return fmt.Errorf("unable to create default config: %w", err)
+			// Project config: seed a fully commented template so an abandoned
+			// edit leaves an inert file rather than authoritative default* slots
+			// that would silently override user-level resolution.
+			tmpl, tmplErr := projectConfigTemplate()
+			if tmplErr != nil {
+				return tmplErr
+			}
+			if err := t.Runtime.AtomicWriteFile(resolvedPath, tmpl, 0o644); err != nil {
+				return fmt.Errorf("unable to create default config: %w", err)
+			}
 		}
 	}
 
