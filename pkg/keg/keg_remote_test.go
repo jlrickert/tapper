@@ -169,7 +169,7 @@ func newMockOpsHub(t *testing.T, f *sandbox.Sandbox, token string) *mockOpsHub {
 			"id":      view.ID.Path(),
 			"content": string(view.Content),
 			"meta":    string(view.Meta),
-			"files":   view.Files,
+			"assets":  view.Files,
 			"images":  view.Images,
 		}
 		if view.Stats != nil {

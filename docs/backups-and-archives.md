@@ -84,16 +84,19 @@ HTTP and HTTPS URLs are downloaded automatically before import.
 
 ## Archive Format
 
-Archives use the `keg-archive/v1` format, stored as a gzip-compressed tar:
+Archives use the `keg-archive/v3` format, stored as a gzip-compressed tar:
 
 ```text
 keg-archive/
 ├── manifest.json
+├── keg.yaml              # present in full-keg exports
 └── nodes/
     ├── 0/
     │   ├── README.md
     │   ├── meta.yaml
     │   ├── stats.json
+    │   ├── assets/       # present when file attachments are included
+    │   ├── images/       # present when images are included
     │   └── snapshots/          # present when history is included
     │       ├── index.json
     │       ├── 0.full
@@ -116,10 +119,11 @@ The manifest records export metadata and the list of included nodes:
 
 ```json
 {
-  "format": "keg-archive/v1",
+  "format": "keg-archive/v3",
   "source": "personal",
   "exported_at": "2026-03-14T10:00:00Z",
   "with_history": true,
+  "with_config": true,
   "nodes": [
     { "source_id": "0", "revision_count": 0 },
     { "source_id": "5", "revision_count": 3 },
@@ -130,6 +134,10 @@ The manifest records export metadata and the list of included nodes:
 
 Each node entry records the original source ID and the number of snapshot
 revisions included.
+
+Full-keg exports include `keg.yaml`, the keg settings document. Exports that
+select explicit nodes with `--nodes` omit `keg.yaml` and do not overwrite the
+target keg's settings when imported.
 
 ## Snapshot History
 
@@ -221,8 +229,9 @@ tap archive import https://example.com/shared-notes.tar.gz
 
 Understanding these behaviors helps avoid surprises during import:
 
-- **Fresh IDs**: Imported nodes receive new IDs allocated sequentially in the
-  target keg. Source IDs are never reused directly.
+- **Preserved IDs**: Archive imports restore nodes at their archive IDs,
+  replacing existing nodes at matching IDs. The hub API can request fresh IDs
+  with `assign_new_ids=1`; the CLI archive import keeps archive IDs.
 
 - **Link rewriting**: Relative links (`../N`) in node content are
   automatically rewritten to point to the newly allocated IDs. Links in
@@ -230,7 +239,8 @@ Understanding these behaviors helps avoid surprises during import:
 
 - **Asset preservation**: If an imported node replaces an existing node at the
   same target ID, any file and image attachments on the existing node are
-  preserved.
+  preserved. Archive-carried `assets/` and `images/` entries land last and win
+  when names collide.
 
 - **Atomic failure**: If any node fails to import, the entire import operation
   fails. Partially imported nodes are not rolled back, but the dex is only
