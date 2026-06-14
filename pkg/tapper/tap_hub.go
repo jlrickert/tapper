@@ -2,7 +2,9 @@ package tapper
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -180,6 +182,181 @@ func (t *Tap) hubTokenForTarget(target *keg.Target) string {
 		return ""
 	}
 	return resolver.ResolveToken(target)
+}
+
+// HubInfo describes a configured hub for `tap hub list`.
+type HubInfo struct {
+	Name      string
+	URL       string
+	Kind      string
+	IsDefault bool
+	Source    string // "user" or "built-in"
+}
+
+// HubList returns the configured hubs (plus the synthesized built-ins when none
+// are configured), marking the default and the config layer each came from. It
+// inspects local config only — it does not contact any hub.
+func (t *Tap) HubList(_ context.Context) ([]HubInfo, error) {
+	cfg, err := t.ConfigService.Config(true)
+	if err != nil {
+		return nil, err
+	}
+	defaultHub := cfg.resolveHubName()
+	userHubs := map[string]struct{}{}
+	if userCfg, _ := t.ConfigService.UserConfig(true); userCfg != nil {
+		for name := range userCfg.Hubs() {
+			userHubs[name] = struct{}{}
+		}
+	}
+	names := t.allHubNames(cfg)
+	out := make([]HubInfo, 0, len(names))
+	for _, name := range names {
+		entry, ok := cfg.Hub(name)
+		if !ok {
+			continue
+		}
+		source := "built-in"
+		if _, ok := userHubs[name]; ok {
+			source = "user"
+		}
+		out = append(out, HubInfo{
+			Name:      name,
+			URL:       strings.TrimSpace(entry.URL),
+			Kind:      hubKindOrDefault(entry.Kind),
+			IsDefault: name == defaultHub,
+			Source:    source,
+		})
+	}
+	return out, nil
+}
+
+func hubKindOrDefault(kind string) string {
+	if k := strings.TrimSpace(kind); k != "" {
+		return k
+	}
+	return HubKindRemote
+}
+
+// HubAddOptions adds a remote hub connection to user config.
+type HubAddOptions struct {
+	Name     string
+	URL      string
+	TokenEnv string
+}
+
+// HubAdd registers a remote hub connection. Hub entries may only live in USER
+// config (the trust boundary strips hubs from project config), so this always
+// writes the user config regardless of the working directory.
+func (t *Tap) HubAdd(_ context.Context, opts HubAddOptions) error {
+	name := strings.TrimSpace(opts.Name)
+	if name == "" {
+		return fmt.Errorf("a hub name is required")
+	}
+	url := strings.TrimSpace(opts.URL)
+	if url == "" {
+		return fmt.Errorf("a hub url is required (--url)")
+	}
+	return t.mutateConfigFile(t.PathService.UserConfig(), func(c *Config) error {
+		return c.SetHub(name, HubEntry{Kind: HubKindRemote, URL: url, TokenEnv: strings.TrimSpace(opts.TokenEnv)})
+	})
+}
+
+// HubRemoveOptions removes a hub connection from user config.
+type HubRemoveOptions struct {
+	Name string
+}
+
+// HubRemove deletes a hub connection (user config only) and prunes any namespace
+// pin that routed to it.
+func (t *Tap) HubRemove(_ context.Context, opts HubRemoveOptions) error {
+	name := strings.TrimSpace(opts.Name)
+	if name == "" {
+		return fmt.Errorf("a hub name is required")
+	}
+	var removed bool
+	if err := t.mutateConfigFile(t.PathService.UserConfig(), func(c *Config) error {
+		ok, derr := c.DeleteHub(name)
+		if derr != nil {
+			return derr
+		}
+		removed = ok
+		for nsName, ref := range c.Namespaces() {
+			if ref.Hub == name {
+				c.DeleteNamespace(nsName)
+			}
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	if !removed {
+		return fmt.Errorf("hub %q is not configured in user config", name)
+	}
+	return nil
+}
+
+// HubSetDefaultOptions sets the default hub. It writes project config by default
+// and user config with User=true (mirroring `tap config edit`).
+type HubSetDefaultOptions struct {
+	Name string
+	User bool
+}
+
+// HubSetDefault sets defaultHub. Unlike the hubs map, defaultHub is allowed in
+// project config, so the default write target is the project config, with
+// --user to write the user config instead.
+func (t *Tap) HubSetDefault(ctx context.Context, opts HubSetDefaultOptions) error {
+	name := strings.TrimSpace(opts.Name)
+	if name == "" {
+		return fmt.Errorf("a hub name is required")
+	}
+	cfg, err := t.ConfigService.Config(true)
+	if err != nil {
+		return err
+	}
+	if _, ok := cfg.Hub(name); !ok {
+		return fmt.Errorf("hub %q is not configured", name)
+	}
+	path := t.PathService.ProjectConfig()
+	if opts.User {
+		path = t.PathService.UserConfig()
+	}
+	return t.mutateConfigFile(path, func(c *Config) error {
+		return c.SetDefaultHub(ctx, name)
+	})
+}
+
+// mutateConfigFile reads a single config file (not the merged walk), applies fn,
+// and writes it back, creating a fresh config when the file is absent. Used by
+// the hub-connection mutators so a single layer is edited in place rather than
+// flattening the merged hierarchy.
+func (t *Tap) mutateConfigFile(path string, fn func(*Config) error) error {
+	resolved, err := t.Runtime.ResolvePath(path, false)
+	if err != nil {
+		return fmt.Errorf("unable to resolve config path: %w", err)
+	}
+	var cfg *Config
+	raw, readErr := t.Runtime.ReadFile(resolved)
+	switch {
+	case readErr == nil:
+		c, parseErr := ParseConfig(raw)
+		if parseErr != nil {
+			return fmt.Errorf("existing config is invalid: %w", parseErr)
+		}
+		cfg = c
+	case errors.Is(readErr, os.ErrNotExist):
+		cfg = &Config{data: &configDTO{}}
+	default:
+		return fmt.Errorf("unable to read config: %w", readErr)
+	}
+	if err := fn(cfg); err != nil {
+		return err
+	}
+	if err := cfg.Write(t.Runtime, resolved); err != nil {
+		return fmt.Errorf("unable to write config: %w", err)
+	}
+	t.ConfigService.ResetCache()
+	return nil
 }
 
 // dedupeStrings returns s with duplicates removed, preserving first-seen order.

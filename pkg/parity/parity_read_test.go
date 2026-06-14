@@ -336,12 +336,12 @@ func TestParity_ReadOperations(t *testing.T) {
 
 		// --- settings/info (Tap.Info) ---
 		//
-		// CLI `tap settings` and MCP `info` both call Tap.Info. However, MCP
+		// CLI `tap keg settings` and MCP `info` both call Tap.Info. However, MCP
 		// uses Minimal=true by default, returning only core fields. This test
 		// verifies both contain the keg title.
 		{
 			Name:     "info/both_contain_keg_title",
-			CLIArgs:  []string{"settings"},
+			CLIArgs:  []string{"keg", "settings"},
 			MCPTool:  "info",
 			MCPInput: map[string]any{},
 			Compare: func(t *testing.T, cliOut, mcpOut string) {

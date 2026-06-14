@@ -12,22 +12,20 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// NewInitCmd returns the `tap init` cobra command.
+// newKegCreateCmd returns the `tap keg create` cobra subcommand — the canonical
+// keg-creation command (formerly `tap init`).
 //
 // Usage examples:
 //
-//	tap init --keg blog
-//	tap init --project
-//	tap init --keg blog --cwd
-//	tap init --keg blog --hub knut --namespace me
-//	tap init --keg blog --path ./kegs/blog --title "Blog" --creator "me"
-func NewInitCmd(deps *Deps) *cobra.Command {
-	initOpts := tapper.InitOptions{}
-
+//	tap keg create --keg blog
+//	tap keg create --project
+//	tap keg create --keg blog --cwd
+//	tap keg create --keg blog --hub knut --namespace me
+//	tap keg create --keg blog --path ./kegs/blog --title "Blog" --creator "me"
+func newKegCreateCmd(deps *Deps) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "init [name | @namespace/name]",
-		Short: "create a new keg target",
-		Args:  cobra.MaximumNArgs(1),
+		Use:   "create [name | @namespace/name]",
+		Short: "create and initialize a new keg",
 		Long: strings.TrimSpace(`
 Create a keg target and initialize it in one of three destinations:
 
@@ -56,63 +54,84 @@ Metadata:
 - --title and --creator are written into the keg config for filesystem-backed kegs.
 
 Interactive mode:
-- When stdin is a TTY and no destination/alias flags are provided, tap init
+- When stdin is a TTY and no destination/alias flags are provided, tap keg create
   prompts for the alias, location category, title, and creator. Pass
   --non-interactive to skip the prompt and rely on flag-driven defaults
   (e.g. for CI or scripted invocations).
 `),
 		Example: strings.TrimSpace(`
-tap init --keg blog
-tap init --project --cwd
-tap init --keg blog --cwd
-tap init --keg blog --path ./kegs/blog
-tap init --keg blog --user
-tap init --keg blog --hub knut --namespace me
+tap keg create --keg blog
+tap keg create --project --cwd
+tap keg create --keg blog --cwd
+tap keg create --keg blog --path ./kegs/blog
+tap keg create --keg blog --user
+tap keg create --keg blog --hub knut --namespace me
 `),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			// A positional argument names the keg, optionally namespace-qualified
-			// as "@namespace/name". An explicit --namespace flag still overrides
-			// the parsed namespace.
-			if len(args) == 1 {
-				ns, name, parseErr := parseKegArg(args[0])
-				if parseErr != nil {
-					return parseErr
-				}
-				if name != "" {
-					initOpts.Keg = name
-				}
-				if ns != "" && strings.TrimSpace(initOpts.Namespace) == "" {
-					initOpts.Namespace = ns
-				}
-			}
+	}
+	configureKegCreateCmd(deps, cmd)
+	return cmd
+}
 
-			if shouldPromptInit(deps, &initOpts) {
-				if err := promptInitOptions(cmd, deps, &initOpts); err != nil {
-					return err
-				}
-			}
+// newInitCompatCmd is a hidden top-level alias preserving `tap init` for
+// back-compat. `tap keg create` is the canonical, documented command.
+func newInitCompatCmd(deps *Deps) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:    "init [name | @namespace/name]",
+		Short:  "create a new keg (deprecated alias for `keg create`)",
+		Hidden: true,
+	}
+	configureKegCreateCmd(deps, cmd)
+	return cmd
+}
 
-			if strings.TrimSpace(initOpts.Keg) == "" {
-				cwd, err := deps.Runtime.Getwd()
-				if err != nil {
-					return fmt.Errorf("unable to determine working directory for alias inference: %w", err)
-				}
-				initOpts.Keg = filepath.Base(cwd)
+// configureKegCreateCmd wires the shared keg-creation flags + RunE onto cmd so
+// the canonical `keg create` and the hidden `init` alias behave identically.
+func configureKegCreateCmd(deps *Deps, cmd *cobra.Command) {
+	initOpts := tapper.InitOptions{}
+	cmd.Args = cobra.MaximumNArgs(1)
+	cmd.RunE = func(cmd *cobra.Command, args []string) error {
+		// A positional argument names the keg, optionally namespace-qualified
+		// as "@namespace/name". An explicit --namespace flag still overrides
+		// the parsed namespace.
+		if len(args) == 1 {
+			ns, name, parseErr := parseKegArg(args[0])
+			if parseErr != nil {
+				return parseErr
 			}
+			if name != "" {
+				initOpts.Keg = name
+			}
+			if ns != "" && strings.TrimSpace(initOpts.Namespace) == "" {
+				initOpts.Namespace = ns
+			}
+		}
 
-			target, err := deps.Tap.InitKeg(cmd.Context(), initOpts)
+		if shouldPromptInit(deps, &initOpts) {
+			if err := promptInitOptions(cmd, deps, &initOpts); err != nil {
+				return err
+			}
+		}
+
+		if strings.TrimSpace(initOpts.Keg) == "" {
+			cwd, err := deps.Runtime.Getwd()
 			if err != nil {
-				return err
+				return fmt.Errorf("unable to determine working directory for alias inference: %w", err)
 			}
+			initOpts.Keg = filepath.Base(cwd)
+		}
 
-			label := tapper.KegBackendLabel(target)
-			if label == "" {
-				_, err = fmt.Fprintf(cmd.OutOrStdout(), "keg %s created", initOpts.Keg)
-				return err
-			}
-			_, err = fmt.Fprintf(cmd.OutOrStdout(), "keg %s created (%s)", initOpts.Keg, label)
+		target, err := deps.Tap.InitKeg(cmd.Context(), initOpts)
+		if err != nil {
 			return err
-		},
+		}
+
+		label := tapper.KegBackendLabel(target)
+		if label == "" {
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "keg %s created", initOpts.Keg)
+			return err
+		}
+		_, err = fmt.Fprintf(cmd.OutOrStdout(), "keg %s created (%s)", initOpts.Keg, label)
+		return err
 	}
 
 	cmd.Flags().BoolVar(&initOpts.Project, "project", false, "create a project-local keg")
@@ -126,8 +145,6 @@ tap init --keg blog --hub knut --namespace me
 	cmd.Flags().StringVar(&initOpts.Creator, "creator", "", "creator identifier to include in the keg config")
 	cmd.Flags().StringVar(&initOpts.TokenEnv, "token-env", "", "environment variable name to store token reference (API targets)")
 	cmd.Flags().BoolVar(&initOpts.NonInteractive, "non-interactive", false, "skip the interactive prompt even when stdin is a TTY")
-
-	return cmd
 }
 
 // parseKegArg splits an init positional argument into an optional namespace and
@@ -155,11 +172,11 @@ func parseKegArg(arg string) (namespace, name string, err error) {
 }
 
 // shouldPromptInit reports whether the cobra RunE handler should fire the
-// interactive `tap init` prompt. The prompt is gated on three conditions:
+// interactive keg-create prompt. The prompt is gated on three conditions:
 // stdin is a TTY, --non-interactive is not set, and the user has supplied no
 // destination flags or alias on the command line. Any explicit flag means the
-// user has already declared their intent; only the bare `tap init` invocation
-// triggers the conversational path.
+// user has already declared their intent; only the bare invocation triggers the
+// conversational path.
 func shouldPromptInit(deps *Deps, opts *tapper.InitOptions) bool {
 	if deps == nil || deps.Runtime == nil {
 		return false
@@ -182,11 +199,10 @@ func shouldPromptInit(deps *Deps, opts *tapper.InitOptions) bool {
 	return true
 }
 
-// promptInitOptions walks the user through alias / location / metadata when
-// `tap init` is invoked bare on a TTY. Prompts go to stderr (so stdout stays
-// clean for the success line that downstream tooling may pipe), and answers
-// come from cmd.InOrStdin() so tests can pipe scripted answers via
-// Process.RunWithIO.
+// promptInitOptions walks the user through alias / location / metadata when keg
+// create is invoked bare on a TTY. Prompts go to stderr (so stdout stays clean
+// for the success line that downstream tooling may pipe), and answers come from
+// cmd.InOrStdin() so tests can pipe scripted answers via Process.RunWithIO.
 //
 // The hub branch is intentionally skipped: hub init still requires the user
 // to pass --hub explicitly, since hub setup needs a namespace + token and the

@@ -81,9 +81,9 @@ graph with project-scoped defaults.
 ### Bootstrap Commands
 
 ```bash
-tap init --keg tapper --project
+tap keg create --keg tapper --project
 tap config --project
-tap settings --project
+tap keg settings --project
 ```
 
 ### Example Layout

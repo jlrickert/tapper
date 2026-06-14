@@ -10,7 +10,7 @@ import (
 // Usage examples:
 //
 //	tap config edit
-//	tap config edit --project
+//	tap config edit --user
 func NewConfigEditCmd(deps *Deps) *cobra.Command {
 	var opts tapper.ConfigEditOptions
 
@@ -19,7 +19,7 @@ func NewConfigEditCmd(deps *Deps) *cobra.Command {
 		Short: "edit tap configuration with default editor",
 		Long: `Open the configuration file in your default editor for editing.
 
-By default, edits the user configuration. Use '--project' to edit project
+By default, edits the project configuration. Use '--user' to edit user
 configuration. Use '--config' to edit an explicit config file instead.
 
 If stdin is piped with non-empty YAML, the piped content is validated and

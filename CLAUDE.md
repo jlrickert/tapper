@@ -183,13 +183,25 @@ never part of the reference string; there is no `<hub>:@ns/name` form. To pin a
 hub explicitly, set `defaultHub`/`namespaces[ns].hub` so the namespace routes to
 that hub.
 
-To **list** available kegs, query a hub: `tap hub list` / the `hub_list` MCP
+To **list** available kegs, query a hub: `tap keg list` / the `keg_list` MCP
 tool (backed by `GET /api/v1/kegs`). There is no local keg-alias listing.
+(`tap hub list` lists configured *hub connections*, not kegs.)
 
-**`tap init`** is namespace-centric too: a bare `tap init <name>` resolves the
-default namespace+hub (typically a remote create via `POST /api/v1/@<ns>/kegs`,
-failing on 409); `tap init @local/<name>` pins the local filesystem hub. When
-nothing is configured it falls back to a local `@local` keg.
+**`tap keg create`** is namespace-centric too: a bare `tap keg create <name>`
+resolves the default namespace+hub (typically a remote create via
+`POST /api/v1/@<ns>/kegs`, failing on 409); `tap keg create @local/<name>` pins
+the local filesystem hub. When nothing is configured it falls back to a local
+`@local` keg. (`tap init` remains as a hidden back-compat alias.)
+
+**Command groups.** `tap keg` administers kegs on a hub (`list`, `create`,
+`grants`/`grant`/`revoke` for ACLs, `visibility`, and `settings` for the keg's
+own config — formerly `tap settings`). `tap namespace` administers namespaces
+and membership roles (`list`, `members`, `add-member`, `set-role`,
+`remove-member`, `create`). `tap hub` manages hub *connections* (`list`,
+`status`, `add`/`remove` writing user config, `set-default` writing project
+config by default, `--user` for user). These are full-`tap` commands (not in
+the pruned `keg` binary). `tap config edit` now defaults to the **project**
+config; `--user` targets the user config.
 
 Supported env vars: `TAP_DEFAULT_KEG`, `TAP_FALLBACK_KEG`, `TAP_LOG_FILE`,
 `TAP_LOG_LEVEL`, `TAP_DEFAULT_HUB`, `TAP_FALLBACK_HUB`, `TAP_DEFAULT_NAMESPACE`,
