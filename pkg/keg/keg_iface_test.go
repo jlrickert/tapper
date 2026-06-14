@@ -43,7 +43,7 @@ func TestReadNodeAssemblesFullState(t *testing.T) {
 	require.Equal(t, kegpkg.NodeId{ID: 1}, view.ID)
 	require.Contains(t, string(view.Content), "Alpha body")
 	require.NotNil(t, view.Stats)
-	// MemoryRepo supports files/images, so the lists must be non-nil.
+	// MemoryRepo supports assets/images, so the lists must be non-nil.
 	require.NotNil(t, view.Files)
 	require.NotNil(t, view.Images)
 }

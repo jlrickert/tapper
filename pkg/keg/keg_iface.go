@@ -228,7 +228,7 @@ type AssetSummary struct {
 // KegSummary is keg-level diagnostic data returned by Keg.Summary.
 type KegSummary struct {
 	NodeCount int          `json:"node_count" yaml:"node_count"`
-	Files     AssetSummary `json:"files" yaml:"files"`
+	Files     AssetSummary `json:"assets" yaml:"assets"`
 	Images    AssetSummary `json:"images" yaml:"images"`
 }
 

@@ -123,10 +123,8 @@ func (t *Tap) KegInfo(ctx context.Context, opts KegInfoOptions) (string, error) 
 
 		NodeCount int `yaml:"node_count"`
 
-		Assets struct {
-			Files  assetDiagnostics `yaml:"files"`
-			Images assetDiagnostics `yaml:"images"`
-		} `yaml:"assets"`
+		Assets assetDiagnostics `yaml:"assets"`
+		Images assetDiagnostics `yaml:"images"`
 	}
 
 	out := diagnostics{
@@ -159,12 +157,12 @@ func (t *Tap) KegInfo(ctx context.Context, opts KegInfoOptions) (string, error) 
 		}
 	}
 
-	out.Assets.Files = assetDiagnostics{
+	out.Assets = assetDiagnostics{
 		Supported:       summary.Files.Supported,
 		NodesWithAssets: summary.Files.NodesWithAssets,
 		TotalAssets:     summary.Files.TotalAssets,
 	}
-	out.Assets.Images = assetDiagnostics{
+	out.Images = assetDiagnostics{
 		Supported:       summary.Images.Supported,
 		NodesWithAssets: summary.Images.NodesWithAssets,
 		TotalAssets:     summary.Images.TotalAssets,
