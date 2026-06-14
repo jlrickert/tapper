@@ -24,9 +24,14 @@ func validAssetName(name string) error {
 	return nil
 }
 
+// ValidateAssetName reports whether name is a single safe node asset filename.
+func ValidateAssetName(name string) error {
+	return validAssetName(name)
+}
+
 // safeArchiveEntryName reports whether a keg-archive tar entry name is safe to
 // store and later join onto disk: relative, with no ".." path segment. Hostile
-// archives plant ".." in an asset entry (e.g. keg-archive/nodes/1/files/../../x)
+// archives plant ".." in an asset entry (e.g. keg-archive/nodes/1/assets/../../x)
 // to escape the keg root when imported (zip-slip, CWE-22). Import rejects an
 // archive containing any such entry before writing anything to the repository.
 func safeArchiveEntryName(name string) bool {

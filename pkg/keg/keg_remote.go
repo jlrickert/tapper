@@ -425,7 +425,7 @@ func (k *RemoteKeg) ReadNode(ctx context.Context, id NodeId) (*NodeView, error) 
 		Content string          `json:"content"`
 		Meta    string          `json:"meta"`
 		Stats   json.RawMessage `json:"stats"`
-		Files   []string        `json:"files"`
+		Assets  []string        `json:"assets"`
 		Images  []string        `json:"images"`
 	}
 	if err := k.getJSON(ctx, fmt.Sprintf("/nodes/%d", id.ID), "ReadNode", &resp); err != nil {
@@ -450,7 +450,7 @@ func (k *RemoteKeg) ReadNode(ctx context.Context, id NodeId) (*NodeView, error) 
 		Content: []byte(resp.Content),
 		Meta:    []byte(resp.Meta),
 		Stats:   stats,
-		Files:   resp.Files,
+		Files:   resp.Assets,
 		Images:  resp.Images,
 	}, nil
 }
@@ -619,9 +619,9 @@ func (k *RemoteKeg) Summary(ctx context.Context) (*KegSummary, error) {
 	return summary, nil
 }
 
-// --- Files and images ---
+// --- Assets and images ---
 
-// listAssets fetches an asset name list (files or images) for a node.
+// listAssets fetches an asset name list (assets or images) for a node.
 func (k *RemoteKeg) listAssets(ctx context.Context, id NodeId, kind, op string) ([]string, error) {
 	var names []string
 	if err := k.getJSON(ctx, fmt.Sprintf("/nodes/%d/%s", id.ID, kind), op, &names); err != nil {
@@ -630,7 +630,7 @@ func (k *RemoteKeg) listAssets(ctx context.Context, id NodeId, kind, op string) 
 	return names, nil
 }
 
-// readAsset fetches one asset payload (file or image) for a node.
+// readAsset fetches one asset payload (asset or image) for a node.
 func (k *RemoteKeg) readAsset(ctx context.Context, id NodeId, kind, name, op string) ([]byte, error) {
 	path := fmt.Sprintf("/nodes/%d/%s/%s", id.ID, kind, url.PathEscape(name))
 	resp, err := k.do(ctx, http.MethodGet, path, nil, "", nil)
@@ -640,7 +640,7 @@ func (k *RemoteKeg) readAsset(ctx context.Context, id NodeId, kind, name, op str
 	return k.readBody(resp, op, http.StatusOK)
 }
 
-// writeAsset stores one asset payload (file or image) for a node.
+// writeAsset stores one asset payload (asset or image) for a node.
 func (k *RemoteKeg) writeAsset(ctx context.Context, id NodeId, kind, name string, data []byte, op string) error {
 	path := fmt.Sprintf("/nodes/%d/%s/%s", id.ID, kind, url.PathEscape(name))
 	resp, err := k.do(ctx, http.MethodPut, path, bytes.NewReader(data), "application/octet-stream", nil)
@@ -651,7 +651,7 @@ func (k *RemoteKeg) writeAsset(ctx context.Context, id NodeId, kind, name string
 	return err
 }
 
-// deleteAsset removes one asset (file or image) from a node.
+// deleteAsset removes one asset (asset or image) from a node.
 func (k *RemoteKeg) deleteAsset(ctx context.Context, id NodeId, kind, name, op string) error {
 	path := fmt.Sprintf("/nodes/%d/%s/%s", id.ID, kind, url.PathEscape(name))
 	resp, err := k.do(ctx, http.MethodDelete, path, nil, "", nil)
@@ -662,24 +662,24 @@ func (k *RemoteKeg) deleteAsset(ctx context.Context, id NodeId, kind, name, op s
 	return err
 }
 
-// ListFiles implements Keg via GET /nodes/{id}/files.
+// ListFiles implements Keg via GET /nodes/{id}/assets.
 func (k *RemoteKeg) ListFiles(ctx context.Context, id NodeId) ([]string, error) {
-	return k.listAssets(ctx, id, "files", "ListFiles")
+	return k.listAssets(ctx, id, "assets", "ListFiles")
 }
 
-// ReadFile implements Keg via GET /nodes/{id}/files/{name}.
+// ReadFile implements Keg via GET /nodes/{id}/assets/{name}.
 func (k *RemoteKeg) ReadFile(ctx context.Context, id NodeId, name string) ([]byte, error) {
-	return k.readAsset(ctx, id, "files", name, "ReadFile")
+	return k.readAsset(ctx, id, "assets", name, "ReadFile")
 }
 
-// WriteFile implements Keg via PUT /nodes/{id}/files/{name}.
+// WriteFile implements Keg via PUT /nodes/{id}/assets/{name}.
 func (k *RemoteKeg) WriteFile(ctx context.Context, id NodeId, name string, data []byte) error {
-	return k.writeAsset(ctx, id, "files", name, data, "WriteFile")
+	return k.writeAsset(ctx, id, "assets", name, data, "WriteFile")
 }
 
-// DeleteFile implements Keg via DELETE /nodes/{id}/files/{name}.
+// DeleteFile implements Keg via DELETE /nodes/{id}/assets/{name}.
 func (k *RemoteKeg) DeleteFile(ctx context.Context, id NodeId, name string) error {
-	return k.deleteAsset(ctx, id, "files", name, "DeleteFile")
+	return k.deleteAsset(ctx, id, "assets", name, "DeleteFile")
 }
 
 // ListImages implements Keg via GET /nodes/{id}/images.

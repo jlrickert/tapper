@@ -19,8 +19,8 @@ func TestInfoCommand_DisplaysDiagnostics(t *testing.T) {
 	require.Contains(t, stdout, "target:")
 	require.Contains(t, stdout, "node_count:")
 	require.Contains(t, stdout, "assets:")
-	require.Contains(t, stdout, "files:")
 	require.Contains(t, stdout, "images:")
+	require.NotContains(t, stdout, "files:")
 }
 
 func TestInfoCommand_NoConfiguredKegErrors(t *testing.T) {
