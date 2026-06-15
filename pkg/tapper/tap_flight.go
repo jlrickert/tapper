@@ -160,7 +160,7 @@ func defaultFlightNamespace(cfg *Config) string {
 	if !ok {
 		return ""
 	}
-	if ns := strings.TrimPrefix(strings.TrimSpace(entry.Namespace), "@"); ns != "" {
+	if ns := strings.TrimPrefix(strings.TrimSpace(entry.DefaultNamespace), "@"); ns != "" {
 		return ns
 	}
 	kind := strings.TrimSpace(entry.Kind)

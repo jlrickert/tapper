@@ -42,6 +42,13 @@ type InitOptions struct {
 	// CLI/MCP concern — but the option lives on InitOptions so both the CLI
 	// flag and the MCP input field map to the same canonical contract.
 	NonInteractive bool
+
+	// RequireBootstrap makes a namespace/hub create (anything but an explicit
+	// local destination) fail with ErrNotBootstrapped when no user config exists
+	// — `tap bootstrap` has not been run. Set by the full `tap` surface and the
+	// MCP server; left false for direct Tap API callers (e.g. tests), which keep
+	// the unconfigured local fallback.
+	RequireBootstrap bool
 }
 
 // LocalDestination reports whether the options force a project-local
@@ -76,6 +83,14 @@ func (t *Tap) InitKeg(ctx context.Context, options InitOptions) (*keg.Target, er
 			return nil, fmt.Errorf("--hub cannot be combined with a local destination (--project/--cwd/--path)")
 		}
 		return t.initProjectDestination(ctx, options)
+	}
+
+	// A namespace/hub create needs configured hubs. On the full `tap` surface
+	// (and MCP) refuse rather than silently materializing a keg in a hidden
+	// platform dir when `tap bootstrap` has not been run. Explicit local
+	// destinations returned above; they remain available without setup.
+	if options.RequireBootstrap && !t.ConfigService.UserConfigExists() {
+		return nil, ErrNotBootstrapped
 	}
 
 	cfg, err := t.ConfigService.Config(true)

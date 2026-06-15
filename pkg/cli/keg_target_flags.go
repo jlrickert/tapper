@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"sort"
 	"strings"
 
 	"github.com/jlrickert/tapper/pkg/tapper"
@@ -11,6 +12,12 @@ import (
 func applyKegTargetProfile(deps *Deps, opts *tapper.KegTargetOptions) {
 	if opts.Keg == "" {
 		opts.Keg = deps.KegTargetOptions.Keg
+	}
+	if opts.Namespace == "" {
+		opts.Namespace = deps.KegTargetOptions.Namespace
+	}
+	if opts.Hub == "" {
+		opts.Hub = deps.KegTargetOptions.Hub
 	}
 	if !opts.Project {
 		opts.Project = deps.KegTargetOptions.Project
@@ -24,9 +31,61 @@ func applyKegTargetProfile(deps *Deps, opts *tapper.KegTargetOptions) {
 	if opts.Flight == "" {
 		opts.Flight = deps.KegTargetOptions.Flight
 	}
-	if deps.Profile.withDefaults().ForceProjectResolution {
+	profile := deps.Profile.withDefaults()
+	if profile.ForceProjectResolution {
 		opts.Project = true
 	}
+	// The full `tap` surface requires `tap bootstrap` before config-driven keg
+	// resolution; the pruned `keg` binary (no config command) stays exempt and
+	// resolves project-local kegs without setup.
+	if profile.IncludeConfigCommand {
+		opts.RequireBootstrap = true
+	}
+}
+
+// globalKegTarget returns the keg selector (Keg/Namespace/Hub and profile
+// defaults) resolved from the persistent global flags. Admin commands use it to
+// target a keg through --keg/--namespace/--hub instead of a positional.
+func globalKegTarget(deps *Deps) tapper.KegTargetOptions {
+	var kt tapper.KegTargetOptions
+	applyKegTargetProfile(deps, &kt)
+	return kt
+}
+
+// namespaceFlagCompletionFunc completes --namespace from namespaces named in
+// local config (offline, best-effort).
+func namespaceFlagCompletionFunc(deps *Deps) func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
+	return func(_ *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		return filterByPrefix(configNamespaceNames(deps), toComplete), cobra.ShellCompDirectiveNoFileComp
+	}
+}
+
+// hubFlagCompletionFunc completes --hub from the hubs named in local config.
+func hubFlagCompletionFunc(deps *Deps) func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
+	return func(_ *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		return filterByPrefix(configHubNames(deps), toComplete), cobra.ShellCompDirectiveNoFileComp
+	}
+}
+
+// configHubNames returns the hub names known to local config (best-effort,
+// offline), sorted for stable completion output.
+func configHubNames(deps *Deps) []string {
+	tap, err := completionTap(deps)
+	if err != nil {
+		return nil
+	}
+	cfg, err := tap.ConfigService.Config(true)
+	if err != nil || cfg == nil {
+		return nil
+	}
+	var names []string
+	for name := range cfg.Hubs() {
+		if name = strings.TrimSpace(name); name != "" {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	return names
 }
 
 // nodeIDCompletionFunc returns a ValidArgsFunction that suggests node IDs from

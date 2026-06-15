@@ -49,6 +49,8 @@ func registerRepoInit(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults)
 			Title:          in.Title,
 			Creator:        in.Creator,
 			NonInteractive: true,
+			// MCP is a full surface: a namespace/hub create requires bootstrap.
+			RequireBootstrap: true,
 		}
 		_ = in.NonInteractive // MCP never prompts; field exists for parity with the CLI flag
 

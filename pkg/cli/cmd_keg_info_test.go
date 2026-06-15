@@ -29,7 +29,7 @@ func TestInfoCommand_NoConfiguredKegErrors(t *testing.T) {
 
 	res := NewProcess(t, false, "info").Run(sb.Context(), sb.Runtime())
 	require.Error(t, res.Err)
-	require.Contains(t, string(res.Stderr), "no keg configured")
+	require.Contains(t, string(res.Stderr), "tap bootstrap")
 }
 
 func TestInfoCommand_WithNonexistentAliasErrors(t *testing.T) {

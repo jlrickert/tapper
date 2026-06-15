@@ -52,8 +52,8 @@ Always route through tapper's interfaces:
 Running `tap create` or `tap edit` while an MCP server is serving the
 same keg can:
 
-- Cause lock contention: `tap site serve --watch` holds the index
-  mutex during rebuilds, which can block MCP list operations.
+- Cause lock contention: index rebuilds (triggered by filesystem
+  events) hold the index mutex, which can block MCP list operations.
 - Produce stale index reads: the MCP server's in-memory index does not
   observe CLI-originated writes until the next filesystem event is
   processed, which may be delayed by the watcher's debounce window.
@@ -127,9 +127,9 @@ is in the same keg — they resolve in any markdown renderer.
   cross-node transaction.
 - The index is rebuilt incrementally on write. Searches issued
   immediately after a write see the new state.
-- `tap site serve --watch` rebuilds the index on filesystem events;
-  if watcher and MCP server are running against the same keg, expect
-  additional latency during burst writes.
+- A live watcher (the MCP server, or `tap watch`) rebuilds the index
+  on filesystem events; if it runs against the same keg as concurrent
+  writes, expect additional latency during burst writes.
 
 ## Do not bypass completeness checks
 

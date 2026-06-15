@@ -16,9 +16,8 @@ func TestTapHelp_ShowsPersistentKegTargetFlags(t *testing.T) {
 	require.NoError(t, res.Err)
 	stdout := string(res.Stdout)
 	require.Contains(t, stdout, "--keg")
-	require.Contains(t, stdout, "--project")
-	require.Contains(t, stdout, "--path")
-	require.Contains(t, stdout, "--cwd")
+	require.Contains(t, stdout, "--namespace")
+	require.Contains(t, stdout, "--hub")
 	require.Contains(t, stdout, "--flight")
 }
 
@@ -35,9 +34,8 @@ func TestTap_FlightFlagComposesWithKegTargetFlags(t *testing.T) {
 		args []string
 	}{
 		{"keg", []string{"--flight", "f1", "--keg", "personal", "orient"}},
-		{"project", []string{"--flight", "f1", "--project", "orient"}},
-		{"path", []string{"--flight", "f1", "--path", "/tmp", "orient"}},
-		{"cwd", []string{"--flight", "f1", "--cwd", "orient"}},
+		{"namespace", []string{"--flight", "f1", "--namespace", "local", "orient"}},
+		{"hub", []string{"--flight", "f1", "--hub", "local", "orient"}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -69,8 +67,8 @@ func TestConfigHelp_HidesInheritedKegTargetFlags(t *testing.T) {
 	require.NoError(t, res.Err)
 	stdout := string(res.Stdout)
 	require.NotContains(t, stdout, "--keg")
-	require.NotContains(t, stdout, "--path")
-	require.NotContains(t, stdout, "--cwd")
+	require.NotContains(t, stdout, "--namespace")
+	require.NotContains(t, stdout, "--hub")
 	require.Contains(t, stdout, "--project")
 }
 
@@ -123,60 +121,17 @@ func TestTap_RootPersistentKegFlagCompletion(t *testing.T) {
 	require.Contains(t, suggestions, "personal")
 }
 
-func TestTap_GlobalFlagsMutuallyExclusive(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name        string
-		args        []string
-		errFragment string
-	}{
-		{
-			name:        "keg_and_project_conflict",
-			args:        []string{"cat", "0", "--keg", "foo", "--project"},
-			errFragment: "--keg cannot be used with --project, --cwd, or --path",
-		},
-		{
-			name:        "keg_and_cwd_conflict",
-			args:        []string{"cat", "0", "--keg", "foo", "--cwd"},
-			errFragment: "--keg cannot be used with --project, --cwd, or --path",
-		},
-		{
-			name:        "keg_and_path_conflict",
-			args:        []string{"cat", "0", "--keg", "foo", "--path", "/tmp"},
-			errFragment: "--keg cannot be used with --project, --cwd, or --path",
-		},
-		{
-			name:        "project_and_path_conflict",
-			args:        []string{"cat", "0", "--project", "--path", "/tmp"},
-			errFragment: "--project cannot be used with --path",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(innerT *testing.T) {
-			innerT.Parallel()
-			sb := NewSandbox(innerT, testutils.WithFixture("testuser", "~"))
-
-			h := NewProcess(innerT, false, tt.args...)
-			res := h.Run(sb.Context(), sb.Runtime())
-
-			require.Error(innerT, res.Err)
-			require.Contains(innerT, string(res.Stderr), tt.errFragment)
-		})
-	}
-}
-
-func TestTap_PathFlagNonexistentDirectoryShowsClearError(t *testing.T) {
+// TestTap_KegNamespaceConflict verifies that pinning a namespace twice — once
+// inside an @namespace/keg reference and again with --namespace — is rejected,
+// rather than one silently winning.
+func TestTap_KegNamespaceConflict(t *testing.T) {
 	t.Parallel()
 
 	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
 
-	res := NewProcess(t, false, "--path", "jiberish", "cat", "0").Run(sb.Context(), sb.Runtime())
+	res := NewProcess(t, false, "cat", "0", "--keg", "@work/dev", "--namespace", "other").Run(sb.Context(), sb.Runtime())
 	require.Error(t, res.Err)
-	stderr := string(res.Stderr)
-	require.Contains(t, stderr, "jiberish")
-	require.Contains(t, stderr, "does not exist")
+	require.Contains(t, string(res.Stderr), "conflicts with the namespace")
 }
 
 func TestKegHelp_HidesPersistentKegTargetFlags(t *testing.T) {
@@ -187,8 +142,8 @@ func TestKegHelp_HidesPersistentKegTargetFlags(t *testing.T) {
 	res := NewKegProcess(t, false, "--help").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 	stdout := string(res.Stdout)
+	// The pruned keg binary exposes no keg-resolution flags.
 	require.NotContains(t, stdout, "--keg")
-	require.NotContains(t, stdout, "--project")
-	require.NotContains(t, stdout, "--path")
-	require.NotContains(t, stdout, "--cwd")
+	require.NotContains(t, stdout, "--namespace")
+	require.NotContains(t, stdout, "--hub")
 }

@@ -85,10 +85,21 @@ func NewTap(opts TapOptions) (*Tap, error) {
 
 // KegTargetOptions describes how a command should resolve a keg target.
 type KegTargetOptions struct {
-	// Keg is the configured alias.
+	// Keg is the keg selector: a bare name or an @namespace/keg reference.
 	Keg string
 
-	// Project resolves using project-local keg discovery.
+	// Namespace overrides the namespace the keg resolves in when Keg is a bare
+	// name (it loses to an @namespace/ already present in Keg). Empty means use
+	// the configured defaultNamespace/fallbackNamespace chain.
+	Namespace string
+
+	// Hub pins the hub the keg resolves on, overriding namespace→hub resolution.
+	// Empty means resolve the hub from the namespace as usual.
+	Hub string
+
+	// Project resolves using project-local keg discovery. Not exposed as a tap
+	// flag; retained for the pruned `keg` binary (ForceProjectResolution) and
+	// the keg-create destination flags.
 	Project bool
 
 	// Cwd resolves project keg at the current working directory instead of git root.
@@ -100,9 +111,15 @@ type KegTargetOptions struct {
 
 	// Flight is an optional overlay that restricts which kegs are available and
 	// injects agent instructions. It composes with the single-keg selectors
-	// (Keg/Project/Cwd/Path): the selector picks a keg and the flight gates it.
+	// (Keg/Namespace/Hub): the selector picks a keg and the flight gates it.
 	// A keg outside the flight's allow-list is rejected at resolution.
 	Flight string
+
+	// RequireBootstrap makes config-driven resolution fail with
+	// ErrNotBootstrapped when no user config exists. Set by the full `tap`
+	// surface and the MCP server; left false by the pruned `keg` binary and by
+	// direct Tap API callers (e.g. tests).
+	RequireBootstrap bool
 }
 
 func (t *Tap) LookupKeg(ctx context.Context, kegAlias string) (keg.Keg, error) {
@@ -123,12 +140,15 @@ func (t *Tap) resolveKeg(ctx context.Context, opts KegTargetOptions) (keg.Keg, e
 
 func (t *Tap) resolveKegForRole(ctx context.Context, opts KegTargetOptions, role FlightRole) (keg.Keg, error) {
 	k, err := t.KegService.Resolve(ctx, ResolveKegOptions{
-		Root:    t.Root,
-		Keg:     opts.Keg,
-		Project: opts.Project,
-		Cwd:     opts.Cwd,
-		Path:    opts.Path,
-		NoCache: false,
+		Root:             t.Root,
+		Keg:              opts.Keg,
+		Namespace:        opts.Namespace,
+		Hub:              opts.Hub,
+		Project:          opts.Project,
+		Cwd:              opts.Cwd,
+		Path:             opts.Path,
+		RequireBootstrap: opts.RequireBootstrap,
+		NoCache:          false,
 	})
 	if err != nil {
 		return nil, err

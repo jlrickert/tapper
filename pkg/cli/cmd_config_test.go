@@ -41,7 +41,7 @@ func TestConfigCommand_DisplaysMergedConfig(t *testing.T) {
 				"# yaml-language-server: $schema=https://raw.githubusercontent.com/jlrickert/tapper/main/schemas/tap-config.json",
 				"fallbackHub:",
 				"namespaces:",
-				"namespace: pub",
+				"defaultNamespace: pub",
 				"hubs:",
 			},
 			description: "User template should include the fallback hub, the local namespace mapping, the per-hub namespace, and the hubs map",

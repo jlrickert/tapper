@@ -91,10 +91,6 @@ var tapMethodToSurfaces = map[string]struct {
 	"Import":        {CLI: "archive import", MCP: "import"},
 	"ImportFromKeg": {CLI: "import", MCP: "import_from_keg"},
 
-	// Site and serve (CLI-only or with MCP equivalents)
-	"Site":  {CLI: "site", MCP: "site"},
-	"Serve": {CLI: "mcp", MCP: "serve"},
-
 	// Flights (keg restriction + agent instructions)
 	"ListFlights":  {CLI: "flight list", MCP: "list_flights"},
 	"GetFlight":    {CLI: "flight show", MCP: "flight_show"},
@@ -142,7 +138,6 @@ var tapMethodsExcluded = map[string]string{
 		"SubscribeHandler in pkg/mcp/server.go. Payload parity is impossible — MCP notifications " +
 		"are spec-thin (URI only) while the CLI stream carries kind/field — but both surfaces " +
 		"observe the same Tap.WatchNode events",
-	"NewServeHandler":       "internal HTTP handler factory; used by Serve",
 	"DoctorConfig":          "tapper-config health check helper; called by Doctor CLI/MCP surfaces",
 	"ConfigExplain":         "shares surface with Config via --explain flag / explain field",
 	"AuthLogout":            "security: MCP agents must not be able to revoke hub credentials; CLI-only by design",
@@ -153,6 +148,8 @@ var tapMethodsExcluded = map[string]string{
 	"Bootstrap":             "CLI-only onboarding; writes user config + drives interactive login, not an MCP operation",
 	"SetBootstrapNamespace": "CLI-only bootstrap step; adopts the hub's default namespace after login, not an MCP operation",
 	"SetFallbackKeg":        "CLI-only bootstrap step; persists the chosen keg as the user-level fallback after login, not an MCP operation",
+	"Use":                   "writes the project/user keg + flight to config; CLI-only config management by design",
+	"UseStatus":             "CLI-only summary of the resolved keg/flight context; config inspection via `tap use`",
 }
 
 // TestCoverage_AllTapMethodsHaveBothSurfaces uses reflection to enumerate

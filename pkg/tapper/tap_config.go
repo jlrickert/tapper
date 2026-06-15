@@ -215,13 +215,15 @@ type ConfigExplainOptions struct {
 var ConfigExplainFields = []string{
 	"defaultKeg",
 	"fallbackKeg",
+	"flight",
 	"logFile",
 	"logLevel",
 	"defaultHub",
 	"fallbackHub",
 	"defaultNamespace",
 	"fallbackNamespace",
-	"disableDefaultHub",
+	"disableAtlasHub",
+	"disableLocalHub",
 }
 
 // configFieldGetter returns the string value of a named field from a Config.
@@ -237,6 +239,8 @@ func configFieldGetter(cfg *Config, field string) string {
 		return cfg.DefaultKeg()
 	case "fallbackKeg":
 		return cfg.FallbackKeg()
+	case "flight":
+		return cfg.Flight()
 	case "logFile":
 		return cfg.LogFile()
 	case "logLevel":
@@ -249,8 +253,13 @@ func configFieldGetter(cfg *Config, field string) string {
 		return cfg.DefaultNamespace()
 	case "fallbackNamespace":
 		return cfg.FallbackNamespace()
-	case "disableDefaultHub":
-		if cfg.DisableDefaultHub() {
+	case "disableAtlasHub":
+		if cfg.DisableAtlasHub() {
+			return "true"
+		}
+		return ""
+	case "disableLocalHub":
+		if cfg.DisableLocalHub() {
 			return "true"
 		}
 		return ""

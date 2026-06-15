@@ -165,7 +165,7 @@ func (e *stubAuthError) Error() string { return e.msg }
 // TestAuthLoginCmd_MissingHub_FallsBackToDefault confirms the resolution
 // chain (decision keg-dev/1035) lets an unflagged, non-TTY login land on the
 // compiled-in DefaultHubURL when no Config.Hubs entry, no DefaultHub, and no
-// DisableDefaultHub override are present. The empty sandbox is equivalent to
+// DisableAtlasHub override are present. The empty sandbox is equivalent to
 // "no config at all" — the cleanest test of step 5.
 func TestAuthLoginCmd_MissingHub_FallsBackToDefault(t *testing.T) {
 	t.Parallel()
@@ -185,14 +185,14 @@ func TestAuthLoginCmd_MissingHub_FallsBackToDefault(t *testing.T) {
 		"unflagged login should resolve to DefaultHubURL via step 5 of the chain")
 }
 
-// TestAuthLoginCmd_DisableDefaultHubViaEnv_Errors confirms the SOC2-
-// auditability opt-out: setting TAP_DISABLE_DEFAULT_HUB=1 with no other
+// TestAuthLoginCmd_DisableAtlasHubViaEnv_Errors confirms the SOC2-
+// auditability opt-out: setting TAP_DISABLE_ATLAS_HUB=1 with no other
 // hub configuration produces a clear error rather than silently routing
 // to DefaultHubURL.
-func TestAuthLoginCmd_DisableDefaultHubViaEnv_Errors(t *testing.T) {
+func TestAuthLoginCmd_DisableAtlasHubViaEnv_Errors(t *testing.T) {
 	t.Parallel()
 	sb := newTestSandbox(t)
-	require.NoError(t, sb.Runtime().Env().Set("TAP_DISABLE_DEFAULT_HUB", "1"))
+	require.NoError(t, sb.Runtime().Env().Set("TAP_DISABLE_ATLAS_HUB", "1"))
 
 	hook := stubDeviceLoginHook(func(context.Context, *toolkit.Runtime, tapper.AuthLoginDeviceOptions) (*tapper.AuthEntry, error) {
 		t.Fatal("login fn must not be called when the default hub is disabled and no other hub is configured")
@@ -203,7 +203,7 @@ func TestAuthLoginCmd_DisableDefaultHubViaEnv_Errors(t *testing.T) {
 	res := proc.Run(sb.Context(), sb.Runtime())
 
 	require.Error(t, res.Err)
-	require.Contains(t, res.Err.Error(), "implicit default disabled")
+	require.Contains(t, res.Err.Error(), "implicit atlas hub disabled")
 }
 
 func TestAuthLoginCmd_PersistsStoreAndPrintsHub(t *testing.T) {

@@ -92,13 +92,19 @@ type ConfigV2 struct {
 	// Doctor holds `tap doctor` check configuration.
 	Doctor *DoctorConfig `yaml:"doctor,omitempty"`
 
-	// Site holds static site generation defaults for `tap site`.
+	// Site holds static-site-generation defaults persisted in the keg config.
+	// The built-in `tap site` command was removed (rendering now lives in
+	// tapper-hub), so no built-in command currently consumes this; it is
+	// preserved so existing keg configs round-trip and external/static-site
+	// tooling can still read it.
 	Site *SiteConfig `yaml:"site,omitempty"`
 
 	path string
 }
 
-// SiteConfig holds static site generation defaults stored in the keg config.
+// SiteConfig holds static-site-generation defaults stored in the keg config.
+// Retained for round-tripping after the `tap site` command's removal; no
+// built-in command consumes it today.
 type SiteConfig struct {
 	// Output is the default output directory.
 	Output string `yaml:"output,omitempty" json:"output,omitempty"`

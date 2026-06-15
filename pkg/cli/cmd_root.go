@@ -155,6 +155,15 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 						deps.LogLevel = v
 					}
 				}
+				// A project's persisted flight auto-applies when --flight is not
+				// given, so a repo always flies the same flight; --flight still
+				// overrides per invocation. Gated to the tap profile (the only one
+				// with the --flight overlay flag).
+				if deps.Profile.withDefaults().AllowKegAliasFlags && !cmd.Flags().Changed("flight") {
+					if v := cfg.Flight(); v != "" {
+						deps.KegTargetOptions.Flight = v
+					}
+				}
 			}
 
 			if deps.ConfigPath != "" {
@@ -212,7 +221,7 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 	cmd.PersistentFlags().StringVar(&deps.LogFile, "log-file", "", "write logs to file (default stderr)")
 	cmd.PersistentFlags().StringVar(&deps.LogLevel, "log-level", "", "minimum log level (default \"error\")")
 	cmd.PersistentFlags().BoolVar(&deps.LogJSON, "log-json", false, "output logs as JSON")
-	cmd.PersistentFlags().StringVarP(&deps.ConfigPath, "config", "c", "", "path to config file")
+	cmd.PersistentFlags().StringVarP(&deps.ConfigPath, "config", "c", "", "path to config file, overriding the user/project cascade")
 	cmd.PersistentFlags().BoolVar(&deps.Strict, "strict", false, "treat config warnings as errors")
 	mustRegisterFlagCompletion(cmd, "log-level", func(_ *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		levels := []string{"debug", "info", "warn", "error"}
@@ -225,12 +234,19 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 		return out, cobra.ShellCompDirectiveNoFileComp
 	})
 	if deps.Profile.withDefaults().AllowKegAliasFlags {
-		cmd.PersistentFlags().StringVarP(&deps.KegTargetOptions.Keg, "keg", "k", "", "alias of the keg to use")
+		// Keg-resolution flags (global): --keg is the selector (a bare name, an
+		// @namespace/keg reference, or a path to a local keg); --namespace and
+		// --hub are component overrides that compose with a bare --keg. The
+		// disk-discovery selectors (--project/--cwd) are gone — a local keg
+		// resolves through the namespace chain like a remote one, and a project's
+		// keg is set once with `tap use`.
+		cmd.PersistentFlags().StringVarP(&deps.KegTargetOptions.Keg, "keg", "k", "", "keg to use: a bare name or an @namespace/keg reference")
 		mustRegisterFlagCompletion(cmd, "keg", kegFlagCompletionFunc(deps))
-		cmd.PersistentFlags().BoolVar(&deps.KegTargetOptions.Project, "project", false, "resolve against the project-local keg")
-		cmd.PersistentFlags().StringVar(&deps.KegTargetOptions.Path, "path", "", "explicit project path to resolve a local keg")
-		cmd.PersistentFlags().BoolVar(&deps.KegTargetOptions.Cwd, "cwd", false, "resolve project keg at current working directory")
-		cmd.PersistentFlags().StringVar(&deps.KegTargetOptions.Flight, "flight", "", "restrict available kegs and inject flight instructions; composes with --keg/--project/--path/--cwd")
+		cmd.PersistentFlags().StringVar(&deps.KegTargetOptions.Namespace, "namespace", "", "namespace to resolve a bare --keg in (overrides defaultNamespace)")
+		mustRegisterFlagCompletion(cmd, "namespace", namespaceFlagCompletionFunc(deps))
+		cmd.PersistentFlags().StringVar(&deps.KegTargetOptions.Hub, "hub", "", "hub to resolve the keg on (overrides namespace→hub resolution)")
+		mustRegisterFlagCompletion(cmd, "hub", hubFlagCompletionFunc(deps))
+		cmd.PersistentFlags().StringVar(&deps.KegTargetOptions.Flight, "flight", "", "flight overlay; composes with --keg/--namespace/--hub")
 		mustRegisterFlagCompletion(cmd, "flight", flightFlagCompletionFunc(deps))
 		// A flight is an overlay (a keg restriction plus instructions), not a
 		// target selector, so it composes with the single-keg selectors rather
@@ -265,7 +281,6 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 		NewOrientCmd(deps),
 		NewSnapshotCmd(deps),
 		NewRemoveCmd(deps),
-		NewSiteCmd(deps),
 		NewStatsCmd(deps),
 		NewTagsCmd(deps),
 		NewVersionCmd(deps),
@@ -280,6 +295,7 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 		subcommands = append(subcommands,
 			NewKegCmd(deps),
 			NewNamespaceCmd(deps),
+			NewUseCmd(deps),
 			NewBootstrapCmd(deps),
 			configCmd,
 		)
@@ -293,10 +309,9 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 		subcommands = append(subcommands, initCmd)
 	}
 	cmd.AddCommand(subcommands...)
-	// The top-level `config` command defines local --project/--user flags that
-	// shadow the persistent keg-target --project/--path/--cwd flags; strip the
-	// inherited entries from its "Global Flags" help so users don't see two
-	// --project entries.
+	// The top-level `config` command defines its own local --project/--user
+	// flags; strip the inherited keg-target entries (--keg/--namespace/--hub)
+	// from its "Global Flags" help so the help stays focused on config flags.
 	if configCmd != nil {
 		filterRepoTargetFlagsInHelp(configCmd)
 	}
@@ -430,7 +445,7 @@ func completionBareNamespace(rt *toolkit.Runtime, cfg *tapper.Config) string {
 	}
 	if hubName != "" {
 		if entry, ok := cfg.Hub(hubName); ok {
-			if ns := strings.TrimSpace(entry.Namespace); ns != "" {
+			if ns := strings.TrimSpace(entry.DefaultNamespace); ns != "" {
 				return ns
 			}
 			if strings.TrimSpace(entry.Kind) == tapper.HubKindLocal {
@@ -495,9 +510,8 @@ func stripRepoTargetFlagsFromGlobalHelp(raw string) string {
 
 func isRepoTargetFlagHelpLine(line string) bool {
 	return strings.Contains(line, "--keg") ||
-		strings.Contains(line, "--project") ||
-		strings.Contains(line, "--path") ||
-		strings.Contains(line, "--cwd")
+		strings.Contains(line, "--namespace") ||
+		strings.Contains(line, "--hub")
 }
 
 // buildCLILogger constructs the structured logger for CLI commands.

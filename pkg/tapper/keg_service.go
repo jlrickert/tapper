@@ -43,12 +43,24 @@ type ResolveKegOptions struct {
 	Root string
 	// Keg is the explicit keg alias to resolve.
 	Keg string
+	// Namespace overrides the namespace component of the resolved reference when
+	// the selector is a bare name. Empty uses the configured chain.
+	Namespace string
+	// Hub pins the hub the reference resolves on, overriding namespace→hub
+	// resolution. Empty resolves the hub from the namespace as usual.
+	Hub string
 	// Project resolves a keg from project-local locations.
 	Project bool
 	// Cwd limits project resolution to the current working directory.
 	Cwd bool
 	// Path resolves a keg from an explicit filesystem path.
 	Path string
+	// RequireBootstrap makes config/namespace/hub-driven resolution fail with
+	// ErrNotBootstrapped when no user config exists (`tap bootstrap` has not been
+	// run). The full `tap` surface sets it; the pruned `keg` binary does not.
+	// Explicit filesystem destinations (Project/Cwd/Path) and selectors that are
+	// themselves a filesystem path are exempt.
+	RequireBootstrap bool
 	// NoCache disables in-memory keg caching for this resolution.
 	NoCache bool
 }
@@ -120,11 +132,22 @@ func (s *KegService) Resolve(ctx context.Context, opts ResolveKegOptions) (keg.K
 		}
 		return s.resolveProjectTarget(ctx, base, cache)
 	}
-	if alias != "" {
-		return s.resolveKegAlias(ctx, alias, base, cache)
+
+	// Everything below resolves through config (namespace/hub chains). On the
+	// full `tap` surface this requires `tap bootstrap` to have run; a selector
+	// that is itself a filesystem path is exempt (it needs no config). The
+	// explicit-path / project / cwd branches above are never gated.
+	if opts.RequireBootstrap && !s.ConfigService.UserConfigExists() {
+		if alias == "" || parseKegRef(alias).Path == "" {
+			return nil, ErrNotBootstrapped
+		}
 	}
 
-	return s.resolvePath(ctx, base, cache)
+	if alias != "" {
+		return s.resolveKegAlias(ctx, alias, opts.Namespace, opts.Hub, base, cache)
+	}
+
+	return s.resolvePath(ctx, base, opts.Namespace, opts.Hub, cache)
 }
 
 // resolveProjectTarget resolves a filesystem-backed keg under known project keg locations.
@@ -219,7 +242,7 @@ func (s *KegService) resolveFileKeg(ctx context.Context, root string, cache bool
 // → fallbackKeg (global-user last resort). The default* slots are meant for
 // project config and win first; kegMap routes by path; fallback* are what
 // `tap bootstrap` writes for the global user so anything more specific overrides.
-func (s *KegService) resolvePath(ctx context.Context, path string, cache bool) (keg.Keg, error) {
+func (s *KegService) resolvePath(ctx context.Context, path, nsOverride, hubOverride string, cache bool) (keg.Keg, error) {
 	s.ensureCache()
 	cfg, err := s.ConfigService.Config(true)
 	if err != nil {
@@ -235,7 +258,7 @@ func (s *KegService) resolvePath(ctx context.Context, path string, cache bool) (
 	if kegAlias == "" {
 		return nil, fmt.Errorf("no keg configured")
 	}
-	return s.resolveKegAlias(ctx, kegAlias, path, cache)
+	return s.resolveKegAlias(ctx, kegAlias, nsOverride, hubOverride, path, cache)
 }
 
 // resolveKegAlias resolves a keg selector from config and falls back to
@@ -245,23 +268,30 @@ func (s *KegService) resolvePath(ctx context.Context, path string, cache bool) (
 // bare name with no namespace/hub configured — a project-local keg at
 // <project>/kegs/<name> answers instead, so local project kegs work without
 // any config (the documented last-resort tier).
-func (s *KegService) resolveKegAlias(ctx context.Context, kegAlias string, projectRoot string, cache bool) (keg.Keg, error) {
+func (s *KegService) resolveKegAlias(ctx context.Context, kegAlias, nsOverride, hubOverride string, projectRoot string, cache bool) (keg.Keg, error) {
 	s.ensureCache()
 	if kegAlias == "" {
 		return nil, fmt.Errorf("no keg configured")
 	}
-	if cache && s.kegCache[kegAlias] != nil {
-		return s.kegCache[kegAlias], nil
+	// The namespace/hub overrides change the resolved target, so they must be
+	// part of the cache key — otherwise `--namespace a` and `--namespace b`
+	// would collide on the same bare alias.
+	cacheKey := kegAlias
+	if nsOverride != "" || hubOverride != "" {
+		cacheKey = kegAlias + "\x00" + nsOverride + "\x00" + hubOverride
+	}
+	if cache && s.kegCache[cacheKey] != nil {
+		return s.kegCache[cacheKey], nil
 	}
 
-	target, err := s.ConfigService.ResolveTarget(kegAlias, cache)
+	target, err := s.ConfigService.ResolveTarget(kegAlias, nsOverride, hubOverride, cache)
 	if err == nil && target != nil {
 		k, kerr := keg.NewKegFromTarget(ctx, *target, s.Runtime, keg.WithTokenResolver(s.tokenResolver()))
 		if kerr != nil {
 			return k, kerr
 		}
 		if k != nil {
-			s.kegCache[kegAlias] = k
+			s.kegCache[cacheKey] = k
 		}
 		return k, nil
 	}
