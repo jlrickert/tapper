@@ -36,5 +36,7 @@ asset summary data useful for troubleshooting.`,
 		},
 	}
 
+	cmd.Flags().BoolVar(&opts.JSON, "json", false, "render diagnostics as JSON instead of YAML")
+
 	return cmd
 }

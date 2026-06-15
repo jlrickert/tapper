@@ -1,7 +1,7 @@
 # Configuration Examples
 
 These examples use the current config shape: hubs are a name-keyed map, each
-with its own default `namespace`, and local kegs live at
+with its own `defaultNamespace`, and local kegs live at
 `<basePath>/@<namespace>/<name>`. A keg is named by reference — a bare name, an
 `@namespace/name` reference, or a path — there is no `kegs` alias map.
 
@@ -16,7 +16,7 @@ kegMap: []
 hubs:
   my-laptop:
     kind: local
-    namespace: local
+    defaultNamespace: local
     basePath: ~/Documents/kegs
 ```
 
@@ -39,7 +39,7 @@ kegMap:
 hubs:
   my-laptop:
     kind: local
-    namespace: local
+    defaultNamespace: local
     basePath: ~/Documents/kegs
 ```
 
@@ -74,7 +74,7 @@ kegMap: []
 hubs:
   knut:
     kind: remote
-    namespace: me
+    defaultNamespace: me
     url: https://keg.jlrickert.me
     tokenEnv: KNUT_API_KEY
 ```
@@ -91,17 +91,17 @@ local file paths. `fallbackKeg: public` resolves its namespace from
 fallbackHub: my-laptop
 fallbackNamespace: local
 fallbackKeg: local
-disableDefaultHub: true
+disableAtlasHub: true
 hubs:
   my-laptop:
     kind: local
-    namespace: local
+    defaultNamespace: local
     basePath: ~/Documents/kegs
 ```
 
 Use this when the deployment must prove no implicit network calls happen. With
-`disableDefaultHub: true` and no remote `hubs` entries, hub-dependent commands
-error with `no hub configured; implicit default disabled` instead of silently
+`disableAtlasHub: true` and no remote `hubs` entries, hub-dependent commands
+error with `no hub configured; implicit atlas hub disabled` instead of silently
 reaching `https://atlas.foldwise.ai`.
 
 ## Generating A Config
@@ -119,5 +119,6 @@ hostname), and the `local → <local hub>` namespace mapping, then asks for a
 default keg and records it as `fallbackKeg` so plain `tap` commands resolve one
 immediately (a project's `defaultKeg` or `kegMap` still overrides it). It does
 not write a global `fallbackNamespace`: the namespace comes from the resolved
-hub's own `namespace` field (adopted from the hub at login for cloud/enterprise).
+hub's own `defaultNamespace` field (adopted from the hub at login for
+cloud/enterprise).
 See [User Config](user-config.md#tap-bootstrap).

@@ -16,14 +16,17 @@ type NamespaceListOptions struct {
 	Hub string
 }
 
-// NamespaceMembersOptions selects the namespace whose members to list.
+// NamespaceMembersOptions selects the namespace whose members to list. Namespace
+// is the selector; empty resolves the default namespace. Hub pins the hub.
 type NamespaceMembersOptions struct {
 	Namespace string
+	Hub       string
 }
 
 // NamespaceAddMemberOptions upserts a member into a namespace.
 type NamespaceAddMemberOptions struct {
 	Namespace string
+	Hub       string
 	User      string
 	Role      string // owner|admin|member
 }
@@ -31,6 +34,7 @@ type NamespaceAddMemberOptions struct {
 // NamespaceSetRoleOptions changes an existing member's role.
 type NamespaceSetRoleOptions struct {
 	Namespace string
+	Hub       string
 	User      string
 	Role      string // owner|admin|member
 }
@@ -38,6 +42,7 @@ type NamespaceSetRoleOptions struct {
 // NamespaceRemoveMemberOptions removes a member from a namespace.
 type NamespaceRemoveMemberOptions struct {
 	Namespace string
+	Hub       string
 	User      string
 }
 
@@ -61,7 +66,7 @@ func (t *Tap) NamespaceList(ctx context.Context, opts NamespaceListOptions) ([]H
 
 // NamespaceMembers returns the member roster of a namespace.
 func (t *Tap) NamespaceMembers(ctx context.Context, opts NamespaceMembersOptions) ([]HubMember, error) {
-	ns, hubURL, token, err := t.resolveNamespaceHub(opts.Namespace)
+	ns, hubURL, token, err := t.resolveNamespaceHub(opts.Namespace, opts.Hub)
 	if err != nil {
 		return nil, err
 	}
@@ -78,7 +83,7 @@ func (t *Tap) NamespaceAddMember(ctx context.Context, opts NamespaceAddMemberOpt
 	if user == "" {
 		return fmt.Errorf("a username is required")
 	}
-	ns, hubURL, token, err := t.resolveNamespaceHub(opts.Namespace)
+	ns, hubURL, token, err := t.resolveNamespaceHub(opts.Namespace, opts.Hub)
 	if err != nil {
 		return err
 	}
@@ -95,7 +100,7 @@ func (t *Tap) NamespaceSetRole(ctx context.Context, opts NamespaceSetRoleOptions
 	if user == "" {
 		return fmt.Errorf("a username is required")
 	}
-	ns, hubURL, token, err := t.resolveNamespaceHub(opts.Namespace)
+	ns, hubURL, token, err := t.resolveNamespaceHub(opts.Namespace, opts.Hub)
 	if err != nil {
 		return err
 	}
@@ -108,7 +113,7 @@ func (t *Tap) NamespaceRemoveMember(ctx context.Context, opts NamespaceRemoveMem
 	if user == "" {
 		return fmt.Errorf("a username is required")
 	}
-	ns, hubURL, token, err := t.resolveNamespaceHub(opts.Namespace)
+	ns, hubURL, token, err := t.resolveNamespaceHub(opts.Namespace, opts.Hub)
 	if err != nil {
 		return err
 	}
@@ -130,7 +135,7 @@ func (t *Tap) NamespaceCreate(ctx context.Context, opts NamespaceCreateOptions) 
 
 // resolveNamespaceHub resolves the remote hub + token backing a namespace for
 // namespace-scoped admin ops. An empty namespace resolves the default.
-func (t *Tap) resolveNamespaceHub(namespace string) (ns, hubURL, token string, err error) {
+func (t *Tap) resolveNamespaceHub(namespace, hubOverride string) (ns, hubURL, token string, err error) {
 	cfg, cErr := t.ConfigService.Config(true)
 	if cErr != nil {
 		return "", "", "", cErr
@@ -142,7 +147,10 @@ func (t *Tap) resolveNamespaceHub(namespace string) (ns, hubURL, token string, e
 	if ns == "" {
 		return "", "", "", fmt.Errorf("a namespace is required")
 	}
-	hubName := cfg.resolveHubForNamespace(ns)
+	hubName := strings.TrimSpace(hubOverride)
+	if hubName == "" {
+		hubName = cfg.resolveHubForNamespace(ns)
+	}
 	entry, ok := cfg.Hub(hubName)
 	if !ok {
 		return "", "", "", fmt.Errorf("hub %q is not configured", hubName)

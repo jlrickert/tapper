@@ -145,7 +145,7 @@ func (t *Tap) Bootstrap(ctx context.Context, opts BootstrapOptions) (*BootstrapR
 	// <basePath>/@local/<name>.
 	localKey := localHubKey(t.Runtime)
 	if _, ok := cfg.Hubs()[localKey]; !ok {
-		if err := cfg.SetHub(localKey, HubEntry{Kind: HubKindLocal, Namespace: LocalHubName, BasePath: localRoot}); err != nil {
+		if err := cfg.SetHub(localKey, HubEntry{Kind: HubKindLocal, DefaultNamespace: LocalHubName, BasePath: localRoot}); err != nil {
 			return nil, err
 		}
 	}
@@ -171,7 +171,7 @@ func (t *Tap) Bootstrap(ctx context.Context, opts BootstrapOptions) (*BootstrapR
 		hubName = DefaultHubName
 		hubURL = DefaultHubURL
 		if _, ok := cfg.Hubs()[hubName]; !ok {
-			if err := cfg.SetHub(hubName, HubEntry{Kind: HubKindRemote, Namespace: namespace, URL: DefaultHubURL, TokenEnv: DefaultHubTokenEnv}); err != nil {
+			if err := cfg.SetHub(hubName, HubEntry{Kind: HubKindRemote, DefaultNamespace: namespace, URL: DefaultHubURL, TokenEnv: DefaultHubTokenEnv}); err != nil {
 				return nil, err
 			}
 		}
@@ -194,7 +194,7 @@ func (t *Tap) Bootstrap(ctx context.Context, opts BootstrapOptions) (*BootstrapR
 		// Avoid clobbering an unrelated hub of the same derived name: only reuse
 		// the slot when it already points at this URL, else suffix it.
 		hubName = uniqueHubName(cfg, hubName, hubURL)
-		if err := cfg.SetHub(hubName, HubEntry{Kind: HubKindRemote, Namespace: namespace, URL: hubURL}); err != nil {
+		if err := cfg.SetHub(hubName, HubEntry{Kind: HubKindRemote, DefaultNamespace: namespace, URL: hubURL}); err != nil {
 			return nil, err
 		}
 	}
@@ -246,7 +246,7 @@ func (t *Tap) SetBootstrapNamespace(ctx context.Context, hubName, namespace stri
 	if !ok {
 		return nil
 	}
-	entry.Namespace = namespace
+	entry.DefaultNamespace = namespace
 	if err := cfg.SetHub(hubName, entry); err != nil {
 		return err
 	}

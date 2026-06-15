@@ -34,10 +34,10 @@ func TestIndexCommand_ErrorHandling(t *testing.T) {
 			description:  "Error when keg does not exist on disk",
 		},
 		{
-			name:        "index_list_no_keg_configured",
+			name:        "index_list_not_bootstrapped",
 			args:        []string{"index", "list"},
-			expectedErr: "no keg configured",
-			description: "Error when no keg is configured",
+			expectedErr: "tap bootstrap",
+			description: "Error when tapper is not bootstrapped",
 		},
 		{
 			name:         "index_get_unknown_index",
@@ -136,10 +136,10 @@ func TestIndexRebuildCommand_TableDrivenErrorHandling(t *testing.T) {
 			description:  "Error when keg does not exist on disk",
 		},
 		{
-			name:        "rebuild_no_keg_configured",
+			name:        "rebuild_not_bootstrapped",
 			args:        []string{"index", "rebuild"},
-			expectedErr: "no keg configured",
-			description: "Error when no keg is configured",
+			expectedErr: "tap bootstrap",
+			description: "Error when tapper is not bootstrapped",
 		},
 	}
 

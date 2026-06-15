@@ -95,7 +95,7 @@ func TestRootCompletion_FlightFlagSuppressesFileCompletion(t *testing.T) {
 func TestRootCompletion_FlightFlagSuggestsLocalFlights(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t)
-	sb.MustWriteFile("~/.config/tapper/config.yaml", []byte("hubs:\n  home:\n    kind: local\n    namespace: local\n    basePath: /home/testuser/kegs\n"), 0o644)
+	sb.MustWriteFile("~/.config/tapper/config.yaml", []byte("hubs:\n  home:\n    kind: local\n    defaultNamespace: local\n    basePath: /home/testuser/kegs\n"), 0o644)
 	sb.MustWriteFile("/home/testuser/kegs/flights.d/backend.yaml", []byte("title: Backend\ninstructions: Stay focused.\n"), 0o644)
 
 	comp := NewCompletionProcess(t, false, 0, "--flight", "").

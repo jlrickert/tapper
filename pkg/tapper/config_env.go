@@ -9,13 +9,15 @@ import (
 var tapEnvVarKeys = []string{
 	"DEFAULT_KEG",
 	"FALLBACK_KEG",
+	"FLIGHT",
 	"LOG_FILE",
 	"LOG_LEVEL",
 	"DEFAULT_HUB",
 	"FALLBACK_HUB",
 	"DEFAULT_NAMESPACE",
 	"FALLBACK_NAMESPACE",
-	"DISABLE_DEFAULT_HUB",
+	"DISABLE_ATLAS_HUB",
+	"DISABLE_LOCAL_HUB",
 }
 
 const tapEnvPrefix = "TAP_"
@@ -35,6 +37,9 @@ func configFromEnvMap(envMap map[string]string) *Config {
 	if v, ok := envMap["fallback_keg"]; ok {
 		cfg.data.FallbackKeg = v
 	}
+	if v, ok := envMap["flight"]; ok {
+		cfg.data.Flight = v
+	}
 	if v, ok := envMap["log_file"]; ok {
 		cfg.data.LogFile = v
 	}
@@ -53,8 +58,11 @@ func configFromEnvMap(envMap map[string]string) *Config {
 	if v, ok := envMap["fallback_namespace"]; ok {
 		cfg.data.FallbackNamespace = v
 	}
-	if v, ok := envMap["disable_default_hub"]; ok {
-		cfg.data.DisableDefaultHub = parseEnvBool(v)
+	if v, ok := envMap["disable_atlas_hub"]; ok {
+		cfg.data.DisableAtlasHub = parseEnvBool(v)
+	}
+	if v, ok := envMap["disable_local_hub"]; ok {
+		cfg.data.DisableLocalHub = parseEnvBool(v)
 	}
 
 	return cfg

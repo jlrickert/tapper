@@ -107,11 +107,11 @@ func (r *authStoreTokenResolver) refresh(hubURL, key string, entry *AuthEntry) *
 	return next
 }
 
-// ErrDefaultHubDisabled is returned by ResolveLoginHubURL when the chain
+// ErrAtlasHubDisabled is returned by ResolveLoginHubURL when the chain
 // would fall through to the compiled-in DefaultHubURL but the deployment
-// has opted out via Config.DisableDefaultHub. Callers surface it verbatim
+// has opted out via Config.DisableAtlasHub. Callers surface it verbatim
 // so SOC2-conscious users see a stable string they can grep for.
-var ErrDefaultHubDisabled = errors.New("no hub configured; implicit default disabled")
+var ErrAtlasHubDisabled = errors.New("no hub configured; implicit atlas hub disabled")
 
 // ResolveLoginHubURL returns the hub URL the login flow should target,
 // applying the five-step resolution chain documented in keg-dev/1035:
@@ -119,7 +119,7 @@ var ErrDefaultHubDisabled = errors.New("no hub configured; implicit default disa
 //  1. explicit non-empty → canonicalize and use
 //  2. cfg.DefaultHub names a Hubs entry → use that entry's URL
 //  3. cfg.Hubs has exactly one entry → use it
-//  4. cfg.DisableDefaultHub is true → ErrDefaultHubDisabled
+//  4. cfg.DisableAtlasHub is true → ErrAtlasHubDisabled
 //  5. fall back to DefaultHubURL
 //
 // A misconfigured DefaultHub (set, but no matching Hubs entry) is a hard
@@ -157,8 +157,8 @@ func ResolveLoginHubURL(cfg *Config, explicit string) (string, error) {
 		}
 	}
 
-	if cfg.DisableDefaultHub() {
-		return "", ErrDefaultHubDisabled
+	if cfg.DisableAtlasHub() {
+		return "", ErrAtlasHubDisabled
 	}
 
 	return DefaultHubURL, nil

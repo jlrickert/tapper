@@ -84,7 +84,7 @@ func TestInitKeg_LocalViaNamespace(t *testing.T) {
 	tap, err := tapper.NewTap(tapper.TapOptions{Root: "/home/testuser", Runtime: fx.Runtime()})
 	require.NoError(t, err)
 	require.NoError(t, fx.Runtime().AtomicWriteFile(tap.PathService.UserConfig(),
-		[]byte("hubs:\n  home:\n    kind: local\n    namespace: local\n    basePath: /home/testuser/kegs\n"), 0o644))
+		[]byte("hubs:\n  home:\n    kind: local\n    defaultNamespace: local\n    basePath: /home/testuser/kegs\n"), 0o644))
 
 	// The reserved @local namespace pins this machine's filesystem hub.
 	target, err := tap.InitKeg(fx.Context(), tapper.InitOptions{Keg: "notes", Namespace: tapper.LocalHubName})

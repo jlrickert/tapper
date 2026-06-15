@@ -90,6 +90,10 @@ func configureKegCreateCmd(deps *Deps, cmd *cobra.Command) {
 	initOpts := tapper.InitOptions{}
 	cmd.Args = cobra.MaximumNArgs(1)
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
+		// The full `tap` surface requires `tap bootstrap` before a namespace/hub
+		// create; explicit local destinations stay exempt.
+		initOpts.RequireBootstrap = deps.Profile.withDefaults().IncludeConfigCommand
+
 		// A positional argument names the keg, optionally namespace-qualified
 		// as "@namespace/name". An explicit --namespace flag still overrides
 		// the parsed namespace.
@@ -104,6 +108,14 @@ func configureKegCreateCmd(deps *Deps, cmd *cobra.Command) {
 			if ns != "" && strings.TrimSpace(initOpts.Namespace) == "" {
 				initOpts.Namespace = ns
 			}
+		}
+
+		// A non-local create needs configured hubs. Surface the bootstrap
+		// guidance up front rather than prompting for an alias/location and then
+		// failing. Explicit local destinations (--project/--cwd/--path) bypass.
+		if initOpts.RequireBootstrap && !initOpts.LocalDestination() &&
+			deps.Tap != nil && !deps.Tap.ConfigService.UserConfigExists() {
+			return tapper.ErrNotBootstrapped
 		}
 
 		if shouldPromptInit(deps, &initOpts) {
@@ -125,12 +137,17 @@ func configureKegCreateCmd(deps *Deps, cmd *cobra.Command) {
 			return err
 		}
 
-		label := tapper.KegBackendLabel(target)
-		if label == "" {
-			_, err = fmt.Fprintf(cmd.OutOrStdout(), "keg %s created", initOpts.Keg)
-			return err
+		// Report what was created and, crucially, where it landed — a bare
+		// "created" with no location is what made unconfigured creates feel like
+		// nothing happened.
+		msg := fmt.Sprintf("keg %s created", initOpts.Keg)
+		if label := tapper.KegBackendLabel(target); label != "" {
+			msg += fmt.Sprintf(" (%s)", label)
 		}
-		_, err = fmt.Fprintf(cmd.OutOrStdout(), "keg %s created (%s)", initOpts.Keg, label)
+		if loc := tapper.KegLocation(target); loc != "" {
+			msg += " " + loc
+		}
+		_, err = fmt.Fprintln(cmd.OutOrStdout(), msg)
 		return err
 	}
 

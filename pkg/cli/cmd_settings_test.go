@@ -19,10 +19,10 @@ type infoTestCase struct {
 func TestSettingsCommand_DisplaysKegMetadata(t *testing.T) {
 	tests := []infoTestCase{
 		{
-			name:        "info_no_alias_error",
+			name:        "info_not_bootstrapped",
 			args:        []string{"keg", "settings"},
-			expectedErr: "no keg configured",
-			description: "Error when no keg is configured and no alias specified",
+			expectedErr: "tap bootstrap",
+			description: "Error when tapper is not bootstrapped and no alias specified",
 		},
 	}
 

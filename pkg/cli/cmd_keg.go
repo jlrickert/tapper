@@ -53,12 +53,13 @@ access grants and roles, set visibility, and edit a keg's own settings.`,
 }
 
 func newKegListCmd(deps *Deps) *cobra.Command {
-	var opts tapper.HubListOptions
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "list kegs on a hub as @namespace/keg",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			// --hub is the global keg-resolution flag (default: every configured hub).
+			opts := tapper.HubListOptions{Hub: globalKegTarget(deps).Hub}
 			kegs, err := deps.Tap.HubListKegs(cmd.Context(), opts)
 			if err != nil {
 				return err
@@ -69,17 +70,18 @@ func newKegListCmd(deps *Deps) *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&opts.Hub, "hub", "", "hub to list (default: every configured hub)")
 	return cmd
 }
 
 func newKegGrantsCmd(deps *Deps) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "grants <keg>",
+		Use:   "grants",
 		Short: "list the access grants on a keg",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			grants, err := deps.Tap.KegGrants(cmd.Context(), tapper.KegGrantsOptions{Keg: args[0]})
+		Long:  "List the access grants on the keg selected by --keg/--namespace/--hub (default: the resolved keg).",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			kt := globalKegTarget(deps)
+			grants, err := deps.Tap.KegGrants(cmd.Context(), tapper.KegGrantsOptions{Keg: kt.Keg, Namespace: kt.Namespace, Hub: kt.Hub})
 			if err != nil {
 				return err
 			}
@@ -89,67 +91,65 @@ func newKegGrantsCmd(deps *Deps) *cobra.Command {
 			return nil
 		},
 	}
-	cmd.ValidArgsFunction = kegRefArgCompletion(deps)
 	return cmd
 }
 
 func newKegGrantCmd(deps *Deps) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "grant <keg> <@user> <role>",
+		Use:   "grant <@user> <role>",
 		Short: "grant a user a role on a keg (viewer|editor|admin)",
-		Args:  cobra.ExactArgs(3),
+		Long:  "Grant a user a role on the keg selected by --keg/--namespace/--hub (default: the resolved keg).",
+		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			kt := globalKegTarget(deps)
 			return deps.Tap.KegGrant(cmd.Context(), tapper.KegGrantOptions{
-				Keg:  args[0],
-				User: args[1],
-				Role: args[2],
+				Keg:       kt.Keg,
+				Namespace: kt.Namespace,
+				Hub:       kt.Hub,
+				User:      args[0],
+				Role:      args[1],
 			})
 		},
 	}
-	cmd.ValidArgsFunction = func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-		switch len(args) {
-		case 0:
-			return kegFlagCompletions(cmd.Context(), deps, toComplete), cobra.ShellCompDirectiveNoFileComp
-		case 2:
+	cmd.ValidArgsFunction = func(_ *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		if len(args) == 1 {
 			return filterByPrefix(kegGrantRoleValues, toComplete), cobra.ShellCompDirectiveNoFileComp
-		default:
-			return nil, cobra.ShellCompDirectiveNoFileComp
 		}
+		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 	return cmd
 }
 
 func newKegRevokeCmd(deps *Deps) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "revoke <keg> <@user>",
+		Use:   "revoke <@user>",
 		Short: "revoke a user's grant on a keg",
-		Args:  cobra.ExactArgs(2),
+		Long:  "Revoke a user's grant on the keg selected by --keg/--namespace/--hub (default: the resolved keg).",
+		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return deps.Tap.KegRevoke(cmd.Context(), tapper.KegRevokeOptions{Keg: args[0], User: args[1]})
+			kt := globalKegTarget(deps)
+			return deps.Tap.KegRevoke(cmd.Context(), tapper.KegRevokeOptions{Keg: kt.Keg, Namespace: kt.Namespace, Hub: kt.Hub, User: args[0]})
 		},
 	}
-	cmd.ValidArgsFunction = kegRefArgCompletion(deps)
 	return cmd
 }
 
 func newKegVisibilityCmd(deps *Deps) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "visibility <keg> <public|private>",
+		Use:   "visibility <public|private>",
 		Short: "set a keg's visibility",
-		Args:  cobra.ExactArgs(2),
+		Long:  "Set the visibility of the keg selected by --keg/--namespace/--hub (default: the resolved keg).",
+		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return deps.Tap.KegVisibility(cmd.Context(), tapper.KegVisibilityOptions{Keg: args[0], Visibility: args[1]})
+			kt := globalKegTarget(deps)
+			return deps.Tap.KegVisibility(cmd.Context(), tapper.KegVisibilityOptions{Keg: kt.Keg, Namespace: kt.Namespace, Hub: kt.Hub, Visibility: args[0]})
 		},
 	}
-	cmd.ValidArgsFunction = func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-		switch len(args) {
-		case 0:
-			return kegFlagCompletions(cmd.Context(), deps, toComplete), cobra.ShellCompDirectiveNoFileComp
-		case 1:
+	cmd.ValidArgsFunction = func(_ *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		if len(args) == 0 {
 			return filterByPrefix(kegVisibilityValues, toComplete), cobra.ShellCompDirectiveNoFileComp
-		default:
-			return nil, cobra.ShellCompDirectiveNoFileComp
 		}
+		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 	return cmd
 }
@@ -202,13 +202,3 @@ written directly instead of opening an editor.`,
 	return cmd
 }
 
-// kegRefArgCompletion completes the first positional argument as a keg
-// reference (@namespace/keg or a bare name) and offers nothing for later args.
-func kegRefArgCompletion(deps *Deps) func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
-	return func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-		if len(args) != 0 {
-			return nil, cobra.ShellCompDirectiveNoFileComp
-		}
-		return kegFlagCompletions(cmd.Context(), deps, toComplete), cobra.ShellCompDirectiveNoFileComp
-	}
-}

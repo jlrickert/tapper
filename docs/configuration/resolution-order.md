@@ -62,9 +62,10 @@ The hosting hub is resolved **from the namespace**, in this order:
 6. the sole configured hub (or the alphabetically-first when several exist)
 7. the compiled-in `atlas` remote hub (`https://atlas.foldwise.ai`)
 
-Setting `disableDefaultHub: true` (or `TAP_DISABLE_DEFAULT_HUB=1`) removes step
+Setting `disableAtlasHub: true` (or `TAP_DISABLE_ATLAS_HUB=1`) removes step
 7: hub-dependent commands then fail with a clear error instead of silently
-reaching the compiled-in default.
+reaching the compiled-in default. `disableLocalHub` likewise suppresses the
+synthesized built-in local hub.
 
 ## 6. Keg references and on-disk layout
 
@@ -117,7 +118,7 @@ the `default*` / `fallback*` selectors.
 - If `defaultKeg` is empty and `kegMap` matches the current path to alias
   `work`, `tap info` resolves `work`.
 - A reference `{name: notes}` with no hub and no namespace, under a user config
-  whose `fallbackHub` points at a local hub with `namespace: local`, resolves to
+  whose `fallbackHub` points at a local hub with `defaultNamespace: local`, resolves to
   `<basePath>/@local/notes`.
 - A project config that sets `defaultNamespace: acme` makes the same reference
   resolve under `@acme` instead, overriding the user-level fallback.
