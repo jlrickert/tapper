@@ -23,7 +23,7 @@ func TestHubListKegs_LocalScan(t *testing.T) {
 	require.NoError(t, err)
 
 	require.NoError(t, fx.Runtime().AtomicWriteFile(tap.PathService.UserConfig(),
-		[]byte("hubs:\n  home:\n    kind: local\n    namespace: local\n    basePath: /home/testuser/kegs\n"), 0o644))
+		[]byte("hubs:\n  home:\n    kind: local\n    defaultNamespace: local\n    basePath: /home/testuser/kegs\n"), 0o644))
 
 	// Two kegs in two namespaces (a keg dir is one carrying a "keg" config file).
 	require.NoError(t, fx.Runtime().AtomicWriteFile("/home/testuser/kegs/@local/notes/keg", []byte("kegv: 2023-01\n"), 0o644))
@@ -83,7 +83,7 @@ func TestHubListKegs_RemoteAggregates(t *testing.T) {
 	// One local hub (filesystem) + one remote hub (httptest, inline token).
 	// HubListKegs with no --hub aggregates both.
 	cfg := fmt.Sprintf("hubs:\n"+
-		"  home:\n    kind: local\n    namespace: local\n    basePath: /home/testuser/kegs\n"+
+		"  home:\n    kind: local\n    defaultNamespace: local\n    basePath: /home/testuser/kegs\n"+
 		"  atlas:\n    kind: remote\n    url: %s\n    token: remote-tok\n", srv.URL)
 	require.NoError(t, fx.Runtime().AtomicWriteFile(tap.PathService.UserConfig(), []byte(cfg), 0o644))
 	require.NoError(t, fx.Runtime().AtomicWriteFile("/home/testuser/kegs/@local/notes/keg", []byte("kegv: 2023-01\n"), 0o644))

@@ -26,21 +26,19 @@ func TestTap_ProjectResolutionFlags(t *testing.T) {
 
 	createCmd := NewProcess(t, false,
 		"create",
-		"--project",
-		"--cwd",
+		"--keg", "~/kegs/project",
 		"--title", "Project Local Note",
 	)
 	createRes := createCmd.Run(sb.Context(), sb.Runtime())
-	require.NoError(t, createRes.Err, "create with --project should succeed")
+	require.NoError(t, createRes.Err, "create against the local keg path should succeed")
 	require.Contains(t, string(createRes.Stdout), "1", "expected node id output")
 
 	catCmd := NewProcess(t, false,
 		"cat", "1",
-		"--project",
-		"--cwd",
+		"--keg", "~/kegs/project",
 	)
 	catRes := catCmd.Run(sb.Context(), sb.Runtime())
-	require.NoError(t, catRes.Err, "cat with --project should resolve local project keg")
+	require.NoError(t, catRes.Err, "cat with --keg <path> should resolve the local keg")
 	require.Contains(t, string(catRes.Stdout), "# Project Local Note")
 	require.NotContains(t, string(catRes.Stdout), "access_count:")
 }
@@ -69,10 +67,10 @@ func TestTap_ResolvesProjectKegUnderKegsDir(t *testing.T) {
 
 	catCmd := NewProcess(t, false,
 		"cat", "0",
-		"--cwd",
+		"--keg", "~/myproject/kegs/tapper",
 	)
 	catRes := catCmd.Run(sb.Context(), sb.Runtime())
-	require.NoError(t, catRes.Err, "cat with --cwd should resolve the project keg under kegs/")
+	require.NoError(t, catRes.Err, "cat with --keg <path> should resolve the keg under kegs/")
 	require.Contains(t, string(catRes.Stdout), "# Sorry, planned but not yet available")
 }
 
@@ -166,9 +164,9 @@ func TestTap_CwdStandaloneResolution(t *testing.T) {
 
 	catCmd := NewProcess(t, false,
 		"cat", "0",
-		"--cwd",
+		"--keg", "~/kegs/project",
 	)
 	catRes := catCmd.Run(sb.Context(), sb.Runtime())
-	require.NoError(t, catRes.Err, "cat with standalone --cwd should resolve local project keg")
+	require.NoError(t, catRes.Err, "cat with --keg <path> should resolve the local keg")
 	require.Contains(t, string(catRes.Stdout), "# Sorry, planned but not yet available")
 }

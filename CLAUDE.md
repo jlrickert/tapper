@@ -65,8 +65,8 @@ go vet ./...
   and `pkg/keg`.
 - **`pkg/keg_url/`** — Target URL parsing (file://, memory://, API schemes) and
   expansion.
-- **`pkg/mcp/`** — MCP server: 48 tools exposing the full Tap surface over
-  stdio JSON-RPC, wired by 18 `register*Tools()` functions in `server.go`. See
+- **`pkg/mcp/`** — MCP server: 46 tools exposing the full Tap surface over
+  stdio JSON-RPC, wired by 19 `register*Tools()` functions in `server.go`. See
   `docs/ai-coding-agents/mcp-setup.md`.
 
 ### Key Types and Flow
@@ -98,7 +98,7 @@ Both paths converge at `pkg/tapper.Tap`, sharing the same method and `*Options`
 struct for each feature. The CLI path uses `applyKegTargetProfile()` to resolve
 Cobra flags into options and writes results to stdout. The MCP path uses
 `resolveKegTarget()` with input structs annotated via `jsonschema` tags and
-returns `CallToolResult` values. Server wiring in `NewServer()` calls 14
+returns `CallToolResult` values. Server wiring in `NewServer()` calls 19
 `register*Tools()` functions to expose the full Tap surface over stdio JSON-RPC.
 
 **Repository** (`pkg/keg/repository.go`) is the **local-only** storage
@@ -190,8 +190,11 @@ tool (backed by `GET /api/v1/kegs`). There is no local keg-alias listing.
 **`tap keg create`** is namespace-centric too: a bare `tap keg create <name>`
 resolves the default namespace+hub (typically a remote create via
 `POST /api/v1/@<ns>/kegs`, failing on 409); `tap keg create @local/<name>` pins
-the local filesystem hub. When nothing is configured it falls back to a local
-`@local` keg. (`tap init` remains as a hidden back-compat alias.)
+the local filesystem hub. When nothing is configured (no user config), the full
+`tap` surface refuses with a "run `tap bootstrap`" error (`ErrNotBootstrapped`)
+rather than silently creating a hidden local keg; `tap keg create
+--project`/`--path` (explicit local destinations) still work without setup.
+(`tap init` remains as a hidden back-compat alias.)
 
 **Command groups.** `tap keg` administers kegs on a hub (`list`, `create`,
 `grants`/`grant`/`revoke` for ACLs, `visibility`, and `settings` for the keg's
@@ -203,10 +206,27 @@ config by default, `--user` for user). These are full-`tap` commands (not in
 the pruned `keg` binary). `tap config edit` now defaults to the **project**
 config; `--user` targets the user config.
 
-Supported env vars: `TAP_DEFAULT_KEG`, `TAP_FALLBACK_KEG`, `TAP_LOG_FILE`,
-`TAP_LOG_LEVEL`, `TAP_DEFAULT_HUB`, `TAP_FALLBACK_HUB`, `TAP_DEFAULT_NAMESPACE`,
-`TAP_FALLBACK_NAMESPACE`, `TAP_DISABLE_DEFAULT_HUB`
-(`1`/`true`/`yes`/`on` → suppress the compiled-in `DefaultHubURL` fallback).
+**Keg selection is flag-driven, not positional.** The keg an admin command
+operates on comes from the global resolution flags — `--keg` (a bare name or
+`@namespace/keg`; a path also works), with `--namespace`/`--hub` as component
+overrides — not a positional. A bare invocation (no `--keg`) targets the
+resolved keg. The on-disk discovery selectors `--project`/`--cwd` are gone from
+the tap surface (a local keg resolves through the namespace chain like a remote
+one); `--path` now means "use this config file, bypassing the cascade" (an alias
+of `--config`, for testing). The pruned `keg` binary still resolves the
+project-local keg automatically.
+
+**`tap use`** records resolution in config: `tap use @ns/keg` sets the project's
+`defaultKeg` (in `.tapper/config.yaml`); `tap use @ns/keg --user` sets the
+user-wide `fallbackKeg`; `--flight @ns/+slug` sets the project's persisted
+flight; bare `tap use` prints the resolved keg/flight/fallback and the scope
+that set each. A persisted `flight` auto-applies when `--flight` is omitted.
+
+Supported env vars: `TAP_DEFAULT_KEG`, `TAP_FALLBACK_KEG`, `TAP_FLIGHT`,
+`TAP_LOG_FILE`, `TAP_LOG_LEVEL`, `TAP_DEFAULT_HUB`, `TAP_FALLBACK_HUB`,
+`TAP_DEFAULT_NAMESPACE`, `TAP_FALLBACK_NAMESPACE`, `TAP_DISABLE_ATLAS_HUB`,
+`TAP_DISABLE_LOCAL_HUB` (`1`/`true`/`yes`/`on` → suppress the synthesized
+built-in atlas / local hub).
 
 Use `tap config --explain FIELD` to see which source set a value, or
 `tap config --show-sources` for all fields. The `--strict` flag makes config
@@ -256,9 +276,6 @@ use of `time.Now()` that cannot be driven by a fake clock:
   editor subprocess. The 100ms cadence and 120ms settle window are load-bearing
   for editor write-rename cycles and exercised by the existing live-save test,
   which runs an actual shell subprocess.
-- `pkg/tapper/tap_serve.go` (500ms SSE broadcast debounce via `time.AfterFunc`):
-  coalesces real filesystem events into a single browser reload; same shape as
-  the `repo_fs_events.go` exception.
 - `pkg/tapper/tap_edit.go` (500ms settle delay in `reverseSync` via
   `time.After`): a save writes meta and content as separate network requests,
   so the live event for the first write can observe repository state where
@@ -413,16 +430,3 @@ validation.
   time the user spends in the editor. This is a known limitation of the
   invocation logging system, not a bug. The `interactive` field in the log entry
   can help distinguish interactive from non-interactive invocations.
-- **`tap site serve --watch` shares the log file with short CLI commands.**
-  Long-lived commands like serve write operational logs (index rebuild, SSE
-  events) to the same file as CLI audit entries. If this becomes problematic,
-  options include: a per-command `--log-file` override, a separate `serveLogFile`
-  config key, or filtering by a `long_lived` field in log entries. No separation
-  is implemented yet.
-- **`tap list` may hang when `tap site serve --watch` is running.** This is
-  likely lock contention between serve's index rebuilds (which acquire `dexMu`
-  and per-node locks during `RebuildDex`) and list's dex reads. The serve
-  command holds `dexMu` during full index rebuilds triggered by filesystem
-  events, which can block concurrent CLI commands that need to load the dex.
-  Related: dex invalidation reduction, stale dex cache issue, lock command
-  retrospect.

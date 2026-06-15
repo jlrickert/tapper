@@ -11,6 +11,13 @@ import (
 	"github.com/jlrickert/tapper/pkg/keg"
 )
 
+// ErrNotBootstrapped is returned by hub/namespace-dependent operations on the
+// full `tap` surface when no user config exists yet — i.e. `tap bootstrap` has
+// not been run. Explicit filesystem destinations (--path/--project/--cwd) and
+// the pruned `keg` binary are exempt, and callers that resolve a keg by an
+// explicit filesystem path are too.
+var ErrNotBootstrapped = errors.New("tapper is not set up on this machine; run `tap bootstrap` to get started")
+
 // ConfigLoadWarning represents a non-fatal issue encountered while loading config.
 type ConfigLoadWarning struct {
 	Source  string // "user config" or "project config"
@@ -68,6 +75,22 @@ func (s *ConfigService) ResetCache() {
 	s.projectWarnings = nil
 	s.LoadWarnings = nil
 	s.ResolvedSources = nil
+}
+
+// UserConfigExists reports whether a user config file is present — the signal
+// that `tap bootstrap` has been run. When an explicit config path is set
+// (--config) it checks that file; otherwise the standard user config path. It
+// inspects the filesystem only; it never parses, so a corrupt-but-present config
+// still counts as bootstrapped.
+func (s *ConfigService) UserConfigExists() bool {
+	path := s.ConfigPath
+	if path == "" {
+		path = filepath.Join(s.PathService.ConfigRoot, "config.yaml")
+	}
+	if _, err := s.Runtime.Stat(path, false); err == nil {
+		return true
+	}
+	return false
 }
 
 // UserConfig returns the global user configuration.
@@ -293,7 +316,7 @@ func (s *ConfigService) Config(cache bool) (*Config, error) {
 // empty it uses defaultKeg, then fallbackKeg. The selector is parsed as a keg
 // reference and turned into a concrete target by Config.ResolveAlias (the
 // namespace-centric ResolveRef chain and per-hub-kind backend mapping).
-func (s *ConfigService) ResolveTarget(alias string, cache bool) (*keg.Target, error) {
+func (s *ConfigService) ResolveTarget(alias, nsOverride, hubOverride string, cache bool) (*keg.Target, error) {
 	cfg, err := s.Config(cache)
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve target: %w", err)
@@ -309,5 +332,10 @@ func (s *ConfigService) ResolveTarget(alias string, cache bool) (*keg.Target, er
 		return nil, fmt.Errorf("no keg configured (set defaultKeg/fallbackKeg or use --keg)")
 	}
 
-	return cfg.ResolveAlias(s.Runtime, requestedAlias)
+	// Apply the --namespace / --hub overrides onto the parsed reference.
+	ref, err := applyRefOverrides(parseKegRef(requestedAlias), nsOverride, hubOverride, requestedAlias)
+	if err != nil {
+		return nil, err
+	}
+	return cfg.ResolveRef(s.Runtime, ref)
 }

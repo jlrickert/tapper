@@ -53,8 +53,6 @@ func NewServer(tap *tapper.Tap, version string, defaults KegDefaults, opts ...Se
 	registerSnapshotTools(srv, tap, defaults)
 	registerFileTools(srv, tap, defaults)
 	registerLockTools(srv, tap, defaults)
-	registerServeTools(srv, tap, defaults)
-	registerSiteTools(srv, tap, defaults)
 	registerRepoTools(srv, tap, defaults)
 	registerImportTools(srv, tap, defaults)
 	registerArchiveTools(srv, tap, defaults)
@@ -95,6 +93,9 @@ func resolveKegTargetWithFlight(perToolKeg string, perToolFlight string, default
 	if perToolFlight != "" {
 		out.Flight = perToolFlight
 	}
+	// The MCP server is a full surface (peer to `tap`): config-driven keg
+	// resolution requires `tap bootstrap` to have run.
+	out.RequireBootstrap = true
 	return out
 }
 

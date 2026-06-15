@@ -84,8 +84,50 @@ func TestBootstrapCmd_Local_NoLogin(t *testing.T) {
 	require.Contains(t, string(raw), "fallbackHub: testhost")
 	require.NotContains(t, string(raw), "fallbackNamespace:",
 		"namespace comes from the local hub, not a global fallback")
-	require.Contains(t, string(raw), "namespace: local",
+	require.Contains(t, string(raw), "defaultNamespace: local",
 		"the local hub carries the @local namespace")
+}
+
+// TestBootstrapCmd_Local_CreatesDefaultKeg confirms a local bootstrap actually
+// creates the chosen keg on disk (so the user is immediately up and running) and
+// that re-running is idempotent.
+func TestBootstrapCmd_Local_CreatesDefaultKeg(t *testing.T) {
+	t.Parallel()
+	sb := newTestSandbox(t)
+
+	proc := newBootstrapProcess(t, nil, false, "bootstrap", "--kind", "local", "--default-keg", "private")
+	res := proc.Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+	require.Contains(t, string(res.Stdout), "created keg:",
+		"local bootstrap should create the chosen keg so the user is ready")
+	require.Contains(t, string(res.Stdout), "@local/private")
+
+	// The keg was materialized on disk at the local hub's basePath.
+	kegFile := sb.MustReadFile("~/.local/share/tapper/kegs/@local/private/keg")
+	require.Contains(t, string(kegFile), "kegv")
+
+	// Re-running is idempotent: the keg already exists, so no error and it is not
+	// reported as freshly created.
+	proc2 := newBootstrapProcess(t, nil, false, "bootstrap", "--kind", "local", "--default-keg", "private")
+	res2 := proc2.Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res2.Err)
+	require.NotContains(t, string(res2.Stdout), "created keg:",
+		"an already-existing keg should not be reported as created")
+}
+
+// TestBootstrapCmd_Cloud_DoesNotCreateKeg confirms cloud/enterprise bootstrap
+// records the chosen keg but does not create it (a remote create needs login +
+// hub permissions, deferred to `tap keg create`).
+func TestBootstrapCmd_Cloud_DoesNotCreateKeg(t *testing.T) {
+	t.Parallel()
+	sb := newTestSandbox(t)
+
+	proc := newBootstrapProcess(t, nil, false, "bootstrap", "--kind", "cloud", "--default-keg", "notes", "--no-login")
+	res := proc.Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+	require.Contains(t, string(res.Stdout), "default keg:  notes")
+	require.NotContains(t, string(res.Stdout), "created keg:",
+		"cloud bootstrap records the keg but does not create it on the hub")
 }
 
 // TestBootstrapCmd_Interactive_Enterprise drives the TTY prompts: kind ->
@@ -148,7 +190,7 @@ func TestBootstrapCmd_Cloud_Login(t *testing.T) {
 	cfgRaw := sb.MustReadFile("~/.config/tapper/config.yaml")
 	require.NotContains(t, string(cfgRaw), "fallbackNamespace:",
 		"the adopted namespace lives on the hub, not as a global fallback")
-	require.Contains(t, string(cfgRaw), "namespace: alice",
+	require.Contains(t, string(cfgRaw), "defaultNamespace: alice",
 		"the adopted namespace becomes the cloud hub's per-hub default")
 }
 
@@ -182,7 +224,7 @@ func TestBootstrapCmd_Enterprise_Login(t *testing.T) {
 	require.NotContains(t, string(cfgRaw), "fallbackNamespace:",
 		"the adopted namespace lives on the hub, not as a global fallback")
 	// The adopted namespace becomes the enterprise hub's per-hub default.
-	require.Contains(t, string(cfgRaw), "namespace: bob")
+	require.Contains(t, string(cfgRaw), "defaultNamespace: bob")
 }
 
 func TestBootstrapCmd_Enterprise_NonInteractiveRequiresEndpoint(t *testing.T) {

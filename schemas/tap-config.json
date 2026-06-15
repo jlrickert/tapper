@@ -13,6 +13,10 @@
       "type": "string",
       "description": "Last-resort keg reference used when no mapped or default keg resolves. Same reference forms as defaultKeg. Override with TAP_FALLBACK_KEG env var."
     },
+    "flight": {
+      "type": "string",
+      "description": "Flight overlay applied when no --flight flag is given: @namespace/+slug, +slug, or a bare slug. Conventionally set in project config so a repo always flies the same flight. Override with TAP_FLIGHT env var."
+    },
     "defaultHub": {
       "type": "string",
       "description": "High-precedence hub name used when a keg reference omits its hub. The authoritative choice; set it in project config. Override with TAP_DEFAULT_HUB env var."
@@ -29,9 +33,13 @@
       "type": "string",
       "description": "Last-resort namespace used when a keg reference omits its namespace and no defaultNamespace applies. Set it in the global user config. Override with TAP_FALLBACK_NAMESPACE env var."
     },
-    "disableDefaultHub": {
+    "disableAtlasHub": {
       "type": "boolean",
-      "description": "When true, the compiled-in DefaultHubURL fallback (https://atlas.foldwise.ai) is suppressed and hub-dependent commands fail with a clear error if no other hub is configured. Override with TAP_DISABLE_DEFAULT_HUB env var (1/true/yes/on)."
+      "description": "When true, the synthesized built-in atlas hub (https://atlas.foldwise.ai) is suppressed: it is not synthesized, is omitted from hub listings, and is skipped in hub resolution, so hub-dependent commands fail with a clear error if no other hub is configured. An explicit atlas entry in hubs{} is unaffected. Override with TAP_DISABLE_ATLAS_HUB env var (1/true/yes/on)."
+    },
+    "disableLocalHub": {
+      "type": "boolean",
+      "description": "When true, the synthesized built-in local filesystem hub is suppressed (symmetric with disableAtlasHub). An explicit local hub entry in hubs{} is unaffected. Override with TAP_DISABLE_LOCAL_HUB env var (1/true/yes/on)."
     },
     "namespaces": {
       "type": "object",
@@ -84,9 +92,9 @@
             "enum": ["remote", "local", "readonly"],
             "description": "Hub backend kind: 'remote' (read-write HTTP, the default when omitted), 'local' (filesystem on this machine), or 'readonly' (read-only HTTP)."
           },
-          "namespace": {
+          "defaultNamespace": {
             "type": "string",
-            "description": "Default namespace for kegs resolved against this hub when the reference omits its namespace. A hub hosts many namespaces; this is only the default. The @ sigil is implied; do not include it. For the local hub this is 'local' (addressed as @local). In the namespace-centric model this is a LOWER-precedence source than defaultNamespace/fallbackNamespace — it applies only on hub-first paths after those chains yield nothing."
+            "description": "Default namespace for kegs resolved against this hub when the reference omits its namespace. A hub hosts many namespaces; this is only the default. The @ sigil is implied; do not include it. For the local hub this is 'local' (addressed as @local). In the namespace-centric model this is a LOWER-precedence source than the top-level defaultNamespace/fallbackNamespace — it applies only on hub-first paths after those chains yield nothing."
           },
           "url": {
             "type": "string",

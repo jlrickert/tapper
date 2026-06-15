@@ -32,7 +32,7 @@ func twoLocalKegs(t *testing.T, fx *sandbox.Sandbox) (tap *tapper.Tap, currentID
 hubs:
   home:
     kind: local
-    namespace: local
+    defaultNamespace: local
     basePath: ` + basePath + `
 `
 	require.NoError(t, rt.Mkdir(tap.PathService.ConfigRoot, 0o755, true))

@@ -36,7 +36,7 @@ func TestGraphCommand_NoConfiguredKegErrors(t *testing.T) {
 	sb := NewSandbox(t)
 	res := NewProcess(t, false, "graph").Run(sb.Context(), sb.Runtime())
 	require.Error(t, res.Err)
-	require.Contains(t, string(res.Stderr), "no keg configured")
+	require.Contains(t, string(res.Stderr), "tap bootstrap")
 }
 
 func TestGraphCommand_OutputsSelfContainedHTML(t *testing.T) {

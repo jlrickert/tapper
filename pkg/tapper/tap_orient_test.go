@@ -103,7 +103,7 @@ func TestTap_Orient_FlightInjectsInstructions(t *testing.T) {
 	require.NoError(t, err)
 
 	require.NoError(t, sb.Runtime().AtomicWriteFile(tap.PathService.UserConfig(),
-		[]byte("hubs:\n  home:\n    kind: local\n    namespace: local\n    basePath: /home/testuser/kegs\n"), 0o644))
+		[]byte("hubs:\n  home:\n    kind: local\n    defaultNamespace: local\n    basePath: /home/testuser/kegs\n"), 0o644))
 	require.NoError(t, sb.Runtime().AtomicWriteFile(
 		"/home/testuser/kegs/flights.d/backend.yaml",
 		[]byte("title: Backend\nallowedKegs: [personal]\ninstructions: Touch only backend kegs.\n"), 0o644))

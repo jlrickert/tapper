@@ -23,7 +23,7 @@ func TestFlightService_ListAndGet(t *testing.T) {
 	userCfg := `hubs:
   home:
     kind: local
-    namespace: local
+    defaultNamespace: local
     basePath: /home/testuser/kegs
 `
 	require.NoError(t, fx.Runtime().AtomicWriteFile(tap.PathService.UserConfig(), []byte(userCfg), 0o644))

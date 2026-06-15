@@ -145,7 +145,7 @@ hubs:
   cloud:
     kind: remote
     url: https://example.com
-    namespace: hubns
+    defaultNamespace: hubns
   bare:
     kind: remote
     url: https://bare.example.com
@@ -175,7 +175,7 @@ hubs:
   cloud:
     kind: remote
     url: https://example.com
-    namespace: hubns
+    defaultNamespace: hubns
 `
 	ucPerhub, err := tapper.ParseConfig([]byte(rawPerhubLast))
 	require.NoError(t, err)
@@ -268,7 +268,7 @@ func TestResolveRef_LocalLayout(t *testing.T) {
 	raw := `hubs:
   home:
     kind: local
-    namespace: local
+    defaultNamespace: local
     basePath: ` + filepath.Join(fx.GetJail(), "data", "kegs") + `
 `
 	uc, err := tapper.ParseConfig([]byte(raw))

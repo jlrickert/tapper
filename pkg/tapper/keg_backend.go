@@ -1,8 +1,31 @@
 package tapper
 
 import (
+	"strings"
+
 	"github.com/jlrickert/tapper/pkg/keg"
 )
+
+// KegLocation renders where a keg lives for user-facing output after
+// `tap keg create`: "at <path>" for a file-backed keg, "on <hubURL>" for a
+// remote keg, or "" when no concrete location is known (in-memory / nil
+// target). Unlike KegBackendLabel it intentionally reveals the path/URL so a
+// fresh create says exactly where the keg landed.
+func KegLocation(target *keg.Target) string {
+	if target == nil {
+		return ""
+	}
+	if p := strings.TrimSpace(target.File); p != "" {
+		return "at " + p
+	}
+	if hub := strings.TrimSpace(target.HubURL); hub != "" {
+		return "on " + hub
+	}
+	if u := strings.TrimSpace(target.Url); u != "" {
+		return "on " + u
+	}
+	return ""
+}
 
 // KegBackendLabel returns a stable, path-free identifier for a keg target
 // suitable for user-facing output. It is used by surfaces that must describe

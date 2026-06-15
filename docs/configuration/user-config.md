@@ -22,6 +22,13 @@ The fastest way to create a sensible starting config is `tap bootstrap`, which
 writes the fallback hub + namespace and the built-in local hub for you (see
 below).
 
+> **First run requires `tap bootstrap`.** On the full `tap` surface,
+> hub/namespace-dependent commands (`tap keg create <name>`, `tap cat`,
+> `tap list`, …) refuse with a clear error until this user config exists — they
+> no longer silently create or resolve a keg in a hidden platform directory.
+> Explicit local destinations (`tap keg create --project` / `--path`) still work
+> without setup, as does the pruned `keg` binary.
+
 ## Key Reference
 
 - `fallbackKeg`: last-resort keg reference when no default/map match resolves
@@ -42,11 +49,12 @@ below).
 - `defaultHub` / `defaultNamespace`: high-precedence slots. Usually set in
   project config rather than here; they make `tap init example` equivalent to
   `@<defaultNamespace>/example`.
-- `disableDefaultHub`: when `true`, suppress the compiled-in `DefaultHubURL`
-  fallback (`https://atlas.foldwise.ai`) — hub-dependent commands fail with a
-  clear error if no other hub is configured. Useful for SOC2-audited
-  deployments that need to prove no implicit network targets exist.
-- `hubs`: name-keyed map of hub definitions (`kind`, `namespace`, `url`,
+- `disableAtlasHub` / `disableLocalHub`: when `true`, suppress the synthesized
+  built-in atlas / local hub. A disabled built-in is not synthesized, is omitted
+  from hub listings, and is skipped in resolution; an explicit `hubs` entry of
+  the same name is unaffected. `disableAtlasHub` is useful for SOC2-audited
+  deployments that must prove no implicit network targets exist.
+- `hubs`: name-keyed map of hub definitions (`kind`, `defaultNamespace`, `url`,
   `basePath`, `token`/`tokenEnv`). **User config only** — see the trust boundary
   below.
 
@@ -56,10 +64,11 @@ below).
 
 ## Hubs
 
-Hubs are a name-keyed map. Each entry's `namespace` field is that hub's
+Hubs are a name-keyed map. Each entry's `defaultNamespace` field is that hub's
 **default** namespace — a hub hosts many namespaces; this is only the one used
 when a reference resolved against the hub omits its own. Two built-ins are
-synthesized when not configured explicitly:
+synthesized when not configured explicitly (and not disabled via
+`disableAtlasHub` / `disableLocalHub`):
 
 - `local` — the built-in filesystem hub (kind `local`)
 - `atlas` — the compiled-in default remote hub (`https://atlas.foldwise.ai`)
@@ -71,11 +80,11 @@ hubs:
   # the machine's local filesystem hub, keyed by hostname (written by `tap bootstrap`)
   my-laptop:
     kind: local
-    namespace: local           # the reserved @local namespace
+    defaultNamespace: local    # the reserved @local namespace
     basePath: ~/Documents/kegs
   atlas:
     kind: remote
-    namespace: me
+    defaultNamespace: me
     url: https://atlas.foldwise.ai
     tokenEnv: ATLAS_API_KEY
 ```
@@ -102,13 +111,14 @@ kind:
 - `enterprise --endpoint <url>` — a user-supplied remote HTTP hub
 
 It always writes a local hub **keyed by the machine hostname** with
-`namespace: local` (the reserved `@local`), plus the remote hub for
+`defaultNamespace: local` (the reserved `@local`), plus the remote hub for
 cloud/enterprise. It writes the **fallback** hub (`fallbackHub`), not the
 default slot — the project config owns the high-precedence `default*` slots.
 
 It does **not** write a global `fallbackNamespace` or a per-user `namespaces`
-entry. The preferred namespace comes from the resolved hub's own `namespace`
-field: `@local` for the local hub, and your home namespace for cloud/enterprise
+entry. The preferred namespace comes from the resolved hub's own
+`defaultNamespace` field: `@local` for the local hub, and your home namespace
+for cloud/enterprise
 (left empty until `tap auth login` adopts it from the hub's whoami probe). The
 only `namespaces` entry written is `local → <local hub>`, pinning `@local` to
 this machine.
@@ -129,7 +139,7 @@ order, stopping at the first match:
 2. `defaultHub: NAME` → look up `NAME` in `hubs`
 3. `fallbackHub: NAME` → look up `NAME` in `hubs`
 4. the sole configured hub (or the alphabetically-first when several exist)
-5. `disableDefaultHub: true` (or `TAP_DISABLE_DEFAULT_HUB=1`) → error
+5. `disableAtlasHub: true` (or `TAP_DISABLE_ATLAS_HUB=1`) → error
 6. the compiled-in `atlas` hub (`https://atlas.foldwise.ai`)
 
 ## Recommended Baseline Config
@@ -147,7 +157,7 @@ namespaces:
 hubs:
   my-laptop:
     kind: local
-    namespace: local
+    defaultNamespace: local
     basePath: ~/Documents/kegs
 ```
 

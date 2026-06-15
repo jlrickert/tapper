@@ -29,7 +29,7 @@ func TestResolveLoginHubURL(t *testing.T) {
 	cases := []tc{
 		{
 			name:     "step 1: explicit URL wins over everything",
-			yaml:     "defaultHub: knut\ndisableDefaultHub: true\nhubs:\n  knut:\n    url: keg.example.com\n",
+			yaml:     "defaultHub: knut\ndisableAtlasHub: true\nhubs:\n  knut:\n    url: keg.example.com\n",
 			explicit: "https://override.example.com",
 			want:     "https://override.example.com",
 		},
@@ -65,14 +65,14 @@ func TestResolveLoginHubURL(t *testing.T) {
 			want: "https://solo.example.com",
 		},
 		{
-			name:    "step 4: DisableDefaultHub blocks fallback when nothing else matches",
-			yaml:    "disableDefaultHub: true\n",
-			wantErr: tapper.ErrDefaultHubDisabled,
+			name:    "step 4: DisableAtlasHub blocks fallback when nothing else matches",
+			yaml:    "disableAtlasHub: true\n",
+			wantErr: tapper.ErrAtlasHubDisabled,
 		},
 		{
-			name:    "step 4: DisableDefaultHub fires even with multiple Hubs entries",
-			yaml:    "disableDefaultHub: true\nhubs:\n  a:\n    url: a.example.com\n  b:\n    url: b.example.com\n",
-			wantErr: tapper.ErrDefaultHubDisabled,
+			name:    "step 4: DisableAtlasHub fires even with multiple Hubs entries",
+			yaml:    "disableAtlasHub: true\nhubs:\n  a:\n    url: a.example.com\n  b:\n    url: b.example.com\n",
+			wantErr: tapper.ErrAtlasHubDisabled,
 		},
 		{
 			name: "step 5: empty config falls back to DefaultHubURL",
@@ -121,14 +121,14 @@ func TestResolveLoginHubURL(t *testing.T) {
 }
 
 // TestResolveLoginHubURL_StepOrdering pins the step ordering invariant:
-// adding a Hubs entry to a config that has DisableDefaultHub set must not
+// adding a Hubs entry to a config that has DisableAtlasHub set must not
 // alter the result for an explicit URL (step 1 always wins). This guards
 // against future refactors that re-order the chain.
 func TestResolveLoginHubURL_StepOrdering(t *testing.T) {
 	t.Parallel()
 
 	cfg, err := tapper.ParseConfig([]byte(
-		"defaultHub: a\ndisableDefaultHub: true\nhubs:\n  a:\n    url: a.example.com\n  b:\n    url: b.example.com\n",
+		"defaultHub: a\ndisableAtlasHub: true\nhubs:\n  a:\n    url: a.example.com\n  b:\n    url: b.example.com\n",
 	))
 	require.NoError(t, err)
 

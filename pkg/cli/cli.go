@@ -253,12 +253,14 @@ func firstPositionalAfterRootFlags(args []string) (int, bool) {
 func rootFlagConsumesNext(token string) bool {
 	switch {
 	case token == "-k", token == "--keg",
-		token == "--path",
+		token == "--namespace", token == "--hub", token == "--flight",
 		token == "-c", token == "--config",
 		token == "--log-file", token == "--log-level":
 		return true
 	case strings.HasPrefix(token, "--keg="),
-		strings.HasPrefix(token, "--path="),
+		strings.HasPrefix(token, "--namespace="),
+		strings.HasPrefix(token, "--hub="),
+		strings.HasPrefix(token, "--flight="),
 		strings.HasPrefix(token, "--config="),
 		strings.HasPrefix(token, "--log-file="),
 		strings.HasPrefix(token, "--log-level="):

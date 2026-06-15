@@ -47,7 +47,7 @@ func TestBootstrap_Local(t *testing.T) {
 	hubs := cfg.Hubs()
 	require.Contains(t, hubs, testHost)
 	require.Equal(t, tapper.HubKindLocal, hubs[testHost].Kind)
-	require.Equal(t, tapper.LocalHubName, hubs[testHost].Namespace, "local hub defaults to @local")
+	require.Equal(t, tapper.LocalHubName, hubs[testHost].DefaultNamespace, "local hub defaults to @local")
 	require.NotEmpty(t, hubs[testHost].BasePath)
 	require.NotContains(t, hubs, tapper.DefaultHubName, "a fresh local bootstrap should not seed an atlas hub")
 
@@ -79,7 +79,7 @@ func TestBootstrap_Cloud(t *testing.T) {
 	require.Contains(t, hubs, testHost, "local hub is always ensured")
 	require.Equal(t, tapper.HubKindRemote, hubs[tapper.DefaultHubName].Kind)
 	require.Equal(t, tapper.DefaultHubURL, hubs[tapper.DefaultHubName].URL)
-	require.Empty(t, hubs[tapper.DefaultHubName].Namespace, "cloud hub namespace stays empty until login adopts it")
+	require.Empty(t, hubs[tapper.DefaultHubName].DefaultNamespace, "cloud hub namespace stays empty until login adopts it")
 
 	// No per-user namespace entry: only local→localHub is generated.
 	ns := cfg.Namespaces()
@@ -112,7 +112,7 @@ func TestBootstrap_Enterprise(t *testing.T) {
 	require.Contains(t, hubs, "acme")
 	require.Equal(t, tapper.HubKindRemote, hubs["acme"].Kind)
 	require.Equal(t, "https://keg.acme.com", hubs["acme"].URL)
-	require.Empty(t, hubs["acme"].Namespace, "enterprise hub namespace stays empty until login adopts it")
+	require.Empty(t, hubs["acme"].DefaultNamespace, "enterprise hub namespace stays empty until login adopts it")
 	require.Contains(t, hubs, testHost)
 
 	// No per-user namespace entry: only local→localHub is generated.

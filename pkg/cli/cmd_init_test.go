@@ -285,7 +285,11 @@ func TestInitCommand_DestinationValidation(t *testing.T) {
 	})
 }
 
-func TestInitCommand_FallsBackToPlatformDefaultWhenSearchPathsUnset(t *testing.T) {
+// TestInitCommand_RequiresBootstrap confirms that a namespace/hub create — here
+// --user, which targets this machine's local hub — refuses on the full `tap`
+// surface until `tap bootstrap` has been run, rather than silently materializing
+// a keg in a hidden platform dir.
+func TestInitCommand_RequiresBootstrap(t *testing.T) {
 	t.Parallel()
 
 	sb := NewSandbox(t)
@@ -293,13 +297,18 @@ func TestInitCommand_FallsBackToPlatformDefaultWhenSearchPathsUnset(t *testing.T
 	h := NewProcess(t, false, "init", "--user", "--keg", "fresh", "--creator", "me")
 	res := h.Run(sb.Context(), sb.Runtime())
 
-	require.NoError(t, res.Err, "init should succeed without preconfigured kegSearchPaths")
-	require.Contains(t, string(res.Stdout), "keg fresh created")
-
-	keg := sb.MustReadFile("~/.local/share/tapper/kegs/@local/fresh/keg")
-	require.Contains(t, string(keg), "$schema=",
-		"keg config should have been written under platform default data dir")
+	require.Error(t, res.Err, "unconfigured --user create should require bootstrap")
+	require.Contains(t, string(res.Stderr), "tap bootstrap")
 }
+
+// localHubUserConfig is a minimal bootstrapped user config: a single local hub
+// keyed "home" whose basePath is the platform-default keg root, so @local
+// resolves there. Used by init tests that exercise prompt/flag mechanics and
+// need a create to succeed.
+const localHubUserConfig = "fallbackHub: home\n" +
+	"namespaces:\n  local:\n    hub: home\n" +
+	"hubs:\n  home:\n    kind: local\n    defaultNamespace: local\n" +
+	"    basePath: ~/.local/share/tapper/kegs\n"
 
 func TestInitCommand_RejectsInvalidAlias(t *testing.T) {
 	t.Parallel()
@@ -337,6 +346,7 @@ func TestInitCommand_RejectsInvalidAlias(t *testing.T) {
 func TestInitCommand_InteractivePrompt(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t)
+	sb.MustWriteFile("~/.config/tapper/config.yaml", []byte(localHubUserConfig), 0o644)
 
 	answers := strings.Join([]string{
 		"diary",      // alias
@@ -364,6 +374,7 @@ func TestInitCommand_InteractivePrompt(t *testing.T) {
 func TestInitCommand_NonInteractiveFlagSkipsPrompt(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t)
+	sb.MustWriteFile("~/.config/tapper/config.yaml", []byte(localHubUserConfig), 0o644)
 
 	h := NewProcess(t, true, "init", "--non-interactive", "--keg", "ci", "--user", "--creator", "ci-bot")
 	res := h.Run(sb.Context(), sb.Runtime())
@@ -379,6 +390,7 @@ func TestInitCommand_NonInteractiveFlagSkipsPrompt(t *testing.T) {
 func TestInitCommand_NonTTYSkipsPrompt(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t)
+	sb.MustWriteFile("~/.config/tapper/config.yaml", []byte(localHubUserConfig), 0o644)
 	require.NoError(t, sb.Setwd("/home/testuser/scratch"))
 
 	h := NewProcess(t, false, "init")

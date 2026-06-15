@@ -30,7 +30,7 @@ const (
 	// configured hub is available and the implicit default has not been
 	// disabled. The constant exists so the fallback target is auditable: a
 	// deployment that needs to prove no implicit network calls happen sets
-	// disableDefaultHub: true (or TAP_DISABLE_DEFAULT_HUB=1) and the chain
+	// disableAtlasHub: true (or TAP_DISABLE_ATLAS_HUB=1) and the chain
 	// errors out instead of falling through here.
 	DefaultHubURL = "https://atlas.foldwise.ai"
 
@@ -74,6 +74,12 @@ type configDTO struct {
 	// Same selector forms as defaultKeg.
 	FallbackKeg string `yaml:"fallbackKeg,omitempty"`
 
+	// flight is the flight overlay applied when no --flight flag is given. It is
+	// a flight reference (@namespace/+slug, +slug, or a bare slug) and is
+	// conventionally set in project config so a repo always flies the same
+	// flight; --flight overrides it per invocation.
+	Flight string `yaml:"flight,omitempty"`
+
 	// kegMap maps a project path or pattern to a keg reference.
 	KegMap []KegMapEntry `yaml:"kegMap"`
 
@@ -102,10 +108,17 @@ type configDTO struct {
 	// user config.
 	FallbackNamespace string `yaml:"fallbackNamespace,omitempty"`
 
-	// disableDefaultHub turns off the compiled-in DefaultHubURL fallback. When
-	// true and no other branch matches, hub-dependent commands fail with a
-	// clear error instead of silently reaching out to the default hub.
-	DisableDefaultHub bool `yaml:"disableDefaultHub,omitempty"`
+	// disableAtlasHub turns off the synthesized built-in atlas hub. When true the
+	// compiled-in atlas hub is not synthesized in Hub(), is omitted from hub
+	// listings, and is skipped in hub resolution — hub-dependent commands fail
+	// with a clear error instead of silently reaching out to the default hub. An
+	// explicit atlas entry in hubs{} is unaffected (explicit always wins).
+	DisableAtlasHub bool `yaml:"disableAtlasHub,omitempty"`
+
+	// disableLocalHub turns off the synthesized built-in local filesystem hub,
+	// symmetric with disableAtlasHub. An explicit local hub entry in hubs{} (or
+	// the hostname-keyed local hub tap bootstrap writes) is unaffected.
+	DisableLocalHub bool `yaml:"disableLocalHub,omitempty"`
 
 	// hubs describes configured hubs available to the user, keyed by name.
 	Hubs hubMap `yaml:"hubs,omitempty"`
@@ -135,11 +148,11 @@ type KegMapEntry struct {
 // holds @<namespace>/<name> keg directories.
 type HubEntry struct {
 	Kind string `yaml:"kind,omitempty"`
-	// Namespace is this hub's default namespace, used when a reference resolved
-	// against this hub omits its namespace. A hub hosts many namespaces; this is
-	// only the default. The "@" sigil is implied — store the bare value.
-	Namespace string `yaml:"namespace,omitempty"`
-	URL       string `yaml:"url,omitempty"`
+	// DefaultNamespace is this hub's default namespace, used when a reference
+	// resolved against this hub omits its namespace. A hub hosts many namespaces;
+	// this is only the default. The "@" sigil is implied — store the bare value.
+	DefaultNamespace string `yaml:"defaultNamespace,omitempty"`
+	URL              string `yaml:"url,omitempty"`
 	BasePath  string `yaml:"basePath,omitempty"`
 	Token     string `yaml:"token,omitempty"`
 	TokenEnv  string `yaml:"tokenEnv,omitempty"`
@@ -288,6 +301,15 @@ func (cfg *Config) FallbackKeg() string {
 	return cfg.data.FallbackKeg
 }
 
+// Flight returns the persisted flight reference applied when no --flight flag
+// is given.
+func (cfg *Config) Flight() string {
+	if cfg.data == nil {
+		cfg.data = &configDTO{}
+	}
+	return cfg.data.Flight
+}
+
 // LookupAliasForTarget previously reverse-mapped a resolved target back to its
 // configured keg alias. The namespace-centric model has no alias table, so a
 // target no longer carries a short alias; callers fall back to the canonical
@@ -328,13 +350,22 @@ func (cfg *Config) FallbackNamespace() string {
 	return cfg.data.FallbackNamespace
 }
 
-// DisableDefaultHub returns true when the compiled-in DefaultHubURL fallback is
+// DisableAtlasHub returns true when the synthesized built-in atlas hub is
 // suppressed.
-func (cfg *Config) DisableDefaultHub() bool {
+func (cfg *Config) DisableAtlasHub() bool {
 	if cfg.data == nil {
 		cfg.data = &configDTO{}
 	}
-	return cfg.data.DisableDefaultHub
+	return cfg.data.DisableAtlasHub
+}
+
+// DisableLocalHub returns true when the synthesized built-in local hub is
+// suppressed.
+func (cfg *Config) DisableLocalHub() bool {
+	if cfg.data == nil {
+		cfg.data = &configDTO{}
+	}
+	return cfg.data.DisableLocalHub
 }
 
 // KegMap returns the list of path/regex to keg alias mappings.
@@ -359,9 +390,12 @@ func (cfg *Config) Hubs() map[string]HubEntry {
 	return cfg.data.Hubs
 }
 
-// Hub returns the named hub entry. Built-in hubs are synthesized when not
-// explicitly configured: "local" (filesystem) and "atlas" (the default remote
-// hub). An explicit configuration always wins over the built-in.
+// Hub returns the named hub entry. The built-in hubs "local" (filesystem) and
+// "atlas" (the default remote hub) are synthesized when not explicitly
+// configured — unless disabled via disableLocalHub / disableAtlasHub, in which
+// case the synthesized built-in is suppressed and Hub reports it as not found.
+// An explicit configuration in hubs{} always wins over (and is unaffected by the
+// disable flag for) the built-in.
 func (cfg *Config) Hub(name string) (HubEntry, bool) {
 	name = strings.TrimSpace(name)
 	if name == "" {
@@ -372,8 +406,14 @@ func (cfg *Config) Hub(name string) (HubEntry, bool) {
 	}
 	switch name {
 	case LocalHubName:
+		if cfg.DisableLocalHub() {
+			return HubEntry{}, false
+		}
 		return HubEntry{Kind: HubKindLocal}, true
 	case DefaultHubName:
+		if cfg.DisableAtlasHub() {
+			return HubEntry{}, false
+		}
 		return HubEntry{Kind: HubKindRemote, URL: DefaultHubURL, TokenEnv: DefaultHubTokenEnv}, true
 	}
 	return HubEntry{}, false
@@ -463,6 +503,15 @@ func (cfg *Config) SetFallbackKeg(keg string) error {
 	return nil
 }
 
+// SetFlight sets the persisted flight reference (or clears it when empty).
+func (cfg *Config) SetFlight(flight string) error {
+	if cfg.data == nil {
+		cfg.data = &configDTO{}
+	}
+	cfg.data.Flight = flight
+	return nil
+}
+
 // SetDefaultHub sets the default hub name.
 func (cfg *Config) SetDefaultHub(_ context.Context, hub string) error {
 	if cfg.data == nil {
@@ -499,12 +548,21 @@ func (cfg *Config) SetFallbackNamespace(ns string) error {
 	return nil
 }
 
-// SetDisableDefaultHub toggles the compiled-in DefaultHubURL fallback.
-func (cfg *Config) SetDisableDefaultHub(disable bool) error {
+// SetDisableAtlasHub toggles the synthesized built-in atlas hub.
+func (cfg *Config) SetDisableAtlasHub(disable bool) error {
 	if cfg.data == nil {
 		cfg.data = &configDTO{}
 	}
-	cfg.data.DisableDefaultHub = disable
+	cfg.data.DisableAtlasHub = disable
+	return nil
+}
+
+// SetDisableLocalHub toggles the synthesized built-in local hub.
+func (cfg *Config) SetDisableLocalHub(disable bool) error {
+	if cfg.data == nil {
+		cfg.data = &configDTO{}
+	}
+	cfg.data.DisableLocalHub = disable
 	return nil
 }
 
@@ -630,6 +688,9 @@ func (cfg *Config) resolveHubForNamespace(ns string) string {
 
 // resolveHubName applies hub-name precedence: defaultHub → fallbackHub →
 // the sole/alphabetically-first configured hub → the compiled-in default hub.
+// The compiled-in atlas fallback is skipped when disableAtlasHub is set, in
+// which case "" is returned and the caller surfaces a "no hub" error rather
+// than routing to a disabled built-in.
 func (cfg *Config) resolveHubName() string {
 	if h := strings.TrimSpace(cfg.DefaultHub()); h != "" {
 		return h
@@ -645,6 +706,9 @@ func (cfg *Config) resolveHubName() string {
 		}
 		sort.Strings(names)
 		return names[0]
+	}
+	if cfg.DisableAtlasHub() {
+		return ""
 	}
 	return DefaultHubName
 }
@@ -670,13 +734,75 @@ func (cfg *Config) localHubName() string {
 		sort.Strings(names)
 		return names[0]
 	}
+	if cfg.DisableLocalHub() {
+		return ""
+	}
 	return LocalHubName
 }
 
+// resolveNamespaceHub resolves the effective (namespace, hubName, entry) for a
+// reference whose namespace and/or hub may be empty. It is the single source of
+// truth for the namespace-centric chain, shared by ResolveRef (backend
+// resolution), resolveIdentity (display) and resolveKegAdminRef (admin):
+//
+//   namespace: explicit → defaultNamespace → fallbackNamespace → the resolved
+//              hub's per-hub defaultNamespace → @local (for a local hub)
+//   hub:       explicit → namespaces[ns].hub → @local→local hub → defaultHub →
+//              fallbackHub → sole/alpha hub → compiled-in atlas (unless disabled)
+//
+// It returns an error when no hub is available (a disabled built-in with nothing
+// else configured), the resolved hub is not configured, or a non-local hub has
+// no resolvable namespace. Callers wrap the error with reference context.
+func (cfg *Config) resolveNamespaceHub(ns, hubName string) (string, string, HubEntry, error) {
+	// Namespace first: explicit → default → fallback. It may still be empty
+	// here; the per-hub default and the local-hub fallback below get the final
+	// say once the hub kind is known.
+	ns = strings.TrimSpace(ns)
+	if ns == "" {
+		ns = cfg.resolveNamespaceForName()
+	}
+
+	// Hub from the namespace: explicit wins; otherwise the namespace→hub map
+	// pins it, the reserved "local" namespace selects this machine's filesystem
+	// hub, and finally the hub precedence chain applies.
+	hubName = strings.TrimSpace(hubName)
+	if hubName == "" {
+		hubName = cfg.resolveHubForNamespace(ns)
+	}
+	if hubName == "" {
+		return "", "", HubEntry{}, fmt.Errorf("no hub available (the built-in hub is disabled and no other hub is configured)")
+	}
+
+	entry, ok := cfg.Hub(hubName)
+	if !ok {
+		return "", "", HubEntry{}, fmt.Errorf("hub %q is not configured", hubName)
+	}
+	kind := strings.TrimSpace(entry.Kind)
+	if kind == "" {
+		kind = HubKindRemote
+	}
+
+	// Last-resort namespace once the hub is known: the hub's own default
+	// namespace (lower precedence than the default/fallback chain), then @local
+	// for a local hub, else an error.
+	if ns == "" {
+		switch {
+		case strings.TrimSpace(entry.DefaultNamespace) != "":
+			ns = strings.TrimSpace(entry.DefaultNamespace)
+		case kind == HubKindLocal:
+			ns = LocalHubName
+		default:
+			return "", "", HubEntry{}, fmt.Errorf("no namespace and no per-hub, default, or fallback namespace is configured")
+		}
+	}
+
+	return ns, hubName, entry, nil
+}
+
 // ResolveRef resolves a (hub, namespace, name) reference into a concrete
-// keg.Target. It applies the namespace-centric chains — namespace first
-// (explicit → default/fallback), then the hub that hosts that namespace
-// (namespaces[ns].Hub → default/fallback) — and the per-kind backend mapping:
+// keg.Target. It applies the namespace-centric chains via resolveNamespaceHub —
+// namespace first (explicit → default/fallback), then the hub that hosts that
+// namespace — and the per-kind backend mapping:
 //
 //   - local:    <basePath>/@<namespace>/<name> as a file target
 //   - remote:   <hub.url>/api/v1/@<namespace>/kegs/<name> as a hub target
@@ -698,44 +824,13 @@ func (cfg *Config) ResolveRef(rt *toolkit.Runtime, ref KegRef) (*keg.Target, err
 		return nil, fmt.Errorf("keg reference is missing a name")
 	}
 
-	// Resolve the namespace first (the namespace-centric model). Precedence:
-	// explicit ref → defaultNamespace → fallbackNamespace. It may still be empty
-	// here; the per-hub default and the local-hub fallback below get the final
-	// say once the hub kind is known.
-	ns := strings.TrimSpace(ref.Namespace)
-	if ns == "" {
-		ns = cfg.resolveNamespaceForName()
-	}
-
-	// Resolve the hub from the namespace. An explicit hub wins; otherwise the
-	// namespace→hub map pins it, the reserved "local" namespace selects this
-	// machine's filesystem hub, and finally the hub precedence chain applies.
-	hubName := strings.TrimSpace(ref.Hub)
-	if hubName == "" {
-		hubName = cfg.resolveHubForNamespace(ns)
-	}
-
-	entry, ok := cfg.Hub(hubName)
-	if !ok {
-		return nil, fmt.Errorf("hub %q is not configured", hubName)
+	ns, hubName, entry, err := cfg.resolveNamespaceHub(ref.Namespace, ref.Hub)
+	if err != nil {
+		return nil, fmt.Errorf("keg reference %q: %w", name, err)
 	}
 	kind := strings.TrimSpace(entry.Kind)
 	if kind == "" {
 		kind = HubKindRemote
-	}
-
-	// Last-resort namespace once the hub is known: the hub's own default
-	// namespace (a lower-precedence source than the default/fallback chain in
-	// the namespace-centric model), then @local for a local hub, else an error.
-	if ns == "" {
-		switch {
-		case strings.TrimSpace(entry.Namespace) != "":
-			ns = strings.TrimSpace(entry.Namespace)
-		case kind == HubKindLocal:
-			ns = LocalHubName
-		default:
-			return nil, fmt.Errorf("keg reference %q has no namespace and no per-hub, default, or fallback namespace is configured", name)
-		}
 	}
 
 	if err := ValidateNamespace(ns); err != nil {
@@ -788,6 +883,24 @@ func (cfg *Config) ResolveRef(rt *toolkit.Runtime, ref KegRef) (*keg.Target, err
 //     URL: kept verbatim as KegRef.Path (explicit file-keg addressing).
 //   - "name"                      — a bare keg name; its namespace and hub are
 //     supplied by ResolveRef's default/fallback chains.
+// applyRefOverrides overlays --namespace / --hub overrides onto a parsed keg
+// reference. The namespace override fills a bare reference but conflicts with an
+// explicit @namespace/ already present (an error); the hub override always wins,
+// since the hub is never part of the reference string. selector is the original
+// reference text, used only for the conflict error message.
+func applyRefOverrides(ref KegRef, nsOverride, hubOverride, selector string) (KegRef, error) {
+	if ns := strings.TrimPrefix(strings.TrimSpace(nsOverride), "@"); ns != "" {
+		if ref.Namespace != "" && ref.Namespace != ns {
+			return ref, fmt.Errorf("--namespace %q conflicts with the namespace in keg reference %q", ns, selector)
+		}
+		ref.Namespace = ns
+	}
+	if hub := strings.TrimSpace(hubOverride); hub != "" {
+		ref.Hub = hub
+	}
+	return ref, nil
+}
+
 func parseKegRef(s string) KegRef {
 	s = strings.TrimSpace(s)
 	if s == "" {
@@ -991,15 +1104,15 @@ func DefaultUserConfig(name string, localKegRoot string) *Config {
 			},
 			Hubs: hubMap{
 				DefaultHubName: {
-					Kind:      HubKindRemote,
-					Namespace: name,
-					URL:       DefaultHubURL,
-					TokenEnv:  DefaultHubTokenEnv,
+					Kind:             HubKindRemote,
+					DefaultNamespace: name,
+					URL:              DefaultHubURL,
+					TokenEnv:         DefaultHubTokenEnv,
 				},
 				LocalHubName: {
-					Kind:      HubKindLocal,
-					Namespace: LocalHubName,
-					BasePath:  localKegRoot,
+					Kind:             HubKindLocal,
+					DefaultNamespace: LocalHubName,
+					BasePath:         localKegRoot,
 				},
 			},
 		},
@@ -1119,6 +1232,9 @@ func MergeConfig(cfgs ...*Config) *Config {
 		if c.data.FallbackKeg != "" {
 			out.data.FallbackKeg = c.data.FallbackKeg
 		}
+		if c.data.Flight != "" {
+			out.data.Flight = c.data.Flight
+		}
 		if c.data.LogFile != "" {
 			out.data.LogFile = c.data.LogFile
 		}
@@ -1140,9 +1256,12 @@ func MergeConfig(cfgs ...*Config) *Config {
 		if c.data.FallbackNamespace != "" {
 			out.data.FallbackNamespace = c.data.FallbackNamespace
 		}
-		// DisableDefaultHub: any tier that sets it to true wins (fail closed).
-		if c.data.DisableDefaultHub {
-			out.data.DisableDefaultHub = true
+		// Disable flags: any tier that sets one to true wins (fail closed).
+		if c.data.DisableAtlasHub {
+			out.data.DisableAtlasHub = true
+		}
+		if c.data.DisableLocalHub {
+			out.data.DisableLocalHub = true
 		}
 
 		for name, entry := range c.data.Hubs {

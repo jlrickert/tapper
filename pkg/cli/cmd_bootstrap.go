@@ -9,6 +9,7 @@ package cli
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/url"
@@ -16,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jlrickert/tapper/pkg/keg"
 	"github.com/jlrickert/tapper/pkg/tapper"
 	"github.com/spf13/cobra"
 )
@@ -187,6 +189,35 @@ logs in.
 				}
 			}
 
+			// 4c. For a local deployment, create the chosen keg now so the user
+			// is immediately up and running — plain `tap` commands work without a
+			// separate `tap keg create`. Local only: a remote create needs a live
+			// login and hub permissions, so cloud/enterprise just record the keg.
+			// Idempotent: a keg that already exists is fine.
+			createdKegPath := ""
+			if chosenKeg != "" && res.Kind == tapper.BootstrapKindLocal {
+				ns, name, perr := parseKegArg(chosenKeg)
+				if perr != nil {
+					_, _ = fmt.Fprintf(stderr, "warning: could not create keg %q: %v\n", chosenKeg, perr)
+				} else {
+					target, cerr := deps.Tap.InitKeg(ctx, tapper.InitOptions{
+						Keg:            name,
+						Namespace:      ns,
+						NonInteractive: true,
+					})
+					switch {
+					case cerr == nil:
+						if target != nil {
+							createdKegPath = target.Path()
+						}
+					case errors.Is(cerr, keg.ErrExist):
+						// Already exists — the user is still ready to go.
+					default:
+						_, _ = fmt.Fprintf(stderr, "warning: could not create keg %q: %v\n", chosenKeg, cerr)
+					}
+				}
+			}
+
 			// 5. Summary.
 			out := cmd.OutOrStdout()
 			verb := "Updated"
@@ -201,6 +232,9 @@ logs in.
 			}
 			if chosenKeg != "" {
 				_, _ = fmt.Fprintf(out, "  default keg:  %s\n", chosenKeg)
+			}
+			if createdKegPath != "" {
+				_, _ = fmt.Fprintf(out, "  created keg:  %s\n", createdKegPath)
 			}
 			for _, w := range res.Warnings {
 				_, _ = fmt.Fprintf(stderr, "warning: %s: %s\n", w.Field, w.Message)

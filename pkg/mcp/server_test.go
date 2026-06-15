@@ -1529,7 +1529,7 @@ func TestMCP_ToolAnnotations_AllPresent(t *testing.T) {
 		"lock_acquire", "lock_release",
 		"repo_init", "config", "config_template",
 		"export", "import", "import_from_keg",
-		"site", "serve", "graph",
+		"graph",
 	}
 	for _, name := range writeTools {
 		tool, ok := byName[name]

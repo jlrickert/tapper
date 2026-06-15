@@ -3,10 +3,12 @@ package tapper
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/jlrickert/cli-toolkit/toolkit"
 	"github.com/jlrickert/tapper/pkg/keg"
@@ -86,6 +88,99 @@ func (t *Tap) infoMinimal(ctx context.Context, k keg.Keg) (string, error) {
 // KegInfoOptions configures behavior for Tap.KegInfo.
 type KegInfoOptions struct {
 	KegTargetOptions
+
+	// JSON renders the diagnostics as JSON instead of YAML.
+	JSON bool
+}
+
+// resolvedIdentity captures the hub/namespace/keg trio a selector resolves to,
+// plus which config slot and scope decided it. It is derived from the config
+// resolution chain (not the opened backend) so it works identically for local
+// and remote kegs.
+type resolvedIdentity struct {
+	Hub       string `yaml:"hub,omitempty" json:"hub,omitempty"`
+	HubKind   string `yaml:"hub_kind,omitempty" json:"hub_kind,omitempty"`
+	Namespace string `yaml:"namespace,omitempty" json:"namespace,omitempty"`
+	Keg       string `yaml:"keg,omitempty" json:"keg,omitempty"`
+	Ref       string `yaml:"ref,omitempty" json:"ref,omitempty"`
+	Flight    string `yaml:"flight,omitempty" json:"flight,omitempty"`
+	Source    string `yaml:"resolution_source,omitempty" json:"resolution_source,omitempty"`
+	Scope     string `yaml:"scope,omitempty" json:"scope,omitempty"`
+}
+
+// resolveIdentity derives the resolved hub/namespace/keg identity, the winning
+// resolution slot (defaultKeg/kegMap/fallbackKeg/--keg), and the config scope
+// that set it. Best-effort: a missing config or unresolved namespace leaves the
+// corresponding fields blank rather than erroring.
+func (t *Tap) resolveIdentity(opts KegTargetOptions) resolvedIdentity {
+	var id resolvedIdentity
+	cfg, err := t.ConfigService.Config(true)
+	if err != nil || cfg == nil {
+		return id
+	}
+
+	// Determine the selector and which slot won, mirroring KegService.resolvePath.
+	selector := strings.TrimSpace(opts.Keg)
+	switch {
+	case selector != "":
+		id.Source = "--keg"
+		id.Scope = "flag"
+	default:
+		if v := strings.TrimSpace(cfg.DefaultKeg()); v != "" {
+			selector, id.Source, id.Scope = v, "defaultKeg", t.configFieldScope("defaultKeg")
+		} else if v := strings.TrimSpace(cfg.LookupAlias(t.Runtime, t.Root)); v != "" {
+			selector, id.Source = v, "kegMap"
+		} else if v := strings.TrimSpace(cfg.FallbackKeg()); v != "" {
+			selector, id.Source, id.Scope = v, "fallbackKeg", t.configFieldScope("fallbackKeg")
+		}
+	}
+
+	if selector != "" {
+		ref, oErr := applyRefOverrides(parseKegRef(selector), opts.Namespace, opts.Hub, selector)
+		if oErr == nil {
+			if ref.Path != "" {
+				id.Ref = ref.Path
+			} else {
+				id.Keg = ref.Name
+				// Infer namespace + hub through the shared chain so a bare name
+				// (e.g. "private") displays as "@local/private" on a local hub,
+				// matching what the backend actually resolves. Best-effort: if it
+				// cannot resolve (e.g. a remote hub with no namespace), fall back
+				// to the bare name and leave namespace/hub blank.
+				if ns, hub, entry, rErr := cfg.resolveNamespaceHub(ref.Namespace, ref.Hub); rErr == nil {
+					id.Namespace = ns
+					id.Hub = hub
+					id.HubKind = entry.Kind
+					if id.HubKind == "" {
+						id.HubKind = HubKindRemote
+					}
+					if ref.Name != "" {
+						id.Ref = "@" + ns + "/" + ref.Name
+					}
+				} else if ref.Name != "" {
+					id.Ref = ref.Name
+				}
+			}
+		}
+	}
+
+	id.Flight = strings.TrimSpace(opts.Flight)
+	return id
+}
+
+// configFieldScope reports which config tier (env|project|user) set a scalar
+// field, or "" when only a default/compiled-in value applies.
+func (t *Tap) configFieldScope(field string) string {
+	if configFieldGetter(t.loadEnvConfig(), field) != "" {
+		return "env"
+	}
+	if projectCfg, _ := t.ConfigService.ProjectConfig(true); configFieldGetter(projectCfg, field) != "" {
+		return "project"
+	}
+	if userCfg, _ := t.ConfigService.UserConfig(true); configFieldGetter(userCfg, field) != "" {
+		return "user"
+	}
+	return ""
 }
 
 // KegInfo displays diagnostics for a resolved keg.
@@ -109,25 +204,28 @@ func (t *Tap) KegInfo(ctx context.Context, opts KegInfoOptions) (string, error) 
 	}
 
 	type assetDiagnostics struct {
-		Supported       bool `yaml:"supported"`
-		NodesWithAssets int  `yaml:"nodes_with_assets"`
-		TotalAssets     int  `yaml:"total_assets"`
+		Supported       bool `yaml:"supported" json:"supported"`
+		NodesWithAssets int  `yaml:"nodes_with_assets" json:"nodes_with_assets"`
+		TotalAssets     int  `yaml:"total_assets" json:"total_assets"`
 	}
 	type diagnostics struct {
-		WorkingDirectory string `yaml:"working_directory"`
-		Alias            string `yaml:"alias,omitempty"`
-		Target           string `yaml:"target,omitempty"`
-		Scheme           string `yaml:"scheme,omitempty"`
-		KegDirectory     string `yaml:"keg_directory,omitempty"`
-		Summary          string `yaml:"summary,omitempty"`
+		resolvedIdentity `yaml:",inline"`
 
-		NodeCount int `yaml:"node_count"`
+		WorkingDirectory string `yaml:"working_directory" json:"working_directory"`
+		Alias            string `yaml:"alias,omitempty" json:"alias,omitempty"`
+		Target           string `yaml:"target,omitempty" json:"target,omitempty"`
+		Scheme           string `yaml:"scheme,omitempty" json:"scheme,omitempty"`
+		KegDirectory     string `yaml:"keg_directory,omitempty" json:"keg_directory,omitempty"`
+		Summary          string `yaml:"summary,omitempty" json:"summary,omitempty"`
 
-		Assets assetDiagnostics `yaml:"assets"`
-		Images assetDiagnostics `yaml:"images"`
+		NodeCount int `yaml:"node_count" json:"node_count"`
+
+		Assets assetDiagnostics `yaml:"assets" json:"assets"`
+		Images assetDiagnostics `yaml:"images" json:"images"`
 	}
 
 	out := diagnostics{
+		resolvedIdentity: t.resolveIdentity(opts.KegTargetOptions),
 		WorkingDirectory: workingDir,
 		NodeCount:        summary.NodeCount,
 	}
@@ -139,11 +237,6 @@ func (t *Tap) KegInfo(ctx context.Context, opts KegInfoOptions) (string, error) 
 	}
 
 	if k.Target() != nil {
-		// Reverse-lookup the alias from tap config.
-		tapCfg, _ := t.KegService.ConfigService.Config(true)
-		if tapCfg != nil {
-			out.Alias = tapCfg.LookupAliasForTarget(t.Runtime, k.Target().String())
-		}
 		out.Target = k.Target().String()
 		out.Scheme = k.Target().Scheme()
 		if k.Target().Scheme() == keg.SchemeFile {
@@ -166,6 +259,14 @@ func (t *Tap) KegInfo(ctx context.Context, opts KegInfoOptions) (string, error) 
 		Supported:       summary.Images.Supported,
 		NodesWithAssets: summary.Images.NodesWithAssets,
 		TotalAssets:     summary.Images.TotalAssets,
+	}
+
+	if opts.JSON {
+		b, err := json.MarshalIndent(out, "", "  ")
+		if err != nil {
+			return "", fmt.Errorf("unable to marshal info output: %w", err)
+		}
+		return string(b) + "\n", nil
 	}
 
 	b, err := yaml.Marshal(out)

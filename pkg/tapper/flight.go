@@ -550,7 +550,7 @@ func ParseFlightCoverSpecs(specs []string) ([]FlightCover, error) {
 }
 
 func localFlightNamespace(entry HubEntry) string {
-	if ns := strings.TrimPrefix(strings.TrimSpace(entry.Namespace), "@"); ns != "" {
+	if ns := strings.TrimPrefix(strings.TrimSpace(entry.DefaultNamespace), "@"); ns != "" {
 		return ns
 	}
 	return LocalHubName
