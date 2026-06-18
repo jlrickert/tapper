@@ -8,8 +8,10 @@ Cause:
 
 Fix:
 
-- Set at least `fallbackKeg` in user or project config.
-- Or run commands with an explicit target (`--keg`, `--project`, or `--path`).
+- Run `tap bootstrap` if this machine has not been set up yet.
+- Set a fallback with `tap use @namespace/keg --user`, or set a project default
+  with `tap use @namespace/keg`.
+- Or run commands with an explicit target, such as `--keg @namespace/keg`.
 
 ## A keg reference fails to resolve
 
@@ -102,9 +104,6 @@ tap config --show-sources
 # Show active keg config (resolved target)
 tap keg settings
 
-# Confirm resolution for a specific alias
-tap info --keg <alias>
-
-# Force project-local resolution
-tap info --project
+# Confirm resolution for a specific keg
+tap info --keg @namespace/name
 ```

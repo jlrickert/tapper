@@ -125,8 +125,8 @@ it is missing, extend your shell `PATH` in `~/.zshrc`, `~/.bashrc`, or the
 equivalent login file.
 
 **`tap integrate codex` reports `unknown host`.** The binary was built without
-the Codex adapter registered. Upgrade to a release that ships Codex support
-(anything on or after the Phase 4 milestone of the agent-integrations work).
+the Codex adapter registered. Upgrade to a current Tapper release that ships the
+Codex integration.
 
 **Tools return stale data.** The MCP server keeps its in-memory index warm;
 re-issue the call. If the staleness persists, a separate `tap` CLI process

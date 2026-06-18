@@ -1,16 +1,19 @@
 # KEG Structure Patterns
 
-This section documents practical patterns for structuring KEGs, based on workflows that are
-working well in active kegs.
+This section documents practical patterns for structuring KEGs so project memory
+stays useful to both people and AI agents.
 
 ## Why This Matters
 
 Before adding lots of notes, decide:
 
+- which domains belong in shared organization kegs
+- which domains need private or restricted kegs
 - how tags are used for slicing and filtering
 - whether multiple domains should share one keg or be split
 
-Early decisions here reduce rework and make long-term indexing/search cleaner.
+Early decisions here reduce onboarding friction and make long-term recall more
+reliable.
 
 ## Start Here
 
