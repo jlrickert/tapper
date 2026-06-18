@@ -33,9 +33,14 @@ sandbox runtime, which acts like an in-memory workflow pipeline.
 
 Example sequence:
 
-1. `tap init ...`
-2. `tap create ...`
-3. `tap cat ...`
+1. `tap bootstrap ...`
+2. `tap keg create ...`
+3. `tap use ...`
+4. `tap create ...`
+5. `tap cat ...`
+
+Tests for legacy compatibility can cover hidden aliases separately. Current
+user-facing flows should prefer `tap keg create`.
 
 Because each command runs through `cli.Run(...)`, tests exercise the same
 command wiring and service resolution code used in real usage.

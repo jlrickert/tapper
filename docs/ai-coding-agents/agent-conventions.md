@@ -112,8 +112,9 @@ Tapper recognizes two link forms in node bodies:
 
 - **Intra-keg:** `[title](../NODEID)` — relative path from the
   current node's directory to the target node's directory.
-- **Cross-keg:** `keg:ALIAS/NODEID` — bare reference that the index
-  parses into a cross-keg edge.
+- **Cross-keg:** `keg:@namespace/keg/NODEID` — fully qualified reference that
+  the index parses into a cross-keg edge. Bare names can also be used when the
+  active config resolves them unambiguously.
 
 Both forms appear in backlinks. Prefer intra-keg links when the target
 is in the same keg — they resolve in any markdown renderer.

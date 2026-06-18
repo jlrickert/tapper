@@ -33,7 +33,7 @@ commands.
 - walk and merge project config
 - merge effective config via a `cfgcascade.Cascade`
 - cache user/project/merged configs
-- resolve aliases to concrete keg targets
+- resolve keg references to concrete keg targets
 
 Notable behavior:
 
@@ -47,7 +47,7 @@ Notable behavior:
    `token`/`tokenEnv` from any walked project config (user config only). Each
    strip becomes a `ConfigLoadWarning` surfaced by `Config()`; `--strict`
    escalates warnings to errors.
-4. Reference resolution (`Config.ResolveAlias` → `ResolveRef`) parses the keg
+4. Reference resolution (`Config.ResolveRef`) parses the keg
    selector into a reference (`parseKegRef`) and applies the hub and namespace
    default/fallback chains plus the per-hub-kind backend mapping (local →
    `<basePath>/@<ns>/<name>`; remote/readonly → `<hub-url>/api/v1/@<ns>/kegs/<name>`).
@@ -56,12 +56,13 @@ Notable behavior:
 
 `pkg/tapper/keg_service.go` resolves and caches active keg handles.
 
-Resolution modes:
+Resolution modes on the full `tap` surface:
 
-1. explicit `--path`
-2. project mode (`--project`, optionally `--cwd`)
-3. explicit `--keg` alias
-4. implicit resolution from config and cwd
+1. explicit `--keg`, optionally refined by `--namespace` or `--hub`
+2. implicit resolution from config and cwd
+
+Project-local resolution still exists for the pruned `keg` profile and for
+explicit local creation destinations.
 
 Default implicit order:
 
@@ -69,8 +70,8 @@ Default implicit order:
 2. `kegMap` lookup
 3. `fallbackKeg`
 
-Project-local fallback for aliases is supported at `<project>/kegs/<alias>`
-when an alias is not explicitly configured.
+Bare names are references, not entries in a `kegs` alias table. They resolve
+through the namespace-centric chain.
 
 ## FlightService and flight gating
 

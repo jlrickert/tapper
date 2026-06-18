@@ -11,15 +11,13 @@ Keg config is metadata stored in a keg repository itself.
 
 ```bash
 tap keg settings
-tap keg settings --keg <alias>
-tap keg settings --project
-tap keg settings --path <path>
+tap keg settings --keg @namespace/name
 tap keg settings edit
-cat keg.yaml | tap keg settings edit --path <path>
+cat keg.yaml | tap keg settings edit --keg @namespace/name
 ```
 
-Use `tap keg settings` commands for keg metadata. Use `tap config` for user/project resolver
-settings.
+Use `tap keg settings` commands for keg metadata. Use `tap config` for
+user/project resolver settings.
 
 ## Field Reference (User-Facing)
 
@@ -37,7 +35,7 @@ Common keg fields:
 
 ## When To Edit Which Config
 
-- Edit user config for machine defaults and discovery paths.
+- Edit user config for machine defaults, hubs, and credentials.
 - Edit project config for repo-specific resolution behavior.
 - Edit keg config for keg metadata and index/link declarations.
 
@@ -47,4 +45,5 @@ Common keg fields:
 - Pipe YAML to `tap keg settings edit` when you want non-interactive updates.
 - Keep YAML valid and key names consistent.
 - Save small changes and re-run `tap keg settings` to confirm output.
-- Use `tap info` to confirm the resolved keg directory when debugging target selection.
+- Use `tap info --keg @namespace/name` to confirm a resolved target when
+  debugging selection.
