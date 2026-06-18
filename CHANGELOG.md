@@ -2,6 +2,68 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.23.0 - 2026-06-18
+
+
+
+### ⚙️ Miscellaneous
+- **test-env:** migrate sandbox compose from docker to podman
+- gitignore local task.md scratch notes
+
+
+### 🐛 Bug Fixes
+- align remote keg URL with hub and fix tap resolution
+- keep local node ids bare in the dex
+- render edit frontmatter as yaml and ignore self-save events
+- reject path traversal in keg asset names
+
+
+### 📚 Documentation
+- update guidance and integrations for namespace addressing
+- describe the Keg interface architecture in CLAUDE.md
+- refresh namespace-centric onboarding guides
+
+
+### 🚀 Features
+- address kegs by (hub, namespace, name); drop kegSearchPaths
+- **cli:** add tap bootstrap onboarding (local/cloud/enterprise)
+- **auth:** redesign tap auth login (device flow + token paste)
+- gh-style tap auth status with live validation
+- **auth:** silent token refresh and device-login UX fixes
+- layered config, per-hub namespaces, flights, and qualified refs
+- default bootstrap namespace to the user's hub namespace
+- namespace-centric keg addressing and keg: reference scheme
+- stream live node events with editor reverse sync
+- add tap watch command for live node events
+- resolve note-relative links and asset paths when rendering nodes
+- name editor temp files after the keg and node being edited
+- define the Keg interface and lift business ops into LocalKeg
+- add shared remote error-code table for the hub wire protocol
+- add RemoteKeg, the one-request-per-operation hub client
+- manage hub-backed flights with role-capped covers
+- split system and user indexes
+- split hub admin into tap keg and tap namespace commands
+- require bootstrap, infer namespaces, drop tap site
+- **namespace:** hand off creation to hub UI
+- **bootstrap:** add guided setup and first keg creation
+- **mcp:** add KegResolver seam and SurfaceHub tool curation
+
+
+### 🚜 Refactor
+- move repo config to top-level, keg config to settings
+- drop repo and list-kegs command surface
+- resolve kegs through the namespace-centric chain
+- unify repository events behind ctx-scoped Watch
+- drop deprecated tag filters and legacy input formats
+- rename Keg to LocalKeg and split keg.go by concern
+- route pkg/tapper through the Keg interface
+
+
+### 🧪 Testing
+- migrate keg fixtures to @local namespace layout
+- update suites for namespace-addressed kegs
+
+
 ## v0.22.1 - 2026-05-26
 
 
