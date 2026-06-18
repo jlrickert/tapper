@@ -171,6 +171,50 @@ func TestMCP_ToolsList(t *testing.T) {
 	require.Contains(t, names, "graph")
 }
 
+// TestMCP_SurfaceHub_CuratesToolset pins the remote hub connector surface: it
+// exposes the per-user node read/write tools and omits every CLI/local and
+// hub-admin tool (auth_status, config, doctor, local-path files, locks, archive,
+// keg/namespace administration, flights, license). tapper-hub mounts this surface
+// at /mcp paired with Tap.KegResolver.
+func TestMCP_SurfaceHub_CuratesToolset(t *testing.T) {
+	t.Parallel()
+	session, ctx := newTestSessionWithOpts(t, mcp.ServerOptions{Surface: mcp.SurfaceHub})
+
+	res, err := session.ListTools(ctx, nil)
+	require.NoError(t, err)
+	require.NotEmpty(t, res.Tools)
+
+	names := make(map[string]bool, len(res.Tools))
+	for _, tool := range res.Tools {
+		names[tool.Name] = true
+	}
+
+	// Node read/write tools must be present.
+	for _, want := range []string{
+		"cat", "list", "grep", "tags", "backlinks", "links", "info", "keg_info",
+		"stats", "create", "edit", "meta", "remove", "move", "index",
+		"list_indexes", "index_cat", "node_history", "node_snapshot",
+		"node_snapshot_view", "node_restore", "graph", "orient",
+	} {
+		require.Truef(t, names[want], "SurfaceHub should expose %q", want)
+	}
+
+	// CLI/local and hub-admin tools must be absent.
+	for _, banned := range []string{
+		"auth_status", "config", "config_template", "doctor", "license",
+		"repo_init", "integrate", "export", "import", "import_from_keg",
+		"upload_file", "download_file", "upload_image", "download_image",
+		"lock_acquire", "lock_release", "lock_status", "lock_force_release",
+		"keg_list", "keg_grants", "keg_grant", "keg_revoke", "keg_visibility",
+		"namespace_list", "namespace_members", "namespace_add_member",
+		"namespace_set_role", "namespace_remove_member", "namespace_create",
+		"list_flights", "flight_show", "flight_create", "flight_update",
+		"flight_delete",
+	} {
+		require.Falsef(t, names[banned], "SurfaceHub must not expose %q", banned)
+	}
+}
+
 func TestMCP_Cat(t *testing.T) {
 	t.Parallel()
 	session, ctx := newTestSession(t)

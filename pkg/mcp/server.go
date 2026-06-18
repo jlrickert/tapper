@@ -17,12 +17,31 @@ type KegDefaults struct {
 	tapper.KegTargetOptions
 }
 
+// Surface selects which tool groups NewServer registers.
+type Surface int
+
+const (
+	// SurfaceFull registers every tool — the CLI peer surface and the default.
+	SurfaceFull Surface = iota
+	// SurfaceHub registers only the per-user node read/write tools appropriate
+	// for a remote, OAuth-scoped hub connector (tapper-hub's /mcp endpoint). It
+	// omits CLI/local tools (auth_status, config, doctor, integrate, license,
+	// local-path file upload/download, archive, locks) and hub-admin tools
+	// (keg/namespace administration, flights) — none of which make sense for a
+	// remote multi-tenant connector. The hub pairs this with Tap.KegResolver so
+	// the registered tools resolve against the caller's catalog.
+	SurfaceHub
+)
+
 // ServerOptions holds configuration for creating an MCP server.
 type ServerOptions struct {
 	LicenseText string
 	// Logger is the structured logger for invocation logging. When nil,
 	// invocation logging is silently skipped.
 	Logger *slog.Logger
+	// Surface selects the registered tool set. The zero value (SurfaceFull)
+	// registers everything, preserving the CLI peer surface.
+	Surface Surface
 }
 
 // NewServer builds an MCP server with all registered tools.
@@ -46,25 +65,35 @@ func NewServer(tap *tapper.Tap, version string, defaults KegDefaults, opts ...Se
 		UnsubscribeHandler: nodeSubs.Unsubscribe,
 	})
 
+	// Node read/write tools — registered on every surface. These all funnel
+	// through Tap.resolveKegForRole, so a hub-injected KegResolver scopes them
+	// to the caller's catalog with viewer/editor enforcement.
 	registerReadTools(srv, tap, defaults)
 	registerWriteTools(srv, tap, defaults)
 	registerIndexTools(srv, tap, defaults)
-	registerDoctorTools(srv, tap, defaults)
 	registerSnapshotTools(srv, tap, defaults)
-	registerFileTools(srv, tap, defaults)
-	registerLockTools(srv, tap, defaults)
-	registerRepoTools(srv, tap, defaults)
-	registerImportTools(srv, tap, defaults)
-	registerArchiveTools(srv, tap, defaults)
 	registerGraphTools(srv, tap, defaults)
 	registerOrientTools(srv, tap, defaults)
-	registerFlightTools(srv, tap, defaults)
-	registerKegTools(srv, tap, defaults)
-	registerNamespaceTools(srv, tap, defaults)
-	registerResourceTools(srv, tap, defaults)
-	registerIntegrateTools(srv, tap, defaults)
-	registerAuthTools(srv, tap)
-	registerLicenseTools(srv, opt.LicenseText)
+
+	// CLI/local and hub-admin tools — omitted on the remote hub connector
+	// surface (see Surface docs). They depend on the local CLI environment
+	// (config cascade, AuthStore, local filesystem) or perform multi-tenant
+	// administration, neither of which belongs on a per-user remote connector.
+	if opt.Surface != SurfaceHub {
+		registerDoctorTools(srv, tap, defaults)
+		registerFileTools(srv, tap, defaults)
+		registerLockTools(srv, tap, defaults)
+		registerRepoTools(srv, tap, defaults)
+		registerImportTools(srv, tap, defaults)
+		registerArchiveTools(srv, tap, defaults)
+		registerFlightTools(srv, tap, defaults)
+		registerKegTools(srv, tap, defaults)
+		registerNamespaceTools(srv, tap, defaults)
+		registerResourceTools(srv, tap, defaults)
+		registerIntegrateTools(srv, tap, defaults)
+		registerAuthTools(srv, tap)
+		registerLicenseTools(srv, opt.LicenseText)
+	}
 
 	if opt.Logger != nil {
 		var clk clock.Clock
