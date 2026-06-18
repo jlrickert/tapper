@@ -100,47 +100,29 @@ func (t *Tap) InitKeg(ctx context.Context, options InitOptions) (*keg.Target, er
 
 	// Resolve the namespace then the hosting hub, mirroring Config.ResolveRef's
 	// precedence so we can both create and record the keg. --user pins @local.
-	explicitNS := strings.TrimSpace(options.Namespace) != ""
-	explicitHub := strings.TrimSpace(options.Hub) != ""
 	namespace := strings.TrimSpace(options.Namespace)
 	if namespace == "" && options.User {
 		namespace = LocalHubName
 	}
-	if namespace == "" {
-		namespace = cfg.resolveNamespaceForName()
-	}
 	hubName := strings.TrimSpace(options.Hub)
-	if hubName == "" {
-		hubName = cfg.resolveHubForNamespace(namespace)
-	}
-	entry, ok := cfg.Hub(hubName)
-	if !ok {
-		return nil, fmt.Errorf("hub %q is not configured", hubName)
+	namespace, hubName, entry, err := cfg.resolveNamespaceHub(namespace, hubName)
+	if err != nil {
+		if strings.TrimSpace(options.Namespace) == "" && strings.TrimSpace(options.Hub) == "" && !options.User &&
+			!options.RequireBootstrap && !t.ConfigService.UserConfigExists() {
+			namespace = LocalHubName
+			hubName = cfg.localHubName()
+			var ok bool
+			entry, ok = cfg.Hub(hubName)
+			if !ok {
+				return nil, fmt.Errorf("local hub %q is not configured", hubName)
+			}
+		} else {
+			return nil, fmt.Errorf("cannot init %q: %w", name, err)
+		}
 	}
 	kind := strings.TrimSpace(entry.Kind)
 	if kind == "" {
 		kind = HubKindRemote
-	}
-	if namespace == "" {
-		switch {
-		case kind == HubKindLocal:
-			namespace = LocalHubName
-		case explicitHub || explicitNS:
-			// The caller explicitly steered at a remote hub but gave no
-			// namespace and none is configured — surface it rather than guess.
-			return nil, fmt.Errorf("cannot init %q: no namespace given (try @<namespace>/%s)", name, name)
-		default:
-			// Unconfigured bare init: fall back to the local hub so `tap init
-			// <name>` still works without setup. A configured default/fallback
-			// namespace (e.g. from `tap bootstrap`) routes bare names to the
-			// remote hub instead.
-			namespace = LocalHubName
-			hubName = cfg.localHubName()
-			if entry, ok = cfg.Hub(hubName); !ok {
-				return nil, fmt.Errorf("local hub %q is not configured", hubName)
-			}
-			kind = HubKindLocal
-		}
 	}
 
 	target, err := cfg.ResolveRef(t.Runtime, KegRef{Hub: hubName, Namespace: namespace, Name: name})

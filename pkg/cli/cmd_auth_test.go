@@ -182,7 +182,48 @@ func TestAuthLoginCmd_MissingHub_FallsBackToDefault(t *testing.T) {
 
 	require.NoError(t, res.Err)
 	require.Equal(t, tapper.DefaultHubURL, captured.Load().HubURL,
-		"unflagged login should resolve to DefaultHubURL via step 5 of the chain")
+		"unflagged login should resolve to DefaultHubURL via the final fallback of the chain")
+}
+
+func TestAuthLoginCmd_UsesFallbackHubAndAdoptsNamespace(t *testing.T) {
+	t.Parallel()
+	sb := newTestSandbox(t)
+	sb.MustWriteFile("~/.config/tapper/config.yaml", []byte(`fallbackHub: acme
+namespaces:
+  local:
+    hub: testhost
+hubs:
+  testhost:
+    kind: local
+    defaultNamespace: local
+    basePath: /home/testuser/kegs
+  acme:
+    kind: remote
+    url: https://keg.acme.com
+`), 0o644)
+
+	var captured atomicDeviceOptsSlot
+	hook := combineHooks(
+		stubDeviceLoginHook(func(_ context.Context, _ *toolkit.Runtime, opts tapper.AuthLoginDeviceOptions) (*tapper.AuthEntry, error) {
+			captured.Store(opts)
+			return &tapper.AuthEntry{AccessToken: "stub-acme-token", TokenType: "Bearer"}, nil
+		}),
+		stubValidateTokenHook(func(_ context.Context, _ *toolkit.Runtime, hubURL, token string) (*tapper.WhoAmI, error) {
+			require.Equal(t, "https://keg.acme.com", hubURL)
+			require.Equal(t, "stub-acme-token", token)
+			return &tapper.WhoAmI{Username: "alice", DefaultNamespace: "acme"}, nil
+		}),
+	)
+
+	proc := newAuthProcess(t, hook, "auth", "login")
+	res := proc.Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+	require.Equal(t, "https://keg.acme.com", captured.Load().HubURL)
+	require.Contains(t, string(res.Stdout), "Logged in to https://keg.acme.com")
+
+	cfgRaw := string(sb.MustReadFile("~/.config/tapper/config.yaml"))
+	require.Contains(t, cfgRaw, "fallbackHub: acme")
+	require.Contains(t, cfgRaw, "defaultNamespace: acme")
 }
 
 // TestAuthLoginCmd_DisableAtlasHubViaEnv_Errors confirms the SOC2-

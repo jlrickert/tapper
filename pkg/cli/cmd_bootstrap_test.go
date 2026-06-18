@@ -7,7 +7,10 @@ package cli
 
 import (
 	"context"
-	"strings"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 
 	"github.com/jlrickert/cli-toolkit/sandbox"
@@ -27,6 +30,62 @@ func newBootstrapProcess(t *testing.T, hook func(*Deps), isTTY bool, args ...str
 		}
 		return Run(ctx, rt, args)
 	}, isTTY)
+}
+
+func stubBootstrapPrompterHook(p BootstrapPrompter) func(*Deps) {
+	return func(d *Deps) { d.BootstrapPrompter = p }
+}
+
+type fakeBootstrapPrompter struct {
+	t            *testing.T
+	kind         func() (string, error)
+	endpoint     func() (string, error)
+	confirmLogin func(string) (bool, error)
+	selectKeg    func([]string) (bootstrapDefaultKegSelection, error)
+	manualKeg    func() (string, error)
+	newKeg       func() (string, error)
+}
+
+func (f *fakeBootstrapPrompter) SelectBootstrapKind() (string, error) {
+	if f.kind == nil {
+		f.t.Fatal("unexpected SelectBootstrapKind call")
+	}
+	return f.kind()
+}
+
+func (f *fakeBootstrapPrompter) PromptBootstrapEndpoint() (string, error) {
+	if f.endpoint == nil {
+		f.t.Fatal("unexpected PromptBootstrapEndpoint call")
+	}
+	return f.endpoint()
+}
+
+func (f *fakeBootstrapPrompter) ConfirmBootstrapLogin(host string) (bool, error) {
+	if f.confirmLogin == nil {
+		f.t.Fatal("unexpected ConfirmBootstrapLogin call")
+	}
+	return f.confirmLogin(host)
+}
+
+func (f *fakeBootstrapPrompter) SelectDefaultKeg(available []string) (bootstrapDefaultKegSelection, error) {
+	if f.selectKeg == nil {
+		f.t.Fatal("unexpected SelectDefaultKeg call")
+	}
+	return f.selectKeg(available)
+}
+
+func (f *fakeBootstrapPrompter) PromptManualDefaultKeg() (string, error) {
+	if f.manualKeg == nil {
+		f.t.Fatal("unexpected PromptManualDefaultKeg call")
+	}
+	return f.manualKeg()
+}
+
+func (f *fakeBootstrapPrompter) PromptNewKegName() (string, error) {
+	if f.newKeg == nil {
+		f.t.Fatal("unexpected PromptNewKegName call")
+	}
+	return f.newKeg()
 }
 
 // commandNames returns the direct subcommand names of the root command built
@@ -136,15 +195,20 @@ func TestBootstrapCmd_Interactive_Enterprise(t *testing.T) {
 	t.Parallel()
 	sb := newTestSandbox(t)
 
-	answers := strings.Join([]string{
-		"enterprise",           // kind
-		"https://keg.acme.com", // endpoint
-		"n",                    // log in now? -> no
-		"",                     // trailing buffer
-	}, "\n")
+	prompter := &fakeBootstrapPrompter{
+		t:        t,
+		kind:     func() (string, error) { return tapper.BootstrapKindEnterprise, nil },
+		endpoint: func() (string, error) { return "https://keg.acme.com", nil },
+		confirmLogin: func(host string) (bool, error) {
+			require.Equal(t, "keg.acme.com", host)
+			return false, nil
+		},
+		manualKeg: func() (string, error) { return "", nil },
+	}
+	hook := stubBootstrapPrompterHook(prompter)
 
-	proc := newBootstrapProcess(t, nil, true, "bootstrap")
-	res := proc.RunWithIO(sb.Context(), sb.Runtime(), strings.NewReader(answers))
+	proc := newBootstrapProcess(t, hook, true, "bootstrap")
+	res := proc.Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err, "interactive enterprise bootstrap should succeed: stderr=%q", string(res.Stderr))
 
 	out := string(res.Stdout)
@@ -225,6 +289,141 @@ func TestBootstrapCmd_Enterprise_Login(t *testing.T) {
 		"the adopted namespace lives on the hub, not as a global fallback")
 	// The adopted namespace becomes the enterprise hub's per-hub default.
 	require.Contains(t, string(cfgRaw), "defaultNamespace: bob")
+}
+
+func TestBootstrapCmd_Interactive_LoginSelectsExistingKeg(t *testing.T) {
+	t.Parallel()
+	sb := newTestSandbox(t)
+
+	var sawList atomic.Bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/api/v1/kegs" {
+			t.Errorf("unexpected hub request: %s %s", r.Method, r.URL.Path)
+			http.NotFound(w, r)
+			return
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer pasted-token" {
+			t.Errorf("unexpected authorization header: %q", got)
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		sawList.Store(true)
+		_ = json.NewEncoder(w).Encode([]tapper.HubKeg{{Namespace: "bob", Alias: "notes"}})
+	}))
+	defer srv.Close()
+
+	authPrompter := &fakeAuthPrompter{
+		t:            t,
+		selectMethod: func() (loginMethod, error) { return methodToken, nil },
+		token:        func() (string, error) { return "pasted-token", nil },
+	}
+	bootstrapPrompter := &fakeBootstrapPrompter{
+		t: t,
+		selectKeg: func(available []string) (bootstrapDefaultKegSelection, error) {
+			require.Equal(t, []string{"@bob/notes"}, available)
+			return bootstrapDefaultKegSelection{Action: bootstrapDefaultKegUseRef, Ref: "@bob/notes"}, nil
+		},
+	}
+	hook := combineHooks(
+		stubPrompterHook(authPrompter),
+		stubBootstrapPrompterHook(bootstrapPrompter),
+		stubValidateTokenHook(func(_ context.Context, _ *toolkit.Runtime, hubURL, token string) (*tapper.WhoAmI, error) {
+			require.Equal(t, srv.URL, hubURL)
+			require.Equal(t, "pasted-token", token)
+			return &tapper.WhoAmI{UserID: 2, Username: "bob", DefaultNamespace: "bob"}, nil
+		}),
+		stubDeviceLoginHook(func(context.Context, *toolkit.Runtime, tapper.AuthLoginDeviceOptions) (*tapper.AuthEntry, error) {
+			t.Fatal("token bootstrap must not start browser login")
+			return nil, nil
+		}),
+	)
+
+	proc := newBootstrapProcess(t, hook, true,
+		"bootstrap", "--kind", "enterprise", "--endpoint", srv.URL, "--login")
+	res := proc.Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err, "stderr=%q", string(res.Stderr))
+	require.True(t, sawList.Load(), "bootstrap should list remote kegs after login")
+	require.Contains(t, string(res.Stdout), "default keg:  @bob/notes")
+	require.NotContains(t, string(res.Stdout), "created keg:")
+
+	cfgRaw := string(sb.MustReadFile("~/.config/tapper/config.yaml"))
+	require.Contains(t, cfgRaw, "fallbackKeg: '@bob/notes'")
+	require.Contains(t, cfgRaw, "defaultNamespace: bob")
+}
+
+func TestBootstrapCmd_Interactive_NoKegsCreatesOne(t *testing.T) {
+	t.Parallel()
+	sb := newTestSandbox(t)
+
+	var sawList atomic.Bool
+	var sawCreate atomic.Bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Authorization"); got != "Bearer pasted-token" {
+			t.Errorf("unexpected authorization header: %q", got)
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/kegs":
+			sawList.Store(true)
+			_ = json.NewEncoder(w).Encode([]tapper.HubKeg{})
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/@bob/kegs":
+			var payload map[string]string
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Errorf("decode create payload: %v", err)
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			if payload["alias"] != "notes" {
+				t.Errorf("unexpected create alias: %q", payload["alias"])
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			sawCreate.Store(true)
+			w.WriteHeader(http.StatusCreated)
+			_ = json.NewEncoder(w).Encode(map[string]string{"namespace": "bob", "alias": "notes"})
+		default:
+			t.Errorf("unexpected hub request: %s %s", r.Method, r.URL.Path)
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	authPrompter := &fakeAuthPrompter{
+		t:            t,
+		selectMethod: func() (loginMethod, error) { return methodToken, nil },
+		token:        func() (string, error) { return "pasted-token", nil },
+	}
+	bootstrapPrompter := &fakeBootstrapPrompter{
+		t:      t,
+		newKeg: func() (string, error) { return "notes", nil },
+	}
+	hook := combineHooks(
+		stubPrompterHook(authPrompter),
+		stubBootstrapPrompterHook(bootstrapPrompter),
+		stubValidateTokenHook(func(_ context.Context, _ *toolkit.Runtime, hubURL, token string) (*tapper.WhoAmI, error) {
+			require.Equal(t, srv.URL, hubURL)
+			require.Equal(t, "pasted-token", token)
+			return &tapper.WhoAmI{UserID: 2, Username: "bob", DefaultNamespace: "bob"}, nil
+		}),
+		stubDeviceLoginHook(func(context.Context, *toolkit.Runtime, tapper.AuthLoginDeviceOptions) (*tapper.AuthEntry, error) {
+			t.Fatal("token bootstrap must not start browser login")
+			return nil, nil
+		}),
+	)
+
+	proc := newBootstrapProcess(t, hook, true,
+		"bootstrap", "--kind", "enterprise", "--endpoint", srv.URL, "--login")
+	res := proc.Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err, "stderr=%q", string(res.Stderr))
+	require.True(t, sawList.Load(), "bootstrap should list remote kegs after login")
+	require.True(t, sawCreate.Load(), "bootstrap should create a keg when the hub reports none")
+	require.Contains(t, string(res.Stdout), "default keg:  @bob/notes")
+	require.Contains(t, string(res.Stdout), "created keg:  @bob/notes")
+
+	cfgRaw := string(sb.MustReadFile("~/.config/tapper/config.yaml"))
+	require.Contains(t, cfgRaw, "fallbackKeg: '@bob/notes'")
+	require.Contains(t, cfgRaw, "defaultNamespace: bob")
 }
 
 func TestBootstrapCmd_Enterprise_NonInteractiveRequiresEndpoint(t *testing.T) {
