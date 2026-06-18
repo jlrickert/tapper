@@ -59,6 +59,11 @@ type Deps struct {
 	// tests inject a scripted fake so the command logic runs without a TTY.
 	AuthPrompter AuthPrompter
 
+	// BootstrapPrompter renders the interactive setup prompts for
+	// `tap bootstrap`. It shares the huh-backed production implementation with
+	// AuthPrompter but stays separate so tests can assert each flow's prompts.
+	BootstrapPrompter BootstrapPrompter
+
 	// logFileHandle is the opened log file; closed after invocation logging.
 	logFileHandle io.WriteCloser
 
@@ -85,6 +90,9 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 	}
 	if deps.AuthPrompter == nil {
 		deps.AuthPrompter = huhAuthPrompter{}
+	}
+	if deps.BootstrapPrompter == nil {
+		deps.BootstrapPrompter = huhAuthPrompter{}
 	}
 
 	cmd := &cobra.Command{

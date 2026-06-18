@@ -114,15 +114,16 @@ func (r *authStoreTokenResolver) refresh(hubURL, key string, entry *AuthEntry) *
 var ErrAtlasHubDisabled = errors.New("no hub configured; implicit atlas hub disabled")
 
 // ResolveLoginHubURL returns the hub URL the login flow should target,
-// applying the five-step resolution chain documented in keg-dev/1035:
+// applying the hub resolution chain:
 //
 //  1. explicit non-empty → canonicalize and use
 //  2. cfg.DefaultHub names a Hubs entry → use that entry's URL
-//  3. cfg.Hubs has exactly one entry → use it
-//  4. cfg.DisableAtlasHub is true → ErrAtlasHubDisabled
-//  5. fall back to DefaultHubURL
+//  3. cfg.FallbackHub names a Hubs entry → use that entry's URL
+//  4. cfg.Hubs has exactly one remote/readonly entry → use it
+//  5. cfg.DisableAtlasHub is true → ErrAtlasHubDisabled
+//  6. fall back to DefaultHubURL
 //
-// A misconfigured DefaultHub (set, but no matching Hubs entry) is a hard
+// A misconfigured DefaultHub or FallbackHub is a hard
 // error rather than a silent fall-through to step 3 — typos should
 // surface, not silently route to a different hub.
 //
@@ -137,24 +138,32 @@ func ResolveLoginHubURL(cfg *Config, explicit string) (string, error) {
 	}
 
 	if name := strings.TrimSpace(cfg.DefaultHub()); name != "" {
-		h, ok := cfg.Hub(name)
-		if !ok {
-			return "", fmt.Errorf("auth: default hub %q not found in hubs", name)
-		}
-		if strings.TrimSpace(h.URL) == "" {
-			return "", fmt.Errorf("auth: default hub %q has no URL configured", name)
-		}
-		return CanonicalHubURL(hubURLWithScheme(h.URL)), nil
+		return loginHubURLFromConfigEntry(cfg, "default", name)
 	}
 
-	hubs := cfg.Hubs()
-	if len(hubs) == 1 {
-		for name, h := range hubs {
-			if strings.TrimSpace(h.URL) == "" {
-				return "", fmt.Errorf("auth: hub %q has no URL configured", name)
-			}
-			return CanonicalHubURL(hubURLWithScheme(h.URL)), nil
+	if name := strings.TrimSpace(cfg.FallbackHub()); name != "" {
+		return loginHubURLFromConfigEntry(cfg, "fallback", name)
+	}
+
+	var (
+		remoteName  string
+		remoteEntry HubEntry
+		remoteCount int
+	)
+	for name, h := range cfg.Hubs() {
+		kind := strings.TrimSpace(h.Kind)
+		if kind == "" {
+			kind = HubKindRemote
 		}
+		if kind == HubKindLocal {
+			continue
+		}
+		remoteName = name
+		remoteEntry = h
+		remoteCount++
+	}
+	if remoteCount == 1 {
+		return loginHubURLFromEntry("hub", remoteName, remoteEntry)
 	}
 
 	if cfg.DisableAtlasHub() {
@@ -162,6 +171,28 @@ func ResolveLoginHubURL(cfg *Config, explicit string) (string, error) {
 	}
 
 	return DefaultHubURL, nil
+}
+
+func loginHubURLFromConfigEntry(cfg *Config, role, name string) (string, error) {
+	h, ok := cfg.Hub(name)
+	if !ok {
+		return "", fmt.Errorf("auth: %s hub %q not found in hubs", role, name)
+	}
+	return loginHubURLFromEntry(role+" hub", name, h)
+}
+
+func loginHubURLFromEntry(label, name string, entry HubEntry) (string, error) {
+	kind := strings.TrimSpace(entry.Kind)
+	if kind == "" {
+		kind = HubKindRemote
+	}
+	if kind == HubKindLocal {
+		return "", fmt.Errorf("auth: %s %q is local and cannot be used for auth login", label, name)
+	}
+	if strings.TrimSpace(entry.URL) == "" {
+		return "", fmt.Errorf("auth: %s %q has no URL configured", label, name)
+	}
+	return CanonicalHubURL(hubURLWithScheme(entry.URL)), nil
 }
 
 // hubURLWithScheme adds an https:// prefix when the configured Hubs entry

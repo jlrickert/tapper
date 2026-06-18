@@ -147,9 +147,11 @@ var tapMethodsExcluded = map[string]string{
 	"HubSetDefault":         "writes the default hub to project/user config; CLI-only by design",
 	"Bootstrap":             "CLI-only onboarding; writes user config + drives interactive login, not an MCP operation",
 	"SetBootstrapNamespace": "CLI-only bootstrap step; adopts the hub's default namespace after login, not an MCP operation",
-	"SetFallbackKeg":        "CLI-only bootstrap step; persists the chosen keg as the user-level fallback after login, not an MCP operation",
-	"Use":                   "writes the project/user keg + flight to config; CLI-only config management by design",
-	"UseStatus":             "CLI-only summary of the resolved keg/flight context; config inspection via `tap use`",
+	"SetHubDefaultNamespaceByURL": "CLI-only auth/bootstrap helper; adopts the hub's default namespace after login, " +
+		"not a standalone user-facing operation",
+	"SetFallbackKeg": "CLI-only bootstrap step; persists the chosen keg as the user-level fallback after login, not an MCP operation",
+	"Use":            "writes the project/user keg + flight to config; CLI-only config management by design",
+	"UseStatus":      "CLI-only summary of the resolved keg/flight context; config inspection via `tap use`",
 }
 
 // TestCoverage_AllTapMethodsHaveBothSurfaces uses reflection to enumerate

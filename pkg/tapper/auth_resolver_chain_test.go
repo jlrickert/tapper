@@ -8,8 +8,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestResolveLoginHubURL exercises every branch of the five-step
-// resolution chain documented in keg-dev/1035 §Decision. Each case
+// TestResolveLoginHubURL exercises every branch of the login hub
+// resolution chain. Each case
 // configures a Config + explicit input shape and asserts the resolved
 // URL or the expected error class. Branches that overlap (e.g. an
 // explicit URL with both DefaultHub and Hubs configured) verify
@@ -60,27 +60,42 @@ func TestResolveLoginHubURL(t *testing.T) {
 			errMatch: `default hub "empty" has no URL configured`,
 		},
 		{
-			name: "step 3: exactly one Hubs entry, no DefaultHub",
+			name: "step 3: FallbackHub names a Hubs entry",
+			yaml: "fallbackHub: backup\nhubs:\n  localbox:\n    kind: local\n    basePath: /tmp/kegs\n  backup:\n    url: backup.example.com\n",
+			want: "https://backup.example.com",
+		},
+		{
+			name:     "step 3: FallbackHub local entry → error",
+			yaml:     "fallbackHub: home\nhubs:\n  home:\n    kind: local\n    basePath: /tmp/kegs\n",
+			errMatch: `fallback hub "home" is local`,
+		},
+		{
+			name: "step 4: exactly one remote Hubs entry, no DefaultHub or FallbackHub",
 			yaml: "hubs:\n  solo:\n    url: solo.example.com\n",
 			want: "https://solo.example.com",
 		},
 		{
-			name:    "step 4: DisableAtlasHub blocks fallback when nothing else matches",
+			name: "step 4: exactly one remote hub ignores configured local hubs",
+			yaml: "hubs:\n  localbox:\n    kind: local\n    basePath: /tmp/kegs\n  solo:\n    url: solo.example.com\n",
+			want: "https://solo.example.com",
+		},
+		{
+			name:    "step 5: DisableAtlasHub blocks fallback when nothing else matches",
 			yaml:    "disableAtlasHub: true\n",
 			wantErr: tapper.ErrAtlasHubDisabled,
 		},
 		{
-			name:    "step 4: DisableAtlasHub fires even with multiple Hubs entries",
+			name:    "step 5: DisableAtlasHub fires even with multiple Hubs entries",
 			yaml:    "disableAtlasHub: true\nhubs:\n  a:\n    url: a.example.com\n  b:\n    url: b.example.com\n",
 			wantErr: tapper.ErrAtlasHubDisabled,
 		},
 		{
-			name: "step 5: empty config falls back to DefaultHubURL",
+			name: "step 6: empty config falls back to DefaultHubURL",
 			yaml: "",
 			want: tapper.DefaultHubURL,
 		},
 		{
-			name: "step 5: multiple Hubs without DefaultHub falls through to DefaultHubURL",
+			name: "step 6: multiple Hubs without defaults fall through to DefaultHubURL",
 			yaml: "hubs:\n  a:\n    url: a.example.com\n  b:\n    url: b.example.com\n",
 			want: tapper.DefaultHubURL,
 		},

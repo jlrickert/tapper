@@ -258,6 +258,46 @@ func (t *Tap) SetBootstrapNamespace(ctx context.Context, hubName, namespace stri
 	return nil
 }
 
+// SetHubDefaultNamespaceByURL adopts namespace onto the configured hub whose
+// URL matches hubURL. It returns the hub name that was updated. When no
+// configured hub matches (for example, auth login fell through to the
+// compiled-in atlas URL without a user config entry), it is a no-op.
+func (t *Tap) SetHubDefaultNamespaceByURL(ctx context.Context, hubURL, namespace string) (string, error) {
+	namespace = strings.TrimSpace(namespace)
+	if namespace == "" {
+		return "", nil
+	}
+	canonical := CanonicalHubURL(hubURLWithScheme(hubURL))
+	if canonical == "" {
+		return "", nil
+	}
+	cfg, err := t.ConfigService.UserConfig(false)
+	if err != nil {
+		if errors.Is(err, keg.ErrNotExist) {
+			return "", nil
+		}
+		return "", fmt.Errorf("unable to load user config: %w", err)
+	}
+	for name, entry := range cfg.Hubs() {
+		if strings.TrimSpace(entry.URL) == "" {
+			continue
+		}
+		if CanonicalHubURL(hubURLWithScheme(entry.URL)) != canonical {
+			continue
+		}
+		entry.DefaultNamespace = namespace
+		if err := cfg.SetHub(name, entry); err != nil {
+			return "", err
+		}
+		if err := cfg.Write(t.Runtime, t.PathService.UserConfig()); err != nil {
+			return "", err
+		}
+		t.ConfigService.ResetCache()
+		return name, nil
+	}
+	return "", nil
+}
+
 // SetFallbackKeg sets the user config's fallbackKeg to ref and persists it. It
 // is the post-login step of `tap bootstrap`: once the user picks a keg (from the
 // hub's list or by typing one), plain `tap` commands resolve it without

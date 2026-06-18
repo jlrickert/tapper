@@ -264,10 +264,11 @@ func (s *KegService) resolvePath(ctx context.Context, path, nsOverride, hubOverr
 // resolveKegAlias resolves a keg selector from config and falls back to
 // project-local resolution. The selector is a keg reference string (a bare
 // name, @ns/name, keg:..., or a path), resolved via the namespace-centric
-// chain in ConfigService.ResolveTarget. When that yields no target — e.g. a
-// bare name with no namespace/hub configured — a project-local keg at
-// <project>/kegs/<name> answers instead, so local project kegs work without
-// any config (the documented last-resort tier).
+// chain in ConfigService.ResolveTarget. When no configured hub/namespace is
+// steering that bare name, a project-local keg at <project>/kegs/<name> answers
+// instead, so local project kegs work without any config. A configured remote
+// hub that is missing a namespace must surface as an error rather than being
+// masked by a local keg of the same name.
 func (s *KegService) resolveKegAlias(ctx context.Context, kegAlias, nsOverride, hubOverride string, projectRoot string, cache bool) (keg.Keg, error) {
 	s.ensureCache()
 	if kegAlias == "" {
@@ -300,7 +301,7 @@ func (s *KegService) resolveKegAlias(ctx context.Context, kegAlias, nsOverride, 
 	// (no namespace, hub, or path) may instead name a project-local keg at
 	// <project>/kegs/<name> — resolve it so local project kegs work without
 	// requiring any config entries.
-	if ref := parseKegRef(kegAlias); ref.Name != "" && ref.Namespace == "" && ref.Hub == "" && ref.Path == "" {
+	if ref := parseKegRef(kegAlias); ref.Name != "" && ref.Namespace == "" && ref.Hub == "" && ref.Path == "" && s.allowProjectAliasFallback(cache) {
 		if projectKeg, found, projectErr := s.resolveProjectAlias(ctx, projectRoot, ref.Name, cache); projectErr != nil {
 			return nil, projectErr
 		} else if found {
@@ -317,6 +318,29 @@ func (s *KegService) resolveKegAlias(ctx context.Context, kegAlias, nsOverride, 
 	}
 
 	return nil, fmt.Errorf("keg %q could not be resolved", kegAlias)
+}
+
+func (s *KegService) allowProjectAliasFallback(cache bool) bool {
+	if s.ConfigService == nil {
+		return true
+	}
+	cfg, err := s.ConfigService.Config(cache)
+	if err != nil || cfg == nil {
+		return true
+	}
+	if strings.TrimSpace(cfg.DefaultHub()) != "" ||
+		strings.TrimSpace(cfg.FallbackHub()) != "" ||
+		strings.TrimSpace(cfg.DefaultNamespace()) != "" ||
+		strings.TrimSpace(cfg.FallbackNamespace()) != "" ||
+		len(cfg.Namespaces()) > 0 {
+		return false
+	}
+	for _, entry := range cfg.Hubs() {
+		if strings.TrimSpace(entry.DefaultNamespace) != "" {
+			return false
+		}
+	}
+	return true
 }
 
 // resolveProjectAlias resolves a project-local alias at <project>/kegs/<alias>/keg when present.

@@ -7,15 +7,13 @@ package cli
 // surface (Tap.Bootstrap is listed in pkg/parity's tapMethodsExcluded).
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"fmt"
 	"io"
 	"net/url"
-	"strconv"
+	"sort"
 	"strings"
-	"time"
 
 	"github.com/jlrickert/tapper/pkg/keg"
 	"github.com/jlrickert/tapper/pkg/tapper"
@@ -67,14 +65,13 @@ logs in.
 			rt := deps.Runtime
 			ctx := cmd.Context()
 
-			reader := bufio.NewReader(cmd.InOrStdin())
 			stderr := cmd.ErrOrStderr()
 			interactive := rt.Stream().IsTTY && !nonInteractive
 
 			// 1. Resolve the deployment kind.
 			if strings.TrimSpace(kind) == "" {
 				if interactive {
-					ans, err := promptLine(stderr, reader, "Where should your kegs live? [local/cloud/enterprise] (default cloud): ")
+					ans, err := deps.BootstrapPrompter.SelectBootstrapKind()
 					if err != nil {
 						return err
 					}
@@ -97,13 +94,11 @@ logs in.
 			// 2. Enterprise needs an endpoint; prompt on a TTY, else require the flag.
 			if kind == tapper.BootstrapKindEnterprise && strings.TrimSpace(endpoint) == "" {
 				if interactive {
-					for strings.TrimSpace(endpoint) == "" {
-						ans, err := promptLine(stderr, reader, "Enterprise hub endpoint URL: ")
-						if err != nil {
-							return err
-						}
-						endpoint = ans
+					ans, err := deps.BootstrapPrompter.PromptBootstrapEndpoint()
+					if err != nil {
+						return err
 					}
+					endpoint = ans
 				} else {
 					return fmt.Errorf("enterprise bootstrap requires --endpoint")
 				}
@@ -125,17 +120,30 @@ logs in.
 			if res.HubURL != "" {
 				doLogin := login && !noLogin
 				if !cmd.Flags().Changed("login") && !cmd.Flags().Changed("no-login") && interactive {
-					ans, perr := promptLine(stderr, reader, fmt.Sprintf("Log in to %s now? [Y/n]: ", hostOf(res.HubURL)))
+					ok, perr := deps.BootstrapPrompter.ConfirmBootstrapLogin(hostOf(res.HubURL))
 					if perr != nil {
 						return perr
 					}
-					switch strings.ToLower(strings.TrimSpace(ans)) {
-					case "", "y", "yes":
-						doLogin = true
-					}
+					doLogin = ok
 				}
 				if doLogin {
-					hub, lerr := runAuthLogin(ctx, deps, authLoginParams{HubURL: res.HubURL, Method: methodBrowser})
+					method := methodBrowser
+					var token string
+					if interactive {
+						m, perr := deps.AuthPrompter.SelectMethod()
+						if perr != nil {
+							return perr
+						}
+						method = m
+						if method == methodToken {
+							tok, perr := deps.AuthPrompter.PromptToken()
+							if perr != nil {
+								return perr
+							}
+							token = tok
+						}
+					}
+					loginRes, lerr := runAuthLogin(ctx, deps, authLoginParams{HubURL: res.HubURL, Method: method, Token: token})
 					if lerr != nil {
 						if login {
 							return lerr
@@ -143,18 +151,10 @@ logs in.
 						_, _ = fmt.Fprintf(stderr, "login failed (continuing): %v\n", lerr)
 					} else {
 						loggedIn = true
-						resolvedHub = hub
+						resolvedHub = loginRes.HubURL
 						_, _ = fmt.Fprintf(stderr, "Logged in to %s\n", resolvedHub)
-						// Adopt the user's home namespace from the hub so plain
-						// references land in the user's own namespace rather than
-						// the provisional OS-user guess bootstrap wrote. Best-effort:
-						// a probe failure leaves the provisional namespace in place.
-						if ns := bootstrapHubNamespace(ctx, deps, resolvedHub); ns != "" {
-							if serr := deps.Tap.SetBootstrapNamespace(ctx, res.Hub, ns); serr != nil {
-								_, _ = fmt.Fprintf(stderr, "warning: could not adopt namespace from hub: %v\n", serr)
-							} else {
-								res.Namespace = ns
-							}
+						if loginRes.Namespace != "" {
+							res.Namespace = loginRes.Namespace
 						}
 					}
 				}
@@ -163,39 +163,27 @@ logs in.
 			// 4b. Choose a default keg so a plain `tap` command resolves one
 			// after bootstrap (otherwise the first `tap 0` fails with no keg
 			// configured). An explicit --default-keg wins; otherwise prompt on a
-			// TTY, listing the hub's reachable kegs when we just logged in.
+			// TTY, listing the hub's reachable kegs when we just logged in. If
+			// a freshly-authenticated hub reports no kegs, immediately offer the
+			// create flow so the user leaves bootstrap with a usable default.
 			chosenKeg := strings.TrimSpace(defaultKeg)
+			createdKegLocation := ""
 			if chosenKeg == "" && interactive {
-				var available []string
-				if loggedIn && res.HubURL != "" {
-					if token := bootstrapHubToken(ctx, deps, resolvedHub); token != "" {
-						if kegs, lerr := tapper.ListUserKegs(ctx, res.HubURL, token); lerr == nil {
-							for _, k := range kegs {
-								available = append(available, "@"+k.Namespace+"/"+k.Alias)
-							}
-						}
-					}
-				}
-				ref, perr := promptDefaultKeg(stderr, reader, available)
+				ref, created, perr := chooseBootstrapDefaultKeg(ctx, deps, res, loggedIn, resolvedHub, stderr)
 				if perr != nil {
 					return perr
 				}
 				chosenKeg = ref
-			}
-			if chosenKeg != "" {
-				if serr := deps.Tap.SetFallbackKeg(ctx, chosenKeg); serr != nil {
-					_, _ = fmt.Fprintf(stderr, "warning: could not set default keg: %v\n", serr)
-					chosenKeg = ""
-				}
+				createdKegLocation = created
 			}
 
 			// 4c. For a local deployment, create the chosen keg now so the user
 			// is immediately up and running — plain `tap` commands work without a
-			// separate `tap keg create`. Local only: a remote create needs a live
-			// login and hub permissions, so cloud/enterprise just record the keg.
-			// Idempotent: a keg that already exists is fine.
-			createdKegPath := ""
-			if chosenKeg != "" && res.Kind == tapper.BootstrapKindLocal {
+			// separate `tap keg create`. Remote bootstrap creates during the
+			// interactive chooser above only after a successful login; explicit
+			// --default-keg stays a recorded default. Idempotent: a keg that
+			// already exists is fine.
+			if chosenKeg != "" && createdKegLocation == "" && res.Kind == tapper.BootstrapKindLocal {
 				ns, name, perr := parseKegArg(chosenKeg)
 				if perr != nil {
 					_, _ = fmt.Fprintf(stderr, "warning: could not create keg %q: %v\n", chosenKeg, perr)
@@ -208,13 +196,20 @@ logs in.
 					switch {
 					case cerr == nil:
 						if target != nil {
-							createdKegPath = target.Path()
+							createdKegLocation = bootstrapCreatedKegSummary(bootstrapKegRef(ns, name, res.Namespace), target)
 						}
 					case errors.Is(cerr, keg.ErrExist):
 						// Already exists — the user is still ready to go.
 					default:
 						_, _ = fmt.Fprintf(stderr, "warning: could not create keg %q: %v\n", chosenKeg, cerr)
 					}
+				}
+			}
+
+			if chosenKeg != "" {
+				if serr := deps.Tap.SetFallbackKeg(ctx, chosenKeg); serr != nil {
+					_, _ = fmt.Fprintf(stderr, "warning: could not set default keg: %v\n", serr)
+					chosenKeg = ""
 				}
 			}
 
@@ -233,8 +228,8 @@ logs in.
 			if chosenKeg != "" {
 				_, _ = fmt.Fprintf(out, "  default keg:  %s\n", chosenKeg)
 			}
-			if createdKegPath != "" {
-				_, _ = fmt.Fprintf(out, "  created keg:  %s\n", createdKegPath)
+			if createdKegLocation != "" {
+				_, _ = fmt.Fprintf(out, "  created keg:  %s\n", createdKegLocation)
 			}
 			for _, w := range res.Warnings {
 				_, _ = fmt.Fprintf(stderr, "warning: %s: %s\n", w.Field, w.Message)
@@ -292,33 +287,135 @@ func hostOf(rawURL string) string {
 	return rawURL
 }
 
-// bootstrapHubNamespace probes the hub for the just-authenticated user's home
-// namespace so `tap bootstrap` can adopt it. It reads the token runAuthLogin
-// just persisted, calls the hub's whoami endpoint through the same seam
-// `tap auth login --with-token` validates against, and returns
-// default_namespace (falling back to the username). Best-effort by design: any
-// failure — no stored token, hub unreachable, rejected token — yields "" and
-// the caller keeps the provisional namespace rather than failing the bootstrap.
-func bootstrapHubNamespace(ctx context.Context, deps *Deps, hubURL string) string {
-	rt := deps.Runtime
-	store, err := tapper.LoadAuthStore(ctx, rt, deps.Tap.PathService.AuthStorePath())
+func chooseBootstrapDefaultKeg(ctx context.Context, deps *Deps, res *tapper.BootstrapResult, loggedIn bool, resolvedHub string, stderr io.Writer) (string, string, error) {
+	if loggedIn && res.HubURL != "" {
+		hubURL := strings.TrimSpace(resolvedHub)
+		if hubURL == "" {
+			hubURL = res.HubURL
+		}
+		available, listed, err := bootstrapListKegRefs(ctx, deps, hubURL)
+		if err != nil {
+			_, _ = fmt.Fprintf(stderr, "warning: could not list kegs from %s: %v\n", res.Hub, err)
+		}
+		if listed {
+			if len(available) == 0 {
+				name, err := deps.BootstrapPrompter.PromptNewKegName()
+				if err != nil {
+					return "", "", err
+				}
+				return bootstrapCreateRemoteDefaultKeg(ctx, deps, res, name)
+			}
+			choice, err := deps.BootstrapPrompter.SelectDefaultKeg(available)
+			if err != nil {
+				return "", "", err
+			}
+			switch choice.Action {
+			case bootstrapDefaultKegUseRef:
+				return strings.TrimSpace(choice.Ref), "", nil
+			case bootstrapDefaultKegManual:
+				return promptManualBootstrapDefaultKeg(deps)
+			case bootstrapDefaultKegCreate:
+				name, err := deps.BootstrapPrompter.PromptNewKegName()
+				if err != nil {
+					return "", "", err
+				}
+				return bootstrapCreateRemoteDefaultKeg(ctx, deps, res, name)
+			case bootstrapDefaultKegSkip:
+				return "", "", nil
+			default:
+				return "", "", fmt.Errorf("unknown default keg action %d", choice.Action)
+			}
+		}
+	}
+	return promptManualBootstrapDefaultKeg(deps)
+}
+
+func promptManualBootstrapDefaultKeg(deps *Deps) (string, string, error) {
+	ref, err := deps.BootstrapPrompter.PromptManualDefaultKeg()
 	if err != nil {
-		return ""
+		return "", "", err
 	}
-	entry, ok := store.Get(tapper.CanonicalHubURL(hubURL))
-	if !ok || entry == nil {
-		return ""
+	return strings.TrimSpace(ref), "", nil
+}
+
+func bootstrapListKegRefs(ctx context.Context, deps *Deps, hubURL string) ([]string, bool, error) {
+	token := bootstrapHubToken(ctx, deps, hubURL)
+	if token == "" {
+		return nil, false, nil
 	}
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-	who, err := deps.AuthValidateTokenFn(ctx, rt, hubURL, entry.AccessToken)
-	if err != nil || who == nil {
-		return ""
+	kegs, err := tapper.ListUserKegs(ctx, hubURL, token)
+	if err != nil {
+		return nil, false, err
 	}
-	if ns := strings.TrimSpace(who.DefaultNamespace); ns != "" {
-		return ns
+	seen := map[string]bool{}
+	refs := make([]string, 0, len(kegs))
+	for _, k := range kegs {
+		ns := strings.TrimSpace(k.Namespace)
+		alias := strings.TrimSpace(k.Alias)
+		if ns == "" || alias == "" {
+			continue
+		}
+		ref := "@" + ns + "/" + alias
+		if seen[ref] {
+			continue
+		}
+		seen[ref] = true
+		refs = append(refs, ref)
 	}
-	return strings.TrimSpace(who.Username)
+	sort.Strings(refs)
+	return refs, true, nil
+}
+
+func bootstrapCreateRemoteDefaultKeg(ctx context.Context, deps *Deps, res *tapper.BootstrapResult, alias string) (string, string, error) {
+	alias = strings.TrimSpace(alias)
+	if err := tapper.ValidateKegAlias(alias); err != nil {
+		return "", "", err
+	}
+	namespace := strings.TrimSpace(res.Namespace)
+	if namespace == "" {
+		return "", "", fmt.Errorf("cannot create a keg before %s reports a default namespace; run `tap auth login` and try `tap keg create %s`", res.Hub, alias)
+	}
+	ref := bootstrapKegRef(namespace, alias, "")
+	target, err := deps.Tap.InitKeg(ctx, tapper.InitOptions{
+		Keg:              alias,
+		Hub:              res.Hub,
+		Namespace:        namespace,
+		NonInteractive:   true,
+		RequireBootstrap: true,
+	})
+	switch {
+	case err == nil:
+		return ref, bootstrapCreatedKegSummary(ref, target), nil
+	case errors.Is(err, keg.ErrExist):
+		return ref, "", nil
+	default:
+		return "", "", fmt.Errorf("create keg %s: %w", ref, err)
+	}
+}
+
+func bootstrapKegRef(namespace, name, fallbackNamespace string) string {
+	ns := strings.TrimSpace(namespace)
+	if ns == "" {
+		ns = strings.TrimSpace(fallbackNamespace)
+	}
+	name = strings.TrimSpace(name)
+	if ns == "" {
+		return name
+	}
+	return "@" + ns + "/" + name
+}
+
+func bootstrapCreatedKegSummary(ref string, target *keg.Target) string {
+	ref = strings.TrimSpace(ref)
+	loc := tapper.KegLocation(target)
+	switch {
+	case ref != "" && loc != "":
+		return ref + " " + loc
+	case ref != "":
+		return ref
+	default:
+		return loc
+	}
 }
 
 // bootstrapHubToken reads the bearer token runAuthLogin just persisted for
@@ -334,34 +431,4 @@ func bootstrapHubToken(ctx context.Context, deps *Deps, hubURL string) string {
 		return ""
 	}
 	return strings.TrimSpace(entry.AccessToken)
-}
-
-// promptDefaultKeg asks which keg plain `tap` commands resolve by default. When
-// the hub returned reachable kegs, they are shown as a numbered menu the user
-// can pick by number; the user may also type a reference (@ns/name or a path),
-// or leave it blank to skip. Returns the chosen reference ("" when skipped).
-func promptDefaultKeg(w io.Writer, r *bufio.Reader, available []string) (string, error) {
-	if len(available) > 0 {
-		_, _ = fmt.Fprintln(w, "Available kegs:")
-		for i, k := range available {
-			_, _ = fmt.Fprintf(w, "  %d) %s\n", i+1, k)
-		}
-		ans, err := promptLine(w, r, "Default keg (number, @ns/name, or blank to skip): ")
-		if err != nil {
-			return "", err
-		}
-		ans = strings.TrimSpace(ans)
-		if ans == "" {
-			return "", nil
-		}
-		if n, err := strconv.Atoi(ans); err == nil && n >= 1 && n <= len(available) {
-			return available[n-1], nil
-		}
-		return ans, nil
-	}
-	ans, err := promptLine(w, r, "Default keg for plain `tap` commands (e.g. @you/notes, blank to skip): ")
-	if err != nil {
-		return "", err
-	}
-	return strings.TrimSpace(ans), nil
 }

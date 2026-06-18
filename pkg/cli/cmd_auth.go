@@ -52,12 +52,17 @@ type authLoginParams struct {
 	Token    string        // the pasted token, for methodToken
 }
 
+type authLoginResult struct {
+	HubURL    string
+	Namespace string
+}
+
 // runAuthLogin resolves the hub, obtains a credential via the selected method
-// through the deps seams, and persists the result to the AuthStore. It returns
-// the canonical hub URL the token was stored under so callers can print their
-// own success line without re-resolving. `tap auth login` and `tap bootstrap`
-// share it so the device/persist plumbing lives in exactly one place.
-func runAuthLogin(ctx context.Context, deps *Deps, p authLoginParams) (string, error) {
+// through the deps seams, persists the result to the AuthStore, and adopts the
+// hub-reported default namespace onto the matching configured hub when possible.
+// `tap auth login` and `tap bootstrap` share it so the device/persist plumbing
+// lives in exactly one place.
+func runAuthLogin(ctx context.Context, deps *Deps, p authLoginParams) (*authLoginResult, error) {
 	rt := deps.Runtime
 
 	// Resolve hub via the five-step chain (decision keg-dev/1035) so an
@@ -66,11 +71,11 @@ func runAuthLogin(ctx context.Context, deps *Deps, p authLoginParams) (string, e
 	// explicit/selected URL still wins.
 	cfg, err := deps.Tap.ConfigService.Config(true)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	hubURL, err := tapper.ResolveLoginHubURL(cfg, p.HubURL)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
 	clientID := p.ClientID
@@ -81,12 +86,15 @@ func runAuthLogin(ctx context.Context, deps *Deps, p authLoginParams) (string, e
 	}
 
 	var entry *tapper.AuthEntry
+	var who *tapper.WhoAmI
 	switch p.Method {
 	case methodToken:
 		// Validate the pasted token against the hub before storing it, so a
 		// typo or a revoked token fails here rather than on the first call.
-		if _, verr := deps.AuthValidateTokenFn(ctx, rt, hubURL, p.Token); verr != nil {
-			return "", verr
+		var verr error
+		who, verr = deps.AuthValidateTokenFn(ctx, rt, hubURL, p.Token)
+		if verr != nil {
+			return nil, verr
 		}
 		entry = &tapper.AuthEntry{AccessToken: strings.TrimSpace(p.Token), TokenType: "Bearer"}
 	default: // methodBrowser — RFC 8628 device flow with the gh-style open prompt
@@ -98,7 +106,7 @@ func runAuthLogin(ctx context.Context, deps *Deps, p authLoginParams) (string, e
 			OnUserCode: deviceUserCodeHandler(deps),
 		})
 		if err != nil {
-			return "", err
+			return nil, err
 		}
 	}
 
@@ -108,13 +116,37 @@ func runAuthLogin(ctx context.Context, deps *Deps, p authLoginParams) (string, e
 	storePath := deps.Tap.PathService.AuthStorePath()
 	store, err := tapper.LoadAuthStore(ctx, rt, storePath)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	store.Set(tapper.CanonicalHubURL(hubURL), *entry)
 	if err := store.Save(ctx, rt, storePath); err != nil {
-		return "", err
+		return nil, err
 	}
-	return hubURL, nil
+
+	if who == nil && strings.TrimSpace(entry.AccessToken) != "" {
+		vctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		who, _ = deps.AuthValidateTokenFn(vctx, rt, hubURL, entry.AccessToken)
+		cancel()
+	}
+
+	namespace := loginNamespaceFromWho(who)
+	if namespace != "" {
+		if _, err := deps.Tap.SetHubDefaultNamespaceByURL(ctx, hubURL, namespace); err != nil {
+			_, _ = fmt.Fprintf(rt.Stream().Err, "warning: could not adopt namespace from hub: %v\n", err)
+		}
+	}
+
+	return &authLoginResult{HubURL: hubURL, Namespace: namespace}, nil
+}
+
+func loginNamespaceFromWho(who *tapper.WhoAmI) string {
+	if who == nil {
+		return ""
+	}
+	if ns := strings.TrimSpace(who.DefaultNamespace); ns != "" {
+		return ns
+	}
+	return strings.TrimSpace(who.Username)
 }
 
 // deviceUserCodeHandler returns the AuthLoginDeviceOptions.OnUserCode callback
@@ -268,7 +300,7 @@ platform). For scripts, pass --hub and pipe a token to --with-token:
 				}
 			}
 
-			resolvedHub, err := runAuthLogin(ctx, deps, authLoginParams{
+			loginRes, err := runAuthLogin(ctx, deps, authLoginParams{
 				HubURL:   selectedHub,
 				ClientID: clientID,
 				Scope:    scope,
@@ -283,7 +315,7 @@ platform). For scripts, pass --hub and pipe a token to --with-token:
 			// Intentionally minimal success output: never echo the token
 			// on stdout, even at debug level. The store file itself is
 			// the source of truth.
-			_, _ = fmt.Fprintf(rt.Stream().Out, "Logged in to %s\n", resolvedHub)
+			_, _ = fmt.Fprintf(rt.Stream().Out, "Logged in to %s\n", loginRes.HubURL)
 			return nil
 		},
 	}
