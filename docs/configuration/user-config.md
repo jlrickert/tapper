@@ -19,8 +19,7 @@ cat config.yaml | tap config edit --user
 ```
 
 The fastest way to create a sensible starting config is `tap bootstrap`, which
-writes the fallback hub + namespace and the built-in local hub for you (see
-below).
+writes the fallback hub and the built-in local hub for you (see below).
 
 > **First run requires `tap bootstrap`.** On the full `tap` surface,
 > hub/namespace-dependent commands (`tap keg create <name>`, `tap cat`,
@@ -47,8 +46,8 @@ below).
 - `fallbackNamespace`: last-resort namespace used when a reference omits its
   namespace and no `defaultNamespace`/per-hub namespace applies.
 - `defaultHub` / `defaultNamespace`: high-precedence slots. Usually set in
-  project config rather than here; they make `tap init example` equivalent to
-  `@<defaultNamespace>/example`.
+  project config rather than here; they make `tap keg create example`
+  equivalent to `@<defaultNamespace>/example`.
 - `disableAtlasHub` / `disableLocalHub`: when `true`, suppress the synthesized
   built-in atlas / local hub. A disabled built-in is not synthesized, is omitted
   from hub listings, and is skipped in resolution; an explicit `hubs` entry of

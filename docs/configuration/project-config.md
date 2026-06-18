@@ -29,7 +29,8 @@ values.
 
 Typical usage:
 
-- set `defaultKeg` so commands in this repo resolve to the intended project alias
+- set `defaultKeg` so commands in this repo resolve to the intended team or
+  project keg
 - set `defaultHub` / `defaultNamespace` to pin this project's hub and namespace
 - keep machine-wide fallback behavior (`fallbackHub`, `fallbackNamespace`,
   `hubs`) in user config
@@ -54,20 +55,20 @@ target or harvest a token environment variable. See
 
 ## Team Setup Pattern
 
-- Commit `.tapper/config.yaml` with a project alias and its `defaultNamespace`.
-- Keep project-local keg content under `kegs/<alias>` (or address it via a hub).
+- Commit `.tapper/config.yaml` with the repository's shared `defaultKeg` and,
+  when needed, `defaultNamespace`.
+- Prefer a shared hub keg for team memory. Use a local project keg only when the
+  knowledge should live with the repository.
 - Use user config for personal/global hubs, credentials, and fallbacks.
 
 ## Minimal Project Config Example
 
 ```yaml
-defaultKeg: tapper
-fallbackKeg: tapper
-defaultHub: my-laptop
-defaultNamespace: local
+defaultKeg: engineering
+defaultNamespace: acme
 kegMap: []
 ```
 
-`defaultKeg: tapper` is a keg reference: the bare name `tapper` resolves its
-namespace from `defaultNamespace: local` and its hub from that namespace,
-landing on the local hub at `<basePath>/@local/tapper`.
+`defaultKeg: engineering` is a keg reference: the bare name `engineering`
+resolves its namespace from `defaultNamespace: acme`, then that namespace routes
+to the configured hub.

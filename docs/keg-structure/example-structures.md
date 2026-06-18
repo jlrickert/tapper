@@ -1,7 +1,7 @@
 # Example Keg Structures
 
-This page provides concrete starter layouts for common domains, including a
-project-specific keg pattern.
+This page provides concrete starter layouts for common domains, including an
+organization/project keg pattern.
 
 ## Programming KEG Example
 
@@ -73,17 +73,19 @@ This patch updates resolution precedence tests so project and user defaults are 
 place.
 ```
 
-## Project-Specific KEG Example
+## Organization Project KEG Example
 
-Use this pattern when one repository should have its own dedicated knowledge
-graph with project-scoped defaults.
+Use this pattern when a repository should resolve to a shared team keg. The keg
+lives in the organization's namespace; the repository records that default in
+`.tapper/config.yaml`.
 
 ### Bootstrap Commands
 
 ```bash
-tap keg create --keg tapper --project
+tap keg create @acme/tapper
+tap use @acme/tapper
 tap config --project
-tap keg settings --project
+tap keg settings --keg @acme/tapper
 ```
 
 ### Example Layout
@@ -92,27 +94,32 @@ tap keg settings --project
 my-project/
   .tapper/
     config.yaml
-  kegs/
-    tapper/
-      keg
-      dex/
-        nodes.tsv
-        changes.md
-        links
-        backlinks
-        tags
-      0/
-        README.md
-        meta.yaml
-        stats.json
-      100/
-        README.md
-        meta.yaml
-        stats.json
-      101/
-        README.md
-        meta.yaml
-        stats.json
+```
+
+The shared keg resolves through `@acme/tapper`. If the hub is local, its on-disk
+layout is still the standard KEG layout:
+
+```text
+<basePath>/@acme/tapper/
+  keg
+  dex/
+    nodes.tsv
+    changes.md
+    links
+    backlinks
+    tags
+  0/
+    README.md
+    meta.yaml
+    stats.json
+  100/
+    README.md
+    meta.yaml
+    stats.json
+  101/
+    README.md
+    meta.yaml
+    stats.json
 ```
 
 ### Example Project Config
@@ -121,15 +128,13 @@ my-project/
 
 ```yaml
 defaultKeg: tapper
-fallbackKeg: tapper
-defaultHub: local
-defaultNamespace: local
+defaultNamespace: acme
 kegMap: []
 ```
 
-A local-hub keg resolves on disk to `<basePath>/@<namespace>/<name>` — for
-example `~/Documents/kegs/@local/tapper`. The `@` sigil is part of the directory
-name and the reserved `@local` namespace addresses this machine's local hub.
+`defaultKeg: tapper` is a bare keg reference. `defaultNamespace: acme` makes it
+resolve as `@acme/tapper`, and the namespace-to-hub mapping in user config
+selects where that organization namespace lives.
 
 ## Baker KEG Example
 

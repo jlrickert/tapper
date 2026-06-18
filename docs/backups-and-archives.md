@@ -6,11 +6,11 @@ sharing.
 ## Quick Start
 
 ```bash
-# Export your keg to an archive
-tap archive export -o ~/backups/my-keg-2026-03-14.tar.gz
+# Export a team keg to an archive
+tap archive export --keg @acme/engineering -o ~/backups/engineering-2026-03-14.tar.gz
 
-# Import an archive into your keg
-tap archive import ~/backups/my-keg-2026-03-14.tar.gz
+# Import an archive into a keg
+tap archive import ~/backups/engineering-2026-03-14.tar.gz --keg @acme/engineering
 ```
 
 ## Export
@@ -29,10 +29,9 @@ the created archive to stdout.
 | `-o, --output PATH` | Archive output path (required) |
 | `--nodes IDS` | Comma-separated node IDs to export (default: all) |
 | `--no-history` | Omit snapshot history from the archive |
-| `--keg ALIAS` | Target keg by alias |
-| `--project` | Target the project-local keg |
-| `--cwd` | Target keg in the current working directory |
-| `--path PATH` | Target keg by filesystem path |
+| `--keg @namespace/name` | Target a specific keg |
+| `--namespace NAME` | Resolve a bare keg name in a namespace |
+| `--hub NAME` | Override namespace-to-hub resolution |
 
 ### Examples
 
@@ -47,7 +46,7 @@ tap archive export -o selection.tar.gz --nodes 5,12,42
 tap archive export -o lightweight.tar.gz --no-history
 
 # Export a specific keg
-tap archive export -o personal.tar.gz --keg personal
+tap archive export -o engineering.tar.gz --keg @acme/engineering
 ```
 
 ## Import
@@ -63,10 +62,9 @@ imported node to stdout.
 
 | Flag | Description |
 |------|-------------|
-| `--keg ALIAS` | Target keg by alias |
-| `--project` | Target the project-local keg |
-| `--cwd` | Target keg in the current working directory |
-| `--path PATH` | Target keg by filesystem path |
+| `--keg @namespace/name` | Target a specific keg |
+| `--namespace NAME` | Resolve a bare keg name in a namespace |
+| `--hub NAME` | Override namespace-to-hub resolution |
 
 ### Sources
 
@@ -164,7 +162,7 @@ For details on how snapshots work, see [Node Snapshots](node-snapshots.md).
 Export the entire keg with a date-stamped filename:
 
 ```bash
-tap archive export -o ~/backups/personal-2026-03-14.tar.gz --keg personal
+tap archive export -o ~/backups/engineering-2026-03-14.tar.gz --keg @acme/engineering
 ```
 
 ### Selective node backup
@@ -180,9 +178,9 @@ tap archive export -o critical-nodes.tar.gz --nodes 1,5,12,42
 ```bash
 #!/bin/bash
 DATE=$(date +%Y-%m-%d)
-tap archive export -o ~/backups/personal-$DATE.tar.gz --keg personal
+tap archive export -o ~/backups/engineering-$DATE.tar.gz --keg @acme/engineering
 # Optional: remove backups older than 30 days
-find ~/backups -name "personal-*.tar.gz" -mtime +30 -delete
+find ~/backups -name "engineering-*.tar.gz" -mtime +30 -delete
 ```
 
 ### Lightweight snapshots
@@ -191,7 +189,7 @@ Use `--no-history` for faster, smaller backups when you only need the current
 state:
 
 ```bash
-tap archive export -o ~/backups/personal-$DATE.tar.gz --keg personal --no-history
+tap archive export -o ~/backups/engineering-$DATE.tar.gz --keg @acme/engineering --no-history
 ```
 
 ## Migration And Sharing
@@ -201,14 +199,14 @@ tap archive export -o ~/backups/personal-$DATE.tar.gz --keg personal --no-histor
 On the source machine:
 
 ```bash
-tap archive export -o my-keg.tar.gz --keg personal
+tap archive export -o engineering.tar.gz --keg @acme/engineering
 ```
 
 Copy the archive to the target machine (scp, USB drive, cloud storage, etc.),
 then import:
 
 ```bash
-tap archive import my-keg.tar.gz --keg personal
+tap archive import engineering.tar.gz --keg @acme/engineering
 ```
 
 ### Share nodes with a collaborator

@@ -26,7 +26,7 @@ how the same command framework can be pruned through profile-based behavior.
 `pkg/cli/cmd_root.go` wires common lifecycle logic:
 
 1. Root persistent flags register shared KEG targeting options for `tap`
-   (`--keg`, `--project`, `--path`, `--cwd`).
+   (`--keg`, `--namespace`, `--hub`, `--flight`, and `--config`).
 2. `PersistentPreRunE` resolves working directory from runtime.
 3. Creates `deps.Tap` with `tapper.NewTap(...)`.
 4. Registers root-level keg completion after `deps.Tap` exists.
@@ -41,10 +41,9 @@ reconstruct core services.
 Most commands follow this shape:
 
 1. Bind command-specific flags into a typed options struct.
-2. Merge root KEG target defaults and apply profile-specific target behavior.
-   `tap` uses the full profile.
-   `keg` uses a pruned profile that forces project resolution and drops
-   config/repo command surfaces.
+2. Merge root KEG target defaults and apply profile-specific behavior. `tap`
+   uses the full namespace/hub-aware profile. `keg` uses a pruned project-local
+   profile.
 3. Call a single method on `deps.Tap`.
 4. Write returned output to stdout.
 
@@ -58,13 +57,13 @@ Example command files:
 
 Profiles are defined in `pkg/cli/profile.go`.
 
-- `TapProfile` enables repo/config commands and alias flags.
-- `KegProfile` forces project-style resolution and disables alias/config/repo
-  command surfaces.
+- `TapProfile` enables the full command surface and namespace/hub targeting.
+- `KegProfile` forces project-style resolution and disables configuration
+  command surfaces that do not fit the narrower workflow.
 - Snapshot/archive commands (`snapshot`, `archive import`, `archive export`)
   are shared by both profiles. The main difference is target resolution:
-  `keg` resolves against the active project by default, while `tap` can
-  target configured aliases or explicit paths.
+  `keg` resolves against the active project by default, while `tap` resolves
+  through `@namespace/keg` references, config defaults, and hub routing.
 
 ## Why The Profile Technique Matters
 

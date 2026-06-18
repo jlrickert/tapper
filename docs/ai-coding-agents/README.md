@@ -1,9 +1,8 @@
 # Using Tapper From AI Agents
 
-This section documents how to drive tapper from an AI coding agent — what
-the MCP server exposes, how to install it in a host that understands the
-Model Context Protocol, and the conventions any agent should follow when
-operating against a KEG.
+This section documents how AI coding agents use Tapper as shared project
+memory: how to install the MCP server, how agents should orient themselves, and
+which conventions keep the KEG safe for humans and agents at the same time.
 
 Vendor-specific configuration (how to write a `CLAUDE.md`, how Codex
 discovers `AGENTS.md`, permission modes, hooks) is covered by the vendors
@@ -22,7 +21,7 @@ themselves. This directory focuses on tapper.
   `tap orient`.
 - [MCP Server Setup](mcp-setup.md) — manual setup for hosts that do not use
   a bundled integration: `claude mcp add`, JSON config for arbitrary MCP
-  clients, and the full 31-tool reference.
+  clients, and the tool categories exposed over MCP.
 - [Agent Conventions](agent-conventions.md) — tapper invariants every agent
   should follow: MCP-first, never edit node files directly, never mix CLI
   writes with a live MCP session, snapshot before destructive edits.

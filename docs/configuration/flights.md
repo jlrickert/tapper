@@ -18,8 +18,8 @@ A flight carries two independent things, either of which may be empty:
    flight's guidance.
 
 Because a flight is an overlay rather than a target selector, `--flight`
-**composes** with `--keg`, `--project`, `--path`, and `--cwd`: those pin which
-keg you operate on; the flight gates and annotates the result.
+**composes** with `--keg`, `--namespace`, and `--hub`: those pin which keg you
+operate on; the flight gates and annotates the result.
 
 ## Manifest Format
 
@@ -38,14 +38,14 @@ manifest has three optional fields:
 # <basePath>/flights.d/release-42.yaml
 title: Release 42 cut
 cover:
-  - namespace: me
+  - namespace: acme
     keg: release-notes
     role: editor
-  - namespace: me
-    keg: public
+  - namespace: acme
+    keg: engineering
     role: viewer
 instructions: |
-  Only touch the release notes and changelog kegs.
+  Only touch the release notes and engineering kegs.
   Snapshot every node before editing.
 ```
 

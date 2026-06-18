@@ -10,15 +10,16 @@ Split into separate kegs when:
 - tags are overloaded to compensate for entity mismatch
 - navigation and index pages mix unrelated workflows
 
-A common case is specialized domain notes living in a broad general-purpose keg with minimal
-interaction.
+A common case is specialized domain notes living in a broad organization keg
+with minimal interaction.
 
 ## Recommended Domain Layout
 
-- `general`: broad cross-domain notes
-- `work`: company or client-specific notes
-- `private`: personal/private notes
-- `domain-x`: dedicated specialized knowledge base
+- `@acme/general`: broad cross-domain organization notes
+- `@acme/engineering`: project, architecture, release, and incident memory
+- `@acme/product`: customer, roadmap, and product decision memory
+- `@local/private`: personal notes that should not be shared
+- `@acme/domain-x`: a dedicated specialized knowledge base
 
 ## Migration Plan: Move A Low-Overlap Domain Out Of A General Keg
 
@@ -31,17 +32,17 @@ interaction.
 
 ## Bootstrap Commands
 
-Create a user-level destination keg target:
+Create a destination keg target:
 
 ```bash
-tap init --keg domain-x --user
+tap keg create @acme/domain-x
 ```
 
 Inspect and edit new keg config:
 
 ```bash
-tap keg settings --keg domain-x
-tap keg settings edit --keg domain-x
+tap keg settings --keg @acme/domain-x
+tap keg settings edit --keg @acme/domain-x
 ```
 
 ## Guardrails During Migration

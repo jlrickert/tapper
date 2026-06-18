@@ -7,18 +7,23 @@ and namespace a keg lives on, and how the config layers cascade.
 
 If you pass explicit flags, they take precedence:
 
-- `--path` resolves a keg from a specific filesystem path
-- `--project` resolves from project-local locations
-- `--cwd` resolves from the keg in the current working directory
-- `--keg` resolves an alias
+- `--keg` selects a keg by bare name or `@namespace/name`
+- `--namespace` resolves a bare `--keg` in a specific namespace
+- `--hub` overrides namespace-to-hub resolution
+- `--config` bypasses the user/project config cascade
 
-These flags are mutually exclusive. `--flight` is **not** one of them — a flight
-is an overlay (a keg restriction plus agent instructions) that composes with the
-selector above. See [Flights](flights.md).
+`--flight` is not a keg selector. It is an overlay: a keg restriction plus agent
+instructions that composes with `--keg`, `--namespace`, and `--hub`. See
+[Flights](flights.md).
+
+The local creation flags on `tap keg create` (`--project`, `--cwd`, and
+`--path`) only choose where a new filesystem keg is created. They are not
+general targeting flags on the full `tap` surface.
 
 ## 2. No Explicit Keg Flow
 
-When no explicit target is supplied, tapper resolves the alias in this order:
+When no explicit target is supplied, tapper resolves the keg reference in this
+order:
 
 1. `defaultKeg`
 2. `kegMap` match (`pathRegex` first, then longest `pathPrefix`)
@@ -26,7 +31,7 @@ When no explicit target is supplied, tapper resolves the alias in this order:
 
 ## 3. Namespace-centric model
 
-Resolution flows **keg name → namespace → hub → backend**. A keg is identified
+Resolution flows **keg name -> namespace -> hub -> backend**. A keg is identified
 by `@<namespace>/<name>`; the namespace determines which hub hosts it. A keg
 selector (`defaultKeg`, `fallbackKeg`, `--keg`, a `kegMap` alias) is a keg
 reference — a bare name, `@namespace/name`, `keg:@namespace/name`, or a path —

@@ -13,7 +13,7 @@ Tapper is distributed through a self-hosted Claude Code marketplace. Add
 the marketplace, then install the plugin:
 
 ```bash
-claude plugin marketplace add jlrickert/tapper
+claude plugin marketplace add jlrickert/tapper@main
 claude plugin install tapper@jlrickert-tapper
 ```
 
