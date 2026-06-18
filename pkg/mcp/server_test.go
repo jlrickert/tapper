@@ -1462,6 +1462,27 @@ func TestMCP_Graph(t *testing.T) {
 	require.Contains(t, text, "__KEG__")
 }
 
+func TestMCP_NamespaceCreateReturnsHubUIURL(t *testing.T) {
+	t.Parallel()
+	session, rt, ctx := newTestSessionWithRuntime(t)
+	require.NoError(t, rt.Mkdir("/home/testuser/.config/tapper", 0o755, true))
+	require.NoError(t, rt.AtomicWriteFile("/home/testuser/.config/tapper/config.yaml", []byte(`fallbackHub: atlas
+hubs:
+  atlas:
+    kind: remote
+    url: https://hub.example.com
+`), 0o644))
+
+	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name:      "namespace_create",
+		Arguments: map[string]any{"name": "acme"},
+	})
+	require.NoError(t, err)
+	text := extractText(t, res)
+	require.False(t, res.IsError, "namespace_create returned error: %s", text)
+	require.Equal(t, "Create @acme in the hub UI:\nhttps://hub.example.com/namespaces/new?name=acme", text)
+}
+
 func extractText(t *testing.T, res *sdkmcp.CallToolResult) string {
 	t.Helper()
 	var parts []string

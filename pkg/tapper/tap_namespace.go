@@ -3,6 +3,7 @@ package tapper
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"strings"
 )
 
@@ -49,6 +50,16 @@ type NamespaceRemoveMemberOptions struct {
 // NamespaceCreateOptions creates an org namespace.
 type NamespaceCreateOptions struct {
 	Name string
+	Hub  string
+}
+
+// NamespaceCreateResult tells the caller where to create the namespace in the
+// hub UI. Namespace creation is a paid hub feature, so the CLI/MCP surface
+// hands the user to the browser instead of calling the API.
+type NamespaceCreateResult struct {
+	Name string
+	Hub  string
+	URL  string
 }
 
 // namespaceMemberRoles is the role set accepted for namespace membership
@@ -120,17 +131,26 @@ func (t *Tap) NamespaceRemoveMember(ctx context.Context, opts NamespaceRemoveMem
 	return RemoveNamespaceMember(ctx, hubURL, token, ns, user)
 }
 
-// NamespaceCreate creates an org namespace on the resolved default hub.
-func (t *Tap) NamespaceCreate(ctx context.Context, opts NamespaceCreateOptions) (*HubNamespace, error) {
+// NamespaceCreate returns the hub UI URL for creating an org namespace. It does
+// not call the namespace creation API.
+func (t *Tap) NamespaceCreate(ctx context.Context, opts NamespaceCreateOptions) (*NamespaceCreateResult, error) {
 	name := strings.TrimPrefix(strings.TrimSpace(opts.Name), "@")
 	if name == "" {
 		return nil, fmt.Errorf("a namespace name is required")
 	}
-	hubURL, token, err := t.resolveHubEndpoint("")
+	if err := ValidateNamespace(name); err != nil {
+		return nil, err
+	}
+	hubName, hubURL, err := t.resolveHubUIEndpoint(opts.Hub)
 	if err != nil {
 		return nil, err
 	}
-	return CreateNamespace(ctx, hubURL, token, name)
+	_ = ctx
+	return &NamespaceCreateResult{
+		Name: name,
+		Hub:  hubName,
+		URL:  hubURL + "/namespaces/new?name=" + url.QueryEscape(name),
+	}, nil
 }
 
 // resolveNamespaceHub resolves the remote hub + token backing a namespace for
@@ -178,6 +198,35 @@ func (t *Tap) resolveHubEndpoint(hubOverride string) (hubURL, token string, err 
 		return "", "", fmt.Errorf("hub %q is not configured", hubName)
 	}
 	return remoteHubEndpoint(t, hubName, entry)
+}
+
+// resolveHubUIEndpoint resolves a hub to a browser base URL without requiring
+// a token. It is used for UI handoffs such as namespace creation.
+func (t *Tap) resolveHubUIEndpoint(hubOverride string) (hubName, hubURL string, err error) {
+	cfg, cErr := t.ConfigService.Config(true)
+	if cErr != nil {
+		return "", "", cErr
+	}
+	hubName = strings.TrimSpace(hubOverride)
+	if hubName == "" {
+		hubName = cfg.resolveHubName()
+	}
+	entry, ok := cfg.Hub(hubName)
+	if !ok {
+		return "", "", fmt.Errorf("hub %q is not configured", hubName)
+	}
+	if strings.TrimSpace(entry.Kind) == HubKindLocal {
+		return "", "", fmt.Errorf("namespace creation requires a remote hub UI")
+	}
+	raw := strings.TrimSpace(entry.URL)
+	if raw == "" {
+		return "", "", fmt.Errorf("hub %q has no url configured", hubName)
+	}
+	base, err := normalizeHubURL(hubURLWithScheme(raw))
+	if err != nil {
+		return "", "", err
+	}
+	return hubName, base, nil
 }
 
 // remoteHubEndpoint validates a hub entry as a usable remote endpoint and
