@@ -144,14 +144,15 @@ func newNamespaceRemoveMemberCmd(deps *Deps) *cobra.Command {
 func newNamespaceCreateCmd(deps *Deps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "create <name>",
-		Short: "create an org namespace",
+		Short: "open the hub UI to create an org namespace",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			ns, err := deps.Tap.NamespaceCreate(cmd.Context(), tapper.NamespaceCreateOptions{Name: args[0]})
+			kt := globalKegTarget(deps)
+			ns, err := deps.Tap.NamespaceCreate(cmd.Context(), tapper.NamespaceCreateOptions{Name: args[0], Hub: kt.Hub})
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "@%s\n", ns.Name)
+			fmt.Fprintf(cmd.OutOrStdout(), "Create @%s in the hub UI:\n%s\n", ns.Name, ns.URL)
 			return nil
 		},
 	}

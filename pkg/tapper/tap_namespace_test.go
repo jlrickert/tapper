@@ -67,7 +67,9 @@ func TestNamespaceAddMember(t *testing.T) {
 
 func TestNamespaceAddMember_InvalidRole(t *testing.T) {
 	t.Parallel()
-	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { t.Errorf("hub should not be contacted for an invalid role") })
+	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Errorf("hub should not be contacted for an invalid role")
+	})
 	tap, fx, _ := newRemoteHubTap(t, h)
 	// "viewer" is a keg grant role, not a namespace membership role.
 	err := tap.NamespaceAddMember(fx.Context(), tapper.NamespaceAddMemberOptions{Namespace: "acme", User: "bob", Role: "viewer"})
@@ -103,18 +105,15 @@ func TestNamespaceRemoveMember(t *testing.T) {
 
 func TestNamespaceCreate(t *testing.T) {
 	t.Parallel()
-	var gotBody map[string]string
 	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, http.MethodPost, r.Method)
-		require.Equal(t, "/api/v1/namespaces", r.URL.Path)
-		body, _ := io.ReadAll(r.Body)
-		_ = json.Unmarshal(body, &gotBody)
-		w.WriteHeader(http.StatusCreated)
-		_ = json.NewEncoder(w).Encode(tapper.HubNamespace{Name: "acme", Kind: "org"})
+		t.Fatalf("namespace create should hand off to the UI, not call the hub API: %s %s", r.Method, r.URL.Path)
 	})
-	tap, fx, _ := newRemoteHubTap(t, h)
+	tap, fx, srv := newRemoteHubTap(t, h)
 	ns, err := tap.NamespaceCreate(fx.Context(), tapper.NamespaceCreateOptions{Name: "acme"})
 	require.NoError(t, err)
-	require.Equal(t, &tapper.HubNamespace{Name: "acme", Kind: "org"}, ns)
-	require.Equal(t, map[string]string{"name": "acme"}, gotBody)
+	require.Equal(t, &tapper.NamespaceCreateResult{
+		Name: "acme",
+		Hub:  "atlas",
+		URL:  srv.URL + "/namespaces/new?name=acme",
+	}, ns)
 }

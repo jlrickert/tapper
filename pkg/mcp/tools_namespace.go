@@ -36,6 +36,7 @@ type namespaceRemoveMemberInput struct {
 
 type namespaceCreateInput struct {
 	Name string `json:"name" jsonschema:"org namespace name to create"`
+	Hub  string `json:"hub,omitempty" jsonschema:"hub to open (default: resolved default/fallback hub)"`
 }
 
 // registerNamespaceTools exposes namespace administration over MCP at parity
@@ -124,16 +125,16 @@ func registerNamespaceTools(srv *sdkmcp.Server, tap *tapper.Tap, _ KegDefaults) 
 
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "namespace_create",
-		Description: "Create an org namespace",
+		Description: "Return the hub UI URL for creating an org namespace",
 		Annotations: &sdkmcp.ToolAnnotations{
-			ReadOnlyHint:  false,
+			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(true),
 		},
 	}, func(ctx context.Context, _ *sdkmcp.CallToolRequest, in namespaceCreateInput) (*sdkmcp.CallToolResult, any, error) {
-		ns, err := tap.NamespaceCreate(ctx, tapper.NamespaceCreateOptions{Name: in.Name})
+		ns, err := tap.NamespaceCreate(ctx, tapper.NamespaceCreateOptions{Name: in.Name, Hub: in.Hub})
 		if err != nil {
 			return errorResult(err), nil, nil
 		}
-		return textResult("created @" + ns.Name), nil, nil
+		return textResult(fmt.Sprintf("Create @%s in the hub UI:\n%s", ns.Name, ns.URL)), nil, nil
 	})
 }
