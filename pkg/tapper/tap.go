@@ -26,6 +26,18 @@ type Tap struct {
 	// hub at an httptest server) to avoid real network I/O. Both the CLI and
 	// MCP surfaces share the same *Tap, so overriding it covers both.
 	AuthValidateFn func(ctx context.Context, rt *toolkit.Runtime, hubURL, token string) (*WhoAmI, error)
+
+	// KegResolver, when non-nil, overrides config-driven keg resolution. It is
+	// the seam tapper-hub uses to serve a per-user MCP connector: the hub injects
+	// a resolver that opens kegs from its own Postgres catalog and enforces the
+	// caller's role, bypassing the on-disk config cascade and AuthStore entirely
+	// (which, in the hub server's process, hold no login). role is the access
+	// level the calling operation needs — FlightRoleViewer for reads,
+	// FlightRoleEditor for writes — so the resolver can map it to a catalog role
+	// check. Every node read/write op funnels through resolveKegForRole, so a
+	// single resolver covers the whole surface. Left nil for the CLI, which keeps
+	// the standard config-driven resolution.
+	KegResolver func(ctx context.Context, opts KegTargetOptions, role FlightRole) (keg.Keg, error)
 }
 
 type TapOptions struct {
@@ -139,6 +151,12 @@ func (t *Tap) resolveKeg(ctx context.Context, opts KegTargetOptions) (keg.Keg, e
 }
 
 func (t *Tap) resolveKegForRole(ctx context.Context, opts KegTargetOptions, role FlightRole) (keg.Keg, error) {
+	// A hub-injected resolver owns resolution and authorization end-to-end (it
+	// opens a catalog-backed keg.Keg and applies its own role check), so the
+	// config cascade and flight gating below are bypassed when one is set.
+	if t.KegResolver != nil {
+		return t.KegResolver(ctx, opts, role)
+	}
 	k, err := t.KegService.Resolve(ctx, ResolveKegOptions{
 		Root:             t.Root,
 		Keg:              opts.Keg,
