@@ -1,11 +1,14 @@
 package tapper_test
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 
+	kegpkg "github.com/jlrickert/tapper/pkg/keg"
 	"github.com/jlrickert/tapper/pkg/tapper"
 	"github.com/stretchr/testify/require"
 )
@@ -116,4 +119,17 @@ func TestNamespaceCreate(t *testing.T) {
 		Hub:  "atlas",
 		URL:  srv.URL + "/namespaces/new?name=acme",
 	}, ns)
+}
+
+func TestCreateNamespaceDisabled(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatalf("CreateNamespace should not call the hub API: %s %s", r.Method, r.URL.Path)
+	}))
+	defer srv.Close()
+
+	ns, err := tapper.CreateNamespace(context.Background(), srv.URL, "tok", "acme")
+	require.Nil(t, ns)
+	require.ErrorIs(t, err, kegpkg.ErrNotSupported)
+	require.Contains(t, err.Error(), "disabled for remote clients")
 }

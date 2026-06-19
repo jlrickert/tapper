@@ -133,6 +133,8 @@ func TestMCP_ToolsList(t *testing.T) {
 	require.Contains(t, names, "links")
 	require.Contains(t, names, "info")
 	require.Contains(t, names, "keg_info")
+	require.Contains(t, names, "keg_list")
+	require.Contains(t, names, "keg_visibility")
 	require.Contains(t, names, "stats")
 	require.Contains(t, names, "create")
 	require.Contains(t, names, "edit")
@@ -157,7 +159,6 @@ func TestMCP_ToolsList(t *testing.T) {
 	require.Contains(t, names, "lock_force_release")
 	require.Contains(t, names, "license")
 
-	// New tools added in plan 440.
 	require.Contains(t, names, "repo_init")
 	require.Contains(t, names, "config")
 	require.Contains(t, names, "config_template")
@@ -169,6 +170,24 @@ func TestMCP_ToolsList(t *testing.T) {
 	require.Contains(t, names, "upload_image")
 	require.Contains(t, names, "download_image")
 	require.Contains(t, names, "graph")
+	require.Contains(t, names, "orient")
+	require.Contains(t, names, "integrate")
+	require.Contains(t, names, "list_flights")
+	require.Contains(t, names, "flight_show")
+	require.Contains(t, names, "flight_create")
+	require.Contains(t, names, "flight_edit")
+	require.Contains(t, names, "flight_delete")
+	require.Contains(t, names, "namespace_list")
+	require.Contains(t, names, "auth_status")
+	require.NotContains(t, names, "keg_grants")
+	require.NotContains(t, names, "keg_grant")
+	require.NotContains(t, names, "keg_revoke")
+	require.NotContains(t, names, "namespace_members")
+	require.NotContains(t, names, "namespace_add_member")
+	require.NotContains(t, names, "namespace_set_role")
+	require.NotContains(t, names, "namespace_remove_member")
+	require.NotContains(t, names, "namespace_create")
+	require.NotContains(t, names, "flight_update")
 }
 
 // TestMCP_SurfaceHub_CuratesToolset pins the remote hub connector surface: it
@@ -208,7 +227,7 @@ func TestMCP_SurfaceHub_CuratesToolset(t *testing.T) {
 		"keg_list", "keg_grants", "keg_grant", "keg_revoke", "keg_visibility",
 		"namespace_list", "namespace_members", "namespace_add_member",
 		"namespace_set_role", "namespace_remove_member", "namespace_create",
-		"list_flights", "flight_show", "flight_create", "flight_update",
+		"list_flights", "flight_show", "flight_create", "flight_edit", "flight_update",
 		"flight_delete",
 	} {
 		require.Falsef(t, names[banned], "SurfaceHub must not expose %q", banned)
@@ -1504,27 +1523,6 @@ func TestMCP_Graph(t *testing.T) {
 	require.Contains(t, text, "<!DOCTYPE html>")
 	require.Contains(t, text, "KEG Graph")
 	require.Contains(t, text, "__KEG__")
-}
-
-func TestMCP_NamespaceCreateReturnsHubUIURL(t *testing.T) {
-	t.Parallel()
-	session, rt, ctx := newTestSessionWithRuntime(t)
-	require.NoError(t, rt.Mkdir("/home/testuser/.config/tapper", 0o755, true))
-	require.NoError(t, rt.AtomicWriteFile("/home/testuser/.config/tapper/config.yaml", []byte(`fallbackHub: atlas
-hubs:
-  atlas:
-    kind: remote
-    url: https://hub.example.com
-`), 0o644))
-
-	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name:      "namespace_create",
-		Arguments: map[string]any{"name": "acme"},
-	})
-	require.NoError(t, err)
-	text := extractText(t, res)
-	require.False(t, res.IsError, "namespace_create returned error: %s", text)
-	require.Equal(t, "Create @acme in the hub UI:\nhttps://hub.example.com/namespaces/new?name=acme", text)
 }
 
 func extractText(t *testing.T, res *sdkmcp.CallToolResult) string {

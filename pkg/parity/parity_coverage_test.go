@@ -95,22 +95,15 @@ var tapMethodToSurfaces = map[string]struct {
 	"ListFlights":  {CLI: "flight list", MCP: "list_flights"},
 	"GetFlight":    {CLI: "flight show", MCP: "flight_show"},
 	"CreateFlight": {CLI: "flight create", MCP: "flight_create"},
+	"EditFlight":   {CLI: "flight edit", MCP: "flight_edit"},
 	"DeleteFlight": {CLI: "flight delete", MCP: "flight_delete"},
 
 	// Keg administration (hub-side). HubListKegs backs `tap keg list`.
 	"HubListKegs":   {CLI: "keg list", MCP: "keg_list"},
-	"KegGrants":     {CLI: "keg grants", MCP: "keg_grants"},
-	"KegGrant":      {CLI: "keg grant", MCP: "keg_grant"},
-	"KegRevoke":     {CLI: "keg revoke", MCP: "keg_revoke"},
 	"KegVisibility": {CLI: "keg visibility", MCP: "keg_visibility"},
 
 	// Namespace administration.
-	"NamespaceList":         {CLI: "namespace list", MCP: "namespace_list"},
-	"NamespaceMembers":      {CLI: "namespace members", MCP: "namespace_members"},
-	"NamespaceAddMember":    {CLI: "namespace add-member", MCP: "namespace_add_member"},
-	"NamespaceSetRole":      {CLI: "namespace set-role", MCP: "namespace_set_role"},
-	"NamespaceRemoveMember": {CLI: "namespace remove-member", MCP: "namespace_remove_member"},
-	"NamespaceCreate":       {CLI: "namespace create", MCP: "namespace_create"},
+	"NamespaceList": {CLI: "namespace list", MCP: "namespace_list"},
 
 	// Agent integrations (Phase 3 / Phase 5)
 	"Orient":    {CLI: "orient", MCP: "orient"},
@@ -130,9 +123,7 @@ var tapMethodToSurfaces = map[string]struct {
 var tapMethodsExcluded = map[string]string{
 	"KegConfigEdit": "interactive editor; not exposed via MCP",
 	"ConfigEdit":    "interactive editor; not exposed via MCP",
-	"EditFlight":    "interactive editor + piped stdin; CLI-only — the MCP equivalent is flight_update",
-	"UpdateFlight": "MCP-only: the CLI surface was replaced by `flight edit` (editor + piped YAML); " +
-		"flight_update stays because agents cannot open editors",
+	"UpdateFlight": "underlying partial-update operation used by MCP flight_edit; CLI users use `flight edit`",
 	"LookupKeg":      "internal resolution helper; not a user-facing operation",
 	"ResolveNodeRef": "internal node-reference resolver shared by surfaces; not a user-facing operation",
 	"WatchNode": "streaming, not request/response: CLI surface is `tap watch` (long-lived stream); " +
@@ -148,6 +139,14 @@ var tapMethodsExcluded = map[string]string{
 	"HubRemove":             "security: mutates hub connections in user config; CLI-only by design",
 	"HubSetDefault":         "writes the default hub to project/user config; CLI-only by design",
 	"Bootstrap":             "CLI-only onboarding; writes user config + drives interactive login, not an MCP operation",
+	"NamespaceCreate":       "UI-only namespace creation handoff; MCP must not advertise namespace creation",
+	"NamespaceMembers":      "UI-only user/role inspection for now; MCP must not expose namespace member rosters",
+	"NamespaceAddMember":    "UI-only user/role management for now; MCP must not mutate namespace members",
+	"NamespaceSetRole":      "UI-only user/role management for now; MCP must not mutate namespace member roles",
+	"NamespaceRemoveMember": "UI-only user/role management for now; MCP must not mutate namespace members",
+	"KegGrants":             "UI-only user/role inspection for now; MCP must not expose keg grants",
+	"KegGrant":              "UI-only user/role management for now; MCP must not mutate keg grants",
+	"KegRevoke":             "UI-only user/role management for now; MCP must not mutate keg grants",
 	"SetBootstrapNamespace": "CLI-only bootstrap step; adopts the hub's default namespace after login, not an MCP operation",
 	"SetHubDefaultNamespaceByURL": "CLI-only auth/bootstrap helper; adopts the hub's default namespace after login, " +
 		"not a standalone user-facing operation",
