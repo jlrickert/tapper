@@ -1,9 +1,9 @@
 // Package tapper — hub namespace-administration client calls.
 //
 // These talk to a remote hub's namespace endpoints under /api/v1/namespaces
-// and /api/v1/@{namespace}/members: listing/creating namespaces and managing
-// membership roles. Slim, dependency-free functions over http.DefaultClient
-// (via doHubJSON) so tests can point hubURL at an httptest.Server.
+// and /api/v1/@{namespace}/members: listing namespaces and managing membership
+// roles. Slim, dependency-free functions over http.DefaultClient (via
+// doHubJSON) so tests can point hubURL at an httptest.Server.
 package tapper
 
 import (
@@ -11,6 +11,8 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+
+	"github.com/jlrickert/tapper/pkg/keg"
 )
 
 // HubMember is one namespace membership row. Mirrors the hub's
@@ -73,12 +75,10 @@ func ListNamespaces(ctx context.Context, hubURL, token string) ([]HubNamespace, 
 	return out, nil
 }
 
-// CreateNamespace creates an org namespace via POST /api/v1/namespaces.
+// CreateNamespace is disabled for remote clients. Namespace creation is a paid
+// hub UI flow; use Tap.NamespaceCreate to get the browser handoff URL.
+//
+// Deprecated: remote namespace creation is not supported.
 func CreateNamespace(ctx context.Context, hubURL, token, name string) (*HubNamespace, error) {
-	var out HubNamespace
-	payload := map[string]string{"name": strings.TrimPrefix(strings.TrimSpace(name), "@")}
-	if err := doHubJSON(ctx, http.MethodPost, hubURL, token, "/api/v1/namespaces", payload, &out); err != nil {
-		return nil, err
-	}
-	return &out, nil
+	return nil, fmt.Errorf("hub namespace creation is disabled for remote clients; use the hub UI: %w", keg.ErrNotSupported)
 }

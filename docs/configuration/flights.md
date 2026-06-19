@@ -74,8 +74,8 @@ local `flights.d` manifests remain read-only files.
 | Delete a Hub-backed flight            | `tap flight delete @namespace/+slug`      |
 
 The same surface is exposed over MCP as the `list_flights`, `flight_show`,
-`flight_create`, `flight_update`, and `flight_delete` tools, and the
-`--flight` parameter flows through `orient`. `flight_update` (partial update;
+`flight_create`, `flight_edit`, and `flight_delete` tools, and the
+`--flight` parameter flows through `orient`. `flight_edit` (partial update;
 omitted fields keep current values) is the agent-facing equivalent of the
 CLI's piped `flight edit`, since agents cannot open editors.
 

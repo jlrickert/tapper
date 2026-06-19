@@ -48,6 +48,8 @@ go vet ./...
 - The release pipeline is a single workflow: `release.yml` runs on
   `workflow_dispatch` against `main`, writes the changelog commit and tag,
   then runs goreleaser inline.
+- Commit messages should follow Conventional Commits (for example `feat:`,
+  `fix:`, `docs:`), with summaries no longer than 72 characters.
 - When opening a PR, base on `main` unless explicitly asked to route through
   `dev`. If `dev` is reactivated (rulesets re-enabled, default branch
   switched back), revisit this section.
@@ -418,8 +420,6 @@ validation.
   `keg.yml` are also accepted.
 - `FsRepo.Next()` creates the node directory as a reservation — `WriteContent`
   must handle pre-existing directories.
-- Commit conventions: conventional commits (`feat:`, `fix:`, `refactor:`),
-  summaries ≤72 chars.
 - **Cobra skips PersistentPostRunE when RunE returns an error.** Any cleanup
   or logging that must run on both success and failure paths cannot rely on
   PersistentPostRunE. In tapper, invocation logging and log file cleanup are

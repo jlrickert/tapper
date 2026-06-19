@@ -23,7 +23,7 @@ type flightCreateInput struct {
 	Cover        []string `json:"cover,omitempty" jsonschema:"covered kegs with role caps, e.g. @ns/keg=viewer or @ns/keg=editor (bare entries default to viewer)"`
 }
 
-type flightUpdateInput struct {
+type flightEditInput struct {
 	Ref          string   `json:"ref" jsonschema:"flight reference (@namespace/+slug; a bare slug uses the default namespace)"`
 	Title        *string  `json:"title,omitempty" jsonschema:"new flight title; omit to keep the current title"`
 	Instructions *string  `json:"instructions,omitempty" jsonschema:"new markdown instructions; omit to keep the current instructions"`
@@ -36,8 +36,8 @@ type flightDeleteInput struct {
 
 // registerFlightTools exposes flight discovery and management over MCP at
 // parity with the `tap flight list/show/create/edit/delete` CLI commands.
-// flight_update is the agent-facing equivalent of the CLI's piped
-// `flight edit`: agents cannot open editors, so the partial-update tool
+// flight_edit is the agent-facing equivalent of the CLI's piped
+// `flight edit`: agents cannot open editors, so the partial-edit tool
 // (omitted fields keep their current values) remains the MCP surface.
 func registerFlightTools(srv *sdkmcp.Server, tap *tapper.Tap, _ KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
@@ -95,13 +95,13 @@ func registerFlightTools(srv *sdkmcp.Server, tap *tapper.Tap, _ KegDefaults) {
 	})
 
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
-		Name:        "flight_update",
-		Description: "Update a Hub-backed flight; omitted fields keep their current values",
+		Name:        "flight_edit",
+		Description: "Edit a Hub-backed flight; omitted fields keep their current values",
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  false,
 			OpenWorldHint: boolPtr(true),
 		},
-	}, func(ctx context.Context, _ *sdkmcp.CallToolRequest, in flightUpdateInput) (*sdkmcp.CallToolResult, any, error) {
+	}, func(ctx context.Context, _ *sdkmcp.CallToolRequest, in flightEditInput) (*sdkmcp.CallToolResult, any, error) {
 		opts := tapper.UpdateFlightOptions{
 			Ref:          in.Ref,
 			Title:        in.Title,

@@ -103,11 +103,12 @@ list for the live surface.
 | Tool | Description |
 | --- | --- |
 | `keg_list` | List visible kegs on a hub |
-| `keg_grants`, `keg_grant`, `keg_revoke` | Manage per-keg access |
 | `keg_visibility` | Set keg visibility |
-| `namespace_list`, `namespace_members`, `namespace_create` | Inspect or create namespaces |
-| `namespace_add_member`, `namespace_set_role`, `namespace_remove_member` | Manage namespace members |
+| `namespace_list` | Inspect namespaces |
 | `auth_status` | Inspect authentication state |
+
+User and role management tools are intentionally not exposed over MCP for now;
+manage namespace members and keg grants through the hub UI.
 
 ### Automation And Setup
 
@@ -119,7 +120,7 @@ list for the live surface.
 | `export`, `import` | Export or import keg archives |
 | `graph` | Render a keg graph |
 | `orient` | Return the tiered agent orientation payload |
-| `list_flights`, `flight_show`, `flight_create`, `flight_update`, `flight_delete` | Manage flights |
+| `list_flights`, `flight_show`, `flight_create`, `flight_edit`, `flight_delete` | Manage flights |
 | `integrate` | Install rendered host integrations |
 | `license` | Read bundled license text |
 
