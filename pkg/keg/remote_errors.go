@@ -16,6 +16,7 @@ const (
 	RemoteCodeDestExists   = "DEST_EXISTS"
 	RemoteCodeConflict     = "CONFLICT"
 	RemoteCodeInvalid      = "INVALID"
+	RemoteCodeInvalidImage = "INVALID_IMAGE"
 	RemoteCodeLockMismatch = "LOCK_MISMATCH"
 	RemoteCodeNotLocked    = "NOT_LOCKED"
 	RemoteCodeLock         = "LOCK"
@@ -37,6 +38,7 @@ var remoteCodeTable = []struct {
 	{ErrDestinationExists, RemoteCodeDestExists, http.StatusConflict},
 	{ErrExist, RemoteCodeExist, http.StatusConflict},
 	{ErrConflict, RemoteCodeConflict, http.StatusConflict},
+	{ErrInvalidImage, RemoteCodeInvalidImage, http.StatusBadRequest},
 	{ErrInvalid, RemoteCodeInvalid, http.StatusBadRequest},
 	{ErrLockTokenMismatch, RemoteCodeLockMismatch, http.StatusLocked},
 	{ErrNotLocked, RemoteCodeNotLocked, http.StatusConflict},

@@ -72,7 +72,7 @@ func TestImageList_ShowsUploadedImages(t *testing.T) {
 
 	NewProcess(t, false, "image", "upload", "0", "~/test-images/default.png").
 		Run(sb.Context(), sb.Runtime())
-	sb.MustWriteFile("~/test-images/banner.png", []byte("fake banner"), 0o644)
+	sb.MustWriteFile("~/test-images/banner.png", sb.MustReadFile("~/test-images/default.png"), 0o644)
 	NewProcess(t, false, "image", "upload", "0", "~/test-images/banner.png").
 		Run(sb.Context(), sb.Runtime())
 

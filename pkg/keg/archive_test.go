@@ -56,7 +56,7 @@ func TestArchiveExportUsesAssetsDirectoryAndIncludesConfigForFullBackup(t *testi
 	id, err := src.Create(ctx, &keg.CreateOptions{Title: "asset node", Body: []byte("# asset node\n")})
 	require.NoError(t, err)
 	require.NoError(t, src.WriteFile(ctx, id, "doc.txt", []byte("doc bytes")))
-	require.NoError(t, src.WriteImage(ctx, id, "diagram.png", []byte("png bytes")))
+	require.NoError(t, src.WriteImage(ctx, id, "diagram.png", tinyPNG(t)))
 
 	entries := readArchiveEntriesForTest(t, mustExportArchive(t, src, keg.ExportNodesOptions{WithAssets: true}))
 

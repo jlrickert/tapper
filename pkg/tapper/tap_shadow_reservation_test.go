@@ -119,7 +119,7 @@ func TestUploadImage_ShadowReservationRejected(t *testing.T) {
 	tap := setupTapWithKeg(t, fx)
 
 	src := "/home/testuser/pic.png"
-	require.NoError(t, fx.Runtime().WriteFile(src, []byte("\x89PNG\r\n\x1a\n"), 0o644))
+	require.NoError(t, fx.Runtime().WriteFile(src, tinyPNG(t), 0o644))
 
 	shadowID := allocateShadowReservation(t, fx)
 
