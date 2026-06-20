@@ -15,22 +15,25 @@ import (
 	"github.com/jlrickert/cli-toolkit/toolkit"
 )
 
+const fakeBadGatewayStep = "__bad_gateway__"
+
 // fakeHub stages a hub that supports the device flow with controllable
 // behavior at each polling step. The Steps slice drives the token endpoint:
 // one entry is consumed per /oauth/token POST. nil entries return the success
 // shape; non-nil entries return the error shape (and the polling loop
 // dispatches on Error).
 type fakeHub struct {
-	URL          string
-	Server       *httptest.Server
-	DeviceCode   string
-	UserCode     string
-	Interval     int
-	IssuedToken  string
-	PollCount    int32
-	steps        []*tokenErrorResponse
-	stepIndex    int32
-	authEndpoint string
+	URL                 string
+	Server              *httptest.Server
+	DeviceCode          string
+	UserCode            string
+	Interval            int
+	IssuedToken         string
+	ExpectedDeviceLabel string
+	PollCount           int32
+	steps               []*tokenErrorResponse
+	stepIndex           int32
+	authEndpoint        string
 }
 
 func newFakeHub(t *testing.T, steps []*tokenErrorResponse) *fakeHub {
@@ -64,6 +67,10 @@ func newFakeHub(t *testing.T, steps []*tokenErrorResponse) *fakeHub {
 			http.Error(w, "bad client_id", http.StatusBadRequest)
 			return
 		}
+		if h.ExpectedDeviceLabel != "" && r.FormValue("device_label") != h.ExpectedDeviceLabel {
+			http.Error(w, "bad device_label", http.StatusBadRequest)
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"device_code":               h.DeviceCode,
@@ -94,6 +101,10 @@ func newFakeHub(t *testing.T, steps []*tokenErrorResponse) *fakeHub {
 		atomic.AddInt32(&h.stepIndex, 1)
 		if idx < len(h.steps) && h.steps[idx] != nil {
 			step := h.steps[idx]
+			if step.Error == fakeBadGatewayStep {
+				http.Error(w, "bad gateway", http.StatusBadGateway)
+				return
+			}
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadRequest)
 			_ = json.NewEncoder(w).Encode(map[string]string{
@@ -146,7 +157,9 @@ func TestAuthLoginDevice_HappyPath(t *testing.T) {
 		nil, // success
 	})
 	rt, _ := toolkit.NewRuntime()
+	hub.ExpectedDeviceLabel = "Tapper CLI on test-host (Linux)"
 	opts, prompt, _ := newDeviceFlowOpts(t, hub)
+	opts.DeviceLabel = hub.ExpectedDeviceLabel
 
 	entry, err := AuthLoginDevice(context.Background(), rt, opts)
 	if err != nil {
@@ -361,6 +374,26 @@ func TestAuthLoginDevice_SlowDownIncreasesInterval(t *testing.T) {
 	got := time.Duration(sleeps.Load())
 	if got < 10*time.Second {
 		t.Errorf("expected slow_down to bump cumulative sleep past 10s; got %s", got)
+	}
+}
+
+func TestAuthLoginDevice_RetriesTransientGatewayError(t *testing.T) {
+	hub := newFakeHub(t, []*tokenErrorResponse{
+		{Error: fakeBadGatewayStep},
+		nil, // success after the backend/proxy recovers
+	})
+	rt, _ := toolkit.NewRuntime()
+	opts, _, sleeps := newDeviceFlowOpts(t, hub)
+
+	entry, err := AuthLoginDevice(context.Background(), rt, opts)
+	if err != nil {
+		t.Fatalf("AuthLoginDevice: %v", err)
+	}
+	if entry.AccessToken != hub.IssuedToken {
+		t.Errorf("expected token %q, got %q", hub.IssuedToken, entry.AccessToken)
+	}
+	if sleeps.Load() == 0 {
+		t.Error("expected transient gateway error to sleep before retrying")
 	}
 }
 

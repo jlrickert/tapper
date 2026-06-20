@@ -72,6 +72,10 @@ type AuthLoginDeviceOptions struct {
 	// device_authorization request when empty.
 	Scope string
 
+	// DeviceLabel is an optional human-readable label for this login session.
+	// Hubs may display it in account/session views.
+	DeviceLabel string
+
 	// Timeout bounds the whole flow including the user's browser action;
 	// zero uses defaultDeviceTimeout.
 	Timeout time.Duration
@@ -208,7 +212,7 @@ func AuthLoginDevice(ctx context.Context, rt *toolkit.Runtime, opts AuthLoginDev
 		return nil, fmt.Errorf("auth login device: hub does not advertise device_authorization_endpoint; the hub may be too old to support the device flow")
 	}
 
-	dar, err := requestDeviceAuthorization(ctx, opts.HTTPClient, metadata.DeviceAuthorizationEndpoint, opts.ClientID, opts.Scope)
+	dar, err := requestDeviceAuthorization(ctx, opts.HTTPClient, metadata.DeviceAuthorizationEndpoint, opts.ClientID, opts.Scope, opts.DeviceLabel)
 	if err != nil {
 		return nil, err
 	}
@@ -299,11 +303,14 @@ func finishDeviceLogin(rt *toolkit.Runtime, opts AuthLoginDeviceOptions, tokenEn
 
 // requestDeviceAuthorization performs the RFC 8628 §3.1 POST and parses the
 // response. Returns a populated deviceAuthResponse on success.
-func requestDeviceAuthorization(ctx context.Context, client *http.Client, endpoint, clientID, scope string) (*deviceAuthResponse, error) {
+func requestDeviceAuthorization(ctx context.Context, client *http.Client, endpoint, clientID, scope, deviceLabel string) (*deviceAuthResponse, error) {
 	form := url.Values{}
 	form.Set("client_id", clientID)
 	if scope != "" {
 		form.Set("scope", scope)
+	}
+	if label := strings.TrimSpace(deviceLabel); label != "" {
+		form.Set("device_label", label)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(form.Encode()))
@@ -389,14 +396,17 @@ func pollForDeviceToken(ctx context.Context, opts AuthLoginDeviceOptions, tokenE
 		case "slow_down":
 			// Per §3.5: bump the polling interval and try again.
 			interval += slowDownIncrement
+		case "server_error", "temporarily_unavailable":
+			// OAuth2's transient server failures, and gateway errors mapped
+			// from a proxy reload, should not make the user restart an
+			// otherwise-valid browser approval.
 		case "access_denied":
 			return nil, fmt.Errorf("auth login device: user denied the request")
 		case "expired_token":
 			return nil, fmt.Errorf("auth login device: device_code expired before approval; run the command again")
 		default:
-			// Any other error (transport, invalid_grant, server_error)
-			// bubbles up immediately — recoverable cases are the four
-			// codes named above.
+			// Any other error bubbles up immediately; invalid_grant and
+			// malformed responses should not loop forever.
 			return nil, err
 		}
 
@@ -446,7 +456,19 @@ func pollOnce(ctx context.Context, client *http.Client, tokenEndpoint, clientID,
 
 	var e tokenErrorResponse
 	if err := json.Unmarshal(body, &e); err != nil || e.Error == "" {
+		if isTransientTokenStatus(resp.StatusCode) {
+			return nil, "temporarily_unavailable", fmt.Errorf("auth login device: hub returned %s", resp.Status)
+		}
 		return nil, "", fmt.Errorf("auth login device: hub returned %s", resp.Status)
 	}
 	return nil, e.Error, errors.New(e.ErrorDescription)
+}
+
+func isTransientTokenStatus(status int) bool {
+	switch status {
+	case http.StatusInternalServerError, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+		return true
+	default:
+		return false
+	}
 }
