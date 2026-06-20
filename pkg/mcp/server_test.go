@@ -3,6 +3,7 @@ package mcp_test
 import (
 	"context"
 	"embed"
+	"encoding/base64"
 	"log/slog"
 	"strings"
 	"testing"
@@ -20,6 +21,13 @@ import (
 
 //go:embed all:data/**
 var testdata embed.FS
+
+func tinyPNG(t *testing.T) []byte {
+	t.Helper()
+	data, err := base64.StdEncoding.DecodeString("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==")
+	require.NoError(t, err)
+	return data
+}
 
 func newTestSandbox(t *testing.T) *sandbox.Sandbox {
 	t.Helper()
@@ -191,10 +199,10 @@ func TestMCP_ToolsList(t *testing.T) {
 }
 
 // TestMCP_SurfaceHub_CuratesToolset pins the remote hub connector surface: it
-// exposes the per-user node read/write tools and omits every CLI/local and
-// hub-admin tool (auth_status, config, doctor, local-path files, locks, archive,
-// keg/namespace administration, flights, license). tapper-hub mounts this surface
-// at /mcp paired with Tap.KegResolver.
+// exposes the per-user node read/write tools and upload tools, and omits every
+// CLI/local and hub-admin tool (auth_status, config, doctor, local-path
+// downloads, locks, archive, keg/namespace administration, flights, license).
+// tapper-hub mounts this surface at /mcp paired with Tap.KegResolver.
 func TestMCP_SurfaceHub_CuratesToolset(t *testing.T) {
 	t.Parallel()
 	session, ctx := newTestSessionWithOpts(t, mcp.ServerOptions{Surface: mcp.SurfaceHub})
@@ -214,6 +222,8 @@ func TestMCP_SurfaceHub_CuratesToolset(t *testing.T) {
 		"stats", "create", "edit", "meta", "remove", "move", "index",
 		"list_indexes", "index_cat", "node_history", "node_snapshot",
 		"node_snapshot_view", "node_restore", "graph", "orient",
+		"list_files", "list_images", "delete_file", "delete_image",
+		"upload_file", "upload_image",
 	} {
 		require.Truef(t, names[want], "SurfaceHub should expose %q", want)
 	}
@@ -222,7 +232,7 @@ func TestMCP_SurfaceHub_CuratesToolset(t *testing.T) {
 	for _, banned := range []string{
 		"auth_status", "config", "config_template", "doctor", "license",
 		"repo_init", "integrate", "export", "import", "import_from_keg",
-		"upload_file", "download_file", "upload_image", "download_image",
+		"download_file", "download_image",
 		"lock_acquire", "lock_release", "lock_status", "lock_force_release",
 		"keg_list", "keg_grants", "keg_grant", "keg_revoke", "keg_visibility",
 		"namespace_list", "namespace_members", "namespace_add_member",
@@ -1324,7 +1334,8 @@ func TestMCP_UploadAndDownloadImage(t *testing.T) {
 
 	// Write a source image in the sandbox.
 	srcPath := "/home/testuser/upload-test.png"
-	require.NoError(t, rt.WriteFile(srcPath, []byte("fake png data"), 0o644))
+	pngData := tinyPNG(t)
+	require.NoError(t, rt.WriteFile(srcPath, pngData, 0o644))
 
 	// Upload the image via source_path.
 	uploadRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
@@ -1368,7 +1379,192 @@ func TestMCP_UploadAndDownloadImage(t *testing.T) {
 	// Verify the downloaded image contents match.
 	got, err := rt.ReadFile(destPath)
 	require.NoError(t, err)
-	require.Equal(t, "fake png data", string(got))
+	require.Equal(t, pngData, got)
+}
+
+func TestMCP_UploadFileFromBase64(t *testing.T) {
+	t.Parallel()
+	session, rt, ctx := newTestSessionWithRuntime(t)
+
+	createRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "create",
+		Arguments: map[string]any{
+			"title": "Base64 File Node",
+		},
+	})
+	require.NoError(t, err)
+	nodeID := extractText(t, createRes)
+
+	payload := []byte("hello from base64")
+	uploadRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "upload_file",
+		Arguments: map[string]any{
+			"node_id":     nodeID,
+			"filename":    "raw.txt",
+			"data_base64": base64.StdEncoding.EncodeToString(payload),
+		},
+	})
+	require.NoError(t, err)
+	require.False(t, uploadRes.IsError, "upload_file returned error: %s", extractText(t, uploadRes))
+
+	destPath := "/home/testuser/base64-download.txt"
+	downloadRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "download_file",
+		Arguments: map[string]any{
+			"node_id":   nodeID,
+			"filename":  "raw.txt",
+			"dest_path": destPath,
+		},
+	})
+	require.NoError(t, err)
+	require.False(t, downloadRes.IsError, "download_file returned error: %s", extractText(t, downloadRes))
+	got, err := rt.ReadFile(destPath)
+	require.NoError(t, err)
+	require.Equal(t, payload, got)
+}
+
+func TestMCP_UploadFileFromEmbeddedResource(t *testing.T) {
+	t.Parallel()
+	session, rt, ctx := newTestSessionWithRuntime(t)
+
+	createRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "create",
+		Arguments: map[string]any{
+			"title": "Embedded File Node",
+		},
+	})
+	require.NoError(t, err)
+	nodeID := extractText(t, createRes)
+
+	payload := []byte("hello from embedded resource")
+	uploadRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "upload_file",
+		Arguments: map[string]any{
+			"node_id": nodeID,
+			"resource": map[string]any{
+				"uri":      "file:///tmp/embedded.txt",
+				"mimeType": "text/plain",
+				"blob":     base64.StdEncoding.EncodeToString(payload),
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.False(t, uploadRes.IsError, "upload_file returned error: %s", extractText(t, uploadRes))
+	require.Contains(t, extractText(t, uploadRes), "embedded.txt")
+
+	destPath := "/home/testuser/embedded-download.txt"
+	downloadRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "download_file",
+		Arguments: map[string]any{
+			"node_id":   nodeID,
+			"filename":  "embedded.txt",
+			"dest_path": destPath,
+		},
+	})
+	require.NoError(t, err)
+	require.False(t, downloadRes.IsError, "download_file returned error: %s", extractText(t, downloadRes))
+	got, err := rt.ReadFile(destPath)
+	require.NoError(t, err)
+	require.Equal(t, payload, got)
+}
+
+func TestMCP_UploadImageFromEmbeddedResource(t *testing.T) {
+	t.Parallel()
+	session, ctx := newTestSession(t)
+
+	createRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "create",
+		Arguments: map[string]any{
+			"title": "Embedded Image Node",
+		},
+	})
+	require.NoError(t, err)
+	nodeID := extractText(t, createRes)
+
+	uploadRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "upload_image",
+		Arguments: map[string]any{
+			"node_id": nodeID,
+			"resource": map[string]any{
+				"uri":      "file:///tmp/embedded.png",
+				"mimeType": "image/png",
+				"blob":     base64.StdEncoding.EncodeToString(tinyPNG(t)),
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.False(t, uploadRes.IsError, "upload_image returned error: %s", extractText(t, uploadRes))
+	require.Contains(t, extractText(t, uploadRes), "embedded.png")
+
+	listRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "list_images",
+		Arguments: map[string]any{
+			"node_id": nodeID,
+		},
+	})
+	require.NoError(t, err)
+	require.Contains(t, extractText(t, listRes), "embedded.png")
+}
+
+func TestMCP_UploadImageRejectsInvalidImage(t *testing.T) {
+	t.Parallel()
+	session, ctx := newTestSession(t)
+
+	createRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "create",
+		Arguments: map[string]any{
+			"title": "Invalid Image Node",
+		},
+	})
+	require.NoError(t, err)
+	nodeID := extractText(t, createRes)
+
+	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "upload_image",
+		Arguments: map[string]any{
+			"node_id":     nodeID,
+			"filename":    "bad.png",
+			"data_base64": base64.StdEncoding.EncodeToString([]byte("not an image")),
+		},
+	})
+	require.NoError(t, err)
+	require.True(t, res.IsError, "expected invalid image upload to fail")
+	require.Contains(t, extractText(t, res), "invalid image")
+}
+
+func TestMCP_UploadRejectsMultipleSources(t *testing.T) {
+	t.Parallel()
+	session, ctx := newTestSession(t)
+
+	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "upload_file",
+		Arguments: map[string]any{
+			"node_id":     "0",
+			"filename":    "test.txt",
+			"source_path": "/home/testuser/a.txt",
+			"data_base64": base64.StdEncoding.EncodeToString([]byte("x")),
+		},
+	})
+	require.NoError(t, err)
+	require.True(t, res.IsError, "expected multiple upload sources to fail")
+	require.Contains(t, extractText(t, res), "exactly one")
+}
+
+func TestMCP_SurfaceHubRejectsLocalUploadSource(t *testing.T) {
+	t.Parallel()
+	session, ctx := newTestSessionWithOpts(t, mcp.ServerOptions{Surface: mcp.SurfaceHub})
+
+	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "upload_file",
+		Arguments: map[string]any{
+			"node_id":     "0",
+			"filename":    "test.txt",
+			"source_path": "/home/testuser/upload-test.txt",
+		},
+	})
+	require.NoError(t, err)
+	require.True(t, res.IsError, "expected hub surface local upload source to fail")
+	require.Contains(t, extractText(t, res), "local file sources are not available")
 }
 
 func TestMCP_UploadFileMissingSource(t *testing.T) {

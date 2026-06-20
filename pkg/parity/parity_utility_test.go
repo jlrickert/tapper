@@ -379,7 +379,8 @@ func TestParity_ImageUploadDownload(t *testing.T) {
 
 	// Write a source image in the sandbox. Name matches desired attachment name.
 	srcPath := "/home/testuser/parity.png"
-	require.NoError(t, rt.WriteFile(srcPath, []byte("fake png parity"), 0o644))
+	pngData := tinyPNG(t)
+	require.NoError(t, rt.WriteFile(srcPath, pngData, 0o644))
 
 	// Upload via CLI: tap image upload NODE_ID LOCAL_PATH (name derived from path).
 	cliUpload, err := env.runCLI("image", "upload", "0", srcPath)
@@ -398,7 +399,7 @@ func TestParity_ImageUploadDownload(t *testing.T) {
 
 	mcpGot, err := rt.ReadFile(mcpDestPath)
 	require.NoError(t, err)
-	require.Equal(t, "fake png parity", string(mcpGot))
+	require.Equal(t, pngData, mcpGot)
 
 	// Clean up and re-upload via MCP.
 	_, err = env.runCLI("image", "rm", "0", "parity.png")
@@ -419,5 +420,5 @@ func TestParity_ImageUploadDownload(t *testing.T) {
 
 	cliGot, err := rt.ReadFile(cliDestPath)
 	require.NoError(t, err)
-	require.Equal(t, "fake png parity", string(cliGot))
+	require.Equal(t, pngData, cliGot)
 }

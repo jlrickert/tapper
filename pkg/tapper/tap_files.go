@@ -19,6 +19,7 @@ type UploadFileOptions struct {
 	KegTargetOptions
 	NodeID   string
 	FilePath string
+	Data     []byte
 	Name     string
 }
 
@@ -48,6 +49,7 @@ type UploadImageOptions struct {
 	KegTargetOptions
 	NodeID   string
 	FilePath string
+	Data     []byte
 	Name     string
 }
 
@@ -104,13 +106,20 @@ func (t *Tap) UploadFile(ctx context.Context, opts UploadFileOptions) (string, e
 	if !exists {
 		return "", fmt.Errorf("node %s not found in %s", id.Path(), describeKeg(k))
 	}
-	data, err := t.Runtime.ReadFile(opts.FilePath)
-	if err != nil {
-		return "", fmt.Errorf("unable to read local file %q: %w", opts.FilePath, err)
+	data := opts.Data
+	if data == nil {
+		var err error
+		data, err = t.Runtime.ReadFile(opts.FilePath)
+		if err != nil {
+			return "", fmt.Errorf("unable to read local file %q: %w", opts.FilePath, err)
+		}
 	}
 	name := opts.Name
-	if name == "" {
+	if name == "" && opts.FilePath != "" {
 		name = filepath.Base(opts.FilePath)
+	}
+	if name == "" {
+		return "", fmt.Errorf("filename is required")
 	}
 	if err := k.WriteFile(ctx, id, name, data); err != nil {
 		return "", fmt.Errorf("unable to upload file: %w", err)
@@ -207,13 +216,23 @@ func (t *Tap) UploadImage(ctx context.Context, opts UploadImageOptions) (string,
 	if !exists {
 		return "", fmt.Errorf("node %s not found in %s", id.Path(), describeKeg(k))
 	}
-	data, err := t.Runtime.ReadFile(opts.FilePath)
-	if err != nil {
-		return "", fmt.Errorf("unable to read local file %q: %w", opts.FilePath, err)
+	data := opts.Data
+	if data == nil {
+		var err error
+		data, err = t.Runtime.ReadFile(opts.FilePath)
+		if err != nil {
+			return "", fmt.Errorf("unable to read local file %q: %w", opts.FilePath, err)
+		}
 	}
 	name := opts.Name
-	if name == "" {
+	if name == "" && opts.FilePath != "" {
 		name = filepath.Base(opts.FilePath)
+	}
+	if name == "" {
+		return "", fmt.Errorf("filename is required")
+	}
+	if _, err := keg.ValidateImage(data); err != nil {
+		return "", fmt.Errorf("unable to upload image: %w", err)
 	}
 	if err := k.WriteImage(ctx, id, name, data); err != nil {
 		return "", fmt.Errorf("unable to upload image: %w", err)

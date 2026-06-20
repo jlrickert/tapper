@@ -84,6 +84,9 @@ func (k *LocalKeg) WriteImage(ctx context.Context, id NodeId, name string, data 
 	if err := k.checkKegExists(ctx); err != nil {
 		return fmt.Errorf("failed to write image: %w", err)
 	}
+	if _, err := ValidateImage(data); err != nil {
+		return err
+	}
 	images, ok := k.Repo.(RepositoryImages)
 	if !ok {
 		return ErrNotSupported
