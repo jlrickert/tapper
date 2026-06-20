@@ -280,6 +280,7 @@ func TestAuthLoginCmd_PersistsStoreAndPrintsHub(t *testing.T) {
 	require.Equal(t, "https://hub.example.com", captured2.HubURL)
 	require.Equal(t, "tapper-cli", captured2.ClientID)
 	require.Equal(t, "read write", captured2.Scope)
+	require.Equal(t, "Tapper CLI ("+authDeviceOSLabel()+")", captured2.DeviceLabel)
 	require.NotNil(t, captured2.OnUserCode, "device options should carry the CLI's OnUserCode handler")
 
 	// Store persisted at StateRoot/auth.yaml, keyed by the canonical form.
@@ -298,6 +299,16 @@ func TestAuthLoginCmd_PersistsStoreAndPrintsHub(t *testing.T) {
 	require.Equal(t, "stub-access-token", entry.AccessToken)
 	require.Equal(t, "Bearer", entry.TokenType)
 	require.Equal(t, "read write", entry.Scope)
+}
+
+func TestAuthDeviceLabelIncludesHostnameWhenRuntimeHasProcessInfo(t *testing.T) {
+	t.Parallel()
+	rt, err := toolkit.NewRuntime(toolkit.WithProcessInfo(toolkit.ProcessInfo{
+		Hostname: "dev laptop.local",
+	}))
+	require.NoError(t, err)
+
+	require.Equal(t, "Tapper CLI on dev-laptop.local ("+authDeviceOSLabel()+")", authDeviceLabel(rt))
 }
 
 func TestAuthLoginCmd_DefaultClientID(t *testing.T) {

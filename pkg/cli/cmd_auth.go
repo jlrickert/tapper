@@ -9,9 +9,11 @@ import (
 	"context"
 	"fmt"
 	"io"
+	goruntime "runtime"
 	"strings"
 	"time"
 
+	"github.com/jlrickert/cli-toolkit/toolkit"
 	"github.com/jlrickert/tapper/pkg/tapper"
 	"github.com/spf13/cobra"
 )
@@ -99,11 +101,12 @@ func runAuthLogin(ctx context.Context, deps *Deps, p authLoginParams) (*authLogi
 		entry = &tapper.AuthEntry{AccessToken: strings.TrimSpace(p.Token), TokenType: "Bearer"}
 	default: // methodBrowser — RFC 8628 device flow with the gh-style open prompt
 		entry, err = deps.AuthLoginDeviceFn(ctx, rt, tapper.AuthLoginDeviceOptions{
-			HubURL:     hubURL,
-			ClientID:   clientID,
-			Scope:      p.Scope,
-			Timeout:    p.Timeout,
-			OnUserCode: deviceUserCodeHandler(deps),
+			HubURL:      hubURL,
+			ClientID:    clientID,
+			Scope:       p.Scope,
+			DeviceLabel: authDeviceLabel(rt),
+			Timeout:     p.Timeout,
+			OnUserCode:  deviceUserCodeHandler(deps),
 		})
 		if err != nil {
 			return nil, err
@@ -147,6 +150,58 @@ func loginNamespaceFromWho(who *tapper.WhoAmI) string {
 		return ns
 	}
 	return strings.TrimSpace(who.Username)
+}
+
+func authDeviceLabel(rt *toolkit.Runtime) string {
+	osLabel := authDeviceOSLabel()
+	host := ""
+	if rt != nil {
+		if proc := rt.Process(); proc != nil {
+			host = sanitizeAuthDeviceHost(proc.Hostname)
+		}
+	}
+	if host == "" {
+		return fmt.Sprintf("Tapper CLI (%s)", osLabel)
+	}
+	return fmt.Sprintf("Tapper CLI on %s (%s)", host, osLabel)
+}
+
+func authDeviceOSLabel() string {
+	switch goruntime.GOOS {
+	case "darwin":
+		return "macOS"
+	case "windows":
+		return "Windows"
+	case "linux":
+		return "Linux"
+	default:
+		return goruntime.GOOS
+	}
+}
+
+func sanitizeAuthDeviceHost(host string) string {
+	host = strings.TrimSpace(host)
+	if host == "" {
+		return ""
+	}
+	var b strings.Builder
+	for _, r := range host {
+		if b.Len() >= 40 {
+			break
+		}
+		switch {
+		case r >= 'a' && r <= 'z',
+			r >= 'A' && r <= 'Z',
+			r >= '0' && r <= '9',
+			r == '.', r == '-', r == '_':
+			b.WriteRune(r)
+		case r == ' ' || r == '\t' || r == '\n' || r == '\r':
+			if b.Len() > 0 {
+				b.WriteByte('-')
+			}
+		}
+	}
+	return strings.Trim(b.String(), "-._")
 }
 
 // deviceUserCodeHandler returns the AuthLoginDeviceOptions.OnUserCode callback

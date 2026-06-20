@@ -5,6 +5,7 @@ import (
 	_ "embed"
 	"os"
 
+	"github.com/jlrickert/cli-toolkit/clock"
 	"github.com/jlrickert/cli-toolkit/toolkit"
 	"github.com/jlrickert/tapper/pkg/cli"
 
@@ -25,7 +26,7 @@ func main() {
 	// with narrower scope so that short-lived commands exit immediately
 	// without intercepting SIGINT.
 
-	rt, err := toolkit.NewRuntime()
+	rt, err := toolkit.NewRuntime(toolkit.WithProcessInfo(toolkit.NewProcessInfo(clock.OsClock{})))
 	if err != nil {
 		os.Exit(1)
 	}
