@@ -61,6 +61,13 @@ type DownloadImageOptions struct {
 	Dest   string
 }
 
+// ReadImageOptions configures behavior for Tap.ReadImage.
+type ReadImageOptions struct {
+	KegTargetOptions
+	NodeID string
+	Name   string
+}
+
 // DeleteImageOptions configures behavior for Tap.DeleteImage.
 type DeleteImageOptions struct {
 	KegTargetOptions
@@ -240,20 +247,38 @@ func (t *Tap) UploadImage(ctx context.Context, opts UploadImageOptions) (string,
 	return name, nil
 }
 
-// DownloadImage retrieves a node image and writes it to a local path.
-// Returns the destination path.
-func (t *Tap) DownloadImage(ctx context.Context, opts DownloadImageOptions) (string, error) {
+// ReadImage retrieves a node image and validates that the stored bytes are
+// still one of Tapper's supported image formats.
+func (t *Tap) ReadImage(ctx context.Context, opts ReadImageOptions) ([]byte, string, error) {
 	k, err := t.resolveKeg(ctx, opts.KegTargetOptions)
 	if err != nil {
-		return "", fmt.Errorf("unable to open keg: %w", err)
+		return nil, "", fmt.Errorf("unable to open keg: %w", err)
 	}
 	k, id, err := t.resolveNodeArg(ctx, k, opts.NodeID)
 	if err != nil {
-		return "", err
+		return nil, "", err
 	}
 	data, err := k.ReadImage(ctx, id, opts.Name)
 	if err != nil {
-		return "", fmt.Errorf("unable to download image %q: %w", opts.Name, err)
+		return nil, "", fmt.Errorf("unable to download image %q: %w", opts.Name, err)
+	}
+	format, err := keg.ValidateImage(data)
+	if err != nil {
+		return nil, "", fmt.Errorf("unable to download image %q: %w", opts.Name, err)
+	}
+	return data, format, nil
+}
+
+// DownloadImage retrieves a node image and writes it to a local path.
+// Returns the destination path.
+func (t *Tap) DownloadImage(ctx context.Context, opts DownloadImageOptions) (string, error) {
+	data, _, err := t.ReadImage(ctx, ReadImageOptions{
+		KegTargetOptions: opts.KegTargetOptions,
+		NodeID:           opts.NodeID,
+		Name:             opts.Name,
+	})
+	if err != nil {
+		return "", err
 	}
 	dest := opts.Dest
 	if dest == "-" {

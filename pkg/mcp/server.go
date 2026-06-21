@@ -26,11 +26,13 @@ const (
 	// SurfaceHub registers only the per-user node read/write tools appropriate
 	// for a remote, OAuth-scoped hub connector (tapper-hub's /mcp endpoint). It
 	// omits CLI/local tools (auth_status, config, doctor, integrate, license,
-	// local-path downloads, archive, locks) and hub-admin tools (keg/namespace
-	// administration, flights) — none of which make sense for a remote
-	// multi-tenant connector. Uploads remain available, but local path sources
-	// are disabled. The hub pairs this with Tap.KegResolver so the registered
-	// tools resolve against the caller's catalog.
+	// file downloads, path-based image downloads, archive, locks) and hub-admin
+	// tools (keg/namespace administration, flights) — none of which make sense
+	// for a remote multi-tenant connector. Uploads remain available, but local
+	// path sources are disabled. Image downloads return MCP image content rather
+	// than writing to the server filesystem. The hub pairs this with
+	// Tap.KegResolver so the registered tools resolve against the caller's
+	// catalog.
 	SurfaceHub
 )
 
@@ -75,10 +77,15 @@ func NewServer(tap *tapper.Tap, version string, defaults KegDefaults, opts ...Se
 	registerSnapshotTools(srv, tap, defaults)
 	registerGraphTools(srv, tap, defaults)
 	registerOrientTools(srv, tap, defaults)
-	registerFileTools(srv, tap, defaults, fileToolOptions{
+	fileOpts := fileToolOptions{
 		AllowLocalSources: opt.Surface != SurfaceHub,
-		IncludeDownloads:  opt.Surface != SurfaceHub,
-	})
+		DownloadFiles:     opt.Surface != SurfaceHub,
+		ImageDownloads:    imageDownloadLocalPath,
+	}
+	if opt.Surface == SurfaceHub {
+		fileOpts.ImageDownloads = imageDownloadContent
+	}
+	registerFileTools(srv, tap, defaults, fileOpts)
 
 	// CLI/local and hub-admin tools — omitted on the remote hub connector
 	// surface (see Surface docs). They depend on the local CLI environment
