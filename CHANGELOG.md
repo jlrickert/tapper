@@ -2,6 +2,18 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.24.0 - 2026-06-21
+
+
+
+### 🐛 Bug Fixes
+- **mcp:** disable UI-only admin tools
+
+
+### 🚀 Features
+- replace flight update with editor-based flight edit
+
+
 ## v0.23.0 - 2026-06-18
 
 
