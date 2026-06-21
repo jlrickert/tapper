@@ -121,9 +121,9 @@ var tapMethodToSurfaces = map[string]struct {
 // surface coverage checks. These are internal helpers, config accessors, or
 // methods that are not meant to be directly exposed as standalone tools.
 var tapMethodsExcluded = map[string]string{
-	"KegConfigEdit": "interactive editor; not exposed via MCP",
-	"ConfigEdit":    "interactive editor; not exposed via MCP",
-	"UpdateFlight": "underlying partial-update operation used by MCP flight_edit; CLI users use `flight edit`",
+	"KegConfigEdit":  "interactive editor; not exposed via MCP",
+	"ConfigEdit":     "interactive editor; not exposed via MCP",
+	"UpdateFlight":   "underlying partial-update operation used by MCP flight_edit; CLI users use `flight edit`",
 	"LookupKeg":      "internal resolution helper; not a user-facing operation",
 	"ResolveNodeRef": "internal node-reference resolver shared by surfaces; not a user-facing operation",
 	"WatchNode": "streaming, not request/response: CLI surface is `tap watch` (long-lived stream); " +
@@ -133,6 +133,7 @@ var tapMethodsExcluded = map[string]string{
 		"observe the same Tap.WatchNode events",
 	"DoctorConfig":          "tapper-config health check helper; called by Doctor CLI/MCP surfaces",
 	"ConfigExplain":         "shares surface with Config via --explain flag / explain field",
+	"ReadImage":             "underlying byte-read helper used by image download surfaces; not a standalone operation",
 	"AuthLogout":            "security: MCP agents must not be able to revoke hub credentials; CLI-only by design",
 	"HubList":               "lists local hub connections (config inspection); CLI-only via `tap hub list`",
 	"HubAdd":                "security: writes hub connections (incl. token refs) to user config; CLI-only by design",

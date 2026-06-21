@@ -16,8 +16,17 @@ import (
 
 type fileToolOptions struct {
 	AllowLocalSources bool
-	IncludeDownloads  bool
+	DownloadFiles     bool
+	ImageDownloads    imageDownloadMode
 }
+
+type imageDownloadMode int
+
+const (
+	imageDownloadNone imageDownloadMode = iota
+	imageDownloadLocalPath
+	imageDownloadContent
+)
 
 func registerFileTools(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults, opts fileToolOptions) {
 	registerListFiles(srv, tap, defaults)
@@ -26,9 +35,11 @@ func registerFileTools(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults
 	registerDeleteImage(srv, tap, defaults)
 	registerUploadFile(srv, tap, defaults, opts.AllowLocalSources)
 	registerUploadImage(srv, tap, defaults, opts.AllowLocalSources)
-	if opts.IncludeDownloads {
+	if opts.DownloadFiles {
 		registerDownloadFile(srv, tap, defaults)
-		registerDownloadImage(srv, tap, defaults)
+	}
+	if opts.ImageDownloads != imageDownloadNone {
+		registerDownloadImage(srv, tap, defaults, opts.ImageDownloads)
 	}
 }
 
@@ -302,34 +313,85 @@ func registerUploadImage(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaul
 type downloadImageInput struct {
 	NodeID   string `json:"node_id" jsonschema:"node ID containing the image"`
 	Filename string `json:"filename" jsonschema:"image filename to download"`
-	DestPath string `json:"dest_path" jsonschema:"absolute path to write the downloaded image"`
+	DestPath string `json:"dest_path,omitempty" jsonschema:"absolute path to write the downloaded image (stdio/local only)"`
 	Keg      string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
 	Flight   string `json:"flight,omitempty" jsonschema:"flight ref to cap available kegs (uses server default if empty)"`
 }
 
-func registerDownloadImage(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
+func registerDownloadImage(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults, mode imageDownloadMode) {
+	description := "Download an image attachment from a node"
+	if mode == imageDownloadLocalPath {
+		description = "Download an image attachment from a node to a local file path"
+	}
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "download_image",
-		Description: "Download an image attachment from a node to a local file path",
+		Description: description,
 		Annotations: &sdkmcp.ToolAnnotations{
+			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(false),
 		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in downloadImageInput) (*sdkmcp.CallToolResult, any, error) {
-		if in.DestPath == "-" {
-			return errorResult(fmt.Errorf("stdout mode is not supported over MCP")), nil, nil
+		switch mode {
+		case imageDownloadLocalPath:
+			if strings.TrimSpace(in.DestPath) == "" {
+				return errorResult(fmt.Errorf("dest_path is required on this MCP surface")), nil, nil
+			}
+			if in.DestPath == "-" {
+				return errorResult(fmt.Errorf("stdout mode is not supported over MCP")), nil, nil
+			}
+			opts := tapper.DownloadImageOptions{
+				KegTargetOptions: resolveKegTargetWithFlight(in.Keg, in.Flight, defaults),
+				NodeID:           in.NodeID,
+				Name:             in.Filename,
+				Dest:             in.DestPath,
+			}
+			dest, err := tap.DownloadImage(ctx, opts)
+			if err != nil {
+				return errorResult(err), nil, nil
+			}
+			return textResult(fmt.Sprintf("downloaded image %q to %s", in.Filename, dest)), nil, nil
+		case imageDownloadContent:
+			if strings.TrimSpace(in.DestPath) != "" {
+				return errorResult(fmt.Errorf("dest_path is not available on this MCP surface; omit dest_path to receive image content")), nil, nil
+			}
+			data, format, err := tap.ReadImage(ctx, tapper.ReadImageOptions{
+				KegTargetOptions: resolveKegTargetWithFlight(in.Keg, in.Flight, defaults),
+				NodeID:           in.NodeID,
+				Name:             in.Filename,
+			})
+			if err != nil {
+				return errorResult(err), nil, nil
+			}
+			mimeType := imageMIMEType(format)
+			return &sdkmcp.CallToolResult{
+				Content: []sdkmcp.Content{
+					&sdkmcp.ImageContent{
+						Data:     data,
+						MIMEType: mimeType,
+					},
+				},
+				StructuredContent: map[string]any{
+					"node_id":   in.NodeID,
+					"filename":  in.Filename,
+					"mime_type": mimeType,
+					"size":      len(data),
+				},
+			}, nil, nil
+		default:
+			return errorResult(fmt.Errorf("image downloads are not available on this MCP surface")), nil, nil
 		}
-		opts := tapper.DownloadImageOptions{
-			KegTargetOptions: resolveKegTargetWithFlight(in.Keg, in.Flight, defaults),
-			NodeID:           in.NodeID,
-			Name:             in.Filename,
-			Dest:             in.DestPath,
-		}
-		dest, err := tap.DownloadImage(ctx, opts)
-		if err != nil {
-			return errorResult(err), nil, nil
-		}
-		return textResult(fmt.Sprintf("downloaded image %q to %s", in.Filename, dest)), nil, nil
 	})
+}
+
+func imageMIMEType(format string) string {
+	switch strings.ToLower(format) {
+	case "jpeg", "jpg":
+		return "image/jpeg"
+	case "png", "gif", "webp", "avif", "heic":
+		return "image/" + strings.ToLower(format)
+	default:
+		return "application/octet-stream"
+	}
 }
 
 type uploadResourceInput struct {

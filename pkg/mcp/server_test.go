@@ -4,6 +4,7 @@ import (
 	"context"
 	"embed"
 	"encoding/base64"
+	"encoding/json"
 	"log/slog"
 	"strings"
 	"testing"
@@ -200,8 +201,9 @@ func TestMCP_ToolsList(t *testing.T) {
 
 // TestMCP_SurfaceHub_CuratesToolset pins the remote hub connector surface: it
 // exposes the per-user node read/write tools and upload tools, and omits every
-// CLI/local and hub-admin tool (auth_status, config, doctor, local-path
-// downloads, locks, archive, keg/namespace administration, flights, license).
+// CLI/local and hub-admin tool (auth_status, config, doctor, local file
+// downloads, path-based image downloads, locks, archive, keg/namespace
+// administration, flights, license).
 // tapper-hub mounts this surface at /mcp paired with Tap.KegResolver.
 func TestMCP_SurfaceHub_CuratesToolset(t *testing.T) {
 	t.Parallel()
@@ -223,7 +225,7 @@ func TestMCP_SurfaceHub_CuratesToolset(t *testing.T) {
 		"list_indexes", "index_cat", "node_history", "node_snapshot",
 		"node_snapshot_view", "node_restore", "graph", "orient",
 		"list_files", "list_images", "delete_file", "delete_image",
-		"upload_file", "upload_image",
+		"upload_file", "upload_image", "download_image",
 	} {
 		require.Truef(t, names[want], "SurfaceHub should expose %q", want)
 	}
@@ -232,7 +234,7 @@ func TestMCP_SurfaceHub_CuratesToolset(t *testing.T) {
 	for _, banned := range []string{
 		"auth_status", "config", "config_template", "doctor", "license",
 		"repo_init", "integrate", "export", "import", "import_from_keg",
-		"download_file", "download_image",
+		"download_file",
 		"lock_acquire", "lock_release", "lock_status", "lock_force_release",
 		"keg_list", "keg_grants", "keg_grant", "keg_revoke", "keg_visibility",
 		"namespace_list", "namespace_members", "namespace_add_member",
@@ -1380,6 +1382,78 @@ func TestMCP_UploadAndDownloadImage(t *testing.T) {
 	got, err := rt.ReadFile(destPath)
 	require.NoError(t, err)
 	require.Equal(t, pngData, got)
+}
+
+func TestMCP_SurfaceHubDownloadImageReturnsImageContent(t *testing.T) {
+	t.Parallel()
+	session, ctx := newTestSessionWithOpts(t, mcp.ServerOptions{Surface: mcp.SurfaceHub})
+
+	createRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "create",
+		Arguments: map[string]any{
+			"title": "Hosted Image Download Node",
+		},
+	})
+	require.NoError(t, err)
+	nodeID := extractText(t, createRes)
+
+	pngData := tinyPNG(t)
+	uploadRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "upload_image",
+		Arguments: map[string]any{
+			"node_id":     nodeID,
+			"filename":    "hosted.png",
+			"data_base64": base64.StdEncoding.EncodeToString(pngData),
+		},
+	})
+	require.NoError(t, err)
+	require.False(t, uploadRes.IsError, "upload_image returned error: %s", extractText(t, uploadRes))
+
+	downloadRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "download_image",
+		Arguments: map[string]any{
+			"node_id":  nodeID,
+			"filename": "hosted.png",
+		},
+	})
+	require.NoError(t, err)
+	require.False(t, downloadRes.IsError, "download_image returned error: %s", extractText(t, downloadRes))
+	require.Len(t, downloadRes.Content, 1)
+	img, ok := downloadRes.Content[0].(*sdkmcp.ImageContent)
+	require.True(t, ok, "download_image content type = %T, want ImageContent", downloadRes.Content[0])
+	require.Equal(t, "image/png", img.MIMEType)
+	require.Equal(t, pngData, img.Data)
+
+	var structured struct {
+		NodeID   string `json:"node_id"`
+		Filename string `json:"filename"`
+		MIMEType string `json:"mime_type"`
+		Size     int    `json:"size"`
+	}
+	raw, err := json.Marshal(downloadRes.StructuredContent)
+	require.NoError(t, err)
+	require.NoError(t, json.Unmarshal(raw, &structured))
+	require.Equal(t, nodeID, structured.NodeID)
+	require.Equal(t, "hosted.png", structured.Filename)
+	require.Equal(t, "image/png", structured.MIMEType)
+	require.Equal(t, len(pngData), structured.Size)
+}
+
+func TestMCP_SurfaceHubDownloadImageRejectsDestPath(t *testing.T) {
+	t.Parallel()
+	session, ctx := newTestSessionWithOpts(t, mcp.ServerOptions{Surface: mcp.SurfaceHub})
+
+	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "download_image",
+		Arguments: map[string]any{
+			"node_id":   "0",
+			"filename":  "hosted.png",
+			"dest_path": "/home/testuser/hosted.png",
+		},
+	})
+	require.NoError(t, err)
+	require.True(t, res.IsError, "expected hosted download_image dest_path to fail")
+	require.Contains(t, extractText(t, res), "dest_path is not available")
 }
 
 func TestMCP_UploadFileFromBase64(t *testing.T) {
