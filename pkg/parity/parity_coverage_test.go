@@ -136,6 +136,7 @@ var tapMethodsExcluded = map[string]string{
 	"ReadSchema":            "schema administration is CLI/API-first for now; MCP agents validate through write tools and doctor",
 	"CreateSchema":          "schema administration is CLI/API-first for now; MCP agents should not mutate schemas yet",
 	"DeleteSchema":          "schema administration is CLI/API-first for now; MCP agents should not mutate schemas yet",
+	"EditSchema":            "schema administration is CLI/API-first for now; MCP agents should not mutate schemas yet",
 	"Validate":              "CLI/API validation helper; MCP coverage is via doctor and schema-enforced write tools",
 	"ConfigExplain":         "shares surface with Config via --explain flag / explain field",
 	"ReadImage":             "underlying byte-read helper used by image download surfaces; not a standalone operation",
