@@ -40,6 +40,8 @@ type MemoryRepo struct {
 	nodeLocks map[NodeId]*memoryNodeLockEntry
 	// indexes stores raw index files by name (for example: "nodes.tsv").
 	indexes map[string][]byte
+	// schemas stores raw schema files by filename (for example: task.schema.yaml).
+	schemas map[string][]byte
 	// snapshots stores revision history per node.
 	snapshots map[NodeId][]memorySnapshotEntry
 	// config holds the in-memory Config if written.
@@ -82,6 +84,7 @@ func NewMemoryRepo(rt *toolkit.Runtime) *MemoryRepo {
 		nodes:     make(map[NodeId]*memoryNode),
 		nodeLocks: make(map[NodeId]*memoryNodeLockEntry),
 		indexes:   make(map[string][]byte),
+		schemas:   make(map[string][]byte),
 		snapshots: make(map[NodeId][]memorySnapshotEntry),
 		runtime:   rt,
 	}
@@ -558,6 +561,58 @@ func (r *MemoryRepo) WriteConfig(ctx context.Context, config *Config) error {
 	defer r.mu.Unlock()
 	c := *persisted
 	r.config = &c
+	return nil
+}
+
+func (r *MemoryRepo) ListSchemas(ctx context.Context) ([]string, error) {
+	_ = ctx
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return schemaTypeFilesFromMap(r.schemas), nil
+}
+
+func (r *MemoryRepo) ReadSchema(ctx context.Context, typeName string) ([]byte, error) {
+	_ = ctx
+	filename, err := SchemaFilename(typeName)
+	if err != nil {
+		return nil, err
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	data, ok := r.schemas[filename]
+	if !ok {
+		return nil, ErrNotExist
+	}
+	return cloneBytes(data), nil
+}
+
+func (r *MemoryRepo) WriteSchema(ctx context.Context, typeName string, data []byte) error {
+	_ = ctx
+	filename, err := SchemaFilename(typeName)
+	if err != nil {
+		return err
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.schemas == nil {
+		r.schemas = make(map[string][]byte)
+	}
+	r.schemas[filename] = cloneBytes(data)
+	return nil
+}
+
+func (r *MemoryRepo) DeleteSchema(ctx context.Context, typeName string) error {
+	_ = ctx
+	filename, err := SchemaFilename(typeName)
+	if err != nil {
+		return err
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, ok := r.schemas[filename]; !ok {
+		return ErrNotExist
+	}
+	delete(r.schemas, filename)
 	return nil
 }
 

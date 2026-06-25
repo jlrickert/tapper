@@ -122,6 +122,11 @@ func (k *RemoteKeg) do(ctx context.Context, method, path string, body io.Reader,
 			req.Header.Add(key, v)
 		}
 	}
+	for key, val := range ValidationHeaderValues(ctx) {
+		if req.Header.Get(key) == "" {
+			req.Header.Set(key, val)
+		}
+	}
 	resp, err := k.httpClient().Do(req)
 	if err != nil {
 		return nil, NewBackendError("remote", method+" "+path, 0, err, true)
@@ -276,6 +281,75 @@ func (k *RemoteKeg) SetConfig(ctx context.Context, data []byte) error {
 	}
 	_, err = k.readBody(resp, "SetConfig", http.StatusOK, http.StatusNoContent)
 	return err
+}
+
+// ListSchemas implements Keg via GET /schemas.
+func (k *RemoteKeg) ListSchemas(ctx context.Context) ([]string, error) {
+	var names []string
+	if err := k.getJSON(ctx, "/schemas", "ListSchemas", &names); err != nil {
+		return nil, err
+	}
+	return names, nil
+}
+
+// ReadSchema implements Keg via GET /schemas/{type}.
+func (k *RemoteKeg) ReadSchema(ctx context.Context, typeName string) ([]byte, error) {
+	resp, err := k.do(ctx, http.MethodGet, "/schemas/"+url.PathEscape(typeName), nil, "", nil)
+	if err != nil {
+		return nil, err
+	}
+	return k.readBody(resp, "ReadSchema", http.StatusOK)
+}
+
+// WriteSchema implements Keg via PUT /schemas/{type}.
+func (k *RemoteKeg) WriteSchema(ctx context.Context, typeName string, data []byte) error {
+	resp, err := k.do(ctx, http.MethodPut, "/schemas/"+url.PathEscape(typeName), bytes.NewReader(data), "application/yaml", nil)
+	if err != nil {
+		return err
+	}
+	_, err = k.readBody(resp, "WriteSchema", http.StatusOK, http.StatusNoContent)
+	return err
+}
+
+// DeleteSchema implements Keg via DELETE /schemas/{type}.
+func (k *RemoteKeg) DeleteSchema(ctx context.Context, typeName string) error {
+	resp, err := k.do(ctx, http.MethodDelete, "/schemas/"+url.PathEscape(typeName), nil, "", nil)
+	if err != nil {
+		return err
+	}
+	_, err = k.readBody(resp, "DeleteSchema", http.StatusOK, http.StatusNoContent)
+	return err
+}
+
+// ValidateNode implements Keg via POST /nodes/{id}/validate.
+func (k *RemoteKeg) ValidateNode(ctx context.Context, id NodeId) (*SchemaValidationResult, error) {
+	var result SchemaValidationResult
+	if err := k.postJSON(ctx, fmt.Sprintf("/nodes/%d/validate", id.ID), "ValidateNode", struct{}{}, &result, http.StatusOK); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// ValidateNodePayload implements Keg via POST /validate.
+func (k *RemoteKeg) ValidateNodePayload(ctx context.Context, payload NodeValidationPayload) (*SchemaValidationResult, error) {
+	req := struct {
+		ID      int     `json:"id"`
+		Content *string `json:"content,omitempty"`
+		Meta    *string `json:"meta,omitempty"`
+	}{ID: payload.ID.ID}
+	if payload.HasContent {
+		content := string(payload.Content)
+		req.Content = &content
+	}
+	if payload.HasMeta {
+		meta := string(payload.Meta)
+		req.Meta = &meta
+	}
+	var result SchemaValidationResult
+	if err := k.postJSON(ctx, "/validate", "ValidateNodePayload", req, &result, http.StatusOK); err != nil {
+		return nil, err
+	}
+	return &result, nil
 }
 
 // --- Node lifecycle ---

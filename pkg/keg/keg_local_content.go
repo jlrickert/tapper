@@ -47,6 +47,26 @@ func (k *LocalKeg) setContentNoDex(ctx context.Context, id NodeId, data []byte) 
 			return nil
 		}
 
+		content, err := ParseContent(k.Runtime, data, MarkdownContentFilename)
+		if err != nil {
+			return fmt.Errorf("invalid content: %w", err)
+		}
+		meta, stats, err := k.getMetaAndStats(lockCtx, id)
+		if err != nil {
+			return fmt.Errorf("failed to read node metadata: %w", err)
+		}
+		if stats == nil {
+			stats = &NodeStats{}
+		}
+		now := k.Runtime.Clock().Now()
+		proposed := &NodeData{ID: id, Content: content, Meta: meta, Stats: stats}
+		if err := proposed.UpdateMeta(lockCtx, &now); err != nil {
+			return fmt.Errorf("failed to update node metadata from content: %w", err)
+		}
+		if err := k.validateForWrite(lockCtx, schemaWriteUpdate, id, proposed); err != nil {
+			return err
+		}
+
 		if err := k.Repo.WriteContent(lockCtx, id, data); err != nil {
 			return fmt.Errorf("unable to write content: %w", err)
 		}
@@ -135,6 +155,23 @@ func (k *LocalKeg) SetMeta(ctx context.Context, id NodeId, meta *NodeMeta) error
 			return nil
 		}
 
+		content, err := k.getContent(lockCtx, id)
+		if err != nil {
+			return fmt.Errorf("failed to read node content: %w", err)
+		}
+		validationMeta, err := ParseMeta(lockCtx, newMetaBytes)
+		if err != nil {
+			return fmt.Errorf("failed to parse node metadata: %w", err)
+		}
+		now := k.Runtime.Clock().Now()
+		proposed := &NodeData{ID: id, Content: content, Meta: validationMeta, Stats: stats}
+		if err := proposed.UpdateMeta(lockCtx, &now); err != nil {
+			return fmt.Errorf("failed to update node metadata from content: %w", err)
+		}
+		if err := k.validateForWrite(lockCtx, schemaWriteUpdate, id, proposed); err != nil {
+			return err
+		}
+
 		if err := k.Repo.WriteMeta(lockCtx, id, newMetaBytes); err != nil {
 			return fmt.Errorf("UpdateMeta: write meta to backend %s: %w", k.Repo.Name(), err)
 		}
@@ -145,7 +182,7 @@ func (k *LocalKeg) SetMeta(ctx context.Context, id NodeId, meta *NodeMeta) error
 		// Read content so the dex entry has complete data (links, title
 		// fallback). Without content, link indexes would be lost when
 		// SetContent later skips due to unchanged hash.
-		content, _ := k.getContent(lockCtx, id)
+		content, _ = k.getContent(lockCtx, id)
 
 		nodeData = &NodeData{ID: id, Content: content, Meta: meta, Stats: stats}
 		return nil
@@ -197,6 +234,19 @@ func (k *LocalKeg) UpdateMeta(ctx context.Context, id NodeId, f func(*NodeMeta))
 
 		f(m)
 
+		content, _ := k.getContent(lockCtx, id)
+		validationMeta, err := ParseMeta(lockCtx, []byte(m.ToYAML()))
+		if err != nil {
+			return fmt.Errorf("failed to parse node metadata: %w", err)
+		}
+		proposed := &NodeData{ID: id, Content: content, Meta: validationMeta, Stats: stats}
+		if err := proposed.UpdateMeta(lockCtx, &now); err != nil {
+			return fmt.Errorf("failed to update node metadata from content: %w", err)
+		}
+		if err := k.validateForWrite(lockCtx, schemaWriteUpdate, id, proposed); err != nil {
+			return err
+		}
+
 		if err := k.Repo.WriteMeta(lockCtx, id, []byte(m.ToYAML())); err != nil {
 			return fmt.Errorf("UpdateMeta: write meta to backend %s: %w", k.Repo.Name(), err)
 		}
@@ -205,7 +255,6 @@ func (k *LocalKeg) UpdateMeta(ctx context.Context, id NodeId, f func(*NodeMeta))
 		}
 
 		// Read content so the dex entry has complete data (links, title).
-		content, _ := k.getContent(lockCtx, id)
 		nodeData = &NodeData{ID: id, Content: content, Meta: m, Stats: stats}
 		return nil
 	})

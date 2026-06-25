@@ -287,10 +287,12 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 		NewMetaCmd(deps),
 		NewMoveCmd(deps),
 		NewOrientCmd(deps),
+		NewSchemaCmd(deps),
 		NewSnapshotCmd(deps),
 		NewRemoveCmd(deps),
 		NewStatsCmd(deps),
 		NewTagsCmd(deps),
+		NewValidateCmd(deps),
 		NewVersionCmd(deps),
 		NewWatchCmd(deps),
 	}

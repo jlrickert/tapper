@@ -7,6 +7,7 @@ import (
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/jlrickert/tapper/pkg/keg"
 	"github.com/jlrickert/tapper/pkg/tapper"
 )
 
@@ -35,6 +36,7 @@ func registerImportFromKeg(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefa
 			OpenWorldHint:   boolPtr(false),
 		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in importFromKegInput) (*sdkmcp.CallToolResult, any, error) {
+		ctx = keg.WithValidationActor(ctx, keg.ValidationActorAgent)
 		opts := tapper.ImportFromKegOptions{
 			Source:       resolveKegTargetWithFlight(in.SourceKeg, in.Flight, defaults),
 			Target:       resolveKegTargetWithFlight(in.TargetKeg, in.Flight, defaults),

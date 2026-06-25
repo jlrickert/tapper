@@ -37,6 +37,16 @@ type Keg interface {
 	// Raw bytes preserve user formatting for round-trip editing.
 	SetConfig(ctx context.Context, data []byte) error
 
+	// Schemas describe valid note types for this keg. Filesystem repositories
+	// store them under schemas/<type>.schema.yaml; remote repositories expose the
+	// same logical surface through the hub API.
+	ListSchemas(ctx context.Context) ([]string, error)
+	ReadSchema(ctx context.Context, typeName string) ([]byte, error)
+	WriteSchema(ctx context.Context, typeName string, data []byte) error
+	DeleteSchema(ctx context.Context, typeName string) error
+	ValidateNode(ctx context.Context, id NodeId) (*SchemaValidationResult, error)
+	ValidateNodePayload(ctx context.Context, payload NodeValidationPayload) (*SchemaValidationResult, error)
+
 	// Node lifecycle
 
 	// Create allocates a node id and writes initial content, meta, and stats.

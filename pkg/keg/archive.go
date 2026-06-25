@@ -316,6 +316,45 @@ func (k *LocalKeg) ImportNodes(ctx context.Context, r io.Reader, opts ImportNode
 		return nil, err
 	}
 
+	for _, sourceID := range ordered {
+		newID := mapping[sourceID]
+		base := filepath.ToSlash(filepath.Join("keg-archive", "nodes", sourceID))
+		content, err := readRequiredArchiveEntry(entries, base+"/README.md")
+		if err != nil {
+			return nil, fmt.Errorf("archive node %s missing README.md: %w", sourceID, err)
+		}
+		meta, err := readRequiredArchiveEntry(entries, base+"/meta.yaml")
+		if err != nil {
+			return nil, fmt.Errorf("archive node %s missing meta.yaml: %w", sourceID, err)
+		}
+		statsBytes, err := readRequiredArchiveEntry(entries, base+"/stats.json")
+		if err != nil {
+			return nil, fmt.Errorf("archive node %s missing stats.json: %w", sourceID, err)
+		}
+
+		content = rewriteArchiveLinks(content, opts.SourceAlias, opts.TargetAlias, mapping)
+		parsedContent, err := ParseContent(k.Runtime, content, MarkdownContentFilename)
+		if err != nil {
+			return nil, fmt.Errorf("unable to parse imported content for node %s: %w", sourceID, err)
+		}
+		parsedMeta, err := ParseMeta(ctx, meta)
+		if err != nil {
+			return nil, fmt.Errorf("unable to parse imported metadata for node %s: %w", sourceID, err)
+		}
+		stats, err := ParseStats(ctx, statsBytes)
+		if err != nil {
+			return nil, fmt.Errorf("unable to parse imported stats for node %s: %w", sourceID, err)
+		}
+		remapStatsLinks(stats, mapping)
+		proposed := &NodeData{ID: newID, Content: parsedContent, Meta: parsedMeta, Stats: stats}
+		if err := proposed.UpdateMeta(ctx, nil); err != nil {
+			return nil, fmt.Errorf("unable to update imported metadata for node %s: %w", sourceID, err)
+		}
+		if err := k.validateForWrite(ctx, schemaWriteImport, newID, proposed); err != nil {
+			return nil, fmt.Errorf("imported node %s: %w", sourceID, err)
+		}
+	}
+
 	// Preserve assets of nodes about to be replaced, then delete them so the
 	// archive payload lands on clean state.
 	preservedAssets := make(map[string]importedNodeAssets, len(ordered))

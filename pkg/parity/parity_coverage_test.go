@@ -132,6 +132,11 @@ var tapMethodsExcluded = map[string]string{
 		"are spec-thin (URI only) while the CLI stream carries kind/field — but both surfaces " +
 		"observe the same Tap.WatchNode events",
 	"DoctorConfig":          "tapper-config health check helper; called by Doctor CLI/MCP surfaces",
+	"ListSchemas":           "schema administration is CLI/API-first for now; MCP agents validate through write tools and doctor",
+	"ReadSchema":            "schema administration is CLI/API-first for now; MCP agents validate through write tools and doctor",
+	"CreateSchema":          "schema administration is CLI/API-first for now; MCP agents should not mutate schemas yet",
+	"DeleteSchema":          "schema administration is CLI/API-first for now; MCP agents should not mutate schemas yet",
+	"Validate":              "CLI/API validation helper; MCP coverage is via doctor and schema-enforced write tools",
 	"ConfigExplain":         "shares surface with Config via --explain flag / explain field",
 	"ReadImage":             "underlying byte-read helper used by image download surfaces; not a standalone operation",
 	"AuthLogout":            "security: MCP agents must not be able to revoke hub credentials; CLI-only by design",

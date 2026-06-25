@@ -8,6 +8,7 @@ import (
 	"github.com/jlrickert/cli-toolkit/toolkit"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/jlrickert/tapper/pkg/keg"
 	"github.com/jlrickert/tapper/pkg/tapper"
 )
 
@@ -26,7 +27,7 @@ type createInput struct {
 	Lead   string            `json:"lead,omitempty" jsonschema:"lead paragraph after the title"`
 	Body   string            `json:"body,omitempty" jsonschema:"full markdown content (overrides title and lead if set)"`
 	Tags   []string          `json:"tags,omitempty" jsonschema:"metadata tags"`
-	Attrs  map[string]string `json:"attrs,omitempty" jsonschema:"metadata attributes (e.g. entity=task)"`
+	Attrs  map[string]string `json:"attrs,omitempty" jsonschema:"metadata attributes (e.g. type=task)"`
 	Keg    string            `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
 	Flight string            `json:"flight,omitempty" jsonschema:"flight ref to cap available kegs (uses server default if empty)"`
 }
@@ -40,6 +41,7 @@ func registerCreate(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 			OpenWorldHint:   boolPtr(false),
 		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in createInput) (*sdkmcp.CallToolResult, any, error) {
+		ctx = keg.WithValidationActor(ctx, keg.ValidationActorAgent)
 		opts := tapper.CreateOptions{
 			KegTargetOptions: resolveKegTargetWithFlight(in.Keg, in.Flight, defaults),
 			Title:            in.Title,
@@ -81,6 +83,7 @@ func registerEdit(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 			OpenWorldHint:   boolPtr(false),
 		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in editInput) (*sdkmcp.CallToolResult, any, error) {
+		ctx = keg.WithValidationActor(ctx, keg.ValidationActorAgent)
 		opts := tapper.EditOptions{
 			KegTargetOptions: resolveKegTargetWithFlight(in.Keg, in.Flight, defaults),
 			NodeID:           in.NodeID,
@@ -115,6 +118,7 @@ func registerMeta(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 			OpenWorldHint:   boolPtr(false),
 		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in metaInput) (*sdkmcp.CallToolResult, any, error) {
+		ctx = keg.WithValidationActor(ctx, keg.ValidationActorAgent)
 		opts := tapper.MetaOptions{
 			KegTargetOptions: resolveKegTargetWithFlight(in.Keg, in.Flight, defaults),
 			NodeID:           in.NodeID,

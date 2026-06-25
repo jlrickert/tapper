@@ -120,6 +120,11 @@ func (k *LocalKeg) Create(ctx context.Context, opts *CreateOptions) (NodeId, err
 	}
 	nodeData.ID = id
 
+	if err := k.validateForWrite(ctx, schemaWriteCreate, id, nodeData); err != nil {
+		_ = k.Repo.DeleteNode(ctx, id)
+		return id, err
+	}
+
 	// Persist content and metadata atomically for this node.
 	if err := k.withNodeLock(ctx, id, func(lockCtx context.Context) error {
 		if err := k.Repo.WriteContent(lockCtx, id, []byte(nodeData.Content.Body)); err != nil {

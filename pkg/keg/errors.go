@@ -18,6 +18,7 @@ var (
 	ErrQuotaExceeded = errors.New("quota exceeded")
 	ErrRateLimited   = errors.New("rate limited")
 	ErrNotSupported  = errors.New("not supported")
+	ErrSchemaInvalid = errors.New("schema validation failed")
 
 	// ErrInvalidAssetName is returned when a node asset name is not a single safe
 	// path component (empty, ".", "..", contains a path separator, or absolute).

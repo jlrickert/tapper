@@ -101,6 +101,28 @@ func (k *LocalKeg) RestoreSnapshot(ctx context.Context, id NodeId, rev RevisionI
 	if !ok {
 		return ErrNotSupported
 	}
+	_, contentBytes, metaBytes, stats, err := snapshots.GetSnapshot(ctx, id, rev, SnapshotReadOptions{ResolveContent: true})
+	if err != nil {
+		return err
+	}
+	content, err := ParseContent(k.Runtime, contentBytes, MarkdownContentFilename)
+	if err != nil {
+		return fmt.Errorf("snapshot content is invalid: %w", err)
+	}
+	meta, err := ParseMeta(ctx, metaBytes)
+	if err != nil {
+		return fmt.Errorf("snapshot metadata is invalid: %w", err)
+	}
+	if stats == nil {
+		stats = &NodeStats{}
+	}
+	proposed := &NodeData{ID: id, Content: content, Meta: meta, Stats: stats}
+	if err := proposed.UpdateMeta(ctx, nil); err != nil {
+		return fmt.Errorf("snapshot metadata is invalid: %w", err)
+	}
+	if err := k.validateForWrite(ctx, schemaWriteRestore, id, proposed); err != nil {
+		return err
+	}
 	if err := snapshots.RestoreSnapshot(ctx, id, rev, true); err != nil {
 		return err
 	}

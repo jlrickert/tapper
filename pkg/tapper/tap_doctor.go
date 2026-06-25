@@ -192,6 +192,20 @@ func (t *Tap) Doctor(ctx context.Context, opts DoctorOptions) ([]Issue, error) {
 				issues = append(issues, Issue{Level: "warning", Kind: "timestamp", NodeID: nodePath, Message: "zero created timestamp"})
 			}
 		}
+
+		// Schema check
+		result, schemaErr := k.ValidateNode(ctx, id)
+		if schemaErr != nil && !errors.Is(schemaErr, keg.ErrNotSupported) {
+			issues = append(issues, Issue{Level: "error", Kind: "schema", NodeID: nodePath, Message: fmt.Sprintf("unable to validate schema: %v", schemaErr)})
+		} else if result != nil && !result.Valid {
+			for _, issue := range result.Issues {
+				message := issue.Message
+				if issue.Field != "" {
+					message = fmt.Sprintf("%s: %s", issue.Field, issue.Message)
+				}
+				issues = append(issues, Issue{Level: "error", Kind: "schema", NodeID: nodePath, Message: message})
+			}
+		}
 	}
 
 	return issues, nil
