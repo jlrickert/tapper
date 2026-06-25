@@ -1110,6 +1110,7 @@ func (f *FsRepo) emitToWatchers(ev NodeEvent) {
 var _ Repository = (*FsRepo)(nil)
 var _ RepositoryFiles = (*FsRepo)(nil)
 var _ RepositoryImages = (*FsRepo)(nil)
+var _ RepositorySchemas = (*FsRepo)(nil)
 
 // ----------------- small helpers -----------------
 

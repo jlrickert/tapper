@@ -187,13 +187,6 @@ func (e *SchemaValidationError) Unwrap() error { return ErrSchemaInvalid }
 
 func IsSchemaInvalid(err error) bool { return errors.Is(err, ErrSchemaInvalid) }
 
-type RepositorySchemas interface {
-	ListSchemas(ctx context.Context) ([]string, error)
-	ReadSchema(ctx context.Context, typeName string) ([]byte, error)
-	WriteSchema(ctx context.Context, typeName string, data []byte) error
-	DeleteSchema(ctx context.Context, typeName string) error
-}
-
 func ParseSchemaDefinition(data []byte) (*SchemaDefinition, error) {
 	var schema SchemaDefinition
 	if err := yaml.Unmarshal(data, &schema); err != nil {

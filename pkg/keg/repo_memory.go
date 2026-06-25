@@ -737,3 +737,4 @@ func (r *MemoryRepo) emitToWatchers(ev NodeEvent) {
 var _ Repository = (*MemoryRepo)(nil)
 var _ RepositoryFiles = (*MemoryRepo)(nil)
 var _ RepositoryImages = (*MemoryRepo)(nil)
+var _ RepositorySchemas = (*MemoryRepo)(nil)
