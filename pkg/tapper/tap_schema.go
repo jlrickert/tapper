@@ -1,6 +1,7 @@
 package tapper
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -15,6 +16,12 @@ type SchemaOptions struct {
 	KegTargetOptions
 	Type string
 	Data []byte
+}
+
+type EditSchemaOptions struct {
+	KegTargetOptions
+	Type   string
+	Stream *toolkit.Stream
 }
 
 type ValidateOptions struct {
@@ -36,6 +43,65 @@ func (t *Tap) ReadSchema(ctx context.Context, opts SchemaOptions) ([]byte, error
 		return nil, fmt.Errorf("unable to open keg: %w", err)
 	}
 	return k.ReadSchema(ctx, opts.Type)
+}
+
+func (t *Tap) EditSchema(ctx context.Context, opts EditSchemaOptions) error {
+	typeName := strings.TrimSpace(opts.Type)
+	if err := keg.ValidSchemaTypeName(typeName); err != nil {
+		return err
+	}
+	k, err := t.resolveKegForRole(ctx, opts.KegTargetOptions, FlightRoleEditor)
+	if err != nil {
+		return fmt.Errorf("unable to open keg: %w", err)
+	}
+	originalRaw, err := k.ReadSchema(ctx, typeName)
+	if err != nil {
+		return fmt.Errorf("unable to read schema %q: %w", typeName, err)
+	}
+
+	saveSchema := func(data []byte, source string) error {
+		if err := validateEditedSchema(typeName, data); err != nil {
+			return fmt.Errorf("schema %s is invalid: %w", source, err)
+		}
+		if err := k.WriteSchema(ctx, typeName, data); err != nil {
+			return fmt.Errorf("unable to save edited schema %q: %w", typeName, err)
+		}
+		return nil
+	}
+
+	if opts.Stream != nil && opts.Stream.IsPiped {
+		pipedRaw, readErr := io.ReadAll(opts.Stream.In)
+		if readErr != nil {
+			return fmt.Errorf("unable to read piped input: %w", readErr)
+		}
+		if len(bytes.TrimSpace(pipedRaw)) > 0 {
+			if bytes.Equal(pipedRaw, originalRaw) {
+				return nil
+			}
+			return saveSchema(pipedRaw, "from stdin")
+		}
+	}
+
+	tempPath, err := newEditorTempFilePath(t.Runtime, schemaEditorTempFilePrefix(k, typeName), ".schema.yaml")
+	if err != nil {
+		return fmt.Errorf("unable to create temp schema file path: %w", err)
+	}
+	if err := t.Runtime.WriteFile(tempPath, originalRaw, 0o600); err != nil {
+		return fmt.Errorf("unable to write temp schema file: %w", err)
+	}
+	defer func() {
+		_ = t.Runtime.Remove(tempPath, false)
+	}()
+
+	if err := editWithLiveSaves(ctx, t.Runtime, tempPath, nil, func(editedRaw []byte) error {
+		if bytes.Equal(editedRaw, originalRaw) {
+			return nil
+		}
+		return saveSchema(editedRaw, "after editing")
+	}); err != nil {
+		return fmt.Errorf("unable to edit schema %q: %w", typeName, err)
+	}
+	return nil
 }
 
 func (t *Tap) CreateSchema(ctx context.Context, opts SchemaOptions) error {
@@ -129,6 +195,30 @@ func (t *Tap) warnSchemaIssues(ctx context.Context, k keg.Keg, id keg.NodeId, st
 		}
 		_, _ = fmt.Fprintf(stream.Err, "warning: node %s %s: %s\n", id.Path(), field, issue.Message)
 	}
+}
+
+func validateEditedSchema(typeName string, data []byte) error {
+	parsed, err := keg.ParseSchemaDefinition(data)
+	if err != nil {
+		return err
+	}
+	declared := strings.TrimSpace(parsed.Type)
+	if declared == "" {
+		return fmt.Errorf("schema must declare type %q: %w", typeName, keg.ErrInvalid)
+	}
+	if declared != typeName {
+		return fmt.Errorf("schema type %q does not match target type %q: %w", declared, typeName, keg.ErrInvalid)
+	}
+	return nil
+}
+
+func schemaEditorTempFilePrefix(k keg.Keg, typeName string) string {
+	namespace, kegName := logicalKegTempNameParts(k)
+	return fmt.Sprintf("tap-schema-%s-%s-%s-",
+		sanitizeEditorTempSegment(namespace, "unknown"),
+		sanitizeEditorTempSegment(kegName, "keg"),
+		sanitizeEditorTempSegment(typeName, "schema"),
+	)
 }
 
 func readAllSchemaInput(r io.Reader) ([]byte, error) {
