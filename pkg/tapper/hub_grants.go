@@ -60,6 +60,14 @@ func SetKegVisibility(ctx context.Context, hubURL, token, namespace, alias, visi
 	return doHubJSON(ctx, http.MethodPatch, hubURL, token, path, map[string]string{"visibility": visibility}, nil)
 }
 
+// RenameKeg updates a keg alias in-place within the same namespace via
+// PATCH .../settings. The hub keeps the immutable keg id and does not create
+// redirects for the old selector.
+func RenameKeg(ctx context.Context, hubURL, token, namespace, oldAlias, newAlias string) error {
+	path := fmt.Sprintf("/api/v1/@%s/kegs/%s/settings", namespace, oldAlias)
+	return doHubJSON(ctx, http.MethodPatch, hubURL, token, path, map[string]string{"alias": newAlias}, nil)
+}
+
 // doHubJSON performs one JSON round-trip against the hub, decoding a non-nil
 // out on success. It maps hub statuses to the shared sentinels (409→ErrExist,
 // 404→ErrNotExist, 401/403→ErrTokenRejected) so callers can branch with

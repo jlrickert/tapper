@@ -98,3 +98,23 @@ func TestListUserKegs_Unauthorized(t *testing.T) {
 	require.Error(t, err)
 	require.True(t, errors.Is(err, tapper.ErrTokenRejected))
 }
+
+func TestRenameKeg_Success(t *testing.T) {
+	t.Parallel()
+
+	var gotAuth, gotPath string
+	var gotBody map[string]string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		gotPath = r.URL.Path
+		_ = json.NewDecoder(r.Body).Decode(&gotBody)
+		_ = json.NewEncoder(w).Encode(map[string]string{"namespace": "jlrickert", "alias": "renamed"})
+	}))
+	defer srv.Close()
+
+	err := tapper.RenameKeg(context.Background(), srv.URL, "tok123", "jlrickert", "example", "renamed")
+	require.NoError(t, err)
+	require.Equal(t, "Bearer tok123", gotAuth)
+	require.Equal(t, "/api/v1/@jlrickert/kegs/example/settings", gotPath)
+	require.Equal(t, map[string]string{"alias": "renamed"}, gotBody)
+}

@@ -21,13 +21,15 @@ var kegVisibilityValues = []string{"public", "private"}
 //	tap keg grants @ns/blog
 //	tap keg revoke @ns/blog @alice
 //	tap keg visibility @ns/blog public
+//	tap keg rename @ns/blog docs
 //	tap keg settings
 func NewKegCmd(deps *Deps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "keg",
 		Short: "administer kegs on a hub",
 		Long: `Administer kegs on a hub: list and create kegs, manage per-keg
-access grants and roles, set visibility, and edit a keg's own settings.`,
+access grants and roles, set visibility, rename aliases, and edit a keg's own
+settings.`,
 	}
 	cmd.AddCommand(
 		newKegListCmd(deps),
@@ -35,6 +37,7 @@ access grants and roles, set visibility, and edit a keg's own settings.`,
 		newKegGrantCmd(deps),
 		newKegRevokeCmd(deps),
 		newKegVisibilityCmd(deps),
+		newKegRenameCmd(deps),
 		newKegSettingsCmd(deps),
 	)
 	// `keg create` carries the keg-creation surface, gated to the same profile
@@ -50,6 +53,38 @@ access grants and roles, set visibility, and edit a keg's own settings.`,
 		cmd.AddCommand(createCmd)
 	}
 	return cmd
+}
+
+func newKegRenameCmd(deps *Deps) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "rename <old> <new>",
+		Short: "rename a keg alias within its namespace",
+		Long: `Rename a hub-backed keg alias within the same namespace.
+
+The old selector may be bare or @namespace/old. The new alias must be bare;
+cross-namespace moves and redirects for old URLs are not created.`,
+		Args: cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			kt := globalKegTarget(deps)
+			return deps.Tap.KegRename(cmd.Context(), tapper.KegRenameOptions{
+				Old:       args[0],
+				New:       args[1],
+				Namespace: kt.Namespace,
+				Hub:       kt.Hub,
+			})
+		},
+	}
+	cmd.ValidArgsFunction = kegRenameArgCompletionFunc(deps)
+	return cmd
+}
+
+func kegRenameArgCompletionFunc(deps *Deps) func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
+	return func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		if len(args) == 0 {
+			return kegFlagCompletions(cmd.Context(), deps, toComplete), cobra.ShellCompDirectiveNoFileComp
+		}
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
 }
 
 func newKegListCmd(deps *Deps) *cobra.Command {
@@ -201,4 +236,3 @@ written directly instead of opening an editor.`,
 	}
 	return cmd
 }
-
