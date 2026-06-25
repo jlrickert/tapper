@@ -60,6 +60,7 @@ fallback keg.
 tap namespace add-member @teammate editor --namespace acme
 tap keg grant @teammate editor --keg @acme/engineering
 tap keg visibility private --keg @acme/engineering
+tap keg rename @acme/engineering docs
 ```
 
 Namespace membership handles organization-level access. Keg grants handle
@@ -105,6 +106,7 @@ writing KEG files directly.
 - `tap keg list` - list kegs visible on a hub.
 - `tap keg grant|grants|revoke` - manage per-keg access.
 - `tap keg visibility public|private` - set keg visibility.
+- `tap keg rename @namespace/old new` - rename a keg alias in its namespace.
 - `tap namespace create|list|members|add-member|set-role|remove-member` -
   manage namespaces and membership.
 - `tap hub list|status|add|remove|set-default` - manage hub connections.

@@ -3,7 +3,10 @@ package tapper
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
+
+	"github.com/jlrickert/tapper/pkg/keg"
 )
 
 // Keg administration (hub-side ACLs + visibility). Listing kegs and creating
@@ -45,11 +48,24 @@ type KegVisibilityOptions struct {
 	Visibility string // public|private
 }
 
+// KegRenameOptions renames a hub-backed keg alias within one namespace.
+type KegRenameOptions struct {
+	Old       string
+	New       string
+	Namespace string
+	Hub       string
+}
+
 // kegGrantRoles is the role set accepted for keg grants (distinct from
 // namespace membership roles).
 var kegGrantRoles = map[string]bool{"viewer": true, "editor": true, "admin": true}
 
 var kegVisibilities = map[string]bool{"public": true, "private": true}
+
+// hubKegAliasPattern mirrors tapper-hub's catalog alias regex. It is stricter
+// than local keg aliases: hub aliases are lowercase alphanumeric plus hyphen,
+// 1-64 chars, and must start with an alphanumeric.
+var hubKegAliasPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,63}$`)
 
 // KegGrants lists the per-(user, role) grants on a keg.
 func (t *Tap) KegGrants(ctx context.Context, opts KegGrantsOptions) ([]HubGrant, error) {
@@ -101,6 +117,30 @@ func (t *Tap) KegVisibility(ctx context.Context, opts KegVisibilityOptions) erro
 		return err
 	}
 	return SetKegVisibility(ctx, hubURL, token, ns, alias, vis)
+}
+
+// KegRename renames a hub-backed keg alias within its namespace.
+func (t *Tap) KegRename(ctx context.Context, opts KegRenameOptions) error {
+	oldSelector := strings.TrimSpace(opts.Old)
+	if oldSelector == "" {
+		return fmt.Errorf("old keg alias is required")
+	}
+	newAlias := strings.TrimSpace(opts.New)
+	if strings.HasPrefix(newAlias, "@") || strings.Contains(newAlias, "/") || strings.Contains(newAlias, "://") || strings.HasPrefix(newAlias, keg.SchemeAlias+":") {
+		return fmt.Errorf("new alias must be a bare alias in the same namespace")
+	}
+	if !hubKegAliasPattern.MatchString(newAlias) {
+		return fmt.Errorf("invalid alias %q: must be 1-64 lowercase alphanumeric characters or hyphens, starting with alphanumeric", opts.New)
+	}
+
+	ns, oldAlias, hubURL, token, err := t.resolveKegAdminRef(oldSelector, opts.Namespace, opts.Hub)
+	if err != nil {
+		return err
+	}
+	if newAlias == oldAlias {
+		return fmt.Errorf("new alias is unchanged")
+	}
+	return RenameKeg(ctx, hubURL, token, ns, oldAlias, newAlias)
 }
 
 // resolveKegAdminRef resolves the keg an admin command targets. keg is the

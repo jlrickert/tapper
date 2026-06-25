@@ -124,6 +124,7 @@ Add teammates to the namespace or grant access to a specific keg:
 ```bash
 tap namespace add-member @teammate editor --namespace acme
 tap keg grant @teammate editor --keg @acme/engineering
+tap keg rename @acme/engineering docs
 ```
 
 Typical team layout:

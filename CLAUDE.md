@@ -199,8 +199,8 @@ rather than silently creating a hidden local keg; `tap keg create
 (`tap init` remains as a hidden back-compat alias.)
 
 **Command groups.** `tap keg` administers kegs on a hub (`list`, `create`,
-`grants`/`grant`/`revoke` for ACLs, `visibility`, and `settings` for the keg's
-own config — formerly `tap settings`). `tap namespace` administers namespaces
+`grants`/`grant`/`revoke` for ACLs, `visibility`, `rename`, and `settings` for
+the keg's own config — formerly `tap settings`). `tap namespace` administers namespaces
 and membership roles (`list`, `members`, `add-member`, `set-role`,
 `remove-member`, `create`). `tap hub` manages hub *connections* (`list`,
 `status`, `add`/`remove` writing user config, `set-default` writing project

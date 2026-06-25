@@ -154,6 +154,7 @@ var tapMethodsExcluded = map[string]string{
 	"KegGrants":             "UI-only user/role inspection for now; MCP must not expose keg grants",
 	"KegGrant":              "UI-only user/role management for now; MCP must not mutate keg grants",
 	"KegRevoke":             "UI-only user/role management for now; MCP must not mutate keg grants",
+	"KegRename":             "UI-only alias management for now; MCP must not rename kegs",
 	"SetBootstrapNamespace": "CLI-only bootstrap step; adopts the hub's default namespace after login, not an MCP operation",
 	"SetHubDefaultNamespaceByURL": "CLI-only auth/bootstrap helper; adopts the hub's default namespace after login, " +
 		"not a standalone user-facing operation",

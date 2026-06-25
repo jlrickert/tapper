@@ -2,6 +2,7 @@ package tapper_test
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/jlrickert/cli-toolkit/sandbox"
+	"github.com/jlrickert/tapper/pkg/keg"
 	"github.com/jlrickert/tapper/pkg/tapper"
 	"github.com/stretchr/testify/require"
 )
@@ -65,7 +67,9 @@ func TestKegGrant_Upsert(t *testing.T) {
 
 func TestKegGrant_InvalidRole(t *testing.T) {
 	t.Parallel()
-	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { t.Errorf("hub should not be contacted for an invalid role") })
+	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Errorf("hub should not be contacted for an invalid role")
+	})
 	tap, fx, _ := newRemoteHubTap(t, h)
 	err := tap.KegGrant(fx.Context(), tapper.KegGrantOptions{Keg: "@jlrickert/example", User: "bob", Role: "superuser"})
 	require.Error(t, err)
@@ -100,9 +104,72 @@ func TestKegVisibility(t *testing.T) {
 
 func TestKegVisibility_Invalid(t *testing.T) {
 	t.Parallel()
-	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { t.Errorf("hub should not be contacted for an invalid visibility") })
+	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Errorf("hub should not be contacted for an invalid visibility")
+	})
 	tap, fx, _ := newRemoteHubTap(t, h)
 	err := tap.KegVisibility(fx.Context(), tapper.KegVisibilityOptions{Keg: "@jlrickert/example", Visibility: "secret"})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "invalid visibility")
+}
+
+func TestKegRename_QualifiedOld(t *testing.T) {
+	t.Parallel()
+	var gotBody map[string]string
+	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, http.MethodPatch, r.Method)
+		require.Equal(t, "/api/v1/@jlrickert/kegs/example/settings", r.URL.Path)
+		body, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(body, &gotBody)
+		_ = json.NewEncoder(w).Encode(map[string]string{"namespace": "jlrickert", "alias": "renamed"})
+	})
+	tap, fx, _ := newRemoteHubTap(t, h)
+	require.NoError(t, tap.KegRename(fx.Context(), tapper.KegRenameOptions{Old: "@jlrickert/example", New: "renamed"}))
+	require.Equal(t, map[string]string{"alias": "renamed"}, gotBody)
+}
+
+func TestKegRename_BareOldWithNamespaceOverride(t *testing.T) {
+	t.Parallel()
+	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/api/v1/@jlrickert/kegs/example/settings", r.URL.Path)
+		w.WriteHeader(http.StatusNoContent)
+	})
+	tap, fx, _ := newRemoteHubTap(t, h)
+	require.NoError(t, tap.KegRename(fx.Context(), tapper.KegRenameOptions{Old: "example", New: "renamed", Namespace: "jlrickert"}))
+}
+
+func TestKegRename_RejectsInvalidNewAlias(t *testing.T) {
+	t.Parallel()
+	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Errorf("hub should not be contacted for an invalid new alias")
+	})
+	tap, fx, _ := newRemoteHubTap(t, h)
+
+	for _, newAlias := range []string{"bad_alias", "@jlrickert/renamed", "renamed/else"} {
+		err := tap.KegRename(fx.Context(), tapper.KegRenameOptions{Old: "@jlrickert/example", New: newAlias})
+		require.Error(t, err)
+	}
+}
+
+func TestKegRename_RejectsUnchangedAlias(t *testing.T) {
+	t.Parallel()
+	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Errorf("hub should not be contacted for an unchanged alias")
+	})
+	tap, fx, _ := newRemoteHubTap(t, h)
+	err := tap.KegRename(fx.Context(), tapper.KegRenameOptions{Old: "@jlrickert/example", New: "example"})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "unchanged")
+}
+
+func TestKegRename_DuplicateMapsToErrExist(t *testing.T) {
+	t.Parallel()
+	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusConflict)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "keg alias already exists"})
+	})
+	tap, fx, _ := newRemoteHubTap(t, h)
+	err := tap.KegRename(fx.Context(), tapper.KegRenameOptions{Old: "@jlrickert/example", New: "taken"})
+	require.Error(t, err)
+	require.True(t, errors.Is(err, keg.ErrExist))
 }
