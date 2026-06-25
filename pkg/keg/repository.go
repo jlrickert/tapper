@@ -118,6 +118,18 @@ type RepositoryImages interface {
 	DeleteImage(ctx context.Context, id NodeId, name string) error
 }
 
+// RepositorySchemas provides optional keg-level schema storage.
+//
+// Implementations persist raw YAML keyed by schema type. LocalKeg owns parsing,
+// type checks, JSON schema validation, and write policy; repositories only
+// persist and retrieve schema bytes.
+type RepositorySchemas interface {
+	ListSchemas(ctx context.Context) ([]string, error)
+	ReadSchema(ctx context.Context, typeName string) ([]byte, error)
+	WriteSchema(ctx context.Context, typeName string, data []byte) error
+	DeleteSchema(ctx context.Context, typeName string) error
+}
+
 type RevisionID int64
 
 // SnapshotContentKind describes how snapshot content bytes are stored.
