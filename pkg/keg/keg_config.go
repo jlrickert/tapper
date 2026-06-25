@@ -92,6 +92,11 @@ type ConfigV2 struct {
 	// Doctor holds `tap doctor` check configuration.
 	Doctor *DoctorConfig `yaml:"doctor,omitempty"`
 
+	// SchemaPolicy controls whether schema validation warns, blocks, or is
+	// disabled for different write actors. When omitted, human writes warn while
+	// API/agent/import/restore writes block.
+	SchemaPolicy *SchemaPolicy `yaml:"schemaPolicy,omitempty" json:"schemaPolicy,omitempty"`
+
 	// Site holds static-site-generation defaults persisted in the keg config.
 	// The built-in `tap site` command was removed (rendering now lives in
 	// tapper-hub), so no built-in command currently consumes this; it is

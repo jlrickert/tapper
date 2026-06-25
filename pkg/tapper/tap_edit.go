@@ -61,6 +61,9 @@ func (t *Tap) Meta(ctx context.Context, opts MetaOptions) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("unable to open keg: %w", err)
 	}
+	if role == FlightRoleEditor {
+		ctx = keg.WithValidationActor(ctx, keg.ValidationActorHuman)
+	}
 
 	k, id, err := t.resolveNodeArg(ctx, k, opts.NodeID)
 	if err != nil {
@@ -101,6 +104,7 @@ func (t *Tap) Meta(ctx context.Context, opts MetaOptions) (string, error) {
 			if err := k.SetMeta(ctx, id, metaNode); err != nil {
 				return "", fmt.Errorf("unable to save node metadata: %w", err)
 			}
+			t.warnSchemaIssues(ctx, k, id, opts.Stream)
 			return "", nil
 		}
 	}
@@ -133,6 +137,7 @@ func (t *Tap) Edit(ctx context.Context, opts EditOptions) error {
 	if err != nil {
 		return fmt.Errorf("unable to open keg: %w", err)
 	}
+	ctx = keg.WithValidationActor(ctx, keg.ValidationActorHuman)
 
 	k, id, err := t.resolveNodeArg(ctx, k, opts.NodeID)
 	if err != nil {
@@ -366,6 +371,7 @@ func (t *Tap) applyEditedNodeRaw(ctx context.Context, k keg.Keg, id keg.NodeId, 
 	if err := k.SetContent(ctx, id, bodyRaw); err != nil {
 		return fmt.Errorf("unable to save node content: %w", err)
 	}
+	t.warnSchemaIssues(ctx, k, id, t.Runtime.Stream())
 
 	return nil
 }
@@ -530,6 +536,7 @@ func (t *Tap) editMeta(ctx context.Context, k keg.Keg, id keg.NodeId, stream *to
 		if err := k.SetMeta(ctx, id, updatedMeta); err != nil {
 			return fmt.Errorf("unable to save node metadata: %w", err)
 		}
+		t.warnSchemaIssues(ctx, k, id, t.Runtime.Stream())
 		return nil
 	}); err != nil {
 		return fmt.Errorf("unable to edit node metadata: %w", err)

@@ -574,6 +574,78 @@ func (f *FsRepo) ListNodes(ctx context.Context) ([]NodeId, error) {
 	return ids, nil
 }
 
+// ListSchemas lists schema type names stored under schemas/*.schema.yaml.
+func (f *FsRepo) ListSchemas(ctx context.Context) ([]string, error) {
+	_ = ctx
+	schemaDir := filepath.Join(f.Root, SchemasDir)
+	entries, err := f.runtime.ReadDir(schemaDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return []string{}, nil
+		}
+		return nil, NewBackendError(f.Name(), "ListSchemas", 0, err, false)
+	}
+	names := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		names = append(names, entry.Name())
+	}
+	return schemaTypesFromFiles(names), nil
+}
+
+// ReadSchema reads schemas/<type>.schema.yaml.
+func (f *FsRepo) ReadSchema(ctx context.Context, typeName string) ([]byte, error) {
+	_ = ctx
+	filename, err := SchemaFilename(typeName)
+	if err != nil {
+		return nil, err
+	}
+	data, err := f.runtime.ReadFile(filepath.Join(f.Root, SchemasDir, filename))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, ErrNotExist
+		}
+		return nil, NewBackendError(f.Name(), "ReadSchema", 0, err, false)
+	}
+	return data, nil
+}
+
+// WriteSchema writes schemas/<type>.schema.yaml atomically.
+func (f *FsRepo) WriteSchema(ctx context.Context, typeName string, data []byte) error {
+	_ = ctx
+	filename, err := SchemaFilename(typeName)
+	if err != nil {
+		return err
+	}
+	schemaDir := filepath.Join(f.Root, SchemasDir)
+	if err := f.runtime.Mkdir(schemaDir, 0o755, true); err != nil {
+		return NewBackendError(f.Name(), "WriteSchema", 0, err, false)
+	}
+	if err := f.runtime.AtomicWriteFile(filepath.Join(schemaDir, filename), data, 0o644); err != nil {
+		return NewBackendError(f.Name(), "WriteSchema", 0, err, false)
+	}
+	return nil
+}
+
+// DeleteSchema removes schemas/<type>.schema.yaml.
+func (f *FsRepo) DeleteSchema(ctx context.Context, typeName string) error {
+	_ = ctx
+	filename, err := SchemaFilename(typeName)
+	if err != nil {
+		return err
+	}
+	err = f.runtime.Remove(filepath.Join(f.Root, SchemasDir, filename), false)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return ErrNotExist
+		}
+		return NewBackendError(f.Name(), "DeleteSchema", 0, err, false)
+	}
+	return nil
+}
+
 // ListAssets implements Repository.
 func (f *FsRepo) ListAssets(ctx context.Context, id NodeId, kind AssetKind) ([]string, error) {
 	nodeDir := filepath.Join(f.Root, id.Path())

@@ -8,6 +8,7 @@ import (
 
 	"github.com/jlrickert/cli-toolkit/toolkit"
 	"github.com/jlrickert/tapper/pkg/keg"
+	"gopkg.in/yaml.v3"
 )
 
 type CreateOptions struct {
@@ -25,6 +26,7 @@ func (t *Tap) Create(ctx context.Context, opts CreateOptions) (keg.NodeId, error
 	if err != nil {
 		return keg.NodeId{}, fmt.Errorf("unable to determine default keg: %w", err)
 	}
+	ctx = keg.WithValidationActor(ctx, keg.ValidationActorHuman)
 
 	if opts.Stream != nil && opts.Stream.IsPiped {
 		b, _ := io.ReadAll(opts.Stream.In)
@@ -32,6 +34,7 @@ func (t *Tap) Create(ctx context.Context, opts CreateOptions) (keg.NodeId, error
 		if createErr != nil {
 			return keg.NodeId{}, createErr
 		}
+		t.warnSchemaIssues(ctx, k, node, opts.Stream)
 		return node, nil
 	}
 
@@ -53,6 +56,7 @@ func (t *Tap) Create(ctx context.Context, opts CreateOptions) (keg.NodeId, error
 		if editErr := t.editWithTempFile(ctx, k, createdID); editErr != nil {
 			return keg.NodeId{}, fmt.Errorf("unable to edit new node: %w", editErr)
 		}
+		t.warnSchemaIssues(ctx, k, createdID, opts.Stream)
 		return createdID, nil
 	}
 
@@ -66,6 +70,7 @@ func (t *Tap) Create(ctx context.Context, opts CreateOptions) (keg.NodeId, error
 	if err != nil {
 		return keg.NodeId{}, fmt.Errorf("unable to create node: %w", err)
 	}
+	t.warnSchemaIssues(ctx, k, node, opts.Stream)
 	return node, nil
 }
 
@@ -111,20 +116,24 @@ func (t *Tap) createNodeFromRaw(ctx context.Context, k keg.Keg, raw []byte, defa
 		}
 		createOpts.Body = raw
 	}
+	if hasFrontmatter {
+		var attrs map[string]any
+		if err := yaml.Unmarshal(frontmatterRaw, &attrs); err != nil {
+			return keg.NodeId{}, fmt.Errorf("invalid frontmatter metadata: %w", err)
+		}
+		if len(attrs) > 0 {
+			if createOpts.Attrs == nil {
+				createOpts.Attrs = map[string]any{}
+			}
+			for key, val := range attrs {
+				createOpts.Attrs[key] = val
+			}
+		}
+	}
 
 	node, err := k.Create(ctx, createOpts)
 	if err != nil {
 		return keg.NodeId{}, fmt.Errorf("unable to create node: %w", err)
-	}
-
-	if hasFrontmatter {
-		metaNode, err := keg.ParseMeta(ctx, frontmatterRaw)
-		if err != nil {
-			return keg.NodeId{}, fmt.Errorf("invalid frontmatter metadata: %w", err)
-		}
-		if err := k.SetMeta(ctx, node, metaNode); err != nil {
-			return keg.NodeId{}, fmt.Errorf("unable to save node metadata: %w", err)
-		}
 	}
 
 	return node, nil
