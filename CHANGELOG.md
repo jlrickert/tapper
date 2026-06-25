@@ -2,6 +2,20 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.25.0 - 2026-06-25
+
+
+
+### 🚀 Features
+- **schemas:** add type-based keg schemas
+- add schema edit command
+- **keg:** add remote alias rename command
+
+
+### 🚜 Refactor
+- **keg:** move schema repository capability
+
+
 ## v0.24.0 - 2026-06-21
 
 
