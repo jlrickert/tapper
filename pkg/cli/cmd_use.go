@@ -1,7 +1,9 @@
 package cli
 
 import (
+	"context"
 	"fmt"
+	"strings"
 
 	"github.com/jlrickert/tapper/pkg/tapper"
 	"github.com/spf13/cobra"
@@ -13,6 +15,7 @@ import (
 // Usage examples:
 //
 //	tap use @work/dev                  # project keg (defaultKeg)
+//	tap use +plan                      # project flight
 //	tap use @work/dev --flight @work/+plan
 //	tap use @me/notes --user           # user-wide fallback (fallbackKeg)
 //	tap use --flight @work/+plan       # set/replace just the project flight
@@ -49,7 +52,9 @@ and fallback and the config scope that set each.`,
 				return err
 			}
 
-			if len(args) == 1 {
+			if len(args) == 1 && opts.Flight == "" && isFlightUseArg(args[0]) {
+				opts.Flight = args[0]
+			} else if len(args) == 1 {
 				opts.Keg = args[0]
 			}
 			opts.ConfigPath = deps.ConfigPath
@@ -65,8 +70,37 @@ and fallback and the config scope that set each.`,
 		if len(args) != 0 {
 			return nil, cobra.ShellCompDirectiveNoFileComp
 		}
-		return kegFlagCompletions(cmd.Context(), deps, toComplete), cobra.ShellCompDirectiveNoFileComp
+		return useArgCompletions(cmd.Context(), deps, toComplete), cobra.ShellCompDirectiveNoFileComp
 	}
 
 	return cmd
+}
+
+func useArgCompletions(ctx context.Context, deps *Deps, toComplete string) []string {
+	seen := map[string]struct{}{}
+	var out []string
+	add := func(items []string) {
+		for _, item := range items {
+			if _, ok := seen[item]; ok {
+				continue
+			}
+			seen[item] = struct{}{}
+			out = append(out, item)
+		}
+	}
+	add(kegFlagCompletions(ctx, deps, toComplete))
+	add(flightFlagCompletions(ctx, deps, toComplete))
+	return out
+}
+
+func isFlightUseArg(raw string) bool {
+	raw = strings.TrimSpace(raw)
+	if strings.HasPrefix(raw, "+") {
+		return true
+	}
+	if rest, ok := strings.CutPrefix(raw, "@"); ok {
+		_, slug, found := strings.Cut(rest, "/")
+		return found && strings.HasPrefix(slug, "+")
+	}
+	return false
 }
