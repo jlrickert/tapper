@@ -160,3 +160,60 @@ func TestEditorTempFilePrefix_SanitizesUnsafeCharacters(t *testing.T) {
 	require.NotContains(t, got, " ")
 	require.NotContains(t, got, ":")
 }
+
+func TestEditorTempFilePrefix_Flight(t *testing.T) {
+	t.Parallel()
+	ref := FlightRef{Namespace: "foldwise", Slug: "agent-work"}
+
+	got := flightEditorTempFilePrefix(ref)
+
+	require.Equal(t, "tap-flight-edit-foldwise-agent-work-", got)
+}
+
+func TestEditorTempFilePrefix_FlightSanitizesUnsafeCharacters(t *testing.T) {
+	t.Parallel()
+	ref := FlightRef{Namespace: "@team/foo", Slug: "+bad flight"}
+
+	got := flightEditorTempFilePrefix(ref)
+
+	require.Equal(t, "tap-flight-edit-team-foo-bad-flight-", got)
+	require.NotContains(t, got, "@")
+	require.NotContains(t, got, "/")
+	require.NotContains(t, got, " ")
+	require.NotContains(t, got, "+")
+}
+
+func TestEditorTempFilePrefix_Schema(t *testing.T) {
+	t.Parallel()
+	k := kegWithTarget(&keg.Target{Namespace: "jlrickert", KegName: "example"})
+
+	got := schemaEditorTempFilePrefix(k, "task")
+
+	require.Equal(t, "tap-schema-edit-jlrickert-example-task-", got)
+}
+
+func TestEditorTempFilePrefix_SchemaUsesLocalHubPathIdentity(t *testing.T) {
+	t.Parallel()
+	k := kegWithTarget(&keg.Target{File: "/home/testuser/kegs/@local/example"})
+
+	got := schemaEditorTempFilePrefix(k, "task")
+
+	require.Equal(t, "tap-schema-edit-local-example-task-", got)
+}
+
+func TestEditorTempFilePrefix_SchemaSanitizesUnsafeCharacters(t *testing.T) {
+	t.Parallel()
+	k := kegWithTarget(&keg.Target{
+		Namespace: "team/foo @bar",
+		KegName:   "notes:bad/thing",
+	})
+
+	got := schemaEditorTempFilePrefix(k, "task+card")
+
+	require.Equal(t, "tap-schema-edit-team-foo-bar-notes-bad-thing-task-card-", got)
+	require.NotContains(t, got, "@")
+	require.NotContains(t, got, "/")
+	require.NotContains(t, got, " ")
+	require.NotContains(t, got, "+")
+	require.NotContains(t, got, ":")
+}

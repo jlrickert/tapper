@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"path/filepath"
 	"strings"
 
 	"github.com/jlrickert/cli-toolkit/toolkit"
@@ -243,12 +244,31 @@ func hasYAMLSchemaModeline(data []byte) bool {
 }
 
 func schemaEditorTempFilePrefix(k keg.Keg, typeName string) string {
-	namespace, kegName := logicalKegTempNameParts(k)
-	return fmt.Sprintf("tap-schema-%s-%s-%s-",
+	namespace, kegName := schemaEditorTempNameParts(k)
+	return fmt.Sprintf("tap-schema-edit-%s-%s-%s-",
 		sanitizeEditorTempSegment(namespace, "unknown"),
 		sanitizeEditorTempSegment(kegName, "keg"),
 		sanitizeEditorTempSegment(typeName, "schema"),
 	)
+}
+
+func schemaEditorTempNameParts(k keg.Keg) (string, string) {
+	namespace, kegName := logicalKegTempNameParts(k)
+	if namespace != "local" || kegName != "keg" || k == nil || k.Target() == nil {
+		return namespace, kegName
+	}
+
+	file := strings.TrimSpace(k.Target().File)
+	if file == "" {
+		return namespace, kegName
+	}
+	clean := filepath.Clean(file)
+	name := strings.TrimSpace(filepath.Base(clean))
+	parent := strings.TrimSpace(filepath.Base(filepath.Dir(clean)))
+	if strings.HasPrefix(parent, "@") && len(parent) > 1 && name != "" && name != "." {
+		return strings.TrimPrefix(parent, "@"), name
+	}
+	return namespace, kegName
 }
 
 func readAllSchemaInput(r io.Reader) ([]byte, error) {

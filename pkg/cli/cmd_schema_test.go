@@ -58,8 +58,9 @@ markdown:
 	jail = resolvedJail
 
 	capturePath := filepath.Join(jail, "schema-edit-opened.yaml")
+	captureBasenamePath := filepath.Join(jail, "schema-edit-opened.basename")
 	scriptPath := filepath.Join(jail, "capture-schema-edit.sh")
-	script := fmt.Sprintf("#!/bin/sh\ncp \"$1\" %q\n", capturePath)
+	script := fmt.Sprintf("#!/bin/sh\ncp \"$1\" %q\nbasename \"$1\" > %q\n", capturePath, captureBasenamePath)
 	require.NoError(t, os.WriteFile(scriptPath, []byte(script), 0o755))
 	require.NoError(t, sb.Runtime().Set("EDITOR", "/bin/sh "+scriptPath))
 	sb.Runtime().Unset("VISUAL")
@@ -70,6 +71,9 @@ markdown:
 
 	raw, err := os.ReadFile(capturePath)
 	require.NoError(t, err)
+	basenameRaw, err := os.ReadFile(captureBasenamePath)
+	require.NoError(t, err)
+	require.True(t, strings.HasPrefix(strings.TrimSpace(string(basenameRaw)), "tap-schema-edit-local-example-task-"))
 	opened := string(raw)
 	require.True(t, strings.HasPrefix(opened, "# yaml-language-server: $schema="+keg.KegSchemaDefinitionSchemaURL+"\n"))
 	require.Contains(t, opened, "type: task")

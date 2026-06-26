@@ -84,7 +84,7 @@ func (t *Tap) EditFlight(ctx context.Context, opts EditFlightOptions) (*Flight, 
 		}
 	}
 
-	tempPath, err := newEditorTempFilePath(t.Runtime, "flight-edit-", ".yaml")
+	tempPath, err := newEditorTempFilePath(t.Runtime, flightEditorTempFilePrefix(ref), ".yaml")
 	if err != nil {
 		return nil, fmt.Errorf("unable to create temp file path: %w", err)
 	}
@@ -106,6 +106,13 @@ func (t *Tap) EditFlight(ctx context.Context, opts EditFlightOptions) (*Flight, 
 		return nil, fmt.Errorf("unable to edit flight: %w", err)
 	}
 	return result, nil
+}
+
+func flightEditorTempFilePrefix(ref FlightRef) string {
+	return fmt.Sprintf("tap-flight-edit-%s-%s-",
+		sanitizeEditorTempSegment(ref.Namespace, "unknown"),
+		sanitizeEditorTempSegment(ref.Slug, "flight"),
+	)
 }
 
 type flightManifestEditorDocument struct {

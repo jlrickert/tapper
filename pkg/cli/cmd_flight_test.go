@@ -91,8 +91,9 @@ func TestFlightEdit_EditorStartsWithSchemaManifest(t *testing.T) {
 	jail = resolvedJail
 
 	capturePath := filepath.Join(jail, "flight-edit-opened.yaml")
+	captureBasenamePath := filepath.Join(jail, "flight-edit-opened.basename")
 	scriptPath := filepath.Join(jail, "capture-flight-edit.sh")
-	script := fmt.Sprintf("#!/bin/sh\ncp \"$1\" %q\n", capturePath)
+	script := fmt.Sprintf("#!/bin/sh\ncp \"$1\" %q\nbasename \"$1\" > %q\n", capturePath, captureBasenamePath)
 	require.NoError(t, os.WriteFile(scriptPath, []byte(script), 0o755))
 	require.NoError(t, sb.Runtime().Set("EDITOR", "/bin/sh "+scriptPath))
 	sb.Runtime().Unset("VISUAL")
@@ -104,6 +105,9 @@ func TestFlightEdit_EditorStartsWithSchemaManifest(t *testing.T) {
 
 	raw, err := os.ReadFile(capturePath)
 	require.NoError(t, err)
+	basenameRaw, err := os.ReadFile(captureBasenamePath)
+	require.NoError(t, err)
+	require.True(t, strings.HasPrefix(strings.TrimSpace(string(basenameRaw)), "tap-flight-edit-foldwise-agent-work-"))
 	opened := string(raw)
 	require.True(t, strings.HasPrefix(opened, "# yaml-language-server: $schema="+tapper.FlightManifestSchemaURL+"\n"))
 	require.Contains(t, opened, `title: ""`)
