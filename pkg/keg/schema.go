@@ -18,6 +18,10 @@ const (
 	SchemasDir       = "schemas"
 	SchemaFileSuffix = ".schema.yaml"
 
+	// KegSchemaDefinitionSchemaURL is the public JSON Schema used by editor
+	// modelines for keg schema definition YAML.
+	KegSchemaDefinitionSchemaURL = "https://raw.githubusercontent.com/jlrickert/tapper/main/schemas/keg-schema-definition.json"
+
 	schemaActorHeader = "Tapper-Schema-Actor"
 	schemaModeHeader  = "Tapper-Schema-Mode"
 )

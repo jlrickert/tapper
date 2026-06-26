@@ -24,6 +24,8 @@ type EditSchemaOptions struct {
 	Stream *toolkit.Stream
 }
 
+const schemaDefinitionSchemaModeline = "# yaml-language-server: $schema=" + keg.KegSchemaDefinitionSchemaURL + "\n"
+
 type ValidateOptions struct {
 	KegTargetOptions
 	NodeIDs []string
@@ -86,7 +88,8 @@ func (t *Tap) EditSchema(ctx context.Context, opts EditSchemaOptions) error {
 	if err != nil {
 		return fmt.Errorf("unable to create temp schema file path: %w", err)
 	}
-	if err := t.Runtime.WriteFile(tempPath, originalRaw, 0o600); err != nil {
+	initialRaw := ensureYAMLSchemaModeline(originalRaw, schemaDefinitionSchemaModeline)
+	if err := t.Runtime.WriteFile(tempPath, initialRaw, 0o600); err != nil {
 		return fmt.Errorf("unable to write temp schema file: %w", err)
 	}
 	defer func() {
@@ -210,6 +213,33 @@ func validateEditedSchema(typeName string, data []byte) error {
 		return fmt.Errorf("schema type %q does not match target type %q: %w", declared, typeName, keg.ErrInvalid)
 	}
 	return nil
+}
+
+func ensureYAMLSchemaModeline(data []byte, modeline string) []byte {
+	if hasYAMLSchemaModeline(data) {
+		return data
+	}
+	out := make([]byte, 0, len(modeline)+len(data))
+	out = append(out, modeline...)
+	out = append(out, data...)
+	return out
+}
+
+func hasYAMLSchemaModeline(data []byte) bool {
+	for _, line := range bytes.Split(data, []byte("\n")) {
+		trimmed := bytes.TrimSpace(line)
+		if len(trimmed) == 0 {
+			continue
+		}
+		if bytes.HasPrefix(trimmed, []byte("# yaml-language-server: $schema=")) {
+			return true
+		}
+		if bytes.HasPrefix(trimmed, []byte("#")) {
+			continue
+		}
+		return false
+	}
+	return false
 }
 
 func schemaEditorTempFilePrefix(k keg.Keg, typeName string) string {

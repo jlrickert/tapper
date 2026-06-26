@@ -73,6 +73,13 @@ local `flights.d` manifests remain read-only files.
 | Apply a manifest from a script        | `cat manifest.yaml \| tap flight edit @namespace/+slug` |
 | Delete a Hub-backed flight            | `tap flight delete @namespace/+slug`      |
 
+`tap flight edit` opens a non-empty YAML document even for an empty flight. The
+first line is a `yaml-language-server` schema modeline for
+`schemas/flight-manifest.json`, followed by a short comment that the
+`@namespace/+slug` ref is immutable. The editable fields are `title`, `cover`,
+and `instructions`; comments and the modeline are ignored when deciding whether
+the manifest changed.
+
 The same surface is exposed over MCP as the `list_flights`, `flight_show`,
 `flight_create`, `flight_edit`, and `flight_delete` tools, and the
 `--flight` parameter flows through `orient`. `flight_edit` (partial update;

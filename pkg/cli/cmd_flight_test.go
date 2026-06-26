@@ -5,7 +5,10 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/jlrickert/tapper/pkg/tapper"
@@ -53,6 +56,61 @@ func TestFlightEdit_PipedStdinAppliesManifest(t *testing.T) {
 	require.NotNil(t, put, "piped flight edit must PUT the manifest")
 	require.Equal(t, "Piped Title", put.Title)
 	require.Equal(t, "piped instructions", put.Instructions)
+}
+
+func TestFlightEdit_EditorStartsWithSchemaManifest(t *testing.T) {
+	t.Parallel()
+	sb := NewSandbox(t)
+
+	var putCalled atomic.Bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.Method + " " + r.URL.Path {
+		case "GET /api/v1/@foldwise/+agent-work":
+			_ = json.NewEncoder(w).Encode(tapper.HubFlight{
+				Namespace: "foldwise",
+				Slug:      "agent-work",
+			})
+		case "PUT /api/v1/@foldwise/+agent-work":
+			putCalled.Store(true)
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	cfg := fmt.Sprintf("hubs:\n  cloud:\n    kind: remote\n    url: %s\n    token: tok\n", srv.URL)
+	sb.MustWriteFile("~/.config/tapper/config.yaml", []byte(cfg), 0o644)
+
+	jail := sb.Runtime().GetJail()
+	require.NotEmpty(t, jail)
+	resolvedJail, err := filepath.EvalSymlinks(jail)
+	require.NoError(t, err)
+	require.NoError(t, sb.Runtime().SetJail(resolvedJail))
+	jail = resolvedJail
+
+	capturePath := filepath.Join(jail, "flight-edit-opened.yaml")
+	scriptPath := filepath.Join(jail, "capture-flight-edit.sh")
+	script := fmt.Sprintf("#!/bin/sh\ncp \"$1\" %q\n", capturePath)
+	require.NoError(t, os.WriteFile(scriptPath, []byte(script), 0o755))
+	require.NoError(t, sb.Runtime().Set("EDITOR", "/bin/sh "+scriptPath))
+	sb.Runtime().Unset("VISUAL")
+
+	res := NewProcess(t, false, "flight", "edit", "@foldwise/+agent-work").
+		RunWithIO(sb.Context(), sb.Runtime(), strings.NewReader(""))
+	require.NoError(t, res.Err)
+	require.Contains(t, string(res.Stdout), "@foldwise/+agent-work")
+
+	raw, err := os.ReadFile(capturePath)
+	require.NoError(t, err)
+	opened := string(raw)
+	require.True(t, strings.HasPrefix(opened, "# yaml-language-server: $schema="+tapper.FlightManifestSchemaURL+"\n"))
+	require.Contains(t, opened, `title: ""`)
+	require.Contains(t, opened, "cover: []")
+	require.Contains(t, opened, `instructions: ""`)
+	require.NotContains(t, opened, "{}")
+	require.False(t, putCalled.Load(), "unchanged schema-backed starter must not PUT")
 }
 
 func TestFlightUpdate_CommandRemoved(t *testing.T) {

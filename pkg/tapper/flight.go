@@ -17,7 +17,14 @@ import (
 // flightsDirName is the reserved directory — a sibling of the @<namespace> dirs
 // of a local hub — that holds flight manifests. "flights.d" is an invalid
 // namespace (it contains a dot), so it can never collide with a keg path.
-const flightsDirName = "flights.d"
+const (
+	flightsDirName = "flights.d"
+
+	// FlightManifestSchemaURL is the public JSON Schema used by editor
+	// modelines for flight manifest YAML.
+	FlightManifestSchemaURL      = "https://raw.githubusercontent.com/jlrickert/tapper/main/schemas/flight-manifest.json"
+	flightManifestSchemaModeline = "# yaml-language-server: $schema=" + FlightManifestSchemaURL + "\n"
+)
 
 type FlightRole string
 
