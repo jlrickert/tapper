@@ -226,6 +226,8 @@ func TestMCP_SurfaceHub_CuratesToolset(t *testing.T) {
 		"node_snapshot_view", "node_restore", "graph", "orient",
 		"list_files", "list_images", "delete_file", "delete_image",
 		"upload_file", "upload_image", "download_image",
+		"schema_list", "schema_read", "schema_create", "schema_edit",
+		"schema_delete", "validate",
 	} {
 		require.Truef(t, names[want], "SurfaceHub should expose %q", want)
 	}

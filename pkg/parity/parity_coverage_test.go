@@ -51,6 +51,16 @@ var tapMethodToSurfaces = map[string]struct {
 	// Index operations
 	"Index": {CLI: "index rebuild", MCP: "index"},
 
+	// Schema operations (type-based keg schemas). Full CRUD + validation is
+	// exposed on both MCP surfaces; schema mutation resolves at editor role,
+	// consistent with node writes.
+	"ListSchemas":  {CLI: "schema list", MCP: "schema_list"},
+	"ReadSchema":   {CLI: "schema get", MCP: "schema_read"},
+	"CreateSchema": {CLI: "schema create", MCP: "schema_create"},
+	"EditSchema":   {CLI: "schema edit", MCP: "schema_edit"},
+	"DeleteSchema": {CLI: "schema rm", MCP: "schema_delete"},
+	"Validate":     {CLI: "validate", MCP: "validate"},
+
 	// Snapshot operations
 	"NodeSnapshot":     {CLI: "snapshot create", MCP: "node_snapshot"},
 	"NodeHistory":      {CLI: "snapshot history", MCP: "node_history"},
@@ -132,12 +142,6 @@ var tapMethodsExcluded = map[string]string{
 		"are spec-thin (URI only) while the CLI stream carries kind/field — but both surfaces " +
 		"observe the same Tap.WatchNode events",
 	"DoctorConfig":          "tapper-config health check helper; called by Doctor CLI/MCP surfaces",
-	"ListSchemas":           "schema administration is CLI/API-first for now; MCP agents validate through write tools and doctor",
-	"ReadSchema":            "schema administration is CLI/API-first for now; MCP agents validate through write tools and doctor",
-	"CreateSchema":          "schema administration is CLI/API-first for now; MCP agents should not mutate schemas yet",
-	"DeleteSchema":          "schema administration is CLI/API-first for now; MCP agents should not mutate schemas yet",
-	"EditSchema":            "schema administration is CLI/API-first for now; MCP agents should not mutate schemas yet",
-	"Validate":              "CLI/API validation helper; MCP coverage is via doctor and schema-enforced write tools",
 	"ConfigExplain":         "shares surface with Config via --explain flag / explain field",
 	"ReadImage":             "underlying byte-read helper used by image download surfaces; not a standalone operation",
 	"AuthLogout":            "security: MCP agents must not be able to revoke hub credentials; CLI-only by design",
