@@ -168,3 +168,103 @@ func TestFlightRoleFor_LegacyAllowedKegsRoles(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, tapper.FlightRoleViewer, role)
 }
+
+func TestFlightEnforcement_LocalHubPathIdentity(t *testing.T) {
+	t.Parallel()
+	tap, personalID, privateID := newLocalFlightEnforcementFixture(t)
+
+	got, err := tap.Cat(t.Context(), tapper.CatOptions{
+		NodeIDs: []string{personalID},
+		KegTargetOptions: tapper.KegTargetOptions{
+			Keg:    "personal",
+			Flight: "+focused",
+		},
+		ContentOnly: true,
+	})
+	require.NoError(t, err)
+	require.Contains(t, got, "# Personal")
+
+	_, err = tap.Cat(t.Context(), tapper.CatOptions{
+		NodeIDs: []string{privateID},
+		KegTargetOptions: tapper.KegTargetOptions{
+			Keg:    "private",
+			Flight: "+focused",
+		},
+		ContentOnly: true,
+	})
+	require.Error(t, err)
+	var restriction *tapper.FlightRestrictionError
+	require.ErrorAs(t, err, &restriction)
+	require.Contains(t, err.Error(), `keg "@local/private" is not available in flight`)
+}
+
+func TestFlightEnforcement_ViewerCoverAllowsReadsAndRejectsWrites(t *testing.T) {
+	t.Parallel()
+	tap, personalID, _ := newLocalFlightEnforcementFixture(t)
+
+	_, err := tap.Cat(t.Context(), tapper.CatOptions{
+		NodeIDs: []string{personalID},
+		KegTargetOptions: tapper.KegTargetOptions{
+			Keg:    "personal",
+			Flight: "+focused",
+		},
+		ContentOnly: true,
+	})
+	require.NoError(t, err)
+
+	_, err = tap.Create(t.Context(), tapper.CreateOptions{
+		KegTargetOptions: tapper.KegTargetOptions{
+			Keg:    "personal",
+			Flight: "+focused",
+		},
+		Title: "Blocked Write",
+	})
+	require.Error(t, err)
+	var restriction *tapper.FlightRestrictionError
+	require.ErrorAs(t, err, &restriction)
+	require.Contains(t, err.Error(), `keg "@local/personal" is viewer-only in flight`)
+}
+
+func newLocalFlightEnforcementFixture(t *testing.T) (*tapper.Tap, string, string) {
+	t.Helper()
+	fx := NewSandbox(t)
+	require.NoError(t, fx.Setwd("/home/testuser"))
+
+	tap, err := tapper.NewTap(tapper.TapOptions{
+		Root:    "/home/testuser",
+		Runtime: fx.Runtime(),
+	})
+	require.NoError(t, err)
+
+	userCfg := `fallbackNamespace: local
+hubs:
+  home:
+    kind: local
+    defaultNamespace: local
+    basePath: /home/testuser/kegs
+`
+	require.NoError(t, fx.Runtime().AtomicWriteFile(tap.PathService.UserConfig(), []byte(userCfg), 0o644))
+	for _, name := range []string{"personal", "private"} {
+		_, err := tap.InitKeg(t.Context(), tapper.InitOptions{Keg: name, Namespace: "local"})
+		require.NoError(t, err)
+	}
+	personalID, err := tap.Create(t.Context(), tapper.CreateOptions{
+		KegTargetOptions: tapper.KegTargetOptions{Keg: "personal"},
+		Title:            "Personal",
+	})
+	require.NoError(t, err)
+	privateID, err := tap.Create(t.Context(), tapper.CreateOptions{
+		KegTargetOptions: tapper.KegTargetOptions{Keg: "private"},
+		Title:            "Private",
+	})
+	require.NoError(t, err)
+
+	flightYAML := `title: Focused
+cover:
+  - namespace: local
+    keg: personal
+    role: viewer
+`
+	require.NoError(t, fx.Runtime().AtomicWriteFile("/home/testuser/kegs/flights.d/focused.yaml", []byte(flightYAML), 0o644))
+	return tap, personalID.PathNumeric(), privateID.PathNumeric()
+}

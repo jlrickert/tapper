@@ -3,6 +3,7 @@ package tapper
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/jlrickert/tapper/pkg/keg"
@@ -214,6 +215,16 @@ func (t *Tap) enforceFlight(ctx context.Context, flightName string, k keg.Keg, w
 	if k.Target() != nil {
 		namespace = k.Target().Namespace
 		kegName = k.Target().KegName
+		if namespace == "" || kegName == "" {
+			if localNamespace, localKegName, ok := localHubPathKegIdentity(k.Target()); ok {
+				if namespace == "" {
+					namespace = localNamespace
+				}
+				if kegName == "" {
+					kegName = localKegName
+				}
+			}
+		}
 		if cfg, cErr := t.ConfigService.Config(true); cErr == nil {
 			alias = cfg.LookupAliasForTarget(t.Runtime, k.Target().String())
 		}
@@ -224,11 +235,31 @@ func (t *Tap) enforceFlight(ctx context.Context, flightName string, k keg.Keg, w
 	}
 
 	label := alias
-	if label == "" && kegName != "" {
+	if label == "" && namespace != "" && kegName != "" {
 		label = "@" + namespace + "/" + kegName
+	}
+	if label == "" && kegName != "" {
+		label = kegName
 	}
 	if label == "" && k.Target() != nil {
 		label = k.Target().String()
 	}
 	return &FlightRestrictionError{Flight: flightName, Keg: label, Want: want, Got: role}
+}
+
+func localHubPathKegIdentity(target *keg.Target) (string, string, bool) {
+	if target == nil {
+		return "", "", false
+	}
+	file := strings.TrimSpace(target.File)
+	if file == "" {
+		return "", "", false
+	}
+	clean := filepath.Clean(file)
+	kegName := strings.TrimSpace(filepath.Base(clean))
+	parent := strings.TrimSpace(filepath.Base(filepath.Dir(clean)))
+	if strings.HasPrefix(parent, "@") && len(parent) > 1 && kegName != "" && kegName != "." {
+		return strings.TrimPrefix(parent, "@"), kegName, true
+	}
+	return "", "", false
 }
