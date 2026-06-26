@@ -30,9 +30,11 @@ const (
 	// tools (keg/namespace administration, flights) — none of which make sense
 	// for a remote multi-tenant connector. Uploads remain available, but local
 	// path sources are disabled. Image downloads return MCP image content rather
-	// than writing to the server filesystem. The hub pairs this with
-	// Tap.KegResolver so the registered tools resolve against the caller's
-	// catalog.
+	// than writing to the server filesystem. Schema tools (schema_list/read/
+	// create/edit/delete, validate) ARE registered here: schema mutation resolves
+	// at editor role, consistent with how node writes already work on this
+	// surface. The hub pairs this with Tap.KegResolver so the registered tools
+	// resolve against the caller's catalog.
 	SurfaceHub
 )
 
@@ -77,6 +79,7 @@ func NewServer(tap *tapper.Tap, version string, defaults KegDefaults, opts ...Se
 	registerSnapshotTools(srv, tap, defaults)
 	registerGraphTools(srv, tap, defaults)
 	registerOrientTools(srv, tap, defaults)
+	registerSchemaTools(srv, tap, defaults)
 	fileOpts := fileToolOptions{
 		AllowLocalSources: opt.Surface != SurfaceHub,
 		DownloadFiles:     opt.Surface != SurfaceHub,
