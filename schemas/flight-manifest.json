@@ -1,0 +1,50 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://raw.githubusercontent.com/jlrickert/tapper/main/schemas/flight-manifest.json",
+  "title": "tapper flight manifest",
+  "description": "Schema for a tapper flight manifest edited by `tap flight edit` or stored under a local flights.d directory.",
+  "type": "object",
+  "properties": {
+    "title": {
+      "type": "string",
+      "description": "Human-readable title for the flight."
+    },
+    "cover": {
+      "type": "array",
+      "description": "Kegs available while the flight is active. Empty or omitted means the flight restricts nothing.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "namespace": {
+            "type": "string",
+            "description": "Namespace containing the keg. The @ sigil is optional."
+          },
+          "keg": {
+            "type": "string",
+            "description": "Keg name covered by this flight entry."
+          },
+          "role": {
+            "type": "string",
+            "description": "Maximum role granted by this cover entry. Omitted roles default to viewer.",
+            "enum": ["viewer", "editor"],
+            "default": "viewer"
+          }
+        },
+        "required": ["keg"],
+        "additionalProperties": false
+      }
+    },
+    "allowedKegs": {
+      "type": "array",
+      "description": "Legacy local-manifest cover list. Bare entries are treated as editor cover rows for backward compatibility.",
+      "items": {
+        "type": "string"
+      }
+    },
+    "instructions": {
+      "type": "string",
+      "description": "Markdown instructions injected into orientation output while the flight is active."
+    }
+  },
+  "additionalProperties": false
+}

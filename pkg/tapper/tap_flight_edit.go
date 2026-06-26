@@ -42,15 +42,20 @@ func (t *Tap) EditFlight(ctx context.Context, opts EditFlightOptions) (*Flight, 
 		return nil, err
 	}
 	currentFlight := flightFromHub(*current, hubName)
-	manifestRaw, err := yaml.Marshal(currentFlight.FlightManifest)
+	manifestRaw, err := renderFlightManifestEditorDocument(ref, currentFlight.FlightManifest)
 	if err != nil {
 		return nil, fmt.Errorf("unable to render flight manifest: %w", err)
 	}
 
+	result := currentFlight
+	lastManifest := currentFlight.FlightManifest
 	apply := func(raw []byte) (*Flight, error) {
 		m, err := parseFlightManifestStrict(raw)
 		if err != nil {
 			return nil, err
+		}
+		if flightManifestSemanticallyEqual(*m, lastManifest) {
+			return result, nil
 		}
 		next := HubFlight{
 			Namespace:    ref.Namespace,
@@ -64,7 +69,9 @@ func (t *Tap) EditFlight(ctx context.Context, opts EditFlightOptions) (*Flight, 
 			return nil, err
 		}
 		t.FlightService.invalidateFlights()
-		return flightFromHub(*hf, hubName), nil
+		result = flightFromHub(*hf, hubName)
+		lastManifest = result.FlightManifest
+		return result, nil
 	}
 
 	if opts.Stream != nil && opts.Stream.IsPiped {
@@ -73,9 +80,6 @@ func (t *Tap) EditFlight(ctx context.Context, opts EditFlightOptions) (*Flight, 
 			return nil, fmt.Errorf("unable to read piped input: %w", readErr)
 		}
 		if len(bytes.TrimSpace(pipedRaw)) > 0 {
-			if bytes.Equal(pipedRaw, manifestRaw) {
-				return currentFlight, nil
-			}
 			return apply(pipedRaw)
 		}
 	}
@@ -84,15 +88,13 @@ func (t *Tap) EditFlight(ctx context.Context, opts EditFlightOptions) (*Flight, 
 	if err != nil {
 		return nil, fmt.Errorf("unable to create temp file path: %w", err)
 	}
-	header := fmt.Sprintf("# flight %s — slug is immutable; edit title, cover, and instructions\n", ref.Canonical())
-	if err := t.Runtime.WriteFile(tempPath, append([]byte(header), manifestRaw...), 0o600); err != nil {
+	if err := t.Runtime.WriteFile(tempPath, manifestRaw, 0o600); err != nil {
 		return nil, fmt.Errorf("unable to write temp manifest file: %w", err)
 	}
 	defer func() {
 		_ = t.Runtime.Remove(tempPath, false)
 	}()
 
-	result := currentFlight
 	if err := editWithLiveSaves(ctx, t.Runtime, tempPath, nil, func(editedRaw []byte) error {
 		flight, applyErr := apply(editedRaw)
 		if applyErr != nil {
@@ -104,6 +106,77 @@ func (t *Tap) EditFlight(ctx context.Context, opts EditFlightOptions) (*Flight, 
 		return nil, fmt.Errorf("unable to edit flight: %w", err)
 	}
 	return result, nil
+}
+
+type flightManifestEditorDocument struct {
+	Title        string        `yaml:"title"`
+	Cover        []FlightCover `yaml:"cover"`
+	Instructions string        `yaml:"instructions"`
+}
+
+func renderFlightManifestEditorDocument(ref FlightRef, m FlightManifest) ([]byte, error) {
+	canonical := canonicalFlightManifest(m)
+	doc := flightManifestEditorDocument{
+		Title:        canonical.Title,
+		Cover:        canonical.Cover,
+		Instructions: canonical.Instructions,
+	}
+	body, err := yaml.Marshal(doc)
+	if err != nil {
+		return nil, err
+	}
+
+	var out bytes.Buffer
+	out.WriteString(flightManifestSchemaModeline)
+	fmt.Fprintf(&out, "# Flight %s. Ref is immutable; edit title, cover, and instructions.\n", ref.Canonical())
+	out.Write(body)
+	if !bytes.HasSuffix(out.Bytes(), []byte("\n")) {
+		out.WriteByte('\n')
+	}
+	return out.Bytes(), nil
+}
+
+type comparableFlightManifest struct {
+	Title        string
+	Cover        []FlightCover
+	Instructions string
+}
+
+func canonicalFlightManifest(m FlightManifest) comparableFlightManifest {
+	if len(m.Cover) > 0 {
+		m.Cover = append([]FlightCover(nil), m.Cover...)
+	}
+	if len(m.AllowedKegs) > 0 {
+		m.AllowedKegs = append([]string(nil), m.AllowedKegs...)
+	}
+	normalizeFlightManifest(&m)
+	cover := make([]FlightCover, 0, len(m.Cover))
+	for _, c := range m.Cover {
+		cover = append(cover, FlightCover{
+			Namespace: c.Namespace,
+			Keg:       c.Keg,
+			Role:      c.Role,
+		})
+	}
+	return comparableFlightManifest{
+		Title:        m.Title,
+		Cover:        cover,
+		Instructions: m.Instructions,
+	}
+}
+
+func flightManifestSemanticallyEqual(a, b FlightManifest) bool {
+	ca := canonicalFlightManifest(a)
+	cb := canonicalFlightManifest(b)
+	if ca.Title != cb.Title || ca.Instructions != cb.Instructions || len(ca.Cover) != len(cb.Cover) {
+		return false
+	}
+	for i := range ca.Cover {
+		if ca.Cover[i] != cb.Cover[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // parseFlightManifestStrict decodes an edited manifest, rejecting unknown

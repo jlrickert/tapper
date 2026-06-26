@@ -49,6 +49,7 @@ tap use @acme/engineering
 - [User Config](user-config.md)
 - [Project Config](project-config.md)
 - [Keg Config](keg-config.md)
+- [Keg Note Schemas](schemas.md)
 - [Resolution Order](resolution-order.md)
 - [Configuration Examples](examples.md)
 - [Flights](flights.md)

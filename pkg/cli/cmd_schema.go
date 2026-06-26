@@ -92,6 +92,8 @@ func newSchemaEditCmd(deps *Deps) *cobra.Command {
 		Use:   "edit TYPE",
 		Short: "edit a schema",
 		Long: `Open an existing schema YAML document in the default editor.
+The editor file includes a yaml-language-server schema modeline when the
+stored schema does not already have one.
 
 If stdin is piped with non-empty YAML, the piped content is validated and
 written directly instead of opening an editor.`,

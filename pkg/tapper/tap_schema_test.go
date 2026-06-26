@@ -2,6 +2,7 @@ package tapper_test
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -58,6 +59,45 @@ markdown:
 	got, err = k.ReadSchema(ctx, "task")
 	require.NoError(t, err)
 	require.Equal(t, original, got)
+}
+
+func TestEditSchema_EditorStartsWithSchemaModeline(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	tap, k, fx := newSchemaEditFixture(t, ctx)
+
+	original := []byte(`type: task
+markdown:
+  requireTitle: true
+`)
+	require.NoError(t, k.WriteSchema(ctx, "task", original))
+
+	jail := fx.Runtime().GetJail()
+	require.NotEmpty(t, jail)
+	resolvedJail, err := filepath.EvalSymlinks(jail)
+	require.NoError(t, err)
+	require.NoError(t, fx.Runtime().SetJail(resolvedJail))
+	jail = resolvedJail
+
+	capturePath := filepath.Join(jail, "captured-schema.yaml")
+	scriptPath := filepath.Join(jail, "schema-capture-editor.sh")
+	script := fmt.Sprintf("#!/bin/sh\ncp \"$1\" %q\n", capturePath)
+	require.NoError(t, os.WriteFile(scriptPath, []byte(script), 0o755))
+	require.NoError(t, fx.Runtime().Set("EDITOR", "/bin/sh "+scriptPath))
+	fx.Runtime().Unset("VISUAL")
+
+	err = tap.EditSchema(ctx, tapper.EditSchemaOptions{Type: "task"})
+	require.NoError(t, err)
+
+	raw, err := os.ReadFile(capturePath)
+	require.NoError(t, err)
+	opened := string(raw)
+	require.True(t, strings.HasPrefix(opened, "# yaml-language-server: $schema="+keg.KegSchemaDefinitionSchemaURL+"\n"))
+	require.Contains(t, opened, "type: task")
+
+	got, err := k.ReadSchema(ctx, "task")
+	require.NoError(t, err)
+	require.Equal(t, original, got, "capturing an unchanged editor file must not persist the modeline")
 }
 
 func TestEditSchema_InvalidInputDoesNotOverwrite(t *testing.T) {

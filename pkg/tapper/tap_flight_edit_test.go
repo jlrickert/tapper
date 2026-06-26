@@ -23,32 +23,39 @@ import (
 type flightEditFixture struct {
 	srv *httptest.Server
 
-	mu   sync.Mutex
-	puts []tapper.HubFlight
+	mu      sync.Mutex
+	current tapper.HubFlight
+	puts    []tapper.HubFlight
 }
 
 func newFlightEditFixture(t *testing.T) *flightEditFixture {
 	t.Helper()
-	fx := &flightEditFixture{}
+	fx := &flightEditFixture{
+		current: tapper.HubFlight{
+			Namespace:    "foldwise",
+			Slug:         "agent-work",
+			Title:        "Agent Work",
+			Instructions: "Stay inside the cover.",
+			Cover:        []tapper.HubFlightCover{{Namespace: "foldwise", Keg: "docs", Role: "viewer"}},
+		},
+	}
 	fx.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.Method + " " + r.URL.Path {
 		case "GET /api/v1/@foldwise/+agent-work":
-			_ = json.NewEncoder(w).Encode(tapper.HubFlight{
-				Namespace:    "foldwise",
-				Slug:         "agent-work",
-				Title:        "Agent Work",
-				Instructions: "Stay inside the cover.",
-				Cover:        []tapper.HubFlightCover{{Namespace: "foldwise", Keg: "docs", Role: "viewer"}},
-			})
+			fx.mu.Lock()
+			current := fx.current
+			fx.mu.Unlock()
+			_ = json.NewEncoder(w).Encode(current)
 		case "PUT /api/v1/@foldwise/+agent-work":
 			var body tapper.HubFlight
 			require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
-			fx.mu.Lock()
-			fx.puts = append(fx.puts, body)
-			fx.mu.Unlock()
 			body.Namespace = "foldwise"
 			body.Slug = "agent-work"
+			fx.mu.Lock()
+			fx.puts = append(fx.puts, body)
+			fx.current = body
+			fx.mu.Unlock()
 			_ = json.NewEncoder(w).Encode(body)
 		default:
 			http.NotFound(w, r)
@@ -56,6 +63,12 @@ func newFlightEditFixture(t *testing.T) *flightEditFixture {
 	}))
 	t.Cleanup(fx.srv.Close)
 	return fx
+}
+
+func (fx *flightEditFixture) setCurrent(hf tapper.HubFlight) {
+	fx.mu.Lock()
+	defer fx.mu.Unlock()
+	fx.current = hf
 }
 
 func (fx *flightEditFixture) putCount() int {
@@ -145,6 +158,31 @@ func TestEditFlight_PipedIdenticalManifestIsNoop(t *testing.T) {
 	require.Zero(t, hub.putCount(), "identical manifest must not PUT")
 }
 
+func TestEditFlight_PipedModelineAndCommentsParseCleanly(t *testing.T) {
+	t.Parallel()
+	hub := newFlightEditFixture(t)
+	tap, fx := newFlightEditTap(t, hub.srv.URL)
+
+	manifest := fmt.Sprintf(`# yaml-language-server: $schema=%s
+# Comments and modelines are editor guidance, not manifest fields.
+title: Reworked
+cover: []
+instructions: from stdin
+`, tapper.FlightManifestSchemaURL)
+
+	flight, err := tap.EditFlight(fx.Context(), tapper.EditFlightOptions{
+		Ref:    "@foldwise/+agent-work",
+		Stream: pipedStream(manifest),
+	})
+	require.NoError(t, err)
+	require.Equal(t, "Reworked", flight.Title)
+
+	put := hub.lastPut(t)
+	require.Equal(t, "Reworked", put.Title)
+	require.Equal(t, "from stdin", put.Instructions)
+	require.Empty(t, put.Cover)
+}
+
 func TestEditFlight_PipedRejectsInvalidManifests(t *testing.T) {
 	t.Parallel()
 	hub := newFlightEditFixture(t)
@@ -220,6 +258,42 @@ EOF
 	require.Equal(t, []tapper.HubFlightCover{{Keg: "docs", Role: "editor"}}, put.Cover)
 }
 
+func TestEditFlight_EditorStartsWithSchemaBackedManifest(t *testing.T) {
+	t.Parallel()
+	hub := newFlightEditFixture(t)
+	hub.setCurrent(tapper.HubFlight{Namespace: "foldwise", Slug: "agent-work"})
+	tap, fx := newFlightEditTap(t, hub.srv.URL)
+
+	jail := fx.Runtime().GetJail()
+	require.NotEmpty(t, jail)
+	resolvedJail, err := filepath.EvalSymlinks(jail)
+	require.NoError(t, err)
+	require.NoError(t, fx.Runtime().SetJail(resolvedJail))
+	jail = resolvedJail
+
+	capturePath := filepath.Join(jail, "captured-flight.yaml")
+	scriptPath := filepath.Join(jail, "capture-flight.sh")
+	script := fmt.Sprintf("#!/bin/sh\ncp \"$1\" %q\n", capturePath)
+	require.NoError(t, os.WriteFile(scriptPath, []byte(script), 0o755))
+	require.NoError(t, fx.Runtime().Set("EDITOR", "/bin/sh "+scriptPath))
+	fx.Runtime().Unset("VISUAL")
+
+	flight, err := tap.EditFlight(fx.Context(), tapper.EditFlightOptions{Ref: "@foldwise/+agent-work"})
+	require.NoError(t, err)
+	require.Equal(t, "@foldwise/+agent-work", flight.Name)
+
+	raw, err := os.ReadFile(capturePath)
+	require.NoError(t, err)
+	opened := string(raw)
+	require.True(t, strings.HasPrefix(opened, "# yaml-language-server: $schema="+tapper.FlightManifestSchemaURL+"\n"))
+	require.Contains(t, opened, "# Flight @foldwise/+agent-work. Ref is immutable; edit title, cover, and instructions.")
+	require.Contains(t, opened, `title: ""`)
+	require.Contains(t, opened, "cover: []")
+	require.Contains(t, opened, `instructions: ""`)
+	require.NotContains(t, opened, "{}")
+	require.Zero(t, hub.putCount(), "unchanged starter manifest must not PUT")
+}
+
 func TestEditFlight_EditorNoChangeIsNoop(t *testing.T) {
 	t.Parallel()
 	hub := newFlightEditFixture(t)
@@ -232,4 +306,39 @@ func TestEditFlight_EditorNoChangeIsNoop(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "Agent Work", flight.Title)
 	require.Zero(t, hub.putCount(), "exiting without changes must not PUT")
+}
+
+func TestEditFlight_EditorCommentOnlyChangeIsSemanticNoop(t *testing.T) {
+	t.Parallel()
+	hub := newFlightEditFixture(t)
+	tap, fx := newFlightEditTap(t, hub.srv.URL)
+
+	jail := fx.Runtime().GetJail()
+	require.NotEmpty(t, jail)
+	resolvedJail, err := filepath.EvalSymlinks(jail)
+	require.NoError(t, err)
+	require.NoError(t, fx.Runtime().SetJail(resolvedJail))
+	jail = resolvedJail
+
+	scriptPath := filepath.Join(jail, "flight-comment-only.sh")
+	script := fmt.Sprintf(`#!/bin/sh
+cat > "$1" <<'EOF'
+# yaml-language-server: $schema=%s
+# Different editor-only comment.
+title: Agent Work
+cover:
+  - namespace: foldwise
+    keg: docs
+    role: viewer
+instructions: Stay inside the cover.
+EOF
+`, tapper.FlightManifestSchemaURL)
+	require.NoError(t, os.WriteFile(scriptPath, []byte(script), 0o755))
+	require.NoError(t, fx.Runtime().Set("EDITOR", "/bin/sh "+scriptPath))
+	fx.Runtime().Unset("VISUAL")
+
+	flight, err := tap.EditFlight(fx.Context(), tapper.EditFlightOptions{Ref: "@foldwise/+agent-work"})
+	require.NoError(t, err)
+	require.Equal(t, "Agent Work", flight.Title)
+	require.Zero(t, hub.putCount(), "comment/modeline-only edits must not PUT")
 }

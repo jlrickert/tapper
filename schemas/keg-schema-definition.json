@@ -1,0 +1,90 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://raw.githubusercontent.com/jlrickert/tapper/main/schemas/keg-schema-definition.json",
+  "title": "tapper keg schema definition",
+  "description": "Schema for documents stored as schemas/<type>.schema.yaml in a keg.",
+  "type": "object",
+  "properties": {
+    "version": {
+      "type": "integer",
+      "description": "Optional schema document version reserved for future migrations."
+    },
+    "type": {
+      "type": "string",
+      "description": "Node type governed by this schema. Must match the edited schema type name."
+    },
+    "summary": {
+      "type": "string",
+      "description": "Human-readable summary of what this schema validates."
+    },
+    "meta": {
+      "type": "object",
+      "description": "JSON Schema object applied to node metadata/frontmatter.",
+      "additionalProperties": true
+    },
+    "markdown": {
+      "type": "object",
+      "description": "Markdown structure rules applied to node content.",
+      "properties": {
+        "requireTitle": {
+          "type": "boolean",
+          "description": "Require the markdown body to contain an H1 title."
+        },
+        "ordered": {
+          "type": "boolean",
+          "description": "Require listed sections to appear in declaration order."
+        },
+        "sections": {
+          "type": "array",
+          "description": "Required or expected markdown sections.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "heading": {
+                "type": "string",
+                "description": "Section heading text."
+              },
+              "level": {
+                "type": "integer",
+                "description": "Markdown heading level.",
+                "minimum": 1,
+                "maximum": 6
+              },
+              "required": {
+                "type": "boolean",
+                "description": "Whether this section must be present."
+              }
+            },
+            "required": ["heading"],
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "relations": {
+      "type": "array",
+      "description": "Relation requirements for links from nodes of this type.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Relation name."
+          },
+          "type": {
+            "type": "string",
+            "description": "Target node type for this relation."
+          },
+          "required": {
+            "type": "boolean",
+            "description": "Whether at least one matching relation must exist."
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": ["type"],
+  "additionalProperties": false
+}

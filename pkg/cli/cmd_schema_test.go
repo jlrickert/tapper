@@ -2,10 +2,13 @@ package cli_test
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	testutils "github.com/jlrickert/cli-toolkit/sandbox"
+	"github.com/jlrickert/tapper/pkg/keg"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/require"
 )
@@ -35,6 +38,44 @@ markdown:
 	got := readSchemaForCLI(t, sb, "example", "task")
 	require.Contains(t, got, "requireTitle: false")
 	require.Contains(t, got, "heading: Done")
+}
+
+func TestSchemaEdit_EditorStartsWithSchemaModeline(t *testing.T) {
+	t.Parallel()
+	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
+
+	original := `type: task
+markdown:
+  requireTitle: true
+`
+	createSchemaForCLI(t, sb, "example", original)
+
+	jail := sb.Runtime().GetJail()
+	require.NotEmpty(t, jail)
+	resolvedJail, err := filepath.EvalSymlinks(jail)
+	require.NoError(t, err)
+	require.NoError(t, sb.Runtime().SetJail(resolvedJail))
+	jail = resolvedJail
+
+	capturePath := filepath.Join(jail, "schema-edit-opened.yaml")
+	scriptPath := filepath.Join(jail, "capture-schema-edit.sh")
+	script := fmt.Sprintf("#!/bin/sh\ncp \"$1\" %q\n", capturePath)
+	require.NoError(t, os.WriteFile(scriptPath, []byte(script), 0o755))
+	require.NoError(t, sb.Runtime().Set("EDITOR", "/bin/sh "+scriptPath))
+	sb.Runtime().Unset("VISUAL")
+
+	res := NewProcess(t, false, "schema", "edit", "--keg", "example", "task").
+		RunWithIO(sb.Context(), sb.Runtime(), strings.NewReader(""))
+	require.NoError(t, res.Err)
+
+	raw, err := os.ReadFile(capturePath)
+	require.NoError(t, err)
+	opened := string(raw)
+	require.True(t, strings.HasPrefix(opened, "# yaml-language-server: $schema="+keg.KegSchemaDefinitionSchemaURL+"\n"))
+	require.Contains(t, opened, "type: task")
+
+	got := readSchemaForCLI(t, sb, "example", "task")
+	require.Equal(t, original, got)
 }
 
 func TestSchemaEdit_TypeMismatchPreservesOriginal(t *testing.T) {

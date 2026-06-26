@@ -129,7 +129,7 @@ func newFlightEditCmd(deps *Deps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "edit <ref>",
 		Short: "edit a Hub-backed flight's manifest in the default editor",
-		Long:  `Opens the flight manifest (title, cover, instructions) as YAML in the configured editor; every save is applied to the hub. Piped stdin applies a full manifest without opening an editor.`,
+		Long:  `Opens the flight manifest (title, cover, instructions) as YAML in the configured editor with a yaml-language-server schema modeline; every save is applied to the hub. Piped stdin applies a full manifest without opening an editor.`,
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			flight, err := deps.Tap.EditFlight(cmd.Context(), tapper.EditFlightOptions{
