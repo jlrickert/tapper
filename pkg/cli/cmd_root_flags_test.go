@@ -1,6 +1,7 @@
 package cli_test
 
 import (
+	"strings"
 	"testing"
 
 	testutils "github.com/jlrickert/cli-toolkit/sandbox"
@@ -24,11 +25,10 @@ func TestTapHelp_ShowsPersistentKegTargetFlags(t *testing.T) {
 func TestTap_FlightFlagComposesWithKegTargetFlags(t *testing.T) {
 	t.Parallel()
 
-	// A flight is an overlay (keg restriction + instructions), not a target
-	// selector, so combining --flight with a single-keg selector must NOT raise
-	// the old cobra mutual-exclusivity error. The command may still fail for
-	// unrelated reasons (e.g. the flight not existing), but never with the mutex
-	// error.
+	// A flight is not a target selector, so combining --flight with a single-keg
+	// selector must NOT raise the old cobra mutual-exclusivity error. The command
+	// may still fail for unrelated reasons (e.g. the flight not existing), but
+	// never with the mutex error.
 	cases := []struct {
 		name string
 		args []string
@@ -70,6 +70,41 @@ func TestConfigHelp_HidesInheritedKegTargetFlags(t *testing.T) {
 	require.NotContains(t, stdout, "--namespace")
 	require.NotContains(t, stdout, "--hub")
 	require.Contains(t, stdout, "--project")
+}
+
+func TestTap_DirectCatBypassesFlightCover(t *testing.T) {
+	t.Parallel()
+
+	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
+	sb.MustWriteFile("/home/testuser/kegs/flights.d/focused.yaml", []byte(`title: Focused
+cover:
+  - namespace: local
+    keg: personal
+    role: viewer
+`), 0o644)
+
+	res := NewProcess(t, false, "cat", "0", "--keg", "work", "--flight", "+focused", "--content-only").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+	require.Contains(t, string(res.Stdout), "# Sorry, planned but not yet available")
+}
+
+func TestTap_DirectCreateBypassesViewerFlightCap(t *testing.T) {
+	t.Parallel()
+
+	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
+	sb.MustWriteFile("/home/testuser/kegs/flights.d/focused.yaml", []byte(`title: Focused
+cover:
+  - namespace: local
+    keg: personal
+    role: viewer
+`), 0o644)
+
+	res := NewProcess(t, false, "create", "--keg", "personal", "--flight", "+focused", "--title", "Allowed CLI Write").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+	nodeID := strings.TrimSpace(string(res.Stdout))
+	require.NotEmpty(t, nodeID)
+	content := string(sb.MustReadFile("/home/testuser/kegs/@local/personal/" + nodeID + "/README.md"))
+	require.Contains(t, content, "# Allowed CLI Write")
 }
 
 func TestTap_RootPersistentKegFlagBeforeCommand(t *testing.T) {

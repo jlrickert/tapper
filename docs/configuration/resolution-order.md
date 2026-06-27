@@ -12,9 +12,10 @@ If you pass explicit flags, they take precedence:
 - `--hub` overrides namespace-to-hub resolution
 - `--config` bypasses the user/project config cascade
 
-`--flight` is not a keg selector. It is an overlay: a keg restriction plus agent
-instructions that composes with `--keg`, `--namespace`, and `--hub`. See
-[Flights](flights.md).
+`--flight` is not a keg selector. It is flight context for orient/MCP: agent
+instructions plus cover caps enforced by MCP/web surfaces. Direct CLI commands
+still use normal keg authorization and do not have access reduced by the flight.
+See [Flights](flights.md).
 
 The local creation flags on `tap keg create` (`--project`, `--cwd`, and
 `--path`) only choose where a new filesystem keg is created. They are not

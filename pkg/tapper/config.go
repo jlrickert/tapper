@@ -74,10 +74,10 @@ type configDTO struct {
 	// Same selector forms as defaultKeg.
 	FallbackKeg string `yaml:"fallbackKeg,omitempty"`
 
-	// flight is the flight overlay applied when no --flight flag is given. It is
+	// flight is the flight context applied when no --flight flag is given. It is
 	// a flight reference (@namespace/+slug, +slug, or a bare slug) and is
-	// conventionally set in project config so a repo always flies the same
-	// flight; --flight overrides it per invocation.
+	// conventionally set in project config so orient/MCP inherit the same
+	// context; --flight overrides it per invocation.
 	Flight string `yaml:"flight,omitempty"`
 
 	// kegMap maps a project path or pattern to a keg reference.
@@ -153,9 +153,9 @@ type HubEntry struct {
 	// this is only the default. The "@" sigil is implied — store the bare value.
 	DefaultNamespace string `yaml:"defaultNamespace,omitempty"`
 	URL              string `yaml:"url,omitempty"`
-	BasePath  string `yaml:"basePath,omitempty"`
-	Token     string `yaml:"token,omitempty"`
-	TokenEnv  string `yaml:"tokenEnv,omitempty"`
+	BasePath         string `yaml:"basePath,omitempty"`
+	Token            string `yaml:"token,omitempty"`
+	TokenEnv         string `yaml:"tokenEnv,omitempty"`
 }
 
 // KegRef is the (hub, namespace, name) triple a keg alias resolves to. An empty
@@ -745,10 +745,10 @@ func (cfg *Config) localHubName() string {
 // truth for the namespace-centric chain, shared by ResolveRef (backend
 // resolution), resolveIdentity (display) and resolveKegAdminRef (admin):
 //
-//   namespace: explicit → defaultNamespace → fallbackNamespace → the resolved
-//              hub's per-hub defaultNamespace → @local (for a local hub)
-//   hub:       explicit → namespaces[ns].hub → @local→local hub → defaultHub →
-//              fallbackHub → sole/alpha hub → compiled-in atlas (unless disabled)
+//	namespace: explicit → defaultNamespace → fallbackNamespace → the resolved
+//	           hub's per-hub defaultNamespace → @local (for a local hub)
+//	hub:       explicit → namespaces[ns].hub → @local→local hub → defaultHub →
+//	           fallbackHub → sole/alpha hub → compiled-in atlas (unless disabled)
 //
 // It returns an error when no hub is available (a disabled built-in with nothing
 // else configured), the resolved hub is not configured, or a non-local hub has
@@ -883,6 +883,7 @@ func (cfg *Config) ResolveRef(rt *toolkit.Runtime, ref KegRef) (*keg.Target, err
 //     URL: kept verbatim as KegRef.Path (explicit file-keg addressing).
 //   - "name"                      — a bare keg name; its namespace and hub are
 //     supplied by ResolveRef's default/fallback chains.
+//
 // applyRefOverrides overlays --namespace / --hub overrides onto a parsed keg
 // reference. The namespace override fills a bare reference but conflicts with an
 // explicit @namespace/ already present (an error); the hub override always wins,

@@ -33,7 +33,7 @@ All three surfaces accept the same four optional parameters.
 | --------- | --------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
 | `host`    | `claude`, `codex`           | Tier 2 appends the rendered host artifact. Unknown hosts return an error.                                              |
 | `keg`     | keg reference (e.g. `@acme/engineering`) | Pins the active keg in tier 0; tier 1+ emits a per-keg manifest placeholder. |
-| `flight`  | flight identifier           | Tier 1+ injects the flight's title, available kegs, and instructions. Composes with `keg` — a flight is an overlay, not a target selector. |
+| `flight`  | flight identifier           | Tier 1+ injects the flight's title, cover, and instructions. Composes with `keg` because a flight is context, not a target selector. |
 | `tier`    | `0`, `1`, `2` (default `0`) | Selects payload depth.                                                                                                 |
 
 ## MCP tool
@@ -94,10 +94,10 @@ tap orient --flight @acme/+release-42 --tier 1 # tier 1 scoped to a flight
 ```
 
 `--flight` is a root persistent flag (available on every command that accepts
-`--keg`). It is an overlay — a keg restriction plus agent instructions — so it
-**composes** with `--keg`, `--namespace`, and `--hub` rather than excluding
-them: the selector pins which keg you operate on, and the flight gates and
-annotates the result. A keg outside the flight's allow-list is rejected. Flag
+`--keg`). It is flight context for orient and MCP — cover caps plus agent
+instructions — so it **composes** with `--keg`, `--namespace`, and `--hub`
+rather than excluding them. Direct CLI commands ignore flight cover caps and use
+normal keg authorization; MCP tools and web flight pages enforce the cover. Flag
 completion on `--host` enumerates the hosts the binary knows about; `--tier`
 completes `0 1 2`; `--flight` is free-form and suppresses filesystem
 completion.

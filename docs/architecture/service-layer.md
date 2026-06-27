@@ -75,11 +75,12 @@ through the namespace-centric chain.
 
 ## FlightService and flight gating
 
-`pkg/tapper/flight.go` discovers flights for the active hub. A flight is an
-optional restriction on which kegs are available plus a block of agent
-instructions. After a keg is resolved, an active `--flight` gates the result:
-`Tap.enforceFlight` rejects a keg that falls outside the flight's cover or tries
-to write through a `viewer` cap. Local instructions-only flights with an empty
-cover restrict nothing. `--flight` composes with the single-keg selectors rather
-than replacing them. See
+`pkg/tapper/flight.go` discovers flights for the active hub. A flight carries
+cover caps for MCP/web sessions plus a block of agent instructions. After a keg
+is resolved, `Tap.enforceFlight` rejects MCP/web access to a keg that falls
+outside the flight's cover or tries to write through a `viewer` cap. Direct CLI
+commands set `KegTargetOptions.BypassFlightRestrictions`, so they keep normal
+keg authorization while preserving `Flight` for orient/instruction rendering.
+Local instructions-only flights with an empty cover restrict nothing. `--flight`
+composes with the single-keg selectors rather than replacing them. See
 [Flights](../configuration/flights.md).

@@ -1,25 +1,25 @@
 # Flights
 
-A **flight** is an optional overlay on a tapper session: a restriction on which
-kegs are available, plus a block of agent instructions. It is not a config key —
-flights live in their own manifests and are selected per-invocation with
-`--flight`.
+A **flight** is an optional agent context: a cover for MCP/web sessions plus a
+block of agent instructions. It is not a config key — flights live in their own
+manifests and are selected per-invocation with `--flight`.
 
 ## What A Flight Does
 
 A flight carries two independent things, either of which may be empty:
 
-1. **A keg cover** (`cover`). When non-empty, any keg resolved during the
-   session must be covered or the command is rejected. Each cover entry has a
-   `viewer` or `editor` cap; writes require `editor`. An empty cover restricts
-   nothing for local instructions-only flights.
+1. **A keg cover** (`cover`). When non-empty, MCP tools and web flight pages
+   reject kegs outside the cover. Each cover entry has a `viewer` or `editor`
+   cap; writes require `editor`. An empty cover restricts nothing for local
+   instructions-only flights. Direct CLI commands ignore these caps and use
+   normal keg authorization.
 2. **Agent instructions** (`instructions`). These are injected into the `tap
    orient` payload at tiers 1–2, so an agent that orients under a flight sees the
    flight's guidance.
 
-Because a flight is an overlay rather than a target selector, `--flight`
-**composes** with `--keg`, `--namespace`, and `--hub`: those pin which keg you
-operate on; the flight gates and annotates the result.
+Because a flight is not a target selector, `--flight` **composes** with `--keg`,
+`--namespace`, and `--hub`: those pin which keg you operate on; the flight adds
+context and, for MCP/web surfaces, gates the result.
 
 ## Manifest Format
 
@@ -67,7 +67,7 @@ local `flights.d` manifests remain read-only files.
 | ------------------------------------- | ----------------------------------------- |
 | List discovered flights               | `tap flight list`                         |
 | Show a flight's cover + body          | `tap flight show @namespace/+slug`        |
-| Run a command under a flight overlay  | `tap --flight @namespace/+slug <command>` |
+| Run MCP/orient with a flight context  | `tap --flight @namespace/+slug <command>` |
 | Create a Hub-backed flight            | `tap flight create @namespace/+slug --cover @namespace/keg=viewer` |
 | Edit a Hub-backed flight in $EDITOR   | `tap flight edit @namespace/+slug` (the manifest opens as YAML; every save is applied) |
 | Apply a manifest from a script        | `cat manifest.yaml \| tap flight edit @namespace/+slug` |
@@ -81,16 +81,19 @@ and `instructions`; comments and the modeline are ignored when deciding whether
 the manifest changed.
 
 The same surface is exposed over MCP as the `list_flights`, `flight_show`,
-`flight_create`, `flight_edit`, and `flight_delete` tools, and the
-`--flight` parameter flows through `orient`. `flight_edit` (partial update;
-omitted fields keep current values) is the agent-facing equivalent of the
-CLI's piped `flight edit`, since agents cannot open editors.
+`flight_create`, `flight_edit`, and `flight_delete` tools. `--flight` also
+flows through `tap orient` so orientation can render flight instructions, even
+though direct CLI reads/writes are not capped by the flight cover. `flight_edit`
+(partial update; omitted fields keep current values) is the agent-facing
+equivalent of the CLI's piped `flight edit`, since agents cannot open editors.
 
 ## Behavior
 
-- A keg outside the active flight's cover is rejected with a
-  "keg … is not available in flight …" error.
-- A write against a `viewer` cover row is rejected as viewer-only.
+- MCP tools and web flight pages reject a keg outside the active flight's cover
+  with a "keg … is not available in flight …" error.
+- MCP/web writes against a `viewer` cover row are rejected as viewer-only.
+- Direct CLI commands such as `tap cat`, `tap edit`, and `tap create` ignore
+  flight cover caps; access is governed by normal keg authorization.
 - A missing `flights.d` directory means "no flights", not an error.
 - `tap orient --flight @namespace/+slug --tier 1` (or higher) injects the flight's title,
   available kegs, and instructions into the orientation payload.

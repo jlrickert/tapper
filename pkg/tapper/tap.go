@@ -121,11 +121,16 @@ type KegTargetOptions struct {
 	// Path is an explicit local project path used for project keg discovery.
 	Path string
 
-	// Flight is an optional overlay that restricts which kegs are available and
-	// injects agent instructions. It composes with the single-keg selectors
-	// (Keg/Namespace/Hub): the selector picks a keg and the flight gates it.
-	// A keg outside the flight's allow-list is rejected at resolution.
+	// Flight is optional task context that can restrict which kegs are available
+	// and injects agent instructions. It composes with the single-keg selectors
+	// (Keg/Namespace/Hub): the selector picks a keg and the flight gates it unless
+	// BypassFlightRestrictions is true.
 	Flight string
+
+	// BypassFlightRestrictions skips flight cover and role-cap checks while
+	// preserving Flight for callers that still need the flight context, such as
+	// orient. Leave false for MCP and other agent-facing surfaces.
+	BypassFlightRestrictions bool
 
 	// RequireBootstrap makes config-driven resolution fail with
 	// ErrNotBootstrapped when no user config exists. Set by the full `tap`
@@ -171,10 +176,12 @@ func (t *Tap) resolveKegForRole(ctx context.Context, opts KegTargetOptions, role
 	if err != nil {
 		return nil, err
 	}
-	// An active flight restricts which kegs are available; a keg outside the
-	// flight's cover is rejected, and writes require an editor-cap cover row.
-	if err := t.enforceFlight(ctx, opts.Flight, k, role); err != nil {
-		return nil, err
+	// An active flight restricts which kegs are available unless the caller is a
+	// direct CLI surface that keeps Flight only for context/instructions.
+	if !opts.BypassFlightRestrictions {
+		if err := t.enforceFlight(ctx, opts.Flight, k, role); err != nil {
+			return nil, err
+		}
 	}
 	return k, nil
 }

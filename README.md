@@ -218,8 +218,8 @@ tap archive import engineering.keg.tar.gz --keg @acme/engineering
 - **Hub**: where kegs live. A hub can be local, hosted, or enterprise.
 - **Namespace**: the owner or organization segment in references such as
   `@acme/engineering`.
-- **Flight**: a scoped work overlay that limits which kegs are available and
-  injects agent instructions for a task.
+- **Flight**: task context that can cap kegs for MCP/web sessions and inject
+  agent instructions for a task.
 - **MCP**: the protocol Tapper uses to expose KEG operations to AI agents.
 
 ## Documentation
@@ -259,8 +259,9 @@ Only user config may define hubs and credentials. Project config can select
 defaults for a repository, but it cannot introduce a new hub target or token.
 See [Resolution Order](docs/configuration/resolution-order.md).
 
-`--flight` is a task overlay that composes with the resolved keg by restricting
-which kegs are available and injecting agent instructions.
+`--flight` is a task context for orientation, MCP sessions, and web flight pages.
+Direct CLI commands still use normal keg authorization and do not have their
+access reduced by flight cover caps.
 
 ## Release And Contribution Notes
 

@@ -84,7 +84,7 @@ writing KEG files directly.
 - `--keg @namespace/name` - select a keg explicitly.
 - `--namespace NAME` - resolve a bare keg name inside a namespace.
 - `--hub NAME` - force the hub used for namespace resolution.
-- `--flight @namespace/+slug` - apply a task-scoped overlay.
+- `--flight @namespace/+slug` - apply flight context for orient/MCP.
 - `--config PATH` - bypass the user/project config cascade.
 
 ### Common Node Operations
