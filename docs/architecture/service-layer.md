@@ -76,8 +76,8 @@ through the namespace-centric chain.
 ## FlightService and flight gating
 
 `pkg/tapper/flight.go` discovers flights for the active hub. A flight carries
-cover caps for MCP/web sessions plus a block of agent instructions. After a keg
-is resolved, `Tap.enforceFlight` rejects MCP/web access to a keg that falls
+cover caps for MCP sessions plus a block of agent instructions. After a keg
+is resolved, `Tap.enforceFlight` rejects MCP access to a keg that falls
 outside the flight's cover or tries to write through a `viewer` cap. Direct CLI
 commands set `KegTargetOptions.BypassFlightRestrictions`, so they keep normal
 keg authorization while preserving `Flight` for orient/instruction rendering.

@@ -13,7 +13,7 @@ If you pass explicit flags, they take precedence:
 - `--config` bypasses the user/project config cascade
 
 `--flight` is not a keg selector. It is flight context for orient/MCP: agent
-instructions plus cover caps enforced by MCP/web surfaces. Direct CLI commands
+instructions plus cover caps enforced by the MCP surface. Direct CLI commands
 still use normal keg authorization and do not have access reduced by the flight.
 See [Flights](flights.md).
 

@@ -8,7 +8,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// NewFlightCmd returns the `flight` cobra command group. A flight carries MCP/web
+// NewFlightCmd returns the `flight` cobra command group. A flight carries MCP
 // cover caps and agent instructions; it is selected per-invocation with the
 // global --flight flag.
 //
@@ -19,7 +19,7 @@ func NewFlightCmd(deps *Deps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "flight",
 		Short: "manage flights",
-		Long:  `A flight carries MCP/web cover caps plus agent instructions. Discover flights with "flight list", inspect one with "flight show", and manage Hub-backed flights with create/edit/delete.`,
+		Long:  `A flight carries MCP cover caps plus agent instructions. Discover flights with "flight list", inspect one with "flight show", and manage Hub-backed flights with create/edit/delete.`,
 	}
 	cmd.AddCommand(
 		newFlightListCmd(deps),
