@@ -164,9 +164,9 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 					}
 				}
 				// A project's persisted flight auto-applies when --flight is not
-				// given, so a repo always flies the same flight; --flight still
-				// overrides per invocation. Gated to the tap profile (the only one
-				// with the --flight overlay flag).
+				// given, so orient and MCP can inherit the same flight context;
+				// --flight still overrides per invocation. Gated to the tap profile
+				// (the only one with the --flight flag).
 				if deps.Profile.withDefaults().AllowKegAliasFlags && !cmd.Flags().Changed("flight") {
 					if v := cfg.Flight(); v != "" {
 						deps.KegTargetOptions.Flight = v
@@ -254,11 +254,11 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 		mustRegisterFlagCompletion(cmd, "namespace", namespaceFlagCompletionFunc(deps))
 		cmd.PersistentFlags().StringVar(&deps.KegTargetOptions.Hub, "hub", "", "hub to resolve the keg on (overrides namespace→hub resolution)")
 		mustRegisterFlagCompletion(cmd, "hub", hubFlagCompletionFunc(deps))
-		cmd.PersistentFlags().StringVar(&deps.KegTargetOptions.Flight, "flight", "", "flight overlay; composes with --keg/--namespace/--hub")
+		cmd.PersistentFlags().StringVar(&deps.KegTargetOptions.Flight, "flight", "", "flight context for orient/MCP; direct CLI access uses keg auth")
 		mustRegisterFlagCompletion(cmd, "flight", flightFlagCompletionFunc(deps))
-		// A flight is an overlay (a keg restriction plus instructions), not a
-		// target selector, so it composes with the single-keg selectors rather
-		// than excluding them.
+		// A flight is not a target selector, so it composes with the single-keg
+		// selectors rather than excluding them. Direct CLI commands bypass flight
+		// cover caps; MCP keeps enforcing them.
 	}
 
 	subcommands := []*cobra.Command{

@@ -225,6 +225,39 @@ func TestFlightEnforcement_ViewerCoverAllowsReadsAndRejectsWrites(t *testing.T) 
 	require.Contains(t, err.Error(), `keg "@local/personal" is viewer-only in flight`)
 }
 
+func TestFlightBypass_AllowsReadOutsideCover(t *testing.T) {
+	t.Parallel()
+	tap, _, privateID := newLocalFlightEnforcementFixture(t)
+
+	got, err := tap.Cat(t.Context(), tapper.CatOptions{
+		NodeIDs: []string{privateID},
+		KegTargetOptions: tapper.KegTargetOptions{
+			Keg:                      "private",
+			Flight:                   "+focused",
+			BypassFlightRestrictions: true,
+		},
+		ContentOnly: true,
+	})
+	require.NoError(t, err)
+	require.Contains(t, got, "# Private")
+}
+
+func TestFlightBypass_AllowsWriteThroughViewerCover(t *testing.T) {
+	t.Parallel()
+	tap, _, _ := newLocalFlightEnforcementFixture(t)
+
+	node, err := tap.Create(t.Context(), tapper.CreateOptions{
+		KegTargetOptions: tapper.KegTargetOptions{
+			Keg:                      "personal",
+			Flight:                   "+focused",
+			BypassFlightRestrictions: true,
+		},
+		Title: "Allowed Write",
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, node.Path())
+}
+
 func newLocalFlightEnforcementFixture(t *testing.T) (*tapper.Tap, string, string) {
 	t.Helper()
 	fx := NewSandbox(t)

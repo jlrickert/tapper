@@ -15,7 +15,7 @@
     },
     "flight": {
       "type": "string",
-      "description": "Flight overlay applied when no --flight flag is given: @namespace/+slug, +slug, or a bare slug. Conventionally set in project config so a repo always flies the same flight. Override with TAP_FLIGHT env var."
+      "description": "Flight context applied when no --flight flag is given: @namespace/+slug, +slug, or a bare slug. Conventionally set in project config so orient/MCP inherit the same context. Override with TAP_FLIGHT env var."
     },
     "defaultHub": {
       "type": "string",

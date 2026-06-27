@@ -123,9 +123,10 @@ match → `fallbackKeg`, each a keg reference resolved through `ResolveRef`. The
 `default*` slots are authoritative (project config sets them) and win over a
 `kegMap` path rule; `fallback*` is the global-user last resort that `tap
 bootstrap` writes, so anything more specific overrides it. A bare name that
-resolves to nothing falls back to a project-local `./kegs/<name>` keg. An active
-`--flight` then gates the result against the flight's keg allow-list
-(`Tap.resolveKeg`).
+resolves to nothing falls back to a project-local `./kegs/<name>` keg. Active
+flight cover caps are enforced for MCP/web surfaces; direct CLI commands keep
+normal keg authorization and preserve `--flight` only as context for orient and
+MCP defaults (`Tap.resolveKeg`).
 
 ### Storage Model
 

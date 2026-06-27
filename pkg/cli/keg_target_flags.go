@@ -31,6 +31,9 @@ func applyKegTargetProfile(deps *Deps, opts *tapper.KegTargetOptions) {
 	if opts.Flight == "" {
 		opts.Flight = deps.KegTargetOptions.Flight
 	}
+	// Direct CLI commands use normal keg auth and keep Flight only as context
+	// for surfaces such as orient. MCP receives deps.KegTargetOptions directly.
+	opts.BypassFlightRestrictions = true
 	profile := deps.Profile.withDefaults()
 	if profile.ForceProjectResolution {
 		opts.Project = true
