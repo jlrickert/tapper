@@ -16,8 +16,8 @@ import (
 	"time"
 )
 
-// Archive format identifiers. v3 adds optional keg config and stores file
-// attachments under assets/ to match the on-disk/web node layout.
+// Archive format identifiers. v3 adds optional keg config, optional keg schemas,
+// and stores file attachments under assets/ to match the on-disk/web node layout.
 const (
 	kegArchiveFormatV3 = "keg-archive/v3"
 )
@@ -28,6 +28,8 @@ type archiveManifest struct {
 	ExportedAt  time.Time             `json:"exported_at"`
 	WithHistory bool                  `json:"with_history,omitempty"`
 	WithConfig  bool                  `json:"with_config,omitempty"`
+	WithSchemas bool                  `json:"with_schemas,omitempty"`
+	Schemas     []string              `json:"schemas,omitempty"`
 	Nodes       []archiveManifestNode `json:"nodes"`
 }
 
@@ -100,6 +102,9 @@ func (k *LocalKeg) writeArchive(ctx context.Context, w io.Writer, ids []NodeId, 
 		if err := writeTarFile(tw, "keg-archive/keg.yaml", rawConfig); err != nil {
 			return err
 		}
+		if err := k.writeArchiveSchemas(ctx, tw, &manifest); err != nil {
+			return err
+		}
 	}
 
 	for _, id := range ids {
@@ -164,6 +169,40 @@ func (k *LocalKeg) writeArchive(ctx context.Context, w io.Writer, ids []NodeId, 
 	if err := gz.Close(); err != nil {
 		return fmt.Errorf("unable to finalize archive compression: %w", err)
 	}
+	return nil
+}
+
+// writeArchiveSchemas adds keg-level schema definitions to a full archive.
+func (k *LocalKeg) writeArchiveSchemas(ctx context.Context, tw *tar.Writer, manifest *archiveManifest) error {
+	store, ok := repoSchemas(k.Repo)
+	if !ok {
+		return nil
+	}
+	types, err := store.ListSchemas(ctx)
+	if err != nil {
+		return fmt.Errorf("unable to list schemas for archive: %w", err)
+	}
+	types = append([]string(nil), types...)
+	slices.Sort(types)
+	for _, typeName := range types {
+		typeName = strings.TrimSpace(typeName)
+		filename, err := SchemaFilename(typeName)
+		if err != nil {
+			return fmt.Errorf("invalid schema type %q from repository: %w", typeName, err)
+		}
+		rawSchema, err := store.ReadSchema(ctx, typeName)
+		if err != nil {
+			return fmt.Errorf("unable to read schema %q for archive: %w", typeName, err)
+		}
+		if _, err := validateSchemaDefinitionForType(typeName, rawSchema); err != nil {
+			return fmt.Errorf("schema %q is invalid: %w", typeName, err)
+		}
+		if err := writeTarFile(tw, "keg-archive/schemas/"+filename, rawSchema); err != nil {
+			return err
+		}
+		manifest.Schemas = append(manifest.Schemas, typeName)
+	}
+	manifest.WithSchemas = len(manifest.Schemas) > 0
 	return nil
 }
 
@@ -278,6 +317,16 @@ func (k *LocalKeg) ImportNodes(ctx context.Context, r io.Reader, opts ImportNode
 		return nil, fmt.Errorf("unsupported archive format %q: %w", manifest.Format, ErrInvalid)
 	}
 
+	archivedSchemas, err := readArchiveSchemas(entries, manifest)
+	if err != nil {
+		return nil, err
+	}
+	if archivedSchemas != nil {
+		if _, ok := repoSchemas(k.Repo); !ok {
+			return nil, fmt.Errorf("archive contains schemas: %w", ErrNotSupported)
+		}
+	}
+
 	snapshotRepo, hasSnapshots := repoSnapshots(k.Repo)
 	if manifest.WithHistory && !hasSnapshots {
 		return nil, ErrNotSupported
@@ -350,7 +399,12 @@ func (k *LocalKeg) ImportNodes(ctx context.Context, r io.Reader, opts ImportNode
 		if err := proposed.UpdateMeta(ctx, nil); err != nil {
 			return nil, fmt.Errorf("unable to update imported metadata for node %s: %w", sourceID, err)
 		}
-		if err := k.validateForWrite(ctx, schemaWriteImport, newID, proposed); err != nil {
+		if archivedSchemas != nil {
+			err = k.validateForWriteWithSchemas(ctx, schemaWriteImport, newID, proposed, archivedSchemas)
+		} else {
+			err = k.validateForWrite(ctx, schemaWriteImport, newID, proposed)
+		}
+		if err != nil {
 			return nil, fmt.Errorf("imported node %s: %w", sourceID, err)
 		}
 	}
@@ -431,6 +485,11 @@ func (k *LocalKeg) ImportNodes(ctx context.Context, r io.Reader, opts ImportNode
 		}
 	}
 
+	if archivedSchemas != nil {
+		if err := k.restoreArchiveSchemas(ctx, archivedSchemas); err != nil {
+			return nil, err
+		}
+	}
 	if manifest.WithConfig {
 		rawConfig, err := readRequiredArchiveEntry(entries, "keg-archive/keg.yaml")
 		if err != nil {
@@ -667,6 +726,156 @@ func readRequiredArchiveEntry(entries map[string][]byte, path string) ([]byte, e
 		return nil, ErrInvalid
 	}
 	return value, nil
+}
+
+const (
+	archiveSchemasDir    = "keg-archive/schemas"
+	archiveSchemasPrefix = archiveSchemasDir + "/"
+)
+
+type archiveSchemaStore struct {
+	schemas map[string][]byte
+}
+
+func readArchiveSchemas(entries map[string][]byte, manifest archiveManifest) (*archiveSchemaStore, error) {
+	manifestSchemas := make(map[string]struct{}, len(manifest.Schemas))
+	for _, typeName := range manifest.Schemas {
+		typeName = strings.TrimSpace(typeName)
+		if err := ValidSchemaTypeName(typeName); err != nil {
+			return nil, fmt.Errorf("invalid archive manifest schema %q: %w", typeName, err)
+		}
+		if _, exists := manifestSchemas[typeName]; exists {
+			return nil, fmt.Errorf("duplicate archive manifest schema %q: %w", typeName, ErrInvalid)
+		}
+		manifestSchemas[typeName] = struct{}{}
+	}
+
+	store := &archiveSchemaStore{schemas: map[string][]byte{}}
+	for name, data := range entries {
+		if name == archiveSchemasDir {
+			return nil, fmt.Errorf("invalid archive schema entry %q: %w", name, ErrInvalid)
+		}
+		if !strings.HasPrefix(name, archiveSchemasPrefix) {
+			continue
+		}
+
+		typeName, err := archiveSchemaTypeFromEntry(name)
+		if err != nil {
+			return nil, err
+		}
+		if _, exists := store.schemas[typeName]; exists {
+			return nil, fmt.Errorf("duplicate archive schema %q: %w", typeName, ErrInvalid)
+		}
+		if _, err := validateSchemaDefinitionForType(typeName, data); err != nil {
+			return nil, fmt.Errorf("archive schema %q is invalid: %w", typeName, err)
+		}
+		store.schemas[typeName] = cloneBytes(data)
+	}
+
+	if manifest.WithSchemas && len(store.schemas) == 0 {
+		return nil, fmt.Errorf("archive manifest declares schemas but no schema entries exist: %w", ErrInvalid)
+	}
+	if len(manifestSchemas) > 0 {
+		for typeName := range manifestSchemas {
+			if _, ok := store.schemas[typeName]; !ok {
+				return nil, fmt.Errorf("archive manifest schema %q missing entry: %w", typeName, ErrInvalid)
+			}
+		}
+		for typeName := range store.schemas {
+			if _, ok := manifestSchemas[typeName]; !ok {
+				return nil, fmt.Errorf("archive schema %q missing from manifest: %w", typeName, ErrInvalid)
+			}
+		}
+	}
+
+	if len(store.schemas) == 0 {
+		return nil, nil
+	}
+	return store, nil
+}
+
+func archiveSchemaTypeFromEntry(name string) (string, error) {
+	filename := strings.TrimPrefix(name, archiveSchemasPrefix)
+	if filename == "" || strings.Contains(filename, "/") {
+		return "", fmt.Errorf("invalid archive schema entry %q: %w", name, ErrInvalid)
+	}
+	if !strings.HasSuffix(filename, SchemaFileSuffix) {
+		return "", fmt.Errorf("invalid archive schema filename %q: %w", filename, ErrInvalid)
+	}
+	typeName := strings.TrimSuffix(filename, SchemaFileSuffix)
+	expected, err := SchemaFilename(typeName)
+	if err != nil {
+		return "", fmt.Errorf("invalid archive schema filename %q: %w", filename, err)
+	}
+	if filename != expected {
+		return "", fmt.Errorf("invalid archive schema filename %q: %w", filename, ErrInvalid)
+	}
+	return typeName, nil
+}
+
+func (s *archiveSchemaStore) ListSchemas(ctx context.Context) ([]string, error) {
+	_ = ctx
+	names := make([]string, 0, len(s.schemas))
+	for typeName := range s.schemas {
+		names = append(names, typeName)
+	}
+	slices.Sort(names)
+	return names, nil
+}
+
+func (s *archiveSchemaStore) ReadSchema(ctx context.Context, typeName string) ([]byte, error) {
+	_ = ctx
+	if err := ValidSchemaTypeName(typeName); err != nil {
+		return nil, err
+	}
+	data, ok := s.schemas[strings.TrimSpace(typeName)]
+	if !ok {
+		return nil, ErrNotExist
+	}
+	return cloneBytes(data), nil
+}
+
+func (s *archiveSchemaStore) WriteSchema(ctx context.Context, typeName string, data []byte) error {
+	_ = ctx
+	typeName = strings.TrimSpace(typeName)
+	if _, err := validateSchemaDefinitionForType(typeName, data); err != nil {
+		return err
+	}
+	if s.schemas == nil {
+		s.schemas = map[string][]byte{}
+	}
+	s.schemas[typeName] = cloneBytes(data)
+	return nil
+}
+
+func (s *archiveSchemaStore) DeleteSchema(ctx context.Context, typeName string) error {
+	_ = ctx
+	typeName = strings.TrimSpace(typeName)
+	if err := ValidSchemaTypeName(typeName); err != nil {
+		return err
+	}
+	if _, ok := s.schemas[typeName]; !ok {
+		return ErrNotExist
+	}
+	delete(s.schemas, typeName)
+	return nil
+}
+
+func (k *LocalKeg) restoreArchiveSchemas(ctx context.Context, schemas *archiveSchemaStore) error {
+	names, err := schemas.ListSchemas(ctx)
+	if err != nil {
+		return fmt.Errorf("unable to list archived schemas: %w", err)
+	}
+	for _, typeName := range names {
+		rawSchema, err := schemas.ReadSchema(ctx, typeName)
+		if err != nil {
+			return fmt.Errorf("unable to read archived schema %q: %w", typeName, err)
+		}
+		if err := k.WriteSchema(ctx, typeName, rawSchema); err != nil {
+			return fmt.Errorf("unable to restore schema %q after import: %w", typeName, err)
+		}
+	}
+	return nil
 }
 
 func resolveImportedNodeIDs(nodes []archiveManifestNode) (map[string]NodeId, []string, error) {
