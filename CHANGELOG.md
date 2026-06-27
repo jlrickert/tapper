@@ -2,6 +2,22 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.26.0 - 2026-06-27
+
+
+
+### 📚 Documentation
+- trim flight manifest schema description
+
+
+### 🚀 Features
+- **mcp:** expose keg schema tools on MCP surfaces
+- add schema-backed editor manifests
+- name flight and schema editor temp files consistently
+- lock mcp to project flight
+- include schemas in keg archives
+
+
 ## v0.25.0 - 2026-06-25
 
 
