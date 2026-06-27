@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://raw.githubusercontent.com/jlrickert/tapper/main/schemas/flight-manifest.json",
   "title": "tapper flight manifest",
-  "description": "Schema for a tapper flight manifest edited by `tap flight edit` or stored under a local flights.d directory.",
+  "description": "Schema for a tapper flight manifest edited by `tap flight edit`.",
   "type": "object",
   "properties": {
     "title": {
