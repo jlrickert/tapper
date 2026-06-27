@@ -1,6 +1,6 @@
 # Flights
 
-A **flight** is an optional agent context: a cover for MCP/web sessions plus a
+A **flight** is an optional agent context: a cover for MCP sessions plus a
 block of agent instructions. It is not a config key — flights live in their own
 manifests and are selected per-invocation with `--flight`.
 
@@ -8,8 +8,8 @@ manifests and are selected per-invocation with `--flight`.
 
 A flight carries two independent things, either of which may be empty:
 
-1. **A keg cover** (`cover`). When non-empty, MCP tools and web flight pages
-   reject kegs outside the cover. Each cover entry has a `viewer` or `editor`
+1. **A keg cover** (`cover`). When non-empty, MCP tools reject kegs outside the
+   cover. Each cover entry has a `viewer` or `editor`
    cap; writes require `editor`. An empty cover restricts nothing for local
    instructions-only flights. Direct CLI commands ignore these caps and use
    normal keg authorization.
@@ -19,7 +19,7 @@ A flight carries two independent things, either of which may be empty:
 
 Because a flight is not a target selector, `--flight` **composes** with `--keg`,
 `--namespace`, and `--hub`: those pin which keg you operate on; the flight adds
-context and, for MCP/web surfaces, gates the result.
+context and, for the MCP surface, gates the result.
 
 ## Manifest Format
 
@@ -89,9 +89,9 @@ equivalent of the CLI's piped `flight edit`, since agents cannot open editors.
 
 ## Behavior
 
-- MCP tools and web flight pages reject a keg outside the active flight's cover
+- MCP tools reject a keg outside the active flight's cover
   with a "keg … is not available in flight …" error.
-- MCP/web writes against a `viewer` cover row are rejected as viewer-only.
+- MCP writes against a `viewer` cover row are rejected as viewer-only.
 - Direct CLI commands such as `tap cat`, `tap edit`, and `tap create` ignore
   flight cover caps; access is governed by normal keg authorization.
 - A missing `flights.d` directory means "no flights", not an error.

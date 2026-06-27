@@ -97,7 +97,7 @@ tap orient --flight @acme/+release-42 --tier 1 # tier 1 scoped to a flight
 `--keg`). It is flight context for orient and MCP — cover caps plus agent
 instructions — so it **composes** with `--keg`, `--namespace`, and `--hub`
 rather than excluding them. Direct CLI commands ignore flight cover caps and use
-normal keg authorization; MCP tools and web flight pages enforce the cover. Flag
+normal keg authorization; MCP tools enforce the cover. Flag
 completion on `--host` enumerates the hosts the binary knows about; `--tier`
 completes `0 1 2`; `--flight` is free-form and suppresses filesystem
 completion.
