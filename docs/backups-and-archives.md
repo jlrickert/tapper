@@ -88,6 +88,9 @@ Archives use the `keg-archive/v3` format, stored as a gzip-compressed tar:
 keg-archive/
 ├── manifest.json
 ├── keg.yaml              # present in full-keg exports
+├── schemas/              # present in full-keg exports when schemas exist
+│   ├── task.schema.yaml
+│   └── decision.schema.yaml
 └── nodes/
     ├── 0/
     │   ├── README.md
@@ -111,6 +114,11 @@ keg-archive/
         └── ...
 ```
 
+`stats.json` is included because it is derived/internal node state (for
+example hashes, timestamps, access counters, and link summaries). It is carried
+so imports can restore or remap node state consistently; authors normally edit
+`README.md`, `meta.yaml`, and schema files instead.
+
 ### manifest.json
 
 The manifest records export metadata and the list of included nodes:
@@ -122,6 +130,8 @@ The manifest records export metadata and the list of included nodes:
   "exported_at": "2026-03-14T10:00:00Z",
   "with_history": true,
   "with_config": true,
+  "with_schemas": true,
+  "schemas": ["decision", "task"],
   "nodes": [
     { "source_id": "0", "revision_count": 0 },
     { "source_id": "5", "revision_count": 3 },
@@ -133,9 +143,15 @@ The manifest records export metadata and the list of included nodes:
 Each node entry records the original source ID and the number of snapshot
 revisions included.
 
-Full-keg exports include `keg.yaml`, the keg settings document. Exports that
-select explicit nodes with `--nodes` omit `keg.yaml` and do not overwrite the
-target keg's settings when imported.
+Full-keg exports include `keg.yaml`, the keg settings document, and any
+available keg-level schemas under `schemas/<type>.schema.yaml`. Exports that
+select explicit nodes with `--nodes` omit `keg.yaml` and schemas; imported
+node-filtered archives do not overwrite the target keg's settings or schemas.
+
+When an archive contains schemas, import validates nodes against those archived
+schemas and then replaces matching schema types in the target keg. Schema types
+that exist only in the target keg are preserved. Archives without schema
+entries continue to validate against the target keg's current schemas.
 
 ## Snapshot History
 

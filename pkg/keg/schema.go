@@ -199,6 +199,26 @@ func ParseSchemaDefinition(data []byte) (*SchemaDefinition, error) {
 	return &schema, nil
 }
 
+func validateSchemaDefinitionForType(typeName string, data []byte) (*SchemaDefinition, error) {
+	typeName = strings.TrimSpace(typeName)
+	if err := ValidSchemaTypeName(typeName); err != nil {
+		return nil, err
+	}
+	parsed, err := ParseSchemaDefinition(data)
+	if err != nil {
+		return nil, err
+	}
+	if parsed.Type != "" && parsed.Type != typeName {
+		return nil, fmt.Errorf("schema type %q does not match target type %q: %w", parsed.Type, typeName, ErrInvalid)
+	}
+	if len(parsed.Meta) > 0 {
+		if _, err := resolveJSONSchema(parsed.Meta); err != nil {
+			return nil, fmt.Errorf("invalid meta json schema: %w", err)
+		}
+	}
+	return parsed, nil
+}
+
 func ValidSchemaTypeName(typeName string) error {
 	typeName = strings.TrimSpace(typeName)
 	if typeName == "" || typeName == "." || typeName == ".." {
@@ -244,17 +264,8 @@ func (k *LocalKeg) WriteSchema(ctx context.Context, typeName string, data []byte
 	if !ok {
 		return ErrNotSupported
 	}
-	parsed, err := ParseSchemaDefinition(data)
-	if err != nil {
+	if _, err := validateSchemaDefinitionForType(typeName, data); err != nil {
 		return err
-	}
-	if parsed.Type != "" && parsed.Type != strings.TrimSpace(typeName) {
-		return fmt.Errorf("schema type %q does not match target type %q: %w", parsed.Type, typeName, ErrInvalid)
-	}
-	if len(parsed.Meta) > 0 {
-		if _, err := resolveJSONSchema(parsed.Meta); err != nil {
-			return fmt.Errorf("invalid meta json schema: %w", err)
-		}
 	}
 	return store.WriteSchema(ctx, typeName, data)
 }
@@ -330,6 +341,21 @@ func (k *LocalKeg) validateForWrite(ctx context.Context, op schemaWriteOperation
 	result, err := k.validateNodeData(ctx, id, node)
 	if err != nil {
 		return err
+	}
+	return k.enforceSchemaValidationResult(ctx, op, result)
+}
+
+func (k *LocalKeg) validateForWriteWithSchemas(ctx context.Context, op schemaWriteOperation, id NodeId, node *NodeData, store RepositorySchemas) error {
+	result, err := k.validateNodeDataWithSchemas(ctx, id, node, store)
+	if err != nil {
+		return err
+	}
+	return k.enforceSchemaValidationResult(ctx, op, result)
+}
+
+func (k *LocalKeg) enforceSchemaValidationResult(ctx context.Context, op schemaWriteOperation, result *SchemaValidationResult) error {
+	if result == nil {
+		return nil
 	}
 	if result.Valid {
 		return nil
@@ -410,13 +436,16 @@ func normalizeValidationMode(mode ValidationMode) ValidationMode {
 }
 
 func (k *LocalKeg) validateNodeData(ctx context.Context, id NodeId, node *NodeData) (*SchemaValidationResult, error) {
-	result := &SchemaValidationResult{NodeID: id.Path(), Valid: true}
-	if node == nil {
-		return result, nil
-	}
-
 	store, ok := repoSchemas(k.Repo)
 	if !ok {
+		return &SchemaValidationResult{NodeID: id.Path(), Valid: true}, nil
+	}
+	return k.validateNodeDataWithSchemas(ctx, id, node, store)
+}
+
+func (k *LocalKeg) validateNodeDataWithSchemas(ctx context.Context, id NodeId, node *NodeData, store RepositorySchemas) (*SchemaValidationResult, error) {
+	result := &SchemaValidationResult{NodeID: id.Path(), Valid: true}
+	if node == nil || store == nil {
 		return result, nil
 	}
 	types, err := store.ListSchemas(ctx)

@@ -204,6 +204,57 @@ func TestArchiveImportPreservesSnapshotTimestamps(t *testing.T) {
 	require.False(t, importedHistory[0].CreatedAt.Equal(sb.Now()))
 }
 
+func TestArchiveCommandsRoundTripSchemas(t *testing.T) {
+	t.Parallel()
+
+	sb := NewSandbox(t)
+	ctx := sb.Context()
+	rt := sb.Runtime()
+
+	sourceRepo := keg.NewFsRepo("~/schema-archive-source", rt)
+	sourceKeg := keg.NewLocalKeg(sourceRepo, rt)
+	require.NoError(t, sourceKeg.Init(ctx))
+	require.NoError(t, sourceKeg.SetContent(ctx, keg.NodeId{ID: 0}, []byte("---\ntype: task\n---\n# Zero\n")))
+	sourceSchema := `type: task
+summary: Archived tasks
+meta:
+  type: object
+  required: ["type"]
+  properties:
+    type:
+      const: task
+markdown:
+  requireTitle: true
+`
+	require.NoError(t, sourceKeg.WriteSchema(ctx, "task", []byte(sourceSchema)))
+	_, err := sourceKeg.Create(ctx, &keg.CreateOptions{
+		Body: []byte("---\ntype: task\n---\n# CLI Imported Task\n"),
+	})
+	require.NoError(t, err)
+
+	targetRepo := keg.NewFsRepo("~/schema-archive-target", rt)
+	targetKeg := keg.NewLocalKeg(targetRepo, rt)
+	require.NoError(t, targetKeg.Init(ctx))
+	require.NoError(t, targetKeg.WriteSchema(ctx, "task", []byte("type: task\nsummary: Target tasks\n")))
+	require.NoError(t, targetKeg.WriteSchema(ctx, "decision", []byte("type: decision\nsummary: Target-only decisions\n")))
+
+	exportPath := "~/schema-roundtrip.keg.tar.gz"
+	res := NewProcess(t, false, "archive", "export", "--keg", "~/schema-archive-source", "-o", exportPath).Run(ctx, rt)
+	require.NoError(t, res.Err)
+	require.Contains(t, string(res.Stdout), "schema-roundtrip.keg.tar.gz")
+
+	res = NewProcess(t, false, "archive", "import", exportPath, "--keg", "~/schema-archive-target").Run(ctx, rt)
+	require.NoError(t, res.Err)
+
+	res = NewProcess(t, false, "schema", "get", "--keg", "~/schema-archive-target", "task").Run(ctx, rt)
+	require.NoError(t, res.Err)
+	require.Equal(t, sourceSchema, string(res.Stdout))
+
+	res = NewProcess(t, false, "schema", "get", "--keg", "~/schema-archive-target", "decision").Run(ctx, rt)
+	require.NoError(t, res.Err)
+	require.Contains(t, string(res.Stdout), "Target-only decisions")
+}
+
 func TestRootCompletionSuggestsSnapshotArchiveCommands(t *testing.T) {
 	t.Parallel()
 
