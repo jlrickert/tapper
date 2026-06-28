@@ -2,6 +2,18 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.27.0 - 2026-06-28
+
+
+
+### 📚 Documentation
+- **flight:** cover caps apply to MCP, not web
+
+
+### 🚀 Features
+- **flight:** scope cover caps to MCP/web, not direct CLI
+
+
 ## v0.26.0 - 2026-06-27
 
 
