@@ -344,13 +344,15 @@ func SystemIndexEntries() []IndexEntry {
 		{File: "tags", Summary: "all tags"},
 		{File: "links", Summary: "all outgoing links"},
 		{File: "backlinks", Summary: "all incoming links"},
+		{File: "timeline", Summary: "snapshot timeline"},
+		{File: "dirty", Summary: "nodes changed since latest snapshot"},
 	}
 }
 
 // IsSystemIndex reports whether name is a required generated index.
 func IsSystemIndex(name string) bool {
 	switch strings.TrimSpace(name) {
-	case "nodes.tsv", "changes.md", "tags", "links", "backlinks":
+	case "nodes.tsv", "changes.md", "tags", "links", "backlinks", "timeline", "dirty":
 		return true
 	default:
 		return false

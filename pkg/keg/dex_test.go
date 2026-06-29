@@ -347,7 +347,7 @@ func TestTagIndex_Add_NoTagsRemovesAll(t *testing.T) {
 // index names in their bare form.
 func TestIsCoreIndex_BareForm(t *testing.T) {
 	t.Parallel()
-	for _, name := range []string{"changes.md", "nodes.tsv", "links", "backlinks", "tags"} {
+	for _, name := range []string{"changes.md", "nodes.tsv", "links", "backlinks", "tags", "timeline", "dirty"} {
 		require.True(t, IsCoreIndex(name), "bare form %q should be a core index", name)
 	}
 	require.False(t, IsCoreIndex("custom.md"))

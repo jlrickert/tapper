@@ -123,6 +123,9 @@ func (k *LocalKeg) Move(ctx context.Context, src NodeId, dst NodeId) ([]NodeId, 
 	if err := k.touchConfigUpdated(ctx, now); err != nil {
 		errs = append(errs, fmt.Errorf("failed to update config after move: %w", err))
 	}
+	if err := k.refreshSnapshotGeneratedIndexes(ctx); err != nil {
+		errs = append(errs, fmt.Errorf("failed to refresh snapshot indexes after move: %w", err))
+	}
 
 	rewritten := make([]NodeId, 0, len(changedNodes))
 	for _, nd := range changedNodes {
@@ -233,6 +236,9 @@ func (k *LocalKeg) Remove(ctx context.Context, id NodeId) ([]NodeId, error) {
 	now := k.Runtime.Clock().Now()
 	if err := k.touchConfigUpdated(ctx, now); err != nil {
 		errs = append(errs, fmt.Errorf("failed to update config after remove: %w", err))
+	}
+	if err := k.refreshSnapshotGeneratedIndexes(ctx); err != nil {
+		errs = append(errs, fmt.Errorf("failed to refresh snapshot indexes after remove: %w", err))
 	}
 
 	return rewritten, errors.Join(errs...)

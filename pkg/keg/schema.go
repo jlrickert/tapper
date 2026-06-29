@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -132,10 +133,19 @@ type MarkdownSection struct {
 	Required bool   `yaml:"required,omitempty" json:"required,omitempty"`
 }
 
+const (
+	RelationDirectionLinks     = "links"
+	RelationDirectionBacklinks = "backlinks"
+)
+
 type RelationSchema struct {
-	Name     string `yaml:"name,omitempty" json:"name,omitempty"`
-	Type     string `yaml:"type,omitempty" json:"type,omitempty"`
-	Required bool   `yaml:"required,omitempty" json:"required,omitempty"`
+	Name      string             `yaml:"name,omitempty" json:"name,omitempty"`
+	Type      string             `yaml:"type,omitempty" json:"type,omitempty"`
+	Direction string             `yaml:"direction,omitempty" json:"direction,omitempty"`
+	Required  bool               `yaml:"required,omitempty" json:"required,omitempty"`
+	Attribute string             `yaml:"attribute,omitempty" json:"attribute,omitempty"`
+	Weight    float64            `yaml:"weight,omitempty" json:"weight,omitempty"`
+	Enum      map[string]float64 `yaml:"enum,omitempty" json:"enum,omitempty"`
 }
 
 type ValidationIssue struct {
@@ -216,7 +226,54 @@ func validateSchemaDefinitionForType(typeName string, data []byte) (*SchemaDefin
 			return nil, fmt.Errorf("invalid meta json schema: %w", err)
 		}
 	}
+	if err := validateRelationSchemas(parsed.Relations); err != nil {
+		return nil, err
+	}
 	return parsed, nil
+}
+
+func validateRelationSchemas(relations []RelationSchema) error {
+	for i, rel := range relations {
+		prefix := fmt.Sprintf("relation %d", i+1)
+		if rel.Direction != "" {
+			if _, ok := normalizeRelationDirection(rel.Direction); !ok {
+				return fmt.Errorf("%s has invalid direction %q: %w", prefix, rel.Direction, ErrInvalid)
+			}
+		}
+		if math.IsNaN(rel.Weight) || math.IsInf(rel.Weight, 0) || rel.Weight < 0 {
+			return fmt.Errorf("%s has invalid weight %v: %w", prefix, rel.Weight, ErrInvalid)
+		}
+		attribute := strings.TrimSpace(rel.Attribute)
+		if rel.Weight > 0 && attribute == "" {
+			return fmt.Errorf("%s weight requires an attribute: %w", prefix, ErrInvalid)
+		}
+		if attribute != "" && rel.Weight <= 0 {
+			return fmt.Errorf("%s attribute requires a positive weight: %w", prefix, ErrInvalid)
+		}
+		if len(rel.Enum) > 0 && attribute == "" {
+			return fmt.Errorf("%s enum scoring requires an attribute: %w", prefix, ErrInvalid)
+		}
+		for value, score := range rel.Enum {
+			if strings.TrimSpace(value) == "" {
+				return fmt.Errorf("%s enum scoring has an empty value: %w", prefix, ErrInvalid)
+			}
+			if math.IsNaN(score) || math.IsInf(score, 0) {
+				return fmt.Errorf("%s enum value %q has invalid score %v: %w", prefix, value, score, ErrInvalid)
+			}
+		}
+	}
+	return nil
+}
+
+func normalizeRelationDirection(raw string) (string, bool) {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "", RelationDirectionLinks, "link", "linked", "outgoing", "out":
+		return RelationDirectionLinks, true
+	case RelationDirectionBacklinks, "backlink", "backlinked", "incoming", "in":
+		return RelationDirectionBacklinks, true
+	default:
+		return "", false
+	}
 }
 
 func ValidSchemaTypeName(typeName string) error {

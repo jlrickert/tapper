@@ -323,7 +323,7 @@ title: "No indexes"
 	config, err := keg.ParseKegConfig([]byte(yamlData))
 	require.NoError(t, err)
 	require.Equal(t,
-		[]string{"nodes.tsv", "changes.md", "tags", "links", "backlinks"},
+		[]string{"nodes.tsv", "changes.md", "tags", "links", "backlinks", "timeline", "dirty"},
 		indexFiles(config.Indexes)[:len(keg.SystemIndexEntries())],
 	)
 	require.Empty(t, config.UserIndexEntries())

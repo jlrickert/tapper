@@ -96,7 +96,10 @@ func (k *LocalKeg) SetContent(ctx context.Context, id NodeId, data []byte) error
 	if nodeData == nil {
 		return nil
 	}
-	return k.writeNodeToDex(ctx, id, nodeData)
+	if err := k.writeNodeToDex(ctx, id, nodeData); err != nil {
+		return err
+	}
+	return k.refreshDirtyIndex(ctx)
 }
 
 // GetMeta retrieves the parsed metadata for a node.
@@ -112,7 +115,17 @@ func (k *LocalKeg) GetStats(ctx context.Context, id NodeId) (*NodeStats, error) 
 	if err := k.checkKegExists(ctx); err != nil {
 		return nil, fmt.Errorf("failed to get node stats: %w", err)
 	}
-	return k.getStats(ctx, id)
+	stats, err := k.getStats(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if stats == nil {
+		stats = &NodeStats{}
+	}
+	if err := k.applyComputedOmega(ctx, id, stats); err != nil {
+		return nil, fmt.Errorf("failed to compute omega: %w", err)
+	}
+	return stats, nil
 }
 
 // SetMeta writes metadata for a node and updates the dex.
@@ -197,7 +210,10 @@ func (k *LocalKeg) SetMeta(ctx context.Context, id NodeId, meta *NodeMeta) error
 	}
 
 	now := k.Runtime.Clock().Now()
-	return k.addNodeToDex(ctx, nodeData, &now)
+	if err := k.addNodeToDex(ctx, nodeData, &now); err != nil {
+		return err
+	}
+	return k.refreshDirtyIndex(ctx)
 }
 
 // UpdateMeta reads the node's metadata, applies the provided mutation function,
@@ -264,7 +280,10 @@ func (k *LocalKeg) UpdateMeta(ctx context.Context, id NodeId, f func(*NodeMeta))
 	if nodeData == nil {
 		return nil
 	}
-	return k.addNodeToDex(ctx, nodeData, &now)
+	if err := k.addNodeToDex(ctx, nodeData, &now); err != nil {
+		return err
+	}
+	return k.refreshDirtyIndex(ctx)
 }
 
 // Touch updates the access time of a node to the current time.
@@ -275,7 +294,7 @@ func (k *LocalKeg) Touch(ctx context.Context, id NodeId) error {
 
 	now := k.Runtime.Clock().Now()
 
-	return k.withNodeLock(ctx, id, func(lockCtx context.Context) error {
+	if err := k.withNodeLock(ctx, id, func(lockCtx context.Context) error {
 		// Verify the node truly exists (has content) under the lock.
 		exists, exErr := k.nodeExistsWithContent(lockCtx, id)
 		if exErr != nil {
@@ -303,7 +322,10 @@ func (k *LocalKeg) Touch(ctx context.Context, id NodeId) error {
 			return err
 		}
 		return k.Repo.WriteStats(lockCtx, id, stats)
-	})
+	}); err != nil {
+		return err
+	}
+	return k.refreshDirtyIndex(ctx)
 }
 
 // Node returns a Node handle bound to this keg's repository and runtime for the

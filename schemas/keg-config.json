@@ -72,7 +72,7 @@
           },
           "query": {
             "type": "string",
-            "description": "Boolean query expression to filter index contents. Supports tag names, key=value attribute predicates, dot-prefix stats fields (.created>2026-01-01, .accessCount>=5), and boolean operators (and/or/not)."
+            "description": "Boolean query expression to filter index contents. Supports tag names, key=value attribute predicates, dot-prefix stats fields (.created>2026-01-01, .accessCount>=5, .omega>=0.8), and boolean operators (and/or/not)."
           },
           "sort": {
             "type": "string",
