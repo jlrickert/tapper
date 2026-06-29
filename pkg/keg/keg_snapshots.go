@@ -35,6 +35,12 @@ func (k *LocalKeg) AppendSnapshot(ctx context.Context, id NodeId, msg string) (S
 		if err != nil && !errors.Is(err, ErrNotExist) {
 			return err
 		}
+		if stats == nil {
+			stats = &NodeStats{}
+		}
+		if err := k.applyComputedOmega(lockCtx, id, stats); err != nil {
+			return fmt.Errorf("failed to compute omega: %w", err)
+		}
 
 		var parent RevisionID
 		if len(existing) > 0 {
@@ -55,7 +61,13 @@ func (k *LocalKeg) AppendSnapshot(ctx context.Context, id NodeId, msg string) (S
 		})
 		return err
 	})
-	return out, err
+	if err != nil {
+		return out, err
+	}
+	if err := k.refreshSnapshotGeneratedIndexes(ctx); err != nil {
+		return out, fmt.Errorf("failed to refresh snapshot indexes: %w", err)
+	}
+	return out, nil
 }
 
 func (k *LocalKeg) ListSnapshots(ctx context.Context, id NodeId) ([]Snapshot, error) {
@@ -131,7 +143,10 @@ func (k *LocalKeg) RestoreSnapshot(ctx context.Context, id NodeId, rev RevisionI
 	if err != nil {
 		return err
 	}
-	return k.writeNodeToDex(ctx, id, data)
+	if err := k.writeNodeToDex(ctx, id, data); err != nil {
+		return err
+	}
+	return k.refreshSnapshotGeneratedIndexes(ctx)
 }
 
 func contentOrNil(data []byte) []byte {

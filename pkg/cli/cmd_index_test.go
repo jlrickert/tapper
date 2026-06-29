@@ -84,6 +84,8 @@ func TestIndexListCommand_ListIndexes(t *testing.T) {
 	stdout := string(res.Stdout)
 	require.Contains(t, stdout, "nodes.tsv")
 	require.Contains(t, stdout, "tags")
+	require.Contains(t, stdout, "timeline")
+	require.Contains(t, stdout, "dirty")
 }
 
 func TestIndexGetCommand_CatNamedIndex(t *testing.T) {
@@ -101,6 +103,12 @@ func TestIndexGetCommand_CatNamedIndex(t *testing.T) {
 
 	stdout := string(res.Stdout)
 	require.NotEmpty(t, stdout, "nodes.tsv should have content")
+
+	for _, name := range []string{"timeline", "dirty"} {
+		h := NewProcess(t, false, "index", "get", "--keg", "example", name)
+		res := h.Run(sb.Context(), sb.Runtime())
+		require.NoError(t, res.Err, "index get %s should succeed", name)
+	}
 }
 
 func TestIndexGetCommand_CompletionSuggestsIndexNames(t *testing.T) {
@@ -118,6 +126,8 @@ func TestIndexGetCommand_CompletionSuggestsIndexNames(t *testing.T) {
 	suggestions := parseCompletionSuggestions(string(comp.Stdout))
 	require.Contains(t, suggestions, "nodes.tsv")
 	require.Contains(t, suggestions, "tags")
+	require.Contains(t, suggestions, "timeline")
+	require.Contains(t, suggestions, "dirty")
 }
 
 func TestIndexRebuildCommand_TableDrivenErrorHandling(t *testing.T) {
@@ -335,6 +345,8 @@ func TestIndexRebuildCommand_CreatesDexArtifactsWhenMissing(t *testing.T) {
 		"~/kegs/@local/example/dex/tags",
 		"~/kegs/@local/example/dex/links",
 		"~/kegs/@local/example/dex/backlinks",
+		"~/kegs/@local/example/dex/timeline",
+		"~/kegs/@local/example/dex/dirty",
 	} {
 		_, err := sb.Runtime().Stat(path, false)
 		require.NoError(t, err, "expected dex artifact to exist: %s", path)

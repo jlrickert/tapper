@@ -69,6 +69,9 @@ func (k *LocalKeg) Init(ctx context.Context) error {
 	if err := k.addNodeToDex(ctx, nodeData, &now); err != nil {
 		return fmt.Errorf("failed to index zero node: %w", err)
 	}
+	if err := k.refreshSnapshotGeneratedIndexes(ctx); err != nil {
+		return fmt.Errorf("failed to refresh snapshot indexes: %w", err)
+	}
 
 	k.kegExistsVerified.Store(true)
 	return nil
@@ -141,7 +144,13 @@ func (k *LocalKeg) Create(ctx context.Context, opts *CreateOptions) (NodeId, err
 		return id, err
 	}
 
-	return id, k.addNodeToDex(ctx, nodeData, &now)
+	if err := k.addNodeToDex(ctx, nodeData, &now); err != nil {
+		return id, err
+	}
+	if err := k.refreshDirtyIndex(ctx); err != nil {
+		return id, fmt.Errorf("failed to refresh dirty index: %w", err)
+	}
+	return id, nil
 }
 
 // buildNodeData assembles the content/meta/stats for a new node from opts. It

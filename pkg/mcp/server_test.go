@@ -839,6 +839,8 @@ func TestMCP_ListIndexes(t *testing.T) {
 	require.False(t, res.IsError, "list_indexes returned error: %s", text)
 	require.Contains(t, text, "nodes.tsv")
 	require.Contains(t, text, "tags")
+	require.Contains(t, text, "timeline")
+	require.Contains(t, text, "dirty")
 }
 
 func TestMCP_IndexCat(t *testing.T) {
@@ -856,6 +858,18 @@ func TestMCP_IndexCat(t *testing.T) {
 	require.False(t, res.IsError, "index_cat returned error: %s", text)
 	require.Contains(t, text, "Personal Overview")
 	require.Contains(t, text, "Hello World")
+
+	for _, name := range []string{"timeline", "dirty"} {
+		res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+			Name: "index_cat",
+			Arguments: map[string]any{
+				"name": name,
+			},
+		})
+		require.NoError(t, err)
+		text := extractText(t, res)
+		require.False(t, res.IsError, "index_cat %s returned error: %s", name, text)
+	}
 }
 
 func TestMCP_IndexRebuild(t *testing.T) {

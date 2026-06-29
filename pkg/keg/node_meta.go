@@ -37,6 +37,7 @@ type metaWithStatsYAML struct {
 	Accessed time.Time `yaml:"accessed,omitempty"`
 	Accesses int       `yaml:"access_count,omitempty"`
 	Lead     string    `yaml:"lead,omitempty"`
+	Omega    *float64  `yaml:"omega,omitempty"`
 	Links    []string  `yaml:"links,omitempty"`
 }
 
@@ -125,6 +126,9 @@ func (m *NodeMeta) ToYAMLWithStats(stats *NodeStats) string {
 		data.Accessed = stats.Accessed()
 		data.Accesses = stats.AccessCount()
 		data.Lead = stats.Lead()
+		if omega, ok := stats.Omega(); ok {
+			data.Omega = &omega
+		}
 		links := stats.Links()
 		if len(links) > 0 {
 			data.Links = make([]string, 0, len(links))
@@ -331,6 +335,10 @@ func applyStatsToMapping(root *yaml.Node, stats *NodeStats) {
 		removeFromMapping(root, "lead")
 	} else {
 		setScalarInMapping(root, "lead", stats.Lead())
+	}
+
+	if omega, ok := stats.Omega(); ok {
+		setScalarInMapping(root, "omega", fmt.Sprintf("%g", omega))
 	}
 
 	links := stats.Links()

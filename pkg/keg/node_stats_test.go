@@ -21,6 +21,7 @@ func TestParseStats_ParsesProgrammaticFields(t *testing.T) {
   "accessed": "2024-01-03T03:04:05Z",
   "access_count": 3,
   "lead": "short",
+  "omega": 0.75,
   "links": ["1", "2"]
 }`)
 
@@ -32,10 +33,17 @@ func TestParseStats_ParsesProgrammaticFields(t *testing.T) {
 	require.Equal(t, time.Date(2024, 1, 3, 3, 4, 5, 0, time.UTC), s.Accessed())
 	require.Equal(t, 3, s.AccessCount())
 	require.Equal(t, "short", s.Lead())
+	omega, ok := s.Omega()
+	require.True(t, ok)
+	require.Equal(t, 0.75, omega)
 	links := s.Links()
 	require.Len(t, links, 2)
 	require.Equal(t, 1, links[0].ID)
 	require.Equal(t, 2, links[1].ID)
+
+	out, err := s.ToJSON()
+	require.NoError(t, err)
+	require.Contains(t, string(out), `"omega":0.75`)
 }
 
 func TestParseStats_ParsesSpaceSeparatedTimeFormat(t *testing.T) {

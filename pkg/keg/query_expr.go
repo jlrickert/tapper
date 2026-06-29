@@ -16,6 +16,7 @@ var StatsFieldNames = []string{
 	"hash",
 	"accessCount",
 	"lead",
+	"omega",
 }
 
 // QueryExpr is an opaque compiled tag boolean expression. Callers obtain one via

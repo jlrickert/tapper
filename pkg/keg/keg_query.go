@@ -202,8 +202,8 @@ func (k *LocalKeg) resolveQueryTerm(
 // Index-backed fields (.updated, .created, .accessed) are resolved from the
 // NodeIndexEntry timestamps without additional I/O.
 //
-// Non-indexed fields (.hash, .accessCount, .lead) require reading stats.json
-// per node.
+// Non-indexed fields (.hash, .accessCount, .lead, .omega) require reading
+// stats per node. Omega is computed from current schema/link state.
 //
 // When op is empty, the predicate acts as a boolean check: the field must be
 // non-empty (strings) or non-zero (numbers/times).
@@ -221,6 +221,8 @@ func (k *LocalKeg) resolveStatsCompare(
 		k.resolveStringStatsField(ctx, entries, field, op, value, out)
 	case "accessCount":
 		k.resolveNumericStatsField(ctx, entries, field, op, value, out)
+	case "omega":
+		k.resolveFloatStatsField(ctx, entries, field, op, value, out)
 	default:
 		// Unknown field: match nothing.
 	}
@@ -340,6 +342,56 @@ func (k *LocalKeg) resolveNumericStatsField(
 		}
 
 		if matchInt(fieldNum, op, compareNum) {
+			out[id.Path()] = struct{}{}
+			out[entry.ID] = struct{}{}
+		}
+	}
+}
+
+// resolveFloatStatsField handles computed floating-point stats fields.
+func (k *LocalKeg) resolveFloatStatsField(
+	ctx context.Context,
+	entries []NodeIndexEntry,
+	field, op, value string,
+	out map[string]struct{},
+) {
+	var compareNum float64
+	if value != "" {
+		n, err := strconv.ParseFloat(value, 64)
+		if err != nil {
+			if op != "" {
+				return
+			}
+		}
+		compareNum = n
+	}
+
+	for _, entry := range entries {
+		id, err := ParseNode(entry.ID)
+		if err != nil || id == nil {
+			continue
+		}
+
+		stats, err := k.GetStats(ctx, *id)
+		if err != nil || stats == nil {
+			continue
+		}
+
+		var fieldNum float64
+		var ok bool
+		switch field {
+		case "omega":
+			fieldNum, ok = stats.Omega()
+		}
+		if !ok {
+			if op == "!=" {
+				out[id.Path()] = struct{}{}
+				out[entry.ID] = struct{}{}
+			}
+			continue
+		}
+
+		if matchFloat(fieldNum, op, compareNum) {
 			out[id.Path()] = struct{}{}
 			out[entry.ID] = struct{}{}
 		}
@@ -488,9 +540,12 @@ func compareAttrValues(got, op, value string) bool {
 	return matchString(got, op, value)
 }
 
-// matchFloat compares two float64 values using op.
+// matchFloat compares two float64 values using op. For boolean checks
+// (op == ""), returns true if fieldVal is non-zero.
 func matchFloat(fieldVal float64, op string, compareVal float64) bool {
 	switch op {
+	case "":
+		return fieldVal != 0
 	case "=":
 		return fieldVal == compareVal
 	case "!=":

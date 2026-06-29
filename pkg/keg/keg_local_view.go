@@ -34,6 +34,9 @@ func (k *LocalKeg) ReadNode(ctx context.Context, id NodeId) (*NodeView, error) {
 	if stats == nil {
 		stats = &NodeStats{}
 	}
+	if err := k.applyComputedOmega(ctx, id, stats); err != nil {
+		return nil, fmt.Errorf("failed to compute omega: %w", err)
+	}
 
 	view := &NodeView{
 		ID:      id,
@@ -94,6 +97,16 @@ func (k *LocalKeg) ListIndexes(ctx context.Context) ([]string, error) {
 	if err := k.checkKegExists(ctx); err != nil {
 		return nil, fmt.Errorf("failed to list indexes: %w", err)
 	}
+	names, err := k.Repo.ListIndexes(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if hasIndexName(names, TimelineIndexName) && hasIndexName(names, DirtyIndexName) {
+		return names, nil
+	}
+	if err := k.refreshSnapshotGeneratedIndexes(ctx); err != nil {
+		return nil, fmt.Errorf("failed to refresh snapshot indexes: %w", err)
+	}
 	return k.Repo.ListIndexes(ctx)
 }
 
@@ -101,6 +114,13 @@ func (k *LocalKeg) ListIndexes(ctx context.Context) ([]string, error) {
 func (k *LocalKeg) ReadIndex(ctx context.Context, name string) ([]byte, error) {
 	if err := k.checkKegExists(ctx); err != nil {
 		return nil, fmt.Errorf("failed to read index: %w", err)
+	}
+	data, err := k.Repo.GetIndex(ctx, name)
+	if err == nil || !isSnapshotGeneratedIndex(name) || !errors.Is(err, ErrNotExist) {
+		return data, err
+	}
+	if err := k.refreshSnapshotGeneratedIndexes(ctx); err != nil {
+		return nil, fmt.Errorf("failed to refresh snapshot indexes: %w", err)
 	}
 	return k.Repo.GetIndex(ctx, name)
 }

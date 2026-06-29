@@ -76,9 +76,30 @@
             "type": "string",
             "description": "Target node type for this relation."
           },
+          "direction": {
+            "type": "string",
+            "enum": ["links", "backlinks"],
+            "description": "Whether the relation is satisfied by outgoing links or incoming backlinks. Defaults to links."
+          },
           "required": {
             "type": "boolean",
             "description": "Whether at least one matching relation must exist."
+          },
+          "attribute": {
+            "type": "string",
+            "description": "Target-node metadata attribute used for omega scoring."
+          },
+          "weight": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Positive omega weight for this relation rule."
+          },
+          "enum": {
+            "type": "object",
+            "description": "Enum metadata values mapped to omega scores from 0 to 1.",
+            "additionalProperties": {
+              "type": "number"
+            }
           }
         },
         "additionalProperties": false

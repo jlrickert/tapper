@@ -109,6 +109,7 @@ func TestToYAMLWithStats_WritesProgrammaticFields(t *testing.T) {
 	s.SetLinks([]keg.NodeId{{ID: 1}, {ID: 2}})
 	s.SetAccessed(now)
 	s.SetAccessCount(5)
+	s.SetOmega(0.75)
 
 	out := m.ToYAMLWithStats(s)
 	require.Contains(t, out, "title: Node")
@@ -121,6 +122,7 @@ func TestToYAMLWithStats_WritesProgrammaticFields(t *testing.T) {
 	require.Contains(t, out, "accessed:")
 	require.Contains(t, out, "access_count: 5")
 	require.Contains(t, out, "lead: summary")
+	require.Contains(t, out, "omega: 0.75")
 	require.Contains(t, out, "- \"1\"")
 	require.Contains(t, out, "- \"2\"")
 }

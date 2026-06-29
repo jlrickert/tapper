@@ -34,7 +34,10 @@ func (k *LocalKeg) IndexNode(ctx context.Context, id NodeId) error {
 	if nodeData == nil {
 		return nil
 	}
-	return k.writeNodeToDex(ctx, id, nodeData)
+	if err := k.writeNodeToDex(ctx, id, nodeData); err != nil {
+		return err
+	}
+	return k.refreshDirtyIndex(ctx)
 }
 
 type IndexOptions struct {
@@ -138,6 +141,9 @@ func (k *LocalKeg) Index(ctx context.Context, opts IndexOptions) error {
 	}
 	if err := k.touchConfigUpdated(ctx, now); err != nil {
 		errs = append(errs, fmt.Errorf("failed to update index timestamp: %w", err))
+	}
+	if err := k.refreshSnapshotGeneratedIndexes(ctx); err != nil {
+		errs = append(errs, fmt.Errorf("failed to refresh snapshot indexes: %w", err))
 	}
 
 	return errors.Join(errs...)
