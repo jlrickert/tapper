@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 )
 
 // GetContent retrieves the raw markdown content for a node.
@@ -96,7 +97,7 @@ func (k *LocalKeg) SetContent(ctx context.Context, id NodeId, data []byte) error
 	if nodeData == nil {
 		return nil
 	}
-	if err := k.writeNodeToDex(ctx, id, nodeData); err != nil {
+	if err := k.writeNodeToDex(ctx, nodeData, time.Time{}); err != nil {
 		return err
 	}
 	return k.refreshDirtyIndex(ctx)
@@ -133,6 +134,7 @@ func (k *LocalKeg) SetMeta(ctx context.Context, id NodeId, meta *NodeMeta) error
 		return fmt.Errorf("failed to update node meta: %w", err)
 	}
 
+	var updatedAt time.Time
 	var nodeData *NodeData
 	err := k.withNodeLock(ctx, id, func(lockCtx context.Context) error {
 		// Verify the node truly exists (has content) under the lock to
@@ -173,15 +175,15 @@ func (k *LocalKeg) SetMeta(ctx context.Context, id NodeId, meta *NodeMeta) error
 		if err != nil {
 			return fmt.Errorf("failed to parse node metadata: %w", err)
 		}
-		now := k.Runtime.Clock().Now()
+		updatedAt = k.Runtime.Clock().Now()
 		proposed := &NodeData{ID: id, Content: content, Meta: validationMeta, Stats: stats}
-		if err := proposed.updateMeta(lockCtx, k.Runtime, &now); err != nil {
+		if err := proposed.updateMeta(lockCtx, k.Runtime, &updatedAt); err != nil {
 			return fmt.Errorf("failed to update node metadata from content: %w", err)
 		}
 		if err := k.validateForWrite(lockCtx, schemaWriteUpdate, id, proposed); err != nil {
 			return err
 		}
-		stats.SetUpdated(now)
+		stats.SetUpdated(updatedAt)
 
 		if err := k.Repo.WriteMeta(lockCtx, id, newMetaBytes); err != nil {
 			return fmt.Errorf("UpdateMeta: write meta to backend %s: %w", k.Repo.Name(), err)
@@ -207,8 +209,7 @@ func (k *LocalKeg) SetMeta(ctx context.Context, id NodeId, meta *NodeMeta) error
 		return nil
 	}
 
-	now := k.Runtime.Clock().Now()
-	if err := k.addNodeToDex(ctx, nodeData, &now); err != nil {
+	if err := k.writeNodeToDex(ctx, nodeData, updatedAt); err != nil {
 		return err
 	}
 	return k.refreshDirtyIndex(ctx)
@@ -284,7 +285,7 @@ func (k *LocalKeg) UpdateMeta(ctx context.Context, id NodeId, f func(*NodeMeta))
 	if nodeData == nil {
 		return nil
 	}
-	if err := k.addNodeToDex(ctx, nodeData, &now); err != nil {
+	if err := k.writeNodeToDex(ctx, nodeData, now); err != nil {
 		return err
 	}
 	return k.refreshDirtyIndex(ctx)

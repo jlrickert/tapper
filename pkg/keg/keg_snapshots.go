@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 )
 
 func (k *LocalKeg) AppendSnapshot(ctx context.Context, id NodeId, msg string) (Snapshot, error) {
@@ -202,7 +203,7 @@ func (k *LocalKeg) RestoreSnapshot(ctx context.Context, id NodeId, rev RevisionI
 	if err != nil {
 		return err
 	}
-	if err := k.writeNodeToDex(ctx, id, data); err != nil {
+	if err := k.writeNodeToDex(ctx, data, time.Time{}); err != nil {
 		return err
 	}
 	return k.refreshSnapshotGeneratedIndexes(ctx)

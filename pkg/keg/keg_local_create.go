@@ -66,7 +66,7 @@ func (k *LocalKeg) Init(ctx context.Context) error {
 	}
 
 	nodeData.ID = id
-	if err := k.addNodeToDex(ctx, nodeData, &now); err != nil {
+	if err := k.writeNodeToDex(ctx, nodeData, now); err != nil {
 		return fmt.Errorf("failed to index zero node: %w", err)
 	}
 	if err := k.refreshSnapshotGeneratedIndexes(ctx); err != nil {
@@ -144,7 +144,7 @@ func (k *LocalKeg) Create(ctx context.Context, opts *CreateOptions) (NodeId, err
 		return id, err
 	}
 
-	if err := k.addNodeToDex(ctx, nodeData, &now); err != nil {
+	if err := k.writeNodeToDex(ctx, nodeData, now); err != nil {
 		return id, err
 	}
 	if err := k.refreshDirtyIndex(ctx); err != nil {
