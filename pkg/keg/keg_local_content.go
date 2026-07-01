@@ -60,7 +60,7 @@ func (k *LocalKeg) setContentNoDex(ctx context.Context, id NodeId, data []byte) 
 		}
 		now := k.Runtime.Clock().Now()
 		proposed := &NodeData{ID: id, Content: content, Meta: meta, Stats: stats}
-		if err := proposed.UpdateMeta(lockCtx, &now); err != nil {
+		if err := proposed.updateMeta(lockCtx, k.Runtime, &now); err != nil {
 			return fmt.Errorf("failed to update node metadata from content: %w", err)
 		}
 		if err := k.validateForWrite(lockCtx, schemaWriteUpdate, id, proposed); err != nil {
@@ -122,9 +122,6 @@ func (k *LocalKeg) GetStats(ctx context.Context, id NodeId) (*NodeStats, error) 
 	if stats == nil {
 		stats = &NodeStats{}
 	}
-	if err := k.applyComputedOmega(ctx, id, stats); err != nil {
-		return nil, fmt.Errorf("failed to compute omega: %w", err)
-	}
 	return stats, nil
 }
 
@@ -178,12 +175,13 @@ func (k *LocalKeg) SetMeta(ctx context.Context, id NodeId, meta *NodeMeta) error
 		}
 		now := k.Runtime.Clock().Now()
 		proposed := &NodeData{ID: id, Content: content, Meta: validationMeta, Stats: stats}
-		if err := proposed.UpdateMeta(lockCtx, &now); err != nil {
+		if err := proposed.updateMeta(lockCtx, k.Runtime, &now); err != nil {
 			return fmt.Errorf("failed to update node metadata from content: %w", err)
 		}
 		if err := k.validateForWrite(lockCtx, schemaWriteUpdate, id, proposed); err != nil {
 			return err
 		}
+		stats.SetUpdated(now)
 
 		if err := k.Repo.WriteMeta(lockCtx, id, newMetaBytes); err != nil {
 			return fmt.Errorf("UpdateMeta: write meta to backend %s: %w", k.Repo.Name(), err)
@@ -248,22 +246,28 @@ func (k *LocalKeg) UpdateMeta(ctx context.Context, id NodeId, f func(*NodeMeta))
 			stats = &NodeStats{}
 		}
 
+		beforeMetaBytes := []byte(m.ToYAML())
 		f(m)
+		newMetaBytes := []byte(m.ToYAML())
+		if bytes.Equal(bytes.TrimSpace(beforeMetaBytes), bytes.TrimSpace(newMetaBytes)) {
+			return nil
+		}
 
 		content, _ := k.getContent(lockCtx, id)
-		validationMeta, err := ParseMeta(lockCtx, []byte(m.ToYAML()))
+		validationMeta, err := ParseMeta(lockCtx, newMetaBytes)
 		if err != nil {
 			return fmt.Errorf("failed to parse node metadata: %w", err)
 		}
 		proposed := &NodeData{ID: id, Content: content, Meta: validationMeta, Stats: stats}
-		if err := proposed.UpdateMeta(lockCtx, &now); err != nil {
+		if err := proposed.updateMeta(lockCtx, k.Runtime, &now); err != nil {
 			return fmt.Errorf("failed to update node metadata from content: %w", err)
 		}
 		if err := k.validateForWrite(lockCtx, schemaWriteUpdate, id, proposed); err != nil {
 			return err
 		}
+		stats.SetUpdated(now)
 
-		if err := k.Repo.WriteMeta(lockCtx, id, []byte(m.ToYAML())); err != nil {
+		if err := k.Repo.WriteMeta(lockCtx, id, newMetaBytes); err != nil {
 			return fmt.Errorf("UpdateMeta: write meta to backend %s: %w", k.Repo.Name(), err)
 		}
 		if err := k.Repo.WriteStats(lockCtx, id, stats); err != nil {

@@ -22,25 +22,29 @@ type timelineNodeRef struct {
 }
 
 type timelineIndexRow struct {
-	V           int               `json:"v"`
-	OccurredAt  string            `json:"occurred_at"`
-	Node        string            `json:"node"`
-	Revision    int64             `json:"revision"`
-	Parent      int64             `json:"parent"`
-	Schema      string            `json:"schema"`
-	Title       string            `json:"title"`
-	Message     string            `json:"message"`
-	ContentHash string            `json:"content_hash"`
-	Links       []timelineNodeRef `json:"links"`
-	Backlinks   []timelineNodeRef `json:"backlinks"`
+	V            int                   `json:"v"`
+	OccurredAt   string                `json:"occurred_at"`
+	Node         string                `json:"node"`
+	Revision     int64                 `json:"revision"`
+	Parent       int64                 `json:"parent"`
+	Schema       string                `json:"schema"`
+	Title        string                `json:"title"`
+	Message      string                `json:"message"`
+	ContentHash  string                `json:"content_hash"`
+	Links        []timelineNodeRef     `json:"links"`
+	Backlinks    []timelineNodeRef     `json:"backlinks"`
+	Omega        *float64              `json:"omega"`
+	OmegaUpdates []timelineOmegaUpdate `json:"omega_updates"`
 }
 
 type dirtyIndexRow struct {
 	V                int    `json:"v"`
 	Node             string `json:"node"`
 	CurrentHash      string `json:"current_hash"`
+	CurrentMetaHash  string `json:"current_meta_hash,omitempty"`
 	SnapshotRevision int64  `json:"snapshot_revision"`
 	SnapshotHash     string `json:"snapshot_hash"`
+	SnapshotMetaHash string `json:"snapshot_meta_hash,omitempty"`
 	Title            string `json:"title"`
 }
 
@@ -49,15 +53,20 @@ type timelineSnapshotState struct {
 	schema   string
 	title    string
 	links    []NodeId
+	meta     *NodeMeta
+	stats    *NodeStats
 }
 
 func (k *LocalKeg) refreshSnapshotGeneratedIndexes(ctx context.Context) error {
-	timeline, err := k.buildTimelineIndexData(ctx)
+	timeline, replay, err := k.buildTimelineIndexDataWithReplay(ctx)
 	if err != nil {
 		return err
 	}
 	if err := k.Repo.WriteIndex(ctx, TimelineIndexName, timeline); err != nil {
 		return fmt.Errorf("write %s index: %w", TimelineIndexName, err)
+	}
+	if err := k.persistSnapshotOmegaStats(ctx, replay); err != nil {
+		return fmt.Errorf("persist replayed omega stats: %w", err)
 	}
 	return k.refreshDirtyIndex(ctx)
 }
@@ -74,9 +83,54 @@ func (k *LocalKeg) refreshDirtyIndex(ctx context.Context) error {
 }
 
 func (k *LocalKeg) buildTimelineIndexData(ctx context.Context) ([]byte, error) {
+	timeline, _, err := k.buildTimelineIndexDataWithReplay(ctx)
+	return timeline, err
+}
+
+func (k *LocalKeg) buildTimelineIndexDataWithReplay(ctx context.Context) ([]byte, snapshotTimelineReplay, error) {
+	records, err := k.loadTimelineSnapshotStates(ctx)
+	if err != nil {
+		return nil, snapshotTimelineReplay{}, err
+	}
+	replay, err := k.replaySnapshotTimeline(ctx, records)
+	if err != nil {
+		return nil, snapshotTimelineReplay{}, err
+	}
+
+	rows := make([]timelineIndexRow, 0, len(replay.Steps))
+	latestLinks := make(map[string][]NodeId, len(records))
+	for _, step := range replay.Steps {
+		rec := step.Record
+		nodeKey := rec.snapshot.Node.Path()
+		latestLinks[nodeKey] = normalizeNodeIDList(rec.links)
+		rows = append(rows, timelineIndexRow{
+			V:            1,
+			OccurredAt:   formatIndexTime(rec.snapshot.CreatedAt),
+			Node:         nodeKey,
+			Revision:     int64(rec.snapshot.ID),
+			Parent:       int64(rec.snapshot.Parent),
+			Schema:       rec.schema,
+			Title:        rec.title,
+			Message:      rec.snapshot.Message,
+			ContentHash:  rec.snapshot.ContentHash,
+			Links:        timelineRefs(rec.links),
+			Backlinks:    timelineRefs(backlinksAtSnapshot(latestLinks, rec.snapshot.Node)),
+			Omega:        omegaUpdateForNode(step.Updates, rec.snapshot.Node),
+			OmegaUpdates: timelineOmegaUpdates(step.Updates),
+		})
+	}
+
+	timeline, err := jsonLines(rows)
+	if err != nil {
+		return nil, snapshotTimelineReplay{}, err
+	}
+	return timeline, replay, nil
+}
+
+func (k *LocalKeg) loadTimelineSnapshotStates(ctx context.Context) ([]timelineSnapshotState, error) {
 	snapshots, ok := repoSnapshots(k.Repo)
 	if !ok {
-		return []byte{}, nil
+		return nil, nil
 	}
 
 	ids, err := k.Repo.ListNodes(ctx)
@@ -108,29 +162,8 @@ func (k *LocalKeg) buildTimelineIndexData(ctx context.Context) ([]byte, error) {
 		}
 	}
 
-	slices.SortFunc(records, compareTimelineSnapshotState)
-
-	rows := make([]timelineIndexRow, 0, len(records))
-	latestLinks := make(map[string][]NodeId, len(records))
-	for _, rec := range records {
-		nodeKey := rec.snapshot.Node.Path()
-		latestLinks[nodeKey] = normalizeNodeIDList(rec.links)
-		rows = append(rows, timelineIndexRow{
-			V:           1,
-			OccurredAt:  formatIndexTime(rec.snapshot.CreatedAt),
-			Node:        nodeKey,
-			Revision:    int64(rec.snapshot.ID),
-			Parent:      int64(rec.snapshot.Parent),
-			Schema:      rec.schema,
-			Title:       rec.title,
-			Message:     rec.snapshot.Message,
-			ContentHash: rec.snapshot.ContentHash,
-			Links:       timelineRefs(rec.links),
-			Backlinks:   timelineRefs(backlinksAtSnapshot(latestLinks, rec.snapshot.Node)),
-		})
-	}
-
-	return jsonLines(rows)
+	sortTimelineSnapshotStates(records)
+	return records, nil
 }
 
 func timelineSnapshotStateFromPayload(ctx context.Context, rt *toolkit.Runtime, snap Snapshot, contentBytes, metaBytes []byte, stats *NodeStats) (timelineSnapshotState, error) {
@@ -173,6 +206,8 @@ func timelineSnapshotStateFromPayload(ctx context.Context, rt *toolkit.Runtime, 
 		schema:   schema,
 		title:    title,
 		links:    normalizeNodeIDList(links),
+		meta:     meta,
+		stats:    stats,
 	}, nil
 }
 
@@ -198,6 +233,13 @@ func (k *LocalKeg) buildDirtyIndexData(ctx context.Context) ([]byte, error) {
 		if err != nil {
 			return nil, fmt.Errorf("read node %s content for %s index: %w", id.Path(), DirtyIndexName, err)
 		}
+		metaBytes, err := k.Repo.ReadMeta(ctx, id)
+		if err != nil {
+			if !errors.Is(err, ErrNotExist) {
+				return nil, fmt.Errorf("read node %s meta for %s index: %w", id.Path(), DirtyIndexName, err)
+			}
+			metaBytes = nil
+		}
 		content, err := ParseContent(k.Runtime, contentBytes, FormatMarkdown)
 		if err != nil {
 			return nil, fmt.Errorf("parse node %s content for %s index: %w", id.Path(), DirtyIndexName, err)
@@ -219,7 +261,8 @@ func (k *LocalKeg) buildDirtyIndexData(ctx context.Context) ([]byte, error) {
 		}
 
 		currentHash := content.Hash
-		if hasSnapshot && latest.ContentHash == currentHash {
+		currentMetaHash := hashSnapshotBytes(k.Runtime, metaBytes)
+		if hasSnapshot && latest.ContentHash == currentHash && latest.MetaHash == currentMetaHash {
 			continue
 		}
 
@@ -234,13 +277,19 @@ func (k *LocalKeg) buildDirtyIndexData(ctx context.Context) ([]byte, error) {
 			V:                1,
 			Node:             id.Path(),
 			CurrentHash:      currentHash,
+			CurrentMetaHash:  currentMetaHash,
 			SnapshotRevision: int64(latest.ID),
 			SnapshotHash:     latest.ContentHash,
+			SnapshotMetaHash: latest.MetaHash,
 			Title:            title,
 		})
 	}
 
 	return jsonLines(rows)
+}
+
+func sortTimelineSnapshotStates(records []timelineSnapshotState) {
+	slices.SortFunc(records, compareTimelineSnapshotState)
 }
 
 func compareTimelineSnapshotState(a, b timelineSnapshotState) int {

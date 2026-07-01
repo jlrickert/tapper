@@ -113,12 +113,13 @@ type SchemaPolicy struct {
 }
 
 type SchemaDefinition struct {
-	Version   int              `yaml:"version,omitempty" json:"version,omitempty"`
-	Type      string           `yaml:"type,omitempty" json:"type,omitempty"`
-	Summary   string           `yaml:"summary,omitempty" json:"summary,omitempty"`
-	Meta      map[string]any   `yaml:"meta,omitempty" json:"meta,omitempty"`
-	Markdown  MarkdownSchema   `yaml:"markdown,omitempty" json:"markdown,omitempty"`
-	Relations []RelationSchema `yaml:"relations,omitempty" json:"relations,omitempty"`
+	Version   int                      `yaml:"version,omitempty" json:"version,omitempty"`
+	Type      string                   `yaml:"type,omitempty" json:"type,omitempty"`
+	Summary   string                   `yaml:"summary,omitempty" json:"summary,omitempty"`
+	Meta      map[string]any           `yaml:"meta,omitempty" json:"meta,omitempty"`
+	Markdown  MarkdownSchema           `yaml:"markdown,omitempty" json:"markdown,omitempty"`
+	Maturity  []MetadataMaturitySchema `yaml:"maturity,omitempty" json:"maturity,omitempty"`
+	Relations []RelationSchema         `yaml:"relations,omitempty" json:"relations,omitempty"`
 }
 
 type MarkdownSchema struct {
@@ -139,10 +140,21 @@ const (
 )
 
 type RelationSchema struct {
-	Name      string             `yaml:"name,omitempty" json:"name,omitempty"`
-	Type      string             `yaml:"type,omitempty" json:"type,omitempty"`
+	Name        string                 `yaml:"name,omitempty" json:"name,omitempty"`
+	Type        string                 `yaml:"type,omitempty" json:"type,omitempty"`
+	Description string                 `yaml:"description,omitempty" json:"description,omitempty"`
+	Required    bool                   `yaml:"required,omitempty" json:"required,omitempty"`
+	Maturity    []MaturityWeightSchema `yaml:"maturity,omitempty" json:"maturity,omitempty"`
+}
+
+type MaturityWeightSchema struct {
 	Direction string             `yaml:"direction,omitempty" json:"direction,omitempty"`
-	Required  bool               `yaml:"required,omitempty" json:"required,omitempty"`
+	Attribute string             `yaml:"attribute,omitempty" json:"attribute,omitempty"`
+	Weight    float64            `yaml:"weight,omitempty" json:"weight,omitempty"`
+	Enum      map[string]float64 `yaml:"enum,omitempty" json:"enum,omitempty"`
+}
+
+type MetadataMaturitySchema struct {
 	Attribute string             `yaml:"attribute,omitempty" json:"attribute,omitempty"`
 	Weight    float64            `yaml:"weight,omitempty" json:"weight,omitempty"`
 	Enum      map[string]float64 `yaml:"enum,omitempty" json:"enum,omitempty"`
@@ -218,6 +230,9 @@ func validateSchemaDefinitionForType(typeName string, data []byte) (*SchemaDefin
 	if err != nil {
 		return nil, err
 	}
+	if err := validateSchemaDefinitionYAMLShape(data); err != nil {
+		return nil, err
+	}
 	if parsed.Type != "" && parsed.Type != typeName {
 		return nil, fmt.Errorf("schema type %q does not match target type %q: %w", parsed.Type, typeName, ErrInvalid)
 	}
@@ -226,39 +241,148 @@ func validateSchemaDefinitionForType(typeName string, data []byte) (*SchemaDefin
 			return nil, fmt.Errorf("invalid meta json schema: %w", err)
 		}
 	}
+	if err := validateMetadataMaturitySchemas(parsed.Maturity); err != nil {
+		return nil, err
+	}
 	if err := validateRelationSchemas(parsed.Relations); err != nil {
 		return nil, err
 	}
 	return parsed, nil
 }
 
+func validateMetadataMaturitySchemas(weights []MetadataMaturitySchema) error {
+	for i, maturity := range weights {
+		prefix := fmt.Sprintf("maturity %d", i+1)
+		if err := validateMaturityWeight(prefix, maturity.Attribute, maturity.Weight, maturity.Enum); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func validateRelationSchemas(relations []RelationSchema) error {
 	for i, rel := range relations {
-		prefix := fmt.Sprintf("relation %d", i+1)
-		if rel.Direction != "" {
-			if _, ok := normalizeRelationDirection(rel.Direction); !ok {
-				return fmt.Errorf("%s has invalid direction %q: %w", prefix, rel.Direction, ErrInvalid)
+		for j, maturity := range rel.Maturity {
+			prefix := fmt.Sprintf("relation %d maturity %d", i+1, j+1)
+			if maturity.Direction != "" {
+				if _, ok := normalizeRelationDirection(maturity.Direction); !ok {
+					return fmt.Errorf("%s has invalid direction %q: %w", prefix, maturity.Direction, ErrInvalid)
+				}
+			}
+			if err := validateMaturityWeight(prefix, maturity.Attribute, maturity.Weight, maturity.Enum); err != nil {
+				return err
 			}
 		}
-		if math.IsNaN(rel.Weight) || math.IsInf(rel.Weight, 0) || rel.Weight < 0 {
-			return fmt.Errorf("%s has invalid weight %v: %w", prefix, rel.Weight, ErrInvalid)
+	}
+	return nil
+}
+
+func validateMaturityWeight(prefix, rawAttribute string, weight float64, enum map[string]float64) error {
+	if math.IsNaN(weight) || math.IsInf(weight, 0) || weight < 0 {
+		return fmt.Errorf("%s has invalid weight %v: %w", prefix, weight, ErrInvalid)
+	}
+	attribute := strings.TrimSpace(rawAttribute)
+	if weight > 0 && attribute == "" {
+		return fmt.Errorf("%s weight requires an attribute: %w", prefix, ErrInvalid)
+	}
+	if attribute != "" && weight <= 0 {
+		return fmt.Errorf("%s attribute requires a positive weight: %w", prefix, ErrInvalid)
+	}
+	if len(enum) > 0 && attribute == "" {
+		return fmt.Errorf("%s enum scoring requires an attribute: %w", prefix, ErrInvalid)
+	}
+	for value, score := range enum {
+		if strings.TrimSpace(value) == "" {
+			return fmt.Errorf("%s enum scoring has an empty value: %w", prefix, ErrInvalid)
 		}
-		attribute := strings.TrimSpace(rel.Attribute)
-		if rel.Weight > 0 && attribute == "" {
-			return fmt.Errorf("%s weight requires an attribute: %w", prefix, ErrInvalid)
+		if math.IsNaN(score) || math.IsInf(score, 0) {
+			return fmt.Errorf("%s enum value %q has invalid score %v: %w", prefix, value, score, ErrInvalid)
 		}
-		if attribute != "" && rel.Weight <= 0 {
-			return fmt.Errorf("%s attribute requires a positive weight: %w", prefix, ErrInvalid)
-		}
-		if len(rel.Enum) > 0 && attribute == "" {
-			return fmt.Errorf("%s enum scoring requires an attribute: %w", prefix, ErrInvalid)
-		}
-		for value, score := range rel.Enum {
-			if strings.TrimSpace(value) == "" {
-				return fmt.Errorf("%s enum scoring has an empty value: %w", prefix, ErrInvalid)
+	}
+	return nil
+}
+
+func validateSchemaDefinitionYAMLShape(data []byte) error {
+	var doc yaml.Node
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return err
+	}
+	if len(doc.Content) == 0 {
+		return nil
+	}
+	root := doc.Content[0]
+	if root == nil || root.Kind != yaml.MappingNode {
+		return nil
+	}
+	relationFields := map[string]bool{
+		"name":        true,
+		"type":        true,
+		"description": true,
+		"required":    true,
+		"maturity":    true,
+	}
+	maturityFields := map[string]bool{
+		"direction": true,
+		"attribute": true,
+		"weight":    true,
+		"enum":      true,
+	}
+	metadataMaturityFields := map[string]bool{
+		"attribute": true,
+		"weight":    true,
+		"enum":      true,
+	}
+
+	if maturity := mappingValueInMapping(root, "maturity"); maturity != nil && maturity.Kind == yaml.SequenceNode {
+		for i, weight := range maturity.Content {
+			if weight == nil || weight.Kind != yaml.MappingNode {
+				continue
 			}
-			if math.IsNaN(score) || math.IsInf(score, 0) {
-				return fmt.Errorf("%s enum value %q has invalid score %v: %w", prefix, value, score, ErrInvalid)
+			for j := 0; j+1 < len(weight.Content); j += 2 {
+				key := weight.Content[j]
+				if key == nil || key.Kind != yaml.ScalarNode {
+					continue
+				}
+				if !metadataMaturityFields[key.Value] {
+					return fmt.Errorf("maturity %d has unsupported field %q: %w", i+1, key.Value, ErrInvalid)
+				}
+			}
+		}
+	}
+
+	relations := mappingValueInMapping(root, "relations")
+	if relations == nil || relations.Kind != yaml.SequenceNode {
+		return nil
+	}
+	for i, rel := range relations.Content {
+		if rel == nil || rel.Kind != yaml.MappingNode {
+			continue
+		}
+		for j := 0; j+1 < len(rel.Content); j += 2 {
+			key := rel.Content[j]
+			if key == nil || key.Kind != yaml.ScalarNode {
+				continue
+			}
+			if !relationFields[key.Value] {
+				return fmt.Errorf("relation %d has unsupported field %q: %w", i+1, key.Value, ErrInvalid)
+			}
+		}
+		maturity := mappingValueInMapping(rel, "maturity")
+		if maturity == nil || maturity.Kind != yaml.SequenceNode {
+			continue
+		}
+		for j, weight := range maturity.Content {
+			if weight == nil || weight.Kind != yaml.MappingNode {
+				continue
+			}
+			for k := 0; k+1 < len(weight.Content); k += 2 {
+				key := weight.Content[k]
+				if key == nil || key.Kind != yaml.ScalarNode {
+					continue
+				}
+				if !maturityFields[key.Value] {
+					return fmt.Errorf("relation %d maturity %d has unsupported field %q: %w", i+1, j+1, key.Value, ErrInvalid)
+				}
 			}
 		}
 	}
@@ -381,7 +505,7 @@ func (k *LocalKeg) ValidateNodePayload(ctx context.Context, payload NodeValidati
 		return nil, err
 	}
 	node := &NodeData{ID: id, Content: content, Meta: meta, Stats: &NodeStats{}}
-	_ = node.UpdateMeta(ctx, nil)
+	_ = node.updateMeta(ctx, k.Runtime, nil)
 	return k.validateNodeData(ctx, id, node)
 }
 

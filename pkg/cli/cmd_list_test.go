@@ -428,43 +428,43 @@ func TestListCommand_AttrCompare_EntityNotEqual(t *testing.T) {
 	require.Contains(t, trimmed, "3", "concept node should match entity!=plan")
 }
 
-func TestListCommand_AttrCompare_OmegaGte(t *testing.T) {
+func TestListCommand_AttrCompare_NumericGte(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
 
-	// Create nodes with different omega values.
+	// Create nodes with different numeric metadata values.
 	sb.Advance(1 * time.Hour)
-	res := NewProcess(t, false, "create", "--title", "Low omega").Run(sb.Context(), sb.Runtime())
+	res := NewProcess(t, false, "create", "--title", "Low score").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
-	stdin := strings.NewReader("omega: 0.3\n")
+	stdin := strings.NewReader("score: 0.3\n")
 	res = NewProcess(t, false, "meta", "1").RunWithIO(sb.Context(), sb.Runtime(), stdin)
 	require.NoError(t, res.Err)
 
 	sb.Advance(1 * time.Hour)
-	res = NewProcess(t, false, "create", "--title", "Mid omega").Run(sb.Context(), sb.Runtime())
+	res = NewProcess(t, false, "create", "--title", "Mid score").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
-	stdin = strings.NewReader("omega: 0.5\n")
+	stdin = strings.NewReader("score: 0.5\n")
 	res = NewProcess(t, false, "meta", "2").RunWithIO(sb.Context(), sb.Runtime(), stdin)
 	require.NoError(t, res.Err)
 
 	sb.Advance(1 * time.Hour)
-	res = NewProcess(t, false, "create", "--title", "High omega").Run(sb.Context(), sb.Runtime())
+	res = NewProcess(t, false, "create", "--title", "High score").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
-	stdin = strings.NewReader("omega: 0.8\n")
+	stdin = strings.NewReader("score: 0.8\n")
 	res = NewProcess(t, false, "meta", "3").RunWithIO(sb.Context(), sb.Runtime(), stdin)
 	require.NoError(t, res.Err)
 
-	// "omega>=0.5" should return nodes with omega >= 0.5.
-	listRes := NewProcess(t, false, "list", "--id-only", "--query", "omega>=0.5").Run(sb.Context(), sb.Runtime())
+	// "score>=0.5" should return nodes with score >= 0.5.
+	listRes := NewProcess(t, false, "list", "--id-only", "--query", "score>=0.5").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, listRes.Err)
 	lines := strings.Split(strings.TrimSpace(string(listRes.Stdout)), "\n")
 	trimmed := make([]string, len(lines))
 	for i, l := range lines {
 		trimmed[i] = strings.TrimSpace(l)
 	}
-	require.NotContains(t, trimmed, "1", "omega=0.3 should NOT match omega>=0.5")
-	require.Contains(t, trimmed, "2", "omega=0.5 should match omega>=0.5")
-	require.Contains(t, trimmed, "3", "omega=0.8 should match omega>=0.5")
+	require.NotContains(t, trimmed, "1", "score=0.3 should NOT match score>=0.5")
+	require.Contains(t, trimmed, "2", "score=0.5 should match score>=0.5")
+	require.Contains(t, trimmed, "3", "score=0.8 should match score>=0.5")
 }
 
 func TestListCommand_AttrCompare_BackwardCompat_EntityEquals(t *testing.T) {

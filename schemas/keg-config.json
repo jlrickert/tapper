@@ -119,6 +119,28 @@
       "description": "IANA timezone for resolving ambiguous timestamps within this keg (e.g. America/Chicago). Defaults to UTC.",
       "default": "UTC"
     },
+    "snapshots": {
+      "type": "object",
+      "description": "Per-keg automatic snapshot policy.",
+      "properties": {
+        "mode": {
+          "type": "string",
+          "description": "Automatic snapshot mode. \"auto\" lets hub servers snapshot idle changed nodes; \"off\" disables automatic snapshots for this keg.",
+          "enum": ["auto", "off"],
+          "default": "auto"
+        },
+        "idleAfter": {
+          "type": "string",
+          "description": "Idle window before an automatic snapshot is eligible, formatted as a Go duration such as 1h or 30m.",
+          "default": "1h"
+        }
+      },
+      "additionalProperties": false,
+      "default": {
+        "mode": "auto",
+        "idleAfter": "1h"
+      }
+    },
     "doctor": {
       "type": "object",
       "description": "Configuration for `tap doctor` health checks.",

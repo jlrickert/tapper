@@ -198,7 +198,7 @@ func (n *Node) Update(ctx context.Context) error {
 }
 
 func (n *Node) updateUnlocked(ctx context.Context, now time.Time) error {
-	err1 := n.data.UpdateMeta(ctx, &now)
+	err1 := n.data.updateMeta(ctx, n.Runtime, &now)
 	if n.data.Stats == nil {
 		n.data.Stats = NewStats(now)
 	}
@@ -231,7 +231,7 @@ func (n *Node) Changed(ctx context.Context) (bool, error) {
 	if err := n.Init(ctx); err != nil {
 		return false, err
 	}
-	return n.data.ContentChanged(), nil
+	return n.data.sourceChanged(n.Runtime), nil
 }
 
 func (n *Node) ClearCache() {

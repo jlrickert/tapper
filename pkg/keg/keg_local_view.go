@@ -34,9 +34,6 @@ func (k *LocalKeg) ReadNode(ctx context.Context, id NodeId) (*NodeView, error) {
 	if stats == nil {
 		stats = &NodeStats{}
 	}
-	if err := k.applyComputedOmega(ctx, id, stats); err != nil {
-		return nil, fmt.Errorf("failed to compute omega: %w", err)
-	}
 
 	view := &NodeView{
 		ID:      id,

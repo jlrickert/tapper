@@ -62,6 +62,32 @@
       },
       "additionalProperties": false
     },
+    "maturity": {
+      "type": "array",
+      "description": "Maturity scoring rules applied to the node's own metadata.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "attribute": {
+            "type": "string",
+            "description": "Node metadata attribute used for omega scoring."
+          },
+          "weight": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Positive omega weight for this metadata maturity rule."
+          },
+          "enum": {
+            "type": "object",
+            "description": "Enum metadata values mapped to omega scores from 0 to 1.",
+            "additionalProperties": {
+              "type": "number"
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    },
     "relations": {
       "type": "array",
       "description": "Relation requirements for links from nodes of this type.",
@@ -76,29 +102,43 @@
             "type": "string",
             "description": "Target node type for this relation."
           },
-          "direction": {
+          "description": {
             "type": "string",
-            "enum": ["links", "backlinks"],
-            "description": "Whether the relation is satisfied by outgoing links or incoming backlinks. Defaults to links."
+            "description": "Human-readable explanation of the relation."
           },
           "required": {
             "type": "boolean",
             "description": "Whether at least one matching relation must exist."
           },
-          "attribute": {
-            "type": "string",
-            "description": "Target-node metadata attribute used for omega scoring."
-          },
-          "weight": {
-            "type": "number",
-            "minimum": 0,
-            "description": "Positive omega weight for this relation rule."
-          },
-          "enum": {
-            "type": "object",
-            "description": "Enum metadata values mapped to omega scores from 0 to 1.",
-            "additionalProperties": {
-              "type": "number"
+          "maturity": {
+            "type": "array",
+            "description": "Maturity scoring rules for this relation.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "direction": {
+                  "type": "string",
+                  "enum": ["links", "backlinks"],
+                  "description": "Whether scoring reads outgoing links or incoming backlinks. Defaults to links."
+                },
+                "attribute": {
+                  "type": "string",
+                  "description": "Target-node metadata attribute used for omega scoring."
+                },
+                "weight": {
+                  "type": "number",
+                  "minimum": 0,
+                  "description": "Positive omega weight for this maturity rule."
+                },
+                "enum": {
+                  "type": "object",
+                  "description": "Enum metadata values mapped to omega scores from 0 to 1.",
+                  "additionalProperties": {
+                    "type": "number"
+                  }
+                }
+              },
+              "additionalProperties": false
             }
           }
         },

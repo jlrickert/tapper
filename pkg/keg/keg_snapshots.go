@@ -7,67 +7,126 @@ import (
 )
 
 func (k *LocalKeg) AppendSnapshot(ctx context.Context, id NodeId, msg string) (Snapshot, error) {
-	if err := k.checkKegExists(ctx); err != nil {
-		return Snapshot{}, fmt.Errorf("failed to snapshot node: %w", err)
-	}
+	return k.appendSnapshot(ctx, id, msg, true)
+}
 
+func (k *LocalKeg) appendSnapshot(ctx context.Context, id NodeId, msg string, refreshIndexes bool) (Snapshot, error) {
+	out, err := k.appendSnapshotNoRefresh(ctx, id, msg)
+	if err != nil {
+		return out, err
+	}
+	if refreshIndexes {
+		if err := k.refreshSnapshotGeneratedIndexes(ctx); err != nil {
+			return out, fmt.Errorf("failed to refresh snapshot indexes: %w", err)
+		}
+	}
+	return out, nil
+}
+
+func (k *LocalKeg) appendSnapshotLocked(ctx context.Context, id NodeId, msg string) (Snapshot, error) {
 	snapshots, ok := repoSnapshots(k.Repo)
 	if !ok {
 		return Snapshot{}, ErrNotSupported
 	}
 
+	existing, err := snapshots.ListSnapshots(ctx, id)
+	if err != nil && !errors.Is(err, ErrNotExist) {
+		return Snapshot{}, err
+	}
+
+	content, err := k.Repo.ReadContent(ctx, id)
+	if err != nil {
+		return Snapshot{}, err
+	}
+	meta, err := k.Repo.ReadMeta(ctx, id)
+	if err != nil && !errors.Is(err, ErrNotExist) {
+		return Snapshot{}, err
+	}
+	stats, err := k.Repo.ReadStats(ctx, id)
+	if err != nil && !errors.Is(err, ErrNotExist) {
+		return Snapshot{}, err
+	}
+	if stats == nil {
+		stats = &NodeStats{}
+	}
+
+	var parent RevisionID
+	if len(existing) > 0 {
+		parent = existing[len(existing)-1].ID
+	}
+	createdAt := k.Runtime.Clock().Now()
+	contentHash := hashSnapshotBytes(k.Runtime, content)
+	pending, err := timelineSnapshotStateFromPayload(ctx, k.Runtime, Snapshot{
+		ID:           parent + 1,
+		Node:         id,
+		Parent:       parent,
+		CreatedAt:    createdAt,
+		Message:      msg,
+		ContentHash:  contentHash,
+		IsCheckpoint: true,
+	}, content, meta, stats)
+	if err != nil {
+		return Snapshot{}, fmt.Errorf("failed to prepare snapshot timeline event: %w", err)
+	}
+	omega, err := k.computePendingSnapshotOmega(ctx, pending)
+	if err != nil {
+		return Snapshot{}, fmt.Errorf("failed to compute snapshot omega: %w", err)
+	}
+	if omega == nil {
+		stats.ClearOmega()
+	} else {
+		stats.SetOmega(*omega)
+	}
+
+	out, err := snapshots.AppendSnapshot(ctx, id, SnapshotWrite{
+		ExpectedParent: parent,
+		Message:        msg,
+		CreatedAt:      createdAt,
+		Meta:           contentOrNil(meta),
+		Stats:          stats,
+		Content: SnapshotContentWrite{
+			Kind: SnapshotContentKindFull,
+			Base: parent,
+			Data: contentOrNil(content),
+			Hash: contentHash,
+		},
+	})
+	if err != nil {
+		return Snapshot{}, err
+	}
+	return out, nil
+}
+
+func (k *LocalKeg) appendSnapshotNoRefresh(ctx context.Context, id NodeId, msg string) (Snapshot, error) {
+	if err := k.checkKegExists(ctx); err != nil {
+		return Snapshot{}, fmt.Errorf("failed to snapshot node: %w", err)
+	}
+	if _, ok := repoSnapshots(k.Repo); !ok {
+		return Snapshot{}, ErrNotSupported
+	}
 	var out Snapshot
 	err := k.withNodeLock(ctx, id, func(lockCtx context.Context) error {
-		existing, err := snapshots.ListSnapshots(lockCtx, id)
-		if err != nil && !errors.Is(err, ErrNotExist) {
-			return err
-		}
-
-		content, err := k.Repo.ReadContent(lockCtx, id)
+		snap, err := k.appendSnapshotLocked(lockCtx, id, msg)
 		if err != nil {
 			return err
 		}
-		meta, err := k.Repo.ReadMeta(lockCtx, id)
-		if err != nil && !errors.Is(err, ErrNotExist) {
-			return err
-		}
-		stats, err := k.Repo.ReadStats(lockCtx, id)
-		if err != nil && !errors.Is(err, ErrNotExist) {
-			return err
-		}
-		if stats == nil {
-			stats = &NodeStats{}
-		}
-		if err := k.applyComputedOmega(lockCtx, id, stats); err != nil {
-			return fmt.Errorf("failed to compute omega: %w", err)
-		}
-
-		var parent RevisionID
-		if len(existing) > 0 {
-			parent = existing[len(existing)-1].ID
-		}
-
-		out, err = snapshots.AppendSnapshot(lockCtx, id, SnapshotWrite{
-			ExpectedParent: parent,
-			Message:        msg,
-			Meta:           contentOrNil(meta),
-			Stats:          stats,
-			Content: SnapshotContentWrite{
-				Kind: SnapshotContentKindFull,
-				Base: parent,
-				Data: contentOrNil(content),
-				Hash: hashSnapshotBytes(k.Runtime, content),
-			},
-		})
-		return err
+		out = snap
+		return nil
 	})
 	if err != nil {
 		return out, err
 	}
-	if err := k.refreshSnapshotGeneratedIndexes(ctx); err != nil {
-		return out, fmt.Errorf("failed to refresh snapshot indexes: %w", err)
-	}
 	return out, nil
+}
+
+func (k *LocalKeg) refreshSnapshotIndexesAfterPolicy(ctx context.Context, created int) error {
+	if created == 0 {
+		return nil
+	}
+	if err := k.refreshSnapshotGeneratedIndexes(ctx); err != nil {
+		return fmt.Errorf("failed to refresh snapshot indexes: %w", err)
+	}
+	return nil
 }
 
 func (k *LocalKeg) ListSnapshots(ctx context.Context, id NodeId) ([]Snapshot, error) {
@@ -129,7 +188,7 @@ func (k *LocalKeg) RestoreSnapshot(ctx context.Context, id NodeId, rev RevisionI
 		stats = &NodeStats{}
 	}
 	proposed := &NodeData{ID: id, Content: content, Meta: meta, Stats: stats}
-	if err := proposed.UpdateMeta(ctx, nil); err != nil {
+	if err := proposed.updateMeta(ctx, k.Runtime, nil); err != nil {
 		return fmt.Errorf("snapshot metadata is invalid: %w", err)
 	}
 	if err := k.validateForWrite(ctx, schemaWriteRestore, id, proposed); err != nil {

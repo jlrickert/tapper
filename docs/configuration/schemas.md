@@ -20,22 +20,26 @@ Schema documents declare the note `type`, an optional `summary`, optional
 metadata JSON Schema under `meta`, markdown structure rules under `markdown`,
 and relation requirements under `relations`.
 
-Relation rows can also define note maturity scoring. Add `attribute` and a
-positive `weight` to score linked target nodes by a numeric metadata attribute.
-Set `direction: backlinks` to score incoming links instead of outgoing links.
-For enum metadata, add an `enum` map of metadata values to scores:
+Relation rows can also define note maturity scoring under `maturity`. Add an
+`attribute` and a positive `weight` to score related target nodes by a numeric
+metadata attribute. Set `direction: backlinks` to score incoming links instead
+of outgoing links. For enum metadata, add an `enum` map of metadata values to
+scores:
 
 ```yaml
 relations:
   - name: support
     type: evidence
-    direction: links
-    attribute: status
-    weight: 2
-    enum:
-      draft: 0.25
-      ready: 1
+    description: Evidence that supports the note.
+    maturity:
+      - direction: links
+        attribute: status
+        weight: 2
+        enum:
+          draft: 0.25
+          ready: 1
 ```
 
-`stats` returns the computed `omega` value when the node's schema contains at
-least one weighted relation rule.
+Snapshot and index operations replay the snapshot timeline and persist the
+computed `omega` value into stats when the node's schema contains at least one
+weighted maturity rule.

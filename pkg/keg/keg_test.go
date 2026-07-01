@@ -842,6 +842,79 @@ func TestSetMeta_WithChangeUpdatesDexAndConfig(t *testing.T) {
 	require.Contains(t, tags, "new-tag")
 }
 
+func TestSetMetaAndUpdateMetaRefreshCachedSourceHash(t *testing.T) {
+	t.Parallel()
+	f := NewSandbox(t)
+	repo := kegpkg.NewMemoryRepo(f.Runtime())
+	k := kegpkg.NewLocalKeg(repo, f.Runtime())
+	require.NoError(t, k.Init(f.Context()))
+
+	body := []byte("# Meta Hash\n\nOriginal content.\n")
+	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Body: body})
+	require.NoError(t, err)
+	initialStats, err := k.GetStats(f.Context(), id)
+	require.NoError(t, err)
+
+	f.Advance(5 * time.Minute)
+	meta, err := k.GetMeta(f.Context(), id)
+	require.NoError(t, err)
+	require.NoError(t, meta.Set(f.Context(), "status", "ready"))
+	require.NoError(t, k.SetMeta(f.Context(), id, meta))
+	setStats, err := k.GetStats(f.Context(), id)
+	require.NoError(t, err)
+	require.NotEqual(t, initialStats.Hash(), setStats.Hash())
+
+	f.Advance(5 * time.Minute)
+	require.NoError(t, k.UpdateMeta(f.Context(), id, func(meta *kegpkg.NodeMeta) {
+		_ = meta.Set(f.Context(), "reviewed", true)
+	}))
+	updatedStats, err := k.GetStats(f.Context(), id)
+	require.NoError(t, err)
+	require.NotEqual(t, setStats.Hash(), updatedStats.Hash())
+
+	content, err := k.GetContent(f.Context(), id)
+	require.NoError(t, err)
+	require.Equal(t, body, content)
+}
+
+func TestIndexRefreshesStatsForOutOfBandMetadataChange(t *testing.T) {
+	t.Parallel()
+	f := NewSandbox(t)
+	repo := kegpkg.NewMemoryRepo(f.Runtime())
+	k := kegpkg.NewLocalKeg(repo, f.Runtime())
+	require.NoError(t, k.Init(f.Context()))
+
+	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "Out Of Band Meta"})
+	require.NoError(t, err)
+	initialStats, err := k.GetStats(f.Context(), id)
+	require.NoError(t, err)
+
+	meta, err := k.GetMeta(f.Context(), id)
+	require.NoError(t, err)
+	require.NoError(t, meta.Set(f.Context(), "status", "ready"))
+	f.Advance(5 * time.Minute)
+	require.NoError(t, repo.WriteMeta(f.Context(), id, []byte(meta.ToYAML())))
+
+	staleStats, err := k.GetStats(f.Context(), id)
+	require.NoError(t, err)
+	require.Equal(t, initialStats.Hash(), staleStats.Hash())
+
+	require.NoError(t, k.Index(f.Context(), kegpkg.IndexOptions{}))
+	refreshedStats, err := k.GetStats(f.Context(), id)
+	require.NoError(t, err)
+	require.NotEqual(t, initialStats.Hash(), refreshedStats.Hash())
+	require.Equal(t, f.Now(), refreshedStats.Updated())
+
+	refreshedHash := refreshedStats.Hash()
+	refreshedUpdated := refreshedStats.Updated()
+	f.Advance(5 * time.Minute)
+	require.NoError(t, k.Index(f.Context(), kegpkg.IndexOptions{}))
+	againStats, err := k.GetStats(f.Context(), id)
+	require.NoError(t, err)
+	require.Equal(t, refreshedHash, againStats.Hash())
+	require.Equal(t, refreshedUpdated, againStats.Updated())
+}
+
 // TestSetContent_WithChangeUpdatesDexAndConfig verifies that calling SetContent
 // with different content does update the dex and keg config timestamp.
 func TestSetContent_WithChangeUpdatesDexAndConfig(t *testing.T) {

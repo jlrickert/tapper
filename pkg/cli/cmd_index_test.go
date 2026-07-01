@@ -322,11 +322,19 @@ func TestIndexRebuildCommand_UpdatesStatsFromNodeContent(t *testing.T) {
 	require.NoError(t, json.Unmarshal(statsRaw, &got))
 
 	require.Equal(t, parsed.Title, got.Title, "title should be derived from content")
-	require.Equal(t, parsed.Hash, got.Hash, "hash should match content hash")
+	require.NotEqual(t, parsed.Hash, got.Hash, "hash should include metadata state")
 	require.Equal(t, parsed.Lead, got.Lead, "lead should be derived from content")
 	require.NotEqual(t, oldUpdated, got.Updated, "updated timestamp should move forward")
 	require.Equal(t, oldCreated, got.Created, "created timestamp should be preserved")
 	require.Empty(t, got.Links, "links should reflect parsed content")
+
+	rawKeg, err := keg.NewKegFromTarget(sb.Context(), keg.NewFile("~/kegs/@local/example"), sb.Runtime())
+	require.NoError(t, err)
+	local, ok := rawKeg.(*keg.LocalKeg)
+	require.True(t, ok)
+	changed, err := local.Node(keg.NodeId{ID: 0}).Changed(sb.Context())
+	require.NoError(t, err)
+	require.False(t, changed, "rebuilt stats should match current source state")
 }
 
 func TestIndexRebuildCommand_CreatesDexArtifactsWhenMissing(t *testing.T) {
