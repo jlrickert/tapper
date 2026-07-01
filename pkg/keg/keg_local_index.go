@@ -183,13 +183,13 @@ func (k *LocalKeg) indexNode(ctx context.Context, id NodeId, opts IndexOptions, 
 
 	needsRefresh := metaMissing ||
 		statsMissing ||
-		(!opts.NoUpdate && (data.ContentChanged() || data.Stats.Title() == "" ||
+		(!opts.NoUpdate && (data.sourceChanged(k.Runtime) || data.Stats.Title() == "" ||
 			data.Stats.Hash() == "" ||
 			data.Stats.Created().IsZero() ||
 			data.Stats.Updated().IsZero()))
 
 	if needsRefresh {
-		if err := data.UpdateMeta(ctx, &now); err != nil {
+		if err := data.updateMeta(ctx, k.Runtime, &now); err != nil {
 			errs = append(errs, err)
 			// Still return data so the node is not silently dropped
 			// from the index. The best-effort data is better than

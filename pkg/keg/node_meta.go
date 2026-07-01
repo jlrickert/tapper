@@ -339,6 +339,8 @@ func applyStatsToMapping(root *yaml.Node, stats *NodeStats) {
 
 	if omega, ok := stats.Omega(); ok {
 		setScalarInMapping(root, "omega", fmt.Sprintf("%g", omega))
+	} else {
+		removeFromMapping(root, "omega")
 	}
 
 	links := stats.Links()
@@ -363,6 +365,7 @@ func removeProgrammaticFromMapping(root *yaml.Node) {
 	removeFromMapping(root, "accessed")
 	removeFromMapping(root, "access_count")
 	removeFromMapping(root, "lead")
+	removeFromMapping(root, "omega")
 	removeFromMapping(root, "links")
 }
 

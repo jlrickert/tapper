@@ -107,6 +107,101 @@ func TestDirtyIndex_DetectsNoSnapshotsMatchingLatestAndStaleStats(t *testing.T) 
 	require.Equal(t, "Alpha Changed", rows[id.Path()].Title)
 }
 
+func TestTimelineIndex_EmitsOmegaUpdatesAndIndexPersistsFinalOmega(t *testing.T) {
+	t.Parallel()
+
+	k, rt := newSnapshotIndexTestKeg(t)
+	ctx := t.Context()
+
+	require.NoError(t, k.WriteSchema(ctx, "evidence", []byte(`type: evidence
+meta:
+  type: object
+  properties:
+    type:
+      const: evidence
+markdown:
+  requireTitle: true
+`)))
+	require.NoError(t, k.WriteSchema(ctx, "note", []byte(`type: note
+relations:
+  - name: support
+    type: evidence
+    maturity:
+      - direction: links
+        attribute: status
+        weight: 2
+        enum:
+          draft: 0.25
+          ready: 1
+  - name: review
+    type: evidence
+    maturity:
+      - direction: backlinks
+        attribute: certainty
+        weight: 1
+markdown:
+  requireTitle: true
+`)))
+
+	t1 := time.Date(2026, 2, 26, 10, 0, 0, 0, time.UTC)
+	setSnapshotIndexClock(t, rt, t1)
+	evidence, err := k.Create(ctx, &CreateOptions{Title: "Evidence", Attrs: map[string]any{"type": "evidence", "status": "ready"}})
+	require.NoError(t, err)
+	_, err = k.AppendSnapshot(ctx, evidence, "evidence")
+	require.NoError(t, err)
+
+	setSnapshotIndexClock(t, rt, t1.Add(time.Hour))
+	source, err := k.Create(ctx, &CreateOptions{
+		Body:  []byte("# Source\n\n[Evidence](../" + evidence.Path() + ")\n"),
+		Attrs: map[string]any{"type": "note"},
+	})
+	require.NoError(t, err)
+	_, err = k.AppendSnapshot(ctx, source, "source")
+	require.NoError(t, err)
+
+	setSnapshotIndexClock(t, rt, t1.Add(2*time.Hour))
+	review, err := k.Create(ctx, &CreateOptions{
+		Body:  []byte("# Review\n\n[Source](../" + source.Path() + ")\n"),
+		Attrs: map[string]any{"type": "evidence", "certainty": 0.5},
+	})
+	require.NoError(t, err)
+	_, err = k.AppendSnapshot(ctx, review, "review")
+	require.NoError(t, err)
+
+	raw, err := k.buildTimelineIndexData(ctx)
+	require.NoError(t, err)
+	rows := decodeJSONLines[timelineIndexRow](t, raw)
+	require.Len(t, rows, 3)
+	require.Nil(t, rows[0].Omega, "evidence has no maturity weights")
+
+	require.NotNil(t, rows[1].Omega, "source event should carry its computed omega")
+	require.InDelta(t, 2.0/3.0, *rows[1].Omega, 0.000001)
+	require.Equal(t, []string{evidence.Path(), source.Path()}, timelineUpdateNodes(rows[1].OmegaUpdates))
+	require.Nil(t, rows[1].OmegaUpdates[0].Omega)
+	require.NotNil(t, rows[1].OmegaUpdates[1].Omega)
+
+	require.Nil(t, rows[2].Omega, "review event itself has no omega")
+	require.Equal(t, []string{source.Path(), review.Path()}, timelineUpdateNodes(rows[2].OmegaUpdates))
+	require.NotNil(t, rows[2].OmegaUpdates[0].Omega)
+	require.InDelta(t, 2.5/3.0, *rows[2].OmegaUpdates[0].Omega, 0.000001)
+	require.Nil(t, rows[2].OmegaUpdates[1].Omega)
+
+	stats, err := k.GetStats(ctx, source)
+	require.NoError(t, err)
+	omega, ok := stats.Omega()
+	require.True(t, ok)
+	require.InDelta(t, 2.5/3.0, omega, 0.000001)
+
+	stats.ClearOmega()
+	require.NoError(t, k.Repo.WriteStats(ctx, source, stats))
+	require.NoError(t, k.Index(ctx, IndexOptions{}))
+	stats, err = k.GetStats(ctx, source)
+	require.NoError(t, err)
+	omega, ok = stats.Omega()
+	require.True(t, ok)
+	require.InDelta(t, 2.5/3.0, omega, 0.000001)
+}
+
 func newSnapshotIndexTestKeg(t *testing.T) (*LocalKeg, *toolkit.Runtime) {
 	t.Helper()
 
@@ -149,6 +244,14 @@ func decodeJSONLines[T any](t *testing.T, raw []byte) []T {
 		var row T
 		require.NoError(t, json.Unmarshal([]byte(line), &row), "line: %s", line)
 		out = append(out, row)
+	}
+	return out
+}
+
+func timelineUpdateNodes(updates []timelineOmegaUpdate) []string {
+	out := make([]string, 0, len(updates))
+	for _, update := range updates {
+		out = append(out, update.Node)
 	}
 	return out
 }

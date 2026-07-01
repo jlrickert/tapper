@@ -45,7 +45,7 @@ func (k *LocalKeg) Init(ctx context.Context) error {
 	// no attrs to apply for the zero node; leave as empty map
 	_ = m.SetAttrs(ctx, nil)
 	nodeData := &NodeData{ID: NodeId{ID: 0}, Content: zeroContent, Meta: m, Stats: stats}
-	_ = nodeData.UpdateMeta(ctx, &now)
+	_ = nodeData.updateMeta(ctx, k.Runtime, &now)
 	nodeData.Stats.EnsureTimes(now)
 
 	id := NodeId{ID: 0}
@@ -195,7 +195,7 @@ func buildCreateNodeData(ctx context.Context, rt *toolkit.Runtime, opts *CreateO
 		m.SetTags(opts.Tags)
 	}
 	nodeData := &NodeData{Content: content, Meta: m, Stats: stats}
-	_ = nodeData.UpdateMeta(ctx, &now)
+	_ = nodeData.updateMeta(ctx, rt, &now)
 	nodeData.Stats.EnsureTimes(now)
 	return nodeData, nil
 }

@@ -54,43 +54,46 @@ type ConfigV1 struct {
 // specification. It extends V1 with additional fields such as Links.
 type ConfigV2 struct {
 	// Kegv is the version of the specification.
-	Kegv string `yaml:"kegv"`
+	Kegv string `yaml:"kegv" json:"kegv"`
 
 	// Updated indicates when the keg was last indexed.
-	Updated string `yaml:"updated,omitempty"`
+	Updated string `yaml:"updated,omitempty" json:"updated,omitempty"`
 
 	// Title is the title of the KEG worklog or project.
-	Title string `yaml:"title,omitempty"`
+	Title string `yaml:"title,omitempty" json:"title,omitempty"`
 
 	// URL is the main URL where the KEG can be found.
-	URL string `yaml:"url,omitempty"`
+	URL string `yaml:"url,omitempty" json:"url,omitempty"`
 
 	// Creator is the URL or identifier of the creator of the KEG.
-	Creator string `yaml:"creator,omitempty"`
+	Creator string `yaml:"creator,omitempty" json:"creator,omitempty"`
 
 	// State indicates the current state of the KEG (e.g., living, archived).
-	State string `yaml:"state,omitempty"`
+	State string `yaml:"state,omitempty" json:"state,omitempty"`
 
 	// Summary provides a brief description or summary of the KEG content.
-	Summary string `yaml:"summary,omitempty"`
+	Summary string `yaml:"summary,omitempty" json:"summary,omitempty"`
 
 	// Links holds a list of LinkEntry objects representing related links or
 	// references in the configuration.
-	Links []LinkEntry `yaml:"links,omitempty"`
+	Links []LinkEntry `yaml:"links,omitempty" json:"links,omitempty"`
 
 	// Indexes is a list of index entries that link to related files or nodes.
-	Indexes []IndexEntry `yaml:"indexes,omitempty"`
+	Indexes []IndexEntry `yaml:"indexes,omitempty" json:"indexes,omitempty"`
 
-	Entities map[string]EntityEntry `yaml:"entities,omitempty"`
+	Entities map[string]EntityEntry `yaml:"entities,omitempty" json:"entities,omitempty"`
 
-	Tags map[string]string `yaml:"tags,omitempty"`
+	Tags map[string]string `yaml:"tags,omitempty" json:"tags,omitempty"`
 
 	// Timezone is the IANA timezone for resolving ambiguous timestamps
 	// within this keg (e.g. "America/Chicago"). Defaults to "UTC".
-	Timezone string `yaml:"timezone,omitempty"`
+	Timezone string `yaml:"timezone,omitempty" json:"timezone,omitempty"`
+
+	// Snapshots controls automatic snapshot behavior for this keg.
+	Snapshots *SnapshotConfig `yaml:"snapshots,omitempty" json:"snapshots,omitempty"`
 
 	// Doctor holds `tap doctor` check configuration.
-	Doctor *DoctorConfig `yaml:"doctor,omitempty"`
+	Doctor *DoctorConfig `yaml:"doctor,omitempty" json:"doctor,omitempty"`
 
 	// SchemaPolicy controls whether schema validation warns, blocks, or is
 	// disabled for different write actors. When omitted, human writes warn while
@@ -102,7 +105,7 @@ type ConfigV2 struct {
 	// tapper-hub), so no built-in command currently consumes this; it is
 	// preserved so existing keg configs round-trip and external/static-site
 	// tooling can still read it.
-	Site *SiteConfig `yaml:"site,omitempty"`
+	Site *SiteConfig `yaml:"site,omitempty" json:"site,omitempty"`
 
 	path string
 }
@@ -121,6 +124,80 @@ type SiteConfig struct {
 	Search *bool `yaml:"search,omitempty" json:"search,omitempty"`
 }
 
+const (
+	SnapshotModeAuto = "auto"
+	SnapshotModeOff  = "off"
+
+	DefaultSnapshotIdleAfter = time.Hour
+)
+
+// SnapshotConfig holds per-keg automatic snapshot policy settings.
+type SnapshotConfig struct {
+	// Mode controls whether the hub should create idle snapshots automatically.
+	// Supported values are "auto" and "off".
+	Mode string `yaml:"mode,omitempty" json:"mode,omitempty"`
+
+	// IdleAfter is a Go-style duration string. Nodes become eligible for auto
+	// snapshots only after their last edit has been idle for at least this long.
+	IdleAfter string `yaml:"idleAfter,omitempty" json:"idleAfter,omitempty"`
+}
+
+func DefaultSnapshotConfig() *SnapshotConfig {
+	return &SnapshotConfig{
+		Mode:      SnapshotModeAuto,
+		IdleAfter: formatSnapshotDuration(DefaultSnapshotIdleAfter),
+	}
+}
+
+// SnapshotPolicy resolves the effective snapshot policy for this config.
+func (kc *Config) SnapshotPolicy() (mode string, idleAfter time.Duration, err error) {
+	if kc == nil {
+		return SnapshotModeAuto, DefaultSnapshotIdleAfter, nil
+	}
+	cfg := kc.Snapshots
+	if cfg == nil {
+		cfg = DefaultSnapshotConfig()
+	}
+	return cfg.policy()
+}
+
+func (sc *SnapshotConfig) policy() (string, time.Duration, error) {
+	mode := SnapshotModeAuto
+	idleAfter := formatSnapshotDuration(DefaultSnapshotIdleAfter)
+	if sc != nil {
+		if strings.TrimSpace(sc.Mode) != "" {
+			mode = strings.TrimSpace(sc.Mode)
+		}
+		if strings.TrimSpace(sc.IdleAfter) != "" {
+			idleAfter = strings.TrimSpace(sc.IdleAfter)
+		}
+	}
+	if mode != SnapshotModeAuto && mode != SnapshotModeOff {
+		return "", 0, fmt.Errorf("invalid snapshots.mode %q: expected %q or %q", mode, SnapshotModeAuto, SnapshotModeOff)
+	}
+	duration, err := time.ParseDuration(idleAfter)
+	if err != nil {
+		return "", 0, fmt.Errorf("invalid snapshots.idleAfter %q: %w", idleAfter, err)
+	}
+	if duration <= 0 {
+		return "", 0, fmt.Errorf("snapshots.idleAfter must be greater than zero")
+	}
+	return mode, duration, nil
+}
+
+func formatSnapshotDuration(d time.Duration) string {
+	if d%time.Hour == 0 {
+		return fmt.Sprintf("%dh", int64(d/time.Hour))
+	}
+	if d%time.Minute == 0 {
+		return fmt.Sprintf("%dm", int64(d/time.Minute))
+	}
+	if d%time.Second == 0 {
+		return fmt.Sprintf("%ds", int64(d/time.Second))
+	}
+	return d.String()
+}
+
 // DoctorConfig holds options that control which checks `tap doctor` performs.
 type DoctorConfig struct {
 	// EntityCheck enables per-node entity attribute validation.
@@ -135,8 +212,8 @@ type DoctorConfig struct {
 
 // LinkEntry represents a named link in the KEG configuration.
 type LinkEntry struct {
-	Alias string `json:"alias"` // Alias for the link
-	URL   string `json:"url"`   // URL of the link
+	Alias string `yaml:"alias" json:"alias"` // Alias for the link
+	URL   string `yaml:"url" json:"url"`     // URL of the link
 }
 
 // IndexEntry represents an entry in the indexes list in the KEG configuration.
@@ -148,15 +225,15 @@ type LinkEntry struct {
 // The Query field holds a boolean query expression used to filter index
 // contents (tag names, key=value attribute predicates, boolean operators).
 type IndexEntry struct {
-	File    string `yaml:"file"`
-	Summary string `yaml:"summary"`
-	Query   string `yaml:"query,omitempty"` // boolean query expression; omit for core/unfiltered indexes
-	Sort    string `yaml:"sort,omitempty"`  // sort order for query-filtered indexes: "updated" (default), "id", "created", "accessed"
+	File    string `yaml:"file" json:"file"`
+	Summary string `yaml:"summary" json:"summary"`
+	Query   string `yaml:"query,omitempty" json:"query,omitempty"` // boolean query expression; omit for core/unfiltered indexes
+	Sort    string `yaml:"sort,omitempty" json:"sort,omitempty"`   // sort order for query-filtered indexes: "updated" (default), "id", "created", "accessed"
 }
 
 type EntityEntry struct {
-	ID      int    `yaml:"id"`
-	Summary string `yaml:"summary"`
+	ID      int    `yaml:"id" json:"id"`
+	Summary string `yaml:"summary" json:"summary"`
 }
 
 // Config KegConfig is an alias for the latest configuration version. Update this alias
@@ -166,18 +243,19 @@ type Config = ConfigV2
 // toV2 converts a ConfigV1 value to the ConfigV2 representation.
 func (c *ConfigV1) toV2() *ConfigV2 {
 	return &ConfigV2{
-		Kegv:     ConfigV2VersionString,
-		Updated:  c.Updated,
-		Title:    c.Title,
-		URL:      c.URL,
-		Creator:  c.Creator,
-		State:    c.State,
-		Summary:  c.Summary,
-		Links:    nil, // No links in v1, so leave as nil
-		Indexes:  c.Indexes,
-		Entities: nil,
-		Tags:     nil,
-		path:     "",
+		Kegv:      ConfigV2VersionString,
+		Updated:   c.Updated,
+		Title:     c.Title,
+		URL:       c.URL,
+		Creator:   c.Creator,
+		State:     c.State,
+		Summary:   c.Summary,
+		Links:     nil, // No links in v1, so leave as nil
+		Indexes:   c.Indexes,
+		Entities:  nil,
+		Tags:      nil,
+		Snapshots: DefaultSnapshotConfig(),
+		path:      "",
 	}
 }
 
@@ -202,8 +280,9 @@ func NewConfig(options ...ConfigOption) *Config {
 		- The zero node (0/) is a placeholder for planned content.
 		- Indices under dex/ are generated automatically by keg tooling.
 		- Use tags in node meta.yaml to organize and filter content.`,
-		Timezone: "UTC",
-		Indexes:  SystemIndexEntries(),
+		Timezone:  "UTC",
+		Snapshots: DefaultSnapshotConfig(),
+		Indexes:   SystemIndexEntries(),
 	}
 	for _, f := range options {
 		f(cfg)
@@ -249,6 +328,9 @@ func parseKegConfig(data []byte, strict bool) (*Config, error) {
 		}
 		cfg := configV1.toV2()
 		cfg.applyDefaults()
+		if err := cfg.validateSnapshots(); err != nil {
+			return cfg, err
+		}
 		if err := cfg.normalizeIndexes(strict); err != nil {
 			return cfg, err
 		}
@@ -262,6 +344,9 @@ func parseKegConfig(data []byte, strict bool) (*Config, error) {
 	}
 
 	configV2.applyDefaults()
+	if err := configV2.validateSnapshots(); err != nil {
+		return &configV2, err
+	}
 	if err := configV2.normalizeIndexes(strict); err != nil {
 		return &configV2, err
 	}
@@ -273,6 +358,28 @@ func (kc *ConfigV2) applyDefaults() {
 	if kc.Timezone == "" {
 		kc.Timezone = "UTC"
 	}
+	if kc.Snapshots == nil {
+		kc.Snapshots = DefaultSnapshotConfig()
+		return
+	}
+	if strings.TrimSpace(kc.Snapshots.Mode) == "" {
+		kc.Snapshots.Mode = SnapshotModeAuto
+	} else {
+		kc.Snapshots.Mode = strings.TrimSpace(kc.Snapshots.Mode)
+	}
+	if strings.TrimSpace(kc.Snapshots.IdleAfter) == "" {
+		kc.Snapshots.IdleAfter = formatSnapshotDuration(DefaultSnapshotIdleAfter)
+	} else {
+		kc.Snapshots.IdleAfter = strings.TrimSpace(kc.Snapshots.IdleAfter)
+	}
+}
+
+func (kc *ConfigV2) validateSnapshots() error {
+	if kc == nil {
+		return nil
+	}
+	_, _, err := kc.SnapshotPolicy()
+	return err
 }
 
 func (kc *ConfigV2) normalizeIndexes(strict bool) error {
@@ -303,6 +410,7 @@ func (kc *ConfigV2) persistedCopy() (*ConfigV2, error) {
 		return nil, fmt.Errorf("config is nil")
 	}
 	out := *kc
+	out.applyDefaults()
 	user, err := userIndexEntries(kc.Indexes, false)
 	if err != nil {
 		return nil, err

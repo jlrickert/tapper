@@ -8,6 +8,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/jlrickert/cli-toolkit/toolkit"
 )
 
 type statsJSON struct {
@@ -286,13 +288,47 @@ func (s *NodeStats) EnsureTimes(now time.Time) {
 }
 
 func (s *NodeStats) UpdateFromContent(content *NodeContent, now *time.Time) {
+	s.UpdateFromSource(nil, content, nil, now)
+}
+
+func (s *NodeStats) UpdateFromSource(rt *toolkit.Runtime, content *NodeContent, meta *NodeMeta, now *time.Time) {
 	if s == nil || content == nil {
 		return
 	}
 	s.SetTitle(content.Title)
-	s.SetHash(content.Hash, now)
+	s.SetHash(nodeStateHash(rt, content.Hash, meta), now)
 	s.SetLead(content.Lead)
 	s.SetLinks(content.Links)
+}
+
+func nodeStateHash(rt *toolkit.Runtime, contentHash string, meta *NodeMeta) string {
+	hasher := toolkit.OrDefaultHasher(nil)
+	if rt != nil {
+		hasher = toolkit.OrDefaultHasher(rt.Hasher())
+	}
+
+	metaHash := ""
+	if meta != nil {
+		metaYAML := meta.ToYAML()
+		if strings.TrimSpace(metaYAML) != "" {
+			metaHash = hasher.Hash([]byte(metaYAML))
+		}
+	}
+	if contentHash == "" && metaHash == "" {
+		return ""
+	}
+
+	var buf bytes.Buffer
+	writeNodeStateHashPart(&buf, "node-state-v2")
+	writeNodeStateHashPart(&buf, contentHash)
+	writeNodeStateHashPart(&buf, metaHash)
+	return hasher.Hash(buf.Bytes())
+}
+
+func writeNodeStateHashPart(buf *bytes.Buffer, value string) {
+	_, _ = fmt.Fprintf(buf, "%d:", len(value))
+	buf.WriteString(value)
+	buf.WriteByte('\n')
 }
 
 func (s *NodeStats) ToJSON() ([]byte, error) {

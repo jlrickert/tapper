@@ -3,6 +3,8 @@ package keg
 import (
 	"context"
 	"time"
+
+	"github.com/jlrickert/cli-toolkit/toolkit"
 )
 
 // NodeData is a high-level representation of a KEG node. Implementations may
@@ -39,9 +41,21 @@ func (n *NodeData) MetaHash() string {
 	return n.Stats.Hash()
 }
 
-// NodeContent has previously changed
+func (n *NodeData) sourceHash(rt *toolkit.Runtime) string {
+	if n == nil {
+		return ""
+	}
+	return nodeStateHash(rt, n.ContentHash(), n.Meta)
+}
+
+// ContentChanged reports whether the source state has changed since stats were
+// refreshed.
 func (n *NodeData) ContentChanged() bool {
-	return n.ContentHash() != n.MetaHash()
+	return n.sourceChanged(nil)
+}
+
+func (n *NodeData) sourceChanged(rt *toolkit.Runtime) bool {
+	return n.sourceHash(rt) != n.MetaHash()
 }
 
 // Title returns the canonical title for the node. Prefer stats title and fall
@@ -170,6 +184,10 @@ func (n *NodeData) Ref() NodeIndexEntry {
 }
 
 func (n *NodeData) UpdateMeta(ctx context.Context, now *time.Time) error {
+	return n.updateMeta(ctx, nil, now)
+}
+
+func (n *NodeData) updateMeta(ctx context.Context, rt *toolkit.Runtime, now *time.Time) error {
 	if n == nil || n.Content == nil {
 		return nil
 	}
@@ -180,7 +198,7 @@ func (n *NodeData) UpdateMeta(ctx context.Context, now *time.Time) error {
 		n.Stats = &NodeStats{}
 	}
 	err := n.Meta.SetAttrs(ctx, n.Content.Frontmatter)
-	n.Stats.UpdateFromContent(n.Content, now)
+	n.Stats.UpdateFromSource(rt, n.Content, n.Meta, now)
 	return err
 }
 

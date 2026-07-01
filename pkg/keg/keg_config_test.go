@@ -1,8 +1,11 @@
 package keg_test
 
 import (
+	"encoding/json"
+	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jlrickert/tapper/pkg/keg"
 	"github.com/stretchr/testify/require"
@@ -94,6 +97,119 @@ tags:
 	require.Len(t, config.Tags, 2)
 	require.Equal(t, "Canonical notes that define structure rules for entity types", config.Tags["entity"])
 	require.Equal(t, "Client of work", config.Tags["client"])
+}
+
+func TestParseConfigV2_SnapshotPolicyDefaults(t *testing.T) {
+	yamlData := `
+kegv: "2025-07"
+title: "No snapshot policy"
+`
+	config, err := keg.ParseKegConfig([]byte(yamlData))
+	require.NoError(t, err)
+	require.NotNil(t, config.Snapshots)
+	require.Equal(t, keg.SnapshotModeAuto, config.Snapshots.Mode)
+	require.Equal(t, "1h", config.Snapshots.IdleAfter)
+
+	mode, idleAfter, err := config.SnapshotPolicy()
+	require.NoError(t, err)
+	require.Equal(t, keg.SnapshotModeAuto, mode)
+	require.Equal(t, time.Hour, idleAfter)
+}
+
+func TestParseConfigV2_SnapshotPolicyPartialDefaults(t *testing.T) {
+	yamlData := `
+kegv: "2025-07"
+title: "Partial snapshot policy"
+snapshots:
+  mode: off
+`
+	config, err := keg.ParseKegConfig([]byte(yamlData))
+	require.NoError(t, err)
+	require.NotNil(t, config.Snapshots)
+	require.Equal(t, keg.SnapshotModeOff, config.Snapshots.Mode)
+	require.Equal(t, "1h", config.Snapshots.IdleAfter)
+}
+
+func TestParseConfigStrict_RejectsInvalidSnapshotPolicy(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		want string
+	}{
+		{
+			name: "mode",
+			body: `
+kegv: "2025-07"
+snapshots:
+  mode: prompt
+  idleAfter: 1h
+`,
+			want: "invalid snapshots.mode",
+		},
+		{
+			name: "duration",
+			body: `
+kegv: "2025-07"
+snapshots:
+  mode: auto
+  idleAfter: someday
+`,
+			want: "invalid snapshots.idleAfter",
+		},
+		{
+			name: "nonpositive",
+			body: `
+kegv: "2025-07"
+snapshots:
+  mode: auto
+  idleAfter: 0s
+`,
+			want: "greater than zero",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := keg.ParseKegConfigStrict([]byte(tt.body))
+			require.Error(t, err)
+			require.Contains(t, err.Error(), tt.want)
+		})
+	}
+}
+
+func TestConfigSnapshotPolicyYAMLAndJSON(t *testing.T) {
+	cfg := keg.NewConfig()
+
+	yamlOut, err := cfg.ToYAML()
+	require.NoError(t, err)
+	require.Contains(t, string(yamlOut), "snapshots:")
+	require.Contains(t, string(yamlOut), "mode: auto")
+	require.Contains(t, string(yamlOut), "idleAfter: 1h")
+
+	jsonOut, err := cfg.ToJSON()
+	require.NoError(t, err)
+	var decoded map[string]any
+	require.NoError(t, json.Unmarshal(jsonOut, &decoded))
+	snapshots, ok := decoded["snapshots"].(map[string]any)
+	require.True(t, ok, "snapshots should be serialized as an object: %s", jsonOut)
+	require.Equal(t, "auto", snapshots["mode"])
+	require.Equal(t, "1h", snapshots["idleAfter"])
+}
+
+func TestKegConfigJSONSchemaIncludesSnapshots(t *testing.T) {
+	raw, err := os.ReadFile("../../schemas/keg-config.json")
+	require.NoError(t, err)
+
+	var schema map[string]any
+	require.NoError(t, json.Unmarshal(raw, &schema))
+	properties, ok := schema["properties"].(map[string]any)
+	require.True(t, ok)
+	snapshots, ok := properties["snapshots"].(map[string]any)
+	require.True(t, ok, "schema should define snapshots")
+	snapshotProperties, ok := snapshots["properties"].(map[string]any)
+	require.True(t, ok)
+	require.Contains(t, snapshotProperties, "mode")
+	require.Contains(t, snapshotProperties, "idleAfter")
 }
 
 func TestParseConfigV2_DoctorNilWhenAbsent(t *testing.T) {

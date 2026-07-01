@@ -100,7 +100,7 @@ func TestSetHash_UpdatesUpdatedOnlyOnChange(t *testing.T) {
 	require.Equal(t, later, s.Updated())
 }
 
-func TestUpdateFromContent_UpdatesLeadHashAndLinks(t *testing.T) {
+func TestUpdateFromSource_UpdatesLeadHashAndLinks(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2025, 5, 6, 7, 8, 9, 0, time.UTC)
 	rt, err := toolkit.NewTestRuntime(t.TempDir(), "/home/testuser", "testuser")
@@ -108,11 +108,14 @@ func TestUpdateFromContent_UpdatesLeadHashAndLinks(t *testing.T) {
 
 	content, err := keg.ParseContent(rt, []byte("# Title\n\nhello\n\n[one](../1) [two](../2)"), keg.FormatMarkdown)
 	require.NoError(t, err)
+	meta, err := keg.ParseMeta(context.Background(), []byte("status: ready\n"))
+	require.NoError(t, err)
 
 	s := keg.NewStats(now)
-	s.UpdateFromContent(content, &now)
+	s.UpdateFromSource(rt, content, meta, &now)
 
-	require.Equal(t, content.Hash, s.Hash())
+	require.NotEmpty(t, s.Hash())
+	require.NotEqual(t, content.Hash, s.Hash())
 	require.Equal(t, content.Lead, s.Lead())
 	links := s.Links()
 	require.Len(t, links, 2)

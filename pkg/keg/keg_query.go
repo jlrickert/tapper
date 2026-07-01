@@ -203,7 +203,7 @@ func (k *LocalKeg) resolveQueryTerm(
 // NodeIndexEntry timestamps without additional I/O.
 //
 // Non-indexed fields (.hash, .accessCount, .lead, .omega) require reading
-// stats per node. Omega is computed from current schema/link state.
+// persisted stats per node.
 //
 // When op is empty, the predicate acts as a boolean check: the field must be
 // non-empty (strings) or non-zero (numbers/times).
@@ -348,7 +348,7 @@ func (k *LocalKeg) resolveNumericStatsField(
 	}
 }
 
-// resolveFloatStatsField handles computed floating-point stats fields.
+// resolveFloatStatsField handles persisted floating-point stats fields.
 func (k *LocalKeg) resolveFloatStatsField(
 	ctx context.Context,
 	entries []NodeIndexEntry,
@@ -372,7 +372,7 @@ func (k *LocalKeg) resolveFloatStatsField(
 			continue
 		}
 
-		stats, err := k.GetStats(ctx, *id)
+		stats, err := k.getStats(ctx, *id)
 		if err != nil || stats == nil {
 			continue
 		}

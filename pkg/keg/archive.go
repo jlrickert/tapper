@@ -396,7 +396,7 @@ func (k *LocalKeg) ImportNodes(ctx context.Context, r io.Reader, opts ImportNode
 		}
 		remapStatsLinks(stats, mapping)
 		proposed := &NodeData{ID: newID, Content: parsedContent, Meta: parsedMeta, Stats: stats}
-		if err := proposed.UpdateMeta(ctx, nil); err != nil {
+		if err := proposed.updateMeta(ctx, k.Runtime, nil); err != nil {
 			return nil, fmt.Errorf("unable to update imported metadata for node %s: %w", sourceID, err)
 		}
 		if archivedSchemas != nil {
