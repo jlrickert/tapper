@@ -34,7 +34,7 @@ func (k *LocalKeg) IndexNode(ctx context.Context, id NodeId) error {
 	if nodeData == nil {
 		return nil
 	}
-	if err := k.writeNodeToDex(ctx, id, nodeData); err != nil {
+	if err := k.writeNodeToDex(ctx, nodeData, time.Time{}); err != nil {
 		return err
 	}
 	return k.refreshDirtyIndex(ctx)

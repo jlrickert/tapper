@@ -101,23 +101,33 @@ func (k *LocalKeg) recordDexWrite() {
 	k.dexWriteGen++
 }
 
-func (k *LocalKeg) writeNodeToDex(ctx context.Context, id NodeId, data *NodeData) error {
+// writeNodeToDex adds or updates a node in the dex, persists dex artifacts,
+// records the write, and touches the keg config updated timestamp. When
+// updatedAt is zero, the runtime clock is used for the config timestamp.
+func (k *LocalKeg) writeNodeToDex(ctx context.Context, data *NodeData, updatedAt time.Time) error {
+	id := data.ID
 	dex, err := k.ensureDexFresh(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to retrieve dex: %w", err)
+		return fmt.Errorf("failed to retrieve dex for node %s: %w", id, err)
 	}
 	if err := dex.Add(ctx, data); err != nil {
 		return fmt.Errorf("failed to add node %s to dex: %w", id, err)
 	}
 	if err := dex.Write(ctx, k.Repo); err != nil {
-		return fmt.Errorf("failed to write dex: %w", err)
+		return fmt.Errorf("failed to write dex for node %s: %w", id, err)
 	}
 
 	k.dexMu.Lock()
 	k.recordDexWrite()
 	k.dexMu.Unlock()
 
-	return k.touchConfigUpdated(ctx, k.Runtime.Clock().Now())
+	if updatedAt.IsZero() {
+		updatedAt = k.Runtime.Clock().Now()
+	}
+	if err := k.touchConfigUpdated(ctx, updatedAt); err != nil {
+		return fmt.Errorf("failed to touch keg config after dex write for node %s: %w", id, err)
+	}
+	return nil
 }
 
 // InvalidateDex clears the cached dex so the next Dex() call reloads from
@@ -127,32 +137,4 @@ func (k *LocalKeg) InvalidateDex() {
 	k.dexMu.Lock()
 	k.dex = nil
 	k.dexMu.Unlock()
-}
-
-// addNodeToDex adds a node to the dex, writes dex changes to the repository,
-// and updates the keg's Updated timestamp to the provided time (or now if not specified).
-func (k *LocalKeg) addNodeToDex(ctx context.Context, data *NodeData, now *time.Time) error {
-	dex, err := k.ensureDexFresh(ctx)
-	if err != nil {
-		return err
-	}
-
-	if err := dex.Add(ctx, data); err != nil {
-		return err
-	}
-
-	if now != nil {
-		if err := dex.Write(ctx, k.Repo); err != nil {
-			return err
-		}
-
-		k.dexMu.Lock()
-		k.recordDexWrite()
-		k.dexMu.Unlock()
-
-		if err := k.touchConfigUpdated(ctx, *now); err != nil {
-			return err
-		}
-	}
-	return nil
 }

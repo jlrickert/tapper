@@ -48,6 +48,10 @@ func TestInitOnEmptyRepo(t *testing.T) {
 
 	require.NoError(t, k.Init(f.Context()), "InitKeg failed")
 
+	cfg, err := k.Config(f.Context())
+	require.NoError(t, err)
+	require.Equal(t, f.Now().Format(time.RFC3339), cfg.Updated)
+
 	// Repo should now report a keg exists.
 	exists, err := kegpkg.RepoContainsKeg(f.Context(), k.(*kegpkg.LocalKeg).Repo)
 	require.NoError(t, err, "KegExists returned error")
@@ -822,6 +826,7 @@ func TestSetMeta_WithChangeUpdatesDexAndConfig(t *testing.T) {
 
 	// Advance clock so the new timestamp will differ.
 	f.Advance(5 * time.Minute)
+	expectedUpdated := f.Now().Format(time.RFC3339)
 
 	// Read existing meta, change tags, and set it back.
 	meta, err := k.GetMeta(f.Context(), id)
@@ -834,6 +839,8 @@ func TestSetMeta_WithChangeUpdatesDexAndConfig(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEqual(t, updatedAfterCreate, cfg2.Updated,
 		"keg config updated timestamp should change when meta is modified")
+	require.Equal(t, expectedUpdated, cfg2.Updated,
+		"keg config updated timestamp should use the captured metadata update time")
 
 	// Verify the tag actually changed in the dex.
 	dex, err := k.Dex(f.Context())
@@ -865,12 +872,17 @@ func TestSetMetaAndUpdateMetaRefreshCachedSourceHash(t *testing.T) {
 	require.NotEqual(t, initialStats.Hash(), setStats.Hash())
 
 	f.Advance(5 * time.Minute)
+	expectedUpdateMetaConfig := f.Now().Format(time.RFC3339)
 	require.NoError(t, k.UpdateMeta(f.Context(), id, func(meta *kegpkg.NodeMeta) {
 		_ = meta.Set(f.Context(), "reviewed", true)
 	}))
 	updatedStats, err := k.GetStats(f.Context(), id)
 	require.NoError(t, err)
 	require.NotEqual(t, setStats.Hash(), updatedStats.Hash())
+	cfg, err := k.Config(f.Context())
+	require.NoError(t, err)
+	require.Equal(t, expectedUpdateMetaConfig, cfg.Updated,
+		"keg config updated timestamp should use the captured UpdateMeta time")
 
 	content, err := k.GetContent(f.Context(), id)
 	require.NoError(t, err)
@@ -936,6 +948,7 @@ func TestSetContent_WithChangeUpdatesDexAndConfig(t *testing.T) {
 
 	// Advance clock so the new timestamp will differ.
 	f.Advance(5 * time.Minute)
+	expectedUpdated := f.Now().Format(time.RFC3339)
 
 	// SetContent with different bytes — should update dex and config.
 	newBody := []byte("# Change Node\n\nUpdated content.\n")
@@ -946,6 +959,8 @@ func TestSetContent_WithChangeUpdatesDexAndConfig(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEqual(t, updatedAfterCreate, cfg2.Updated,
 		"keg config updated timestamp should change when content is modified")
+	require.Equal(t, expectedUpdated, cfg2.Updated,
+		"keg config updated timestamp should use the helper's current clock time")
 
 	// Verify content was actually written.
 	got, err := k.GetContent(f.Context(), id)
@@ -1016,6 +1031,7 @@ func TestCreateAlwaysTriggersUpdate(t *testing.T) {
 	updatedAfterInit := cfg1.Updated
 
 	f.Advance(5 * time.Minute)
+	expectedUpdated := f.Now().Format(time.RFC3339)
 
 	_, err = k.Create(f.Context(), &kegpkg.CreateOptions{Title: "New Node"})
 	require.NoError(t, err)
@@ -1024,6 +1040,8 @@ func TestCreateAlwaysTriggersUpdate(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEqual(t, updatedAfterInit, cfg2.Updated,
 		"keg config should always update after Create")
+	require.Equal(t, expectedUpdated, cfg2.Updated,
+		"keg config updated timestamp should use the captured create time")
 }
 
 // TestDexFresh_ReloadsAfterExternalModification verifies that DexFresh
