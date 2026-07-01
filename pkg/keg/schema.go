@@ -113,11 +113,13 @@ type SchemaPolicy struct {
 }
 
 type SchemaDefinition struct {
-	Version   int                      `yaml:"version,omitempty" json:"version,omitempty"`
-	Type      string                   `yaml:"type,omitempty" json:"type,omitempty"`
-	Summary   string                   `yaml:"summary,omitempty" json:"summary,omitempty"`
-	Meta      map[string]any           `yaml:"meta,omitempty" json:"meta,omitempty"`
-	Markdown  MarkdownSchema           `yaml:"markdown,omitempty" json:"markdown,omitempty"`
+	Version  int            `yaml:"version,omitempty" json:"version,omitempty"`
+	Type     string         `yaml:"type,omitempty" json:"type,omitempty"`
+	Summary  string         `yaml:"summary,omitempty" json:"summary,omitempty"`
+	Meta     map[string]any `yaml:"meta,omitempty" json:"meta,omitempty"`
+	Markdown MarkdownSchema `yaml:"markdown,omitempty" json:"markdown,omitempty"`
+	// Maturity is deprecated legacy compatibility. Prefer property-scoped
+	// metadata maturity rows under meta.properties.<property>.maturity.
 	Maturity  []MetadataMaturitySchema `yaml:"maturity,omitempty" json:"maturity,omitempty"`
 	Relations []RelationSchema         `yaml:"relations,omitempty" json:"relations,omitempty"`
 }
@@ -244,10 +246,25 @@ func validateSchemaDefinitionForType(typeName string, data []byte) (*SchemaDefin
 	if err := validateMetadataMaturitySchemas(parsed.Maturity); err != nil {
 		return nil, err
 	}
+	if _, err := nestedMetadataMaturitySchemas(parsed.Meta); err != nil {
+		return nil, err
+	}
 	if err := validateRelationSchemas(parsed.Relations); err != nil {
 		return nil, err
 	}
 	return parsed, nil
+}
+
+func (s *SchemaDefinition) MetadataMaturityWeights() []MetadataMaturitySchema {
+	if s == nil {
+		return nil
+	}
+	weights := append([]MetadataMaturitySchema(nil), s.Maturity...)
+	nested, err := nestedMetadataMaturitySchemas(s.Meta)
+	if err != nil {
+		return weights
+	}
+	return append(weights, nested...)
 }
 
 func validateMetadataMaturitySchemas(weights []MetadataMaturitySchema) error {
@@ -258,6 +275,66 @@ func validateMetadataMaturitySchemas(weights []MetadataMaturitySchema) error {
 		}
 	}
 	return nil
+}
+
+func nestedMetadataMaturitySchemas(meta map[string]any) ([]MetadataMaturitySchema, error) {
+	root, ok := schemaStringMap(meta)
+	if !ok || len(root) == 0 {
+		return nil, nil
+	}
+	props, ok := schemaStringMap(root["properties"])
+	if !ok || len(props) == 0 {
+		return nil, nil
+	}
+
+	names := make([]string, 0, len(props))
+	for name := range props {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	var out []MetadataMaturitySchema
+	for _, name := range names {
+		prop, ok := schemaStringMap(props[name])
+		if !ok {
+			continue
+		}
+		rawMaturity, ok := prop["maturity"]
+		if !ok {
+			continue
+		}
+		items, ok := schemaAnySlice(rawMaturity)
+		if !ok {
+			return nil, fmt.Errorf("meta property %q maturity must be a list: %w", name, ErrInvalid)
+		}
+		for i, rawItem := range items {
+			prefix := fmt.Sprintf("meta property %q maturity %d", name, i+1)
+			item, ok := schemaStringMap(rawItem)
+			if !ok {
+				return nil, fmt.Errorf("%s must be a mapping: %w", prefix, ErrInvalid)
+			}
+			for key := range item {
+				switch key {
+				case "weight", "enum":
+				default:
+					return nil, fmt.Errorf("%s has unsupported field %q: %w", prefix, key, ErrInvalid)
+				}
+			}
+			weight, ok, err := schemaFloat(item["weight"])
+			if err != nil {
+				return nil, fmt.Errorf("%s has invalid weight: %w", prefix, ErrInvalid)
+			}
+			if !ok || math.IsNaN(weight) || math.IsInf(weight, 0) || weight <= 0 {
+				return nil, fmt.Errorf("%s requires a positive weight: %w", prefix, ErrInvalid)
+			}
+			enum, err := schemaEnumScores(item["enum"], prefix, true)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, MetadataMaturitySchema{Attribute: name, Weight: weight, Enum: enum})
+		}
+	}
+	return out, nil
 }
 
 func validateRelationSchemas(relations []RelationSchema) error {
@@ -300,6 +377,98 @@ func validateMaturityWeight(prefix, rawAttribute string, weight float64, enum ma
 		}
 	}
 	return nil
+}
+
+func schemaStringMap(value any) (map[string]any, bool) {
+	switch v := value.(type) {
+	case map[string]any:
+		return v, true
+	case map[any]any:
+		out := make(map[string]any, len(v))
+		for key, item := range v {
+			keyString, ok := key.(string)
+			if !ok {
+				return nil, false
+			}
+			out[keyString] = item
+		}
+		return out, true
+	default:
+		return nil, false
+	}
+}
+
+func schemaAnySlice(value any) ([]any, bool) {
+	switch v := value.(type) {
+	case []any:
+		return v, true
+	default:
+		return nil, false
+	}
+}
+
+func schemaFloat(value any) (float64, bool, error) {
+	switch v := value.(type) {
+	case nil:
+		return 0, false, nil
+	case int:
+		return float64(v), true, nil
+	case int8:
+		return float64(v), true, nil
+	case int16:
+		return float64(v), true, nil
+	case int32:
+		return float64(v), true, nil
+	case int64:
+		return float64(v), true, nil
+	case uint:
+		return float64(v), true, nil
+	case uint8:
+		return float64(v), true, nil
+	case uint16:
+		return float64(v), true, nil
+	case uint32:
+		return float64(v), true, nil
+	case uint64:
+		return float64(v), true, nil
+	case float32:
+		return float64(v), true, nil
+	case float64:
+		return v, true, nil
+	case json.Number:
+		f, err := v.Float64()
+		return f, true, err
+	default:
+		return 0, true, fmt.Errorf("unsupported numeric type %T", value)
+	}
+}
+
+func schemaEnumScores(value any, prefix string, requireUnitRange bool) (map[string]float64, error) {
+	if value == nil {
+		return nil, nil
+	}
+	raw, ok := schemaStringMap(value)
+	if !ok {
+		return nil, fmt.Errorf("%s enum scoring must be a mapping: %w", prefix, ErrInvalid)
+	}
+	out := make(map[string]float64, len(raw))
+	for value, rawScore := range raw {
+		if strings.TrimSpace(value) == "" {
+			return nil, fmt.Errorf("%s enum scoring has an empty value: %w", prefix, ErrInvalid)
+		}
+		score, ok, err := schemaFloat(rawScore)
+		if err != nil || !ok || math.IsNaN(score) || math.IsInf(score, 0) {
+			return nil, fmt.Errorf("%s enum value %q has invalid score: %w", prefix, value, ErrInvalid)
+		}
+		if requireUnitRange && (score < 0 || score > 1) {
+			return nil, fmt.Errorf("%s enum value %q score must be between 0 and 1: %w", prefix, value, ErrInvalid)
+		}
+		out[value] = score
+	}
+	if len(out) == 0 {
+		return nil, nil
+	}
+	return out, nil
 }
 
 func validateSchemaDefinitionYAMLShape(data []byte) error {
