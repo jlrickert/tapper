@@ -19,7 +19,7 @@
     },
     "meta": {
       "type": "object",
-      "description": "JSON Schema object applied to node metadata/frontmatter.",
+      "description": "JSON Schema object applied to node metadata/frontmatter. Property schemas may include Tapper-specific maturity rows under properties.<name>.maturity with weight and optional enum scores; the property name is the scored metadata attribute.",
       "additionalProperties": true
     },
     "markdown": {
@@ -64,7 +64,7 @@
     },
     "maturity": {
       "type": "array",
-      "description": "Maturity scoring rules applied to the node's own metadata.",
+      "description": "Deprecated compatibility: maturity scoring rules applied to the node's own metadata. Prefer meta.properties.<name>.maturity.",
       "items": {
         "type": "object",
         "properties": {

@@ -206,7 +206,77 @@ markdown:
 	}
 }
 
-func TestSnapshotReplayPersistsOmegaFromMetadataMaturity(t *testing.T) {
+func TestSnapshotReplayPersistsOmegaFromNestedMetadataMaturity(t *testing.T) {
+	f := sandbox.NewSandbox(t, &sandbox.Options{Home: "/home/testuser", User: "testuser"})
+	ctx := context.Background()
+	k := kegpkg.NewLocalKeg(kegpkg.NewMemoryRepo(f.Runtime()), f.Runtime())
+	if err := k.Init(ctx); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+
+	schema := []byte(`type: note
+meta:
+  type: object
+  required: ["type"]
+  properties:
+    type:
+      const: note
+    status:
+      type: string
+      enum: [draft, review, ready]
+      maturity:
+        - weight: 1
+          enum:
+            draft: 0.25
+            ready: 1
+        - weight: 3
+          enum:
+            draft: 0
+            review: 0.5
+            ready: 1
+markdown:
+  requireTitle: true
+`)
+	if err := k.WriteSchema(ctx, "note", schema); err != nil {
+		t.Fatalf("WriteSchema note: %v", err)
+	}
+	id, err := k.Create(ctx, &kegpkg.CreateOptions{
+		Title: "Own Metadata",
+		Attrs: map[string]any{"type": "note", "status": "review"},
+	})
+	if err != nil {
+		t.Fatalf("Create note: %v", err)
+	}
+	snap, err := k.AppendSnapshot(ctx, id, "own metadata")
+	if err != nil {
+		t.Fatalf("AppendSnapshot note: %v", err)
+	}
+	_, _, _, snapStats, err := k.GetSnapshot(ctx, id, snap.ID, kegpkg.SnapshotReadOptions{ResolveContent: true})
+	if err != nil {
+		t.Fatalf("GetSnapshot note: %v", err)
+	}
+	snapshotOmega, ok := snapStats.Omega()
+	if !ok {
+		t.Fatalf("snapshot stats did not store omega")
+	}
+	wantOmega := 0.375
+	if math.Abs(snapshotOmega-wantOmega) > 0.000001 {
+		t.Fatalf("snapshot omega = %v, want %v", snapshotOmega, wantOmega)
+	}
+	stats, err := k.GetStats(ctx, id)
+	if err != nil {
+		t.Fatalf("GetStats: %v", err)
+	}
+	omega, ok := stats.Omega()
+	if !ok {
+		t.Fatalf("GetStats did not read persisted omega")
+	}
+	if math.Abs(omega-wantOmega) > 0.000001 {
+		t.Fatalf("omega = %v, want %v", omega, wantOmega)
+	}
+}
+
+func TestSnapshotReplayPersistsOmegaFromLegacyTopLevelMetadataMaturity(t *testing.T) {
 	f := sandbox.NewSandbox(t, &sandbox.Options{Home: "/home/testuser", User: "testuser"})
 	ctx := context.Background()
 	k := kegpkg.NewLocalKeg(kegpkg.NewMemoryRepo(f.Runtime()), f.Runtime())
@@ -228,26 +298,14 @@ markdown:
 		t.Fatalf("WriteSchema note: %v", err)
 	}
 	id, err := k.Create(ctx, &kegpkg.CreateOptions{
-		Title: "Own Metadata",
+		Title: "Legacy Metadata",
 		Attrs: map[string]any{"type": "note", "status": "ready"},
 	})
 	if err != nil {
 		t.Fatalf("Create note: %v", err)
 	}
-	snap, err := k.AppendSnapshot(ctx, id, "own metadata")
-	if err != nil {
+	if _, err := k.AppendSnapshot(ctx, id, "legacy own metadata"); err != nil {
 		t.Fatalf("AppendSnapshot note: %v", err)
-	}
-	_, _, _, snapStats, err := k.GetSnapshot(ctx, id, snap.ID, kegpkg.SnapshotReadOptions{ResolveContent: true})
-	if err != nil {
-		t.Fatalf("GetSnapshot note: %v", err)
-	}
-	snapshotOmega, ok := snapStats.Omega()
-	if !ok {
-		t.Fatalf("snapshot stats did not store omega")
-	}
-	if math.Abs(snapshotOmega-1) > 0.000001 {
-		t.Fatalf("snapshot omega = %v, want 1", snapshotOmega)
 	}
 	stats, err := k.GetStats(ctx, id)
 	if err != nil {
@@ -278,12 +336,17 @@ markdown:
 		t.Fatalf("WriteSchema evidence: %v", err)
 	}
 	noteSchema := []byte(`type: note
-maturity:
-  - attribute: status
-    weight: 1
-    enum:
-      draft: 0.25
-      ready: 1
+meta:
+  type: object
+  properties:
+    status:
+      type: string
+      enum: [draft, ready]
+      maturity:
+        - weight: 1
+          enum:
+            draft: 0.25
+            ready: 1
 relations:
   - name: support
     type: evidence
@@ -479,6 +542,164 @@ maturity:
   - direction: links
     attribute: status
     weight: 1
+markdown:
+  requireTitle: true
+`,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := k.WriteSchema(ctx, "note", []byte(tc.body)); !errors.Is(err, kegpkg.ErrInvalid) {
+				t.Fatalf("WriteSchema error = %v, want ErrInvalid", err)
+			}
+		})
+	}
+}
+
+func TestSchemaNestedMetadataMaturityValidation(t *testing.T) {
+	f := sandbox.NewSandbox(t, &sandbox.Options{Home: "/home/testuser", User: "testuser"})
+	ctx := context.Background()
+	k := kegpkg.NewLocalKeg(kegpkg.NewMemoryRepo(f.Runtime()), f.Runtime())
+	if err := k.Init(ctx); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+
+	valid := []byte(`type: note
+meta:
+  type: object
+  properties:
+    status:
+      type: string
+      enum: [draft, ready]
+      maturity:
+        - weight: 1
+          enum:
+            draft: 0.25
+            ready: 1
+markdown:
+  requireTitle: true
+`)
+	if err := k.WriteSchema(ctx, "note", valid); err != nil {
+		t.Fatalf("WriteSchema valid: %v", err)
+	}
+	parsed, err := kegpkg.ParseSchemaDefinition(valid)
+	if err != nil {
+		t.Fatalf("ParseSchemaDefinition: %v", err)
+	}
+	weights := parsed.MetadataMaturityWeights()
+	if len(weights) != 1 {
+		t.Fatalf("nested maturity len = %d, want 1", len(weights))
+	}
+	if weights[0].Attribute != "status" || weights[0].Weight != 1 || weights[0].Enum["draft"] != 0.25 {
+		t.Fatalf("nested maturity fields = %+v", weights[0])
+	}
+
+	tests := []struct {
+		name string
+		body string
+	}{
+		{
+			name: "attribute unsupported",
+			body: `type: note
+meta:
+  type: object
+  properties:
+    status:
+      type: string
+      maturity:
+        - attribute: status
+          weight: 1
+markdown:
+  requireTitle: true
+`,
+		},
+		{
+			name: "direction unsupported",
+			body: `type: note
+meta:
+  type: object
+  properties:
+    status:
+      type: string
+      maturity:
+        - direction: links
+          weight: 1
+markdown:
+  requireTitle: true
+`,
+		},
+		{
+			name: "missing weight",
+			body: `type: note
+meta:
+  type: object
+  properties:
+    status:
+      type: string
+      maturity:
+        - enum:
+            ready: 1
+markdown:
+  requireTitle: true
+`,
+		},
+		{
+			name: "zero weight",
+			body: `type: note
+meta:
+  type: object
+  properties:
+    status:
+      type: string
+      maturity:
+        - weight: 0
+markdown:
+  requireTitle: true
+`,
+		},
+		{
+			name: "negative score",
+			body: `type: note
+meta:
+  type: object
+  properties:
+    status:
+      type: string
+      maturity:
+        - weight: 1
+          enum:
+            ready: -0.1
+markdown:
+  requireTitle: true
+`,
+		},
+		{
+			name: "score above one",
+			body: `type: note
+meta:
+  type: object
+  properties:
+    status:
+      type: string
+      maturity:
+        - weight: 1
+          enum:
+            ready: 1.1
+markdown:
+  requireTitle: true
+`,
+		},
+		{
+			name: "unsupported field",
+			body: `type: note
+meta:
+  type: object
+  properties:
+    status:
+      type: string
+      maturity:
+        - weight: 1
+          label: ready
 markdown:
   requireTitle: true
 `,

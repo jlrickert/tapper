@@ -147,7 +147,7 @@ func (r *snapshotOmegaReplayer) compute(id NodeId) (float64, bool) {
 
 	var weightedSum float64
 	var totalWeight float64
-	for _, maturity := range schema.Maturity {
+	for _, maturity := range schema.MetadataMaturityWeights() {
 		attribute := strings.TrimSpace(maturity.Attribute)
 		if attribute == "" || maturity.Weight <= 0 {
 			continue

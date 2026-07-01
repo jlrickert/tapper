@@ -20,6 +20,28 @@ Schema documents declare the note `type`, an optional `summary`, optional
 metadata JSON Schema under `meta`, markdown structure rules under `markdown`,
 and relation requirements under `relations`.
 
+Metadata property rows can define note maturity scoring under the property's
+`maturity` key. The property name is the scored metadata attribute, so each row
+only needs a positive `weight` and, for enum values, an optional `enum` score
+map:
+
+```yaml
+meta:
+  type: object
+  properties:
+    status:
+      type: string
+      enum: [draft, ready]
+      maturity:
+        - weight: 1
+          enum:
+            draft: 0.25
+            ready: 1
+```
+
+Older top-level `maturity` rows with an explicit `attribute` are still read for
+compatibility, but new structured edits should use property-scoped maturity.
+
 Relation rows can also define note maturity scoring under `maturity`. Add an
 `attribute` and a positive `weight` to score related target nodes by a numeric
 metadata attribute. Set `direction: backlinks` to score incoming links instead
