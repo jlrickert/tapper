@@ -2,6 +2,20 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.28.0 - 2026-07-01
+
+
+
+### 🐛 Bug Fixes
+- **keg:** touch config consistently on dex writes
+
+
+### 🚀 Features
+- add snapshot indexes and computed omega
+- **keg:** add snapshot omega indexes and source hashes
+- **schemas:** support nested metadata maturity weights
+
+
 ## v0.27.0 - 2026-06-28
 
 

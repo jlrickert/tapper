@@ -1,7 +1,7 @@
 {
   "name": "tapper",
   "description": "Tapper KEG CLI integration — registers the `tap mcp` server and ships the `/tapper` skill for MCP-first KEG workflows. Requires the `tap` binary on PATH.",
-  "version": "v0.27.0",
+  "version": "v0.28.0",
   "author": {
     "name": "Jared Rickert"
   },
