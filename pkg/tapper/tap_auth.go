@@ -182,12 +182,15 @@ func (t *Tap) AuthStatus(ctx context.Context, opts AuthStatusOptions) (*AuthStat
 	// token before reporting, so status reflects a usable session rather than an
 	// "expired" one. Best-effort and skipped under --offline; on failure we fall
 	// through to the normal expired/rejected rendering below.
-	if !opts.Offline && entry.RefreshToken != "" && !entry.ExpiresAt.IsZero() &&
-		!t.Runtime.Clock().Now().Add(refreshSkew).Before(entry.ExpiresAt) {
-		if next, rerr := RefreshHubToken(ctx, t.Runtime, hub, entry); rerr == nil {
-			store.Set(hub, *next)
-			_ = store.Save(ctx, t.Runtime, storePath)
+	if !opts.Offline {
+		next, rerr := refreshAuthStoreEntryIfNeeded(ctx, t.Runtime, store, storePath, hub, hub, entry)
+		if next != nil {
 			entry = next
+		}
+		if rerr != nil {
+			if logger := t.Runtime.Logger(); logger != nil {
+				logger.Debug("auth refresh failed", "hub", hub, "err", rerr)
+			}
 		}
 	}
 
@@ -386,33 +389,15 @@ func (t *Tap) AuthRefreshAll(ctx context.Context) {
 		return
 	}
 
-	now := rt.Clock().Now()
-	changed := false
 	for _, hub := range store.Hubs() {
 		entry, ok := store.Get(hub)
-		if !ok || entry == nil || entry.RefreshToken == "" || entry.ExpiresAt.IsZero() {
+		if !ok || entry == nil {
 			continue
 		}
-		if now.Add(refreshSkew).Before(entry.ExpiresAt) {
-			continue // still fresh
-		}
-		rctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		next, rerr := RefreshHubToken(rctx, rt, hub, entry)
-		cancel()
+		_, rerr := refreshAuthStoreEntryIfNeeded(ctx, rt, store, storePath, hub, hub, entry)
 		if rerr != nil {
 			if logger := rt.Logger(); logger != nil {
 				logger.Debug("auth refresh failed", "hub", hub, "err", rerr)
-			}
-			continue
-		}
-		store.Set(hub, *next)
-		changed = true
-	}
-
-	if changed {
-		if err := store.Save(ctx, rt, storePath); err != nil {
-			if logger := rt.Logger(); logger != nil {
-				logger.Debug("auth refresh: persist failed", "path", storePath, "err", err)
 			}
 		}
 	}

@@ -7,17 +7,11 @@ import (
 	"net/url"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/jlrickert/cli-toolkit/toolkit"
 
 	"github.com/jlrickert/tapper/pkg/keg"
 )
-
-// refreshSkew is how far ahead of the access-token expiry the resolver renews,
-// so an in-flight request doesn't race a 401 against a token that lapses
-// mid-call.
-const refreshSkew = 30 * time.Second
 
 // authStoreTokenResolver implements keg.TokenResolver by looking up bearer
 // tokens in an AuthStore, keyed by the canonical hub root derived from the
@@ -70,10 +64,7 @@ func (r *authStoreTokenResolver) ResolveToken(target *keg.Target) string {
 // shouldRefresh reports whether entry has a refresh token and an access token
 // that is expired or within refreshSkew of expiring.
 func (r *authStoreTokenResolver) shouldRefresh(entry *AuthEntry) bool {
-	if entry == nil || entry.RefreshToken == "" || entry.ExpiresAt.IsZero() || r.rt == nil {
-		return false
-	}
-	return !r.rt.Clock().Now().Add(refreshSkew).Before(entry.ExpiresAt)
+	return authEntryNeedsRefresh(r.rt, entry)
 }
 
 // refresh renews the token under a lock and persists the rotated pair. Returns
@@ -81,68 +72,16 @@ func (r *authStoreTokenResolver) shouldRefresh(entry *AuthEntry) bool {
 func (r *authStoreTokenResolver) refresh(hubURL, key string, entry *AuthEntry) *AuthEntry {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	// Re-read under the lock: a sibling resolve may have already renewed it.
-	if cur, ok := r.store.Get(key); ok && cur != nil && !r.shouldRefresh(cur) {
-		return cur
-	}
-
-	// Refresh tokens are single-use: another process (`tap auth login`, a
-	// parallel tap command) may have already rotated this pair and persisted
-	// the result. Adopt the on-disk entry instead of spending a refresh token
-	// that may already be consumed. This is also what lets a long-running MCP
-	// server pick up a re-login performed while it was running.
-	if disk := r.adoptFresherFromDisk(key); disk != nil {
-		return disk
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	next, err := RefreshHubToken(ctx, r.rt, hubURL, entry)
+	next, err := refreshAuthStoreEntryIfNeeded(context.Background(), r.rt, r.store, r.storePath, hubURL, key, entry)
 	if err != nil {
-		// Our refresh token may have been consumed by a sibling process whose
-		// rotated pair landed on disk after the reload above; adopt it before
-		// giving up.
-		if disk := r.adoptFresherFromDisk(key); disk != nil {
-			return disk
-		}
 		if logger := r.rt.Logger(); logger != nil {
 			logger.Debug("token refresh failed", "hub", hubURL, "err", err)
 		}
-		return nil
 	}
-
-	r.store.Set(key, *next)
-	if err := r.store.Save(ctx, r.rt, r.storePath); err != nil {
-		// The in-memory token is still fresh for this process; a persist
-		// failure only costs us the renewal on the next invocation.
-		if logger := r.rt.Logger(); logger != nil {
-			logger.Debug("token refresh persist failed", "hub", hubURL, "err", err)
-		}
+	if next != nil {
+		return next
 	}
-	return next
-}
-
-// adoptFresherFromDisk re-reads the auth store file and, when it holds an
-// entry for key that doesn't itself need refreshing, copies it into the
-// in-memory store and returns it. Returns nil when the file is unreadable,
-// has no entry, or its entry is as stale as ours. Callers hold r.mu.
-func (r *authStoreTokenResolver) adoptFresherFromDisk(key string) *AuthEntry {
-	if r.storePath == "" || r.rt == nil {
-		return nil
-	}
-	disk, err := LoadAuthStore(context.Background(), r.rt, r.storePath)
-	if err != nil {
-		if logger := r.rt.Logger(); logger != nil {
-			logger.Debug("auth store reload failed", "path", r.storePath, "err", err)
-		}
-		return nil
-	}
-	entry, ok := disk.Get(key)
-	if !ok || entry == nil || r.shouldRefresh(entry) {
-		return nil
-	}
-	r.store.Set(key, *entry)
-	return entry
+	return nil
 }
 
 // ErrAtlasHubDisabled is returned by ResolveLoginHubURL when the chain

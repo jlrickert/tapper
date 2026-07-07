@@ -24,6 +24,107 @@ import (
 // fresh access token.
 const refreshGrantType = "refresh_token"
 
+const (
+	// refreshSkew is how far ahead of the access-token expiry we renew, so an
+	// in-flight request doesn't race a 401 against a token that lapses mid-call.
+	refreshSkew = 30 * time.Second
+
+	authRefreshTimeout = 10 * time.Second
+)
+
+// authEntryNeedsRefresh reports whether entry has a refresh token and an access
+// token that is expired or within refreshSkew of expiring.
+func authEntryNeedsRefresh(rt *toolkit.Runtime, entry *AuthEntry) bool {
+	if entry == nil || entry.RefreshToken == "" || entry.ExpiresAt.IsZero() || rt == nil {
+		return false
+	}
+	return !rt.Clock().Now().Add(refreshSkew).Before(entry.ExpiresAt)
+}
+
+// refreshAuthStoreEntryIfNeeded renews one stored hub credential when its
+// access token is expired or close to expiry. It also handles the cross-process
+// rotation race: before contacting the hub, and again after a rejected refresh,
+// it adopts a fresher on-disk entry when another process has already persisted
+// one.
+func refreshAuthStoreEntryIfNeeded(ctx context.Context, rt *toolkit.Runtime, store *AuthStore, storePath, hubURL, key string, entry *AuthEntry) (*AuthEntry, error) {
+	if !authEntryNeedsRefresh(rt, entry) {
+		return entry, nil
+	}
+	if store == nil {
+		return nil, fmt.Errorf("auth refresh: store is nil")
+	}
+
+	// Re-read the in-memory store first: the resolver calls this under its
+	// mutex, so a sibling goroutine may have already rotated the token.
+	if cur, ok := store.Get(key); ok && cur != nil {
+		if !authEntryNeedsRefresh(rt, cur) {
+			return cur, nil
+		}
+		entry = cur
+	}
+
+	if disk := adoptFresherAuthEntryFromDisk(ctx, rt, store, storePath, key); disk != nil {
+		return disk, nil
+	}
+
+	rctx, cancel := context.WithTimeout(ctx, authRefreshTimeout)
+	next, err := RefreshHubToken(rctx, rt, hubURL, entry)
+	cancel()
+	if err != nil {
+		if disk := adoptFresherAuthEntryFromDisk(ctx, rt, store, storePath, key); disk != nil {
+			return disk, nil
+		}
+		return nil, err
+	}
+
+	store.Set(key, *next)
+	if err := persistAuthStoreEntry(ctx, rt, storePath, key, next); err != nil {
+		return next, fmt.Errorf("auth refresh: persist: %w", err)
+	}
+	return next, nil
+}
+
+// adoptFresherAuthEntryFromDisk re-reads the auth store file and, when it holds
+// an entry for key that does not itself need refreshing, copies it into store
+// and returns it. This lets long-running processes and parallel commands pick
+// up a rotated token pair without spending an already-consumed refresh token.
+func adoptFresherAuthEntryFromDisk(ctx context.Context, rt *toolkit.Runtime, store *AuthStore, storePath, key string) *AuthEntry {
+	if storePath == "" || rt == nil || store == nil {
+		return nil
+	}
+	disk, err := LoadAuthStore(ctx, rt, storePath)
+	if err != nil {
+		if logger := rt.Logger(); logger != nil {
+			logger.Debug("auth store reload failed", "path", storePath, "err", err)
+		}
+		return nil
+	}
+	entry, ok := disk.Get(key)
+	if !ok || entry == nil || authEntryNeedsRefresh(rt, entry) {
+		return nil
+	}
+	store.Set(key, *entry)
+	return entry
+}
+
+func persistAuthStoreEntry(ctx context.Context, rt *toolkit.Runtime, storePath, key string, entry *AuthEntry) error {
+	if rt == nil {
+		return fmt.Errorf("auth refresh: runtime is nil")
+	}
+	if storePath == "" {
+		return fmt.Errorf("auth refresh: store path is empty")
+	}
+	if entry == nil {
+		return fmt.Errorf("auth refresh: entry is nil")
+	}
+	disk, err := LoadAuthStore(ctx, rt, storePath)
+	if err != nil {
+		return err
+	}
+	disk.Set(key, *entry)
+	return disk.Save(ctx, rt, storePath)
+}
+
 // RefreshHubToken exchanges entry.RefreshToken at the hub's token endpoint and
 // returns a new AuthEntry carrying the rotated access + refresh tokens and a
 // recomputed expiry. The hub rotates refresh tokens single-use, so the caller
