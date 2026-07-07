@@ -770,18 +770,37 @@ func TestAuthStatusCmd_ShortToken_UsesPlaceholder(t *testing.T) {
 	require.Contains(t, string(res.Stdout), "- Token: [set]")
 }
 
-func TestAuthStatusCmd_MultipleHubs_RequiresFlag(t *testing.T) {
+func TestAuthStatusCmd_MultipleHubs_PrintsAll(t *testing.T) {
 	t.Parallel()
 	sb := newTestSandbox(t)
 	seedAuthStore(t, sb, map[string]tapper.AuthEntry{
-		"https://hub-a.example.com": {AccessToken: "a"},
-		"https://hub-b.example.com": {AccessToken: "b"},
+		"https://hub-b.example.com": {AccessToken: "thub_betatoken0000", TokenType: "Bearer"},
+		"https://hub-a.example.com": {AccessToken: "thub_alphatoken00", TokenType: "Bearer"},
 	})
 
-	proc := newAuthProcess(t, nil, "auth", "status")
+	hook := stubWhoAmIHook(func(_ context.Context, _ *toolkit.Runtime, hub, _ string) (*tapper.WhoAmI, error) {
+		switch hub {
+		case "https://hub-a.example.com":
+			return &tapper.WhoAmI{Username: "alice"}, nil
+		case "https://hub-b.example.com":
+			return &tapper.WhoAmI{Username: "bob"}, nil
+		default:
+			return nil, fmt.Errorf("unexpected hub %s", hub)
+		}
+	})
+	proc := newAuthProcess(t, hook, "auth", "status")
 	res := proc.Run(sb.Context(), sb.Runtime())
-	require.Error(t, res.Err)
-	require.Contains(t, res.Err.Error(), "--hub is required")
+	require.NoError(t, res.Err)
+	out := string(res.Stdout)
+	require.Contains(t, out, "hub-a.example.com")
+	require.Contains(t, out, "hub-b.example.com")
+	require.Less(t,
+		strings.Index(out, "hub-a.example.com"),
+		strings.Index(out, "hub-b.example.com"),
+		"auth status should print stored hubs in sorted order")
+	require.Contains(t, out, "Logged in as alice")
+	require.Contains(t, out, "Logged in as bob")
+	require.Contains(t, out, "\n\nhub-b.example.com\n")
 }
 
 func TestAuthStatusCmd_UnknownHub_NotPresent(t *testing.T) {

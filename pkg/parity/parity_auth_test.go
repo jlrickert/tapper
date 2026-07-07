@@ -111,6 +111,32 @@ func TestParity_AuthStatus(t *testing.T) {
 		require.Contains(t, cliOut, "- Token: thub_rejecte... (Bearer)")
 	})
 
+	t.Run("multiple_hubs_reported_on_both", func(t *testing.T) {
+		t.Parallel()
+		env := newParityEnv(t)
+		hubA := startWhoamiHub(t, http.StatusOK, "alice", "")
+		hubB := startWhoamiHub(t, http.StatusOK, "bob", "")
+		seedAuthStoreForEnv(t, env, hubB, tapper.AuthEntry{
+			AccessToken: "thub_paritybeta000",
+			TokenType:   "Bearer",
+		})
+		seedAuthStoreForEnv(t, env, hubA, tapper.AuthEntry{
+			AccessToken: "thub_parityalpha00",
+			TokenType:   "Bearer",
+		})
+
+		cliOut, err := env.runCLI("auth", "status")
+		require.NoError(t, err)
+		mcpOut, err := env.runMCP("auth_status", nil)
+		require.NoError(t, err)
+
+		require.Equal(t, cliOut, mcpOut)
+		require.Contains(t, cliOut, "Logged in as alice")
+		require.Contains(t, cliOut, "Logged in as bob")
+		require.Equal(t, 2, strings.Count(cliOut, "Logged in as "))
+		require.Contains(t, cliOut, "\n\n")
+	})
+
 	t.Run("explicit_hub_canonicalizes", func(t *testing.T) {
 		t.Parallel()
 		env := newParityEnv(t)

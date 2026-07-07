@@ -20,10 +20,10 @@ import (
 )
 
 // authStatusInput mirrors AuthStatusOptions: flat (no keg target) because
-// auth state is user-level, not keg-level. Agents that omit Hub get the
-// single-hub auto-resolve behavior, the same as the CLI.
+// auth state is user-level, not keg-level. Agents that omit Hub get every
+// stored hub login, the same as the CLI.
 type authStatusInput struct {
-	Hub     string `json:"hub,omitempty" jsonschema:"hub URL to query; omit when exactly one hub is stored"`
+	Hub     string `json:"hub,omitempty" jsonschema:"hub URL to query; omit to show every stored hub"`
 	Offline bool   `json:"offline,omitempty" jsonschema:"skip the live hub check and report from the local store only"`
 }
 
@@ -35,7 +35,7 @@ type authStatusInput struct {
 func registerAuthTools(srv *sdkmcp.Server, tap *tapper.Tap) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "auth_status",
-		Description: "Report the login status for a tapper hub and validate the stored token against the hub (pass offline:true to check the local store only).",
+		Description: "Report stored tapper hub login status and validate stored tokens against their hubs (pass offline:true to check the local store only).",
 		Annotations: &sdkmcp.ToolAnnotations{
 			// Read-only (no mutation), but it now reaches the hub to
 			// validate the token, so OpenWorldHint=true. Agents that must
