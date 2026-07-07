@@ -118,8 +118,8 @@ func (k *RemoteKeg) eventsURL(id NodeId) string {
 
 func (k *RemoteKeg) eventsHeader() http.Header {
 	h := make(http.Header)
-	if k.token != "" {
-		h.Set("Authorization", "Bearer "+k.token)
+	if token := k.currentToken(); token != "" {
+		h.Set("Authorization", "Bearer "+token)
 	}
 	return h
 }

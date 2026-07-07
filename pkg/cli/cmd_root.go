@@ -201,6 +201,15 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 				return err
 			}
 
+			// Renew any expired hub credentials before the command runs so
+			// one-off commands and the long-running MCP server both start
+			// with fresh tokens. Skipped for shell completion, which must
+			// never block on a network round trip. After the logger setup
+			// so refresh failures land in the configured log destination.
+			if name := cmd.Name(); name != cobra.ShellCompRequestCmd && name != cobra.ShellCompNoDescRequestCmd {
+				tap.AuthRefreshAll(ctx)
+			}
+
 			cmd.SetContext(ctx)
 			return nil
 		},

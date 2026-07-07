@@ -368,6 +368,56 @@ func renderExpiry(status string, expiresAt, now time.Time) string {
 	}
 }
 
+// AuthRefreshAll renews every stored hub credential whose access token is
+// expired or within refreshSkew of expiring, persisting the rotated pairs.
+// Entries without a refresh token (pasted API tokens) or without a known
+// expiry are skipped. Best-effort by design: failures are logged at debug
+// and never returned — this runs on every CLI/MCP startup and a broken hub
+// must not block unrelated commands. Cost when all tokens are fresh: one
+// file read, zero network calls.
+func (t *Tap) AuthRefreshAll(ctx context.Context) {
+	rt := t.Runtime
+	storePath := t.PathService.AuthStorePath()
+	store, err := LoadAuthStore(ctx, rt, storePath)
+	if err != nil {
+		if logger := rt.Logger(); logger != nil {
+			logger.Debug("auth refresh: store load failed", "path", storePath, "err", err)
+		}
+		return
+	}
+
+	now := rt.Clock().Now()
+	changed := false
+	for _, hub := range store.Hubs() {
+		entry, ok := store.Get(hub)
+		if !ok || entry == nil || entry.RefreshToken == "" || entry.ExpiresAt.IsZero() {
+			continue
+		}
+		if now.Add(refreshSkew).Before(entry.ExpiresAt) {
+			continue // still fresh
+		}
+		rctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		next, rerr := RefreshHubToken(rctx, rt, hub, entry)
+		cancel()
+		if rerr != nil {
+			if logger := rt.Logger(); logger != nil {
+				logger.Debug("auth refresh failed", "hub", hub, "err", rerr)
+			}
+			continue
+		}
+		store.Set(hub, *next)
+		changed = true
+	}
+
+	if changed {
+		if err := store.Save(ctx, rt, storePath); err != nil {
+			if logger := rt.Logger(); logger != nil {
+				logger.Debug("auth refresh: persist failed", "path", storePath, "err", err)
+			}
+		}
+	}
+}
+
 // AuthLogoutOptions selects which hub to log out of. Flat (no
 // KegTargetOptions) because auth state is a user-level concern that
 // spans kegs — a login is per-hub, not per-keg.

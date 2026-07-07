@@ -49,6 +49,13 @@ type RemoteKeg struct {
 	// request. Empty means unauthenticated.
 	token string
 
+	// tokenFn, when set, is consulted on every request instead of the static
+	// token. NewKegFromTarget installs a closure over the target's token
+	// resolution chain so a keg cached for hours (e.g. by a long-running MCP
+	// server) picks up refreshed credentials instead of pinning the token it
+	// was constructed with.
+	tokenFn func() string
+
 	// client is the HTTP client used for all requests.
 	client *http.Client
 
@@ -88,7 +95,23 @@ var _ Keg = (*RemoteKeg)(nil)
 func (k *RemoteKeg) BaseURL() string { return k.baseURL }
 
 // Token returns the bearer token used for authentication ("" when none).
-func (k *RemoteKeg) Token() string { return k.token }
+func (k *RemoteKeg) Token() string { return k.currentToken() }
+
+// SetTokenFn installs a per-request token source. Each request calls fn and
+// uses its return value for the Authorization header; an empty return sends
+// the request unauthenticated. Pass nil to revert to the static token.
+func (k *RemoteKeg) SetTokenFn(fn func() string) {
+	k.tokenFn = fn
+}
+
+// currentToken returns the token for the next request: the per-request
+// source when installed, else the static token from construction.
+func (k *RemoteKeg) currentToken() string {
+	if k.tokenFn != nil {
+		return k.tokenFn()
+	}
+	return k.token
+}
 
 // Target returns the keg's resolved location, or nil when unknown.
 func (k *RemoteKeg) Target() *Target {
@@ -111,8 +134,8 @@ func (k *RemoteKeg) do(ctx context.Context, method, path string, body io.Reader,
 	if err != nil {
 		return nil, NewBackendError("remote", method+" "+path, 0, err, false)
 	}
-	if k.token != "" {
-		req.Header.Set("Authorization", "Bearer "+k.token)
+	if token := k.currentToken(); token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
 	}
 	if contentType != "" {
 		req.Header.Set("Content-Type", contentType)
