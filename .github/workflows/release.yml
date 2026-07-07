@@ -6,6 +6,11 @@ on:
         description: "Version override (e.g. v1.2.3). Leave empty to auto-detect via git-cliff."
         required: false
         default: ""
+      recover_existing_tag:
+        description: "Recover a failed release after the tag already exists by rerunning GoReleaser."
+        required: false
+        type: boolean
+        default: false
 permissions:
   contents: write
 jobs:
@@ -44,6 +49,7 @@ jobs:
         env:
           CLIFF_OUTPUT: ${{ steps.cliff.outputs.content }}
           INPUT_VERSION: ${{ inputs.version }}
+          RECOVER_EXISTING_TAG: ${{ inputs.recover_existing_tag }}
         run: |
           DETECTED_VERSION="$(echo "$CLIFF_OUTPUT" | tr -d '[:space:]')"
           VERSION="$INPUT_VERSION"
@@ -58,25 +64,41 @@ jobs:
             echo "Error: resolved version '$VERSION' is not semver (vX.Y.Z)." >&2
             exit 1
           fi
+          TAG_EXISTS=false
           if git rev-parse -q --verify "refs/tags/$VERSION" >/dev/null; then
-            echo "Error: tag '$VERSION' already exists. Set workflow input 'version' to a new value." >&2
+            TAG_EXISTS=true
+            if [ "$RECOVER_EXISTING_TAG" != "true" ]; then
+              echo "Error: tag '$VERSION' already exists. Set workflow input 'version' to a new value, or enable recover_existing_tag." >&2
+              exit 1
+            fi
+          fi
+          if [ "$RECOVER_EXISTING_TAG" = "true" ] && [ "$TAG_EXISTS" != "true" ]; then
+            echo "Error: recover_existing_tag requires an existing tag. '$VERSION' was not found." >&2
             exit 1
           fi
-          echo "Releasing $VERSION"
+          if [ "$TAG_EXISTS" = "true" ]; then
+            echo "Recovering existing release $VERSION"
+          else
+            echo "Releasing $VERSION"
+          fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "existing_tag=$TAG_EXISTS" >> "$GITHUB_OUTPUT"
 
       - name: Generate changelog
+        if: steps.version.outputs.existing_tag != 'true'
         uses: orhun/git-cliff-action@v4
         with:
           config: cliff.toml
           args: --tag ${{ steps.version.outputs.version }} -o CHANGELOG.md
 
       - name: Re-render integrations with release version
+        if: steps.version.outputs.existing_tag != 'true'
         env:
           TAPPER_PLUGIN_VERSION: ${{ steps.version.outputs.version }}
         run: go run ./cmd/render-integrations
 
       - name: Commit and push release atomically
+        if: steps.version.outputs.existing_tag != 'true'
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
@@ -89,17 +111,47 @@ jobs:
           git tag -a "$VERSION" -m "$VERSION"
           git push origin main "refs/tags/$VERSION"
 
+      - name: Checkout existing release tag
+        if: steps.version.outputs.existing_tag == 'true'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: git checkout --force "$VERSION"
+
       - name: Ensure clean tree for goreleaser
         run: |
           git clean -ffdx
           test -z "$(git status --porcelain)" || { git status --porcelain; exit 1; }
 
+      - name: Prepare GoReleaser recovery config
+        if: steps.version.outputs.existing_tag == 'true'
+        run: |
+          printf '\n.goreleaser.recovery.yaml\n' >> .git/info/exclude
+          ruby -ryaml -e '
+            config = YAML.load_file(".goreleaser.yaml")
+            config["release"] ||= {}
+            config["release"]["replace_existing_artifacts"] = true
+            File.write(".goreleaser.recovery.yaml", YAML.dump(config))
+          '
+          test -z "$(git status --porcelain)" || { git status --porcelain; exit 1; }
+
       - name: Run goreleaser
+        if: steps.version.outputs.existing_tag != 'true'
         uses: goreleaser/goreleaser-action@v6
         with:
           distribution: goreleaser
           version: "~> v2"
           args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
+
+      - name: Run goreleaser recovery
+        if: steps.version.outputs.existing_tag == 'true'
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: release --clean -f .goreleaser.recovery.yaml
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
