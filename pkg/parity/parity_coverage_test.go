@@ -133,6 +133,7 @@ var tapMethodToSurfaces = map[string]struct {
 var tapMethodsExcluded = map[string]string{
 	"KegConfigEdit":  "interactive editor; not exposed via MCP",
 	"ConfigEdit":     "interactive editor; not exposed via MCP",
+	"AuthRefreshAll": "startup credential renewal invoked by the CLI root command (covers `tap` and `tap mcp`); not a user-facing operation",
 	"UpdateFlight":   "underlying partial-update operation used by MCP flight_edit; CLI users use `flight edit`",
 	"LookupKeg":      "internal resolution helper; not a user-facing operation",
 	"ResolveNodeRef": "internal node-reference resolver shared by surfaces; not a user-facing operation",

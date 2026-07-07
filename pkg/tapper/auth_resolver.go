@@ -86,10 +86,25 @@ func (r *authStoreTokenResolver) refresh(hubURL, key string, entry *AuthEntry) *
 		return cur
 	}
 
+	// Refresh tokens are single-use: another process (`tap auth login`, a
+	// parallel tap command) may have already rotated this pair and persisted
+	// the result. Adopt the on-disk entry instead of spending a refresh token
+	// that may already be consumed. This is also what lets a long-running MCP
+	// server pick up a re-login performed while it was running.
+	if disk := r.adoptFresherFromDisk(key); disk != nil {
+		return disk
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	next, err := RefreshHubToken(ctx, r.rt, hubURL, entry)
 	if err != nil {
+		// Our refresh token may have been consumed by a sibling process whose
+		// rotated pair landed on disk after the reload above; adopt it before
+		// giving up.
+		if disk := r.adoptFresherFromDisk(key); disk != nil {
+			return disk
+		}
 		if logger := r.rt.Logger(); logger != nil {
 			logger.Debug("token refresh failed", "hub", hubURL, "err", err)
 		}
@@ -105,6 +120,29 @@ func (r *authStoreTokenResolver) refresh(hubURL, key string, entry *AuthEntry) *
 		}
 	}
 	return next
+}
+
+// adoptFresherFromDisk re-reads the auth store file and, when it holds an
+// entry for key that doesn't itself need refreshing, copies it into the
+// in-memory store and returns it. Returns nil when the file is unreadable,
+// has no entry, or its entry is as stale as ours. Callers hold r.mu.
+func (r *authStoreTokenResolver) adoptFresherFromDisk(key string) *AuthEntry {
+	if r.storePath == "" || r.rt == nil {
+		return nil
+	}
+	disk, err := LoadAuthStore(context.Background(), r.rt, r.storePath)
+	if err != nil {
+		if logger := r.rt.Logger(); logger != nil {
+			logger.Debug("auth store reload failed", "path", r.storePath, "err", err)
+		}
+		return nil
+	}
+	entry, ok := disk.Get(key)
+	if !ok || entry == nil || r.shouldRefresh(entry) {
+		return nil
+	}
+	r.store.Set(key, *entry)
+	return entry
 }
 
 // ErrAtlasHubDisabled is returned by ResolveLoginHubURL when the chain

@@ -113,6 +113,7 @@ func NewKegFromTarget(ctx context.Context, target Target, rt *toolkit.Runtime, o
 		baseURL := strings.TrimRight(target.Url, "/")
 		keg := NewRemoteKeg(baseURL, token, rt)
 		keg.SetTarget(&target)
+		installTokenFn(keg, &target, rt, o.resolver)
 		return keg, nil
 	case SchemeAlias:
 		token := resolveTargetToken(&target, rt, o.resolver)
@@ -132,9 +133,27 @@ func NewKegFromTarget(ctx context.Context, target Target, rt *toolkit.Runtime, o
 			base, target.Namespace, target.KegName)
 		keg := NewRemoteKeg(baseURL, token, rt)
 		keg.SetTarget(&target)
+		installTokenFn(keg, &target, rt, o.resolver)
 		return keg, nil
 	}
 	return nil, fmt.Errorf("unsupported target scheme: %s", target.Scheme())
+}
+
+// installTokenFn makes k re-run the target's token resolution chain on every
+// request instead of pinning the token captured at construction. Kegs are
+// memoized by callers (KegService's cache) and can live for hours in a
+// long-running MCP server; the hub's access tokens expire in minutes. The
+// resolver refreshes expired tokens as a side effect of ResolveToken, so
+// re-resolving per request is what keeps a cached keg authenticated. Only
+// installed when a resolver exists — a static inline/env token has nothing
+// to re-resolve.
+func installTokenFn(k *RemoteKeg, target *Target, rt *toolkit.Runtime, resolver TokenResolver) {
+	if resolver == nil {
+		return
+	}
+	k.SetTokenFn(func() string {
+		return resolveTargetToken(target, rt, resolver)
+	})
 }
 
 // resolveTargetToken extracts the bearer token from a Target. Precedence:

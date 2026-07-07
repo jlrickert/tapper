@@ -101,7 +101,10 @@ func TestResolveTargetToken_Precedence(t *testing.T) {
 			require.Equal(t, tc.want.token, remote.Token())
 			if tc.resolver != nil {
 				if tc.want.resolverCalled {
-					require.Equal(t, 1, tc.resolver.called, "resolver should have been consulted")
+					// Construction resolves once for the static fallback and
+					// Token() re-resolves per request (see installTokenFn), so
+					// assert consultation, not an exact call count.
+					require.GreaterOrEqual(t, tc.resolver.called, 1, "resolver should have been consulted")
 				} else {
 					require.Equal(t, 0, tc.resolver.called, "resolver must not be consulted when earlier fallbacks hit")
 				}

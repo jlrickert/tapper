@@ -35,6 +35,13 @@ type KegService struct {
 	// authStorePath is the path authStore was loaded from, handed to the
 	// resolver so it can persist a refreshed token back to disk.
 	authStorePath string
+	// authResolver is the single resolver instance built alongside the
+	// store load. One instance per service matters: the resolver's mutex
+	// serializes token refresh, which only works when every resolution
+	// shares the same resolver (a per-call instance would give each caller
+	// its own lock and let concurrent resolves double-spend the single-use
+	// refresh token).
+	authResolver keg.TokenResolver
 }
 
 // ResolveKegOptions controls how KegService resolves a keg target.
@@ -78,6 +85,9 @@ func (s *KegService) ensureCache() {
 // file must never block keg resolution for local or token-pinned targets.
 func (s *KegService) tokenResolver() keg.TokenResolver {
 	s.authStoreOnce.Do(func() {
+		defer func() {
+			s.authResolver = NewAuthStoreTokenResolver(s.authStore, s.Runtime, s.authStorePath)
+		}()
 		if s.ConfigService == nil || s.ConfigService.PathService == nil {
 			return
 		}
@@ -92,7 +102,7 @@ func (s *KegService) tokenResolver() keg.TokenResolver {
 		s.authStore = store
 		s.authStorePath = path
 	})
-	return NewAuthStoreTokenResolver(s.authStore, s.Runtime, s.authStorePath)
+	return s.authResolver
 }
 
 // Resolve returns a keg using explicit path, project, alias, or configured fallback resolution.
