@@ -21,18 +21,18 @@ import (
 	"time"
 )
 
-// errNoHubsStored is returned by resolveHubTarget when no hub is
-// provided and the store is empty. Callers convert this to a soft-
-// success result (AuthStatus prints a directed hint; AuthLogout prints
-// "No hub logins stored."). It is intentionally unexported — this is a
-// resolution-path signal, not a user-facing error.
+// errNoHubsStored is returned by auth target resolution when no hub is provided
+// and the store is empty. Callers convert this to a soft-success result
+// (AuthStatus prints a directed hint; AuthLogout prints "No hub logins
+// stored."). It is intentionally unexported — this is a resolution-path signal,
+// not a user-facing error.
 var errNoHubsStored = errors.New("no hub logins stored")
 
 // resolveHubTarget canonicalizes raw (when non-empty) or auto-resolves
 // to the single stored hub when raw is empty. Returns errNoHubsStored
 // when the store is empty and a multi-hub error when more than one is
-// stored. Shared by AuthStatus and AuthLogout so both commands resolve
-// the target hub identically.
+// stored. This is the logout target policy: destructive auth operations
+// require a single unambiguous hub.
 func resolveHubTarget(store *AuthStore, raw string) (string, error) {
 	if store == nil {
 		return "", fmt.Errorf("auth: store is nil")
@@ -51,14 +51,30 @@ func resolveHubTarget(store *AuthStore, raw string) (string, error) {
 	}
 }
 
+// resolveAuthStatusTargets canonicalizes raw (when non-empty) or returns every
+// stored hub when raw is empty. Status is read-only, so the no --hub multi-hub
+// path can report all stored logins instead of forcing disambiguation.
+func resolveAuthStatusTargets(store *AuthStore, raw string) ([]string, error) {
+	if store == nil {
+		return nil, fmt.Errorf("auth: store is nil")
+	}
+	if raw != "" {
+		return []string{CanonicalHubURL(raw)}, nil
+	}
+	hubs := store.Hubs()
+	if len(hubs) == 0 {
+		return nil, errNoHubsStored
+	}
+	return hubs, nil
+}
+
 // AuthStatusOptions selects which hub to report on. Flat (no
 // KegTargetOptions) because auth state is a user-level concern that
 // spans kegs — a login is per-hub, not per-keg.
 type AuthStatusOptions struct {
-	// Hub is a raw or canonical hub URL. When empty and exactly one
-	// hub is stored, AuthStatus auto-resolves to that single entry;
-	// otherwise an empty Hub with zero or multiple stored hubs surfaces
-	// a directed error/empty message (see AuthStatus docs).
+	// Hub is a raw or canonical hub URL. When empty, AuthStatus reports every
+	// stored hub login; an empty store surfaces a directed empty message (see
+	// AuthStatus docs).
 	Hub string
 
 	// Offline skips the live whoami probe and reports purely from the
@@ -67,9 +83,76 @@ type AuthStatusOptions struct {
 	Offline bool
 }
 
-// AuthStatusResult is the pre-formatted human-readable status line
-// plus structured fields for the MCP surface and any future renderers.
-// Formatted is authoritative: both CLI and MCP emit it verbatim.
+// AuthStatusHub is the per-hub structured status used by AuthStatusResult.Hubs.
+// Formatted is the exact block rendered for this hub, terminated with a
+// trailing newline.
+type AuthStatusHub struct {
+	// Present is false when no matching entry exists.
+	Present bool
+
+	// HubURL is the canonical key that matched.
+	HubURL string
+
+	// TokenPrefix is the first 12 chars of the access token followed by
+	// "..." — matching the non-secret prefix the hub stores and shows in
+	// its account UI — or "[set]" when the token is too short for a
+	// meaningful prefix. The raw token is never exposed here.
+	TokenPrefix string
+
+	// TokenType mirrors the stored entry (e.g. "Bearer"). Empty when
+	// the hub returned a bare token with no type.
+	TokenType string
+
+	// Account is the username the hub reported for this token via the
+	// live whoami probe. Empty when validation was skipped (--offline) or
+	// failed.
+	Account string
+
+	// DisplayName is the human name the hub reported alongside Account.
+	// Empty when the hub omits it or validation didn't run.
+	DisplayName string
+
+	// Valid is true when the live whoami probe confirmed the token. False
+	// when the token was rejected, the hub was unreachable, or --offline
+	// skipped the check.
+	Valid bool
+
+	// ValidationError is the error message from a failed/ skipped probe,
+	// empty on success. Lets structured consumers branch without parsing
+	// Formatted.
+	ValidationError string
+
+	// Scope mirrors the stored entry. Empty when no scope was granted.
+	Scope string
+
+	// ExpiresAt mirrors the stored entry; zero when no expiry is known.
+	ExpiresAt time.Time
+
+	// ExpiryStatus is a three-way tag: "unknown" | "valid" | "expired".
+	// Made explicit so callers (and future JSON consumers) don't have
+	// to re-derive from ExpiresAt vs clock.
+	ExpiryStatus string
+
+	// LoginMethod records how the credential was obtained: "device" for the
+	// OAuth2 browser/device flow (carries client + refresh + token endpoint),
+	// "token" for a pasted API token. Lets structured consumers branch without
+	// parsing Formatted.
+	LoginMethod string
+
+	// Renewable is true when a refresh token is stored — i.e. the access token
+	// renews silently on expiry rather than forcing a re-login. Always false
+	// for a pasted API token.
+	Renewable bool
+
+	// Formatted is the exact block rendered for this hub. Terminated with a
+	// trailing newline.
+	Formatted string
+}
+
+// AuthStatusResult is the pre-formatted human-readable status output plus
+// structured fields for the MCP surface and any future renderers. Formatted is
+// authoritative: both CLI and MCP emit it verbatim. Scalar fields are populated
+// for single-hub responses; Hubs carries per-hub status entries.
 type AuthStatusResult struct {
 	// Present is false when no matching entry exists (empty store
 	// with no --hub, or --hub that isn't in the store).
@@ -130,6 +213,11 @@ type AuthStatusResult struct {
 	// for a pasted API token.
 	Renewable bool
 
+	// Hubs contains structured per-hub status. It has one entry for single-hub
+	// status responses and multiple entries when Hub was omitted with multiple
+	// stored logins.
+	Hubs []AuthStatusHub
+
 	// Formatted is the exact string the CLI prints; MCP returns it
 	// verbatim as text content. Terminated with a trailing newline.
 	Formatted string
@@ -140,8 +228,7 @@ type AuthStatusResult struct {
 // Resolution precedence:
 //  1. Empty store AND empty Hub → not-present, directed hint message.
 //  2. Hub set → canonicalize and look up exactly that hub.
-//  3. Hub empty AND single hub stored → auto-resolve to that hub.
-//  4. Hub empty AND multiple hubs stored → error (caller must pick).
+//  3. Hub empty AND one or more hubs stored → report every stored hub.
 //
 // Missing entries (hub was provided but not stored) are NOT errors —
 // they return a Result{Present: false} with a clear Formatted line.
@@ -154,7 +241,7 @@ func (t *Tap) AuthStatus(ctx context.Context, opts AuthStatusOptions) (*AuthStat
 		return nil, err
 	}
 
-	hub, err := resolveHubTarget(store, opts.Hub)
+	hubs, err := resolveAuthStatusTargets(store, opts.Hub)
 	if err != nil {
 		if errors.Is(err, errNoHubsStored) {
 			// Empty-store soft-success path: unlike AuthLogout this
@@ -169,9 +256,58 @@ func (t *Tap) AuthStatus(ctx context.Context, opts AuthStatusOptions) (*AuthStat
 		return nil, err
 	}
 
+	statuses := make([]AuthStatusHub, 0, len(hubs))
+	for _, hub := range hubs {
+		status, err := t.authStatusForHub(ctx, store, storePath, hub, opts)
+		if err != nil {
+			return nil, err
+		}
+		statuses = append(statuses, status)
+	}
+
+	if len(statuses) == 1 {
+		return authStatusResultFromHub(statuses[0]), nil
+	}
+
+	var b strings.Builder
+	for i, status := range statuses {
+		if i > 0 {
+			b.WriteByte('\n')
+		}
+		b.WriteString(status.Formatted)
+	}
+
+	return &AuthStatusResult{
+		Present:   true,
+		Hubs:      statuses,
+		Formatted: b.String(),
+	}, nil
+}
+
+func authStatusResultFromHub(status AuthStatusHub) *AuthStatusResult {
+	return &AuthStatusResult{
+		Present:         status.Present,
+		HubURL:          status.HubURL,
+		TokenPrefix:     status.TokenPrefix,
+		TokenType:       status.TokenType,
+		Account:         status.Account,
+		DisplayName:     status.DisplayName,
+		Valid:           status.Valid,
+		ValidationError: status.ValidationError,
+		Scope:           status.Scope,
+		ExpiresAt:       status.ExpiresAt,
+		ExpiryStatus:    status.ExpiryStatus,
+		LoginMethod:     status.LoginMethod,
+		Renewable:       status.Renewable,
+		Hubs:            []AuthStatusHub{status},
+		Formatted:       status.Formatted,
+	}
+}
+
+func (t *Tap) authStatusForHub(ctx context.Context, store *AuthStore, storePath, hub string, opts AuthStatusOptions) (AuthStatusHub, error) {
 	entry, ok := store.Get(hub)
 	if !ok {
-		return &AuthStatusResult{
+		return AuthStatusHub{
 			Present:   false,
 			HubURL:    hub,
 			Formatted: fmt.Sprintf("No login stored for %s\n", hub),
@@ -328,7 +464,7 @@ func (t *Tap) AuthStatus(ctx context.Context, opts AuthStatusOptions) (*AuthStat
 		fmt.Fprintf(&b, "  - Expires: %s\n", renderExpiry(expiryStatus, entry.ExpiresAt, now))
 	}
 
-	return &AuthStatusResult{
+	return AuthStatusHub{
 		Present:         true,
 		HubURL:          hub,
 		TokenPrefix:     tokenPrefix,

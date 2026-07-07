@@ -460,13 +460,13 @@ func newAuthStatusCmd(deps *Deps) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "status",
-		Short: "Show the login status for a stored tapper hub",
+		Short: "Show stored tapper hub login status",
 		Long: `Report whether a hub has a cached login and validate the stored
 token against the hub. On success it shows the account it resolves to;
 a rejected token or an unreachable hub is reported without failing the
-command. With --hub, reports on that specific hub; with no --hub and
-exactly one stored entry, auto-resolves to it. Pass --offline to skip
-the network check and report purely from the local store.
+command. With --hub, reports on that specific hub; with no --hub, reports
+every stored hub login. Pass --offline to skip the network check and report
+purely from the local store.
 
 The access token itself is never printed — only a short, non-secret
 prefix matching the one shown in the hub's account UI.`,
@@ -483,7 +483,7 @@ prefix matching the one shown in the hub's account UI.`,
 		},
 	}
 
-	cmd.Flags().StringVar(&hubURL, "hub", "", "Hub base URL to query (optional when exactly one hub is stored)")
+	cmd.Flags().StringVar(&hubURL, "hub", "", "Hub base URL to query (omit to show every stored hub)")
 	cmd.Flags().BoolVar(&offline, "offline", false, "Skip the live hub check and report from the local store only")
 	mustRegisterFlagCompletion(cmd, "hub", func(_ *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
 		return nil, cobra.ShellCompDirectiveNoFileComp

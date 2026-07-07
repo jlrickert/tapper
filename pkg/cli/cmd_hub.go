@@ -68,8 +68,8 @@ func newHubStatusCmd(deps *Deps) *cobra.Command {
 		Use:   "status",
 		Short: "show login status for a hub",
 		Long: `Report whether a hub has a cached login and validate the stored
-token against the hub. With --hub, reports on that specific hub; with no --hub
-and exactly one stored entry, auto-resolves to it.`,
+token against the hub. With --hub, reports on that specific hub; with no --hub,
+reports every stored hub login.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			result, err := deps.Tap.AuthStatus(cmd.Context(), tapper.AuthStatusOptions{Hub: hubURL, Offline: offline})
@@ -80,7 +80,7 @@ and exactly one stored entry, auto-resolves to it.`,
 			return err
 		},
 	}
-	cmd.Flags().StringVar(&hubURL, "hub", "", "hub base URL to query (optional when exactly one hub is stored)")
+	cmd.Flags().StringVar(&hubURL, "hub", "", "hub base URL to query (omit to show every stored hub)")
 	cmd.Flags().BoolVar(&offline, "offline", false, "skip the live hub check and report from the local store only")
 	return cmd
 }
