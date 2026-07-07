@@ -390,6 +390,53 @@ func TestTap_AuthStatus(t *testing.T) {
 		require.NotContains(t, res.Formatted, "- Expires:")
 	})
 
+	t.Run("refresh rejection adopts rotated disk token before reporting", func(t *testing.T) {
+		t.Parallel()
+		sb := NewSandbox(t)
+		tap := newTestTap(t, sb)
+
+		const hub = "https://hub.example.com"
+		now := sb.Runtime().Clock().Now()
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			winner := &tapper.AuthStore{}
+			winner.Set(hub, tapper.AuthEntry{
+				AccessToken:   "thub_siblingwin00",
+				TokenType:     "Bearer",
+				ExpiresAt:     now.Add(time.Hour),
+				RefreshToken:  "rt-sibling",
+				ClientID:      "tapper-cli",
+				TokenEndpoint: "unused",
+			})
+			require.NoError(t, winner.Save(sb.Context(), sb.Runtime(), tap.PathService.AuthStorePath()))
+
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":"invalid_grant"}`))
+		}))
+		defer srv.Close()
+
+		seedStore(t, sb, tap, map[string]tapper.AuthEntry{
+			hub: {
+				AccessToken:   "thub_expiredtok00",
+				TokenType:     "Bearer",
+				ExpiresAt:     now.Add(-time.Hour),
+				RefreshToken:  "rt-consumed",
+				ClientID:      "tapper-cli",
+				TokenEndpoint: srv.URL,
+			},
+		})
+		var validatedToken string
+		tap.AuthValidateFn = func(_ context.Context, _ *toolkit.Runtime, _ string, token string) (*tapper.WhoAmI, error) {
+			validatedToken = token
+			return &tapper.WhoAmI{Username: "alice"}, nil
+		}
+
+		res, err := tap.AuthStatus(sb.Context(), tapper.AuthStatusOptions{})
+		require.NoError(t, err)
+		require.True(t, res.Valid)
+		require.Equal(t, "thub_siblingwin00", validatedToken)
+		require.Equal(t, "thub_sibling...", res.TokenPrefix)
+	})
+
 	t.Run("offline does not refresh an expired token", func(t *testing.T) {
 		t.Parallel()
 		sb := NewSandbox(t)
