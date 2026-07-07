@@ -2,6 +2,19 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.28.1 - 2026-07-07
+
+
+
+### 🐛 Bug Fixes
+- **auth:** refresh cached hub credentials
+- **auth:** show all stored hubs in status
+
+
+### 🚜 Refactor
+- **auth:** share hub credential refresh flow
+
+
 ## v0.28.0 - 2026-07-01
 
 
