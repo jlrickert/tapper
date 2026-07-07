@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.28.2 - 2026-07-07
+
+
+
+### ⚙️ Miscellaneous
+- **release:** add existing tag recovery mode
+
+
 ## v0.28.1 - 2026-07-07
 
 
