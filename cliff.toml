@@ -33,3 +33,8 @@ commit_parsers = [
 ]
 filter_commits = true
 tag_pattern = "v[0-9].*"
+ignore_tags = "^v1\\.0\\.(0|1)$"
+
+[bump]
+features_always_bump_minor = true
+breaking_always_bump_major = false

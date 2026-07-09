@@ -42,7 +42,7 @@ jobs:
         uses: orhun/git-cliff-action@v4
         with:
           config: cliff.toml
-          args: --bumped-version
+          args: --use-branch-tags --bumped-version
 
       - name: Resolve release version
         id: version
@@ -62,6 +62,11 @@ jobs:
           fi
           if [[ ! "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "Error: resolved version '$VERSION' is not semver (vX.Y.Z)." >&2
+            exit 1
+          fi
+          if [ -z "$INPUT_VERSION" ] && [[ ! "$VERSION" =~ ^v0\. ]]; then
+            echo "Error: automatic releases may not cross from v0.x to v1.0.0." >&2
+            echo "A stable v1 release requires explicit user authorization and a version override." >&2
             exit 1
           fi
           TAG_EXISTS=false
@@ -89,7 +94,7 @@ jobs:
         uses: orhun/git-cliff-action@v4
         with:
           config: cliff.toml
-          args: --tag ${{ steps.version.outputs.version }} -o CHANGELOG.md
+          args: --use-branch-tags --tag ${{ steps.version.outputs.version }} -o CHANGELOG.md
 
       - name: Re-render integrations with release version
         if: steps.version.outputs.existing_tag != 'true'

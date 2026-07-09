@@ -50,6 +50,14 @@ go vet ./...
   then runs goreleaser inline.
 - Commit messages should follow Conventional Commits (for example `feat:`,
   `fix:`, `docs:`), with summaries no longer than 72 characters.
+- Never use Conventional Commits breaking-change syntax (`type!:` or a
+  `BREAKING CHANGE:` footer). Tapper stays on `v0.x` until the user explicitly
+  authorizes a stable `v1` release. Incompatible changes during `v0.x` use an
+  ordinary `feat:` or `refactor:` commit and may produce a minor `v0.x` bump.
+- Automatic release versioning must never cross from `v0.x` to `v1.0.0`. A
+  stable `v1` release requires explicit user direction and an explicit
+  `version` workflow override; a code change or commit message is not release
+  authorization.
 - When opening a PR, base on `main` unless explicitly asked to route through
   `dev`. If `dev` is reactivated (rulesets re-enabled, default branch
   switched back), revisit this section.
