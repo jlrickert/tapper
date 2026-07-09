@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented in this file.
 
+## v1.0.0 - 2026-07-09
+
+
+
+### 🚀 Features
+- **orient:** simplify orient payload
+
+
 ## v0.28.2 - 2026-07-07
 
 
