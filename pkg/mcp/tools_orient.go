@@ -9,14 +9,11 @@ import (
 )
 
 // orientInput is the parameter surface of mcp__tapper__orient. Every
-// field is optional: a bare call returns the tier-0 payload with the
-// active keg resolved from the working directory and no host-specific
-// content.
+// field is optional: a bare call returns the shared KEG system payload
+// with the active keg resolved from the working directory.
 type orientInput struct {
-	Host   string `json:"host,omitempty"   jsonschema:"host identifier for host-specific payload (e.g. 'claude' or 'codex')"`
-	Keg    string `json:"keg,omitempty"    jsonschema:"keg alias; pins active-keg resolution and gates the per-keg manifest section at tier 1"`
+	Keg    string `json:"keg,omitempty"    jsonschema:"keg alias; pins active-keg resolution"`
 	Flight string `json:"flight,omitempty" jsonschema:"flight ref to cap available kegs (uses server default if empty)"`
-	Tier   int    `json:"tier,omitempty"   jsonschema:"payload depth: 0 (purpose + active keg + rules summary), 1 (adds linking + snapshot), 2 (adds full canonical body and host-rendered bytes)"`
 }
 
 // registerOrientTools wires the orient surface onto srv. Called from
@@ -28,7 +25,7 @@ func registerOrientTools(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaul
 func registerOrient(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "orient",
-		Description: "Return a tapper orientation payload at the requested tier. Tier 0 is bounded (purpose + active keg + rules summary). Tier 1 adds linking conventions and snapshot policy. Tier 2 adds the full canonical body; when host is set, the rendered host-specific bytes are appended.",
+		Description: "Return the shared Tapper KEG system orientation payload, including active KEG context, available KEGs, flight instructions, KEG-level instructions, and canonical guidance.",
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(false),
@@ -37,8 +34,6 @@ func registerOrient(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 		kegOpts := resolveKegTargetWithFlight(in.Keg, in.Flight, defaults)
 		opts := tapper.OrientOptions{
 			KegTargetOptions: kegOpts,
-			Host:             in.Host,
-			Tier:             in.Tier,
 		}
 		payload, err := tap.Orient(ctx, opts)
 		if err != nil {

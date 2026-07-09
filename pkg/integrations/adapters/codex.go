@@ -124,14 +124,6 @@ type CodexAdapter struct{}
 // Name returns the adapter's subdirectory under the rendered root.
 func (CodexAdapter) Name() string { return "codex" }
 
-// OrientPath returns the rendered AGENTS.md path inside IntegrationsFS.
-// Tier-2 orient calls with host="codex" append these bytes to the
-// canonical body; Codex users see the same preamble and concat as
-// the install-tree AGENTS.md.
-func (CodexAdapter) OrientPath() string {
-	return "rendered/codex/AGENTS.md"
-}
-
 // Render emits the Codex install tree under dst. The three output
 // groups (AGENTS.md, prompts, config snippet) are independent; a
 // failure on any one aborts the render. rt is accepted for interface

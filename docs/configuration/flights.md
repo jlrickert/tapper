@@ -14,8 +14,8 @@ A flight carries two independent things, either of which may be empty:
    instructions-only flights. Direct CLI commands ignore these caps and use
    normal keg authorization.
 2. **Agent instructions** (`instructions`). These are injected into the `tap
-   orient` payload at tiers 1–2, so an agent that orients under a flight sees the
-   flight's guidance.
+   orient` payload, so an agent that orients under a flight sees the flight's
+   guidance before general Tapper guidance.
 
 Because a flight is not a target selector, `--flight` **composes** with `--keg`,
 `--namespace`, and `--hub`: those pin which keg you operate on; the flight adds
@@ -95,5 +95,7 @@ equivalent of the CLI's piped `flight edit`, since agents cannot open editors.
 - Direct CLI commands such as `tap cat`, `tap edit`, and `tap create` ignore
   flight cover caps; access is governed by normal keg authorization.
 - A missing `flights.d` directory means "no flights", not an error.
-- `tap orient --flight @namespace/+slug --tier 1` (or higher) injects the flight's title,
-  available kegs, and instructions into the orientation payload.
+- `tap orient --flight @namespace/+slug` injects the flight's title, available
+  kegs, and instructions into the orientation payload.
+- KEG-specific instructions belong in each KEG's own config `instructions`
+  field, not in flight cover rows.

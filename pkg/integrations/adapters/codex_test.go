@@ -117,32 +117,3 @@ func TestCodexAdapter_RegistersWithDefaults(t *testing.T) {
 		t.Errorf("Codex adapter not registered in DefaultAdapters()")
 	}
 }
-
-// TestCodexAdapter_OrientPathMatchesRenderedTree verifies the OrientPath
-// return value points at a file the adapter actually emits. The tier-2
-// orient payload reads from IntegrationsFS at this path, so drift
-// between OrientPath() and the rendered tree would surface as a runtime
-// error in orient calls rather than a compile-time failure.
-func TestCodexAdapter_OrientPathMatchesRenderedTree(t *testing.T) {
-	rt := newTestRuntime(t)
-	canonical := os.DirFS("testdata/canonical")
-	mem := integrations.NewMemWriter()
-	if err := (CodexAdapter{}).Render(rt, canonical, mem); err != nil {
-		t.Fatalf("Render: %v", err)
-	}
-	orientPath := (CodexAdapter{}).OrientPath()
-	if orientPath == "" {
-		t.Fatal("OrientPath returned empty; codex adapter should declare an orient artifact")
-	}
-	// OrientPath is rooted at IntegrationsFS ("rendered/codex/..."); the
-	// MemWriter keys are rooted at the adapter output ("codex/...").
-	// Strip the "rendered/" prefix to compare.
-	const prefix = "rendered/"
-	if len(orientPath) <= len(prefix) || orientPath[:len(prefix)] != prefix {
-		t.Fatalf("OrientPath %q does not start with %q", orientPath, prefix)
-	}
-	renderedKey := orientPath[len(prefix):]
-	if _, ok := mem.Files()[renderedKey]; !ok {
-		t.Errorf("OrientPath %q maps to MemWriter key %q which was not produced by Render; produced %v", orientPath, renderedKey, mem.Paths())
-	}
-}

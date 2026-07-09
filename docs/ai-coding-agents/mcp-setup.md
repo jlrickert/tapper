@@ -119,7 +119,7 @@ manage namespace members and keg grants through the hub UI.
 | `import_from_keg` | Import nodes from another keg |
 | `export`, `import` | Export or import keg archives |
 | `graph` | Render a keg graph |
-| `orient` | Return the tiered agent orientation payload |
+| `orient` | Return the shared KEG system orientation payload |
 | `list_flights`, `flight_show`, `flight_create`, `flight_edit`, `flight_delete` | Manage flights |
 | `integrate` | Install rendered host integrations |
 | `license` | Read bundled license text |

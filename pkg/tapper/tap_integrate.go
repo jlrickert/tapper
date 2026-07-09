@@ -16,8 +16,7 @@ type IntegrateOptions struct {
 	KegTargetOptions
 
 	// Host selects which rendered tree to install. Must name a
-	// registered adapter that also has an orient artifact (see
-	// OrientableHosts).
+	// registered integration adapter.
 	Host string
 
 	// DryRun, when true, causes Integrate to return the target paths
@@ -44,7 +43,7 @@ func (t *Tap) Integrate(ctx context.Context, opts IntegrateOptions) ([]string, e
 	if opts.Host == "" {
 		return nil, fmt.Errorf("integrate: host is required")
 	}
-	if _, ok := orientPathFor(opts.Host); !ok {
+	if !integrationHostExists(opts.Host) {
 		return nil, fmt.Errorf("integrate: unknown host %q", opts.Host)
 	}
 
@@ -126,11 +125,23 @@ func (t *Tap) defaultIntegrateTarget(host string) (string, error) {
 	}
 }
 
-// IntegrateHosts returns the sorted list of hosts that Integrate can
-// install. Since OrientableHosts now derives directly from the adapter
-// registry (filtered on OrientPath() != ""), the install set is the
-// same set: an adapter is installable iff it declares an orient
-// artifact. Callers that build CLI completion lists consult this.
+func integrationHostExists(host string) bool {
+	for _, a := range integrations.DefaultAdapters() {
+		if a.Name() == host {
+			return true
+		}
+	}
+	return false
+}
+
+// IntegrateHosts returns the sorted list of hosts that Integrate can install.
+// Callers that build CLI completion lists consult this.
 func IntegrateHosts() []string {
-	return OrientableHosts()
+	adapters := integrations.DefaultAdapters()
+	out := make([]string, 0, len(adapters))
+	for _, a := range adapters {
+		out = append(out, a.Name())
+	}
+	sort.Strings(out)
+	return out
 }

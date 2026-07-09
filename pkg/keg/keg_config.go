@@ -74,6 +74,10 @@ type ConfigV2 struct {
 	// Summary provides a brief description or summary of the KEG content.
 	Summary string `yaml:"summary,omitempty" json:"summary,omitempty"`
 
+	// Instructions are KEG-level guidance shown to agents when orienting to
+	// this keg.
+	Instructions string `yaml:"instructions,omitempty" json:"instructions,omitempty"`
+
 	// Links holds a list of LinkEntry objects representing related links or
 	// references in the configuration.
 	Links []LinkEntry `yaml:"links,omitempty" json:"links,omitempty"`

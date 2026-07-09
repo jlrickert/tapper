@@ -80,14 +80,6 @@ type ClaudeAdapter struct{}
 // Name returns the adapter's subdirectory under the rendered root.
 func (ClaudeAdapter) Name() string { return "claude" }
 
-// OrientPath returns the rendered SKILL.md path inside IntegrationsFS.
-// Tier-2 orient calls with host="claude" append these bytes to the
-// canonical body so agents see Claude's skill frontmatter alongside
-// the host-agnostic guidance.
-func (ClaudeAdapter) OrientPath() string {
-	return "rendered/claude/skills/tapper/SKILL.md"
-}
-
 // Render emits the Claude plugin files into dst. rt is consulted for
 // release-time configuration (TAPPER_PLUGIN_VERSION); a nil runtime
 // falls back to the default "dev" version. Outputs are written in

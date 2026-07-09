@@ -210,8 +210,3 @@ func (a *testAdapter) Render(_ *toolkit.Runtime, content fs.FS, dst DestWriter) 
 	}
 	return dst.Write(a.n+"/marker.txt", []byte("marker"))
 }
-
-// OrientPath returns empty so testAdapter does not contribute to the
-// orient host set. Tests that need an orient-capable stub override
-// this by declaring their own Adapter value.
-func (a *testAdapter) OrientPath() string { return "" }
