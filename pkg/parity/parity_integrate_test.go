@@ -20,38 +20,27 @@ func TestParity_IntegrationOperations(t *testing.T) {
 
 	cases := []ParityTestCase{
 		{
-			Name:     "orient/tier_0_hostless",
-			CLIArgs:  []string{"orient", "--tier", "0"},
+			Name:     "orient/shared_payload",
+			CLIArgs:  []string{"orient"},
 			MCPTool:  "orient",
-			MCPInput: map[string]any{"tier": 0},
+			MCPInput: map[string]any{},
 			Compare: func(t *testing.T, cliOut, mcpOut string) {
 				t.Helper()
-				// Tier 0 is bounded and hostless; both surfaces must
-				// include the same structural markers.
-				require.Contains(t, cliOut, "tier 0")
-				require.Contains(t, mcpOut, "tier 0")
+				// The shared payload is hostless and tierless; both
+				// surfaces must include the same structural markers.
+				require.Contains(t, cliOut, "# KEG System")
+				require.Contains(t, mcpOut, "# KEG System")
 				require.Contains(t, cliOut, "Rules:")
 				require.Contains(t, mcpOut, "Rules:")
 				require.NotContains(t, cliOut, "## Host:")
 				require.NotContains(t, mcpOut, "## Host:")
+				require.NotContains(t, strings.ToLower(cliOut), "tier 0")
+				require.NotContains(t, strings.ToLower(mcpOut), "tier 0")
 				// Line-by-line equivalence (ignoring blanks and
 				// trailing whitespace) rules out silent divergence in
 				// the payload the two surfaces produce.
 				require.Equal(t, normalizeLines(cliOut), normalizeLines(mcpOut),
-					"CLI and MCP orient payloads diverged at tier 0")
-			},
-		},
-		{
-			Name:     "orient/tier_2_claude_includes_skill_bytes",
-			CLIArgs:  []string{"orient", "--tier", "2", "--host", "claude"},
-			MCPTool:  "orient",
-			MCPInput: map[string]any{"tier": 2, "host": "claude"},
-			Compare: func(t *testing.T, cliOut, mcpOut string) {
-				t.Helper()
-				require.Contains(t, cliOut, "## Host: claude")
-				require.Contains(t, mcpOut, "## Host: claude")
-				require.Equal(t, normalizeLines(cliOut), normalizeLines(mcpOut),
-					"CLI and MCP orient payloads diverged at (claude, tier 2)")
+					"CLI and MCP orient payloads diverged")
 			},
 		},
 		{

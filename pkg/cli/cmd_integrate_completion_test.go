@@ -37,43 +37,18 @@ func TestIntegrateCompletion_StopsAfterOneArg(t *testing.T) {
 	require.Empty(t, suggestions)
 }
 
-func TestOrientCompletion_HostFlagLists(t *testing.T) {
+func TestOrientCommandRejectsRemovedHostAndTierFlags(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t)
 
-	comp := NewCompletionProcess(t, false, 0, "orient", "--host", "").
-		Run(sb.Context(), sb.Runtime())
-	require.NoError(t, comp.Err)
-
-	suggestions := parseCompletionSuggestions(string(comp.Stdout))
-	require.Contains(t, suggestions, "claude")
-	require.Contains(t, suggestions, "codex")
-}
-
-func TestOrientCompletion_TierFlagListsValidTiers(t *testing.T) {
-	t.Parallel()
-	sb := NewSandbox(t)
-
-	comp := NewCompletionProcess(t, false, 0, "orient", "--tier", "").
-		Run(sb.Context(), sb.Runtime())
-	require.NoError(t, comp.Err)
-
-	suggestions := parseCompletionSuggestions(string(comp.Stdout))
-	require.Contains(t, suggestions, "0")
-	require.Contains(t, suggestions, "1")
-	require.Contains(t, suggestions, "2")
-}
-
-func TestOrientCompletion_TierFlagFiltersByPrefix(t *testing.T) {
-	t.Parallel()
-	sb := NewSandbox(t)
-
-	comp := NewCompletionProcess(t, false, 0, "orient", "--tier", "1").
-		Run(sb.Context(), sb.Runtime())
-	require.NoError(t, comp.Err)
-
-	suggestions := parseCompletionSuggestions(string(comp.Stdout))
-	require.Equal(t, []string{"1"}, suggestions)
+	for _, args := range [][]string{
+		{"orient", "--host", "codex"},
+		{"orient", "--tier", "1"},
+	} {
+		res := NewProcess(t, false, args...).Run(sb.Context(), sb.Runtime())
+		require.Error(t, res.Err)
+		require.Contains(t, res.Err.Error(), "unknown flag")
+	}
 }
 
 func TestRootCompletion_FlightFlagSuppressesFileCompletion(t *testing.T) {

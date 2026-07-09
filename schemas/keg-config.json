@@ -35,6 +35,10 @@
       "type": "string",
       "description": "Short summary of the keg's purpose and contents."
     },
+    "instructions": {
+      "type": "string",
+      "description": "Markdown guidance for agents working in this keg."
+    },
     "links": {
       "type": "array",
       "description": "Named external links or related keg references.",
