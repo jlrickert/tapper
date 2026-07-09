@@ -475,6 +475,8 @@ func TestAuthLoginCmd_Interactive_BrowserFlow(t *testing.T) {
 	stderr := string(res.Stderr)
 	require.Contains(t, stderr, "ABCD-1234", "one-time code should be shown")
 	require.Contains(t, stderr, "atlas.foldwise.ai/device", "verification URL should be shown for copy/paste")
+	require.NotContains(t, stderr, "user_code=",
+		"the code must never appear in a URL (browser history / proxy logs), even when the hub sends verification_uri_complete")
 	require.Contains(t, string(res.Stdout), "Logged in to https://atlas.foldwise.ai")
 
 	raw := sb.MustReadFile("~/.local/state/tapper/auth.yaml")

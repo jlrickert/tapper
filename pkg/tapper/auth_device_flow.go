@@ -130,8 +130,9 @@ func (o AuthLoginDeviceOptions) withDefaults() AuthLoginDeviceOptions {
 // response an OnUserCode handler needs to drive the user-facing step. It
 // is the exported projection of deviceAuthResponse so callers in other
 // packages (the CLI) can present the code without seeing the wire type.
-// VerificationURIComplete embeds the user_code in the URL; prefer it when
-// non-empty so the website pre-fills the code.
+// VerificationURIComplete (a URL with the user_code embedded) is retained
+// from the wire response but deliberately never displayed or opened — see
+// VerificationURL.
 type DeviceUserPrompt struct {
 	UserCode                string
 	VerificationURI         string
@@ -139,24 +140,14 @@ type DeviceUserPrompt struct {
 	ExpiresIn               int64
 }
 
-// VerificationURL returns the URL the user should open, always including the
-// user_code so a copied or auto-opened link pre-fills the code instead of
-// forcing the user to type it. It prefers the hub-provided
-// verification_uri_complete (RFC 8628 §3.2) and, when the hub omits it (older
-// hubs do), appends ?user_code=<code> to verification_uri — matching the
-// query parameter the hub's /device page reads.
+// VerificationURL returns the URL the user should open: always the bare
+// verification_uri, never a code-bearing variant. The user_code is shown
+// separately and typed into the page (GitHub-style, RFC 8628 §3.3.1) —
+// embedding it in the URL would leak it into browser history and any front
+// proxy's access logs. The hub-provided verification_uri_complete is
+// deliberately ignored for the same reason.
 func (p DeviceUserPrompt) VerificationURL() string {
-	if strings.TrimSpace(p.VerificationURIComplete) != "" {
-		return p.VerificationURIComplete
-	}
-	if strings.TrimSpace(p.UserCode) == "" {
-		return p.VerificationURI
-	}
-	sep := "?"
-	if strings.Contains(p.VerificationURI, "?") {
-		sep = "&"
-	}
-	return p.VerificationURI + sep + "user_code=" + url.QueryEscape(p.UserCode)
+	return p.VerificationURI
 }
 
 // deviceAuthResponse is the parsed RFC 8628 §3.2 device_authorization JSON
