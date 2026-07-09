@@ -187,22 +187,22 @@ func TestDeviceUserPrompt_VerificationURL(t *testing.T) {
 		want string
 	}{
 		{
-			name: "prefers complete when present",
+			name: "ignores complete even when present (code never rides in a URL)",
 			p:    DeviceUserPrompt{UserCode: "J28S-9CKN", VerificationURI: "https://atlas.foldwise.ai/device", VerificationURIComplete: "https://atlas.foldwise.ai/device?user_code=J28S-9CKN"},
-			want: "https://atlas.foldwise.ai/device?user_code=J28S-9CKN",
+			want: "https://atlas.foldwise.ai/device",
 		},
 		{
-			name: "constructs from base when complete is missing",
+			name: "bare URI when complete is missing",
 			p:    DeviceUserPrompt{UserCode: "J28S-9CKN", VerificationURI: "https://atlas.foldwise.ai/device"},
-			want: "https://atlas.foldwise.ai/device?user_code=J28S-9CKN",
+			want: "https://atlas.foldwise.ai/device",
 		},
 		{
-			name: "appends with & when base already has a query",
+			name: "never appends the code to a base with a query",
 			p:    DeviceUserPrompt{UserCode: "AB CD", VerificationURI: "https://hub.example.com/device?x=1"},
-			want: "https://hub.example.com/device?x=1&user_code=AB+CD",
+			want: "https://hub.example.com/device?x=1",
 		},
 		{
-			name: "falls back to bare URI when no code",
+			name: "bare URI when no code",
 			p:    DeviceUserPrompt{VerificationURI: "https://hub.example.com/device"},
 			want: "https://hub.example.com/device",
 		},
