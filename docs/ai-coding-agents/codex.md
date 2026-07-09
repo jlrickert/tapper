@@ -138,8 +138,8 @@ with a live MCP session.
 
 - [Claude Code Plugin](claude-code-plugin.md) — the equivalent one-command
   install for Claude Code.
-- [Orientation Surface](orient.md) — the tiered `orient` tool and resources
-  that tier 2 returns `AGENTS.md` bytes from.
+- [Orientation Surface](orient.md) — the shared `orient` payload available
+  through the MCP tool, MCP resource, and CLI.
 - [MCP Server Setup](mcp-setup.md) — manual MCP registration when
   `tap integrate codex` is not the right fit.
 - [Agent Conventions](agent-conventions.md) — the invariants every agent

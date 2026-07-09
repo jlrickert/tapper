@@ -48,6 +48,7 @@ url: "https://example.com/v2"
 creator: "creator-v2"
 state: "archived"
 summary: "This is a test KEG V2 config"
+instructions: "Use this KEG for parser tests."
 links:
   - alias: "home"
     url: "https://keg.example.com/@user/home"
@@ -73,6 +74,7 @@ tags:
 
 	require.Equal(t, keg.ConfigV2VersionString, config.Kegv)
 	require.Equal(t, "Test KEG V2", config.Title)
+	require.Equal(t, "Use this KEG for parser tests.", config.Instructions)
 
 	require.Len(t, config.Links, 2, "expected 2 links")
 	links := map[string]string{}

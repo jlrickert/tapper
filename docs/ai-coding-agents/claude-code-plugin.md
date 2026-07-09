@@ -44,8 +44,8 @@ wrapper that points Claude Code at them.
 
 The same rendered tree is embedded in the `tap` binary. Agents that prefer
 not to install the plugin can reach equivalent orientation content through
-the `mcp__tapper__orient` tool or the `tapper://orient/claude/tier-<n>`
-MCP resources — see [Orientation Surface](orient.md).
+the `mcp__tapper__orient` tool or the `tapper://orient` MCP resource — see
+[Orientation Surface](orient.md).
 
 ## What the plugin does not contain
 
