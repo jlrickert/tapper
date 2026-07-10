@@ -2,6 +2,19 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.29.0 - 2026-07-10
+
+
+
+### 🐛 Bug Fixes
+- **release:** keep automatic versions on v0
+- **auth:** keep device codes out of verification URLs
+
+
+### 🚀 Features
+- **orient:** simplify orient payload
+
+
 ## v0.28.2 - 2026-07-07
 
 
