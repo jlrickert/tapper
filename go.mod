@@ -2,6 +2,11 @@ module github.com/jlrickert/tapper
 
 go 1.26.0
 
+retract (
+	v1.0.0 // Published accidentally.
+	v1.0.1 // Contains retractions only.
+)
+
 require (
 	github.com/charmbracelet/huh v1.0.0
 	github.com/coder/websocket v1.8.14
