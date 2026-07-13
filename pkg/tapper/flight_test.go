@@ -1,6 +1,8 @@
 package tapper_test
 
 import (
+	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/jlrickert/tapper/pkg/tapper"
@@ -56,9 +58,74 @@ instructions: |
 	}, f.Cover)
 	require.Contains(t, f.Instructions, "backend kegs")
 	require.Equal(t, "local", f.Source)
+	require.Len(t, f.ManifestHash, 64)
+	encoded, err := json.Marshal(f)
+	require.NoError(t, err)
+	require.NotContains(t, string(encoded), "manifest_hash")
 
 	_, err = tap.GetFlight(fx.Context(), tapper.GetFlightOptions{Name: "nope"})
 	require.Error(t, err, "missing flight must error")
+}
+
+func TestFlightService_ManifestHashUsesNormalizedContent(t *testing.T) {
+	t.Parallel()
+	fx := NewSandbox(t)
+	require.NoError(t, fx.Setwd("/home/testuser"))
+	tap, err := tapper.NewTap(tapper.TapOptions{Root: "/home/testuser", Runtime: fx.Runtime()})
+	require.NoError(t, err)
+	require.NoError(t, fx.Runtime().AtomicWriteFile(tap.PathService.UserConfig(), []byte(`hubs:
+  home:
+    kind: local
+    defaultNamespace: local
+    basePath: /home/testuser/kegs
+`), 0o644))
+
+	path := "/home/testuser/kegs/flights.d/hash.yaml"
+	baseline := `title: Focused
+visibility: private
+capabilities: [manage_flights]
+cover:
+  - namespace: local
+    keg: personal
+    role: editor
+instructions: Stay focused.
+`
+	require.NoError(t, fx.Runtime().AtomicWriteFile(path, []byte(baseline), 0o644))
+	flight, err := tap.FlightService.GetFlightFresh(fx.Context(), "+hash")
+	require.NoError(t, err)
+	baselineHash := flight.ManifestHash
+	require.Len(t, baselineHash, 64)
+
+	equivalent := `instructions: Stay focused.
+cover:
+- role: editor
+  keg: personal
+  namespace: local
+capabilities:
+- manage_flights
+visibility: private
+title: Focused
+`
+	require.NoError(t, fx.Runtime().AtomicWriteFile(path, []byte(equivalent), 0o644))
+	flight, err = tap.FlightService.GetFlightFresh(fx.Context(), "+hash")
+	require.NoError(t, err)
+	require.Equal(t, baselineHash, flight.ManifestHash)
+
+	changes := map[string]string{
+		"title":        strings.Replace(baseline, "title: Focused", "title: Changed", 1),
+		"visibility":   strings.Replace(baseline, "visibility: private", "visibility: public", 1),
+		"capabilities": strings.Replace(baseline, "capabilities: [manage_flights]", "capabilities: []", 1),
+		"cover":        strings.Replace(baseline, "role: editor", "role: viewer", 1),
+		"instructions": strings.Replace(baseline, "instructions: Stay focused.", "instructions: Changed.", 1),
+	}
+	for name, manifest := range changes {
+		t.Run(name, func(t *testing.T) {
+			require.NoError(t, fx.Runtime().AtomicWriteFile(path, []byte(manifest), 0o644))
+			changed, err := tap.FlightService.GetFlightFresh(fx.Context(), "+hash")
+			require.NoError(t, err)
+			require.NotEqual(t, baselineHash, changed.ManifestHash)
+		})
+	}
 }
 
 func TestFlightService_NoFlightsDir(t *testing.T) {

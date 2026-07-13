@@ -20,10 +20,9 @@ var errMCPFlightRequired = errors.New("a configured flight is required for the l
 type flightSessionContextKey struct{}
 
 type flightSnapshot struct {
-	Ref      string
-	Source   string
-	Revision int64
-	Hash     string
+	Ref          string
+	Source       string
+	ManifestHash string
 }
 
 type flightSessionState struct {
@@ -70,13 +69,9 @@ func snapshotFlight(flight *tapper.Flight) (flightSnapshot, error) {
 	if flight == nil || strings.TrimSpace(flight.Name) == "" {
 		return flightSnapshot{}, errors.New("active MCP flight is unavailable")
 	}
-	snapshot := flightSnapshot{Ref: flight.Name, Source: flight.Source, Revision: flight.Revision, Hash: flight.ManifestHash}
-	if flight.Source == "local" {
-		if snapshot.Hash == "" {
-			return flightSnapshot{}, errors.New("local MCP flight has no manifest hash")
-		}
-	} else if snapshot.Revision <= 0 {
-		return flightSnapshot{}, errors.New("remote MCP flight has no revision; upgrade the Hub before reconnecting")
+	snapshot := flightSnapshot{Ref: flight.Name, Source: flight.Source, ManifestHash: flight.ManifestHash}
+	if snapshot.ManifestHash == "" {
+		return flightSnapshot{}, errors.New("active MCP flight has no manifest hash")
 	}
 	return snapshot, nil
 }

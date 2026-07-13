@@ -2,6 +2,8 @@ package tapper
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -83,8 +85,7 @@ type Flight struct {
 	Namespace    string `yaml:"-" json:"namespace,omitempty"`
 	Slug         string `yaml:"-" json:"slug,omitempty"`
 	Source       string `yaml:"-" json:"source,omitempty"` // "local" or a hub name
-	Revision     int64  `yaml:"-" json:"revision,omitempty"`
-	ManifestHash string `yaml:"-" json:"manifest_hash,omitempty"`
+	ManifestHash string `yaml:"-" json:"-"`
 	FlightManifest
 }
 
@@ -308,8 +309,8 @@ func (s *FlightService) GetFlight(ctx context.Context, name string) (*Flight, er
 }
 
 // GetFlightFresh bypasses the process cache. MCP sessions use this before
-// gated calls so a Hub revision or local manifest hash change invalidates the
-// pinned session instead of silently changing its authority.
+// gated calls so a manifest change invalidates the pinned session instead of
+// silently changing its authority.
 func (s *FlightService) GetFlightFresh(ctx context.Context, name string) (*Flight, error) {
 	return s.getFlight(ctx, name)
 }
@@ -439,7 +440,7 @@ func (s *FlightService) getLocalFlight(dir, namespace, slug string) (*Flight, er
 		}
 		normalizeFlightManifest(&m)
 		ref := FlightRef{Namespace: namespace, Slug: slug}
-		return &Flight{Name: ref.Canonical(), Namespace: namespace, Slug: slug, Source: "local", ManifestHash: s.Runtime.Hasher().Hash(b), FlightManifest: m}, nil
+		return &Flight{Name: ref.Canonical(), Namespace: namespace, Slug: slug, Source: "local", ManifestHash: hashFlightManifest(m), FlightManifest: m}, nil
 	}
 	return nil, fmt.Errorf("flight %q not found: %w", slug, keg.ErrNotExist)
 }
@@ -481,6 +482,18 @@ func normalizeFlightManifest(m *FlightManifest) {
 		m.Cover[i].Keg = strings.TrimSpace(m.Cover[i].Keg)
 		m.Cover[i].Role = normalizeFlightRole(m.Cover[i].Role)
 	}
+}
+
+// hashFlightManifest returns an internal change token for a normalized flight
+// manifest. JSON field order is fixed by FlightManifest's struct definition,
+// and SHA-256 keeps local and Hub-backed flights on the same comparison path.
+func hashFlightManifest(m FlightManifest) string {
+	normalizeFlightManifest(&m)
+	b, err := json.Marshal(m)
+	if err != nil {
+		panic(fmt.Sprintf("marshal normalized flight manifest: %v", err))
+	}
+	return fmt.Sprintf("%x", sha256.Sum256(b))
 }
 
 func validateFlightManifest(m *FlightManifest) error {
@@ -708,7 +721,7 @@ func flightFromHub(hf HubFlight, hubName string) *Flight {
 		Namespace:      hf.Namespace,
 		Slug:           hf.Slug,
 		Source:         hubName,
-		Revision:       hf.Revision,
+		ManifestHash:   hashFlightManifest(m),
 		FlightManifest: m,
 	}
 }

@@ -26,7 +26,6 @@ type HubFlight struct {
 	Instructions string             `json:"instructions"`
 	Visibility   string             `json:"visibility"`
 	Capabilities []FlightCapability `json:"capabilities"`
-	Revision     int64              `json:"revision"`
 	Cover        []HubFlightCover   `json:"cover"`
 }
 

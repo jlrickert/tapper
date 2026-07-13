@@ -104,10 +104,10 @@ is a partial update where omitted fields retain their current values.
   with a "keg … is not available in flight …" error.
 - MCP writes against a `viewer` cover row are rejected as viewer-only.
 - The local full MCP surface refuses to start without a configured flight.
-- The active flight's cover, instructions, capabilities, and remote revision or
-  local manifest hash are pinned per connection. Project config changes do not
+- The active flight's cover, instructions, capabilities, and normalized
+  manifest hash are pinned per connection. Project config changes do not
   change an existing connection.
-- If that remote revision or local hash changes, the connection is invalidated
+- If that manifest hash changes, the connection is invalidated
   for KEG and flight mutations until a human switches it or the host reconnects.
 - Direct CLI commands such as `tap cat`, `tap edit`, and `tap create` ignore
   flight cover caps; access is governed by normal keg authorization.
