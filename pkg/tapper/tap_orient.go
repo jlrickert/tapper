@@ -31,10 +31,27 @@ type OrientOptions struct {
 // active-keg, flight, and hub-listing failures do not suppress the core
 // orientation document.
 func (t *Tap) Orient(ctx context.Context, opts OrientOptions) (string, error) {
-	activeKeg := t.resolveActiveKegLabel(ctx, opts.KegTargetOptions)
-	flight, flightNote := t.resolveOrientFlight(ctx, opts.Flight)
+	flightName := t.activeFlightName(opts.Flight)
+	activeOpts := opts.KegTargetOptions
+	activeOpts.Flight = flightName
+	activeKeg := t.resolveActiveKegLabel(ctx, activeOpts)
+	flight, flightNote := t.resolveOrientFlight(ctx, flightName)
 	available, warnings := t.orientKegListing(ctx, flight)
 	return buildOrientPayload(activeKeg, flight, flightNote, available, warnings)
+}
+
+func (t *Tap) activeFlightName(explicit string) string {
+	if name := strings.TrimSpace(explicit); name != "" {
+		return name
+	}
+	if t == nil || t.ConfigService == nil {
+		return ""
+	}
+	cfg, err := t.ConfigService.Config(true)
+	if err != nil || cfg == nil {
+		return ""
+	}
+	return strings.TrimSpace(cfg.Flight())
 }
 
 func (t *Tap) resolveOrientFlight(ctx context.Context, name string) (*Flight, string) {
@@ -366,7 +383,7 @@ func buildOrientPayload(active activeKegLabel, flight *Flight, flightNote string
 	}
 
 	b.WriteString("## Guidance\n\n")
-	for _, name := range []string{"linking.md", "snapshot-policy.md", "agent-orient.md", "tool-inventory.md", "troubleshooting.md"} {
+	for _, name := range []string{"linking.md", "snapshot-policy.md", "secret-handling.md", "agent-orient.md", "tool-inventory.md", "troubleshooting.md"} {
 		if err := appendCanonical(&b, name); err != nil {
 			return "", err
 		}

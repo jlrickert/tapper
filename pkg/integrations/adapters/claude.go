@@ -1,226 +1,125 @@
-// Package adapters hosts the host-specific integration renderers. Each
-// adapter is registered with the parent integrations package via init() and
-// owns a single output directory under the rendered root.
 package adapters
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
 	"io/fs"
 	"path"
 
 	"github.com/jlrickert/cli-toolkit/toolkit"
-
 	"github.com/jlrickert/tapper/pkg/integrations"
 )
 
-// Claude plugin metadata. Values mirror today's plugin.json byte-for-byte;
-// the em-dash in Description is U+2014 (UTF-8 0xE2 0x80 0x94), not a
-// double-hyphen fallback.
-const (
-	claudePluginName        = "tapper"
-	claudePluginDescription = "Tapper KEG CLI integration — registers the `tap mcp` server and ships the `/tapper` skill for MCP-first KEG workflows. Requires the `tap` binary on PATH."
-	claudePluginAuthorName  = "Jared Rickert"
-	claudePluginHomepage    = "https://github.com/jlrickert/tapper"
-)
-
-// claudePluginVersionEnv names the environment variable the release
-// pipeline sets so the plugin manifest carries the tagged version at
-// release time. Local `task render-integrations` runs leave it unset,
-// which produces `claudePluginVersionDefault` — a visible signal that
-// the rendered tree came from a developer checkout, not a release.
-const (
-	claudePluginVersionEnv     = "TAPPER_PLUGIN_VERSION"
-	claudePluginVersionDefault = "dev"
-)
-
-// claudePluginVersion returns the version string baked into the
-// rendered plugin.json. The release workflow sets TAPPER_PLUGIN_VERSION
-// to the resolved release tag (for example "v0.19.0") so the shipped
-// plugin manifest tracks the goreleaser-injected `pkg/cli.Version`.
-// Other invocations fall back to "dev".
-//
-// rt is required. Callers always have a runtime available — the cmd
-// shim constructs the real one and tests use sandbox.NewSandbox — so
-// there is no code path that would legitimately pass nil.
-func claudePluginVersion(rt *toolkit.Runtime) string {
-	if v := rt.Env().Get(claudePluginVersionEnv); v != "" {
-		return v
-	}
-	return claudePluginVersionDefault
-}
-
-// claudeSKILLFrontmatter is the YAML frontmatter prepended to the concat
-// SKILL.md. The description string ends with "MCP-first workflow." to match
-// today's file; the em-dash is the same U+2014 character.
-const claudeSKILLFrontmatter = "---\n" +
-	"name: tapper\n" +
-	"description: Interact with tapper KEGs via the mcp__tapper__* MCP interface — search, navigate, create, and maintain notes. MCP-first workflow.\n" +
-	"---\n\n"
-
-// claudeSKILLOrder is the canonical SKILL.md concat order. agent-orient.md
-// keeps its "# tapper" H1 because today's SKILL.md body opens with it; the
-// other four files have their H1 stripped at concat time so the rendered
-// file has a single top-level heading.
-var claudeSKILLOrder = []string{
-	"agent-orient.md",
-	"tool-inventory.md",
-	"snapshot-policy.md",
-	"linking.md",
-	"troubleshooting.md",
-}
-
-// ClaudeAdapter renders the Claude Code plugin tree:
-//   - claude/.claude-plugin/plugin.json
-//   - claude/.claude-plugin/.mcp.json
-//   - claude/skills/tapper/SKILL.md
 type ClaudeAdapter struct{}
 
-// Name returns the adapter's subdirectory under the rendered root.
 func (ClaudeAdapter) Name() string { return "claude" }
 
-// Render emits the Claude plugin files into dst. rt is consulted for
-// release-time configuration (TAPPER_PLUGIN_VERSION); a nil runtime
-// falls back to the default "dev" version. Outputs are written in
-// alphabetical order of their rendered path so the test fixtures and
-// drift detector see a deterministic emission sequence.
 func (a ClaudeAdapter) Render(rt *toolkit.Runtime, content fs.FS, dst integrations.DestWriter) error {
-	// 1. .mcp.json — hand-formatted to preserve today's inline "args" array.
-	// json.Encoder with SetIndent always expands slice elements onto their
-	// own lines; today's file keeps ["mcp"] inline, so the adapter owns the
-	// template to guarantee byte-parity.
-	mcp := renderClaudeMCPJSON()
-	if err := dst.Write(path.Join(a.Name(), ".claude-plugin", ".mcp.json"), mcp); err != nil {
+	version := pluginVersion(rt)
+	marketplace, err := renderClaudeMarketplace()
+	if err != nil {
+		return err
+	}
+	if err := dst.Write(path.Join(a.Name(), ".claude-plugin", "marketplace.json"), marketplace); err != nil {
 		return err
 	}
 
-	// 2. plugin.json — byte-parity with today's file via the struct encoder.
-	plugin, err := renderClaudePluginJSON(rt)
+	baselineManifest, err := renderClaudeManifest("tapper", version, "MCP-first Tapper KEG access, flight orientation, and safety guidance.", nil)
 	if err != nil {
 		return err
 	}
-	if err := dst.Write(path.Join(a.Name(), ".claude-plugin", "plugin.json"), plugin); err != nil {
+	if err := dst.Write(path.Join(a.Name(), "tapper", ".claude-plugin", "plugin.json"), baselineManifest); err != nil {
 		return err
+	}
+	if err := dst.Write(path.Join(a.Name(), "tapper", ".mcp.json"), renderClaudeMCP()); err != nil {
+		return err
+	}
+	for _, filename := range []string{"block-tap-cli.py", "hooks.json"} {
+		body, err := fs.ReadFile(content, "claude/hooks/"+filename)
+		if err != nil {
+			return fmt.Errorf("claude: hook %s: %w", filename, err)
+		}
+		if err := dst.Write(path.Join(a.Name(), "tapper", "hooks", filename), body); err != nil {
+			return err
+		}
+	}
+	baseline, err := renderSkill(content, "tapper", "Orient to Tapper flights and operate on KEGs through MCP-first safety rules.", baselineOrder)
+	if err != nil {
+		return fmt.Errorf("claude: baseline skill: %w", err)
+	}
+	if err := dst.Write(path.Join(a.Name(), "tapper", "skills", "tapper", "SKILL.md"), baseline); err != nil {
+		return err
+	}
+	if err := renderManagementSkills(content, dst, a.Name()); err != nil {
+		return fmt.Errorf("claude: management skills: %w", err)
 	}
 
-	// 3. hooks/block-tap-cli.py and hooks/hooks.json — canonical-source
-	// bytes supplied by the render-time content FS overlay. The actual
-	// source lives in pkg/integrations/renderdata/claude/hooks/ and is
-	// embedded only by cmd/render-integrations, never by cmd/tap or
-	// cmd/keg, so the user binaries do not duplicate the canonical
-	// bytes (the rendered tree is what they ship via integrations/embed.go).
-	hookPy, err := fs.ReadFile(content, "claude/hooks/block-tap-cli.py")
-	if err != nil {
-		return fmt.Errorf("claude: read hook block-tap-cli.py: %w", err)
-	}
-	if err := dst.Write(path.Join(a.Name(), "hooks", "block-tap-cli.py"), hookPy); err != nil {
-		return err
-	}
-	hookJSON, err := fs.ReadFile(content, "claude/hooks/hooks.json")
-	if err != nil {
-		return fmt.Errorf("claude: read hook hooks.json: %w", err)
-	}
-	if err := dst.Write(path.Join(a.Name(), "hooks", "hooks.json"), hookJSON); err != nil {
-		return err
-	}
-
-	// 4. SKILL.md — frontmatter injected by the adapter, then canonical
-	// bodies concatenated in claudeSKILLOrder. agent-orient keeps its H1;
-	// the other four files drop theirs.
-	skill, err := renderClaudeSKILL(content)
+	devManifest, err := renderClaudeManifest("tapper-dev", version, "Optional Plan to Code to Review to Commit workflow for Tapper-enabled development.", []string{"tapper"})
 	if err != nil {
 		return err
 	}
-	return dst.Write(path.Join(a.Name(), "skills", "tapper", "SKILL.md"), skill)
+	if err := dst.Write(path.Join(a.Name(), "tapper-dev", ".claude-plugin", "plugin.json"), devManifest); err != nil {
+		return err
+	}
+	workflow, err := fs.ReadFile(content, "developer/workflow.md")
+	if err != nil {
+		return fmt.Errorf("claude: developer workflow: %w", err)
+	}
+	devSkill := addSkillFrontmatter("tapper-dev", "Optional Plan, Code, Review, and Commit workflow. Requires the baseline tapper plugin.", workflow)
+	return dst.Write(path.Join(a.Name(), "tapper-dev", "skills", "tapper-dev", "SKILL.md"), devSkill)
 }
 
-// claudePluginAuthor mirrors the nested author object in plugin.json.
-type claudePluginAuthor struct {
+type claudeManifest struct {
+	Name         string   `json:"name"`
+	Description  string   `json:"description"`
+	Version      string   `json:"version"`
+	Author       author   `json:"author"`
+	Homepage     string   `json:"homepage"`
+	Dependencies []string `json:"dependencies,omitempty"`
+}
+
+type author struct {
 	Name string `json:"name"`
 }
 
-// claudePluginJSON mirrors plugin.json's top-level object. Field order is
-// locked by the struct declaration order: name, description, version,
-// author, homepage — matching today's file.
-type claudePluginJSON struct {
-	Name        string             `json:"name"`
-	Description string             `json:"description"`
-	Version     string             `json:"version"`
-	Author      claudePluginAuthor `json:"author"`
-	Homepage    string             `json:"homepage"`
+func renderClaudeManifest(name, version, description string, dependencies []string) ([]byte, error) {
+	return marshalIndented(claudeManifest{
+		Name: name, Description: description, Version: version,
+		Author: author{Name: pluginAuthor}, Homepage: pluginHomepage,
+		Dependencies: dependencies,
+	})
 }
 
-// renderClaudePluginJSON builds plugin.json using encoding/json with 2-space
-// indent. The encoder appends a trailing newline for us. rt is routed
-// through claudePluginVersion so the rendered version tracks the env
-// var set by the release workflow.
-func renderClaudePluginJSON(rt *toolkit.Runtime) ([]byte, error) {
-	v := claudePluginJSON{
-		Name:        claudePluginName,
-		Description: claudePluginDescription,
-		Version:     claudePluginVersion(rt),
-		Author:      claudePluginAuthor{Name: claudePluginAuthorName},
-		Homepage:    claudePluginHomepage,
+func renderClaudeMarketplace() ([]byte, error) {
+	type owner struct {
+		Name string `json:"name"`
 	}
-	var buf bytes.Buffer
-	enc := json.NewEncoder(&buf)
-	enc.SetIndent("", "  ")
-	enc.SetEscapeHTML(false)
-	if err := enc.Encode(v); err != nil {
-		return nil, fmt.Errorf("claude: encode plugin.json: %w", err)
+	type entry struct {
+		Name        string `json:"name"`
+		Source      string `json:"source"`
+		Description string `json:"description"`
 	}
-	return buf.Bytes(), nil
-}
-
-// renderClaudeMCPJSON produces .mcp.json with the inline "args" array that
-// today's file uses. encoding/json cannot emit this layout, so the adapter
-// hand-templates it. The output ends with a single trailing newline.
-func renderClaudeMCPJSON() []byte {
-	// If multi-server support lands later, switch to a slice of struct-keyed
-	// pairs and loop here. Today the template is single-server by design.
-	const tmpl = `{
-  "mcpServers": {
-    "tapper": {
-      "command": "tap",
-      "args": ["mcp"]
-    }
-  }
-}
-`
-	return []byte(tmpl)
-}
-
-// renderClaudeSKILL concatenates the canonical markdown bodies in the order
-// claudeSKILLOrder, prepending the frontmatter. agent-orient.md keeps its H1;
-// the other four files drop their first line (their H1) so the rendered
-// SKILL.md has exactly one "# tapper" at the top.
-func renderClaudeSKILL(content fs.FS) ([]byte, error) {
-	var out bytes.Buffer
-	out.WriteString(claudeSKILLFrontmatter)
-	for i, name := range claudeSKILLOrder {
-		body, err := fs.ReadFile(content, name)
-		if err != nil {
-			return nil, fmt.Errorf("claude: skill %s: %w", name, err)
-		}
-		section := stripTrailingNewlines(body)
-		if i > 0 {
-			section = stripLeadingH1(section)
-		}
-		if i > 0 {
-			out.WriteString("\n\n")
-		}
-		out.Write(section)
+	v := struct {
+		Name        string  `json:"name"`
+		Owner       owner   `json:"owner"`
+		Description string  `json:"description"`
+		Plugins     []entry `json:"plugins"`
+	}{
+		Name:        marketplaceName,
+		Owner:       owner{Name: pluginAuthor},
+		Description: "Local plugins embedded in the Tapper CLI.",
+		Plugins: []entry{
+			{Name: "tapper", Source: "./tapper", Description: "MCP-first Tapper KEG access and safety."},
+			{Name: "tapper-dev", Source: "./tapper-dev", Description: "Optional Plan, Code, Review, and Commit workflow."},
+		},
 	}
-	// Trailing newline to match today's SKILL.md, which ends with one \n.
-	out.WriteByte('\n')
-	return out.Bytes(), nil
+	return marshalIndented(v)
 }
 
-// stripLeadingH1 removes the first line of b if it begins with "# ". A blank
-// line immediately after the H1 is also removed so the remaining body starts
-// at its first meaningful paragraph. This lets standalone canonical files
-// keep their H1 for readability while still concatenating cleanly.
+func renderClaudeMCP() []byte {
+	return []byte("{\n  \"mcpServers\": {\n    \"tapper\": {\n      \"command\": \"tap\",\n      \"args\": [\"mcp\"]\n    }\n  }\n}\n")
+}
+
 func stripLeadingH1(b []byte) []byte {
 	if !bytes.HasPrefix(b, []byte("# ")) {
 		return b
@@ -230,23 +129,12 @@ func stripLeadingH1(b []byte) []byte {
 		return nil
 	}
 	rest := b[nl+1:]
-	// Also consume exactly one blank line following the H1, if present.
 	if len(rest) > 0 && rest[0] == '\n' {
 		rest = rest[1:]
 	}
 	return rest
 }
 
-// stripTrailingNewlines trims trailing \n bytes so callers can rejoin with a
-// controlled separator. bytes.TrimRight does the same thing but is explicit
-// about the character set it trims.
-func stripTrailingNewlines(b []byte) []byte {
-	return bytes.TrimRight(b, "\n")
-}
+func stripTrailingNewlines(b []byte) []byte { return bytes.TrimRight(b, "\n") }
 
-// Register the Claude adapter with the parent integrations package. init()
-// mirrors pkg/mcp's register*Tools pattern: the top-level package does not
-// need to know any adapter by type.
-func init() {
-	integrations.Register(ClaudeAdapter{})
-}
+func init() { integrations.Register(ClaudeAdapter{}) }

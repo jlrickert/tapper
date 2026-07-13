@@ -82,20 +82,26 @@ func TestRootCompletion_FlightFlagSuggestsLocalFlights(t *testing.T) {
 	require.Contains(t, string(comp.Stdout), fmt.Sprintf(":%d", cobra.ShellCompDirectiveNoFileComp))
 }
 
-func TestIntegrateCompletion_TargetFlagRequestsDirectoryCompletion(t *testing.T) {
+func TestIntegrateCompletion_PluginListsMarketplaceNames(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t)
 
-	comp := NewCompletionProcess(t, false, 0, "integrate", "claude", "--target", "").
+	comp := NewCompletionProcess(t, false, 0, "integrate", "claude", "--plugin", "").
 		Run(sb.Context(), sb.Runtime())
 	require.NoError(t, comp.Err)
 
-	// The cobra completion protocol encodes the directive bitmask as
-	// ":<int>" at the end of the output. ShellCompDirectiveFilterDirs
-	// asks the shell to only offer directories; asserting on the
-	// rendered value via the cobra constant keeps the test insulated
-	// from future directive renumbering.
+	suggestions := parseCompletionSuggestions(string(comp.Stdout))
+	require.Contains(t, suggestions, "tapper")
+	require.Contains(t, suggestions, "tapper-dev")
 	out := string(comp.Stdout)
-	expected := fmt.Sprintf(":%d", cobra.ShellCompDirectiveFilterDirs)
+	expected := fmt.Sprintf(":%d", cobra.ShellCompDirectiveNoFileComp)
 	require.Contains(t, out, expected)
+}
+
+func TestIntegrateCommandRejectsRemovedWithDevFlag(t *testing.T) {
+	t.Parallel()
+	sb := NewSandbox(t)
+	res := NewProcess(t, false, "integrate", "claude", "--with-dev", "--dry-run").Run(sb.Context(), sb.Runtime())
+	require.Error(t, res.Err)
+	require.Contains(t, res.Err.Error(), "unknown flag")
 }

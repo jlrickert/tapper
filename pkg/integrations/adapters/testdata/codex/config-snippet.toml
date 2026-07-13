@@ -1,8 +1,0 @@
-# Append this snippet to ~/.codex/config.toml to register the tapper MCP
-# server. If an [mcp_servers] section already exists in your config, merge
-# the [mcp_servers.tapper] entry into it rather than duplicating the
-# header.
-
-[mcp_servers.tapper]
-command = "tap"
-args = ["mcp"]

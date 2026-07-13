@@ -1,8 +1,10 @@
 # Flights
 
 A **flight** is an optional agent context: a cover for MCP sessions plus a
-block of agent instructions. It is not a config key — flights live in their own
-manifests and are selected per-invocation with `--flight`.
+block of agent instructions. Flight manifests live separately from Tapper
+configuration. A project can persist the selected flight in
+`.tapper/config.yaml`, and an explicit per-call flight can temporarily override
+that default.
 
 ## What A Flight Does
 
@@ -68,6 +70,7 @@ local `flights.d` manifests remain read-only files.
 | List discovered flights               | `tap flight list`                         |
 | Show a flight's cover + body          | `tap flight show @namespace/+slug`        |
 | Run MCP/orient with a flight context  | `tap --flight @namespace/+slug <command>` |
+| Persist the project flight            | `tap use --flight @namespace/+slug` or `tap use +slug` |
 | Create a Hub-backed flight            | `tap flight create @namespace/+slug --cover @namespace/keg=viewer` |
 | Edit a Hub-backed flight in $EDITOR   | `tap flight edit @namespace/+slug` (the manifest opens as YAML; every save is applied) |
 | Apply a manifest from a script        | `cat manifest.yaml \| tap flight edit @namespace/+slug` |
@@ -97,5 +100,11 @@ equivalent of the CLI's piped `flight edit`, since agents cannot open editors.
 - A missing `flights.d` directory means "no flights", not an error.
 - `tap orient --flight @namespace/+slug` injects the flight's title, available
   kegs, and instructions into the orientation payload.
+- `tap use --flight @namespace/+slug` persists the project default in
+  `.tapper/config.yaml`; `tap use +slug` uses the resolved default namespace.
+  Newly opened Codex or Claude sessions inherit it.
+- An explicit MCP tool `flight` overrides the configured project default for
+  that call. A mid-session switch is stateless: the agent must pass the chosen
+  ref on every later Tapper call, and a new session returns to project config.
 - KEG-specific instructions belong in each KEG's own config `instructions`
   field, not in flight cover rows.

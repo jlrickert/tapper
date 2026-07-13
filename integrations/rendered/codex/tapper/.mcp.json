@@ -1,0 +1,6 @@
+{
+  "tapper": {
+    "command": "tap",
+    "args": ["mcp"]
+  }
+}

@@ -18,5 +18,5 @@ import "embed"
 // relative to this package's directory — for example
 // "claude/hooks/block-tap-cli.py".
 //
-//go:embed all:claude
+//go:embed all:claude all:developer
 var FS embed.FS

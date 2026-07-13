@@ -50,20 +50,37 @@ func TestParity_IntegrationOperations(t *testing.T) {
 			MCPInput: map[string]any{"host": "codex", "dry_run": true},
 			Compare: func(t *testing.T, cliOut, mcpOut string) {
 				t.Helper()
-				// Both surfaces must name the standard codex targets
-				// even though the underlying home path differs between
-				// test runs — a substring check is enough.
-				require.Contains(t, cliOut, "AGENTS.md")
-				require.Contains(t, mcpOut, "AGENTS.md")
-				require.Contains(t, cliOut, "prompts")
-				require.Contains(t, mcpOut, "prompts")
-				require.Contains(t, strings.ToLower(cliOut), "would write")
-				require.Contains(t, strings.ToLower(mcpOut), "would write")
+				require.Contains(t, cliOut, ".agents/plugins/marketplace.json")
+				require.Contains(t, mcpOut, ".agents/plugins/marketplace.json")
+				require.Contains(t, cliOut, "tapper/.codex-plugin/plugin.json")
+				require.Contains(t, mcpOut, "tapper/.codex-plugin/plugin.json")
+				require.Contains(t, strings.ToLower(cliOut), "would extract")
+				require.Contains(t, strings.ToLower(mcpOut), "would extract")
+				require.Contains(t, cliOut, "codex plugin add tapper@tapper-local")
+				require.Contains(t, mcpOut, "codex plugin add tapper@tapper-local")
 				// Both surfaces should report the same number of
 				// target paths (one bullet per file under the rendered
 				// codex tree).
 				require.Equal(t, countPathLines(cliOut), countPathLines(mcpOut),
 					"CLI and MCP integrate reported different path counts.\nCLI:\n%s\n\nMCP:\n%s", cliOut, mcpOut)
+			},
+		},
+		{
+			Name:     "integrate/claude_optional_plugin_and_scope",
+			CLIArgs:  []string{"integrate", "claude", "--plugin", "tapper-dev", "--scope", "local", "--dry-run"},
+			MCPTool:  "integrate",
+			MCPInput: map[string]any{"host": "claude", "plugins": []string{"tapper-dev"}, "scope": "local", "dry_run": true},
+			Compare: func(t *testing.T, cliOut, mcpOut string) {
+				t.Helper()
+				for _, want := range []string{
+					"claude plugin marketplace add",
+					"--scope local",
+					"claude plugin install tapper@tapper-local --scope local",
+					"claude plugin install tapper-dev@tapper-local --scope local",
+				} {
+					require.Contains(t, cliOut, want)
+					require.Contains(t, mcpOut, want)
+				}
 			},
 		},
 		{

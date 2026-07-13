@@ -74,7 +74,7 @@ func TestRenderedTreeMatchesAdapters(t *testing.T) {
 	// the sandbox runtime via TAPPER_PLUGIN_VERSION so the adapter
 	// re-renders the same bytes whether main carries "dev" (developer
 	// checkout) or "v0.X.0" (post-release).
-	pluginJSON, err := fs.ReadFile(integrations.IntegrationsFS, "rendered/claude/.claude-plugin/plugin.json")
+	pluginJSON, err := fs.ReadFile(integrations.IntegrationsFS, "rendered/claude/tapper/.claude-plugin/plugin.json")
 	if err != nil {
 		t.Fatalf("read embedded plugin.json: %v", err)
 	}

@@ -6,8 +6,14 @@ that are not using the bundled Claude Code or Codex integrations.
 
 Most users should start with the one-command installs in the project README's
 [Connect AI Agents](../../README.md#connect-ai-agents) section. `tap integrate
-claude` and `tap integrate codex` install host-specific prompts or skills plus
-the MCP registration material.
+claude` and `tap integrate codex` install self-contained native plugins from a
+local marketplace embedded in the binary.
+
+If an installed Tapper MCP connection goes stale, do not kill host-owned
+processes. Claude users should try `/reload-plugins` and then a new session;
+Codex users should start a new thread and then restart the app if needed.
+Verify recovery with Tapper `info` and `orient`. Re-running `tap integrate` is
+for installation or upgrades, not connection reset.
 
 ## Quick Start
 
@@ -121,7 +127,7 @@ manage namespace members and keg grants through the hub UI.
 | `graph` | Render a keg graph |
 | `orient` | Return the shared KEG system orientation payload |
 | `list_flights`, `flight_show`, `flight_create`, `flight_edit`, `flight_delete` | Manage flights |
-| `integrate` | Install rendered host integrations |
+| `integrate` | Install embedded host-native plugin marketplaces |
 | `license` | Read bundled license text |
 
 ## Keg Targeting

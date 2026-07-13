@@ -91,12 +91,14 @@ type KegInfoOptions struct {
 
 	// JSON renders the diagnostics as JSON instead of YAML.
 	JSON bool
+
+	// Debug includes working-directory and backend resolution diagnostics.
+	Debug bool
 }
 
-// resolvedIdentity captures the hub/namespace/keg trio a selector resolves to,
-// plus which config slot and scope decided it. It is derived from the config
-// resolution chain (not the opened backend) so it works identically for local
-// and remote kegs.
+// resolvedIdentity captures the hub/namespace/keg trio and active flight a
+// selector resolves to. It is derived from the config resolution chain (not
+// the opened backend) so it works identically for local and remote kegs.
 type resolvedIdentity struct {
 	Hub       string `yaml:"hub,omitempty" json:"hub,omitempty"`
 	HubKind   string `yaml:"hub_kind,omitempty" json:"hub_kind,omitempty"`
@@ -104,13 +106,10 @@ type resolvedIdentity struct {
 	Keg       string `yaml:"keg,omitempty" json:"keg,omitempty"`
 	Ref       string `yaml:"ref,omitempty" json:"ref,omitempty"`
 	Flight    string `yaml:"flight,omitempty" json:"flight,omitempty"`
-	Source    string `yaml:"resolution_source,omitempty" json:"resolution_source,omitempty"`
-	Scope     string `yaml:"scope,omitempty" json:"scope,omitempty"`
 }
 
-// resolveIdentity derives the resolved hub/namespace/keg identity, the winning
-// resolution slot (defaultKeg/kegMap/fallbackKeg/--keg), and the config scope
-// that set it. Best-effort: a missing config or unresolved namespace leaves the
+// resolveIdentity derives the resolved hub/namespace/keg identity and active
+// flight. Best-effort: a missing config or unresolved namespace leaves the
 // corresponding fields blank rather than erroring.
 func (t *Tap) resolveIdentity(opts KegTargetOptions) resolvedIdentity {
 	var id resolvedIdentity
@@ -123,15 +122,13 @@ func (t *Tap) resolveIdentity(opts KegTargetOptions) resolvedIdentity {
 	selector := strings.TrimSpace(opts.Keg)
 	switch {
 	case selector != "":
-		id.Source = "--keg"
-		id.Scope = "flag"
 	default:
 		if v := strings.TrimSpace(cfg.DefaultKeg()); v != "" {
-			selector, id.Source, id.Scope = v, "defaultKeg", t.configFieldScope("defaultKeg")
+			selector = v
 		} else if v := strings.TrimSpace(cfg.LookupAlias(t.Runtime, t.Root)); v != "" {
-			selector, id.Source = v, "kegMap"
+			selector = v
 		} else if v := strings.TrimSpace(cfg.FallbackKeg()); v != "" {
-			selector, id.Source, id.Scope = v, "fallbackKeg", t.configFieldScope("fallbackKeg")
+			selector = v
 		}
 	}
 
@@ -165,6 +162,9 @@ func (t *Tap) resolveIdentity(opts KegTargetOptions) resolvedIdentity {
 	}
 
 	id.Flight = strings.TrimSpace(opts.Flight)
+	if id.Flight == "" {
+		id.Flight = strings.TrimSpace(cfg.Flight())
+	}
 	return id
 }
 
@@ -193,41 +193,41 @@ func (t *Tap) KegInfo(ctx context.Context, opts KegInfoOptions) (string, error) 
 		return "", fmt.Errorf("unable to read keg config: %w", err)
 	}
 
-	workingDir, err := t.Runtime.Getwd()
-	if err != nil {
-		return "", fmt.Errorf("unable to get working directory: %w", err)
-	}
-
 	summary, err := k.Summary(ctx)
 	if err != nil {
 		return "", fmt.Errorf("unable to list nodes: %w", err)
 	}
 
-	type assetDiagnostics struct {
-		Supported       bool `yaml:"supported" json:"supported"`
-		NodesWithAssets int  `yaml:"nodes_with_assets" json:"nodes_with_assets"`
-		TotalAssets     int  `yaml:"total_assets" json:"total_assets"`
+	type capability struct {
+		Supported bool `yaml:"supported" json:"supported"`
 	}
-	type diagnostics struct {
-		resolvedIdentity `yaml:",inline"`
-
+	type debugDiagnostics struct {
 		WorkingDirectory string `yaml:"working_directory" json:"working_directory"`
-		Alias            string `yaml:"alias,omitempty" json:"alias,omitempty"`
+		Hub              string `yaml:"hub,omitempty" json:"hub,omitempty"`
+		Backend          string `yaml:"backend,omitempty" json:"backend,omitempty"`
+		Namespace        string `yaml:"namespace,omitempty" json:"namespace,omitempty"`
+		Keg              string `yaml:"keg,omitempty" json:"keg,omitempty"`
 		Target           string `yaml:"target,omitempty" json:"target,omitempty"`
 		Scheme           string `yaml:"scheme,omitempty" json:"scheme,omitempty"`
 		KegDirectory     string `yaml:"keg_directory,omitempty" json:"keg_directory,omitempty"`
-		Summary          string `yaml:"summary,omitempty" json:"summary,omitempty"`
-
-		NodeCount int `yaml:"node_count" json:"node_count"`
-
-		Assets assetDiagnostics `yaml:"assets" json:"assets"`
-		Images assetDiagnostics `yaml:"images" json:"images"`
+	}
+	type diagnostics struct {
+		Ref       string            `yaml:"ref" json:"ref"`
+		Flight    string            `yaml:"flight" json:"flight"`
+		Summary   string            `yaml:"summary" json:"summary"`
+		NodeCount int               `yaml:"node_count" json:"node_count"`
+		Files     capability        `yaml:"files" json:"files"`
+		Images    capability        `yaml:"images" json:"images"`
+		Debug     *debugDiagnostics `yaml:"debug,omitempty" json:"debug,omitempty"`
 	}
 
+	identity := t.resolveIdentity(opts.KegTargetOptions)
 	out := diagnostics{
-		resolvedIdentity: t.resolveIdentity(opts.KegTargetOptions),
-		WorkingDirectory: workingDir,
-		NodeCount:        summary.NodeCount,
+		Ref:       canonicalKegRef(identity.Ref),
+		Flight:    identity.Flight,
+		NodeCount: summary.NodeCount,
+		Files:     capability{Supported: summary.Files.Supported},
+		Images:    capability{Supported: summary.Images.Supported},
 	}
 
 	// Populate summary from the keg config.
@@ -236,29 +236,40 @@ func (t *Tap) KegInfo(ctx context.Context, opts KegInfoOptions) (string, error) 
 		out.Summary = cfg.Summary
 	}
 
-	if k.Target() != nil {
-		out.Target = k.Target().String()
-		out.Scheme = k.Target().Scheme()
-		if k.Target().Scheme() == keg.SchemeFile {
-			path := toolkit.ExpandEnv(t.Runtime, k.Target().Path())
-			if expanded, expandErr := toolkit.ExpandPath(t.Runtime, path); expandErr == nil {
-				path = expanded
-			}
-			out.KegDirectory = filepath.Clean(path)
-		} else {
-			out.KegDirectory = k.Target().Path()
+	if opts.Debug {
+		workingDir, err := t.Runtime.Getwd()
+		if err != nil {
+			return "", fmt.Errorf("unable to get working directory: %w", err)
 		}
-	}
-
-	out.Assets = assetDiagnostics{
-		Supported:       summary.Files.Supported,
-		NodesWithAssets: summary.Files.NodesWithAssets,
-		TotalAssets:     summary.Files.TotalAssets,
-	}
-	out.Images = assetDiagnostics{
-		Supported:       summary.Images.Supported,
-		NodesWithAssets: summary.Images.NodesWithAssets,
-		TotalAssets:     summary.Images.TotalAssets,
+		debug := &debugDiagnostics{
+			WorkingDirectory: workingDir,
+			Hub:              identity.Hub,
+			Backend:          identity.HubKind,
+			Namespace:        identity.Namespace,
+			Keg:              identity.Keg,
+		}
+		if k.Target() != nil {
+			debug.Target = k.Target().String()
+			debug.Scheme = k.Target().Scheme()
+			if debug.Backend == "" {
+				debug.Backend = KegBackendLabel(k.Target())
+			}
+			if out.Ref == "" {
+				out.Ref = canonicalKegRef(kegRefLabel(k.Target()))
+			}
+			if k.Target().Scheme() == keg.SchemeFile {
+				path := toolkit.ExpandEnv(t.Runtime, k.Target().Path())
+				if expanded, expandErr := toolkit.ExpandPath(t.Runtime, path); expandErr == nil {
+					path = expanded
+				}
+				debug.KegDirectory = filepath.Clean(path)
+			} else {
+				debug.KegDirectory = k.Target().Path()
+			}
+		}
+		out.Debug = debug
+	} else if out.Ref == "" && k.Target() != nil {
+		out.Ref = canonicalKegRef(kegRefLabel(k.Target()))
 	}
 
 	if opts.JSON {
@@ -274,6 +285,17 @@ func (t *Tap) KegInfo(ctx context.Context, opts KegInfoOptions) (string, error) 
 		return "", fmt.Errorf("unable to marshal info output: %w", err)
 	}
 	return string(b), nil
+}
+
+func canonicalKegRef(ref string) string {
+	ref = strings.TrimSpace(ref)
+	if ref == "" || strings.HasPrefix(ref, "keg:") {
+		return ref
+	}
+	if strings.HasPrefix(ref, "@") {
+		return "keg:" + ref
+	}
+	return ref
 }
 
 func readRawKegConfig(rt *toolkit.Runtime, root string) ([]byte, error) {

@@ -109,7 +109,7 @@ this at CI time.
 - [Claude Code Plugin](claude-code-plugin.md) — one-command install that
   registers the MCP server and bundled skill.
 - [Codex Install](codex.md) — one-command install for Codex, including the
-  rendered `AGENTS.md` and saved prompts.
+  native baseline plugin skill.
 - [MCP Server Setup](mcp-setup.md) — manual MCP registration for hosts that
   do not ship a tapper integration.
 - [Agent Conventions](agent-conventions.md) — the invariants the orient

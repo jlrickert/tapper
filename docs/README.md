@@ -74,8 +74,10 @@ tap integrate claude
 ```
 
 Both integrations expose the Tapper MCP server plus host-specific prompts or
-skills. Agents should use the `mcp__tapper__*` tools rather than reading or
-writing KEG files directly.
+skills from a local marketplace embedded in `tap`. Repeat `--plugin`, for
+example `--plugin tapper-dev`, to add optional plugins. `--scope` defaults to
+`user`; Claude also supports `project` and `local`. Agents should use the
+`mcp__tapper__*` tools rather than reading or writing KEG files directly.
 
 ## Command Quick Reference
 

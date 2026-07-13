@@ -37,11 +37,12 @@ tasks:
     cmds:
       - git config core.hooksPath .githooks
   render-integrations:
-    desc: Render canonical integrations/content into integrations/rendered/.
+    desc: Render native Codex and Claude marketplaces into integrations/rendered/.
     cmds:
       - go run ./cmd/render-integrations
     sources:
       - integrations/content/**/*.md
+      - pkg/integrations/renderdata/**
       - pkg/integrations/**/*.go
       - cmd/render-integrations/**/*.go
     generates:

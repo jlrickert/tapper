@@ -15,7 +15,7 @@ import "embed"
 // at "content/<file>" and host-rendered outputs at "rendered/<host>/...".
 //
 // The "all:" prefix is required so dot-directories such as
-// "rendered/claude/.claude-plugin" are included; without it Go's embed
+// host marketplace manifests and plugin manifests are included; without it Go's embed
 // machinery silently skips names starting with "." or "_".
 //
 //go:embed all:content all:rendered
