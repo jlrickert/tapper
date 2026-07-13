@@ -18,11 +18,11 @@ func NewInfoCmd(deps *Deps) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "info",
-		Short: "display keg diagnostics",
+		Short: "display concise information about the active keg",
 		Long: `Display diagnostic information about the resolved keg.
 
-Includes working directory, resolved target details, node counts, and
-asset summary data useful for troubleshooting.`,
+Includes the canonical reference, active flight, summary, node count, and
+file/image capabilities. Pass --debug for path and backend diagnostics.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			applyKegTargetProfile(deps, &opts.KegTargetOptions)
 			ctx := cmd.Context()
@@ -37,6 +37,7 @@ asset summary data useful for troubleshooting.`,
 	}
 
 	cmd.Flags().BoolVar(&opts.JSON, "json", false, "render diagnostics as JSON instead of YAML")
+	cmd.Flags().BoolVar(&opts.Debug, "debug", false, "include working-directory and backend resolution diagnostics")
 
 	return cmd
 }

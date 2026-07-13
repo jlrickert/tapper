@@ -1,0 +1,28 @@
+{
+  "name": "tapper",
+  "version": "0.0.0-dev",
+  "description": "MCP-first Tapper KEG access, flight orientation, and safety guidance.",
+  "author": {
+    "name": "Jared Rickert",
+    "url": "https://github.com/jlrickert/tapper"
+  },
+  "homepage": "https://github.com/jlrickert/tapper",
+  "repository": "https://github.com/jlrickert/tapper",
+  "license": "MIT",
+  "keywords": [
+    "keg",
+    "knowledge",
+    "mcp",
+    "tapper"
+  ],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Tapper",
+    "shortDescription": "MCP-first KEG access and safety",
+    "longDescription": "Orient through the active Tapper flight and work with covered KEGs through MCP-first safety rules.",
+    "developerName": "Jared Rickert",
+    "category": "Developer Tools",
+    "websiteURL": "https://github.com/jlrickert/tapper"
+  }
+}

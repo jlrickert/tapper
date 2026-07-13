@@ -21,7 +21,7 @@ exist. MCP tools:
 
 The CLI remains the right tool for interactive editor sessions,
 diagnostics that have no MCP equivalent, and shell-integration tasks.
-See the CLI fallback list in the bundled [tapper skill](../../integrations/rendered/claude/skills/tapper/SKILL.md).
+See the safety rules in the bundled [tapper skill](../../integrations/rendered/claude/tapper/skills/tapper/SKILL.md).
 
 ## Never read or write node files directly
 

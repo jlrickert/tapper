@@ -365,6 +365,10 @@ func TestParity_ReadOperations(t *testing.T) {
 				require.Contains(t, mcpOut, "personal", "MCP keg_info should show alias")
 				require.Contains(t, cliOut, "node_count", "CLI info should show node count")
 				require.Contains(t, mcpOut, "node_count", "MCP keg_info should show node count")
+				require.NotContains(t, mcpOut, "working_directory")
+				require.NotContains(t, mcpOut, "keg_directory")
+				require.NotContains(t, mcpOut, "resolution_source")
+				require.NotContains(t, mcpOut, "scope")
 			},
 		},
 

@@ -1,0 +1,27 @@
+{
+  "name": "tapper-dev",
+  "version": "0.0.0-dev",
+  "description": "Optional Plan to Code to Review to Commit workflow for Tapper-enabled development.",
+  "author": {
+    "name": "Jared Rickert",
+    "url": "https://github.com/jlrickert/tapper"
+  },
+  "homepage": "https://github.com/jlrickert/tapper",
+  "repository": "https://github.com/jlrickert/tapper",
+  "license": "MIT",
+  "keywords": [
+    "keg",
+    "knowledge",
+    "mcp",
+    "tapper"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Tapper Dev",
+    "shortDescription": "Plan, code, review, and commit",
+    "longDescription": "An optional four-stage developer workflow that requires the baseline Tapper plugin and follows live flight instructions.",
+    "developerName": "Jared Rickert",
+    "category": "Developer Tools",
+    "websiteURL": "https://github.com/jlrickert/tapper"
+  }
+}

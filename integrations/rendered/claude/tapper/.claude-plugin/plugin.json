@@ -1,0 +1,9 @@
+{
+  "name": "tapper",
+  "description": "MCP-first Tapper KEG access, flight orientation, and safety guidance.",
+  "version": "0.0.0-dev",
+  "author": {
+    "name": "Jared Rickert"
+  },
+  "homepage": "https://github.com/jlrickert/tapper"
+}

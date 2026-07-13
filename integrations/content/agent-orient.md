@@ -1,8 +1,9 @@
 # tapper
 
-Interact with tapper KEGs (Knowledge Exchange Graphs) — numbered repositories
-of markdown nodes with metadata, links, and indexed views. This skill describes
-the conventions an agent should follow when operating against a tapper KEG.
+Interact with Tapper KEGs (Knowledge Exchange Graphs) through the native MCP
+server. At the start of KEG work, call `mcp__tapper__orient` and treat the
+returned active flight, cover, flight instructions, and covered-KEG
+instructions as the authoritative context for the session.
 
 ## Rules
 
@@ -15,25 +16,23 @@ the conventions an agent should follow when operating against a tapper KEG.
   bypasses locking and snapshot history. Always go through
   `mcp__tapper__cat`, `mcp__tapper__edit`, `mcp__tapper__meta`, and related
   tools.
+- **Do not treat `defaultKeg` as agent authority.** It is a direct-CLI
+  convenience. The active flight determines MCP instructions and the KEGs the
+  agent may use.
 
-## Keg selection
+## Flight-first orientation
 
-Every MCP tool accepts an optional `keg` parameter naming the keg alias. Leave
-it empty to use the configured default; set it to target another keg. To
-discover which keg is active:
+Every MCP tool accepts an optional `keg` parameter. Use a covered KEG reference
+returned by orientation to work across KEGs without changing directories or
+restarting the MCP server.
 
-- `mcp__tapper__keg_info` — resolves the active keg and reports its path and
-  node count.
-- `mcp__tapper__hub_list` — lists the kegs the configured hubs expose
-  (qualified as `@namespace/keg`).
+- `mcp__tapper__orient` — returns the active flight, its cover and instructions,
+  covered KEG instructions, and canonical safety guidance.
+- `mcp__tapper__keg_info` — returns concise diagnostics for a covered KEG.
+- `mcp__tapper__keg_list` — lists the KEGs exposed by configured hubs.
 
 ## Bootstrapping a session
 
-When starting work against an unfamiliar keg, these tools give a compact
-orientation:
-
-- `mcp__tapper__info` — tapper version and environment summary.
-- `mcp__tapper__hub_list` — kegs the configured hubs expose (`@namespace/keg`).
-- `mcp__tapper__keg_info` — resolved target keg, path, node count.
-- `mcp__tapper__tags` — tag inventory for the target keg (call with no
-  arguments to list all tags).
+Call `mcp__tapper__orient` first. Follow any live flight and KEG instructions
+it returns. If there is no active flight, use only the baseline safety guidance
+and the KEGs orientation exposes; do not invent lifecycle policy.

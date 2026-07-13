@@ -4,18 +4,17 @@ This section documents how AI coding agents use Tapper as shared project
 memory: how to install the MCP server, how agents should orient themselves, and
 which conventions keep the KEG safe for humans and agents at the same time.
 
-Vendor-specific configuration (how to write a `CLAUDE.md`, how Codex
-discovers `AGENTS.md`, permission modes, hooks) is covered by the vendors
-themselves. This directory focuses on tapper.
+Vendor-specific project configuration, permission modes, and general plugin
+behavior are covered by the vendors themselves. This directory focuses on
+Tapper's embedded native plugins.
 
 ## Guides
 
 - [Claude Code Plugin](claude-code-plugin.md) — install tapper as a bundled
   Claude Code plugin: one command to register the MCP server and the
   `tapper` skill.
-- [Codex Install](codex.md) — install tapper for Codex: `tap integrate codex`
-  drops `AGENTS.md`, saved prompts, and the MCP config snippet into
-  `~/.codex/`.
+- [Codex plugins](codex.md) — install baseline `tapper` and optional
+  `tapper-dev` from the embedded local marketplace.
 - [Orientation Surface](orient.md) — the shared `orient` payload exposed by
   the `mcp__tapper__orient` tool, the `tapper://orient` resource, and
   `tap orient`.

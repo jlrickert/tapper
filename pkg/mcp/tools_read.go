@@ -301,7 +301,7 @@ type kegInfoInput struct {
 func registerKegInfo(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "keg_info",
-		Description: "Show diagnostics for a resolved KEG (alias, path, node count)",
+		Description: "Show concise path-free diagnostics for a resolved KEG (canonical ref, flight, summary, node count, and capabilities)",
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(false),

@@ -101,6 +101,45 @@ func TestTap_Orient_FlightAndKegInstructionsPrecedeGuidance(t *testing.T) {
 	require.Less(t, strings.Index(payload, "Prefer audited personal-context nodes."), guidanceAt)
 }
 
+func TestTap_Orient_UsesPersistedFlightBeforeDefaultKeg(t *testing.T) {
+	t.Parallel()
+	sb := sandbox.NewSandbox(t, &sandbox.Options{Home: "/home/testuser", User: "testuser"})
+	require.NoError(t, sb.Setwd("/home/testuser"))
+	tap, err := tapper.NewTap(tapper.TapOptions{Root: "/home/testuser", Runtime: sb.Runtime()})
+	require.NoError(t, err)
+	require.NoError(t, sb.Runtime().AtomicWriteFile(tap.PathService.UserConfig(), []byte(`flight: backend
+fallbackKeg: personal
+hubs:
+  home:
+    kind: local
+    defaultNamespace: local
+    basePath: /home/testuser/kegs
+`), 0o644))
+	for _, name := range []string{"personal", "dev"} {
+		dir := "/home/testuser/kegs/@local/" + name
+		require.NoError(t, sb.Runtime().Mkdir(dir, 0o755, true))
+		require.NoError(t, sb.Runtime().AtomicWriteFile(dir+"/keg", []byte("kegv: 2025-07\ntitle: "+name+"\n"), 0o644))
+	}
+	require.NoError(t, sb.Runtime().AtomicWriteFile("/home/testuser/kegs/@local/dev/keg", []byte("kegv: 2025-07\ntitle: dev\ninstructions: |\n  Follow the covered KEG schema.\n"), 0o644))
+	require.NoError(t, sb.Runtime().AtomicWriteFile("/home/testuser/kegs/flights.d/backend.yaml", []byte("title: Backend\ncover:\n  - namespace: local\n    keg: dev\n    role: editor\ninstructions: |\n  Flight instructions win.\n"), 0o644))
+
+	payload, err := tap.Orient(context.Background(), tapper.OrientOptions{})
+	require.NoError(t, err)
+	require.Contains(t, payload, "Active flight: `@local/+backend`")
+	require.Contains(t, payload, "Flight instructions win.")
+	require.Contains(t, payload, "Follow the covered KEG schema.")
+	require.NotContains(t, payload, "| `@local/personal`")
+}
+
+func TestTap_Orient_BarePayloadDoesNotInjectDeveloperLifecycle(t *testing.T) {
+	t.Parallel()
+	payload, err := newOrientTap(t).Orient(context.Background(), tapper.OrientOptions{})
+	require.NoError(t, err)
+	for _, heading := range []string{"## Plan", "## Code", "## Review", "## Commit"} {
+		require.NotContains(t, payload, heading)
+	}
+}
+
 // TestTap_Orient_ActiveKeg_NoneConfigured covers the bootstrap case:
 // a fresh sandbox with no kegs anywhere on disk. The active-keg line
 // must surface a directed hint that names the next concrete step

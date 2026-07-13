@@ -134,7 +134,7 @@ func resolveKegTargetWithFlight(perToolKeg string, perToolFlight string, default
 		out.Cwd = false
 		out.Path = ""
 	}
-	if strings.TrimSpace(out.Flight) == "" && strings.TrimSpace(perToolFlight) != "" {
+	if strings.TrimSpace(perToolFlight) != "" {
 		out.Flight = perToolFlight
 	}
 	// The MCP server is a full surface (peer to `tap`): config-driven keg

@@ -1,0 +1,32 @@
+{
+  "name": "tapper-local",
+  "interface": {
+    "displayName": "Tapper Local"
+  },
+  "plugins": [
+    {
+      "name": "tapper",
+      "source": {
+        "source": "local",
+        "path": "./tapper"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    },
+    {
+      "name": "tapper-dev",
+      "source": {
+        "source": "local",
+        "path": "./tapper-dev"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    }
+  ]
+}

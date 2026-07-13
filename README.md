@@ -142,35 +142,25 @@ Tapper exposes the same memory to AI agents through MCP. The agent can search,
 read, create, edit, snapshot, and orient itself against a keg without scraping
 files directly.
 
-### Claude Code
-
-```bash
-claude plugin marketplace add jlrickert/tapper@main
-claude plugin install tapper@jlrickert-tapper
-```
-
-This installs the MCP server registration, the bundled `/tapper` skill, and
-orientation prompts. Verify with `claude /mcp`; `tapper` should appear in the
-server list.
-
-Prefer a local install without the marketplace?
-
-```bash
-tap integrate claude
-```
-
-### Codex
+### Codex and Claude Code
 
 ```bash
 tap integrate codex
+tap integrate claude
 ```
 
-This writes `~/.codex/AGENTS.md`, saved prompts under `~/.codex/prompts/`, and
-`~/.codex/config-snippet.toml`. Merge the config snippet into
-`~/.codex/config.toml` to register the MCP server.
+Each command extracts the host-native marketplace embedded in `tap`, registers
+the local source, and installs the baseline `tapper` plugin. No GitHub checkout
+or manual MCP configuration is required. Repeat `--plugin` to add optional
+plugins, for example `tap integrate claude --plugin tapper-dev`. Requested
+plugins keep their order and duplicates are ignored. Activation defaults to
+`--scope user`; Claude also supports `project` (shared project settings) and
+`local` (gitignored project settings), while Codex currently supports only
+`user`. Use `--dry-run` to inspect every extraction path and host command
+without side effects.
 
 See [Using Tapper From AI Agents](docs/ai-coding-agents/README.md) for setup,
-agent conventions, orientation tiers, and manual MCP configuration.
+agent conventions, flight-first orientation, and manual MCP configuration.
 
 ## The Daily Workflow
 
@@ -262,6 +252,12 @@ See [Resolution Order](docs/configuration/resolution-order.md).
 `--flight` is a task context for orientation and MCP sessions.
 Direct CLI commands still use normal keg authorization and do not have their
 access reduced by flight cover caps.
+
+Persist a project flight for newly opened agent sessions with either `tap use
+--flight @namespace/+slug` or the default-namespace shorthand `tap use +slug`.
+An explicit `flight` on an MCP call temporarily overrides that project default
+for the call; agents switching mid-thread pass the same explicit ref on every
+later Tapper call without changing config.
 
 ## Release And Contribution Notes
 

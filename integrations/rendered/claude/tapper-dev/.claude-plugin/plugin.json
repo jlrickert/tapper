@@ -1,0 +1,12 @@
+{
+  "name": "tapper-dev",
+  "description": "Optional Plan to Code to Review to Commit workflow for Tapper-enabled development.",
+  "version": "0.0.0-dev",
+  "author": {
+    "name": "Jared Rickert"
+  },
+  "homepage": "https://github.com/jlrickert/tapper",
+  "dependencies": [
+    "tapper"
+  ]
+}

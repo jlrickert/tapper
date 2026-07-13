@@ -1,8 +1,0 @@
-{
-  "mcpServers": {
-    "tapper": {
-      "command": "tap",
-      "args": ["mcp"]
-    }
-  }
-}

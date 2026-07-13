@@ -1,0 +1,19 @@
+{
+  "name": "tapper-local",
+  "owner": {
+    "name": "Jared Rickert"
+  },
+  "description": "Local plugins embedded in the Tapper CLI.",
+  "plugins": [
+    {
+      "name": "tapper",
+      "source": "./tapper",
+      "description": "MCP-first Tapper KEG access and safety."
+    },
+    {
+      "name": "tapper-dev",
+      "source": "./tapper-dev",
+      "description": "Optional Plan, Code, Review, and Commit workflow."
+    }
+  ]
+}
