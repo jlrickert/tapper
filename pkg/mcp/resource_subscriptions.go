@@ -50,7 +50,7 @@ func (s *nodeResourceSubscriptions) Subscribe(ctx context.Context, req *sdkmcp.S
 	watchCtx, cancel := context.WithCancel(context.Background())
 	ch, err := s.tap.WatchNode(watchCtx, tapper.WatchNodeOptions{
 		NodeID:           ref.nodeID,
-		KegTargetOptions: resolveKegTarget(ref.keg, s.defaults),
+		KegTargetOptions: resolveKegTarget(ctx, ref.keg, s.defaults),
 	})
 	if err != nil {
 		cancel()

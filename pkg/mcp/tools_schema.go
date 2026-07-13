@@ -31,8 +31,7 @@ func registerSchemaTools(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaul
 // --- schema_list ---
 
 type schemaListInput struct {
-	Keg    string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
-	Flight string `json:"flight,omitempty" jsonschema:"flight ref to cap available kegs (uses server default if empty)"`
+	Keg string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
 }
 
 func registerSchemaList(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
@@ -45,7 +44,7 @@ func registerSchemaList(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefault
 		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in schemaListInput) (*sdkmcp.CallToolResult, any, error) {
 		names, err := tap.ListSchemas(ctx, tapper.SchemaOptions{
-			KegTargetOptions: resolveKegTargetWithFlight(in.Keg, in.Flight, defaults),
+			KegTargetOptions: resolveKegTarget(ctx, in.Keg, defaults),
 		})
 		if err != nil {
 			return errorResult(err), nil, nil
@@ -60,9 +59,8 @@ func registerSchemaList(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefault
 // --- schema_read ---
 
 type schemaReadInput struct {
-	Type   string `json:"type" jsonschema:"schema type name to read"`
-	Keg    string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
-	Flight string `json:"flight,omitempty" jsonschema:"flight ref to cap available kegs (uses server default if empty)"`
+	Type string `json:"type" jsonschema:"schema type name to read"`
+	Keg  string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
 }
 
 func registerSchemaRead(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
@@ -75,7 +73,7 @@ func registerSchemaRead(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefault
 		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in schemaReadInput) (*sdkmcp.CallToolResult, any, error) {
 		data, err := tap.ReadSchema(ctx, tapper.SchemaOptions{
-			KegTargetOptions: resolveKegTargetWithFlight(in.Keg, in.Flight, defaults),
+			KegTargetOptions: resolveKegTarget(ctx, in.Keg, defaults),
 			Type:             in.Type,
 		})
 		if err != nil {
@@ -88,9 +86,8 @@ func registerSchemaRead(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefault
 // --- schema_create ---
 
 type schemaCreateInput struct {
-	Data   string `json:"data" jsonschema:"full schema definition as YAML; the document must declare its type"`
-	Keg    string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
-	Flight string `json:"flight,omitempty" jsonschema:"flight ref to cap available kegs (uses server default if empty)"`
+	Data string `json:"data" jsonschema:"full schema definition as YAML; the document must declare its type"`
+	Keg  string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
 }
 
 func registerSchemaCreate(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
@@ -103,7 +100,7 @@ func registerSchemaCreate(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefau
 		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in schemaCreateInput) (*sdkmcp.CallToolResult, any, error) {
 		if err := tap.CreateSchema(ctx, tapper.SchemaOptions{
-			KegTargetOptions: resolveKegTargetWithFlight(in.Keg, in.Flight, defaults),
+			KegTargetOptions: resolveKegTarget(ctx, in.Keg, defaults),
 			Data:             []byte(in.Data),
 		}); err != nil {
 			return errorResult(err), nil, nil
@@ -115,10 +112,9 @@ func registerSchemaCreate(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefau
 // --- schema_edit ---
 
 type schemaEditInput struct {
-	Type   string `json:"type" jsonschema:"schema type name to replace"`
-	Data   string `json:"data" jsonschema:"full schema definition as YAML; its declared type must match"`
-	Keg    string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
-	Flight string `json:"flight,omitempty" jsonschema:"flight ref to cap available kegs (uses server default if empty)"`
+	Type string `json:"type" jsonschema:"schema type name to replace"`
+	Data string `json:"data" jsonschema:"full schema definition as YAML; its declared type must match"`
+	Keg  string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
 }
 
 func registerSchemaEdit(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
@@ -131,7 +127,7 @@ func registerSchemaEdit(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefault
 		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in schemaEditInput) (*sdkmcp.CallToolResult, any, error) {
 		if err := tap.EditSchema(ctx, tapper.EditSchemaOptions{
-			KegTargetOptions: resolveKegTargetWithFlight(in.Keg, in.Flight, defaults),
+			KegTargetOptions: resolveKegTarget(ctx, in.Keg, defaults),
 			Type:             in.Type,
 			Stream: &toolkit.Stream{
 				IsPiped: true,
@@ -147,9 +143,8 @@ func registerSchemaEdit(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefault
 // --- schema_delete ---
 
 type schemaDeleteInput struct {
-	Type   string `json:"type" jsonschema:"schema type name to delete"`
-	Keg    string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
-	Flight string `json:"flight,omitempty" jsonschema:"flight ref to cap available kegs (uses server default if empty)"`
+	Type string `json:"type" jsonschema:"schema type name to delete"`
+	Keg  string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
 }
 
 func registerSchemaDelete(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
@@ -162,7 +157,7 @@ func registerSchemaDelete(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefau
 		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in schemaDeleteInput) (*sdkmcp.CallToolResult, any, error) {
 		if err := tap.DeleteSchema(ctx, tapper.SchemaOptions{
-			KegTargetOptions: resolveKegTargetWithFlight(in.Keg, in.Flight, defaults),
+			KegTargetOptions: resolveKegTarget(ctx, in.Keg, defaults),
 			Type:             in.Type,
 		}); err != nil {
 			return errorResult(err), nil, nil
@@ -176,7 +171,6 @@ func registerSchemaDelete(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefau
 type validateInput struct {
 	NodeIDs []string `json:"node_ids,omitempty" jsonschema:"node IDs to validate (validates every node if empty)"`
 	Keg     string   `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
-	Flight  string   `json:"flight,omitempty" jsonschema:"flight ref to cap available kegs (uses server default if empty)"`
 }
 
 func registerValidate(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
@@ -189,7 +183,7 @@ func registerValidate(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults)
 		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in validateInput) (*sdkmcp.CallToolResult, any, error) {
 		results, err := tap.Validate(ctx, tapper.ValidateOptions{
-			KegTargetOptions: resolveKegTargetWithFlight(in.Keg, in.Flight, defaults),
+			KegTargetOptions: resolveKegTarget(ctx, in.Keg, defaults),
 			NodeIDs:          in.NodeIDs,
 		})
 		if err != nil {

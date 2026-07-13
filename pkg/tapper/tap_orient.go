@@ -54,6 +54,12 @@ func (t *Tap) activeFlightName(explicit string) string {
 	return strings.TrimSpace(cfg.Flight())
 }
 
+// ActiveFlightName resolves an explicit flight or the persistent project
+// default without mutating configuration.
+func (t *Tap) ActiveFlightName(explicit string) string {
+	return t.activeFlightName(explicit)
+}
+
 func (t *Tap) resolveOrientFlight(ctx context.Context, name string) (*Flight, string) {
 	name = strings.TrimSpace(name)
 	if name == "" || t == nil || t.FlightService == nil {

@@ -21,7 +21,7 @@ func TestParity_IntegrationOperations(t *testing.T) {
 	cases := []ParityTestCase{
 		{
 			Name:     "orient/shared_payload",
-			CLIArgs:  []string{"orient"},
+			CLIArgs:  []string{"orient", "--flight", "@local/+parity"},
 			MCPTool:  "orient",
 			MCPInput: map[string]any{},
 			Compare: func(t *testing.T, cliOut, mcpOut string) {

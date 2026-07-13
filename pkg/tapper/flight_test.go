@@ -126,6 +126,32 @@ func TestFlightRoleFor_CoverCapsWrites(t *testing.T) {
 	require.False(t, ok)
 }
 
+func TestFlightRoleFor_EmptyCoverDeniesAll(t *testing.T) {
+	t.Parallel()
+	flight := &tapper.Flight{Name: "@foldwise/+empty"}
+	_, ok := flight.RoleFor("docs", "foldwise", "docs")
+	require.False(t, ok)
+}
+
+func TestFlightService_RejectsUnknownCapabilities(t *testing.T) {
+	t.Parallel()
+	fx := NewSandbox(t)
+	require.NoError(t, fx.Setwd("/home/testuser"))
+	tap, err := tapper.NewTap(tapper.TapOptions{Root: "/home/testuser", Runtime: fx.Runtime()})
+	require.NoError(t, err)
+	require.NoError(t, fx.Runtime().AtomicWriteFile(tap.PathService.UserConfig(), []byte(`hubs:
+  home:
+    kind: local
+    defaultNamespace: local
+    basePath: /home/testuser/kegs
+`), 0o644))
+	require.NoError(t, fx.Runtime().AtomicWriteFile("/home/testuser/kegs/flights.d/bad.yaml", []byte("capabilities: [shell_access]\n"), 0o644))
+
+	_, err = tap.GetFlight(fx.Context(), tapper.GetFlightOptions{Name: "+bad"})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), `unknown flight capability "shell_access"`)
+}
+
 // A viewer cap must survive repeated RoleFor calls: the legacy AllowedKegs
 // mirror used to be re-merged into the cover as editor rows on every call,
 // leaving viewer enforcement to a fragile ordering invariant.

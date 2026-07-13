@@ -47,7 +47,7 @@ func TestMCP_NodeResource_SubscribeNotifiesOnChange(t *testing.T) {
 			}
 		},
 	})
-	srv := mcp.NewServer(tap, "test", mcp.KegDefaults{})
+	srv := mcp.NewServer(tap, "test", mcp.KegDefaults{KegTargetOptions: tapper.KegTargetOptions{Flight: "@local/+test"}})
 	serverTransport, clientTransport := sdkmcp.NewInMemoryTransports()
 	done := make(chan error, 1)
 	go func() {

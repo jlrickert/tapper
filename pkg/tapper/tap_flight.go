@@ -26,6 +26,8 @@ type GetFlightOptions struct {
 type CreateFlightOptions struct {
 	Ref          string
 	Title        string
+	Visibility   string
+	Capabilities []FlightCapability
 	Instructions string
 	Cover        []FlightCover
 }
@@ -38,6 +40,8 @@ type CreateFlightOptions struct {
 type UpdateFlightOptions struct {
 	Ref          string
 	Title        *string
+	Visibility   *string
+	Capabilities *[]FlightCapability
 	Instructions *string
 	Cover        *[]FlightCover
 }
@@ -57,6 +61,10 @@ func (t *Tap) GetFlight(ctx context.Context, opts GetFlightOptions) (*Flight, er
 }
 
 func (t *Tap) CreateFlight(ctx context.Context, opts CreateFlightOptions) (*Flight, error) {
+	details := FlightManifest{Visibility: opts.Visibility, Capabilities: opts.Capabilities}
+	if err := validateFlightManifest(&details); err != nil {
+		return nil, err
+	}
 	ref, entry, hubName, err := t.resolveWriteFlightRef(opts.Ref)
 	if err != nil {
 		return nil, err
@@ -65,6 +73,8 @@ func (t *Tap) CreateFlight(ctx context.Context, opts CreateFlightOptions) (*Flig
 		Namespace:    ref.Namespace,
 		Slug:         ref.Slug,
 		Title:        opts.Title,
+		Visibility:   normalizeFlightVisibility(opts.Visibility),
+		Capabilities: append([]FlightCapability{}, opts.Capabilities...),
 		Instructions: opts.Instructions,
 		Cover:        hubCoverFromFlightCover(opts.Cover),
 	}
@@ -77,6 +87,16 @@ func (t *Tap) CreateFlight(ctx context.Context, opts CreateFlightOptions) (*Flig
 }
 
 func (t *Tap) UpdateFlight(ctx context.Context, opts UpdateFlightOptions) (*Flight, error) {
+	details := FlightManifest{}
+	if opts.Visibility != nil {
+		details.Visibility = *opts.Visibility
+	}
+	if opts.Capabilities != nil {
+		details.Capabilities = *opts.Capabilities
+	}
+	if err := validateFlightManifest(&details); err != nil {
+		return nil, err
+	}
 	ref, entry, hubName, err := t.resolveWriteFlightRef(opts.Ref)
 	if err != nil {
 		return nil, err
@@ -90,6 +110,12 @@ func (t *Tap) UpdateFlight(ctx context.Context, opts UpdateFlightOptions) (*Flig
 	if opts.Title != nil {
 		next.Title = *opts.Title
 	}
+	if opts.Visibility != nil {
+		next.Visibility = normalizeFlightVisibility(*opts.Visibility)
+	}
+	if opts.Capabilities != nil {
+		next.Capabilities = append([]FlightCapability{}, (*opts.Capabilities)...)
+	}
 	if opts.Instructions != nil {
 		next.Instructions = *opts.Instructions
 	}
@@ -102,6 +128,14 @@ func (t *Tap) UpdateFlight(ctx context.Context, opts UpdateFlightOptions) (*Flig
 	}
 	t.FlightService.invalidateFlights()
 	return flightFromHub(*hf, hubName), nil
+}
+
+func normalizeFlightVisibility(visibility string) string {
+	visibility = strings.TrimSpace(visibility)
+	if visibility == "" {
+		return FlightVisibilityPrivate
+	}
+	return visibility
 }
 
 func (t *Tap) DeleteFlight(ctx context.Context, opts DeleteFlightOptions) error {
@@ -200,8 +234,9 @@ func (e *FlightRestrictionError) Error() string {
 }
 
 // enforceFlight rejects a resolved keg that falls outside the active flight's
-// cover or does not meet the requested role cap. A blank flight or an
-// instructions-only flight (empty cover) restricts nothing.
+// cover or does not meet the requested role cap. A blank flight bypasses the
+// check for direct CLI compatibility; an active flight with an empty cover
+// denies every keg.
 func (t *Tap) enforceFlight(ctx context.Context, flightName string, k keg.Keg, want FlightRole) error {
 	flightName = strings.TrimSpace(flightName)
 	if flightName == "" || k == nil {

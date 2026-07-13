@@ -9,9 +9,21 @@
       "type": "string",
       "description": "Human-readable title for the flight."
     },
+    "visibility": {
+      "type": "string",
+      "enum": ["private", "public"],
+      "default": "private",
+      "description": "Flight discovery visibility."
+    },
+    "capabilities": {
+      "type": "array",
+      "items": {"type": "string", "enum": ["manage_flights"]},
+      "uniqueItems": true,
+      "description": "Explicit agent capabilities granted to sessions using this flight."
+    },
     "cover": {
       "type": "array",
-      "description": "Kegs available while the flight is active. Empty or omitted means the flight restricts nothing.",
+      "description": "Kegs available while the flight is active. Empty or omitted denies all KEG access.",
       "items": {
         "type": "object",
         "properties": {

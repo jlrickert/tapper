@@ -163,9 +163,10 @@ var tapMethodsExcluded = map[string]string{
 	"SetBootstrapNamespace": "CLI-only bootstrap step; adopts the hub's default namespace after login, not an MCP operation",
 	"SetHubDefaultNamespaceByURL": "CLI-only auth/bootstrap helper; adopts the hub's default namespace after login, " +
 		"not a standalone user-facing operation",
-	"SetFallbackKeg": "CLI-only bootstrap step; persists the chosen keg as the user-level fallback after login, not an MCP operation",
-	"Use":            "writes the project/user keg + flight to config; CLI-only config management by design",
-	"UseStatus":      "CLI-only summary of the resolved keg/flight context; config inspection via `tap use`",
+	"SetFallbackKeg":   "CLI-only bootstrap step; persists the chosen keg as the user-level fallback after login, not an MCP operation",
+	"Use":              "writes the project/user keg + flight to config; CLI-only config management by design",
+	"UseStatus":        "CLI-only summary of the resolved keg/flight context; config inspection via `tap use`",
+	"ActiveFlightName": "internal MCP startup helper that resolves the explicit or project flight before connecting",
 }
 
 // TestCoverage_AllTapMethodsHaveBothSurfaces uses reflection to enumerate
@@ -237,7 +238,9 @@ func collectMCPToolNames(t *testing.T) map[string]bool {
 	})
 	require.NoError(t, err)
 
-	srv := mcp.NewServer(tap, "test", mcp.KegDefaults{})
+	srv := mcp.NewServer(tap, "test", mcp.KegDefaults{
+		KegTargetOptions: tapper.KegTargetOptions{Flight: "@local/+parity"},
+	})
 	serverTransport, clientTransport := sdkmcp.NewInMemoryTransports()
 
 	done := make(chan error, 1)

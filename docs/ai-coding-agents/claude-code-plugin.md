@@ -44,8 +44,11 @@ Re-running refreshes the extracted files atomically and uses Claude's install
 or update command according to its JSON plugin state. A `tapper-local`
 marketplace already pointing elsewhere is an actionable conflict.
 
-The baseline also ships `tapper-mcp-reset` and `tapper-flight-switch`. Use the
+The baseline also ships `tapper-mcp-reset` and the user-only
+`/tapper:tapper-flight-switch REF` command. Use the
 reset skill to diagnose the running version and connection, then run
 `/reload-plugins` or open a new session without killing host-owned processes.
-Use the flight-switch skill only on an explicit request; it keeps the selected
-flight thread-local and passes its ref on every later Tapper MCP call.
+The flight command is hidden from the model. Its prompt-expansion hook calls a
+hidden control on the existing MCP connection, requests human confirmation,
+and atomically switches only that connection without writing config or starting
+a model turn.

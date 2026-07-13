@@ -109,6 +109,9 @@ func TestEditFlight_PipedAppliesManifest(t *testing.T) {
 	tap, fx := newFlightEditTap(t, hub.srv.URL)
 
 	manifest := `title: Reworked
+visibility: public
+capabilities:
+  - manage_flights
 cover:
   - namespace: foldwise
     keg: docs
@@ -128,6 +131,8 @@ instructions: |
 
 	put := hub.lastPut(t)
 	require.Equal(t, "Reworked", put.Title)
+	require.Equal(t, tapper.FlightVisibilityPublic, put.Visibility)
+	require.Equal(t, []tapper.FlightCapability{tapper.FlightCapabilityManageFlights}, put.Capabilities)
 	require.Equal(t, "New instructions.\n", put.Instructions)
 	require.Equal(t, []tapper.HubFlightCover{
 		{Namespace: "foldwise", Keg: "docs", Role: "editor"},
@@ -208,6 +213,11 @@ func TestEditFlight_PipedRejectsInvalidManifests(t *testing.T) {
 			manifest: "cover:\n  - keg: docs\n    role: admin\n",
 			wantErr:  `invalid flight cover role "admin"`,
 		},
+		{
+			name:     "unknown capability",
+			manifest: "capabilities: [shell_access]\n",
+			wantErr:  `unknown flight capability "shell_access"`,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -286,8 +296,10 @@ func TestEditFlight_EditorStartsWithSchemaBackedManifest(t *testing.T) {
 	require.NoError(t, err)
 	opened := string(raw)
 	require.True(t, strings.HasPrefix(opened, "# yaml-language-server: $schema="+tapper.FlightManifestSchemaURL+"\n"))
-	require.Contains(t, opened, "# Flight @foldwise/+agent-work. Ref is immutable; edit title, cover, and instructions.")
+	require.Contains(t, opened, "# Flight @foldwise/+agent-work. Ref is immutable; edit title, visibility, capabilities, cover, and instructions.")
 	require.Contains(t, opened, `title: ""`)
+	require.Contains(t, opened, `visibility: private`)
+	require.Contains(t, opened, `capabilities: []`)
 	require.Contains(t, opened, "cover: []")
 	require.Contains(t, opened, `instructions: ""`)
 	require.NotContains(t, opened, "{}")

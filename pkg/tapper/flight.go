@@ -28,9 +28,16 @@ const (
 
 type FlightRole string
 
+type FlightCapability string
+
 const (
 	FlightRoleViewer FlightRole = "viewer"
 	FlightRoleEditor FlightRole = "editor"
+
+	FlightVisibilityPrivate = "private"
+	FlightVisibilityPublic  = "public"
+
+	FlightCapabilityManageFlights FlightCapability = "manage_flights"
 )
 
 // AtLeast reports whether r grants at least want within a flight cover.
@@ -62,18 +69,22 @@ type FlightCover struct {
 // plus markdown instructions. AllowedKegs is kept for backward compatibility
 // with local manifests and is normalized into editor-cap cover entries.
 type FlightManifest struct {
-	Title        string        `yaml:"title,omitempty" json:"title,omitempty"`
-	Cover        []FlightCover `yaml:"cover,omitempty" json:"cover,omitempty"`
-	AllowedKegs  []string      `yaml:"allowedKegs,omitempty" json:"allowedKegs,omitempty"`
-	Instructions string        `yaml:"instructions,omitempty" json:"instructions,omitempty"`
+	Title        string             `yaml:"title,omitempty" json:"title,omitempty"`
+	Visibility   string             `yaml:"visibility,omitempty" json:"visibility,omitempty"`
+	Capabilities []FlightCapability `yaml:"capabilities,omitempty" json:"capabilities,omitempty"`
+	Cover        []FlightCover      `yaml:"cover,omitempty" json:"cover,omitempty"`
+	AllowedKegs  []string           `yaml:"allowedKegs,omitempty" json:"allowedKegs,omitempty"`
+	Instructions string             `yaml:"instructions,omitempty" json:"instructions,omitempty"`
 }
 
 // Flight is a discovered flight: its manifest plus provenance.
 type Flight struct {
-	Name      string `yaml:"-" json:"name,omitempty"`
-	Namespace string `yaml:"-" json:"namespace,omitempty"`
-	Slug      string `yaml:"-" json:"slug,omitempty"`
-	Source    string `yaml:"-" json:"source,omitempty"` // "local" or a hub name
+	Name         string `yaml:"-" json:"name,omitempty"`
+	Namespace    string `yaml:"-" json:"namespace,omitempty"`
+	Slug         string `yaml:"-" json:"slug,omitempty"`
+	Source       string `yaml:"-" json:"source,omitempty"` // "local" or a hub name
+	Revision     int64  `yaml:"-" json:"revision,omitempty"`
+	ManifestHash string `yaml:"-" json:"manifest_hash,omitempty"`
 	FlightManifest
 }
 
@@ -155,6 +166,13 @@ func (s *FlightService) storeFlight(name string, f *Flight) {
 		s.flightCache = map[string]*Flight{}
 	}
 	s.flightCache[name] = f
+}
+
+// StoreSessionFlight pins a validated flight in the process cache for Tap's
+// per-operation cover enforcement. MCP session invalidation is handled by the
+// server-owned gate before these cached values are used.
+func (s *FlightService) StoreSessionFlight(name string, f *Flight) {
+	s.storeFlight(name, f)
 }
 
 // invalidateFlights drops every memoized flight. Called after any flight
@@ -289,6 +307,13 @@ func (s *FlightService) GetFlight(ctx context.Context, name string) (*Flight, er
 	return f, nil
 }
 
+// GetFlightFresh bypasses the process cache. MCP sessions use this before
+// gated calls so a Hub revision or local manifest hash change invalidates the
+// pinned session instead of silently changing its authority.
+func (s *FlightService) GetFlightFresh(ctx context.Context, name string) (*Flight, error) {
+	return s.getFlight(ctx, name)
+}
+
 func (s *FlightService) getFlight(ctx context.Context, name string) (*Flight, error) {
 	cfg, err := s.config()
 	if err != nil {
@@ -387,8 +412,12 @@ func (s *FlightService) getLocalFlightAnyHub(cfg *Config, slug string) (*Flight,
 		if err != nil {
 			return nil, err
 		}
-		if f, err := s.getLocalFlight(dir, localFlightNamespace(entry), slug); err == nil {
+		f, err := s.getLocalFlight(dir, localFlightNamespace(entry), slug)
+		if err == nil {
 			return f, nil
+		}
+		if !errors.Is(err, keg.ErrNotExist) {
+			return nil, err
 		}
 	}
 	return nil, keg.ErrNotExist
@@ -405,9 +434,12 @@ func (s *FlightService) getLocalFlight(dir, namespace, slug string) (*Flight, er
 		if err := yaml.Unmarshal(b, &m); err != nil {
 			return nil, fmt.Errorf("parse flight %q: %w", slug, err)
 		}
+		if err := validateFlightManifest(&m); err != nil {
+			return nil, fmt.Errorf("parse flight %q: %w", slug, err)
+		}
 		normalizeFlightManifest(&m)
 		ref := FlightRef{Namespace: namespace, Slug: slug}
-		return &Flight{Name: ref.Canonical(), Namespace: namespace, Slug: slug, Source: "local", FlightManifest: m}, nil
+		return &Flight{Name: ref.Canonical(), Namespace: namespace, Slug: slug, Source: "local", ManifestHash: s.Runtime.Hasher().Hash(b), FlightManifest: m}, nil
 	}
 	return nil, fmt.Errorf("flight %q not found: %w", slug, keg.ErrNotExist)
 }
@@ -427,6 +459,11 @@ func normalizeFlightManifest(m *FlightManifest) {
 	if m == nil {
 		return
 	}
+	if strings.TrimSpace(m.Visibility) == "" {
+		m.Visibility = FlightVisibilityPrivate
+	} else {
+		m.Visibility = strings.TrimSpace(m.Visibility)
+	}
 	if len(m.Cover) == 0 && len(m.AllowedKegs) > 0 {
 		for _, entry := range m.AllowedKegs {
 			if c, ok := parseFlightCoverEntry(entry); ok {
@@ -444,6 +481,41 @@ func normalizeFlightManifest(m *FlightManifest) {
 		m.Cover[i].Keg = strings.TrimSpace(m.Cover[i].Keg)
 		m.Cover[i].Role = normalizeFlightRole(m.Cover[i].Role)
 	}
+}
+
+func validateFlightManifest(m *FlightManifest) error {
+	if m == nil {
+		return nil
+	}
+	visibility := strings.TrimSpace(m.Visibility)
+	if visibility != "" && visibility != FlightVisibilityPrivate && visibility != FlightVisibilityPublic {
+		return fmt.Errorf("invalid flight visibility %q", visibility)
+	}
+	seen := map[FlightCapability]struct{}{}
+	for _, capability := range m.Capabilities {
+		capability = FlightCapability(strings.TrimSpace(string(capability)))
+		if capability != FlightCapabilityManageFlights {
+			return fmt.Errorf("unknown flight capability %q", capability)
+		}
+		if _, ok := seen[capability]; ok {
+			return fmt.Errorf("duplicate flight capability %q", capability)
+		}
+		seen[capability] = struct{}{}
+	}
+	return nil
+}
+
+// HasCapability reports whether a validated manifest grants capability.
+func (f *Flight) HasCapability(capability FlightCapability) bool {
+	if f == nil {
+		return false
+	}
+	for _, got := range f.Capabilities {
+		if got == capability {
+			return true
+		}
+	}
+	return false
 }
 
 func parseFlightCoverEntry(entry string) (FlightCover, bool) {
@@ -470,14 +542,14 @@ func parseFlightCoverEntry(entry string) (FlightCover, bool) {
 	return FlightCover{Namespace: strings.TrimSpace(ns), Keg: name, Role: normalizeFlightRole(role)}, true
 }
 
-// RoleFor reports the flight-scoped role for a keg. Empty cover permits all
-// kegs as editor to preserve instructions-only local flight behavior.
+// RoleFor reports the flight-scoped role for a keg. An empty cover denies all
+// KEG access.
 // Manifests normally arrive through normalizeFlightManifest, which folds
 // legacy AllowedKegs into Cover; the fallback here only covers Flight values
 // constructed by hand.
 func (f *Flight) RoleFor(alias, namespace, kegName string) (FlightRole, bool) {
 	if f == nil {
-		return FlightRoleEditor, true
+		return "", false
 	}
 	cover := append([]FlightCover(nil), f.Cover...)
 	if len(cover) == 0 && len(f.AllowedKegs) > 0 {
@@ -491,7 +563,7 @@ func (f *Flight) RoleFor(alias, namespace, kegName string) (FlightRole, bool) {
 		}
 	}
 	if len(cover) == 0 {
-		return FlightRoleEditor, true
+		return "", false
 	}
 	namespace = strings.TrimPrefix(strings.TrimSpace(namespace), "@")
 	kegName = strings.TrimSpace(kegName)
@@ -624,6 +696,8 @@ func flightFromHub(hf HubFlight, hubName string) *Flight {
 	}
 	m := FlightManifest{
 		Title:        hf.Title,
+		Visibility:   hf.Visibility,
+		Capabilities: append([]FlightCapability{}, hf.Capabilities...),
 		Cover:        cover,
 		Instructions: hf.Instructions,
 	}
@@ -634,6 +708,7 @@ func flightFromHub(hf HubFlight, hubName string) *Flight {
 		Namespace:      hf.Namespace,
 		Slug:           hf.Slug,
 		Source:         hubName,
+		Revision:       hf.Revision,
 		FlightManifest: m,
 	}
 }

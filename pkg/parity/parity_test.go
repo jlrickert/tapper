@@ -62,7 +62,9 @@ func newParityEnv(t *testing.T) *parityEnv {
 	require.NoError(t, err)
 
 	// Set up MCP server with in-memory transport.
-	srv := mcp.NewServer(tap, "test", mcp.KegDefaults{})
+	srv := mcp.NewServer(tap, "test", mcp.KegDefaults{
+		KegTargetOptions: tapper.KegTargetOptions{Flight: "@local/+parity"},
+	})
 	serverTransport, clientTransport := sdkmcp.NewInMemoryTransports()
 
 	done := make(chan error, 1)

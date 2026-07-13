@@ -15,6 +15,7 @@ import (
 // KegDefaults holds server-wide keg targeting defaults.
 type KegDefaults struct {
 	tapper.KegTargetOptions
+	gate *sessionFlightGate
 }
 
 // Surface selects which tool groups NewServer registers.
@@ -55,6 +56,9 @@ func NewServer(tap *tapper.Tap, version string, defaults KegDefaults, opts ...Se
 	if len(opts) > 0 {
 		opt = opts[0]
 	}
+	if opt.Surface != SurfaceHub {
+		defaults.gate = newSessionFlightGate(tap, defaults.Flight)
+	}
 
 	var srv *sdkmcp.Server
 	nodeSubs := newNodeResourceSubscriptions(tap, defaults, func(ctx context.Context, uri string) {
@@ -69,6 +73,9 @@ func NewServer(tap *tapper.Tap, version string, defaults KegDefaults, opts ...Se
 		SubscribeHandler:   nodeSubs.Subscribe,
 		UnsubscribeHandler: nodeSubs.Unsubscribe,
 	})
+	if defaults.gate != nil {
+		srv.AddReceivingMiddleware(defaults.gate.middleware)
+	}
 
 	// Node read/write tools — registered on every surface. These all funnel
 	// through Tap.resolveKegForRole, so a hub-injected KegResolver scopes them
@@ -102,6 +109,7 @@ func NewServer(tap *tapper.Tap, version string, defaults KegDefaults, opts ...Se
 		registerImportTools(srv, tap, defaults)
 		registerArchiveTools(srv, tap, defaults)
 		registerFlightTools(srv, tap, defaults)
+		registerFlightSwitchControl(srv, defaults.gate)
 		registerKegTools(srv, tap, defaults)
 		registerNamespaceTools(srv, tap, defaults)
 		registerResourceTools(srv, tap, defaults)
@@ -122,11 +130,7 @@ func NewServer(tap *tapper.Tap, version string, defaults KegDefaults, opts ...Se
 }
 
 // resolveKegTarget merges a per-tool keg alias with server-wide defaults.
-func resolveKegTarget(perToolKeg string, defaults KegDefaults) tapper.KegTargetOptions {
-	return resolveKegTargetWithFlight(perToolKeg, "", defaults)
-}
-
-func resolveKegTargetWithFlight(perToolKeg string, perToolFlight string, defaults KegDefaults) tapper.KegTargetOptions {
+func resolveKegTarget(ctx context.Context, perToolKeg string, defaults KegDefaults) tapper.KegTargetOptions {
 	out := defaults.KegTargetOptions
 	if perToolKeg != "" {
 		out.Keg = perToolKeg
@@ -134,8 +138,8 @@ func resolveKegTargetWithFlight(perToolKeg string, perToolFlight string, default
 		out.Cwd = false
 		out.Path = ""
 	}
-	if strings.TrimSpace(perToolFlight) != "" {
-		out.Flight = perToolFlight
+	if defaults.gate != nil {
+		out.Flight = defaults.gate.activeFlight(ctx)
 	}
 	// The MCP server is a full surface (peer to `tap`): config-driven keg
 	// resolution requires `tap bootstrap` to have run.

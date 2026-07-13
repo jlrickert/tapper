@@ -20,11 +20,14 @@ type HubFlightCover struct {
 }
 
 type HubFlight struct {
-	Namespace    string           `json:"namespace"`
-	Slug         string           `json:"slug"`
-	Title        string           `json:"title"`
-	Instructions string           `json:"instructions"`
-	Cover        []HubFlightCover `json:"cover"`
+	Namespace    string             `json:"namespace"`
+	Slug         string             `json:"slug"`
+	Title        string             `json:"title"`
+	Instructions string             `json:"instructions"`
+	Visibility   string             `json:"visibility"`
+	Capabilities []FlightCapability `json:"capabilities"`
+	Revision     int64              `json:"revision"`
+	Cover        []HubFlightCover   `json:"cover"`
 }
 
 func ListUserFlights(ctx context.Context, hubURL, token string) ([]HubFlight, error) {
@@ -36,7 +39,9 @@ func ListUserFlights(ctx context.Context, hubURL, token string) ([]HubFlight, er
 	if err != nil {
 		return nil, fmt.Errorf("hub: build list-flights request: %w", err)
 	}
-	req.Header.Set("Authorization", "Bearer "+token)
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
 	req.Header.Set("Accept", "application/json")
 
 	resp, err := http.DefaultClient.Do(req)
@@ -113,7 +118,9 @@ func doHubFlightJSON(ctx context.Context, method, hubURL, token, path string, pa
 	if err != nil {
 		return fmt.Errorf("hub: build flight request: %w", err)
 	}
-	req.Header.Set("Authorization", "Bearer "+token)
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
 	req.Header.Set("Accept", "application/json")
 	if payload != nil {
 		req.Header.Set("Content-Type", "application/json")

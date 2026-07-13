@@ -39,8 +39,8 @@ Codex currently supports only `--scope user`. `--scope project` and `--scope
 local` fail before marketplace extraction or Codex commands; use a user install
 until Codex exposes native project scopes.
 
-The baseline also ships `tapper-mcp-reset` and `tapper-flight-switch`. The
-reset skill diagnoses the running version and connection and guides users to a
-new thread or app restart without killing host-owned processes. The switch
-skill applies a user-requested flight as an explicit, thread-local parameter on
-every subsequent Tapper MCP call.
+The baseline also ships `tapper-mcp-reset`. It diagnoses the running version
+and connection and guides users to a new thread or app restart without killing
+host-owned processes. Codex has no equivalent user-only prompt hook, so it does
+not expose a flight-switching skill. To change flights, run `tap use --flight
+@namespace/+slug` (or `tap use +slug`) and open a new thread so MCP reconnects.

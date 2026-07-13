@@ -40,7 +40,7 @@ func TestMCP_DefaultFlightRestrictsKegs(t *testing.T) {
 	require.Contains(t, blockedText, `keg "@local/private" is not available in flight`)
 }
 
-func TestMCP_ExplicitToolFlightOverridesServerDefaultAndEnforcesSelectedCover(t *testing.T) {
+func TestMCP_InjectedToolFlightCannotOverrideSessionGate(t *testing.T) {
 	t.Parallel()
 	session, ctx, privateID := newFlightLockedSession(t)
 
@@ -54,23 +54,22 @@ func TestMCP_ExplicitToolFlightOverridesServerDefaultAndEnforcesSelectedCover(t 
 		},
 	})
 	require.NoError(t, err)
-	text := extractText(t, res)
-	require.False(t, res.IsError, "explicit flight should select its own cover: %s", text)
-	require.Contains(t, text, "# Private")
+	require.True(t, res.IsError)
+	require.Contains(t, extractText(t, res), "unexpected additional properties")
 
-	blocked, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+	covered, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
 		Name: "cat",
 		Arguments: map[string]any{
 			"keg":          "personal",
-			"flight":       "+other",
 			"node_ids":     []string{"0"},
 			"content_only": true,
 		},
 	})
 	require.NoError(t, err)
-	blockedText := extractText(t, blocked)
-	require.True(t, blocked.IsError, "selected flight cover must remain enforced")
-	require.Contains(t, blockedText, `keg "@local/personal" is not available in flight`)
+	coveredText := extractText(t, covered)
+	require.False(t, covered.IsError, "session flight must remain active: %s", coveredText)
+	require.Contains(t, coveredText, "# Personal Overview")
+	_ = privateID
 }
 
 func TestMCP_NodeResourceUsesDefaultFlight(t *testing.T) {
