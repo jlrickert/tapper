@@ -29,6 +29,9 @@ func TestHubFlights_ClientPaths(t *testing.T) {
 				Slug:         "agent-work",
 				Title:        "Agent Work",
 				Instructions: "Stay inside the cover.",
+				Visibility:   tapper.FlightVisibilityPublic,
+				Capabilities: []tapper.FlightCapability{tapper.FlightCapabilityManageFlights},
+				Revision:     7,
 				Cover:        []tapper.HubFlightCover{{Namespace: "foldwise", Keg: "docs", Role: "viewer"}},
 			})
 		case "POST /api/v1/@foldwise/flights", "PUT /api/v1/@foldwise/+agent-work":
@@ -53,6 +56,9 @@ func TestHubFlights_ClientPaths(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "Agent Work", flight.Title)
 	require.Equal(t, "viewer", flight.Cover[0].Role)
+	require.Equal(t, tapper.FlightVisibilityPublic, flight.Visibility)
+	require.Equal(t, []tapper.FlightCapability{tapper.FlightCapabilityManageFlights}, flight.Capabilities)
+	require.EqualValues(t, 7, flight.Revision)
 
 	created, err := tapper.CreateHubFlight(context.Background(), srv.URL, "tok", "foldwise", tapper.HubFlight{
 		Slug:  "agent-work",

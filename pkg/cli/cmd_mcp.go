@@ -29,6 +29,10 @@ per-command permission prompts.`,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			rt := deps.Runtime
+			activeFlight, err := mcp.ValidateFullSurfaceFlight(cmd.Context(), deps.Tap, deps.KegTargetOptions.Flight)
+			if err != nil {
+				return err
+			}
 
 			// MCP servers communicate over stdio, so the logger must
 			// write to stderr. When no --log-file is provided, use
@@ -46,6 +50,7 @@ per-command permission prompts.`,
 			defaults := mcp.KegDefaults{
 				KegTargetOptions: deps.KegTargetOptions,
 			}
+			defaults.Flight = activeFlight
 			srv := mcp.NewServer(deps.Tap, Version, defaults, mcp.ServerOptions{
 				LicenseText: LicenseText,
 				Logger:      rt.Logger(),

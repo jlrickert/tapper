@@ -1,0 +1,15 @@
+title: MCP tests
+visibility: private
+capabilities:
+  - manage_flights
+cover:
+  - namespace: local
+    keg: personal
+    role: editor
+  - namespace: local
+    keg: source
+    role: editor
+  - namespace: local
+    keg: importtarget
+    role: editor
+instructions: Test-only flight pinned by the MCP fixture.

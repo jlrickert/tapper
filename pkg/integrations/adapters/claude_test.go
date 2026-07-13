@@ -56,6 +56,42 @@ func TestClaudeAdapter_RendersHostRecoveryGuidance(t *testing.T) {
 	}
 }
 
+func TestClaudeAdapter_RendersHumanOnlyFlightSwitch(t *testing.T) {
+	mem := integrations.NewMemWriter()
+	if err := (ClaudeAdapter{}).Render(testRuntime(t), testContentFS(t), mem); err != nil {
+		t.Fatal(err)
+	}
+	switcher := string(mem.Files()["claude/tapper/skills/tapper-flight-switch/SKILL.md"])
+	for _, want := range []string{"disable-model-invocation: true", `argument-hint: "@namespace/+slug"`, "$ARGUMENTS"} {
+		if !strings.Contains(switcher, want) {
+			t.Errorf("flight switch command missing %q", want)
+		}
+	}
+
+	var hooks struct {
+		Hooks map[string][]struct {
+			Matcher string `json:"matcher"`
+			Hooks   []struct {
+				Type   string         `json:"type"`
+				Server string         `json:"server"`
+				Tool   string         `json:"tool"`
+				Input  map[string]any `json:"input"`
+			} `json:"hooks"`
+		} `json:"hooks"`
+	}
+	if err := json.Unmarshal(mem.Files()["claude/tapper/hooks/hooks.json"], &hooks); err != nil {
+		t.Fatal(err)
+	}
+	expansions := hooks.Hooks["UserPromptExpansion"]
+	if len(expansions) != 1 || len(expansions[0].Hooks) != 1 {
+		t.Fatalf("flight switch expansion hook = %+v", expansions)
+	}
+	hook := expansions[0].Hooks[0]
+	if hook.Type != "mcp_tool" || hook.Server != "tapper" || hook.Tool != "flight_switch_control" || hook.Input["ref"] != "${command_args}" {
+		t.Fatalf("flight switch MCP hook = %+v", hook)
+	}
+}
+
 func TestClaudeAdapter_BaselineExcludesDeveloperLifecycle(t *testing.T) {
 	mem := integrations.NewMemWriter()
 	if err := (ClaudeAdapter{}).Render(testRuntime(t), testContentFS(t), mem); err != nil {

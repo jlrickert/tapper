@@ -1,7 +1,8 @@
 # MCP Server Setup
 
 The `tap mcp` command starts a Model Context Protocol server on stdio, exposing
-KEG operations as tools. This page is the advanced manual path for MCP hosts
+KEG operations as tools. The local full surface requires an active flight and
+pins it for the lifetime of each MCP connection. This page is the advanced manual path for MCP hosts
 that are not using the bundled Claude Code or Codex integrations.
 
 Most users should start with the one-command installs in the project README's
@@ -17,10 +18,18 @@ for installation or upgrades, not connection reset.
 
 ## Quick Start
 
+Persist a project flight before connecting:
+
+```bash
+tap use --flight @acme/+release-42
+# shorthand when the default namespace is already configured
+tap use +release-42
+```
+
 ### Claude Code Manual Setup
 
 ```bash
-claude mcp add --transport stdio tapper -- tap mcp
+claude mcp add --transport stdio tapper -- tap mcp --flight @acme/+release-42
 ```
 
 This adds `tapper` to your Claude Code MCP configuration. To target a specific
@@ -39,7 +48,7 @@ For any MCP host that reads a JSON configuration file, add:
   "mcpServers": {
     "tapper": {
       "command": "tap",
-      "args": ["mcp"]
+      "args": ["mcp", "--flight", "@acme/+release-42"]
     }
   }
 }
@@ -126,7 +135,8 @@ manage namespace members and keg grants through the hub UI.
 | `export`, `import` | Export or import keg archives |
 | `graph` | Render a keg graph |
 | `orient` | Return the shared KEG system orientation payload |
-| `list_flights`, `flight_show`, `flight_create`, `flight_edit`, `flight_delete` | Manage flights |
+| `list_flights`, `flight_show` | Discover and inspect visible flights |
+| `flight_create`, `flight_edit`, `flight_delete` | Manage other flights when the active flight grants `manage_flights` and the identity owns/administers the target namespace |
 | `integrate` | Install embedded host-native plugin marketplaces |
 | `license` | Read bundled license text |
 
@@ -143,6 +153,10 @@ server default. This enables multi-keg workflows without restarting the server:
 Use the per-tool `keg` parameter for cross-keg work. Do not restart the MCP
 server just to switch between organization kegs.
 
+There is no model-visible per-call `flight` parameter. The active flight is
+server-owned connection state. Claude's bundled plugin provides a human-only
+switch command; other hosts must reconnect after changing their project flight.
+
 ## Troubleshooting
 
 ### Server Not Responding
@@ -154,13 +168,13 @@ which tap
 tap mcp --help
 ```
 
-### No Keg Configured
+### No Flight Configured
 
-Bootstrap the machine or start the MCP server with an explicit keg:
+Configure a project flight or start the MCP server with an explicit flight:
 
 ```bash
-tap bootstrap --kind local --default-keg @local/personal
-tap mcp --keg @acme/engineering
+tap use --flight @acme/+release-42
+tap mcp --flight @acme/+release-42
 ```
 
 ### Logs

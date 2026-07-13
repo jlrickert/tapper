@@ -16,7 +16,6 @@ import (
 type integrateInput struct {
 	Host    string   `json:"host"              jsonschema:"host identifier (e.g. 'claude' or 'codex')"`
 	Keg     string   `json:"keg,omitempty"     jsonschema:"keg alias; reserved for future per-keg customization"`
-	Flight  string   `json:"flight,omitempty" jsonschema:"flight ref to cap available kegs (uses server default if empty)"`
 	DryRun  bool     `json:"dry_run,omitempty" jsonschema:"when true, return target paths without writing any files"`
 	Plugins []string `json:"plugins,omitempty" jsonschema:"optional embedded plugin names to add after the mandatory tapper baseline"`
 	Scope   string   `json:"scope,omitempty" jsonschema:"host install scope; defaults to user (Claude also supports project and local)"`
@@ -37,7 +36,7 @@ func registerIntegrate(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults
 		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in integrateInput) (*sdkmcp.CallToolResult, any, error) {
 		opts := tapper.IntegrateOptions{
-			KegTargetOptions: resolveKegTargetWithFlight(in.Keg, in.Flight, defaults),
+			KegTargetOptions: resolveKegTarget(ctx, in.Keg, defaults),
 			Host:             in.Host,
 			DryRun:           in.DryRun,
 			Plugins:          in.Plugins,

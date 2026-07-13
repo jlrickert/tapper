@@ -22,7 +22,6 @@ func registerLockTools(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults
 type lockAcquireInput struct {
 	NodeID string `json:"node_id" jsonschema:"node ID to lock"`
 	Keg    string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
-	Flight string `json:"flight,omitempty" jsonschema:"flight ref to cap available kegs (uses server default if empty)"`
 }
 
 func registerLockAcquire(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
@@ -35,7 +34,7 @@ func registerLockAcquire(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaul
 		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in lockAcquireInput) (*sdkmcp.CallToolResult, any, error) {
 		opts := tapper.LockOptions{
-			KegTargetOptions: resolveKegTargetWithFlight(in.Keg, in.Flight, defaults),
+			KegTargetOptions: resolveKegTarget(ctx, in.Keg, defaults),
 			NodeID:           in.NodeID,
 		}
 		token, err := tap.Lock(ctx, opts)
@@ -52,7 +51,6 @@ type lockReleaseInput struct {
 	NodeID string `json:"node_id" jsonschema:"node ID to unlock"`
 	Token  string `json:"token" jsonschema:"lock token returned by lock_acquire"`
 	Keg    string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
-	Flight string `json:"flight,omitempty" jsonschema:"flight ref to cap available kegs (uses server default if empty)"`
 }
 
 func registerLockRelease(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
@@ -65,7 +63,7 @@ func registerLockRelease(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaul
 		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in lockReleaseInput) (*sdkmcp.CallToolResult, any, error) {
 		opts := tapper.UnlockOptions{
-			KegTargetOptions: resolveKegTargetWithFlight(in.Keg, in.Flight, defaults),
+			KegTargetOptions: resolveKegTarget(ctx, in.Keg, defaults),
 			NodeID:           in.NodeID,
 			Token:            in.Token,
 		}
@@ -81,7 +79,6 @@ func registerLockRelease(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaul
 type lockStatusInput struct {
 	NodeID string `json:"node_id" jsonschema:"node ID to check"`
 	Keg    string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
-	Flight string `json:"flight,omitempty" jsonschema:"flight ref to cap available kegs (uses server default if empty)"`
 }
 
 func registerLockStatus(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
@@ -94,7 +91,7 @@ func registerLockStatus(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefault
 		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in lockStatusInput) (*sdkmcp.CallToolResult, any, error) {
 		opts := tapper.LockStatusOptions{
-			KegTargetOptions: resolveKegTargetWithFlight(in.Keg, in.Flight, defaults),
+			KegTargetOptions: resolveKegTarget(ctx, in.Keg, defaults),
 			NodeID:           in.NodeID,
 		}
 		info, err := tap.LockStatus(ctx, opts)
@@ -118,7 +115,6 @@ func registerLockStatus(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefault
 type lockForceReleaseInput struct {
 	NodeID string `json:"node_id" jsonschema:"node ID to force-unlock"`
 	Keg    string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
-	Flight string `json:"flight,omitempty" jsonschema:"flight ref to cap available kegs (uses server default if empty)"`
 }
 
 func registerLockForceRelease(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
@@ -131,7 +127,7 @@ func registerLockForceRelease(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegD
 		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in lockForceReleaseInput) (*sdkmcp.CallToolResult, any, error) {
 		opts := tapper.ForceUnlockOptions{
-			KegTargetOptions: resolveKegTargetWithFlight(in.Keg, in.Flight, defaults),
+			KegTargetOptions: resolveKegTarget(ctx, in.Keg, defaults),
 			NodeID:           in.NodeID,
 		}
 		if err := tap.ForceUnlock(ctx, opts); err != nil {

@@ -24,12 +24,13 @@ a warning about what was skipped.
 
 ## Parameters
 
-The tool and CLI accept two optional context parameters.
+The CLI accepts explicit keg and flight context. The MCP tool accepts only an
+optional keg; its flight is pinned by the server-owned connection gate.
 
 | Parameter | Values | Effect |
 | --- | --- | --- |
 | `keg` | keg reference, for example `@acme/engineering` | Pins active KEG resolution. |
-| `flight` | flight identifier, for example `@acme/+release-42` | Renders flight title/instructions and caps the available KEG list to the flight cover. |
+| `flight` (CLI only) | flight identifier, for example `@acme/+release-42` | Renders flight title/instructions and caps the available KEG list to the flight cover. |
 
 `flight` is context, not a target selector, so it composes with `keg`,
 `namespace`, and `hub`. Direct CLI commands ignore flight cover caps and use
@@ -61,10 +62,7 @@ The MCP server registers a single `orient` tool:
   "method": "tools/call",
   "params": {
     "name": "orient",
-    "arguments": {
-      "flight": "@acme/+release-42",
-      "keg": "@acme/engineering"
-    }
+    "arguments": {"keg": "@acme/engineering"}
   }
 }
 ```
@@ -95,8 +93,9 @@ tap orient --flight @acme/+release-42
 tap orient --flight @acme/+release-42 --keg @acme/engineering
 ```
 
-`--flight` is a root persistent flag available on commands that accept `--keg`.
-It is free-form and suppresses filesystem completion.
+`--flight` is a root persistent CLI flag available on commands that accept
+`--keg`. It is free-form and suppresses filesystem completion; it is not part
+of any MCP tool schema.
 
 ## Byte-Equivalence Guarantee
 

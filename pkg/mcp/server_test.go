@@ -54,7 +54,7 @@ func newTestSessionWithOpts(t *testing.T, opts ...mcp.ServerOptions) (*sdkmcp.Cl
 	})
 	require.NoError(t, err)
 
-	srv := mcp.NewServer(tap, "test", mcp.KegDefaults{}, opts...)
+	srv := mcp.NewServer(tap, "test", mcp.KegDefaults{KegTargetOptions: tapper.KegTargetOptions{Flight: "@local/+test"}}, opts...)
 	serverTransport, clientTransport := sdkmcp.NewInMemoryTransports()
 
 	// Connect server in background.
@@ -96,7 +96,7 @@ func newTestSessionWithRuntime(t *testing.T) (*sdkmcp.ClientSession, *toolkit.Ru
 	})
 	require.NoError(t, err)
 
-	srv := mcp.NewServer(tap, "test", mcp.KegDefaults{})
+	srv := mcp.NewServer(tap, "test", mcp.KegDefaults{KegTargetOptions: tapper.KegTargetOptions{Flight: "@local/+test"}})
 	serverTransport, clientTransport := sdkmcp.NewInMemoryTransports()
 
 	// Connect server in background.

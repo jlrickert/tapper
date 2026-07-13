@@ -33,6 +33,6 @@ restarting the MCP server.
 
 ## Bootstrapping a session
 
-Call `mcp__tapper__orient` first. Follow any live flight and KEG instructions
-it returns. If there is no active flight, use only the baseline safety guidance
-and the KEGs orientation exposes; do not invent lifecycle policy.
+Call `mcp__tapper__orient` first. Follow the pinned flight and KEG instructions
+it returns. The local full MCP server refuses to start without a configured
+flight, and a flight with an empty cover exposes no KEGs.

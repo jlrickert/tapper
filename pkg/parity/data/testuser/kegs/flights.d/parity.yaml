@@ -1,0 +1,9 @@
+title: Parity test flight
+visibility: private
+capabilities:
+  - manage_flights
+cover:
+  - namespace: local
+    keg: personal
+    role: editor
+instructions: Test-only flight covering the parity fixture.

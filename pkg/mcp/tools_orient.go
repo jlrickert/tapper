@@ -12,8 +12,7 @@ import (
 // field is optional: a bare call returns the shared KEG system payload
 // with the active keg resolved from the working directory.
 type orientInput struct {
-	Keg    string `json:"keg,omitempty"    jsonschema:"keg alias; pins active-keg resolution"`
-	Flight string `json:"flight,omitempty" jsonschema:"flight ref to cap available kegs (uses server default if empty)"`
+	Keg string `json:"keg,omitempty"    jsonschema:"keg alias; pins active-keg resolution"`
 }
 
 // registerOrientTools wires the orient surface onto srv. Called from
@@ -31,7 +30,7 @@ func registerOrient(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 			OpenWorldHint: boolPtr(false),
 		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in orientInput) (*sdkmcp.CallToolResult, any, error) {
-		kegOpts := resolveKegTargetWithFlight(in.Keg, in.Flight, defaults)
+		kegOpts := resolveKegTarget(ctx, in.Keg, defaults)
 		opts := tapper.OrientOptions{
 			KegTargetOptions: kegOpts,
 		}

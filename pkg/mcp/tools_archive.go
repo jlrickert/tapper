@@ -19,7 +19,6 @@ func registerArchiveTools(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefau
 
 type exportInput struct {
 	Keg         string   `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
-	Flight      string   `json:"flight,omitempty" jsonschema:"flight ref to cap available kegs (uses server default if empty)"`
 	OutputPath  string   `json:"output_path" jsonschema:"filesystem path for the generated tar.gz archive"`
 	NodeIDs     []string `json:"node_ids,omitempty" jsonschema:"node IDs to export (empty exports all nodes)"`
 	WithHistory bool     `json:"with_history,omitempty" jsonschema:"include snapshot history in the archive"`
@@ -35,7 +34,7 @@ func registerExport(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in exportInput) (*sdkmcp.CallToolResult, any, error) {
 		opts := tapper.ExportOptions{
-			KegTargetOptions: resolveKegTargetWithFlight(in.Keg, in.Flight, defaults),
+			KegTargetOptions: resolveKegTarget(ctx, in.Keg, defaults),
 			OutputPath:       in.OutputPath,
 			NodeIDs:          in.NodeIDs,
 			WithHistory:      in.WithHistory,
@@ -52,9 +51,8 @@ func registerExport(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 // --- import ---
 
 type importInput struct {
-	Keg    string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
-	Flight string `json:"flight,omitempty" jsonschema:"flight ref to cap available kegs (uses server default if empty)"`
-	Path   string `json:"path" jsonschema:"path or URL to a keg archive tar.gz file"`
+	Keg  string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
+	Path string `json:"path" jsonschema:"path or URL to a keg archive tar.gz file"`
 }
 
 func registerImport(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
@@ -67,7 +65,7 @@ func registerImport(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in importInput) (*sdkmcp.CallToolResult, any, error) {
 		opts := tapper.ImportOptions{
-			KegTargetOptions: resolveKegTargetWithFlight(in.Keg, in.Flight, defaults),
+			KegTargetOptions: resolveKegTarget(ctx, in.Keg, defaults),
 			Input:            in.Path,
 		}
 

@@ -41,7 +41,7 @@ func registerNodeResource(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefau
 		}
 		payload, err := tap.Cat(ctx, tapper.CatOptions{
 			NodeIDs:          []string{ref.nodeID},
-			KegTargetOptions: resolveKegTarget(ref.keg, defaults),
+			KegTargetOptions: resolveKegTarget(ctx, ref.keg, defaults),
 			ContentOnly:      true,
 		})
 		if err != nil {
@@ -87,7 +87,7 @@ func registerOrientResource(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDef
 		MIMEType:    "text/markdown",
 	}, func(ctx context.Context, req *sdkmcp.ReadResourceRequest) (*sdkmcp.ReadResourceResult, error) {
 		payload, err := tap.Orient(ctx, tapper.OrientOptions{
-			KegTargetOptions: defaults.KegTargetOptions,
+			KegTargetOptions: resolveKegTarget(ctx, "", defaults),
 		})
 		if err != nil {
 			return nil, err

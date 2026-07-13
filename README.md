@@ -255,9 +255,9 @@ access reduced by flight cover caps.
 
 Persist a project flight for newly opened agent sessions with either `tap use
 --flight @namespace/+slug` or the default-namespace shorthand `tap use +slug`.
-An explicit `flight` on an MCP call temporarily overrides that project default
-for the call; agents switching mid-thread pass the same explicit ref on every
-later Tapper call without changing config.
+Local MCP connections pin that flight at connection time; MCP tool calls cannot
+override it. Claude users can switch one live connection through the bundled
+human-only command, while Codex users change the project flight and reconnect.
 
 ## Release And Contribution Notes
 

@@ -32,6 +32,11 @@ func testContentFS(t *testing.T) fs.FS {
 		}
 		files[filepath.ToSlash(name)] = &fstest.MapFile{Data: body}
 	}
+	flightSwitch, err := os.ReadFile(filepath.Join("..", "..", "..", "integrations", "content", "skills", "tapper-flight-switch.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	files["skills/tapper-flight-switch.md"] = &fstest.MapFile{Data: flightSwitch}
 	workflow, err := os.ReadFile(filepath.Join("..", "renderdata", "developer", "workflow.md"))
 	if err != nil {
 		t.Fatal(err)
@@ -64,7 +69,6 @@ func TestCodexAdapter_RendersNativeMarketplaceAndTwoPlugins(t *testing.T) {
 		"codex/tapper/.codex-plugin/plugin.json",
 		"codex/tapper/.mcp.json",
 		"codex/tapper/skills/tapper/SKILL.md",
-		"codex/tapper/skills/tapper-flight-switch/SKILL.md",
 		"codex/tapper/skills/tapper-mcp-reset/SKILL.md",
 		"codex/tapper-dev/.codex-plugin/plugin.json",
 		"codex/tapper-dev/skills/tapper-dev/SKILL.md",
@@ -105,16 +109,13 @@ func TestCodexAdapter_RendersManagementSkills(t *testing.T) {
 		t.Fatal(err)
 	}
 	reset := string(mem.Files()["codex/tapper/skills/tapper-mcp-reset/SKILL.md"])
-	switcher := string(mem.Files()["codex/tapper/skills/tapper-flight-switch/SKILL.md"])
 	for _, want := range []string{"tap version", "mcp__tapper__info", "mcp__tapper__orient", "new thread", "restart the Codex app", "Never kill"} {
 		if !strings.Contains(reset, want) {
 			t.Errorf("reset skill missing %q", want)
 		}
 	}
-	for _, want := range []string{"explicitly asks", "mcp__tapper__flight_show", "every subsequent Tapper MCP", ".tapper/config.yaml"} {
-		if !strings.Contains(switcher, want) {
-			t.Errorf("flight switch skill missing %q", want)
-		}
+	if _, ok := mem.Files()["codex/tapper/skills/tapper-flight-switch/SKILL.md"]; ok {
+		t.Error("Codex must not expose a flight-switching skill")
 	}
 }
 

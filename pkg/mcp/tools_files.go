@@ -48,7 +48,6 @@ func registerFileTools(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults
 type listFilesInput struct {
 	NodeID string `json:"node_id" jsonschema:"node ID to list files for"`
 	Keg    string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
-	Flight string `json:"flight,omitempty" jsonschema:"flight ref to cap available kegs (uses server default if empty)"`
 }
 
 func registerListFiles(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
@@ -61,7 +60,7 @@ func registerListFiles(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults
 		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in listFilesInput) (*sdkmcp.CallToolResult, any, error) {
 		opts := tapper.ListFilesOptions{
-			KegTargetOptions: resolveKegTargetWithFlight(in.Keg, in.Flight, defaults),
+			KegTargetOptions: resolveKegTarget(ctx, in.Keg, defaults),
 			NodeID:           in.NodeID,
 		}
 		files, err := tap.ListFiles(ctx, opts)
@@ -80,7 +79,6 @@ func registerListFiles(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults
 type listImagesInput struct {
 	NodeID string `json:"node_id" jsonschema:"node ID to list images for"`
 	Keg    string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
-	Flight string `json:"flight,omitempty" jsonschema:"flight ref to cap available kegs (uses server default if empty)"`
 }
 
 func registerListImages(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
@@ -93,7 +91,7 @@ func registerListImages(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefault
 		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in listImagesInput) (*sdkmcp.CallToolResult, any, error) {
 		opts := tapper.ListImagesOptions{
-			KegTargetOptions: resolveKegTargetWithFlight(in.Keg, in.Flight, defaults),
+			KegTargetOptions: resolveKegTarget(ctx, in.Keg, defaults),
 			NodeID:           in.NodeID,
 		}
 		images, err := tap.ListImages(ctx, opts)
@@ -113,7 +111,6 @@ type deleteFileInput struct {
 	NodeID string `json:"node_id" jsonschema:"node ID containing the file"`
 	Name   string `json:"name" jsonschema:"filename to delete"`
 	Keg    string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
-	Flight string `json:"flight,omitempty" jsonschema:"flight ref to cap available kegs (uses server default if empty)"`
 }
 
 func registerDeleteFile(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
@@ -126,7 +123,7 @@ func registerDeleteFile(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefault
 		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in deleteFileInput) (*sdkmcp.CallToolResult, any, error) {
 		opts := tapper.DeleteFileOptions{
-			KegTargetOptions: resolveKegTargetWithFlight(in.Keg, in.Flight, defaults),
+			KegTargetOptions: resolveKegTarget(ctx, in.Keg, defaults),
 			NodeID:           in.NodeID,
 			Name:             in.Name,
 		}
@@ -143,7 +140,6 @@ type deleteImageInput struct {
 	NodeID string `json:"node_id" jsonschema:"node ID containing the image"`
 	Name   string `json:"name" jsonschema:"image filename to delete"`
 	Keg    string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
-	Flight string `json:"flight,omitempty" jsonschema:"flight ref to cap available kegs (uses server default if empty)"`
 }
 
 func registerDeleteImage(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
@@ -156,7 +152,7 @@ func registerDeleteImage(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaul
 		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in deleteImageInput) (*sdkmcp.CallToolResult, any, error) {
 		opts := tapper.DeleteImageOptions{
-			KegTargetOptions: resolveKegTargetWithFlight(in.Keg, in.Flight, defaults),
+			KegTargetOptions: resolveKegTarget(ctx, in.Keg, defaults),
 			NodeID:           in.NodeID,
 			Name:             in.Name,
 		}
@@ -178,7 +174,6 @@ type uploadFileInput struct {
 	MIMEType   string               `json:"mime_type,omitempty" jsonschema:"optional MIME type hint for raw file bytes"`
 	Resource   *uploadResourceInput `json:"resource,omitempty" jsonschema:"embedded resource with uri, mime_type or mimeType, and blob or text"`
 	Keg        string               `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
-	Flight     string               `json:"flight,omitempty" jsonschema:"flight ref to cap available kegs (uses server default if empty)"`
 }
 
 func registerUploadFile(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults, allowLocalSources bool) {
@@ -207,7 +202,7 @@ func registerUploadFile(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefault
 			return errorResult(fmt.Errorf("filename is required when the upload source has no filename")), nil, nil
 		}
 		opts := tapper.UploadFileOptions{
-			KegTargetOptions: resolveKegTargetWithFlight(in.Keg, in.Flight, defaults),
+			KegTargetOptions: resolveKegTarget(ctx, in.Keg, defaults),
 			NodeID:           in.NodeID,
 			Data:             data,
 			Name:             name,
@@ -227,7 +222,6 @@ type downloadFileInput struct {
 	Filename string `json:"filename" jsonschema:"filename to download"`
 	DestPath string `json:"dest_path" jsonschema:"absolute path to write the downloaded file"`
 	Keg      string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
-	Flight   string `json:"flight,omitempty" jsonschema:"flight ref to cap available kegs (uses server default if empty)"`
 }
 
 func registerDownloadFile(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
@@ -242,7 +236,7 @@ func registerDownloadFile(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefau
 			return errorResult(fmt.Errorf("stdout mode is not supported over MCP")), nil, nil
 		}
 		opts := tapper.DownloadFileOptions{
-			KegTargetOptions: resolveKegTargetWithFlight(in.Keg, in.Flight, defaults),
+			KegTargetOptions: resolveKegTarget(ctx, in.Keg, defaults),
 			NodeID:           in.NodeID,
 			Name:             in.Filename,
 			Dest:             in.DestPath,
@@ -266,7 +260,6 @@ type uploadImageInput struct {
 	MIMEType   string               `json:"mime_type,omitempty" jsonschema:"optional MIME type hint for raw image bytes"`
 	Resource   *uploadResourceInput `json:"resource,omitempty" jsonschema:"embedded resource with uri, mime_type or mimeType, and blob"`
 	Keg        string               `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
-	Flight     string               `json:"flight,omitempty" jsonschema:"flight ref to cap available kegs (uses server default if empty)"`
 }
 
 func registerUploadImage(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults, allowLocalSources bool) {
@@ -295,7 +288,7 @@ func registerUploadImage(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaul
 			return errorResult(fmt.Errorf("filename is required when the upload source has no filename")), nil, nil
 		}
 		opts := tapper.UploadImageOptions{
-			KegTargetOptions: resolveKegTargetWithFlight(in.Keg, in.Flight, defaults),
+			KegTargetOptions: resolveKegTarget(ctx, in.Keg, defaults),
 			NodeID:           in.NodeID,
 			Data:             data,
 			Name:             name,
@@ -315,7 +308,6 @@ type downloadImageInput struct {
 	Filename string `json:"filename" jsonschema:"image filename to download"`
 	DestPath string `json:"dest_path,omitempty" jsonschema:"absolute path to write the downloaded image (stdio/local only)"`
 	Keg      string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
-	Flight   string `json:"flight,omitempty" jsonschema:"flight ref to cap available kegs (uses server default if empty)"`
 }
 
 func registerDownloadImage(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults, mode imageDownloadMode) {
@@ -340,7 +332,7 @@ func registerDownloadImage(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefa
 				return errorResult(fmt.Errorf("stdout mode is not supported over MCP")), nil, nil
 			}
 			opts := tapper.DownloadImageOptions{
-				KegTargetOptions: resolveKegTargetWithFlight(in.Keg, in.Flight, defaults),
+				KegTargetOptions: resolveKegTarget(ctx, in.Keg, defaults),
 				NodeID:           in.NodeID,
 				Name:             in.Filename,
 				Dest:             in.DestPath,
@@ -355,7 +347,7 @@ func registerDownloadImage(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefa
 				return errorResult(fmt.Errorf("dest_path is not available on this MCP surface; omit dest_path to receive image content")), nil, nil
 			}
 			data, format, err := tap.ReadImage(ctx, tapper.ReadImageOptions{
-				KegTargetOptions: resolveKegTargetWithFlight(in.Keg, in.Flight, defaults),
+				KegTargetOptions: resolveKegTarget(ctx, in.Keg, defaults),
 				NodeID:           in.NodeID,
 				Name:             in.Filename,
 			})

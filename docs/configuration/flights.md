@@ -1,23 +1,28 @@
 # Flights
 
-A **flight** is an optional agent context: a cover for MCP sessions plus a
-block of agent instructions. Flight manifests live separately from Tapper
-configuration. A project can persist the selected flight in
-`.tapper/config.yaml`, and an explicit per-call flight can temporarily override
-that default.
+A **flight** is the required authorization and instruction context for a local
+full MCP session. Flight manifests live separately from Tapper configuration.
+A project persists the selected flight in `.tapper/config.yaml`; the server
+resolves and pins that flight when the MCP connection starts.
 
 ## What A Flight Does
 
-A flight carries two independent things, either of which may be empty:
+A flight carries four details:
 
-1. **A keg cover** (`cover`). When non-empty, MCP tools reject kegs outside the
-   cover. Each cover entry has a `viewer` or `editor`
-   cap; writes require `editor`. An empty cover restricts nothing for local
-   instructions-only flights. Direct CLI commands ignore these caps and use
+1. **A keg cover** (`cover`). MCP tools reject kegs outside the cover. Each
+   cover entry has a `viewer` or `editor` cap; writes require `editor`. An empty
+   cover denies all KEG access. Direct CLI commands ignore these caps and use
    normal keg authorization.
 2. **Agent instructions** (`instructions`). These are injected into the `tap
    orient` payload, so an agent that orients under a flight sees the flight's
    guidance before general Tapper guidance.
+3. **Visibility** (`visibility`). Hub flights default to `private`; `public`
+   flights are anonymously discoverable and may cover only public kegs when
+   created or updated.
+4. **Capabilities** (`capabilities`). The only supported capability is
+   `manage_flights`. It exposes flight mutation tools to the session, but Hub
+   still requires the authenticated identity to own or administer the target
+   namespace.
 
 Because a flight is not a target selector, `--flight` **composes** with `--keg`,
 `--namespace`, and `--hub`: those pin which keg you operate on; the flight adds
@@ -34,11 +39,14 @@ reserved `flights.d` directory:
 
 (`flights.d` is deliberately not a legal namespace — it contains a dot — so it
 can never collide with a keg path.) The file stem is the flight name. Each
-manifest has three optional fields:
+manifest has five optional fields:
 
 ```yaml
 # <basePath>/flights.d/release-42.yaml
 title: Release 42 cut
+visibility: private
+capabilities:
+  - manage_flights
 cover:
   - namespace: acme
     keg: release-notes
@@ -69,7 +77,8 @@ local `flights.d` manifests remain read-only files.
 | ------------------------------------- | ----------------------------------------- |
 | List discovered flights               | `tap flight list`                         |
 | Show a flight's cover + body          | `tap flight show @namespace/+slug`        |
-| Run MCP/orient with a flight context  | `tap --flight @namespace/+slug <command>` |
+| Start MCP with an explicit flight     | `tap mcp --flight @namespace/+slug`       |
+| Preview orientation for a flight      | `tap orient --flight @namespace/+slug`    |
 | Persist the project flight            | `tap use --flight @namespace/+slug` or `tap use +slug` |
 | Create a Hub-backed flight            | `tap flight create @namespace/+slug --cover @namespace/keg=viewer` |
 | Edit a Hub-backed flight in $EDITOR   | `tap flight edit @namespace/+slug` (the manifest opens as YAML; every save is applied) |
@@ -79,22 +88,27 @@ local `flights.d` manifests remain read-only files.
 `tap flight edit` opens a non-empty YAML document even for an empty flight. The
 first line is a `yaml-language-server` schema modeline for
 `schemas/flight-manifest.json`, followed by a short comment that the
-`@namespace/+slug` ref is immutable. The editable fields are `title`, `cover`,
-and `instructions`; comments and the modeline are ignored when deciding whether
-the manifest changed.
+`@namespace/+slug` ref is immutable. The editable fields are `title`,
+`visibility`, `capabilities`, `cover`, and `instructions`; comments and the
+modeline are ignored when deciding whether the manifest changed.
 
-The same surface is exposed over MCP as the `list_flights`, `flight_show`,
-`flight_create`, `flight_edit`, and `flight_delete` tools. `--flight` also
-flows through `tap orient` so orientation can render flight instructions, even
-though direct CLI reads/writes are not capped by the flight cover. `flight_edit`
-(partial update; omitted fields keep current values) is the agent-facing
-equivalent of the CLI's piped `flight edit`, since agents cannot open editors.
+MCP always exposes `list_flights` and `flight_show`. It exposes
+`flight_create`, `flight_edit`, and `flight_delete` only while the session's
+active flight grants `manage_flights`; direct calls are checked server-side as
+well. A session can never edit or delete its own active flight. `flight_edit`
+is a partial update where omitted fields retain their current values.
 
 ## Behavior
 
 - MCP tools reject a keg outside the active flight's cover
   with a "keg … is not available in flight …" error.
 - MCP writes against a `viewer` cover row are rejected as viewer-only.
+- The local full MCP surface refuses to start without a configured flight.
+- The active flight's cover, instructions, capabilities, and remote revision or
+  local manifest hash are pinned per connection. Project config changes do not
+  change an existing connection.
+- If that remote revision or local hash changes, the connection is invalidated
+  for KEG and flight mutations until a human switches it or the host reconnects.
 - Direct CLI commands such as `tap cat`, `tap edit`, and `tap create` ignore
   flight cover caps; access is governed by normal keg authorization.
 - A missing `flights.d` directory means "no flights", not an error.
@@ -103,8 +117,10 @@ equivalent of the CLI's piped `flight edit`, since agents cannot open editors.
 - `tap use --flight @namespace/+slug` persists the project default in
   `.tapper/config.yaml`; `tap use +slug` uses the resolved default namespace.
   Newly opened Codex or Claude sessions inherit it.
-- An explicit MCP tool `flight` overrides the configured project default for
-  that call. A mid-session switch is stateless: the agent must pass the chosen
-  ref on every later Tapper call, and a new session returns to project config.
+- MCP tools have no model-visible `flight` input. In Claude Code, a human may
+  run `/tapper:tapper-flight-switch @namespace/+slug`; Claude asks for
+  confirmation and changes only that MCP connection without a model turn or a
+  config write. Codex users run `tap use --flight @namespace/+slug` (or `tap use
+  +slug`) and open a new thread so the plugin reconnects.
 - KEG-specific instructions belong in each KEG's own config `instructions`
   field, not in flight cover rows.

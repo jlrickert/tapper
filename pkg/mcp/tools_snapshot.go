@@ -22,7 +22,6 @@ func registerSnapshotTools(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefa
 type nodeHistoryInput struct {
 	NodeID string `json:"node_id" jsonschema:"node ID to show history for"`
 	Keg    string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
-	Flight string `json:"flight,omitempty" jsonschema:"flight ref to cap available kegs (uses server default if empty)"`
 }
 
 func registerNodeHistory(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
@@ -35,7 +34,7 @@ func registerNodeHistory(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaul
 		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in nodeHistoryInput) (*sdkmcp.CallToolResult, any, error) {
 		opts := tapper.NodeHistoryOptions{
-			KegTargetOptions: resolveKegTargetWithFlight(in.Keg, in.Flight, defaults),
+			KegTargetOptions: resolveKegTarget(ctx, in.Keg, defaults),
 			NodeID:           in.NodeID,
 		}
 		snapshots, err := tap.NodeHistory(ctx, opts)
@@ -63,7 +62,6 @@ type nodeSnapshotInput struct {
 	NodeID  string `json:"node_id" jsonschema:"node ID to snapshot"`
 	Message string `json:"message,omitempty" jsonschema:"optional snapshot message"`
 	Keg     string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
-	Flight  string `json:"flight,omitempty" jsonschema:"flight ref to cap available kegs (uses server default if empty)"`
 }
 
 func registerNodeSnapshot(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
@@ -76,7 +74,7 @@ func registerNodeSnapshot(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefau
 		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in nodeSnapshotInput) (*sdkmcp.CallToolResult, any, error) {
 		opts := tapper.NodeSnapshotOptions{
-			KegTargetOptions: resolveKegTargetWithFlight(in.Keg, in.Flight, defaults),
+			KegTargetOptions: resolveKegTarget(ctx, in.Keg, defaults),
 			NodeID:           in.NodeID,
 			Message:          in.Message,
 		}
@@ -94,7 +92,6 @@ type nodeSnapshotViewInput struct {
 	NodeID string `json:"node_id" jsonschema:"node ID to view"`
 	Rev    string `json:"rev" jsonschema:"revision number to view"`
 	Keg    string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
-	Flight string `json:"flight,omitempty" jsonschema:"flight ref to cap available kegs (uses server default if empty)"`
 }
 
 func registerNodeSnapshotView(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
@@ -107,7 +104,7 @@ func registerNodeSnapshotView(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegD
 		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in nodeSnapshotViewInput) (*sdkmcp.CallToolResult, any, error) {
 		opts := tapper.NodeSnapshotViewOptions{
-			KegTargetOptions: resolveKegTargetWithFlight(in.Keg, in.Flight, defaults),
+			KegTargetOptions: resolveKegTarget(ctx, in.Keg, defaults),
 			NodeID:           in.NodeID,
 			Rev:              in.Rev,
 		}
@@ -125,7 +122,6 @@ type nodeRestoreInput struct {
 	NodeID string `json:"node_id" jsonschema:"node ID to restore"`
 	Rev    string `json:"rev" jsonschema:"revision number to restore to"`
 	Keg    string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
-	Flight string `json:"flight,omitempty" jsonschema:"flight ref to cap available kegs (uses server default if empty)"`
 }
 
 func registerNodeRestore(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
@@ -138,7 +134,7 @@ func registerNodeRestore(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaul
 		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in nodeRestoreInput) (*sdkmcp.CallToolResult, any, error) {
 		opts := tapper.NodeRestoreOptions{
-			KegTargetOptions: resolveKegTargetWithFlight(in.Keg, in.Flight, defaults),
+			KegTargetOptions: resolveKegTarget(ctx, in.Keg, defaults),
 			NodeID:           in.NodeID,
 			Rev:              in.Rev,
 		}

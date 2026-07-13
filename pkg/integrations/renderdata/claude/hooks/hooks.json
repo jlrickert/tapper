@@ -11,6 +11,21 @@
           }
         ]
       }
+    ],
+    "UserPromptExpansion": [
+      {
+        "matcher": "^(tapper:)?tapper-flight-switch$",
+        "hooks": [
+          {
+            "type": "mcp_tool",
+            "server": "tapper",
+            "tool": "flight_switch_control",
+            "input": {
+              "ref": "${command_args}"
+            }
+          }
+        ]
+      }
     ]
   }
 }

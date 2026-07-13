@@ -9,8 +9,7 @@ import (
 )
 
 // NewFlightCmd returns the `flight` cobra command group. A flight carries MCP
-// cover caps and agent instructions; it is selected per-invocation with the
-// global --flight flag.
+// cover caps, capabilities, and agent instructions.
 //
 //	tap flight list
 //	tap flight show <name>
@@ -69,6 +68,11 @@ func newFlightShowCmd(deps *Deps) *cobra.Command {
 				fmt.Fprintf(out, "title:  %s\n", flight.Title)
 			}
 			fmt.Fprintf(out, "source: %s\n", flight.Source)
+			fmt.Fprintf(out, "visibility: %s\n", flight.Visibility)
+			fmt.Fprintf(out, "revision: %d\n", flight.Revision)
+			if len(flight.Capabilities) > 0 {
+				fmt.Fprintf(out, "capabilities: %s\n", strings.Join(flightCapabilityStrings(flight.Capabilities), ", "))
+			}
 			if len(flight.Cover) > 0 {
 				fmt.Fprintln(out, "cover:")
 				for _, c := range flight.Cover {
@@ -80,7 +84,7 @@ func newFlightShowCmd(deps *Deps) *cobra.Command {
 					}
 				}
 			} else {
-				fmt.Fprintln(out, "cover: (none; restricts nothing)")
+				fmt.Fprintln(out, "cover: (none; denies all KEG access)")
 			}
 			if flight.Instructions != "" {
 				fmt.Fprintf(out, "\n%s\n", flight.Instructions)
@@ -93,8 +97,9 @@ func newFlightShowCmd(deps *Deps) *cobra.Command {
 }
 
 func newFlightCreateCmd(deps *Deps) *cobra.Command {
-	var title, instructions, instructionsFile string
+	var title, visibility, instructions, instructionsFile string
 	var coverSpecs []string
+	var capabilities []string
 	cmd := &cobra.Command{
 		Use:   "create <ref>",
 		Short: "create a Hub-backed flight",
@@ -111,6 +116,8 @@ func newFlightCreateCmd(deps *Deps) *cobra.Command {
 			flight, err := deps.Tap.CreateFlight(cmd.Context(), tapper.CreateFlightOptions{
 				Ref:          args[0],
 				Title:        title,
+				Visibility:   visibility,
+				Capabilities: flightCapabilities(capabilities),
 				Instructions: body,
 				Cover:        cover,
 			})
@@ -122,14 +129,32 @@ func newFlightCreateCmd(deps *Deps) *cobra.Command {
 		},
 	}
 	addFlightWriteFlags(cmd, &title, &instructions, &instructionsFile, &coverSpecs)
+	cmd.Flags().StringVar(&visibility, "visibility", tapper.FlightVisibilityPrivate, "flight visibility: public or private")
+	cmd.Flags().StringArrayVar(&capabilities, "capability", nil, "agent capability (repeatable; supported: manage_flights)")
 	return cmd
+}
+
+func flightCapabilities(values []string) []tapper.FlightCapability {
+	out := make([]tapper.FlightCapability, 0, len(values))
+	for _, value := range values {
+		out = append(out, tapper.FlightCapability(value))
+	}
+	return out
+}
+
+func flightCapabilityStrings(values []tapper.FlightCapability) []string {
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		out = append(out, string(value))
+	}
+	return out
 }
 
 func newFlightEditCmd(deps *Deps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "edit <ref>",
 		Short: "edit a Hub-backed flight's manifest in the default editor",
-		Long:  `Opens the flight manifest (title, cover, instructions) as YAML in the configured editor with a yaml-language-server schema modeline; every save is applied to the hub. Piped stdin applies a full manifest without opening an editor.`,
+		Long:  `Opens the flight manifest (title, visibility, capabilities, cover, instructions) as YAML in the configured editor with a yaml-language-server schema modeline; every save is applied to the hub. Piped stdin applies a full manifest without opening an editor.`,
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			flight, err := deps.Tap.EditFlight(cmd.Context(), tapper.EditFlightOptions{

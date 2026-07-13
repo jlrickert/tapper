@@ -81,6 +81,7 @@ is resolved, `Tap.enforceFlight` rejects MCP access to a keg that falls
 outside the flight's cover or tries to write through a `viewer` cap. Direct CLI
 commands set `KegTargetOptions.BypassFlightRestrictions`, so they keep normal
 keg authorization while preserving `Flight` for orient/instruction rendering.
-Local instructions-only flights with an empty cover restrict nothing. `--flight`
-composes with the single-keg selectors rather than replacing them. See
+An empty cover denies every KEG. Local MCP connections pin a flight snapshot
+and invalidate it when the local manifest hash or Hub revision changes.
+`--flight` composes with the single-keg selectors rather than replacing them. See
 [Flights](../configuration/flights.md).

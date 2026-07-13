@@ -15,8 +15,7 @@ func registerGraphTools(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefault
 // --- graph ---
 
 type graphInput struct {
-	Keg    string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
-	Flight string `json:"flight,omitempty" jsonschema:"flight ref to cap available kegs (uses server default if empty)"`
+	Keg string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
 }
 
 func registerGraph(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
@@ -29,7 +28,7 @@ func registerGraph(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in graphInput) (*sdkmcp.CallToolResult, any, error) {
 		opts := tapper.GraphOptions{
-			KegTargetOptions: resolveKegTargetWithFlight(in.Keg, in.Flight, defaults),
+			KegTargetOptions: resolveKegTarget(ctx, in.Keg, defaults),
 		}
 
 		html, err := tap.Graph(ctx, opts)

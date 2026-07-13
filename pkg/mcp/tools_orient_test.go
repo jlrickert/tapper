@@ -53,15 +53,17 @@ func TestMCP_OrientTool_WithKegPinsActiveKeg(t *testing.T) {
 	require.Contains(t, text, "Active KEG: `notes`")
 }
 
-func TestMCP_OrientTool_UnknownFlightStillReturnsPayload(t *testing.T) {
+func TestMCP_OrientToolRejectsInjectedFlight(t *testing.T) {
 	t.Parallel()
 	session, ctx := newTestSession(t)
 
-	text := orientCall(t, session, ctx, map[string]any{"flight": "f-demo"})
-
-	require.Contains(t, text, "# KEG System")
-	require.Contains(t, text, "Active flight: `f-demo`")
-	require.Contains(t, text, `Flight "f-demo" is unavailable`)
+	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name:      "orient",
+		Arguments: map[string]any{"flight": "f-demo"},
+	})
+	require.NoError(t, err)
+	require.True(t, res.IsError)
+	require.Contains(t, extractText(t, res), "unexpected additional properties")
 }
 
 func TestMCP_Resources_ListSingleOrientResource(t *testing.T) {

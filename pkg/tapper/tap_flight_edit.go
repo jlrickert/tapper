@@ -28,9 +28,9 @@ type EditFlightOptions struct {
 // editor; every save is validated and PUT to the hub immediately, so the
 // editor session behaves like the rest of tapper's live-save edit flows.
 //
-// The manifest carries only title, cover, and instructions. The slug and
-// namespace are fixed by the ref: the YAML document cannot express them, and
-// a stray "slug" key is rejected as an unknown field.
+// The manifest carries title, visibility, capabilities, cover, and
+// instructions. The slug and namespace are fixed by the ref: the YAML document
+// cannot express them, and a stray "slug" key is rejected as an unknown field.
 func (t *Tap) EditFlight(ctx context.Context, opts EditFlightOptions) (*Flight, error) {
 	ref, entry, hubName, err := t.resolveWriteFlightRef(opts.Ref)
 	if err != nil {
@@ -61,6 +61,8 @@ func (t *Tap) EditFlight(ctx context.Context, opts EditFlightOptions) (*Flight, 
 			Namespace:    ref.Namespace,
 			Slug:         ref.Slug,
 			Title:        m.Title,
+			Visibility:   m.Visibility,
+			Capabilities: append([]FlightCapability{}, m.Capabilities...),
 			Instructions: m.Instructions,
 			Cover:        hubCoverFromFlightCover(m.Cover),
 		}
@@ -116,15 +118,19 @@ func flightEditorTempFilePrefix(ref FlightRef) string {
 }
 
 type flightManifestEditorDocument struct {
-	Title        string        `yaml:"title"`
-	Cover        []FlightCover `yaml:"cover"`
-	Instructions string        `yaml:"instructions"`
+	Title        string             `yaml:"title"`
+	Visibility   string             `yaml:"visibility"`
+	Capabilities []FlightCapability `yaml:"capabilities"`
+	Cover        []FlightCover      `yaml:"cover"`
+	Instructions string             `yaml:"instructions"`
 }
 
 func renderFlightManifestEditorDocument(ref FlightRef, m FlightManifest) ([]byte, error) {
 	canonical := canonicalFlightManifest(m)
 	doc := flightManifestEditorDocument{
 		Title:        canonical.Title,
+		Visibility:   canonical.Visibility,
+		Capabilities: append([]FlightCapability{}, canonical.Capabilities...),
 		Cover:        canonical.Cover,
 		Instructions: canonical.Instructions,
 	}
@@ -135,7 +141,7 @@ func renderFlightManifestEditorDocument(ref FlightRef, m FlightManifest) ([]byte
 
 	var out bytes.Buffer
 	out.WriteString(flightManifestSchemaModeline)
-	fmt.Fprintf(&out, "# Flight %s. Ref is immutable; edit title, cover, and instructions.\n", ref.Canonical())
+	fmt.Fprintf(&out, "# Flight %s. Ref is immutable; edit title, visibility, capabilities, cover, and instructions.\n", ref.Canonical())
 	out.Write(body)
 	if !bytes.HasSuffix(out.Bytes(), []byte("\n")) {
 		out.WriteByte('\n')
@@ -145,6 +151,8 @@ func renderFlightManifestEditorDocument(ref FlightRef, m FlightManifest) ([]byte
 
 type comparableFlightManifest struct {
 	Title        string
+	Visibility   string
+	Capabilities []FlightCapability
 	Cover        []FlightCover
 	Instructions string
 }
@@ -167,6 +175,8 @@ func canonicalFlightManifest(m FlightManifest) comparableFlightManifest {
 	}
 	return comparableFlightManifest{
 		Title:        m.Title,
+		Visibility:   m.Visibility,
+		Capabilities: append([]FlightCapability{}, m.Capabilities...),
 		Cover:        cover,
 		Instructions: m.Instructions,
 	}
@@ -175,8 +185,13 @@ func canonicalFlightManifest(m FlightManifest) comparableFlightManifest {
 func flightManifestSemanticallyEqual(a, b FlightManifest) bool {
 	ca := canonicalFlightManifest(a)
 	cb := canonicalFlightManifest(b)
-	if ca.Title != cb.Title || ca.Instructions != cb.Instructions || len(ca.Cover) != len(cb.Cover) {
+	if ca.Title != cb.Title || ca.Visibility != cb.Visibility || ca.Instructions != cb.Instructions || len(ca.Capabilities) != len(cb.Capabilities) || len(ca.Cover) != len(cb.Cover) {
 		return false
+	}
+	for i := range ca.Capabilities {
+		if ca.Capabilities[i] != cb.Capabilities[i] {
+			return false
+		}
 	}
 	for i := range ca.Cover {
 		if ca.Cover[i] != cb.Cover[i] {
@@ -203,6 +218,9 @@ func parseFlightManifestStrict(raw []byte) (*FlightManifest, error) {
 		default:
 			return nil, fmt.Errorf("invalid flight cover role %q", c.Role)
 		}
+	}
+	if err := validateFlightManifest(&m); err != nil {
+		return nil, err
 	}
 	normalizeFlightManifest(&m)
 	return &m, nil

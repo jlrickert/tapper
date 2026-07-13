@@ -223,7 +223,6 @@ var managementSkills = []struct {
 	Description string
 }{
 	{Name: "tapper-mcp-reset", Description: "Diagnose and recover a stale or unavailable Tapper MCP connection without killing host-owned processes."},
-	{Name: "tapper-flight-switch", Description: "Switch the Tapper flight for this conversation using an explicit per-call, thread-local override."},
 }
 
 func renderManagementSkills(content fs.FS, dst integrations.DestWriter, host string) error {
