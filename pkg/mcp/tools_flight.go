@@ -161,7 +161,6 @@ func renderFlight(f *tapper.Flight) string {
 	}
 	fmt.Fprintf(&b, "source: %s\n", f.Source)
 	fmt.Fprintf(&b, "visibility: %s\n", f.Visibility)
-	fmt.Fprintf(&b, "revision: %d\n", f.Revision)
 	if len(f.Capabilities) > 0 {
 		fmt.Fprintf(&b, "capabilities: %s\n", strings.Join(flightCapabilityNames(f.Capabilities), ", "))
 	}

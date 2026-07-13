@@ -69,7 +69,6 @@ func newFlightShowCmd(deps *Deps) *cobra.Command {
 			}
 			fmt.Fprintf(out, "source: %s\n", flight.Source)
 			fmt.Fprintf(out, "visibility: %s\n", flight.Visibility)
-			fmt.Fprintf(out, "revision: %d\n", flight.Revision)
 			if len(flight.Capabilities) > 0 {
 				fmt.Fprintf(out, "capabilities: %s\n", strings.Join(flightCapabilityStrings(flight.Capabilities), ", "))
 			}

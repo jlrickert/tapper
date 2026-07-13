@@ -95,6 +95,26 @@ func TestMCP_FlightManifestChangePermanentlyInvalidatesSession(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, before.IsError, extractText(t, before))
 
+	equivalent := `cover:
+  - role: editor
+    keg: personal
+    namespace: local
+capabilities:
+  - manage_flights
+visibility: private
+title: Capable
+`
+	require.NoError(t, rt.AtomicWriteFile("/home/testuser/kegs/flights.d/capable.yaml", []byte(equivalent), 0o644))
+	unchanged, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "cat",
+		Arguments: map[string]any{
+			"node_ids":     []string{"0"},
+			"content_only": true,
+		},
+	})
+	require.NoError(t, err)
+	require.False(t, unchanged.IsError, extractText(t, unchanged))
+
 	changed := `title: Capable changed
 visibility: private
 capabilities: [manage_flights]
@@ -134,22 +154,25 @@ cover:
 	require.False(t, after.IsError, extractText(t, after))
 }
 
-func TestMCP_HubRevisionChangeInvalidatesSession(t *testing.T) {
-	var revision atomic.Int64
-	revision.Store(1)
+func TestMCP_HubManifestChangeInvalidatesSession(t *testing.T) {
+	var coverVisible atomic.Bool
+	coverVisible.Store(true)
 	hub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet || r.URL.Path != "/api/v1/@foldwise/+remote" {
 			http.NotFound(w, r)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(tapper.HubFlight{
+		flight := tapper.HubFlight{
 			Namespace:    "foldwise",
 			Slug:         "remote",
 			Visibility:   tapper.FlightVisibilityPrivate,
 			Capabilities: []tapper.FlightCapability{tapper.FlightCapabilityManageFlights},
-			Revision:     revision.Load(),
-		})
+		}
+		if coverVisible.Load() {
+			flight.Cover = []tapper.HubFlightCover{{Namespace: "foldwise", Keg: "docs", Role: "viewer"}}
+		}
+		_ = json.NewEncoder(w).Encode(flight)
 	}))
 	t.Cleanup(hub.Close)
 
@@ -171,8 +194,11 @@ hubs:
 	srv := mcp.NewServer(tap, "test", mcp.KegDefaults{KegTargetOptions: tapper.KegTargetOptions{Flight: "@foldwise/+remote"}})
 	session := connectFlightSession(t, ctx, srv, nil)
 	require.Contains(t, listedToolNames(t, ctx, session), "flight_create")
+	require.Contains(t, listedToolNames(t, ctx, session), "flight_create", "unchanged Hub manifests must keep sessions valid")
 
-	revision.Store(2)
+	// Model the Hub redacting a covered keg after its visibility drifts. The
+	// effective manifest changes even though the stored flight did not.
+	coverVisible.Store(false)
 	result, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: "cat", Arguments: map[string]any{"node_ids": []string{"0"}}})
 	require.NoError(t, err)
 	require.True(t, result.IsError)
