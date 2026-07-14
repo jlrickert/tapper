@@ -22,6 +22,12 @@
     "longDescription": "An optional four-stage developer workflow that requires the baseline Tapper plugin and follows live flight instructions.",
     "developerName": "Jared Rickert",
     "category": "Developer Tools",
-    "websiteURL": "https://github.com/jlrickert/tapper"
+    "websiteURL": "https://github.com/jlrickert/tapper",
+    "capabilities": [
+      "Interactive"
+    ],
+    "defaultPrompt": [
+      "Plan and implement a change with the Tapper developer workflow."
+    ]
   }
 }
