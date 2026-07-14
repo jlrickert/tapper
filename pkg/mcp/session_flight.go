@@ -321,7 +321,7 @@ func isFlightMutationTool(name string) bool {
 
 func isUngatedFlightTool(name string) bool {
 	switch name {
-	case flightSwitchControlTool, "list_flights", "flight_show", "auth_status", "config", "license", "integrate":
+	case flightSwitchControlTool, "list_flights", "flight_show", "auth_status", "config", "license":
 		return true
 	default:
 		return false
