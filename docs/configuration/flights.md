@@ -19,10 +19,11 @@ A flight carries four details:
 3. **Visibility** (`visibility`). Hub flights default to `private`; `public`
    flights are anonymously discoverable and may cover only public kegs when
    created or updated.
-4. **Capabilities** (`capabilities`). The only supported capability is
-   `manage_flights`. It exposes flight mutation tools to the session, but Hub
-   still requires the authenticated identity to own or administer the target
-   namespace.
+4. **Capabilities** (`capabilities`). `full_access` bypasses the flight cover
+   and its viewer/editor caps for KEG operations, while normal local and Hub
+   authorization still applies. `manage_flights` exposes flight mutation tools
+   to the session, but Hub still requires the authenticated identity to own or
+   administer the target namespace. The capabilities are independent.
 
 Because a flight is not a target selector, `--flight` **composes** with `--keg`,
 `--namespace`, and `--hub`: those pin which keg you operate on; the flight adds
@@ -46,6 +47,7 @@ manifest has five optional fields:
 title: Release 42 cut
 visibility: private
 capabilities:
+  - full_access
   - manage_flights
 cover:
   - namespace: acme
@@ -103,6 +105,8 @@ is a partial update where omitted fields retain their current values.
 - MCP tools reject a keg outside the active flight's cover
   with a "keg … is not available in flight …" error.
 - MCP writes against a `viewer` cover row are rejected as viewer-only.
+- `full_access` permits KEG reads and writes outside the cover, but does not
+  bypass normal identity authorization or implicitly grant `manage_flights`.
 - The local full MCP surface refuses to start without a configured flight.
 - The active flight's cover, instructions, capabilities, and normalized
   manifest hash are pinned per connection. Project config changes do not

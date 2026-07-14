@@ -234,9 +234,9 @@ func (e *FlightRestrictionError) Error() string {
 }
 
 // enforceFlight rejects a resolved keg that falls outside the active flight's
-// cover or does not meet the requested role cap. A blank flight bypasses the
-// check for direct CLI compatibility; an active flight with an empty cover
-// denies every keg.
+// cover or does not meet the requested role cap. A blank flight or full_access
+// capability bypasses the cover check; normal keg authorization still applies.
+// Without full_access, an active flight with an empty cover denies every keg.
 func (t *Tap) enforceFlight(ctx context.Context, flightName string, k keg.Keg, want FlightRole) error {
 	flightName = strings.TrimSpace(flightName)
 	if flightName == "" || k == nil {
@@ -245,6 +245,9 @@ func (t *Tap) enforceFlight(ctx context.Context, flightName string, k keg.Keg, w
 	flight, err := t.FlightService.GetFlight(ctx, flightName)
 	if err != nil {
 		return err
+	}
+	if flight.HasCapability(FlightCapabilityFullAccess) {
+		return nil
 	}
 	var alias, namespace, kegName string
 	if k.Target() != nil {
