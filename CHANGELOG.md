@@ -2,6 +2,29 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.30.0 - 2026-07-14
+
+
+
+### 🐛 Bug Fixes
+- **integrations:** align Codex plugin manifests
+
+
+### 🚀 Features
+- **integrations:** generalize native plugin installation
+- **mcp:** enforce flight-gated sessions
+- **flights:** add full access capability
+- **flights:** add recovery bootstrap flow
+- **integrations:** harden Codex MCP workflows
+- **integrations:** run plugin hooks through tap
+
+
+### 🚜 Refactor
+- **flights:** replace revisions with manifest hashes
+- **orient:** make shared payload MCP-first
+- **mcp:** keep plugin installation CLI-only
+
+
 ## v0.29.0 - 2026-07-10
 
 
