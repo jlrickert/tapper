@@ -1,7 +1,6 @@
 # Codex plugins
 
-Install the baseline Tapper plugin from the local marketplace embedded in the
-`tap` binary:
+Install the baseline Tapper plugin through the official supported installer:
 
 ```bash
 tap integrate codex
@@ -12,14 +11,19 @@ registers it with `codex plugin marketplace add`, and installs
 `tapper@tapper-local`. The plugin owns the `tap mcp` registration, a
 flight-first Tapper skill, and a `PreToolUse` guardrail that blocks direct
 agent use of `tap` and `keg` except harmless help, version, and completion
-probes. It calls `mcp__tapper__orient`, follows the active flight and
-covered-KEG instructions, and applies MCP-first safety rules.
+probes. A `SessionStart` hook restores a concise reminder after startup,
+resume, clear, and compaction. The reminder tells the main agent to call
+`mcp__tapper__orient` before KEG work, follow the returned flight and KEG
+instructions, and apply the MCP-first safety rules; it does not inject the
+orientation payload itself and does not run for subagents.
 
-After installing or refreshing the plugin, open Codex `/hooks` and review the
-bundled Bash hook before trusting it. The hook invokes
-`${PLUGIN_ROOT}/hooks/block-tap-cli.py`; it is a guardrail against accidental
-direct CLI use, not a complete shell security boundary. Start a new thread
-after approving the hook so both the hook and MCP connection are fresh.
+After installing or refreshing the plugin, open Codex `/hooks` and review both
+bundled hooks before trusting them again. They invoke `tap hook session-start`
+and `tap hook pre-tool-use`; the latter is a guardrail against accidental
+direct CLI use, not a complete shell security boundary. The `tap` executable
+on `PATH` must remain available and support those hidden commands. Re-run
+`tap integrate codex` to receive hook changes, then start a new thread after
+approving them so the lifecycle reminder and MCP connection are fresh.
 
 Install the optional developer workflow separately:
 
@@ -39,9 +43,10 @@ invoking Codex:
 tap integrate codex --dry-run
 ```
 
-Re-running the installer atomically refreshes the embedded marketplace and
-reinstalls from the local source. A same-named marketplace pointing elsewhere
-is reported as a conflict and is never replaced automatically.
+Re-running the installer atomically refreshes the embedded marketplace,
+removes legacy packaged Python hooks, and reinstalls from the local source.
+Hook changes require review and trust again. A same-named marketplace pointing
+elsewhere is reported as a conflict and is never replaced automatically.
 
 Codex currently supports only `--scope user`. `--scope project` and `--scope
 local` fail before marketplace extraction or Codex commands; use a user install

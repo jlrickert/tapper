@@ -112,6 +112,10 @@ func RunWithProfile(ctx context.Context, rt *toolkit.Runtime, args []string, pro
 	if execErr != nil {
 		_, _ = fmt.Fprintf(streams.Err, "Error: %s\n", renderUserError(execErr, deps))
 
+		var inputErr *hookInputError
+		if errors.As(execErr, &inputErr) {
+			return 2, execErr
+		}
 		if errors.Is(execErr, context.Canceled) ||
 			errors.Is(execErr, context.DeadlineExceeded) {
 			return 130, execErr

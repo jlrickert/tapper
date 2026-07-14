@@ -17,6 +17,11 @@ type Profile struct {
 
 	// IncludeRepoCommand enables the repo command tree.
 	IncludeRepoCommand bool
+
+	// IncludeIntegrations enables host plugin installation and the hidden
+	// host-facing hook protocol. These commands belong only to the full tap
+	// binary because installed plugins invoke tap directly.
+	IncludeIntegrations bool
 }
 
 func TapProfile() Profile {
@@ -26,6 +31,7 @@ func TapProfile() Profile {
 		AllowKegAliasFlags:     true,
 		IncludeConfigCommand:   true,
 		IncludeRepoCommand:     true,
+		IncludeIntegrations:    true,
 	}
 }
 
@@ -36,6 +42,7 @@ func KegProfile() Profile {
 		AllowKegAliasFlags:     false,
 		IncludeConfigCommand:   false,
 		IncludeRepoCommand:     false,
+		IncludeIntegrations:    false,
 	}
 }
 

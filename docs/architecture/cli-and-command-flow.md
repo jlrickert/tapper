@@ -60,6 +60,8 @@ Profiles are defined in `pkg/cli/profile.go`.
 - `TapProfile` enables the full command surface and namespace/hub targeting.
 - `KegProfile` forces project-style resolution and disables configuration
   command surfaces that do not fit the narrower workflow.
+- Native plugin integration is explicitly profile-gated: only `tap` registers
+  the public `integrate` command and hidden host-facing `hook` protocol.
 - Snapshot/archive commands (`snapshot`, `archive import`, `archive export`)
   are shared by both profiles. The main difference is target resolution:
   `keg` resolves against the active project by default, while `tap` resolves

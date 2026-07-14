@@ -31,8 +31,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	_, err = cli.Run(ctx, rt, os.Args[1:])
-	if err != nil {
-		os.Exit(1)
+	if exitCode, err := cli.Run(ctx, rt, os.Args[1:]); err != nil {
+		os.Exit(exitCode)
 	}
 }

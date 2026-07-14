@@ -63,8 +63,8 @@ func TestRenderedTreeMatchesAdapters(t *testing.T) {
 		t.Fatalf("fs.Sub(content): %v", err)
 	}
 	// Mirror cmd/render-integrations: overlay renderdata.FS onto the
-	// canonical content. Without this, the Claude adapter cannot find
-	// "claude/hooks/..." in the content FS and Render fails.
+	// canonical content. Without this, the host adapters cannot find their
+	// "<host>/hooks/..." manifests in the content FS and Render fails.
 	content := overlayFS{primary: contentFS, secondary: renderdata.FS}
 
 	// The embedded rendered/claude/.claude-plugin/plugin.json is the

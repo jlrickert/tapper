@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/block-tap-cli.py",
+            "command": "tap hook pre-tool-use",
             "timeout": 5
           }
         ]

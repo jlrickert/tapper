@@ -149,15 +149,23 @@ tap integrate codex
 tap integrate claude
 ```
 
-Each command extracts the host-native marketplace embedded in `tap`, registers
-the local source, and installs the baseline `tapper` plugin. No GitHub checkout
-or manual MCP configuration is required. Repeat `--plugin` to add optional
-plugins, for example `tap integrate claude --plugin tapper-dev`. Requested
-plugins keep their order and duplicates are ignored. Activation defaults to
-`--scope user`; Claude also supports `project` (shared project settings) and
-`local` (gitignored project settings), while Codex currently supports only
-`user`. Use `--dry-run` to inspect every extraction path and host command
-without side effects.
+`tap integrate HOST` is the official supported installation, refresh, upgrade,
+plugin-selection, and scope surface. Each command extracts the host-native
+marketplace embedded in `tap`, registers the local source, and installs the
+baseline `tapper` plugin. The `tap` executable on `PATH` must be current enough
+to provide the Go-backed `tap hook` commands used by the plugin. No GitHub
+checkout or manual MCP configuration is required. Repeat `--plugin` to add
+optional plugins, for example `tap integrate claude --plugin tapper-dev`.
+Requested plugins keep their order and duplicates are ignored. Activation
+defaults to `--scope user`; Claude also supports `project` (shared project
+settings) and `local` (gitignored project settings), while Codex currently
+supports only `user`. Use `--dry-run` to inspect every extraction path and host
+command without side effects.
+
+Refreshing is atomic and removes legacy packaged Python hooks. Review and trust
+the replacement hooks again, then start a fresh Codex thread or Claude session
+so the new hook commands and MCP connection take effect. Manual MCP setup is
+reserved for generic hosts without a native Tapper plugin.
 
 See [Using Tapper From AI Agents](docs/ai-coding-agents/README.md) for setup,
 agent conventions, flight-first orientation, and manual MCP configuration.

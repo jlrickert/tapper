@@ -70,17 +70,12 @@ func (a CodexAdapter) Render(rt *toolkit.Runtime, content fs.FS, dst integration
 	if err := dst.Write(path.Join(a.Name(), "tapper", ".mcp.json"), renderCodexMCP()); err != nil {
 		return err
 	}
-	for _, hook := range []struct{ filename, source string }{
-		{filename: "block-tap-cli.py", source: "claude/hooks/block-tap-cli.py"},
-		{filename: "hooks.json", source: "codex/hooks/hooks.json"},
-	} {
-		body, err := fs.ReadFile(content, hook.source)
-		if err != nil {
-			return fmt.Errorf("codex: hook %s: %w", hook.filename, err)
-		}
-		if err := dst.Write(path.Join(a.Name(), "tapper", "hooks", hook.filename), body); err != nil {
-			return err
-		}
+	body, err := fs.ReadFile(content, "codex/hooks/hooks.json")
+	if err != nil {
+		return fmt.Errorf("codex: hooks.json: %w", err)
+	}
+	if err := dst.Write(path.Join(a.Name(), "tapper", "hooks", "hooks.json"), body); err != nil {
+		return err
 	}
 	baseline, err := renderSkill(content, "tapper", "Orient to Tapper flights and operate on KEGs through MCP-first safety rules.", baselineOrder)
 	if err != nil {
