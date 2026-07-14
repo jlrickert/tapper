@@ -23,6 +23,16 @@
     "longDescription": "Orient through the active Tapper flight and work with covered KEGs through MCP-first safety rules.",
     "developerName": "Jared Rickert",
     "category": "Developer Tools",
-    "websiteURL": "https://github.com/jlrickert/tapper"
+    "websiteURL": "https://github.com/jlrickert/tapper",
+    "capabilities": [
+      "Interactive",
+      "Read",
+      "Write"
+    ],
+    "defaultPrompt": [
+      "Orient to the active Tapper flight.",
+      "Search Tapper KEGs for a topic.",
+      "Snapshot and edit a Tapper node."
+    ]
   }
 }

@@ -53,6 +53,12 @@ func (a CodexAdapter) Render(rt *toolkit.Runtime, content fs.FS, dst integration
 			DisplayName:      "Tapper",
 			ShortDescription: "MCP-first KEG access and safety",
 			LongDescription:  "Orient through the active Tapper flight and work with covered KEGs through MCP-first safety rules.",
+			Capabilities:     []string{"Interactive", "Read", "Write"},
+			DefaultPrompt: []string{
+				"Orient to the active Tapper flight.",
+				"Search Tapper KEGs for a topic.",
+				"Snapshot and edit a Tapper node.",
+			},
 		},
 	})
 	if err != nil {
@@ -96,6 +102,10 @@ func (a CodexAdapter) Render(rt *toolkit.Runtime, content fs.FS, dst integration
 			DisplayName:      "Tapper Dev",
 			ShortDescription: "Plan, code, review, and commit",
 			LongDescription:  "An optional four-stage developer workflow that requires the baseline Tapper plugin and follows live flight instructions.",
+			Capabilities:     []string{"Interactive"},
+			DefaultPrompt: []string{
+				"Plan and implement a change with the Tapper developer workflow.",
+			},
 		},
 	})
 	if err != nil {
@@ -132,12 +142,14 @@ type codexAuthor struct {
 }
 
 type codexInterface struct {
-	DisplayName      string `json:"displayName"`
-	ShortDescription string `json:"shortDescription"`
-	LongDescription  string `json:"longDescription"`
-	DeveloperName    string `json:"developerName"`
-	Category         string `json:"category"`
-	WebsiteURL       string `json:"websiteURL"`
+	DisplayName      string   `json:"displayName"`
+	ShortDescription string   `json:"shortDescription"`
+	LongDescription  string   `json:"longDescription"`
+	DeveloperName    string   `json:"developerName"`
+	Category         string   `json:"category"`
+	WebsiteURL       string   `json:"websiteURL"`
+	Capabilities     []string `json:"capabilities"`
+	DefaultPrompt    []string `json:"defaultPrompt"`
 }
 
 func renderCodexManifest(v codexManifest) ([]byte, error) {
@@ -190,7 +202,7 @@ func renderCodexMCP() []byte {
 	// Codex filters the environment inherited by stdio MCP servers. Forward the
 	// XDG roots so tap resolves the same config, auth store, and data directories
 	// as the interactive shell that launched Codex (notably in dev containers).
-	return []byte("{\n  \"tapper\": {\n    \"command\": \"tap\",\n    \"args\": [\"mcp\"],\n    \"env_vars\": [\n      \"XDG_CONFIG_HOME\",\n      \"XDG_DATA_HOME\",\n      \"XDG_STATE_HOME\",\n      \"XDG_CACHE_HOME\"\n    ]\n  }\n}\n")
+	return []byte("{\n  \"mcpServers\": {\n    \"tapper\": {\n      \"command\": \"tap\",\n      \"args\": [\"mcp\"],\n      \"env_vars\": [\n        \"XDG_CONFIG_HOME\",\n        \"XDG_DATA_HOME\",\n        \"XDG_STATE_HOME\",\n        \"XDG_CACHE_HOME\"\n      ]\n    }\n  }\n}\n")
 }
 
 func pluginVersion(rt *toolkit.Runtime) string {

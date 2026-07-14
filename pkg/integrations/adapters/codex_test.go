@@ -109,15 +109,17 @@ func TestCodexAdapter_RendersNativeMarketplaceAndTwoPlugins(t *testing.T) {
 		}
 	}
 
-	var mcp map[string]struct {
-		Command string   `json:"command"`
-		Args    []string `json:"args"`
-		EnvVars []string `json:"env_vars"`
+	var mcp struct {
+		MCPServers map[string]struct {
+			Command string   `json:"command"`
+			Args    []string `json:"args"`
+			EnvVars []string `json:"env_vars"`
+		} `json:"mcpServers"`
 	}
 	if err := json.Unmarshal(mem.Files()["codex/tapper/.mcp.json"], &mcp); err != nil {
 		t.Fatal(err)
 	}
-	tapperMCP, ok := mcp["tapper"]
+	tapperMCP, ok := mcp.MCPServers["tapper"]
 	if !ok {
 		t.Fatalf("missing tapper MCP config: %+v", mcp)
 	}
