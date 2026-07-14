@@ -17,7 +17,7 @@
     },
     "capabilities": {
       "type": "array",
-      "items": {"type": "string", "enum": ["manage_flights"]},
+      "items": {"type": "string", "enum": ["full_access", "manage_flights"]},
       "uniqueItems": true,
       "description": "Explicit agent capabilities granted to sessions using this flight."
     },

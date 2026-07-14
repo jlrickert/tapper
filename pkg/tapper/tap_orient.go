@@ -228,8 +228,14 @@ func (t *Tap) localKegInstructions(dir string) (string, error) {
 }
 
 func flightCapForKeg(flight *Flight, namespace, alias string) (string, bool) {
-	if flight == nil || len(flight.Cover) == 0 {
+	if flight == nil {
 		return "", true
+	}
+	if flight.HasCapability(FlightCapabilityFullAccess) {
+		return string(FlightRoleEditor), true
+	}
+	if len(flight.Cover) == 0 {
+		return "", false
 	}
 	namespace = strings.TrimPrefix(strings.TrimSpace(namespace), "@")
 	alias = strings.TrimSpace(alias)

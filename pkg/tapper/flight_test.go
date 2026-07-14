@@ -83,7 +83,7 @@ func TestFlightService_ManifestHashUsesNormalizedContent(t *testing.T) {
 	path := "/home/testuser/kegs/flights.d/hash.yaml"
 	baseline := `title: Focused
 visibility: private
-capabilities: [manage_flights]
+capabilities: [manage_flights, full_access]
 cover:
   - namespace: local
     keg: personal
@@ -102,6 +102,7 @@ cover:
   keg: personal
   namespace: local
 capabilities:
+- full_access
 - manage_flights
 visibility: private
 title: Focused
@@ -114,7 +115,7 @@ title: Focused
 	changes := map[string]string{
 		"title":        strings.Replace(baseline, "title: Focused", "title: Changed", 1),
 		"visibility":   strings.Replace(baseline, "visibility: private", "visibility: public", 1),
-		"capabilities": strings.Replace(baseline, "capabilities: [manage_flights]", "capabilities: []", 1),
+		"capabilities": strings.Replace(baseline, "capabilities: [manage_flights, full_access]", "capabilities: []", 1),
 		"cover":        strings.Replace(baseline, "role: editor", "role: viewer", 1),
 		"instructions": strings.Replace(baseline, "instructions: Stay focused.", "instructions: Changed.", 1),
 	}
@@ -217,6 +218,26 @@ func TestFlightService_RejectsUnknownCapabilities(t *testing.T) {
 	_, err = tap.GetFlight(fx.Context(), tapper.GetFlightOptions{Name: "+bad"})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), `unknown flight capability "shell_access"`)
+}
+
+func TestFlightService_AcceptsFullAccessCapability(t *testing.T) {
+	t.Parallel()
+	fx := NewSandbox(t)
+	require.NoError(t, fx.Setwd("/home/testuser"))
+	tap, err := tapper.NewTap(tapper.TapOptions{Root: "/home/testuser", Runtime: fx.Runtime()})
+	require.NoError(t, err)
+	require.NoError(t, fx.Runtime().AtomicWriteFile(tap.PathService.UserConfig(), []byte(`hubs:
+  home:
+    kind: local
+    defaultNamespace: local
+    basePath: /home/testuser/kegs
+`), 0o644))
+	require.NoError(t, fx.Runtime().AtomicWriteFile("/home/testuser/kegs/flights.d/full.yaml", []byte("capabilities: [full_access]\n"), 0o644))
+
+	flight, err := tap.GetFlight(fx.Context(), tapper.GetFlightOptions{Name: "+full"})
+	require.NoError(t, err)
+	require.True(t, flight.HasCapability(tapper.FlightCapabilityFullAccess))
+	require.False(t, flight.HasCapability(tapper.FlightCapabilityManageFlights))
 }
 
 // A viewer cap must survive repeated RoleFor calls: the legacy AllowedKegs
@@ -349,6 +370,39 @@ func TestFlightBypass_AllowsWriteThroughViewerCover(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.NotEmpty(t, node.Path())
+}
+
+func TestFlightEnforcement_FullAccessBypassesCoverCaps(t *testing.T) {
+	t.Parallel()
+	tap, _, privateID := newLocalFlightEnforcementFixture(t)
+	manifest := `title: Full access
+capabilities: [full_access]
+cover:
+  - namespace: local
+    keg: personal
+    role: viewer
+`
+	require.NoError(t, tap.Runtime.AtomicWriteFile("/home/testuser/kegs/flights.d/focused.yaml", []byte(manifest), 0o644))
+
+	got, err := tap.Cat(t.Context(), tapper.CatOptions{
+		NodeIDs: []string{privateID},
+		KegTargetOptions: tapper.KegTargetOptions{
+			Keg:    "private",
+			Flight: "+focused",
+		},
+		ContentOnly: true,
+	})
+	require.NoError(t, err)
+	require.Contains(t, got, "# Private")
+
+	_, err = tap.Create(t.Context(), tapper.CreateOptions{
+		KegTargetOptions: tapper.KegTargetOptions{
+			Keg:    "personal",
+			Flight: "+focused",
+		},
+		Title: "Full Access Write",
+	})
+	require.NoError(t, err)
 }
 
 func newLocalFlightEnforcementFixture(t *testing.T) (*tapper.Tap, string, string) {

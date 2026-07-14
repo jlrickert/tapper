@@ -129,7 +129,7 @@ func newFlightCreateCmd(deps *Deps) *cobra.Command {
 	}
 	addFlightWriteFlags(cmd, &title, &instructions, &instructionsFile, &coverSpecs)
 	cmd.Flags().StringVar(&visibility, "visibility", tapper.FlightVisibilityPrivate, "flight visibility: public or private")
-	cmd.Flags().StringArrayVar(&capabilities, "capability", nil, "agent capability (repeatable; supported: manage_flights)")
+	cmd.Flags().StringArrayVar(&capabilities, "capability", nil, "agent capability (repeatable; supported: full_access, manage_flights)")
 	return cmd
 }
 

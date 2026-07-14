@@ -20,7 +20,7 @@ type flightCreateInput struct {
 	Ref          string   `json:"ref" jsonschema:"flight reference (@namespace/+slug; a bare slug uses the default namespace)"`
 	Title        string   `json:"title,omitempty" jsonschema:"flight title"`
 	Visibility   string   `json:"visibility,omitempty" jsonschema:"flight visibility: private (default) or public"`
-	Capabilities []string `json:"capabilities,omitempty" jsonschema:"explicit capabilities; supported: manage_flights"`
+	Capabilities []string `json:"capabilities,omitempty" jsonschema:"explicit capabilities; supported: full_access, manage_flights"`
 	Instructions string   `json:"instructions,omitempty" jsonschema:"markdown instructions"`
 	Cover        []string `json:"cover,omitempty" jsonschema:"covered kegs with role caps, e.g. @ns/keg=viewer or @ns/keg=editor (bare entries default to viewer)"`
 }

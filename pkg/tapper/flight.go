@@ -40,6 +40,7 @@ const (
 	FlightVisibilityPublic  = "public"
 
 	FlightCapabilityManageFlights FlightCapability = "manage_flights"
+	FlightCapabilityFullAccess    FlightCapability = "full_access"
 )
 
 // AtLeast reports whether r grants at least want within a flight cover.
@@ -465,6 +466,12 @@ func normalizeFlightManifest(m *FlightManifest) {
 	} else {
 		m.Visibility = strings.TrimSpace(m.Visibility)
 	}
+	for i := range m.Capabilities {
+		m.Capabilities[i] = FlightCapability(strings.TrimSpace(string(m.Capabilities[i])))
+	}
+	sort.Slice(m.Capabilities, func(i, j int) bool {
+		return m.Capabilities[i] < m.Capabilities[j]
+	})
 	if len(m.Cover) == 0 && len(m.AllowedKegs) > 0 {
 		for _, entry := range m.AllowedKegs {
 			if c, ok := parseFlightCoverEntry(entry); ok {
@@ -507,7 +514,7 @@ func validateFlightManifest(m *FlightManifest) error {
 	seen := map[FlightCapability]struct{}{}
 	for _, capability := range m.Capabilities {
 		capability = FlightCapability(strings.TrimSpace(string(capability)))
-		if capability != FlightCapabilityManageFlights {
+		if capability != FlightCapabilityManageFlights && capability != FlightCapabilityFullAccess {
 			return fmt.Errorf("unknown flight capability %q", capability)
 		}
 		if _, ok := seen[capability]; ok {
