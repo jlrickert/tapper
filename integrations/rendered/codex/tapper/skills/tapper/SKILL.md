@@ -39,8 +39,11 @@ restarting the MCP server.
 ## Bootstrapping a session
 
 Call `mcp__tapper__orient` first. Follow the pinned flight and KEG instructions
-it returns. The local full MCP server refuses to start without a configured
-flight, and a flight with an empty cover exposes no KEGs.
+it returns. When no flight is selected, the local MCP server connects in a
+recovery-only state: KEG tools are locked, while `mcp__tapper__list_flights`
+and `mcp__tapper__flight_show` remain available for discovery. Ask the user to
+run `tap use --flight @namespace/+slug`, then reconnect. A flight with an empty
+cover exposes no KEGs.
 
 ## Search and discovery
 
@@ -150,8 +153,10 @@ Tapper supports two link forms in node bodies:
 - **Intra-keg:** `[title](../NODEID)` — relative path from the current node's
   directory to the target node's directory. Renders as a link in markdown
   tooling and is resolvable by the index.
-- **Cross-keg:** `keg:ALIAS/NODEID` — bare reference that the index parses
-  into a cross-keg edge. Use when linking from one keg to a node in another.
+- **Cross-keg (configured):** `keg:ALIAS/NODEID` — resolves the keg through
+  active configuration and is parsed by the index into a cross-keg edge.
+- **Cross-keg (fully qualified):** `keg:@NAMESPACE/ALIAS/NODEID` — identifies
+  the namespace and keg explicitly and is parsed into a cross-keg edge.
 
 Both forms appear in backlinks. Prefer intra-keg links when the target is in
 the same keg.

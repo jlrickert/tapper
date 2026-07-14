@@ -15,9 +15,11 @@ stale, or unavailable in the current host session.
 2. Run the harmless `tap version` probe and report that version. Direct Tapper
    CLI help, version, and completion probes are allowed even in MCP-first host
    sessions.
-3. If Tapper tools are callable, use `mcp__tapper__info` to verify KEG access,
-   then use `mcp__tapper__orient` to confirm the connection and current
-   project/flight context.
+3. If the full Tapper surface is callable, use `mcp__tapper__info` to verify
+   KEG access, then use `mcp__tapper__orient` to confirm the connection and
+   current project/flight context. If only recovery tools are visible, use
+   `mcp__tapper__list_flights` and `mcp__tapper__flight_show`, ask the user to
+   run `tap use --flight @namespace/+slug`, and reconnect the host session.
 4. If Tapper tools are not callable, report that the current MCP connection is
    unavailable. Never kill or signal Codex-, Claude-, or MCP-owned processes.
 

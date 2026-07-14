@@ -34,5 +34,8 @@ restarting the MCP server.
 ## Bootstrapping a session
 
 Call `mcp__tapper__orient` first. Follow the pinned flight and KEG instructions
-it returns. The local full MCP server refuses to start without a configured
-flight, and a flight with an empty cover exposes no KEGs.
+it returns. When no flight is selected, the local MCP server connects in a
+recovery-only state: KEG tools are locked, while `mcp__tapper__list_flights`
+and `mcp__tapper__flight_show` remain available for discovery. Ask the user to
+run `tap use --flight @namespace/+slug`, then reconnect. A flight with an empty
+cover exposes no KEGs.

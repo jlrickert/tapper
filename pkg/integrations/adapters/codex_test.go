@@ -42,12 +42,17 @@ func testContentFS(t *testing.T) fs.FS {
 		t.Fatal(err)
 	}
 	files["developer/workflow.md"] = &fstest.MapFile{Data: workflow}
-	for _, name := range []string{"block-tap-cli.py", "hooks.json"} {
-		body, err := os.ReadFile(filepath.Join("..", "renderdata", "claude", "hooks", name))
+	blocker, err := os.ReadFile(filepath.Join("..", "renderdata", "claude", "hooks", "block-tap-cli.py"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	files["claude/hooks/block-tap-cli.py"] = &fstest.MapFile{Data: blocker}
+	for _, host := range []string{"claude", "codex"} {
+		body, err := os.ReadFile(filepath.Join("..", "renderdata", host, "hooks", "hooks.json"))
 		if err != nil {
 			t.Fatal(err)
 		}
-		files["claude/hooks/"+name] = &fstest.MapFile{Data: body}
+		files[host+"/hooks/hooks.json"] = &fstest.MapFile{Data: body}
 	}
 	return files
 }
@@ -68,6 +73,8 @@ func TestCodexAdapter_RendersNativeMarketplaceAndTwoPlugins(t *testing.T) {
 		"codex/.agents/plugins/marketplace.json",
 		"codex/tapper/.codex-plugin/plugin.json",
 		"codex/tapper/.mcp.json",
+		"codex/tapper/hooks/hooks.json",
+		"codex/tapper/hooks/block-tap-cli.py",
 		"codex/tapper/skills/tapper/SKILL.md",
 		"codex/tapper/skills/tapper-mcp-reset/SKILL.md",
 		"codex/tapper-dev/.codex-plugin/plugin.json",
@@ -100,6 +107,60 @@ func TestCodexAdapter_RendersNativeMarketplaceAndTwoPlugins(t *testing.T) {
 		if plugin.Source.Path != "./"+plugin.Name || plugin.Policy["installation"] == "" || plugin.Policy["authentication"] == "" || plugin.Category == "" {
 			t.Errorf("incomplete marketplace entry: %+v", plugin)
 		}
+	}
+
+	var mcp map[string]struct {
+		Command string   `json:"command"`
+		Args    []string `json:"args"`
+		EnvVars []string `json:"env_vars"`
+	}
+	if err := json.Unmarshal(mem.Files()["codex/tapper/.mcp.json"], &mcp); err != nil {
+		t.Fatal(err)
+	}
+	tapperMCP, ok := mcp["tapper"]
+	if !ok {
+		t.Fatalf("missing tapper MCP config: %+v", mcp)
+	}
+	if tapperMCP.Command != "tap" || strings.Join(tapperMCP.Args, " ") != "mcp" {
+		t.Errorf("unexpected tapper MCP command: %+v", tapperMCP)
+	}
+	wantEnvVars := "XDG_CONFIG_HOME,XDG_DATA_HOME,XDG_STATE_HOME,XDG_CACHE_HOME"
+	if got := strings.Join(tapperMCP.EnvVars, ","); got != wantEnvVars {
+		t.Errorf("tapper MCP env_vars = %q, want %q", got, wantEnvVars)
+	}
+}
+
+func TestCodexAdapter_RendersPreToolUseGuardrailWithoutClaudeExpansion(t *testing.T) {
+	mem := integrations.NewMemWriter()
+	if err := (CodexAdapter{}).Render(testRuntime(t), testContentFS(t), mem); err != nil {
+		t.Fatal(err)
+	}
+
+	var hooks struct {
+		Hooks map[string][]struct {
+			Matcher string `json:"matcher"`
+			Hooks   []struct {
+				Type    string `json:"type"`
+				Command string `json:"command"`
+			} `json:"hooks"`
+		} `json:"hooks"`
+	}
+	if err := json.Unmarshal(mem.Files()["codex/tapper/hooks/hooks.json"], &hooks); err != nil {
+		t.Fatal(err)
+	}
+	pre := hooks.Hooks["PreToolUse"]
+	if len(pre) != 1 || pre[0].Matcher != "Bash" || len(pre[0].Hooks) != 1 {
+		t.Fatalf("Codex PreToolUse hook = %+v", pre)
+	}
+	hook := pre[0].Hooks[0]
+	if hook.Type != "command" || !strings.Contains(hook.Command, "${PLUGIN_ROOT}/hooks/block-tap-cli.py") {
+		t.Fatalf("Codex command hook = %+v", hook)
+	}
+	if _, ok := hooks.Hooks["UserPromptExpansion"]; ok {
+		t.Fatal("Claude-only prompt expansion hooks must not leak into Codex")
+	}
+	if strings.Contains(string(mem.Files()["codex/tapper/.codex-plugin/plugin.json"]), `"hooks"`) {
+		t.Fatal("Codex discovers hooks/hooks.json without a manifest entry")
 	}
 }
 

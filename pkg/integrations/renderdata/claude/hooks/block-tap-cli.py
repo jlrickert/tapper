@@ -11,7 +11,7 @@
 # integrations/content/tool-inventory.md), so a categorical deny
 # with a tiny allowlist (completion, --version, --help) is safe.
 #
-# Reads the Claude Code PreToolUse JSON event from stdin, extracts
+# Reads the Codex or Claude Code PreToolUse JSON event from stdin, extracts
 # .tool_input.command, walks each pipeline segment, strips env-var
 # prefixes and wrapper commands (sudo/command/exec/builtin/time),
 # and checks whether the resulting argv[0] basename is `tap` or
@@ -45,8 +45,8 @@
 # Catching the bypasses above would require a real shell parser;
 # the goal here is to stop accidental and casual direct CLI use,
 # not adversarial bypass. The MCP surface is the canonical path.
-"""PreToolUse hook entry point. Invoked by Claude Code with the
-tool-call event JSON on stdin."""
+"""PreToolUse hook entry point. Invoked by Codex or Claude Code with
+the tool-call event JSON on stdin."""
 from __future__ import annotations
 
 import json
@@ -92,9 +92,8 @@ DENY_REASON = (
 def deny() -> None:
     """Emit the deny payload to stdout and exit 0.
 
-    Claude Code expects exit 0 with a permissionDecision payload on
-    stdout for explicit denies; non-zero is reserved for
-    hook-internal errors.
+    Hosts expect exit 0 with a permissionDecision payload on stdout for
+    explicit denies; non-zero is reserved for hook-internal errors.
     """
     payload = {
         "hookSpecificOutput": {

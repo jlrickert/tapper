@@ -42,6 +42,9 @@ func TestTap_Orient_SharedPayloadStartsWithKegSystem(t *testing.T) {
 	require.Contains(t, payload, "## KEG Instructions")
 	require.Contains(t, payload, "## Guidance")
 	require.Contains(t, payload, "# Linking conventions")
+	guidance := payload[strings.Index(payload, "## Guidance"):]
+	require.Contains(t, guidance, "`keg:ALIAS/NODEID`")
+	require.Contains(t, guidance, "`keg:@NAMESPACE/ALIAS/NODEID`")
 	require.Contains(t, payload, "# Snapshot policy")
 	require.NotContains(t, payload, "## Host:")
 	require.NotContains(t, strings.ToLower(payload), "tier 0")

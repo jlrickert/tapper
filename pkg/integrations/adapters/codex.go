@@ -64,6 +64,18 @@ func (a CodexAdapter) Render(rt *toolkit.Runtime, content fs.FS, dst integration
 	if err := dst.Write(path.Join(a.Name(), "tapper", ".mcp.json"), renderCodexMCP()); err != nil {
 		return err
 	}
+	for _, hook := range []struct{ filename, source string }{
+		{filename: "block-tap-cli.py", source: "claude/hooks/block-tap-cli.py"},
+		{filename: "hooks.json", source: "codex/hooks/hooks.json"},
+	} {
+		body, err := fs.ReadFile(content, hook.source)
+		if err != nil {
+			return fmt.Errorf("codex: hook %s: %w", hook.filename, err)
+		}
+		if err := dst.Write(path.Join(a.Name(), "tapper", "hooks", hook.filename), body); err != nil {
+			return err
+		}
+	}
 	baseline, err := renderSkill(content, "tapper", "Orient to Tapper flights and operate on KEGs through MCP-first safety rules.", baselineOrder)
 	if err != nil {
 		return fmt.Errorf("codex: baseline skill: %w", err)
@@ -175,7 +187,10 @@ func renderCodexMarketplace() ([]byte, error) {
 }
 
 func renderCodexMCP() []byte {
-	return []byte("{\n  \"tapper\": {\n    \"command\": \"tap\",\n    \"args\": [\"mcp\"]\n  }\n}\n")
+	// Codex filters the environment inherited by stdio MCP servers. Forward the
+	// XDG roots so tap resolves the same config, auth store, and data directories
+	// as the interactive shell that launched Codex (notably in dev containers).
+	return []byte("{\n  \"tapper\": {\n    \"command\": \"tap\",\n    \"args\": [\"mcp\"],\n    \"env_vars\": [\n      \"XDG_CONFIG_HOME\",\n      \"XDG_DATA_HOME\",\n      \"XDG_STATE_HOME\",\n      \"XDG_CACHE_HOME\"\n    ]\n  }\n}\n")
 }
 
 func pluginVersion(rt *toolkit.Runtime) string {

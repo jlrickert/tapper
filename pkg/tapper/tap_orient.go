@@ -18,7 +18,7 @@ const orientRulesSummary = "Rules:\n" +
 	"- Use the `mcp__tapper__*` tools for every KEG operation; never read or write node files directly.\n" +
 	"- The target keg resolves from the working directory unless the `keg` parameter overrides it.\n" +
 	"- Take a snapshot before non-trivial edits. Snapshots do not protect against `remove`; preserve content some other way before deletion.\n" +
-	"- Intra-keg links use `[title](../NODEID)`; cross-keg links use `keg:ALIAS/NODEID`.\n"
+	"- Intra-keg links use `[title](../NODEID)`; cross-keg links use `keg:ALIAS/NODEID` through active configuration or fully qualified `keg:@NAMESPACE/ALIAS/NODEID`.\n"
 
 // OrientOptions is the input to Tap.Orient. Every field is optional: a
 // zero-valued call returns the KEG system payload with the target keg resolved
