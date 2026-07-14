@@ -72,6 +72,9 @@ func (t *Tap) Integrate(ctx context.Context, opts IntegrateOptions) (*IntegrateR
 		return result, nil
 	}
 
+	if err := t.verifyIntegrationHookSupport(ctx); err != nil {
+		return nil, err
+	}
 	executable, err := t.integrationExecutable(host)
 	if err != nil {
 		return nil, err
@@ -111,6 +114,36 @@ func (t *Tap) Integrate(ctx context.Context, opts IntegrateOptions) (*IntegrateR
 		}
 	}
 	return result, nil
+}
+
+// verifyIntegrationHookSupport prevents a refresh from replacing a legacy,
+// self-contained plugin with one whose Go-backed hooks cannot run. The check
+// deliberately resolves tap through PATH because that is how hosts invoke the
+// commands stored in hooks.json.
+func (t *Tap) verifyIntegrationHookSupport(ctx context.Context) error {
+	executable, err := t.integrationExecutable("tap")
+	if err != nil {
+		return fmt.Errorf("integrate: a current tap executable with `tap hook` support is required on PATH; install or upgrade tap and retry: %w", err)
+	}
+	cmd := exec.CommandContext(ctx, executable, "hook", "--help")
+	cmd.Env = t.Runtime.Environ()
+	if wd, err := t.Runtime.Getwd(); err == nil {
+		if hostWD, hostErr := t.Runtime.HostPath(wd); hostErr == nil {
+			cmd.Dir = hostWD
+		}
+	}
+	var stdout, stderr bytes.Buffer
+	cmd.Stdin = t.Runtime.Stream().In
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		detail := strings.TrimSpace(stderr.String())
+		if detail != "" {
+			detail = ": " + detail
+		}
+		return fmt.Errorf("integrate: tap on PATH does not support `tap hook`; install or upgrade tap and retry%s", detail)
+	}
+	return nil
 }
 
 func integrationPreview(host, root, scope string, selected []string) (*IntegrateResult, error) {

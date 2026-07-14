@@ -42,11 +42,6 @@ func testContentFS(t *testing.T) fs.FS {
 		t.Fatal(err)
 	}
 	files["developer/workflow.md"] = &fstest.MapFile{Data: workflow}
-	blocker, err := os.ReadFile(filepath.Join("..", "renderdata", "claude", "hooks", "block-tap-cli.py"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	files["claude/hooks/block-tap-cli.py"] = &fstest.MapFile{Data: blocker}
 	for _, host := range []string{"claude", "codex"} {
 		body, err := os.ReadFile(filepath.Join("..", "renderdata", host, "hooks", "hooks.json"))
 		if err != nil {
@@ -74,7 +69,6 @@ func TestCodexAdapter_RendersNativeMarketplaceAndTwoPlugins(t *testing.T) {
 		"codex/tapper/.codex-plugin/plugin.json",
 		"codex/tapper/.mcp.json",
 		"codex/tapper/hooks/hooks.json",
-		"codex/tapper/hooks/block-tap-cli.py",
 		"codex/tapper/skills/tapper/SKILL.md",
 		"codex/tapper/skills/tapper-mcp-reset/SKILL.md",
 		"codex/tapper-dev/.codex-plugin/plugin.json",
@@ -83,6 +77,11 @@ func TestCodexAdapter_RendersNativeMarketplaceAndTwoPlugins(t *testing.T) {
 	for _, name := range want {
 		if _, ok := mem.Files()[name]; !ok {
 			t.Errorf("missing %s; got %v", name, mem.Paths())
+		}
+	}
+	for _, name := range mem.Paths() {
+		if strings.HasSuffix(name, ".py") {
+			t.Errorf("rendered plugin must not package Python hook %s", name)
 		}
 	}
 
@@ -153,14 +152,56 @@ func TestCodexAdapter_RendersPreToolUseGuardrailWithoutClaudeExpansion(t *testin
 		t.Fatalf("Codex PreToolUse hook = %+v", pre)
 	}
 	hook := pre[0].Hooks[0]
-	if hook.Type != "command" || !strings.Contains(hook.Command, "${PLUGIN_ROOT}/hooks/block-tap-cli.py") {
+	if hook.Type != "command" || hook.Command != "tap hook pre-tool-use" {
 		t.Fatalf("Codex command hook = %+v", hook)
+	}
+	if strings.Contains(string(mem.Files()["codex/tapper/hooks/hooks.json"]), "PLUGIN_ROOT") {
+		t.Fatal("Codex hooks must not reference packaged plugin-root scripts")
 	}
 	if _, ok := hooks.Hooks["UserPromptExpansion"]; ok {
 		t.Fatal("Claude-only prompt expansion hooks must not leak into Codex")
 	}
 	if strings.Contains(string(mem.Files()["codex/tapper/.codex-plugin/plugin.json"]), `"hooks"`) {
 		t.Fatal("Codex discovers hooks/hooks.json without a manifest entry")
+	}
+}
+
+func TestCodexAdapter_RendersSessionStartOrientationReminder(t *testing.T) {
+	mem := integrations.NewMemWriter()
+	if err := (CodexAdapter{}).Render(testRuntime(t), testContentFS(t), mem); err != nil {
+		t.Fatal(err)
+	}
+
+	type commandHook struct {
+		Type          string `json:"type"`
+		Command       string `json:"command"`
+		Timeout       int    `json:"timeout"`
+		StatusMessage string `json:"statusMessage"`
+	}
+	var hooks struct {
+		Hooks map[string][]struct {
+			Matcher string        `json:"matcher"`
+			Hooks   []commandHook `json:"hooks"`
+		} `json:"hooks"`
+	}
+	if err := json.Unmarshal(mem.Files()["codex/tapper/hooks/hooks.json"], &hooks); err != nil {
+		t.Fatal(err)
+	}
+	starts := hooks.Hooks["SessionStart"]
+	if len(starts) != 1 || starts[0].Matcher != "startup|resume|clear|compact" || len(starts[0].Hooks) != 1 {
+		t.Fatalf("Codex SessionStart hook = %+v", starts)
+	}
+	hook := starts[0].Hooks[0]
+	if hook.Type != "command" || hook.Timeout != 5 || hook.StatusMessage == "" || hook.Command != "tap hook session-start" {
+		t.Fatalf("Codex orientation command hook = %+v", hook)
+	}
+	for _, duplicate := range []string{"SubagentStart", "PreCompact", "PostCompact"} {
+		if _, ok := hooks.Hooks[duplicate]; ok {
+			t.Errorf("Codex must not register duplicate lifecycle hook %s", duplicate)
+		}
+	}
+	if len(hooks.Hooks["PreToolUse"]) != 1 {
+		t.Fatal("Codex orientation reminder must retain the PreToolUse guard")
 	}
 }
 

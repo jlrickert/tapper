@@ -47,6 +47,17 @@ else
 fi
 `
 	require.NoError(t, sb.Runtime().WriteFile("/home/testuser/bin/"+host, []byte(script), 0o755))
+	installFakeTap(t, sb)
+}
+
+func installFakeTap(t *testing.T, sb *sandbox.Sandbox) {
+	t.Helper()
+	require.NoError(t, sb.Runtime().Env().Set("PATH", "/home/testuser/bin"))
+	script := `#!/bin/sh
+if [ "$1 $2" = "hook --help" ]; then exit 0; fi
+exit 1
+`
+	require.NoError(t, sb.Runtime().WriteFile("/home/testuser/bin/tap", []byte(script), 0o755))
 }
 
 func TestTap_Integrate_DryRunIsSideEffectFreeAndShowsExactCommands(t *testing.T) {
@@ -59,6 +70,9 @@ func TestTap_Integrate_DryRunIsSideEffectFreeAndShowsExactCommands(t *testing.T)
 	require.Equal(t, []string{"codex", "plugin", "marketplace", "add", result.Root}, result.Commands[2])
 	require.Equal(t, []string{"codex", "plugin", "add", "tapper@tapper-local"}, result.Commands[3])
 	require.Equal(t, []string{"codex", "plugin", "add", "tapper-dev@tapper-local"}, result.Commands[4])
+	for _, target := range result.Paths {
+		require.NotEqual(t, ".py", filepath.Ext(target), "dry-run must not advertise legacy Python hooks")
+	}
 	_, err = sb.Runtime().Stat(result.Root, false)
 	require.Error(t, err)
 	_, err = sb.ReadFile("calls")
@@ -108,11 +122,17 @@ func TestTap_Integrate_RefreshRemovesStaleFilesAndReusesMarketplace(t *testing.T
 	first, err := tap.Integrate(context.Background(), tapper.IntegrateOptions{Host: "codex"})
 	require.NoError(t, err)
 	require.NoError(t, sb.Runtime().WriteFile(filepath.Join(first.Root, "stale.txt"), []byte("old"), 0o644))
+	require.NoError(t, sb.Runtime().WriteFile(filepath.Join(first.Root, "tapper", "hooks", "orient-tapper.py"), []byte("legacy"), 0o644))
+	require.NoError(t, sb.Runtime().WriteFile(filepath.Join(first.Root, "tapper", "hooks", "block-tap-cli.py"), []byte("legacy"), 0o644))
 	require.NoError(t, sb.Runtime().Env().Set("MARKETPLACES_JSON", `{"marketplaces":[{"name":"tapper-local","root":"`+first.Root+`"}]}`))
 	_, err = tap.Integrate(context.Background(), tapper.IntegrateOptions{Host: "codex"})
 	require.NoError(t, err)
 	_, err = sb.Runtime().Stat(filepath.Join(first.Root, "stale.txt"), false)
 	require.Error(t, err)
+	for _, legacy := range []string{"orient-tapper.py", "block-tap-cli.py"} {
+		_, err = sb.Runtime().Stat(filepath.Join(first.Root, "tapper", "hooks", legacy), false)
+		require.Error(t, err, "legacy hook %s must be removed by atomic refresh", legacy)
+	}
 	calls, err := sb.ReadFile("calls")
 	require.NoError(t, err)
 	require.Equal(t, 1, strings.Count(string(calls), "plugin marketplace add "+first.Root))
@@ -132,9 +152,33 @@ func TestTap_Integrate_MarketplaceConflictFailsBeforeExtraction(t *testing.T) {
 
 func TestTap_Integrate_MissingHostCLIIsActionable(t *testing.T) {
 	tap, sb := newIntegrateTap(t)
-	require.NoError(t, sb.Runtime().Env().Set("PATH", "/empty"))
+	installFakeTap(t, sb)
 	_, err := tap.Integrate(context.Background(), tapper.IntegrateOptions{Host: "codex"})
 	require.ErrorContains(t, err, "codex CLI not found on PATH")
+}
+
+func TestTap_Integrate_RejectsTapWithoutHookSupportBeforeExtraction(t *testing.T) {
+	tap, sb := newIntegrateTap(t)
+	installFakeHost(t, sb, "codex")
+	require.NoError(t, sb.Runtime().WriteFile("/home/testuser/bin/tap", []byte("#!/bin/sh\nexit 1\n"), 0o755))
+
+	result, err := tap.Integrate(context.Background(), tapper.IntegrateOptions{Host: "codex"})
+	require.Nil(t, result)
+	require.ErrorContains(t, err, "does not support `tap hook`")
+	_, statErr := sb.Runtime().Stat("/home/testuser/.local/share/tapper/integrations/codex", false)
+	require.Error(t, statErr)
+	_, callErr := sb.ReadFile("calls")
+	require.Error(t, callErr, "host commands must not run when tap is incompatible")
+}
+
+func TestTap_Integrate_MissingTapIsActionableAndDoesNotExtract(t *testing.T) {
+	tap, sb := newIntegrateTap(t)
+	require.NoError(t, sb.Runtime().Env().Set("PATH", "/empty"))
+	_, err := tap.Integrate(context.Background(), tapper.IntegrateOptions{Host: "codex"})
+	require.ErrorContains(t, err, "current tap executable")
+	require.ErrorContains(t, err, "install or upgrade tap")
+	_, statErr := sb.Runtime().Stat("/home/testuser/.local/share/tapper/integrations/codex", false)
+	require.Error(t, statErr)
 }
 
 func TestTap_Integrate_UnknownHostReturnsError(t *testing.T) {

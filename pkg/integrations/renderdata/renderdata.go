@@ -16,7 +16,7 @@ import "embed"
 
 // FS exposes the embedded canonical-source tree. Paths inside the FS are
 // relative to this package's directory — for example
-// "claude/hooks/block-tap-cli.py" or "codex/hooks/hooks.json".
+// "claude/hooks/hooks.json" or "codex/hooks/hooks.json".
 //
 //go:embed all:claude all:codex all:developer
 var FS embed.FS

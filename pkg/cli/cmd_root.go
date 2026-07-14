@@ -101,6 +101,12 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			// Native Codex and Claude hooks run on every host lifecycle/tool
+			// event. They must remain independent of user configuration, KEG
+			// resolution, credential refresh, and invocation logging.
+			if skipsRootInitialization(cmd) {
+				return nil
+			}
 			// Respect an existing context (tests set f.Ctx). Use it as the base.
 			ctx := cmd.Context()
 			rt := deps.Runtime
@@ -288,7 +294,6 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 		NewImportCmd(deps),
 		NewIndexCmd(deps),
 		NewInfoCmd(deps),
-		NewIntegrateCmd(deps),
 		NewLinksCmd(deps),
 		NewListCmd(deps),
 		NewLockCmd(deps),
@@ -304,6 +309,9 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 		NewValidateCmd(deps),
 		NewVersionCmd(deps),
 		NewWatchCmd(deps),
+	}
+	if deps.Profile.IncludeIntegrations {
+		subcommands = append(subcommands, NewIntegrateCmd(deps), NewHookCmd(deps))
 	}
 	var configCmd *cobra.Command
 	if deps.Profile.IncludeConfigCommand {

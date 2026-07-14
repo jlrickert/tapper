@@ -7,10 +7,11 @@ recovery-only state so the host can inspect flights safely. This page is the
 advanced manual path for MCP hosts that are not using the bundled Claude Code
 or Codex integrations.
 
-Most users should start with the one-command installs in the project README's
+Most users should use the official one-command installs in the project README's
 [Connect AI Agents](../../README.md#connect-ai-agents) section. `tap integrate
-claude` and `tap integrate codex` install self-contained native plugins from a
-local marketplace embedded in the binary.
+claude` and `tap integrate codex` install native plugins from a local
+marketplace embedded in the binary. Manual configuration below is supported
+for generic MCP hosts that do not have a native Tapper plugin.
 
 If an installed Tapper MCP connection goes stale, do not kill host-owned
 processes. Claude users should try `/reload-plugins` and then a new session;

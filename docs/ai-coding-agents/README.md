@@ -6,7 +6,9 @@ which conventions keep the KEG safe for humans and agents at the same time.
 
 Vendor-specific project configuration, permission modes, and general plugin
 behavior are covered by the vendors themselves. This directory focuses on
-Tapper's embedded native plugins.
+Tapper's embedded native plugins. Use `tap integrate codex` or `tap integrate
+claude` as the official supported installation and upgrade path; use manual MCP
+configuration only for generic hosts without a native Tapper plugin.
 
 ## Guides
 

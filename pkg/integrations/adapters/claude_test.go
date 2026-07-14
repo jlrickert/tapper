@@ -18,7 +18,6 @@ func TestClaudeAdapter_RendersMarketplaceDependencyAndSelfContainedPlugins(t *te
 		"claude/tapper/.claude-plugin/plugin.json",
 		"claude/tapper/.mcp.json",
 		"claude/tapper/hooks/hooks.json",
-		"claude/tapper/hooks/block-tap-cli.py",
 		"claude/tapper/skills/tapper/SKILL.md",
 		"claude/tapper/skills/tapper-flight-switch/SKILL.md",
 		"claude/tapper/skills/tapper-mcp-reset/SKILL.md",
@@ -28,6 +27,11 @@ func TestClaudeAdapter_RendersMarketplaceDependencyAndSelfContainedPlugins(t *te
 	for _, name := range want {
 		if _, ok := mem.Files()[name]; !ok {
 			t.Errorf("missing %s; got %v", name, mem.Paths())
+		}
+	}
+	for _, name := range mem.Paths() {
+		if strings.HasSuffix(name, ".py") {
+			t.Errorf("rendered plugin must not package Python hook %s", name)
 		}
 	}
 
@@ -89,6 +93,37 @@ func TestClaudeAdapter_RendersHumanOnlyFlightSwitch(t *testing.T) {
 	hook := expansions[0].Hooks[0]
 	if hook.Type != "mcp_tool" || hook.Server != "tapper" || hook.Tool != "flight_switch_control" || hook.Input["ref"] != "${command_args}" {
 		t.Fatalf("flight switch MCP hook = %+v", hook)
+	}
+}
+
+func TestClaudeAdapter_RendersGoBackedPreToolUseGuard(t *testing.T) {
+	mem := integrations.NewMemWriter()
+	if err := (ClaudeAdapter{}).Render(testRuntime(t), testContentFS(t), mem); err != nil {
+		t.Fatal(err)
+	}
+	var hooks struct {
+		Hooks map[string][]struct {
+			Matcher string `json:"matcher"`
+			Hooks   []struct {
+				Type    string `json:"type"`
+				Command string `json:"command"`
+				Timeout int    `json:"timeout"`
+			} `json:"hooks"`
+		} `json:"hooks"`
+	}
+	if err := json.Unmarshal(mem.Files()["claude/tapper/hooks/hooks.json"], &hooks); err != nil {
+		t.Fatal(err)
+	}
+	pre := hooks.Hooks["PreToolUse"]
+	if len(pre) != 1 || pre[0].Matcher != "Bash" || len(pre[0].Hooks) != 1 {
+		t.Fatalf("Claude PreToolUse hook = %+v", pre)
+	}
+	hook := pre[0].Hooks[0]
+	if hook.Type != "command" || hook.Command != "tap hook pre-tool-use" || hook.Timeout != 5 {
+		t.Fatalf("Claude command hook = %+v", hook)
+	}
+	if strings.Contains(string(mem.Files()["claude/tapper/hooks/hooks.json"]), "PLUGIN_ROOT") {
+		t.Fatal("Claude hooks must not reference packaged plugin-root scripts")
 	}
 }
 

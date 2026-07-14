@@ -34,14 +34,12 @@ func (a ClaudeAdapter) Render(rt *toolkit.Runtime, content fs.FS, dst integratio
 	if err := dst.Write(path.Join(a.Name(), "tapper", ".mcp.json"), renderClaudeMCP()); err != nil {
 		return err
 	}
-	for _, filename := range []string{"block-tap-cli.py", "hooks.json"} {
-		body, err := fs.ReadFile(content, "claude/hooks/"+filename)
-		if err != nil {
-			return fmt.Errorf("claude: hook %s: %w", filename, err)
-		}
-		if err := dst.Write(path.Join(a.Name(), "tapper", "hooks", filename), body); err != nil {
-			return err
-		}
+	body, err := fs.ReadFile(content, "claude/hooks/hooks.json")
+	if err != nil {
+		return fmt.Errorf("claude: hooks.json: %w", err)
+	}
+	if err := dst.Write(path.Join(a.Name(), "tapper", "hooks", "hooks.json"), body); err != nil {
+		return err
 	}
 	baseline, err := renderSkill(content, "tapper", "Orient to Tapper flights and operate on KEGs through MCP-first safety rules.", baselineOrder)
 	if err != nil {

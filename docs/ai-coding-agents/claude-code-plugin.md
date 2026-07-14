@@ -1,7 +1,6 @@
 # Claude Code plugins
 
-Install the baseline Tapper plugin from the local marketplace embedded in the
-`tap` binary:
+Install the baseline Tapper plugin through the official supported installer:
 
 ```bash
 tap integrate claude
@@ -11,7 +10,8 @@ The installer extracts a self-contained Claude marketplace below the platform
 user-data directory, registers it with `claude plugin marketplace add`, and
 installs `tapper@tapper-local`. The plugin registers `tap mcp`, blocks direct
 agent use of the Tapper CLI except harmless help/version/completion probes, and
-orients through the active flight and covered KEG instructions.
+orients through the active flight and covered KEG instructions. Its guard runs
+as `tap hook pre-tool-use`, so the current `tap` binary must remain on `PATH`.
 
 Install the optional developer workflow separately:
 
@@ -40,9 +40,12 @@ tap integrate claude --scope local --plugin tapper-dev
 settings. Marketplace registration and plugin install/update use the same
 scope, and installations in other scopes are treated independently.
 
-Re-running refreshes the extracted files atomically and uses Claude's install
-or update command according to its JSON plugin state. A `tapper-local`
-marketplace already pointing elsewhere is an actionable conflict.
+Re-running refreshes the extracted files atomically, removes legacy packaged
+Python hooks, and uses Claude's install or update command according to its JSON
+plugin state. Review and trust the replacement hook again, then open a fresh
+Claude session for the refreshed plugin and MCP connection to take effect. A
+`tapper-local` marketplace already pointing elsewhere is an actionable
+conflict.
 
 The baseline also ships `tapper-mcp-reset` and the user-only
 `/tapper:tapper-flight-switch REF` command. Use the
