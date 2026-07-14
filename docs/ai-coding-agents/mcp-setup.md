@@ -1,9 +1,11 @@
 # MCP Server Setup
 
 The `tap mcp` command starts a Model Context Protocol server on stdio, exposing
-KEG operations as tools. The local full surface requires an active flight and
-pins it for the lifetime of each MCP connection. This page is the advanced manual path for MCP hosts
-that are not using the bundled Claude Code or Codex integrations.
+KEG operations as tools. With an active flight, the local full surface pins it
+for the lifetime of each MCP connection. Without one, the server starts in a
+recovery-only state so the host can inspect flights safely. This page is the
+advanced manual path for MCP hosts that are not using the bundled Claude Code
+or Codex integrations.
 
 Most users should start with the one-command installs in the project README's
 [Connect AI Agents](../../README.md#connect-ai-agents) section. `tap integrate
@@ -72,6 +74,13 @@ With a default keg:
 The MCP server exposes the same operating surface as the CLI. Exact tool
 availability follows the installed Tapper version; inspect your MCP host's tool
 list for the live surface.
+
+When no flight is selected, the visible list is intentionally restricted to
+`orient`, `list_flights`, `flight_show`, `auth_status`, and `config`. `orient`
+and any guessed KEG-tool call explain that KEG tools are locked and direct the
+agent to inspect flights through MCP, ask the user to run `tap use --flight
+@namespace/+slug`, and reconnect. Claude's hidden, human-confirmed flight
+switch control can expand the existing connection to the normal surface.
 
 ### Read
 
@@ -170,12 +179,18 @@ tap mcp --help
 
 ### No Flight Configured
 
-Configure a project flight or start the MCP server with an explicit flight:
+The server connects in recovery-only mode rather than failing startup. Inspect
+the available flights through `list_flights` and `flight_show`, then configure
+a project flight or start the MCP server with an explicit flight:
 
 ```bash
 tap use --flight @acme/+release-42
 tap mcp --flight @acme/+release-42
 ```
+
+After `tap use`, reconnect the MCP host. A flight that is explicitly selected
+but missing or invalid still fails startup so a stale configuration cannot
+silently downgrade into recovery mode.
 
 ### Logs
 

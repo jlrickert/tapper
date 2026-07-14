@@ -212,6 +212,9 @@ func (t *Tap) KegInfo(ctx context.Context, opts KegInfoOptions) (string, error) 
 		KegDirectory     string `yaml:"keg_directory,omitempty" json:"keg_directory,omitempty"`
 	}
 	type diagnostics struct {
+		Hub       string            `yaml:"hub" json:"hub"`
+		Namespace string            `yaml:"namespace" json:"namespace"`
+		Keg       string            `yaml:"keg" json:"keg"`
 		Ref       string            `yaml:"ref" json:"ref"`
 		Flight    string            `yaml:"flight" json:"flight"`
 		Summary   string            `yaml:"summary" json:"summary"`
@@ -223,6 +226,9 @@ func (t *Tap) KegInfo(ctx context.Context, opts KegInfoOptions) (string, error) 
 
 	identity := t.resolveIdentity(opts.KegTargetOptions)
 	out := diagnostics{
+		Hub:       identity.Hub,
+		Namespace: identity.Namespace,
+		Keg:       identity.Keg,
 		Ref:       canonicalKegRef(identity.Ref),
 		Flight:    identity.Flight,
 		NodeCount: summary.NodeCount,

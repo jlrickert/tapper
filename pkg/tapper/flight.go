@@ -213,11 +213,12 @@ func (s *FlightService) localFlightsDirFor(entry HubEntry) (string, error) {
 }
 
 // ListFlights returns canonical @namespace/+slug refs for flights discovered
-// across configured hubs, sorted. Remote/auth/network errors are best-effort
-// so shell completion and discovery remain responsive; when warnings is
-// non-nil each skipped hub appends one message so user-facing listings can
-// say what was left out.
-func (s *FlightService) ListFlights(ctx context.Context, warnings *[]string) ([]string, error) {
+// across configured hubs, sorted. When hub is non-empty, discovery is limited
+// to that configured hub. Remote/auth/network errors are best-effort so shell
+// completion and discovery remain responsive; when warnings is non-nil each
+// skipped hub appends one message so user-facing listings can say what was
+// left out.
+func (s *FlightService) ListFlights(ctx context.Context, hub string, warnings *[]string) ([]string, error) {
 	cfg, err := s.config()
 	if err != nil {
 		return nil, err
@@ -235,7 +236,16 @@ func (s *FlightService) ListFlights(ctx context.Context, warnings *[]string) ([]
 		out = append(out, ref)
 	}
 
-	for _, name := range s.allHubNames(cfg) {
+	hub = strings.TrimSpace(hub)
+	hubNames := s.allHubNames(cfg)
+	if hub != "" {
+		if _, ok := cfg.Hub(hub); !ok {
+			return nil, fmt.Errorf("hub %q is not configured", hub)
+		}
+		hubNames = []string{hub}
+	}
+
+	for _, name := range hubNames {
 		entry, ok := cfg.Hub(name)
 		if !ok {
 			continue

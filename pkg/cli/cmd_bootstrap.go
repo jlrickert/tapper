@@ -54,6 +54,8 @@ Bootstrap writes the matching fallback hub and ensures the built-in local hub
 is always available. The namespace comes from the hub itself: @local for local,
 and your home namespace (adopted at login) for cloud/enterprise. It is
 idempotent: re-running preserves any kegs and keg-map entries you already have.
+It can also record a user-level flight baseline for MCP sessions; project
+config, TAP_FLIGHT, and an explicit --flight on later commands override it.
 
 On a TTY with no flags, bootstrap prompts for the kind (and, for enterprise,
 the endpoint), then offers to log in. Pass --non-interactive to rely on flags.
@@ -213,6 +215,48 @@ logs in.
 				}
 			}
 
+			// 4d. Record a machine-wide flight baseline. The inherited global
+			// --flight flag is authoritative only when the user explicitly supplied
+			// it. Interactive bootstrap otherwise discovers flights from the one hub
+			// selected above and offers a canonical reference; Skip preserves the
+			// existing user baseline.
+			baselineFlight := bootstrapUserFlight(deps)
+			flightFlagSet := cmd.Flags().Changed("flight")
+			if flightFlagSet {
+				requested := strings.TrimSpace(deps.KegTargetOptions.Flight)
+				if requested == "" {
+					return fmt.Errorf("--flight requires a flight reference such as @namespace/+slug")
+				}
+				if ferr := deps.Tap.SetBootstrapFlight(ctx, requested); ferr != nil {
+					return ferr
+				}
+				baselineFlight = bootstrapUserFlight(deps)
+			} else if interactive {
+				var flightWarnings []string
+				available, ferr := deps.Tap.ListFlights(ctx, tapper.ListFlightsOptions{
+					Hub:      res.Hub,
+					Warnings: &flightWarnings,
+				})
+				for _, warning := range flightWarnings {
+					_, _ = fmt.Fprintf(stderr, "warning: flight discovery: %s\n", warning)
+				}
+				if ferr != nil {
+					_, _ = fmt.Fprintf(stderr, "warning: could not discover flights from %s: %v\n", res.Hub, ferr)
+				} else if len(available) > 0 {
+					current := bootstrapCurrentFlight(available, baselineFlight)
+					chosen, perr := deps.BootstrapPrompter.SelectFlight(available, current)
+					if perr != nil {
+						return perr
+					}
+					if chosen != "" {
+						if serr := deps.Tap.SetBootstrapFlight(ctx, chosen); serr != nil {
+							return serr
+						}
+						baselineFlight = bootstrapUserFlight(deps)
+					}
+				}
+			}
+
 			// 5. Summary.
 			out := cmd.OutOrStdout()
 			verb := "Updated"
@@ -231,11 +275,19 @@ logs in.
 			if createdKegLocation != "" {
 				_, _ = fmt.Fprintf(out, "  created keg:  %s\n", createdKegLocation)
 			}
+			if baselineFlight != "" {
+				_, _ = fmt.Fprintf(out, "  flight:       %s\n", baselineFlight)
+			} else {
+				_, _ = fmt.Fprintln(out, "  flight:       recovery-only")
+			}
 			for _, w := range res.Warnings {
 				_, _ = fmt.Fprintf(stderr, "warning: %s: %s\n", w.Field, w.Message)
 			}
 			if res.HubURL != "" && !loggedIn {
 				_, _ = fmt.Fprintf(out, "\nNext: run `tap auth login` to authenticate with %s.\n", res.Hub)
+			}
+			if baselineFlight == "" {
+				_, _ = fmt.Fprintln(out, "MCP will use recovery-only mode until a flight is selected. Rerun bootstrap with `tap bootstrap --flight @namespace/+slug`.")
 			}
 			return nil
 		},
@@ -261,6 +313,45 @@ logs in.
 	})
 
 	return cmd
+}
+
+func bootstrapUserFlight(deps *Deps) string {
+	if deps == nil || deps.Tap == nil {
+		return ""
+	}
+	cfg, err := deps.Tap.ConfigService.UserConfig(false)
+	if err != nil || cfg == nil {
+		return ""
+	}
+	return strings.TrimSpace(cfg.Flight())
+}
+
+// bootstrapCurrentFlight translates a legacy unqualified baseline to its one
+// canonical match in the selected hub, allowing the chooser to preselect it
+// without resolving it against (and potentially contacting) unrelated hubs.
+func bootstrapCurrentFlight(available []string, current string) string {
+	current = strings.TrimSpace(current)
+	for _, ref := range available {
+		if ref == current {
+			return current
+		}
+	}
+	parsed, err := tapper.ParseFlightRef(current, "")
+	if err != nil || parsed.Namespace != "" {
+		return ""
+	}
+	suffix := "/+" + parsed.Slug
+	match := ""
+	for _, ref := range available {
+		if !strings.HasSuffix(ref, suffix) {
+			continue
+		}
+		if match != "" {
+			return ""
+		}
+		match = ref
+	}
+	return match
 }
 
 // parseBootstrapKind normalizes a kind answer, accepting the full word, a

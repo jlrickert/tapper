@@ -129,6 +129,15 @@ records it as `fallbackKeg` (the global-user slot) so plain `tap` commands
 resolve one after setup, while a project's `defaultKeg` or a `kegMap` rule can
 still override it.
 
+Interactive bootstrap also discovers flights from only the selected hub and
+offers to store one as the user-level `flight` baseline. Existing baselines are
+preselected when available, and **Skip for now** leaves the current value
+unchanged. For scripts, pass the inherited global flag explicitly, for example
+`tap bootstrap --kind local --flight @local/+focused`; bootstrap validates the
+flight and stores its canonical `@namespace/+slug` reference. If no baseline is
+set, MCP starts in recovery-only mode. A project `flight`, `TAP_FLIGHT`, or an
+explicit `--flight` on a later command overrides the bootstrap baseline.
+
 ## Hub Resolution Chain
 
 When a keg reference omits its hub, tapper resolves the target hub in this

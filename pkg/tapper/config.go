@@ -76,8 +76,8 @@ type configDTO struct {
 
 	// flight is the flight context applied when no --flight flag is given. It is
 	// a flight reference (@namespace/+slug, +slug, or a bare slug) and is
-	// conventionally set in project config so orient/MCP inherit the same
-	// context; --flight overrides it per invocation.
+	// may be set as a user baseline by bootstrap or overridden in project config;
+	// TAP_FLIGHT and --flight have higher precedence.
 	Flight string `yaml:"flight,omitempty"`
 
 	// kegMap maps a project path or pattern to a keg reference.

@@ -15,7 +15,15 @@ import (
 
 const flightSwitchControlTool = "flight_switch_control"
 
-var errMCPFlightRequired = errors.New("a configured flight is required for the local MCP surface; run `tap use --flight @namespace/+slug` and reconnect")
+var errMCPFlightRequired = errors.New("no flight is selected; KEG tools are locked. Inspect flights through MCP with `list_flights` and `flight_show`, ask the user to run `tap use --flight @namespace/+slug`, then reconnect")
+
+var recoveryToolNames = map[string]bool{
+	"orient":       true,
+	"list_flights": true,
+	"flight_show":  true,
+	"auth_status":  true,
+	"config":       true,
+}
 
 type flightSessionContextKey struct{}
 
@@ -52,7 +60,7 @@ func ValidateFullSurfaceFlight(ctx context.Context, tap *tapper.Tap, explicit st
 	}
 	ref := tap.ActiveFlightName(explicit)
 	if ref == "" {
-		return "", errMCPFlightRequired
+		return "", nil
 	}
 	flight, err := tap.FlightService.GetFlightFresh(ctx, ref)
 	if err != nil {
@@ -90,9 +98,7 @@ func (g *sessionFlightGate) state(ctx context.Context, sessionID string) *flight
 	state := &flightSessionState{}
 	if g == nil || g.tap == nil || g.tap.FlightService == nil {
 		state.invalid = errors.New("Tapper flight service is unavailable")
-	} else if g.initial == "" {
-		state.invalid = errMCPFlightRequired
-	} else {
+	} else if g.initial != "" {
 		flight, err := g.tap.FlightService.GetFlightFresh(ctx, g.initial)
 		if err != nil {
 			state.invalid = fmt.Errorf("load active MCP flight %q: %w", g.initial, err)
@@ -123,6 +129,10 @@ func (g *sessionFlightGate) validate(ctx context.Context, sessionID string) (*ta
 		g.mu.Unlock()
 		return nil, err
 	}
+	if state.flight == nil {
+		g.mu.Unlock()
+		return nil, errMCPFlightRequired
+	}
 	snapshot := state.snapshot
 	g.mu.Unlock()
 
@@ -142,6 +152,13 @@ func (g *sessionFlightGate) validate(ctx context.Context, sessionID string) (*ta
 		return nil, invalid
 	}
 	return fresh, nil
+}
+
+func (g *sessionFlightGate) recoveryOnly(ctx context.Context, sessionID string) bool {
+	state := g.state(ctx, sessionID)
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return state.flight == nil && state.invalid == nil
 }
 
 func (g *sessionFlightGate) activeFlight(ctx context.Context) string {
@@ -246,6 +263,14 @@ func (g *sessionFlightGate) middleware(next sdkmcp.MethodHandler) sdkmcp.MethodH
 			}
 			copyResult := *listed
 			copyResult.Tools = make([]*sdkmcp.Tool, 0, len(listed.Tools))
+			if g.recoveryOnly(ctx, sessionID) {
+				for _, tool := range listed.Tools {
+					if recoveryToolNames[tool.Name] {
+						copyResult.Tools = append(copyResult.Tools, tool)
+					}
+				}
+				return &copyResult, nil
+			}
 			canManage := g.canManage(ctx, sessionID)
 			for _, tool := range listed.Tools {
 				if tool.Name == flightSwitchControlTool {
@@ -260,7 +285,18 @@ func (g *sessionFlightGate) middleware(next sdkmcp.MethodHandler) sdkmcp.MethodH
 		}
 		if method == "tools/call" {
 			params, _ := req.GetParams().(*sdkmcp.CallToolParamsRaw)
-			if params != nil && isFlightMutationTool(params.Name) {
+			if params != nil && g.recoveryOnly(ctx, sessionID) {
+				switch {
+				case params.Name == flightSwitchControlTool:
+					// The hidden human control can unlock this connection.
+				case params.Name == "orient":
+					return errorResult(errMCPFlightRequired), nil
+				case recoveryToolNames[params.Name]:
+					return next(ctx, method, req)
+				default:
+					return errorResult(errMCPFlightRequired), nil
+				}
+			} else if params != nil && isFlightMutationTool(params.Name) {
 				if err := g.authorizeMutation(ctx, sessionID, "", false); err != nil {
 					return errorResult(err), nil
 				}

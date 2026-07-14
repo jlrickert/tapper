@@ -329,6 +329,39 @@ func (t *Tap) SetFallbackKeg(ctx context.Context, ref string) error {
 	return nil
 }
 
+// SetBootstrapFlight validates ref, canonicalizes it, and persists it as the
+// user-level flight baseline. Project config, TAP_FLIGHT, and an explicit
+// --flight flag remain higher-precedence overrides. A blank ref is a no-op.
+func (t *Tap) SetBootstrapFlight(ctx context.Context, ref string) error {
+	ref = strings.TrimSpace(ref)
+	if ref == "" {
+		return nil
+	}
+	flight, err := t.GetFlight(ctx, GetFlightOptions{Name: ref})
+	if err != nil {
+		return fmt.Errorf("invalid bootstrap flight %q: %w", ref, err)
+	}
+	canonical := strings.TrimSpace(flight.Name)
+	if canonical == "" {
+		return fmt.Errorf("invalid bootstrap flight %q: resolved flight has no canonical reference", ref)
+	}
+	cfg, err := t.ConfigService.UserConfig(false)
+	if err != nil {
+		if !errors.Is(err, keg.ErrNotExist) {
+			return fmt.Errorf("unable to load user config: %w", err)
+		}
+		cfg = &Config{data: &configDTO{}}
+	}
+	if err := cfg.SetFlight(canonical); err != nil {
+		return err
+	}
+	if err := cfg.Write(t.Runtime, t.PathService.UserConfig()); err != nil {
+		return err
+	}
+	t.ConfigService.ResetCache()
+	return nil
+}
+
 // deriveHubName turns an endpoint host into a short hub key: it drops a leading
 // service label (keg./api./www.), takes the first remaining DNS label, and
 // sanitizes it to lowercase [a-z0-9-]. "keg.acme.com" -> "acme",

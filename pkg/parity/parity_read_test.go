@@ -361,6 +361,10 @@ func TestParity_ReadOperations(t *testing.T) {
 			MCPInput: map[string]any{},
 			Compare: func(t *testing.T, cliOut, mcpOut string) {
 				t.Helper()
+				for _, want := range []string{"hub: home", "namespace: local", "keg: personal"} {
+					require.Contains(t, cliOut, want, "CLI info should show resolved identity")
+					require.Contains(t, mcpOut, want, "MCP keg_info should show resolved identity")
+				}
 				require.Contains(t, cliOut, "personal", "CLI info should show alias")
 				require.Contains(t, mcpOut, "personal", "MCP keg_info should show alias")
 				require.Contains(t, cliOut, "node_count", "CLI info should show node count")

@@ -1,12 +1,43 @@
 package tapper_test
 
 import (
+	"path/filepath"
 	"testing"
 
 	"github.com/jlrickert/cli-toolkit/sandbox"
 	"github.com/jlrickert/tapper/pkg/tapper"
 	"github.com/stretchr/testify/require"
 )
+
+func TestConfigService_FlightPrecedence(t *testing.T) {
+	t.Parallel()
+	fx := NewSandbox(t)
+	project := "/home/testuser/project"
+	require.NoError(t, fx.Runtime().Mkdir(project, 0o755, true))
+	require.NoError(t, fx.Setwd(project))
+	tap, err := tapper.NewTap(tapper.TapOptions{Root: project, Runtime: fx.Runtime()})
+	require.NoError(t, err)
+	require.NoError(t, fx.Runtime().AtomicWriteFile(
+		tap.PathService.UserConfig(), []byte("flight: '@local/+baseline'\n"), 0o644))
+
+	cfg, err := tap.ConfigService.Config(false)
+	require.NoError(t, err)
+	require.Equal(t, "@local/+baseline", cfg.Flight())
+
+	require.NoError(t, fx.Runtime().AtomicWriteFile(
+		filepath.Join(project, ".tapper", "config.yaml"),
+		[]byte("flight: '@local/+project'\n"), 0o644))
+	tap.ConfigService.ResetCache()
+	cfg, err = tap.ConfigService.Config(false)
+	require.NoError(t, err)
+	require.Equal(t, "@local/+project", cfg.Flight(), "project config should override the user baseline")
+
+	require.NoError(t, fx.Runtime().Env().Set("TAP_FLIGHT", "@local/+environment"))
+	tap.ConfigService.ResetCache()
+	cfg, err = tap.ConfigService.Config(false)
+	require.NoError(t, err)
+	require.Equal(t, "@local/+environment", cfg.Flight(), "TAP_FLIGHT should override project config")
+}
 
 func TestConfigService_EnvOverridesDefaultKeg(t *testing.T) {
 	t.Parallel()
