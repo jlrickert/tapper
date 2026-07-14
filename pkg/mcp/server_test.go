@@ -180,7 +180,7 @@ func TestMCP_ToolsList(t *testing.T) {
 	require.Contains(t, names, "download_image")
 	require.Contains(t, names, "graph")
 	require.Contains(t, names, "orient")
-	require.Contains(t, names, "integrate")
+	require.NotContains(t, names, "integrate")
 	require.Contains(t, names, "list_flights")
 	require.Contains(t, names, "flight_show")
 	require.Contains(t, names, "flight_create")

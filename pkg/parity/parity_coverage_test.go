@@ -115,9 +115,9 @@ var tapMethodToSurfaces = map[string]struct {
 	// Namespace administration.
 	"NamespaceList": {CLI: "namespace list", MCP: "namespace_list"},
 
-	// Agent integrations (Phase 3 / Phase 5)
-	"Orient":    {CLI: "orient", MCP: "orient"},
-	"Integrate": {CLI: "integrate", MCP: "integrate"},
+	// Agent orientation remains shared. Native plugin installation is an
+	// intentionally CLI-only host operation (see tapMethodsExcluded).
+	"Orient": {CLI: "orient", MCP: "orient"},
 
 	// Auth: Status has both surfaces (agents need to check auth before
 	// remote calls); Login is CLI-only — it drives the interactive device
@@ -146,6 +146,7 @@ var tapMethodsExcluded = map[string]string{
 	"ConfigExplain":         "shares surface with Config via --explain flag / explain field",
 	"ReadImage":             "underlying byte-read helper used by image download surfaces; not a standalone operation",
 	"AuthLogout":            "security: MCP agents must not be able to revoke hub credentials; CLI-only by design",
+	"Integrate":             "CLI-only native plugin installation via the official `tap integrate` surface",
 	"HubList":               "lists local hub connections (config inspection); CLI-only via `tap hub list`",
 	"HubAdd":                "security: writes hub connections (incl. token refs) to user config; CLI-only by design",
 	"HubRemove":             "security: mutates hub connections in user config; CLI-only by design",

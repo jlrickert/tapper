@@ -26,7 +26,7 @@ const (
 	SurfaceFull Surface = iota
 	// SurfaceHub registers only the per-user node read/write tools appropriate
 	// for a remote, OAuth-scoped hub connector (tapper-hub's /mcp endpoint). It
-	// omits CLI/local tools (auth_status, config, doctor, integrate, license,
+	// omits CLI/local tools (auth_status, config, doctor, license,
 	// file downloads, path-based image downloads, archive, locks) and hub-admin
 	// tools (keg/namespace administration, flights) — none of which make sense
 	// for a remote multi-tenant connector. Uploads remain available, but local
@@ -113,7 +113,6 @@ func NewServer(tap *tapper.Tap, version string, defaults KegDefaults, opts ...Se
 		registerKegTools(srv, tap, defaults)
 		registerNamespaceTools(srv, tap, defaults)
 		registerResourceTools(srv, tap, defaults)
-		registerIntegrateTools(srv, tap, defaults)
 		registerAuthTools(srv, tap)
 		registerLicenseTools(srv, opt.LicenseText)
 	}

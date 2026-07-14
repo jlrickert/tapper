@@ -146,7 +146,6 @@ manage namespace members and keg grants through the hub UI.
 | `orient` | Return the shared KEG system orientation payload |
 | `list_flights`, `flight_show` | Discover and inspect visible flights |
 | `flight_create`, `flight_edit`, `flight_delete` | Manage other flights when the active flight grants `manage_flights` and the identity owns/administers the target namespace |
-| `integrate` | Install embedded host-native plugin marketplaces |
 | `license` | Read bundled license text |
 
 ## Keg Targeting
