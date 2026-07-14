@@ -16,9 +16,9 @@ instructions as the authoritative context for the session.
   bypasses locking and snapshot history. Always go through
   `mcp__tapper__cat`, `mcp__tapper__edit`, `mcp__tapper__meta`, and related
   tools.
-- **Do not treat `defaultKeg` as agent authority.** It is a direct-CLI
-  convenience. The active flight determines MCP instructions and the KEGs the
-  agent may use.
+- **Treat the active flight as MCP authority.** It determines the instructions
+  and KEGs available to the agent. `defaultKeg` does not grant authority for an
+  MCP session.
 
 ## Flight-first orientation
 
@@ -37,5 +37,5 @@ Call `mcp__tapper__orient` first. Follow the pinned flight and KEG instructions
 it returns. When no flight is selected, the local MCP server connects in a
 recovery-only state: KEG tools are locked, while `mcp__tapper__list_flights`
 and `mcp__tapper__flight_show` remain available for discovery. Ask the user to
-run `tap use --flight @namespace/+slug`, then reconnect. A flight with an empty
+select a flight in Tapper configuration, then reconnect. A flight with an empty
 cover exposes no KEGs.
