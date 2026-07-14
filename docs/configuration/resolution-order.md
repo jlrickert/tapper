@@ -15,7 +15,9 @@ If you pass explicit flags, they take precedence:
 `--flight` is not a keg selector. It is flight context for orient/MCP: agent
 instructions plus cover caps enforced by the MCP surface. Direct CLI commands
 still use normal keg authorization and do not have access reduced by the flight.
-See [Flights](flights.md).
+Its precedence follows the config cascade: explicit `--flight`, `TAP_FLIGHT`,
+the nearest project `flight`, then the user baseline optionally written by
+`tap bootstrap`. See [Flights](flights.md).
 
 The local creation flags on `tap keg create` (`--project`, `--cwd`, and
 `--path`) only choose where a new filesystem keg is created. They are not

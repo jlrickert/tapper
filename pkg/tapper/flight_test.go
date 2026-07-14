@@ -2,7 +2,10 @@ package tapper_test
 
 import (
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/jlrickert/tapper/pkg/tapper"
@@ -144,6 +147,44 @@ func TestFlightService_NoFlightsDir(t *testing.T) {
 	names, err := tap.ListFlights(fx.Context(), tapper.ListFlightsOptions{})
 	require.NoError(t, err)
 	require.Empty(t, names)
+}
+
+func TestFlightService_ListHubFilterContactsOnlySelectedHub(t *testing.T) {
+	t.Parallel()
+	var firstCalls, secondCalls atomic.Int32
+	first := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		firstCalls.Add(1)
+		require.Equal(t, "/api/v1/flights", r.URL.Path)
+		_ = json.NewEncoder(w).Encode([]tapper.HubFlight{{Namespace: "one", Slug: "focus"}})
+	}))
+	defer first.Close()
+	second := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		secondCalls.Add(1)
+		require.Equal(t, "/api/v1/flights", r.URL.Path)
+		_ = json.NewEncoder(w).Encode([]tapper.HubFlight{{Namespace: "two", Slug: "review"}})
+	}))
+	defer second.Close()
+
+	fx := NewSandbox(t)
+	require.NoError(t, fx.Setwd("/home/testuser"))
+	tap, err := tapper.NewTap(tapper.TapOptions{Root: "/home/testuser", Runtime: fx.Runtime()})
+	require.NoError(t, err)
+	config := "hubs:\n" +
+		"  first: {kind: remote, url: " + first.URL + ", token: tok}\n" +
+		"  second: {kind: remote, url: " + second.URL + ", token: tok}\n"
+	require.NoError(t, fx.Runtime().AtomicWriteFile(tap.PathService.UserConfig(), []byte(config), 0o644))
+
+	names, err := tap.ListFlights(fx.Context(), tapper.ListFlightsOptions{Hub: "first"})
+	require.NoError(t, err)
+	require.Equal(t, []string{"@one/+focus"}, names)
+	require.EqualValues(t, 1, firstCalls.Load())
+	require.Zero(t, secondCalls.Load(), "filtered discovery must not contact unrelated hubs")
+
+	names, err = tap.ListFlights(fx.Context(), tapper.ListFlightsOptions{})
+	require.NoError(t, err)
+	require.Equal(t, []string{"@one/+focus", "@two/+review"}, names)
+	require.EqualValues(t, 2, firstCalls.Load())
+	require.EqualValues(t, 1, secondCalls.Load(), "unfiltered listing should retain all-hub behavior")
 }
 
 func TestParseFlightRef(t *testing.T) {

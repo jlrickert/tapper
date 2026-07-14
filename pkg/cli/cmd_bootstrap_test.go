@@ -42,8 +42,16 @@ type fakeBootstrapPrompter struct {
 	endpoint     func() (string, error)
 	confirmLogin func(string) (bool, error)
 	selectKeg    func([]string) (bootstrapDefaultKegSelection, error)
+	selectFlight func([]string, string) (string, error)
 	manualKeg    func() (string, error)
 	newKeg       func() (string, error)
+}
+
+func (f *fakeBootstrapPrompter) SelectFlight(available []string, current string) (string, error) {
+	if f.selectFlight == nil {
+		f.t.Fatal("unexpected SelectFlight call")
+	}
+	return f.selectFlight(available, current)
 }
 
 func (f *fakeBootstrapPrompter) SelectBootstrapKind() (string, error) {
@@ -174,6 +182,118 @@ func TestBootstrapCmd_Local_CreatesDefaultKeg(t *testing.T) {
 		"an already-existing keg should not be reported as created")
 }
 
+func TestBootstrapCmd_Interactive_SelectsFlightAndPreservesItOnSkip(t *testing.T) {
+	t.Parallel()
+	sb := newTestSandbox(t)
+	require.NoError(t, sb.Runtime().AtomicWriteFile(
+		"/home/testuser/.local/share/tapper/kegs/flights.d/focused.yaml",
+		[]byte("title: Focused\n"), 0o644))
+
+	firstPrompter := &fakeBootstrapPrompter{
+		t:         t,
+		manualKeg: func() (string, error) { return "", nil },
+		selectFlight: func(available []string, current string) (string, error) {
+			require.Equal(t, []string{"@local/+focused"}, available)
+			require.Empty(t, current)
+			return "@local/+focused", nil
+		},
+	}
+	first := newBootstrapProcess(t, stubBootstrapPrompterHook(firstPrompter), true,
+		"bootstrap", "--kind", "local")
+	res := first.Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err, "stderr=%q", string(res.Stderr))
+	require.Contains(t, string(res.Stdout), "flight:       @local/+focused")
+	require.Contains(t, string(sb.MustReadFile("~/.config/tapper/config.yaml")), "flight: '@local/+focused'")
+
+	secondPrompter := &fakeBootstrapPrompter{
+		t:         t,
+		manualKeg: func() (string, error) { return "", nil },
+		selectFlight: func(available []string, current string) (string, error) {
+			require.Equal(t, []string{"@local/+focused"}, available)
+			require.Equal(t, "@local/+focused", current, "existing baseline should be preselected")
+			return "", nil // Skip for now.
+		},
+	}
+	second := newBootstrapProcess(t, stubBootstrapPrompterHook(secondPrompter), true,
+		"bootstrap", "--kind", "local")
+	res = second.Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err, "stderr=%q", string(res.Stderr))
+	require.Contains(t, string(sb.MustReadFile("~/.config/tapper/config.yaml")), "flight: '@local/+focused'",
+		"Skip must preserve the existing baseline")
+}
+
+func TestBootstrapCmd_NoFlightsReportsRecoveryOnly(t *testing.T) {
+	t.Parallel()
+	sb := newTestSandbox(t)
+	prompter := &fakeBootstrapPrompter{
+		t:         t,
+		manualKeg: func() (string, error) { return "", nil },
+	}
+	proc := newBootstrapProcess(t, stubBootstrapPrompterHook(prompter), true,
+		"bootstrap", "--kind", "local")
+	res := proc.Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+	require.Contains(t, string(res.Stdout), "flight:       recovery-only")
+	require.Contains(t, string(res.Stdout), "tap bootstrap --flight @namespace/+slug")
+	require.NotContains(t, string(sb.MustReadFile("~/.config/tapper/config.yaml")), "flight:")
+}
+
+func TestBootstrapCmd_ExplicitFlightValidatesAndPersists(t *testing.T) {
+	t.Parallel()
+	sb := newTestSandbox(t)
+	require.NoError(t, sb.Runtime().AtomicWriteFile(
+		"/home/testuser/.local/share/tapper/kegs/flights.d/focused.yaml",
+		[]byte("title: Focused\n"), 0o644))
+
+	proc := newBootstrapProcess(t, nil, false,
+		"bootstrap", "--kind", "local", "--flight", "+focused")
+	res := proc.Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err, "stderr=%q", string(res.Stderr))
+	require.Contains(t, string(res.Stdout), "flight:       @local/+focused")
+	require.Contains(t, string(sb.MustReadFile("~/.config/tapper/config.yaml")), "flight: '@local/+focused'")
+
+	bad := newBootstrapProcess(t, nil, false,
+		"bootstrap", "--kind", "local", "--flight", "+missing")
+	badRes := bad.Run(sb.Context(), sb.Runtime())
+	require.Error(t, badRes.Err)
+	require.Contains(t, badRes.Err.Error(), "invalid bootstrap flight")
+}
+
+func TestBootstrapCmd_ImplicitFlightOverrideIsNotPersisted(t *testing.T) {
+	t.Parallel()
+	sb := newTestSandbox(t)
+	require.NoError(t, sb.Runtime().Env().Set("TAP_FLIGHT", "@local/+environment"))
+
+	proc := newBootstrapProcess(t, nil, false, "bootstrap", "--kind", "local")
+	res := proc.Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+	require.NotContains(t, string(sb.MustReadFile("~/.config/tapper/config.yaml")), "flight:",
+		"an inherited environment value must not become the user baseline")
+}
+
+func TestBootstrapCmd_ExplicitRemoteFlightPersistsCanonicalRef(t *testing.T) {
+	t.Parallel()
+	sb := newTestSandbox(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, http.MethodGet, r.Method)
+		require.Equal(t, "/api/v1/@bob/+focused", r.URL.Path)
+		require.Equal(t, "Bearer remote-token", r.Header.Get("Authorization"))
+		_ = json.NewEncoder(w).Encode(tapper.HubFlight{Namespace: "bob", Slug: "focused", Title: "Focused"})
+	}))
+	defer srv.Close()
+	store := &tapper.AuthStore{}
+	store.Set(tapper.CanonicalHubURL(srv.URL), tapper.AuthEntry{AccessToken: "remote-token", TokenType: "Bearer"})
+	require.NoError(t, store.Save(sb.Context(), sb.Runtime(), "/home/testuser/.local/state/tapper/auth.yaml"))
+
+	proc := newBootstrapProcess(t, nil, false,
+		"bootstrap", "--kind", "enterprise", "--endpoint", srv.URL, "--no-login",
+		"--flight", "@bob/+focused")
+	res := proc.Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err, "stderr=%q", string(res.Stderr))
+	require.Contains(t, string(res.Stdout), "flight:       @bob/+focused")
+	require.Contains(t, string(sb.MustReadFile("~/.config/tapper/config.yaml")), "flight: '@bob/+focused'")
+}
+
 // TestBootstrapCmd_Cloud_DoesNotCreateKeg confirms cloud/enterprise bootstrap
 // records the chosen keg but does not create it (a remote create needs login +
 // hub permissions, deferred to `tap keg create`).
@@ -297,6 +417,10 @@ func TestBootstrapCmd_Interactive_LoginSelectsExistingKeg(t *testing.T) {
 
 	var sawList atomic.Bool
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/api/v1/flights" {
+			_ = json.NewEncoder(w).Encode([]tapper.HubFlight{})
+			return
+		}
 		if r.Method != http.MethodGet || r.URL.Path != "/api/v1/kegs" {
 			t.Errorf("unexpected hub request: %s %s", r.Method, r.URL.Path)
 			http.NotFound(w, r)
@@ -367,6 +491,8 @@ func TestBootstrapCmd_Interactive_NoKegsCreatesOne(t *testing.T) {
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/kegs":
 			sawList.Store(true)
 			_ = json.NewEncoder(w).Encode([]tapper.HubKeg{})
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/flights":
+			_ = json.NewEncoder(w).Encode([]tapper.HubFlight{})
 		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/@bob/kegs":
 			var payload map[string]string
 			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {

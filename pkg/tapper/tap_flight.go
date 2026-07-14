@@ -12,6 +12,9 @@ import (
 // ListFlightsOptions controls Tap.ListFlights. Flights are hub-scoped, so
 // there is no keg target.
 type ListFlightsOptions struct {
+	// Hub limits discovery to one configured hub. Empty discovers flights across
+	// every configured hub.
+	Hub string
 	// Warnings, when non-nil, collects one message per hub that was skipped
 	// (missing token, network failure) instead of failing the whole listing.
 	// Completion paths leave it nil so discovery stays silent and best-effort.
@@ -50,9 +53,10 @@ type DeleteFlightOptions struct {
 	Ref string
 }
 
-// ListFlights returns the names of the flights discovered for the active hub.
+// ListFlights returns canonical refs discovered across configured hubs, or
+// only opts.Hub when a filter is supplied.
 func (t *Tap) ListFlights(ctx context.Context, opts ListFlightsOptions) ([]string, error) {
-	return t.FlightService.ListFlights(ctx, opts.Warnings)
+	return t.FlightService.ListFlights(ctx, opts.Hub, opts.Warnings)
 }
 
 // GetFlight loads a single flight by name.

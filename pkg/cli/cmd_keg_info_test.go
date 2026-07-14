@@ -16,6 +16,9 @@ func TestInfoCommand_DisplaysDiagnostics(t *testing.T) {
 	require.NoError(t, res.Err)
 
 	stdout := string(res.Stdout)
+	require.Contains(t, stdout, "hub: home")
+	require.Contains(t, stdout, "namespace: local")
+	require.Contains(t, stdout, "keg: personal")
 	require.Contains(t, stdout, "ref: keg:@local/personal")
 	require.Contains(t, stdout, "flight:")
 	require.Contains(t, stdout, "summary:")
@@ -55,6 +58,9 @@ func TestInfoCommand_ConciseAndDebugJSON(t *testing.T) {
 		require.NoError(t, res.Err)
 		var got map[string]any
 		require.NoError(t, json.Unmarshal(res.Stdout, &got))
+		require.Equal(t, "home", got["hub"])
+		require.Equal(t, "local", got["namespace"])
+		require.Equal(t, "personal", got["keg"])
 		require.Equal(t, "keg:@local/personal", got["ref"])
 		_, hasDebug := got["debug"]
 		require.Equal(t, debug, hasDebug)

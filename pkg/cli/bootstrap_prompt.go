@@ -32,8 +32,30 @@ type BootstrapPrompter interface {
 	PromptBootstrapEndpoint() (string, error)
 	ConfirmBootstrapLogin(host string) (bool, error)
 	SelectDefaultKeg(available []string) (bootstrapDefaultKegSelection, error)
+	SelectFlight(available []string, current string) (string, error)
 	PromptManualDefaultKeg() (string, error)
 	PromptNewKegName() (string, error)
+}
+
+func (huhAuthPrompter) SelectFlight(available []string, current string) (string, error) {
+	selection := ""
+	opts := make([]huh.Option[string], 0, len(available)+1)
+	for i, ref := range available {
+		opt := huh.NewOption(ref, ref)
+		if ref == current || (current == "" && i == 0) {
+			selection = ref
+			opt = opt.Selected(true)
+		}
+		opts = append(opts, opt)
+	}
+	opts = append(opts, huh.NewOption("Skip for now", ""))
+	err := huh.NewForm(huh.NewGroup(
+		huh.NewSelect[string]().
+			Title("Baseline flight for MCP sessions").
+			Options(opts...).
+			Value(&selection),
+	)).Run()
+	return strings.TrimSpace(selection), err
 }
 
 func (huhAuthPrompter) SelectBootstrapKind() (string, error) {

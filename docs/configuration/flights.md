@@ -2,8 +2,9 @@
 
 A **flight** is the required authorization and instruction context for a local
 full MCP session. Flight manifests live separately from Tapper configuration.
-A project persists the selected flight in `.tapper/config.yaml`; the server
-resolves and pins that flight when the MCP connection starts.
+`tap bootstrap` can persist a machine-wide baseline in the user config, while a
+project can persist a more specific selection in `.tapper/config.yaml`. The
+server resolves and pins the effective flight when the MCP connection starts.
 
 ## What A Flight Does
 
@@ -82,6 +83,7 @@ local `flights.d` manifests remain read-only files.
 | Start MCP with an explicit flight     | `tap mcp --flight @namespace/+slug`       |
 | Preview orientation for a flight      | `tap orient --flight @namespace/+slug`    |
 | Persist the project flight            | `tap use --flight @namespace/+slug` or `tap use +slug` |
+| Persist the user bootstrap baseline   | `tap bootstrap --flight @namespace/+slug` |
 | Create a Hub-backed flight            | `tap flight create @namespace/+slug --cover @namespace/keg=viewer` |
 | Edit a Hub-backed flight in $EDITOR   | `tap flight edit @namespace/+slug` (the manifest opens as YAML; every save is applied) |
 | Apply a manifest from a script        | `cat manifest.yaml \| tap flight edit @namespace/+slug` |
@@ -107,7 +109,11 @@ is a partial update where omitted fields retain their current values.
 - MCP writes against a `viewer` cover row are rejected as viewer-only.
 - `full_access` permits KEG reads and writes outside the cover, but does not
   bypass normal identity authorization or implicitly grant `manage_flights`.
-- The local full MCP surface refuses to start without a configured flight.
+- Without a selected flight, the local MCP server starts in recovery-only mode
+  and lists only `orient`, `list_flights`, `flight_show`, `auth_status`, and
+  `config`. KEG tools remain locked until a human switches the live Claude
+  session or the host reconnects after `tap use --flight @namespace/+slug`.
+- A selected flight that is missing or invalid still fails MCP startup.
 - The active flight's cover, instructions, capabilities, and normalized
   manifest hash are pinned per connection. Project config changes do not
   change an existing connection.
@@ -121,6 +127,10 @@ is a partial update where omitted fields retain their current values.
 - `tap use --flight @namespace/+slug` persists the project default in
   `.tapper/config.yaml`; `tap use +slug` uses the resolved default namespace.
   Newly opened Codex or Claude sessions inherit it.
+- Flight selection precedence is explicit runtime `--flight`, then
+  `TAP_FLIGHT`, then the nearest project config, then the user baseline written
+  by `tap bootstrap`. Project selection therefore overrides the machine-wide
+  bootstrap choice without changing it.
 - MCP tools have no model-visible `flight` input. In Claude Code, a human may
   run `/tapper:tapper-flight-switch @namespace/+slug`; Claude asks for
   confirmation and changes only that MCP connection without a model turn or a

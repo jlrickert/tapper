@@ -165,6 +165,35 @@ func TestBootstrap_UnknownKind(t *testing.T) {
 	require.Contains(t, err.Error(), "unknown bootstrap kind")
 }
 
+func TestSetBootstrapFlight_ValidatesCanonicalizesAndResetsConfig(t *testing.T) {
+	t.Parallel()
+	fx := NewSandbox(t)
+	require.NoError(t, fx.Setwd("/home/testuser"))
+	tap := newBootstrapTap(t, fx)
+	_, err := tap.Bootstrap(fx.Context(), tapper.BootstrapOptions{Kind: tapper.BootstrapKindLocal})
+	require.NoError(t, err)
+	require.NoError(t, fx.Runtime().AtomicWriteFile(
+		"/home/testuser/.local/share/tapper/kegs/flights.d/focused.yaml",
+		[]byte("title: Focused\n"), 0o644))
+
+	// Prime the merged cache before the write; SetBootstrapFlight must reset it.
+	cfg, err := tap.ConfigService.Config(true)
+	require.NoError(t, err)
+	require.Empty(t, cfg.Flight())
+	require.NoError(t, tap.SetBootstrapFlight(fx.Context(), "+focused"))
+
+	userCfg, err := tap.ConfigService.UserConfig(false)
+	require.NoError(t, err)
+	require.Equal(t, "@local/+focused", userCfg.Flight())
+	merged, err := tap.ConfigService.Config(true)
+	require.NoError(t, err)
+	require.Equal(t, "@local/+focused", merged.Flight())
+
+	err = tap.SetBootstrapFlight(fx.Context(), "+missing")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "invalid bootstrap flight")
+}
+
 // TestBootstrap_Enterprise_NameCollisionSuffixes confirms a derived name that
 // already maps to a different URL gets a numeric suffix rather than clobbering.
 func TestBootstrap_Enterprise_NameCollisionSuffixes(t *testing.T) {

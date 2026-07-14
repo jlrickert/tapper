@@ -206,15 +206,63 @@ hubs:
 	require.Contains(t, extractText(t, result), "changed after this MCP session connected")
 }
 
-func TestMCP_FullSurfaceRequiresConfiguredFlight(t *testing.T) {
-	ctx := context.Background()
-	sb := newTestSandbox(t)
-	tap, err := tapper.NewTap(tapper.TapOptions{Runtime: sb.Runtime()})
-	require.NoError(t, err)
+func TestMCP_NoFlightStartsInRecoveryModeAndHumanSwitchRestoresTools(t *testing.T) {
+	ctx, srv, _, _ := newSessionGateServer(t, "")
+	session := connectFlightSession(t, ctx, srv, &sdkmcp.ClientOptions{ElicitationHandler: acceptFlightSwitch})
 
-	_, err = mcp.ValidateFullSurfaceFlight(ctx, tap, "")
+	require.ElementsMatch(t,
+		[]string{"orient", "list_flights", "flight_show", "auth_status", "config"},
+		listedToolNames(t, ctx, session),
+	)
+
+	orient, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: "orient", Arguments: map[string]any{}})
+	require.NoError(t, err)
+	require.True(t, orient.IsError)
+	for _, want := range []string{"no flight is selected", "KEG tools are locked", "list_flights", "flight_show", "ask the user", "tap use --flight @namespace/+slug", "reconnect"} {
+		require.Contains(t, extractText(t, orient), want)
+	}
+
+	guessed, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: "cat", Arguments: map[string]any{"node_ids": []string{"0"}}})
+	require.NoError(t, err)
+	require.True(t, guessed.IsError)
+	require.Contains(t, extractText(t, guessed), "KEG tools are locked")
+
+	flights, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: "list_flights", Arguments: map[string]any{}})
+	require.NoError(t, err)
+	require.False(t, flights.IsError, extractText(t, flights))
+	require.Contains(t, extractText(t, flights), "@local/+capable")
+	shown, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name:      "flight_show",
+		Arguments: map[string]any{"name": "+capable"},
+	})
+	require.NoError(t, err)
+	require.False(t, shown.IsError, extractText(t, shown))
+	require.Contains(t, extractText(t, shown), "Capable")
+
+	switched, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name:      flightSwitchControlTool,
+		Arguments: map[string]any{"ref": "+capable"},
+	})
+	require.NoError(t, err)
+	require.False(t, switched.IsError, extractText(t, switched))
+	require.Contains(t, listedToolNames(t, ctx, session), "cat")
+}
+
+func TestMCP_FullSurfaceFlightStartupValidation(t *testing.T) {
+	ctx := context.Background()
+	_, _, _, tap := newSessionGateServer(t, "+capable")
+
+	active, err := mcp.ValidateFullSurfaceFlight(ctx, tap, "")
+	require.NoError(t, err)
+	require.Empty(t, active)
+
+	active, err = mcp.ValidateFullSurfaceFlight(ctx, tap, "+capable")
+	require.NoError(t, err)
+	require.Equal(t, "@local/+capable", active)
+
+	_, err = mcp.ValidateFullSurfaceFlight(ctx, tap, "+missing")
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "configured flight is required")
+	require.Contains(t, err.Error(), `load active MCP flight "+missing"`)
 }
 
 const capableFlightManifest = `title: Capable
