@@ -15,7 +15,7 @@ import (
 
 const flightSwitchControlTool = "flight_switch_control"
 
-var errMCPFlightRequired = errors.New("no flight is selected; KEG tools are locked. Inspect flights through MCP with `list_flights` and `flight_show`, ask the user to run `tap use --flight @namespace/+slug`, then reconnect")
+var errMCPFlightRequired = errors.New("no flight is selected; KEG tools are locked. Inspect flights through MCP with `list_flights` and `flight_show`, ask the user to select a flight in Tapper configuration, then reconnect")
 
 var recoveryToolNames = map[string]bool{
 	"orient":       true,

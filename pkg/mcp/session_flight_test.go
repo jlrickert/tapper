@@ -218,9 +218,10 @@ func TestMCP_NoFlightStartsInRecoveryModeAndHumanSwitchRestoresTools(t *testing.
 	orient, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: "orient", Arguments: map[string]any{}})
 	require.NoError(t, err)
 	require.True(t, orient.IsError)
-	for _, want := range []string{"no flight is selected", "KEG tools are locked", "list_flights", "flight_show", "ask the user", "tap use --flight @namespace/+slug", "reconnect"} {
+	for _, want := range []string{"no flight is selected", "KEG tools are locked", "list_flights", "flight_show", "ask the user", "select a flight in Tapper configuration", "reconnect"} {
 		require.Contains(t, extractText(t, orient), want)
 	}
+	require.NotContains(t, extractText(t, orient), "`tap ")
 
 	guessed, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: "cat", Arguments: map[string]any{"node_ids": []string{"0"}}})
 	require.NoError(t, err)

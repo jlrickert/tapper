@@ -31,7 +31,9 @@ func TestMCP_OrientTool_ReturnsSharedKegSystemPayload(t *testing.T) {
 	text := orientCall(t, session, ctx, map[string]any{})
 
 	require.True(t, strings.HasPrefix(text, "# KEG System\n\n"), text)
-	require.Contains(t, text, "Tapper is a CLI and MCP server")
+	require.Contains(t, text, "Tapper provides an MCP interface for KEG")
+	require.NotContains(t, text, "CLI")
+	require.NotContains(t, text, "`tap ")
 	require.Contains(t, text, "## Active KEG")
 	require.Contains(t, text, "## Available KEGs")
 	require.Contains(t, text, "## KEG Instructions")

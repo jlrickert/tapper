@@ -35,7 +35,9 @@ func TestTap_Orient_SharedPayloadStartsWithKegSystem(t *testing.T) {
 	require.NoError(t, err)
 
 	require.True(t, strings.HasPrefix(payload, "# KEG System\n\n"), payload)
-	require.Contains(t, payload, "Tapper is a CLI and MCP server")
+	require.Contains(t, payload, "Tapper provides an MCP interface for KEG")
+	require.NotContains(t, payload, "CLI")
+	require.NotContains(t, payload, "`tap ")
 	require.Contains(t, payload, "Rules:")
 	require.Contains(t, payload, "## Active KEG")
 	require.Contains(t, payload, "## Available KEGs")
@@ -144,18 +146,34 @@ func TestTap_Orient_BarePayloadDoesNotInjectDeveloperLifecycle(t *testing.T) {
 }
 
 // TestTap_Orient_ActiveKeg_NoneConfigured covers the bootstrap case:
-// a fresh sandbox with no kegs anywhere on disk. The active-keg line
-// must surface a directed hint that names the next concrete step
-// (`tap init`) instead of the previous "(auto-detect from working
-// directory)" placeholder, which described mechanism without telling
-// the user how to advance.
+// a fresh sandbox with no kegs anywhere on disk. The active-keg line reports
+// the empty state without directing MCP clients to a compatibility command.
 func TestTap_Orient_ActiveKeg_NoneConfigured(t *testing.T) {
 	t.Parallel()
 	tap := newOrientTap(t)
 	payload, err := tap.Orient(context.Background(), tapper.OrientOptions{})
 	require.NoError(t, err)
-	require.Contains(t, payload, "Active KEG: (none configured; run `tap init` to register one)")
+	require.Contains(t, payload, "Active KEG: (none configured)")
 	require.NotContains(t, payload, "auto-detect from working directory")
+	require.NotContains(t, payload, "`tap ")
+}
+
+func TestTap_Orient_MissingHubAuthenticationIsMCPFirst(t *testing.T) {
+	t.Parallel()
+	sb := sandbox.NewSandbox(t, &sandbox.Options{Home: "/home/testuser", User: "testuser"})
+	tap, err := tapper.NewTap(tapper.TapOptions{Runtime: sb.Runtime()})
+	require.NoError(t, err)
+	require.NoError(t, sb.Runtime().AtomicWriteFile(tap.PathService.UserConfig(), []byte(`hubs:
+  work:
+    kind: remote
+    url: https://hub.example.com
+`), 0o644))
+
+	payload, err := tap.Orient(context.Background(), tapper.OrientOptions{})
+	require.NoError(t, err)
+	require.Contains(t, payload, `skipped hub "work": hub has no authenticated session for https://hub.example.com`)
+	require.NotContains(t, payload, "CLI")
+	require.NotContains(t, payload, "`tap ")
 }
 
 // TestTap_Orient_ActiveKeg_AliasResolutionFromCwd covers the common

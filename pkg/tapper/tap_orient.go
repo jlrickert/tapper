@@ -12,7 +12,7 @@ import (
 	"github.com/jlrickert/tapper/pkg/keg"
 )
 
-const orientPurpose = "Tapper is a CLI and MCP server for KEG (Knowledge Exchange Graph) systems. A KEG is a numbered collection of markdown nodes with metadata, links, tags, and snapshot history. Agents operate on a KEG through the `mcp__tapper__*` tools; reading or writing node files directly bypasses indexing, locking, and snapshots."
+const orientPurpose = "Tapper provides an MCP interface for KEG (Knowledge Exchange Graph) systems. A KEG is a numbered collection of markdown nodes with metadata, links, tags, and snapshot history. Agents operate on a KEG through the `mcp__tapper__*` tools; reading or writing node files directly bypasses indexing, locking, and snapshots."
 
 const orientRulesSummary = "Rules:\n" +
 	"- Use the `mcp__tapper__*` tools for every KEG operation; never read or write node files directly.\n" +
@@ -162,7 +162,7 @@ func (t *Tap) orientKegsForHub(ctx context.Context, hubName string, entry HubEnt
 	}
 	token := t.hubToken(entry)
 	if token == "" {
-		return nil, fmt.Errorf("hub has no auth token (run `tap auth login --hub %s`)", url)
+		return nil, fmt.Errorf("hub has no authenticated session for %s", url)
 	}
 	kegs, err := ListUserKegs(ctx, url, token)
 	if err != nil {
@@ -407,7 +407,7 @@ func buildOrientPayload(active activeKegLabel, flight *Flight, flightNote string
 
 func formatActiveKegLine(active activeKegLabel) string {
 	if active.Unresolved {
-		return "(none configured; run `tap init` to register one)"
+		return "(none configured)"
 	}
 	if active.Alias != "" {
 		if active.Backend == "" {
@@ -418,7 +418,7 @@ func formatActiveKegLine(active activeKegLabel) string {
 	if active.Backend != "" {
 		return "(" + active.Backend + "; no alias)"
 	}
-	return "(none configured; run `tap init` to register one)"
+	return "(none configured)"
 }
 
 func appendCanonical(b *strings.Builder, name string) error {
