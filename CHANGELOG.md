@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.31.0 - 2026-07-15
+
+
+
+### 🚜 Refactor
+- **config:** remove legacy keg settings
+
+
 ## v0.30.0 - 2026-07-14
 
 
