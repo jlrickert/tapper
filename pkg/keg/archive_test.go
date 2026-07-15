@@ -160,17 +160,21 @@ func TestArchiveImportRestoresKegConfigForFullBackup(t *testing.T) {
 	require.NoError(t, src.Init(ctx))
 	_, err := src.Create(ctx, &keg.CreateOptions{Title: "indexed", Body: []byte("# indexed\n"), Tags: []string{"restored"}})
 	require.NoError(t, err)
-	searchEnabled := false
 	require.NoError(t, src.UpdateConfig(ctx, func(cfg *keg.Config) {
 		cfg.Title = "Restored Title"
+		cfg.URL = "https://example.com/restored"
+		cfg.Creator = "restorer"
+		cfg.State = "archived"
 		cfg.Summary = "Restored summary"
+		cfg.Instructions = "Restore carefully."
 		cfg.Timezone = "America/Chicago"
 		cfg.Links = []keg.LinkEntry{{Alias: "docs", URL: "https://example.com/docs"}}
-		cfg.Tags = map[string]string{"restored": "Restored tag"}
-		cfg.Entities = map[string]keg.EntityEntry{"thing": {ID: 1, Summary: "Restored entity"}}
 		cfg.Indexes = append(cfg.UserIndexEntries(), keg.IndexEntry{File: "restored.md", Summary: "Restored nodes", Query: "restored"})
-		cfg.Doctor = &keg.DoctorConfig{TagCheck: true}
-		cfg.Site = &keg.SiteConfig{Title: "Restored Site", BaseURL: "/restored/", Search: &searchEnabled}
+		cfg.Snapshots = &keg.SnapshotConfig{Mode: keg.SnapshotModeOff, IdleAfter: "2h"}
+		cfg.SchemaPolicy = &keg.SchemaPolicy{
+			Default: keg.ValidationModeWarn,
+			Agent:   keg.ValidationModeBlock,
+		}
 	}))
 
 	archive := mustExportArchive(t, src, keg.ExportNodesOptions{WithAssets: true})
@@ -189,16 +193,15 @@ func TestArchiveImportRestoresKegConfigForFullBackup(t *testing.T) {
 	got, err := dst.Config(ctx)
 	require.NoError(t, err)
 	require.Equal(t, "Restored Title", got.Title)
+	require.Equal(t, "https://example.com/restored", got.URL)
+	require.Equal(t, "restorer", got.Creator)
+	require.Equal(t, "archived", got.State)
 	require.Equal(t, "Restored summary", got.Summary)
+	require.Equal(t, "Restore carefully.", got.Instructions)
 	require.Equal(t, "America/Chicago", got.Timezone)
 	require.Equal(t, []keg.LinkEntry{{Alias: "docs", URL: "https://example.com/docs"}}, got.Links)
-	require.Equal(t, "Restored tag", got.Tags["restored"])
-	require.Equal(t, keg.EntityEntry{ID: 1, Summary: "Restored entity"}, got.Entities["thing"])
-	require.True(t, got.Doctor.TagCheck)
-	require.NotNil(t, got.Site)
-	require.Equal(t, "Restored Site", got.Site.Title)
-	require.NotNil(t, got.Site.Search)
-	require.False(t, *got.Site.Search)
+	require.Equal(t, &keg.SnapshotConfig{Mode: keg.SnapshotModeOff, IdleAfter: "2h"}, got.Snapshots)
+	require.Equal(t, &keg.SchemaPolicy{Default: keg.ValidationModeWarn, Agent: keg.ValidationModeBlock}, got.SchemaPolicy)
 
 	rawIndex, err := dst.ReadIndex(ctx, "restored.md")
 	require.NoError(t, err)

@@ -57,16 +57,10 @@ links:
 indexes:
   - file: "index1.md"
     summary: "Index 1 summary"
-entities:
-  entity:
-    id: 2045
-    summary: "Defines required contents and conventions for all entity notes."
-  gear:
-    id: 2044
-    summary: "Canonical structure for gear/equipment notes."
-tags:
-  entity: "Canonical notes that define structure rules for entity types"
-  client: "Client of work"
+schemaPolicy:
+  default: warn
+  human: off
+  agent: block
 `
 
 	config, err := keg.ParseKegConfig([]byte(v2Yaml))
@@ -89,16 +83,9 @@ tags:
 	userIndexes := config.UserIndexEntries()
 	require.Len(t, userIndexes, 1)
 	require.Equal(t, "index1.md", userIndexes[0].File)
-
-	require.Len(t, config.Entities, 2)
-	require.Equal(t, 2045, config.Entities["entity"].ID)
-	require.Equal(t, "Defines required contents and conventions for all entity notes.", config.Entities["entity"].Summary)
-	require.Equal(t, 2044, config.Entities["gear"].ID)
-	require.Equal(t, "Canonical structure for gear/equipment notes.", config.Entities["gear"].Summary)
-
-	require.Len(t, config.Tags, 2)
-	require.Equal(t, "Canonical notes that define structure rules for entity types", config.Tags["entity"])
-	require.Equal(t, "Client of work", config.Tags["client"])
+	require.Equal(t, keg.ValidationModeWarn, config.SchemaPolicy.Default)
+	require.Equal(t, keg.ValidationModeOff, config.SchemaPolicy.Human)
+	require.Equal(t, keg.ValidationModeBlock, config.SchemaPolicy.Agent)
 }
 
 func TestParseConfigV2_SnapshotPolicyDefaults(t *testing.T) {
@@ -198,7 +185,7 @@ func TestConfigSnapshotPolicyYAMLAndJSON(t *testing.T) {
 	require.Equal(t, "1h", snapshots["idleAfter"])
 }
 
-func TestKegConfigJSONSchemaIncludesSnapshots(t *testing.T) {
+func TestKegConfigJSONSchemaIncludesCurrentProperties(t *testing.T) {
 	raw, err := os.ReadFile("../../schemas/keg-config.json")
 	require.NoError(t, err)
 
@@ -212,83 +199,18 @@ func TestKegConfigJSONSchemaIncludesSnapshots(t *testing.T) {
 	require.True(t, ok)
 	require.Contains(t, snapshotProperties, "mode")
 	require.Contains(t, snapshotProperties, "idleAfter")
-}
-
-func TestParseConfigV2_DoctorNilWhenAbsent(t *testing.T) {
-	yamlData := `
-kegv: "2025-07"
-title: "No doctor config"
-`
-	config, err := keg.ParseKegConfig([]byte(yamlData))
-	require.NoError(t, err)
-	require.Nil(t, config.Doctor, "Doctor should be nil when omitted from config")
-}
-
-func TestParseConfigV2_DoctorEntityCheckEnabled(t *testing.T) {
-	yamlData := `
-kegv: "2025-07"
-title: "With doctor config"
-doctor:
-  entityCheck: true
-`
-	config, err := keg.ParseKegConfig([]byte(yamlData))
-	require.NoError(t, err)
-	require.NotNil(t, config.Doctor, "Doctor should be present")
-	require.True(t, config.Doctor.EntityCheck, "EntityCheck should be true")
-}
-
-func TestParseConfigV2_DoctorEntityCheckDisabled(t *testing.T) {
-	yamlData := `
-kegv: "2025-07"
-title: "With doctor config disabled"
-doctor:
-  entityCheck: false
-`
-	config, err := keg.ParseKegConfig([]byte(yamlData))
-	require.NoError(t, err)
-	require.NotNil(t, config.Doctor, "Doctor should be present when explicitly set")
-	require.False(t, config.Doctor.EntityCheck, "EntityCheck should be false")
-}
-
-func TestParseConfigV2_DoctorTagCheckEnabled(t *testing.T) {
-	yamlData := `
-kegv: "2025-07"
-title: "With doctor tag check"
-doctor:
-  tagCheck: true
-`
-	config, err := keg.ParseKegConfig([]byte(yamlData))
-	require.NoError(t, err)
-	require.NotNil(t, config.Doctor, "Doctor should be present")
-	require.True(t, config.Doctor.TagCheck, "TagCheck should be true")
-}
-
-func TestParseConfigV2_DoctorTagCheckDisabled(t *testing.T) {
-	yamlData := `
-kegv: "2025-07"
-title: "With doctor tag check disabled"
-doctor:
-  tagCheck: false
-`
-	config, err := keg.ParseKegConfig([]byte(yamlData))
-	require.NoError(t, err)
-	require.NotNil(t, config.Doctor, "Doctor should be present when explicitly set")
-	require.False(t, config.Doctor.TagCheck, "TagCheck should be false")
-}
-
-func TestParseConfigV2_DoctorBothChecks(t *testing.T) {
-	yamlData := `
-kegv: "2025-07"
-title: "With both doctor checks"
-doctor:
-  entityCheck: true
-  tagCheck: true
-`
-	config, err := keg.ParseKegConfig([]byte(yamlData))
-	require.NoError(t, err)
-	require.NotNil(t, config.Doctor, "Doctor should be present")
-	require.True(t, config.Doctor.EntityCheck, "EntityCheck should be true")
-	require.True(t, config.Doctor.TagCheck, "TagCheck should be true")
+	schemaPolicy, ok := properties["schemaPolicy"].(map[string]any)
+	require.True(t, ok, "schema should define schemaPolicy")
+	policyProperties, ok := schemaPolicy["properties"].(map[string]any)
+	require.True(t, ok)
+	for _, name := range []string{"default", "human", "agent", "api", "import", "restore"} {
+		property, ok := policyProperties[name].(map[string]any)
+		require.True(t, ok, "schemaPolicy should define %s", name)
+		require.Equal(t, []any{"off", "warn", "block"}, property["enum"])
+	}
+	for _, removed := range []string{"entities", "tags", "doctor", "site"} {
+		require.NotContains(t, properties, removed)
+	}
 }
 
 func TestParseConfigDataInvalidVersion(t *testing.T) {
@@ -312,68 +234,25 @@ title: "Missing version test"
 	require.Contains(t, err.Error(), "missing or invalid kegv")
 }
 
-func TestAddEntity_AddsAndUpdates(t *testing.T) {
-	cfg := &keg.Config{}
-
-	err := cfg.AddEntity("entity", 2045, "original")
+func TestLegacyConfigPropertiesAreToleratedAndDropped(t *testing.T) {
+	cfg, err := keg.ParseKegConfig([]byte(`kegv: "2025-07"
+title: Legacy
+entities:
+  note: {id: 1, summary: Notes}
+tags:
+  project: Projects
+doctor:
+  entityCheck: true
+site:
+  output: ./site
+`))
 	require.NoError(t, err)
-	require.Len(t, cfg.Entities, 1)
-	require.Equal(t, 2045, cfg.Entities["entity"].ID)
-	require.Equal(t, "original", cfg.Entities["entity"].Summary)
 
-	err = cfg.AddEntity("entity", 2046, "updated")
+	yamlOut, err := cfg.ToYAML()
 	require.NoError(t, err)
-	require.Len(t, cfg.Entities, 1)
-	require.Equal(t, 2046, cfg.Entities["entity"].ID)
-	require.Equal(t, "updated", cfg.Entities["entity"].Summary)
-}
-
-func TestAddEntity_ValidatesRequiredFields(t *testing.T) {
-	cfg := &keg.Config{}
-
-	var nilCfg *keg.Config
-	err := nilCfg.AddEntity("entity", 1, "x")
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "config is nil")
-
-	err = cfg.AddEntity("", 1, "summary")
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "entity name is required")
-
-	err = cfg.AddEntity("entity", 0, "summary")
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "entity id must be greater than zero")
-}
-
-func TestAddTag_AddsAndUpdates(t *testing.T) {
-	cfg := &keg.Config{}
-
-	err := cfg.AddTag("entity", "original")
-	require.NoError(t, err)
-	require.Len(t, cfg.Tags, 1)
-	require.Equal(t, "original", cfg.Tags["entity"])
-
-	err = cfg.AddTag("entity", "updated")
-	require.NoError(t, err)
-	require.Len(t, cfg.Tags, 1)
-	require.Equal(t, "updated", cfg.Tags["entity"])
-}
-
-func TestAddTag_ValidatesRequiredFields(t *testing.T) {
-	cfg := &keg.Config{}
-
-	var nilCfg *keg.Config
-	err := nilCfg.AddTag("x", "x")
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "config is nil")
-
-	err = cfg.AddTag("", "summary")
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "tag name is required")
-
-	err = cfg.AddTag("tag", "")
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "tag summary is required")
+	for _, removed := range []string{"entities:", "tags:", "doctor:", "site:"} {
+		require.NotContains(t, string(yamlOut), removed)
+	}
 }
 
 func TestConfigToYAML_PrependsSchemaModeline(t *testing.T) {

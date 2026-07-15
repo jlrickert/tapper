@@ -85,10 +85,6 @@ type ConfigV2 struct {
 	// Indexes is a list of index entries that link to related files or nodes.
 	Indexes []IndexEntry `yaml:"indexes,omitempty" json:"indexes,omitempty"`
 
-	Entities map[string]EntityEntry `yaml:"entities,omitempty" json:"entities,omitempty"`
-
-	Tags map[string]string `yaml:"tags,omitempty" json:"tags,omitempty"`
-
 	// Timezone is the IANA timezone for resolving ambiguous timestamps
 	// within this keg (e.g. "America/Chicago"). Defaults to "UTC".
 	Timezone string `yaml:"timezone,omitempty" json:"timezone,omitempty"`
@@ -96,36 +92,12 @@ type ConfigV2 struct {
 	// Snapshots controls automatic snapshot behavior for this keg.
 	Snapshots *SnapshotConfig `yaml:"snapshots,omitempty" json:"snapshots,omitempty"`
 
-	// Doctor holds `tap doctor` check configuration.
-	Doctor *DoctorConfig `yaml:"doctor,omitempty" json:"doctor,omitempty"`
-
 	// SchemaPolicy controls whether schema validation warns, blocks, or is
 	// disabled for different write actors. When omitted, human writes warn while
 	// API/agent/import/restore writes block.
 	SchemaPolicy *SchemaPolicy `yaml:"schemaPolicy,omitempty" json:"schemaPolicy,omitempty"`
 
-	// Site holds static-site-generation defaults persisted in the keg config.
-	// The built-in `tap site` command was removed (rendering now lives in
-	// tapper-hub), so no built-in command currently consumes this; it is
-	// preserved so existing keg configs round-trip and external/static-site
-	// tooling can still read it.
-	Site *SiteConfig `yaml:"site,omitempty" json:"site,omitempty"`
-
 	path string
-}
-
-// SiteConfig holds static-site-generation defaults stored in the keg config.
-// Retained for round-tripping after the `tap site` command's removal; no
-// built-in command consumes it today.
-type SiteConfig struct {
-	// Output is the default output directory.
-	Output string `yaml:"output,omitempty" json:"output,omitempty"`
-	// Title is the site title.
-	Title string `yaml:"title,omitempty" json:"title,omitempty"`
-	// BaseURL is the base URL prefix for absolute links.
-	BaseURL string `yaml:"baseUrl,omitempty" json:"baseUrl,omitempty"`
-	// Search enables or disables Pagefind search indexing.
-	Search *bool `yaml:"search,omitempty" json:"search,omitempty"`
 }
 
 const (
@@ -202,18 +174,6 @@ func formatSnapshotDuration(d time.Duration) string {
 	return d.String()
 }
 
-// DoctorConfig holds options that control which checks `tap doctor` performs.
-type DoctorConfig struct {
-	// EntityCheck enables per-node entity attribute validation.
-	// When true, doctor reports nodes that lack an `entity` attribute in meta.
-	EntityCheck bool `yaml:"entityCheck,omitempty" json:"entityCheck,omitempty"`
-
-	// TagCheck enables per-node tag validation against the keg config's tag map.
-	// When true, doctor warns about tags used in node metadata that are not
-	// documented in the keg config.
-	TagCheck bool `yaml:"tagCheck,omitempty" json:"tagCheck,omitempty"`
-}
-
 // LinkEntry represents a named link in the KEG configuration.
 type LinkEntry struct {
 	Alias string `yaml:"alias" json:"alias"` // Alias for the link
@@ -235,11 +195,6 @@ type IndexEntry struct {
 	Sort    string `yaml:"sort,omitempty" json:"sort,omitempty"`   // sort order for query-filtered indexes: "updated" (default), "id", "created", "accessed"
 }
 
-type EntityEntry struct {
-	ID      int    `yaml:"id" json:"id"`
-	Summary string `yaml:"summary" json:"summary"`
-}
-
 // Config KegConfig is an alias for the latest configuration version. Update this alias
 // when introducing a newer configuration version.
 type Config = ConfigV2
@@ -256,8 +211,6 @@ func (c *ConfigV1) toV2() *ConfigV2 {
 		Summary:   c.Summary,
 		Links:     nil, // No links in v1, so leave as nil
 		Indexes:   c.Indexes,
-		Entities:  nil,
-		Tags:      nil,
 		Snapshots: DefaultSnapshotConfig(),
 		path:      "",
 	}
@@ -536,50 +489,4 @@ func (kc *Config) String() string {
 
 func (kc *Config) Touch(t time.Time) {
 	kc.Updated = t.Format(time.RFC3339)
-}
-
-// AddEntity adds or updates an entity entry by entity name.
-func (kc *Config) AddEntity(name string, id int, summary string) error {
-	if kc == nil {
-		return fmt.Errorf("config is nil")
-	}
-
-	name = strings.TrimSpace(name)
-	summary = strings.TrimSpace(summary)
-	if name == "" {
-		return fmt.Errorf("entity name is required")
-	}
-	if id <= 0 {
-		return fmt.Errorf("entity id must be greater than zero")
-	}
-
-	if kc.Entities == nil {
-		kc.Entities = map[string]EntityEntry{}
-	}
-	kc.Entities[name] = EntityEntry{
-		ID:      id,
-		Summary: summary,
-	}
-	return nil
-}
-
-// AddTag adds or updates a tag summary by tag name.
-func (kc *Config) AddTag(name, summary string) error {
-	if kc == nil {
-		return fmt.Errorf("config is nil")
-	}
-	name = strings.TrimSpace(name)
-	summary = strings.TrimSpace(summary)
-	if name == "" {
-		return fmt.Errorf("tag name is required")
-	}
-	if summary == "" {
-		return fmt.Errorf("tag summary is required")
-	}
-
-	if kc.Tags == nil {
-		kc.Tags = map[string]string{}
-	}
-	kc.Tags[name] = summary
-	return nil
 }

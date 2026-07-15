@@ -89,35 +89,6 @@
         "additionalProperties": true
       }
     },
-    "entities": {
-      "type": "object",
-      "description": "Entity map keyed by entity name.",
-      "additionalProperties": {
-        "type": "object",
-        "description": "Metadata for a single entity.",
-        "properties": {
-          "id": {
-            "type": "integer",
-            "description": "Node ID associated with the entity.",
-            "minimum": 0
-          },
-          "summary": {
-            "type": "string",
-            "description": "Short description of the entity."
-          }
-        },
-        "required": ["id"],
-        "additionalProperties": false
-      }
-    },
-    "tags": {
-      "type": "object",
-      "description": "Tag descriptions keyed by tag name.",
-      "additionalProperties": {
-        "type": "string",
-        "description": "Human-readable description for a tag."
-      }
-    },
     "timezone": {
       "type": "string",
       "description": "IANA timezone for resolving ambiguous timestamps within this keg (e.g. America/Chicago). Defaults to UTC.",
@@ -145,45 +116,33 @@
         "idleAfter": "1h"
       }
     },
-    "doctor": {
+    "schemaPolicy": {
       "type": "object",
-      "description": "Configuration for `tap doctor` health checks.",
+      "description": "Schema validation behavior for each write actor or operation. Omitted fields inherit Tapper defaults.",
       "properties": {
-        "entityCheck": {
-          "type": "boolean",
-          "description": "Enable per-node entity attribute validation. When true, doctor warns about nodes missing an entity attribute in metadata. Default: false.",
-          "default": false
-        },
-        "tagCheck": {
-          "type": "boolean",
-          "description": "Enable per-node tag validation against the keg config tag map. When true, doctor warns about tags used in node metadata that are not documented in the keg config. Default: false.",
-          "default": false
-        }
-      },
-      "additionalProperties": false
-    },
-    "site": {
-      "type": "object",
-      "description": "Static site generation defaults for `tap site`.",
-      "properties": {
-        "output": {
+        "default": {
           "type": "string",
-          "description": "Default output directory for the generated site.",
-          "default": "./site"
+          "enum": ["off", "warn", "block"]
         },
-        "title": {
+        "human": {
           "type": "string",
-          "description": "Site title shown in navigation and page titles."
+          "enum": ["off", "warn", "block"]
         },
-        "baseUrl": {
+        "agent": {
           "type": "string",
-          "description": "Base URL prefix for absolute links (e.g. https://keg.example.com/).",
-          "default": "/"
+          "enum": ["off", "warn", "block"]
         },
-        "search": {
-          "type": "boolean",
-          "description": "Enable client-side search via Pagefind. Set to false to disable.",
-          "default": true
+        "api": {
+          "type": "string",
+          "enum": ["off", "warn", "block"]
+        },
+        "import": {
+          "type": "string",
+          "enum": ["off", "warn", "block"]
+        },
+        "restore": {
+          "type": "string",
+          "enum": ["off", "warn", "block"]
         }
       },
       "additionalProperties": false
