@@ -118,12 +118,8 @@
     },
     "schemaPolicy": {
       "type": "object",
-      "description": "Schema validation behavior for each write actor or operation. Omitted fields inherit Tapper defaults.",
+      "description": "Schema validation behavior for write actors. Defaults: human warns; agent and API block. Archive imports and snapshot restores always skip node-schema enforcement.",
       "properties": {
-        "default": {
-          "type": "string",
-          "enum": ["off", "warn", "block"]
-        },
         "human": {
           "type": "string",
           "enum": ["off", "warn", "block"]
@@ -133,14 +129,6 @@
           "enum": ["off", "warn", "block"]
         },
         "api": {
-          "type": "string",
-          "enum": ["off", "warn", "block"]
-        },
-        "import": {
-          "type": "string",
-          "enum": ["off", "warn", "block"]
-        },
-        "restore": {
           "type": "string",
           "enum": ["off", "warn", "block"]
         }

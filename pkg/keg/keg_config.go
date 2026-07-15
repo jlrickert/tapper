@@ -94,7 +94,8 @@ type ConfigV2 struct {
 
 	// SchemaPolicy controls whether schema validation warns, blocks, or is
 	// disabled for different write actors. When omitted, human writes warn while
-	// API/agent/import/restore writes block.
+	// agent and API writes block. Archive imports and snapshot restores always
+	// skip node-schema enforcement.
 	SchemaPolicy *SchemaPolicy `yaml:"schemaPolicy,omitempty" json:"schemaPolicy,omitempty"`
 
 	path string

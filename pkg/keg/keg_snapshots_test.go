@@ -1,6 +1,7 @@
 package keg_test
 
 import (
+	"strings"
 	"testing"
 
 	kegpkg "github.com/jlrickert/tapper/pkg/keg"
@@ -9,6 +10,46 @@ import (
 
 type repoWithoutSnapshots struct {
 	kegpkg.Repository
+}
+
+func TestKegSnapshotsRestoreSkipsSchemaEnforcement(t *testing.T) {
+	fx := NewSandbox(t)
+	ctx := fx.Context()
+	k := kegpkg.NewLocalKeg(kegpkg.NewMemoryRepo(fx.Runtime()), fx.Runtime())
+	require.NoError(t, k.Init(ctx))
+
+	id, err := k.Create(ctx, &kegpkg.CreateOptions{
+		Body:  []byte("# Historical Task\n"),
+		Attrs: map[string]any{"type": "task"},
+	})
+	require.NoError(t, err)
+	snap, err := k.AppendSnapshot(ctx, id, "before schema")
+	require.NoError(t, err)
+	require.NoError(t, k.WriteSchema(ctx, "task", []byte(`type: task
+meta:
+  type: object
+  required: ["type"]
+  properties:
+    type:
+      const: task
+markdown:
+  requireTitle: true
+  sections:
+    - heading: Required
+      level: 2
+      required: true
+`)))
+	require.NoError(t, k.SetContent(ctx, id, []byte("# Current Task\n\n## Required\n\nPresent.\n")))
+
+	blockCtx := kegpkg.WithValidationMode(ctx, kegpkg.ValidationModeBlock)
+	require.NoError(t, k.RestoreSnapshot(blockCtx, id, snap.ID))
+	content, err := k.GetContent(ctx, id)
+	require.NoError(t, err)
+	require.NotContains(t, string(content), "## Required")
+	require.True(t, strings.Contains(string(content), "Historical Task"))
+	history, err := k.ListSnapshots(ctx, id)
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, len(history), 2, "restore should retain snapshot history")
 }
 
 func TestKegSnapshots_ReturnErrNotSupportedWithoutSnapshotBackend(t *testing.T) {
