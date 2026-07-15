@@ -190,7 +190,7 @@ func newKegVisibilityCmd(deps *Deps) *cobra.Command {
 }
 
 // newKegSettingsCmd returns `tap keg settings` (formerly `tap settings`): the
-// keg's own configuration (title, creator, entities, tags, …).
+// keg's own configuration (title, creator, links, schema policy, …).
 func newKegSettingsCmd(deps *Deps) *cobra.Command {
 	var opts tapper.InfoOptions
 
@@ -199,7 +199,7 @@ func newKegSettingsCmd(deps *Deps) *cobra.Command {
 		Short: "display keg configuration",
 		Long: `Display the keg configuration (keg file contents).
 
-Shows metadata about the keg including title, creator, entities, tags, and
+Shows metadata about the keg including title, creator, links, schema policy, and
 other configuration properties. Use 'tap keg settings edit' to modify the keg
 configuration.`,
 		RunE: func(cmd *cobra.Command, args []string) error {

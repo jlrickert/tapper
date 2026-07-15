@@ -87,38 +87,7 @@ func (t *Tap) Doctor(ctx context.Context, opts DoctorOptions) ([]Issue, error) {
 		nodeSet[id.ID] = struct{}{}
 	}
 
-	// Determine whether optional checks are enabled (off by default).
-	entityCheckEnabled := cfg.Doctor != nil && cfg.Doctor.EntityCheck
-	tagCheckEnabled := cfg.Doctor != nil && cfg.Doctor.TagCheck
-
-	// 3. Entity validation — config entities reference existing nodes (only when entity check enabled)
-	if entityCheckEnabled {
-		for name, entity := range cfg.Entities {
-			entityNode := keg.NodeId{ID: entity.ID}
-			exists, hasErr := t.nodeExistsWithContent(ctx, k, entityNode)
-			if hasErr != nil {
-				issues = append(issues, Issue{
-					Level:   "error",
-					Kind:    "entity-missing",
-					Message: fmt.Sprintf("entity %q references node %d but check failed: %v", name, entity.ID, hasErr),
-				})
-			} else if !exists {
-				issues = append(issues, Issue{
-					Level:   "error",
-					Kind:    "entity-missing",
-					Message: fmt.Sprintf("entity %q references node %d which does not exist", name, entity.ID),
-				})
-			}
-		}
-	}
-
-	// Build tag set from config
-	configTags := make(map[string]struct{}, len(cfg.Tags))
-	for tag := range cfg.Tags {
-		configTags[tag] = struct{}{}
-	}
-
-	// 4. Per-node checks
+	// 3. Per-node checks
 	for _, id := range nodeIDs {
 		nodePath := id.Path()
 
@@ -157,26 +126,9 @@ func (t *Tap) Doctor(ctx context.Context, opts DoctorOptions) ([]Issue, error) {
 		if metaErr != nil && !errors.Is(metaErr, keg.ErrNotExist) {
 			issues = append(issues, Issue{Level: "error", Kind: "meta", NodeID: nodePath, Message: fmt.Sprintf("unable to read metadata: %v", metaErr)})
 		} else if metaErr == nil {
-			meta, parseErr := keg.ParseMeta(ctx, rawMeta)
+			_, parseErr := keg.ParseMeta(ctx, rawMeta)
 			if parseErr != nil {
 				issues = append(issues, Issue{Level: "error", Kind: "meta", NodeID: nodePath, Message: fmt.Sprintf("unable to parse metadata: %v", parseErr)})
-			} else {
-				// Entity attr check: when enabled, warn if node lacks entity attribute
-				if entityCheckEnabled {
-					entityVal, hasEntity := meta.Get("entity")
-					if !hasEntity || entityVal == "" {
-						issues = append(issues, Issue{Level: "warning", Kind: "entity-attr", NodeID: nodePath, Message: "missing entity attribute in metadata"})
-					}
-				}
-
-				// Tag check: tags used but not in config (only when tag check enabled)
-				if tagCheckEnabled {
-					for _, tag := range meta.Tags() {
-						if _, inCfg := configTags[tag]; !inCfg {
-							issues = append(issues, Issue{Level: "warning", Kind: "tag-missing", NodeID: nodePath, Message: fmt.Sprintf("tag %q not documented in keg config", tag)})
-						}
-					}
-				}
 			}
 		}
 
