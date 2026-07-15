@@ -32,6 +32,13 @@ Common keg fields:
 - `summary`
 - `links`
 - `indexes`
+- `schemaPolicy`
+
+`schemaPolicy` has three actor-specific modes: `human`, `agent`, and `api`.
+Each accepts `off`, `warn`, or `block`. When omitted, human writes default to
+`warn`, while agent and API writes default to `block`. Archive imports and
+snapshot restores always skip node-schema enforcement; archive integrity and
+schema document validation still apply.
 
 ## When To Edit Which Config
 

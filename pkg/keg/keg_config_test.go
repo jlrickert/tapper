@@ -61,6 +61,9 @@ schemaPolicy:
   default: warn
   human: off
   agent: block
+  api: warn
+  import: block
+  restore: block
 `
 
 	config, err := keg.ParseKegConfig([]byte(v2Yaml))
@@ -83,9 +86,15 @@ schemaPolicy:
 	userIndexes := config.UserIndexEntries()
 	require.Len(t, userIndexes, 1)
 	require.Equal(t, "index1.md", userIndexes[0].File)
-	require.Equal(t, keg.ValidationModeWarn, config.SchemaPolicy.Default)
 	require.Equal(t, keg.ValidationModeOff, config.SchemaPolicy.Human)
 	require.Equal(t, keg.ValidationModeBlock, config.SchemaPolicy.Agent)
+	require.Equal(t, keg.ValidationModeWarn, config.SchemaPolicy.API)
+
+	yamlOut, err := config.ToYAML()
+	require.NoError(t, err)
+	require.NotContains(t, string(yamlOut), "  default:")
+	require.NotContains(t, string(yamlOut), "  import:")
+	require.NotContains(t, string(yamlOut), "  restore:")
 }
 
 func TestParseConfigV2_SnapshotPolicyDefaults(t *testing.T) {
@@ -203,10 +212,13 @@ func TestKegConfigJSONSchemaIncludesCurrentProperties(t *testing.T) {
 	require.True(t, ok, "schema should define schemaPolicy")
 	policyProperties, ok := schemaPolicy["properties"].(map[string]any)
 	require.True(t, ok)
-	for _, name := range []string{"default", "human", "agent", "api", "import", "restore"} {
+	for _, name := range []string{"human", "agent", "api"} {
 		property, ok := policyProperties[name].(map[string]any)
 		require.True(t, ok, "schemaPolicy should define %s", name)
 		require.Equal(t, []any{"off", "warn", "block"}, property["enum"])
+	}
+	for _, legacy := range []string{"default", "import", "restore"} {
+		require.NotContains(t, policyProperties, legacy)
 	}
 	for _, removed := range []string{"entities", "tags", "doctor", "site"} {
 		require.NotContains(t, properties, removed)

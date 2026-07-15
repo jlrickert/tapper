@@ -67,6 +67,48 @@ markdown:
 	}
 }
 
+func TestSchemaValidationActorOverrides(t *testing.T) {
+	f := sandbox.NewSandbox(t, &sandbox.Options{Home: "/home/testuser", User: "testuser"})
+	ctx := context.Background()
+	k := kegpkg.NewLocalKeg(kegpkg.NewMemoryRepo(f.Runtime()), f.Runtime())
+	if err := k.Init(ctx); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	if err := k.WriteSchema(ctx, "task", []byte(`type: task
+meta:
+  type: object
+  required: ["type"]
+  properties:
+    type:
+      const: task
+markdown:
+  requireTitle: true
+`)); err != nil {
+		t.Fatalf("WriteSchema: %v", err)
+	}
+	if err := k.UpdateConfig(ctx, func(cfg *kegpkg.Config) {
+		cfg.SchemaPolicy = &kegpkg.SchemaPolicy{
+			Human: kegpkg.ValidationModeBlock,
+			Agent: kegpkg.ValidationModeOff,
+			API:   kegpkg.ValidationModeWarn,
+		}
+	}); err != nil {
+		t.Fatalf("UpdateConfig: %v", err)
+	}
+
+	invalid := &kegpkg.CreateOptions{Body: []byte("# Missing Type\n")}
+	_, err := k.Create(kegpkg.WithValidationActor(ctx, kegpkg.ValidationActorHuman), invalid)
+	if !errors.Is(err, kegpkg.ErrSchemaInvalid) {
+		t.Fatalf("human override error = %v, want ErrSchemaInvalid", err)
+	}
+	if _, err := k.Create(kegpkg.WithValidationActor(ctx, kegpkg.ValidationActorAgent), invalid); err != nil {
+		t.Fatalf("agent off override blocked: %v", err)
+	}
+	if _, err := k.Create(kegpkg.WithValidationActor(ctx, kegpkg.ValidationActorAPI), invalid); err != nil {
+		t.Fatalf("API warn override blocked: %v", err)
+	}
+}
+
 func TestSnapshotReplayPersistsOmegaFromRelationMaturity(t *testing.T) {
 	f := sandbox.NewSandbox(t, &sandbox.Options{Home: "/home/testuser", User: "testuser"})
 	ctx := context.Background()

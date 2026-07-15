@@ -172,8 +172,9 @@ func TestArchiveImportRestoresKegConfigForFullBackup(t *testing.T) {
 		cfg.Indexes = append(cfg.UserIndexEntries(), keg.IndexEntry{File: "restored.md", Summary: "Restored nodes", Query: "restored"})
 		cfg.Snapshots = &keg.SnapshotConfig{Mode: keg.SnapshotModeOff, IdleAfter: "2h"}
 		cfg.SchemaPolicy = &keg.SchemaPolicy{
-			Default: keg.ValidationModeWarn,
-			Agent:   keg.ValidationModeBlock,
+			Human: keg.ValidationModeWarn,
+			Agent: keg.ValidationModeBlock,
+			API:   keg.ValidationModeBlock,
 		}
 	}))
 
@@ -201,7 +202,7 @@ func TestArchiveImportRestoresKegConfigForFullBackup(t *testing.T) {
 	require.Equal(t, "America/Chicago", got.Timezone)
 	require.Equal(t, []keg.LinkEntry{{Alias: "docs", URL: "https://example.com/docs"}}, got.Links)
 	require.Equal(t, &keg.SnapshotConfig{Mode: keg.SnapshotModeOff, IdleAfter: "2h"}, got.Snapshots)
-	require.Equal(t, &keg.SchemaPolicy{Default: keg.ValidationModeWarn, Agent: keg.ValidationModeBlock}, got.SchemaPolicy)
+	require.Equal(t, &keg.SchemaPolicy{Human: keg.ValidationModeWarn, Agent: keg.ValidationModeBlock, API: keg.ValidationModeBlock}, got.SchemaPolicy)
 
 	rawIndex, err := dst.ReadIndex(ctx, "restored.md")
 	require.NoError(t, err)
@@ -355,6 +356,67 @@ markdown:
 	exists, err := dst.NodeExists(ctx, id)
 	require.NoError(t, err)
 	require.True(t, exists)
+}
+
+func TestArchiveImportSkipsSchemaEnforcementEvenWithBlockOverride(t *testing.T) {
+	t.Parallel()
+	fx := NewSandbox(t)
+	ctx := fx.Context()
+
+	src := keg.NewLocalKeg(keg.NewMemoryRepo(fx.Runtime()), fx.Runtime())
+	require.NoError(t, src.Init(ctx))
+	require.NoError(t, src.WriteSchema(ctx, "task", archiveTaskSchema))
+	humanCtx := keg.WithValidationActor(ctx, keg.ValidationActorHuman)
+	id, err := src.Create(humanCtx, &keg.CreateOptions{Body: []byte("# Missing Type\n")})
+	require.NoError(t, err)
+	archive := mustExportArchive(t, src, keg.ExportNodesOptions{})
+
+	dst := keg.NewLocalKeg(keg.NewMemoryRepo(fx.Runtime()), fx.Runtime())
+	require.NoError(t, dst.Init(ctx))
+	blockCtx := keg.WithValidationMode(ctx, keg.ValidationModeBlock)
+	_, err = dst.ImportNodes(blockCtx, bytes.NewReader(archive), keg.ImportNodesOptions{})
+	require.NoError(t, err)
+	result, err := dst.ValidateNode(ctx, id)
+	require.NoError(t, err)
+	require.False(t, result.Valid)
+}
+
+func TestArchiveImportDropsLegacySchemaPolicyFields(t *testing.T) {
+	t.Parallel()
+	fx := NewSandbox(t)
+	ctx := fx.Context()
+
+	src := keg.NewLocalKeg(keg.NewMemoryRepo(fx.Runtime()), fx.Runtime())
+	require.NoError(t, src.Init(ctx))
+	archive := mustExportArchive(t, src, keg.ExportNodesOptions{})
+	legacyConfig := []byte(`kegv: "2025-07"
+title: Legacy policy
+schemaPolicy:
+  default: off
+  human: warn
+  agent: off
+  api: block
+  import: block
+  restore: warn
+`)
+	archive = replaceArchiveEntry(t, archive, "keg-archive/keg.yaml", legacyConfig)
+
+	dst := keg.NewLocalKeg(keg.NewMemoryRepo(fx.Runtime()), fx.Runtime())
+	require.NoError(t, dst.Init(ctx))
+	_, err := dst.ImportNodes(ctx, bytes.NewReader(archive), keg.ImportNodesOptions{})
+	require.NoError(t, err)
+	cfg, err := dst.Config(ctx)
+	require.NoError(t, err)
+	require.Equal(t, &keg.SchemaPolicy{
+		Human: keg.ValidationModeWarn,
+		Agent: keg.ValidationModeOff,
+		API:   keg.ValidationModeBlock,
+	}, cfg.SchemaPolicy)
+	yamlOut, err := cfg.ToYAML()
+	require.NoError(t, err)
+	require.NotContains(t, string(yamlOut), "  default:")
+	require.NotContains(t, string(yamlOut), "  import:")
+	require.NotContains(t, string(yamlOut), "  restore:")
 }
 
 func TestArchiveImportRejectsMalformedSchemaBeforeWritingNodes(t *testing.T) {

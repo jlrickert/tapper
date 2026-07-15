@@ -104,12 +104,9 @@ func ValidationHeaderValues(ctx context.Context) map[string]string {
 }
 
 type SchemaPolicy struct {
-	Default ValidationMode `yaml:"default,omitempty" json:"default,omitempty"`
-	Human   ValidationMode `yaml:"human,omitempty" json:"human,omitempty"`
-	Agent   ValidationMode `yaml:"agent,omitempty" json:"agent,omitempty"`
-	API     ValidationMode `yaml:"api,omitempty" json:"api,omitempty"`
-	Import  ValidationMode `yaml:"import,omitempty" json:"import,omitempty"`
-	Restore ValidationMode `yaml:"restore,omitempty" json:"restore,omitempty"`
+	Human ValidationMode `yaml:"human,omitempty" json:"human,omitempty"`
+	Agent ValidationMode `yaml:"agent,omitempty" json:"agent,omitempty"`
+	API   ValidationMode `yaml:"api,omitempty" json:"api,omitempty"`
 }
 
 type SchemaDefinition struct {
@@ -720,6 +717,12 @@ func (k *LocalKeg) enforceSchemaValidationResult(ctx context.Context, op schemaW
 }
 
 func (k *LocalKeg) effectiveValidationMode(ctx context.Context, op schemaWriteOperation) ValidationMode {
+	// Archives are historical data, not new writes. Import and restore still
+	// validate archive structure, schema documents, and node syntax, but never
+	// reject a node merely because it does not satisfy a stored schema.
+	if op == schemaWriteImport || op == schemaWriteRestore {
+		return ValidationModeOff
+	}
 	if mode := normalizeValidationMode(ValidationModeFromContext(ctx)); mode != ValidationModeAuto {
 		return mode
 	}
@@ -728,16 +731,6 @@ func (k *LocalKeg) effectiveValidationMode(ctx context.Context, op schemaWriteOp
 		policy = cfg.SchemaPolicy
 	}
 	if policy != nil {
-		switch op {
-		case schemaWriteImport:
-			if mode := normalizeValidationMode(policy.Import); mode != ValidationModeAuto {
-				return mode
-			}
-		case schemaWriteRestore:
-			if mode := normalizeValidationMode(policy.Restore); mode != ValidationModeAuto {
-				return mode
-			}
-		}
 		actor := ValidationActorFromContext(ctx)
 		switch actor {
 		case ValidationActorHuman:
@@ -753,14 +746,6 @@ func (k *LocalKeg) effectiveValidationMode(ctx context.Context, op schemaWriteOp
 				return mode
 			}
 		}
-		if mode := normalizeValidationMode(policy.Default); mode != ValidationModeAuto {
-			return mode
-		}
-	}
-
-	switch op {
-	case schemaWriteImport, schemaWriteRestore:
-		return ValidationModeBlock
 	}
 	switch ValidationActorFromContext(ctx) {
 	case ValidationActorHuman:
