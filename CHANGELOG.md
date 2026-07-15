@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.32.0 - 2026-07-15
+
+
+
+### 🐛 Bug Fixes
+- **keg:** simplify schema policy
+
+
 ## v0.31.0 - 2026-07-15
 
 
