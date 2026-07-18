@@ -59,28 +59,21 @@ func (t *Tap) Cat(ctx context.Context, opts CatOptions) (string, error) {
 		return "", fmt.Errorf("only one output mode may be selected: --edit, --content-only, --stats-only, --meta-only")
 	}
 
-	// Resolve node IDs from a query expression or direct args.
 	nodeIDs := opts.NodeIDs
 	if opts.Query != "" {
 		if len(nodeIDs) > 0 {
 			return "", fmt.Errorf("cannot specify both node IDs and --query")
 		}
-		queryIDs, err := t.Tags(ctx, TagsOptions{
-			KegTargetOptions: opts.KegTargetOptions,
-			Query:            opts.Query,
-			IdOnly:           true,
-		})
-		if err != nil {
-			return "", fmt.Errorf("unable to query by expression: %w", err)
-		}
-		nodeIDs = queryIDs
 	}
 
-	if len(nodeIDs) == 0 {
+	if len(nodeIDs) == 0 && opts.Query == "" {
 		return "", nil
 	}
 
 	if opts.Edit {
+		if opts.Query != "" {
+			return "", fmt.Errorf("--edit requires an explicit node ID")
+		}
 		if len(nodeIDs) > 1 {
 			return "", fmt.Errorf("--edit can only be used with a single node")
 		}
@@ -108,18 +101,57 @@ func (t *Tap) Cat(ctx context.Context, opts CatOptions) (string, error) {
 		})
 	}
 
-	k, err := t.resolveKeg(ctx, opts.KegTargetOptions)
+	base, err := t.resolveKeg(ctx, opts.KegTargetOptions)
 	if err != nil {
 		return "", fmt.Errorf("unable to open keg: %w", err)
 	}
 
-	// Single node: return output as-is (preserve existing behaviour).
-	if len(nodeIDs) == 1 {
-		out, err := t.catSingleNode(ctx, k, nodeIDs[0], opts)
+	var views []keg.NodeView
+	if opts.Query != "" {
+		views, err = base.ReadNodes(ctx, keg.ReadNodesOptions{Query: opts.Query, Touch: true})
 		if err != nil {
-			return "", err
+			return "", fmt.Errorf("unable to query nodes: %w", err)
 		}
-		return strings.TrimRight(out, "\n") + "\n", nil
+	} else {
+		type group struct {
+			k         keg.Keg
+			ids       []keg.NodeId
+			positions []int
+		}
+		groups := map[string]*group{}
+		order := []string{}
+		views = make([]keg.NodeView, len(nodeIDs))
+		for pos, raw := range nodeIDs {
+			resolved, id, resolveErr := t.resolveNodeArg(ctx, base, raw)
+			if resolveErr != nil {
+				return "", resolveErr
+			}
+			key := describeKeg(resolved)
+			g := groups[key]
+			if g == nil {
+				g = &group{k: resolved}
+				groups[key] = g
+				order = append(order, key)
+			}
+			g.ids = append(g.ids, id)
+			g.positions = append(g.positions, pos)
+		}
+		for _, key := range order {
+			g := groups[key]
+			batch, batchErr := g.k.ReadNodes(ctx, keg.ReadNodesOptions{NodeIDs: g.ids, Touch: true})
+			if batchErr != nil {
+				return "", fmt.Errorf("unable to read nodes in %s: %w", key, batchErr)
+			}
+			for i, view := range batch {
+				views[g.positions[i]] = view
+			}
+		}
+	}
+	if len(views) == 0 {
+		return "", nil
+	}
+	if len(views) == 1 {
+		return strings.TrimRight(formatCatView(ctx, views[0], opts, false), "\n") + "\n", nil
 	}
 
 	// Multiple nodes: emit a YAML document stream where every document is
@@ -132,19 +164,42 @@ func (t *Tap) Cat(ctx context.Context, opts CatOptions) (string, error) {
 	//   --stats-only   ---\nid: "N"\n<stats yaml>
 	//   --content-only ---\nid: "N"\n---\n<content>
 	var buf strings.Builder
-	for i, nodeID := range nodeIDs {
+	for i, view := range views {
 		if i > 0 {
 			buf.WriteString("\n")
 		}
-		var out string
-		out, err = t.catSingleNodeForStream(ctx, k, nodeID, opts)
-		if err != nil {
-			return "", err
-		}
+		out := formatCatView(ctx, view, opts, true)
 		buf.WriteString(strings.TrimRight(out, "\n"))
 		buf.WriteString("\n")
 	}
 	return buf.String(), nil
+}
+
+func formatCatView(ctx context.Context, view keg.NodeView, opts CatOptions, withID bool) string {
+	id := view.ID.Path()
+	if opts.ContentOnly {
+		if withID {
+			return formatContentWithID(id, view.Content)
+		}
+		return string(view.Content)
+	}
+	if opts.StatsOnly {
+		stats := formatStatsOnlyYAML(ctx, view.Stats)
+		if withID {
+			return formatStatsWithID(id, stats)
+		}
+		return stats
+	}
+	if opts.MetaOnly {
+		if withID {
+			return formatMetaWithID(ctx, id, view.Meta)
+		}
+		return normalizeMetaYAML(ctx, view.Meta)
+	}
+	if withID {
+		return formatFrontmatterWithID(ctx, id, view.Meta, view.Content)
+	}
+	return formatFrontmatter(ctx, view.Meta, view.Content)
 }
 
 // catSingleNode reads and formats a single node's content according to opts.

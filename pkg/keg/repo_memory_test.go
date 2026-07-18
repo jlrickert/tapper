@@ -3,12 +3,204 @@ package keg_test
 import (
 	"bytes"
 	"context"
+	"fmt"
+	"sync"
 	"testing"
 	"time"
 
+	toolkitclock "github.com/jlrickert/cli-toolkit/clock"
 	"github.com/jlrickert/tapper/pkg/keg"
 	"github.com/stretchr/testify/require"
 )
+
+type controlledExpiryClock struct {
+	toolkitclock.OsClock
+	mu         sync.Mutex
+	now        time.Time
+	registered chan struct{}
+	once       sync.Once
+	timer      chan time.Time
+}
+
+func newControlledExpiryClock(now time.Time) *controlledExpiryClock {
+	return &controlledExpiryClock{now: now, registered: make(chan struct{}), timer: make(chan time.Time, 1)}
+}
+
+func (c *controlledExpiryClock) Now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.now
+}
+
+func (c *controlledExpiryClock) After(time.Duration) <-chan time.Time {
+	c.once.Do(func() { close(c.registered) })
+	return c.timer
+}
+
+func (c *controlledExpiryClock) advance(d time.Duration) {
+	c.mu.Lock()
+	c.now = c.now.Add(d)
+	now := c.now
+	c.mu.Unlock()
+	c.timer <- now
+}
+
+func TestMemoryRepoAcquireLockWakesAtExpiry(t *testing.T) {
+	fx := NewSandbox(t)
+	clock := newControlledExpiryClock(time.Date(2026, 7, 18, 12, 0, 0, 0, time.UTC))
+	require.NoError(t, fx.Runtime().SetClock(clock))
+	repo := keg.NewMemoryRepo(fx.Runtime())
+	id := keg.NodeId{ID: 17}
+	first, err := repo.AcquireLock(t.Context(), id)
+	require.NoError(t, err)
+
+	acquired := make(chan keg.LockToken, 1)
+	errs := make(chan error, 1)
+	go func() {
+		token, err := repo.AcquireLock(t.Context(), id)
+		if err != nil {
+			errs <- err
+			return
+		}
+		acquired <- token
+	}()
+	<-clock.registered
+	clock.advance(keg.DefaultLockTTL)
+
+	select {
+	case err := <-errs:
+		require.NoError(t, err)
+	case token := <-acquired:
+		require.NotEmpty(t, token)
+		require.NotEqual(t, first, token)
+	case <-t.Context().Done():
+		t.Fatal("waiter did not acquire expired advisory lock")
+	}
+}
+
+func TestMemoryRepoConcurrentReadWriteClones(t *testing.T) {
+	t.Parallel()
+	fx := NewSandbox(t)
+	r := keg.NewMemoryRepo(fx.Runtime())
+	ctx := fx.Context()
+	id := keg.NodeId{ID: 91}
+
+	writeAll := func(i int) error {
+		now := time.Date(2026, 7, 18, 12, 0, i%60, 0, time.UTC)
+		stats := keg.NewStats(now)
+		stats.SetHash(fmt.Sprintf("hash-%d", i), &now)
+		stats.SetLinks([]keg.NodeId{{ID: i % 7}})
+		cfg := &keg.Config{
+			Kegv:         keg.ConfigV2VersionString,
+			Title:        fmt.Sprintf("title-%d", i),
+			Links:        []keg.LinkEntry{{Alias: "source", URL: fmt.Sprintf("https://example.test/%d", i)}},
+			Indexes:      []keg.IndexEntry{{File: "custom.tsv", Summary: fmt.Sprintf("summary-%d", i)}},
+			Snapshots:    &keg.SnapshotConfig{Mode: keg.SnapshotModeAuto, IdleAfter: "1h"},
+			SchemaPolicy: &keg.SchemaPolicy{Human: keg.ValidationModeWarn},
+		}
+		for _, call := range []func() error{
+			func() error { return r.WriteContent(ctx, id, []byte(fmt.Sprintf("# title %d\n", i))) },
+			func() error { return r.WriteMeta(ctx, id, []byte(fmt.Sprintf("tags: [tag-%d]\n", i))) },
+			func() error { return r.WriteStats(ctx, id, stats) },
+			func() error { return r.WriteFile(ctx, id, "item.txt", []byte(fmt.Sprintf("item-%d", i))) },
+			func() error { return r.WriteImage(ctx, id, "image.png", []byte(fmt.Sprintf("image-%d", i))) },
+			func() error { return r.WriteIndex(ctx, "nodes.tsv", []byte(fmt.Sprintf("index-%d", i))) },
+			func() error { return r.WriteConfig(ctx, cfg) },
+			func() error {
+				return r.WriteSchema(ctx, "task", []byte(fmt.Sprintf("type: task\nsummary: schema-%d\n", i)))
+			},
+		} {
+			if err := call(); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	require.NoError(t, writeAll(0))
+
+	readAll := func() error {
+		content, err := r.ReadContent(ctx, id)
+		if err != nil {
+			return err
+		}
+		meta, err := r.ReadMeta(ctx, id)
+		if err != nil {
+			return err
+		}
+		stats, err := r.ReadStats(ctx, id)
+		if err != nil {
+			return err
+		}
+		item, err := r.ReadFile(ctx, id, "item.txt")
+		if err != nil {
+			return err
+		}
+		image, err := r.ReadImage(ctx, id, "image.png")
+		if err != nil {
+			return err
+		}
+		index, err := r.GetIndex(ctx, "nodes.tsv")
+		if err != nil {
+			return err
+		}
+		cfg, err := r.ReadConfig(ctx)
+		if err != nil {
+			return err
+		}
+		schema, err := r.ReadSchema(ctx, "task")
+		if err != nil {
+			return err
+		}
+
+		for _, data := range [][]byte{content, meta, item, image, index, schema} {
+			if len(data) > 0 {
+				data[0] ^= 0xff
+			}
+		}
+		stats.SetLinks([]keg.NodeId{{ID: 999}})
+		if len(cfg.Links) > 0 {
+			cfg.Links[0].Alias = "mutated"
+		}
+		if len(cfg.Indexes) > 0 {
+			cfg.Indexes[0].Summary = "mutated"
+		}
+		if cfg.Snapshots != nil {
+			cfg.Snapshots.Mode = keg.SnapshotModeOff
+		}
+		if cfg.SchemaPolicy != nil {
+			cfg.SchemaPolicy.Human = keg.ValidationModeBlock
+		}
+		return nil
+	}
+
+	errCh := make(chan error, 2)
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		for i := 1; i <= 500; i++ {
+			if err := writeAll(i); err != nil {
+				errCh <- err
+				return
+			}
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 500; i++ {
+			if err := readAll(); err != nil {
+				errCh <- err
+				return
+			}
+		}
+	}()
+	wg.Wait()
+	close(errCh)
+	for err := range errCh {
+		require.NoError(t, err)
+	}
+	require.NoError(t, readAll())
+}
 
 func TestMemoryRepo_WriteReadMetaAndContent(t *testing.T) {
 	t.Parallel()

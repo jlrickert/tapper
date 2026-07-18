@@ -160,7 +160,7 @@ func TestCatCommand_WithJoeFixture(t *testing.T) {
 			cwd:          strPtr("~/repos/work/spy-things"),
 			expectedInStdout: []string{
 				"---",
-				"title:",
+				"- example",
 				"---",
 			},
 			description: "Explicit alias overrides path-based keg resolution",

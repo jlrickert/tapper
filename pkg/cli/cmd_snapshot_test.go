@@ -80,10 +80,10 @@ func TestKegArchiveImportOverwritesExistingNodes(t *testing.T) {
 	require.NoError(t, targetKeg.Init(sb.Context()))
 	id, err := targetKeg.Create(sb.Context(), &keg.CreateOptions{Title: "Existing node"})
 	require.NoError(t, err)
-	require.Equal(t, keg.NodeId{ID: 1}, id)
-	_, err = targetKeg.AppendSnapshot(sb.Context(), id, "old target")
+	require.Equal(t, keg.NodeId{ID: 1}, id.ID)
+	_, err = targetKeg.AppendSnapshot(sb.Context(), id.ID, "old target")
 	require.NoError(t, err)
-	require.NoError(t, targetRepo.WriteFile(sb.Context(), id, "keep.txt", []byte("keep me")))
+	require.NoError(t, targetRepo.WriteFile(sb.Context(), id.ID, "keep.txt", []byte("keep me")))
 	require.NoError(t, sb.Runtime().Setwd("~/import-target"))
 
 	res = NewKegProcess(t, false, "archive", "import", exportPath).Run(sb.Context(), sb.Runtime())
@@ -106,7 +106,7 @@ func TestKegArchiveImportOverwritesExistingNodes(t *testing.T) {
 	require.Contains(t, string(res.Stdout), "before export")
 	require.NotContains(t, string(res.Stdout), "old target")
 
-	asset, err := targetRepo.ReadFile(sb.Context(), id, "keep.txt")
+	asset, err := targetRepo.ReadFile(sb.Context(), id.ID, "keep.txt")
 	require.NoError(t, err)
 	require.Equal(t, "keep me", string(asset))
 }

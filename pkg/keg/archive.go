@@ -35,6 +35,7 @@ type archiveManifest struct {
 
 type archiveManifestNode struct {
 	SourceID      string `json:"source_id"`
+	SourceHash    string `json:"source_hash"`
 	RevisionCount int    `json:"revision_count,omitempty"`
 }
 
@@ -47,13 +48,40 @@ func (k *LocalKeg) ExportNodes(ctx context.Context, opts ExportNodesOptions) (io
 		return nil, fmt.Errorf("failed to export nodes: %w", err)
 	}
 
-	ids := opts.NodeIDs
-	if len(ids) == 0 {
+	ids := append([]NodeId(nil), opts.NodeIDs...)
+	if q := strings.TrimSpace(opts.Query); q != "" {
+		entries, err := k.Query(ctx, QueryOptions{Expr: q})
+		if err != nil {
+			return nil, err
+		}
+		seen := map[string]struct{}{}
+		for _, id := range ids {
+			seen[id.Path()] = struct{}{}
+		}
+		for _, entry := range entries {
+			if id, e := ParseNode(entry.ID); e == nil && id != nil {
+				if _, ok := seen[id.Path()]; !ok {
+					ids = append(ids, *id)
+					seen[id.Path()] = struct{}{}
+				}
+			}
+		}
+	}
+	if len(ids) == 0 && strings.TrimSpace(opts.Query) == "" {
 		var err error
 		ids, err = k.Repo.ListNodes(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("unable to list nodes: %w", err)
 		}
+	}
+	if opts.SkipZeroNode {
+		filtered := ids[:0]
+		for _, id := range ids {
+			if id.ID != 0 {
+				filtered = append(filtered, id)
+			}
+		}
+		ids = filtered
 	}
 	ids = append([]NodeId(nil), ids...)
 	slices.SortFunc(ids, func(a, b NodeId) int { return a.Compare(b) })
@@ -62,7 +90,9 @@ func (k *LocalKeg) ExportNodes(ctx context.Context, opts ExportNodesOptions) (io
 	if opts.WithHistory {
 		var ok bool
 		snapshotRepo, ok = repoSnapshots(k.Repo)
-		if !ok {
+		if !ok && opts.HistoryIfSupported {
+			opts.WithHistory = false
+		} else if !ok {
 			return nil, ErrNotSupported
 		}
 	}
@@ -80,7 +110,7 @@ func (k *LocalKeg) ExportNodes(ctx context.Context, opts ExportNodesOptions) (io
 func (k *LocalKeg) writeArchive(ctx context.Context, w io.Writer, ids []NodeId, snapshotRepo RepositorySnapshots, opts ExportNodesOptions) error {
 	gz := gzip.NewWriter(w)
 	tw := tar.NewWriter(gz)
-	withConfig := len(opts.NodeIDs) == 0
+	withConfig := len(opts.NodeIDs) == 0 && strings.TrimSpace(opts.Query) == "" && !opts.SkipZeroNode
 
 	manifest := archiveManifest{
 		Format:      kegArchiveFormatV3,
@@ -145,7 +175,7 @@ func (k *LocalKeg) writeArchive(ctx context.Context, w io.Writer, ids []NodeId, 
 			}
 		}
 
-		entry := archiveManifestNode{SourceID: id.Path()}
+		entry := archiveManifestNode{SourceID: id.Path(), SourceHash: stats.Hash()}
 		if opts.WithHistory {
 			count, err := k.writeArchiveHistory(ctx, tw, base, id, snapshotRepo)
 			if err != nil {
@@ -328,8 +358,12 @@ func (k *LocalKeg) ImportNodes(ctx context.Context, r io.Reader, opts ImportNode
 	}
 
 	snapshotRepo, hasSnapshots := repoSnapshots(k.Repo)
+	importHistory := manifest.WithHistory
 	if manifest.WithHistory && !hasSnapshots {
-		return nil, ErrNotSupported
+		if !opts.HistoryIfSupported {
+			return nil, ErrNotSupported
+		}
+		importHistory = false
 	}
 
 	mapping, ordered, err := resolveImportedNodeIDs(manifest.Nodes)
@@ -337,14 +371,15 @@ func (k *LocalKeg) ImportNodes(ctx context.Context, r io.Reader, opts ImportNode
 		return nil, err
 	}
 	if opts.AssignNewIDs && len(ordered) > 0 {
-		// Next() scans existing nodes without reserving, so call it once and
-		// compute subsequent ids by incrementing from the base.
-		base, nextErr := k.Repo.Next(ctx)
-		if nextErr != nil {
-			return nil, fmt.Errorf("unable to allocate node ids for import: %w", nextErr)
-		}
-		for i, sourceID := range ordered {
-			mapping[sourceID] = NodeId{ID: base.ID + i}
+		reserved := make([]NodeId, 0, len(ordered))
+		defer func() { k.cleanupUnusedImportReservations(ctx, reserved) }()
+		for _, sourceID := range ordered {
+			id, nextErr := k.Repo.Next(ctx)
+			if nextErr != nil {
+				return nil, fmt.Errorf("unable to allocate node ids for import: %w", nextErr)
+			}
+			mapping[sourceID] = id
+			reserved = append(reserved, id)
 		}
 	}
 	manifestNodes := make(map[string]archiveManifestNode, len(manifest.Nodes))
@@ -468,7 +503,7 @@ func (k *LocalKeg) ImportNodes(ctx context.Context, r io.Reader, opts ImportNode
 			return nil, fmt.Errorf("unable to write imported stats for node %s: %w", sourceID, err)
 		}
 
-		if manifest.WithHistory {
+		if importHistory {
 			if err := k.importNodeHistory(ctx, entries, base, sourceID, newID, nodeManifest, mapping, snapshotRepo, opts); err != nil {
 				return nil, err
 			}
@@ -510,9 +545,18 @@ func (k *LocalKeg) ImportNodes(ctx context.Context, r io.Reader, opts ImportNode
 
 	imported := make([]ImportedNode, 0, len(ordered))
 	for _, sourceID := range ordered {
-		imported = append(imported, ImportedNode{SourceID: sourceID, ID: mapping[sourceID]})
+		imported = append(imported, ImportedNode{SourceID: sourceID, SourceHash: manifestNodes[sourceID].SourceHash, ID: mapping[sourceID]})
 	}
 	return imported, nil
+}
+
+func (k *LocalKeg) cleanupUnusedImportReservations(ctx context.Context, ids []NodeId) {
+	for _, id := range ids {
+		content, err := k.Repo.ReadContent(ctx, id)
+		if errors.Is(err, ErrNotExist) || (err == nil && content == nil) {
+			_ = k.Repo.DeleteNode(ctx, id)
+		}
+	}
 }
 
 // importNodeHistory replays a node's archived snapshot revisions.
@@ -846,6 +890,14 @@ func (s *archiveSchemaStore) WriteSchema(ctx context.Context, typeName string, d
 	}
 	s.schemas[typeName] = cloneBytes(data)
 	return nil
+}
+
+func (s *archiveSchemaStore) CreateSchema(ctx context.Context, typeName string, data []byte) error {
+	typeName = strings.TrimSpace(typeName)
+	if _, exists := s.schemas[typeName]; exists {
+		return ErrExist
+	}
+	return s.WriteSchema(ctx, typeName, data)
 }
 
 func (s *archiveSchemaStore) DeleteSchema(ctx context.Context, typeName string) error {

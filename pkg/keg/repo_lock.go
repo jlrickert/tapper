@@ -27,7 +27,11 @@ func (li LockInfo) IsStale(now time.Time) bool {
 	if li.Token == "" {
 		return true
 	}
-	return now.After(li.AcquiredAt.Add(time.Duration(li.TTLSeconds) * time.Second))
+	return !now.Before(li.AcquiredAt.Add(time.Duration(li.TTLSeconds) * time.Second))
+}
+
+func (li LockInfo) expiresAt() time.Time {
+	return li.AcquiredAt.Add(time.Duration(li.TTLSeconds) * time.Second)
 }
 
 // RepositoryLock provides cross-process token-based node locking. This is an

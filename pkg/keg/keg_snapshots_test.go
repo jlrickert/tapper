@@ -23,7 +23,7 @@ func TestKegSnapshotsRestoreSkipsSchemaEnforcement(t *testing.T) {
 		Attrs: map[string]any{"type": "task"},
 	})
 	require.NoError(t, err)
-	snap, err := k.AppendSnapshot(ctx, id, "before schema")
+	snap, err := k.AppendSnapshot(ctx, id.ID, "before schema")
 	require.NoError(t, err)
 	require.NoError(t, k.WriteSchema(ctx, "task", []byte(`type: task
 meta:
@@ -39,15 +39,15 @@ markdown:
       level: 2
       required: true
 `)))
-	require.NoError(t, k.SetContent(ctx, id, []byte("# Current Task\n\n## Required\n\nPresent.\n")))
+	require.NoError(t, k.SetContent(ctx, id.ID, []byte("# Current Task\n\n## Required\n\nPresent.\n")))
 
 	blockCtx := kegpkg.WithValidationMode(ctx, kegpkg.ValidationModeBlock)
-	require.NoError(t, k.RestoreSnapshot(blockCtx, id, snap.ID))
-	content, err := k.GetContent(ctx, id)
+	require.NoError(t, k.RestoreSnapshot(blockCtx, id.ID, snap.ID))
+	content, err := k.GetContent(ctx, id.ID)
 	require.NoError(t, err)
 	require.NotContains(t, string(content), "## Required")
 	require.True(t, strings.Contains(string(content), "Historical Task"))
-	history, err := k.ListSnapshots(ctx, id)
+	history, err := k.ListSnapshots(ctx, id.ID)
 	require.NoError(t, err)
 	require.GreaterOrEqual(t, len(history), 2, "restore should retain snapshot history")
 }
@@ -65,15 +65,15 @@ func TestKegSnapshots_ReturnErrNotSupportedWithoutSnapshotBackend(t *testing.T) 
 	id, err := k.Create(fx.Context(), &kegpkg.CreateOptions{Title: "Snapshot Target"})
 	require.NoError(t, err)
 
-	_, err = k.AppendSnapshot(fx.Context(), id, "before unsupported")
+	_, err = k.AppendSnapshot(fx.Context(), id.ID, "before unsupported")
 	require.ErrorIs(t, err, kegpkg.ErrNotSupported)
 
-	_, err = k.ListSnapshots(fx.Context(), id)
+	_, err = k.ListSnapshots(fx.Context(), id.ID)
 	require.ErrorIs(t, err, kegpkg.ErrNotSupported)
 
-	_, err = k.ReadContentAt(fx.Context(), id, 1)
+	_, err = k.ReadContentAt(fx.Context(), id.ID, 1)
 	require.ErrorIs(t, err, kegpkg.ErrNotSupported)
 
-	err = k.RestoreSnapshot(fx.Context(), id, 1)
+	err = k.RestoreSnapshot(fx.Context(), id.ID, 1)
 	require.ErrorIs(t, err, kegpkg.ErrNotSupported)
 }

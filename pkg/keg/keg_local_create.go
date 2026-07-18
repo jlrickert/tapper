@@ -99,9 +99,9 @@ type CreateOptions struct {
 // Create creates a new node: allocates an ID, parses content, generates metadata,
 // and indexes the node in the dex. The node is immediately persisted to the repository.
 // If Body is empty, default markdown content is generated from Title and Lead.
-func (k *LocalKeg) Create(ctx context.Context, opts *CreateOptions) (NodeId, error) {
+func (k *LocalKeg) Create(ctx context.Context, opts *CreateOptions) (CreateResult, error) {
 	if err := k.checkKegExists(ctx); err != nil {
-		return NodeId{}, fmt.Errorf("failed to create node: %w", err)
+		return CreateResult{}, fmt.Errorf("failed to create node: %w", err)
 	}
 
 	if opts == nil {
@@ -113,19 +113,27 @@ func (k *LocalKeg) Create(ctx context.Context, opts *CreateOptions) (NodeId, err
 	// Reserve next ID
 	id, err := k.Repo.Next(ctx)
 	if err != nil {
-		return NodeId{}, fmt.Errorf("failed to allocate node id: %w", err)
+		return CreateResult{}, fmt.Errorf("failed to allocate node id: %w", err)
 	}
 
 	// The default heading embeds the freshly-allocated id when no title/body.
 	nodeData, err := k.buildNodeData(ctx, opts, now, fmt.Sprintf("NodeId %s", id.Path()))
 	if err != nil {
-		return NodeId{}, err
+		return CreateResult{}, err
 	}
 	nodeData.ID = id
 
-	if err := k.validateForWrite(ctx, schemaWriteCreate, id, nodeData); err != nil {
+	validation, err := k.validateNodeData(ctx, id, nodeData)
+	if err != nil {
 		_ = k.Repo.DeleteNode(ctx, id)
-		return id, err
+		return CreateResult{ID: id, Validation: validation}, err
+	}
+	if err := k.enforceSchemaValidationResult(ctx, schemaWriteCreate, validation); err != nil {
+		_ = k.Repo.DeleteNode(ctx, id)
+		return CreateResult{ID: id, Validation: validation}, err
+	}
+	if validation != nil && validation.Valid {
+		validation = nil
 	}
 
 	// Persist content and metadata atomically for this node.
@@ -141,16 +149,16 @@ func (k *LocalKeg) Create(ctx context.Context, opts *CreateOptions) (NodeId, err
 		}
 		return nil
 	}); err != nil {
-		return id, err
+		return CreateResult{ID: id, Validation: validation}, err
 	}
 
 	if err := k.writeNodeToDex(ctx, nodeData, now); err != nil {
-		return id, err
+		return CreateResult{ID: id, Validation: validation}, err
 	}
 	if err := k.refreshDirtyIndex(ctx); err != nil {
-		return id, fmt.Errorf("failed to refresh dirty index: %w", err)
+		return CreateResult{ID: id, Validation: validation}, fmt.Errorf("failed to refresh dirty index: %w", err)
 	}
-	return id, nil
+	return CreateResult{ID: id, Validation: validation}, nil
 }
 
 // buildNodeData assembles the content/meta/stats for a new node from opts. It

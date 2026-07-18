@@ -122,12 +122,7 @@ func (t *Tap) CreateSchema(ctx context.Context, opts SchemaOptions) error {
 	if err != nil {
 		return fmt.Errorf("unable to open keg: %w", err)
 	}
-	if _, err := k.ReadSchema(ctx, typeName); err == nil {
-		return fmt.Errorf("schema %q already exists: %w", typeName, keg.ErrExist)
-	} else if !errors.Is(err, keg.ErrNotExist) {
-		return fmt.Errorf("unable to check schema %q: %w", typeName, err)
-	}
-	return k.WriteSchema(ctx, typeName, opts.Data)
+	return k.CreateSchema(ctx, typeName, opts.Data)
 }
 
 func (t *Tap) DeleteSchema(ctx context.Context, opts SchemaOptions) error {
@@ -146,30 +141,47 @@ func (t *Tap) Validate(ctx context.Context, opts ValidateOptions) ([]keg.SchemaV
 
 	var ids []keg.NodeId
 	if len(opts.NodeIDs) == 0 {
-		ids, err = k.ListNodes(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("unable to list nodes: %w", err)
-		}
+		return k.ValidateNodes(ctx, keg.ValidateNodesOptions{})
 	} else {
+		type group struct {
+			k         keg.Keg
+			ids       []keg.NodeId
+			positions []int
+		}
+		groups := map[string]*group{}
+		order := []string{}
 		for _, raw := range opts.NodeIDs {
 			var id keg.NodeId
-			k, id, err = t.resolveNodeArg(ctx, k, raw)
+			resolved, id, resolveErr := t.resolveNodeArg(ctx, k, raw)
+			err = resolveErr
 			if err != nil {
 				return nil, err
 			}
+			key := describeKeg(resolved)
+			g := groups[key]
+			if g == nil {
+				g = &group{k: resolved}
+				groups[key] = g
+				order = append(order, key)
+			}
+			g.ids = append(g.ids, id)
+			g.positions = append(g.positions, len(ids))
 			ids = append(ids, id)
 		}
-	}
-
-	results := make([]keg.SchemaValidationResult, 0, len(ids))
-	for _, id := range ids {
-		result, err := k.ValidateNode(ctx, id)
-		if err != nil {
-			return nil, fmt.Errorf("unable to validate node %s: %w", id.Path(), err)
+		results := make([]keg.SchemaValidationResult, len(ids))
+		for _, key := range order {
+			g := groups[key]
+			batch, batchErr := g.k.ValidateNodes(ctx, keg.ValidateNodesOptions{NodeIDs: g.ids})
+			if batchErr != nil {
+				return nil, batchErr
+			}
+			for i, result := range batch {
+				results[g.positions[i]] = result
+			}
 		}
-		results = append(results, *result)
+		return results, nil
 	}
-	return results, nil
+	return nil, nil
 }
 
 func (t *Tap) warnSchemaIssues(ctx context.Context, k keg.Keg, id keg.NodeId, stream *toolkit.Stream) {
@@ -198,6 +210,25 @@ func (t *Tap) warnSchemaIssues(ctx context.Context, k keg.Keg, id keg.NodeId, st
 			field = "schema"
 		}
 		_, _ = fmt.Fprintf(stream.Err, "warning: node %s %s: %s\n", id.Path(), field, issue.Message)
+	}
+}
+
+func (t *Tap) warnSchemaValidation(result *keg.SchemaValidationResult, id keg.NodeId, stream *toolkit.Stream) {
+	if result == nil || result.Valid {
+		return
+	}
+	if stream == nil && t != nil && t.Runtime != nil {
+		stream = t.Runtime.Stream()
+	}
+	if stream == nil || stream.Err == nil {
+		return
+	}
+	for _, issue := range result.Issues {
+		message := issue.Message
+		if issue.Field != "" {
+			message = issue.Field + ": " + message
+		}
+		_, _ = fmt.Fprintf(stream.Err, "warning: node %s schema: %s\n", id.Path(), message)
 	}
 }
 

@@ -380,7 +380,7 @@ func (k *RemoteKeg) ValidateNodePayload(ctx context.Context, payload NodeValidat
 // Create implements Keg via a single POST /nodes carrying the composed
 // content (and meta when tags/attrs are set). The node payload is composed
 // client-side exactly as LocalKeg composes it; the hub assigns the id.
-func (k *RemoteKeg) Create(ctx context.Context, opts *CreateOptions) (NodeId, error) {
+func (k *RemoteKeg) Create(ctx context.Context, opts *CreateOptions) (CreateResult, error) {
 	if opts == nil {
 		opts = &CreateOptions{}
 	}
@@ -388,7 +388,7 @@ func (k *RemoteKeg) Create(ctx context.Context, opts *CreateOptions) (NodeId, er
 	// The id is assigned by the hub, so the default heading can't embed it.
 	nodeData, err := buildCreateNodeData(ctx, k.rt, opts, now, "New Node")
 	if err != nil {
-		return NodeId{}, err
+		return CreateResult{}, err
 	}
 
 	content := nodeData.Content.Body
@@ -402,12 +402,13 @@ func (k *RemoteKeg) Create(ctx context.Context, opts *CreateOptions) (NodeId, er
 	}
 
 	var result struct {
-		ID int `json:"id"`
+		ID         int                     `json:"id"`
+		Validation *SchemaValidationResult `json:"validation,omitempty"`
 	}
 	if err := k.postJSON(ctx, "/nodes", "Create", req, &result, http.StatusCreated, http.StatusOK); err != nil {
-		return NodeId{}, err
+		return CreateResult{}, err
 	}
-	return NodeId{ID: result.ID}, nil
+	return CreateResult{ID: NodeId{ID: result.ID}, Validation: result.Validation}, nil
 }
 
 // Next implements Keg via GET /nodes/next.
@@ -941,8 +942,17 @@ func (k *RemoteKeg) ExportNodes(ctx context.Context, opts ExportNodesOptions) (i
 		}
 		q.Set("nodes", strings.Join(paths, ","))
 	}
+	if strings.TrimSpace(opts.Query) != "" {
+		q.Set("query", opts.Query)
+	}
+	if opts.SkipZeroNode {
+		q.Set("skip_zero", "1")
+	}
 	if opts.WithHistory {
 		q.Set("history", "1")
+	}
+	if opts.HistoryIfSupported {
+		q.Set("history_if_supported", "1")
 	}
 	if opts.WithAssets {
 		q.Set("assets", "1")
@@ -964,9 +974,22 @@ func (k *RemoteKeg) ExportNodes(ctx context.Context, opts ExportNodesOptions) (i
 // ImportNodes implements Keg via POST /archive, streaming r as the request
 // body.
 func (k *RemoteKeg) ImportNodes(ctx context.Context, r io.Reader, opts ImportNodesOptions) ([]ImportedNode, error) {
-	path := "/archive"
+	q := url.Values{}
 	if opts.AssignNewIDs {
-		path += "?assign_new_ids=1"
+		q.Set("assign_new_ids", "1")
+	}
+	if opts.HistoryIfSupported {
+		q.Set("history_if_supported", "1")
+	}
+	if opts.SourceAlias != "" {
+		q.Set("source_alias", opts.SourceAlias)
+	}
+	if opts.TargetAlias != "" {
+		q.Set("target_alias", opts.TargetAlias)
+	}
+	path := "/archive"
+	if enc := q.Encode(); enc != "" {
+		path += "?" + enc
 	}
 	resp, err := k.do(ctx, http.MethodPost, path, r, "application/gzip", nil)
 	if err != nil {
@@ -978,8 +1001,9 @@ func (k *RemoteKeg) ImportNodes(ctx context.Context, r io.Reader, opts ImportNod
 	}
 	var result struct {
 		Imported []struct {
-			Source string `json:"source"`
-			ID     string `json:"id"`
+			Source     string `json:"source"`
+			SourceHash string `json:"source_hash"`
+			ID         string `json:"id"`
 		} `json:"imported"`
 	}
 	if err := json.Unmarshal(body, &result); err != nil {
@@ -993,7 +1017,7 @@ func (k *RemoteKeg) ImportNodes(ctx context.Context, r io.Reader, opts ImportNod
 			return nil, NewBackendError("remote", "ImportNodes", 0,
 				fmt.Errorf("invalid imported node id %q: %w", item.ID, err), false)
 		}
-		out = append(out, ImportedNode{SourceID: item.Source, ID: *id})
+		out = append(out, ImportedNode{SourceID: item.Source, SourceHash: item.SourceHash, ID: *id})
 	}
 	return out, nil
 }
@@ -1025,13 +1049,13 @@ func (li remoteLockInfo) toLockInfo() LockInfo {
 
 // Lock implements Keg via POST /nodes/{id}/lock. The hub owns the lease; no
 // client-side renewal goroutine runs.
-func (k *RemoteKeg) Lock(ctx context.Context, id NodeId) (LockToken, error) {
+func (k *RemoteKeg) Lock(ctx context.Context, id NodeId) (LockInfo, error) {
 	var info remoteLockInfo
 	path := fmt.Sprintf("/nodes/%d/lock", id.ID)
 	if err := k.postJSON(ctx, path, "Lock", struct{}{}, &info, http.StatusOK, http.StatusCreated); err != nil {
-		return "", err
+		return LockInfo{}, err
 	}
-	return LockToken(info.Token), nil
+	return info.toLockInfo(), nil
 }
 
 // Unlock implements Keg via DELETE /nodes/{id}/lock with the X-Lock-Token

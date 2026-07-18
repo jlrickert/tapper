@@ -28,7 +28,7 @@ func TestSnapshotPolicy_BadLatestContentHashWithIdenticalContentDoesNotDuplicate
 			require.NoError(t, err)
 			require.Len(t, result.Created, 1)
 
-			corruptLatestMemorySnapshot(t, repo, id, func(entry *memorySnapshotEntry) {
+			corruptLatestMemorySnapshot(t, repo, id.ID, func(entry *memorySnapshotEntry) {
 				entry.snapshot.ContentHash = tc.hash
 			})
 
@@ -36,7 +36,7 @@ func TestSnapshotPolicy_BadLatestContentHashWithIdenticalContentDoesNotDuplicate
 			require.NoError(t, err)
 			require.Equal(t, 0, result.CreatedCount())
 
-			snaps, err := k.ListSnapshots(ctx, id)
+			snaps, err := k.ListSnapshots(ctx, id.ID)
 			require.NoError(t, err)
 			require.Len(t, snaps, 1)
 		})
@@ -62,7 +62,7 @@ func TestSnapshotPolicy_BadLatestContentHashWithDifferentContentCreatesSnapshot(
 			require.NoError(t, err)
 			require.Len(t, result.Created, 1)
 
-			corruptLatestMemorySnapshot(t, repo, id, func(entry *memorySnapshotEntry) {
+			corruptLatestMemorySnapshot(t, repo, id.ID, func(entry *memorySnapshotEntry) {
 				entry.snapshot.ContentHash = tc.hash
 				entry.content = []byte("# Legacy Drift Target\n\nolder content\n")
 			})
@@ -72,7 +72,7 @@ func TestSnapshotPolicy_BadLatestContentHashWithDifferentContentCreatesSnapshot(
 			require.Len(t, result.Created, 1)
 			require.Equal(t, RevisionID(2), result.Created[0].ID)
 
-			snaps, err := k.ListSnapshots(ctx, id)
+			snaps, err := k.ListSnapshots(ctx, id.ID)
 			require.NoError(t, err)
 			require.Len(t, snaps, 2)
 		})

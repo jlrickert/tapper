@@ -4,8 +4,11 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
+	"context"
 	"encoding/json"
+	"errors"
 	"io"
+	"sync/atomic"
 	"testing"
 
 	"github.com/jlrickert/tapper/pkg/keg"
@@ -85,6 +88,81 @@ type repoWithoutSchemas struct {
 	keg.Repository
 }
 
+type failSecondNextRepo struct {
+	keg.Repository
+	calls atomic.Int32
+}
+
+func (r *failSecondNextRepo) Next(ctx context.Context) (keg.NodeId, error) {
+	if r.calls.Add(1) == 2 {
+		return keg.NodeId{}, errors.New("injected allocation failure")
+	}
+	return r.Repository.Next(ctx)
+}
+
+func TestArchiveManifestRecordsSourceHash(t *testing.T) {
+	fx := NewSandbox(t)
+	ctx := fx.Context()
+	src := keg.NewLocalKeg(keg.NewMemoryRepo(fx.Runtime()), fx.Runtime())
+	require.NoError(t, src.Init(ctx))
+	created, err := src.Create(ctx, &keg.CreateOptions{Body: []byte("# Source\n\nbody\n")})
+	require.NoError(t, err)
+	view, err := src.ReadNode(ctx, created.ID)
+	require.NoError(t, err)
+	archive := mustExportArchive(t, src, keg.ExportNodesOptions{NodeIDs: []keg.NodeId{created.ID}})
+	entries := readArchiveEntriesForTest(t, archive)
+	var manifest struct {
+		Nodes []struct {
+			SourceID   string `json:"source_id"`
+			SourceHash string `json:"source_hash"`
+		} `json:"nodes"`
+	}
+	require.NoError(t, json.Unmarshal(entries["keg-archive/manifest.json"], &manifest))
+	require.Equal(t, created.ID.Path(), manifest.Nodes[0].SourceID)
+	require.Equal(t, view.Stats.Hash(), manifest.Nodes[0].SourceHash)
+}
+
+func TestImportHistoryIfSupportedFallsBackWithoutSnapshots(t *testing.T) {
+	fx := NewSandbox(t)
+	ctx := fx.Context()
+	src := keg.NewLocalKeg(keg.NewMemoryRepo(fx.Runtime()), fx.Runtime())
+	require.NoError(t, src.Init(ctx))
+	created, err := src.Create(ctx, &keg.CreateOptions{Body: []byte("# Source\n\nbody\n")})
+	require.NoError(t, err)
+	require.NoError(t, src.Commit(ctx, created.ID))
+	archive := mustExportArchive(t, src, keg.ExportNodesOptions{NodeIDs: []keg.NodeId{created.ID}, WithHistory: true})
+
+	dst := keg.NewLocalKeg(&repoWithoutSchemas{Repository: keg.NewMemoryRepo(fx.Runtime())}, fx.Runtime())
+	require.NoError(t, dst.Init(ctx))
+	_, err = dst.ImportNodes(ctx, bytes.NewReader(archive), keg.ImportNodesOptions{HistoryIfSupported: true})
+	require.NoError(t, err)
+	view, err := dst.ReadNode(ctx, created.ID)
+	require.NoError(t, err)
+	require.Contains(t, string(view.Content), "# Source")
+}
+
+func TestImportCleansUnusedIDReservationsAfterAllocationFailure(t *testing.T) {
+	fx := NewSandbox(t)
+	ctx := fx.Context()
+	src := keg.NewLocalKeg(keg.NewMemoryRepo(fx.Runtime()), fx.Runtime())
+	require.NoError(t, src.Init(ctx))
+	one, err := src.Create(ctx, &keg.CreateOptions{Body: []byte("# One\n")})
+	require.NoError(t, err)
+	two, err := src.Create(ctx, &keg.CreateOptions{Body: []byte("# Two\n")})
+	require.NoError(t, err)
+	archive := mustExportArchive(t, src, keg.ExportNodesOptions{NodeIDs: []keg.NodeId{one.ID, two.ID}})
+
+	base := keg.NewMemoryRepo(fx.Runtime())
+	dst := keg.NewLocalKeg(base, fx.Runtime())
+	require.NoError(t, dst.Init(ctx))
+	failing := keg.NewLocalKeg(&failSecondNextRepo{Repository: base}, fx.Runtime())
+	_, err = failing.ImportNodes(ctx, bytes.NewReader(archive), keg.ImportNodesOptions{AssignNewIDs: true})
+	require.ErrorContains(t, err, "injected allocation failure")
+	ids, err := base.ListNodes(ctx)
+	require.NoError(t, err)
+	require.Equal(t, []keg.NodeId{{ID: 0}}, ids)
+}
+
 func markZeroAsTask(t *testing.T, k *keg.LocalKeg) {
 	t.Helper()
 	require.NoError(t, k.SetContent(t.Context(), keg.NodeId{ID: 0}, []byte("---\ntype: task\n---\n# Zero\n")))
@@ -110,8 +188,8 @@ func TestArchiveExportUsesAssetsDirectoryAndIncludesConfigForFullBackup(t *testi
 	require.NoError(t, src.Init(ctx))
 	id, err := src.Create(ctx, &keg.CreateOptions{Title: "asset node", Body: []byte("# asset node\n")})
 	require.NoError(t, err)
-	require.NoError(t, src.WriteFile(ctx, id, "doc.txt", []byte("doc bytes")))
-	require.NoError(t, src.WriteImage(ctx, id, "diagram.png", tinyPNG(t)))
+	require.NoError(t, src.WriteFile(ctx, id.ID, "doc.txt", []byte("doc bytes")))
+	require.NoError(t, src.WriteImage(ctx, id.ID, "diagram.png", tinyPNG(t)))
 
 	entries := readArchiveEntriesForTest(t, mustExportArchive(t, src, keg.ExportNodesOptions{WithAssets: true}))
 
@@ -123,8 +201,8 @@ func TestArchiveExportUsesAssetsDirectoryAndIncludesConfigForFullBackup(t *testi
 	require.Equal(t, "keg-archive/v3", manifest.Format)
 	require.True(t, manifest.WithConfig)
 	require.Contains(t, entries, "keg-archive/keg.yaml")
-	require.Contains(t, entries, "keg-archive/nodes/"+id.Path()+"/assets/doc.txt")
-	require.Contains(t, entries, "keg-archive/nodes/"+id.Path()+"/images/diagram.png")
+	require.Contains(t, entries, "keg-archive/nodes/"+id.ID.Path()+"/assets/doc.txt")
+	require.Contains(t, entries, "keg-archive/nodes/"+id.ID.Path()+"/images/diagram.png")
 	for name := range entries {
 		require.NotContains(t, name, "/files/")
 	}
@@ -223,7 +301,7 @@ func TestArchiveImportNodeSubsetDoesNotRestoreKegConfig(t *testing.T) {
 		cfg.Summary = "Source summary"
 	}))
 
-	archive := mustExportArchive(t, src, keg.ExportNodesOptions{NodeIDs: []keg.NodeId{id}, WithAssets: true})
+	archive := mustExportArchive(t, src, keg.ExportNodesOptions{NodeIDs: []keg.NodeId{id.ID}, WithAssets: true})
 	entries := readArchiveEntriesForTest(t, archive)
 	require.NotContains(t, entries, "keg-archive/keg.yaml")
 	var manifest struct {
@@ -260,7 +338,7 @@ func TestArchiveExportNodeSubsetOmitsSchemas(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	entries := readArchiveEntriesForTest(t, mustExportArchive(t, src, keg.ExportNodesOptions{NodeIDs: []keg.NodeId{id}}))
+	entries := readArchiveEntriesForTest(t, mustExportArchive(t, src, keg.ExportNodesOptions{NodeIDs: []keg.NodeId{id.ID}}))
 
 	var manifest struct {
 		WithSchemas bool     `json:"with_schemas"`
@@ -353,7 +431,7 @@ markdown:
 
 	_, err = dst.ImportNodes(ctx, bytes.NewReader(archive), keg.ImportNodesOptions{})
 	require.NoError(t, err)
-	exists, err := dst.NodeExists(ctx, id)
+	exists, err := dst.NodeExists(ctx, id.ID)
 	require.NoError(t, err)
 	require.True(t, exists)
 }
@@ -376,7 +454,7 @@ func TestArchiveImportSkipsSchemaEnforcementEvenWithBlockOverride(t *testing.T) 
 	blockCtx := keg.WithValidationMode(ctx, keg.ValidationModeBlock)
 	_, err = dst.ImportNodes(blockCtx, bytes.NewReader(archive), keg.ImportNodesOptions{})
 	require.NoError(t, err)
-	result, err := dst.ValidateNode(ctx, id)
+	result, err := dst.ValidateNode(ctx, id.ID)
 	require.NoError(t, err)
 	require.False(t, result.Valid)
 }
@@ -439,7 +517,7 @@ func TestArchiveImportRejectsMalformedSchemaBeforeWritingNodes(t *testing.T) {
 	require.NoError(t, dst.Init(ctx))
 	_, err = dst.ImportNodes(ctx, bytes.NewReader(broken), keg.ImportNodesOptions{})
 	require.Error(t, err)
-	exists, err := dst.NodeExists(ctx, id)
+	exists, err := dst.NodeExists(ctx, id.ID)
 	require.NoError(t, err)
 	require.False(t, exists)
 	_, err = dst.ReadSchema(ctx, "task")
@@ -466,7 +544,7 @@ func TestArchiveImportRejectsSchemasWhenTargetDoesNotSupportThemBeforeWritingNod
 	require.NoError(t, dst.Init(ctx))
 	_, err = dst.ImportNodes(ctx, bytes.NewReader(archive), keg.ImportNodesOptions{})
 	require.ErrorIs(t, err, keg.ErrNotSupported)
-	exists, err := dst.NodeExists(ctx, id)
+	exists, err := dst.NodeExists(ctx, id.ID)
 	require.NoError(t, err)
 	require.False(t, exists)
 }
@@ -480,21 +558,21 @@ func TestArchiveImportRejectsNestedAssetNameBeforeWritingNodes(t *testing.T) {
 	require.NoError(t, src.Init(ctx))
 	id, err := src.Create(ctx, &keg.CreateOptions{Title: "asset node", Body: []byte("# asset node\n")})
 	require.NoError(t, err)
-	require.NoError(t, src.WriteFile(ctx, id, "doc.txt", []byte("doc bytes")))
+	require.NoError(t, src.WriteFile(ctx, id.ID, "doc.txt", []byte("doc bytes")))
 	archive := mustExportArchive(t, src, keg.ExportNodesOptions{WithAssets: true})
 
 	broken := retarWithRenamedEntry(
 		t,
 		archive,
-		"keg-archive/nodes/"+id.Path()+"/assets/doc.txt",
-		"keg-archive/nodes/"+id.Path()+"/assets/nested/doc.txt",
+		"keg-archive/nodes/"+id.ID.Path()+"/assets/doc.txt",
+		"keg-archive/nodes/"+id.ID.Path()+"/assets/nested/doc.txt",
 	)
 
 	dst := keg.NewLocalKeg(keg.NewMemoryRepo(fx.Runtime()), fx.Runtime())
 	require.NoError(t, dst.Init(ctx))
 	_, err = dst.ImportNodes(ctx, bytes.NewReader(broken), keg.ImportNodesOptions{})
 	require.ErrorIs(t, err, keg.ErrInvalidAssetName)
-	exists, err := dst.NodeExists(ctx, id)
+	exists, err := dst.NodeExists(ctx, id.ID)
 	require.NoError(t, err)
 	require.False(t, exists)
 }

@@ -4,11 +4,55 @@ import (
 	"context"
 	"errors"
 	"math"
+	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/jlrickert/cli-toolkit/sandbox"
 	kegpkg "github.com/jlrickert/tapper/pkg/keg"
 )
+
+func TestCreateSchemaConcurrentExactlyOneWinner(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		repo func(*sandbox.Sandbox) kegpkg.Repository
+	}{
+		{name: "memory", repo: func(f *sandbox.Sandbox) kegpkg.Repository { return kegpkg.NewMemoryRepo(f.Runtime()) }},
+		{name: "filesystem", repo: func(f *sandbox.Sandbox) kegpkg.Repository {
+			return kegpkg.NewFsRepo("~/schema-concurrent", f.Runtime())
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := sandbox.NewSandbox(t, &sandbox.Options{Home: "/home/testuser", User: "testuser"})
+			k := kegpkg.NewLocalKeg(tc.repo(f), f.Runtime())
+			var successes atomic.Int32
+			errCh := make(chan error, 16)
+			var wg sync.WaitGroup
+			for i := 0; i < 16; i++ {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					err := k.CreateSchema(context.Background(), "task", []byte("type: task\n"))
+					switch {
+					case err == nil:
+						successes.Add(1)
+					case errors.Is(err, kegpkg.ErrExist):
+					default:
+						errCh <- err
+					}
+				}()
+			}
+			wg.Wait()
+			close(errCh)
+			for err := range errCh {
+				t.Errorf("CreateSchema: %v", err)
+			}
+			if got := successes.Load(); got != 1 {
+				t.Fatalf("successful creators = %d, want 1", got)
+			}
+		})
+	}
+}
 
 func TestSchemaValidationCreatePolicy(t *testing.T) {
 	f := sandbox.NewSandbox(t, &sandbox.Options{Home: "/home/testuser", User: "testuser"})
@@ -46,7 +90,7 @@ markdown:
 	if err != nil {
 		t.Fatalf("human Create should warn, not block: %v", err)
 	}
-	result, err := k.ValidateNode(ctx, id)
+	result, err := k.ValidateNode(ctx, id.ID)
 	if err != nil {
 		t.Fatalf("ValidateNode: %v", err)
 	}
@@ -58,7 +102,7 @@ markdown:
 	if err != nil {
 		t.Fatalf("typed Create: %v", err)
 	}
-	result, err = k.ValidateNode(ctx, id)
+	result, err = k.ValidateNode(ctx, id.ID)
 	if err != nil {
 		t.Fatalf("ValidateNode typed: %v", err)
 	}
@@ -170,26 +214,26 @@ markdown:
 	if err != nil {
 		t.Fatalf("Create evidence: %v", err)
 	}
-	if _, err := k.AppendSnapshot(ctx, evidenceID, "evidence ready"); err != nil {
+	if _, err := k.AppendSnapshot(ctx, evidenceID.ID, "evidence ready"); err != nil {
 		t.Fatalf("AppendSnapshot evidence: %v", err)
 	}
-	if err := k.UpdateMeta(ctx, evidenceID, func(meta *kegpkg.NodeMeta) {
+	if err := k.UpdateMeta(ctx, evidenceID.ID, func(meta *kegpkg.NodeMeta) {
 		_ = meta.Set(ctx, "status", "draft")
 	}); err != nil {
 		t.Fatalf("unsnapshotted evidence edit: %v", err)
 	}
 	sourceID, err := k.Create(ctx, &kegpkg.CreateOptions{
-		Body:  []byte("# Source\n\n[Evidence](../" + evidenceID.Path() + ")\n"),
+		Body:  []byte("# Source\n\n[Evidence](../" + evidenceID.ID.Path() + ")\n"),
 		Attrs: map[string]any{"type": "note"},
 	})
 	if err != nil {
 		t.Fatalf("Create source: %v", err)
 	}
-	sourceSnap, err := k.AppendSnapshot(ctx, sourceID, "source")
+	sourceSnap, err := k.AppendSnapshot(ctx, sourceID.ID, "source")
 	if err != nil {
 		t.Fatalf("AppendSnapshot source: %v", err)
 	}
-	_, _, _, snapStats, err := k.GetSnapshot(ctx, sourceID, sourceSnap.ID, kegpkg.SnapshotReadOptions{ResolveContent: true})
+	_, _, _, snapStats, err := k.GetSnapshot(ctx, sourceID.ID, sourceSnap.ID, kegpkg.SnapshotReadOptions{ResolveContent: true})
 	if err != nil {
 		t.Fatalf("GetSnapshot source: %v", err)
 	}
@@ -202,17 +246,17 @@ markdown:
 	}
 
 	reviewID, err := k.Create(ctx, &kegpkg.CreateOptions{
-		Body:  []byte("# Review\n\n[Source](../" + sourceID.Path() + ")\n"),
+		Body:  []byte("# Review\n\n[Source](../" + sourceID.ID.Path() + ")\n"),
 		Attrs: map[string]any{"type": "evidence", "certainty": 0.5},
 	})
 	if err != nil {
 		t.Fatalf("Create backlink evidence: %v", err)
 	}
-	if _, err := k.AppendSnapshot(ctx, reviewID, "review"); err != nil {
+	if _, err := k.AppendSnapshot(ctx, reviewID.ID, "review"); err != nil {
 		t.Fatalf("AppendSnapshot review: %v", err)
 	}
 
-	stats, err := k.GetStats(ctx, sourceID)
+	stats, err := k.GetStats(ctx, sourceID.ID)
 	if err != nil {
 		t.Fatalf("GetStats: %v", err)
 	}
@@ -224,7 +268,7 @@ markdown:
 		t.Fatalf("omega = %v, want %v", omega, 2.5/3)
 	}
 
-	view, err := k.ReadNode(ctx, sourceID)
+	view, err := k.ReadNode(ctx, sourceID.ID)
 	if err != nil {
 		t.Fatalf("ReadNode: %v", err)
 	}
@@ -239,7 +283,7 @@ markdown:
 	}
 	found := false
 	for _, match := range matches {
-		if match.ID == sourceID.Path() {
+		if match.ID == sourceID.ID.Path() {
 			found = true
 		}
 	}
@@ -289,11 +333,11 @@ markdown:
 	if err != nil {
 		t.Fatalf("Create note: %v", err)
 	}
-	snap, err := k.AppendSnapshot(ctx, id, "own metadata")
+	snap, err := k.AppendSnapshot(ctx, id.ID, "own metadata")
 	if err != nil {
 		t.Fatalf("AppendSnapshot note: %v", err)
 	}
-	_, _, _, snapStats, err := k.GetSnapshot(ctx, id, snap.ID, kegpkg.SnapshotReadOptions{ResolveContent: true})
+	_, _, _, snapStats, err := k.GetSnapshot(ctx, id.ID, snap.ID, kegpkg.SnapshotReadOptions{ResolveContent: true})
 	if err != nil {
 		t.Fatalf("GetSnapshot note: %v", err)
 	}
@@ -305,7 +349,7 @@ markdown:
 	if math.Abs(snapshotOmega-wantOmega) > 0.000001 {
 		t.Fatalf("snapshot omega = %v, want %v", snapshotOmega, wantOmega)
 	}
-	stats, err := k.GetStats(ctx, id)
+	stats, err := k.GetStats(ctx, id.ID)
 	if err != nil {
 		t.Fatalf("GetStats: %v", err)
 	}
@@ -346,10 +390,10 @@ markdown:
 	if err != nil {
 		t.Fatalf("Create note: %v", err)
 	}
-	if _, err := k.AppendSnapshot(ctx, id, "legacy own metadata"); err != nil {
+	if _, err := k.AppendSnapshot(ctx, id.ID, "legacy own metadata"); err != nil {
 		t.Fatalf("AppendSnapshot note: %v", err)
 	}
-	stats, err := k.GetStats(ctx, id)
+	stats, err := k.GetStats(ctx, id.ID)
 	if err != nil {
 		t.Fatalf("GetStats: %v", err)
 	}
@@ -409,21 +453,21 @@ markdown:
 	if err != nil {
 		t.Fatalf("Create evidence: %v", err)
 	}
-	if _, err := k.AppendSnapshot(ctx, evidenceID, "evidence"); err != nil {
+	if _, err := k.AppendSnapshot(ctx, evidenceID.ID, "evidence"); err != nil {
 		t.Fatalf("AppendSnapshot evidence: %v", err)
 	}
 	noteID, err := k.Create(ctx, &kegpkg.CreateOptions{
-		Body:  []byte("# Source\n\n[Evidence](../" + evidenceID.Path() + ")\n"),
+		Body:  []byte("# Source\n\n[Evidence](../" + evidenceID.ID.Path() + ")\n"),
 		Attrs: map[string]any{"type": "note", "status": "draft"},
 	})
 	if err != nil {
 		t.Fatalf("Create note: %v", err)
 	}
-	if _, err := k.AppendSnapshot(ctx, noteID, "note"); err != nil {
+	if _, err := k.AppendSnapshot(ctx, noteID.ID, "note"); err != nil {
 		t.Fatalf("AppendSnapshot note: %v", err)
 	}
 
-	stats, err := k.GetStats(ctx, noteID)
+	stats, err := k.GetStats(ctx, noteID.ID)
 	if err != nil {
 		t.Fatalf("GetStats: %v", err)
 	}

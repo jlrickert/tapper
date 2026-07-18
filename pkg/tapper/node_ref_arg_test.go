@@ -46,7 +46,7 @@ hubs:
 		require.NoError(t, k.Init(ctx))
 		id, err := k.Create(ctx, &keg.CreateOptions{Body: []byte(body)})
 		require.NoError(t, err)
-		return id
+		return id.ID
 	}
 
 	currentID = makeNode("current", "I live in the CURRENT keg.\n")

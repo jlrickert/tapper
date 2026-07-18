@@ -29,7 +29,7 @@ func TestSnapshotPolicy_MissingSnapshotAfterIdle(t *testing.T) {
 	require.Equal(t, kegpkg.SnapshotModeAuto, result.Mode)
 	require.Equal(t, time.Hour, result.IdleAfter)
 	require.Len(t, result.Created, 1)
-	require.True(t, result.Created[0].Node.Equals(id))
+	require.True(t, result.Created[0].Node.Equals(id.ID))
 	require.Equal(t, kegpkg.AutoSnapshotMessage(time.Hour), result.Created[0].Message)
 	timeline, err := k.Repo.GetIndex(ctx, kegpkg.TimelineIndexName)
 	require.NoError(t, err)
@@ -72,7 +72,7 @@ func TestSnapshotPolicy_ContentDriftCreatesSnapshot(t *testing.T) {
 	require.Len(t, result.Created, 1)
 
 	fx.Advance(time.Minute)
-	require.NoError(t, k.SetContent(ctx, id, []byte("# Drift Target\n\nnew content\n")))
+	require.NoError(t, k.SetContent(ctx, id.ID, []byte("# Drift Target\n\nnew content\n")))
 	fx.Advance(2 * time.Hour)
 	result, err = k.RunSnapshotPolicy(ctx)
 	require.NoError(t, err)
@@ -92,10 +92,10 @@ func TestSnapshotPolicy_MetadataDriftDoesNotCreateSnapshotAndRemainsDirty(t *tes
 	require.Len(t, result.Created, 1)
 
 	fx.Advance(time.Minute)
-	require.NoError(t, k.UpdateMeta(ctx, id, func(meta *kegpkg.NodeMeta) {
+	require.NoError(t, k.UpdateMeta(ctx, id.ID, func(meta *kegpkg.NodeMeta) {
 		_ = meta.Set(ctx, "status", "ready")
 	}))
-	stats, err := k.GetStats(ctx, id)
+	stats, err := k.GetStats(ctx, id.ID)
 	require.NoError(t, err)
 	require.Equal(t, fx.Now(), stats.Updated())
 
@@ -104,13 +104,13 @@ func TestSnapshotPolicy_MetadataDriftDoesNotCreateSnapshotAndRemainsDirty(t *tes
 	require.NoError(t, err)
 	require.Equal(t, 0, result.CreatedCount())
 
-	snaps, err := k.ListSnapshots(ctx, id)
+	snaps, err := k.ListSnapshots(ctx, id.ID)
 	require.NoError(t, err)
 	require.Len(t, snaps, 1)
 
 	dirty, err := k.Repo.GetIndex(ctx, kegpkg.DirtyIndexName)
 	require.NoError(t, err)
-	require.Contains(t, string(dirty), `"node":"`+id.Path()+`"`)
+	require.Contains(t, string(dirty), `"node":"`+id.ID.Path()+`"`)
 }
 
 func TestSnapshotPolicy_TouchDoesNotCreateSnapshot(t *testing.T) {
@@ -125,7 +125,7 @@ func TestSnapshotPolicy_TouchDoesNotCreateSnapshot(t *testing.T) {
 	require.Len(t, result.Created, 1)
 
 	fx.Advance(time.Minute)
-	require.NoError(t, k.Touch(ctx, id))
+	require.NoError(t, k.Touch(ctx, id.ID))
 	fx.Advance(2 * time.Hour)
 	result, err = k.RunSnapshotPolicy(ctx)
 	require.NoError(t, err)

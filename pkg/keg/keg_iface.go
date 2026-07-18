@@ -36,6 +36,7 @@ type Keg interface {
 	// SetConfig replaces the keg configuration with the supplied raw YAML.
 	// Raw bytes preserve user formatting for round-trip editing.
 	SetConfig(ctx context.Context, data []byte) error
+	Inspect(ctx context.Context) (*KegInspection, error)
 
 	// Schemas describe valid note types for this keg. Filesystem repositories
 	// store them under schemas/<type>.schema.yaml; remote repositories expose the
@@ -43,6 +44,7 @@ type Keg interface {
 	ListSchemas(ctx context.Context) ([]string, error)
 	ReadSchema(ctx context.Context, typeName string) ([]byte, error)
 	WriteSchema(ctx context.Context, typeName string, data []byte) error
+	CreateSchema(ctx context.Context, typeName string, data []byte) error
 	DeleteSchema(ctx context.Context, typeName string) error
 	ValidateNode(ctx context.Context, id NodeId) (*SchemaValidationResult, error)
 	ValidateNodePayload(ctx context.Context, payload NodeValidationPayload) (*SchemaValidationResult, error)
@@ -50,7 +52,7 @@ type Keg interface {
 	// Node lifecycle
 
 	// Create allocates a node id and writes initial content, meta, and stats.
-	Create(ctx context.Context, opts *CreateOptions) (NodeId, error)
+	Create(ctx context.Context, opts *CreateOptions) (CreateResult, error)
 
 	// Next reports the next node id that Create would allocate.
 	Next(ctx context.Context) (NodeId, error)
@@ -78,6 +80,10 @@ type Keg interface {
 	// ReadNode returns the node's full state in one operation: content, raw
 	// meta, stats, and asset name lists.
 	ReadNode(ctx context.Context, id NodeId) (*NodeView, error)
+	OpenNode(ctx context.Context, opts NodeOpenOptions) (*NodeView, error)
+	ReadNodes(ctx context.Context, opts ReadNodesOptions) ([]NodeView, error)
+	UpdateNode(ctx context.Context, opts NodeUpdateOptions) (*NodeUpdateResult, error)
+	ReplaceNodesWithRedirects(ctx context.Context, redirects []NodeRedirect) (ReplaceNodesWithRedirectsResult, error)
 
 	// GetContent returns the node's primary content (README.md).
 	GetContent(ctx context.Context, id NodeId) ([]byte, error)
@@ -107,6 +113,13 @@ type Keg interface {
 	// Dex returns the keg's current index aggregate. The returned dex
 	// reflects committed state at call time (always-fresh semantics).
 	Dex(ctx context.Context) (*Dex, error)
+	DexArtifacts(ctx context.Context) (*DexArtifacts, error)
+	ListEntries(ctx context.Context, opts ListEntriesOptions) (*ListEntriesResult, error)
+	RelatedNodes(ctx context.Context, opts RelatedNodesOptions) ([]NodeIndexEntry, error)
+	Graph(ctx context.Context) (*GraphView, error)
+	Doctor(ctx context.Context) ([]DoctorIssue, error)
+	RemoveNodes(ctx context.Context, opts RemoveNodesOptions) (RemoveNodesResult, error)
+	ValidateNodes(ctx context.Context, opts ValidateNodesOptions) ([]SchemaValidationResult, error)
 
 	// Query evaluates a boolean query expression (tags, key=value attribute
 	// predicates, .field stats predicates) and returns matching index
@@ -171,7 +184,7 @@ type Keg interface {
 	// Cross-process locks
 
 	// Lock acquires a cross-process advisory lock on a node.
-	Lock(ctx context.Context, id NodeId) (LockToken, error)
+	Lock(ctx context.Context, id NodeId) (LockInfo, error)
 
 	// Unlock releases a lock acquired by Lock; the token must match.
 	Unlock(ctx context.Context, id NodeId, token LockToken) error
@@ -246,8 +259,14 @@ type KegSummary struct {
 type ExportNodesOptions struct {
 	// NodeIDs selects nodes to export; empty exports every node.
 	NodeIDs []NodeId
+	// Query selects additional nodes as a union with NodeIDs.
+	Query string
+	// SkipZeroNode excludes the keg root node from the selection.
+	SkipZeroNode bool
 	// WithHistory includes snapshot revisions.
 	WithHistory bool
+	// HistoryIfSupported omits history instead of failing when snapshots are unavailable.
+	HistoryIfSupported bool
 	// WithAssets includes per-node files and images.
 	WithAssets bool
 	// Source labels the archive manifest with the origin keg reference.
@@ -260,6 +279,9 @@ type ImportNodesOptions struct {
 	// nodes instead of landing them on their archive ids. Links between
 	// imported nodes are rewritten to the new ids.
 	AssignNewIDs bool
+	// HistoryIfSupported omits archived history instead of failing when the
+	// destination repository does not implement snapshots.
+	HistoryIfSupported bool
 	// SourceAlias, when set, rewrites relative links that point at
 	// un-imported source nodes to keg:SourceAlias/N cross-keg links.
 	SourceAlias string
@@ -270,6 +292,7 @@ type ImportNodesOptions struct {
 
 // ImportedNode maps an archive source id to the node id it landed on.
 type ImportedNode struct {
-	SourceID string
-	ID       NodeId
+	SourceID   string
+	SourceHash string
+	ID         NodeId
 }

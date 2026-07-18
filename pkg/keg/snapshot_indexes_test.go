@@ -23,18 +23,20 @@ func TestTimelineIndex_OrdersSnapshotRowsAndReplaysBacklinks(t *testing.T) {
 	t3 := t2.Add(time.Hour)
 
 	setSnapshotIndexClock(t, rt, t1)
-	alpha, err := k.Create(ctx, &CreateOptions{
+	alphaResult, err := k.Create(ctx, &CreateOptions{
 		Body: []byte("---\ntype: task\n---\n# Alpha\n\nSee [three](../3).\n"),
 	})
 	require.NoError(t, err)
+	alpha := alphaResult.ID
 	alphaSnap1, err := k.AppendSnapshot(ctx, alpha, "initial")
 	require.NoError(t, err)
 
 	setSnapshotIndexClock(t, rt, t2)
-	beta, err := k.Create(ctx, &CreateOptions{
+	betaResult, err := k.Create(ctx, &CreateOptions{
 		Body: []byte("# Beta\n\nSee [alpha](../1).\n"),
 	})
 	require.NoError(t, err)
+	beta := betaResult.ID
 	_, err = k.AppendSnapshot(ctx, beta, "beta")
 	require.NoError(t, err)
 
@@ -80,8 +82,9 @@ func TestDirtyIndex_DetectsNoSnapshotsMatchingLatestAndStaleStats(t *testing.T) 
 	k, _ := newSnapshotIndexTestKeg(t)
 	ctx := t.Context()
 
-	id, err := k.Create(ctx, &CreateOptions{Body: []byte("# Alpha\n\nbody\n")})
+	created, err := k.Create(ctx, &CreateOptions{Body: []byte("# Alpha\n\nbody\n")})
 	require.NoError(t, err)
+	id := created.ID
 
 	rows := dirtyRowsByNode(t, k)
 	require.Contains(t, rows, id.Path())
@@ -145,26 +148,29 @@ markdown:
 
 	t1 := time.Date(2026, 2, 26, 10, 0, 0, 0, time.UTC)
 	setSnapshotIndexClock(t, rt, t1)
-	evidence, err := k.Create(ctx, &CreateOptions{Title: "Evidence", Attrs: map[string]any{"type": "evidence", "status": "ready"}})
+	evidenceResult, err := k.Create(ctx, &CreateOptions{Title: "Evidence", Attrs: map[string]any{"type": "evidence", "status": "ready"}})
 	require.NoError(t, err)
+	evidence := evidenceResult.ID
 	_, err = k.AppendSnapshot(ctx, evidence, "evidence")
 	require.NoError(t, err)
 
 	setSnapshotIndexClock(t, rt, t1.Add(time.Hour))
-	source, err := k.Create(ctx, &CreateOptions{
+	sourceResult, err := k.Create(ctx, &CreateOptions{
 		Body:  []byte("# Source\n\n[Evidence](../" + evidence.Path() + ")\n"),
 		Attrs: map[string]any{"type": "note"},
 	})
 	require.NoError(t, err)
+	source := sourceResult.ID
 	_, err = k.AppendSnapshot(ctx, source, "source")
 	require.NoError(t, err)
 
 	setSnapshotIndexClock(t, rt, t1.Add(2*time.Hour))
-	review, err := k.Create(ctx, &CreateOptions{
+	reviewResult, err := k.Create(ctx, &CreateOptions{
 		Body:  []byte("# Review\n\n[Source](../" + source.Path() + ")\n"),
 		Attrs: map[string]any{"type": "evidence", "certainty": 0.5},
 	})
 	require.NoError(t, err)
+	review := reviewResult.ID
 	_, err = k.AppendSnapshot(ctx, review, "review")
 	require.NoError(t, err)
 

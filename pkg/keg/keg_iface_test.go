@@ -155,9 +155,9 @@ func TestLockUnlockRoundTrip(t *testing.T) {
 
 	info, err := k.LockStatus(f.Context(), id)
 	require.NoError(t, err)
-	require.Equal(t, token, info.Token)
+	require.Equal(t, token.Token, info.Token)
 
-	require.NoError(t, k.Unlock(f.Context(), id, token))
+	require.NoError(t, k.Unlock(f.Context(), id, token.Token))
 
 	info, err = k.LockStatus(f.Context(), id)
 	require.NoError(t, err)

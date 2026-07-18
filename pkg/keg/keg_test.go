@@ -151,17 +151,17 @@ func TestCreateNodeWithMeta(t *testing.T) {
 	}
 	id, err := k.Create(f.Context(), opts)
 	require.NoError(t, err)
-	require.Equal(t, 1, id.ID, "expected created node id to be 1")
+	require.Equal(t, 1, id.ID.ID, "expected created node id to be 1")
 
-	content, err := k.GetContent(f.Context(), id)
+	content, err := k.GetContent(f.Context(), id.ID)
 	require.NoError(t, err)
 	require.Contains(t, string(content), "# MyTitle")
 
-	stats, err := k.GetStats(f.Context(), id)
+	stats, err := k.GetStats(f.Context(), id.ID)
 	require.NoError(t, err)
 	require.Equal(t, "short lead", stats.Lead())
 	// normalized tags should include "tag-a"
-	m, err := k.GetMeta(f.Context(), id)
+	m, err := k.GetMeta(f.Context(), id.ID)
 	require.NoError(t, err)
 	foundTag := slices.Contains(m.Tags(), "tag-a")
 	require.True(t, foundTag, "expected normalized tag 'tag-a' to be present")
@@ -183,13 +183,13 @@ func TestCreateWithBody(t *testing.T) {
 	}
 	id, err := k.Create(f.Context(), opts)
 	require.NoError(t, err)
-	require.Equal(t, 1, id.ID, "expected created node id to be 1")
+	require.Equal(t, 1, id.ID.ID, "expected created node id to be 1")
 
-	got, err := k.GetContent(f.Context(), id)
+	got, err := k.GetContent(f.Context(), id.ID)
 	require.NoError(t, err)
 	require.Equal(t, string(body), string(got))
 
-	stats, err := k.GetStats(f.Context(), id)
+	stats, err := k.GetStats(f.Context(), id.ID)
 	require.NoError(t, err)
 	require.Equal(t, "BodyTitle", stats.Title())
 	require.Equal(t, "body paragraph", stats.Lead())
@@ -216,18 +216,18 @@ fm lead paragraph
 `)
 	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Body: rawBody})
 	require.NoError(t, err)
-	require.Equal(t, 1, id.ID, "expected created node id to be 1")
+	require.Equal(t, 1, id.ID.ID, "expected created node id to be 1")
 
-	got, err := k.GetContent(f.Context(), id)
+	got, err := k.GetContent(f.Context(), id.ID)
 	content, _ := kegpkg.ParseContent(f.Runtime(), rawBody, kegpkg.FormatMarkdown)
 	require.NoError(t, err)
 	require.Equal(t, content.Body, string(got))
 
-	m, err := k.GetMeta(f.Context(), id)
+	m, err := k.GetMeta(f.Context(), id.ID)
 	require.NoError(t, err)
 
 	// Title should be derived from the first H1 in the markdown body.
-	stats, err := k.GetStats(f.Context(), id)
+	stats, err := k.GetStats(f.Context(), id.ID)
 	require.NoError(t, err)
 	require.Equal(t, "FMTitle", stats.Title())
 	require.Equal(t, "fm lead paragraph", stats.Lead())
@@ -254,9 +254,9 @@ func TestSetContentAndUpdate(t *testing.T) {
 
 	// change content to include a new lead paragraph
 	newContent := []byte("# Initial\n\nupdated lead paragraph\n")
-	require.NoError(t, k.SetContent(f.Context(), id, newContent))
+	require.NoError(t, k.SetContent(f.Context(), id.ID, newContent))
 
-	stats, err := k.GetStats(f.Context(), id)
+	stats, err := k.GetStats(f.Context(), id.ID)
 	require.NoError(t, err)
 	require.Equal(t, "updated lead paragraph", stats.Lead())
 }
@@ -282,15 +282,15 @@ func TestCreateAndUpdateNodesWithFsRepo(t *testing.T) {
 	}
 	id, err := k.Create(f.Context(), opts)
 	require.NoError(t, err)
-	require.Equal(t, 1, id.ID, "expected created node id to be 1")
+	require.Equal(t, 1, id.ID.ID, "expected created node id to be 1")
 
 	// Dex should expose the node entry.
 	dex, err := k.Dex(f.Context())
 	require.NoError(t, err)
 
-	ref := dex.GetRef(f.Context(), id)
+	ref := dex.GetRef(f.Context(), id.ID)
 	require.NotNil(t, ref, "dex should contain created node")
-	require.Equal(t, id.Path(), ref.ID)
+	require.Equal(t, id.ID.Path(), ref.ID)
 
 	// Ensure zero node is present in dex as well.
 	zeroRef := dex.GetRef(f.Context(), kegpkg.NodeId{ID: 0})
@@ -302,10 +302,10 @@ func TestCreateAndUpdateNodesWithFsRepo(t *testing.T) {
 	f.Advance(2 * time.Minute)
 	// Update content to change the lead.
 	newContent := []byte("# FSNode\n\nnew lead from fs\n")
-	require.NoError(t, k.SetContent(f.Context(), id, newContent))
+	require.NoError(t, k.SetContent(f.Context(), id.ID, newContent))
 
 	// NodeMeta should reflect the new lead.
-	stats, err := k.GetStats(f.Context(), id)
+	stats, err := k.GetStats(f.Context(), id.ID)
 	require.NoError(t, err)
 	require.Equal(t, "new lead from fs", stats.Lead())
 
@@ -314,7 +314,7 @@ func TestCreateAndUpdateNodesWithFsRepo(t *testing.T) {
 	require.NoError(t, err)
 
 	// Dex entry should have a newer updated timestamp.
-	ref2 := dex.GetRef(f.Context(), id)
+	ref2 := dex.GetRef(f.Context(), id.ID)
 	require.NotNil(t, ref2)
 	require.True(t, ref2.Updated.After(createdUpdated),
 		"expected dex updated timestamp to advance after content update")
@@ -338,7 +338,7 @@ func TestNodesWithTagsAndInterlinks(t *testing.T) {
 	}
 	idA, err := k.Create(f.Context(), optsA)
 	require.NoError(t, err)
-	require.Equal(t, 1, idA.ID)
+	require.Equal(t, 1, idA.ID.ID)
 
 	// Create node B with tags
 	optsB := &kegpkg.CreateOptions{
@@ -348,14 +348,14 @@ func TestNodesWithTagsAndInterlinks(t *testing.T) {
 	}
 	idB, err := k.Create(f.Context(), optsB)
 	require.NoError(t, err)
-	require.Equal(t, 2, idB.ID)
+	require.Equal(t, 2, idB.ID.ID)
 
 	// Update content so nodes link to each other using ../N links.
 	contentA := []byte("# NodeA\n\nSee NodeB: [B](../2)\n")
-	require.NoError(t, k.SetContent(f.Context(), idA, contentA))
+	require.NoError(t, k.SetContent(f.Context(), idA.ID, contentA))
 
 	contentB := []byte("# NodeB\n\nSee NodeA: [A](../1)\n")
-	require.NoError(t, k.SetContent(f.Context(), idB, contentB))
+	require.NoError(t, k.SetContent(f.Context(), idB.ID, contentB))
 
 	// Load dex and verify in-memory indexes.
 	dex, err := k.Dex(f.Context())
@@ -388,15 +388,15 @@ func TestNodesWithTagsAndInterlinks(t *testing.T) {
 	require.Contains(t, bs, "1\t2")
 
 	// In-memory link lookups should reflect outgoing and incoming links.
-	outA, ok := dex.Links(f.Context(), idA)
+	outA, ok := dex.Links(f.Context(), idA.ID)
 	require.True(t, ok)
 	require.Equal(t, 1, len(outA))
-	require.Equal(t, idB.ID, outA[0].ID)
+	require.Equal(t, idB.ID.ID, outA[0].ID)
 
-	inB, ok := dex.Backlinks(f.Context(), idB)
+	inB, ok := dex.Backlinks(f.Context(), idB.ID)
 	require.True(t, ok)
 	require.Equal(t, 1, len(inB))
-	require.Equal(t, idA.ID, inB[0].ID)
+	require.Equal(t, idA.ID.ID, inB[0].ID)
 }
 
 // TestIndexFilesHaveExpectedData verifies the repository index artifacts that
@@ -494,14 +494,14 @@ func TestMove_RewritesLinksAndUpdatesDex(t *testing.T) {
 
 	id1, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "One"})
 	require.NoError(t, err)
-	require.Equal(t, 1, id1.ID)
+	require.Equal(t, 1, id1.ID.ID)
 
 	id2, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "Two"})
 	require.NoError(t, err)
-	require.Equal(t, 2, id2.ID)
+	require.Equal(t, 2, id2.ID.ID)
 
 	// Add canonical and bare links to node 2.
-	require.NoError(t, k.SetContent(f.Context(), id1, []byte("# One\n\nSee [two](../2).\nAlso ../2.\n")))
+	require.NoError(t, k.SetContent(f.Context(), id1.ID, []byte("# One\n\nSee [two](../2).\nAlso ../2.\n")))
 
 	require.NoError(t, errOnly(k.Move(f.Context(), kegpkg.NodeId{ID: 2}, kegpkg.NodeId{ID: 3})))
 
@@ -566,24 +566,24 @@ func TestRemove_DeletesNodeAndUpdatesDex(t *testing.T) {
 	id2, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "Two"})
 	require.NoError(t, err)
 
-	require.NoError(t, k.SetContent(f.Context(), id1, []byte("# One\n\nSee [two](../2).\n")))
+	require.NoError(t, k.SetContent(f.Context(), id1.ID, []byte("# One\n\nSee [two](../2).\n")))
 
-	require.NoError(t, errOnly(k.Remove(f.Context(), id2)))
+	require.NoError(t, errOnly(k.Remove(f.Context(), id2.ID)))
 
-	exists, err := k.Repo.HasNode(f.Context(), id2)
+	exists, err := k.Repo.HasNode(f.Context(), id2.ID)
 	require.NoError(t, err)
 	require.False(t, exists, "node should be deleted from repository")
 
 	dex, err := k.Dex(f.Context())
 	require.NoError(t, err)
 
-	_, ok := dex.Links(f.Context(), id2)
+	_, ok := dex.Links(f.Context(), id2.ID)
 	require.False(t, ok, "deleted node should be absent from links index")
 
-	_, ok = dex.Backlinks(f.Context(), id2)
+	_, ok = dex.Backlinks(f.Context(), id2.ID)
 	require.False(t, ok, "deleted node should be absent from backlinks index")
 
-	node1Links, ok := dex.Links(f.Context(), id1)
+	node1Links, ok := dex.Links(f.Context(), id1.ID)
 	if ok {
 		require.Len(t, node1Links, 0, "links to deleted node should be removed")
 	}
@@ -603,10 +603,10 @@ func TestSetContent_OnRemovedNode(t *testing.T) {
 	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "Doomed"})
 	require.NoError(t, err)
 
-	require.NoError(t, errOnly(k.Remove(f.Context(), id)))
+	require.NoError(t, errOnly(k.Remove(f.Context(), id.ID)))
 
 	// Attempt to write content to the removed node should fail.
-	err = k.SetContent(f.Context(), id, []byte("# Resurrected\n"))
+	err = k.SetContent(f.Context(), id.ID, []byte("# Resurrected\n"))
 	require.Error(t, err)
 	require.ErrorIs(t, err, kegpkg.ErrNotExist)
 }
@@ -643,30 +643,30 @@ func TestSetMeta_PreservesLinksInDex(t *testing.T) {
 
 	// Set content with a link from node 1 to node 2
 	body := []byte("# Source\n\nSee [target](../2)\n")
-	require.NoError(t, k.SetContent(f.Context(), id1, body))
+	require.NoError(t, k.SetContent(f.Context(), id1.ID, body))
 
 	// Verify links exist
 	dex, err := k.Dex(f.Context())
 	require.NoError(t, err)
-	links, ok := dex.Links(f.Context(), id1)
+	links, ok := dex.Links(f.Context(), id1.ID)
 	require.True(t, ok, "node 1 should have outgoing links after SetContent")
 	require.Len(t, links, 1)
-	require.Equal(t, id2.ID, links[0].ID)
+	require.Equal(t, id2.ID.ID, links[0].ID)
 
 	// Now simulate what tap edit does: SetMeta then SetContent with same body
-	meta, err := k.GetMeta(f.Context(), id1)
+	meta, err := k.GetMeta(f.Context(), id1.ID)
 	require.NoError(t, err)
 	meta.SetTags([]string{"new-tag"})
-	require.NoError(t, k.SetMeta(f.Context(), id1, meta))
+	require.NoError(t, k.SetMeta(f.Context(), id1.ID, meta))
 
 	// SetContent with unchanged body -- should not lose links
-	require.NoError(t, k.SetContent(f.Context(), id1, body))
+	require.NoError(t, k.SetContent(f.Context(), id1.ID, body))
 
 	// Links should still be present
-	links, ok = dex.Links(f.Context(), id1)
+	links, ok = dex.Links(f.Context(), id1.ID)
 	require.True(t, ok, "links should survive SetMeta + SetContent no-op")
 	require.Len(t, links, 1)
-	require.Equal(t, id2.ID, links[0].ID)
+	require.Equal(t, id2.ID.ID, links[0].ID)
 }
 
 // TestIndex_ContentOnlyNodeGetsIndexed verifies that a node with only
@@ -712,7 +712,7 @@ func TestIndex_MalformedMetaNodeGetsIndexed(t *testing.T) {
 	require.NoError(t, err)
 
 	// Overwrite meta with invalid YAML.
-	require.NoError(t, repo.WriteMeta(f.Context(), id, []byte("{{{invalid yaml")))
+	require.NoError(t, repo.WriteMeta(f.Context(), id.ID, []byte("{{{invalid yaml")))
 
 	// Rebuild — the node should still appear.
 	err = k.Index(f.Context(), kegpkg.IndexOptions{})
@@ -723,7 +723,7 @@ func TestIndex_MalformedMetaNodeGetsIndexed(t *testing.T) {
 	dex, err := k.Dex(f.Context())
 	require.NoError(t, err)
 
-	ref := dex.GetRef(f.Context(), id)
+	ref := dex.GetRef(f.Context(), id.ID)
 	require.NotNil(t, ref, "node with malformed meta should still appear in index")
 	require.Equal(t, "Good Node", ref.Title)
 }
@@ -751,7 +751,7 @@ func TestSetContent_NoChangeSkipsDexAndConfig(t *testing.T) {
 	f.Advance(5 * time.Minute)
 
 	// SetContent with identical bytes — should be a no-op.
-	require.NoError(t, k.SetContent(f.Context(), id, body))
+	require.NoError(t, k.SetContent(f.Context(), id.ID, body))
 
 	// Config timestamp should not have changed.
 	cfg2, err := k.Config(f.Context())
@@ -779,9 +779,9 @@ func TestSetMeta_NoChangeSkipsDexAndConfig(t *testing.T) {
 	// Normalize on-disk meta format by doing one round-trip through
 	// GetMeta/SetMeta. This ensures the on-disk bytes match the
 	// ToYAML() output format used by SetMeta's comparison.
-	meta, err := k.GetMeta(f.Context(), id)
+	meta, err := k.GetMeta(f.Context(), id.ID)
 	require.NoError(t, err)
-	require.NoError(t, k.SetMeta(f.Context(), id, meta))
+	require.NoError(t, k.SetMeta(f.Context(), id.ID, meta))
 
 	// Record keg config updated timestamp after normalization.
 	cfg1, err := k.Config(f.Context())
@@ -792,9 +792,9 @@ func TestSetMeta_NoChangeSkipsDexAndConfig(t *testing.T) {
 	f.Advance(5 * time.Minute)
 
 	// Read existing meta and set it back unchanged — this should be a no-op.
-	meta, err = k.GetMeta(f.Context(), id)
+	meta, err = k.GetMeta(f.Context(), id.ID)
 	require.NoError(t, err)
-	require.NoError(t, k.SetMeta(f.Context(), id, meta))
+	require.NoError(t, k.SetMeta(f.Context(), id.ID, meta))
 
 	// Config timestamp should not have changed.
 	cfg2, err := k.Config(f.Context())
@@ -829,10 +829,10 @@ func TestSetMeta_WithChangeUpdatesDexAndConfig(t *testing.T) {
 	expectedUpdated := f.Now().Format(time.RFC3339)
 
 	// Read existing meta, change tags, and set it back.
-	meta, err := k.GetMeta(f.Context(), id)
+	meta, err := k.GetMeta(f.Context(), id.ID)
 	require.NoError(t, err)
 	meta.SetTags([]string{"new-tag"})
-	require.NoError(t, k.SetMeta(f.Context(), id, meta))
+	require.NoError(t, k.SetMeta(f.Context(), id.ID, meta))
 
 	// Config timestamp should have been updated.
 	cfg2, err := k.Config(f.Context())
@@ -859,24 +859,24 @@ func TestSetMetaAndUpdateMetaRefreshCachedSourceHash(t *testing.T) {
 	body := []byte("# Meta Hash\n\nOriginal content.\n")
 	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Body: body})
 	require.NoError(t, err)
-	initialStats, err := k.GetStats(f.Context(), id)
+	initialStats, err := k.GetStats(f.Context(), id.ID)
 	require.NoError(t, err)
 
 	f.Advance(5 * time.Minute)
-	meta, err := k.GetMeta(f.Context(), id)
+	meta, err := k.GetMeta(f.Context(), id.ID)
 	require.NoError(t, err)
 	require.NoError(t, meta.Set(f.Context(), "status", "ready"))
-	require.NoError(t, k.SetMeta(f.Context(), id, meta))
-	setStats, err := k.GetStats(f.Context(), id)
+	require.NoError(t, k.SetMeta(f.Context(), id.ID, meta))
+	setStats, err := k.GetStats(f.Context(), id.ID)
 	require.NoError(t, err)
 	require.NotEqual(t, initialStats.Hash(), setStats.Hash())
 
 	f.Advance(5 * time.Minute)
 	expectedUpdateMetaConfig := f.Now().Format(time.RFC3339)
-	require.NoError(t, k.UpdateMeta(f.Context(), id, func(meta *kegpkg.NodeMeta) {
+	require.NoError(t, k.UpdateMeta(f.Context(), id.ID, func(meta *kegpkg.NodeMeta) {
 		_ = meta.Set(f.Context(), "reviewed", true)
 	}))
-	updatedStats, err := k.GetStats(f.Context(), id)
+	updatedStats, err := k.GetStats(f.Context(), id.ID)
 	require.NoError(t, err)
 	require.NotEqual(t, setStats.Hash(), updatedStats.Hash())
 	cfg, err := k.Config(f.Context())
@@ -884,7 +884,7 @@ func TestSetMetaAndUpdateMetaRefreshCachedSourceHash(t *testing.T) {
 	require.Equal(t, expectedUpdateMetaConfig, cfg.Updated,
 		"keg config updated timestamp should use the captured UpdateMeta time")
 
-	content, err := k.GetContent(f.Context(), id)
+	content, err := k.GetContent(f.Context(), id.ID)
 	require.NoError(t, err)
 	require.Equal(t, body, content)
 }
@@ -898,21 +898,21 @@ func TestIndexRefreshesStatsForOutOfBandMetadataChange(t *testing.T) {
 
 	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "Out Of Band Meta"})
 	require.NoError(t, err)
-	initialStats, err := k.GetStats(f.Context(), id)
+	initialStats, err := k.GetStats(f.Context(), id.ID)
 	require.NoError(t, err)
 
-	meta, err := k.GetMeta(f.Context(), id)
+	meta, err := k.GetMeta(f.Context(), id.ID)
 	require.NoError(t, err)
 	require.NoError(t, meta.Set(f.Context(), "status", "ready"))
 	f.Advance(5 * time.Minute)
-	require.NoError(t, repo.WriteMeta(f.Context(), id, []byte(meta.ToYAML())))
+	require.NoError(t, repo.WriteMeta(f.Context(), id.ID, []byte(meta.ToYAML())))
 
-	staleStats, err := k.GetStats(f.Context(), id)
+	staleStats, err := k.GetStats(f.Context(), id.ID)
 	require.NoError(t, err)
 	require.Equal(t, initialStats.Hash(), staleStats.Hash())
 
 	require.NoError(t, k.Index(f.Context(), kegpkg.IndexOptions{}))
-	refreshedStats, err := k.GetStats(f.Context(), id)
+	refreshedStats, err := k.GetStats(f.Context(), id.ID)
 	require.NoError(t, err)
 	require.NotEqual(t, initialStats.Hash(), refreshedStats.Hash())
 	require.Equal(t, f.Now(), refreshedStats.Updated())
@@ -921,7 +921,7 @@ func TestIndexRefreshesStatsForOutOfBandMetadataChange(t *testing.T) {
 	refreshedUpdated := refreshedStats.Updated()
 	f.Advance(5 * time.Minute)
 	require.NoError(t, k.Index(f.Context(), kegpkg.IndexOptions{}))
-	againStats, err := k.GetStats(f.Context(), id)
+	againStats, err := k.GetStats(f.Context(), id.ID)
 	require.NoError(t, err)
 	require.Equal(t, refreshedHash, againStats.Hash())
 	require.Equal(t, refreshedUpdated, againStats.Updated())
@@ -952,7 +952,7 @@ func TestSetContent_WithChangeUpdatesDexAndConfig(t *testing.T) {
 
 	// SetContent with different bytes — should update dex and config.
 	newBody := []byte("# Change Node\n\nUpdated content.\n")
-	require.NoError(t, k.SetContent(f.Context(), id, newBody))
+	require.NoError(t, k.SetContent(f.Context(), id.ID, newBody))
 
 	// Config timestamp should have been updated.
 	cfg2, err := k.Config(f.Context())
@@ -963,7 +963,7 @@ func TestSetContent_WithChangeUpdatesDexAndConfig(t *testing.T) {
 		"keg config updated timestamp should use the helper's current clock time")
 
 	// Verify content was actually written.
-	got, err := k.GetContent(f.Context(), id)
+	got, err := k.GetContent(f.Context(), id.ID)
 	require.NoError(t, err)
 	require.Equal(t, string(newBody), string(got))
 }
@@ -989,10 +989,10 @@ func TestEditNoChange_SimulatesSaveWithoutChanges(t *testing.T) {
 
 	// First round-trip normalizes the on-disk meta format from Create's
 	// struct serialization to ParseMeta/ToYAML tree serialization.
-	meta, err := k.GetMeta(f.Context(), id)
+	meta, err := k.GetMeta(f.Context(), id.ID)
 	require.NoError(t, err)
-	require.NoError(t, k.SetMeta(f.Context(), id, meta))
-	require.NoError(t, k.SetContent(f.Context(), id, body))
+	require.NoError(t, k.SetMeta(f.Context(), id.ID, meta))
+	require.NoError(t, k.SetContent(f.Context(), id.ID, body))
 
 	// Record keg config updated timestamp after normalization.
 	cfg1, err := k.Config(f.Context())
@@ -1004,10 +1004,10 @@ func TestEditNoChange_SimulatesSaveWithoutChanges(t *testing.T) {
 
 	// Simulate tap edit save-without-changes: SetMeta then SetContent
 	// with identical data (this is what applyEditedNodeRaw does).
-	meta, err = k.GetMeta(f.Context(), id)
+	meta, err = k.GetMeta(f.Context(), id.ID)
 	require.NoError(t, err)
-	require.NoError(t, k.SetMeta(f.Context(), id, meta))
-	require.NoError(t, k.SetContent(f.Context(), id, body))
+	require.NoError(t, k.SetMeta(f.Context(), id.ID, meta))
+	require.NoError(t, k.SetContent(f.Context(), id.ID, body))
 
 	// Config timestamp should not have changed.
 	cfg2, err := k.Config(f.Context())
@@ -1067,7 +1067,7 @@ func TestDexFresh_ReloadsAfterExternalModification(t *testing.T) {
 	// Load the dex via DexFresh and verify initial state.
 	dex1, err := k.Dex(f.Context())
 	require.NoError(t, err)
-	ref1 := dex1.GetRef(f.Context(), id)
+	ref1 := dex1.GetRef(f.Context(), id.ID)
 	require.NotNil(t, ref1)
 	require.Equal(t, "Original Node", ref1.Title)
 
@@ -1095,7 +1095,7 @@ func TestDexFresh_ReloadsAfterExternalModification(t *testing.T) {
 	require.Equal(t, "External Node", extRef.Title)
 
 	// The original node should still be present.
-	origRef := dex2.GetRef(f.Context(), id)
+	origRef := dex2.GetRef(f.Context(), id.ID)
 	require.NotNil(t, origRef)
 	require.Equal(t, "Original Node", origRef.Title)
 
@@ -1149,13 +1149,13 @@ func TestDexFresh_ReloadsForExternalRepoImplementations(t *testing.T) {
 	externalID, err := externalKeg.Create(f.Context(), &kegpkg.CreateOptions{Title: "External Node"})
 	require.NoError(t, err)
 
-	require.Nil(t, dex1.GetRef(f.Context(), externalID), "primed dex should not mutate behind the caller")
+	require.Nil(t, dex1.GetRef(f.Context(), externalID.ID), "primed dex should not mutate behind the caller")
 
 	dex2, err := k.Dex(f.Context())
 	require.NoError(t, err)
 	require.NotSame(t, dex1, dex2, "external repo DexFresh should reload instead of returning the cached dex")
 
-	extRef := dex2.GetRef(f.Context(), externalID)
+	extRef := dex2.GetRef(f.Context(), externalID.ID)
 	require.NotNil(t, extRef, "DexFresh should reload and include the externally added node")
 	require.Equal(t, "External Node", extRef.Title)
 }
@@ -1189,7 +1189,7 @@ func TestSetContent_LocalNodeIDStaysBare(t *testing.T) {
 	require.NoError(t, err)
 
 	// SetContent is the edit path that previously tainted the dex entry.
-	require.NoError(t, k.SetContent(f.Context(), id, []byte("# Node 2\n\nedited body\n")))
+	require.NoError(t, k.SetContent(f.Context(), id.ID, []byte("# Node 2\n\nedited body\n")))
 
 	dex, err := k.Dex(f.Context())
 	require.NoError(t, err)
@@ -1199,7 +1199,7 @@ func TestSetContent_LocalNodeIDStaysBare(t *testing.T) {
 
 	// The edited node resolves under its bare id, and there is no stale
 	// keg:-prefixed duplicate row left behind.
-	require.NotNil(t, dex.GetRef(f.Context(), id), "edited node should be indexed under its bare id")
+	require.NotNil(t, dex.GetRef(f.Context(), id.ID), "edited node should be indexed under its bare id")
 	raw, err := k.(*kegpkg.LocalKeg).Repo.GetIndex(f.Context(), "nodes.tsv")
 	require.NoError(t, err)
 	require.NotContains(t, string(raw), "keg:", "nodes.tsv must not contain keg: prefixes")
@@ -1227,11 +1227,11 @@ func TestMove_LocalNodeIDStaysBare(t *testing.T) {
 	require.NoError(t, err)
 
 	// Referrer links to target via a canonical relative node link.
-	require.NoError(t, k.SetContent(f.Context(), referrer,
-		[]byte("# Referrer\n\nsee [target](../"+target.Path()+")\n")))
+	require.NoError(t, k.SetContent(f.Context(), referrer.ID,
+		[]byte("# Referrer\n\nsee [target](../"+target.ID.Path()+")\n")))
 
 	// Move the target; this rewrites referrer's link and re-indexes it.
-	require.NoError(t, errOnly(k.Move(f.Context(), target, kegpkg.NodeId{ID: target.ID + 10})))
+	require.NoError(t, errOnly(k.Move(f.Context(), target.ID, kegpkg.NodeId{ID: target.ID.ID + 10})))
 
 	for _, name := range []string{"nodes.tsv", "links", "backlinks"} {
 		raw, err := k.(*kegpkg.LocalKeg).Repo.GetIndex(f.Context(), name)

@@ -133,12 +133,12 @@ func newMockOpsHub(t *testing.T, f *sandbox.Sandbox, token string) *mockOpsHub {
 			return
 		}
 		if meta != nil {
-			if err := backing.SetMeta(r.Context(), id, meta); err != nil {
+			if err := backing.SetMeta(r.Context(), id.ID, meta); err != nil {
 				h.kegError(w, err)
 				return
 			}
 		}
-		h.writeJSON(w, http.StatusCreated, map[string]int{"id": id.ID})
+		h.writeJSON(w, http.StatusCreated, map[string]int{"id": id.ID.ID})
 	})
 	mux.HandleFunc("GET /nodes/{id}", func(w http.ResponseWriter, r *http.Request) {
 		id, ok := h.parseID(w, r)
@@ -447,7 +447,7 @@ func newMockOpsHub(t *testing.T, f *sandbox.Sandbox, token string) *mockOpsHub {
 		if !ok {
 			return
 		}
-		token, err := backing.Lock(r.Context(), id)
+		lock, err := backing.Lock(r.Context(), id)
 		if err != nil {
 			h.kegError(w, err)
 			return
@@ -456,7 +456,7 @@ func newMockOpsHub(t *testing.T, f *sandbox.Sandbox, token string) *mockOpsHub {
 		if err != nil {
 			info = kegpkg.LockInfo{}
 		}
-		info.Token = token
+		info.Token = lock.Token
 		resp := map[string]any{
 			"token":       string(info.Token),
 			"ttl_seconds": info.TTLSeconds,
@@ -543,23 +543,23 @@ func TestRemoteKegRoundTripBasics(t *testing.T) {
 		Tags:  []string{"gamma"},
 	})
 	require.NoError(t, err)
-	require.Equal(t, 3, id.ID)
+	require.Equal(t, 3, id.ID.ID)
 
 	// ReadNode assembles content/meta/stats in one round trip.
-	view, err := rk.ReadNode(ctx, id)
+	view, err := rk.ReadNode(ctx, id.ID)
 	require.NoError(t, err)
 	require.Contains(t, string(view.Content), "Gamma node")
 	require.Contains(t, string(view.Meta), "gamma")
 	require.NotNil(t, view.Stats)
 
 	// SetContent / GetContent round-trip raw bytes.
-	require.NoError(t, rk.SetContent(ctx, id, []byte("# Gamma node\n\nupdated body\n")))
-	content, err := rk.GetContent(ctx, id)
+	require.NoError(t, rk.SetContent(ctx, id.ID, []byte("# Gamma node\n\nupdated body\n")))
+	content, err := rk.GetContent(ctx, id.ID)
 	require.NoError(t, err)
 	require.Contains(t, string(content), "updated body")
 
 	// Meta survives the round trip with tags applied.
-	meta, err := rk.GetMeta(ctx, id)
+	meta, err := rk.GetMeta(ctx, id.ID)
 	require.NoError(t, err)
 	require.Contains(t, meta.Tags(), "gamma")
 
@@ -590,7 +590,7 @@ func TestRemoteKegRoundTripBasics(t *testing.T) {
 	require.Contains(t, ids, "3")
 
 	// NodeExists distinguishes present from absent without an error.
-	exists, err := rk.NodeExists(ctx, id)
+	exists, err := rk.NodeExists(ctx, id.ID)
 	require.NoError(t, err)
 	require.True(t, exists)
 	exists, err = rk.NodeExists(ctx, kegpkg.NodeId{ID: 4242})
@@ -634,9 +634,9 @@ func TestRemoteKegLocks(t *testing.T) {
 
 	info, err := rk.LockStatus(ctx, id)
 	require.NoError(t, err)
-	require.Equal(t, token, info.Token)
+	require.Equal(t, token.Token, info.Token)
 
-	require.NoError(t, rk.Unlock(ctx, id, token))
+	require.NoError(t, rk.Unlock(ctx, id, token.Token))
 
 	info, err = rk.LockStatus(ctx, id)
 	require.NoError(t, err)
@@ -679,7 +679,7 @@ func TestRemoteKegImportRoundTrip(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	rc, err := src.ExportNodes(ctx, kegpkg.ExportNodesOptions{NodeIDs: []kegpkg.NodeId{srcID}})
+	rc, err := src.ExportNodes(ctx, kegpkg.ExportNodesOptions{NodeIDs: []kegpkg.NodeId{srcID.ID}})
 	require.NoError(t, err)
 	defer rc.Close()
 
