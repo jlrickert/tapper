@@ -48,7 +48,7 @@ func TestDoctorRetainsContentLinkMetadataStatsAndSchemaChecks(t *testing.T) {
 		Body:  []byte("# Needs attention\n\n[missing](../99)\n"),
 	})
 	require.NoError(t, err)
-	require.NoError(t, k.Repo.WriteMeta(ctx, id, []byte("tags: [\n")))
+	require.NoError(t, k.Repo.WriteMeta(ctx, id.ID, []byte("tags: [\n")))
 	require.NoError(t, k.WriteSchema(ctx, "task", []byte(`type: task
 meta:
   type: object
@@ -77,8 +77,8 @@ func TestDoctorReportsContentAndStatsProblems(t *testing.T) {
 	tap, k, ctx := setupDoctorKeg(t)
 	id, err := k.Create(ctx, &keg.CreateOptions{Title: "Temporary", Body: []byte("# Temporary\n")})
 	require.NoError(t, err)
-	require.NoError(t, k.Repo.WriteContent(ctx, id, nil))
-	require.NoError(t, k.Repo.WriteStats(ctx, id, &keg.NodeStats{}))
+	require.NoError(t, k.Repo.WriteContent(ctx, id.ID, nil))
+	require.NoError(t, k.Repo.WriteStats(ctx, id.ID, &keg.NodeStats{}))
 
 	issues, err := tap.Doctor(ctx, tapper.DoctorOptions{})
 	require.NoError(t, err)

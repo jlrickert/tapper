@@ -126,7 +126,7 @@ func TestImport_RejectsZipSlipArchive(t *testing.T) {
 	require.NoError(t, src.Init(ctx))
 	nid, err := src.Create(ctx, &keg.CreateOptions{Title: "x", Body: []byte("# x\n")})
 	require.NoError(t, err)
-	require.NoError(t, src.WriteFile(ctx, nid, "doc.txt", []byte("benign")))
+	require.NoError(t, src.WriteFile(ctx, nid.ID, "doc.txt", []byte("benign")))
 	rc, err := src.ExportNodes(ctx, keg.ExportNodesOptions{WithAssets: true})
 	require.NoError(t, err)
 	clean, err := io.ReadAll(rc)
@@ -142,8 +142,8 @@ func TestImport_RejectsZipSlipArchive(t *testing.T) {
 	require.NoError(t, err, "a clean archive must still import")
 
 	// Tampered import is rejected, and nothing escapes the keg root.
-	from := "keg-archive/nodes/" + nid.Path() + "/assets/doc.txt"
-	to := "keg-archive/nodes/" + nid.Path() + "/assets/../../../PWNED.txt"
+	from := "keg-archive/nodes/" + nid.ID.Path() + "/assets/doc.txt"
+	to := "keg-archive/nodes/" + nid.ID.Path() + "/assets/../../../PWNED.txt"
 	evil := retarWithRenamedEntry(t, clean, from, to)
 
 	evilRoot := filepath.Join(base, "evil")

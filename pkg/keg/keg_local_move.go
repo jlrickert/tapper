@@ -191,28 +191,25 @@ func (k *LocalKeg) Remove(ctx context.Context, id NodeId) ([]NodeId, error) {
 		return nil, fmt.Errorf("failed to list nodes for link rewrite after remove: %w", listErr)
 	}
 	for _, otherID := range nodeIDs {
-		raw, readErr := k.Repo.ReadContent(ctx, otherID)
-		if readErr != nil {
-			if !errors.Is(readErr, ErrNotExist) {
-				errs = append(errs, fmt.Errorf("failed to read node %s for link rewrite: %w", otherID.Path(), readErr))
-			}
-			continue
-		}
-		updated, changed := rewriteNodeLinks(raw, linkRE, zeroID)
-		if changed {
-			if err := k.withNodeLock(ctx, otherID, func(lockCtx context.Context) error {
-				exists, exErr := k.nodeExistsWithContent(lockCtx, otherID)
-				if exErr != nil || !exists {
-					return nil // node was concurrently removed, skip rewrite
-				}
-				if err := k.Repo.WriteContent(lockCtx, otherID, updated); err != nil {
-					return err
-				}
-				rewritten = append(rewritten, otherID)
+		if err := k.withNodeLock(ctx, otherID, func(lockCtx context.Context) error {
+			raw, readErr := k.Repo.ReadContent(lockCtx, otherID)
+			if errors.Is(readErr, ErrNotExist) {
 				return nil
-			}); err != nil {
-				errs = append(errs, fmt.Errorf("failed to rewrite links in node %s: %w", otherID.Path(), err))
 			}
+			if readErr != nil {
+				return readErr
+			}
+			updated, changed := rewriteNodeLinks(raw, linkRE, zeroID)
+			if !changed {
+				return nil
+			}
+			if err := k.Repo.WriteContent(lockCtx, otherID, updated); err != nil {
+				return err
+			}
+			rewritten = append(rewritten, otherID)
+			return nil
+		}); err != nil {
+			errs = append(errs, fmt.Errorf("failed to rewrite links in node %s: %w", otherID.Path(), err))
 		}
 	}
 

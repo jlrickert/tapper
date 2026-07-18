@@ -36,7 +36,7 @@ func TestConcurrentCreate_UniqueIDs(t *testing.T) {
 			id, err := k.Create(f.Context(), &kegpkg.CreateOptions{
 				Title: fmt.Sprintf("Node %d", idx),
 			})
-			ids[idx] = id
+			ids[idx] = id.ID
 			errs[idx] = err
 		}(i)
 	}
@@ -75,7 +75,7 @@ func TestConcurrentCreate_FsRepo(t *testing.T) {
 			id, err := k.Create(f.Context(), &kegpkg.CreateOptions{
 				Title: fmt.Sprintf("FsNode %d", idx),
 			})
-			ids[idx] = id
+			ids[idx] = id.ID
 			errs[idx] = err
 		}(i)
 	}
@@ -109,7 +109,7 @@ func TestConcurrentSetContent_DifferentNodes(t *testing.T) {
 			Title: fmt.Sprintf("Node %d", i),
 		})
 		require.NoError(t, err)
-		ids[i] = id
+		ids[i] = id.ID
 	}
 
 	var wg sync.WaitGroup
@@ -158,7 +158,7 @@ func TestConcurrentSetContent_SameNode(t *testing.T) {
 		go func(idx int) {
 			defer wg.Done()
 			content := fmt.Sprintf("# Writer %d\n\nContent from writer %d.\n", idx, idx)
-			errs[idx] = k.SetContent(f.Context(), id, []byte(content))
+			errs[idx] = k.SetContent(f.Context(), id.ID, []byte(content))
 		}(i)
 	}
 	wg.Wait()
@@ -168,7 +168,7 @@ func TestConcurrentSetContent_SameNode(t *testing.T) {
 	}
 
 	// One of the writers should have won — content should match one of them.
-	data, err := k.GetContent(f.Context(), id)
+	data, err := k.GetContent(f.Context(), id.ID)
 	require.NoError(t, err)
 	require.Contains(t, string(data), "# Writer")
 }
@@ -193,7 +193,7 @@ func TestConcurrentSetMeta_SameNode(t *testing.T) {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
-			errs[idx] = k.UpdateMeta(f.Context(), id, func(m *kegpkg.NodeMeta) {
+			errs[idx] = k.UpdateMeta(f.Context(), id.ID, func(m *kegpkg.NodeMeta) {
 				m.SetTags([]string{fmt.Sprintf("tag%d", idx)})
 			})
 		}(i)
@@ -223,7 +223,7 @@ func TestConcurrentCreateAndEdit(t *testing.T) {
 			Title: fmt.Sprintf("Pre %d", i),
 		})
 		require.NoError(t, err)
-		preIDs[i] = id
+		preIDs[i] = id.ID
 	}
 
 	const creators = 5
@@ -287,21 +287,21 @@ func TestTwoKegInstances_DexNotOverwritten(t *testing.T) {
 	// k1 creates node 1
 	id1, err := k1.Create(f.Context(), &kegpkg.CreateOptions{Title: "From K1"})
 	require.NoError(t, err)
-	require.Equal(t, 1, id1.ID)
+	require.Equal(t, 1, id1.ID.ID)
 
 	// k2 creates node 2 -- its dex should include node 1 from k1
 	id2, err := k2.Create(f.Context(), &kegpkg.CreateOptions{Title: "From K2"})
 	require.NoError(t, err)
-	require.Equal(t, 2, id2.ID)
+	require.Equal(t, 2, id2.ID.ID)
 
 	// Now load the dex fresh from the repo to verify both nodes are present
 	dex, err := kegpkg.NewDexFromRepo(f.Context(), repo)
 	require.NoError(t, err)
 
-	ref1 := dex.GetRef(f.Context(), id1)
+	ref1 := dex.GetRef(f.Context(), id1.ID)
 	require.NotNil(t, ref1, "node 1 (created by k1) should be in the dex")
 
-	ref2 := dex.GetRef(f.Context(), id2)
+	ref2 := dex.GetRef(f.Context(), id2.ID)
 	require.NotNil(t, ref2, "node 2 (created by k2) should be in the dex")
 }
 
@@ -320,7 +320,7 @@ func TestWithNodeLock_StaleLockRecovery(t *testing.T) {
 
 	// Simulate a stale lock: create the lock directory with owner.json
 	// containing a PID that doesn't exist (use a very high PID).
-	nodeDir := filepath.Join("repo", id.Path())
+	nodeDir := filepath.Join("repo", id.ID.Path())
 	lockDir := filepath.Join(nodeDir, ".keg-lock")
 	require.NoError(t, f.Runtime().Mkdir(lockDir, 0o700, false))
 
@@ -341,11 +341,11 @@ func TestWithNodeLock_StaleLockRecovery(t *testing.T) {
 	require.NoError(t, f.Runtime().WriteFile(ownerPath, data, 0o644))
 
 	// Now attempt a lock operation — it should detect the stale lock and succeed.
-	err = k.SetContent(f.Context(), id, []byte("# Updated after stale lock\n"))
+	err = k.SetContent(f.Context(), id.ID, []byte("# Updated after stale lock\n"))
 	require.NoError(t, err, "SetContent should succeed after stale lock recovery")
 
 	// Verify content was updated.
-	content, err := k.GetContent(f.Context(), id)
+	content, err := k.GetContent(f.Context(), id.ID)
 	require.NoError(t, err)
 	require.Equal(t, "# Updated after stale lock\n", string(content))
 }
@@ -374,7 +374,7 @@ func TestConcurrentCrossLock_OnlyOneWins(t *testing.T) {
 			defer wg.Done()
 			ctx, cancel := context.WithTimeout(f.Context(), 300*time.Millisecond)
 			defer cancel()
-			tokens[idx], errs[idx] = repo.AcquireLock(ctx, id)
+			tokens[idx], errs[idx] = repo.AcquireLock(ctx, id.ID)
 		}(i)
 	}
 	wg.Wait()
@@ -403,22 +403,22 @@ func TestCrossLock_DoesNotBlockWithNodeLock(t *testing.T) {
 	require.NoError(t, err)
 
 	// Acquire cross-process lock.
-	token, err := repo.AcquireLock(f.Context(), id)
+	token, err := repo.AcquireLock(f.Context(), id.ID)
 	require.NoError(t, err)
 
 	// WithNodeLock should still succeed — they're independent.
-	err = repo.WithNodeLock(f.Context(), id, func(ctx context.Context) error {
-		return k.SetContent(ctx, id, []byte("# Written under process lock\n"))
+	err = repo.WithNodeLock(f.Context(), id.ID, func(ctx context.Context) error {
+		return k.SetContent(ctx, id.ID, []byte("# Written under process lock\n"))
 	})
 	require.NoError(t, err)
 
 	// Cross-process lock still held.
-	info, err := repo.LockStatus(f.Context(), id)
+	info, err := repo.LockStatus(f.Context(), id.ID)
 	require.NoError(t, err)
 	require.Equal(t, token, info.Token)
 
 	// Release cross-process lock.
-	require.NoError(t, repo.ReleaseLock(f.Context(), id, token))
+	require.NoError(t, repo.ReleaseLock(f.Context(), id.ID, token))
 }
 
 // TestConcurrentRemoveDuringSetContent_MemoryRepo verifies that if a node is
@@ -436,15 +436,15 @@ func TestConcurrentRemoveDuringSetContent_MemoryRepo(t *testing.T) {
 	require.NoError(t, err)
 
 	// Remove the node.
-	require.NoError(t, errOnly(k.Remove(f.Context(), id)))
+	require.NoError(t, errOnly(k.Remove(f.Context(), id.ID)))
 
 	// SetContent after removal should fail with ErrNotExist.
-	err = k.SetContent(f.Context(), id, []byte("# Resurrected\n"))
+	err = k.SetContent(f.Context(), id.ID, []byte("# Resurrected\n"))
 	require.Error(t, err)
 	require.ErrorIs(t, err, kegpkg.ErrNotExist)
 
 	// Verify the node was not resurrected.
-	exists, err := repo.HasNode(f.Context(), id)
+	exists, err := repo.HasNode(f.Context(), id.ID)
 	require.NoError(t, err)
 	require.False(t, exists, "node should not be resurrected after removal")
 }
@@ -466,20 +466,20 @@ func TestConcurrentRemoveDuringSetMeta_MemoryRepo(t *testing.T) {
 	require.NoError(t, err)
 
 	// Read meta before removal.
-	meta, err := k.GetMeta(f.Context(), id)
+	meta, err := k.GetMeta(f.Context(), id.ID)
 	require.NoError(t, err)
 
 	// Remove the node.
-	require.NoError(t, errOnly(k.Remove(f.Context(), id)))
+	require.NoError(t, errOnly(k.Remove(f.Context(), id.ID)))
 
 	// SetMeta after removal should fail with ErrNotExist.
 	meta.SetTags([]string{"ghost"})
-	err = k.SetMeta(f.Context(), id, meta)
+	err = k.SetMeta(f.Context(), id.ID, meta)
 	require.Error(t, err)
 	require.ErrorIs(t, err, kegpkg.ErrNotExist)
 
 	// Verify the node was not resurrected.
-	exists, err := repo.HasNode(f.Context(), id)
+	exists, err := repo.HasNode(f.Context(), id.ID)
 	require.NoError(t, err)
 	require.False(t, exists, "node should not be resurrected by SetMeta")
 }
@@ -498,17 +498,17 @@ func TestConcurrentRemoveDuringUpdateMeta_MemoryRepo(t *testing.T) {
 	require.NoError(t, err)
 
 	// Remove the node.
-	require.NoError(t, errOnly(k.Remove(f.Context(), id)))
+	require.NoError(t, errOnly(k.Remove(f.Context(), id.ID)))
 
 	// UpdateMeta after removal should fail with ErrNotExist.
-	err = k.UpdateMeta(f.Context(), id, func(m *kegpkg.NodeMeta) {
+	err = k.UpdateMeta(f.Context(), id.ID, func(m *kegpkg.NodeMeta) {
 		m.SetTags([]string{"ghost"})
 	})
 	require.Error(t, err)
 	require.ErrorIs(t, err, kegpkg.ErrNotExist)
 
 	// Verify the node was not resurrected.
-	exists, err := repo.HasNode(f.Context(), id)
+	exists, err := repo.HasNode(f.Context(), id.ID)
 	require.NoError(t, err)
 	require.False(t, exists, "node should not be resurrected by UpdateMeta")
 }
@@ -533,11 +533,11 @@ func TestConcurrentRemoveThenSetContent_RaceCondition(t *testing.T) {
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		_, removeErr = k.Remove(f.Context(), id)
+		_, removeErr = k.Remove(f.Context(), id.ID)
 	}()
 	go func() {
 		defer wg.Done()
-		setErr = k.SetContent(f.Context(), id, []byte("# Updated\n"))
+		setErr = k.SetContent(f.Context(), id.ID, []byte("# Updated\n"))
 	}()
 	wg.Wait()
 
@@ -559,7 +559,7 @@ func TestConcurrentRemoveThenSetContent_RaceCondition(t *testing.T) {
 	}
 
 	// After everything settles, if the node exists it should have valid content.
-	exists, err := repo.HasNode(f.Context(), id)
+	exists, err := repo.HasNode(f.Context(), id.ID)
 	require.NoError(t, err)
 	if !exists {
 		// Node was removed — verify it has no residual directory.
@@ -567,7 +567,7 @@ func TestConcurrentRemoveThenSetContent_RaceCondition(t *testing.T) {
 	}
 
 	// If node still exists, it should have valid content (SetContent won the race).
-	content, err := repo.ReadContent(f.Context(), id)
+	content, err := repo.ReadContent(f.Context(), id.ID)
 	require.NoError(t, err)
 	require.NotNil(t, content, "surviving node should have content")
 }
@@ -586,17 +586,17 @@ func TestConcurrentRemoveDuringSetContent_FsRepo(t *testing.T) {
 	require.NoError(t, err)
 
 	// Remove the node.
-	require.NoError(t, errOnly(k.Remove(f.Context(), id)))
+	require.NoError(t, errOnly(k.Remove(f.Context(), id.ID)))
 
 	// SetContent after removal should fail with ErrNotExist.
-	err = k.SetContent(f.Context(), id, []byte("# FsResurrected\n"))
+	err = k.SetContent(f.Context(), id.ID, []byte("# FsResurrected\n"))
 	require.Error(t, err)
 	require.ErrorIs(t, err, kegpkg.ErrNotExist)
 
 	// WithNodeLock creates a bare directory as a lock artifact, but it
 	// should be cleaned up after the lock callback returns with no content
 	// file present. Verify no orphaned directory remains.
-	exists, err := k.(*kegpkg.LocalKeg).Repo.HasNode(f.Context(), id)
+	exists, err := k.(*kegpkg.LocalKeg).Repo.HasNode(f.Context(), id.ID)
 	require.NoError(t, err)
 	require.False(t, exists, "bare directory should be cleaned up after failed write")
 }
@@ -617,18 +617,18 @@ func TestConcurrentRemoveDuringSetMeta_FsRepo(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	meta, err := k.GetMeta(f.Context(), id)
+	meta, err := k.GetMeta(f.Context(), id.ID)
 	require.NoError(t, err)
 
-	require.NoError(t, errOnly(k.Remove(f.Context(), id)))
+	require.NoError(t, errOnly(k.Remove(f.Context(), id.ID)))
 
 	meta.SetTags([]string{"ghost"})
-	err = k.SetMeta(f.Context(), id, meta)
+	err = k.SetMeta(f.Context(), id.ID, meta)
 	require.Error(t, err)
 	require.ErrorIs(t, err, kegpkg.ErrNotExist)
 
 	// Verify no orphaned directory was left behind on disk.
-	exists, err := k.(*kegpkg.LocalKeg).Repo.HasNode(f.Context(), id)
+	exists, err := k.(*kegpkg.LocalKeg).Repo.HasNode(f.Context(), id.ID)
 	require.NoError(t, err)
 	require.False(t, exists, "bare directory should be cleaned up after failed SetMeta")
 }
@@ -650,19 +650,19 @@ func TestSetContent_NoOrphanedDirectoryOnRemovedNode(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify node directory exists before removal.
-	nodeDir := filepath.Join("repo", id.Path())
+	nodeDir := filepath.Join("repo", id.ID.Path())
 	_, statErr := f.Runtime().Stat(nodeDir, false)
 	require.NoError(t, statErr, "node directory should exist after Create")
 
 	// Remove the node.
-	require.NoError(t, errOnly(k.Remove(f.Context(), id)))
+	require.NoError(t, errOnly(k.Remove(f.Context(), id.ID)))
 
 	// Verify directory was removed.
 	_, statErr = f.Runtime().Stat(nodeDir, false)
 	require.Error(t, statErr, "node directory should not exist after Remove")
 
 	// Attempt SetContent — should fail with ErrNotExist.
-	err = k.SetContent(f.Context(), id, []byte("# Ghost content\n"))
+	err = k.SetContent(f.Context(), id.ID, []byte("# Ghost content\n"))
 	require.Error(t, err)
 	require.ErrorIs(t, err, kegpkg.ErrNotExist)
 
@@ -673,7 +673,7 @@ func TestSetContent_NoOrphanedDirectoryOnRemovedNode(t *testing.T) {
 	require.Error(t, statErr, "no orphaned directory should remain after failed SetContent")
 
 	// Also verify via HasNode for consistency.
-	exists, err := k.(*kegpkg.LocalKeg).Repo.HasNode(f.Context(), id)
+	exists, err := k.(*kegpkg.LocalKeg).Repo.HasNode(f.Context(), id.ID)
 	require.NoError(t, err)
 	require.False(t, exists, "HasNode should return false — no resurrection")
 }
@@ -691,13 +691,13 @@ func TestConcurrentRemoveDuringTouch_MemoryRepo(t *testing.T) {
 	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "Touch Doomed"})
 	require.NoError(t, err)
 
-	require.NoError(t, errOnly(k.Remove(f.Context(), id)))
+	require.NoError(t, errOnly(k.Remove(f.Context(), id.ID)))
 
-	err = k.Touch(f.Context(), id)
+	err = k.Touch(f.Context(), id.ID)
 	require.Error(t, err)
 	require.ErrorIs(t, err, kegpkg.ErrNotExist)
 
-	exists, err := repo.HasNode(f.Context(), id)
+	exists, err := repo.HasNode(f.Context(), id.ID)
 	require.NoError(t, err)
 	require.False(t, exists, "node should not be resurrected by Touch")
 }
@@ -715,13 +715,13 @@ func TestConcurrentRemoveDuringTouch_FsRepo(t *testing.T) {
 	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "FsTouchDoomed"})
 	require.NoError(t, err)
 
-	require.NoError(t, errOnly(k.Remove(f.Context(), id)))
+	require.NoError(t, errOnly(k.Remove(f.Context(), id.ID)))
 
-	err = k.Touch(f.Context(), id)
+	err = k.Touch(f.Context(), id.ID)
 	require.Error(t, err)
 	require.ErrorIs(t, err, kegpkg.ErrNotExist)
 
-	exists, err := k.(*kegpkg.LocalKeg).Repo.HasNode(f.Context(), id)
+	exists, err := k.(*kegpkg.LocalKeg).Repo.HasNode(f.Context(), id.ID)
 	require.NoError(t, err)
 	require.False(t, exists, "bare directory should be cleaned up after failed Touch")
 }
@@ -739,15 +739,15 @@ func TestConcurrentRemoveDuringUpdateMeta_FsRepo(t *testing.T) {
 	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "FsUpdateDoomed"})
 	require.NoError(t, err)
 
-	require.NoError(t, errOnly(k.Remove(f.Context(), id)))
+	require.NoError(t, errOnly(k.Remove(f.Context(), id.ID)))
 
-	err = k.(*kegpkg.LocalKeg).UpdateMeta(f.Context(), id, func(m *kegpkg.NodeMeta) {
+	err = k.(*kegpkg.LocalKeg).UpdateMeta(f.Context(), id.ID, func(m *kegpkg.NodeMeta) {
 		m.SetTags([]string{"ghost"})
 	})
 	require.Error(t, err)
 	require.ErrorIs(t, err, kegpkg.ErrNotExist)
 
-	exists, err := k.(*kegpkg.LocalKeg).Repo.HasNode(f.Context(), id)
+	exists, err := k.(*kegpkg.LocalKeg).Repo.HasNode(f.Context(), id.ID)
 	require.NoError(t, err)
 	require.False(t, exists, "bare directory should be cleaned up after failed UpdateMeta")
 }

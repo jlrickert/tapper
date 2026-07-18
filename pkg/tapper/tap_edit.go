@@ -8,7 +8,6 @@ import (
 	"io"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/jlrickert/cli-toolkit/toolkit"
 	"github.com/jlrickert/tapper/pkg/keg"
@@ -144,18 +143,6 @@ func (t *Tap) Edit(ctx context.Context, opts EditOptions) error {
 		return err
 	}
 
-	exists, err := t.nodeExistsWithContent(ctx, k, id)
-	if err != nil {
-		return fmt.Errorf("unable to inspect node: %w", err)
-	}
-	if !exists {
-		return fmt.Errorf("node %s not found in %s", id.Path(), describeKeg(k))
-	}
-
-	if err := validateLockToken(ctx, k, id, opts.LockToken); err != nil {
-		return err
-	}
-
 	// Handle piped stdin: apply content directly without opening an editor.
 	if opts.Stream != nil && opts.Stream.IsPiped {
 		pipedRaw, readErr := io.ReadAll(opts.Stream.In)
@@ -163,11 +150,23 @@ func (t *Tap) Edit(ctx context.Context, opts EditOptions) error {
 			return fmt.Errorf("unable to read piped input: %w", readErr)
 		}
 		if len(bytes.TrimSpace(pipedRaw)) > 0 {
-			return t.applyEditedNodeRaw(ctx, k, id, pipedRaw)
+			view, err := k.OpenNode(ctx, keg.NodeOpenOptions{ID: id, LockToken: keg.LockToken(opts.LockToken)})
+			if err != nil {
+				if errors.Is(err, keg.ErrNotExist) {
+					return fmt.Errorf("node %s not found: %w", id.Path(), err)
+				}
+				return fmt.Errorf("unable to open node: %w", err)
+			}
+			expectedHash := ""
+			if view.Stats != nil {
+				expectedHash = view.Stats.Hash()
+			}
+			_, err = t.applyEditedNodeRawExpected(ctx, k, id, pipedRaw, keg.LockToken(opts.LockToken), expectedHash)
+			return err
 		}
 	}
 
-	return t.editWithTempFile(ctx, k, id)
+	return t.editWithTempFileLocked(ctx, k, id, keg.LockToken(opts.LockToken))
 }
 
 // editWithTempFile is the editing flow that composes frontmatter + body into
@@ -176,22 +175,18 @@ func (t *Tap) Edit(ctx context.Context, opts EditOptions) error {
 // temp file when external changes are detected, so the editor can reload
 // with :e! to pick up changes from other tap instances.
 func (t *Tap) editWithTempFile(ctx context.Context, k keg.Keg, id keg.NodeId) error {
-	content, err := k.GetContent(ctx, id)
-	if err != nil {
-		return fmt.Errorf("unable to read node content: %w", err)
-	}
-	meta, err := k.GetMetaRaw(ctx, id)
-	if err != nil {
-		if !errors.Is(err, keg.ErrNotExist) {
-			return fmt.Errorf("unable to read node metadata: %w", err)
-		}
-		meta = nil
-	}
+	return t.editWithTempFileLocked(ctx, k, id, "")
+}
 
-	// Bump access_count for interactive editing sessions. This records
-	// that the user accessed the node before the editor opens.
-	if err := k.Touch(ctx, id); err != nil {
-		return fmt.Errorf("unable to update node access: %w", err)
+func (t *Tap) editWithTempFileLocked(ctx context.Context, k keg.Keg, id keg.NodeId, lockToken keg.LockToken) error {
+	view, err := k.OpenNode(ctx, keg.NodeOpenOptions{ID: id, Touch: true, LockToken: lockToken})
+	if err != nil {
+		return fmt.Errorf("unable to open node: %w", err)
+	}
+	content, meta := view.Content, view.Meta
+	revision := &editRevision{}
+	if view.Stats != nil {
+		revision.set(view.Stats.Hash())
 	}
 
 	initialRaw := composeEditNodeFile(ctx, meta, content)
@@ -225,7 +220,7 @@ func (t *Tap) editWithTempFile(ctx context.Context, k keg.Keg, id keg.NodeId) er
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			reverseSync(editCtx, t.Runtime, k, id, tempPath, external, ch)
+			reverseSync(editCtx, t.Runtime, k, id, tempPath, external, revision, ch)
 		}()
 	} else if lg := t.Runtime.Logger(); lg != nil {
 		lg.Debug("edit: live reverse sync unavailable",
@@ -233,7 +228,11 @@ func (t *Tap) editWithTempFile(ctx context.Context, k keg.Keg, id keg.NodeId) er
 	}
 
 	editErr := editWithLiveSaves(editCtx, t.Runtime, tempPath, external, func(editedRaw []byte) error {
-		return t.applyEditedNodeRaw(ctx, k, id, editedRaw)
+		newHash, err := t.applyEditedNodeRawExpected(ctx, k, id, editedRaw, lockToken, revision.get())
+		if err == nil {
+			revision.set(newHash)
+		}
+		return err
 	})
 
 	// Cancel the edit context to signal goroutines, then wait for them
@@ -250,16 +249,33 @@ func (t *Tap) editWithTempFile(ctx context.Context, k keg.Keg, id keg.NodeId) er
 // composeCurrentNodeFile reads the node's current content and meta from the
 // repository and composes the edit-file representation. ok is false when the
 // reads fail (e.g. the node vanished mid-edit).
-func composeCurrentNodeFile(ctx context.Context, k keg.Keg, id keg.NodeId) ([]byte, bool) {
-	content, err := k.GetContent(ctx, id)
+func composeCurrentNodeFile(ctx context.Context, k keg.Keg, id keg.NodeId) ([]byte, string, bool) {
+	view, err := k.OpenNode(ctx, keg.NodeOpenOptions{ID: id})
 	if err != nil {
-		return nil, false
+		return nil, "", false
 	}
-	meta, err := k.GetMetaRaw(ctx, id)
-	if err != nil && !errors.Is(err, keg.ErrNotExist) {
-		return nil, false
+	hash := ""
+	if view.Stats != nil {
+		hash = view.Stats.Hash()
 	}
-	return composeEditNodeFile(ctx, meta, content), true
+	return composeEditNodeFile(ctx, view.Meta, view.Content), hash, true
+}
+
+type editRevision struct {
+	mu   sync.Mutex
+	hash string
+}
+
+func (r *editRevision) get() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.hash
+}
+
+func (r *editRevision) set(hash string) {
+	r.mu.Lock()
+	r.hash = hash
+	r.mu.Unlock()
 }
 
 // tempMatchesComposed reports whether the temp file already reflects the
@@ -285,6 +301,7 @@ func reverseSync(
 	id keg.NodeId,
 	tempPath string,
 	external *externalWrites,
+	revision *editRevision,
 	ch <-chan keg.NodeEvent,
 ) {
 	errOut := rt.Stream().Err
@@ -309,30 +326,11 @@ func reverseSync(
 			if ev.Field != "content" && ev.Field != "meta" {
 				continue
 			}
-			composed, ok := composeCurrentNodeFile(ctx, k, id)
+			composed, hash, ok := composeCurrentNodeFile(ctx, k, id)
 			if !ok {
 				continue
 			}
-			if tempMatchesComposed(ctx, rt, tempPath, composed) {
-				continue
-			}
-
-			// The repo state differs from the temp file. That can still be
-			// our own save observed mid-flight: a save writes meta and
-			// content as separate requests, so the event for the first
-			// write may arrive before the second lands. Wait for the
-			// repository to settle, recompose, and only notify if the
-			// difference persists. The delay is wall-clock by nature —
-			// it spans real network round-trips.
-			select {
-			case <-ctx.Done():
-				return
-			case <-time.After(500 * time.Millisecond):
-			}
-			composed, ok = composeCurrentNodeFile(ctx, k, id)
-			if !ok {
-				continue
-			}
+			revision.set(hash)
 			if tempMatchesComposed(ctx, rt, tempPath, composed) {
 				continue
 			}
@@ -353,27 +351,42 @@ func reverseSync(
 }
 
 func (t *Tap) applyEditedNodeRaw(ctx context.Context, k keg.Keg, id keg.NodeId, editedRaw []byte) error {
+	return t.applyEditedNodeRawWithLock(ctx, k, id, editedRaw, "")
+}
+
+func (t *Tap) applyEditedNodeRawWithLock(ctx context.Context, k keg.Keg, id keg.NodeId, editedRaw []byte, lockToken keg.LockToken) error {
+	view, err := k.OpenNode(ctx, keg.NodeOpenOptions{ID: id, LockToken: lockToken})
+	if err != nil {
+		if errors.Is(err, keg.ErrNotExist) {
+			return fmt.Errorf("node %s not found: %w", id.Path(), err)
+		}
+		return fmt.Errorf("unable to open node: %w", err)
+	}
+	expectedHash := ""
+	if view.Stats != nil {
+		expectedHash = view.Stats.Hash()
+	}
+	_, err = t.applyEditedNodeRawExpected(ctx, k, id, editedRaw, lockToken, expectedHash)
+	return err
+}
+
+func (t *Tap) applyEditedNodeRawExpected(ctx context.Context, k keg.Keg, id keg.NodeId, editedRaw []byte, lockToken keg.LockToken, expectedHash string) (string, error) {
 	hasFrontmatter, frontmatterRaw, bodyRaw, err := splitEditNodeFile(editedRaw)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	if hasFrontmatter {
-		metaNode, parseErr := keg.ParseMeta(ctx, frontmatterRaw)
-		if parseErr != nil {
-			return fmt.Errorf("invalid frontmatter metadata: %w", parseErr)
-		}
-		if err := k.SetMeta(ctx, id, metaNode); err != nil {
-			return fmt.Errorf("unable to save node metadata: %w", err)
+		if _, parseErr := keg.ParseMeta(ctx, frontmatterRaw); parseErr != nil {
+			return "", fmt.Errorf("invalid frontmatter metadata: %w", parseErr)
 		}
 	}
-
-	if err := k.SetContent(ctx, id, bodyRaw); err != nil {
-		return fmt.Errorf("unable to save node content: %w", err)
+	result, err := k.UpdateNode(ctx, keg.NodeUpdateOptions{ID: id, Content: bodyRaw, Meta: frontmatterRaw, HasMeta: hasFrontmatter, LockToken: lockToken, ExpectedHash: expectedHash})
+	if err != nil {
+		return "", fmt.Errorf("unable to save node: %w", err)
 	}
-	t.warnSchemaIssues(ctx, k, id, t.Runtime.Stream())
-
-	return nil
+	t.warnSchemaValidation(result.Validation, id, t.Runtime.Stream())
+	return result.Hash, nil
 }
 
 // normalizeMetaYAML renders raw repository metadata as block-style YAML.

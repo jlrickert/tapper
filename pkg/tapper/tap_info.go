@@ -189,14 +189,11 @@ func (t *Tap) KegInfo(ctx context.Context, opts KegInfoOptions) (string, error) 
 	if err != nil {
 		return "", fmt.Errorf("unable to open keg: %w", err)
 	}
-	if _, err := k.Config(ctx); err != nil {
+	inspection, err := k.Inspect(ctx)
+	if err != nil {
 		return "", fmt.Errorf("unable to read keg config: %w", err)
 	}
-
-	summary, err := k.Summary(ctx)
-	if err != nil {
-		return "", fmt.Errorf("unable to list nodes: %w", err)
-	}
+	summary := inspection.Summary
 
 	type capability struct {
 		Supported bool `yaml:"supported" json:"supported"`
@@ -237,9 +234,8 @@ func (t *Tap) KegInfo(ctx context.Context, opts KegInfoOptions) (string, error) 
 	}
 
 	// Populate summary from the keg config.
-	cfg, cfgErr := k.Config(ctx)
-	if cfgErr == nil && cfg.Summary != "" {
-		out.Summary = cfg.Summary
+	if inspection.Config != nil && inspection.Config.Summary != "" {
+		out.Summary = inspection.Config.Summary
 	}
 
 	if opts.Debug {

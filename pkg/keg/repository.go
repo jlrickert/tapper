@@ -94,6 +94,20 @@ type Repository interface {
 	WriteConfig(ctx context.Context, config *Config) error
 }
 
+// RepositoryConcurrentAccess optionally reports whether the repository can
+// safely service concurrent calls for the supplied context. Repositories that
+// do not implement this interface are assumed to support concurrent access.
+// A transaction-bound backend can return false while still allowing normal
+// pooled calls to run concurrently.
+type RepositoryConcurrentAccess interface {
+	SupportsConcurrentAccess(ctx context.Context) bool
+}
+
+func repositorySupportsConcurrentAccess(ctx context.Context, repo Repository) bool {
+	capability, ok := repo.(RepositoryConcurrentAccess)
+	return !ok || capability.SupportsConcurrentAccess(ctx)
+}
+
 // RepositoryFiles provides optional per-node file attachment access.
 type RepositoryFiles interface {
 	// ListFiles lists file attachment names for a node.
@@ -126,6 +140,9 @@ type RepositoryImages interface {
 type RepositorySchemas interface {
 	ListSchemas(ctx context.Context) ([]string, error)
 	ReadSchema(ctx context.Context, typeName string) ([]byte, error)
+	// CreateSchema stores a schema only when typeName does not already exist.
+	// Exactly one concurrent creator succeeds; later creators return ErrExist.
+	CreateSchema(ctx context.Context, typeName string, data []byte) error
 	WriteSchema(ctx context.Context, typeName string, data []byte) error
 	DeleteSchema(ctx context.Context, typeName string) error
 }

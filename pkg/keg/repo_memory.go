@@ -154,8 +154,8 @@ func (r *MemoryRepo) Next(ctx context.Context) (NodeId, error) {
 // - The returned slice is a copy to prevent caller-visible mutation.
 func (r *MemoryRepo) ReadContent(ctx context.Context, id NodeId) ([]byte, error) {
 	r.mu.RLock()
+	defer r.mu.RUnlock()
 	n, ok := r.nodes[id]
-	r.mu.RUnlock()
 	if !ok {
 		return nil, ErrNotExist
 	}
@@ -177,8 +177,8 @@ func (r *MemoryRepo) ReadContent(ctx context.Context, id NodeId) ([]byte, error)
 // - The returned bytes are a copy.
 func (r *MemoryRepo) ReadMeta(ctx context.Context, id NodeId) ([]byte, error) {
 	r.mu.RLock()
+	defer r.mu.RUnlock()
 	n, ok := r.nodes[id]
-	r.mu.RUnlock()
 	if !ok {
 		return nil, ErrNotExist
 	}
@@ -194,26 +194,27 @@ func (r *MemoryRepo) ReadMeta(ctx context.Context, id NodeId) ([]byte, error) {
 func (r *MemoryRepo) ReadStats(ctx context.Context, id NodeId) (*NodeStats, error) {
 	r.mu.RLock()
 	n, ok := r.nodes[id]
-	r.mu.RUnlock()
 	if !ok {
+		r.mu.RUnlock()
 		return nil, ErrNotExist
 	}
-	if n.stats == nil {
+	var raw []byte
+	fromMeta := n.stats == nil
+	if fromMeta {
 		if n.meta == nil {
+			r.mu.RUnlock()
 			return nil, ErrNotExist
 		}
-		cp := make([]byte, len(n.meta))
-		copy(cp, n.meta)
-		stats, err := ParseStats(ctx, cp)
-		if err != nil {
-			return nil, ErrNotExist
-		}
-		return stats, nil
+		raw = cloneBytes(n.meta)
+	} else {
+		raw = cloneBytes(n.stats)
 	}
-	cp := make([]byte, len(n.stats))
-	copy(cp, n.stats)
-	stats, err := ParseStats(ctx, cp)
+	r.mu.RUnlock()
+	stats, err := ParseStats(ctx, raw)
 	if err != nil {
+		if fromMeta {
+			return nil, ErrNotExist
+		}
 		return nil, err
 	}
 	return stats, nil
@@ -273,23 +274,15 @@ func (r *MemoryRepo) ListNodes(ctx context.Context) ([]NodeId, error) {
 
 // getNode is a small helper that returns the node and a boolean indicating
 // presence. It uses RLock/RUnlock internally.
-func (r *MemoryRepo) getNode(id NodeId) (*memoryNode, bool) {
-	r.mu.RLock()
-	n, ok := r.nodes[id]
-	r.mu.RUnlock()
-	return n, ok
-}
-
 // ListAssets lists asset names for a node and asset kind, sorted lexicographically.
 func (r *MemoryRepo) ListAssets(ctx context.Context, id NodeId, kind AssetKind) ([]string, error) {
 	_ = ctx
-	n, ok := r.getNode(id)
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	n, ok := r.nodes[id]
 	if !ok {
 		return nil, ErrNotExist
 	}
-
-	r.mu.RLock()
-	defer r.mu.RUnlock()
 
 	var src map[string][]byte
 	switch kind {
@@ -318,7 +311,7 @@ func (r *MemoryRepo) WriteContent(ctx context.Context, id NodeId, data []byte) e
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	n := r.ensureNode(id)
-	n.content = data
+	n.content = cloneBytes(data)
 	return nil
 }
 
@@ -330,7 +323,7 @@ func (r *MemoryRepo) WriteMeta(ctx context.Context, id NodeId, data []byte) erro
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	n := r.ensureNode(id)
-	n.meta = data
+	n.meta = cloneBytes(data)
 	return nil
 }
 
@@ -366,9 +359,9 @@ func (r *MemoryRepo) WriteAsset(ctx context.Context, id NodeId, kind AssetKind, 
 
 	switch kind {
 	case AssetKindImage:
-		n.images[name] = data
+		n.images[name] = cloneBytes(data)
 	case AssetKindItem:
-		n.items[name] = data
+		n.items[name] = cloneBytes(data)
 	default:
 		return fmt.Errorf("unknown asset kind %q", kind)
 	}
@@ -418,7 +411,7 @@ func (r *MemoryRepo) GetIndex(ctx context.Context, name string) ([]byte, error) 
 func (r *MemoryRepo) WriteIndex(ctx context.Context, name string, data []byte) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.indexes[name] = data
+	r.indexes[name] = cloneBytes(data)
 	return nil
 }
 
@@ -486,12 +479,12 @@ func (r *MemoryRepo) ReadFile(ctx context.Context, id NodeId, name string) ([]by
 		return nil, err
 	}
 	_ = ctx
-	n, ok := r.getNode(id)
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	n, ok := r.nodes[id]
 	if !ok {
 		return nil, ErrNotExist
 	}
-	r.mu.RLock()
-	defer r.mu.RUnlock()
 	data, exists := n.items[name]
 	if !exists {
 		return nil, ErrNotExist
@@ -506,12 +499,12 @@ func (r *MemoryRepo) ReadImage(ctx context.Context, id NodeId, name string) ([]b
 		return nil, err
 	}
 	_ = ctx
-	n, ok := r.getNode(id)
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	n, ok := r.nodes[id]
 	if !ok {
 		return nil, ErrNotExist
 	}
-	r.mu.RLock()
-	defer r.mu.RUnlock()
 	data, exists := n.images[name]
 	if !exists {
 		return nil, ErrNotExist
@@ -546,9 +539,9 @@ func (r *MemoryRepo) ReadConfig(ctx context.Context) (*Config, error) {
 	if r.config == nil {
 		return nil, ErrNotExist
 	}
-	c := *r.config
+	c := cloneConfig(r.config)
 	c.materializeSystemIndexes()
-	return &c, nil
+	return c, nil
 }
 
 // WriteConfig stores the provided Config in-memory. A copy of the value is kept.
@@ -559,9 +552,26 @@ func (r *MemoryRepo) WriteConfig(ctx context.Context, config *Config) error {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	c := *persisted
-	r.config = &c
+	r.config = cloneConfig(persisted)
 	return nil
+}
+
+func cloneConfig(src *Config) *Config {
+	if src == nil {
+		return nil
+	}
+	out := *src
+	out.Links = slices.Clone(src.Links)
+	out.Indexes = slices.Clone(src.Indexes)
+	if src.Snapshots != nil {
+		v := *src.Snapshots
+		out.Snapshots = &v
+	}
+	if src.SchemaPolicy != nil {
+		v := *src.SchemaPolicy
+		out.SchemaPolicy = &v
+	}
+	return &out
 }
 
 func (r *MemoryRepo) ListSchemas(ctx context.Context) ([]string, error) {
@@ -596,6 +606,24 @@ func (r *MemoryRepo) WriteSchema(ctx context.Context, typeName string, data []by
 	defer r.mu.Unlock()
 	if r.schemas == nil {
 		r.schemas = make(map[string][]byte)
+	}
+	r.schemas[filename] = cloneBytes(data)
+	return nil
+}
+
+func (r *MemoryRepo) CreateSchema(ctx context.Context, typeName string, data []byte) error {
+	_ = ctx
+	filename, err := SchemaFilename(typeName)
+	if err != nil {
+		return err
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.schemas == nil {
+		r.schemas = make(map[string][]byte)
+	}
+	if _, exists := r.schemas[filename]; exists {
+		return ErrExist
 	}
 	r.schemas[filename] = cloneBytes(data)
 	return nil

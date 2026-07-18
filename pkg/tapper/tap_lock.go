@@ -45,22 +45,17 @@ func (t *Tap) Lock(ctx context.Context, opts LockOptions) (keg.LockToken, error)
 		return "", err
 	}
 
-	exists, err := k.NodeExists(ctx, id)
+	info, err := k.Lock(ctx, id)
 	if err != nil {
-		return "", fmt.Errorf("unable to inspect node: %w", err)
-	}
-	if !exists {
-		return "", fmt.Errorf("node %s not found in %s", id.Path(), describeKeg(k))
-	}
-
-	token, err := k.Lock(ctx, id)
-	if err != nil {
+		if errors.Is(err, keg.ErrNotExist) {
+			return "", fmt.Errorf("node %s not found in %s: %w", id.Path(), describeKeg(k), err)
+		}
 		if errors.Is(err, keg.ErrNotSupported) {
 			return "", fmt.Errorf("repository does not support cross-process locking")
 		}
 		return "", fmt.Errorf("unable to acquire lock: %w", err)
 	}
-	return token, nil
+	return info.Token, nil
 }
 
 // Unlock releases a cross-process lock on a node.

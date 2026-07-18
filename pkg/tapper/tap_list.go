@@ -2,6 +2,7 @@ package tapper
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
@@ -168,17 +169,20 @@ func (t *Tap) List(ctx context.Context, opts ListOptions) ([]string, error) {
 	if err != nil {
 		return []string{}, fmt.Errorf("unable to open keg: %w", err)
 	}
-	dex, err := k.Dex(ctx)
+	listing, err := k.ListEntries(ctx, keg.ListEntriesOptions{Query: opts.Query})
 	if err != nil {
-		return []string{}, fmt.Errorf("unable to read dex: %w", err)
+		if strings.TrimSpace(opts.Query) != "" {
+			return []string{}, fmt.Errorf("invalid query expression: %w", err)
+		}
+		return []string{}, fmt.Errorf("unable to list keg: %w", err)
 	}
 
-	entries := dex.Nodes(ctx)
+	entries := listing.Entries
 
 	// Warn when the index appears significantly stale compared to on-disk nodes.
-	if onDisk, listErr := k.ListNodes(ctx); listErr == nil {
-		indexed := len(entries)
-		total := len(onDisk)
+	{
+		indexed := listing.IndexedCount
+		total := listing.NodeCount
 		gap := total - indexed
 		threshold := total / 10 // 10%
 		if threshold < 5 {
@@ -194,13 +198,8 @@ func (t *Tap) List(ctx context.Context, opts ListOptions) ([]string, error) {
 		}
 	}
 
-	if q := strings.TrimSpace(opts.Query); q != "" {
-		filtered, evalErr := k.Query(ctx, keg.QueryOptions{Expr: q})
-		if evalErr != nil {
-			return []string{}, fmt.Errorf("invalid query expression: %w", evalErr)
-		}
-		sortNodeIndexEntries(filtered)
-		entries = filtered
+	if strings.TrimSpace(opts.Query) != "" {
+		sortNodeIndexEntries(entries)
 	}
 
 	switch opts.Sort {
@@ -230,10 +229,7 @@ func (t *Tap) Backlinks(ctx context.Context, opts BacklinksOptions) ([]string, e
 		return []string{}, fmt.Errorf("offset must be >= 0, got %d", opts.Offset)
 	}
 	return t.resolveAndLookupLinks(ctx, opts.KegTargetOptions, opts.NodeIDs,
-		opts.Format, opts.IdOnly, opts.Reverse, opts.Limit, opts.Offset,
-		func(d *keg.Dex, id keg.NodeId) ([]keg.NodeId, bool) {
-			return d.Backlinks(ctx, id)
-		})
+		opts.Format, opts.IdOnly, opts.Reverse, opts.Limit, opts.Offset, keg.RelatedBacklinks)
 }
 
 func (t *Tap) Links(ctx context.Context, opts LinksOptions) ([]string, error) {
@@ -241,10 +237,7 @@ func (t *Tap) Links(ctx context.Context, opts LinksOptions) ([]string, error) {
 		return []string{}, fmt.Errorf("offset must be >= 0, got %d", opts.Offset)
 	}
 	return t.resolveAndLookupLinks(ctx, opts.KegTargetOptions, opts.NodeIDs,
-		opts.Format, opts.IdOnly, opts.Reverse, opts.Limit, opts.Offset,
-		func(d *keg.Dex, id keg.NodeId) ([]keg.NodeId, bool) {
-			return d.Links(ctx, id)
-		})
+		opts.Format, opts.IdOnly, opts.Reverse, opts.Limit, opts.Offset, keg.RelatedLinks)
 }
 
 // resolveAndLookupLinks is a shared helper for Backlinks and Links. It resolves
@@ -259,7 +252,7 @@ func (t *Tap) resolveAndLookupLinks(
 	reverse bool,
 	limit int,
 	offset int,
-	lookup func(*keg.Dex, keg.NodeId) ([]keg.NodeId, bool),
+	direction keg.RelatedDirection,
 ) ([]string, error) {
 	if len(nodeIDs) == 0 {
 		return []string{}, fmt.Errorf("at least one node ID is required")
@@ -269,15 +262,7 @@ func (t *Tap) resolveAndLookupLinks(
 	if err != nil {
 		return []string{}, fmt.Errorf("unable to open keg: %w", err)
 	}
-	dex, err := k.Dex(ctx)
-	if err != nil {
-		return []string{}, fmt.Errorf("unable to read dex: %w", err)
-	}
-
-	// Collect and deduplicate results across all node IDs.
-	seen := make(map[string]struct{})
-	var allRelated []keg.NodeId
-
+	ids := make([]keg.NodeId, 0, len(nodeIDs))
 	for _, nodeID := range nodeIDs {
 		// Intentionally NOT routed through resolveNodeArg: a cross-keg ref would
 		// produce related nodes owned by a different keg, but the dedup key
@@ -290,41 +275,18 @@ func (t *Tap) resolveAndLookupLinks(
 			return []string{}, err
 		}
 
-		exists, err := t.nodeExistsWithContent(ctx, k, id)
-		if err != nil {
-			return []string{}, fmt.Errorf("unable to inspect node: %w", err)
-		}
-		if !exists {
-			return []string{}, fmt.Errorf("node %s not found in %s", id.Path(), describeKeg(k))
-		}
-
-		related, ok := lookup(dex, id)
-		if !ok {
-			continue
-		}
-		for _, rel := range related {
-			key := rel.Path()
-			if _, dup := seen[key]; !dup {
-				seen[key] = struct{}{}
-				allRelated = append(allRelated, rel)
-			}
-		}
+		ids = append(ids, id)
 	}
-
-	if len(allRelated) == 0 {
-		return []string{}, nil
-	}
-
-	entries := make([]keg.NodeIndexEntry, 0, len(allRelated))
-	for _, rel := range allRelated {
-		ref := dex.GetRef(ctx, rel)
-		if ref != nil {
-			entries = append(entries, *ref)
-			continue
+	entries, err := k.RelatedNodes(ctx, keg.RelatedNodesOptions{NodeIDs: ids, Direction: direction})
+	if err != nil {
+		if strings.Contains(err.Error(), "keg not initialized") {
+			return []string{}, err
 		}
-		entries = append(entries, keg.NodeIndexEntry{ID: rel.Path()})
+		if errors.Is(err, keg.ErrNotExist) {
+			return []string{}, fmt.Errorf("node %s not found in %s", ids[0].Path(), describeKeg(k))
+		}
+		return []string{}, err
 	}
-	sortNodeIndexEntries(entries)
 
 	entries = applyOffset(entries, offset)
 
@@ -383,15 +345,18 @@ func (t *Tap) Tags(ctx context.Context, opts TagsOptions) ([]string, error) {
 	if err != nil {
 		return []string{}, fmt.Errorf("unable to open keg: %w", err)
 	}
-	dex, err := k.Dex(ctx)
+	listing, err := k.ListEntries(ctx, keg.ListEntriesOptions{Query: opts.Query})
 	if err != nil {
-		return []string{}, fmt.Errorf("unable to read dex: %w", err)
+		if strings.TrimSpace(opts.Query) != "" {
+			return []string{}, fmt.Errorf("invalid query expression: %w", err)
+		}
+		return []string{}, fmt.Errorf("unable to list entries: %w", err)
 	}
 
 	queryExpr := strings.TrimSpace(opts.Query)
 
 	if queryExpr == "" {
-		tags := dex.TagList(ctx)
+		tags := listing.Tags
 		sortStringsAsc(tags)
 		tags = applyOffsetStrings(tags, opts.Offset)
 		if opts.Limit > 0 && len(tags) > opts.Limit {
@@ -403,20 +368,7 @@ func (t *Tap) Tags(ctx context.Context, opts TagsOptions) ([]string, error) {
 		return tags, nil
 	}
 
-	indexEntries := dex.Nodes(ctx)
-	entryByID := make(map[string]keg.NodeIndexEntry, len(indexEntries)*2)
-	for _, entry := range indexEntries {
-		entryByID[entry.ID] = entry
-		node, parseErr := keg.ParseNode(entry.ID)
-		if parseErr == nil && node != nil {
-			entryByID[node.Path()] = entry
-		}
-	}
-
-	matchedEntries, evalErr := k.Query(ctx, keg.QueryOptions{Expr: queryExpr})
-	if evalErr != nil {
-		return []string{}, fmt.Errorf("invalid query expression: %w", evalErr)
-	}
+	matchedEntries := listing.Entries
 	if len(matchedEntries) == 0 {
 		return []string{}, nil
 	}
@@ -428,33 +380,7 @@ func (t *Tap) Tags(ctx context.Context, opts TagsOptions) ([]string, error) {
 		}
 	}
 
-	seen := make(map[string]struct{})
-	entries := make([]keg.NodeIndexEntry, 0, len(matchedIDs))
-	for nodeID := range matchedIDs {
-		if entry, ok := entryByID[nodeID]; ok {
-			if _, dup := seen[entry.ID]; !dup {
-				seen[entry.ID] = struct{}{}
-				entries = append(entries, entry)
-			}
-			continue
-		}
-		node, parseErr := keg.ParseNode(nodeID)
-		if parseErr == nil && node != nil {
-			if _, dup := seen[node.Path()]; dup {
-				continue
-			}
-			seen[node.Path()] = struct{}{}
-			ref := dex.GetRef(ctx, *node)
-			if ref != nil {
-				entries = append(entries, *ref)
-				continue
-			}
-		}
-		if _, dup := seen[nodeID]; !dup {
-			seen[nodeID] = struct{}{}
-			entries = append(entries, keg.NodeIndexEntry{ID: nodeID})
-		}
-	}
+	entries := matchedEntries
 	sortNodeIndexEntries(entries)
 
 	entries = applyOffset(entries, opts.Offset)

@@ -44,7 +44,7 @@ func (t *Tap) Create(ctx context.Context, opts CreateOptions) (keg.NodeId, error
 		// bug where Next() was called for the editor scaffold and then
 		// Create() called Next() again internally.
 		attrs := createAttrsFromStrings(opts.Attrs)
-		createdID, createErr := k.Create(ctx, &keg.CreateOptions{
+		created, createErr := k.Create(ctx, &keg.CreateOptions{
 			Title: opts.Title,
 			Lead:  opts.Lead,
 			Tags:  opts.Tags,
@@ -53,15 +53,15 @@ func (t *Tap) Create(ctx context.Context, opts CreateOptions) (keg.NodeId, error
 		if createErr != nil {
 			return keg.NodeId{}, fmt.Errorf("unable to create node: %w", createErr)
 		}
-		if editErr := t.editWithTempFile(ctx, k, createdID); editErr != nil {
+		if editErr := t.editWithTempFile(ctx, k, created.ID); editErr != nil {
 			return keg.NodeId{}, fmt.Errorf("unable to edit new node: %w", editErr)
 		}
-		t.warnSchemaIssues(ctx, k, createdID, opts.Stream)
-		return createdID, nil
+		t.warnSchemaValidation(created.Validation, created.ID, opts.Stream)
+		return created.ID, nil
 	}
 
 	attrs := createAttrsFromStrings(opts.Attrs)
-	node, err := k.Create(ctx, &keg.CreateOptions{
+	created, err := k.Create(ctx, &keg.CreateOptions{
 		Title: opts.Title,
 		Lead:  opts.Lead,
 		Tags:  opts.Tags,
@@ -70,8 +70,8 @@ func (t *Tap) Create(ctx context.Context, opts CreateOptions) (keg.NodeId, error
 	if err != nil {
 		return keg.NodeId{}, fmt.Errorf("unable to create node: %w", err)
 	}
-	t.warnSchemaIssues(ctx, k, node, opts.Stream)
-	return node, nil
+	t.warnSchemaValidation(created.Validation, created.ID, opts.Stream)
+	return created.ID, nil
 }
 
 func createAttrsFromStrings(attrs map[string]string) map[string]any {
@@ -131,10 +131,10 @@ func (t *Tap) createNodeFromRaw(ctx context.Context, k keg.Keg, raw []byte, defa
 		}
 	}
 
-	node, err := k.Create(ctx, createOpts)
+	created, err := k.Create(ctx, createOpts)
 	if err != nil {
 		return keg.NodeId{}, fmt.Errorf("unable to create node: %w", err)
 	}
 
-	return node, nil
+	return created.ID, nil
 }

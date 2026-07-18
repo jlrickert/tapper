@@ -123,8 +123,15 @@ func NewDexFromRepo(ctx context.Context, repo Repository, opts ...DexOption) (*D
 	)
 
 	var wg sync.WaitGroup
+	run := func(fn func()) {
+		if repositorySupportsConcurrentAccess(ctx, repo) {
+			wg.Go(fn)
+			return
+		}
+		fn()
+	}
 
-	wg.Go(func() {
+	run(func() {
 		data, err := repo.GetIndex(ctx, "nodes.tsv")
 		if err != nil {
 			if errors.Is(err, ErrNotExist) {
@@ -143,7 +150,7 @@ func NewDexFromRepo(ctx context.Context, repo Repository, opts ...DexOption) (*D
 		}
 	})
 
-	wg.Go(func() {
+	run(func() {
 		data, err := repo.GetIndex(ctx, "tags")
 		if err != nil {
 			if errors.Is(err, ErrNotExist) {
@@ -162,7 +169,7 @@ func NewDexFromRepo(ctx context.Context, repo Repository, opts ...DexOption) (*D
 		}
 	})
 
-	wg.Go(func() {
+	run(func() {
 		data, err := repo.GetIndex(ctx, "links")
 		if err != nil {
 			if errors.Is(err, ErrNotExist) {
@@ -181,7 +188,7 @@ func NewDexFromRepo(ctx context.Context, repo Repository, opts ...DexOption) (*D
 		}
 	})
 
-	wg.Go(func() {
+	run(func() {
 		data, err := repo.GetIndex(ctx, "backlinks")
 		if err != nil {
 			if errors.Is(err, ErrNotExist) {
@@ -204,7 +211,7 @@ func NewDexFromRepo(ctx context.Context, repo Repository, opts ...DexOption) (*D
 		}
 	})
 
-	wg.Go(func() {
+	run(func() {
 		data, err := repo.GetIndex(ctx, "changes.md")
 		if err != nil {
 			if errors.Is(err, ErrNotExist) {
@@ -483,9 +490,16 @@ func (dex *Dex) Write(ctx context.Context, repo Repository) error {
 	var errsMu sync.Mutex
 	var wg sync.WaitGroup
 
+	run := func(fn func()) {
+		if repositorySupportsConcurrentAccess(ctx, repo) {
+			wg.Go(fn)
+			return
+		}
+		fn()
+	}
 	for _, p := range payloads {
 		p := p // capture
-		wg.Go(func() {
+		run(func() {
 			if err := repo.WriteIndex(ctx, p.name, p.data); err != nil {
 				errsMu.Lock()
 				writeErrs = append(writeErrs, fmt.Errorf("unable to write `%s` index: %w", p.name, err))

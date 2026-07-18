@@ -26,32 +26,8 @@ func (t *Tap) Remove(ctx context.Context, opts RemoveOptions) error {
 		return fmt.Errorf("unable to open keg: %w", err)
 	}
 
-	nodeIDs := opts.NodeIDs
-
-	if q := strings.TrimSpace(opts.Query); q != "" {
-		matchedEntries, evalErr := k.Query(ctx, keg.QueryOptions{Expr: q})
-		if evalErr != nil {
-			return fmt.Errorf("invalid query expression: %w", evalErr)
-		}
-		seen := make(map[string]struct{})
-		for _, entry := range matchedEntries {
-			n, parseErr := keg.ParseNode(entry.ID)
-			if parseErr != nil || n == nil {
-				continue
-			}
-			if _, dup := seen[n.Path()]; dup {
-				continue
-			}
-			seen[n.Path()] = struct{}{}
-			nodeIDs = append(nodeIDs, n.Path())
-		}
-	}
-
-	if len(nodeIDs) == 0 {
-		return fmt.Errorf("at least one node ID is required")
-	}
-
-	for _, nodeID := range nodeIDs {
+	ids := make([]keg.NodeId, 0, len(opts.NodeIDs))
+	for _, nodeID := range opts.NodeIDs {
 		// Intentionally NOT routed through resolveNodeArg. Query-derived ids come
 		// from the current keg's dex and are bare; mixing them with cross-keg
 		// refs that redirect a destructive Remove to another keg would be a
@@ -62,13 +38,21 @@ func (t *Tap) Remove(ctx context.Context, opts RemoveOptions) error {
 			return err
 		}
 
-		if _, err := k.Remove(ctx, id); err != nil {
-			if errors.Is(err, keg.ErrNotExist) {
-				return fmt.Errorf("node %s not found in %s", id.Path(), describeKeg(k))
-			}
-			return fmt.Errorf("unable to remove node %s: %w", id.Path(), err)
-		}
+		ids = append(ids, id)
 	}
-
+	result, err := k.RemoveNodes(ctx, keg.RemoveNodesOptions{NodeIDs: ids, Query: strings.TrimSpace(opts.Query)})
+	if errors.Is(err, keg.ErrNotExist) {
+		return fmt.Errorf("node not found in %s: %w", describeKeg(k), err)
+	}
+	if err != nil {
+		return fmt.Errorf("unable to remove nodes: %w", err)
+	}
+	if result.Failure != nil {
+		failureErr := result.Failure.Err()
+		if errors.Is(failureErr, keg.ErrNotExist) {
+			return fmt.Errorf("node not found in %s: %w", describeKeg(k), failureErr)
+		}
+		return fmt.Errorf("unable to remove node %s: %w", result.Failure.NodeID.Path(), failureErr)
+	}
 	return nil
 }

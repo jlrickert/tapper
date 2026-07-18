@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
-	"slices"
 	"strings"
 
 	"github.com/jlrickert/tapper/pkg/keg"
@@ -71,45 +70,17 @@ func (t *Tap) ImportFromKeg(ctx context.Context, opts ImportFromKegOptions) ([]I
 		return nil, err
 	}
 
-	// Collect nodes from tag query and merge with explicit IDs.
-	if opts.TagQuery != "" {
-		tagIDs, err := collectImportNodesByTag(ctx, srcKeg, opts.TagQuery)
-		if err != nil {
-			return nil, fmt.Errorf("unable to query source keg by tag: %w", err)
-		}
-		srcIDs = unionImportNodeIDs(srcIDs, tagIDs)
-	}
-
-	// Default to all nodes when nothing is specified.
-	if len(srcIDs) == 0 && opts.TagQuery == "" {
-		all, err := srcKeg.ListNodes(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("unable to list source nodes: %w", err)
-		}
-		srcIDs = all
-	}
-
-	if opts.SkipZeroNode {
-		srcIDs = filterZeroImportNode(srcIDs)
-	}
-	slices.SortFunc(srcIDs, func(a, b keg.NodeId) int { return a.Compare(b) })
-
-	if len(srcIDs) == 0 {
-		return []ImportedNode{}, nil
-	}
-
-	// History travels only when both ends support snapshots; probing with
-	// ListSnapshots maps ErrNotSupported from either side.
-	withHistory := kegSupportsSnapshots(ctx, srcKeg) && kegSupportsSnapshots(ctx, tgtKeg)
-
 	// Stream source nodes through a keg-archive and land them on fresh target
 	// ids. The archive import rewrites links between imported nodes and
 	// retargets cross-keg references via the source/target aliases.
 	rc, err := srcKeg.ExportNodes(ctx, keg.ExportNodesOptions{
-		NodeIDs:     srcIDs,
-		WithHistory: withHistory,
-		WithAssets:  true,
-		Source:      srcAlias,
+		NodeIDs:            srcIDs,
+		Query:              opts.TagQuery,
+		SkipZeroNode:       opts.SkipZeroNode,
+		WithHistory:        true,
+		HistoryIfSupported: true,
+		WithAssets:         true,
+		Source:             srcAlias,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("unable to export source nodes: %w", err)
@@ -117,45 +88,39 @@ func (t *Tap) ImportFromKeg(ctx context.Context, opts ImportFromKegOptions) ([]I
 	defer rc.Close()
 
 	imported, err := tgtKeg.ImportNodes(ctx, rc, keg.ImportNodesOptions{
-		AssignNewIDs: true,
-		SourceAlias:  srcAlias,
-		TargetAlias:  tgtAlias,
+		AssignNewIDs:       true,
+		HistoryIfSupported: true,
+		SourceAlias:        srcAlias,
+		TargetAlias:        tgtAlias,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("unable to import nodes: %w", err)
 	}
 
-	mapping := make(map[string]keg.NodeId, len(imported))
-	for _, node := range imported {
-		mapping[node.SourceID] = node.ID
-	}
-
 	// Write forwarding stubs at source locations if requested.
 	if opts.LeaveStubs && tgtAlias != "" {
-		for _, srcID := range srcIDs {
-			newID, ok := mapping[srcID.Path()]
-			if !ok {
+		redirects := make([]keg.NodeRedirect, 0, len(imported))
+		for _, node := range imported {
+			srcID, parseErr := keg.ParseNode(node.SourceID)
+			if parseErr != nil || srcID == nil {
 				continue
 			}
-			title := ""
-			if stats, statsErr := srcKeg.GetStats(ctx, srcID); statsErr == nil && stats != nil {
-				title = stats.Title()
-			}
-			if title == "" {
-				title = srcID.Path()
-			}
-			stub := fmt.Sprintf("# %s\n\nMoved to [keg:%s/%s](keg:%s/%s).\n",
-				title, tgtAlias, newID.Path(), tgtAlias, newID.Path())
-			if err := srcKeg.SetContent(ctx, srcID, []byte(stub)); err != nil {
-				return nil, fmt.Errorf("unable to write stub for source node %s: %w", srcID.Path(), err)
-			}
+			redirects = append(redirects, keg.NodeRedirect{ID: *srcID, Target: "keg:" + tgtAlias, TargetID: node.ID, ExpectedHash: node.SourceHash})
+		}
+		result, err := srcKeg.ReplaceNodesWithRedirects(ctx, redirects)
+		if err != nil {
+			return nil, fmt.Errorf("unable to write forwarding stubs: %w", err)
+		}
+		if result.Failure != nil {
+			return nil, fmt.Errorf("unable to write forwarding stub for node %s: %w", result.Failure.NodeID.Path(), result.Failure.Err())
 		}
 	}
 
-	result := make([]ImportedNode, 0, len(srcIDs))
-	for _, srcID := range srcIDs {
-		if newID, ok := mapping[srcID.Path()]; ok {
-			result = append(result, ImportedNode{SourceID: srcID, TargetID: newID})
+	result := make([]ImportedNode, 0, len(imported))
+	for _, node := range imported {
+		srcID, parseErr := keg.ParseNode(node.SourceID)
+		if parseErr == nil && srcID != nil {
+			result = append(result, ImportedNode{SourceID: *srcID, TargetID: node.ID})
 		}
 	}
 	return result, nil

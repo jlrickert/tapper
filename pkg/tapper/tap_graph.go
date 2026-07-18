@@ -51,12 +51,21 @@ func (t *Tap) Graph(ctx context.Context, opts GraphOptions) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("unable to open keg: %w", err)
 	}
-	dex, err := k.Dex(ctx)
+	view, err := k.Graph(ctx)
 	if err != nil {
-		return "", fmt.Errorf("unable to read dex: %w", err)
+		return "", fmt.Errorf("unable to read graph: %w", err)
 	}
-
-	payload := buildGraphPayload(ctx, t.Runtime, k, dex)
+	payload := graphPayload{Nodes: make([]graphNode, 0, len(view.Nodes)), Edges: make([]graphEdge, 0, len(view.Edges))}
+	for _, node := range view.Nodes {
+		label := node.Title
+		if strings.TrimSpace(label) == "" {
+			label = node.ID
+		}
+		payload.Nodes = append(payload.Nodes, graphNode{ID: node.ID, Label: label, Summary: node.Lead, Tags: node.Tags})
+	}
+	for _, edge := range view.Edges {
+		payload.Edges = append(payload.Edges, graphEdge{Source: edge.Source, Target: edge.Target, Type: edge.Type})
+	}
 	bundle := opts.BundleJS
 	if len(strings.TrimSpace(string(bundle))) == 0 {
 		bundle = []byte(graphFallbackBundle)

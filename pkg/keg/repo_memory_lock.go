@@ -6,7 +6,9 @@ import (
 	"time"
 )
 
-// memoryLockEntry holds cross-process lock state for a single node. The
+// memoryLockEntry holds process-local advisory lock state for a single node.
+// It does not survive a process restart or coordinate separate processes;
+// production backends must document their own deployment scope. The
 // waiters channel is closed when the entry is released (or force-released),
 // so blocked AcquireLock callers wake deterministically without having to
 // poll on a wall-clock ticker.
@@ -47,6 +49,7 @@ func (r *MemoryRepo) AcquireLock(ctx context.Context, id NodeId) (LockToken, err
 		// Capture the waiters channel under the lock so we cannot miss
 		// the close that will be performed by a concurrent release.
 		waiters := entry.waiters
+		expiresIn := entry.info.expiresAt().Sub(r.runtime.Clock().Now())
 		r.mu.Unlock()
 
 		if waiters == nil {
@@ -64,6 +67,8 @@ func (r *MemoryRepo) AcquireLock(ctx context.Context, id NodeId) (LockToken, err
 			return "", fmt.Errorf("%w: %w", ErrLockTimeout, ctx.Err())
 		case <-waiters:
 			// Holder released; retry acquisition.
+		case <-r.runtime.SchedulingClock().After(expiresIn):
+			// The advisory lease reached its TTL; retry and replace it if stale.
 		}
 	}
 }

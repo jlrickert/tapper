@@ -7,15 +7,31 @@ import (
 
 // Lock acquires a cross-process advisory lock on a node. Returns
 // ErrNotSupported when the backend lacks cross-process locking.
-func (k *LocalKeg) Lock(ctx context.Context, id NodeId) (LockToken, error) {
+func (k *LocalKeg) Lock(ctx context.Context, id NodeId) (LockInfo, error) {
 	if err := k.checkKegExists(ctx); err != nil {
-		return "", fmt.Errorf("failed to lock node: %w", err)
+		return LockInfo{}, fmt.Errorf("failed to lock node: %w", err)
+	}
+	exists, err := k.NodeExists(ctx, id)
+	if err != nil {
+		return LockInfo{}, err
+	}
+	if !exists {
+		return LockInfo{}, fmt.Errorf("node %s: %w", id.Path(), ErrNotExist)
 	}
 	locker, ok := k.Repo.(RepositoryLock)
 	if !ok {
-		return "", ErrNotSupported
+		return LockInfo{}, ErrNotSupported
 	}
-	return locker.AcquireLock(ctx, id)
+	token, err := locker.AcquireLock(ctx, id)
+	if err != nil {
+		return LockInfo{}, err
+	}
+	info, err := locker.LockStatus(ctx, id)
+	if err != nil {
+		return LockInfo{Token: token}, nil
+	}
+	info.Token = token
+	return info, nil
 }
 
 // Unlock releases a cross-process lock; the token must match the holder's.

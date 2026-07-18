@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -625,6 +626,33 @@ func (f *FsRepo) WriteSchema(ctx context.Context, typeName string, data []byte) 
 	}
 	if err := f.runtime.AtomicWriteFile(filepath.Join(schemaDir, filename), data, 0o644); err != nil {
 		return NewBackendError(f.Name(), "WriteSchema", 0, err, false)
+	}
+	return nil
+}
+
+func (f *FsRepo) CreateSchema(ctx context.Context, typeName string, data []byte) error {
+	_ = ctx
+	filename, err := SchemaFilename(typeName)
+	if err != nil {
+		return err
+	}
+	schemaDir := filepath.Join(f.Root, SchemasDir)
+	if err := f.runtime.Mkdir(schemaDir, 0o755, true); err != nil {
+		return NewBackendError(f.Name(), "CreateSchema", 0, err, false)
+	}
+	path := filepath.Join(schemaDir, filename)
+	w, err := f.runtime.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+	if err != nil {
+		if os.IsExist(err) {
+			return ErrExist
+		}
+		return NewBackendError(f.Name(), "CreateSchema", 0, err, false)
+	}
+	_, writeErr := io.Copy(w, bytes.NewReader(data))
+	closeErr := w.Close()
+	if writeErr != nil || closeErr != nil {
+		_ = f.runtime.Remove(path, false)
+		return NewBackendError(f.Name(), "CreateSchema", 0, errors.Join(writeErr, closeErr), false)
 	}
 	return nil
 }

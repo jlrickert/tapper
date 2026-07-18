@@ -80,9 +80,9 @@ func TestCreate_DoubleNextBugReproduction(t *testing.T) {
 	// BUG: nextID != createID -- the editor showed nextID but content
 	// was saved under createID. After the fix, the interactive flow
 	// no longer calls Next() separately, so this mismatch cannot occur.
-	require.NotEqual(t, nextID.ID, createID.ID,
+	require.NotEqual(t, nextID.ID, createID.ID.ID,
 		"Next()+Create() should produce different IDs (demonstrating the bug)")
-	require.Equal(t, nextID.ID+1, createID.ID,
+	require.Equal(t, nextID.ID+1, createID.ID.ID,
 		"Create() should have allocated the ID after the one Next() reserved")
 
 	// The node at nextID should exist (Next creates the directory) but
@@ -92,7 +92,7 @@ func TestCreate_DoubleNextBugReproduction(t *testing.T) {
 	require.True(t, exists, "Next() should have reserved a directory for nextID")
 
 	// The actual content should be at createID, not nextID.
-	body, err := k.(*keg.LocalKeg).Repo.ReadContent(fx.Context(), createID)
+	body, err := k.(*keg.LocalKeg).Repo.ReadContent(fx.Context(), createID.ID)
 	require.NoError(t, err)
 	require.Contains(t, string(body), "Bug Reproduction")
 }
