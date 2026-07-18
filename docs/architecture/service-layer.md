@@ -73,6 +73,21 @@ Default implicit order:
 Bare names are references, not entries in a `kegs` alias table. They resolve
 through the namespace-centric chain.
 
+## Operation aggregation
+
+`keg.Keg` is the command-operation boundary, not a repository primitive
+surface. `LocalKeg` owns same-keg orchestration and `RemoteKeg` maps each
+aggregate method to exactly one authenticated Hub request. Listing, batch
+reads, related links, graph/inspection/doctor, bulk removal/validation,
+editor open/save, redirect creation, schema creation, dex reads, create, and
+lock acquisition therefore have matching local and hosted semantics without
+client fan-out.
+
+The Tap layer groups mixed-keg read and validation arguments by resolved keg,
+issues one batch per group, and restores caller order. Interactive editing and
+watching remain separate phases. Cross-keg import uses one source export, one
+target import, and, when requested, one source redirect batch.
+
 ## FlightService and flight gating
 
 `pkg/tapper/flight.go` discovers flights for the active hub. A flight carries
