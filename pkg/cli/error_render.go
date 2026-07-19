@@ -10,6 +10,7 @@ import (
 // types should implement this interface instead of adding branches to
 // renderUserError.
 type UserMessager interface {
+	// UserMessage returns the message appropriate for the caller's debug mode.
 	UserMessage(debug bool) string
 }
 

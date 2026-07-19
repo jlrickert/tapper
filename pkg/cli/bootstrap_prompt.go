@@ -28,12 +28,20 @@ type bootstrapDefaultKegSelection struct {
 
 // BootstrapPrompter is the interactive surface of `tap bootstrap`.
 type BootstrapPrompter interface {
+	// SelectBootstrapKind chooses the cloud, local, or enterprise bootstrap path.
 	SelectBootstrapKind() (string, error)
+	// PromptBootstrapEndpoint collects the enterprise hub endpoint URL.
 	PromptBootstrapEndpoint() (string, error)
+	// ConfirmBootstrapLogin reports whether the user wants to log in to host.
 	ConfirmBootstrapLogin(host string) (bool, error)
+	// SelectDefaultKeg chooses an available keg or a create, manual, or skip action.
 	SelectDefaultKeg(available []string) (bootstrapDefaultKegSelection, error)
+	// SelectFlight chooses an available MCP flight, preserving current as the
+	// default selection when possible.
 	SelectFlight(available []string, current string) (string, error)
+	// PromptManualDefaultKeg collects a keg reference not present in the picker.
 	PromptManualDefaultKeg() (string, error)
+	// PromptNewKegName collects and validates the alias for a new keg.
 	PromptNewKegName() (string, error)
 }
 

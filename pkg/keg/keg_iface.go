@@ -17,9 +17,9 @@ import (
 //   - RemoteKeg speaks the tapper-hub operation API; each method is a single
 //     HTTP round trip and all orchestration happens server-side.
 //
-// Capability errors: methods backed by optional storage features (files,
-// images, snapshots, locks, events) return ErrNotSupported when the backend
-// lacks the capability.
+// Capability errors: methods backed by optional storage features (schemas,
+// files, images, snapshots, locks, and events) return ErrNotSupported when the
+// backend lacks the capability.
 type Keg interface {
 	// Target returns the keg's resolved location, or nil for anonymous
 	// (memory-backed) kegs.
@@ -36,17 +36,36 @@ type Keg interface {
 	// SetConfig replaces the keg configuration with the supplied raw YAML.
 	// Raw bytes preserve user formatting for round-trip editing.
 	SetConfig(ctx context.Context, data []byte) error
+
+	// Inspect returns the keg configuration and summary from one coherent
+	// keg-wide read snapshot.
 	Inspect(ctx context.Context) (*KegInspection, error)
 
-	// Schemas describe valid note types for this keg. Filesystem repositories
-	// store them under schemas/<type>.schema.yaml; remote repositories expose the
-	// same logical surface through the hub API.
+	// ListSchemas returns the defined schema type names in lexicographic order.
 	ListSchemas(ctx context.Context) ([]string, error)
+
+	// ReadSchema returns the raw YAML definition for typeName.
 	ReadSchema(ctx context.Context, typeName string) ([]byte, error)
+
+	// WriteSchema validates and stores the YAML definition for typeName,
+	// replacing any existing definition.
 	WriteSchema(ctx context.Context, typeName string, data []byte) error
+
+	// CreateSchema validates and stores the YAML definition for typeName only
+	// when it does not exist. Concurrent creators are serialized so exactly one
+	// succeeds and the others return ErrExist.
 	CreateSchema(ctx context.Context, typeName string, data []byte) error
+
+	// DeleteSchema removes the definition for typeName.
 	DeleteSchema(ctx context.Context, typeName string) error
+
+	// ValidateNode validates the stored content and metadata for id against its
+	// declared schema without changing the node.
 	ValidateNode(ctx context.Context, id NodeId) (*SchemaValidationResult, error)
+
+	// ValidateNodePayload validates a proposed content/meta overlay for an
+	// existing node without writing it. Fields not marked present are read from
+	// the stored node.
 	ValidateNodePayload(ctx context.Context, payload NodeValidationPayload) (*SchemaValidationResult, error)
 
 	// Node lifecycle
@@ -54,7 +73,8 @@ type Keg interface {
 	// Create allocates a node id and writes initial content, meta, and stats.
 	Create(ctx context.Context, opts *CreateOptions) (CreateResult, error)
 
-	// Next reports the next node id that Create would allocate.
+	// Next reserves and returns the next available node id. The reservation does
+	// not become a complete node until content is written.
 	Next(ctx context.Context) (NodeId, error)
 
 	// ListNodes returns all node ids present in the keg.
@@ -72,17 +92,36 @@ type Keg interface {
 	// the ids of nodes whose content was rewritten.
 	Remove(ctx context.Context, id NodeId) ([]NodeId, error)
 
-	// Commit creates a snapshot revision of the node's current state.
+	// Commit promotes a temporary, code-backed node to a permanent numeric id.
+	// It is a no-op for an already-permanent node.
 	Commit(ctx context.Context, id NodeId) error
 
 	// Node data
 
 	// ReadNode returns the node's full state in one operation: content, raw
-	// meta, stats, and asset name lists.
+	// meta, stats, and asset name lists from one coherent read snapshot.
 	ReadNode(ctx context.Context, id NodeId) (*NodeView, error)
+
+	// OpenNode validates any held advisory lock against opts.LockToken,
+	// optionally records an access touch, and returns one coherent node view.
+	// If the operation fails after touching, the touch is rolled back.
 	OpenNode(ctx context.Context, opts NodeOpenOptions) (*NodeView, error)
+
+	// ReadNodes reads either opts.NodeIDs in caller order or the nodes selected
+	// by opts.Query in dex order; the selectors are mutually exclusive. All
+	// views come from one coherent keg snapshot. When Touch is set, either every
+	// selected node is touched or all touch side effects are rolled back.
 	ReadNodes(ctx context.Context, opts ReadNodesOptions) ([]NodeView, error)
+
+	// UpdateNode validates advisory-lock ownership and an optional expected
+	// content hash, then commits content, optional metadata, derived stats, and
+	// dex state as one node update. It returns the resulting validation and hash.
 	UpdateNode(ctx context.Context, opts NodeUpdateOptions) (*NodeUpdateResult, error)
+
+	// ReplaceNodesWithRedirects replaces nodes with redirect stubs in input
+	// order, checking each optional expected hash. It stops at the first failure
+	// and returns both the successful prefix and a Failure; completed replacements
+	// are not rolled back.
 	ReplaceNodesWithRedirects(ctx context.Context, redirects []NodeRedirect) (ReplaceNodesWithRedirectsResult, error)
 
 	// GetContent returns the node's primary content (README.md).
@@ -113,12 +152,40 @@ type Keg interface {
 	// Dex returns the keg's current index aggregate. The returned dex
 	// reflects committed state at call time (always-fresh semantics).
 	Dex(ctx context.Context) (*Dex, error)
+
+	// DexArtifacts returns every raw dex artifact from one coherent generation,
+	// materializing snapshot-derived indexes first when necessary.
 	DexArtifacts(ctx context.Context) (*DexArtifacts, error)
+
+	// ListEntries returns dex entries, lexicographically sorted tags, and index
+	// and repository counts from one coherent snapshot. A non-empty query filters
+	// entries in dex order without changing the aggregate counts.
 	ListEntries(ctx context.Context, opts ListEntriesOptions) (*ListEntriesResult, error)
+
+	// RelatedNodes returns the deduplicated union of links or backlinks for the
+	// supplied nodes, ordered by node id. It fails if no ids are supplied, an id
+	// is missing, or the direction is invalid.
 	RelatedNodes(ctx context.Context, opts RelatedNodesOptions) ([]NodeIndexEntry, error)
+
+	// Graph returns a deterministic graph projection of the keg's dex.
+	//
+	// Deprecated: Tapper Hub supersedes local graph rendering.
 	Graph(ctx context.Context) (*GraphView, error)
+
+	// Doctor inspects configuration, content, links, metadata, stats, and schema
+	// validation and returns deterministic diagnostic issues without mutating the
+	// keg.
 	Doctor(ctx context.Context) ([]DoctorIssue, error)
+
+	// RemoveNodes removes the deduplicated union of explicit ids and query
+	// matches in ascending node-id order. It stops at the first failure and
+	// returns the successful prefix plus a Failure; completed removals and their
+	// inbound-link rewrites are not rolled back.
 	RemoveNodes(ctx context.Context, opts RemoveNodesOptions) (RemoveNodesResult, error)
+
+	// ValidateNodes validates opts.NodeIDs in caller order, or every node in
+	// repository order when none are supplied. It stops at the first operational
+	// error and returns results only after every selected node is validated.
 	ValidateNodes(ctx context.Context, opts ValidateNodesOptions) ([]SchemaValidationResult, error)
 
 	// Query evaluates a boolean query expression (tags, key=value attribute
@@ -144,14 +211,28 @@ type Keg interface {
 
 	// Files and images
 
+	// ListFiles returns file attachment names in lexicographic order.
 	ListFiles(ctx context.Context, id NodeId) ([]string, error)
+
+	// ReadFile returns the named file attachment bytes.
 	ReadFile(ctx context.Context, id NodeId, name string) ([]byte, error)
+
+	// WriteFile stores or replaces a named file attachment.
 	WriteFile(ctx context.Context, id NodeId, name string, data []byte) error
+
+	// DeleteFile removes a named file attachment.
 	DeleteFile(ctx context.Context, id NodeId, name string) error
 
+	// ListImages returns image attachment names in lexicographic order.
 	ListImages(ctx context.Context, id NodeId) ([]string, error)
+
+	// ReadImage returns the named image attachment bytes.
 	ReadImage(ctx context.Context, id NodeId, name string) ([]byte, error)
+
+	// WriteImage validates and stores or replaces a named image attachment.
 	WriteImage(ctx context.Context, id NodeId, name string, data []byte) error
+
+	// DeleteImage removes a named image attachment.
 	DeleteImage(ctx context.Context, id NodeId, name string) error
 
 	// Snapshots
@@ -173,8 +254,10 @@ type Keg interface {
 
 	// Bulk transfer
 
-	// ExportNodes streams a keg-archive (gzip tar) of the selected nodes.
-	// The caller must Close the returned reader.
+	// ExportNodes returns a reader for a gzip-tar keg archive. Query matches are
+	// unioned with explicit ids, and selected nodes are written in node-id order;
+	// an empty selection exports every node. The archive reflects one coherent
+	// read snapshot, and the caller must Close the returned reader.
 	ExportNodes(ctx context.Context, opts ExportNodesOptions) (io.ReadCloser, error)
 
 	// ImportNodes loads a keg-archive stream into the keg, replacing

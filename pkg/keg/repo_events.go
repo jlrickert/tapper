@@ -52,6 +52,9 @@ type NodeEvent struct {
 // close the channel when observation ends. There is no separate teardown —
 // cancelling ctx releases all per-watch resources.
 type RepositoryEvents interface {
+	// Watch begins observing the specified node ids, or all nodes when no ids
+	// are supplied. It closes the returned channel and releases per-watch
+	// resources when ctx is canceled.
 	Watch(ctx context.Context, ids ...NodeId) (<-chan NodeEvent, error)
 	// Emit sends a NodeEvent to all active subscribers whose filters match.
 	// This is used for programmatic events (e.g. access tracking) that
