@@ -591,6 +591,10 @@ func repoSchemas(repo Repository) (RepositorySchemas, bool) {
 }
 
 func (k *LocalKeg) ListSchemas(ctx context.Context) ([]string, error) {
+	return withKegReadValue(ctx, k, k.listSchemas)
+}
+
+func (k *LocalKeg) listSchemas(ctx context.Context) ([]string, error) {
 	store, ok := repoSchemas(k.Repo)
 	if !ok {
 		return nil, ErrNotSupported
@@ -599,6 +603,10 @@ func (k *LocalKeg) ListSchemas(ctx context.Context) ([]string, error) {
 }
 
 func (k *LocalKeg) ReadSchema(ctx context.Context, typeName string) ([]byte, error) {
+	return withKegReadValue(ctx, k, func(ctx context.Context) ([]byte, error) { return k.readSchema(ctx, typeName) })
+}
+
+func (k *LocalKeg) readSchema(ctx context.Context, typeName string) ([]byte, error) {
 	store, ok := repoSchemas(k.Repo)
 	if !ok {
 		return nil, ErrNotSupported
@@ -607,6 +615,10 @@ func (k *LocalKeg) ReadSchema(ctx context.Context, typeName string) ([]byte, err
 }
 
 func (k *LocalKeg) WriteSchema(ctx context.Context, typeName string, data []byte) error {
+	return k.withKegWrite(ctx, func(ctx context.Context) error { return k.writeSchema(ctx, typeName, data) })
+}
+
+func (k *LocalKeg) writeSchema(ctx context.Context, typeName string, data []byte) error {
 	store, ok := repoSchemas(k.Repo)
 	if !ok {
 		return ErrNotSupported
@@ -618,6 +630,10 @@ func (k *LocalKeg) WriteSchema(ctx context.Context, typeName string, data []byte
 }
 
 func (k *LocalKeg) DeleteSchema(ctx context.Context, typeName string) error {
+	return k.withKegWrite(ctx, func(ctx context.Context) error { return k.deleteSchema(ctx, typeName) })
+}
+
+func (k *LocalKeg) deleteSchema(ctx context.Context, typeName string) error {
 	store, ok := repoSchemas(k.Repo)
 	if !ok {
 		return ErrNotSupported
@@ -626,6 +642,10 @@ func (k *LocalKeg) DeleteSchema(ctx context.Context, typeName string) error {
 }
 
 func (k *LocalKeg) ValidateNode(ctx context.Context, id NodeId) (*SchemaValidationResult, error) {
+	return withKegReadValue(ctx, k, func(ctx context.Context) (*SchemaValidationResult, error) { return k.validateNode(ctx, id) })
+}
+
+func (k *LocalKeg) validateNode(ctx context.Context, id NodeId) (*SchemaValidationResult, error) {
 	if err := k.checkKegExists(ctx); err != nil {
 		return nil, err
 	}
@@ -637,6 +657,12 @@ func (k *LocalKeg) ValidateNode(ctx context.Context, id NodeId) (*SchemaValidati
 }
 
 func (k *LocalKeg) ValidateNodePayload(ctx context.Context, payload NodeValidationPayload) (*SchemaValidationResult, error) {
+	return withKegReadValue(ctx, k, func(ctx context.Context) (*SchemaValidationResult, error) {
+		return k.validateNodePayload(ctx, payload)
+	})
+}
+
+func (k *LocalKeg) validateNodePayload(ctx context.Context, payload NodeValidationPayload) (*SchemaValidationResult, error) {
 	if err := k.checkKegExists(ctx); err != nil {
 		return nil, err
 	}

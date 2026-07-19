@@ -11,6 +11,10 @@ import (
 // target src (../N) across the keg. It returns the ids of nodes whose content
 // was rewritten to follow the move.
 func (k *LocalKeg) Move(ctx context.Context, src NodeId, dst NodeId) ([]NodeId, error) {
+	return withKegWriteValue(ctx, k, func(ctx context.Context) ([]NodeId, error) { return k.move(ctx, src, dst) })
+}
+
+func (k *LocalKeg) move(ctx context.Context, src NodeId, dst NodeId) ([]NodeId, error) {
 	if err := k.checkKegExists(ctx); err != nil {
 		return nil, fmt.Errorf("failed to move node: %w", err)
 	}
@@ -138,6 +142,10 @@ func (k *LocalKeg) Move(ctx context.Context, src NodeId, dst NodeId) ([]NodeId, 
 // It returns the ids of nodes whose content was rewritten to drop links to the
 // removed node.
 func (k *LocalKeg) Remove(ctx context.Context, id NodeId) ([]NodeId, error) {
+	return withKegWriteValue(ctx, k, func(ctx context.Context) ([]NodeId, error) { return k.remove(ctx, id) })
+}
+
+func (k *LocalKeg) remove(ctx context.Context, id NodeId) ([]NodeId, error) {
 	if err := k.checkKegExists(ctx); err != nil {
 		return nil, fmt.Errorf("failed to remove node: %w", err)
 	}

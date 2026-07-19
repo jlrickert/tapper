@@ -7,6 +7,7 @@ import (
 	"slices"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/jlrickert/cli-toolkit/toolkit"
@@ -31,7 +32,9 @@ import (
 //   - Methods return sentinel or typed errors defined in the package to match the
 //     Repository contract (for example NewNodeNotFoundError, ErrNotFound).
 type MemoryRepo struct {
-	mu sync.RWMutex
+	operationBoundary   kegOperationBoundary
+	operationGeneration atomic.Uint64
+	mu                  sync.RWMutex
 	// nodes stores per-node data keyed by NodeID.
 	nodes map[NodeId]*memoryNode
 	// nodeLocks tracks active per-node lock ownership. Each entry holds a

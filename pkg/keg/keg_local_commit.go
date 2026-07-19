@@ -9,6 +9,10 @@ import (
 // from its temporary location (with Code suffix) to the canonical numeric ID.
 // For nodes without a Code (already permanent), Commit is a no-op.
 func (k *LocalKeg) Commit(ctx context.Context, id NodeId) error {
+	return k.withKegWrite(ctx, func(ctx context.Context) error { return k.commit(ctx, id) })
+}
+
+func (k *LocalKeg) commit(ctx context.Context, id NodeId) error {
 	if err := k.checkKegExists(ctx); err != nil {
 		return fmt.Errorf("failed to commit node: %w", err)
 	}

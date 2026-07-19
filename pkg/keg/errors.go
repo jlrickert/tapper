@@ -42,6 +42,10 @@ var (
 	// lock. Use errors.Is(err, ErrLock) to detect non-timeout lock acquisition
 	// failures.
 	ErrLock = errors.New("cannot acquire lock")
+
+	// ErrKegLockUpgrade reports an attempted read-to-write operation-boundary
+	// upgrade. Callers must leave the read boundary before starting a write.
+	ErrKegLockUpgrade = errors.New("cannot upgrade keg read boundary to write")
 )
 
 // AliasNotFoundError is a typed error that carries the missing alias for callers

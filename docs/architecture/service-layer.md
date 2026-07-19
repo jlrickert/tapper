@@ -88,6 +88,23 @@ issues one batch per group, and restores caller order. Interactive editing and
 watching remain separate phases. Cross-keg import uses one source export, one
 target import, and, when requested, one source redirect batch.
 
+Every `Repository` supplies a reentrant keg operation boundary. A read
+boundary gives aggregate readers one coherent snapshot; a write boundary
+contains the complete canonical-plus-derived mutation, including the dex
+reload/mutate/persist cycle. A write may nest reads or writes, a read may nest
+reads, and a read-to-write upgrade is rejected. The boundary is acquired
+before node locks, whose order must remain deterministic.
+
+`MemoryRepo` shares a cancellation-aware read/write boundary across every
+`LocalKeg` using that repository. `FsRepo` uses one exclusive root lock for
+both reads and writes so separate processes cannot expose a half-written
+multi-file view; dead-owner metadata is cleaned on acquisition. Hosted
+`PgRepo` uses read-only repeatable-read transactions for aggregate reads and
+write transactions that lock the keg's catalog row before taking node locks.
+This intentionally serializes writes within one keg for correctness. Different
+kegs remain independently writable; optimistic dex generations/CAS retries are
+a possible future throughput optimization.
+
 ## FlightService and flight gating
 
 `pkg/tapper/flight.go` discovers flights for the active hub. A flight carries

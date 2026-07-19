@@ -10,6 +10,10 @@ import (
 // stats (optional, zero-valued when absent), and asset name lists (nil when
 // the backend lacks the capability).
 func (k *LocalKeg) ReadNode(ctx context.Context, id NodeId) (*NodeView, error) {
+	return withKegReadValue(ctx, k, func(ctx context.Context) (*NodeView, error) { return k.readNode(ctx, id) })
+}
+
+func (k *LocalKeg) readNode(ctx context.Context, id NodeId) (*NodeView, error) {
 	if err := k.checkKegExists(ctx); err != nil {
 		return nil, fmt.Errorf("failed to read node: %w", err)
 	}
@@ -69,12 +73,18 @@ func (k *LocalKeg) ReadNode(ctx context.Context, id NodeId) (*NodeView, error) {
 // FsRepo.WithNodeLock(). It holds no node lock; mutating operations re-check
 // under lock.
 func (k *LocalKeg) NodeExists(ctx context.Context, id NodeId) (bool, error) {
-	return k.nodeExistsWithContent(ctx, id)
+	return withKegReadValue(ctx, k, func(ctx context.Context) (bool, error) {
+		return k.nodeExistsWithContent(ctx, id)
+	})
 }
 
 // GetMetaRaw returns the node's metadata bytes exactly as stored, preserving
 // formatting for round-trip editing. A missing meta file returns ErrNotExist.
 func (k *LocalKeg) GetMetaRaw(ctx context.Context, id NodeId) ([]byte, error) {
+	return withKegReadValue(ctx, k, func(ctx context.Context) ([]byte, error) { return k.getMetaRaw(ctx, id) })
+}
+
+func (k *LocalKeg) getMetaRaw(ctx context.Context, id NodeId) ([]byte, error) {
 	if err := k.checkKegExists(ctx); err != nil {
 		return nil, fmt.Errorf("failed to read node meta: %w", err)
 	}
@@ -83,6 +93,10 @@ func (k *LocalKeg) GetMetaRaw(ctx context.Context, id NodeId) ([]byte, error) {
 
 // ListNodes returns all node ids present in the keg.
 func (k *LocalKeg) ListNodes(ctx context.Context) ([]NodeId, error) {
+	return withKegReadValue(ctx, k, k.listNodes)
+}
+
+func (k *LocalKeg) listNodes(ctx context.Context) ([]NodeId, error) {
 	if err := k.checkKegExists(ctx); err != nil {
 		return nil, fmt.Errorf("failed to list nodes: %w", err)
 	}
@@ -91,6 +105,10 @@ func (k *LocalKeg) ListNodes(ctx context.Context) ([]NodeId, error) {
 
 // ListIndexes returns available index artifact names.
 func (k *LocalKeg) ListIndexes(ctx context.Context) ([]string, error) {
+	return withKegWriteValue(ctx, k, k.listIndexes)
+}
+
+func (k *LocalKeg) listIndexes(ctx context.Context) ([]string, error) {
 	if err := k.checkKegExists(ctx); err != nil {
 		return nil, fmt.Errorf("failed to list indexes: %w", err)
 	}
@@ -109,6 +127,13 @@ func (k *LocalKeg) ListIndexes(ctx context.Context) ([]string, error) {
 
 // ReadIndex returns a raw index artifact by name (e.g. "nodes.tsv").
 func (k *LocalKeg) ReadIndex(ctx context.Context, name string) ([]byte, error) {
+	if isSnapshotGeneratedIndex(name) {
+		return withKegWriteValue(ctx, k, func(ctx context.Context) ([]byte, error) { return k.readIndex(ctx, name) })
+	}
+	return withKegReadValue(ctx, k, func(ctx context.Context) ([]byte, error) { return k.readIndex(ctx, name) })
+}
+
+func (k *LocalKeg) readIndex(ctx context.Context, name string) ([]byte, error) {
 	if err := k.checkKegExists(ctx); err != nil {
 		return nil, fmt.Errorf("failed to read index: %w", err)
 	}
@@ -126,6 +151,10 @@ func (k *LocalKeg) ReadIndex(ctx context.Context, name string) ([]byte, error) {
 // totals. Asset kinds report Supported=false when the backend lacks the
 // capability.
 func (k *LocalKeg) Summary(ctx context.Context) (*KegSummary, error) {
+	return withKegReadValue(ctx, k, k.summary)
+}
+
+func (k *LocalKeg) summary(ctx context.Context) (*KegSummary, error) {
 	if err := k.checkKegExists(ctx); err != nil {
 		return nil, fmt.Errorf("failed to summarize keg: %w", err)
 	}

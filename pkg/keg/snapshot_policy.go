@@ -32,6 +32,10 @@ func AutoSnapshotMessage(idleAfter time.Duration) string {
 // automatic snapshots for nodes whose live content has drifted from the latest
 // snapshot after the configured idle window.
 func (k *LocalKeg) RunSnapshotPolicy(ctx context.Context) (SnapshotPolicyResult, error) {
+	return withKegWriteValue(ctx, k, k.runSnapshotPolicy)
+}
+
+func (k *LocalKeg) runSnapshotPolicy(ctx context.Context) (SnapshotPolicyResult, error) {
 	if err := k.checkKegExists(ctx); err != nil {
 		return SnapshotPolicyResult{}, fmt.Errorf("failed to run snapshot policy: %w", err)
 	}

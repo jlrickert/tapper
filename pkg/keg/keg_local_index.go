@@ -13,6 +13,10 @@ import (
 // properties like title, lead, and content hash. The dex is also updated to reflect
 // any changes. If content hasn't changed, this is a no-op.
 func (k *LocalKeg) IndexNode(ctx context.Context, id NodeId) error {
+	return k.withKegWrite(ctx, func(ctx context.Context) error { return k.indexOne(ctx, id) })
+}
+
+func (k *LocalKeg) indexOne(ctx context.Context, id NodeId) error {
 	if err := k.checkKegExists(ctx); err != nil {
 		return fmt.Errorf("failed to update node: %w", err)
 	}
@@ -48,6 +52,10 @@ type IndexOptions struct {
 // Every node is scanned, metadata and stats are refreshed (unless
 // NoUpdate is set), and the full dex is regenerated.
 func (k *LocalKeg) Index(ctx context.Context, opts IndexOptions) error {
+	return k.withKegWrite(ctx, func(ctx context.Context) error { return k.indexAll(ctx, opts) })
+}
+
+func (k *LocalKeg) indexAll(ctx context.Context, opts IndexOptions) error {
 	if err := k.checkKegExists(ctx); err != nil {
 		return fmt.Errorf("failed to re index keg: %w", err)
 	}
@@ -84,6 +92,9 @@ func (k *LocalKeg) Index(ctx context.Context, opts IndexOptions) error {
 	}
 
 	workers := runtime.NumCPU()
+	if !repositorySupportsConcurrentAccess(ctx, k.Repo) {
+		workers = 1
+	}
 	if workers > 16 {
 		workers = 16
 	}

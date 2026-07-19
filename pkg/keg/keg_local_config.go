@@ -13,6 +13,10 @@ import (
 
 // Config returns the keg's configuration.
 func (k *LocalKeg) Config(ctx context.Context) (*Config, error) {
+	return withKegReadValue(ctx, k, k.config)
+}
+
+func (k *LocalKeg) config(ctx context.Context) (*Config, error) {
 	if err := k.checkKegExists(ctx); err != nil {
 		return nil, fmt.Errorf("failed to retrieve config: %w", err)
 	}
@@ -24,6 +28,10 @@ func (k *LocalKeg) Config(ctx context.Context) (*Config, error) {
 // and writes the result back to the repository. This is the preferred way to
 // modify keg configuration to ensure updates are atomically persisted.
 func (k *LocalKeg) UpdateConfig(ctx context.Context, f func(*Config)) error {
+	return k.withKegWrite(ctx, func(ctx context.Context) error { return k.updateConfig(ctx, f) })
+}
+
+func (k *LocalKeg) updateConfig(ctx context.Context, f func(*Config)) error {
 	if err := k.checkKegExists(ctx); err != nil {
 		return fmt.Errorf("unable to update config: %w", err)
 	}
@@ -51,6 +59,10 @@ func (k *LocalKeg) UpdateConfig(ctx context.Context, f func(*Config)) error {
 // SetConfig parses and writes keg configuration from raw bytes.
 // Prefer UpdateConfig for most use cases as it handles read-modify-write atomically.
 func (k *LocalKeg) SetConfig(ctx context.Context, data []byte) error {
+	return k.withKegWrite(ctx, func(ctx context.Context) error { return k.setConfig(ctx, data) })
+}
+
+func (k *LocalKeg) setConfig(ctx context.Context, data []byte) error {
 	if err := k.checkKegExists(ctx); err != nil {
 		return fmt.Errorf("unable to set config: %w", err)
 	}

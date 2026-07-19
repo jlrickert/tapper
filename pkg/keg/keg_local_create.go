@@ -13,6 +13,10 @@ import (
 // content, and updating the dex. It returns an error if the keg already exists.
 // Init is idempotent in the sense that it checks for existing kegs first.
 func (k *LocalKeg) Init(ctx context.Context) error {
+	return k.withKegWrite(ctx, k.init)
+}
+
+func (k *LocalKeg) init(ctx context.Context) error {
 	if k == nil || k.Repo == nil {
 		return fmt.Errorf("no repository configured")
 	}
@@ -79,7 +83,9 @@ func (k *LocalKeg) Init(ctx context.Context) error {
 
 // Next reserves and returns the next available node ID from the repository.
 func (k *LocalKeg) Next(ctx context.Context) (NodeId, error) {
-	return k.Repo.Next(ctx)
+	return withKegWriteValue(ctx, k, func(ctx context.Context) (NodeId, error) {
+		return k.Repo.Next(ctx)
+	})
 }
 
 // CreateOptions specifies parameters for creating a new node
@@ -100,6 +106,12 @@ type CreateOptions struct {
 // and indexes the node in the dex. The node is immediately persisted to the repository.
 // If Body is empty, default markdown content is generated from Title and Lead.
 func (k *LocalKeg) Create(ctx context.Context, opts *CreateOptions) (CreateResult, error) {
+	return withKegWriteValue(ctx, k, func(ctx context.Context) (CreateResult, error) {
+		return k.create(ctx, opts)
+	})
+}
+
+func (k *LocalKeg) create(ctx context.Context, opts *CreateOptions) (CreateResult, error) {
 	if err := k.checkKegExists(ctx); err != nil {
 		return CreateResult{}, fmt.Errorf("failed to create node: %w", err)
 	}

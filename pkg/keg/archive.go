@@ -39,11 +39,17 @@ type archiveManifestNode struct {
 	RevisionCount int    `json:"revision_count,omitempty"`
 }
 
-// ExportNodes streams a keg-archive (gzip tar) of the selected nodes. With
-// empty opts.NodeIDs every node is exported. The archive is produced
-// incrementally through a pipe; the caller must Close the returned reader,
-// and a mid-stream failure surfaces as the reader's error.
+// ExportNodes returns a reader for a keg-archive (gzip tar) captured from one
+// coherent read snapshot. LocalKeg materializes the archive before returning,
+// so the operation boundary is released while the caller reads the artifact
+// and a slow download does not block same-keg writers.
 func (k *LocalKeg) ExportNodes(ctx context.Context, opts ExportNodesOptions) (io.ReadCloser, error) {
+	return withKegReadValue(ctx, k, func(ctx context.Context) (io.ReadCloser, error) {
+		return k.exportNodes(ctx, opts)
+	})
+}
+
+func (k *LocalKeg) exportNodes(ctx context.Context, opts ExportNodesOptions) (io.ReadCloser, error) {
 	if err := k.checkKegExists(ctx); err != nil {
 		return nil, fmt.Errorf("failed to export nodes: %w", err)
 	}
@@ -97,16 +103,15 @@ func (k *LocalKeg) ExportNodes(ctx context.Context, opts ExportNodesOptions) (io
 		}
 	}
 
-	pr, pw := io.Pipe()
-	go func() {
-		err := k.writeArchive(ctx, pw, ids, snapshotRepo, opts)
-		pw.CloseWithError(err)
-	}()
-	return pr, nil
+	var artifact bytes.Buffer
+	if err := k.writeArchive(ctx, &artifact, ids, snapshotRepo, opts); err != nil {
+		return nil, err
+	}
+	return io.NopCloser(bytes.NewReader(artifact.Bytes())), nil
 }
 
-// writeArchive produces the archive stream onto w. Split from ExportNodes so
-// the pipe goroutine stays trivial.
+// writeArchive writes the complete keg-archive representation to w. The caller
+// decides whether w is a materialized buffer or a streaming destination.
 func (k *LocalKeg) writeArchive(ctx context.Context, w io.Writer, ids []NodeId, snapshotRepo RepositorySnapshots, opts ExportNodesOptions) error {
 	gz := gzip.NewWriter(w)
 	tw := tar.NewWriter(gz)
@@ -321,6 +326,12 @@ func (k *LocalKeg) writeArchiveHistory(ctx context.Context, tw *tar.Writer, base
 // archive carries its own). Derived state (dex, config updated stamp) is
 // rebuilt once after all nodes import.
 func (k *LocalKeg) ImportNodes(ctx context.Context, r io.Reader, opts ImportNodesOptions) ([]ImportedNode, error) {
+	return withKegWriteValue(ctx, k, func(ctx context.Context) ([]ImportedNode, error) {
+		return k.importNodes(ctx, r, opts)
+	})
+}
+
+func (k *LocalKeg) importNodes(ctx context.Context, r io.Reader, opts ImportNodesOptions) ([]ImportedNode, error) {
 	if err := k.checkKegExists(ctx); err != nil {
 		return nil, fmt.Errorf("failed to import nodes: %w", err)
 	}
