@@ -10,6 +10,10 @@ import (
 
 // GetContent retrieves the raw markdown content for a node.
 func (k *LocalKeg) GetContent(ctx context.Context, id NodeId) ([]byte, error) {
+	return withKegReadValue(ctx, k, func(ctx context.Context) ([]byte, error) { return k.getContentBytes(ctx, id) })
+}
+
+func (k *LocalKeg) getContentBytes(ctx context.Context, id NodeId) ([]byte, error) {
 	if err := k.checkKegExists(ctx); err != nil {
 		return nil, fmt.Errorf("failed to retrieve node content: %w", err)
 	}
@@ -86,6 +90,10 @@ func (k *LocalKeg) setContentNoDex(ctx context.Context, id NodeId, data []byte) 
 // SetContent writes content for a node and updates its metadata by re-indexing.
 // This ensures the node's title, lead, and other metadata are kept in sync with content changes.
 func (k *LocalKeg) SetContent(ctx context.Context, id NodeId, data []byte) error {
+	return k.withKegWrite(ctx, func(ctx context.Context) error { return k.setContent(ctx, id, data) })
+}
+
+func (k *LocalKeg) setContent(ctx context.Context, id NodeId, data []byte) error {
 	if err := k.checkKegExists(ctx); err != nil {
 		return fmt.Errorf("failed to set node content: %w", err)
 	}
@@ -105,6 +113,10 @@ func (k *LocalKeg) SetContent(ctx context.Context, id NodeId, data []byte) error
 
 // GetMeta retrieves the parsed metadata for a node.
 func (k *LocalKeg) GetMeta(ctx context.Context, id NodeId) (*NodeMeta, error) {
+	return withKegReadValue(ctx, k, func(ctx context.Context) (*NodeMeta, error) { return k.getMetaValue(ctx, id) })
+}
+
+func (k *LocalKeg) getMetaValue(ctx context.Context, id NodeId) (*NodeMeta, error) {
 	if err := k.checkKegExists(ctx); err != nil {
 		return nil, fmt.Errorf("failed to get node meta: %w", err)
 	}
@@ -113,6 +125,10 @@ func (k *LocalKeg) GetMeta(ctx context.Context, id NodeId) (*NodeMeta, error) {
 
 // GetStats retrieves programmatic node stats for a node.
 func (k *LocalKeg) GetStats(ctx context.Context, id NodeId) (*NodeStats, error) {
+	return withKegReadValue(ctx, k, func(ctx context.Context) (*NodeStats, error) { return k.getStatsValue(ctx, id) })
+}
+
+func (k *LocalKeg) getStatsValue(ctx context.Context, id NodeId) (*NodeStats, error) {
 	if err := k.checkKegExists(ctx); err != nil {
 		return nil, fmt.Errorf("failed to get node stats: %w", err)
 	}
@@ -130,6 +146,10 @@ func (k *LocalKeg) GetStats(ctx context.Context, id NodeId) (*NodeStats, error) 
 // If the new meta bytes are identical to the existing on-disk meta,
 // the write and dex/config update are skipped entirely.
 func (k *LocalKeg) SetMeta(ctx context.Context, id NodeId, meta *NodeMeta) error {
+	return k.withKegWrite(ctx, func(ctx context.Context) error { return k.setMeta(ctx, id, meta) })
+}
+
+func (k *LocalKeg) setMeta(ctx context.Context, id NodeId, meta *NodeMeta) error {
 	if err := k.checkKegExists(ctx); err != nil {
 		return fmt.Errorf("failed to update node meta: %w", err)
 	}
@@ -218,6 +238,10 @@ func (k *LocalKeg) SetMeta(ctx context.Context, id NodeId, meta *NodeMeta) error
 // UpdateMeta reads the node's metadata, applies the provided mutation function,
 // and writes the result back to the repository with dex updates.
 func (k *LocalKeg) UpdateMeta(ctx context.Context, id NodeId, f func(*NodeMeta)) error {
+	return k.withKegWrite(ctx, func(ctx context.Context) error { return k.updateMeta(ctx, id, f) })
+}
+
+func (k *LocalKeg) updateMeta(ctx context.Context, id NodeId, f func(*NodeMeta)) error {
 	if err := k.checkKegExists(ctx); err != nil {
 		return fmt.Errorf("failed to update node meta: %w", err)
 	}
@@ -293,6 +317,10 @@ func (k *LocalKeg) UpdateMeta(ctx context.Context, id NodeId, f func(*NodeMeta))
 
 // Touch updates the access time of a node to the current time.
 func (k *LocalKeg) Touch(ctx context.Context, id NodeId) error {
+	return k.withKegWrite(ctx, func(ctx context.Context) error { return k.touch(ctx, id) })
+}
+
+func (k *LocalKeg) touch(ctx context.Context, id NodeId) error {
 	if err := k.checkKegExists(ctx); err != nil {
 		return fmt.Errorf("failed to touch node: %w", err)
 	}

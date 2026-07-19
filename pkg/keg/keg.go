@@ -38,6 +38,10 @@ type LocalKeg struct {
 	// whether another process has modified the index files since this
 	// process last read them.
 	dexLoadMtime time.Time
+	// dexLoadGeneration records a repository-owned in-process generation when
+	// the backend exposes one (MemoryRepo). It keeps caches in separate
+	// LocalKeg instances coherent even though filesystem mtimes do not apply.
+	dexLoadGeneration uint64
 
 	// configMu guards the read-modify-write cycle in UpdateConfig.
 	configMu sync.Mutex
@@ -57,6 +61,8 @@ type Option func(*LocalKeg)
 // root. A resolver returns "" when no credential is available; a nil
 // TokenResolver is legal and means "no fallback".
 type TokenResolver interface {
+	// ResolveToken returns the bearer token for target, or an empty string when
+	// no credential is available.
 	ResolveToken(target *Target) string
 }
 
@@ -195,6 +201,16 @@ func RepoContainsKeg(ctx context.Context, repo Repository) (bool, error) {
 	if repo == nil {
 		return false, fmt.Errorf("no repository provided")
 	}
+	var exists bool
+	err := repo.WithKegRead(ctx, func(readCtx context.Context) error {
+		var err error
+		exists, err = repoContainsKeg(readCtx, repo)
+		return err
+	})
+	return exists, err
+}
+
+func repoContainsKeg(ctx context.Context, repo Repository) (bool, error) {
 
 	var configExists bool
 

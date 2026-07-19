@@ -15,6 +15,10 @@ import (
 // invocations and long-lived processes (serve handlers, MCP servers) where
 // another process may update the index between calls.
 func (k *LocalKeg) Dex(ctx context.Context) (*Dex, error) {
+	return withKegReadValue(ctx, k, k.readDex)
+}
+
+func (k *LocalKeg) readDex(ctx context.Context) (*Dex, error) {
 	if err := k.checkKegExists(ctx); err != nil {
 		return nil, fmt.Errorf("failed to retrieve dex: %w", err)
 	}
@@ -60,8 +64,8 @@ func (k *LocalKeg) indexFileMtime() time.Time {
 //
 // Caller must hold k.dexMu.
 func (k *LocalKeg) dexStale() bool {
-	if _, ok := k.Repo.(*MemoryRepo); ok {
-		return false
+	if generation, ok := k.Repo.(interface{ kegOperationGeneration() uint64 }); ok {
+		return generation.kegOperationGeneration() != k.dexLoadGeneration
 	}
 	if _, ok := k.Repo.(*FsRepo); !ok {
 		return true
@@ -91,6 +95,9 @@ func (k *LocalKeg) ensureDexFresh(ctx context.Context) (*Dex, error) {
 	dex, err := NewDexFromRepo(ctx, k.Repo, opts...)
 	k.dex = dex
 	k.dexLoadMtime = k.indexFileMtime()
+	if generation, ok := k.Repo.(interface{ kegOperationGeneration() uint64 }); ok {
+		k.dexLoadGeneration = generation.kegOperationGeneration()
+	}
 	return dex, err
 }
 
@@ -98,6 +105,9 @@ func (k *LocalKeg) ensureDexFresh(ctx context.Context) (*Dex, error) {
 // successful Dex.Write. Caller must hold k.dexMu.
 func (k *LocalKeg) recordDexWrite() {
 	k.dexLoadMtime = k.indexFileMtime()
+	if generation, ok := k.Repo.(interface{ kegOperationGeneration() uint64 }); ok {
+		k.dexLoadGeneration = generation.kegOperationGeneration()
+	}
 	k.dexWriteGen++
 }
 

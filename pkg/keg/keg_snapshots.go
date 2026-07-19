@@ -8,7 +8,9 @@ import (
 )
 
 func (k *LocalKeg) AppendSnapshot(ctx context.Context, id NodeId, msg string) (Snapshot, error) {
-	return k.appendSnapshot(ctx, id, msg, true)
+	return withKegWriteValue(ctx, k, func(ctx context.Context) (Snapshot, error) {
+		return k.appendSnapshot(ctx, id, msg, true)
+	})
 }
 
 func (k *LocalKeg) appendSnapshot(ctx context.Context, id NodeId, msg string, refreshIndexes bool) (Snapshot, error) {
@@ -131,6 +133,10 @@ func (k *LocalKeg) refreshSnapshotIndexesAfterPolicy(ctx context.Context, create
 }
 
 func (k *LocalKeg) ListSnapshots(ctx context.Context, id NodeId) ([]Snapshot, error) {
+	return withKegReadValue(ctx, k, func(ctx context.Context) ([]Snapshot, error) { return k.listSnapshots(ctx, id) })
+}
+
+func (k *LocalKeg) listSnapshots(ctx context.Context, id NodeId) ([]Snapshot, error) {
 	if err := k.checkKegExists(ctx); err != nil {
 		return nil, fmt.Errorf("failed to list snapshots: %w", err)
 	}
@@ -144,6 +150,18 @@ func (k *LocalKeg) ListSnapshots(ctx context.Context, id NodeId) ([]Snapshot, er
 // GetSnapshot returns revision metadata and, per opts, resolved content,
 // meta, and stats payloads.
 func (k *LocalKeg) GetSnapshot(ctx context.Context, id NodeId, rev RevisionID, opts SnapshotReadOptions) (Snapshot, []byte, []byte, *NodeStats, error) {
+	var snap Snapshot
+	var content, meta []byte
+	var stats *NodeStats
+	err := k.withKegRead(ctx, func(ctx context.Context) error {
+		var err error
+		snap, content, meta, stats, err = k.getSnapshot(ctx, id, rev, opts)
+		return err
+	})
+	return snap, content, meta, stats, err
+}
+
+func (k *LocalKeg) getSnapshot(ctx context.Context, id NodeId, rev RevisionID, opts SnapshotReadOptions) (Snapshot, []byte, []byte, *NodeStats, error) {
 	if err := k.checkKegExists(ctx); err != nil {
 		return Snapshot{}, nil, nil, nil, fmt.Errorf("failed to read snapshot: %w", err)
 	}
@@ -155,6 +173,10 @@ func (k *LocalKeg) GetSnapshot(ctx context.Context, id NodeId, rev RevisionID, o
 }
 
 func (k *LocalKeg) ReadContentAt(ctx context.Context, id NodeId, rev RevisionID) ([]byte, error) {
+	return withKegReadValue(ctx, k, func(ctx context.Context) ([]byte, error) { return k.readContentAt(ctx, id, rev) })
+}
+
+func (k *LocalKeg) readContentAt(ctx context.Context, id NodeId, rev RevisionID) ([]byte, error) {
 	if err := k.checkKegExists(ctx); err != nil {
 		return nil, fmt.Errorf("failed to read snapshot content: %w", err)
 	}
@@ -166,6 +188,10 @@ func (k *LocalKeg) ReadContentAt(ctx context.Context, id NodeId, rev RevisionID)
 }
 
 func (k *LocalKeg) RestoreSnapshot(ctx context.Context, id NodeId, rev RevisionID) error {
+	return k.withKegWrite(ctx, func(ctx context.Context) error { return k.restoreSnapshot(ctx, id, rev) })
+}
+
+func (k *LocalKeg) restoreSnapshot(ctx context.Context, id NodeId, rev RevisionID) error {
 	if err := k.checkKegExists(ctx); err != nil {
 		return fmt.Errorf("failed to restore snapshot: %w", err)
 	}

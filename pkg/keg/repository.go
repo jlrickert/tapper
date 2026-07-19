@@ -16,6 +16,14 @@ const (
 // Repository is the storage backend contract used by KEG. Implementations are
 // responsible for moving node data between storage and the service layer.
 type Repository interface {
+	// WithKegRead executes fn inside one coherent keg-wide read snapshot.
+	// Boundaries are reentrant: reads may nest inside reads or writes.
+	WithKegRead(ctx context.Context, fn func(context.Context) error) error
+	// WithKegWrite executes fn while holding the keg-wide mutation boundary.
+	// Writes may nest inside writes; upgrading a read boundary to a write is
+	// rejected with ErrKegLockUpgrade.
+	WithKegWrite(ctx context.Context, fn func(context.Context) error) error
+
 	// Backend identity
 
 	// Name returns a short, human-friendly backend identifier.
@@ -27,8 +35,10 @@ type Repository interface {
 	// Missing nodes should return (false, nil). Backend/storage failures should
 	// be returned as non-nil errors.
 	HasNode(ctx context.Context, id NodeId) (bool, error)
-	// Next returns the next available node id allocation candidate.
-	// Implementations should honor ctx cancellation where applicable.
+	// Next reserves and returns the next available node id. The reservation must
+	// prevent concurrent callers from receiving the same id, but need not contain
+	// node content yet. Implementations should honor ctx cancellation where
+	// applicable.
 	Next(ctx context.Context) (NodeId, error)
 	// ListNodes returns all node ids present in the backend.
 	// Returned ids should be deterministic (stable ordering) when possible.
@@ -100,6 +110,8 @@ type Repository interface {
 // A transaction-bound backend can return false while still allowing normal
 // pooled calls to run concurrently.
 type RepositoryConcurrentAccess interface {
+	// SupportsConcurrentAccess reports whether calls using ctx may execute
+	// concurrently with other repository operations.
 	SupportsConcurrentAccess(ctx context.Context) bool
 }
 
@@ -138,12 +150,16 @@ type RepositoryImages interface {
 // type checks, JSON schema validation, and write policy; repositories only
 // persist and retrieve schema bytes.
 type RepositorySchemas interface {
+	// ListSchemas returns stored schema type names in lexicographic order.
 	ListSchemas(ctx context.Context) ([]string, error)
+	// ReadSchema returns the raw YAML stored for typeName.
 	ReadSchema(ctx context.Context, typeName string) ([]byte, error)
 	// CreateSchema stores a schema only when typeName does not already exist.
 	// Exactly one concurrent creator succeeds; later creators return ErrExist.
 	CreateSchema(ctx context.Context, typeName string, data []byte) error
+	// WriteSchema stores or replaces the raw YAML for typeName.
 	WriteSchema(ctx context.Context, typeName string, data []byte) error
+	// DeleteSchema removes the stored schema for typeName.
 	DeleteSchema(ctx context.Context, typeName string) error
 }
 

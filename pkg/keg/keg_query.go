@@ -16,6 +16,10 @@ import (
 // comparisons (omega>=0.5), and .field stats predicates (.updated>2026-01-01);
 // see ParseQueryExpression.
 func (k *LocalKeg) Query(ctx context.Context, opts QueryOptions) ([]NodeIndexEntry, error) {
+	return withKegReadValue(ctx, k, func(ctx context.Context) ([]NodeIndexEntry, error) { return k.query(ctx, opts) })
+}
+
+func (k *LocalKeg) query(ctx context.Context, opts QueryOptions) ([]NodeIndexEntry, error) {
 	dex, err := k.Dex(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("unable to read dex: %w", err)
@@ -45,6 +49,10 @@ func (k *LocalKeg) Query(ctx context.Context, opts QueryOptions) ([]NodeIndexEnt
 // Grep scans node content for a regular expression and returns per-node line
 // matches in dex order. Nodes without matches are omitted.
 func (k *LocalKeg) Grep(ctx context.Context, opts GrepOptions) ([]GrepMatch, error) {
+	return withKegReadValue(ctx, k, func(ctx context.Context) ([]GrepMatch, error) { return k.grep(ctx, opts) })
+}
+
+func (k *LocalKeg) grep(ctx context.Context, opts GrepOptions) ([]GrepMatch, error) {
 	pattern := opts.Pattern
 	if opts.IgnoreCase {
 		pattern = "(?i)" + pattern

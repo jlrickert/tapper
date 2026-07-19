@@ -153,6 +153,10 @@ type DexArtifacts struct {
 }
 
 func (k *LocalKeg) ListEntries(ctx context.Context, opts ListEntriesOptions) (*ListEntriesResult, error) {
+	return withKegReadValue(ctx, k, func(ctx context.Context) (*ListEntriesResult, error) { return k.listEntries(ctx, opts) })
+}
+
+func (k *LocalKeg) listEntries(ctx context.Context, opts ListEntriesOptions) (*ListEntriesResult, error) {
 	dex, err := k.Dex(ctx)
 	if err != nil {
 		return nil, err
@@ -175,6 +179,14 @@ func (k *LocalKeg) ListEntries(ctx context.Context, opts ListEntriesOptions) (*L
 }
 
 func (k *LocalKeg) ReadNodes(ctx context.Context, opts ReadNodesOptions) ([]NodeView, error) {
+	fn := func(ctx context.Context) ([]NodeView, error) { return k.readNodes(ctx, opts) }
+	if opts.Touch {
+		return withKegWriteValue(ctx, k, fn)
+	}
+	return withKegReadValue(ctx, k, fn)
+}
+
+func (k *LocalKeg) readNodes(ctx context.Context, opts ReadNodesOptions) ([]NodeView, error) {
 	ids := slices.Clone(opts.NodeIDs)
 	if q := strings.TrimSpace(opts.Query); q != "" {
 		if len(ids) != 0 {
@@ -191,19 +203,41 @@ func (k *LocalKeg) ReadNodes(ctx context.Context, opts ReadNodesOptions) ([]Node
 			}
 		}
 	}
+	var touchBackups []*aggregateBackup
+	if opts.Touch {
+		touchBackups = make([]*aggregateBackup, 0, len(ids))
+		for _, id := range ids {
+			view, err := k.ReadNode(ctx, id)
+			if err != nil {
+				if errors.Is(err, ErrNotExist) {
+					return nil, fmt.Errorf("node %s not found: %w", id.Path(), err)
+				}
+				return nil, err
+			}
+			backup, err := k.captureAggregateBackup(ctx, view)
+			if err != nil {
+				return nil, err
+			}
+			touchBackups = append(touchBackups, backup)
+		}
+		for _, id := range ids {
+			if err := k.Touch(ctx, id); err != nil {
+				return nil, errors.Join(err, k.restoreTouchBackups(ctx, touchBackups))
+			}
+		}
+	}
+
 	views := make([]NodeView, 0, len(ids))
 	for _, id := range ids {
 		view, err := k.ReadNode(ctx, id)
 		if err != nil {
 			if errors.Is(err, ErrNotExist) {
-				return nil, fmt.Errorf("node %s not found: %w", id.Path(), err)
+				err = fmt.Errorf("node %s not found: %w", id.Path(), err)
+			}
+			if opts.Touch {
+				err = errors.Join(err, k.restoreTouchBackups(ctx, touchBackups))
 			}
 			return nil, err
-		}
-		if opts.Touch {
-			if err := k.Touch(ctx, id); err != nil {
-				return nil, err
-			}
 		}
 		views = append(views, *view)
 	}
@@ -211,6 +245,10 @@ func (k *LocalKeg) ReadNodes(ctx context.Context, opts ReadNodesOptions) ([]Node
 }
 
 func (k *LocalKeg) RelatedNodes(ctx context.Context, opts RelatedNodesOptions) ([]NodeIndexEntry, error) {
+	return withKegReadValue(ctx, k, func(ctx context.Context) ([]NodeIndexEntry, error) { return k.relatedNodes(ctx, opts) })
+}
+
+func (k *LocalKeg) relatedNodes(ctx context.Context, opts RelatedNodesOptions) ([]NodeIndexEntry, error) {
 	if len(opts.NodeIDs) == 0 {
 		return nil, fmt.Errorf("at least one node id is required: %w", ErrInvalid)
 	}
@@ -261,6 +299,10 @@ func (k *LocalKeg) RelatedNodes(ctx context.Context, opts RelatedNodesOptions) (
 }
 
 func (k *LocalKeg) Graph(ctx context.Context) (*GraphView, error) {
+	return withKegReadValue(ctx, k, k.graph)
+}
+
+func (k *LocalKeg) graph(ctx context.Context) (*GraphView, error) {
 	dex, err := k.Dex(ctx)
 	if err != nil {
 		return nil, err
@@ -306,6 +348,10 @@ func (k *LocalKeg) Graph(ctx context.Context) (*GraphView, error) {
 }
 
 func (k *LocalKeg) Inspect(ctx context.Context) (*KegInspection, error) {
+	return withKegReadValue(ctx, k, k.inspect)
+}
+
+func (k *LocalKeg) inspect(ctx context.Context) (*KegInspection, error) {
 	cfg, err := k.Config(ctx)
 	if err != nil {
 		return nil, err
@@ -318,6 +364,10 @@ func (k *LocalKeg) Inspect(ctx context.Context) (*KegInspection, error) {
 }
 
 func (k *LocalKeg) Doctor(ctx context.Context) ([]DoctorIssue, error) {
+	return withKegReadValue(ctx, k, k.doctor)
+}
+
+func (k *LocalKeg) doctor(ctx context.Context) ([]DoctorIssue, error) {
 	cfg, err := k.Config(ctx)
 	if err != nil {
 		return nil, err
@@ -394,6 +444,10 @@ func (k *LocalKeg) Doctor(ctx context.Context) ([]DoctorIssue, error) {
 }
 
 func (k *LocalKeg) RemoveNodes(ctx context.Context, opts RemoveNodesOptions) (RemoveNodesResult, error) {
+	return withKegWriteValue(ctx, k, func(ctx context.Context) (RemoveNodesResult, error) { return k.removeNodes(ctx, opts) })
+}
+
+func (k *LocalKeg) removeNodes(ctx context.Context, opts RemoveNodesOptions) (RemoveNodesResult, error) {
 	seen := map[string]NodeId{}
 	for _, id := range opts.NodeIDs {
 		seen[id.Path()] = id
@@ -430,6 +484,10 @@ func (k *LocalKeg) RemoveNodes(ctx context.Context, opts RemoveNodesOptions) (Re
 }
 
 func (k *LocalKeg) ValidateNodes(ctx context.Context, opts ValidateNodesOptions) ([]SchemaValidationResult, error) {
+	return withKegReadValue(ctx, k, func(ctx context.Context) ([]SchemaValidationResult, error) { return k.validateNodes(ctx, opts) })
+}
+
+func (k *LocalKeg) validateNodes(ctx context.Context, opts ValidateNodesOptions) ([]SchemaValidationResult, error) {
 	ids := slices.Clone(opts.NodeIDs)
 	var err error
 	if len(ids) == 0 {
@@ -450,6 +508,10 @@ func (k *LocalKeg) ValidateNodes(ctx context.Context, opts ValidateNodesOptions)
 }
 
 func (k *LocalKeg) CreateSchema(ctx context.Context, typeName string, data []byte) error {
+	return k.withKegWrite(ctx, func(ctx context.Context) error { return k.createSchema(ctx, typeName, data) })
+}
+
+func (k *LocalKeg) createSchema(ctx context.Context, typeName string, data []byte) error {
 	store, ok := repoSchemas(k.Repo)
 	if !ok {
 		return ErrNotSupported
@@ -467,6 +529,14 @@ func (k *LocalKeg) CreateSchema(ctx context.Context, typeName string, data []byt
 }
 
 func (k *LocalKeg) OpenNode(ctx context.Context, opts NodeOpenOptions) (*NodeView, error) {
+	fn := func(ctx context.Context) (*NodeView, error) { return k.openNode(ctx, opts) }
+	if opts.Touch {
+		return withKegWriteValue(ctx, k, fn)
+	}
+	return withKegReadValue(ctx, k, fn)
+}
+
+func (k *LocalKeg) openNode(ctx context.Context, opts NodeOpenOptions) (*NodeView, error) {
 	var view *NodeView
 	err := k.withNodeLock(ctx, opts.ID, func(lockCtx context.Context) error {
 		exists, err := k.nodeExistsWithContent(lockCtx, opts.ID)
@@ -479,18 +549,34 @@ func (k *LocalKeg) OpenNode(ctx context.Context, opts NodeOpenOptions) (*NodeVie
 		if err := k.validateAggregateLock(lockCtx, opts.ID, opts.LockToken); err != nil {
 			return err
 		}
+		var backup *aggregateBackup
 		if opts.Touch {
+			before, err := k.ReadNode(lockCtx, opts.ID)
+			if err != nil {
+				return err
+			}
+			backup, err = k.captureAggregateBackup(lockCtx, before)
+			if err != nil {
+				return err
+			}
 			if err := k.Touch(lockCtx, opts.ID); err != nil {
 				return err
 			}
 		}
 		view, err = k.ReadNode(lockCtx, opts.ID)
+		if err != nil && backup != nil {
+			err = errors.Join(err, k.restoreTouchBackups(lockCtx, []*aggregateBackup{backup}))
+		}
 		return err
 	})
 	return view, err
 }
 
 func (k *LocalKeg) UpdateNode(ctx context.Context, opts NodeUpdateOptions) (*NodeUpdateResult, error) {
+	return withKegWriteValue(ctx, k, func(ctx context.Context) (*NodeUpdateResult, error) { return k.updateNode(ctx, opts) })
+}
+
+func (k *LocalKeg) updateNode(ctx context.Context, opts NodeUpdateOptions) (*NodeUpdateResult, error) {
 	var result *NodeUpdateResult
 	err := k.withNodeLock(ctx, opts.ID, func(lockCtx context.Context) error {
 		existing, err := k.ReadNode(lockCtx, opts.ID)
@@ -610,7 +696,26 @@ func (k *LocalKeg) restoreAggregateBackup(ctx context.Context, backup *aggregate
 	return errors.Join(errs...)
 }
 
+func (k *LocalKeg) restoreTouchBackups(ctx context.Context, backups []*aggregateBackup) error {
+	var errs []error
+	for _, backup := range backups {
+		if backup == nil {
+			continue
+		}
+		errs = append(errs, k.Repo.WriteMeta(ctx, backup.id, backup.meta))
+		errs = append(errs, k.Repo.WriteStats(ctx, backup.id, backup.stats))
+	}
+	errs = append(errs, k.refreshDirtyIndex(ctx))
+	return errors.Join(errs...)
+}
+
 func (k *LocalKeg) ReplaceNodesWithRedirects(ctx context.Context, redirects []NodeRedirect) (ReplaceNodesWithRedirectsResult, error) {
+	return withKegWriteValue(ctx, k, func(ctx context.Context) (ReplaceNodesWithRedirectsResult, error) {
+		return k.replaceNodesWithRedirects(ctx, redirects)
+	})
+}
+
+func (k *LocalKeg) replaceNodesWithRedirects(ctx context.Context, redirects []NodeRedirect) (ReplaceNodesWithRedirectsResult, error) {
 	result := ReplaceNodesWithRedirectsResult{Replaced: []NodeId{}}
 	for _, redirect := range redirects {
 		err := k.withNodeLock(ctx, redirect.ID, func(lockCtx context.Context) error {
@@ -645,6 +750,13 @@ func (k *LocalKeg) ReplaceNodesWithRedirects(ctx context.Context, redirects []No
 }
 
 func (k *LocalKeg) DexArtifacts(ctx context.Context) (*DexArtifacts, error) {
+	// Snapshot-derived indexes are materialized lazily for repositories created
+	// before those artifacts existed, so the complete projection uses the write
+	// boundary while it assembles one coherent artifact generation.
+	return withKegWriteValue(ctx, k, k.dexArtifacts)
+}
+
+func (k *LocalKeg) dexArtifacts(ctx context.Context) (*DexArtifacts, error) {
 	names, err := k.ListIndexes(ctx)
 	if err != nil {
 		return nil, err

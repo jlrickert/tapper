@@ -23,11 +23,15 @@ type Node struct {
 // metadata, items, and images. Returns an error if the repository is not set or
 // if any repository operation fails.
 func (n *Node) Init(ctx context.Context) error {
-	if n.data != nil {
-		return nil
-	}
 	if n.Repo == nil {
 		return fmt.Errorf("repo required")
+	}
+	return n.Repo.WithKegRead(ctx, n.init)
+}
+
+func (n *Node) init(ctx context.Context) error {
+	if n.data != nil {
+		return nil
 	}
 	content, err := n.getContent(ctx, n.ID)
 	if err != nil {
@@ -182,19 +186,23 @@ func (n *Node) ListItems(ctx context.Context) ([]string, error) {
 }
 
 func (n *Node) Update(ctx context.Context) error {
-	if err := n.Init(ctx); err != nil {
-		return err
+	if n.Repo == nil {
+		return fmt.Errorf("repo required")
 	}
+	return n.Repo.WithKegWrite(ctx, func(writeCtx context.Context) error {
+		if err := n.Init(writeCtx); err != nil {
+			return err
+		}
 
-	now := n.Runtime.Clock().Now()
-
-	run := func(lockCtx context.Context) error {
-		return n.updateUnlocked(lockCtx, now)
-	}
-	if contextHasNodeLock(ctx, n.ID) {
-		return run(ctx)
-	}
-	return n.Repo.WithNodeLock(ctx, n.ID, run)
+		now := n.Runtime.Clock().Now()
+		run := func(lockCtx context.Context) error {
+			return n.updateUnlocked(lockCtx, now)
+		}
+		if contextHasNodeLock(writeCtx, n.ID) {
+			return run(writeCtx)
+		}
+		return n.Repo.WithNodeLock(writeCtx, n.ID, run)
+	})
 }
 
 func (n *Node) updateUnlocked(ctx context.Context, now time.Time) error {
@@ -208,18 +216,23 @@ func (n *Node) updateUnlocked(ctx context.Context, now time.Time) error {
 }
 
 func (n *Node) Touch(ctx context.Context) error {
-	if err := n.Init(ctx); err != nil {
-		return err
+	if n.Repo == nil {
+		return fmt.Errorf("repo required")
 	}
+	return n.Repo.WithKegWrite(ctx, func(writeCtx context.Context) error {
+		if err := n.Init(writeCtx); err != nil {
+			return err
+		}
 
-	now := n.Runtime.Clock().Now()
-	run := func(lockCtx context.Context) error {
-		return n.touchUnlocked(lockCtx, now)
-	}
-	if contextHasNodeLock(ctx, n.ID) {
-		return run(ctx)
-	}
-	return n.Repo.WithNodeLock(ctx, n.ID, run)
+		now := n.Runtime.Clock().Now()
+		run := func(lockCtx context.Context) error {
+			return n.touchUnlocked(lockCtx, now)
+		}
+		if contextHasNodeLock(writeCtx, n.ID) {
+			return run(writeCtx)
+		}
+		return n.Repo.WithNodeLock(writeCtx, n.ID, run)
+	})
 }
 
 func (n *Node) touchUnlocked(ctx context.Context, now time.Time) error {
