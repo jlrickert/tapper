@@ -16,6 +16,14 @@ tasks:
       - ./pkg/**/*.go
       - ./doc/**/*.md
     silent: true
+  lint:docs:
+    desc: Enforce documentation for exported interfaces under pkg/.
+    cmds:
+      - go test ./internal/apidoc
+    sources:
+      - ./internal/apidoc/**/*.go
+      - ./pkg/**/*.go
+    silent: true
   install-keg:
     desc: Install the keg CLI (go install ./cmd/keg).
     cmds:
