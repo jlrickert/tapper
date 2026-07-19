@@ -36,7 +36,16 @@ task test                                  # cached test run of ./pkg/...
 
 # Lint
 go vet ./...
+task lint:docs                            # exported interface documentation
 ```
+
+### Stable interface documentation
+
+Every exported interface declared under `pkg/...` and every exported method it
+declares must have an adjacent Go doc comment beginning with the declared
+identifier. Deprecated methods still require their contract documentation and
+a standard `Deprecated:` paragraph. `task lint:docs` enforces this rule without
+a baseline or suppression list and runs explicitly in CI.
 
 ## Branching Model
 
