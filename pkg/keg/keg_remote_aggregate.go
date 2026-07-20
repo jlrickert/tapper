@@ -90,9 +90,9 @@ func (k *RemoteKeg) Graph(ctx context.Context) (*GraphView, error) {
 	}
 	return &out, nil
 }
-func (k *RemoteKeg) Inspect(ctx context.Context) (*KegInspection, error) {
-	var out KegInspection
-	if err := k.getJSON(ctx, "/inspect", "Inspect", &out); err != nil {
+func (k *RemoteKeg) Info(ctx context.Context) (*KegInfo, error) {
+	var out KegInfo
+	if err := k.getJSON(ctx, "/info", "Info", &out); err != nil {
 		return nil, err
 	}
 	return &out, nil

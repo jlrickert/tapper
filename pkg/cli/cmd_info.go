@@ -14,7 +14,7 @@ import (
 //	tap info
 //	tap info --keg myalias
 func NewInfoCmd(deps *Deps) *cobra.Command {
-	var opts tapper.KegInfoOptions
+	var opts tapper.InfoOptions
 
 	cmd := &cobra.Command{
 		Use:   "info",
@@ -26,7 +26,7 @@ file/image capabilities. Pass --debug for path and backend diagnostics.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			applyKegTargetProfile(deps, &opts.KegTargetOptions)
 			ctx := cmd.Context()
-			output, err := deps.Tap.KegInfo(ctx, opts)
+			output, err := deps.Tap.Info(ctx, opts)
 			if err != nil {
 				return err
 			}

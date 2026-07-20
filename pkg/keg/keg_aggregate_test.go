@@ -37,9 +37,9 @@ func TestLocalKegAggregateOperations(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, graph.Nodes, 3)
 	require.NotEmpty(t, graph.Edges)
-	inspection, err := k.Inspect(ctx)
+	info, err := k.Info(ctx)
 	require.NoError(t, err)
-	require.Equal(t, 3, inspection.Summary.NodeCount)
+	require.Equal(t, 3, info.Summary.NodeCount)
 	results, err := k.ValidateNodes(ctx, keg.ValidateNodesOptions{NodeIDs: []keg.NodeId{one.ID, two.ID}})
 	require.NoError(t, err)
 	require.Len(t, results, 2)
@@ -172,6 +172,7 @@ func TestRemoteAggregateMethodsUseOneRequest(t *testing.T) {
 		}},
 		{"doctor", http.MethodGet, "/doctor", `[]`, func(ctx context.Context, k *keg.RemoteKeg) error { _, err := k.Doctor(ctx); return err }},
 		{"graph", http.MethodGet, "/graph", `{"nodes":[],"edges":[]}`, func(ctx context.Context, k *keg.RemoteKeg) error { _, err := k.Graph(ctx); return err }},
+		{"info", http.MethodGet, "/info", `{"config":{"kegv":"keg.v2"},"summary":{"node_count":0}}`, func(ctx context.Context, k *keg.RemoteKeg) error { _, err := k.Info(ctx); return err }},
 		{"read", http.MethodPost, "/nodes/read", `[]`, func(ctx context.Context, k *keg.RemoteKeg) error {
 			_, err := k.ReadNodes(ctx, keg.ReadNodesOptions{NodeIDs: []keg.NodeId{{ID: 1}}, Touch: true})
 			return err

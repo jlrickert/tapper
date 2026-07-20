@@ -56,11 +56,11 @@ func (k *LocalKeg) indexFileMtime() time.Time {
 	return info.ModTime()
 }
 
-// dexStale reports whether the cached dex is out of date. For MemoryRepo
-// (single-process) this always returns false because there are no external
-// writers. For FsRepo it compares the current mtime of dex/nodes.tsv against
-// the mtime recorded when the dex was last loaded. Other repository
-// implementations are treated as external and always stale.
+// dexStale reports whether the cached dex is out of date. Generation-aware
+// repositories such as MemoryRepo compare kegOperationGeneration with
+// dexLoadGeneration. FsRepo compares the current mtime of dex/nodes.tsv with
+// the mtime recorded when the dex was last loaded. Other repositories are
+// treated as external and conservatively remain stale.
 //
 // Caller must hold k.dexMu.
 func (k *LocalKeg) dexStale() bool {

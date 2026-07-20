@@ -18,8 +18,8 @@ import (
 //	tap tags      -> tags        (both call Tap.Tags)
 //	tap backlinks -> backlinks   (both call Tap.Backlinks)
 //	tap links     -> links       (both call Tap.Links)
-//	tap config    -> info        (both call Tap.Info; MCP uses Minimal=true by default)
-//	tap info      -> keg_info    (both call Tap.KegInfo)
+//	tap keg settings -> keg_settings (both call Tap.KegSettings; MCP uses Minimal=true by default)
+//	tap info         -> info         (both call Tap.Info)
 //	tap stats     -> stats       (both call Tap.Stats)
 func TestParity_ReadOperations(t *testing.T) {
 	t.Parallel()
@@ -334,41 +334,41 @@ func TestParity_ReadOperations(t *testing.T) {
 			},
 		},
 
-		// --- settings/info (Tap.Info) ---
+		// --- keg_settings (Tap.KegSettings) ---
 		//
-		// CLI `tap keg settings` and MCP `info` both call Tap.Info. However, MCP
+		// CLI `tap keg settings` and MCP `keg_settings` both call Tap.KegSettings. However, MCP
 		// uses Minimal=true by default, returning only core fields. This test
 		// verifies both contain the keg title.
 		{
-			Name:     "info/both_contain_keg_title",
+			Name:     "keg_settings/both_contain_keg_title",
 			CLIArgs:  []string{"keg", "settings"},
-			MCPTool:  "info",
+			MCPTool:  "keg_settings",
 			MCPInput: map[string]any{},
 			Compare: func(t *testing.T, cliOut, mcpOut string) {
 				t.Helper()
 				require.Contains(t, cliOut, "Personal KEG", "CLI settings should show keg title")
-				require.Contains(t, mcpOut, "Personal KEG", "MCP info should show keg title")
+				require.Contains(t, mcpOut, "Personal KEG", "MCP keg_settings should show keg title")
 			},
 		},
 
-		// --- keg_info (Tap.KegInfo) ---
+		// --- info (Tap.Info) ---
 		//
-		// CLI `tap info` and MCP `keg_info` both call Tap.KegInfo.
+		// CLI `tap info` and MCP `info` both call Tap.Info.
 		{
-			Name:     "keg_info/both_show_diagnostics",
+			Name:     "info/both_show_diagnostics",
 			CLIArgs:  []string{"info"},
-			MCPTool:  "keg_info",
+			MCPTool:  "info",
 			MCPInput: map[string]any{},
 			Compare: func(t *testing.T, cliOut, mcpOut string) {
 				t.Helper()
 				for _, want := range []string{"hub: home", "namespace: local", "keg: personal"} {
 					require.Contains(t, cliOut, want, "CLI info should show resolved identity")
-					require.Contains(t, mcpOut, want, "MCP keg_info should show resolved identity")
+					require.Contains(t, mcpOut, want, "MCP info should show resolved identity")
 				}
 				require.Contains(t, cliOut, "personal", "CLI info should show alias")
-				require.Contains(t, mcpOut, "personal", "MCP keg_info should show alias")
+				require.Contains(t, mcpOut, "personal", "MCP info should show alias")
 				require.Contains(t, cliOut, "node_count", "CLI info should show node count")
-				require.Contains(t, mcpOut, "node_count", "MCP keg_info should show node count")
+				require.Contains(t, mcpOut, "node_count", "MCP info should show node count")
 				require.NotContains(t, mcpOut, "working_directory")
 				require.NotContains(t, mcpOut, "keg_directory")
 				require.NotContains(t, mcpOut, "resolution_source")

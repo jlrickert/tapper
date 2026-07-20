@@ -37,9 +37,9 @@ type Keg interface {
 	// Raw bytes preserve user formatting for round-trip editing.
 	SetConfig(ctx context.Context, data []byte) error
 
-	// Inspect returns the keg configuration and summary from one coherent
+	// Info returns the keg configuration and summary from one coherent
 	// keg-wide read snapshot.
-	Inspect(ctx context.Context) (*KegInspection, error)
+	Info(ctx context.Context) (*KegInfo, error)
 
 	// ListSchemas returns the defined schema type names in lexicographic order.
 	ListSchemas(ctx context.Context) ([]string, error)

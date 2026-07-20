@@ -60,7 +60,7 @@ type GraphView struct {
 	Edges []GraphEdge `json:"edges"`
 }
 
-type KegInspection struct {
+type KegInfo struct {
 	Config  *Config     `json:"config"`
 	Summary *KegSummary `json:"summary"`
 }
@@ -347,11 +347,11 @@ func (k *LocalKeg) graph(ctx context.Context) (*GraphView, error) {
 	return view, nil
 }
 
-func (k *LocalKeg) Inspect(ctx context.Context) (*KegInspection, error) {
-	return withKegReadValue(ctx, k, k.inspect)
+func (k *LocalKeg) Info(ctx context.Context) (*KegInfo, error) {
+	return withKegReadValue(ctx, k, k.info)
 }
 
-func (k *LocalKeg) inspect(ctx context.Context) (*KegInspection, error) {
+func (k *LocalKeg) info(ctx context.Context) (*KegInfo, error) {
 	cfg, err := k.Config(ctx)
 	if err != nil {
 		return nil, err
@@ -360,7 +360,7 @@ func (k *LocalKeg) inspect(ctx context.Context) (*KegInspection, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &KegInspection{Config: cfg, Summary: summary}, nil
+	return &KegInfo{Config: cfg, Summary: summary}, nil
 }
 
 func (k *LocalKeg) Doctor(ctx context.Context) ([]DoctorIssue, error) {

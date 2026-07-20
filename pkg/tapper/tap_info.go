@@ -15,8 +15,8 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// InfoOptions configures behavior for Tap.Info.
-type InfoOptions struct {
+// KegSettingsOptions configures behavior for Tap.KegSettings.
+type KegSettingsOptions struct {
 	KegTargetOptions
 
 	// Minimal strips large sections (tags, entities, indexes) from the output,
@@ -25,15 +25,15 @@ type InfoOptions struct {
 	Minimal bool
 }
 
-// Info displays the keg metadata (keg.yaml file contents).
-func (t *Tap) Info(ctx context.Context, opts InfoOptions) (string, error) {
+// KegSettings displays the keg metadata (keg file contents).
+func (t *Tap) KegSettings(ctx context.Context, opts KegSettingsOptions) (string, error) {
 	k, err := t.resolveKeg(ctx, opts.KegTargetOptions)
 	if err != nil {
 		return "", fmt.Errorf("unable to open keg: %w", err)
 	}
 
 	if opts.Minimal {
-		return t.infoMinimal(ctx, k)
+		return t.kegSettingsMinimal(ctx, k)
 	}
 
 	// For file-backed kegs, return the raw config contents so unknown sections
@@ -57,8 +57,8 @@ func (t *Tap) Info(ctx context.Context, opts InfoOptions) (string, error) {
 	return cfg.String(), nil
 }
 
-// infoMinimal returns a compact version of the keg config with only core fields.
-func (t *Tap) infoMinimal(ctx context.Context, k keg.Keg) (string, error) {
+// kegSettingsMinimal returns a compact keg config with only core fields.
+func (t *Tap) kegSettingsMinimal(ctx context.Context, k keg.Keg) (string, error) {
 	cfg, err := k.Config(ctx)
 	if err != nil {
 		return "", fmt.Errorf("unable to read keg config: %w", err)
@@ -85,8 +85,8 @@ func (t *Tap) infoMinimal(ctx context.Context, k keg.Keg) (string, error) {
 	return string(b), nil
 }
 
-// KegInfoOptions configures behavior for Tap.KegInfo.
-type KegInfoOptions struct {
+// InfoOptions configures behavior for Tap.Info.
+type InfoOptions struct {
 	KegTargetOptions
 
 	// JSON renders the diagnostics as JSON instead of YAML.
@@ -183,17 +183,17 @@ func (t *Tap) configFieldScope(field string) string {
 	return ""
 }
 
-// KegInfo displays diagnostics for a resolved keg.
-func (t *Tap) KegInfo(ctx context.Context, opts KegInfoOptions) (string, error) {
+// Info displays diagnostics for a resolved keg.
+func (t *Tap) Info(ctx context.Context, opts InfoOptions) (string, error) {
 	k, err := t.resolveKeg(ctx, opts.KegTargetOptions)
 	if err != nil {
 		return "", fmt.Errorf("unable to open keg: %w", err)
 	}
-	inspection, err := k.Inspect(ctx)
+	info, err := k.Info(ctx)
 	if err != nil {
 		return "", fmt.Errorf("unable to read keg config: %w", err)
 	}
-	summary := inspection.Summary
+	summary := info.Summary
 
 	type capability struct {
 		Supported bool `yaml:"supported" json:"supported"`
@@ -234,8 +234,8 @@ func (t *Tap) KegInfo(ctx context.Context, opts KegInfoOptions) (string, error) 
 	}
 
 	// Populate summary from the keg config.
-	if inspection.Config != nil && inspection.Config.Summary != "" {
-		out.Summary = inspection.Config.Summary
+	if info.Config != nil && info.Config.Summary != "" {
+		out.Summary = info.Config.Summary
 	}
 
 	if opts.Debug {
