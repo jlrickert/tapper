@@ -141,7 +141,7 @@ func TestMCP_ToolsList(t *testing.T) {
 	require.Contains(t, names, "backlinks")
 	require.Contains(t, names, "links")
 	require.Contains(t, names, "info")
-	require.Contains(t, names, "keg_info")
+	require.Contains(t, names, "keg_settings")
 	require.Contains(t, names, "keg_list")
 	require.Contains(t, names, "keg_visibility")
 	require.Contains(t, names, "stats")
@@ -220,7 +220,7 @@ func TestMCP_SurfaceHub_CuratesToolset(t *testing.T) {
 
 	// Node read/write tools must be present.
 	for _, want := range []string{
-		"cat", "list", "grep", "tags", "backlinks", "links", "info", "keg_info",
+		"cat", "list", "grep", "tags", "backlinks", "links", "info", "keg_settings",
 		"stats", "create", "edit", "meta", "remove", "move", "index",
 		"list_indexes", "index_cat", "node_history", "node_snapshot",
 		"node_snapshot_view", "node_restore", "graph", "orient",
@@ -446,7 +446,24 @@ func TestMCP_Info(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, res.IsError, "info returned error: %v", res.Content)
 	text := extractText(t, res)
+	require.Contains(t, text, "node_count")
+	require.Contains(t, text, "ref:")
+	require.Contains(t, text, "hub: home")
+}
+
+func TestMCP_KegSettings(t *testing.T) {
+	t.Parallel()
+	session, ctx := newTestSession(t)
+
+	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name:      "keg_settings",
+		Arguments: map[string]any{},
+	})
+	require.NoError(t, err)
+	require.False(t, res.IsError, "keg_settings returned error: %v", res.Content)
+	text := extractText(t, res)
 	require.Contains(t, text, "Personal KEG")
+	require.NotContains(t, text, "node_count")
 }
 
 func TestMCP_Stats(t *testing.T) {
@@ -1844,7 +1861,7 @@ func TestMCP_ToolAnnotations_AllPresent(t *testing.T) {
 	// --- read-only tools ---
 	readOnlyTools := []string{
 		"cat", "list", "grep", "tags", "backlinks", "links",
-		"info", "keg_info", "stats",
+		"info", "keg_settings", "stats",
 		"list_files", "list_images",
 		"list_indexes", "index_cat",
 		"doctor", "lock_status", "license", "node_history", "node_snapshot_view",

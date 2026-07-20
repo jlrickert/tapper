@@ -93,8 +93,8 @@ switch control can expand the existing connection to the normal surface.
 | `tags` | List tags or find nodes by query |
 | `backlinks` | Find nodes linking to a node |
 | `links` | List outgoing links from a node |
-| `info` | Show tapper info and environment |
-| `keg_info` | Read keg configuration |
+| `info` | Show concise diagnostics for the resolved keg |
+| `keg_settings` | Read keg configuration |
 | `stats` | Show node statistics |
 
 ### Write

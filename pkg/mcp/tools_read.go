@@ -16,7 +16,7 @@ func registerReadTools(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults
 	registerBacklinks(srv, tap, defaults)
 	registerLinks(srv, tap, defaults)
 	registerInfo(srv, tap, defaults)
-	registerKegInfo(srv, tap, defaults)
+	registerKegSettings(srv, tap, defaults)
 	registerStats(srv, tap, defaults)
 }
 
@@ -252,31 +252,31 @@ func registerLinks(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	})
 }
 
-// --- info ---
+// --- keg_settings ---
 
-type infoInput struct {
+type kegSettingsInput struct {
 	Keg     string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
 	Minimal *bool  `json:"minimal,omitempty" jsonschema:"return only core config fields (default true)"`
 }
 
-func registerInfo(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
+func registerKegSettings(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
-		Name:        "info",
+		Name:        "keg_settings",
 		Description: "Show KEG config (keg file contents). Returns minimal output by default; set minimal=false for full config.",
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(false),
 		},
-	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in infoInput) (*sdkmcp.CallToolResult, any, error) {
+	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in kegSettingsInput) (*sdkmcp.CallToolResult, any, error) {
 		minimal := true
 		if in.Minimal != nil {
 			minimal = *in.Minimal
 		}
-		opts := tapper.InfoOptions{
+		opts := tapper.KegSettingsOptions{
 			KegTargetOptions: resolveKegTarget(ctx, in.Keg, defaults),
 			Minimal:          minimal,
 		}
-		result, err := tap.Info(ctx, opts)
+		result, err := tap.KegSettings(ctx, opts)
 		if err != nil {
 			return errorResult(err), nil, nil
 		}
@@ -284,25 +284,25 @@ func registerInfo(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	})
 }
 
-// --- keg_info ---
+// --- info ---
 
-type kegInfoInput struct {
+type infoInput struct {
 	Keg string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
 }
 
-func registerKegInfo(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
+func registerInfo(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
-		Name:        "keg_info",
+		Name:        "info",
 		Description: "Show concise path-free diagnostics for a resolved KEG (canonical ref, flight, summary, node count, and capabilities)",
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(false),
 		},
-	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in kegInfoInput) (*sdkmcp.CallToolResult, any, error) {
-		opts := tapper.KegInfoOptions{
+	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in infoInput) (*sdkmcp.CallToolResult, any, error) {
+		opts := tapper.InfoOptions{
 			KegTargetOptions: resolveKegTarget(ctx, in.Keg, defaults),
 		}
-		result, err := tap.KegInfo(ctx, opts)
+		result, err := tap.Info(ctx, opts)
 		if err != nil {
 			return errorResult(err), nil, nil
 		}

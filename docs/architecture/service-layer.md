@@ -78,7 +78,7 @@ through the namespace-centric chain.
 `keg.Keg` is the command-operation boundary, not a repository primitive
 surface. `LocalKeg` owns same-keg orchestration and `RemoteKeg` maps each
 aggregate method to exactly one authenticated Hub request. Listing, batch
-reads, related links, graph/inspection/doctor, bulk removal/validation,
+reads, related links, graph/info/doctor, bulk removal/validation,
 editor open/save, redirect creation, schema creation, dex reads, create, and
 lock acquisition therefore have matching local and hosted semantics without
 client fan-out.

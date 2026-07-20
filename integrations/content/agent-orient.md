@@ -28,7 +28,7 @@ restarting the MCP server.
 
 - `mcp__tapper__orient` — returns the active flight, its cover and instructions,
   covered KEG instructions, and canonical safety guidance.
-- `mcp__tapper__keg_info` — returns concise diagnostics for a covered KEG.
+- `mcp__tapper__info` — returns concise diagnostics for a covered KEG.
 - `mcp__tapper__keg_list` — lists the KEGs exposed by configured hubs.
 
 ## Bootstrapping a session

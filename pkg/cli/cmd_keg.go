@@ -192,7 +192,7 @@ func newKegVisibilityCmd(deps *Deps) *cobra.Command {
 // newKegSettingsCmd returns `tap keg settings` (formerly `tap settings`): the
 // keg's own configuration (title, creator, links, schema policy, …).
 func newKegSettingsCmd(deps *Deps) *cobra.Command {
-	var opts tapper.InfoOptions
+	var opts tapper.KegSettingsOptions
 
 	cmd := &cobra.Command{
 		Use:   "settings",
@@ -205,7 +205,7 @@ configuration.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			applyKegTargetProfile(deps, &opts.KegTargetOptions)
 
-			output, err := deps.Tap.Info(cmd.Context(), opts)
+			output, err := deps.Tap.KegSettings(cmd.Context(), opts)
 			if err != nil {
 				return err
 			}
