@@ -2,6 +2,31 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.33.0 - 2026-07-20
+
+
+
+### 🐛 Bug Fixes
+- **keg:** serialize complete repository operations
+
+
+### 📚 Documentation
+- **architecture:** document aggregate keg operations
+- **api:** document exported interface contracts
+
+
+### 🚀 Features
+- **keg:** add coherent aggregate command operations
+
+
+### 🚜 Refactor
+- **api:** rename keg inspection to info
+
+
+### 🧪 Testing
+- **api:** enforce exported interface documentation
+
+
 ## v0.32.0 - 2026-07-15
 
 
