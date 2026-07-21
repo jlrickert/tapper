@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -2003,4 +2004,46 @@ func TestMCP_InvocationLogging_WithKegAlias(t *testing.T) {
 
 	require.Equal(t, "personal", entry.Attrs["keg"],
 		"invocation log should include keg alias from tool arguments")
+}
+
+type invocationTelemetryRecorder struct {
+	mu     sync.Mutex
+	events []tapper.InvocationEvent
+}
+
+func (r *invocationTelemetryRecorder) Report(event tapper.InvocationEvent) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.events = append(r.events, event)
+}
+
+func (*invocationTelemetryRecorder) Close(context.Context) {}
+
+func (r *invocationTelemetryRecorder) snapshot() []tapper.InvocationEvent {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]tapper.InvocationEvent(nil), r.events...)
+}
+
+func TestMCP_InvocationTelemetryReportsExactToolAndOutcome(t *testing.T) {
+	reporter := &invocationTelemetryRecorder{}
+	session, ctx := newTestSessionWithOpts(t, mcp.ServerOptions{Reporter: reporter})
+
+	_, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: "config"})
+	require.NoError(t, err)
+	failed, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name:      "cat",
+		Arguments: map[string]any{"node_ids": []string{"99999"}, "keg": "sensitive-target"},
+	})
+	require.NoError(t, err)
+	require.True(t, failed.IsError)
+
+	events := reporter.snapshot()
+	require.Len(t, events, 2)
+	require.Equal(t, tapper.InvocationEvent{Surface: "mcp", Tool: "config", Success: true}, events[0])
+	require.Equal(t, "mcp", events[1].Surface)
+	require.Equal(t, "cat", events[1].Tool)
+	require.False(t, events[1].Success)
+	require.Empty(t, events[1].Command)
+	require.Nil(t, events[1].Interactive)
 }

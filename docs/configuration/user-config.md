@@ -53,6 +53,8 @@ writes the fallback hub and the built-in local hub for you (see below).
   from hub listings, and is skipped in resolution; an explicit `hubs` entry of
   the same name is unaffected. `disableAtlasHub` is useful for SOC2-audited
   deployments that must prove no implicit network targets exist.
+- `disableTelemetry`: when `true`, disables privacy-minimized CLI and MCP
+  invocation reporting. `TAP_DISABLE_TELEMETRY=1` is the environment opt-out.
 - `hubs`: name-keyed map of hub definitions (`kind`, `defaultNamespace`, `url`,
   `basePath`, `token`/`tokenEnv`). **User config only** — see the trust boundary
   below.
@@ -99,6 +101,37 @@ stripped from any walked **project** `.tapper/config.yaml` (with a load warning;
 `--strict` makes it a hard error) so a repository you `cd` into cannot introduce
 a hub target or harvest a token. See
 [Resolution Order](resolution-order.md#trust-boundary).
+
+## Invocation Telemetry
+
+Tap reports privacy-minimized invocation telemetry by default. Reporting is
+best-effort and independent of `logLevel`: upload failures, timeouts, queue
+pressure, or an older Hub never change a CLI exit code or MCP tool result.
+
+Each event contains only the surface (`cli` or `mcp`), the exact Cobra command
+path or MCP tool name, duration, success, optional CLI interactivity, and the
+Tap client version. Arguments, errors, paths, node or keg identifiers, content,
+credentials, and MCP session identifiers are never uploaded.
+
+Events go only to `/api/v1/telemetry/invocations` on the authenticated remote
+Hub selected by the user config's login-hub default/fallback chain, using the
+existing AuthStore token. Tap silently skips reporting when it is not
+bootstrapped, not authenticated, configured only for a local Hub, or connected
+to a Hub version without the endpoint. The Hub writes accepted events to its
+structured logs rather than PostgreSQL; Atlas currently inherits the standard
+30-day Loki retention.
+
+Opt out persistently in user config:
+
+```yaml
+disableTelemetry: true
+```
+
+Or opt out for a process/environment:
+
+```bash
+export TAP_DISABLE_TELEMETRY=1
+```
 
 ## `tap bootstrap`
 

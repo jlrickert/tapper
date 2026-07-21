@@ -70,6 +70,11 @@ type Deps struct {
 	// startTime records when PersistentPreRunE began, used for CLI
 	// invocation duration logging in logCLIInvocation.
 	startTime time.Time
+
+	// commandPath is the exact Cobra path for the selected command.
+	// InvocationReporter is best-effort and independent of local logging.
+	commandPath        string
+	InvocationReporter tapper.InvocationReporter
 }
 
 func NewRootCmd(deps *Deps) *cobra.Command {
@@ -116,6 +121,7 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 
 			// Record invocation start time for duration logging.
 			deps.startTime = rt.Clock().Now()
+			deps.commandPath = cmd.CommandPath()
 
 			wd, err := rt.Getwd()
 			if err != nil {
@@ -214,6 +220,9 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 			// so refresh failures land in the configured log destination.
 			if name := cmd.Name(); name != cobra.ShellCompRequestCmd && name != cobra.ShellCompNoDescRequestCmd {
 				tap.AuthRefreshAll(ctx)
+			}
+			if deps.InvocationReporter == nil {
+				deps.InvocationReporter = tapper.NewInvocationReporter(rt, tap.ConfigService, Version)
 			}
 
 			cmd.SetContext(ctx)
