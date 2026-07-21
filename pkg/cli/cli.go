@@ -7,8 +7,10 @@ import (
 	"log/slog"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/jlrickert/cli-toolkit/toolkit"
+	"github.com/jlrickert/tapper/pkg/tapper"
 	"github.com/spf13/cobra"
 )
 
@@ -94,6 +96,12 @@ func RunWithProfile(ctx context.Context, rt *toolkit.Runtime, args []string, pro
 	// logged. We log before error rendering so the entry is captured
 	// even when the command fails.
 	logCLIInvocation(deps, args, execErr)
+	reportCLIInvocation(deps, execErr)
+	if deps.InvocationReporter != nil {
+		flushCtx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+		deps.InvocationReporter.Close(flushCtx)
+		cancel()
+	}
 
 	// Sync and close the log file handle unconditionally. Sync ensures the
 	// invocation entry written by logCLIInvocation is flushed to disk
@@ -161,6 +169,21 @@ func logCLIInvocation(deps *Deps, args []string, execErr error) {
 		}
 	}
 	rt.Logger().LogAttrs(context.Background(), level, "invocation", attrs...)
+}
+
+func reportCLIInvocation(deps *Deps, execErr error) {
+	if deps == nil || deps.Runtime == nil || deps.InvocationReporter == nil ||
+		deps.startTime.IsZero() || strings.TrimSpace(deps.commandPath) == "" {
+		return
+	}
+	interactive := deps.Runtime.Stream().IsTTY
+	deps.InvocationReporter.Report(tapper.InvocationEvent{
+		Surface:     "cli",
+		Command:     deps.commandPath,
+		DurationMS:  deps.Runtime.Clock().Now().Sub(deps.startTime).Milliseconds(),
+		Success:     execErr == nil,
+		Interactive: &interactive,
+	})
 }
 
 // maxArgBytes is the maximum byte length for a single CLI argument in

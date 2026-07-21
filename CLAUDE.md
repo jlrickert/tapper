@@ -245,8 +245,8 @@ that set each. A persisted `flight` auto-applies when `--flight` is omitted.
 Supported env vars: `TAP_DEFAULT_KEG`, `TAP_FALLBACK_KEG`, `TAP_FLIGHT`,
 `TAP_LOG_FILE`, `TAP_LOG_LEVEL`, `TAP_DEFAULT_HUB`, `TAP_FALLBACK_HUB`,
 `TAP_DEFAULT_NAMESPACE`, `TAP_FALLBACK_NAMESPACE`, `TAP_DISABLE_ATLAS_HUB`,
-`TAP_DISABLE_LOCAL_HUB` (`1`/`true`/`yes`/`on` → suppress the synthesized
-built-in atlas / local hub).
+`TAP_DISABLE_LOCAL_HUB`, `TAP_DISABLE_TELEMETRY` (`1`/`true`/`yes`/`on` for
+the disable flags).
 
 Use `tap config --explain FIELD` to see which source set a value, or
 `tap config --show-sources` for all fields. The `--strict` flag makes config
@@ -313,6 +313,9 @@ use of `time.Now()` that cannot be driven by a fake clock:
 - `pkg/keg/node_id.go` (crypto/rand fallback uses `time.Now().UnixNano()`):
   used as an entropy source for a short random code when `crypto/rand` fails,
   not as a time measurement.
+- `pkg/tapper/invocation_telemetry.go` (flush ticker and request/shutdown
+  deadlines): coalesces best-effort network uploads and bounds their wall-clock
+  impact independently of the frozen domain clock.
 
 ### Concurrency Model
 

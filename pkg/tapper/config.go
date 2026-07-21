@@ -120,6 +120,11 @@ type configDTO struct {
 	// the hostname-keyed local hub tap bootstrap writes) is unaffected.
 	DisableLocalHub bool `yaml:"disableLocalHub,omitempty"`
 
+	// disableTelemetry opts this user out of privacy-minimized invocation
+	// reporting to their authenticated remote hub. Reporting is enabled when
+	// this field is unset or false.
+	DisableTelemetry bool `yaml:"disableTelemetry,omitempty"`
+
 	// hubs describes configured hubs available to the user, keyed by name.
 	Hubs hubMap `yaml:"hubs,omitempty"`
 }
@@ -368,6 +373,14 @@ func (cfg *Config) DisableLocalHub() bool {
 	return cfg.data.DisableLocalHub
 }
 
+// DisableTelemetry returns true when remote invocation reporting is disabled.
+func (cfg *Config) DisableTelemetry() bool {
+	if cfg.data == nil {
+		cfg.data = &configDTO{}
+	}
+	return cfg.data.DisableTelemetry
+}
+
 // KegMap returns the list of path/regex to keg alias mappings.
 func (cfg *Config) KegMap() []KegMapEntry {
 	if cfg.data == nil {
@@ -554,6 +567,15 @@ func (cfg *Config) SetDisableAtlasHub(disable bool) error {
 		cfg.data = &configDTO{}
 	}
 	cfg.data.DisableAtlasHub = disable
+	return nil
+}
+
+// SetDisableTelemetry toggles privacy-minimized invocation reporting.
+func (cfg *Config) SetDisableTelemetry(disable bool) error {
+	if cfg.data == nil {
+		cfg.data = &configDTO{}
+	}
+	cfg.data.DisableTelemetry = disable
 	return nil
 }
 
@@ -1263,6 +1285,9 @@ func MergeConfig(cfgs ...*Config) *Config {
 		}
 		if c.data.DisableLocalHub {
 			out.data.DisableLocalHub = true
+		}
+		if c.data.DisableTelemetry {
+			out.data.DisableTelemetry = true
 		}
 
 		for name, entry := range c.data.Hubs {

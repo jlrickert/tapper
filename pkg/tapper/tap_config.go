@@ -224,6 +224,7 @@ var ConfigExplainFields = []string{
 	"fallbackNamespace",
 	"disableAtlasHub",
 	"disableLocalHub",
+	"disableTelemetry",
 }
 
 // configFieldGetter returns the string value of a named field from a Config.
@@ -260,6 +261,11 @@ func configFieldGetter(cfg *Config, field string) string {
 		return ""
 	case "disableLocalHub":
 		if cfg.DisableLocalHub() {
+			return "true"
+		}
+		return ""
+	case "disableTelemetry":
+		if cfg.DisableTelemetry() {
 			return "true"
 		}
 		return ""

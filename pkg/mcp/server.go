@@ -45,6 +45,9 @@ type ServerOptions struct {
 	// Logger is the structured logger for invocation logging. When nil,
 	// invocation logging is silently skipped.
 	Logger *slog.Logger
+	// Reporter receives privacy-minimized tool invocation telemetry. It is
+	// independent of Logger and may be nil.
+	Reporter tapper.InvocationReporter
 	// Surface selects the registered tool set. The zero value (SurfaceFull)
 	// registers everything, preserving the CLI peer surface.
 	Surface Surface
@@ -117,12 +120,12 @@ func NewServer(tap *tapper.Tap, version string, defaults KegDefaults, opts ...Se
 		registerLicenseTools(srv, opt.LicenseText)
 	}
 
-	if opt.Logger != nil {
+	if opt.Logger != nil || opt.Reporter != nil {
 		var clk clock.Clock
 		if tap != nil && tap.Runtime != nil {
 			clk = tap.Runtime.Clock()
 		}
-		srv.AddReceivingMiddleware(invocationLoggingMiddleware(opt.Logger, clk))
+		srv.AddReceivingMiddleware(invocationLoggingMiddleware(opt.Logger, opt.Reporter, clk))
 	}
 
 	return srv
@@ -222,7 +225,7 @@ func errorResult(err error) *sdkmcp.CallToolResult {
 // and production uses the real wall clock via the OS clock implementation.
 // A nil clock falls back to the package default clock to keep the middleware
 // safe to construct without a runtime.
-func invocationLoggingMiddleware(lg *slog.Logger, clk clock.Clock) sdkmcp.Middleware {
+func invocationLoggingMiddleware(lg *slog.Logger, reporter tapper.InvocationReporter, clk clock.Clock) sdkmcp.Middleware {
 	clk = clock.OrDefault(clk)
 	return func(next sdkmcp.MethodHandler) sdkmcp.MethodHandler {
 		return func(ctx context.Context, method string, req sdkmcp.Request) (sdkmcp.Result, error) {
@@ -279,7 +282,23 @@ func invocationLoggingMiddleware(lg *slog.Logger, clk clock.Clock) sdkmcp.Middle
 				attrs = append(attrs, slog.String("error", err.Error()))
 			}
 
-			lg.LogAttrs(ctx, slog.LevelInfo, "invocation", attrs...)
+			if lg != nil {
+				lg.LogAttrs(ctx, slog.LevelInfo, "invocation", attrs...)
+			}
+			if reporter != nil {
+				tool := ""
+				if params, ok := req.GetParams().(*sdkmcp.CallToolParamsRaw); ok {
+					tool = params.Name
+				}
+				if tool != "" {
+					reporter.Report(tapper.InvocationEvent{
+						Surface:    "mcp",
+						Tool:       tool,
+						DurationMS: duration.Milliseconds(),
+						Success:    success,
+					})
+				}
+			}
 			return result, err
 		}
 	}

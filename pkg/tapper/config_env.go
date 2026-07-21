@@ -18,6 +18,7 @@ var tapEnvVarKeys = []string{
 	"FALLBACK_NAMESPACE",
 	"DISABLE_ATLAS_HUB",
 	"DISABLE_LOCAL_HUB",
+	"DISABLE_TELEMETRY",
 }
 
 const tapEnvPrefix = "TAP_"
@@ -63,6 +64,9 @@ func configFromEnvMap(envMap map[string]string) *Config {
 	}
 	if v, ok := envMap["disable_local_hub"]; ok {
 		cfg.data.DisableLocalHub = parseEnvBool(v)
+	}
+	if v, ok := envMap["disable_telemetry"]; ok {
+		cfg.data.DisableTelemetry = parseEnvBool(v)
 	}
 
 	return cfg
