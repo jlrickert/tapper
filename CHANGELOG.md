@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.34.0 - 2026-07-21
+
+
+
+### 🚀 Features
+- **telemetry:** report CLI and MCP invocations
+
+
 ## v0.33.0 - 2026-07-20
 
 
