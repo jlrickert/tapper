@@ -48,18 +48,6 @@ func (a ClaudeAdapter) Render(rt *toolkit.Runtime, content fs.FS, dst integratio
 	if err := dst.Write(path.Join(a.Name(), "tapper", "skills", "tapper", "SKILL.md"), baseline); err != nil {
 		return err
 	}
-	if err := renderManagementSkills(content, dst, a.Name()); err != nil {
-		return fmt.Errorf("claude: management skills: %w", err)
-	}
-	flightSwitch, err := fs.ReadFile(content, "skills/tapper-flight-switch.md")
-	if err != nil {
-		return fmt.Errorf("claude: flight switch skill: %w", err)
-	}
-	flightSwitch = addClaudeFlightSwitchFrontmatter(flightSwitch)
-	if err := dst.Write(path.Join(a.Name(), "tapper", "skills", "tapper-flight-switch", "SKILL.md"), flightSwitch); err != nil {
-		return err
-	}
-
 	devManifest, err := renderClaudeManifest("tapper-dev", version, "Optional Plan to Code to Review to Commit workflow for Tapper-enabled development.", []string{"tapper"})
 	if err != nil {
 		return err
@@ -73,21 +61,6 @@ func (a ClaudeAdapter) Render(rt *toolkit.Runtime, content fs.FS, dst integratio
 	}
 	devSkill := addSkillFrontmatter("tapper-dev", "Optional Plan, Code, Review, and Commit workflow. Requires the baseline tapper plugin.", workflow)
 	return dst.Write(path.Join(a.Name(), "tapper-dev", "skills", "tapper-dev", "SKILL.md"), devSkill)
-}
-
-func addClaudeFlightSwitchFrontmatter(body []byte) []byte {
-	var out bytes.Buffer
-	out.WriteString("---\n")
-	out.WriteString("name: tapper-flight-switch\n")
-	out.WriteString("description: Human-only control that switches this Claude session's active Tapper flight.\n")
-	out.WriteString("disable-model-invocation: true\n")
-	out.WriteString("argument-hint: \"@namespace/+slug\"\n")
-	out.WriteString("---\n\n")
-	out.Write(body)
-	if len(body) == 0 || body[len(body)-1] != '\n' {
-		out.WriteByte('\n')
-	}
-	return out.Bytes()
 }
 
 type claudeManifest struct {

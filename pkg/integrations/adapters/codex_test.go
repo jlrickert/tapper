@@ -24,19 +24,6 @@ func testContentFS(t *testing.T) fs.FS {
 		}
 		files[name] = &fstest.MapFile{Data: body}
 	}
-	for _, skill := range managementSkills {
-		name := filepath.Join("skills", skill.Name+".md")
-		body, err := os.ReadFile(filepath.Join("..", "..", "..", "integrations", "content", name))
-		if err != nil {
-			t.Fatal(err)
-		}
-		files[filepath.ToSlash(name)] = &fstest.MapFile{Data: body}
-	}
-	flightSwitch, err := os.ReadFile(filepath.Join("..", "..", "..", "integrations", "content", "skills", "tapper-flight-switch.md"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	files["skills/tapper-flight-switch.md"] = &fstest.MapFile{Data: flightSwitch}
 	workflow, err := os.ReadFile(filepath.Join("..", "renderdata", "developer", "workflow.md"))
 	if err != nil {
 		t.Fatal(err)
@@ -70,9 +57,11 @@ func TestCodexAdapter_RendersNativeMarketplaceAndTwoPlugins(t *testing.T) {
 		"codex/tapper/.mcp.json",
 		"codex/tapper/hooks/hooks.json",
 		"codex/tapper/skills/tapper/SKILL.md",
-		"codex/tapper/skills/tapper-mcp-reset/SKILL.md",
 		"codex/tapper-dev/.codex-plugin/plugin.json",
 		"codex/tapper-dev/skills/tapper-dev/SKILL.md",
+	}
+	if len(mem.Paths()) != len(want) {
+		t.Fatalf("rendered files = %v, want exactly %v", mem.Paths(), want)
 	}
 	for _, name := range want {
 		if _, ok := mem.Files()[name]; !ok {
@@ -204,22 +193,6 @@ func TestCodexAdapter_RendersSessionStartOrientationReminder(t *testing.T) {
 	}
 	if len(hooks.Hooks["PreToolUse"]) != 1 {
 		t.Fatal("Codex orientation reminder must retain the PreToolUse guard")
-	}
-}
-
-func TestCodexAdapter_RendersManagementSkills(t *testing.T) {
-	mem := integrations.NewMemWriter()
-	if err := (CodexAdapter{}).Render(testRuntime(t), testContentFS(t), mem); err != nil {
-		t.Fatal(err)
-	}
-	reset := string(mem.Files()["codex/tapper/skills/tapper-mcp-reset/SKILL.md"])
-	for _, want := range []string{"tap version", "mcp__tapper__info", "mcp__tapper__orient", "new thread", "restart the Codex app", "Never kill"} {
-		if !strings.Contains(reset, want) {
-			t.Errorf("reset skill missing %q", want)
-		}
-	}
-	if _, ok := mem.Files()["codex/tapper/skills/tapper-flight-switch/SKILL.md"]; ok {
-		t.Error("Codex must not expose a flight-switching skill")
 	}
 }
 

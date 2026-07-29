@@ -42,8 +42,11 @@ Call `mcp__tapper__orient` first. Follow the pinned flight and KEG instructions
 it returns. When no flight is selected, the local MCP server connects in a
 recovery-only state: KEG tools are locked, while `mcp__tapper__list_flights`
 and `mcp__tapper__flight_show` remain available for discovery. Ask the user to
-select a flight in Tapper configuration, then reconnect. A flight with an empty
-cover exposes no KEGs.
+select a flight in Tapper configuration, then call `mcp__tapper__orient` again.
+If `mcp__tapper__orient` is unavailable, report that the Tapper MCP connection
+is unavailable, ask the user to reconnect or restart the host session, and
+never kill or signal host-owned processes. A flight with an empty cover exposes
+no KEGs.
 
 ## Search and discovery
 

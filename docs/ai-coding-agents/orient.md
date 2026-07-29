@@ -10,12 +10,11 @@ operating against tapper KEGs. The same bytes are reachable three ways: the
 The payload always starts with KEG system context:
 
 1. KEG purpose and core rules.
-2. The active or resolved KEG.
-3. Available KEGs, including role, source, and the active flight cap when a
+2. Available KEGs, including role, source, and the active flight cap when a
    flight is selected.
-4. Flight title and instructions, when a flight is active.
-5. KEG-level instructions from each available KEG config.
-6. Canonical Tapper agent guidance: linking, snapshots, tool inventory, and
+3. Flight title and instructions, when a flight is active.
+4. KEG-level instructions from each available KEG config.
+5. Canonical Tapper agent guidance: linking, snapshots, tool inventory, and
    troubleshooting.
 
 Orient is best-effort. If a configured hub is unreachable or a selected flight
@@ -24,17 +23,16 @@ a warning about what was skipped.
 
 ## Parameters
 
-The CLI accepts explicit keg and flight context. The MCP tool accepts only an
-optional keg; its flight is pinned by the server-owned connection gate.
+The CLI accepts an optional flight preview. The MCP tool accepts `{}` and
+refreshes the server-owned session orientation.
 
 | Parameter | Values | Effect |
 | --- | --- | --- |
-| `keg` | keg reference, for example `@acme/engineering` | Pins active KEG resolution. |
 | `flight` (CLI only) | flight identifier, for example `@acme/+release-42` | Renders flight title/instructions and caps the available KEG list to the flight cover. |
 
-`flight` is context, not a target selector, so it composes with `keg`,
-`namespace`, and `hub`. Direct CLI commands ignore flight cover caps and use
-normal keg authorization; MCP tools enforce the cover.
+`tap orient` rejects KEG, namespace, and hub targeting flags. Direct CLI KEG
+commands ignore flight cover caps and use normal authorization; MCP tools
+enforce the most recently published orientation.
 
 ## KEG Instructions
 
@@ -62,7 +60,7 @@ The MCP server registers a single `orient` tool:
   "method": "tools/call",
   "params": {
     "name": "orient",
-    "arguments": {"keg": "@acme/engineering"}
+    "arguments": {}
   }
 }
 ```
@@ -88,9 +86,7 @@ payload an agent will see or scripting orientation into CI.
 
 ```bash
 tap orient
-tap orient --keg @acme/engineering
 tap orient --flight @acme/+release-42
-tap orient --flight @acme/+release-42 --keg @acme/engineering
 ```
 
 `--flight` is a root persistent CLI flag available on commands that accept

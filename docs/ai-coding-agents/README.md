@@ -23,6 +23,8 @@ configuration only for generic hosts without a native Tapper plugin.
 - [MCP Server Setup](mcp-setup.md) — manual setup for hosts that do not use
   a bundled integration: `claude mcp add`, JSON config for arbitrary MCP
   clients, and the tool categories exposed over MCP.
+- [Provider-neutral launcher composition](launchers.md) — future immutable
+  `--flight` process binding across agent hosts and runtimes.
 - [Agent Conventions](agent-conventions.md) — tapper invariants every agent
   should follow: MCP-first, never edit node files directly, never mix CLI
   writes with a live MCP session, snapshot before destructive edits.

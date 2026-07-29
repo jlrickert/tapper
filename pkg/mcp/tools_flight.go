@@ -108,7 +108,7 @@ func registerFlightTools(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaul
 			OpenWorldHint: boolPtr(true),
 		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in flightEditInput) (*sdkmcp.CallToolResult, any, error) {
-		if err := defaults.gate.authorizeMutation(ctx, sessionIDFromContext(ctx), in.Ref, true); err != nil {
+		if err := defaults.gate.authorizeMutation(sessionIDFromContext(ctx), in.Ref, true); err != nil {
 			return errorResult(err), nil, nil
 		}
 		opts := tapper.UpdateFlightOptions{
@@ -143,7 +143,7 @@ func registerFlightTools(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaul
 			OpenWorldHint: boolPtr(true),
 		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in flightDeleteInput) (*sdkmcp.CallToolResult, any, error) {
-		if err := defaults.gate.authorizeMutation(ctx, sessionIDFromContext(ctx), in.Ref, true); err != nil {
+		if err := defaults.gate.authorizeMutation(sessionIDFromContext(ctx), in.Ref, true); err != nil {
 			return errorResult(err), nil, nil
 		}
 		if err := tap.DeleteFlight(ctx, tapper.DeleteFlightOptions{Ref: in.Ref}); err != nil {

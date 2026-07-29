@@ -39,7 +39,7 @@ func TestTap_Orient_SharedPayloadStartsWithKegSystem(t *testing.T) {
 	require.NotContains(t, payload, "CLI")
 	require.NotContains(t, payload, "`tap ")
 	require.Contains(t, payload, "Rules:")
-	require.Contains(t, payload, "## Active KEG")
+	require.NotContains(t, payload, "## Active KEG")
 	require.Contains(t, payload, "## Available KEGs")
 	require.Contains(t, payload, "## KEG Instructions")
 	require.Contains(t, payload, "## Guidance")
@@ -153,7 +153,7 @@ func TestTap_Orient_ActiveKeg_NoneConfigured(t *testing.T) {
 	tap := newOrientTap(t)
 	payload, err := tap.Orient(context.Background(), tapper.OrientOptions{})
 	require.NoError(t, err)
-	require.Contains(t, payload, "Active KEG: (none configured)")
+	require.NotContains(t, payload, "Active KEG:")
 	require.NotContains(t, payload, "auto-detect from working directory")
 	require.NotContains(t, payload, "`tap ")
 }
@@ -208,7 +208,7 @@ hubs:
 
 	payload, err := tap.Orient(context.Background(), tapper.OrientOptions{})
 	require.NoError(t, err)
-	require.Contains(t, payload, "Active KEG: (file-backed; no alias)")
+	require.NotContains(t, payload, "Active KEG:")
 	require.NotContains(t, payload, "Documents/kegs/notes")
 }
 
@@ -231,8 +231,7 @@ func TestTap_Orient_ActiveKeg_NoAliasFallback(t *testing.T) {
 		KegTargetOptions: tapper.KegTargetOptions{Project: true},
 	})
 	require.NoError(t, err)
-	require.Contains(t, payload, "Active KEG:")
-	require.Contains(t, payload, "(file-backed; no alias)")
+	require.NotContains(t, payload, "Active KEG:")
 	require.NotContains(t, payload, "loose/kegs/loose")
 }
 
@@ -264,7 +263,7 @@ hubs:
 		KegTargetOptions: tapper.KegTargetOptions{Keg: "archive"},
 	})
 	require.NoError(t, err)
-	require.Contains(t, payload, "Active KEG: `archive` (file-backed)")
+	require.NotContains(t, payload, "Active KEG:")
 	require.NotContains(t, payload, "Documents/kegs/archive")
 }
 

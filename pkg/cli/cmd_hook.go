@@ -16,7 +16,7 @@ import (
 
 const skipRootInitializationAnnotation = "tapper.io/skip-root-initialization"
 
-const hookOrientationReminder = "Before KEG work, call `mcp__tapper__orient` and follow the returned flight and KEG instructions. If that tool is unavailable, use the `tapper-mcp-reset` skill. Continue using only `mcp__tapper__*` tools for KEG work; never read or write tapper node storage files directly. Snapshot before meaningful node edits with `mcp__tapper__node_snapshot`. For cross-keg work, pass the `keg` parameter instead of changing directories or restarting the MCP server. Direct `tap` / `keg` CLI use from Codex remains blocked except help, version, and completion probes."
+const hookOrientationReminder = "Before KEG work, call `mcp__tapper__orient` and follow the returned flight and KEG instructions. If that tool is unavailable, report that the Tapper MCP connection is unavailable, ask the user to reconnect or restart the host session, and never kill host-owned processes. Continue using only `mcp__tapper__*` tools for KEG work; never read or write tapper node storage files directly. Snapshot before meaningful node edits with `mcp__tapper__node_snapshot`. For cross-keg work, pass the `keg` parameter instead of changing directories or restarting the MCP server. Direct `tap` / `keg` CLI use from Codex remains blocked except help, version, and completion probes."
 
 const hookDenyReason = "Direct tap/keg CLI invocations are blocked for the agent. Use the mcp__tapper__* tools instead. See integrations/content/agent-orient.md (the 'never read or write node files directly' policy). Allowlisted: 'tap completion', '--version', '--help'."
 

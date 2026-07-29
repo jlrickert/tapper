@@ -8,12 +8,9 @@ import (
 	"github.com/jlrickert/tapper/pkg/tapper"
 )
 
-// orientInput is the parameter surface of mcp__tapper__orient. Every
-// field is optional: a bare call returns the shared KEG system payload
-// with the active keg resolved from the working directory.
-type orientInput struct {
-	Keg string `json:"keg,omitempty"    jsonschema:"keg alias; pins active-keg resolution"`
-}
+// orientInput is intentionally empty: orientation adopts flight-scoped
+// authority and never selects a KEG.
+type orientInput struct{}
 
 // registerOrientTools wires the orient surface onto srv. Called from
 // NewServer alongside the other register*Tools helpers.
@@ -24,16 +21,20 @@ func registerOrientTools(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaul
 func registerOrient(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "orient",
-		Description: "Return the shared Tapper KEG system orientation payload, including active KEG context, available KEGs, flight instructions, KEG-level instructions, and canonical guidance.",
+		Description: "Refresh this session's flight authority and return the shared Tapper orientation payload.",
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(false),
 		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in orientInput) (*sdkmcp.CallToolResult, any, error) {
-		kegOpts := resolveKegTarget(ctx, in.Keg, defaults)
-		opts := tapper.OrientOptions{
-			KegTargetOptions: kegOpts,
+		if defaults.gate != nil {
+			current, err := defaults.gate.refresh(ctx, sessionIDFromContext(ctx))
+			if err != nil {
+				return errorResult(err), nil, nil
+			}
+			return textResult(current.payload), nil, nil
 		}
+		opts := tapper.OrientOptions{KegTargetOptions: resolveKegTarget(ctx, "", defaults)}
 		payload, err := tap.Orient(ctx, opts)
 		if err != nil {
 			return errorResult(err), nil, nil

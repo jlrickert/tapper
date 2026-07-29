@@ -1,8 +1,8 @@
 # MCP Server Setup
 
 The `tap mcp` command starts a Model Context Protocol server on stdio, exposing
-KEG operations as tools. With an active flight, the local full surface pins it
-for the lifetime of each MCP connection. Without one, the server starts in a
+KEG operations as tools. The local full surface publishes flight authority at
+initialization and on explicit orientation. Without one, the server starts in a
 recovery-only state so the host can inspect flights safely. This page is the
 advanced manual path for MCP hosts that are not using the bundled Claude Code
 or Codex integrations.
@@ -80,8 +80,7 @@ When no flight is selected, the visible list is intentionally restricted to
 `orient`, `list_flights`, `flight_show`, `auth_status`, and `config`. `orient`
 and any guessed KEG-tool call explain that KEG tools are locked and direct the
 agent to inspect flights through MCP, ask the user to run `tap use --flight
-@namespace/+slug`, and reconnect. Claude's hidden, human-confirmed flight
-switch control can expand the existing connection to the normal surface.
+@namespace/+slug`, and call `orient` again on the same connection.
 
 ### Read
 
@@ -163,8 +162,9 @@ Use the per-tool `keg` parameter for cross-keg work. Do not restart the MCP
 server just to switch between organization kegs.
 
 There is no model-visible per-call `flight` parameter. The active flight is
-server-owned connection state. Claude's bundled plugin provides a human-only
-switch command; other hosts must reconnect after changing their project flight.
+server-owned session state. Config-driven servers adopt configuration changes
+only through explicit orientation; `tap mcp --flight` stays bound to that
+identity for its process lifetime.
 
 ## Troubleshooting
 
@@ -188,9 +188,8 @@ tap use --flight @acme/+release-42
 tap mcp --flight @acme/+release-42
 ```
 
-After `tap use`, reconnect the MCP host. A flight that is explicitly selected
-but missing or invalid still fails startup so a stale configuration cannot
-silently downgrade into recovery mode.
+After `tap use`, call `orient` on the existing session. A failed refresh keeps
+the last valid authority; a blank selection intentionally enters recovery mode.
 
 ### Logs
 
