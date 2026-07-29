@@ -2,6 +2,15 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.35.0 - 2026-07-29
+
+
+
+### 🚀 Features
+- **mcp:** make flight adoption session-scoped
+- **mcp:** add flight-gated keg settings editing
+
+
 ## v0.34.0 - 2026-07-21
 
 
