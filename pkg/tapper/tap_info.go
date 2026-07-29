@@ -344,7 +344,7 @@ type KegConfigEditOptions struct {
 
 // KegConfigEdit opens the keg configuration file in the default editor.
 func (t *Tap) KegConfigEdit(ctx context.Context, opts KegConfigEditOptions) error {
-	k, err := t.resolveKeg(ctx, opts.KegTargetOptions)
+	k, err := t.resolveKegForRoles(ctx, opts.KegTargetOptions, FlightRoleEditor, FlightRoleAdmin)
 	if err != nil {
 		return err
 	}
@@ -395,7 +395,7 @@ func (t *Tap) KegConfigEdit(ctx context.Context, opts KegConfigEditOptions) erro
 			if bytes.Equal(pipedRaw, originalRaw) {
 				return nil
 			}
-			if _, parseErr := keg.ParseKegConfig(pipedRaw); parseErr != nil {
+			if _, parseErr := keg.ParseKegConfigStrict(pipedRaw); parseErr != nil {
 				return fmt.Errorf("keg config from stdin is invalid: %w", parseErr)
 			}
 			return saveConfig(pipedRaw)
@@ -414,7 +414,7 @@ func (t *Tap) KegConfigEdit(ctx context.Context, opts KegConfigEditOptions) erro
 	}()
 
 	if err := editWithLiveSaves(ctx, t.Runtime, tempPath, nil, func(editedRaw []byte) error {
-		if _, err := keg.ParseKegConfig(editedRaw); err != nil {
+		if _, err := keg.ParseKegConfigStrict(editedRaw); err != nil {
 			return fmt.Errorf("keg config is invalid after editing: %w", err)
 		}
 		return saveConfig(editedRaw)

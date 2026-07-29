@@ -65,7 +65,7 @@ func (t *Tap) GetFlight(ctx context.Context, opts GetFlightOptions) (*Flight, er
 }
 
 func (t *Tap) CreateFlight(ctx context.Context, opts CreateFlightOptions) (*Flight, error) {
-	details := FlightManifest{Visibility: opts.Visibility, Capabilities: opts.Capabilities}
+	details := FlightManifest{Visibility: opts.Visibility, Capabilities: opts.Capabilities, Cover: opts.Cover}
 	if err := validateFlightManifest(&details); err != nil {
 		return nil, err
 	}
@@ -97,6 +97,9 @@ func (t *Tap) UpdateFlight(ctx context.Context, opts UpdateFlightOptions) (*Flig
 	}
 	if opts.Capabilities != nil {
 		details.Capabilities = *opts.Capabilities
+	}
+	if opts.Cover != nil {
+		details.Cover = *opts.Cover
 	}
 	if err := validateFlightManifest(&details); err != nil {
 		return nil, err
@@ -233,6 +236,9 @@ type FlightRestrictionError struct {
 func (e *FlightRestrictionError) Error() string {
 	if e.Want == FlightRoleEditor && e.Got == FlightRoleViewer {
 		return fmt.Sprintf("keg %q is viewer-only in flight %q", e.Keg, e.Flight)
+	}
+	if e.Want == FlightRoleAdmin && (e.Got == FlightRoleViewer || e.Got == FlightRoleEditor) {
+		return fmt.Sprintf("keg %q requires admin flight authority in flight %q", e.Keg, e.Flight)
 	}
 	return fmt.Sprintf("keg %q is not available in flight %q", e.Keg, e.Flight)
 }

@@ -38,7 +38,7 @@
           "role": {
             "type": "string",
             "description": "Maximum role granted by this cover entry. Omitted roles default to viewer.",
-            "enum": ["viewer", "editor"],
+            "enum": ["viewer", "editor", "admin"],
             "default": "viewer"
           }
         },

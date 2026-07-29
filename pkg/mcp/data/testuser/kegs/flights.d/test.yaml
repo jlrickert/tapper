@@ -5,7 +5,7 @@ capabilities:
 cover:
   - namespace: local
     keg: personal
-    role: editor
+    role: admin
   - namespace: local
     keg: source
     role: editor

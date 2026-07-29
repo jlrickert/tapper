@@ -11,8 +11,8 @@ func TestFlightCapForKeg_FullAccessIncludesEveryAuthorizedKeg(t *testing.T) {
 	}}
 
 	capRole, ok := flightCapForKeg(flight, "local", "outside-cover")
-	if !ok || capRole != string(FlightRoleEditor) {
-		t.Fatalf("flightCapForKeg full_access = %q, %t; want editor, true", capRole, ok)
+	if !ok || capRole != string(FlightRoleAdmin) {
+		t.Fatalf("flightCapForKeg full_access = %q, %t; want admin, true", capRole, ok)
 	}
 }
 

@@ -239,7 +239,7 @@ func flightCapForKeg(flight *Flight, namespace, alias string) (string, bool) {
 		return "", true
 	}
 	if flight.HasCapability(FlightCapabilityFullAccess) {
-		return string(FlightRoleEditor), true
+		return string(FlightRoleAdmin), true
 	}
 	if len(flight.Cover) == 0 {
 		return "", false

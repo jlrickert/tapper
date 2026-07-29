@@ -143,6 +143,7 @@ func TestMCP_ToolsList(t *testing.T) {
 	require.Contains(t, names, "links")
 	require.Contains(t, names, "info")
 	require.Contains(t, names, "keg_settings")
+	require.Contains(t, names, "keg_settings_edit")
 	require.Contains(t, names, "keg_list")
 	require.Contains(t, names, "keg_visibility")
 	require.Contains(t, names, "stats")
@@ -222,6 +223,7 @@ func TestMCP_SurfaceHub_CuratesToolset(t *testing.T) {
 	// Node read/write tools must be present.
 	for _, want := range []string{
 		"cat", "list", "grep", "tags", "backlinks", "links", "info", "keg_settings",
+		"keg_settings_edit",
 		"stats", "create", "edit", "meta", "remove", "move", "index",
 		"list_indexes", "index_cat", "node_history", "node_snapshot",
 		"node_snapshot_view", "node_restore", "graph", "orient",
@@ -263,6 +265,49 @@ func TestMCP_Cat(t *testing.T) {
 	text := extractText(t, res)
 	require.False(t, res.IsError, "cat returned error: %s", text)
 	require.Contains(t, text, "Personal Overview")
+}
+
+func TestMCP_KegSettingsEdit_ReplacesValidatedDocument(t *testing.T) {
+	t.Parallel()
+	session, ctx := newTestSession(t)
+
+	edit, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "keg_settings_edit",
+		Arguments: map[string]any{
+			"data": "kegv: 2025-07\ntitle: Agent Edited\nsummary: complete replacement\n",
+		},
+	})
+	require.NoError(t, err)
+	require.False(t, edit.IsError, "keg_settings_edit returned error: %v", edit.Content)
+
+	read, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "keg_settings",
+		Arguments: map[string]any{
+			"minimal": false,
+		},
+	})
+	require.NoError(t, err)
+	require.False(t, read.IsError, "keg_settings returned error: %v", read.Content)
+	text := read.Content[0].(*sdkmcp.TextContent).Text
+	require.Contains(t, text, "title: Agent Edited")
+	require.Contains(t, text, "summary: complete replacement")
+
+	invalid, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "keg_settings_edit",
+		Arguments: map[string]any{
+			"data": "kegv: [\n",
+		},
+	})
+	require.NoError(t, err)
+	require.True(t, invalid.IsError)
+
+	read, err = session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name:      "keg_settings",
+		Arguments: map[string]any{"minimal": false},
+	})
+	require.NoError(t, err)
+	require.False(t, read.IsError)
+	require.Contains(t, read.Content[0].(*sdkmcp.TextContent).Text, "title: Agent Edited")
 }
 
 func TestMCP_CatContentOnly(t *testing.T) {

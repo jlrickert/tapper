@@ -115,7 +115,7 @@ capabilities:
 cover:
   - namespace: foldwise
     keg: docs
-    role: editor
+    role: admin
   - keg: notes
     role: viewer
 instructions: |
@@ -135,7 +135,7 @@ instructions: |
 	require.Equal(t, []tapper.FlightCapability{tapper.FlightCapabilityManageFlights}, put.Capabilities)
 	require.Equal(t, "New instructions.\n", put.Instructions)
 	require.Equal(t, []tapper.HubFlightCover{
-		{Namespace: "foldwise", Keg: "docs", Role: "editor"},
+		{Namespace: "foldwise", Keg: "docs", Role: "admin"},
 		{Keg: "notes", Role: "viewer"},
 	}, put.Cover)
 }
@@ -210,8 +210,8 @@ func TestEditFlight_PipedRejectsInvalidManifests(t *testing.T) {
 		},
 		{
 			name:     "unknown cover role",
-			manifest: "cover:\n  - keg: docs\n    role: admin\n",
-			wantErr:  `invalid flight cover role "admin"`,
+			manifest: "cover:\n  - keg: docs\n    role: owner\n",
+			wantErr:  `invalid flight cover role "owner"`,
 		},
 		{
 			name:     "unknown capability",

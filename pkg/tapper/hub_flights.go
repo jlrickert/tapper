@@ -65,6 +65,11 @@ func ListUserFlights(ctx context.Context, hubURL, token string) ([]HubFlight, er
 	if err := json.Unmarshal(body, &flights); err != nil {
 		return nil, fmt.Errorf("hub: parse list-flights response: %w", err)
 	}
+	for i := range flights {
+		if err := validateHubFlight(flights[i]); err != nil {
+			return nil, fmt.Errorf("hub: invalid flight %q: %w", flights[i].Slug, err)
+		}
+	}
 	return flights, nil
 }
 
@@ -72,6 +77,9 @@ func GetHubFlight(ctx context.Context, hubURL, token, namespace, slug string) (*
 	var out HubFlight
 	if err := doHubFlightJSON(ctx, http.MethodGet, hubURL, token, flightManifestPath(namespace, slug), nil, &out); err != nil {
 		return nil, err
+	}
+	if err := validateHubFlight(out); err != nil {
+		return nil, fmt.Errorf("hub: invalid flight %q: %w", slug, err)
 	}
 	return &out, nil
 }
@@ -81,6 +89,9 @@ func CreateHubFlight(ctx context.Context, hubURL, token, namespace string, fligh
 	if err := doHubFlightJSON(ctx, http.MethodPost, hubURL, token, fmt.Sprintf("/api/v1/@%s/flights", namespace), flight, &out); err != nil {
 		return nil, err
 	}
+	if err := validateHubFlight(out); err != nil {
+		return nil, fmt.Errorf("hub: invalid created flight: %w", err)
+	}
 	return &out, nil
 }
 
@@ -89,7 +100,26 @@ func UpdateHubFlight(ctx context.Context, hubURL, token, namespace, slug string,
 	if err := doHubFlightJSON(ctx, http.MethodPut, hubURL, token, flightManifestPath(namespace, slug), flight, &out); err != nil {
 		return nil, err
 	}
+	if err := validateHubFlight(out); err != nil {
+		return nil, fmt.Errorf("hub: invalid updated flight: %w", err)
+	}
 	return &out, nil
+}
+
+func validateHubFlight(flight HubFlight) error {
+	cover := make([]FlightCover, 0, len(flight.Cover))
+	for _, row := range flight.Cover {
+		cover = append(cover, FlightCover{
+			Namespace: row.Namespace,
+			Keg:       row.Keg,
+			Role:      FlightRole(row.Role),
+		})
+	}
+	return validateFlightManifest(&FlightManifest{
+		Visibility:   flight.Visibility,
+		Capabilities: flight.Capabilities,
+		Cover:        cover,
+	})
 }
 
 func DeleteHubFlight(ctx context.Context, hubURL, token, namespace, slug string) error {

@@ -18,6 +18,37 @@ func registerWriteTools(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefault
 	registerMeta(srv, tap, defaults)
 	registerRemove(srv, tap, defaults)
 	registerMove(srv, tap, defaults)
+	registerKegSettingsEdit(srv, tap, defaults)
+}
+
+// --- keg_settings_edit ---
+
+type kegSettingsEditInput struct {
+	Data string `json:"data" jsonschema:"complete validated KEG YAML document"`
+	Keg  string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
+}
+
+func registerKegSettingsEdit(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
+	sdkmcp.AddTool(srv, &sdkmcp.Tool{
+		Name:        "keg_settings_edit",
+		Description: "Replace the complete KEG configuration with a validated YAML document; requires admin flight authority and editor KEG access",
+		Annotations: &sdkmcp.ToolAnnotations{
+			DestructiveHint: boolPtr(true),
+			OpenWorldHint:   boolPtr(false),
+		},
+	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in kegSettingsEditInput) (*sdkmcp.CallToolResult, any, error) {
+		opts := tapper.KegConfigEditOptions{
+			KegTargetOptions: resolveKegTarget(ctx, in.Keg, defaults),
+			Stream: &toolkit.Stream{
+				IsPiped: true,
+				In:      bytes.NewReader([]byte(in.Data)),
+			},
+		}
+		if err := tap.KegConfigEdit(ctx, opts); err != nil {
+			return errorResult(err), nil, nil
+		}
+		return textResult("KEG settings updated"), nil, nil
+	})
 }
 
 // --- create ---
