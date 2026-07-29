@@ -2,8 +2,13 @@ package tapper_test
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/jlrickert/cli-toolkit/sandbox"
@@ -41,7 +46,7 @@ func TestTap_Orient_SharedPayloadStartsWithKegSystem(t *testing.T) {
 	require.Contains(t, payload, "Rules:")
 	require.NotContains(t, payload, "## Active KEG")
 	require.Contains(t, payload, "## Available KEGs")
-	require.Contains(t, payload, "## KEG Instructions")
+	require.NotContains(t, payload, "## KEG Instructions")
 	require.Contains(t, payload, "## Guidance")
 	require.Contains(t, payload, "# Linking conventions")
 	guidance := payload[strings.Index(payload, "## Guidance"):]
@@ -67,7 +72,7 @@ func TestTap_Orient_UnknownFlightEmitsNote(t *testing.T) {
 	require.Contains(t, payload, `Flight "f-demo" is unavailable`)
 }
 
-func TestTap_Orient_FlightAndKegInstructionsPrecedeGuidance(t *testing.T) {
+func TestTap_Orient_FlightInstructionsAndKegDiscoveryPrecedeGuidance(t *testing.T) {
 	t.Parallel()
 	sb := sandbox.NewSandbox(t, &sandbox.Options{Home: "/home/testuser", User: "testuser"})
 	require.NoError(t, sb.Setwd("/home/testuser"))
@@ -82,7 +87,7 @@ func TestTap_Orient_FlightAndKegInstructionsPrecedeGuidance(t *testing.T) {
 		require.NoError(t, sb.Runtime().AtomicWriteFile(dir+"/keg", []byte("kegv: 2025-07\ntitle: "+name+"\n"), 0o644))
 	}
 	require.NoError(t, sb.Runtime().AtomicWriteFile("/home/testuser/kegs/@local/personal/keg",
-		[]byte("kegv: 2025-07\ntitle: Personal\ninstructions: |\n  Prefer audited personal-context nodes.\n"), 0o644))
+		[]byte("kegv: 2025-07\ntitle: Personal\nsummary: Personal discovery text.\ninstructions: |\n  Prefer audited personal-context nodes.\n"), 0o644))
 	require.NoError(t, sb.Runtime().AtomicWriteFile(
 		"/home/testuser/kegs/flights.d/backend.yaml",
 		[]byte("title: Backend\ncover:\n  - namespace: local\n    keg: personal\n    role: viewer\n  - namespace: local\n    keg: dev\n    role: editor\ninstructions: |\n  Touch only backend kegs.\n"), 0o644))
@@ -91,19 +96,19 @@ func TestTap_Orient_FlightAndKegInstructionsPrecedeGuidance(t *testing.T) {
 		KegTargetOptions: tapper.KegTargetOptions{Flight: "backend"},
 	})
 	require.NoError(t, err)
-	require.Contains(t, payload, "| `@local/dev` | editor | home/local | editor |")
-	require.Contains(t, payload, "| `@local/personal` | editor | home/local | viewer |")
+	require.Contains(t, payload, "| `@local/dev` | dev | — | editor | home/local | editor |")
+	require.Contains(t, payload, "| `@local/personal` | Personal | Personal discovery text. | editor | home/local | viewer |")
 	require.Contains(t, payload, "## Flight")
 	require.Contains(t, payload, "Backend")
 	require.Contains(t, payload, "Touch only backend kegs.")
-	require.Contains(t, payload, "## KEG Instructions")
-	require.Contains(t, payload, "### `@local/personal`")
-	require.Contains(t, payload, "Prefer audited personal-context nodes.")
+	require.NotContains(t, payload, "## KEG Instructions")
+	require.NotContains(t, payload, "Prefer audited personal-context nodes.")
+	require.Contains(t, payload, "Call `keg_settings`")
 
 	guidanceAt := strings.Index(payload, "## Guidance")
 	require.NotEqual(t, -1, guidanceAt)
 	require.Less(t, strings.Index(payload, "Touch only backend kegs."), guidanceAt)
-	require.Less(t, strings.Index(payload, "Prefer audited personal-context nodes."), guidanceAt)
+	require.Less(t, strings.Index(payload, "Call `keg_settings`"), guidanceAt)
 }
 
 func TestTap_Orient_UsesPersistedFlightBeforeDefaultKeg(t *testing.T) {
@@ -132,8 +137,40 @@ hubs:
 	require.NoError(t, err)
 	require.Contains(t, payload, "Active flight: `@local/+backend`")
 	require.Contains(t, payload, "Flight instructions win.")
-	require.Contains(t, payload, "Follow the covered KEG schema.")
+	require.NotContains(t, payload, "Follow the covered KEG schema.")
+	require.NotContains(t, payload, "## KEG Instructions")
 	require.NotContains(t, payload, "| `@local/personal`")
+}
+
+func TestTap_Orient_FullAccessStillSuppressesKegInstructions(t *testing.T) {
+	t.Parallel()
+	sb := sandbox.NewSandbox(t, &sandbox.Options{Home: "/home/testuser", User: "testuser"})
+	require.NoError(t, sb.Setwd("/home/testuser"))
+	tap, err := tapper.NewTap(tapper.TapOptions{Root: "/home/testuser", Runtime: sb.Runtime()})
+	require.NoError(t, err)
+
+	require.NoError(t, sb.Runtime().AtomicWriteFile(tap.PathService.UserConfig(),
+		[]byte("hubs:\n  home:\n    kind: local\n    defaultNamespace: local\n    basePath: /home/testuser/kegs\n"), 0o644))
+	dir := "/home/testuser/kegs/@local/dev"
+	require.NoError(t, sb.Runtime().Mkdir(dir, 0o755, true))
+	require.NoError(t, sb.Runtime().AtomicWriteFile(dir+"/keg", []byte(
+		"kegv: 2025-07\ntitle: Development\nsummary: Discoverable engineering context.\ninstructions: DO NOT LEAK FULL ACCESS GUIDANCE\n",
+	), 0o644))
+	require.NoError(t, sb.Runtime().AtomicWriteFile(
+		"/home/testuser/kegs/flights.d/full.yaml",
+		[]byte("title: Full access\ncapabilities: [full_access]\ninstructions: Flight guidance remains visible.\n"),
+		0o644,
+	))
+
+	payload, err := tap.Orient(context.Background(), tapper.OrientOptions{
+		KegTargetOptions: tapper.KegTargetOptions{Flight: "full"},
+	})
+	require.NoError(t, err)
+	require.Contains(t, payload, "Discoverable engineering context.")
+	require.Contains(t, payload, "Flight guidance remains visible.")
+	require.Contains(t, payload, "| admin |")
+	require.NotContains(t, payload, "DO NOT LEAK FULL ACCESS GUIDANCE")
+	require.NotContains(t, payload, "## KEG Instructions")
 }
 
 func TestTap_Orient_BarePayloadDoesNotInjectDeveloperLifecycle(t *testing.T) {
@@ -174,6 +211,78 @@ func TestTap_Orient_MissingHubAuthenticationIsMCPFirst(t *testing.T) {
 	require.Contains(t, payload, `skipped hub "work": hub has no authenticated session for https://hub.example.com`)
 	require.NotContains(t, payload, "CLI")
 	require.NotContains(t, payload, "`tap ")
+}
+
+func TestTap_Orient_CompatibleRemoteUsesOneDiscoveryRequest(t *testing.T) {
+	t.Parallel()
+	var requests atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		require.Equal(t, "/api/v1/orient", r.URL.Path)
+		_ = json.NewEncoder(w).Encode([]tapper.HubOrientationKeg{{
+			Namespace:  "foldwise",
+			Alias:      "dev",
+			Title:      "Development",
+			Summary:    "Engineering system of record.",
+			Visibility: "private",
+			Role:       "admin",
+		}})
+	}))
+	defer srv.Close()
+
+	sb := sandbox.NewSandbox(t, &sandbox.Options{Home: "/home/testuser", User: "testuser"})
+	tap, err := tapper.NewTap(tapper.TapOptions{Runtime: sb.Runtime()})
+	require.NoError(t, err)
+	cfg := fmt.Sprintf("hubs:\n  test:\n    kind: remote\n    url: %s\n    token: token\n", srv.URL)
+	require.NoError(t, sb.Runtime().AtomicWriteFile(tap.PathService.UserConfig(), []byte(cfg), 0o644))
+
+	payload, err := tap.Orient(context.Background(), tapper.OrientOptions{})
+	require.NoError(t, err)
+	require.EqualValues(t, 1, requests.Load())
+	require.Contains(t, payload, "| `@foldwise/dev` | Development | Engineering system of record. | admin | test/private | none |")
+	require.NotContains(t, payload, "## KEG Instructions")
+}
+
+func TestTap_Orient_OlderHubFallbackSuppressesInstructions(t *testing.T) {
+	t.Parallel()
+	var configReads atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/orient":
+			http.NotFound(w, r)
+		case "/api/v1/kegs":
+			_ = json.NewEncoder(w).Encode([]tapper.HubKeg{{
+				Namespace: "foldwise",
+				Alias:     "dev",
+				Role:      "admin",
+			}})
+		case "/api/v1/@foldwise/kegs/dev/config":
+			configReads.Add(1)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"kegv":         "2025-07",
+				"title":        "Fallback title",
+				"summary":      "Fallback summary.",
+				"instructions": "DO NOT LEAK FALLBACK INSTRUCTIONS",
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	sb := sandbox.NewSandbox(t, &sandbox.Options{Home: "/home/testuser", User: "testuser"})
+	tap, err := tapper.NewTap(tapper.TapOptions{Runtime: sb.Runtime()})
+	require.NoError(t, err)
+	cfg := fmt.Sprintf("hubs:\n  test:\n    kind: remote\n    url: %s\n    token: token\n", srv.URL)
+	require.NoError(t, sb.Runtime().AtomicWriteFile(tap.PathService.UserConfig(), []byte(cfg), 0o644))
+
+	payload, err := tap.Orient(context.Background(), tapper.OrientOptions{})
+	require.NoError(t, err)
+	require.EqualValues(t, 1, configReads.Load())
+	require.Contains(t, payload, "Fallback title")
+	require.Contains(t, payload, "Fallback summary.")
+	require.NotContains(t, payload, "DO NOT LEAK FALLBACK INSTRUCTIONS")
+	require.NotContains(t, payload, "## KEG Instructions")
 }
 
 // TestTap_Orient_ActiveKeg_AliasResolutionFromCwd covers the common

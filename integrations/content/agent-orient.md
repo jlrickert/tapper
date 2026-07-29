@@ -1,9 +1,11 @@
 # tapper
 
 Interact with Tapper KEGs (Knowledge Exchange Graphs) through the native MCP
-server. At the start of KEG work, call `mcp__tapper__orient` and treat the
-returned active flight, cover, flight instructions, and covered-KEG
-instructions as the authoritative context for the session.
+server. At the start of KEG work, call `mcp__tapper__orient`, identify the
+relevant covered KEGs from their titles and summaries, then call
+`mcp__tapper__keg_settings` for those KEGs before operating. Treat the active
+flight, cover, flight instructions, and targeted KEG instructions as the
+authoritative context for the session.
 
 ## Rules
 
@@ -27,14 +29,16 @@ returned by orientation to work across KEGs without changing directories or
 restarting the MCP server.
 
 - `mcp__tapper__orient` — returns the active flight, its cover and instructions,
-  covered KEG instructions, and canonical safety guidance.
+  compact KEG discovery metadata, and canonical safety guidance.
+- `mcp__tapper__keg_settings` — returns targeted title, summary, updated
+  metadata, and instructions for one or more selected KEGs.
 - `mcp__tapper__info` — returns concise diagnostics for a covered KEG.
 - `mcp__tapper__keg_list` — lists the KEGs exposed by configured hubs.
 
 ## Bootstrapping a session
 
-Call `mcp__tapper__orient` first. Follow the pinned flight and KEG instructions
-it returns. When no flight is selected, the local MCP server connects in a
+Call `mcp__tapper__orient` first, then load the selected KEG instructions with
+`mcp__tapper__keg_settings`. When no flight is selected, the local MCP server connects in a
 recovery-only state: KEG tools are locked, while `mcp__tapper__list_flights`
 and `mcp__tapper__flight_show` remain available for discovery. Ask the user to
 select a flight in Tapper configuration, then call `mcp__tapper__orient` again.

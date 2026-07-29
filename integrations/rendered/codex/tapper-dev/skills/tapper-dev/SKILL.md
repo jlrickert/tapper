@@ -10,7 +10,7 @@ The baseline `tapper` plugin is required: call `mcp__tapper__orient` before the
 workflow and stop with an actionable prerequisite error if that tool is not
 available.
 
-The active flight and covered KEG instructions remain authoritative. Use
+The active flight and explicitly loaded, targeted KEG instructions remain authoritative. Use
 lifecycle types, fields, and state transitions only when the active flight,
 KEG instructions, and current schemas support them. Never invent a schema or
 embed a project-specific KEG target.

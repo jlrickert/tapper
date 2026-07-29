@@ -10,10 +10,10 @@ operating against tapper KEGs. The same bytes are reachable three ways: the
 The payload always starts with KEG system context:
 
 1. KEG purpose and core rules.
-2. Available KEGs, including role, source, and the active flight cap when a
-   flight is selected.
+2. Available KEGs, including each canonical reference, title, concise summary,
+   role, source, and active flight cap when a flight is selected.
 3. Flight title and instructions, when a flight is active.
-4. KEG-level instructions from each available KEG config.
+4. A prompt to request targeted KEG settings before operating.
 5. Canonical Tapper agent guidance: linking, snapshots, tool inventory, and
    troubleshooting.
 
@@ -34,20 +34,35 @@ refreshes the server-owned session orientation.
 commands ignore flight cover caps and use normal authorization; MCP tools
 enforce the most recently published orientation.
 
-## KEG Instructions
+## Progressive KEG Guidance
 
-KEG-specific guidance belongs on the KEG config itself:
+`summary` and `instructions` have distinct roles in a KEG config:
 
 ```yaml
 kegv: 2025-07
 title: Engineering
+summary: Architecture, delivery, and operational knowledge for engineering.
 instructions: |
   Prefer architecture notes before implementation notes.
   Snapshot any node before changing public API guidance.
 ```
 
-When the KEG is available in the active orient context, those instructions
-render in the `## KEG Instructions` section before canonical Tapper guidance.
+`summary` is the concise discovery description shown by aggregate orientation.
+It should help an agent decide whether the KEG is relevant and is not
+automatically truncated. `instructions` is targeted operational guidance.
+Aggregate orientation never includes it, even under `full_access`.
+
+After selecting relevant KEGs, call `keg_settings` with either `keg` or
+`kegs`. Minimal mode is the default and returns title, summary, updated
+metadata, and instructions. Up to 100 canonical references may be expanded
+together:
+
+```json
+{"kegs":["@foldwise/dev","@foldwise/engineering"]}
+```
+
+`keg` and `kegs` are mutually exclusive. Multiple KEGs require minimal mode;
+`minimal=false` continues to return the complete config for exactly one KEG.
 
 ## MCP Tool
 
@@ -91,7 +106,8 @@ tap orient --flight @acme/+release-42
 
 `--flight` is a root persistent CLI flag available on commands that accept
 `--keg`. It is free-form and suppresses filesystem completion; it is not part
-of any MCP tool schema.
+of any ordinary MCP tool schema. MCP flight selection is fixed by the human
+session boundary and cannot be overridden by `orient` or `keg_settings`.
 
 ## Byte-Equivalence Guarantee
 

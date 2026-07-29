@@ -40,6 +40,13 @@ type Tap struct {
 	// single resolver covers the whole surface. Left nil for the CLI, which keeps
 	// the standard config-driven resolution.
 	KegResolver func(ctx context.Context, opts KegTargetOptions, role FlightRole) (keg.Keg, error)
+
+	// OrientationDetailsResolver is the hosted-MCP batch seam. Tapper Hub
+	// injects a catalog-backed implementation so minimal keg_settings requests
+	// can authorize and load several selected KEGs without loopback HTTP or
+	// opening each Keg independently. Local and ordinary remote clients leave
+	// it nil and use the standard config/hub resolution path.
+	OrientationDetailsResolver func(ctx context.Context, refs []string) ([]HubOrientationDetail, error)
 }
 
 type TapOptions struct {

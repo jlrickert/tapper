@@ -2,6 +2,7 @@ package tapper
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io/fs"
 	"path/filepath"
@@ -80,14 +81,15 @@ func (t *Tap) resolveOrientFlight(ctx context.Context, name string) (*Flight, st
 
 // OrientationKeg is one effective KEG exposed by an orientation context.
 type OrientationKeg struct {
-	Ref          string
-	Namespace    string
-	Alias        string
-	Role         string
-	Source       string
-	Visibility   string
-	FlightCap    string
-	Instructions string
+	Ref        string
+	Namespace  string
+	Alias      string
+	Title      string
+	Summary    string
+	Role       string
+	Source     string
+	Visibility string
+	FlightCap  string
 }
 
 func (t *Tap) orientKegListing(ctx context.Context, flight *Flight) ([]OrientationKeg, []string) {
@@ -107,7 +109,7 @@ func (t *Tap) orientKegListing(ctx context.Context, flight *Flight) ([]Orientati
 		if !ok {
 			continue
 		}
-		rows, err := t.orientKegsForHub(ctx, hubName, entry)
+		rows, err := t.orientKegsForHub(ctx, cfg, hubName, entry)
 		if err != nil {
 			warnings = append(warnings, fmt.Sprintf("skipped hub %q: %v", hubName, err))
 			continue
@@ -117,11 +119,6 @@ func (t *Tap) orientKegListing(ctx context.Context, flight *Flight) ([]Orientati
 				continue
 			} else {
 				row.FlightCap = capRole
-			}
-			if row.Instructions == "" {
-				if instructions, err := t.kegInstructions(ctx, cfg, hubName, row.Namespace, row.Alias); err == nil {
-					row.Instructions = instructions
-				}
 			}
 			if _, dup := seen[row.Ref]; dup {
 				continue
@@ -134,7 +131,7 @@ func (t *Tap) orientKegListing(ctx context.Context, flight *Flight) ([]Orientati
 	return out, warnings
 }
 
-func (t *Tap) orientKegsForHub(ctx context.Context, hubName string, entry HubEntry) ([]OrientationKeg, error) {
+func (t *Tap) orientKegsForHub(ctx context.Context, cfg *Config, hubName string, entry HubEntry) ([]OrientationKeg, error) {
 	kind := strings.TrimSpace(entry.Kind)
 	if kind == "" {
 		kind = HubKindRemote
@@ -159,6 +156,9 @@ func (t *Tap) orientKegsForHub(ctx context.Context, hubName string, entry HubEnt
 				Source:     hubName,
 				Visibility: "local",
 			})
+			title, summary, _ := t.localKegDiscovery(filepath.Join(base, "@"+ns, alias))
+			out[len(out)-1].Title = title
+			out[len(out)-1].Summary = summary
 		}
 		return out, nil
 	}
@@ -171,38 +171,67 @@ func (t *Tap) orientKegsForHub(ctx context.Context, hubName string, entry HubEnt
 	if token == "" {
 		return nil, fmt.Errorf("hub has no authenticated session for %s", url)
 	}
+	discovered, err := DiscoverOrientationKegs(ctx, url, token)
+	if err == nil {
+		out := make([]OrientationKeg, 0, len(discovered))
+		for _, k := range discovered {
+			out = append(out, OrientationKeg{
+				Ref:        "@" + k.Namespace + "/" + k.Alias,
+				Namespace:  k.Namespace,
+				Alias:      k.Alias,
+				Title:      k.Title,
+				Summary:    k.Summary,
+				Role:       k.Role,
+				Source:     hubName,
+				Visibility: k.Visibility,
+			})
+		}
+		return out, nil
+	}
+	if !errors.Is(err, ErrOrientationUnsupported) {
+		return nil, err
+	}
+
+	// Compatibility path for older Hubs: retain their catalog listing and
+	// read each selected config for title/summary only. Instructions remain
+	// suppressed from aggregate orientation.
 	kegs, err := ListUserKegs(ctx, url, token)
 	if err != nil {
 		return nil, err
 	}
 	out := make([]OrientationKeg, 0, len(kegs))
 	for _, k := range kegs {
-		out = append(out, OrientationKeg{
+		row := OrientationKeg{
 			Ref:        "@" + k.Namespace + "/" + k.Alias,
 			Namespace:  k.Namespace,
 			Alias:      k.Alias,
 			Role:       k.Role,
 			Source:     hubName,
 			Visibility: k.Visibility,
-		})
+		}
+		if title, summary, configErr := t.kegDiscovery(ctx, cfg, hubName, k.Namespace, k.Alias); configErr == nil {
+			row.Title = title
+			row.Summary = summary
+		}
+		out = append(out, row)
 	}
 	return out, nil
 }
 
-func (t *Tap) kegInstructions(ctx context.Context, cfg *Config, hubName, namespace, alias string) (string, error) {
+func (t *Tap) kegDiscovery(ctx context.Context, cfg *Config, hubName, namespace, alias string) (string, string, error) {
 	if cfg == nil || alias == "" {
-		return "", nil
+		return "", "", nil
 	}
 	if entry, ok := cfg.Hub(hubName); ok && hubKindOrDefault(entry.Kind) == HubKindLocal {
 		base, err := t.localHubBase(entry)
 		if err != nil {
-			return "", err
+			return "", "", err
 		}
-		return t.localKegInstructions(filepath.Join(base, "@"+strings.TrimPrefix(namespace, "@"), alias))
+		return t.localKegDiscovery(filepath.Join(base, "@"+strings.TrimPrefix(namespace, "@"), alias))
 	}
 	target, err := cfg.ResolveRef(t.Runtime, KegRef{Hub: hubName, Namespace: namespace, Name: alias})
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	var resolver keg.TokenResolver
 	if t.KegService != nil {
@@ -210,16 +239,16 @@ func (t *Tap) kegInstructions(ctx context.Context, cfg *Config, hubName, namespa
 	}
 	k, err := keg.NewKegFromTarget(ctx, *target, t.Runtime, keg.WithTokenResolver(resolver))
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	cfgDoc, err := k.Config(ctx)
 	if err != nil || cfgDoc == nil {
-		return "", err
+		return "", "", err
 	}
-	return strings.TrimSpace(cfgDoc.Instructions), nil
+	return cfgDoc.Title, cfgDoc.Summary, nil
 }
 
-func (t *Tap) localKegInstructions(dir string) (string, error) {
+func (t *Tap) localKegDiscovery(dir string) (string, string, error) {
 	for _, name := range []string{"keg", "keg.yaml", "keg.yml"} {
 		raw, err := t.Runtime.ReadFile(filepath.Join(dir, name))
 		if err != nil {
@@ -227,11 +256,11 @@ func (t *Tap) localKegInstructions(dir string) (string, error) {
 		}
 		cfgDoc, err := keg.ParseKegConfig(raw)
 		if err != nil {
-			return "", err
+			return "", "", err
 		}
-		return strings.TrimSpace(cfgDoc.Instructions), nil
+		return cfgDoc.Title, cfgDoc.Summary, nil
 	}
-	return "", nil
+	return "", "", nil
 }
 
 func flightCapForKeg(flight *Flight, namespace, alias string) (string, bool) {
@@ -310,8 +339,8 @@ func BuildOrientationPayload(flight *Flight, flightNote string, kegs []Orientati
 		}
 		b.WriteString(".)\n\n")
 	} else {
-		b.WriteString("| KEG | Role | Source | Flight cap |\n")
-		b.WriteString("| --- | --- | --- | --- |\n")
+		b.WriteString("| KEG | Title | Summary | Role | Source | Flight cap |\n")
+		b.WriteString("| --- | --- | --- | --- | --- | --- |\n")
 		for _, k := range kegs {
 			role := k.Role
 			if role == "" {
@@ -325,9 +354,18 @@ func BuildOrientationPayload(flight *Flight, flightNote string, kegs []Orientati
 			if k.Visibility != "" {
 				source += "/" + k.Visibility
 			}
-			fmt.Fprintf(&b, "| `%s` | %s | %s | %s |\n", k.Ref, role, source, capRole)
+			fmt.Fprintf(
+				&b,
+				"| `%s` | %s | %s | %s | %s | %s |\n",
+				k.Ref,
+				orientationTableCell(k.Title),
+				orientationTableCell(k.Summary),
+				role,
+				source,
+				capRole,
+			)
 		}
-		b.WriteString("\n")
+		b.WriteString("\nCall `keg_settings` for the selected KEG or KEGs before operating in them; targeted settings include KEG-level instructions.\n\n")
 	}
 
 	if flight != nil {
@@ -353,23 +391,6 @@ func BuildOrientationPayload(flight *Flight, flightNote string, kegs []Orientati
 		}
 	}
 
-	b.WriteString("## KEG Instructions\n\n")
-	wroteInstructions := false
-	for _, k := range kegs {
-		if strings.TrimSpace(k.Instructions) == "" {
-			continue
-		}
-		wroteInstructions = true
-		b.WriteString("### `")
-		b.WriteString(k.Ref)
-		b.WriteString("`\n\n")
-		b.WriteString(strings.TrimSpace(k.Instructions))
-		b.WriteString("\n\n")
-	}
-	if !wroteInstructions {
-		b.WriteString("(No KEG-level instructions found in the available KEG configs.)\n\n")
-	}
-
 	b.WriteString("## Guidance\n\n")
 	for _, name := range []string{"linking.md", "snapshot-policy.md", "secret-handling.md", "agent-orient.md", "tool-inventory.md", "troubleshooting.md"} {
 		if err := appendCanonical(&b, name); err != nil {
@@ -379,6 +400,18 @@ func BuildOrientationPayload(flight *Flight, flightNote string, kegs []Orientati
 	}
 
 	return b.String(), nil
+}
+
+func orientationTableCell(value string) string {
+	value = strings.TrimSpace(value)
+	value = strings.ReplaceAll(value, "\\", "\\\\")
+	value = strings.ReplaceAll(value, "|", "\\|")
+	value = strings.ReplaceAll(value, "\r\n", "<br>")
+	value = strings.ReplaceAll(value, "\n", "<br>")
+	if value == "" {
+		return "—"
+	}
+	return value
 }
 
 func appendCanonical(b *strings.Builder, name string) error {

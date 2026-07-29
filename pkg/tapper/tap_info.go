@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -19,6 +20,10 @@ import (
 type KegSettingsOptions struct {
 	KegTargetOptions
 
+	// Kegs requests one or more canonical @namespace/keg references. It is
+	// mutually exclusive with Keg and is available only in minimal mode.
+	Kegs []string
+
 	// Minimal strips large sections (tags, entities, indexes) from the output,
 	// returning only core config fields. Useful for MCP tools where response
 	// size must stay small.
@@ -27,6 +32,24 @@ type KegSettingsOptions struct {
 
 // KegSettings displays the keg metadata (keg file contents).
 func (t *Tap) KegSettings(ctx context.Context, opts KegSettingsOptions) (string, error) {
+	if opts.Keg != "" && opts.Kegs != nil {
+		return "", fmt.Errorf("keg and kegs are mutually exclusive")
+	}
+	if opts.Kegs != nil {
+		if len(opts.Kegs) == 0 || len(opts.Kegs) > 100 {
+			return "", fmt.Errorf("kegs must contain 1 to 100 canonical references")
+		}
+		if !opts.Minimal {
+			if len(opts.Kegs) != 1 {
+				return "", fmt.Errorf("minimal=false requires exactly one keg")
+			}
+			opts.Keg = opts.Kegs[0]
+			opts.Kegs = nil
+		} else {
+			return t.kegSettingsBatch(ctx, opts)
+		}
+	}
+
 	k, err := t.resolveKeg(ctx, opts.KegTargetOptions)
 	if err != nil {
 		return "", fmt.Errorf("unable to open keg: %w", err)
@@ -65,17 +88,19 @@ func (t *Tap) kegSettingsMinimal(ctx context.Context, k keg.Keg) (string, error)
 	}
 
 	type minimalConfig struct {
-		Kegv    string `yaml:"kegv,omitempty"`
-		Title   string `yaml:"title,omitempty"`
-		Summary string `yaml:"summary,omitempty"`
-		Updated string `yaml:"updated,omitempty"`
+		Kegv         string `yaml:"kegv,omitempty"`
+		Title        string `yaml:"title,omitempty"`
+		Summary      string `yaml:"summary,omitempty"`
+		Updated      string `yaml:"updated,omitempty"`
+		Instructions string `yaml:"instructions,omitempty"`
 	}
 
 	out := minimalConfig{
-		Kegv:    cfg.Kegv,
-		Title:   cfg.Title,
-		Summary: cfg.Summary,
-		Updated: cfg.Updated,
+		Kegv:         cfg.Kegv,
+		Title:        cfg.Title,
+		Summary:      cfg.Summary,
+		Updated:      cfg.Updated,
+		Instructions: cfg.Instructions,
 	}
 
 	b, err := yaml.Marshal(out)
@@ -83,6 +108,194 @@ func (t *Tap) kegSettingsMinimal(ctx context.Context, k keg.Keg) (string, error)
 		return "", fmt.Errorf("unable to marshal minimal config: %w", err)
 	}
 	return string(b), nil
+}
+
+type minimalKegSettings struct {
+	Keg          string `yaml:"keg"`
+	Title        string `yaml:"title,omitempty"`
+	Summary      string `yaml:"summary,omitempty"`
+	Updated      string `yaml:"updated,omitempty"`
+	Instructions string `yaml:"instructions,omitempty"`
+}
+
+func (t *Tap) kegSettingsBatch(ctx context.Context, opts KegSettingsOptions) (string, error) {
+	refs := make([]string, 0, len(opts.Kegs))
+	seen := make(map[string]struct{}, len(opts.Kegs))
+	for _, raw := range opts.Kegs {
+		namespace, alias, ok := parseCanonicalKegSelection(raw)
+		if !ok {
+			return "", fmt.Errorf("invalid canonical keg reference %q", raw)
+		}
+		ref := "@" + namespace + "/" + alias
+		if _, duplicate := seen[ref]; duplicate {
+			return "", fmt.Errorf("duplicate keg reference %q", ref)
+		}
+		seen[ref] = struct{}{}
+		if opts.FlightContext != nil {
+			if _, covered := flightCapForKeg(opts.FlightContext, namespace, alias); !covered {
+				return "", fmt.Errorf("keg %q is not available in flight %q", ref, opts.FlightContext.Name)
+			}
+		}
+		refs = append(refs, ref)
+	}
+
+	if t.OrientationDetailsResolver != nil {
+		details, err := t.OrientationDetailsResolver(ctx, refs)
+		if err != nil {
+			return "", err
+		}
+		return marshalMinimalKegSettings(refs, details)
+	}
+
+	cfg, err := t.ConfigService.Config(true)
+	if err != nil {
+		return "", err
+	}
+	type selection struct {
+		index     int
+		ref       string
+		namespace string
+		alias     string
+		hub       string
+		entry     HubEntry
+	}
+	type group struct {
+		hub        string
+		entry      HubEntry
+		selections []selection
+	}
+	groupIndexes := map[string]int{}
+	var groups []group
+	for i, ref := range refs {
+		namespace, alias, _ := parseCanonicalKegSelection(ref)
+		_, hubName, entry, resolveErr := cfg.resolveNamespaceHub(namespace, "")
+		if resolveErr != nil {
+			return "", resolveErr
+		}
+		sel := selection{
+			index:     i,
+			ref:       ref,
+			namespace: namespace,
+			alias:     alias,
+			hub:       hubName,
+			entry:     entry,
+		}
+		groupIndex, ok := groupIndexes[hubName]
+		if !ok {
+			groupIndex = len(groups)
+			groupIndexes[hubName] = groupIndex
+			groups = append(groups, group{hub: hubName, entry: entry})
+		}
+		groups[groupIndex].selections = append(groups[groupIndex].selections, sel)
+	}
+
+	details := make([]HubOrientationDetail, len(refs))
+	for _, grouped := range groups {
+		kind := hubKindOrDefault(grouped.entry.Kind)
+		if kind == HubKindLocal {
+			for _, sel := range grouped.selections {
+				detail, detailErr := t.readOrientationDetail(ctx, opts, sel.ref)
+				if detailErr != nil {
+					return "", detailErr
+				}
+				details[sel.index] = detail
+			}
+			continue
+		}
+		url := strings.TrimSpace(grouped.entry.URL)
+		if url == "" {
+			return "", fmt.Errorf("hub %q has no url configured", grouped.hub)
+		}
+		token := t.hubToken(grouped.entry)
+		if token == "" {
+			return "", fmt.Errorf("hub %q has no authenticated session for %s", grouped.hub, url)
+		}
+		groupRefs := make([]string, 0, len(grouped.selections))
+		for _, sel := range grouped.selections {
+			groupRefs = append(groupRefs, sel.ref)
+		}
+		groupDetails, fetchErr := FetchOrientationDetails(ctx, url, token, groupRefs)
+		if errors.Is(fetchErr, ErrOrientationUnsupported) {
+			groupDetails = nil
+			for _, sel := range grouped.selections {
+				detail, detailErr := t.readOrientationDetail(ctx, opts, sel.ref)
+				if detailErr != nil {
+					return "", detailErr
+				}
+				groupDetails = append(groupDetails, detail)
+			}
+		} else if fetchErr != nil {
+			return "", fetchErr
+		}
+		if len(groupDetails) != len(grouped.selections) {
+			return "", fmt.Errorf("hub %q returned incomplete orientation details", grouped.hub)
+		}
+		for i, sel := range grouped.selections {
+			if groupDetails[i].Keg != sel.ref {
+				return "", fmt.Errorf("hub %q returned orientation details out of order", grouped.hub)
+			}
+			details[sel.index] = groupDetails[i]
+		}
+	}
+	return marshalMinimalKegSettings(refs, details)
+}
+
+func (t *Tap) readOrientationDetail(ctx context.Context, opts KegSettingsOptions, ref string) (HubOrientationDetail, error) {
+	targetOpts := opts.KegTargetOptions
+	targetOpts.Keg = ref
+	k, err := t.resolveKeg(ctx, targetOpts)
+	if err != nil {
+		return HubOrientationDetail{}, fmt.Errorf("unable to open keg %q: %w", ref, err)
+	}
+	cfg, err := k.Config(ctx)
+	if err != nil {
+		return HubOrientationDetail{}, fmt.Errorf("unable to read keg config %q: %w", ref, err)
+	}
+	return HubOrientationDetail{
+		Keg:          ref,
+		Title:        cfg.Title,
+		Summary:      cfg.Summary,
+		Updated:      cfg.Updated,
+		Instructions: cfg.Instructions,
+	}, nil
+}
+
+func marshalMinimalKegSettings(refs []string, details []HubOrientationDetail) (string, error) {
+	if len(details) != len(refs) {
+		return "", fmt.Errorf("orientation details response length does not match request")
+	}
+	out := make([]minimalKegSettings, len(refs))
+	for i, ref := range refs {
+		if details[i].Keg != ref {
+			return "", fmt.Errorf("orientation details response does not preserve request order")
+		}
+		out[i] = minimalKegSettings{
+			Keg:          ref,
+			Title:        details[i].Title,
+			Summary:      details[i].Summary,
+			Updated:      details[i].Updated,
+			Instructions: details[i].Instructions,
+		}
+	}
+	b, err := yaml.Marshal(out)
+	if err != nil {
+		return "", fmt.Errorf("unable to marshal minimal config: %w", err)
+	}
+	return string(b), nil
+}
+
+func parseCanonicalKegSelection(raw string) (namespace, alias string, ok bool) {
+	if raw != strings.TrimSpace(raw) || !strings.HasPrefix(raw, "@") {
+		return "", "", false
+	}
+	namespace, alias, ok = splitKegRef(raw)
+	if !ok || strings.Contains(alias, "/") {
+		return "", "", false
+	}
+	if ValidateNamespace(namespace) != nil || ValidateKegAlias(alias) != nil {
+		return "", "", false
+	}
+	return namespace, alias, true
 }
 
 // InfoOptions configures behavior for Tap.Info.
