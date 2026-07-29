@@ -35,6 +35,7 @@ type FlightCapability string
 const (
 	FlightRoleViewer FlightRole = "viewer"
 	FlightRoleEditor FlightRole = "editor"
+	FlightRoleAdmin  FlightRole = "admin"
 
 	FlightVisibilityPrivate = "private"
 	FlightVisibilityPublic  = "public"
@@ -47,18 +48,26 @@ const (
 func (r FlightRole) AtLeast(want FlightRole) bool {
 	r = normalizeFlightRole(r)
 	want = normalizeFlightRole(want)
-	if want == FlightRoleViewer {
-		return r == FlightRoleViewer || r == FlightRoleEditor
+	rank := map[FlightRole]int{
+		FlightRoleViewer: 1,
+		FlightRoleEditor: 2,
+		FlightRoleAdmin:  3,
 	}
-	return r == FlightRoleEditor
+	gotRank, gotOK := rank[r]
+	wantRank, wantOK := rank[want]
+	return gotOK && wantOK && gotRank >= wantRank
 }
 
 func normalizeFlightRole(role FlightRole) FlightRole {
 	switch FlightRole(strings.TrimSpace(string(role))) {
+	case FlightRoleAdmin:
+		return FlightRoleAdmin
 	case FlightRoleEditor:
 		return FlightRoleEditor
-	default:
+	case "", FlightRoleViewer:
 		return FlightRoleViewer
+	default:
+		return FlightRole(strings.TrimSpace(string(role)))
 	}
 }
 
@@ -532,6 +541,24 @@ func validateFlightManifest(m *FlightManifest) error {
 		}
 		seen[capability] = struct{}{}
 	}
+	for _, cover := range m.Cover {
+		switch normalizeFlightRole(cover.Role) {
+		case FlightRoleViewer, FlightRoleEditor, FlightRoleAdmin:
+		default:
+			return fmt.Errorf("invalid flight cover role %q", cover.Role)
+		}
+	}
+	for _, entry := range m.AllowedKegs {
+		_, roleRaw, hasRole := strings.Cut(entry, "=")
+		if !hasRole {
+			continue
+		}
+		switch normalizeFlightRole(FlightRole(roleRaw)) {
+		case FlightRoleViewer, FlightRoleEditor, FlightRoleAdmin:
+		default:
+			return fmt.Errorf("invalid flight cover role %q", strings.TrimSpace(roleRaw))
+		}
+	}
 	return nil
 }
 
@@ -635,6 +662,8 @@ func ParseFlightCoverSpecs(specs []string) ([]FlightCover, error) {
 				role = FlightRoleViewer
 			case FlightRoleEditor:
 				role = FlightRoleEditor
+			case FlightRoleAdmin:
+				role = FlightRoleAdmin
 			default:
 				return nil, fmt.Errorf("invalid flight cover role %q", roleRaw)
 			}

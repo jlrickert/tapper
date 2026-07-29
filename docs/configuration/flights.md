@@ -12,18 +12,21 @@ the client explicitly calls `orient`.
 A flight carries four details:
 
 1. **A keg cover** (`cover`). MCP tools reject kegs outside the cover. Each
-   cover entry has a `viewer` or `editor` cap; writes require `editor`. An empty
-   cover denies all KEG access. Direct CLI commands ignore these caps and use
-   normal keg authorization.
+   cover entry has a `viewer`, `editor`, or `admin` cap. Reads require
+   `viewer`, node/schema writes require `editor`, and the agent-facing
+   `keg_settings_edit` operation requires `admin`. An empty cover denies all
+   KEG access. Direct CLI commands ignore these caps and use normal keg
+   authorization.
 2. **Agent instructions** (`instructions`). These are injected into the `tap
    orient` payload, so an agent that orients under a flight sees the flight's
    guidance before general Tapper guidance.
 3. **Visibility** (`visibility`). Hub flights default to `private`; `public`
    flights are anonymously discoverable and may cover only public kegs when
    created or updated.
-4. **Capabilities** (`capabilities`). `full_access` bypasses the flight cover
-   and its viewer/editor caps for KEG operations, while normal local and Hub
-   authorization still applies. `manage_flights` exposes flight mutation tools
+4. **Capabilities** (`capabilities`). `full_access` supplies admin-class flight
+   authority across every KEG the authenticated identity can already access,
+   while normal local and Hub authorization still applies. It never raises the
+   identity's actual KEG role. `manage_flights` exposes flight mutation tools
    to the session, but Hub still requires the authenticated identity to own or
    administer the target namespace. The capabilities are independent.
 
@@ -55,7 +58,7 @@ capabilities:
 cover:
   - namespace: acme
     keg: release-notes
-    role: editor
+    role: admin
   - namespace: acme
     keg: engineering
     role: viewer
@@ -65,8 +68,8 @@ instructions: |
 ```
 
 A cover entry without an explicit `role` defaults to `viewer` — the same
-default applies to `--cover` specs on the CLI and MCP surfaces; `editor` must
-be requested explicitly.
+default applies to `--cover` specs on the CLI and MCP surfaces; `editor` and
+`admin` must be requested explicitly. Unknown roles are rejected.
 
 Older local manifests that use `allowedKegs` still load; each bare entry is
 treated as an `editor` cover row for backward compatibility, while an entry
@@ -109,8 +112,12 @@ is a partial update where omitted fields retain their current values.
 - MCP tools reject a keg outside the active flight's cover
   with a "keg … is not available in flight …" error.
 - MCP writes against a `viewer` cover row are rejected as viewer-only.
-- `full_access` permits KEG reads and writes outside the cover, but does not
-  bypass normal identity authorization or implicitly grant `manage_flights`.
+- `keg_settings_edit` replaces the complete validated KEG YAML document and
+  requires an `admin` cover (or `full_access`) plus editor/admin identity access
+  to that KEG. An admin flight cap never creates a Hub admin identity.
+- `full_access` permits admin-class flight operations outside the cover, but
+  does not bypass normal identity authorization or implicitly grant
+  `manage_flights`.
 - Without a selected flight, the local MCP server starts in recovery-only mode
   and lists only `orient`, `list_flights`, `flight_show`, `auth_status`, and
   `config`. After selecting a flight, call `orient` on the same connection.
@@ -141,3 +148,6 @@ is a partial update where omitted fields retain their current values.
   the existing session calls `orient`. There is no hidden flight-switch tool.
 - KEG-specific instructions belong in each KEG's own config `instructions`
   field, not in flight cover rows.
+- Tapper user/project configuration and hosted flight selection remain
+  human-controlled. MCP exposes no Tapper config mutation or flight-switch
+  tool.

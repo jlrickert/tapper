@@ -61,10 +61,10 @@ func TestHubFlights_ClientPaths(t *testing.T) {
 	created, err := tapper.CreateHubFlight(context.Background(), srv.URL, "tok", "foldwise", tapper.HubFlight{
 		Slug:  "agent-work",
 		Title: "Agent Work",
-		Cover: []tapper.HubFlightCover{{Namespace: "foldwise", Keg: "docs", Role: "editor"}},
+		Cover: []tapper.HubFlightCover{{Namespace: "foldwise", Keg: "docs", Role: "admin"}},
 	})
 	require.NoError(t, err)
-	require.Equal(t, "editor", created.Cover[0].Role)
+	require.Equal(t, "admin", created.Cover[0].Role)
 
 	_, err = tapper.UpdateHubFlight(context.Background(), srv.URL, "tok", "foldwise", "agent-work", *created)
 	require.NoError(t, err)
@@ -77,4 +77,20 @@ func TestHubFlights_ClientPaths(t *testing.T) {
 		"PUT /api/v1/@foldwise/+agent-work",
 		"DELETE /api/v1/@foldwise/+agent-work",
 	}, seen)
+}
+
+func TestHubFlights_ClientRejectsUnknownCoverRole(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(tapper.HubFlight{
+			Namespace: "foldwise",
+			Slug:      "bad",
+			Cover:     []tapper.HubFlightCover{{Namespace: "foldwise", Keg: "docs", Role: "owner"}},
+		})
+	}))
+	defer srv.Close()
+
+	_, err := tapper.GetHubFlight(context.Background(), srv.URL, "tok", "foldwise", "bad")
+	require.ErrorContains(t, err, `invalid flight cover role "owner"`)
 }

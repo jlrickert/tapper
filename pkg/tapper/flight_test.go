@@ -217,6 +217,7 @@ func TestFlightRoleFor_CoverCapsWrites(t *testing.T) {
 			Cover: []tapper.FlightCover{
 				{Namespace: "foldwise", Keg: "docs", Role: tapper.FlightRoleViewer},
 				{Namespace: "foldwise", Keg: "dev", Role: tapper.FlightRoleEditor},
+				{Namespace: "foldwise", Keg: "admin", Role: tapper.FlightRoleAdmin},
 			},
 		},
 	}
@@ -230,9 +231,31 @@ func TestFlightRoleFor_CoverCapsWrites(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, tapper.FlightRoleEditor, role)
 	require.True(t, role.AtLeast(tapper.FlightRoleEditor))
+	require.False(t, role.AtLeast(tapper.FlightRoleAdmin))
+
+	role, ok = flight.RoleFor("", "foldwise", "admin")
+	require.True(t, ok)
+	require.Equal(t, tapper.FlightRoleAdmin, role)
+	require.True(t, role.AtLeast(tapper.FlightRoleViewer))
+	require.True(t, role.AtLeast(tapper.FlightRoleEditor))
+	require.True(t, role.AtLeast(tapper.FlightRoleAdmin))
 
 	_, ok = flight.RoleFor("", "foldwise", "private")
 	require.False(t, ok)
+}
+
+func TestParseFlightCoverSpecs_AdminAndUnknownRoles(t *testing.T) {
+	t.Parallel()
+	cover, err := tapper.ParseFlightCoverSpecs([]string{"@foldwise/dev=admin"})
+	require.NoError(t, err)
+	require.Equal(t, []tapper.FlightCover{{
+		Namespace: "foldwise",
+		Keg:       "dev",
+		Role:      tapper.FlightRoleAdmin,
+	}}, cover)
+
+	_, err = tapper.ParseFlightCoverSpecs([]string{"@foldwise/dev=owner"})
+	require.ErrorContains(t, err, `invalid flight cover role "owner"`)
 }
 
 func TestFlightRoleFor_EmptyCoverDeniesAll(t *testing.T) {
@@ -259,6 +282,28 @@ func TestFlightService_RejectsUnknownCapabilities(t *testing.T) {
 	_, err = tap.GetFlight(fx.Context(), tapper.GetFlightOptions{Name: "+bad"})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), `unknown flight capability "shell_access"`)
+}
+
+func TestFlightService_RejectsUnknownCoverRoles(t *testing.T) {
+	t.Parallel()
+	fx := NewSandbox(t)
+	require.NoError(t, fx.Setwd("/home/testuser"))
+	tap, err := tapper.NewTap(tapper.TapOptions{Root: "/home/testuser", Runtime: fx.Runtime()})
+	require.NoError(t, err)
+	require.NoError(t, fx.Runtime().AtomicWriteFile(tap.PathService.UserConfig(), []byte(`hubs:
+  home:
+    kind: local
+    defaultNamespace: local
+    basePath: /home/testuser/kegs
+`), 0o644))
+	require.NoError(t, fx.Runtime().AtomicWriteFile(
+		"/home/testuser/kegs/flights.d/bad-role.yaml",
+		[]byte("cover:\n  - keg: personal\n    role: owner\n"),
+		0o644,
+	))
+
+	_, err = tap.GetFlight(fx.Context(), tapper.GetFlightOptions{Name: "+bad-role"})
+	require.ErrorContains(t, err, `invalid flight cover role "owner"`)
 }
 
 func TestFlightService_AcceptsFullAccessCapability(t *testing.T) {

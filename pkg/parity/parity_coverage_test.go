@@ -27,19 +27,20 @@ var tapMethodToSurfaces = map[string]struct {
 	MCP string // MCP tool name (e.g., "list", "repo_init", "index")
 }{
 	// Read operations
-	"Cat":         {CLI: "cat", MCP: "cat"},
-	"List":        {CLI: "list", MCP: "list"},
-	"Grep":        {CLI: "grep", MCP: "grep"},
-	"Tags":        {CLI: "tags", MCP: "tags"},
-	"Backlinks":   {CLI: "backlinks", MCP: "backlinks"},
-	"Links":       {CLI: "links", MCP: "links"},
-	"Info":        {CLI: "info", MCP: "info"},
-	"KegSettings": {CLI: "keg settings", MCP: "keg_settings"},
-	"Stats":       {CLI: "stats", MCP: "stats"},
-	"Graph":       {CLI: "graph", MCP: "graph"},
-	"ListIndexes": {CLI: "index list", MCP: "list_indexes"},
-	"IndexCat":    {CLI: "index get", MCP: "index_cat"},
-	"Doctor":      {CLI: "doctor", MCP: "doctor"},
+	"Cat":           {CLI: "cat", MCP: "cat"},
+	"List":          {CLI: "list", MCP: "list"},
+	"Grep":          {CLI: "grep", MCP: "grep"},
+	"Tags":          {CLI: "tags", MCP: "tags"},
+	"Backlinks":     {CLI: "backlinks", MCP: "backlinks"},
+	"Links":         {CLI: "links", MCP: "links"},
+	"Info":          {CLI: "info", MCP: "info"},
+	"KegSettings":   {CLI: "keg settings", MCP: "keg_settings"},
+	"KegConfigEdit": {CLI: "keg settings edit", MCP: "keg_settings_edit"},
+	"Stats":         {CLI: "stats", MCP: "stats"},
+	"Graph":         {CLI: "graph", MCP: "graph"},
+	"ListIndexes":   {CLI: "index list", MCP: "list_indexes"},
+	"IndexCat":      {CLI: "index get", MCP: "index_cat"},
+	"Doctor":        {CLI: "doctor", MCP: "doctor"},
 
 	// Write operations
 	"Create": {CLI: "create", MCP: "create"},
@@ -131,7 +132,6 @@ var tapMethodToSurfaces = map[string]struct {
 // surface coverage checks. These are internal helpers, config accessors, or
 // methods that are not meant to be directly exposed as standalone tools.
 var tapMethodsExcluded = map[string]string{
-	"KegConfigEdit":  "interactive editor; not exposed via MCP",
 	"ConfigEdit":     "interactive editor; not exposed via MCP",
 	"AuthRefreshAll": "startup credential renewal invoked by the CLI root command (covers `tap` and `tap mcp`); not a user-facing operation",
 	"UpdateFlight":   "underlying partial-update operation used by MCP flight_edit; CLI users use `flight edit`",

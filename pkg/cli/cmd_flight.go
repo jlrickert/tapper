@@ -188,7 +188,7 @@ func addFlightWriteFlags(cmd *cobra.Command, title, instructions, instructionsFi
 	cmd.Flags().StringVar(title, "title", "", "flight title")
 	cmd.Flags().StringVar(instructions, "instructions", "", "markdown instructions")
 	cmd.Flags().StringVar(instructionsFile, "instructions-file", "", "read markdown instructions from a file")
-	cmd.Flags().StringArrayVar(cover, "cover", nil, "covered keg and role cap, e.g. @ns/keg=viewer or @ns/keg=editor")
+	cmd.Flags().StringArrayVar(cover, "cover", nil, "covered keg and role cap, e.g. @ns/keg=viewer, @ns/keg=editor, or @ns/keg=admin")
 }
 
 func flightArgCompletionFunc(deps *Deps) func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {

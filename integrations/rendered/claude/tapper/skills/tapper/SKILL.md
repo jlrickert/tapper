@@ -105,6 +105,7 @@ selecting source nodes to import.
 | `mcp__tapper__node_snapshot`                                                   | Capture a revision before a destructive or large edit.                                                                |
 | `mcp__tapper__node_history`, `mcp__tapper__node_snapshot_view`                 | Inspect read-only prior revisions.                                                                                    |
 | `mcp__tapper__node_restore`                                                    | Recover the current node from a prior revision.                                                                       |
+| `mcp__tapper__keg_settings_edit`                                               | Replace the complete validated KEG YAML document. Requires an `admin` flight cover or `full_access` plus editor/admin identity access; it never edits Tapper user/project configuration. |
 
 ## Snapshots
 

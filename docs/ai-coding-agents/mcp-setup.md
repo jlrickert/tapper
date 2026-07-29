@@ -105,6 +105,7 @@ agent to inspect flights through MCP, ask the user to run `tap use --flight
 | `meta` | Read or write node metadata |
 | `remove` | Delete a node |
 | `move` | Move a node to a different ID |
+| `keg_settings_edit` | Replace the complete validated KEG YAML document; requires admin flight authority and editor/admin KEG access |
 
 ### Index, Diagnostics, And Safety
 

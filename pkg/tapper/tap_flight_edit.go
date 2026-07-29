@@ -202,8 +202,7 @@ func flightManifestSemanticallyEqual(a, b FlightManifest) bool {
 }
 
 // parseFlightManifestStrict decodes an edited manifest, rejecting unknown
-// keys (so a slug change attempt fails loudly) and cover roles other than
-// viewer/editor (normalizeFlightRole would otherwise coerce typos to viewer).
+// keys (so a slug change attempt fails loudly) and unknown cover roles.
 // An omitted role keeps the manifest parser's viewer default.
 func parseFlightManifestStrict(raw []byte) (*FlightManifest, error) {
 	var m FlightManifest
@@ -214,7 +213,7 @@ func parseFlightManifestStrict(raw []byte) (*FlightManifest, error) {
 	}
 	for _, c := range m.Cover {
 		switch FlightRole(strings.TrimSpace(string(c.Role))) {
-		case "", FlightRoleViewer, FlightRoleEditor:
+		case "", FlightRoleViewer, FlightRoleEditor, FlightRoleAdmin:
 		default:
 			return nil, fmt.Errorf("invalid flight cover role %q", c.Role)
 		}

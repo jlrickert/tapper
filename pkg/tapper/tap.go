@@ -32,9 +32,11 @@ type Tap struct {
 	// a resolver that opens kegs from its own Postgres catalog and enforces the
 	// caller's role, bypassing the on-disk config cascade and AuthStore entirely
 	// (which, in the hub server's process, hold no login). role is the access
-	// level the calling operation needs — FlightRoleViewer for reads,
+	// level the calling operation needs — FlightRoleViewer for reads and
 	// FlightRoleEditor for writes — so the resolver can map it to a catalog role
-	// check. Every node read/write op funnels through resolveKegForRole, so a
+	// check. Admin-class flight operations may use a different flight cap while
+	// retaining an editor identity requirement. Every node read/write op funnels
+	// through resolveKegForRole, so a
 	// single resolver covers the whole surface. Left nil for the CLI, which keeps
 	// the standard config-driven resolution.
 	KegResolver func(ctx context.Context, opts KegTargetOptions, role FlightRole) (keg.Keg, error)
@@ -162,16 +164,24 @@ func (t *Tap) resolveKeg(ctx context.Context, opts KegTargetOptions) (keg.Keg, e
 }
 
 func (t *Tap) resolveKegForRole(ctx context.Context, opts KegTargetOptions, role FlightRole) (keg.Keg, error) {
+	return t.resolveKegForRoles(ctx, opts, role, role)
+}
+
+// resolveKegForRoles resolves a keg with independent identity and flight
+// requirements. Most operations use matching roles through resolveKegForRole;
+// admin-class agent operations can require a stronger flight cap without
+// expanding the authenticated identity's underlying KEG access.
+func (t *Tap) resolveKegForRoles(ctx context.Context, opts KegTargetOptions, identityRole, flightRole FlightRole) (keg.Keg, error) {
 	// A hub-injected resolver owns resolution and authorization end-to-end (it
 	// opens a catalog-backed keg.Keg and applies its own role check), so the
 	// config cascade and flight gating below are bypassed when one is set.
 	if t.KegResolver != nil {
-		k, err := t.KegResolver(ctx, opts, role)
+		k, err := t.KegResolver(ctx, opts, identityRole)
 		if err != nil {
 			return nil, err
 		}
 		if !opts.BypassFlightRestrictions && opts.FlightContext != nil {
-			if err := t.enforceFlightSnapshot(opts.FlightContext, k, role); err != nil {
+			if err := t.enforceFlightSnapshot(opts.FlightContext, k, flightRole); err != nil {
 				return nil, err
 			}
 		}
@@ -195,9 +205,9 @@ func (t *Tap) resolveKegForRole(ctx context.Context, opts KegTargetOptions, role
 	// direct CLI surface that keeps Flight only for context/instructions.
 	if !opts.BypassFlightRestrictions {
 		if opts.FlightContext != nil {
-			err = t.enforceFlightSnapshot(opts.FlightContext, k, role)
+			err = t.enforceFlightSnapshot(opts.FlightContext, k, flightRole)
 		} else {
-			err = t.enforceFlight(ctx, opts.Flight, k, role)
+			err = t.enforceFlight(ctx, opts.Flight, k, flightRole)
 		}
 		if err != nil {
 			return nil, err

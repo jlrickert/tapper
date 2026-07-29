@@ -22,7 +22,7 @@ type flightCreateInput struct {
 	Visibility   string   `json:"visibility,omitempty" jsonschema:"flight visibility: private (default) or public"`
 	Capabilities []string `json:"capabilities,omitempty" jsonschema:"explicit capabilities; supported: full_access, manage_flights"`
 	Instructions string   `json:"instructions,omitempty" jsonschema:"markdown instructions"`
-	Cover        []string `json:"cover,omitempty" jsonschema:"covered kegs with role caps, e.g. @ns/keg=viewer or @ns/keg=editor (bare entries default to viewer)"`
+	Cover        []string `json:"cover,omitempty" jsonschema:"covered kegs with role caps, e.g. @ns/keg=viewer, @ns/keg=editor, or @ns/keg=admin (bare entries default to viewer)"`
 }
 
 type flightEditInput struct {
