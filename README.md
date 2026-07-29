@@ -261,11 +261,11 @@ See [Resolution Order](docs/configuration/resolution-order.md).
 Direct CLI commands still use normal keg authorization and do not have their
 access reduced by flight cover caps.
 
-Persist a project flight for newly opened agent sessions with either `tap use
---flight @namespace/+slug` or the default-namespace shorthand `tap use +slug`.
-Local MCP connections pin that flight at connection time; MCP tool calls cannot
-override it. Claude users can switch one live connection through the bundled
-human-only command, while Codex users change the project flight and reconnect.
+Persist a project flight with either `tap use --flight @namespace/+slug` or the
+default-namespace shorthand `tap use +slug`. A config-driven MCP connection
+adopts that selection only after an explicit `orient` call. A launcher-bound
+`tap mcp --flight REF` connection keeps its flight identity for the process
+lifetime while each orientation refreshes that flight's current details.
 
 ## Release And Contribution Notes
 

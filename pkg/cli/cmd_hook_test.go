@@ -124,7 +124,8 @@ func TestHookSessionStart_EmitsOrientationForLifecycleSources(t *testing.T) {
 			require.NoError(t, json.Unmarshal(res.Stdout, &output))
 			require.Equal(t, "SessionStart", output.HookSpecificOutput.HookEventName)
 			for _, want := range []string{
-				"mcp__tapper__orient", "flight and KEG instructions", "tapper-mcp-reset",
+				"mcp__tapper__orient", "flight and KEG instructions", "Tapper MCP connection is unavailable",
+				"reconnect or restart the host session", "never kill host-owned processes",
 				"mcp__tapper__node_snapshot", "never read or write tapper node storage files directly",
 				"Direct `tap` / `keg` CLI use",
 			} {

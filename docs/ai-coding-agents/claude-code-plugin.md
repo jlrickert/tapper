@@ -47,11 +47,10 @@ Claude session for the refreshed plugin and MCP connection to take effect. A
 `tapper-local` marketplace already pointing elsewhere is an actionable
 conflict.
 
-The baseline also ships `tapper-mcp-reset` and the user-only
-`/tapper:tapper-flight-switch REF` command. Use the
-reset skill to diagnose the running version and connection, then run
-`/reload-plugins` or open a new session without killing host-owned processes.
-The flight command is hidden from the model. Its prompt-expansion hook calls a
-hidden control on the existing MCP connection, requests human confirmation,
-and atomically switches only that connection without writing config or starting
-a model turn.
+The baseline plugin distributes only the `tapper` skill; `tapper-dev` remains a
+separately installed optional plugin. Flight changes use normal Tapper
+configuration followed by an explicit `orient` call on the existing MCP
+connection. The plugin ships no separate management skills, hidden switch
+command, or prompt-expansion hook. If the MCP tools are unavailable, report the
+unavailable connection, ask the user to reconnect or restart the host session,
+and never kill or signal host-owned processes.

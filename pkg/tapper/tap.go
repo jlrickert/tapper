@@ -127,6 +127,12 @@ type KegTargetOptions struct {
 	// BypassFlightRestrictions is true.
 	Flight string
 
+	// FlightContext is the immutable, already-resolved flight snapshot used by
+	// an MCP session. When set it is authoritative over Flight and avoids
+	// consulting the process-wide flight cache while a tool call is running.
+	// Direct CLI callers leave this nil.
+	FlightContext *Flight
+
 	// BypassFlightRestrictions skips flight cover and role-cap checks while
 	// preserving Flight for callers that still need the flight context, such as
 	// orient. Leave false for MCP and other agent-facing surfaces.
@@ -160,7 +166,16 @@ func (t *Tap) resolveKegForRole(ctx context.Context, opts KegTargetOptions, role
 	// opens a catalog-backed keg.Keg and applies its own role check), so the
 	// config cascade and flight gating below are bypassed when one is set.
 	if t.KegResolver != nil {
-		return t.KegResolver(ctx, opts, role)
+		k, err := t.KegResolver(ctx, opts, role)
+		if err != nil {
+			return nil, err
+		}
+		if !opts.BypassFlightRestrictions && opts.FlightContext != nil {
+			if err := t.enforceFlightSnapshot(opts.FlightContext, k, role); err != nil {
+				return nil, err
+			}
+		}
+		return k, nil
 	}
 	k, err := t.KegService.Resolve(ctx, ResolveKegOptions{
 		Root:             t.Root,
@@ -179,7 +194,12 @@ func (t *Tap) resolveKegForRole(ctx context.Context, opts KegTargetOptions, role
 	// An active flight restricts which kegs are available unless the caller is a
 	// direct CLI surface that keeps Flight only for context/instructions.
 	if !opts.BypassFlightRestrictions {
-		if err := t.enforceFlight(ctx, opts.Flight, k, role); err != nil {
+		if opts.FlightContext != nil {
+			err = t.enforceFlightSnapshot(opts.FlightContext, k, role)
+		} else {
+			err = t.enforceFlight(ctx, opts.Flight, k, role)
+		}
+		if err != nil {
 			return nil, err
 		}
 	}

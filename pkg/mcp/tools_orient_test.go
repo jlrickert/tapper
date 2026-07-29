@@ -34,7 +34,7 @@ func TestMCP_OrientTool_ReturnsSharedKegSystemPayload(t *testing.T) {
 	require.Contains(t, text, "Tapper provides an MCP interface for KEG")
 	require.NotContains(t, text, "CLI")
 	require.NotContains(t, text, "`tap ")
-	require.Contains(t, text, "## Active KEG")
+	require.NotContains(t, text, "## Active KEG")
 	require.Contains(t, text, "## Available KEGs")
 	require.Contains(t, text, "## KEG Instructions")
 	require.Contains(t, text, "## Guidance")
@@ -46,13 +46,17 @@ func TestMCP_OrientTool_ReturnsSharedKegSystemPayload(t *testing.T) {
 	require.NotContains(t, strings.ToLower(text), "tier 2")
 }
 
-func TestMCP_OrientTool_WithKegPinsActiveKeg(t *testing.T) {
+func TestMCP_OrientToolRejectsKegTarget(t *testing.T) {
 	t.Parallel()
 	session, ctx := newTestSession(t)
 
-	text := orientCall(t, session, ctx, map[string]any{"keg": "notes"})
-
-	require.Contains(t, text, "Active KEG: `notes`")
+	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name:      "orient",
+		Arguments: map[string]any{"keg": "notes"},
+	})
+	require.NoError(t, err)
+	require.True(t, res.IsError)
+	require.Contains(t, extractText(t, res), "unexpected additional properties")
 }
 
 func TestMCP_OrientToolRejectsInjectedFlight(t *testing.T) {

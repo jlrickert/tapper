@@ -86,11 +86,21 @@ func registerOrientResource(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDef
 		Description: "Tapper KEG system orientation payload. Identical to the output of the orient tool with no explicit arguments.",
 		MIMEType:    "text/markdown",
 	}, func(ctx context.Context, req *sdkmcp.ReadResourceRequest) (*sdkmcp.ReadResourceResult, error) {
-		payload, err := tap.Orient(ctx, tapper.OrientOptions{
-			KegTargetOptions: resolveKegTarget(ctx, "", defaults),
-		})
-		if err != nil {
-			return nil, err
+		var payload string
+		if defaults.gate != nil {
+			current, err := defaults.gate.refresh(ctx, sessionIDFromContext(ctx))
+			if err != nil {
+				return nil, err
+			}
+			payload = current.payload
+		} else {
+			var err error
+			payload, err = tap.Orient(ctx, tapper.OrientOptions{
+				KegTargetOptions: resolveKegTarget(ctx, "", defaults),
+			})
+			if err != nil {
+				return nil, err
+			}
 		}
 		return &sdkmcp.ReadResourceResult{
 			Contents: []*sdkmcp.ResourceContents{

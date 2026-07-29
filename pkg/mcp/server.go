@@ -51,6 +51,9 @@ type ServerOptions struct {
 	// Surface selects the registered tool set. The zero value (SurfaceFull)
 	// registers everything, preserving the CLI peer surface.
 	Surface Surface
+	// OrientationLoader supplies hosted/session-specific flight snapshots.
+	// Local full-surface servers leave it nil and use Tapper configuration.
+	OrientationLoader OrientationLoader
 }
 
 // NewServer builds an MCP server with all registered tools.
@@ -59,8 +62,9 @@ func NewServer(tap *tapper.Tap, version string, defaults KegDefaults, opts ...Se
 	if len(opts) > 0 {
 		opt = opts[0]
 	}
-	if opt.Surface != SurfaceHub {
-		defaults.gate = newSessionFlightGate(tap, defaults.Flight)
+	staticFlight := defaults.Flight
+	if opt.Surface != SurfaceHub || opt.OrientationLoader != nil {
+		defaults.gate = newSessionFlightGate(tap, staticFlight, opt.OrientationLoader)
 	}
 
 	var srv *sdkmcp.Server
@@ -77,6 +81,7 @@ func NewServer(tap *tapper.Tap, version string, defaults KegDefaults, opts ...Se
 		UnsubscribeHandler: nodeSubs.Unsubscribe,
 	})
 	if defaults.gate != nil {
+		defaults.gate.srv = srv
 		srv.AddReceivingMiddleware(defaults.gate.middleware)
 	}
 
@@ -112,7 +117,6 @@ func NewServer(tap *tapper.Tap, version string, defaults KegDefaults, opts ...Se
 		registerImportTools(srv, tap, defaults)
 		registerArchiveTools(srv, tap, defaults)
 		registerFlightTools(srv, tap, defaults)
-		registerFlightSwitchControl(srv, defaults.gate)
 		registerKegTools(srv, tap, defaults)
 		registerNamespaceTools(srv, tap, defaults)
 		registerResourceTools(srv, tap, defaults)
@@ -141,7 +145,12 @@ func resolveKegTarget(ctx context.Context, perToolKeg string, defaults KegDefaul
 		out.Path = ""
 	}
 	if defaults.gate != nil {
-		out.Flight = defaults.gate.activeFlight(ctx)
+		out.FlightContext = defaults.gate.activeFlight(ctx)
+		if out.FlightContext != nil {
+			out.Flight = out.FlightContext.Name
+		} else {
+			out.Flight = ""
+		}
 	}
 	// The MCP server is a full surface (peer to `tap`): config-driven keg
 	// resolution requires `tap bootstrap` to have run.

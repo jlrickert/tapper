@@ -51,6 +51,21 @@ func TestOrientCommandRejectsRemovedHostAndTierFlags(t *testing.T) {
 	}
 }
 
+func TestOrientCommandRejectsKegTargetFlags(t *testing.T) {
+	t.Parallel()
+	sb := NewSandbox(t)
+
+	for _, args := range [][]string{
+		{"orient", "--keg", "notes"},
+		{"orient", "--namespace", "alice"},
+		{"orient", "--hub", "home"},
+	} {
+		res := NewProcess(t, false, args...).Run(sb.Context(), sb.Runtime())
+		require.Error(t, res.Err)
+		require.Contains(t, res.Err.Error(), "tap orient is flight-scoped")
+	}
+}
+
 func TestRootCompletion_FlightFlagSuppressesFileCompletion(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t)

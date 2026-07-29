@@ -4,7 +4,8 @@ A **flight** is the required authorization and instruction context for a local
 full MCP session. Flight manifests live separately from Tapper configuration.
 `tap bootstrap` can persist a machine-wide baseline in the user config, while a
 project can persist a more specific selection in `.tapper/config.yaml`. The
-server resolves and pins the effective flight when the MCP connection starts.
+server resolves fresh orientation during MCP initialization and again whenever
+the client explicitly calls `orient`.
 
 ## What A Flight Does
 
@@ -26,9 +27,10 @@ A flight carries four details:
    to the session, but Hub still requires the authenticated identity to own or
    administer the target namespace. The capabilities are independent.
 
-Because a flight is not a target selector, `--flight` **composes** with `--keg`,
-`--namespace`, and `--hub`: those pin which keg you operate on; the flight adds
-context and, for the MCP surface, gates the result.
+Because a flight is not a KEG target selector, `tap mcp --flight` binds only
+the process flight identity. `tap mcp --keg` remains an independent default for
+subsequent KEG operations. `tap orient` is flight-scoped and rejects
+`--keg`, `--namespace`, and `--hub`.
 
 ## Manifest Format
 
@@ -111,14 +113,17 @@ is a partial update where omitted fields retain their current values.
   bypass normal identity authorization or implicitly grant `manage_flights`.
 - Without a selected flight, the local MCP server starts in recovery-only mode
   and lists only `orient`, `list_flights`, `flight_show`, `auth_status`, and
-  `config`. KEG tools remain locked until a human switches the live Claude
-  session or the host reconnects after `tap use --flight @namespace/+slug`.
-- A selected flight that is missing or invalid still fails MCP startup.
-- The active flight's cover, instructions, capabilities, and normalized
-  manifest hash are pinned per connection. Project config changes do not
-  change an existing connection.
-- If that manifest hash changes, the connection is invalidated
-  for KEG and flight mutations until a human switches it or the host reconnects.
+  `config`. After selecting a flight, call `orient` on the same connection.
+- Config-driven `tap mcp` reloads user, project, and environment configuration
+  on every orientation. A successful orientation atomically replaces session
+  authority; configuration changes alone do nothing.
+- `tap mcp --flight REF` is launcher-bound: configuration cannot change its
+  flight identity, while orientation still refreshes that flight's current
+  manifest, cover, and instructions.
+- A failed refresh preserves the last valid authority. An intentionally blank
+  config selection clears authority and enters recovery mode.
+- In-flight calls finish under the context captured when they began. Calls that
+  start after orientation use the newly published context.
 - Direct CLI commands such as `tap cat`, `tap edit`, and `tap create` ignore
   flight cover caps; access is governed by normal keg authorization.
 - A missing `flights.d` directory means "no flights", not an error.
@@ -126,15 +131,13 @@ is a partial update where omitted fields retain their current values.
   kegs, and instructions into the orientation payload.
 - `tap use --flight @namespace/+slug` persists the project default in
   `.tapper/config.yaml`; `tap use +slug` uses the resolved default namespace.
-  Newly opened Codex or Claude sessions inherit it.
+  Config-driven sessions adopt it on their next orientation.
 - Flight selection precedence is explicit runtime `--flight`, then
   `TAP_FLIGHT`, then the nearest project config, then the user baseline written
   by `tap bootstrap`. Project selection therefore overrides the machine-wide
   bootstrap choice without changing it.
-- MCP tools have no model-visible `flight` input. In Claude Code, a human may
-  run `/tapper:tapper-flight-switch @namespace/+slug`; Claude asks for
-  confirmation and changes only that MCP connection without a model turn or a
-  config write. Codex users run `tap use --flight @namespace/+slug` (or `tap use
-  +slug`) and open a new thread so the plugin reconnects.
+- MCP tools have no model-visible `flight` input. Humans change config-driven
+  selection with `tap use --flight @namespace/+slug` (or `tap use +slug`), then
+  the existing session calls `orient`. There is no hidden flight-switch tool.
 - KEG-specific instructions belong in each KEG's own config `instructions`
   field, not in flight cover rows.

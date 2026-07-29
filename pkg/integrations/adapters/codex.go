@@ -84,9 +84,6 @@ func (a CodexAdapter) Render(rt *toolkit.Runtime, content fs.FS, dst integration
 	if err := dst.Write(path.Join(a.Name(), "tapper", "skills", "tapper", "SKILL.md"), baseline); err != nil {
 		return err
 	}
-	if err := renderManagementSkills(content, dst, a.Name()); err != nil {
-		return fmt.Errorf("codex: management skills: %w", err)
-	}
 
 	devManifest, err := renderCodexManifest(codexManifest{
 		Name:        "tapper-dev",
@@ -238,26 +235,6 @@ func addSkillFrontmatter(name, description string, body []byte) []byte {
 		out.WriteByte('\n')
 	}
 	return out.Bytes()
-}
-
-var managementSkills = []struct {
-	Name        string
-	Description string
-}{
-	{Name: "tapper-mcp-reset", Description: "Diagnose and recover a stale or unavailable Tapper MCP connection without killing host-owned processes."},
-}
-
-func renderManagementSkills(content fs.FS, dst integrations.DestWriter, host string) error {
-	for _, skill := range managementSkills {
-		body, err := fs.ReadFile(content, path.Join("skills", skill.Name+".md"))
-		if err != nil {
-			return fmt.Errorf("read %s: %w", skill.Name, err)
-		}
-		if err := dst.Write(path.Join(host, "tapper", "skills", skill.Name, "SKILL.md"), addSkillFrontmatter(skill.Name, skill.Description, body)); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 func marshalIndented(v any) ([]byte, error) {

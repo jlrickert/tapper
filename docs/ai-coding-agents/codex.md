@@ -52,13 +52,15 @@ Codex currently supports only `--scope user`. `--scope project` and `--scope
 local` fail before marketplace extraction or Codex commands; use a user install
 until Codex exposes native project scopes.
 
-The baseline also ships `tapper-mcp-reset`. It diagnoses the running version
-and connection and guides users to a new thread or app restart without killing
-host-owned processes. Codex has no equivalent user-only prompt hook, so it does
-not expose a flight-switching skill. To change flights, run `tap use --flight
-@namespace/+slug` (or `tap use +slug`) and open a new thread so MCP reconnects.
+The baseline plugin distributes only the `tapper` skill; `tapper-dev` remains a
+separately installed optional plugin. It ships no separate management skills or
+hidden controls. To change a config-driven session, run `tap use --flight
+@namespace/+slug` (or `tap use +slug`) and call `mcp__tapper__orient` in the
+existing thread.
 
 If no flight is selected, MCP still connects in recovery-only mode. Codex can
 use `list_flights`, `flight_show`, `auth_status`, and `config`, while KEG tools
 remain locked. Ask the user to run `tap use --flight @namespace/+slug`, then
-start a new thread to reconnect with the normal tool surface.
+call `mcp__tapper__orient` to restore the normal tool surface. If the MCP tools
+are unavailable, report the unavailable connection, ask the user to reconnect
+or restart the host session, and never kill or signal host-owned processes.

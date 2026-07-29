@@ -18,13 +18,18 @@ func NewOrientCmd(deps *Deps) *cobra.Command {
 		Use:   "orient",
 		Short: "print the tapper orientation payload",
 		Long: `Print the tapper KEG system orientation payload, including
-the active KEG, reachable KEGs, active flight context, KEG-level
-instructions, and canonical guidance.
+effective covered KEGs, active flight context, KEG-level instructions,
+and canonical guidance.
 
 This command shares its payload builder with the mcp__tapper__orient
 tool so the bytes printed here match the bytes an agent would receive
 over MCP.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			for _, name := range []string{"keg", "namespace", "hub"} {
+				if cmd.Flags().Changed(name) {
+					return fmt.Errorf("tap orient is flight-scoped; --%s is not supported", name)
+				}
+			}
 			applyKegTargetProfile(deps, &opts.KegTargetOptions)
 			payload, err := deps.Tap.Orient(cmd.Context(), opts)
 			if err != nil {

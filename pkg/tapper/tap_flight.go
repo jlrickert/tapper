@@ -250,6 +250,16 @@ func (t *Tap) enforceFlight(ctx context.Context, flightName string, k keg.Keg, w
 	if err != nil {
 		return err
 	}
+	return t.enforceFlightSnapshot(flight, k, want)
+}
+
+// enforceFlightSnapshot applies one immutable, already-resolved flight
+// snapshot. MCP uses this path so concurrent sessions never share mutable
+// process-level flight authority.
+func (t *Tap) enforceFlightSnapshot(flight *Flight, k keg.Keg, want FlightRole) error {
+	if flight == nil || k == nil {
+		return nil
+	}
 	if flight.HasCapability(FlightCapabilityFullAccess) {
 		return nil
 	}
@@ -286,7 +296,7 @@ func (t *Tap) enforceFlight(ctx context.Context, flightName string, k keg.Keg, w
 	if label == "" && k.Target() != nil {
 		label = k.Target().String()
 	}
-	return &FlightRestrictionError{Flight: flightName, Keg: label, Want: want, Got: role}
+	return &FlightRestrictionError{Flight: flight.Name, Keg: label, Want: want, Got: role}
 }
 
 func localHubPathKegIdentity(target *keg.Target) (string, string, bool) {
