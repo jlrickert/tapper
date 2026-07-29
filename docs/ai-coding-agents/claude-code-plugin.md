@@ -10,7 +10,7 @@ The installer extracts a self-contained Claude marketplace below the platform
 user-data directory, registers it with `claude plugin marketplace add`, and
 installs `tapper@tapper-local`. The plugin registers `tap mcp`, blocks direct
 agent use of the Tapper CLI except harmless help/version/completion probes, and
-orients through the active flight and covered KEG instructions. Its guard runs
+orients through the active flight, compact KEG discovery, and targeted settings instructions. Its guard runs
 as `tap hook pre-tool-use`, so the current `tap` binary must remain on `PATH`.
 
 Install the optional developer workflow separately:

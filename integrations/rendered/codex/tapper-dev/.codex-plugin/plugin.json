@@ -1,6 +1,6 @@
 {
   "name": "tapper-dev",
-  "version": "0.35.0",
+  "version": "0.0.0-dev",
   "description": "Optional Plan to Code to Review to Commit workflow for Tapper-enabled development.",
   "author": {
     "name": "Jared Rickert",

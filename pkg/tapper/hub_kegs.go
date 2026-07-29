@@ -11,6 +11,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -23,6 +24,16 @@ import (
 // hub's GET /api/v1/kegs handler (handler.ListUserKegs).
 const hubKegsPath = "/api/v1/kegs"
 
+const (
+	hubOrientPath        = "/api/v1/orient"
+	hubOrientDetailsPath = "/api/v1/orient/details"
+)
+
+// ErrOrientationUnsupported signals that a hub predates the progressive-
+// disclosure orientation endpoints. Callers may safely use compatibility
+// fallbacks without treating other HTTP failures as feature absence.
+var ErrOrientationUnsupported = errors.New("hub orientation API is unavailable")
+
 // HubKeg is one keg the hub reports the authenticated user can reach. It
 // mirrors the hub's handler.UserKegItem JSON body — keep the two in sync.
 type HubKeg struct {
@@ -30,6 +41,26 @@ type HubKeg struct {
 	Alias      string `json:"alias"`
 	Visibility string `json:"visibility"`
 	Role       string `json:"role"`
+}
+
+// HubOrientationKeg is one compact discovery row returned by a compatible
+// Hub. Instructions are intentionally absent.
+type HubOrientationKeg struct {
+	Namespace  string `json:"namespace"`
+	Alias      string `json:"alias"`
+	Title      string `json:"title"`
+	Summary    string `json:"summary"`
+	Visibility string `json:"visibility"`
+	Role       string `json:"role"`
+}
+
+// HubOrientationDetail is one explicitly requested KEG config projection.
+type HubOrientationDetail struct {
+	Keg          string `json:"keg"`
+	Title        string `json:"title"`
+	Summary      string `json:"summary"`
+	Updated      string `json:"updated,omitempty"`
+	Instructions string `json:"instructions"`
 }
 
 // CreateKeg asks the hub to create @namespace/alias via
@@ -111,6 +142,96 @@ func ListUserKegs(ctx context.Context, hubURL, token string) ([]HubKeg, error) {
 		return nil, fmt.Errorf("hub: parse list-kegs response: %w", err)
 	}
 	return kegs, nil
+}
+
+// DiscoverOrientationKegs fetches the compact authenticated discovery index.
+// A 404 or 405 is reported as ErrOrientationUnsupported so callers can fall
+// back to the older /api/v1/kegs surface.
+func DiscoverOrientationKegs(ctx context.Context, hubURL, token string) ([]HubOrientationKeg, error) {
+	base, err := normalizeHubURL(hubURL)
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+hubOrientPath, nil)
+	if err != nil {
+		return nil, fmt.Errorf("hub: build orientation discovery request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("hub: contact hub: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	switch resp.StatusCode {
+	case http.StatusOK:
+	case http.StatusNotFound, http.StatusMethodNotAllowed:
+		return nil, ErrOrientationUnsupported
+	case http.StatusUnauthorized, http.StatusForbidden:
+		return nil, fmt.Errorf("hub: %w (%s)", ErrTokenRejected, resp.Status)
+	default:
+		return nil, fmt.Errorf("hub: orientation discovery returned %s for %s", resp.Status, hubOrientPath)
+	}
+	var out []HubOrientationKeg
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, fmt.Errorf("hub: parse orientation discovery response: %w", err)
+	}
+	return out, nil
+}
+
+// FetchOrientationDetails requests targeted guidance for canonical KEG refs.
+// The Hub guarantees all-or-nothing authorization and preserves input order.
+func FetchOrientationDetails(ctx context.Context, hubURL, token string, refs []string) ([]HubOrientationDetail, error) {
+	base, err := normalizeHubURL(hubURL)
+	if err != nil {
+		return nil, err
+	}
+	payload, err := json.Marshal(struct {
+		Kegs []string `json:"kegs"`
+	}{Kegs: refs})
+	if err != nil {
+		return nil, fmt.Errorf("hub: encode orientation details request: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, base+hubOrientDetailsPath, bytes.NewReader(payload))
+	if err != nil {
+		return nil, fmt.Errorf("hub: build orientation details request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("hub: contact hub: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	switch resp.StatusCode {
+	case http.StatusOK:
+	case http.StatusNotFound:
+		// New Hubs use 404 UNAVAILABLE for an invalid/unauthorized target as
+		// well as old Hubs for an unknown route. Distinguish by the structured
+		// code before deciding whether compatibility fallback is safe.
+		var body struct {
+			Error string `json:"error"`
+			Code  string `json:"code"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&body); err == nil && body.Code == "UNAVAILABLE" {
+			return nil, errors.New(body.Error)
+		}
+		return nil, ErrOrientationUnsupported
+	case http.StatusMethodNotAllowed:
+		return nil, ErrOrientationUnsupported
+	case http.StatusUnauthorized, http.StatusForbidden:
+		return nil, fmt.Errorf("hub: %w (%s)", ErrTokenRejected, resp.Status)
+	default:
+		return nil, fmt.Errorf("hub: orientation details returned %s for %s%s", resp.Status, hubOrientDetailsPath, readHubError(resp))
+	}
+	var out []HubOrientationDetail
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, fmt.Errorf("hub: parse orientation details response: %w", err)
+	}
+	return out, nil
 }
 
 // readHubError best-effort extracts the hub's {"error": ...} message from a

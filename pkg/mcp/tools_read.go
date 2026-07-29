@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"fmt"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -255,8 +256,9 @@ func registerLinks(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 // --- keg_settings ---
 
 type kegSettingsInput struct {
-	Keg     string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
-	Minimal *bool  `json:"minimal,omitempty" jsonschema:"return only core config fields (default true)"`
+	Keg     string   `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
+	Kegs    []string `json:"kegs,omitempty" jsonschema:"canonical keg references to read together (maximum 100; minimal mode only)"`
+	Minimal *bool    `json:"minimal,omitempty" jsonschema:"return only core config fields (default true)"`
 }
 
 func registerKegSettings(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
@@ -272,9 +274,27 @@ func registerKegSettings(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaul
 		if in.Minimal != nil {
 			minimal = *in.Minimal
 		}
+		if in.Keg != "" && in.Kegs != nil {
+			return errorResult(fmt.Errorf("keg and kegs are mutually exclusive")), nil, nil
+		}
+		if in.Kegs != nil {
+			if len(in.Kegs) == 0 || len(in.Kegs) > 100 {
+				return errorResult(fmt.Errorf("kegs must contain 1 to 100 canonical references")), nil, nil
+			}
+			if !minimal && len(in.Kegs) != 1 {
+				return errorResult(fmt.Errorf("minimal=false requires exactly one keg")), nil, nil
+			}
+		}
+		target := in.Keg
+		if !minimal && len(in.Kegs) == 1 {
+			target = in.Kegs[0]
+		}
 		opts := tapper.KegSettingsOptions{
-			KegTargetOptions: resolveKegTarget(ctx, in.Keg, defaults),
+			KegTargetOptions: resolveKegTarget(ctx, target, defaults),
 			Minimal:          minimal,
+		}
+		if minimal {
+			opts.Kegs = in.Kegs
 		}
 		result, err := tap.KegSettings(ctx, opts)
 		if err != nil {

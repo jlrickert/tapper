@@ -34,6 +34,12 @@ Common keg fields:
 - `indexes`
 - `schemaPolicy`
 
+Use `summary` for a concise discovery description: aggregate orientation uses
+it to help agents identify relevant KEGs and does not automatically truncate
+it. Use `instructions` for targeted operational guidance. Instructions are
+loaded only after an agent explicitly selects the KEG through `keg_settings`;
+they are not included in aggregate orientation.
+
 `schemaPolicy` has three actor-specific modes: `human`, `agent`, and `api`.
 Each accepts `off`, `warn`, or `block`. When omitted, human writes default to
 `warn`, while agent and API writes default to `block`. Archive imports and

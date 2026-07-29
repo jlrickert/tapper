@@ -12,6 +12,7 @@
 | `mcp__tapper__backlinks`                              | Inbound links to a node.                                                                                                                                 |
 | `mcp__tapper__graph`                                  | Graph traversal for multi-hop relationships.                                                                                                             |
 | `mcp__tapper__list_indexes`, `mcp__tapper__index_cat` | Read generated index files (tag index, changelog, and others).                                                                                           |
+| `mcp__tapper__keg_settings`                           | Read targeted title, summary, updated metadata, and instructions for one or more selected KEGs; batches accept up to 100 canonical references.          |
 
 Pass `id_only: true` to `grep` and `tags` when you only need IDs for follow-up
 reads — it keeps token consumption bounded on large result sets.

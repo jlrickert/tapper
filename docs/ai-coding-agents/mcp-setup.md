@@ -93,7 +93,7 @@ agent to inspect flights through MCP, ask the user to run `tap use --flight
 | `backlinks` | Find nodes linking to a node |
 | `links` | List outgoing links from a node |
 | `info` | Show concise diagnostics for the resolved keg |
-| `keg_settings` | Read keg configuration |
+| `keg_settings` | Read targeted minimal config for one or more selected KEGs; `minimal=false` reads one complete config |
 | `stats` | Show node statistics |
 
 ### Write
