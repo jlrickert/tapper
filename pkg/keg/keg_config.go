@@ -85,6 +85,14 @@ type ConfigV2 struct {
 	// Indexes is a list of index entries that link to related files or nodes.
 	Indexes []IndexEntry `yaml:"indexes,omitempty" json:"indexes,omitempty"`
 
+	// ListFields are the field selectors a node listing shows by default, in
+	// the vocabulary of ParseFieldSelector: a bare word names a metadata key
+	// ("type", "subkind"), a leading dot names a statistics field (".omega"),
+	// and "id", "title", and "tags" are reserved. One setting drives both the
+	// default `tap list` format and the columns of the hosted node list, so a
+	// keg presents the same shape everywhere. Empty means the built-in default.
+	ListFields []string `yaml:"listFields,omitempty" json:"list_fields,omitempty"`
+
 	// Timezone is the IANA timezone for resolving ambiguous timestamps
 	// within this keg (e.g. "America/Chicago"). Defaults to "UTC".
 	Timezone string `yaml:"timezone,omitempty" json:"timezone,omitempty"`
@@ -289,6 +297,9 @@ func parseKegConfig(data []byte, strict bool) (*Config, error) {
 		if err := cfg.validateSnapshots(); err != nil {
 			return cfg, err
 		}
+		if err := cfg.validateListFields(); err != nil {
+			return cfg, err
+		}
 		if err := cfg.normalizeIndexes(strict); err != nil {
 			return cfg, err
 		}
@@ -303,6 +314,9 @@ func parseKegConfig(data []byte, strict bool) (*Config, error) {
 
 	configV2.applyDefaults()
 	if err := configV2.validateSnapshots(); err != nil {
+		return &configV2, err
+	}
+	if err := configV2.validateListFields(); err != nil {
 		return &configV2, err
 	}
 	if err := configV2.normalizeIndexes(strict); err != nil {
@@ -338,6 +352,19 @@ func (kc *ConfigV2) validateSnapshots() error {
 	}
 	_, _, err := kc.SnapshotPolicy()
 	return err
+}
+
+// validateListFields rejects an unusable selector when the config is parsed
+// rather than when a listing is rendered, so a typo surfaces at the point of
+// editing instead of silently blanking a column later.
+func (kc *ConfigV2) validateListFields() error {
+	if kc == nil || len(kc.ListFields) == 0 {
+		return nil
+	}
+	if _, err := ParseFieldSelectors(kc.ListFields); err != nil {
+		return fmt.Errorf("listFields: %w", err)
+	}
+	return nil
 }
 
 func (kc *ConfigV2) normalizeIndexes(strict bool) error {

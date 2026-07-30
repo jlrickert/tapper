@@ -1,6 +1,7 @@
 package keg_test
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -239,5 +240,53 @@ func TestFormatSelectorSuggestions(t *testing.T) {
 		if len(s) < 4 || s[:2] != "%{" || s[len(s)-1] != '}' {
 			t.Errorf("suggestion %q is not a ready-to-type token", s)
 		}
+	}
+}
+
+func TestConfigListFieldsRoundTrip(t *testing.T) {
+	raw := []byte("kegv: 2025-07\nlistFields:\n  - id\n  - type\n  - subkind\n  - title\n")
+	cfg, err := keg.ParseKegConfig(raw)
+	if err != nil {
+		t.Fatalf("ParseKegConfig: %v", err)
+	}
+	want := []string{"id", "type", "subkind", "title"}
+	if len(cfg.ListFields) != len(want) {
+		t.Fatalf("ListFields = %v, want %v", cfg.ListFields, want)
+	}
+	for i, field := range want {
+		if cfg.ListFields[i] != field {
+			t.Errorf("ListFields[%d] = %q, want %q", i, cfg.ListFields[i], field)
+		}
+	}
+
+	// The setting must survive a serialize/parse cycle or editing any other
+	// field through the settings form would silently drop it.
+	out, err := cfg.ToYAML()
+	if err != nil {
+		t.Fatalf("ToYAML: %v", err)
+	}
+	again, err := keg.ParseKegConfig(out)
+	if err != nil {
+		t.Fatalf("reparse: %v", err)
+	}
+	if len(again.ListFields) != len(want) {
+		t.Errorf("after round trip ListFields = %v, want %v", again.ListFields, want)
+	}
+}
+
+func TestConfigListFieldsRejectsBadSelector(t *testing.T) {
+	// Rejecting at parse time means a typo surfaces when the config is saved
+	// rather than as a silently blank column at render time.
+	raw := []byte("kegv: 2025-07\nlistFields:\n  - type\n  - .bogus\n")
+	if _, err := keg.ParseKegConfig(raw); err == nil {
+		t.Fatal("ParseKegConfig accepted an unknown stats selector, want error")
+	} else if !strings.Contains(err.Error(), "listFields") {
+		t.Errorf("error = %q, want it to name the offending field", err)
+	}
+}
+
+func TestConfigListFieldsEmptyIsValid(t *testing.T) {
+	if _, err := keg.ParseKegConfig([]byte("kegv: 2025-07\n")); err != nil {
+		t.Fatalf("config without listFields should parse: %v", err)
 	}
 }

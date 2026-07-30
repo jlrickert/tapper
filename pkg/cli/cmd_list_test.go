@@ -624,3 +624,38 @@ func TestListCommand_FormatCompletionSuggestsSelectors(t *testing.T) {
 	require.Contains(t, suggestions, "%{tags}")
 	require.Contains(t, suggestions, "%{.accessCount}")
 }
+
+func TestListCommand_KegConfigListFieldsDrivesDefault(t *testing.T) {
+	t.Parallel()
+	sb := NewSandbox(t, testutils.WithFixture("queryuser", "~"))
+
+	// A keg whose nodes are distinguished by entity and status should show
+	// those columns without every caller having to pass --format.
+	sb.MustWriteFile("~/kegs/@local/query/keg", []byte(
+		"kegv: 2025-07\ntitle: Query\nlistFields:\n  - id\n  - entity\n  - status\n  - title\n"), 0o644)
+
+	res := NewProcess(t, false, "list", "--keg", "query").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+	out := strings.TrimSpace(string(res.Stdout))
+	require.NotEmpty(t, out)
+
+	// Node 9 carries entity=task, status=done.
+	require.Contains(t, out, "9\ttask\tdone")
+
+	// The default format is not in play any more, so no RFC3339 timestamp.
+	require.NotContains(t, out, "T00:00:00Z")
+}
+
+func TestListCommand_ExplicitFormatBeatsKegConfig(t *testing.T) {
+	t.Parallel()
+	sb := NewSandbox(t, testutils.WithFixture("queryuser", "~"))
+
+	sb.MustWriteFile("~/kegs/@local/query/keg", []byte(
+		"kegv: 2025-07\ntitle: Query\nlistFields:\n  - id\n  - entity\n"), 0o644)
+
+	res := NewProcess(t, false, "list", "--keg", "query", "-f", "%{id}|%{title}").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+	out := strings.TrimSpace(string(res.Stdout))
+	require.Contains(t, out, "|")
+	require.NotContains(t, out, "\t", "an explicit --format must win over the keg's listFields")
+}
