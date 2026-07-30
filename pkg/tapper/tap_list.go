@@ -178,6 +178,75 @@ func (t *Tap) List(ctx context.Context, opts ListOptions) ([]string, error) {
 	if err != nil {
 		return []string{}, fmt.Errorf("unable to open keg: %w", err)
 	}
+
+	sortSelector, err := listSortSelector(opts.Sort)
+	if err != nil {
+		return []string{}, err
+	}
+	compiled, err := compileListFormat(opts.Format)
+	if err != nil {
+		return []string{}, err
+	}
+
+	// Ask the server for the finished page. It filters, orders, pages, and
+	// resolves the requested fields in one round trip, so displaying metadata
+	// costs the same as displaying a title.
+	view, err := k.ListView(ctx, keg.ListViewOptions{
+		Query:  opts.Query,
+		Fields: compiled.selectorTexts(opts.IdOnly),
+		Sort:   sortSelector,
+		Limit:  opts.Limit,
+		Offset: opts.Offset,
+	})
+	switch {
+	case err == nil:
+		t.warnStaleIndex(view.IndexedCount, view.NodeCount)
+		return renderListView(compiled, view.Rows, renderOptions{
+			Format: opts.Format, IdOnly: opts.IdOnly, Reverse: opts.Reverse,
+		}), nil
+	case errors.Is(err, keg.ErrListViewUnsupported):
+		// Hub predates the endpoint; assemble the listing here instead.
+	case strings.TrimSpace(opts.Query) != "":
+		return []string{}, fmt.Errorf("invalid query expression: %w", err)
+	default:
+		return []string{}, fmt.Errorf("unable to list keg: %w", err)
+	}
+
+	return t.listClientSide(ctx, k, opts, compiled)
+}
+
+// listSortSelector maps the CLI sort names onto field selectors.
+func listSortSelector(sort ListSortType) (string, error) {
+	switch sort {
+	case SortByDefault, SortByID:
+		return "id", nil
+	case SortByUpdated:
+		return ".updated", nil
+	case SortByCreated:
+		return ".created", nil
+	case SortByAccessed:
+		return ".accessed", nil
+	}
+	return "", fmt.Errorf("unknown sort type: %q", sort)
+}
+
+func (t *Tap) warnStaleIndex(indexed, total int) {
+	gap := total - indexed
+	threshold := max(total/10, 5)
+	if gap >= threshold {
+		t.Runtime.Logger().Warn(
+			"index appears stale: run `tap index rebuild` to fix",
+			"indexed", indexed,
+			"on_disk", total,
+			"missing", gap,
+		)
+	}
+}
+
+// listClientSide reproduces the listing locally for hubs that predate the
+// server-resolved endpoint. It is strictly slower — field values cost a read
+// per row — so it exists only to keep older deployments working.
+func (t *Tap) listClientSide(ctx context.Context, k keg.Keg, opts ListOptions, compiled compiledFormat) ([]string, error) {
 	listing, err := k.ListEntries(ctx, keg.ListEntriesOptions{Query: opts.Query})
 	if err != nil {
 		if strings.TrimSpace(opts.Query) != "" {
@@ -187,25 +256,7 @@ func (t *Tap) List(ctx context.Context, opts ListOptions) ([]string, error) {
 	}
 
 	entries := listing.Entries
-
-	// Warn when the index appears significantly stale compared to on-disk nodes.
-	{
-		indexed := listing.IndexedCount
-		total := listing.NodeCount
-		gap := total - indexed
-		threshold := total / 10 // 10%
-		if threshold < 5 {
-			threshold = 5
-		}
-		if gap >= threshold {
-			t.Runtime.Logger().Warn(
-				"index appears stale: run `tap index rebuild` to fix",
-				"indexed", indexed,
-				"on_disk", total,
-				"missing", gap,
-			)
-		}
-	}
+	t.warnStaleIndex(listing.IndexedCount, listing.NodeCount)
 
 	if strings.TrimSpace(opts.Query) != "" {
 		sortNodeIndexEntries(entries)
@@ -220,8 +271,6 @@ func (t *Tap) List(ctx context.Context, opts ListOptions) ([]string, error) {
 		sortNodeIndexEntriesByTime(entries, func(e keg.NodeIndexEntry) time.Time { return e.Created })
 	case SortByAccessed:
 		sortNodeIndexEntriesByTime(entries, func(e keg.NodeIndexEntry) time.Time { return e.Accessed })
-	default:
-		return []string{}, fmt.Errorf("unknown sort type: %q", opts.Sort)
 	}
 
 	entries = applyOffset(entries, opts.Offset)
