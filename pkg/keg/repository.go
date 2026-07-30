@@ -120,6 +120,34 @@ func repositorySupportsConcurrentAccess(ctx context.Context, repo Repository) bo
 	return !ok || capability.SupportsConcurrentAccess(ctx)
 }
 
+// RepositoryBatchRead optionally reads many nodes' metadata or statistics in
+// one operation.
+//
+// It exists because listings need a value for every matching node when they
+// sort or filter on a metadata key, and the per-node path costs a round trip
+// each — on a database-backed repository, two queries per node, since each read
+// also checks existence. A backend that can answer the whole set at once
+// implements this; one that cannot simply omits it and callers fall back to
+// reading node by node.
+//
+// Implementations return only the nodes they found. A missing entry means the
+// node has no metadata or statistics, which callers treat as empty rather than
+// as an error: listings render from an index that is allowed to drift.
+type RepositoryBatchRead interface {
+	// ReadMetaBatch returns raw metadata keyed by node id path.
+	ReadMetaBatch(ctx context.Context, ids []NodeId) (map[string][]byte, error)
+
+	// ReadStatsBatch returns parsed statistics keyed by node id path.
+	ReadStatsBatch(ctx context.Context, ids []NodeId) (map[string]*NodeStats, error)
+}
+
+// repositoryBatchRead returns the batch-read capability when the repository has
+// one.
+func repositoryBatchRead(repo Repository) (RepositoryBatchRead, bool) {
+	capability, ok := repo.(RepositoryBatchRead)
+	return capability, ok
+}
+
 // RepositoryFiles provides optional per-node file attachment access.
 type RepositoryFiles interface {
 	// ListFiles lists file attachment names for a node.

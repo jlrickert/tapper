@@ -252,10 +252,13 @@ func (k *LocalKeg) listView(ctx context.Context, opts ListViewOptions) (*ListVie
 	}
 
 	rows := make([]ListViewRow, 0, len(entries))
+	// Values are loaded for the page as a whole, after paging, so a listing
+	// that displays metadata reads one batch rather than one node at a time.
+	values := k.loadFieldValues(ctx, entries, selectors)
 	for _, entry := range entries {
 		row := ListViewRow{Entry: entry}
 		if len(selectors) > 0 {
-			row.Fields = k.resolveRowFields(ctx, entry, selectors)
+			row.Fields = resolveRowFields(entry, selectors, values)
 		}
 		rows = append(rows, row)
 	}
@@ -270,23 +273,102 @@ func (k *LocalKeg) listView(ctx context.Context, opts ListViewOptions) (*ListVie
 	}, nil
 }
 
-// resolveRowFields resolves one row's selectors best-effort. A node that is
-// indexed but unreadable yields empty values rather than failing the listing:
-// listings render from an index that is allowed to drift from the repository.
-func (k *LocalKeg) resolveRowFields(ctx context.Context, entry NodeIndexEntry, selectors []FieldSelector) map[string]string {
-	var meta *NodeMeta
-	var stats *NodeStats
-	needMeta, needStats := SelectorNeeds(selectors)
+// fieldValues holds the metadata and statistics a set of selectors needs,
+// keyed by node id. A missing entry means the node had none, which callers
+// render as empty.
+type fieldValues struct {
+	meta  map[string]*NodeMeta
+	stats map[string]*NodeStats
+}
 
-	if needMeta || needStats {
+// loadFieldValues fetches whatever the selectors require for every entry, in as
+// few repository operations as the backend allows.
+//
+// This is the difference between a listing that costs two operations and one
+// that costs two per row. A backend implementing RepositoryBatchRead answers
+// the whole set at once; otherwise each node is read individually, which is the
+// only option for a plain filesystem keg.
+//
+// Reads are best-effort throughout: a node that is indexed but unreadable
+// contributes no value rather than failing the listing, because listings render
+// from an index that is allowed to drift from the repository.
+func (k *LocalKeg) loadFieldValues(ctx context.Context, entries []NodeIndexEntry, selectors []FieldSelector) *fieldValues {
+	out := &fieldValues{}
+	needMeta, needStats := SelectorNeeds(selectors)
+	if !needMeta && !needStats || len(entries) == 0 {
+		return out
+	}
+
+	ids := make([]NodeId, 0, len(entries))
+	for _, entry := range entries {
 		if id, err := ParseNode(entry.ID); err == nil && id != nil {
-			if needMeta {
-				meta, _ = k.getMeta(ctx, *id)
-			}
-			if needStats {
-				stats, _ = k.getStats(ctx, *id)
+			ids = append(ids, *id)
+		}
+	}
+	if len(ids) == 0 {
+		return out
+	}
+
+	if batch, ok := repositoryBatchRead(k.Repo); ok {
+		if needMeta {
+			out.meta = make(map[string]*NodeMeta, len(ids))
+			if raw, err := batch.ReadMetaBatch(ctx, ids); err == nil {
+				for key, data := range raw {
+					if meta, perr := ParseMeta(ctx, data); perr == nil {
+						out.meta[key] = meta
+					}
+				}
 			}
 		}
+		if needStats {
+			if stats, err := batch.ReadStatsBatch(ctx, ids); err == nil {
+				out.stats = stats
+			} else {
+				out.stats = map[string]*NodeStats{}
+			}
+		}
+		return out
+	}
+
+	if needMeta {
+		out.meta = make(map[string]*NodeMeta, len(ids))
+	}
+	if needStats {
+		out.stats = make(map[string]*NodeStats, len(ids))
+	}
+	for _, id := range ids {
+		if needMeta {
+			if meta, err := k.getMeta(ctx, id); err == nil {
+				out.meta[id.Path()] = meta
+			}
+		}
+		if needStats {
+			if stats, err := k.getStats(ctx, id); err == nil {
+				out.stats[id.Path()] = stats
+			}
+		}
+	}
+	return out
+}
+
+// nodeKey returns the key an entry's values are stored under, or "" when the
+// id cannot be parsed.
+func nodeKey(entry NodeIndexEntry) string {
+	id, err := ParseNode(entry.ID)
+	if err != nil || id == nil {
+		return ""
+	}
+	return id.Path()
+}
+
+// resolveRowFields renders one row's selectors from already-loaded values.
+func resolveRowFields(entry NodeIndexEntry, selectors []FieldSelector, values *fieldValues) map[string]string {
+	key := nodeKey(entry)
+	var meta *NodeMeta
+	var stats *NodeStats
+	if values != nil && key != "" {
+		meta = values.meta[key]
+		stats = values.stats[key]
 	}
 
 	out := make(map[string]string, len(selectors))
@@ -297,14 +379,16 @@ func (k *LocalKeg) resolveRowFields(ctx context.Context, entry NodeIndexEntry, s
 }
 
 // sortEntriesBySelector orders entries in place. Intrinsic and index-timestamp
-// selectors sort from values already in memory; anything else resolves a key
-// per node first, which is why callers sort before paging.
+// selectors sort from values already in memory; a metadata or statistics
+// selector needs a key for every entry, which is why callers sort before paging
+// and why the values are loaded in one batch.
 func (k *LocalKeg) sortEntriesBySelector(ctx context.Context, entries []NodeIndexEntry, sel FieldSelector) error {
 	if sel.NeedsMeta() || sel.NeedsStats() {
+		selectors := []FieldSelector{sel}
+		values := k.loadFieldValues(ctx, entries, selectors)
 		keys := make(map[string]string, len(entries))
 		for _, entry := range entries {
-			fields := k.resolveRowFields(ctx, entry, []FieldSelector{sel})
-			keys[entry.ID] = fields[sel.Text]
+			keys[entry.ID] = resolveRowFields(entry, selectors, values)[sel.Text]
 		}
 		slices.SortStableFunc(entries, func(a, b NodeIndexEntry) int {
 			return strings.Compare(keys[a.ID], keys[b.ID])
