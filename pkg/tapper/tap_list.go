@@ -30,11 +30,12 @@ type ListOptions struct {
 	// ("entity=plan"). When empty, all nodes are listed.
 	Query string
 
-	// Format to use. %i is node id, %d
-	// %i is node id
-	// %d is date
-	// %t is node title
-	// %% for literal %
+	// Format is the output template. Legacy verbs %i (id), %t (title),
+	// %d (updated), %c (created), %a (accessed) remain supported, and %%
+	// renders a literal percent. Named selectors use %{...}: a bare word
+	// names a metadata key (%{type}), a leading dot names a statistics field
+	// (%{.accessCount}), and %{tags} is the tag list. Selectors other than
+	// id, title, and the three dates cost one read per node.
 	Format string
 
 	IdOnly bool
@@ -58,10 +59,12 @@ type BacklinksOptions struct {
 	// Results from all node IDs are merged and deduplicated.
 	NodeIDs []string
 
-	// Format to use. %i is node id
-	// %d is date
-	// %t is node title
-	// %% for literal %
+	// Format is the output template. Legacy verbs %i (id), %t (title),
+	// %d (updated), %c (created), %a (accessed) remain supported, and %%
+	// renders a literal percent. Named selectors use %{...}: a bare word
+	// names a metadata key (%{type}), a leading dot names a statistics field
+	// (%{.accessCount}), and %{tags} is the tag list. Selectors other than
+	// id, title, and the three dates cost one read per node.
 	Format string
 
 	IdOnly bool
@@ -82,10 +85,12 @@ type LinksOptions struct {
 	// Results from all node IDs are merged and deduplicated.
 	NodeIDs []string
 
-	// Format to use. %i is node id
-	// %d is date
-	// %t is node title
-	// %% for literal %
+	// Format is the output template. Legacy verbs %i (id), %t (title),
+	// %d (updated), %c (created), %a (accessed) remain supported, and %%
+	// renders a literal percent. Named selectors use %{...}: a bare word
+	// names a metadata key (%{type}), a leading dot names a statistics field
+	// (%{.accessCount}), and %{tags} is the tag list. Selectors other than
+	// id, title, and the three dates cost one read per node.
 	Format string
 
 	IdOnly bool
@@ -105,10 +110,12 @@ type GrepOptions struct {
 	// Query is the regex pattern used to search nodes.
 	Query string
 
-	// Format to use. %i is node id
-	// %d is date
-	// %t is node title
-	// %% for literal %
+	// Format is the output template. Legacy verbs %i (id), %t (title),
+	// %d (updated), %c (created), %a (accessed) remain supported, and %%
+	// renders a literal percent. Named selectors use %{...}: a bare word
+	// names a metadata key (%{type}), a leading dot names a statistics field
+	// (%{.accessCount}), and %{tags} is the tag list. Selectors other than
+	// id, title, and the three dates cost one read per node.
 	Format string
 
 	IdOnly bool
@@ -138,10 +145,12 @@ type TagsOptions struct {
 	// ("entity=plan"). When empty, all tags are listed.
 	Query string
 
-	// Format to use. %i is node id
-	// %d is date
-	// %t is node title
-	// %% for literal %
+	// Format is the output template. Legacy verbs %i (id), %t (title),
+	// %d (updated), %c (created), %a (accessed) remain supported, and %%
+	// renders a literal percent. Named selectors use %{...}: a bare word
+	// names a metadata key (%{type}), a leading dot names a statistics field
+	// (%{.accessCount}), and %{tags} is the tag list. Selectors other than
+	// id, title, and the three dates cost one read per node.
 	Format string
 
 	IdOnly bool
@@ -221,49 +230,73 @@ func (t *Tap) List(ctx context.Context, opts ListOptions) ([]string, error) {
 		entries = entries[:opts.Limit]
 	}
 
-	return renderNodeEntries(entries, opts.Format, opts.IdOnly, opts.Reverse), nil
+	return t.renderNodeEntries(ctx, k, entries, renderOptions{
+		Format: opts.Format, IdOnly: opts.IdOnly, Reverse: opts.Reverse,
+	})
 }
 
 func (t *Tap) Backlinks(ctx context.Context, opts BacklinksOptions) ([]string, error) {
 	if opts.Offset < 0 {
 		return []string{}, fmt.Errorf("offset must be >= 0, got %d", opts.Offset)
 	}
-	return t.resolveAndLookupLinks(ctx, opts.KegTargetOptions, opts.NodeIDs,
-		opts.Format, opts.IdOnly, opts.Reverse, opts.Limit, opts.Offset, keg.RelatedBacklinks)
+	return t.resolveAndLookupLinks(ctx, relatedListOptions{
+		KegTargetOptions: opts.KegTargetOptions,
+		NodeIDs:          opts.NodeIDs,
+		Render:           renderOptions{Format: opts.Format, IdOnly: opts.IdOnly, Reverse: opts.Reverse},
+		Limit:            opts.Limit,
+		Offset:           opts.Offset,
+		Direction:        keg.RelatedBacklinks,
+	})
 }
 
 func (t *Tap) Links(ctx context.Context, opts LinksOptions) ([]string, error) {
 	if opts.Offset < 0 {
 		return []string{}, fmt.Errorf("offset must be >= 0, got %d", opts.Offset)
 	}
-	return t.resolveAndLookupLinks(ctx, opts.KegTargetOptions, opts.NodeIDs,
-		opts.Format, opts.IdOnly, opts.Reverse, opts.Limit, opts.Offset, keg.RelatedLinks)
+	return t.resolveAndLookupLinks(ctx, relatedListOptions{
+		KegTargetOptions: opts.KegTargetOptions,
+		NodeIDs:          opts.NodeIDs,
+		Render:           renderOptions{Format: opts.Format, IdOnly: opts.IdOnly, Reverse: opts.Reverse},
+		Limit:            opts.Limit,
+		Offset:           opts.Offset,
+		Direction:        keg.RelatedLinks,
+	})
+}
+
+// relatedListOptions is the shared input for Backlinks and Links.
+type relatedListOptions struct {
+	KegTargetOptions
+
+	// NodeIDs are the nodes whose related nodes are looked up.
+	NodeIDs []string
+
+	// Render carries the presentation knobs.
+	Render renderOptions
+
+	// Limit caps the number of results returned. 0 means no limit.
+	Limit int
+
+	// Offset skips the first N results before applying limit.
+	Offset int
+
+	// Direction selects incoming or outgoing links.
+	Direction keg.RelatedDirection
 }
 
 // resolveAndLookupLinks is a shared helper for Backlinks and Links. It resolves
 // the keg, validates the node IDs, calls the provided lookup function against the
 // dex for each node, merges and deduplicates results, and renders the entries.
-func (t *Tap) resolveAndLookupLinks(
-	ctx context.Context,
-	kegOpts KegTargetOptions,
-	nodeIDs []string,
-	format string,
-	idOnly bool,
-	reverse bool,
-	limit int,
-	offset int,
-	direction keg.RelatedDirection,
-) ([]string, error) {
-	if len(nodeIDs) == 0 {
+func (t *Tap) resolveAndLookupLinks(ctx context.Context, opts relatedListOptions) ([]string, error) {
+	if len(opts.NodeIDs) == 0 {
 		return []string{}, fmt.Errorf("at least one node ID is required")
 	}
 
-	k, err := t.resolveKeg(ctx, kegOpts)
+	k, err := t.resolveKeg(ctx, opts.KegTargetOptions)
 	if err != nil {
 		return []string{}, fmt.Errorf("unable to open keg: %w", err)
 	}
-	ids := make([]keg.NodeId, 0, len(nodeIDs))
-	for _, nodeID := range nodeIDs {
+	ids := make([]keg.NodeId, 0, len(opts.NodeIDs))
+	for _, nodeID := range opts.NodeIDs {
 		// Intentionally NOT routed through resolveNodeArg: a cross-keg ref would
 		// produce related nodes owned by a different keg, but the dedup key
 		// (rel.Path()) and the entry rendering below (dex.GetRef) both assume a
@@ -277,7 +310,7 @@ func (t *Tap) resolveAndLookupLinks(
 
 		ids = append(ids, id)
 	}
-	entries, err := k.RelatedNodes(ctx, keg.RelatedNodesOptions{NodeIDs: ids, Direction: direction})
+	entries, err := k.RelatedNodes(ctx, keg.RelatedNodesOptions{NodeIDs: ids, Direction: opts.Direction})
 	if err != nil {
 		if strings.Contains(err.Error(), "keg not initialized") {
 			return []string{}, err
@@ -288,13 +321,13 @@ func (t *Tap) resolveAndLookupLinks(
 		return []string{}, err
 	}
 
-	entries = applyOffset(entries, offset)
+	entries = applyOffset(entries, opts.Offset)
 
-	if limit > 0 && len(entries) > limit {
-		entries = entries[:limit]
+	if opts.Limit > 0 && len(entries) > opts.Limit {
+		entries = entries[:opts.Limit]
 	}
 
-	return renderNodeEntries(entries, format, idOnly, reverse), nil
+	return t.renderNodeEntries(ctx, k, entries, opts.Render)
 }
 
 func (t *Tap) Grep(ctx context.Context, opts GrepOptions) ([]string, error) {
@@ -331,7 +364,9 @@ func (t *Tap) Grep(ctx context.Context, opts GrepOptions) ([]string, error) {
 		matchedEntries = append(matchedEntries, match.entry)
 	}
 	if opts.IdOnly || opts.Format != "" {
-		return renderNodeEntries(matchedEntries, opts.Format, opts.IdOnly, opts.Reverse), nil
+		return t.renderNodeEntries(ctx, k, matchedEntries, renderOptions{
+			Format: opts.Format, IdOnly: opts.IdOnly, Reverse: opts.Reverse,
+		})
 	}
 	return renderGrepMatches(matches, opts.Reverse), nil
 }
@@ -389,7 +424,9 @@ func (t *Tap) Tags(ctx context.Context, opts TagsOptions) ([]string, error) {
 		entries = entries[:opts.Limit]
 	}
 
-	return renderNodeEntries(entries, opts.Format, opts.IdOnly, opts.Reverse), nil
+	return t.renderNodeEntries(ctx, k, entries, renderOptions{
+		Format: opts.Format, IdOnly: opts.IdOnly, Reverse: opts.Reverse,
+	})
 }
 
 func grepContentLineMatches(re *regexp.Regexp, raw []byte) []string {
@@ -441,39 +478,115 @@ func renderGrepMatches(matches []grepMatch, reverse bool) []string {
 	return lines
 }
 
-func renderNodeEntries(entries []keg.NodeIndexEntry, format string, idOnly bool, reverse bool) []string {
-	lines := make([]string, 0)
+// renderOptions carries the presentation knobs shared by every listing surface.
+type renderOptions struct {
+	Format  string
+	IdOnly  bool
+	Reverse bool
+}
 
-	start := 0
-	end := len(entries)
-	step := 1
-	if reverse {
-		start = len(entries) - 1
-		end = -1
-		step = -1
+// enrichWarnThreshold is the number of nodes above which a format requiring
+// per-node reads warns once, so a slow listing explains itself.
+const enrichWarnThreshold = 200
+
+// renderNodeEntries renders one line per entry using the compiled format.
+//
+// Formats naming only intrinsics, index timestamps, or legacy verbs — which
+// includes the default — perform no additional I/O. A format naming metadata
+// or a statistics field costs one read per node for each, so the whole pass is
+// wrapped in a single keg read boundary: the boundary is exclusive and
+// context-re-entrant, so without this the pass would acquire and release it
+// twice per node and block every other process on the keg.
+func (t *Tap) renderNodeEntries(
+	ctx context.Context,
+	k keg.Keg,
+	entries []keg.NodeIndexEntry,
+	opts renderOptions,
+) ([]string, error) {
+	if opts.IdOnly {
+		return renderNodeIDs(entries, opts.Reverse), nil
 	}
 
+	compiled, err := compileListFormat(opts.Format)
+	if err != nil {
+		return nil, err
+	}
+
+	lines := make([]string, 0, len(entries))
+	enrich := compiled.needsMeta || compiled.needsStats
+
+	render := func(ctx context.Context) error {
+		start, end, step := iterationBounds(len(entries), opts.Reverse)
+		for i := start; i != end; i += step {
+			if enrich {
+				if err := ctx.Err(); err != nil {
+					return err
+				}
+			}
+			src := nodeFieldSource{entry: entries[i]}
+			if enrich {
+				t.loadNodeFields(ctx, k, &src, compiled)
+			}
+			lines = append(lines, expandFormat(compiled, src))
+		}
+		return nil
+	}
+
+	if !enrich {
+		if err := render(ctx); err != nil {
+			return nil, err
+		}
+		return lines, nil
+	}
+
+	if len(entries) >= enrichWarnThreshold {
+		t.Runtime.Logger().Warn(
+			"listing format reads per-node metadata",
+			"nodes", len(entries),
+			"keg", describeKeg(k),
+		)
+	}
+	if err := keg.WithReadBoundary(ctx, k, render); err != nil {
+		return nil, err
+	}
+	return lines, nil
+}
+
+// loadNodeFields fetches only what the compiled format actually needs. A read
+// failure leaves the value empty rather than failing the listing: the stale
+// index path already anticipates nodes that are indexed but unreadable, and one
+// broken node must not blank an entire listing.
+func (t *Tap) loadNodeFields(ctx context.Context, k keg.Keg, src *nodeFieldSource, compiled compiledFormat) {
+	id, err := keg.ParseNode(src.entry.ID)
+	if err != nil || id == nil {
+		return
+	}
+	if compiled.needsMeta {
+		if meta, err := k.GetMeta(ctx, *id); err == nil {
+			src.meta = meta
+		}
+	}
+	if compiled.needsStats {
+		if stats, err := k.GetStats(ctx, *id); err == nil {
+			src.stats = stats
+		}
+	}
+}
+
+func renderNodeIDs(entries []keg.NodeIndexEntry, reverse bool) []string {
+	lines := make([]string, 0, len(entries))
+	start, end, step := iterationBounds(len(entries), reverse)
 	for i := start; i != end; i += step {
-		entry := entries[i]
-		if idOnly {
-			lines = append(lines, entry.ID)
-			continue
-		}
-
-		lineFormat := format
-		if lineFormat == "" {
-			lineFormat = "%i\t%d\t%t"
-		}
-
-		line := lineFormat
-		line = strings.Replace(line, "%i", entry.ID, -1)
-		line = strings.Replace(line, "%d", entry.Updated.Format(time.RFC3339), -1)
-		line = strings.Replace(line, "%c", entry.Created.Format(time.RFC3339), -1)
-		line = strings.Replace(line, "%a", entry.Accessed.Format(time.RFC3339), -1)
-		line = strings.Replace(line, "%t", entry.Title, -1)
-		lines = append(lines, line)
+		lines = append(lines, entries[i].ID)
 	}
 	return lines
+}
+
+func iterationBounds(n int, reverse bool) (start, end, step int) {
+	if reverse {
+		return n - 1, -1, -1
+	}
+	return 0, n, 1
 }
 
 func sortNodeIndexEntriesByTime(entries []keg.NodeIndexEntry, timeFunc func(keg.NodeIndexEntry) time.Time) {
