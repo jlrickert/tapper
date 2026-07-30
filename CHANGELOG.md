@@ -2,6 +2,21 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.36.0 - 2026-07-30
+
+
+
+### 🚀 Features
+- add progressive orientation discovery
+- **tapper:** select node metadata and stats in listing formats
+- **cli,mcp:** advertise the listing field vocabulary on both surfaces
+- **keg:** build node listings on the server
+- **tapper:** interpret backslash escapes in listing formats
+- **keg:** default listing fields per keg
+- **keg:** read listing metadata in batches
+- **keg:** filter listings by title substring
+
+
 ## v0.35.0 - 2026-07-29
 
 
