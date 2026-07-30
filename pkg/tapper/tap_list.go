@@ -183,7 +183,7 @@ func (t *Tap) List(ctx context.Context, opts ListOptions) ([]string, error) {
 	if err != nil {
 		return []string{}, err
 	}
-	compiled, err := compileListFormat(opts.Format)
+	compiled, err := compileListFormat(t.resolveListFormat(ctx, k, opts.Format))
 	if err != nil {
 		return []string{}, err
 	}
@@ -213,6 +213,41 @@ func (t *Tap) List(ctx context.Context, opts ListOptions) ([]string, error) {
 	}
 
 	return t.listClientSide(ctx, k, opts, compiled)
+}
+
+// resolveListFormat picks the format for a listing: an explicit --format wins,
+// then the keg's own listFields, then the built-in default.
+//
+// Reading the keg's preference means a keg whose nodes are distinguished by
+// type or subkind shows those columns without every caller having to know it.
+// The lookup is best-effort — a keg with no config, or an unreadable one, falls
+// through to the default rather than failing the listing.
+func (t *Tap) resolveListFormat(ctx context.Context, k keg.Keg, explicit string) string {
+	if strings.TrimSpace(explicit) != "" {
+		return explicit
+	}
+	cfg, err := k.Config(ctx)
+	if err != nil || cfg == nil || len(cfg.ListFields) == 0 {
+		return explicit
+	}
+	return formatFromFieldSelectors(cfg.ListFields)
+}
+
+// formatFromFieldSelectors renders a selector list as a tab-separated format
+// string, so keg configuration and --format share one language.
+func formatFromFieldSelectors(fields []string) string {
+	parts := make([]string, 0, len(fields))
+	for _, field := range fields {
+		field = strings.TrimSpace(field)
+		if field == "" {
+			continue
+		}
+		parts = append(parts, "%{"+field+"}")
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return strings.Join(parts, "\t")
 }
 
 // listSortSelector maps the CLI sort names onto field selectors.

@@ -81,6 +81,24 @@ An unrecognised `\X` passes through untouched, the same rule as `%X`, so a
 Windows-style path in a template survives. A real tab — from `$'...'` quoting or
 a script — passes through unchanged.
 
+## Per-keg defaults
+
+A keg can declare the columns its listings should show, so a keg whose nodes are
+distinguished by `type` and `subkind` displays them without every caller passing
+`--format`:
+
+```yaml
+# keg
+kegv: 2025-07
+listFields: [id, type, subkind, title]
+```
+
+The same setting drives the node list in Tapper Hub, so a keg looks the same on
+both surfaces. Resolution order is `--format` → `listFields` → the built-in
+default. Entries use the selector vocabulary above and are validated when the
+config is saved, so a typo is reported at that point rather than rendering a
+silently blank column.
+
 ## Absent values
 
 An absent value renders as the empty string rather than a placeholder, so a
