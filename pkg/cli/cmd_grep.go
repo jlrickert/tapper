@@ -13,8 +13,13 @@ func NewGrepCmd(deps *Deps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "grep QUERY",
 		Short: "search node content by query",
-		Long:  "Search node content with a regex and print matching lines grouped by node.",
-		Args:  cobra.ExactArgs(1),
+		Long: `Search node content with a regex and print matching lines grouped by node.
+
+With --format or --id-only, matching nodes are listed instead of their
+matching lines.
+
+` + formatHelp,
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts.Query = args[0]
 			applyKegTargetProfile(deps, &opts.KegTargetOptions)
@@ -35,6 +40,7 @@ func NewGrepCmd(deps *Deps) *cobra.Command {
 	cmd.Flags().IntVarP(&opts.Limit, "limit", "n", 0, "maximum number of results (0 for no limit)")
 	cmd.Flags().IntVar(&opts.Offset, "offset", 0, "skip the first N results")
 	cmd.Flags().StringVarP(&opts.Format, "format", "f", "", "output format")
+	registerFormatCompletion(cmd)
 	cmd.Flags().BoolVarP(&opts.IgnoreCase, "ignore-case", "i", false, "perform case-insensitive matching")
 	cmd.Flags().IntVar(&opts.MaxLines, "max-lines", 0, "maximum matched lines per node (0 for unlimited)")
 

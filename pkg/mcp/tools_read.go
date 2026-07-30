@@ -62,7 +62,7 @@ func registerCat(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 type listInput struct {
 	Query   string `json:"query,omitempty" jsonschema:"boolean query expression to filter nodes. Supports tags ('golang'), key=value attributes ('entity=plan'), and dot-prefix stats fields ('.created>2026-01-01', '.accessCount>=5', '.hash=abc123'). Combine with 'and', 'or', 'not'."`
 	Keg     string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
-	Format  string `json:"format,omitempty" jsonschema:"output format (%i=id %d=date %t=title)"`
+	Format  string `json:"format,omitempty" jsonschema:"output format template. Legacy verbs %i (id), %t (title), %d (updated), %c (created), %a (accessed); %% is a literal percent. Named selectors use %{...}: a bare word names a metadata key such as %{type} or %{status}, a leading dot names a statistics field such as %{.accessCount} or %{.omega}, and %{tags} is the node's tag list. Selectors other than id, title, and the three dates read one file per node."`
 	IdOnly  bool   `json:"id_only,omitempty" jsonschema:"return node IDs only"`
 	Reverse bool   `json:"reverse,omitempty" jsonschema:"reverse output order"`
 	Sort    string `json:"sort,omitempty" jsonschema:"sort order: 'id' (default), 'updated', 'created', or 'accessed'"`
@@ -102,7 +102,7 @@ func registerList(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 type grepInput struct {
 	Query      string `json:"query" jsonschema:"regex pattern to search node content"`
 	Keg        string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
-	Format     string `json:"format,omitempty" jsonschema:"output format (%i=id %d=date %t=title); use id_only for compact MCP output"`
+	Format     string `json:"format,omitempty" jsonschema:"output format template. Legacy verbs %i (id), %t (title), %d (updated), %c (created), %a (accessed); %% is a literal percent. Named selectors use %{...}: a bare word names a metadata key such as %{type} or %{status}, a leading dot names a statistics field such as %{.accessCount} or %{.omega}, and %{tags} is the node's tag list. Selectors other than id, title, and the three dates read one file per node. Use id_only for compact MCP output."`
 	IdOnly     bool   `json:"id_only,omitempty" jsonschema:"return node IDs only (recommended for MCP to reduce token usage)"`
 	Reverse    bool   `json:"reverse,omitempty" jsonschema:"reverse output order"`
 	IgnoreCase bool   `json:"ignore_case,omitempty" jsonschema:"case-insensitive matching"`
@@ -144,7 +144,7 @@ func registerGrep(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 type tagsInput struct {
 	Query   string `json:"query,omitempty" jsonschema:"boolean expression to filter by tags, attributes, and dot-prefix stats fields (e.g. '.created>2026-01-01 and entity=plan')"`
 	Keg     string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
-	Format  string `json:"format,omitempty" jsonschema:"output format (%i=id %d=date %t=title)"`
+	Format  string `json:"format,omitempty" jsonschema:"output format template. Legacy verbs %i (id), %t (title), %d (updated), %c (created), %a (accessed); %% is a literal percent. Named selectors use %{...}: a bare word names a metadata key such as %{type} or %{status}, a leading dot names a statistics field such as %{.accessCount} or %{.omega}, and %{tags} is the node's tag list. Selectors other than id, title, and the three dates read one file per node."`
 	IdOnly  bool   `json:"id_only,omitempty" jsonschema:"return node IDs only"`
 	Reverse bool   `json:"reverse,omitempty" jsonschema:"reverse output order"`
 	Limit   int    `json:"limit,omitempty" jsonschema:"maximum results to return (default: 50, 0 in request means use default, -1 for unlimited)"`
@@ -182,7 +182,7 @@ func registerTags(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 type backlinksInput struct {
 	NodeIDs []string `json:"node_ids" jsonschema:"target node IDs to find incoming links for (results merged and deduplicated)"`
 	Keg     string   `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
-	Format  string   `json:"format,omitempty" jsonschema:"output format (%i=id %d=date %t=title)"`
+	Format  string   `json:"format,omitempty" jsonschema:"output format template. Legacy verbs %i (id), %t (title), %d (updated), %c (created), %a (accessed); %% is a literal percent. Named selectors use %{...}: a bare word names a metadata key such as %{type} or %{status}, a leading dot names a statistics field such as %{.accessCount} or %{.omega}, and %{tags} is the node's tag list. Selectors other than id, title, and the three dates read one file per node."`
 	IdOnly  bool     `json:"id_only,omitempty" jsonschema:"return node IDs only"`
 	Reverse bool     `json:"reverse,omitempty" jsonschema:"reverse output order"`
 	Limit   int      `json:"limit,omitempty" jsonschema:"maximum results to return (default: 50, 0 in request means use default, -1 for unlimited)"`
@@ -220,7 +220,7 @@ func registerBacklinks(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults
 type linksInput struct {
 	NodeIDs []string `json:"node_ids" jsonschema:"source node IDs to find outgoing links for (results merged and deduplicated)"`
 	Keg     string   `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
-	Format  string   `json:"format,omitempty" jsonschema:"output format (%i=id %d=date %t=title)"`
+	Format  string   `json:"format,omitempty" jsonschema:"output format template. Legacy verbs %i (id), %t (title), %d (updated), %c (created), %a (accessed); %% is a literal percent. Named selectors use %{...}: a bare word names a metadata key such as %{type} or %{status}, a leading dot names a statistics field such as %{.accessCount} or %{.omega}, and %{tags} is the node's tag list. Selectors other than id, title, and the three dates read one file per node."`
 	IdOnly  bool     `json:"id_only,omitempty" jsonschema:"return node IDs only"`
 	Reverse bool     `json:"reverse,omitempty" jsonschema:"reverse output order"`
 	Limit   int      `json:"limit,omitempty" jsonschema:"maximum results to return (default: 50, 0 in request means use default, -1 for unlimited)"`

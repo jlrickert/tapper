@@ -140,6 +140,135 @@ func TestParity_ReadOperations(t *testing.T) {
 			},
 		},
 
+		// --- listing field vocabulary conformance ---
+		// One case per selector kind, so the CLI and MCP surfaces cannot drift
+		// on what a field is named or what it resolves to. Adding a selector
+		// without a case here leaves half the vocabulary unverified on one
+		// surface, which is how %c and %a came to work on both while only one
+		// advertised them.
+		{
+			Name:    "list/format_legacy_verbs",
+			CLIArgs: []string{"list", "-f", "%i|%t|%d|%c|%a"},
+			MCPTool: "list",
+			MCPInput: map[string]any{
+				"format": "%i|%t|%d|%c|%a",
+				"limit":  -1,
+			},
+		},
+		{
+			Name:    "list/format_named_intrinsics",
+			CLIArgs: []string{"list", "-f", "%{id}|%{title}"},
+			MCPTool: "list",
+			MCPInput: map[string]any{
+				"format": "%{id}|%{title}",
+				"limit":  -1,
+			},
+		},
+		{
+			Name:    "list/format_index_times",
+			CLIArgs: []string{"list", "-f", "%{.updated}|%{.created}|%{.accessed}"},
+			MCPTool: "list",
+			MCPInput: map[string]any{
+				"format": "%{.updated}|%{.created}|%{.accessed}",
+				"limit":  -1,
+			},
+		},
+		{
+			Name:    "list/format_tags",
+			CLIArgs: []string{"list", "-f", "%i\t%{tags}"},
+			MCPTool: "list",
+			MCPInput: map[string]any{
+				"format": "%i\t%{tags}",
+				"limit":  -1,
+			},
+		},
+		{
+			Name:    "list/format_stats_hash",
+			CLIArgs: []string{"list", "-f", "%i\t%{.hash}"},
+			MCPTool: "list",
+			MCPInput: map[string]any{
+				"format": "%i\t%{.hash}",
+				"limit":  -1,
+			},
+		},
+		{
+			Name:    "list/format_stats_access_count",
+			CLIArgs: []string{"list", "-f", "%i\t%{.accessCount}"},
+			MCPTool: "list",
+			MCPInput: map[string]any{
+				"format": "%i\t%{.accessCount}",
+				"limit":  -1,
+			},
+		},
+		{
+			// An absent metadata key renders empty on both surfaces, so a
+			// tabular format keeps a stable column count.
+			Name:    "list/format_absent_meta_key",
+			CLIArgs: []string{"list", "-f", "%i|%{type}|end"},
+			MCPTool: "list",
+			MCPInput: map[string]any{
+				"format": "%i|%{type}|end",
+				"limit":  -1,
+			},
+		},
+		{
+			// Documented in the help for a long time, implemented only now.
+			Name:    "list/format_literal_percent",
+			CLIArgs: []string{"list", "-f", "%i 100%%"},
+			MCPTool: "list",
+			MCPInput: map[string]any{
+				"format": "%i 100%%",
+				"limit":  -1,
+			},
+		},
+		{
+			Name:    "list/format_unknown_stats_field",
+			CLIArgs: []string{"list", "-f", "%{.bogus}"},
+			MCPTool: "list",
+			MCPInput: map[string]any{
+				"format": "%{.bogus}",
+				"limit":  -1,
+			},
+			WantErr:         true,
+			WantErrContains: "invalid format",
+		},
+		{
+			Name:    "list/format_unterminated_brace",
+			CLIArgs: []string{"list", "-f", "%{id"},
+			MCPTool: "list",
+			MCPInput: map[string]any{
+				"format": "%{id",
+				"limit":  -1,
+			},
+			WantErr:         true,
+			WantErrContains: "invalid format",
+		},
+		{
+			// Pasting query syntax into field position is the likely mistake,
+			// so both surfaces must name it rather than fail generically.
+			Name:    "list/format_predicate_in_field_position",
+			CLIArgs: []string{"list", "-f", "%{type=plan}"},
+			MCPTool: "list",
+			MCPInput: map[string]any{
+				"format": "%{type=plan}",
+				"limit":  -1,
+			},
+			WantErr:         true,
+			WantErrContains: "invalid format",
+		},
+		{
+			// The vocabulary must be identical on every command sharing the
+			// formatter, not just list.
+			Name:    "tags/format_named_selectors",
+			CLIArgs: []string{"tags", "hello", "-f", "%i\t%{tags}"},
+			MCPTool: "tags",
+			MCPInput: map[string]any{
+				"query":  "hello",
+				"format": "%i\t%{tags}",
+				"limit":  -1,
+			},
+		},
+
 		// --- list with sort (Tap.List) ---
 		{
 			Name:    "list/sort_updated",

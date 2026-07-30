@@ -132,5 +132,6 @@ example `--plugin tapper-dev`, to add optional plugins. `--scope` defaults to
 - [Node Snapshots](node-snapshots.md)
 - [Backups And Archives](backups-and-archives.md)
 - [Query Expressions](query-expressions.md)
+- [Output Formats](output-formats.md)
 - [Troubleshooting](configuration/troubleshooting.md)
 - [Architecture Overview](architecture/README.md)

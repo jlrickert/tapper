@@ -16,8 +16,9 @@ func NewLinksCmd(deps *Deps) *cobra.Command {
 		Long: `List nodes that the given NODE_IDs link to. When multiple IDs are
 provided, results are merged and deduplicated.
 
-Format placeholders: %i (node id), %d (date), %t (title), %% (literal %).
-Default format: "%i %d %t".`,
+` + formatHelp + `
+
+Default format: "%i\t%d\t%t".`,
 		Args:              cobra.MinimumNArgs(1),
 		ValidArgsFunction: nodeIDCompletionFunc(deps, 0),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -40,6 +41,7 @@ Default format: "%i %d %t".`,
 	cmd.Flags().IntVarP(&opts.Limit, "limit", "n", 0, "maximum number of results (0 for no limit)")
 	cmd.Flags().IntVar(&opts.Offset, "offset", 0, "skip the first N results")
 	cmd.Flags().StringVarP(&opts.Format, "format", "f", "", "output format")
+	registerFormatCompletion(cmd)
 
 	return cmd
 }

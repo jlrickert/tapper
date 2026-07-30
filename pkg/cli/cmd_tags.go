@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/jlrickert/tapper/pkg/keg"
 	"github.com/jlrickert/tapper/pkg/tapper"
 	"github.com/spf13/cobra"
 )
@@ -27,6 +26,8 @@ Expression language:
   - Symbol operators: &&, ||, !
   - Grouping: parentheses ()
   - Precedence: not > and > or
+
+` + formatHelp + `
 
 Examples:
   tap tags
@@ -91,16 +92,8 @@ Examples:
 	cmd.Flags().IntVar(&opts.Offset, "offset", 0, "skip the first N results")
 	cmd.Flags().StringVarP(&opts.Format, "format", "f", "", "output format when TAG is provided")
 	cmd.Flags().StringVar(&opts.Query, "query", "", `boolean expression (see "tap docs query-expressions" for syntax)`)
-	mustRegisterFlagCompletion(cmd, "query", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-		if strings.HasPrefix(toComplete, ".") || toComplete == "" {
-			suggestions := make([]string, len(keg.StatsFieldNames))
-			for i, name := range keg.StatsFieldNames {
-				suggestions[i] = "." + name
-			}
-			return suggestions, cobra.ShellCompDirectiveNoFileComp
-		}
-		return nil, cobra.ShellCompDirectiveNoFileComp
-	})
+	registerQueryFieldCompletion(cmd)
+	registerFormatCompletion(cmd)
 
 	return cmd
 }
