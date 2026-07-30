@@ -26,6 +26,10 @@ Named selectors use %{...} and share the query expression vocabulary:
   %{.accessCount}      a statistics field: updated, created, accessed,
                        hash, accessCount, lead, omega
 
+Escapes: \t tab, \n newline, \r return, \\ backslash. These are
+interpreted by tap, so "%i\t%t" produces tabs inside ordinary shell
+quotes without needing $'...'.
+
 Selectors other than id, title, and the three dates read one file per
 node. Absent values render empty.`
 

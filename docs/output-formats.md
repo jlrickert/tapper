@@ -60,6 +60,27 @@ because a single letter cannot address an arbitrary metadata key.
 An unrecognised `%X` passes through as literal text, so a format containing a
 bare percent keeps working.
 
+### Escapes
+
+A shell does not expand `\t` inside double quotes, so `tap` interprets backslash
+escapes itself. This is what makes the tab-separated default typeable at a
+prompt:
+
+```sh
+tap list -f "%{id}\t%{type}\t%{title}"     # real tabs
+```
+
+| Escape | Renders |
+| --- | --- |
+| `\t` | tab |
+| `\n` | newline |
+| `\r` | carriage return |
+| `\\` | a literal backslash |
+
+An unrecognised `\X` passes through untouched, the same rule as `%X`, so a
+Windows-style path in a template survives. A real tab — from `$'...'` quoting or
+a script — passes through unchanged.
+
 ## Absent values
 
 An absent value renders as the empty string rather than a placeholder, so a

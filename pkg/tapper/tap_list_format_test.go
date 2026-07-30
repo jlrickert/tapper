@@ -241,3 +241,48 @@ func TestExpandFormatIntrinsicsShadowMetadata(t *testing.T) {
 		t.Errorf("title = %q, want the intrinsic %q", got, "A Node")
 	}
 }
+
+func TestCompileListFormatBackslashEscapes(t *testing.T) {
+	// A shell does not expand "\t" inside double quotes, so a format typed at
+	// a prompt arrives with a literal backslash. The documented default is
+	// tab-separated, so the escape has to be interpreted here or the obvious
+	// command produces literal "\t" between columns.
+	src := nodeFieldSource{entry: testEntry()}
+	tests := map[string]string{
+		`%i\t%t`:   "3\tA Node",
+		`%i\n%t`:   "3\nA Node",
+		`%i\r%t`:   "3\rA Node",
+		`a\\b`:     `a\b`,
+		`%i\t\t%t`: "3\t\tA Node",
+	}
+	for format, want := range tests {
+		if got := renderOne(t, format, src); got != want {
+			t.Errorf("format %q = %q, want %q", format, got, want)
+		}
+	}
+}
+
+func TestCompileListFormatUnknownEscapePassesThrough(t *testing.T) {
+	// Mirrors the rule for unknown percent verbs: pass through untouched so a
+	// Windows-style path or a stray backslash in a template still renders.
+	src := nodeFieldSource{entry: testEntry()}
+	tests := map[string]string{
+		`C:\path %i`: `C:\path 3`,
+		`%i\q`:       `3\q`,
+		`%i\`:        `3\`,
+	}
+	for format, want := range tests {
+		if got := renderOne(t, format, src); got != want {
+			t.Errorf("format %q = %q, want %q", format, got, want)
+		}
+	}
+}
+
+func TestCompileListFormatRealTabIsUnaffected(t *testing.T) {
+	// $'...' quoting and Go string literals deliver a real tab; it must pass
+	// through unchanged rather than being double-processed.
+	src := nodeFieldSource{entry: testEntry()}
+	if got := renderOne(t, "%i\t%t", src); got != "3\tA Node" {
+		t.Errorf("real tab = %q, want %q", got, "3\tA Node")
+	}
+}

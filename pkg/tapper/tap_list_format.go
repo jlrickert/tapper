@@ -11,6 +11,17 @@ import (
 // tab-separated so listing output stays machine-readable by default.
 const defaultListFormat = "%i\t%d\t%t"
 
+// formatEscapes are the backslash escapes a format string may contain. They
+// exist because a shell does not expand "\t" inside double quotes, so the
+// separator most listings want is otherwise impossible to type without
+// resorting to $'...' quoting.
+var formatEscapes = map[byte]byte{
+	't':  '\t',
+	'n':  '\n',
+	'r':  '\r',
+	'\\': '\\',
+}
+
 // formatSegment is one piece of a compiled format: either literal text, or a
 // field selector to expand per node.
 type formatSegment struct {
@@ -67,6 +78,24 @@ func compileListFormat(format string) (compiledFormat, error) {
 
 	for i := 0; i < len(format); {
 		c := format[i]
+
+		// Interpret backslash escapes. A shell's double quotes do not expand
+		// "\t", so without this the documented default format "%i\t%d\t%t"
+		// cannot be typed at a prompt: it arrives as a literal backslash and
+		// a t. Unknown escapes pass through untouched, mirroring the rule for
+		// unknown percent verbs.
+		if c == '\\' && i+1 < len(format) {
+			if escaped, ok := formatEscapes[format[i+1]]; ok {
+				lit.WriteByte(escaped)
+				i += 2
+				continue
+			}
+			lit.WriteByte('\\')
+			lit.WriteByte(format[i+1])
+			i += 2
+			continue
+		}
+
 		if c != '%' {
 			lit.WriteByte(c)
 			i++
