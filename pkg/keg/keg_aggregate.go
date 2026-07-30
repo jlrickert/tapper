@@ -33,6 +33,13 @@ type ListViewOptions struct {
 	// Query is an optional boolean query expression filtering the nodes.
 	Query string `json:"query,omitempty"`
 
+	// TitleContains further narrows the result to titles containing this
+	// text, case-insensitively. It is a plain substring rather than an
+	// expression, for the common "I half-remember the name" search, and it
+	// costs nothing because titles are already carried by the index. Applying
+	// it here rather than in the caller keeps paging and TotalMatches correct.
+	TitleContains string `json:"title_contains,omitempty"`
+
 	// Fields are field selectors to resolve per row, in the vocabulary of
 	// ParseFieldSelector ("type", ".omega", "tags"). Intrinsics and index
 	// timestamps cost nothing; other selectors are read per returned row.
@@ -226,6 +233,15 @@ func (k *LocalKeg) listView(ctx context.Context, opts ListViewOptions) (*ListVie
 		return nil, err
 	}
 	entries := listing.Entries
+	if needle := strings.ToLower(strings.TrimSpace(opts.TitleContains)); needle != "" {
+		kept := make([]NodeIndexEntry, 0, len(entries))
+		for _, entry := range entries {
+			if strings.Contains(strings.ToLower(entry.Title), needle) {
+				kept = append(kept, entry)
+			}
+		}
+		entries = kept
+	}
 	total := len(entries)
 
 	// Sorting by metadata or a non-timestamp stat needs a value for every
