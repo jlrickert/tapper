@@ -2,9 +2,7 @@ package cli
 
 import (
 	"fmt"
-	"strings"
 
-	"github.com/jlrickert/tapper/pkg/keg"
 	"github.com/jlrickert/tapper/pkg/tapper"
 	"github.com/spf13/cobra"
 )
@@ -17,13 +15,7 @@ func NewListCmd(deps *Deps) *cobra.Command {
 		Short: "list all indexed nodes",
 		Long: `List indexed nodes for the resolved keg.
 
-Format placeholders:
-  %i  node id
-  %d  updated date
-  %c  created date
-  %a  accessed date
-  %t  title
-  %%  literal percent
+` + formatHelp + `
 
 Default format: "%i\t%d\t%t".
 
@@ -67,16 +59,8 @@ Use --sort to order by "id", "updated", "created", or "accessed".`,
 	mustRegisterFlagCompletion(cmd, "sort", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		return []string{"id", "updated", "created", "accessed"}, cobra.ShellCompDirectiveNoFileComp
 	})
-	mustRegisterFlagCompletion(cmd, "query", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-		if strings.HasPrefix(toComplete, ".") || toComplete == "" {
-			suggestions := make([]string, len(keg.StatsFieldNames))
-			for i, name := range keg.StatsFieldNames {
-				suggestions[i] = "." + name
-			}
-			return suggestions, cobra.ShellCompDirectiveNoFileComp
-		}
-		return nil, cobra.ShellCompDirectiveNoFileComp
-	})
+	registerQueryFieldCompletion(cmd)
+	registerFormatCompletion(cmd)
 
 	return cmd
 }

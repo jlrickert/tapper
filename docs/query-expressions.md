@@ -17,7 +17,7 @@ A query expression is built from **terms** combined with **operators**.
 
 ### Terms
 
-A term is either a tag name or a key=value attribute predicate.
+A term is a tag name, a metadata predicate, or a statistics-field predicate.
 
 - **Tag**: a plain identifier that matches nodes carrying that tag.
 
@@ -26,14 +26,37 @@ A term is either a tag name or a key=value attribute predicate.
   ```
 
 - **Attribute predicate**: `key=value` matches nodes whose `meta.yaml` contains
-  the given key with the given value.
+  the given key with the given value. `!=` negates.
 
   ```
   entity=plan
+  status!=draft
   ```
 
-Tags are resolved from the dex index (fast). Attribute predicates scan each
-node's `meta.yaml` (slower on large kegs).
+- **Statistics-field predicate**: a dot-prefixed field name, optionally compared
+  with `=`, `!=`, `<`, `<=`, `>`, or `>=`. With no operator it is a non-zero
+  existence check.
+
+  ```
+  .created>2026-01-01
+  .accessCount>=5
+  .hash=abc123
+  .omega
+  ```
+
+  The recognized fields are `updated`, `created`, `accessed`, `hash`,
+  `accessCount`, `lead`, and `omega`.
+
+Tags are resolved from the dex index (fast), as are the `.updated`, `.created`,
+and `.accessed` timestamps. Attribute predicates and the remaining statistics
+fields scan each node's `meta.yaml` or `stats.json` (slower on large kegs).
+
+### Bare words
+
+A bare word means a **tag** here, because a metadata key is always written as
+`key=value` in predicate position. The same vocabulary also names fields for
+*display*, where a bare word instead names a metadata key — see
+[Output Formats](output-formats.md).
 
 ### Operators
 

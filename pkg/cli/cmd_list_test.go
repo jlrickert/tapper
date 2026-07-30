@@ -530,3 +530,97 @@ func TestListCommand_AttrCompare_MixedWithDotPrefix(t *testing.T) {
 	require.NotContains(t, trimmed, "1", "plan node should NOT match entity!=plan")
 	require.Contains(t, trimmed, "2", "task node should match entity!=plan and .created")
 }
+
+func TestListCommand_FormatLiteralPercent(t *testing.T) {
+	t.Parallel()
+	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
+
+	// %% was documented in the help long before it was implemented; the old
+	// replace-chain left it untouched.
+	res := NewProcess(t, false, "list", "-f", "%i 100%%").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+
+	out := strings.TrimSpace(string(res.Stdout))
+	require.NotEmpty(t, out)
+	for _, line := range strings.Split(out, "\n") {
+		require.True(t, strings.HasSuffix(line, " 100%"),
+			"expected %%%% to render one literal percent, got %q", line)
+	}
+}
+
+func TestListCommand_FormatMetadataSelector(t *testing.T) {
+	t.Parallel()
+	sb := NewSandbox(t, testutils.WithFixture("queryuser", "~"))
+
+	res := NewProcess(t, false, "list", "-f", "%i\t%{entity}\t%{status}").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+	out := strings.TrimSpace(string(res.Stdout))
+	require.NotEmpty(t, out)
+
+	// Node 9 carries entity=task, status=done in meta.yaml. Reaching an
+	// arbitrary metadata key is the whole point of the named selectors.
+	require.Contains(t, out, "9\ttask\tdone")
+
+	// A node without those keys renders empty columns rather than dropping
+	// them, so the column count stays stable.
+	require.Contains(t, out, "0\t\t")
+}
+
+func TestListCommand_FormatTagsSelector(t *testing.T) {
+	t.Parallel()
+	sb := NewSandbox(t, testutils.WithFixture("queryuser", "~"))
+
+	res := NewProcess(t, false, "list", "-f", "%i\t%{tags}").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+	out := strings.TrimSpace(string(res.Stdout))
+
+	require.Contains(t, out, "9\tbackend,performance")
+}
+
+func TestListCommand_FormatIntrinsicsShadowMetadata(t *testing.T) {
+	t.Parallel()
+	sb := NewSandbox(t, testutils.WithFixture("queryuser", "~"))
+
+	// %{title} is the intrinsic index title, never a `title` metadata key.
+	titles := NewProcess(t, false, "list", "-f", "%{title}").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, titles.Err)
+	legacy := NewProcess(t, false, "list", "-f", "%t").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, legacy.Err)
+
+	require.Equal(t, string(legacy.Stdout), string(titles.Stdout),
+		"%{title} and %t must resolve identically")
+}
+
+func TestListCommand_FormatUnknownStatsFieldErrors(t *testing.T) {
+	t.Parallel()
+	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
+
+	// The stats vocabulary is closed, so a typo is reported rather than
+	// silently rendering an empty column.
+	res := NewProcess(t, false, "list", "-f", "%{.bogus}").Run(sb.Context(), sb.Runtime())
+	require.Error(t, res.Err)
+	require.Contains(t, res.Err.Error(), "invalid format")
+	require.Contains(t, res.Err.Error(), "unknown stats field")
+}
+
+func TestListCommand_FormatUnterminatedBraceErrors(t *testing.T) {
+	t.Parallel()
+	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
+
+	res := NewProcess(t, false, "list", "-f", "%{id").Run(sb.Context(), sb.Runtime())
+	require.Error(t, res.Err)
+	require.Contains(t, res.Err.Error(), "invalid format")
+}
+
+func TestListCommand_FormatCompletionSuggestsSelectors(t *testing.T) {
+	t.Parallel()
+	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
+
+	res := NewCompletionProcess(t, false, 0, "list", "--format", "").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+	suggestions := parseCompletionSuggestions(string(res.Stdout))
+
+	require.Contains(t, suggestions, "%{id}")
+	require.Contains(t, suggestions, "%{tags}")
+	require.Contains(t, suggestions, "%{.accessCount}")
+}
