@@ -162,6 +162,14 @@ type Keg interface {
 	// entries in dex order without changing the aggregate counts.
 	ListEntries(ctx context.Context, opts ListEntriesOptions) (*ListEntriesResult, error)
 
+	// ListView returns one fully resolved listing page: filtered by the query,
+	// ordered, paged, and projected onto the requested field selectors. The
+	// server owns the whole projection so a caller displaying metadata does not
+	// read each node individually. Field resolution is best-effort: a node whose
+	// metadata or stats cannot be read yields empty values rather than failing
+	// the listing, because listings render from an index that may be stale.
+	ListView(ctx context.Context, opts ListViewOptions) (*ListViewResult, error)
+
 	// RelatedNodes returns the deduplicated union of links or backlinks for the
 	// supplied nodes, ordered by node id. It fails if no ids are supplied, an id
 	// is missing, or the direction is invalid.

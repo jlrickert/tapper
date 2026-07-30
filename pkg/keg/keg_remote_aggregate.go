@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 )
@@ -11,6 +12,24 @@ import (
 func (k *RemoteKeg) ListEntries(ctx context.Context, opts ListEntriesOptions) (*ListEntriesResult, error) {
 	var out ListEntriesResult
 	if err := k.postJSON(ctx, "/list", "ListEntries", opts, &out, http.StatusOK); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// ErrListViewUnsupported reports that the hub predates the server-resolved
+// listing endpoint. Callers degrade to assembling the listing client-side.
+var ErrListViewUnsupported = errors.New("hub list view API is unavailable")
+
+// ListView resolves a whole listing page in one request. A hub that does not
+// implement the route answers 404, which is reported as
+// ErrListViewUnsupported so the caller can fall back rather than fail.
+func (k *RemoteKeg) ListView(ctx context.Context, opts ListViewOptions) (*ListViewResult, error) {
+	var out ListViewResult
+	if err := k.postJSON(ctx, "/list/view", "ListView", opts, &out, http.StatusOK); err != nil {
+		if _, status := RemoteErrorCode(err); status == http.StatusNotFound {
+			return nil, fmt.Errorf("%w: %w", ErrListViewUnsupported, err)
+		}
 		return nil, err
 	}
 	return &out, nil

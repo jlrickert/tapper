@@ -24,6 +24,52 @@ type ListEntriesResult struct {
 	NodeCount    int              `json:"node_count"`
 }
 
+// ListViewOptions configures a fully server-resolved listing page.
+//
+// Filtering, ordering, and paging all happen before field projection, so a
+// listing that displays metadata reads only the rows it returns rather than
+// every node in the keg.
+type ListViewOptions struct {
+	// Query is an optional boolean query expression filtering the nodes.
+	Query string `json:"query,omitempty"`
+
+	// Fields are field selectors to resolve per row, in the vocabulary of
+	// ParseFieldSelector ("type", ".omega", "tags"). Intrinsics and index
+	// timestamps cost nothing; other selectors are read per returned row.
+	Fields []string `json:"fields,omitempty"`
+
+	// Sort is the field selector to order by. Empty orders by node id.
+	Sort string `json:"sort,omitempty"`
+
+	// Desc reverses the sort order.
+	Desc bool `json:"desc,omitempty"`
+
+	// Limit caps the returned rows. 0 means no limit.
+	Limit int `json:"limit,omitempty"`
+
+	// Offset skips the first N matching rows before applying Limit.
+	Offset int `json:"offset,omitempty"`
+}
+
+// ListViewRow is one resolved listing row: its index entry plus the values of
+// the requested field selectors, keyed by selector text.
+type ListViewRow struct {
+	Entry  NodeIndexEntry    `json:"entry"`
+	Fields map[string]string `json:"fields,omitempty"`
+}
+
+// ListViewResult is a resolved listing page. TotalMatches counts the rows the
+// query selected before Limit and Offset were applied, so callers can page
+// without re-running the query.
+type ListViewResult struct {
+	Query        string        `json:"query,omitempty"`
+	Rows         []ListViewRow `json:"rows"`
+	Tags         []string      `json:"tags"`
+	TotalMatches int           `json:"total_matches"`
+	IndexedCount int           `json:"indexed_count"`
+	NodeCount    int           `json:"node_count"`
+}
+
 type ReadNodesOptions struct {
 	NodeIDs []NodeId `json:"node_ids,omitempty"`
 	Query   string   `json:"query,omitempty"`
@@ -154,6 +200,131 @@ type DexArtifacts struct {
 
 func (k *LocalKeg) ListEntries(ctx context.Context, opts ListEntriesOptions) (*ListEntriesResult, error) {
 	return withKegReadValue(ctx, k, func(ctx context.Context) (*ListEntriesResult, error) { return k.listEntries(ctx, opts) })
+}
+
+func (k *LocalKeg) ListView(ctx context.Context, opts ListViewOptions) (*ListViewResult, error) {
+	return withKegReadValue(ctx, k, func(ctx context.Context) (*ListViewResult, error) { return k.listView(ctx, opts) })
+}
+
+// listView resolves a whole listing page server-side.
+//
+// The order of operations is what makes this cheap: filter, sort, then page,
+// and only then resolve fields. Projecting after paging means a listing that
+// displays metadata reads the rows it returns, not every node in the keg.
+func (k *LocalKeg) listView(ctx context.Context, opts ListViewOptions) (*ListViewResult, error) {
+	selectors, err := ParseFieldSelectors(opts.Fields)
+	if err != nil {
+		return nil, err
+	}
+	sortSel, err := ParseSortSelector(opts.Sort)
+	if err != nil {
+		return nil, err
+	}
+
+	listing, err := k.listEntries(ctx, ListEntriesOptions{Query: opts.Query})
+	if err != nil {
+		return nil, err
+	}
+	entries := listing.Entries
+	total := len(entries)
+
+	// Sorting by metadata or a non-timestamp stat needs a value for every
+	// matching node, not just the returned page, so it is resolved before
+	// paging. Intrinsics and index timestamps stay free.
+	if sortSel.Kind != FieldUnknown {
+		if err := k.sortEntriesBySelector(ctx, entries, sortSel); err != nil {
+			return nil, err
+		}
+	}
+	if opts.Desc {
+		slices.Reverse(entries)
+	}
+
+	if opts.Offset > 0 {
+		if opts.Offset >= len(entries) {
+			entries = nil
+		} else {
+			entries = entries[opts.Offset:]
+		}
+	}
+	if opts.Limit > 0 && len(entries) > opts.Limit {
+		entries = entries[:opts.Limit]
+	}
+
+	rows := make([]ListViewRow, 0, len(entries))
+	for _, entry := range entries {
+		row := ListViewRow{Entry: entry}
+		if len(selectors) > 0 {
+			row.Fields = k.resolveRowFields(ctx, entry, selectors)
+		}
+		rows = append(rows, row)
+	}
+
+	return &ListViewResult{
+		Query:        strings.TrimSpace(opts.Query),
+		Rows:         rows,
+		Tags:         listing.Tags,
+		TotalMatches: total,
+		IndexedCount: listing.IndexedCount,
+		NodeCount:    listing.NodeCount,
+	}, nil
+}
+
+// resolveRowFields resolves one row's selectors best-effort. A node that is
+// indexed but unreadable yields empty values rather than failing the listing:
+// listings render from an index that is allowed to drift from the repository.
+func (k *LocalKeg) resolveRowFields(ctx context.Context, entry NodeIndexEntry, selectors []FieldSelector) map[string]string {
+	var meta *NodeMeta
+	var stats *NodeStats
+	needMeta, needStats := SelectorNeeds(selectors)
+
+	if needMeta || needStats {
+		if id, err := ParseNode(entry.ID); err == nil && id != nil {
+			if needMeta {
+				meta, _ = k.getMeta(ctx, *id)
+			}
+			if needStats {
+				stats, _ = k.getStats(ctx, *id)
+			}
+		}
+	}
+
+	out := make(map[string]string, len(selectors))
+	for _, sel := range selectors {
+		out[sel.Text] = FieldValue(sel, entry, meta, stats)
+	}
+	return out
+}
+
+// sortEntriesBySelector orders entries in place. Intrinsic and index-timestamp
+// selectors sort from values already in memory; anything else resolves a key
+// per node first, which is why callers sort before paging.
+func (k *LocalKeg) sortEntriesBySelector(ctx context.Context, entries []NodeIndexEntry, sel FieldSelector) error {
+	if sel.NeedsMeta() || sel.NeedsStats() {
+		keys := make(map[string]string, len(entries))
+		for _, entry := range entries {
+			fields := k.resolveRowFields(ctx, entry, []FieldSelector{sel})
+			keys[entry.ID] = fields[sel.Text]
+		}
+		slices.SortStableFunc(entries, func(a, b NodeIndexEntry) int {
+			return strings.Compare(keys[a.ID], keys[b.ID])
+		})
+		return nil
+	}
+
+	switch sel.Kind {
+	case FieldID:
+		sortNodeIndexEntriesByID(entries)
+	case FieldTitle:
+		slices.SortStableFunc(entries, func(a, b NodeIndexEntry) int {
+			return strings.Compare(strings.ToLower(a.Title), strings.ToLower(b.Title))
+		})
+	case FieldIndexTime:
+		slices.SortStableFunc(entries, func(a, b NodeIndexEntry) int {
+			return entryTimeField(a, sel.Key).Compare(entryTimeField(b, sel.Key))
+		})
+	}
+	return nil
 }
 
 func (k *LocalKeg) listEntries(ctx context.Context, opts ListEntriesOptions) (*ListEntriesResult, error) {

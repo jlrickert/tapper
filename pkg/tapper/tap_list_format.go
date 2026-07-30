@@ -3,7 +3,6 @@ package tapper
 import (
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/jlrickert/tapper/pkg/keg"
 )
@@ -120,56 +119,75 @@ func compileListFormat(format string) (compiledFormat, error) {
 	return out, nil
 }
 
+// selectorTexts returns the distinct field selectors this format needs the
+// server to resolve. Intrinsics and index timestamps are omitted: they come
+// from the index entry that every listing already carries, so asking for them
+// would make the server do work the client can do for free.
+func (c compiledFormat) selectorTexts(idOnly bool) []string {
+	if idOnly {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(c.segments))
+	out := make([]string, 0, len(c.segments))
+	for _, seg := range c.segments {
+		if !seg.isField {
+			continue
+		}
+		if !seg.sel.NeedsMeta() && !seg.sel.NeedsStats() {
+			continue
+		}
+		if _, dup := seen[seg.sel.Text]; dup {
+			continue
+		}
+		seen[seg.sel.Text] = struct{}{}
+		out = append(out, seg.sel.Text)
+	}
+	return out
+}
+
+// renderListView formats rows the server already resolved. No I/O happens
+// here: every field value the format names is either on the index entry or in
+// the row's resolved map.
+func renderListView(compiled compiledFormat, rows []keg.ListViewRow, opts renderOptions) []string {
+	lines := make([]string, 0, len(rows))
+	start, end, step := iterationBounds(len(rows), opts.Reverse)
+	for i := start; i != end; i += step {
+		if opts.IdOnly {
+			lines = append(lines, rows[i].Entry.ID)
+			continue
+		}
+		lines = append(lines, expandFormat(compiled, nodeFieldSource{
+			entry:    rows[i].Entry,
+			resolved: rows[i].Fields,
+		}))
+	}
+	return lines
+}
+
 // nodeFieldSource carries everything needed to expand a compiled format for
-// one node. meta and stats are nil unless the format required them.
-type nodeFieldSource struct {
-	entry keg.NodeIndexEntry
-	meta  *keg.NodeMeta
-	stats *keg.NodeStats
-}
-
-// fieldValue resolves one selector against a node.
+// one node.
 //
-// Intrinsics and index timestamps come from the index entry, never from
-// stats.json, so a displayed value always agrees with the same predicate in a
-// query expression and the default format stays free of per-node reads.
-func fieldValue(sel keg.FieldSelector, src nodeFieldSource) string {
-	switch sel.Kind {
-	case keg.FieldID:
-		return src.entry.ID
-	case keg.FieldTitle:
-		return src.entry.Title
-	case keg.FieldIndexTime:
-		switch sel.Key {
-		case "updated":
-			return formatEntryTime(src.entry.Updated)
-		case "created":
-			return formatEntryTime(src.entry.Created)
-		case "accessed":
-			return formatEntryTime(src.entry.Accessed)
-		}
-		return ""
-	case keg.FieldStat:
-		value, _ := keg.StatsFieldValue(src.stats, sel.Key)
-		return value
-	case keg.FieldTags, keg.FieldMetaKey:
-		if src.meta == nil {
-			return ""
-		}
-		// An absent key, a non-scalar value, and an empty tag list all
-		// collapse to empty here. That keeps a tabular format's column count
-		// stable regardless of which nodes carry the key.
-		value, _ := src.meta.Get(sel.Key)
-		return value
-	}
-	return ""
+// Values resolved by the server arrive already rendered in `resolved`, keyed by
+// selector text. meta and stats are only populated on the fallback path, where
+// the client had to read them itself.
+type nodeFieldSource struct {
+	entry    keg.NodeIndexEntry
+	resolved map[string]string
+	meta     *keg.NodeMeta
+	stats    *keg.NodeStats
 }
 
-func formatEntryTime(t time.Time) string {
-	if t.IsZero() {
-		return ""
+// fieldValue resolves one selector against a node, preferring a value the
+// server already resolved. Resolution itself lives in pkg/keg so the client
+// renderer and the server-side projection cannot disagree about what a
+// selector means.
+func fieldValue(sel keg.FieldSelector, src nodeFieldSource) string {
+	if src.resolved != nil {
+		if value, ok := src.resolved[sel.Text]; ok {
+			return value
+		}
 	}
-	return t.Format(time.RFC3339)
+	return keg.FieldValue(sel, src.entry, src.meta, src.stats)
 }
 
 // expandFormat renders one line for a node.

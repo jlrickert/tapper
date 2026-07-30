@@ -202,6 +202,108 @@ func formatStatsTime(t time.Time) string {
 	return t.Format(time.RFC3339)
 }
 
+// ParseFieldSelectors classifies a list of selectors, rejecting the whole list
+// if any entry is invalid so a listing never silently drops a column.
+func ParseFieldSelectors(raw []string) ([]FieldSelector, error) {
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	out := make([]FieldSelector, 0, len(raw))
+	for _, text := range raw {
+		sel, err := ParseFieldSelector(text)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, sel)
+	}
+	return out, nil
+}
+
+// ParseSortSelector classifies a sort key. An empty key yields the zero
+// selector, meaning "leave the listing in its natural index order".
+func ParseSortSelector(raw string) (FieldSelector, error) {
+	if strings.TrimSpace(raw) == "" {
+		return FieldSelector{}, nil
+	}
+	return ParseFieldSelector(raw)
+}
+
+// SelectorNeeds reports whether a set of selectors requires reading node
+// metadata or statistics. Callers use it to skip per-node reads entirely for
+// listings that name only intrinsics and index timestamps.
+func SelectorNeeds(selectors []FieldSelector) (meta, stats bool) {
+	for _, sel := range selectors {
+		if sel.NeedsMeta() {
+			meta = true
+		}
+		if sel.NeedsStats() {
+			stats = true
+		}
+	}
+	return meta, stats
+}
+
+// FieldValue resolves one selector against a node's index entry and, when the
+// selector requires them, its metadata and statistics. meta and stats may be
+// nil; an unresolvable value renders empty so a tabular listing keeps a stable
+// column count.
+//
+// Intrinsics and index timestamps come from the entry, never from stats.json,
+// so a displayed value always agrees with the same predicate in a query
+// expression and the default listing stays free of per-node reads.
+func FieldValue(sel FieldSelector, entry NodeIndexEntry, meta *NodeMeta, stats *NodeStats) string {
+	switch sel.Kind {
+	case FieldID:
+		return entry.ID
+	case FieldTitle:
+		return entry.Title
+	case FieldIndexTime:
+		return formatStatsTime(entryTimeField(entry, sel.Key))
+	case FieldStat:
+		value, _ := StatsFieldValue(stats, sel.Key)
+		return value
+	case FieldTags, FieldMetaKey:
+		if meta == nil {
+			return ""
+		}
+		value, _ := meta.Get(sel.Key)
+		return value
+	}
+	return ""
+}
+
+// entryTimeField returns the index timestamp named by an index-time selector.
+func entryTimeField(entry NodeIndexEntry, name string) time.Time {
+	switch name {
+	case "updated":
+		return entry.Updated
+	case "created":
+		return entry.Created
+	case "accessed":
+		return entry.Accessed
+	}
+	return time.Time{}
+}
+
+// sortNodeIndexEntriesByID orders entries by numeric node id, matching the
+// natural dex order.
+func sortNodeIndexEntriesByID(entries []NodeIndexEntry) {
+	slices.SortStableFunc(entries, func(a, b NodeIndexEntry) int {
+		left, lerr := ParseNode(a.ID)
+		right, rerr := ParseNode(b.ID)
+		if lerr != nil || rerr != nil || left == nil || right == nil {
+			return strings.Compare(a.ID, b.ID)
+		}
+		switch {
+		case left.Lt(*right):
+			return -1
+		case right.Lt(*left):
+			return 1
+		}
+		return 0
+	})
+}
+
 // FormatSelectorSuggestions returns the closed part of the field vocabulary as
 // ready-to-type format tokens, for shell completion. Metadata keys are
 // open-ended and therefore absent.
