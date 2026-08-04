@@ -127,6 +127,10 @@ type configDTO struct {
 
 	// hubs describes configured hubs available to the user, keyed by name.
 	Hubs hubMap `yaml:"hubs,omitempty"`
+
+	// agents names (model, flight) pairs for `tap launch`, keyed by alias.
+	// Experimental and undocumented; see tap_launch.go.
+	Agents map[string]AgentEntry `yaml:"agents,omitempty"`
 }
 
 // Config represents the user's tapper configuration.
@@ -161,6 +165,34 @@ type HubEntry struct {
 	BasePath         string `yaml:"basePath,omitempty"`
 	Token            string `yaml:"token,omitempty"`
 	TokenEnv         string `yaml:"tokenEnv,omitempty"`
+}
+
+// AgentEntry is an alias for a (model, flight) pair plus how to reach and
+// authenticate against that model, keyed by name in the agents map and consumed
+// by `tap launch`.
+//
+// Model is provider-qualified ("anthropic/claude-opus-4", "ollama/qwen3.6:35b")
+// so the launcher knows which protocol the harness must speak. Flight is a
+// flight reference exported to the launched process as TAP_FLIGHT.
+//
+// BaseURL overrides the provider's endpoint. One value serves both protocols:
+// the launcher adds or removes the /v1 suffix to suit whichever the harness
+// speaks. It defaults to the local Ollama server for ollama models and is empty
+// for hosted providers, leaving the harness on its own endpoint.
+//
+// Auth selects where credentials come from — inherit (default), subscription,
+// or apiKey. APIKeyEnv names the environment variable holding the key; the
+// name is configured, never the secret, mirroring HubEntry.TokenEnv. Agents
+// therefore hold no secrets, so unlike hubs they need no trust-boundary strip
+// and a project config may safely define them.
+//
+// Experimental: this shape is expected to change when agents move to the hub.
+type AgentEntry struct {
+	Model     string `yaml:"model,omitempty"`
+	Flight    string `yaml:"flight,omitempty"`
+	BaseURL   string `yaml:"baseUrl,omitempty"`
+	Auth      string `yaml:"auth,omitempty"`
+	APIKeyEnv string `yaml:"apiKeyEnv,omitempty"`
 }
 
 // KegRef is the (hub, namespace, name) triple a keg alias resolves to. An empty
@@ -401,6 +433,28 @@ func (cfg *Config) Hubs() map[string]HubEntry {
 		return map[string]HubEntry{}
 	}
 	return cfg.data.Hubs
+}
+
+// Agents returns the configured `tap launch` agents keyed by alias.
+func (cfg *Config) Agents() map[string]AgentEntry {
+	if cfg.data == nil {
+		cfg.data = &configDTO{}
+	}
+	if cfg.data.Agents == nil {
+		return map[string]AgentEntry{}
+	}
+	return cfg.data.Agents
+}
+
+// Agent returns the named agent entry. Unlike Hub there are no synthesized
+// built-ins: an agent exists only if configured.
+func (cfg *Config) Agent(name string) (AgentEntry, bool) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return AgentEntry{}, false
+	}
+	e, ok := cfg.Agents()[name]
+	return e, ok
 }
 
 // Hub returns the named hub entry. The built-in hubs "local" (filesystem) and
@@ -1240,6 +1294,7 @@ func MergeConfig(cfgs ...*Config) *Config {
 			Namespaces: make(map[string]NamespaceRef),
 			KegMap:     make([]KegMapEntry, 0),
 			Hubs:       make(hubMap),
+			Agents:     make(map[string]AgentEntry),
 		},
 	}
 
@@ -1292,6 +1347,10 @@ func MergeConfig(cfgs ...*Config) *Config {
 
 		for name, entry := range c.data.Hubs {
 			out.data.Hubs[name] = entry
+		}
+
+		for name, entry := range c.data.Agents {
+			out.data.Agents[name] = entry
 		}
 
 		for ns, ref := range c.data.Namespaces {

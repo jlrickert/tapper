@@ -160,6 +160,10 @@ var tapMethodsExcluded = map[string]string{
 	"KegVisibility":  "UI-only visibility management; MCP must not flip a keg between public and private",
 	"NamespaceList":  "namespace discovery folded into auth_info's identity payload; the standalone tool was tenant-administration shaped",
 	"License":        "prints bundled license text; CLI-only via `tap version --license`",
+	// Experimental launcher. Starting a process on the operator's machine is
+	// not an agent operation and must not become an MCP tool.
+	"Launch":        "CLI-only: starts an agent harness as a local subprocess; MCP must never spawn processes on its host",
+	"ResolveLaunch": "pure resolution half of Launch, exposed so a dry run and a real run cannot drift",
 }
 
 // TestCoverage_AllTapMethodsHaveBothSurfaces uses reflection to enumerate
