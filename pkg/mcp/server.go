@@ -87,7 +87,6 @@ func NewServer(tap *tapper.Tap, version string, defaults KegDefaults, opts ...Se
 	registerWriteTools(srv, tap, defaults)
 	registerIndexTools(srv, tap, defaults)
 	registerSnapshotTools(srv, tap, defaults)
-	registerGraphTools(srv, tap, defaults)
 	registerOrientTools(srv, tap, defaults)
 	registerSchemaTools(srv, tap, defaults)
 	registerFileTools(srv, tap, defaults, opt.SharedFilesystem)

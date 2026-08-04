@@ -10,7 +10,6 @@
 | `mcp__tapper__cat`                                    | Read one or more node bodies. Supports `meta_only`, `content_only`, `stats_only`, and `tag` expression selection as an alternative to explicit node IDs. |
 | `mcp__tapper__links`                                  | Outbound links from a node.                                                                                                                              |
 | `mcp__tapper__backlinks`                              | Inbound links to a node.                                                                                                                                 |
-| `mcp__tapper__graph`                                  | Graph traversal for multi-hop relationships.                                                                                                             |
 | `mcp__tapper__list_indexes`, `mcp__tapper__index_cat` | Read generated index files (tag index, changelog, and others).                                                                                           |
 | `mcp__tapper__keg_settings`                           | Read targeted title, summary, updated metadata, and instructions for one or more selected KEGs; batches accept up to 100 canonical references.          |
 

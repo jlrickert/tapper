@@ -147,7 +147,7 @@ func TestMCP_ToolsList(t *testing.T) {
 		"keg_settings", "keg_settings_edit", "stats", "create", "edit", "meta", "remove", "move",
 		"index", "list_indexes", "index_cat", "doctor", "node_history", "node_snapshot",
 		"node_snapshot_view", "node_restore", "list_files", "list_images", "delete_file", "delete_image",
-		"upload_file", "upload_image", "download_image", "graph", "orient", "import_from_keg",
+		"upload_file", "upload_image", "download_image", "orient", "import_from_keg",
 		"lock_acquire", "lock_release", "lock_status", "lock_force_release", "list_flights", "flight_show",
 		"flight_create", "flight_edit", "flight_delete", "schema_list", "schema_read", "schema_create",
 		"schema_edit", "schema_delete", "validate",
@@ -189,7 +189,7 @@ func TestMCP_CommonAgentSafeSurface(t *testing.T) {
 		"keg_settings_edit",
 		"stats", "create", "edit", "meta", "remove", "move", "index",
 		"list_indexes", "index_cat", "node_history", "node_snapshot",
-		"node_snapshot_view", "node_restore", "graph", "orient",
+		"node_snapshot_view", "node_restore", "orient",
 		"list_files", "list_images", "delete_file", "delete_image",
 		"upload_file", "upload_image", "download_image",
 		"schema_list", "schema_read", "schema_create", "schema_edit",
@@ -1847,7 +1847,11 @@ func TestMCP_ImportMissingFile(t *testing.T) {
 
 // --- graph tool tests ---
 
-func TestMCP_ToolsList_IncludesGraphTool(t *testing.T) {
+// TestMCP_GraphToolIsDisabled pins the deprecation. graph rendered a standalone
+// HTML page that an agent cannot display, so returning it as tool text spent
+// context on markup nobody reads. `tap graph --output` still serves the case
+// that works; the tool stays off MCP until the feature is removed outright.
+func TestMCP_GraphToolIsDisabled(t *testing.T) {
 	t.Parallel()
 	session, ctx := newTestSession(t)
 
@@ -1858,24 +1862,15 @@ func TestMCP_ToolsList_IncludesGraphTool(t *testing.T) {
 	for i, tool := range res.Tools {
 		names[i] = tool.Name
 	}
+	require.NotContains(t, names, "graph")
 
-	require.Contains(t, names, "graph")
-}
-
-func TestMCP_Graph(t *testing.T) {
-	t.Parallel()
-	session, ctx := newTestSession(t)
-
-	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+	called, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
 		Name:      "graph",
 		Arguments: map[string]any{},
 	})
-	require.NoError(t, err)
-	text := extractText(t, res)
-	require.False(t, res.IsError, "graph returned error: %s", text)
-	require.Contains(t, text, "<!DOCTYPE html>")
-	require.Contains(t, text, "KEG Graph")
-	require.Contains(t, text, "__KEG__")
+	if err == nil {
+		require.True(t, called.IsError, "graph must not be callable")
+	}
 }
 
 func extractText(t *testing.T, res *sdkmcp.CallToolResult) string {
@@ -1944,7 +1939,6 @@ func TestMCP_ToolAnnotations_AllPresent(t *testing.T) {
 		"upload_file", "upload_image",
 		"lock_acquire", "lock_release",
 		"import_from_keg",
-		"graph",
 	}
 	for _, name := range writeTools {
 		tool, ok := byName[name]

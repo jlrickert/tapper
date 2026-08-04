@@ -158,7 +158,6 @@ authenticated Hub identity; hosted MCP reports its single authenticated user.
 | Tool | Description |
 | --- | --- |
 | `import_from_keg` | Import nodes from another keg |
-| `graph` | Render a keg graph |
 | `orient` | Return the shared KEG system orientation payload |
 | `list_flights`, `flight_show` | Discover and inspect visible flights |
 | `flight_create`, `flight_edit`, `flight_delete` | Manage Hub-backed flights when the active flight grants `manage_flights` and the identity owns/administers the target namespace |
