@@ -231,6 +231,65 @@ func TestConfigCommand_ExplainFlagWithEnvVar(t *testing.T) {
 	require.Contains(t, stdout, "source: env vars")
 }
 
+func TestConfigCommand_ProjectFlightPrecedenceMatchesOrient(t *testing.T) {
+	t.Parallel()
+
+	sb := NewSandbox(t)
+	project := "/home/testuser/work/project"
+	descendant := project + "/src/pkg"
+	require.NoError(t, sb.Setwd(descendant))
+	require.NoError(t, sb.Runtime().AtomicWriteFile(
+		"/home/testuser/.config/tapper/config.yaml",
+		[]byte(`flight: +baseline
+fallbackNamespace: local
+hubs:
+  home:
+    kind: local
+    basePath: /home/testuser/kegs
+`), 0o644))
+	require.NoError(t, sb.Runtime().AtomicWriteFile(
+		project+"/.tapper/config.yaml", []byte("flight: +project\n"), 0o644))
+
+	for slug, instructions := range map[string]string{
+		"baseline":    "Baseline instructions",
+		"project":     "Project instructions",
+		"environment": "Environment instructions",
+		"explicit":    "Explicit instructions",
+	} {
+		require.NoError(t, sb.Runtime().AtomicWriteFile(
+			"/home/testuser/kegs/flights.d/"+slug+".yaml",
+			[]byte("title: "+slug+"\ninstructions: "+instructions+"\n"), 0o644))
+	}
+
+	explained := NewProcess(t, false, "config", "--explain", "flight").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, explained.Err)
+	require.Contains(t, string(explained.Stdout), "flight = +project")
+	require.Contains(t, string(explained.Stdout), "source: project config")
+
+	oriented := NewProcess(t, false, "orient").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, oriented.Err)
+	require.Contains(t, string(oriented.Stdout), "+project")
+	require.Contains(t, string(oriented.Stdout), "Project instructions")
+	require.NotContains(t, string(oriented.Stdout), "Baseline instructions")
+
+	require.NoError(t, sb.Runtime().Env().Set("TAP_FLIGHT", "+environment"))
+	explained = NewProcess(t, false, "config", "--explain", "flight").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, explained.Err)
+	require.Contains(t, string(explained.Stdout), "flight = +environment")
+	require.Contains(t, string(explained.Stdout), "source: env vars")
+
+	oriented = NewProcess(t, false, "orient").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, oriented.Err)
+	require.Contains(t, string(oriented.Stdout), "+environment")
+	require.Contains(t, string(oriented.Stdout), "Environment instructions")
+
+	oriented = NewProcess(t, false, "--flight", "+explicit", "orient").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, oriented.Err)
+	require.Contains(t, string(oriented.Stdout), "+explicit")
+	require.Contains(t, string(oriented.Stdout), "Explicit instructions")
+	require.NotContains(t, string(oriented.Stdout), "Environment instructions")
+}
+
 func TestConfigCommand_ShowSourcesFlag(t *testing.T) {
 	t.Parallel()
 
