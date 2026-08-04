@@ -175,15 +175,6 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 						deps.LogLevel = v
 					}
 				}
-				// A project's persisted flight auto-applies when --flight is not
-				// given, so orient and MCP can inherit the same flight context;
-				// --flight still overrides per invocation. Gated to the tap profile
-				// (the only one with the --flight flag).
-				if deps.Profile.withDefaults().AllowKegAliasFlags && !cmd.Flags().Changed("flight") {
-					if v := cfg.Flight(); v != "" {
-						deps.KegTargetOptions.Flight = v
-					}
-				}
 			}
 
 			if deps.ConfigPath != "" {
