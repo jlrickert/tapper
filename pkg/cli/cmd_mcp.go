@@ -10,6 +10,7 @@ import (
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/jlrickert/tapper/pkg/mcp"
+	"github.com/jlrickert/tapper/pkg/tapper"
 	"github.com/spf13/cobra"
 )
 
@@ -51,10 +52,7 @@ per-command permission prompts.`,
 				// Config-driven selection is re-resolved on initialize/orient.
 				defaults.Flight = ""
 			}
-			srv := mcp.NewServer(deps.Tap, Version, defaults, mcp.ServerOptions{
-				Logger:   rt.Logger(),
-				Reporter: deps.InvocationReporter,
-			})
+			srv := mcp.NewServer(deps.Tap, Version, defaults, mcpServerOptions(rt.Logger(), deps.InvocationReporter))
 			err = srv.Run(cmd.Context(), &sdkmcp.StdioTransport{})
 			if err != nil && errors.Is(err, io.EOF) {
 				return nil
@@ -63,6 +61,20 @@ per-command permission prompts.`,
 		},
 	}
 	return cmd
+}
+
+// mcpServerOptions builds the option set for `tap mcp`. It exists as a named
+// function so the shared-filesystem choice is assertable without standing up a
+// stdio server: dropping it would silently cost `tap mcp` its local-path
+// attachment transfers, which is the whole reason the local variant exists.
+func mcpServerOptions(logger *slog.Logger, reporter tapper.InvocationReporter) mcp.ServerOptions {
+	return mcp.ServerOptions{
+		Logger:   logger,
+		Reporter: reporter,
+		// stdio puts the server on the same machine as its agent host, so
+		// attachment paths in tool arguments name the same files for both sides.
+		SharedFilesystem: true,
+	}
 }
 
 // buildMCPLogger constructs the structured logger for the MCP server.
