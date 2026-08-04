@@ -32,8 +32,13 @@ go.work.sum
 
 # Editor/IDE
 .idea/
+*.iml
 .vscode/*
 !.vscode/settings.json
+
+# This repo's own tapper project config is developer-local: it records the
+# maintainer's default keg and flight, which are not shared state.
+.tapper/
 
 # macOS
 .DS_Store
