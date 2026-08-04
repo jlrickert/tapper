@@ -37,7 +37,6 @@ var tapMethodToSurfaces = map[string]struct {
 	"KegSettings":   {CLI: "keg settings", MCP: "keg_settings"},
 	"KegConfigEdit": {CLI: "keg settings edit", MCP: "keg_settings_edit"},
 	"Stats":         {CLI: "stats", MCP: "stats"},
-	"Graph":         {CLI: "graph", MCP: "graph"},
 	"ListIndexes":   {CLI: "index list", MCP: "list_indexes"},
 	"IndexCat":      {CLI: "index get", MCP: "index_cat"},
 	"Doctor":        {CLI: "doctor", MCP: "doctor"},
@@ -160,6 +159,7 @@ var tapMethodsExcluded = map[string]string{
 	"KegVisibility":  "UI-only visibility management; MCP must not flip a keg between public and private",
 	"NamespaceList":  "namespace discovery folded into auth_info's identity payload; the standalone tool was tenant-administration shaped",
 	"License":        "prints bundled license text; CLI-only via `tap version --license`",
+	"Graph":          "deprecated and disabled on MCP: renders a standalone HTML page an agent cannot display, and returning ~8KB of markup as tool text is pure context cost; `tap graph --output` remains until the feature is removed",
 	// Experimental launcher. Starting a process on the operator's machine is
 	// not an agent operation and must not become an MCP tool.
 	"Launch":        "CLI-only: starts an agent harness as a local subprocess; MCP must never spawn processes on its host",
