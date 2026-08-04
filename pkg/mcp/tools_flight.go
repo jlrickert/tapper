@@ -43,7 +43,7 @@ type flightDeleteInput struct {
 // flight_edit is the agent-facing equivalent of the CLI's piped
 // `flight edit`: agents cannot open editors, so the partial-edit tool
 // (omitted fields keep their current values) remains the MCP surface.
-func registerFlightTools(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
+func registerFlightTools(srv *sdkmcp.Server, defaults KegDefaults, flights FlightProvider) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "list_flights",
 		Description: "List available flights (keg restrictions + agent instructions)",
@@ -52,7 +52,7 @@ func registerFlightTools(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaul
 			OpenWorldHint: boolPtr(false),
 		},
 	}, func(ctx context.Context, _ *sdkmcp.CallToolRequest, _ listFlightsInput) (*sdkmcp.CallToolResult, any, error) {
-		names, err := tap.ListFlights(ctx, tapper.ListFlightsOptions{})
+		names, err := flights.ListFlights(ctx)
 		if err != nil {
 			return errorResult(err), nil, nil
 		}
@@ -67,7 +67,7 @@ func registerFlightTools(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaul
 			OpenWorldHint: boolPtr(false),
 		},
 	}, func(ctx context.Context, _ *sdkmcp.CallToolRequest, in flightShowInput) (*sdkmcp.CallToolResult, any, error) {
-		flight, err := tap.GetFlight(ctx, tapper.GetFlightOptions{Name: in.Name})
+		flight, err := flights.GetFlight(ctx, in.Name)
 		if err != nil {
 			return errorResult(err), nil, nil
 		}
@@ -86,7 +86,7 @@ func registerFlightTools(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaul
 		if err != nil {
 			return errorResult(err), nil, nil
 		}
-		flight, err := tap.CreateFlight(ctx, tapper.CreateFlightOptions{
+		flight, err := flights.CreateFlight(ctx, tapper.CreateFlightOptions{
 			Ref:          in.Ref,
 			Title:        in.Title,
 			Visibility:   in.Visibility,
@@ -108,7 +108,7 @@ func registerFlightTools(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaul
 			OpenWorldHint: boolPtr(true),
 		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in flightEditInput) (*sdkmcp.CallToolResult, any, error) {
-		if err := defaults.gate.authorizeMutation(sessionIDFromContext(ctx), in.Ref, true); err != nil {
+		if err := defaults.gate.authorizeMutation(sessionIDFromContext(ctx)); err != nil {
 			return errorResult(err), nil, nil
 		}
 		opts := tapper.UpdateFlightOptions{
@@ -128,11 +128,15 @@ func registerFlightTools(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaul
 			}
 			opts.Cover = &cover
 		}
-		flight, err := tap.UpdateFlight(ctx, opts)
+		flight, err := flights.UpdateFlight(ctx, opts)
 		if err != nil {
 			return errorResult(err), nil, nil
 		}
-		return textResult(renderFlight(flight)), nil, nil
+		text := renderFlight(flight)
+		if _, err := defaults.gate.adoptEditedFlight(ctx, in.Ref, flight); err != nil {
+			text += "\nRecovery warning: " + err.Error() + "\n"
+		}
+		return textResult(text), nil, nil
 	})
 
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
@@ -143,11 +147,14 @@ func registerFlightTools(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaul
 			OpenWorldHint: boolPtr(true),
 		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in flightDeleteInput) (*sdkmcp.CallToolResult, any, error) {
-		if err := defaults.gate.authorizeMutation(sessionIDFromContext(ctx), in.Ref, true); err != nil {
+		if err := defaults.gate.authorizeMutation(sessionIDFromContext(ctx)); err != nil {
 			return errorResult(err), nil, nil
 		}
-		if err := tap.DeleteFlight(ctx, tapper.DeleteFlightOptions{Ref: in.Ref}); err != nil {
+		if err := flights.DeleteFlight(ctx, tapper.DeleteFlightOptions{Ref: in.Ref}); err != nil {
 			return errorResult(err), nil, nil
+		}
+		if _, err := defaults.gate.adoptDeletedFlight(ctx, in.Ref); err != nil {
+			return textResult("deleted " + in.Ref + "\nRecovery warning: deletion was applied, but the session transition failed: " + err.Error()), nil, nil
 		}
 		return textResult("deleted " + in.Ref), nil, nil
 	})

@@ -59,6 +59,15 @@ func TestMCP_StaticFlightIgnoresConfiguredSelectionAndRefreshesManifest(t *testi
 	require.True(t, callCat(t, ctx, session).IsError, "orientation publishes the refreshed cover")
 }
 
+func TestMCP_EnvironmentFlightOverridesProjectSelection(t *testing.T) {
+	ctx, srv, rt := newOrientationServer(t, "")
+	require.NoError(t, rt.Env().Set("TAP_FLIGHT", "+environment"))
+
+	session := connectFlightSession(t, ctx, srv, nil)
+	require.Contains(t, session.InitializeResult().Instructions, "+environment")
+	require.Contains(t, session.InitializeResult().Instructions, "Environment instructions")
+}
+
 func TestMCP_ParallelSessionsAdoptConfigurationIndependently(t *testing.T) {
 	ctx, srv, rt := newOrientationServer(t, "")
 	first := connectFlightSession(t, ctx, srv, nil)
@@ -84,9 +93,14 @@ func TestMCP_FailedRefreshRetainsAuthorityAndBlankEntersRecovery(t *testing.T) {
 	require.False(t, callCat(t, ctx, session).IsError, "last valid authority survives failed refresh")
 
 	writeProjectFlight(t, rt, "")
+	require.Contains(t, callOrient(t, ctx, session), "+baseline",
+		"an empty project selection falls through to the user baseline")
+	require.False(t, callCat(t, ctx, session).IsError)
+
+	writeUserFlight(t, rt, "")
 	require.Contains(t, callOrient(t, ctx, session), "No KEGs are currently available")
 	names := listedToolNames(t, ctx, session)
-	require.ElementsMatch(t, []string{"orient", "list_flights", "flight_show", "auth_status", "config"}, names)
+	require.ElementsMatch(t, []string{"orient", "list_flights", "flight_show", "auth_info"}, names)
 }
 
 func TestMCP_OrientRejectsKegInputAndInitializationMatchesOrient(t *testing.T) {
@@ -109,9 +123,12 @@ func newOrientationServer(t *testing.T, static string) (context.Context, *sdkmcp
 	sb := newTestSandbox(t)
 	require.NoError(t, sb.Setwd("/home/testuser/project"))
 	rt := sb.Runtime()
+	writeUserFlight(t, rt, "baseline")
 	writeProjectFlight(t, rt, "alpha")
+	writeFlight(t, rt, "baseline", "Baseline instructions")
 	writeFlight(t, rt, "alpha", "Alpha instructions")
 	writeFlight(t, rt, "beta", "Beta instructions")
+	writeFlight(t, rt, "environment", "Environment instructions")
 
 	tap, err := tapper.NewTap(tapper.TapOptions{Runtime: rt})
 	require.NoError(t, err)
@@ -125,6 +142,15 @@ func newOrientationServer(t *testing.T, static string) (context.Context, *sdkmcp
 }
 
 func writeProjectFlight(t *testing.T, rt *toolkit.Runtime, flight string) {
+	t.Helper()
+	body := ""
+	if flight != "" {
+		body += "flight: +" + flight + "\n"
+	}
+	require.NoError(t, rt.AtomicWriteFile("/home/testuser/project/.tapper/config.yaml", []byte(body), 0o644))
+}
+
+func writeUserFlight(t *testing.T, rt *toolkit.Runtime, flight string) {
 	t.Helper()
 	body := "defaultKeg: personal\nfallbackNamespace: local\nhubs:\n  home:\n    kind: local\n    basePath: ~/kegs\n"
 	if flight != "" {

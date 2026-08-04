@@ -1,56 +1,61 @@
 package mcp
 
-// MCP surface for the auth subsystem. Today the tool set is read-only:
-// only `auth_status` is exposed. `login` stays CLI-only because it
-// requires an interactive browser round-trip (the device flow) or a
-// pasted token that an agent cannot complete, and `logout` stays CLI-only
-// because silent revocation by an agent is a surprise factor we are not
-// willing to underwrite.
-//
-// If a future use case demands an MCP writer, prefer adding a
-// narrowly-scoped "auth_revoke" with explicit consent annotations over
-// reusing the CLI logout path.
-
 import (
 	"context"
+	"fmt"
+	"strings"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
-
-	"github.com/jlrickert/tapper/pkg/tapper"
 )
 
-// authStatusInput mirrors AuthStatusOptions: flat (no keg target) because
-// auth state is user-level, not keg-level. Agents that omit Hub get every
-// stored hub login, the same as the CLI.
-type authStatusInput struct {
-	Hub     string `json:"hub,omitempty" jsonschema:"hub URL to query; omit to show every stored hub"`
-	Offline bool   `json:"offline,omitempty" jsonschema:"skip the live hub check and report from the local store only"`
+type authInfoInput struct{}
+
+type authInfoOutput struct {
+	Identities []AuthIdentity `json:"identities"`
+	Kegs       []string       `json:"kegs"`
 }
 
-// registerAuthTools omits the KegDefaults parameter that sibling
-// register*Tools functions accept because auth state is user-level
-// rather than keg-level — there is no default keg to resolve. Callers
-// in server.go pass nothing extra; the signature asymmetry is
-// intentional, not an oversight.
-func registerAuthTools(srv *sdkmcp.Server, tap *tapper.Tap) {
+// registerAuthInfoTool reports credential-safe identity context on every MCP
+// transport. Credential material and account-private fields are intentionally
+// absent from both the structured and human-readable response.
+func registerAuthInfoTool(srv *sdkmcp.Server, _ KegDefaults, identities IdentityProvider, kegs KegDiscoveryProvider) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
-		Name:        "auth_status",
-		Description: "Report stored tapper hub login status and validate stored tokens against their hubs (pass offline:true to check the local store only).",
-		Annotations: &sdkmcp.ToolAnnotations{
-			// Read-only (no mutation), but it now reaches the hub to
-			// validate the token, so OpenWorldHint=true. Agents that must
-			// avoid outbound calls pass offline:true.
-			ReadOnlyHint:  true,
-			OpenWorldHint: boolPtr(true),
-		},
-	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in authStatusInput) (*sdkmcp.CallToolResult, any, error) {
-		result, err := tap.AuthStatus(ctx, tapper.AuthStatusOptions{Hub: in.Hub, Offline: in.Offline})
+		Name:        "auth_info",
+		Description: "Report authenticated hub identities and active-flight kegs without exposing credentials or private account data",
+		Annotations: &sdkmcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: boolPtr(true)},
+	}, func(ctx context.Context, _ *sdkmcp.CallToolRequest, _ authInfoInput) (*sdkmcp.CallToolResult, any, error) {
+		found, err := identities.Identities(ctx)
 		if err != nil {
 			return errorResult(err), nil, nil
 		}
-		// Emit Formatted verbatim so CLI and MCP are byte-identical.
-		// The parity test asserts this; changing it here without
-		// updating the CLI will break the parity guard.
-		return textResult(result.Formatted), nil, nil
+		refs, err := kegs.ListKegs(ctx)
+		if err != nil {
+			return errorResult(err), nil, nil
+		}
+		out := authInfoOutput{Identities: found, Kegs: filterKegRefs(ctx, refs)}
+		var lines []string
+		for _, identity := range found {
+			label := "@" + identity.Username
+			if strings.TrimSpace(identity.DisplayName) != "" {
+				label = identity.DisplayName + " (@" + identity.Username + ")"
+			}
+			lines = append(lines, fmt.Sprintf("%s — %s", identity.Hub, label))
+			if identity.DefaultNamespace != "" {
+				lines = append(lines, "Default namespace: @"+strings.TrimPrefix(identity.DefaultNamespace, "@"))
+			}
+			if len(identity.Namespaces) > 0 {
+				lines = append(lines, "Namespaces: @"+strings.Join(identity.Namespaces, ", @"))
+			}
+		}
+		if len(out.Kegs) > 0 {
+			lines = append(lines, "Kegs:")
+			lines = append(lines, out.Kegs...)
+		}
+		if len(lines) == 0 {
+			lines = append(lines, "No authenticated hub identities")
+		}
+		res := textResult(strings.Join(lines, "\n"))
+		res.StructuredContent = out
+		return res, nil, nil
 	})
 }

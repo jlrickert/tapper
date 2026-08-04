@@ -59,7 +59,7 @@ hidden controls. To change a config-driven session, run `tap use --flight
 existing thread.
 
 If no flight is selected, MCP still connects in recovery-only mode. Codex can
-use `list_flights`, `flight_show`, `auth_status`, and `config`, while KEG tools
+use `orient`, `list_flights`, `flight_show`, and credential-safe `auth_info`, while KEG tools
 remain locked. Ask the user to run `tap use --flight @namespace/+slug`, then
 call `mcp__tapper__orient` to restore the normal tool surface. If the MCP tools
 are unavailable, report the unavailable connection, ask the user to reconnect

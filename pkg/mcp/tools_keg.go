@@ -2,52 +2,64 @@ package mcp
 
 import (
 	"context"
-	"fmt"
+	"sort"
+	"strings"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/jlrickert/tapper/pkg/tapper"
 )
 
-type kegListInput struct {
-	Hub string `json:"hub,omitempty" jsonschema:"hub to list (default: every configured hub)"`
-}
+type kegListInput struct{}
 
-type kegVisibilityInput struct {
-	Keg        string `json:"keg" jsonschema:"keg reference (@namespace/keg)"`
-	Visibility string `json:"visibility" jsonschema:"visibility: public or private"`
-}
-
-// registerKegTools exposes hub-side keg discovery and visibility over MCP.
-// User grant and role management stays UI-only for now, so grant tools are
-// intentionally not registered.
-func registerKegTools(srv *sdkmcp.Server, tap *tapper.Tap, _ KegDefaults) {
+// registerKegTools exposes identity-authorized discovery filtered through the
+// immutable active flight. Transport-specific hub selection is intentionally
+// absent from the agent surface.
+func registerKegTools(srv *sdkmcp.Server, _ KegDefaults, kegs KegDiscoveryProvider) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "keg_list",
-		Description: "List the kegs available on a hub, qualified as @namespace/keg",
+		Description: "List identity-authorized kegs covered by the active flight, qualified as @namespace/keg",
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(true),
 		},
-	}, func(ctx context.Context, _ *sdkmcp.CallToolRequest, in kegListInput) (*sdkmcp.CallToolResult, any, error) {
-		kegs, err := tap.HubListKegs(ctx, tapper.HubListOptions{Hub: in.Hub})
+	}, func(ctx context.Context, _ *sdkmcp.CallToolRequest, _ kegListInput) (*sdkmcp.CallToolResult, any, error) {
+		refs, err := kegs.ListKegs(ctx)
 		if err != nil {
 			return errorResult(err), nil, nil
 		}
-		return linesResult(kegs), nil, nil
+		return linesResult(filterKegRefs(ctx, refs)), nil, nil
 	})
+}
 
-	sdkmcp.AddTool(srv, &sdkmcp.Tool{
-		Name:        "keg_visibility",
-		Description: "Set a keg's visibility to public or private",
-		Annotations: &sdkmcp.ToolAnnotations{
-			ReadOnlyHint:  false,
-			OpenWorldHint: boolPtr(true),
-		},
-	}, func(ctx context.Context, _ *sdkmcp.CallToolRequest, in kegVisibilityInput) (*sdkmcp.CallToolResult, any, error) {
-		if err := tap.KegVisibility(ctx, tapper.KegVisibilityOptions{Keg: in.Keg, Visibility: in.Visibility}); err != nil {
-			return errorResult(err), nil, nil
+func filterKegRefs(ctx context.Context, refs []string) []string {
+	flight := SessionFlight(ctx)
+	if HasSessionOrientation(ctx) && flight == nil {
+		return []string{}
+	}
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(refs))
+	for _, raw := range refs {
+		ref := strings.TrimSpace(raw)
+		if ref == "" {
+			continue
 		}
-		return textResult(fmt.Sprintf("set %s visibility to %s", in.Keg, in.Visibility)), nil, nil
-	})
+		if flight != nil && !flight.HasCapability(tapper.FlightCapabilityFullAccess) {
+			nsAlias := strings.TrimPrefix(ref, "@")
+			ns, alias, ok := strings.Cut(nsAlias, "/")
+			if !ok {
+				continue
+			}
+			if _, covered := flight.RoleFor("", ns, alias); !covered {
+				continue
+			}
+		}
+		if _, duplicate := seen[ref]; duplicate {
+			continue
+		}
+		seen[ref] = struct{}{}
+		out = append(out, ref)
+	}
+	sort.Strings(out)
+	return out
 }

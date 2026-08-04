@@ -18,42 +18,28 @@ type KegDefaults struct {
 	gate *sessionFlightGate
 }
 
-// Surface selects which tool groups NewServer registers.
-type Surface int
-
-const (
-	// SurfaceFull registers every tool — the CLI peer surface and the default.
-	SurfaceFull Surface = iota
-	// SurfaceHub registers only the per-user node read/write tools appropriate
-	// for a remote, OAuth-scoped hub connector (tapper-hub's /mcp endpoint). It
-	// omits CLI/local tools (auth_status, config, doctor, license,
-	// file downloads, path-based image downloads, archive, locks) and hub-admin
-	// tools (keg/namespace administration, flights) — none of which make sense
-	// for a remote multi-tenant connector. Uploads remain available, but local
-	// path sources are disabled. Image downloads return MCP image content rather
-	// than writing to the server filesystem. Schema tools (schema_list/read/
-	// create/edit/delete, validate) ARE registered here: schema mutation resolves
-	// at editor role, consistent with how node writes already work on this
-	// surface. The hub pairs this with Tap.KegResolver so the registered tools
-	// resolve against the caller's catalog.
-	SurfaceHub
-)
-
 // ServerOptions holds configuration for creating an MCP server.
 type ServerOptions struct {
-	LicenseText string
 	// Logger is the structured logger for invocation logging. When nil,
 	// invocation logging is silently skipped.
 	Logger *slog.Logger
 	// Reporter receives privacy-minimized tool invocation telemetry. It is
 	// independent of Logger and may be nil.
 	Reporter tapper.InvocationReporter
-	// Surface selects the registered tool set. The zero value (SurfaceFull)
-	// registers everything, preserving the CLI peer surface.
-	Surface Surface
-	// OrientationLoader supplies hosted/session-specific flight snapshots.
-	// Local full-surface servers leave it nil and use Tapper configuration.
-	OrientationLoader OrientationLoader
+	// Providers replace transport-specific registration branches. Nil providers
+	// use local adapters over tap; hosted callers inject authenticated catalog
+	// and account implementations.
+	OrientationProvider OrientationProvider
+	FlightProvider      FlightProvider
+	KegProvider         KegDiscoveryProvider
+	IdentityProvider    IdentityProvider
+	// SharedFilesystem reports that this server and the agent host driving it
+	// see the same filesystem. That holds for stdio (`tap mcp`), where a path in
+	// a tool argument names the same file on both sides, and never for a hosted
+	// endpoint, where it would name the server's own disk. It selects the
+	// attachment transfer tools: see registerFileTools. The zero value is the
+	// safe one, so a caller that forgets it gets the hosted surface.
+	SharedFilesystem bool
 }
 
 // NewServer builds an MCP server with all registered tools.
@@ -62,10 +48,19 @@ func NewServer(tap *tapper.Tap, version string, defaults KegDefaults, opts ...Se
 	if len(opts) > 0 {
 		opt = opts[0]
 	}
-	staticFlight := defaults.Flight
-	if opt.Surface != SurfaceHub || opt.OrientationLoader != nil {
-		defaults.gate = newSessionFlightGate(tap, staticFlight, opt.OrientationLoader)
+	if opt.OrientationProvider == nil {
+		opt.OrientationProvider = &localOrientationProvider{tap: tap, staticFlight: defaults.Flight}
 	}
+	if opt.FlightProvider == nil {
+		opt.FlightProvider = localFlightProvider{tap: tap}
+	}
+	if opt.KegProvider == nil {
+		opt.KegProvider = localKegDiscoveryProvider{tap: tap}
+	}
+	if opt.IdentityProvider == nil {
+		opt.IdentityProvider = localIdentityProvider{tap: tap}
+	}
+	defaults.gate = newSessionFlightGate(opt.OrientationProvider)
 
 	var srv *sdkmcp.Server
 	nodeSubs := newNodeResourceSubscriptions(tap, defaults, func(ctx context.Context, uri string) {
@@ -85,7 +80,7 @@ func NewServer(tap *tapper.Tap, version string, defaults KegDefaults, opts ...Se
 		srv.AddReceivingMiddleware(defaults.gate.middleware)
 	}
 
-	// Node read/write tools — registered on every surface. These all funnel
+	// Node read/write tools. These all funnel
 	// through Tap.resolveKegForRole, so a hub-injected KegResolver scopes them
 	// to the caller's catalog with viewer/editor enforcement.
 	registerReadTools(srv, tap, defaults)
@@ -95,34 +90,14 @@ func NewServer(tap *tapper.Tap, version string, defaults KegDefaults, opts ...Se
 	registerGraphTools(srv, tap, defaults)
 	registerOrientTools(srv, tap, defaults)
 	registerSchemaTools(srv, tap, defaults)
-	fileOpts := fileToolOptions{
-		AllowLocalSources: opt.Surface != SurfaceHub,
-		DownloadFiles:     opt.Surface != SurfaceHub,
-		ImageDownloads:    imageDownloadLocalPath,
-	}
-	if opt.Surface == SurfaceHub {
-		fileOpts.ImageDownloads = imageDownloadContent
-	}
-	registerFileTools(srv, tap, defaults, fileOpts)
-
-	// CLI/local and hub-admin tools — omitted on the remote hub connector
-	// surface (see Surface docs). They depend on the local CLI environment
-	// (config cascade, AuthStore, local filesystem writes) or perform
-	// multi-tenant administration, neither of which belongs on a per-user remote
-	// connector.
-	if opt.Surface != SurfaceHub {
-		registerDoctorTools(srv, tap, defaults)
-		registerLockTools(srv, tap, defaults)
-		registerRepoTools(srv, tap, defaults)
-		registerImportTools(srv, tap, defaults)
-		registerArchiveTools(srv, tap, defaults)
-		registerFlightTools(srv, tap, defaults)
-		registerKegTools(srv, tap, defaults)
-		registerNamespaceTools(srv, tap, defaults)
-		registerResourceTools(srv, tap, defaults)
-		registerAuthTools(srv, tap)
-		registerLicenseTools(srv, opt.LicenseText)
-	}
+	registerFileTools(srv, tap, defaults, opt.SharedFilesystem)
+	registerDoctorTools(srv, tap, defaults)
+	registerLockTools(srv, tap, defaults)
+	registerImportTools(srv, tap, defaults)
+	registerFlightTools(srv, defaults, opt.FlightProvider)
+	registerKegTools(srv, defaults, opt.KegProvider)
+	registerResourceTools(srv, tap, defaults)
+	registerAuthInfoTool(srv, defaults, opt.IdentityProvider, opt.KegProvider)
 
 	if opt.Logger != nil || opt.Reporter != nil {
 		var clk clock.Clock

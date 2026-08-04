@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"sync"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -18,17 +17,10 @@ var recoveryToolNames = map[string]bool{
 	"orient":       true,
 	"list_flights": true,
 	"flight_show":  true,
-	"auth_status":  true,
 	"auth_info":    true,
-	"config":       true,
 }
 
 type flightSessionContextKey struct{}
-
-// OrientationLoader resolves one complete orientation candidate. Implementors
-// must return a freshly loaded flight and payload; publishing is owned by the
-// session gate and happens only after the loader succeeds.
-type OrientationLoader func(context.Context) (*tapper.Flight, string, []tapper.OrientationKeg, []string, error)
 
 // orientationContext is immutable after publication. Tool calls capture its
 // pointer at their boundary, so an in-flight call finishes under the authority
@@ -47,9 +39,7 @@ type flightSessionState struct {
 }
 
 type sessionFlightGate struct {
-	tap          *tapper.Tap
-	staticFlight string
-	loader       OrientationLoader
+	provider OrientationProvider
 
 	mu     sync.Mutex
 	states map[string]*flightSessionState
@@ -57,42 +47,12 @@ type sessionFlightGate struct {
 	calls  sync.RWMutex
 }
 
-func newSessionFlightGate(tap *tapper.Tap, staticFlight string, loader OrientationLoader) *sessionFlightGate {
+func newSessionFlightGate(provider OrientationProvider) *sessionFlightGate {
 	g := &sessionFlightGate{
-		tap:          tap,
-		staticFlight: strings.TrimSpace(staticFlight),
-		loader:       loader,
-		states:       map[string]*flightSessionState{},
-	}
-	if g.loader == nil {
-		g.loader = g.loadLocal
+		provider: provider,
+		states:   map[string]*flightSessionState{},
 	}
 	return g
-}
-
-func (g *sessionFlightGate) loadLocal(ctx context.Context) (*tapper.Flight, string, []tapper.OrientationKeg, []string, error) {
-	if g.tap == nil || g.tap.ConfigService == nil || g.tap.FlightService == nil {
-		return nil, "", nil, nil, errors.New("Tapper flight service is unavailable")
-	}
-	// Config-driven sessions intentionally reload the complete cascade at the
-	// adoption boundary. Launcher-bound sessions still reload configuration
-	// because it supplies hub routing and credentials, but selection remains the
-	// immutable --flight value.
-	g.tap.ConfigService.Reload()
-	ref := g.staticFlight
-	if ref == "" {
-		ref = g.tap.ActiveFlightName("")
-	}
-	if strings.TrimSpace(ref) == "" {
-		payload, err := tapper.BuildOrientationPayload(nil, "", nil, nil)
-		return nil, payload, nil, nil, err
-	}
-	flight, err := g.tap.FlightService.GetFlightFresh(ctx, ref)
-	if err != nil {
-		return nil, "", nil, nil, err
-	}
-	payload, kegs, warnings, err := g.tap.OrientationForFlight(ctx, flight)
-	return flight, payload, kegs, warnings, err
 }
 
 func (g *sessionFlightGate) state(sessionID string) *flightSessionState {
@@ -119,7 +79,7 @@ func (g *sessionFlightGate) current(sessionID string) *orientationContext {
 func (g *sessionFlightGate) refresh(ctx context.Context, sessionID string) (*orientationContext, error) {
 	g.calls.Lock()
 	defer g.calls.Unlock()
-	flight, payload, kegs, warnings, err := g.loader(ctx)
+	candidate, err := g.provider.Load(ctx)
 	if err != nil {
 		// A failed explicit refresh retains the last valid authority.
 		if current := g.current(sessionID); current != nil {
@@ -133,19 +93,26 @@ func (g *sessionFlightGate) refresh(ctx context.Context, sessionID string) (*ori
 		state.mu.Unlock()
 		return recovery, err
 	}
-	next := &orientationContext{
-		flight:   cloneFlight(flight),
-		payload:  payload,
-		kegs:     append([]tapper.OrientationKeg(nil), kegs...),
-		warnings: append([]string(nil), warnings...),
-		recovery: flight == nil,
+	if candidate == nil {
+		candidate = &Orientation{}
 	}
+	next := &orientationContext{
+		flight:   cloneFlight(candidate.Flight),
+		payload:  candidate.Payload,
+		kegs:     append([]tapper.OrientationKeg(nil), candidate.Kegs...),
+		warnings: append([]string(nil), candidate.Warnings...),
+		recovery: candidate.Flight == nil,
+	}
+	g.publish(sessionID, next)
+	return next, nil
+}
+
+func (g *sessionFlightGate) publish(sessionID string, next *orientationContext) {
 	state := g.state(sessionID)
 	state.mu.Lock()
 	state.current = next
 	state.mu.Unlock()
 	g.notifyToolsChanged()
-	return next, nil
 }
 
 func cloneFlight(f *tapper.Flight) *tapper.Flight {
@@ -202,7 +169,7 @@ func (g *sessionFlightGate) canManage(sessionID string) bool {
 	return current != nil && current.flight != nil && current.flight.HasCapability(tapper.FlightCapabilityManageFlights)
 }
 
-func (g *sessionFlightGate) authorizeMutation(sessionID, target string, activeImmutable bool) error {
+func (g *sessionFlightGate) authorizeMutation(sessionID string) error {
 	current := g.current(sessionID)
 	if current == nil || current.flight == nil {
 		return errMCPFlightRequired
@@ -210,16 +177,65 @@ func (g *sessionFlightGate) authorizeMutation(sessionID, target string, activeIm
 	if !current.flight.HasCapability(tapper.FlightCapabilityManageFlights) {
 		return errors.New("active flight does not grant manage_flights")
 	}
-	if activeImmutable {
-		ref, err := tapper.ParseFlightRef(target, current.flight.Namespace)
-		if err != nil {
-			return err
-		}
-		if ref.Canonical() == current.flight.Name {
-			return errors.New("an MCP session cannot edit or delete its own active flight")
-		}
-	}
 	return nil
+}
+
+func (g *sessionFlightGate) selfTarget(ctx context.Context, target string) (bool, error) {
+	current := orientationFromContext(ctx)
+	if current == nil || current.flight == nil {
+		return false, errMCPFlightRequired
+	}
+	ref, err := tapper.ParseFlightRef(target, current.flight.Namespace)
+	if err != nil {
+		return false, err
+	}
+	return ref.Canonical() == current.flight.Name, nil
+}
+
+// adoptEditedFlight publishes the exact returned manifest after persistence.
+// Flight mutation calls deliberately do not hold calls.RLock, so taking the
+// write lock here waits for older in-flight calls without deadlocking itself.
+func (g *sessionFlightGate) adoptEditedFlight(ctx context.Context, target string, flight *tapper.Flight) (bool, error) {
+	self, err := g.selfTarget(ctx, target)
+	if err != nil || !self {
+		return self, err
+	}
+	g.calls.Lock()
+	defer g.calls.Unlock()
+	candidate, renderErr := g.provider.Render(ctx, cloneFlight(flight))
+	if renderErr != nil {
+		warning := "flight update was applied, but orientation refresh failed: " + renderErr.Error()
+		g.publish(sessionIDFromContext(ctx), &orientationContext{
+			payload: errMCPFlightRequired.Error(), warnings: []string{warning}, recovery: true,
+		})
+		return true, errors.New(warning)
+	}
+	if candidate == nil {
+		candidate = &Orientation{}
+	}
+	next := &orientationContext{
+		flight: cloneFlight(flight), payload: candidate.Payload,
+		kegs:     append([]tapper.OrientationKeg(nil), candidate.Kegs...),
+		warnings: append([]string(nil), candidate.Warnings...),
+		recovery: false,
+	}
+	g.publish(sessionIDFromContext(ctx), next)
+	return true, nil
+}
+
+func (g *sessionFlightGate) adoptDeletedFlight(ctx context.Context, target string) (bool, error) {
+	self, err := g.selfTarget(ctx, target)
+	if err != nil || !self {
+		return self, err
+	}
+	g.calls.Lock()
+	defer g.calls.Unlock()
+	payload, payloadErr := tapper.BuildOrientationPayload(nil, "", nil, nil)
+	if payloadErr != nil {
+		payload = errMCPFlightRequired.Error()
+	}
+	g.publish(sessionIDFromContext(ctx), &orientationContext{payload: payload, recovery: true})
+	return true, nil
 }
 
 func sessionIDFromRequest(req sdkmcp.Request) string {
@@ -332,16 +348,17 @@ func (g *sessionFlightGate) middleware(next sdkmcp.MethodHandler) sdkmcp.MethodH
 			if params != nil && params.Name == "orient" {
 				return next(ctx, method, req)
 			}
-			g.calls.RLock()
-			defer g.calls.RUnlock()
 			if params != nil && g.recoveryOnly(sessionID) && !recoveryToolNames[params.Name] {
 				return errorResult(errMCPFlightRequired), nil
 			}
 			if params != nil && isFlightMutationTool(params.Name) {
-				if err := g.authorizeMutation(sessionID, "", false); err != nil {
+				if err := g.authorizeMutation(sessionID); err != nil {
 					return errorResult(err), nil
 				}
+				return next(ctx, method, req)
 			}
+			g.calls.RLock()
+			defer g.calls.RUnlock()
 		}
 		if method == "resources/read" || method == "resources/subscribe" {
 			if params, ok := req.GetParams().(*sdkmcp.ReadResourceParams); ok && params.URI == orientResourceURI {
