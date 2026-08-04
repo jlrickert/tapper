@@ -50,7 +50,11 @@ func (t *Tap) ImportFromKeg(ctx context.Context, opts ImportFromKegOptions) ([]I
 	}
 	opts.Source.Keg = srcAlias
 
-	srcKeg, err := t.resolveKegForRole(ctx, opts.Source, FlightRoleViewer)
+	sourceRole := FlightRoleViewer
+	if opts.LeaveStubs {
+		sourceRole = FlightRoleEditor
+	}
+	srcKeg, err := t.resolveKegForRole(ctx, opts.Source, sourceRole)
 	if err != nil {
 		return nil, fmt.Errorf("unable to open source keg: %w", err)
 	}
