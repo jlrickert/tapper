@@ -20,8 +20,15 @@ func registerOrientTools(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaul
 
 func registerOrient(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
-		Name:        "orient",
-		Description: "Refresh this session's flight authority and return the shared Tapper orientation payload.",
+		Name: "orient",
+		// The imperative lives here, not only in the server instructions, because
+		// tool descriptions are the one thing every model reads. A weaker model
+		// given only server instructions will not infer that it must orient.
+		Description: "Call this first, before any other KEG tool. Establishes this session's " +
+			"flight authority and returns the Tapper orientation payload listing the KEGs you " +
+			"may use. While no flight is active the KEG tools are hidden and only orient, " +
+			"list_flights, flight_show, and auth_info are available; call orient again after " +
+			"the user selects a flight to unlock them.",
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(false),

@@ -438,3 +438,23 @@ func TestTap_IntegrateHosts_IsSortedAndIncludesDefaults(t *testing.T) {
 		require.LessOrEqual(t, hosts[i-1], hosts[i], "IntegrateHosts must be sorted")
 	}
 }
+
+// TestTap_Orient_RecoveryPayloadStatesTheSituation pins the recovery guidance.
+// The MCP tool list is filtered to the recovery set, so an agent never gets to
+// call a locked tool and see the error explaining why — which left the empty
+// KEG table as the only signal, and weaker models do not act on an absence.
+func TestTap_Orient_RecoveryPayloadStatesTheSituation(t *testing.T) {
+	t.Parallel()
+	tap := newOrientTap(t)
+
+	payload, err := tap.Orient(context.Background(), tapper.OrientOptions{})
+	require.NoError(t, err)
+
+	require.Contains(t, payload, "No flight is selected")
+	require.Contains(t, payload, "recovery mode")
+	require.Contains(t, payload, "KEG tools are locked")
+	require.Contains(t, payload, "`list_flights`")
+	require.Contains(t, payload, "Call `orient` again")
+	// The payload is the MCP-facing surface and never names CLI commands.
+	require.NotContains(t, payload, "`tap ")
+}

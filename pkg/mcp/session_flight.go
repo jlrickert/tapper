@@ -13,6 +13,20 @@ import (
 
 var errMCPFlightRequired = errors.New("no flight is selected; KEG tools are locked. Inspect flights through MCP with `list_flights` and `flight_show`, ask the user to select a flight in Tapper configuration, then orient again")
 
+// failedOrientationPayload describes a selection that was made but could not be
+// resolved. It deliberately does not reuse errMCPFlightRequired: reporting "no
+// flight is selected" when one was selected and merely failed to resolve sends
+// the reader looking for missing configuration instead of the real fault, which
+// is usually a wrong flight name or an unreachable hub.
+func failedOrientationPayload(err error) string {
+	return "This session could not establish flight authority: " + err.Error() +
+		"\n\nKEG tools are locked until it does. Call `list_flights` to see what" +
+		" actually exists, then ask the user to correct the selected flight in" +
+		" Tapper configuration and call `orient` again on this same connection." +
+		" An empty flight list usually means this machine is not bootstrapped or" +
+		" not authenticated to the hub that hosts the flight."
+}
+
 var recoveryToolNames = map[string]bool{
 	"orient":       true,
 	"list_flights": true,
@@ -86,7 +100,7 @@ func (g *sessionFlightGate) refresh(ctx context.Context, sessionID string) (*ori
 			return current, err
 		}
 		// Initialization must remain connectable for recovery.
-		recovery := &orientationContext{payload: errMCPFlightRequired.Error(), recovery: true, warnings: []string{err.Error()}}
+		recovery := &orientationContext{payload: failedOrientationPayload(err), recovery: true, warnings: []string{err.Error()}}
 		state := g.state(sessionID)
 		state.mu.Lock()
 		state.current = recovery
