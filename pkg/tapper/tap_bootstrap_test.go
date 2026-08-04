@@ -40,7 +40,7 @@ func TestBootstrap_Local(t *testing.T) {
 	require.Empty(t, res.HubURL, "local has no remote URL to log in against")
 	require.Equal(t, tapper.LocalHubName, res.Namespace, "a local deployment defaults to the @local namespace")
 
-	cfg, err := tap.ConfigService.UserConfig(false)
+	cfg, err := tap.ConfigService.UserConfig()
 	require.NoError(t, err)
 	require.Equal(t, testHost, cfg.FallbackHub())
 	require.Empty(t, cfg.FallbackNamespace(), "namespace comes from the hub, not a global fallback")
@@ -70,7 +70,7 @@ func TestBootstrap_Cloud(t *testing.T) {
 	require.Equal(t, tapper.DefaultHubName, res.Hub)
 	require.Equal(t, tapper.DefaultHubURL, res.HubURL)
 
-	cfg, err := tap.ConfigService.UserConfig(false)
+	cfg, err := tap.ConfigService.UserConfig()
 	require.NoError(t, err)
 	require.Equal(t, tapper.DefaultHubName, cfg.FallbackHub())
 	require.Empty(t, cfg.FallbackNamespace(), "namespace comes from the hub, not a global fallback")
@@ -104,7 +104,7 @@ func TestBootstrap_Enterprise(t *testing.T) {
 	require.Equal(t, "acme", res.Hub, "hub name derived from endpoint host")
 	require.Equal(t, "https://keg.acme.com", res.HubURL)
 
-	cfg, err := tap.ConfigService.UserConfig(false)
+	cfg, err := tap.ConfigService.UserConfig()
 	require.NoError(t, err)
 	require.Equal(t, "acme", cfg.FallbackHub())
 	require.Empty(t, cfg.FallbackNamespace(), "namespace comes from the hub, not a global fallback")
@@ -138,7 +138,7 @@ func TestBootstrap_Enterprise_SchemeAddedAndHubNameOverride(t *testing.T) {
 	require.Equal(t, "work", res.Hub, "explicit --hub-name wins over derivation")
 	require.Equal(t, "https://kegs.example.org", res.HubURL, "bare host upgraded to https")
 
-	cfg, err := tap.ConfigService.UserConfig(false)
+	cfg, err := tap.ConfigService.UserConfig()
 	require.NoError(t, err)
 	require.Equal(t, "https://kegs.example.org", cfg.Hubs()["work"].URL)
 }
@@ -177,15 +177,15 @@ func TestSetBootstrapFlight_ValidatesCanonicalizesAndResetsConfig(t *testing.T) 
 		[]byte("title: Focused\n"), 0o644))
 
 	// Prime the merged cache before the write; SetBootstrapFlight must reset it.
-	cfg, err := tap.ConfigService.Config(true)
+	cfg, err := tap.ConfigService.Config()
 	require.NoError(t, err)
 	require.Empty(t, cfg.Flight())
 	require.NoError(t, tap.SetBootstrapFlight(fx.Context(), "+focused"))
 
-	userCfg, err := tap.ConfigService.UserConfig(false)
+	userCfg, err := tap.ConfigService.UserConfig()
 	require.NoError(t, err)
 	require.Equal(t, "@local/+focused", userCfg.Flight())
-	merged, err := tap.ConfigService.Config(true)
+	merged, err := tap.ConfigService.Config()
 	require.NoError(t, err)
 	require.Equal(t, "@local/+focused", merged.Flight())
 
@@ -216,7 +216,7 @@ hubs:
 	require.NoError(t, err)
 	require.Equal(t, "acme-2", res.Hub, "collision with a different URL should suffix")
 
-	cfg, err := tap.ConfigService.UserConfig(false)
+	cfg, err := tap.ConfigService.UserConfig()
 	require.NoError(t, err)
 	require.Equal(t, "https://old.acme.example", cfg.Hubs()["acme"].URL, "original hub untouched")
 	require.Equal(t, "https://keg.acme.com", cfg.Hubs()["acme-2"].URL)
@@ -246,7 +246,7 @@ hubs:
 	require.False(t, res.Created)
 	require.Equal(t, tapper.DefaultHubName, res.Hub)
 
-	cfg, err := tap.ConfigService.UserConfig(false)
+	cfg, err := tap.ConfigService.UserConfig()
 	require.NoError(t, err)
 	require.Equal(t, tapper.DefaultHubName, cfg.FallbackHub())
 	// Bootstrap no longer manages fallbackNamespace, so a pre-existing value is

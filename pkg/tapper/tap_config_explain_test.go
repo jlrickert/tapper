@@ -188,51 +188,8 @@ func TestConfigExplain_UnknownField(t *testing.T) {
 	require.Contains(t, err.Error(), "unknown config field")
 }
 
-func TestConfigService_ResolvedSourcesPopulated(t *testing.T) {
-	t.Parallel()
-
-	fx := NewSandbox(t, sandbox.WithFixture("basic", "/home/testuser"))
-	require.NoError(t, fx.Setwd("/home/testuser"))
-
-	tap, err := tapper.NewTap(tapper.TapOptions{
-		Root:    "/home/testuser",
-		Runtime: fx.Runtime(),
-	})
-	require.NoError(t, err)
-
-	require.NoError(t, fx.Runtime().AtomicWriteFile(
-		tap.PathService.UserConfig(),
-		[]byte("defaultKeg: pub\n"),
-		0o644,
-	))
-
-	_, err = tap.ConfigService.Config(false)
-	require.NoError(t, err)
-	require.Contains(t, tap.ConfigService.ResolvedSources, "user config")
-}
-
-func TestConfigService_ResolvedSourcesClearedOnReset(t *testing.T) {
-	t.Parallel()
-
-	fx := NewSandbox(t, sandbox.WithFixture("basic", "/home/testuser"))
-	require.NoError(t, fx.Setwd("/home/testuser"))
-
-	tap, err := tapper.NewTap(tapper.TapOptions{
-		Root:    "/home/testuser",
-		Runtime: fx.Runtime(),
-	})
-	require.NoError(t, err)
-
-	require.NoError(t, fx.Runtime().AtomicWriteFile(
-		tap.PathService.UserConfig(),
-		[]byte("defaultKeg: pub\n"),
-		0o644,
-	))
-
-	_, err = tap.ConfigService.Config(false)
-	require.NoError(t, err)
-	require.NotEmpty(t, tap.ConfigService.ResolvedSources)
-
-	tap.ConfigService.ResetCache()
-	require.Empty(t, tap.ConfigService.ResolvedSources)
-}
+// The ResolvedSources accessor was removed along with the state behind it: it
+// had no production consumer. Which tier supplied a field is still reported by
+// `tap config --explain`, which derives it from the tiers themselves
+// (configFieldScope) rather than from cascade bookkeeping — see
+// TestConfigCommand_ExplainFlag above.

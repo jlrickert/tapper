@@ -158,7 +158,7 @@ func (t *Tap) DeleteFlight(ctx context.Context, opts DeleteFlightOptions) error 
 }
 
 func (t *Tap) resolveWriteFlightRef(raw string) (FlightRef, HubEntry, string, error) {
-	cfg, err := t.ConfigService.Config(true)
+	cfg, err := t.ConfigService.Config()
 	if err != nil {
 		return FlightRef{}, HubEntry{}, "", err
 	}
@@ -283,7 +283,7 @@ func (t *Tap) enforceFlightSnapshot(flight *Flight, k keg.Keg, want FlightRole) 
 				}
 			}
 		}
-		if cfg, cErr := t.ConfigService.Config(true); cErr == nil {
+		if cfg, cErr := t.ConfigService.Config(); cErr == nil {
 			alias = cfg.LookupAliasForTarget(t.Runtime, k.Target().String())
 		}
 	}

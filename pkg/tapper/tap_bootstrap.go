@@ -124,7 +124,7 @@ func (t *Tap) Bootstrap(ctx context.Context, opts BootstrapOptions) (*BootstrapR
 		cfg     *Config
 		created bool
 	)
-	existing, err := t.ConfigService.UserConfig(false)
+	existing, err := t.ConfigService.ReadUserConfigFile()
 	switch {
 	case err == nil:
 		cfg = existing
@@ -208,8 +208,9 @@ func (t *Tap) Bootstrap(ctx context.Context, opts BootstrapOptions) (*BootstrapR
 	if err := cfg.Write(t.Runtime, path); err != nil {
 		return nil, err
 	}
-	// Drop the cached config so the next resolution reflects what we just wrote.
-	t.ConfigService.ResetCache()
+	// The snapshot predates this write; drop it so nothing in this process
+	// reads back a value we just replaced.
+	t.ConfigService.Reload()
 
 	return &BootstrapResult{
 		Path:      path,
@@ -238,7 +239,7 @@ func (t *Tap) SetBootstrapNamespace(ctx context.Context, hubName, namespace stri
 	if namespace == "" {
 		return nil
 	}
-	cfg, err := t.ConfigService.UserConfig(false)
+	cfg, err := t.ConfigService.ReadUserConfigFile()
 	if err != nil {
 		return fmt.Errorf("unable to load user config: %w", err)
 	}
@@ -253,8 +254,9 @@ func (t *Tap) SetBootstrapNamespace(ctx context.Context, hubName, namespace stri
 	if err := cfg.Write(t.Runtime, t.PathService.UserConfig()); err != nil {
 		return err
 	}
-	// Drop the cached config so the next resolution reflects the adopted value.
-	t.ConfigService.ResetCache()
+	// The snapshot predates this write; drop it so nothing in this process
+	// reads back a value we just replaced.
+	t.ConfigService.Reload()
 	return nil
 }
 
@@ -271,7 +273,7 @@ func (t *Tap) SetHubDefaultNamespaceByURL(ctx context.Context, hubURL, namespace
 	if canonical == "" {
 		return "", nil
 	}
-	cfg, err := t.ConfigService.UserConfig(false)
+	cfg, err := t.ConfigService.ReadUserConfigFile()
 	if err != nil {
 		if errors.Is(err, keg.ErrNotExist) {
 			return "", nil
@@ -292,7 +294,9 @@ func (t *Tap) SetHubDefaultNamespaceByURL(ctx context.Context, hubURL, namespace
 		if err := cfg.Write(t.Runtime, t.PathService.UserConfig()); err != nil {
 			return "", err
 		}
-		t.ConfigService.ResetCache()
+		// The snapshot predates this write; drop it so nothing in this process
+		// reads back a value we just replaced.
+		t.ConfigService.Reload()
 		return name, nil
 	}
 	return "", nil
@@ -311,7 +315,7 @@ func (t *Tap) SetFallbackKeg(ctx context.Context, ref string) error {
 	if ref == "" {
 		return nil
 	}
-	cfg, err := t.ConfigService.UserConfig(false)
+	cfg, err := t.ConfigService.ReadUserConfigFile()
 	if err != nil {
 		if !errors.Is(err, keg.ErrNotExist) {
 			return fmt.Errorf("unable to load user config: %w", err)
@@ -324,8 +328,9 @@ func (t *Tap) SetFallbackKeg(ctx context.Context, ref string) error {
 	if err := cfg.Write(t.Runtime, t.PathService.UserConfig()); err != nil {
 		return err
 	}
-	// Drop the cached config so the next resolution reflects the chosen keg.
-	t.ConfigService.ResetCache()
+	// The snapshot predates this write; drop it so nothing in this process
+	// reads back a value we just replaced.
+	t.ConfigService.Reload()
 	return nil
 }
 
@@ -345,7 +350,7 @@ func (t *Tap) SetBootstrapFlight(ctx context.Context, ref string) error {
 	if canonical == "" {
 		return fmt.Errorf("invalid bootstrap flight %q: resolved flight has no canonical reference", ref)
 	}
-	cfg, err := t.ConfigService.UserConfig(false)
+	cfg, err := t.ConfigService.ReadUserConfigFile()
 	if err != nil {
 		if !errors.Is(err, keg.ErrNotExist) {
 			return fmt.Errorf("unable to load user config: %w", err)
@@ -358,7 +363,9 @@ func (t *Tap) SetBootstrapFlight(ctx context.Context, ref string) error {
 	if err := cfg.Write(t.Runtime, t.PathService.UserConfig()); err != nil {
 		return err
 	}
-	t.ConfigService.ResetCache()
+	// The snapshot predates this write; drop it so nothing in this process
+	// reads back a value we just replaced.
+	t.ConfigService.Reload()
 	return nil
 }
 

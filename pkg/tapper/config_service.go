@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 
 	"github.com/jlrickert/cli-toolkit/cfgcascade"
 	"github.com/jlrickert/cli-toolkit/toolkit"
@@ -27,6 +28,20 @@ type ConfigLoadWarning struct {
 }
 
 // ConfigService loads, merges, and resolves tapper configuration state.
+//
+// Configuration is read once and then fixed for the life of the process. A
+// `tap` command therefore runs against one consistent snapshot, and a
+// long-lived `tap mcp` session picks up an external edit at its next orient,
+// which is the one place Reload is called. Nothing inside a session can write
+// configuration — the `config` tool is read-only — so "edit the file, then
+// reorient" is the whole update story.
+//
+// The snapshot is immutable once published, so concurrent readers need no
+// coordination beyond the mutex guarding the pointer itself. That matters
+// because the MCP SDK dispatches every call except initialize asynchronously.
+//
+// Flight authority is not affected by a reload: the MCP session gate snapshots
+// its resolved flight separately, so it stays stable across a reload either way.
 type ConfigService struct {
 	Runtime *toolkit.Runtime
 
@@ -35,24 +50,23 @@ type ConfigService struct {
 	// ConfigPath is the path to the config file.
 	ConfigPath string
 
-	// LoadWarnings accumulates non-fatal issues from the last Config() call.
-	// Missing config files are not warnings (graceful degradation). Corrupt
-	// YAML, permission errors, etc. are recorded here.
-	LoadWarnings []ConfigLoadWarning
+	// mu guards snap. The snapshot it points at is never mutated after being
+	// published, so readers may use it after releasing the lock.
+	mu   sync.Mutex
+	snap *resolved
+}
 
-	// ResolvedSources lists provider names that contributed to the merged config,
-	// most-specific first. Populated after Config() runs the cascade.
-	ResolvedSources []string
-
-	// Cached configs.
-	userCache    *Config
-	projectCache *Config
-
-	// projectWarnings holds load/trust-boundary warnings produced by the most
-	// recent project-config walk, surfaced through LoadWarnings by Config().
-	projectWarnings []ConfigLoadWarning
-
-	mergedCache *Config
+// resolved is one complete read of the configuration cascade. Every field is
+// populated together by load and read-only thereafter. Tier errors are captured
+// alongside their values so UserConfig and ProjectConfig report exactly what a
+// direct read would have.
+type resolved struct {
+	merged     *Config
+	user       *Config
+	userErr    error
+	project    *Config
+	projectErr error
+	warnings   []ConfigLoadWarning
 }
 
 // NewConfigService builds a ConfigService rooted at root.
@@ -67,14 +81,41 @@ func NewConfigService(root string, rt *toolkit.Runtime) (*ConfigService, error) 
 	}, nil
 }
 
-// ResetCache clears cached user, project, and merged configs.
-func (s *ConfigService) ResetCache() {
-	s.mergedCache = nil
-	s.userCache = nil
-	s.projectCache = nil
-	s.projectWarnings = nil
-	s.LoadWarnings = nil
-	s.ResolvedSources = nil
+// Reload discards the snapshot so the next read re-reads from disk. Orientation
+// is its only caller: it is the point at which a session re-establishes the
+// context it is operating under.
+func (s *ConfigService) Reload() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.snap = nil
+}
+
+// snapshot returns the process-wide configuration read, performing it on first
+// use. The load runs under the lock so a burst of concurrent first calls
+// resolves once rather than racing.
+func (s *ConfigService) snapshot() (*resolved, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.snap != nil {
+		return s.snap, nil
+	}
+	snap, err := s.load()
+	if err != nil {
+		return nil, err
+	}
+	s.snap = snap
+	return snap, nil
+}
+
+// Load returns the merged configuration together with the non-fatal issues
+// found while reading it. Missing files are not warnings (graceful
+// degradation); corrupt YAML and permission errors are.
+func (s *ConfigService) Load() (*Config, []ConfigLoadWarning, error) {
+	snap, err := s.snapshot()
+	if err != nil {
+		return nil, nil, err
+	}
+	return snap.merged, snap.warnings, nil
 }
 
 // UserConfigExists reports whether a user config file is present — the signal
@@ -93,18 +134,20 @@ func (s *ConfigService) UserConfigExists() bool {
 	return false
 }
 
-// UserConfig returns the global user configuration.
-func (s *ConfigService) UserConfig(cache bool) (*Config, error) {
-	if cache && s.userCache != nil {
-		return s.userCache, nil
-	}
-	path := filepath.Join(s.PathService.ConfigRoot, "config.yaml")
-	cfg, err := ReadConfig(s.Runtime, path)
+// UserConfig returns the global user configuration from the process snapshot.
+func (s *ConfigService) UserConfig() (*Config, error) {
+	snap, err := s.snapshot()
 	if err != nil {
 		return nil, err
 	}
-	s.userCache = cfg
-	return cfg, nil
+	return snap.user, snap.userErr
+}
+
+// ReadUserConfigFile reads the user configuration straight from disk, bypassing
+// the snapshot. Use it when about to modify and rewrite that file, so the
+// read-modify-write cycle starts from what is actually on disk.
+func (s *ConfigService) ReadUserConfigFile() (*Config, error) {
+	return ReadConfig(s.Runtime, filepath.Join(s.PathService.ConfigRoot, "config.yaml"))
 }
 
 // WalkConfigsUp returns the absolute paths of every existing rel file found by
@@ -137,11 +180,24 @@ func WalkConfigsUp(rt *toolkit.Runtime, start, rel string) []string {
 // project layers — only the user config may define them — and each strip is
 // recorded as a load warning surfaced by Config(). Returns keg.ErrNotExist when
 // no project config exists.
-func (s *ConfigService) ProjectConfig(cache bool) (*Config, error) {
-	if cache && s.projectCache != nil {
-		return s.projectCache, nil
+func (s *ConfigService) ProjectConfig() (*Config, error) {
+	snap, err := s.snapshot()
+	if err != nil {
+		return nil, err
 	}
+	return snap.project, snap.projectErr
+}
 
+// ReadProjectConfigFile walks and merges the project configs straight from
+// disk, bypassing the snapshot. Same purpose as ReadUserConfigFile.
+func (s *ConfigService) ReadProjectConfigFile() (*Config, error) {
+	cfg, _, err := s.readProjectConfig()
+	return cfg, err
+}
+
+// readProjectConfig performs the project walk and returns the merged result
+// along with the trust-boundary warnings it produced.
+func (s *ConfigService) readProjectConfig() (*Config, []ConfigLoadWarning, error) {
 	relDir := filepath.Base(s.PathService.LocalConfigRoot) // ".tapper"
 	rel := filepath.Join(relDir, "config.yaml")
 	paths := WalkConfigsUp(s.Runtime, s.PathService.Root, rel)
@@ -181,24 +237,35 @@ func (s *ConfigService) ProjectConfig(cache bool) (*Config, error) {
 		}
 	}
 
-	s.projectWarnings = warnings
 	if merged == nil {
-		s.projectCache = nil
-		return nil, keg.ErrNotExist
+		return nil, warnings, keg.ErrNotExist
 	}
-	s.projectCache = merged
-	return merged, nil
+	return merged, warnings, nil
 }
 
-// Config returns the merged user and project configuration with optional caching.
-// If cache is true and a merged config exists, it returns the cached version.
-// Otherwise, it uses a cfgcascade.Cascade to resolve configuration from three
-// providers in rank order: user config file, project config file, TAP_* env vars.
-// When ConfigPath is set, it directly reads that file and bypasses the cascade.
-func (s *ConfigService) Config(cache bool) (*Config, error) {
-	if cache && s.mergedCache != nil {
-		return s.mergedCache, nil
+// Config returns the merged user, project, and environment configuration from
+// the process snapshot.
+func (s *ConfigService) Config() (*Config, error) {
+	snap, err := s.snapshot()
+	if err != nil {
+		return nil, err
 	}
+	return snap.merged, nil
+}
+
+// load performs one complete read of the cascade: both tiers, then the merge.
+// It builds and returns a value without touching service state, which is what
+// lets snapshot publish it as an immutable pointer.
+//
+// The merge resolves three providers in rank order — user config, project
+// config, TAP_* env vars. When ConfigPath is set it reads that file instead and
+// bypasses the cascade entirely.
+func (s *ConfigService) load() (*resolved, error) {
+	out := &resolved{}
+	out.user, out.userErr = s.ReadUserConfigFile()
+
+	var projectWarnings []ConfigLoadWarning
+	out.project, projectWarnings, out.projectErr = s.readProjectConfig()
 
 	if s.ConfigPath != "" {
 		cfg, err := ReadConfig(s.Runtime, s.ConfigPath)
@@ -208,11 +275,9 @@ func (s *ConfigService) Config(cache bool) (*Config, error) {
 		if cfg == nil {
 			cfg = &Config{}
 		}
-		s.mergedCache = cfg
-		return cfg, nil
+		out.merged = cfg
+		return out, nil
 	}
-
-	s.LoadWarnings = nil
 
 	userPath := filepath.Join(s.PathService.ConfigRoot, "config.yaml")
 	projectPath := filepath.Join(s.PathService.LocalConfigRoot, "config.yaml")
@@ -224,14 +289,13 @@ func (s *ConfigService) Config(cache bool) (*Config, error) {
 				Provider: &cfgcascade.FuncProvider[*Config]{
 					ProviderName: "user config",
 					Fn: func(_ func(string) string) (*Config, error) {
-						cfg, err := s.UserConfig(cache)
-						if err != nil {
-							if errors.Is(err, keg.ErrNotExist) {
+						if out.userErr != nil {
+							if errors.Is(out.userErr, keg.ErrNotExist) {
 								return nil, os.ErrNotExist
 							}
-							return nil, err
+							return nil, out.userErr
 						}
-						return cfg, nil
+						return out.user, nil
 					},
 				},
 			},
@@ -240,14 +304,13 @@ func (s *ConfigService) Config(cache bool) (*Config, error) {
 				Provider: &cfgcascade.FuncProvider[*Config]{
 					ProviderName: "project config",
 					Fn: func(_ func(string) string) (*Config, error) {
-						cfg, err := s.ProjectConfig(cache)
-						if err != nil {
-							if errors.Is(err, keg.ErrNotExist) {
+						if out.projectErr != nil {
+							if errors.Is(out.projectErr, keg.ErrNotExist) {
 								return nil, os.ErrNotExist
 							}
-							return nil, err
+							return nil, out.projectErr
 						}
-						return cfg, nil
+						return out.project, nil
 					},
 				},
 			},
@@ -280,13 +343,12 @@ func (s *ConfigService) Config(cache bool) (*Config, error) {
 	}
 
 	rv := cascade.Resolve(s.Runtime.Env().Get)
-	s.ResolvedSources = rv.Sources
 
 	// Surface trust-boundary / per-layer warnings accumulated by the project
 	// config walk (the cascade only sees the merged result).
-	s.LoadWarnings = append(s.LoadWarnings, s.projectWarnings...)
+	out.warnings = append(out.warnings, projectWarnings...)
 
-	// Map cascade provider errors to LoadWarnings.
+	// Map cascade provider errors to warnings.
 	for _, pe := range rv.Errors {
 		var path string
 		switch pe.Name {
@@ -295,7 +357,7 @@ func (s *ConfigService) Config(cache bool) (*Config, error) {
 		case "project config":
 			path = projectPath
 		}
-		s.LoadWarnings = append(s.LoadWarnings, ConfigLoadWarning{
+		out.warnings = append(out.warnings, ConfigLoadWarning{
 			Source:  pe.Name,
 			Path:    path,
 			Message: fmt.Sprintf("failed to load %s at %s: %v", pe.Name, path, pe.Err),
@@ -303,21 +365,19 @@ func (s *ConfigService) Config(cache bool) (*Config, error) {
 		})
 	}
 
-	merged := rv.Value
-	if merged == nil {
-		merged = &Config{data: &configDTO{}}
+	out.merged = rv.Value
+	if out.merged == nil {
+		out.merged = &Config{data: &configDTO{}}
 	}
-
-	s.mergedCache = merged
-	return s.mergedCache, nil
+	return out, nil
 }
 
 // ResolveTarget resolves a keg selector to a keg target. When the selector is
 // empty it uses defaultKeg, then fallbackKeg. The selector is parsed as a keg
 // reference and turned into a concrete target by Config.ResolveAlias (the
 // namespace-centric ResolveRef chain and per-hub-kind backend mapping).
-func (s *ConfigService) ResolveTarget(alias, nsOverride, hubOverride string, cache bool) (*keg.Target, error) {
-	cfg, err := s.Config(cache)
+func (s *ConfigService) ResolveTarget(alias, nsOverride, hubOverride string) (*keg.Target, error) {
+	cfg, err := s.Config()
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve target: %w", err)
 	}

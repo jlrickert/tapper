@@ -254,7 +254,7 @@ func (s *KegService) resolveFileKeg(ctx context.Context, root string, cache bool
 // `tap bootstrap` writes for the global user so anything more specific overrides.
 func (s *KegService) resolvePath(ctx context.Context, path, nsOverride, hubOverride string, cache bool) (keg.Keg, error) {
 	s.ensureCache()
-	cfg, err := s.ConfigService.Config(true)
+	cfg, err := s.ConfigService.Config()
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve path config: %w", err)
 	}
@@ -295,7 +295,7 @@ func (s *KegService) resolveKegAlias(ctx context.Context, kegAlias, nsOverride, 
 		return s.kegCache[cacheKey], nil
 	}
 
-	target, err := s.ConfigService.ResolveTarget(kegAlias, nsOverride, hubOverride, cache)
+	target, err := s.ConfigService.ResolveTarget(kegAlias, nsOverride, hubOverride)
 	if err == nil && target != nil {
 		k, kerr := keg.NewKegFromTarget(ctx, *target, s.Runtime, keg.WithTokenResolver(s.tokenResolver()))
 		if kerr != nil {
@@ -311,7 +311,7 @@ func (s *KegService) resolveKegAlias(ctx context.Context, kegAlias, nsOverride, 
 	// (no namespace, hub, or path) may instead name a project-local keg at
 	// <project>/kegs/<name> — resolve it so local project kegs work without
 	// requiring any config entries.
-	if ref := parseKegRef(kegAlias); ref.Name != "" && ref.Namespace == "" && ref.Hub == "" && ref.Path == "" && s.allowProjectAliasFallback(cache) {
+	if ref := parseKegRef(kegAlias); ref.Name != "" && ref.Namespace == "" && ref.Hub == "" && ref.Path == "" && s.allowProjectAliasFallback() {
 		if projectKeg, found, projectErr := s.resolveProjectAlias(ctx, projectRoot, ref.Name, cache); projectErr != nil {
 			return nil, projectErr
 		} else if found {
@@ -330,11 +330,11 @@ func (s *KegService) resolveKegAlias(ctx context.Context, kegAlias, nsOverride, 
 	return nil, fmt.Errorf("keg %q could not be resolved", kegAlias)
 }
 
-func (s *KegService) allowProjectAliasFallback(cache bool) bool {
+func (s *KegService) allowProjectAliasFallback() bool {
 	if s.ConfigService == nil {
 		return true
 	}
-	cfg, err := s.ConfigService.Config(cache)
+	cfg, err := s.ConfigService.Config()
 	if err != nil || cfg == nil {
 		return true
 	}

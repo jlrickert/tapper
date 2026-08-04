@@ -42,20 +42,20 @@ func (t *Tap) Config(opts ConfigOptions) (string, error) {
 		}
 		return string(raw), nil
 	} else if opts.Project {
-		lCfg, err := t.ConfigService.ProjectConfig(false)
+		lCfg, err := t.ConfigService.ReadProjectConfigFile()
 		if err != nil {
 			return "", err
 		}
 		cfg = lCfg
 	} else if opts.User {
-		uCfg, err := t.ConfigService.UserConfig(false)
+		uCfg, err := t.ConfigService.ReadUserConfigFile()
 		if err != nil {
 			return "", err
 		}
 		cfg = uCfg
 	} else {
 		var err error
-		cfg, err = t.ConfigService.Config(true)
+		cfg, err = t.ConfigService.Config()
 		if err != nil {
 			return "", err
 		}
@@ -279,14 +279,14 @@ func configFieldGetter(cfg *Config, field string) string {
 // least-specific to determine the effective source.
 func (t *Tap) ConfigExplain(ctx context.Context, opts ConfigExplainOptions) ([]ConfigExplainResult, error) {
 	// Load the merged config to get final values.
-	merged, err := t.ConfigService.Config(true)
+	merged, err := t.ConfigService.Config()
 	if err != nil {
 		return nil, fmt.Errorf("unable to load merged config: %w", err)
 	}
 
 	// Load each tier individually. Missing configs are nil (not errors).
-	userCfg, _ := t.ConfigService.UserConfig(true)
-	projectCfg, _ := t.ConfigService.ProjectConfig(true)
+	userCfg, _ := t.ConfigService.UserConfig()
+	projectCfg, _ := t.ConfigService.ProjectConfig()
 
 	// Build env config by checking TAP_* env vars.
 	envCfg := t.loadEnvConfig()

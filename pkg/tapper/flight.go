@@ -196,7 +196,7 @@ func (s *FlightService) invalidateFlights() {
 }
 
 func (s *FlightService) config() (*Config, error) {
-	cfg, err := s.ConfigService.Config(true)
+	cfg, err := s.ConfigService.Config()
 	if err != nil {
 		return nil, err
 	}

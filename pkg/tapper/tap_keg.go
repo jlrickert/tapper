@@ -150,7 +150,7 @@ func (t *Tap) KegRename(ctx context.Context, opts KegRenameOptions) error {
 // namespace and returns the namespace, keg alias, hub URL, and bearer token.
 // Keg administration requires a remote hub-backed namespace with a token.
 func (t *Tap) resolveKegAdminRef(keg, nsOverride, hubOverride string) (namespace, alias, hubURL, token string, err error) {
-	cfg, cErr := t.ConfigService.Config(true)
+	cfg, cErr := t.ConfigService.Config()
 	if cErr != nil {
 		return "", "", "", "", cErr
 	}

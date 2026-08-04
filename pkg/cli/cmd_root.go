@@ -144,10 +144,10 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 
 			// Fall back to config values when CLI flags are not
 			// explicitly set.  Precedence: CLI flag > config > default.
-			cfg, cfgErr := tap.ConfigService.Config(true)
+			cfg, warnings, cfgErr := tap.ConfigService.Load()
 
 			// Surface config load warnings (corrupt YAML, permission errors).
-			if warnings := tap.ConfigService.LoadWarnings; len(warnings) > 0 {
+			if len(warnings) > 0 {
 				if deps.Strict {
 					var msgs []string
 					for _, w := range warnings {
@@ -405,7 +405,7 @@ func kegFlagCompletions(ctx context.Context, deps *Deps, toComplete string) []st
 		return nil
 	}
 
-	cfg, _ := tap.ConfigService.Config(true)
+	cfg, _ := tap.ConfigService.Config()
 	bareNamespace := completionBareNamespace(deps.Runtime, cfg)
 
 	if ctx == nil {

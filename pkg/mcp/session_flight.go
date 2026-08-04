@@ -78,7 +78,7 @@ func (g *sessionFlightGate) loadLocal(ctx context.Context) (*tapper.Flight, stri
 	// adoption boundary. Launcher-bound sessions still reload configuration
 	// because it supplies hub routing and credentials, but selection remains the
 	// immutable --flight value.
-	g.tap.ConfigService.ResetCache()
+	g.tap.ConfigService.Reload()
 	ref := g.staticFlight
 	if ref == "" {
 		ref = g.tap.ActiveFlightName("")
