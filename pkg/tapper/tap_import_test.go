@@ -1,6 +1,8 @@
 package tapper
 
 import (
+	"context"
+	"errors"
 	"testing"
 
 	"github.com/jlrickert/tapper/pkg/keg"
@@ -13,6 +15,34 @@ func TestResolveImportSourceAlias_BareIDs(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "mykeg", alias)
 	require.Equal(t, []string{"1", "2", "3"}, bareIDs)
+}
+
+func TestImportFromKeg_LeaveStubsRequiresEditorOnSource(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name       string
+		leaveStubs bool
+		want       FlightRole
+	}{
+		{name: "copy only", want: FlightRoleViewer},
+		{name: "leave stubs", leaveStubs: true, want: FlightRoleEditor},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var got FlightRole
+			tap := &Tap{KegResolver: func(context.Context, KegTargetOptions, FlightRole) (keg.Keg, error) {
+				return nil, errors.New("unexpected resolver path")
+			}}
+			tap.KegResolver = func(_ context.Context, _ KegTargetOptions, role FlightRole) (keg.Keg, error) {
+				got = role
+				return nil, errors.New("stop after role capture")
+			}
+			_, err := tap.ImportFromKeg(context.Background(), ImportFromKegOptions{
+				Source: KegTargetOptions{Keg: "source"}, LeaveStubs: tc.leaveStubs,
+			})
+			require.Error(t, err)
+			require.Equal(t, tc.want, got)
+		})
+	}
 }
 
 func TestResolveImportSourceAlias_KegRefArgs(t *testing.T) {
