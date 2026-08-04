@@ -375,6 +375,22 @@ func BuildOrientationPayload(flight *Flight, flightNote string, kegs []Orientati
 		b.WriteString("\nCall `keg_settings` for the selected KEG or KEGs before operating in them; targeted settings include KEG-level instructions.\n\n")
 	}
 
+	if flight == nil {
+		// Recovery. Say so in the payload itself: the tool list is filtered to
+		// the recovery set, so an agent never gets to call a locked tool and
+		// see the error explaining why. Without this the only signal is an
+		// absence — an empty KEG table — which weaker models do not act on.
+		b.WriteString("## Flight\n\n")
+		b.WriteString("No flight is selected, so this session is in recovery mode ")
+		b.WriteString("and the KEG tools are locked. Only `orient`, `list_flights`, ")
+		b.WriteString("`flight_show`, and `auth_info` are available.\n\n")
+		b.WriteString("To recover:\n\n")
+		b.WriteString("1. Call `list_flights` to see what is available.\n")
+		b.WriteString("2. Ask the user to select a flight in Tapper configuration. ")
+		b.WriteString("Flights are selected outside MCP; an agent cannot select one itself.\n")
+		b.WriteString("3. Call `orient` again on this same connection to pick it up.\n\n")
+	}
+
 	if flight != nil {
 		b.WriteString("## Flight\n\n")
 		if flight.Name != "" {
