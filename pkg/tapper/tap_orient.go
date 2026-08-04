@@ -32,7 +32,15 @@ type OrientOptions struct {
 // flight and hub-listing failures do not suppress the core orientation
 // document.
 func (t *Tap) Orient(ctx context.Context, opts OrientOptions) (string, error) {
-	flightName := t.activeFlightName(opts.Flight)
+	// Orientation is the one reload boundary for configuration. Everywhere else
+	// reads a snapshot fixed for the life of the process, so this is where an
+	// edited config file takes effect. Unconditional, so an explicit --flight
+	// still gets a keg listing built from the same fresh cascade as the
+	// config-driven form.
+	if t != nil && t.ConfigService != nil {
+		t.ConfigService.Reload()
+	}
+	flightName := t.ActiveFlightName(opts.Flight)
 	flight, flightNote := t.resolveOrientFlight(ctx, flightName)
 	available, warnings := t.orientKegListing(ctx, flight)
 	return BuildOrientationPayload(flight, flightNote, available, warnings)
@@ -47,24 +55,23 @@ func (t *Tap) OrientationForFlight(ctx context.Context, flight *Flight) (string,
 	return payload, available, warnings, err
 }
 
-func (t *Tap) activeFlightName(explicit string) string {
+// ActiveFlightName resolves an explicit flight, falling back to the flight in
+// the process configuration snapshot. It is a pure read: it neither writes
+// configuration nor reloads it, so callers that need a fresh cascade call
+// ConfigService.Reload at their own boundary (see Orient and the MCP session
+// gate).
+func (t *Tap) ActiveFlightName(explicit string) string {
 	if name := strings.TrimSpace(explicit); name != "" {
 		return name
 	}
 	if t == nil || t.ConfigService == nil {
 		return ""
 	}
-	cfg, err := t.ConfigService.Config(true)
+	cfg, err := t.ConfigService.Config()
 	if err != nil || cfg == nil {
 		return ""
 	}
 	return strings.TrimSpace(cfg.Flight())
-}
-
-// ActiveFlightName resolves an explicit flight or the persistent project
-// default without mutating configuration.
-func (t *Tap) ActiveFlightName(explicit string) string {
-	return t.activeFlightName(explicit)
 }
 
 func (t *Tap) resolveOrientFlight(ctx context.Context, name string) (*Flight, string) {
@@ -96,7 +103,7 @@ func (t *Tap) orientKegListing(ctx context.Context, flight *Flight) ([]Orientati
 	if t == nil || t.ConfigService == nil {
 		return nil, []string{"KEG listing unavailable: no config service is configured."}
 	}
-	cfg, err := t.ConfigService.Config(true)
+	cfg, err := t.ConfigService.Config()
 	if err != nil {
 		return nil, []string{fmt.Sprintf("KEG listing unavailable: %v", err)}
 	}

@@ -95,9 +95,9 @@ func resolveInvocationTelemetryTarget(rt *toolkit.Runtime, configService *Config
 		err error
 	)
 	if configService.ConfigPath != "" {
-		cfg, err = configService.Config(true)
+		cfg, err = configService.Config()
 	} else {
-		cfg, err = configService.UserConfig(true)
+		cfg, err = configService.UserConfig()
 	}
 	if err != nil || cfg == nil || cfg.DisableTelemetry() {
 		return "", "", false

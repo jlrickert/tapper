@@ -20,8 +20,9 @@ type Issue = keg.DoctorIssue
 func (t *Tap) DoctorConfig() []Issue {
 	var issues []Issue
 
-	// Report any config load warnings.
-	for _, w := range t.ConfigService.LoadWarnings {
+	// Report any config load warnings alongside the config they came from.
+	cfg, warnings, err := t.ConfigService.Load()
+	for _, w := range warnings {
 		issues = append(issues, Issue{
 			Level:   "warning",
 			Kind:    "config-load",
@@ -30,7 +31,6 @@ func (t *Tap) DoctorConfig() []Issue {
 	}
 
 	// Run semantic validation on the merged config.
-	cfg, err := t.ConfigService.Config(true)
 	if err != nil {
 		issues = append(issues, Issue{
 			Level:   "error",

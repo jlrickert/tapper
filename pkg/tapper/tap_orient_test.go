@@ -142,6 +142,58 @@ hubs:
 	require.NotContains(t, payload, "| `@local/personal`")
 }
 
+// TestTap_OrientReloadsNearestProjectConfig covers the reload boundary. Orient
+// owns the cache reset; ActiveFlightName is a pure read of whatever cascade is
+// currently loaded, so a stale cache stays stale until Orient refreshes it.
+func TestTap_OrientReloadsNearestProjectConfig(t *testing.T) {
+	t.Parallel()
+	sb := sandbox.NewSandbox(t, &sandbox.Options{Home: "/home/testuser", User: "testuser"})
+	project := "/home/testuser/project"
+	descendant := filepath.Join(project, "src", "pkg")
+	require.NoError(t, sb.Setwd(descendant))
+
+	tap, err := tapper.NewTap(tapper.TapOptions{Root: descendant, Runtime: sb.Runtime()})
+	require.NoError(t, err)
+	require.NoError(t, sb.Runtime().AtomicWriteFile(tap.PathService.UserConfig(), []byte(`flight: +baseline
+fallbackNamespace: local
+hubs:
+  home:
+    kind: local
+    basePath: /home/testuser/kegs
+`), 0o644))
+
+	// Prime the merged cache before the project config exists. Orientation must
+	// still reload the cascade and adopt the nearest project selection.
+	cfg, err := tap.ConfigService.Config()
+	require.NoError(t, err)
+	require.Equal(t, "+baseline", cfg.Flight())
+	require.NoError(t, sb.Runtime().AtomicWriteFile(
+		filepath.Join(project, ".tapper", "config.yaml"),
+		[]byte("flight: +project\n"), 0o644))
+
+	for _, flight := range []struct{ slug, title string }{
+		{"baseline", "Baseline"},
+		{"project", "Project"},
+	} {
+		require.NoError(t, sb.Runtime().AtomicWriteFile(
+			filepath.Join("/home/testuser/kegs/flights.d", flight.slug+".yaml"),
+			[]byte("title: "+flight.title+"\ninstructions: "+flight.title+" instructions\n"), 0o644))
+	}
+
+	// The primed cache still answers with the user-level baseline, because a
+	// pure read must not silently reload behind the caller's back.
+	require.Equal(t, "+baseline", tap.ActiveFlightName(""))
+
+	payload, err := tap.Orient(context.Background(), tapper.OrientOptions{})
+	require.NoError(t, err)
+	require.Contains(t, payload, "+project")
+	require.Contains(t, payload, "Project instructions")
+	require.NotContains(t, payload, "Baseline instructions")
+
+	// Orient reloaded the cascade, so the pure read now sees the project value.
+	require.Equal(t, "+project", tap.ActiveFlightName(""))
+}
+
 func TestTap_Orient_FullAccessStillSuppressesKegInstructions(t *testing.T) {
 	t.Parallel()
 	sb := sandbox.NewSandbox(t, &sandbox.Options{Home: "/home/testuser", User: "testuser"})

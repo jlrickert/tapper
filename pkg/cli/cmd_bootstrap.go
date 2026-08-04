@@ -319,7 +319,7 @@ func bootstrapUserFlight(deps *Deps) string {
 	if deps == nil || deps.Tap == nil {
 		return ""
 	}
-	cfg, err := deps.Tap.ConfigService.UserConfig(false)
+	cfg, err := deps.Tap.ConfigService.ReadUserConfigFile()
 	if err != nil || cfg == nil {
 		return ""
 	}

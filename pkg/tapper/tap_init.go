@@ -93,7 +93,7 @@ func (t *Tap) InitKeg(ctx context.Context, options InitOptions) (*keg.Target, er
 		return nil, ErrNotBootstrapped
 	}
 
-	cfg, err := t.ConfigService.Config(true)
+	cfg, err := t.ConfigService.Config()
 	if err != nil {
 		return nil, fmt.Errorf("failed to load config: %w", err)
 	}
@@ -222,7 +222,7 @@ func (t *Tap) recordInitKeg(hubName, namespace string) error {
 	if strings.TrimSpace(namespace) == "" || strings.TrimSpace(hubName) == "" {
 		return nil
 	}
-	userCfg, err := t.ConfigService.UserConfig(false)
+	userCfg, err := t.ConfigService.ReadUserConfigFile()
 	if err != nil {
 		if !errors.Is(err, keg.ErrNotExist) {
 			return err
@@ -235,7 +235,9 @@ func (t *Tap) recordInitKeg(hubName, namespace string) error {
 	if err := userCfg.Write(t.Runtime, t.PathService.UserConfig()); err != nil {
 		return err
 	}
-	t.ConfigService.ResetCache()
+	// The snapshot predates this write; drop it so nothing in this process
+	// reads back a value we just replaced.
+	t.ConfigService.Reload()
 	return nil
 }
 

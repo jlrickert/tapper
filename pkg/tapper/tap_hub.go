@@ -28,7 +28,7 @@ type HubListOptions struct {
 // unauthenticated hub is logged and skipped so one bad hub doesn't blank the
 // whole listing.
 func (t *Tap) HubListKegs(ctx context.Context, opts HubListOptions) ([]string, error) {
-	cfg, err := t.ConfigService.Config(true)
+	cfg, err := t.ConfigService.Config()
 	if err != nil {
 		return nil, err
 	}
@@ -197,13 +197,13 @@ type HubInfo struct {
 // are configured), marking the default and the config layer each came from. It
 // inspects local config only — it does not contact any hub.
 func (t *Tap) HubList(_ context.Context) ([]HubInfo, error) {
-	cfg, err := t.ConfigService.Config(true)
+	cfg, err := t.ConfigService.Config()
 	if err != nil {
 		return nil, err
 	}
 	defaultHub := cfg.resolveHubName()
 	userHubs := map[string]struct{}{}
-	if userCfg, _ := t.ConfigService.UserConfig(true); userCfg != nil {
+	if userCfg, _ := t.ConfigService.UserConfig(); userCfg != nil {
 		for name := range userCfg.Hubs() {
 			userHubs[name] = struct{}{}
 		}
@@ -310,7 +310,7 @@ func (t *Tap) HubSetDefault(ctx context.Context, opts HubSetDefaultOptions) erro
 	if name == "" {
 		return fmt.Errorf("a hub name is required")
 	}
-	cfg, err := t.ConfigService.Config(true)
+	cfg, err := t.ConfigService.Config()
 	if err != nil {
 		return err
 	}
@@ -355,7 +355,9 @@ func (t *Tap) mutateConfigFile(path string, fn func(*Config) error) error {
 	if err := cfg.Write(t.Runtime, resolved); err != nil {
 		return fmt.Errorf("unable to write config: %w", err)
 	}
-	t.ConfigService.ResetCache()
+	// The snapshot predates this write; drop it so nothing in this process
+	// reads back a value we just replaced.
+	t.ConfigService.Reload()
 	return nil
 }
 

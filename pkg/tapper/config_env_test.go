@@ -20,21 +20,21 @@ func TestConfigService_FlightPrecedence(t *testing.T) {
 	require.NoError(t, fx.Runtime().AtomicWriteFile(
 		tap.PathService.UserConfig(), []byte("flight: '@local/+baseline'\n"), 0o644))
 
-	cfg, err := tap.ConfigService.Config(false)
+	cfg, err := tap.ConfigService.Config()
 	require.NoError(t, err)
 	require.Equal(t, "@local/+baseline", cfg.Flight())
 
 	require.NoError(t, fx.Runtime().AtomicWriteFile(
 		filepath.Join(project, ".tapper", "config.yaml"),
 		[]byte("flight: '@local/+project'\n"), 0o644))
-	tap.ConfigService.ResetCache()
-	cfg, err = tap.ConfigService.Config(false)
+	tap.ConfigService.Reload()
+	cfg, err = tap.ConfigService.Config()
 	require.NoError(t, err)
 	require.Equal(t, "@local/+project", cfg.Flight(), "project config should override the user baseline")
 
 	require.NoError(t, fx.Runtime().Env().Set("TAP_FLIGHT", "@local/+environment"))
-	tap.ConfigService.ResetCache()
-	cfg, err = tap.ConfigService.Config(false)
+	tap.ConfigService.Reload()
+	cfg, err = tap.ConfigService.Config()
 	require.NoError(t, err)
 	require.Equal(t, "@local/+environment", cfg.Flight(), "TAP_FLIGHT should override project config")
 }
@@ -61,7 +61,7 @@ func TestConfigService_EnvOverridesDefaultKeg(t *testing.T) {
 	// Set TAP_DEFAULT_KEG env var to override.
 	require.NoError(t, fx.Runtime().Env().Set("TAP_DEFAULT_KEG", "personal"))
 
-	cfg, err := tap.ConfigService.Config(false)
+	cfg, err := tap.ConfigService.Config()
 	require.NoError(t, err)
 	require.NotNil(t, cfg)
 	require.Equal(t, "personal", cfg.DefaultKeg(), "TAP_DEFAULT_KEG should override user config")
@@ -87,7 +87,7 @@ func TestConfigService_EnvOverridesLogLevel(t *testing.T) {
 
 	require.NoError(t, fx.Runtime().Env().Set("TAP_LOG_LEVEL", "debug"))
 
-	cfg, err := tap.ConfigService.Config(false)
+	cfg, err := tap.ConfigService.Config()
 	require.NoError(t, err)
 	require.NotNil(t, cfg)
 	require.Equal(t, "debug", cfg.LogLevel(), "TAP_LOG_LEVEL should override user config")
@@ -107,7 +107,7 @@ func TestConfigService_EnvDefaultNamespaceOverride(t *testing.T) {
 
 	require.NoError(t, fx.Runtime().Env().Set("TAP_DEFAULT_NAMESPACE", "envteam"))
 
-	cfg, err := tap.ConfigService.Config(false)
+	cfg, err := tap.ConfigService.Config()
 	require.NoError(t, err)
 	require.NotNil(t, cfg)
 	require.Equal(t, "envteam", cfg.DefaultNamespace(), "TAP_DEFAULT_NAMESPACE should set the default namespace")
@@ -132,7 +132,7 @@ func TestConfigService_EnvAbsentFallsThrough(t *testing.T) {
 	))
 
 	// No env vars set -- config file values should be used.
-	cfg, err := tap.ConfigService.Config(false)
+	cfg, err := tap.ConfigService.Config()
 	require.NoError(t, err)
 	require.NotNil(t, cfg)
 	require.Equal(t, "blog", cfg.DefaultKeg(), "without env override, config file value should be used")
@@ -163,7 +163,7 @@ func TestConfigService_MultipleEnvVarsSet(t *testing.T) {
 	require.NoError(t, fx.Runtime().Env().Set("TAP_FALLBACK_KEG", "personal"))
 	require.NoError(t, fx.Runtime().Env().Set("TAP_DEFAULT_HUB", "custom"))
 
-	cfg, err := tap.ConfigService.Config(false)
+	cfg, err := tap.ConfigService.Config()
 	require.NoError(t, err)
 	require.NotNil(t, cfg)
 	require.Equal(t, "work", cfg.DefaultKeg())
@@ -195,7 +195,7 @@ func TestConfigService_DisableAtlasHubViaEnv(t *testing.T) {
 
 			require.NoError(t, fx.Runtime().Env().Set("TAP_DISABLE_ATLAS_HUB", raw))
 
-			cfg, err := tap.ConfigService.Config(false)
+			cfg, err := tap.ConfigService.Config()
 			require.NoError(t, err)
 			require.True(t, cfg.DisableAtlasHub(),
 				"TAP_DISABLE_ATLAS_HUB=%q should set DisableAtlasHub", raw)
@@ -215,7 +215,7 @@ func TestConfigService_DisableAtlasHubViaEnv(t *testing.T) {
 
 		require.NoError(t, fx.Runtime().Env().Set("TAP_DISABLE_ATLAS_HUB", "0"))
 
-		cfg, err := tap.ConfigService.Config(false)
+		cfg, err := tap.ConfigService.Config()
 		require.NoError(t, err)
 		require.False(t, cfg.DisableAtlasHub())
 	})
@@ -237,7 +237,7 @@ func TestConfigService_DisableLocalHubViaEnv(t *testing.T) {
 
 	require.NoError(t, fx.Runtime().Env().Set("TAP_DISABLE_LOCAL_HUB", "true"))
 
-	cfg, err := tap.ConfigService.Config(false)
+	cfg, err := tap.ConfigService.Config()
 	require.NoError(t, err)
 	require.True(t, cfg.DisableLocalHub(),
 		"TAP_DISABLE_LOCAL_HUB=true should set DisableLocalHub")
@@ -265,7 +265,7 @@ func TestConfigService_EnvOverrideWithStrict(t *testing.T) {
 	// Set env var -- should still work even with corrupt config.
 	require.NoError(t, fx.Runtime().Env().Set("TAP_DEFAULT_KEG", "envkeg"))
 
-	cfg, err := tap.ConfigService.Config(false)
+	cfg, err := tap.ConfigService.Config()
 	require.NoError(t, err, "env overrides should still work with corrupt config")
 	require.NotNil(t, cfg)
 
@@ -273,8 +273,8 @@ func TestConfigService_EnvOverrideWithStrict(t *testing.T) {
 	require.Equal(t, "envkeg", cfg.DefaultKeg())
 
 	// The corrupt user config should produce a load warning.
-	require.Len(t, tap.ConfigService.LoadWarnings, 1)
-	require.Equal(t, "user config", tap.ConfigService.LoadWarnings[0].Source)
+	require.Len(t, loadWarnings(t, tap), 1)
+	require.Equal(t, "user config", loadWarnings(t, tap)[0].Source)
 }
 
 func TestConfigService_ConfigPathBypassesCascade(t *testing.T) {
@@ -301,7 +301,7 @@ func TestConfigService_ConfigPathBypassesCascade(t *testing.T) {
 	// Set env var that should be ignored when ConfigPath is set.
 	require.NoError(t, fx.Runtime().Env().Set("TAP_DEFAULT_KEG", "envkeg"))
 
-	cfg, err := tap.ConfigService.Config(false)
+	cfg, err := tap.ConfigService.Config()
 	require.NoError(t, err)
 	require.NotNil(t, cfg)
 	require.Equal(t, "explicit", cfg.DefaultKeg(), "ConfigPath should bypass cascade including env vars")
@@ -321,19 +321,19 @@ func TestConfigService_CachingPreserved(t *testing.T) {
 
 	require.NoError(t, fx.Runtime().Env().Set("TAP_DEFAULT_KEG", "first"))
 
-	cfg1, err := tap.ConfigService.Config(false)
+	cfg1, err := tap.ConfigService.Config()
 	require.NoError(t, err)
 	require.Equal(t, "first", cfg1.DefaultKeg())
 
 	// Change env var, but use cache=true -- should return cached value.
 	require.NoError(t, fx.Runtime().Env().Set("TAP_DEFAULT_KEG", "second"))
-	cfg2, err := tap.ConfigService.Config(true)
+	cfg2, err := tap.ConfigService.Config()
 	require.NoError(t, err)
 	require.Equal(t, "first", cfg2.DefaultKeg(), "cache=true should return cached config")
 
 	// With cache=false, should pick up new env value.
-	tap.ConfigService.ResetCache()
-	cfg3, err := tap.ConfigService.Config(false)
+	tap.ConfigService.Reload()
+	cfg3, err := tap.ConfigService.Config()
 	require.NoError(t, err)
 	require.Equal(t, "second", cfg3.DefaultKeg(), "after ResetCache, should read new env value")
 }
@@ -365,14 +365,14 @@ func TestConfigService_EnvOverridesProjectConfig(t *testing.T) {
 	))
 
 	// Without env, project should override user.
-	cfg, err := tap.ConfigService.Config(false)
+	cfg, err := tap.ConfigService.Config()
 	require.NoError(t, err)
 	require.Equal(t, "projectkeg", cfg.DefaultKeg())
 
 	// With env, env should override project.
-	tap.ConfigService.ResetCache()
+	tap.ConfigService.Reload()
 	require.NoError(t, fx.Runtime().Env().Set("TAP_DEFAULT_KEG", "envkeg"))
-	cfg, err = tap.ConfigService.Config(false)
+	cfg, err = tap.ConfigService.Config()
 	require.NoError(t, err)
 	require.Equal(t, "envkeg", cfg.DefaultKeg(), "env should override both user and project config")
 }

@@ -156,7 +156,7 @@ func (t *Tap) NamespaceCreate(ctx context.Context, opts NamespaceCreateOptions) 
 // resolveNamespaceHub resolves the remote hub + token backing a namespace for
 // namespace-scoped admin ops. An empty namespace resolves the default.
 func (t *Tap) resolveNamespaceHub(namespace, hubOverride string) (ns, hubURL, token string, err error) {
-	cfg, cErr := t.ConfigService.Config(true)
+	cfg, cErr := t.ConfigService.Config()
 	if cErr != nil {
 		return "", "", "", cErr
 	}
@@ -185,7 +185,7 @@ func (t *Tap) resolveNamespaceHub(namespace, hubOverride string) (ns, hubURL, to
 // resolveHubEndpoint resolves a hub (explicit name or the default) to a URL +
 // token for hub-level namespace ops (list/create).
 func (t *Tap) resolveHubEndpoint(hubOverride string) (hubURL, token string, err error) {
-	cfg, cErr := t.ConfigService.Config(true)
+	cfg, cErr := t.ConfigService.Config()
 	if cErr != nil {
 		return "", "", cErr
 	}
@@ -203,7 +203,7 @@ func (t *Tap) resolveHubEndpoint(hubOverride string) (hubURL, token string, err 
 // resolveHubUIEndpoint resolves a hub to a browser base URL without requiring
 // a token. It is used for UI handoffs such as namespace creation.
 func (t *Tap) resolveHubUIEndpoint(hubOverride string) (hubName, hubURL string, err error) {
-	cfg, cErr := t.ConfigService.Config(true)
+	cfg, cErr := t.ConfigService.Config()
 	if cErr != nil {
 		return "", "", cErr
 	}

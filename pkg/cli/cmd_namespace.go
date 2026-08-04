@@ -178,7 +178,7 @@ func configNamespaceNames(deps *Deps) []string {
 	if err != nil {
 		return nil
 	}
-	cfg, err := tap.ConfigService.Config(true)
+	cfg, err := tap.ConfigService.Config()
 	if err != nil || cfg == nil {
 		return nil
 	}

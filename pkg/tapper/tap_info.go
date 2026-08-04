@@ -147,7 +147,7 @@ func (t *Tap) kegSettingsBatch(ctx context.Context, opts KegSettingsOptions) (st
 		return marshalMinimalKegSettings(refs, details)
 	}
 
-	cfg, err := t.ConfigService.Config(true)
+	cfg, err := t.ConfigService.Config()
 	if err != nil {
 		return "", err
 	}
@@ -326,7 +326,7 @@ type resolvedIdentity struct {
 // corresponding fields blank rather than erroring.
 func (t *Tap) resolveIdentity(opts KegTargetOptions) resolvedIdentity {
 	var id resolvedIdentity
-	cfg, err := t.ConfigService.Config(true)
+	cfg, err := t.ConfigService.Config()
 	if err != nil || cfg == nil {
 		return id
 	}
@@ -387,10 +387,10 @@ func (t *Tap) configFieldScope(field string) string {
 	if configFieldGetter(t.loadEnvConfig(), field) != "" {
 		return "env"
 	}
-	if projectCfg, _ := t.ConfigService.ProjectConfig(true); configFieldGetter(projectCfg, field) != "" {
+	if projectCfg, _ := t.ConfigService.ProjectConfig(); configFieldGetter(projectCfg, field) != "" {
 		return "project"
 	}
-	if userCfg, _ := t.ConfigService.UserConfig(true); configFieldGetter(userCfg, field) != "" {
+	if userCfg, _ := t.ConfigService.UserConfig(); configFieldGetter(userCfg, field) != "" {
 		return "user"
 	}
 	return ""

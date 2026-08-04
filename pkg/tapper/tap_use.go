@@ -102,7 +102,7 @@ func (t *Tap) UseStatus(_ context.Context, opts KegTargetOptions) (string, error
 	}
 
 	out := status{Resolved: t.resolveIdentity(opts)}
-	if cfg, err := t.ConfigService.Config(true); err == nil && cfg != nil {
+	if cfg, err := t.ConfigService.Config(); err == nil && cfg != nil {
 		out.DefaultKeg = slot{Value: cfg.DefaultKeg(), Scope: t.configFieldScope("defaultKeg")}
 		out.FallbackKeg = slot{Value: cfg.FallbackKeg(), Scope: t.configFieldScope("fallbackKeg")}
 		out.Flight = slot{Value: cfg.Flight(), Scope: t.configFieldScope("flight")}

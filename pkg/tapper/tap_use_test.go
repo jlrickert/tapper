@@ -29,7 +29,7 @@ func TestNamespaceInference_LocalBareName(t *testing.T) {
 	require.NoError(t, fx.Runtime().AtomicWriteFile(tap.PathService.UserConfig(), []byte(localUserConfig), 0o644))
 
 	// Backend resolution: a bare name infers @local on the local hub.
-	cfg, err := tap.ConfigService.Config(true)
+	cfg, err := tap.ConfigService.Config()
 	require.NoError(t, err)
 	target, err := cfg.ResolveRef(fx.Runtime(), tapper.KegRef{Name: "private"})
 	require.NoError(t, err)

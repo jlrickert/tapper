@@ -71,7 +71,7 @@ func runAuthLogin(ctx context.Context, deps *Deps, p authLoginParams) (*authLogi
 	// unflagged login lands on the configured default — or the compiled-in
 	// DefaultHubURL — without forcing every invocation to repeat --hub. An
 	// explicit/selected URL still wins.
-	cfg, err := deps.Tap.ConfigService.Config(true)
+	cfg, err := deps.Tap.ConfigService.Config()
 	if err != nil {
 		return nil, err
 	}
@@ -320,7 +320,7 @@ platform). For scripts, pass --hub and pipe a token to --with-token:
 			// chain / compiled-in default.
 			selectedHub := hubURL
 			if selectedHub == "" && isTTY && !withToken {
-				cfg, err := deps.Tap.ConfigService.Config(true)
+				cfg, err := deps.Tap.ConfigService.Config()
 				if err != nil {
 					return err
 				}

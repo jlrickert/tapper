@@ -57,7 +57,7 @@ func (t *Tap) ResolveNodeRef(ctx context.Context, ref *keg.NodeRef, rc RefContex
 		if ref.Namespace != LocalHubName && rc.CurrentKeg != nil && rc.CurrentKeg.Target() != nil {
 			hub = strings.TrimSpace(rc.CurrentKeg.Target().Hub)
 		}
-		cfg, err := t.ConfigService.Config(true)
+		cfg, err := t.ConfigService.Config()
 		if err != nil {
 			return nil, keg.NodeId{}, err
 		}
@@ -109,7 +109,7 @@ func (t *Tap) resolveRefAlias(ctx context.Context, alias string, rc RefContext) 
 			}
 		}
 	}
-	cfg, err := t.ConfigService.Config(true)
+	cfg, err := t.ConfigService.Config()
 	if err != nil {
 		return nil, err
 	}
