@@ -52,9 +52,8 @@ per-command permission prompts.`,
 				defaults.Flight = ""
 			}
 			srv := mcp.NewServer(deps.Tap, Version, defaults, mcp.ServerOptions{
-				LicenseText: LicenseText,
-				Logger:      rt.Logger(),
-				Reporter:    deps.InvocationReporter,
+				Logger:   rt.Logger(),
+				Reporter: deps.InvocationReporter,
 			})
 			err = srv.Run(cmd.Context(), &sdkmcp.StdioTransport{})
 			if err != nil && errors.Is(err, io.EOF) {

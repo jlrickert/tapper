@@ -1,7 +1,7 @@
 # Flights
 
-A **flight** is the required authorization and instruction context for a local
-full MCP session. Flight manifests live separately from Tapper configuration.
+A **flight** is the required authorization and instruction context for an MCP
+session. Flight manifests live separately from Tapper configuration.
 `tap bootstrap` can persist a machine-wide baseline in the user config, while a
 project can persist a more specific selection in `.tapper/config.yaml`. The
 server resolves fresh orientation during MCP initialization and again whenever
@@ -104,8 +104,17 @@ modeline are ignored when deciding whether the manifest changed.
 MCP always exposes `list_flights` and `flight_show`. It exposes
 `flight_create`, `flight_edit`, and `flight_delete` only while the session's
 active flight grants `manage_flights`; direct calls are checked server-side as
-well. A session can never edit or delete its own active flight. `flight_edit`
-is a partial update where omitted fields retain their current values.
+well. `flight_edit` is a partial update where omitted fields retain their
+current values. A Hub-backed active flight may edit or delete itself:
+
+- a successful self-edit immediately adopts the exact returned manifest,
+  cover, instructions, and capabilities before the response is released;
+- removing `manage_flights` therefore removes the mutation tools immediately;
+- a successful self-delete immediately enters recovery-only mode;
+- editing or deleting another flight does not change current session authority.
+
+Local `flights.d` manifests remain MCP read-only. Flight mutations always use
+normal Hub authorization in addition to the active flight capability.
 
 ## Behavior
 
@@ -118,9 +127,9 @@ is a partial update where omitted fields retain their current values.
 - `full_access` permits admin-class flight operations outside the cover, but
   does not bypass normal identity authorization or implicitly grant
   `manage_flights`.
-- Without a selected flight, the local MCP server starts in recovery-only mode
-  and lists only `orient`, `list_flights`, `flight_show`, `auth_status`, and
-  `config`. After selecting a flight, call `orient` on the same connection.
+- Without a selected flight, MCP starts in recovery-only mode and lists only
+  `orient`, `list_flights`, `flight_show`, and credential-safe `auth_info`.
+  After selecting a flight outside MCP, call `orient` on the same connection.
 - Config-driven `tap mcp` reloads user, project, and environment configuration
   on every orientation. A successful orientation atomically replaces session
   authority; configuration changes alone do nothing.
@@ -129,6 +138,16 @@ is a partial update where omitted fields retain their current values.
   manifest, cover, and instructions.
 - A failed refresh preserves the last valid authority. An intentionally blank
   config selection clears authority and enters recovery mode.
+- If a self-edit is persisted but exact orientation rendering fails, the tool
+  reports that the update was applied and enters recovery instead of retaining
+  stale authority.
+- Hosted `/mcp` selects the account-wide MCP flight preference. Local
+  initialization and `orient` select explicit `--flight`, then `TAP_FLIGHT`,
+  the nearest project config, and finally the user baseline.
+- Hosted self-deletion clears the account preference through the flight foreign
+  key. A local config that still names a deleted flight remains a stale external
+  reference: later `orient` reports it and the session stays in recovery until
+  configuration is changed outside MCP.
 - In-flight calls finish under the context captured when they began. Calls that
   start after orientation use the newly published context.
 - Direct CLI commands such as `tap cat`, `tap edit`, and `tap create` ignore

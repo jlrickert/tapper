@@ -1,11 +1,13 @@
 # MCP Server Setup
 
 The `tap mcp` command starts a Model Context Protocol server on stdio, exposing
-KEG operations as tools. The local full surface publishes flight authority at
-initialization and on explicit orientation. Without one, the server starts in a
-recovery-only state so the host can inspect flights safely. This page is the
-advanced manual path for MCP hosts that are not using the bundled Claude Code
-or Codex integrations.
+the same agent-safe tools and resources as Tapper Hub's authenticated `/mcp`
+endpoint — the one difference being attachment transfers, where `tap mcp` can
+also read and write local paths because it runs on your machine. Both publish
+immutable flight authority at initialization and on explicit orientation.
+Without one, the server starts in a recovery-only state so the host can inspect
+flights safely. This page is the advanced manual path for MCP hosts that are not
+using the bundled Claude Code or Codex integrations.
 
 Most users should use the official one-command installs in the project README's
 [Connect AI Agents](../../README.md#connect-ai-agents) section. `tap integrate
@@ -72,12 +74,12 @@ With a default keg:
 
 ## Available Tools
 
-The MCP server exposes the same operating surface as the CLI. Exact tool
-availability follows the installed Tapper version; inspect your MCP host's tool
-list for the live surface.
+The MCP server exposes a shared agent surface rather than every machine-local
+CLI capability. Exact tool availability follows the installed Tapper version
+and the active flight; inspect your MCP host's tool list for the live surface.
 
 When no flight is selected, the visible list is intentionally restricted to
-`orient`, `list_flights`, `flight_show`, `auth_status`, and `config`. `orient`
+`orient`, `list_flights`, `flight_show`, and `auth_info`. `orient`
 and any guessed KEG-tool call explain that KEG tools are locked and direct the
 agent to inspect flights through MCP, ask the user to run `tap use --flight
 @namespace/+slug`, and call `orient` again on the same connection.
@@ -112,7 +114,7 @@ agent to inspect flights through MCP, ask the user to run `tap use --flight
 | Tool | Description |
 | --- | --- |
 | `index`, `list_indexes`, `index_cat` | Rebuild or inspect indexes |
-| `doctor` | Check keg health |
+| `doctor` | Check only the selected keg's health (not local Tapper configuration) |
 | `node_history`, `node_snapshot`, `node_snapshot_view`, `node_restore` | Manage node snapshots |
 | `lock_acquire`, `lock_release`, `lock_status`, `lock_force_release` | Coordinate cross-process node locks |
 
@@ -123,31 +125,53 @@ agent to inspect flights through MCP, ask the user to run `tap use --flight
 | `list_files`, `upload_file`, `download_file`, `delete_file` | Manage file attachments |
 | `list_images`, `upload_image`, `download_image`, `delete_image` | Manage image attachments |
 
-### Organization And Keg Administration
+The transfer tools come in two variants, chosen by whether the server shares a
+filesystem with the agent driving it.
+
+Local `tap mcp` runs on your machine, so a path names the same file on both
+sides. It publishes the full round-trip: `upload_file` and `upload_image` accept
+`source_path` and `file:` URIs alongside `data_base64`, data URIs, and embedded
+resources; `download_file` writes to `dest_path`; and `download_image` takes an
+optional `dest_path`, returning the image as MCP content when you omit it.
+
+Hosted `/mcp` shares no filesystem with the agent, so a path there would name
+the server's own disk. Its uploads accept only embedded resources, data URIs,
+and base64 bytes; `download_image` always returns MCP image content; and
+`download_file` is not registered. Those fields are absent from the published
+schema rather than refused at call time, so a hosted agent never has the
+vocabulary to ask.
+
+### Discovery And Identity
 
 | Tool | Description |
 | --- | --- |
-| `keg_list` | List visible kegs on a hub |
-| `keg_visibility` | Set keg visibility |
-| `namespace_list` | Inspect namespaces |
-| `auth_status` | Inspect authentication state |
+| `keg_list` | List identity-authorized kegs filtered through the active flight |
+| `auth_info` | Return structured credential-safe `identities[]` and flight-filtered `kegs[]` |
 
-User and role management tools are intentionally not exposed over MCP for now;
-manage namespace members and keg grants through the hub UI.
+Each identity includes only its hub locator, user ID, username, display name,
+default namespace, and namespace names. Tokens, email, scopes, cookies, expiry,
+and session data are never returned. Local MCP reports every configured
+authenticated Hub identity; hosted MCP reports its single authenticated user.
 
 ### Automation And Setup
 
 | Tool | Description |
 | --- | --- |
-| `repo_init` | Initialize a keg destination |
-| `config`, `config_template` | Read config or starter templates |
 | `import_from_keg` | Import nodes from another keg |
-| `export`, `import` | Export or import keg archives |
 | `graph` | Render a keg graph |
 | `orient` | Return the shared KEG system orientation payload |
 | `list_flights`, `flight_show` | Discover and inspect visible flights |
-| `flight_create`, `flight_edit`, `flight_delete` | Manage other flights when the active flight grants `manage_flights` and the identity owns/administers the target namespace |
-| `license` | Read bundled license text |
+| `flight_create`, `flight_edit`, `flight_delete` | Manage Hub-backed flights when the active flight grants `manage_flights` and the identity owns/administers the target namespace |
+
+MCP does not expose Tapper configuration, config templates, repository setup,
+archive import/export, raw auth status, license text, keg visibility, or
+namespace administration. Those remain external CLI, configuration, or Hub UI
+operations.
+
+`import_from_keg` requires editor identity and flight authority on the source
+when `leave_stubs` is requested, because that option rewrites source nodes.
+Both transports also publish `tapper://orient` and the
+`tapper://node/{node_id}{?keg}` resource template.
 
 ## Keg Targeting
 
@@ -166,6 +190,11 @@ There is no model-visible per-call `flight` parameter. The active flight is
 server-owned session state. Config-driven servers adopt configuration changes
 only through explicit orientation; `tap mcp --flight` stays bound to that
 identity for its process lifetime.
+
+Hosted `/mcp` instead selects the authenticated account's global MCP flight
+preference. A successful self-edit adopts the exact returned flight immediately;
+a self-delete enters recovery immediately. Mutation tools disappear as soon as
+the adopted flight no longer grants `manage_flights`.
 
 ## Troubleshooting
 
@@ -189,8 +218,10 @@ tap use --flight @acme/+release-42
 tap mcp --flight @acme/+release-42
 ```
 
-After `tap use`, call `orient` on the existing session. A failed refresh keeps
-the last valid authority; a blank selection intentionally enters recovery mode.
+After `tap use`, call `orient` on the existing session. A failed ordinary
+refresh keeps the last valid authority; a blank selection intentionally enters
+recovery mode. If local configuration still names a flight deleted through MCP,
+`orient` reports the stale external reference until configuration is changed.
 
 ### Logs
 

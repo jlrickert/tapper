@@ -1,16 +1,14 @@
 package parity_test
 
-// Parity tests for the auth surface. Only `status` has both surfaces;
-// `login` requires browser + loopback (CLI-only) and `logout` is an
-// intentional CLI-only local-state mutation.
+// Rendering tests for the auth surface, which is CLI-only: `login` requires
+// browser + loopback, `logout` is an intentional CLI-only local-state mutation,
+// and `status` lost its MCP peer when auth_status gave way to auth_info.
 //
-// `status` now validates the stored token against the hub's whoami probe, so
-// the byte-identical-output guarantee is exercised against a shared
-// httptest hub: both surfaces make the same real localhost call and must
-// render the same bytes. The seeding helper still talks to AuthStore directly
-// rather than going through `tap auth login` — a full PKCE handshake would
-// require a far heavier hub per test case and add no coverage over
-// pkg/tapper/auth_flow_test.go.
+// `status` validates the stored token against the hub's whoami probe, so these
+// run against a shared httptest hub rather than stubbing the call. The seeding
+// helper talks to AuthStore directly rather than going through `tap auth login`
+// — a full PKCE handshake would require a far heavier hub per test case and add
+// no coverage over pkg/tapper/auth_flow_test.go.
 
 import (
 	"net/http"
@@ -62,11 +60,13 @@ func startWhoamiHub(t *testing.T, status int, username, displayName string) stri
 	return srv.URL
 }
 
-// TestParity_AuthStatus exercises both surfaces against the same seeded
-// auth store. The Formatted field is authoritative, so we assert byte-
-// equality (after stripping trailing whitespace, which the CLI runner
-// already trims on its side via runCLI → strings.TrimSpace).
-func TestParity_AuthStatus(t *testing.T) {
+// TestAuthStatusRendering covers `tap auth status` output against a seeded
+// store. This was a parity test until auth_status left MCP: the agent-facing
+// replacement is auth_info, which is deliberately a different shape (structured
+// and credential-free) rather than a byte-identical peer, so there is nothing
+// left to compare against. The rendering assertions — above all that a raw
+// access token never reaches stdout — still earn their keep on the CLI alone.
+func TestAuthStatusRendering(t *testing.T) {
 	t.Parallel()
 
 	t.Run("single_hub_auto_resolves_and_validates", func(t *testing.T) {
@@ -80,19 +80,15 @@ func TestParity_AuthStatus(t *testing.T) {
 
 		cliOut, err := env.runCLI("auth", "status")
 		require.NoError(t, err)
-		mcpOut, err := env.runMCP("auth_status", nil)
-		require.NoError(t, err)
 
-		require.Equal(t, cliOut, mcpOut,
-			"CLI and MCP auth status must be byte-identical")
 		require.Contains(t, cliOut, "Logged in as alice (Alice Liddell)")
 		// Token rendered by its leading prefix (matches the hub UI), not suffix.
 		require.Contains(t, cliOut, "- Token: thub_parityt... (Bearer)")
-		// The raw access token must never leak through either surface.
+		// The raw access token must never leak.
 		require.NotContains(t, cliOut, "thub_paritytoken9999")
 	})
 
-	t.Run("rejected_token_reported_on_both", func(t *testing.T) {
+	t.Run("rejected_token_reported", func(t *testing.T) {
 		t.Parallel()
 		env := newParityEnv(t)
 		hub := startWhoamiHub(t, http.StatusUnauthorized, "", "")
@@ -103,15 +99,13 @@ func TestParity_AuthStatus(t *testing.T) {
 
 		cliOut, err := env.runCLI("auth", "status")
 		require.NoError(t, err)
-		mcpOut, err := env.runMCP("auth_status", nil)
-		require.NoError(t, err)
 
-		require.Equal(t, cliOut, mcpOut)
 		require.Contains(t, cliOut, "Failed to validate token")
 		require.Contains(t, cliOut, "- Token: thub_rejecte... (Bearer)")
+		require.NotContains(t, cliOut, "thub_rejectedtoken00")
 	})
 
-	t.Run("multiple_hubs_reported_on_both", func(t *testing.T) {
+	t.Run("multiple_hubs_reported", func(t *testing.T) {
 		t.Parallel()
 		env := newParityEnv(t)
 		hubA := startWhoamiHub(t, http.StatusOK, "alice", "")
@@ -127,10 +121,7 @@ func TestParity_AuthStatus(t *testing.T) {
 
 		cliOut, err := env.runCLI("auth", "status")
 		require.NoError(t, err)
-		mcpOut, err := env.runMCP("auth_status", nil)
-		require.NoError(t, err)
 
-		require.Equal(t, cliOut, mcpOut)
 		require.Contains(t, cliOut, "Logged in as alice")
 		require.Contains(t, cliOut, "Logged in as bob")
 		require.Equal(t, 2, strings.Count(cliOut, "Logged in as "))
@@ -149,12 +140,6 @@ func TestParity_AuthStatus(t *testing.T) {
 		// example.com) while still exercising hub-URL canonicalization.
 		cliOut, err := env.runCLI("auth", "status", "--hub", "HTTPS://Hub.Example.COM/", "--offline")
 		require.NoError(t, err)
-		mcpOut, err := env.runMCP("auth_status", map[string]any{
-			"hub":     "HTTPS://Hub.Example.COM/",
-			"offline": true,
-		})
-		require.NoError(t, err)
-		require.Equal(t, cliOut, mcpOut)
 		require.True(t, strings.Contains(cliOut, "hub.example.com"),
 			"hub URL should be canonicalized in output; got:\n%s", cliOut)
 	})
@@ -164,9 +149,6 @@ func TestParity_AuthStatus(t *testing.T) {
 		env := newParityEnv(t)
 		cliOut, err := env.runCLI("auth", "status")
 		require.NoError(t, err)
-		mcpOut, err := env.runMCP("auth_status", nil)
-		require.NoError(t, err)
-		require.Equal(t, cliOut, mcpOut)
 		require.Contains(t, cliOut, "No hub logins stored")
 	})
 
@@ -178,11 +160,6 @@ func TestParity_AuthStatus(t *testing.T) {
 		})
 		cliOut, err := env.runCLI("auth", "status", "--hub", "https://ghost.example.com")
 		require.NoError(t, err)
-		mcpOut, err := env.runMCP("auth_status", map[string]any{
-			"hub": "https://ghost.example.com",
-		})
-		require.NoError(t, err)
-		require.Equal(t, cliOut, mcpOut)
 		require.Contains(t, cliOut, "No login stored for https://ghost.example.com")
 	})
 }

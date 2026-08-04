@@ -14,33 +14,31 @@ import (
 	"github.com/jlrickert/tapper/pkg/tapper"
 )
 
-type fileToolOptions struct {
-	AllowLocalSources bool
-	DownloadFiles     bool
-	ImageDownloads    imageDownloadMode
-}
-
-type imageDownloadMode int
-
-const (
-	imageDownloadNone imageDownloadMode = iota
-	imageDownloadLocalPath
-	imageDownloadContent
-)
-
-func registerFileTools(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults, opts fileToolOptions) {
+// registerFileTools publishes the attachment surface in one of two variants.
+// Listing and deletion are identical either way; only the transfer tools
+// differ, because they are the one place where "where do the bytes come from,
+// and where do they go" depends on the transport.
+//
+// sharedFS says the server and its agent host see the same filesystem, which
+// is true for stdio (`tap mcp`) and false for a hosted endpoint. The two
+// variants use distinct input types so a path field is absent from the hosted
+// schema rather than accepted and refused at call time: a hosted agent cannot
+// name the server's disk because the vocabulary to do so is never published.
+func registerFileTools(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults, sharedFS bool) {
 	registerListFiles(srv, tap, defaults)
 	registerListImages(srv, tap, defaults)
 	registerDeleteFile(srv, tap, defaults)
 	registerDeleteImage(srv, tap, defaults)
-	registerUploadFile(srv, tap, defaults, opts.AllowLocalSources)
-	registerUploadImage(srv, tap, defaults, opts.AllowLocalSources)
-	if opts.DownloadFiles {
+	if sharedFS {
+		registerLocalUploadFile(srv, tap, defaults)
+		registerLocalUploadImage(srv, tap, defaults)
 		registerDownloadFile(srv, tap, defaults)
+		registerLocalDownloadImage(srv, tap, defaults)
+		return
 	}
-	if opts.ImageDownloads != imageDownloadNone {
-		registerDownloadImage(srv, tap, defaults, opts.ImageDownloads)
-	}
+	registerUploadFile(srv, tap, defaults)
+	registerUploadImage(srv, tap, defaults)
+	registerDownloadImage(srv, tap, defaults)
 }
 
 // --- list_files ---
@@ -167,52 +165,97 @@ func registerDeleteImage(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaul
 
 type uploadFileInput struct {
 	NodeID     string               `json:"node_id" jsonschema:"node ID to attach the file to"`
-	Filename   string               `json:"filename,omitempty" jsonschema:"filename for the attachment; derived from source path or resource URI if empty"`
-	SourcePath string               `json:"source_path,omitempty" jsonschema:"absolute path to the source file (stdio/local only)"`
-	SourceURI  string               `json:"source_uri,omitempty" jsonschema:"file:// URI (stdio/local only) or data: URI for the source file"`
+	Filename   string               `json:"filename,omitempty" jsonschema:"filename for the attachment; derived from a data URI or resource URI if empty"`
+	SourceURI  string               `json:"source_uri,omitempty" jsonschema:"data: URI for the source file"`
 	DataBase64 string               `json:"data_base64,omitempty" jsonschema:"base64-encoded file bytes"`
 	MIMEType   string               `json:"mime_type,omitempty" jsonschema:"optional MIME type hint for raw file bytes"`
 	Resource   *uploadResourceInput `json:"resource,omitempty" jsonschema:"embedded resource with uri, mime_type or mimeType, and blob or text"`
 	Keg        string               `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
 }
 
-func registerUploadFile(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults, allowLocalSources bool) {
-	sdkmcp.AddTool(srv, &sdkmcp.Tool{
-		Name:        "upload_file",
-		Description: "Upload a file attachment to a node from a local path, raw bytes, data URI, or embedded resource",
-		Annotations: &sdkmcp.ToolAnnotations{
-			DestructiveHint: boolPtr(false),
-			OpenWorldHint:   boolPtr(false),
-		},
-	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in uploadFileInput) (*sdkmcp.CallToolResult, any, error) {
-		data, sourceName, err := resolveUploadSource(tap.Runtime, uploadSourceInput{
+// localUploadFileInput is uploadFileInput plus the local-path source that only
+// a shared-filesystem transport can honour. Keeping it a separate type is what
+// keeps source_path out of the hosted schema.
+type localUploadFileInput struct {
+	NodeID     string               `json:"node_id" jsonschema:"node ID to attach the file to"`
+	Filename   string               `json:"filename,omitempty" jsonschema:"filename for the attachment; derived from the source path, data URI, or resource URI if empty"`
+	SourcePath string               `json:"source_path,omitempty" jsonschema:"absolute path to the source file on the machine running the server"`
+	SourceURI  string               `json:"source_uri,omitempty" jsonschema:"file: or data: URI for the source file"`
+	DataBase64 string               `json:"data_base64,omitempty" jsonschema:"base64-encoded file bytes"`
+	MIMEType   string               `json:"mime_type,omitempty" jsonschema:"optional MIME type hint for raw file bytes"`
+	Resource   *uploadResourceInput `json:"resource,omitempty" jsonschema:"embedded resource with uri, mime_type or mimeType, and blob or text"`
+	Keg        string               `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
+}
+
+func registerUploadFile(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
+	sdkmcp.AddTool(srv, uploadFileTool(
+		"Upload a file attachment to a node from raw bytes, a data URI, or an embedded resource",
+	), func(ctx context.Context, req *sdkmcp.CallToolRequest, in uploadFileInput) (*sdkmcp.CallToolResult, any, error) {
+		return handleFileUpload(ctx, tap, defaults, in.Keg, in.NodeID, in.Filename, uploadSourceInput{
+			SourceURI:  in.SourceURI,
+			DataBase64: in.DataBase64,
+			Resource:   in.Resource,
+		}, false)
+	})
+}
+
+func registerLocalUploadFile(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
+	sdkmcp.AddTool(srv, uploadFileTool(
+		"Upload a file attachment to a node from a local path, raw bytes, a data URI, or an embedded resource",
+	), func(ctx context.Context, req *sdkmcp.CallToolRequest, in localUploadFileInput) (*sdkmcp.CallToolResult, any, error) {
+		return handleFileUpload(ctx, tap, defaults, in.Keg, in.NodeID, in.Filename, uploadSourceInput{
 			SourcePath: in.SourcePath,
 			SourceURI:  in.SourceURI,
 			DataBase64: in.DataBase64,
 			Resource:   in.Resource,
-		}, allowLocalSources)
-		if err != nil {
-			return errorResult(err), nil, nil
-		}
-		name := strings.TrimSpace(in.Filename)
-		if name == "" {
-			name = sourceName
-		}
-		if name == "" {
-			return errorResult(fmt.Errorf("filename is required when the upload source has no filename")), nil, nil
-		}
-		opts := tapper.UploadFileOptions{
-			KegTargetOptions: resolveKegTarget(ctx, in.Keg, defaults),
-			NodeID:           in.NodeID,
-			Data:             data,
-			Name:             name,
-		}
-		storedName, err := tap.UploadFile(ctx, opts)
-		if err != nil {
-			return errorResult(err), nil, nil
-		}
-		return textResult(fmt.Sprintf("uploaded file %q to node %s", storedName, in.NodeID)), nil, nil
+		}, true)
 	})
+}
+
+func uploadFileTool(description string) *sdkmcp.Tool {
+	return &sdkmcp.Tool{
+		Name:        "upload_file",
+		Description: description,
+		Annotations: &sdkmcp.ToolAnnotations{
+			DestructiveHint: boolPtr(false),
+			OpenWorldHint:   boolPtr(false),
+		},
+	}
+}
+
+func handleFileUpload(ctx context.Context, tap *tapper.Tap, defaults KegDefaults, kegAlias, nodeID, filename string, src uploadSourceInput, sharedFS bool) (*sdkmcp.CallToolResult, any, error) {
+	data, sourceName, err := resolveUploadSource(tap.Runtime, src, sharedFS)
+	if err != nil {
+		return errorResult(err), nil, nil
+	}
+	name, err := resolveUploadName(filename, sourceName)
+	if err != nil {
+		return errorResult(err), nil, nil
+	}
+	storedName, err := tap.UploadFile(ctx, tapper.UploadFileOptions{
+		KegTargetOptions: resolveKegTarget(ctx, kegAlias, defaults),
+		NodeID:           nodeID,
+		Data:             data,
+		Name:             name,
+	})
+	if err != nil {
+		return errorResult(err), nil, nil
+	}
+	return textResult(fmt.Sprintf("uploaded file %q to node %s", storedName, nodeID)), nil, nil
+}
+
+// resolveUploadName prefers the caller's explicit filename and falls back to
+// one derived from the source. Byte sources such as data_base64 carry no name,
+// so an explicit one is required there.
+func resolveUploadName(explicit, derived string) (string, error) {
+	name := strings.TrimSpace(explicit)
+	if name == "" {
+		name = derived
+	}
+	if name == "" {
+		return "", fmt.Errorf("filename is required when the upload source has no filename")
+	}
+	return name, nil
 }
 
 // --- download_file ---
@@ -253,52 +296,82 @@ func registerDownloadFile(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefau
 
 type uploadImageInput struct {
 	NodeID     string               `json:"node_id" jsonschema:"node ID to attach the image to"`
-	Filename   string               `json:"filename,omitempty" jsonschema:"image filename for the attachment; derived from source path or resource URI if empty"`
-	SourcePath string               `json:"source_path,omitempty" jsonschema:"absolute path to the source image file (stdio/local only)"`
-	SourceURI  string               `json:"source_uri,omitempty" jsonschema:"file:// URI (stdio/local only) or data: URI for the source image"`
+	Filename   string               `json:"filename,omitempty" jsonschema:"image filename for the attachment; derived from a data URI or resource URI if empty"`
+	SourceURI  string               `json:"source_uri,omitempty" jsonschema:"data: URI for the source image"`
 	DataBase64 string               `json:"data_base64,omitempty" jsonschema:"base64-encoded image bytes"`
 	MIMEType   string               `json:"mime_type,omitempty" jsonschema:"optional MIME type hint for raw image bytes"`
 	Resource   *uploadResourceInput `json:"resource,omitempty" jsonschema:"embedded resource with uri, mime_type or mimeType, and blob"`
 	Keg        string               `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
 }
 
-func registerUploadImage(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults, allowLocalSources bool) {
-	sdkmcp.AddTool(srv, &sdkmcp.Tool{
-		Name:        "upload_image",
-		Description: "Upload an image attachment to a node from a local path, raw bytes, data URI, or embedded resource",
-		Annotations: &sdkmcp.ToolAnnotations{
-			DestructiveHint: boolPtr(false),
-			OpenWorldHint:   boolPtr(false),
-		},
-	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in uploadImageInput) (*sdkmcp.CallToolResult, any, error) {
-		data, sourceName, err := resolveUploadSource(tap.Runtime, uploadSourceInput{
+// localUploadImageInput is uploadImageInput plus the local-path source. See
+// localUploadFileInput for why this is a separate type.
+type localUploadImageInput struct {
+	NodeID     string               `json:"node_id" jsonschema:"node ID to attach the image to"`
+	Filename   string               `json:"filename,omitempty" jsonschema:"image filename for the attachment; derived from the source path, data URI, or resource URI if empty"`
+	SourcePath string               `json:"source_path,omitempty" jsonschema:"absolute path to the source image on the machine running the server"`
+	SourceURI  string               `json:"source_uri,omitempty" jsonschema:"file: or data: URI for the source image"`
+	DataBase64 string               `json:"data_base64,omitempty" jsonschema:"base64-encoded image bytes"`
+	MIMEType   string               `json:"mime_type,omitempty" jsonschema:"optional MIME type hint for raw image bytes"`
+	Resource   *uploadResourceInput `json:"resource,omitempty" jsonschema:"embedded resource with uri, mime_type or mimeType, and blob"`
+	Keg        string               `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
+}
+
+func registerUploadImage(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
+	sdkmcp.AddTool(srv, uploadImageTool(
+		"Upload an image attachment to a node from raw bytes, a data URI, or an embedded resource",
+	), func(ctx context.Context, req *sdkmcp.CallToolRequest, in uploadImageInput) (*sdkmcp.CallToolResult, any, error) {
+		return handleImageUpload(ctx, tap, defaults, in.Keg, in.NodeID, in.Filename, uploadSourceInput{
+			SourceURI:  in.SourceURI,
+			DataBase64: in.DataBase64,
+			Resource:   in.Resource,
+		}, false)
+	})
+}
+
+func registerLocalUploadImage(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
+	sdkmcp.AddTool(srv, uploadImageTool(
+		"Upload an image attachment to a node from a local path, raw bytes, a data URI, or an embedded resource",
+	), func(ctx context.Context, req *sdkmcp.CallToolRequest, in localUploadImageInput) (*sdkmcp.CallToolResult, any, error) {
+		return handleImageUpload(ctx, tap, defaults, in.Keg, in.NodeID, in.Filename, uploadSourceInput{
 			SourcePath: in.SourcePath,
 			SourceURI:  in.SourceURI,
 			DataBase64: in.DataBase64,
 			Resource:   in.Resource,
-		}, allowLocalSources)
-		if err != nil {
-			return errorResult(err), nil, nil
-		}
-		name := strings.TrimSpace(in.Filename)
-		if name == "" {
-			name = sourceName
-		}
-		if name == "" {
-			return errorResult(fmt.Errorf("filename is required when the upload source has no filename")), nil, nil
-		}
-		opts := tapper.UploadImageOptions{
-			KegTargetOptions: resolveKegTarget(ctx, in.Keg, defaults),
-			NodeID:           in.NodeID,
-			Data:             data,
-			Name:             name,
-		}
-		storedName, err := tap.UploadImage(ctx, opts)
-		if err != nil {
-			return errorResult(err), nil, nil
-		}
-		return textResult(fmt.Sprintf("uploaded image %q to node %s", storedName, in.NodeID)), nil, nil
+		}, true)
 	})
+}
+
+func uploadImageTool(description string) *sdkmcp.Tool {
+	return &sdkmcp.Tool{
+		Name:        "upload_image",
+		Description: description,
+		Annotations: &sdkmcp.ToolAnnotations{
+			DestructiveHint: boolPtr(false),
+			OpenWorldHint:   boolPtr(false),
+		},
+	}
+}
+
+func handleImageUpload(ctx context.Context, tap *tapper.Tap, defaults KegDefaults, kegAlias, nodeID, filename string, src uploadSourceInput, sharedFS bool) (*sdkmcp.CallToolResult, any, error) {
+	data, sourceName, err := resolveUploadSource(tap.Runtime, src, sharedFS)
+	if err != nil {
+		return errorResult(err), nil, nil
+	}
+	name, err := resolveUploadName(filename, sourceName)
+	if err != nil {
+		return errorResult(err), nil, nil
+	}
+	storedName, err := tap.UploadImage(ctx, tapper.UploadImageOptions{
+		KegTargetOptions: resolveKegTarget(ctx, kegAlias, defaults),
+		NodeID:           nodeID,
+		Data:             data,
+		Name:             name,
+	})
+	if err != nil {
+		return errorResult(err), nil, nil
+	}
+	return textResult(fmt.Sprintf("uploaded image %q to node %s", storedName, nodeID)), nil, nil
 }
 
 // --- download_image ---
@@ -306,73 +379,79 @@ func registerUploadImage(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaul
 type downloadImageInput struct {
 	NodeID   string `json:"node_id" jsonschema:"node ID containing the image"`
 	Filename string `json:"filename" jsonschema:"image filename to download"`
-	DestPath string `json:"dest_path,omitempty" jsonschema:"absolute path to write the downloaded image (stdio/local only)"`
 	Keg      string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
 }
 
-func registerDownloadImage(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults, mode imageDownloadMode) {
-	description := "Download an image attachment from a node"
-	if mode == imageDownloadLocalPath {
-		description = "Download an image attachment from a node to a local file path"
-	}
-	sdkmcp.AddTool(srv, &sdkmcp.Tool{
+// localDownloadImageInput adds an optional destination path. Omitting it keeps
+// the inline-content behaviour, so a shared-filesystem agent can either look at
+// the image or save it without needing two different tools.
+type localDownloadImageInput struct {
+	NodeID   string `json:"node_id" jsonschema:"node ID containing the image"`
+	Filename string `json:"filename" jsonschema:"image filename to download"`
+	DestPath string `json:"dest_path,omitempty" jsonschema:"absolute path to write the image to; omit to receive the image as MCP content"`
+	Keg      string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
+}
+
+func registerDownloadImage(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
+	sdkmcp.AddTool(srv, downloadImageTool(
+		"Return an image attachment from a node as MCP image content",
+	), func(ctx context.Context, req *sdkmcp.CallToolRequest, in downloadImageInput) (*sdkmcp.CallToolResult, any, error) {
+		return readImageContent(ctx, tap, defaults, in.Keg, in.NodeID, in.Filename)
+	})
+}
+
+func registerLocalDownloadImage(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
+	sdkmcp.AddTool(srv, downloadImageTool(
+		"Download an image attachment from a node, either to a local file path or as MCP image content",
+	), func(ctx context.Context, req *sdkmcp.CallToolRequest, in localDownloadImageInput) (*sdkmcp.CallToolResult, any, error) {
+		dest := strings.TrimSpace(in.DestPath)
+		if dest == "" {
+			return readImageContent(ctx, tap, defaults, in.Keg, in.NodeID, in.Filename)
+		}
+		if dest == "-" {
+			return errorResult(fmt.Errorf("stdout mode is not supported over MCP; omit dest_path to receive image content")), nil, nil
+		}
+		written, err := tap.DownloadImage(ctx, tapper.DownloadImageOptions{
+			KegTargetOptions: resolveKegTarget(ctx, in.Keg, defaults),
+			NodeID:           in.NodeID,
+			Name:             in.Filename,
+			Dest:             dest,
+		})
+		if err != nil {
+			return errorResult(err), nil, nil
+		}
+		return textResult(fmt.Sprintf("downloaded image %q to %s", in.Filename, written)), nil, nil
+	})
+}
+
+func downloadImageTool(description string) *sdkmcp.Tool {
+	return &sdkmcp.Tool{
 		Name:        "download_image",
 		Description: description,
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(false),
 		},
-	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in downloadImageInput) (*sdkmcp.CallToolResult, any, error) {
-		switch mode {
-		case imageDownloadLocalPath:
-			if strings.TrimSpace(in.DestPath) == "" {
-				return errorResult(fmt.Errorf("dest_path is required on this MCP surface")), nil, nil
-			}
-			if in.DestPath == "-" {
-				return errorResult(fmt.Errorf("stdout mode is not supported over MCP")), nil, nil
-			}
-			opts := tapper.DownloadImageOptions{
-				KegTargetOptions: resolveKegTarget(ctx, in.Keg, defaults),
-				NodeID:           in.NodeID,
-				Name:             in.Filename,
-				Dest:             in.DestPath,
-			}
-			dest, err := tap.DownloadImage(ctx, opts)
-			if err != nil {
-				return errorResult(err), nil, nil
-			}
-			return textResult(fmt.Sprintf("downloaded image %q to %s", in.Filename, dest)), nil, nil
-		case imageDownloadContent:
-			if strings.TrimSpace(in.DestPath) != "" {
-				return errorResult(fmt.Errorf("dest_path is not available on this MCP surface; omit dest_path to receive image content")), nil, nil
-			}
-			data, format, err := tap.ReadImage(ctx, tapper.ReadImageOptions{
-				KegTargetOptions: resolveKegTarget(ctx, in.Keg, defaults),
-				NodeID:           in.NodeID,
-				Name:             in.Filename,
-			})
-			if err != nil {
-				return errorResult(err), nil, nil
-			}
-			mimeType := imageMIMEType(format)
-			return &sdkmcp.CallToolResult{
-				Content: []sdkmcp.Content{
-					&sdkmcp.ImageContent{
-						Data:     data,
-						MIMEType: mimeType,
-					},
-				},
-				StructuredContent: map[string]any{
-					"node_id":   in.NodeID,
-					"filename":  in.Filename,
-					"mime_type": mimeType,
-					"size":      len(data),
-				},
-			}, nil, nil
-		default:
-			return errorResult(fmt.Errorf("image downloads are not available on this MCP surface")), nil, nil
-		}
+	}
+}
+
+func readImageContent(ctx context.Context, tap *tapper.Tap, defaults KegDefaults, kegAlias, nodeID, filename string) (*sdkmcp.CallToolResult, any, error) {
+	data, format, err := tap.ReadImage(ctx, tapper.ReadImageOptions{
+		KegTargetOptions: resolveKegTarget(ctx, kegAlias, defaults),
+		NodeID:           nodeID,
+		Name:             filename,
 	})
+	if err != nil {
+		return errorResult(err), nil, nil
+	}
+	mimeType := imageMIMEType(format)
+	return &sdkmcp.CallToolResult{
+		Content: []sdkmcp.Content{&sdkmcp.ImageContent{Data: data, MIMEType: mimeType}},
+		StructuredContent: map[string]any{
+			"node_id": nodeID, "filename": filename,
+			"mime_type": mimeType, "size": len(data),
+		},
+	}, nil, nil
 }
 
 func imageMIMEType(format string) string {

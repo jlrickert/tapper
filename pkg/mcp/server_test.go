@@ -85,7 +85,15 @@ func newTestSession(t *testing.T) (*sdkmcp.ClientSession, context.Context) {
 	return session, ctx
 }
 
-func newTestSessionWithRuntime(t *testing.T) (*sdkmcp.ClientSession, *toolkit.Runtime, context.Context) {
+// newLocalTestSessionWithRuntime builds the `tap mcp` surface: a server that
+// shares a filesystem with its host, so the local-path attachment tools are
+// registered. Use it for anything exercising source_path or dest_path.
+func newLocalTestSessionWithRuntime(t *testing.T) (*sdkmcp.ClientSession, *toolkit.Runtime, context.Context) {
+	t.Helper()
+	return newTestSessionWithRuntime(t, mcp.ServerOptions{SharedFilesystem: true})
+}
+
+func newTestSessionWithRuntime(t *testing.T, opts ...mcp.ServerOptions) (*sdkmcp.ClientSession, *toolkit.Runtime, context.Context) {
 	t.Helper()
 	ctx := context.Background()
 
@@ -97,7 +105,7 @@ func newTestSessionWithRuntime(t *testing.T) (*sdkmcp.ClientSession, *toolkit.Ru
 	})
 	require.NoError(t, err)
 
-	srv := mcp.NewServer(tap, "test", mcp.KegDefaults{KegTargetOptions: tapper.KegTargetOptions{Flight: "@local/+test"}})
+	srv := mcp.NewServer(tap, "test", mcp.KegDefaults{KegTargetOptions: tapper.KegTargetOptions{Flight: "@local/+test"}}, opts...)
 	serverTransport, clientTransport := sdkmcp.NewInMemoryTransports()
 
 	// Connect server in background.
@@ -130,86 +138,41 @@ func TestMCP_ToolsList(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, res.Tools)
 
-	names := make([]string, len(res.Tools))
-	for i, tool := range res.Tools {
-		names[i] = tool.Name
+	names := make(map[string]bool, len(res.Tools))
+	for _, tool := range res.Tools {
+		names[tool.Name] = true
 	}
-
-	require.Contains(t, names, "cat")
-	require.Contains(t, names, "list")
-	require.Contains(t, names, "grep")
-	require.Contains(t, names, "tags")
-	require.Contains(t, names, "backlinks")
-	require.Contains(t, names, "links")
-	require.Contains(t, names, "info")
-	require.Contains(t, names, "keg_settings")
-	require.Contains(t, names, "keg_settings_edit")
-	require.Contains(t, names, "keg_list")
-	require.Contains(t, names, "keg_visibility")
-	require.Contains(t, names, "stats")
-	require.Contains(t, names, "create")
-	require.Contains(t, names, "edit")
-	require.Contains(t, names, "meta")
-	require.Contains(t, names, "remove")
-	require.Contains(t, names, "move")
-	require.Contains(t, names, "index")
-	require.Contains(t, names, "list_indexes")
-	require.Contains(t, names, "index_cat")
-	require.Contains(t, names, "doctor")
-	require.Contains(t, names, "node_history")
-	require.Contains(t, names, "node_snapshot")
-	require.Contains(t, names, "node_snapshot_view")
-	require.Contains(t, names, "node_restore")
-	require.Contains(t, names, "list_files")
-	require.Contains(t, names, "list_images")
-	require.Contains(t, names, "delete_file")
-	require.Contains(t, names, "delete_image")
-	require.Contains(t, names, "lock_acquire")
-	require.Contains(t, names, "lock_release")
-	require.Contains(t, names, "lock_status")
-	require.Contains(t, names, "lock_force_release")
-	require.Contains(t, names, "license")
-
-	require.Contains(t, names, "repo_init")
-	require.Contains(t, names, "config")
-	require.Contains(t, names, "config_template")
-	require.Contains(t, names, "import_from_keg")
-	require.Contains(t, names, "export")
-	require.Contains(t, names, "import")
-	require.Contains(t, names, "upload_file")
-	require.Contains(t, names, "download_file")
-	require.Contains(t, names, "upload_image")
-	require.Contains(t, names, "download_image")
-	require.Contains(t, names, "graph")
-	require.Contains(t, names, "orient")
-	require.NotContains(t, names, "integrate")
-	require.Contains(t, names, "list_flights")
-	require.Contains(t, names, "flight_show")
-	require.Contains(t, names, "flight_create")
-	require.Contains(t, names, "flight_edit")
-	require.Contains(t, names, "flight_delete")
-	require.Contains(t, names, "namespace_list")
-	require.Contains(t, names, "auth_status")
-	require.NotContains(t, names, "keg_grants")
-	require.NotContains(t, names, "keg_grant")
-	require.NotContains(t, names, "keg_revoke")
-	require.NotContains(t, names, "namespace_members")
-	require.NotContains(t, names, "namespace_add_member")
-	require.NotContains(t, names, "namespace_set_role")
-	require.NotContains(t, names, "namespace_remove_member")
-	require.NotContains(t, names, "namespace_create")
-	require.NotContains(t, names, "flight_update")
+	for _, want := range []string{
+		"auth_info", "keg_list", "cat", "list", "grep", "tags", "backlinks", "links", "info",
+		"keg_settings", "keg_settings_edit", "stats", "create", "edit", "meta", "remove", "move",
+		"index", "list_indexes", "index_cat", "doctor", "node_history", "node_snapshot",
+		"node_snapshot_view", "node_restore", "list_files", "list_images", "delete_file", "delete_image",
+		"upload_file", "upload_image", "download_image", "graph", "orient", "import_from_keg",
+		"lock_acquire", "lock_release", "lock_status", "lock_force_release", "list_flights", "flight_show",
+		"flight_create", "flight_edit", "flight_delete", "schema_list", "schema_read", "schema_create",
+		"schema_edit", "schema_delete", "validate",
+	} {
+		require.Truef(t, names[want], "agent-safe surface missing %q", want)
+	}
+	for _, banned := range []string{
+		"config", "config_template", "repo_init", "export", "import", "auth_status", "license",
+		"download_file", "keg_visibility", "namespace_list", "namespace_create",
+	} {
+		require.Falsef(t, names[banned], "agent-safe surface exposed %q", banned)
+	}
+	for _, tool := range res.Tools {
+		schema, err := json.Marshal(tool.InputSchema)
+		require.NoError(t, err)
+		require.NotContains(t, string(schema), "source_path", "tool %q exposes a machine-local upload path", tool.Name)
+		require.NotContains(t, string(schema), "dest_path", "tool %q exposes a machine-local download destination", tool.Name)
+	}
 }
 
-// TestMCP_SurfaceHub_CuratesToolset pins the remote hub connector surface: it
-// exposes the per-user node read/write tools and upload tools, and omits every
-// CLI/local and hub-admin tool (auth_status, config, doctor, local file
-// downloads, path-based image downloads, locks, archive, keg/namespace
-// administration, flights, license).
-// tapper-hub mounts this surface at /mcp paired with Tap.KegResolver.
-func TestMCP_SurfaceHub_CuratesToolset(t *testing.T) {
+// TestMCP_CommonAgentSafeSurface pins the single common surface. Hosted
+// callers inject providers rather than selecting a different registration set.
+func TestMCP_CommonAgentSafeSurface(t *testing.T) {
 	t.Parallel()
-	session, ctx := newTestSessionWithOpts(t, mcp.ServerOptions{Surface: mcp.SurfaceHub})
+	session, ctx := newTestSessionWithOpts(t)
 
 	res, err := session.ListTools(ctx, nil)
 	require.NoError(t, err)
@@ -220,7 +183,7 @@ func TestMCP_SurfaceHub_CuratesToolset(t *testing.T) {
 		names[tool.Name] = true
 	}
 
-	// Node read/write tools must be present.
+	// Common KEG and account tools must be present.
 	for _, want := range []string{
 		"cat", "list", "grep", "tags", "backlinks", "links", "info", "keg_settings",
 		"keg_settings_edit",
@@ -230,24 +193,22 @@ func TestMCP_SurfaceHub_CuratesToolset(t *testing.T) {
 		"list_files", "list_images", "delete_file", "delete_image",
 		"upload_file", "upload_image", "download_image",
 		"schema_list", "schema_read", "schema_create", "schema_edit",
-		"schema_delete", "validate",
+		"schema_delete", "validate", "doctor", "import_from_keg", "keg_list", "auth_info",
+		"lock_acquire", "lock_release", "lock_status", "lock_force_release",
+		"list_flights", "flight_show", "flight_create", "flight_edit", "flight_delete",
 	} {
-		require.Truef(t, names[want], "SurfaceHub should expose %q", want)
+		require.Truef(t, names[want], "common surface should expose %q", want)
 	}
 
-	// CLI/local and hub-admin tools must be absent.
+	// Machine-local and tenant-administration tools must be absent.
 	for _, banned := range []string{
-		"auth_status", "config", "config_template", "doctor", "license",
-		"repo_init", "integrate", "export", "import", "import_from_keg",
-		"download_file",
-		"lock_acquire", "lock_release", "lock_status", "lock_force_release",
-		"keg_list", "keg_grants", "keg_grant", "keg_revoke", "keg_visibility",
+		"auth_status", "config", "config_template", "license", "repo_init", "integrate", "export", "import", "download_file",
+		"keg_grants", "keg_grant", "keg_revoke", "keg_visibility",
 		"namespace_list", "namespace_members", "namespace_add_member",
 		"namespace_set_role", "namespace_remove_member", "namespace_create",
-		"list_flights", "flight_show", "flight_create", "flight_edit", "flight_update",
-		"flight_delete",
+		"flight_update",
 	} {
-		require.Falsef(t, names[banned], "SurfaceHub must not expose %q", banned)
+		require.Falsef(t, names[banned], "common surface must not expose %q", banned)
 	}
 }
 
@@ -1083,23 +1044,16 @@ func TestMCP_LockReleaseTokenMismatch(t *testing.T) {
 
 func TestMCP_License(t *testing.T) {
 	t.Parallel()
-	licenseText := "Apache License\nVersion 2.0, January 2004\nFull license content here."
-	session, ctx := newTestSessionWithOpts(t, mcp.ServerOptions{
-		LicenseText: licenseText,
-	})
-
-	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name:      "license",
-		Arguments: map[string]any{},
-	})
+	session, ctx := newTestSessionWithOpts(t)
+	res, err := session.ListTools(ctx, nil)
 	require.NoError(t, err)
-	text := extractText(t, res)
-	require.False(t, res.IsError, "license returned error: %s", text)
-	require.Contains(t, text, "Apache License")
-	require.Contains(t, text, "Version 2.0")
+	for _, tool := range res.Tools {
+		require.NotEqual(t, "license", tool.Name)
+	}
 }
 
 func TestMCP_License_Empty(t *testing.T) {
+	t.Skip("license is not part of the agent-safe MCP surface")
 	t.Parallel()
 	session, ctx := newTestSession(t)
 
@@ -1127,12 +1081,13 @@ func TestMCP_ToolsList_IncludesNewTools(t *testing.T) {
 		names[i] = tool.Name
 	}
 
-	require.Contains(t, names, "repo_init")
-	require.Contains(t, names, "config")
-	require.Contains(t, names, "config_template")
+	require.NotContains(t, names, "repo_init")
+	require.NotContains(t, names, "config")
+	require.NotContains(t, names, "config_template")
 }
 
 func TestMCP_Config(t *testing.T) {
+	t.Skip("config is not part of the agent-safe MCP surface")
 	t.Parallel()
 	session, ctx := newTestSession(t)
 
@@ -1147,6 +1102,7 @@ func TestMCP_Config(t *testing.T) {
 }
 
 func TestMCP_ConfigUser(t *testing.T) {
+	t.Skip("config is not part of the agent-safe MCP surface")
 	t.Parallel()
 	session, ctx := newTestSession(t)
 
@@ -1163,6 +1119,7 @@ func TestMCP_ConfigUser(t *testing.T) {
 }
 
 func TestMCP_ConfigInvalidScope(t *testing.T) {
+	t.Skip("config is not part of the agent-safe MCP surface")
 	t.Parallel()
 	session, ctx := newTestSession(t)
 
@@ -1177,6 +1134,7 @@ func TestMCP_ConfigInvalidScope(t *testing.T) {
 }
 
 func TestMCP_ConfigTemplate(t *testing.T) {
+	t.Skip("config_template is not part of the agent-safe MCP surface")
 	t.Parallel()
 	session, ctx := newTestSession(t)
 
@@ -1191,6 +1149,7 @@ func TestMCP_ConfigTemplate(t *testing.T) {
 }
 
 func TestMCP_ConfigTemplateProject(t *testing.T) {
+	t.Skip("config_template is not part of the agent-safe MCP surface")
 	t.Parallel()
 	session, ctx := newTestSession(t)
 
@@ -1207,6 +1166,7 @@ func TestMCP_ConfigTemplateProject(t *testing.T) {
 }
 
 func TestMCP_RepoInit(t *testing.T) {
+	t.Skip("repo_init is not part of the agent-safe MCP surface")
 	t.Parallel()
 	session, ctx := newTestSession(t)
 
@@ -1226,6 +1186,7 @@ func TestMCP_RepoInit(t *testing.T) {
 }
 
 func TestMCP_RepoInitMissingAlias(t *testing.T) {
+	t.Skip("repo_init is not part of the agent-safe MCP surface")
 	t.Parallel()
 	session, ctx := newTestSession(t)
 
@@ -1257,6 +1218,7 @@ func TestMCP_ToolsList_IncludesImportTool(t *testing.T) {
 }
 
 func TestMCP_ImportFromKeg(t *testing.T) {
+	t.Skip("legacy fixture setup depends on removed repo_init; provider parity covers import_from_keg")
 	t.Parallel()
 	session, ctx := newTestSession(t)
 
@@ -1331,14 +1293,49 @@ func TestMCP_ToolsList_IncludesFileTransferTools(t *testing.T) {
 	}
 
 	require.Contains(t, names, "upload_file")
-	require.Contains(t, names, "download_file")
+	require.NotContains(t, names, "download_file")
 	require.Contains(t, names, "upload_image")
 	require.Contains(t, names, "download_image")
 }
 
+// TestMCP_LocalSurfacePublishesLocalPathTransfers pins the `tap mcp` half of
+// the split: a shared-filesystem server must publish the full attachment
+// round-trip, local paths included. Its hosted counterparts are
+// TestMCP_UploadSchemaRejectsLocalSourcePath and
+// TestMCP_DownloadImageSchemaRejectsDestPath.
+func TestMCP_LocalSurfacePublishesLocalPathTransfers(t *testing.T) {
+	t.Parallel()
+	session, _, ctx := newLocalTestSessionWithRuntime(t)
+
+	res, err := session.ListTools(ctx, nil)
+	require.NoError(t, err)
+
+	properties := map[string]map[string]any{}
+	for _, tool := range res.Tools {
+		raw, err := json.Marshal(tool.InputSchema)
+		require.NoError(t, err)
+		var schema struct {
+			Properties map[string]any `json:"properties"`
+		}
+		require.NoError(t, json.Unmarshal(raw, &schema))
+		properties[tool.Name] = schema.Properties
+	}
+
+	for _, want := range []struct{ tool, field string }{
+		{"upload_file", "source_path"},
+		{"upload_image", "source_path"},
+		{"download_file", "dest_path"},
+		{"download_image", "dest_path"},
+	} {
+		require.Contains(t, properties, want.tool, "tap mcp must publish %s", want.tool)
+		require.Contains(t, properties[want.tool], want.field,
+			"tap mcp %s must accept %s", want.tool, want.field)
+	}
+}
+
 func TestMCP_UploadAndDownloadFile(t *testing.T) {
 	t.Parallel()
-	session, rt, ctx := newTestSessionWithRuntime(t)
+	session, rt, ctx := newLocalTestSessionWithRuntime(t)
 
 	// Create a node to attach files to.
 	createRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
@@ -1401,7 +1398,7 @@ func TestMCP_UploadAndDownloadFile(t *testing.T) {
 
 func TestMCP_UploadAndDownloadImage(t *testing.T) {
 	t.Parallel()
-	session, rt, ctx := newTestSessionWithRuntime(t)
+	session, rt, ctx := newLocalTestSessionWithRuntime(t)
 
 	// Create a node to attach images to.
 	createRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
@@ -1463,9 +1460,9 @@ func TestMCP_UploadAndDownloadImage(t *testing.T) {
 	require.Equal(t, pngData, got)
 }
 
-func TestMCP_SurfaceHubDownloadImageReturnsImageContent(t *testing.T) {
+func TestMCP_DownloadImageReturnsImageContent(t *testing.T) {
 	t.Parallel()
-	session, ctx := newTestSessionWithOpts(t, mcp.ServerOptions{Surface: mcp.SurfaceHub})
+	session, ctx := newTestSessionWithOpts(t)
 
 	createRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
 		Name: "create",
@@ -1518,9 +1515,9 @@ func TestMCP_SurfaceHubDownloadImageReturnsImageContent(t *testing.T) {
 	require.Equal(t, len(pngData), structured.Size)
 }
 
-func TestMCP_SurfaceHubDownloadImageRejectsDestPath(t *testing.T) {
+func TestMCP_DownloadImageSchemaRejectsDestPath(t *testing.T) {
 	t.Parallel()
-	session, ctx := newTestSessionWithOpts(t, mcp.ServerOptions{Surface: mcp.SurfaceHub})
+	session, ctx := newTestSessionWithOpts(t)
 
 	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
 		Name: "download_image",
@@ -1532,12 +1529,12 @@ func TestMCP_SurfaceHubDownloadImageRejectsDestPath(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.True(t, res.IsError, "expected hosted download_image dest_path to fail")
-	require.Contains(t, extractText(t, res), "dest_path is not available")
+	require.Contains(t, extractText(t, res), "unexpected additional properties")
 }
 
 func TestMCP_UploadFileFromBase64(t *testing.T) {
 	t.Parallel()
-	session, rt, ctx := newTestSessionWithRuntime(t)
+	session, rt, ctx := newLocalTestSessionWithRuntime(t)
 
 	createRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
 		Name: "create",
@@ -1578,7 +1575,7 @@ func TestMCP_UploadFileFromBase64(t *testing.T) {
 
 func TestMCP_UploadFileFromEmbeddedResource(t *testing.T) {
 	t.Parallel()
-	session, rt, ctx := newTestSessionWithRuntime(t)
+	session, rt, ctx := newLocalTestSessionWithRuntime(t)
 
 	createRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
 		Name: "create",
@@ -1700,12 +1697,12 @@ func TestMCP_UploadRejectsMultipleSources(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.True(t, res.IsError, "expected multiple upload sources to fail")
-	require.Contains(t, extractText(t, res), "exactly one")
+	require.Contains(t, extractText(t, res), "unexpected additional properties")
 }
 
-func TestMCP_SurfaceHubRejectsLocalUploadSource(t *testing.T) {
+func TestMCP_UploadSchemaRejectsLocalSourcePath(t *testing.T) {
 	t.Parallel()
-	session, ctx := newTestSessionWithOpts(t, mcp.ServerOptions{Surface: mcp.SurfaceHub})
+	session, ctx := newTestSessionWithOpts(t)
 
 	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
 		Name: "upload_file",
@@ -1717,12 +1714,14 @@ func TestMCP_SurfaceHubRejectsLocalUploadSource(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.True(t, res.IsError, "expected hub surface local upload source to fail")
-	require.Contains(t, extractText(t, res), "local file sources are not available")
+	require.Contains(t, extractText(t, res), "unexpected additional properties")
 }
 
 func TestMCP_UploadFileMissingSource(t *testing.T) {
 	t.Parallel()
-	session, ctx := newTestSession(t)
+	// The local surface, so this exercises the unreadable-file path rather than
+	// schema rejection of source_path.
+	session, _, ctx := newLocalTestSessionWithRuntime(t)
 
 	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
 		Name: "upload_file",
@@ -1734,11 +1733,12 @@ func TestMCP_UploadFileMissingSource(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.True(t, res.IsError, "expected error for missing source file")
+	require.Contains(t, extractText(t, res), "unable to read local file")
 }
 
 func TestMCP_DownloadFileNotFound(t *testing.T) {
 	t.Parallel()
-	session, ctx := newTestSession(t)
+	session, _, ctx := newLocalTestSessionWithRuntime(t)
 
 	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
 		Name: "download_file",
@@ -1755,6 +1755,7 @@ func TestMCP_DownloadFileNotFound(t *testing.T) {
 // --- archive tool tests ---
 
 func TestMCP_ToolsList_IncludesArchiveTools(t *testing.T) {
+	t.Skip("archive tools are not part of the agent-safe MCP surface")
 	t.Parallel()
 	session, ctx := newTestSession(t)
 
@@ -1771,6 +1772,7 @@ func TestMCP_ToolsList_IncludesArchiveTools(t *testing.T) {
 }
 
 func TestMCP_ExportAndImport(t *testing.T) {
+	t.Skip("archive tools are not part of the agent-safe MCP surface")
 	t.Parallel()
 	session, ctx := newTestSession(t)
 
@@ -1814,6 +1816,7 @@ func TestMCP_ExportAndImport(t *testing.T) {
 }
 
 func TestMCP_ExportMissingPath(t *testing.T) {
+	t.Skip("archive tools are not part of the agent-safe MCP surface")
 	t.Parallel()
 	session, ctx := newTestSession(t)
 
@@ -1828,6 +1831,7 @@ func TestMCP_ExportMissingPath(t *testing.T) {
 }
 
 func TestMCP_ImportMissingFile(t *testing.T) {
+	t.Skip("archive tools are not part of the agent-safe MCP surface")
 	t.Parallel()
 	session, ctx := newTestSession(t)
 
@@ -1910,7 +1914,7 @@ func TestMCP_ToolAnnotations_AllPresent(t *testing.T) {
 		"info", "keg_settings", "stats",
 		"list_files", "list_images",
 		"list_indexes", "index_cat",
-		"doctor", "lock_status", "license", "node_history", "node_snapshot_view",
+		"doctor", "lock_status", "node_history", "node_snapshot_view",
 	}
 	for _, name := range readOnlyTools {
 		tool, ok := byName[name]
@@ -1939,8 +1943,7 @@ func TestMCP_ToolAnnotations_AllPresent(t *testing.T) {
 		"node_snapshot",
 		"upload_file", "upload_image",
 		"lock_acquire", "lock_release",
-		"repo_init", "config", "config_template",
-		"export", "import", "import_from_keg",
+		"import_from_keg",
 		"graph",
 	}
 	for _, name := range writeTools {
@@ -1972,7 +1975,7 @@ func TestMCP_InvocationLogging(t *testing.T) {
 
 	// Call a known tool to trigger the middleware.
 	_, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "config",
+		Name: "doctor",
 	})
 	require.NoError(t, err)
 
@@ -1984,7 +1987,7 @@ func TestMCP_InvocationLogging(t *testing.T) {
 
 	require.Equal(t, slog.LevelInfo, entry.Level)
 	require.Equal(t, "mcp", entry.Attrs["surface"])
-	require.Equal(t, "config", entry.Attrs["tool"])
+	require.Equal(t, "doctor", entry.Attrs["tool"])
 	require.Equal(t, true, entry.Attrs["success"])
 
 	// duration_ms should be present and non-negative. Sandbox tests use a
@@ -2074,7 +2077,7 @@ func TestMCP_InvocationTelemetryReportsExactToolAndOutcome(t *testing.T) {
 	reporter := &invocationTelemetryRecorder{}
 	session, ctx := newTestSessionWithOpts(t, mcp.ServerOptions{Reporter: reporter})
 
-	_, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: "config"})
+	_, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: "doctor"})
 	require.NoError(t, err)
 	failed, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
 		Name:      "cat",
@@ -2085,7 +2088,7 @@ func TestMCP_InvocationTelemetryReportsExactToolAndOutcome(t *testing.T) {
 
 	events := reporter.snapshot()
 	require.Len(t, events, 2)
-	require.Equal(t, tapper.InvocationEvent{Surface: "mcp", Tool: "config", Success: true}, events[0])
+	require.Equal(t, tapper.InvocationEvent{Surface: "mcp", Tool: "doctor", Success: true}, events[0])
 	require.Equal(t, "mcp", events[1].Surface)
 	require.Equal(t, "cat", events[1].Tool)
 	require.False(t, events[1].Success)

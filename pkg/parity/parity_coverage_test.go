@@ -85,21 +85,9 @@ var tapMethodToSurfaces = map[string]struct {
 	"ForceUnlock": {CLI: "lock force-release", MCP: "lock_force_release"},
 
 	// Repo management
-	// MCP tool name kept as "repo_init" for backward compatibility with
-	// existing agent integrations; CLI surface is the canonical `tap keg create`
-	// (a hidden top-level `tap init` alias also runs it).
-	"InitKeg": {CLI: "keg create", MCP: "repo_init"},
-
-	// Config operations
-	"Config":         {CLI: "config", MCP: "config"},
-	"ConfigTemplate": {CLI: "config template", MCP: "config_template"},
-
-	// Archive operations
 	// Note: "import" at top level is ImportFromKeg (live keg import).
 	// "archive import" is Import (archive import). Different commands,
-	// different Tap methods, same word.
-	"Export":        {CLI: "archive export", MCP: "export"},
-	"Import":        {CLI: "archive import", MCP: "import"},
+	// different Tap methods, same word. Only the live-keg one has an MCP peer.
 	"ImportFromKeg": {CLI: "import", MCP: "import_from_keg"},
 
 	// Flights (keg restriction + agent instructions)
@@ -109,23 +97,13 @@ var tapMethodToSurfaces = map[string]struct {
 	"EditFlight":   {CLI: "flight edit", MCP: "flight_edit"},
 	"DeleteFlight": {CLI: "flight delete", MCP: "flight_delete"},
 
-	// Keg administration (hub-side). HubListKegs backs `tap keg list`.
-	"HubListKegs":   {CLI: "keg list", MCP: "keg_list"},
-	"KegVisibility": {CLI: "keg visibility", MCP: "keg_visibility"},
-
-	// Namespace administration.
-	"NamespaceList": {CLI: "namespace list", MCP: "namespace_list"},
+	// Keg discovery (hub-side). HubListKegs backs `tap keg list`; on MCP the
+	// same listing is filtered through the session's active flight cover.
+	"HubListKegs": {CLI: "keg list", MCP: "keg_list"},
 
 	// Agent orientation remains shared. Native plugin installation is an
 	// intentionally CLI-only host operation (see tapMethodsExcluded).
 	"Orient": {CLI: "orient", MCP: "orient"},
-
-	// Auth: Status has both surfaces (agents need to check auth before
-	// remote calls); Login is CLI-only — it drives the interactive device
-	// flow via package-level tapper.AuthLoginDevice (not a *Tap method, so
-	// it doesn't appear in this map); Logout is a *Tap method intentionally
-	// excluded from MCP for security — see tapMethodsExcluded below.
-	"AuthStatus": {CLI: "auth status", MCP: "auth_status"},
 }
 
 // tapMethodsExcluded lists Tap methods that are intentionally excluded from
@@ -168,8 +146,20 @@ var tapMethodsExcluded = map[string]string{
 	"SetBootstrapFlight":   "CLI-only bootstrap step; validates and persists the user-level flight baseline, not an MCP operation",
 	"Use":                  "writes the project/user keg + flight to config; CLI-only config management by design",
 	"UseStatus":            "CLI-only summary of the resolved keg/flight context; config inspection via `tap use`",
-	"ActiveFlightName":     "internal MCP startup helper that resolves the explicit or project flight before connecting",
+	"ActiveFlightName":     "internal pure read of the explicit flight or the loaded cascade's selection; backs Orient and MCP session adoption rather than being an operation of its own",
 	"OrientationForFlight": "internal session-orientation builder used by initialize, orient, and the orient resource",
+	// Dropped from MCP when the surface was unified behind providers: these
+	// operate on machine-local Tapper state or perform tenant administration,
+	// neither of which an agent should reach through either transport.
+	"AuthStatus":     "replaced on MCP by the credential-free auth_info tool; `tap auth status` renders local token state and has no agent-safe peer",
+	"Config":         "reads the local Tapper config cascade; configuration is an external CLI concern, not an MCP operation",
+	"ConfigTemplate": "emits starter config files for a human to edit; CLI-only setup step",
+	"InitKeg":        "provisions a keg destination on local disk or a hub; CLI-only setup step",
+	"Export":         "writes a keg archive to the local filesystem; CLI-only bulk operation",
+	"Import":         "reads a keg archive from the local filesystem; CLI-only bulk operation (import_from_keg covers the agent-safe node-level path)",
+	"KegVisibility":  "UI-only visibility management; MCP must not flip a keg between public and private",
+	"NamespaceList":  "namespace discovery folded into auth_info's identity payload; the standalone tool was tenant-administration shaped",
+	"License":        "prints bundled license text; CLI-only via `tap version --license`",
 }
 
 // TestCoverage_AllTapMethodsHaveBothSurfaces uses reflection to enumerate
@@ -243,7 +233,7 @@ func collectMCPToolNames(t *testing.T) map[string]bool {
 
 	srv := mcp.NewServer(tap, "test", mcp.KegDefaults{
 		KegTargetOptions: tapper.KegTargetOptions{Flight: "@local/+parity"},
-	})
+	}, mcp.ServerOptions{SharedFilesystem: true})
 	serverTransport, clientTransport := sdkmcp.NewInMemoryTransports()
 
 	done := make(chan error, 1)
