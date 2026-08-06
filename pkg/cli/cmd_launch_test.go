@@ -44,8 +44,9 @@ func TestLaunchCommand_DryRunResolvesOllamaThroughOpenAI(t *testing.T) {
 	out := string(res.Stdout)
 	require.Contains(t, out, "agent local -> ollama/qwen3.6:35b-mlx")
 	require.Contains(t, out, "flight: @testuser/+scratch")
-	require.Contains(t, out, "codex --model qwen3.6:35b-mlx")
-	require.Contains(t, out, "OPENAI_BASE_URL=http://localhost:11434/v1")
+	require.Contains(t, out, "codex --oss --local-provider ollama --model qwen3.6:35b-mlx")
+	require.Contains(t, out, "CODEX_OSS_BASE_URL=http://localhost:11434/v1")
+
 	require.Contains(t, out, "TAP_FLIGHT=@testuser/+scratch")
 }
 
@@ -69,7 +70,7 @@ func TestLaunchCommand_DryRunPassesThroughExtraArgs(t *testing.T) {
 	res := NewProcess(t, false, "launch", "codex", "--agent", "local", "--dry-run",
 		"--", "--sandbox", "read-only").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
-	require.Contains(t, string(res.Stdout), "codex --model qwen3.6:35b-mlx --sandbox read-only")
+	require.Contains(t, string(res.Stdout), "codex --oss --local-provider ollama --model qwen3.6:35b-mlx --sandbox read-only")
 }
 
 // Ollama serves the Anthropic Messages API as well, so Claude Code can drive it

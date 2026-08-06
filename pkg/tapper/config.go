@@ -187,12 +187,18 @@ type HubEntry struct {
 // and a project config may safely define them.
 //
 // Experimental: this shape is expected to change when agents move to the hub.
+// ContextWindow caps the working context in tokens. Harnesses express this
+// differently — Codex as model metadata, Claude Code as an auto-compact
+// threshold — so the launcher translates it per harness rather than passing a
+// raw flag, and reports rather than drops it where there is no equivalent.
 type AgentEntry struct {
-	Model     string `yaml:"model,omitempty"`
-	Flight    string `yaml:"flight,omitempty"`
-	BaseURL   string `yaml:"baseUrl,omitempty"`
-	Auth      string `yaml:"auth,omitempty"`
-	APIKeyEnv string `yaml:"apiKeyEnv,omitempty"`
+	Model         string   `yaml:"model,omitempty"`
+	Flight        string   `yaml:"flight,omitempty"`
+	BaseURL       string   `yaml:"baseUrl,omitempty"`
+	Auth          string   `yaml:"auth,omitempty"`
+	APIKeyEnv     string   `yaml:"apiKeyEnv,omitempty"`
+	ContextWindow int      `yaml:"contextWindow,omitempty"`
+	Args          []string `yaml:"args,omitempty"`
 }
 
 // KegRef is the (hub, namespace, name) triple a keg alias resolves to. An empty

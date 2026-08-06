@@ -48,6 +48,13 @@ agents:
   badauth:
     model: openai/gpt-5
     auth: nonsense
+  localsub:
+    model: ollama/qwen3.6:35b-mlx
+    auth: subscription
+  capped:
+    model: ollama/qwen3.6:35b-mlx
+    contextWindow: 150000
+    args: ['--search']
 `
 
 func TestParseAgentModel(t *testing.T) {
@@ -93,7 +100,11 @@ func TestResolveLaunch_AnthropicOnClaude(t *testing.T) {
 	require.Equal(t, "+dev", got.Env["TAP_FLIGHT"])
 }
 
-func TestResolveLaunch_OllamaOnCodexUsesOpenAIProtocol(t *testing.T) {
+// Codex has first-class local-provider support and configures it through
+// --oss/--local-provider plus CODEX_OSS_BASE_URL. It ignores OPENAI_BASE_URL,
+// and an OPENAI_API_KEY would push it into API-key billing against the wrong
+// provider — `codex doctor` calls that "mixed auth signals".
+func TestResolveLaunch_OllamaOnCodexUsesOSSProvider(t *testing.T) {
 	t.Parallel()
 	tap := newLaunchTap(t, launchUserConfig)
 
@@ -101,8 +112,12 @@ func TestResolveLaunch_OllamaOnCodexUsesOpenAIProtocol(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, tapper.ProviderOllama, got.Provider)
-	require.Equal(t, []string{"codex", "--model", "qwen3.6:35b-mlx"}, got.Argv)
-	require.Equal(t, "http://localhost:11434/v1", got.Env["OPENAI_BASE_URL"])
+	require.Equal(t,
+		[]string{"codex", "--oss", "--local-provider", "ollama", "--model", "qwen3.6:35b-mlx"},
+		got.Argv)
+	require.Equal(t, "http://localhost:11434/v1", got.Env["CODEX_OSS_BASE_URL"])
+	require.NotContains(t, got.Env, "OPENAI_BASE_URL")
+	require.NotContains(t, got.Env, "OPENAI_API_KEY")
 	require.Equal(t, "@testuser/+scratch", got.Env["TAP_FLIGHT"])
 }
 
@@ -147,7 +162,7 @@ func TestResolveLaunch_BaseURLNormalizesPerProtocol(t *testing.T) {
 
 	viaCodex, err := tap.ResolveLaunch(tapper.LaunchOptions{Harness: "codex", Agent: "lab"})
 	require.NoError(t, err)
-	require.Equal(t, "http://192.168.50.197:11434/v1", viaCodex.Env["OPENAI_BASE_URL"])
+	require.Equal(t, "http://192.168.50.197:11434/v1", viaCodex.Env["CODEX_OSS_BASE_URL"])
 }
 
 func TestResolveLaunch_RejectsIncompatibleProvider(t *testing.T) {
@@ -164,6 +179,29 @@ func TestResolveLaunch_RejectsIncompatibleProvider(t *testing.T) {
 	_, err = tap.ResolveLaunch(tapper.LaunchOptions{Harness: "claude", Agent: "hosted"})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "cannot use a openai model")
+}
+
+// A local model must never cause real credentials to be sent to it. The
+// placeholder key is what stops the harness falling back to a stored login and
+// posting it to the ollama host, so no auth mode may suppress it — and asking
+// for subscription auth on a local model is rejected rather than honoured.
+func TestResolveLaunch_LocalModelNeverLeaksRealCredentials(t *testing.T) {
+	t.Parallel()
+	tap := newLaunchTap(t, launchUserConfig)
+
+	got, err := tap.ResolveLaunch(tapper.LaunchOptions{Harness: "claude", Agent: "local"})
+	require.NoError(t, err)
+
+	// Defaults to none for a local provider without the user asking.
+	require.Equal(t, tapper.AuthNone, got.Auth)
+	require.Equal(t, "ollama", got.Env["ANTHROPIC_API_KEY"])
+	// And the ambient cloud credentials are removed rather than passed along.
+	require.Contains(t, got.StripEnv, "OPENAI_API_KEY")
+	require.Contains(t, got.StripEnv, "ANTHROPIC_AUTH_TOKEN")
+
+	_, err = tap.ResolveLaunch(tapper.LaunchOptions{Harness: "claude", Agent: "localsub"})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "meaningless for a local ollama model")
 }
 
 func TestResolveLaunch_SubscriptionStripsInheritedKeys(t *testing.T) {
@@ -267,6 +305,31 @@ func TestResolveLaunch_ReadsAgentsFromProjectConfig(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "gpt-5", got.Model)
 	require.Equal(t, "+proj", got.Env["TAP_FLIGHT"])
+}
+
+// A context cap means the same thing to a user on either harness but is spelled
+// differently by each, so the launcher translates rather than passing a raw
+// flag through.
+func TestResolveLaunch_ContextWindowTranslatesPerHarness(t *testing.T) {
+	t.Parallel()
+	tap := newLaunchTap(t, launchUserConfig)
+
+	viaCodex, err := tap.ResolveLaunch(tapper.LaunchOptions{Harness: "codex", Agent: "capped"})
+	require.NoError(t, err)
+	require.Contains(t, viaCodex.Argv, "model_context_window=150000")
+	// Agent args ride along, before any one-off passed at the call site.
+	require.Contains(t, viaCodex.Argv, "--search")
+
+	viaClaude, err := tap.ResolveLaunch(tapper.LaunchOptions{Harness: "claude", Agent: "capped"})
+	require.NoError(t, err)
+	require.Contains(t, viaClaude.Argv, "--autocompact")
+	require.Contains(t, viaClaude.Argv, "150000")
+
+	// pi has no known equivalent, so the cap is reported rather than dropped —
+	// silently ignoring it is how you find out later that it never applied.
+	_, err = tap.ResolveLaunch(tapper.LaunchOptions{Harness: "pi", Agent: "capped"})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "no way to apply it")
 }
 
 func TestLaunchHarnesses(t *testing.T) {
