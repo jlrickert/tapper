@@ -16,10 +16,15 @@ import (
 const orientPurpose = "Tapper provides an MCP interface for KEG (Knowledge Exchange Graph) systems. A KEG is a numbered collection of markdown nodes with metadata, links, tags, and snapshot history. Agents operate on a KEG through the `mcp__tapper__*` tools; reading or writing node files directly bypasses indexing, locking, and snapshots."
 
 const orientRulesSummary = "Rules:\n" +
+	"- Call `orient` first in every session, before any other tool and before replying. The active flight carries this session's instructions, so until you orient you do not know what the session is for.\n" +
+	"- Call `orient` again after any context reset such as a clear or a compact. These instructions were delivered into the conversation and are discarded with it; the connection survives, so nothing re-sends them on its own. If you cannot tell whether you have oriented in the current context, you have not.\n" +
+	"- This payload supersedes every earlier copy of itself. An older copy can still be present — the connection's startup instructions are captured once and never refreshed, and a compaction summary may paraphrase a previous orientation — so if anything you remember about the flight, its cover, or its instructions disagrees with what you are reading here, this is current and that is stale. Do not merge them; replace.\n" +
 	"- Use the `mcp__tapper__*` tools for every KEG operation; never read or write node files directly.\n" +
 	"- The target keg resolves from the working directory unless the `keg` parameter overrides it.\n" +
 	"- Take a snapshot before non-trivial edits. Snapshots do not protect against `remove`; preserve content some other way before deletion.\n" +
-	"- Intra-keg links use `[title](../NODEID)`; cross-keg links use `keg:ALIAS/NODEID` through active configuration or fully qualified `keg:@NAMESPACE/ALIAS/NODEID`.\n"
+	"- Node 0 is the keg's placeholder landing node. Leave it alone: it carries no `type` on purpose, it is where links to unwritten content land, and removing it makes the keg read as uninitialized. Write your content in a new node instead.\n" +
+	"- Intra-keg links use `[title](../NODEID)`; cross-keg links use `keg:ALIAS/NODEID` through active configuration or fully qualified `keg:@NAMESPACE/ALIAS/NODEID`.\n" +
+	"- Attachments on a node are linked relative to that node's own directory: `[label](./assets/FILE)` for files and `![alt](./images/IMAGE)` for images. Both directory names are plural.\n"
 
 // OrientOptions is the input to Tap.Orient. Flight is the only selector used
 // by orientation; the embedded target options remain for CLI profile

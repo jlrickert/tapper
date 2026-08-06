@@ -190,11 +190,40 @@ func renderCodexMarketplace() ([]byte, error) {
 	return marshalIndented(v)
 }
 
+// renderCodexMCP writes the Codex MCP registration.
+//
+// Codex hands stdio MCP servers an allowlisted environment rather than its own,
+// so every variable tap needs must be named here. Claude Code forwards
+// everything and needs no equivalent — see renderClaudeMCP.
+//
+// HOME is not redundant with the XDG roots. tap falls back to $HOME whenever a
+// root is unset, and reaches for it directly when expanding "~" in config
+// values and when resolving the default keg root. Forwarding the roots without
+// HOME therefore works only where every path in play happens to be XDG-rooted;
+// elsewhere tap mcp fails to authenticate while the same tap in the shell
+// succeeds, which is precisely how this surfaced in a dev container.
+//
+// TAP_FLIGHT carries `tap launch --agent` flight selection. Without it the
+// harness has the flight but the MCP server it spawns does not, so the session
+// silently resolves the configured flight instead of the requested one.
 func renderCodexMCP() []byte {
-	// Codex filters the environment inherited by stdio MCP servers. Forward the
-	// XDG roots so tap resolves the same config, auth store, and data directories
-	// as the interactive shell that launched Codex (notably in dev containers).
-	return []byte("{\n  \"mcpServers\": {\n    \"tapper\": {\n      \"command\": \"tap\",\n      \"args\": [\"mcp\"],\n      \"env_vars\": [\n        \"XDG_CONFIG_HOME\",\n        \"XDG_DATA_HOME\",\n        \"XDG_STATE_HOME\",\n        \"XDG_CACHE_HOME\"\n      ]\n    }\n  }\n}\n")
+	return []byte(`{
+  "mcpServers": {
+    "tapper": {
+      "command": "tap",
+      "args": ["mcp"],
+      "env_vars": [
+        "HOME",
+        "TAP_FLIGHT",
+        "XDG_CONFIG_HOME",
+        "XDG_DATA_HOME",
+        "XDG_STATE_HOME",
+        "XDG_CACHE_HOME"
+      ]
+    }
+  }
+}
+`)
 }
 
 func pluginVersion(rt *toolkit.Runtime) string {

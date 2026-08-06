@@ -100,17 +100,22 @@ func (t *Tap) Integrate(ctx context.Context, opts IntegrateOptions) (*IntegrateR
 	if err := t.extractIntegration(host, root); err != nil {
 		return nil, err
 	}
-	if !registered {
-		if err := t.runIntegrationCommand(ctx, executable, hostMarketplaceAddArgs(host, root, scope)); err != nil {
+	// The marketplace goes first: Codex installs plugins from its snapshot, so
+	// recapturing it has to happen before any plugin is added back.
+	for _, args := range hostMarketplaceCommands(host, root, scope, registered) {
+		if err := t.runIntegrationCommand(ctx, executable, args); err != nil {
 			return nil, fmt.Errorf("integrate: register %s marketplace: %w", host, err)
 		}
 	}
 
+	// Each plugin's removal sits immediately before its own add, so a failure
+	// part-way through leaves at most one plugin missing rather than all of them.
 	for _, name := range selected {
 		id := name + "@" + localIntegrationMarketplace
-		args := hostPluginInstallArgs(host, id, scope, installed[id])
-		if err := t.runIntegrationCommand(ctx, executable, args); err != nil {
-			return nil, fmt.Errorf("integrate: install %s with %s: %w", id, host, err)
+		for _, args := range hostPluginCommands(host, id, scope, installed[id]) {
+			if err := t.runIntegrationCommand(ctx, executable, args); err != nil {
+				return nil, fmt.Errorf("integrate: install %s with %s: %w", id, host, err)
+			}
 		}
 	}
 	return result, nil
@@ -164,13 +169,22 @@ func integrationPreview(host, root, scope string, selected []string) (*Integrate
 		return nil, fmt.Errorf("integrate: inspect embedded %s marketplace: %w", host, err)
 	}
 	sort.Strings(targets)
+	// The preview is the fresh-install sequence. A dry run deliberately starts no
+	// host process (it returns before the list commands run), so it cannot know
+	// whether the marketplace is registered or a plugin already installed. A real
+	// run against an existing install inserts the corresponding removes — see
+	// hostMarketplaceCommands and hostPluginCommands.
 	commands := [][]string{
 		append([]string{host}, hostMarketplaceListArgs(host)...),
 		append([]string{host}, hostPluginListArgs(host)...),
-		append([]string{host}, hostMarketplaceAddArgs(host, root, scope)...),
+	}
+	for _, args := range hostMarketplaceCommands(host, root, scope, false) {
+		commands = append(commands, append([]string{host}, args...))
 	}
 	for _, name := range selected {
-		commands = append(commands, append([]string{host}, hostPluginInstallArgs(host, name+"@"+localIntegrationMarketplace, scope, false)...))
+		for _, args := range hostPluginCommands(host, name+"@"+localIntegrationMarketplace, scope, false) {
+			commands = append(commands, append([]string{host}, args...))
+		}
 	}
 	return &IntegrateResult{Root: root, Paths: targets, Commands: commands}, nil
 }
@@ -375,22 +389,49 @@ func hostPluginListArgs(host string) []string {
 	return []string{"plugin", "list", "--json"}
 }
 
-func hostMarketplaceAddArgs(host, root, scope string) []string {
-	args := []string{"plugin", "marketplace", "add", root}
+// hostMarketplaceCommands returns the commands that make the host's view of the
+// marketplace match the freshly extracted tree, given whether it is already
+// registered.
+//
+// Codex serves plugins from a snapshot taken when the marketplace was added, so
+// re-extracting files it has already snapshotted changes nothing. Its
+// `marketplace upgrade` only refreshes Git sources, which a local marketplace is
+// not, leaving remove-then-add as the sole way to recapture. Claude reads the
+// registered path directly, so a re-register would be pure churn.
+func hostMarketplaceCommands(host, root, scope string, registered bool) [][]string {
+	add := []string{"plugin", "marketplace", "add", root}
 	if host == "claude" {
-		args = append(args, "--scope", scope)
+		if registered {
+			return nil
+		}
+		return [][]string{append(add, "--scope", scope)}
 	}
-	return args
+	if registered {
+		return [][]string{
+			{"plugin", "marketplace", "remove", localIntegrationMarketplace},
+			add,
+		}
+	}
+	return [][]string{add}
 }
 
-func hostPluginInstallArgs(host, id, scope string, installed bool) []string {
+// hostPluginCommands returns the commands that install or refresh one plugin.
+//
+// Codex has no update verb and caches the plugin at install time, so an
+// already-installed plugin must be removed before adding it back or the new
+// content never lands — `plugin add` alone silently keeps the cached copy.
+func hostPluginCommands(host, id, scope string, installed bool) [][]string {
 	if host == "claude" {
 		if installed {
-			return []string{"plugin", "update", id, "--scope", scope}
+			return [][]string{{"plugin", "update", id, "--scope", scope}}
 		}
-		return []string{"plugin", "install", id, "--scope", scope}
+		return [][]string{{"plugin", "install", id, "--scope", scope}}
 	}
-	return []string{"plugin", "add", id}
+	add := []string{"plugin", "add", id}
+	if installed {
+		return [][]string{{"plugin", "remove", id}, add}
+	}
+	return [][]string{add}
 }
 
 func checkMarketplaceState(host string, body []byte, expectedRoot, scope string) (bool, error) {

@@ -458,3 +458,34 @@ func TestTap_Orient_RecoveryPayloadStatesTheSituation(t *testing.T) {
 	// The payload is the MCP-facing surface and never names CLI commands.
 	require.NotContains(t, payload, "`tap ")
 }
+
+// TestTap_Orient_StatesZeroNodeAndAttachmentPaths pins two things the payload
+// must carry. Node 0 is the placeholder landing node agents kept overwriting,
+// and the attachment directories are plural — `assets/` and `images/`, per
+// keg.NodeAttachmentsDir and keg.NodeImagesDir. A singular path in the guidance
+// would produce links that upload fine and silently resolve to nothing, so the
+// spelling is asserted rather than trusted.
+func TestTap_Orient_StatesZeroNodeAndAttachmentPaths(t *testing.T) {
+	t.Parallel()
+	tap := newOrientTap(t)
+
+	payload, err := tap.Orient(context.Background(), tapper.OrientOptions{})
+	require.NoError(t, err)
+
+	rules := payload[:strings.Index(payload, "## Available KEGs")]
+	require.Contains(t, rules, "Node 0 is the keg's placeholder landing node",
+		"the compact rules survive a context reset; node 0 belongs there")
+	require.Contains(t, rules, "(./assets/FILE)")
+	require.Contains(t, rules, "(./images/IMAGE)")
+
+	guidance := payload[strings.Index(payload, "## Guidance"):]
+	require.Contains(t, guidance, "./assets/FILE")
+	require.Contains(t, guidance, "./images/IMAGE")
+	require.Contains(t, guidance, "## Node 0")
+
+	// Guard the exact spelling: `asset/` or `image/` singular would be a silent
+	// break, since uploads succeed no matter how the link is later written.
+	for _, wrong := range []string{"./asset/", "./image/", "(assets/", "(images/"} {
+		require.NotContains(t, payload, wrong)
+	}
+}

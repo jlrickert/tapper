@@ -212,10 +212,19 @@ func registerLocalUploadFile(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDe
 	})
 }
 
+// linkHint tells the caller how to reference what it just uploaded. It lives on
+// the tool rather than only in orientation because the moment of upload is when
+// the reference is written, and a tool description is re-delivered with every
+// tools/list — so it survives a context reset that discards orientation.
+const (
+	uploadFileLinkHint  = " Link it from the node body as [label](./assets/FILENAME) — the directory is plural."
+	uploadImageLinkHint = " Link it from the node body as ![alt](./images/FILENAME) — the directory is plural."
+)
+
 func uploadFileTool(description string) *sdkmcp.Tool {
 	return &sdkmcp.Tool{
 		Name:        "upload_file",
-		Description: description,
+		Description: description + uploadFileLinkHint,
 		Annotations: &sdkmcp.ToolAnnotations{
 			DestructiveHint: boolPtr(false),
 			OpenWorldHint:   boolPtr(false),
@@ -345,7 +354,7 @@ func registerLocalUploadImage(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegD
 func uploadImageTool(description string) *sdkmcp.Tool {
 	return &sdkmcp.Tool{
 		Name:        "upload_image",
-		Description: description,
+		Description: description + uploadImageLinkHint,
 		Annotations: &sdkmcp.ToolAnnotations{
 			DestructiveHint: boolPtr(false),
 			OpenWorldHint:   boolPtr(false),

@@ -4,6 +4,8 @@
       "command": "tap",
       "args": ["mcp"],
       "env_vars": [
+        "HOME",
+        "TAP_FLIGHT",
         "XDG_CONFIG_HOME",
         "XDG_DATA_HOME",
         "XDG_STATE_HOME",
