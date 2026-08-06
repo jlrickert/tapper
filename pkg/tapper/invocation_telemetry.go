@@ -24,7 +24,12 @@ const (
 
 // InvocationEvent is the privacy-minimized shape accepted by the Tapper Hub
 // invocation telemetry endpoint. Callers must set exactly one of Command or
-// Tool according to Surface. ClientVersion is injected by the reporter.
+// Tool according to Surface. ClientVersion and Agent are injected by the
+// reporter.
+//
+// Agent is the configured `tap launch` agent alias driving the process, empty
+// when a human is. It is a user-chosen label, not an identifier, and separates
+// agent-driven usage from human usage in aggregate.
 type InvocationEvent struct {
 	Surface       string `json:"surface"`
 	Command       string `json:"command,omitempty"`
@@ -33,6 +38,7 @@ type InvocationEvent struct {
 	Success       bool   `json:"success"`
 	Interactive   *bool  `json:"interactive,omitempty"`
 	ClientVersion string `json:"client_version"`
+	Agent         string `json:"agent,omitempty"`
 }
 
 // InvocationReporter accepts best-effort telemetry without blocking the
@@ -48,6 +54,7 @@ type httpInvocationReporter struct {
 	endpoint string
 	token    string
 	version  string
+	agent    string
 	client   *http.Client
 
 	queue chan InvocationEvent
@@ -69,6 +76,7 @@ type invocationReporterOptions struct {
 	batchSize      int
 	flushInterval  time.Duration
 	requestTimeout time.Duration
+	agent          string
 }
 
 // NewInvocationReporter resolves the user-scope reporting destination and
@@ -79,7 +87,23 @@ func NewInvocationReporter(rt *toolkit.Runtime, configService *ConfigService, ve
 	if !ok {
 		return nil
 	}
-	return newHTTPInvocationReporter(endpoint, token, version, invocationReporterOptions{})
+	return newHTTPInvocationReporter(endpoint, token, version, invocationReporterOptions{
+		agent: resolveTelemetryAgent(configService),
+	})
+}
+
+// resolveTelemetryAgent reads the active agent from the merged config, which is
+// where TAP_AGENT lands. It is resolved once at construction rather than per
+// event: the agent driving a process cannot change while it runs.
+func resolveTelemetryAgent(configService *ConfigService) string {
+	if configService == nil {
+		return ""
+	}
+	cfg, err := configService.Config()
+	if err != nil || cfg == nil {
+		return ""
+	}
+	return cfg.AgentName()
 }
 
 func resolveInvocationTelemetryTarget(rt *toolkit.Runtime, configService *ConfigService) (string, string, bool) {
@@ -138,6 +162,7 @@ func newHTTPInvocationReporter(endpoint, token, version string, opts invocationR
 		endpoint:       endpoint,
 		token:          token,
 		version:        version,
+		agent:          opts.agent,
 		client:         opts.client,
 		queue:          make(chan InvocationEvent, opts.queueSize),
 		done:           make(chan struct{}),
@@ -153,6 +178,7 @@ func (r *httpInvocationReporter) Report(event InvocationEvent) {
 		return
 	}
 	event.ClientVersion = r.version
+	event.Agent = r.agent
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.closed || r.disabled.Load() {
