@@ -195,6 +195,31 @@ func TestHTTPInvocationReporterTimeoutAndOlderHubAreBestEffort(t *testing.T) {
 	})
 }
 
+// The agent is injected by the reporter, like the client version, so neither
+// the CLI nor the MCP call site has to remember to set it.
+func TestHTTPInvocationReporterInjectsAgent(t *testing.T) {
+	bodies := make(chan []byte, 1)
+	client := &http.Client{Transport: telemetryRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		body, _ := io.ReadAll(req.Body)
+		bodies <- body
+		return &http.Response{StatusCode: http.StatusNoContent, Body: io.NopCloser(strings.NewReader("")), Header: make(http.Header)}, nil
+	})}
+	r := newHTTPInvocationReporter("https://hub.example.com/api/v1/telemetry/invocations", "token", "test", invocationReporterOptions{
+		client: client, batchSize: 1, flushInterval: time.Hour, agent: "qwen",
+	})
+	r.Report(InvocationEvent{Surface: "mcp", Tool: "list"})
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	r.Close(ctx)
+
+	select {
+	case body := <-bodies:
+		require.Contains(t, string(body), `"agent":"qwen"`)
+	default:
+		t.Fatal("no telemetry batch was sent")
+	}
+}
+
 func TestHTTPInvocationReporterConcurrentReportAndClose(t *testing.T) {
 	client := &http.Client{Transport: telemetryRoundTripFunc(func(_ *http.Request) (*http.Response, error) {
 		return &http.Response{StatusCode: http.StatusNoContent, Body: io.NopCloser(strings.NewReader("")), Header: make(http.Header)}, nil
