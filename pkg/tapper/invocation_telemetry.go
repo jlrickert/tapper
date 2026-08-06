@@ -242,10 +242,24 @@ func (r *httpInvocationReporter) send(ctx context.Context, batch []InvocationEve
 	}
 }
 
+// disablesInvocationTelemetry reports whether a status means "stop trying" as
+// opposed to "try again later". Every code here says the hub will never accept
+// this client's events, so retrying only wastes requests.
+//
+// 400 is in the list because a hub older than the client rejects any field it
+// does not know — its decoder disallows unknown fields — and the client cannot
+// negotiate the payload down. Without this, a tap carrying a newly added field
+// would re-send a guaranteed-rejected batch on every flush for the life of the
+// process. Degrading to no telemetry is the correct outcome, and it is what
+// lets the client and the hub release in either order.
+//
+// 413 is deliberately absent: batch contents vary, so a too-large batch says
+// nothing about the next one.
 func disablesInvocationTelemetry(status int) bool {
 	switch status {
-	case http.StatusUnauthorized, http.StatusForbidden, http.StatusNotFound,
-		http.StatusMethodNotAllowed, http.StatusGone, http.StatusNotImplemented:
+	case http.StatusBadRequest, http.StatusUnauthorized, http.StatusForbidden,
+		http.StatusNotFound, http.StatusMethodNotAllowed, http.StatusGone,
+		http.StatusNotImplemented:
 		return true
 	default:
 		return false

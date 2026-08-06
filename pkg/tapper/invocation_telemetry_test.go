@@ -171,6 +171,28 @@ func TestHTTPInvocationReporterTimeoutAndOlderHubAreBestEffort(t *testing.T) {
 		r.Close(ctx)
 		require.Equal(t, int64(1), calls.Load())
 	})
+
+	// A hub older than this client rejects any field it does not know, and the
+	// client cannot negotiate the payload down. Retrying a guaranteed-rejected
+	// batch on every flush is pure waste, so 400 stops the process reporter the
+	// same way an unsupported endpoint does.
+	t.Run("rejected payload disables process reporter", func(t *testing.T) {
+		var calls atomic.Int64
+		client := &http.Client{Transport: telemetryRoundTripFunc(func(_ *http.Request) (*http.Response, error) {
+			calls.Add(1)
+			return &http.Response{StatusCode: http.StatusBadRequest, Body: io.NopCloser(strings.NewReader("")), Header: make(http.Header)}, nil
+		})}
+		r := newHTTPInvocationReporter("https://old.example.com/api/v1/telemetry/invocations", "token", "test", invocationReporterOptions{
+			client: client, batchSize: 1, flushInterval: time.Hour,
+		})
+		r.Report(InvocationEvent{Surface: "mcp", Tool: "first"})
+		require.Eventually(t, r.disabled.Load, time.Second, time.Millisecond)
+		r.Report(InvocationEvent{Surface: "mcp", Tool: "second"})
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		r.Close(ctx)
+		require.Equal(t, int64(1), calls.Load(), "the rejected batch must not be retried")
+	})
 }
 
 func TestHTTPInvocationReporterConcurrentReportAndClose(t *testing.T) {
