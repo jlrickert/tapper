@@ -97,7 +97,10 @@ func TestResolveLaunch_AnthropicOnClaude(t *testing.T) {
 	// Claude Code takes its model through the environment, not a flag.
 	require.Equal(t, []string{"claude"}, got.Argv)
 	require.Equal(t, "claude-opus-4", got.Env["ANTHROPIC_MODEL"])
-	require.Equal(t, "+dev", got.Env["TAP_FLIGHT"])
+	// The agent, not the flight it currently names: the child re-resolves the
+	// flight on every load so a config edit can move a running session.
+	require.Equal(t, "opus", got.Env["TAP_AGENT"])
+	require.NotContains(t, got.Env, "TAP_FLIGHT")
 }
 
 // Codex has first-class local-provider support and configures it through
@@ -118,7 +121,8 @@ func TestResolveLaunch_OllamaOnCodexUsesOSSProvider(t *testing.T) {
 	require.Equal(t, "http://localhost:11434/v1", got.Env["CODEX_OSS_BASE_URL"])
 	require.NotContains(t, got.Env, "OPENAI_BASE_URL")
 	require.NotContains(t, got.Env, "OPENAI_API_KEY")
-	require.Equal(t, "@testuser/+scratch", got.Env["TAP_FLIGHT"])
+	require.Equal(t, "local", got.Env["TAP_AGENT"])
+	require.NotContains(t, got.Env, "TAP_FLIGHT")
 }
 
 func TestResolveLaunch_OpenAIOnCodexLeavesDefaultEndpoint(t *testing.T) {
@@ -130,7 +134,9 @@ func TestResolveLaunch_OpenAIOnCodexLeavesDefaultEndpoint(t *testing.T) {
 
 	require.Equal(t, []string{"codex", "--model", "gpt-5"}, got.Argv)
 	require.NotContains(t, got.Env, "OPENAI_BASE_URL")
-	// An agent may omit its flight; nothing is exported in that case.
+	// An agent may omit its flight. The agent is still exported — resolution
+	// simply finds no flight on it and falls through to project/user config.
+	require.Equal(t, "hosted", got.Env["TAP_AGENT"])
 	require.NotContains(t, got.Env, "TAP_FLIGHT")
 }
 
@@ -304,7 +310,9 @@ func TestResolveLaunch_ReadsAgentsFromProjectConfig(t *testing.T) {
 	got, err := tap.ResolveLaunch(tapper.LaunchOptions{Harness: "codex", Agent: "proj"})
 	require.NoError(t, err)
 	require.Equal(t, "gpt-5", got.Model)
-	require.Equal(t, "+proj", got.Env["TAP_FLIGHT"])
+	require.Equal(t, "proj", got.Env["TAP_AGENT"])
+	// Still reported, so a dry run can show what the agent currently points at.
+	require.Equal(t, "+proj", got.Flight)
 }
 
 // A context cap means the same thing to a user on either harness but is spelled

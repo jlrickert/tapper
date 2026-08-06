@@ -203,9 +203,11 @@ func renderCodexMarketplace() ([]byte, error) {
 // elsewhere tap mcp fails to authenticate while the same tap in the shell
 // succeeds, which is precisely how this surfaced in a dev container.
 //
-// TAP_FLIGHT carries `tap launch --agent` flight selection. Without it the
-// harness has the flight but the MCP server it spawns does not, so the session
-// silently resolves the configured flight instead of the requested one.
+// TAP_AGENT carries `tap launch --agent` selection. Without it the harness has
+// the agent but the MCP server it spawns does not, so the session silently
+// resolves the configured flight instead of the agent's. TAP_FLIGHT stays
+// listed because a human may still export it directly to override; the launcher
+// itself no longer sets it.
 func renderCodexMCP() []byte {
 	return []byte(`{
   "mcpServers": {
@@ -214,6 +216,7 @@ func renderCodexMCP() []byte {
       "args": ["mcp"],
       "env_vars": [
         "HOME",
+        "TAP_AGENT",
         "TAP_FLIGHT",
         "XDG_CONFIG_HOME",
         "XDG_DATA_HOME",

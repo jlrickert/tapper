@@ -77,8 +77,17 @@ type configDTO struct {
 	// flight is the flight context applied when no --flight flag is given. It is
 	// a flight reference (@namespace/+slug, +slug, or a bare slug) and is
 	// may be set as a user baseline by bootstrap or overridden in project config;
-	// TAP_FLIGHT and --flight have higher precedence.
+	// TAP_FLIGHT, the active agent's flight, and --flight have higher precedence.
 	Flight string `yaml:"flight,omitempty"`
+
+	// agent names the entry in agents{} driving this process, and is set by
+	// `tap launch` as TAP_AGENT. It selects a flight indirectly: resolution reads
+	// agents[agent].flight out of the merged config on every load, so an edit to
+	// the agent's flight is picked up by the next reload. Exporting the resolved
+	// flight instead would freeze it for the life of the process, which is
+	// precisely the bug this field exists to avoid. TAP_FLIGHT and --flight,
+	// being direct, still outrank it.
+	Agent string `yaml:"agent,omitempty"`
 
 	// kegMap maps a project path or pattern to a keg reference.
 	KegMap []KegMapEntry `yaml:"kegMap"`
@@ -345,12 +354,22 @@ func (cfg *Config) FallbackKeg() string {
 }
 
 // Flight returns the persisted flight reference applied when no --flight flag
-// is given.
+// is given. On a merged config this may have come from the active agent rather
+// than from any file — see ConfigService.load.
 func (cfg *Config) Flight() string {
 	if cfg.data == nil {
 		cfg.data = &configDTO{}
 	}
 	return cfg.data.Flight
+}
+
+// AgentName returns the name of the agent driving this process, or "" when none
+// is selected. It indexes Agents; it is not itself an agent definition.
+func (cfg *Config) AgentName() string {
+	if cfg.data == nil {
+		cfg.data = &configDTO{}
+	}
+	return strings.TrimSpace(cfg.data.Agent)
 }
 
 // LookupAliasForTarget previously reverse-mapped a resolved target back to its
@@ -1318,6 +1337,9 @@ func MergeConfig(cfgs ...*Config) *Config {
 		}
 		if c.data.Flight != "" {
 			out.data.Flight = c.data.Flight
+		}
+		if c.data.Agent != "" {
+			out.data.Agent = c.data.Agent
 		}
 		if c.data.LogFile != "" {
 			out.data.LogFile = c.data.LogFile

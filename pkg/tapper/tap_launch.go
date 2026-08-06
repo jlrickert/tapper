@@ -70,6 +70,10 @@ type LaunchOptions struct {
 // applied on top of the inherited environment; StripEnv names variables removed
 // from it. Neither contains a secret value — a forwarded key is reported by the
 // variable it came from.
+//
+// Flight is what the agent points at right now, reported for the operator's
+// benefit. It is not what gets exported: the child resolves the flight itself
+// from TAP_AGENT, so this value can go stale the moment the config changes.
 type LaunchResult struct {
 	Harness   string
 	Agent     string
@@ -349,11 +353,13 @@ func (t *Tap) ResolveLaunch(opts LaunchOptions) (*LaunchResult, error) {
 	if env == nil {
 		env = map[string]string{}
 	}
-	// The launched process resolves its own flight through the normal chain,
-	// where TAP_FLIGHT outranks project and user config. No new plumbing.
-	if flight := strings.TrimSpace(agent.Flight); flight != "" {
-		env["TAP_FLIGHT"] = flight
-	}
+	// Export the agent, not the flight it currently resolves to. The launched
+	// process looks up agents[TAP_AGENT].flight on every config load, so editing
+	// the agent's flight and re-orienting moves a running session. Exporting
+	// TAP_FLIGHT here instead would pin the value into an environment that
+	// cannot be changed after exec, leaving the session stuck on whatever the
+	// flight was at launch no matter what the config later said.
+	env["TAP_AGENT"] = agentName
 
 	// Subscription mode has to remove inherited credentials, which an overlay
 	// cannot express: appending can override a variable but never unset one.

@@ -146,6 +146,7 @@ var tapMethodsExcluded = map[string]string{
 	"Use":                  "writes the project/user keg + flight to config; CLI-only config management by design",
 	"UseStatus":            "CLI-only summary of the resolved keg/flight context; config inspection via `tap use`",
 	"ActiveFlightName":     "internal pure read of the explicit flight or the loaded cascade's selection; backs Orient and MCP session adoption rather than being an operation of its own",
+	"ActiveAgentName":      "internal pure read of the `tap launch` agent driving the process; reported in orientation and telemetry rather than being an operation of its own",
 	"OrientationForFlight": "internal session-orientation builder used by initialize, orient, and the orient resource",
 	// Dropped from MCP when the surface was unified behind providers: these
 	// operate on machine-local Tapper state or perform tenant administration,
