@@ -820,8 +820,20 @@ func (k *LocalKeg) validateNodeDataWithSchemas(ctx context.Context, id NodeId, n
 	typeName, hasType := nodeType(node)
 	result.Type = typeName
 	if !hasType || strings.TrimSpace(typeName) == "" {
-		result.Issues = append(result.Issues, ValidationIssue{Level: "error", Field: "meta.type", Message: "missing required type"})
-		result.Valid = false
+		// Node 0 is the keg's placeholder landing node and carries no type by
+		// design — Init writes it with empty meta. Requiring one made every
+		// schema-bearing keg permanently invalid, and the standing error told
+		// agents to fix node 0 the only way the message suggests: by giving it a
+		// type and content, destroying the placeholder. A node the schema
+		// contract cannot describe must not be reported as violating it.
+		//
+		// Scoped to this one rule. A node 0 that does declare a type is still
+		// validated against it below, and doctor's other node-0 checks (parse
+		// errors, broken links, stats) are untouched.
+		if id.ID != 0 {
+			result.Issues = append(result.Issues, ValidationIssue{Level: "error", Field: "meta.type", Message: "missing required type"})
+			result.Valid = false
+		}
 		return result, nil
 	}
 
