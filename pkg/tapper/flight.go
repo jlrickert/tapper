@@ -41,8 +41,46 @@ const (
 	FlightVisibilityPublic  = "public"
 
 	FlightCapabilityManageFlights FlightCapability = "manage_flights"
+	FlightCapabilityManageKegs    FlightCapability = "manage_kegs"
 	FlightCapabilityFullAccess    FlightCapability = "full_access"
+
+	// BootstrapFlightSlug names the synthetic flight a session runs on when no
+	// flight exists to select. It is never persisted, so the slug only has to be
+	// recognizable in orientation output and unambiguous against a real ref.
+	BootstrapFlightSlug = "bootstrap"
 )
+
+// BootstrapFlight returns the synthetic flight used when an identity can reach
+// no flights at all. Its cover is empty, so every KEG operation is still
+// denied; what it grants is the authority to create the first flight and the
+// first keg. instructions carries the transport's own recovery text — the local
+// and hosted surfaces nudge toward different places — and rides in the manifest
+// rather than through BuildOrientationPayload's flightNote because a flight's
+// instructions are already rendered and are inherently per-flight.
+func BootstrapFlight(namespace, instructions string) *Flight {
+	ref := FlightRef{Namespace: strings.TrimPrefix(strings.TrimSpace(namespace), "@"), Slug: BootstrapFlightSlug}
+	// No Title: BuildOrientationPayload writes a flight's title verbatim, and a
+	// bare "Bootstrap" line adds nothing next to the paragraph it already emits
+	// for this mode.
+	m := FlightManifest{
+		Visibility: FlightVisibilityPrivate,
+		Capabilities: []FlightCapability{
+			FlightCapabilityManageFlights,
+			FlightCapabilityManageKegs,
+		},
+		Instructions: instructions,
+	}
+	normalizeFlightManifest(&m)
+	return &Flight{
+		Name:           ref.Canonical(),
+		Namespace:      ref.Namespace,
+		Slug:           ref.Slug,
+		Source:         "synthetic",
+		Bootstrap:      true,
+		ManifestHash:   hashFlightManifest(m),
+		FlightManifest: m,
+	}
+}
 
 // AtLeast reports whether r grants at least want within a flight cover.
 func (r FlightRole) AtLeast(want FlightRole) bool {
@@ -91,10 +129,15 @@ type FlightManifest struct {
 
 // Flight is a discovered flight: its manifest plus provenance.
 type Flight struct {
-	Name         string `yaml:"-" json:"name,omitempty"`
-	Namespace    string `yaml:"-" json:"namespace,omitempty"`
-	Slug         string `yaml:"-" json:"slug,omitempty"`
-	Source       string `yaml:"-" json:"source,omitempty"` // "local" or a hub name
+	Name      string `yaml:"-" json:"name,omitempty"`
+	Namespace string `yaml:"-" json:"namespace,omitempty"`
+	Slug      string `yaml:"-" json:"slug,omitempty"`
+	Source    string `yaml:"-" json:"source,omitempty"` // "local" or a hub name
+	// Bootstrap marks the synthetic flight from BootstrapFlight. It is a field
+	// rather than a Source sentinel because Source is provenance an operator
+	// reads, and a caller asking "is this real?" should not have to know which
+	// string means synthetic.
+	Bootstrap    bool   `yaml:"-" json:"bootstrap,omitempty"`
 	ManifestHash string `yaml:"-" json:"-"`
 	FlightManifest
 }
@@ -114,7 +157,16 @@ func ParseFlightRef(raw string, defaultNamespace string) (FlightRef, error) {
 	case strings.HasPrefix(raw, "@"):
 		ns, rest, ok := strings.Cut(strings.TrimPrefix(raw, "@"), "/")
 		if !ok || ns == "" || rest == "" {
-			return FlightRef{}, fmt.Errorf("invalid flight reference %q", raw)
+			return FlightRef{}, fmt.Errorf(
+				"invalid flight reference %q: use @namespace/+slug, or a bare +slug for the default namespace", raw)
+		}
+		// Validate here rather than letting the segment travel. The `+` sigil
+		// marks the slug, so "@+slug/..." puts it where the namespace belongs —
+		// an easy transposition that otherwise reaches the hub as a namespace
+		// that cannot exist and comes back as an opaque 404.
+		if err := ValidateNamespace(ns); err != nil {
+			return FlightRef{}, fmt.Errorf(
+				"invalid flight reference %q: %w; the + sigil marks the slug, so write @namespace/+slug", raw, err)
 		}
 		ref.Namespace = ns
 		ref.Slug = strings.TrimPrefix(rest, "+")
@@ -533,7 +585,9 @@ func validateFlightManifest(m *FlightManifest) error {
 	seen := map[FlightCapability]struct{}{}
 	for _, capability := range m.Capabilities {
 		capability = FlightCapability(strings.TrimSpace(string(capability)))
-		if capability != FlightCapabilityManageFlights && capability != FlightCapabilityFullAccess {
+		switch capability {
+		case FlightCapabilityManageFlights, FlightCapabilityManageKegs, FlightCapabilityFullAccess:
+		default:
 			return fmt.Errorf("unknown flight capability %q", capability)
 		}
 		if _, ok := seen[capability]; ok {

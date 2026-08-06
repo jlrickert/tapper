@@ -34,6 +34,38 @@ var recoveryToolNames = map[string]bool{
 	"auth_info":    true,
 }
 
+// bootstrapToolNames is what a session running on the synthetic bootstrap
+// flight may call. Its cover is empty, so the KEG tools would fail anyway;
+// hiding them keeps the agent from spending the session discovering that one
+// refusal at a time. Like recoveryToolNames this is an allowlist, so a KEG tool
+// added later is hidden by default rather than leaking into bootstrap.
+var bootstrapToolNames = map[string]bool{
+	"orient":        true,
+	"list_flights":  true,
+	"flight_show":   true,
+	"auth_info":     true,
+	"flight_create": true,
+	"flight_edit":   true,
+	"flight_delete": true,
+	"keg_create":    true,
+}
+
+// sessionMode is the authority state of one MCP session.
+type sessionMode int
+
+const (
+	// modeActive: a real flight governs the session.
+	modeActive sessionMode = iota
+	// modeSelect: no flight is selected but flights exist to select. The agent
+	// cannot fix this itself, so only the recovery tools are offered.
+	modeSelect
+	// modeBootstrap: no flight exists at all. A synthetic admin flight governs
+	// the session so the agent can create the first flight and keg.
+	modeBootstrap
+)
+
+var errMCPBootstrapOnly = errors.New("no flight is configured; this session is running on a temporary bootstrap flight and the KEG tools are locked. Create the first flight and KEG with `flight_create` and `keg_create`, ask the user to select the flight, then call `orient` again")
+
 type flightSessionContextKey struct{}
 
 // orientationContext is immutable after publication. Tool calls capture its
@@ -44,7 +76,7 @@ type orientationContext struct {
 	payload  string
 	kegs     []tapper.OrientationKeg
 	warnings []string
-	recovery bool
+	mode     sessionMode
 }
 
 type flightSessionState struct {
@@ -100,7 +132,7 @@ func (g *sessionFlightGate) refresh(ctx context.Context, sessionID string) (*ori
 			return current, err
 		}
 		// Initialization must remain connectable for recovery.
-		recovery := &orientationContext{payload: failedOrientationPayload(err), recovery: true, warnings: []string{err.Error()}}
+		recovery := &orientationContext{payload: failedOrientationPayload(err), mode: modeSelect, warnings: []string{err.Error()}}
 		state := g.state(sessionID)
 		state.mu.Lock()
 		state.current = recovery
@@ -115,10 +147,24 @@ func (g *sessionFlightGate) refresh(ctx context.Context, sessionID string) (*ori
 		payload:  candidate.Payload,
 		kegs:     append([]tapper.OrientationKeg(nil), candidate.Kegs...),
 		warnings: append([]string(nil), candidate.Warnings...),
-		recovery: candidate.Flight == nil,
+		mode:     modeFor(candidate.Flight),
 	}
 	g.publish(sessionID, next)
 	return next, nil
+}
+
+// modeFor classifies a loaded candidate. The provider decides *whether* to
+// synthesize a bootstrap flight — it is the only layer that knows how to count
+// its transport's flights — and the gate reads that decision off the manifest.
+func modeFor(flight *tapper.Flight) sessionMode {
+	switch {
+	case flight == nil:
+		return modeSelect
+	case flight.Bootstrap:
+		return modeBootstrap
+	default:
+		return modeActive
+	}
 }
 
 func (g *sessionFlightGate) publish(sessionID string, next *orientationContext) {
@@ -151,9 +197,38 @@ func (g *sessionFlightGate) notifyToolsChanged() {
 	g.srv.RemoveTools("_orientation_transition_marker")
 }
 
-func (g *sessionFlightGate) recoveryOnly(sessionID string) bool {
+// mode reports the session's authority state. An unseen session is treated as
+// modeSelect: nothing has been published for it, so it has no flight and no
+// evidence that creating one would help.
+func (g *sessionFlightGate) mode(sessionID string) sessionMode {
 	current := g.current(sessionID)
-	return current == nil || current.recovery
+	if current == nil {
+		return modeSelect
+	}
+	return current.mode
+}
+
+// allowedTools returns the allowlist governing sessionID, or nil when every
+// registered tool is available.
+func (g *sessionFlightGate) allowedTools(sessionID string) map[string]bool {
+	switch g.mode(sessionID) {
+	case modeSelect:
+		return recoveryToolNames
+	case modeBootstrap:
+		return bootstrapToolNames
+	default:
+		return nil
+	}
+}
+
+// lockedError explains why a tool outside the allowlist was refused. The two
+// modes need different text: one asks the reader to pick an existing flight,
+// the other to create the first one.
+func (g *sessionFlightGate) lockedError(sessionID string) error {
+	if g.mode(sessionID) == modeBootstrap {
+		return errMCPBootstrapOnly
+	}
+	return errMCPFlightRequired
 }
 
 func (g *sessionFlightGate) activeFlight(ctx context.Context) *tapper.Flight {
@@ -183,13 +258,26 @@ func (g *sessionFlightGate) canManage(sessionID string) bool {
 	return current != nil && current.flight != nil && current.flight.HasCapability(tapper.FlightCapabilityManageFlights)
 }
 
+func (g *sessionFlightGate) canManageKegs(sessionID string) bool {
+	current := g.current(sessionID)
+	return current != nil && current.flight != nil && current.flight.HasCapability(tapper.FlightCapabilityManageKegs)
+}
+
 func (g *sessionFlightGate) authorizeMutation(sessionID string) error {
+	return g.authorizeCapability(sessionID, tapper.FlightCapabilityManageFlights)
+}
+
+func (g *sessionFlightGate) authorizeKegCreation(sessionID string) error {
+	return g.authorizeCapability(sessionID, tapper.FlightCapabilityManageKegs)
+}
+
+func (g *sessionFlightGate) authorizeCapability(sessionID string, capability tapper.FlightCapability) error {
 	current := g.current(sessionID)
 	if current == nil || current.flight == nil {
 		return errMCPFlightRequired
 	}
-	if !current.flight.HasCapability(tapper.FlightCapabilityManageFlights) {
-		return errors.New("active flight does not grant manage_flights")
+	if !current.flight.HasCapability(capability) {
+		return fmt.Errorf("active flight does not grant %s", capability)
 	}
 	return nil
 }
@@ -220,7 +308,7 @@ func (g *sessionFlightGate) adoptEditedFlight(ctx context.Context, target string
 	if renderErr != nil {
 		warning := "flight update was applied, but orientation refresh failed: " + renderErr.Error()
 		g.publish(sessionIDFromContext(ctx), &orientationContext{
-			payload: errMCPFlightRequired.Error(), warnings: []string{warning}, recovery: true,
+			payload: errMCPFlightRequired.Error(), warnings: []string{warning}, mode: modeSelect,
 		})
 		return true, errors.New(warning)
 	}
@@ -231,7 +319,7 @@ func (g *sessionFlightGate) adoptEditedFlight(ctx context.Context, target string
 		flight: cloneFlight(flight), payload: candidate.Payload,
 		kegs:     append([]tapper.OrientationKeg(nil), candidate.Kegs...),
 		warnings: append([]string(nil), candidate.Warnings...),
-		recovery: false,
+		mode:     modeFor(flight),
 	}
 	g.publish(sessionIDFromContext(ctx), next)
 	return true, nil
@@ -248,7 +336,7 @@ func (g *sessionFlightGate) adoptDeletedFlight(ctx context.Context, target strin
 	if payloadErr != nil {
 		payload = errMCPFlightRequired.Error()
 	}
-	g.publish(sessionIDFromContext(ctx), &orientationContext{payload: payload, recovery: true})
+	g.publish(sessionIDFromContext(ctx), &orientationContext{payload: payload, mode: modeSelect})
 	return true, nil
 }
 
@@ -340,17 +428,16 @@ func (g *sessionFlightGate) middleware(next sdkmcp.MethodHandler) sdkmcp.MethodH
 			}
 			copyResult := *listed
 			copyResult.Tools = make([]*sdkmcp.Tool, 0, len(listed.Tools))
-			if g.recoveryOnly(sessionID) {
-				for _, tool := range listed.Tools {
-					if recoveryToolNames[tool.Name] {
-						copyResult.Tools = append(copyResult.Tools, tool)
-					}
-				}
-				return &copyResult, nil
-			}
-			canManage := g.canManage(sessionID)
+			allowed := g.allowedTools(sessionID)
+			canManage, canManageKegs := g.canManage(sessionID), g.canManageKegs(sessionID)
 			for _, tool := range listed.Tools {
+				if allowed != nil && !allowed[tool.Name] {
+					continue
+				}
 				if isFlightMutationTool(tool.Name) && !canManage {
+					continue
+				}
+				if isKegCreationTool(tool.Name) && !canManageKegs {
 					continue
 				}
 				copyResult.Tools = append(copyResult.Tools, tool)
@@ -362,11 +449,17 @@ func (g *sessionFlightGate) middleware(next sdkmcp.MethodHandler) sdkmcp.MethodH
 			if params != nil && params.Name == "orient" {
 				return next(ctx, method, req)
 			}
-			if params != nil && g.recoveryOnly(sessionID) && !recoveryToolNames[params.Name] {
-				return errorResult(errMCPFlightRequired), nil
+			if allowed := g.allowedTools(sessionID); params != nil && allowed != nil && !allowed[params.Name] {
+				return errorResult(g.lockedError(sessionID)), nil
 			}
 			if params != nil && isFlightMutationTool(params.Name) {
 				if err := g.authorizeMutation(sessionID); err != nil {
+					return errorResult(err), nil
+				}
+				return next(ctx, method, req)
+			}
+			if params != nil && isKegCreationTool(params.Name) {
+				if err := g.authorizeKegCreation(sessionID); err != nil {
 					return errorResult(err), nil
 				}
 				return next(ctx, method, req)
@@ -380,8 +473,10 @@ func (g *sessionFlightGate) middleware(next sdkmcp.MethodHandler) sdkmcp.MethodH
 			}
 			g.calls.RLock()
 			defer g.calls.RUnlock()
-			if g.recoveryOnly(sessionID) {
-				return nil, errMCPFlightRequired
+			// Node resources are KEG reads, so bootstrap locks them exactly as
+			// it locks the KEG tools.
+			if g.mode(sessionID) != modeActive {
+				return nil, g.lockedError(sessionID)
 			}
 		}
 		return next(ctx, method, req)
@@ -390,4 +485,8 @@ func (g *sessionFlightGate) middleware(next sdkmcp.MethodHandler) sdkmcp.MethodH
 
 func isFlightMutationTool(name string) bool {
 	return name == "flight_create" || name == "flight_edit" || name == "flight_delete"
+}
+
+func isKegCreationTool(name string) bool {
+	return name == "keg_create"
 }

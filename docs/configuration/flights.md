@@ -28,7 +28,9 @@ A flight carries four details:
    while normal local and Hub authorization still applies. It never raises the
    identity's actual KEG role. `manage_flights` exposes flight mutation tools
    to the session, but Hub still requires the authenticated identity to own or
-   administer the target namespace. The capabilities are independent.
+   administer the target namespace. `manage_kegs` exposes `keg_create`, and
+   Hub still requires the identity to belong to the target namespace. The
+   capabilities are independent.
 
 Because a flight is not a KEG target selector, `tap mcp --flight` binds only
 the process flight identity. `tap mcp --keg` remains an independent default for
@@ -113,14 +115,24 @@ current values. A Hub-backed active flight may edit or delete itself:
 - a successful self-delete immediately enters recovery-only mode;
 - editing or deleting another flight does not change current session authority.
 
-Local `flights.d` manifests remain MCP read-only. Flight mutations always use
-normal Hub authorization in addition to the active flight capability.
+Local `flights.d` manifests remain MCP read-only — *reading* them is fully
+supported (discovery, orientation, and cover enforcement all work off
+`flights.d`), but create/update/delete is not implemented for local hubs and
+refuses with a message naming the manifest path to write instead. Flight
+mutations always use normal Hub authorization in addition to the active flight
+capability.
 
 ## Behavior
 
 - MCP tools reject a keg outside the active flight's cover
   with a "keg … is not available in flight …" error.
 - MCP writes against a `viewer` cover row are rejected as viewer-only.
+- Every cover and role-cap denial closes by telling the agent to call `orient`.
+  A session pins its flight snapshot until it re-orients, so a flight edited
+  elsewhere mid-session is the usual reason a call the agent expected to
+  succeed is refused, and the refusal alone cannot reveal that. Hosted `/mcp`
+  appends the same instruction when a Hub grant — rather than the cover —
+  is what denies the keg.
 - `keg_settings_edit` replaces the complete validated KEG YAML document and
   requires an `admin` cover (or `full_access`) plus editor/admin identity access
   to that KEG. An admin flight cap never creates a Hub admin identity.
@@ -130,6 +142,20 @@ normal Hub authorization in addition to the active flight capability.
 - Without a selected flight, MCP starts in recovery-only mode and lists only
   `orient`, `list_flights`, `flight_show`, and credential-safe `auth_info`.
   After selecting a flight outside MCP, call `orient` on the same connection.
+- When the session can reach **no flights at all**, it instead runs on a
+  synthetic **bootstrap flight**. Selecting from an empty list is not a
+  recovery, so the session is given the authority to populate it: the cover is
+  empty (every KEG tool stays locked) and the capabilities are `manage_flights`
+  plus `manage_kegs`, so `flight_create`, `flight_edit`, `flight_delete`, and
+  `keg_create` join the recovery four. The flight is never persisted, and its
+  instructions name the surface that owns selection for that transport — `tap`
+  configuration for stdio, the account page for hosted `/mcp`.
+- Creating a flight from bootstrap does not select it. The next `orient` sees a
+  reachable flight and moves the session to recovery-only mode, where "select
+  one" has become the actionable step.
+- On a local-only setup `flight_create` still fails: flight mutation is not
+  implemented for local hubs (see below). The bootstrap instructions say so and
+  point at the manifest path to write by hand.
 - Config-driven `tap mcp` reloads user, project, and environment configuration
   on every orientation. A successful orientation atomically replaces session
   authority; configuration changes alone do nothing.

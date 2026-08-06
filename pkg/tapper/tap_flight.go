@@ -179,7 +179,17 @@ func (t *Tap) resolveWriteFlightRef(raw string) (FlightRef, HubEntry, string, er
 		kind = HubKindRemote
 	}
 	if kind == HubKindLocal {
-		return FlightRef{}, HubEntry{}, "", fmt.Errorf("flight create/update/delete require a remote hub-backed namespace")
+		// Reading local manifests is fully supported — discovery, orientation,
+		// and cover enforcement all work off flights.d. Only mutation is
+		// unimplemented, so say that rather than describing it as a
+		// requirement the caller failed to meet.
+		dir, dirErr := t.FlightService.localFlightsDirFor(entry)
+		if dirErr != nil {
+			dir = "<hub basePath>/" + flightsDirName
+		}
+		return FlightRef{}, HubEntry{}, "", fmt.Errorf(
+			"flight create/update/delete is not implemented for local hubs (hub %q); "+
+				"write the manifest to %s/%s.yaml by hand instead", hubName, dir, ref.Slug)
 	}
 	if strings.TrimSpace(entry.URL) == "" {
 		return FlightRef{}, HubEntry{}, "", fmt.Errorf("hub %q has no url configured", hubName)
@@ -233,14 +243,26 @@ type FlightRestrictionError struct {
 	Got    FlightRole
 }
 
+// flightRestrictionRecovery is appended to every cover/role-cap denial. The
+// direct CLI bypasses flight restrictions entirely (see applyKegTargetProfile),
+// so this error only ever reaches an agent over MCP — and an agent's session
+// pins its flight snapshot until it orients again. A flight edited elsewhere
+// mid-session is therefore the most common cause of a denial that the reader
+// believes should have succeeded, and the reader cannot discover that from a
+// bare "not available" line.
+const flightRestrictionRecovery = ". Call `orient` to refresh this session's flight" +
+	" authority: it may have changed since you oriented. If orient still does not" +
+	" cover this keg, the flight genuinely excludes it — ask the user to widen the" +
+	" flight's cover rather than retrying."
+
 func (e *FlightRestrictionError) Error() string {
 	if e.Want == FlightRoleEditor && e.Got == FlightRoleViewer {
-		return fmt.Sprintf("keg %q is viewer-only in flight %q", e.Keg, e.Flight)
+		return fmt.Sprintf("keg %q is viewer-only in flight %q", e.Keg, e.Flight) + flightRestrictionRecovery
 	}
 	if e.Want == FlightRoleAdmin && (e.Got == FlightRoleViewer || e.Got == FlightRoleEditor) {
-		return fmt.Sprintf("keg %q requires admin flight authority in flight %q", e.Keg, e.Flight)
+		return fmt.Sprintf("keg %q requires admin flight authority in flight %q", e.Keg, e.Flight) + flightRestrictionRecovery
 	}
-	return fmt.Sprintf("keg %q is not available in flight %q", e.Keg, e.Flight)
+	return fmt.Sprintf("keg %q is not available in flight %q", e.Keg, e.Flight) + flightRestrictionRecovery
 }
 
 // enforceFlight rejects a resolved keg that falls outside the active flight's
@@ -303,6 +325,32 @@ func (t *Tap) enforceFlightSnapshot(flight *Flight, k keg.Keg, want FlightRole) 
 		label = k.Target().String()
 	}
 	return &FlightRestrictionError{Flight: flight.Name, Keg: label, Want: want, Got: role}
+}
+
+// CanonicalKegRef returns the @namespace/keg reference for a resolved target,
+// or "" when the target names no namespaced keg. A filesystem keg carries its
+// identity in the path rather than in the Namespace/KegName fields, so this
+// applies the same derivation enforceFlightSnapshot uses — callers reporting a
+// keg back to an agent must name it the way the flight cover does.
+func CanonicalKegRef(target *keg.Target) string {
+	if target == nil {
+		return ""
+	}
+	namespace, kegName := target.Namespace, target.KegName
+	if namespace == "" || kegName == "" {
+		if pathNamespace, pathKeg, ok := localHubPathKegIdentity(target); ok {
+			if namespace == "" {
+				namespace = pathNamespace
+			}
+			if kegName == "" {
+				kegName = pathKeg
+			}
+		}
+	}
+	if namespace == "" || kegName == "" {
+		return ""
+	}
+	return "@" + namespace + "/" + kegName
 }
 
 func localHubPathKegIdentity(target *keg.Target) (string, string, bool) {

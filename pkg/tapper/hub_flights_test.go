@@ -94,3 +94,57 @@ func TestHubFlights_ClientRejectsUnknownCoverRole(t *testing.T) {
 	_, err := tapper.GetHubFlight(context.Background(), srv.URL, "tok", "foldwise", "bad")
 	require.ErrorContains(t, err, `invalid flight cover role "owner"`)
 }
+
+// TestHubFlights_ClientSurfacesHubDiagnosis pins that the hub's own message
+// survives the status translation. The flight endpoints answer 404 for an
+// unresolvable *namespace* and 403 for an insufficient namespace role, so a
+// status-only message ("flight not found" on a create) names the wrong subject
+// and sends the reader off to fix something that was never wrong.
+func TestHubFlights_ClientSurfacesHubDiagnosis(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name   string
+		status int
+		body   string
+		wants  []string
+	}{
+		{
+			name:   "namespace missing is not a missing flight",
+			status: http.StatusNotFound,
+			body:   "namespace not found",
+			wants:  []string{"namespace not found", "POST", "/api/v1/@foldwise/flights"},
+		},
+		{
+			name:   "insufficient role is not a rejected token",
+			status: http.StatusForbidden,
+			body:   "namespace owner access required",
+			wants:  []string{"namespace owner access required", "/api/v1/@foldwise/flights"},
+		},
+		{
+			name:   "conflict names the request",
+			status: http.StatusConflict,
+			body:   "flight already exists",
+			wants:  []string{"flight already exists", "/api/v1/@foldwise/flights"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(tc.status)
+				_ = json.NewEncoder(w).Encode(map[string]string{"error": tc.body})
+			}))
+			defer srv.Close()
+
+			_, err := tapper.CreateHubFlight(context.Background(), srv.URL, "tok", "foldwise",
+				tapper.HubFlight{Namespace: "foldwise", Slug: "new"})
+			require.Error(t, err)
+			for _, want := range tc.wants {
+				require.ErrorContains(t, err, want)
+			}
+			require.NotContains(t, err.Error(), "flight not found",
+				"a create cannot fail because the flight it would create is missing")
+		})
+	}
+}

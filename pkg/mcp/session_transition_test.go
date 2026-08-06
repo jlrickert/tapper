@@ -20,12 +20,13 @@ import (
 )
 
 type fakeSessionBackend struct {
-	mu        sync.Mutex
-	flights   map[string]*tapper.Flight
-	active    string
-	renderErr error
-	listEnter chan struct{}
-	listWait  chan struct{}
+	mu          sync.Mutex
+	flights     map[string]*tapper.Flight
+	active      string
+	createdKegs []string
+	renderErr   error
+	listEnter   chan struct{}
+	listWait    chan struct{}
 }
 
 func newFakeSessionBackend() *fakeSessionBackend {
@@ -175,6 +176,18 @@ func (p *fakeSessionBackend) ListKegs(context.Context) ([]string, error) {
 		<-p.listWait
 	}
 	return []string{"@local/personal", "@local/other"}, nil
+}
+
+func (p *fakeSessionBackend) CreateKeg(_ context.Context, opts tapper.CreateKegOptions) (string, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	ns := opts.Namespace
+	if ns == "" {
+		ns = "local"
+	}
+	ref := "@" + ns + "/" + opts.Keg
+	p.createdKegs = append(p.createdKegs, ref)
+	return ref, nil
 }
 
 func (p *fakeSessionBackend) Identities(context.Context) ([]mcp.AuthIdentity, error) {

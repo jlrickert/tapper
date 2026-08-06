@@ -161,16 +161,26 @@ func doHubFlightJSON(ctx context.Context, method, hubURL, token, path string, pa
 	}
 	defer func() { _ = resp.Body.Close() }()
 
+	// Every branch carries the hub's own message. These statuses are not
+	// specific to the flight: the same endpoints answer 404 for an unresolvable
+	// *namespace* and 403 for an insufficient namespace role, so translating the
+	// status alone names the wrong subject and sends the reader off to fix
+	// something that was never wrong — "flight not found" on a create is not
+	// even a coherent claim. Naming the request and appending the body keeps the
+	// hub's diagnosis intact.
 	switch resp.StatusCode {
 	case http.StatusOK, http.StatusCreated:
 	case http.StatusNoContent:
 		return nil
 	case http.StatusConflict:
-		return fmt.Errorf("hub: flight already exists: %w", keg.ErrExist)
+		return fmt.Errorf("hub: %s %s conflicts with existing state%s: %w",
+			method, path, readHubError(resp), keg.ErrExist)
 	case http.StatusNotFound:
-		return fmt.Errorf("hub: flight not found: %w", keg.ErrNotExist)
+		return fmt.Errorf("hub: %s %s returned not found%s: %w",
+			method, path, readHubError(resp), keg.ErrNotExist)
 	case http.StatusUnauthorized, http.StatusForbidden:
-		return fmt.Errorf("hub: %w (%s)", ErrTokenRejected, resp.Status)
+		return fmt.Errorf("hub: %w for %s %s (%s)%s",
+			ErrTokenRejected, method, path, resp.Status, readHubError(resp))
 	default:
 		return fmt.Errorf("hub: flight request failed: %s%s", resp.Status, readHubError(resp))
 	}

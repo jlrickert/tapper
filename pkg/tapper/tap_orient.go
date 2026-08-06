@@ -393,7 +393,17 @@ func BuildOrientationPayload(flight *Flight, flightNote string, kegs []Orientati
 
 	if flight != nil {
 		b.WriteString("## Flight\n\n")
-		if flight.Name != "" {
+		switch {
+		case flight.Bootstrap:
+			// Never say "active flight" for the synthetic one: a reader who
+			// believes a flight was selected will not go set one up, which is
+			// the entire point of this mode.
+			b.WriteString("No flight is configured, so this session is running on a ")
+			b.WriteString("temporary bootstrap flight. Its cover is empty, so every KEG ")
+			b.WriteString("tool stays locked; what it grants is the authority to create ")
+			b.WriteString("the first flight and the first KEG. Setting this up is the ")
+			b.WriteString("session's work — do it before anything else.\n\n")
+		case flight.Name != "":
 			b.WriteString("Active flight: `")
 			b.WriteString(flight.Name)
 			b.WriteString("`\n\n")

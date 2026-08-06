@@ -57,6 +57,23 @@ func (o InitOptions) LocalDestination() bool {
 	return o.Project || o.Cwd || strings.TrimSpace(o.Path) != ""
 }
 
+// CreateKegOptions is the agent-facing keg creation request. It is deliberately
+// narrower than InitOptions: the machine-local destination selectors (Project,
+// Cwd, Path, User, Hub) describe a filesystem this MCP caller may not share
+// with the server, so the agent surface names a namespace and nothing else.
+type CreateKegOptions struct {
+	// Namespace is the target namespace without the @ sigil. Empty resolves to
+	// the transport's default namespace.
+	Namespace string
+	// Keg is the alias to create.
+	Keg string
+	// Title is the human-readable keg title. Optional.
+	Title string
+	// Visibility is "private" or "public". Empty means the backend's default,
+	// which is private everywhere. Local filesystem kegs ignore it.
+	Visibility string
+}
+
 // InitKeg creates a keg named options.Keg and initializes it at the resolved
 // destination. Destination resolution is namespace-centric:
 //
