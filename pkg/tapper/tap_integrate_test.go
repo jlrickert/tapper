@@ -116,7 +116,10 @@ func TestTap_Integrate_ClaudeUsesInstallThenUpdateForExistingPlugin(t *testing.T
 	require.Contains(t, result.Root, filepath.FromSlash("integrations/claude"))
 }
 
-func TestTap_Integrate_RefreshRemovesStaleFilesAndReusesMarketplace(t *testing.T) {
+// Reusing the registration was the original intent, but Codex installs from a
+// snapshot captured at `marketplace add`, so reuse meant a refresh rewrote the
+// files on disk and shipped none of them. The marketplace is now recaptured.
+func TestTap_Integrate_RefreshRemovesStaleFilesAndRecapturesMarketplace(t *testing.T) {
 	tap, sb := newIntegrateTap(t)
 	installFakeHost(t, sb, "codex")
 	first, err := tap.Integrate(context.Background(), tapper.IntegrateOptions{Host: "codex"})
@@ -135,7 +138,59 @@ func TestTap_Integrate_RefreshRemovesStaleFilesAndReusesMarketplace(t *testing.T
 	}
 	calls, err := sb.ReadFile("calls")
 	require.NoError(t, err)
-	require.Equal(t, 1, strings.Count(string(calls), "plugin marketplace add "+first.Root))
+	// Once per run: the second run drops the stale registration and re-adds it so
+	// Codex snapshots the freshly extracted tree.
+	require.Equal(t, 2, strings.Count(string(calls), "plugin marketplace add "+first.Root))
+	require.Equal(t, 1, strings.Count(string(calls), "plugin marketplace remove tapper-local"))
+}
+
+// Codex has no update verb and serves an installed plugin from a local cache,
+// so `plugin add` on an already-installed plugin is a no-op. Without the
+// removes, `tap integrate codex` reports success while delivering nothing —
+// which is how an MCP registration fix sat undelivered on every machine that
+// already had the plugin.
+func TestTap_Integrate_CodexRefreshReinstallsInsteadOfNoOp(t *testing.T) {
+	tap, sb := newIntegrateTap(t)
+	installFakeHost(t, sb, "codex")
+	root := "/home/testuser/.local/share/tapper/integrations/codex"
+	require.NoError(t, sb.Runtime().Env().Set("MARKETPLACES_JSON",
+		`{"marketplaces":[{"name":"tapper-local","root":"`+root+`"}]}`))
+	require.NoError(t, sb.Runtime().Env().Set("PLUGINS_JSON",
+		`{"installed":[{"pluginId":"tapper@tapper-local"}]}`))
+
+	_, err := tap.Integrate(context.Background(), tapper.IntegrateOptions{Host: "codex"})
+	require.NoError(t, err)
+
+	calls, err := sb.ReadFile("calls")
+	require.NoError(t, err)
+	text := string(calls)
+	require.Contains(t, text, "plugin marketplace remove tapper-local")
+	require.Contains(t, text, "plugin marketplace add "+root)
+	require.Contains(t, text, "plugin remove tapper@tapper-local")
+	require.Contains(t, text, "plugin add tapper@tapper-local")
+
+	// The snapshot must be recaptured before the plugin is installed from it.
+	require.Less(t, strings.Index(text, "plugin marketplace add "+root),
+		strings.Index(text, "plugin add tapper@tapper-local"),
+		"marketplace must be re-registered before the plugin is added back")
+	// And each plugin's removal immediately precedes its own add.
+	require.Less(t, strings.Index(text, "plugin remove tapper@tapper-local"),
+		strings.Index(text, "plugin add tapper@tapper-local"))
+}
+
+func TestTap_Integrate_CodexFreshInstallRemovesNothing(t *testing.T) {
+	tap, sb := newIntegrateTap(t)
+	installFakeHost(t, sb, "codex")
+
+	_, err := tap.Integrate(context.Background(), tapper.IntegrateOptions{Host: "codex"})
+	require.NoError(t, err)
+
+	calls, err := sb.ReadFile("calls")
+	require.NoError(t, err)
+	// Removing something never installed would fail the run for no reason.
+	require.NotContains(t, string(calls), "plugin remove")
+	require.NotContains(t, string(calls), "marketplace remove")
+	require.Contains(t, string(calls), "plugin add tapper@tapper-local")
 }
 
 func TestTap_Integrate_MarketplaceConflictFailsBeforeExtraction(t *testing.T) {

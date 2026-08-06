@@ -110,8 +110,24 @@ func renderClaudeMarketplace() ([]byte, error) {
 	return marshalIndented(v)
 }
 
+// renderClaudeMCP writes the Claude Code MCP registration.
+//
+// Deliberately no env allowlist. Claude Code passes its own environment to the
+// stdio servers it spawns, so tap resolves the same config, auth store, and
+// data directories as the shell that launched it. Codex does not, which is why
+// renderCodexMCP carries an explicit env_vars list — the asymmetry is a
+// difference between the two hosts, not an oversight here. Adding a list to
+// this one would only create something to go stale.
 func renderClaudeMCP() []byte {
-	return []byte("{\n  \"mcpServers\": {\n    \"tapper\": {\n      \"command\": \"tap\",\n      \"args\": [\"mcp\"]\n    }\n  }\n}\n")
+	return []byte(`{
+  "mcpServers": {
+    "tapper": {
+      "command": "tap",
+      "args": ["mcp"]
+    }
+  }
+}
+`)
 }
 
 func stripLeadingH1(b []byte) []byte {
