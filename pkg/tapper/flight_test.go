@@ -209,6 +209,24 @@ func TestParseFlightRef(t *testing.T) {
 	}
 }
 
+// TestParseFlightRefRejectsUnusableNamespace pins that a malformed namespace
+// fails here rather than travelling. The `+` sigil marks the slug, so
+// "@+slug/..." transposes it into the namespace position — a namespace that can
+// never exist. Left unvalidated it reaches the hub and returns as a bare 404,
+// which reads as a missing flight and sends the author looking at permissions.
+func TestParseFlightRefRejectsUnusableNamespace(t *testing.T) {
+	t.Parallel()
+	for _, raw := range []string{"@+agent-work/x", "@Foldwise/+agent-work", "@foldwise.dev/+agent-work"} {
+		t.Run(raw, func(t *testing.T) {
+			t.Parallel()
+			_, err := tapper.ParseFlightRef(raw, "jlrickert")
+			require.ErrorContains(t, err, "invalid flight reference")
+			require.ErrorContains(t, err, "@namespace/+slug",
+				"the refusal must show the form the author meant to write")
+		})
+	}
+}
+
 func TestFlightRoleFor_CoverCapsWrites(t *testing.T) {
 	t.Parallel()
 	flight := &tapper.Flight{

@@ -47,12 +47,19 @@ type FlightProvider interface {
 	DeleteFlight(context.Context, tapper.DeleteFlightOptions) error
 }
 
-// KegDiscoveryProvider reports the kegs an identity can reach.
+// KegDiscoveryProvider reports the kegs an identity can reach and creates new
+// ones. Creation lives here rather than on a keg-agnostic surface because both
+// operations answer to the same authenticated catalog.
 type KegDiscoveryProvider interface {
 	// ListKegs returns every identity-authorized canonical keg ref. MCP applies
 	// the immutable active-flight cover before releasing results, so
 	// implementations do not filter by flight themselves.
 	ListKegs(context.Context) ([]string, error)
+	// CreateKeg provisions a keg and returns its canonical @namespace/keg ref.
+	// The MCP gate has already checked the flight's manage_kegs capability;
+	// implementations apply their own transport's identity authorization, which
+	// the capability never substitutes for.
+	CreateKeg(context.Context, tapper.CreateKegOptions) (string, error)
 }
 
 // AuthIdentity is deliberately credential-free. Do not add token, email,
@@ -79,6 +86,38 @@ type localOrientationProvider struct {
 	staticFlight string
 }
 
+// localBootstrapInstructions is the stdio half of the bootstrap nudge. `tap
+// mcp` selects its flight from configuration the user owns, so recovery names
+// config paths and CLI commands. skipped carries any hub that discovery could
+// not reach: an unreachable hub is the most common reason a machine that does
+// have flights reports none, and the reader cannot tell those apart otherwise.
+func localBootstrapInstructions(skipped []string) string {
+	var b strings.Builder
+	b.WriteString("No flight is configured for this machine.\n\n")
+	if len(skipped) > 0 {
+		b.WriteString("Some hubs were skipped during discovery, so flights may exist that this\n")
+		b.WriteString("session cannot see. Resolve these before creating anything new:\n\n")
+		for _, warning := range skipped {
+			b.WriteString("- " + warning + "\n")
+		}
+		b.WriteString("\n")
+	}
+	b.WriteString("To set this session up, ask the user to:\n\n")
+	b.WriteString("1. Run `tap bootstrap` if they have never configured tapper on this machine.\n")
+	b.WriteString("2. Create a flight — either a local manifest at `~/kegs/flights.d/<slug>.yaml`,\n")
+	b.WriteString("   or `tap flight create @<namespace>/+<slug>` against a hub they are logged\n")
+	b.WriteString("   in to. `flight_create` here only works against a remote hub; local\n")
+	b.WriteString("   manifests must be written by hand.\n")
+	b.WriteString("3. Select it by setting `flight: +<slug>` in `~/.config/tapper/config.yaml`\n")
+	b.WriteString("   (or the project's `.tapper/config.yaml`), exporting `TAP_FLIGHT=+<slug>`,\n")
+	b.WriteString("   or passing `tap mcp --flight +<slug>`.\n")
+	b.WriteString("4. Tell you when that is done, so you can call `orient` again on this same\n")
+	b.WriteString("   connection. Flights are selected outside MCP; you cannot select one yourself.\n\n")
+	b.WriteString("`keg_create` works now if the user wants a KEG created first, but a KEG is\n")
+	b.WriteString("unreadable until a flight's cover names it.\n")
+	return b.String()
+}
+
 func (p *localOrientationProvider) Load(ctx context.Context) (*Orientation, error) {
 	if p.tap == nil || p.tap.ConfigService == nil || p.tap.FlightService == nil {
 		return nil, errors.New("Tapper flight service is unavailable")
@@ -94,8 +133,16 @@ func (p *localOrientationProvider) Load(ctx context.Context) (*Orientation, erro
 		ref = p.tap.ActiveFlightName("")
 	}
 	if strings.TrimSpace(ref) == "" {
-		payload, err := tapper.BuildOrientationPayload(nil, "", nil, nil)
-		return &Orientation{Payload: payload}, err
+		// Nothing is selected. Whether the user can recover by picking one
+		// depends on whether anything exists to pick, so ask before choosing
+		// which of the two no-flight modes this session enters.
+		var warnings []string
+		flights, listErr := p.tap.ListFlights(ctx, tapper.ListFlightsOptions{Warnings: &warnings})
+		if listErr == nil && len(flights) == 0 {
+			return p.Render(ctx, tapper.BootstrapFlight("", localBootstrapInstructions(warnings)))
+		}
+		payload, payloadErr := tapper.BuildOrientationPayload(nil, "", nil, warnings)
+		return &Orientation{Payload: payload, Warnings: warnings}, payloadErr
 	}
 	flight, err := p.tap.FlightService.GetFlightFresh(ctx, ref)
 	if err != nil {
@@ -134,6 +181,27 @@ type localKegDiscoveryProvider struct{ tap *tapper.Tap }
 
 func (p localKegDiscoveryProvider) ListKegs(ctx context.Context) ([]string, error) {
 	return p.tap.HubListKegs(ctx, tapper.HubListOptions{})
+}
+
+func (p localKegDiscoveryProvider) CreateKeg(ctx context.Context, opts tapper.CreateKegOptions) (string, error) {
+	target, err := p.tap.InitKeg(ctx, tapper.InitOptions{
+		Keg:       opts.Keg,
+		Namespace: opts.Namespace,
+		Title:     opts.Title,
+		// MCP never prompts, and a config-driven create requires `tap bootstrap`
+		// exactly as keg resolution does (see resolveKegTarget).
+		NonInteractive:   true,
+		RequireBootstrap: true,
+	})
+	if err != nil {
+		return "", err
+	}
+	// Visibility is a hub concept; a filesystem keg has no such column, so it is
+	// silently unused here rather than rejected.
+	if ref := tapper.CanonicalKegRef(target); ref != "" {
+		return ref, nil
+	}
+	return opts.Keg, nil
 }
 
 type localIdentityProvider struct{ tap *tapper.Tap }
