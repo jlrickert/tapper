@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os/exec"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -37,10 +38,16 @@ const (
 	AuthSubscription = "subscription"
 	// AuthAPIKey forwards the variable named by an agent's apiKeyEnv.
 	AuthAPIKey = "apiKey"
+	// AuthNone means the model needs no credential of ours. It strips the same
+	// inherited variables as AuthSubscription but does not imply a stored login
+	// to fall back to, which is what a local provider actually wants — and it
+	// leaves the placeholder key in place so the harness cannot fall back at
+	// all. It is the default for ollama models.
+	AuthNone = "none"
 )
 
 // providerKeyEnv lists the credential variables each provider's clients read.
-// AuthSubscription removes these from the child environment.
+// AuthSubscription and AuthNone remove these from the child environment.
 var providerKeyEnv = map[string][]string{
 	ProviderAnthropic: {"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"},
 	ProviderOpenAI:    {"OPENAI_API_KEY"},
@@ -92,6 +99,11 @@ type launchSpec struct {
 type harnessAdapter struct {
 	command   string
 	providers map[string]func(spec launchSpec) ([]string, map[string]string)
+	// contextWindowArgs renders an agent's contextWindow into this harness's
+	// own flags. Nil means the harness has no equivalent, in which case a
+	// configured contextWindow is reported rather than silently dropped —
+	// quietly ignoring a context cap is how you discover it never applied.
+	contextWindowArgs func(tokens int) []string
 }
 
 // openAIBaseURL normalizes a base URL for OpenAI clients, which append
@@ -127,16 +139,26 @@ func anthropicProtocol(command string) func(launchSpec) ([]string, map[string]st
 		switch {
 		case spec.apiKey != "":
 			env["ANTHROPIC_API_KEY"] = spec.apiKey
-		case spec.provider == ProviderOllama && spec.auth != AuthSubscription:
-			// Ollama ignores the value, but without one the client would try
-			// the stored subscription login against the wrong host.
+		case spec.provider == ProviderOllama:
+			// Unconditional for a local provider. Ollama ignores the value, but
+			// without one the client falls back to its stored login and sends
+			// real subscription credentials to a host that is not Anthropic.
+			// This placeholder is the thing preventing that, so no auth mode may
+			// switch it off.
 			env["ANTHROPIC_API_KEY"] = "ollama"
 		}
 		return []string{command}, env
 	}
 }
 
-// openAIProtocol builds the invocation for harnesses speaking the OpenAI API.
+// openAIProtocol builds the invocation for harnesses that take their endpoint
+// and key from the conventional OPENAI_* environment variables.
+//
+// Codex does NOT: it configures providers through ~/.codex/config.toml and its
+// own CODEX_OSS_* variables, and ignores OPENAI_BASE_URL entirely. Setting
+// OPENAI_API_KEY there is actively harmful — `codex doctor` reports "mixed auth
+// signals: ChatGPT login plus API key env var" and switches to API-key billing.
+// Codex therefore has its own builders below.
 func openAIProtocol(command string) func(launchSpec) ([]string, map[string]string) {
 	return func(spec launchSpec) ([]string, map[string]string) {
 		env := map[string]string{}
@@ -146,11 +168,38 @@ func openAIProtocol(command string) func(launchSpec) ([]string, map[string]strin
 		switch {
 		case spec.apiKey != "":
 			env["OPENAI_API_KEY"] = spec.apiKey
-		case spec.provider == ProviderOllama && spec.auth != AuthSubscription:
+		case spec.provider == ProviderOllama:
+			// Unconditional, for the same reason as the Anthropic builder: the
+			// placeholder is what stops the client reaching for a stored login
+			// and sending it to a host that is not the provider.
 			env["OPENAI_API_KEY"] = "ollama"
 		}
 		return []string{command, "--model", spec.model}, env
 	}
+}
+
+// codexHosted drives Codex against OpenAI proper. Codex owns its own auth — a
+// stored ChatGPT login or OPENAI_API_KEY from the environment — so nothing is
+// injected here beyond the model.
+func codexHosted(spec launchSpec) ([]string, map[string]string) {
+	env := map[string]string{}
+	if spec.apiKey != "" {
+		env["OPENAI_API_KEY"] = spec.apiKey
+	}
+	return []string{"codex", "--model", spec.model}, env
+}
+
+// codexOSS drives Codex against a local Ollama server. Codex has first-class
+// support for this through --oss/--local-provider and reads the endpoint from
+// CODEX_OSS_BASE_URL, so the OPENAI_* variables are neither used nor set: an
+// OPENAI_API_KEY here would only push Codex into API-key mode against the wrong
+// provider.
+func codexOSS(spec launchSpec) ([]string, map[string]string) {
+	env := map[string]string{}
+	if base := openAIBaseURL(spec.baseURL); base != "" {
+		env["CODEX_OSS_BASE_URL"] = base
+	}
+	return []string{"codex", "--oss", "--local-provider", "ollama", "--model", spec.model}, env
 }
 
 func harnessAdapters() map[string]harnessAdapter {
@@ -163,12 +212,24 @@ func harnessAdapters() map[string]harnessAdapter {
 				// once ANTHROPIC_BASE_URL points at the server.
 				ProviderOllama: anthropicProtocol("claude"),
 			},
+			// Claude Code has no model-metadata override; the nearest thing is
+			// the threshold at which it auto-compacts, which is what a context
+			// cap means in practice. It accepts roughly 100k-1M.
+			contextWindowArgs: func(tokens int) []string {
+				return []string{"--autocompact", strconv.Itoa(tokens)}
+			},
 		},
 		"codex": {
 			command: "codex",
 			providers: map[string]func(launchSpec) ([]string, map[string]string){
-				ProviderOpenAI: openAIProtocol("codex"),
-				ProviderOllama: openAIProtocol("codex"),
+				ProviderOpenAI: codexHosted,
+				ProviderOllama: codexOSS,
+			},
+			// Codex treats it as model metadata. Setting it also silences the
+			// "model metadata not found, defaulting to fallback" warning for a
+			// local tag Codex does not know.
+			contextWindowArgs: func(tokens int) []string {
+				return []string{"-c", "model_context_window=" + strconv.Itoa(tokens)}
 			},
 		},
 		"pi": {
@@ -250,7 +311,7 @@ func (t *Tap) ResolveLaunch(opts LaunchOptions) (*LaunchResult, error) {
 			harness, provider, strings.Join(adapterProviders(adapter), ", "))
 	}
 
-	auth, err := resolveAuthMode(agent)
+	auth, err := resolveAuthMode(agent, provider)
 	if err != nil {
 		return nil, fmt.Errorf("agent %q: %w", agentName, err)
 	}
@@ -274,6 +335,16 @@ func (t *Tap) ResolveLaunch(opts LaunchOptions) (*LaunchResult, error) {
 		apiKey:   apiKey,
 		auth:     auth,
 	})
+	if agent.ContextWindow > 0 {
+		if adapter.contextWindowArgs == nil {
+			return nil, fmt.Errorf(
+				"agent %q sets contextWindow but harness %q has no way to apply it",
+				agentName, harness)
+		}
+		argv = append(argv, adapter.contextWindowArgs(agent.ContextWindow)...)
+	}
+	// Agent args first, then the invocation's own, so a one-off can override.
+	argv = append(argv, agent.Args...)
 	argv = append(argv, opts.Args...)
 	if env == nil {
 		env = map[string]string{}
@@ -287,7 +358,7 @@ func (t *Tap) ResolveLaunch(opts LaunchOptions) (*LaunchResult, error) {
 	// Subscription mode has to remove inherited credentials, which an overlay
 	// cannot express: appending can override a variable but never unset one.
 	var strip []string
-	if auth == AuthSubscription {
+	if auth == AuthSubscription || auth == AuthNone {
 		for _, name := range providerKeyEnv[provider] {
 			if _, set := env[name]; !set {
 				strip = append(strip, name)
@@ -311,19 +382,40 @@ func (t *Tap) ResolveLaunch(opts LaunchOptions) (*LaunchResult, error) {
 	}, nil
 }
 
-// resolveAuthMode validates an agent's auth field, defaulting to inherit.
-func resolveAuthMode(agent AgentEntry) (string, error) {
-	switch mode := strings.TrimSpace(agent.Auth); mode {
-	case "":
-		if strings.TrimSpace(agent.APIKeyEnv) != "" {
+// resolveAuthMode validates an agent's auth field and supplies the default.
+//
+// A local provider defaults to none rather than inherit: cloud credentials have
+// no business reaching a model running on your own hardware, and inheriting
+// them is how an exported OPENAI_API_KEY ends up confusing a harness that is
+// not talking to OpenAI at all.
+func resolveAuthMode(agent AgentEntry, provider string) (string, error) {
+	mode := strings.TrimSpace(agent.Auth)
+	if mode == "" {
+		switch {
+		case strings.TrimSpace(agent.APIKeyEnv) != "":
 			return AuthAPIKey, nil
+		case provider == ProviderOllama:
+			return AuthNone, nil
+		default:
+			return AuthInherit, nil
 		}
-		return AuthInherit, nil
-	case AuthInherit, AuthSubscription, AuthAPIKey:
+	}
+	switch mode {
+	case AuthSubscription:
+		if provider == ProviderOllama {
+			// There is no subscription behind a local model, and honouring the
+			// request would mean withholding the placeholder key that stops the
+			// harness reaching for a real stored login.
+			return "", fmt.Errorf(
+				"auth %q is meaningless for a local %s model; use %q (the default) instead",
+				AuthSubscription, ProviderOllama, AuthNone)
+		}
+		return mode, nil
+	case AuthInherit, AuthAPIKey, AuthNone:
 		return mode, nil
 	default:
-		return "", fmt.Errorf("unknown auth mode %q (want %s, %s, or %s)",
-			mode, AuthInherit, AuthSubscription, AuthAPIKey)
+		return "", fmt.Errorf("unknown auth mode %q (want %s, %s, %s, or %s)",
+			mode, AuthInherit, AuthSubscription, AuthAPIKey, AuthNone)
 	}
 }
 
@@ -338,8 +430,8 @@ func (t *Tap) resolveAPIKey(agent AgentEntry, auth string) (key, source string, 
 		}
 		return "", "", nil
 	}
-	if auth == AuthSubscription {
-		return "", "", fmt.Errorf("auth %q cannot be combined with apiKeyEnv", AuthSubscription)
+	if auth == AuthSubscription || auth == AuthNone {
+		return "", "", fmt.Errorf("auth %q cannot be combined with apiKeyEnv", auth)
 	}
 	value := strings.TrimSpace(t.Runtime.Env().Get(name))
 	if value == "" {
