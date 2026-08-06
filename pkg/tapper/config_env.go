@@ -10,6 +10,7 @@ var tapEnvVarKeys = []string{
 	"DEFAULT_KEG",
 	"FALLBACK_KEG",
 	"FLIGHT",
+	"AGENT",
 	"LOG_FILE",
 	"LOG_LEVEL",
 	"DEFAULT_HUB",
@@ -40,6 +41,9 @@ func configFromEnvMap(envMap map[string]string) *Config {
 	}
 	if v, ok := envMap["flight"]; ok {
 		cfg.data.Flight = v
+	}
+	if v, ok := envMap["agent"]; ok {
+		cfg.data.Agent = v
 	}
 	if v, ok := envMap["log_file"]; ok {
 		cfg.data.LogFile = v

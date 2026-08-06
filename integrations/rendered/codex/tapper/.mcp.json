@@ -5,6 +5,7 @@
       "args": ["mcp"],
       "env_vars": [
         "HOME",
+        "TAP_AGENT",
         "TAP_FLIGHT",
         "XDG_CONFIG_HOME",
         "XDG_DATA_HOME",

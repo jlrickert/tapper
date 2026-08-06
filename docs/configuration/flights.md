@@ -169,7 +169,8 @@ capability.
   stale authority.
 - Hosted `/mcp` selects the account-wide MCP flight preference. Local
   initialization and `orient` select explicit `--flight`, then `TAP_FLIGHT`,
-  the nearest project config, and finally the user baseline.
+  then the active agent's `flight`, then the nearest project config, and finally
+  the user baseline.
 - Hosted self-deletion clears the account preference through the flight foreign
   key. A local config that still names a deleted flight remains a stale external
   reference: later `orient` reports it and the session stays in recovery until
@@ -185,9 +186,20 @@ capability.
   `.tapper/config.yaml`; `tap use +slug` uses the resolved default namespace.
   Config-driven sessions adopt it on their next orientation.
 - Flight selection precedence is explicit runtime `--flight`, then
-  `TAP_FLIGHT`, then the nearest project config, then the user baseline written
-  by `tap bootstrap`. Project selection therefore overrides the machine-wide
-  bootstrap choice without changing it.
+  `TAP_FLIGHT`, then the active agent's `flight`, then the nearest project
+  config, then the user baseline written by `tap bootstrap`. Project selection
+  therefore overrides the machine-wide bootstrap choice without changing it.
+- `tap launch --agent NAME` exports `TAP_AGENT=NAME`, not the flight that agent
+  currently names. The launched session resolves `agents[NAME].flight` on every
+  orientation, so editing that agent's flight and calling `orient` again moves
+  the running session. A resolved flight in the environment could not be
+  changed after launch, since a process cannot alter its own environment.
+  `TAP_FLIGHT` and `--flight` are direct and still outrank the agent, so either
+  one pins a launched session to a flight of its own.
+- A `TAP_AGENT` naming an agent that is not configured is reported as a warning
+  in the orientation payload and the flight falls back to project and user
+  configuration. It is not fatal: a stale agent name is not something a session
+  can fix from the inside.
 - MCP tools have no model-visible `flight` input. Humans change config-driven
   selection with `tap use --flight @namespace/+slug` (or `tap use +slug`), then
   the existing session calls `orient`. There is no hidden flight-switch tool.

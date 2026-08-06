@@ -216,6 +216,7 @@ var ConfigExplainFields = []string{
 	"defaultKeg",
 	"fallbackKeg",
 	"flight",
+	"agent",
 	"logFile",
 	"logLevel",
 	"defaultHub",
@@ -242,6 +243,8 @@ func configFieldGetter(cfg *Config, field string) string {
 		return cfg.FallbackKeg()
 	case "flight":
 		return cfg.Flight()
+	case "agent":
+		return cfg.AgentName()
 	case "logFile":
 		return cfg.LogFile()
 	case "logLevel":
@@ -311,9 +314,14 @@ func (t *Tap) ConfigExplain(ctx context.Context, opts ConfigExplainOptions) ([]C
 		mergedVal := configFieldGetter(merged, field)
 
 		// Walk from most-specific to least-specific to find which source set this value.
+		// The agent sits between the env and file layers for flight only, mirroring
+		// the resolution order in ConfigService.load — otherwise this would report a
+		// project config that the agent's flight actually overrode.
 		source := "default"
 		if envVal := configFieldGetter(envCfg, field); envVal != "" {
 			source = "env vars"
+		} else if agentName := agentFlightSource(merged, field); agentName != "" {
+			source = fmt.Sprintf("agent %q", agentName)
 		} else if projVal := configFieldGetter(projectCfg, field); projVal != "" {
 			source = "project config"
 		} else if userVal := configFieldGetter(userCfg, field); userVal != "" {
@@ -331,6 +339,30 @@ func (t *Tap) ConfigExplain(ctx context.Context, opts ConfigExplainOptions) ([]C
 }
 
 // loadEnvConfig builds a Config from TAP_* env vars, or returns nil if none are set.
+// agentFlightSource names the agent that supplied field's value, or "" when the
+// agent did not. Only "flight" can come from an agent; the agent's own entry is
+// a plain config value like any other.
+func agentFlightSource(merged *Config, field string) string {
+	if field != "flight" || merged == nil {
+		return ""
+	}
+	name := merged.AgentName()
+	if name == "" {
+		return ""
+	}
+	entry, ok := merged.Agent(name)
+	if !ok {
+		return ""
+	}
+	// Compare against the merged value rather than assuming the overlay ran: a
+	// TAP_FLIGHT override is caught by the env branch before this one, but an
+	// agent whose flight is empty never contributed and must not be credited.
+	if flight := strings.TrimSpace(entry.Flight); flight != "" && flight == merged.Flight() {
+		return name
+	}
+	return ""
+}
+
 func (t *Tap) loadEnvConfig() *Config {
 	getenv := t.Runtime.Env().Get
 	envMap := make(map[string]string)

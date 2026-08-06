@@ -65,7 +65,7 @@ func (p *fakeSessionBackend) Load(ctx context.Context) (*mcp.Orientation, error)
 	flight := copyTransitionFlight(p.flights[p.active])
 	p.mu.Unlock()
 	if flight == nil {
-		payload, err := tapper.BuildOrientationPayload(nil, "", nil, nil)
+		payload, err := tapper.BuildOrientationPayload(nil, "", "", nil, nil)
 		return &mcp.Orientation{Payload: payload}, err
 	}
 	return p.Render(ctx, flight)
@@ -81,7 +81,7 @@ func (p *fakeSessionBackend) Render(_ context.Context, flight *tapper.Flight) (*
 	kegs := []tapper.OrientationKeg{{
 		Ref: "@local/personal", Namespace: "local", Alias: "personal", Title: "Personal", Role: "admin", Source: "local", FlightCap: "editor",
 	}, {Ref: "@local/other", Namespace: "local", Alias: "other", Title: "Other", Role: "admin", Source: "local", FlightCap: "editor"}}
-	payload, err := tapper.BuildOrientationPayload(flight, "", kegs, nil)
+	payload, err := tapper.BuildOrientationPayload(flight, "", "", kegs, nil)
 	if err != nil {
 		return nil, err
 	}
