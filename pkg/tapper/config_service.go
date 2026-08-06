@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/jlrickert/cli-toolkit/cfgcascade"
@@ -66,7 +67,12 @@ type resolved struct {
 	userErr    error
 	project    *Config
 	projectErr error
-	warnings   []ConfigLoadWarning
+	// env is the env-var layer in isolation. The merged config cannot answer
+	// "did TAP_FLIGHT set this?", and agent resolution has to know: a direct
+	// TAP_FLIGHT outranks the flight an agent points at, while a flight coming
+	// from a file layer does not.
+	env      *Config
+	warnings []ConfigLoadWarning
 }
 
 // NewConfigService builds a ConfigService rooted at root.
@@ -329,6 +335,7 @@ func (s *ConfigService) load() (*resolved, error) {
 							return nil, err
 						}
 						cfg := configFromEnvMap(envMap)
+						out.env = cfg
 						if cfg == nil {
 							return nil, os.ErrNotExist
 						}
@@ -369,7 +376,55 @@ func (s *ConfigService) load() (*resolved, error) {
 	if out.merged == nil {
 		out.merged = &Config{data: &configDTO{}}
 	}
+	if warning := applyAgentFlight(out.merged, out.env); warning != nil {
+		out.warnings = append(out.warnings, *warning)
+	}
 	return out, nil
+}
+
+// applyAgentFlight resolves the active agent's flight into merged, and is why
+// `tap launch` can export an agent name instead of a resolved flight. The agent
+// is a reference, so the lookup happens on every load; a flight baked into the
+// environment at launch would instead be frozen for the life of the process and
+// no amount of reloading could move it.
+//
+// It sits between the env and project layers of the cascade rather than inside
+// it, because the cascade merges whole Configs by rank and this rule needs two
+// layers at once: the agents map comes from the file layers, while the decision
+// to apply it at all depends on the env layer. Running here also means every
+// consumer of ConfigService.Config sees one already-resolved flight.
+//
+// A returned warning means the selection named an agent that is not configured.
+// That is reported rather than fatal: the session is still usable on whatever
+// the file layers select, and a hard failure over a stale TAP_AGENT would brick
+// a harness for a typo it cannot fix from the inside.
+func applyAgentFlight(merged, env *Config) *ConfigLoadWarning {
+	if merged == nil {
+		return nil
+	}
+	name := merged.AgentName()
+	if name == "" {
+		return nil
+	}
+	// A direct TAP_FLIGHT outranks the agent's indirect one, so leave it be.
+	if env != nil && strings.TrimSpace(env.Flight()) != "" {
+		return nil
+	}
+	entry, ok := merged.Agent(name)
+	if !ok {
+		return &ConfigLoadWarning{
+			Source: "agent",
+			Message: fmt.Sprintf(
+				"agent %q is selected but not configured, so its flight could not be applied; "+
+					"the flight falls back to project and user configuration", name),
+		}
+	}
+	// An agent without a flight selects no flight, matching a launch that had
+	// none to export.
+	if flight := strings.TrimSpace(entry.Flight); flight != "" {
+		_ = merged.SetFlight(flight)
+	}
+	return nil
 }
 
 // ResolveTarget resolves a keg selector to a keg target. When the selector is

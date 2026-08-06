@@ -168,8 +168,9 @@ preselected when available, and **Skip for now** leaves the current value
 unchanged. For scripts, pass the inherited global flag explicitly, for example
 `tap bootstrap --kind local --flight @local/+focused`; bootstrap validates the
 flight and stores its canonical `@namespace/+slug` reference. If no baseline is
-set, MCP starts in recovery-only mode. A project `flight`, `TAP_FLIGHT`, or an
-explicit `--flight` on a later command overrides the bootstrap baseline.
+set, MCP starts in recovery-only mode. A project `flight`, the active agent's
+`flight`, `TAP_FLIGHT`, or an explicit `--flight` on a later command overrides
+the bootstrap baseline.
 
 ## Hub Resolution Chain
 

@@ -116,9 +116,11 @@ func TestCodexAdapter_RendersNativeMarketplaceAndTwoPlugins(t *testing.T) {
 	}
 	// HOME must be forwarded alongside the XDG roots: tap falls back to it when a
 	// root is unset and when expanding "~", so without it tap mcp fails to
-	// authenticate under Codex while the same tap works in the shell. TAP_FLIGHT
-	// carries `tap launch --agent` flight selection through to the server.
-	wantEnvVars := "HOME,TAP_FLIGHT,XDG_CONFIG_HOME,XDG_DATA_HOME,XDG_STATE_HOME,XDG_CACHE_HOME"
+	// authenticate under Codex while the same tap works in the shell. TAP_AGENT
+	// carries `tap launch --agent` selection through to the server, which
+	// resolves the agent's flight itself; TAP_FLIGHT remains forwarded for a
+	// human overriding it directly.
+	wantEnvVars := "HOME,TAP_AGENT,TAP_FLIGHT,XDG_CONFIG_HOME,XDG_DATA_HOME,XDG_STATE_HOME,XDG_CACHE_HOME"
 	if got := strings.Join(tapperMCP.EnvVars, ","); got != wantEnvVars {
 		t.Errorf("tapper MCP env_vars = %q, want %q", got, wantEnvVars)
 	}
