@@ -48,7 +48,7 @@ func (t *Tap) Orient(ctx context.Context, opts OrientOptions) (string, error) {
 	flightName := t.ActiveFlightName(opts.Flight)
 	flight, flightNote := t.resolveOrientFlight(ctx, flightName)
 	available, warnings := t.orientKegListing(ctx, flight)
-	return BuildOrientationPayload(flight, flightNote, available, warnings)
+	return BuildOrientationPayload(flight, flightNote, t.ActiveAgentName(), available, warnings)
 }
 
 // OrientationForFlight builds orientation from an already-resolved immutable
@@ -56,7 +56,7 @@ func (t *Tap) Orient(ctx context.Context, opts OrientOptions) (string, error) {
 // refresh policy first, then atomically publish the returned payload.
 func (t *Tap) OrientationForFlight(ctx context.Context, flight *Flight) (string, []OrientationKeg, []string, error) {
 	available, warnings := t.orientKegListing(ctx, flight)
-	payload, err := BuildOrientationPayload(flight, "", available, warnings)
+	payload, err := BuildOrientationPayload(flight, "", t.ActiveAgentName(), available, warnings)
 	return payload, available, warnings, err
 }
 
@@ -77,6 +77,20 @@ func (t *Tap) ActiveFlightName(explicit string) string {
 		return ""
 	}
 	return strings.TrimSpace(cfg.Flight())
+}
+
+// ActiveAgentName reports the agent driving this process, or "" when none is
+// selected. Like ActiveFlightName it is a pure read of the current snapshot;
+// the value only changes when a caller reloads.
+func (t *Tap) ActiveAgentName() string {
+	if t == nil || t.ConfigService == nil {
+		return ""
+	}
+	cfg, err := t.ConfigService.Config()
+	if err != nil || cfg == nil {
+		return ""
+	}
+	return cfg.AgentName()
 }
 
 func (t *Tap) resolveOrientFlight(ctx context.Context, name string) (*Flight, string) {
@@ -108,12 +122,21 @@ func (t *Tap) orientKegListing(ctx context.Context, flight *Flight) ([]Orientati
 	if t == nil || t.ConfigService == nil {
 		return nil, []string{"KEG listing unavailable: no config service is configured."}
 	}
-	cfg, err := t.ConfigService.Config()
+	cfg, loadWarnings, err := t.ConfigService.Load()
 	if err != nil {
 		return nil, []string{fmt.Sprintf("KEG listing unavailable: %v", err)}
 	}
 
 	var warnings []string
+	// Agent-selection warnings are the one config-load class that belongs in the
+	// payload: they explain why the session is on a different flight than the
+	// user expects, and the reader is the only one who can fix it. The rest stay
+	// out so orientation does not turn into a config linter.
+	for _, w := range loadWarnings {
+		if w.Source == "agent" {
+			warnings = append(warnings, w.Message)
+		}
+	}
 	seen := map[string]struct{}{}
 	var out []OrientationKeg
 	for _, hubName := range t.allHubNames(cfg) {
@@ -326,8 +349,10 @@ func kegRefLabel(target *keg.Target) string {
 }
 
 // BuildOrientationPayload renders the provider-neutral orientation document
-// from one immutable flight snapshot and its effective KEG listing.
-func BuildOrientationPayload(flight *Flight, flightNote string, kegs []OrientationKeg, warnings []string) (string, error) {
+// from one immutable flight snapshot and its effective KEG listing. agent names
+// the `tap launch` agent driving the session, or "" when a human is; it is
+// reported because it explains where the flight came from and how to change it.
+func BuildOrientationPayload(flight *Flight, flightNote, agent string, kegs []OrientationKeg, warnings []string) (string, error) {
 	var b strings.Builder
 	b.WriteString("# KEG System\n\n")
 	b.WriteString(orientPurpose)
@@ -394,6 +419,12 @@ func BuildOrientationPayload(flight *Flight, flightNote string, kegs []Orientati
 		b.WriteString("2. Ask the user to select a flight in Tapper configuration. ")
 		b.WriteString("Flights are selected outside MCP; an agent cannot select one itself.\n")
 		b.WriteString("3. Call `orient` again on this same connection to pick it up.\n\n")
+		if agent != "" {
+			b.WriteString("This session was launched as agent `")
+			b.WriteString(agent)
+			b.WriteString("`, so giving that agent a `flight` in Tapper configuration ")
+			b.WriteString("is the most direct fix.\n\n")
+		}
 	}
 
 	if flight != nil {
@@ -412,6 +443,17 @@ func BuildOrientationPayload(flight *Flight, flightNote string, kegs []Orientati
 			b.WriteString("Active flight: `")
 			b.WriteString(flight.Name)
 			b.WriteString("`\n\n")
+		}
+		if agent != "" {
+			// Naming the agent tells the reader where the flight came from and
+			// how to move it. Without this the flight looks like a fixed
+			// property of the session, and the user is told to edit `flight:`
+			// in config — which the agent's own flight silently outranks.
+			b.WriteString("This session is driven by agent `")
+			b.WriteString(agent)
+			b.WriteString("`. Unless `TAP_FLIGHT` or `--flight` overrides it, the flight above ")
+			b.WriteString("comes from that agent's `flight` in Tapper configuration: change it ")
+			b.WriteString("there and call `orient` again to move this session.\n\n")
 		}
 		if flightNote != "" {
 			b.WriteString(flightNote)

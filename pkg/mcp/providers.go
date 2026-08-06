@@ -141,7 +141,7 @@ func (p *localOrientationProvider) Load(ctx context.Context) (*Orientation, erro
 		if listErr == nil && len(flights) == 0 {
 			return p.Render(ctx, tapper.BootstrapFlight("", localBootstrapInstructions(warnings)))
 		}
-		payload, payloadErr := tapper.BuildOrientationPayload(nil, "", nil, warnings)
+		payload, payloadErr := tapper.BuildOrientationPayload(nil, "", p.tap.ActiveAgentName(), nil, warnings)
 		return &Orientation{Payload: payload, Warnings: warnings}, payloadErr
 	}
 	flight, err := p.tap.FlightService.GetFlightFresh(ctx, ref)

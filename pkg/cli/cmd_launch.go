@@ -36,8 +36,10 @@ An agent is an alias for a (model, flight) pair:
       flight: "@me/+scratch"
 
 Models are provider-qualified so the launcher knows which protocol the harness
-must speak. The agent's flight is exported as TAP_FLIGHT, so a tap mcp session
-started inside the harness orients to it.
+must speak. The agent name is exported as TAP_AGENT, so a tap mcp session
+started inside the harness resolves the agent's flight for itself. Editing the
+agent's flight and calling orient again therefore moves a running session,
+which exporting the resolved flight would not.
 
 Arguments after -- are passed through to the harness.
 
@@ -69,7 +71,10 @@ Experimental and unstable: expect this to change or disappear.`,
 				return err
 			}
 			if result.Flight != "" {
-				if _, err := fmt.Fprintf(out, "flight: %s\n", result.Flight); err != nil {
+				// "resolves to" rather than "is": the child re-resolves this
+				// from TAP_AGENT on every orient, so it can change under a
+				// running session.
+				if _, err := fmt.Fprintf(out, "flight: %s (resolves to, via agent)\n", result.Flight); err != nil {
 					return err
 				}
 			}

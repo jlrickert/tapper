@@ -47,7 +47,8 @@ func TestLaunchCommand_DryRunResolvesOllamaThroughOpenAI(t *testing.T) {
 	require.Contains(t, out, "codex --oss --local-provider ollama --model qwen3.6:35b-mlx")
 	require.Contains(t, out, "CODEX_OSS_BASE_URL=http://localhost:11434/v1")
 
-	require.Contains(t, out, "TAP_FLIGHT=@testuser/+scratch")
+	require.Contains(t, out, "TAP_AGENT=local")
+	require.NotContains(t, out, "TAP_FLIGHT=")
 }
 
 func TestLaunchCommand_DryRunResolvesAnthropicThroughEnv(t *testing.T) {
@@ -60,7 +61,8 @@ func TestLaunchCommand_DryRunResolvesAnthropicThroughEnv(t *testing.T) {
 
 	out := string(res.Stdout)
 	require.Contains(t, out, "ANTHROPIC_MODEL=claude-opus-4")
-	require.Contains(t, out, "TAP_FLIGHT=+dev")
+	require.Contains(t, out, "TAP_AGENT=opus")
+	require.NotContains(t, out, "TAP_FLIGHT=")
 }
 
 func TestLaunchCommand_DryRunPassesThroughExtraArgs(t *testing.T) {

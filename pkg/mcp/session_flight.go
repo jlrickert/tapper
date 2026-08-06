@@ -332,7 +332,10 @@ func (g *sessionFlightGate) adoptDeletedFlight(ctx context.Context, target strin
 	}
 	g.calls.Lock()
 	defer g.calls.Unlock()
-	payload, payloadErr := tapper.BuildOrientationPayload(nil, "", nil, nil)
+	// No agent name: this is the self-deletion path, where the flight the
+	// session was running on has just been removed. The gate has no Tap to ask,
+	// and "your flight is gone" is the whole message.
+	payload, payloadErr := tapper.BuildOrientationPayload(nil, "", "", nil, nil)
 	if payloadErr != nil {
 		payload = errMCPFlightRequired.Error()
 	}

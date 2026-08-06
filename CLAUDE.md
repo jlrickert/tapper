@@ -243,7 +243,7 @@ flight; bare `tap use` prints the resolved keg/flight/fallback and the scope
 that set each. A persisted `flight` auto-applies when `--flight` is omitted.
 
 Supported env vars: `TAP_DEFAULT_KEG`, `TAP_FALLBACK_KEG`, `TAP_FLIGHT`,
-`TAP_LOG_FILE`, `TAP_LOG_LEVEL`, `TAP_DEFAULT_HUB`, `TAP_FALLBACK_HUB`,
+`TAP_AGENT`, `TAP_LOG_FILE`, `TAP_LOG_LEVEL`, `TAP_DEFAULT_HUB`, `TAP_FALLBACK_HUB`,
 `TAP_DEFAULT_NAMESPACE`, `TAP_FALLBACK_NAMESPACE`, `TAP_DISABLE_ATLAS_HUB`,
 `TAP_DISABLE_LOCAL_HUB`, `TAP_DISABLE_TELEMETRY` (`1`/`true`/`yes`/`on` for
 the disable flags).
