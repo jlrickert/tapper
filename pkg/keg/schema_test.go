@@ -799,3 +799,116 @@ markdown:
 		})
 	}
 }
+
+// TestZeroNodeExemptFromRequiredType covers the placeholder landing node. A keg
+// with any schema requires meta.type on every node, but node 0 is created by
+// Init with empty meta and can never satisfy that. Reporting it left a standing
+// schema error on every schema-bearing keg — and the only fix the message
+// suggests is to give node 0 a type and content, destroying the placeholder.
+func TestZeroNodeExemptFromRequiredType(t *testing.T) {
+	f := sandbox.NewSandbox(t, &sandbox.Options{Home: "/home/testuser", User: "testuser"})
+	ctx := context.Background()
+	k := kegpkg.NewLocalKeg(kegpkg.NewMemoryRepo(f.Runtime()), f.Runtime())
+	if err := k.Init(ctx); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	schema := []byte("type: task\nmeta:\n  type: object\n  required: [\"type\"]\n")
+	if err := k.WriteSchema(ctx, "task", schema); err != nil {
+		t.Fatalf("WriteSchema: %v", err)
+	}
+
+	zero := kegpkg.NodeId{ID: 0}
+	result, err := k.ValidateNode(ctx, zero)
+	if err != nil {
+		t.Fatalf("ValidateNode zero: %v", err)
+	}
+	if !result.Valid || len(result.Issues) != 0 {
+		t.Fatalf("untyped node 0 must validate clean; result=%#v", result)
+	}
+
+	// The exemption is one rule on one node, not a hole. A node 0 that declares
+	// a type is still held to it, on read...
+	result, err = k.ValidateNodePayload(ctx, kegpkg.NodeValidationPayload{
+		ID: zero, Meta: []byte("type: nonexistent\n"), HasMeta: true,
+	})
+	if err != nil {
+		t.Fatalf("ValidateNodePayload typed zero: %v", err)
+	}
+	if result.Valid {
+		t.Fatalf("node 0 declaring an unknown type must still fail; result=%#v", result)
+	}
+
+	// ...and on write, where enforcement rejects it outright.
+	if err := k.SetMeta(ctx, zero, metaWithType(t, ctx, k, zero, "nonexistent")); !errors.Is(err, kegpkg.ErrSchemaInvalid) {
+		t.Fatalf("SetMeta with unknown type on node 0 = %v, want ErrSchemaInvalid", err)
+	}
+
+	// And an ordinary node with no type still fails, so the exemption did not
+	// silently disable the rule for everyone.
+	id, err := k.Create(kegpkg.WithValidationActor(ctx, kegpkg.ValidationActorHuman),
+		&kegpkg.CreateOptions{Body: []byte("# Untyped\n")})
+	if err != nil {
+		t.Fatalf("Create untyped: %v", err)
+	}
+	result, err = k.ValidateNode(ctx, id.ID)
+	if err != nil {
+		t.Fatalf("ValidateNode untyped: %v", err)
+	}
+	if result.Valid {
+		t.Fatalf("untyped non-zero node must still fail; result=%#v", result)
+	}
+}
+
+func metaWithType(t *testing.T, ctx context.Context, k *kegpkg.LocalKeg, id kegpkg.NodeId, typeName string) *kegpkg.NodeMeta {
+	t.Helper()
+	meta, err := k.GetMeta(ctx, id)
+	if err != nil {
+		t.Fatalf("GetMeta: %v", err)
+	}
+	if err := meta.Set(ctx, "type", typeName); err != nil {
+		t.Fatalf("meta.Set: %v", err)
+	}
+	return meta
+}
+
+// TestZeroNodeDoctorReportsRealProblemsOnly pins the other half: doctor stops
+// reporting the schema error but keeps every other check live on node 0.
+func TestZeroNodeDoctorReportsRealProblemsOnly(t *testing.T) {
+	f := sandbox.NewSandbox(t, &sandbox.Options{Home: "/home/testuser", User: "testuser"})
+	ctx := context.Background()
+	k := kegpkg.NewLocalKeg(kegpkg.NewMemoryRepo(f.Runtime()), f.Runtime())
+	if err := k.Init(ctx); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	if err := k.WriteSchema(ctx, "task", []byte("type: task\nmeta:\n  type: object\n")); err != nil {
+		t.Fatalf("WriteSchema: %v", err)
+	}
+
+	issues, err := k.Doctor(ctx)
+	if err != nil {
+		t.Fatalf("Doctor: %v", err)
+	}
+	for _, issue := range issues {
+		if issue.NodeID == "0" && issue.Kind == "schema" {
+			t.Fatalf("doctor still reports a schema issue on node 0: %+v", issue)
+		}
+	}
+
+	// A genuine node-0 defect must still surface.
+	if err := k.SetContent(ctx, kegpkg.NodeId{ID: 0}, []byte("# Zero\n\nLead.\n\n[gone](../4242)\n")); err != nil {
+		t.Fatalf("SetContent zero: %v", err)
+	}
+	issues, err = k.Doctor(ctx)
+	if err != nil {
+		t.Fatalf("Doctor after edit: %v", err)
+	}
+	var sawBrokenLink bool
+	for _, issue := range issues {
+		if issue.NodeID == "0" && issue.Kind == "broken-link" {
+			sawBrokenLink = true
+		}
+	}
+	if !sawBrokenLink {
+		t.Fatalf("doctor must still check node 0 for real defects; issues=%+v", issues)
+	}
+}
