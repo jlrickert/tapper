@@ -32,6 +32,27 @@ applicable invariants agree. A failed or incomplete gate returns work to the
 earliest stage that can correct it. Do not turn `checking` or `conflict` into
 success through prose.
 
+Before assigning a verdict, recompute knowledge discovery against the final
+tree rather than trusting only the plan's original cover. Start from the
+touched KEG subjects and the vocabulary and behavior changed by the diff. Use
+targeted `mcp__tapper__backlinks`, `mcp__tapper__links`, and
+`mcp__tapper__grep` calls in the active flight's covered KEGs to find plausible
+decisions, patterns, research, incidents, interfaces, and verifications, then
+read only the relevant notes. Informative knowledge guides interpretation;
+only applicable active or stale interfaces and verifications enter gating
+cover. A relevant contract discovered late expands the cover and sends the
+work back through any newly required gates.
+
+Audit every retained comment, test, document, configuration value, fixture,
+telemetry hook, and generated artifact that refers to removed, deprecated, or
+legacy behavior. Each needs a surviving subject or consumer such as current
+observable behavior, an accepted decision, a compatibility or migration
+boundary, a security or protocol prohibition, or an active invariant. If its
+only owner is the removal or obsolete implementation, treat it as orphaned
+noise and return the work for correction. Rewrite artifacts around a broader
+surviving invariant when that is the real contract; do not reject an artifact
+merely because it uses the word `legacy`.
+
 ## Commit
 
 Commit only the reviewed tree and follow the repository's commit convention.

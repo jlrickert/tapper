@@ -223,6 +223,22 @@ func TestCodexAdapter_SeparatesBaselineAndDeveloperWorkflow(t *testing.T) {
 	if !strings.Contains(dev, "baseline `tapper` plugin is required") || strings.Contains(string(mem.Files()["codex/tapper-dev/.codex-plugin/plugin.json"]), "mcpServers") {
 		t.Errorf("Codex prerequisite/MCP separation is wrong")
 	}
+	for _, want := range []string{
+		"recompute knowledge discovery",
+		"`mcp__tapper__backlinks`",
+		"`mcp__tapper__links`",
+		"`mcp__tapper__grep`",
+		"active or stale interfaces and verifications",
+		"Each needs a surviving subject or consumer",
+		"word `legacy`",
+	} {
+		if !strings.Contains(dev, want) {
+			t.Errorf("developer review workflow missing %q", want)
+		}
+	}
+	if strings.Contains(dev, "@foldwise/dev") {
+		t.Error("developer review workflow must not hardcode a project-specific KEG")
+	}
 }
 
 func TestPluginVersionNormalizesReleaseTag(t *testing.T) {
