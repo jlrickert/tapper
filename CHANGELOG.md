@@ -2,6 +2,42 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.37.0 - 2026-08-10
+
+
+
+### ⚙️ Miscellaneous
+- ignore the repo-local .tapper directory
+
+
+### 🐛 Bug Fixes
+- **tapper:** require editor authority when import_from_keg leaves stubs
+- **mcp:** state the recovery situation in the orientation payload
+- **tapper:** stop retrying telemetry batches the hub rejects
+- **keg:** stop reporting node 0 as missing a required type
+- **cli:** resolve a launched agent's flight on every orientation
+
+
+### 📚 Documentation
+- **mcp:** state orientation, node 0, and attachment paths in the rules
+
+
+### 🚀 Features
+- **cli:** resolve the configured flight at orientation, not per command
+- **mcp:** publish local-path attachment transfers on tap mcp
+- **cli:** add experimental tap launch for agent harnesses
+- **cli:** cap the context window and pass extra args per launch agent
+- **mcp:** run a bootstrap flight when no flight exists to select
+- **tapper:** report the driving agent in invocation telemetry
+- **integrations:** re-discover knowledge and audit orphans at review
+
+
+### 🚜 Refactor
+- **tapper:** resolve configuration from one process-wide snapshot
+- **mcp:** build the tool surface from transport providers
+- **mcp:** disable the deprecated graph tool
+
+
 ## v0.36.0 - 2026-07-30
 
 
