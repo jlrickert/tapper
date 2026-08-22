@@ -17,7 +17,9 @@ func NewMetaCmd(deps *Deps) *cobra.Command {
 		Long: `Print node metadata (meta.yaml) for NODE_ID.
 
 If stdin is piped, the piped yaml replaces metadata after validation.
-Use --edit to edit metadata in a temporary file with your editor.`,
+Use --edit to edit metadata in a temporary file with your editor. --schema
+selects the node schema for either write path and is required when the keg is
+strict and the resolved human validation mode blocks.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts.NodeID = args[0]
@@ -38,6 +40,7 @@ Use --edit to edit metadata in a temporary file with your editor.`,
 
 	cmd.Flags().BoolVar(&opts.Edit, "edit", false, "edit node metadata in a temporary file")
 	cmd.Flags().StringVar(&opts.LockToken, "lock-token", "", "cross-process lock token for this node")
+	cmd.Flags().StringVar(&opts.Schema, "schema", "", "schema to select for metadata writes")
 
 	return cmd
 }

@@ -231,7 +231,8 @@ markdown:
 	require.NoError(t, sourceKeg.WriteSchema(ctx, "task", []byte(sourceSchema)))
 	require.NoError(t, sourceKeg.SetContent(ctx, keg.NodeId{ID: 0}, []byte("---\ntype: task\n---\n# Zero\n")))
 	_, err := sourceKeg.Create(ctx, &keg.CreateOptions{
-		Body: []byte("---\ntype: task\n---\n# CLI Imported Task\n"),
+		Schema: "task",
+		Body:   []byte("---\ntype: task\n---\n# CLI Imported Task\n"),
 	})
 	require.NoError(t, err)
 

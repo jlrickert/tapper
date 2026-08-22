@@ -366,9 +366,10 @@ func (k *RemoteKeg) ValidateNode(ctx context.Context, id NodeId) (*SchemaValidat
 func (k *RemoteKeg) ValidateNodePayload(ctx context.Context, payload NodeValidationPayload) (*SchemaValidationResult, error) {
 	req := struct {
 		ID      int     `json:"id"`
+		Schema  string  `json:"schema,omitempty"`
 		Content *string `json:"content,omitempty"`
 		Meta    *string `json:"meta,omitempty"`
-	}{ID: payload.ID.ID}
+	}{ID: payload.ID.ID, Schema: payload.Schema}
 	if payload.HasContent {
 		content := string(payload.Content)
 		req.Content = &content
@@ -393,7 +394,7 @@ func (k *RemoteKeg) Create(ctx context.Context, opts *CreateOptions) (CreateResu
 	if opts == nil {
 		opts = &CreateOptions{}
 	}
-	results, err := k.CreateNodes(ctx, []NodeCreate{{Key: "node", Title: opts.Title, Lead: opts.Lead, Body: opts.Body, Tags: opts.Tags, Attrs: opts.Attrs}})
+	results, err := k.CreateNodes(ctx, []NodeCreate{{Key: "node", Schema: opts.Schema, Title: opts.Title, Lead: opts.Lead, Body: opts.Body, Tags: opts.Tags, Attrs: opts.Attrs}})
 	if len(results) == 0 {
 		return CreateResult{}, err
 	}
@@ -551,14 +552,9 @@ func (k *RemoteKeg) GetContent(ctx context.Context, id NodeId) ([]byte, error) {
 	return k.readBody(resp, "GetContent", http.StatusOK)
 }
 
-// SetContent implements Keg via PUT /nodes/{id}/content with the raw bytes.
+// SetContent implements Keg through the aggregate JSON mutation endpoint.
 func (k *RemoteKeg) SetContent(ctx context.Context, id NodeId, data []byte) error {
-	resp, err := k.do(ctx, http.MethodPut, fmt.Sprintf("/nodes/%d/content", id.ID),
-		bytes.NewReader(data), "application/octet-stream", nil)
-	if err != nil {
-		return err
-	}
-	_, err = k.readBody(resp, "SetContent", http.StatusOK, http.StatusNoContent)
+	_, err := k.UpdateNode(ctx, NodeUpdateOptions{ID: id, Content: data})
 	return err
 }
 
@@ -585,17 +581,12 @@ func (k *RemoteKeg) GetMetaRaw(ctx context.Context, id NodeId) ([]byte, error) {
 	return k.readBody(resp, "GetMetaRaw", http.StatusOK)
 }
 
-// SetMeta implements Keg via PUT /nodes/{id}/meta with the meta's YAML.
+// SetMeta implements Keg through the aggregate JSON mutation endpoint.
 func (k *RemoteKeg) SetMeta(ctx context.Context, id NodeId, meta *NodeMeta) error {
 	if meta == nil {
 		meta = NewMeta(ctx, time.Time{})
 	}
-	resp, err := k.do(ctx, http.MethodPut, fmt.Sprintf("/nodes/%d/meta", id.ID),
-		strings.NewReader(meta.ToYAML()), "application/yaml", nil)
-	if err != nil {
-		return err
-	}
-	_, err = k.readBody(resp, "SetMeta", http.StatusOK, http.StatusNoContent)
+	_, err := k.UpdateNodes(ctx, []NodeUpdateOptions{{ID: id, Meta: []byte(meta.ToYAML()), HasMeta: true}})
 	return err
 }
 

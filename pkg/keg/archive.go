@@ -367,7 +367,6 @@ func (k *LocalKeg) importNodes(ctx context.Context, r io.Reader, opts ImportNode
 			return nil, fmt.Errorf("archive contains schemas: %w", ErrNotSupported)
 		}
 	}
-	destinationWasStrict := k.strictEnabled(ctx)
 
 	snapshotRepo, hasSnapshots := repoSnapshots(k.Repo)
 	importHistory := manifest.WithHistory
@@ -535,15 +534,6 @@ func (k *LocalKeg) importNodes(ctx context.Context, r io.Reader, opts ImportNode
 	if archivedSchemas != nil {
 		if err := k.restoreArchiveSchemas(ctx, archivedSchemas); err != nil {
 			return nil, err
-		}
-	}
-	if destinationWasStrict {
-		store, ok := repoSchemas(k.Repo)
-		if !ok {
-			return nil, ErrNotSupported
-		}
-		if err := k.validateCompleteStrict(ctx, store, nil); err != nil {
-			return nil, fmt.Errorf("strict archive result: %w", err)
 		}
 	}
 	if manifest.WithConfig {

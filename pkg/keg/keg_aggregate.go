@@ -171,12 +171,13 @@ type CreateResult struct {
 const MaxMutationBatchSize = 100
 
 type NodeCreate struct {
-	Key   string         `json:"key"`
-	Title string         `json:"title,omitempty"`
-	Lead  string         `json:"lead,omitempty"`
-	Body  []byte         `json:"body,omitempty"`
-	Tags  []string       `json:"tags,omitempty"`
-	Attrs map[string]any `json:"attrs,omitempty"`
+	Key    string         `json:"key"`
+	Schema string         `json:"schema,omitempty"`
+	Title  string         `json:"title,omitempty"`
+	Lead   string         `json:"lead,omitempty"`
+	Body   []byte         `json:"body,omitempty"`
+	Tags   []string       `json:"tags,omitempty"`
+	Attrs  map[string]any `json:"attrs,omitempty"`
 }
 
 type CreateNodeResult struct {
@@ -194,6 +195,7 @@ type NodeOpenOptions struct {
 
 type NodeUpdateOptions struct {
 	ID             NodeId    `json:"id"`
+	Schema         string    `json:"schema,omitempty"`
 	Content        []byte    `json:"content"`
 	HasContent     bool      `json:"has_content,omitempty"`
 	Meta           []byte    `json:"meta,omitempty"`
@@ -816,9 +818,6 @@ func (k *LocalKeg) createSchema(ctx context.Context, typeName string, data []byt
 	if _, err := validateSchemaDefinitionForType(typeName, data); err != nil {
 		return err
 	}
-	if err := k.validateStrictSchemaChange(ctx, store, map[string][]byte{typeName: data}, nil); err != nil {
-		return err
-	}
 	if err := store.CreateSchema(ctx, typeName, data); err != nil {
 		if errors.Is(err, ErrExist) {
 			return fmt.Errorf("schema %q: %w", typeName, ErrExist)
@@ -1043,7 +1042,9 @@ func (k *LocalKeg) replaceNodesWithRedirects(ctx context.Context, redirects []No
 				title = redirect.ID.Path()
 			}
 			body := fmt.Sprintf("# %s\n\nMoved to [%s/%s](%s/%s).\n", title, redirect.Target, redirect.TargetID.Path(), redirect.Target, redirect.TargetID.Path())
-			return k.SetContent(lockCtx, redirect.ID, []byte(body))
+			// Redirect replacement is exempt from the live-edit schema-selection
+			// rule, just like move/remove link rewrites.
+			return k.SetContent(WithValidationMode(lockCtx, ValidationModeOff), redirect.ID, []byte(body))
 		})
 		if err != nil {
 			result.Failure = newBatchFailure(redirect.ID, err)

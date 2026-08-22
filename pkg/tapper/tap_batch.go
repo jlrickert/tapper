@@ -9,12 +9,13 @@ import (
 )
 
 type BatchCreateNode struct {
-	Key   string
-	Title string
-	Lead  string
-	Body  string
-	Tags  []string
-	Attrs map[string]string
+	Key    string
+	Schema string
+	Title  string
+	Lead   string
+	Body   string
+	Tags   []string
+	Attrs  map[string]string
 }
 type BatchCreateOptions struct {
 	KegTargetOptions
@@ -29,13 +30,14 @@ func (t *Tap) CreateBatch(ctx context.Context, opts BatchCreateOptions) ([]keg.C
 	ctx = keg.WithDefaultValidationActor(ctx, keg.ValidationActorHuman)
 	nodes := make([]keg.NodeCreate, len(opts.Nodes))
 	for i, item := range opts.Nodes {
-		nodes[i] = keg.NodeCreate{Key: item.Key, Title: item.Title, Lead: item.Lead, Body: []byte(item.Body), Tags: item.Tags, Attrs: createAttrsFromStrings(item.Attrs)}
+		nodes[i] = keg.NodeCreate{Key: item.Key, Schema: item.Schema, Title: item.Title, Lead: item.Lead, Body: []byte(item.Body), Tags: item.Tags, Attrs: createAttrsFromStrings(item.Attrs)}
 	}
 	return k.CreateNodes(ctx, nodes)
 }
 
 type BatchEditItem struct {
 	NodeID         string
+	Schema         string
 	Content        string
 	ExpectedHash   string
 	SnapshotBefore bool
@@ -61,7 +63,7 @@ func (t *Tap) EditBatch(ctx context.Context, opts BatchEditOptions) ([]keg.NodeU
 		if err != nil {
 			return nil, fmt.Errorf("edit %d node %q: %w", i, item.NodeID, err)
 		}
-		updates[i] = keg.NodeUpdateOptions{ID: *id, Content: body, HasContent: true, ExpectedHash: item.ExpectedHash, SnapshotBefore: item.SnapshotBefore}
+		updates[i] = keg.NodeUpdateOptions{ID: *id, Schema: item.Schema, Content: body, HasContent: true, ExpectedHash: item.ExpectedHash, SnapshotBefore: item.SnapshotBefore}
 		if hasMeta {
 			meta, err := keg.ParseMeta(ctx, rawMeta)
 			if err != nil {
@@ -75,6 +77,7 @@ func (t *Tap) EditBatch(ctx context.Context, opts BatchEditOptions) ([]keg.NodeU
 
 type BatchMetaUpdate struct {
 	NodeID         string
+	Schema         string
 	Content        string
 	ExpectedHash   string
 	SnapshotBefore bool
@@ -117,7 +120,7 @@ func (t *Tap) MetaBatch(ctx context.Context, opts BatchMetaOptions) ([]BatchMeta
 			if err != nil {
 				return nil, nil, fmt.Errorf("metadata update %d node %q: %w", i, item.NodeID, err)
 			}
-			updates[i] = keg.NodeUpdateOptions{ID: *id, Meta: []byte(meta.ToYAML()), HasMeta: true, ExpectedHash: item.ExpectedHash, SnapshotBefore: item.SnapshotBefore}
+			updates[i] = keg.NodeUpdateOptions{ID: *id, Schema: item.Schema, Meta: []byte(meta.ToYAML()), HasMeta: true, ExpectedHash: item.ExpectedHash, SnapshotBefore: item.SnapshotBefore}
 		}
 		results, err := k.UpdateNodes(ctx, updates)
 		return nil, results, err

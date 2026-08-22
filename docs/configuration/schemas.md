@@ -20,6 +20,14 @@ Schema documents declare the note `type`, an optional `summary`, optional
 metadata JSON Schema under `meta`, markdown structure rules under `markdown`,
 and relation requirements under `relations`.
 
+Select a schema for a node write with `tap create --schema TYPE`, `tap edit
+--schema TYPE`, or `tap meta --schema TYPE`. The selected type is persisted as
+`meta.type`, then the complete projected node is validated. A conflicting
+`type` in attributes, Markdown frontmatter, or metadata is rejected instead of
+silently taking precedence. Under `schemaPolicy.strict`, selection is required
+only when the resolved actor validation mode is `block`; it remains optional
+for `warn`, `off`, non-strict kegs, and node 0.
+
 Metadata property rows can define note maturity scoring under the property's
 `maturity` key. The property name is the scored metadata attribute, so each row
 only needs a positive `weight` and, for enum values, an optional `enum` score

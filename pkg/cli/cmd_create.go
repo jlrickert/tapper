@@ -30,7 +30,8 @@ If no stdin and no flags are provided on a TTY, an editor is opened with a
 pre-populated template.
 
 If flags are provided without stdin, the node is created immediately from the
-flag values without opening an editor.`,
+flag values without opening an editor. --schema selects the node schema and is
+required when the keg is strict and the resolved human validation mode blocks.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts.Stream = deps.Runtime.Stream()
 			applyKegTargetProfile(deps, &opts.KegTargetOptions)
@@ -45,6 +46,7 @@ flag values without opening an editor.`,
 		},
 	}
 	cmd.Flags().StringVar(&opts.Title, "title", "", "title for the new node")
+	cmd.Flags().StringVar(&opts.Schema, "schema", "", "schema to select for this write")
 	cmd.Flags().StringVar(&opts.Lead, "lead", "", "lead/short summary for the new node")
 	cmd.Flags().StringSliceVar(&opts.Tags, "tags", nil, "tags to apply to the node (repeatable)")
 	cmd.Flags().StringToStringVar(

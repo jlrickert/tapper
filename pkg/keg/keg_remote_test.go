@@ -123,6 +123,7 @@ func newMockOpsHub(t *testing.T, f *sandbox.Sandbox, token string) *mockOpsHub {
 		var req struct {
 			Content *string `json:"content"`
 			Meta    *string `json:"meta"`
+			Schema  string  `json:"schema"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Content == nil {
 			h.writeError(w, http.StatusBadRequest, "invalid JSON body", "BAD_REQUEST")
@@ -137,7 +138,7 @@ func newMockOpsHub(t *testing.T, f *sandbox.Sandbox, token string) *mockOpsHub {
 			}
 			meta = parsed
 		}
-		id, err := backing.Create(r.Context(), &kegpkg.CreateOptions{Body: []byte(*req.Content)})
+		id, err := backing.Create(r.Context(), &kegpkg.CreateOptions{Schema: req.Schema, Body: []byte(*req.Content)})
 		if err != nil {
 			h.kegError(w, err)
 			return
@@ -153,12 +154,13 @@ func newMockOpsHub(t *testing.T, f *sandbox.Sandbox, token string) *mockOpsHub {
 	mux.HandleFunc("POST /nodes/batch", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			Nodes []struct {
-				Key   string         `json:"key"`
-				Title string         `json:"title"`
-				Lead  string         `json:"lead"`
-				Body  string         `json:"body"`
-				Tags  []string       `json:"tags"`
-				Attrs map[string]any `json:"attrs"`
+				Key    string         `json:"key"`
+				Schema string         `json:"schema"`
+				Title  string         `json:"title"`
+				Lead   string         `json:"lead"`
+				Body   string         `json:"body"`
+				Tags   []string       `json:"tags"`
+				Attrs  map[string]any `json:"attrs"`
 			} `json:"nodes"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -167,7 +169,7 @@ func newMockOpsHub(t *testing.T, f *sandbox.Sandbox, token string) *mockOpsHub {
 		}
 		nodes := make([]kegpkg.NodeCreate, len(req.Nodes))
 		for i, item := range req.Nodes {
-			nodes[i] = kegpkg.NodeCreate{Key: item.Key, Title: item.Title, Lead: item.Lead, Body: []byte(item.Body), Tags: item.Tags, Attrs: item.Attrs}
+			nodes[i] = kegpkg.NodeCreate{Key: item.Key, Schema: item.Schema, Title: item.Title, Lead: item.Lead, Body: []byte(item.Body), Tags: item.Tags, Attrs: item.Attrs}
 		}
 		results, err := backing.CreateNodes(r.Context(), nodes)
 		if err != nil {
@@ -184,6 +186,7 @@ func newMockOpsHub(t *testing.T, f *sandbox.Sandbox, token string) *mockOpsHub {
 		var req struct {
 			Updates []struct {
 				NodeID         int     `json:"node_id"`
+				Schema         string  `json:"schema"`
 				Content        *string `json:"content"`
 				Meta           *string `json:"meta"`
 				LockToken      string  `json:"lock_token"`
@@ -197,7 +200,7 @@ func newMockOpsHub(t *testing.T, f *sandbox.Sandbox, token string) *mockOpsHub {
 		}
 		updates := make([]kegpkg.NodeUpdateOptions, len(req.Updates))
 		for i, item := range req.Updates {
-			updates[i] = kegpkg.NodeUpdateOptions{ID: kegpkg.NodeId{ID: item.NodeID}, LockToken: kegpkg.LockToken(item.LockToken), ExpectedHash: item.ExpectedHash, SnapshotBefore: item.SnapshotBefore}
+			updates[i] = kegpkg.NodeUpdateOptions{ID: kegpkg.NodeId{ID: item.NodeID}, Schema: item.Schema, LockToken: kegpkg.LockToken(item.LockToken), ExpectedHash: item.ExpectedHash, SnapshotBefore: item.SnapshotBefore}
 			if item.Content != nil {
 				updates[i].Content, updates[i].HasContent = []byte(*item.Content), true
 			}
@@ -357,16 +360,8 @@ func newMockOpsHub(t *testing.T, f *sandbox.Sandbox, token string) *mockOpsHub {
 		w.Write(data)
 	})
 	mux.HandleFunc("PUT /nodes/{id}/content", func(w http.ResponseWriter, r *http.Request) {
-		id, ok := h.parseID(w, r)
-		if !ok {
-			return
-		}
-		data, _ := io.ReadAll(r.Body)
-		if err := backing.SetContent(r.Context(), id, data); err != nil {
-			h.kegError(w, err)
-			return
-		}
-		w.WriteHeader(http.StatusNoContent)
+		t.Errorf("RemoteKeg used removed raw content mutation route")
+		w.WriteHeader(http.StatusMethodNotAllowed)
 	})
 	mux.HandleFunc("GET /nodes/{id}/meta", func(w http.ResponseWriter, r *http.Request) {
 		id, ok := h.parseID(w, r)
@@ -381,21 +376,8 @@ func newMockOpsHub(t *testing.T, f *sandbox.Sandbox, token string) *mockOpsHub {
 		w.Write(data)
 	})
 	mux.HandleFunc("PUT /nodes/{id}/meta", func(w http.ResponseWriter, r *http.Request) {
-		id, ok := h.parseID(w, r)
-		if !ok {
-			return
-		}
-		data, _ := io.ReadAll(r.Body)
-		meta, err := kegpkg.ParseMeta(r.Context(), data)
-		if err != nil {
-			h.writeError(w, http.StatusBadRequest, "invalid meta: "+err.Error(), "BAD_REQUEST")
-			return
-		}
-		if err := backing.SetMeta(r.Context(), id, meta); err != nil {
-			h.kegError(w, err)
-			return
-		}
-		w.WriteHeader(http.StatusNoContent)
+		t.Errorf("RemoteKeg used removed raw metadata mutation route")
+		w.WriteHeader(http.StatusMethodNotAllowed)
 	})
 	mux.HandleFunc("GET /nodes/{id}/stats", func(w http.ResponseWriter, r *http.Request) {
 		id, ok := h.parseID(w, r)
@@ -680,6 +662,11 @@ func TestRemoteKegRoundTripBasics(t *testing.T) {
 	meta, err := rk.GetMeta(ctx, id.ID)
 	require.NoError(t, err)
 	require.Contains(t, meta.Tags(), "gamma")
+	meta.SetTags([]string{"gamma", "json-transport"})
+	require.NoError(t, rk.SetMeta(ctx, id.ID, meta))
+	meta, err = rk.GetMeta(ctx, id.ID)
+	require.NoError(t, err)
+	require.Contains(t, meta.Tags(), "json-transport")
 
 	// Server-side query and grep.
 	entries, err := rk.Query(ctx, kegpkg.QueryOptions{Expr: "gamma"})
@@ -726,22 +713,29 @@ func TestRemoteKegRoundTripBasics(t *testing.T) {
 
 func TestRemoteMutationBatchesPreserveOrderAndAtomicity(t *testing.T) {
 	t.Parallel()
-	fx, _, remote := newRemoteKegFixture(t)
+	fx, hub, remote := newRemoteKegFixture(t)
 	ctx := fx.Context()
+	require.NoError(t, hub.backing.CreateSchema(ctx, "note", []byte("type: note\n")))
+	require.NoError(t, hub.backing.CreateSchema(ctx, "task", []byte("type: task\n")))
 
 	created, err := remote.CreateNodes(ctx, []kegpkg.NodeCreate{
-		{Key: "forward", Body: []byte("# Forward\n\n[Back](../{{node:back}})\n")},
-		{Key: "back", Body: []byte("# Back\n\n[Forward](../{{node:forward}})\n")},
+		{Key: "forward", Schema: "note", Body: []byte("# Forward\n\n[Back](../{{node:back}})\n")},
+		{Key: "back", Schema: "note", Body: []byte("# Back\n\n[Forward](../{{node:forward}})\n")},
 	})
 	require.NoError(t, err)
 	require.Equal(t, []string{"forward", "back"}, []string{created[0].Key, created[1].Key})
 	forwardBefore, err := remote.ReadNode(ctx, created[0].ID)
 	require.NoError(t, err)
 	require.Contains(t, string(forwardBefore.Content), fmt.Sprintf("../%d", created[1].ID.ID))
+	forwardMeta, err := remote.GetMeta(ctx, created[0].ID)
+	require.NoError(t, err)
+	forwardType, ok := forwardMeta.Get("type")
+	require.True(t, ok)
+	require.Equal(t, "note", forwardType)
 
 	_, err = remote.UpdateNodes(ctx, []kegpkg.NodeUpdateOptions{
-		{ID: created[0].ID, Content: []byte("# Changed\n"), HasContent: true, SnapshotBefore: true},
-		{ID: created[1].ID, Content: []byte("# Never\n"), HasContent: true, ExpectedHash: "stale"},
+		{ID: created[0].ID, Schema: "task", Content: []byte("# Changed\n"), HasContent: true, SnapshotBefore: true},
+		{ID: created[1].ID, Schema: "task", Content: []byte("# Never\n"), HasContent: true, ExpectedHash: "stale"},
 	})
 	require.ErrorIs(t, err, kegpkg.ErrConflict)
 	forwardAfter, err := remote.ReadNode(ctx, created[0].ID)
@@ -750,6 +744,19 @@ func TestRemoteMutationBatchesPreserveOrderAndAtomicity(t *testing.T) {
 	history, err := remote.ListSnapshots(ctx, created[0].ID)
 	require.NoError(t, err)
 	require.Empty(t, history)
+	forwardMeta, err = remote.GetMeta(ctx, created[0].ID)
+	require.NoError(t, err)
+	forwardType, _ = forwardMeta.Get("type")
+	require.Equal(t, "note", forwardType, "failed remote batch changed the stored schema")
+
+	_, err = remote.UpdateNodes(ctx, []kegpkg.NodeUpdateOptions{{
+		ID: created[0].ID, Schema: "task", Content: []byte("# Reclassified\n"), HasContent: true,
+	}})
+	require.NoError(t, err)
+	forwardMeta, err = remote.GetMeta(ctx, created[0].ID)
+	require.NoError(t, err)
+	forwardType, _ = forwardMeta.Get("type")
+	require.Equal(t, "task", forwardType)
 
 	snapshots, err := remote.AppendSnapshots(ctx, []kegpkg.NodeSnapshotRequest{
 		{ID: created[0].ID, Message: "forward point"},

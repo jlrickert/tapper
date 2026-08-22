@@ -207,16 +207,17 @@ func (k *RemoteKeg) UpdateNode(ctx context.Context, opts NodeUpdateOptions) (*No
 
 func (k *RemoteKeg) CreateNodes(ctx context.Context, nodes []NodeCreate) ([]CreateNodeResult, error) {
 	type wireNode struct {
-		Key   string         `json:"key"`
-		Title string         `json:"title,omitempty"`
-		Lead  string         `json:"lead,omitempty"`
-		Body  string         `json:"body,omitempty"`
-		Tags  []string       `json:"tags,omitempty"`
-		Attrs map[string]any `json:"attrs,omitempty"`
+		Key    string         `json:"key"`
+		Schema string         `json:"schema,omitempty"`
+		Title  string         `json:"title,omitempty"`
+		Lead   string         `json:"lead,omitempty"`
+		Body   string         `json:"body,omitempty"`
+		Tags   []string       `json:"tags,omitempty"`
+		Attrs  map[string]any `json:"attrs,omitempty"`
 	}
 	wire := make([]wireNode, len(nodes))
 	for i, n := range nodes {
-		wire[i] = wireNode{n.Key, n.Title, n.Lead, string(n.Body), n.Tags, n.Attrs}
+		wire[i] = wireNode{n.Key, n.Schema, n.Title, n.Lead, string(n.Body), n.Tags, n.Attrs}
 	}
 	var response []struct {
 		Key        string                  `json:"key"`
@@ -239,6 +240,7 @@ func (k *RemoteKeg) CreateNodes(ctx context.Context, nodes []NodeCreate) ([]Crea
 func (k *RemoteKeg) UpdateNodes(ctx context.Context, updates []NodeUpdateOptions) ([]NodeUpdateResult, error) {
 	type wireUpdate struct {
 		NodeID         int     `json:"node_id"`
+		Schema         string  `json:"schema,omitempty"`
 		Content        *string `json:"content,omitempty"`
 		Meta           *string `json:"meta,omitempty"`
 		LockToken      string  `json:"lock_token,omitempty"`
@@ -247,7 +249,7 @@ func (k *RemoteKeg) UpdateNodes(ctx context.Context, updates []NodeUpdateOptions
 	}
 	wire := make([]wireUpdate, len(updates))
 	for i, item := range updates {
-		wire[i] = wireUpdate{NodeID: item.ID.ID, LockToken: string(item.LockToken), ExpectedHash: item.ExpectedHash, SnapshotBefore: item.SnapshotBefore}
+		wire[i] = wireUpdate{NodeID: item.ID.ID, Schema: item.Schema, LockToken: string(item.LockToken), ExpectedHash: item.ExpectedHash, SnapshotBefore: item.SnapshotBefore}
 		if item.HasContent {
 			v := string(item.Content)
 			wire[i].Content = &v

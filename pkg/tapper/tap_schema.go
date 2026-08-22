@@ -181,7 +181,6 @@ func (t *Tap) Validate(ctx context.Context, opts ValidateOptions) ([]keg.SchemaV
 		}
 		return results, nil
 	}
-	return nil, nil
 }
 
 func (t *Tap) warnSchemaIssues(ctx context.Context, k keg.Keg, id keg.NodeId, stream *toolkit.Stream) {

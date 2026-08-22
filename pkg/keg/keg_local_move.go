@@ -80,7 +80,9 @@ func (k *LocalKeg) move(ctx context.Context, src NodeId, dst NodeId) ([]NodeId, 
 		if !changed {
 			continue
 		}
-		nd, err := k.setContentNoDex(ctx, id, updated)
+		// Link rewrites are part of the move operation rather than a live node
+		// edit, so strict explicit-selection does not apply.
+		nd, err := k.setContentNoDex(WithValidationMode(ctx, ValidationModeOff), id, updated)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("failed to rewrite links for node %s: %w", id.Path(), err))
 			continue

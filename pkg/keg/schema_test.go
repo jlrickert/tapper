@@ -78,17 +78,21 @@ markdown:
 		t.Fatalf("WriteSchema: %v", err)
 	}
 
-	_, err := k.Create(ctx, &kegpkg.CreateOptions{Body: []byte("# Missing Type\n\n## Context\n")})
-	if !errors.Is(err, kegpkg.ErrSchemaInvalid) {
-		t.Fatalf("Create missing type error = %v, want ErrSchemaInvalid", err)
+	id, err := k.Create(ctx, &kegpkg.CreateOptions{Body: []byte("# Untyped\n\n## Context\n")})
+	if err != nil {
+		t.Fatalf("untyped Create: %v", err)
+	}
+	result, err := k.ValidateNode(ctx, id.ID)
+	if err != nil || !result.Valid {
+		t.Fatalf("untyped node result=%#v err=%v, want valid", result, err)
 	}
 
 	humanCtx := kegpkg.WithValidationActor(ctx, kegpkg.ValidationActorHuman)
-	id, err := k.Create(humanCtx, &kegpkg.CreateOptions{Body: []byte("# Warn Only\n\n## Context\n")})
+	id, err = k.Create(humanCtx, &kegpkg.CreateOptions{Schema: "task", Body: []byte("# Warn Only\n")})
 	if err != nil {
 		t.Fatalf("human Create should warn, not block: %v", err)
 	}
-	result, err := k.ValidateNode(ctx, id.ID)
+	result, err = k.ValidateNode(ctx, id.ID)
 	if err != nil {
 		t.Fatalf("ValidateNode: %v", err)
 	}
@@ -136,7 +140,7 @@ markdown:
 		t.Fatalf("UpdateConfig: %v", err)
 	}
 
-	invalid := &kegpkg.CreateOptions{Body: []byte("# Missing Type\n")}
+	invalid := &kegpkg.CreateOptions{Schema: "missing", Body: []byte("# Unknown schema\n")}
 	_, err := k.Create(kegpkg.WithValidationActor(ctx, kegpkg.ValidationActorHuman), invalid)
 	if !errors.Is(err, kegpkg.ErrSchemaInvalid) {
 		t.Fatalf("human override error = %v, want ErrSchemaInvalid", err)
@@ -806,21 +810,19 @@ func TestZeroNodeExemptFromRequiredType(t *testing.T) {
 		t.Fatalf("untyped node 0 must validate clean; result=%#v", result)
 	}
 
-	// The exemption is one rule on one node, not a hole. A node 0 that declares
-	// a type is still held to it, on read...
+	// Node 0 remains fully exempt even if legacy data happens to declare a type.
 	result, err = k.ValidateNodePayload(ctx, kegpkg.NodeValidationPayload{
 		ID: zero, Meta: []byte("type: nonexistent\n"), HasMeta: true,
 	})
 	if err != nil {
 		t.Fatalf("ValidateNodePayload typed zero: %v", err)
 	}
-	if result.Valid {
-		t.Fatalf("node 0 declaring an unknown type must still fail; result=%#v", result)
+	if !result.Valid {
+		t.Fatalf("typed node 0 must remain exempt; result=%#v", result)
 	}
 
-	// ...and on write, where enforcement rejects it outright.
-	if err := k.SetMeta(ctx, zero, metaWithType(t, ctx, k, zero, "nonexistent")); !errors.Is(err, kegpkg.ErrSchemaInvalid) {
-		t.Fatalf("SetMeta with unknown type on node 0 = %v, want ErrSchemaInvalid", err)
+	if err := k.SetMeta(ctx, zero, metaWithType(t, ctx, k, zero, "nonexistent")); err != nil {
+		t.Fatalf("SetMeta with unknown type on exempt node 0: %v", err)
 	}
 
 	// And an ordinary node with no type still fails, so the exemption did not
@@ -834,8 +836,8 @@ func TestZeroNodeExemptFromRequiredType(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ValidateNode untyped: %v", err)
 	}
-	if result.Valid {
-		t.Fatalf("untyped non-zero node must still fail; result=%#v", result)
+	if !result.Valid {
+		t.Fatalf("untyped non-zero node must be valid outside write-time selection enforcement; result=%#v", result)
 	}
 }
 

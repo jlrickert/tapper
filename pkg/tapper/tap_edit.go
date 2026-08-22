@@ -23,6 +23,7 @@ type EditOptions struct {
 	// LockToken is an optional cross-process lock token. When provided, the
 	// command validates it against any held lock before proceeding.
 	LockToken string
+	Schema    string
 
 	// Stream carries stdin piping information.
 	Stream *toolkit.Stream
@@ -38,6 +39,7 @@ type MetaOptions struct {
 	// LockToken is an optional cross-process lock token. When provided, the
 	// command validates it against any held lock before proceeding.
 	LockToken string
+	Schema    string
 
 	// Edit opens metadata in the editor.
 	Edit bool
@@ -81,7 +83,7 @@ func (t *Tap) Meta(ctx context.Context, opts MetaOptions) (string, error) {
 		if err := validateLockToken(ctx, k, id, opts.LockToken); err != nil {
 			return "", err
 		}
-		if err := t.editMeta(ctx, k, id, opts.Stream); err != nil {
+		if err := t.editMetaSchemaLocked(ctx, k, id, opts.Schema, keg.LockToken(opts.LockToken), opts.Stream); err != nil {
 			return "", err
 		}
 		return "", nil
@@ -100,10 +102,13 @@ func (t *Tap) Meta(ctx context.Context, opts MetaOptions) (string, error) {
 			if parseErr != nil {
 				return "", fmt.Errorf("metadata from stdin is invalid: %w", parseErr)
 			}
-			if err := k.SetMeta(ctx, id, metaNode); err != nil {
+			results, err := k.UpdateNodes(ctx, []keg.NodeUpdateOptions{{ID: id, Schema: opts.Schema, Meta: []byte(metaNode.ToYAML()), HasMeta: true, LockToken: keg.LockToken(opts.LockToken)}})
+			if err != nil {
 				return "", fmt.Errorf("unable to save node metadata: %w", err)
 			}
-			t.warnSchemaIssues(ctx, k, id, opts.Stream)
+			if len(results) > 0 {
+				t.warnSchemaValidation(results[0].Validation, id, opts.Stream)
+			}
 			return "", nil
 		}
 	}
@@ -161,12 +166,12 @@ func (t *Tap) Edit(ctx context.Context, opts EditOptions) error {
 			if view.Stats != nil {
 				expectedHash = view.Stats.Hash()
 			}
-			_, err = t.applyEditedNodeRawExpected(ctx, k, id, pipedRaw, keg.LockToken(opts.LockToken), expectedHash)
+			_, err = t.applyEditedNodeRawExpectedSchema(ctx, k, id, pipedRaw, keg.LockToken(opts.LockToken), expectedHash, opts.Schema)
 			return err
 		}
 	}
 
-	return t.editWithTempFileLocked(ctx, k, id, keg.LockToken(opts.LockToken))
+	return t.editWithTempFileLockedSchema(ctx, k, id, keg.LockToken(opts.LockToken), opts.Schema)
 }
 
 // editWithTempFile is the editing flow that composes frontmatter + body into
@@ -175,10 +180,18 @@ func (t *Tap) Edit(ctx context.Context, opts EditOptions) error {
 // temp file when external changes are detected, so the editor can reload
 // with :e! to pick up changes from other tap instances.
 func (t *Tap) editWithTempFile(ctx context.Context, k keg.Keg, id keg.NodeId) error {
-	return t.editWithTempFileLocked(ctx, k, id, "")
+	return t.editWithTempFileSchema(ctx, k, id, "")
 }
 
 func (t *Tap) editWithTempFileLocked(ctx context.Context, k keg.Keg, id keg.NodeId, lockToken keg.LockToken) error {
+	return t.editWithTempFileLockedSchema(ctx, k, id, lockToken, "")
+}
+
+func (t *Tap) editWithTempFileSchema(ctx context.Context, k keg.Keg, id keg.NodeId, schema string) error {
+	return t.editWithTempFileLockedSchema(ctx, k, id, "", schema)
+}
+
+func (t *Tap) editWithTempFileLockedSchema(ctx context.Context, k keg.Keg, id keg.NodeId, lockToken keg.LockToken, schema string) error {
 	view, err := k.OpenNode(ctx, keg.NodeOpenOptions{ID: id, Touch: true, LockToken: lockToken})
 	if err != nil {
 		return fmt.Errorf("unable to open node: %w", err)
@@ -189,7 +202,10 @@ func (t *Tap) editWithTempFileLocked(ctx context.Context, k keg.Keg, id keg.Node
 		revision.set(view.Stats.Hash())
 	}
 
-	initialRaw := composeEditNodeFile(ctx, meta, content)
+	initialRaw, err := composeEditNodeFileWithSchema(ctx, meta, content, schema)
+	if err != nil {
+		return err
+	}
 
 	tempPath, err := newEditorTempFilePath(t.Runtime, editorTempFilePrefix(k, id, "edit"), ".md")
 	if err != nil {
@@ -228,7 +244,7 @@ func (t *Tap) editWithTempFileLocked(ctx context.Context, k keg.Keg, id keg.Node
 	}
 
 	editErr := editWithLiveSaves(editCtx, t.Runtime, tempPath, external, func(editedRaw []byte) error {
-		newHash, err := t.applyEditedNodeRawExpected(ctx, k, id, editedRaw, lockToken, revision.get())
+		newHash, err := t.applyEditedNodeRawExpectedSchema(ctx, k, id, editedRaw, lockToken, revision.get(), schema)
 		if err == nil {
 			revision.set(newHash)
 		}
@@ -371,6 +387,10 @@ func (t *Tap) applyEditedNodeRawWithLock(ctx context.Context, k keg.Keg, id keg.
 }
 
 func (t *Tap) applyEditedNodeRawExpected(ctx context.Context, k keg.Keg, id keg.NodeId, editedRaw []byte, lockToken keg.LockToken, expectedHash string) (string, error) {
+	return t.applyEditedNodeRawExpectedSchema(ctx, k, id, editedRaw, lockToken, expectedHash, "")
+}
+
+func (t *Tap) applyEditedNodeRawExpectedSchema(ctx context.Context, k keg.Keg, id keg.NodeId, editedRaw []byte, lockToken keg.LockToken, expectedHash, schema string) (string, error) {
 	hasFrontmatter, frontmatterRaw, bodyRaw, err := splitEditNodeFile(editedRaw)
 	if err != nil {
 		return "", err
@@ -381,7 +401,7 @@ func (t *Tap) applyEditedNodeRawExpected(ctx context.Context, k keg.Keg, id keg.
 			return "", fmt.Errorf("invalid frontmatter metadata: %w", parseErr)
 		}
 	}
-	result, err := k.UpdateNode(ctx, keg.NodeUpdateOptions{ID: id, Content: bodyRaw, Meta: frontmatterRaw, HasMeta: hasFrontmatter, LockToken: lockToken, ExpectedHash: expectedHash})
+	result, err := k.UpdateNode(ctx, keg.NodeUpdateOptions{ID: id, Schema: schema, Content: bodyRaw, Meta: frontmatterRaw, HasMeta: hasFrontmatter, LockToken: lockToken, ExpectedHash: expectedHash})
 	if err != nil {
 		return "", fmt.Errorf("unable to save node: %w", err)
 	}
@@ -439,6 +459,20 @@ func clearYAMLStyle(n *yaml.Node) {
 func composeEditNodeFile(ctx context.Context, meta []byte, content []byte) []byte {
 	metaText := normalizeMetaYAML(ctx, meta)
 	return []byte(fmt.Sprintf("---\n%s\n---\n%s", metaText, string(content)))
+}
+
+func composeEditNodeFileWithSchema(ctx context.Context, meta []byte, content []byte, schema string) ([]byte, error) {
+	if strings.TrimSpace(schema) == "" {
+		return composeEditNodeFile(ctx, meta, content), nil
+	}
+	parsed, err := keg.ParseMeta(ctx, meta)
+	if err != nil {
+		return nil, fmt.Errorf("node metadata is invalid: %w", err)
+	}
+	if err := parsed.Set(ctx, "type", strings.TrimSpace(schema)); err != nil {
+		return nil, err
+	}
+	return composeEditNodeFile(ctx, []byte(parsed.ToYAML()), content), nil
 }
 
 // editFilesEquivalent reports whether two composed edit files describe the
@@ -510,6 +544,14 @@ func splitEditNodeFile(raw []byte) (bool, []byte, []byte, error) {
 }
 
 func (t *Tap) editMeta(ctx context.Context, k keg.Keg, id keg.NodeId, stream *toolkit.Stream) error {
+	return t.editMetaSchemaLocked(ctx, k, id, "", "", stream)
+}
+
+func (t *Tap) editMetaSchema(ctx context.Context, k keg.Keg, id keg.NodeId, schema string, stream *toolkit.Stream) error {
+	return t.editMetaSchemaLocked(ctx, k, id, schema, "", stream)
+}
+
+func (t *Tap) editMetaSchemaLocked(ctx context.Context, k keg.Keg, id keg.NodeId, schema string, lockToken keg.LockToken, stream *toolkit.Stream) error {
 	raw, err := k.GetMetaRaw(ctx, id)
 	if err != nil && !errors.Is(err, keg.ErrNotExist) {
 		return fmt.Errorf("unable to read node metadata: %w", err)
@@ -520,6 +562,12 @@ func (t *Tap) editMeta(ctx context.Context, k keg.Keg, id keg.NodeId, stream *to
 		return fmt.Errorf("node metadata is invalid: %w", err)
 	}
 	initialRaw := []byte(metaNode.ToYAML())
+	if strings.TrimSpace(schema) != "" {
+		if err := metaNode.Set(ctx, "type", strings.TrimSpace(schema)); err != nil {
+			return err
+		}
+		initialRaw = []byte(metaNode.ToYAML())
+	}
 	if stream != nil && stream.IsPiped {
 		pipedRaw, readErr := io.ReadAll(stream.In)
 		if readErr != nil {
@@ -546,10 +594,13 @@ func (t *Tap) editMeta(ctx context.Context, k keg.Keg, id keg.NodeId, stream *to
 		if err != nil {
 			return fmt.Errorf("node metadata is invalid after editing: %w", err)
 		}
-		if err := k.SetMeta(ctx, id, updatedMeta); err != nil {
+		results, err := k.UpdateNodes(ctx, []keg.NodeUpdateOptions{{ID: id, Schema: schema, Meta: []byte(updatedMeta.ToYAML()), HasMeta: true, LockToken: lockToken}})
+		if err != nil {
 			return fmt.Errorf("unable to save node metadata: %w", err)
 		}
-		t.warnSchemaIssues(ctx, k, id, t.Runtime.Stream())
+		if len(results) > 0 {
+			t.warnSchemaValidation(results[0].Validation, id, t.Runtime.Stream())
+		}
 		return nil
 	}); err != nil {
 		return fmt.Errorf("unable to edit node metadata: %w", err)

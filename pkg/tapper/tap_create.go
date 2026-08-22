@@ -14,6 +14,7 @@ import (
 type CreateOptions struct {
 	KegTargetOptions
 
+	Schema string
 	Title  string
 	Lead   string
 	Tags   []string
@@ -45,15 +46,16 @@ func (t *Tap) Create(ctx context.Context, opts CreateOptions) (keg.NodeId, error
 		// Create() called Next() again internally.
 		attrs := createAttrsFromStrings(opts.Attrs)
 		created, createErr := k.Create(ctx, &keg.CreateOptions{
-			Title: opts.Title,
-			Lead:  opts.Lead,
-			Tags:  opts.Tags,
-			Attrs: attrs,
+			Schema: opts.Schema,
+			Title:  opts.Title,
+			Lead:   opts.Lead,
+			Tags:   opts.Tags,
+			Attrs:  attrs,
 		})
 		if createErr != nil {
 			return keg.NodeId{}, fmt.Errorf("unable to create node: %w", createErr)
 		}
-		if editErr := t.editWithTempFile(ctx, k, created.ID); editErr != nil {
+		if editErr := t.editWithTempFileSchema(ctx, k, created.ID, opts.Schema); editErr != nil {
 			return keg.NodeId{}, fmt.Errorf("unable to edit new node: %w", editErr)
 		}
 		t.warnSchemaValidation(created.Validation, created.ID, opts.Stream)
@@ -62,10 +64,11 @@ func (t *Tap) Create(ctx context.Context, opts CreateOptions) (keg.NodeId, error
 
 	attrs := createAttrsFromStrings(opts.Attrs)
 	created, err := k.Create(ctx, &keg.CreateOptions{
-		Title: opts.Title,
-		Lead:  opts.Lead,
-		Tags:  opts.Tags,
-		Attrs: attrs,
+		Schema: opts.Schema,
+		Title:  opts.Title,
+		Lead:   opts.Lead,
+		Tags:   opts.Tags,
+		Attrs:  attrs,
 	})
 	if err != nil {
 		return keg.NodeId{}, fmt.Errorf("unable to create node: %w", err)
@@ -89,7 +92,7 @@ func shouldUseLiveEditorOnCreate(opts CreateOptions) bool {
 	if opts.Stream.IsPiped || !opts.Stream.IsTTY {
 		return false
 	}
-	if strings.TrimSpace(opts.Title) != "" || strings.TrimSpace(opts.Lead) != "" {
+	if strings.TrimSpace(opts.Schema) != "" || strings.TrimSpace(opts.Title) != "" || strings.TrimSpace(opts.Lead) != "" {
 		return false
 	}
 	if len(opts.Tags) > 0 || len(opts.Attrs) > 0 {
@@ -100,35 +103,31 @@ func shouldUseLiveEditorOnCreate(opts CreateOptions) bool {
 
 func (t *Tap) createNodeFromRaw(ctx context.Context, k keg.Keg, raw []byte, defaults CreateOptions) (keg.NodeId, error) {
 	createOpts := &keg.CreateOptions{
-		Title: defaults.Title,
-		Lead:  defaults.Lead,
-		Tags:  defaults.Tags,
-		Attrs: createAttrsFromStrings(defaults.Attrs),
+		Schema: defaults.Schema,
+		Title:  defaults.Title,
+		Lead:   defaults.Lead,
+		Tags:   defaults.Tags,
+		Attrs:  createAttrsFromStrings(defaults.Attrs),
 	}
 
 	hasFrontmatter := false
 	var frontmatterRaw []byte
 	if len(raw) > 0 {
+		originalRaw := raw
 		var err error
-		hasFrontmatter, frontmatterRaw, raw, err = splitEditNodeFile(raw)
+		hasFrontmatter, frontmatterRaw, _, err = splitEditNodeFile(raw)
 		if err != nil {
 			return keg.NodeId{}, err
 		}
-		createOpts.Body = raw
+		createOpts.Body = originalRaw
 	}
 	if hasFrontmatter {
 		var attrs map[string]any
 		if err := yaml.Unmarshal(frontmatterRaw, &attrs); err != nil {
 			return keg.NodeId{}, fmt.Errorf("invalid frontmatter metadata: %w", err)
 		}
-		if len(attrs) > 0 {
-			if createOpts.Attrs == nil {
-				createOpts.Attrs = map[string]any{}
-			}
-			for key, val := range attrs {
-				createOpts.Attrs[key] = val
-			}
-		}
+		// Keep frontmatter in Body so the Keg layer can detect a conflicting
+		// type from --attrs or --schema before applying either source.
 	}
 
 	created, err := k.Create(ctx, createOpts)

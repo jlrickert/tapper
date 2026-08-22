@@ -55,6 +55,14 @@ func TestCreate_Table(t *testing.T) {
 				"- beta",
 			},
 		},
+		{
+			name:     "with_schema",
+			args:     []string{"create", "--title", "Schema Note", "--schema", "note"},
+			outRegex: `^\d+`,
+			metaContains: []string{
+				"type: note",
+			},
+		},
 	}
 
 	for _, tc := range cases {

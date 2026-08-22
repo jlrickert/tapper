@@ -74,6 +74,18 @@ summary: from stdin
 	require.Contains(t, content, "# Piped Body")
 }
 
+func TestEdit_PipedSchemaSelectionPersistsType(t *testing.T) {
+	t.Parallel()
+	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
+	created := NewProcess(t, false, "create", "--keg", "personal", "--title", "Editable").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, created.Err)
+
+	res := NewProcess(t, false, "edit", "1", "--keg", "personal", "--schema", "task").
+		RunWithIO(sb.Context(), sb.Runtime(), strings.NewReader("# Edited with schema\n"))
+	require.NoError(t, res.Err)
+	require.Contains(t, string(sb.MustReadFile("~/kegs/@local/personal/1/meta.yaml")), "type: task")
+}
+
 func TestEdit_RejectsInvalidPipedFrontmatter(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
