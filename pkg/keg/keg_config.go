@@ -100,10 +100,8 @@ type ConfigV2 struct {
 	// Snapshots controls automatic snapshot behavior for this keg.
 	Snapshots *SnapshotConfig `yaml:"snapshots,omitempty" json:"snapshots,omitempty"`
 
-	// SchemaPolicy controls whether schema validation warns, blocks, or is
-	// disabled for different write actors. When omitted, human writes warn while
-	// agent and API writes block. Archive imports and snapshot restores always
-	// skip node-schema enforcement.
+	// SchemaPolicy controls strict KEG validation and the fallback actor modes
+	// used when strict is disabled.
 	SchemaPolicy *SchemaPolicy `yaml:"schemaPolicy,omitempty" json:"schemaPolicy,omitempty"`
 
 	path string
@@ -246,9 +244,10 @@ func NewConfig(options ...ConfigOption) *Config {
 		- The zero node (0/) is a placeholder for planned content.
 		- Indices under dex/ are generated automatically by keg tooling.
 		- Use tags in node meta.yaml to organize and filter content.`,
-		Timezone:  "UTC",
-		Snapshots: DefaultSnapshotConfig(),
-		Indexes:   SystemIndexEntries(),
+		Timezone:     "UTC",
+		Snapshots:    DefaultSnapshotConfig(),
+		SchemaPolicy: &SchemaPolicy{Strict: true},
+		Indexes:      SystemIndexEntries(),
 	}
 	for _, f := range options {
 		f(cfg)

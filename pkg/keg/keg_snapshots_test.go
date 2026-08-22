@@ -16,7 +16,7 @@ func TestKegSnapshotsRestoreSkipsSchemaEnforcement(t *testing.T) {
 	fx := NewSandbox(t)
 	ctx := fx.Context()
 	k := kegpkg.NewLocalKeg(kegpkg.NewMemoryRepo(fx.Runtime()), fx.Runtime())
-	require.NoError(t, k.Init(ctx))
+	initNonStrictTestKeg(t, k, ctx)
 
 	id, err := k.Create(ctx, &kegpkg.CreateOptions{
 		Body:  []byte("# Historical Task\n"),
@@ -60,7 +60,7 @@ func TestKegSnapshots_ReturnErrNotSupportedWithoutSnapshotBackend(t *testing.T) 
 	repo := &repoWithoutSnapshots{Repository: base}
 	k := kegpkg.NewLocalKeg(repo, fx.Runtime())
 
-	require.NoError(t, k.Init(fx.Context()))
+	initNonStrictTestKeg(t, k, fx.Context())
 
 	id, err := k.Create(fx.Context(), &kegpkg.CreateOptions{Title: "Snapshot Target"})
 	require.NoError(t, err)

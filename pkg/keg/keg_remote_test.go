@@ -2,6 +2,7 @@ package keg_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -64,6 +65,15 @@ func rewrittenWire(ids []kegpkg.NodeId) []string {
 	return out
 }
 
+func snapshotWire(item kegpkg.Snapshot) map[string]any {
+	return map[string]any{
+		"id": item.ID, "node": item.Node.ID, "parent": item.Parent,
+		"created_at": item.CreatedAt.Format(time.RFC3339), "message": item.Message,
+		"content_hash": item.ContentHash, "meta_hash": item.MetaHash,
+		"stats_hash": item.StatsHash, "is_checkpoint": item.IsCheckpoint,
+	}
+}
+
 // newMockOpsHub builds an initialized memory-backed keg with two linked,
 // tagged nodes and serves the operation API over it.
 func newMockOpsHub(t *testing.T, f *sandbox.Sandbox, token string) *mockOpsHub {
@@ -71,7 +81,7 @@ func newMockOpsHub(t *testing.T, f *sandbox.Sandbox, token string) *mockOpsHub {
 
 	repo := kegpkg.NewMemoryRepo(f.Runtime())
 	backing := kegpkg.NewLocalKeg(repo, f.Runtime())
-	require.NoError(t, backing.Init(f.Context()))
+	initNonStrictTestKeg(t, backing, f.Context())
 	_, err := backing.Create(f.Context(), &kegpkg.CreateOptions{
 		Title: "Alpha node",
 		Body:  []byte("# Alpha node\n\nAlpha body links to [beta](../2)"),
@@ -139,6 +149,114 @@ func newMockOpsHub(t *testing.T, f *sandbox.Sandbox, token string) *mockOpsHub {
 			}
 		}
 		h.writeJSON(w, http.StatusCreated, map[string]int{"id": id.ID.ID})
+	})
+	mux.HandleFunc("POST /nodes/batch", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Nodes []struct {
+				Key   string         `json:"key"`
+				Title string         `json:"title"`
+				Lead  string         `json:"lead"`
+				Body  string         `json:"body"`
+				Tags  []string       `json:"tags"`
+				Attrs map[string]any `json:"attrs"`
+			} `json:"nodes"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			h.writeError(w, http.StatusBadRequest, "invalid JSON body", "BAD_REQUEST")
+			return
+		}
+		nodes := make([]kegpkg.NodeCreate, len(req.Nodes))
+		for i, item := range req.Nodes {
+			nodes[i] = kegpkg.NodeCreate{Key: item.Key, Title: item.Title, Lead: item.Lead, Body: []byte(item.Body), Tags: item.Tags, Attrs: item.Attrs}
+		}
+		results, err := backing.CreateNodes(r.Context(), nodes)
+		if err != nil {
+			h.kegError(w, err)
+			return
+		}
+		wire := make([]map[string]any, len(results))
+		for i, item := range results {
+			wire[i] = map[string]any{"key": item.Key, "id": item.ID.ID, "hash": item.Hash, "validation": item.Validation}
+		}
+		h.writeJSON(w, http.StatusCreated, wire)
+	})
+	mux.HandleFunc("PUT /nodes/batch", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Updates []struct {
+				NodeID         int     `json:"node_id"`
+				Content        *string `json:"content"`
+				Meta           *string `json:"meta"`
+				LockToken      string  `json:"lock_token"`
+				ExpectedHash   string  `json:"expected_hash"`
+				SnapshotBefore bool    `json:"snapshot_before"`
+			} `json:"updates"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			h.writeError(w, http.StatusBadRequest, "invalid JSON body", "BAD_REQUEST")
+			return
+		}
+		updates := make([]kegpkg.NodeUpdateOptions, len(req.Updates))
+		for i, item := range req.Updates {
+			updates[i] = kegpkg.NodeUpdateOptions{ID: kegpkg.NodeId{ID: item.NodeID}, LockToken: kegpkg.LockToken(item.LockToken), ExpectedHash: item.ExpectedHash, SnapshotBefore: item.SnapshotBefore}
+			if item.Content != nil {
+				updates[i].Content, updates[i].HasContent = []byte(*item.Content), true
+			}
+			if item.Meta != nil {
+				updates[i].Meta, updates[i].HasMeta = []byte(*item.Meta), true
+			}
+		}
+		results, err := backing.UpdateNodes(r.Context(), updates)
+		if err != nil {
+			h.kegError(w, err)
+			return
+		}
+		wire := make([]map[string]any, len(results))
+		for i, item := range results {
+			wire[i] = map[string]any{"id": item.ID.ID, "hash": item.Hash, "validation": item.Validation}
+		}
+		h.writeJSON(w, http.StatusOK, wire)
+	})
+	mux.HandleFunc("POST /nodes/snapshots/batch", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Nodes []struct {
+				NodeID  int    `json:"node_id"`
+				Message string `json:"message"`
+			} `json:"nodes"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			h.writeError(w, http.StatusBadRequest, "invalid JSON body", "BAD_REQUEST")
+			return
+		}
+		nodes := make([]kegpkg.NodeSnapshotRequest, len(req.Nodes))
+		for i, item := range req.Nodes {
+			nodes[i] = kegpkg.NodeSnapshotRequest{ID: kegpkg.NodeId{ID: item.NodeID}, Message: item.Message}
+		}
+		snapshots, err := backing.AppendSnapshots(r.Context(), nodes)
+		if err != nil {
+			h.kegError(w, err)
+			return
+		}
+		wire := make([]map[string]any, len(snapshots))
+		for i, item := range snapshots {
+			wire[i] = snapshotWire(item)
+		}
+		h.writeJSON(w, http.StatusCreated, wire)
+	})
+	mux.HandleFunc("GET /nodes/{id}/snapshots", func(w http.ResponseWriter, r *http.Request) {
+		id, ok := h.parseID(w, r)
+		if !ok {
+			return
+		}
+		snapshots, err := backing.ListSnapshots(r.Context(), id)
+		if err != nil {
+			h.kegError(w, err)
+			return
+		}
+		wire := make([]map[string]any, len(snapshots))
+		for i, item := range snapshots {
+			wire[i] = snapshotWire(item)
+		}
+		h.writeJSON(w, http.StatusOK, wire)
 	})
 	mux.HandleFunc("GET /nodes/{id}", func(w http.ResponseWriter, r *http.Request) {
 		id, ok := h.parseID(w, r)
@@ -606,6 +724,41 @@ func TestRemoteKegRoundTripBasics(t *testing.T) {
 	require.Equal(t, 4, next.ID)
 }
 
+func TestRemoteMutationBatchesPreserveOrderAndAtomicity(t *testing.T) {
+	t.Parallel()
+	fx, _, remote := newRemoteKegFixture(t)
+	ctx := fx.Context()
+
+	created, err := remote.CreateNodes(ctx, []kegpkg.NodeCreate{
+		{Key: "forward", Body: []byte("# Forward\n\n[Back](../{{node:back}})\n")},
+		{Key: "back", Body: []byte("# Back\n\n[Forward](../{{node:forward}})\n")},
+	})
+	require.NoError(t, err)
+	require.Equal(t, []string{"forward", "back"}, []string{created[0].Key, created[1].Key})
+	forwardBefore, err := remote.ReadNode(ctx, created[0].ID)
+	require.NoError(t, err)
+	require.Contains(t, string(forwardBefore.Content), fmt.Sprintf("../%d", created[1].ID.ID))
+
+	_, err = remote.UpdateNodes(ctx, []kegpkg.NodeUpdateOptions{
+		{ID: created[0].ID, Content: []byte("# Changed\n"), HasContent: true, SnapshotBefore: true},
+		{ID: created[1].ID, Content: []byte("# Never\n"), HasContent: true, ExpectedHash: "stale"},
+	})
+	require.ErrorIs(t, err, kegpkg.ErrConflict)
+	forwardAfter, err := remote.ReadNode(ctx, created[0].ID)
+	require.NoError(t, err)
+	require.Equal(t, forwardBefore.Content, forwardAfter.Content)
+	history, err := remote.ListSnapshots(ctx, created[0].ID)
+	require.NoError(t, err)
+	require.Empty(t, history)
+
+	snapshots, err := remote.AppendSnapshots(ctx, []kegpkg.NodeSnapshotRequest{
+		{ID: created[0].ID, Message: "forward point"},
+		{ID: created[1].ID, Message: "back point"},
+	})
+	require.NoError(t, err)
+	require.Equal(t, []kegpkg.NodeId{created[0].ID, created[1].ID}, []kegpkg.NodeId{snapshots[0].Node, snapshots[1].Node})
+}
+
 func TestRemoteKegMoveRemoveRewritten(t *testing.T) {
 	t.Parallel()
 	f, _, rk := newRemoteKegFixture(t)
@@ -654,7 +807,7 @@ func TestRemoteKegExportImport(t *testing.T) {
 
 	// Land the archive in a second, freshly initialized LocalKeg.
 	dst := kegpkg.NewLocalKeg(kegpkg.NewMemoryRepo(f.Runtime()), f.Runtime())
-	require.NoError(t, dst.Init(ctx))
+	initNonStrictTestKeg(t, dst, ctx)
 	imported, err := dst.ImportNodes(ctx, rc, kegpkg.ImportNodesOptions{})
 	require.NoError(t, err)
 	require.GreaterOrEqual(t, len(imported), 3)
@@ -672,7 +825,7 @@ func TestRemoteKegImportRoundTrip(t *testing.T) {
 	// Export a node from a local keg and import it into the remote keg
 	// with fresh ids.
 	src := kegpkg.NewLocalKeg(kegpkg.NewMemoryRepo(f.Runtime()), f.Runtime())
-	require.NoError(t, src.Init(ctx))
+	initNonStrictTestKeg(t, src, ctx)
 	srcID, err := src.Create(ctx, &kegpkg.CreateOptions{
 		Title: "Imported node",
 		Body:  []byte("# Imported node\n\ntravels by archive"),

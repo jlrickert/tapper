@@ -326,7 +326,7 @@ func (k *LocalKeg) writeArchiveHistory(ctx context.Context, tw *tar.Writer, base
 // archive carries its own). Derived state (dex, config updated stamp) is
 // rebuilt once after all nodes import.
 func (k *LocalKeg) ImportNodes(ctx context.Context, r io.Reader, opts ImportNodesOptions) ([]ImportedNode, error) {
-	return withKegWriteValue(ctx, k, func(ctx context.Context) ([]ImportedNode, error) {
+	return withKegAtomicWriteValue(ctx, k, func(ctx context.Context) ([]ImportedNode, error) {
 		return k.importNodes(ctx, r, opts)
 	})
 }
@@ -367,6 +367,7 @@ func (k *LocalKeg) importNodes(ctx context.Context, r io.Reader, opts ImportNode
 			return nil, fmt.Errorf("archive contains schemas: %w", ErrNotSupported)
 		}
 	}
+	destinationWasStrict := k.strictEnabled(ctx)
 
 	snapshotRepo, hasSnapshots := repoSnapshots(k.Repo)
 	importHistory := manifest.WithHistory
@@ -536,6 +537,15 @@ func (k *LocalKeg) importNodes(ctx context.Context, r io.Reader, opts ImportNode
 			return nil, err
 		}
 	}
+	if destinationWasStrict {
+		store, ok := repoSchemas(k.Repo)
+		if !ok {
+			return nil, ErrNotSupported
+		}
+		if err := k.validateCompleteStrict(ctx, store, nil); err != nil {
+			return nil, fmt.Errorf("strict archive result: %w", err)
+		}
+	}
 	if manifest.WithConfig {
 		rawConfig, err := readRequiredArchiveEntry(entries, "keg-archive/keg.yaml")
 		if err != nil {
@@ -656,6 +666,15 @@ func (k *LocalKeg) rebuildDexFromRepo(ctx context.Context) error {
 	}
 
 	for _, id := range ids {
+		exists, err := k.nodeExistsWithContent(ctx, id)
+		if err != nil {
+			return fmt.Errorf("unable to inspect node %s for dex rebuild: %w", id.Path(), err)
+		}
+		if !exists {
+			// Next reserves IDs in local repositories. A caller may therefore
+			// leave a contentless reservation that is not yet a canonical node.
+			continue
+		}
 		nodeData, err := k.loadNodeDataForDex(ctx, id)
 		if err != nil {
 			return fmt.Errorf("unable to read node %s for dex rebuild: %w", id.Path(), err)
@@ -925,6 +944,10 @@ func (s *archiveSchemaStore) DeleteSchema(ctx context.Context, typeName string) 
 }
 
 func (k *LocalKeg) restoreArchiveSchemas(ctx context.Context, schemas *archiveSchemaStore) error {
+	store, ok := repoSchemas(k.Repo)
+	if !ok {
+		return ErrNotSupported
+	}
 	names, err := schemas.ListSchemas(ctx)
 	if err != nil {
 		return fmt.Errorf("unable to list archived schemas: %w", err)
@@ -934,7 +957,13 @@ func (k *LocalKeg) restoreArchiveSchemas(ctx context.Context, schemas *archiveSc
 		if err != nil {
 			return fmt.Errorf("unable to read archived schema %q: %w", typeName, err)
 		}
-		if err := k.WriteSchema(ctx, typeName, rawSchema); err != nil {
+		if _, err := validateSchemaDefinitionForType(typeName, rawSchema); err != nil {
+			return fmt.Errorf("archived schema %q is invalid: %w", typeName, err)
+		}
+		// The archive is already inside one atomic KEG boundary. Install the
+		// complete schema set before validating the complete resulting state so
+		// strict imports cannot fail on a transient, partially replaced set.
+		if err := store.WriteSchema(ctx, typeName, rawSchema); err != nil {
 			return fmt.Errorf("unable to restore schema %q after import: %w", typeName, err)
 		}
 	}

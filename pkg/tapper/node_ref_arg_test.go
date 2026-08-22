@@ -44,6 +44,7 @@ hubs:
 		k, err := keg.NewKegFromTarget(ctx, keg.NewFile(dir), rt)
 		require.NoError(t, err)
 		require.NoError(t, k.Init(ctx))
+		makeKegNonStrict(t, ctx, k)
 		id, err := k.Create(ctx, &keg.CreateOptions{Body: []byte(body)})
 		require.NoError(t, err)
 		return id.ID

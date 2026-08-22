@@ -35,6 +35,35 @@ func (k *LocalKeg) withKegWrite(ctx context.Context, fn func(context.Context) er
 	})
 }
 
+func (k *LocalKeg) withKegAtomicWrite(ctx context.Context, fn func(context.Context) error) error {
+	var err error
+	if atomic, ok := k.Repo.(RepositoryAtomicWrite); ok {
+		err = atomic.WithKegAtomicWrite(ctx, func(opCtx context.Context) error {
+			return k.enterLocalKegOperation(opCtx, true, fn)
+		})
+	} else {
+		// Transactional backends such as PgRepo make their ordinary write
+		// boundary atomic, so the fallback preserves their native transaction.
+		err = k.withKegWrite(ctx, fn)
+	}
+	if err != nil {
+		// The repository rolled canonical and generated files back. Discard any
+		// in-memory dex generation that the failed callback may have built.
+		k.InvalidateDex()
+	}
+	return err
+}
+
+func withKegAtomicWriteValue[T any](ctx context.Context, k *LocalKeg, fn func(context.Context) (T, error)) (T, error) {
+	var out T
+	err := k.withKegAtomicWrite(ctx, func(opCtx context.Context) error {
+		var err error
+		out, err = fn(opCtx)
+		return err
+	})
+	return out, err
+}
+
 func withKegReadValue[T any](ctx context.Context, k *LocalKeg, fn func(context.Context) (T, error)) (T, error) {
 	var out T
 	err := k.withKegRead(ctx, func(opCtx context.Context) error {

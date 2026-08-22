@@ -59,30 +59,49 @@ func registerNodeHistory(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaul
 // --- node_snapshot ---
 
 type nodeSnapshotInput struct {
-	NodeID  string `json:"node_id" jsonschema:"node ID to snapshot"`
-	Message string `json:"message,omitempty" jsonschema:"optional snapshot message"`
-	Keg     string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
+	Nodes []nodeSnapshotItemInput `json:"nodes" jsonschema:"1-100 nodes to snapshot atomically"`
+	Keg   string                  `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
+}
+type nodeSnapshotItemInput struct {
+	NodeID  string `json:"node_id"`
+	Message string `json:"message,omitempty"`
+}
+
+type nodeSnapshotOutput struct {
+	NodeID   string `json:"node_id"`
+	Revision int64  `json:"revision"`
+	Message  string `json:"message,omitempty"`
 }
 
 func registerNodeSnapshot(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "node_snapshot",
-		Description: "Create a snapshot of a node's current state",
+		Description: "Atomically snapshot the current state of 1-100 nodes",
+		InputSchema: boundedMutationInputSchema[nodeSnapshotInput]("nodes"),
 		Annotations: &sdkmcp.ToolAnnotations{
 			DestructiveHint: boolPtr(false),
 			OpenWorldHint:   boolPtr(false),
 		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in nodeSnapshotInput) (*sdkmcp.CallToolResult, any, error) {
-		opts := tapper.NodeSnapshotOptions{
-			KegTargetOptions: resolveKegTarget(ctx, in.Keg, defaults),
-			NodeID:           in.NodeID,
-			Message:          in.Message,
+		nodes := make([]tapper.BatchSnapshotItem, len(in.Nodes))
+		for i, item := range in.Nodes {
+			nodes[i] = tapper.BatchSnapshotItem{NodeID: item.NodeID, Message: item.Message}
 		}
-		snap, err := tap.NodeSnapshot(ctx, opts)
+		snaps, err := tap.NodeSnapshotBatch(ctx, tapper.BatchSnapshotOptions{KegTargetOptions: resolveKegTarget(ctx, in.Keg, defaults), Nodes: nodes})
 		if err != nil {
 			return errorResult(err), nil, nil
 		}
-		return textResult(fmt.Sprintf("snapshot rev %d created", snap.ID)), nil, nil
+		message := fmt.Sprintf("created %d snapshot(s)", len(snaps))
+		if len(snaps) == 1 {
+			message = fmt.Sprintf("snapshot rev %d created", snaps[0].ID)
+		}
+		res := textResult(message)
+		structured := make([]nodeSnapshotOutput, len(snaps))
+		for i, snap := range snaps {
+			structured[i] = nodeSnapshotOutput{NodeID: snap.Node.Path(), Revision: int64(snap.ID), Message: snap.Message}
+		}
+		res.StructuredContent = map[string]any{"results": structured}
+		return res, nil, nil
 	})
 }
 

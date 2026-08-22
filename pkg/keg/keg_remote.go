@@ -257,11 +257,20 @@ func (k *RemoteKeg) getJSON(ctx context.Context, path, op string, out any) error
 // postJSON issues a POST with a JSON payload and decodes the JSON response
 // into out (skipped when out is nil).
 func (k *RemoteKeg) postJSON(ctx context.Context, path, op string, in, out any, okStatuses ...int) error {
+	return k.jsonRequest(ctx, http.MethodPost, path, op, in, out, okStatuses...)
+}
+
+// putJSON issues a PUT with a JSON payload and decodes the JSON response.
+func (k *RemoteKeg) putJSON(ctx context.Context, path, op string, in, out any, okStatuses ...int) error {
+	return k.jsonRequest(ctx, http.MethodPut, path, op, in, out, okStatuses...)
+}
+
+func (k *RemoteKeg) jsonRequest(ctx context.Context, method, path, op string, in, out any, okStatuses ...int) error {
 	payload, err := json.Marshal(in)
 	if err != nil {
 		return NewBackendError("remote", op, 0, err, false)
 	}
-	resp, err := k.do(ctx, http.MethodPost, path, bytes.NewReader(payload), "application/json", nil)
+	resp, err := k.do(ctx, method, path, bytes.NewReader(payload), "application/json", nil)
 	if err != nil {
 		return err
 	}
@@ -384,31 +393,11 @@ func (k *RemoteKeg) Create(ctx context.Context, opts *CreateOptions) (CreateResu
 	if opts == nil {
 		opts = &CreateOptions{}
 	}
-	now := k.rt.Clock().Now()
-	// The id is assigned by the hub, so the default heading can't embed it.
-	nodeData, err := buildCreateNodeData(ctx, k.rt, opts, now, "New Node")
-	if err != nil {
+	results, err := k.CreateNodes(ctx, []NodeCreate{{Key: "node", Title: opts.Title, Lead: opts.Lead, Body: opts.Body, Tags: opts.Tags, Attrs: opts.Attrs}})
+	if len(results) == 0 {
 		return CreateResult{}, err
 	}
-
-	content := nodeData.Content.Body
-	req := struct {
-		Content *string `json:"content,omitempty"`
-		Meta    *string `json:"meta,omitempty"`
-	}{Content: &content}
-	if len(opts.Tags) > 0 || len(opts.Attrs) > 0 {
-		meta := nodeData.Meta.ToYAML()
-		req.Meta = &meta
-	}
-
-	var result struct {
-		ID         int                     `json:"id"`
-		Validation *SchemaValidationResult `json:"validation,omitempty"`
-	}
-	if err := k.postJSON(ctx, "/nodes", "Create", req, &result, http.StatusCreated, http.StatusOK); err != nil {
-		return CreateResult{}, err
-	}
-	return CreateResult{ID: NodeId{ID: result.ID}, Validation: result.Validation}, nil
+	return CreateResult{ID: results[0].ID, Validation: results[0].Validation}, err
 }
 
 // Next implements Keg via GET /nodes/next.
@@ -851,20 +840,11 @@ func snapshotFromRemoteEntry(entry remoteSnapshotEntry) (Snapshot, error) {
 // carries only the message — the hub computes the snapshot payloads from the
 // node's current server-side state.
 func (k *RemoteKeg) AppendSnapshot(ctx context.Context, id NodeId, msg string) (Snapshot, error) {
-	var entry remoteSnapshotEntry
-	req := struct {
-		Message string `json:"message"`
-	}{Message: msg}
-	path := fmt.Sprintf("/nodes/%d/snapshots", id.ID)
-	if err := k.postJSON(ctx, path, "AppendSnapshot", req, &entry, http.StatusCreated, http.StatusOK); err != nil {
+	results, err := k.AppendSnapshots(ctx, []NodeSnapshotRequest{{ID: id, Message: msg}})
+	if len(results) == 0 {
 		return Snapshot{}, err
 	}
-	snap, err := snapshotFromRemoteEntry(entry)
-	if err != nil {
-		return Snapshot{}, NewBackendError("remote", "AppendSnapshot", 0,
-			fmt.Errorf("invalid response timestamp: %w", err), false)
-	}
-	return snap, nil
+	return results[0], err
 }
 
 // ListSnapshots implements Keg via GET /nodes/{id}/snapshots.

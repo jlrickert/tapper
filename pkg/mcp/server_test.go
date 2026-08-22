@@ -5,6 +5,7 @@ import (
 	"embed"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"strings"
 	"sync"
@@ -504,17 +505,135 @@ func TestMCP_CatError(t *testing.T) {
 
 // --- write tool tests ---
 
+func batchCreateArgs(item map[string]any) map[string]any {
+	item["key"] = "node"
+	return map[string]any{"nodes": []any{item}}
+}
+
+func batchEditArgs(item map[string]any) map[string]any {
+	return map[string]any{"edits": []any{item}}
+}
+
+func batchMetaArgs(item map[string]any) map[string]any {
+	nodeID := item["node_id"]
+	delete(item, "node_id")
+	if _, writes := item["content"]; writes {
+		item["node_id"] = nodeID
+		return map[string]any{"updates": []any{item}}
+	}
+	return map[string]any{"node_ids": []any{nodeID}}
+}
+
+func batchSnapshotArgs(item map[string]any) map[string]any {
+	return map[string]any{"nodes": []any{item}}
+}
+
+func TestMCPMutationSchemasRejectLegacySingleItemFields(t *testing.T) {
+	session, ctx := newTestSession(t)
+	for _, tc := range []struct {
+		name string
+		args map[string]any
+	}{
+		{"create", map[string]any{"title": "legacy"}},
+		{"edit", map[string]any{"node_id": "0", "content": "# legacy\n"}},
+		{"meta", map[string]any{"node_id": "0"}},
+		{"node_snapshot", map[string]any{"node_id": "0"}},
+	} {
+		res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: tc.name, Arguments: tc.args})
+		require.NoError(t, err)
+		require.True(t, res.IsError, "%s accepted legacy fields", tc.name)
+	}
+}
+
+func TestMCPMutationSchemasRejectEmptyAndOversizedArrays(t *testing.T) {
+	session, ctx := newTestSession(t)
+	oversizedObjects := make([]any, 101)
+	oversizedIDs := make([]any, 101)
+	for i := range oversizedObjects {
+		oversizedObjects[i] = map[string]any{"key": fmt.Sprintf("node-%d", i)}
+		oversizedIDs[i] = "0"
+	}
+	for _, tc := range []struct {
+		name string
+		args map[string]any
+	}{
+		{"create empty", map[string]any{"nodes": []any{}}},
+		{"create oversized", map[string]any{"nodes": oversizedObjects}},
+		{"edit empty", map[string]any{"edits": []any{}}},
+		{"edit oversized", map[string]any{"edits": oversizedObjects}},
+		{"meta read empty", map[string]any{"node_ids": []any{}}},
+		{"meta read oversized", map[string]any{"node_ids": oversizedIDs}},
+		{"meta update empty", map[string]any{"updates": []any{}}},
+		{"meta update oversized", map[string]any{"updates": oversizedObjects}},
+		{"snapshot empty", map[string]any{"nodes": []any{}}},
+		{"snapshot oversized", map[string]any{"nodes": oversizedObjects}},
+	} {
+		tool := strings.Fields(tc.name)[0]
+		if tool == "snapshot" {
+			tool = "node_snapshot"
+		}
+		res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: tool, Arguments: tc.args})
+		require.NoError(t, err)
+		require.True(t, res.IsError, "%s accepted invalid array bounds", tc.name)
+	}
+}
+
+func TestMCPMutationsPreserveAgentSchemaPolicy(t *testing.T) {
+	session, ctx := newTestSession(t)
+	settings, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "keg_settings_edit",
+		Arguments: map[string]any{"data": `kegv: 2025-07
+schemaPolicy:
+  strict: false
+  human: off
+  agent: block
+  api: off
+`},
+	})
+	require.NoError(t, err)
+	require.False(t, settings.IsError, "settings update failed: %s", extractText(t, settings))
+	schema, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "schema_create",
+		Arguments: map[string]any{"data": `type: task
+meta:
+  type: object
+  required: [type]
+  properties:
+    type: {const: task}
+`},
+	})
+	require.NoError(t, err)
+	require.False(t, schema.IsError, "schema create failed: %s", extractText(t, schema))
+
+	invalid, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name:      "create",
+		Arguments: map[string]any{"nodes": []any{map[string]any{"key": "invalid", "body": "# Missing type\n"}}},
+	})
+	require.NoError(t, err)
+	require.True(t, invalid.IsError, "MCP write was reclassified as human and bypassed agent:block")
+	require.Contains(t, extractText(t, invalid), "missing required type")
+
+	valid, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "create",
+		Arguments: map[string]any{"nodes": []any{map[string]any{
+			"key": "valid", "body": "# Typed\n", "attrs": map[string]any{"type": "task"},
+		}}},
+	})
+	require.NoError(t, err)
+	require.False(t, valid.IsError, "typed MCP create failed: %s", extractText(t, valid))
+}
+
 func TestMCP_Create(t *testing.T) {
 	t.Parallel()
 	session, ctx := newTestSession(t)
 
 	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
 		Name: "create",
-		Arguments: map[string]any{
+		Arguments: batchCreateArgs(map[string]any{
 			"title": "New Node",
 			"lead":  "A node created via MCP.",
 			"tags":  []string{"mcp-test"},
-		},
+		}),
 	})
 	require.NoError(t, err)
 	text := extractText(t, res)
@@ -536,6 +655,35 @@ func TestMCP_Create(t *testing.T) {
 	require.Contains(t, readText, "A node created via MCP.")
 }
 
+func TestMCP_CreateBatchReturnsOrderedStructuredResults(t *testing.T) {
+	session, ctx := newTestSession(t)
+	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "create",
+		Arguments: map[string]any{"nodes": []any{
+			map[string]any{"key": "first", "body": "# First\n\n[Second](../{{node:second}})\n"},
+			map[string]any{"key": "second", "body": "# Second\n\n[First](../{{node:first}})\n"},
+		}},
+	})
+	require.NoError(t, err)
+	require.False(t, res.IsError, "batch create returned error: %s", extractText(t, res))
+	raw, err := json.Marshal(res.StructuredContent)
+	require.NoError(t, err)
+	var structured struct {
+		Results []struct {
+			Key    string `json:"key"`
+			NodeID string `json:"node_id"`
+			Hash   string `json:"hash"`
+		} `json:"results"`
+	}
+	require.NoError(t, json.Unmarshal(raw, &structured))
+	require.Len(t, structured.Results, 2)
+	require.Equal(t, []string{"first", "second"}, []string{structured.Results[0].Key, structured.Results[1].Key})
+	require.NotEmpty(t, structured.Results[0].NodeID)
+	require.NotEmpty(t, structured.Results[1].NodeID)
+	require.NotEmpty(t, structured.Results[0].Hash)
+	require.NotEmpty(t, structured.Results[1].Hash)
+}
+
 func TestMCP_CreateWithBody(t *testing.T) {
 	t.Parallel()
 	session, ctx := newTestSession(t)
@@ -543,9 +691,9 @@ func TestMCP_CreateWithBody(t *testing.T) {
 	body := "# Custom Title\n\nCustom body content.\n"
 	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
 		Name: "create",
-		Arguments: map[string]any{
+		Arguments: batchCreateArgs(map[string]any{
 			"body": body,
-		},
+		}),
 	})
 	require.NoError(t, err)
 	text := extractText(t, res)
@@ -571,9 +719,9 @@ func TestMCP_Edit(t *testing.T) {
 	// Create a node first.
 	createRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
 		Name: "create",
-		Arguments: map[string]any{
+		Arguments: batchCreateArgs(map[string]any{
 			"title": "Before Edit",
-		},
+		}),
 	})
 	require.NoError(t, err)
 	nodeID := extractText(t, createRes)
@@ -582,10 +730,10 @@ func TestMCP_Edit(t *testing.T) {
 	// Edit it.
 	editRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
 		Name: "edit",
-		Arguments: map[string]any{
+		Arguments: batchEditArgs(map[string]any{
 			"node_id": nodeID,
 			"content": "# After Edit\n\nEdited via MCP.\n",
-		},
+		}),
 	})
 	require.NoError(t, err)
 	require.False(t, editRes.IsError, "edit returned error: %s", extractText(t, editRes))
@@ -611,9 +759,9 @@ func TestMCP_MetaRead(t *testing.T) {
 	// Node 0 has tags: [overview]
 	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
 		Name: "meta",
-		Arguments: map[string]any{
+		Arguments: batchMetaArgs(map[string]any{
 			"node_id": "0",
-		},
+		}),
 	})
 	require.NoError(t, err)
 	text := extractText(t, res)
@@ -628,9 +776,9 @@ func TestMCP_MetaWrite(t *testing.T) {
 	// Create a node.
 	createRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
 		Name: "create",
-		Arguments: map[string]any{
+		Arguments: batchCreateArgs(map[string]any{
 			"title": "Meta Test",
-		},
+		}),
 	})
 	require.NoError(t, err)
 	nodeID := extractText(t, createRes)
@@ -638,10 +786,10 @@ func TestMCP_MetaWrite(t *testing.T) {
 	// Write new metadata.
 	writeRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
 		Name: "meta",
-		Arguments: map[string]any{
+		Arguments: batchMetaArgs(map[string]any{
 			"node_id": nodeID,
 			"content": "tags:\n  - updated\n  - mcp\n",
-		},
+		}),
 	})
 	require.NoError(t, err)
 	require.False(t, writeRes.IsError, "meta write returned error: %s", extractText(t, writeRes))
@@ -649,9 +797,9 @@ func TestMCP_MetaWrite(t *testing.T) {
 	// Read back.
 	readRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
 		Name: "meta",
-		Arguments: map[string]any{
+		Arguments: batchMetaArgs(map[string]any{
 			"node_id": nodeID,
-		},
+		}),
 	})
 	require.NoError(t, err)
 	readText := extractText(t, readRes)
@@ -666,9 +814,9 @@ func TestMCP_Remove(t *testing.T) {
 	// Create a node.
 	createRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
 		Name: "create",
-		Arguments: map[string]any{
+		Arguments: batchCreateArgs(map[string]any{
 			"title": "To Be Removed",
-		},
+		}),
 	})
 	require.NoError(t, err)
 	nodeID := extractText(t, createRes)
@@ -701,9 +849,9 @@ func TestMCP_Move(t *testing.T) {
 	// Create a node.
 	createRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
 		Name: "create",
-		Arguments: map[string]any{
+		Arguments: batchCreateArgs(map[string]any{
 			"title": "Movable Node",
-		},
+		}),
 	})
 	require.NoError(t, err)
 	srcID := extractText(t, createRes)
@@ -768,10 +916,10 @@ func TestMCP_NodeSnapshotAndHistory(t *testing.T) {
 	// Snapshot node 0.
 	snapRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
 		Name: "node_snapshot",
-		Arguments: map[string]any{
+		Arguments: batchSnapshotArgs(map[string]any{
 			"node_id": "0",
 			"message": "initial snapshot",
-		},
+		}),
 	})
 	require.NoError(t, err)
 	snapText := extractText(t, snapRes)
@@ -1237,11 +1385,11 @@ func TestMCP_ImportFromKeg(t *testing.T) {
 	// Create a node in the source keg.
 	createRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
 		Name: "create",
-		Arguments: map[string]any{
+		Arguments: batchCreateArgs(map[string]any{
 			"title": "Imported Node",
 			"lead":  "This node will be imported.",
 			"keg":   "source",
-		},
+		}),
 	})
 	require.NoError(t, err)
 	require.False(t, createRes.IsError, "create returned error: %s", extractText(t, createRes))
@@ -1340,9 +1488,9 @@ func TestMCP_UploadAndDownloadFile(t *testing.T) {
 	// Create a node to attach files to.
 	createRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
 		Name: "create",
-		Arguments: map[string]any{
+		Arguments: batchCreateArgs(map[string]any{
 			"title": "File Test Node",
-		},
+		}),
 	})
 	require.NoError(t, err)
 	nodeID := extractText(t, createRes)
@@ -1403,9 +1551,9 @@ func TestMCP_UploadAndDownloadImage(t *testing.T) {
 	// Create a node to attach images to.
 	createRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
 		Name: "create",
-		Arguments: map[string]any{
+		Arguments: batchCreateArgs(map[string]any{
 			"title": "Image Test Node",
-		},
+		}),
 	})
 	require.NoError(t, err)
 	nodeID := extractText(t, createRes)
@@ -1466,9 +1614,9 @@ func TestMCP_DownloadImageReturnsImageContent(t *testing.T) {
 
 	createRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
 		Name: "create",
-		Arguments: map[string]any{
+		Arguments: batchCreateArgs(map[string]any{
 			"title": "Hosted Image Download Node",
-		},
+		}),
 	})
 	require.NoError(t, err)
 	nodeID := extractText(t, createRes)
@@ -1538,9 +1686,9 @@ func TestMCP_UploadFileFromBase64(t *testing.T) {
 
 	createRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
 		Name: "create",
-		Arguments: map[string]any{
+		Arguments: batchCreateArgs(map[string]any{
 			"title": "Base64 File Node",
-		},
+		}),
 	})
 	require.NoError(t, err)
 	nodeID := extractText(t, createRes)
@@ -1579,9 +1727,9 @@ func TestMCP_UploadFileFromEmbeddedResource(t *testing.T) {
 
 	createRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
 		Name: "create",
-		Arguments: map[string]any{
+		Arguments: batchCreateArgs(map[string]any{
 			"title": "Embedded File Node",
-		},
+		}),
 	})
 	require.NoError(t, err)
 	nodeID := extractText(t, createRes)
@@ -1624,9 +1772,9 @@ func TestMCP_UploadImageFromEmbeddedResource(t *testing.T) {
 
 	createRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
 		Name: "create",
-		Arguments: map[string]any{
+		Arguments: batchCreateArgs(map[string]any{
 			"title": "Embedded Image Node",
-		},
+		}),
 	})
 	require.NoError(t, err)
 	nodeID := extractText(t, createRes)
@@ -1662,9 +1810,9 @@ func TestMCP_UploadImageRejectsInvalidImage(t *testing.T) {
 
 	createRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
 		Name: "create",
-		Arguments: map[string]any{
+		Arguments: batchCreateArgs(map[string]any{
 			"title": "Invalid Image Node",
-		},
+		}),
 	})
 	require.NoError(t, err)
 	nodeID := extractText(t, createRes)

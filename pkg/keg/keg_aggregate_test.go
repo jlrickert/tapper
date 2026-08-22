@@ -16,7 +16,7 @@ func TestLocalKegAggregateOperations(t *testing.T) {
 	fx := NewSandbox(t)
 	ctx := fx.Context()
 	k := keg.NewLocalKeg(keg.NewMemoryRepo(fx.Runtime()), fx.Runtime())
-	require.NoError(t, k.Init(ctx))
+	initNonStrictTestKeg(t, k, ctx)
 	one, err := k.Create(ctx, &keg.CreateOptions{Body: []byte("# One\n\nlead\n"), Tags: []string{"alpha"}})
 	require.NoError(t, err)
 	two, err := k.Create(ctx, &keg.CreateOptions{Body: []byte("# Two\n\n[One](../1)\n"), Tags: []string{"beta"}})
@@ -61,7 +61,7 @@ func TestUpdateNodeRejectsStaleHashAndReturnsNewHash(t *testing.T) {
 	fx := NewSandbox(t)
 	ctx := fx.Context()
 	k := keg.NewLocalKeg(keg.NewMemoryRepo(fx.Runtime()), fx.Runtime())
-	require.NoError(t, k.Init(ctx))
+	initNonStrictTestKeg(t, k, ctx)
 	created, err := k.Create(ctx, &keg.CreateOptions{Body: []byte("# Original\n\nbody\n")})
 	require.NoError(t, err)
 	opened, err := k.OpenNode(ctx, keg.NodeOpenOptions{ID: created.ID, Touch: true})
@@ -93,7 +93,7 @@ func TestUpdateNodeRollsBackMemoryWritesOnFailure(t *testing.T) {
 	base := keg.NewMemoryRepo(fx.Runtime())
 	repo := &failOnceContentRepo{Repository: base}
 	k := keg.NewLocalKeg(repo, fx.Runtime())
-	require.NoError(t, k.Init(ctx))
+	initNonStrictTestKeg(t, k, ctx)
 	created, err := k.Create(ctx, &keg.CreateOptions{Body: []byte("# Original\n\nbody\n"), Tags: []string{"original"}})
 	require.NoError(t, err)
 	before, err := k.ReadNode(ctx, created.ID)
@@ -120,7 +120,7 @@ func TestRemoveNodesReturnsCompletedItemsAndFailure(t *testing.T) {
 	fx := NewSandbox(t)
 	ctx := fx.Context()
 	k := keg.NewLocalKeg(keg.NewMemoryRepo(fx.Runtime()), fx.Runtime())
-	require.NoError(t, k.Init(ctx))
+	initNonStrictTestKeg(t, k, ctx)
 	created, err := k.Create(ctx, &keg.CreateOptions{Body: []byte("# Remove me\n")})
 	require.NoError(t, err)
 
@@ -136,7 +136,7 @@ func TestReplaceNodesWithRedirectsReturnsCompletedItemsAndStaleFailure(t *testin
 	fx := NewSandbox(t)
 	ctx := fx.Context()
 	k := keg.NewLocalKeg(keg.NewMemoryRepo(fx.Runtime()), fx.Runtime())
-	require.NoError(t, k.Init(ctx))
+	initNonStrictTestKeg(t, k, ctx)
 	one, err := k.Create(ctx, &keg.CreateOptions{Body: []byte("# One\n")})
 	require.NoError(t, err)
 	two, err := k.Create(ctx, &keg.CreateOptions{Body: []byte("# Two\n")})
@@ -181,7 +181,7 @@ func TestRemoteAggregateMethodsUseOneRequest(t *testing.T) {
 			_, err := k.OpenNode(ctx, keg.NodeOpenOptions{ID: keg.NodeId{ID: 1}, Touch: true})
 			return err
 		}},
-		{"update", http.MethodPut, "/nodes/1", `{"hash":"updated"}`, func(ctx context.Context, k *keg.RemoteKeg) error {
+		{"update", http.MethodPut, "/nodes/batch", `[{"id":1,"hash":"updated"}]`, func(ctx context.Context, k *keg.RemoteKeg) error {
 			_, err := k.UpdateNode(ctx, keg.NodeUpdateOptions{ID: keg.NodeId{ID: 1}, Content: []byte("# One updated\n")})
 			return err
 		}},

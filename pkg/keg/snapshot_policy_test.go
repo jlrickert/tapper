@@ -138,7 +138,7 @@ func newSnapshotPolicyTestKeg(t *testing.T) (*sandbox.Sandbox, *kegpkg.LocalKeg)
 	fx := NewSandbox(t)
 	repo := kegpkg.NewMemoryRepo(fx.Runtime())
 	k := kegpkg.NewLocalKeg(repo, fx.Runtime())
-	require.NoError(t, k.Init(context.Background()))
+	initNonStrictTestKeg(t, k, context.Background())
 	_, err := k.AppendSnapshot(context.Background(), kegpkg.NodeId{ID: 0}, "seed zero")
 	require.NoError(t, err)
 	return fx, k

@@ -125,8 +125,12 @@
     },
     "schemaPolicy": {
       "type": "object",
-      "description": "Schema validation behavior for write actors. Defaults: human warns; agent and API block. Archive imports and snapshot restores always skip node-schema enforcement.",
+      "description": "Schema validation behavior. Strict mode requires every nonzero node to declare a known type and satisfy its schema; actor modes apply only when strict is disabled.",
       "properties": {
+        "strict": {
+          "type": "boolean",
+          "description": "Require complete schema validity for all nonzero nodes and for explicitly typed node 0. Cannot be overridden by actor or request mode."
+        },
         "human": {
           "type": "string",
           "enum": ["off", "warn", "block"]

@@ -168,6 +168,24 @@ type CreateResult struct {
 	Validation *SchemaValidationResult `json:"validation,omitempty"`
 }
 
+const MaxMutationBatchSize = 100
+
+type NodeCreate struct {
+	Key   string         `json:"key"`
+	Title string         `json:"title,omitempty"`
+	Lead  string         `json:"lead,omitempty"`
+	Body  []byte         `json:"body,omitempty"`
+	Tags  []string       `json:"tags,omitempty"`
+	Attrs map[string]any `json:"attrs,omitempty"`
+}
+
+type CreateNodeResult struct {
+	Key        string                  `json:"key"`
+	ID         NodeId                  `json:"id"`
+	Hash       string                  `json:"hash"`
+	Validation *SchemaValidationResult `json:"validation,omitempty"`
+}
+
 type NodeOpenOptions struct {
 	ID        NodeId    `json:"id"`
 	Touch     bool      `json:"touch,omitempty"`
@@ -175,17 +193,25 @@ type NodeOpenOptions struct {
 }
 
 type NodeUpdateOptions struct {
-	ID           NodeId    `json:"id"`
-	Content      []byte    `json:"content"`
-	Meta         []byte    `json:"meta,omitempty"`
-	HasMeta      bool      `json:"has_meta,omitempty"`
-	LockToken    LockToken `json:"lock_token,omitempty"`
-	ExpectedHash string    `json:"expected_hash,omitempty"`
+	ID             NodeId    `json:"id"`
+	Content        []byte    `json:"content"`
+	HasContent     bool      `json:"has_content,omitempty"`
+	Meta           []byte    `json:"meta,omitempty"`
+	HasMeta        bool      `json:"has_meta,omitempty"`
+	LockToken      LockToken `json:"lock_token,omitempty"`
+	ExpectedHash   string    `json:"expected_hash,omitempty"`
+	SnapshotBefore bool      `json:"snapshot_before,omitempty"`
 }
 
 type NodeUpdateResult struct {
+	ID         NodeId                  `json:"id"`
 	Validation *SchemaValidationResult `json:"validation,omitempty"`
 	Hash       string                  `json:"hash"`
+}
+
+type NodeSnapshotRequest struct {
+	ID      NodeId `json:"id"`
+	Message string `json:"message,omitempty"`
 }
 
 type NodeRedirect struct {
@@ -790,6 +816,9 @@ func (k *LocalKeg) createSchema(ctx context.Context, typeName string, data []byt
 	if _, err := validateSchemaDefinitionForType(typeName, data); err != nil {
 		return err
 	}
+	if err := k.validateStrictSchemaChange(ctx, store, map[string][]byte{typeName: data}, nil); err != nil {
+		return err
+	}
 	if err := store.CreateSchema(ctx, typeName, data); err != nil {
 		if errors.Is(err, ErrExist) {
 			return fmt.Errorf("schema %q: %w", typeName, ErrExist)
@@ -844,7 +873,12 @@ func (k *LocalKeg) openNode(ctx context.Context, opts NodeOpenOptions) (*NodeVie
 }
 
 func (k *LocalKeg) UpdateNode(ctx context.Context, opts NodeUpdateOptions) (*NodeUpdateResult, error) {
-	return withKegWriteValue(ctx, k, func(ctx context.Context) (*NodeUpdateResult, error) { return k.updateNode(ctx, opts) })
+	opts.HasContent = true
+	results, err := k.UpdateNodes(ctx, []NodeUpdateOptions{opts})
+	if len(results) == 0 {
+		return nil, err
+	}
+	return &results[0], err
 }
 
 func (k *LocalKeg) updateNode(ctx context.Context, opts NodeUpdateOptions) (*NodeUpdateResult, error) {

@@ -50,6 +50,7 @@ hubs:
 	k, err := keg.NewKegFromTarget(fx.Context(), keg.NewFile(kegDir), fx.Runtime())
 	require.NoError(t, err)
 	require.NoError(t, k.Init(fx.Context()))
+	makeKegNonStrict(t, fx.Context(), k)
 
 	return tap
 }

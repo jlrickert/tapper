@@ -26,7 +26,7 @@ func (t *Tap) Create(ctx context.Context, opts CreateOptions) (keg.NodeId, error
 	if err != nil {
 		return keg.NodeId{}, fmt.Errorf("unable to determine default keg: %w", err)
 	}
-	ctx = keg.WithValidationActor(ctx, keg.ValidationActorHuman)
+	ctx = keg.WithDefaultValidationActor(ctx, keg.ValidationActorHuman)
 
 	if opts.Stream != nil && opts.Stream.IsPiped {
 		b, _ := io.ReadAll(opts.Stream.In)

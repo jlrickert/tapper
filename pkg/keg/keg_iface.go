@@ -73,6 +73,10 @@ type Keg interface {
 	// Create allocates a node id and writes initial content, meta, and stats.
 	Create(ctx context.Context, opts *CreateOptions) (CreateResult, error)
 
+	// CreateNodes atomically creates 1-100 nodes in caller order. Keys must be
+	// unique and may be referenced from bodies as {{node:key}}.
+	CreateNodes(ctx context.Context, nodes []NodeCreate) ([]CreateNodeResult, error)
+
 	// Next reserves and returns the next available node id. The reservation does
 	// not become a complete node until content is written.
 	Next(ctx context.Context) (NodeId, error)
@@ -117,6 +121,10 @@ type Keg interface {
 	// content hash, then commits content, optional metadata, derived stats, and
 	// dex state as one node update. It returns the resulting validation and hash.
 	UpdateNode(ctx context.Context, opts NodeUpdateOptions) (*NodeUpdateResult, error)
+
+	// UpdateNodes atomically applies 1-100 content and/or metadata replacements
+	// after preflighting every lock, hash, payload, and schema result.
+	UpdateNodes(ctx context.Context, updates []NodeUpdateOptions) ([]NodeUpdateResult, error)
 
 	// ReplaceNodesWithRedirects replaces nodes with redirect stubs in input
 	// order, checking each optional expected hash. It stops at the first failure
@@ -247,6 +255,9 @@ type Keg interface {
 
 	// AppendSnapshot records the node's current state as a new revision.
 	AppendSnapshot(ctx context.Context, id NodeId, msg string) (Snapshot, error)
+
+	// AppendSnapshots atomically records 1-100 independent save points.
+	AppendSnapshots(ctx context.Context, nodes []NodeSnapshotRequest) ([]Snapshot, error)
 
 	// ListSnapshots returns the node's revisions in order.
 	ListSnapshots(ctx context.Context, id NodeId) ([]Snapshot, error)

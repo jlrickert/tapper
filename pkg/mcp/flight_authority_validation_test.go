@@ -106,7 +106,7 @@ func TestMCP_RoleCapDenialNudgesReorientation(t *testing.T) {
 
 	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
 		Name:      "create",
-		Arguments: map[string]any{"keg": "personal", "title": "Blocked by role cap"},
+		Arguments: map[string]any{"keg": "personal", "nodes": []any{map[string]any{"key": "node", "title": "Blocked by role cap"}}},
 	})
 	require.NoError(t, err)
 	require.True(t, res.IsError)

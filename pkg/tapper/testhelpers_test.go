@@ -1,11 +1,14 @@
 package tapper_test
 
 import (
+	"context"
 	"embed"
 	"path/filepath"
 	"testing"
 
 	"github.com/jlrickert/cli-toolkit/sandbox"
+	"github.com/jlrickert/tapper/pkg/keg"
+	"github.com/stretchr/testify/require"
 )
 
 //go:embed all:data/**
@@ -19,4 +22,14 @@ func NewSandbox(t *testing.T, opts ...sandbox.Option) *sandbox.Sandbox {
 			Home: filepath.FromSlash("/home/testuser"),
 			User: "testuser",
 		}, opts...)
+}
+
+func makeKegNonStrict(t *testing.T, ctx context.Context, k keg.Keg) {
+	t.Helper()
+	require.NoError(t, keg.UpdateConfig(ctx, k, func(cfg *keg.Config) {
+		if cfg.SchemaPolicy == nil {
+			cfg.SchemaPolicy = &keg.SchemaPolicy{}
+		}
+		cfg.SchemaPolicy.Strict = false
+	}))
 }

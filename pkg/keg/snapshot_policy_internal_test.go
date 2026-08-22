@@ -86,6 +86,9 @@ func newInternalSnapshotPolicyTestKeg(t *testing.T) (*sandbox.Sandbox, *LocalKeg
 	repo := NewMemoryRepo(fx.Runtime())
 	k := NewLocalKeg(repo, fx.Runtime())
 	require.NoError(t, k.Init(context.Background()))
+	require.NoError(t, k.UpdateConfig(context.Background(), func(cfg *Config) {
+		cfg.SchemaPolicy.Strict = false
+	}))
 	_, err := k.AppendSnapshot(context.Background(), NodeId{ID: 0}, "seed zero")
 	require.NoError(t, err)
 	return fx, k, repo

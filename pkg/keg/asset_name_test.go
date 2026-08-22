@@ -123,7 +123,7 @@ func TestImport_RejectsZipSlipArchive(t *testing.T) {
 
 	// Build a legitimate archive (valid manifest/meta/stats) with one attachment.
 	src := keg.NewLocalKeg(keg.NewMemoryRepo(rt), rt)
-	require.NoError(t, src.Init(ctx))
+	initNonStrictTestKeg(t, src, ctx)
 	nid, err := src.Create(ctx, &keg.CreateOptions{Title: "x", Body: []byte("# x\n")})
 	require.NoError(t, err)
 	require.NoError(t, src.WriteFile(ctx, nid.ID, "doc.txt", []byte("benign")))
@@ -137,7 +137,7 @@ func TestImport_RejectsZipSlipArchive(t *testing.T) {
 
 	// Clean import still works (no regression).
 	okKeg := keg.NewLocalKeg(keg.NewFsRepo(filepath.Join(base, "ok"), rt), rt)
-	require.NoError(t, okKeg.Init(ctx))
+	initNonStrictTestKeg(t, okKeg, ctx)
 	_, err = okKeg.ImportNodes(ctx, bytes.NewReader(clean), keg.ImportNodesOptions{})
 	require.NoError(t, err, "a clean archive must still import")
 
@@ -148,7 +148,7 @@ func TestImport_RejectsZipSlipArchive(t *testing.T) {
 
 	evilRoot := filepath.Join(base, "evil")
 	evilKeg := keg.NewLocalKeg(keg.NewFsRepo(evilRoot, rt), rt)
-	require.NoError(t, evilKeg.Init(ctx))
+	initNonStrictTestKeg(t, evilKeg, ctx)
 	_, err = evilKeg.ImportNodes(ctx, bytes.NewReader(evil), keg.ImportNodesOptions{})
 	require.Error(t, err, "a hostile archive must be rejected")
 

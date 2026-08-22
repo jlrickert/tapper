@@ -46,7 +46,7 @@ func TestInitOnEmptyRepo(t *testing.T) {
 	k, err := kegpkg.NewKegFromTarget(f.Context(), kegpkg.NewFile("repo"), f.Runtime())
 	require.NoError(t, err, "NewKegFromTarget failed")
 
-	require.NoError(t, k.Init(f.Context()), "InitKeg failed")
+	initNonStrictTestKeg(t, k, f.Context())
 
 	cfg, err := k.Config(f.Context())
 	require.NoError(t, err)
@@ -86,7 +86,7 @@ func TestKegExistsWithMemoryRepo(t *testing.T) {
 
 	// Initialize via Keg.InitKeg and re-check.
 	k := kegpkg.NewLocalKeg(repo, f.Runtime())
-	require.NoError(t, k.Init(f.Context()), "InitKeg failed for memory repo")
+	initNonStrictTestKeg(t, k, f.Context())
 
 	exists, err = kegpkg.RepoContainsKeg(f.Context(), repo)
 	require.NoError(t, err)
@@ -109,7 +109,7 @@ func TestKegExistsWithFsRepo(t *testing.T) {
 	require.False(t, exists, "expected KegExists false for empty fs repo")
 
 	// Initialize and verify.
-	require.NoError(t, k.Init(f.Context()), "InitKeg failed for fs repo")
+	initNonStrictTestKeg(t, k, f.Context())
 
 	exists, err = kegpkg.RepoContainsKeg(f.Context(), k.(*kegpkg.LocalKeg).Repo)
 	require.NoError(t, err)
@@ -127,7 +127,7 @@ func TestCreateZeroNodeInMemoryRepo(t *testing.T) {
 
 	repo := kegpkg.NewMemoryRepo(f.Runtime())
 	k := kegpkg.NewLocalKeg(repo, f.Runtime())
-	k.Init(f.Context())
+	initNonStrictTestKeg(t, k, f.Context())
 
 	b, err := k.GetContent(f.Context(), kegpkg.NodeId{ID: 0})
 	require.NoError(t, err)
@@ -142,7 +142,7 @@ func TestCreateNodeWithMeta(t *testing.T) {
 
 	repo := kegpkg.NewMemoryRepo(f.Runtime())
 	k := kegpkg.NewLocalKeg(repo, f.Runtime())
-	k.Init(f.Context())
+	initNonStrictTestKeg(t, k, f.Context())
 
 	opts := &kegpkg.CreateOptions{
 		Title: "MyTitle",
@@ -175,7 +175,7 @@ func TestCreateWithBody(t *testing.T) {
 
 	repo := kegpkg.NewMemoryRepo(f.Runtime())
 	k := kegpkg.NewLocalKeg(repo, f.Runtime())
-	require.NoError(t, k.Init(f.Context()))
+	initNonStrictTestKeg(t, k, f.Context())
 
 	body := []byte("# BodyTitle\n\nbody paragraph\n")
 	opts := &kegpkg.CreateOptions{
@@ -203,7 +203,7 @@ func TestCreateWithBodyFrontmatter(t *testing.T) {
 
 	repo := kegpkg.NewMemoryRepo(f.Runtime())
 	k := kegpkg.NewLocalKeg(repo, f.Runtime())
-	require.NoError(t, k.Init(f.Context()))
+	initNonStrictTestKeg(t, k, f.Context())
 
 	rawBody := []byte(`---
 tags:
@@ -243,7 +243,7 @@ func TestSetContentAndUpdate(t *testing.T) {
 
 	repo := kegpkg.NewMemoryRepo(f.Runtime())
 	k := kegpkg.NewLocalKeg(repo, f.Runtime())
-	k.Init(f.Context())
+	initNonStrictTestKeg(t, k, f.Context())
 
 	// create zero and a second node
 	_, err := k.Create(f.Context(), nil)
@@ -273,7 +273,7 @@ func TestCreateAndUpdateNodesWithFsRepo(t *testing.T) {
 	require.NoError(t, err, "NewKegFromTarget failed")
 
 	// Initialize on disk.
-	require.NoError(t, k.Init(f.Context()), "InitKeg failed")
+	initNonStrictTestKeg(t, k, f.Context())
 
 	// Create a new node with title and lead.
 	opts := &kegpkg.CreateOptions{
@@ -328,7 +328,7 @@ func TestNodesWithTagsAndInterlinks(t *testing.T) {
 
 	repo := kegpkg.NewMemoryRepo(f.Runtime())
 	k := kegpkg.NewLocalKeg(repo, f.Runtime())
-	require.NoError(t, k.Init(f.Context()))
+	initNonStrictTestKeg(t, k, f.Context())
 
 	// Create node A with tags
 	optsA := &kegpkg.CreateOptions{
@@ -453,7 +453,7 @@ func TestIndex_PreservesUnknownConfigFields(t *testing.T) {
 
 	k, err := kegpkg.NewKegFromTarget(f.Context(), kegpkg.NewFile("repofs_config"), f.Runtime())
 	require.NoError(t, err, "NewKegFromTarget failed")
-	require.NoError(t, k.Init(f.Context()), "InitKeg failed")
+	initNonStrictTestKeg(t, k, f.Context())
 
 	_, err = k.Create(f.Context(), &kegpkg.CreateOptions{Title: "Config Field Preservation"})
 	require.NoError(t, err)
@@ -490,7 +490,7 @@ func TestMove_RewritesLinksAndUpdatesDex(t *testing.T) {
 
 	repo := kegpkg.NewMemoryRepo(f.Runtime())
 	k := kegpkg.NewLocalKeg(repo, f.Runtime())
-	require.NoError(t, k.Init(f.Context()))
+	initNonStrictTestKeg(t, k, f.Context())
 
 	id1, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "One"})
 	require.NoError(t, err)
@@ -539,7 +539,7 @@ func TestMove_DestinationExists(t *testing.T) {
 
 	repo := kegpkg.NewMemoryRepo(f.Runtime())
 	k := kegpkg.NewLocalKeg(repo, f.Runtime())
-	require.NoError(t, k.Init(f.Context()))
+	initNonStrictTestKeg(t, k, f.Context())
 
 	_, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "One"})
 	require.NoError(t, err)
@@ -559,7 +559,7 @@ func TestRemove_DeletesNodeAndUpdatesDex(t *testing.T) {
 
 	repo := kegpkg.NewMemoryRepo(f.Runtime())
 	k := kegpkg.NewLocalKeg(repo, f.Runtime())
-	require.NoError(t, k.Init(f.Context()))
+	initNonStrictTestKeg(t, k, f.Context())
 
 	id1, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "One"})
 	require.NoError(t, err)
@@ -598,7 +598,7 @@ func TestSetContent_OnRemovedNode(t *testing.T) {
 
 	repo := kegpkg.NewMemoryRepo(f.Runtime())
 	k := kegpkg.NewLocalKeg(repo, f.Runtime())
-	require.NoError(t, k.Init(f.Context()))
+	initNonStrictTestKeg(t, k, f.Context())
 
 	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "Doomed"})
 	require.NoError(t, err)
@@ -617,7 +617,7 @@ func TestRemove_NotFound(t *testing.T) {
 
 	repo := kegpkg.NewMemoryRepo(f.Runtime())
 	k := kegpkg.NewLocalKeg(repo, f.Runtime())
-	require.NoError(t, k.Init(f.Context()))
+	initNonStrictTestKeg(t, k, f.Context())
 
 	_, err := k.Remove(f.Context(), kegpkg.NodeId{ID: 4242})
 	require.Error(t, err)
@@ -633,7 +633,7 @@ func TestSetMeta_PreservesLinksInDex(t *testing.T) {
 
 	repo := kegpkg.NewMemoryRepo(f.Runtime())
 	k := kegpkg.NewLocalKeg(repo, f.Runtime())
-	require.NoError(t, k.Init(f.Context()))
+	initNonStrictTestKeg(t, k, f.Context())
 
 	// Create two nodes
 	id1, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "Source"})
@@ -678,7 +678,7 @@ func TestIndex_ContentOnlyNodeGetsIndexed(t *testing.T) {
 
 	repo := kegpkg.NewMemoryRepo(f.Runtime())
 	k := kegpkg.NewLocalKeg(repo, f.Runtime())
-	require.NoError(t, k.Init(f.Context()))
+	initNonStrictTestKeg(t, k, f.Context())
 
 	// Write content directly without meta or stats.
 	bareID := kegpkg.NodeId{ID: 42}
@@ -705,7 +705,7 @@ func TestIndex_MalformedMetaNodeGetsIndexed(t *testing.T) {
 
 	repo := kegpkg.NewMemoryRepo(f.Runtime())
 	k := kegpkg.NewLocalKeg(repo, f.Runtime())
-	require.NoError(t, k.Init(f.Context()))
+	initNonStrictTestKeg(t, k, f.Context())
 
 	// Create a node normally first, then corrupt its meta.
 	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "Good Node"})
@@ -736,7 +736,7 @@ func TestSetContent_NoChangeSkipsDexAndConfig(t *testing.T) {
 
 	k, err := kegpkg.NewKegFromTarget(f.Context(), kegpkg.NewFile("repo_noop"), f.Runtime())
 	require.NoError(t, err)
-	require.NoError(t, k.Init(f.Context()))
+	initNonStrictTestKeg(t, k, f.Context())
 
 	body := []byte("# NoOp Node\n\nOriginal content.\n")
 	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Body: body})
@@ -768,7 +768,7 @@ func TestSetMeta_NoChangeSkipsDexAndConfig(t *testing.T) {
 
 	k, err := kegpkg.NewKegFromTarget(f.Context(), kegpkg.NewFile("repo_meta_noop"), f.Runtime())
 	require.NoError(t, err)
-	require.NoError(t, k.Init(f.Context()))
+	initNonStrictTestKeg(t, k, f.Context())
 
 	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{
 		Title: "Meta NoOp",
@@ -811,7 +811,7 @@ func TestSetMeta_WithChangeUpdatesDexAndConfig(t *testing.T) {
 
 	k, err := kegpkg.NewKegFromTarget(f.Context(), kegpkg.NewFile("repo_meta_change"), f.Runtime())
 	require.NoError(t, err)
-	require.NoError(t, k.Init(f.Context()))
+	initNonStrictTestKeg(t, k, f.Context())
 
 	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{
 		Title: "Meta Change",
@@ -854,7 +854,7 @@ func TestSetMetaAndUpdateMetaRefreshCachedSourceHash(t *testing.T) {
 	f := NewSandbox(t)
 	repo := kegpkg.NewMemoryRepo(f.Runtime())
 	k := kegpkg.NewLocalKeg(repo, f.Runtime())
-	require.NoError(t, k.Init(f.Context()))
+	initNonStrictTestKeg(t, k, f.Context())
 
 	body := []byte("# Meta Hash\n\nOriginal content.\n")
 	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Body: body})
@@ -894,7 +894,7 @@ func TestIndexRefreshesStatsForOutOfBandMetadataChange(t *testing.T) {
 	f := NewSandbox(t)
 	repo := kegpkg.NewMemoryRepo(f.Runtime())
 	k := kegpkg.NewLocalKeg(repo, f.Runtime())
-	require.NoError(t, k.Init(f.Context()))
+	initNonStrictTestKeg(t, k, f.Context())
 
 	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "Out Of Band Meta"})
 	require.NoError(t, err)
@@ -935,7 +935,7 @@ func TestSetContent_WithChangeUpdatesDexAndConfig(t *testing.T) {
 
 	k, err := kegpkg.NewKegFromTarget(f.Context(), kegpkg.NewFile("repo_content_change"), f.Runtime())
 	require.NoError(t, err)
-	require.NoError(t, k.Init(f.Context()))
+	initNonStrictTestKeg(t, k, f.Context())
 
 	body := []byte("# Change Node\n\nOriginal content.\n")
 	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Body: body})
@@ -978,7 +978,7 @@ func TestEditNoChange_SimulatesSaveWithoutChanges(t *testing.T) {
 
 	k, err := kegpkg.NewKegFromTarget(f.Context(), kegpkg.NewFile("repo_edit_noop"), f.Runtime())
 	require.NoError(t, err)
-	require.NoError(t, k.Init(f.Context()))
+	initNonStrictTestKeg(t, k, f.Context())
 
 	body := []byte("# Edit NoOp\n\nSome content.\n")
 	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{
@@ -1024,7 +1024,7 @@ func TestCreateAlwaysTriggersUpdate(t *testing.T) {
 
 	k, err := kegpkg.NewKegFromTarget(f.Context(), kegpkg.NewFile("repo_create_always"), f.Runtime())
 	require.NoError(t, err)
-	require.NoError(t, k.Init(f.Context()))
+	initNonStrictTestKeg(t, k, f.Context())
 
 	cfg1, err := k.Config(f.Context())
 	require.NoError(t, err)
@@ -1054,7 +1054,7 @@ func TestDexFresh_ReloadsAfterExternalModification(t *testing.T) {
 
 	k, err := kegpkg.NewKegFromTarget(f.Context(), kegpkg.NewFile("repofs_dexfresh"), f.Runtime())
 	require.NoError(t, err)
-	require.NoError(t, k.Init(f.Context()))
+	initNonStrictTestKeg(t, k, f.Context())
 
 	// Create a node so the dex has content.
 	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{
@@ -1114,7 +1114,7 @@ func TestDexFresh_ReturnsCachedWhenUnchanged(t *testing.T) {
 
 	k, err := kegpkg.NewKegFromTarget(f.Context(), kegpkg.NewFile("repofs_dexcache"), f.Runtime())
 	require.NoError(t, err)
-	require.NoError(t, k.Init(f.Context()))
+	initNonStrictTestKeg(t, k, f.Context())
 
 	_, err = k.Create(f.Context(), &kegpkg.CreateOptions{
 		Title: "Cached Node",
@@ -1137,7 +1137,7 @@ func TestDexFresh_ReloadsForExternalRepoImplementations(t *testing.T) {
 	repo := &externalMemoryRepo{MemoryRepo: kegpkg.NewMemoryRepo(f.Runtime())}
 
 	k := kegpkg.NewLocalKeg(repo, f.Runtime())
-	require.NoError(t, k.Init(f.Context()))
+	initNonStrictTestKeg(t, k, f.Context())
 
 	_, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "Original Node"})
 	require.NoError(t, err)
@@ -1182,7 +1182,7 @@ func TestSetContent_LocalNodeIDStaysBare(t *testing.T) {
 		f.Runtime(),
 	)
 	require.NoError(t, err)
-	require.NoError(t, k.Init(f.Context()))
+	initNonStrictTestKeg(t, k, f.Context())
 	require.Equal(t, "example", k.Target().KegName, "KegName must be set to reproduce the bug")
 
 	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "Node 2"})
@@ -1219,7 +1219,7 @@ func TestMove_LocalNodeIDStaysBare(t *testing.T) {
 		f.Runtime(),
 	)
 	require.NoError(t, err)
-	require.NoError(t, k.Init(f.Context()))
+	initNonStrictTestKeg(t, k, f.Context())
 
 	target, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "Target"})
 	require.NoError(t, err)

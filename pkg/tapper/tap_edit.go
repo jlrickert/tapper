@@ -61,7 +61,7 @@ func (t *Tap) Meta(ctx context.Context, opts MetaOptions) (string, error) {
 		return "", fmt.Errorf("unable to open keg: %w", err)
 	}
 	if role == FlightRoleEditor {
-		ctx = keg.WithValidationActor(ctx, keg.ValidationActorHuman)
+		ctx = keg.WithDefaultValidationActor(ctx, keg.ValidationActorHuman)
 	}
 
 	k, id, err := t.resolveNodeArg(ctx, k, opts.NodeID)
@@ -136,7 +136,7 @@ func (t *Tap) Edit(ctx context.Context, opts EditOptions) error {
 	if err != nil {
 		return fmt.Errorf("unable to open keg: %w", err)
 	}
-	ctx = keg.WithValidationActor(ctx, keg.ValidationActorHuman)
+	ctx = keg.WithDefaultValidationActor(ctx, keg.ValidationActorHuman)
 
 	k, id, err := t.resolveNodeArg(ctx, k, opts.NodeID)
 	if err != nil {
