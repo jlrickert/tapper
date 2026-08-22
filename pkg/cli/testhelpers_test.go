@@ -9,6 +9,7 @@ import (
 	tu "github.com/jlrickert/cli-toolkit/sandbox"
 	"github.com/jlrickert/cli-toolkit/toolkit"
 	"github.com/jlrickert/tapper/pkg/cli"
+	"github.com/jlrickert/tapper/pkg/keg"
 )
 
 // NOTE: Production code should call streams.IsStdoutTTY() (method) instead of
@@ -27,6 +28,18 @@ func NewSandbox(t *testing.T, opts ...tu.Option) *tu.Sandbox {
 		Home: "/home/testuser",
 		User: "testuser",
 	}, opts...)
+}
+
+func DisableStrictSchemaPolicy(t *testing.T, ctx context.Context, k *keg.LocalKeg) {
+	t.Helper()
+	if err := k.UpdateConfig(ctx, func(cfg *keg.Config) {
+		if cfg.SchemaPolicy == nil {
+			cfg.SchemaPolicy = &keg.SchemaPolicy{}
+		}
+		cfg.SchemaPolicy.Strict = false
+	}); err != nil {
+		t.Fatalf("disable strict schema policy: %v", err)
+	}
 }
 
 func NewCliRunner(t *testing.T) *tu.Process {

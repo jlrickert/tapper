@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	testutils "github.com/jlrickert/cli-toolkit/sandbox"
+	"github.com/jlrickert/tapper/pkg/keg"
 	"github.com/stretchr/testify/require"
 )
 
@@ -23,6 +24,8 @@ func TestTap_ProjectResolutionFlags(t *testing.T) {
 	initRes := initCmd.Run(sb.Context(), sb.Runtime())
 	require.NoError(t, initRes.Err, "project init should succeed")
 	_ = sb.MustReadFile("~/kegs/project/keg")
+	projectKeg := keg.NewLocalKeg(keg.NewFsRepo("~/kegs/project", sb.Runtime()), sb.Runtime())
+	DisableStrictSchemaPolicy(t, sb.Context(), projectKeg)
 
 	createCmd := NewProcess(t, false,
 		"create",
