@@ -17,7 +17,7 @@ func newLiftedKeg(t *testing.T) (*sandbox.Sandbox, *kegpkg.LocalKeg) {
 	f := NewSandbox(t)
 	repo := kegpkg.NewMemoryRepo(f.Runtime())
 	k := kegpkg.NewLocalKeg(repo, f.Runtime())
-	require.NoError(t, k.Init(f.Context()))
+	initNonStrictTestKeg(t, k, f.Context())
 
 	_, err := k.Create(f.Context(), &kegpkg.CreateOptions{
 		Title: "Alpha node",
@@ -127,7 +127,7 @@ func TestExportImportRoundTrip(t *testing.T) {
 	// Import into a fresh keg.
 	repo2 := kegpkg.NewMemoryRepo(f.Runtime())
 	k2 := kegpkg.NewLocalKeg(repo2, f.Runtime())
-	require.NoError(t, k2.Init(f.Context()))
+	initNonStrictTestKeg(t, k2, f.Context())
 
 	imported, err := k2.ImportNodes(f.Context(), bytes.NewReader(archive), kegpkg.ImportNodesOptions{})
 	require.NoError(t, err)

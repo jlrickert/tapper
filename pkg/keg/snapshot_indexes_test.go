@@ -216,6 +216,9 @@ func newSnapshotIndexTestKeg(t *testing.T) (*LocalKeg, *toolkit.Runtime) {
 	repo := NewMemoryRepo(rt)
 	k := NewLocalKeg(repo, rt)
 	require.NoError(t, k.Init(t.Context()))
+	require.NoError(t, k.UpdateConfig(t.Context(), func(cfg *Config) {
+		cfg.SchemaPolicy.Strict = false
+	}))
 	return k, rt
 }
 

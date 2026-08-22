@@ -197,33 +197,107 @@ func (k *RemoteKeg) OpenNode(ctx context.Context, opts NodeOpenOptions) (*NodeVi
 }
 
 func (k *RemoteKeg) UpdateNode(ctx context.Context, opts NodeUpdateOptions) (*NodeUpdateResult, error) {
-	req := struct {
-		Content      string  `json:"content"`
-		Meta         *string `json:"meta,omitempty"`
-		LockToken    string  `json:"lock_token,omitempty"`
-		ExpectedHash string  `json:"expected_hash,omitempty"`
-	}{Content: string(opts.Content), LockToken: string(opts.LockToken), ExpectedHash: opts.ExpectedHash}
-	if opts.HasMeta {
-		m := string(opts.Meta)
-		req.Meta = &m
-	}
-	payload, err := json.Marshal(req)
-	if err != nil {
-		return nil, NewBackendError("remote", "UpdateNode", 0, err, false)
-	}
-	resp, err := k.do(ctx, http.MethodPut, fmt.Sprintf("/nodes/%d", opts.ID.ID), bytes.NewReader(payload), "application/json", nil)
-	if err != nil {
+	opts.HasContent = true
+	results, err := k.UpdateNodes(ctx, []NodeUpdateOptions{opts})
+	if len(results) == 0 {
 		return nil, err
 	}
-	body, err := k.readBody(resp, "UpdateNode", http.StatusOK)
-	if err != nil {
+	return &results[0], err
+}
+
+func (k *RemoteKeg) CreateNodes(ctx context.Context, nodes []NodeCreate) ([]CreateNodeResult, error) {
+	type wireNode struct {
+		Key   string         `json:"key"`
+		Title string         `json:"title,omitempty"`
+		Lead  string         `json:"lead,omitempty"`
+		Body  string         `json:"body,omitempty"`
+		Tags  []string       `json:"tags,omitempty"`
+		Attrs map[string]any `json:"attrs,omitempty"`
+	}
+	wire := make([]wireNode, len(nodes))
+	for i, n := range nodes {
+		wire[i] = wireNode{n.Key, n.Title, n.Lead, string(n.Body), n.Tags, n.Attrs}
+	}
+	var response []struct {
+		Key        string                  `json:"key"`
+		ID         int                     `json:"id"`
+		Hash       string                  `json:"hash"`
+		Validation *SchemaValidationResult `json:"validation,omitempty"`
+	}
+	if err := k.postJSON(ctx, "/nodes/batch", "CreateNodes", struct {
+		Nodes []wireNode `json:"nodes"`
+	}{wire}, &response, http.StatusCreated, http.StatusOK); err != nil {
 		return nil, err
 	}
-	var out NodeUpdateResult
-	if err := json.Unmarshal(body, &out); err != nil {
-		return nil, NewBackendError("remote", "UpdateNode", 0, fmt.Errorf("invalid response: %w", err), false)
+	out := make([]CreateNodeResult, len(response))
+	for i, item := range response {
+		out[i] = CreateNodeResult{Key: item.Key, ID: NodeId{ID: item.ID}, Hash: item.Hash, Validation: item.Validation}
 	}
-	return &out, nil
+	return out, nil
+}
+
+func (k *RemoteKeg) UpdateNodes(ctx context.Context, updates []NodeUpdateOptions) ([]NodeUpdateResult, error) {
+	type wireUpdate struct {
+		NodeID         int     `json:"node_id"`
+		Content        *string `json:"content,omitempty"`
+		Meta           *string `json:"meta,omitempty"`
+		LockToken      string  `json:"lock_token,omitempty"`
+		ExpectedHash   string  `json:"expected_hash,omitempty"`
+		SnapshotBefore bool    `json:"snapshot_before,omitempty"`
+	}
+	wire := make([]wireUpdate, len(updates))
+	for i, item := range updates {
+		wire[i] = wireUpdate{NodeID: item.ID.ID, LockToken: string(item.LockToken), ExpectedHash: item.ExpectedHash, SnapshotBefore: item.SnapshotBefore}
+		if item.HasContent {
+			v := string(item.Content)
+			wire[i].Content = &v
+		}
+		if item.HasMeta {
+			v := string(item.Meta)
+			wire[i].Meta = &v
+		}
+	}
+	var response []struct {
+		ID         int                     `json:"id"`
+		Hash       string                  `json:"hash"`
+		Validation *SchemaValidationResult `json:"validation,omitempty"`
+	}
+	if err := k.putJSON(ctx, "/nodes/batch", "UpdateNodes", struct {
+		Updates []wireUpdate `json:"updates"`
+	}{wire}, &response, http.StatusOK); err != nil {
+		return nil, err
+	}
+	out := make([]NodeUpdateResult, len(response))
+	for i, item := range response {
+		out[i] = NodeUpdateResult{ID: NodeId{ID: item.ID}, Hash: item.Hash, Validation: item.Validation}
+	}
+	return out, nil
+}
+
+func (k *RemoteKeg) AppendSnapshots(ctx context.Context, nodes []NodeSnapshotRequest) ([]Snapshot, error) {
+	type wireNode struct {
+		NodeID  int    `json:"node_id"`
+		Message string `json:"message,omitempty"`
+	}
+	wire := make([]wireNode, len(nodes))
+	for i, item := range nodes {
+		wire[i] = wireNode{item.ID.ID, item.Message}
+	}
+	var response []remoteSnapshotEntry
+	if err := k.postJSON(ctx, "/nodes/snapshots/batch", "AppendSnapshots", struct {
+		Nodes []wireNode `json:"nodes"`
+	}{wire}, &response, http.StatusCreated, http.StatusOK); err != nil {
+		return nil, err
+	}
+	out := make([]Snapshot, len(response))
+	for i, item := range response {
+		snap, err := snapshotFromRemoteEntry(item)
+		if err != nil {
+			return nil, NewBackendError("remote", "AppendSnapshots", 0, err, false)
+		}
+		out[i] = snap
+	}
+	return out, nil
 }
 
 func (k *RemoteKeg) ReplaceNodesWithRedirects(ctx context.Context, redirects []NodeRedirect) (ReplaceNodesWithRedirectsResult, error) {

@@ -65,6 +65,7 @@ func TestCreate_DoubleNextBugReproduction(t *testing.T) {
 	k, err := keg.NewKegFromTarget(fx.Context(), keg.NewFile(kegDir), fx.Runtime())
 	require.NoError(t, err)
 	require.NoError(t, k.Init(fx.Context()))
+	makeKegNonStrict(t, fx.Context(), k)
 
 	// This simulates what the OLD interactive create flow did:
 	// 1. Call Next() to get the node ID for the editor scaffold

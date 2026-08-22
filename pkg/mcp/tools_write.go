@@ -5,12 +5,30 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/jlrickert/cli-toolkit/toolkit"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/jlrickert/tapper/pkg/keg"
 	"github.com/jlrickert/tapper/pkg/tapper"
 )
+
+func boundedMutationInputSchema[T any](arrayFields ...string) *jsonschema.Schema {
+	schema, err := jsonschema.For[T](nil)
+	if err != nil {
+		panic(fmt.Sprintf("derive MCP mutation schema: %v", err))
+	}
+	minItems, maxItems := 1, keg.MaxMutationBatchSize
+	for _, field := range arrayFields {
+		property := schema.Properties[field]
+		if property == nil {
+			panic(fmt.Sprintf("MCP mutation schema has no %q property", field))
+		}
+		property.MinItems = &minItems
+		property.MaxItems = &maxItems
+	}
+	return schema
+}
 
 func registerWriteTools(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	registerCreate(srv, tap, defaults)
@@ -54,119 +72,159 @@ func registerKegSettingsEdit(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDe
 // --- create ---
 
 type createInput struct {
-	Title string            `json:"title,omitempty" jsonschema:"node title (H1 heading)"`
-	Lead  string            `json:"lead,omitempty" jsonschema:"lead paragraph after the title"`
-	Body  string            `json:"body,omitempty" jsonschema:"full markdown content (overrides title and lead if set)"`
-	Tags  []string          `json:"tags,omitempty" jsonschema:"metadata tags"`
-	Attrs map[string]string `json:"attrs,omitempty" jsonschema:"metadata attributes (e.g. type=task)"`
+	Nodes []createNodeInput `json:"nodes" jsonschema:"1-100 nodes to create atomically"`
 	Keg   string            `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
+}
+type createNodeInput struct {
+	Key   string            `json:"key"`
+	Title string            `json:"title,omitempty"`
+	Lead  string            `json:"lead,omitempty"`
+	Body  string            `json:"body,omitempty"`
+	Tags  []string          `json:"tags,omitempty"`
+	Attrs map[string]string `json:"attrs,omitempty"`
+}
+
+type createNodeOutput struct {
+	Key        string                      `json:"key"`
+	NodeID     string                      `json:"node_id"`
+	Hash       string                      `json:"hash"`
+	Validation *keg.SchemaValidationResult `json:"validation,omitempty"`
+}
+
+func createNodeOutputs(results []keg.CreateNodeResult) []createNodeOutput {
+	out := make([]createNodeOutput, len(results))
+	for i, item := range results {
+		out[i] = createNodeOutput{Key: item.Key, NodeID: item.ID.Path(), Hash: item.Hash, Validation: item.Validation}
+	}
+	return out
 }
 
 func registerCreate(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "create",
-		Description: "Create a new KEG node",
+		Description: "Atomically create 1-100 KEG nodes with optional intra-batch references",
+		InputSchema: boundedMutationInputSchema[createInput]("nodes"),
 		Annotations: &sdkmcp.ToolAnnotations{
 			DestructiveHint: boolPtr(false),
 			OpenWorldHint:   boolPtr(false),
 		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in createInput) (*sdkmcp.CallToolResult, any, error) {
 		ctx = keg.WithValidationActor(ctx, keg.ValidationActorAgent)
-		opts := tapper.CreateOptions{
-			KegTargetOptions: resolveKegTarget(ctx, in.Keg, defaults),
-			Title:            in.Title,
-			Lead:             in.Lead,
-			Tags:             in.Tags,
-			Attrs:            in.Attrs,
+		nodes := make([]tapper.BatchCreateNode, len(in.Nodes))
+		for i, item := range in.Nodes {
+			nodes[i] = tapper.BatchCreateNode{Key: item.Key, Title: item.Title, Lead: item.Lead, Body: item.Body, Tags: item.Tags, Attrs: item.Attrs}
 		}
-
-		if in.Body != "" {
-			opts.Stream = &toolkit.Stream{
-				IsPiped: true,
-				In:      bytes.NewReader([]byte(in.Body)),
-			}
-		}
-
-		id, err := tap.Create(ctx, opts)
+		results, err := tap.CreateBatch(ctx, tapper.BatchCreateOptions{KegTargetOptions: resolveKegTarget(ctx, in.Keg, defaults), Nodes: nodes})
 		if err != nil {
 			return errorResult(err), nil, nil
 		}
-		return textResult(id.String()), nil, nil
+		message := fmt.Sprintf("created %d node(s)", len(results))
+		if len(results) == 1 {
+			message = results[0].ID.String()
+		}
+		res := textResult(message)
+		res.StructuredContent = map[string]any{"results": createNodeOutputs(results)}
+		return res, nil, nil
 	})
 }
 
 // --- edit ---
 
 type editInput struct {
-	NodeID  string `json:"node_id" jsonschema:"node ID to edit"`
-	Content string `json:"content" jsonschema:"full markdown content with optional YAML frontmatter"`
-	Keg     string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
+	Edits []editItemInput `json:"edits" jsonschema:"1-100 node replacements to apply atomically"`
+	Keg   string          `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
+}
+type editItemInput struct {
+	NodeID         string `json:"node_id"`
+	Content        string `json:"content"`
+	ExpectedHash   string `json:"expected_hash,omitempty"`
+	SnapshotBefore bool   `json:"snapshot_before,omitempty"`
+}
+
+type nodeUpdateOutput struct {
+	NodeID     string                      `json:"node_id"`
+	Hash       string                      `json:"hash"`
+	Validation *keg.SchemaValidationResult `json:"validation,omitempty"`
+}
+
+func nodeUpdateOutputs(results []keg.NodeUpdateResult) []nodeUpdateOutput {
+	out := make([]nodeUpdateOutput, len(results))
+	for i, item := range results {
+		out[i] = nodeUpdateOutput{NodeID: item.ID.Path(), Hash: item.Hash, Validation: item.Validation}
+	}
+	return out
 }
 
 func registerEdit(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "edit",
-		Description: "Replace the content of a KEG node",
+		Description: "Atomically replace the content of 1-100 KEG nodes",
+		InputSchema: boundedMutationInputSchema[editInput]("edits"),
 		Annotations: &sdkmcp.ToolAnnotations{
 			DestructiveHint: boolPtr(false),
 			OpenWorldHint:   boolPtr(false),
 		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in editInput) (*sdkmcp.CallToolResult, any, error) {
 		ctx = keg.WithValidationActor(ctx, keg.ValidationActorAgent)
-		opts := tapper.EditOptions{
-			KegTargetOptions: resolveKegTarget(ctx, in.Keg, defaults),
-			NodeID:           in.NodeID,
-			Stream: &toolkit.Stream{
-				IsPiped: true,
-				In:      bytes.NewReader([]byte(in.Content)),
-			},
+		edits := make([]tapper.BatchEditItem, len(in.Edits))
+		for i, item := range in.Edits {
+			edits[i] = tapper.BatchEditItem{NodeID: item.NodeID, Content: item.Content, ExpectedHash: item.ExpectedHash, SnapshotBefore: item.SnapshotBefore}
 		}
-
-		if err := tap.Edit(ctx, opts); err != nil {
+		results, err := tap.EditBatch(ctx, tapper.BatchEditOptions{KegTargetOptions: resolveKegTarget(ctx, in.Keg, defaults), Edits: edits})
+		if err != nil {
 			return errorResult(err), nil, nil
 		}
-		return textResult(fmt.Sprintf("node %s updated", in.NodeID)), nil, nil
+		res := textResult(fmt.Sprintf("updated %d node(s)", len(results)))
+		res.StructuredContent = map[string]any{"results": nodeUpdateOutputs(results)}
+		return res, nil, nil
 	})
 }
 
 // --- meta ---
 
 type metaInput struct {
-	NodeID  string `json:"node_id" jsonschema:"node ID to inspect or update"`
-	Content string `json:"content,omitempty" jsonschema:"YAML metadata to write (omit to read current metadata)"`
-	Keg     string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
+	NodeIDs []string          `json:"node_ids,omitempty" jsonschema:"1-100 node IDs to read"`
+	Updates []metaUpdateInput `json:"updates,omitempty" jsonschema:"1-100 metadata replacements to apply atomically"`
+	Keg     string            `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
+}
+type metaUpdateInput struct {
+	NodeID         string `json:"node_id"`
+	Content        string `json:"content"`
+	ExpectedHash   string `json:"expected_hash,omitempty"`
+	SnapshotBefore bool   `json:"snapshot_before,omitempty"`
 }
 
 func registerMeta(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "meta",
-		Description: "Read or write node metadata (tags, attributes)",
+		Description: "Read metadata for 1-100 nodes or atomically replace metadata for 1-100 nodes",
+		InputSchema: boundedMutationInputSchema[metaInput]("node_ids", "updates"),
 		Annotations: &sdkmcp.ToolAnnotations{
 			DestructiveHint: boolPtr(false),
 			OpenWorldHint:   boolPtr(false),
 		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in metaInput) (*sdkmcp.CallToolResult, any, error) {
 		ctx = keg.WithValidationActor(ctx, keg.ValidationActorAgent)
-		opts := tapper.MetaOptions{
-			KegTargetOptions: resolveKegTarget(ctx, in.Keg, defaults),
-			NodeID:           in.NodeID,
+		updates := make([]tapper.BatchMetaUpdate, len(in.Updates))
+		for i, item := range in.Updates {
+			updates[i] = tapper.BatchMetaUpdate{NodeID: item.NodeID, Content: item.Content, ExpectedHash: item.ExpectedHash, SnapshotBefore: item.SnapshotBefore}
 		}
-
-		if in.Content != "" {
-			opts.Stream = &toolkit.Stream{
-				IsPiped: true,
-				In:      bytes.NewReader([]byte(in.Content)),
-			}
-		}
-
-		result, err := tap.Meta(ctx, opts)
+		reads, writes, err := tap.MetaBatch(ctx, tapper.BatchMetaOptions{KegTargetOptions: resolveKegTarget(ctx, in.Keg, defaults), NodeIDs: in.NodeIDs, Updates: updates})
 		if err != nil {
 			return errorResult(err), nil, nil
 		}
-		if in.Content != "" {
-			return textResult(fmt.Sprintf("metadata for node %s updated", in.NodeID)), nil, nil
+		if len(writes) > 0 {
+			res := textResult(fmt.Sprintf("updated metadata for %d node(s)", len(writes)))
+			res.StructuredContent = map[string]any{"results": nodeUpdateOutputs(writes)}
+			return res, nil, nil
 		}
-		return textResult(result), nil, nil
+		message := fmt.Sprintf("read metadata for %d node(s)", len(reads))
+		if len(reads) == 1 {
+			message = reads[0].Content
+		}
+		res := textResult(message)
+		res.StructuredContent = map[string]any{"results": reads}
+		return res, nil, nil
 	})
 }
 

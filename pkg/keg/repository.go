@@ -104,6 +104,16 @@ type Repository interface {
 	WriteConfig(ctx context.Context, config *Config) error
 }
 
+// RepositoryAtomicWrite optionally provides rollback for a complete KEG
+// mutation. PostgreSQL repositories already get this behavior from
+// WithKegWrite transactions; local repositories implement this capability for
+// multi-node operations.
+type RepositoryAtomicWrite interface {
+	// WithKegAtomicWrite runs fn under a KEG-wide write boundary and restores
+	// repository state when fn returns an error.
+	WithKegAtomicWrite(ctx context.Context, fn func(context.Context) error) error
+}
+
 // RepositoryConcurrentAccess optionally reports whether the repository can
 // safely service concurrent calls for the supplied context. Repositories that
 // do not implement this interface are assumed to support concurrent access.

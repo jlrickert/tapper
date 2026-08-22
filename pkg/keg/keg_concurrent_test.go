@@ -22,7 +22,7 @@ func TestConcurrentCreate_UniqueIDs(t *testing.T) {
 
 	repo := kegpkg.NewMemoryRepo(f.Runtime())
 	k := kegpkg.NewLocalKeg(repo, f.Runtime())
-	require.NoError(t, k.Init(f.Context()))
+	initNonStrictTestKeg(t, k, f.Context())
 
 	const N = 20
 	ids := make([]kegpkg.NodeId, N)
@@ -61,7 +61,7 @@ func TestConcurrentCreate_FsRepo(t *testing.T) {
 
 	k, err := kegpkg.NewKegFromTarget(f.Context(), kegpkg.NewFile("repo"), f.Runtime())
 	require.NoError(t, err)
-	require.NoError(t, k.Init(f.Context()))
+	initNonStrictTestKeg(t, k, f.Context())
 
 	const N = 10
 	ids := make([]kegpkg.NodeId, N)
@@ -100,7 +100,7 @@ func TestConcurrentSetContent_DifferentNodes(t *testing.T) {
 
 	repo := kegpkg.NewMemoryRepo(f.Runtime())
 	k := kegpkg.NewLocalKeg(repo, f.Runtime())
-	require.NoError(t, k.Init(f.Context()))
+	initNonStrictTestKeg(t, k, f.Context())
 
 	const N = 10
 	ids := make([]kegpkg.NodeId, N)
@@ -145,7 +145,7 @@ func TestConcurrentSetContent_SameNode(t *testing.T) {
 
 	repo := kegpkg.NewMemoryRepo(f.Runtime())
 	k := kegpkg.NewLocalKeg(repo, f.Runtime())
-	require.NoError(t, k.Init(f.Context()))
+	initNonStrictTestKeg(t, k, f.Context())
 
 	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "Shared"})
 	require.NoError(t, err)
@@ -181,7 +181,7 @@ func TestConcurrentSetMeta_SameNode(t *testing.T) {
 
 	repo := kegpkg.NewMemoryRepo(f.Runtime())
 	k := kegpkg.NewLocalKeg(repo, f.Runtime())
-	require.NoError(t, k.Init(f.Context()))
+	initNonStrictTestKeg(t, k, f.Context())
 
 	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "Shared Meta"})
 	require.NoError(t, err)
@@ -213,7 +213,7 @@ func TestConcurrentCreateAndEdit(t *testing.T) {
 
 	repo := kegpkg.NewMemoryRepo(f.Runtime())
 	k := kegpkg.NewLocalKeg(repo, f.Runtime())
-	require.NoError(t, k.Init(f.Context()))
+	initNonStrictTestKeg(t, k, f.Context())
 
 	// Pre-create some nodes for editing.
 	const preCreated = 5
@@ -280,7 +280,7 @@ func TestTwoKegInstances_DexNotOverwritten(t *testing.T) {
 
 	// Create two Keg instances sharing the same repo (simulates MCP server + CLI)
 	k1 := kegpkg.NewLocalKeg(repo, f.Runtime())
-	require.NoError(t, k1.Init(f.Context()))
+	initNonStrictTestKeg(t, k1, f.Context())
 
 	k2 := kegpkg.NewLocalKeg(repo, f.Runtime())
 
@@ -313,7 +313,7 @@ func TestWithNodeLock_StaleLockRecovery(t *testing.T) {
 
 	k, err := kegpkg.NewKegFromTarget(f.Context(), kegpkg.NewFile("repo"), f.Runtime())
 	require.NoError(t, err)
-	require.NoError(t, k.Init(f.Context()))
+	initNonStrictTestKeg(t, k, f.Context())
 
 	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "Locked Node"})
 	require.NoError(t, err)
@@ -358,7 +358,7 @@ func TestConcurrentCrossLock_OnlyOneWins(t *testing.T) {
 
 	repo := kegpkg.NewMemoryRepo(f.Runtime())
 	k := kegpkg.NewLocalKeg(repo, f.Runtime())
-	require.NoError(t, k.Init(f.Context()))
+	initNonStrictTestKeg(t, k, f.Context())
 
 	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "Lock Race"})
 	require.NoError(t, err)
@@ -397,7 +397,7 @@ func TestCrossLock_DoesNotBlockWithNodeLock(t *testing.T) {
 
 	repo := kegpkg.NewMemoryRepo(f.Runtime())
 	k := kegpkg.NewLocalKeg(repo, f.Runtime())
-	require.NoError(t, k.Init(f.Context()))
+	initNonStrictTestKeg(t, k, f.Context())
 
 	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "Lock Independence"})
 	require.NoError(t, err)
@@ -430,7 +430,7 @@ func TestConcurrentRemoveDuringSetContent_MemoryRepo(t *testing.T) {
 
 	repo := kegpkg.NewMemoryRepo(f.Runtime())
 	k := kegpkg.NewLocalKeg(repo, f.Runtime())
-	require.NoError(t, k.Init(f.Context()))
+	initNonStrictTestKeg(t, k, f.Context())
 
 	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "Doomed"})
 	require.NoError(t, err)
@@ -457,7 +457,7 @@ func TestConcurrentRemoveDuringSetMeta_MemoryRepo(t *testing.T) {
 
 	repo := kegpkg.NewMemoryRepo(f.Runtime())
 	k := kegpkg.NewLocalKeg(repo, f.Runtime())
-	require.NoError(t, k.Init(f.Context()))
+	initNonStrictTestKeg(t, k, f.Context())
 
 	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{
 		Title: "Meta Doomed",
@@ -492,7 +492,7 @@ func TestConcurrentRemoveDuringUpdateMeta_MemoryRepo(t *testing.T) {
 
 	repo := kegpkg.NewMemoryRepo(f.Runtime())
 	k := kegpkg.NewLocalKeg(repo, f.Runtime())
-	require.NoError(t, k.Init(f.Context()))
+	initNonStrictTestKeg(t, k, f.Context())
 
 	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "Update Doomed"})
 	require.NoError(t, err)
@@ -522,7 +522,7 @@ func TestConcurrentRemoveThenSetContent_RaceCondition(t *testing.T) {
 
 	repo := kegpkg.NewMemoryRepo(f.Runtime())
 	k := kegpkg.NewLocalKeg(repo, f.Runtime())
-	require.NoError(t, k.Init(f.Context()))
+	initNonStrictTestKeg(t, k, f.Context())
 
 	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "Race Node"})
 	require.NoError(t, err)
@@ -580,7 +580,7 @@ func TestConcurrentRemoveDuringSetContent_FsRepo(t *testing.T) {
 
 	k, err := kegpkg.NewKegFromTarget(f.Context(), kegpkg.NewFile("repo"), f.Runtime())
 	require.NoError(t, err)
-	require.NoError(t, k.Init(f.Context()))
+	initNonStrictTestKeg(t, k, f.Context())
 
 	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "FsDoomed"})
 	require.NoError(t, err)
@@ -609,7 +609,7 @@ func TestConcurrentRemoveDuringSetMeta_FsRepo(t *testing.T) {
 
 	k, err := kegpkg.NewKegFromTarget(f.Context(), kegpkg.NewFile("repo_meta"), f.Runtime())
 	require.NoError(t, err)
-	require.NoError(t, k.Init(f.Context()))
+	initNonStrictTestKeg(t, k, f.Context())
 
 	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{
 		Title: "FsMetaDoomed",
@@ -644,7 +644,7 @@ func TestSetContent_NoOrphanedDirectoryOnRemovedNode(t *testing.T) {
 
 	k, err := kegpkg.NewKegFromTarget(f.Context(), kegpkg.NewFile("repo"), f.Runtime())
 	require.NoError(t, err)
-	require.NoError(t, k.Init(f.Context()))
+	initNonStrictTestKeg(t, k, f.Context())
 
 	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "Ephemeral"})
 	require.NoError(t, err)
@@ -686,7 +686,7 @@ func TestConcurrentRemoveDuringTouch_MemoryRepo(t *testing.T) {
 
 	repo := kegpkg.NewMemoryRepo(f.Runtime())
 	k := kegpkg.NewLocalKeg(repo, f.Runtime())
-	require.NoError(t, k.Init(f.Context()))
+	initNonStrictTestKeg(t, k, f.Context())
 
 	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "Touch Doomed"})
 	require.NoError(t, err)
@@ -710,7 +710,7 @@ func TestConcurrentRemoveDuringTouch_FsRepo(t *testing.T) {
 
 	k, err := kegpkg.NewKegFromTarget(f.Context(), kegpkg.NewFile("repo"), f.Runtime())
 	require.NoError(t, err)
-	require.NoError(t, k.Init(f.Context()))
+	initNonStrictTestKeg(t, k, f.Context())
 
 	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "FsTouchDoomed"})
 	require.NoError(t, err)
@@ -734,7 +734,7 @@ func TestConcurrentRemoveDuringUpdateMeta_FsRepo(t *testing.T) {
 
 	k, err := kegpkg.NewKegFromTarget(f.Context(), kegpkg.NewFile("repo"), f.Runtime())
 	require.NoError(t, err)
-	require.NoError(t, k.Init(f.Context()))
+	initNonStrictTestKeg(t, k, f.Context())
 
 	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "FsUpdateDoomed"})
 	require.NoError(t, err)

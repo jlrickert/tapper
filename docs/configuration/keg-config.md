@@ -40,11 +40,18 @@ it. Use `instructions` for targeted operational guidance. Instructions are
 loaded only after an agent explicitly selects the KEG through `keg_settings`;
 they are not included in aggregate orientation.
 
-`schemaPolicy` has three actor-specific modes: `human`, `agent`, and `api`.
-Each accepts `off`, `warn`, or `block`. When omitted, human writes default to
-`warn`, while agent and API writes default to `block`. Archive imports and
-snapshot restores always skip node-schema enforcement; archive integrity and
-schema document validation still apply.
+`schemaPolicy.strict` is a KEG-wide invariant. In strict mode every nonzero
+node must declare a known `type` and satisfy that type's metadata and Markdown
+schema. Node 0 may omit `type`; an explicitly typed node 0 is validated. Strict
+mode cannot be weakened by actor or request overrides, and complete resulting
+state is checked when strictness is enabled, schemas are replaced or deleted,
+snapshots are restored, or archives are imported. Newly initialized KEGs set
+`strict: true`; older configs with no `strict` field remain non-strict.
+
+When strict mode is disabled, `human`, `agent`, and `api` each accept `off`,
+`warn`, or `block`. The defaults are human=`warn`, agent=`block`, and
+api=`block`. Non-strict archive imports and snapshot restores retain their
+historical schema-enforcement exemption.
 
 ## When To Edit Which Config
 

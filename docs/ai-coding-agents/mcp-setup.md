@@ -102,12 +102,28 @@ agent to inspect flights through MCP, ask the user to run `tap use --flight
 
 | Tool | Description |
 | --- | --- |
-| `create` | Create a node |
-| `edit` | Replace node content |
-| `meta` | Read or write node metadata |
+| `create` | Atomically create 1–100 nodes from `nodes[]`; unique keys support forward/backward `{{node:key}}` body references |
+| `edit` | Atomically replace 1–100 nodes from `edits[]`, with optional hash checks and pre-edit snapshots |
+| `meta` | Read `node_ids[]` or atomically replace metadata through `updates[]` |
 | `remove` | Delete a node |
 | `move` | Move a node to a different ID |
 | `keg_settings_edit` | Replace the complete validated KEG YAML document; requires admin flight authority and editor/admin KEG access |
+
+Mutation inputs are array-only and each array contains 1–100 items:
+
+```json
+{"nodes":[{"key":"plan","title":"Plan","body":"See [task](../{{node:task}})"}]}
+{"edits":[{"node_id":"12","content":"# Revised","expected_hash":"...","snapshot_before":true}]}
+{"node_ids":["12","13"]}
+{"updates":[{"node_id":"12","content":"type: plan\n","expected_hash":"...","snapshot_before":true}]}
+{"nodes":[{"node_id":"12","message":"reviewed"}]}
+```
+
+The first and last shapes belong to `create` and `node_snapshot`; the middle
+three belong to `edit` and the two mutually exclusive `meta` modes. Mutation
+results preserve request order and report `node_id`, the resulting hash or
+snapshot revision, and advisory schema validation details when applicable. A
+failed batch returns no partial results and commits none of its changes.
 
 ### Index, Diagnostics, And Safety
 
@@ -115,7 +131,7 @@ agent to inspect flights through MCP, ask the user to run `tap use --flight
 | --- | --- |
 | `index`, `list_indexes`, `index_cat` | Rebuild or inspect indexes |
 | `doctor` | Check only the selected keg's health (not local Tapper configuration) |
-| `node_history`, `node_snapshot`, `node_snapshot_view`, `node_restore` | Manage node snapshots |
+| `node_history`, `node_snapshot`, `node_snapshot_view`, `node_restore` | Manage node snapshots; `node_snapshot` accepts 1–100 nodes atomically |
 | `lock_acquire`, `lock_release`, `lock_status`, `lock_force_release` | Coordinate cross-process node locks |
 
 ### Files And Images
@@ -166,6 +182,13 @@ MCP does not expose Tapper configuration, config templates, repository setup,
 archive import/export, raw auth status, license text, keg visibility, or
 namespace administration. Those remain external CLI, configuration, or Hub UI
 operations.
+
+The four mutation tools above intentionally use array-only inputs. Empty
+batches, batches over 100 items, duplicate keys/IDs, unknown create
+placeholders, stale hashes, invalid schemas, or any persistence failure reject
+the entire call. Structured results preserve request order and include node
+IDs plus resulting hashes or snapshot revisions. The removed single-item
+fields are not accepted by the published MCP schemas.
 
 `import_from_keg` requires editor identity and flight authority on the source
 when `leave_stubs` is requested, because that option rewrites source nodes.

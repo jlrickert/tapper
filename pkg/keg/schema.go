@@ -56,6 +56,16 @@ func WithValidationActor(ctx context.Context, actor ValidationActor) context.Con
 	return context.WithValue(ctx, schemaActorContextKey{}, actor)
 }
 
+// WithDefaultValidationActor records actor only when the caller has not
+// already supplied one. Shared Tap methods use this to give CLI invocations a
+// human default without erasing the agent actor installed by MCP.
+func WithDefaultValidationActor(ctx context.Context, actor ValidationActor) context.Context {
+	if ValidationActorFromContext(ctx) != "" {
+		return ctx
+	}
+	return WithValidationActor(ctx, actor)
+}
+
 func WithValidationMode(ctx context.Context, mode ValidationMode) context.Context {
 	if mode == "" {
 		return ctx
@@ -104,9 +114,10 @@ func ValidationHeaderValues(ctx context.Context) map[string]string {
 }
 
 type SchemaPolicy struct {
-	Human ValidationMode `yaml:"human,omitempty" json:"human,omitempty"`
-	Agent ValidationMode `yaml:"agent,omitempty" json:"agent,omitempty"`
-	API   ValidationMode `yaml:"api,omitempty" json:"api,omitempty"`
+	Strict bool           `yaml:"strict,omitempty" json:"strict,omitempty"`
+	Human  ValidationMode `yaml:"human,omitempty" json:"human,omitempty"`
+	Agent  ValidationMode `yaml:"agent,omitempty" json:"agent,omitempty"`
+	API    ValidationMode `yaml:"api,omitempty" json:"api,omitempty"`
 }
 
 type SchemaDefinition struct {
@@ -626,6 +637,9 @@ func (k *LocalKeg) writeSchema(ctx context.Context, typeName string, data []byte
 	if _, err := validateSchemaDefinitionForType(typeName, data); err != nil {
 		return err
 	}
+	if err := k.validateStrictSchemaChange(ctx, store, map[string][]byte{typeName: data}, nil); err != nil {
+		return err
+	}
 	return store.WriteSchema(ctx, typeName, data)
 }
 
@@ -637,6 +651,9 @@ func (k *LocalKeg) deleteSchema(ctx context.Context, typeName string) error {
 	store, ok := repoSchemas(k.Repo)
 	if !ok {
 		return ErrNotSupported
+	}
+	if err := k.validateStrictSchemaChange(ctx, store, nil, map[string]bool{typeName: true}); err != nil {
+		return err
 	}
 	return store.DeleteSchema(ctx, typeName)
 }
@@ -743,18 +760,21 @@ func (k *LocalKeg) enforceSchemaValidationResult(ctx context.Context, op schemaW
 }
 
 func (k *LocalKeg) effectiveValidationMode(ctx context.Context, op schemaWriteOperation) ValidationMode {
-	// Archives are historical data, not new writes. Import and restore still
-	// validate archive structure, schema documents, and node syntax, but never
-	// reject a node merely because it does not satisfy a stored schema.
+	var policy *SchemaPolicy
+	if cfg, err := k.Repo.ReadConfig(ctx); err == nil && cfg != nil {
+		policy = cfg.SchemaPolicy
+	}
+	// Strict is a KEG invariant. It deliberately wins over actor policy,
+	// request headers, and the historical import/restore exemptions.
+	if policy != nil && policy.Strict {
+		return ValidationModeBlock
+	}
+	// Archives are historical data, not new writes in non-strict KEGs.
 	if op == schemaWriteImport || op == schemaWriteRestore {
 		return ValidationModeOff
 	}
 	if mode := normalizeValidationMode(ValidationModeFromContext(ctx)); mode != ValidationModeAuto {
 		return mode
-	}
-	var policy *SchemaPolicy
-	if cfg, err := k.Repo.ReadConfig(ctx); err == nil && cfg != nil {
-		policy = cfg.SchemaPolicy
 	}
 	if policy != nil {
 		actor := ValidationActorFromContext(ctx)
@@ -805,6 +825,14 @@ func (k *LocalKeg) validateNodeData(ctx context.Context, id NodeId, node *NodeDa
 }
 
 func (k *LocalKeg) validateNodeDataWithSchemas(ctx context.Context, id NodeId, node *NodeData, store RepositorySchemas) (*SchemaValidationResult, error) {
+	strict := false
+	if cfg, err := k.Repo.ReadConfig(ctx); err == nil && cfg != nil && cfg.SchemaPolicy != nil {
+		strict = cfg.SchemaPolicy.Strict
+	}
+	return k.validateNodeDataWithSchemaPolicy(ctx, id, node, store, strict)
+}
+
+func (k *LocalKeg) validateNodeDataWithSchemaPolicy(ctx context.Context, id NodeId, node *NodeData, store RepositorySchemas, strict bool) (*SchemaValidationResult, error) {
 	result := &SchemaValidationResult{NodeID: id.Path(), Valid: true}
 	if node == nil || store == nil {
 		return result, nil
@@ -813,7 +841,7 @@ func (k *LocalKeg) validateNodeDataWithSchemas(ctx context.Context, id NodeId, n
 	if err != nil {
 		return nil, err
 	}
-	if len(types) == 0 {
+	if len(types) == 0 && !strict {
 		return result, nil
 	}
 

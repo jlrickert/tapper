@@ -58,9 +58,7 @@ func TestSchemaValidationCreatePolicy(t *testing.T) {
 	f := sandbox.NewSandbox(t, &sandbox.Options{Home: "/home/testuser", User: "testuser"})
 	ctx := context.Background()
 	k := kegpkg.NewLocalKeg(kegpkg.NewMemoryRepo(f.Runtime()), f.Runtime())
-	if err := k.Init(ctx); err != nil {
-		t.Fatalf("Init: %v", err)
-	}
+	initNonStrictTestKeg(t, k, ctx)
 
 	schema := []byte(`type: task
 meta:
@@ -115,9 +113,7 @@ func TestSchemaValidationActorOverrides(t *testing.T) {
 	f := sandbox.NewSandbox(t, &sandbox.Options{Home: "/home/testuser", User: "testuser"})
 	ctx := context.Background()
 	k := kegpkg.NewLocalKeg(kegpkg.NewMemoryRepo(f.Runtime()), f.Runtime())
-	if err := k.Init(ctx); err != nil {
-		t.Fatalf("Init: %v", err)
-	}
+	initNonStrictTestKeg(t, k, ctx)
 	if err := k.WriteSchema(ctx, "task", []byte(`type: task
 meta:
   type: object
@@ -157,9 +153,7 @@ func TestSnapshotReplayPersistsOmegaFromRelationMaturity(t *testing.T) {
 	f := sandbox.NewSandbox(t, &sandbox.Options{Home: "/home/testuser", User: "testuser"})
 	ctx := context.Background()
 	k := kegpkg.NewLocalKeg(kegpkg.NewMemoryRepo(f.Runtime()), f.Runtime())
-	if err := k.Init(ctx); err != nil {
-		t.Fatalf("Init: %v", err)
-	}
+	initNonStrictTestKeg(t, k, ctx)
 
 	evidenceSchema := []byte(`type: evidence
 meta:
@@ -296,9 +290,7 @@ func TestSnapshotReplayPersistsOmegaFromNestedMetadataMaturity(t *testing.T) {
 	f := sandbox.NewSandbox(t, &sandbox.Options{Home: "/home/testuser", User: "testuser"})
 	ctx := context.Background()
 	k := kegpkg.NewLocalKeg(kegpkg.NewMemoryRepo(f.Runtime()), f.Runtime())
-	if err := k.Init(ctx); err != nil {
-		t.Fatalf("Init: %v", err)
-	}
+	initNonStrictTestKeg(t, k, ctx)
 
 	schema := []byte(`type: note
 meta:
@@ -366,9 +358,7 @@ func TestSnapshotReplayPersistsOmegaFromLegacyTopLevelMetadataMaturity(t *testin
 	f := sandbox.NewSandbox(t, &sandbox.Options{Home: "/home/testuser", User: "testuser"})
 	ctx := context.Background()
 	k := kegpkg.NewLocalKeg(kegpkg.NewMemoryRepo(f.Runtime()), f.Runtime())
-	if err := k.Init(ctx); err != nil {
-		t.Fatalf("Init: %v", err)
-	}
+	initNonStrictTestKeg(t, k, ctx)
 
 	schema := []byte(`type: note
 maturity:
@@ -410,9 +400,7 @@ func TestSnapshotReplayCombinesMetadataAndRelationMaturity(t *testing.T) {
 	f := sandbox.NewSandbox(t, &sandbox.Options{Home: "/home/testuser", User: "testuser"})
 	ctx := context.Background()
 	k := kegpkg.NewLocalKeg(kegpkg.NewMemoryRepo(f.Runtime()), f.Runtime())
-	if err := k.Init(ctx); err != nil {
-		t.Fatalf("Init: %v", err)
-	}
+	initNonStrictTestKeg(t, k, ctx)
 
 	evidenceSchema := []byte(`type: evidence
 markdown:
@@ -484,9 +472,7 @@ func TestSchemaRelationMaturityValidation(t *testing.T) {
 	f := sandbox.NewSandbox(t, &sandbox.Options{Home: "/home/testuser", User: "testuser"})
 	ctx := context.Background()
 	k := kegpkg.NewLocalKeg(kegpkg.NewMemoryRepo(f.Runtime()), f.Runtime())
-	if err := k.Init(ctx); err != nil {
-		t.Fatalf("Init: %v", err)
-	}
+	initNonStrictTestKeg(t, k, ctx)
 
 	valid := []byte(`type: note
 relations:
@@ -550,9 +536,7 @@ func TestSchemaTopLevelMaturityValidation(t *testing.T) {
 	f := sandbox.NewSandbox(t, &sandbox.Options{Home: "/home/testuser", User: "testuser"})
 	ctx := context.Background()
 	k := kegpkg.NewLocalKeg(kegpkg.NewMemoryRepo(f.Runtime()), f.Runtime())
-	if err := k.Init(ctx); err != nil {
-		t.Fatalf("Init: %v", err)
-	}
+	initNonStrictTestKeg(t, k, ctx)
 
 	valid := []byte(`type: note
 maturity:
@@ -646,9 +630,7 @@ func TestSchemaNestedMetadataMaturityValidation(t *testing.T) {
 	f := sandbox.NewSandbox(t, &sandbox.Options{Home: "/home/testuser", User: "testuser"})
 	ctx := context.Background()
 	k := kegpkg.NewLocalKeg(kegpkg.NewMemoryRepo(f.Runtime()), f.Runtime())
-	if err := k.Init(ctx); err != nil {
-		t.Fatalf("Init: %v", err)
-	}
+	initNonStrictTestKeg(t, k, ctx)
 
 	valid := []byte(`type: note
 meta:
@@ -809,9 +791,7 @@ func TestZeroNodeExemptFromRequiredType(t *testing.T) {
 	f := sandbox.NewSandbox(t, &sandbox.Options{Home: "/home/testuser", User: "testuser"})
 	ctx := context.Background()
 	k := kegpkg.NewLocalKeg(kegpkg.NewMemoryRepo(f.Runtime()), f.Runtime())
-	if err := k.Init(ctx); err != nil {
-		t.Fatalf("Init: %v", err)
-	}
+	initNonStrictTestKeg(t, k, ctx)
 	schema := []byte("type: task\nmeta:\n  type: object\n  required: [\"type\"]\n")
 	if err := k.WriteSchema(ctx, "task", schema); err != nil {
 		t.Fatalf("WriteSchema: %v", err)
@@ -877,9 +857,7 @@ func TestZeroNodeDoctorReportsRealProblemsOnly(t *testing.T) {
 	f := sandbox.NewSandbox(t, &sandbox.Options{Home: "/home/testuser", User: "testuser"})
 	ctx := context.Background()
 	k := kegpkg.NewLocalKeg(kegpkg.NewMemoryRepo(f.Runtime()), f.Runtime())
-	if err := k.Init(ctx); err != nil {
-		t.Fatalf("Init: %v", err)
-	}
+	initNonStrictTestKeg(t, k, ctx)
 	if err := k.WriteSchema(ctx, "task", []byte("type: task\nmeta:\n  type: object\n")); err != nil {
 		t.Fatalf("WriteSchema: %v", err)
 	}

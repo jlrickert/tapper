@@ -106,9 +106,14 @@ type CreateOptions struct {
 // and indexes the node in the dex. The node is immediately persisted to the repository.
 // If Body is empty, default markdown content is generated from Title and Lead.
 func (k *LocalKeg) Create(ctx context.Context, opts *CreateOptions) (CreateResult, error) {
-	return withKegWriteValue(ctx, k, func(ctx context.Context) (CreateResult, error) {
-		return k.create(ctx, opts)
-	})
+	if opts == nil {
+		opts = &CreateOptions{}
+	}
+	results, err := k.CreateNodes(ctx, []NodeCreate{{Key: "node", Title: opts.Title, Lead: opts.Lead, Body: opts.Body, Tags: opts.Tags, Attrs: opts.Attrs}})
+	if len(results) == 0 {
+		return CreateResult{}, err
+	}
+	return CreateResult{ID: results[0].ID, Validation: results[0].Validation}, err
 }
 
 func (k *LocalKeg) create(ctx context.Context, opts *CreateOptions) (CreateResult, error) {

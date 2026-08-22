@@ -8,9 +8,11 @@ import (
 )
 
 func (k *LocalKeg) AppendSnapshot(ctx context.Context, id NodeId, msg string) (Snapshot, error) {
-	return withKegWriteValue(ctx, k, func(ctx context.Context) (Snapshot, error) {
-		return k.appendSnapshot(ctx, id, msg, true)
-	})
+	results, err := k.AppendSnapshots(ctx, []NodeSnapshotRequest{{ID: id, Message: msg}})
+	if len(results) == 0 {
+		return Snapshot{}, err
+	}
+	return results[0], err
 }
 
 func (k *LocalKeg) appendSnapshot(ctx context.Context, id NodeId, msg string, refreshIndexes bool) (Snapshot, error) {
@@ -220,6 +222,15 @@ func (k *LocalKeg) restoreSnapshot(ctx context.Context, id NodeId, rev RevisionI
 	}
 	if err := k.validateForWrite(ctx, schemaWriteRestore, id, proposed); err != nil {
 		return err
+	}
+	if k.strictEnabled(ctx) {
+		store, ok := repoSchemas(k.Repo)
+		if !ok {
+			return ErrNotSupported
+		}
+		if err := k.validateCompleteStrict(ctx, store, map[NodeId]*NodeData{id: proposed}); err != nil {
+			return err
+		}
 	}
 	if err := snapshots.RestoreSnapshot(ctx, id, rev, true); err != nil {
 		return err

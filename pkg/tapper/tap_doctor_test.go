@@ -35,6 +35,7 @@ hubs:
 	k, err := keg.NewKegFromTarget(ctx, keg.NewFile(kegDir), fx.Runtime())
 	require.NoError(t, err)
 	require.NoError(t, k.Init(ctx))
+	makeKegNonStrict(t, ctx, k)
 	local, ok := k.(*keg.LocalKeg)
 	require.True(t, ok)
 	return tap, local, ctx

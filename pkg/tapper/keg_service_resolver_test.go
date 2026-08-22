@@ -47,6 +47,7 @@ hubs:
 	initKeg, err := keg.NewKegFromTarget(fx.Context(), keg.NewFile(kegDir), fx.Runtime())
 	require.NoError(t, err)
 	require.NoError(t, initKeg.Init(fx.Context()))
+	makeKegNonStrict(t, fx.Context(), initKeg)
 
 	// Add the "favorite" custom index to the keg config.
 	require.NoError(t, keg.UpdateConfig(fx.Context(), initKeg, func(cfg *keg.Config) {
@@ -143,6 +144,7 @@ func TestKegService_QueryResolver_ProjectKeg(t *testing.T) {
 	initKeg, err := keg.NewKegFromTarget(fx.Context(), keg.NewFile(kegDir), fx.Runtime())
 	require.NoError(t, err)
 	require.NoError(t, initKeg.Init(fx.Context()))
+	makeKegNonStrict(t, fx.Context(), initKeg)
 
 	// Add "pinned" custom index.
 	require.NoError(t, keg.UpdateConfig(fx.Context(), initKeg, func(cfg *keg.Config) {

@@ -49,7 +49,17 @@ func (k *LocalKeg) updateConfig(ctx context.Context, f func(*Config)) error {
 			return fmt.Errorf("failed to read config: %w", err)
 		}
 	}
+	wasStrict := cfg.SchemaPolicy != nil && cfg.SchemaPolicy.Strict
 	f(cfg)
+	if cfg.SchemaPolicy != nil && cfg.SchemaPolicy.Strict && !wasStrict {
+		store, ok := repoSchemas(k.Repo)
+		if !ok {
+			return ErrNotSupported
+		}
+		if err := k.validateCompleteStrict(ctx, store, nil); err != nil {
+			return fmt.Errorf("unable to enable strict schema policy: %w", err)
+		}
+	}
 	if err := k.Repo.WriteConfig(ctx, cfg); err != nil {
 		return fmt.Errorf("failed to write config: %w", err)
 	}
@@ -69,6 +79,15 @@ func (k *LocalKeg) setConfig(ctx context.Context, data []byte) error {
 	cfg, err := ParseKegConfigStrict(data)
 	if err != nil {
 		return fmt.Errorf("unable to parse config: %w", err)
+	}
+	if cfg.SchemaPolicy != nil && cfg.SchemaPolicy.Strict {
+		store, ok := repoSchemas(k.Repo)
+		if !ok {
+			return ErrNotSupported
+		}
+		if err := k.validateCompleteStrict(ctx, store, nil); err != nil {
+			return fmt.Errorf("unable to enable strict schema policy: %w", err)
+		}
 	}
 	if err := k.Repo.WriteConfig(ctx, cfg); err != nil {
 		return fmt.Errorf("failed to write config: %w", err)

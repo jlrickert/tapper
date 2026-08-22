@@ -109,9 +109,14 @@ hubs:
 
 	_, err = tap.InitKeg(ctx, tapper.InitOptions{Keg: "private", Namespace: "local"})
 	require.NoError(t, err)
+	require.NoError(t, tap.CreateSchema(ctx, tapper.SchemaOptions{
+		KegTargetOptions: tapper.KegTargetOptions{Keg: "private"},
+		Data:             []byte("type: note\n"),
+	}))
 	privateID, err := tap.Create(ctx, tapper.CreateOptions{
 		KegTargetOptions: tapper.KegTargetOptions{Keg: "private"},
 		Title:            "Private",
+		Attrs:            map[string]string{"type": "note"},
 	})
 	require.NoError(t, err)
 

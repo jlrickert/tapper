@@ -471,6 +471,7 @@ func TestFlightBypass_AllowsWriteThroughViewerCover(t *testing.T) {
 			BypassFlightRestrictions: true,
 		},
 		Title: "Allowed Write",
+		Attrs: map[string]string{"type": "note"},
 	})
 	require.NoError(t, err)
 	require.NotEmpty(t, node.Path())
@@ -505,6 +506,7 @@ cover:
 			Flight: "+focused",
 		},
 		Title: "Full Access Write",
+		Attrs: map[string]string{"type": "note"},
 	})
 	require.NoError(t, err)
 }
@@ -531,15 +533,21 @@ hubs:
 	for _, name := range []string{"personal", "private"} {
 		_, err := tap.InitKeg(t.Context(), tapper.InitOptions{Keg: name, Namespace: "local"})
 		require.NoError(t, err)
+		require.NoError(t, tap.CreateSchema(t.Context(), tapper.SchemaOptions{
+			KegTargetOptions: tapper.KegTargetOptions{Keg: name},
+			Data:             []byte("type: note\n"),
+		}))
 	}
 	personalID, err := tap.Create(t.Context(), tapper.CreateOptions{
 		KegTargetOptions: tapper.KegTargetOptions{Keg: "personal"},
 		Title:            "Personal",
+		Attrs:            map[string]string{"type": "note"},
 	})
 	require.NoError(t, err)
 	privateID, err := tap.Create(t.Context(), tapper.CreateOptions{
 		KegTargetOptions: tapper.KegTargetOptions{Keg: "private"},
 		Title:            "Private",
+		Attrs:            map[string]string{"type": "note"},
 	})
 	require.NoError(t, err)
 
