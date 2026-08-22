@@ -118,14 +118,10 @@ func (k *LocalKeg) createNodes(ctx context.Context, nodes []NodeCreate) ([]Creat
 			return nil, &BatchMutationError{Index: i, Key: nodes[i].Key, NodeID: data.ID, Err: err}
 		}
 	}
-	k.InvalidateDex()
-	if err := k.rebuildDexFromRepo(ctx); err != nil {
+	if err := k.writeNodesToDex(ctx, proposed, now); err != nil {
 		return nil, err
 	}
 	if err := k.refreshDirtyIndex(ctx); err != nil {
-		return nil, err
-	}
-	if err := k.touchConfigUpdated(ctx, now); err != nil {
 		return nil, err
 	}
 	return results, nil
@@ -267,8 +263,11 @@ func (k *LocalKeg) updateNodes(ctx context.Context, updates []NodeUpdateOptions)
 		}
 		results[i] = NodeUpdateResult{ID: item.opts.ID, Validation: item.validation, Hash: item.data.Stats.Hash()}
 	}
-	k.InvalidateDex()
-	if err := k.rebuildDexFromRepo(ctx); err != nil {
+	updatedNodes := make([]*NodeData, len(prepared))
+	for i := range prepared {
+		updatedNodes[i] = prepared[i].data
+	}
+	if err := k.writeNodesToDex(ctx, updatedNodes, k.Runtime.Clock().Now()); err != nil {
 		return nil, err
 	}
 	if err := k.refreshDirtyIndex(ctx); err != nil {
@@ -278,9 +277,6 @@ func (k *LocalKeg) updateNodes(ctx context.Context, updates []NodeUpdateOptions)
 		if err := k.refreshSnapshotGeneratedIndexes(ctx); err != nil {
 			return nil, err
 		}
-	}
-	if err := k.touchConfigUpdated(ctx, k.Runtime.Clock().Now()); err != nil {
-		return nil, err
 	}
 	return results, nil
 }
