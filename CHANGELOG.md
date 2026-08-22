@@ -2,6 +2,23 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.38.0 - 2026-08-22
+
+
+
+### 🐛 Bug Fixes
+- **keg:** preserve existing dex entries in batches
+
+
+### 🚀 Features
+- **keg:** add atomic batch mutations and strict schemas
+- **keg:** finalize explicit schema writes
+
+
+### 🧪 Testing
+- migrate CLI and parity fixtures for strict batches
+
+
 ## v0.37.0 - 2026-08-10
 
 
