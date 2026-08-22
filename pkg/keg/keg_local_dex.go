@@ -115,16 +115,29 @@ func (k *LocalKeg) recordDexWrite() {
 // records the write, and touches the keg config updated timestamp. When
 // updatedAt is zero, the runtime clock is used for the config timestamp.
 func (k *LocalKeg) writeNodeToDex(ctx context.Context, data *NodeData, updatedAt time.Time) error {
-	id := data.ID
+	return k.writeNodesToDex(ctx, []*NodeData{data}, updatedAt)
+}
+
+// writeNodesToDex updates several nodes in one in-memory dex generation and
+// persists the generated indexes once. Existing entries are retained, which
+// is important for older filesystem KEGs whose dex may contain normalized
+// stats that have not yet been split into stats.json files.
+func (k *LocalKeg) writeNodesToDex(ctx context.Context, nodes []*NodeData, updatedAt time.Time) error {
+	if len(nodes) == 0 {
+		return nil
+	}
+	firstID := nodes[0].ID
 	dex, err := k.ensureDexFresh(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to retrieve dex for node %s: %w", id, err)
+		return fmt.Errorf("failed to retrieve dex for node %s: %w", firstID, err)
 	}
-	if err := dex.Add(ctx, data); err != nil {
-		return fmt.Errorf("failed to add node %s to dex: %w", id, err)
+	for _, data := range nodes {
+		if err := dex.Add(ctx, data); err != nil {
+			return fmt.Errorf("failed to add node %s to dex: %w", data.ID, err)
+		}
 	}
 	if err := dex.Write(ctx, k.Repo); err != nil {
-		return fmt.Errorf("failed to write dex for node %s: %w", id, err)
+		return fmt.Errorf("failed to write dex for node %s: %w", firstID, err)
 	}
 
 	k.dexMu.Lock()
@@ -135,7 +148,7 @@ func (k *LocalKeg) writeNodeToDex(ctx context.Context, data *NodeData, updatedAt
 		updatedAt = k.Runtime.Clock().Now()
 	}
 	if err := k.touchConfigUpdated(ctx, updatedAt); err != nil {
-		return fmt.Errorf("failed to touch keg config after dex write for node %s: %w", id, err)
+		return fmt.Errorf("failed to touch keg config after dex write for node %s: %w", firstID, err)
 	}
 	return nil
 }
