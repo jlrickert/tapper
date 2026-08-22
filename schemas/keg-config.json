@@ -125,7 +125,7 @@
     },
     "schemaPolicy": {
       "type": "object",
-      "description": "Schema validation behavior. Strict mode requires every nonzero node to declare a known type and satisfy its schema; actor modes apply only when strict is disabled.",
+      "description": "Schema validation behavior. Actor modes always apply. Strict mode additionally requires live nonzero-node creates and edits resolved to block to select a schema explicitly; imports, restores, snapshots, schema changes, and node 0 are exempt.",
       "properties": {
         "strict": {
           "type": "boolean",

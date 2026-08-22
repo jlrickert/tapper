@@ -100,8 +100,8 @@ type ConfigV2 struct {
 	// Snapshots controls automatic snapshot behavior for this keg.
 	Snapshots *SnapshotConfig `yaml:"snapshots,omitempty" json:"snapshots,omitempty"`
 
-	// SchemaPolicy controls strict KEG validation and the fallback actor modes
-	// used when strict is disabled.
+	// SchemaPolicy controls actor validation modes. Strict adds explicit schema
+	// selection to live nonzero-node writes whose resolved mode is block.
 	SchemaPolicy *SchemaPolicy `yaml:"schemaPolicy,omitempty" json:"schemaPolicy,omitempty"`
 
 	path string

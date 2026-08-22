@@ -185,10 +185,18 @@ type SchemaValidationResult struct {
 
 type NodeValidationPayload struct {
 	ID         NodeId
+	Schema     string
 	Content    []byte
 	HasContent bool
 	Meta       []byte
 	HasMeta    bool
+}
+
+// NodeWriteOptions configures schema-aware direct LocalKeg writes. These
+// writes keep the direct methods' node-lock and transaction behavior and do
+// not participate in advisory session locks.
+type NodeWriteOptions struct {
+	Schema string
 }
 
 type SchemaValidationError struct {
@@ -222,6 +230,136 @@ func (e *SchemaValidationError) Error() string {
 func (e *SchemaValidationError) Unwrap() error { return ErrSchemaInvalid }
 
 func IsSchemaInvalid(err error) bool { return errors.Is(err, ErrSchemaInvalid) }
+
+type schemaTypeCandidate struct {
+	Source string
+	Value  string
+}
+
+func schemaTypeCandidateFromAttrs(source string, attrs map[string]any) schemaTypeCandidate {
+	if attrs == nil {
+		return schemaTypeCandidate{}
+	}
+	value, ok := attrs["type"]
+	if !ok || value == nil {
+		return schemaTypeCandidate{}
+	}
+	return schemaTypeCandidate{Source: source, Value: strings.TrimSpace(fmt.Sprint(value))}
+}
+
+func schemaTypeCandidateFromFrontmatter(source string, content *NodeContent) schemaTypeCandidate {
+	if content == nil {
+		return schemaTypeCandidate{}
+	}
+	return schemaTypeCandidateFromAttrs(source, content.Frontmatter)
+}
+
+func schemaTypeCandidateFromMeta(source string, meta *NodeMeta) schemaTypeCandidate {
+	if meta == nil {
+		return schemaTypeCandidate{}
+	}
+	value, ok := meta.Get("type")
+	if !ok {
+		return schemaTypeCandidate{}
+	}
+	return schemaTypeCandidate{Source: source, Value: strings.TrimSpace(value)}
+}
+
+func schemaSelectionError(id NodeId, selected, message string) (*SchemaValidationResult, error) {
+	result := &SchemaValidationResult{
+		NodeID: id.Path(),
+		Type:   selected,
+		Valid:  false,
+		Issues: []ValidationIssue{{Level: "error", Field: "schema", Message: message}},
+	}
+	return result, &SchemaValidationError{NodeID: result.NodeID, Type: result.Type, Issues: result.Issues}
+}
+
+func (k *LocalKeg) previewNodeWrite(ctx context.Context, op schemaWriteOperation, id NodeId, node *NodeData, schema string, candidates ...schemaTypeCandidate) (*SchemaValidationResult, error) {
+	result, err := k.projectNodeWrite(ctx, op, id, node, schema, candidates...)
+	var validationErr *SchemaValidationError
+	if errors.As(err, &validationErr) {
+		return result, nil
+	}
+	return result, err
+}
+
+func (k *LocalKeg) explicitSchemaRequired(ctx context.Context, op schemaWriteOperation, id NodeId) bool {
+	if id.ID == 0 || (op != schemaWriteCreate && op != schemaWriteUpdate) {
+		return false
+	}
+	cfg, err := k.Repo.ReadConfig(ctx)
+	if err != nil || cfg == nil || cfg.SchemaPolicy == nil || !cfg.SchemaPolicy.Strict {
+		return false
+	}
+	return k.effectiveValidationMode(ctx, op) == ValidationModeBlock
+}
+
+// projectNodeWrite resolves one live create/update's explicit schema
+// selection, applies it to the projected metadata, and validates the complete
+// projected node. Payload type declarations may agree with the selection, but
+// contradictory declarations are rejected as ambiguous instead of being
+// resolved by precedence.
+func (k *LocalKeg) projectNodeWrite(ctx context.Context, op schemaWriteOperation, id NodeId, node *NodeData, schema string, candidates ...schemaTypeCandidate) (*SchemaValidationResult, error) {
+	selected := strings.TrimSpace(schema)
+	if id.ID != 0 {
+		var declared schemaTypeCandidate
+		for _, candidate := range candidates {
+			candidate.Value = strings.TrimSpace(candidate.Value)
+			if candidate.Value == "" {
+				continue
+			}
+			if declared.Value != "" && candidate.Value != declared.Value {
+				return schemaSelectionError(id, selected, fmt.Sprintf("%s type %q conflicts with %s type %q", candidate.Source, candidate.Value, declared.Source, declared.Value))
+			}
+			declared = candidate
+			if selected != "" && candidate.Value != selected {
+				return schemaSelectionError(id, selected, fmt.Sprintf("selected schema %q conflicts with %s type %q", selected, candidate.Source, candidate.Value))
+			}
+		}
+		if k.explicitSchemaRequired(ctx, op, id) && selected == "" {
+			return schemaSelectionError(id, "", "explicit schema selection is required")
+		}
+		if selected != "" {
+			if node == nil {
+				return schemaSelectionError(id, selected, "cannot apply schema to an empty node")
+			}
+			if node.Meta == nil {
+				node.Meta = NewMeta(ctx, k.Runtime.Clock().Now())
+			}
+			if err := node.Meta.Set(ctx, "type", selected); err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	result, err := k.validateNodeData(ctx, id, node)
+	if err != nil {
+		return result, err
+	}
+	if selected != "" && result != nil {
+		for i := range result.Issues {
+			if result.Issues[i].Field == "meta.type" {
+				result.Issues[i].Field = "schema"
+				if strings.HasPrefix(result.Issues[i].Message, "unknown type ") {
+					result.Issues[i].Message = "unknown schema " + strings.TrimPrefix(result.Issues[i].Message, "unknown type ")
+				}
+			}
+		}
+	}
+	return result, nil
+}
+
+func (k *LocalKeg) validateNodeWrite(ctx context.Context, op schemaWriteOperation, id NodeId, node *NodeData, schema string, candidates ...schemaTypeCandidate) (*SchemaValidationResult, error) {
+	result, err := k.projectNodeWrite(ctx, op, id, node, schema, candidates...)
+	if err != nil {
+		return result, err
+	}
+	if err := k.enforceSchemaValidationResult(ctx, op, result); err != nil {
+		return result, err
+	}
+	return result, nil
+}
 
 func ParseSchemaDefinition(data []byte) (*SchemaDefinition, error) {
 	var schema SchemaDefinition
@@ -637,9 +775,6 @@ func (k *LocalKeg) writeSchema(ctx context.Context, typeName string, data []byte
 	if _, err := validateSchemaDefinitionForType(typeName, data); err != nil {
 		return err
 	}
-	if err := k.validateStrictSchemaChange(ctx, store, map[string][]byte{typeName: data}, nil); err != nil {
-		return err
-	}
 	return store.WriteSchema(ctx, typeName, data)
 }
 
@@ -651,9 +786,6 @@ func (k *LocalKeg) deleteSchema(ctx context.Context, typeName string) error {
 	store, ok := repoSchemas(k.Repo)
 	if !ok {
 		return ErrNotSupported
-	}
-	if err := k.validateStrictSchemaChange(ctx, store, nil, map[string]bool{typeName: true}); err != nil {
-		return err
 	}
 	return store.DeleteSchema(ctx, typeName)
 }
@@ -714,8 +846,17 @@ func (k *LocalKeg) validateNodePayload(ctx context.Context, payload NodeValidati
 		return nil, err
 	}
 	node := &NodeData{ID: id, Content: content, Meta: meta, Stats: &NodeStats{}}
-	_ = node.updateMeta(ctx, k.Runtime, nil)
-	return k.validateNodeData(ctx, id, node)
+	if err := node.updateMeta(ctx, k.Runtime, nil); err != nil {
+		return nil, err
+	}
+	candidates := make([]schemaTypeCandidate, 0, 2)
+	if payload.HasContent {
+		candidates = append(candidates, schemaTypeCandidateFromFrontmatter("frontmatter", content))
+	}
+	if payload.HasMeta {
+		candidates = append(candidates, schemaTypeCandidateFromMeta("metadata", meta))
+	}
+	return k.previewNodeWrite(ctx, schemaWriteUpdate, id, node, payload.Schema, candidates...)
 }
 
 type schemaWriteOperation string
@@ -764,20 +905,24 @@ func (k *LocalKeg) effectiveValidationMode(ctx context.Context, op schemaWriteOp
 	if cfg, err := k.Repo.ReadConfig(ctx); err == nil && cfg != nil {
 		policy = cfg.SchemaPolicy
 	}
-	// Strict is a KEG invariant. It deliberately wins over actor policy,
-	// request headers, and the historical import/restore exemptions.
-	if policy != nil && policy.Strict {
-		return ValidationModeBlock
-	}
-	// Archives are historical data, not new writes in non-strict KEGs.
+	// Archives and restores preserve historical state rather than expressing a
+	// live node write, so schema enforcement never applies to them.
 	if op == schemaWriteImport || op == schemaWriteRestore {
 		return ValidationModeOff
 	}
+	return ResolveValidationMode(ctx, policy)
+}
+
+// ResolveValidationMode applies a request context override, then the selected
+// actor's policy, then Tapper's actor defaults. Callers that need to explain
+// write requirements before performing a write should use this resolver so
+// their UI and Tapper's authoritative save path cannot drift apart.
+func ResolveValidationMode(ctx context.Context, policy *SchemaPolicy) ValidationMode {
 	if mode := normalizeValidationMode(ValidationModeFromContext(ctx)); mode != ValidationModeAuto {
 		return mode
 	}
+	actor := ValidationActorFromContext(ctx)
 	if policy != nil {
-		actor := ValidationActorFromContext(ctx)
 		switch actor {
 		case ValidationActorHuman:
 			if mode := normalizeValidationMode(policy.Human); mode != ValidationModeAuto {
@@ -793,7 +938,7 @@ func (k *LocalKeg) effectiveValidationMode(ctx context.Context, op schemaWriteOp
 			}
 		}
 	}
-	switch ValidationActorFromContext(ctx) {
+	switch actor {
 	case ValidationActorHuman:
 		return ValidationModeWarn
 	case ValidationActorAgent, ValidationActorAPI:
@@ -825,43 +970,20 @@ func (k *LocalKeg) validateNodeData(ctx context.Context, id NodeId, node *NodeDa
 }
 
 func (k *LocalKeg) validateNodeDataWithSchemas(ctx context.Context, id NodeId, node *NodeData, store RepositorySchemas) (*SchemaValidationResult, error) {
-	strict := false
-	if cfg, err := k.Repo.ReadConfig(ctx); err == nil && cfg != nil && cfg.SchemaPolicy != nil {
-		strict = cfg.SchemaPolicy.Strict
-	}
-	return k.validateNodeDataWithSchemaPolicy(ctx, id, node, store, strict)
-}
-
-func (k *LocalKeg) validateNodeDataWithSchemaPolicy(ctx context.Context, id NodeId, node *NodeData, store RepositorySchemas, strict bool) (*SchemaValidationResult, error) {
 	result := &SchemaValidationResult{NodeID: id.Path(), Valid: true}
 	if node == nil || store == nil {
 		return result, nil
 	}
-	types, err := store.ListSchemas(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if len(types) == 0 && !strict {
+	// Node 0 is the untyped placeholder and remains outside node-schema
+	// enforcement, including when legacy data happens to give it a type.
+	if id.ID == 0 {
 		return result, nil
 	}
-
 	typeName, hasType := nodeType(node)
 	result.Type = typeName
 	if !hasType || strings.TrimSpace(typeName) == "" {
-		// Node 0 is the keg's placeholder landing node and carries no type by
-		// design — Init writes it with empty meta. Requiring one made every
-		// schema-bearing keg permanently invalid, and the standing error told
-		// agents to fix node 0 the only way the message suggests: by giving it a
-		// type and content, destroying the placeholder. A node the schema
-		// contract cannot describe must not be reported as violating it.
-		//
-		// Scoped to this one rule. A node 0 that does declare a type is still
-		// validated against it below, and doctor's other node-0 checks (parse
-		// errors, broken links, stats) are untouched.
-		if id.ID != 0 {
-			result.Issues = append(result.Issues, ValidationIssue{Level: "error", Field: "meta.type", Message: "missing required type"})
-			result.Valid = false
-		}
+		// Untyped nodes are valid. Strictness is a write-time explicit-selection
+		// rule, enforced by validateNodeWrite only for live create/update calls.
 		return result, nil
 	}
 

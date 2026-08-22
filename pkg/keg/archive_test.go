@@ -456,7 +456,7 @@ func TestArchiveImportSkipsSchemaEnforcementEvenWithBlockOverride(t *testing.T) 
 	require.NoError(t, err)
 	result, err := dst.ValidateNode(ctx, id.ID)
 	require.NoError(t, err)
-	require.False(t, result.Valid)
+	require.True(t, result.Valid)
 }
 
 func TestArchiveImportDropsLegacySchemaPolicyFields(t *testing.T) {

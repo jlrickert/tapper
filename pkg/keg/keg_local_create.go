@@ -90,6 +90,8 @@ func (k *LocalKeg) Next(ctx context.Context) (NodeId, error) {
 
 // CreateOptions specifies parameters for creating a new node
 type CreateOptions struct {
+	// Schema is the explicitly selected schema for this write.
+	Schema string
 	// Title is the human-readable title for the node
 	Title string
 	// Lead is a one-line summary
@@ -109,7 +111,7 @@ func (k *LocalKeg) Create(ctx context.Context, opts *CreateOptions) (CreateResul
 	if opts == nil {
 		opts = &CreateOptions{}
 	}
-	results, err := k.CreateNodes(ctx, []NodeCreate{{Key: "node", Title: opts.Title, Lead: opts.Lead, Body: opts.Body, Tags: opts.Tags, Attrs: opts.Attrs}})
+	results, err := k.CreateNodes(ctx, []NodeCreate{{Key: "node", Schema: opts.Schema, Title: opts.Title, Lead: opts.Lead, Body: opts.Body, Tags: opts.Tags, Attrs: opts.Attrs}})
 	if len(results) == 0 {
 		return CreateResult{}, err
 	}

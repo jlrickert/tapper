@@ -19,7 +19,8 @@ func NewEditCmd(deps *Deps) *cobra.Command {
 If the file includes YAML frontmatter, it is written to meta.yaml.
 The remaining markdown body is written to the node content file.
 If stdin is piped with non-empty content, it is applied directly and no editor
-is launched.`,
+is launched. --schema selects the node schema and is required when the keg is
+strict and the resolved human validation mode blocks.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts.NodeID = args[0]
@@ -30,5 +31,6 @@ is launched.`,
 	}
 
 	cmd.Flags().StringVar(&opts.LockToken, "lock-token", "", "cross-process lock token for this node")
+	cmd.Flags().StringVar(&opts.Schema, "schema", "", "schema to select for this write")
 	return cmd
 }

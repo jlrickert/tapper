@@ -100,6 +100,20 @@ tags:
 	require.NotContains(t, meta, "title:")
 }
 
+func TestMetaCommand_ReplaceFromStdinPersistsSchemaSelection(t *testing.T) {
+	t.Parallel()
+	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
+	created := NewProcess(t, false, "create", "--keg", "personal", "--title", "Metadata target").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, created.Err)
+
+	stdin := strings.NewReader("summary: selected\n")
+	res := NewProcess(t, false, "meta", "1", "--keg", "personal", "--schema", "note").RunWithIO(sb.Context(), sb.Runtime(), stdin)
+	require.NoError(t, res.Err)
+	meta := string(sb.MustReadFile("~/kegs/@local/personal/1/meta.yaml"))
+	require.Contains(t, meta, "summary: selected")
+	require.Contains(t, meta, "type: note")
+}
+
 func TestMetaCommand_ReplaceFromStdinRejectsInvalidYaml(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))

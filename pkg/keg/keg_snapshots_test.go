@@ -18,7 +18,7 @@ func TestKegSnapshotsRestoreSkipsSchemaEnforcement(t *testing.T) {
 	k := kegpkg.NewLocalKeg(kegpkg.NewMemoryRepo(fx.Runtime()), fx.Runtime())
 	initNonStrictTestKeg(t, k, ctx)
 
-	id, err := k.Create(ctx, &kegpkg.CreateOptions{
+	id, err := k.Create(kegpkg.WithValidationMode(ctx, kegpkg.ValidationModeOff), &kegpkg.CreateOptions{
 		Body:  []byte("# Historical Task\n"),
 		Attrs: map[string]any{"type": "task"},
 	})

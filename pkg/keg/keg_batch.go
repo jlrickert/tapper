@@ -81,15 +81,14 @@ func (k *LocalKeg) createNodes(ctx context.Context, nodes []NodeCreate) ([]Creat
 		if err != nil {
 			return nil, &BatchMutationError{Index: i, Key: item.Key, NodeID: ids[i], Err: err}
 		}
-		data, err := k.buildNodeData(ctx, &CreateOptions{Title: item.Title, Lead: item.Lead, Body: body, Tags: item.Tags, Attrs: item.Attrs}, now, fmt.Sprintf("NodeId %s", ids[i].Path()))
+		data, err := k.buildNodeData(ctx, &CreateOptions{Schema: item.Schema, Title: item.Title, Lead: item.Lead, Body: body, Tags: item.Tags, Attrs: item.Attrs}, now, fmt.Sprintf("NodeId %s", ids[i].Path()))
 		if err != nil {
 			return nil, &BatchMutationError{Index: i, Key: item.Key, NodeID: ids[i], Err: err}
 		}
 		data.ID = ids[i]
-		validation, err := k.validateNodeData(ctx, ids[i], data)
-		if err == nil {
-			err = k.enforceSchemaValidationResult(ctx, schemaWriteCreate, validation)
-		}
+		validation, err := k.validateNodeWrite(ctx, schemaWriteCreate, ids[i], data, item.Schema,
+			schemaTypeCandidateFromAttrs("attributes", item.Attrs),
+			schemaTypeCandidateFromFrontmatter("frontmatter", data.Content))
 		if err != nil {
 			return nil, &BatchMutationError{Index: i, Key: item.Key, NodeID: ids[i], Err: err}
 		}
@@ -220,10 +219,14 @@ func (k *LocalKeg) updateNodes(ctx context.Context, updates []NodeUpdateOptions)
 		if err := data.updateMeta(ctx, k.Runtime, &now); err != nil {
 			return nil, &BatchMutationError{Index: i, NodeID: opts.ID, Err: err}
 		}
-		validation, err := k.validateNodeData(ctx, opts.ID, data)
-		if err == nil {
-			err = k.enforceSchemaValidationResult(ctx, schemaWriteUpdate, validation)
+		candidates := make([]schemaTypeCandidate, 0, 2)
+		if opts.HasContent {
+			candidates = append(candidates, schemaTypeCandidateFromFrontmatter("frontmatter", content))
 		}
+		if opts.HasMeta {
+			candidates = append(candidates, schemaTypeCandidateFromMeta("metadata", meta))
+		}
+		validation, err := k.validateNodeWrite(ctx, schemaWriteUpdate, opts.ID, data, opts.Schema, candidates...)
 		if err != nil && !errors.Is(err, ErrNotSupported) {
 			return nil, &BatchMutationError{Index: i, NodeID: opts.ID, Err: err}
 		}
@@ -242,7 +245,7 @@ func (k *LocalKeg) updateNodes(ctx context.Context, updates []NodeUpdateOptions)
 			createdSnapshots = true
 		}
 		err := k.withNodeLock(ctx, item.opts.ID, func(lockCtx context.Context) error {
-			if item.opts.HasMeta {
+			if item.opts.HasMeta || strings.TrimSpace(item.opts.Schema) != "" {
 				if err := k.Repo.WriteMeta(lockCtx, item.opts.ID, []byte(item.data.Meta.ToYAML())); err != nil {
 					return err
 				}

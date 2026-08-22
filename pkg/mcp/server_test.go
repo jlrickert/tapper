@@ -584,7 +584,7 @@ func TestMCPMutationsPreserveAgentSchemaPolicy(t *testing.T) {
 		Name: "keg_settings_edit",
 		Arguments: map[string]any{"data": `kegv: 2025-07
 schemaPolicy:
-  strict: false
+  strict: true
   human: off
   agent: block
   api: off
@@ -611,12 +611,12 @@ meta:
 	})
 	require.NoError(t, err)
 	require.True(t, invalid.IsError, "MCP write was reclassified as human and bypassed agent:block")
-	require.Contains(t, extractText(t, invalid), "missing required type")
+	require.Contains(t, extractText(t, invalid), "explicit schema selection is required")
 
 	valid, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
 		Name: "create",
 		Arguments: map[string]any{"nodes": []any{map[string]any{
-			"key": "valid", "body": "# Typed\n", "attrs": map[string]any{"type": "task"},
+			"key": "valid", "schema": "task", "body": "# Typed\n", "attrs": map[string]any{"type": "task"},
 		}}},
 	})
 	require.NoError(t, err)

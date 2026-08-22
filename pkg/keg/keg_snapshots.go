@@ -223,15 +223,6 @@ func (k *LocalKeg) restoreSnapshot(ctx context.Context, id NodeId, rev RevisionI
 	if err := k.validateForWrite(ctx, schemaWriteRestore, id, proposed); err != nil {
 		return err
 	}
-	if k.strictEnabled(ctx) {
-		store, ok := repoSchemas(k.Repo)
-		if !ok {
-			return ErrNotSupported
-		}
-		if err := k.validateCompleteStrict(ctx, store, map[NodeId]*NodeData{id: proposed}); err != nil {
-			return err
-		}
-	}
 	if err := snapshots.RestoreSnapshot(ctx, id, rev, true); err != nil {
 		return err
 	}

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -162,11 +163,8 @@ func logCLIInvocation(deps *Deps, args []string, execErr error) {
 	// Completions fire frequently during tab-complete; log them at debug
 	// level to avoid spamming the log with noise.
 	level := slog.LevelInfo
-	for _, a := range args {
-		if a == "__complete" {
-			level = slog.LevelDebug
-			break
-		}
+	if slices.Contains(args, "__complete") {
+		level = slog.LevelDebug
 	}
 	rt.Logger().LogAttrs(context.Background(), level, "invocation", attrs...)
 }

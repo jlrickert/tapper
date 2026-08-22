@@ -16,7 +16,7 @@ func TestTimelineIndex_OrdersSnapshotRowsAndReplaysBacklinks(t *testing.T) {
 	t.Parallel()
 
 	k, rt := newSnapshotIndexTestKeg(t)
-	ctx := t.Context()
+	ctx := WithValidationMode(t.Context(), ValidationModeOff)
 
 	t1 := time.Date(2026, 2, 26, 10, 0, 0, 0, time.UTC)
 	t2 := t1.Add(time.Hour)

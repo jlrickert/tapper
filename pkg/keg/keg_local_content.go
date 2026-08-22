@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -31,6 +32,10 @@ func (k *LocalKeg) getContentBytes(ctx context.Context, id NodeId) ([]byte, erro
 // perform a single dex write at the end. Returns the updated NodeData if
 // content changed, nil if content was identical, and any error encountered.
 func (k *LocalKeg) setContentNoDex(ctx context.Context, id NodeId, data []byte) (*NodeData, error) {
+	return k.setContentNoDexWithOptions(ctx, id, data, NodeWriteOptions{})
+}
+
+func (k *LocalKeg) setContentNoDexWithOptions(ctx context.Context, id NodeId, data []byte, opts NodeWriteOptions) (*NodeData, error) {
 	var nodeData *NodeData
 	err := k.withNodeLock(ctx, id, func(lockCtx context.Context) error {
 		// Verify the node truly exists (has content) under the lock to
@@ -44,11 +49,10 @@ func (k *LocalKeg) setContentNoDex(ctx context.Context, id NodeId, data []byte) 
 		if !exists {
 			return fmt.Errorf("node %s not found: %w", id.Path(), ErrNotExist)
 		}
-
 		// Compare new content with existing on-disk content. Skip the
 		// write entirely when bytes are identical.
 		existing, readErr := k.Repo.ReadContent(lockCtx, id)
-		if readErr == nil && bytes.Equal(existing, data) {
+		if strings.TrimSpace(opts.Schema) == "" && readErr == nil && bytes.Equal(existing, data) {
 			return nil
 		}
 
@@ -68,10 +72,16 @@ func (k *LocalKeg) setContentNoDex(ctx context.Context, id NodeId, data []byte) 
 		if err := proposed.updateMeta(lockCtx, k.Runtime, &now); err != nil {
 			return fmt.Errorf("failed to update node metadata from content: %w", err)
 		}
-		if err := k.validateForWrite(lockCtx, schemaWriteUpdate, id, proposed); err != nil {
+		if _, err := k.validateNodeWrite(lockCtx, schemaWriteUpdate, id, proposed, opts.Schema,
+			schemaTypeCandidateFromFrontmatter("frontmatter", content)); err != nil {
 			return err
 		}
 
+		if strings.TrimSpace(opts.Schema) != "" {
+			if err := k.Repo.WriteMeta(lockCtx, id, []byte(proposed.Meta.ToYAML())); err != nil {
+				return fmt.Errorf("unable to write metadata: %w", err)
+			}
+		}
 		if err := k.Repo.WriteContent(lockCtx, id, data); err != nil {
 			return fmt.Errorf("unable to write content: %w", err)
 		}
@@ -90,15 +100,21 @@ func (k *LocalKeg) setContentNoDex(ctx context.Context, id NodeId, data []byte) 
 // SetContent writes content for a node and updates its metadata by re-indexing.
 // This ensures the node's title, lead, and other metadata are kept in sync with content changes.
 func (k *LocalKeg) SetContent(ctx context.Context, id NodeId, data []byte) error {
-	return k.withKegWrite(ctx, func(ctx context.Context) error { return k.setContent(ctx, id, data) })
+	return k.SetContentWithOptions(ctx, id, data, NodeWriteOptions{})
 }
 
-func (k *LocalKeg) setContent(ctx context.Context, id NodeId, data []byte) error {
+// SetContentWithOptions replaces content while applying an explicit schema to
+// persisted meta.type before validating the completed node.
+func (k *LocalKeg) SetContentWithOptions(ctx context.Context, id NodeId, data []byte, opts NodeWriteOptions) error {
+	return k.withKegWrite(ctx, func(ctx context.Context) error { return k.setContent(ctx, id, data, opts) })
+}
+
+func (k *LocalKeg) setContent(ctx context.Context, id NodeId, data []byte, opts NodeWriteOptions) error {
 	if err := k.checkKegExists(ctx); err != nil {
 		return fmt.Errorf("failed to set node content: %w", err)
 	}
 
-	nodeData, err := k.setContentNoDex(ctx, id, data)
+	nodeData, err := k.setContentNoDexWithOptions(ctx, id, data, opts)
 	if err != nil {
 		return err
 	}
@@ -146,10 +162,16 @@ func (k *LocalKeg) getStatsValue(ctx context.Context, id NodeId) (*NodeStats, er
 // If the new meta bytes are identical to the existing on-disk meta,
 // the write and dex/config update are skipped entirely.
 func (k *LocalKeg) SetMeta(ctx context.Context, id NodeId, meta *NodeMeta) error {
-	return k.withKegWrite(ctx, func(ctx context.Context) error { return k.setMeta(ctx, id, meta) })
+	return k.SetMetaWithOptions(ctx, id, meta, NodeWriteOptions{})
 }
 
-func (k *LocalKeg) setMeta(ctx context.Context, id NodeId, meta *NodeMeta) error {
+// SetMetaWithOptions replaces metadata while applying an explicit schema to
+// persisted meta.type before validating the completed node.
+func (k *LocalKeg) SetMetaWithOptions(ctx context.Context, id NodeId, meta *NodeMeta, opts NodeWriteOptions) error {
+	return k.withKegWrite(ctx, func(ctx context.Context) error { return k.setMeta(ctx, id, meta, opts) })
+}
+
+func (k *LocalKeg) setMeta(ctx context.Context, id NodeId, meta *NodeMeta, opts NodeWriteOptions) error {
 	if err := k.checkKegExists(ctx); err != nil {
 		return fmt.Errorf("failed to update node meta: %w", err)
 	}
@@ -166,7 +188,6 @@ func (k *LocalKeg) setMeta(ctx context.Context, id NodeId, meta *NodeMeta) error
 		if !exists {
 			return fmt.Errorf("node %s not found: %w", id.Path(), ErrNotExist)
 		}
-
 		stats, err := k.getStats(lockCtx, id)
 		if err != nil && !errors.Is(err, ErrNotExist) {
 			return fmt.Errorf("failed to read node stats: %w", err)
@@ -175,17 +196,16 @@ func (k *LocalKeg) setMeta(ctx context.Context, id NodeId, meta *NodeMeta) error
 			stats = &NodeStats{}
 		}
 
-		// Compare new meta with existing on-disk meta. Skip the write
-		// and dex update when the bytes are identical.
-		newMetaBytes := []byte(meta.ToYAML())
-		existingMeta, readErr := k.Repo.ReadMeta(lockCtx, id)
-		if readErr == nil && bytes.Equal(
-			bytes.TrimSpace(existingMeta),
-			bytes.TrimSpace(newMetaBytes),
-		) {
-			// Meta unchanged — skip write and dex update.
-			return nil
+		if meta == nil {
+			meta = NewMeta(lockCtx, time.Time{})
 		}
+		submittedType := schemaTypeCandidateFromMeta("metadata", meta)
+		if selected := strings.TrimSpace(opts.Schema); selected != "" {
+			if err := meta.Set(lockCtx, "type", selected); err != nil {
+				return fmt.Errorf("failed to apply schema: %w", err)
+			}
+		}
+		newMetaBytes := []byte(meta.ToYAML())
 
 		content, err := k.getContent(lockCtx, id)
 		if err != nil {
@@ -200,8 +220,16 @@ func (k *LocalKeg) setMeta(ctx context.Context, id NodeId, meta *NodeMeta) error
 		if err := proposed.updateMeta(lockCtx, k.Runtime, &updatedAt); err != nil {
 			return fmt.Errorf("failed to update node metadata from content: %w", err)
 		}
-		if err := k.validateForWrite(lockCtx, schemaWriteUpdate, id, proposed); err != nil {
+		if _, err := k.validateNodeWrite(lockCtx, schemaWriteUpdate, id, proposed, opts.Schema, submittedType); err != nil {
 			return err
+		}
+
+		// Compare after applying and validating schema selection. A strict
+		// blocking write with no selection must not bypass validation merely
+		// because the submitted bytes happen to match storage.
+		existingMeta, readErr := k.Repo.ReadMeta(lockCtx, id)
+		if readErr == nil && bytes.Equal(bytes.TrimSpace(existingMeta), bytes.TrimSpace(newMetaBytes)) {
+			return nil
 		}
 		stats.SetUpdated(updatedAt)
 
@@ -238,10 +266,16 @@ func (k *LocalKeg) setMeta(ctx context.Context, id NodeId, meta *NodeMeta) error
 // UpdateMeta reads the node's metadata, applies the provided mutation function,
 // and writes the result back to the repository with dex updates.
 func (k *LocalKeg) UpdateMeta(ctx context.Context, id NodeId, f func(*NodeMeta)) error {
-	return k.withKegWrite(ctx, func(ctx context.Context) error { return k.updateMeta(ctx, id, f) })
+	return k.UpdateMetaWithOptions(ctx, id, f, NodeWriteOptions{})
 }
 
-func (k *LocalKeg) updateMeta(ctx context.Context, id NodeId, f func(*NodeMeta)) error {
+// UpdateMetaWithOptions atomically reads, mutates, validates, and writes
+// metadata while applying an explicit schema to persisted meta.type.
+func (k *LocalKeg) UpdateMetaWithOptions(ctx context.Context, id NodeId, f func(*NodeMeta), opts NodeWriteOptions) error {
+	return k.withKegWrite(ctx, func(ctx context.Context) error { return k.updateMeta(ctx, id, f, opts) })
+}
+
+func (k *LocalKeg) updateMeta(ctx context.Context, id NodeId, f func(*NodeMeta), opts NodeWriteOptions) error {
 	if err := k.checkKegExists(ctx); err != nil {
 		return fmt.Errorf("failed to update node meta: %w", err)
 	}
@@ -259,7 +293,6 @@ func (k *LocalKeg) updateMeta(ctx context.Context, id NodeId, f func(*NodeMeta))
 		if !exists {
 			return fmt.Errorf("node %s not found: %w", id.Path(), ErrNotExist)
 		}
-
 		m, stats, err := k.getMetaAndStats(lockCtx, id)
 		if errors.Is(err, ErrNotExist) {
 			m = NewMeta(lockCtx, now)
@@ -272,11 +305,19 @@ func (k *LocalKeg) updateMeta(ctx context.Context, id NodeId, f func(*NodeMeta))
 		}
 
 		beforeMetaBytes := []byte(m.ToYAML())
+		beforeType := schemaTypeCandidateFromMeta("metadata", m)
 		f(m)
-		newMetaBytes := []byte(m.ToYAML())
-		if bytes.Equal(bytes.TrimSpace(beforeMetaBytes), bytes.TrimSpace(newMetaBytes)) {
-			return nil
+		afterType := schemaTypeCandidateFromMeta("metadata", m)
+		var submittedType schemaTypeCandidate
+		if afterType.Value != beforeType.Value {
+			submittedType = afterType
 		}
+		if selected := strings.TrimSpace(opts.Schema); selected != "" {
+			if err := m.Set(lockCtx, "type", selected); err != nil {
+				return fmt.Errorf("failed to apply schema: %w", err)
+			}
+		}
+		newMetaBytes := []byte(m.ToYAML())
 
 		content, _ := k.getContent(lockCtx, id)
 		validationMeta, err := ParseMeta(lockCtx, newMetaBytes)
@@ -287,8 +328,11 @@ func (k *LocalKeg) updateMeta(ctx context.Context, id NodeId, f func(*NodeMeta))
 		if err := proposed.updateMeta(lockCtx, k.Runtime, &now); err != nil {
 			return fmt.Errorf("failed to update node metadata from content: %w", err)
 		}
-		if err := k.validateForWrite(lockCtx, schemaWriteUpdate, id, proposed); err != nil {
+		if _, err := k.validateNodeWrite(lockCtx, schemaWriteUpdate, id, proposed, opts.Schema, submittedType); err != nil {
 			return err
+		}
+		if bytes.Equal(bytes.TrimSpace(beforeMetaBytes), bytes.TrimSpace(newMetaBytes)) {
+			return nil
 		}
 		stats.SetUpdated(now)
 

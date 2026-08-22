@@ -61,8 +61,8 @@ func newStrictBatchKeg(t *testing.T) (*keg.LocalKeg, context.Context) {
 func TestCreateNodesResolvesPlaceholdersAndPreservesOrder(t *testing.T) {
 	k, ctx := newStrictBatchKeg(t)
 	results, err := k.CreateNodes(ctx, []keg.NodeCreate{
-		{Key: "first", Body: []byte("# First\n\n[Second](../{{node:second}})\n"), Attrs: map[string]any{"type": "task"}},
-		{Key: "second", Body: []byte("# Second\n\n[First](../{{node:first}})\n"), Attrs: map[string]any{"type": "task"}},
+		{Key: "first", Schema: "task", Body: []byte("# First\n\n[Second](../{{node:second}})\n"), Attrs: map[string]any{"type": "task"}},
+		{Key: "second", Schema: "task", Body: []byte("# Second\n\n[First](../{{node:first}})\n"), Attrs: map[string]any{"type": "task"}},
 	})
 	require.NoError(t, err)
 	require.Equal(t, []string{"first", "second"}, []string{results[0].Key, results[1].Key})
@@ -77,7 +77,7 @@ func TestCreateNodesResolvesPlaceholdersAndPreservesOrder(t *testing.T) {
 
 func TestCreateNodesPreflightFailureLeavesKegUnchanged(t *testing.T) {
 	k, ctx := newStrictBatchKeg(t)
-	_, err := k.CreateNodes(ctx, []keg.NodeCreate{{Key: "one", Body: []byte("# One\n"), Attrs: map[string]any{"type": "task"}}, {Key: "two", Body: []byte("# Two\n\n[Missing](../{{node:nope}})\n"), Attrs: map[string]any{"type": "task"}}})
+	_, err := k.CreateNodes(ctx, []keg.NodeCreate{{Key: "one", Schema: "task", Body: []byte("# One\n"), Attrs: map[string]any{"type": "task"}}, {Key: "two", Schema: "task", Body: []byte("# Two\n\n[Missing](../{{node:nope}})\n"), Attrs: map[string]any{"type": "task"}}})
 	require.Error(t, err)
 	ids, err := k.ListNodes(ctx)
 	require.NoError(t, err)
@@ -86,16 +86,16 @@ func TestCreateNodesPreflightFailureLeavesKegUnchanged(t *testing.T) {
 
 func TestUpdateNodesPreflightsHashesAndSnapshotsAtomically(t *testing.T) {
 	k, ctx := newStrictBatchKeg(t)
-	created, err := k.CreateNodes(ctx, []keg.NodeCreate{{Key: "one", Body: []byte("# One\n"), Attrs: map[string]any{"type": "task"}}, {Key: "two", Body: []byte("# Two\n"), Attrs: map[string]any{"type": "task"}}})
+	created, err := k.CreateNodes(ctx, []keg.NodeCreate{{Key: "one", Schema: "task", Body: []byte("# One\n"), Attrs: map[string]any{"type": "task"}}, {Key: "two", Schema: "task", Body: []byte("# Two\n"), Attrs: map[string]any{"type": "task"}}})
 	require.NoError(t, err)
 	before, err := k.ReadNode(ctx, created[0].ID)
 	require.NoError(t, err)
-	_, err = k.UpdateNodes(ctx, []keg.NodeUpdateOptions{{ID: created[0].ID, Content: []byte("# Changed\n"), HasContent: true}, {ID: created[1].ID, Content: []byte("# Never\n"), HasContent: true, ExpectedHash: "stale"}})
+	_, err = k.UpdateNodes(ctx, []keg.NodeUpdateOptions{{ID: created[0].ID, Schema: "task", Content: []byte("# Changed\n"), HasContent: true}, {ID: created[1].ID, Schema: "task", Content: []byte("# Never\n"), HasContent: true, ExpectedHash: "stale"}})
 	require.ErrorIs(t, err, keg.ErrConflict)
 	after, err := k.ReadNode(ctx, created[0].ID)
 	require.NoError(t, err)
 	require.Equal(t, before.Content, after.Content)
-	results, err := k.UpdateNodes(ctx, []keg.NodeUpdateOptions{{ID: created[0].ID, Content: []byte("# Changed\n"), HasContent: true, SnapshotBefore: true}})
+	results, err := k.UpdateNodes(ctx, []keg.NodeUpdateOptions{{ID: created[0].ID, Schema: "task", Content: []byte("# Changed\n"), HasContent: true, SnapshotBefore: true}})
 	require.NoError(t, err)
 	require.NotEmpty(t, results[0].Hash)
 	history, err := k.ListSnapshots(ctx, created[0].ID)
@@ -195,7 +195,7 @@ func TestMutationBatchesRollbackCanonicalSnapshotsDexAndConfig(t *testing.T) {
 	}
 }
 
-func TestStrictPolicyDefaultsAndCannotBeOverridden(t *testing.T) {
+func TestStrictPolicyUsesResolvedValidationMode(t *testing.T) {
 	k, ctx := newStrictBatchKeg(t)
 	cfg, err := k.Config(ctx)
 	require.NoError(t, err)
@@ -203,9 +203,14 @@ func TestStrictPolicyDefaultsAndCannotBeOverridden(t *testing.T) {
 	require.True(t, cfg.SchemaPolicy.Strict)
 	off := keg.WithValidationMode(ctx, keg.ValidationModeOff)
 	_, err = k.Create(off, &keg.CreateOptions{Body: []byte("# Untyped\n")})
-	require.ErrorIs(t, err, keg.ErrSchemaInvalid)
+	require.NoError(t, err)
 	_, err = k.Create(off, &keg.CreateOptions{Body: []byte("---\ntype: missing\n---\n# Unknown\n")})
+	require.NoError(t, err)
+	_, err = k.Create(ctx, &keg.CreateOptions{Body: []byte("# Missing selection\n")})
 	require.ErrorIs(t, err, keg.ErrSchemaInvalid)
+	require.Contains(t, err.Error(), "schema: explicit schema selection is required")
+	_, err = k.Create(ctx, &keg.CreateOptions{Schema: "task", Body: []byte("# Selected\n\n## Context\n")})
+	require.NoError(t, err)
 }
 
 func TestExistingConfigWithoutStrictRemainsNonStrict(t *testing.T) {
@@ -219,7 +224,7 @@ func TestExistingConfigWithoutStrictRemainsNonStrict(t *testing.T) {
 	require.True(t, legacy.SchemaPolicy == nil || !legacy.SchemaPolicy.Strict)
 }
 
-func TestEnablingStrictReportsAllExistingViolations(t *testing.T) {
+func TestEnablingStrictDoesNotScanExistingNodes(t *testing.T) {
 	fx := NewSandbox(t)
 	ctx := fx.Context()
 	k := keg.NewLocalKeg(keg.NewMemoryRepo(fx.Runtime()), fx.Runtime())
@@ -230,22 +235,15 @@ func TestEnablingStrictReportsAllExistingViolations(t *testing.T) {
 	_, err = k.Create(ctx, &keg.CreateOptions{Body: []byte("# Legacy two\n")})
 	require.NoError(t, err)
 	err = k.UpdateConfig(ctx, func(cfg *keg.Config) { cfg.SchemaPolicy.Strict = true })
-	require.ErrorIs(t, err, keg.ErrSchemaInvalid)
-	validationErr := err
-	var setErr *keg.SchemaSetValidationError
-	require.True(t, errors.As(err, &setErr))
-	require.Len(t, setErr.Results, 2)
+	require.NoError(t, err)
 	cfg, err := k.Config(ctx)
 	require.NoError(t, err)
-	require.False(t, cfg.SchemaPolicy.Strict)
-	require.Contains(t, validationErr.Error(), "node 1")
-	require.Contains(t, validationErr.Error(), "node 2")
-	require.Contains(t, validationErr.Error(), "missing required type")
+	require.True(t, cfg.SchemaPolicy.Strict)
 }
 
-func TestStrictSchemaChangeAndSnapshotRestoreValidateCompleteResult(t *testing.T) {
+func TestStrictSchemaChangeAndSnapshotRestoreRemainExempt(t *testing.T) {
 	k, ctx := newStrictBatchKeg(t)
-	created, err := k.Create(ctx, &keg.CreateOptions{Body: []byte("---\ntype: task\n---\n# Valid\n\n## Context\n")})
+	created, err := k.Create(ctx, &keg.CreateOptions{Schema: "task", Body: []byte("# Valid\n\n## Context\n")})
 	require.NoError(t, err)
 
 	err = k.WriteSchema(ctx, "task", []byte(`type: task
@@ -259,12 +257,9 @@ markdown:
       level: 2
       required: true
 `))
-	require.ErrorIs(t, err, keg.ErrSchemaInvalid)
-	originalSchema, err := k.ReadSchema(ctx, "task")
 	require.NoError(t, err)
-	require.Equal(t, batchTaskSchema, string(originalSchema))
 	err = k.DeleteSchema(ctx, "task")
-	require.ErrorIs(t, err, keg.ErrSchemaInvalid)
+	require.NoError(t, err)
 	require.NoError(t, k.WriteSchema(ctx, "task", []byte(`type: task
 meta:
   type: object
@@ -286,13 +281,13 @@ markdown:
 	require.NoError(t, k.SetContent(keg.WithValidationMode(ctx, keg.ValidationModeOff), created.ID, []byte("# Valid again\n\n## Context\n")))
 	require.NoError(t, k.UpdateConfig(ctx, func(cfg *keg.Config) { cfg.SchemaPolicy.Strict = true }))
 	err = k.RestoreSnapshot(keg.WithValidationMode(ctx, keg.ValidationModeOff), created.ID, snapshot.ID)
-	require.ErrorIs(t, err, keg.ErrSchemaInvalid)
+	require.NoError(t, err)
 	content, err := k.GetContent(ctx, created.ID)
 	require.NoError(t, err)
-	require.Contains(t, string(content), "# Valid again")
+	require.Contains(t, string(content), "# Missing context")
 }
 
-func TestStrictArchiveImportRejectsInvalidFinalStateAtomically(t *testing.T) {
+func TestStrictArchiveImportRemainsExempt(t *testing.T) {
 	fx := NewSandbox(t)
 	ctx := fx.Context()
 	source := keg.NewLocalKeg(keg.NewMemoryRepo(fx.Runtime()), fx.Runtime())
@@ -308,10 +303,8 @@ func TestStrictArchiveImportRejectsInvalidFinalStateAtomically(t *testing.T) {
 	before, err := destination.ListNodes(strictCtx)
 	require.NoError(t, err)
 	_, err = destination.ImportNodes(strictCtx, archive, keg.ImportNodesOptions{AssignNewIDs: true})
-	require.ErrorIs(t, err, keg.ErrSchemaInvalid)
+	require.NoError(t, err)
 	after, err := destination.ListNodes(strictCtx)
 	require.NoError(t, err)
-	require.Equal(t, before, after)
-	_, err = destination.GetContent(strictCtx, keg.NodeId{ID: 1})
-	require.ErrorIs(t, err, keg.ErrNotExist)
+	require.Len(t, after, len(before)+1)
 }

@@ -40,18 +40,26 @@ it. Use `instructions` for targeted operational guidance. Instructions are
 loaded only after an agent explicitly selects the KEG through `keg_settings`;
 they are not included in aggregate orientation.
 
-`schemaPolicy.strict` is a KEG-wide invariant. In strict mode every nonzero
-node must declare a known `type` and satisfy that type's metadata and Markdown
-schema. Node 0 may omit `type`; an explicitly typed node 0 is validated. Strict
-mode cannot be weakened by actor or request overrides, and complete resulting
-state is checked when strictness is enabled, schemas are replaced or deleted,
-snapshots are restored, or archives are imported. Newly initialized KEGs set
-`strict: true`; older configs with no `strict` field remain non-strict.
+`schemaPolicy.strict` is a live-write selection rule. When strict is enabled
+and a nonzero node create or edit resolves to validation mode `block`, that
+write must explicitly select one schema. The selection becomes the completed
+node's `meta.type`, and the completed content and metadata are validated
+against it. An existing stored type does not satisfy the explicit-selection
+requirement. Use `--schema TYPE` with `tap create`, `tap edit`, or metadata
+writes.
 
-When strict mode is disabled, `human`, `agent`, and `api` each accept `off`,
-`warn`, or `block`. The defaults are human=`warn`, agent=`block`, and
-api=`block`. Non-strict archive imports and snapshot restores retain their
-historical schema-enforcement exemption.
+`human`, `agent`, and `api` each accept `off`, `warn`, or `block`, and continue
+to control validation even when strict is enabled. The defaults remain
+human=`warn`, agent=`block`, and api=`block`; request-level overrides remain
+part of mode resolution. Untyped writes are allowed whenever explicit
+selection is not required. Typed nodes are still validated according to the
+resolved mode.
+
+Strict does not scan existing nodes when enabled and does not prevent schema
+replacement or deletion because of stored nodes. Node 0, imports, archive
+restores, snapshot restores, and schema/config operations are exempt from the
+selection rule. Newly initialized KEGs still set `strict: true`; older configs
+with no `strict` field remain non-strict.
 
 ## When To Edit Which Config
 

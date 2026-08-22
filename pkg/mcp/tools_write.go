@@ -76,12 +76,13 @@ type createInput struct {
 	Keg   string            `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
 }
 type createNodeInput struct {
-	Key   string            `json:"key"`
-	Title string            `json:"title,omitempty"`
-	Lead  string            `json:"lead,omitempty"`
-	Body  string            `json:"body,omitempty"`
-	Tags  []string          `json:"tags,omitempty"`
-	Attrs map[string]string `json:"attrs,omitempty"`
+	Key    string            `json:"key"`
+	Schema string            `json:"schema,omitempty" jsonschema:"schema selected for this write; required when strict policy and agent mode both block"`
+	Title  string            `json:"title,omitempty"`
+	Lead   string            `json:"lead,omitempty"`
+	Body   string            `json:"body,omitempty"`
+	Tags   []string          `json:"tags,omitempty"`
+	Attrs  map[string]string `json:"attrs,omitempty"`
 }
 
 type createNodeOutput struct {
@@ -102,7 +103,7 @@ func createNodeOutputs(results []keg.CreateNodeResult) []createNodeOutput {
 func registerCreate(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "create",
-		Description: "Atomically create 1-100 KEG nodes with optional intra-batch references",
+		Description: "Atomically create 1-100 KEG nodes with optional intra-batch references. Each optional schema selection is required when strict policy and the resolved agent mode both block.",
 		InputSchema: boundedMutationInputSchema[createInput]("nodes"),
 		Annotations: &sdkmcp.ToolAnnotations{
 			DestructiveHint: boolPtr(false),
@@ -112,7 +113,7 @@ func registerCreate(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 		ctx = keg.WithValidationActor(ctx, keg.ValidationActorAgent)
 		nodes := make([]tapper.BatchCreateNode, len(in.Nodes))
 		for i, item := range in.Nodes {
-			nodes[i] = tapper.BatchCreateNode{Key: item.Key, Title: item.Title, Lead: item.Lead, Body: item.Body, Tags: item.Tags, Attrs: item.Attrs}
+			nodes[i] = tapper.BatchCreateNode{Key: item.Key, Schema: item.Schema, Title: item.Title, Lead: item.Lead, Body: item.Body, Tags: item.Tags, Attrs: item.Attrs}
 		}
 		results, err := tap.CreateBatch(ctx, tapper.BatchCreateOptions{KegTargetOptions: resolveKegTarget(ctx, in.Keg, defaults), Nodes: nodes})
 		if err != nil {
@@ -136,6 +137,7 @@ type editInput struct {
 }
 type editItemInput struct {
 	NodeID         string `json:"node_id"`
+	Schema         string `json:"schema,omitempty" jsonschema:"schema selected for this write; required when strict policy and agent mode both block"`
 	Content        string `json:"content"`
 	ExpectedHash   string `json:"expected_hash,omitempty"`
 	SnapshotBefore bool   `json:"snapshot_before,omitempty"`
@@ -158,7 +160,7 @@ func nodeUpdateOutputs(results []keg.NodeUpdateResult) []nodeUpdateOutput {
 func registerEdit(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "edit",
-		Description: "Atomically replace the content of 1-100 KEG nodes",
+		Description: "Atomically replace the content of 1-100 KEG nodes. Each optional schema selection is required when strict policy and the resolved agent mode both block.",
 		InputSchema: boundedMutationInputSchema[editInput]("edits"),
 		Annotations: &sdkmcp.ToolAnnotations{
 			DestructiveHint: boolPtr(false),
@@ -168,7 +170,7 @@ func registerEdit(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 		ctx = keg.WithValidationActor(ctx, keg.ValidationActorAgent)
 		edits := make([]tapper.BatchEditItem, len(in.Edits))
 		for i, item := range in.Edits {
-			edits[i] = tapper.BatchEditItem{NodeID: item.NodeID, Content: item.Content, ExpectedHash: item.ExpectedHash, SnapshotBefore: item.SnapshotBefore}
+			edits[i] = tapper.BatchEditItem{NodeID: item.NodeID, Schema: item.Schema, Content: item.Content, ExpectedHash: item.ExpectedHash, SnapshotBefore: item.SnapshotBefore}
 		}
 		results, err := tap.EditBatch(ctx, tapper.BatchEditOptions{KegTargetOptions: resolveKegTarget(ctx, in.Keg, defaults), Edits: edits})
 		if err != nil {
@@ -189,6 +191,7 @@ type metaInput struct {
 }
 type metaUpdateInput struct {
 	NodeID         string `json:"node_id"`
+	Schema         string `json:"schema,omitempty" jsonschema:"schema selected for this write; required when strict policy and agent mode both block"`
 	Content        string `json:"content"`
 	ExpectedHash   string `json:"expected_hash,omitempty"`
 	SnapshotBefore bool   `json:"snapshot_before,omitempty"`
@@ -197,7 +200,7 @@ type metaUpdateInput struct {
 func registerMeta(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "meta",
-		Description: "Read metadata for 1-100 nodes or atomically replace metadata for 1-100 nodes",
+		Description: "Read metadata for 1-100 nodes or atomically replace metadata for 1-100 nodes. Each optional schema selection on an update is required when strict policy and the resolved agent mode both block.",
 		InputSchema: boundedMutationInputSchema[metaInput]("node_ids", "updates"),
 		Annotations: &sdkmcp.ToolAnnotations{
 			DestructiveHint: boolPtr(false),
@@ -207,7 +210,7 @@ func registerMeta(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 		ctx = keg.WithValidationActor(ctx, keg.ValidationActorAgent)
 		updates := make([]tapper.BatchMetaUpdate, len(in.Updates))
 		for i, item := range in.Updates {
-			updates[i] = tapper.BatchMetaUpdate{NodeID: item.NodeID, Content: item.Content, ExpectedHash: item.ExpectedHash, SnapshotBefore: item.SnapshotBefore}
+			updates[i] = tapper.BatchMetaUpdate{NodeID: item.NodeID, Schema: item.Schema, Content: item.Content, ExpectedHash: item.ExpectedHash, SnapshotBefore: item.SnapshotBefore}
 		}
 		reads, writes, err := tap.MetaBatch(ctx, tapper.BatchMetaOptions{KegTargetOptions: resolveKegTarget(ctx, in.Keg, defaults), NodeIDs: in.NodeIDs, Updates: updates})
 		if err != nil {
