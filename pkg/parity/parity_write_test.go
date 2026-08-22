@@ -27,8 +27,11 @@ func TestParity_WriteOperations(t *testing.T) {
 
 		// Create via MCP.
 		mcpOut, err := env.runMCP("create", map[string]any{
-			"title": "MCP Node",
-			"tags":  []string{"parity-test"},
+			"nodes": []any{map[string]any{
+				"key":   "node",
+				"title": "MCP Node",
+				"tags":  []string{"parity-test"},
+			}},
 		})
 		require.NoError(t, err, "MCP create should succeed")
 		mcpNodeID := strings.TrimSpace(mcpOut)
@@ -84,7 +87,7 @@ func TestParity_WriteOperations(t *testing.T) {
 		cliID := strings.TrimSpace(cliOut)
 
 		mcpOut, err := env.runMCP("create", map[string]any{
-			"title": "Listed MCP",
+			"nodes": []any{map[string]any{"key": "node", "title": "Listed MCP"}},
 		})
 		require.NoError(t, err)
 		mcpID := strings.TrimSpace(mcpOut)
@@ -110,7 +113,7 @@ func TestParity_WriteOperations(t *testing.T) {
 
 		// Create a node.
 		out, err := env.runMCP("create", map[string]any{
-			"title": "To Remove",
+			"nodes": []any{map[string]any{"key": "node", "title": "To Remove"}},
 		})
 		require.NoError(t, err)
 		nodeID := strings.TrimSpace(out)
@@ -169,7 +172,7 @@ func TestParity_WriteOperations(t *testing.T) {
 
 		// Create a node.
 		out, err := env.runMCP("create", map[string]any{
-			"title": "Movable CLI",
+			"nodes": []any{map[string]any{"key": "node", "title": "Movable CLI"}},
 		})
 		require.NoError(t, err)
 		srcID := strings.TrimSpace(out)
@@ -249,15 +252,17 @@ func TestParity_WriteOperations(t *testing.T) {
 
 		// Create a node.
 		out, err := env.runMCP("create", map[string]any{
-			"title": "Before Edit",
+			"nodes": []any{map[string]any{"key": "node", "title": "Before Edit"}},
 		})
 		require.NoError(t, err)
 		nodeID := strings.TrimSpace(out)
 
 		// Edit via MCP.
 		_, err = env.runMCP("edit", map[string]any{
-			"node_id": nodeID,
-			"content": "# After MCP Edit\n\nEdited content.\n",
+			"edits": []any{map[string]any{
+				"node_id": nodeID,
+				"content": "# After MCP Edit\n\nEdited content.\n",
+			}},
 		})
 		require.NoError(t, err, "MCP edit should succeed")
 
@@ -285,15 +290,17 @@ func TestParity_WriteOperations(t *testing.T) {
 
 		// Create a node.
 		out, err := env.runMCP("create", map[string]any{
-			"title": "Meta Test",
+			"nodes": []any{map[string]any{"key": "node", "title": "Meta Test"}},
 		})
 		require.NoError(t, err)
 		nodeID := strings.TrimSpace(out)
 
 		// Write metadata via MCP.
 		_, err = env.runMCP("meta", map[string]any{
-			"node_id": nodeID,
-			"content": "tags:\n  - updated-meta\n  - parity\n",
+			"updates": []any{map[string]any{
+				"node_id": nodeID,
+				"content": "tags:\n  - updated-meta\n  - parity\n",
+			}},
 		})
 		require.NoError(t, err, "MCP meta write should succeed")
 
@@ -326,14 +333,16 @@ func TestParity_WriteOperations(t *testing.T) {
 		env := newParityEnv(t)
 
 		out, err := env.runMCP("create", map[string]any{
-			"title": "Id Strip Test",
+			"nodes": []any{map[string]any{"key": "node", "title": "Id Strip Test"}},
 		})
 		require.NoError(t, err)
 		nodeID := strings.TrimSpace(out)
 
 		_, err = env.runMCP("meta", map[string]any{
-			"node_id": nodeID,
-			"content": "id: \"" + nodeID + "\"\ntags:\n  - round-trip\n",
+			"updates": []any{map[string]any{
+				"node_id": nodeID,
+				"content": "id: \"" + nodeID + "\"\ntags:\n  - round-trip\n",
+			}},
 		})
 		require.NoError(t, err, "MCP meta write should succeed")
 
@@ -343,8 +352,10 @@ func TestParity_WriteOperations(t *testing.T) {
 		require.Contains(t, first, "round-trip")
 
 		_, err = env.runMCP("meta", map[string]any{
-			"node_id": nodeID,
-			"content": first,
+			"updates": []any{map[string]any{
+				"node_id": nodeID,
+				"content": first,
+			}},
 		})
 		require.NoError(t, err, "second MCP meta write should succeed")
 
@@ -362,7 +373,7 @@ func TestParity_WriteOperations(t *testing.T) {
 		require.NoError(t, err)
 
 		mcpMeta, err := env.runMCP("meta", map[string]any{
-			"node_id": "0",
+			"node_ids": []string{"0"},
 		})
 		require.NoError(t, err)
 

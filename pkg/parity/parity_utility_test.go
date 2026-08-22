@@ -101,8 +101,10 @@ func TestParity_SnapshotOperations(t *testing.T) {
 
 		// Snapshot node 0 via MCP.
 		_, err := env.runMCP("node_snapshot", map[string]any{
-			"node_id": "0",
-			"message": "mcp snapshot",
+			"nodes": []any{map[string]any{
+				"node_id": "0",
+				"message": "mcp snapshot",
+			}},
 		})
 		require.NoError(t, err, "MCP snapshot should succeed")
 

@@ -109,11 +109,15 @@ var tapMethodToSurfaces = map[string]struct {
 // surface coverage checks. These are internal helpers, config accessors, or
 // methods that are not meant to be directly exposed as standalone tools.
 var tapMethodsExcluded = map[string]string{
-	"ConfigEdit":     "interactive editor; not exposed via MCP",
-	"AuthRefreshAll": "startup credential renewal invoked by the CLI root command (covers `tap` and `tap mcp`); not a user-facing operation",
-	"UpdateFlight":   "underlying partial-update operation used by MCP flight_edit; CLI users use `flight edit`",
-	"LookupKeg":      "internal resolution helper; not a user-facing operation",
-	"ResolveNodeRef": "internal node-reference resolver shared by surfaces; not a user-facing operation",
+	"CreateBatch":       "MCP batch backing operation; CLI create remains a one-node command",
+	"EditBatch":         "MCP batch backing operation; CLI edit remains a one-node command",
+	"MetaBatch":         "MCP batch backing operation; CLI meta remains a one-node command",
+	"NodeSnapshotBatch": "MCP batch backing operation; CLI snapshot create remains a one-node command",
+	"ConfigEdit":        "interactive editor; not exposed via MCP",
+	"AuthRefreshAll":    "startup credential renewal invoked by the CLI root command (covers `tap` and `tap mcp`); not a user-facing operation",
+	"UpdateFlight":      "underlying partial-update operation used by MCP flight_edit; CLI users use `flight edit`",
+	"LookupKeg":         "internal resolution helper; not a user-facing operation",
+	"ResolveNodeRef":    "internal node-reference resolver shared by surfaces; not a user-facing operation",
 	"WatchNode": "streaming, not request/response: CLI surface is `tap watch` (long-lived stream); " +
 		"MCP surface is the resources/subscribe protocol capability (not a tool), wired via " +
 		"SubscribeHandler in pkg/mcp/server.go. Payload parity is impossible — MCP notifications " +
