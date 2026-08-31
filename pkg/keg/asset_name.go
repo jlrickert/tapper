@@ -12,8 +12,8 @@ import (
 // strips any directory prefix, so a legitimate name never contains a separator.
 //
 // Anything containing a path separator, a "." / ".." component, or an absolute
-// path is rejected so that filepath.Join in the filesystem backend cannot
-// resolve outside the keg root (CWE-22). Enforced at every Repository asset
+// path is rejected so repository implementations cannot resolve outside the
+// node's attachment namespace (CWE-22). Enforced at every Repository asset
 // sink, which is the only chokepoint that also covers archive import — that
 // path writes assets through the Repository directly, bypassing LocalKeg.
 func validAssetName(name string) error {

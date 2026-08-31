@@ -103,7 +103,7 @@ func (r *failSecondNextRepo) Next(ctx context.Context) (keg.NodeId, error) {
 func TestArchiveManifestRecordsSourceHash(t *testing.T) {
 	fx := NewSandbox(t)
 	ctx := fx.Context()
-	src := keg.NewLocalKeg(keg.NewMemoryRepo(fx.Runtime()), fx.Runtime())
+	src := keg.NewLocalKeg(newTestMemoryRepo(fx.Runtime()), fx.Runtime())
 	initNonStrictTestKeg(t, src, ctx)
 	created, err := src.Create(ctx, &keg.CreateOptions{Body: []byte("# Source\n\nbody\n")})
 	require.NoError(t, err)
@@ -125,14 +125,14 @@ func TestArchiveManifestRecordsSourceHash(t *testing.T) {
 func TestImportHistoryIfSupportedFallsBackWithoutSnapshots(t *testing.T) {
 	fx := NewSandbox(t)
 	ctx := fx.Context()
-	src := keg.NewLocalKeg(keg.NewMemoryRepo(fx.Runtime()), fx.Runtime())
+	src := keg.NewLocalKeg(newTestMemoryRepo(fx.Runtime()), fx.Runtime())
 	initNonStrictTestKeg(t, src, ctx)
 	created, err := src.Create(ctx, &keg.CreateOptions{Body: []byte("# Source\n\nbody\n")})
 	require.NoError(t, err)
 	require.NoError(t, src.Commit(ctx, created.ID))
 	archive := mustExportArchive(t, src, keg.ExportNodesOptions{NodeIDs: []keg.NodeId{created.ID}, WithHistory: true})
 
-	dst := keg.NewLocalKeg(&repoWithoutSchemas{Repository: keg.NewMemoryRepo(fx.Runtime())}, fx.Runtime())
+	dst := keg.NewLocalKeg(&repoWithoutSchemas{Repository: newTestMemoryRepo(fx.Runtime())}, fx.Runtime())
 	initNonStrictTestKeg(t, dst, ctx)
 	_, err = dst.ImportNodes(ctx, bytes.NewReader(archive), keg.ImportNodesOptions{HistoryIfSupported: true})
 	require.NoError(t, err)
@@ -144,7 +144,7 @@ func TestImportHistoryIfSupportedFallsBackWithoutSnapshots(t *testing.T) {
 func TestImportCleansUnusedIDReservationsAfterAllocationFailure(t *testing.T) {
 	fx := NewSandbox(t)
 	ctx := fx.Context()
-	src := keg.NewLocalKeg(keg.NewMemoryRepo(fx.Runtime()), fx.Runtime())
+	src := keg.NewLocalKeg(newTestMemoryRepo(fx.Runtime()), fx.Runtime())
 	initNonStrictTestKeg(t, src, ctx)
 	one, err := src.Create(ctx, &keg.CreateOptions{Body: []byte("# One\n")})
 	require.NoError(t, err)
@@ -152,7 +152,7 @@ func TestImportCleansUnusedIDReservationsAfterAllocationFailure(t *testing.T) {
 	require.NoError(t, err)
 	archive := mustExportArchive(t, src, keg.ExportNodesOptions{NodeIDs: []keg.NodeId{one.ID, two.ID}})
 
-	base := keg.NewMemoryRepo(fx.Runtime())
+	base := newTestMemoryRepo(fx.Runtime())
 	dst := keg.NewLocalKeg(base, fx.Runtime())
 	initNonStrictTestKeg(t, dst, ctx)
 	failing := keg.NewLocalKeg(&failSecondNextRepo{Repository: base}, fx.Runtime())
@@ -184,7 +184,7 @@ func TestArchiveExportUsesAssetsDirectoryAndIncludesConfigForFullBackup(t *testi
 	fx := NewSandbox(t)
 	ctx := fx.Context()
 
-	src := keg.NewLocalKeg(keg.NewMemoryRepo(fx.Runtime()), fx.Runtime())
+	src := keg.NewLocalKeg(newTestMemoryRepo(fx.Runtime()), fx.Runtime())
 	initNonStrictTestKeg(t, src, ctx)
 	id, err := src.Create(ctx, &keg.CreateOptions{Title: "asset node", Body: []byte("# asset node\n")})
 	require.NoError(t, err)
@@ -194,12 +194,12 @@ func TestArchiveExportUsesAssetsDirectoryAndIncludesConfigForFullBackup(t *testi
 	entries := readArchiveEntriesForTest(t, mustExportArchive(t, src, keg.ExportNodesOptions{WithAssets: true}))
 
 	var manifest struct {
-		Format     string `json:"format"`
-		WithConfig bool   `json:"with_config"`
+		Format       string `json:"format"`
+		WithSettings bool   `json:"with_settings"`
 	}
 	require.NoError(t, json.Unmarshal(entries["keg-archive/manifest.json"], &manifest))
 	require.Equal(t, "keg-archive/v3", manifest.Format)
-	require.True(t, manifest.WithConfig)
+	require.True(t, manifest.WithSettings)
 	require.Contains(t, entries, "keg-archive/keg.yaml")
 	require.Contains(t, entries, "keg-archive/nodes/"+id.ID.Path()+"/assets/doc.txt")
 	require.Contains(t, entries, "keg-archive/nodes/"+id.ID.Path()+"/images/diagram.png")
@@ -213,9 +213,9 @@ func TestArchiveExportFullBackupIncludesSchemas(t *testing.T) {
 	fx := NewSandbox(t)
 	ctx := fx.Context()
 
-	src := keg.NewLocalKeg(keg.NewMemoryRepo(fx.Runtime()), fx.Runtime())
+	src := keg.NewLocalKeg(newTestMemoryRepo(fx.Runtime()), fx.Runtime())
 	initNonStrictTestKeg(t, src, ctx)
-	require.NoError(t, src.WriteSchema(ctx, "task", archiveTaskSchema))
+	require.NoError(t, src.CreateSchema(ctx, "task", archiveTaskSchema))
 
 	entries := readArchiveEntriesForTest(t, mustExportArchive(t, src, keg.ExportNodesOptions{}))
 
@@ -229,16 +229,16 @@ func TestArchiveExportFullBackupIncludesSchemas(t *testing.T) {
 	require.Equal(t, archiveTaskSchema, entries["keg-archive/schemas/task.schema.yaml"])
 }
 
-func TestArchiveImportRestoresKegConfigForFullBackup(t *testing.T) {
+func TestArchiveImportRestoresKegSettingsForFullBackup(t *testing.T) {
 	t.Parallel()
 	fx := NewSandbox(t)
 	ctx := fx.Context()
 
-	src := keg.NewLocalKeg(keg.NewMemoryRepo(fx.Runtime()), fx.Runtime())
+	src := keg.NewLocalKeg(newTestMemoryRepo(fx.Runtime()), fx.Runtime())
 	initNonStrictTestKeg(t, src, ctx)
 	_, err := src.Create(ctx, &keg.CreateOptions{Title: "indexed", Body: []byte("# indexed\n"), Tags: []string{"restored"}})
 	require.NoError(t, err)
-	require.NoError(t, src.UpdateConfig(ctx, func(cfg *keg.Config) {
+	require.NoError(t, src.UpdateSettings(ctx, func(cfg *keg.Settings) {
 		cfg.Title = "Restored Title"
 		cfg.URL = "https://example.com/restored"
 		cfg.Creator = "restorer"
@@ -248,7 +248,7 @@ func TestArchiveImportRestoresKegConfigForFullBackup(t *testing.T) {
 		cfg.Timezone = "America/Chicago"
 		cfg.Links = []keg.LinkEntry{{Alias: "docs", URL: "https://example.com/docs"}}
 		cfg.Indexes = append(cfg.UserIndexEntries(), keg.IndexEntry{File: "restored.md", Summary: "Restored nodes", Query: "restored"})
-		cfg.Snapshots = &keg.SnapshotConfig{Mode: keg.SnapshotModeOff, IdleAfter: "2h"}
+		cfg.Snapshots = &keg.SnapshotSettings{Mode: keg.SnapshotModeOff, IdleAfter: "2h"}
 		cfg.SchemaPolicy = &keg.SchemaPolicy{
 			Human: keg.ValidationModeWarn,
 			Agent: keg.ValidationModeBlock,
@@ -258,9 +258,9 @@ func TestArchiveImportRestoresKegConfigForFullBackup(t *testing.T) {
 
 	archive := mustExportArchive(t, src, keg.ExportNodesOptions{WithAssets: true})
 
-	dst := keg.NewLocalKeg(keg.NewMemoryRepo(fx.Runtime()), fx.Runtime())
+	dst := keg.NewLocalKeg(newTestMemoryRepo(fx.Runtime()), fx.Runtime())
 	initNonStrictTestKeg(t, dst, ctx)
-	require.NoError(t, dst.UpdateConfig(ctx, func(cfg *keg.Config) {
+	require.NoError(t, dst.UpdateSettings(ctx, func(cfg *keg.Settings) {
 		cfg.Title = "Target Title"
 		cfg.Summary = "Target summary"
 		cfg.Timezone = "UTC"
@@ -269,7 +269,7 @@ func TestArchiveImportRestoresKegConfigForFullBackup(t *testing.T) {
 	_, err = dst.ImportNodes(ctx, bytes.NewReader(archive), keg.ImportNodesOptions{})
 	require.NoError(t, err)
 
-	got, err := dst.Config(ctx)
+	got, err := dst.Settings(ctx)
 	require.NoError(t, err)
 	require.Equal(t, "Restored Title", got.Title)
 	require.Equal(t, "https://example.com/restored", got.URL)
@@ -279,7 +279,7 @@ func TestArchiveImportRestoresKegConfigForFullBackup(t *testing.T) {
 	require.Equal(t, "Restore carefully.", got.Instructions)
 	require.Equal(t, "America/Chicago", got.Timezone)
 	require.Equal(t, []keg.LinkEntry{{Alias: "docs", URL: "https://example.com/docs"}}, got.Links)
-	require.Equal(t, &keg.SnapshotConfig{Mode: keg.SnapshotModeOff, IdleAfter: "2h"}, got.Snapshots)
+	require.Equal(t, &keg.SnapshotSettings{Mode: keg.SnapshotModeOff, IdleAfter: "2h"}, got.Snapshots)
 	require.Equal(t, &keg.SchemaPolicy{Human: keg.ValidationModeWarn, Agent: keg.ValidationModeBlock, API: keg.ValidationModeBlock}, got.SchemaPolicy)
 
 	rawIndex, err := dst.ReadIndex(ctx, "restored.md")
@@ -287,16 +287,16 @@ func TestArchiveImportRestoresKegConfigForFullBackup(t *testing.T) {
 	require.Contains(t, string(rawIndex), "indexed")
 }
 
-func TestArchiveImportNodeSubsetDoesNotRestoreKegConfig(t *testing.T) {
+func TestArchiveImportNodeSubsetDoesNotRestoreKegSettings(t *testing.T) {
 	t.Parallel()
 	fx := NewSandbox(t)
 	ctx := fx.Context()
 
-	src := keg.NewLocalKeg(keg.NewMemoryRepo(fx.Runtime()), fx.Runtime())
+	src := keg.NewLocalKeg(newTestMemoryRepo(fx.Runtime()), fx.Runtime())
 	initNonStrictTestKeg(t, src, ctx)
 	id, err := src.Create(ctx, &keg.CreateOptions{Title: "partial", Body: []byte("# partial\n")})
 	require.NoError(t, err)
-	require.NoError(t, src.UpdateConfig(ctx, func(cfg *keg.Config) {
+	require.NoError(t, src.UpdateSettings(ctx, func(cfg *keg.Settings) {
 		cfg.Title = "Source Title"
 		cfg.Summary = "Source summary"
 	}))
@@ -305,21 +305,21 @@ func TestArchiveImportNodeSubsetDoesNotRestoreKegConfig(t *testing.T) {
 	entries := readArchiveEntriesForTest(t, archive)
 	require.NotContains(t, entries, "keg-archive/keg.yaml")
 	var manifest struct {
-		WithConfig bool `json:"with_config"`
+		WithSettings bool `json:"with_settings"`
 	}
 	require.NoError(t, json.Unmarshal(entries["keg-archive/manifest.json"], &manifest))
-	require.False(t, manifest.WithConfig)
+	require.False(t, manifest.WithSettings)
 
-	dst := keg.NewLocalKeg(keg.NewMemoryRepo(fx.Runtime()), fx.Runtime())
+	dst := keg.NewLocalKeg(newTestMemoryRepo(fx.Runtime()), fx.Runtime())
 	initNonStrictTestKeg(t, dst, ctx)
-	require.NoError(t, dst.UpdateConfig(ctx, func(cfg *keg.Config) {
+	require.NoError(t, dst.UpdateSettings(ctx, func(cfg *keg.Settings) {
 		cfg.Title = "Target Title"
 		cfg.Summary = "Target summary"
 	}))
 
 	_, err = dst.ImportNodes(ctx, bytes.NewReader(archive), keg.ImportNodesOptions{})
 	require.NoError(t, err)
-	got, err := dst.Config(ctx)
+	got, err := dst.Settings(ctx)
 	require.NoError(t, err)
 	require.Equal(t, "Target Title", got.Title)
 	require.Equal(t, "Target summary", got.Summary)
@@ -330,9 +330,9 @@ func TestArchiveExportNodeSubsetOmitsSchemas(t *testing.T) {
 	fx := NewSandbox(t)
 	ctx := fx.Context()
 
-	src := keg.NewLocalKeg(keg.NewMemoryRepo(fx.Runtime()), fx.Runtime())
+	src := keg.NewLocalKeg(newTestMemoryRepo(fx.Runtime()), fx.Runtime())
 	initNonStrictTestKeg(t, src, ctx)
-	require.NoError(t, src.WriteSchema(ctx, "task", archiveTaskSchema))
+	require.NoError(t, src.CreateSchema(ctx, "task", archiveTaskSchema))
 	id, err := src.Create(ctx, &keg.CreateOptions{
 		Body: []byte("---\ntype: task\n---\n# Partial\n"),
 	})
@@ -375,20 +375,20 @@ markdown:
 summary: Target decisions
 `)
 
-	src := keg.NewLocalKeg(keg.NewMemoryRepo(fx.Runtime()), fx.Runtime())
+	src := keg.NewLocalKeg(newTestMemoryRepo(fx.Runtime()), fx.Runtime())
 	initNonStrictTestKeg(t, src, ctx)
 	markZeroAsTask(t, src)
-	require.NoError(t, src.WriteSchema(ctx, "task", archivedSchema))
+	require.NoError(t, src.CreateSchema(ctx, "task", archivedSchema))
 	_, err := src.Create(ctx, &keg.CreateOptions{
 		Body: []byte("---\ntype: task\n---\n# Imported Task\n"),
 	})
 	require.NoError(t, err)
 	archive := mustExportArchive(t, src, keg.ExportNodesOptions{})
 
-	dst := keg.NewLocalKeg(keg.NewMemoryRepo(fx.Runtime()), fx.Runtime())
+	dst := keg.NewLocalKeg(newTestMemoryRepo(fx.Runtime()), fx.Runtime())
 	initNonStrictTestKeg(t, dst, ctx)
-	require.NoError(t, dst.WriteSchema(ctx, "task", targetSchema))
-	require.NoError(t, dst.WriteSchema(ctx, "decision", targetOnlySchema))
+	require.NoError(t, dst.CreateSchema(ctx, "task", targetSchema))
+	require.NoError(t, dst.CreateSchema(ctx, "decision", targetOnlySchema))
 
 	_, err = dst.ImportNodes(ctx, bytes.NewReader(archive), keg.ImportNodesOptions{})
 	require.NoError(t, err)
@@ -415,19 +415,19 @@ markdown:
       required: true
 `)
 
-	src := keg.NewLocalKeg(keg.NewMemoryRepo(fx.Runtime()), fx.Runtime())
+	src := keg.NewLocalKeg(newTestMemoryRepo(fx.Runtime()), fx.Runtime())
 	initNonStrictTestKeg(t, src, ctx)
 	markZeroAsTask(t, src)
-	require.NoError(t, src.WriteSchema(ctx, "task", archiveTaskSchema))
+	require.NoError(t, src.CreateSchema(ctx, "task", archiveTaskSchema))
 	id, err := src.Create(ctx, &keg.CreateOptions{
 		Body: []byte("---\ntype: task\n---\n# Accepted By Archive Schema\n"),
 	})
 	require.NoError(t, err)
 	archive := mustExportArchive(t, src, keg.ExportNodesOptions{})
 
-	dst := keg.NewLocalKeg(keg.NewMemoryRepo(fx.Runtime()), fx.Runtime())
+	dst := keg.NewLocalKeg(newTestMemoryRepo(fx.Runtime()), fx.Runtime())
 	initNonStrictTestKeg(t, dst, ctx)
-	require.NoError(t, dst.WriteSchema(ctx, "task", targetSchema))
+	require.NoError(t, dst.CreateSchema(ctx, "task", targetSchema))
 
 	_, err = dst.ImportNodes(ctx, bytes.NewReader(archive), keg.ImportNodesOptions{})
 	require.NoError(t, err)
@@ -441,15 +441,15 @@ func TestArchiveImportSkipsSchemaEnforcementEvenWithBlockOverride(t *testing.T) 
 	fx := NewSandbox(t)
 	ctx := fx.Context()
 
-	src := keg.NewLocalKeg(keg.NewMemoryRepo(fx.Runtime()), fx.Runtime())
+	src := keg.NewLocalKeg(newTestMemoryRepo(fx.Runtime()), fx.Runtime())
 	initNonStrictTestKeg(t, src, ctx)
-	require.NoError(t, src.WriteSchema(ctx, "task", archiveTaskSchema))
+	require.NoError(t, src.CreateSchema(ctx, "task", archiveTaskSchema))
 	humanCtx := keg.WithValidationActor(ctx, keg.ValidationActorHuman)
 	id, err := src.Create(humanCtx, &keg.CreateOptions{Body: []byte("# Missing Type\n")})
 	require.NoError(t, err)
 	archive := mustExportArchive(t, src, keg.ExportNodesOptions{})
 
-	dst := keg.NewLocalKeg(keg.NewMemoryRepo(fx.Runtime()), fx.Runtime())
+	dst := keg.NewLocalKeg(newTestMemoryRepo(fx.Runtime()), fx.Runtime())
 	initNonStrictTestKeg(t, dst, ctx)
 	blockCtx := keg.WithValidationMode(ctx, keg.ValidationModeBlock)
 	_, err = dst.ImportNodes(blockCtx, bytes.NewReader(archive), keg.ImportNodesOptions{})
@@ -464,7 +464,7 @@ func TestArchiveImportDropsLegacySchemaPolicyFields(t *testing.T) {
 	fx := NewSandbox(t)
 	ctx := fx.Context()
 
-	src := keg.NewLocalKeg(keg.NewMemoryRepo(fx.Runtime()), fx.Runtime())
+	src := keg.NewLocalKeg(newTestMemoryRepo(fx.Runtime()), fx.Runtime())
 	initNonStrictTestKeg(t, src, ctx)
 	archive := mustExportArchive(t, src, keg.ExportNodesOptions{})
 	legacyConfig := []byte(`kegv: "2025-07"
@@ -479,11 +479,11 @@ schemaPolicy:
 `)
 	archive = replaceArchiveEntry(t, archive, "keg-archive/keg.yaml", legacyConfig)
 
-	dst := keg.NewLocalKeg(keg.NewMemoryRepo(fx.Runtime()), fx.Runtime())
+	dst := keg.NewLocalKeg(newTestMemoryRepo(fx.Runtime()), fx.Runtime())
 	initNonStrictTestKeg(t, dst, ctx)
 	_, err := dst.ImportNodes(ctx, bytes.NewReader(archive), keg.ImportNodesOptions{})
 	require.NoError(t, err)
-	cfg, err := dst.Config(ctx)
+	cfg, err := dst.Settings(ctx)
 	require.NoError(t, err)
 	require.Equal(t, &keg.SchemaPolicy{
 		Human: keg.ValidationModeWarn,
@@ -502,10 +502,10 @@ func TestArchiveImportRejectsMalformedSchemaBeforeWritingNodes(t *testing.T) {
 	fx := NewSandbox(t)
 	ctx := fx.Context()
 
-	src := keg.NewLocalKeg(keg.NewMemoryRepo(fx.Runtime()), fx.Runtime())
+	src := keg.NewLocalKeg(newTestMemoryRepo(fx.Runtime()), fx.Runtime())
 	initNonStrictTestKeg(t, src, ctx)
 	markZeroAsTask(t, src)
-	require.NoError(t, src.WriteSchema(ctx, "task", archiveTaskSchema))
+	require.NoError(t, src.CreateSchema(ctx, "task", archiveTaskSchema))
 	id, err := src.Create(ctx, &keg.CreateOptions{
 		Body: []byte("---\ntype: task\n---\n# Imported Task\n"),
 	})
@@ -513,7 +513,7 @@ func TestArchiveImportRejectsMalformedSchemaBeforeWritingNodes(t *testing.T) {
 	archive := mustExportArchive(t, src, keg.ExportNodesOptions{})
 	broken := replaceArchiveEntry(t, archive, "keg-archive/schemas/task.schema.yaml", []byte("type: ["))
 
-	dst := keg.NewLocalKeg(keg.NewMemoryRepo(fx.Runtime()), fx.Runtime())
+	dst := keg.NewLocalKeg(newTestMemoryRepo(fx.Runtime()), fx.Runtime())
 	initNonStrictTestKeg(t, dst, ctx)
 	_, err = dst.ImportNodes(ctx, bytes.NewReader(broken), keg.ImportNodesOptions{})
 	require.Error(t, err)
@@ -529,17 +529,17 @@ func TestArchiveImportRejectsSchemasWhenTargetDoesNotSupportThemBeforeWritingNod
 	fx := NewSandbox(t)
 	ctx := fx.Context()
 
-	src := keg.NewLocalKeg(keg.NewMemoryRepo(fx.Runtime()), fx.Runtime())
+	src := keg.NewLocalKeg(newTestMemoryRepo(fx.Runtime()), fx.Runtime())
 	initNonStrictTestKeg(t, src, ctx)
 	markZeroAsTask(t, src)
-	require.NoError(t, src.WriteSchema(ctx, "task", archiveTaskSchema))
+	require.NoError(t, src.CreateSchema(ctx, "task", archiveTaskSchema))
 	id, err := src.Create(ctx, &keg.CreateOptions{
 		Body: []byte("---\ntype: task\n---\n# Imported Task\n"),
 	})
 	require.NoError(t, err)
 	archive := mustExportArchive(t, src, keg.ExportNodesOptions{})
 
-	dstRepo := &repoWithoutSchemas{Repository: keg.NewMemoryRepo(fx.Runtime())}
+	dstRepo := &repoWithoutSchemas{Repository: newTestMemoryRepo(fx.Runtime())}
 	dst := keg.NewLocalKeg(dstRepo, fx.Runtime())
 	initNonStrictTestKeg(t, dst, ctx)
 	_, err = dst.ImportNodes(ctx, bytes.NewReader(archive), keg.ImportNodesOptions{})
@@ -554,7 +554,7 @@ func TestArchiveImportRejectsNestedAssetNameBeforeWritingNodes(t *testing.T) {
 	fx := NewSandbox(t)
 	ctx := fx.Context()
 
-	src := keg.NewLocalKeg(keg.NewMemoryRepo(fx.Runtime()), fx.Runtime())
+	src := keg.NewLocalKeg(newTestMemoryRepo(fx.Runtime()), fx.Runtime())
 	initNonStrictTestKeg(t, src, ctx)
 	id, err := src.Create(ctx, &keg.CreateOptions{Title: "asset node", Body: []byte("# asset node\n")})
 	require.NoError(t, err)
@@ -568,7 +568,7 @@ func TestArchiveImportRejectsNestedAssetNameBeforeWritingNodes(t *testing.T) {
 		"keg-archive/nodes/"+id.ID.Path()+"/assets/nested/doc.txt",
 	)
 
-	dst := keg.NewLocalKeg(keg.NewMemoryRepo(fx.Runtime()), fx.Runtime())
+	dst := keg.NewLocalKeg(newTestMemoryRepo(fx.Runtime()), fx.Runtime())
 	initNonStrictTestKeg(t, dst, ctx)
 	_, err = dst.ImportNodes(ctx, bytes.NewReader(broken), keg.ImportNodesOptions{})
 	require.ErrorIs(t, err, keg.ErrInvalidAssetName)

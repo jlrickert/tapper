@@ -156,9 +156,14 @@ func newFlightEditCmd(deps *Deps) *cobra.Command {
 		Long:  `Opens the flight manifest (title, visibility, capabilities, cover, instructions) as YAML in the configured editor with a yaml-language-server schema modeline; every save is applied to the hub. Piped stdin applies a full manifest without opening an editor.`,
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			current, err := deps.Tap.GetFlight(cmd.Context(), tapper.GetFlightOptions{Name: args[0]})
+			if err != nil {
+				return err
+			}
 			flight, err := deps.Tap.EditFlight(cmd.Context(), tapper.EditFlightOptions{
-				Ref:    args[0],
-				Stream: deps.Runtime.Stream(),
+				Ref:          args[0],
+				ExpectedHash: current.ManifestHash,
+				Stream:       deps.Runtime.Stream(),
 			})
 			if err != nil {
 				return err
@@ -177,7 +182,11 @@ func newFlightDeleteCmd(deps *Deps) *cobra.Command {
 		Short: "delete a Hub-backed flight",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return deps.Tap.DeleteFlight(cmd.Context(), tapper.DeleteFlightOptions{Ref: args[0]})
+			current, err := deps.Tap.GetFlight(cmd.Context(), tapper.GetFlightOptions{Name: args[0]})
+			if err != nil {
+				return err
+			}
+			return deps.Tap.DeleteFlight(cmd.Context(), tapper.DeleteFlightOptions{Ref: args[0], ExpectedHash: current.ManifestHash})
 		},
 	}
 	cmd.ValidArgsFunction = flightArgCompletionFunc(deps)

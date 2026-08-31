@@ -101,57 +101,23 @@ func (t *Tap) Cat(ctx context.Context, opts CatOptions) (string, error) {
 		})
 	}
 
-	base, err := t.resolveKeg(ctx, opts.KegTargetOptions)
+	views, err := t.CatViews(ctx, opts)
 	if err != nil {
-		return "", fmt.Errorf("unable to open keg: %w", err)
+		return "", err
 	}
+	return FormatCatViews(ctx, views, opts), nil
+}
 
-	var views []keg.NodeView
-	if opts.Query != "" {
-		views, err = base.ReadNodes(ctx, keg.ReadNodesOptions{Query: opts.Query, Touch: true})
-		if err != nil {
-			return "", fmt.Errorf("unable to query nodes: %w", err)
-		}
-	} else {
-		type group struct {
-			k         keg.Keg
-			ids       []keg.NodeId
-			positions []int
-		}
-		groups := map[string]*group{}
-		order := []string{}
-		views = make([]keg.NodeView, len(nodeIDs))
-		for pos, raw := range nodeIDs {
-			resolved, id, resolveErr := t.resolveNodeArg(ctx, base, raw)
-			if resolveErr != nil {
-				return "", resolveErr
-			}
-			key := describeKeg(resolved)
-			g := groups[key]
-			if g == nil {
-				g = &group{k: resolved}
-				groups[key] = g
-				order = append(order, key)
-			}
-			g.ids = append(g.ids, id)
-			g.positions = append(g.positions, pos)
-		}
-		for _, key := range order {
-			g := groups[key]
-			batch, batchErr := g.k.ReadNodes(ctx, keg.ReadNodesOptions{NodeIDs: g.ids, Touch: true})
-			if batchErr != nil {
-				return "", fmt.Errorf("unable to read nodes in %s: %w", key, batchErr)
-			}
-			for i, view := range batch {
-				views[g.positions[i]] = view
-			}
-		}
-	}
+// FormatCatViews renders views the way Cat does. It is exported so a caller
+// that already holds the views — one that needed CatViews for the per-node
+// hashes — can produce the same text without reading the nodes a second time.
+// Re-reading would also double every access touch.
+func FormatCatViews(ctx context.Context, views []keg.NodeView, opts CatOptions) string {
 	if len(views) == 0 {
-		return "", nil
+		return ""
 	}
 	if len(views) == 1 {
-		return strings.TrimRight(formatCatView(ctx, views[0], opts, false), "\n") + "\n", nil
+		return strings.TrimRight(formatCatView(ctx, views[0], opts, false), "\n") + "\n"
 	}
 
 	// Multiple nodes: emit a YAML document stream where every document is
@@ -172,7 +138,72 @@ func (t *Tap) Cat(ctx context.Context, opts CatOptions) (string, error) {
 		buf.WriteString(strings.TrimRight(out, "\n"))
 		buf.WriteString("\n")
 	}
-	return buf.String(), nil
+	return buf.String()
+}
+
+// CatViews returns the node views Cat renders, in caller order. It exists so
+// callers needing structured per-node state — an agent reading the content
+// hash it must echo back on its next write — do not have to parse Cat's
+// formatted output. The editor and TTY delegation in Cat is deliberately
+// absent: those paths are interactive and produce no views.
+func (t *Tap) CatViews(ctx context.Context, opts CatOptions) ([]keg.NodeView, error) {
+	nodeIDs := opts.NodeIDs
+	if opts.Query != "" && len(nodeIDs) > 0 {
+		return nil, fmt.Errorf("cannot specify both node IDs and --query")
+	}
+	if len(nodeIDs) == 0 && opts.Query == "" {
+		return nil, nil
+	}
+
+	base, err := t.resolveKeg(ctx, opts.KegTargetOptions)
+	if err != nil {
+		return nil, fmt.Errorf("unable to open keg: %w", err)
+	}
+
+	if opts.Query != "" {
+		views, queryErr := base.ReadNodes(ctx, keg.ReadNodesOptions{Query: opts.Query, Touch: true})
+		if queryErr != nil {
+			return nil, fmt.Errorf("unable to query nodes: %w", queryErr)
+		}
+		return views, nil
+	}
+
+	// Group by resolved keg so a cross-keg id list still costs one read per
+	// keg, then scatter each batch back to its caller-order position.
+	type group struct {
+		k         keg.Keg
+		ids       []keg.NodeId
+		positions []int
+	}
+	groups := map[string]*group{}
+	order := []string{}
+	views := make([]keg.NodeView, len(nodeIDs))
+	for pos, raw := range nodeIDs {
+		resolved, id, resolveErr := t.resolveNodeArg(ctx, base, raw)
+		if resolveErr != nil {
+			return nil, resolveErr
+		}
+		key := describeKeg(resolved)
+		g := groups[key]
+		if g == nil {
+			g = &group{k: resolved}
+			groups[key] = g
+			order = append(order, key)
+		}
+		g.ids = append(g.ids, id)
+		g.positions = append(g.positions, pos)
+	}
+	for _, key := range order {
+		g := groups[key]
+		batch, batchErr := g.k.ReadNodes(ctx, keg.ReadNodesOptions{NodeIDs: g.ids, Touch: true})
+		if batchErr != nil {
+			return nil, fmt.Errorf("unable to read nodes in %s: %w", key, batchErr)
+		}
+		for i, view := range batch {
+			views[g.positions[i]] = view
+		}
+	}
+	return views, nil
 }
 
 func formatCatView(ctx context.Context, view keg.NodeView, opts CatOptions, withID bool) string {

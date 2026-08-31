@@ -146,7 +146,10 @@ func TestParity_WriteOperations(t *testing.T) {
 
 		// Remove via MCP.
 		_, err = env.runMCP("remove", map[string]any{
-			"node_ids": []string{nodeID},
+			"nodes": []map[string]any{{
+				"node_id":       nodeID,
+				"expected_hash": env.nodeHash(nodeID),
+			}},
 		})
 		require.NoError(t, err, "MCP remove should succeed")
 
@@ -214,8 +217,9 @@ func TestParity_WriteOperations(t *testing.T) {
 
 		// Move via MCP.
 		_, err = env.runMCP("move", map[string]any{
-			"source_id": srcID,
-			"dest_id":   "777",
+			"source_id":     srcID,
+			"dest_id":       "777",
+			"expected_hash": env.nodeHash(srcID),
 		})
 		require.NoError(t, err, "MCP move should succeed")
 
@@ -260,8 +264,9 @@ func TestParity_WriteOperations(t *testing.T) {
 		// Edit via MCP.
 		_, err = env.runMCP("edit", map[string]any{
 			"edits": []any{map[string]any{
-				"node_id": nodeID,
-				"content": "# After MCP Edit\n\nEdited content.\n",
+				"node_id":       nodeID,
+				"content":       "# After MCP Edit\n\nEdited content.\n",
+				"expected_hash": env.nodeHash(nodeID),
 			}},
 		})
 		require.NoError(t, err, "MCP edit should succeed")
@@ -298,8 +303,9 @@ func TestParity_WriteOperations(t *testing.T) {
 		// Write metadata via MCP.
 		_, err = env.runMCP("meta", map[string]any{
 			"updates": []any{map[string]any{
-				"node_id": nodeID,
-				"content": "tags:\n  - updated-meta\n  - parity\n",
+				"node_id":       nodeID,
+				"content":       "tags:\n  - updated-meta\n  - parity\n",
+				"expected_hash": env.nodeHash(nodeID),
 			}},
 		})
 		require.NoError(t, err, "MCP meta write should succeed")
@@ -340,8 +346,9 @@ func TestParity_WriteOperations(t *testing.T) {
 
 		_, err = env.runMCP("meta", map[string]any{
 			"updates": []any{map[string]any{
-				"node_id": nodeID,
-				"content": "id: \"" + nodeID + "\"\ntags:\n  - round-trip\n",
+				"node_id":       nodeID,
+				"content":       "id: \"" + nodeID + "\"\ntags:\n  - round-trip\n",
+				"expected_hash": env.nodeHash(nodeID),
 			}},
 		})
 		require.NoError(t, err, "MCP meta write should succeed")
@@ -353,8 +360,9 @@ func TestParity_WriteOperations(t *testing.T) {
 
 		_, err = env.runMCP("meta", map[string]any{
 			"updates": []any{map[string]any{
-				"node_id": nodeID,
-				"content": first,
+				"node_id":       nodeID,
+				"content":       first,
+				"expected_hash": env.nodeHash(nodeID),
 			}},
 		})
 		require.NoError(t, err, "second MCP meta write should succeed")

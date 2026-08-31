@@ -32,8 +32,7 @@ func TestMCP_NodeResource_SubscribeNotifiesOnChange(t *testing.T) {
 	sb := newTestSandbox(t)
 	rt := sb.Runtime()
 
-	tap, err := tapper.NewTap(tapper.TapOptions{Runtime: rt})
-	require.NoError(t, err)
+	tap := newMemoryTap(t, ctx, rt)
 
 	updates := make(chan string, 8)
 	client := sdkmcp.NewClient(&sdkmcp.Implementation{
@@ -47,7 +46,7 @@ func TestMCP_NodeResource_SubscribeNotifiesOnChange(t *testing.T) {
 			}
 		},
 	})
-	srv := mcp.NewServer(tap, "test", mcp.KegDefaults{KegTargetOptions: tapper.KegTargetOptions{Flight: "@local/+test"}})
+	srv := mcp.NewServer(tap, "test", mcp.KegDefaults{})
 	serverTransport, clientTransport := sdkmcp.NewInMemoryTransports()
 	done := make(chan error, 1)
 	go func() {

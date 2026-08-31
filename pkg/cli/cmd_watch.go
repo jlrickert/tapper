@@ -39,9 +39,8 @@ Each change to the node prints one line describing what changed: the event
 kind (created, modified, deleted), the node ID, and the affected field
 (content, meta, stats). Access events are suppressed unless --all is given.
 
-For filesystem kegs the command watches the node directory; for hub kegs it
-subscribes to the hub's live event stream, so saves made by the web UI or by
-other tap instances appear here as they happen.
+The command subscribes to the hub's live event stream, so saves made by the
+web UI or by other tap instances appear here as they happen.
 
 Use --json for newline-delimited JSON suitable for scripting, --count to exit
 after a fixed number of events, and --timeout to exit after a duration.`,

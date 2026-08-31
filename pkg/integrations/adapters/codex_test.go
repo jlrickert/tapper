@@ -117,9 +117,7 @@ func TestCodexAdapter_RendersNativeMarketplaceAndTwoPlugins(t *testing.T) {
 	// HOME must be forwarded alongside the XDG roots: tap falls back to it when a
 	// root is unset and when expanding "~", so without it tap mcp fails to
 	// authenticate under Codex while the same tap works in the shell. TAP_AGENT
-	// carries `tap launch --agent` selection through to the server, which
-	// resolves the agent's flight itself; TAP_FLIGHT remains forwarded for a
-	// human overriding it directly.
+	// carries model/telemetry identity and TAP_FLIGHT carries the pinned root.
 	wantEnvVars := "HOME,TAP_AGENT,TAP_FLIGHT,XDG_CONFIG_HOME,XDG_DATA_HOME,XDG_STATE_HOME,XDG_CACHE_HOME"
 	if got := strings.Join(tapperMCP.EnvVars, ","); got != wantEnvVars {
 		t.Errorf("tapper MCP env_vars = %q, want %q", got, wantEnvVars)
@@ -145,7 +143,7 @@ func TestCodexAdapter_RendersPreToolUseGuardrailWithoutClaudeExpansion(t *testin
 		t.Fatal(err)
 	}
 	pre := hooks.Hooks["PreToolUse"]
-	if len(pre) != 1 || pre[0].Matcher != "Bash" || len(pre[0].Hooks) != 1 {
+	if len(pre) != 1 || pre[0].Matcher != "^(Bash|Write|Edit|MultiEdit|NotebookEdit|Shell|exec_command|apply_patch|write_file|edit_file|delete_file|move_file|rename_file)$" || len(pre[0].Hooks) != 1 {
 		t.Fatalf("Codex PreToolUse hook = %+v", pre)
 	}
 	hook := pre[0].Hooks[0]
@@ -211,6 +209,16 @@ func TestCodexAdapter_SeparatesBaselineAndDeveloperWorkflow(t *testing.T) {
 	dev := string(mem.Files()["codex/tapper-dev/skills/tapper-dev/SKILL.md"])
 	if !strings.Contains(baseline, "mcp__tapper__orient") || !strings.Contains(baseline, "Secret handling") {
 		t.Fatalf("baseline lacks orientation or safety: %s", baseline)
+	}
+	for _, want := range []string{
+		"`[title](../NODEID)`",
+		"`[title](keg:ALIAS/NODEID)`",
+		"`[title](keg:@NAMESPACE/ALIAS/NODEID)`",
+		"A bare `keg:` reference in node prose is plain text",
+	} {
+		if !strings.Contains(baseline, want) {
+			t.Errorf("baseline link guidance missing %q", want)
+		}
 	}
 	for _, lifecycle := range []string{"## Plan", "## Code", "## Review", "## Commit"} {
 		if strings.Contains(baseline, lifecycle) {

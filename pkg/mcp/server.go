@@ -3,12 +3,15 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/jlrickert/cli-toolkit/clock"
+	"github.com/jlrickert/tapper/pkg/keg"
 	"github.com/jlrickert/tapper/pkg/tapper"
 )
 
@@ -32,6 +35,7 @@ type ServerOptions struct {
 	OrientationProvider OrientationProvider
 	FlightProvider      FlightProvider
 	KegProvider         KegDiscoveryProvider
+	KegSearchProvider   KegSearchProvider
 	IdentityProvider    IdentityProvider
 	// SharedFilesystem reports that this server and the agent host driving it
 	// see the same filesystem. That holds for stdio (`tap mcp`), where a path in
@@ -56,6 +60,9 @@ func NewServer(tap *tapper.Tap, version string, defaults KegDefaults, opts ...Se
 	}
 	if opt.KegProvider == nil {
 		opt.KegProvider = localKegDiscoveryProvider{tap: tap}
+	}
+	if opt.KegSearchProvider == nil {
+		opt.KegSearchProvider = localKegDiscoveryProvider{tap: tap}
 	}
 	if opt.IdentityProvider == nil {
 		opt.IdentityProvider = localIdentityProvider{tap: tap}
@@ -94,7 +101,7 @@ func NewServer(tap *tapper.Tap, version string, defaults KegDefaults, opts ...Se
 	registerLockTools(srv, tap, defaults)
 	registerImportTools(srv, tap, defaults)
 	registerFlightTools(srv, defaults, opt.FlightProvider)
-	registerKegTools(srv, defaults, opt.KegProvider)
+	registerKegTools(srv, defaults, opt.KegProvider, opt.KegSearchProvider)
 	registerResourceTools(srv, tap, defaults)
 	registerAuthInfoTool(srv, defaults, opt.IdentityProvider, opt.KegProvider)
 
@@ -114,9 +121,6 @@ func resolveKegTarget(ctx context.Context, perToolKeg string, defaults KegDefaul
 	out := defaults.KegTargetOptions
 	if perToolKeg != "" {
 		out.Keg = perToolKeg
-		out.Project = false
-		out.Cwd = false
-		out.Path = ""
 	}
 	if defaults.gate != nil {
 		out.FlightContext = defaults.gate.activeFlight(ctx)
@@ -194,6 +198,39 @@ func mcpDefaultMaxLines(maxLines int) int {
 
 // errorResult returns a CallToolResult with IsError set.
 func errorResult(err error) *sdkmcp.CallToolResult {
+	var restriction *tapper.FlightRestrictionError
+	if errors.As(err, &restriction) {
+		return orientationFailureResult(fmt.Errorf("%w: %v", ErrOrientationDenied, err))
+	}
+	if errors.Is(err, ErrOrientationStale) || errors.Is(err, ErrOrientationDenied) ||
+		errors.Is(err, ErrOrientationUnavailable) || errors.Is(err, ErrOrientationRootUnavailable) {
+		return orientationFailureResult(err)
+	}
+	var conflict *keg.PreconditionConflictError
+	if errors.As(err, &conflict) {
+		return &sdkmcp.CallToolResult{
+			Content: []sdkmcp.Content{&sdkmcp.TextContent{Text: err.Error()}},
+			StructuredContent: map[string]any{
+				"code":               keg.RemoteCodeConflict,
+				"operationPerformed": false,
+				"currentHash":        conflict.CurrentHash,
+				"currentContent":     string(conflict.CurrentContent),
+				"action":             "read the current resource, merge the change, and retry with currentHash",
+			},
+			IsError: true,
+		}
+	}
+	if errors.Is(err, keg.ErrPreconditionRequired) {
+		return &sdkmcp.CallToolResult{
+			Content: []sdkmcp.Content{&sdkmcp.TextContent{Text: err.Error()}},
+			StructuredContent: map[string]any{
+				"code":               keg.RemoteCodePreconditionRequired,
+				"operationPerformed": false,
+				"action":             "read the resource and retry with its returned hash",
+			},
+			IsError: true,
+		}
+	}
 	return &sdkmcp.CallToolResult{
 		Content: []sdkmcp.Content{
 			&sdkmcp.TextContent{Text: err.Error()},

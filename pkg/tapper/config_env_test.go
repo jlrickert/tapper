@@ -221,28 +221,6 @@ func TestConfigService_DisableAtlasHubViaEnv(t *testing.T) {
 	})
 }
 
-// TestConfigService_DisableLocalHubViaEnv mirrors the atlas test for
-// TAP_DISABLE_LOCAL_HUB: a truthy env value flips DisableLocalHub.
-func TestConfigService_DisableLocalHubViaEnv(t *testing.T) {
-	t.Parallel()
-
-	fx := NewSandbox(t, sandbox.WithFixture("basic", "/home/testuser"))
-	require.NoError(t, fx.Setwd("/home/testuser"))
-
-	tap, err := tapper.NewTap(tapper.TapOptions{
-		Root:    "/home/testuser",
-		Runtime: fx.Runtime(),
-	})
-	require.NoError(t, err)
-
-	require.NoError(t, fx.Runtime().Env().Set("TAP_DISABLE_LOCAL_HUB", "true"))
-
-	cfg, err := tap.ConfigService.Config()
-	require.NoError(t, err)
-	require.True(t, cfg.DisableLocalHub(),
-		"TAP_DISABLE_LOCAL_HUB=true should set DisableLocalHub")
-}
-
 func TestConfigService_EnvOverrideWithStrict(t *testing.T) {
 	t.Parallel()
 

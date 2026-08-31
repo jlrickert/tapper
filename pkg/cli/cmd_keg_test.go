@@ -7,7 +7,6 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	testutils "github.com/jlrickert/cli-toolkit/sandbox"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/require"
 )
@@ -39,22 +38,22 @@ namespaces:
 
 	res := NewProcess(t, false, "keg", "rename", "@jlrickert/example", "renamed").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
-	require.Equal(t, "/api/v1/@jlrickert/kegs/example/settings", gotPath)
+	require.Equal(t, "/api/v1/@jlrickert/kegs/example/rename", gotPath)
 	require.Equal(t, map[string]string{"alias": "renamed"}, gotBody)
 }
 
 func TestKegRenameCompletion_OldArgListsKegs(t *testing.T) {
 	t.Parallel()
 
-	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
+	sb := NewRemoteKegListSandbox(t, remoteCompletionKegs())
 
 	comp := NewCompletionProcess(t, false, 0, "keg", "rename", "").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, comp.Err)
 
 	suggestions := parseCompletionSuggestions(string(comp.Stdout))
-	require.Contains(t, suggestions, "@local/example")
-	require.Contains(t, suggestions, "@local/personal")
-	require.Contains(t, suggestions, "@local/work")
+	require.Contains(t, suggestions, "@team/example")
+	require.Contains(t, suggestions, "@team/personal")
+	require.Contains(t, suggestions, "@team/work")
 	require.Contains(t, suggestions, "example")
 	require.Contains(t, suggestions, "personal")
 	require.Contains(t, suggestions, "work")
@@ -64,9 +63,9 @@ func TestKegRenameCompletion_OldArgListsKegs(t *testing.T) {
 func TestKegRenameCompletion_NewArgSuppressesFileCompletion(t *testing.T) {
 	t.Parallel()
 
-	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
+	sb := NewRemoteKegListSandbox(t, remoteCompletionKegs())
 
-	comp := NewCompletionProcess(t, false, 0, "keg", "rename", "@local/personal", "").Run(sb.Context(), sb.Runtime())
+	comp := NewCompletionProcess(t, false, 0, "keg", "rename", "@team/personal", "").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, comp.Err)
 
 	require.Empty(t, parseCompletionSuggestions(string(comp.Stdout)))

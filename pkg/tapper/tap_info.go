@@ -4,15 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
-	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/jlrickert/cli-toolkit/toolkit"
 	"github.com/jlrickert/tapper/pkg/keg"
+	"github.com/jlrickert/tapper/pkg/schemas"
 	"gopkg.in/yaml.v3"
 )
 
@@ -59,32 +57,21 @@ func (t *Tap) KegSettings(ctx context.Context, opts KegSettingsOptions) (string,
 		return t.kegSettingsMinimal(ctx, k)
 	}
 
-	// For file-backed kegs, return the raw config contents so unknown sections
-	// (for example custom fields and entities) are preserved.
-	if k.Target() != nil && k.Target().Scheme() == keg.SchemeFile {
-		raw, rawErr := readRawKegConfig(t.Runtime, k.Target().Path())
-		if rawErr == nil {
-			return string(raw), nil
-		}
-		if !os.IsNotExist(rawErr) {
-			return "", fmt.Errorf("unable to read raw keg config: %w", rawErr)
-		}
-	}
-
-	cfg, err := k.Config(ctx)
+	cfg, err := k.Settings(ctx)
 	if err != nil {
-		return "", fmt.Errorf("unable to read keg config: %w", err)
+		return "", fmt.Errorf("unable to read keg settings: %w", err)
 	}
 
-	// Convert config to YAML format
-	return cfg.String(), nil
+	// Settings transports retain the original document so extensions and
+	// unknown fields survive a remote read/edit/write cycle.
+	return string(cfg.Raw()), nil
 }
 
-// kegSettingsMinimal returns a compact keg config with only core fields.
+// kegSettingsMinimal returns a compact keg settings with only core fields.
 func (t *Tap) kegSettingsMinimal(ctx context.Context, k keg.Keg) (string, error) {
-	cfg, err := k.Config(ctx)
+	cfg, err := k.Settings(ctx)
 	if err != nil {
-		return "", fmt.Errorf("unable to read keg config: %w", err)
+		return "", fmt.Errorf("unable to read keg settings: %w", err)
 	}
 
 	type minimalConfig struct {
@@ -139,119 +126,31 @@ func (t *Tap) kegSettingsBatch(ctx context.Context, opts KegSettingsOptions) (st
 		refs = append(refs, ref)
 	}
 
-	if t.OrientationDetailsResolver != nil {
-		details, err := t.OrientationDetailsResolver(ctx, refs)
+	details := make([]minimalKegSettings, 0, len(refs))
+	for _, ref := range refs {
+		detail, err := t.readMinimalKegSettings(ctx, opts, ref)
 		if err != nil {
+			// Do not serialize until every ordinary settings read succeeds, so
+			// callers never receive a partial batch.
 			return "", err
 		}
-		return marshalMinimalKegSettings(refs, details)
-	}
-
-	cfg, err := t.ConfigService.Config()
-	if err != nil {
-		return "", err
-	}
-	type selection struct {
-		index     int
-		ref       string
-		namespace string
-		alias     string
-		hub       string
-		entry     HubEntry
-	}
-	type group struct {
-		hub        string
-		entry      HubEntry
-		selections []selection
-	}
-	groupIndexes := map[string]int{}
-	var groups []group
-	for i, ref := range refs {
-		namespace, alias, _ := parseCanonicalKegSelection(ref)
-		_, hubName, entry, resolveErr := cfg.resolveNamespaceHub(namespace, "")
-		if resolveErr != nil {
-			return "", resolveErr
-		}
-		sel := selection{
-			index:     i,
-			ref:       ref,
-			namespace: namespace,
-			alias:     alias,
-			hub:       hubName,
-			entry:     entry,
-		}
-		groupIndex, ok := groupIndexes[hubName]
-		if !ok {
-			groupIndex = len(groups)
-			groupIndexes[hubName] = groupIndex
-			groups = append(groups, group{hub: hubName, entry: entry})
-		}
-		groups[groupIndex].selections = append(groups[groupIndex].selections, sel)
-	}
-
-	details := make([]HubOrientationDetail, len(refs))
-	for _, grouped := range groups {
-		kind := hubKindOrDefault(grouped.entry.Kind)
-		if kind == HubKindLocal {
-			for _, sel := range grouped.selections {
-				detail, detailErr := t.readOrientationDetail(ctx, opts, sel.ref)
-				if detailErr != nil {
-					return "", detailErr
-				}
-				details[sel.index] = detail
-			}
-			continue
-		}
-		url := strings.TrimSpace(grouped.entry.URL)
-		if url == "" {
-			return "", fmt.Errorf("hub %q has no url configured", grouped.hub)
-		}
-		token := t.hubToken(grouped.entry)
-		if token == "" {
-			return "", fmt.Errorf("hub %q has no authenticated session for %s", grouped.hub, url)
-		}
-		groupRefs := make([]string, 0, len(grouped.selections))
-		for _, sel := range grouped.selections {
-			groupRefs = append(groupRefs, sel.ref)
-		}
-		groupDetails, fetchErr := FetchOrientationDetails(ctx, url, token, groupRefs)
-		if errors.Is(fetchErr, ErrOrientationUnsupported) {
-			groupDetails = nil
-			for _, sel := range grouped.selections {
-				detail, detailErr := t.readOrientationDetail(ctx, opts, sel.ref)
-				if detailErr != nil {
-					return "", detailErr
-				}
-				groupDetails = append(groupDetails, detail)
-			}
-		} else if fetchErr != nil {
-			return "", fetchErr
-		}
-		if len(groupDetails) != len(grouped.selections) {
-			return "", fmt.Errorf("hub %q returned incomplete orientation details", grouped.hub)
-		}
-		for i, sel := range grouped.selections {
-			if groupDetails[i].Keg != sel.ref {
-				return "", fmt.Errorf("hub %q returned orientation details out of order", grouped.hub)
-			}
-			details[sel.index] = groupDetails[i]
-		}
+		details = append(details, detail)
 	}
 	return marshalMinimalKegSettings(refs, details)
 }
 
-func (t *Tap) readOrientationDetail(ctx context.Context, opts KegSettingsOptions, ref string) (HubOrientationDetail, error) {
+func (t *Tap) readMinimalKegSettings(ctx context.Context, opts KegSettingsOptions, ref string) (minimalKegSettings, error) {
 	targetOpts := opts.KegTargetOptions
 	targetOpts.Keg = ref
 	k, err := t.resolveKeg(ctx, targetOpts)
 	if err != nil {
-		return HubOrientationDetail{}, fmt.Errorf("unable to open keg %q: %w", ref, err)
+		return minimalKegSettings{}, fmt.Errorf("unable to open keg %q: %w", ref, err)
 	}
-	cfg, err := k.Config(ctx)
+	cfg, err := k.Settings(ctx)
 	if err != nil {
-		return HubOrientationDetail{}, fmt.Errorf("unable to read keg config %q: %w", ref, err)
+		return minimalKegSettings{}, fmt.Errorf("unable to read keg settings %q: %w", ref, err)
 	}
-	return HubOrientationDetail{
+	return minimalKegSettings{
 		Keg:          ref,
 		Title:        cfg.Title,
 		Summary:      cfg.Summary,
@@ -260,14 +159,14 @@ func (t *Tap) readOrientationDetail(ctx context.Context, opts KegSettingsOptions
 	}, nil
 }
 
-func marshalMinimalKegSettings(refs []string, details []HubOrientationDetail) (string, error) {
+func marshalMinimalKegSettings(refs []string, details []minimalKegSettings) (string, error) {
 	if len(details) != len(refs) {
-		return "", fmt.Errorf("orientation details response length does not match request")
+		return "", fmt.Errorf("settings response length does not match request")
 	}
 	out := make([]minimalKegSettings, len(refs))
 	for i, ref := range refs {
 		if details[i].Keg != ref {
-			return "", fmt.Errorf("orientation details response does not preserve request order")
+			return "", fmt.Errorf("settings response does not preserve request order")
 		}
 		out[i] = minimalKegSettings{
 			Keg:          ref,
@@ -348,14 +247,11 @@ func (t *Tap) resolveIdentity(opts KegTargetOptions) resolvedIdentity {
 	if selector != "" {
 		ref, oErr := applyRefOverrides(parseKegRef(selector), opts.Namespace, opts.Hub, selector)
 		if oErr == nil {
-			if ref.Path != "" {
-				id.Ref = ref.Path
-			} else {
+			if ref.Name != "" {
 				id.Keg = ref.Name
 				// Infer namespace + hub through the shared chain so a bare name
-				// (e.g. "private") displays as "@local/private" on a local hub,
-				// matching what the backend actually resolves. Best-effort: if it
-				// cannot resolve (e.g. a remote hub with no namespace), fall back
+				// displays as its fully qualified remote reference. Best-effort: if
+				// it cannot resolve (for example, a hub with no namespace), fall back
 				// to the bare name and leave namespace/hub blank.
 				if ns, hub, entry, rErr := cfg.resolveNamespaceHub(ref.Namespace, ref.Hub); rErr == nil {
 					id.Namespace = ns
@@ -404,7 +300,7 @@ func (t *Tap) Info(ctx context.Context, opts InfoOptions) (string, error) {
 	}
 	info, err := k.Info(ctx)
 	if err != nil {
-		return "", fmt.Errorf("unable to read keg config: %w", err)
+		return "", fmt.Errorf("unable to read keg settings: %w", err)
 	}
 	summary := info.Summary
 
@@ -446,9 +342,9 @@ func (t *Tap) Info(ctx context.Context, opts InfoOptions) (string, error) {
 		Images:    capability{Supported: summary.Images.Supported},
 	}
 
-	// Populate summary from the keg config.
-	if info.Config != nil && info.Config.Summary != "" {
-		out.Summary = info.Config.Summary
+	// Populate summary from the keg settings.
+	if info.Settings != nil && info.Settings.Summary != "" {
+		out.Summary = info.Settings.Summary
 	}
 
 	if opts.Debug {
@@ -472,15 +368,7 @@ func (t *Tap) Info(ctx context.Context, opts InfoOptions) (string, error) {
 			if out.Ref == "" {
 				out.Ref = canonicalKegRef(kegRefLabel(k.Target()))
 			}
-			if k.Target().Scheme() == keg.SchemeFile {
-				path := toolkit.ExpandEnv(t.Runtime, k.Target().Path())
-				if expanded, expandErr := toolkit.ExpandPath(t.Runtime, path); expandErr == nil {
-					path = expanded
-				}
-				debug.KegDirectory = filepath.Clean(path)
-			} else {
-				debug.KegDirectory = k.Target().Path()
-			}
+			debug.KegDirectory = k.Target().Path()
 		}
 		out.Debug = debug
 	} else if out.Ref == "" && k.Target() != nil {
@@ -513,103 +401,76 @@ func canonicalKegRef(ref string) string {
 	return ref
 }
 
-func readRawKegConfig(rt *toolkit.Runtime, root string) ([]byte, error) {
-	_, raw, err := readRawKegConfigWithPath(rt, root)
-	return raw, err
-}
-
-func readRawKegConfigWithPath(rt *toolkit.Runtime, root string) (string, []byte, error) {
-	base := toolkit.ExpandEnv(rt, root)
-	if expanded, err := toolkit.ExpandPath(rt, base); err == nil {
-		base = expanded
-	}
-
-	var firstErr error
-	for _, name := range []string{"keg", "keg.yaml", "keg.yml"} {
-		path := filepath.Join(base, name)
-		if resolved, err := rt.ResolvePath(path, true); err == nil {
-			path = resolved
-		}
-
-		data, err := rt.ReadFile(path)
-		if err == nil {
-			return path, data, nil
-		}
-		if os.IsNotExist(err) {
-			continue
-		}
-		if firstErr == nil {
-			firstErr = err
-		}
-	}
-
-	if firstErr != nil {
-		return "", nil, firstErr
-	}
-	return "", nil, os.ErrNotExist
-}
-
-// KegConfigEditOptions configures behavior for Tap.KegConfigEdit.
-type KegConfigEditOptions struct {
+// KegSettingsEditOptions configures behavior for Tap.KegSettingsEdit.
+type KegSettingsEditOptions struct {
 	KegTargetOptions
-	Stream *toolkit.Stream
+	Stream       *toolkit.Stream
+	ExpectedHash string
 }
 
-// KegConfigEdit opens the keg configuration file in the default editor.
-func (t *Tap) KegConfigEdit(ctx context.Context, opts KegConfigEditOptions) error {
-	k, err := t.resolveKegForRoles(ctx, opts.KegTargetOptions, FlightRoleEditor, FlightRoleAdmin)
+// KegSettingsHash performs the read half of an explicit CLI read-before-write
+// flow. Mutation methods never call it implicitly.
+func (t *Tap) KegSettingsHash(ctx context.Context, opts KegTargetOptions) (string, error) {
+	k, err := t.resolveKegForRole(ctx, opts, FlightRoleViewer)
+	if err != nil {
+		return "", err
+	}
+	cfg, err := k.Settings(ctx)
+	if err != nil {
+		return "", err
+	}
+	return cfg.Hash(), nil
+}
+
+// KegSettingsEdit opens the keg settings file in the default editor.
+//
+// Replacing the settings document is keg administration, so it requires admin
+// on the keg itself and not merely admin on the flight. Asking for editor
+// identity access here previously let a flightless session — which has no flight
+// authority to check — perform the write with editor access alone.
+func (t *Tap) KegSettingsEdit(ctx context.Context, opts KegSettingsEditOptions) error {
+	k, err := t.resolveKegForRoles(ctx, opts.KegTargetOptions, FlightRoleAdmin, FlightRoleAdmin)
 	if err != nil {
 		return err
 	}
 
-	var (
-		configPath  string
-		originalRaw []byte
-	)
-	if k.Target() != nil && k.Target().Scheme() == keg.SchemeFile {
-		path, raw, readErr := readRawKegConfigWithPath(t.Runtime, k.Target().Path())
-		if readErr != nil {
-			return fmt.Errorf("unable to read keg config: %w", readErr)
-		}
-		configPath = path
-		originalRaw = raw
-	} else {
-		cfg, cfgErr := k.Config(ctx)
-		if cfgErr != nil {
-			return fmt.Errorf("unable to read keg config: %w", cfgErr)
-		}
-		originalRaw = []byte(cfg.String())
+	cfg, err := k.Settings(ctx)
+	if err != nil {
+		return fmt.Errorf("unable to read keg settings: %w", err)
+	}
+	originalRaw := cfg.Raw()
+	expectedHash := opts.ExpectedHash
+	if (opts.Stream == nil || !opts.Stream.IsPiped) && expectedHash == "" {
+		expectedHash = cfg.Hash()
 	}
 
+	// The schema modeline is an editor affordance, not part of the document:
+	// it names a path that only resolves on the machine that opened the
+	// editor, and keg settings are persisted — on a hub, shared. So strip it
+	// on the way in, no matter which surface supplied the bytes (editor,
+	// piped stdin, or the keg_settings_edit MCP tool).
 	saveConfig := func(data []byte) error {
-		if configPath != "" {
-			resolvedPath, err := t.Runtime.ResolvePath(configPath, true)
-			if err != nil {
-				return fmt.Errorf("unable to resolve keg config path: %w", err)
-			}
-			if err := t.Runtime.AtomicWriteFile(resolvedPath, data, 0o644); err != nil {
-				return fmt.Errorf("unable to save edited keg config: %w", err)
-			}
-			return nil
+		data = schemas.StripModeline(data)
+		if err := k.SetSettings(ctx, data, keg.SettingsWriteOptions{ExpectedHash: expectedHash}); err != nil {
+			return fmt.Errorf("unable to save edited keg settings: %w", err)
 		}
-		if err := k.SetConfig(ctx, data); err != nil {
-			return fmt.Errorf("unable to save edited keg config: %w", err)
-		}
+		expectedHash = keg.DocumentHash(data)
 		return nil
 	}
 
-	initialRaw := originalRaw
 	if opts.Stream != nil && opts.Stream.IsPiped {
 		pipedRaw, readErr := io.ReadAll(opts.Stream.In)
 		if readErr != nil {
 			return fmt.Errorf("unable to read piped input: %w", readErr)
 		}
 		if len(bytes.TrimSpace(pipedRaw)) > 0 {
-			if bytes.Equal(pipedRaw, originalRaw) {
+			// Compare with the modeline stripped: piping back exactly what an
+			// editor was shown is a no-op, not an edit.
+			if bytes.Equal(schemas.StripModeline(pipedRaw), originalRaw) {
 				return nil
 			}
-			if _, parseErr := keg.ParseKegConfigStrict(pipedRaw); parseErr != nil {
-				return fmt.Errorf("keg config from stdin is invalid: %w", parseErr)
+			if _, parseErr := keg.ParseKegSettingsStrict(pipedRaw); parseErr != nil {
+				return fmt.Errorf("keg settings from stdin is invalid: %w", parseErr)
 			}
 			return saveConfig(pipedRaw)
 		}
@@ -619,6 +480,12 @@ func (t *Tap) KegConfigEdit(ctx context.Context, opts KegConfigEditOptions) erro
 	if err != nil {
 		return fmt.Errorf("unable to create temp file path: %w", err)
 	}
+	// Add the modeline here and nowhere else: it exists so a language server
+	// can drive completion and validation in this buffer, and saveConfig
+	// strips it again before anything is persisted. Replace rather than
+	// prepend so a config written by an older build gets its stale line
+	// pointed at this build's schema.
+	initialRaw := schemas.ReplaceModeline(originalRaw, schemas.Modeline(t.Runtime, schemas.KegSettings))
 	if err := t.Runtime.WriteFile(tempPath, initialRaw, 0o600); err != nil {
 		return fmt.Errorf("unable to write temp config file: %w", err)
 	}
@@ -627,12 +494,12 @@ func (t *Tap) KegConfigEdit(ctx context.Context, opts KegConfigEditOptions) erro
 	}()
 
 	if err := editWithLiveSaves(ctx, t.Runtime, tempPath, nil, func(editedRaw []byte) error {
-		if _, err := keg.ParseKegConfigStrict(editedRaw); err != nil {
-			return fmt.Errorf("keg config is invalid after editing: %w", err)
+		if _, err := keg.ParseKegSettingsStrict(editedRaw); err != nil {
+			return fmt.Errorf("keg settings is invalid after editing: %w", err)
 		}
 		return saveConfig(editedRaw)
 	}); err != nil {
-		return fmt.Errorf("unable to edit keg config: %w", err)
+		return fmt.Errorf("unable to edit keg settings: %w", err)
 	}
 	return nil
 }

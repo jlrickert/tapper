@@ -42,27 +42,29 @@ func registerWriteTools(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefault
 // --- keg_settings_edit ---
 
 type kegSettingsEditInput struct {
-	Data string `json:"data" jsonschema:"complete validated KEG YAML document"`
-	Keg  string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
+	Data         string `json:"data" jsonschema:"complete validated KEG YAML document"`
+	ExpectedHash string `json:"expected_hash" jsonschema:"precondition token returned by keg_settings"`
+	Keg          string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
 }
 
 func registerKegSettingsEdit(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "keg_settings_edit",
-		Description: "Replace the complete KEG configuration with a validated YAML document; requires admin flight authority and editor KEG access",
+		Description: "Call keg_settings with minimal=false first, then replace the complete KEG settings with a validated YAML document using its hash as expected_hash. Requires admin access to the KEG itself, plus admin cover when a flight is selected. On conflict, merge into the returned current settings (or refetch with keg_settings) and retry with the returned current hash.",
 		Annotations: &sdkmcp.ToolAnnotations{
 			DestructiveHint: boolPtr(true),
 			OpenWorldHint:   boolPtr(false),
 		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in kegSettingsEditInput) (*sdkmcp.CallToolResult, any, error) {
-		opts := tapper.KegConfigEditOptions{
+		opts := tapper.KegSettingsEditOptions{
 			KegTargetOptions: resolveKegTarget(ctx, in.Keg, defaults),
+			ExpectedHash:     in.ExpectedHash,
 			Stream: &toolkit.Stream{
 				IsPiped: true,
 				In:      bytes.NewReader([]byte(in.Data)),
 			},
 		}
-		if err := tap.KegConfigEdit(ctx, opts); err != nil {
+		if err := tap.KegSettingsEdit(ctx, opts); err != nil {
 			return errorResult(err), nil, nil
 		}
 		return textResult("KEG settings updated"), nil, nil
@@ -139,7 +141,7 @@ type editItemInput struct {
 	NodeID         string `json:"node_id"`
 	Schema         string `json:"schema,omitempty" jsonschema:"schema selected for this write; required when strict policy and agent mode both block"`
 	Content        string `json:"content"`
-	ExpectedHash   string `json:"expected_hash,omitempty"`
+	ExpectedHash   string `json:"expected_hash" jsonschema:"precondition token returned by cat"`
 	SnapshotBefore bool   `json:"snapshot_before,omitempty"`
 }
 
@@ -160,7 +162,7 @@ func nodeUpdateOutputs(results []keg.NodeUpdateResult) []nodeUpdateOutput {
 func registerEdit(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "edit",
-		Description: "Atomically replace the content of 1-100 KEG nodes. Each optional schema selection is required when strict policy and the resolved agent mode both block.",
+		Description: "Call cat first for every node, then atomically replace the content of 1-100 nodes using each returned hash as that edit's expected_hash. Each optional schema selection is required when strict policy and the resolved agent mode both block. On conflict, merge into the returned current content (or refetch with cat) and retry with the returned current hash.",
 		InputSchema: boundedMutationInputSchema[editInput]("edits"),
 		Annotations: &sdkmcp.ToolAnnotations{
 			DestructiveHint: boolPtr(false),
@@ -193,14 +195,14 @@ type metaUpdateInput struct {
 	NodeID         string `json:"node_id"`
 	Schema         string `json:"schema,omitempty" jsonschema:"schema selected for this write; required when strict policy and agent mode both block"`
 	Content        string `json:"content"`
-	ExpectedHash   string `json:"expected_hash,omitempty"`
+	ExpectedHash   string `json:"expected_hash" jsonschema:"precondition token returned by cat"`
 	SnapshotBefore bool   `json:"snapshot_before,omitempty"`
 }
 
 func registerMeta(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "meta",
-		Description: "Read metadata for 1-100 nodes or atomically replace metadata for 1-100 nodes. Each optional schema selection on an update is required when strict policy and the resolved agent mode both block.",
+		Description: "Read metadata for 1-100 nodes without a token, or call cat first and atomically replace metadata for 1-100 nodes using each returned hash as that update's expected_hash. Each optional schema selection on an update is required when strict policy and the resolved agent mode both block. On conflict, merge into the returned current metadata (or refetch with cat) and retry with the returned current hash.",
 		InputSchema: boundedMutationInputSchema[metaInput]("node_ids", "updates"),
 		Annotations: &sdkmcp.ToolAnnotations{
 			DestructiveHint: boolPtr(false),
@@ -234,43 +236,57 @@ func registerMeta(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 // --- remove ---
 
 type removeInput struct {
-	NodeIDs []string `json:"node_ids" jsonschema:"node IDs to remove"`
-	Keg     string   `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
+	Nodes []removeNodeInput `json:"nodes" jsonschema:"1-100 nodes to remove atomically"`
+	Keg   string            `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
+}
+
+type removeNodeInput struct {
+	NodeID       string `json:"node_id"`
+	ExpectedHash string `json:"expected_hash" jsonschema:"precondition token returned by cat"`
 }
 
 func registerRemove(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "remove",
-		Description: "Remove one or more KEG nodes",
+		Description: "Call cat first for every node, then atomically remove 1-100 nodes using each returned hash as that node's expected_hash. On conflict, refetch with cat and retry with the returned current hash.",
+		InputSchema: boundedMutationInputSchema[removeInput]("nodes"),
 		Annotations: &sdkmcp.ToolAnnotations{
 			DestructiveHint: boolPtr(true),
 			OpenWorldHint:   boolPtr(false),
 		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in removeInput) (*sdkmcp.CallToolResult, any, error) {
+		nodeIDs := make([]string, len(in.Nodes))
+		expectedHashes := make(map[string]string, len(in.Nodes))
+		for i, node := range in.Nodes {
+			nodeIDs[i] = node.NodeID
+			expectedHashes[node.NodeID] = node.ExpectedHash
+		}
 		opts := tapper.RemoveOptions{
 			KegTargetOptions: resolveKegTarget(ctx, in.Keg, defaults),
-			NodeIDs:          in.NodeIDs,
+			NodeIDs:          nodeIDs,
+			ExpectedHashes:   expectedHashes,
 		}
 
 		if err := tap.Remove(ctx, opts); err != nil {
 			return errorResult(err), nil, nil
 		}
-		return textResult(fmt.Sprintf("removed %d node(s)", len(in.NodeIDs))), nil, nil
+		return textResult(fmt.Sprintf("removed %d node(s)", len(in.Nodes))), nil, nil
 	})
 }
 
 // --- move ---
 
 type moveInput struct {
-	SourceID string `json:"source_id" jsonschema:"source node ID"`
-	DestID   string `json:"dest_id" jsonschema:"destination node ID"`
-	Keg      string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
+	SourceID     string `json:"source_id" jsonschema:"source node ID"`
+	DestID       string `json:"dest_id" jsonschema:"destination node ID"`
+	ExpectedHash string `json:"expected_hash" jsonschema:"precondition token returned by cat"`
+	Keg          string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
 }
 
 func registerMove(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "move",
-		Description: "Move (rename) a KEG node to a new ID",
+		Description: "Call cat first, then move (rename) a KEG node to a new ID using the returned hash as expected_hash. On conflict, refetch with cat and retry with the returned current hash.",
 		Annotations: &sdkmcp.ToolAnnotations{
 			DestructiveHint: boolPtr(true),
 			OpenWorldHint:   boolPtr(false),
@@ -280,6 +296,7 @@ func registerMove(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 			KegTargetOptions: resolveKegTarget(ctx, in.Keg, defaults),
 			SourceID:         in.SourceID,
 			DestID:           in.DestID,
+			ExpectedHash:     in.ExpectedHash,
 		}
 
 		if err := tap.Move(ctx, opts); err != nil {

@@ -7,7 +7,7 @@
   "properties": {
     "defaultKeg": {
       "type": "string",
-      "description": "Keg reference resolved when no explicit keg is requested: a bare name, @namespace/name, keg:@namespace/name, or a filesystem path. Resolved through the namespace-centric chain. Override with TAP_DEFAULT_KEG env var."
+      "description": "Remote keg reference resolved when no explicit keg is requested: a bare name, @namespace/name, or keg:@namespace/name. Resolved through the namespace-centric chain. Override with TAP_DEFAULT_KEG env var."
     },
     "fallbackKeg": {
       "type": "string",
@@ -16,6 +16,10 @@
     "flight": {
       "type": "string",
       "description": "Flight context applied when no --flight flag is given: @namespace/+slug, +slug, or a bare slug. Conventionally set in project config so orient/MCP inherit the same context. Override with TAP_FLIGHT env var."
+    },
+    "agent": {
+      "type": "string",
+      "description": "Name of the entry in agents{} driving this process. `tap launch` uses it as the default when --agent is omitted, the same way flight supplies the launch root, and exports the resolved name as TAP_AGENT so the child can report its own identity. Selects a model and supplies telemetry only — flight selection is independent. Override with TAP_AGENT env var. Experimental: expected to change when agents move to the hub."
     },
     "defaultHub": {
       "type": "string",
@@ -37,10 +41,6 @@
       "type": "boolean",
       "description": "When true, the synthesized built-in atlas hub (https://atlas.foldwise.ai) is suppressed: it is not synthesized, is omitted from hub listings, and is skipped in hub resolution, so hub-dependent commands fail with a clear error if no other hub is configured. An explicit atlas entry in hubs{} is unaffected. Override with TAP_DISABLE_ATLAS_HUB env var (1/true/yes/on)."
     },
-    "disableLocalHub": {
-      "type": "boolean",
-      "description": "When true, the synthesized built-in local filesystem hub is suppressed (symmetric with disableAtlasHub). An explicit local hub entry in hubs{} is unaffected. Override with TAP_DISABLE_LOCAL_HUB env var (1/true/yes/on)."
-    },
     "disableTelemetry": {
       "type": "boolean",
       "description": "When true, disables privacy-minimized Tap CLI and MCP invocation reporting. Reporting is enabled by default and can also be disabled with TAP_DISABLE_TELEMETRY=1."
@@ -57,7 +57,7 @@
             "description": "Hub name that hosts this namespace. Empty falls back to the hub precedence chain (defaultHub → fallbackHub → sole hub → compiled-in default)."
           }
         },
-        "additionalProperties": false
+        "additionalProperties": true
       }
     },
     "kegMap": {
@@ -81,7 +81,7 @@
           }
         },
         "required": ["alias"],
-        "additionalProperties": false
+        "additionalProperties": true
       }
     },
     "hubs": {
@@ -93,20 +93,16 @@
         "properties": {
           "kind": {
             "type": "string",
-            "enum": ["remote", "local", "readonly"],
-            "description": "Hub backend kind: 'remote' (read-write HTTP, the default when omitted), 'local' (filesystem on this machine), or 'readonly' (read-only HTTP)."
+            "enum": ["remote", "readonly"],
+            "description": "Hub backend kind: 'remote' (read-write HTTP, the default when omitted) or 'readonly' (read-only HTTP)."
           },
           "defaultNamespace": {
             "type": "string",
-            "description": "Default namespace for kegs resolved against this hub when the reference omits its namespace. A hub hosts many namespaces; this is only the default. The @ sigil is implied; do not include it. For the local hub this is 'local' (addressed as @local). In the namespace-centric model this is a LOWER-precedence source than the top-level defaultNamespace/fallbackNamespace — it applies only on hub-first paths after those chains yield nothing."
+            "description": "Default namespace for kegs resolved against this hub when the reference omits its namespace. A hub hosts many namespaces; this is only the default. The @ sigil is implied; do not include it. In the namespace-centric model this is a LOWER-precedence source than the top-level defaultNamespace/fallbackNamespace — it applies only on hub-first paths after those chains yield nothing."
           },
           "url": {
             "type": "string",
             "description": "Base URL for remote/readonly hubs."
-          },
-          "basePath": {
-            "type": "string",
-            "description": "Filesystem root for local hubs. Kegs resolve to <basePath>/@<namespace>/<name>."
           },
           "token": {
             "type": "string",
@@ -117,7 +113,46 @@
             "description": "Environment variable name containing the hub token."
           }
         },
-        "additionalProperties": false
+        "additionalProperties": true
+      }
+    },
+    "agents": {
+      "type": "object",
+      "description": "Named model definitions for `tap launch`, keyed by alias. Agents hold no secrets — apiKeyEnv names a variable, never a value — so unlike hubs they survive the project-config trust strip and may safely be defined in project config. Experimental: expected to change when agents move to the hub.",
+      "additionalProperties": {
+        "type": "object",
+        "description": "Single agent definition: a model plus how to reach and authenticate against it.",
+        "properties": {
+          "model": {
+            "type": "string",
+            "description": "Provider-qualified model, '<provider>/<model>' — anthropic/claude-opus-4, openai/gpt-5, ollama/qwen3.6:35b. The prefix tells the launcher which protocol the harness must speak; recognized providers are anthropic, openai, and ollama."
+          },
+          "baseUrl": {
+            "type": "string",
+            "description": "Overrides the provider's endpoint. One value serves both protocols: the launcher appends /v1 for OpenAI clients and trims it for Anthropic ones. Defaults to http://localhost:11434/v1 for ollama models; empty for hosted providers, leaving the harness on its own endpoint."
+          },
+          "auth": {
+            "type": "string",
+            "enum": ["inherit", "subscription", "apiKey", "none"],
+            "description": "Where the harness gets credentials. 'inherit' passes the ambient environment through untouched. 'subscription' strips inherited provider key variables so the harness falls back to its own stored login. 'apiKey' forwards the variable named by apiKeyEnv. 'none' strips the same variables but implies no stored login to fall back to. When omitted the mode is derived: apiKey if apiKeyEnv is set, else none for ollama models, else inherit."
+          },
+          "apiKeyEnv": {
+            "type": "string",
+            "description": "Name of the environment variable holding the API key — the name is configured, never the secret, mirroring hubs.*.tokenEnv. Setting it also selects auth 'apiKey' when auth is omitted."
+          },
+          "contextWindow": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Caps the working context in tokens. Harnesses express this differently — Codex as model metadata, Claude Code as an auto-compact threshold — so the launcher translates it per harness, and launching one with no equivalent is an error rather than a silent drop."
+          },
+          "args": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Extra arguments passed to the harness. Placed before any arguments given after `--` on the tap launch command line, so a one-off invocation can override them."
+          }
+        },
+        "required": ["model"],
+        "additionalProperties": true
       }
     },
     "logFile": {

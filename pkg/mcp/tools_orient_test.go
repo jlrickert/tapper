@@ -32,14 +32,16 @@ func TestMCP_OrientTool_ReturnsSharedKegSystemPayload(t *testing.T) {
 
 	require.True(t, strings.HasPrefix(text, "# KEG System\n\n"), text)
 	require.Contains(t, text, "Tapper provides an MCP interface for KEG")
-	require.NotContains(t, text, "CLI")
-	require.NotContains(t, text, "`tap ")
+	require.NotContains(t, text, "/api/v1/orient")
 	require.NotContains(t, text, "## Active KEG")
 	require.Contains(t, text, "## Available KEGs")
 	require.NotContains(t, text, "## KEG Instructions")
 	require.Contains(t, text, "Call `keg_settings`")
 	require.Contains(t, text, "## Guidance")
 	require.Contains(t, text, "# Linking conventions")
+	require.Contains(t, text, "[title](../NODEID)")
+	require.Contains(t, text, "[title](keg:ALIAS/NODEID)")
+	require.Contains(t, text, "[title](keg:@NAMESPACE/ALIAS/NODEID)")
 	require.Contains(t, text, "# Snapshot policy")
 	require.NotContains(t, text, "## Host:")
 	require.NotContains(t, strings.ToLower(text), "tier 0")
@@ -60,17 +62,17 @@ func TestMCP_OrientToolRejectsKegTarget(t *testing.T) {
 	require.Contains(t, extractText(t, res), "unexpected additional properties")
 }
 
-func TestMCP_OrientToolRejectsInjectedFlight(t *testing.T) {
+func TestMCP_OrientToolRejectsInaccessibleFlight(t *testing.T) {
 	t.Parallel()
 	session, ctx := newTestSession(t)
 
 	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
 		Name:      "orient",
-		Arguments: map[string]any{"flight": "f-demo"},
+		Arguments: map[string]any{"flight": "+demo"},
 	})
 	require.NoError(t, err)
 	require.True(t, res.IsError)
-	require.Contains(t, extractText(t, res), "unexpected additional properties")
+	require.Contains(t, extractText(t, res), "ORIENTATION_DENIED")
 }
 
 func TestMCP_Resources_ListSingleOrientResource(t *testing.T) {

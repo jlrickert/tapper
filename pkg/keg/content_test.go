@@ -61,6 +61,25 @@ Another paragraph.
 	require.Equal(t, "This is the first paragraph after the title fallback.", c.Lead)
 }
 
+func TestExplicitMarkdownTitle(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name string
+		body string
+		want string
+	}{
+		{name: "heading", body: "# Explicit\n", want: "Explicit"},
+		{name: "frontmatter", body: "---\ntype: note\n---\n# After metadata\n", want: "After metadata"},
+		{name: "first explicit heading wins", body: "fallback\n# First\n# Second\n", want: "First"},
+		{name: "fallback is not explicit", body: "Fallback title\n", want: ""},
+		{name: "empty heading", body: "#   \n", want: ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.want, keg.ExplicitMarkdownTitle([]byte(tc.body)))
+		})
+	}
+}
+
 func TestParseContent_EmptyInputReturnsEmptyFormat(t *testing.T) {
 	t.Parallel()
 	rt := testRuntime(t)
@@ -161,4 +180,18 @@ Also reference bare ../99 in text and ../42 again.
 	// deduplicated and sorted.
 	expected := []keg.NodeId{{ID: 42}, {ID: 99}}
 	require.Equal(t, expected, c.Links)
+}
+
+func TestParseContent_BareKegReferenceDoesNotCreateLocalLink(t *testing.T) {
+	t.Parallel()
+	rt := testRuntime(t)
+
+	c, err := keg.ParseContent(rt, []byte(`# Link forms
+
+[Local](../42) is indexed locally.
+[Configured cross-keg](keg:public/7) is a Markdown link.
+Bare keg:public/99 is prose, not a graph link.
+`), "README.md")
+	require.NoError(t, err)
+	require.Equal(t, []keg.NodeId{{ID: 42}}, c.Links)
 }

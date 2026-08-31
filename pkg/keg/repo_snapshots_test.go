@@ -2,8 +2,6 @@ package keg_test
 
 import (
 	"context"
-	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -17,7 +15,6 @@ type snapshotRepo struct {
 		keg.Repository
 		keg.RepositorySnapshots
 	}
-	root string
 }
 
 func TestRepositorySnapshots_Contract(t *testing.T) {
@@ -28,7 +25,6 @@ func TestRepositorySnapshots_Contract(t *testing.T) {
 		new  func(*testing.T) (context.Context, snapshotRepo)
 	}{
 		{name: "memory", new: newMemorySnapshotRepo},
-		{name: "filesystem", new: newFilesystemSnapshotRepo},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -129,7 +125,6 @@ func TestRepositorySnapshots_Conflict(t *testing.T) {
 		new  func(*testing.T) (context.Context, snapshotRepo)
 	}{
 		{name: "memory", new: newMemorySnapshotRepo},
-		{name: "filesystem", new: newFilesystemSnapshotRepo},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -165,78 +160,12 @@ func TestRepositorySnapshots_Conflict(t *testing.T) {
 	}
 }
 
-func TestFsRepo_SnapshotCheckpointRollover(t *testing.T) {
-	t.Parallel()
-
-	fx := NewSandbox(t)
-	ctx := fx.Context()
-	root := t.TempDir()
-
-	repo := keg.NewFsRepo(root, fx.Runtime())
-	repo.SnapshotCheckpointInterval = 1
-
-	id := keg.NodeId{ID: 9}
-	stats1 := snapshotStats(time.Date(2026, 2, 26, 12, 0, 0, 0, time.UTC), "one", "one lead", "h1")
-	writeSnapshotState(t, ctx, repo, id, "# One\n", "title: One\n", stats1)
-	_, err := repo.AppendSnapshot(ctx, id, keg.SnapshotWrite{
-		ExpectedParent: 0,
-		Message:        "one",
-		Meta:           []byte("title: One\n"),
-		Stats:          stats1,
-		Content:        keg.SnapshotContentWrite{Kind: keg.SnapshotContentKindFull, Data: []byte("# One\n")},
-	})
-	require.NoError(t, err)
-
-	stats2 := snapshotStats(time.Date(2026, 2, 26, 13, 0, 0, 0, time.UTC), "two", "two lead", "h2")
-	writeSnapshotState(t, ctx, repo, id, "# Two\n", "title: Two\n", stats2)
-	_, err = repo.AppendSnapshot(ctx, id, keg.SnapshotWrite{
-		ExpectedParent: 1,
-		Message:        "two",
-		Meta:           []byte("title: Two\n"),
-		Stats:          stats2,
-		Content:        keg.SnapshotContentWrite{Kind: keg.SnapshotContentKindPatch, Base: 1, Data: []byte("# Two\n")},
-	})
-	require.NoError(t, err)
-
-	stats3 := snapshotStats(time.Date(2026, 2, 26, 14, 0, 0, 0, time.UTC), "three", "three lead", "h3")
-	writeSnapshotState(t, ctx, repo, id, "# Three\n", "title: Three\n", stats3)
-	_, err = repo.AppendSnapshot(ctx, id, keg.SnapshotWrite{
-		ExpectedParent: 2,
-		Message:        "three",
-		Meta:           []byte("title: Three\n"),
-		Stats:          stats3,
-		Content:        keg.SnapshotContentWrite{Kind: keg.SnapshotContentKindPatch, Base: 2, Data: []byte("# Three\n")},
-	})
-	require.NoError(t, err)
-
-	_, err = repo.Runtime().Stat(filepath.Join(root, id.Path(), "snapshots", "1.full"), false)
-	require.NoError(t, err)
-	_, err = repo.Runtime().Stat(filepath.Join(root, id.Path(), "snapshots", "2.patch"), false)
-	require.NoError(t, err)
-	_, err = repo.Runtime().Stat(filepath.Join(root, id.Path(), "snapshots", "3.full"), false)
-	require.NoError(t, err)
-	_, err = repo.Runtime().Stat(filepath.Join(root, id.Path(), "snapshots", "3.patch"), false)
-	require.Error(t, err)
-	require.True(t, os.IsNotExist(err))
-}
-
 func newMemorySnapshotRepo(t *testing.T) (context.Context, snapshotRepo) {
 	t.Helper()
 	fx := NewSandbox(t)
 	return fx.Context(), snapshotRepo{
 		name: "memory",
-		repo: keg.NewMemoryRepo(fx.Runtime()),
-	}
-}
-
-func newFilesystemSnapshotRepo(t *testing.T) (context.Context, snapshotRepo) {
-	t.Helper()
-	fx := NewSandbox(t)
-	root := t.TempDir()
-	return fx.Context(), snapshotRepo{
-		name: "filesystem",
-		repo: keg.NewFsRepo(root, fx.Runtime()),
-		root: root,
+		repo: newTestMemoryRepo(fx.Runtime()),
 	}
 }
 

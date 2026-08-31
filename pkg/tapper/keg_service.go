@@ -3,86 +3,45 @@ package tapper
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 	"strings"
 	"sync"
 
-	appCtx "github.com/jlrickert/cli-toolkit/appctx"
 	"github.com/jlrickert/cli-toolkit/toolkit"
 	"github.com/jlrickert/tapper/pkg/keg"
 )
 
-// KegService resolves keg targets from config, project paths, and explicit filesystem locations.
+// KegService resolves configured remote KEGs.
 type KegService struct {
-	// Runtime provides filesystem and environment access used to resolve kegs.
-	Runtime *toolkit.Runtime
-
-	// ConfigService resolves configured keg aliases and targets.
+	Runtime       *toolkit.Runtime
 	ConfigService *ConfigService
 
-	// cacheMu guards kegCache for concurrent access.
-	cacheMu sync.Mutex
-	// kegCache memoizes resolved kegs by alias or file-derived cache key.
+	cacheMu  sync.Mutex
 	kegCache map[string]keg.Keg
 
-	// authStoreOnce guards the lazy load of authStore. We only touch the
-	// auth file on first remote-keg resolution so local-only workflows
-	// never pay for a disk read they don't need.
 	authStoreOnce sync.Once
-	// authStore is the loaded auth store, or nil when the file is missing
-	// or failed to parse. Nil is valid: the resolver short-circuits to "".
-	authStore *AuthStore
-	// authStorePath is the path authStore was loaded from, handed to the
-	// resolver so it can persist a refreshed token back to disk.
+	authStore     *AuthStore
 	authStorePath string
-	// authResolver is the single resolver instance built alongside the
-	// store load. One instance per service matters: the resolver's mutex
-	// serializes token refresh, which only works when every resolution
-	// shares the same resolver (a per-call instance would give each caller
-	// its own lock and let concurrent resolves double-spend the single-use
-	// refresh token).
-	authResolver keg.TokenResolver
+	authResolver  keg.TokenResolver
 }
 
-// ResolveKegOptions controls how KegService resolves a keg target.
+// ResolveKegOptions controls remote KEG resolution.
 type ResolveKegOptions struct {
-	// Root is the base path used for project and fallback resolution.
-	Root string
-	// Keg is the explicit keg alias to resolve.
-	Keg string
-	// Namespace overrides the namespace component of the resolved reference when
-	// the selector is a bare name. Empty uses the configured chain.
+	// Root is used only for workspace kegMap matching.
+	Root      string
+	Keg       string
 	Namespace string
-	// Hub pins the hub the reference resolves on, overriding namespace→hub
-	// resolution. Empty resolves the hub from the namespace as usual.
-	Hub string
-	// Project resolves a keg from project-local locations.
-	Project bool
-	// Cwd limits project resolution to the current working directory.
-	Cwd bool
-	// Path resolves a keg from an explicit filesystem path.
-	Path string
-	// RequireBootstrap makes config/namespace/hub-driven resolution fail with
-	// ErrNotBootstrapped when no user config exists (`tap bootstrap` has not been
-	// run). The full `tap` surface sets it; the pruned `keg` binary does not.
-	// Explicit filesystem destinations (Project/Cwd/Path) and selectors that are
-	// themselves a filesystem path are exempt.
+	Hub       string
+
 	RequireBootstrap bool
-	// NoCache disables in-memory keg caching for this resolution.
-	NoCache bool
+	NoCache          bool
 }
 
-// ensureCache initializes the in-memory keg cache when needed.
 func (s *KegService) ensureCache() {
 	if s.kegCache == nil {
 		s.kegCache = map[string]keg.Keg{}
 	}
 }
 
-// tokenResolver returns a keg.TokenResolver backed by the service's lazily
-// loaded AuthStore. Load failures are swallowed (logged at debug) and yield
-// a nil-backed resolver that always returns "" — a missing or corrupt auth
-// file must never block keg resolution for local or token-pinned targets.
 func (s *KegService) tokenResolver() keg.TokenResolver {
 	s.authStoreOnce.Do(func() {
 		defer func() {
@@ -105,301 +64,55 @@ func (s *KegService) tokenResolver() keg.TokenResolver {
 	return s.authResolver
 }
 
-// Resolve returns a keg using explicit path, project, alias, or configured fallback resolution.
-func (s *KegService) Resolve(ctx context.Context, opts ResolveKegOptions) (keg.Keg, error) {
+// Resolve returns a RemoteKeg selected by an explicit reference or config.
+func (s *KegService) Resolve(ctx context.Context, options ResolveKegOptions) (keg.Keg, error) {
 	s.cacheMu.Lock()
 	defer s.cacheMu.Unlock()
 	s.ensureCache()
-	cache := !opts.NoCache
 
-	alias := strings.TrimSpace(opts.Keg)
-	explicitPath := strings.TrimSpace(opts.Path)
-
-	if alias != "" && (opts.Project || opts.Cwd || explicitPath != "") {
-		return nil, fmt.Errorf("--keg cannot be used with --project, --cwd, or --path")
+	if options.RequireBootstrap && !s.ConfigService.UserConfigExists() {
+		return nil, ErrNotBootstrapped
 	}
-	if opts.Project && explicitPath != "" {
-		return nil, fmt.Errorf("--project cannot be used with --path")
-	}
-
-	base := strings.TrimSpace(opts.Root)
-	if base == "" {
+	root := strings.TrimSpace(options.Root)
+	if root == "" {
 		var err error
-		base, err = s.Runtime.Getwd()
+		root, err = s.Runtime.Getwd()
 		if err != nil {
 			return nil, fmt.Errorf("failed to get working directory: %w", err)
 		}
 	}
-
-	if explicitPath != "" {
-		return s.resolveProjectTarget(ctx, explicitPath, cache)
-	}
-	if opts.Project || opts.Cwd {
-		if !opts.Cwd {
-			if gitRoot := appCtx.FindGitRoot(ctx, s.Runtime, base); gitRoot != "" {
-				base = gitRoot
-			}
+	selector := strings.TrimSpace(options.Keg)
+	if selector == "" {
+		cfg, err := s.ConfigService.Config()
+		if err != nil {
+			return nil, fmt.Errorf("failed to resolve workspace config: %w", err)
 		}
-		return s.resolveProjectTarget(ctx, base, cache)
-	}
-
-	// Everything below resolves through config (namespace/hub chains). On the
-	// full `tap` surface this requires `tap bootstrap` to have run; a selector
-	// that is itself a filesystem path is exempt (it needs no config). The
-	// explicit-path / project / cwd branches above are never gated.
-	if opts.RequireBootstrap && !s.ConfigService.UserConfigExists() {
-		if alias == "" || parseKegRef(alias).Path == "" {
-			return nil, ErrNotBootstrapped
+		selector = cfg.DefaultKeg()
+		if selector == "" {
+			selector = cfg.LookupAlias(s.Runtime, root)
+		}
+		if selector == "" {
+			selector = cfg.FallbackKeg()
 		}
 	}
-
-	if alias != "" {
-		return s.resolveKegAlias(ctx, alias, opts.Namespace, opts.Hub, base, cache)
+	if selector == "" {
+		return nil, fmt.Errorf("no KEG configured")
 	}
 
-	return s.resolvePath(ctx, base, opts.Namespace, opts.Hub, cache)
-}
-
-// resolveProjectTarget resolves a filesystem-backed keg under known project keg locations.
-func (s *KegService) resolveProjectTarget(ctx context.Context, base string, cache bool) (keg.Keg, error) {
-	rawBase := filepath.Clean(toolkit.ExpandEnv(s.Runtime, base))
-	expandedBase := rawBase
-	if p, err := toolkit.ExpandPath(s.Runtime, rawBase); err == nil {
-		expandedBase = filepath.Clean(p)
-	}
-
-	// Check whether the base directory itself exists before searching for keg files.
-	info, statErr := s.Runtime.Stat(expandedBase, false)
-	if statErr != nil || !info.IsDir() {
-		return nil, &PathNotFoundError{Path: base}
-	}
-
-	baseCandidates := []string{rawBase}
-	if expandedBase != "" && expandedBase != rawBase {
-		baseCandidates = append(baseCandidates, expandedBase)
-	}
-
-	var candidates []string
-	seen := map[string]struct{}{}
-	for _, b := range baseCandidates {
-		if b == "" {
-			continue
-		}
-		baseName := filepath.Base(filepath.Clean(b))
-		for _, candidate := range []string{
-			b,
-			filepath.Join(b, "kegs", baseName),
-			filepath.Join(b, "kegs", "project"),
-			filepath.Join(b, "kegs", "tapper"),
-		} {
-			candidate = filepath.Clean(candidate)
-			if _, ok := seen[candidate]; ok {
-				continue
-			}
-			seen[candidate] = struct{}{}
-			candidates = append(candidates, candidate)
-		}
-
-	}
-
-	var checked []string
-	for _, candidate := range candidates {
-		if candidate == "" {
-			continue
-		}
-		kegFile := filepath.Join(candidate, "keg")
-		checked = append(checked, kegFile)
-		info, statErr := s.Runtime.Stat(kegFile, false)
-		if statErr != nil || !info.Mode().IsRegular() {
-			continue
-		}
-		return s.resolveFileKeg(ctx, candidate, cache)
-	}
-
-	return nil, newProjectKegNotFoundError(checked)
-}
-
-// resolveFileKeg resolves a keg from a filesystem root and caches it by normalized path.
-// Symlinks are resolved before generating the cache key so that symlinks or
-// mounts pointing to the same underlying directory share a single cache entry.
-func (s *KegService) resolveFileKeg(ctx context.Context, root string, cache bool) (keg.Keg, error) {
-	cleanRoot := filepath.Clean(root)
-	// Resolve symlinks so different paths that point to the same physical
-	// directory produce identical cache keys.
-	if resolved, err := filepath.EvalSymlinks(cleanRoot); err == nil {
-		cleanRoot = resolved
-	}
-	key := "file:" + cleanRoot
-	if cache && s.kegCache[key] != nil {
-		return s.kegCache[key], nil
-	}
-
-	target := keg.NewFile(root)
-	k, err := keg.NewKegFromTarget(ctx, target, s.Runtime, keg.WithTokenResolver(s.tokenResolver()))
-	if err != nil {
-		return nil, err
-	}
-
-	if cache {
-		s.kegCache[key] = k
-	}
-	return k, nil
-}
-
-// resolvePath resolves the effective keg alias from config for the given path and returns its keg.
-//
-// Precedence: defaultKeg (authoritative, project-set) → kegMap (path-specific)
-// → fallbackKeg (global-user last resort). The default* slots are meant for
-// project config and win first; kegMap routes by path; fallback* are what
-// `tap bootstrap` writes for the global user so anything more specific overrides.
-func (s *KegService) resolvePath(ctx context.Context, path, nsOverride, hubOverride string, cache bool) (keg.Keg, error) {
-	s.ensureCache()
-	cfg, err := s.ConfigService.Config()
-	if err != nil {
-		return nil, fmt.Errorf("failed to resolve path config: %w", err)
-	}
-	kegAlias := cfg.DefaultKeg()
-	if kegAlias == "" {
-		kegAlias = cfg.LookupAlias(s.Runtime, path)
-	}
-	if kegAlias == "" {
-		kegAlias = cfg.FallbackKeg()
-	}
-	if kegAlias == "" {
-		return nil, fmt.Errorf("no keg configured")
-	}
-	return s.resolveKegAlias(ctx, kegAlias, nsOverride, hubOverride, path, cache)
-}
-
-// resolveKegAlias resolves a keg selector from config and falls back to
-// project-local resolution. The selector is a keg reference string (a bare
-// name, @ns/name, keg:..., or a path), resolved via the namespace-centric
-// chain in ConfigService.ResolveTarget. When no configured hub/namespace is
-// steering that bare name, a project-local keg at <project>/kegs/<name> answers
-// instead, so local project kegs work without any config. A configured remote
-// hub that is missing a namespace must surface as an error rather than being
-// masked by a local keg of the same name.
-func (s *KegService) resolveKegAlias(ctx context.Context, kegAlias, nsOverride, hubOverride string, projectRoot string, cache bool) (keg.Keg, error) {
-	s.ensureCache()
-	if kegAlias == "" {
-		return nil, fmt.Errorf("no keg configured")
-	}
-	// The namespace/hub overrides change the resolved target, so they must be
-	// part of the cache key — otherwise `--namespace a` and `--namespace b`
-	// would collide on the same bare alias.
-	cacheKey := kegAlias
-	if nsOverride != "" || hubOverride != "" {
-		cacheKey = kegAlias + "\x00" + nsOverride + "\x00" + hubOverride
-	}
-	if cache && s.kegCache[cacheKey] != nil {
+	cacheKey := selector + "\x00" + options.Namespace + "\x00" + options.Hub
+	if !options.NoCache && s.kegCache[cacheKey] != nil {
 		return s.kegCache[cacheKey], nil
 	}
-
-	target, err := s.ConfigService.ResolveTarget(kegAlias, nsOverride, hubOverride)
-	if err == nil && target != nil {
-		k, kerr := keg.NewKegFromTarget(ctx, *target, s.Runtime, keg.WithTokenResolver(s.tokenResolver()))
-		if kerr != nil {
-			return k, kerr
-		}
-		if k != nil {
-			s.kegCache[cacheKey] = k
-		}
-		return k, nil
-	}
-
-	// ResolveTarget could not turn the selector into a target. A bare keg name
-	// (no namespace, hub, or path) may instead name a project-local keg at
-	// <project>/kegs/<name> — resolve it so local project kegs work without
-	// requiring any config entries.
-	if ref := parseKegRef(kegAlias); ref.Name != "" && ref.Namespace == "" && ref.Hub == "" && ref.Path == "" && s.allowProjectAliasFallback() {
-		if projectKeg, found, projectErr := s.resolveProjectAlias(ctx, projectRoot, ref.Name, cache); projectErr != nil {
-			return nil, projectErr
-		} else if found {
-			if cache && projectKeg != nil {
-				s.kegCache[kegAlias] = projectKeg
-			}
-			return projectKeg, nil
-		}
-	}
-
-	// ResolveTarget failed and no project-local fallback was found.
+	target, err := s.ConfigService.ResolveTarget(selector, options.Namespace, options.Hub)
 	if err != nil {
 		return nil, err
 	}
-
-	return nil, fmt.Errorf("keg %q could not be resolved", kegAlias)
-}
-
-func (s *KegService) allowProjectAliasFallback() bool {
-	if s.ConfigService == nil {
-		return true
+	resolved, err := keg.NewKegFromTarget(ctx, *target, s.Runtime, keg.WithTokenResolver(s.tokenResolver()))
+	if err != nil {
+		return nil, err
 	}
-	cfg, err := s.ConfigService.Config()
-	if err != nil || cfg == nil {
-		return true
+	if !options.NoCache {
+		s.kegCache[cacheKey] = resolved
 	}
-	if strings.TrimSpace(cfg.DefaultHub()) != "" ||
-		strings.TrimSpace(cfg.FallbackHub()) != "" ||
-		strings.TrimSpace(cfg.DefaultNamespace()) != "" ||
-		strings.TrimSpace(cfg.FallbackNamespace()) != "" ||
-		len(cfg.Namespaces()) > 0 {
-		return false
-	}
-	for _, entry := range cfg.Hubs() {
-		if strings.TrimSpace(entry.DefaultNamespace) != "" {
-			return false
-		}
-	}
-	return true
-}
-
-// resolveProjectAlias resolves a project-local alias at <project>/kegs/<alias>/keg when present.
-func (s *KegService) resolveProjectAlias(ctx context.Context, base string, alias string, cache bool) (keg.Keg, bool, error) {
-	base = strings.TrimSpace(base)
-	alias = strings.TrimSpace(alias)
-	if base == "" || alias == "" {
-		return nil, false, nil
-	}
-
-	searchBase := base
-	if gitRoot := appCtx.FindGitRoot(ctx, s.Runtime, base); gitRoot != "" {
-		searchBase = gitRoot
-	}
-
-	rawBase := filepath.Clean(toolkit.ExpandEnv(s.Runtime, searchBase))
-	expandedBase := rawBase
-	if p, err := toolkit.ExpandPath(s.Runtime, rawBase); err == nil {
-		expandedBase = filepath.Clean(p)
-	}
-
-	baseCandidates := []string{rawBase}
-	if expandedBase != "" && expandedBase != rawBase {
-		baseCandidates = append(baseCandidates, expandedBase)
-	}
-
-	seen := map[string]struct{}{}
-	for _, candidateBase := range baseCandidates {
-		if candidateBase == "" {
-			continue
-		}
-		projectKegRoot := filepath.Clean(filepath.Join(candidateBase, "kegs", alias))
-		if _, ok := seen[projectKegRoot]; ok {
-			continue
-		}
-		seen[projectKegRoot] = struct{}{}
-
-		kegFile := filepath.Join(projectKegRoot, "keg")
-		info, statErr := s.Runtime.Stat(kegFile, false)
-		if statErr != nil || !info.Mode().IsRegular() {
-			continue
-		}
-
-		k, err := s.resolveFileKeg(ctx, projectKegRoot, cache)
-		if err != nil {
-			return nil, false, err
-		}
-		return k, true, nil
-	}
-
-	return nil, false, nil
+	return resolved, nil
 }

@@ -1,6 +1,11 @@
 defaultKeg: personal
 fallbackNamespace: local
+fallbackHub: home
 hubs:
   home:
-    kind: local
-    basePath: ~/kegs
+    kind: remote
+    url: https://fixture.invalid
+    token: test-token
+namespaces:
+  local:
+    hub: home

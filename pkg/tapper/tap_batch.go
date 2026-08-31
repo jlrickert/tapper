@@ -88,7 +88,10 @@ type BatchMetaOptions struct {
 	Updates []BatchMetaUpdate
 }
 type BatchMetaResult struct {
-	NodeID  string `json:"node_id"`
+	NodeID string `json:"node_id"`
+	// Hash is the node's precondition token, echoed back as ExpectedHash on
+	// the next write to this node. It covers content and metadata together.
+	Hash    string `json:"hash"`
 	Content string `json:"content"`
 }
 
@@ -150,7 +153,7 @@ func (t *Tap) MetaBatch(ctx context.Context, opts BatchMetaOptions) ([]BatchMeta
 	}
 	out := make([]BatchMetaResult, len(views))
 	for i, view := range views {
-		out[i] = BatchMetaResult{NodeID: view.ID.Path(), Content: string(view.Meta)}
+		out[i] = BatchMetaResult{NodeID: view.ID.Path(), Hash: view.Hash(), Content: string(view.Meta)}
 	}
 	return out, nil, nil
 }

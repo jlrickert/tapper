@@ -17,20 +17,18 @@ func TestMoveCommand_RewritesLinks(t *testing.T) {
 	res = NewProcess(t, false, "create", "--title", "Two").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 
-	sb.MustWriteFile("~/kegs/@local/example/1/README.md", []byte("# One\n\nSee [two](../2).\nAlso ../2.\n"), 0o644)
+	fixtureSetContent(t, sb.Runtime(), "example", "1", "# One\n\nSee [two](../2).\nAlso ../2.\n")
 
 	res = NewProcess(t, false, "mv", "2", "3").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 
-	content := string(sb.MustReadFile("~/kegs/@local/example/1/README.md"))
+	content := fixtureContent(t, sb.Runtime(), "example", "1")
 	require.Contains(t, content, "[two](../3)")
 	require.Contains(t, content, "../3.")
 	require.NotContains(t, content, "../2")
 
-	_, err := sb.Runtime().Stat("~/kegs/@local/example/2", false)
-	require.Error(t, err, "source node directory should be moved")
-	_, err = sb.Runtime().Stat("~/kegs/@local/example/3", false)
-	require.NoError(t, err, "destination node directory should exist")
+	require.False(t, fixtureNodeExists(t, sb.Runtime(), "example", "2"), "source node should be moved")
+	require.True(t, fixtureNodeExists(t, sb.Runtime(), "example", "3"), "destination node should exist")
 }
 
 func TestMoveCommand_ErrorCases(t *testing.T) {
@@ -70,19 +68,17 @@ func TestMoveCommand_UpdatesAllBacklinksInFixture(t *testing.T) {
 	res := NewProcess(t, false, "mv", "2", "5", "--keg", "personal").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 
-	content1 := string(sb.MustReadFile("~/kegs/@local/personal/1/README.md"))
+	content1 := fixtureContent(t, sb.Runtime(), "personal", "1")
 	require.Contains(t, content1, "../5", "node 1 should reference the new id 5")
 	require.NotContains(t, content1, "../2", "node 1 must not keep stale ref to 2")
 
-	content3 := string(sb.MustReadFile("~/kegs/@local/personal/3/README.md"))
+	content3 := fixtureContent(t, sb.Runtime(), "personal", "3")
 	require.Contains(t, content3, "../5", "node 3 should reference the new id 5")
 	require.NotContains(t, content3, "../2", "node 3 must not keep stale ref to 2")
 
 	// Directory checks
-	_, err := sb.Runtime().Stat("~/kegs/@local/personal/2", false)
-	require.Error(t, err, "old node 2 directory should be gone")
-	_, err = sb.Runtime().Stat("~/kegs/@local/personal/5", false)
-	require.NoError(t, err, "new node 5 directory should exist")
+	require.False(t, fixtureNodeExists(t, sb.Runtime(), "personal", "2"), "old node 2 should be gone")
+	require.True(t, fixtureNodeExists(t, sb.Runtime(), "personal", "5"), "new node 5 should exist")
 }
 
 // TestMoveCommand_CreatesNodesViaStdinThenMoves creates nodes by piping content
@@ -110,7 +106,7 @@ func TestMoveCommand_CreatesNodesViaStdinThenMoves(t *testing.T) {
 	res = NewProcess(t, false, "mv", "5", "6", "--keg", "personal").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 
-	content4 := string(sb.MustReadFile("~/kegs/@local/personal/4/README.md"))
+	content4 := fixtureContent(t, sb.Runtime(), "personal", "4")
 	require.Contains(t, content4, "../6")
 	require.NotContains(t, content4, "../5")
 }

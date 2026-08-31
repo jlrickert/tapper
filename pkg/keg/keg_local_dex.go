@@ -4,16 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"time"
 )
 
-// Dex returns the keg's index with always-fresh semantics: the cached dex is
-// reused only while it is provably current (see dexStale), otherwise it is
-// reloaded from the repository. Config-driven query-filtered indexes are
-// applied automatically via WithConfig. Safe for both short-lived CLI
-// invocations and long-lived processes (serve handlers, MCP servers) where
-// another process may update the index between calls.
+// Dex returns the keg's current index. Repository-backed indexes are reloaded
+// for every aggregate read so a long-lived hub process does not serve a stale
+// view after another process or replica updates the repository.
 func (k *LocalKeg) Dex(ctx context.Context) (*Dex, error) {
 	return withKegReadValue(ctx, k, k.readDex)
 }
@@ -25,103 +21,48 @@ func (k *LocalKeg) readDex(ctx context.Context) (*Dex, error) {
 	return k.ensureDexFresh(ctx)
 }
 
-// dexOptions reads the keg config and returns DexOptions to apply when
-// constructing or initialising a Dex. If the config is absent or cannot be
+// dexOptions reads the keg settings and returns DexOptions to apply when
+// constructing or initialising a Dex. If the settings is absent or cannot be
 // read, an empty (nil) slice is returned so callers can proceed without error.
 func (k *LocalKeg) dexOptions(ctx context.Context) ([]DexOption, error) {
-	cfg, err := k.Repo.ReadConfig(ctx)
+	cfg, err := k.Repo.ReadSettings(ctx)
 	if err != nil {
 		if errors.Is(err, ErrNotExist) {
 			return nil, nil
 		}
 		return nil, err
 	}
-	return []DexOption{WithConfig(cfg)}, nil
+	return []DexOption{WithSettings(cfg)}, nil
 }
 
-// -- private utility functions
-
-// indexFileMtime returns the ModTime of dex/nodes.tsv for FsRepo backends.
-// For non-filesystem repos (e.g. MemoryRepo) it returns time.Time{} (zero).
-func (k *LocalKeg) indexFileMtime() time.Time {
-	fsRepo, ok := k.Repo.(*FsRepo)
-	if !ok {
-		return time.Time{}
-	}
-	idxPath := filepath.Join(fsRepo.Root, "dex", "nodes.tsv")
-	info, err := fsRepo.runtime.Stat(idxPath, false)
-	if err != nil {
-		return time.Time{}
-	}
-	return info.ModTime()
-}
-
-// dexStale reports whether the cached dex is out of date. Generation-aware
-// repositories such as MemoryRepo compare kegOperationGeneration with
-// dexLoadGeneration. FsRepo compares the current mtime of dex/nodes.tsv with
-// the mtime recorded when the dex was last loaded. Other repositories are
-// treated as external and conservatively remain stale.
-//
-// Caller must hold k.dexMu.
-func (k *LocalKeg) dexStale() bool {
-	if generation, ok := k.Repo.(interface{ kegOperationGeneration() uint64 }); ok {
-		return generation.kegOperationGeneration() != k.dexLoadGeneration
-	}
-	if _, ok := k.Repo.(*FsRepo); !ok {
-		return true
-	}
-	current := k.indexFileMtime()
-	if current.IsZero() {
-		// File doesn't exist — treat as stale so we rebuild.
-		return true
-	}
-	return !current.Equal(k.dexLoadMtime)
-}
-
-// ensureDexFresh returns the cached dex if it is still current, otherwise
-// reloads it from disk. This replaces the pattern of InvalidateDex() +
-// Dex(ctx) which unconditionally discarded the cache.
-//
-// ensureDexFresh acquires k.dexMu internally; callers must NOT hold it.
+// ensureDexFresh reloads repository index artifacts under the dex mutex.
 func (k *LocalKeg) ensureDexFresh(ctx context.Context) (*Dex, error) {
 	k.dexMu.Lock()
 	defer k.dexMu.Unlock()
 
-	if k.dex != nil && !k.dexStale() {
-		return k.dex, nil
-	}
-
 	opts, _ := k.dexOptions(ctx)
 	dex, err := NewDexFromRepo(ctx, k.Repo, opts...)
 	k.dex = dex
-	k.dexLoadMtime = k.indexFileMtime()
-	if generation, ok := k.Repo.(interface{ kegOperationGeneration() uint64 }); ok {
-		k.dexLoadGeneration = generation.kegOperationGeneration()
-	}
 	return dex, err
 }
 
-// recordDexWrite updates the mtime cache and generation counter after a
-// successful Dex.Write. Caller must hold k.dexMu.
+// recordDexWrite updates the generation counter after a successful Dex.Write.
+// Caller must hold k.dexMu.
 func (k *LocalKeg) recordDexWrite() {
-	k.dexLoadMtime = k.indexFileMtime()
-	if generation, ok := k.Repo.(interface{ kegOperationGeneration() uint64 }); ok {
-		k.dexLoadGeneration = generation.kegOperationGeneration()
-	}
 	k.dexWriteGen++
 }
 
 // writeNodeToDex adds or updates a node in the dex, persists dex artifacts,
-// records the write, and touches the keg config updated timestamp. When
-// updatedAt is zero, the runtime clock is used for the config timestamp.
+// records the write, and touches the keg settings updated timestamp. When
+// updatedAt is zero, the runtime clock is used for the settings timestamp.
 func (k *LocalKeg) writeNodeToDex(ctx context.Context, data *NodeData, updatedAt time.Time) error {
 	return k.writeNodesToDex(ctx, []*NodeData{data}, updatedAt)
 }
 
 // writeNodesToDex updates several nodes in one in-memory dex generation and
 // persists the generated indexes once. Existing entries are retained, which
-// is important for older filesystem KEGs whose dex may contain normalized
-// stats that have not yet been split into stats.json files.
+// is important for repositories whose dex may contain normalized stats that
+// have not yet been split into distinct stats records.
 func (k *LocalKeg) writeNodesToDex(ctx context.Context, nodes []*NodeData, updatedAt time.Time) error {
 	if len(nodes) == 0 {
 		return nil
@@ -147,8 +88,8 @@ func (k *LocalKeg) writeNodesToDex(ctx context.Context, nodes []*NodeData, updat
 	if updatedAt.IsZero() {
 		updatedAt = k.Runtime.Clock().Now()
 	}
-	if err := k.touchConfigUpdated(ctx, updatedAt); err != nil {
-		return fmt.Errorf("failed to touch keg config after dex write for node %s: %w", firstID, err)
+	if err := k.touchSettingsUpdated(ctx, updatedAt); err != nil {
+		return fmt.Errorf("failed to touch keg settings after dex write for node %s: %w", firstID, err)
 	}
 	return nil
 }

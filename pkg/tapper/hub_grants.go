@@ -53,19 +53,19 @@ func RevokeGrant(ctx context.Context, hubURL, token, namespace, alias, username 
 	return doHubJSON(ctx, http.MethodDelete, hubURL, token, path, nil, nil)
 }
 
-// SetKegVisibility updates a keg's visibility via PATCH .../settings. visibility
+// SetKegVisibility updates a keg's visibility via PATCH .../access. visibility
 // is public|private.
 func SetKegVisibility(ctx context.Context, hubURL, token, namespace, alias, visibility string) error {
-	path := fmt.Sprintf("/api/v1/@%s/kegs/%s/settings", namespace, alias)
+	path := fmt.Sprintf("/api/v1/@%s/kegs/%s/access", namespace, alias)
 	return doHubJSON(ctx, http.MethodPatch, hubURL, token, path, map[string]string{"visibility": visibility}, nil)
 }
 
 // RenameKeg updates a keg alias in-place within the same namespace via
-// PATCH .../settings. The hub keeps the immutable keg id and does not create
+// POST .../rename. The hub keeps the immutable keg id and does not create
 // redirects for the old selector.
 func RenameKeg(ctx context.Context, hubURL, token, namespace, oldAlias, newAlias string) error {
-	path := fmt.Sprintf("/api/v1/@%s/kegs/%s/settings", namespace, oldAlias)
-	return doHubJSON(ctx, http.MethodPatch, hubURL, token, path, map[string]string{"alias": newAlias}, nil)
+	path := fmt.Sprintf("/api/v1/@%s/kegs/%s/rename", namespace, oldAlias)
+	return doHubJSON(ctx, http.MethodPost, hubURL, token, path, map[string]string{"alias": newAlias}, nil)
 }
 
 // doHubJSON performs one JSON round-trip against the hub, decoding a non-nil

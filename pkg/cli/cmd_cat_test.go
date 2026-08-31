@@ -1,20 +1,15 @@
 package cli_test
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	testutils "github.com/jlrickert/cli-toolkit/sandbox"
 	"github.com/stretchr/testify/require"
 )
-
-type catStatsJSON struct {
-	Accessed    string `json:"accessed"`
-	AccessCount int    `json:"access_count"`
-}
 
 type catTestCase struct {
 	name             string
@@ -45,8 +40,8 @@ func TestCatCommand_TableDrivenErrorHandling(t *testing.T) {
 			name:         "cat_nonexistent_alias",
 			args:         []string{"cat", "0", "--keg", "nonexistent"},
 			setupFixture: strPtr("joe"),
-			expectedErr:  "node 0 not found",
-			description:  "Error when keg does not exist on disk",
+			expectedErr:  "keg not initialized",
+			description:  "Error when the remote keg does not exist",
 		},
 		{
 			name:         "cat_nonexistent_node",
@@ -267,65 +262,17 @@ func TestCatCommand_WithJoeFixture(t *testing.T) {
 }
 
 func TestCatCommand_IntegrationWithInit(t *testing.T) {
-	t.Run("cat_node_after_init", func(innerT *testing.T) {
-		innerT.Parallel()
-		opts := []testutils.Option{
-			testutils.WithFixture("testuser", "~"),
-		}
-		sb := NewSandbox(innerT, opts...)
-
-		// First, initialize a user keg
-		initCmd := NewProcess(innerT, false,
-			"init",
-			"--user",
-			"--keg", "newstudy",
-			"--creator", "test-user",
-		)
-		initRes := initCmd.Run(sb.Context(), sb.Runtime())
-		require.NoError(innerT, initRes.Err, "init should succeed")
-		require.Contains(innerT, string(initRes.Stdout), "keg newstudy created")
-
-		// Now cat the node 0
-		catCmd := NewProcess(innerT, false, "cat", "0", "--keg", "newstudy")
-		catRes := catCmd.Run(sb.Context(), sb.Runtime())
-		require.NoError(innerT, catRes.Err, "cat should succeed")
-
-		stdout := string(catRes.Stdout)
-		require.Contains(innerT, stdout, "---", "output should contain frontmatter")
-		require.NotContains(innerT, stdout, "access_count:", "frontmatter should not inject stats")
-		require.Contains(innerT, stdout, "Sorry, planned but not yet available", "output should contain content")
-	})
+	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
+	res := NewProcess(t, false, "init").Run(sb.Context(), sb.Runtime())
+	require.Error(t, res.Err)
+	require.Contains(t, string(res.Stderr), `unknown command "init"`)
 }
 
 func TestCatCommand_UserKeg(t *testing.T) {
-	t.Run("cat_from_user_keg_with_alias", func(innerT *testing.T) {
-		innerT.Parallel()
-		opts := []testutils.Option{
-			testutils.WithFixture("testuser", "~"),
-		}
-		sb := NewSandbox(innerT, opts...)
-
-		// First, initialize a user keg
-		initCmd := NewProcess(innerT, false,
-			"init",
-			"--user",
-			"--keg", "public",
-			"--creator", "test-user",
-		)
-		initRes := initCmd.Run(sb.Context(), sb.Runtime())
-		require.NoError(innerT, initRes.Err, "init should succeed")
-		require.Contains(innerT, string(initRes.Stdout), "keg public created")
-
-		// Now cat the node from that user keg
-		catCmd := NewProcess(innerT, false, "cat", "0", "--keg", "public")
-		catRes := catCmd.Run(sb.Context(), sb.Runtime())
-		require.NoError(innerT, catRes.Err, "cat should succeed")
-
-		stdout := string(catRes.Stdout)
-		require.Contains(innerT, stdout, "---", "output should contain frontmatter")
-		require.NotContains(innerT, stdout, "access_count:", "frontmatter should not inject stats")
-		require.Contains(innerT, stdout, "Sorry, planned but not yet available", "content should be present")
-	})
+	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
+	res := NewProcess(t, false, "cat", "0", "--keg", "public").Run(sb.Context(), sb.Runtime())
+	require.Error(t, res.Err)
+	require.Contains(t, string(res.Stderr), "keg not initialized")
 }
 
 func TestCatCommand_BumpsAccessedAndAccessCount(t *testing.T) {
@@ -340,18 +287,16 @@ func TestCatCommand_BumpsAccessedAndAccessCount(t *testing.T) {
 	res := h.Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err, "cat should succeed and bump access metadata")
 
-	var afterOne catStatsJSON
-	require.NoError(t, json.Unmarshal(sb.MustReadFile(statsPath), &afterOne))
-	require.Equal(t, 8, afterOne.AccessCount, "access count should increment on read")
-	require.NotEmpty(t, afterOne.Accessed, "accessed should be set")
-	require.NotEqual(t, oldAccessed, afterOne.Accessed, "accessed should be bumped")
+	afterOne := fixtureStats(t, sb.Runtime(), "personal", "0")
+	require.Equal(t, 8, afterOne.AccessCount(), "access count should increment on read")
+	require.False(t, afterOne.Accessed().IsZero(), "accessed should be set")
+	require.NotEqual(t, oldAccessed, afterOne.Accessed().Format(time.RFC3339), "accessed should be bumped")
 
 	res = h.Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err, "second cat should also succeed")
 
-	var afterTwo catStatsJSON
-	require.NoError(t, json.Unmarshal(sb.MustReadFile(statsPath), &afterTwo))
-	require.Equal(t, 9, afterTwo.AccessCount, "access count should increment on every read")
+	afterTwo := fixtureStats(t, sb.Runtime(), "personal", "0")
+	require.Equal(t, 9, afterTwo.AccessCount(), "access count should increment on every read")
 }
 
 func TestCatCommand_DefaultFrontmatterDoesNotInjectStats(t *testing.T) {
@@ -401,8 +346,8 @@ EOF
 	require.NoError(t, res.Err)
 	require.Equal(t, "", strings.TrimSpace(string(res.Stdout)))
 
-	meta := string(sb.MustReadFile("~/kegs/@local/personal/0/meta.yaml"))
-	content := string(sb.MustReadFile("~/kegs/@local/personal/0/README.md"))
+	meta := fixtureMeta(t, sb.Runtime(), "personal", "0")
+	content := fixtureContent(t, sb.Runtime(), "personal", "0")
 	require.Contains(t, meta, "- edited-via-cat")
 	require.Contains(t, meta, "summary: changed by cat edit")
 	require.Contains(t, content, "# Cat Edited")
@@ -549,10 +494,10 @@ EOF
 		"interactive TTY cat should not print to stdout")
 
 	// Verify editor was invoked by checking the node was modified.
-	content := string(sb.MustReadFile("~/kegs/@local/personal/0/README.md"))
+	content := fixtureContent(t, sb.Runtime(), "personal", "0")
 	require.Contains(t, content, "# TTY Cat Edit",
 		"editor should have modified the node content")
-	meta := string(sb.MustReadFile("~/kegs/@local/personal/0/meta.yaml"))
+	meta := fixtureMeta(t, sb.Runtime(), "personal", "0")
 	require.Contains(t, meta, "- tty-edited",
 		"editor should have modified the node metadata")
 }
@@ -684,8 +629,7 @@ func TestCatCommand_TTY_BumpsAccessCount(t *testing.T) {
 		RunWithIO(sb.Context(), sb.Runtime(), strings.NewReader(""))
 	require.NoError(t, res.Err)
 
-	var stats catStatsJSON
-	require.NoError(t, json.Unmarshal(sb.MustReadFile(statsPath), &stats))
-	require.Equal(t, 6, stats.AccessCount,
+	stats := fixtureStats(t, sb.Runtime(), "personal", "0")
+	require.Equal(t, 6, stats.AccessCount(),
 		"interactive TTY cat should bump access_count")
 }

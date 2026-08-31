@@ -215,9 +215,6 @@ func (t *Tap) resolveHubUIEndpoint(hubOverride string) (hubName, hubURL string, 
 	if !ok {
 		return "", "", fmt.Errorf("hub %q is not configured", hubName)
 	}
-	if strings.TrimSpace(entry.Kind) == HubKindLocal {
-		return "", "", fmt.Errorf("namespace creation requires a remote hub UI")
-	}
 	raw := strings.TrimSpace(entry.URL)
 	if raw == "" {
 		return "", "", fmt.Errorf("hub %q has no url configured", hubName)
@@ -232,9 +229,6 @@ func (t *Tap) resolveHubUIEndpoint(hubOverride string) (hubName, hubURL string, 
 // remoteHubEndpoint validates a hub entry as a usable remote endpoint and
 // returns its URL + resolved bearer token.
 func remoteHubEndpoint(t *Tap, hubName string, entry HubEntry) (hubURL, token string, err error) {
-	if strings.TrimSpace(entry.Kind) == HubKindLocal {
-		return "", "", fmt.Errorf("namespace administration requires a remote hub")
-	}
 	url := strings.TrimSpace(entry.URL)
 	if url == "" {
 		return "", "", fmt.Errorf("hub %q has no url configured", hubName)

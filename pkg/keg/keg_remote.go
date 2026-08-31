@@ -31,8 +31,11 @@ var (
 // apiErrorEnvelope is the JSON error envelope returned by tapper-hub:
 // {"error": msg, "code": CODE}.
 type apiErrorEnvelope struct {
-	Error string `json:"error"`
-	Code  string `json:"code"`
+	Error              string `json:"error"`
+	Code               string `json:"code"`
+	OperationPerformed bool   `json:"operationPerformed"`
+	CurrentHash        string `json:"currentHash"`
+	CurrentContent     string `json:"currentContent"`
 }
 
 // RemoteKeg implements [Keg] over tapper-hub's operation-level HTTP API.
@@ -145,6 +148,10 @@ func (k *RemoteKeg) do(ctx context.Context, method, path string, body io.Reader,
 			req.Header.Add(key, v)
 		}
 	}
+	if orientation, ok := OrientationHeaderValue(ctx); ok {
+		// Trusted session state wins over any operation-specific header.
+		req.Header.Set(OrientationHeaderName, orientation)
+	}
 	for key, val := range ValidationHeaderValues(ctx) {
 		if req.Header.Get(key) == "" {
 			req.Header.Set(key, val)
@@ -193,6 +200,13 @@ func (k *RemoteKeg) mapError(resp *http.Response, op string) error {
 			msg = resp.Status
 		}
 		return NewRateLimitError(retryAfter, msg, nil)
+	}
+	if resp.StatusCode == http.StatusPreconditionFailed {
+		return &PreconditionConflictError{
+			Resource:       where,
+			CurrentHash:    env.CurrentHash,
+			CurrentContent: []byte(env.CurrentContent),
+		}
 	}
 
 	// A 404 with no parseable envelope (e.g. a HEAD response or a proxy
@@ -287,7 +301,7 @@ func (k *RemoteKeg) jsonRequest(ctx context.Context, method, path, op string, in
 	return nil
 }
 
-// --- Init / config ---
+// --- Init / settings ---
 
 // Init implements Keg. Remote kegs are created through the hub's
 // keg-creation endpoint (POST /api/v1/@{namespace}/kegs) at the Tap layer,
@@ -296,22 +310,37 @@ func (k *RemoteKeg) Init(ctx context.Context) error {
 	return fmt.Errorf("remote keg init: use the hub keg-creation endpoint: %w", ErrNotSupported)
 }
 
-// Config implements Keg via GET /config.
-func (k *RemoteKeg) Config(ctx context.Context) (*Config, error) {
-	cfg := &Config{}
-	if err := k.getJSON(ctx, "/config", "Config", cfg); err != nil {
+// Settings implements Keg via GET /settings.
+func (k *RemoteKeg) Settings(ctx context.Context) (*Settings, error) {
+	resp, err := k.do(ctx, http.MethodGet, "/settings", nil, "", nil)
+	if err != nil {
 		return nil, err
 	}
+	raw, err := k.readBody(resp, "Settings", http.StatusOK)
+	if err != nil {
+		return nil, err
+	}
+	cfg, err := ParseKegSettings(raw)
+	if err != nil {
+		return nil, err
+	}
+	hash := strings.Trim(resp.Header.Get("ETag"), `"`)
+	if hash == "" {
+		hash = DocumentHash(raw)
+	}
+	cfg.setDocument(raw, hash)
 	return cfg, nil
 }
 
-// SetConfig implements Keg via PUT /config with the raw config bytes.
-func (k *RemoteKeg) SetConfig(ctx context.Context, data []byte) error {
-	resp, err := k.do(ctx, http.MethodPut, "/config", bytes.NewReader(data), "application/octet-stream", nil)
+// SetSettings implements Keg via PUT /settings with the raw settings bytes.
+func (k *RemoteKeg) SetSettings(ctx context.Context, data []byte, opts SettingsWriteOptions) error {
+	header := make(http.Header)
+	header.Set("If-Match", opts.ExpectedHash)
+	resp, err := k.do(ctx, http.MethodPut, "/settings", bytes.NewReader(data), "application/octet-stream", header)
 	if err != nil {
 		return err
 	}
-	_, err = k.readBody(resp, "SetConfig", http.StatusOK, http.StatusNoContent)
+	_, err = k.readBody(resp, "SetSettings", http.StatusOK, http.StatusNoContent)
 	return err
 }
 
@@ -334,8 +363,10 @@ func (k *RemoteKeg) ReadSchema(ctx context.Context, typeName string) ([]byte, er
 }
 
 // WriteSchema implements Keg via PUT /schemas/{type}.
-func (k *RemoteKeg) WriteSchema(ctx context.Context, typeName string, data []byte) error {
-	resp, err := k.do(ctx, http.MethodPut, "/schemas/"+url.PathEscape(typeName), bytes.NewReader(data), "application/yaml", nil)
+func (k *RemoteKeg) WriteSchema(ctx context.Context, typeName string, data []byte, opts SchemaWriteOptions) error {
+	header := make(http.Header)
+	header.Set("If-Match", opts.ExpectedHash)
+	resp, err := k.do(ctx, http.MethodPut, "/schemas/"+url.PathEscape(typeName), bytes.NewReader(data), "application/yaml", header)
 	if err != nil {
 		return err
 	}
@@ -344,8 +375,10 @@ func (k *RemoteKeg) WriteSchema(ctx context.Context, typeName string, data []byt
 }
 
 // DeleteSchema implements Keg via DELETE /schemas/{type}.
-func (k *RemoteKeg) DeleteSchema(ctx context.Context, typeName string) error {
-	resp, err := k.do(ctx, http.MethodDelete, "/schemas/"+url.PathEscape(typeName), nil, "", nil)
+func (k *RemoteKeg) DeleteSchema(ctx context.Context, typeName string, opts SchemaWriteOptions) error {
+	header := make(http.Header)
+	header.Set("If-Match", opts.ExpectedHash)
+	resp, err := k.do(ctx, http.MethodDelete, "/schemas/"+url.PathEscape(typeName), nil, "", header)
 	if err != nil {
 		return err
 	}
@@ -458,37 +491,34 @@ func parseRewritten(paths []string) ([]NodeId, error) {
 }
 
 // Move implements Keg via POST /nodes/{src}/move.
-func (k *RemoteKeg) Move(ctx context.Context, src NodeId, dst NodeId) ([]NodeId, error) {
+func (k *RemoteKeg) Move(ctx context.Context, opts NodeMoveOptions) ([]NodeId, error) {
 	var result struct {
 		Rewritten []string `json:"rewritten"`
 	}
 	req := struct {
-		Dst int `json:"dst"`
-	}{Dst: dst.ID}
-	path := fmt.Sprintf("/nodes/%d/move", src.ID)
+		Dst          int    `json:"dst"`
+		ExpectedHash string `json:"expected_hash"`
+	}{Dst: opts.Destination.ID, ExpectedHash: opts.ExpectedHash}
+	path := fmt.Sprintf("/nodes/%d/move", opts.Source.ID)
 	if err := k.postJSON(ctx, path, "Move", req, &result, http.StatusOK); err != nil {
 		return nil, err
 	}
 	return parseRewritten(result.Rewritten)
 }
 
-// Remove implements Keg via DELETE /nodes/{id}.
-func (k *RemoteKeg) Remove(ctx context.Context, id NodeId) ([]NodeId, error) {
-	resp, err := k.do(ctx, http.MethodDelete, fmt.Sprintf("/nodes/%d", id.ID), nil, "", nil)
+// Remove implements Keg as a batch-of-one call to POST /nodes/remove.
+func (k *RemoteKeg) Remove(ctx context.Context, opts NodeRemoveOptions) ([]NodeId, error) {
+	result, err := k.RemoveNodes(ctx, RemoveNodesOptions{Nodes: []NodeRemoveOptions{opts}})
 	if err != nil {
 		return nil, err
 	}
-	body, err := k.readBody(resp, "Remove", http.StatusOK)
-	if err != nil {
-		return nil, err
+	if result.Failure != nil {
+		return nil, result.Failure.Err()
 	}
-	var result struct {
-		Rewritten []string `json:"rewritten"`
+	if len(result.Removed) != 1 {
+		return nil, NewBackendError("remote", "Remove", 0, fmt.Errorf("invalid response: expected one removed node, got %d", len(result.Removed)), false)
 	}
-	if err := json.Unmarshal(body, &result); err != nil {
-		return nil, NewBackendError("remote", "Remove", 0, fmt.Errorf("invalid response: %w", err), false)
-	}
-	return parseRewritten(result.Rewritten)
+	return result.Removed[0].Rewritten, nil
 }
 
 // Commit implements Keg via POST /nodes/{id}/commit.
@@ -606,9 +636,9 @@ func (k *RemoteKeg) GetStats(ctx context.Context, id NodeId) (*NodeStats, error)
 
 // --- Listing, query, and index ---
 
-// Dex implements Keg via GET /dex, which returns every index artifact in
-// one response. The artifacts are loaded into a scratch in-memory repo and
-// parsed through the same NewDexFromRepo path LocalKeg uses.
+// Dex implements Keg via GET /dex, which returns every index artifact in one
+// response. The artifacts are parsed through the same index reader used by
+// LocalKeg without constructing a repository.
 func (k *RemoteKeg) Dex(ctx context.Context) (*Dex, error) {
 	var result struct {
 		Indexes map[string]string `json:"indexes"`
@@ -616,13 +646,7 @@ func (k *RemoteKeg) Dex(ctx context.Context) (*Dex, error) {
 	if err := k.getJSON(ctx, "/dex", "Dex", &result); err != nil {
 		return nil, err
 	}
-	scratch := NewMemoryRepo(k.rt)
-	for name, content := range result.Indexes {
-		if err := scratch.WriteIndex(ctx, name, []byte(content)); err != nil {
-			return nil, NewBackendError("remote", "Dex", 0, err, false)
-		}
-	}
-	return NewDexFromRepo(ctx, scratch)
+	return newDexFromIndexReader(ctx, indexMapReader(result.Indexes))
 }
 
 // Query implements Keg via POST /query.
@@ -662,12 +686,12 @@ func (k *RemoteKeg) Grep(ctx context.Context, opts GrepOptions) ([]GrepMatch, er
 	return out, nil
 }
 
-// Index implements Keg via POST /index/rebuild.
+// Index implements Keg via POST /indexes/rebuild.
 func (k *RemoteKeg) Index(ctx context.Context, opts IndexOptions) error {
 	req := struct {
 		NoUpdate bool `json:"no_update"`
 	}{NoUpdate: opts.NoUpdate}
-	return k.postJSON(ctx, "/index/rebuild", "Index", req, nil, http.StatusOK, http.StatusNoContent)
+	return k.postJSON(ctx, "/indexes/rebuild", "Index", req, nil, http.StatusOK, http.StatusNoContent)
 }
 
 // ListIndexes implements Keg via GET /indexes.

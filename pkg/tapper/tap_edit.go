@@ -102,7 +102,11 @@ func (t *Tap) Meta(ctx context.Context, opts MetaOptions) (string, error) {
 			if parseErr != nil {
 				return "", fmt.Errorf("metadata from stdin is invalid: %w", parseErr)
 			}
-			results, err := k.UpdateNodes(ctx, []keg.NodeUpdateOptions{{ID: id, Schema: opts.Schema, Meta: []byte(metaNode.ToYAML()), HasMeta: true, LockToken: keg.LockToken(opts.LockToken)}})
+			view, readErr := k.ReadNode(ctx, id)
+			if readErr != nil {
+				return "", fmt.Errorf("unable to read node before metadata write: %w", readErr)
+			}
+			results, err := k.UpdateNodes(ctx, []keg.NodeUpdateOptions{{ID: id, Schema: opts.Schema, Meta: []byte(metaNode.ToYAML()), HasMeta: true, LockToken: keg.LockToken(opts.LockToken), ExpectedHash: view.Hash()}})
 			if err != nil {
 				return "", fmt.Errorf("unable to save node metadata: %w", err)
 			}
@@ -124,11 +128,10 @@ func (t *Tap) Meta(ctx context.Context, opts MetaOptions) (string, error) {
 	return strings.TrimRight(metaNode.ToYAML(), "\n"), nil
 }
 
-// Edit opens a node in an editor. When the repository is an FsRepo, the real
-// README.md is opened directly for in-place editing. Otherwise a temporary
-// file with frontmatter is used and changes are split back on save.
+// Edit opens a node in an editor using a temporary file with frontmatter.
+// Changes are sent back to the Hub as the editor saves.
 //
-// The temp file format (non-FsRepo) is:
+// The temp file format is:
 //
 //	---
 //	<meta yaml>
@@ -162,10 +165,7 @@ func (t *Tap) Edit(ctx context.Context, opts EditOptions) error {
 				}
 				return fmt.Errorf("unable to open node: %w", err)
 			}
-			expectedHash := ""
-			if view.Stats != nil {
-				expectedHash = view.Stats.Hash()
-			}
+			expectedHash := view.Hash()
 			_, err = t.applyEditedNodeRawExpectedSchema(ctx, k, id, pipedRaw, keg.LockToken(opts.LockToken), expectedHash, opts.Schema)
 			return err
 		}
@@ -175,10 +175,9 @@ func (t *Tap) Edit(ctx context.Context, opts EditOptions) error {
 }
 
 // editWithTempFile is the editing flow that composes frontmatter + body into
-// a temporary file. When the repository is an FsRepo, a reverse sync watcher
-// monitors the real node files (README.md, meta.yaml) and re-composes the
-// temp file when external changes are detected, so the editor can reload
-// with :e! to pick up changes from other tap instances.
+// a temporary file. A reverse sync watcher subscribes to Hub events and
+// re-composes the temp file when external changes are detected, so the editor
+// can reload with :e! to pick up changes from other clients.
 func (t *Tap) editWithTempFile(ctx context.Context, k keg.Keg, id keg.NodeId) error {
 	return t.editWithTempFileSchema(ctx, k, id, "")
 }
@@ -378,10 +377,7 @@ func (t *Tap) applyEditedNodeRawWithLock(ctx context.Context, k keg.Keg, id keg.
 		}
 		return fmt.Errorf("unable to open node: %w", err)
 	}
-	expectedHash := ""
-	if view.Stats != nil {
-		expectedHash = view.Stats.Hash()
-	}
+	expectedHash := view.Hash()
 	_, err = t.applyEditedNodeRawExpected(ctx, k, id, editedRaw, lockToken, expectedHash)
 	return err
 }
@@ -552,6 +548,11 @@ func (t *Tap) editMetaSchema(ctx context.Context, k keg.Keg, id keg.NodeId, sche
 }
 
 func (t *Tap) editMetaSchemaLocked(ctx context.Context, k keg.Keg, id keg.NodeId, schema string, lockToken keg.LockToken, stream *toolkit.Stream) error {
+	view, err := k.ReadNode(ctx, id)
+	if err != nil {
+		return fmt.Errorf("unable to read node before metadata edit: %w", err)
+	}
+	expectedHash := view.Hash()
 	raw, err := k.GetMetaRaw(ctx, id)
 	if err != nil && !errors.Is(err, keg.ErrNotExist) {
 		return fmt.Errorf("unable to read node metadata: %w", err)
@@ -594,12 +595,13 @@ func (t *Tap) editMetaSchemaLocked(ctx context.Context, k keg.Keg, id keg.NodeId
 		if err != nil {
 			return fmt.Errorf("node metadata is invalid after editing: %w", err)
 		}
-		results, err := k.UpdateNodes(ctx, []keg.NodeUpdateOptions{{ID: id, Schema: schema, Meta: []byte(updatedMeta.ToYAML()), HasMeta: true, LockToken: lockToken}})
+		results, err := k.UpdateNodes(ctx, []keg.NodeUpdateOptions{{ID: id, Schema: schema, Meta: []byte(updatedMeta.ToYAML()), HasMeta: true, LockToken: lockToken, ExpectedHash: expectedHash}})
 		if err != nil {
 			return fmt.Errorf("unable to save node metadata: %w", err)
 		}
 		if len(results) > 0 {
 			t.warnSchemaValidation(results[0].Validation, id, t.Runtime.Stream())
+			expectedHash = results[0].Hash
 		}
 		return nil
 	}); err != nil {
@@ -631,10 +633,7 @@ func logicalKegTempNameParts(k keg.Keg) (string, string) {
 		return namespace, "keg"
 	}
 	if kegName != "" {
-		return "local", kegName
-	}
-	if strings.TrimSpace(k.Target().File) != "" {
-		return "local", "keg"
+		return "unknown", kegName
 	}
 	return "unknown", "keg"
 }

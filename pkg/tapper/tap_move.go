@@ -11,8 +11,27 @@ import (
 type MoveOptions struct {
 	KegTargetOptions
 
-	SourceID string
-	DestID   string
+	SourceID     string
+	DestID       string
+	ExpectedHash string
+}
+
+// NodeHash performs the read half of an explicit CLI read-before-write flow.
+// Mutation methods never call it implicitly.
+func (t *Tap) NodeHash(ctx context.Context, opts KegTargetOptions, rawID string) (string, error) {
+	k, err := t.resolveKegForRole(ctx, opts, FlightRoleViewer)
+	if err != nil {
+		return "", err
+	}
+	k, id, err := t.resolveNodeArg(ctx, k, rawID)
+	if err != nil {
+		return "", err
+	}
+	view, err := k.ReadNode(ctx, id)
+	if err != nil {
+		return "", err
+	}
+	return view.Hash(), nil
 }
 
 func (t *Tap) Move(ctx context.Context, opts MoveOptions) error {
@@ -35,7 +54,7 @@ func (t *Tap) Move(ctx context.Context, opts MoveOptions) error {
 		return err
 	}
 
-	if _, err := k.Move(ctx, srcID, dstID); err != nil {
+	if _, err := k.Move(ctx, keg.NodeMoveOptions{Source: srcID, Destination: dstID, ExpectedHash: opts.ExpectedHash}); err != nil {
 		if errors.Is(err, keg.ErrNotExist) {
 			return fmt.Errorf("node %s not found in %s", srcID.Path(), describeKeg(k))
 		}

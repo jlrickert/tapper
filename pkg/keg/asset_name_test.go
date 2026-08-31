@@ -27,51 +27,39 @@ var badAssetNames = []string{
 }
 
 // TestAssetName_RejectsTraversal pins that the repository asset boundary rejects
-// traversing/separator names and never touches anything outside the keg root,
-// while ordinary single-component names still round-trip.
+// traversing/separator names while ordinary single-component names round-trip.
 func TestAssetName_RejectsTraversal(t *testing.T) {
 	t.Parallel()
 	fx := NewSandbox(t)
 	ctx := fx.Context()
 	rt := fx.Runtime()
 
-	base := t.TempDir()
-	kegRoot := filepath.Join(base, "kegroot")
-	r := keg.NewFsRepo(kegRoot, rt)
+	r := newTestMemoryRepo(rt)
 	id := keg.NodeId{ID: 0}
 	require.NoError(t, r.WriteContent(ctx, id, []byte("# zero\n")))
 
 	for _, name := range badAssetNames {
-		require.ErrorIsf(t, r.WriteAsset(ctx, id, keg.AssetKindImage, name, []byte("x")),
+		require.ErrorIsf(t, r.WriteImage(ctx, id, name, []byte("x")),
 			keg.ErrInvalidAssetName, "WriteAsset(%q)", name)
 		_, err := r.ReadImage(ctx, id, name)
 		require.ErrorIsf(t, err, keg.ErrInvalidAssetName, "ReadImage(%q)", name)
 		_, err = r.ReadFile(ctx, id, name)
 		require.ErrorIsf(t, err, keg.ErrInvalidAssetName, "ReadFile(%q)", name)
-		require.ErrorIsf(t, r.DeleteAsset(ctx, id, keg.AssetKindImage, name),
+		require.ErrorIsf(t, r.DeleteImage(ctx, id, name),
 			keg.ErrInvalidAssetName, "DeleteAsset(%q)", name)
 	}
 
-	// The traversal target must never have been created.
-	_, statErr := rt.Stat(filepath.Join(base, "escape.txt"), false)
-	require.True(t, os.IsNotExist(statErr), "no file may escape the keg root")
-
-	// MemoryRepo enforces the same guard (Fs/Memory parity).
-	m := keg.NewMemoryRepo(rt)
-	require.NoError(t, m.WriteContent(ctx, id, []byte("# zero\n")))
-	require.ErrorIs(t, m.WriteAsset(ctx, id, keg.AssetKindImage, "../x", []byte("x")), keg.ErrInvalidAssetName)
-
-	// Ordinary names still work on both backends.
+	// Ordinary names still work.
 	for _, repo := range []interface {
-		WriteAsset(c context.Context, id keg.NodeId, k keg.AssetKind, name string, data []byte) error
+		WriteImage(c context.Context, id keg.NodeId, name string, data []byte) error
 		ReadImage(c context.Context, id keg.NodeId, name string) ([]byte, error)
-		DeleteAsset(c context.Context, id keg.NodeId, k keg.AssetKind, name string) error
-	}{r, m} {
-		require.NoError(t, repo.WriteAsset(ctx, id, keg.AssetKindImage, "a.png", []byte("png")))
+		DeleteImage(c context.Context, id keg.NodeId, name string) error
+	}{r} {
+		require.NoError(t, repo.WriteImage(ctx, id, "a.png", []byte("png")))
 		got, err := repo.ReadImage(ctx, id, "a.png")
 		require.NoError(t, err)
 		require.Equal(t, []byte("png"), got)
-		require.NoError(t, repo.DeleteAsset(ctx, id, keg.AssetKindImage, "a.png"))
+		require.NoError(t, repo.DeleteImage(ctx, id, "a.png"))
 	}
 }
 
@@ -122,7 +110,7 @@ func TestImport_RejectsZipSlipArchive(t *testing.T) {
 	rt := fx.Runtime()
 
 	// Build a legitimate archive (valid manifest/meta/stats) with one attachment.
-	src := keg.NewLocalKeg(keg.NewMemoryRepo(rt), rt)
+	src := keg.NewLocalKeg(newTestMemoryRepo(rt), rt)
 	initNonStrictTestKeg(t, src, ctx)
 	nid, err := src.Create(ctx, &keg.CreateOptions{Title: "x", Body: []byte("# x\n")})
 	require.NoError(t, err)
@@ -136,7 +124,7 @@ func TestImport_RejectsZipSlipArchive(t *testing.T) {
 	base := t.TempDir()
 
 	// Clean import still works (no regression).
-	okKeg := keg.NewLocalKeg(keg.NewFsRepo(filepath.Join(base, "ok"), rt), rt)
+	okKeg := keg.NewLocalKeg(newTestMemoryRepo(rt), rt)
 	initNonStrictTestKeg(t, okKeg, ctx)
 	_, err = okKeg.ImportNodes(ctx, bytes.NewReader(clean), keg.ImportNodesOptions{})
 	require.NoError(t, err, "a clean archive must still import")
@@ -146,8 +134,7 @@ func TestImport_RejectsZipSlipArchive(t *testing.T) {
 	to := "keg-archive/nodes/" + nid.ID.Path() + "/assets/../../../PWNED.txt"
 	evil := retarWithRenamedEntry(t, clean, from, to)
 
-	evilRoot := filepath.Join(base, "evil")
-	evilKeg := keg.NewLocalKeg(keg.NewFsRepo(evilRoot, rt), rt)
+	evilKeg := keg.NewLocalKeg(newTestMemoryRepo(rt), rt)
 	initNonStrictTestKeg(t, evilKeg, ctx)
 	_, err = evilKeg.ImportNodes(ctx, bytes.NewReader(evil), keg.ImportNodesOptions{})
 	require.Error(t, err, "a hostile archive must be rejected")

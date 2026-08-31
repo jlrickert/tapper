@@ -132,7 +132,7 @@ func ResolveLoginHubURL(cfg *Config, explicit string) (string, error) {
 		if kind == "" {
 			kind = HubKindRemote
 		}
-		if kind == HubKindLocal {
+		if kind != HubKindRemote && kind != HubKindReadonly {
 			continue
 		}
 		remoteName = name
@@ -163,8 +163,8 @@ func loginHubURLFromEntry(label, name string, entry HubEntry) (string, error) {
 	if kind == "" {
 		kind = HubKindRemote
 	}
-	if kind == HubKindLocal {
-		return "", fmt.Errorf("auth: %s %q is local and cannot be used for auth login", label, name)
+	if kind != HubKindRemote && kind != HubKindReadonly {
+		return "", fmt.Errorf("auth: %s %q has unsupported kind %q", label, name, kind)
 	}
 	if strings.TrimSpace(entry.URL) == "" {
 		return "", fmt.Errorf("auth: %s %q has no URL configured", label, name)

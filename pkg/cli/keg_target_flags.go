@@ -19,29 +19,13 @@ func applyKegTargetProfile(deps *Deps, opts *tapper.KegTargetOptions) {
 	if opts.Hub == "" {
 		opts.Hub = deps.KegTargetOptions.Hub
 	}
-	if !opts.Project {
-		opts.Project = deps.KegTargetOptions.Project
-	}
-	if opts.Path == "" {
-		opts.Path = deps.KegTargetOptions.Path
-	}
-	if !opts.Cwd {
-		opts.Cwd = deps.KegTargetOptions.Cwd
-	}
 	if opts.Flight == "" {
 		opts.Flight = deps.KegTargetOptions.Flight
 	}
 	// Direct CLI commands use normal keg auth and keep Flight only as context
 	// for surfaces such as orient. MCP receives deps.KegTargetOptions directly.
 	opts.BypassFlightRestrictions = true
-	profile := deps.Profile.withDefaults()
-	if profile.ForceProjectResolution {
-		opts.Project = true
-	}
-	// The full `tap` surface requires `tap bootstrap` before config-driven keg
-	// resolution; the pruned `keg` binary (no config command) stays exempt and
-	// resolves project-local kegs without setup.
-	if profile.IncludeConfigCommand {
+	if deps.Profile.withDefaults().IncludeConfigCommand {
 		opts.RequireBootstrap = true
 	}
 }

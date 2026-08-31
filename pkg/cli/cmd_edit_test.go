@@ -1,7 +1,6 @@
 package cli_test
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -42,8 +41,8 @@ EOF
 	res := NewProcess(t, false, "edit", "0", "--keg", "personal").RunWithIO(sb.Context(), sb.Runtime(), strings.NewReader(""))
 	require.NoError(t, res.Err)
 
-	meta := string(sb.MustReadFile("~/kegs/@local/personal/0/meta.yaml"))
-	content := string(sb.MustReadFile("~/kegs/@local/personal/0/README.md"))
+	meta := fixtureMeta(t, sb.Runtime(), "personal", "0")
+	content := fixtureContent(t, sb.Runtime(), "personal", "0")
 	require.Contains(t, meta, "tags:")
 	require.Contains(t, meta, "- edited")
 	require.Contains(t, meta, "summary: updated in editor")
@@ -67,8 +66,8 @@ summary: from stdin
 	res := NewProcess(t, false, "edit", "0", "--keg", "personal").RunWithIO(sb.Context(), sb.Runtime(), stdin)
 	require.NoError(t, res.Err)
 
-	meta := string(sb.MustReadFile("~/kegs/@local/personal/0/meta.yaml"))
-	content := string(sb.MustReadFile("~/kegs/@local/personal/0/README.md"))
+	meta := fixtureMeta(t, sb.Runtime(), "personal", "0")
+	content := fixtureContent(t, sb.Runtime(), "personal", "0")
 	require.Contains(t, meta, "summary: from stdin")
 	require.Contains(t, meta, "- piped")
 	require.Contains(t, content, "# Piped Body")
@@ -83,7 +82,7 @@ func TestEdit_PipedSchemaSelectionPersistsType(t *testing.T) {
 	res := NewProcess(t, false, "edit", "1", "--keg", "personal", "--schema", "task").
 		RunWithIO(sb.Context(), sb.Runtime(), strings.NewReader("# Edited with schema\n"))
 	require.NoError(t, res.Err)
-	require.Contains(t, string(sb.MustReadFile("~/kegs/@local/personal/1/meta.yaml")), "type: task")
+	require.Contains(t, fixtureMeta(t, sb.Runtime(), "personal", "1"), "type: task")
 }
 
 func TestEdit_RejectsInvalidPipedFrontmatter(t *testing.T) {
@@ -92,8 +91,8 @@ func TestEdit_RejectsInvalidPipedFrontmatter(t *testing.T) {
 	require.NoError(t, sb.Runtime().Set("EDITOR", "/bin/false"))
 	sb.Runtime().Unset("VISUAL")
 
-	beforeMeta := string(sb.MustReadFile("~/kegs/@local/personal/0/meta.yaml"))
-	beforeContent := string(sb.MustReadFile("~/kegs/@local/personal/0/README.md"))
+	beforeMeta := fixtureMeta(t, sb.Runtime(), "personal", "0")
+	beforeContent := fixtureContent(t, sb.Runtime(), "personal", "0")
 
 	stdin := strings.NewReader(`---
 tags: [
@@ -104,8 +103,8 @@ tags: [
 	require.Error(t, res.Err)
 	require.Contains(t, string(res.Stderr), "invalid frontmatter yaml")
 
-	afterMeta := string(sb.MustReadFile("~/kegs/@local/personal/0/meta.yaml"))
-	afterContent := string(sb.MustReadFile("~/kegs/@local/personal/0/README.md"))
+	afterMeta := fixtureMeta(t, sb.Runtime(), "personal", "0")
+	afterContent := fixtureContent(t, sb.Runtime(), "personal", "0")
 	require.Equal(t, beforeMeta, afterMeta)
 	require.Equal(t, beforeContent, afterContent)
 }
@@ -149,8 +148,8 @@ EOF
 	res := NewProcess(t, false, "edit", "0", "--keg", "personal").RunWithIO(sb.Context(), sb.Runtime(), strings.NewReader(""))
 	require.NoError(t, res.Err)
 
-	meta := string(sb.MustReadFile("~/kegs/@local/personal/0/meta.yaml"))
-	content := string(sb.MustReadFile("~/kegs/@local/personal/0/README.md"))
+	meta := fixtureMeta(t, sb.Runtime(), "personal", "0")
+	content := fixtureContent(t, sb.Runtime(), "personal", "0")
 	require.Contains(t, meta, "summary: first valid save")
 	require.Contains(t, meta, "- live")
 	require.Contains(t, content, "# Saved First")
@@ -184,9 +183,8 @@ func TestEdit_InteractiveEdit_BumpsAccessCount(t *testing.T) {
 		RunWithIO(sb.Context(), sb.Runtime(), strings.NewReader(""))
 	require.NoError(t, res.Err)
 
-	var stats catStatsJSON
-	require.NoError(t, json.Unmarshal(sb.MustReadFile(statsPath), &stats))
-	require.Equal(t, 4, stats.AccessCount,
+	stats := fixtureStats(t, sb.Runtime(), "personal", "0")
+	require.Equal(t, 4, stats.AccessCount(),
 		"interactive edit should bump access_count")
 }
 
@@ -211,8 +209,7 @@ tags:
 		RunWithIO(sb.Context(), sb.Runtime(), stdin)
 	require.NoError(t, res.Err)
 
-	var stats catStatsJSON
-	require.NoError(t, json.Unmarshal(sb.MustReadFile(statsPath), &stats))
-	require.Equal(t, 3, stats.AccessCount,
+	stats := fixtureStats(t, sb.Runtime(), "personal", "0")
+	require.Equal(t, 3, stats.AccessCount(),
 		"piped edit should not bump access_count")
 }

@@ -79,7 +79,7 @@ func snapshotWire(item kegpkg.Snapshot) map[string]any {
 func newMockOpsHub(t *testing.T, f *sandbox.Sandbox, token string) *mockOpsHub {
 	t.Helper()
 
-	repo := kegpkg.NewMemoryRepo(f.Runtime())
+	repo := newTestMemoryRepo(f.Runtime())
 	backing := kegpkg.NewLocalKeg(repo, f.Runtime())
 	initNonStrictTestKeg(t, backing, f.Context())
 	_, err := backing.Create(f.Context(), &kegpkg.CreateOptions{
@@ -121,38 +121,6 @@ func newMockOpsHub(t *testing.T, f *sandbox.Sandbox, token string) *mockOpsHub {
 	})
 	mux.HandleFunc("POST /nodes", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
-			Content *string `json:"content"`
-			Meta    *string `json:"meta"`
-			Schema  string  `json:"schema"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Content == nil {
-			h.writeError(w, http.StatusBadRequest, "invalid JSON body", "BAD_REQUEST")
-			return
-		}
-		var meta *kegpkg.NodeMeta
-		if req.Meta != nil && strings.TrimSpace(*req.Meta) != "" {
-			parsed, err := kegpkg.ParseMeta(r.Context(), []byte(*req.Meta))
-			if err != nil {
-				h.writeError(w, http.StatusBadRequest, "invalid meta: "+err.Error(), "BAD_REQUEST")
-				return
-			}
-			meta = parsed
-		}
-		id, err := backing.Create(r.Context(), &kegpkg.CreateOptions{Schema: req.Schema, Body: []byte(*req.Content)})
-		if err != nil {
-			h.kegError(w, err)
-			return
-		}
-		if meta != nil {
-			if err := backing.SetMeta(r.Context(), id.ID, meta); err != nil {
-				h.kegError(w, err)
-				return
-			}
-		}
-		h.writeJSON(w, http.StatusCreated, map[string]int{"id": id.ID.ID})
-	})
-	mux.HandleFunc("POST /nodes/batch", func(w http.ResponseWriter, r *http.Request) {
-		var req struct {
 			Nodes []struct {
 				Key    string         `json:"key"`
 				Schema string         `json:"schema"`
@@ -182,7 +150,7 @@ func newMockOpsHub(t *testing.T, f *sandbox.Sandbox, token string) *mockOpsHub {
 		}
 		h.writeJSON(w, http.StatusCreated, wire)
 	})
-	mux.HandleFunc("PUT /nodes/batch", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("PUT /nodes", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			Updates []struct {
 				NodeID         int     `json:"node_id"`
@@ -219,7 +187,7 @@ func newMockOpsHub(t *testing.T, f *sandbox.Sandbox, token string) *mockOpsHub {
 		}
 		h.writeJSON(w, http.StatusOK, wire)
 	})
-	mux.HandleFunc("POST /nodes/snapshots/batch", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("POST /nodes/snapshots", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			Nodes []struct {
 				NodeID  int    `json:"node_id"`
@@ -303,17 +271,40 @@ func newMockOpsHub(t *testing.T, f *sandbox.Sandbox, token string) *mockOpsHub {
 		}
 		h.writeJSON(w, http.StatusOK, resp)
 	})
-	mux.HandleFunc("DELETE /nodes/{id}", func(w http.ResponseWriter, r *http.Request) {
-		id, ok := h.parseID(w, r)
-		if !ok {
+	mux.HandleFunc("POST /nodes/remove", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Nodes []struct {
+				ID           int    `json:"id"`
+				ExpectedHash string `json:"expected_hash"`
+			} `json:"nodes"`
+			Query string `json:"query"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			h.writeError(w, http.StatusBadRequest, "invalid JSON body", "BAD_REQUEST")
 			return
 		}
-		rewritten, err := backing.Remove(r.Context(), id)
+		nodes := make([]kegpkg.NodeRemoveOptions, len(req.Nodes))
+		for i, item := range req.Nodes {
+			nodes[i] = kegpkg.NodeRemoveOptions{ID: kegpkg.NodeId{ID: item.ID}, ExpectedHash: item.ExpectedHash}
+		}
+		result, err := backing.RemoveNodes(r.Context(), kegpkg.RemoveNodesOptions{Nodes: nodes, Query: req.Query})
 		if err != nil {
 			h.kegError(w, err)
 			return
 		}
-		h.writeJSON(w, http.StatusOK, map[string][]string{"rewritten": rewrittenWire(rewritten)})
+		removed := make([]map[string]any, len(result.Removed))
+		for i, item := range result.Removed {
+			rewritten := make([]int, len(item.Rewritten))
+			for j, id := range item.Rewritten {
+				rewritten[j] = id.ID
+			}
+			removed[i] = map[string]any{"id": item.ID.ID, "rewritten": rewritten}
+		}
+		response := map[string]any{"removed": removed}
+		if result.Failure != nil {
+			response["failure"] = map[string]any{"node_id": result.Failure.NodeID.ID, "code": result.Failure.Code, "status": result.Failure.Status, "message": result.Failure.Message, "current_hash": result.Failure.CurrentHash, "current_content": result.Failure.CurrentContent}
+		}
+		h.writeJSON(w, http.StatusOK, response)
 	})
 	mux.HandleFunc("POST /nodes/{id}/move", func(w http.ResponseWriter, r *http.Request) {
 		id, ok := h.parseID(w, r)
@@ -321,13 +312,14 @@ func newMockOpsHub(t *testing.T, f *sandbox.Sandbox, token string) *mockOpsHub {
 			return
 		}
 		var req struct {
-			Dst int `json:"dst"`
+			Dst          int    `json:"dst"`
+			ExpectedHash string `json:"expected_hash"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			h.writeError(w, http.StatusBadRequest, "invalid JSON body", "BAD_REQUEST")
 			return
 		}
-		rewritten, err := backing.Move(r.Context(), id, kegpkg.NodeId{ID: req.Dst})
+		rewritten, err := backing.Move(r.Context(), kegpkg.NodeMoveOptions{Source: id, Destination: kegpkg.NodeId{ID: req.Dst}, ExpectedHash: req.ExpectedHash})
 		if err != nil {
 			h.kegError(w, err)
 			return
@@ -411,7 +403,7 @@ func newMockOpsHub(t *testing.T, f *sandbox.Sandbox, token string) *mockOpsHub {
 		}
 		w.Write(data)
 	})
-	mux.HandleFunc("POST /index/rebuild", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("POST /indexes/rebuild", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			NoUpdate bool `json:"no_update"`
 		}
@@ -653,7 +645,8 @@ func TestRemoteKegRoundTripBasics(t *testing.T) {
 	require.NotNil(t, view.Stats)
 
 	// SetContent / GetContent round-trip raw bytes.
-	require.NoError(t, rk.SetContent(ctx, id.ID, []byte("# Gamma node\n\nupdated body\n")))
+	updated, err := rk.UpdateNode(ctx, kegpkg.NodeUpdateOptions{ID: id.ID, Content: []byte("# Gamma node\n\nupdated body\n"), ExpectedHash: view.Hash()})
+	require.NoError(t, err)
 	content, err := rk.GetContent(ctx, id.ID)
 	require.NoError(t, err)
 	require.Contains(t, string(content), "updated body")
@@ -663,7 +656,8 @@ func TestRemoteKegRoundTripBasics(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, meta.Tags(), "gamma")
 	meta.SetTags([]string{"gamma", "json-transport"})
-	require.NoError(t, rk.SetMeta(ctx, id.ID, meta))
+	_, err = rk.UpdateNodes(ctx, []kegpkg.NodeUpdateOptions{{ID: id.ID, Meta: []byte(meta.ToYAML()), HasMeta: true, ExpectedHash: updated.Hash}})
+	require.NoError(t, err)
 	meta, err = rk.GetMeta(ctx, id.ID)
 	require.NoError(t, err)
 	require.Contains(t, meta.Tags(), "json-transport")
@@ -732,9 +726,8 @@ func TestRemoteMutationBatchesPreserveOrderAndAtomicity(t *testing.T) {
 	forwardType, ok := forwardMeta.Get("type")
 	require.True(t, ok)
 	require.Equal(t, "note", forwardType)
-
 	_, err = remote.UpdateNodes(ctx, []kegpkg.NodeUpdateOptions{
-		{ID: created[0].ID, Schema: "task", Content: []byte("# Changed\n"), HasContent: true, SnapshotBefore: true},
+		{ID: created[0].ID, Schema: "task", Content: []byte("# Changed\n"), HasContent: true, SnapshotBefore: true, ExpectedHash: forwardBefore.Hash()},
 		{ID: created[1].ID, Schema: "task", Content: []byte("# Never\n"), HasContent: true, ExpectedHash: "stale"},
 	})
 	require.ErrorIs(t, err, kegpkg.ErrConflict)
@@ -750,7 +743,7 @@ func TestRemoteMutationBatchesPreserveOrderAndAtomicity(t *testing.T) {
 	require.Equal(t, "note", forwardType, "failed remote batch changed the stored schema")
 
 	_, err = remote.UpdateNodes(ctx, []kegpkg.NodeUpdateOptions{{
-		ID: created[0].ID, Schema: "task", Content: []byte("# Reclassified\n"), HasContent: true,
+		ID: created[0].ID, Schema: "task", Content: []byte("# Reclassified\n"), HasContent: true, ExpectedHash: forwardAfter.Hash(),
 	}})
 	require.NoError(t, err)
 	forwardMeta, err = remote.GetMeta(ctx, created[0].ID)
@@ -772,12 +765,16 @@ func TestRemoteKegMoveRemoveRewritten(t *testing.T) {
 	ctx := f.Context()
 
 	// Node 1 links to ../2; moving 2 rewrites node 1.
-	rewritten, err := rk.Move(ctx, kegpkg.NodeId{ID: 2}, kegpkg.NodeId{ID: 5})
+	view, err := rk.ReadNode(ctx, kegpkg.NodeId{ID: 2})
+	require.NoError(t, err)
+	rewritten, err := rk.Move(ctx, kegpkg.NodeMoveOptions{Source: kegpkg.NodeId{ID: 2}, Destination: kegpkg.NodeId{ID: 5}, ExpectedHash: view.Hash()})
 	require.NoError(t, err)
 	require.Contains(t, rewritten, kegpkg.NodeId{ID: 1})
 
 	// Removing the moved node rewrites node 1 again (link drop).
-	rewritten, err = rk.Remove(ctx, kegpkg.NodeId{ID: 5})
+	view, err = rk.ReadNode(ctx, kegpkg.NodeId{ID: 5})
+	require.NoError(t, err)
+	rewritten, err = rk.Remove(ctx, kegpkg.NodeRemoveOptions{ID: kegpkg.NodeId{ID: 5}, ExpectedHash: view.Hash()})
 	require.NoError(t, err)
 	require.Contains(t, rewritten, kegpkg.NodeId{ID: 1})
 }
@@ -813,7 +810,7 @@ func TestRemoteKegExportImport(t *testing.T) {
 	defer rc.Close()
 
 	// Land the archive in a second, freshly initialized LocalKeg.
-	dst := kegpkg.NewLocalKeg(kegpkg.NewMemoryRepo(f.Runtime()), f.Runtime())
+	dst := kegpkg.NewLocalKeg(newTestMemoryRepo(f.Runtime()), f.Runtime())
 	initNonStrictTestKeg(t, dst, ctx)
 	imported, err := dst.ImportNodes(ctx, rc, kegpkg.ImportNodesOptions{})
 	require.NoError(t, err)
@@ -831,7 +828,7 @@ func TestRemoteKegImportRoundTrip(t *testing.T) {
 
 	// Export a node from a local keg and import it into the remote keg
 	// with fresh ids.
-	src := kegpkg.NewLocalKeg(kegpkg.NewMemoryRepo(f.Runtime()), f.Runtime())
+	src := kegpkg.NewLocalKeg(newTestMemoryRepo(f.Runtime()), f.Runtime())
 	initNonStrictTestKeg(t, src, ctx)
 	srcID, err := src.Create(ctx, &kegpkg.CreateOptions{
 		Title: "Imported node",
@@ -859,6 +856,8 @@ func TestRemoteKegSingleRoundTrip(t *testing.T) {
 	f, hub, rk := newRemoteKegFixture(t)
 	ctx := f.Context()
 	id := kegpkg.NodeId{ID: 1}
+	view, err := rk.ReadNode(ctx, id)
+	require.NoError(t, err)
 
 	cases := []struct {
 		name string
@@ -868,8 +867,9 @@ func TestRemoteKegSingleRoundTrip(t *testing.T) {
 			_, err := rk.ReadNode(ctx, id)
 			return err
 		}},
-		{"SetContent", func() error {
-			return rk.SetContent(ctx, id, []byte("# Alpha node\n\nrewritten\n"))
+		{"UpdateNode", func() error {
+			_, err := rk.UpdateNode(ctx, kegpkg.NodeUpdateOptions{ID: id, Content: []byte("# Alpha node\n\nrewritten\n"), ExpectedHash: view.Hash()})
+			return err
 		}},
 		{"Query", func() error {
 			_, err := rk.Query(ctx, kegpkg.QueryOptions{Expr: "shared"})

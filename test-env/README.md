@@ -6,11 +6,10 @@ An isolated Ubuntu 24.04 container for testing tapper as a real user would
 encounter it. The tapper source is bind-mounted **read-only** at
 `/usr/local/src/tapper` purely as a build input -- the interactive shell
 lands in the user's home (`/home/jlrickert`) with no project context, so
-`tap init` and friends behave the same as on a vanilla machine.
+remote bootstrap and Hub workflows behave the same as on a vanilla machine.
 
-Go module and build caches live in named volumes for speed; user-created
-kegs live in the container's writable layer so they survive `restart` and
-shell re-entry but are wiped on `rebuild` / `clean`.
+Go module and build caches live in named volumes for speed. KEG data remains on
+the configured remote Hub.
 
 ## Prerequisites
 
@@ -38,9 +37,8 @@ task sandbox:shell     # drop into an interactive zsh login shell
 | `task sandbox:exec`             | Run an arbitrary command (`task sandbox:exec -- ls -la`). |
 | `task sandbox:logs`             | Follow container logs.                                    |
 | `task sandbox:status`           | Show container state.                                     |
-| `task sandbox:rebuild-tap`      | Reinstall `tap` and `keg` from the bind-mounted source.   |
+| `task sandbox:rebuild-tap`      | Reinstall `tap` from the bind-mounted source.             |
 | `task sandbox:refresh-dotfiles` | Rebuild image against live dotfiles HEAD; recreate.       |
-| `task sandbox:populate`         | Seed the sandbox with a fixture keg (`-- <name>`).        |
 | `task sandbox:test`             | Run `go test ./...` inside the container.                 |
 | `task sandbox:clean`            | Remove container AND named volumes (nukes caches).        |
 
@@ -59,7 +57,7 @@ container.
 | `task sandbox:shell-work`       | Interactive zsh login shell in the work-mode container.         |
 | `task sandbox:exec-work`        | Run an arbitrary command in the work-mode container (`-- ...`). |
 | `task sandbox:test-work`        | `go test ./...` against the local cli-toolkit.                  |
-| `task sandbox:rebuild-tap-work` | Reinstall `tap`/`keg` linking the local cli-toolkit.            |
+| `task sandbox:rebuild-tap-work` | Reinstall `tap` linking the local cli-toolkit.                  |
 | `task sandbox:down-work`        | Stop and remove the work-mode container (keeps named volumes).  |
 
 Prerequisites:
@@ -68,7 +66,7 @@ Prerequisites:
   (i.e., a sibling of the tapper repo). Override with the
   `CLI_TOOLKIT_PATH` host environment variable if it lives elsewhere.
 - The work-mode container is **separate** from the default `sandbox` and
-  has its own first-boot install of `tap`/`keg`. Named caches (Go module,
+  has its own first-boot install of `tap`. Named caches (Go module,
   Go build, tapper state) are shared with `sandbox`.
 
 ## Inside the container
@@ -79,12 +77,8 @@ Prerequisites:
 - `GOPATH=/home/jlrickert/go`, `GOCACHE=/home/jlrickert/.cache/go-build`
   (both backed by named volumes).
 - Tapper state: `~/.local/state/tapper` (named volume).
-- User-created kegs default to `~/.local/share/tapper/kegs/<alias>/` (in
-  the container's writable layer; persists through `restart`, wiped on
-  `rebuild`).
-- `tap` and `keg` are on `$PATH` after the first boot, with zsh tab
-  completion for both registered automatically (entrypoint drops
-  Cobra-generated `_tap` and `_keg` files into
+- `tap` is on `$PATH` after the first boot, with zsh tab completion registered
+  automatically (the entrypoint drops a Cobra-generated `_tap` file into
   `/usr/local/share/zsh/site-functions/`, which is in zsh's default
   fpath). The dir is `chown`d to `jlrickert` in the Dockerfile so the
   unprivileged user can write there.
@@ -93,25 +87,6 @@ Prerequisites:
   `/home/jlrickert/.local/state/dots/taps/jlrickert/`. To add or remove
   packages, edit the `dots install` line in `test-env/Dockerfile` and
   `task sandbox:rebuild`.
-
-## Fixtures
-
-`test-env/fixtures/` holds named keg trees that can be loaded into a
-running sandbox:
-
-```sh
-task sandbox:populate -- --list      # show available fixtures
-task sandbox:populate -- minimal     # copy 'minimal' into ~/.local/share/tapper/kegs/
-task sandbox:populate -- --all       # copy every fixture
-```
-
-The first populate also writes a minimal `~/.config/tapper/config.yaml`
-with the fixture root in `kegSearchPaths` so `tap list-kegs` discovers
-them. If you've already run `tap init`, the script leaves your config
-alone and prints a hint.
-
-To add a fixture, create `test-env/fixtures/<name>/` with a `keg` config
-file and a `0/README.md`. See `test-env/fixtures/README.md`.
 
 ## Updating dotfiles
 
@@ -131,7 +106,7 @@ manually when a newer release lands.
 ## Caveats
 
 - First `task sandbox:up` is slow: downloads Ubuntu base, installs Go, runs
-  `dots init`, and performs the initial `go install ./cmd/tap ./cmd/keg`.
+  `dots init`, and performs the initial `go install ./cmd/tap`.
 - Host edits appear live under `/usr/local/src/tapper`, but rebuilt
   binaries only land on `$PATH` after `task sandbox:rebuild-tap`.
 - `task sandbox:clean` destroys the Go module cache, build cache, and tapper

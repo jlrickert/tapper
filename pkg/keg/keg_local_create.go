@@ -9,7 +9,7 @@ import (
 	"github.com/jlrickert/cli-toolkit/toolkit"
 )
 
-// Init initializes a new keg by creating the config file, zero node with default
+// Init initializes a new keg by creating the settings file, zero node with default
 // content, and updating the dex. It returns an error if the keg already exists.
 // Init is idempotent in the sense that it checks for existing kegs first.
 func (k *LocalKeg) Init(ctx context.Context) error {
@@ -30,11 +30,11 @@ func (k *LocalKeg) init(ctx context.Context) error {
 		return fmt.Errorf("keg already exists: %w", ErrExist)
 	}
 
-	// Ensure we have a config file. UpdateConfig must be allowed to write the
-	// repo-level config even when the keg is not fully initiated.
-	cfg := NewConfig()
-	if err := k.Repo.WriteConfig(ctx, cfg); err != nil {
-		return fmt.Errorf("failed to write config: %w", err)
+	// Ensure we have a settings file. UpdateSettings must be allowed to write the
+	// repo-level settings even when the keg is not fully initiated.
+	cfg := NewSettings()
+	if err := k.Repo.WriteSettings(ctx, cfg); err != nil {
+		return fmt.Errorf("failed to write settings: %w", err)
 	}
 
 	// Create the zero node as a special case during InitKeg. We do this here so

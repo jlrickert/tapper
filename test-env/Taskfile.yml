@@ -61,15 +61,14 @@ tasks:
       - "{{.COMPOSE}} ps"
 
   rebuild-tap:
-    desc: Rebuild tap and keg binaries inside the sandbox from current source.
+    desc: Rebuild tap inside the sandbox from current source.
     deps: [up]
     cmds:
       - |
         podman exec -i tapper-sandbox bash -lc '
           set -e
-          cd /usr/local/src/tapper && go install ./cmd/tap ./cmd/keg
+          cd /usr/local/src/tapper && go install ./cmd/tap
           tap completion zsh > /usr/local/share/zsh/site-functions/_tap
-          keg completion zsh > /usr/local/share/zsh/site-functions/_keg
         '
 
   refresh-dotfiles:
@@ -83,17 +82,6 @@ tasks:
     cmds:
       - "{{.COMPOSE}} build --build-arg DOTFILES_REV={{.DOTFILES_HEAD}} sandbox"
       - "{{.COMPOSE}} up -d --force-recreate sandbox"
-
-  populate:
-    desc: |
-      Seed the sandbox with a keg fixture from test-env/fixtures/.
-      Examples:
-        task sandbox:populate -- --list
-        task sandbox:populate -- minimal
-        task sandbox:populate -- --all
-    deps: [up]
-    cmds:
-      - podman exec -i tapper-sandbox bash /usr/local/src/tapper/test-env/scripts/populate.sh {{.CLI_ARGS}}
 
   test:
     desc: Run the Go test suite inside the sandbox.
@@ -143,15 +131,14 @@ tasks:
       - podman exec -i tapper-sandbox-work bash -lc 'cd /usr/local/src/tapper && go test ./...'
 
   rebuild-tap-work:
-    desc: Rebuild tap and keg in work mode (links local cli-toolkit).
+    desc: Rebuild tap in work mode (links local cli-toolkit).
     deps: [up-work]
     cmds:
       - |
         podman exec -i tapper-sandbox-work bash -lc '
           set -e
-          cd /usr/local/src/tapper && go install ./cmd/tap ./cmd/keg
+          cd /usr/local/src/tapper && go install ./cmd/tap
           tap completion zsh > /usr/local/share/zsh/site-functions/_tap
-          keg completion zsh > /usr/local/share/zsh/site-functions/_keg
         '
 
   _ensure-go-work:

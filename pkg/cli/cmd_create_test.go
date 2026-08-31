@@ -67,7 +67,7 @@ func TestCreate_Table(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			// Set up a fresh fixture per case so filesystem state is isolated.
+			// Set up a fresh fixture per case so repository state is isolated.
 			fx := NewSandbox(t, testutils.WithFixture("testuser", "/home/testuser"))
 			h := NewProcess(t, false, tc.args...)
 
@@ -88,22 +88,19 @@ func TestCreate_Table(t *testing.T) {
 			}
 
 			// Verify README expectations.
-			readmePath := "~/kegs/@local/example/1/README.md"
 			if tc.wantReadmeNotEmpty || len(tc.readmeContains) > 0 {
-				content := fx.MustReadFile(readmePath)
+				content := fixtureContent(t, fx.Runtime(), "example", "1")
 				if tc.wantReadmeNotEmpty {
 					require.NotEmpty(t, content, "expected README to be written for created node")
 				}
 				for _, want := range tc.readmeContains {
-					require.Contains(t, string(content), want)
+					require.Contains(t, content, want)
 				}
 			}
 
 			// Verify meta expectations.
-			metaPath := "~/kegs/@local/example/1/meta.yaml"
 			if len(tc.metaContains) > 0 {
-				meta := fx.MustReadFile(metaPath)
-				ms := string(meta)
+				ms := fixtureMeta(t, fx.Runtime(), "example", "1")
 				for _, want := range tc.metaContains {
 					if strings.Contains(want, "{now}") {
 						want = strings.ReplaceAll(want, "{now}", now)
@@ -113,10 +110,8 @@ func TestCreate_Table(t *testing.T) {
 			}
 
 			// Verify stats expectations.
-			statsPath := "~/kegs/@local/example/1/stats.json"
 			if len(tc.statsContains) > 0 {
-				stats := fx.MustReadFile(statsPath)
-				ss := string(stats)
+				ss := fixtureStatsJSON(t, fx.Runtime(), "example", "1")
 				for _, want := range tc.statsContains {
 					if strings.Contains(want, "{now}") {
 						want = strings.ReplaceAll(want, "{now}", now)
@@ -150,7 +145,6 @@ func TestCreate_FromStdin(t *testing.T) {
 	require.Regexp(t, `^\d+`, out)
 
 	// Verify the created README contains the stdin content.
-	readmePath := "~/kegs/@local/example/1/README.md"
-	content := fx.MustReadFile(readmePath)
-	require.Contains(t, string(content), "This content came from stdin.")
+	content := fixtureContent(t, fx.Runtime(), "example", "1")
+	require.Contains(t, content, "This content came from stdin.")
 }

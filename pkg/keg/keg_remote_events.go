@@ -2,6 +2,7 @@ package keg
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -51,16 +52,20 @@ func (k *RemoteKeg) watchNodeEvents(ctx context.Context, id NodeId, out chan<- N
 	for ctx.Err() == nil {
 		conn, resp, err := websocket.Dial(ctx, k.eventsURL(id), &websocket.DialOptions{
 			HTTPClient: k.httpClient(),
-			HTTPHeader: k.eventsHeader(),
+			HTTPHeader: k.eventsHeader(ctx),
 		})
 		if err != nil {
-			if resp != nil && isPermanentWatchStatus(resp.StatusCode) {
+			watchErr := err
+			if resp != nil {
+				watchErr = k.mapError(resp, "watch node events")
+			}
+			if isPermanentWatchError(watchErr) {
 				k.logDebug("remote live watch terminated",
-					"url", k.eventsURL(id), "status", resp.StatusCode)
+					"url", k.eventsURL(id), "error", watchErr)
 				return
 			}
 			k.logDebug("remote live watch dial failed; retrying",
-				"url", k.eventsURL(id), "error", err, "backoff", backoff)
+				"url", k.eventsURL(id), "error", watchErr, "backoff", backoff)
 			if sleepContext(ctx, backoff) {
 				return
 			}
@@ -116,21 +121,22 @@ func (k *RemoteKeg) eventsURL(id NodeId) string {
 	return u.String()
 }
 
-func (k *RemoteKeg) eventsHeader() http.Header {
+func (k *RemoteKeg) eventsHeader(ctx context.Context) http.Header {
 	h := make(http.Header)
 	if token := k.currentToken(); token != "" {
 		h.Set("Authorization", "Bearer "+token)
 	}
+	if orientation, ok := OrientationHeaderValue(ctx); ok {
+		h.Set(OrientationHeaderName, orientation)
+	}
 	return h
 }
 
-func isPermanentWatchStatus(status int) bool {
-	switch status {
-	case http.StatusUnauthorized, http.StatusForbidden, http.StatusNotFound:
-		return true
-	default:
-		return false
-	}
+func isPermanentWatchError(err error) bool {
+	return errors.Is(err, ErrUnauthorized) || errors.Is(err, ErrForbidden) ||
+		errors.Is(err, ErrNotExist) || errors.Is(err, ErrOrientationStale) ||
+		errors.Is(err, ErrOrientationDenied) || errors.Is(err, ErrOrientationUnavailable) ||
+		errors.Is(err, ErrOrientationRootUnavailable)
 }
 
 func sleepContext(ctx context.Context, d time.Duration) bool {

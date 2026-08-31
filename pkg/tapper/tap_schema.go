@@ -6,26 +6,26 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"path/filepath"
 	"strings"
 
 	"github.com/jlrickert/cli-toolkit/toolkit"
 	"github.com/jlrickert/tapper/pkg/keg"
+	"github.com/jlrickert/tapper/pkg/schemas"
 )
 
 type SchemaOptions struct {
 	KegTargetOptions
-	Type string
-	Data []byte
+	Type         string
+	Data         []byte
+	ExpectedHash string
 }
 
 type EditSchemaOptions struct {
 	KegTargetOptions
-	Type   string
-	Stream *toolkit.Stream
+	Type         string
+	Stream       *toolkit.Stream
+	ExpectedHash string
 }
-
-const schemaDefinitionSchemaModeline = "# yaml-language-server: $schema=" + keg.KegSchemaDefinitionSchemaURL + "\n"
 
 type ValidateOptions struct {
 	KegTargetOptions
@@ -48,12 +48,26 @@ func (t *Tap) ReadSchema(ctx context.Context, opts SchemaOptions) ([]byte, error
 	return k.ReadSchema(ctx, opts.Type)
 }
 
+// SchemaHash performs the read half of an explicit CLI read-before-write
+// flow. Mutation methods never call it implicitly.
+func (t *Tap) SchemaHash(ctx context.Context, opts SchemaOptions) (string, error) {
+	raw, err := t.ReadSchema(ctx, opts)
+	if err != nil {
+		return "", err
+	}
+	return keg.DocumentHash(raw), nil
+}
+
+// EditSchema replaces a schema definition. Schemas decide which node types are
+// valid and how every write is checked, so defining them is keg administration
+// rather than content editing — admin here, matching CreateSchema and
+// DeleteSchema. Reading schemas stays viewer.
 func (t *Tap) EditSchema(ctx context.Context, opts EditSchemaOptions) error {
 	typeName := strings.TrimSpace(opts.Type)
 	if err := keg.ValidSchemaTypeName(typeName); err != nil {
 		return err
 	}
-	k, err := t.resolveKegForRole(ctx, opts.KegTargetOptions, FlightRoleEditor)
+	k, err := t.resolveKegForRole(ctx, opts.KegTargetOptions, FlightRoleAdmin)
 	if err != nil {
 		return fmt.Errorf("unable to open keg: %w", err)
 	}
@@ -61,14 +75,23 @@ func (t *Tap) EditSchema(ctx context.Context, opts EditSchemaOptions) error {
 	if err != nil {
 		return fmt.Errorf("unable to read schema %q: %w", typeName, err)
 	}
+	expectedHash := opts.ExpectedHash
+	if (opts.Stream == nil || !opts.Stream.IsPiped) && expectedHash == "" {
+		expectedHash = keg.DocumentHash(originalRaw)
+	}
 
+	// WriteSchema stores these bytes verbatim, and a schema definition is
+	// persisted content — shared, on a hub. So the modeline comes off here,
+	// the same way keg settings drop theirs in Tap.KegSettingsEdit.
 	saveSchema := func(data []byte, source string) error {
+		data = schemas.StripModeline(data)
 		if err := validateEditedSchema(typeName, data); err != nil {
 			return fmt.Errorf("schema %s is invalid: %w", source, err)
 		}
-		if err := k.WriteSchema(ctx, typeName, data); err != nil {
+		if err := k.WriteSchema(ctx, typeName, data, keg.SchemaWriteOptions{ExpectedHash: expectedHash}); err != nil {
 			return fmt.Errorf("unable to save edited schema %q: %w", typeName, err)
 		}
+		expectedHash = keg.DocumentHash(data)
 		return nil
 	}
 
@@ -78,7 +101,9 @@ func (t *Tap) EditSchema(ctx context.Context, opts EditSchemaOptions) error {
 			return fmt.Errorf("unable to read piped input: %w", readErr)
 		}
 		if len(bytes.TrimSpace(pipedRaw)) > 0 {
-			if bytes.Equal(pipedRaw, originalRaw) {
+			// Compare with the modeline stripped: piping back exactly what an
+			// editor was shown is a no-op, not an edit.
+			if bytes.Equal(schemas.StripModeline(pipedRaw), originalRaw) {
 				return nil
 			}
 			return saveSchema(pipedRaw, "from stdin")
@@ -89,7 +114,9 @@ func (t *Tap) EditSchema(ctx context.Context, opts EditSchemaOptions) error {
 	if err != nil {
 		return fmt.Errorf("unable to create temp schema file path: %w", err)
 	}
-	initialRaw := ensureYAMLSchemaModeline(originalRaw, schemaDefinitionSchemaModeline)
+	// Replace rather than ensure: a stored schema may already carry a modeline
+	// from an older build, and the editor wants the copy this binary shipped.
+	initialRaw := schemas.ReplaceModeline(originalRaw, schemas.Modeline(t.Runtime, schemas.KegSchemaDefinition))
 	if err := t.Runtime.WriteFile(tempPath, initialRaw, 0o600); err != nil {
 		return fmt.Errorf("unable to write temp schema file: %w", err)
 	}
@@ -98,7 +125,7 @@ func (t *Tap) EditSchema(ctx context.Context, opts EditSchemaOptions) error {
 	}()
 
 	if err := editWithLiveSaves(ctx, t.Runtime, tempPath, nil, func(editedRaw []byte) error {
-		if bytes.Equal(editedRaw, originalRaw) {
+		if bytes.Equal(schemas.StripModeline(editedRaw), originalRaw) {
 			return nil
 		}
 		return saveSchema(editedRaw, "after editing")
@@ -118,7 +145,7 @@ func (t *Tap) CreateSchema(ctx context.Context, opts SchemaOptions) error {
 		return fmt.Errorf("schema type is required in schema document: %w", err)
 	}
 
-	k, err := t.resolveKegForRole(ctx, opts.KegTargetOptions, FlightRoleEditor)
+	k, err := t.resolveKegForRole(ctx, opts.KegTargetOptions, FlightRoleAdmin)
 	if err != nil {
 		return fmt.Errorf("unable to open keg: %w", err)
 	}
@@ -126,11 +153,11 @@ func (t *Tap) CreateSchema(ctx context.Context, opts SchemaOptions) error {
 }
 
 func (t *Tap) DeleteSchema(ctx context.Context, opts SchemaOptions) error {
-	k, err := t.resolveKegForRole(ctx, opts.KegTargetOptions, FlightRoleEditor)
+	k, err := t.resolveKegForRole(ctx, opts.KegTargetOptions, FlightRoleAdmin)
 	if err != nil {
 		return fmt.Errorf("unable to open keg: %w", err)
 	}
-	return k.DeleteSchema(ctx, opts.Type)
+	return k.DeleteSchema(ctx, opts.Type, keg.SchemaWriteOptions{ExpectedHash: opts.ExpectedHash})
 }
 
 func (t *Tap) Validate(ctx context.Context, opts ValidateOptions) ([]keg.SchemaValidationResult, error) {
@@ -246,33 +273,6 @@ func validateEditedSchema(typeName string, data []byte) error {
 	return nil
 }
 
-func ensureYAMLSchemaModeline(data []byte, modeline string) []byte {
-	if hasYAMLSchemaModeline(data) {
-		return data
-	}
-	out := make([]byte, 0, len(modeline)+len(data))
-	out = append(out, modeline...)
-	out = append(out, data...)
-	return out
-}
-
-func hasYAMLSchemaModeline(data []byte) bool {
-	for _, line := range bytes.Split(data, []byte("\n")) {
-		trimmed := bytes.TrimSpace(line)
-		if len(trimmed) == 0 {
-			continue
-		}
-		if bytes.HasPrefix(trimmed, []byte("# yaml-language-server: $schema=")) {
-			return true
-		}
-		if bytes.HasPrefix(trimmed, []byte("#")) {
-			continue
-		}
-		return false
-	}
-	return false
-}
-
 func schemaEditorTempFilePrefix(k keg.Keg, typeName string) string {
 	namespace, kegName := schemaEditorTempNameParts(k)
 	return fmt.Sprintf("tap-schema-edit-%s-%s-%s-",
@@ -283,22 +283,7 @@ func schemaEditorTempFilePrefix(k keg.Keg, typeName string) string {
 }
 
 func schemaEditorTempNameParts(k keg.Keg) (string, string) {
-	namespace, kegName := logicalKegTempNameParts(k)
-	if namespace != "local" || kegName != "keg" || k == nil || k.Target() == nil {
-		return namespace, kegName
-	}
-
-	file := strings.TrimSpace(k.Target().File)
-	if file == "" {
-		return namespace, kegName
-	}
-	clean := filepath.Clean(file)
-	name := strings.TrimSpace(filepath.Base(clean))
-	parent := strings.TrimSpace(filepath.Base(filepath.Dir(clean)))
-	if strings.HasPrefix(parent, "@") && len(parent) > 1 && name != "" && name != "." {
-		return strings.TrimPrefix(parent, "@"), name
-	}
-	return namespace, kegName
+	return logicalKegTempNameParts(k)
 }
 
 func readAllSchemaInput(r io.Reader) ([]byte, error) {

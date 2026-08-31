@@ -66,9 +66,9 @@ func TestHubFlights_ClientPaths(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "admin", created.Cover[0].Role)
 
-	_, err = tapper.UpdateHubFlight(context.Background(), srv.URL, "tok", "foldwise", "agent-work", *created)
+	_, err = tapper.UpdateHubFlight(context.Background(), srv.URL, "tok", "foldwise", "agent-work", *created, created.Hash)
 	require.NoError(t, err)
-	require.NoError(t, tapper.DeleteHubFlight(context.Background(), srv.URL, "tok", "foldwise", "agent-work"))
+	require.NoError(t, tapper.DeleteHubFlight(context.Background(), srv.URL, "tok", "foldwise", "agent-work", created.Hash))
 	require.Equal(t, "Bearer tok", gotAuth)
 	require.Equal(t, []string{
 		"GET /api/v1/flights",

@@ -231,6 +231,22 @@ func extractMarkdownTitleAndLead(data []byte) (string, string) {
 	return title, ""
 }
 
+// ExplicitMarkdownTitle returns the first explicit Markdown H1 after optional
+// YAML frontmatter. It deliberately does not use ParseContent's fallback to a
+// first non-empty line: create APIs use this helper when their contract
+// requires the caller to supply an actual "# Title" heading.
+func ExplicitMarkdownTitle(data []byte) string {
+	_, body := extractMarkdownFrontmatter(data)
+	scanner := bufio.NewScanner(bytes.NewReader(body))
+	for scanner.Scan() {
+		trimmed := strings.TrimSpace(scanner.Text())
+		if title, ok := strings.CutPrefix(trimmed, "# "); ok {
+			return strings.TrimSpace(title)
+		}
+	}
+	return ""
+}
+
 // extractRSTTitleAndLead detects an RST-style title: first line text and the
 // second line consisting entirely of '=' or '-' (a common RST underline).
 // The lead is the first paragraph after the underline block. If the RST-style

@@ -102,6 +102,11 @@ written directly instead of opening an editor.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			applyKegTargetProfile(deps, &opts.KegTargetOptions)
 			opts.Type = args[0]
+			hash, err := deps.Tap.SchemaHash(cmd.Context(), tapper.SchemaOptions{KegTargetOptions: opts.KegTargetOptions, Type: opts.Type})
+			if err != nil {
+				return err
+			}
+			opts.ExpectedHash = hash
 			opts.Stream = deps.Runtime.Stream()
 			return deps.Tap.EditSchema(cmd.Context(), opts)
 		},
@@ -120,6 +125,11 @@ func newSchemaRmCmd(deps *Deps) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			applyKegTargetProfile(deps, &opts.KegTargetOptions)
 			opts.Type = args[0]
+			hash, err := deps.Tap.SchemaHash(cmd.Context(), opts)
+			if err != nil {
+				return err
+			}
+			opts.ExpectedHash = hash
 			return deps.Tap.DeleteSchema(cmd.Context(), opts)
 		},
 	}

@@ -40,6 +40,18 @@ func TestHookPreToolUse_GuardsCommands(t *testing.T) {
 		{name: "boolean pipeline", command: "printf ok && keg list", deny: true},
 		{name: "nested shell", command: `sh -c 'tap list | head'`, deny: true},
 		{name: "double quoted nested shell", command: `bash -c "keg cat 1"`, deny: true},
+		{name: "reserved flight assignment", command: "TAP_FLIGHT=@team/+other codex", deny: true},
+		{name: "reserved agent export", command: "export TAP_AGENT=other", deny: true},
+		{name: "reserved flight unset", command: "unset TAP_FLIGHT", deny: true},
+		{name: "reserved flight env unset", command: "env --unset TAP_FLIGHT codex", deny: true},
+		{name: "user config redirect", command: "printf x > ~/.config/tapper/config.yaml", deny: true},
+		{name: "project config write", command: "touch .tapper/config.yaml", deny: true},
+		{name: "obsolete local flight manifest write", command: "cp next.yaml /tmp/kegs/flights.d/dev.yaml", deny: false},
+		{name: "obsolete local flight manifest rename", command: "mv /tmp/kegs/flights.d/dev.yaml /tmp/dev.yaml", deny: false},
+		{name: "flight patch", command: "apply_patch '*** Update File: .tapper/config.yaml'", deny: true},
+		{name: "anchored patch only", command: "printf 'example *** Update File: .tapper/config.yaml'", deny: false},
+		{name: "sed in place", command: "sed -i.bak s/x/y/ .tapper/config.yaml", deny: true},
+		{name: "sed read only", command: "sed -n 1,2p .tapper/config.yaml", deny: false},
 		{name: "help long", command: "tap --help", deny: false},
 		{name: "help short", command: "keg -h", deny: false},
 		{name: "version long", command: "tap --version", deny: false},
@@ -47,13 +59,16 @@ func TestHookPreToolUse_GuardsCommands(t *testing.T) {
 		{name: "completion", command: "tap completion zsh", deny: false},
 		{name: "quoted command text", command: `echo "tap list && keg cat 1"`, deny: false},
 		{name: "substring", command: "taproom list", deny: false},
+		{name: "config read", command: "cat ~/.config/tapper/config.yaml", deny: false},
+		{name: "flight read", command: "rg title /tmp/kegs/flights.d/dev.yaml", deny: false},
+		{name: "copy config out is read", command: "cp ~/.config/tapper/config.yaml /tmp/config-copy.yaml", deny: false},
 		{name: "lowercase assignment is not shell env prefix", command: "foo=bar tap list", deny: false},
 		{name: "unbalanced quote fails open", command: `echo 'tap list`, deny: false},
 		{name: "shell recursion is one level", command: `sh -c "sh -c 'tap list'"`, deny: false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			require.Equal(t, tc.deny, hookCommandDenied(tc.command, 0))
+			require.Equal(t, tc.deny, hookCommandDeniedWithRuntime(nil, tc.command, 0))
 		})
 	}
 }
@@ -66,7 +81,13 @@ func TestHookPreToolUse_Protocol(t *testing.T) {
 		exitCode int
 		deny     bool
 	}{
-		{name: "deny", input: `{"hook_event_name":"PreToolUse","tool_input":{"command":"tap list"}}`, deny: true},
+		{name: "deny", input: `{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"tap list"}}`, deny: true},
+		{name: "deny direct write", input: `{"hook_event_name":"PreToolUse","tool_name":"Write","tool_input":{"file_path":"/home/testuser/.config/tapper/config.yaml","content":"flight: +other"}}`, deny: true},
+		{name: "deny direct patch", input: `{"hook_event_name":"PreToolUse","tool_name":"apply_patch","tool_input":{"patch":"*** Update File: .tapper/config.yaml\n@@"}}`, deny: true},
+		{name: "allow direct read", input: `{"hook_event_name":"PreToolUse","tool_name":"Read","tool_input":{"file_path":"/home/testuser/.config/tapper/config.yaml"}}`},
+		{name: "allow grep bypass", input: `{"hook_event_name":"PreToolUse","tool_name":"Grep","tool_input":{"path":"/home/testuser/.config/tapper/config.yaml","pattern":"flight"}}`},
+		{name: "allow glob bypass", input: `{"hook_event_name":"PreToolUse","tool_name":"Glob","tool_input":{"path":"/home/testuser/kegs/flights.d"}}`},
+		{name: "allow tapper mcp diff content", input: `{"hook_event_name":"PreToolUse","tool_name":"mcp__tapper__edit","tool_input":{"keg":"@local/dev","content":"*** Update File: .tapper/config.yaml"}}`},
 		{name: "allow", input: `{"tool_input":{"command":"tap --help"}}`},
 		{name: "missing tool input", input: `{}`},
 		{name: "missing command", input: `{"tool_input":{}}`},
@@ -102,8 +123,24 @@ func TestHookPreToolUse_Protocol(t *testing.T) {
 			require.NoError(t, json.Unmarshal(res.Stdout, &output))
 			require.Equal(t, "PreToolUse", output.HookSpecificOutput.HookEventName)
 			require.Equal(t, "deny", output.HookSpecificOutput.PermissionDecision)
+			require.Contains(t, string(res.Stdout), "recognized direct configuration mutation")
 		})
 	}
+}
+
+func TestHookPreToolUse_ProtectsSymlinksAndAtomicRenames(t *testing.T) {
+	sb := newTestSandbox(t)
+	rt := sb.Runtime()
+	require.NoError(t, rt.Mkdir("/home/testuser/.tapper", 0o755, true))
+	require.NoError(t, rt.WriteFile("/home/testuser/.tapper/config.yaml", []byte("flight: +root\n"), 0o644))
+	require.NoError(t, rt.Symlink("/home/testuser/.tapper/config.yaml", "/home/testuser/config-link"))
+
+	require.True(t, hookCommandDeniedWithRuntime(rt, "sed -i s/root/child/ /home/testuser/config-link", 0),
+		"a final-component symlink to protected configuration must be guarded")
+	require.True(t, hookCommandDeniedWithRuntime(rt, "mv /tmp/config.next /home/testuser/.tapper/config.yaml", 0),
+		"an atomic rename into protected configuration must be guarded")
+	require.False(t, hookCommandDeniedWithRuntime(rt, "cat /home/testuser/config-link", 0),
+		"reading through the same symlink remains allowed")
 }
 
 func TestHookSessionStart_EmitsOrientationForLifecycleSources(t *testing.T) {
@@ -147,7 +184,7 @@ func TestHookSessionStart_FailsOpen(t *testing.T) {
 	require.Contains(t, string(res.Stderr), "allowing session startup")
 }
 
-func TestHookCommands_ProfileGateAndHidden(t *testing.T) {
+func TestHookCommandsAreHiddenOnTap(t *testing.T) {
 	t.Parallel()
 	sb := newTestSandbox(t)
 	tapRoot := NewRootCmd(&Deps{Profile: TapProfile(), Runtime: sb.Runtime()})
@@ -156,8 +193,6 @@ func TestHookCommands_ProfileGateAndHidden(t *testing.T) {
 	require.True(t, hook.Hidden)
 	require.True(t, commandNames(t, sb.Runtime(), TapProfile())["integrate"])
 	require.True(t, commandNames(t, sb.Runtime(), TapProfile())["hook"])
-	require.False(t, commandNames(t, sb.Runtime(), KegProfile())["integrate"])
-	require.False(t, commandNames(t, sb.Runtime(), KegProfile())["hook"])
 }
 
 func TestHookCommands_BypassRootInitialization(t *testing.T) {

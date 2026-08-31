@@ -135,17 +135,6 @@ func TestEditorTempFilePrefix_MetadataUsesSameLogicalIdentity(t *testing.T) {
 	require.Equal(t, "tap-meta-jlrickert-example-2-", got)
 }
 
-func TestEditorTempFilePrefix_FileTargetDoesNotUsePathSegments(t *testing.T) {
-	t.Parallel()
-	k := kegWithTarget(&keg.Target{File: "/Users/jlrickert/kegs/example"})
-
-	got := editorTempFilePrefix(k, keg.NodeId{ID: 2}, "edit")
-
-	require.Equal(t, "tap-edit-local-keg-2-", got)
-	require.NotContains(t, got, "jlrickert")
-	require.NotContains(t, got, "example")
-}
-
 func TestEditorTempFilePrefix_SanitizesUnsafeCharacters(t *testing.T) {
 	t.Parallel()
 	k := kegWithTarget(&keg.Target{
@@ -192,9 +181,9 @@ func TestEditorTempFilePrefix_Schema(t *testing.T) {
 	require.Equal(t, "tap-schema-edit-jlrickert-example-task-", got)
 }
 
-func TestEditorTempFilePrefix_SchemaUsesLocalHubPathIdentity(t *testing.T) {
+func TestEditorTempFilePrefix_SchemaUsesOrdinaryLocalNamespaceIdentity(t *testing.T) {
 	t.Parallel()
-	k := kegWithTarget(&keg.Target{File: "/home/testuser/kegs/@local/example"})
+	k := kegWithTarget(&keg.Target{Namespace: "local", KegName: "example"})
 
 	got := schemaEditorTempFilePrefix(k, "task")
 

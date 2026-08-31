@@ -11,22 +11,27 @@ import (
 // when writing a response, and RemoteKeg maps (code, status) back to the
 // sentinel when decoding one. Keep the two sides symmetric.
 const (
-	RemoteCodeNotFound      = "NOT_FOUND"
-	RemoteCodeExist         = "EXIST"
-	RemoteCodeDestExists    = "DEST_EXISTS"
-	RemoteCodeConflict      = "CONFLICT"
-	RemoteCodeInvalid       = "INVALID"
-	RemoteCodeSchemaInvalid = "SCHEMA_INVALID"
-	RemoteCodeInvalidImage  = "INVALID_IMAGE"
-	RemoteCodeLockMismatch  = "LOCK_MISMATCH"
-	RemoteCodeNotLocked     = "NOT_LOCKED"
-	RemoteCodeLock          = "LOCK"
-	RemoteCodeLockTimeout   = "LOCK_TIMEOUT"
-	RemoteCodeNotSupported  = "NOT_SUPPORTED"
-	RemoteCodeUnauthorized  = "UNAUTHORIZED"
-	RemoteCodeForbidden     = "FORBIDDEN"
-	RemoteCodeBadRequest    = "BAD_REQUEST"
-	RemoteCodeInternal      = "INTERNAL"
+	RemoteCodeNotFound                   = "NOT_FOUND"
+	RemoteCodeExist                      = "EXIST"
+	RemoteCodeDestExists                 = "DEST_EXISTS"
+	RemoteCodeConflict                   = "CONFLICT"
+	RemoteCodePreconditionRequired       = "PRECONDITION_REQUIRED"
+	RemoteCodeInvalid                    = "INVALID"
+	RemoteCodeSchemaInvalid              = "SCHEMA_INVALID"
+	RemoteCodeInvalidImage               = "INVALID_IMAGE"
+	RemoteCodeLockMismatch               = "LOCK_MISMATCH"
+	RemoteCodeNotLocked                  = "NOT_LOCKED"
+	RemoteCodeLock                       = "LOCK"
+	RemoteCodeLockTimeout                = "LOCK_TIMEOUT"
+	RemoteCodeNotSupported               = "NOT_SUPPORTED"
+	RemoteCodeUnauthorized               = "UNAUTHORIZED"
+	RemoteCodeForbidden                  = "FORBIDDEN"
+	RemoteCodeBadRequest                 = "BAD_REQUEST"
+	RemoteCodeOrientationStale           = "ORIENTATION_STALE"
+	RemoteCodeOrientationDenied          = "ORIENTATION_DENIED"
+	RemoteCodeOrientationUnavailable     = "ORIENTATION_UNAVAILABLE"
+	RemoteCodeOrientationRootUnavailable = "ORIENTATION_ROOT_UNAVAILABLE"
+	RemoteCodeInternal                   = "INTERNAL"
 )
 
 // remoteCodeTable pairs each sentinel with its wire code and HTTP status.
@@ -38,6 +43,7 @@ var remoteCodeTable = []struct {
 	{ErrNotExist, RemoteCodeNotFound, http.StatusNotFound},
 	{ErrDestinationExists, RemoteCodeDestExists, http.StatusConflict},
 	{ErrExist, RemoteCodeExist, http.StatusConflict},
+	{ErrPreconditionRequired, RemoteCodePreconditionRequired, http.StatusPreconditionRequired},
 	{ErrConflict, RemoteCodeConflict, http.StatusConflict},
 	{ErrSchemaInvalid, RemoteCodeSchemaInvalid, http.StatusBadRequest},
 	{ErrInvalidImage, RemoteCodeInvalidImage, http.StatusBadRequest},
@@ -47,11 +53,19 @@ var remoteCodeTable = []struct {
 	{ErrLockTimeout, RemoteCodeLockTimeout, http.StatusConflict},
 	{ErrLock, RemoteCodeLock, http.StatusConflict},
 	{ErrNotSupported, RemoteCodeNotSupported, http.StatusNotImplemented},
+	{ErrOrientationStale, RemoteCodeOrientationStale, http.StatusConflict},
+	{ErrOrientationDenied, RemoteCodeOrientationDenied, http.StatusForbidden},
+	{ErrOrientationUnavailable, RemoteCodeOrientationUnavailable, http.StatusServiceUnavailable},
+	{ErrOrientationRootUnavailable, RemoteCodeOrientationRootUnavailable, http.StatusGone},
 }
 
 // RemoteErrorCode maps err to its wire (code, status). Unrecognized errors
 // map to (INTERNAL, 500).
 func RemoteErrorCode(err error) (code string, status int) {
+	var conflict *PreconditionConflictError
+	if errors.As(err, &conflict) {
+		return RemoteCodeConflict, http.StatusPreconditionFailed
+	}
 	for _, entry := range remoteCodeTable {
 		if errors.Is(err, entry.err) {
 			return entry.code, entry.status

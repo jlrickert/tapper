@@ -34,7 +34,7 @@ func newSchemaSelectionKeg(t *testing.T) (*keg.LocalKeg, context.Context) {
 	t.Helper()
 	fx := NewSandbox(t)
 	ctx := fx.Context()
-	k := keg.NewLocalKeg(keg.NewMemoryRepo(fx.Runtime()), fx.Runtime())
+	k := keg.NewLocalKeg(newTestMemoryRepo(fx.Runtime()), fx.Runtime())
 	require.NoError(t, k.Init(ctx))
 	require.NoError(t, k.CreateSchema(ctx, "task", []byte(selectionSchemaTask)))
 	require.NoError(t, k.CreateSchema(ctx, "note", []byte(selectionSchemaNote)))
@@ -55,7 +55,7 @@ func TestExplicitSchemaSelectionStrictModeMatrix(t *testing.T) {
 				}
 				t.Run(name, func(t *testing.T) {
 					k, ctx := newSchemaSelectionKeg(t)
-					require.NoError(t, k.UpdateConfig(ctx, func(cfg *keg.Config) {
+					require.NoError(t, k.UpdateSettings(ctx, func(cfg *keg.Settings) {
 						cfg.SchemaPolicy.Strict = strict
 						cfg.SchemaPolicy.Human = mode
 						cfg.SchemaPolicy.Agent = mode
@@ -84,15 +84,19 @@ func TestExplicitSchemaSelectionPersistsReplacesAndRejectsConflicts(t *testing.T
 	require.True(t, ok)
 	require.Equal(t, "task", typeName)
 
-	_, err = k.UpdateNode(ctx, keg.NodeUpdateOptions{ID: created.ID, Schema: "note", Content: []byte("# Reclassified\n")})
+	view, err := k.ReadNode(ctx, created.ID)
+	require.NoError(t, err)
+	_, err = k.UpdateNode(ctx, keg.NodeUpdateOptions{ID: created.ID, Schema: "note", Content: []byte("# Reclassified\n"), ExpectedHash: view.Hash()})
 	require.NoError(t, err)
 	meta, err = k.GetMeta(ctx, created.ID)
 	require.NoError(t, err)
 	typeName, _ = meta.Get("type")
 	require.Equal(t, "note", typeName)
 
+	view, err = k.ReadNode(ctx, created.ID)
+	require.NoError(t, err)
 	_, err = k.UpdateNodes(ctx, []keg.NodeUpdateOptions{{
-		ID: created.ID, Schema: "note", Meta: []byte("type: task\n"), HasMeta: true,
+		ID: created.ID, Schema: "note", Meta: []byte("type: task\n"), HasMeta: true, ExpectedHash: view.Hash(),
 	}})
 	require.ErrorIs(t, err, keg.ErrSchemaInvalid)
 	require.Contains(t, err.Error(), "selected schema \"note\" conflicts with metadata type \"task\"")
@@ -124,9 +128,13 @@ func TestSchemaSelectionBatchFailureIsAtomic(t *testing.T) {
 	require.NoError(t, err)
 	before, err := k.DexArtifacts(ctx)
 	require.NoError(t, err)
+	one, err := k.ReadNode(ctx, created[0].ID)
+	require.NoError(t, err)
+	two, err := k.ReadNode(ctx, created[1].ID)
+	require.NoError(t, err)
 	_, err = k.UpdateNodes(ctx, []keg.NodeUpdateOptions{
-		{ID: created[0].ID, Schema: "task", Content: []byte("# Changed\n"), HasContent: true, SnapshotBefore: true},
-		{ID: created[1].ID, Content: []byte("# Missing selection\n"), HasContent: true, SnapshotBefore: true},
+		{ID: created[0].ID, Schema: "task", Content: []byte("# Changed\n"), HasContent: true, SnapshotBefore: true, ExpectedHash: one.Hash()},
+		{ID: created[1].ID, Content: []byte("# Missing selection\n"), HasContent: true, SnapshotBefore: true, ExpectedHash: two.Hash()},
 	})
 	require.ErrorIs(t, err, keg.ErrSchemaInvalid)
 	var batchErr *keg.BatchMutationError
@@ -143,9 +151,9 @@ func TestSchemaSelectionBatchFailureIsAtomic(t *testing.T) {
 	require.Equal(t, before.Indexes, after.Indexes)
 }
 
-func TestStrictSchemaSelectionExemptsMoveRemoveAndRedirect(t *testing.T) {
+func TestStrictSchemaSelectionExemptsMoveAndRemove(t *testing.T) {
 	k, ctx := newSchemaSelectionKeg(t)
-	require.NoError(t, k.UpdateConfig(ctx, func(cfg *keg.Config) {
+	require.NoError(t, k.UpdateSettings(ctx, func(cfg *keg.Settings) {
 		cfg.SchemaPolicy = &keg.SchemaPolicy{Strict: true, Human: keg.ValidationModeBlock}
 	}))
 	created, err := k.CreateNodes(ctx, []keg.NodeCreate{
@@ -155,20 +163,13 @@ func TestStrictSchemaSelectionExemptsMoveRemoveAndRedirect(t *testing.T) {
 	require.NoError(t, err)
 
 	moved := keg.NodeId{ID: 20}
-	_, err = k.Move(ctx, created[1].ID, moved)
+	_, err = k.Move(ctx, moveOptions(t, ctx, k, created[1].ID, moved))
 	require.NoError(t, err)
 	content, err := k.GetContent(ctx, created[0].ID)
 	require.NoError(t, err)
 	require.Contains(t, string(content), "../20")
 
-	redirected, err := k.ReplaceNodesWithRedirects(ctx, []keg.NodeRedirect{{
-		ID: created[0].ID, Target: "keg:archive", TargetID: keg.NodeId{ID: 7},
-	}})
-	require.NoError(t, err)
-	require.Nil(t, redirected.Failure)
-	require.Equal(t, []keg.NodeId{created[0].ID}, redirected.Replaced)
-
-	_, err = k.Remove(ctx, moved)
+	_, err = k.Remove(ctx, removeOptions(t, ctx, k, moved))
 	require.NoError(t, err)
 }
 
@@ -176,7 +177,7 @@ func TestStrictSchemaSelectionRejectsLegacyMetadataMutation(t *testing.T) {
 	k, ctx := newSchemaSelectionKeg(t)
 	created, err := k.Create(ctx, &keg.CreateOptions{Schema: "note", Body: []byte("# Typed\n")})
 	require.NoError(t, err)
-	require.NoError(t, k.UpdateConfig(ctx, func(cfg *keg.Config) {
+	require.NoError(t, k.UpdateSettings(ctx, func(cfg *keg.Settings) {
 		cfg.SchemaPolicy = &keg.SchemaPolicy{Strict: true, Human: keg.ValidationModeBlock}
 	}))
 
@@ -191,7 +192,7 @@ func TestStrictSchemaSelectionRejectsLegacyMetadataMutation(t *testing.T) {
 func TestSchemaAwareDirectWritesPersistReplaceAndMutateAtomically(t *testing.T) {
 	k, ctx := newSchemaSelectionKeg(t)
 	humanCtx := keg.WithValidationActor(ctx, keg.ValidationActorHuman)
-	require.NoError(t, k.UpdateConfig(ctx, func(cfg *keg.Config) {
+	require.NoError(t, k.UpdateSettings(ctx, func(cfg *keg.Settings) {
 		cfg.SchemaPolicy = &keg.SchemaPolicy{Strict: true, Human: keg.ValidationModeBlock}
 	}))
 	created, err := k.Create(humanCtx, &keg.CreateOptions{Schema: "note", Body: []byte("# Typed\n")})
@@ -241,7 +242,7 @@ func TestSchemaAwareDirectWritesPersistReplaceAndMutateAtomically(t *testing.T) 
 func TestValidateNodePayloadProjectsSchemaWithoutPersistence(t *testing.T) {
 	k, ctx := newSchemaSelectionKeg(t)
 	humanCtx := keg.WithValidationActor(ctx, keg.ValidationActorHuman)
-	require.NoError(t, k.UpdateConfig(ctx, func(cfg *keg.Config) {
+	require.NoError(t, k.UpdateSettings(ctx, func(cfg *keg.Settings) {
 		cfg.SchemaPolicy = &keg.SchemaPolicy{Strict: true, Human: keg.ValidationModeBlock}
 	}))
 	created, err := k.Create(humanCtx, &keg.CreateOptions{Schema: "note", Body: []byte("# Stored\n")})

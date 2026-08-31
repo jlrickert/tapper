@@ -38,6 +38,9 @@ type Deps struct {
 
 	Tap *tapper.Tap
 	Err error
+	// TapFactory constructs the command's Tap instance. Production leaves this
+	// nil and uses tapper.NewTap; tests inject repository-independent fixtures.
+	TapFactory func(tapper.TapOptions) (*tapper.Tap, error)
 
 	// AuthLoginDeviceFn is the seam through which `tap auth login` drives the
 	// RFC 8628 device authorization grant — the single browser-based login
@@ -127,7 +130,11 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			tap, err := tapper.NewTap(tapper.TapOptions{
+			factory := deps.TapFactory
+			if factory == nil {
+				factory = tapper.NewTap
+			}
+			tap, err := factory(tapper.TapOptions{
 				Root:       wd,
 				ConfigPath: deps.ConfigPath,
 				Runtime:    rt,
@@ -257,19 +264,16 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 		return out, cobra.ShellCompDirectiveNoFileComp
 	})
 	if deps.Profile.withDefaults().AllowKegAliasFlags {
-		// Keg-resolution flags (global): --keg is the selector (a bare name, an
-		// @namespace/keg reference, or a path to a local keg); --namespace and
-		// --hub are component overrides that compose with a bare --keg. The
-		// disk-discovery selectors (--project/--cwd) are gone — a local keg
-		// resolves through the namespace chain like a remote one, and a project's
-		// keg is set once with `tap use`.
+		// Keg-resolution flags (global): --keg is the selector (a bare name or an
+		// @namespace/keg reference); --namespace and --hub are component overrides
+		// that compose with a bare --keg.
 		cmd.PersistentFlags().StringVarP(&deps.KegTargetOptions.Keg, "keg", "k", "", "keg to use: a bare name or an @namespace/keg reference")
 		mustRegisterFlagCompletion(cmd, "keg", kegFlagCompletionFunc(deps))
 		cmd.PersistentFlags().StringVar(&deps.KegTargetOptions.Namespace, "namespace", "", "namespace to resolve a bare --keg in (overrides defaultNamespace)")
 		mustRegisterFlagCompletion(cmd, "namespace", namespaceFlagCompletionFunc(deps))
 		cmd.PersistentFlags().StringVar(&deps.KegTargetOptions.Hub, "hub", "", "hub to resolve the keg on (overrides namespace→hub resolution)")
 		mustRegisterFlagCompletion(cmd, "hub", hubFlagCompletionFunc(deps))
-		cmd.PersistentFlags().StringVar(&deps.KegTargetOptions.Flight, "flight", "", "flight context for orient/MCP; direct CLI access uses keg auth")
+		cmd.PersistentFlags().StringVar(&deps.KegTargetOptions.Flight, "flight", "", "flight context for launch/orient/MCP; direct CLI access uses keg auth")
 		mustRegisterFlagCompletion(cmd, "flight", flightFlagCompletionFunc(deps))
 		// A flight is not a target selector, so it composes with the single-keg
 		// selectors rather than excluding them. Direct CLI commands bypass flight
@@ -287,7 +291,6 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 		NewArchiveCmd(deps),
 		NewFileCmd(deps),
 		NewFlightCmd(deps),
-		NewGraphCmd(deps),
 		NewGrepCmd(deps),
 		NewHubCmd(deps),
 		NewImageCmd(deps),
@@ -327,14 +330,6 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 			configCmd,
 		)
 	}
-	// IncludeRepoCommand gates the keg-creation surface. `tap keg create` is the
-	// canonical command (added inside NewKegCmd under the same flag); `tap init`
-	// remains here as a hidden back-compat alias.
-	var initCmd *cobra.Command
-	if deps.Profile.IncludeRepoCommand {
-		initCmd = newInitCompatCmd(deps)
-		subcommands = append(subcommands, initCmd)
-	}
 	cmd.AddCommand(subcommands...)
 	// The top-level `config` command defines its own local --project/--user
 	// flags; strip the inherited keg-target entries (--keg/--namespace/--hub)
@@ -342,14 +337,6 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 	if configCmd != nil {
 		filterRepoTargetFlagsInHelp(configCmd)
 	}
-	// `tap init` re-binds --keg/--project/--path/--cwd locally with
-	// create-time semantics. Strip the inherited keg-target persistent
-	// flags from its "Global Flags" help section so users don't see two
-	// entries for each name.
-	if initCmd != nil && deps.Profile.withDefaults().AllowKegAliasFlags {
-		filterRepoTargetFlagsInHelp(initCmd)
-	}
-
 	return cmd
 }
 
@@ -442,7 +429,11 @@ func completionTap(deps *Deps) (*tapper.Tap, error) {
 	if err != nil {
 		return nil, err
 	}
-	return tapper.NewTap(tapper.TapOptions{
+	factory := deps.TapFactory
+	if factory == nil {
+		factory = tapper.NewTap
+	}
+	return factory(tapper.TapOptions{
 		Root:       wd,
 		ConfigPath: deps.ConfigPath,
 		Runtime:    deps.Runtime,
@@ -474,9 +465,6 @@ func completionBareNamespace(rt *toolkit.Runtime, cfg *tapper.Config) string {
 		if entry, ok := cfg.Hub(hubName); ok {
 			if ns := strings.TrimSpace(entry.DefaultNamespace); ns != "" {
 				return ns
-			}
-			if strings.TrimSpace(entry.Kind) == tapper.HubKindLocal {
-				return tapper.LocalHubName
 			}
 		}
 	}

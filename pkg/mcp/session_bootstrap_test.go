@@ -13,23 +13,8 @@ import (
 	"github.com/jlrickert/tapper/pkg/tapper"
 )
 
-// A session that can reach no flights at all runs on the synthetic bootstrap
-// flight instead of the select-a-flight recovery mode: telling a user to pick
-// from an empty list is a dead end, so the session instead carries the
-// authority to create the first flight and the first KEG.
-
-// bootstrapTools is every tool a bootstrap session may see. The bootstrap
-// flight carries both manage_flights and manage_kegs, so nothing is filtered
-// out by capability on top of the allowlist.
-var bootstrapTools = []string{
-	"orient", "list_flights", "flight_show", "auth_info",
-	"flight_create", "flight_edit", "flight_delete", "keg_create",
-}
-
 // flightSection returns the "## Flight" block of an orientation payload, which
-// is where the session declares its own mode. Assertions must scope to it: the
-// canonical guidance appended to every payload also describes bootstrap and
-// recovery, so a whole-payload substring check passes in every mode.
+// is where the session declares its own mode.
 func flightSection(t *testing.T, payload string) string {
 	t.Helper()
 	_, rest, ok := strings.Cut(payload, "## Flight\n")
@@ -38,74 +23,139 @@ func flightSection(t *testing.T, payload string) string {
 	return section
 }
 
-// newBootstrapSession builds the stdio surface over a configured but
-// flight-less machine: the hub's basePath points at a directory with no
-// flights.d, so discovery legitimately reports zero flights.
-func newBootstrapSession(t *testing.T) (*sdkmcp.ClientSession, context.Context, *toolkit.Runtime) {
+// newNoFlightSession builds the stdio surface over an authenticated remote Hub
+// with no flights, so discovery legitimately reports zero flights.
+func newNoFlightSession(t *testing.T) (*sdkmcp.ClientSession, context.Context, *toolkit.Runtime) {
 	t.Helper()
 	ctx := context.Background()
 	sb := newTestSandbox(t)
 	require.NoError(t, sb.Setwd("/home/testuser"))
 	rt := sb.Runtime()
-	sb.MustWriteFile("~/.config/tapper/config.yaml", []byte(`defaultKeg: personal
-fallbackNamespace: local
-hubs:
-  home:
-    kind: local
-    defaultNamespace: local
-    basePath: ~/empty-kegs
-`), 0o644)
-
-	tap, err := tapper.NewTap(tapper.TapOptions{Runtime: rt})
-	require.NoError(t, err)
+	installOrientationTestHub(t, rt)
+	writeUserFlight(t, rt, "")
+	tap := newMemoryTap(t, ctx, rt)
 	srv := mcp.NewServer(tap, "test", mcp.KegDefaults{})
 	return connectFlightSession(t, ctx, srv, nil), ctx, rt
 }
 
-func TestMCP_NoFlightsAnywhereEntersBootstrapMode(t *testing.T) {
+func TestMCP_NoFlightsAnywhereUsesIdentityFullAccess(t *testing.T) {
 	t.Parallel()
-	session, ctx, _ := newBootstrapSession(t)
+	session, ctx, _ := newNoFlightSession(t)
 
-	payload := session.InitializeResult().Instructions
+	requireConnectionInstructions(t, session.InitializeResult().Instructions)
+	payload := callOrient(t, ctx, session)
 	flight := flightSection(t, payload)
-	require.Contains(t, flight, "temporary bootstrap flight")
-	require.NotContains(t, flight, "recovery mode",
-		"bootstrap must not present itself as the select-a-flight recovery mode")
-	require.Contains(t, flight, "tap bootstrap")
+	require.Contains(t, flight, "No flight was provided")
+	require.Contains(t, flight, "identity-authorized full access")
 	require.Contains(t, flight, "TAP_FLIGHT",
 		"the stdio surface must nudge toward configuration, not a web UI")
-	require.Equal(t, payload, callOrient(t, ctx, session), "orient is idempotent in bootstrap")
+	require.Contains(t, flight, "start a new one")
+	require.Equal(t, payload, callOrient(t, ctx, session), "orient is read-only and idempotent")
 
-	require.ElementsMatch(t, bootstrapTools, listedToolNames(t, ctx, session))
+	tools := listedToolNames(t, ctx, session)
+	require.Contains(t, tools, "cat")
+	require.Contains(t, tools, "create")
+	require.Contains(t, tools, "flight_create")
+	require.Contains(t, tools, "keg_create")
+	search, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: "keg_search", Arguments: map[string]any{"query": "anything"}})
+	require.NoError(t, err)
+	require.False(t, search.IsError, extractText(t, search))
 
-	denied := callCatKeg(t, ctx, session, "@local/personal")
-	require.True(t, denied.IsError, "an empty cover still denies every KEG")
-	require.Contains(t, extractText(t, denied), "bootstrap flight")
+	created, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: "keg_create", Arguments: map[string]any{
+		"keg": "first", "namespace": "local", "title": "First KEG",
+	}})
+	require.NoError(t, err)
+	require.False(t, created.IsError, extractText(t, created))
+	require.False(t, callCatKeg(t, ctx, session, "@local/first").IsError,
+		"no-flight full access must expose a newly created KEG at the identity's real role")
 }
 
-// TestMCP_FlightsExistButUnselectedStaysInSelectMode guards the boundary
-// between the two no-flight modes: a machine that has flights must keep asking
-// the user to pick one rather than handing the agent admin authority.
-func TestMCP_FlightsExistButUnselectedStaysInSelectMode(t *testing.T) {
+// Two governed states have a nil session flight: failed-root recovery, which
+// reaches nothing, and no-flight identity authority, which reaches everything
+// the identity reaches. auth_info used to treat both as "no flight, no KEGs" and
+// so reported an empty list in a session that could read them all — directly
+// contradicting keg_list on the same connection.
+func TestMCP_NoFlightAuthInfoReportsIdentityKegs(t *testing.T) {
+	t.Parallel()
+	session, ctx, _ := newNoFlightSession(t)
+
+	created, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: "keg_create", Arguments: map[string]any{
+		"keg": "first", "namespace": "local", "title": "First KEG",
+	}})
+	require.NoError(t, err)
+	require.False(t, created.IsError, extractText(t, created))
+
+	listed, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: "keg_list", Arguments: map[string]any{}})
+	require.NoError(t, err)
+	require.False(t, listed.IsError, extractText(t, listed))
+	require.Contains(t, extractText(t, listed), "@local/first")
+
+	info, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: "auth_info", Arguments: map[string]any{}})
+	require.NoError(t, err)
+	require.False(t, info.IsError, extractText(t, info))
+	require.Contains(t, extractText(t, info), "@local/first",
+		"auth_info must not report zero KEGs while keg_list reports them on the same connection")
+}
+
+func TestMCP_FlightsExistButUnselectedUsesFullAccessAndExactSelection(t *testing.T) {
 	ctx, srv, rt := newOrientationServer(t, "")
-	session := connectFlightSession(t, ctx, srv, nil)
 	writeProjectFlight(t, rt, "")
 	writeUserFlight(t, rt, "")
+	session := connectFlightSession(t, ctx, srv, nil)
 
 	flight := flightSection(t, callOrient(t, ctx, session))
-	require.Contains(t, flight, "recovery mode")
-	require.NotContains(t, flight, "bootstrap flight")
-	require.ElementsMatch(t,
-		[]string{"orient", "list_flights", "flight_show", "auth_info"},
-		listedToolNames(t, ctx, session))
+	require.Contains(t, flight, "No flight was provided")
+	require.Contains(t, flight, "@local/+alpha")
+	require.Contains(t, listedToolNames(t, ctx, session), "cat")
+
+	explicit := orientCall(t, session, ctx, map[string]any{"flight": "@local/+alpha"})
+	require.Contains(t, explicit, "Alpha instructions")
+	require.NotContains(t, explicit, "No flight was provided")
+	require.Contains(t, explicit, "Launch root: (none; identity-authorized full access)")
+	require.Contains(t, explicit, "Selected flight: `@local/+alpha`")
+
+	denied, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: "orient", Arguments: map[string]any{
+		"flight": "@other/+missing",
+	}})
+	require.NoError(t, err)
+	require.True(t, denied.IsError)
+	require.Contains(t, extractText(t, denied), "ORIENTATION_DENIED")
+
+	type outcome struct {
+		flight string
+		text   string
+		err    error
+	}
+	results := make(chan outcome, 2)
+	for _, selected := range []string{"@local/+alpha", "@local/+beta"} {
+		selected := selected
+		go func() {
+			res, callErr := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: "orient", Arguments: map[string]any{"flight": selected}})
+			text := ""
+			if res != nil {
+				text = extractText(t, res)
+			}
+			results <- outcome{flight: selected, text: text, err: callErr}
+		}()
+	}
+	for range 2 {
+		got := <-results
+		require.NoError(t, got.err)
+		if strings.HasSuffix(got.flight, "+alpha") {
+			require.Contains(t, got.text, "Alpha instructions")
+			require.NotContains(t, got.text, "Beta instructions")
+		} else {
+			require.Contains(t, got.text, "Beta instructions")
+			require.NotContains(t, got.text, "Alpha instructions")
+		}
+	}
+	require.Contains(t, flightSection(t, callOrient(t, ctx, session)), "No flight was provided",
+		"concurrent explicit selections must not replace no-flight authority")
 }
 
-// TestMCP_BootstrapCreatesFirstKegThenAdoptsItsFlight walks the whole recovery
-// the bootstrap instructions describe: create the KEG over MCP, have the user
-// write and select a flight covering it, then orient into a working session.
-func TestMCP_BootstrapCreatesFirstKegThenAdoptsItsFlight(t *testing.T) {
+func TestMCP_NoFlightStaysPinnedAndNewSessionAdoptsConfiguredFlight(t *testing.T) {
 	t.Parallel()
-	session, ctx, rt := newBootstrapSession(t)
+	session, ctx, rt := newNoFlightSession(t)
 
 	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: "keg_create", Arguments: map[string]any{
 		"keg": "first", "namespace": "local", "title": "First KEG",
@@ -114,73 +164,43 @@ func TestMCP_BootstrapCreatesFirstKegThenAdoptsItsFlight(t *testing.T) {
 	require.False(t, res.IsError, extractText(t, res))
 	require.Contains(t, extractText(t, res), "@local/first")
 
-	require.True(t, callCatKeg(t, ctx, session, "@local/first").IsError,
-		"creating a KEG does not add it to the active flight's cover")
+	require.False(t, callCatKeg(t, ctx, session, "@local/first").IsError)
 
-	// The user does the part MCP deliberately cannot: write a flight and select it.
-	require.NoError(t, rt.AtomicWriteFile("/home/testuser/empty-kegs/flights.d/first.yaml",
-		[]byte("title: First\ncover:\n  - namespace: local\n    keg: first\n    role: editor\n"), 0o644))
-	require.NoError(t, rt.AtomicWriteFile("/home/testuser/.config/tapper/config.yaml",
-		[]byte("defaultKeg: personal\nfallbackNamespace: local\nflight: +first\nhubs:\n  home:\n    kind: local\n    defaultNamespace: local\n    basePath: ~/empty-kegs\n"), 0o644))
+	// The user does the part MCP deliberately cannot: select the created flight
+	// in normal Tapper configuration.
+	orientationTestHubFor(t, rt).putFlight(tapper.HubFlight{
+		Namespace: "local", Slug: "first", Title: "First", Visibility: tapper.FlightVisibilityPrivate,
+		Cover: []tapper.HubFlightCover{{Namespace: "local", Keg: "first", Role: "editor"}},
+	})
+	writeUserFlight(t, rt, "first")
 
-	flight := flightSection(t, callOrient(t, ctx, session))
-	require.Contains(t, flight, "+first")
-	require.NotContains(t, flight, "temporary bootstrap flight")
-	require.False(t, callCatKeg(t, ctx, session, "@local/first").IsError,
-		"orient must adopt the flight the user just selected")
-	require.NotContains(t, listedToolNames(t, ctx, session), "keg_create",
-		"a real flight without manage_kegs does not inherit bootstrap's authority")
+	beforeRefresh := flightSection(t, callOrient(t, ctx, session))
+	require.Contains(t, beforeRefresh, "No flight was provided",
+		"orient must not replace the connection-pinned no-flight state")
+	refreshed, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: "session_refresh", Arguments: map[string]any{}})
+	require.NoError(t, err)
+	require.False(t, refreshed.IsError, extractText(t, refreshed))
+	require.Equal(t, "already_active", refreshed.StructuredContent.(map[string]any)["status"])
+	require.Equal(t, false, refreshed.StructuredContent.(map[string]any)["toolsChanged"])
+	require.Equal(t, "new_session", refreshed.StructuredContent.(map[string]any)["nextAction"])
+	require.Contains(t, flightSection(t, callOrient(t, ctx, session)), "No flight was provided")
+
+	tap := newMemoryTap(t, ctx, rt)
+	newSession := connectFlightSession(t, ctx, mcp.NewServer(tap, "test", mcp.KegDefaults{}), nil)
+	flight := flightSection(t, callOrient(t, ctx, newSession))
+	require.Contains(t, flight, "@local/+first")
+	require.NotContains(t, flight, "No flight was provided")
+	require.False(t, callCatKeg(t, ctx, newSession, "@local/first").IsError)
 }
 
-// TestMCP_LocalFlightCreateReportsNotImplemented pins the honest failure for
-// the one thing bootstrap cannot do on a local-only machine.
-func TestMCP_LocalFlightCreateReportsNotImplemented(t *testing.T) {
+func TestMCP_NoFlightCreatesFlightThroughRemoteHub(t *testing.T) {
 	t.Parallel()
-	session, ctx, _ := newBootstrapSession(t)
+	session, ctx, _ := newNoFlightSession(t)
 
 	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: "flight_create", Arguments: map[string]any{
 		"ref": "@local/+attempt", "cover": []string{"@local/first=editor"},
 	}})
 	require.NoError(t, err)
-	require.True(t, res.IsError)
-	text := extractText(t, res)
-	require.Contains(t, text, "not implemented for local hubs")
-	require.Contains(t, text, "flights.d/attempt.yaml",
-		"the refusal must name the manifest the user should write instead")
-}
-
-func TestMCP_KegCreateRequiresManageKegs(t *testing.T) {
-	t.Parallel()
-	session, ctx, provider := newValidationSession(t)
-
-	// +active grants manage_flights only.
-	require.NotContains(t, listedToolNames(t, ctx, session), "keg_create")
-	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: "keg_create", Arguments: map[string]any{
-		"keg": "blocked", "namespace": "local",
-	}})
-	require.NoError(t, err)
-	require.True(t, res.IsError)
-	require.Contains(t, extractText(t, res), "manage_kegs")
-
-	provider.mu.Lock()
-	require.Empty(t, provider.createdKegs, "a refused keg_create must not reach the provider")
-	provider.mu.Unlock()
-
-	capabilities := []tapper.FlightCapability{
-		tapper.FlightCapabilityManageFlights, tapper.FlightCapabilityManageKegs,
-	}
-	_, err = provider.UpdateFlight(ctx, tapper.UpdateFlightOptions{Ref: "+active", Capabilities: &capabilities})
-	require.NoError(t, err)
-	callOrient(t, ctx, session)
-
-	require.Contains(t, listedToolNames(t, ctx, session), "keg_create")
-	res, err = session.CallTool(ctx, &sdkmcp.CallToolParams{Name: "keg_create", Arguments: map[string]any{
-		"keg": "allowed", "namespace": "local",
-	}})
-	require.NoError(t, err)
 	require.False(t, res.IsError, extractText(t, res))
-
-	provider.mu.Lock()
-	require.Equal(t, []string{"@local/allowed"}, provider.createdKegs)
-	provider.mu.Unlock()
+	require.Contains(t, extractText(t, res), "@local/+attempt")
 }

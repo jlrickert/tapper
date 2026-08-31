@@ -205,9 +205,11 @@ func renderCodexMarketplace() ([]byte, error) {
 //
 // TAP_AGENT carries `tap launch --agent` selection. Without it the harness has
 // the agent but the MCP server it spawns does not, so the session silently
-// resolves the configured flight instead of the agent's. TAP_FLIGHT stays
-// listed because a human may still export it directly to override; the launcher
-// itself no longer sets it.
+// resolves the configured flight instead of the agent's. TAP_FLIGHT must be
+// forwarded too: the launcher sets it to pin the connection root when a flight
+// is configured, and a human may also export it directly. It is deliberately
+// unset for a no-flight launch, which is how the spawned `tap mcp` knows to
+// resolve identity authority instead of treating itself as launcher-bound.
 func renderCodexMCP() []byte {
 	return []byte(`{
   "mcpServers": {

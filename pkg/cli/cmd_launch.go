@@ -15,31 +15,42 @@ import (
 )
 
 // NewLaunchCmd builds the `tap launch` command. It resolves a configured agent
-// to its model and flight and starts the named harness with that context.
+// to its model and starts the named harness under the configured root flight.
 func NewLaunchCmd(deps *Deps) *cobra.Command {
 	var opts tapper.LaunchOptions
 
 	cmd := &cobra.Command{
 		Use:   "launch HARNESS [-- ARGS...]",
 		Short: "start an agent CLI with a configured model and flight (experimental)",
-		Long: `Start Claude Code, Codex, or pi with the model and flight named by a
-configured agent.
+		Long: `Start Claude Code, Codex, or pi with a configured agent model and the
+current Hub-backed flight as a connection-pinned root.
 
-An agent is an alias for a (model, flight) pair:
+An agent selects only a model:
 
   agents:
     opus:
       model: anthropic/claude-opus-4
-      flight: +dev
     local:
       model: ollama/qwen3.6:35b
-      flight: "@me/+scratch"
 
 Models are provider-qualified so the launcher knows which protocol the harness
-must speak. The agent name is exported as TAP_AGENT, so a tap mcp session
-started inside the harness resolves the agent's flight for itself. Editing the
-agent's flight and calling orient again therefore moves a running session,
-which exporting the resolved flight would not.
+must speak. TAP_AGENT carries model selection and telemetry only.
+
+--agent picks which entry to use. When it is omitted the top-level 'agent' key
+is used instead, the same way 'flight' supplies the launch root:
+
+  agent: opus
+
+The launch root follows normal flight precedence: explicit --flight,
+TAP_FLIGHT, project flight, then the user baseline. It is resolved once, must
+be Hub-backed, and is exported canonically as TAP_FLIGHT. Governed MCP calls
+reload that root's live graph and may select an accessible transitive
+descendant; they cannot switch roots.
+
+A flight is optional. With none configured the harness starts under no-flight
+identity authority — full access to every KEG the account can already reach,
+which is what lets a fresh account launch an agent to create its first flight.
+The launcher warns when it does this. Selecting a flight is how you narrow it.
 
 Arguments after -- are passed through to the harness.
 
@@ -56,6 +67,7 @@ Experimental and unstable: expect this to change or disappear.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts.Harness = args[0]
 			opts.Args = args[1:]
+			opts.Flight = deps.KegTargetOptions.Flight
 
 			result, err := deps.Tap.Launch(cmd.Context(), opts)
 			if err != nil {
@@ -71,10 +83,7 @@ Experimental and unstable: expect this to change or disappear.`,
 				return err
 			}
 			if result.Flight != "" {
-				// "resolves to" rather than "is": the child re-resolves this
-				// from TAP_AGENT on every orient, so it can change under a
-				// running session.
-				if _, err := fmt.Fprintf(out, "flight: %s (resolves to, via agent)\n", result.Flight); err != nil {
+				if _, err := fmt.Fprintf(out, "flight: %s (connection-pinned root)\n", result.Flight); err != nil {
 					return err
 				}
 			}
@@ -117,7 +126,8 @@ Experimental and unstable: expect this to change or disappear.`,
 		},
 	}
 
-	cmd.Flags().StringVar(&opts.Agent, "agent", "", "configured agent alias supplying the model and flight")
+	cmd.Flags().StringVar(&opts.Agent, "agent", "",
+		"configured agent alias supplying the model (default: the config's agent key, or TAP_AGENT)")
 	cmd.Flags().BoolVar(&opts.DryRun, "dry-run", false, "print the resolved invocation without starting the harness")
 	mustRegisterFlagCompletion(cmd, "agent", func(_ *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
 		return configAgentNames(deps), cobra.ShellCompDirectiveNoFileComp

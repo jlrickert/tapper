@@ -21,8 +21,8 @@ const (
 )
 
 // registerResourceTools wires the MCP Resources surface. The orient resource
-// delegates to tap.Orient, so resources/read returns bytes byte-equal to a
-// bare orient tool call.
+// delegates to the same read-only session view as orient, so resources/read
+// returns bytes byte-equal to a bare orient tool call.
 func registerResourceTools(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	registerNodeResource(srv, tap, defaults)
 	registerOrientResource(srv, tap, defaults)
@@ -88,11 +88,7 @@ func registerOrientResource(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDef
 	}, func(ctx context.Context, req *sdkmcp.ReadResourceRequest) (*sdkmcp.ReadResourceResult, error) {
 		var payload string
 		if defaults.gate != nil {
-			current, err := defaults.gate.refresh(ctx, sessionIDFromContext(ctx))
-			if err != nil {
-				return nil, err
-			}
-			payload = current.payload
+			payload = defaults.gate.payload(ctx)
 		} else {
 			var err error
 			payload, err = tap.Orient(ctx, tapper.OrientOptions{

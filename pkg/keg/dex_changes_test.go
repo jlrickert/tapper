@@ -122,7 +122,7 @@ func TestChangesIndex_ParseAndRoundTrip(t *testing.T) {
 	ctx := context.Background()
 
 	raw := "* 2025-10-03 20:52:37Z [Tap CLI application (`tap`)](../31)\n" +
-		"* 2025-09-18 00:51:16Z [Zekia extension to keg configuration](../24)\n"
+		"* 2025-09-18 00:51:16Z [Zekia extension to keg settings](../24)\n"
 
 	idx, err := ParseChangesIndex(ctx, []byte(raw))
 	require.NoError(t, err)

@@ -4,22 +4,20 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"github.com/jlrickert/cli-toolkit/toolkit"
 )
 
 // LocalKeg is the concrete high-level service providing KEG node operations
 // backed by a Repository. It abstracts storage implementation details, allowing
-// operations over nodes to work uniformly across memory and filesystem backends.
+// operations over nodes to work uniformly across repository backends.
 // LocalKeg delegates low-level storage operations to its underlying repository and
 // maintains an in-memory dex for indexing.
 type LocalKeg struct {
-	// target is the keg URL/location (nil for memory-backed kegs)
+	// target is the keg URL/location.
 	target *Target
 	// Repo is the storage backend implementation
 	Repo Repository
@@ -33,18 +31,8 @@ type LocalKeg struct {
 	// dexWriteGen is a monotonic counter bumped after every successful
 	// Dex.Write by this process. Used for diagnostics.
 	dexWriteGen uint64
-	// dexLoadMtime records the ModTime of dex/nodes.tsv at the time the
-	// cached dex was last loaded from disk. Used by dexStale() to detect
-	// whether another process has modified the index files since this
-	// process last read them.
-	dexLoadMtime time.Time
-	// dexLoadGeneration records a repository-owned in-process generation when
-	// the backend exposes one (MemoryRepo). It keeps caches in separate
-	// LocalKeg instances coherent even though filesystem mtimes do not apply.
-	dexLoadGeneration uint64
-
-	// configMu guards the read-modify-write cycle in UpdateConfig.
-	configMu sync.Mutex
+	// settingsMu guards the read-modify-write cycle in UpdateSettings.
+	settingsMu sync.Mutex
 
 	// kegExistsVerified is set to true after the first successful
 	// checkKegExists call. Once a keg is confirmed to exist, it won't
@@ -86,9 +74,7 @@ func WithTokenResolver(r TokenResolver) KegOption {
 }
 
 // NewKegFromTarget constructs a Keg implementation from a Target. It automatically
-// selects the appropriate repository implementation based on the target's scheme:
-//   - memory:// targets use an in-memory repository
-//   - file:// targets use a filesystem repository
+// selects the appropriate remote implementation based on the target's scheme:
 //   - http:// and https:// targets use a RemoteKeg speaking the hub's
 //     operation API
 //   - hub targets use a RemoteKeg resolved from repo/user/keg fields
@@ -100,20 +86,6 @@ func NewKegFromTarget(ctx context.Context, target Target, rt *toolkit.Runtime, o
 		apply(&o)
 	}
 	switch target.Scheme() {
-	case SchemeMemory:
-		repo := NewMemoryRepo(rt)
-		keg := LocalKeg{Repo: repo, Runtime: rt}
-		return &keg, nil
-	case SchemeFile:
-		repo := FsRepo{
-			Root:            filepath.Clean(target.Path()),
-			ContentFilename: MarkdownContentFilename,
-			MetaFilename:    YAMLMetaFilename,
-			StatsFilename:   JSONStatsFilename,
-			runtime:         rt,
-		}
-		keg := LocalKeg{target: &target, Repo: &repo, Runtime: rt}
-		return &keg, nil
 	case SchemeHTTP, SchemeHTTPs:
 		token := resolveTargetToken(&target, rt, o.resolver)
 		baseURL := strings.TrimRight(target.Url, "/")
@@ -142,7 +114,7 @@ func NewKegFromTarget(ctx context.Context, target Target, rt *toolkit.Runtime, o
 		installTokenFn(keg, &target, rt, o.resolver)
 		return keg, nil
 	}
-	return nil, fmt.Errorf("unsupported target scheme: %s", target.Scheme())
+	return nil, fmt.Errorf("unsupported target scheme %q: %w", target.Scheme(), ErrNotSupported)
 }
 
 // installTokenFn makes k re-run the target's token resolution chain on every
@@ -195,7 +167,7 @@ func NewLocalKeg(repo Repository, rt *toolkit.Runtime, opts ...Option) *LocalKeg
 }
 
 // RepoContainsKeg checks if a keg has been properly initialized within a repository.
-// It verifies both that a keg config exists and that a zero node (node ID 0) is present.
+// It verifies both that a keg settings exists and that a zero node (node ID 0) is present.
 // Returns true only if both conditions are met, indicating a fully initialized keg.
 func RepoContainsKeg(ctx context.Context, repo Repository) (bool, error) {
 	if repo == nil {
@@ -212,18 +184,18 @@ func RepoContainsKeg(ctx context.Context, repo Repository) (bool, error) {
 
 func repoContainsKeg(ctx context.Context, repo Repository) (bool, error) {
 
-	var configExists bool
+	var settingsExists bool
 
-	// Check for a config. If it is missing, keg is not initialized.
-	_, err := repo.ReadConfig(ctx)
+	// Check for a settings. If it is missing, keg is not initialized.
+	_, err := repo.ReadSettings(ctx)
 	if err != nil {
 		if errors.Is(err, ErrNotExist) {
-			configExists = false
+			settingsExists = false
 		} else {
-			return false, fmt.Errorf("failed to check config existence: %w", err)
+			return false, fmt.Errorf("failed to check settings existence: %w", err)
 		}
 	} else {
-		configExists = true
+		settingsExists = true
 	}
 
 	var zeroNodeExists bool
@@ -239,7 +211,7 @@ func repoContainsKeg(ctx context.Context, repo Repository) (bool, error) {
 	} else {
 		zeroNodeExists = true
 	}
-	return configExists && zeroNodeExists, nil
+	return settingsExists && zeroNodeExists, nil
 }
 
 // checkKegExists verifies that a keg is properly initialized in the repository.
@@ -264,8 +236,7 @@ func (k *LocalKeg) checkKegExists(ctx context.Context) error {
 	return nil
 }
 
-// Target returns the keg's resolved location, or nil for anonymous
-// (memory-backed) kegs.
+// Target returns the keg's resolved location, or nil when no target was set.
 func (k *LocalKeg) Target() *Target {
 	if k == nil {
 		return nil

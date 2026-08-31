@@ -18,12 +18,27 @@ const skipRootInitializationAnnotation = "tapper.io/skip-root-initialization"
 
 const hookOrientationReminder = "Before KEG work, call `mcp__tapper__orient` and follow the returned flight and KEG instructions. If that tool is unavailable, report that the Tapper MCP connection is unavailable, ask the user to reconnect or restart the host session, and never kill host-owned processes. Continue using only `mcp__tapper__*` tools for KEG work; never read or write tapper node storage files directly. Snapshot before meaningful node edits with `mcp__tapper__node_snapshot`. For cross-keg work, pass the `keg` parameter instead of changing directories or restarting the MCP server. Direct `tap` / `keg` CLI use from Codex remains blocked except help, version, and completion probes."
 
-const hookDenyReason = "Direct tap/keg CLI invocations are blocked for the agent. Use the mcp__tapper__* tools instead. See integrations/content/agent-orient.md (the 'never read or write node files directly' policy). Allowlisted: 'tap completion', '--version', '--help'."
+const hookDenyReason = "Tapper's agent guard blocked a recognized direct configuration mutation or prohibited tap/keg invocation. Use capability-authorized mcp__tapper__* operations; reads remain allowed. Allowlisted CLI probes: completion, --version, --help."
 
 var (
-	hookAllowlist = map[string]bool{"completion": true, "--version": true, "-v": true, "--help": true, "-h": true}
-	hookWrappers  = map[string]bool{"sudo": true, "command": true, "exec": true, "builtin": true, "time": true}
-	hookShells    = map[string]bool{"bash": true, "sh": true, "zsh": true, "dash": true}
+	hookAllowlist  = map[string]bool{"completion": true, "--version": true, "-v": true, "--help": true, "-h": true}
+	hookWrappers   = map[string]bool{"sudo": true, "command": true, "exec": true, "builtin": true, "time": true}
+	hookShells     = map[string]bool{"bash": true, "sh": true, "zsh": true, "dash": true}
+	hookShellTools = map[string]bool{
+		"bash": true, "shell": true, "exec_command": true, "execute": true, "terminal": true,
+	}
+	hookFilesystemTools = map[string]bool{
+		"write": true, "edit": true, "multiedit": true, "notebookedit": true,
+		"apply_patch": true, "write_file": true, "edit_file": true, "delete_file": true,
+		"move_file": true, "rename_file": true,
+	}
+	hookMutators = map[string]bool{
+		"apply_patch": true, "chmod": true, "chown": true, "cp": true,
+		"ed": true, "emacs": true, "install": true, "ln": true, "mkdir": true,
+		"mv": true, "nano": true, "perl": true, "rm": true, "rmdir": true,
+		"sed": true, "tee": true, "touch": true, "truncate": true, "vi": true,
+		"vim": true,
+	}
 )
 
 type hookInputError struct{ message string }
@@ -120,8 +135,8 @@ func runPreToolUseHook(rt *toolkit.Runtime) error {
 	if !ok {
 		return nil
 	}
-	command, ok := hookStringField(toolInput, "command")
-	if !ok || command == "" || !hookCommandDenied(command, 0) {
+	toolName, _ := hookStringField(payload, "tool_name")
+	if !hookToolInputDenied(rt, toolName, toolInput) {
 		return nil
 	}
 	out := struct {
@@ -184,11 +199,17 @@ func writeHookJSON(w io.Writer, value any) error {
 	return enc.Encode(value)
 }
 
-func hookCommandDenied(command string, depth int) bool {
+func hookCommandDeniedWithRuntime(rt *toolkit.Runtime, command string, depth int) bool {
+	if hookPatchTargetsProtectedPath(rt, command) {
+		return true
+	}
 	for _, segment := range splitHookSegments(command) {
 		argv, err := splitHookWords(strings.TrimSpace(segment))
 		if err != nil || len(argv) == 0 {
 			continue
+		}
+		if hookReservedEnvironmentChange(argv) || hookRedirectionTargetsProtectedPath(rt, argv) {
+			return true
 		}
 		argv = stripHookAssignments(argv)
 		if len(argv) == 0 {
@@ -202,15 +223,179 @@ func hookCommandDenied(command string, depth int) bool {
 		}
 		base := normalizeHookCommand(argv[0])
 		if hookShells[base] && len(argv) >= 3 && argv[1] == "-c" && depth < 1 {
-			if hookCommandDenied(argv[2], depth+1) {
+			if hookCommandDeniedWithRuntime(rt, argv[2], depth+1) {
 				return true
 			}
 			continue
 		}
-		if base != "tap" && base != "keg" {
+		if base == "tap" || base == "keg" {
+			if len(argv) < 2 || !hookAllowlist[argv[1]] {
+				return true
+			}
 			continue
 		}
-		if len(argv) < 2 || !hookAllowlist[argv[1]] {
+		if base == "apply_patch" {
+			for _, body := range argv[1:] {
+				if hookPatchTargetsProtectedPath(rt, body) {
+					return true
+				}
+			}
+		}
+		if hookMutators[base] && hookMutationTargetsProtectedPath(rt, base, argv[1:]) {
+			return true
+		}
+	}
+	return false
+}
+
+func hookToolInputDenied(rt *toolkit.Runtime, toolName string, input map[string]json.RawMessage) bool {
+	lowerName := strings.ToLower(strings.TrimSpace(toolName))
+	if strings.HasPrefix(lowerName, "mcp__tapper__") {
+		return false
+	}
+	if hookShellTools[lowerName] {
+		command, ok := hookStringField(input, "command")
+		return ok && hookCommandDeniedWithRuntime(rt, command, 0)
+	}
+	if !hookFilesystemTools[lowerName] {
+		return false
+	}
+	for key, raw := range input {
+		key = strings.ToLower(key)
+		if strings.Contains(key, "path") || strings.Contains(key, "file") || strings.Contains(key, "target") || strings.Contains(key, "destination") {
+			var value string
+			if json.Unmarshal(raw, &value) == nil && hookProtectedPath(rt, value) {
+				return true
+			}
+		}
+		if key == "patch" || key == "content" {
+			var value string
+			if json.Unmarshal(raw, &value) == nil && hookPatchTargetsProtectedPath(rt, value) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func hookReservedEnvironmentChange(argv []string) bool {
+	for i, arg := range argv {
+		if argv[0] == "env" && (arg == "-u" || arg == "--unset") && i+1 < len(argv) &&
+			(argv[i+1] == "TAP_FLIGHT" || argv[i+1] == "TAP_AGENT") {
+			return true
+		}
+		name := strings.TrimSpace(strings.TrimPrefix(arg, "--unset="))
+		if assignment, _, ok := strings.Cut(name, "="); ok {
+			name = assignment
+		}
+		name = strings.TrimPrefix(name, "export ")
+		if name != "TAP_FLIGHT" && name != "TAP_AGENT" {
+			continue
+		}
+		if i == 0 || isHookAssignment(arg) || argv[0] == "export" || argv[0] == "unset" || argv[0] == "env" {
+			return true
+		}
+	}
+	return false
+}
+
+func hookRedirectionTargetsProtectedPath(rt *toolkit.Runtime, argv []string) bool {
+	for i, arg := range argv {
+		if arg == ">" || arg == ">>" || arg == "1>" || arg == "1>>" || arg == "2>" || arg == "2>>" {
+			if i+1 < len(argv) && hookProtectedPath(rt, argv[i+1]) {
+				return true
+			}
+			continue
+		}
+		if idx := strings.Index(arg, ">"); idx >= 0 && hookProtectedPath(rt, strings.TrimLeft(arg[idx:], ">")) {
+			return true
+		}
+	}
+	return false
+}
+
+func hookMutationTargetsProtectedPath(rt *toolkit.Runtime, command string, args []string) bool {
+	paths := make([]string, 0, len(args))
+	for _, arg := range args {
+		if arg == "" || arg == "-" || strings.HasPrefix(arg, "-") {
+			continue
+		}
+		paths = append(paths, arg)
+	}
+	switch command {
+	case "cp", "install", "ln":
+		if len(paths) > 0 {
+			paths = paths[len(paths)-1:]
+		}
+	case "sed":
+		if !hasHookInPlaceFlag(args) {
+			return false
+		}
+	case "perl":
+		if !hasHookInPlaceFlag(args) {
+			return false
+		}
+	}
+	for _, candidate := range paths {
+		if hookProtectedPath(rt, candidate) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasHookInPlaceFlag(args []string) bool {
+	for _, arg := range args {
+		if arg == "-i" || strings.HasPrefix(arg, "-i") || arg == "--in-place" || strings.HasPrefix(arg, "--in-place=") {
+			return true
+		}
+		if strings.HasPrefix(arg, "-") && !strings.HasPrefix(arg, "--") && strings.Contains(strings.TrimPrefix(arg, "-"), "i") {
+			return true
+		}
+	}
+	return false
+}
+
+func hookPatchTargetsProtectedPath(rt *toolkit.Runtime, body string) bool {
+	for _, line := range strings.Split(body, "\n") {
+		line = strings.TrimSpace(line)
+		for _, prefix := range []string{"*** Add File:", "*** Update File:", "*** Delete File:", "+++ ", "--- ", "rename to ", "rename from "} {
+			if !strings.HasPrefix(line, prefix) {
+				continue
+			}
+			candidate := strings.TrimSpace(strings.TrimPrefix(line, prefix))
+			if fields := strings.Fields(candidate); len(fields) > 0 {
+				candidate = fields[0]
+			}
+			if hookProtectedPath(rt, candidate) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func hookProtectedPath(rt *toolkit.Runtime, raw string) bool {
+	raw = strings.TrimSpace(strings.Trim(raw, "'\""))
+	if raw == "" || raw == "/dev/null" {
+		return false
+	}
+	candidates := []string{raw}
+	if rt != nil {
+		if resolved, err := rt.ResolvePath(raw, false); err == nil {
+			candidates = append(candidates, resolved)
+		}
+		// Following the final component catches an alias that already points at
+		// config.yaml. ResolvePath(false) above still covers a not-yet-created
+		// atomic-rename destination.
+		if resolved, err := rt.ResolvePath(raw, true); err == nil {
+			candidates = append(candidates, resolved)
+		}
+	}
+	for _, candidate := range candidates {
+		clean := filepath.ToSlash(filepath.Clean(candidate))
+		if clean == ".tapper/config.yaml" || clean == "tapper/config.yaml" ||
+			strings.HasSuffix(clean, "/.tapper/config.yaml") || strings.HasSuffix(clean, "/tapper/config.yaml") {
 			return true
 		}
 	}

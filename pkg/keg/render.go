@@ -135,8 +135,8 @@ func ResolveNodeLink(dest string, opts RenderOptions) (string, bool) {
 		return newDest + strings.TrimSpace(m[2]), true
 	}
 
-	// Resolve relative to the node's content file, mirroring how the link
-	// resolves on disk where the page is <keg>/<NodeID>/README.md.
+	// Resolve relative to the node's logical content path. This preserves the
+	// established ../NODEID link semantics without requiring local storage.
 	base, err := url.Parse(baseURL + opts.NodeID + "/README.md")
 	if err != nil {
 		return "", false

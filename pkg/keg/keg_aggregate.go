@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"slices"
 	"sort"
 	"strings"
@@ -95,27 +96,9 @@ type RelatedNodesOptions struct {
 	Direction RelatedDirection `json:"direction"`
 }
 
-type GraphNode struct {
-	ID    string   `json:"id"`
-	Title string   `json:"title"`
-	Lead  string   `json:"lead,omitempty"`
-	Tags  []string `json:"tags"`
-}
-
-type GraphEdge struct {
-	Source string `json:"source"`
-	Target string `json:"target"`
-	Type   string `json:"type"`
-}
-
-type GraphView struct {
-	Nodes []GraphNode `json:"nodes"`
-	Edges []GraphEdge `json:"edges"`
-}
-
 type KegInfo struct {
-	Config  *Config     `json:"config"`
-	Summary *KegSummary `json:"summary"`
+	Settings *Settings   `json:"settings"`
+	Summary  *KegSummary `json:"summary"`
 }
 
 type DoctorIssue struct {
@@ -126,8 +109,27 @@ type DoctorIssue struct {
 }
 
 type RemoveNodesOptions struct {
-	NodeIDs []NodeId `json:"node_ids,omitempty"`
-	Query   string   `json:"query,omitempty"`
+	Nodes []NodeRemoveOptions `json:"nodes,omitempty"`
+	Query string              `json:"query,omitempty"`
+}
+
+type SettingsWriteOptions struct {
+	ExpectedHash string `json:"expected_hash,omitempty"`
+}
+
+type SchemaWriteOptions struct {
+	ExpectedHash string `json:"expected_hash,omitempty"`
+}
+
+type NodeMoveOptions struct {
+	Source       NodeId `json:"source"`
+	Destination  NodeId `json:"destination"`
+	ExpectedHash string `json:"expected_hash,omitempty"`
+}
+
+type NodeRemoveOptions struct {
+	ID           NodeId `json:"id"`
+	ExpectedHash string `json:"expected_hash,omitempty"`
 }
 
 type RemovedNode struct {
@@ -141,20 +143,31 @@ type RemoveNodesResult struct {
 }
 
 type BatchFailure struct {
-	NodeID  NodeId `json:"node_id"`
-	Code    string `json:"code"`
-	Status  int    `json:"status"`
-	Message string `json:"message"`
+	NodeID         NodeId `json:"node_id"`
+	Code           string `json:"code"`
+	Status         int    `json:"status"`
+	Message        string `json:"message"`
+	CurrentHash    string `json:"current_hash,omitempty"`
+	CurrentContent []byte `json:"current_content,omitempty"`
 }
 
 func newBatchFailure(id NodeId, err error) *BatchFailure {
 	code, status := RemoteErrorCode(err)
-	return &BatchFailure{NodeID: id, Code: code, Status: status, Message: err.Error()}
+	f := &BatchFailure{NodeID: id, Code: code, Status: status, Message: err.Error()}
+	var conflict *PreconditionConflictError
+	if errors.As(err, &conflict) {
+		f.CurrentHash = conflict.CurrentHash
+		f.CurrentContent = append([]byte(nil), conflict.CurrentContent...)
+	}
+	return f
 }
 
 func (f *BatchFailure) Err() error {
 	if f == nil {
 		return nil
+	}
+	if f.Status == http.StatusPreconditionFailed {
+		return &PreconditionConflictError{Resource: f.NodeID.Path(), CurrentHash: f.CurrentHash, CurrentContent: append([]byte(nil), f.CurrentContent...)}
 	}
 	return RemoteErrorFromCode(f.Code, f.Status, f.Message)
 }
@@ -214,19 +227,6 @@ type NodeUpdateResult struct {
 type NodeSnapshotRequest struct {
 	ID      NodeId `json:"id"`
 	Message string `json:"message,omitempty"`
-}
-
-type NodeRedirect struct {
-	ID           NodeId `json:"id"`
-	Target       string `json:"target"`
-	Title        string `json:"title,omitempty"`
-	TargetID     NodeId `json:"target_id"`
-	ExpectedHash string `json:"expected_hash,omitempty"`
-}
-
-type ReplaceNodesWithRedirectsResult struct {
-	Replaced []NodeId      `json:"replaced"`
-	Failure  *BatchFailure `json:"failure,omitempty"`
 }
 
 type DexArtifacts struct {
@@ -330,8 +330,7 @@ type fieldValues struct {
 //
 // This is the difference between a listing that costs two operations and one
 // that costs two per row. A backend implementing RepositoryBatchRead answers
-// the whole set at once; otherwise each node is read individually, which is the
-// only option for a plain filesystem keg.
+// the whole set at once; otherwise each node is read individually.
 //
 // Reads are best-effort throughout: a node that is indexed but unreadable
 // contributes no value rather than failing the listing, because listings render
@@ -597,61 +596,12 @@ func (k *LocalKeg) relatedNodes(ctx context.Context, opts RelatedNodesOptions) (
 	return out, nil
 }
 
-func (k *LocalKeg) Graph(ctx context.Context) (*GraphView, error) {
-	return withKegReadValue(ctx, k, k.graph)
-}
-
-func (k *LocalKeg) graph(ctx context.Context) (*GraphView, error) {
-	dex, err := k.Dex(ctx)
-	if err != nil {
-		return nil, err
-	}
-	entries := dex.Nodes(ctx)
-	view := &GraphView{Nodes: []GraphNode{}, Edges: []GraphEdge{}}
-	for _, entry := range entries {
-		n := GraphNode{ID: entry.ID, Title: entry.Title, Tags: []string{}}
-		id, parseErr := ParseNode(entry.ID)
-		if parseErr == nil && id != nil {
-			if data, readErr := k.getNodeBestEffort(ctx, *id); data != nil {
-				n.Tags = slices.Clone(data.Meta.Tags())
-				if data.Content != nil {
-					n.Lead = data.Content.Lead
-				}
-				_ = readErr
-			}
-			if links, ok := dex.Links(ctx, *id); ok {
-				for _, dst := range links {
-					view.Edges = append(view.Edges, GraphEdge{Source: id.Path(), Target: dst.Path(), Type: "link"})
-				}
-			}
-			if backlinks, ok := dex.Backlinks(ctx, *id); ok {
-				for _, source := range backlinks {
-					view.Edges = append(view.Edges, GraphEdge{Source: id.Path(), Target: source.Path(), Type: "backlink"})
-				}
-			}
-		}
-		sort.Strings(n.Tags)
-		view.Nodes = append(view.Nodes, n)
-	}
-	sort.Slice(view.Edges, func(i, j int) bool {
-		a, b := view.Edges[i], view.Edges[j]
-		if a.Source != b.Source {
-			return a.Source < b.Source
-		}
-		if a.Target != b.Target {
-			return a.Target < b.Target
-		}
-		return a.Type < b.Type
-	})
-	return view, nil
-}
-
 func (k *LocalKeg) Info(ctx context.Context) (*KegInfo, error) {
 	return withKegReadValue(ctx, k, k.info)
 }
 
 func (k *LocalKeg) info(ctx context.Context) (*KegInfo, error) {
-	cfg, err := k.Config(ctx)
+	cfg, err := k.Settings(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -659,7 +609,7 @@ func (k *LocalKeg) info(ctx context.Context) (*KegInfo, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &KegInfo{Config: cfg, Summary: summary}, nil
+	return &KegInfo{Settings: cfg, Summary: summary}, nil
 }
 
 func (k *LocalKeg) Doctor(ctx context.Context) ([]DoctorIssue, error) {
@@ -667,15 +617,15 @@ func (k *LocalKeg) Doctor(ctx context.Context) ([]DoctorIssue, error) {
 }
 
 func (k *LocalKeg) doctor(ctx context.Context) ([]DoctorIssue, error) {
-	cfg, err := k.Config(ctx)
+	cfg, err := k.Settings(ctx)
 	if err != nil {
 		return nil, err
 	}
 	issues := []DoctorIssue{}
 	if cfg.Kegv == "" {
-		issues = append(issues, DoctorIssue{Level: "warning", Kind: "config", Message: "kegv version field is missing"})
-	} else if cfg.Kegv != ConfigV1VersionString && cfg.Kegv != ConfigV2VersionString {
-		issues = append(issues, DoctorIssue{Level: "warning", Kind: "config", Message: fmt.Sprintf("unrecognized kegv version %q", cfg.Kegv)})
+		issues = append(issues, DoctorIssue{Level: "warning", Kind: "settings", Message: "kegv version field is missing"})
+	} else if cfg.Kegv != SettingsV1VersionString && cfg.Kegv != SettingsV2VersionString {
+		issues = append(issues, DoctorIssue{Level: "warning", Kind: "settings", Message: fmt.Sprintf("unrecognized kegv version %q", cfg.Kegv)})
 	}
 	ids, err := k.ListNodes(ctx)
 	if err != nil {
@@ -747,9 +697,9 @@ func (k *LocalKeg) RemoveNodes(ctx context.Context, opts RemoveNodesOptions) (Re
 }
 
 func (k *LocalKeg) removeNodes(ctx context.Context, opts RemoveNodesOptions) (RemoveNodesResult, error) {
-	seen := map[string]NodeId{}
-	for _, id := range opts.NodeIDs {
-		seen[id.Path()] = id
+	seen := map[string]NodeRemoveOptions{}
+	for _, item := range opts.Nodes {
+		seen[item.ID.Path()] = item
 	}
 	if q := strings.TrimSpace(opts.Query); q != "" {
 		entries, err := k.Query(ctx, QueryOptions{Expr: q})
@@ -758,26 +708,45 @@ func (k *LocalKeg) removeNodes(ctx context.Context, opts RemoveNodesOptions) (Re
 		}
 		for _, entry := range entries {
 			if id, e := ParseNode(entry.ID); e == nil && id != nil {
-				seen[id.Path()] = *id
+				if _, explicit := seen[id.Path()]; !explicit {
+					view, readErr := k.ReadNode(ctx, *id)
+					if readErr != nil {
+						return RemoveNodesResult{}, readErr
+					}
+					seen[id.Path()] = NodeRemoveOptions{ID: *id, ExpectedHash: view.Hash()}
+				}
 			}
 		}
 	}
 	if len(seen) == 0 {
 		return RemoveNodesResult{}, fmt.Errorf("at least one node id is required: %w", ErrInvalid)
 	}
-	ids := make([]NodeId, 0, len(seen))
-	for _, id := range seen {
-		ids = append(ids, id)
+	items := make([]NodeRemoveOptions, 0, len(seen))
+	for _, item := range seen {
+		items = append(items, item)
 	}
-	slices.SortFunc(ids, func(a, b NodeId) int { return a.Compare(b) })
+	slices.SortFunc(items, func(a, b NodeRemoveOptions) int { return a.ID.Compare(b.ID) })
 	result := RemoveNodesResult{Removed: []RemovedNode{}}
-	for _, id := range ids {
-		rewritten, err := k.Remove(ctx, id)
+	// Preflight every item before the first mutation so a missing or stale
+	// token leaves the whole requested set unchanged.
+	for _, item := range items {
+		view, err := k.ReadNode(ctx, item.ID)
 		if err != nil {
-			result.Failure = newBatchFailure(id, err)
+			result.Failure = newBatchFailure(item.ID, err)
 			return result, nil
 		}
-		result.Removed = append(result.Removed, RemovedNode{ID: id, Rewritten: rewritten})
+		if err := checkExpectedHash("node "+item.ID.Path(), item.ExpectedHash, view.Hash(), nodeRecoveryContent(view)); err != nil {
+			result.Failure = newBatchFailure(item.ID, err)
+			return result, nil
+		}
+	}
+	for _, item := range items {
+		rewritten, err := k.removeUnchecked(ctx, item.ID)
+		if err != nil {
+			result.Failure = newBatchFailure(item.ID, err)
+			return result, nil
+		}
+		result.Removed = append(result.Removed, RemovedNode{ID: item.ID, Rewritten: rewritten})
 	}
 	return result, nil
 }
@@ -890,12 +859,9 @@ func (k *LocalKeg) updateNode(ctx context.Context, opts NodeUpdateOptions) (*Nod
 		if err := k.validateAggregateLock(lockCtx, opts.ID, opts.LockToken); err != nil {
 			return err
 		}
-		currentHash := ""
-		if existing.Stats != nil {
-			currentHash = existing.Stats.Hash()
-		}
-		if opts.ExpectedHash != "" && opts.ExpectedHash != currentHash {
-			return fmt.Errorf("node %s changed: expected hash %q, got %q: %w", opts.ID.Path(), opts.ExpectedHash, currentHash, ErrConflict)
+		currentHash := existing.Hash()
+		if err := checkExpectedHash("node "+opts.ID.Path(), opts.ExpectedHash, currentHash, nodeRecoveryContent(existing)); err != nil {
+			return err
 		}
 
 		content, err := ParseContent(k.Runtime, opts.Content, MarkdownContentFilename)
@@ -1011,48 +977,6 @@ func (k *LocalKeg) restoreTouchBackups(ctx context.Context, backups []*aggregate
 	}
 	errs = append(errs, k.refreshDirtyIndex(ctx))
 	return errors.Join(errs...)
-}
-
-func (k *LocalKeg) ReplaceNodesWithRedirects(ctx context.Context, redirects []NodeRedirect) (ReplaceNodesWithRedirectsResult, error) {
-	return withKegWriteValue(ctx, k, func(ctx context.Context) (ReplaceNodesWithRedirectsResult, error) {
-		return k.replaceNodesWithRedirects(ctx, redirects)
-	})
-}
-
-func (k *LocalKeg) replaceNodesWithRedirects(ctx context.Context, redirects []NodeRedirect) (ReplaceNodesWithRedirectsResult, error) {
-	result := ReplaceNodesWithRedirectsResult{Replaced: []NodeId{}}
-	for _, redirect := range redirects {
-		err := k.withNodeLock(ctx, redirect.ID, func(lockCtx context.Context) error {
-			view, err := k.ReadNode(lockCtx, redirect.ID)
-			if err != nil {
-				return err
-			}
-			currentHash := ""
-			if view.Stats != nil {
-				currentHash = view.Stats.Hash()
-			}
-			if redirect.ExpectedHash != "" && redirect.ExpectedHash != currentHash {
-				return fmt.Errorf("node %s changed before redirect: expected hash %q, got %q: %w", redirect.ID.Path(), redirect.ExpectedHash, currentHash, ErrConflict)
-			}
-			title := strings.TrimSpace(redirect.Title)
-			if title == "" && view.Stats != nil {
-				title = strings.TrimSpace(view.Stats.Title())
-			}
-			if title == "" {
-				title = redirect.ID.Path()
-			}
-			body := fmt.Sprintf("# %s\n\nMoved to [%s/%s](%s/%s).\n", title, redirect.Target, redirect.TargetID.Path(), redirect.Target, redirect.TargetID.Path())
-			// Redirect replacement is exempt from the live-edit schema-selection
-			// rule, just like move/remove link rewrites.
-			return k.SetContent(WithValidationMode(lockCtx, ValidationModeOff), redirect.ID, []byte(body))
-		})
-		if err != nil {
-			result.Failure = newBatchFailure(redirect.ID, err)
-			return result, nil
-		}
-		result.Replaced = append(result.Replaced, redirect.ID)
-	}
-	return result, nil
 }
 
 func (k *LocalKeg) DexArtifacts(ctx context.Context) (*DexArtifacts, error) {

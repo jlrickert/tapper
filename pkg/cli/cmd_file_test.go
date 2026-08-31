@@ -37,7 +37,7 @@ func TestFileUpload_StoresInAssetsDir(t *testing.T) {
 	require.NoError(t, res.Err)
 
 	// Confirm the file landed in assets/ (not attachments/).
-	uploaded := sb.MustReadFile("~/kegs/@local/example/0/assets/default.png")
+	uploaded := fixtureFile(t, sb.Runtime(), "example", "0", "default.png", false)
 	require.NotEmpty(t, uploaded)
 }
 
@@ -50,7 +50,7 @@ func TestFileUpload_CustomName(t *testing.T) {
 	require.NoError(t, res.Err)
 	require.Equal(t, "renamed.png", strings.TrimSpace(string(res.Stdout)))
 
-	uploaded := sb.MustReadFile("~/kegs/@local/example/0/assets/renamed.png")
+	uploaded := fixtureFile(t, sb.Runtime(), "example", "0", "renamed.png", false)
 	require.NotEmpty(t, uploaded)
 }
 
@@ -63,7 +63,7 @@ func TestFileUpload_ContentsPreserved(t *testing.T) {
 	NewProcess(t, false, "file", "upload", "0", "~/test-images/default.png").
 		Run(sb.Context(), sb.Runtime())
 
-	stored := sb.MustReadFile("~/kegs/@local/example/0/assets/default.png")
+	stored := fixtureFile(t, sb.Runtime(), "example", "0", "default.png", false)
 	require.Equal(t, original, stored)
 }
 
@@ -186,7 +186,7 @@ func TestFile_ErrorCases(t *testing.T) {
 		{
 			name:        "ls_missing_node",
 			args:        []string{"file", "ls", "999"},
-			wantErrFrag: "999",
+			wantErrFrag: "file does not exist",
 		},
 	}
 

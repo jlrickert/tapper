@@ -103,20 +103,35 @@ func (t *Tap) ImportFromKeg(ctx context.Context, opts ImportFromKegOptions) ([]I
 
 	// Write forwarding stubs at source locations if requested.
 	if opts.LeaveStubs && tgtAlias != "" {
-		redirects := make([]keg.NodeRedirect, 0, len(imported))
+		updates := make([]keg.NodeUpdateOptions, 0, len(imported))
 		for _, node := range imported {
 			srcID, parseErr := keg.ParseNode(node.SourceID)
 			if parseErr != nil || srcID == nil {
 				continue
 			}
-			redirects = append(redirects, keg.NodeRedirect{ID: *srcID, Target: "keg:" + tgtAlias, TargetID: node.ID, ExpectedHash: node.SourceHash})
+			view, readErr := srcKeg.ReadNode(ctx, *srcID)
+			if readErr != nil {
+				return nil, fmt.Errorf("unable to read source node %s before writing forwarding stub: %w", srcID.Path(), readErr)
+			}
+			title := ""
+			if view.Stats != nil {
+				title = strings.TrimSpace(view.Stats.Title())
+			}
+			if title == "" {
+				if parsed, parseContentErr := keg.ParseContent(t.Runtime, view.Content, keg.MarkdownContentFilename); parseContentErr == nil {
+					title = strings.TrimSpace(parsed.Title)
+				}
+			}
+			if title == "" {
+				title = srcID.Path()
+			}
+			target := "keg:" + tgtAlias
+			body := fmt.Sprintf("# %s\n\nMoved to [%s/%s](%s/%s).\n", title, target, node.ID.Path(), target, node.ID.Path())
+			updates = append(updates, keg.NodeUpdateOptions{ID: *srcID, Content: []byte(body), HasContent: true, ExpectedHash: node.SourceHash})
 		}
-		result, err := srcKeg.ReplaceNodesWithRedirects(ctx, redirects)
+		_, err := srcKeg.UpdateNodes(keg.WithValidationMode(ctx, keg.ValidationModeOff), updates)
 		if err != nil {
 			return nil, fmt.Errorf("unable to write forwarding stubs: %w", err)
-		}
-		if result.Failure != nil {
-			return nil, fmt.Errorf("unable to write forwarding stub for node %s: %w", result.Failure.NodeID.Path(), result.Failure.Err())
 		}
 	}
 

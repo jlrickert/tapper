@@ -6,26 +6,20 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
 
 	"github.com/jlrickert/cli-toolkit/toolkit"
 	"github.com/jlrickert/tapper/pkg/keg"
-	"gopkg.in/yaml.v3"
+	"github.com/jlrickert/tapper/pkg/schemas"
 )
 
-// flightsDirName is the reserved directory — a sibling of the @<namespace> dirs
-// of a local hub — that holds flight manifests. "flights.d" is an invalid
-// namespace (it contains a dot), so it can never collide with a keg path.
 const (
-	flightsDirName = "flights.d"
-
-	// FlightManifestSchemaURL is the public JSON Schema used by editor
-	// modelines for flight manifest YAML.
-	FlightManifestSchemaURL      = "https://raw.githubusercontent.com/jlrickert/tapper/main/schemas/flight-manifest.json"
-	flightManifestSchemaModeline = "# yaml-language-server: $schema=" + FlightManifestSchemaURL + "\n"
+	// FlightManifestSchemaURL is the published JSON Schema for flight manifest
+	// YAML. Editor modelines prefer the local copy materialized by pkg/schemas
+	// and fall back to this.
+	FlightManifestSchemaURL = schemas.FlightManifestURL
 )
 
 type FlightRole string
@@ -44,43 +38,20 @@ const (
 	FlightCapabilityManageKegs    FlightCapability = "manage_kegs"
 	FlightCapabilityFullAccess    FlightCapability = "full_access"
 
-	// BootstrapFlightSlug names the synthetic flight a session runs on when no
-	// flight exists to select. It is never persisted, so the slug only has to be
-	// recognizable in orientation output and unambiguous against a real ref.
-	BootstrapFlightSlug = "bootstrap"
+	// MaxFlightSubflights bounds the ordered direct allowlist on one manifest.
+	MaxFlightSubflights = 64
+	// MaxFlightGraphDescendants bounds unique reachable flights, excluding the
+	// pinned root. Shared descendants count once. This is the only bound on
+	// traversal: it is enforced inline during the breadth-first walk and is
+	// dedup-based, so it holds regardless of the graph's shape.
+	MaxFlightGraphDescendants = 256
 )
 
-// BootstrapFlight returns the synthetic flight used when an identity can reach
-// no flights at all. Its cover is empty, so every KEG operation is still
-// denied; what it grants is the authority to create the first flight and the
-// first keg. instructions carries the transport's own recovery text — the local
-// and hosted surfaces nudge toward different places — and rides in the manifest
-// rather than through BuildOrientationPayload's flightNote because a flight's
-// instructions are already rendered and are inherently per-flight.
-func BootstrapFlight(namespace, instructions string) *Flight {
-	ref := FlightRef{Namespace: strings.TrimPrefix(strings.TrimSpace(namespace), "@"), Slug: BootstrapFlightSlug}
-	// No Title: BuildOrientationPayload writes a flight's title verbatim, and a
-	// bare "Bootstrap" line adds nothing next to the paragraph it already emits
-	// for this mode.
-	m := FlightManifest{
-		Visibility: FlightVisibilityPrivate,
-		Capabilities: []FlightCapability{
-			FlightCapabilityManageFlights,
-			FlightCapabilityManageKegs,
-		},
-		Instructions: instructions,
-	}
-	normalizeFlightManifest(&m)
-	return &Flight{
-		Name:           ref.Canonical(),
-		Namespace:      ref.Namespace,
-		Slug:           ref.Slug,
-		Source:         "synthetic",
-		Bootstrap:      true,
-		ManifestHash:   hashFlightManifest(m),
-		FlightManifest: m,
-	}
-}
+// ErrFlightSubflightNotAllowed marks a selection outside the immutable root's
+// live, identity-accessible transitive graph. The historical name is retained
+// for callers that classify this authority denial; selection is no longer
+// limited to direct children.
+var ErrFlightSubflightNotAllowed = errors.New("flight is not available from the pinned root")
 
 // AtLeast reports whether r grants at least want within a flight cover.
 func (r FlightRole) AtLeast(want FlightRole) bool {
@@ -115,29 +86,25 @@ type FlightCover struct {
 	Role      FlightRole `yaml:"role" json:"role"`
 }
 
-// FlightManifest is the on-disk/API shape of a flight: explicit covered kegs
-// plus markdown instructions. AllowedKegs is kept for backward compatibility
-// with local manifests and is normalized into editor-cap cover entries.
+// FlightManifest is the Hub API shape of a flight: explicit covered kegs plus
+// markdown instructions. AllowedKegs remains a legacy wire field and is
+// normalized into editor-cap cover entries.
 type FlightManifest struct {
 	Title        string             `yaml:"title,omitempty" json:"title,omitempty"`
 	Visibility   string             `yaml:"visibility,omitempty" json:"visibility,omitempty"`
 	Capabilities []FlightCapability `yaml:"capabilities,omitempty" json:"capabilities,omitempty"`
 	Cover        []FlightCover      `yaml:"cover,omitempty" json:"cover,omitempty"`
+	Subflights   []string           `yaml:"subflights,omitempty" json:"subflights,omitempty"`
 	AllowedKegs  []string           `yaml:"allowedKegs,omitempty" json:"allowedKegs,omitempty"`
 	Instructions string             `yaml:"instructions,omitempty" json:"instructions,omitempty"`
 }
 
 // Flight is a discovered flight: its manifest plus provenance.
 type Flight struct {
-	Name      string `yaml:"-" json:"name,omitempty"`
-	Namespace string `yaml:"-" json:"namespace,omitempty"`
-	Slug      string `yaml:"-" json:"slug,omitempty"`
-	Source    string `yaml:"-" json:"source,omitempty"` // "local" or a hub name
-	// Bootstrap marks the synthetic flight from BootstrapFlight. It is a field
-	// rather than a Source sentinel because Source is provenance an operator
-	// reads, and a caller asking "is this real?" should not have to know which
-	// string means synthetic.
-	Bootstrap    bool   `yaml:"-" json:"bootstrap,omitempty"`
+	Name         string `yaml:"-" json:"name,omitempty"`
+	Namespace    string `yaml:"-" json:"namespace,omitempty"`
+	Slug         string `yaml:"-" json:"slug,omitempty"`
+	Source       string `yaml:"-" json:"source,omitempty"` // configured hub name
 	ManifestHash string `yaml:"-" json:"-"`
 	FlightManifest
 }
@@ -189,9 +156,7 @@ func (r FlightRef) Canonical() string {
 	return "@" + r.Namespace + "/+" + r.Slug
 }
 
-// FlightService discovers and loads flights for configured local and remote
-// hubs. Local-hub flights live under <basePath>/flights.d; remote-hub flights
-// are served by the Hub API.
+// FlightService discovers and loads flights from configured remote hubs.
 type FlightService struct {
 	Runtime       *toolkit.Runtime
 	ConfigService *ConfigService
@@ -255,24 +220,6 @@ func (s *FlightService) config() (*Config, error) {
 	return cfg, nil
 }
 
-// localFlightsDirFor returns <hub-basePath>/flights.d for a local hub entry,
-// resolving the basePath the same way Config.ResolveRef does.
-func (s *FlightService) localFlightsDirFor(entry HubEntry) (string, error) {
-	base := strings.TrimSpace(entry.BasePath)
-	if base == "" {
-		root, rootErr := defaultUserKegRoot(s.Runtime)
-		if rootErr != nil {
-			return "", rootErr
-		}
-		base = root
-	}
-	base = toolkit.ExpandEnv(s.Runtime, base)
-	if expanded, expErr := toolkit.ExpandPath(s.Runtime, base); expErr == nil {
-		base = expanded
-	}
-	return filepath.Join(base, flightsDirName), nil
-}
-
 // ListFlights returns canonical @namespace/+slug refs for flights discovered
 // across configured hubs, sorted. When hub is non-empty, discovery is limited
 // to that configured hub. Remote/auth/network errors are best-effort so shell
@@ -316,14 +263,6 @@ func (s *FlightService) ListFlights(ctx context.Context, hub string, warnings *[
 			kind = HubKindRemote
 		}
 		switch kind {
-		case HubKindLocal:
-			dir, dirErr := s.localFlightsDirFor(entry)
-			if dirErr != nil {
-				continue
-			}
-			for _, ref := range s.listLocalFlights(dir, localFlightNamespace(entry)) {
-				add(ref)
-			}
 		case HubKindRemote, HubKindReadonly:
 			flights, listErr := s.listRemoteFlights(ctx, name, entry)
 			if listErr != nil {
@@ -335,39 +274,19 @@ func (s *FlightService) ListFlights(ctx context.Context, hub string, warnings *[
 			for _, f := range flights {
 				add((FlightRef{Namespace: f.Namespace, Slug: f.Slug}).Canonical())
 			}
+		default:
+			if warnings != nil {
+				*warnings = append(*warnings, fmt.Sprintf("skipped hub %q: unsupported kind %q", name, kind))
+			}
 		}
 	}
 	sort.Strings(out)
 	return out, nil
 }
 
-func (s *FlightService) listLocalFlights(dir, namespace string) []string {
-	entries, err := s.Runtime.ReadDir(dir)
-	if err != nil {
-		// A missing flights.d is "no flights", not an error.
-		return []string{}
-	}
-	var refs []string
-	for _, e := range entries {
-		if e.IsDir() {
-			continue
-		}
-		name := e.Name()
-		if strings.HasPrefix(name, ".") {
-			continue
-		}
-		if stem, ok := flightStem(name); ok {
-			refs = append(refs, (FlightRef{Namespace: namespace, Slug: stem}).Canonical())
-		}
-	}
-	sort.Strings(refs)
-	return refs
-}
-
-// GetFlight loads a single flight by ref. Returns keg.ErrNotExist when no
-// manifest exists. Unqualified refs first try local manifests for backward
-// compatibility, then unique remote slug matches. Results are memoized for
-// the life of the process (see flightCache).
+// GetFlight loads a single Hub flight by ref. Returns keg.ErrNotExist when no
+// manifest exists. Unqualified refs resolve through unique Hub slug matches.
+// Results are memoized for the life of the process (see flightCache).
 func (s *FlightService) GetFlight(ctx context.Context, name string) (*Flight, error) {
 	if f, ok := s.cachedFlight(name); ok {
 		return f, nil
@@ -387,6 +306,170 @@ func (s *FlightService) GetFlightFresh(ctx context.Context, name string) (*Fligh
 	return s.getFlight(ctx, name)
 }
 
+// ResolveFlightGraph reloads and flattens the identity-accessible transitive
+// descendants of root. It intentionally bypasses the process cache so every
+// MCP call observes live relations and manifests.
+func (s *FlightService) ResolveFlightGraph(ctx context.Context, root *Flight) (*FlightGraph, error) {
+	if root == nil {
+		return nil, errors.New("root flight is required")
+	}
+	cfg, err := s.config()
+	if err != nil {
+		return nil, err
+	}
+	entry, ok := cfg.Hub(root.Source)
+	if !ok {
+		return nil, fmt.Errorf("root flight source %q is not a configured hub", root.Source)
+	}
+	flights, err := s.listRemoteFlights(ctx, root.Source, entry)
+	if err != nil {
+		return nil, err
+	}
+	byRef := make(map[string]*Flight, len(flights))
+	for _, manifest := range flights {
+		flight := flightFromHub(manifest, root.Source)
+		byRef[flight.Name] = flight
+	}
+	root = byRef[root.Name]
+	if root == nil {
+		return nil, fmt.Errorf("root flight is no longer accessible: %w", keg.ErrNotExist)
+	}
+	return FlattenFlightGraph(ctx, root, func(_ context.Context, ref string) (*Flight, error) {
+		flight := byRef[ref]
+		if flight == nil {
+			return nil, keg.ErrForbidden
+		}
+		return flight, nil
+	})
+}
+
+// FlightGraph is a deterministic breadth-first projection rooted at Root.
+// Available excludes the root and contains each accessible descendant once.
+// Paths holds the first (therefore shortest and ordered) canonical path found.
+type FlightGraph struct {
+	Root      *Flight
+	Available []*Flight
+	Paths     map[string][]string
+	byName    map[string]*Flight
+}
+
+// AvailableRefs returns the flattened canonical descendant list.
+func (g *FlightGraph) AvailableRefs() []string {
+	if g == nil {
+		return nil
+	}
+	out := make([]string, 0, len(g.Available))
+	for _, flight := range g.Available {
+		out = append(out, flight.Name)
+	}
+	return out
+}
+
+// Select resolves omitted input to the root and an explicit input to either
+// the root or an accessible flattened descendant. Per-tool +slug references
+// are relative to the pinned root namespace.
+func (g *FlightGraph) Select(raw string) (*Flight, []string, error) {
+	if g == nil || g.Root == nil {
+		return nil, nil, errors.New("flight graph root is required")
+	}
+	if strings.TrimSpace(raw) == "" {
+		return g.Root, append([]string(nil), g.Paths[g.Root.Name]...), nil
+	}
+	ref, err := ParseFlightRef(raw, g.Root.Namespace)
+	if err != nil {
+		return nil, nil, fmt.Errorf("%w: %v", ErrFlightSubflightNotAllowed, err)
+	}
+	canonical := ref.Canonical()
+	flight := g.byName[canonical]
+	if flight == nil {
+		return nil, nil, fmt.Errorf("%w: %s is outside the accessible graph rooted at %s", ErrFlightSubflightNotAllowed, canonical, g.Root.Name)
+	}
+	return flight, append([]string(nil), g.Paths[canonical]...), nil
+}
+
+// FlattenFlightGraph loads an ordered, bounded, single-source flight graph.
+// A missing/forbidden descendant excludes that branch; all other load errors
+// make the runtime graph unavailable. The root is supplied by the caller so
+// root-loss classification remains transport-specific.
+func FlattenFlightGraph(ctx context.Context, root *Flight, fetch func(context.Context, string) (*Flight, error)) (*FlightGraph, error) {
+	if root == nil || fetch == nil {
+		return nil, errors.New("root flight and fetch function are required")
+	}
+	if root.Name == "" {
+		return nil, errors.New("root flight canonical name is required")
+	}
+	type queued struct {
+		flight *Flight
+	}
+	graph := &FlightGraph{
+		Root:   root,
+		Paths:  map[string][]string{root.Name: {root.Name}},
+		byName: map[string]*Flight{root.Name: root},
+	}
+	queue := []queued{{flight: root}}
+	visited := map[string]bool{}
+	for len(queue) > 0 {
+		item := queue[0]
+		queue = queue[1:]
+		parent := item.flight
+		if visited[parent.Name] {
+			continue
+		}
+		visited[parent.Name] = true
+		if len(parent.Subflights) > MaxFlightSubflights {
+			return nil, fmt.Errorf("flight %s exceeds maximum direct subflight count %d", parent.Name, MaxFlightSubflights)
+		}
+		seenDirect := map[string]struct{}{}
+		for _, raw := range parent.Subflights {
+			ref, err := ParseFlightRef(raw, parent.Namespace)
+			if err != nil {
+				return nil, fmt.Errorf("flight %s has invalid subflight %q: %w", parent.Name, raw, err)
+			}
+			childRef := ref.Canonical()
+			if _, duplicate := seenDirect[childRef]; duplicate {
+				return nil, fmt.Errorf("flight %s has duplicate canonical subflight %s", parent.Name, childRef)
+			}
+			seenDirect[childRef] = struct{}{}
+			if _, known := graph.byName[childRef]; known {
+				continue
+			}
+			child, err := fetch(ctx, childRef)
+			if err != nil {
+				if errors.Is(err, keg.ErrNotExist) || errors.Is(err, keg.ErrForbidden) || errors.Is(err, keg.ErrUnauthorized) {
+					continue
+				}
+				return nil, fmt.Errorf("load descendant %s: %w", childRef, err)
+			}
+			if child == nil {
+				continue
+			}
+			if child.Name != childRef {
+				return nil, fmt.Errorf("descendant %s loaded as non-canonical flight %s", childRef, child.Name)
+			}
+			if child.Source != root.Source {
+				return nil, fmt.Errorf("flight %s is on source %q, outside root source %q", childRef, child.Source, root.Source)
+			}
+			if len(graph.Available) >= MaxFlightGraphDescendants {
+				return nil, fmt.Errorf("flight graph rooted at %s exceeds maximum unique descendant count %d", root.Name, MaxFlightGraphDescendants)
+			}
+			graph.byName[childRef] = child
+			graph.Available = append(graph.Available, child)
+			path := append([]string(nil), graph.Paths[parent.Name]...)
+			graph.Paths[childRef] = append(path, childRef)
+			queue = append(queue, queued{flight: child})
+		}
+	}
+	// No cycle or depth pass. A subflight relation is an ordered list entry on
+	// its parent, not an assertion about the shape of the whole graph, so the
+	// walk above tolerates any shape: `visited` skips a parent already
+	// expanded and `graph.byName` skips a child already loaded, which makes a
+	// cycle finite rather than fatal. Authority is never inherited from an
+	// ancestor, so mutual reference grants nothing. Traversal cost is bounded
+	// by MaxFlightGraphDescendants, checked inline above and dedup-based, so
+	// it holds for cyclic graphs too.
+	return graph, nil
+}
+
 func (s *FlightService) getFlight(ctx context.Context, name string) (*Flight, error) {
 	cfg, err := s.config()
 	if err != nil {
@@ -400,12 +483,6 @@ func (s *FlightService) getFlight(ctx context.Context, name string) (*Flight, er
 		return s.getFlightInNamespace(ctx, cfg, ref)
 	}
 
-	if f, err := s.getLocalFlightAnyHub(cfg, ref.Slug); err == nil {
-		return f, nil
-	} else if !errors.Is(err, keg.ErrNotExist) {
-		return nil, err
-	}
-
 	var matches []*Flight
 	for _, hubName := range s.allHubNames(cfg) {
 		entry, ok := cfg.Hub(hubName)
@@ -416,7 +493,7 @@ func (s *FlightService) getFlight(ctx context.Context, name string) (*Flight, er
 		if kind == "" {
 			kind = HubKindRemote
 		}
-		if kind == HubKindLocal {
+		if kind != HubKindRemote && kind != HubKindReadonly {
 			continue
 		}
 		flights, listErr := s.listRemoteFlights(ctx, hubName, entry)
@@ -450,12 +527,8 @@ func (s *FlightService) getFlightInNamespace(ctx context.Context, cfg *Config, r
 	if kind == "" {
 		kind = HubKindRemote
 	}
-	if kind == HubKindLocal {
-		dir, err := s.localFlightsDirFor(entry)
-		if err != nil {
-			return nil, err
-		}
-		return s.getLocalFlight(dir, ref.Namespace, ref.Slug)
+	if kind != HubKindRemote && kind != HubKindReadonly {
+		return nil, fmt.Errorf("hub %q has unsupported kind %q", hubName, kind)
 	}
 	if strings.TrimSpace(entry.URL) == "" {
 		return nil, fmt.Errorf("hub %q has no url configured", hubName)
@@ -469,63 +542,6 @@ func (s *FlightService) getFlightInNamespace(ctx context.Context, cfg *Config, r
 		return nil, err
 	}
 	return flightFromHub(*hf, hubName), nil
-}
-
-func (s *FlightService) getLocalFlightAnyHub(cfg *Config, slug string) (*Flight, error) {
-	for _, hubName := range s.allHubNames(cfg) {
-		entry, ok := cfg.Hub(hubName)
-		if !ok {
-			continue
-		}
-		kind := strings.TrimSpace(entry.Kind)
-		if kind != HubKindLocal {
-			continue
-		}
-		dir, err := s.localFlightsDirFor(entry)
-		if err != nil {
-			return nil, err
-		}
-		f, err := s.getLocalFlight(dir, localFlightNamespace(entry), slug)
-		if err == nil {
-			return f, nil
-		}
-		if !errors.Is(err, keg.ErrNotExist) {
-			return nil, err
-		}
-	}
-	return nil, keg.ErrNotExist
-}
-
-func (s *FlightService) getLocalFlight(dir, namespace, slug string) (*Flight, error) {
-	for _, ext := range []string{".yaml", ".yml"} {
-		path := filepath.Join(dir, slug+ext)
-		b, readErr := s.Runtime.ReadFile(path)
-		if readErr != nil {
-			continue
-		}
-		var m FlightManifest
-		if err := yaml.Unmarshal(b, &m); err != nil {
-			return nil, fmt.Errorf("parse flight %q: %w", slug, err)
-		}
-		if err := validateFlightManifest(&m); err != nil {
-			return nil, fmt.Errorf("parse flight %q: %w", slug, err)
-		}
-		normalizeFlightManifest(&m)
-		ref := FlightRef{Namespace: namespace, Slug: slug}
-		return &Flight{Name: ref.Canonical(), Namespace: namespace, Slug: slug, Source: "local", ManifestHash: hashFlightManifest(m), FlightManifest: m}, nil
-	}
-	return nil, fmt.Errorf("flight %q not found: %w", slug, keg.ErrNotExist)
-}
-
-// flightStem returns the flight name for a manifest filename and whether the
-// filename is a flight manifest (.yaml/.yml).
-func flightStem(filename string) (string, bool) {
-	for _, ext := range []string{".yaml", ".yml"} {
-		if strings.HasSuffix(filename, ext) {
-			return strings.TrimSuffix(filename, ext), true
-		}
-	}
-	return "", false
 }
 
 func normalizeFlightManifest(m *FlightManifest) {
@@ -560,11 +576,14 @@ func normalizeFlightManifest(m *FlightManifest) {
 		m.Cover[i].Keg = strings.TrimSpace(m.Cover[i].Keg)
 		m.Cover[i].Role = normalizeFlightRole(m.Cover[i].Role)
 	}
+	for i := range m.Subflights {
+		m.Subflights[i] = strings.TrimSpace(m.Subflights[i])
+	}
 }
 
 // hashFlightManifest returns an internal change token for a normalized flight
 // manifest. JSON field order is fixed by FlightManifest's struct definition,
-// and SHA-256 keeps local and Hub-backed flights on the same comparison path.
+// and SHA-256 keeps client and Hub revision comparison deterministic.
 func hashFlightManifest(m FlightManifest) string {
 	normalizeFlightManifest(&m)
 	b, err := json.Marshal(m)
@@ -574,7 +593,10 @@ func hashFlightManifest(m FlightManifest) string {
 	return fmt.Sprintf("%x", sha256.Sum256(b))
 }
 
-func validateFlightManifest(m *FlightManifest) error {
+// FlightManifestHash returns the deterministic revision token for a manifest.
+func FlightManifestHash(m FlightManifest) string { return hashFlightManifest(m) }
+
+func validateFlightManifest(m *FlightManifest, namespace string) error {
 	if m == nil {
 		return nil
 	}
@@ -612,6 +634,25 @@ func validateFlightManifest(m *FlightManifest) error {
 		default:
 			return fmt.Errorf("invalid flight cover role %q", strings.TrimSpace(roleRaw))
 		}
+	}
+	if len(m.Subflights) > MaxFlightSubflights {
+		return fmt.Errorf("subflight count exceeds %d", MaxFlightSubflights)
+	}
+	seenSubflights := map[string]struct{}{}
+	for _, raw := range m.Subflights {
+		raw = strings.TrimSpace(raw)
+		if raw == "" {
+			return errors.New("subflight reference cannot be empty")
+		}
+		ref, err := ParseFlightRef(raw, namespace)
+		if err != nil {
+			return fmt.Errorf("invalid subflight reference %q: %w", raw, err)
+		}
+		canonical := ref.Canonical()
+		if _, duplicate := seenSubflights[canonical]; duplicate {
+			return fmt.Errorf("duplicate subflight reference %q", raw)
+		}
+		seenSubflights[canonical] = struct{}{}
 	}
 	return nil
 }
@@ -741,17 +782,10 @@ func ParseFlightCoverSpecs(specs []string) ([]FlightCover, error) {
 	return out, nil
 }
 
-func localFlightNamespace(entry HubEntry) string {
-	if ns := strings.TrimPrefix(strings.TrimSpace(entry.DefaultNamespace), "@"); ns != "" {
-		return ns
-	}
-	return LocalHubName
-}
-
 func (s *FlightService) allHubNames(cfg *Config) []string {
 	hubs := cfg.Hubs()
 	if len(hubs) == 0 {
-		return dedupeStrings([]string{cfg.localHubName(), cfg.resolveHubName()})
+		return dedupeStrings([]string{cfg.resolveHubName()})
 	}
 	names := make([]string, 0, len(hubs))
 	for n := range hubs {
@@ -812,16 +846,21 @@ func flightFromHub(hf HubFlight, hubName string) *Flight {
 		Visibility:   hf.Visibility,
 		Capabilities: append([]FlightCapability{}, hf.Capabilities...),
 		Cover:        cover,
+		Subflights:   append([]string(nil), hf.Subflights...),
 		Instructions: hf.Instructions,
 	}
 	normalizeFlightManifest(&m)
 	ref := FlightRef{Namespace: hf.Namespace, Slug: hf.Slug}
+	manifestHash := hf.Hash
+	if manifestHash == "" {
+		manifestHash = hashFlightManifest(m)
+	}
 	return &Flight{
 		Name:           ref.Canonical(),
 		Namespace:      hf.Namespace,
 		Slug:           hf.Slug,
 		Source:         hubName,
-		ManifestHash:   hashFlightManifest(m),
+		ManifestHash:   manifestHash,
 		FlightManifest: m,
 	}
 }

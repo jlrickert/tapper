@@ -572,7 +572,7 @@ func matchFloat(fieldVal float64, op string, compareVal float64) bool {
 
 // defaultNodeQueryResolver evaluates a single query term against a node's
 // data: key=value terms check meta attributes, plain terms check the tag set.
-// It is the default resolver for config-driven query-filtered indexes; a
+// It is the default resolver for settings-driven query-filtered indexes; a
 // custom resolver may be injected with WithQueryResolver.
 func defaultNodeQueryResolver(term string, data *NodeData) bool {
 	if data == nil {

@@ -85,6 +85,14 @@ func CanonicalHubURL(s string) string {
 	return strings.TrimRight(parsed.String(), "/")
 }
 
+// CanonicalConfiguredHubURL returns the AuthStore identity for a configured
+// hub URL. Config accepts bare hosts and gives them an HTTPS default, while
+// CanonicalHubURL deliberately operates only on the URL it is handed. Keep
+// that distinction explicit at alias-to-auth identity boundaries.
+func CanonicalConfiguredHubURL(s string) string {
+	return CanonicalHubURL(hubURLWithScheme(s))
+}
+
 // discoverAuthServerMetadata fetches RFC 8414 authorization server
 // metadata from the hub. Tapper requires the hub to advertise its
 // endpoints explicitly rather than assuming path conventions — a POST

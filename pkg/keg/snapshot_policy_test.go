@@ -47,8 +47,8 @@ func TestSnapshotPolicy_OffModeSkipsSnapshots(t *testing.T) {
 	fx, k := newSnapshotPolicyTestKeg(t)
 	ctx := fx.Context()
 
-	require.NoError(t, k.UpdateConfig(ctx, func(cfg *kegpkg.Config) {
-		cfg.Snapshots = &kegpkg.SnapshotConfig{Mode: kegpkg.SnapshotModeOff}
+	require.NoError(t, k.UpdateSettings(ctx, func(cfg *kegpkg.Settings) {
+		cfg.Snapshots = &kegpkg.SnapshotSettings{Mode: kegpkg.SnapshotModeOff}
 	}))
 	_, err := k.Create(ctx, &kegpkg.CreateOptions{Title: "No Auto Snapshot"})
 	require.NoError(t, err)
@@ -136,7 +136,7 @@ func newSnapshotPolicyTestKeg(t *testing.T) (*sandbox.Sandbox, *kegpkg.LocalKeg)
 	t.Helper()
 
 	fx := NewSandbox(t)
-	repo := kegpkg.NewMemoryRepo(fx.Runtime())
+	repo := newTestMemoryRepo(fx.Runtime())
 	k := kegpkg.NewLocalKeg(repo, fx.Runtime())
 	initNonStrictTestKeg(t, k, context.Background())
 	_, err := k.AppendSnapshot(context.Background(), kegpkg.NodeId{ID: 0}, "seed zero")

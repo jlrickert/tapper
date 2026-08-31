@@ -92,7 +92,7 @@ func TestKegVisibility(t *testing.T) {
 	var gotBody map[string]string
 	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, http.MethodPatch, r.Method)
-		require.Equal(t, "/api/v1/@jlrickert/kegs/example/settings", r.URL.Path)
+		require.Equal(t, "/api/v1/@jlrickert/kegs/example/access", r.URL.Path)
 		body, _ := io.ReadAll(r.Body)
 		_ = json.Unmarshal(body, &gotBody)
 		_ = json.NewEncoder(w).Encode(map[string]string{"visibility": "public"})
@@ -117,8 +117,8 @@ func TestKegRename_QualifiedOld(t *testing.T) {
 	t.Parallel()
 	var gotBody map[string]string
 	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, http.MethodPatch, r.Method)
-		require.Equal(t, "/api/v1/@jlrickert/kegs/example/settings", r.URL.Path)
+		require.Equal(t, http.MethodPost, r.Method)
+		require.Equal(t, "/api/v1/@jlrickert/kegs/example/rename", r.URL.Path)
 		body, _ := io.ReadAll(r.Body)
 		_ = json.Unmarshal(body, &gotBody)
 		_ = json.NewEncoder(w).Encode(map[string]string{"namespace": "jlrickert", "alias": "renamed"})
@@ -131,7 +131,8 @@ func TestKegRename_QualifiedOld(t *testing.T) {
 func TestKegRename_BareOldWithNamespaceOverride(t *testing.T) {
 	t.Parallel()
 	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, "/api/v1/@jlrickert/kegs/example/settings", r.URL.Path)
+		require.Equal(t, http.MethodPost, r.Method)
+		require.Equal(t, "/api/v1/@jlrickert/kegs/example/rename", r.URL.Path)
 		w.WriteHeader(http.StatusNoContent)
 	})
 	tap, fx, _ := newRemoteHubTap(t, h)

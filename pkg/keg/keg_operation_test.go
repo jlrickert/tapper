@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -54,22 +53,10 @@ func exerciseOperationBoundary(t *testing.T, repo keg.Repository) {
 	require.NoError(t, <-done)
 }
 
-func TestMemoryRepoKegOperationBoundary(t *testing.T) {
+func TestMemoryRepositoryKegOperationBoundary(t *testing.T) {
 	fx := NewSandbox(t)
-	exerciseOperationBoundary(t, keg.NewMemoryRepo(fx.Runtime()))
-}
-
-func TestFsRepoKegOperationBoundaryAndStaleOwnerCleanup(t *testing.T) {
-	fx := NewSandbox(t)
-	repo := keg.NewFsRepo("repo", fx.Runtime())
+	repo := newTestMemoryRepo(fx.Runtime())
 	exerciseOperationBoundary(t, repo)
-
-	lockPath := filepath.Join("repo", keg.KegOperationLock)
-	require.NoError(t, fx.Runtime().Mkdir(lockPath, 0o700, true))
-	require.NoError(t, fx.Runtime().WriteFile(filepath.Join(lockPath, "owner.json"), []byte(`{"pid":2147483647,"hostname":"stale","started_at":"2000-01-01T00:00:00Z","uid":"test"}`), 0o600))
-	require.NoError(t, repo.WithKegRead(fx.Context(), func(context.Context) error { return nil }))
-	_, err := fx.Runtime().Stat(lockPath, false)
-	require.Error(t, err)
 }
 
 type dexPhaseRepo struct {
@@ -115,7 +102,7 @@ func (r *dexPhaseRepo) WriteIndex(ctx context.Context, name string, data []byte)
 
 func TestDifferentNodeWritersSerializeCompleteDexPersistence(t *testing.T) {
 	fx := NewSandbox(t)
-	base := keg.NewMemoryRepo(fx.Runtime())
+	base := newTestMemoryRepo(fx.Runtime())
 	repo := newDexPhaseRepo(base)
 	first := keg.NewLocalKeg(repo, fx.Runtime())
 	second := keg.NewLocalKeg(repo, fx.Runtime())
@@ -150,7 +137,7 @@ func TestDifferentNodeWritersSerializeCompleteDexPersistence(t *testing.T) {
 
 func TestConcurrentMutationsMatchCleanDexRebuild(t *testing.T) {
 	fx := NewSandbox(t)
-	repo := keg.NewMemoryRepo(fx.Runtime())
+	repo := newTestMemoryRepo(fx.Runtime())
 	first := keg.NewLocalKeg(repo, fx.Runtime())
 	second := keg.NewLocalKeg(repo, fx.Runtime())
 	initNonStrictTestKeg(t, first, fx.Context())
@@ -176,7 +163,7 @@ func TestConcurrentMutationsMatchCleanDexRebuild(t *testing.T) {
 	}()
 	go func() {
 		<-start
-		_, err := first.Remove(fx.Context(), removeTarget.ID)
+		_, err := first.Remove(fx.Context(), removeOptions(t, fx.Context(), first, removeTarget.ID))
 		errs <- err
 	}()
 	go func() {
@@ -239,7 +226,7 @@ func (r *snapshotPhaseRepo) ReadContent(ctx context.Context, id keg.NodeId) ([]b
 
 func TestAggregateReadCannotMixNodeGenerations(t *testing.T) {
 	fx := NewSandbox(t)
-	base := keg.NewMemoryRepo(fx.Runtime())
+	base := newTestMemoryRepo(fx.Runtime())
 	repo := &snapshotPhaseRepo{
 		Repository:  base,
 		readEntered: make(chan struct{}),
@@ -282,7 +269,7 @@ func TestAggregateReadCannotMixNodeGenerations(t *testing.T) {
 
 func TestOperationBoundaryRejectsNilCallback(t *testing.T) {
 	fx := NewSandbox(t)
-	repo := keg.NewMemoryRepo(fx.Runtime())
+	repo := newTestMemoryRepo(fx.Runtime())
 	require.Error(t, repo.WithKegRead(context.Background(), nil))
 	require.Error(t, repo.WithKegWrite(context.Background(), nil))
 	require.False(t, errors.Is(repo.WithKegWrite(context.Background(), nil), keg.ErrKegLockUpgrade))

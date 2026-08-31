@@ -8,7 +8,7 @@ includes:
     dir: ./test-env
 
 tasks:
-  run: go run "./cmd/keg" {{.CLI_ARGS}}
+  run: go run "./cmd/tap" {{.CLI_ARGS}}
   test:
     cmds:
       - go test ./pkg/... {{.CLI_ARGS}}
@@ -24,14 +24,6 @@ tasks:
       - ./internal/apidoc/**/*.go
       - ./pkg/**/*.go
     silent: true
-  install-keg:
-    desc: Install the keg CLI (go install ./cmd/keg).
-    cmds:
-      - go install ./cmd/keg
-    sources:
-      - cmd/**
-      - pkg/**
-      - docs/**/*.md
   install-tap:
     desc: Install the tap CLI (go install ./cmd/tap).
     cmds:

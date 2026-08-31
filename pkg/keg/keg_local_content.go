@@ -40,7 +40,7 @@ func (k *LocalKeg) setContentNoDexWithOptions(ctx context.Context, id NodeId, da
 	err := k.withNodeLock(ctx, id, func(lockCtx context.Context) error {
 		// Verify the node truly exists (has content) under the lock to
 		// prevent resurrecting a concurrently removed node. HasNode
-		// alone is not enough for FsRepo because WithNodeLock creates
+		// alone is not enough for MemoryRepository because WithNodeLock creates
 		// the node directory as a side effect.
 		exists, err := k.nodeExistsWithContent(lockCtx, id)
 		if err != nil {
@@ -160,7 +160,7 @@ func (k *LocalKeg) getStatsValue(ctx context.Context, id NodeId) (*NodeStats, er
 
 // SetMeta writes metadata for a node and updates the dex.
 // If the new meta bytes are identical to the existing on-disk meta,
-// the write and dex/config update are skipped entirely.
+// the write and dex/settings update are skipped entirely.
 func (k *LocalKeg) SetMeta(ctx context.Context, id NodeId, meta *NodeMeta) error {
 	return k.SetMetaWithOptions(ctx, id, meta, NodeWriteOptions{})
 }
@@ -252,7 +252,7 @@ func (k *LocalKeg) setMeta(ctx context.Context, id NodeId, meta *NodeMeta, opts 
 		return err
 	}
 
-	// nodeData is nil when meta was unchanged — skip dex and config update.
+	// nodeData is nil when meta was unchanged — skip dex and settings update.
 	if nodeData == nil {
 		return nil
 	}

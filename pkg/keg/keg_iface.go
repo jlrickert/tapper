@@ -12,7 +12,7 @@ import (
 //
 // Two implementations exist:
 //
-//   - LocalKeg orchestrates a Repository (FsRepo, MemoryRepo, or the hub's
+//   - LocalKeg orchestrates a Repository (MemoryRepository or the hub's
 //     PgRepo) and maintains derived state itself.
 //   - RemoteKeg speaks the tapper-hub operation API; each method is a single
 //     HTTP round trip and all orchestration happens server-side.
@@ -21,23 +21,22 @@ import (
 // files, images, snapshots, locks, and events) return ErrNotSupported when the
 // backend lacks the capability.
 type Keg interface {
-	// Target returns the keg's resolved location, or nil for anonymous
-	// (memory-backed) kegs.
+	// Target returns the keg's resolved location, or nil when no target was set.
 	Target() *Target
 
-	// Init bootstraps an empty keg: config file plus zero node. Remote kegs
+	// Init bootstraps an empty keg: settings file plus zero node. Remote kegs
 	// are created through the hub's keg-creation endpoint instead and return
 	// ErrNotSupported.
 	Init(ctx context.Context) error
 
-	// Config returns the keg-level configuration (the `keg` file).
-	Config(ctx context.Context) (*Config, error)
+	// Settings returns the keg-level configuration (the `keg` file).
+	Settings(ctx context.Context) (*Settings, error)
 
-	// SetConfig replaces the keg configuration with the supplied raw YAML.
+	// SetSettings replaces the keg settings with the supplied raw YAML.
 	// Raw bytes preserve user formatting for round-trip editing.
-	SetConfig(ctx context.Context, data []byte) error
+	SetSettings(ctx context.Context, data []byte, opts SettingsWriteOptions) error
 
-	// Info returns the keg configuration and summary from one coherent
+	// Info returns the keg settings and summary from one coherent
 	// keg-wide read snapshot.
 	Info(ctx context.Context) (*KegInfo, error)
 
@@ -47,9 +46,10 @@ type Keg interface {
 	// ReadSchema returns the raw YAML definition for typeName.
 	ReadSchema(ctx context.Context, typeName string) ([]byte, error)
 
-	// WriteSchema validates and stores the YAML definition for typeName,
-	// replacing any existing definition.
-	WriteSchema(ctx context.Context, typeName string, data []byte) error
+	// WriteSchema validates and updates the existing YAML definition for
+	// typeName. It returns ErrNotExist when the schema does not exist; use
+	// CreateSchema for creation.
+	WriteSchema(ctx context.Context, typeName string, data []byte, opts SchemaWriteOptions) error
 
 	// CreateSchema validates and stores the YAML definition for typeName only
 	// when it does not exist. Concurrent creators are serialized so exactly one
@@ -57,7 +57,7 @@ type Keg interface {
 	CreateSchema(ctx context.Context, typeName string, data []byte) error
 
 	// DeleteSchema removes the definition for typeName.
-	DeleteSchema(ctx context.Context, typeName string) error
+	DeleteSchema(ctx context.Context, typeName string, opts SchemaWriteOptions) error
 
 	// ValidateNode validates the stored content and metadata for id against its
 	// declared schema without changing the node.
@@ -90,11 +90,11 @@ type Keg interface {
 
 	// Move relocates src to dst and rewrites inbound links. It returns the
 	// ids of nodes whose content was rewritten to follow the move.
-	Move(ctx context.Context, src NodeId, dst NodeId) ([]NodeId, error)
+	Move(ctx context.Context, opts NodeMoveOptions) ([]NodeId, error)
 
 	// Remove deletes a node and rewrites or drops inbound links. It returns
 	// the ids of nodes whose content was rewritten.
-	Remove(ctx context.Context, id NodeId) ([]NodeId, error)
+	Remove(ctx context.Context, opts NodeRemoveOptions) ([]NodeId, error)
 
 	// Commit promotes a temporary, code-backed node to a permanent numeric id.
 	// It is a no-op for an already-permanent node.
@@ -125,12 +125,6 @@ type Keg interface {
 	// UpdateNodes atomically applies 1-100 content and/or metadata replacements
 	// after preflighting every lock, hash, payload, and schema result.
 	UpdateNodes(ctx context.Context, updates []NodeUpdateOptions) ([]NodeUpdateResult, error)
-
-	// ReplaceNodesWithRedirects replaces nodes with redirect stubs in input
-	// order, checking each optional expected hash. It stops at the first failure
-	// and returns both the successful prefix and a Failure; completed replacements
-	// are not rolled back.
-	ReplaceNodesWithRedirects(ctx context.Context, redirects []NodeRedirect) (ReplaceNodesWithRedirectsResult, error)
 
 	// GetContent returns the node's primary content (README.md).
 	GetContent(ctx context.Context, id NodeId) ([]byte, error)
@@ -182,11 +176,6 @@ type Keg interface {
 	// supplied nodes, ordered by node id. It fails if no ids are supplied, an id
 	// is missing, or the direction is invalid.
 	RelatedNodes(ctx context.Context, opts RelatedNodesOptions) ([]NodeIndexEntry, error)
-
-	// Graph returns a deterministic graph projection of the keg's dex.
-	//
-	// Deprecated: Tapper Hub supersedes local graph rendering.
-	Graph(ctx context.Context) (*GraphView, error)
 
 	// Doctor inspects configuration, content, links, metadata, stats, and schema
 	// validation and returns deterministic diagnostic issues without mutating the
@@ -318,6 +307,22 @@ type NodeView struct {
 	// capability.
 	Files  []string
 	Images []string
+	hash   string
+}
+
+// Hash is the node's precondition token: the value a caller echoes back as
+// NodeUpdateOptions.ExpectedHash so a write is rejected when the node changed
+// after it was read. It covers content *and* metadata (see nodeStateHash), so
+// a content edit and a metadata edit on one node correctly conflict with each
+// other. An empty result means the node has neither yet.
+func (v NodeView) Hash() string {
+	if v.hash != "" {
+		return v.hash
+	}
+	if v.Stats == nil {
+		return ""
+	}
+	return v.Stats.Hash()
 }
 
 // QueryOptions configures Keg.Query.

@@ -7,9 +7,9 @@ import (
 	"github.com/jlrickert/tapper/pkg/keg"
 )
 
-// kegAliasPattern restricts keg aliases to a portable, filesystem-safe shape.
-// Lowercase letters, digits, hyphen, and underscore — no dots, slashes,
-// whitespace, or case variants that differ across platforms (HFS+, FAT32).
+// kegAliasPattern restricts keg aliases to the portable Hub route shape.
+// Lowercase letters, digits, hyphen, and underscore are accepted; dots,
+// slashes, whitespace, and uppercase variants are rejected.
 var kegAliasPattern = regexp.MustCompile(`^[a-z0-9_-]+$`)
 
 // ValidateKegAlias returns nil when alias matches the canonical alias shape
@@ -27,11 +27,9 @@ func ValidateKegAlias(alias string) error {
 	return nil
 }
 
-// namespacePattern restricts namespaces to a portable, filesystem-safe single
-// path segment: lowercase letters, digits, hyphen, underscore. The absence of a
-// dot is load-bearing — it guarantees a namespace directory <basePath>/@<ns>
-// can never collide with a reserved sentinel directory such as flights.d (which
-// holds local flight manifests beside the @<namespace> dirs).
+// namespacePattern restricts namespaces to a single Hub route segment:
+// lowercase letters, digits, hyphen, and underscore. The leading sigil
+// distinguishes a namespace from ordinary aliases in references and Hub routes.
 var namespacePattern = regexp.MustCompile(`^[a-z0-9_-]+$`)
 
 // ValidateNamespace returns nil when ns is a legal namespace segment and a

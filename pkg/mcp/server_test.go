@@ -18,6 +18,8 @@ import (
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/require"
 
+	"github.com/jlrickert/tapper/internal/testkegrepo"
+	"github.com/jlrickert/tapper/pkg/keg"
 	"github.com/jlrickert/tapper/pkg/mcp"
 	"github.com/jlrickert/tapper/pkg/tapper"
 )
@@ -44,6 +46,95 @@ func newTestSandbox(t *testing.T) *sandbox.Sandbox {
 	)
 }
 
+func newMemoryTap(t *testing.T, ctx context.Context, rt *toolkit.Runtime) *tapper.Tap {
+	t.Helper()
+	if _, installed := orientationTestHubs.Load(rt); !installed {
+		installOrientationTestHub(t, rt)
+		writeUserFlight(t, rt, "")
+	}
+	hubURL := orientationTestHubFor(t, rt).server.URL
+	newKeg := func(alias string) (*keg.LocalKeg, error) {
+		repo := testkegrepo.NewMemoryRepository(rt)
+		local := keg.NewLocalKeg(repo, rt)
+		target := keg.NewApi("home", "local", alias, keg.WithHubURL(hubURL))
+		local.SetTarget(&target)
+		if err := local.Init(ctx); err != nil {
+			return nil, err
+		}
+		if err := keg.UpdateSettings(ctx, local, func(settings *keg.Settings) {
+			settings.Title = strings.ToUpper(alias[:1]) + alias[1:] + " KEG"
+			if alias == "personal" {
+				settings.Title = "Personal KEG"
+			}
+			if settings.SchemaPolicy == nil {
+				settings.SchemaPolicy = &keg.SchemaPolicy{}
+			}
+			settings.SchemaPolicy.Strict = false
+		}); err != nil {
+			return nil, err
+		}
+		zero := keg.NodeId{ID: 0}
+		if err := local.SetContent(ctx, zero, []byte("# Personal Overview\n\nThis is the zero node of the personal KEG.\n")); err != nil {
+			return nil, err
+		}
+		zeroMeta, err := keg.ParseMeta(ctx, []byte("tags:\n  - overview\n"))
+		if err != nil {
+			return nil, err
+		}
+		if err := local.SetMeta(ctx, zero, zeroMeta); err != nil {
+			return nil, err
+		}
+		created, err := local.Create(ctx, &keg.CreateOptions{
+			Body: []byte("# Hello World\n\nA simple test node that links to [overview](../0).\n"),
+			Tags: []string{"test", "hello"},
+		})
+		if err != nil {
+			return nil, err
+		}
+		if created.ID.ID != 1 {
+			return nil, fmt.Errorf("seed node id = %d, want 1", created.ID.ID)
+		}
+		return local, nil
+	}
+	personal, err := newKeg("personal")
+	require.NoError(t, err)
+	kegs := map[string]keg.Keg{"personal": personal}
+	var kegsMu sync.Mutex
+
+	tap, err := tapper.NewTap(tapper.TapOptions{Runtime: rt})
+	require.NoError(t, err)
+	store, err := tapper.LoadAuthStore(ctx, rt, tap.PathService.AuthStorePath())
+	require.NoError(t, err)
+	store.Set(tapper.CanonicalHubURL(hubURL), tapper.AuthEntry{AccessToken: "test-token"})
+	require.NoError(t, store.Save(ctx, rt, tap.PathService.AuthStorePath()))
+	tap.AuthValidateFn = func(context.Context, *toolkit.Runtime, string, string) (*tapper.WhoAmI, error) {
+		return &tapper.WhoAmI{UserID: 1, Username: "testuser", DefaultNamespace: "local", Namespaces: []string{"local"}}, nil
+	}
+	tap.KegResolver = func(_ context.Context, opts tapper.KegTargetOptions, _ tapper.FlightRole) (keg.Keg, error) {
+		alias := strings.TrimSpace(opts.Keg)
+		if alias == "" {
+			alias = "personal"
+		}
+		if strings.HasPrefix(alias, "@") {
+			if _, tail, ok := strings.Cut(alias, "/"); ok {
+				alias = tail
+			}
+		}
+		kegsMu.Lock()
+		defer kegsMu.Unlock()
+		if existing := kegs[alias]; existing != nil {
+			return existing, nil
+		}
+		created, err := newKeg(alias)
+		if err != nil {
+			return nil, err
+		}
+		kegs[alias] = created
+		return created, nil
+	}
+	return tap
+}
+
 func newTestSessionWithOpts(t *testing.T, opts ...mcp.ServerOptions) (*sdkmcp.ClientSession, context.Context) {
 	t.Helper()
 	ctx := context.Background()
@@ -51,12 +142,9 @@ func newTestSessionWithOpts(t *testing.T, opts ...mcp.ServerOptions) (*sdkmcp.Cl
 	sb := newTestSandbox(t)
 	rt := sb.Runtime()
 
-	tap, err := tapper.NewTap(tapper.TapOptions{
-		Runtime: rt,
-	})
-	require.NoError(t, err)
+	tap := newMemoryTap(t, ctx, rt)
 
-	srv := mcp.NewServer(tap, "test", mcp.KegDefaults{KegTargetOptions: tapper.KegTargetOptions{Flight: "@local/+test"}}, opts...)
+	srv := mcp.NewServer(tap, "test", mcp.KegDefaults{}, opts...)
 	serverTransport, clientTransport := sdkmcp.NewInMemoryTransports()
 
 	// Connect server in background.
@@ -101,12 +189,9 @@ func newTestSessionWithRuntime(t *testing.T, opts ...mcp.ServerOptions) (*sdkmcp
 	sb := newTestSandbox(t)
 	rt := sb.Runtime()
 
-	tap, err := tapper.NewTap(tapper.TapOptions{
-		Runtime: rt,
-	})
-	require.NoError(t, err)
+	tap := newMemoryTap(t, ctx, rt)
 
-	srv := mcp.NewServer(tap, "test", mcp.KegDefaults{KegTargetOptions: tapper.KegTargetOptions{Flight: "@local/+test"}}, opts...)
+	srv := mcp.NewServer(tap, "test", mcp.KegDefaults{}, opts...)
 	serverTransport, clientTransport := sdkmcp.NewInMemoryTransports()
 
 	// Connect server in background.
@@ -144,11 +229,11 @@ func TestMCP_ToolsList(t *testing.T) {
 		names[tool.Name] = true
 	}
 	for _, want := range []string{
-		"auth_info", "keg_list", "cat", "list", "grep", "tags", "backlinks", "links", "info",
+		"auth_info", "keg_list", "keg_search", "cat", "list", "grep", "tags", "backlinks", "links", "info",
 		"keg_settings", "keg_settings_edit", "stats", "create", "edit", "meta", "remove", "move",
 		"index", "list_indexes", "index_cat", "doctor", "node_history", "node_snapshot",
 		"node_snapshot_view", "node_restore", "list_files", "list_images", "delete_file", "delete_image",
-		"upload_file", "upload_image", "download_image", "orient", "import_from_keg",
+		"upload_file", "upload_image", "download_image", "orient", "session_refresh", "import_from_keg",
 		"lock_acquire", "lock_release", "lock_status", "lock_force_release", "list_flights", "flight_show",
 		"flight_create", "flight_edit", "flight_delete", "schema_list", "schema_read", "schema_create",
 		"schema_edit", "schema_delete", "validate",
@@ -190,11 +275,11 @@ func TestMCP_CommonAgentSafeSurface(t *testing.T) {
 		"keg_settings_edit",
 		"stats", "create", "edit", "meta", "remove", "move", "index",
 		"list_indexes", "index_cat", "node_history", "node_snapshot",
-		"node_snapshot_view", "node_restore", "orient",
+		"node_snapshot_view", "node_restore", "orient", "session_refresh",
 		"list_files", "list_images", "delete_file", "delete_image",
 		"upload_file", "upload_image", "download_image",
 		"schema_list", "schema_read", "schema_create", "schema_edit",
-		"schema_delete", "validate", "doctor", "import_from_keg", "keg_list", "auth_info",
+		"schema_delete", "validate", "doctor", "import_from_keg", "keg_list", "keg_search", "auth_info",
 		"lock_acquire", "lock_release", "lock_status", "lock_force_release",
 		"list_flights", "flight_show", "flight_create", "flight_edit", "flight_delete",
 	} {
@@ -232,15 +317,18 @@ func TestMCP_Cat(t *testing.T) {
 func TestMCP_KegSettingsEdit_ReplacesValidatedDocument(t *testing.T) {
 	t.Parallel()
 	session, ctx := newTestSession(t)
+	expectedHash := readSettingsHash(t, session, ctx, "")
 
 	edit, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
 		Name: "keg_settings_edit",
 		Arguments: map[string]any{
-			"data": "kegv: 2025-07\ntitle: Agent Edited\nsummary: complete replacement\n",
+			"data":          "kegv: 2025-07\ntitle: Agent Edited\nsummary: complete replacement\n",
+			"expected_hash": expectedHash,
 		},
 	})
 	require.NoError(t, err)
 	require.False(t, edit.IsError, "keg_settings_edit returned error: %v", edit.Content)
+	callOrient(t, ctx, session)
 
 	read, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
 		Name: "keg_settings",
@@ -537,6 +625,7 @@ func TestMCPMutationSchemasRejectLegacySingleItemFields(t *testing.T) {
 		{"create", map[string]any{"title": "legacy"}},
 		{"edit", map[string]any{"node_id": "0", "content": "# legacy\n"}},
 		{"meta", map[string]any{"node_id": "0"}},
+		{"remove", map[string]any{"node_ids": []string{"0"}, "expected_hash": "legacy"}},
 		{"node_snapshot", map[string]any{"node_id": "0"}},
 	} {
 		res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: tc.name, Arguments: tc.args})
@@ -549,9 +638,11 @@ func TestMCPMutationSchemasRejectEmptyAndOversizedArrays(t *testing.T) {
 	session, ctx := newTestSession(t)
 	oversizedObjects := make([]any, 101)
 	oversizedIDs := make([]any, 101)
+	oversizedRemovals := make([]any, 101)
 	for i := range oversizedObjects {
 		oversizedObjects[i] = map[string]any{"key": fmt.Sprintf("node-%d", i)}
 		oversizedIDs[i] = "0"
+		oversizedRemovals[i] = map[string]any{"node_id": fmt.Sprintf("%d", i), "expected_hash": "hash"}
 	}
 	for _, tc := range []struct {
 		name string
@@ -565,6 +656,8 @@ func TestMCPMutationSchemasRejectEmptyAndOversizedArrays(t *testing.T) {
 		{"meta read oversized", map[string]any{"node_ids": oversizedIDs}},
 		{"meta update empty", map[string]any{"updates": []any{}}},
 		{"meta update oversized", map[string]any{"updates": oversizedObjects}},
+		{"remove empty", map[string]any{"nodes": []any{}}},
+		{"remove oversized", map[string]any{"nodes": oversizedRemovals}},
 		{"snapshot empty", map[string]any{"nodes": []any{}}},
 		{"snapshot oversized", map[string]any{"nodes": oversizedObjects}},
 	} {
@@ -580,9 +673,10 @@ func TestMCPMutationSchemasRejectEmptyAndOversizedArrays(t *testing.T) {
 
 func TestMCPMutationsPreserveAgentSchemaPolicy(t *testing.T) {
 	session, ctx := newTestSession(t)
+	expectedHash := readSettingsHash(t, session, ctx, "")
 	settings, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
 		Name: "keg_settings_edit",
-		Arguments: map[string]any{"data": `kegv: 2025-07
+		Arguments: map[string]any{"expected_hash": expectedHash, "data": `kegv: 2025-07
 schemaPolicy:
   strict: true
   human: off
@@ -592,6 +686,7 @@ schemaPolicy:
 	})
 	require.NoError(t, err)
 	require.False(t, settings.IsError, "settings update failed: %s", extractText(t, settings))
+	callOrient(t, ctx, session)
 	schema, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
 		Name: "schema_create",
 		Arguments: map[string]any{"data": `type: task
@@ -726,13 +821,15 @@ func TestMCP_Edit(t *testing.T) {
 	require.NoError(t, err)
 	nodeID := extractText(t, createRes)
 	require.False(t, createRes.IsError)
+	expectedHash := readNodeHash(t, session, ctx, nodeID)
 
 	// Edit it.
 	editRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
 		Name: "edit",
 		Arguments: batchEditArgs(map[string]any{
-			"node_id": nodeID,
-			"content": "# After Edit\n\nEdited via MCP.\n",
+			"node_id":       nodeID,
+			"content":       "# After Edit\n\nEdited via MCP.\n",
+			"expected_hash": expectedHash,
 		}),
 	})
 	require.NoError(t, err)
@@ -782,13 +879,15 @@ func TestMCP_MetaWrite(t *testing.T) {
 	})
 	require.NoError(t, err)
 	nodeID := extractText(t, createRes)
+	expectedHash := readNodeHash(t, session, ctx, nodeID)
 
 	// Write new metadata.
 	writeRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
 		Name: "meta",
 		Arguments: batchMetaArgs(map[string]any{
-			"node_id": nodeID,
-			"content": "tags:\n  - updated\n  - mcp\n",
+			"node_id":       nodeID,
+			"content":       "tags:\n  - updated\n  - mcp\n",
+			"expected_hash": expectedHash,
 		}),
 	})
 	require.NoError(t, err)
@@ -820,12 +919,16 @@ func TestMCP_Remove(t *testing.T) {
 	})
 	require.NoError(t, err)
 	nodeID := extractText(t, createRes)
+	expectedHash := readNodeHash(t, session, ctx, nodeID)
 
 	// Remove it.
 	removeRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
 		Name: "remove",
 		Arguments: map[string]any{
-			"node_ids": []string{nodeID},
+			"nodes": []map[string]any{{
+				"node_id":       nodeID,
+				"expected_hash": expectedHash,
+			}},
 		},
 	})
 	require.NoError(t, err)
@@ -855,13 +958,15 @@ func TestMCP_Move(t *testing.T) {
 	})
 	require.NoError(t, err)
 	srcID := extractText(t, createRes)
+	expectedHash := readNodeHash(t, session, ctx, srcID)
 
 	// Move it to ID 999.
 	moveRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
 		Name: "move",
 		Arguments: map[string]any{
-			"source_id": srcID,
-			"dest_id":   "999",
+			"source_id":     srcID,
+			"dest_id":       "999",
+			"expected_hash": expectedHash,
 		},
 	})
 	require.NoError(t, err)
@@ -1350,7 +1455,7 @@ func TestMCP_RepoInitMissingAlias(t *testing.T) {
 
 // --- import tool tests ---
 
-func TestMCP_ToolsList_IncludesImportTool(t *testing.T) {
+func TestMCP_ToolsList_ExcludesArchiveImportAndKeepsKegImport(t *testing.T) {
 	t.Parallel()
 	session, ctx := newTestSession(t)
 
@@ -1363,6 +1468,7 @@ func TestMCP_ToolsList_IncludesImportTool(t *testing.T) {
 	}
 
 	require.Contains(t, names, "import_from_keg")
+	require.NotContains(t, names, "import")
 }
 
 func TestMCP_ImportFromKeg(t *testing.T) {
@@ -1901,125 +2007,6 @@ func TestMCP_DownloadFileNotFound(t *testing.T) {
 }
 
 // --- archive tool tests ---
-
-func TestMCP_ToolsList_IncludesArchiveTools(t *testing.T) {
-	t.Skip("archive tools are not part of the agent-safe MCP surface")
-	t.Parallel()
-	session, ctx := newTestSession(t)
-
-	res, err := session.ListTools(ctx, nil)
-	require.NoError(t, err)
-
-	names := make([]string, len(res.Tools))
-	for i, tool := range res.Tools {
-		names[i] = tool.Name
-	}
-
-	require.Contains(t, names, "export")
-	require.Contains(t, names, "import")
-}
-
-func TestMCP_ExportAndImport(t *testing.T) {
-	t.Skip("archive tools are not part of the agent-safe MCP surface")
-	t.Parallel()
-	session, ctx := newTestSession(t)
-
-	// Export the default keg.
-	exportRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "export",
-		Arguments: map[string]any{
-			"output_path": "~/export-test.tar.gz",
-		},
-	})
-	require.NoError(t, err)
-	text := extractText(t, exportRes)
-	require.False(t, exportRes.IsError, "export returned error: %s", text)
-	require.Contains(t, text, "exported to")
-
-	// Create a second keg to import into.
-	initRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "repo_init",
-		Arguments: map[string]any{
-			"keg":   "importtarget",
-			"user":  true,
-			"title": "Import Target",
-		},
-	})
-	require.NoError(t, err)
-	require.False(t, initRes.IsError, "repo_init returned error: %s", extractText(t, initRes))
-
-	// Import the archive into the second keg.
-	importRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "import",
-		Arguments: map[string]any{
-			"keg":  "importtarget",
-			"path": "~/export-test.tar.gz",
-		},
-	})
-	require.NoError(t, err)
-	importText := extractText(t, importRes)
-	require.False(t, importRes.IsError, "import returned error: %s", importText)
-	require.Contains(t, importText, "imported")
-	require.Contains(t, importText, "node(s)")
-}
-
-func TestMCP_ExportMissingPath(t *testing.T) {
-	t.Skip("archive tools are not part of the agent-safe MCP surface")
-	t.Parallel()
-	session, ctx := newTestSession(t)
-
-	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "export",
-		Arguments: map[string]any{
-			"output_path": "",
-		},
-	})
-	require.NoError(t, err)
-	require.True(t, res.IsError, "expected error for empty output path")
-}
-
-func TestMCP_ImportMissingFile(t *testing.T) {
-	t.Skip("archive tools are not part of the agent-safe MCP surface")
-	t.Parallel()
-	session, ctx := newTestSession(t)
-
-	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "import",
-		Arguments: map[string]any{
-			"path": "~/nonexistent-archive.tar.gz",
-		},
-	})
-	require.NoError(t, err)
-	require.True(t, res.IsError, "expected error for missing archive file")
-}
-
-// --- graph tool tests ---
-
-// TestMCP_GraphToolIsDisabled pins the deprecation. graph rendered a standalone
-// HTML page that an agent cannot display, so returning it as tool text spent
-// context on markup nobody reads. `tap graph --output` still serves the case
-// that works; the tool stays off MCP until the feature is removed outright.
-func TestMCP_GraphToolIsDisabled(t *testing.T) {
-	t.Parallel()
-	session, ctx := newTestSession(t)
-
-	res, err := session.ListTools(ctx, nil)
-	require.NoError(t, err)
-
-	names := make([]string, len(res.Tools))
-	for i, tool := range res.Tools {
-		names[i] = tool.Name
-	}
-	require.NotContains(t, names, "graph")
-
-	called, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name:      "graph",
-		Arguments: map[string]any{},
-	})
-	if err == nil {
-		require.True(t, called.IsError, "graph must not be callable")
-	}
-}
 
 func extractText(t *testing.T, res *sdkmcp.CallToolResult) string {
 	t.Helper()

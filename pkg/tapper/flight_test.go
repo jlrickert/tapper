@@ -1,153 +1,18 @@
 package tapper_test
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"sync/atomic"
 	"testing"
 
+	"github.com/jlrickert/tapper/pkg/keg"
 	"github.com/jlrickert/tapper/pkg/tapper"
 	"github.com/stretchr/testify/require"
 )
-
-func TestFlightService_ListAndGet(t *testing.T) {
-	t.Parallel()
-	fx := NewSandbox(t)
-	require.NoError(t, fx.Setwd("/home/testuser"))
-
-	tap, err := tapper.NewTap(tapper.TapOptions{
-		Root:    "/home/testuser",
-		Runtime: fx.Runtime(),
-	})
-	require.NoError(t, err)
-
-	// A user config whose local hub basePath we control, so flights.d is at a
-	// known location.
-	userCfg := `hubs:
-  home:
-    kind: local
-    defaultNamespace: local
-    basePath: /home/testuser/kegs
-`
-	require.NoError(t, fx.Runtime().AtomicWriteFile(tap.PathService.UserConfig(), []byte(userCfg), 0o644))
-
-	flightYAML := `title: Backend work
-allowedKegs:
-  - personal
-  - "@local/notes"
-instructions: |
-  Only touch backend kegs.
-`
-	require.NoError(t, fx.Runtime().AtomicWriteFile(
-		"/home/testuser/kegs/flights.d/backend.yaml", []byte(flightYAML), 0o644))
-	// A non-manifest file and a dotfile must be ignored.
-	require.NoError(t, fx.Runtime().AtomicWriteFile(
-		"/home/testuser/kegs/flights.d/README.md", []byte("ignore me"), 0o644))
-
-	names, err := tap.ListFlights(fx.Context(), tapper.ListFlightsOptions{})
-	require.NoError(t, err)
-	require.Equal(t, []string{"@local/+backend"}, names)
-
-	f, err := tap.GetFlight(fx.Context(), tapper.GetFlightOptions{Name: "backend"})
-	require.NoError(t, err)
-	require.Equal(t, "@local/+backend", f.Name)
-	require.Equal(t, "Backend work", f.Title)
-	require.Equal(t, []string{"personal", "@local/notes"}, f.AllowedKegs)
-	require.Equal(t, []tapper.FlightCover{
-		{Keg: "personal", Role: tapper.FlightRoleEditor},
-		{Namespace: "local", Keg: "notes", Role: tapper.FlightRoleEditor},
-	}, f.Cover)
-	require.Contains(t, f.Instructions, "backend kegs")
-	require.Equal(t, "local", f.Source)
-	require.Len(t, f.ManifestHash, 64)
-	encoded, err := json.Marshal(f)
-	require.NoError(t, err)
-	require.NotContains(t, string(encoded), "manifest_hash")
-
-	_, err = tap.GetFlight(fx.Context(), tapper.GetFlightOptions{Name: "nope"})
-	require.Error(t, err, "missing flight must error")
-}
-
-func TestFlightService_ManifestHashUsesNormalizedContent(t *testing.T) {
-	t.Parallel()
-	fx := NewSandbox(t)
-	require.NoError(t, fx.Setwd("/home/testuser"))
-	tap, err := tapper.NewTap(tapper.TapOptions{Root: "/home/testuser", Runtime: fx.Runtime()})
-	require.NoError(t, err)
-	require.NoError(t, fx.Runtime().AtomicWriteFile(tap.PathService.UserConfig(), []byte(`hubs:
-  home:
-    kind: local
-    defaultNamespace: local
-    basePath: /home/testuser/kegs
-`), 0o644))
-
-	path := "/home/testuser/kegs/flights.d/hash.yaml"
-	baseline := `title: Focused
-visibility: private
-capabilities: [manage_flights, full_access]
-cover:
-  - namespace: local
-    keg: personal
-    role: editor
-instructions: Stay focused.
-`
-	require.NoError(t, fx.Runtime().AtomicWriteFile(path, []byte(baseline), 0o644))
-	flight, err := tap.FlightService.GetFlightFresh(fx.Context(), "+hash")
-	require.NoError(t, err)
-	baselineHash := flight.ManifestHash
-	require.Len(t, baselineHash, 64)
-
-	equivalent := `instructions: Stay focused.
-cover:
-- role: editor
-  keg: personal
-  namespace: local
-capabilities:
-- full_access
-- manage_flights
-visibility: private
-title: Focused
-`
-	require.NoError(t, fx.Runtime().AtomicWriteFile(path, []byte(equivalent), 0o644))
-	flight, err = tap.FlightService.GetFlightFresh(fx.Context(), "+hash")
-	require.NoError(t, err)
-	require.Equal(t, baselineHash, flight.ManifestHash)
-
-	changes := map[string]string{
-		"title":        strings.Replace(baseline, "title: Focused", "title: Changed", 1),
-		"visibility":   strings.Replace(baseline, "visibility: private", "visibility: public", 1),
-		"capabilities": strings.Replace(baseline, "capabilities: [manage_flights, full_access]", "capabilities: []", 1),
-		"cover":        strings.Replace(baseline, "role: editor", "role: viewer", 1),
-		"instructions": strings.Replace(baseline, "instructions: Stay focused.", "instructions: Changed.", 1),
-	}
-	for name, manifest := range changes {
-		t.Run(name, func(t *testing.T) {
-			require.NoError(t, fx.Runtime().AtomicWriteFile(path, []byte(manifest), 0o644))
-			changed, err := tap.FlightService.GetFlightFresh(fx.Context(), "+hash")
-			require.NoError(t, err)
-			require.NotEqual(t, baselineHash, changed.ManifestHash)
-		})
-	}
-}
-
-func TestFlightService_NoFlightsDir(t *testing.T) {
-	t.Parallel()
-	fx := NewSandbox(t)
-	require.NoError(t, fx.Setwd("/home/testuser"))
-
-	tap, err := tapper.NewTap(tapper.TapOptions{
-		Root:    "/home/testuser",
-		Runtime: fx.Runtime(),
-	})
-	require.NoError(t, err)
-
-	// No flights.d anywhere: discovery yields an empty list, not an error.
-	names, err := tap.ListFlights(fx.Context(), tapper.ListFlightsOptions{})
-	require.NoError(t, err)
-	require.Empty(t, names)
-}
 
 func TestFlightService_ListHubFilterContactsOnlySelectedHub(t *testing.T) {
 	t.Parallel()
@@ -185,6 +50,49 @@ func TestFlightService_ListHubFilterContactsOnlySelectedHub(t *testing.T) {
 	require.Equal(t, []string{"@one/+focus", "@two/+review"}, names)
 	require.EqualValues(t, 2, firstCalls.Load())
 	require.EqualValues(t, 1, secondCalls.Load(), "unfiltered listing should retain all-hub behavior")
+}
+
+func TestFlightService_RemoteGraphUsesOneFreshBatchPerResolution(t *testing.T) {
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/api/v1/flights", r.URL.Path)
+		require.Equal(t, "Bearer tok", r.Header.Get("Authorization"))
+		generation := calls.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		if generation == 1 {
+			_ = json.NewEncoder(w).Encode([]tapper.HubFlight{
+				{Namespace: "team", Slug: "root", Title: "generation one", Subflights: []string{"+child", "+hidden"}},
+				{Namespace: "team", Slug: "child", Subflights: []string{"+root", "+shared"}},
+				{Namespace: "team", Slug: "shared"},
+			})
+			return
+		}
+		_ = json.NewEncoder(w).Encode([]tapper.HubFlight{
+			{Namespace: "team", Slug: "root", Title: "generation two", Subflights: []string{"+next"}},
+			{Namespace: "team", Slug: "next"},
+		})
+	}))
+	defer srv.Close()
+
+	fx := NewSandbox(t)
+	require.NoError(t, fx.Setwd("/home/testuser"))
+	tap, err := tapper.NewTap(tapper.TapOptions{Root: "/home/testuser", Runtime: fx.Runtime()})
+	require.NoError(t, err)
+	config := "hubs:\n  atlas: {kind: remote, url: " + srv.URL + ", token: tok}\n"
+	require.NoError(t, fx.Runtime().AtomicWriteFile(tap.PathService.UserConfig(), []byte(config), 0o644))
+	root := &tapper.Flight{Name: "@team/+root", Namespace: "team", Slug: "root", Source: "atlas"}
+
+	first, err := tap.FlightService.ResolveFlightGraph(t.Context(), root)
+	require.NoError(t, err)
+	require.Equal(t, int32(1), calls.Load())
+	require.Equal(t, "generation one", first.Root.Title)
+	require.Equal(t, []string{"@team/+child", "@team/+shared"}, first.AvailableRefs(), "cycles and shared descendants must terminate; absent branches are omitted")
+
+	second, err := tap.FlightService.ResolveFlightGraph(t.Context(), root)
+	require.NoError(t, err)
+	require.Equal(t, int32(2), calls.Load(), "each resolution must issue exactly one batch request")
+	require.Equal(t, "generation two", second.Root.Title)
+	require.Equal(t, []string{"@team/+next"}, second.AvailableRefs(), "a later resolution must observe live graph changes")
 }
 
 func TestParseFlightRef(t *testing.T) {
@@ -283,70 +191,6 @@ func TestFlightRoleFor_EmptyCoverDeniesAll(t *testing.T) {
 	require.False(t, ok)
 }
 
-func TestFlightService_RejectsUnknownCapabilities(t *testing.T) {
-	t.Parallel()
-	fx := NewSandbox(t)
-	require.NoError(t, fx.Setwd("/home/testuser"))
-	tap, err := tapper.NewTap(tapper.TapOptions{Root: "/home/testuser", Runtime: fx.Runtime()})
-	require.NoError(t, err)
-	require.NoError(t, fx.Runtime().AtomicWriteFile(tap.PathService.UserConfig(), []byte(`hubs:
-  home:
-    kind: local
-    defaultNamespace: local
-    basePath: /home/testuser/kegs
-`), 0o644))
-	require.NoError(t, fx.Runtime().AtomicWriteFile("/home/testuser/kegs/flights.d/bad.yaml", []byte("capabilities: [shell_access]\n"), 0o644))
-
-	_, err = tap.GetFlight(fx.Context(), tapper.GetFlightOptions{Name: "+bad"})
-	require.Error(t, err)
-	require.Contains(t, err.Error(), `unknown flight capability "shell_access"`)
-}
-
-func TestFlightService_RejectsUnknownCoverRoles(t *testing.T) {
-	t.Parallel()
-	fx := NewSandbox(t)
-	require.NoError(t, fx.Setwd("/home/testuser"))
-	tap, err := tapper.NewTap(tapper.TapOptions{Root: "/home/testuser", Runtime: fx.Runtime()})
-	require.NoError(t, err)
-	require.NoError(t, fx.Runtime().AtomicWriteFile(tap.PathService.UserConfig(), []byte(`hubs:
-  home:
-    kind: local
-    defaultNamespace: local
-    basePath: /home/testuser/kegs
-`), 0o644))
-	require.NoError(t, fx.Runtime().AtomicWriteFile(
-		"/home/testuser/kegs/flights.d/bad-role.yaml",
-		[]byte("cover:\n  - keg: personal\n    role: owner\n"),
-		0o644,
-	))
-
-	_, err = tap.GetFlight(fx.Context(), tapper.GetFlightOptions{Name: "+bad-role"})
-	require.ErrorContains(t, err, `invalid flight cover role "owner"`)
-}
-
-func TestFlightService_AcceptsFullAccessCapability(t *testing.T) {
-	t.Parallel()
-	fx := NewSandbox(t)
-	require.NoError(t, fx.Setwd("/home/testuser"))
-	tap, err := tapper.NewTap(tapper.TapOptions{Root: "/home/testuser", Runtime: fx.Runtime()})
-	require.NoError(t, err)
-	require.NoError(t, fx.Runtime().AtomicWriteFile(tap.PathService.UserConfig(), []byte(`hubs:
-  home:
-    kind: local
-    defaultNamespace: local
-    basePath: /home/testuser/kegs
-`), 0o644))
-	require.NoError(t, fx.Runtime().AtomicWriteFile("/home/testuser/kegs/flights.d/full.yaml", []byte("capabilities: [full_access]\n"), 0o644))
-
-	flight, err := tap.GetFlight(fx.Context(), tapper.GetFlightOptions{Name: "+full"})
-	require.NoError(t, err)
-	require.True(t, flight.HasCapability(tapper.FlightCapabilityFullAccess))
-	require.False(t, flight.HasCapability(tapper.FlightCapabilityManageFlights))
-}
-
-// A viewer cap must survive repeated RoleFor calls: the legacy AllowedKegs
-// mirror used to be re-merged into the cover as editor rows on every call,
-// leaving viewer enforcement to a fragile ordering invariant.
 func TestFlightRoleFor_ViewerCapStableAcrossCalls(t *testing.T) {
 	t.Parallel()
 	flight := &tapper.Flight{
@@ -387,176 +231,224 @@ func TestFlightRoleFor_LegacyAllowedKegsRoles(t *testing.T) {
 	require.Equal(t, tapper.FlightRoleViewer, role)
 }
 
-func TestFlightEnforcement_LocalHubPathIdentity(t *testing.T) {
+func TestFlattenFlightGraph_BreadthFirstDedupAndSelection(t *testing.T) {
 	t.Parallel()
-	tap, personalID, privateID := newLocalFlightEnforcementFixture(t)
-
-	got, err := tap.Cat(t.Context(), tapper.CatOptions{
-		NodeIDs: []string{personalID},
-		KegTargetOptions: tapper.KegTargetOptions{
-			Keg:    "personal",
-			Flight: "+focused",
-		},
-		ContentOnly: true,
-	})
-	require.NoError(t, err)
-	require.Contains(t, got, "# Personal")
-
-	_, err = tap.Cat(t.Context(), tapper.CatOptions{
-		NodeIDs: []string{privateID},
-		KegTargetOptions: tapper.KegTargetOptions{
-			Keg:    "private",
-			Flight: "+focused",
-		},
-		ContentOnly: true,
-	})
-	require.Error(t, err)
-	var restriction *tapper.FlightRestrictionError
-	require.ErrorAs(t, err, &restriction)
-	require.Contains(t, err.Error(), `keg "@local/private" is not available in flight`)
-}
-
-func TestFlightEnforcement_ViewerCoverAllowsReadsAndRejectsWrites(t *testing.T) {
-	t.Parallel()
-	tap, personalID, _ := newLocalFlightEnforcementFixture(t)
-
-	_, err := tap.Cat(t.Context(), tapper.CatOptions{
-		NodeIDs: []string{personalID},
-		KegTargetOptions: tapper.KegTargetOptions{
-			Keg:    "personal",
-			Flight: "+focused",
-		},
-		ContentOnly: true,
-	})
-	require.NoError(t, err)
-
-	_, err = tap.Create(t.Context(), tapper.CreateOptions{
-		KegTargetOptions: tapper.KegTargetOptions{
-			Keg:    "personal",
-			Flight: "+focused",
-		},
-		Title: "Blocked Write",
-	})
-	require.Error(t, err)
-	var restriction *tapper.FlightRestrictionError
-	require.ErrorAs(t, err, &restriction)
-	require.Contains(t, err.Error(), `keg "@local/personal" is viewer-only in flight`)
-}
-
-func TestFlightBypass_AllowsReadOutsideCover(t *testing.T) {
-	t.Parallel()
-	tap, _, privateID := newLocalFlightEnforcementFixture(t)
-
-	got, err := tap.Cat(t.Context(), tapper.CatOptions{
-		NodeIDs: []string{privateID},
-		KegTargetOptions: tapper.KegTargetOptions{
-			Keg:                      "private",
-			Flight:                   "+focused",
-			BypassFlightRestrictions: true,
-		},
-		ContentOnly: true,
-	})
-	require.NoError(t, err)
-	require.Contains(t, got, "# Private")
-}
-
-func TestFlightBypass_AllowsWriteThroughViewerCover(t *testing.T) {
-	t.Parallel()
-	tap, _, _ := newLocalFlightEnforcementFixture(t)
-
-	node, err := tap.Create(t.Context(), tapper.CreateOptions{
-		KegTargetOptions: tapper.KegTargetOptions{
-			Keg:                      "personal",
-			Flight:                   "+focused",
-			BypassFlightRestrictions: true,
-		},
-		Title: "Allowed Write",
-		Attrs: map[string]string{"type": "note"},
-	})
-	require.NoError(t, err)
-	require.NotEmpty(t, node.Path())
-}
-
-func TestFlightEnforcement_FullAccessBypassesCoverCaps(t *testing.T) {
-	t.Parallel()
-	tap, _, privateID := newLocalFlightEnforcementFixture(t)
-	manifest := `title: Full access
-capabilities: [full_access]
-cover:
-  - namespace: local
-    keg: personal
-    role: viewer
-`
-	require.NoError(t, tap.Runtime.AtomicWriteFile("/home/testuser/kegs/flights.d/focused.yaml", []byte(manifest), 0o644))
-
-	got, err := tap.Cat(t.Context(), tapper.CatOptions{
-		NodeIDs: []string{privateID},
-		KegTargetOptions: tapper.KegTargetOptions{
-			Keg:    "private",
-			Flight: "+focused",
-		},
-		ContentOnly: true,
-	})
-	require.NoError(t, err)
-	require.Contains(t, got, "# Private")
-
-	_, err = tap.Create(t.Context(), tapper.CreateOptions{
-		KegTargetOptions: tapper.KegTargetOptions{
-			Keg:    "personal",
-			Flight: "+focused",
-		},
-		Title: "Full Access Write",
-		Attrs: map[string]string{"type": "note"},
-	})
-	require.NoError(t, err)
-}
-
-func newLocalFlightEnforcementFixture(t *testing.T) (*tapper.Tap, string, string) {
-	t.Helper()
-	fx := NewSandbox(t)
-	require.NoError(t, fx.Setwd("/home/testuser"))
-
-	tap, err := tapper.NewTap(tapper.TapOptions{
-		Root:    "/home/testuser",
-		Runtime: fx.Runtime(),
-	})
-	require.NoError(t, err)
-
-	userCfg := `fallbackNamespace: local
-hubs:
-  home:
-    kind: local
-    defaultNamespace: local
-    basePath: /home/testuser/kegs
-`
-	require.NoError(t, fx.Runtime().AtomicWriteFile(tap.PathService.UserConfig(), []byte(userCfg), 0o644))
-	for _, name := range []string{"personal", "private"} {
-		_, err := tap.InitKeg(t.Context(), tapper.InitOptions{Keg: name, Namespace: "local"})
+	flight := func(name string, children ...string) *tapper.Flight {
+		ref, err := tapper.ParseFlightRef(name, "")
 		require.NoError(t, err)
-		require.NoError(t, tap.CreateSchema(t.Context(), tapper.SchemaOptions{
-			KegTargetOptions: tapper.KegTargetOptions{Keg: name},
-			Data:             []byte("type: note\n"),
-		}))
+		return &tapper.Flight{
+			Name: name, Namespace: ref.Namespace, Slug: ref.Slug, Source: "atlas",
+			FlightManifest: tapper.FlightManifest{
+				Visibility: tapper.FlightVisibilityPrivate,
+				Subflights: children,
+			},
+		}
 	}
-	personalID, err := tap.Create(t.Context(), tapper.CreateOptions{
-		KegTargetOptions: tapper.KegTargetOptions{Keg: "personal"},
-		Title:            "Personal",
-		Attrs:            map[string]string{"type": "note"},
+	root := flight("@team/+root", "+right", "@team/+left")
+	flights := map[string]*tapper.Flight{
+		"@team/+left":   flight("@team/+left", "+shared", "@other/+grand"),
+		"@team/+right":  flight("@team/+right", "+shared"),
+		"@team/+shared": flight("@team/+shared"),
+		"@other/+grand": flight("@other/+grand"),
+	}
+	fetched := map[string]int{}
+	graph, err := tapper.FlattenFlightGraph(t.Context(), root, func(_ context.Context, ref string) (*tapper.Flight, error) {
+		fetched[ref]++
+		return flights[ref], nil
 	})
 	require.NoError(t, err)
-	privateID, err := tap.Create(t.Context(), tapper.CreateOptions{
-		KegTargetOptions: tapper.KegTargetOptions{Keg: "private"},
-		Title:            "Private",
-		Attrs:            map[string]string{"type": "note"},
-	})
+	require.Equal(t, []string{"@team/+right", "@team/+left", "@team/+shared", "@other/+grand"}, graph.AvailableRefs())
+	require.Equal(t, 1, fetched["@team/+shared"], "shared descendant must be fetched once")
+	active, path, err := graph.Select("+shared")
 	require.NoError(t, err)
+	require.Equal(t, "@team/+shared", active.Name)
+	require.Equal(t, []string{"@team/+root", "@team/+right", "@team/+shared"}, path)
+	active, path, err = graph.Select("@team/+root")
+	require.NoError(t, err)
+	require.Same(t, root, active)
+	require.Equal(t, []string{"@team/+root"}, path)
+}
 
-	flightYAML := `title: Focused
-cover:
-  - namespace: local
-    keg: personal
-    role: viewer
-`
-	require.NoError(t, fx.Runtime().AtomicWriteFile("/home/testuser/kegs/flights.d/focused.yaml", []byte(flightYAML), 0o644))
-	return tap, personalID.PathNumeric(), privateID.PathNumeric()
+func TestFlattenFlightGraph_RejectsMalformedGraphs(t *testing.T) {
+	t.Parallel()
+	base := func(name, source string, children ...string) *tapper.Flight {
+		ref, err := tapper.ParseFlightRef(name, "")
+		require.NoError(t, err)
+		return &tapper.Flight{Name: name, Namespace: ref.Namespace, Slug: ref.Slug, Source: source,
+			FlightManifest: tapper.FlightManifest{Visibility: tapper.FlightVisibilityPrivate, Subflights: children}}
+	}
+	for _, tc := range []struct {
+		name    string
+		root    *tapper.Flight
+		flights map[string]*tapper.Flight
+		wantErr string
+	}{
+		{
+			name: "cross source",
+			root: base("@team/+root", "atlas", "@team/+child"),
+			flights: map[string]*tapper.Flight{
+				"@team/+child": base("@team/+child", "other"),
+			},
+			wantErr: "outside root source",
+		},
+		// A cycle is deliberately absent here: it is no longer malformed. See
+		// TestFlattenFlightGraph_ToleratesCycles.
+		{
+			name: "canonical direct duplicate",
+			root: base("@team/+root", "atlas", "+child", "@team/+child"),
+			flights: map[string]*tapper.Flight{
+				"@team/+child": base("@team/+child", "atlas"),
+			},
+			wantErr: "duplicate canonical",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := tapper.FlattenFlightGraph(t.Context(), tc.root, func(_ context.Context, ref string) (*tapper.Flight, error) {
+				return tc.flights[ref], nil
+			})
+			require.ErrorContains(t, err, tc.wantErr)
+		})
+	}
+}
+
+func TestFlattenFlightGraph_ExcludesInaccessibleBranchAndKeepsIndependentAuthority(t *testing.T) {
+	root := &tapper.Flight{Name: "@team/+root", Namespace: "team", Slug: "root", Source: "atlas",
+		FlightManifest: tapper.FlightManifest{Subflights: []string{"+hidden", "+manager"}}}
+	manager := &tapper.Flight{Name: "@team/+manager", Namespace: "team", Slug: "manager", Source: "atlas",
+		FlightManifest: tapper.FlightManifest{Capabilities: []tapper.FlightCapability{tapper.FlightCapabilityManageKegs}}}
+	graph, err := tapper.FlattenFlightGraph(t.Context(), root, func(_ context.Context, ref string) (*tapper.Flight, error) {
+		if ref == "@team/+hidden" {
+			return nil, keg.ErrForbidden
+		}
+		return manager, nil
+	})
+	require.NoError(t, err)
+	require.Equal(t, []string{"@team/+manager"}, graph.AvailableRefs())
+	_, _, err = graph.Select("+hidden")
+	require.ErrorIs(t, err, tapper.ErrFlightSubflightNotAllowed)
+	selected, _, err := graph.Select("+manager")
+	require.NoError(t, err)
+	require.True(t, selected.HasCapability(tapper.FlightCapabilityManageKegs))
+}
+
+func TestFlattenFlightGraph_EnforcesDirectAndUniqueBounds(t *testing.T) {
+	direct := &tapper.Flight{Name: "@team/+direct", Namespace: "team", Slug: "direct", Source: "atlas"}
+	for i := 0; i <= tapper.MaxFlightSubflights; i++ {
+		direct.Subflights = append(direct.Subflights, fmt.Sprintf("@team/+d%d", i))
+	}
+	_, err := tapper.FlattenFlightGraph(t.Context(), direct, func(_ context.Context, ref string) (*tapper.Flight, error) {
+		return &tapper.Flight{Name: ref, Namespace: "team", Source: "atlas"}, nil
+	})
+	require.ErrorContains(t, err, "maximum direct subflight")
+
+	// A long chain is no longer rejected: depth is not a bound. Only the
+	// unique-descendant cap limits how far a traversal will go.
+	chain := map[string]*tapper.Flight{}
+	root := &tapper.Flight{Name: "@team/+n0", Namespace: "team", Slug: "n0", Source: "atlas"}
+	previous := root
+	for i := 1; i <= 32; i++ {
+		name := fmt.Sprintf("@team/+n%d", i)
+		previous.Subflights = []string{name}
+		next := &tapper.Flight{Name: name, Namespace: "team", Slug: fmt.Sprintf("n%d", i), Source: "atlas"}
+		chain[name] = next
+		previous = next
+	}
+	deep, err := tapper.FlattenFlightGraph(t.Context(), root, func(_ context.Context, ref string) (*tapper.Flight, error) {
+		return chain[ref], nil
+	})
+	require.NoError(t, err)
+	require.Len(t, deep.Available, 32)
+
+	wide := &tapper.Flight{Name: "@team/+wide", Namespace: "team", Slug: "wide", Source: "atlas"}
+	flights := map[string]*tapper.Flight{}
+	for i := 0; i < 64; i++ {
+		childName := fmt.Sprintf("@team/+c%d", i)
+		wide.Subflights = append(wide.Subflights, childName)
+		child := &tapper.Flight{Name: childName, Namespace: "team", Slug: fmt.Sprintf("c%d", i), Source: "atlas"}
+		flights[childName] = child
+		for j := 0; j < 5; j++ {
+			grandName := fmt.Sprintf("@team/+c%d-g%d", i, j)
+			child.Subflights = append(child.Subflights, grandName)
+			flights[grandName] = &tapper.Flight{Name: grandName, Namespace: "team", Slug: fmt.Sprintf("c%d-g%d", i, j), Source: "atlas"}
+		}
+	}
+	_, err = tapper.FlattenFlightGraph(t.Context(), wide, func(_ context.Context, ref string) (*tapper.Flight, error) {
+		return flights[ref], nil
+	})
+	require.ErrorContains(t, err, "maximum unique descendant")
+}
+
+func TestFlattenFlightGraph_KeepsShortestPathToSharedDescendant(t *testing.T) {
+	build := func(longDepth int) (*tapper.Flight, map[string]*tapper.Flight) {
+		root := &tapper.Flight{Name: "@team/+root", Namespace: "team", Slug: "root", Source: "atlas"}
+		shared := &tapper.Flight{Name: "@team/+shared", Namespace: "team", Slug: "shared", Source: "atlas"}
+		root.Subflights = []string{shared.Name, "@team/+long-1"}
+		flights := map[string]*tapper.Flight{shared.Name: shared}
+		previous := root
+		for i := 1; i < longDepth; i++ {
+			name := fmt.Sprintf("@team/+long-%d", i)
+			current := &tapper.Flight{Name: name, Namespace: "team", Slug: fmt.Sprintf("long-%d", i), Source: "atlas"}
+			flights[name] = current
+			if previous != root {
+				previous.Subflights = []string{name}
+			}
+			previous = current
+		}
+		previous.Subflights = []string{shared.Name}
+		return root, flights
+	}
+
+	// A descendant reachable both directly and down a long chain keeps the
+	// deterministic shortest selection path, however long the other route is.
+	for _, longDepth := range []int{4, 12} {
+		root, flights := build(longDepth)
+		graph, err := tapper.FlattenFlightGraph(t.Context(), root, func(_ context.Context, ref string) (*tapper.Flight, error) {
+			return flights[ref], nil
+		})
+		require.NoError(t, err)
+		sharedRef := "@team/+shared"
+		_, path, err := graph.Select(sharedRef)
+		require.NoError(t, err)
+		require.Equal(t, []string{root.Name, sharedRef}, path)
+	}
+}
+
+// TestFlattenFlightGraph_ToleratesCycles is the property the removal of the
+// cycle and depth passes rests on: a subflight entry is a list item, not an
+// assertion about graph shape, so a cyclic manifest must flatten to a finite,
+// usable graph rather than erroring or looping. Authority is never inherited
+// from an ancestor, so mutual reference grants nothing either.
+func TestFlattenFlightGraph_ToleratesCycles(t *testing.T) {
+	a := &tapper.Flight{Name: "@team/+a", Namespace: "team", Slug: "a", Source: "atlas", FlightManifest: tapper.FlightManifest{Subflights: []string{"@team/+b"}}}
+	b := &tapper.Flight{Name: "@team/+b", Namespace: "team", Slug: "b", Source: "atlas", FlightManifest: tapper.FlightManifest{Subflights: []string{"@team/+a"}}}
+	flights := map[string]*tapper.Flight{a.Name: a, b.Name: b}
+
+	graph, err := tapper.FlattenFlightGraph(t.Context(), a, func(_ context.Context, ref string) (*tapper.Flight, error) {
+		return flights[ref], nil
+	})
+	require.NoError(t, err, "a cycle must flatten, not fail")
+	require.Equal(t, []string{"@team/+b"}, graph.AvailableRefs())
+
+	selected, path, err := graph.Select("@team/+b")
+	require.NoError(t, err)
+	require.Equal(t, b.Name, selected.Name)
+	require.Equal(t, []string{a.Name, b.Name}, path)
+
+	// Selecting the root back through the cycle resolves to the root itself
+	// rather than re-entering it as its own descendant.
+	rootAgain, rootPath, err := graph.Select(a.Name)
+	require.NoError(t, err)
+	require.Equal(t, a.Name, rootAgain.Name)
+	require.Equal(t, []string{a.Name}, rootPath)
+
+	// A three-flight cycle is equally finite.
+	x := &tapper.Flight{Name: "@team/+x", Namespace: "team", Slug: "x", Source: "atlas", FlightManifest: tapper.FlightManifest{Subflights: []string{"@team/+y"}}}
+	y := &tapper.Flight{Name: "@team/+y", Namespace: "team", Slug: "y", Source: "atlas", FlightManifest: tapper.FlightManifest{Subflights: []string{"@team/+z"}}}
+	z := &tapper.Flight{Name: "@team/+z", Namespace: "team", Slug: "z", Source: "atlas", FlightManifest: tapper.FlightManifest{Subflights: []string{"@team/+x"}}}
+	ring := map[string]*tapper.Flight{x.Name: x, y.Name: y, z.Name: z}
+	ringGraph, err := tapper.FlattenFlightGraph(t.Context(), x, func(_ context.Context, ref string) (*tapper.Flight, error) {
+		return ring[ref], nil
+	})
+	require.NoError(t, err)
+	require.Equal(t, []string{"@team/+y", "@team/+z"}, ringGraph.AvailableRefs())
 }

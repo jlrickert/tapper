@@ -2,7 +2,7 @@
 // render-integrations command overlays onto the canonical content tree.
 //
 // This package exists to keep these host-specific source bytes (today: the
-// host plugin hooks) out of the cmd/tap and cmd/keg
+// host plugin hooks) out of cmd/tap
 // binaries. Only cmd/render-integrations imports this package; the rendered
 // output of those bytes ships in the user binaries via integrations/embed.go,
 // not via this embed FS.

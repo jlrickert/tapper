@@ -1,10 +1,8 @@
 package keg
 
 import (
-	"errors"
 	"fmt"
 	"net/url"
-	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -12,23 +10,13 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-var scalarApiRE = regexp.MustCompile(`^([A-Za-z0-9_.-]+):\s*(.+)$`)
+var scalarAPIRE = regexp.MustCompile(`^([A-Za-z0-9_.-]+):\s*(.+)$`)
 var dupSlashRE = regexp.MustCompile(`/+`)
 
 // Target describes a resolved KEG repository target.
 //
-// Schema is the URI scheme when the target was written as a URL (for example
-// "file", "http", "https"). Path is the URL path component or an absolute
-// filesystem path when the target was supplied as a file path.
-//
 // The Target type is the canonical, minimal shape used by tooling. Valid
 // input forms that map into Target include:
-//
-// - File targets:
-//   - Scalar file paths such as "/abs/path", "./rel/path", "../rel/path",
-//     "~/path", or Windows drive paths.
-//   - Mapping form with a "file" key. File values are cleaned with
-//     filepath.Clean; Expand will attempt to expand a leading tilde.
 //
 // - API or HTTP targets:
 //   - Full URL scalars (http:// or https://).
@@ -43,7 +31,6 @@ var dupSlashRE = regexp.MustCompile(`/+`)
 //
 // Fields:
 //
-//   - File: filesystem path for a local keg target.
 //   - Hub: hub name when using an API style target.
 //   - Url: canonical URL when provided or parsed from a scalar.
 //   - Namespace/KegName: structured hub pieces used to compose API paths.
@@ -56,26 +43,20 @@ var dupSlashRE = regexp.MustCompile(`/+`)
 //     production usage.
 //   - Readonly: when true the target was requested read only.
 type Target struct {
-	// File is the file to use when the Target is a file
-	File string `yaml:"file,omitempty"`
-
 	// Hub is an optional explicit hub pin for a keg reference. It is normally
-	// empty: the hub is resolved from the Namespace via the tapper config's
+	// empty: the hub is resolved from the Namespace via the tapper settings's
 	// namespaces map. The canonical keg reference does not carry a hub.
 	Hub string `yaml:"hub,omitempty"`
 
 	// HubURL is the resolved base URL for the hub (for example
 	// "https://atlas.foldwise.ai"). It is derived at resolution time from the
-	// tapper config's hubs map and is intentionally not serialized. A keg
+	// tapper settings's hubs map and is intentionally not serialized. A keg
 	// reference that reaches NewKegFromTarget without it was never resolved
 	// against a hub and is rejected.
 	HubURL string `yaml:"-"`
 
-	// Url is the url for the target when represented as a scalar or explicit
-	// mapping value. Url is used when the target was http/s, git, ssh, etc
+	// Url is the URL for a direct HTTP(S) target.
 	Url string `yaml:"url,omitempty"`
-
-	Memory bool
 
 	// Namespace is the namespace owner for hub targets. The "@" sigil is
 	// implied; do not store it. A user's default namespace shares their
@@ -93,8 +74,7 @@ type Target struct {
 	Token    string `yaml:"token,omitempty"`
 	TokenEnv string `yaml:"tokenEnv,omitempty"`
 
-	// Readonly specifies in the target is readonly. Only api and file are
-	// writable
+	// Readonly specifies that the target is read only.
 	Readonly bool `yaml:"readonly,omitempty"`
 }
 
@@ -102,14 +82,10 @@ type TargetOption = func(t *Target)
 type HTTPOption = func(t *Target)
 
 const (
-	SchemeMemory = "memory"
-	SchemeFile   = "file"
-	SchemeGit    = "git"
-	SchemeSSH    = "ssh"
-	SchemeHTTP   = "http"
-	SchemeHTTPs  = "https"
-	SchemeAlias  = "keg"
-	SchemeS3     = "s3"
+	SchemeHTTP        = "http"
+	SchemeHTTPs       = "https"
+	SchemeAlias       = "keg"
+	schemeUnsupported = "unsupported"
 )
 
 // NewApi constructs a Target representing a keg API endpoint. namespace is
@@ -119,30 +95,6 @@ func NewApi(hub string, namespace, kegName string, opts ...TargetOption) Target 
 		Hub:       hub,
 		Namespace: namespace,
 		KegName:   kegName,
-	}
-	for _, o := range opts {
-		o(&t)
-	}
-	return t
-}
-
-// NewFile constructs a file target for a local filesystem path. The path is
-// cleaned using filepath.Clean.
-func NewFile(path string, opts ...TargetOption) Target {
-	p := filepath.Clean(path)
-	t := Target{
-		File: p,
-	}
-	for _, o := range opts {
-		o(&t)
-	}
-	return t
-}
-
-func NewMemory(kegalias string, opts ...TargetOption) Target {
-	t := Target{
-		Memory:  true,
-		KegName: kegalias,
 	}
 	for _, o := range opts {
 		o(&t)
@@ -181,18 +133,17 @@ func WithToken(token string) HTTPOption {
 // Parse parses a user-supplied target scalar into a Target.
 //
 // Accepted input forms:
-//   - File paths (absolute, ./, ../, ~, Windows drive). These produce File
-//     targets.
 //   - Canonical keg reference "keg:@namespace/keg" (namespace optional as
 //     "keg:keg"); "keg:/@namespace/keg" is an accepted variant. The leading
 //     "@" sigil marks the namespace and is stripped on parse so the stored
 //     namespace never carries it; Path() and String() re-apply it. The hub is
 //     resolved from the namespace, never encoded in the reference.
 //   - HTTP/HTTPS URL scalars.
-//   - Any URL-like scalar parsed by url.Parse.
 //
-// The function is permissive with common variants (extra whitespace, duplicate
-// slashes). It returns an error for empty or malformed keg references.
+// Filesystem paths, file:// URLs, and every other scheme are unsupported.
+// The function is permissive with common HTTP and keg-reference variants
+// (extra whitespace and duplicate slashes). It returns an error for empty or
+// malformed references.
 func Parse(raw string) (*Target, error) {
 	value := strings.TrimSpace(raw)
 	if value == "" {
@@ -201,15 +152,10 @@ func Parse(raw string) (*Target, error) {
 
 	detectedScheme := detectScheme(value)
 	switch detectedScheme {
-	case SchemeFile:
-		t := Target{
-			File: filepath.Clean(strings.TrimPrefix(value, "file://")),
-		}
-		return &t, nil
 	case SchemeAlias:
 		// Canonical keg reference: "keg:@namespace/kegName" (namespace optional →
 		// "keg:kegName"). The hub is NOT encoded — it is resolved from the
-		// namespace via config. "keg:/@ns/keg" parses equivalently. The "@" sigil
+		// namespace via settings. "keg:/@ns/keg" parses equivalently. The "@" sigil
 		// is stripped here; Path() and String() re-apply it. To pin a hub, use
 		// the structured mapping form ({hub, namespace, name}).
 		body := strings.TrimSpace(strings.TrimPrefix(value, SchemeAlias+":"))
@@ -237,12 +183,18 @@ func Parse(raw string) (*Target, error) {
 		if !strings.HasPrefix(value, "https://") {
 			value = "https://" + value
 		}
+	default:
+		return nil, unsupportedTarget(value)
 	}
 
 	// Otherwise, treat as URL-like and parse with url.Parse.
 	u, err := url.Parse(value)
 	if err != nil {
 		return nil, fmt.Errorf("unable to parse %s: %w", value, err)
+	}
+
+	if u.Host == "" {
+		return nil, unsupportedTarget(value)
 	}
 
 	// Normalize path component by collapsing duplicate slashes.
@@ -282,40 +234,22 @@ func Parse(raw string) (*Target, error) {
 	return &kt, nil
 }
 
-// Expand replaces environment variables and expands a leading tilde in File
-// and Hub-related fields. It uses std.ExpandEnv and std.ExpandPath so behavior
-// matches the rest of the code base.
-//
-// Errors from ExpandPath are collected and returned as a joined error so callers
-// can see expansion issues.
+// Expand replaces environment variables in target fields.
 func (k *Target) Expand(env toolkit.Env) error {
-	var errs []error
-
-	expand := func(value string) string {
-		va := toolkit.ExpandEnv(env, value)
-		vb, err := toolkit.ExpandPath(env, va)
-		if err != nil {
-			errs = append(errs, err)
-			return va
-		}
-		return vb
-	}
-	k.File = expand(k.File)
 	k.Url = toolkit.ExpandEnv(env, k.Url)
 	k.Hub = toolkit.ExpandEnv(env, k.Hub)
 	k.HubURL = toolkit.ExpandEnv(env, k.HubURL)
 	k.Password = toolkit.ExpandEnv(env, k.Password)
 	k.Token = toolkit.ExpandEnv(env, k.Token)
 	k.TokenEnv = toolkit.ExpandEnv(env, k.TokenEnv)
-	return errors.Join(errs...)
+	return nil
 }
 
-// UnmarshalYAML accepts either a scalar string (the URL or shorthand or file)
-// or a mapping node that decodes into the full Target struct. Mapping form may
-// include structured hub/user/keg or an explicit file field.
+// UnmarshalYAML accepts either a remote URL or keg-reference scalar, or a
+// mapping node that decodes into the full Target struct. Mapping form may
+// include structured hub/namespace/keg fields.
 //
-// When a scalar is provided the value is parsed via Parse which recognizes
-// file scalars, shorthand hub forms, and URL scalars.
+// Filesystem fields and file:// scalars are rejected.
 func (k *Target) UnmarshalYAML(node *yaml.Node) error {
 	if node == nil {
 		return nil
@@ -333,6 +267,11 @@ func (k *Target) UnmarshalYAML(node *yaml.Node) error {
 		*k = *kt
 		return nil
 	case yaml.MappingNode:
+		for i := 0; i+1 < len(node.Content); i += 2 {
+			if node.Content[i].Value == "file" {
+				return unsupportedTarget(node.Content[i+1].Value)
+			}
+		}
 		type tmp Target
 		var t tmp
 		if err := node.Decode(&t); err != nil {
@@ -349,7 +288,12 @@ func (k *Target) UnmarshalYAML(node *yaml.Node) error {
 				if !strings.HasPrefix(k.Url, "https://") {
 					k.Url = "https://" + k.Url
 				}
+			default:
+				return unsupportedTarget(k.Url)
 			}
+		}
+		if k.Scheme() == schemeUnsupported {
+			return unsupportedTarget(k.String())
 		}
 		return nil
 	default:
@@ -360,13 +304,10 @@ func (k *Target) UnmarshalYAML(node *yaml.Node) error {
 // String returns a human-friendly representation of the target. A keg
 // reference renders in the canonical "keg:@namespace/kegName" form (namespace
 // omitted as "keg:kegName" when unset). The hub is NOT part of the reference —
-// it is resolved from the namespace via config — so the scheme is always the
-// real "keg" scheme, never a hub name. File targets return the file path; HTTP
-// targets return the canonical Url.
+// it is resolved from the namespace via settings — so the scheme is always the
+// real "keg" scheme, never a hub name. HTTP targets return the canonical URL.
 func (kt *Target) String() string {
 	switch kt.Scheme() {
-	case SchemeFile:
-		return kt.File
 	case SchemeAlias:
 		if kt.Namespace != "" {
 			return SchemeAlias + ":@" + kt.Namespace + "/" + kt.KegName
@@ -381,81 +322,61 @@ func (kt *Target) String() string {
 }
 
 // Scheme reports the inferred scheme for this Target value. A keg reference
-// (identified by a Namespace owner, or an explicit Hub pin) implies the keg
-// scheme. File implies a local file scheme. Otherwise we fall back to
-// detectScheme on the Url.
+// (identified by a Namespace owner, KegName, or explicit Hub pin) implies the
+// keg scheme. Otherwise we classify the URL.
 func (kt *Target) Scheme() string {
-	if kt.File != "" {
-		return SchemeFile
-	}
-	if kt.Hub != "" || kt.Namespace != "" {
+	if kt.Hub != "" || kt.Namespace != "" || kt.KegName != "" {
 		return SchemeAlias
 	}
 	return detectScheme(kt.Url)
 }
 
-// Host returns the hostname portion for HTTP/HTTPS targets. For file targets
-// it returns an empty string.
+// Host returns the hostname portion for HTTP/HTTPS targets.
 func (kt *Target) Host() string {
-	switch kt.Scheme() {
-	case SchemeFile:
-		return ""
-	case SchemeHTTP, SchemeHTTPs:
-		u, _ := url.Parse(kt.Url)
-		return u.Hostname()
-	default:
-		u, _ := url.Parse(kt.Url)
-		return u.Hostname()
-	}
+	u, _ := url.Parse(kt.Url)
+	return u.Hostname()
 }
 
 func (kt *Target) Port() string {
-	switch kt.Scheme() {
-	case SchemeFile:
-		return ""
-	default:
-		u, _ := url.Parse(kt.Url)
-		return u.Port()
-	}
+	u, _ := url.Parse(kt.Url)
+	return u.Port()
 }
 
 func (kt *Target) Path() string {
 	switch kt.Scheme() {
-	case SchemeFile:
-		return filepath.Clean(kt.File)
 	case SchemeAlias:
 		// Re-apply the @ sigil on the namespace; the stored value never carries it.
-		return filepath.Join("@"+kt.Namespace, kt.KegName)
+		if kt.Namespace == "" {
+			return kt.KegName
+		}
+		return "@" + kt.Namespace + "/" + kt.KegName
 	default:
 		u, _ := url.Parse(kt.Url)
 		return u.Path
 	}
 }
 
-// detectScheme classifies raw into a scheme. It recognizes the explicit
-// http/https/file URL schemes, the "keg:" keg-reference scheme, and otherwise
-// treats typical filesystem path forms as SchemeFile.
+// detectScheme classifies raw into a supported remote scheme.
 func detectScheme(raw string) string {
 	if raw == "" {
-		return SchemeFile
+		return schemeUnsupported
 	}
 	// The keg scheme is the only "<scheme>:<rest>" scalar we own. A prefix that
-	// is not "keg" is not a keg reference (it falls through to URL/file
-	// classification) — there is no "<hub>:@ns/keg" shorthand.
-	if m := scalarApiRE.FindStringSubmatch(raw); m != nil && m[1] == SchemeAlias {
+	// is not "keg" is not a keg reference — there is no
+	// "<hub>:@ns/keg" shorthand.
+	if m := scalarAPIRE.FindStringSubmatch(raw); m != nil && m[1] == SchemeAlias {
 		return SchemeAlias
 	}
 
-	// Try to parse as a URL first. This catches explicit schemes like
-	// "https://" or "file://".
+	// Try to parse as a URL first.
 	if u, err := url.Parse(raw); err == nil && u.Scheme != "" {
 		switch u.Scheme {
 		case "http":
 			return SchemeHTTP
 		case "https":
 			return SchemeHTTPs
-		case "file":
-			return SchemeFile
+		default:
+			return schemeUnsupported
 		}
 	}
 
@@ -466,7 +387,7 @@ func detectScheme(raw string) string {
 		strings.HasPrefix(raw, "./") ||
 		strings.HasPrefix(raw, "../") ||
 		strings.HasPrefix(raw, "~") {
-		return SchemeFile
+		return schemeUnsupported
 	}
 
 	// Check for implicit http website.
@@ -475,14 +396,17 @@ func detectScheme(raw string) string {
 		return SchemeHTTPs
 	}
 
-	// Windows drive letter like "C:" should be treated as file.
+	// Windows drive letter like "C:" is an unsupported filesystem path.
 	if len(raw) >= 2 && raw[1] == ':' && ((raw[0] >= 'A' && raw[0] <= 'Z') ||
 		(raw[0] >= 'a' && raw[0] <= 'z')) {
-		return SchemeFile
+		return schemeUnsupported
 	}
 
-	// Fallback: treat as a local file path.
-	return SchemeFile
+	return schemeUnsupported
+}
+
+func unsupportedTarget(raw string) error {
+	return fmt.Errorf("unsupported target %q: only keg references and HTTP(S) endpoints are supported: %w", raw, ErrNotSupported)
 }
 
 func getHostLikePath(raw string) string {

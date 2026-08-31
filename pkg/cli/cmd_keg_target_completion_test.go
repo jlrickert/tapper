@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"testing"
 
-	testutils "github.com/jlrickert/cli-toolkit/sandbox"
+	"github.com/jlrickert/tapper/pkg/tapper"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/require"
 )
@@ -13,15 +13,15 @@ import (
 // logical keg references from the configured hubs, not filesystem paths.
 func TestKegFlagCompletion_HappyPath(t *testing.T) {
 	t.Parallel()
-	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
+	sb := NewRemoteKegListSandbox(t, remoteCompletionKegs())
 
 	comp := NewCompletionProcess(t, false, 0, "--keg", "").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, comp.Err)
 
 	suggestions := parseCompletionSuggestions(string(comp.Stdout))
-	require.Contains(t, suggestions, "@local/example")
-	require.Contains(t, suggestions, "@local/personal")
-	require.Contains(t, suggestions, "@local/work")
+	require.Contains(t, suggestions, "@team/example")
+	require.Contains(t, suggestions, "@team/personal")
+	require.Contains(t, suggestions, "@team/work")
 	require.Contains(t, suggestions, "example")
 	require.Contains(t, suggestions, "personal")
 	require.Contains(t, suggestions, "work")
@@ -30,13 +30,13 @@ func TestKegFlagCompletion_HappyPath(t *testing.T) {
 
 func TestKegFlagCompletion_ShortFlag(t *testing.T) {
 	t.Parallel()
-	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
+	sb := NewRemoteKegListSandbox(t, remoteCompletionKegs())
 
 	comp := NewCompletionProcess(t, false, 0, "-k", "").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, comp.Err)
 
 	suggestions := parseCompletionSuggestions(string(comp.Stdout))
-	require.Contains(t, suggestions, "@local/personal")
+	require.Contains(t, suggestions, "@team/personal")
 	require.Contains(t, suggestions, "personal")
 }
 
@@ -44,7 +44,7 @@ func TestKegFlagCompletion_ShortFlag(t *testing.T) {
 // bare logical names in the active namespace.
 func TestKegFlagCompletion_PrefixFilter(t *testing.T) {
 	t.Parallel()
-	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
+	sb := NewRemoteKegListSandbox(t, remoteCompletionKegs())
 
 	comp := NewCompletionProcess(t, false, 0, "--keg", "per").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, comp.Err)
@@ -55,20 +55,20 @@ func TestKegFlagCompletion_PrefixFilter(t *testing.T) {
 
 func TestKegFlagCompletion_CanonicalPrefixFilter(t *testing.T) {
 	t.Parallel()
-	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
+	sb := NewRemoteKegListSandbox(t, remoteCompletionKegs())
 
-	comp := NewCompletionProcess(t, false, 0, "--keg", "@local/p").Run(sb.Context(), sb.Runtime())
+	comp := NewCompletionProcess(t, false, 0, "--keg", "@team/p").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, comp.Err)
 
 	suggestions := parseCompletionSuggestions(string(comp.Stdout))
-	require.Equal(t, []string{"@local/personal"}, suggestions)
+	require.Equal(t, []string{"@team/personal"}, suggestions)
 }
 
 // TestKegFlagCompletion_NoMatches verifies that completing --keg with an
 // unmatched prefix returns an empty suggestion list (not an error).
 func TestKegFlagCompletion_EmptyConfig(t *testing.T) {
 	t.Parallel()
-	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
+	sb := NewRemoteKegListSandbox(t, nil)
 
 	comp := NewCompletionProcess(t, false, 0, "--keg", "zzz").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, comp.Err)
@@ -79,7 +79,7 @@ func TestKegFlagCompletion_EmptyConfig(t *testing.T) {
 
 func TestKegFlagCompletion_RemoteFailureIsBestEffort(t *testing.T) {
 	t.Parallel()
-	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
+	sb := NewSandbox(t)
 	sb.MustWriteFile("~/.config/tapper/config.yaml", []byte("hubs:\n  atlas:\n    kind: remote\n    url: https://atlas.foldwise.ai\n"), 0o644)
 
 	comp := NewCompletionProcess(t, false, 0, "--keg", "").Run(sb.Context(), sb.Runtime())
@@ -90,35 +90,22 @@ func TestKegFlagCompletion_RemoteFailureIsBestEffort(t *testing.T) {
 	require.Contains(t, string(comp.Stdout), fmt.Sprintf(":%d", cobra.ShellCompDirectiveNoFileComp))
 }
 
-// TestKegProfile_NoKegFlagCompletion verifies that the keg binary (which
-// sets AllowKegAliasFlags=false) returns no suggestions for --keg.
-func TestKegProfile_NoKegFlagCompletion(t *testing.T) {
-	t.Parallel()
-	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
-
-	comp := NewCompletionProcess(t, false, 0, "--keg", "").Run(sb.Context(), sb.Runtime())
-	require.NoError(t, comp.Err)
-
-	// tap registers the --keg flag completer and enumerates logical kegs.
-	tapSuggestions := parseCompletionSuggestions(string(comp.Stdout))
-	require.Contains(t, tapSuggestions, "@local/personal")
-
-	// keg has no --keg flag; __complete should return no matches for it.
-	kegComp := NewKegProcess(t, false, "__complete", "--keg", "").Run(sb.Context(), sb.Runtime())
-	kegSuggestions := parseCompletionSuggestions(string(kegComp.Stdout))
-	require.Empty(t, kegSuggestions)
-}
-
-// TestKegFlagCompletion_IndexSubcommand verifies that the global --keg flag
-// completion is wired on index subcommands.
 func TestKegFlagCompletion_IndexSubcommand(t *testing.T) {
 	t.Parallel()
-	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
+	sb := NewRemoteKegListSandbox(t, remoteCompletionKegs())
 
 	comp := NewCompletionProcess(t, false, 0, "index", "rebuild", "--keg", "").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, comp.Err)
 
 	suggestions := parseCompletionSuggestions(string(comp.Stdout))
-	require.Contains(t, suggestions, "@local/personal")
+	require.Contains(t, suggestions, "@team/personal")
 	require.Contains(t, suggestions, "personal")
+}
+
+func remoteCompletionKegs() []tapper.HubKeg {
+	return []tapper.HubKeg{
+		{Namespace: "team", Alias: "example", Visibility: "private", Role: "admin"},
+		{Namespace: "team", Alias: "personal", Visibility: "private", Role: "admin"},
+		{Namespace: "team", Alias: "work", Visibility: "private", Role: "editor"},
+	}
 }

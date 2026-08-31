@@ -2,9 +2,8 @@ package keg_test
 
 import (
 	"context"
-	"encoding/json"
+	"errors"
 	"fmt"
-	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -15,12 +14,12 @@ import (
 )
 
 // TestConcurrentCreate_UniqueIDs verifies that 20 goroutines creating nodes
-// concurrently via MemoryRepo all get unique IDs.
+// concurrently through one repository all get unique IDs.
 func TestConcurrentCreate_UniqueIDs(t *testing.T) {
 	t.Parallel()
 	f := NewSandbox(t)
 
-	repo := kegpkg.NewMemoryRepo(f.Runtime())
+	repo := newTestMemoryRepo(f.Runtime())
 	k := kegpkg.NewLocalKeg(repo, f.Runtime())
 	initNonStrictTestKeg(t, k, f.Context())
 
@@ -53,13 +52,13 @@ func TestConcurrentCreate_UniqueIDs(t *testing.T) {
 	}
 }
 
-// TestConcurrentCreate_FsRepo verifies that 10 goroutines creating nodes
-// concurrently via FsRepo sandbox all get unique IDs.
-func TestConcurrentCreate_FsRepo(t *testing.T) {
+// TestConcurrentCreate_MemoryRepository verifies that 10 goroutines creating nodes
+// concurrently via MemoryRepository sandbox all get unique IDs.
+func TestConcurrentCreate_MemoryRepository(t *testing.T) {
 	t.Parallel()
 	f := NewSandbox(t, sandbox.WithFixture("empty", "repo"))
 
-	k, err := kegpkg.NewKegFromTarget(f.Context(), kegpkg.NewFile("repo"), f.Runtime())
+	k, err := newMemoryKegFromTarget(f.Context(), memoryTarget("repo"), f.Runtime())
 	require.NoError(t, err)
 	initNonStrictTestKeg(t, k, f.Context())
 
@@ -98,7 +97,7 @@ func TestConcurrentSetContent_DifferentNodes(t *testing.T) {
 	t.Parallel()
 	f := NewSandbox(t)
 
-	repo := kegpkg.NewMemoryRepo(f.Runtime())
+	repo := newTestMemoryRepo(f.Runtime())
 	k := kegpkg.NewLocalKeg(repo, f.Runtime())
 	initNonStrictTestKeg(t, k, f.Context())
 
@@ -143,7 +142,7 @@ func TestConcurrentSetContent_SameNode(t *testing.T) {
 	t.Parallel()
 	f := NewSandbox(t)
 
-	repo := kegpkg.NewMemoryRepo(f.Runtime())
+	repo := newTestMemoryRepo(f.Runtime())
 	k := kegpkg.NewLocalKeg(repo, f.Runtime())
 	initNonStrictTestKeg(t, k, f.Context())
 
@@ -179,7 +178,7 @@ func TestConcurrentSetMeta_SameNode(t *testing.T) {
 	t.Parallel()
 	f := NewSandbox(t)
 
-	repo := kegpkg.NewMemoryRepo(f.Runtime())
+	repo := newTestMemoryRepo(f.Runtime())
 	k := kegpkg.NewLocalKeg(repo, f.Runtime())
 	initNonStrictTestKeg(t, k, f.Context())
 
@@ -211,7 +210,7 @@ func TestConcurrentCreateAndEdit(t *testing.T) {
 	t.Parallel()
 	f := NewSandbox(t)
 
-	repo := kegpkg.NewMemoryRepo(f.Runtime())
+	repo := newTestMemoryRepo(f.Runtime())
 	k := kegpkg.NewLocalKeg(repo, f.Runtime())
 	initNonStrictTestKeg(t, k, f.Context())
 
@@ -270,13 +269,13 @@ func TestConcurrentCreateAndEdit(t *testing.T) {
 }
 
 // TestTwoKegInstances_DexNotOverwritten verifies that two Keg instances
-// sharing the same MemoryRepo do not overwrite each other's dex entries.
+// sharing the same MemoryRepository do not overwrite each other's dex entries.
 // Reproduction test for bug 327/328 (stale dex cache in MCP server).
 func TestTwoKegInstances_DexNotOverwritten(t *testing.T) {
 	t.Parallel()
 	f := NewSandbox(t)
 
-	repo := kegpkg.NewMemoryRepo(f.Runtime())
+	repo := newTestMemoryRepo(f.Runtime())
 
 	// Create two Keg instances sharing the same repo (simulates MCP server + CLI)
 	k1 := kegpkg.NewLocalKeg(repo, f.Runtime())
@@ -305,58 +304,11 @@ func TestTwoKegInstances_DexNotOverwritten(t *testing.T) {
 	require.NotNil(t, ref2, "node 2 (created by k2) should be in the dex")
 }
 
-// TestWithNodeLock_StaleLockRecovery writes a fake lock file with a dead PID
-// and verifies that the lock is acquired after stale detection removes it.
-func TestWithNodeLock_StaleLockRecovery(t *testing.T) {
-	t.Parallel()
-	f := NewSandbox(t, sandbox.WithFixture("empty", "repo"))
-
-	k, err := kegpkg.NewKegFromTarget(f.Context(), kegpkg.NewFile("repo"), f.Runtime())
-	require.NoError(t, err)
-	initNonStrictTestKeg(t, k, f.Context())
-
-	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "Locked Node"})
-	require.NoError(t, err)
-
-	// Simulate a stale lock: create the lock directory with owner.json
-	// containing a PID that doesn't exist (use a very high PID).
-	nodeDir := filepath.Join("repo", id.ID.Path())
-	lockDir := filepath.Join(nodeDir, ".keg-lock")
-	require.NoError(t, f.Runtime().Mkdir(lockDir, 0o700, false))
-
-	staleLock := struct {
-		PID       int    `json:"pid"`
-		Hostname  string `json:"hostname"`
-		StartedAt string `json:"started_at"`
-		UID       string `json:"uid"`
-	}{
-		PID:       999999999, // Very unlikely to be alive.
-		Hostname:  "testhost",
-		StartedAt: "2025-01-01T00:00:00Z",
-		UID:       "stale-uid",
-	}
-	data, err := json.Marshal(staleLock)
-	require.NoError(t, err)
-	ownerPath := filepath.Join(lockDir, "owner.json")
-	require.NoError(t, f.Runtime().WriteFile(ownerPath, data, 0o644))
-
-	// Now attempt a lock operation — it should detect the stale lock and succeed.
-	err = k.SetContent(f.Context(), id.ID, []byte("# Updated after stale lock\n"))
-	require.NoError(t, err, "SetContent should succeed after stale lock recovery")
-
-	// Verify content was updated.
-	content, err := k.GetContent(f.Context(), id.ID)
-	require.NoError(t, err)
-	require.Equal(t, "# Updated after stale lock\n", string(content))
-}
-
-// TestConcurrentCrossLock_OnlyOneWins verifies that concurrent AcquireLock
-// calls on the same node result in exactly one winner, with the rest timing out.
 func TestConcurrentCrossLock_OnlyOneWins(t *testing.T) {
 	t.Parallel()
 	f := NewSandbox(t)
 
-	repo := kegpkg.NewMemoryRepo(f.Runtime())
+	repo := newTestMemoryRepo(f.Runtime())
 	k := kegpkg.NewLocalKeg(repo, f.Runtime())
 	initNonStrictTestKeg(t, k, f.Context())
 
@@ -395,7 +347,7 @@ func TestCrossLock_DoesNotBlockWithNodeLock(t *testing.T) {
 	t.Parallel()
 	f := NewSandbox(t)
 
-	repo := kegpkg.NewMemoryRepo(f.Runtime())
+	repo := newTestMemoryRepo(f.Runtime())
 	k := kegpkg.NewLocalKeg(repo, f.Runtime())
 	initNonStrictTestKeg(t, k, f.Context())
 
@@ -421,98 +373,6 @@ func TestCrossLock_DoesNotBlockWithNodeLock(t *testing.T) {
 	require.NoError(t, repo.ReleaseLock(f.Context(), id.ID, token))
 }
 
-// TestConcurrentRemoveDuringSetContent_MemoryRepo verifies that if a node is
-// removed while SetContent is about to write, SetContent returns ErrNotExist
-// and does not resurrect the node. This is a regression test for issue 325.
-func TestConcurrentRemoveDuringSetContent_MemoryRepo(t *testing.T) {
-	t.Parallel()
-	f := NewSandbox(t)
-
-	repo := kegpkg.NewMemoryRepo(f.Runtime())
-	k := kegpkg.NewLocalKeg(repo, f.Runtime())
-	initNonStrictTestKeg(t, k, f.Context())
-
-	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "Doomed"})
-	require.NoError(t, err)
-
-	// Remove the node.
-	require.NoError(t, errOnly(k.Remove(f.Context(), id.ID)))
-
-	// SetContent after removal should fail with ErrNotExist.
-	err = k.SetContent(f.Context(), id.ID, []byte("# Resurrected\n"))
-	require.Error(t, err)
-	require.ErrorIs(t, err, kegpkg.ErrNotExist)
-
-	// Verify the node was not resurrected.
-	exists, err := repo.HasNode(f.Context(), id.ID)
-	require.NoError(t, err)
-	require.False(t, exists, "node should not be resurrected after removal")
-}
-
-// TestConcurrentRemoveDuringSetMeta_MemoryRepo verifies that SetMeta on a
-// removed node returns ErrNotExist and does not resurrect it.
-func TestConcurrentRemoveDuringSetMeta_MemoryRepo(t *testing.T) {
-	t.Parallel()
-	f := NewSandbox(t)
-
-	repo := kegpkg.NewMemoryRepo(f.Runtime())
-	k := kegpkg.NewLocalKeg(repo, f.Runtime())
-	initNonStrictTestKeg(t, k, f.Context())
-
-	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{
-		Title: "Meta Doomed",
-		Tags:  []string{"victim"},
-	})
-	require.NoError(t, err)
-
-	// Read meta before removal.
-	meta, err := k.GetMeta(f.Context(), id.ID)
-	require.NoError(t, err)
-
-	// Remove the node.
-	require.NoError(t, errOnly(k.Remove(f.Context(), id.ID)))
-
-	// SetMeta after removal should fail with ErrNotExist.
-	meta.SetTags([]string{"ghost"})
-	err = k.SetMeta(f.Context(), id.ID, meta)
-	require.Error(t, err)
-	require.ErrorIs(t, err, kegpkg.ErrNotExist)
-
-	// Verify the node was not resurrected.
-	exists, err := repo.HasNode(f.Context(), id.ID)
-	require.NoError(t, err)
-	require.False(t, exists, "node should not be resurrected by SetMeta")
-}
-
-// TestConcurrentRemoveDuringUpdateMeta_MemoryRepo verifies that UpdateMeta
-// on a removed node returns ErrNotExist.
-func TestConcurrentRemoveDuringUpdateMeta_MemoryRepo(t *testing.T) {
-	t.Parallel()
-	f := NewSandbox(t)
-
-	repo := kegpkg.NewMemoryRepo(f.Runtime())
-	k := kegpkg.NewLocalKeg(repo, f.Runtime())
-	initNonStrictTestKeg(t, k, f.Context())
-
-	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "Update Doomed"})
-	require.NoError(t, err)
-
-	// Remove the node.
-	require.NoError(t, errOnly(k.Remove(f.Context(), id.ID)))
-
-	// UpdateMeta after removal should fail with ErrNotExist.
-	err = k.UpdateMeta(f.Context(), id.ID, func(m *kegpkg.NodeMeta) {
-		m.SetTags([]string{"ghost"})
-	})
-	require.Error(t, err)
-	require.ErrorIs(t, err, kegpkg.ErrNotExist)
-
-	// Verify the node was not resurrected.
-	exists, err := repo.HasNode(f.Context(), id.ID)
-	require.NoError(t, err)
-	require.False(t, exists, "node should not be resurrected by UpdateMeta")
-}
-
 // TestConcurrentRemoveThenSetContent_RaceCondition runs Remove and
 // SetContent concurrently to verify the node lock serializes them and
 // prevents resurrection.
@@ -520,7 +380,7 @@ func TestConcurrentRemoveThenSetContent_RaceCondition(t *testing.T) {
 	t.Parallel()
 	f := NewSandbox(t)
 
-	repo := kegpkg.NewMemoryRepo(f.Runtime())
+	repo := newTestMemoryRepo(f.Runtime())
 	k := kegpkg.NewLocalKeg(repo, f.Runtime())
 	initNonStrictTestKeg(t, k, f.Context())
 
@@ -533,7 +393,7 @@ func TestConcurrentRemoveThenSetContent_RaceCondition(t *testing.T) {
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		_, removeErr = k.Remove(f.Context(), id.ID)
+		_, removeErr = k.Remove(f.Context(), removeOptions(t, f.Context(), k, id.ID))
 	}()
 	go func() {
 		defer wg.Done()
@@ -548,14 +408,13 @@ func TestConcurrentRemoveThenSetContent_RaceCondition(t *testing.T) {
 	// In neither case should the node be resurrected after Remove completes.
 	if removeErr == nil {
 		// Remove succeeded. SetContent either succeeded (ran first) or
-		// failed with ErrNotExist (ran second).
+		// failed because the node disappeared or its precondition became stale.
 		if setErr != nil {
-			require.ErrorIs(t, setErr, kegpkg.ErrNotExist)
+			require.True(t, errors.Is(setErr, kegpkg.ErrNotExist) || errors.Is(setErr, kegpkg.ErrConflict), setErr)
 		}
 	} else {
-		// Remove failed (e.g., SetContent removed the lock dir). Either
-		// way the node should not be in a resurrected broken state.
-		require.ErrorIs(t, removeErr, kegpkg.ErrNotExist)
+		// A concurrent write may make the remove precondition stale.
+		require.True(t, errors.Is(removeErr, kegpkg.ErrNotExist) || errors.Is(removeErr, kegpkg.ErrConflict), removeErr)
 	}
 
 	// After everything settles, if the node exists it should have valid content.
@@ -572,13 +431,13 @@ func TestConcurrentRemoveThenSetContent_RaceCondition(t *testing.T) {
 	require.NotNil(t, content, "surviving node should have content")
 }
 
-// TestConcurrentRemoveDuringSetContent_FsRepo verifies the same
+// TestConcurrentRemoveDuringSetContent_MemoryRepository verifies the same
 // anti-resurrection behavior on the filesystem-backed repository.
-func TestConcurrentRemoveDuringSetContent_FsRepo(t *testing.T) {
+func TestConcurrentRemoveDuringSetContent_MemoryRepository(t *testing.T) {
 	t.Parallel()
 	f := NewSandbox(t, sandbox.WithFixture("empty", "repo"))
 
-	k, err := kegpkg.NewKegFromTarget(f.Context(), kegpkg.NewFile("repo"), f.Runtime())
+	k, err := newMemoryKegFromTarget(f.Context(), memoryTarget("repo"), f.Runtime())
 	require.NoError(t, err)
 	initNonStrictTestKeg(t, k, f.Context())
 
@@ -586,7 +445,7 @@ func TestConcurrentRemoveDuringSetContent_FsRepo(t *testing.T) {
 	require.NoError(t, err)
 
 	// Remove the node.
-	require.NoError(t, errOnly(k.Remove(f.Context(), id.ID)))
+	require.NoError(t, errOnly(k.Remove(f.Context(), removeOptions(t, f.Context(), k, id.ID))))
 
 	// SetContent after removal should fail with ErrNotExist.
 	err = k.SetContent(f.Context(), id.ID, []byte("# FsResurrected\n"))
@@ -601,13 +460,13 @@ func TestConcurrentRemoveDuringSetContent_FsRepo(t *testing.T) {
 	require.False(t, exists, "bare directory should be cleaned up after failed write")
 }
 
-// TestConcurrentRemoveDuringSetMeta_FsRepo verifies anti-resurrection for
+// TestConcurrentRemoveDuringSetMeta_MemoryRepository verifies anti-resurrection for
 // SetMeta on the filesystem-backed repository.
-func TestConcurrentRemoveDuringSetMeta_FsRepo(t *testing.T) {
+func TestConcurrentRemoveDuringSetMeta_MemoryRepository(t *testing.T) {
 	t.Parallel()
 	f := NewSandbox(t, sandbox.WithFixture("empty", "repo_meta"))
 
-	k, err := kegpkg.NewKegFromTarget(f.Context(), kegpkg.NewFile("repo_meta"), f.Runtime())
+	k, err := newMemoryKegFromTarget(f.Context(), memoryTarget("repo_meta"), f.Runtime())
 	require.NoError(t, err)
 	initNonStrictTestKeg(t, k, f.Context())
 
@@ -620,7 +479,7 @@ func TestConcurrentRemoveDuringSetMeta_FsRepo(t *testing.T) {
 	meta, err := k.GetMeta(f.Context(), id.ID)
 	require.NoError(t, err)
 
-	require.NoError(t, errOnly(k.Remove(f.Context(), id.ID)))
+	require.NoError(t, errOnly(k.Remove(f.Context(), removeOptions(t, f.Context(), k, id.ID))))
 
 	meta.SetTags([]string{"ghost"})
 	err = k.SetMeta(f.Context(), id.ID, meta)
@@ -633,89 +492,18 @@ func TestConcurrentRemoveDuringSetMeta_FsRepo(t *testing.T) {
 	require.False(t, exists, "bare directory should be cleaned up after failed SetMeta")
 }
 
-// TestSetContent_NoOrphanedDirectoryOnRemovedNode verifies that after
-// SetContent returns ErrNotExist for a removed node, no empty node directory
-// is left behind on disk. This is a defense-in-depth check ensuring the
-// WithNodeLock cleanup and WriteContent existence check cooperate to prevent
-// orphaned artifacts.
-func TestSetContent_NoOrphanedDirectoryOnRemovedNode(t *testing.T) {
+func TestConcurrentRemoveDuringTouch_MemoryRepository(t *testing.T) {
 	t.Parallel()
 	f := NewSandbox(t, sandbox.WithFixture("empty", "repo"))
 
-	k, err := kegpkg.NewKegFromTarget(f.Context(), kegpkg.NewFile("repo"), f.Runtime())
-	require.NoError(t, err)
-	initNonStrictTestKeg(t, k, f.Context())
-
-	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "Ephemeral"})
-	require.NoError(t, err)
-
-	// Verify node directory exists before removal.
-	nodeDir := filepath.Join("repo", id.ID.Path())
-	_, statErr := f.Runtime().Stat(nodeDir, false)
-	require.NoError(t, statErr, "node directory should exist after Create")
-
-	// Remove the node.
-	require.NoError(t, errOnly(k.Remove(f.Context(), id.ID)))
-
-	// Verify directory was removed.
-	_, statErr = f.Runtime().Stat(nodeDir, false)
-	require.Error(t, statErr, "node directory should not exist after Remove")
-
-	// Attempt SetContent — should fail with ErrNotExist.
-	err = k.SetContent(f.Context(), id.ID, []byte("# Ghost content\n"))
-	require.Error(t, err)
-	require.ErrorIs(t, err, kegpkg.ErrNotExist)
-
-	// Verify no orphaned empty directory was left behind. WithNodeLock
-	// creates the directory as a lock artifact and should clean it up
-	// when the lock callback returns without creating a content file.
-	_, statErr = f.Runtime().Stat(nodeDir, false)
-	require.Error(t, statErr, "no orphaned directory should remain after failed SetContent")
-
-	// Also verify via HasNode for consistency.
-	exists, err := k.(*kegpkg.LocalKeg).Repo.HasNode(f.Context(), id.ID)
-	require.NoError(t, err)
-	require.False(t, exists, "HasNode should return false — no resurrection")
-}
-
-// TestConcurrentRemoveDuringTouch_MemoryRepo verifies that Touch on a removed
-// node returns ErrNotExist and does not resurrect the node.
-func TestConcurrentRemoveDuringTouch_MemoryRepo(t *testing.T) {
-	t.Parallel()
-	f := NewSandbox(t)
-
-	repo := kegpkg.NewMemoryRepo(f.Runtime())
-	k := kegpkg.NewLocalKeg(repo, f.Runtime())
-	initNonStrictTestKeg(t, k, f.Context())
-
-	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "Touch Doomed"})
-	require.NoError(t, err)
-
-	require.NoError(t, errOnly(k.Remove(f.Context(), id.ID)))
-
-	err = k.Touch(f.Context(), id.ID)
-	require.Error(t, err)
-	require.ErrorIs(t, err, kegpkg.ErrNotExist)
-
-	exists, err := repo.HasNode(f.Context(), id.ID)
-	require.NoError(t, err)
-	require.False(t, exists, "node should not be resurrected by Touch")
-}
-
-// TestConcurrentRemoveDuringTouch_FsRepo verifies that Touch on a removed
-// node returns ErrNotExist on the filesystem-backed repository.
-func TestConcurrentRemoveDuringTouch_FsRepo(t *testing.T) {
-	t.Parallel()
-	f := NewSandbox(t, sandbox.WithFixture("empty", "repo"))
-
-	k, err := kegpkg.NewKegFromTarget(f.Context(), kegpkg.NewFile("repo"), f.Runtime())
+	k, err := newMemoryKegFromTarget(f.Context(), memoryTarget("repo"), f.Runtime())
 	require.NoError(t, err)
 	initNonStrictTestKeg(t, k, f.Context())
 
 	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "FsTouchDoomed"})
 	require.NoError(t, err)
 
-	require.NoError(t, errOnly(k.Remove(f.Context(), id.ID)))
+	require.NoError(t, errOnly(k.Remove(f.Context(), removeOptions(t, f.Context(), k, id.ID))))
 
 	err = k.Touch(f.Context(), id.ID)
 	require.Error(t, err)
@@ -726,20 +514,20 @@ func TestConcurrentRemoveDuringTouch_FsRepo(t *testing.T) {
 	require.False(t, exists, "bare directory should be cleaned up after failed Touch")
 }
 
-// TestConcurrentRemoveDuringUpdateMeta_FsRepo verifies that UpdateMeta on a
+// TestConcurrentRemoveDuringUpdateMeta_MemoryRepository verifies that UpdateMeta on a
 // removed node returns ErrNotExist on the filesystem-backed repository.
-func TestConcurrentRemoveDuringUpdateMeta_FsRepo(t *testing.T) {
+func TestConcurrentRemoveDuringUpdateMeta_MemoryRepository(t *testing.T) {
 	t.Parallel()
 	f := NewSandbox(t, sandbox.WithFixture("empty", "repo"))
 
-	k, err := kegpkg.NewKegFromTarget(f.Context(), kegpkg.NewFile("repo"), f.Runtime())
+	k, err := newMemoryKegFromTarget(f.Context(), memoryTarget("repo"), f.Runtime())
 	require.NoError(t, err)
 	initNonStrictTestKeg(t, k, f.Context())
 
 	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "FsUpdateDoomed"})
 	require.NoError(t, err)
 
-	require.NoError(t, errOnly(k.Remove(f.Context(), id.ID)))
+	require.NoError(t, errOnly(k.Remove(f.Context(), removeOptions(t, f.Context(), k, id.ID))))
 
 	err = k.(*kegpkg.LocalKeg).UpdateMeta(f.Context(), id.ID, func(m *kegpkg.NodeMeta) {
 		m.SetTags([]string{"ghost"})

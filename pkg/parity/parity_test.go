@@ -13,6 +13,8 @@ import (
 	"context"
 	"embed"
 	"errors"
+	"fmt"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -21,7 +23,9 @@ import (
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/require"
 
+	"github.com/jlrickert/tapper/internal/testkegrepo"
 	"github.com/jlrickert/tapper/pkg/cli"
+	"github.com/jlrickert/tapper/pkg/keg"
 	"github.com/jlrickert/tapper/pkg/mcp"
 	"github.com/jlrickert/tapper/pkg/tapper"
 )
@@ -56,17 +60,32 @@ func newParityEnv(t *testing.T) *parityEnv {
 	rt := sb.Runtime()
 	ctx := sb.Context()
 
+	sharedKeg := newParityKeg(t, ctx, rt)
 	tap, err := tapper.NewTap(tapper.TapOptions{
 		Runtime: rt,
 	})
 	require.NoError(t, err)
+	tap.KegResolver = func(_ context.Context, opts tapper.KegTargetOptions, _ tapper.FlightRole) (keg.Keg, error) {
+		ref := strings.TrimSpace(opts.Keg)
+		if ref == "" {
+			ref = "personal"
+		}
+		if strings.HasPrefix(ref, "@") {
+			_, ref, _ = strings.Cut(strings.TrimPrefix(ref, "@"), "/")
+		}
+		if ref != "personal" {
+			return nil, fmt.Errorf("keg %q: %w", ref, keg.ErrNotExist)
+		}
+		return sharedKeg, nil
+	}
 
-	// Set up MCP server with in-memory transport. Parity is measured against
-	// the CLI's own MCP peer — `tap mcp` — so this is the shared-filesystem
-	// surface, local attachment paths included.
-	srv := mcp.NewServer(tap, "test", mcp.KegDefaults{
-		KegTargetOptions: tapper.KegTargetOptions{Flight: "@local/+parity"},
-	}, mcp.ServerOptions{SharedFilesystem: true})
+	// Both surfaces use the same remote-targeted LocalKeg orchestration over a
+	// concurrency-safe internal repository. No production resolver can select
+	// this repository; it exists only in tests.
+	srv := mcp.NewServer(tap, "test", mcp.KegDefaults{}, mcp.ServerOptions{
+		SharedFilesystem:    true,
+		OrientationProvider: parityOrientationProvider{},
+	})
 	serverTransport, clientTransport := sdkmcp.NewInMemoryTransports()
 
 	done := make(chan error, 1)
@@ -98,10 +117,89 @@ func newParityEnv(t *testing.T) *parityEnv {
 	}
 }
 
+type parityOrientationProvider struct{}
+
+func (parityOrientationProvider) Load(context.Context) (*mcp.Orientation, error) {
+	return newParityOrientation()
+}
+
+func (parityOrientationProvider) Render(context.Context, *tapper.Flight) (*mcp.Orientation, error) {
+	return newParityOrientation()
+}
+
+func (parityOrientationProvider) Resolve(context.Context, string, string) (*mcp.Orientation, error) {
+	return newParityOrientation()
+}
+
+func newParityOrientation() (*mcp.Orientation, error) {
+	kegs := []tapper.OrientationKeg{{
+		Ref: "@local/personal", Namespace: "local", Alias: "personal",
+		Title: "Personal KEG", Role: "admin", Source: "test", FlightCap: "admin",
+	}}
+	orientation := &mcp.Orientation{
+		Identity: "parity-test", Kegs: kegs, AggregateKegs: kegs, FullAccess: true,
+		ReconnectInstructions: "start a new parity test session",
+	}
+	if err := mcp.FinalizeOrientation(orientation); err != nil {
+		return nil, err
+	}
+	payload, err := tapper.BuildOrientationPayload(nil, "Parity test authority.", "", kegs, nil,
+		&tapper.OrientationAuthority{FullAccess: true, Revision: orientation.Revision})
+	if err != nil {
+		return nil, err
+	}
+	orientation.Payload = payload
+	return orientation, nil
+}
+
+func newParityKeg(t *testing.T, ctx context.Context, rt *toolkit.Runtime) keg.Keg {
+	t.Helper()
+	repo := testkegrepo.NewMemoryRepository(rt)
+	base := "/home/testuser/kegs/@local/personal"
+	settings, err := rt.ReadFile(filepath.Join(base, "keg"))
+	require.NoError(t, err)
+	require.NoError(t, repo.WriteSettingsDocument(ctx, settings))
+	for _, rawID := range []string{"0", "1"} {
+		id, err := keg.ParseNode(rawID)
+		require.NoError(t, err)
+		require.NotNil(t, id)
+		nodeDir := filepath.Join(base, rawID)
+		content, err := rt.ReadFile(filepath.Join(nodeDir, keg.MarkdownContentFilename))
+		require.NoError(t, err)
+		require.NoError(t, repo.WriteContent(ctx, *id, content))
+		meta, err := rt.ReadFile(filepath.Join(nodeDir, "meta.yaml"))
+		require.NoError(t, err)
+		require.NoError(t, repo.WriteMeta(ctx, *id, meta))
+		rawStats, err := rt.ReadFile(filepath.Join(nodeDir, "stats.json"))
+		require.NoError(t, err)
+		stats, err := keg.ParseStats(ctx, rawStats)
+		require.NoError(t, err)
+		require.NoError(t, repo.WriteStats(ctx, *id, stats))
+	}
+	dexDir := filepath.Join(base, "dex")
+	entries, err := rt.ReadDir(dexDir)
+	require.NoError(t, err)
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		raw, err := rt.ReadFile(filepath.Join(dexDir, entry.Name()))
+		require.NoError(t, err)
+		require.NoError(t, repo.WriteIndex(ctx, entry.Name(), raw))
+	}
+	local := keg.NewLocalKeg(repo, rt)
+	target := keg.NewApi("fixture", "local", "personal", keg.WithHubURL("https://fixture.invalid"))
+	local.SetTarget(&target)
+	return local
+}
+
 // runCLI executes a CLI command and returns stdout as a string.
 func (e *parityEnv) runCLI(args ...string) (string, error) {
 	e.t.Helper()
 	proc := sandbox.NewProcess(func(ctx context.Context, rt *toolkit.Runtime) (int, error) {
+		ctx = cli.WithTestDepsHook(ctx, func(deps *cli.Deps) {
+			deps.TapFactory = func(tapper.TapOptions) (*tapper.Tap, error) { return e.tap, nil }
+		})
 		return cli.Run(ctx, rt, args)
 	}, false) // isTTY=false to get stdout output, not editor
 	result := proc.Run(e.ctx, e.sb.Runtime())
@@ -126,6 +224,14 @@ func (e *parityEnv) runMCP(toolName string, args map[string]any) (string, error)
 		return text, &mcpError{msg: text}
 	}
 	return strings.TrimSpace(text), nil
+}
+
+func (e *parityEnv) nodeHash(nodeID string) string {
+	e.t.Helper()
+	hash, err := e.tap.NodeHash(e.ctx, tapper.KegTargetOptions{}, nodeID)
+	require.NoError(e.t, err)
+	require.NotEmpty(e.t, hash)
+	return hash
 }
 
 type mcpError struct {

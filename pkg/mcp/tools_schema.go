@@ -65,8 +65,9 @@ type schemaReadInput struct {
 
 func registerSchemaRead(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
-		Name:        "schema_read",
-		Description: "Read one schema definition as YAML",
+		Name: "schema_read",
+		Description: "Read one schema definition as YAML. The result carries the schema's " +
+			"hash; pass it back as expected_hash when editing this schema.",
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(false),
@@ -79,7 +80,13 @@ func registerSchemaRead(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefault
 		if err != nil {
 			return errorResult(err), nil, nil
 		}
-		return textResult(string(data)), nil, nil
+		res := textResult(string(data))
+		res.StructuredContent = map[string]any{
+			"type": in.Type,
+			"hash": keg.DocumentHash(data),
+			"data": string(data),
+		}
+		return res, nil, nil
 	})
 }
 
@@ -93,7 +100,7 @@ type schemaCreateInput struct {
 func registerSchemaCreate(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "schema_create",
-		Description: "Create a new keg schema from a YAML definition (fails if the type already exists)",
+		Description: "Create a new keg schema from a YAML definition (fails if the type already exists). Requires admin access to the KEG, and admin cover when a flight is selected",
 		Annotations: &sdkmcp.ToolAnnotations{
 			DestructiveHint: boolPtr(false),
 			OpenWorldHint:   boolPtr(false),
@@ -112,15 +119,16 @@ func registerSchemaCreate(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefau
 // --- schema_edit ---
 
 type schemaEditInput struct {
-	Type string `json:"type" jsonschema:"schema type name to replace"`
-	Data string `json:"data" jsonschema:"full schema definition as YAML; its declared type must match"`
-	Keg  string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
+	Type         string `json:"type" jsonschema:"schema type name to replace"`
+	Data         string `json:"data" jsonschema:"full schema definition as YAML; its declared type must match"`
+	ExpectedHash string `json:"expected_hash" jsonschema:"precondition token returned by schema_read"`
+	Keg          string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
 }
 
 func registerSchemaEdit(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "schema_edit",
-		Description: "Replace an existing keg schema with a new YAML definition",
+		Description: "Call schema_read first, then replace an existing keg schema with a new YAML definition using its hash as expected_hash. Requires admin access to the KEG, and admin cover when a flight is selected. On conflict, merge into the returned current schema (or refetch with schema_read) and retry with the returned current hash.",
 		Annotations: &sdkmcp.ToolAnnotations{
 			DestructiveHint: boolPtr(false),
 			OpenWorldHint:   boolPtr(false),
@@ -129,6 +137,7 @@ func registerSchemaEdit(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefault
 		if err := tap.EditSchema(ctx, tapper.EditSchemaOptions{
 			KegTargetOptions: resolveKegTarget(ctx, in.Keg, defaults),
 			Type:             in.Type,
+			ExpectedHash:     in.ExpectedHash,
 			Stream: &toolkit.Stream{
 				IsPiped: true,
 				In:      bytes.NewReader([]byte(in.Data)),
@@ -143,14 +152,15 @@ func registerSchemaEdit(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefault
 // --- schema_delete ---
 
 type schemaDeleteInput struct {
-	Type string `json:"type" jsonschema:"schema type name to delete"`
-	Keg  string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
+	Type         string `json:"type" jsonschema:"schema type name to delete"`
+	ExpectedHash string `json:"expected_hash" jsonschema:"precondition token returned by schema_read"`
+	Keg          string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
 }
 
 func registerSchemaDelete(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "schema_delete",
-		Description: "Delete a keg schema by type name",
+		Description: "Call schema_read first, then delete a keg schema using its hash as expected_hash. Requires admin access to the KEG, and admin cover when a flight is selected. On conflict, refetch with schema_read and retry with the returned current hash.",
 		Annotations: &sdkmcp.ToolAnnotations{
 			DestructiveHint: boolPtr(true),
 			OpenWorldHint:   boolPtr(false),
@@ -159,6 +169,7 @@ func registerSchemaDelete(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefau
 		if err := tap.DeleteSchema(ctx, tapper.SchemaOptions{
 			KegTargetOptions: resolveKegTarget(ctx, in.Keg, defaults),
 			Type:             in.Type,
+			ExpectedHash:     in.ExpectedHash,
 		}); err != nil {
 			return errorResult(err), nil, nil
 		}

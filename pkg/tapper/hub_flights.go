@@ -27,6 +27,8 @@ type HubFlight struct {
 	Visibility   string             `json:"visibility"`
 	Capabilities []FlightCapability `json:"capabilities"`
 	Cover        []HubFlightCover   `json:"cover"`
+	Subflights   []string           `json:"subflights"`
+	Hash         string             `json:"hash,omitempty"`
 }
 
 func ListUserFlights(ctx context.Context, hubURL, token string) ([]HubFlight, error) {
@@ -75,7 +77,7 @@ func ListUserFlights(ctx context.Context, hubURL, token string) ([]HubFlight, er
 
 func GetHubFlight(ctx context.Context, hubURL, token, namespace, slug string) (*HubFlight, error) {
 	var out HubFlight
-	if err := doHubFlightJSON(ctx, http.MethodGet, hubURL, token, flightManifestPath(namespace, slug), nil, &out); err != nil {
+	if err := doHubFlightJSON(ctx, http.MethodGet, hubURL, token, flightManifestPath(namespace, slug), "", nil, &out); err != nil {
 		return nil, err
 	}
 	if err := validateHubFlight(out); err != nil {
@@ -86,7 +88,7 @@ func GetHubFlight(ctx context.Context, hubURL, token, namespace, slug string) (*
 
 func CreateHubFlight(ctx context.Context, hubURL, token, namespace string, flight HubFlight) (*HubFlight, error) {
 	var out HubFlight
-	if err := doHubFlightJSON(ctx, http.MethodPost, hubURL, token, fmt.Sprintf("/api/v1/@%s/flights", namespace), flight, &out); err != nil {
+	if err := doHubFlightJSON(ctx, http.MethodPost, hubURL, token, fmt.Sprintf("/api/v1/@%s/flights", namespace), "", flight, &out); err != nil {
 		return nil, err
 	}
 	if err := validateHubFlight(out); err != nil {
@@ -95,9 +97,9 @@ func CreateHubFlight(ctx context.Context, hubURL, token, namespace string, fligh
 	return &out, nil
 }
 
-func UpdateHubFlight(ctx context.Context, hubURL, token, namespace, slug string, flight HubFlight) (*HubFlight, error) {
+func UpdateHubFlight(ctx context.Context, hubURL, token, namespace, slug string, flight HubFlight, expectedHash string) (*HubFlight, error) {
 	var out HubFlight
-	if err := doHubFlightJSON(ctx, http.MethodPut, hubURL, token, flightManifestPath(namespace, slug), flight, &out); err != nil {
+	if err := doHubFlightJSON(ctx, http.MethodPut, hubURL, token, flightManifestPath(namespace, slug), expectedHash, flight, &out); err != nil {
 		return nil, err
 	}
 	if err := validateHubFlight(out); err != nil {
@@ -119,18 +121,19 @@ func validateHubFlight(flight HubFlight) error {
 		Visibility:   flight.Visibility,
 		Capabilities: flight.Capabilities,
 		Cover:        cover,
-	})
+		Subflights:   flight.Subflights,
+	}, flight.Namespace)
 }
 
-func DeleteHubFlight(ctx context.Context, hubURL, token, namespace, slug string) error {
-	return doHubFlightJSON(ctx, http.MethodDelete, hubURL, token, flightManifestPath(namespace, slug), nil, nil)
+func DeleteHubFlight(ctx context.Context, hubURL, token, namespace, slug, expectedHash string) error {
+	return doHubFlightJSON(ctx, http.MethodDelete, hubURL, token, flightManifestPath(namespace, slug), expectedHash, nil, nil)
 }
 
 func flightManifestPath(namespace, slug string) string {
 	return fmt.Sprintf("/api/v1/@%s/+%s", namespace, slug)
 }
 
-func doHubFlightJSON(ctx context.Context, method, hubURL, token, path string, payload any, out any) error {
+func doHubFlightJSON(ctx context.Context, method, hubURL, token, path, expectedHash string, payload any, out any) error {
 	base, err := normalizeHubURL(hubURL)
 	if err != nil {
 		return err
@@ -149,6 +152,9 @@ func doHubFlightJSON(ctx context.Context, method, hubURL, token, path string, pa
 	}
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	if method == http.MethodPut || method == http.MethodDelete {
+		req.Header.Set("If-Match", expectedHash)
 	}
 	req.Header.Set("Accept", "application/json")
 	if payload != nil {
@@ -175,6 +181,15 @@ func doHubFlightJSON(ctx context.Context, method, hubURL, token, path string, pa
 	case http.StatusConflict:
 		return fmt.Errorf("hub: %s %s conflicts with existing state%s: %w",
 			method, path, readHubError(resp), keg.ErrExist)
+	case http.StatusPreconditionRequired:
+		return fmt.Errorf("hub: %s %s: %w", method, path, keg.ErrPreconditionRequired)
+	case http.StatusPreconditionFailed:
+		var env struct {
+			CurrentHash    string `json:"currentHash"`
+			CurrentContent string `json:"currentContent"`
+		}
+		_ = json.NewDecoder(resp.Body).Decode(&env)
+		return &keg.PreconditionConflictError{Resource: path, CurrentHash: env.CurrentHash, CurrentContent: []byte(env.CurrentContent)}
 	case http.StatusNotFound:
 		return fmt.Errorf("hub: %s %s returned not found%s: %w",
 			method, path, readHubError(resp), keg.ErrNotExist)

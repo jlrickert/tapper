@@ -10,64 +10,9 @@ import (
 	"github.com/jlrickert/tapper/pkg/tapper"
 )
 
-func registerRepoTools(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
-	registerRepoInit(srv, tap, defaults)
+func registerRepoTools(srv *sdkmcp.Server, tap *tapper.Tap) {
 	registerConfig(srv, tap)
 	registerConfigTemplate(srv, tap)
-}
-
-// --- repo_init ---
-
-type repoInitInput struct {
-	Keg            string `json:"keg" jsonschema:"keg name for the new repository"`
-	Namespace      string `json:"namespace,omitempty" jsonschema:"namespace the keg belongs to; empty resolves via config. Use 'local' to pin this machine's filesystem hub"`
-	Hub            string `json:"hub,omitempty" jsonschema:"hub override; empty resolves the hub from the namespace"`
-	User           bool   `json:"user,omitempty" jsonschema:"pin the reserved @local namespace (filesystem hub)"`
-	Project        bool   `json:"project,omitempty" jsonschema:"create under project path"`
-	Path           string `json:"path,omitempty" jsonschema:"explicit filesystem path (implies project destination)"`
-	Title          string `json:"title,omitempty" jsonschema:"keg title"`
-	Creator        string `json:"creator,omitempty" jsonschema:"keg creator identifier"`
-	NonInteractive bool   `json:"non_interactive,omitempty" jsonschema:"skip interactive prompts (always true in MCP context)"`
-}
-
-func registerRepoInit(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
-	sdkmcp.AddTool(srv, &sdkmcp.Tool{
-		Name:        "repo_init",
-		Description: "Initialize a new KEG repository",
-		Annotations: &sdkmcp.ToolAnnotations{
-			DestructiveHint: boolPtr(false),
-			OpenWorldHint:   boolPtr(false),
-		},
-	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in repoInitInput) (*sdkmcp.CallToolResult, any, error) {
-		opts := tapper.InitOptions{
-			Keg:            in.Keg,
-			Namespace:      in.Namespace,
-			Hub:            in.Hub,
-			User:           in.User,
-			Project:        in.Project,
-			Path:           in.Path,
-			Title:          in.Title,
-			Creator:        in.Creator,
-			NonInteractive: true,
-			// MCP is a full surface: a namespace/hub create requires bootstrap.
-			RequireBootstrap: true,
-		}
-		_ = in.NonInteractive // MCP never prompts; field exists for parity with the CLI flag
-
-		// Destination resolves namespace→hub: a bare name lands in the default
-		// namespace+hub (typically a remote create); namespace "local" or --user
-		// pins this machine's filesystem hub. No implicit local default here.
-
-		target, err := tap.InitKeg(ctx, opts)
-		if err != nil {
-			return errorResult(err), nil, nil
-		}
-		label := tapper.KegBackendLabel(target)
-		if label == "" {
-			return textResult(fmt.Sprintf("initialized keg %q", in.Keg)), nil, nil
-		}
-		return textResult(fmt.Sprintf("initialized keg %q (%s)", in.Keg, label)), nil, nil
-	})
 }
 
 // --- config ---

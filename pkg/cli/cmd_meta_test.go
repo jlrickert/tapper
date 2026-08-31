@@ -32,7 +32,7 @@ func TestMetaCommand_TableDrivenErrors(t *testing.T) {
 			name:        "missing_alias",
 			args:        []string{"meta", "0", "--keg", "missing"},
 			fixture:     strPtr("joe"),
-			expectedErr: "node 0 not found",
+			expectedErr: "keg not initialized",
 		},
 		{
 			name:        "missing_node",
@@ -93,7 +93,7 @@ tags:
 	require.NoError(t, res.Err)
 	require.Equal(t, "", strings.TrimSpace(string(res.Stdout)))
 
-	meta := string(sb.MustReadFile("~/kegs/@local/personal/0/meta.yaml"))
+	meta := fixtureMeta(t, sb.Runtime(), "personal", "0")
 	require.Contains(t, meta, "summary: replaced")
 	require.Contains(t, meta, "- alpha")
 	require.Contains(t, meta, "- zeta")
@@ -109,7 +109,7 @@ func TestMetaCommand_ReplaceFromStdinPersistsSchemaSelection(t *testing.T) {
 	stdin := strings.NewReader("summary: selected\n")
 	res := NewProcess(t, false, "meta", "1", "--keg", "personal", "--schema", "note").RunWithIO(sb.Context(), sb.Runtime(), stdin)
 	require.NoError(t, res.Err)
-	meta := string(sb.MustReadFile("~/kegs/@local/personal/1/meta.yaml"))
+	meta := fixtureMeta(t, sb.Runtime(), "personal", "1")
 	require.Contains(t, meta, "summary: selected")
 	require.Contains(t, meta, "type: note")
 }
@@ -118,13 +118,13 @@ func TestMetaCommand_ReplaceFromStdinRejectsInvalidYaml(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
 
-	before := string(sb.MustReadFile("~/kegs/@local/personal/0/meta.yaml"))
+	before := fixtureMeta(t, sb.Runtime(), "personal", "0")
 	stdin := strings.NewReader("tags: [\n")
 	res := NewProcess(t, false, "meta", "0", "--keg", "personal").RunWithIO(sb.Context(), sb.Runtime(), stdin)
 	require.Error(t, res.Err)
 	require.Contains(t, string(res.Stderr), "metadata from stdin is invalid")
 
-	after := string(sb.MustReadFile("~/kegs/@local/personal/0/meta.yaml"))
+	after := fixtureMeta(t, sb.Runtime(), "personal", "0")
 	require.Equal(t, before, after)
 }
 
@@ -159,7 +159,7 @@ EOF
 	res := NewProcess(t, false, "meta", "0", "--keg", "personal", "--edit").RunWithIO(sb.Context(), sb.Runtime(), strings.NewReader(""))
 	require.NoError(t, res.Err)
 
-	meta := string(sb.MustReadFile("~/kegs/@local/personal/0/meta.yaml"))
+	meta := fixtureMeta(t, sb.Runtime(), "personal", "0")
 	require.Contains(t, meta, "summary: after edit")
 	require.Contains(t, meta, "- docs")
 	require.Contains(t, meta, "- ops")
@@ -195,12 +195,12 @@ EOF
 	require.NoError(t, sb.Runtime().Set("EDITOR", "/bin/sh "+scriptPath))
 	sb.Runtime().Unset("VISUAL")
 
-	before := string(sb.MustReadFile("~/kegs/@local/personal/0/meta.yaml"))
+	before := fixtureMeta(t, sb.Runtime(), "personal", "0")
 	res := NewProcess(t, false, "meta", "0", "--keg", "personal", "--edit").RunWithIO(sb.Context(), sb.Runtime(), strings.NewReader(""))
 	require.Error(t, res.Err)
 	require.Contains(t, string(res.Stderr), "node metadata is invalid after editing")
 
-	after := string(sb.MustReadFile("~/kegs/@local/personal/0/meta.yaml"))
+	after := fixtureMeta(t, sb.Runtime(), "personal", "0")
 	require.Equal(t, before, after)
 }
 
@@ -242,7 +242,7 @@ tags:
 	require.Contains(t, string(initialRaw), "summary: from stdin")
 	require.Contains(t, string(initialRaw), "- draft")
 
-	meta := string(sb.MustReadFile("~/kegs/@local/personal/0/meta.yaml"))
+	meta := fixtureMeta(t, sb.Runtime(), "personal", "0")
 	require.Contains(t, meta, "summary: saved from editor")
 	require.Contains(t, meta, "- final")
 }
@@ -278,7 +278,7 @@ EOF
 	res := NewProcess(t, false, "meta", "0", "--keg", "personal", "--edit").RunWithIO(sb.Context(), sb.Runtime(), strings.NewReader(""))
 	require.NoError(t, res.Err)
 
-	meta := string(sb.MustReadFile("~/kegs/@local/personal/0/meta.yaml"))
+	meta := fixtureMeta(t, sb.Runtime(), "personal", "0")
 	require.Contains(t, meta, "summary: first valid meta")
 	require.Contains(t, meta, "- live")
 }

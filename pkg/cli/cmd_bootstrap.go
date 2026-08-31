@@ -1,7 +1,7 @@
 package cli
 
 // `tap bootstrap` — first-run onboarding. Walks the user through a deployment
-// kind (local / cloud / enterprise), writes a usable user config, and
+// kind (cloud / enterprise), writes a usable user config, and
 // optionally drives a hub login by reusing runAuthLogin. CLI-only: login and
 // the conversational prompt are not agent operations, so there is no MCP
 // surface (Tap.Bootstrap is listed in pkg/parity's tapMethodsExcluded).
@@ -25,7 +25,6 @@ import (
 // Usage examples:
 //
 //	tap bootstrap                                  # interactive on a TTY
-//	tap bootstrap --kind local                     # local filesystem hub only
 //	tap bootstrap --kind cloud                     # atlas.foldwise.ai
 //	tap bootstrap --kind enterprise --endpoint https://keg.acme.com
 func NewBootstrapCmd(deps *Deps) *cobra.Command {
@@ -46,21 +45,18 @@ func NewBootstrapCmd(deps *Deps) *cobra.Command {
 Set up your user-level tapper config so plain commands resolve without
 per-invocation flags. Choose where your kegs live:
 
-  local        a filesystem hub on this machine (no account, no login)
   cloud        atlas.foldwise.ai, the hosted hub
   enterprise   a self-hosted hub at a URL you provide
 
-Bootstrap writes the matching fallback hub and ensures the built-in local hub
-is always available. The namespace comes from the hub itself: @local for local,
-and your home namespace (adopted at login) for cloud/enterprise. It is
-idempotent: re-running preserves any kegs and keg-map entries you already have.
+Bootstrap writes the matching fallback hub. The namespace comes from the hub
+itself and is adopted at login. It is idempotent: re-running preserves any
+kegs and keg-map entries you already have.
 It can also record a user-level flight baseline for MCP sessions; project
 config, TAP_FLIGHT, and an explicit --flight on later commands override it.
 
 On a TTY with no flags, bootstrap prompts for the kind (and, for enterprise,
 the endpoint), then offers to log in. Pass --non-interactive to rely on flags.
-For cloud/enterprise, --login / --no-login control the login step; local never
-logs in.
+--login / --no-login control the login step.
 `),
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -179,35 +175,6 @@ logs in.
 				createdKegLocation = created
 			}
 
-			// 4c. For a local deployment, create the chosen keg now so the user
-			// is immediately up and running — plain `tap` commands work without a
-			// separate `tap keg create`. Remote bootstrap creates during the
-			// interactive chooser above only after a successful login; explicit
-			// --default-keg stays a recorded default. Idempotent: a keg that
-			// already exists is fine.
-			if chosenKeg != "" && createdKegLocation == "" && res.Kind == tapper.BootstrapKindLocal {
-				ns, name, perr := parseKegArg(chosenKeg)
-				if perr != nil {
-					_, _ = fmt.Fprintf(stderr, "warning: could not create keg %q: %v\n", chosenKeg, perr)
-				} else {
-					target, cerr := deps.Tap.InitKeg(ctx, tapper.InitOptions{
-						Keg:            name,
-						Namespace:      ns,
-						NonInteractive: true,
-					})
-					switch {
-					case cerr == nil:
-						if target != nil {
-							createdKegLocation = bootstrapCreatedKegSummary(bootstrapKegRef(ns, name, res.Namespace), target)
-						}
-					case errors.Is(cerr, keg.ErrExist):
-						// Already exists — the user is still ready to go.
-					default:
-						_, _ = fmt.Fprintf(stderr, "warning: could not create keg %q: %v\n", chosenKeg, cerr)
-					}
-				}
-			}
-
 			if chosenKeg != "" {
 				if serr := deps.Tap.SetFallbackKeg(ctx, chosenKeg); serr != nil {
 					_, _ = fmt.Fprintf(stderr, "warning: could not set default keg: %v\n", serr)
@@ -293,7 +260,7 @@ logs in.
 		},
 	}
 
-	cmd.Flags().StringVar(&kind, "kind", "", "deployment kind: local | cloud | enterprise")
+	cmd.Flags().StringVar(&kind, "kind", "", "deployment kind: cloud | enterprise")
 	cmd.Flags().StringVar(&endpoint, "endpoint", "", "enterprise hub endpoint URL (required for --kind enterprise)")
 	cmd.Flags().StringVar(&hubName, "hub-name", "", "name to record an enterprise hub under (default: derived from the endpoint host)")
 	cmd.Flags().StringVar(&defaultKeg, "default-keg", "", "keg reference plain `tap` commands resolve by default (e.g. @you/notes); recorded as the user-level fallbackKeg so a project's defaultKeg or kegMap can override; prompts on a TTY when unset")
@@ -302,7 +269,7 @@ logs in.
 	cmd.Flags().BoolVar(&nonInteractive, "non-interactive", false, "skip interactive prompts even when stdin is a TTY")
 
 	mustRegisterFlagCompletion(cmd, "kind", func(_ *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-		kinds := []string{tapper.BootstrapKindLocal, tapper.BootstrapKindCloud, tapper.BootstrapKindEnterprise}
+		kinds := []string{tapper.BootstrapKindCloud, tapper.BootstrapKindEnterprise}
 		return filterByPrefix(kinds, toComplete), cobra.ShellCompDirectiveNoFileComp
 	})
 	mustRegisterFlagCompletion(cmd, "endpoint", func(_ *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
@@ -360,12 +327,10 @@ func parseBootstrapKind(s string) (string, error) {
 	switch strings.ToLower(strings.TrimSpace(s)) {
 	case "", "c", "cloud":
 		return tapper.BootstrapKindCloud, nil
-	case "l", "local":
-		return tapper.BootstrapKindLocal, nil
 	case "e", "enterprise":
 		return tapper.BootstrapKindEnterprise, nil
 	default:
-		return "", fmt.Errorf("invalid kind %q: expected local, cloud, or enterprise", s)
+		return "", fmt.Errorf("invalid kind %q: expected cloud or enterprise", s)
 	}
 }
 
@@ -471,7 +436,6 @@ func bootstrapCreateRemoteDefaultKeg(ctx context.Context, deps *Deps, res *tappe
 		Keg:              alias,
 		Hub:              res.Hub,
 		Namespace:        namespace,
-		NonInteractive:   true,
 		RequireBootstrap: true,
 	})
 	switch {

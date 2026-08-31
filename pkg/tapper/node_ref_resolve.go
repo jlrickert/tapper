@@ -21,10 +21,9 @@ type RefContext struct {
 //   - RefLocal:     the current keg, with the bare node id.
 //   - RefAlias:     the alias is resolved against the current keg's Links table
 //     first (so authored links travel with the keg), then the
-//     tap-config kegs map.
+//     Tapper configuration.
 //   - RefQualified: a (hub, namespace, keg) reference whose hub is implied from
-//     the current keg's hub; the reserved @local namespace pins
-//     the local hub regardless of the current keg's hub.
+//     the current keg's hub.
 func (t *Tap) ResolveNodeRef(ctx context.Context, ref *keg.NodeRef, rc RefContext) (keg.Keg, keg.NodeId, error) {
 	if ref == nil {
 		return nil, keg.NodeId{}, fmt.Errorf("nil node ref")
@@ -51,10 +50,9 @@ func (t *Tap) ResolveNodeRef(ctx context.Context, ref *keg.NodeRef, rc RefContex
 		return k, node, nil
 
 	case keg.RefQualified:
-		// @local pins the local hub; any other namespace implies the current
-		// keg's hub from context.
+		// A qualified namespace implies the current keg's hub from context.
 		hub := ""
-		if ref.Namespace != LocalHubName && rc.CurrentKeg != nil && rc.CurrentKeg.Target() != nil {
+		if rc.CurrentKeg != nil && rc.CurrentKeg.Target() != nil {
 			hub = strings.TrimSpace(rc.CurrentKeg.Target().Hub)
 		}
 		cfg, err := t.ConfigService.Config()
@@ -84,7 +82,7 @@ func (t *Tap) ResolveNodeRef(ctx context.Context, ref *keg.NodeRef, rc RefContex
 //   - "keg:<alias>/<id>"            redirect to the keg the alias names (the
 //     current keg's Links table first, then tap-config kegs).
 //   - "keg:@<ns>/<keg>/<id>"        redirect to the fully qualified keg; the hub
-//     is implied from currentKeg's hub, @local pins the local hub.
+//     is implied from currentKeg's hub.
 //
 // currentKeg is the keg already resolved by the caller (via resolveKeg); it
 // supplies the RefLocal target and the context a relative ref resolves against.
@@ -103,7 +101,7 @@ func (t *Tap) resolveNodeArg(ctx context.Context, currentKeg keg.Keg, raw string
 // map.
 func (t *Tap) resolveRefAlias(ctx context.Context, alias string, rc RefContext) (*keg.Target, error) {
 	if rc.CurrentKeg != nil {
-		if kc, err := rc.CurrentKeg.Config(ctx); err == nil && kc != nil {
+		if kc, err := rc.CurrentKeg.Settings(ctx); err == nil && kc != nil {
 			if target, err := kc.ResolveAlias(alias); err == nil {
 				return target, nil
 			}

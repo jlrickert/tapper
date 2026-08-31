@@ -28,7 +28,7 @@ func TestReadFromDex_Table(t *testing.T) {
 			name: "basic",
 			nodesTSV: "" +
 				"0\t2025-08-04T22:03:53Z\t2025-08-04T22:03:53Z\t2025-08-04T22:03:53Z\tSorry, planned but not yet available\n" +
-				"1\t2025-08-04T23:06:30Z\t2025-08-04T23:06:30Z\t2025-08-04T23:06:30Z\tConfiguration (config)\n" +
+				"1\t2025-08-04T23:06:30Z\t2025-08-04T23:06:30Z\t2025-08-04T23:06:30Z\tConfiguration (settings)\n" +
 				"3\t2025-08-09T17:44:04Z\t2025-08-09T17:44:04Z\t2025-08-09T17:44:04Z\tZeke AI utility (zeke)\n" +
 				"badline-without-tabs\n" + // malformed - should be skipped
 				"999\tnot-a-time\t\t\tTitle with bad time\n", // id parses, time parse will produce zero time
@@ -49,7 +49,7 @@ func TestReadFromDex_Table(t *testing.T) {
 
 			wantNodes: map[int]string{
 				0:   "Sorry, planned but not yet available",
-				1:   "Configuration (config)",
+				1:   "Configuration (settings)",
 				3:   "Zeke AI utility (zeke)",
 				999: "Title with bad time",
 			},
@@ -114,7 +114,7 @@ func TestReadFromDex_Table(t *testing.T) {
 
 			rt, err := toolkit.NewTestRuntime(t.TempDir(), "/home/testuser", "testuser")
 			require.NoError(t, err)
-			mem := NewMemoryRepo(rt)
+			mem := newTestMemoryRepo(rt)
 
 			// write indexes only if non-empty (tests may want to omit them)
 			if tc.nodesTSV != "" {
@@ -217,7 +217,7 @@ func TestDex_WritesChanges(t *testing.T) {
 
 	rt, err := toolkit.NewTestRuntime(t.TempDir(), "/home/testuser", "testuser")
 	require.NoError(t, err)
-	mem := NewMemoryRepo(rt)
+	mem := newTestMemoryRepo(rt)
 
 	dex, err := NewDexFromRepo(t.Context(), mem)
 	require.NoError(t, err)
@@ -248,23 +248,23 @@ func TestDex_WritesChanges(t *testing.T) {
 	require.Contains(t, s, "[Beta](../2)")
 }
 
-// TestDex_WithConfig_CustomIndex verifies that WithConfig registers
+// TestDex_WithConfig_CustomIndex verifies that WithSettings registers
 // query-filtered custom indexes that are written on Dex.Write.
 func TestDex_WithConfig_CustomIndex(t *testing.T) {
 	t.Parallel()
 
 	rt, err := toolkit.NewTestRuntime(t.TempDir(), "/home/testuser", "testuser")
 	require.NoError(t, err)
-	mem := NewMemoryRepo(rt)
+	mem := newTestMemoryRepo(rt)
 
-	cfg := &Config{
+	cfg := &Settings{
 		Indexes: []IndexEntry{
 			{File: "golang.md", Summary: "Go nodes", Query: "golang"},
 			{File: "changes.md", Summary: "latest changes"}, // core: should be ignored
 		},
 	}
 
-	dex, err := NewDexFromRepo(t.Context(), mem, WithConfig(cfg))
+	dex, err := NewDexFromRepo(t.Context(), mem, WithSettings(cfg))
 	require.NoError(t, err)
 
 	t1 := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
@@ -361,15 +361,15 @@ func TestDex_WithConfig_BareFormCustomIndex(t *testing.T) {
 
 	rt, err := toolkit.NewTestRuntime(t.TempDir(), "/home/testuser", "testuser")
 	require.NoError(t, err)
-	mem := NewMemoryRepo(rt)
+	mem := newTestMemoryRepo(rt)
 
-	cfg := &Config{
+	cfg := &Settings{
 		Indexes: []IndexEntry{
 			{File: "golang.md", Summary: "Go nodes", Query: "golang"},
 		},
 	}
 
-	dex, err := NewDexFromRepo(t.Context(), mem, WithConfig(cfg))
+	dex, err := NewDexFromRepo(t.Context(), mem, WithSettings(cfg))
 	require.NoError(t, err)
 	require.Len(t, dex.custom, 1)
 
@@ -388,7 +388,7 @@ func TestDex_WithConfig_BareFormCustomIndex(t *testing.T) {
 func TestDex_WithConfig_CoreIndexSkipped(t *testing.T) {
 	t.Parallel()
 
-	cfg := &Config{
+	cfg := &Settings{
 		Indexes: []IndexEntry{
 			// All of these are core names and should be skipped even if Query is set.
 			{File: "changes.md", Query: "golang"},
@@ -401,29 +401,29 @@ func TestDex_WithConfig_CoreIndexSkipped(t *testing.T) {
 
 	rt, err := toolkit.NewTestRuntime(t.TempDir(), "/home/testuser", "testuser")
 	require.NoError(t, err)
-	mem := NewMemoryRepo(rt)
+	mem := newTestMemoryRepo(rt)
 
-	dex, err := NewDexFromRepo(t.Context(), mem, WithConfig(cfg))
+	dex, err := NewDexFromRepo(t.Context(), mem, WithSettings(cfg))
 	require.NoError(t, err)
 	require.Empty(t, dex.custom, "core index names should not produce custom indexes")
 }
 
-// TestDex_WithConfig_QueryField verifies that WithConfig reads the Query
+// TestDex_WithConfig_QueryField verifies that WithSettings reads the Query
 // field and creates a QueryFilteredIndex.
 func TestDex_WithConfig_QueryField(t *testing.T) {
 	t.Parallel()
 
 	rt, err := toolkit.NewTestRuntime(t.TempDir(), "/home/testuser", "testuser")
 	require.NoError(t, err)
-	mem := NewMemoryRepo(rt)
+	mem := newTestMemoryRepo(rt)
 
-	cfg := &Config{
+	cfg := &Settings{
 		Indexes: []IndexEntry{
 			{File: "concepts.md", Summary: "concept nodes", Query: "golang"},
 		},
 	}
 
-	dex, err := NewDexFromRepo(t.Context(), mem, WithConfig(cfg))
+	dex, err := NewDexFromRepo(t.Context(), mem, WithSettings(cfg))
 	require.NoError(t, err)
 	require.Len(t, dex.custom, 1, "should create one custom index from Query field")
 
@@ -444,13 +444,13 @@ func TestDex_WithConfig_QueryField(t *testing.T) {
 }
 
 // TestDex_WithQueryResolver verifies that WithQueryResolver injects a custom
-// resolver into config-driven custom indexes.
+// resolver into settings-driven custom indexes.
 func TestDex_WithQueryResolver(t *testing.T) {
 	t.Parallel()
 
 	rt, err := toolkit.NewTestRuntime(t.TempDir(), "/home/testuser", "testuser")
 	require.NoError(t, err)
-	mem := NewMemoryRepo(rt)
+	mem := newTestMemoryRepo(rt)
 
 	resolver := func(term string, data *NodeData) bool {
 		// Simple resolver: treat "entity=concept" as a term match
@@ -470,14 +470,14 @@ func TestDex_WithQueryResolver(t *testing.T) {
 		return false
 	}
 
-	cfg := &Config{
+	cfg := &Settings{
 		Indexes: []IndexEntry{
 			{File: "concepts.md", Summary: "concepts", Query: "entity=concept"},
 		},
 	}
 
-	// WithQueryResolver must come before WithConfig so the resolver is available
-	dex, err := NewDexFromRepo(t.Context(), mem, WithQueryResolver(resolver), WithConfig(cfg))
+	// WithQueryResolver must come before WithSettings so the resolver is available
+	dex, err := NewDexFromRepo(t.Context(), mem, WithQueryResolver(resolver), WithSettings(cfg))
 	require.NoError(t, err)
 	require.Len(t, dex.custom, 1)
 
@@ -529,7 +529,7 @@ func TestDex_ConcurrentReadWrite(t *testing.T) {
 
 	rt, err := toolkit.NewTestRuntime(t.TempDir(), "/home/testuser", "testuser")
 	require.NoError(t, err)
-	mem := NewMemoryRepo(rt)
+	mem := newTestMemoryRepo(rt)
 
 	dex, err := NewDexFromRepo(ctx, mem)
 	require.NoError(t, err)

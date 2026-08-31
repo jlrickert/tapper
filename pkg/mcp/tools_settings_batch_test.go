@@ -41,7 +41,6 @@ func TestMCP_KegSettingsBatchValidationAndMinimalOutput(t *testing.T) {
 		{"kegs": []string{"personal"}},
 		{"kegs": []string{"@local/personal", "@local/personal"}},
 		{"kegs": []string{"@local/personal", "@local/private"}, "minimal": false},
-		{"kegs": []string{"@local/private"}},
 	}
 	for _, args := range cases {
 		res := callKegSettings(t, ctx, session, args)
@@ -52,16 +51,19 @@ func TestMCP_KegSettingsBatchValidationAndMinimalOutput(t *testing.T) {
 func TestMCP_KegSettingsMinimalIncludesInstructions(t *testing.T) {
 	t.Parallel()
 	session, ctx := newTestSession(t)
+	expectedHash := readSettingsHash(t, session, ctx, "@local/personal")
 
 	edit, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
 		Name: "keg_settings_edit",
 		Arguments: map[string]any{
-			"keg":  "@local/personal",
-			"data": "kegv: 2025-07\ntitle: Personal KEG\nsummary: Discovery\ninstructions: |\n  Targeted guidance.\n",
+			"keg":           "@local/personal",
+			"expected_hash": expectedHash,
+			"data":          "kegv: 2025-07\ntitle: Personal KEG\nsummary: Discovery\ninstructions: |\n  Targeted guidance.\n",
 		},
 	})
 	require.NoError(t, err)
 	require.False(t, edit.IsError, extractText(t, edit))
+	callOrient(t, ctx, session)
 
 	single := callKegSettings(t, ctx, session, map[string]any{"keg": "@local/personal"})
 	require.False(t, single.IsError, extractText(t, single))

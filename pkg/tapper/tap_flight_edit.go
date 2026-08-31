@@ -9,12 +9,14 @@ import (
 	"strings"
 
 	"github.com/jlrickert/cli-toolkit/toolkit"
+	"github.com/jlrickert/tapper/pkg/schemas"
 	"gopkg.in/yaml.v3"
 )
 
 // EditFlightOptions configures behavior for Tap.EditFlight.
 type EditFlightOptions struct {
-	Ref string
+	Ref          string
+	ExpectedHash string
 
 	// Stream, when piped with non-empty content, supplies the manifest YAML
 	// directly so scripts can apply a full manifest without an editor.
@@ -42,15 +44,19 @@ func (t *Tap) EditFlight(ctx context.Context, opts EditFlightOptions) (*Flight, 
 		return nil, err
 	}
 	currentFlight := flightFromHub(*current, hubName)
-	manifestRaw, err := renderFlightManifestEditorDocument(ref, currentFlight.FlightManifest)
+	manifestRaw, err := renderFlightManifestEditorDocument(t.Runtime, ref, currentFlight.FlightManifest)
 	if err != nil {
 		return nil, fmt.Errorf("unable to render flight manifest: %w", err)
 	}
 
 	result := currentFlight
 	lastManifest := currentFlight.FlightManifest
+	expectedHash := opts.ExpectedHash
+	if (opts.Stream == nil || !opts.Stream.IsPiped) && expectedHash == "" {
+		expectedHash = currentFlight.ManifestHash
+	}
 	apply := func(raw []byte) (*Flight, error) {
-		m, err := parseFlightManifestStrict(raw)
+		m, err := parseFlightManifestStrict(raw, ref.Namespace)
 		if err != nil {
 			return nil, err
 		}
@@ -65,14 +71,16 @@ func (t *Tap) EditFlight(ctx context.Context, opts EditFlightOptions) (*Flight, 
 			Capabilities: append([]FlightCapability{}, m.Capabilities...),
 			Instructions: m.Instructions,
 			Cover:        hubCoverFromFlightCover(m.Cover),
+			Subflights:   append([]string(nil), m.Subflights...),
 		}
-		hf, err := UpdateHubFlight(ctx, entry.URL, token, ref.Namespace, ref.Slug, next)
+		hf, err := UpdateHubFlight(ctx, entry.URL, token, ref.Namespace, ref.Slug, next, expectedHash)
 		if err != nil {
 			return nil, err
 		}
 		t.FlightService.invalidateFlights()
 		result = flightFromHub(*hf, hubName)
 		lastManifest = result.FlightManifest
+		expectedHash = result.ManifestHash
 		return result, nil
 	}
 
@@ -122,16 +130,18 @@ type flightManifestEditorDocument struct {
 	Visibility   string             `yaml:"visibility"`
 	Capabilities []FlightCapability `yaml:"capabilities"`
 	Cover        []FlightCover      `yaml:"cover"`
+	Subflights   []string           `yaml:"subflights"`
 	Instructions string             `yaml:"instructions"`
 }
 
-func renderFlightManifestEditorDocument(ref FlightRef, m FlightManifest) ([]byte, error) {
+func renderFlightManifestEditorDocument(rt *toolkit.Runtime, ref FlightRef, m FlightManifest) ([]byte, error) {
 	canonical := canonicalFlightManifest(m)
 	doc := flightManifestEditorDocument{
 		Title:        canonical.Title,
 		Visibility:   canonical.Visibility,
 		Capabilities: append([]FlightCapability{}, canonical.Capabilities...),
 		Cover:        canonical.Cover,
+		Subflights:   canonical.Subflights,
 		Instructions: canonical.Instructions,
 	}
 	body, err := yaml.Marshal(doc)
@@ -140,7 +150,7 @@ func renderFlightManifestEditorDocument(ref FlightRef, m FlightManifest) ([]byte
 	}
 
 	var out bytes.Buffer
-	out.WriteString(flightManifestSchemaModeline)
+	out.WriteString(schemas.Modeline(rt, schemas.FlightManifest))
 	fmt.Fprintf(&out, "# Flight %s. Ref is immutable; edit title, visibility, capabilities, cover, and instructions.\n", ref.Canonical())
 	out.Write(body)
 	if !bytes.HasSuffix(out.Bytes(), []byte("\n")) {
@@ -154,6 +164,7 @@ type comparableFlightManifest struct {
 	Visibility   string
 	Capabilities []FlightCapability
 	Cover        []FlightCover
+	Subflights   []string
 	Instructions string
 }
 
@@ -178,6 +189,7 @@ func canonicalFlightManifest(m FlightManifest) comparableFlightManifest {
 		Visibility:   m.Visibility,
 		Capabilities: append([]FlightCapability{}, m.Capabilities...),
 		Cover:        cover,
+		Subflights:   append([]string(nil), m.Subflights...),
 		Instructions: m.Instructions,
 	}
 }
@@ -185,7 +197,7 @@ func canonicalFlightManifest(m FlightManifest) comparableFlightManifest {
 func flightManifestSemanticallyEqual(a, b FlightManifest) bool {
 	ca := canonicalFlightManifest(a)
 	cb := canonicalFlightManifest(b)
-	if ca.Title != cb.Title || ca.Visibility != cb.Visibility || ca.Instructions != cb.Instructions || len(ca.Capabilities) != len(cb.Capabilities) || len(ca.Cover) != len(cb.Cover) {
+	if ca.Title != cb.Title || ca.Visibility != cb.Visibility || ca.Instructions != cb.Instructions || len(ca.Capabilities) != len(cb.Capabilities) || len(ca.Cover) != len(cb.Cover) || len(ca.Subflights) != len(cb.Subflights) {
 		return false
 	}
 	for i := range ca.Capabilities {
@@ -198,13 +210,18 @@ func flightManifestSemanticallyEqual(a, b FlightManifest) bool {
 			return false
 		}
 	}
+	for i := range ca.Subflights {
+		if ca.Subflights[i] != cb.Subflights[i] {
+			return false
+		}
+	}
 	return true
 }
 
 // parseFlightManifestStrict decodes an edited manifest, rejecting unknown
 // keys (so a slug change attempt fails loudly) and unknown cover roles.
 // An omitted role keeps the manifest parser's viewer default.
-func parseFlightManifestStrict(raw []byte) (*FlightManifest, error) {
+func parseFlightManifestStrict(raw []byte, namespace string) (*FlightManifest, error) {
 	var m FlightManifest
 	dec := yaml.NewDecoder(bytes.NewReader(raw))
 	dec.KnownFields(true)
@@ -218,7 +235,7 @@ func parseFlightManifestStrict(raw []byte) (*FlightManifest, error) {
 			return nil, fmt.Errorf("invalid flight cover role %q", c.Role)
 		}
 	}
-	if err := validateFlightManifest(&m); err != nil {
+	if err := validateFlightManifest(&m, namespace); err != nil {
 		return nil, err
 	}
 	normalizeFlightManifest(&m)
