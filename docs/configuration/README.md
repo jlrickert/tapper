@@ -7,7 +7,7 @@ Tapper uses three configuration layers:
 
 1. User config (`~/.config/tapper/config.yaml`)
 2. Project config (`.tapper/config.yaml`)
-3. Keg config (`<keg-root>/keg`)
+3. Keg settings stored by Tapper Hub
 
 User and project configs control target resolution. Keg config controls metadata
 inside a specific keg.
@@ -23,9 +23,10 @@ inside a specific keg.
 The normal onboarding path is:
 
 ```bash
-tap bootstrap --kind local --default-keg @local/personal
-tap keg create @local/personal
-tap use @local/personal --user
+tap bootstrap --kind cloud
+tap auth login
+tap keg create personal
+tap use personal --user
 ```
 
 For a shared team setup, bootstrap a hosted or enterprise hub, authenticate, then
@@ -42,13 +43,13 @@ tap use @acme/engineering
 
 - Need machine defaults, hubs, and credentials: [User Config](user-config.md)
 - Need repo-specific defaults for teammates: [Project Config](project-config.md)
-- Need title/creator/links/indexes for a keg: [Keg Config](keg-config.md)
+- Need title/creator/links/indexes for a keg: [Keg Settings](keg-settings.md)
 
 ## Detailed Pages
 
 - [User Config](user-config.md)
 - [Project Config](project-config.md)
-- [Keg Config](keg-config.md)
+- [Keg Settings](keg-settings.md)
 - [Keg Note Schemas](schemas.md)
 - [Resolution Order](resolution-order.md)
 - [Configuration Examples](examples.md)

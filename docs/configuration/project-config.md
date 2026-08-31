@@ -57,8 +57,8 @@ target or harvest a token environment variable. See
 
 - Commit `.tapper/config.yaml` with the repository's shared `defaultKeg` and,
   when needed, `defaultNamespace`.
-- Prefer a shared hub keg for team memory. Use a local project keg only when the
-  knowledge should live with the repository.
+- Use a shared Hub KEG for team memory; `kegMap` can select different remote
+  KEGs for different workspace paths.
 - Use user config for personal/global hubs, credentials, and fallbacks.
 
 ## Minimal Project Config Example

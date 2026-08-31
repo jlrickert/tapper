@@ -19,20 +19,18 @@ cat config.yaml | tap config edit --user
 ```
 
 The fastest way to create a sensible starting config is `tap bootstrap`, which
-writes the fallback hub and the built-in local hub for you (see below).
+writes a cloud or enterprise fallback Hub (see below).
 
 > **First run requires `tap bootstrap`.** On the full `tap` surface,
 > hub/namespace-dependent commands (`tap keg create <name>`, `tap cat`,
 > `tap list`, …) refuse with a clear error until this user config exists — they
-> no longer silently create or resolve a keg in a hidden platform directory.
-> Explicit local destinations (`tap keg create --project` / `--path`) still work
-> without setup, as does the pruned `keg` binary.
+> no longer silently create or resolve a KEG on local storage.
 
 ## Key Reference
 
 - `fallbackKeg`: last-resort keg reference when no default/map match resolves
 - `defaultKeg`: optional keg reference used first when no keg flag is provided.
-  A reference is a bare name, `@namespace/name`, `keg:@namespace/name`, or a path
+  A reference is a bare name, `@namespace/name`, or `keg:@namespace/name`
   — resolved through the namespace-centric chain (there is no `kegs` alias map).
 - `namespaces`: map of namespace → hosting hub
   (`namespaces[ns].hub`, or the scalar shorthand `ns: hub`). Role: disambiguate
@@ -48,41 +46,34 @@ writes the fallback hub and the built-in local hub for you (see below).
 - `defaultHub` / `defaultNamespace`: high-precedence slots. Usually set in
   project config rather than here; they make `tap keg create example`
   equivalent to `@<defaultNamespace>/example`.
-- `disableAtlasHub` / `disableLocalHub`: when `true`, suppress the synthesized
-  built-in atlas / local hub. A disabled built-in is not synthesized, is omitted
+- `disableAtlasHub`: when `true`, suppress the synthesized built-in atlas Hub.
+  A disabled built-in is not synthesized, is omitted
   from hub listings, and is skipped in resolution; an explicit `hubs` entry of
   the same name is unaffected. `disableAtlasHub` is useful for SOC2-audited
   deployments that must prove no implicit network targets exist.
 - `disableTelemetry`: when `true`, disables privacy-minimized CLI and MCP
   invocation reporting. `TAP_DISABLE_TELEMETRY=1` is the environment opt-out.
-- `hubs`: name-keyed map of hub definitions (`kind`, `defaultNamespace`, `url`,
-  `basePath`, `token`/`tokenEnv`). **User config only** — see the trust boundary
+- `hubs`: name-keyed map of Hub definitions (`kind`, `defaultNamespace`, `url`,
+  `token`/`tokenEnv`). **User config only** — see the trust boundary
   below.
 
-> Note: `kegSearchPaths` is not a recognized key. A config that carries it is
-> parsed but the key is ignored (dropped on the next re-serialize). There is no
-> `TAP_KEG_SEARCH_PATHS` env var.
+Tapper configuration is extensible. Unknown top-level fields and unknown fields
+inside hubs, namespaces, agents, and kegMap entries load without warnings and
+survive Tapper-driven rewrites. A known-field update changes only Tapper-owned
+values; explicitly removing an object removes that complete object.
 
 ## Hubs
 
-Hubs are a name-keyed map. Each entry's `defaultNamespace` field is that hub's
+Hubs are a name-keyed map. Each entry's `defaultNamespace` field is that Hub's
 **default** namespace — a hub hosts many namespaces; this is only the one used
-when a reference resolved against the hub omits its own. Two built-ins are
-synthesized when not configured explicitly (and not disabled via
-`disableAtlasHub` / `disableLocalHub`):
-
-- `local` — the built-in filesystem hub (kind `local`)
-- `atlas` — the compiled-in default remote hub (`https://atlas.foldwise.ai`)
+when a reference resolved against the Hub omits its own. The `atlas` remote Hub
+is synthesized when not configured explicitly and not disabled with
+`disableAtlasHub`.
 
 An explicit entry always overrides the synthesized built-in.
 
 ```yaml
 hubs:
-  # the machine's local filesystem hub, keyed by hostname (written by `tap bootstrap`)
-  my-laptop:
-    kind: local
-    defaultNamespace: local    # the reserved @local namespace
-    basePath: ~/Documents/kegs
   atlas:
     kind: remote
     defaultNamespace: me
@@ -90,9 +81,8 @@ hubs:
     tokenEnv: ATLAS_API_KEY
 ```
 
-A local-hub keg lives on disk at `<basePath>/@<namespace>/<name>` — the `@`
-sigil is part of the directory name. The reserved `@local` namespace addresses
-this machine's local hub.
+Supported kinds are `remote` and `readonly`. A namespace named `local` has no
+special meaning; it resolves like any other namespace when a remote Hub hosts it.
 
 ### Trust boundary
 
@@ -116,8 +106,8 @@ credentials, and MCP session identifiers are never uploaded.
 Events go only to `/api/v1/telemetry/invocations` on the authenticated remote
 Hub selected by the user config's login-hub default/fallback chain, using the
 existing AuthStore token. Tap silently skips reporting when it is not
-bootstrapped, not authenticated, configured only for a local Hub, or connected
-to a Hub version without the endpoint. The Hub writes accepted events to its
+bootstrapped, not authenticated, or connected to a Hub version without the
+endpoint. The Hub writes accepted events to its
 structured logs rather than PostgreSQL; Atlas currently inherits the standard
 30-day Loki retention.
 
@@ -138,25 +128,19 @@ export TAP_DISABLE_TELEMETRY=1
 `tap bootstrap` materializes or refreshes this user config around a deployment
 kind:
 
-- `local` — only the built-in local filesystem hub
 - `cloud` (default) — the compiled-in `atlas` remote hub
 - `enterprise --endpoint <url>` — a user-supplied remote HTTP hub
 
-It always writes a local hub **keyed by the machine hostname** with
-`defaultNamespace: local` (the reserved `@local`), plus the remote hub for
-cloud/enterprise. It writes the **fallback** hub (`fallbackHub`), not the
+It writes the selected **fallback** Hub (`fallbackHub`), not the
 default slot — the project config owns the high-precedence `default*` slots.
 
 It does **not** write a global `fallbackNamespace` or a per-user `namespaces`
-entry. The preferred namespace comes from the resolved hub's own
-`defaultNamespace` field: `@local` for the local hub, and your home namespace
-for cloud/enterprise
-(left empty until `tap auth login` adopts it from the hub's whoami probe). The
-only `namespaces` entry written is `local → <local hub>`, pinning `@local` to
-this machine.
+entry. The preferred namespace comes from the resolved Hub's own
+`defaultNamespace` field and is left empty until `tap auth login` adopts the
+home namespace from the Hub's whoami probe.
 
-It is idempotent: re-running only touches the fallback hub, the local namespace
-mapping, and the kind's hub entry, leaving your `kegMap` and any
+It is idempotent: re-running only touches the fallback Hub and its entry,
+leaving extension fields, `kegMap`, and any
 `fallbackNamespace` you set by hand untouched. It also asks for a default keg and
 records it as `fallbackKeg` (the global-user slot) so plain `tap` commands
 resolve one after setup, while a project's `defaultKeg` or a `kegMap` rule can
@@ -166,11 +150,12 @@ Interactive bootstrap also discovers flights from only the selected hub and
 offers to store one as the user-level `flight` baseline. Existing baselines are
 preselected when available, and **Skip for now** leaves the current value
 unchanged. For scripts, pass the inherited global flag explicitly, for example
-`tap bootstrap --kind local --flight @local/+focused`; bootstrap validates the
+`tap bootstrap --kind cloud --flight @team/+focused`; bootstrap validates the
 flight and stores its canonical `@namespace/+slug` reference. If no baseline is
-set, MCP starts in recovery-only mode. A project `flight`, the active agent's
-`flight`, `TAP_FLIGHT`, or an explicit `--flight` on a later command overrides
-the bootstrap baseline.
+set, MCP starts with identity-authorized full access; pin a least-privilege
+flight and start a new MCP connection to narrow it. A project `flight`,
+`TAP_FLIGHT`, or an explicit `--flight` on a later command overrides the
+bootstrap baseline. Agent entries select models only and never select flights.
 
 ## Hub Resolution Chain
 
@@ -187,33 +172,29 @@ order, stopping at the first match:
 ## Recommended Baseline Config
 
 ```yaml
-fallbackHub: my-laptop
-fallbackNamespace: local
+fallbackHub: atlas
+fallbackNamespace: me
 fallbackKeg: pub
 kegMap:
   - alias: pub
     pathPrefix: ~/repos/github.com
-namespaces:
-  # which hub hosts each namespace (the namespace→hub conflict resolver)
-  local: my-laptop          # scalar shorthand for {hub: my-laptop}
 hubs:
-  my-laptop:
-    kind: local
-    defaultNamespace: local
-    basePath: ~/Documents/kegs
+  atlas:
+    kind: remote
+    defaultNamespace: me
+    url: https://atlas.foldwise.ai
+    tokenEnv: ATLAS_API_KEY
 ```
 
-Here `fallbackKeg: pub` and the `kegMap` alias `pub` are both keg references —
-bare name `pub`, resolved via `fallbackNamespace: local` to `@local/pub` at
-`~/Documents/kegs/@local/pub`.
+Here `fallbackKeg: pub` and the `kegMap` alias `pub` are both remote KEG
+references, resolved through the configured namespace and Hub.
 
 ## Common Mistakes
 
 - Unresolvable reference: `defaultKeg`, `fallbackKeg`, or `kegMap.alias` is a
   bare name with no `defaultNamespace`/`fallbackNamespace`, or names a keg that
   does not exist on the resolved hub.
-- No namespace resolvable: a remote-hub reference with no explicit, per-hub,
-  default, or fallback namespace errors out. Local-hub references fall back to
-  `@local`.
+- No namespace resolvable: a Hub reference with no explicit, per-hub, default,
+  or fallback namespace errors out.
 - Missing fallback: no `defaultKeg` plus no `fallbackKeg` can produce
   `no keg configured`.

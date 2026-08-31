@@ -4,12 +4,12 @@ A **flight** is the required authorization and instruction context for an MCP
 session. Flight manifests live separately from Tapper configuration.
 `tap bootstrap` can persist a machine-wide baseline in the user config, while a
 project can persist a more specific selection in `.tapper/config.yaml`. The
-server resolves fresh orientation during MCP initialization and again whenever
-the client explicitly calls `orient`.
+server pins the root reference during MCP initialization, then resolves its
+live graph and the requested flight before every authority-bearing tool call.
 
 ## What A Flight Does
 
-A flight carries four details:
+A flight carries five details:
 
 1. **A keg cover** (`cover`). MCP tools reject kegs outside the cover. Each
    cover entry has a `viewer`, `editor`, or `admin` cap. Reads require
@@ -25,12 +25,22 @@ A flight carries four details:
    created or updated.
 4. **Capabilities** (`capabilities`). `full_access` supplies admin-class flight
    authority across every KEG the authenticated identity can already access,
-   while normal local and Hub authorization still applies. It never raises the
+   while normal Hub authorization still applies. It never raises the
    identity's actual KEG role. `manage_flights` exposes flight mutation tools
    to the session, but Hub still requires the authenticated identity to own or
    administer the target namespace. `manage_kegs` exposes `keg_create`, and
    Hub still requires the identity to belong to the target namespace. The
    capabilities are independent.
+5. **Ordered direct child entries** (`subflights`). Each flight may list up to
+   64 canonical children. Runtime flattening is ordered breadth-first, emits a
+   shared descendant once, tolerates cycles by deduplicating already loaded and
+   expanded flights, and retains the deterministic shortest selection path.
+   There is no depth-eight rule. A pinned root may expose at most 256 unique
+   accessible descendants at runtime; exceeding that cap refuses the call.
+   A selected descendant supplies only its own instructions, capabilities, and
+   cover and may be broader or different from its ancestors. Cross-Hub
+   relations and duplicate canonical children are rejected; referenced
+   children cannot be deleted.
 
 Because a flight is not a KEG target selector, `tap mcp --flight` binds only
 the process flight identity. `tap mcp --keg` remains an independent default for
@@ -39,24 +49,18 @@ subsequent KEG operations. `tap orient` is flight-scoped and rejects
 
 ## Manifest Format
 
-Local flights live beside the `@<namespace>` directories of the local hub, in a
-reserved `flights.d` directory:
-
-```text
-<local-hub-basePath>/flights.d/<name>.yaml
-```
-
-(`flights.d` is deliberately not a legal namespace — it contains a dot — so it
-can never collide with a keg path.) The file stem is the flight name. Each
-manifest has five optional fields:
+Flights are stored by Tapper Hub and addressed as `@namespace/+slug`. Each
+manifest has six optional fields:
 
 ```yaml
-# <basePath>/flights.d/release-42.yaml
 title: Release 42 cut
 visibility: private
 capabilities:
   - full_access
   - manage_flights
+subflights:
+  - "@acme/+release-notes"
+  - "@acme/+verification"
 cover:
   - namespace: acme
     keg: release-notes
@@ -73,13 +77,11 @@ A cover entry without an explicit `role` defaults to `viewer` — the same
 default applies to `--cover` specs on the CLI and MCP surfaces; `editor` and
 `admin` must be requested explicitly. Unknown roles are rejected.
 
-Older local manifests that use `allowedKegs` still load; each bare entry is
-treated as an `editor` cover row for backward compatibility, while an entry
+Older Hub manifests that use `allowedKegs` still load; each bare entry is
+treated as an `editor` cover row for wire compatibility, while an entry
 with an explicit `=viewer` suffix keeps its viewer cap.
 
-Remote flights are served by Hub and addressed canonically as
-`@namespace/+slug`. `tap flight create/edit/delete` manage Hub-backed flights;
-local `flights.d` manifests remain read-only files.
+`tap flight create/edit/delete` manage Hub-backed flights exclusively.
 
 ## Commands
 
@@ -100,109 +102,103 @@ local `flights.d` manifests remain read-only files.
 first line is a `yaml-language-server` schema modeline for
 `schemas/flight-manifest.json`, followed by a short comment that the
 `@namespace/+slug` ref is immutable. The editable fields are `title`,
-`visibility`, `capabilities`, `cover`, and `instructions`; comments and the
+`visibility`, `capabilities`, `subflights`, `cover`, and `instructions`; comments and the
 modeline are ignored when deciding whether the manifest changed.
 
-MCP always exposes `list_flights` and `flight_show`. It exposes
-`flight_create`, `flight_edit`, and `flight_delete` only while the session's
-active flight grants `manage_flights`; direct calls are checked server-side as
-well. `flight_edit` is a partial update where omitted fields retain their
-current values. A Hub-backed active flight may edit or delete itself:
+MCP always exposes `list_flights` and `flight_show`. In an active session it
+also keeps `flight_create`, `flight_edit`, `flight_delete`, and `keg_create`
+visible because a selectable descendant may grant their capability even when
+the root does not. Dispatch checks `manage_flights` or `manage_kegs` against
+the flight selected for that call, then applies normal Hub authorization.
+`flight_edit` is a partial update where omitted fields retain their current
+values. Call `flight_show` first and pass its manifest hash as the required
+`expected_hash` for both edits and deletes. On conflict, merge or refetch and
+retry with the returned current hash. Graph and authority edits are adopted on
+the next call automatically. Mutations are never replayed. A referenced
+subflight cannot be deleted.
 
-- a successful self-edit immediately adopts the exact returned manifest,
-  cover, instructions, and capabilities before the response is released;
-- removing `manage_flights` therefore removes the mutation tools immediately;
-- a successful self-delete immediately enters recovery-only mode;
-- editing or deleting another flight does not change current session authority.
-
-Local `flights.d` manifests remain MCP read-only — *reading* them is fully
-supported (discovery, orientation, and cover enforcement all work off
-`flights.d`), but create/update/delete is not implemented for local hubs and
-refuses with a message naming the manifest path to write instead. Flight
-mutations always use normal Hub authorization in addition to the active flight
-capability.
+Flight mutations always use normal Hub authorization in addition to the
+selected flight capability.
 
 ## Behavior
 
-- MCP tools reject a keg outside the active flight's cover
+- MCP tools reject a keg outside the call-selected flight's cover
   with a "keg … is not available in flight …" error.
 - MCP writes against a `viewer` cover row are rejected as viewer-only.
-- Every cover and role-cap denial closes by telling the agent to call `orient`.
-  A session pins its flight snapshot until it re-orients, so a flight edited
-  elsewhere mid-session is the usual reason a call the agent expected to
-  succeed is refused, and the refusal alone cannot reveal that. Hosted `/mcp`
-  appends the same instruction when a Hub grant — rather than the cover —
-  is what denies the keg.
+- A fresh selection, cover, capability, or role refusal reports
+  `ORIENTATION_DENIED`, `reorientRequired=false`, and
+  `operationPerformed=false`. A change racing between call resolution and Hub
+  validation reports `ORIENTATION_STALE`; transient graph or identity failures report
+  `ORIENTATION_UNAVAILABLE`; permanent loss of the connection-pinned root reports
+  `ORIENTATION_ROOT_UNAVAILABLE` and requires a new session.
 - `keg_settings_edit` replaces the complete validated KEG YAML document and
   requires an `admin` cover (or `full_access`) plus editor/admin identity access
-  to that KEG. An admin flight cap never creates a Hub admin identity.
+  to that KEG. Read the full document with `keg_settings` and pass its hash as
+  the required `expected_hash`; merge or refetch after conflicts and retry with
+  the returned current hash. An admin flight cap never creates a Hub admin identity.
 - `full_access` permits admin-class flight operations outside the cover, but
   does not bypass normal identity authorization or implicitly grant
   `manage_flights`.
-- Without a selected flight, MCP starts in recovery-only mode and lists only
-  `orient`, `list_flights`, `flight_show`, and credential-safe `auth_info`.
-  After selecting a flight outside MCP, call `orient` on the same connection.
-- When the session can reach **no flights at all**, it instead runs on a
-  synthetic **bootstrap flight**. Selecting from an empty list is not a
-  recovery, so the session is given the authority to populate it: the cover is
-  empty (every KEG tool stays locked) and the capabilities are `manage_flights`
-  plus `manage_kegs`, so `flight_create`, `flight_edit`, `flight_delete`, and
-  `keg_create` join the recovery four. The flight is never persisted, and its
-  instructions name the surface that owns selection for that transport — `tap`
-  configuration for stdio, the account page for hosted `/mcp`.
-- Creating a flight from bootstrap does not select it. The next `orient` sees a
-  reachable flight and moves the session to recovery-only mode, where "select
-  one" has become the actionable step.
-- On a local-only setup `flight_create` still fails: flight mutation is not
-  implemented for local hubs (see below). The bootstrap instructions say so and
-  point at the manifest path to write by hand.
-- Config-driven `tap mcp` reloads user, project, and environment configuration
-  on every orientation. A successful orientation atomically replaces session
-  authority; configuration changes alone do nothing.
-- `tap mcp --flight REF` is launcher-bound: configuration cannot change its
-  flight identity, while orientation still refreshes that flight's current
-  manifest, cover, and instructions.
-- A failed refresh preserves the last valid authority. An intentionally blank
-  config selection clears authority and enters recovery mode.
-- If a self-edit is persisted but exact orientation rendering fails, the tool
-  reports that the update was applied and enters recovery instead of retaining
-  stale authority.
-- Hosted `/mcp` selects the account-wide MCP flight preference. Local
-  initialization and `orient` select explicit `--flight`, then `TAP_FLIGHT`,
-  then the active agent's `flight`, then the nearest project config, and finally
-  the user baseline.
-- Hosted self-deletion clears the account preference through the flight foreign
-  key. A local config that still names a deleted flight remains a stale external
-  reference: later `orient` reports it and the session stays in recovery until
-  configuration is changed outside MCP.
-- In-flight calls finish under the context captured when they began. Calls that
-  start after orientation use the newly published context.
+- Without a selected flight, MCP publishes the complete tool inventory and bare
+  calls use normal identity-authorized full access. Every accessible KEG appears
+  at the caller's real role; this never raises Hub ACLs or namespace membership.
+  An explicit `flight` selects any listed identity-accessible real flight for
+  that call and uses only its cover, capabilities, and instructions.
+- No-flight authority is pinned for the connection lifetime. Creating a KEG or
+  flight does not replace it, and `session_refresh` returns `already_active`
+  with `nextAction:"new_session"`. Create a least-privilege flight, pin it
+  outside MCP, and start a new connection to narrow access. Newly created
+  flights are immediately available for explicit call-local selection.
+- Recovery-only mode applies only when an explicitly configured root is
+  missing, inaccessible, invalid, or unavailable. Seeing only `orient`,
+  `session_refresh`, `list_flights`, `flight_show`, `auth_info`, and
+  `keg_search` means configured authority failed to initialize. Repair the
+  configured root outside MCP, then call `session_refresh` and `orient`.
+- Every MCP connection pins either no-flight authority or one real root at
+  initialization. Configuration and account-preference changes cannot change
+  that state mid-session. Every
+  authority-bearing tool accepts an optional top-level `flight`; omission uses
+  identity authority in no-flight state or the real root otherwise. From
+  no-flight state, an explicit value may name any listed real flight; from a
+  real root, it may name only that root or an accessible transitive descendant.
+  The selected flight's authority is never inherited or combined.
+- Graph, cover, capability, role, relation, and identity changes are loaded on
+  the next call without an explicit refresh. A transient load failure refuses
+  that call with `ORIENTATION_UNAVAILABLE`; it never falls back to cached
+  authority. A remote resolution obtains the accessible manifests from one
+  fresh `GET /api/v1/flights` response and performs canonical lookup and
+  bounded flattening locally.
+- Hosted `/mcp` uses the account-wide MCP flight preference only at connection
+  initialization. Stdio initialization selects explicit `--flight`, then
+  `TAP_FLIGHT`, then the nearest project config, and finally the user baseline.
+- Hosted deletion of the launch root clears the account preference through the
+  flight foreign key, but cannot replace the root of an existing connection.
+  That connection reports `ORIENTATION_ROOT_UNAVAILABLE`; a new launch is
+  required. A local config that still names a deleted flight remains an
+  external stale reference until configuration is changed outside MCP.
+- Each in-flight call uses its own immutable orientation context. Concurrent
+  root, child, sibling, and grandchild calls cannot change one another's
+  selection. MCP resources have no `flight` parameter and use the pinned root.
 - Direct CLI commands such as `tap cat`, `tap edit`, and `tap create` ignore
   flight cover caps; access is governed by normal keg authorization.
-- A missing `flights.d` directory means "no flights", not an error.
 - `tap orient --flight @namespace/+slug` injects the flight's title, available
   kegs, and instructions into the orientation payload.
 - `tap use --flight @namespace/+slug` persists the project default in
   `.tapper/config.yaml`; `tap use +slug` uses the resolved default namespace.
-  Config-driven sessions adopt it on their next orientation.
+  A connection that started with no flight remains fully authorized until it
+  ends; the new selection takes effect only on a new connection.
 - Flight selection precedence is explicit runtime `--flight`, then
-  `TAP_FLIGHT`, then the active agent's `flight`, then the nearest project
-  config, then the user baseline written by `tap bootstrap`. Project selection
+  `TAP_FLIGHT`, then the nearest project config, then the user baseline written
+  by `tap bootstrap`. Project selection
   therefore overrides the machine-wide bootstrap choice without changing it.
-- `tap launch --agent NAME` exports `TAP_AGENT=NAME`, not the flight that agent
-  currently names. The launched session resolves `agents[NAME].flight` on every
-  orientation, so editing that agent's flight and calling `orient` again moves
-  the running session. A resolved flight in the environment could not be
-  changed after launch, since a process cannot alter its own environment.
-  `TAP_FLIGHT` and `--flight` are direct and still outrank the agent, so either
-  one pins a launched session to a flight of its own.
-- A `TAP_AGENT` naming an agent that is not configured is reported as a warning
-  in the orientation payload and the flight falls back to project and user
-  configuration. It is not fatal: a stale agent name is not something a session
-  can fix from the inside.
-- MCP tools have no model-visible `flight` input. Humans change config-driven
-  selection with `tap use --flight @namespace/+slug` (or `tap use +slug`), then
-  the existing session calls `orient`. There is no hidden flight-switch tool.
+- `tap launch --agent NAME` uses the agent only for model selection and
+  telemetry. Launch requires a Hub-backed root and exports its canonical
+  reference once as `TAP_FLIGHT`. Legacy `agents[NAME].flight`
+  values are ignored.
+- MCP tools have no model-visible root-switch input. Their optional `flight`
+  makes only a call-local selection. To change the connection's default
+  authority, the user starts a new session after changing configuration;
+  there is no hidden root-switch tool.
 - KEG-specific instructions belong in each KEG's own config `instructions`
   field, not in flight cover rows.
 - Tapper user/project configuration and hosted flight selection remain

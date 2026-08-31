@@ -47,19 +47,12 @@ Always route through tapper's interfaces:
   automatically.
 - `mcp__tapper__meta` to update metadata without touching content.
 
-## Never mix CLI writes with a live MCP session
+## CLI and MCP share Hub concurrency rules
 
-Running `tap create` or `tap edit` while an MCP server is serving the
-same keg can:
-
-- Cause lock contention: index rebuilds (triggered by filesystem
-  events) hold the index mutex, which can block MCP list operations.
-- Produce stale index reads: the MCP server's in-memory index does not
-  observe CLI-originated writes until the next filesystem event is
-  processed, which may be delayed by the watcher's debounce window.
-
-If you must drop to CLI, finish the MCP session first (`claude /mcp`
-disable, or end the agent session). Resume the MCP session afterward.
+CLI and MCP operations both go through Hub-compatible HTTP APIs. Durable
+mutations serialize on the Hub and protected writes require current hashes.
+Do not bypass MCP during an agent session: use the native tools so authority,
+snapshots, and structured conflict recovery remain visible to the agent.
 
 ## Snapshot before large in-place edits; preserve content before remove
 
@@ -123,25 +116,19 @@ is in the same keg — they resolve in any markdown renderer.
 
 - Per-node writes are serialized. Two tools editing the same node will
   queue, not race.
-- Cross-node operations run concurrently. If you edit several nodes in
-  parallel, each edit is independently consistent, but there is no
-  cross-node transaction.
+- Batch operations use the Hub's aggregate transaction boundary. Independent
+  single-node operations may run concurrently.
 - The index is rebuilt incrementally on write. Searches issued
   immediately after a write see the new state.
-- A live watcher (the MCP server, or `tap watch`) rebuilds the index
-  on filesystem events; if it runs against the same keg as concurrent
-  writes, expect additional latency during burst writes.
+- `tap watch` consumes Hub events; it does not discover local files.
 
 ## Do not bypass completeness checks
 
-- `mcp__tapper__create` allocates a new numbered directory atomically.
-  Do not pre-create directories with `mkdir` and hope tapper will use
-  them.
-- `mcp__tapper__remove` runs integrity checks and updates the index.
-  Do not `rm -rf` a node directory.
+- `mcp__tapper__create` asks the Hub to allocate and create a node atomically.
+- `mcp__tapper__remove` runs integrity checks and updates the index. Filesystem
+  deletion is not a Tapper operation.
 - `mcp__tapper__move` handles ID reassignment and updates backlinks.
-  Do not rename node directories by hand.
 
-If a tool refuses an operation, the refusal is load-bearing — there
-is a consistency reason. Do not work around it by dropping to the
-filesystem.
+If a tool refuses an operation, the refusal is load-bearing — there is a
+consistency or authority reason. Do not work around it through direct HTTP or
+database access.

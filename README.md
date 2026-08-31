@@ -46,19 +46,12 @@ connects the memory around them.
 brew install jlrickert/formulae/tapper
 ```
 
-Optional project-local profile:
-
-```bash
-brew install jlrickert/formulae/keg
-```
-
 ### From Source
 
 Prerequisite: Go `1.26.0` or newer.
 
 ```bash
 go install github.com/jlrickert/tapper/cmd/tap@latest
-go install github.com/jlrickert/tapper/cmd/keg@latest
 ```
 
 If needed, add your Go bin directory to `PATH`:
@@ -77,15 +70,16 @@ Verify installation:
 tap --help
 ```
 
-## Start On One Machine
+## Get Started
 
-This path creates a local knowledge base and makes plain `tap` commands resolve
-to it.
+Tapper stores KEGs in a Tapper Hub. Bootstrap the hosted service or provide an
+enterprise Hub endpoint, then authenticate.
 
 ```bash
-tap bootstrap --kind local --default-keg @local/personal
-tap keg create @local/personal
-tap use @local/personal --user
+tap bootstrap --kind cloud
+tap auth login
+tap keg create personal
+tap use personal --user
 ```
 
 Create your first memory:
@@ -250,8 +244,7 @@ Tapper resolves a keg reference through this chain:
 4. built-in defaults, unless disabled
 
 A keg reference is usually a bare name or `@namespace/name`. The namespace
-selects the hub, and the hub selects the backend. Local kegs live at
-`<basePath>/@<namespace>/<name>`.
+selects the remote Hub that owns the KEG.
 
 Only user config may define hubs and credentials. Project config can select
 defaults for a repository, but it cannot introduce a new hub target or token.
@@ -262,10 +255,11 @@ Direct CLI commands still use normal keg authorization and do not have their
 access reduced by flight cover caps.
 
 Persist a project flight with either `tap use --flight @namespace/+slug` or the
-default-namespace shorthand `tap use +slug`. A config-driven MCP connection
-adopts that selection only after an explicit `orient` call. A launcher-bound
-`tap mcp --flight REF` connection keeps its flight identity for the process
-lifetime while each orientation refreshes that flight's current details.
+default-namespace shorthand `tap use +slug`. The next MCP connection pins that
+selection as its root. Within a connection, every
+authority-bearing MCP call reloads the live bounded graph, defaults to the
+root, and may select an accessible transitive descendant; configuration changes
+cannot replace the root.
 
 ## Release And Contribution Notes
 
@@ -280,8 +274,7 @@ commit and tag, then runs GoReleaser.
 ## Repository Layout
 
 - `cmd/tap` - full CLI entrypoint
-- `cmd/keg` - project-local CLI profile
 - `pkg/tapper` - config, resolution, hub, and service layer
-- `pkg/keg` - KEG primitives and repository implementation
+- `pkg/keg` - KEG primitives, remote client, and Hub-side orchestration
 - `pkg/mcp` - MCP server and tool surface
 - `docs/` - user and contributor documentation

@@ -96,31 +96,7 @@ my-project/
     config.yaml
 ```
 
-The shared keg resolves through `@acme/tapper`. If the hub is local, its on-disk
-layout is still the standard KEG layout:
-
-```text
-<basePath>/@acme/tapper/
-  keg
-  dex/
-    nodes.tsv
-    changes.md
-    links
-    backlinks
-    tags
-  0/
-    README.md
-    meta.yaml
-    stats.json
-  100/
-    README.md
-    meta.yaml
-    stats.json
-  101/
-    README.md
-    meta.yaml
-    stats.json
-```
+The shared KEG resolves through `@acme/tapper` to its configured remote Hub.
 
 ### Example Project Config
 
@@ -209,9 +185,8 @@ Interlinking is a core KEG behavior. Notes should be atomic and linked explicitl
   - `keg:<name>/<id>[-<code>]` — the name resolves via the current keg's Links
     table, then as a keg-name reference through the namespace-centric chain (for
     example `keg:pub/921`).
-  - `keg:@<namespace>/<keg>/<id>[-<code>]` — fully qualified; the hub is implied
-    from the current keg's hub, and `@local` pins the local hub (for example
-    `keg:@me/public/921`).
+  - `keg:@<namespace>/<keg>/<id>[-<code>]` — fully qualified; the Hub is implied
+    by the namespace (for example `keg:@me/public/921`).
 
 ## Notes
 

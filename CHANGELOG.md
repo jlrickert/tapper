@@ -2,6 +2,71 @@
 
 All notable changes to this project are documented in this file.
 
+## Unreleased
+
+### 💥 Breaking Changes
+
+- **cli:** make Tapper remote-only: remove filesystem hubs and targets, local
+  creation flags, the standalone `keg` binary, and local flight manifests;
+  cloud and enterprise HTTP(S) Hubs are the supported bootstrap destinations
+- **mcp:** replace session-wide direct-subflight orientation with live
+  per-call `flight` selection across the pinned root's recursive accessible
+  graph; remove the unreleased `orient.subflight` input and `repo_init` tool
+- **mcp:** remove `keg_list.all`; omission now discovers the live pinned-root
+  graph and an explicit `flight` discovers exactly that flight
+- **mcp:** make `orient` and `tapper://orient` read-only, pin local roots from
+  the normal configuration cascade, and reserve `session_refresh` for
+  failed-root recovery
+
+### 🚀 Features
+
+- **cli:** allow `tap launch` without a configured flight. The harness starts
+  under no-flight identity authority and the launcher warns which access is in
+  play, so a fresh account can launch an agent to create its first flight and
+  KEGs instead of needing a flight in order to make one
+- **mcp:** require read-derived hashes in every protected mutation schema and
+  carry distinct hashes for each node in atomic removal batches
+- **mcp:** remove the legacy archive import tool while retaining cross-keg
+  imports and CLI archive workflows
+- **keg:** require optimistic-concurrency tokens for settings, schemas, node
+  updates, moves, and removals with actionable conflict recovery content
+- **mcp:** expose breadth-first available flights and selected paths, isolate
+  concurrent descendant calls, and adopt authority changes on the next call
+- **mcp:** add live selected-flight and pinned-root-graph KEG discovery with
+  deterministic effective-role and granting-flight provenance through
+  `keg_list`
+- **mcp:** add ungoverned `keg_search` for bounded literal search across all
+  identity-accessible KEG metadata without widening flight authority
+- **mcp:** report deterministic session-refresh statuses, preserve state on
+  failed refresh, and notify clients only when the visible tool allowlist changes
+
+### 🐛 Bug Fixes
+
+- **keg:** align remote visibility, rename, and index-rebuild requests with the
+  Hub's consolidated `/access`, `/rename`, and `/indexes/rebuild` routes
+- **mcp:** resolve configured Hub aliases to canonical authenticated URLs so a
+  coverless remote root enters active mode and publishes the complete surface
+- **flights:** validate the completed acyclic graph's longest root-to-descendant
+  path so a shared descendant first found by a shorter breadth-first path cannot
+  bypass the depth-eight contract
+- **keg:** export one canonical explicit Markdown H1 helper for create surfaces
+  while preserving ordinary content-title fallback behavior elsewhere
+- **settings:** preserve unknown YAML fields and comments by overlaying
+  Tapper-owned mutations onto parsed configuration and KEG documents
+
+### 🚜 Refactor
+
+- **keg:** retain `LocalKeg` as Hub-side orchestration while routing every
+  production Tapper operation through `RemoteKeg` and Hub-compatible HTTP APIs
+- **test:** move the concurrency-safe repository double under
+  `internal/testkegrepo`, keep it out of production dependency graphs, and use
+  PostgreSQL integration tests for durable storage behavior
+- **keg:** consolidate remote create, update, remove, and snapshot batches on
+  the canonical node routes and replace import redirects through `UpdateNodes`
+- **keg:** rename the keg-specific config API, schema, and remote resource to
+  settings while preserving extension fields in the remote YAML document
+
+
 ## v0.38.0 - 2026-08-22
 
 
@@ -888,4 +953,3 @@ All notable changes to this project are documented in this file.
 - add comprehensive lock integration and concurrency tests
 - add comprehensive tests for tap site command
 - add benchmark tests for tap site serve handlers
-

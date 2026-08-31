@@ -3,6 +3,24 @@
 This file provides guidance to Claude Code (claude.ai/code) when working with
 code in this repository.
 
+## Coordinated immutable-flight delivery gate
+
+The immutable-flight direct-subflight work is a coordinated change with the sibling
+Tapper Hub repository. Until the user explicitly approves delivery after joint
+verification:
+
+- Do not merge related Tapper or Tapper Hub changes.
+- Do not create or push release tags, GitHub releases, release commits, or
+  trigger release workflows.
+- Do not permanently update Tapper Hub's Tapper dependency pin.
+- Use Tapper Hub's local `go.work` link for cross-repository integration
+  testing.
+- Stop at reviewable local branches/commits, test evidence, and a coordination
+  report. Create or update PRs only when the user requests it.
+
+These restrictions remain in force even when tests pass or either repository
+appears independently ready to ship.
+
 ## Overview
 
 **tapper** is a Go CLI toolset for managing KEGs (Knowledge Exchange Graphs). A
@@ -10,18 +28,14 @@ KEG is a repository of numbered nodes, each containing README.md (content),
 meta.yaml (metadata), and stats.json (programmatic stats). The system supports
 indexing, tagging, linking between nodes, and snapshot-based revision history.
 
-Two CLI entrypoints share the same Cobra command tree:
-
-- `tap` — full CLI surface with multi-keg support and user/project config
-  resolution
-- `keg` — pruned profile with project-local defaults
+The `tap` CLI provides the full multi-KEG surface with user/project config
+resolution.
 
 ## Build & Development Commands
 
 ```bash
 # Build
 go build ./cmd/tap
-go build ./cmd/keg
 
 # Test
 go test ./...                              # all tests
@@ -30,8 +44,7 @@ go test ./pkg/keg -run TestConcurrentCreate # single test by name
 go test -race ./pkg/keg/...               # with race detector
 
 # Install (requires go-task)
-task install-tap                           # install tap + zsh completions
-task install-keg                           # install keg + zsh completions
+task install-tap                           # install tap
 task test                                  # cached test run of ./pkg/...
 
 # Lint
@@ -82,9 +95,9 @@ a baseline or suppression list and runs explicitly in CI.
   delegate to `pkg/keg`.
 - **`pkg/cli/`** — Cobra command definitions bridging CLI flags to `pkg/tapper`
   and `pkg/keg`.
-- **`pkg/keg_url/`** — Target URL parsing (file://, memory://, API schemes) and
-  expansion.
-- **`pkg/mcp/`** — MCP server: 46 tools exposing the full Tap surface over
+- **`pkg/keg/target.go`** — Target parsing for HTTP(S) and keg-reference
+  schemes.
+- **`pkg/mcp/`** — MCP server exposing the agent-safe Tap surface over
   stdio JSON-RPC, wired by 19 `register*Tools()` functions in `server.go`. See
   `docs/ai-coding-agents/mcp-setup.md`.
 
@@ -96,7 +109,7 @@ orchestration internally (locking discipline, dex/index maintenance, stats
 touching). Two implementations exist:
 
 - `*keg.LocalKeg` (`keg.go` + `keg_local_*.go`) orchestrates a `Repository`
-  (`FsRepo`, `MemoryRepo`, or the hub's server-side `PgRepo`) and maintains
+  (the Hub's server-side `PgRepo`, or the test-only memory repository) and maintains
   derived state itself.
 - `*keg.RemoteKeg` (`keg_remote.go`) speaks tapper-hub's operation-level HTTP
   API — one request per operation; all orchestration happens server-side.
@@ -110,8 +123,8 @@ CLI command   → pkg/cli (Cobra)    → pkg/tapper.Tap → keg.Keg → storage
 MCP tool call → pkg/mcp (JSON-RPC) → pkg/tapper.Tap → keg.Keg → storage
 ```
 
-where `keg.Keg` is a `LocalKeg` over `FsRepo`/`MemoryRepo` for local kegs, or
-a `RemoteKeg` over the hub's operation API for remote kegs.
+where Tapper clients always use `RemoteKeg`; Tapper Hub uses `LocalKeg` over
+its PostgreSQL repository.
 
 Both paths converge at `pkg/tapper.Tap`, sharing the same method and `*Options`
 struct for each feature. The CLI path uses `applyKegTargetProfile()` to resolve
@@ -120,15 +133,10 @@ Cobra flags into options and writes results to stdout. The MCP path uses
 returns `CallToolResult` values. Server wiring in `NewServer()` calls 19
 `register*Tools()` functions to expose the full Tap surface over stdio JSON-RPC.
 
-**Repository** (`pkg/keg/repository.go`) is the **local-only** storage
-contract — remote kegs do not go through it (RemoteKeg talks to the hub's
-operation API instead). Two implementations live in this repo:
-
-- `MemoryRepo` (`repo_memory.go`) — in-memory, used in tests
-- `FsRepo` (`repo_filesystem.go`) — filesystem-backed, numbered directories
-
-(tapper-hub provides a third, Postgres-backed `PgRepo`, driven by a
-server-side `LocalKeg`.)
+**Repository** (`pkg/keg/repository.go`) is the Hub-side storage contract —
+`RemoteKeg` talks to the Hub's operation API instead. Tapper Hub provides the
+production PostgreSQL `PgRepo`; Tapper's concurrency-safe in-memory repository
+exists only in `_test.go` for repository-independent `LocalKeg` tests.
 
 **Dex** (`pkg/keg/dex.go`) is the in-memory index aggregator. It holds
 NodeIndex, TagIndex, LinkIndex, BacklinkIndex, and ChangesIndex. Written as
@@ -139,32 +147,18 @@ config precedence: explicit `--keg` reference → `defaultKeg` → `kegMap` path
 match → `fallbackKeg`, each a keg reference resolved through `ResolveRef`. The
 `default*` slots are authoritative (project config sets them) and win over a
 `kegMap` path rule; `fallback*` is the global-user last resort that `tap
-bootstrap` writes, so anything more specific overrides it. A bare name that
-resolves to nothing falls back to a project-local `./kegs/<name>` keg. Active
+bootstrap` writes, so anything more specific overrides it. A bare name with no
+resolvable remote namespace and Hub is an error. Active
 flight cover caps are enforced for the MCP surface; direct CLI commands keep
 normal keg authorization and preserve `--flight` only as context for orient and
 MCP defaults (`Tap.resolveKeg`).
 
 ### Storage Model
 
-```
-<keg-root>/
-  keg                  # KEG config (YAML, versioned with kegv field)
-  0/                   # Zero node (always present after init)
-    README.md          # Content (markdown)
-    meta.yaml          # User-facing metadata (tags, links, title)
-    stats.json         # Programmatic stats (hash, timestamps, access count)
-  1/
-    README.md
-    meta.yaml
-    stats.json
-  dex/                 # Generated indices
-    nodes.tsv          # ID → timestamp → title
-    tags               # tag → node IDs
-    links              # source → destinations
-    backlinks          # destination → sources
-    changes.md         # Reverse-chronological changelog
-```
+Tapper clients have no KEG storage layout. Every operation targets
+`<hub-url>/api/v1/@<namespace>/kegs/<name>`. Tapper Hub persists settings,
+nodes, metadata, indexes, snapshots, and attachments in PostgreSQL through
+`PgRepo`; server-side `LocalKeg` owns orchestration.
 
 ### Config Hierarchy
 
@@ -187,15 +181,14 @@ a hard error). The merged project layer, the user config, and env vars are then
 resolved by `cfgcascade.Cascade[*Config]` in `ConfigService.Config()`.
 
 **Hub / namespace resolution** (`Config.ResolveRef`) is namespace-centric:
-**keg name → namespace → hub → backend**. There is no `kegs` alias map — a keg
+**keg name → namespace → Hub**. There is no `kegs` alias map — a keg
 selector (`defaultKeg`, `fallbackKeg`, `--keg`, a `kegMap` alias) is parsed as a
 keg reference by `parseKegRef` and resolved directly. The namespace resolves
-first (explicit → `defaultNamespace` → `fallbackNamespace` → per-hub default /
-`@local` / error), then the hub is resolved *from* the namespace (explicit →
-`namespaces[ns].hub` → `@local`→local hub → `defaultHub` → `fallbackHub` →
+first (explicit → `defaultNamespace` → `fallbackNamespace` → per-Hub default /
+error), then the Hub is resolved *from* the namespace (explicit →
+`namespaces[ns].hub` → `defaultHub` → `fallbackHub` →
 sole/alpha hub → compiled-in `atlas`). The `namespaces` map disambiguates
-namespace→hub. The local hub is keyed by hostname (via `tap bootstrap`), uses
-the reserved `@local` namespace, and stores kegs at `<basePath>/@<namespace>/<keg>`.
+namespace→Hub. `@local` has no special meaning.
 
 A keg reference renders as the `keg` scheme — `keg:@<namespace>/<name>` (and
 `keg:@<namespace>/<name>/<nodeID>` for a node). The hub is resolution metadata,
@@ -204,17 +197,15 @@ hub explicitly, set `defaultHub`/`namespaces[ns].hub` so the namespace routes to
 that hub.
 
 To **list** available kegs, query a hub: `tap keg list` / the `keg_list` MCP
-tool (backed by `GET /api/v1/kegs`). There is no local keg-alias listing.
+tool (backed by `GET /api/v1/kegs`).
 (`tap hub list` lists configured *hub connections*, not kegs.)
 
 **`tap keg create`** is namespace-centric too: a bare `tap keg create <name>`
-resolves the default namespace+hub (typically a remote create via
-`POST /api/v1/@<ns>/kegs`, failing on 409); `tap keg create @local/<name>` pins
-the local filesystem hub. When nothing is configured (no user config), the full
+resolves the default namespace and Hub, then creates via
+`POST /api/v1/@<ns>/kegs` (failing on 409). When nothing is configured, the full
 `tap` surface refuses with a "run `tap bootstrap`" error (`ErrNotBootstrapped`)
-rather than silently creating a hidden local keg; `tap keg create
---project`/`--path` (explicit local destinations) still work without setup.
-(`tap init` remains as a hidden back-compat alias.)
+rather than silently creating local state. `tap init` and the local creation
+flags are removed.
 
 **Command groups.** `tap keg` administers kegs on a hub (`list`, `create`,
 `grants`/`grant`/`revoke` for ACLs, `visibility`, `rename`, and `settings` for
@@ -222,19 +213,15 @@ the keg's own config — formerly `tap settings`). `tap namespace` administers n
 and membership roles (`list`, `members`, `add-member`, `set-role`,
 `remove-member`, `create`). `tap hub` manages hub *connections* (`list`,
 `status`, `add`/`remove` writing user config, `set-default` writing project
-config by default, `--user` for user). These are full-`tap` commands (not in
-the pruned `keg` binary). `tap config edit` now defaults to the **project**
+config by default, `--user` for user). `tap config edit` defaults to the **project**
 config; `--user` targets the user config.
 
 **Keg selection is flag-driven, not positional.** The keg an admin command
 operates on comes from the global resolution flags — `--keg` (a bare name or
-`@namespace/keg`; a path also works), with `--namespace`/`--hub` as component
+`@namespace/keg`), with `--namespace`/`--hub` as component
 overrides — not a positional. A bare invocation (no `--keg`) targets the
-resolved keg. The on-disk discovery selectors `--project`/`--cwd` are gone from
-the tap surface (a local keg resolves through the namespace chain like a remote
-one); `--path` now means "use this config file, bypassing the cascade" (an alias
-of `--config`, for testing). The pruned `keg` binary still resolves the
-project-local keg automatically.
+resolved KEG. The on-disk discovery selectors `--project`/`--cwd` are gone;
+`--path` is not a KEG target selector.
 
 **`tap use`** records resolution in config: `tap use @ns/keg` sets the project's
 `defaultKeg` (in `.tapper/config.yaml`); `tap use @ns/keg --user` sets the
@@ -245,15 +232,16 @@ that set each. A persisted `flight` auto-applies when `--flight` is omitted.
 Supported env vars: `TAP_DEFAULT_KEG`, `TAP_FALLBACK_KEG`, `TAP_FLIGHT`,
 `TAP_AGENT`, `TAP_LOG_FILE`, `TAP_LOG_LEVEL`, `TAP_DEFAULT_HUB`, `TAP_FALLBACK_HUB`,
 `TAP_DEFAULT_NAMESPACE`, `TAP_FALLBACK_NAMESPACE`, `TAP_DISABLE_ATLAS_HUB`,
-`TAP_DISABLE_LOCAL_HUB`, `TAP_DISABLE_TELEMETRY` (`1`/`true`/`yes`/`on` for
+`TAP_DISABLE_TELEMETRY` (`1`/`true`/`yes`/`on` for
 the disable flags).
 
 Use `tap config --explain FIELD` to see which source set a value, or
 `tap config --show-sources` for all fields. The `--strict` flag makes config
 load warnings (corrupt YAML) into hard errors.
 
-Keg config (`<keg-root>/keg`) is separate from tapper config — different
-schema, different purpose (keg metadata vs tapper resolution).
+KEG settings are separate from Tapper user/project config — different schema,
+different purpose (KEG metadata vs resolver settings) — and are read or written
+through the Hub.
 
 ### Dependency: cli-toolkit
 
@@ -281,10 +269,8 @@ environment and break test isolation. Specifically:
 
 The `cli-toolkit` `clock.Clock` interface only exposes `Now()`; it does not
 provide `After`, `NewTicker`, `AfterFunc`, or similar scheduling primitives.
-For in-memory timing that must remain deterministic under a frozen test clock,
-prefer channel/condition-variable signalling (see `MemoryRepo.LockNode` for the
-pattern) rather than polling. The following call sites use the standard `time`
-package directly because each one is either (a) coalescing real filesystem or
+The following call sites use the standard `time` package directly because each
+one is either (a) coalescing real filesystem or
 network events whose timing is wall-clock by definition, or (b) a non-time
 use of `time.Now()` that cannot be driven by a fake clock:
 
@@ -304,12 +290,6 @@ use of `time.Now()` that cannot be driven by a fake clock:
 - `pkg/keg/keg_remote_events.go` (websocket reconnect backoff timer): the
   live watch retries real network dials against the hub, so the backoff must
   measure wall-clock time regardless of the local test clock.
-- `pkg/keg/repo_filesystem.go` (100ms retry delay in `FsRepo.WithNodeLock`):
-  waits on a cross-process `mkdir` lock directory. The retry interval is a
-  real-time yield between filesystem attempts; there is no in-process signal
-  the sibling process could deliver.
-- `pkg/keg/repo_filesystem_lock.go` (100ms retry delay in `FsRepo.AcquireLock`):
-  same rationale as `repo_filesystem.go` — cross-process filesystem lock retry.
 - `pkg/keg/node_id.go` (crypto/rand fallback uses `time.Now().UnixNano()`):
   used as an entropy source for a short random code when `crypto/rand` fails,
   not as a time measurement.
@@ -320,25 +300,24 @@ use of `time.Now()` that cannot be driven by a fake clock:
 ### Concurrency Model
 
 - **Per-node locking**: `Repository.WithNodeLock(ctx, id, fn)` serializes
-  operations on a single node. FsRepo uses atomic `mkdir` of a `.keg-lock`
-  directory with optional process metadata for stale lock detection. MemoryRepo
-  uses in-process mutex + map.
+  operations on a single node. Production `PgRepo` enforces this at the Hub;
+  the concurrency-safe in-memory implementation exists only in tests.
 - **Lock context propagation**: `contextWithNodeLock`/`contextHasNodeLock` allow
   re-entrant locking within the same call chain.
 - **Dex mutex**: `Dex.mu sync.RWMutex` guards index data; `LocalKeg.dexMu`
   guards lazy initialization.
-- **FsRepo.Next()**: Uses atomic mkdir loop to prevent duplicate ID allocation
-  across concurrent callers.
+- **Node allocation**: Production allocation is a Hub operation backed by
+  PostgreSQL; repository-independent orchestration tests use the internal
+  in-memory repository.
 - **KegService cache**: `cacheMu sync.Mutex` guards the shared keg resolution
   cache.
 - **Remote operations are single-request**: each `RemoteKeg` method is one
   HTTP round trip, and the hub serializes per-node writes server-side
   (`pg_advisory_xact_lock`). There is no client-side lock lease or dex write
   over HTTP.
-- **Cross-process locks are session primitives**: `Keg.Lock`/`Unlock`/
+- **Advisory locks are session primitives**: `Keg.Lock`/`Unlock`/
   `LockStatus`/`ForceUnlock` (used by `tap lock` / `tap edit`) are opt-in
-  advisory locks — backed by `RepositoryLock` locally and the hub's
-  `/nodes/{id}/lock` endpoints remotely. Leases carry a TTL
+  advisory locks backed by the Hub's `/nodes/{id}/lock` endpoints. Leases carry a TTL
   (`DefaultLockTTL`, 5 minutes) with **no renewal**: a session that outlives
   the TTL loses the lock.
 
@@ -349,8 +328,10 @@ use of `time.Now()` that cannot be driven by a fake clock:
   hasher, test logger).
 - **Fixtures**: `pkg/keg/data/` contains `empty`, `example`, `home` fixtures.
   `pkg/tapper/data/` contains `basic`, `example`, `keep`.
-- **MemoryRepo for speed**: Prefer `NewMemoryRepo(rt)` for unit tests; use
-  FsRepo + sandbox only when testing filesystem behavior.
+- **Repository fixtures**: repository-independent behavior tests use
+  `internal/testkegrepo`, which is imported only by `_test.go` files. SQL,
+  transaction, restart, and namespace-isolation behavior stays in Tapper Hub's
+  PostgreSQL integration suite.
 - **Testify**: Uses `github.com/stretchr/testify/require` for assertions.
 - **Race detection**: Run `go test -race ./pkg/keg/...` and
   `go test -race ./pkg/tapper/...` to verify concurrent safety.
@@ -421,7 +402,7 @@ When adding or modifying a feature, update each of these:
 update the JSON Schema files under `schemas/`:
 
 - `schemas/tap-config.json` — tap user/project config schema
-- `schemas/keg-config.json` — keg config schema
+- `schemas/keg-settings.json` — keg settings schema
 
 These schemas are referenced by editors for validation and completion hints. A
 config field added without a schema update will lack editor support and
@@ -437,10 +418,10 @@ validation.
   separate reads **at the Repository layer**. At the business layer,
   `Keg.ReadNode` returns the full node state (content, raw meta, stats, asset
   lists) in one operation — a single round trip on RemoteKeg.
-- The keg config file is named `keg` (no extension), though `keg.yaml` and
+- The keg settings file is named `keg` (no extension), though `keg.yaml` and
   `keg.yml` are also accepted.
-- `FsRepo.Next()` creates the node directory as a reservation — `WriteContent`
-  must handle pre-existing directories.
+- Node IDs are allocated by the Hub. `GET /nodes/next` is only a read-only
+  probe; creation uses `POST /nodes` with complete content.
 - **Cobra skips PersistentPostRunE when RunE returns an error.** Any cleanup
   or logging that must run on both success and failure paths cannot rely on
   PersistentPostRunE. In tapper, invocation logging and log file cleanup are

@@ -9,18 +9,18 @@ Use these docs when you are:
 
 - adding or changing CLI commands
 - changing keg/config resolution behavior
-- debugging selection logic between config and project-local kegs
+- debugging remote Hub and namespace selection
 - extending low-level repository behavior
 - writing integration-style CLI tests
 
 ## Layered Model
 
-1. CLI entrypoints (`cmd/tap`, plus optional profile entrypoints such as `cmd/keg`)
+1. CLI entrypoint (`cmd/tap`)
 2. Cobra command tree and shared dependencies (`pkg/cli`)
 3. Tap client and service layer (`pkg/tapper`)
 4. KEG domain and repository abstraction (`pkg/keg`)
-5. Filesystem or memory-backed storage implementations (`pkg/keg`)
-6. Sandbox-backed integration tests (`pkg/cli/*_test.go`, `pkg/tapper/*_test.go`)
+5. Hub-side repository implementations (PostgreSQL in Tapper Hub)
+6. Remote test servers, repository-independent memory tests, and PostgreSQL integration tests
 
 ## Read Next
 

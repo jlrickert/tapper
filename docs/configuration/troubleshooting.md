@@ -25,7 +25,7 @@ Cause:
 Fix:
 
 - Set `defaultKeg`/`fallbackKeg` to a resolvable reference: a bare name plus a
-  `fallbackNamespace`, an explicit `@namespace/name`, or a path.
+  `fallbackNamespace`, or an explicit `@namespace/name`.
 - Verify the reference in `defaultKeg`, `fallbackKeg`, and `kegMap` entries, and
   that the namespace routes to a hub via `defaultHub`/`namespaces`.
 - Run `tap keg list` to see the kegs the configured hubs actually expose.
@@ -43,8 +43,8 @@ Fix:
 - Set the hub's own `namespace` (its default), or
 - Set `defaultNamespace` (project) / `fallbackNamespace` (user).
 
-Local-hub references do not hit this — they fall back to the reserved `@local`
-namespace.
+Filesystem paths and `file://` targets are unsupported; configure the remote
+Hub and namespace that host the KEG.
 
 ## "ignored hubs … in project config"
 
@@ -79,8 +79,8 @@ Fix:
 
 Cause:
 
-- A reference's resolved hub name is not present in `hubs` and is not a built-in
-  (`local`, `atlas`).
+- A reference's resolved Hub name is not present in `hubs` and is not the
+  built-in `atlas` Hub.
 
 Fix:
 
@@ -101,7 +101,7 @@ tap config --project
 tap config --explain defaultKeg
 tap config --show-sources
 
-# Show active keg config (resolved target)
+# Show active keg settings (resolved target)
 tap keg settings
 
 # Confirm resolution for a specific keg

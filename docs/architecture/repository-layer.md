@@ -1,60 +1,23 @@
 # Repository Layer
 
-The repository layer is the low-level data exchange boundary for KEG data.
+`pkg/keg/repository.go` defines the storage contract used by `LocalKeg` for
+node data, indexes, settings, attachments, snapshots, locks, and archives.
 
-## Repository Contract
+Tapper clients do not construct a repository. `NewKegFromTarget` accepts only
+resolved Hub references and HTTP(S) endpoints and returns a `RemoteKeg`. Each
+`RemoteKeg` operation maps to one Hub request.
 
-`pkg/keg/repository.go` defines `Repository`, the core interface used by
-high-level keg operations.
+Tapper Hub constructs `LocalKeg` with its PostgreSQL repository. That is the
+only production persistence path: orchestration, indexing, validation, and
+locking remain in `LocalKeg`, while PostgreSQL supplies durable storage.
 
-It covers:
+The Tapper test suite has a concurrency-safe in-memory implementation in a
+`_test.go` file. It exists solely for repository-independent `LocalKeg` tests
+and is neither available nor linked in production builds. Repository behavior
+itself is verified by Tapper Hub's PostgreSQL integration suite.
 
-- node lifecycle (next/list/move/delete)
-- node data (content/meta/stats)
-- indexes (`dex/*`)
-- keg config (`keg` file)
-- optional capabilities (files/images/snapshots)
+This split keeps three boundaries explicit:
 
-Commands and services rely on this contract instead of directly accessing files.
-
-## Implementations
-
-Primary implementations in `pkg/keg`:
-
-- `repo_memory.go` for in-memory repositories
-- `repo_filesystem.go` for filesystem-backed repositories
-- `repo_memory_snapshots.go` for in-memory revision history
-- `repo_filesystem_snapshots.go` for on-disk snapshot storage
-
-`NewKegFromTarget` in `pkg/keg/keg.go` selects an implementation from a
-`kegurl.Target` scheme (`memory` or `file`).
-
-## High-Level KEG Service
-
-`pkg/keg/keg.go` wraps the repository with a stateful API:
-
-- `Init` for keg bootstrap (config + zero node + indexes)
-- `Create`, `Read`, `Move`, `Delete` for node lifecycle
-- index and query-oriented operations over dex data
-
-This separation allows command code to stay simple while storage behavior stays
-centralized and testable.
-
-## Snapshot Support
-
-`RepositorySnapshots` is implemented for both shipped repositories:
-
-- `MemoryRepo` stores fully materialized revisions in memory for tests and fast
-  local flows
-- `FsRepo` stores per-node history under `snapshots/` with `index.json`,
-  revision content blobs, and revision metadata/stats files
-
-This powers `tap` and `keg` snapshot/history commands plus archive
-import/export workflows. Archive import reuses source node IDs and overwrites
-matching nodes in the target keg.
-
-## Why The Boundary Matters
-
-- storage can change without rewriting command handlers
-- tests can run against memory repos for fast behavior checks
-- file-backed behavior can be exercised independently in filesystem tests
+- `RemoteKeg` verifies the HTTP contract and one-round-trip behavior.
+- `LocalKeg` tests verify repository-independent orchestration quickly.
+- Tapper Hub PostgreSQL tests verify durable repository semantics.
