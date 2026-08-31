@@ -10,29 +10,36 @@ import (
 // Move renames a node from src to dst and rewrites in-content links that
 // target src (../N) across the keg. It returns the ids of nodes whose content
 // was rewritten to follow the move.
-func (k *LocalKeg) Move(ctx context.Context, src NodeId, dst NodeId) ([]NodeId, error) {
-	return withKegWriteValue(ctx, k, func(ctx context.Context) ([]NodeId, error) { return k.move(ctx, src, dst) })
+func (k *LocalKeg) Move(ctx context.Context, opts NodeMoveOptions) ([]NodeId, error) {
+	return withKegWriteValue(ctx, k, func(ctx context.Context) ([]NodeId, error) { return k.move(ctx, opts) })
 }
 
-func (k *LocalKeg) move(ctx context.Context, src NodeId, dst NodeId) ([]NodeId, error) {
+func (k *LocalKeg) move(ctx context.Context, opts NodeMoveOptions) ([]NodeId, error) {
 	if err := k.checkKegExists(ctx); err != nil {
 		return nil, fmt.Errorf("failed to move node: %w", err)
 	}
 
-	src = NodeId{ID: src.ID, Code: src.Code}
-	dst = NodeId{ID: dst.ID, Code: dst.Code}
+	src := NodeId{ID: opts.Source.ID, Code: opts.Source.Code}
+	dst := NodeId{ID: opts.Destination.ID, Code: opts.Destination.Code}
 	if !src.Valid() || !dst.Valid() {
 		return nil, fmt.Errorf("invalid node id: %w", ErrInvalid)
 	}
 	if src.ID == 0 || dst.ID == 0 {
 		return nil, fmt.Errorf("node 0 cannot be moved: %w", ErrInvalid)
 	}
+	current, err := k.ReadNode(ctx, src)
+	if err != nil {
+		return nil, err
+	}
+	if err := checkExpectedHash("node "+src.Path(), opts.ExpectedHash, current.Hash(), nodeRecoveryContent(current)); err != nil {
+		return nil, err
+	}
 	if src.Equals(dst) {
 		return nil, nil
 	}
 
 	// Use content-aware existence checks so shadow reservations created by
-	// FsRepo.Next() / FsRepo.WithNodeLock() do not masquerade as real nodes.
+	// MemoryRepository.Next() / MemoryRepository.WithNodeLock() do not masquerade as real nodes.
 	// These are pre-lock gates; the under-lock authoritative check runs
 	// inside Repo.MoveNode.
 	srcExists, err := k.nodeExistsWithContent(ctx, src)
@@ -126,8 +133,8 @@ func (k *LocalKeg) move(ctx context.Context, src NodeId, dst NodeId) ([]NodeId, 
 	}
 
 	now := k.Runtime.Clock().Now()
-	if err := k.touchConfigUpdated(ctx, now); err != nil {
-		errs = append(errs, fmt.Errorf("failed to update config after move: %w", err))
+	if err := k.touchSettingsUpdated(ctx, now); err != nil {
+		errs = append(errs, fmt.Errorf("failed to update settings after move: %w", err))
 	}
 	if err := k.refreshSnapshotGeneratedIndexes(ctx); err != nil {
 		errs = append(errs, fmt.Errorf("failed to refresh snapshot indexes after move: %w", err))
@@ -140,19 +147,36 @@ func (k *LocalKeg) move(ctx context.Context, src NodeId, dst NodeId) ([]NodeId, 
 	return rewritten, errors.Join(errs...)
 }
 
-// Remove deletes a node from the repository and updates dex/config artifacts.
+// Remove deletes a node from the repository and updates dex/settings artifacts.
 // It returns the ids of nodes whose content was rewritten to drop links to the
 // removed node.
-func (k *LocalKeg) Remove(ctx context.Context, id NodeId) ([]NodeId, error) {
-	return withKegWriteValue(ctx, k, func(ctx context.Context) ([]NodeId, error) { return k.remove(ctx, id) })
+func (k *LocalKeg) Remove(ctx context.Context, opts NodeRemoveOptions) ([]NodeId, error) {
+	return withKegWriteValue(ctx, k, func(ctx context.Context) ([]NodeId, error) { return k.remove(ctx, opts) })
 }
 
-func (k *LocalKeg) remove(ctx context.Context, id NodeId) ([]NodeId, error) {
+func (k *LocalKeg) remove(ctx context.Context, opts NodeRemoveOptions) ([]NodeId, error) {
 	if err := k.checkKegExists(ctx); err != nil {
 		return nil, fmt.Errorf("failed to remove node: %w", err)
 	}
 
-	id = NodeId{ID: id.ID, Code: id.Code}
+	id := NodeId{ID: opts.ID.ID, Code: opts.ID.Code}
+	if !id.Valid() {
+		return nil, fmt.Errorf("invalid node id: %w", ErrInvalid)
+	}
+	if id.ID == 0 {
+		return nil, fmt.Errorf("node 0 cannot be removed: %w", ErrInvalid)
+	}
+	current, err := k.ReadNode(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if err := checkExpectedHash("node "+id.Path(), opts.ExpectedHash, current.Hash(), nodeRecoveryContent(current)); err != nil {
+		return nil, err
+	}
+	return k.removeUnchecked(ctx, id)
+}
+
+func (k *LocalKeg) removeUnchecked(ctx context.Context, id NodeId) ([]NodeId, error) {
 	if !id.Valid() {
 		return nil, fmt.Errorf("invalid node id: %w", ErrInvalid)
 	}
@@ -163,7 +187,7 @@ func (k *LocalKeg) remove(ctx context.Context, id NodeId) ([]NodeId, error) {
 	// Check existence before acquiring the lock. WithNodeLock will also
 	// return ErrNotExist for missing nodes, but this check provides a
 	// clearer error message. Use the content-aware helper so shadow
-	// reservations (bare directories from FsRepo.Next() / WithNodeLock)
+	// reservations (bare directories from MemoryRepository.Next() / WithNodeLock)
 	// are not mistaken for real nodes.
 	exists, err := k.nodeExistsWithContent(ctx, id)
 	if err != nil {
@@ -241,8 +265,8 @@ func (k *LocalKeg) remove(ctx context.Context, id NodeId) ([]NodeId, error) {
 	}
 
 	now := k.Runtime.Clock().Now()
-	if err := k.touchConfigUpdated(ctx, now); err != nil {
-		errs = append(errs, fmt.Errorf("failed to update config after remove: %w", err))
+	if err := k.touchSettingsUpdated(ctx, now); err != nil {
+		errs = append(errs, fmt.Errorf("failed to update settings after remove: %w", err))
 	}
 	if err := k.refreshSnapshotGeneratedIndexes(ctx); err != nil {
 		errs = append(errs, fmt.Errorf("failed to refresh snapshot indexes after remove: %w", err))

@@ -57,7 +57,7 @@ func TestWatchCommand_TimeoutWithNoEvents(t *testing.T) {
 }
 
 // TestWatchCommand_EmitsEventOnContentChange runs the watch in the background
-// and modifies the node's README.md until the watcher reports the change.
+// and mutates the test repository until the watcher reports the change.
 func TestWatchCommand_EmitsEventOnContentChange(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, tu.WithFixture("joe", "~"))
@@ -71,9 +71,8 @@ func TestWatchCommand_EmitsEventOnContentChange(t *testing.T) {
 	}()
 
 	// The watcher needs a moment to register before writes are observable.
-	// Keep writing until the watch exits (or times out); each write changes
-	// the content so fsnotify fires.
-	contentPath := "~/kegs/@local/personal/0/README.md"
+	// Keep writing until the watch exits (or times out); each repository write
+	// emits a node event.
 	var res *tu.ProcessResult
 	deadline := time.After(20 * time.Second)
 	i := 0
@@ -87,7 +86,7 @@ loop:
 		case <-time.After(200 * time.Millisecond):
 			i++
 			body := "# Watch Test\n\nrevision " + strings.Repeat("x", i) + "\n"
-			sb.MustWriteFile(contentPath, []byte(body), 0o644)
+			fixtureSetContent(t, sb.Runtime(), "personal", "0", body)
 		}
 	}
 

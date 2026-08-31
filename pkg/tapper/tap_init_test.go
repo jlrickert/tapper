@@ -127,23 +127,3 @@ func TestInitKeg_RemoteCreate_Conflict(t *testing.T) {
 	require.Error(t, err)
 	require.ErrorIs(t, err, keg.ErrExist, "an existing remote keg must fail with ErrExist (409)")
 }
-
-func TestInitKeg_LocalViaNamespace(t *testing.T) {
-	t.Parallel()
-	fx := NewSandbox(t)
-	require.NoError(t, fx.Setwd("/home/testuser"))
-
-	tap, err := tapper.NewTap(tapper.TapOptions{Root: "/home/testuser", Runtime: fx.Runtime()})
-	require.NoError(t, err)
-	require.NoError(t, fx.Runtime().AtomicWriteFile(tap.PathService.UserConfig(),
-		[]byte("hubs:\n  home:\n    kind: local\n    defaultNamespace: local\n    basePath: /home/testuser/kegs\n"), 0o644))
-
-	// The reserved @local namespace pins this machine's filesystem hub.
-	target, err := tap.InitKeg(fx.Context(), tapper.InitOptions{Keg: "notes", Namespace: tapper.LocalHubName})
-	require.NoError(t, err)
-	require.Equal(t, keg.SchemeFile, target.Scheme())
-	require.Contains(t, target.String(), "@local/notes")
-
-	// The zero node and keg config were written to disk.
-	require.Contains(t, string(fx.MustReadFile("/home/testuser/kegs/@local/notes/keg")), "$schema=")
-}

@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -41,17 +40,22 @@ func TestTap_Orient_SharedPayloadStartsWithKegSystem(t *testing.T) {
 
 	require.True(t, strings.HasPrefix(payload, "# KEG System\n\n"), payload)
 	require.Contains(t, payload, "Tapper provides an MCP interface for KEG")
-	require.NotContains(t, payload, "CLI")
 	require.NotContains(t, payload, "`tap ")
 	require.Contains(t, payload, "Rules:")
 	require.NotContains(t, payload, "## Active KEG")
 	require.Contains(t, payload, "## Available KEGs")
 	require.NotContains(t, payload, "## KEG Instructions")
 	require.Contains(t, payload, "## Guidance")
-	require.Contains(t, payload, "# Linking conventions")
 	guidance := payload[strings.Index(payload, "## Guidance"):]
-	require.Contains(t, guidance, "`keg:ALIAS/NODEID`")
-	require.Contains(t, guidance, "`keg:@NAMESPACE/ALIAS/NODEID`")
+	require.Contains(t, guidance, "# Linking conventions")
+	for _, exact := range []string{
+		"[title](../NODEID)",
+		"[title](keg:ALIAS/NODEID)",
+		"[title](keg:@NAMESPACE/ALIAS/NODEID)",
+	} {
+		require.Contains(t, guidance, exact)
+	}
+	require.Contains(t, guidance, "A bare `keg:` reference in node prose is plain text")
 	require.Contains(t, payload, "# Snapshot policy")
 	require.NotContains(t, payload, "## Host:")
 	require.NotContains(t, strings.ToLower(payload), "tier 0")
@@ -70,159 +74,6 @@ func TestTap_Orient_UnknownFlightEmitsNote(t *testing.T) {
 	require.Contains(t, payload, "# KEG System")
 	require.Contains(t, payload, "Active flight: `f-demo`")
 	require.Contains(t, payload, `Flight "f-demo" is unavailable`)
-}
-
-func TestTap_Orient_FlightInstructionsAndKegDiscoveryPrecedeGuidance(t *testing.T) {
-	t.Parallel()
-	sb := sandbox.NewSandbox(t, &sandbox.Options{Home: "/home/testuser", User: "testuser"})
-	require.NoError(t, sb.Setwd("/home/testuser"))
-	tap, err := tapper.NewTap(tapper.TapOptions{Root: "/home/testuser", Runtime: sb.Runtime()})
-	require.NoError(t, err)
-
-	require.NoError(t, sb.Runtime().AtomicWriteFile(tap.PathService.UserConfig(),
-		[]byte("hubs:\n  home:\n    kind: local\n    defaultNamespace: local\n    basePath: /home/testuser/kegs\n"), 0o644))
-	for _, name := range []string{"personal", "dev"} {
-		dir := "/home/testuser/kegs/@local/" + name
-		require.NoError(t, sb.Runtime().Mkdir(dir, 0o755, true))
-		require.NoError(t, sb.Runtime().AtomicWriteFile(dir+"/keg", []byte("kegv: 2025-07\ntitle: "+name+"\n"), 0o644))
-	}
-	require.NoError(t, sb.Runtime().AtomicWriteFile("/home/testuser/kegs/@local/personal/keg",
-		[]byte("kegv: 2025-07\ntitle: Personal\nsummary: Personal discovery text.\ninstructions: |\n  Prefer audited personal-context nodes.\n"), 0o644))
-	require.NoError(t, sb.Runtime().AtomicWriteFile(
-		"/home/testuser/kegs/flights.d/backend.yaml",
-		[]byte("title: Backend\ncover:\n  - namespace: local\n    keg: personal\n    role: viewer\n  - namespace: local\n    keg: dev\n    role: editor\ninstructions: |\n  Touch only backend kegs.\n"), 0o644))
-
-	payload, err := tap.Orient(context.Background(), tapper.OrientOptions{
-		KegTargetOptions: tapper.KegTargetOptions{Flight: "backend"},
-	})
-	require.NoError(t, err)
-	require.Contains(t, payload, "| `@local/dev` | dev | — | editor | home/local | editor |")
-	require.Contains(t, payload, "| `@local/personal` | Personal | Personal discovery text. | editor | home/local | viewer |")
-	require.Contains(t, payload, "## Flight")
-	require.Contains(t, payload, "Backend")
-	require.Contains(t, payload, "Touch only backend kegs.")
-	require.NotContains(t, payload, "## KEG Instructions")
-	require.NotContains(t, payload, "Prefer audited personal-context nodes.")
-	require.Contains(t, payload, "Call `keg_settings`")
-
-	guidanceAt := strings.Index(payload, "## Guidance")
-	require.NotEqual(t, -1, guidanceAt)
-	require.Less(t, strings.Index(payload, "Touch only backend kegs."), guidanceAt)
-	require.Less(t, strings.Index(payload, "Call `keg_settings`"), guidanceAt)
-}
-
-func TestTap_Orient_UsesPersistedFlightBeforeDefaultKeg(t *testing.T) {
-	t.Parallel()
-	sb := sandbox.NewSandbox(t, &sandbox.Options{Home: "/home/testuser", User: "testuser"})
-	require.NoError(t, sb.Setwd("/home/testuser"))
-	tap, err := tapper.NewTap(tapper.TapOptions{Root: "/home/testuser", Runtime: sb.Runtime()})
-	require.NoError(t, err)
-	require.NoError(t, sb.Runtime().AtomicWriteFile(tap.PathService.UserConfig(), []byte(`flight: backend
-fallbackKeg: personal
-hubs:
-  home:
-    kind: local
-    defaultNamespace: local
-    basePath: /home/testuser/kegs
-`), 0o644))
-	for _, name := range []string{"personal", "dev"} {
-		dir := "/home/testuser/kegs/@local/" + name
-		require.NoError(t, sb.Runtime().Mkdir(dir, 0o755, true))
-		require.NoError(t, sb.Runtime().AtomicWriteFile(dir+"/keg", []byte("kegv: 2025-07\ntitle: "+name+"\n"), 0o644))
-	}
-	require.NoError(t, sb.Runtime().AtomicWriteFile("/home/testuser/kegs/@local/dev/keg", []byte("kegv: 2025-07\ntitle: dev\ninstructions: |\n  Follow the covered KEG schema.\n"), 0o644))
-	require.NoError(t, sb.Runtime().AtomicWriteFile("/home/testuser/kegs/flights.d/backend.yaml", []byte("title: Backend\ncover:\n  - namespace: local\n    keg: dev\n    role: editor\ninstructions: |\n  Flight instructions win.\n"), 0o644))
-
-	payload, err := tap.Orient(context.Background(), tapper.OrientOptions{})
-	require.NoError(t, err)
-	require.Contains(t, payload, "Active flight: `@local/+backend`")
-	require.Contains(t, payload, "Flight instructions win.")
-	require.NotContains(t, payload, "Follow the covered KEG schema.")
-	require.NotContains(t, payload, "## KEG Instructions")
-	require.NotContains(t, payload, "| `@local/personal`")
-}
-
-// TestTap_OrientReloadsNearestProjectConfig covers the reload boundary. Orient
-// owns the cache reset; ActiveFlightName is a pure read of whatever cascade is
-// currently loaded, so a stale cache stays stale until Orient refreshes it.
-func TestTap_OrientReloadsNearestProjectConfig(t *testing.T) {
-	t.Parallel()
-	sb := sandbox.NewSandbox(t, &sandbox.Options{Home: "/home/testuser", User: "testuser"})
-	project := "/home/testuser/project"
-	descendant := filepath.Join(project, "src", "pkg")
-	require.NoError(t, sb.Setwd(descendant))
-
-	tap, err := tapper.NewTap(tapper.TapOptions{Root: descendant, Runtime: sb.Runtime()})
-	require.NoError(t, err)
-	require.NoError(t, sb.Runtime().AtomicWriteFile(tap.PathService.UserConfig(), []byte(`flight: +baseline
-fallbackNamespace: local
-hubs:
-  home:
-    kind: local
-    basePath: /home/testuser/kegs
-`), 0o644))
-
-	// Prime the merged cache before the project config exists. Orientation must
-	// still reload the cascade and adopt the nearest project selection.
-	cfg, err := tap.ConfigService.Config()
-	require.NoError(t, err)
-	require.Equal(t, "+baseline", cfg.Flight())
-	require.NoError(t, sb.Runtime().AtomicWriteFile(
-		filepath.Join(project, ".tapper", "config.yaml"),
-		[]byte("flight: +project\n"), 0o644))
-
-	for _, flight := range []struct{ slug, title string }{
-		{"baseline", "Baseline"},
-		{"project", "Project"},
-	} {
-		require.NoError(t, sb.Runtime().AtomicWriteFile(
-			filepath.Join("/home/testuser/kegs/flights.d", flight.slug+".yaml"),
-			[]byte("title: "+flight.title+"\ninstructions: "+flight.title+" instructions\n"), 0o644))
-	}
-
-	// The primed cache still answers with the user-level baseline, because a
-	// pure read must not silently reload behind the caller's back.
-	require.Equal(t, "+baseline", tap.ActiveFlightName(""))
-
-	payload, err := tap.Orient(context.Background(), tapper.OrientOptions{})
-	require.NoError(t, err)
-	require.Contains(t, payload, "+project")
-	require.Contains(t, payload, "Project instructions")
-	require.NotContains(t, payload, "Baseline instructions")
-
-	// Orient reloaded the cascade, so the pure read now sees the project value.
-	require.Equal(t, "+project", tap.ActiveFlightName(""))
-}
-
-func TestTap_Orient_FullAccessStillSuppressesKegInstructions(t *testing.T) {
-	t.Parallel()
-	sb := sandbox.NewSandbox(t, &sandbox.Options{Home: "/home/testuser", User: "testuser"})
-	require.NoError(t, sb.Setwd("/home/testuser"))
-	tap, err := tapper.NewTap(tapper.TapOptions{Root: "/home/testuser", Runtime: sb.Runtime()})
-	require.NoError(t, err)
-
-	require.NoError(t, sb.Runtime().AtomicWriteFile(tap.PathService.UserConfig(),
-		[]byte("hubs:\n  home:\n    kind: local\n    defaultNamespace: local\n    basePath: /home/testuser/kegs\n"), 0o644))
-	dir := "/home/testuser/kegs/@local/dev"
-	require.NoError(t, sb.Runtime().Mkdir(dir, 0o755, true))
-	require.NoError(t, sb.Runtime().AtomicWriteFile(dir+"/keg", []byte(
-		"kegv: 2025-07\ntitle: Development\nsummary: Discoverable engineering context.\ninstructions: DO NOT LEAK FULL ACCESS GUIDANCE\n",
-	), 0o644))
-	require.NoError(t, sb.Runtime().AtomicWriteFile(
-		"/home/testuser/kegs/flights.d/full.yaml",
-		[]byte("title: Full access\ncapabilities: [full_access]\ninstructions: Flight guidance remains visible.\n"),
-		0o644,
-	))
-
-	payload, err := tap.Orient(context.Background(), tapper.OrientOptions{
-		KegTargetOptions: tapper.KegTargetOptions{Flight: "full"},
-	})
-	require.NoError(t, err)
-	require.Contains(t, payload, "Discoverable engineering context.")
-	require.Contains(t, payload, "Flight guidance remains visible.")
-	require.Contains(t, payload, "| admin |")
-	require.NotContains(t, payload, "DO NOT LEAK FULL ACCESS GUIDANCE")
-	require.NotContains(t, payload, "## KEG Instructions")
 }
 
 func TestTap_Orient_BarePayloadDoesNotInjectDeveloperLifecycle(t *testing.T) {
@@ -261,17 +112,16 @@ func TestTap_Orient_MissingHubAuthenticationIsMCPFirst(t *testing.T) {
 	payload, err := tap.Orient(context.Background(), tapper.OrientOptions{})
 	require.NoError(t, err)
 	require.Contains(t, payload, `skipped hub "work": hub has no authenticated session for https://hub.example.com`)
-	require.NotContains(t, payload, "CLI")
 	require.NotContains(t, payload, "`tap ")
 }
 
-func TestTap_Orient_CompatibleRemoteUsesOneDiscoveryRequest(t *testing.T) {
+func TestTap_IdentityKegCatalog_UsesOneKegCatalogRequest(t *testing.T) {
 	t.Parallel()
 	var requests atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests.Add(1)
-		require.Equal(t, "/api/v1/orient", r.URL.Path)
-		_ = json.NewEncoder(w).Encode([]tapper.HubOrientationKeg{{
+		require.Equal(t, "/api/v1/kegs", r.URL.Path)
+		_ = json.NewEncoder(w).Encode([]tapper.HubKeg{{
 			Namespace:  "foldwise",
 			Alias:      "dev",
 			Title:      "Development",
@@ -288,34 +138,29 @@ func TestTap_Orient_CompatibleRemoteUsesOneDiscoveryRequest(t *testing.T) {
 	cfg := fmt.Sprintf("hubs:\n  test:\n    kind: remote\n    url: %s\n    token: token\n", srv.URL)
 	require.NoError(t, sb.Runtime().AtomicWriteFile(tap.PathService.UserConfig(), []byte(cfg), 0o644))
 
-	payload, err := tap.Orient(context.Background(), tapper.OrientOptions{})
-	require.NoError(t, err)
+	rows, warnings := tap.IdentityKegCatalog(context.Background())
 	require.EqualValues(t, 1, requests.Load())
-	require.Contains(t, payload, "| `@foldwise/dev` | Development | Engineering system of record. | admin | test/private | none |")
-	require.NotContains(t, payload, "## KEG Instructions")
+	require.Empty(t, warnings)
+	require.Equal(t, []tapper.OrientationKeg{{
+		Ref: "@foldwise/dev", Namespace: "foldwise", Alias: "dev",
+		Title: "Development", Summary: "Engineering system of record.",
+		Visibility: "private", Role: "admin", Source: "test",
+	}}, rows)
 }
 
-func TestTap_Orient_OlderHubFallbackSuppressesInstructions(t *testing.T) {
+func TestTap_IdentityKegCatalog_NeverReadsIndividualSettings(t *testing.T) {
 	t.Parallel()
 	var configReads atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/api/v1/orient":
-			http.NotFound(w, r)
 		case "/api/v1/kegs":
 			_ = json.NewEncoder(w).Encode([]tapper.HubKeg{{
-				Namespace: "foldwise",
-				Alias:     "dev",
-				Role:      "admin",
+				Namespace: "foldwise", Alias: "dev", Title: "Catalog title",
+				Summary: "Catalog summary.", Role: "admin",
 			}})
-		case "/api/v1/@foldwise/kegs/dev/config":
+		case "/api/v1/@foldwise/kegs/dev/settings":
 			configReads.Add(1)
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"kegv":         "2025-07",
-				"title":        "Fallback title",
-				"summary":      "Fallback summary.",
-				"instructions": "DO NOT LEAK FALLBACK INSTRUCTIONS",
-			})
+			http.Error(w, "aggregate discovery must not read settings", http.StatusInternalServerError)
 		default:
 			http.NotFound(w, r)
 		}
@@ -328,78 +173,25 @@ func TestTap_Orient_OlderHubFallbackSuppressesInstructions(t *testing.T) {
 	cfg := fmt.Sprintf("hubs:\n  test:\n    kind: remote\n    url: %s\n    token: token\n", srv.URL)
 	require.NoError(t, sb.Runtime().AtomicWriteFile(tap.PathService.UserConfig(), []byte(cfg), 0o644))
 
-	payload, err := tap.Orient(context.Background(), tapper.OrientOptions{})
-	require.NoError(t, err)
-	require.EqualValues(t, 1, configReads.Load())
-	require.Contains(t, payload, "Fallback title")
-	require.Contains(t, payload, "Fallback summary.")
-	require.NotContains(t, payload, "DO NOT LEAK FALLBACK INSTRUCTIONS")
-	require.NotContains(t, payload, "## KEG Instructions")
+	rows, warnings := tap.IdentityKegCatalog(context.Background())
+	require.EqualValues(t, 0, configReads.Load())
+	require.Empty(t, warnings)
+	require.Len(t, rows, 1)
+	require.Equal(t, "Catalog title", rows[0].Title)
+	require.Equal(t, "Catalog summary.", rows[0].Summary)
 }
 
-// TestTap_Orient_ActiveKeg_AliasResolutionFromCwd covers the common
-// case: a kegMap entry whose pathPrefix matches the working directory
-// resolves the keg from cwd. The keg lives on the local hub, so the
-// resolved target is a bare file backend with no keg name; the active-keg
-// line surfaces the path-free backend label with a "no alias" suffix and
-// never leaks the underlying filesystem location.
-func TestTap_Orient_ActiveKeg_AliasResolutionFromCwd(t *testing.T) {
-	t.Parallel()
-	fx := NewSandbox(t)
-	root := "/home/testuser/work"
-	require.NoError(t, fx.Runtime().Mkdir(root, 0o755, true))
-	require.NoError(t, fx.Setwd(root))
-
-	tap, err := tapper.NewTap(tapper.TapOptions{Root: root, Runtime: fx.Runtime()})
-	require.NoError(t, err)
-
-	require.NoError(t, fx.Runtime().Mkdir(filepath.Dir(tap.PathService.UserConfig()), 0o755, true))
-	require.NoError(t, fx.Runtime().AtomicWriteFile(tap.PathService.UserConfig(), []byte(`fallbackKeg: notes
-fallbackNamespace: local
-kegMap:
-  - alias: notes
-    pathPrefix: ~/work
-hubs:
-  home:
-    kind: local
-    basePath: ~/Documents/kegs
-`), 0o644))
-	require.NoError(t, fx.Runtime().Mkdir("/home/testuser/Documents/kegs/@local/notes", 0o755, true))
-	require.NoError(t, fx.Runtime().AtomicWriteFile("/home/testuser/Documents/kegs/@local/notes/keg", []byte("kegv: 2025-07\n"), 0o644))
-
-	payload, err := tap.Orient(context.Background(), tapper.OrientOptions{})
-	require.NoError(t, err)
-	require.NotContains(t, payload, "Active KEG:")
-	require.NotContains(t, payload, "Documents/kegs/notes")
-}
-
-// TestTap_Orient_ActiveKeg_NoAliasFallback covers a project-local keg
-// resolved from the working directory but not registered under any
-// alias in tap config.
-func TestTap_Orient_ActiveKeg_NoAliasFallback(t *testing.T) {
-	t.Parallel()
-	fx := NewSandbox(t)
-	root := "/home/testuser/loose"
-	kegDir := root + "/kegs/loose"
-	require.NoError(t, fx.Runtime().Mkdir(kegDir, 0o755, true))
-	require.NoError(t, fx.Runtime().AtomicWriteFile(kegDir+"/keg", []byte("kegv: 2025-07\n"), 0o644))
-	require.NoError(t, fx.Setwd(root))
-
-	tap, err := tapper.NewTap(tapper.TapOptions{Root: root, Runtime: fx.Runtime()})
-	require.NoError(t, err)
-
-	payload, err := tap.Orient(context.Background(), tapper.OrientOptions{
-		KegTargetOptions: tapper.KegTargetOptions{Project: true},
-	})
-	require.NoError(t, err)
-	require.NotContains(t, payload, "Active KEG:")
-	require.NotContains(t, payload, "loose/kegs/loose")
-}
-
-// TestTap_Orient_ActiveKeg_ExplicitOverride confirms that an explicit
-// keg passed through OrientOptions wins over auto-resolution from cwd.
+// Explicit KEG selection does not alter the orientation catalog or choose MCP
+// authority; flight selection remains configuration-owned.
 func TestTap_Orient_ActiveKeg_ExplicitOverride(t *testing.T) {
 	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/api/v1/kegs", r.URL.Path)
+		_ = json.NewEncoder(w).Encode([]tapper.HubKeg{{
+			Namespace: "local", Alias: "archive", Title: "Archive", Role: "admin",
+		}})
+	}))
+	defer srv.Close()
 	fx := NewSandbox(t)
 	root := "/home/testuser/work"
 	require.NoError(t, fx.Runtime().Mkdir(root, 0o755, true))
@@ -408,24 +200,15 @@ func TestTap_Orient_ActiveKeg_ExplicitOverride(t *testing.T) {
 	tap, err := tapper.NewTap(tapper.TapOptions{Root: root, Runtime: fx.Runtime()})
 	require.NoError(t, err)
 
-	require.NoError(t, fx.Runtime().Mkdir(filepath.Dir(tap.PathService.UserConfig()), 0o755, true))
-	require.NoError(t, fx.Runtime().AtomicWriteFile(tap.PathService.UserConfig(), []byte(`fallbackNamespace: local
-hubs:
-  home:
-    kind: local
-    basePath: ~/Documents/kegs
-`), 0o644))
-	for _, dir := range []string{"/home/testuser/Documents/kegs/@local/archive", "/home/testuser/Documents/kegs/@local/notes"} {
-		require.NoError(t, fx.Runtime().Mkdir(dir, 0o755, true))
-		require.NoError(t, fx.Runtime().AtomicWriteFile(dir+"/keg", []byte("kegv: 2025-07\n"), 0o644))
-	}
+	config := fmt.Sprintf("fallbackNamespace: local\nhubs:\n  home:\n    kind: remote\n    url: %s\n    token: test-token\n", srv.URL)
+	require.NoError(t, fx.Runtime().AtomicWriteFile(tap.PathService.UserConfig(), []byte(config), 0o644))
 
 	payload, err := tap.Orient(context.Background(), tapper.OrientOptions{
 		KegTargetOptions: tapper.KegTargetOptions{Keg: "archive"},
 	})
 	require.NoError(t, err)
 	require.NotContains(t, payload, "Active KEG:")
-	require.NotContains(t, payload, "Documents/kegs/archive")
+	require.Contains(t, payload, "@local/archive")
 }
 
 func TestTap_IntegrateHosts_IsSortedAndIncludesDefaults(t *testing.T) {
@@ -439,32 +222,23 @@ func TestTap_IntegrateHosts_IsSortedAndIncludesDefaults(t *testing.T) {
 	}
 }
 
-// TestTap_Orient_RecoveryPayloadStatesTheSituation pins the recovery guidance.
-// The MCP tool list is filtered to the recovery set, so an agent never gets to
-// call a locked tool and see the error explaining why — which left the empty
-// KEG table as the only signal, and weaker models do not act on an absence.
-func TestTap_Orient_RecoveryPayloadStatesTheSituation(t *testing.T) {
+func TestTap_Orient_UnpinnedPayloadUsesFullAccess(t *testing.T) {
 	t.Parallel()
 	tap := newOrientTap(t)
 
 	payload, err := tap.Orient(context.Background(), tapper.OrientOptions{})
 	require.NoError(t, err)
 
-	require.Contains(t, payload, "No flight is selected")
-	require.Contains(t, payload, "recovery mode")
-	require.Contains(t, payload, "KEG tools are locked")
-	require.Contains(t, payload, "`list_flights`")
-	require.Contains(t, payload, "Call `orient` again")
+	require.Contains(t, payload, "No flight was provided")
+	require.Contains(t, payload, "identity-authorized full access")
+	require.Contains(t, payload, "least-privilege flight")
+	require.Contains(t, payload, "start a new connection")
 	// The payload is the MCP-facing surface and never names CLI commands.
 	require.NotContains(t, payload, "`tap ")
 }
 
-// TestTap_Orient_StatesZeroNodeAndAttachmentPaths pins two things the payload
-// must carry. Node 0 is the placeholder landing node agents kept overwriting,
-// and the attachment directories are plural — `assets/` and `images/`, per
-// keg.NodeAttachmentsDir and keg.NodeImagesDir. A singular path in the guidance
-// would produce links that upload fine and silently resolve to nothing, so the
-// spelling is asserted rather than trusted.
+// TestTap_Orient_StatesZeroNodeAndAttachmentPaths pins two compact safety rules
+// the runtime payload must carry alongside canonical link teaching.
 func TestTap_Orient_StatesZeroNodeAndAttachmentPaths(t *testing.T) {
 	t.Parallel()
 	tap := newOrientTap(t)
@@ -488,4 +262,116 @@ func TestTap_Orient_StatesZeroNodeAndAttachmentPaths(t *testing.T) {
 	for _, wrong := range []string{"./asset/", "./image/", "(assets/", "(images/"} {
 		require.NotContains(t, payload, wrong)
 	}
+}
+
+// rowFor returns the rendered table row for a KEG ref, so a test can assert on
+// the columns of one row rather than on the whole document.
+func rowFor(t *testing.T, payload, ref string) string {
+	t.Helper()
+	for _, line := range strings.Split(payload, "\n") {
+		if strings.HasPrefix(line, "| `"+ref+"`") {
+			return line
+		}
+	}
+	t.Fatalf("no table row for %q in payload:\n%s", ref, payload)
+	return ""
+}
+
+func orientFlight(name, namespace, slug string, cover ...tapper.FlightCover) *tapper.Flight {
+	return &tapper.Flight{
+		Name: name, Namespace: namespace, Slug: slug, Source: "atlas",
+		FlightManifest: tapper.FlightManifest{Cover: cover},
+	}
+}
+
+func TestBuildOrientationPayload_SplitsCoveredKegsFromSubflightOnlyKegs(t *testing.T) {
+	t.Parallel()
+	root := orientFlight("@ada/+root", "ada", "root",
+		tapper.FlightCover{Namespace: "ada", Keg: "covered", Role: tapper.FlightRoleEditor})
+	// A graph-wide listing: one KEG the root covers, one only a descendant does.
+	kegs := []tapper.OrientationKeg{
+		{Ref: "@ada/covered", Namespace: "ada", Alias: "covered", Role: "admin",
+			FlightCap: "editor", Flights: []string{"@ada/+root"}, Source: "atlas", Visibility: "private"},
+		{Ref: "@ada/childonly", Namespace: "ada", Alias: "childonly", Role: "admin",
+			FlightCap: "editor", Flights: []string{"@ada/+child"}, Source: "atlas", Visibility: "private"},
+	}
+
+	payload, err := tapper.BuildOrientationPayload(root, "", "", kegs, nil, nil)
+	require.NoError(t, err)
+
+	usable, viaSubflight, found := strings.Cut(payload, "## Reachable via subflight")
+	require.True(t, found, "expected a subflight section:\n%s", payload)
+	require.Contains(t, usable, "@ada/covered")
+	require.NotContains(t, usable, "@ada/childonly")
+	require.Contains(t, viaSubflight, "@ada/childonly")
+	require.Contains(t, viaSubflight, "@ada/+child", "the row names the flight to select")
+	require.NotContains(t, viaSubflight, "@ada/covered")
+}
+
+func TestBuildOrientationPayload_PartitionsByActiveCoverNotAggregateProvenance(t *testing.T) {
+	t.Parallel()
+	root := orientFlight("@ada/+root", "ada", "root",
+		tapper.FlightCover{Namespace: "ada", Keg: "shared", Role: tapper.FlightRoleViewer})
+	// AggregateOrientationKegs keeps only the winning grant, so this row names
+	// the descendant and carries the descendant's editor cap even though the
+	// root covers the same KEG at viewer. Partitioning on the Flights column
+	// would hide a readable KEG behind a flight selection it does not need.
+	kegs := []tapper.OrientationKeg{
+		{Ref: "@ada/shared", Namespace: "ada", Alias: "shared", Role: "admin",
+			FlightCap: "editor", Flights: []string{"@ada/+child"}, Source: "atlas", Visibility: "private"},
+	}
+
+	payload, err := tapper.BuildOrientationPayload(root, "", "", kegs, nil, nil)
+	require.NoError(t, err)
+
+	require.NotContains(t, payload, "## Reachable via subflight",
+		"the active flight covers this KEG, so it is usable now")
+	row := rowFor(t, payload, "@ada/shared")
+	require.Contains(t, row, "viewer", "role is re-priced to the active flight's cap")
+	require.NotContains(t, row, "editor", "the descendant's higher cap must not be quoted")
+	require.Contains(t, row, "@ada/+root", "the row is attributed to the active flight")
+
+	// Re-pricing must not reach back into the caller's rows. Providers hand the
+	// same slice to FinalizeOrientation, which hashes Ref/Role/Visibility and
+	// FlightCap into the authority revision, so partitioning in place would
+	// move every revision and stale every governed request.
+	require.Equal(t, "editor", kegs[0].FlightCap, "caller rows must not be mutated")
+	require.Equal(t, []string{"@ada/+child"}, kegs[0].Flights)
+}
+
+func TestBuildOrientationPayload_EmptyCoverWithSubflightKegsPointsAtTheNextSection(t *testing.T) {
+	t.Parallel()
+	// The dispatcher shape: a root that carries instructions and no cover, and
+	// delegates every KEG to a descendant. Reporting "no KEGs available" here
+	// would stop an agent that should be reading the next section instead.
+	root := orientFlight("@admin/+admin", "admin", "admin")
+	kegs := []tapper.OrientationKeg{
+		{Ref: "@admin/private", Namespace: "admin", Alias: "private", Role: "editor",
+			FlightCap: "editor", Flights: []string{"@admin/+test"}, Source: "atlas", Visibility: "private"},
+	}
+
+	payload, err := tapper.BuildOrientationPayload(root, "", "", kegs, nil, nil)
+	require.NoError(t, err)
+
+	require.Contains(t, payload, "The active flight covers no KEGs directly")
+	require.NotContains(t, payload, "No KEGs are currently available")
+	require.Contains(t, payload, "## Reachable via subflight")
+	require.Contains(t, payload, "@admin/+test")
+}
+
+func TestBuildOrientationPayload_SingleFlightProjectionRendersOneTable(t *testing.T) {
+	t.Parallel()
+	// Supplying an explicit flight projects exactly that flight, so every row
+	// is covered and there is nothing to defer to a selection.
+	root := orientFlight("@ada/+child", "ada", "child",
+		tapper.FlightCover{Namespace: "ada", Keg: "notes", Role: tapper.FlightRoleEditor})
+	kegs := []tapper.OrientationKeg{
+		{Ref: "@ada/notes", Namespace: "ada", Alias: "notes", Role: "admin",
+			FlightCap: "editor", Flights: []string{"@ada/+child"}, Source: "atlas", Visibility: "private"},
+	}
+
+	payload, err := tapper.BuildOrientationPayload(root, "", "", kegs, nil, nil)
+	require.NoError(t, err)
+	require.Contains(t, payload, "@ada/notes")
+	require.NotContains(t, payload, "## Reachable via subflight")
 }

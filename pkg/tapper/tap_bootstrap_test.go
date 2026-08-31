@@ -9,52 +9,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// testHost is the deterministic hostname pinned in bootstrap tests so the
-// machine-keyed local hub is stable across machines and CI.
-const testHost = "testhost"
-
 func newBootstrapTap(t *testing.T, fx *sandbox.Sandbox) *tapper.Tap {
 	t.Helper()
-	require.NoError(t, fx.Runtime().Set("HOSTNAME", testHost))
 	tap, err := tapper.NewTap(tapper.TapOptions{
 		Root:    "/home/testuser",
 		Runtime: fx.Runtime(),
 	})
 	require.NoError(t, err)
 	return tap
-}
-
-// TestBootstrap_Local sets up only the built-in local filesystem hub: no remote
-// URL, fallbackHub points at local.
-func TestBootstrap_Local(t *testing.T) {
-	t.Parallel()
-	fx := NewSandbox(t)
-	require.NoError(t, fx.Setwd("/home/testuser"))
-	tap := newBootstrapTap(t, fx)
-
-	res, err := tap.Bootstrap(fx.Context(), tapper.BootstrapOptions{Kind: tapper.BootstrapKindLocal})
-	require.NoError(t, err)
-	require.True(t, res.Created)
-	require.Equal(t, tapper.BootstrapKindLocal, res.Kind)
-	require.Equal(t, testHost, res.Hub)
-	require.Empty(t, res.HubURL, "local has no remote URL to log in against")
-	require.Equal(t, tapper.LocalHubName, res.Namespace, "a local deployment defaults to the @local namespace")
-
-	cfg, err := tap.ConfigService.UserConfig()
-	require.NoError(t, err)
-	require.Equal(t, testHost, cfg.FallbackHub())
-	require.Empty(t, cfg.FallbackNamespace(), "namespace comes from the hub, not a global fallback")
-	hubs := cfg.Hubs()
-	require.Contains(t, hubs, testHost)
-	require.Equal(t, tapper.HubKindLocal, hubs[testHost].Kind)
-	require.Equal(t, tapper.LocalHubName, hubs[testHost].DefaultNamespace, "local hub defaults to @local")
-	require.NotEmpty(t, hubs[testHost].BasePath)
-	require.NotContains(t, hubs, tapper.DefaultHubName, "a fresh local bootstrap should not seed an atlas hub")
-
-	// The only namespace→hub entry generated is local→localHub.
-	ns := cfg.Namespaces()
-	require.Len(t, ns, 1)
-	require.Equal(t, testHost, ns[tapper.LocalHubName].Hub)
 }
 
 // TestBootstrap_Cloud targets atlas and is also the default when Kind is empty.
@@ -76,15 +38,11 @@ func TestBootstrap_Cloud(t *testing.T) {
 	require.Empty(t, cfg.FallbackNamespace(), "namespace comes from the hub, not a global fallback")
 	hubs := cfg.Hubs()
 	require.Contains(t, hubs, tapper.DefaultHubName)
-	require.Contains(t, hubs, testHost, "local hub is always ensured")
 	require.Equal(t, tapper.HubKindRemote, hubs[tapper.DefaultHubName].Kind)
 	require.Equal(t, tapper.DefaultHubURL, hubs[tapper.DefaultHubName].URL)
 	require.Empty(t, hubs[tapper.DefaultHubName].DefaultNamespace, "cloud hub namespace stays empty until login adopts it")
 
-	// No per-user namespace entry: only local→localHub is generated.
-	ns := cfg.Namespaces()
-	require.Len(t, ns, 1)
-	require.Equal(t, testHost, ns[tapper.LocalHubName].Hub)
+	require.Empty(t, cfg.Namespaces())
 }
 
 // TestBootstrap_Enterprise registers a custom remote endpoint and derives the
@@ -113,12 +71,7 @@ func TestBootstrap_Enterprise(t *testing.T) {
 	require.Equal(t, tapper.HubKindRemote, hubs["acme"].Kind)
 	require.Equal(t, "https://keg.acme.com", hubs["acme"].URL)
 	require.Empty(t, hubs["acme"].DefaultNamespace, "enterprise hub namespace stays empty until login adopts it")
-	require.Contains(t, hubs, testHost)
-
-	// No per-user namespace entry: only local→localHub is generated.
-	ns := cfg.Namespaces()
-	require.Len(t, ns, 1)
-	require.Equal(t, testHost, ns[tapper.LocalHubName].Hub)
+	require.Empty(t, cfg.Namespaces())
 }
 
 // TestBootstrap_Enterprise_SchemeAddedAndHubNameOverride covers a bare host
@@ -165,35 +118,6 @@ func TestBootstrap_UnknownKind(t *testing.T) {
 	require.Contains(t, err.Error(), "unknown bootstrap kind")
 }
 
-func TestSetBootstrapFlight_ValidatesCanonicalizesAndResetsConfig(t *testing.T) {
-	t.Parallel()
-	fx := NewSandbox(t)
-	require.NoError(t, fx.Setwd("/home/testuser"))
-	tap := newBootstrapTap(t, fx)
-	_, err := tap.Bootstrap(fx.Context(), tapper.BootstrapOptions{Kind: tapper.BootstrapKindLocal})
-	require.NoError(t, err)
-	require.NoError(t, fx.Runtime().AtomicWriteFile(
-		"/home/testuser/.local/share/tapper/kegs/flights.d/focused.yaml",
-		[]byte("title: Focused\n"), 0o644))
-
-	// Prime the merged cache before the write; SetBootstrapFlight must reset it.
-	cfg, err := tap.ConfigService.Config()
-	require.NoError(t, err)
-	require.Empty(t, cfg.Flight())
-	require.NoError(t, tap.SetBootstrapFlight(fx.Context(), "+focused"))
-
-	userCfg, err := tap.ConfigService.UserConfig()
-	require.NoError(t, err)
-	require.Equal(t, "@local/+focused", userCfg.Flight())
-	merged, err := tap.ConfigService.Config()
-	require.NoError(t, err)
-	require.Equal(t, "@local/+focused", merged.Flight())
-
-	err = tap.SetBootstrapFlight(fx.Context(), "+missing")
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "invalid bootstrap flight")
-}
-
 // TestBootstrap_Enterprise_NameCollisionSuffixes confirms a derived name that
 // already maps to a different URL gets a numeric suffix rather than clobbering.
 func TestBootstrap_Enterprise_NameCollisionSuffixes(t *testing.T) {
@@ -233,11 +157,18 @@ func TestBootstrap_Idempotent_PreservesUserConfig(t *testing.T) {
 	existing := strings.TrimSpace(`
 fallbackHub: stale
 fallbackNamespace: olduser
+vendorFeature:
+  enabled: true
 kegMap:
   - alias: "@alice/notes"
     pathPrefix: ~/repos/notes
+    vendorMapping: keep
 hubs:
-  atlas: { kind: remote, url: https://atlas.foldwise.ai, tokenEnv: ATLAS_API_KEY }
+  atlas:
+    kind: remote
+    url: https://atlas.foldwise.ai
+    tokenEnv: ATLAS_API_KEY
+    vendorHub: keep
 `) + "\n"
 	require.NoError(t, fx.Runtime().AtomicWriteFile(tap.PathService.UserConfig(), []byte(existing), 0o644))
 
@@ -252,11 +183,13 @@ hubs:
 	// Bootstrap no longer manages fallbackNamespace, so a pre-existing value is
 	// left untouched rather than overwritten with the OS user.
 	require.Equal(t, "olduser", cfg.FallbackNamespace())
-	// The idempotent re-run still seeds the local namespace mapping.
-	require.Equal(t, testHost, cfg.Namespaces()[tapper.LocalHubName].Hub)
+	require.Empty(t, cfg.Namespaces())
 
 	// The user-defined keg-map entry survives the idempotent re-run.
 	out, err := cfg.ToYAML()
 	require.NoError(t, err)
 	require.Contains(t, string(out), "@alice/notes")
+	require.Contains(t, string(out), "vendorMapping: keep")
+	require.Contains(t, string(out), "vendorHub: keep")
+	require.Contains(t, string(out), "vendorFeature:")
 }

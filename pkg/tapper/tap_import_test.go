@@ -9,6 +9,18 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+type updateRecordingKeg struct {
+	keg.Keg
+	batches [][]keg.NodeUpdateOptions
+	modes   []keg.ValidationMode
+}
+
+func (k *updateRecordingKeg) UpdateNodes(ctx context.Context, updates []keg.NodeUpdateOptions) ([]keg.NodeUpdateResult, error) {
+	k.batches = append(k.batches, append([]keg.NodeUpdateOptions(nil), updates...))
+	k.modes = append(k.modes, keg.ValidationModeFromContext(ctx))
+	return k.Keg.UpdateNodes(ctx, updates)
+}
+
 func TestResolveImportSourceAlias_BareIDs(t *testing.T) {
 	t.Parallel()
 	alias, bareIDs, err := resolveImportSourceAlias([]string{"1", "2", "3"}, "mykeg")

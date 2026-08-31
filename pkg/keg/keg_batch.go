@@ -184,12 +184,9 @@ func (k *LocalKeg) updateNodes(ctx context.Context, updates []NodeUpdateOptions)
 		if err := k.validateAggregateLock(ctx, opts.ID, opts.LockToken); err != nil {
 			return nil, &BatchMutationError{Index: i, NodeID: opts.ID, Err: err}
 		}
-		currentHash := ""
-		if existing.Stats != nil {
-			currentHash = existing.Stats.Hash()
-		}
-		if opts.ExpectedHash != "" && opts.ExpectedHash != currentHash {
-			return nil, &BatchMutationError{Index: i, NodeID: opts.ID, Err: fmt.Errorf("expected hash %q, got %q: %w", opts.ExpectedHash, currentHash, ErrConflict)}
+		currentHash := existing.Hash()
+		if err := checkExpectedHash("node "+opts.ID.Path(), opts.ExpectedHash, currentHash, nodeRecoveryContent(existing)); err != nil {
+			return nil, &BatchMutationError{Index: i, NodeID: opts.ID, Err: err}
 		}
 		contentBytes := existing.Content
 		if opts.HasContent {

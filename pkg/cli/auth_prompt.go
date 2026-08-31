@@ -159,9 +159,8 @@ func validateNonEmpty(s string) error {
 }
 
 // buildHubChoices assembles the interactive hub picker: atlas first, then every
-// non-local hub configured in cfg (deduped by canonical URL, sorted by name for
-// a stable menu), then an "Other endpoint" row. Local hubs are excluded — you
-// don't log in to a filesystem hub.
+// remote hub configured in cfg (deduped by canonical URL, sorted by name for
+// a stable menu), then an "Other endpoint" row.
 func buildHubChoices(cfg *tapper.Config) []hubChoice {
 	var choices []hubChoice
 	seen := map[string]bool{}
@@ -185,7 +184,7 @@ func buildHubChoices(cfg *tapper.Config) []hubChoice {
 		sort.Strings(names)
 		for _, name := range names {
 			h := cfg.Hubs()[name]
-			if h.Kind == tapper.HubKindLocal || strings.TrimSpace(h.URL) == "" {
+			if strings.TrimSpace(h.URL) == "" {
 				continue
 			}
 			add(fmt.Sprintf("%s — %s", name, hostOf(ensureScheme(h.URL))), h.URL)

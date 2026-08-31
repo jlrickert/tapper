@@ -38,6 +38,13 @@ func WithTestDepsHook(ctx context.Context, hook func(*Deps)) context.Context {
 	if hook == nil {
 		return ctx
 	}
+	if previous := testDepsHookFromContext(ctx); previous != nil {
+		next := hook
+		hook = func(deps *Deps) {
+			previous(deps)
+			next(deps)
+		}
+	}
 	return context.WithValue(ctx, testDepsHookKey{}, hook)
 }
 

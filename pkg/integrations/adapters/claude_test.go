@@ -69,7 +69,7 @@ func TestClaudeAdapter_RendersGoBackedPreToolUseGuard(t *testing.T) {
 		t.Fatal(err)
 	}
 	pre := hooks.Hooks["PreToolUse"]
-	if len(pre) != 1 || pre[0].Matcher != "Bash" || len(pre[0].Hooks) != 1 {
+	if len(pre) != 1 || pre[0].Matcher != "^(Bash|Write|Edit|MultiEdit|NotebookEdit|Shell|exec_command|apply_patch|write_file|edit_file|delete_file|move_file|rename_file)$" || len(pre[0].Hooks) != 1 {
 		t.Fatalf("Claude PreToolUse hook = %+v", pre)
 	}
 	hook := pre[0].Hooks[0]
@@ -88,6 +88,16 @@ func TestClaudeAdapter_BaselineExcludesDeveloperLifecycle(t *testing.T) {
 	}
 	baseline := string(mem.Files()["claude/tapper/skills/tapper/SKILL.md"])
 	dev := string(mem.Files()["claude/tapper-dev/skills/tapper-dev/SKILL.md"])
+	for _, want := range []string{
+		"`[title](../NODEID)`",
+		"`[title](keg:ALIAS/NODEID)`",
+		"`[title](keg:@NAMESPACE/ALIAS/NODEID)`",
+		"A bare `keg:` reference in node prose is plain text",
+	} {
+		if !strings.Contains(baseline, want) {
+			t.Errorf("baseline link guidance missing %q", want)
+		}
+	}
 	for _, heading := range []string{"## Plan", "## Code", "## Review", "## Commit"} {
 		if strings.Contains(baseline, heading) {
 			t.Errorf("baseline leaked %s", heading)

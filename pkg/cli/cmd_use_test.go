@@ -5,7 +5,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	testutils "github.com/jlrickert/cli-toolkit/sandbox"
 	"github.com/jlrickert/tapper/pkg/tapper"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/require"
@@ -60,34 +59,31 @@ func TestUse_BarePositionalStillSetsKeg(t *testing.T) {
 
 func TestUseCompletion_SuggestsKegsAndFlights(t *testing.T) {
 	t.Parallel()
-	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
-	sb.MustWriteFile("/home/testuser/kegs/flights.d/backend.yaml", []byte("title: Backend\n"), 0o644)
+	sb := NewRemoteKegListSandbox(t, remoteCompletionKegs())
 
 	comp := NewCompletionProcess(t, false, 0, "use", "").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, comp.Err)
 
 	suggestions := parseCompletionSuggestions(string(comp.Stdout))
-	require.Contains(t, suggestions, "@local/personal")
+	require.Contains(t, suggestions, "@team/personal")
 	require.Contains(t, suggestions, "personal")
-	require.Contains(t, suggestions, "@local/+backend")
+	require.Contains(t, suggestions, "@team/+backend")
 	require.Contains(t, string(comp.Stdout), fmt.Sprintf(":%d", cobra.ShellCompDirectiveNoFileComp))
 }
 
 func TestUseCompletion_FiltersFlightsByPrefix(t *testing.T) {
 	t.Parallel()
-	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
-	sb.MustWriteFile("/home/testuser/kegs/flights.d/backend.yaml", []byte("title: Backend\n"), 0o644)
+	sb := NewRemoteKegListSandbox(t, remoteCompletionKegs())
 
-	comp := NewCompletionProcess(t, false, 0, "use", "@local/+").Run(sb.Context(), sb.Runtime())
+	comp := NewCompletionProcess(t, false, 0, "use", "@team/+back").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, comp.Err)
 
-	require.Equal(t, []string{"@local/+backend"}, parseCompletionSuggestions(string(comp.Stdout)))
+	require.Equal(t, []string{"@team/+backend"}, parseCompletionSuggestions(string(comp.Stdout)))
 }
 
 func TestUseCompletion_StopsAfterOneArg(t *testing.T) {
 	t.Parallel()
-	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
-	sb.MustWriteFile("/home/testuser/kegs/flights.d/backend.yaml", []byte("title: Backend\n"), 0o644)
+	sb := NewRemoteKegListSandbox(t, remoteCompletionKegs())
 
 	comp := NewCompletionProcess(t, false, 0, "use", "personal", "").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, comp.Err)

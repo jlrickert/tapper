@@ -68,18 +68,6 @@ func TestAuthStoreTokenResolver_ResolveToken(t *testing.T) {
 			want:   altHubToken,
 		},
 		{
-			name:   "file target short-circuits to empty",
-			store:  newStore(),
-			target: keg.Target{File: "/tmp/keg"},
-			want:   "",
-		},
-		{
-			name:   "memory target short-circuits to empty",
-			store:  newStore(),
-			target: keg.Target{Memory: true, KegName: "m"},
-			want:   "",
-		},
-		{
 			name:   "nil store yields empty for every input",
 			store:  nil,
 			target: keg.Target{Url: "https://hub.example.com"},

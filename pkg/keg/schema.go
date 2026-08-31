@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/google/jsonschema-go/jsonschema"
+	"github.com/jlrickert/tapper/pkg/schemas"
 	"gopkg.in/yaml.v3"
 )
 
@@ -19,9 +20,10 @@ const (
 	SchemasDir       = "schemas"
 	SchemaFileSuffix = ".schema.yaml"
 
-	// KegSchemaDefinitionSchemaURL is the public JSON Schema used by editor
-	// modelines for keg schema definition YAML.
-	KegSchemaDefinitionSchemaURL = "https://raw.githubusercontent.com/jlrickert/tapper/main/schemas/keg-schema-definition.json"
+	// KegSchemaDefinitionSchemaURL is the published JSON Schema for keg schema
+	// definition YAML. Editor modelines prefer the local copy materialized by
+	// pkg/schemas and fall back to this.
+	KegSchemaDefinitionSchemaURL = schemas.KegSchemaDefinitionURL
 
 	schemaActorHeader = "Tapper-Schema-Actor"
 	schemaModeHeader  = "Tapper-Schema-Mode"
@@ -288,7 +290,7 @@ func (k *LocalKeg) explicitSchemaRequired(ctx context.Context, op schemaWriteOpe
 	if id.ID == 0 || (op != schemaWriteCreate && op != schemaWriteUpdate) {
 		return false
 	}
-	cfg, err := k.Repo.ReadConfig(ctx)
+	cfg, err := k.Repo.ReadSettings(ctx)
 	if err != nil || cfg == nil || cfg.SchemaPolicy == nil || !cfg.SchemaPolicy.Strict {
 		return false
 	}
@@ -763,11 +765,11 @@ func (k *LocalKeg) readSchema(ctx context.Context, typeName string) ([]byte, err
 	return store.ReadSchema(ctx, typeName)
 }
 
-func (k *LocalKeg) WriteSchema(ctx context.Context, typeName string, data []byte) error {
-	return k.withKegWrite(ctx, func(ctx context.Context) error { return k.writeSchema(ctx, typeName, data) })
+func (k *LocalKeg) WriteSchema(ctx context.Context, typeName string, data []byte, opts SchemaWriteOptions) error {
+	return k.withKegWrite(ctx, func(ctx context.Context) error { return k.writeSchema(ctx, typeName, data, opts) })
 }
 
-func (k *LocalKeg) writeSchema(ctx context.Context, typeName string, data []byte) error {
+func (k *LocalKeg) writeSchema(ctx context.Context, typeName string, data []byte, opts SchemaWriteOptions) error {
 	store, ok := repoSchemas(k.Repo)
 	if !ok {
 		return ErrNotSupported
@@ -775,17 +777,31 @@ func (k *LocalKeg) writeSchema(ctx context.Context, typeName string, data []byte
 	if _, err := validateSchemaDefinitionForType(typeName, data); err != nil {
 		return err
 	}
+	current, err := store.ReadSchema(ctx, typeName)
+	if err != nil {
+		return err
+	}
+	if err := checkExpectedHash("schema "+typeName, opts.ExpectedHash, DocumentHash(current), current); err != nil {
+		return err
+	}
 	return store.WriteSchema(ctx, typeName, data)
 }
 
-func (k *LocalKeg) DeleteSchema(ctx context.Context, typeName string) error {
-	return k.withKegWrite(ctx, func(ctx context.Context) error { return k.deleteSchema(ctx, typeName) })
+func (k *LocalKeg) DeleteSchema(ctx context.Context, typeName string, opts SchemaWriteOptions) error {
+	return k.withKegWrite(ctx, func(ctx context.Context) error { return k.deleteSchema(ctx, typeName, opts) })
 }
 
-func (k *LocalKeg) deleteSchema(ctx context.Context, typeName string) error {
+func (k *LocalKeg) deleteSchema(ctx context.Context, typeName string, opts SchemaWriteOptions) error {
 	store, ok := repoSchemas(k.Repo)
 	if !ok {
 		return ErrNotSupported
+	}
+	current, err := store.ReadSchema(ctx, typeName)
+	if err != nil {
+		return err
+	}
+	if err := checkExpectedHash("schema "+typeName, opts.ExpectedHash, DocumentHash(current), current); err != nil {
+		return err
 	}
 	return store.DeleteSchema(ctx, typeName)
 }
@@ -902,7 +918,7 @@ func (k *LocalKeg) enforceSchemaValidationResult(ctx context.Context, op schemaW
 
 func (k *LocalKeg) effectiveValidationMode(ctx context.Context, op schemaWriteOperation) ValidationMode {
 	var policy *SchemaPolicy
-	if cfg, err := k.Repo.ReadConfig(ctx); err == nil && cfg != nil {
+	if cfg, err := k.Repo.ReadSettings(ctx); err == nil && cfg != nil {
 		policy = cfg.SchemaPolicy
 	}
 	// Archives and restores preserve historical state rather than expressing a

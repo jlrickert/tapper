@@ -3,7 +3,6 @@ package tapper
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 	"strings"
 
 	"github.com/jlrickert/tapper/pkg/keg"
@@ -33,6 +32,7 @@ type CreateFlightOptions struct {
 	Capabilities []FlightCapability
 	Instructions string
 	Cover        []FlightCover
+	Subflights   []string
 }
 
 // UpdateFlightOptions is a partial update: nil fields keep the flight's
@@ -47,10 +47,13 @@ type UpdateFlightOptions struct {
 	Capabilities *[]FlightCapability
 	Instructions *string
 	Cover        *[]FlightCover
+	Subflights   *[]string
+	ExpectedHash string
 }
 
 type DeleteFlightOptions struct {
-	Ref string
+	Ref          string
+	ExpectedHash string
 }
 
 // ListFlights returns canonical refs discovered across configured hubs, or
@@ -65,12 +68,12 @@ func (t *Tap) GetFlight(ctx context.Context, opts GetFlightOptions) (*Flight, er
 }
 
 func (t *Tap) CreateFlight(ctx context.Context, opts CreateFlightOptions) (*Flight, error) {
-	details := FlightManifest{Visibility: opts.Visibility, Capabilities: opts.Capabilities, Cover: opts.Cover}
-	if err := validateFlightManifest(&details); err != nil {
-		return nil, err
-	}
 	ref, entry, hubName, err := t.resolveWriteFlightRef(opts.Ref)
 	if err != nil {
+		return nil, err
+	}
+	details := FlightManifest{Visibility: opts.Visibility, Capabilities: opts.Capabilities, Cover: opts.Cover, Subflights: opts.Subflights}
+	if err := validateFlightManifest(&details, ref.Namespace); err != nil {
 		return nil, err
 	}
 	flight := HubFlight{
@@ -81,6 +84,7 @@ func (t *Tap) CreateFlight(ctx context.Context, opts CreateFlightOptions) (*Flig
 		Capabilities: append([]FlightCapability{}, opts.Capabilities...),
 		Instructions: opts.Instructions,
 		Cover:        hubCoverFromFlightCover(opts.Cover),
+		Subflights:   append([]string(nil), opts.Subflights...),
 	}
 	hf, err := CreateHubFlight(ctx, entry.URL, t.FlightService.hubToken(entry), ref.Namespace, flight)
 	if err != nil {
@@ -91,6 +95,10 @@ func (t *Tap) CreateFlight(ctx context.Context, opts CreateFlightOptions) (*Flig
 }
 
 func (t *Tap) UpdateFlight(ctx context.Context, opts UpdateFlightOptions) (*Flight, error) {
+	ref, entry, hubName, err := t.resolveWriteFlightRef(opts.Ref)
+	if err != nil {
+		return nil, err
+	}
 	details := FlightManifest{}
 	if opts.Visibility != nil {
 		details.Visibility = *opts.Visibility
@@ -101,11 +109,10 @@ func (t *Tap) UpdateFlight(ctx context.Context, opts UpdateFlightOptions) (*Flig
 	if opts.Cover != nil {
 		details.Cover = *opts.Cover
 	}
-	if err := validateFlightManifest(&details); err != nil {
-		return nil, err
+	if opts.Subflights != nil {
+		details.Subflights = *opts.Subflights
 	}
-	ref, entry, hubName, err := t.resolveWriteFlightRef(opts.Ref)
-	if err != nil {
+	if err := validateFlightManifest(&details, ref.Namespace); err != nil {
 		return nil, err
 	}
 	token := t.FlightService.hubToken(entry)
@@ -129,7 +136,10 @@ func (t *Tap) UpdateFlight(ctx context.Context, opts UpdateFlightOptions) (*Flig
 	if opts.Cover != nil {
 		next.Cover = hubCoverFromFlightCover(*opts.Cover)
 	}
-	hf, err := UpdateHubFlight(ctx, entry.URL, token, ref.Namespace, ref.Slug, next)
+	if opts.Subflights != nil {
+		next.Subflights = append([]string(nil), (*opts.Subflights)...)
+	}
+	hf, err := UpdateHubFlight(ctx, entry.URL, token, ref.Namespace, ref.Slug, next, opts.ExpectedHash)
 	if err != nil {
 		return nil, err
 	}
@@ -150,7 +160,7 @@ func (t *Tap) DeleteFlight(ctx context.Context, opts DeleteFlightOptions) error 
 	if err != nil {
 		return err
 	}
-	if err := DeleteHubFlight(ctx, entry.URL, t.FlightService.hubToken(entry), ref.Namespace, ref.Slug); err != nil {
+	if err := DeleteHubFlight(ctx, entry.URL, t.FlightService.hubToken(entry), ref.Namespace, ref.Slug, opts.ExpectedHash); err != nil {
 		return err
 	}
 	t.FlightService.invalidateFlights()
@@ -178,18 +188,8 @@ func (t *Tap) resolveWriteFlightRef(raw string) (FlightRef, HubEntry, string, er
 	if kind == "" {
 		kind = HubKindRemote
 	}
-	if kind == HubKindLocal {
-		// Reading local manifests is fully supported — discovery, orientation,
-		// and cover enforcement all work off flights.d. Only mutation is
-		// unimplemented, so say that rather than describing it as a
-		// requirement the caller failed to meet.
-		dir, dirErr := t.FlightService.localFlightsDirFor(entry)
-		if dirErr != nil {
-			dir = "<hub basePath>/" + flightsDirName
-		}
-		return FlightRef{}, HubEntry{}, "", fmt.Errorf(
-			"flight create/update/delete is not implemented for local hubs (hub %q); "+
-				"write the manifest to %s/%s.yaml by hand instead", hubName, dir, ref.Slug)
+	if kind != HubKindRemote && kind != HubKindReadonly {
+		return FlightRef{}, HubEntry{}, "", fmt.Errorf("hub %q has unsupported kind %q", hubName, kind)
 	}
 	if strings.TrimSpace(entry.URL) == "" {
 		return FlightRef{}, HubEntry{}, "", fmt.Errorf("hub %q has no url configured", hubName)
@@ -214,10 +214,6 @@ func defaultFlightNamespace(cfg *Config) string {
 	}
 	if ns := strings.TrimPrefix(strings.TrimSpace(entry.DefaultNamespace), "@"); ns != "" {
 		return ns
-	}
-	kind := strings.TrimSpace(entry.Kind)
-	if kind == HubKindLocal {
-		return LocalHubName
 	}
 	return ""
 }
@@ -245,30 +241,24 @@ type FlightRestrictionError struct {
 
 // flightRestrictionRecovery is appended to every cover/role-cap denial. The
 // direct CLI bypasses flight restrictions entirely (see applyKegTargetProfile),
-// so this error only ever reaches an agent over MCP — and an agent's session
-// pins its flight snapshot until it orients again. A flight edited elsewhere
-// mid-session is therefore the most common cause of a denial that the reader
-// believes should have succeeded, and the reader cannot discover that from a
-// bare "not available" line.
-const flightRestrictionRecovery = ". Call `orient` to refresh this session's flight" +
-	" authority: it may have changed since you oriented. If orient still does not" +
-	" cover this keg, the flight genuinely excludes it — ask the user to widen the" +
-	" flight's cover rather than retrying."
+// so this error only ever reaches an agent over MCP. Authority was resolved for
+// this call and the refusal never performs or replays the operation.
+const flightRestrictionRecovery = ". The selected flight's current authority lacks this permission; the operation was not performed."
 
 func (e *FlightRestrictionError) Error() string {
 	if e.Want == FlightRoleEditor && e.Got == FlightRoleViewer {
-		return fmt.Sprintf("keg %q is viewer-only in flight %q", e.Keg, e.Flight) + flightRestrictionRecovery
+		return fmt.Sprintf("ORIENTATION_DENIED: keg %q is viewer-only in flight %q", e.Keg, e.Flight) + flightRestrictionRecovery
 	}
 	if e.Want == FlightRoleAdmin && (e.Got == FlightRoleViewer || e.Got == FlightRoleEditor) {
-		return fmt.Sprintf("keg %q requires admin flight authority in flight %q", e.Keg, e.Flight) + flightRestrictionRecovery
+		return fmt.Sprintf("ORIENTATION_DENIED: keg %q requires admin flight authority in flight %q", e.Keg, e.Flight) + flightRestrictionRecovery
 	}
-	return fmt.Sprintf("keg %q is not available in flight %q", e.Keg, e.Flight) + flightRestrictionRecovery
+	return fmt.Sprintf("ORIENTATION_DENIED: keg %q is not available in flight %q", e.Keg, e.Flight) + flightRestrictionRecovery
 }
 
-// enforceFlight rejects a resolved keg that falls outside the active flight's
+// enforceFlight rejects a resolved keg that falls outside the selected flight's
 // cover or does not meet the requested role cap. A blank flight or full_access
 // capability bypasses the cover check; normal keg authorization still applies.
-// Without full_access, an active flight with an empty cover denies every keg.
+// Without full_access, a selected flight with an empty cover denies every keg.
 func (t *Tap) enforceFlight(ctx context.Context, flightName string, k keg.Keg, want FlightRole) error {
 	flightName = strings.TrimSpace(flightName)
 	if flightName == "" || k == nil {
@@ -295,16 +285,6 @@ func (t *Tap) enforceFlightSnapshot(flight *Flight, k keg.Keg, want FlightRole) 
 	if k.Target() != nil {
 		namespace = k.Target().Namespace
 		kegName = k.Target().KegName
-		if namespace == "" || kegName == "" {
-			if localNamespace, localKegName, ok := localHubPathKegIdentity(k.Target()); ok {
-				if namespace == "" {
-					namespace = localNamespace
-				}
-				if kegName == "" {
-					kegName = localKegName
-				}
-			}
-		}
 		if cfg, cErr := t.ConfigService.Config(); cErr == nil {
 			alias = cfg.LookupAliasForTarget(t.Runtime, k.Target().String())
 		}
@@ -328,44 +308,14 @@ func (t *Tap) enforceFlightSnapshot(flight *Flight, k keg.Keg, want FlightRole) 
 }
 
 // CanonicalKegRef returns the @namespace/keg reference for a resolved target,
-// or "" when the target names no namespaced keg. A filesystem keg carries its
-// identity in the path rather than in the Namespace/KegName fields, so this
-// applies the same derivation enforceFlightSnapshot uses — callers reporting a
-// keg back to an agent must name it the way the flight cover does.
+// or "" when the target names no namespaced keg.
 func CanonicalKegRef(target *keg.Target) string {
 	if target == nil {
 		return ""
 	}
 	namespace, kegName := target.Namespace, target.KegName
 	if namespace == "" || kegName == "" {
-		if pathNamespace, pathKeg, ok := localHubPathKegIdentity(target); ok {
-			if namespace == "" {
-				namespace = pathNamespace
-			}
-			if kegName == "" {
-				kegName = pathKeg
-			}
-		}
-	}
-	if namespace == "" || kegName == "" {
 		return ""
 	}
 	return "@" + namespace + "/" + kegName
-}
-
-func localHubPathKegIdentity(target *keg.Target) (string, string, bool) {
-	if target == nil {
-		return "", "", false
-	}
-	file := strings.TrimSpace(target.File)
-	if file == "" {
-		return "", "", false
-	}
-	clean := filepath.Clean(file)
-	kegName := strings.TrimSpace(filepath.Base(clean))
-	parent := strings.TrimSpace(filepath.Base(filepath.Dir(clean)))
-	if strings.HasPrefix(parent, "@") && len(parent) > 1 && kegName != "" && kegName != "." {
-		return strings.TrimPrefix(parent, "@"), kegName, true
-	}
-	return "", "", false
 }

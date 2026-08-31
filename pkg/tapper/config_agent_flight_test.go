@@ -5,6 +5,7 @@ import (
 
 	"github.com/jlrickert/cli-toolkit/sandbox"
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 
 	"github.com/jlrickert/tapper/pkg/tapper"
 )
@@ -42,20 +43,18 @@ func newAgentFlightTap(t *testing.T, projectConfig string, env map[string]string
 	return tap, sb
 }
 
-func TestAgentFlight_TapAgentSelectsTheAgentsFlight(t *testing.T) {
+func TestAgentFlight_TapAgentDoesNotSelectAFlight(t *testing.T) {
 	t.Parallel()
 	tap, _ := newAgentFlightTap(t, "", map[string]string{"TAP_AGENT": "qwen"})
 
 	cfg, err := tap.ConfigService.Config()
 	require.NoError(t, err)
 	require.Equal(t, "qwen", cfg.AgentName())
-	require.Equal(t, "+test", cfg.Flight(),
-		"the agent's flight must win over the user baseline")
+	require.Equal(t, "+user", cfg.Flight(),
+		"TAP_AGENT is model selection and telemetry only")
 }
 
-// TAP_FLIGHT is a direct value and the agent only a reference to one, so the
-// direct value wins. This is the escape hatch that lets a human override a
-// launched session without editing config.
+// TAP_FLIGHT is the direct immutable launch-root reference.
 func TestAgentFlight_TapFlightOutranksTheAgent(t *testing.T) {
 	t.Parallel()
 	tap, _ := newAgentFlightTap(t, "", map[string]string{
@@ -68,15 +67,13 @@ func TestAgentFlight_TapFlightOutranksTheAgent(t *testing.T) {
 	require.Equal(t, "+debug", cfg.Flight())
 }
 
-// Naming an agent at launch is deliberate, so it outranks an ambient project
-// default. This preserves what `tap launch` did when it exported TAP_FLIGHT.
-func TestAgentFlight_AgentOutranksProjectConfig(t *testing.T) {
+func TestAgentFlight_ProjectFlightIsIndependentOfAgent(t *testing.T) {
 	t.Parallel()
 	tap, _ := newAgentFlightTap(t, "flight: +proj\n", map[string]string{"TAP_AGENT": "qwen"})
 
 	cfg, err := tap.ConfigService.Config()
 	require.NoError(t, err)
-	require.Equal(t, "+test", cfg.Flight())
+	require.Equal(t, "+proj", cfg.Flight())
 }
 
 func TestAgentFlight_NoAgentLeavesTheCascadeAlone(t *testing.T) {
@@ -89,8 +86,7 @@ func TestAgentFlight_NoAgentLeavesTheCascadeAlone(t *testing.T) {
 	require.Empty(t, cfg.AgentName())
 }
 
-// An agent with no flight contributes nothing rather than clearing the
-// selection, matching a launch that had no flight to export.
+// An agent's legacy flight field is ignored whether it is present or absent.
 func TestAgentFlight_AgentWithoutFlightFallsThrough(t *testing.T) {
 	t.Parallel()
 	tap, _ := newAgentFlightTap(t, "flight: +proj\n", map[string]string{"TAP_AGENT": "flightless"})
@@ -101,9 +97,7 @@ func TestAgentFlight_AgentWithoutFlightFallsThrough(t *testing.T) {
 	require.Empty(t, warnings, "an agent may legitimately carry no flight")
 }
 
-// A stale TAP_AGENT is reported, not fatal: the session cannot fix its own
-// environment, and failing hard would brick a harness over a typo.
-func TestAgentFlight_UnknownAgentWarnsAndFallsThrough(t *testing.T) {
+func TestAgentFlight_UnknownAgentDoesNotAffectFlight(t *testing.T) {
 	t.Parallel()
 	tap, _ := newAgentFlightTap(t, "flight: +proj\n", map[string]string{"TAP_AGENT": "ghost"})
 
@@ -111,21 +105,16 @@ func TestAgentFlight_UnknownAgentWarnsAndFallsThrough(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "+proj", cfg.Flight())
 
-	require.Len(t, warnings, 1)
-	require.Equal(t, "agent", warnings[0].Source)
-	require.Contains(t, warnings[0].Message, `"ghost"`)
+	require.Empty(t, warnings)
 }
 
-// The regression this whole mechanism exists for: a running process must see an
-// edited agent flight after a reload. Exporting a resolved TAP_FLIGHT could not
-// do this, because a process cannot change its own environment.
-func TestAgentFlight_ReloadPicksUpAnEditedAgentFlight(t *testing.T) {
+func TestAgentFlight_ReloadDoesNotAdoptEditedAgentFlight(t *testing.T) {
 	t.Parallel()
 	tap, sb := newAgentFlightTap(t, "", map[string]string{"TAP_AGENT": "qwen"})
 
 	cfg, err := tap.ConfigService.Config()
 	require.NoError(t, err)
-	require.Equal(t, "+test", cfg.Flight())
+	require.Equal(t, "+user", cfg.Flight())
 
 	require.NoError(t, sb.Runtime().AtomicWriteFile(
 		"/home/testuser/.config/tapper/config.yaml",
@@ -140,23 +129,44 @@ agents:
 	// Still the old value: configuration is fixed until something reloads.
 	cfg, err = tap.ConfigService.Config()
 	require.NoError(t, err)
-	require.Equal(t, "+test", cfg.Flight())
+	require.Equal(t, "+user", cfg.Flight())
 
 	tap.ConfigService.Reload()
 	cfg, err = tap.ConfigService.Config()
 	require.NoError(t, err)
-	require.Equal(t, "+admin", cfg.Flight(),
-		"a reload must re-resolve the agent's flight, not reuse the launch-time value")
+	require.Equal(t, "+user", cfg.Flight(),
+		"reorientation refreshes the root manifest, not the root selection")
 }
 
-func TestAgentFlight_ExplainCreditsTheAgent(t *testing.T) {
+func TestAgentFlight_ExplainCreditsTheProject(t *testing.T) {
 	t.Parallel()
 	tap, _ := newAgentFlightTap(t, "flight: +proj\n", map[string]string{"TAP_AGENT": "qwen"})
 
 	results, err := tap.ConfigExplain(t.Context(), tapper.ConfigExplainOptions{Field: "flight"})
 	require.NoError(t, err)
 	require.Len(t, results, 1)
-	require.Equal(t, "+test", results[0].Value)
-	require.Equal(t, `agent "qwen"`, results[0].Source,
-		"explain must name the agent rather than the project config it overrode")
+	require.Equal(t, "+proj", results[0].Value)
+	require.Equal(t, "project config", results[0].Source)
+}
+
+func TestAgentFlight_LegacyFieldIsIgnoredAndPreserved(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := tapper.ParseConfig([]byte("flight: +top-level\n" +
+		"agents:\n" +
+		"  qwen:\n" +
+		"    model: ollama/qwen3.6:35b\n" +
+		"    flight: +legacy-agent\n"))
+	require.NoError(t, err)
+	require.Equal(t, "+top-level", cfg.Flight())
+	require.NoError(t, cfg.SetFlight("+rewritten-top-level"))
+
+	out, err := cfg.ToYAML()
+	require.NoError(t, err)
+	var doc map[string]any
+	require.NoError(t, yaml.Unmarshal(out, &doc))
+	agents := doc["agents"].(map[string]any)
+	qwen := agents["qwen"].(map[string]any)
+	require.Equal(t, "+legacy-agent", qwen["flight"])
+	require.Equal(t, "+rewritten-top-level", doc["flight"])
 }

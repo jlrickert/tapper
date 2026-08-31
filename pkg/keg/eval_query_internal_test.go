@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// makeQueryKeg creates an in-memory keg pre-populated with nodes for
+// makeQueryKeg creates a sandbox-backed filesystem keg pre-populated with nodes for
 // evalQueryExpr unit tests.
 //
 // Nodes:
@@ -25,7 +25,7 @@ func makeQueryKeg(t *testing.T) (*LocalKeg, *Dex) {
 	rt, err := toolkit.NewTestRuntime(t.TempDir(), "/home/testuser", "testuser")
 	require.NoError(t, err)
 
-	repo := NewMemoryRepo(rt)
+	repo := newTestMemoryRepo(rt)
 
 	nodes := []struct {
 		id   int

@@ -94,14 +94,25 @@ type Repository interface {
 	// This method should be idempotent and context-aware.
 	ClearIndexes(ctx context.Context) error
 
-	// Repository config. This is the keg file
+	// Repository settings. This is the keg file
 
-	// ReadConfig reads repository-level keg configuration.
-	// Missing config should return typed/sentinel not-exist errors.
-	ReadConfig(ctx context.Context) (*Config, error)
-	// WriteConfig persists repository-level keg configuration.
+	// ReadSettings reads repository-level keg settings.
+	// Missing settings should return typed/sentinel not-exist errors.
+	ReadSettings(ctx context.Context) (*Settings, error)
+	// WriteSettings persists repository-level keg settings.
 	// Implementations should perform atomic writes when possible.
-	WriteConfig(ctx context.Context, config *Config) error
+	WriteSettings(ctx context.Context, settings *Settings) error
+}
+
+// RepositorySettingsDocuments preserves the exact persisted representation
+// of the keg settings document for optimistic concurrency and round-trip
+// editing. LocalKeg uses it when available and falls back to Repository's
+// structured settings methods for older external repositories.
+type RepositorySettingsDocuments interface {
+	// ReadSettingsDocument returns the settings bytes exactly as persisted.
+	ReadSettingsDocument(ctx context.Context) ([]byte, error)
+	// WriteSettingsDocument atomically persists the exact supplied settings bytes.
+	WriteSettingsDocument(ctx context.Context, data []byte) error
 }
 
 // RepositoryAtomicWrite optionally provides rollback for a complete KEG
@@ -195,7 +206,8 @@ type RepositorySchemas interface {
 	// CreateSchema stores a schema only when typeName does not already exist.
 	// Exactly one concurrent creator succeeds; later creators return ErrExist.
 	CreateSchema(ctx context.Context, typeName string, data []byte) error
-	// WriteSchema stores or replaces the raw YAML for typeName.
+	// WriteSchema stores raw YAML for a type whose existence the business layer
+	// has already verified. Schema creation is a separate operation.
 	WriteSchema(ctx context.Context, typeName string, data []byte) error
 	// DeleteSchema removes the stored schema for typeName.
 	DeleteSchema(ctx context.Context, typeName string) error

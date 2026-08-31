@@ -7,28 +7,28 @@ import (
 	"time"
 
 	"github.com/jlrickert/cli-toolkit/sandbox"
+	"github.com/jlrickert/tapper/internal/testkegrepo"
 	kegpkg "github.com/jlrickert/tapper/pkg/keg"
 	"github.com/stretchr/testify/require"
 )
 
 type externalMemoryRepo struct {
-	*kegpkg.MemoryRepo
+	*testkegrepo.MemoryRepository
 }
 
 func (r *externalMemoryRepo) Name() string {
-	return "external-memory"
+	return "external-fs"
 }
 
-// TestInitWhenRepoIsExample attempts to InitKeg a keg when the repo already
-// contains the example data. InitKeg should fail with ErrExist.
-func TestInitWhenRepoIsExample(t *testing.T) {
+// TestInitWhenRepoExists verifies a second Init reports ErrExist.
+func TestInitWhenRepoExists(t *testing.T) {
 	t.Parallel()
-	f := NewSandbox(t, sandbox.WithFixture("example", "~/repos/example"))
+	f := NewSandbox(t)
 
-	k, err := kegpkg.NewKegFromTarget(f.Context(), kegpkg.NewFile("~/repos/example"), f.Runtime())
-	require.NoError(t, err, "NewKegFromTarget failed")
+	k := kegpkg.NewLocalKeg(newTestMemoryRepo(f.Runtime()), f.Runtime())
+	require.NoError(t, k.Init(f.Context()))
 
-	err = k.Init(f.Context())
+	err := k.Init(f.Context())
 	require.Error(t, err)
 	require.Truef(
 		t,
@@ -43,12 +43,12 @@ func TestInitOnEmptyRepo(t *testing.T) {
 	t.Parallel()
 	f := NewSandbox(t, sandbox.WithFixture("empty", "repo"))
 
-	k, err := kegpkg.NewKegFromTarget(f.Context(), kegpkg.NewFile("repo"), f.Runtime())
+	k, err := newMemoryKegFromTarget(f.Context(), memoryTarget("repo"), f.Runtime())
 	require.NoError(t, err, "NewKegFromTarget failed")
 
 	initNonStrictTestKeg(t, k, f.Context())
 
-	cfg, err := k.Config(f.Context())
+	cfg, err := k.Settings(f.Context())
 	require.NoError(t, err)
 	require.Equal(t, f.Now().Format(time.RFC3339), cfg.Updated)
 
@@ -70,37 +70,11 @@ func TestInitOnEmptyRepo(t *testing.T) {
 	require.True(t, foundZero, "expected zero node to exist after InitKeg")
 }
 
-// TestKegExistsWithMemoryRepo verifies KegExists behavior with the in-memory
-// repository. It should report false for an uninitialized repo and true after
-// InitKeg has been called.
-func TestKegExistsWithMemoryRepo(t *testing.T) {
-	t.Parallel()
-	f := NewSandbox(t)
-
-	repo := kegpkg.NewMemoryRepo(f.Runtime())
-
-	// Initially not initialized.
-	exists, err := kegpkg.RepoContainsKeg(f.Context(), repo)
-	require.NoError(t, err)
-	require.False(t, exists, "expected KegExists false for new memory repo")
-
-	// Initialize via Keg.InitKeg and re-check.
-	k := kegpkg.NewLocalKeg(repo, f.Runtime())
-	initNonStrictTestKeg(t, k, f.Context())
-
-	exists, err = kegpkg.RepoContainsKeg(f.Context(), repo)
-	require.NoError(t, err)
-	require.True(t, exists, "expected KegExists true after InitKeg")
-}
-
-// TestKegExistsWithFsRepo verifies KegExists behavior using the filesystem
-// repository. It uses the provided empty fixture and ensures behavior mirrors
-// the memory repo.
-func TestKegExistsWithFsRepo(t *testing.T) {
+func TestKegExistsWithMemoryRepository(t *testing.T) {
 	t.Parallel()
 	f := NewSandbox(t, sandbox.WithFixture("empty", "repofs"))
 
-	k, err := kegpkg.NewKegFromTarget(f.Context(), kegpkg.NewFile("repofs"), f.Runtime())
+	k, err := newMemoryKegFromTarget(f.Context(), memoryTarget("repofs"), f.Runtime())
 	require.NoError(t, err, "NewKegFromTarget failed")
 
 	// Uninitialized on disk.
@@ -118,14 +92,13 @@ func TestKegExistsWithFsRepo(t *testing.T) {
 
 // Additional tests
 
-// TestCreateZeroNodeInMemoryRepo verifies creating the zero node via Create
-// on a fresh in-memory repository. The zero node should contain the
-// RawZeroNodeContent.
-func TestCreateZeroNodeInMemoryRepo(t *testing.T) {
+// TestCreateZeroNodeInMemoryRepository verifies creating the zero node via
+// Create on a fresh repository.
+func TestCreateZeroNodeInMemoryRepository(t *testing.T) {
 	t.Parallel()
 	f := NewSandbox(t)
 
-	repo := kegpkg.NewMemoryRepo(f.Runtime())
+	repo := newTestMemoryRepo(f.Runtime())
 	k := kegpkg.NewLocalKeg(repo, f.Runtime())
 	initNonStrictTestKeg(t, k, f.Context())
 
@@ -140,7 +113,7 @@ func TestCreateNodeWithMeta(t *testing.T) {
 	t.Parallel()
 	f := NewSandbox(t)
 
-	repo := kegpkg.NewMemoryRepo(f.Runtime())
+	repo := newTestMemoryRepo(f.Runtime())
 	k := kegpkg.NewLocalKeg(repo, f.Runtime())
 	initNonStrictTestKeg(t, k, f.Context())
 
@@ -173,7 +146,7 @@ func TestCreateWithBody(t *testing.T) {
 	t.Parallel()
 	f := NewSandbox(t)
 
-	repo := kegpkg.NewMemoryRepo(f.Runtime())
+	repo := newTestMemoryRepo(f.Runtime())
 	k := kegpkg.NewLocalKeg(repo, f.Runtime())
 	initNonStrictTestKeg(t, k, f.Context())
 
@@ -201,7 +174,7 @@ func TestCreateWithBodyFrontmatter(t *testing.T) {
 	t.Parallel()
 	f := NewSandbox(t)
 
-	repo := kegpkg.NewMemoryRepo(f.Runtime())
+	repo := newTestMemoryRepo(f.Runtime())
 	k := kegpkg.NewLocalKeg(repo, f.Runtime())
 	initNonStrictTestKeg(t, k, f.Context())
 
@@ -241,7 +214,7 @@ func TestSetContentAndUpdate(t *testing.T) {
 	t.Parallel()
 	f := NewSandbox(t)
 
-	repo := kegpkg.NewMemoryRepo(f.Runtime())
+	repo := newTestMemoryRepo(f.Runtime())
 	k := kegpkg.NewLocalKeg(repo, f.Runtime())
 	initNonStrictTestKeg(t, k, f.Context())
 
@@ -261,15 +234,15 @@ func TestSetContentAndUpdate(t *testing.T) {
 	require.Equal(t, "updated lead paragraph", stats.Lead())
 }
 
-// TestCreateAndUpdateNodesWithFsRepo uses the filesystem repo to create a
+// TestCreateAndUpdateNodesWithMemoryRepository uses the filesystem repo to create a
 // node, ensures the dex contains the node, updates content, and validates
 // meta and dex timestamps reflect the update.
-func TestCreateAndUpdateNodesWithFsRepo(t *testing.T) {
+func TestCreateAndUpdateNodesWithMemoryRepository(t *testing.T) {
 	t.Parallel()
 	// Use the empty fixture as a filesystem-backed repo.
 	f := NewSandbox(t, sandbox.WithFixture("empty", "repofs_fs"))
 
-	k, err := kegpkg.NewKegFromTarget(f.Context(), kegpkg.NewFile("repofs_fs"), f.Runtime())
+	k, err := newMemoryKegFromTarget(f.Context(), memoryTarget("repofs_fs"), f.Runtime())
 	require.NoError(t, err, "NewKegFromTarget failed")
 
 	// Initialize on disk.
@@ -326,7 +299,7 @@ func TestNodesWithTagsAndInterlinks(t *testing.T) {
 	t.Parallel()
 	f := NewSandbox(t)
 
-	repo := kegpkg.NewMemoryRepo(f.Runtime())
+	repo := newTestMemoryRepo(f.Runtime())
 	k := kegpkg.NewLocalKeg(repo, f.Runtime())
 	initNonStrictTestKeg(t, k, f.Context())
 
@@ -399,75 +372,55 @@ func TestNodesWithTagsAndInterlinks(t *testing.T) {
 	require.Equal(t, idA.ID.ID, inB[0].ID)
 }
 
-// TestIndexFilesHaveExpectedData verifies the repository index artifacts that
-// live under dex/ are present or handled correctly by the code that reads them.
-// The example fixture contains `dex/nodes.tsv` and `dex/changes.md`. Tags and
-// backlinks may be absent and should be treated as empty.
-func TestIndexFilesHaveExpectedData(t *testing.T) {
+func TestMarkdownLinkCreatesBacklinkWhileBareKegProseDoesNot(t *testing.T) {
 	t.Parallel()
-	f := NewSandbox(t, sandbox.WithFixture("example", "~/repo"))
+	f := NewSandbox(t)
 
-	k, err := kegpkg.NewKegFromTarget(f.Context(), kegpkg.NewFile("~/repo"), f.Runtime())
-	require.NoError(t, err, "NewKegFromTarget failed")
+	repo := newTestMemoryRepo(f.Runtime())
+	k := kegpkg.NewLocalKeg(repo, f.Runtime())
+	initNonStrictTestKeg(t, k, f.Context())
 
-	// Load dex via NewDexFromRepo which reads the index artifacts.
-	dex, err := kegpkg.NewDexFromRepo(f.Context(), k.(*kegpkg.LocalKeg).Repo)
-	require.NoError(t, err, "NewDexFromRepo failed")
+	one, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "One"})
+	require.NoError(t, err)
+	two, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "Two"})
+	require.NoError(t, err)
+	three, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "Three"})
+	require.NoError(t, err)
 
-	// nodes.tsv should contain the zero node entry.
-	zeroRef := dex.GetRef(f.Context(), kegpkg.NodeId{ID: 0})
-	require.NotNil(t, zeroRef, "nodes.tsv should include zero node entry")
+	require.NoError(t, k.SetContent(f.Context(), one.ID, []byte(
+		"# One\n\n[Two](../2) is a graph link. Bare keg:example/3 is prose.\n",
+	)))
+	dex, err := k.Dex(f.Context())
+	require.NoError(t, err)
 
-	// changes.md is expected to exist in the example fixture under dex/.
-	changes, err := k.(*kegpkg.LocalKeg).Repo.GetIndex(f.Context(), "changes.md")
-	require.NoError(t, err, "expected dex/changes.md to exist")
-	require.Greater(t, len(changes), 0, "dex/changes.md should not be empty")
-
-	// tags may be absent for the example fixture. If absent, Dex.TagList should
-	// be empty. If present, ensure we can read it without error.
-	if _, err := k.(*kegpkg.LocalKeg).Repo.GetIndex(f.Context(), "tags"); err != nil {
-		require.True(t, errors.Is(err, kegpkg.ErrNotExist),
-			"expected missing tags index to return ErrNotExist, got: %v", err)
-		require.Empty(t, dex.TagList(f.Context()), "expected no tags when tags index is absent")
-	} else {
-		// tags file present, ensure parsed tag list is stable.
-		require.GreaterOrEqual(t, len(dex.TagList(f.Context())), 0)
-	}
-
-	// backlinks may be absent. If absent, expect no backlinks for the zero node.
-	if _, err := k.(*kegpkg.LocalKeg).Repo.GetIndex(f.Context(), "backlinks"); err != nil {
-		require.True(t, errors.Is(err, kegpkg.ErrNotExist),
-			"expected missing backlinks index to return ErrNotExist, got: %v", err)
-		_, ok := dex.Backlinks(f.Context(), kegpkg.NodeId{ID: 0})
-		require.False(t, ok, "expected no backlinks for zero when index is absent")
-	} else {
-		// backlinks file present, ensure parsing did not error earlier and that
-		// the dex can return a backlinks mapping (possibly empty).
-		_, _ = dex.Backlinks(f.Context(), kegpkg.NodeId{ID: 0})
-	}
+	backlinks, ok := dex.Backlinks(f.Context(), two.ID)
+	require.True(t, ok)
+	require.Equal(t, []kegpkg.NodeId{one.ID}, backlinks)
+	_, ok = dex.Backlinks(f.Context(), three.ID)
+	require.False(t, ok, "bare keg: prose must not create a backlink")
 }
 
 func TestIndex_PreservesUnknownConfigFields(t *testing.T) {
 	t.Parallel()
 	f := NewSandbox(t, sandbox.WithFixture("empty", "repofs_config"))
 
-	k, err := kegpkg.NewKegFromTarget(f.Context(), kegpkg.NewFile("repofs_config"), f.Runtime())
+	k, err := newMemoryKegFromTarget(f.Context(), memoryTarget("repofs_config"), f.Runtime())
 	require.NoError(t, err, "NewKegFromTarget failed")
 	initNonStrictTestKeg(t, k, f.Context())
 
-	_, err = k.Create(f.Context(), &kegpkg.CreateOptions{Title: "Config Field Preservation"})
+	_, err = k.Create(f.Context(), &kegpkg.CreateOptions{Title: "Settings Field Preservation"})
 	require.NoError(t, err)
 
-	customConfig := []byte(`kegv: "2025-07"
+	customSettings := []byte(`kegv: "2025-07"
 updated: "2020-01-01T00:00:00Z"
-title: "custom config"
+title: "custom settings"
 summary: "contains unknown fields"
 custom_block:
   keep_me: true
   nested:
     item: value
 `)
-	require.NoError(t, f.Runtime().WriteFile("repofs_config/keg", customConfig, 0o644))
+	require.NoError(t, f.Runtime().WriteFile("repofs_config/keg", customSettings, 0o644))
 
 	require.NoError(t, k.Index(f.Context(), kegpkg.IndexOptions{}))
 
@@ -479,7 +432,7 @@ custom_block:
 	require.Contains(t, out, "nested:")
 	require.Contains(t, out, "item: value")
 
-	cfg, err := k.(*kegpkg.LocalKeg).Repo.ReadConfig(f.Context())
+	cfg, err := k.(*kegpkg.LocalKeg).Repo.ReadSettings(f.Context())
 	require.NoError(t, err)
 	require.NotEqual(t, "2020-01-01T00:00:00Z", cfg.Updated)
 }
@@ -488,7 +441,7 @@ func TestMove_RewritesLinksAndUpdatesDex(t *testing.T) {
 	t.Parallel()
 	f := NewSandbox(t)
 
-	repo := kegpkg.NewMemoryRepo(f.Runtime())
+	repo := newTestMemoryRepo(f.Runtime())
 	k := kegpkg.NewLocalKeg(repo, f.Runtime())
 	initNonStrictTestKeg(t, k, f.Context())
 
@@ -503,7 +456,7 @@ func TestMove_RewritesLinksAndUpdatesDex(t *testing.T) {
 	// Add canonical and bare links to node 2.
 	require.NoError(t, k.SetContent(f.Context(), id1.ID, []byte("# One\n\nSee [two](../2).\nAlso ../2.\n")))
 
-	require.NoError(t, errOnly(k.Move(f.Context(), kegpkg.NodeId{ID: 2}, kegpkg.NodeId{ID: 3})))
+	require.NoError(t, errOnly(k.Move(f.Context(), moveOptions(t, f.Context(), k, kegpkg.NodeId{ID: 2}, kegpkg.NodeId{ID: 3}))))
 
 	exists, err := k.Repo.HasNode(f.Context(), kegpkg.NodeId{ID: 2})
 	require.NoError(t, err)
@@ -537,7 +490,7 @@ func TestMove_DestinationExists(t *testing.T) {
 	t.Parallel()
 	f := NewSandbox(t)
 
-	repo := kegpkg.NewMemoryRepo(f.Runtime())
+	repo := newTestMemoryRepo(f.Runtime())
 	k := kegpkg.NewLocalKeg(repo, f.Runtime())
 	initNonStrictTestKeg(t, k, f.Context())
 
@@ -548,7 +501,7 @@ func TestMove_DestinationExists(t *testing.T) {
 	_, err = k.Create(f.Context(), &kegpkg.CreateOptions{Title: "Three"})
 	require.NoError(t, err)
 
-	_, err = k.Move(f.Context(), kegpkg.NodeId{ID: 2}, kegpkg.NodeId{ID: 3})
+	_, err = k.Move(f.Context(), moveOptions(t, f.Context(), k, kegpkg.NodeId{ID: 2}, kegpkg.NodeId{ID: 3}))
 	require.Error(t, err)
 	require.ErrorIs(t, err, kegpkg.ErrDestinationExists)
 }
@@ -557,7 +510,7 @@ func TestRemove_DeletesNodeAndUpdatesDex(t *testing.T) {
 	t.Parallel()
 	f := NewSandbox(t)
 
-	repo := kegpkg.NewMemoryRepo(f.Runtime())
+	repo := newTestMemoryRepo(f.Runtime())
 	k := kegpkg.NewLocalKeg(repo, f.Runtime())
 	initNonStrictTestKeg(t, k, f.Context())
 
@@ -568,7 +521,7 @@ func TestRemove_DeletesNodeAndUpdatesDex(t *testing.T) {
 
 	require.NoError(t, k.SetContent(f.Context(), id1.ID, []byte("# One\n\nSee [two](../2).\n")))
 
-	require.NoError(t, errOnly(k.Remove(f.Context(), id2.ID)))
+	require.NoError(t, errOnly(k.Remove(f.Context(), removeOptions(t, f.Context(), k, id2.ID))))
 
 	exists, err := k.Repo.HasNode(f.Context(), id2.ID)
 	require.NoError(t, err)
@@ -596,14 +549,14 @@ func TestSetContent_OnRemovedNode(t *testing.T) {
 	t.Parallel()
 	f := NewSandbox(t)
 
-	repo := kegpkg.NewMemoryRepo(f.Runtime())
+	repo := newTestMemoryRepo(f.Runtime())
 	k := kegpkg.NewLocalKeg(repo, f.Runtime())
 	initNonStrictTestKeg(t, k, f.Context())
 
 	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "Doomed"})
 	require.NoError(t, err)
 
-	require.NoError(t, errOnly(k.Remove(f.Context(), id.ID)))
+	require.NoError(t, errOnly(k.Remove(f.Context(), removeOptions(t, f.Context(), k, id.ID))))
 
 	// Attempt to write content to the removed node should fail.
 	err = k.SetContent(f.Context(), id.ID, []byte("# Resurrected\n"))
@@ -615,11 +568,11 @@ func TestRemove_NotFound(t *testing.T) {
 	t.Parallel()
 	f := NewSandbox(t)
 
-	repo := kegpkg.NewMemoryRepo(f.Runtime())
+	repo := newTestMemoryRepo(f.Runtime())
 	k := kegpkg.NewLocalKeg(repo, f.Runtime())
 	initNonStrictTestKeg(t, k, f.Context())
 
-	_, err := k.Remove(f.Context(), kegpkg.NodeId{ID: 4242})
+	_, err := k.Remove(f.Context(), kegpkg.NodeRemoveOptions{ID: kegpkg.NodeId{ID: 4242}, ExpectedHash: "missing"})
 	require.Error(t, err)
 	require.ErrorIs(t, err, kegpkg.ErrNotExist)
 }
@@ -631,7 +584,7 @@ func TestSetMeta_PreservesLinksInDex(t *testing.T) {
 	t.Parallel()
 	f := NewSandbox(t)
 
-	repo := kegpkg.NewMemoryRepo(f.Runtime())
+	repo := newTestMemoryRepo(f.Runtime())
 	k := kegpkg.NewLocalKeg(repo, f.Runtime())
 	initNonStrictTestKeg(t, k, f.Context())
 
@@ -676,7 +629,7 @@ func TestIndex_ContentOnlyNodeGetsIndexed(t *testing.T) {
 	t.Parallel()
 	f := NewSandbox(t)
 
-	repo := kegpkg.NewMemoryRepo(f.Runtime())
+	repo := newTestMemoryRepo(f.Runtime())
 	k := kegpkg.NewLocalKeg(repo, f.Runtime())
 	initNonStrictTestKeg(t, k, f.Context())
 
@@ -703,7 +656,7 @@ func TestIndex_MalformedMetaNodeGetsIndexed(t *testing.T) {
 	t.Parallel()
 	f := NewSandbox(t)
 
-	repo := kegpkg.NewMemoryRepo(f.Runtime())
+	repo := newTestMemoryRepo(f.Runtime())
 	k := kegpkg.NewLocalKeg(repo, f.Runtime())
 	initNonStrictTestKeg(t, k, f.Context())
 
@@ -729,12 +682,12 @@ func TestIndex_MalformedMetaNodeGetsIndexed(t *testing.T) {
 }
 
 // TestSetContent_NoChangeSkipsDexAndConfig verifies that calling SetContent
-// with identical content does not modify the dex or keg config timestamp.
+// with identical content does not modify the dex or keg settings timestamp.
 func TestSetContent_NoChangeSkipsDexAndConfig(t *testing.T) {
 	t.Parallel()
 	f := NewSandbox(t, sandbox.WithFixture("empty", "repo_noop"))
 
-	k, err := kegpkg.NewKegFromTarget(f.Context(), kegpkg.NewFile("repo_noop"), f.Runtime())
+	k, err := newMemoryKegFromTarget(f.Context(), memoryTarget("repo_noop"), f.Runtime())
 	require.NoError(t, err)
 	initNonStrictTestKeg(t, k, f.Context())
 
@@ -742,8 +695,8 @@ func TestSetContent_NoChangeSkipsDexAndConfig(t *testing.T) {
 	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Body: body})
 	require.NoError(t, err)
 
-	// Record keg config updated timestamp after create.
-	cfg1, err := k.Config(f.Context())
+	// Record keg settings updated timestamp after create.
+	cfg1, err := k.Settings(f.Context())
 	require.NoError(t, err)
 	updatedAfterCreate := cfg1.Updated
 
@@ -753,20 +706,20 @@ func TestSetContent_NoChangeSkipsDexAndConfig(t *testing.T) {
 	// SetContent with identical bytes — should be a no-op.
 	require.NoError(t, k.SetContent(f.Context(), id.ID, body))
 
-	// Config timestamp should not have changed.
-	cfg2, err := k.Config(f.Context())
+	// Settings timestamp should not have changed.
+	cfg2, err := k.Settings(f.Context())
 	require.NoError(t, err)
 	require.Equal(t, updatedAfterCreate, cfg2.Updated,
-		"keg config updated timestamp should not change when content is unchanged")
+		"keg settings updated timestamp should not change when content is unchanged")
 }
 
 // TestSetMeta_NoChangeSkipsDexAndConfig verifies that calling SetMeta
-// with identical metadata does not modify the dex or keg config timestamp.
+// with identical metadata does not modify the dex or keg settings timestamp.
 func TestSetMeta_NoChangeSkipsDexAndConfig(t *testing.T) {
 	t.Parallel()
 	f := NewSandbox(t, sandbox.WithFixture("empty", "repo_meta_noop"))
 
-	k, err := kegpkg.NewKegFromTarget(f.Context(), kegpkg.NewFile("repo_meta_noop"), f.Runtime())
+	k, err := newMemoryKegFromTarget(f.Context(), memoryTarget("repo_meta_noop"), f.Runtime())
 	require.NoError(t, err)
 	initNonStrictTestKeg(t, k, f.Context())
 
@@ -783,8 +736,8 @@ func TestSetMeta_NoChangeSkipsDexAndConfig(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, k.SetMeta(f.Context(), id.ID, meta))
 
-	// Record keg config updated timestamp after normalization.
-	cfg1, err := k.Config(f.Context())
+	// Record keg settings updated timestamp after normalization.
+	cfg1, err := k.Settings(f.Context())
 	require.NoError(t, err)
 	updatedAfterNormalize := cfg1.Updated
 
@@ -796,20 +749,20 @@ func TestSetMeta_NoChangeSkipsDexAndConfig(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, k.SetMeta(f.Context(), id.ID, meta))
 
-	// Config timestamp should not have changed.
-	cfg2, err := k.Config(f.Context())
+	// Settings timestamp should not have changed.
+	cfg2, err := k.Settings(f.Context())
 	require.NoError(t, err)
 	require.Equal(t, updatedAfterNormalize, cfg2.Updated,
-		"keg config updated timestamp should not change when meta is unchanged")
+		"keg settings updated timestamp should not change when meta is unchanged")
 }
 
 // TestSetMeta_WithChangeUpdatesDexAndConfig verifies that calling SetMeta
-// with different metadata does update the dex and keg config timestamp.
+// with different metadata does update the dex and keg settings timestamp.
 func TestSetMeta_WithChangeUpdatesDexAndConfig(t *testing.T) {
 	t.Parallel()
 	f := NewSandbox(t, sandbox.WithFixture("empty", "repo_meta_change"))
 
-	k, err := kegpkg.NewKegFromTarget(f.Context(), kegpkg.NewFile("repo_meta_change"), f.Runtime())
+	k, err := newMemoryKegFromTarget(f.Context(), memoryTarget("repo_meta_change"), f.Runtime())
 	require.NoError(t, err)
 	initNonStrictTestKeg(t, k, f.Context())
 
@@ -819,8 +772,8 @@ func TestSetMeta_WithChangeUpdatesDexAndConfig(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Record keg config updated timestamp after create.
-	cfg1, err := k.Config(f.Context())
+	// Record keg settings updated timestamp after create.
+	cfg1, err := k.Settings(f.Context())
 	require.NoError(t, err)
 	updatedAfterCreate := cfg1.Updated
 
@@ -834,13 +787,13 @@ func TestSetMeta_WithChangeUpdatesDexAndConfig(t *testing.T) {
 	meta.SetTags([]string{"new-tag"})
 	require.NoError(t, k.SetMeta(f.Context(), id.ID, meta))
 
-	// Config timestamp should have been updated.
-	cfg2, err := k.Config(f.Context())
+	// Settings timestamp should have been updated.
+	cfg2, err := k.Settings(f.Context())
 	require.NoError(t, err)
 	require.NotEqual(t, updatedAfterCreate, cfg2.Updated,
-		"keg config updated timestamp should change when meta is modified")
+		"keg settings updated timestamp should change when meta is modified")
 	require.Equal(t, expectedUpdated, cfg2.Updated,
-		"keg config updated timestamp should use the captured metadata update time")
+		"keg settings updated timestamp should use the captured metadata update time")
 
 	// Verify the tag actually changed in the dex.
 	dex, err := k.Dex(f.Context())
@@ -852,7 +805,7 @@ func TestSetMeta_WithChangeUpdatesDexAndConfig(t *testing.T) {
 func TestSetMetaAndUpdateMetaRefreshCachedSourceHash(t *testing.T) {
 	t.Parallel()
 	f := NewSandbox(t)
-	repo := kegpkg.NewMemoryRepo(f.Runtime())
+	repo := newTestMemoryRepo(f.Runtime())
 	k := kegpkg.NewLocalKeg(repo, f.Runtime())
 	initNonStrictTestKeg(t, k, f.Context())
 
@@ -879,10 +832,10 @@ func TestSetMetaAndUpdateMetaRefreshCachedSourceHash(t *testing.T) {
 	updatedStats, err := k.GetStats(f.Context(), id.ID)
 	require.NoError(t, err)
 	require.NotEqual(t, setStats.Hash(), updatedStats.Hash())
-	cfg, err := k.Config(f.Context())
+	cfg, err := k.Settings(f.Context())
 	require.NoError(t, err)
 	require.Equal(t, expectedUpdateMetaConfig, cfg.Updated,
-		"keg config updated timestamp should use the captured UpdateMeta time")
+		"keg settings updated timestamp should use the captured UpdateMeta time")
 
 	content, err := k.GetContent(f.Context(), id.ID)
 	require.NoError(t, err)
@@ -892,7 +845,7 @@ func TestSetMetaAndUpdateMetaRefreshCachedSourceHash(t *testing.T) {
 func TestIndexRefreshesStatsForOutOfBandMetadataChange(t *testing.T) {
 	t.Parallel()
 	f := NewSandbox(t)
-	repo := kegpkg.NewMemoryRepo(f.Runtime())
+	repo := newTestMemoryRepo(f.Runtime())
 	k := kegpkg.NewLocalKeg(repo, f.Runtime())
 	initNonStrictTestKeg(t, k, f.Context())
 
@@ -928,12 +881,12 @@ func TestIndexRefreshesStatsForOutOfBandMetadataChange(t *testing.T) {
 }
 
 // TestSetContent_WithChangeUpdatesDexAndConfig verifies that calling SetContent
-// with different content does update the dex and keg config timestamp.
+// with different content does update the dex and keg settings timestamp.
 func TestSetContent_WithChangeUpdatesDexAndConfig(t *testing.T) {
 	t.Parallel()
 	f := NewSandbox(t, sandbox.WithFixture("empty", "repo_content_change"))
 
-	k, err := kegpkg.NewKegFromTarget(f.Context(), kegpkg.NewFile("repo_content_change"), f.Runtime())
+	k, err := newMemoryKegFromTarget(f.Context(), memoryTarget("repo_content_change"), f.Runtime())
 	require.NoError(t, err)
 	initNonStrictTestKeg(t, k, f.Context())
 
@@ -941,8 +894,8 @@ func TestSetContent_WithChangeUpdatesDexAndConfig(t *testing.T) {
 	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Body: body})
 	require.NoError(t, err)
 
-	// Record keg config updated timestamp after create.
-	cfg1, err := k.Config(f.Context())
+	// Record keg settings updated timestamp after create.
+	cfg1, err := k.Settings(f.Context())
 	require.NoError(t, err)
 	updatedAfterCreate := cfg1.Updated
 
@@ -950,17 +903,17 @@ func TestSetContent_WithChangeUpdatesDexAndConfig(t *testing.T) {
 	f.Advance(5 * time.Minute)
 	expectedUpdated := f.Now().Format(time.RFC3339)
 
-	// SetContent with different bytes — should update dex and config.
+	// SetContent with different bytes — should update dex and settings.
 	newBody := []byte("# Change Node\n\nUpdated content.\n")
 	require.NoError(t, k.SetContent(f.Context(), id.ID, newBody))
 
-	// Config timestamp should have been updated.
-	cfg2, err := k.Config(f.Context())
+	// Settings timestamp should have been updated.
+	cfg2, err := k.Settings(f.Context())
 	require.NoError(t, err)
 	require.NotEqual(t, updatedAfterCreate, cfg2.Updated,
-		"keg config updated timestamp should change when content is modified")
+		"keg settings updated timestamp should change when content is modified")
 	require.Equal(t, expectedUpdated, cfg2.Updated,
-		"keg config updated timestamp should use the helper's current clock time")
+		"keg settings updated timestamp should use the helper's current clock time")
 
 	// Verify content was actually written.
 	got, err := k.GetContent(f.Context(), id.ID)
@@ -971,12 +924,12 @@ func TestSetContent_WithChangeUpdatesDexAndConfig(t *testing.T) {
 // TestEditNoChange_SimulatesSaveWithoutChanges simulates the tap edit
 // flow where SetMeta and SetContent are called with unchanged data.
 // After the first normalization round-trip, neither the dex files nor the
-// keg config should be modified on a second save-without-changes.
+// keg settings should be modified on a second save-without-changes.
 func TestEditNoChange_SimulatesSaveWithoutChanges(t *testing.T) {
 	t.Parallel()
 	f := NewSandbox(t, sandbox.WithFixture("empty", "repo_edit_noop"))
 
-	k, err := kegpkg.NewKegFromTarget(f.Context(), kegpkg.NewFile("repo_edit_noop"), f.Runtime())
+	k, err := newMemoryKegFromTarget(f.Context(), memoryTarget("repo_edit_noop"), f.Runtime())
 	require.NoError(t, err)
 	initNonStrictTestKeg(t, k, f.Context())
 
@@ -994,8 +947,8 @@ func TestEditNoChange_SimulatesSaveWithoutChanges(t *testing.T) {
 	require.NoError(t, k.SetMeta(f.Context(), id.ID, meta))
 	require.NoError(t, k.SetContent(f.Context(), id.ID, body))
 
-	// Record keg config updated timestamp after normalization.
-	cfg1, err := k.Config(f.Context())
+	// Record keg settings updated timestamp after normalization.
+	cfg1, err := k.Settings(f.Context())
 	require.NoError(t, err)
 	updatedAfterNormalize := cfg1.Updated
 
@@ -1009,24 +962,24 @@ func TestEditNoChange_SimulatesSaveWithoutChanges(t *testing.T) {
 	require.NoError(t, k.SetMeta(f.Context(), id.ID, meta))
 	require.NoError(t, k.SetContent(f.Context(), id.ID, body))
 
-	// Config timestamp should not have changed.
-	cfg2, err := k.Config(f.Context())
+	// Settings timestamp should not have changed.
+	cfg2, err := k.Settings(f.Context())
 	require.NoError(t, err)
 	require.Equal(t, updatedAfterNormalize, cfg2.Updated,
-		"keg config should not change when editing saves without modifications")
+		"keg settings should not change when editing saves without modifications")
 }
 
 // TestCreateAlwaysTriggersUpdate verifies that Create always updates dex
-// and config, regardless of content.
+// and settings, regardless of content.
 func TestCreateAlwaysTriggersUpdate(t *testing.T) {
 	t.Parallel()
 	f := NewSandbox(t, sandbox.WithFixture("empty", "repo_create_always"))
 
-	k, err := kegpkg.NewKegFromTarget(f.Context(), kegpkg.NewFile("repo_create_always"), f.Runtime())
+	k, err := newMemoryKegFromTarget(f.Context(), memoryTarget("repo_create_always"), f.Runtime())
 	require.NoError(t, err)
 	initNonStrictTestKeg(t, k, f.Context())
 
-	cfg1, err := k.Config(f.Context())
+	cfg1, err := k.Settings(f.Context())
 	require.NoError(t, err)
 	updatedAfterInit := cfg1.Updated
 
@@ -1036,105 +989,18 @@ func TestCreateAlwaysTriggersUpdate(t *testing.T) {
 	_, err = k.Create(f.Context(), &kegpkg.CreateOptions{Title: "New Node"})
 	require.NoError(t, err)
 
-	cfg2, err := k.Config(f.Context())
+	cfg2, err := k.Settings(f.Context())
 	require.NoError(t, err)
 	require.NotEqual(t, updatedAfterInit, cfg2.Updated,
-		"keg config should always update after Create")
+		"keg settings should always update after Create")
 	require.Equal(t, expectedUpdated, cfg2.Updated,
-		"keg config updated timestamp should use the captured create time")
-}
-
-// TestDexFresh_ReloadsAfterExternalModification verifies that DexFresh
-// detects when the on-disk dex has been modified by an external process and
-// reloads it. This is the core mechanism that makes the serve handler show
-// fresh data without a server restart.
-func TestDexFresh_ReloadsAfterExternalModification(t *testing.T) {
-	t.Parallel()
-	f := NewSandbox(t, sandbox.WithFixture("empty", "repofs_dexfresh"))
-
-	k, err := kegpkg.NewKegFromTarget(f.Context(), kegpkg.NewFile("repofs_dexfresh"), f.Runtime())
-	require.NoError(t, err)
-	initNonStrictTestKeg(t, k, f.Context())
-
-	// Create a node so the dex has content.
-	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{
-		Title: "Original Node",
-		Lead:  "original lead",
-		Tags:  []string{"alpha"},
-	})
-	require.NoError(t, err)
-
-	// Load the dex via DexFresh and verify initial state.
-	dex1, err := k.Dex(f.Context())
-	require.NoError(t, err)
-	ref1 := dex1.GetRef(f.Context(), id.ID)
-	require.NotNil(t, ref1)
-	require.Equal(t, "Original Node", ref1.Title)
-
-	// Simulate an external process creating a second node by directly
-	// using a second Keg instance pointing at the same repo. This writes
-	// new dex files to disk, changing the mtime.
-	f.Advance(2 * time.Minute)
-	k2, err := kegpkg.NewKegFromTarget(f.Context(), kegpkg.NewFile("repofs_dexfresh"), f.Runtime())
-	require.NoError(t, err)
-	_, err = k2.Create(f.Context(), &kegpkg.CreateOptions{
-		Title: "External Node",
-		Lead:  "added externally",
-		Tags:  []string{"beta"},
-	})
-	require.NoError(t, err)
-
-	// The original keg instance's cached dex is now stale. DexFresh should
-	// detect the mtime change and reload.
-	dex2, err := k.Dex(f.Context())
-	require.NoError(t, err)
-
-	// Verify the externally-added node appears.
-	extRef := dex2.GetRef(f.Context(), kegpkg.NodeId{ID: 2})
-	require.NotNil(t, extRef, "DexFresh should reload and include the externally-added node")
-	require.Equal(t, "External Node", extRef.Title)
-
-	// The original node should still be present.
-	origRef := dex2.GetRef(f.Context(), id.ID)
-	require.NotNil(t, origRef)
-	require.Equal(t, "Original Node", origRef.Title)
-
-	// Verify tag index also refreshed.
-	tagList := dex2.TagList(f.Context())
-	require.Contains(t, tagList, "alpha")
-	require.Contains(t, tagList, "beta")
-}
-
-// TestDexFresh_ReturnsCachedWhenUnchanged verifies that DexFresh returns
-// the same cached dex when no external modification has occurred, avoiding
-// unnecessary reloads.
-func TestDexFresh_ReturnsCachedWhenUnchanged(t *testing.T) {
-	t.Parallel()
-	f := NewSandbox(t, sandbox.WithFixture("empty", "repofs_dexcache"))
-
-	k, err := kegpkg.NewKegFromTarget(f.Context(), kegpkg.NewFile("repofs_dexcache"), f.Runtime())
-	require.NoError(t, err)
-	initNonStrictTestKeg(t, k, f.Context())
-
-	_, err = k.Create(f.Context(), &kegpkg.CreateOptions{
-		Title: "Cached Node",
-	})
-	require.NoError(t, err)
-
-	// Load dex twice without any external changes.
-	dex1, err := k.Dex(f.Context())
-	require.NoError(t, err)
-	dex2, err := k.Dex(f.Context())
-	require.NoError(t, err)
-
-	// Both should return the same pointer (no reload occurred).
-	require.Same(t, dex1, dex2, "DexFresh should return cached dex when mtime unchanged")
+		"keg settings updated timestamp should use the captured create time")
 }
 
 func TestDexFresh_ReloadsForExternalRepoImplementations(t *testing.T) {
 	t.Parallel()
 	f := NewSandbox(t)
-	repo := &externalMemoryRepo{MemoryRepo: kegpkg.NewMemoryRepo(f.Runtime())}
+	repo := &externalMemoryRepo{MemoryRepository: newTestMemoryRepo(f.Runtime())}
 
 	k := kegpkg.NewLocalKeg(repo, f.Runtime())
 	initNonStrictTestKeg(t, k, f.Context())
@@ -1176,9 +1042,9 @@ func TestSetContent_LocalNodeIDStaysBare(t *testing.T) {
 	t.Parallel()
 	f := NewSandbox(t, sandbox.WithFixture("empty", "repo"))
 
-	k, err := kegpkg.NewKegFromTarget(
+	k, err := newMemoryKegFromTarget(
 		f.Context(),
-		kegpkg.NewFile("repo", withKegName("example")),
+		memoryTarget("repo", withKegName("example")),
 		f.Runtime(),
 	)
 	require.NoError(t, err)
@@ -1213,9 +1079,9 @@ func TestMove_LocalNodeIDStaysBare(t *testing.T) {
 	t.Parallel()
 	f := NewSandbox(t, sandbox.WithFixture("empty", "repo"))
 
-	k, err := kegpkg.NewKegFromTarget(
+	k, err := newMemoryKegFromTarget(
 		f.Context(),
-		kegpkg.NewFile("repo", withKegName("example")),
+		memoryTarget("repo", withKegName("example")),
 		f.Runtime(),
 	)
 	require.NoError(t, err)
@@ -1231,7 +1097,7 @@ func TestMove_LocalNodeIDStaysBare(t *testing.T) {
 		[]byte("# Referrer\n\nsee [target](../"+target.ID.Path()+")\n")))
 
 	// Move the target; this rewrites referrer's link and re-indexes it.
-	require.NoError(t, errOnly(k.Move(f.Context(), target.ID, kegpkg.NodeId{ID: target.ID.ID + 10})))
+	require.NoError(t, errOnly(k.Move(f.Context(), moveOptions(t, f.Context(), k, target.ID, kegpkg.NodeId{ID: target.ID.ID + 10}))))
 
 	for _, name := range []string{"nodes.tsv", "links", "backlinks"} {
 		raw, err := k.(*kegpkg.LocalKeg).Repo.GetIndex(f.Context(), name)

@@ -245,9 +245,9 @@ func TestFormatSelectorSuggestions(t *testing.T) {
 
 func TestConfigListFieldsRoundTrip(t *testing.T) {
 	raw := []byte("kegv: 2025-07\nlistFields:\n  - id\n  - type\n  - subkind\n  - title\n")
-	cfg, err := keg.ParseKegConfig(raw)
+	cfg, err := keg.ParseKegSettings(raw)
 	if err != nil {
-		t.Fatalf("ParseKegConfig: %v", err)
+		t.Fatalf("ParseKegSettings: %v", err)
 	}
 	want := []string{"id", "type", "subkind", "title"}
 	if len(cfg.ListFields) != len(want) {
@@ -265,7 +265,7 @@ func TestConfigListFieldsRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ToYAML: %v", err)
 	}
-	again, err := keg.ParseKegConfig(out)
+	again, err := keg.ParseKegSettings(out)
 	if err != nil {
 		t.Fatalf("reparse: %v", err)
 	}
@@ -275,18 +275,18 @@ func TestConfigListFieldsRoundTrip(t *testing.T) {
 }
 
 func TestConfigListFieldsRejectsBadSelector(t *testing.T) {
-	// Rejecting at parse time means a typo surfaces when the config is saved
+	// Rejecting at parse time means a typo surfaces when the settings is saved
 	// rather than as a silently blank column at render time.
 	raw := []byte("kegv: 2025-07\nlistFields:\n  - type\n  - .bogus\n")
-	if _, err := keg.ParseKegConfig(raw); err == nil {
-		t.Fatal("ParseKegConfig accepted an unknown stats selector, want error")
+	if _, err := keg.ParseKegSettings(raw); err == nil {
+		t.Fatal("ParseKegSettings accepted an unknown stats selector, want error")
 	} else if !strings.Contains(err.Error(), "listFields") {
 		t.Errorf("error = %q, want it to name the offending field", err)
 	}
 }
 
 func TestConfigListFieldsEmptyIsValid(t *testing.T) {
-	if _, err := keg.ParseKegConfig([]byte("kegv: 2025-07\n")); err != nil {
-		t.Fatalf("config without listFields should parse: %v", err)
+	if _, err := keg.ParseKegSettings([]byte("kegv: 2025-07\n")); err != nil {
+		t.Fatalf("settings without listFields should parse: %v", err)
 	}
 }

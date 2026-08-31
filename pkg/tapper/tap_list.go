@@ -226,7 +226,7 @@ func (t *Tap) resolveListFormat(ctx context.Context, k keg.Keg, explicit string)
 	if strings.TrimSpace(explicit) != "" {
 		return explicit
 	}
-	cfg, err := k.Config(ctx)
+	cfg, err := k.Settings(ctx)
 	if err != nil || cfg == nil || len(cfg.ListFields) == 0 {
 		return explicit
 	}
@@ -234,7 +234,7 @@ func (t *Tap) resolveListFormat(ctx context.Context, k keg.Keg, explicit string)
 }
 
 // formatFromFieldSelectors renders a selector list as a tab-separated format
-// string, so keg configuration and --format share one language.
+// string, so keg settings and --format share one language.
 func formatFromFieldSelectors(fields []string) string {
 	parts := make([]string, 0, len(fields))
 	for _, field := range fields {

@@ -2,16 +2,34 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/jlrickert/tapper/pkg/keg"
 	"github.com/jlrickert/tapper/pkg/tapper"
 )
 
-var errMCPFlightRequired = errors.New("no flight is selected; KEG tools are locked. Inspect flights through MCP with `list_flights` and `flight_show`, ask the user to select a flight in Tapper configuration, then orient again")
+var errMCPFlightRequired = errors.New("the explicitly configured flight could not be activated; KEG tools are locked. Inspect flights with `list_flights` and `flight_show`, repair that exact selection outside MCP, then call `session_refresh` and `orient`")
+
+// ErrOrientationStale is returned without performing the requested operation.
+var ErrOrientationStale = fmt.Errorf("ORIENTATION_STALE: authority changed between per-call resolution and dispatch; retry the operation yourself after reviewing current authority. Mutations are never replayed automatically: %w", keg.ErrOrientationStale)
+
+// ErrOrientationDenied reports a fresh orientation that lacks the requested
+// authority. Selecting a different accessible flight is explicit per call.
+var ErrOrientationDenied = fmt.Errorf("ORIENTATION_DENIED: the requested flight is not selectable from this connection's current authority or does not grant this operation. The operation was not performed: %w", keg.ErrOrientationDenied)
+
+// ErrOrientationUnavailable reports a transient failure to recompute live
+// authority. The caller may retry later, but the operation is never replayed.
+var ErrOrientationUnavailable = fmt.Errorf("ORIENTATION_UNAVAILABLE: current orientation authority could not be verified; retry after the Hub is available. The operation was not performed: %w", keg.ErrOrientationUnavailable)
+
+// ErrOrientationRootUnavailable reports permanent loss of the connection-pinned root.
+// A different root requires a newly launched session.
+var ErrOrientationRootUnavailable = fmt.Errorf("ORIENTATION_ROOT_UNAVAILABLE: the connection-pinned root was deleted or is no longer accessible; start a new session to choose a different root. The operation was not performed: %w", keg.ErrOrientationRootUnavailable)
 
 // failedOrientationPayload describes a selection that was made but could not be
 // resolved. It deliberately does not reuse errMCPFlightRequired: reporting "no
@@ -20,51 +38,66 @@ var errMCPFlightRequired = errors.New("no flight is selected; KEG tools are lock
 // is usually a wrong flight name or an unreachable hub.
 func failedOrientationPayload(err error) string {
 	return "This session could not establish flight authority: " + err.Error() +
-		"\n\nKEG tools are locked until it does. Call `list_flights` to see what" +
+		"\n\nKEG tools are locked until it does, so only `orient`, `session_refresh`, `list_flights`," +
+		" `flight_show`, `auth_info`, and `keg_search` are published. An empty cover on a" +
+		" successfully loaded flight would still publish the complete registered" +
+		" inventory. Call `list_flights` to see what" +
 		" actually exists, then ask the user to correct the selected flight in" +
-		" Tapper configuration and call `orient` again on this same connection." +
+		" Tapper configuration, then call `session_refresh`, then `orient` on this same connection." +
 		" An empty flight list usually means this machine is not bootstrapped or" +
 		" not authenticated to the hub that hosts the flight."
 }
 
 var recoveryToolNames = map[string]bool{
-	"orient":       true,
-	"list_flights": true,
-	"flight_show":  true,
-	"auth_info":    true,
+	"orient":          true,
+	"session_refresh": true,
+	"list_flights":    true,
+	"flight_show":     true,
+	"auth_info":       true,
+	"keg_search":      true,
 }
 
-// bootstrapToolNames is what a session running on the synthetic bootstrap
-// flight may call. Its cover is empty, so the KEG tools would fail anyway;
-// hiding them keeps the agent from spending the session discovering that one
-// refusal at a time. Like recoveryToolNames this is an allowlist, so a KEG tool
-// added later is hidden by default rather than leaking into bootstrap.
-var bootstrapToolNames = map[string]bool{
-	"orient":        true,
-	"list_flights":  true,
-	"flight_show":   true,
-	"auth_info":     true,
-	"flight_create": true,
-	"flight_edit":   true,
-	"flight_delete": true,
-	"keg_create":    true,
+// ungovernedToolNames never select authority and therefore do not advertise a
+// flight argument. Keep administration/configuration discovery here even when
+// a particular build does not register those tools.
+var ungovernedToolNames = map[string]bool{
+	"auth_info": true, "auth_status": true, "keg_search": true,
+	"session_refresh": true,
+	"config":          true, "config_template": true,
+	"namespace_list": true, "namespace_create": true, "namespace_members": true,
+	"namespace_add_member": true, "namespace_set_role": true, "namespace_remove_member": true,
+	"license": true, "list_flights": true, "flight_show": true,
 }
 
 // sessionMode is the authority state of one MCP session.
 type sessionMode int
 
 const (
-	// modeActive: a real flight governs the session.
+	// modeActive: either no-flight identity authority or a real flight governs
+	// the session.
 	modeActive sessionMode = iota
-	// modeSelect: no flight is selected but flights exist to select. The agent
-	// cannot fix this itself, so only the recovery tools are offered.
+	// modeSelect: an explicitly configured flight failed to activate. The agent
+	// cannot change configuration itself, so only recovery tools are offered.
 	modeSelect
-	// modeBootstrap: no flight exists at all. A synthetic admin flight governs
-	// the session so the agent can create the first flight and keg.
-	modeBootstrap
 )
 
-var errMCPBootstrapOnly = errors.New("no flight is configured; this session is running on a temporary bootstrap flight and the KEG tools are locked. Create the first flight and KEG with `flight_create` and `keg_create`, ask the user to select the flight, then call `orient` again")
+const toolListTransitionMarker = "_session_tool_list_transition_marker"
+
+// initializationInstructions carries the static KEG operating rules plus the
+// directive to orient. The rules are here so a caller that has already been
+// told which flight to pass — a subagent briefed by a coordinator, say — can
+// work without spending a round trip on orientation it does not need. They do
+// not carry session state and cannot go stale.
+//
+// The directive still matters: only orient reports the flight, its cover, and
+// the available KEGs, and only orient survives a context reset, because these
+// instructions are captured once at connection and are never re-sent.
+func initializationInstructions() string {
+	// The rules already say to orient first and to orient again after a context
+	// reset; this adds only what they do not: what orient is for.
+	return tapper.OrientationOperatingRules() +
+		"\nCall `orient` for this session's current authority, instructions, and available KEGs.\n"
+}
 
 type flightSessionContextKey struct{}
 
@@ -72,16 +105,25 @@ type flightSessionContextKey struct{}
 // pointer at their boundary, so an in-flight call finishes under the authority
 // with which it began while later calls observe a successful refresh.
 type orientationContext struct {
-	flight   *tapper.Flight
-	payload  string
-	kegs     []tapper.OrientationKeg
-	warnings []string
-	mode     sessionMode
+	root             *tapper.Flight
+	flight           *tapper.Flight
+	path             []string
+	availableFlights []string
+	identity         string
+	revision         string
+	payload          string
+	kegs             []tapper.OrientationKeg
+	aggregateKegs    []tapper.OrientationKeg
+	warnings         []string
+	fullAccess       bool
+	reconnect        string
+	mode             sessionMode
 }
 
 type flightSessionState struct {
-	mu      sync.RWMutex
-	current *orientationContext
+	mu        sync.RWMutex
+	refreshMu sync.Mutex
+	current   *orientationContext
 }
 
 type sessionFlightGate struct {
@@ -90,7 +132,6 @@ type sessionFlightGate struct {
 	mu     sync.Mutex
 	states map[string]*flightSessionState
 	srv    *sdkmcp.Server
-	calls  sync.RWMutex
 }
 
 func newSessionFlightGate(provider OrientationProvider) *sessionFlightGate {
@@ -122,57 +163,161 @@ func (g *sessionFlightGate) current(sessionID string) *orientationContext {
 	return state.current
 }
 
-func (g *sessionFlightGate) refresh(ctx context.Context, sessionID string) (*orientationContext, error) {
-	g.calls.Lock()
-	defer g.calls.Unlock()
+// loadAndPin establishes no-flight authority or a real root for a new session,
+// and retries the exact configured root for recovery. Once active, ordinary
+// calls never publish a call-local selection into shared state.
+func (g *sessionFlightGate) loadAndPin(ctx context.Context, sessionID string) (*orientationContext, error) {
+	state := g.state(sessionID)
+	state.refreshMu.Lock()
+	defer state.refreshMu.Unlock()
+	current := g.current(sessionID)
+	if currentMode(current) == modeActive {
+		return current, nil
+	}
 	candidate, err := g.provider.Load(ctx)
 	if err != nil {
-		// A failed explicit refresh retains the last valid authority.
-		if current := g.current(sessionID); current != nil {
+		if current != nil {
 			return current, err
 		}
 		// Initialization must remain connectable for recovery.
 		recovery := &orientationContext{payload: failedOrientationPayload(err), mode: modeSelect, warnings: []string{err.Error()}}
-		state := g.state(sessionID)
 		state.mu.Lock()
 		state.current = recovery
 		state.mu.Unlock()
 		return recovery, err
 	}
-	if candidate == nil {
-		candidate = &Orientation{}
+	next, err := makeOrientationContext(candidate)
+	if err != nil {
+		return current, err
 	}
-	next := &orientationContext{
-		flight:   cloneFlight(candidate.Flight),
-		payload:  candidate.Payload,
-		kegs:     append([]tapper.OrientationKeg(nil), candidate.Kegs...),
-		warnings: append([]string(nil), candidate.Warnings...),
-		mode:     modeFor(candidate.Flight),
-	}
-	g.publish(sessionID, next)
+	// Aggregate authority is intentionally call-local. The pinned session keeps
+	// only root context for auth_info and future live resolutions.
+	next.aggregateKegs = nil
+	g.publish(sessionID, next, false)
 	return next, nil
 }
 
-// modeFor classifies a loaded candidate. The provider decides *whether* to
-// synthesize a bootstrap flight — it is the only layer that knows how to count
-// its transport's flights — and the gate reads that decision off the manifest.
-func modeFor(flight *tapper.Flight) sessionMode {
-	switch {
-	case flight == nil:
-		return modeSelect
-	case flight.Bootstrap:
-		return modeBootstrap
+type sessionRefreshOutput struct {
+	Status       string `json:"status"`
+	Root         string `json:"root,omitempty"`
+	ToolsChanged bool   `json:"toolsChanged"`
+	NextAction   string `json:"nextAction,omitempty"`
+}
+
+func (g *sessionFlightGate) refresh(ctx context.Context, sessionID string) (sessionRefreshOutput, error) {
+	state := g.state(sessionID)
+	state.refreshMu.Lock()
+	defer state.refreshMu.Unlock()
+
+	current := g.current(sessionID)
+	if currentMode(current) == modeActive {
+		nextAction := "orient"
+		if current.fullAccess {
+			nextAction = "new_session"
+		}
+		root := ""
+		if current.root != nil {
+			root = current.root.Name
+		}
+		return sessionRefreshOutput{
+			Status: "already_active", Root: root,
+			ToolsChanged: false, NextAction: nextAction,
+		}, nil
+	}
+
+	candidate, err := g.provider.Load(ctx)
+	if err != nil {
+		return sessionRefreshOutput{}, err
+	}
+	next, err := makeOrientationContext(candidate)
+	if err != nil {
+		return sessionRefreshOutput{}, err
+	}
+	if next.fullAccess {
+		return sessionRefreshOutput{}, fmt.Errorf(
+			"the failed configured flight cannot fall back to no-flight full access on this connection; start a new MCP connection",
+		)
+	}
+	next.aggregateKegs = nil
+	toolsChanged := toolSurfaceChanged(current, next)
+	g.publish(sessionID, next, toolsChanged)
+
+	switch currentMode(next) {
+	case modeActive:
+		return sessionRefreshOutput{
+			Status: "activated", Root: next.root.Name,
+			ToolsChanged: toolsChanged, NextAction: "orient",
+		}, nil
 	default:
-		return modeActive
+		return sessionRefreshOutput{Status: "selection_required", ToolsChanged: toolsChanged}, nil
 	}
 }
 
-func (g *sessionFlightGate) publish(sessionID string, next *orientationContext) {
+// resolveCall computes live graph, identity, and selected authority for one
+// invocation. It never mutates session state.
+func (g *sessionFlightGate) resolveCall(ctx context.Context, sessionID, selected string) (*orientationContext, error) {
+	pinned := g.current(sessionID)
+	if currentMode(pinned) != modeActive || (!pinned.fullAccess && pinned.root == nil) {
+		return nil, lockedError(pinned)
+	}
+	resolver, ok := g.provider.(FlightOrientationProvider)
+	if !ok {
+		return nil, fmt.Errorf("%w: per-call flight selection is unavailable for this orientation provider", ErrOrientationUnavailable)
+	}
+	rootRef := ""
+	if pinned.root != nil {
+		rootRef = pinned.root.Name
+	}
+	candidate, err := resolver.Resolve(ctx, rootRef, selected)
+	if err != nil {
+		return nil, err
+	}
+	return makeOrientationContext(candidate)
+}
+
+func makeOrientationContext(candidate *Orientation) (*orientationContext, error) {
+	if candidate == nil {
+		candidate = &Orientation{}
+	}
+	if candidate.Revision == "" {
+		if err := FinalizeOrientation(candidate); err != nil {
+			return nil, err
+		}
+	}
+	next := &orientationContext{
+		root: cloneFlight(candidate.Root), flight: cloneFlight(candidate.Flight),
+		path:             append([]string(nil), candidate.Path...),
+		availableFlights: append([]string(nil), candidate.AvailableFlights...),
+		identity:         candidate.Identity, revision: candidate.Revision, payload: candidate.Payload,
+		kegs:          append([]tapper.OrientationKeg(nil), candidate.Kegs...),
+		aggregateKegs: append([]tapper.OrientationKeg(nil), candidate.AggregateKegs...),
+		warnings:      append([]string(nil), candidate.Warnings...), fullAccess: candidate.FullAccess,
+		reconnect: candidate.ReconnectInstructions, mode: modeFor(candidate),
+	}
+	if next.root == nil {
+		next.root = cloneFlight(candidate.Flight)
+	}
+	return next, nil
+}
+
+// modeFor classifies a loaded candidate. A no-flight full-access candidate is
+// active even though it has no flight object; an ordinary nil flight is failed
+// explicit-selection recovery.
+func modeFor(orientation *Orientation) sessionMode {
+	if orientation == nil || (!orientation.FullAccess && orientation.Flight == nil) {
+		return modeSelect
+	}
+	return modeActive
+}
+
+func (g *sessionFlightGate) publish(sessionID string, next *orientationContext, notify bool) {
 	state := g.state(sessionID)
 	state.mu.Lock()
 	state.current = next
 	state.mu.Unlock()
-	g.notifyToolsChanged()
+	if notify {
+		g.notifyToolsChanged()
+	}
 }
 
 func cloneFlight(f *tapper.Flight) *tapper.Flight {
@@ -182,6 +327,7 @@ func cloneFlight(f *tapper.Flight) *tapper.Flight {
 	out := *f
 	out.Capabilities = append([]tapper.FlightCapability(nil), f.Capabilities...)
 	out.Cover = append([]tapper.FlightCover(nil), f.Cover...)
+	out.Subflights = append([]string(nil), f.Subflights...)
 	out.AllowedKegs = append([]string(nil), f.AllowedKegs...)
 	return &out
 }
@@ -191,43 +337,46 @@ func (g *sessionFlightGate) notifyToolsChanged() {
 		return
 	}
 	type markerInput struct{}
-	sdkmcp.AddTool(g.srv, &sdkmcp.Tool{Name: "_orientation_transition_marker"}, func(context.Context, *sdkmcp.CallToolRequest, markerInput) (*sdkmcp.CallToolResult, any, error) {
+	sdkmcp.AddTool(g.srv, &sdkmcp.Tool{Name: toolListTransitionMarker}, func(context.Context, *sdkmcp.CallToolRequest, markerInput) (*sdkmcp.CallToolResult, any, error) {
 		return textResult(""), nil, nil
 	})
-	g.srv.RemoveTools("_orientation_transition_marker")
 }
 
-// mode reports the session's authority state. An unseen session is treated as
-// modeSelect: nothing has been published for it, so it has no flight and no
-// evidence that creating one would help.
-func (g *sessionFlightGate) mode(sessionID string) sessionMode {
-	current := g.current(sessionID)
+func toolSurfaceChanged(current, next *orientationContext) bool {
+	left, right := allowedTools(current), allowedTools(next)
+	if left == nil || right == nil {
+		return left != nil || right != nil
+	}
+	if len(left) != len(right) {
+		return true
+	}
+	for name := range left {
+		if !right[name] {
+			return true
+		}
+	}
+	return false
+}
+
+func currentMode(current *orientationContext) sessionMode {
 	if current == nil {
 		return modeSelect
 	}
 	return current.mode
 }
 
-// allowedTools returns the allowlist governing sessionID, or nil when every
+// allowedTools returns the allowlist governing current, or nil when every
 // registered tool is available.
-func (g *sessionFlightGate) allowedTools(sessionID string) map[string]bool {
-	switch g.mode(sessionID) {
+func allowedTools(current *orientationContext) map[string]bool {
+	switch currentMode(current) {
 	case modeSelect:
 		return recoveryToolNames
-	case modeBootstrap:
-		return bootstrapToolNames
 	default:
 		return nil
 	}
 }
 
-// lockedError explains why a tool outside the allowlist was refused. The two
-// modes need different text: one asks the reader to pick an existing flight,
-// the other to create the first one.
-func (g *sessionFlightGate) lockedError(sessionID string) error {
-	if g.mode(sessionID) == modeBootstrap {
-		return errMCPBootstrapOnly
-	}
+func lockedError(current *orientationContext) error {
 	return errMCPFlightRequired
 }
 
@@ -253,94 +402,54 @@ func (g *sessionFlightGate) payload(ctx context.Context) string {
 	return current.payload
 }
 
-func (g *sessionFlightGate) canManage(sessionID string) bool {
-	current := g.current(sessionID)
-	return current != nil && current.flight != nil && current.flight.HasCapability(tapper.FlightCapabilityManageFlights)
+func (g *sessionFlightGate) authorizeMutation(ctx context.Context) error {
+	return g.authorizeCapability(orientationFromContext(ctx), tapper.FlightCapabilityManageFlights)
 }
 
-func (g *sessionFlightGate) canManageKegs(sessionID string) bool {
-	current := g.current(sessionID)
-	return current != nil && current.flight != nil && current.flight.HasCapability(tapper.FlightCapabilityManageKegs)
+func (g *sessionFlightGate) authorizeKegCreation(ctx context.Context) error {
+	return g.authorizeCapability(orientationFromContext(ctx), tapper.FlightCapabilityManageKegs)
 }
 
-func (g *sessionFlightGate) authorizeMutation(sessionID string) error {
-	return g.authorizeCapability(sessionID, tapper.FlightCapabilityManageFlights)
+func (g *sessionFlightGate) fullAccessReconnect(ctx context.Context) string {
+	current := orientationFromContext(ctx)
+	if current != nil && current.fullAccess {
+		return current.reconnect
+	}
+	pinned := g.current(sessionIDFromContext(ctx))
+	if pinned != nil && pinned.fullAccess {
+		return pinned.reconnect
+	}
+	return ""
 }
 
-func (g *sessionFlightGate) authorizeKegCreation(sessionID string) error {
-	return g.authorizeCapability(sessionID, tapper.FlightCapabilityManageKegs)
-}
-
-func (g *sessionFlightGate) authorizeCapability(sessionID string, capability tapper.FlightCapability) error {
-	current := g.current(sessionID)
+func (g *sessionFlightGate) authorizeCapability(current *orientationContext, capability tapper.FlightCapability) error {
 	if current == nil || current.flight == nil {
+		if current != nil && current.fullAccess {
+			return nil
+		}
 		return errMCPFlightRequired
 	}
 	if !current.flight.HasCapability(capability) {
-		return fmt.Errorf("active flight does not grant %s", capability)
+		return fmt.Errorf("%w: selected flight does not grant %s", ErrOrientationDenied, capability)
 	}
 	return nil
 }
 
-func (g *sessionFlightGate) selfTarget(ctx context.Context, target string) (bool, error) {
+func (g *sessionFlightGate) orientationTarget(ctx context.Context, target string) (root, active bool, err error) {
 	current := orientationFromContext(ctx)
+	pinned := g.current(sessionIDFromContext(ctx))
+	if (current != nil && current.fullAccess) || (pinned != nil && pinned.fullAccess) {
+		return false, false, nil
+	}
 	if current == nil || current.flight == nil {
-		return false, errMCPFlightRequired
+		return false, false, errMCPFlightRequired
 	}
 	ref, err := tapper.ParseFlightRef(target, current.flight.Namespace)
 	if err != nil {
-		return false, err
+		return false, false, err
 	}
-	return ref.Canonical() == current.flight.Name, nil
-}
-
-// adoptEditedFlight publishes the exact returned manifest after persistence.
-// Flight mutation calls deliberately do not hold calls.RLock, so taking the
-// write lock here waits for older in-flight calls without deadlocking itself.
-func (g *sessionFlightGate) adoptEditedFlight(ctx context.Context, target string, flight *tapper.Flight) (bool, error) {
-	self, err := g.selfTarget(ctx, target)
-	if err != nil || !self {
-		return self, err
-	}
-	g.calls.Lock()
-	defer g.calls.Unlock()
-	candidate, renderErr := g.provider.Render(ctx, cloneFlight(flight))
-	if renderErr != nil {
-		warning := "flight update was applied, but orientation refresh failed: " + renderErr.Error()
-		g.publish(sessionIDFromContext(ctx), &orientationContext{
-			payload: errMCPFlightRequired.Error(), warnings: []string{warning}, mode: modeSelect,
-		})
-		return true, errors.New(warning)
-	}
-	if candidate == nil {
-		candidate = &Orientation{}
-	}
-	next := &orientationContext{
-		flight: cloneFlight(flight), payload: candidate.Payload,
-		kegs:     append([]tapper.OrientationKeg(nil), candidate.Kegs...),
-		warnings: append([]string(nil), candidate.Warnings...),
-		mode:     modeFor(flight),
-	}
-	g.publish(sessionIDFromContext(ctx), next)
-	return true, nil
-}
-
-func (g *sessionFlightGate) adoptDeletedFlight(ctx context.Context, target string) (bool, error) {
-	self, err := g.selfTarget(ctx, target)
-	if err != nil || !self {
-		return self, err
-	}
-	g.calls.Lock()
-	defer g.calls.Unlock()
-	// No agent name: this is the self-deletion path, where the flight the
-	// session was running on has just been removed. The gate has no Tap to ask,
-	// and "your flight is gone" is the whole message.
-	payload, payloadErr := tapper.BuildOrientationPayload(nil, "", "", nil, nil)
-	if payloadErr != nil {
-		payload = errMCPFlightRequired.Error()
-	}
-	g.publish(sessionIDFromContext(ctx), &orientationContext{payload: payload, mode: modeSelect})
-	return true, nil
+	canonical := ref.Canonical()
+	return current.root != nil && canonical == current.root.Name, canonical == current.flight.Name, nil
 }
 
 func sessionIDFromRequest(req sdkmcp.Request) string {
@@ -376,6 +485,15 @@ func orientationFromContext(ctx context.Context) *orientationContext {
 	return current
 }
 
+func contextWithOrientation(ctx context.Context, current *orientationContext) context.Context {
+	if current == nil || current.fullAccess || current.root == nil || current.flight == nil || current.revision == "" {
+		return ctx
+	}
+	return keg.WithOrientationState(ctx, keg.OrientationState{
+		Root: current.root.Name, Active: current.flight.Name, Revision: current.revision,
+	})
+}
+
 // SessionFlight returns the immutable flight snapshot captured for the current
 // MCP tool-call boundary. Hosted discovery tools use it to apply the same
 // cover as KEG operations without reaching into session storage.
@@ -387,6 +505,31 @@ func SessionFlight(ctx context.Context) *tapper.Flight {
 	return cloneFlight(current.flight)
 }
 
+// SessionFullAccess reports whether the current call runs under no-flight
+// identity authority. Such a call has no flight snapshot but is not restricted:
+// it reaches everything the identity reaches. Discovery tools must distinguish it
+// from the other flightless state — failed-root recovery, which reaches nothing —
+// because both report a nil SessionFlight.
+func SessionFullAccess(ctx context.Context) bool {
+	current := orientationFromContext(ctx)
+	return current != nil && current.fullAccess
+}
+
+// SessionOrientationKegs returns the exact selected-flight projection when
+// flight was supplied, or the live no-flight identity / pinned-root graph
+// projection when discovery omitted it. Aggregate rows are call-local and
+// never cached in session state.
+func SessionOrientationKegs(ctx context.Context) []tapper.OrientationKeg {
+	current := orientationFromContext(ctx)
+	if current == nil {
+		return nil
+	}
+	if graphDiscovery, _ := ctx.Value(graphDiscoveryContextKey{}).(bool); graphDiscovery {
+		return append([]tapper.OrientationKeg(nil), current.aggregateKegs...)
+	}
+	return append([]tapper.OrientationKeg(nil), current.kegs...)
+}
+
 // HasSessionOrientation reports whether the current call is governed by a
 // session orientation gate. A governed recovery session has no flight but
 // still returns true; ungated embedded surfaces return false.
@@ -395,6 +538,7 @@ func HasSessionOrientation(ctx context.Context) bool {
 }
 
 type orientationContextKey struct{}
+type graphDiscoveryContextKey struct{}
 
 func (g *sessionFlightGate) middleware(next sdkmcp.MethodHandler) sdkmcp.MethodHandler {
 	return func(ctx context.Context, method string, req sdkmcp.Request) (sdkmcp.Result, error) {
@@ -402,17 +546,15 @@ func (g *sessionFlightGate) middleware(next sdkmcp.MethodHandler) sdkmcp.MethodH
 		ctx = context.WithValue(ctx, flightSessionContextKey{}, sessionID)
 
 		if method == "initialize" {
-			current, refreshErr := g.refresh(ctx, sessionID)
-			result, err := next(context.WithValue(ctx, orientationContextKey{}, current), method, req)
+			current, _ := g.loadAndPin(ctx, sessionID)
+			callCtx := context.WithValue(ctx, orientationContextKey{}, current)
+			result, err := next(contextWithOrientation(callCtx, current), method, req)
 			if err != nil {
 				return result, err
 			}
 			if initialized, ok := result.(*sdkmcp.InitializeResult); ok {
 				copyResult := *initialized
-				copyResult.Instructions = current.payload
-				if refreshErr != nil {
-					copyResult.Instructions += "\n\nRecovery warning: " + refreshErr.Error()
-				}
+				copyResult.Instructions = initializationInstructions()
 				return &copyResult, nil
 			}
 			return result, nil
@@ -420,6 +562,7 @@ func (g *sessionFlightGate) middleware(next sdkmcp.MethodHandler) sdkmcp.MethodH
 
 		current := g.current(sessionID)
 		ctx = context.WithValue(ctx, orientationContextKey{}, current)
+		ctx = contextWithOrientation(ctx, current)
 		if method == "tools/list" {
 			result, err := next(ctx, method, req)
 			if err != nil {
@@ -431,58 +574,208 @@ func (g *sessionFlightGate) middleware(next sdkmcp.MethodHandler) sdkmcp.MethodH
 			}
 			copyResult := *listed
 			copyResult.Tools = make([]*sdkmcp.Tool, 0, len(listed.Tools))
-			allowed := g.allowedTools(sessionID)
-			canManage, canManageKegs := g.canManage(sessionID), g.canManageKegs(sessionID)
+			allowed := allowedTools(current)
 			for _, tool := range listed.Tools {
+				if tool.Name == toolListTransitionMarker {
+					continue
+				}
 				if allowed != nil && !allowed[tool.Name] {
 					continue
 				}
-				if isFlightMutationTool(tool.Name) && !canManage {
-					continue
+				copyTool := *tool
+				if authorityBearingTool(tool.Name) {
+					copyTool.InputSchema = schemaWithFlight(tool.InputSchema)
 				}
-				if isKegCreationTool(tool.Name) && !canManageKegs {
-					continue
-				}
-				copyResult.Tools = append(copyResult.Tools, tool)
+				copyResult.Tools = append(copyResult.Tools, &copyTool)
 			}
 			return &copyResult, nil
 		}
 		if method == "tools/call" {
 			params, _ := req.GetParams().(*sdkmcp.CallToolParamsRaw)
-			if params != nil && params.Name == "orient" {
+			if allowed := allowedTools(current); params != nil && allowed != nil && !allowed[params.Name] {
+				return errorResult(lockedError(current)), nil
+			}
+			if params == nil || !authorityBearingTool(params.Name) {
 				return next(ctx, method, req)
 			}
-			if allowed := g.allowedTools(sessionID); params != nil && allowed != nil && !allowed[params.Name] {
-				return errorResult(g.lockedError(sessionID)), nil
-			}
-			if params != nil && isFlightMutationTool(params.Name) {
-				if err := g.authorizeMutation(sessionID); err != nil {
-					return errorResult(err), nil
+			if params.Name == "keg_list" {
+				present, validationErr := toolArgumentPresent(params, "all")
+				if validationErr != nil {
+					return errorResult(validationErr), nil
 				}
-				return next(ctx, method, req)
-			}
-			if params != nil && isKegCreationTool(params.Name) {
-				if err := g.authorizeKegCreation(sessionID); err != nil {
-					return errorResult(err), nil
+				if present {
+					return errorResult(errors.New(`validating "arguments": validating root: unexpected additional properties ["all"]`)), nil
 				}
-				return next(ctx, method, req)
 			}
-			g.calls.RLock()
-			defer g.calls.RUnlock()
+			selected, err := extractFlightArgument(params)
+			if err != nil {
+				return orientationFailureResult(fmt.Errorf("%w: %v", ErrOrientationDenied, err)), nil
+			}
+			var callOrientation *orientationContext
+			switch currentMode(current) {
+			case modeActive:
+				callOrientation, err = g.resolveCall(ctx, sessionID, selected)
+			case modeSelect:
+				if params.Name == "orient" {
+					if selected != "" {
+						return errorResult(errors.New("cannot select a flight before this connection has an active pinned root; call `session_refresh`, then `orient`")), nil
+					}
+					callOrientation = current
+				} else {
+					err = lockedError(current)
+				}
+			}
+			if err != nil {
+				return orientationFailureResult(err), nil
+			}
+			ctx = context.WithValue(ctx, orientationContextKey{}, callOrientation)
+			ctx = context.WithValue(ctx, graphDiscoveryContextKey{}, params.Name == "keg_list" && selected == "")
+			ctx = contextWithOrientation(ctx, callOrientation)
+			if isFlightMutationTool(params.Name) {
+				if err := g.authorizeMutation(ctx); err != nil {
+					return orientationFailureResult(err), nil
+				}
+			}
+			if isKegCreationTool(params.Name) {
+				if err := g.authorizeKegCreation(ctx); err != nil {
+					return orientationFailureResult(err), nil
+				}
+			}
+			return next(ctx, method, req)
 		}
 		if method == "resources/read" || method == "resources/subscribe" {
 			if params, ok := req.GetParams().(*sdkmcp.ReadResourceParams); ok && params.URI == orientResourceURI {
+				if currentMode(current) == modeActive {
+					resolved, err := g.resolveCall(ctx, sessionID, "")
+					if err != nil {
+						return nil, err
+					}
+					ctx = context.WithValue(ctx, orientationContextKey{}, resolved)
+					ctx = contextWithOrientation(ctx, resolved)
+				}
 				return next(ctx, method, req)
 			}
-			g.calls.RLock()
-			defer g.calls.RUnlock()
-			// Node resources are KEG reads, so bootstrap locks them exactly as
-			// it locks the KEG tools.
-			if g.mode(sessionID) != modeActive {
-				return nil, g.lockedError(sessionID)
+			if currentMode(current) != modeActive {
+				return nil, lockedError(current)
 			}
+			resolved, err := g.resolveCall(ctx, sessionID, "")
+			if err != nil {
+				return nil, err
+			}
+			ctx = context.WithValue(ctx, orientationContextKey{}, resolved)
+			ctx = contextWithOrientation(ctx, resolved)
 		}
 		return next(ctx, method, req)
+	}
+}
+
+func authorityBearingTool(name string) bool {
+	return name != "" && !ungovernedToolNames[name]
+}
+
+func toolArgumentPresent(params *sdkmcp.CallToolParamsRaw, name string) (bool, error) {
+	if params == nil || len(params.Arguments) == 0 {
+		return false, nil
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(params.Arguments, &object); err != nil {
+		return false, fmt.Errorf("tool arguments must be an object: %w", err)
+	}
+	_, ok := object[name]
+	return ok, nil
+}
+
+func extractFlightArgument(params *sdkmcp.CallToolParamsRaw) (string, error) {
+	if params == nil || len(params.Arguments) == 0 {
+		return "", nil
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(params.Arguments, &object); err != nil {
+		return "", fmt.Errorf("tool arguments must be an object: %w", err)
+	}
+	raw, ok := object["flight"]
+	if !ok {
+		return "", nil
+	}
+	var selected string
+	if err := json.Unmarshal(raw, &selected); err != nil {
+		return "", errors.New("flight must be a string")
+	}
+	delete(object, "flight")
+	clean, err := json.Marshal(object)
+	if err != nil {
+		return "", err
+	}
+	params.Arguments = clean
+	return strings.TrimSpace(selected), nil
+}
+
+func schemaWithFlight(schema any) any {
+	raw, err := json.Marshal(schema)
+	if err != nil {
+		return schema
+	}
+	var object map[string]any
+	if json.Unmarshal(raw, &object) != nil {
+		return schema
+	}
+	properties, _ := object["properties"].(map[string]any)
+	if properties == nil {
+		properties = map[string]any{}
+		object["properties"] = properties
+	}
+	properties["flight"] = map[string]any{
+		"type":        "string",
+		"description": "optional real flight available to current connection authority; omitted uses the connection-pinned authority",
+	}
+	return object
+}
+
+func orientationFailureResult(err error) *sdkmcp.CallToolResult {
+	if err == nil {
+		err = ErrOrientationStale
+	}
+	code := "ORIENTATION_STALE"
+	switch {
+	case errors.Is(err, ErrOrientationRootUnavailable):
+		code = "ORIENTATION_ROOT_UNAVAILABLE"
+	case errors.Is(err, ErrOrientationUnavailable):
+		code = "ORIENTATION_UNAVAILABLE"
+	case errors.Is(err, ErrOrientationDenied):
+		code = "ORIENTATION_DENIED"
+	}
+	return &sdkmcp.CallToolResult{
+		Content: []sdkmcp.Content{&sdkmcp.TextContent{Text: err.Error()}},
+		StructuredContent: map[string]any{
+			"code":               code,
+			"reorientRequired":   false,
+			"operationPerformed": false,
+		},
+		IsError: true,
+	}
+}
+
+func sessionRefreshFailureResult(current *orientationContext, err error) *sdkmcp.CallToolResult {
+	if err == nil {
+		err = errors.New("session refresh failed")
+	}
+	return &sdkmcp.CallToolResult{
+		Content: []sdkmcp.Content{&sdkmcp.TextContent{Text: "SESSION_REFRESH_FAILED: " + err.Error()}},
+		StructuredContent: map[string]any{
+			"code":         "SESSION_REFRESH_FAILED",
+			"mode":         sessionModeName(currentMode(current)),
+			"toolsChanged": false,
+		},
+		IsError: true,
+	}
+}
+
+func sessionModeName(mode sessionMode) string {
+	switch mode {
+	case modeActive:
+		return "active"
+	default:
+		return "recovery"
 	}
 }
 

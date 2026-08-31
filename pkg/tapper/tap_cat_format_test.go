@@ -32,14 +32,9 @@ func TestDescribeKeg(t *testing.T) {
 			want: "keg:@jlrickert/example (hub https://tapper-1-jlrickert.dev.foldwise.ai)",
 		},
 		{
-			name: "local keg shows ref without hub",
+			name: "ordinary local namespace shows ref without hub",
 			k:    kegWithTarget(&keg.Target{Namespace: "local", KegName: "example"}),
 			want: "keg:@local/example",
-		},
-		{
-			name: "file keg shows path",
-			k:    kegWithTarget(&keg.Target{File: "/home/me/kegs/notes"}),
-			want: "/home/me/kegs/notes",
 		},
 	}
 

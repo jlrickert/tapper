@@ -28,7 +28,7 @@ type bootstrapDefaultKegSelection struct {
 
 // BootstrapPrompter is the interactive surface of `tap bootstrap`.
 type BootstrapPrompter interface {
-	// SelectBootstrapKind chooses the cloud, local, or enterprise bootstrap path.
+	// SelectBootstrapKind chooses the cloud or enterprise bootstrap path.
 	SelectBootstrapKind() (string, error)
 	// PromptBootstrapEndpoint collects the enterprise hub endpoint URL.
 	PromptBootstrapEndpoint() (string, error)
@@ -73,7 +73,6 @@ func (huhAuthPrompter) SelectBootstrapKind() (string, error) {
 			Title("Where should your kegs live?").
 			Options(
 				huh.NewOption("Cloud - atlas.foldwise.ai", tapper.BootstrapKindCloud),
-				huh.NewOption("Local - this machine only", tapper.BootstrapKindLocal),
 				huh.NewOption("Enterprise - your own hub", tapper.BootstrapKindEnterprise),
 			).
 			Value(&kind),

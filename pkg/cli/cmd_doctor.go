@@ -9,7 +9,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var tagMissingRE = regexp.MustCompile(`^tag "(.+)" not documented in keg config$`)
+var tagMissingRE = regexp.MustCompile(`^tag "(.+)" not documented in keg settings$`)
 
 func NewDoctorCmd(deps *Deps) *cobra.Command {
 	var opts tapper.DoctorOptions

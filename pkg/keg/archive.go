@@ -16,21 +16,21 @@ import (
 	"time"
 )
 
-// Archive format identifiers. v3 adds optional keg config, optional keg schemas,
+// Archive format identifiers. v3 adds optional keg settings, optional keg schemas,
 // and stores file attachments under assets/ to match the on-disk/web node layout.
 const (
 	kegArchiveFormatV3 = "keg-archive/v3"
 )
 
 type archiveManifest struct {
-	Format      string                `json:"format"`
-	Source      string                `json:"source,omitempty"`
-	ExportedAt  time.Time             `json:"exported_at"`
-	WithHistory bool                  `json:"with_history,omitempty"`
-	WithConfig  bool                  `json:"with_config,omitempty"`
-	WithSchemas bool                  `json:"with_schemas,omitempty"`
-	Schemas     []string              `json:"schemas,omitempty"`
-	Nodes       []archiveManifestNode `json:"nodes"`
+	Format       string                `json:"format"`
+	Source       string                `json:"source,omitempty"`
+	ExportedAt   time.Time             `json:"exported_at"`
+	WithHistory  bool                  `json:"with_history,omitempty"`
+	WithSettings bool                  `json:"with_settings,omitempty"`
+	WithSchemas  bool                  `json:"with_schemas,omitempty"`
+	Schemas      []string              `json:"schemas,omitempty"`
+	Nodes        []archiveManifestNode `json:"nodes"`
 }
 
 type archiveManifestNode struct {
@@ -115,26 +115,26 @@ func (k *LocalKeg) exportNodes(ctx context.Context, opts ExportNodesOptions) (io
 func (k *LocalKeg) writeArchive(ctx context.Context, w io.Writer, ids []NodeId, snapshotRepo RepositorySnapshots, opts ExportNodesOptions) error {
 	gz := gzip.NewWriter(w)
 	tw := tar.NewWriter(gz)
-	withConfig := len(opts.NodeIDs) == 0 && strings.TrimSpace(opts.Query) == "" && !opts.SkipZeroNode
+	withSettings := len(opts.NodeIDs) == 0 && strings.TrimSpace(opts.Query) == "" && !opts.SkipZeroNode
 
 	manifest := archiveManifest{
-		Format:      kegArchiveFormatV3,
-		Source:      opts.Source,
-		ExportedAt:  k.Runtime.Clock().Now().UTC(),
-		WithHistory: opts.WithHistory,
-		WithConfig:  withConfig,
+		Format:       kegArchiveFormatV3,
+		Source:       opts.Source,
+		ExportedAt:   k.Runtime.Clock().Now().UTC(),
+		WithHistory:  opts.WithHistory,
+		WithSettings: withSettings,
 	}
 
-	if withConfig {
-		cfg, err := k.Repo.ReadConfig(ctx)
+	if withSettings {
+		cfg, err := k.Repo.ReadSettings(ctx)
 		if err != nil {
-			return fmt.Errorf("unable to read keg config for archive: %w", err)
+			return fmt.Errorf("unable to read keg settings for archive: %w", err)
 		}
-		rawConfig, err := cfg.ToYAML()
+		rawSettings, err := cfg.ToYAML()
 		if err != nil {
-			return fmt.Errorf("unable to encode keg config for archive: %w", err)
+			return fmt.Errorf("unable to encode keg settings for archive: %w", err)
 		}
-		if err := writeTarFile(tw, "keg-archive/keg.yaml", rawConfig); err != nil {
+		if err := writeTarFile(tw, "keg-archive/keg.yaml", rawSettings); err != nil {
 			return err
 		}
 		if err := k.writeArchiveSchemas(ctx, tw, &manifest); err != nil {
@@ -323,7 +323,7 @@ func (k *LocalKeg) writeArchiveHistory(ctx context.Context, tw *tar.Writer, base
 
 // ImportNodes loads a keg-archive stream into the keg. Nodes land on their
 // archive ids, replacing existing nodes (whose assets are preserved unless the
-// archive carries its own). Derived state (dex, config updated stamp) is
+// archive carries its own). Derived state (dex, settings updated stamp) is
 // rebuilt once after all nodes import.
 func (k *LocalKeg) ImportNodes(ctx context.Context, r io.Reader, opts ImportNodesOptions) ([]ImportedNode, error) {
 	return withKegAtomicWriteValue(ctx, k, func(ctx context.Context) ([]ImportedNode, error) {
@@ -398,13 +398,13 @@ func (k *LocalKeg) importNodes(ctx context.Context, r io.Reader, opts ImportNode
 		manifestNodes[node.SourceID] = node
 	}
 
-	if manifest.WithConfig {
-		rawConfig, err := readRequiredArchiveEntry(entries, "keg-archive/keg.yaml")
+	if manifest.WithSettings {
+		rawSettings, err := readRequiredArchiveEntry(entries, "keg-archive/keg.yaml")
 		if err != nil {
-			return nil, fmt.Errorf("archive missing keg config: %w", err)
+			return nil, fmt.Errorf("archive missing keg settings: %w", err)
 		}
-		if _, err := ParseKegConfigStrict(rawConfig); err != nil {
-			return nil, fmt.Errorf("archive keg config is invalid: %w", err)
+		if _, err := ParseKegSettingsStrict(rawSettings); err != nil {
+			return nil, fmt.Errorf("archive keg settings is invalid: %w", err)
 		}
 	}
 	if err := validateArchiveAssetEntries(entries); err != nil {
@@ -536,21 +536,21 @@ func (k *LocalKeg) importNodes(ctx context.Context, r io.Reader, opts ImportNode
 			return nil, err
 		}
 	}
-	if manifest.WithConfig {
-		rawConfig, err := readRequiredArchiveEntry(entries, "keg-archive/keg.yaml")
+	if manifest.WithSettings {
+		rawSettings, err := readRequiredArchiveEntry(entries, "keg-archive/keg.yaml")
 		if err != nil {
-			return nil, fmt.Errorf("archive missing keg config: %w", err)
+			return nil, fmt.Errorf("archive missing keg settings: %w", err)
 		}
-		if err := k.SetConfig(ctx, rawConfig); err != nil {
-			return nil, fmt.Errorf("unable to restore keg config after import: %w", err)
+		if err := k.replaceSettings(ctx, rawSettings); err != nil {
+			return nil, fmt.Errorf("unable to restore keg settings after import: %w", err)
 		}
 	}
 	if err := k.rebuildDexFromRepo(ctx); err != nil {
 		return nil, err
 	}
-	if !manifest.WithConfig {
-		if err := k.touchConfigUpdated(ctx, k.Runtime.Clock().Now()); err != nil {
-			return nil, fmt.Errorf("unable to update keg config after import: %w", err)
+	if !manifest.WithSettings {
+		if err := k.touchSettingsUpdated(ctx, k.Runtime.Clock().Now()); err != nil {
+			return nil, fmt.Errorf("unable to update keg settings after import: %w", err)
 		}
 	}
 

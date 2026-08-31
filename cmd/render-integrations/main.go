@@ -21,7 +21,7 @@ import (
 	_ "github.com/jlrickert/tapper/pkg/integrations/adapters"
 
 	// renderdata supplies host-specific canonical-source bytes (plugin hook
-	// manifests today) that must NOT ship inside the cmd/tap or cmd/keg
+	// manifests today) that must NOT ship inside cmd/tap
 	// binaries. Only this command imports it; the overlay below merges
 	// it onto the markdown-only canonical tree before adapter dispatch.
 	"github.com/jlrickert/tapper/pkg/integrations/renderdata"

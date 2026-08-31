@@ -150,6 +150,16 @@ func (k *LocalKeg) loadTimelineSnapshotStates(ctx context.Context) ([]timelineSn
 		}
 		for _, snap := range nodeSnapshots {
 			loaded, content, meta, stats, err := snapshots.GetSnapshot(ctx, id, snap.ID, SnapshotReadOptions{ResolveContent: true})
+			if err != nil && errors.Is(err, ErrConflict) {
+				if unchecked, ok := k.Repo.(interface {
+					readContentAtUnchecked(context.Context, NodeId, RevisionID) ([]byte, error)
+				}); ok {
+					loaded, _, meta, stats, err = snapshots.GetSnapshot(ctx, id, snap.ID, SnapshotReadOptions{})
+					if err == nil {
+						content, err = unchecked.readContentAtUnchecked(ctx, id, snap.ID)
+					}
+				}
+			}
 			if err != nil {
 				return nil, fmt.Errorf("read snapshot node %s rev %d: %w", id.Path(), snap.ID, err)
 			}

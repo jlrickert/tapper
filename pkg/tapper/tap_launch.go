@@ -54,12 +54,24 @@ var providerKeyEnv = map[string][]string{
 	ProviderOllama:    {"OPENAI_API_KEY", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"},
 }
 
+// noLaunchFlightWarning is emitted when a launch resolves no root. The session
+// is not unauthorized — it inherits exactly the identity's own access — but that
+// is broader than a flight, so say which authority is in play and how to narrow
+// it rather than letting the reader infer either.
+const noLaunchFlightWarning = "no flight configured; this agent runs with " +
+	"identity-authorized full access to every KEG you can reach. Create a flight " +
+	"and set `flight:` in Tapper configuration to restrict it."
+
 // LaunchOptions configures behavior for Tap.Launch.
 type LaunchOptions struct {
 	// Harness names the agent CLI to start: claude, codex, or pi.
 	Harness string
-	// Agent names an entry in the config's agents map.
+	// Agent names an entry in the config's agents map. Empty falls back to the
+	// config's agent key (which TAP_AGENT also feeds).
 	Agent string
+	// Flight is the explicit launch root. Empty falls back through TAP_FLIGHT,
+	// project configuration, and user configuration.
+	Flight string
 	// DryRun resolves and reports the invocation without executing it.
 	DryRun bool
 	// Args are extra arguments appended to the harness invocation.
@@ -71,9 +83,12 @@ type LaunchOptions struct {
 // from it. Neither contains a secret value — a forwarded key is reported by the
 // variable it came from.
 //
-// Flight is what the agent points at right now, reported for the operator's
-// benefit. It is not what gets exported: the child resolves the flight itself
-// from TAP_AGENT, so this value can go stale the moment the config changes.
+// Flight is the canonical connection-pinned Hub-backed root exported to the
+// child as TAP_FLIGHT. It is empty when no flight is configured; the harness
+// then runs under no-flight identity authority and Warnings says so.
+//
+// Warnings are returned rather than printed so a dry run and a real run report
+// the same thing — see ResolveLaunch.
 type LaunchResult struct {
 	Harness   string
 	Agent     string
@@ -86,6 +101,7 @@ type LaunchResult struct {
 	Env       map[string]string
 	StripEnv  []string
 	KeySource string
+	Warnings  []string
 }
 
 // launchSpec is one resolved agent, handed to a harness builder.
@@ -290,20 +306,59 @@ func (t *Tap) ResolveLaunch(opts LaunchOptions) (*LaunchResult, error) {
 			opts.Harness, strings.Join(LaunchHarnesses(), ", "))
 	}
 
-	agentName := strings.TrimSpace(opts.Agent)
-	if agentName == "" {
-		return nil, fmt.Errorf("an agent is required: pass --agent")
-	}
 	cfg, err := t.ConfigService.Config()
 	if err != nil {
 		return nil, err
+	}
+	// --agent wins; otherwise fall back to the config's agent key, which
+	// TAP_AGENT also feeds. This mirrors ActiveFlightName's explicit-then-config
+	// resolution used for the launch root just below. Reading the fallback off
+	// the same cfg snapshot as the lookup keeps the two from drifting.
+	agentName := strings.TrimSpace(opts.Agent)
+	if agentName == "" {
+		agentName = cfg.AgentName()
+	}
+	if agentName == "" {
+		return nil, fmt.Errorf(
+			"an agent is required (pass --agent, or set agent in Tapper configuration or TAP_AGENT)")
 	}
 	agent, ok := cfg.Agent(agentName)
 	if !ok {
 		return nil, fmt.Errorf("unknown agent %q (configured: %s)",
 			agentName, strings.Join(configuredAgentNames(cfg), ", "))
 	}
-
+	// A launch root is optional. Without one the child runs under no-flight
+	// identity authority — the same state bare `tap mcp` and hosted /mcp reach —
+	// which is what makes bootstrapping possible: you cannot be required to
+	// select a flight in order to launch the session that creates your first one.
+	// There is nothing to validate in that case, and no namespace to resolve a
+	// hub from; the child discovers across every configured hub itself.
+	var (
+		root     FlightRef
+		hasRoot  bool
+		warnings []string
+	)
+	if rootRef := strings.TrimSpace(t.ActiveFlightName(opts.Flight)); rootRef != "" {
+		parsed, err := ParseFlightRef(rootRef, defaultFlightNamespace(cfg))
+		if err != nil {
+			return nil, fmt.Errorf("resolve launch flight %q: %w", rootRef, err)
+		}
+		if parsed.Namespace == "" {
+			return nil, fmt.Errorf("tap launch requires a canonical Hub-backed root flight; %q has no namespace", rootRef)
+		}
+		hubName := cfg.resolveHubForNamespace(parsed.Namespace)
+		hub, ok := cfg.Hub(hubName)
+		if !ok {
+			return nil, fmt.Errorf("resolve launch flight %q: hub %q is not configured", rootRef, hubName)
+		}
+		kind := hubKindOrDefault(hub.Kind)
+		if kind != HubKindRemote && kind != HubKindReadonly {
+			return nil, fmt.Errorf("resolve launch flight %q: hub %q has unsupported kind %q", rootRef, hubName, kind)
+		}
+		root, hasRoot = parsed, true
+	} else {
+		warnings = append(warnings, noLaunchFlightWarning)
+	}
 	provider, model, err := ParseAgentModel(agent.Model)
 	if err != nil {
 		return nil, fmt.Errorf("agent %q: %w", agentName, err)
@@ -353,13 +408,16 @@ func (t *Tap) ResolveLaunch(opts LaunchOptions) (*LaunchResult, error) {
 	if env == nil {
 		env = map[string]string{}
 	}
-	// Export the agent, not the flight it currently resolves to. The launched
-	// process looks up agents[TAP_AGENT].flight on every config load, so editing
-	// the agent's flight and re-orienting moves a running session. Exporting
-	// TAP_FLIGHT here instead would pin the value into an environment that
-	// cannot be changed after exec, leaving the session stuck on whatever the
-	// flight was at launch no matter what the config later said.
+	// TAP_AGENT is model selection and telemetry only. TAP_FLIGHT pins the
+	// canonical launch root for the child process lifetime; governed calls may
+	// select a live accessible descendant but never replace that root. It is
+	// left unset when no flight is configured, which is exactly how the child's
+	// `tap mcp` decides it is not launcher-bound and resolves identity authority
+	// instead (see cmd_mcp.go).
 	env["TAP_AGENT"] = agentName
+	if hasRoot {
+		env["TAP_FLIGHT"] = root.Canonical()
+	}
 
 	// Subscription mode has to remove inherited credentials, which an overlay
 	// cannot express: appending can override a variable but never unset one.
@@ -373,18 +431,23 @@ func (t *Tap) ResolveLaunch(opts LaunchOptions) (*LaunchResult, error) {
 		sort.Strings(strip)
 	}
 
+	flight := ""
+	if hasRoot {
+		flight = root.Canonical()
+	}
 	return &LaunchResult{
 		Harness:   harness,
 		Agent:     agentName,
 		Provider:  provider,
 		Model:     model,
 		BaseURL:   baseURL,
-		Flight:    strings.TrimSpace(agent.Flight),
+		Flight:    flight,
 		Auth:      auth,
 		Argv:      argv,
 		Env:       env,
 		StripEnv:  strip,
 		KeySource: keySource,
+		Warnings:  warnings,
 	}, nil
 }
 
@@ -449,10 +512,21 @@ func (t *Tap) resolveAPIKey(agent AgentEntry, auth string) (key, source string, 
 // Launch resolves the agent and starts the harness, wiring it to the runtime's
 // streams so it runs interactively. With DryRun set it resolves and returns
 // without executing.
+//
+// Warnings are written to stderr here, before the harness takes the terminal.
+// Reporting them from the returned result would be too late: Launch does not
+// return until the agent session has ended, so the reader would learn what
+// authority the session had only after it was over. Stderr also keeps them clear
+// of a piped dry-run report.
 func (t *Tap) Launch(ctx context.Context, opts LaunchOptions) (*LaunchResult, error) {
 	resolved, err := t.ResolveLaunch(opts)
 	if err != nil {
 		return nil, err
+	}
+	if stream := t.Runtime.Stream(); stream != nil && stream.Err != nil {
+		for _, warning := range resolved.Warnings {
+			fmt.Fprintln(stream.Err, "warning: "+warning)
+		}
 	}
 	if opts.DryRun {
 		return resolved, nil

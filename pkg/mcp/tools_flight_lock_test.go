@@ -40,7 +40,7 @@ func TestMCP_DefaultFlightRestrictsKegs(t *testing.T) {
 	require.Contains(t, blockedText, `keg "@local/private" is not available in flight`)
 }
 
-func TestMCP_InjectedToolFlightCannotOverrideSessionGate(t *testing.T) {
+func TestMCP_OutsideToolFlightCannotOverridePinnedRoot(t *testing.T) {
 	t.Parallel()
 	session, ctx, privateID := newFlightLockedSession(t)
 
@@ -55,7 +55,7 @@ func TestMCP_InjectedToolFlightCannotOverrideSessionGate(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.True(t, res.IsError)
-	require.Contains(t, extractText(t, res), "unexpected additional properties")
+	require.Contains(t, extractText(t, res), "ORIENTATION_DENIED")
 
 	covered, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
 		Name: "cat",
@@ -95,45 +95,18 @@ func newFlightLockedSession(t *testing.T) (*sdkmcp.ClientSession, context.Contex
 	sb := newTestSandbox(t)
 	require.NoError(t, sb.Setwd("/home/testuser"))
 	rt := sb.Runtime()
-	sb.MustWriteFile("~/.config/tapper/config.yaml", []byte(`defaultKeg: personal
-fallbackNamespace: local
-hubs:
-  home:
-    kind: local
-    defaultNamespace: local
-    basePath: ~/kegs
-`), 0o644)
-
-	tap, err := tapper.NewTap(tapper.TapOptions{Runtime: rt})
-	require.NoError(t, err)
-
-	_, err = tap.InitKeg(ctx, tapper.InitOptions{Keg: "private", Namespace: "local"})
-	require.NoError(t, err)
-	require.NoError(t, tap.CreateSchema(ctx, tapper.SchemaOptions{
-		KegTargetOptions: tapper.KegTargetOptions{Keg: "private"},
-		Data:             []byte("type: note\n"),
-	}))
-	privateID, err := tap.Create(ctx, tapper.CreateOptions{
-		KegTargetOptions: tapper.KegTargetOptions{Keg: "private"},
-		Title:            "Private",
-		Attrs:            map[string]string{"type": "note"},
+	hub := installOrientationTestHub(t, rt)
+	writeUserFlight(t, rt, "")
+	tap := newMemoryTap(t, ctx, rt)
+	privateID := "1"
+	hub.putFlight(tapper.HubFlight{
+		Namespace: "local", Slug: "focused", Title: "Focused", Visibility: tapper.FlightVisibilityPrivate,
+		Cover: []tapper.HubFlightCover{{Namespace: "local", Keg: "personal", Role: "viewer"}},
 	})
-	require.NoError(t, err)
-
-	focused := `title: Focused
-cover:
-  - namespace: local
-    keg: personal
-    role: viewer
-`
-	other := `title: Other
-cover:
-  - namespace: local
-    keg: private
-    role: viewer
-`
-	require.NoError(t, rt.AtomicWriteFile("/home/testuser/kegs/flights.d/focused.yaml", []byte(focused), 0o644))
-	require.NoError(t, rt.AtomicWriteFile("/home/testuser/kegs/flights.d/other.yaml", []byte(other), 0o644))
+	hub.putFlight(tapper.HubFlight{
+		Namespace: "local", Slug: "other", Title: "Other", Visibility: tapper.FlightVisibilityPrivate,
+		Cover: []tapper.HubFlightCover{{Namespace: "local", Keg: "private", Role: "viewer"}},
+	})
 
 	srv := mcp.NewServer(tap, "test", mcp.KegDefaults{
 		KegTargetOptions: tapper.KegTargetOptions{Flight: "+focused"},
@@ -157,5 +130,5 @@ cover:
 		session.Close()
 	})
 
-	return session, ctx, privateID.PathNumeric()
+	return session, ctx, privateID
 }

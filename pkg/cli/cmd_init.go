@@ -1,295 +1,89 @@
 package cli
 
 import (
-	"bufio"
-	"errors"
 	"fmt"
-	"io"
-	"path/filepath"
 	"strings"
 
 	"github.com/jlrickert/tapper/pkg/tapper"
 	"github.com/spf13/cobra"
 )
 
-// newKegCreateCmd returns the `tap keg create` cobra subcommand — the canonical
-// keg-creation command (formerly `tap init`).
-//
-// Usage examples:
-//
-//	tap keg create --keg blog
-//	tap keg create --project
-//	tap keg create --keg blog --cwd
-//	tap keg create --keg blog --hub knut --namespace me
-//	tap keg create --keg blog --path ./kegs/blog --title "Blog" --creator "me"
+// newKegCreateCmd returns the hub-only `tap keg create` command.
 func newKegCreateCmd(deps *Deps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "create [name | @namespace/name]",
-		Short: "create and initialize a new keg",
-		Long: strings.TrimSpace(`
-Create a keg target and initialize it in one of three destinations:
-
-1. user (default)
-   Creates a filesystem-backed keg on the local hub at <basePath>/@local/<alias>
-   (the local hub's basePath, or the platform default when unset) and
-   writes/updates the alias in user config.
-
-2. local (--project, --cwd, or --path)
-   Creates a local filesystem-backed keg. By default this resolves to
-   <project>/kegs/<alias>,
-   where <project> is the git root when available. Use --cwd to base it on the
-   current working directory instead, or use --path to set an explicit
-   location. --path implies a local destination even when --project is not
-   passed.
-
-3. hub (--hub <name>)
-   Creates a hub/API keg target named <name> and stores it in config without
-   creating local keg files. The hub name is required when --hub is used.
-
-Alias behavior:
-- --keg sets the alias written to config and the directory name.
-- If --keg is omitted, alias is inferred from the current working directory basename.
-
-Metadata:
-- --title and --creator are written into the keg config for filesystem-backed kegs.
-
-Interactive mode:
-- When stdin is a TTY and no destination/alias flags are provided, tap keg create
-  prompts for the alias, location category, title, and creator. Pass
-  --non-interactive to skip the prompt and rely on flag-driven defaults
-  (e.g. for CI or scripted invocations).
-`),
+		Short: "create a new KEG on a configured hub",
+		Long:  "Create a KEG through the configured Tapper Hub. Filesystem destinations are not supported.",
 		Example: strings.TrimSpace(`
-tap keg create --keg blog
-tap keg create --project --cwd
-tap keg create --keg blog --cwd
-tap keg create --keg blog --path ./kegs/blog
-tap keg create --keg blog --user
-tap keg create --keg blog --hub knut --namespace me
+tap keg create notes
+tap keg create @acme/engineering --title "Engineering"
+tap keg create notes --hub enterprise --namespace alice
 `),
 	}
 	configureKegCreateCmd(deps, cmd)
 	return cmd
 }
 
-// newInitCompatCmd is a hidden top-level alias preserving `tap init` for
-// back-compat. `tap keg create` is the canonical, documented command.
-func newInitCompatCmd(deps *Deps) *cobra.Command {
-	cmd := &cobra.Command{
-		Use:    "init [name | @namespace/name]",
-		Short:  "create a new keg (deprecated alias for `keg create`)",
-		Hidden: true,
-	}
-	configureKegCreateCmd(deps, cmd)
-	return cmd
-}
-
-// configureKegCreateCmd wires the shared keg-creation flags + RunE onto cmd so
-// the canonical `keg create` and the hidden `init` alias behave identically.
 func configureKegCreateCmd(deps *Deps, cmd *cobra.Command) {
-	initOpts := tapper.InitOptions{}
+	options := tapper.InitOptions{}
 	cmd.Args = cobra.MaximumNArgs(1)
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
-		// The full `tap` surface requires `tap bootstrap` before a namespace/hub
-		// create; explicit local destinations stay exempt.
-		initOpts.RequireBootstrap = deps.Profile.withDefaults().IncludeConfigCommand
-
-		// A positional argument names the keg, optionally namespace-qualified
-		// as "@namespace/name". An explicit --namespace flag still overrides
-		// the parsed namespace.
+		options.RequireBootstrap = deps.Profile.withDefaults().IncludeConfigCommand
 		if len(args) == 1 {
-			ns, name, parseErr := parseKegArg(args[0])
-			if parseErr != nil {
-				return parseErr
+			namespace, name, err := parseKegArg(args[0])
+			if err != nil {
+				return err
 			}
-			if name != "" {
-				initOpts.Keg = name
-			}
-			if ns != "" && strings.TrimSpace(initOpts.Namespace) == "" {
-				initOpts.Namespace = ns
+			options.Keg = name
+			if options.Namespace == "" {
+				options.Namespace = namespace
 			}
 		}
-
-		// A non-local create needs configured hubs. Surface the bootstrap
-		// guidance up front rather than prompting for an alias/location and then
-		// failing. Explicit local destinations (--project/--cwd/--path) bypass.
-		if initOpts.RequireBootstrap && !initOpts.LocalDestination() &&
-			deps.Tap != nil && !deps.Tap.ConfigService.UserConfigExists() {
+		if strings.TrimSpace(options.Keg) == "" {
+			return fmt.Errorf("KEG name is required")
+		}
+		if options.RequireBootstrap && deps.Tap != nil && !deps.Tap.ConfigService.UserConfigExists() {
 			return tapper.ErrNotBootstrapped
 		}
 
-		if shouldPromptInit(deps, &initOpts) {
-			if err := promptInitOptions(cmd, deps, &initOpts); err != nil {
-				return err
-			}
-		}
-
-		if strings.TrimSpace(initOpts.Keg) == "" {
-			cwd, err := deps.Runtime.Getwd()
-			if err != nil {
-				return fmt.Errorf("unable to determine working directory for alias inference: %w", err)
-			}
-			initOpts.Keg = filepath.Base(cwd)
-		}
-
-		target, err := deps.Tap.InitKeg(cmd.Context(), initOpts)
+		target, err := deps.Tap.InitKeg(cmd.Context(), options)
 		if err != nil {
 			return err
 		}
-
-		// Report what was created and, crucially, where it landed — a bare
-		// "created" with no location is what made unconfigured creates feel like
-		// nothing happened.
-		msg := fmt.Sprintf("keg %s created", initOpts.Keg)
+		message := fmt.Sprintf("keg %s created", options.Keg)
 		if label := tapper.KegBackendLabel(target); label != "" {
-			msg += fmt.Sprintf(" (%s)", label)
+			message += fmt.Sprintf(" (%s)", label)
 		}
-		if loc := tapper.KegLocation(target); loc != "" {
-			msg += " " + loc
+		if location := tapper.KegLocation(target); location != "" {
+			message += " " + location
 		}
-		_, err = fmt.Fprintln(cmd.OutOrStdout(), msg)
+		_, err = fmt.Fprintln(cmd.OutOrStdout(), message)
 		return err
 	}
 
-	cmd.Flags().BoolVar(&initOpts.Project, "project", false, "create a project-local keg")
-	cmd.Flags().BoolVar(&initOpts.User, "user", false, "create a user keg on the local hub at <basePath>/@local/<alias>")
-	cmd.Flags().StringVar(&initOpts.Hub, "hub", "", "hub name (selects API-style hub target when set)")
-	cmd.Flags().BoolVar(&initOpts.Cwd, "cwd", false, "use cwd instead of git root for local destination resolution")
-	cmd.Flags().StringVar(&initOpts.Path, "path", "", "explicit local destination path; implies local mode")
-	cmd.Flags().StringVar(&initOpts.Namespace, "namespace", "", "namespace the keg belongs to (overrides @namespace/ and config resolution)")
-	cmd.Flags().StringVarP(&initOpts.Keg, "keg", "k", "", "alias of keg to add to config")
-	cmd.Flags().StringVar(&initOpts.Title, "title", "", "human title to write into the keg config")
-	cmd.Flags().StringVar(&initOpts.Creator, "creator", "", "creator identifier to include in the keg config")
-	cmd.Flags().StringVar(&initOpts.TokenEnv, "token-env", "", "environment variable name to store token reference (API targets)")
-	cmd.Flags().BoolVar(&initOpts.NonInteractive, "non-interactive", false, "skip the interactive prompt even when stdin is a TTY")
+	cmd.Flags().StringVar(&options.Hub, "hub", "", "configured hub name")
+	cmd.Flags().StringVar(&options.Namespace, "namespace", "", "namespace the KEG belongs to")
+	cmd.Flags().StringVarP(&options.Keg, "keg", "k", "", "KEG name")
+	cmd.Flags().StringVar(&options.Title, "title", "", "human-readable KEG title")
+	cmd.Flags().StringVar(&options.Visibility, "visibility", "", "KEG visibility: private or public")
 }
 
-// parseKegArg splits an init positional argument into an optional namespace and
-// a keg name. Forms: "name" → ("", "name"); "@namespace/name" → ("namespace",
-// "name"). A bare "name" containing "/" (without the @ sigil) is rejected so a
-// path-like typo doesn't silently become a keg name.
 func parseKegArg(arg string) (namespace, name string, err error) {
 	arg = strings.TrimSpace(arg)
 	if arg == "" {
 		return "", "", nil
 	}
 	if strings.HasPrefix(arg, "@") {
-		ns, n, ok := strings.Cut(strings.TrimPrefix(arg, "@"), "/")
-		ns = strings.TrimSpace(ns)
-		n = strings.TrimSpace(n)
-		if !ok || ns == "" || n == "" {
-			return "", "", fmt.Errorf("invalid keg reference %q: expected @namespace/name", arg)
+		namespace, name, ok := strings.Cut(strings.TrimPrefix(arg, "@"), "/")
+		namespace = strings.TrimSpace(namespace)
+		name = strings.TrimSpace(name)
+		if !ok || namespace == "" || name == "" {
+			return "", "", fmt.Errorf("invalid KEG reference %q: expected @namespace/name", arg)
 		}
-		return ns, n, nil
+		return namespace, name, nil
 	}
 	if strings.Contains(arg, "/") {
-		return "", "", fmt.Errorf("invalid keg name %q: use @namespace/name to qualify a namespace", arg)
+		return "", "", fmt.Errorf("invalid KEG name %q: use @namespace/name to qualify a namespace", arg)
 	}
 	return "", arg, nil
-}
-
-// shouldPromptInit reports whether the cobra RunE handler should fire the
-// interactive keg-create prompt. The prompt is gated on three conditions:
-// stdin is a TTY, --non-interactive is not set, and the user has supplied no
-// destination flags or alias on the command line. Any explicit flag means the
-// user has already declared their intent; only the bare invocation triggers the
-// conversational path.
-func shouldPromptInit(deps *Deps, opts *tapper.InitOptions) bool {
-	if deps == nil || deps.Runtime == nil {
-		return false
-	}
-	if !deps.Runtime.Stream().IsTTY {
-		return false
-	}
-	if opts.NonInteractive {
-		return false
-	}
-	if opts.User || opts.Project || opts.Cwd {
-		return false
-	}
-	if strings.TrimSpace(opts.Path) != "" || strings.TrimSpace(opts.Hub) != "" {
-		return false
-	}
-	if strings.TrimSpace(opts.Keg) != "" {
-		return false
-	}
-	return true
-}
-
-// promptInitOptions walks the user through alias / location / metadata when keg
-// create is invoked bare on a TTY. Prompts go to stderr (so stdout stays clean
-// for the success line that downstream tooling may pipe), and answers come from
-// cmd.InOrStdin() so tests can pipe scripted answers via Process.RunWithIO.
-//
-// The hub branch is intentionally skipped: hub init still requires the user
-// to pass --hub explicitly, since hub setup needs a namespace + token and the
-// terse prompt is not the right place to teach that flow.
-func promptInitOptions(cmd *cobra.Command, deps *Deps, opts *tapper.InitOptions) error {
-	reader := bufio.NewReader(cmd.InOrStdin())
-	stderr := cmd.ErrOrStderr()
-
-	defaultAlias := ""
-	if deps != nil && deps.Runtime != nil {
-		if cwd, err := deps.Runtime.Getwd(); err == nil && cwd != "" {
-			defaultAlias = filepath.Base(cwd)
-		}
-	}
-
-	alias, err := promptLine(stderr, reader, fmt.Sprintf("keg alias [%s]: ", defaultAlias))
-	if err != nil {
-		return err
-	}
-	if alias == "" {
-		alias = defaultAlias
-	}
-	if err := tapper.ValidateKegAlias(alias); err != nil {
-		return err
-	}
-	opts.Keg = alias
-
-	location, err := promptLine(stderr, reader, "location [user/project] (default user): ")
-	if err != nil {
-		return err
-	}
-	switch strings.ToLower(strings.TrimSpace(location)) {
-	case "", "user", "u":
-		opts.User = true
-	case "project", "p":
-		opts.Project = true
-	default:
-		return fmt.Errorf("invalid location %q: expected user or project", location)
-	}
-
-	title, err := promptLine(stderr, reader, "title (optional): ")
-	if err != nil {
-		return err
-	}
-	if title != "" {
-		opts.Title = title
-	}
-
-	creator, err := promptLine(stderr, reader, "creator (optional): ")
-	if err != nil {
-		return err
-	}
-	if creator != "" {
-		opts.Creator = creator
-	}
-
-	return nil
-}
-
-// promptLine writes prompt to w, reads a single line from r, and returns the
-// trimmed answer. Treats io.EOF as a terminating empty answer so a piped
-// stdin that closes after fewer responses than prompts behaves as if each
-// remaining prompt accepted its default.
-func promptLine(w io.Writer, r *bufio.Reader, prompt string) (string, error) {
-	if _, err := fmt.Fprint(w, prompt); err != nil {
-		return "", err
-	}
-	line, err := r.ReadString('\n')
-	if err != nil && !errors.Is(err, io.EOF) {
-		return "", err
-	}
-	return strings.TrimSpace(line), nil
 }

@@ -9,16 +9,17 @@ import (
 
 // Sentinel errors used for simple equality-style checks.
 var (
-	ErrInvalid       = os.ErrInvalid    // invalid argument
-	ErrExist         = os.ErrExist      // file already exists
-	ErrNotExist      = os.ErrNotExist   // file does not exist
-	ErrPermission    = os.ErrPermission // permission denied
-	ErrParse         = errors.New("unable to parse")
-	ErrConflict      = errors.New("conflict")
-	ErrQuotaExceeded = errors.New("quota exceeded")
-	ErrRateLimited   = errors.New("rate limited")
-	ErrNotSupported  = errors.New("not supported")
-	ErrSchemaInvalid = errors.New("schema validation failed")
+	ErrInvalid              = os.ErrInvalid    // invalid argument
+	ErrExist                = os.ErrExist      // file already exists
+	ErrNotExist             = os.ErrNotExist   // file does not exist
+	ErrPermission           = os.ErrPermission // permission denied
+	ErrParse                = errors.New("unable to parse")
+	ErrConflict             = errors.New("conflict")
+	ErrPreconditionRequired = errors.New("precondition required")
+	ErrQuotaExceeded        = errors.New("quota exceeded")
+	ErrRateLimited          = errors.New("rate limited")
+	ErrNotSupported         = errors.New("not supported")
+	ErrSchemaInvalid        = errors.New("schema validation failed")
 
 	// ErrInvalidAssetName is returned when a node asset name is not a single safe
 	// path component (empty, ".", "..", contains a path separator, or absolute).
@@ -48,6 +49,24 @@ var (
 	ErrKegLockUpgrade = errors.New("cannot upgrade keg read boundary to write")
 )
 
+// PreconditionConflictError reports an optimistic-concurrency conflict while
+// preserving the current representation needed to recover and retry. It
+// unwraps to ErrConflict so existing conflict checks continue to work.
+type PreconditionConflictError struct {
+	Resource       string
+	CurrentHash    string
+	CurrentContent []byte
+}
+
+func (e *PreconditionConflictError) Error() string {
+	if e == nil || e.Resource == "" {
+		return "write precondition failed: " + ErrConflict.Error()
+	}
+	return fmt.Sprintf("write precondition failed for %s: %s", e.Resource, ErrConflict)
+}
+
+func (e *PreconditionConflictError) Unwrap() error { return ErrConflict }
+
 // AliasNotFoundError is a typed error that carries the missing alias for callers
 // that need richer diagnostic information.
 type AliasNotFoundError struct {
@@ -61,27 +80,27 @@ func NewAliasNotFoundError(alias string) error {
 	return &AliasNotFoundError{Alias: alias}
 }
 
-// InvalidConfigError represents a validation or parse failure for tapper config.
-type InvalidConfigError struct {
+// InvalidSettingsError represents a validation or parse failure for keg settings.
+type InvalidSettingsError struct {
 	Msg string
 }
 
-func (e *InvalidConfigError) Error() string {
+func (e *InvalidSettingsError) Error() string {
 	if e.Msg == "" {
-		return "invalid tapper config"
+		return "invalid keg settings"
 	}
-	return fmt.Sprintf("invalid tapper config: %s", e.Msg)
+	return fmt.Sprintf("invalid keg settings: %s", e.Msg)
 }
 
-func (e *InvalidConfigError) Unwrap() error { return ErrInvalid }
+func (e *InvalidSettingsError) Unwrap() error { return ErrInvalid }
 
-// NewInvalidConfigError creates an InvalidConfigError with a human message.
-func NewInvalidConfigError(msg string) error {
-	return &InvalidConfigError{Msg: msg}
+// NewInvalidSettingsError creates an InvalidSettingsError with a human message.
+func NewInvalidSettingsError(msg string) error {
+	return &InvalidSettingsError{Msg: msg}
 }
 
-// IsInvalidConfig reports whether err is (or wraps) an invalid-config condition.
-func IsInvalidConfig(err error) bool {
+// IsInvalidSettings reports whether err is (or wraps) an invalid-settings condition.
+func IsInvalidSettings(err error) bool {
 	return errors.Is(err, ErrInvalid)
 }
 

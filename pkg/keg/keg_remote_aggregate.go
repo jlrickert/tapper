@@ -102,13 +102,6 @@ func (k *RemoteKeg) RelatedNodes(ctx context.Context, opts RelatedNodesOptions) 
 	return out.Entries, nil
 }
 
-func (k *RemoteKeg) Graph(ctx context.Context) (*GraphView, error) {
-	var out GraphView
-	if err := k.getJSON(ctx, "/graph", "Graph", &out); err != nil {
-		return nil, err
-	}
-	return &out, nil
-}
 func (k *RemoteKeg) Info(ctx context.Context) (*KegInfo, error) {
 	var out KegInfo
 	if err := k.getJSON(ctx, "/info", "Info", &out); err != nil {
@@ -125,24 +118,33 @@ func (k *RemoteKeg) Doctor(ctx context.Context) ([]DoctorIssue, error) {
 }
 
 func (k *RemoteKeg) RemoveNodes(ctx context.Context, opts RemoveNodesOptions) (RemoveNodesResult, error) {
-	ids := make([]int, len(opts.NodeIDs))
-	for i, id := range opts.NodeIDs {
-		ids[i] = id.ID
+	nodes := make([]struct {
+		ID           int    `json:"id"`
+		ExpectedHash string `json:"expected_hash,omitempty"`
+	}, len(opts.Nodes))
+	for i, item := range opts.Nodes {
+		nodes[i].ID = item.ID.ID
+		nodes[i].ExpectedHash = item.ExpectedHash
 	}
 	req := struct {
-		NodeIDs []int  `json:"node_ids,omitempty"`
-		Query   string `json:"query,omitempty"`
-	}{ids, opts.Query}
+		Nodes []struct {
+			ID           int    `json:"id"`
+			ExpectedHash string `json:"expected_hash,omitempty"`
+		} `json:"nodes,omitempty"`
+		Query string `json:"query,omitempty"`
+	}{nodes, opts.Query}
 	var wire struct {
 		Removed []struct {
 			ID        int   `json:"id"`
 			Rewritten []int `json:"rewritten"`
 		} `json:"removed"`
 		Failure *struct {
-			NodeID  int    `json:"node_id"`
-			Code    string `json:"code"`
-			Status  int    `json:"status"`
-			Message string `json:"message"`
+			NodeID         int    `json:"node_id"`
+			Code           string `json:"code"`
+			Status         int    `json:"status"`
+			Message        string `json:"message"`
+			CurrentHash    string `json:"current_hash,omitempty"`
+			CurrentContent []byte `json:"current_content,omitempty"`
 		} `json:"failure,omitempty"`
 	}
 	err := k.postJSON(ctx, "/nodes/remove", "RemoveNodes", req, &wire, http.StatusOK)
@@ -155,7 +157,7 @@ func (k *RemoteKeg) RemoveNodes(ctx context.Context, opts RemoveNodesOptions) (R
 		out.Removed = append(out.Removed, RemovedNode{ID: NodeId{ID: item.ID}, Rewritten: rewritten})
 	}
 	if wire.Failure != nil {
-		out.Failure = &BatchFailure{NodeID: NodeId{ID: wire.Failure.NodeID}, Code: wire.Failure.Code, Status: wire.Failure.Status, Message: wire.Failure.Message}
+		out.Failure = &BatchFailure{NodeID: NodeId{ID: wire.Failure.NodeID}, Code: wire.Failure.Code, Status: wire.Failure.Status, Message: wire.Failure.Message, CurrentHash: wire.Failure.CurrentHash, CurrentContent: wire.Failure.CurrentContent}
 	}
 	return out, err
 }
@@ -225,7 +227,7 @@ func (k *RemoteKeg) CreateNodes(ctx context.Context, nodes []NodeCreate) ([]Crea
 		Hash       string                  `json:"hash"`
 		Validation *SchemaValidationResult `json:"validation,omitempty"`
 	}
-	if err := k.postJSON(ctx, "/nodes/batch", "CreateNodes", struct {
+	if err := k.postJSON(ctx, "/nodes", "CreateNodes", struct {
 		Nodes []wireNode `json:"nodes"`
 	}{wire}, &response, http.StatusCreated, http.StatusOK); err != nil {
 		return nil, err
@@ -264,7 +266,7 @@ func (k *RemoteKeg) UpdateNodes(ctx context.Context, updates []NodeUpdateOptions
 		Hash       string                  `json:"hash"`
 		Validation *SchemaValidationResult `json:"validation,omitempty"`
 	}
-	if err := k.putJSON(ctx, "/nodes/batch", "UpdateNodes", struct {
+	if err := k.putJSON(ctx, "/nodes", "UpdateNodes", struct {
 		Updates []wireUpdate `json:"updates"`
 	}{wire}, &response, http.StatusOK); err != nil {
 		return nil, err
@@ -286,7 +288,7 @@ func (k *RemoteKeg) AppendSnapshots(ctx context.Context, nodes []NodeSnapshotReq
 		wire[i] = wireNode{item.ID.ID, item.Message}
 	}
 	var response []remoteSnapshotEntry
-	if err := k.postJSON(ctx, "/nodes/snapshots/batch", "AppendSnapshots", struct {
+	if err := k.postJSON(ctx, "/nodes/snapshots", "AppendSnapshots", struct {
 		Nodes []wireNode `json:"nodes"`
 	}{wire}, &response, http.StatusCreated, http.StatusOK); err != nil {
 		return nil, err
@@ -300,40 +302,6 @@ func (k *RemoteKeg) AppendSnapshots(ctx context.Context, nodes []NodeSnapshotReq
 		out[i] = snap
 	}
 	return out, nil
-}
-
-func (k *RemoteKeg) ReplaceNodesWithRedirects(ctx context.Context, redirects []NodeRedirect) (ReplaceNodesWithRedirectsResult, error) {
-	type item struct {
-		ID           int    `json:"id"`
-		Target       string `json:"target"`
-		Title        string `json:"title,omitempty"`
-		TargetID     int    `json:"target_id"`
-		ExpectedHash string `json:"expected_hash,omitempty"`
-	}
-	wire := make([]item, len(redirects))
-	for i, r := range redirects {
-		wire[i] = item{r.ID.ID, r.Target, r.Title, r.TargetID.ID, r.ExpectedHash}
-	}
-	var response struct {
-		Replaced []int `json:"replaced"`
-		Failure  *struct {
-			NodeID  int    `json:"node_id"`
-			Code    string `json:"code"`
-			Status  int    `json:"status"`
-			Message string `json:"message"`
-		} `json:"failure,omitempty"`
-	}
-	err := k.postJSON(ctx, "/nodes/redirects", "ReplaceNodesWithRedirects", struct {
-		Redirects []item `json:"redirects"`
-	}{wire}, &response, http.StatusOK)
-	result := ReplaceNodesWithRedirectsResult{Replaced: make([]NodeId, len(response.Replaced))}
-	for i, id := range response.Replaced {
-		result.Replaced[i] = NodeId{ID: id}
-	}
-	if response.Failure != nil {
-		result.Failure = &BatchFailure{NodeID: NodeId{ID: response.Failure.NodeID}, Code: response.Failure.Code, Status: response.Failure.Status, Message: response.Failure.Message}
-	}
-	return result, err
 }
 
 func (k *RemoteKeg) DexArtifacts(ctx context.Context) (*DexArtifacts, error) {

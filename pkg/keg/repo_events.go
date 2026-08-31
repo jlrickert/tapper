@@ -57,7 +57,6 @@ type RepositoryEvents interface {
 	// resources when ctx is canceled.
 	Watch(ctx context.Context, ids ...NodeId) (<-chan NodeEvent, error)
 	// Emit sends a NodeEvent to all active subscribers whose filters match.
-	// This is used for programmatic events (e.g. access tracking) that
-	// cannot be detected by filesystem watchers.
+	// Repositories use it for programmatic events such as access tracking.
 	Emit(ev NodeEvent)
 }

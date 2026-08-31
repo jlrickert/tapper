@@ -76,12 +76,6 @@ func TestTap_DirectCatBypassesFlightCover(t *testing.T) {
 	t.Parallel()
 
 	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
-	sb.MustWriteFile("/home/testuser/kegs/flights.d/focused.yaml", []byte(`title: Focused
-cover:
-  - namespace: local
-    keg: personal
-    role: viewer
-`), 0o644)
 
 	res := NewProcess(t, false, "cat", "0", "--keg", "work", "--flight", "+focused", "--content-only").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
@@ -92,18 +86,12 @@ func TestTap_DirectCreateBypassesViewerFlightCap(t *testing.T) {
 	t.Parallel()
 
 	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
-	sb.MustWriteFile("/home/testuser/kegs/flights.d/focused.yaml", []byte(`title: Focused
-cover:
-  - namespace: local
-    keg: personal
-    role: viewer
-`), 0o644)
 
 	res := NewProcess(t, false, "create", "--keg", "personal", "--flight", "+focused", "--title", "Allowed CLI Write").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 	nodeID := strings.TrimSpace(string(res.Stdout))
 	require.NotEmpty(t, nodeID)
-	content := string(sb.MustReadFile("/home/testuser/kegs/@local/personal/" + nodeID + "/README.md"))
+	content := fixtureContent(t, sb.Runtime(), "personal", nodeID)
 	require.Contains(t, content, "# Allowed CLI Write")
 }
 
@@ -146,13 +134,13 @@ func TestTap_RootPersistentKegFlagNumericShorthandCompletionUsesCat(t *testing.T
 func TestTap_RootPersistentKegFlagCompletion(t *testing.T) {
 	t.Parallel()
 
-	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
+	sb := NewRemoteKegListSandbox(t, remoteCompletionKegs())
 
 	comp := NewCompletionProcess(t, false, 0, "--keg", "").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, comp.Err)
 
 	suggestions := parseCompletionSuggestions(string(comp.Stdout))
-	require.Contains(t, suggestions, "@local/personal")
+	require.Contains(t, suggestions, "@team/personal")
 	require.Contains(t, suggestions, "personal")
 }
 
@@ -167,18 +155,4 @@ func TestTap_KegNamespaceConflict(t *testing.T) {
 	res := NewProcess(t, false, "cat", "0", "--keg", "@work/dev", "--namespace", "other").Run(sb.Context(), sb.Runtime())
 	require.Error(t, res.Err)
 	require.Contains(t, string(res.Stderr), "conflicts with the namespace")
-}
-
-func TestKegHelp_HidesPersistentKegTargetFlags(t *testing.T) {
-	t.Parallel()
-
-	sb := NewSandbox(t)
-
-	res := NewKegProcess(t, false, "--help").Run(sb.Context(), sb.Runtime())
-	require.NoError(t, res.Err)
-	stdout := string(res.Stdout)
-	// The pruned keg binary exposes no keg-resolution flags.
-	require.NotContains(t, stdout, "--keg")
-	require.NotContains(t, stdout, "--namespace")
-	require.NotContains(t, stdout, "--hub")
 }

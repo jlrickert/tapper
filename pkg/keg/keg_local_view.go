@@ -45,6 +45,15 @@ func (k *LocalKeg) readNode(ctx context.Context, id NodeId) (*NodeView, error) {
 		Meta:    meta,
 		Stats:   stats,
 	}
+	if view.Stats.Hash() == "" {
+		parsedContent, parseErr := ParseContent(k.Runtime, content, MarkdownContentFilename)
+		if parseErr == nil {
+			parsedMeta, metaErr := ParseMeta(ctx, meta)
+			if metaErr == nil {
+				view.hash = nodeStateHash(k.Runtime, parsedContent.Hash, parsedMeta)
+			}
+		}
+	}
 	if files, ok := k.Repo.(RepositoryFiles); ok {
 		names, err := files.ListFiles(ctx, id)
 		if err != nil && !errors.Is(err, ErrNotExist) {
@@ -69,8 +78,8 @@ func (k *LocalKeg) readNode(ctx context.Context, id NodeId) (*NodeView, error) {
 }
 
 // NodeExists reports whether id is a fully written node (content present), as
-// opposed to a bare reservation directory left behind by FsRepo.Next() or
-// FsRepo.WithNodeLock(). It holds no node lock; mutating operations re-check
+// opposed to a bare reservation directory left behind by MemoryRepository.Next() or
+// MemoryRepository.WithNodeLock(). It holds no node lock; mutating operations re-check
 // under lock.
 func (k *LocalKeg) NodeExists(ctx context.Context, id NodeId) (bool, error) {
 	return withKegReadValue(ctx, k, func(ctx context.Context) (bool, error) {

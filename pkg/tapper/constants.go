@@ -1,6 +1,6 @@
 package tapper
 
-// Config version strings identify KEG configuration schema versions. Each
+// Config version strings identify KEG settings schema versions. Each
 // constant is a stable identifier for a particular config schema. When a new
 // schema is introduced add a new constant and update the Config alias to
 // point to the latest version. These values are used by parsing and migration

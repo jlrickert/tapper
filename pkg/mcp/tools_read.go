@@ -6,6 +6,7 @@ import (
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/jlrickert/tapper/pkg/keg"
 	"github.com/jlrickert/tapper/pkg/tapper"
 )
 
@@ -32,10 +33,33 @@ type catInput struct {
 	Query       string   `json:"query,omitempty" jsonschema:"boolean expression to select nodes (alternative to node_ids)"`
 }
 
+// nodeReadOutput carries the precondition token alongside each node a read
+// returns. Writes require the caller to echo the hash it read, so every read
+// that can precede a write has to hand it over; leaving it buried in the
+// rendered text would force agents to parse output meant for humans.
+type nodeReadOutput struct {
+	NodeID  string `json:"node_id"`
+	Hash    string `json:"hash"`
+	Content string `json:"content,omitempty"`
+}
+
+func nodeReadOutputs(views []keg.NodeView, withContent bool) []nodeReadOutput {
+	out := make([]nodeReadOutput, 0, len(views))
+	for _, view := range views {
+		row := nodeReadOutput{NodeID: view.ID.Path(), Hash: view.Hash()}
+		if withContent {
+			row.Content = string(view.Content)
+		}
+		out = append(out, row)
+	}
+	return out
+}
+
 func registerCat(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
-		Name:        "cat",
-		Description: "Read the content of one or more KEG nodes",
+		Name: "cat",
+		Description: "Read the content of one or more KEG nodes. Each result carries the " +
+			"node's hash; pass it back as expected_hash when editing that node.",
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(false),
@@ -49,11 +73,15 @@ func registerCat(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 			MetaOnly:         in.MetaOnly,
 			StatsOnly:        in.StatsOnly,
 		}
-		result, err := tap.Cat(ctx, opts)
+		// Read once and render from the same views: calling Cat as well would
+		// re-read every node and double its access touch.
+		views, err := tap.CatViews(ctx, opts)
 		if err != nil {
 			return errorResult(err), nil, nil
 		}
-		return textResult(result), nil, nil
+		res := textResult(tapper.FormatCatViews(ctx, views, opts))
+		res.StructuredContent = map[string]any{"nodes": nodeReadOutputs(views, false)}
+		return res, nil, nil
 	})
 }
 
@@ -264,7 +292,7 @@ type kegSettingsInput struct {
 func registerKegSettings(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "keg_settings",
-		Description: "Show KEG config (keg file contents). Returns minimal output by default; set minimal=false for full config.",
+		Description: "Show KEG settings (keg file contents). Returns minimal output by default; set minimal=false for full config.",
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(false),
@@ -300,7 +328,19 @@ func registerKegSettings(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaul
 		if err != nil {
 			return errorResult(err), nil, nil
 		}
-		return textResult(result), nil, nil
+		res := textResult(result)
+		if !minimal {
+			// Only the full read returns the stored document verbatim (raw
+			// file bytes, or cfg.String() for a remote keg) — the same source
+			// keg_settings_edit replaces. The minimal render is a cross-keg
+			// summary, so hashing it would hand back a token for something
+			// nobody can write.
+			res.StructuredContent = map[string]any{
+				"hash": keg.DocumentHash([]byte(result)),
+				"data": result,
+			}
+		}
+		return res, nil, nil
 	})
 }
 

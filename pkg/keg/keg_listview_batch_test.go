@@ -77,7 +77,7 @@ func TestListViewBatchesMetadataReads(t *testing.T) {
 	const nodeCount = 12
 
 	fx := NewSandbox(t)
-	base := kegpkg.NewMemoryRepo(fx.Runtime())
+	base := newTestMemoryRepo(fx.Runtime())
 	counter := &countingRepo{Repository: base}
 	k := kegpkg.NewLocalKeg(&batchingRepo{countingRepo: counter}, fx.Runtime())
 	initNonStrictTestKeg(t, k, context.Background())
@@ -104,7 +104,7 @@ func TestListViewSortBatchesMetadataReads(t *testing.T) {
 	const nodeCount = 12
 
 	fx := NewSandbox(t)
-	base := kegpkg.NewMemoryRepo(fx.Runtime())
+	base := newTestMemoryRepo(fx.Runtime())
 	counter := &countingRepo{Repository: base}
 	k := kegpkg.NewLocalKeg(&batchingRepo{countingRepo: counter}, fx.Runtime())
 	initNonStrictTestKeg(t, k, context.Background())
@@ -143,7 +143,7 @@ func TestListViewFallsBackWithoutBatchCapability(t *testing.T) {
 	const nodeCount = 6
 
 	fx := NewSandbox(t)
-	base := kegpkg.NewMemoryRepo(fx.Runtime())
+	base := newTestMemoryRepo(fx.Runtime())
 	counter := &countingRepo{Repository: base}
 	k := kegpkg.NewLocalKeg(counter, fx.Runtime())
 	initNonStrictTestKeg(t, k, context.Background())
@@ -165,7 +165,7 @@ func TestListViewIntrinsicsReadNothing(t *testing.T) {
 	t.Parallel()
 
 	fx := NewSandbox(t)
-	base := kegpkg.NewMemoryRepo(fx.Runtime())
+	base := newTestMemoryRepo(fx.Runtime())
 	counter := &countingRepo{Repository: base}
 	k := kegpkg.NewLocalKeg(&batchingRepo{countingRepo: counter}, fx.Runtime())
 	initNonStrictTestKeg(t, k, context.Background())

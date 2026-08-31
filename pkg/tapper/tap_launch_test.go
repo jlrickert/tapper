@@ -24,6 +24,12 @@ func newLaunchTap(t *testing.T, userConfig string) *tapper.Tap {
 }
 
 const launchUserConfig = `fallbackNamespace: local
+flight: "@testuser/+root"
+defaultHub: atlas
+hubs:
+  atlas:
+    kind: remote
+    url: https://atlas.example.test
 agents:
   opus:
     model: anthropic/claude-opus-4
@@ -97,10 +103,9 @@ func TestResolveLaunch_AnthropicOnClaude(t *testing.T) {
 	// Claude Code takes its model through the environment, not a flag.
 	require.Equal(t, []string{"claude"}, got.Argv)
 	require.Equal(t, "claude-opus-4", got.Env["ANTHROPIC_MODEL"])
-	// The agent, not the flight it currently names: the child re-resolves the
-	// flight on every load so a config edit can move a running session.
 	require.Equal(t, "opus", got.Env["TAP_AGENT"])
-	require.NotContains(t, got.Env, "TAP_FLIGHT")
+	require.Equal(t, "@testuser/+root", got.Env["TAP_FLIGHT"])
+	require.Equal(t, "@testuser/+root", got.Flight)
 }
 
 // Codex has first-class local-provider support and configures it through
@@ -122,7 +127,7 @@ func TestResolveLaunch_OllamaOnCodexUsesOSSProvider(t *testing.T) {
 	require.NotContains(t, got.Env, "OPENAI_BASE_URL")
 	require.NotContains(t, got.Env, "OPENAI_API_KEY")
 	require.Equal(t, "local", got.Env["TAP_AGENT"])
-	require.NotContains(t, got.Env, "TAP_FLIGHT")
+	require.Equal(t, "@testuser/+root", got.Env["TAP_FLIGHT"])
 }
 
 func TestResolveLaunch_OpenAIOnCodexLeavesDefaultEndpoint(t *testing.T) {
@@ -134,10 +139,9 @@ func TestResolveLaunch_OpenAIOnCodexLeavesDefaultEndpoint(t *testing.T) {
 
 	require.Equal(t, []string{"codex", "--model", "gpt-5"}, got.Argv)
 	require.NotContains(t, got.Env, "OPENAI_BASE_URL")
-	// An agent may omit its flight. The agent is still exported — resolution
-	// simply finds no flight on it and falls through to project/user config.
+	// An agent may omit its legacy flight field; the root is independent.
 	require.Equal(t, "hosted", got.Env["TAP_AGENT"])
-	require.NotContains(t, got.Env, "TAP_FLIGHT")
+	require.Equal(t, "@testuser/+root", got.Env["TAP_FLIGHT"])
 }
 
 // Ollama serves both /v1/messages and /v1/chat/completions, so it is the one
@@ -272,6 +276,8 @@ func TestResolveLaunch_ErrorsOnUnknownInputs(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "unknown agent")
 
+	// launchUserConfig sets no top-level agent, so there is no default to fall
+	// back to and the omission is an error.
 	_, err = tap.ResolveLaunch(tapper.LaunchOptions{Harness: "claude"})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "an agent is required")
@@ -279,6 +285,121 @@ func TestResolveLaunch_ErrorsOnUnknownInputs(t *testing.T) {
 	_, err = tap.ResolveLaunch(tapper.LaunchOptions{Harness: "claude", Agent: "bare"})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "provider-qualified")
+}
+
+// TestResolveLaunch_AgentDefaultsToConfig pins the fallback: --agent wins, and
+// omitting it falls back to the top-level agent key, mirroring how flight
+// supplies the launch root.
+func TestResolveLaunch_AgentDefaultsToConfig(t *testing.T) {
+	t.Parallel()
+	tap := newLaunchTap(t, "agent: opus\n"+launchUserConfig)
+
+	got, err := tap.ResolveLaunch(tapper.LaunchOptions{Harness: "claude"})
+	require.NoError(t, err)
+	require.Equal(t, "opus", got.Agent)
+
+	// An explicit --agent still overrides the configured default.
+	got, err = tap.ResolveLaunch(tapper.LaunchOptions{Harness: "claude", Agent: "local"})
+	require.NoError(t, err)
+	require.Equal(t, "local", got.Agent)
+
+	// A default naming an entry that does not exist fails like any other
+	// unknown agent rather than being silently ignored.
+	missing := newLaunchTap(t, "agent: ghost\n"+launchUserConfig)
+	_, err = missing.ResolveLaunch(tapper.LaunchOptions{Harness: "claude"})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), `unknown agent "ghost"`)
+}
+
+// TestResolveLaunch_AgentDefaultsFromEnv covers the other feed into the same
+// key: TAP_AGENT, which is what a launched process inherits.
+func TestResolveLaunch_AgentDefaultsFromEnv(t *testing.T) {
+	t.Parallel()
+	sb := sandbox.NewSandbox(t, &sandbox.Options{Home: "/home/testuser", User: "testuser"})
+	require.NoError(t, sb.Runtime().AtomicWriteFile(
+		"/home/testuser/.config/tapper/config.yaml", []byte(launchUserConfig), 0o644))
+	require.NoError(t, sb.Runtime().Set("TAP_AGENT", "local"))
+
+	tap, err := tapper.NewTap(tapper.TapOptions{Runtime: sb.Runtime()})
+	require.NoError(t, err)
+
+	got, err := tap.ResolveLaunch(tapper.LaunchOptions{Harness: "claude"})
+	require.NoError(t, err)
+	require.Equal(t, "local", got.Agent)
+}
+
+// A flight is optional. Requiring one made bootstrapping impossible: creating
+// the first flight needs an agent session, and launching that session needed a
+// flight. Without one the child gets no TAP_FLIGHT, which is precisely how its
+// `tap mcp` decides it is not launcher-bound and resolves identity authority.
+func TestResolveLaunch_LaunchesWithoutFlight(t *testing.T) {
+	t.Parallel()
+
+	tap := newLaunchTap(t, `agents:
+  opus: {model: anthropic/claude-opus-4}
+`)
+	got, err := tap.ResolveLaunch(tapper.LaunchOptions{Harness: "claude", Agent: "opus"})
+	require.NoError(t, err)
+	require.Empty(t, got.Flight)
+	require.NotContains(t, got.Env, "TAP_FLIGHT",
+		"a no-flight launch must not pin a root, or the child reports itself launcher-bound")
+	require.Equal(t, "opus", got.Env["TAP_AGENT"])
+	require.Len(t, got.Warnings, 1)
+	require.Contains(t, got.Warnings[0], "full access")
+}
+
+func TestResolveLaunch_RequiresHubBackedRoot(t *testing.T) {
+	t.Parallel()
+
+	local := newLaunchTap(t, `flight: "@local/+dev"
+defaultHub: home
+hubs:
+  home: {kind: local, basePath: /home/testuser/kegs, defaultNamespace: local}
+agents:
+  opus: {model: anthropic/claude-opus-4}
+`)
+	_, err := local.ResolveLaunch(tapper.LaunchOptions{Harness: "claude", Agent: "opus"})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "unsupported kind \"local\"")
+}
+
+// A configured root is still pinned immutably for the child's lifetime.
+func TestResolveLaunch_PinsConfiguredRoot(t *testing.T) {
+	t.Parallel()
+	tap := newLaunchTap(t, launchUserConfig)
+
+	got, err := tap.ResolveLaunch(tapper.LaunchOptions{Harness: "claude", Agent: "opus"})
+	require.NoError(t, err)
+	require.NotEmpty(t, got.Flight)
+	require.Equal(t, got.Flight, got.Env["TAP_FLIGHT"])
+	require.Empty(t, got.Warnings)
+}
+
+func TestResolveLaunch_ExplicitFlightOverridesCascade(t *testing.T) {
+	t.Parallel()
+	sb := sandbox.NewSandbox(t, &sandbox.Options{Home: "/home/testuser", User: "testuser"})
+	require.NoError(t, sb.Setwd("/home/testuser/work/project"))
+	require.NoError(t, sb.Runtime().AtomicWriteFile(
+		"/home/testuser/.config/tapper/config.yaml", []byte(`flight: "@user/+root"
+defaultHub: atlas
+hubs:
+  atlas: {kind: remote, url: https://atlas.example.test}
+agents:
+  opus: {model: anthropic/claude-opus-4}
+`), 0o644))
+	require.NoError(t, sb.Runtime().AtomicWriteFile(
+		"/home/testuser/work/project/.tapper/config.yaml",
+		[]byte("flight: '@project/+root'\n"), 0o644))
+	require.NoError(t, sb.Runtime().Env().Set("TAP_FLIGHT", "@environment/+root"))
+
+	tap, err := tapper.NewTap(tapper.TapOptions{Runtime: sb.Runtime()})
+	require.NoError(t, err)
+	got, err := tap.ResolveLaunch(tapper.LaunchOptions{
+		Harness: "claude", Agent: "opus", Flight: "@explicit/+root",
+	})
+	require.NoError(t, err)
+	require.Equal(t, "@explicit/+root", got.Flight)
+	require.Equal(t, "@explicit/+root", got.Env["TAP_FLIGHT"])
 }
 
 func TestResolveLaunch_AppendsPassthroughArgs(t *testing.T) {
@@ -297,12 +418,12 @@ func TestResolveLaunch_ReadsAgentsFromProjectConfig(t *testing.T) {
 	sb := sandbox.NewSandbox(t, &sandbox.Options{Home: "/home/testuser", User: "testuser"})
 	require.NoError(t, sb.Setwd("/home/testuser/work/project"))
 	require.NoError(t, sb.Runtime().AtomicWriteFile(
-		"/home/testuser/.config/tapper/config.yaml", []byte("fallbackNamespace: local\n"), 0o644))
+		"/home/testuser/.config/tapper/config.yaml", []byte("flight: '@testuser/+root'\ndefaultHub: atlas\nhubs:\n  atlas: {kind: remote, url: https://atlas.example.test}\n"), 0o644))
 	// Agents carry no credentials, so unlike hubs they survive the project
 	// config's trust boundary.
 	require.NoError(t, sb.Runtime().AtomicWriteFile(
 		"/home/testuser/work/project/.tapper/config.yaml",
-		[]byte("agents:\n  proj:\n    model: openai/gpt-5\n    flight: +proj\n"), 0o644))
+		[]byte("agents:\n  proj:\n    model: openai/gpt-5\n    flight: +ignored\n"), 0o644))
 
 	tap, err := tapper.NewTap(tapper.TapOptions{Runtime: sb.Runtime()})
 	require.NoError(t, err)
@@ -311,8 +432,8 @@ func TestResolveLaunch_ReadsAgentsFromProjectConfig(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "gpt-5", got.Model)
 	require.Equal(t, "proj", got.Env["TAP_AGENT"])
-	// Still reported, so a dry run can show what the agent currently points at.
-	require.Equal(t, "+proj", got.Flight)
+	require.Equal(t, "@testuser/+root", got.Flight)
+	require.Equal(t, "@testuser/+root", got.Env["TAP_FLIGHT"])
 }
 
 // A context cap means the same thing to a user on either harness but is spelled

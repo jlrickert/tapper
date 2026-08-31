@@ -8,9 +8,10 @@ import (
 
 	"github.com/jlrickert/tapper/pkg/tapper"
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 )
 
-func TestWriteUserConfig_NormalizesWithoutComments(t *testing.T) {
+func TestWriteUserConfigPreservesCommentsAndUnknownBlocks(t *testing.T) {
 	t.Parallel()
 
 	raw := `# Top comment
@@ -32,9 +33,9 @@ kegMap:
 	require.NoError(t, err, "ToYAML failed")
 	out := string(data)
 
-	// Comment preservation is no longer required.
-	require.NotContains(t, out, "# Top comment")
-	require.NotContains(t, out, "# inline url comment")
+	require.Contains(t, out, "# Top comment")
+	require.Contains(t, out, "# inline url comment")
+	require.Contains(t, out, "kegs:")
 	require.Contains(t, out, "defaultKeg: main")
 	require.Contains(t, out, "pathPrefix: ~/projects")
 }
@@ -61,8 +62,7 @@ kegMap:
 
 	require.Contains(t, out, "defaultKeg: main")
 	require.Contains(t, out, "pathPrefix: ~/projects")
-	require.NotContains(t, out, "# config header")
-	require.NotContains(t, out, "# keep this inline")
+	require.Contains(t, out, "# config header")
 }
 
 func TestParseConfig_AcceptsUnknownFields(t *testing.T) {
@@ -75,14 +75,104 @@ unknownKey: value
 	cfg, err := tapper.ParseConfig([]byte(raw))
 	require.NoError(t, err)
 	require.Equal(t, "main", cfg.DefaultKeg())
+	out, err := cfg.ToYAML()
+	require.NoError(t, err)
+	require.Contains(t, string(out), "unknownKey: value")
 }
 
-func TestParseUserConfig_IgnoresUnknownKeys(t *testing.T) {
+func TestConfigRewritePreservesUnknownTopLevelAndNestedFields(t *testing.T) {
 	t.Parallel()
 
-	// The config decoder ignores keys it does not recognize (here a `kegs`
-	// block, which the schema does not define). Parsing succeeds and the
-	// unknown block does not round-trip on re-serialize.
+	raw := `defaultKeg: old
+vendorFeature:
+  enabled: true
+hubs:
+  work:
+    kind: remote
+    url: https://old.example.com
+    tokenEnv: WORK_TOKEN
+    retryPolicy:
+      attempts: 7
+namespaces:
+  team:
+    hub: work
+    tenantId: tenant-42
+agents:
+  builder:
+    model: openai/gpt-5
+    providerOption: retained
+kegMap:
+  - alias: "@team/notes"
+    pathPrefix: /workspace
+    extensionRule: retained
+`
+	cfg, err := tapper.ParseConfig([]byte(raw))
+	require.NoError(t, err)
+	require.NoError(t, cfg.SetDefaultKeg("@team/new-default"))
+	require.NoError(t, cfg.SetHub("work", tapper.HubEntry{
+		Kind: "readonly",
+		URL:  "https://new.example.com",
+	}))
+	require.NoError(t, cfg.SetNamespace("team", tapper.NamespaceRef{Hub: "cloud"}))
+
+	out, err := cfg.ToYAML()
+	require.NoError(t, err)
+	var doc map[string]any
+	require.NoError(t, yaml.Unmarshal(out, &doc))
+	require.Equal(t, "@team/new-default", doc["defaultKeg"])
+	require.Equal(t, map[string]any{"enabled": true}, doc["vendorFeature"])
+
+	hubs := doc["hubs"].(map[string]any)
+	work := hubs["work"].(map[string]any)
+	require.Equal(t, "readonly", work["kind"])
+	require.Equal(t, "https://new.example.com", work["url"])
+	require.NotContains(t, work, "tokenEnv")
+	require.Equal(t, map[string]any{"attempts": 7}, work["retryPolicy"])
+
+	namespaces := doc["namespaces"].(map[string]any)
+	team := namespaces["team"].(map[string]any)
+	require.Equal(t, "cloud", team["hub"])
+	require.Equal(t, "tenant-42", team["tenantId"])
+
+	agents := doc["agents"].(map[string]any)
+	builder := agents["builder"].(map[string]any)
+	require.Equal(t, "retained", builder["providerOption"])
+	kegMap := doc["kegMap"].([]any)
+	require.Equal(t, "retained", kegMap[0].(map[string]any)["extensionRule"])
+}
+
+func TestConfigExplicitObjectRemovalRemovesUnknownNestedFields(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := tapper.ParseConfig([]byte(`hubs:
+  keep: {url: https://keep.example.com, vendor: keep}
+  remove: {url: https://remove.example.com, vendor: remove}
+namespaces:
+  keep: {hub: keep, vendor: keep}
+  remove: {hub: remove, vendor: remove}
+`))
+	require.NoError(t, err)
+	removed, err := cfg.DeleteHub("remove")
+	require.NoError(t, err)
+	require.True(t, removed)
+	require.True(t, cfg.DeleteNamespace("remove"))
+
+	out, err := cfg.ToYAML()
+	require.NoError(t, err)
+	var doc map[string]any
+	require.NoError(t, yaml.Unmarshal(out, &doc))
+	hubs := doc["hubs"].(map[string]any)
+	require.NotContains(t, hubs, "remove")
+	require.Equal(t, "keep", hubs["keep"].(map[string]any)["vendor"])
+	namespaces := doc["namespaces"].(map[string]any)
+	require.NotContains(t, namespaces, "remove")
+	require.Equal(t, "keep", namespaces["keep"].(map[string]any)["vendor"])
+}
+
+func TestParseUserConfigPreservesUnknownKeys(t *testing.T) {
+	t.Parallel()
+
+	// Unknown blocks load and survive Tapper-driven serialization.
 	raw := `defaultKeg: notes
 fallbackNamespace: alice
 kegs:
@@ -91,12 +181,13 @@ kegs:
 `
 
 	uc, err := tapper.ParseConfig([]byte(raw))
-	require.NoError(t, err, "ParseConfig must ignore unknown keys")
+	require.NoError(t, err)
 	require.Equal(t, "notes", uc.DefaultKeg())
 
 	data, err := uc.ToYAML()
 	require.NoError(t, err)
-	require.NotContains(t, string(data), "kegs:", "the unknown kegs block must not round-trip")
+	require.Contains(t, string(data), "kegs:")
+	require.Contains(t, string(data), "short: \"keg:@bob/blog\"")
 }
 
 func TestResolveAlias_Behavior(t *testing.T) {
@@ -255,30 +346,6 @@ namespaces:
 	require.Equal(t, "cloud", kt.Hub)
 	require.Equal(t, "lone", kt.Namespace)
 
-	// The reserved @local namespace pins this machine's filesystem hub.
-	kt, err = uc.ResolveRef(fx.Runtime(), tapper.KegRef{Namespace: tapper.LocalHubName, Name: "notes"})
-	require.NoError(t, err)
-	require.Contains(t, kt.String(), filepath.Join("@local", "notes"))
-}
-
-func TestResolveRef_LocalLayout(t *testing.T) {
-	t.Parallel()
-	fx := NewSandbox(t)
-
-	raw := `hubs:
-  home:
-    kind: local
-    defaultNamespace: local
-    basePath: ` + filepath.Join(fx.GetJail(), "data", "kegs") + `
-`
-	uc, err := tapper.ParseConfig([]byte(raw))
-	require.NoError(t, err)
-
-	// A bare name resolves through the sole local hub (namespace "local").
-	kt, err := uc.ResolveAlias(fx.Runtime(), "notes")
-	require.NoError(t, err)
-	// Local kegs live under <basePath>/@<namespace>/<name>.
-	require.Contains(t, kt.String(), filepath.Join("@local", "notes"))
 }
 
 func TestResolveProjectKeg_PrefixAndRegexPrecedence(t *testing.T) {
@@ -409,7 +476,7 @@ func TestAddKegMap_AddsAndUpdatesEntries(t *testing.T) {
 
 func TestAddKegMap_ReturnsErrorOnNilOrEmptyAlias(t *testing.T) {
 	t.Parallel()
-	cfg := tapper.DefaultUserConfig("testuser", "/tmp")
+	cfg := tapper.DefaultUserConfig("testuser")
 
 	// Test nil config
 	var nilCfg *tapper.Config
@@ -472,12 +539,10 @@ func TestMergeConfig_PreservesMultipleEntriesWithSameAlias(t *testing.T) {
 	require.Len(t, kegMap, 2, "both work entries should survive merge")
 }
 
-func TestParseConfig_UnknownKeysIgnored(t *testing.T) {
+func TestParseConfigUnknownKeysSurviveRewrite(t *testing.T) {
 	t.Parallel()
 
-	// The decoder ignores keys it does not recognize (e.g. kegSearchPaths,
-	// userRepoPath, kegs). Parsing succeeds and those keys are dropped on
-	// re-serialization.
+	// Arbitrary unknown keys remain semantically present on re-serialization.
 	raw := `fallbackKeg: pub
 kegSearchPaths:
   - ~/Documents/kegs
@@ -492,7 +557,9 @@ kegs: {}
 
 	out, err := cfg.ToYAML()
 	require.NoError(t, err)
-	require.NotContains(t, string(out), "kegSearchPaths")
+	require.Contains(t, string(out), "kegSearchPaths")
+	require.Contains(t, string(out), "userRepoPath")
+	require.Contains(t, string(out), "kegs: {}")
 }
 
 func TestMergeConfig_DefaultFallbackPrecedence(t *testing.T) {
@@ -531,7 +598,7 @@ kegs: {}
 func TestConfigToYAML_PrependsSchemaModeline(t *testing.T) {
 	t.Parallel()
 
-	cfg := tapper.DefaultUserConfig("pub", "~/Documents/kegs")
+	cfg := tapper.DefaultUserConfig("pub")
 	out, err := cfg.ToYAML()
 	require.NoError(t, err)
 	require.True(t, strings.HasPrefix(string(out), "# yaml-language-server: $schema="+tapper.TapConfigSchemaURL+"\n"))

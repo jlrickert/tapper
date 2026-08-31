@@ -130,107 +130,30 @@ func TestBootstrapCmd_NonInteractive_DefaultsToCloud(t *testing.T) {
 		"namespace comes from the hub, not a global fallback")
 }
 
-func TestBootstrapCmd_Local_NoLogin(t *testing.T) {
+func TestBootstrapCmd_RejectsRemovedLocalKind(t *testing.T) {
 	t.Parallel()
 	sb := newTestSandbox(t)
 
-	hook := stubDeviceLoginHook(func(context.Context, *toolkit.Runtime, tapper.AuthLoginDeviceOptions) (*tapper.AuthEntry, error) {
-		t.Fatal("local bootstrap must never log in")
-		return nil, nil
-	})
-
-	proc := newBootstrapProcess(t, hook, false, "bootstrap", "--kind", "local")
+	proc := newBootstrapProcess(t, nil, false, "bootstrap", "--kind", "local")
 	res := proc.Run(sb.Context(), sb.Runtime())
-	require.NoError(t, res.Err)
-	require.Contains(t, string(res.Stdout), "fallback hub: testhost")
-	require.Contains(t, string(res.Stdout), "namespace:    local",
-		"a local deployment defaults to the @local namespace, not the OS user")
-	require.NotContains(t, string(res.Stdout), "tap auth login")
-
-	raw := sb.MustReadFile("~/.config/tapper/config.yaml")
-	require.Contains(t, string(raw), "fallbackHub: testhost")
-	require.NotContains(t, string(raw), "fallbackNamespace:",
-		"namespace comes from the local hub, not a global fallback")
-	require.Contains(t, string(raw), "defaultNamespace: local",
-		"the local hub carries the @local namespace")
-}
-
-// TestBootstrapCmd_Local_CreatesDefaultKeg confirms a local bootstrap actually
-// creates the chosen keg on disk (so the user is immediately up and running) and
-// that re-running is idempotent.
-func TestBootstrapCmd_Local_CreatesDefaultKeg(t *testing.T) {
-	t.Parallel()
-	sb := newTestSandbox(t)
-
-	proc := newBootstrapProcess(t, nil, false, "bootstrap", "--kind", "local", "--default-keg", "private")
-	res := proc.Run(sb.Context(), sb.Runtime())
-	require.NoError(t, res.Err)
-	require.Contains(t, string(res.Stdout), "created keg:",
-		"local bootstrap should create the chosen keg so the user is ready")
-	require.Contains(t, string(res.Stdout), "@local/private")
-
-	// The keg was materialized on disk at the local hub's basePath.
-	kegFile := sb.MustReadFile("~/.local/share/tapper/kegs/@local/private/keg")
-	require.Contains(t, string(kegFile), "kegv")
-
-	// Re-running is idempotent: the keg already exists, so no error and it is not
-	// reported as freshly created.
-	proc2 := newBootstrapProcess(t, nil, false, "bootstrap", "--kind", "local", "--default-keg", "private")
-	res2 := proc2.Run(sb.Context(), sb.Runtime())
-	require.NoError(t, res2.Err)
-	require.NotContains(t, string(res2.Stdout), "created keg:",
-		"an already-existing keg should not be reported as created")
-}
-
-func TestBootstrapCmd_Interactive_SelectsFlightAndPreservesItOnSkip(t *testing.T) {
-	t.Parallel()
-	sb := newTestSandbox(t)
-	require.NoError(t, sb.Runtime().AtomicWriteFile(
-		"/home/testuser/.local/share/tapper/kegs/flights.d/focused.yaml",
-		[]byte("title: Focused\n"), 0o644))
-
-	firstPrompter := &fakeBootstrapPrompter{
-		t:         t,
-		manualKeg: func() (string, error) { return "", nil },
-		selectFlight: func(available []string, current string) (string, error) {
-			require.Equal(t, []string{"@local/+focused"}, available)
-			require.Empty(t, current)
-			return "@local/+focused", nil
-		},
-	}
-	first := newBootstrapProcess(t, stubBootstrapPrompterHook(firstPrompter), true,
-		"bootstrap", "--kind", "local")
-	res := first.Run(sb.Context(), sb.Runtime())
-	require.NoError(t, res.Err, "stderr=%q", string(res.Stderr))
-	require.Contains(t, string(res.Stdout), "flight:       @local/+focused")
-	require.Contains(t, string(sb.MustReadFile("~/.config/tapper/config.yaml")), "flight: '@local/+focused'")
-
-	secondPrompter := &fakeBootstrapPrompter{
-		t:         t,
-		manualKeg: func() (string, error) { return "", nil },
-		selectFlight: func(available []string, current string) (string, error) {
-			require.Equal(t, []string{"@local/+focused"}, available)
-			require.Equal(t, "@local/+focused", current, "existing baseline should be preselected")
-			return "", nil // Skip for now.
-		},
-	}
-	second := newBootstrapProcess(t, stubBootstrapPrompterHook(secondPrompter), true,
-		"bootstrap", "--kind", "local")
-	res = second.Run(sb.Context(), sb.Runtime())
-	require.NoError(t, res.Err, "stderr=%q", string(res.Stderr))
-	require.Contains(t, string(sb.MustReadFile("~/.config/tapper/config.yaml")), "flight: '@local/+focused'",
-		"Skip must preserve the existing baseline")
+	require.Error(t, res.Err)
+	require.Contains(t, res.Err.Error(), "expected cloud or enterprise")
 }
 
 func TestBootstrapCmd_NoFlightsReportsRecoveryOnly(t *testing.T) {
 	t.Parallel()
 	sb := newTestSandbox(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/api/v1/flights", r.URL.Path)
+		_ = json.NewEncoder(w).Encode([]tapper.HubFlight{})
+	}))
+	defer srv.Close()
 	prompter := &fakeBootstrapPrompter{
 		t:         t,
 		manualKeg: func() (string, error) { return "", nil },
 	}
 	proc := newBootstrapProcess(t, stubBootstrapPrompterHook(prompter), true,
-		"bootstrap", "--kind", "local")
+		"bootstrap", "--kind", "enterprise", "--endpoint", srv.URL, "--no-login")
 	res := proc.Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 	require.Contains(t, string(res.Stdout), "flight:       recovery-only")
@@ -238,33 +161,12 @@ func TestBootstrapCmd_NoFlightsReportsRecoveryOnly(t *testing.T) {
 	require.NotContains(t, string(sb.MustReadFile("~/.config/tapper/config.yaml")), "flight:")
 }
 
-func TestBootstrapCmd_ExplicitFlightValidatesAndPersists(t *testing.T) {
-	t.Parallel()
-	sb := newTestSandbox(t)
-	require.NoError(t, sb.Runtime().AtomicWriteFile(
-		"/home/testuser/.local/share/tapper/kegs/flights.d/focused.yaml",
-		[]byte("title: Focused\n"), 0o644))
-
-	proc := newBootstrapProcess(t, nil, false,
-		"bootstrap", "--kind", "local", "--flight", "+focused")
-	res := proc.Run(sb.Context(), sb.Runtime())
-	require.NoError(t, res.Err, "stderr=%q", string(res.Stderr))
-	require.Contains(t, string(res.Stdout), "flight:       @local/+focused")
-	require.Contains(t, string(sb.MustReadFile("~/.config/tapper/config.yaml")), "flight: '@local/+focused'")
-
-	bad := newBootstrapProcess(t, nil, false,
-		"bootstrap", "--kind", "local", "--flight", "+missing")
-	badRes := bad.Run(sb.Context(), sb.Runtime())
-	require.Error(t, badRes.Err)
-	require.Contains(t, badRes.Err.Error(), "invalid bootstrap flight")
-}
-
 func TestBootstrapCmd_ImplicitFlightOverrideIsNotPersisted(t *testing.T) {
 	t.Parallel()
 	sb := newTestSandbox(t)
-	require.NoError(t, sb.Runtime().Env().Set("TAP_FLIGHT", "@local/+environment"))
+	require.NoError(t, sb.Runtime().Env().Set("TAP_FLIGHT", "@team/+environment"))
 
-	proc := newBootstrapProcess(t, nil, false, "bootstrap", "--kind", "local")
+	proc := newBootstrapProcess(t, nil, false, "bootstrap", "--kind", "cloud", "--no-login")
 	res := proc.Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 	require.NotContains(t, string(sb.MustReadFile("~/.config/tapper/config.yaml")), "flight:",
@@ -562,17 +464,13 @@ func TestBootstrapCmd_Enterprise_NonInteractiveRequiresEndpoint(t *testing.T) {
 	require.Contains(t, res.Err.Error(), "endpoint")
 }
 
-// TestBootstrapCmd_ProfileGate confirms bootstrap is registered for `tap`
-// (IncludeConfigCommand) and absent from the pruned `keg` profile.
-func TestBootstrapCmd_ProfileGate(t *testing.T) {
+func TestBootstrapCmdRegistered(t *testing.T) {
 	t.Parallel()
 	sb := newTestSandbox(t)
 
 	tapCmds := commandNames(t, sb.Runtime(), TapProfile())
 	require.True(t, tapCmds["bootstrap"], "tap should expose the bootstrap command")
 
-	kegCmds := commandNames(t, sb.Runtime(), KegProfile())
-	require.False(t, kegCmds["bootstrap"], "keg must not expose the bootstrap command")
 }
 
 // --- completion ---
@@ -582,7 +480,7 @@ func TestBootstrapCompletion_KindFlag_ListsKinds(t *testing.T) {
 	res := runCompletionViaProcess(t, "bootstrap", "--kind", "")
 	require.NoError(t, res.Err)
 	out := string(res.Stdout)
-	require.Contains(t, out, "local")
+	require.NotContains(t, out, "local")
 	require.Contains(t, out, "cloud")
 	require.Contains(t, out, "enterprise")
 }

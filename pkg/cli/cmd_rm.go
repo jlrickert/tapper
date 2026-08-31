@@ -31,6 +31,14 @@ Inbound links from other nodes are cleaned up.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts.NodeIDs = args
 			applyKegTargetProfile(deps, &opts.KegTargetOptions)
+			opts.ExpectedHashes = make(map[string]string, len(args))
+			for _, id := range args {
+				hash, err := deps.Tap.NodeHash(cmd.Context(), opts.KegTargetOptions, id)
+				if err != nil {
+					return fmt.Errorf("node %s not found: %w", id, err)
+				}
+				opts.ExpectedHashes[id] = hash
+			}
 			return deps.Tap.Remove(cmd.Context(), opts)
 		},
 	}

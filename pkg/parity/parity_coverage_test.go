@@ -1,18 +1,13 @@
 package parity_test
 
 import (
-	"context"
-	"errors"
 	"reflect"
 	"testing"
 
-	"github.com/jlrickert/cli-toolkit/sandbox"
-	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/require"
 
 	"github.com/jlrickert/tapper/pkg/cli"
-	"github.com/jlrickert/tapper/pkg/mcp"
 	"github.com/jlrickert/tapper/pkg/tapper"
 )
 
@@ -27,19 +22,19 @@ var tapMethodToSurfaces = map[string]struct {
 	MCP string // MCP tool name (e.g., "list", "repo_init", "index")
 }{
 	// Read operations
-	"Cat":           {CLI: "cat", MCP: "cat"},
-	"List":          {CLI: "list", MCP: "list"},
-	"Grep":          {CLI: "grep", MCP: "grep"},
-	"Tags":          {CLI: "tags", MCP: "tags"},
-	"Backlinks":     {CLI: "backlinks", MCP: "backlinks"},
-	"Links":         {CLI: "links", MCP: "links"},
-	"Info":          {CLI: "info", MCP: "info"},
-	"KegSettings":   {CLI: "keg settings", MCP: "keg_settings"},
-	"KegConfigEdit": {CLI: "keg settings edit", MCP: "keg_settings_edit"},
-	"Stats":         {CLI: "stats", MCP: "stats"},
-	"ListIndexes":   {CLI: "index list", MCP: "list_indexes"},
-	"IndexCat":      {CLI: "index get", MCP: "index_cat"},
-	"Doctor":        {CLI: "doctor", MCP: "doctor"},
+	"Cat":             {CLI: "cat", MCP: "cat"},
+	"List":            {CLI: "list", MCP: "list"},
+	"Grep":            {CLI: "grep", MCP: "grep"},
+	"Tags":            {CLI: "tags", MCP: "tags"},
+	"Backlinks":       {CLI: "backlinks", MCP: "backlinks"},
+	"Links":           {CLI: "links", MCP: "links"},
+	"Info":            {CLI: "info", MCP: "info"},
+	"KegSettings":     {CLI: "keg settings", MCP: "keg_settings"},
+	"KegSettingsEdit": {CLI: "keg settings edit", MCP: "keg_settings_edit"},
+	"Stats":           {CLI: "stats", MCP: "stats"},
+	"ListIndexes":     {CLI: "index list", MCP: "list_indexes"},
+	"IndexCat":        {CLI: "index get", MCP: "index_cat"},
+	"Doctor":          {CLI: "doctor", MCP: "doctor"},
 
 	// Write operations
 	"Create": {CLI: "create", MCP: "create"},
@@ -113,11 +108,16 @@ var tapMethodsExcluded = map[string]string{
 	"EditBatch":         "MCP batch backing operation; CLI edit remains a one-node command",
 	"MetaBatch":         "MCP batch backing operation; CLI meta remains a one-node command",
 	"NodeSnapshotBatch": "MCP batch backing operation; CLI snapshot create remains a one-node command",
+	"CatViews":          "structured accessor behind Cat; MCP cat uses it to return per-node precondition hashes without re-reading",
+	"NodeHash":          "explicit CLI read-before-write helper; MCP reads return the same token in structured content",
+	"SchemaHash":        "explicit CLI read-before-write helper; MCP schema_read returns the same token",
+	"KegSettingsHash":   "explicit CLI read-before-write helper; MCP keg_settings returns the same token",
 	"ConfigEdit":        "interactive editor; not exposed via MCP",
 	"AuthRefreshAll":    "startup credential renewal invoked by the CLI root command (covers `tap` and `tap mcp`); not a user-facing operation",
 	"UpdateFlight":      "underlying partial-update operation used by MCP flight_edit; CLI users use `flight edit`",
 	"LookupKeg":         "internal resolution helper; not a user-facing operation",
 	"ResolveNodeRef":    "internal node-reference resolver shared by surfaces; not a user-facing operation",
+	"OrientationKegs":   "internal MCP authority helper; keg_list is the governed user-facing discovery surface",
 	"WatchNode": "streaming, not request/response: CLI surface is `tap watch` (long-lived stream); " +
 		"MCP surface is the resources/subscribe protocol capability (not a tool), wired via " +
 		"SubscribeHandler in pkg/mcp/server.go. Payload parity is impossible — MCP notifications " +
@@ -145,13 +145,14 @@ var tapMethodsExcluded = map[string]string{
 	"SetBootstrapNamespace": "CLI-only bootstrap step; adopts the hub's default namespace after login, not an MCP operation",
 	"SetHubDefaultNamespaceByURL": "CLI-only auth/bootstrap helper; adopts the hub's default namespace after login, " +
 		"not a standalone user-facing operation",
-	"SetFallbackKeg":       "CLI-only bootstrap step; persists the chosen keg as the user-level fallback after login, not an MCP operation",
-	"SetBootstrapFlight":   "CLI-only bootstrap step; validates and persists the user-level flight baseline, not an MCP operation",
-	"Use":                  "writes the project/user keg + flight to config; CLI-only config management by design",
-	"UseStatus":            "CLI-only summary of the resolved keg/flight context; config inspection via `tap use`",
-	"ActiveFlightName":     "internal pure read of the explicit flight or the loaded cascade's selection; backs Orient and MCP session adoption rather than being an operation of its own",
-	"ActiveAgentName":      "internal pure read of the `tap launch` agent driving the process; reported in orientation and telemetry rather than being an operation of its own",
-	"OrientationForFlight": "internal session-orientation builder used by initialize, orient, and the orient resource",
+	"SetFallbackKeg":           "CLI-only bootstrap step; persists the chosen keg as the user-level fallback after login, not an MCP operation",
+	"SetBootstrapFlight":       "CLI-only bootstrap step; validates and persists the user-level flight baseline, not an MCP operation",
+	"Use":                      "writes the project/user keg + flight to config; CLI-only config management by design",
+	"UseStatus":                "CLI-only summary of the resolved keg/flight context; config inspection via `tap use`",
+	"ActiveFlightName":         "internal pure read of the explicit flight or the loaded cascade's selection; backs Orient and MCP session adoption rather than being an operation of its own",
+	"ActiveAgentName":          "internal pure read of the `tap launch` agent driving the process; reported in orientation and telemetry rather than being an operation of its own",
+	"OrientationKegsForFlight": "internal authority projection used by MCP providers to compute a revision before rendering once",
+	"IdentityKegCatalog":       "internal identity metadata projection used by MCP providers for graph discovery and ungoverned keg_search",
 	// Dropped from MCP when the surface was unified behind providers: these
 	// operate on machine-local Tapper state or perform tenant administration,
 	// neither of which an agent should reach through either transport.
@@ -164,7 +165,6 @@ var tapMethodsExcluded = map[string]string{
 	"KegVisibility":  "UI-only visibility management; MCP must not flip a keg between public and private",
 	"NamespaceList":  "namespace discovery folded into auth_info's identity payload; the standalone tool was tenant-administration shaped",
 	"License":        "prints bundled license text; CLI-only via `tap version --license`",
-	"Graph":          "deprecated and disabled on MCP: renders a standalone HTML page an agent cannot display, and returning ~8KB of markup as tool text is pure context cost; `tap graph --output` remains until the feature is removed",
 	// Experimental launcher. Starting a process on the operator's machine is
 	// not an agent operation and must not become an MCP tool.
 	"Launch":        "CLI-only: starts an agent harness as a local subprocess; MCP must never spawn processes on its host",
@@ -227,43 +227,8 @@ func TestCoverage_AllTapMethodsHaveBothSurfaces(t *testing.T) {
 // collectMCPToolNames returns the set of registered MCP tool names.
 func collectMCPToolNames(t *testing.T) map[string]bool {
 	t.Helper()
-
-	sb := sandbox.NewSandbox(t, &sandbox.Options{
-		Data: testdata,
-		Home: "/home/testuser",
-		User: "testuser",
-	}, sandbox.WithFixture("testuser", "~"))
-	ctx := sb.Context()
-
-	tap, err := tapper.NewTap(tapper.TapOptions{
-		Runtime: sb.Runtime(),
-	})
-	require.NoError(t, err)
-
-	srv := mcp.NewServer(tap, "test", mcp.KegDefaults{
-		KegTargetOptions: tapper.KegTargetOptions{Flight: "@local/+parity"},
-	}, mcp.ServerOptions{SharedFilesystem: true})
-	serverTransport, clientTransport := sdkmcp.NewInMemoryTransports()
-
-	done := make(chan error, 1)
-	go func() {
-		done <- srv.Run(ctx, serverTransport)
-	}()
-	t.Cleanup(func() {
-		if err := <-done; err != nil && !errors.Is(err, context.Canceled) {
-			t.Errorf("MCP server error: %v", err)
-		}
-	})
-
-	client := sdkmcp.NewClient(&sdkmcp.Implementation{
-		Name:    "coverage-test",
-		Version: "0.1",
-	}, nil)
-	session, err := client.Connect(ctx, clientTransport, nil)
-	require.NoError(t, err)
-	t.Cleanup(func() { session.Close() })
-
-	res, err := session.ListTools(ctx, nil)
+	env := newParityEnv(t)
+	res, err := env.session.ListTools(env.ctx, nil)
 	require.NoError(t, err)
 
 	tools := make(map[string]bool)

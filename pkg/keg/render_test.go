@@ -193,6 +193,25 @@ func TestRenderMarkdown_hubStyleResolution(t *testing.T) {
 	require.NotContains(t, out, `href="/@foldwise/example/9"`)
 }
 
+func TestRenderMarkdown_BareKegReferenceRemainsPlainText(t *testing.T) {
+	opts := keg.RenderOptions{
+		BaseURL:         "/@foldwise/example/",
+		NodeID:          "2",
+		NoTrailingSlash: true,
+		KegResolver: func(ns, alias, id string) string {
+			return "/@foldwise/" + alias + "/" + id
+		},
+	}
+	html, err := keg.RenderMarkdown([]byte(
+		"Bare keg:public/7 stays prose; [linked](keg:public/8) is a graph link.",
+	), opts)
+	require.NoError(t, err)
+	out := string(html)
+	require.Contains(t, out, "Bare keg:public/7 stays prose")
+	require.NotContains(t, out, `href="/@foldwise/public/7"`)
+	require.Contains(t, out, `href="/@foldwise/public/8"`)
+}
+
 func TestRenderMarkdown_autolinkUntouched(t *testing.T) {
 	src := "Visit https://example.com/page now."
 	html, err := keg.RenderMarkdown([]byte(src), keg.RenderOptions{NodeID: "2"})

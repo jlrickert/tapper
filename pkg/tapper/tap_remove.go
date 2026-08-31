@@ -18,6 +18,9 @@ type RemoveOptions struct {
 	// Query is an optional boolean expression (tags and/or key=value attr
 	// predicates) that selects additional nodes to remove.
 	Query string
+
+	ExpectedHash   string
+	ExpectedHashes map[string]string
 }
 
 func (t *Tap) Remove(ctx context.Context, opts RemoveOptions) error {
@@ -26,7 +29,7 @@ func (t *Tap) Remove(ctx context.Context, opts RemoveOptions) error {
 		return fmt.Errorf("unable to open keg: %w", err)
 	}
 
-	ids := make([]keg.NodeId, 0, len(opts.NodeIDs))
+	nodes := make([]keg.NodeRemoveOptions, 0, len(opts.NodeIDs))
 	for _, nodeID := range opts.NodeIDs {
 		// Intentionally NOT routed through resolveNodeArg. Query-derived ids come
 		// from the current keg's dex and are bare; mixing them with cross-keg
@@ -38,9 +41,13 @@ func (t *Tap) Remove(ctx context.Context, opts RemoveOptions) error {
 			return err
 		}
 
-		ids = append(ids, id)
+		expectedHash := opts.ExpectedHash
+		if hash := opts.ExpectedHashes[nodeID]; hash != "" {
+			expectedHash = hash
+		}
+		nodes = append(nodes, keg.NodeRemoveOptions{ID: id, ExpectedHash: expectedHash})
 	}
-	result, err := k.RemoveNodes(ctx, keg.RemoveNodesOptions{NodeIDs: ids, Query: strings.TrimSpace(opts.Query)})
+	result, err := k.RemoveNodes(ctx, keg.RemoveNodesOptions{Nodes: nodes, Query: strings.TrimSpace(opts.Query)})
 	if errors.Is(err, keg.ErrNotExist) {
 		return fmt.Errorf("node not found in %s: %w", describeKeg(k), err)
 	}

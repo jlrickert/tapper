@@ -62,9 +62,8 @@ var kegGrantRoles = map[string]bool{"viewer": true, "editor": true, "admin": tru
 
 var kegVisibilities = map[string]bool{"public": true, "private": true}
 
-// hubKegAliasPattern mirrors tapper-hub's catalog alias regex. It is stricter
-// than local keg aliases: hub aliases are lowercase alphanumeric plus hyphen,
-// 1-64 chars, and must start with an alphanumeric.
+// hubKegAliasPattern mirrors tapper-hub's catalog alias regex: lowercase
+// alphanumeric plus hyphen, 1-64 chars, starting with an alphanumeric.
 var hubKegAliasPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,63}$`)
 
 // KegGrants lists the per-(user, role) grants on a keg.
@@ -168,7 +167,7 @@ func (t *Tap) resolveKegAdminRef(keg, nsOverride, hubOverride string) (namespace
 	if oErr != nil {
 		return "", "", "", "", oErr
 	}
-	if ref.Path != "" || ref.Name == "" {
+	if ref.Name == "" {
 		return "", "", "", "", fmt.Errorf("keg administration requires a hub-backed keg reference like @namespace/keg")
 	}
 	// Infer namespace + hub through the shared chain (same as ResolveRef), so a
@@ -176,9 +175,6 @@ func (t *Tap) resolveKegAdminRef(keg, nsOverride, hubOverride string) (namespace
 	ns, hubName, entry, rErr := cfg.resolveNamespaceHub(ref.Namespace, ref.Hub)
 	if rErr != nil {
 		return "", "", "", "", fmt.Errorf("keg %q: %w", raw, rErr)
-	}
-	if strings.TrimSpace(entry.Kind) == HubKindLocal {
-		return "", "", "", "", fmt.Errorf("keg administration requires a remote hub-backed namespace")
 	}
 	url := strings.TrimSpace(entry.URL)
 	if url == "" {

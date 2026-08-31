@@ -13,6 +13,7 @@ import (
 
 	"github.com/jlrickert/cli-toolkit/sandbox"
 	"github.com/jlrickert/cli-toolkit/toolkit"
+	"github.com/jlrickert/tapper/pkg/schemas"
 	"github.com/jlrickert/tapper/pkg/tapper"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
@@ -295,7 +296,10 @@ func TestEditFlight_EditorStartsWithSchemaBackedManifest(t *testing.T) {
 	raw, err := os.ReadFile(capturePath)
 	require.NoError(t, err)
 	opened := string(raw)
-	require.True(t, strings.HasPrefix(opened, "# yaml-language-server: $schema="+tapper.FlightManifestSchemaURL+"\n"))
+	// The modeline points at the schema this binary shipped, not at whatever
+	// is published on main.
+	require.True(t, strings.HasPrefix(opened,
+		schemas.ModelinePrefix+schemas.ModelineURI(fx.Runtime(), schemas.FlightManifest)+"\n"), "got: %s", opened)
 	require.Contains(t, opened, "# Flight @foldwise/+agent-work. Ref is immutable; edit title, visibility, capabilities, cover, and instructions.")
 	require.Contains(t, opened, `title: ""`)
 	require.Contains(t, opened, `visibility: private`)

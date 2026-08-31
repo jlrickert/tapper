@@ -7,11 +7,10 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
-	"runtime"
 	"strings"
 
 	"github.com/jlrickert/cli-toolkit/toolkit"
+	"github.com/jlrickert/tapper/pkg/schemas"
 )
 
 type ConfigOptions struct {
@@ -65,6 +64,7 @@ func (t *Tap) Config(opts ConfigOptions) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("unable to serialize config: %w", err)
 	}
+	data = schemas.ReplaceModeline(data, schemas.Modeline(t.Runtime, schemas.TapConfig))
 
 	return string(data), nil
 }
@@ -102,10 +102,13 @@ func (t *Tap) ConfigTemplate(opts ConfigTemplateOptions) (string, error) {
 	if opts.Project {
 		cfg = DefaultProjectConfig("project", "kegs")
 	} else {
-		cfg = DefaultUserConfig("pub", defaultTemplateKegRoot(t.Runtime))
+		cfg = DefaultUserConfig("pub")
 	}
 	data, err := cfg.ToYAML()
-	return string(data), err
+	if err != nil {
+		return "", err
+	}
+	return string(schemas.ReplaceModeline(data, schemas.Modeline(t.Runtime, schemas.TapConfig))), nil
 }
 
 // ConfigEdit edits the selected tap config file.
@@ -141,7 +144,7 @@ func (t *Tap) ConfigEdit(ctx context.Context, opts ConfigEditOptions) error {
 		if opts.User {
 			// User config is the base layer — seed it with real onboarding
 			// defaults (hubs, local namespace, etc.).
-			cfg := DefaultUserConfig("public", defaultTemplateKegRoot(t.Runtime))
+			cfg := DefaultUserConfig("public")
 			if err := cfg.Write(t.Runtime, resolvedPath); err != nil {
 				return fmt.Errorf("unable to create default config: %w", err)
 			}
@@ -149,7 +152,7 @@ func (t *Tap) ConfigEdit(ctx context.Context, opts ConfigEditOptions) error {
 			// Project config: seed a fully commented template so an abandoned
 			// edit leaves an inert file rather than authoritative default* slots
 			// that would silently override user-level resolution.
-			tmpl, tmplErr := projectConfigTemplate()
+			tmpl, tmplErr := projectConfigTemplate(t.Runtime)
 			if tmplErr != nil {
 				return tmplErr
 			}
@@ -224,7 +227,6 @@ var ConfigExplainFields = []string{
 	"defaultNamespace",
 	"fallbackNamespace",
 	"disableAtlasHub",
-	"disableLocalHub",
 	"disableTelemetry",
 }
 
@@ -259,11 +261,6 @@ func configFieldGetter(cfg *Config, field string) string {
 		return cfg.FallbackNamespace()
 	case "disableAtlasHub":
 		if cfg.DisableAtlasHub() {
-			return "true"
-		}
-		return ""
-	case "disableLocalHub":
-		if cfg.DisableLocalHub() {
 			return "true"
 		}
 		return ""
@@ -314,14 +311,9 @@ func (t *Tap) ConfigExplain(ctx context.Context, opts ConfigExplainOptions) ([]C
 		mergedVal := configFieldGetter(merged, field)
 
 		// Walk from most-specific to least-specific to find which source set this value.
-		// The agent sits between the env and file layers for flight only, mirroring
-		// the resolution order in ConfigService.load — otherwise this would report a
-		// project config that the agent's flight actually overrode.
 		source := "default"
 		if envVal := configFieldGetter(envCfg, field); envVal != "" {
 			source = "env vars"
-		} else if agentName := agentFlightSource(merged, field); agentName != "" {
-			source = fmt.Sprintf("agent %q", agentName)
 		} else if projVal := configFieldGetter(projectCfg, field); projVal != "" {
 			source = "project config"
 		} else if userVal := configFieldGetter(userCfg, field); userVal != "" {
@@ -339,30 +331,6 @@ func (t *Tap) ConfigExplain(ctx context.Context, opts ConfigExplainOptions) ([]C
 }
 
 // loadEnvConfig builds a Config from TAP_* env vars, or returns nil if none are set.
-// agentFlightSource names the agent that supplied field's value, or "" when the
-// agent did not. Only "flight" can come from an agent; the agent's own entry is
-// a plain config value like any other.
-func agentFlightSource(merged *Config, field string) string {
-	if field != "flight" || merged == nil {
-		return ""
-	}
-	name := merged.AgentName()
-	if name == "" {
-		return ""
-	}
-	entry, ok := merged.Agent(name)
-	if !ok {
-		return ""
-	}
-	// Compare against the merged value rather than assuming the overlay ran: a
-	// TAP_FLIGHT override is caught by the env branch before this one, but an
-	// agent whose flight is empty never contributed and must not be credited.
-	if flight := strings.TrimSpace(entry.Flight); flight != "" && flight == merged.Flight() {
-		return name
-	}
-	return ""
-}
-
 func (t *Tap) loadEnvConfig() *Config {
 	getenv := t.Runtime.Env().Get
 	envMap := make(map[string]string)
@@ -373,21 +341,4 @@ func (t *Tap) loadEnvConfig() *Config {
 		}
 	}
 	return configFromEnvMap(envMap)
-}
-
-// defaultTemplateKegRoot returns the user-visible default basePath written into
-// a starter config's local hub (~/Documents/kegs). It is distinct from
-// defaultUserKegRoot, the platform data-dir fallback used at resolve time.
-func defaultTemplateKegRoot(rt *toolkit.Runtime) string {
-	switch runtime.GOOS {
-	case "darwin", "linux":
-		return "~/Documents/kegs"
-	default:
-		if rt != nil {
-			if home, err := rt.GetHome(); err == nil && strings.TrimSpace(home) != "" {
-				return filepath.Join(home, "Documents", "kegs")
-			}
-		}
-		return "~/Documents/kegs"
-	}
 }

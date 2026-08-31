@@ -3,7 +3,6 @@ package mcp
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -12,7 +11,6 @@ import (
 
 func registerArchiveTools(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	registerExport(srv, tap, defaults)
-	registerImport(srv, tap, defaults)
 }
 
 // --- export ---
@@ -45,40 +43,5 @@ func registerExport(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 			return errorResult(err), nil, nil
 		}
 		return textResult(fmt.Sprintf("exported to %s", path)), nil, nil
-	})
-}
-
-// --- import ---
-
-type importInput struct {
-	Keg  string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
-	Path string `json:"path" jsonschema:"path or URL to a keg archive tar.gz file"`
-}
-
-func registerImport(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
-	sdkmcp.AddTool(srv, &sdkmcp.Tool{
-		Name:        "import",
-		Description: "Import nodes from a keg archive tar.gz file",
-		Annotations: &sdkmcp.ToolAnnotations{
-			DestructiveHint: boolPtr(false),
-			OpenWorldHint:   boolPtr(false),
-		},
-	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in importInput) (*sdkmcp.CallToolResult, any, error) {
-		opts := tapper.ImportOptions{
-			KegTargetOptions: resolveKegTarget(ctx, in.Keg, defaults),
-			Input:            in.Path,
-		}
-
-		imported, err := tap.Import(ctx, opts)
-		if err != nil {
-			return errorResult(err), nil, nil
-		}
-
-		ids := make([]string, len(imported))
-		for i, id := range imported {
-			ids[i] = id.Path()
-		}
-		summary := fmt.Sprintf("imported %d node(s): %s", len(imported), strings.Join(ids, ", "))
-		return textResult(summary), nil, nil
 	})
 }

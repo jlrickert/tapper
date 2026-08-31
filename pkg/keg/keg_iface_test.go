@@ -10,12 +10,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// newLiftedKeg returns an initialized memory-backed keg with two linked,
+// newLiftedKeg returns an initialized filesystem-backed keg with two linked,
 // tagged nodes for exercising the lifted Keg interface operations.
 func newLiftedKeg(t *testing.T) (*sandbox.Sandbox, *kegpkg.LocalKeg) {
 	t.Helper()
 	f := NewSandbox(t)
-	repo := kegpkg.NewMemoryRepo(f.Runtime())
+	repo := newTestMemoryRepo(f.Runtime())
 	k := kegpkg.NewLocalKeg(repo, f.Runtime())
 	initNonStrictTestKeg(t, k, f.Context())
 
@@ -43,7 +43,7 @@ func TestReadNodeAssemblesFullState(t *testing.T) {
 	require.Equal(t, kegpkg.NodeId{ID: 1}, view.ID)
 	require.Contains(t, string(view.Content), "Alpha body")
 	require.NotNil(t, view.Stats)
-	// MemoryRepo supports assets/images, so the lists must be non-nil.
+	// MemoryRepository supports assets/images, so the lists must be non-nil.
 	require.NotNil(t, view.Files)
 	require.NotNil(t, view.Images)
 }
@@ -125,7 +125,7 @@ func TestExportImportRoundTrip(t *testing.T) {
 	require.NotEmpty(t, archive)
 
 	// Import into a fresh keg.
-	repo2 := kegpkg.NewMemoryRepo(f.Runtime())
+	repo2 := newTestMemoryRepo(f.Runtime())
 	k2 := kegpkg.NewLocalKeg(repo2, f.Runtime())
 	initNonStrictTestKeg(t, k2, f.Context())
 
@@ -169,7 +169,7 @@ func TestMoveReturnsRewrittenNodes(t *testing.T) {
 	f, k := newLiftedKeg(t)
 
 	// Node 1 links to ../2; moving 2 -> 5 must rewrite node 1.
-	rewritten, err := k.Move(f.Context(), kegpkg.NodeId{ID: 2}, kegpkg.NodeId{ID: 5})
+	rewritten, err := k.Move(f.Context(), moveOptions(t, f.Context(), k, kegpkg.NodeId{ID: 2}, kegpkg.NodeId{ID: 5}))
 	require.NoError(t, err)
 	require.Contains(t, rewritten, kegpkg.NodeId{ID: 1})
 

@@ -16,7 +16,7 @@ func (k *LocalKeg) withNodeLock(ctx context.Context, id NodeId, fn func(context.
 }
 
 // nodeExistsWithContent checks whether a node truly exists by verifying it has
-// content (or at minimum an entry in the repo). For FsRepo, WithNodeLock
+// content (or at minimum an entry in the repo). For MemoryRepository, WithNodeLock
 // creates a bare directory as a side effect of lock acquisition, so HasNode
 // alone is insufficient — a bare directory without README.md is not a real
 // node. This helper reads the content file to confirm the node was properly

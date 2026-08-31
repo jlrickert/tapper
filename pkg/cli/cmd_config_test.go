@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	testutils "github.com/jlrickert/cli-toolkit/sandbox"
+	"github.com/jlrickert/tapper/pkg/schemas"
 	"github.com/stretchr/testify/require"
 )
 
@@ -38,20 +39,17 @@ func TestConfigCommand_DisplaysMergedConfig(t *testing.T) {
 			args:         []string{"config", "template", "user"},
 			setupFixture: strPtr("joe"),
 			expectedInStdout: []string{
-				"# yaml-language-server: $schema=https://raw.githubusercontent.com/jlrickert/tapper/main/schemas/tap-config.json",
 				"fallbackHub:",
-				"namespaces:",
 				"defaultNamespace: pub",
 				"hubs:",
 			},
-			description: "User template should include the fallback hub, the local namespace mapping, the per-hub namespace, and the hubs map",
+			description: "User template should include the fallback hub, per-hub namespace, and hubs map",
 		},
 		{
 			name:         "config_template_project_includes_new_keys",
 			args:         []string{"config", "template", "project"},
 			setupFixture: strPtr("joe"),
 			expectedInStdout: []string{
-				"# yaml-language-server: $schema=https://raw.githubusercontent.com/jlrickert/tapper/main/schemas/tap-config.json",
 				"defaultKeg:",
 				"defaultHub:",
 				"defaultNamespace:",
@@ -87,8 +85,11 @@ func TestConfigCommand_DisplaysMergedConfig(t *testing.T) {
 				}
 
 				if strings.Contains(strings.Join(tt.args, " "), "template") {
-					require.True(innerT, strings.HasPrefix(stdout, "# yaml-language-server: $schema="),
-						"template output should start with yaml-language-server modeline")
+					// The modeline resolves to the schema copy materialized
+					// from this binary, not the URL published on main.
+					require.True(innerT, strings.HasPrefix(stdout,
+						schemas.ModelinePrefix+schemas.ModelineURI(sb.Runtime(), schemas.TapConfig)+"\n"),
+						"template output should start with a modeline pointing at the local schema, got:\n%s", stdout)
 				}
 
 				// Verify it looks like YAML output
@@ -100,40 +101,10 @@ func TestConfigCommand_DisplaysMergedConfig(t *testing.T) {
 }
 
 func TestConfigCommand_IntegrationWithInit(t *testing.T) {
-	t.Run("config_after_init", func(innerT *testing.T) {
-		innerT.Parallel()
-		opts := []testutils.Option{
-			testutils.WithFixture("testuser", "~"),
-		}
-		sb := NewSandbox(innerT, opts...)
-
-		// First, initialize a user keg. With the namespace-centric model the
-		// keg lands on the local hub on disk; init no longer mutates the user
-		// config to register an alias.
-		initCmd := NewProcess(innerT, false,
-			"init",
-			"--user",
-			"--keg", "newstudy",
-			"--creator", "test-user",
-		)
-		initRes := initCmd.Run(sb.Context(), sb.Runtime())
-		require.NoError(innerT, initRes.Err, "init should succeed")
-
-		// The keg directory exists on the local hub under @local/.
-		newstudyKeg := sb.MustReadFile("~/kegs/@local/newstudy/keg")
-		require.Contains(innerT, string(newstudyKeg), "$schema=",
-			"init should have written the keg under the local hub")
-
-		// Now display the tap config; it should still render the user config
-		// (hubs + defaultKeg) and remain unmodified by init.
-		configCmd := NewProcess(innerT, false, "config")
-		configRes := configCmd.Run(sb.Context(), sb.Runtime())
-		require.NoError(innerT, configRes.Err, "config should succeed after init")
-
-		stdout := string(configRes.Stdout)
-		require.Contains(innerT, stdout, "hubs:", "output should contain hubs section")
-		require.Contains(innerT, stdout, "defaultKeg:", "output should contain defaultKeg")
-	})
+	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
+	res := NewProcess(t, false, "init").Run(sb.Context(), sb.Runtime())
+	require.Error(t, res.Err)
+	require.Contains(t, string(res.Stderr), `unknown command "init"`)
 }
 
 func TestConfigCommand_ReadsExplicitConfigPath(t *testing.T) {
@@ -234,32 +205,18 @@ func TestConfigCommand_ExplainFlagWithEnvVar(t *testing.T) {
 func TestConfigCommand_ProjectFlightPrecedenceMatchesOrient(t *testing.T) {
 	t.Parallel()
 
-	sb := NewSandbox(t)
+	sb := NewRemoteKegListSandbox(t, remoteCompletionKegs())
 	project := "/home/testuser/work/project"
 	descendant := project + "/src/pkg"
+	require.NoError(t, sb.Runtime().Mkdir(descendant, 0o755, true))
 	require.NoError(t, sb.Setwd(descendant))
+	userConfig := "/home/testuser/.config/tapper/config.yaml"
+	remoteConfig, err := sb.Runtime().ReadFile(userConfig)
+	require.NoError(t, err)
 	require.NoError(t, sb.Runtime().AtomicWriteFile(
-		"/home/testuser/.config/tapper/config.yaml",
-		[]byte(`flight: +baseline
-fallbackNamespace: local
-hubs:
-  home:
-    kind: local
-    basePath: /home/testuser/kegs
-`), 0o644))
+		userConfig, append([]byte("flight: +baseline\n"), remoteConfig...), 0o644))
 	require.NoError(t, sb.Runtime().AtomicWriteFile(
 		project+"/.tapper/config.yaml", []byte("flight: +project\n"), 0o644))
-
-	for slug, instructions := range map[string]string{
-		"baseline":    "Baseline instructions",
-		"project":     "Project instructions",
-		"environment": "Environment instructions",
-		"explicit":    "Explicit instructions",
-	} {
-		require.NoError(t, sb.Runtime().AtomicWriteFile(
-			"/home/testuser/kegs/flights.d/"+slug+".yaml",
-			[]byte("title: "+slug+"\ninstructions: "+instructions+"\n"), 0o644))
-	}
 
 	explained := NewProcess(t, false, "config", "--explain", "flight").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, explained.Err)

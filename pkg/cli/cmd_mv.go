@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"fmt"
+
 	"github.com/jlrickert/tapper/pkg/tapper"
 	"github.com/spf13/cobra"
 )
@@ -22,6 +24,11 @@ destination must not already exist. Node 0 cannot be moved.`,
 			opts.SourceID = args[0]
 			opts.DestID = args[1]
 			applyKegTargetProfile(deps, &opts.KegTargetOptions)
+			hash, err := deps.Tap.NodeHash(cmd.Context(), opts.KegTargetOptions, opts.SourceID)
+			if err != nil {
+				return fmt.Errorf("node %s not found: %w", opts.SourceID, err)
+			}
+			opts.ExpectedHash = hash
 			return deps.Tap.Move(cmd.Context(), opts)
 		},
 	}

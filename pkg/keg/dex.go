@@ -31,7 +31,7 @@ type Dex struct {
 	// changes is the reverse-chronological list of all nodes.
 	changes ChangesIndex
 
-	// custom holds config-driven query-filtered index builders.
+	// custom holds settings-driven query-filtered index builders.
 	custom []IndexBuilder
 
 	// queryResolver is an optional callback injected via WithQueryResolver.
@@ -45,7 +45,21 @@ type Dex struct {
 // DexOption is a functional option for NewDexFromRepo.
 type DexOption func(*Dex) error
 
-// WithConfig builds DexOptions from a keg Config. It iterates cfg.Indexes and
+type indexReader interface {
+	GetIndex(context.Context, string) ([]byte, error)
+}
+
+type indexMapReader map[string]string
+
+func (r indexMapReader) GetIndex(_ context.Context, name string) ([]byte, error) {
+	data, ok := r[name]
+	if !ok {
+		return nil, ErrNotExist
+	}
+	return []byte(data), nil
+}
+
+// WithSettings builds DexOptions from a keg Settings. It iterates cfg.Indexes and
 // creates a QueryFilteredIndex for each entry that:
 //   - has a non-empty Query field, and
 //   - is not one of the core protected index names.
@@ -56,7 +70,7 @@ type DexOption func(*Dex) error
 // By default, the index evaluates tag expressions against node tag sets. To
 // support richer query terms (e.g. key=value attribute predicates), pass
 // WithQueryResolver to inject a custom resolver callback.
-func WithConfig(cfg *Config) DexOption {
+func WithSettings(cfg *Settings) DexOption {
 	return func(d *Dex) error {
 		if cfg == nil {
 			return nil
@@ -76,7 +90,7 @@ func WithConfig(cfg *Config) DexOption {
 			}
 			idx, err := NewQueryFilteredIndexWithSort(entry.File, query, resolver, sortOrder)
 			if err != nil {
-				return fmt.Errorf("dex: config index %q: %w", entry.File, err)
+				return fmt.Errorf("dex: settings index %q: %w", entry.File, err)
 			}
 			d.custom = append(d.custom, idx)
 		}
@@ -84,7 +98,7 @@ func WithConfig(cfg *Config) DexOption {
 	}
 }
 
-// WithQueryResolver sets a custom query term resolver for config-driven custom
+// WithQueryResolver sets a custom query term resolver for settings-driven custom
 // indexes. When set, each term in a query expression is resolved by calling
 // resolve(term, data) for each node, instead of the default tag-only resolver.
 // This enables key=value attribute predicates and other term types defined in
@@ -100,11 +114,15 @@ func WithQueryResolver(resolve func(term string, data *NodeData) bool) DexOption
 // "backlinks", "changes.md") from the provided repository and returns a Dex
 // populated with parsed indexes. Missing or empty index files are treated as
 // empty datasets and do not cause an error. Additional DexOptions (e.g.
-// WithConfig) can be supplied to configure optional behaviour such as
+// WithSettings) can be supplied to configure optional behaviour such as
 // tag-filtered custom indexes.
 //
 // All 5 index files are read and parsed concurrently for faster loading.
 func NewDexFromRepo(ctx context.Context, repo Repository, opts ...DexOption) (*Dex, error) {
+	return newDexFromIndexReader(ctx, repo, opts...)
+}
+
+func newDexFromIndexReader(ctx context.Context, repo indexReader, opts ...DexOption) (*Dex, error) {
 	d := &Dex{}
 
 	// Each goroutine writes to its own result slot; no shared mutable state.
@@ -124,7 +142,7 @@ func NewDexFromRepo(ctx context.Context, repo Repository, opts ...DexOption) (*D
 
 	var wg sync.WaitGroup
 	run := func(fn func()) {
-		if repositorySupportsConcurrentAccess(ctx, repo) {
+		if repository, ok := repo.(Repository); ok && repositorySupportsConcurrentAccess(ctx, repository) {
 			wg.Go(fn)
 			return
 		}
@@ -256,7 +274,7 @@ func NewDexFromRepo(ctx context.Context, repo Repository, opts ...DexOption) (*D
 		errs = append(errs, changeErr)
 	}
 
-	// Apply options (e.g. WithConfig to register custom tag-filtered indexes).
+	// Apply options (e.g. WithSettings to register custom tag-filtered indexes).
 	for _, opt := range opts {
 		if err := opt(d); err != nil {
 			errs = append(errs, err)

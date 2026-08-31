@@ -5,38 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
-	"os"
 	"strings"
 
-	"github.com/jlrickert/cli-toolkit/toolkit"
 	"github.com/jlrickert/tapper/pkg/keg"
 )
-
-// localHubKey returns the map key for this machine's built-in local hub: the
-// sanitized machine hostname, falling back to LocalHubName when the hostname is
-// unavailable. Keying by hostname keeps a config that travels between machines
-// unambiguous, while the reserved @local namespace stays the portable handle
-// for references. The hostname is read from the runtime environment first (so
-// it is deterministic under a sandboxed runtime and overridable in CI) and from
-// the OS otherwise.
-func localHubKey(rt *toolkit.Runtime) string {
-	host := strings.TrimSpace(rt.Env().Get("HOSTNAME"))
-	if host == "" {
-		if h, err := os.Hostname(); err == nil {
-			host = h
-		}
-	}
-	if name := sanitizeHubName(host); name != "" {
-		return name
-	}
-	return LocalHubName
-}
 
 // Bootstrap deployment kinds. Each maps onto an existing hub kind/shape — there
 // is no new config field, only a guided way to pick one.
 const (
-	// BootstrapKindLocal sets up only the built-in local filesystem hub.
-	BootstrapKindLocal = "local"
 	// BootstrapKindCloud targets the compiled-in atlas remote hub.
 	BootstrapKindCloud = "cloud"
 	// BootstrapKindEnterprise registers a user-supplied remote HTTP endpoint.
@@ -47,7 +23,7 @@ const (
 // materializes or refreshes the user-level tapper config around a deployment
 // kind.
 type BootstrapOptions struct {
-	// Kind selects the deployment: local | cloud | enterprise. Empty defaults
+	// Kind selects the deployment: cloud | enterprise. Empty defaults
 	// to cloud (atlas is the compiled-in default hub).
 	Kind string
 	// Endpoint is the hub base URL; required when Kind == enterprise, ignored
@@ -56,8 +32,7 @@ type BootstrapOptions struct {
 	// HubName overrides the hub key written for an enterprise endpoint. Empty
 	// derives it from the endpoint host (see deriveHubName).
 	HubName string
-	// Namespace overrides the fallback namespace. Empty auto-derives it from
-	// the OS user, then LocalHubName.
+	// Namespace overrides the hub's default namespace.
 	Namespace string
 }
 
@@ -68,7 +43,7 @@ type BootstrapResult struct {
 	Created   bool            // true when a fresh file was created, false on update
 	Kind      string          // normalized deployment kind
 	Hub       string          // hub name written as fallbackHub
-	HubURL    string          // login/display URL for cloud/enterprise; "" for local
+	HubURL    string          // login/display URL
 	Namespace string          // resolved fallback namespace
 	Warnings  []ConfigWarning // semantic warnings from ValidateConfig
 }
@@ -76,46 +51,34 @@ type BootstrapResult struct {
 // Bootstrap creates or refreshes the user-level config for a chosen deployment
 // kind so plain `tap` commands resolve without per-invocation flags. It writes
 // the FALLBACK hub (the user/global convention — project config owns the
-// high-precedence default* slots) and always ensures the built-in local hub is
-// present and that the reserved @local namespace maps to it.
+// high-precedence default* slots).
 //
 // It does not write a global fallbackNamespace or a per-user namespace→hub
 // entry: the preferred namespace comes from the resolved hub's own namespace
-// field. For local that is @local; for cloud/enterprise it is the logged-in
-// user's home namespace, adopted onto the hub after login by
-// SetBootstrapNamespace. The only namespace→hub entry written is local→localHub.
+// field. It is the logged-in user's home namespace, adopted onto the hub after
+// login by SetBootstrapNamespace.
 //
-// It is idempotent: an existing config is loaded and only the fallback hub, the
-// local namespace mapping, and the kind's hub entry are touched, so user-defined
-// kegs/kegMap survive a re-run untouched.
+// It is idempotent: an existing config is loaded and only the fallback hub and
+// the selected hub entry are touched, so extension fields and kegMap rules
+// survive a re-run untouched.
 func (t *Tap) Bootstrap(ctx context.Context, opts BootstrapOptions) (*BootstrapResult, error) {
 	kind := strings.TrimSpace(strings.ToLower(opts.Kind))
 	if kind == "" {
 		kind = BootstrapKindCloud
 	}
 	switch kind {
-	case BootstrapKindLocal, BootstrapKindCloud, BootstrapKindEnterprise:
+	case BootstrapKindCloud, BootstrapKindEnterprise:
 	default:
-		return nil, fmt.Errorf("unknown bootstrap kind %q (expected local, cloud, or enterprise)", opts.Kind)
+		return nil, fmt.Errorf("unknown bootstrap kind %q (expected cloud or enterprise)", opts.Kind)
 	}
 
-	// Namespace stored on the kind's hub entry. For a local deployment the home
-	// namespace is the reserved @local. For cloud/enterprise the authoritative
+	// Namespace stored on the hub entry. The authoritative
 	// value is the logged-in user's home namespace, which only the hub knows; it
 	// is adopted after login via SetBootstrapNamespace and lives on the hub's own
 	// namespace field. Until then it stays empty rather than guessing the OS user
 	// — a bogus guess would resolve bare references to the wrong namespace
 	// instead of erroring clearly. An explicit opts.Namespace always wins.
 	namespace := strings.TrimSpace(opts.Namespace)
-	if namespace == "" && kind == BootstrapKindLocal {
-		namespace = LocalHubName
-	}
-
-	localRoot, err := defaultUserKegRoot(t.Runtime)
-	if err != nil {
-		return nil, fmt.Errorf("unable to resolve local keg root: %w", err)
-	}
-
 	path := t.PathService.UserConfig()
 
 	// Load the existing user config so a re-run is idempotent; only a genuine
@@ -130,31 +93,11 @@ func (t *Tap) Bootstrap(ctx context.Context, opts BootstrapOptions) (*BootstrapR
 		cfg = existing
 	case errors.Is(err, keg.ErrNotExist):
 		// Start minimal rather than from DefaultUserConfig: the per-kind branch
-		// below adds the remote hub it needs, so a `local` bootstrap stays
-		// local-only instead of carrying an unsolicited atlas entry. The
-		// always-ensure step seeds the built-in local hub.
+		// below adds exactly the selected remote hub.
 		cfg = &Config{data: &configDTO{KegMap: []KegMapEntry{}}}
 		created = true
 	default:
 		return nil, fmt.Errorf("unable to load user config: %w", err)
-	}
-
-	// The built-in local hub is always available so local kegs work regardless
-	// of the chosen deployment. It is keyed by the machine hostname and defaults
-	// to the reserved @local namespace; on-disk kegs live at
-	// <basePath>/@local/<name>.
-	localKey := localHubKey(t.Runtime)
-	if _, ok := cfg.Hubs()[localKey]; !ok {
-		if err := cfg.SetHub(localKey, HubEntry{Kind: HubKindLocal, DefaultNamespace: LocalHubName, BasePath: localRoot}); err != nil {
-			return nil, err
-		}
-	}
-	// Pin the reserved @local namespace to this machine's local hub. This is the
-	// only namespace→hub entry bootstrap writes: every other namespace's hub is
-	// resolved from the default/fallback hub chain, and the preferred namespace
-	// comes from that hub's own namespace field — so no per-user entry is needed.
-	if err := cfg.SetNamespace(LocalHubName, NamespaceRef{Hub: localKey}); err != nil {
-		return nil, err
 	}
 
 	// Resolve the kind-specific hub: its config entry, the fallbackHub name,
@@ -164,9 +107,6 @@ func (t *Tap) Bootstrap(ctx context.Context, opts BootstrapOptions) (*BootstrapR
 		hubURL  string
 	)
 	switch kind {
-	case BootstrapKindLocal:
-		hubName = localKey
-
 	case BootstrapKindCloud:
 		hubName = DefaultHubName
 		hubURL = DefaultHubURL
@@ -233,7 +173,6 @@ func (t *Tap) Bootstrap(ctx context.Context, opts BootstrapOptions) (*BootstrapR
 //
 // It is idempotent and a no-op when namespace is blank, or when hubName is
 // unknown/blank (nothing to adopt onto), keeping the call safe in either case.
-// The always-present local hub keeps its reserved @local namespace.
 func (t *Tap) SetBootstrapNamespace(ctx context.Context, hubName, namespace string) error {
 	namespace = strings.TrimSpace(namespace)
 	if namespace == "" {

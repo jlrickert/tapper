@@ -32,7 +32,29 @@ func AutoSnapshotMessage(idleAfter time.Duration) string {
 // automatic snapshots for nodes whose live content has drifted from the latest
 // snapshot after the configured idle window.
 func (k *LocalKeg) RunSnapshotPolicy(ctx context.Context) (SnapshotPolicyResult, error) {
+	preflight, err := withKegReadValue(ctx, k, k.snapshotPolicySettings)
+	if err != nil {
+		return SnapshotPolicyResult{}, err
+	}
+	if preflight.Mode == SnapshotModeOff {
+		return preflight, nil
+	}
 	return withKegWriteValue(ctx, k, k.runSnapshotPolicy)
+}
+
+func (k *LocalKeg) snapshotPolicySettings(ctx context.Context) (SnapshotPolicyResult, error) {
+	if err := k.checkKegExists(ctx); err != nil {
+		return SnapshotPolicyResult{}, fmt.Errorf("failed to run snapshot policy: %w", err)
+	}
+	cfg, err := k.Repo.ReadSettings(ctx)
+	if err != nil {
+		return SnapshotPolicyResult{}, fmt.Errorf("read snapshot policy settings: %w", err)
+	}
+	mode, idleAfter, err := cfg.SnapshotPolicy()
+	if err != nil {
+		return SnapshotPolicyResult{}, err
+	}
+	return SnapshotPolicyResult{Mode: mode, IdleAfter: idleAfter}, nil
 }
 
 func (k *LocalKeg) runSnapshotPolicy(ctx context.Context) (SnapshotPolicyResult, error) {
@@ -40,15 +62,11 @@ func (k *LocalKeg) runSnapshotPolicy(ctx context.Context) (SnapshotPolicyResult,
 		return SnapshotPolicyResult{}, fmt.Errorf("failed to run snapshot policy: %w", err)
 	}
 
-	cfg, err := k.Repo.ReadConfig(ctx)
-	if err != nil {
-		return SnapshotPolicyResult{}, fmt.Errorf("read snapshot policy config: %w", err)
-	}
-	mode, idleAfter, err := cfg.SnapshotPolicy()
+	result, err := k.snapshotPolicySettings(ctx)
 	if err != nil {
 		return SnapshotPolicyResult{}, err
 	}
-	result := SnapshotPolicyResult{Mode: mode, IdleAfter: idleAfter}
+	mode, idleAfter := result.Mode, result.IdleAfter
 	if mode == SnapshotModeOff {
 		return result, nil
 	}
@@ -148,6 +166,13 @@ func (k *LocalKeg) policySnapshotEligibleLocked(ctx context.Context, id NodeId, 
 	}
 
 	latestContent, err := snapshots.ReadContentAt(ctx, id, latest.ID)
+	if err != nil && errors.Is(err, ErrConflict) {
+		if unchecked, ok := k.Repo.(interface {
+			readContentAtUnchecked(context.Context, NodeId, RevisionID) ([]byte, error)
+		}); ok {
+			latestContent, err = unchecked.readContentAtUnchecked(ctx, id, latest.ID)
+		}
+	}
 	if err != nil {
 		return false, fmt.Errorf("read latest snapshot content rev %d: %w", latest.ID, err)
 	}

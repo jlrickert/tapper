@@ -116,7 +116,7 @@ func TestTimelineIndex_EmitsOmegaUpdatesAndIndexPersistsFinalOmega(t *testing.T)
 	k, rt := newSnapshotIndexTestKeg(t)
 	ctx := t.Context()
 
-	require.NoError(t, k.WriteSchema(ctx, "evidence", []byte(`type: evidence
+	require.NoError(t, k.CreateSchema(ctx, "evidence", []byte(`type: evidence
 meta:
   type: object
   properties:
@@ -125,7 +125,7 @@ meta:
 markdown:
   requireTitle: true
 `)))
-	require.NoError(t, k.WriteSchema(ctx, "note", []byte(`type: note
+	require.NoError(t, k.CreateSchema(ctx, "note", []byte(`type: note
 relations:
   - name: support
     type: evidence
@@ -213,10 +213,10 @@ func newSnapshotIndexTestKeg(t *testing.T) (*LocalKeg, *toolkit.Runtime) {
 
 	rt, err := toolkit.NewTestRuntime(t.TempDir(), "/home/testuser", "testuser")
 	require.NoError(t, err)
-	repo := NewMemoryRepo(rt)
+	repo := newTestMemoryRepo(rt)
 	k := NewLocalKeg(repo, rt)
 	require.NoError(t, k.Init(t.Context()))
-	require.NoError(t, k.UpdateConfig(t.Context(), func(cfg *Config) {
+	require.NoError(t, k.UpdateSettings(t.Context(), func(cfg *Settings) {
 		cfg.SchemaPolicy.Strict = false
 	}))
 	return k, rt

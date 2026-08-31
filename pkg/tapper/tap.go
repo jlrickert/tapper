@@ -40,13 +40,6 @@ type Tap struct {
 	// single resolver covers the whole surface. Left nil for the CLI, which keeps
 	// the standard config-driven resolution.
 	KegResolver func(ctx context.Context, opts KegTargetOptions, role FlightRole) (keg.Keg, error)
-
-	// OrientationDetailsResolver is the hosted-MCP batch seam. Tapper Hub
-	// injects a catalog-backed implementation so minimal keg_settings requests
-	// can authorize and load several selected KEGs without loopback HTTP or
-	// opening each Keg independently. Local and ordinary remote clients leave
-	// it nil and use the standard config/hub resolution path.
-	OrientationDetailsResolver func(ctx context.Context, refs []string) ([]HubOrientationDetail, error)
 }
 
 type TapOptions struct {
@@ -118,18 +111,6 @@ type KegTargetOptions struct {
 	// Empty means resolve the hub from the namespace as usual.
 	Hub string
 
-	// Project resolves using project-local keg discovery. Not exposed as a tap
-	// flag; retained for the pruned `keg` binary (ForceProjectResolution) and
-	// the keg-create destination flags.
-	Project bool
-
-	// Cwd resolves project keg at the current working directory instead of git root.
-	// Works standalone or combined with Project.
-	Cwd bool
-
-	// Path is an explicit local project path used for project keg discovery.
-	Path string
-
 	// Flight is optional task context that can restrict which kegs are available
 	// and injects agent instructions. It composes with the single-keg selectors
 	// (Keg/Namespace/Hub): the selector picks a keg and the flight gates it unless
@@ -149,8 +130,7 @@ type KegTargetOptions struct {
 
 	// RequireBootstrap makes config-driven resolution fail with
 	// ErrNotBootstrapped when no user config exists. Set by the full `tap`
-	// surface and the MCP server; left false by the pruned `keg` binary and by
-	// direct Tap API callers (e.g. tests).
+	// surface and the MCP server; direct Tap API callers may leave it false.
 	RequireBootstrap bool
 }
 
@@ -199,9 +179,6 @@ func (t *Tap) resolveKegForRoles(ctx context.Context, opts KegTargetOptions, ide
 		Keg:              opts.Keg,
 		Namespace:        opts.Namespace,
 		Hub:              opts.Hub,
-		Project:          opts.Project,
-		Cwd:              opts.Cwd,
-		Path:             opts.Path,
 		RequireBootstrap: opts.RequireBootstrap,
 		NoCache:          false,
 	})

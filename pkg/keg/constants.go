@@ -12,14 +12,18 @@ you would like this content created.
 `
 
 var (
-	// ConfigV1VersionString is the initial KEG configuration version identifier.
-	ConfigV1VersionString = "2023-01"
+	// SettingsV1VersionString is the initial KEG settings version identifier.
+	SettingsV1VersionString = "2023-01"
 
-	// ConfigV2VersionString is the current KEG configuration version identifier.
-	ConfigV2VersionString = "2025-07"
+	// SettingsV2VersionString is the current KEG settings version identifier.
+	SettingsV2VersionString = "2025-07"
 
 	// FormatMarkdown is the short format identifier for Markdown content.
 	FormatMarkdown = "markdown"
+
+	// MarkdownContentFilename is the canonical filename hint used by KEG
+	// archives and content parsers. It does not identify a storage backend.
+	MarkdownContentFilename = "README.md"
 
 	// FormatRST is the short format identifier for reStructuredText content.
 	FormatRST = "rst"

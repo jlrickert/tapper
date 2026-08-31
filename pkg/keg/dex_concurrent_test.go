@@ -66,7 +66,7 @@ func TestDexWrite_ConcurrentSafe(t *testing.T) {
 	require.NoError(t, err)
 
 	ctx := t.Context()
-	repo := NewMemoryRepo(rt)
+	repo := newTestMemoryRepo(rt)
 	dex := &Dex{}
 
 	now := time.Date(2025, 10, 15, 12, 0, 0, 0, time.UTC)

@@ -29,7 +29,7 @@ func TestStatsCommand_TableDriven(t *testing.T) {
 			name:        "missing_alias",
 			args:        []string{"stats", "0", "--keg", "missing"},
 			fixture:     strPtr("joe"),
-			expectedErr: "node 0 not found",
+			expectedErr: "keg not initialized",
 		},
 		{
 			name:        "missing_node",

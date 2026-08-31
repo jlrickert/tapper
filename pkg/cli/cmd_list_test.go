@@ -625,7 +625,7 @@ func TestListCommand_FormatCompletionSuggestsSelectors(t *testing.T) {
 	require.Contains(t, suggestions, "%{.accessCount}")
 }
 
-func TestListCommand_KegConfigListFieldsDrivesDefault(t *testing.T) {
+func TestListCommand_KegSettingsListFieldsDrivesDefault(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("queryuser", "~"))
 
@@ -646,7 +646,7 @@ func TestListCommand_KegConfigListFieldsDrivesDefault(t *testing.T) {
 	require.NotContains(t, out, "T00:00:00Z")
 }
 
-func TestListCommand_ExplicitFormatBeatsKegConfig(t *testing.T) {
+func TestListCommand_ExplicitFormatBeatsKegSettings(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("queryuser", "~"))
 

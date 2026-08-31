@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	testutils "github.com/jlrickert/cli-toolkit/sandbox"
-	"github.com/jlrickert/tapper/pkg/keg"
+	"github.com/jlrickert/tapper/pkg/schemas"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/require"
 )
@@ -75,7 +75,8 @@ markdown:
 	require.NoError(t, err)
 	require.True(t, strings.HasPrefix(strings.TrimSpace(string(basenameRaw)), "tap-schema-edit-local-example-task-"))
 	opened := string(raw)
-	require.True(t, strings.HasPrefix(opened, "# yaml-language-server: $schema="+keg.KegSchemaDefinitionSchemaURL+"\n"))
+	require.True(t, strings.HasPrefix(opened,
+		schemas.ModelinePrefix+schemas.ModelineURI(sb.Runtime(), schemas.KegSchemaDefinition)+"\n"), "got: %s", opened)
 	require.Contains(t, opened, "type: task")
 
 	got := readSchemaForCLI(t, sb, "example", "task")

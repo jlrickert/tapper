@@ -15,12 +15,17 @@ import (
 
 	"github.com/jlrickert/cli-toolkit/toolkit"
 	"github.com/jlrickert/tapper/pkg/keg"
+	"github.com/jlrickert/tapper/pkg/schemas"
 	"gopkg.in/yaml.v3"
 )
 
 const (
-	TapConfigSchemaURL      = "https://raw.githubusercontent.com/jlrickert/tapper/main/schemas/tap-config.json"
-	tapConfigSchemaModeline = "# yaml-language-server: $schema=" + TapConfigSchemaURL + "\n"
+	TapConfigSchemaURL = schemas.TapConfigURL
+
+	// tapConfigSchemaModeline is what ToYAML emits by default: the published
+	// URL, which is meaningful anywhere. Write paths that hold a runtime swap
+	// it for the materialized local copy via schemas.ReplaceModeline.
+	tapConfigSchemaModeline = schemas.ModelinePrefix + TapConfigSchemaURL + "\n"
 
 	// DefaultHubName is the compiled-in name of the default remote hub.
 	DefaultHubName = "atlas"
@@ -37,19 +42,12 @@ const (
 	// DefaultHubTokenEnv is the environment variable the default remote hub
 	// reads its bearer token from when no explicit credential is configured.
 	DefaultHubTokenEnv = "ATLAS_API_KEY"
-
-	// LocalHubName is the reserved name of the built-in filesystem hub. Kegs
-	// addressed at the "local" hub (or with namespace "local" and no hub) live
-	// on disk under the hub's basePath rather than on a remote service.
-	LocalHubName = "local"
 )
 
 // Hub kinds describe how a hub's (namespace, name) pairs are backed.
 const (
 	// HubKindRemote is a read-write HTTP hub (the default, e.g. atlas).
 	HubKindRemote = "remote"
-	// HubKindLocal is a filesystem-backed hub on this machine.
-	HubKindLocal = "local"
 	// HubKindReadonly is a read-only HTTP hub. TODO: enforce read-only writes
 	// in the API repository; today the kind only sets Target.Readonly.
 	HubKindReadonly = "readonly"
@@ -66,7 +64,7 @@ type configDTO struct {
 	Updated time.Time `yaml:"updated,omitempty"`
 
 	// defaultKeg is the keg reference used when no explicit keg is provided. It
-	// is a keg selector (a bare name, @namespace/name, keg:..., or a path),
+	// is a remote keg selector (a bare name, @namespace/name, or keg:...),
 	// resolved through the namespace-centric ResolveRef chain.
 	DefaultKeg string `yaml:"defaultKeg,omitempty"`
 
@@ -77,16 +75,16 @@ type configDTO struct {
 	// flight is the flight context applied when no --flight flag is given. It is
 	// a flight reference (@namespace/+slug, +slug, or a bare slug) and is
 	// may be set as a user baseline by bootstrap or overridden in project config;
-	// TAP_FLIGHT, the active agent's flight, and --flight have higher precedence.
+	// TAP_FLIGHT and an explicit --flight have higher precedence. Agent entries
+	// never participate in flight selection.
 	Flight string `yaml:"flight,omitempty"`
 
-	// agent names the entry in agents{} driving this process, and is set by
-	// `tap launch` as TAP_AGENT. It selects a flight indirectly: resolution reads
-	// agents[agent].flight out of the merged config on every load, so an edit to
-	// the agent's flight is picked up by the next reload. Exporting the resolved
-	// flight instead would freeze it for the life of the process, which is
-	// precisely the bug this field exists to avoid. TAP_FLIGHT and --flight,
-	// being direct, still outrank it.
+	// agent names the entry in agents{} driving this process. It serves two
+	// directions: `tap launch` exports the agent it resolved here as TAP_AGENT
+	// so the child can report its own identity, and `tap launch` reads it as the
+	// default when --agent is omitted (mirroring flight/TAP_FLIGHT). It selects
+	// a model and supplies telemetry only; flight selection is independent and
+	// TAP_FLIGHT pins a launch root.
 	Agent string `yaml:"agent,omitempty"`
 
 	// kegMap maps a project path or pattern to a keg reference.
@@ -124,11 +122,6 @@ type configDTO struct {
 	// explicit atlas entry in hubs{} is unaffected (explicit always wins).
 	DisableAtlasHub bool `yaml:"disableAtlasHub,omitempty"`
 
-	// disableLocalHub turns off the synthesized built-in local filesystem hub,
-	// symmetric with disableAtlasHub. An explicit local hub entry in hubs{} (or
-	// the hostname-keyed local hub tap bootstrap writes) is unaffected.
-	DisableLocalHub bool `yaml:"disableLocalHub,omitempty"`
-
 	// disableTelemetry opts this user out of privacy-minimized invocation
 	// reporting to their authenticated remote hub. Reporting is enabled when
 	// this field is unset or false.
@@ -137,18 +130,21 @@ type configDTO struct {
 	// hubs describes configured hubs available to the user, keyed by name.
 	Hubs hubMap `yaml:"hubs,omitempty"`
 
-	// agents names (model, flight) pairs for `tap launch`, keyed by alias.
+	// agents names model definitions for `tap launch`, keyed by alias.
 	// Experimental and undocumented; see tap_launch.go.
 	Agents map[string]AgentEntry `yaml:"agents,omitempty"`
 }
 
 // Config represents the user's tapper configuration.
 //
-// Config is a data-only model. We do not preserve YAML comments or original
-// document formatting.
+// Config keeps a typed model alongside its parsed YAML document. Tapper-owned
+// rewrites overlay known values so extension fields and comments survive.
 type Config struct {
 	// parsed data.
 	data *configDTO
+	// doc retains the parsed YAML document so Tapper-owned rewrites can overlay
+	// known fields without discarding extension fields it does not understand.
+	doc *yaml.Node
 }
 
 // KegMapEntry is an entry mapping a path prefix or regex to a keg alias.
@@ -161,9 +157,7 @@ type KegMapEntry struct {
 // HubEntry describes a single configured hub, keyed by name in the hubs map.
 //
 // Kind selects the backend: "remote" (read-write HTTP, the default when Kind
-// is empty), "local" (filesystem) or "readonly" (read-only HTTP). Remote and
-// readonly hubs use URL; local hubs use BasePath as the filesystem root that
-// holds @<namespace>/<name> keg directories.
+// is empty) or "readonly" (read-only HTTP).
 type HubEntry struct {
 	Kind string `yaml:"kind,omitempty"`
 	// DefaultNamespace is this hub's default namespace, used when a reference
@@ -171,18 +165,19 @@ type HubEntry struct {
 	// this is only the default. The "@" sigil is implied — store the bare value.
 	DefaultNamespace string `yaml:"defaultNamespace,omitempty"`
 	URL              string `yaml:"url,omitempty"`
-	BasePath         string `yaml:"basePath,omitempty"`
 	Token            string `yaml:"token,omitempty"`
 	TokenEnv         string `yaml:"tokenEnv,omitempty"`
 }
 
-// AgentEntry is an alias for a (model, flight) pair plus how to reach and
+// AgentEntry is an alias for a model plus how to reach and
 // authenticate against that model, keyed by name in the agents map and consumed
 // by `tap launch`.
 //
 // Model is provider-qualified ("anthropic/claude-opus-4", "ollama/qwen3.6:35b")
-// so the launcher knows which protocol the harness must speak. Flight is a
-// flight reference exported to the launched process as TAP_FLIGHT.
+// so the launcher knows which protocol the harness must speak. Launch roots
+// come from the top-level flight cascade; legacy per-agent flight keys are
+// ignored and preserved as unknown extension data when configuration is
+// rewritten.
 //
 // BaseURL overrides the provider's endpoint. One value serves both protocols:
 // the launcher adds or removes the /v1 suffix to suit whichever the harness
@@ -202,7 +197,6 @@ type HubEntry struct {
 // raw flag, and reports rather than drops it where there is no equivalent.
 type AgentEntry struct {
 	Model         string   `yaml:"model,omitempty"`
-	Flight        string   `yaml:"flight,omitempty"`
 	BaseURL       string   `yaml:"baseUrl,omitempty"`
 	Auth          string   `yaml:"auth,omitempty"`
 	APIKeyEnv     string   `yaml:"apiKeyEnv,omitempty"`
@@ -213,23 +207,17 @@ type AgentEntry struct {
 // KegRef is the (hub, namespace, name) triple a keg alias resolves to. An empty
 // Hub falls back to defaultHub/fallbackHub; an empty Namespace falls back to
 // defaultNamespace/fallbackNamespace (see Config.ResolveRef).
-//
-// Path addresses a keg by an explicit local filesystem path. When set it takes
-// precedence over the triple and resolves to a file target at that path. The
-// triple addresses a keg by namespace; Path addresses one directly on disk.
 type KegRef struct {
 	Hub       string `yaml:"hub,omitempty"`
 	Namespace string `yaml:"namespace,omitempty"`
 	Name      string `yaml:"name,omitempty"`
-	Path      string `yaml:"path,omitempty"`
 }
 
-// UnmarshalYAML accepts the canonical mapping form ({hub, namespace, name,
-// path}) and a scalar shorthand parsed via keg.Parse — the canonical keg
-// shorthand "keg:@ns/name" sets {namespace, name} (the hub is resolved from the
-// namespace, never encoded), while a bare file/url scalar maps onto a Path. To
-// pin a hub, use the mapping form's "hub" field. Writes always serialize the
-// canonical mapping form.
+// UnmarshalYAML accepts the canonical mapping form ({hub, namespace, name}) and
+// remote scalar shorthand. The canonical shorthand "keg:@ns/name" sets
+// {namespace, name}; the hub is resolved from the namespace and is never
+// encoded. To pin a hub, use the mapping form's "hub" field. Writes always
+// serialize the canonical mapping form.
 func (r *KegRef) UnmarshalYAML(node *yaml.Node) error {
 	if node == nil {
 		return nil
@@ -240,7 +228,6 @@ func (r *KegRef) UnmarshalYAML(node *yaml.Node) error {
 			Hub       string `yaml:"hub"`
 			Namespace string `yaml:"namespace"`
 			Name      string `yaml:"name"`
-			Path      string `yaml:"path"`
 		}
 		var x rawRef
 		if err := node.Decode(&x); err != nil {
@@ -249,31 +236,18 @@ func (r *KegRef) UnmarshalYAML(node *yaml.Node) error {
 		r.Hub = strings.TrimSpace(x.Hub)
 		r.Namespace = strings.TrimSpace(x.Namespace)
 		r.Name = strings.TrimSpace(x.Name)
-		r.Path = strings.TrimSpace(x.Path)
 		return nil
 	case yaml.ScalarNode:
 		s := strings.TrimSpace(node.Value)
 		if s == "" {
 			return nil
 		}
-		t, err := keg.Parse(s)
-		if err != nil {
+		ref := parseKegRef(s)
+		if ref.Name == "" || strings.HasPrefix(s, "/") || strings.HasPrefix(s, "~") || strings.HasPrefix(s, ".") || strings.HasPrefix(s, "file://") {
+			_, err := keg.Parse(s)
 			return fmt.Errorf("decode keg ref scalar %q: %w", s, err)
 		}
-		switch {
-		case t.KegName != "":
-			// Keg reference: canonical "keg:@ns/name" (hub resolved from the
-			// namespace) or a structured scalar carrying a hub pin.
-			r.Hub = t.Hub
-			r.Namespace = t.Namespace
-			r.Name = t.KegName
-		case t.File != "":
-			// File-path scalar → explicit local path.
-			r.Path = t.File
-		default:
-			// Any other scalar (e.g. a bare URL): keep verbatim.
-			r.Path = s
-		}
+		*r = ref
 		return nil
 	default:
 		return fmt.Errorf("unsupported yaml node kind %d for keg ref", node.Kind)
@@ -421,15 +395,6 @@ func (cfg *Config) DisableAtlasHub() bool {
 	return cfg.data.DisableAtlasHub
 }
 
-// DisableLocalHub returns true when the synthesized built-in local hub is
-// suppressed.
-func (cfg *Config) DisableLocalHub() bool {
-	if cfg.data == nil {
-		cfg.data = &configDTO{}
-	}
-	return cfg.data.DisableLocalHub
-}
-
 // DisableTelemetry returns true when remote invocation reporting is disabled.
 func (cfg *Config) DisableTelemetry() bool {
 	if cfg.data == nil {
@@ -482,12 +447,8 @@ func (cfg *Config) Agent(name string) (AgentEntry, bool) {
 	return e, ok
 }
 
-// Hub returns the named hub entry. The built-in hubs "local" (filesystem) and
-// "atlas" (the default remote hub) are synthesized when not explicitly
-// configured — unless disabled via disableLocalHub / disableAtlasHub, in which
-// case the synthesized built-in is suppressed and Hub reports it as not found.
-// An explicit configuration in hubs{} always wins over (and is unaffected by the
-// disable flag for) the built-in.
+// Hub returns the named hub entry. The built-in atlas remote hub is synthesized
+// when it is not explicitly configured unless disableAtlasHub is set.
 func (cfg *Config) Hub(name string) (HubEntry, bool) {
 	name = strings.TrimSpace(name)
 	if name == "" {
@@ -497,11 +458,6 @@ func (cfg *Config) Hub(name string) (HubEntry, bool) {
 		return e, true
 	}
 	switch name {
-	case LocalHubName:
-		if cfg.DisableLocalHub() {
-			return HubEntry{}, false
-		}
-		return HubEntry{Kind: HubKindLocal}, true
 	case DefaultHubName:
 		if cfg.DisableAtlasHub() {
 			return HubEntry{}, false
@@ -658,15 +614,6 @@ func (cfg *Config) SetDisableTelemetry(disable bool) error {
 	return nil
 }
 
-// SetDisableLocalHub toggles the synthesized built-in local hub.
-func (cfg *Config) SetDisableLocalHub(disable bool) error {
-	if cfg.data == nil {
-		cfg.data = &configDTO{}
-	}
-	cfg.data.DisableLocalHub = disable
-	return nil
-}
-
 // SetHub adds or replaces a hub entry by name.
 func (cfg *Config) SetHub(name string, entry HubEntry) error {
 	if cfg == nil {
@@ -756,8 +703,8 @@ func (cfg *Config) Clone() *Config {
 
 // resolveNamespaceForName applies namespace precedence for a keg name in the
 // namespace-centric model: defaultNamespace → fallbackNamespace. It returns ""
-// when neither applies, leaving the per-hub default and the local-hub fallback
-// in ResolveRef to have the final say once the hub kind is known.
+// when neither applies, leaving the per-hub default in ResolveRef to have the
+// final say once the hub is known.
 func (cfg *Config) resolveNamespaceForName() string {
 	if ns := strings.TrimSpace(cfg.DefaultNamespace()); ns != "" {
 		return ns
@@ -769,8 +716,7 @@ func (cfg *Config) resolveNamespaceForName() string {
 }
 
 // resolveHubForNamespace applies hub precedence for a namespace: an explicit
-// namespaces[ns].Hub mapping → this machine's filesystem hub for the reserved
-// "local" namespace → the general hub precedence chain (defaultHub →
+// namespaces[ns].Hub mapping → the general hub precedence chain (defaultHub →
 // fallbackHub → sole/alphabetically-first hub → the compiled-in default hub).
 func (cfg *Config) resolveHubForNamespace(ns string) string {
 	ns = strings.TrimSpace(ns)
@@ -780,9 +726,6 @@ func (cfg *Config) resolveHubForNamespace(ns string) string {
 				return h
 			}
 		}
-	}
-	if ns == LocalHubName {
-		return cfg.localHubName()
 	}
 	return cfg.resolveHubName()
 }
@@ -814,58 +757,29 @@ func (cfg *Config) resolveHubName() string {
 	return DefaultHubName
 }
 
-// localHubName returns the name of the local (filesystem) hub used when the
-// reserved "local" namespace pins a reference to this machine. It prefers
-// defaultHub when that hub is local, otherwise the alphabetically-first
-// local-kind hub, and falls back to the reserved LocalHubName when no local hub
-// is configured (Config.Hub synthesizes the built-in "local" hub in that case).
-func (cfg *Config) localHubName() string {
-	if h := strings.TrimSpace(cfg.DefaultHub()); h != "" {
-		if e, ok := cfg.Hubs()[h]; ok && strings.TrimSpace(e.Kind) == HubKindLocal {
-			return h
-		}
-	}
-	names := make([]string, 0)
-	for n, e := range cfg.Hubs() {
-		if strings.TrimSpace(e.Kind) == HubKindLocal {
-			names = append(names, n)
-		}
-	}
-	if len(names) > 0 {
-		sort.Strings(names)
-		return names[0]
-	}
-	if cfg.DisableLocalHub() {
-		return ""
-	}
-	return LocalHubName
-}
-
 // resolveNamespaceHub resolves the effective (namespace, hubName, entry) for a
 // reference whose namespace and/or hub may be empty. It is the single source of
 // truth for the namespace-centric chain, shared by ResolveRef (backend
 // resolution), resolveIdentity (display) and resolveKegAdminRef (admin):
 //
 //	namespace: explicit → defaultNamespace → fallbackNamespace → the resolved
-//	           hub's per-hub defaultNamespace → @local (for a local hub)
-//	hub:       explicit → namespaces[ns].hub → @local→local hub → defaultHub →
-//	           fallbackHub → sole/alpha hub → compiled-in atlas (unless disabled)
+//	           hub's per-hub defaultNamespace
+//	hub:       explicit → namespaces[ns].hub → defaultHub → fallbackHub →
+//	           sole/alpha hub → compiled-in atlas (unless disabled)
 //
 // It returns an error when no hub is available (a disabled built-in with nothing
-// else configured), the resolved hub is not configured, or a non-local hub has
-// no resolvable namespace. Callers wrap the error with reference context.
+// else configured), the resolved hub is not configured, or the hub has no
+// resolvable namespace. Callers wrap the error with reference context.
 func (cfg *Config) resolveNamespaceHub(ns, hubName string) (string, string, HubEntry, error) {
 	// Namespace first: explicit → default → fallback. It may still be empty
-	// here; the per-hub default and the local-hub fallback below get the final
-	// say once the hub kind is known.
+	// here; the per-hub default below gets the final say once the hub is known.
 	ns = strings.TrimSpace(ns)
 	if ns == "" {
 		ns = cfg.resolveNamespaceForName()
 	}
 
 	// Hub from the namespace: explicit wins; otherwise the namespace→hub map
-	// pins it, the reserved "local" namespace selects this machine's filesystem
-	// hub, and finally the hub precedence chain applies.
+	// pins it, and finally the hub precedence chain applies.
 	hubName = strings.TrimSpace(hubName)
 	if hubName == "" {
 		hubName = cfg.resolveHubForNamespace(ns)
@@ -884,17 +798,16 @@ func (cfg *Config) resolveNamespaceHub(ns, hubName string) (string, string, HubE
 	}
 
 	// Last-resort namespace once the hub is known: the hub's own default
-	// namespace (lower precedence than the default/fallback chain), then @local
-	// for a local hub, else an error.
+	// namespace (lower precedence than the default/fallback chain), else an error.
 	if ns == "" {
-		switch {
-		case strings.TrimSpace(entry.DefaultNamespace) != "":
+		if strings.TrimSpace(entry.DefaultNamespace) != "" {
 			ns = strings.TrimSpace(entry.DefaultNamespace)
-		case kind == HubKindLocal:
-			ns = LocalHubName
-		default:
+		} else {
 			return "", "", HubEntry{}, fmt.Errorf("no namespace and no per-hub, default, or fallback namespace is configured")
 		}
+	}
+	if kind != HubKindRemote && kind != HubKindReadonly {
+		return "", "", HubEntry{}, fmt.Errorf("hub %q has unsupported kind %q", hubName, kind)
 	}
 
 	return ns, hubName, entry, nil
@@ -905,21 +818,9 @@ func (cfg *Config) resolveNamespaceHub(ns, hubName string) (string, string, HubE
 // namespace first (explicit → default/fallback), then the hub that hosts that
 // namespace — and the per-kind backend mapping:
 //
-//   - local:    <basePath>/@<namespace>/<name> as a file target
 //   - remote:   <hub.url>/api/v1/@<namespace>/kegs/<name> as a hub target
 //   - readonly: same URL as remote, with Target.Readonly set
-func (cfg *Config) ResolveRef(rt *toolkit.Runtime, ref KegRef) (*keg.Target, error) {
-	// An explicit local path addresses a file keg directly and takes precedence
-	// over the namespace triple.
-	if p := strings.TrimSpace(ref.Path); p != "" {
-		p = toolkit.ExpandEnv(rt, p)
-		if expanded, err := toolkit.ExpandPath(rt, p); err == nil {
-			p = expanded
-		}
-		t := keg.NewFile(p)
-		return &t, nil
-	}
-
+func (cfg *Config) ResolveRef(_ *toolkit.Runtime, ref KegRef) (*keg.Target, error) {
 	name := strings.TrimSpace(ref.Name)
 	if name == "" {
 		return nil, fmt.Errorf("keg reference is missing a name")
@@ -939,22 +840,6 @@ func (cfg *Config) ResolveRef(rt *toolkit.Runtime, ref KegRef) (*keg.Target, err
 	}
 
 	switch kind {
-	case HubKindLocal:
-		base := strings.TrimSpace(entry.BasePath)
-		if base == "" {
-			root, err := defaultUserKegRoot(rt)
-			if err != nil {
-				return nil, fmt.Errorf("local hub %q has no basePath and the platform default is unavailable: %w", hubName, err)
-			}
-			base = root
-		}
-		base = toolkit.ExpandEnv(rt, base)
-		if expanded, err := toolkit.ExpandPath(rt, base); err == nil {
-			base = expanded
-		}
-		path := filepath.Join(base, "@"+ns, name)
-		t := keg.NewFile(path)
-		return &t, nil
 	case HubKindRemote, HubKindReadonly:
 		url := strings.TrimSpace(entry.URL)
 		if url == "" {
@@ -980,8 +865,7 @@ func (cfg *Config) ResolveRef(rt *toolkit.Runtime, ref KegRef) (*keg.Target, err
 //   - "keg:@ns/name" / "keg:name" — the canonical keg scheme (parsed by
 //     keg.Parse; the hub is resolved from the namespace, never encoded).
 //   - "@ns/name"                  — a namespace-qualified reference.
-//   - a filesystem path           — "/abs", "~/p", "./p", "../p", or a "://"
-//     URL: kept verbatim as KegRef.Path (explicit file-keg addressing).
+//   - an HTTP(S) endpoint         — used directly as a remote target.
 //   - "name"                      — a bare keg name; its namespace and hub are
 //     supplied by ResolveRef's default/fallback chains.
 //
@@ -1011,11 +895,8 @@ func parseKegRef(s string) KegRef {
 	// Canonical keg scheme: defer to the shared parser.
 	if strings.HasPrefix(s, keg.SchemeAlias+":") {
 		if t, err := keg.Parse(s); err == nil {
-			switch {
-			case t.KegName != "":
+			if t.KegName != "" {
 				return KegRef{Hub: t.Hub, Namespace: t.Namespace, Name: t.KegName}
-			case t.File != "":
-				return KegRef{Path: t.File}
 			}
 		}
 		// Malformed keg: ref falls through to be treated as a bare name so
@@ -1032,11 +913,6 @@ func parseKegRef(s string) KegRef {
 		}
 		// Malformed @-ref falls through to a bare name.
 	}
-	// Explicit filesystem-path keg.
-	if strings.HasPrefix(s, "/") || strings.HasPrefix(s, "~") ||
-		strings.HasPrefix(s, ".") || strings.Contains(s, "://") {
-		return KegRef{Path: s}
-	}
 	// Bare keg name: namespace and hub come from the default/fallback chains.
 	return KegRef{Name: s}
 }
@@ -1052,6 +928,11 @@ func (cfg *Config) ResolveAlias(rt *toolkit.Runtime, alias string) (*keg.Target,
 	}
 	if strings.TrimSpace(alias) == "" {
 		return nil, fmt.Errorf("no keg reference given")
+	}
+	if target, err := keg.Parse(alias); err == nil && (target.Scheme() == keg.SchemeHTTP || target.Scheme() == keg.SchemeHTTPs) {
+		return target, nil
+	} else if strings.HasPrefix(alias, "/") || strings.HasPrefix(alias, "~") || strings.HasPrefix(alias, ".") || strings.HasPrefix(alias, "file://") {
+		return nil, err
 	}
 	return cfg.ResolveRef(rt, parseKegRef(alias))
 }
@@ -1143,9 +1024,14 @@ func (cfg *Config) ResolveDefault(rt *toolkit.Runtime) (*keg.Target, error) {
 // ignored by the decoder.
 func ParseConfig(raw []byte) (*Config, error) {
 	uc := &Config{data: &configDTO{}}
+	var doc yaml.Node
+	if err := yaml.Unmarshal(raw, &doc); err != nil {
+		return nil, fmt.Errorf("failed to parse user config yaml: %w", err)
+	}
 	if err := yaml.Unmarshal(raw, uc.data); err != nil {
 		return nil, fmt.Errorf("failed to parse user config yaml: %w", err)
 	}
+	uc.doc = &doc
 	return uc, nil
 }
 
@@ -1191,30 +1077,20 @@ func stripUntrustedFields(cfg *Config) []string {
 //
 // The global user config uses the FALLBACK hub (fallbackHub) so keg references
 // need not specify a hub. The namespace is NOT pinned by a global
-// fallbackNamespace — it comes from the resolved hub's own namespace field, so
-// `name` seeds the remote hub's default namespace while the local hub keeps the
-// reserved @local. The default remote hub (atlas) and the built-in local hub are
-// registered, the local namespace maps to the local hub, and localKegRoot seeds
-// the local hub's basePath.
-func DefaultUserConfig(name string, localKegRoot string) *Config {
+// fallbackNamespace — it comes from the resolved hub's own namespace field.
+// `name` seeds the default remote hub's namespace.
+func DefaultUserConfig(name string) *Config {
 	return &Config{
 		data: &configDTO{
 			FallbackHub: DefaultHubName,
 			KegMap:      []KegMapEntry{},
-			Namespaces: map[string]NamespaceRef{
-				LocalHubName: {Hub: LocalHubName},
-			},
+			Namespaces:  map[string]NamespaceRef{},
 			Hubs: hubMap{
 				DefaultHubName: {
 					Kind:             HubKindRemote,
 					DefaultNamespace: name,
 					URL:              DefaultHubURL,
 					TokenEnv:         DefaultHubTokenEnv,
-				},
-				LocalHubName: {
-					Kind:             HubKindLocal,
-					DefaultNamespace: LocalHubName,
-					BasePath:         localKegRoot,
 				},
 			},
 		},
@@ -1228,7 +1104,7 @@ func DefaultUserConfig(name string, localKegRoot string) *Config {
 func DefaultProjectConfig(user, userKegRepo string) *Config {
 	alias := strings.TrimSpace(user)
 	if alias == "" {
-		alias = LocalHubName
+		alias = "project"
 	}
 	return &Config{
 		data: &configDTO{
@@ -1249,14 +1125,14 @@ func DefaultProjectConfig(user, userKegRepo string) *Config {
 // INERT file — none of the authoritative default* slots are active, so a stray
 // project config can't silently override user-level keg/namespace/hub
 // resolution. Parsing it yields an empty Config.
-func projectConfigTemplate() ([]byte, error) {
+func projectConfigTemplate(rt *toolkit.Runtime) ([]byte, error) {
 	example := DefaultProjectConfig("project", "kegs")
 	body, err := yaml.Marshal(example.data)
 	if err != nil {
 		return nil, fmt.Errorf("render project config template: %w", err)
 	}
 	var b strings.Builder
-	b.WriteString(tapConfigSchemaModeline)
+	b.WriteString(schemas.Modeline(rt, schemas.TapConfig))
 	b.WriteString("# Project config. Uncomment and edit fields below to override the user\n")
 	b.WriteString("# config for this directory tree. While everything stays commented this\n")
 	b.WriteString("# file is inert. Note: hubs and tokens may only live in the user config\n")
@@ -1281,9 +1157,16 @@ func (cfg *Config) ToYAML() ([]byte, error) {
 	if cfg.data == nil {
 		cfg.data = &configDTO{}
 	}
-	body, err := yaml.Marshal(cfg.data)
+	doc, err := overlayConfigDocument(cfg.doc, cfg.data)
 	if err != nil {
 		return nil, err
+	}
+	body, err := yaml.Marshal(doc)
+	if err != nil {
+		return nil, err
+	}
+	if bytes.HasPrefix(body, []byte(schemas.ModelinePrefix)) {
+		return body, nil
 	}
 	return append([]byte(tapConfigSchemaModeline), body...), nil
 }
@@ -1294,6 +1177,9 @@ func (cfg *Config) Write(rt *toolkit.Runtime, path string) error {
 	if err != nil {
 		return fmt.Errorf("unable to write user config: %w", err)
 	}
+	// Point the modeline at the schema copy materialized from this binary so
+	// an editor completes against the shape this build actually accepts.
+	data = schemas.ReplaceModeline(data, schemas.Modeline(rt, schemas.TapConfig))
 
 	if err := rt.AtomicWriteFile(path, data, 0o644); err != nil {
 		return fmt.Errorf("unable to write config: %w", err)
@@ -1365,9 +1251,6 @@ func MergeConfig(cfgs ...*Config) *Config {
 		// Disable flags: any tier that sets one to true wins (fail closed).
 		if c.data.DisableAtlasHub {
 			out.data.DisableAtlasHub = true
-		}
-		if c.data.DisableLocalHub {
-			out.data.DisableLocalHub = true
 		}
 		if c.data.DisableTelemetry {
 			out.data.DisableTelemetry = true

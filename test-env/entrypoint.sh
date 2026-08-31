@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Idempotent startup for the tapper sandbox container. On first boot, build
-# tap/keg from the bind-mounted source. Subsequent boots skip the install and
+# tap from the bind-mounted source. Subsequent boots skip the install and
 # just exec the CMD.
 
 set -euo pipefail
@@ -18,13 +18,13 @@ REPO="/usr/local/src/tapper"
 export GOWORK="${GOWORK-off}"
 
 if [[ ! -f "${SENTINEL}" && -d "${REPO}" ]]; then
-    echo "[sandbox] First boot: installing tap and keg from ${REPO}..."
+    echo "[sandbox] First boot: installing tap from ${REPO}..."
     # -buildvcs=false: source is bind-mounted ro and on macOS the .git
     # directory's host uid doesn't match the in-container jlrickert,
     # so Go's VCS stamping fails with exit 128 and crashes the
     # entrypoint into a restart loop. Sandbox binaries don't need
     # VCS stamps anyway.
-    (cd "${REPO}" && go install -buildvcs=false ./cmd/tap ./cmd/keg)
+    (cd "${REPO}" && go install -buildvcs=false ./cmd/tap)
 
     # Drop Cobra-generated completion files into the system zsh site-functions
     # dir (already in default fpath, chown'd to jlrickert in the Dockerfile).
@@ -32,10 +32,9 @@ if [[ ! -f "${SENTINEL}" && -d "${REPO}" ]]; then
     # updates after first boot.
     COMPDIR="/usr/local/share/zsh/site-functions"
     "${HOME}/go/bin/tap" completion zsh > "${COMPDIR}/_tap"
-    "${HOME}/go/bin/keg" completion zsh > "${COMPDIR}/_keg"
 
     touch "${SENTINEL}"
-    echo "[sandbox] Ready. tap and keg are on PATH; completion installed."
+    echo "[sandbox] Ready. tap is on PATH; completion installed."
 fi
 
 exec "$@"

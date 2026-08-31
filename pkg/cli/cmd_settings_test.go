@@ -1,9 +1,11 @@
 package cli_test
 
 import (
+	"context"
 	"testing"
 
 	testutils "github.com/jlrickert/cli-toolkit/sandbox"
+	"github.com/jlrickert/tapper/pkg/keg"
 	"github.com/stretchr/testify/require"
 )
 
@@ -57,32 +59,10 @@ func TestSettingsCommand_DisplaysKegMetadata(t *testing.T) {
 }
 
 func TestSettingsCommand_IntegrationWithInit(t *testing.T) {
-	t.Run("config_after_init_displays_keg_metadata", func(innerT *testing.T) {
-		innerT.Parallel()
-		opts := []testutils.Option{
-			testutils.WithFixture("testuser", "~"),
-		}
-		sb := NewSandbox(innerT, opts...)
-
-		// First, initialize a user keg
-		initCmd := NewProcess(innerT, false,
-			"init",
-			"--user",
-			"--keg", "newstudy",
-			"--creator", "test-user",
-		)
-		initRes := initCmd.Run(sb.Context(), sb.Runtime())
-		require.NoError(innerT, initRes.Err, "init should succeed")
-
-		// Now display the keg config
-		infoCmd := NewProcess(innerT, false, "keg", "settings", "--keg", "newstudy")
-		infoRes := infoCmd.Run(sb.Context(), sb.Runtime())
-		require.NoError(innerT, infoRes.Err, "settings should succeed after init")
-
-		stdout := string(infoRes.Stdout)
-		require.Contains(innerT, stdout, "kegv:", "output should contain keg version")
-		require.Contains(innerT, stdout, "creator:", "output should contain creator field")
-	})
+	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
+	res := NewProcess(t, false, "init").Run(sb.Context(), sb.Runtime())
+	require.Error(t, res.Err)
+	require.Contains(t, string(res.Stderr), `unknown command "init"`)
 }
 
 func TestSettingsCommand_WithJoeFixture(t *testing.T) {
@@ -148,7 +128,12 @@ tags:
 custom_block:
   enabled: true
 `
-	sb.MustWriteFile("~/kegs/@local/example/keg", []byte(custom), 0o644)
+	opened := fixtureKeg(t, sb.Runtime(), "example")
+	current, err := opened.Settings(context.Background())
+	require.NoError(t, err)
+	require.NoError(t, opened.SetSettings(context.Background(), []byte(custom), keg.SettingsWriteOptions{
+		ExpectedHash: current.Hash(),
+	}))
 
 	infoCmd := NewProcess(t, false, "keg", "settings", "--keg", "example")
 	infoRes := infoCmd.Run(sb.Context(), sb.Runtime())

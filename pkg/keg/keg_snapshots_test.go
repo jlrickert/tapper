@@ -15,7 +15,7 @@ type repoWithoutSnapshots struct {
 func TestKegSnapshotsRestoreSkipsSchemaEnforcement(t *testing.T) {
 	fx := NewSandbox(t)
 	ctx := fx.Context()
-	k := kegpkg.NewLocalKeg(kegpkg.NewMemoryRepo(fx.Runtime()), fx.Runtime())
+	k := kegpkg.NewLocalKeg(newTestMemoryRepo(fx.Runtime()), fx.Runtime())
 	initNonStrictTestKeg(t, k, ctx)
 
 	id, err := k.Create(kegpkg.WithValidationMode(ctx, kegpkg.ValidationModeOff), &kegpkg.CreateOptions{
@@ -25,7 +25,7 @@ func TestKegSnapshotsRestoreSkipsSchemaEnforcement(t *testing.T) {
 	require.NoError(t, err)
 	snap, err := k.AppendSnapshot(ctx, id.ID, "before schema")
 	require.NoError(t, err)
-	require.NoError(t, k.WriteSchema(ctx, "task", []byte(`type: task
+	require.NoError(t, k.CreateSchema(ctx, "task", []byte(`type: task
 meta:
   type: object
   required: ["type"]
@@ -56,7 +56,7 @@ func TestKegSnapshots_ReturnErrNotSupportedWithoutSnapshotBackend(t *testing.T) 
 	t.Parallel()
 
 	fx := NewSandbox(t)
-	base := kegpkg.NewMemoryRepo(fx.Runtime())
+	base := newTestMemoryRepo(fx.Runtime())
 	repo := &repoWithoutSnapshots{Repository: base}
 	k := kegpkg.NewLocalKeg(repo, fx.Runtime())
 

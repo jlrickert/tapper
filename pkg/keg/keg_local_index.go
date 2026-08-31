@@ -63,7 +63,7 @@ func (k *LocalKeg) indexAll(ctx context.Context, opts IndexOptions) error {
 	k.dexMu.Lock()
 	if k.dex == nil {
 		k.dex = &Dex{}
-		// Apply config-driven options (e.g. tag-filtered indexes) to the new Dex.
+		// Apply settings-driven options (e.g. tag-filtered indexes) to the new Dex.
 		dexOpts, _ := k.dexOptions(ctx)
 		for _, opt := range dexOpts {
 			_ = opt(k.dex)
@@ -150,7 +150,7 @@ func (k *LocalKeg) indexAll(ctx context.Context, opts IndexOptions) error {
 		k.recordDexWrite()
 		k.dexMu.Unlock()
 	}
-	if err := k.touchConfigUpdated(ctx, now); err != nil {
+	if err := k.touchSettingsUpdated(ctx, now); err != nil {
 		errs = append(errs, fmt.Errorf("failed to update index timestamp: %w", err))
 	}
 	if err := k.refreshSnapshotGeneratedIndexes(ctx); err != nil {

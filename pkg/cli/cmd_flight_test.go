@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/jlrickert/tapper/pkg/schemas"
 	"github.com/jlrickert/tapper/pkg/tapper"
 	"github.com/stretchr/testify/require"
 )
@@ -111,7 +112,8 @@ func TestFlightEdit_EditorStartsWithSchemaManifest(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, strings.HasPrefix(strings.TrimSpace(string(basenameRaw)), "tap-flight-edit-foldwise-agent-work-"))
 	opened := string(raw)
-	require.True(t, strings.HasPrefix(opened, "# yaml-language-server: $schema="+tapper.FlightManifestSchemaURL+"\n"))
+	require.True(t, strings.HasPrefix(opened,
+		schemas.ModelinePrefix+schemas.ModelineURI(sb.Runtime(), schemas.FlightManifest)+"\n"), "got: %s", opened)
 	require.Contains(t, opened, `title: ""`)
 	require.Contains(t, opened, `visibility: private`)
 	require.Contains(t, opened, `capabilities: []`)

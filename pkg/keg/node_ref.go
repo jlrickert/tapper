@@ -6,10 +6,8 @@ import (
 	"strings"
 )
 
-// refSegmentPattern restricts the namespace and keg-name segments of a
-// qualified node reference to a portable, filesystem-safe shape. It is the same
-// shape tapper enforces for aliases and namespaces; the absence of a dot keeps
-// reserved sentinels such as flights.d from ever appearing as a namespace.
+// refSegmentPattern restricts namespace and keg-name segments to the portable
+// Hub route shape used by aliases and namespaces.
 var refSegmentPattern = regexp.MustCompile(`^[a-z0-9_-]+$`)
 
 // RefForm enumerates the three shapes a node reference may take.
@@ -19,7 +17,7 @@ const (
 	// RefLocal is a bare "<id>" or "<id>-<code>" resolving against the current keg.
 	RefLocal RefForm = iota
 	// RefAlias is "keg:<alias>/<id>[-<code>]" — the alias resolves against the
-	// current keg's Links table (then the tap-config kegs map).
+	// current keg's Links table (then the tap-settings kegs map).
 	RefAlias
 	// RefQualified is "keg:@<namespace>/<keg>/<id>[-<code>]" — fully qualified;
 	// the hub is implied from the current keg's hub.
@@ -31,7 +29,7 @@ const (
 //
 //   - RefLocal:     Node only; resolves against the current keg.
 //   - RefAlias:     Alias set; resolves against the current keg's Links table
-//     then the tap-config kegs map. Node.Alias mirrors Alias.
+//     then the tap-settings kegs map. Node.Alias mirrors Alias.
 //   - RefQualified: Namespace+KegName set; the hub is implied from context.
 type NodeRef struct {
 	Form      RefForm

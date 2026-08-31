@@ -15,7 +15,7 @@
     ],
     "PreToolUse": [
       {
-        "matcher": "Bash",
+        "matcher": "^(Bash|Write|Edit|MultiEdit|NotebookEdit|Shell|exec_command|apply_patch|write_file|edit_file|delete_file|move_file|rename_file)$",
         "hooks": [
           {
             "type": "command",

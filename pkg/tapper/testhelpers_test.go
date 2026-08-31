@@ -26,7 +26,7 @@ func NewSandbox(t *testing.T, opts ...sandbox.Option) *sandbox.Sandbox {
 
 func makeKegNonStrict(t *testing.T, ctx context.Context, k keg.Keg) {
 	t.Helper()
-	require.NoError(t, keg.UpdateConfig(ctx, k, func(cfg *keg.Config) {
+	require.NoError(t, keg.UpdateSettings(ctx, k, func(cfg *keg.Settings) {
 		if cfg.SchemaPolicy == nil {
 			cfg.SchemaPolicy = &keg.SchemaPolicy{}
 		}

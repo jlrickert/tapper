@@ -65,9 +65,9 @@ func TestResolveLoginHubURL(t *testing.T) {
 			want: "https://backup.example.com",
 		},
 		{
-			name:     "step 3: FallbackHub local entry → error",
+			name:     "step 3: FallbackHub unsupported entry → error",
 			yaml:     "fallbackHub: home\nhubs:\n  home:\n    kind: local\n    basePath: /tmp/kegs\n",
-			errMatch: `fallback hub "home" is local`,
+			errMatch: `fallback hub "home" has unsupported kind "local"`,
 		},
 		{
 			name: "step 4: exactly one remote Hubs entry, no DefaultHub or FallbackHub",

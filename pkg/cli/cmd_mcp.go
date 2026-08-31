@@ -30,7 +30,7 @@ per-command permission prompts.`,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			rt := deps.Runtime
-			launcherBound := cmd.Flags().Changed("flight")
+			launcherBound := cmd.Flags().Changed("flight") || rt.Env().Get("TAP_FLIGHT") != ""
 
 			// MCP servers communicate over stdio, so the logger must
 			// write to stderr. When no --log-file is provided, use
