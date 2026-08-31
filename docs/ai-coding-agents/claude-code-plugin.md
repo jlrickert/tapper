@@ -48,9 +48,10 @@ Claude session for the refreshed plugin and MCP connection to take effect. A
 conflict.
 
 The baseline plugin distributes only the `tapper` skill; `tapper-dev` remains a
-separately installed optional plugin. Flight changes use normal Tapper
-configuration followed by an explicit `orient` call on the existing MCP
-connection. The plugin ships no separate management skills, hidden switch
+separately installed optional plugin. Root changes use normal Tapper
+configuration followed by a new MCP connection. On an existing connection,
+governed calls default to that root or select an accessible transitive
+descendant with `flight`. The plugin ships no separate management skills, hidden switch
 command, or prompt-expansion hook. If the MCP tools are unavailable, report the
 unavailable connection, ask the user to reconnect or restart the host session,
 and never kill or signal host-owned processes.

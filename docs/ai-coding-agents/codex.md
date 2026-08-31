@@ -54,13 +54,18 @@ until Codex exposes native project scopes.
 
 The baseline plugin distributes only the `tapper` skill; `tapper-dev` remains a
 separately installed optional plugin. It ships no separate management skills or
-hidden controls. To change a config-driven session, run `tap use --flight
-@namespace/+slug` (or `tap use +slug`) and call `mcp__tapper__orient` in the
-existing thread.
+hidden controls. To change roots, run `tap use --flight @namespace/+slug` (or
+`tap use +slug`) and start a new thread. Within an existing thread,
+authority-bearing calls default to that root and may select an accessible
+transitive descendant with `flight`.
 
-If no flight is selected, MCP still connects in recovery-only mode. Codex can
-use `orient`, `list_flights`, `flight_show`, and credential-safe `auth_info`, while KEG tools
-remain locked. Ask the user to run `tap use --flight @namespace/+slug`, then
-call `mcp__tapper__orient` to restore the normal tool surface. If the MCP tools
-are unavailable, report the unavailable connection, ask the user to reconnect
-or restart the host session, and never kill or signal host-owned processes.
+If no flight is selected, MCP connects with the complete tool surface and
+normal identity-authorized full access. Bare calls can use every accessible KEG
+at Codex's real role; explicit `flight` selects one listed real flight without
+inheriting no-flight authority. Ask the user to create or choose a
+least-privilege flight, run `tap use --flight @namespace/+slug`, and start a
+new thread. `session_refresh` cannot narrow the current connection. If only
+the recovery tools appear, an explicitly configured root failed to initialize.
+If MCP tools are unavailable, report the unavailable connection, ask the user
+to reconnect or restart the host session, and never kill or signal host-owned
+processes.

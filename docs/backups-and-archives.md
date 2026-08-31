@@ -129,7 +129,7 @@ The manifest records export metadata and the list of included nodes:
   "source": "personal",
   "exported_at": "2026-03-14T10:00:00Z",
   "with_history": true,
-  "with_config": true,
+  "with_settings": true,
   "with_schemas": true,
   "schemas": ["decision", "task"],
   "nodes": [

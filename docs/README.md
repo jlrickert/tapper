@@ -17,7 +17,7 @@ structure KEGs, connect agents, and operate the system safely over time.
 
 | You need to... | Read |
 | --- | --- |
-| Set up local or hosted Tapper defaults | [Configuration Overview](configuration/README.md) |
+| Set up hosted Tapper defaults | [Configuration Overview](configuration/README.md) |
 | Make a repo resolve to the right team keg | [Project Config](configuration/project-config.md) |
 | Understand `@namespace/keg` resolution | [Resolution Order](configuration/resolution-order.md) |
 | Connect AI agents to shared memory | [AI Coding Agents](ai-coding-agents/README.md) |
@@ -32,13 +32,14 @@ structure KEGs, connect agents, and operate the system safely over time.
 ### Bootstrap A Machine
 
 ```bash
-tap bootstrap --kind local --default-keg @local/personal
-tap keg create @local/personal
-tap use @local/personal --user
+tap bootstrap --kind cloud
+tap auth login
+tap keg create personal
+tap use personal --user
 ```
 
-For hosted or enterprise deployments, use `tap bootstrap --kind cloud` or
-`tap bootstrap --kind enterprise --endpoint <url>`, then `tap auth login`.
+For an enterprise deployment, use
+`tap bootstrap --kind enterprise --endpoint <url>` instead.
 
 ### Work In A Team Keg
 

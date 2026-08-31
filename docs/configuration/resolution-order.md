@@ -15,13 +15,13 @@ If you pass explicit flags, they take precedence:
 `--flight` is not a keg selector. It is flight context for orient/MCP: agent
 instructions plus cover caps enforced by the MCP surface. Direct CLI commands
 still use normal keg authorization and do not have access reduced by the flight.
-Its precedence follows the config cascade: explicit `--flight`, `TAP_FLIGHT`,
-the active agent's `flight`, the nearest project `flight`, then the user
-baseline optionally written by `tap bootstrap`. See [Flights](flights.md).
+Its precedence at session initialization is explicit `--flight`, `TAP_FLIGHT`,
+the nearest project `flight`, then the user baseline optionally written by
+`tap bootstrap`. `TAP_AGENT` never selects a flight. The resulting root
+reference cannot change within that MCP connection. See [Flights](flights.md).
 
-The local creation flags on `tap keg create` (`--project`, `--cwd`, and
-`--path`) only choose where a new filesystem keg is created. They are not
-general targeting flags on the full `tap` surface.
+Filesystem paths, `file://` targets, and the removed local-creation flags are
+unsupported. `tap keg create` always calls a configured Hub.
 
 ## 2. No Explicit Keg Flow
 
@@ -34,10 +34,10 @@ order:
 
 ## 3. Namespace-centric model
 
-Resolution flows **keg name -> namespace -> hub -> backend**. A keg is identified
+Resolution flows **keg name -> namespace -> Hub**. A keg is identified
 by `@<namespace>/<name>`; the namespace determines which hub hosts it. A keg
 selector (`defaultKeg`, `fallbackKeg`, `--keg`, a `kegMap` alias) is a keg
-reference — a bare name, `@namespace/name`, `keg:@namespace/name`, or a path —
+reference — a bare name, `@namespace/name`, or `keg:@namespace/name` —
 there is no `kegs` alias map. One config map disambiguates the namespace→hub hop:
 
 - **`namespaces`** maps a namespace to the hub that hosts it — the conflict
@@ -51,9 +51,8 @@ An omitted `namespace` is resolved **first**, in this order:
 1. explicit `namespace` on the reference
 2. `defaultNamespace` (high-precedence slot — set in project config)
 3. `fallbackNamespace` (last-resort slot — set in user config)
-4. once the hub is known: the hub's own `namespace` default, then the reserved
-   `local` namespace for a local hub; a remote hub with nothing resolved is an
-   error
+4. once the Hub is known: the Hub's own namespace default; if nothing resolves,
+   the reference is an error
 
 Namespaces must be a single portable path segment (`[a-z0-9_-]+`, no dots or
 slashes).
@@ -64,35 +63,29 @@ The hosting hub is resolved **from the namespace**, in this order:
 
 1. explicit `hub` on the reference
 2. `namespaces[ns].hub` (the namespace → hub map)
-3. the reserved `local` namespace pins this machine's local (filesystem) hub
-4. `defaultHub` (high-precedence slot — set in project config)
-5. `fallbackHub` (last-resort slot — set in user config)
-6. the sole configured hub (or the alphabetically-first when several exist)
-7. the compiled-in `atlas` remote hub (`https://atlas.foldwise.ai`)
+3. `defaultHub` (high-precedence slot — set in project config)
+4. `fallbackHub` (last-resort slot — set in user config)
+5. the sole configured Hub (or the alphabetically-first when several exist)
+6. the compiled-in `atlas` remote Hub (`https://atlas.foldwise.ai`)
 
 Setting `disableAtlasHub: true` (or `TAP_DISABLE_ATLAS_HUB=1`) removes step
-7: hub-dependent commands then fail with a clear error instead of silently
-reaching the compiled-in default. `disableLocalHub` likewise suppresses the
-synthesized built-in local hub.
+6: Hub-dependent commands then fail with a clear error instead of silently
+reaching the compiled-in default.
 
-## 6. Keg references and on-disk layout
+## 6. KEG references and Hub routes
 
 A keg reference is the `keg` scheme — `keg:@<namespace>/<name>` (the namespace is
 optional: `keg:<name>`). The hub is **not** part of the reference; it is
 resolved from the namespace via the chains above. A node within a keg appends
 the node id: `keg:@<namespace>/<name>/<nodeID>`.
 
-A local-hub keg resolves to a file target on disk at:
-
-```text
-<basePath>/@<namespace>/<name>
-```
-
-The `@` sigil is part of the directory name. The reserved `@local` namespace
-addresses this machine's local hub. Remote and read-only hubs resolve to
-`<hub-url>/api/v1/@<namespace>/kegs/<name>` instead (namespace first; only the
+Remote and read-only Hubs resolve to
+`<hub-url>/api/v1/@<namespace>/kegs/<name>` (namespace first; only the
 namespace segment carries the `@` sigil — keg aliases are bare in the
 tapper-hub route layout).
+
+`@local` is not reserved. It behaves like any other namespace if a remote Hub
+hosts it.
 
 ## 7. Config Cascade
 
@@ -125,8 +118,8 @@ the `default*` / `fallback*` selectors.
   `tap info` resolves `tapper` first.
 - If `defaultKeg` is empty and `kegMap` matches the current path to alias
   `work`, `tap info` resolves `work`.
-- A reference `{name: notes}` with no hub and no namespace, under a user config
-  whose `fallbackHub` points at a local hub with `defaultNamespace: local`, resolves to
-  `<basePath>/@local/notes`.
+- A reference `{name: notes}` with no Hub and no namespace, under a user config
+  whose `fallbackHub` has `defaultNamespace: acme`, resolves to
+  `keg:@acme/notes` on that Hub.
 - A project config that sets `defaultNamespace: acme` makes the same reference
   resolve under `@acme` instead, overriding the user-level fallback.

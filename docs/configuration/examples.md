@@ -1,35 +1,34 @@
 # Configuration Examples
 
-These examples use the current config shape: hubs are a name-keyed map, each
-with its own `defaultNamespace`, and local kegs live at
-`<basePath>/@<namespace>/<name>`. A keg is named by reference — a bare name, an
-`@namespace/name` reference, or a path — there is no `kegs` alias map.
+These examples use the current remote-only config shape. Hubs are a name-keyed
+map, each with its own `defaultNamespace`. A KEG is named by a bare name or an
+`@namespace/name` reference; there is no `kegs` alias map.
 
-## Single Laptop Setup
+## Hosted Cloud Setup
 
 ```yaml
 # ~/.config/tapper/config.yaml
-fallbackHub: my-laptop
-fallbackNamespace: local
+fallbackHub: atlas
+fallbackNamespace: me
 fallbackKeg: pub
 kegMap: []
 hubs:
-  my-laptop:
-    kind: local
-    defaultNamespace: local
-    basePath: ~/Documents/kegs
+  atlas:
+    kind: remote
+    defaultNamespace: me
+    url: https://atlas.foldwise.ai
+    tokenEnv: ATLAS_API_KEY
 ```
 
-Use this when your local kegs live in one directory and no repo-specific
-overrides are needed. A keg named `pub` resolves to
-`~/Documents/kegs/@local/pub`.
+Bootstrap normally writes this shape and adopts the authenticated user's home
+namespace from the Hub.
 
 ## Multi-Repo Setup With `kegMap`
 
 ```yaml
 # ~/.config/tapper/config.yaml
-fallbackHub: my-laptop
-fallbackNamespace: local
+fallbackHub: atlas
+fallbackNamespace: me
 fallbackKeg: pub
 kegMap:
   - alias: pub
@@ -37,15 +36,16 @@ kegMap:
   - alias: work
     pathPrefix: ~/repos/github.com/work
 hubs:
-  my-laptop:
-    kind: local
-    defaultNamespace: local
-    basePath: ~/Documents/kegs
+  atlas:
+    kind: remote
+    defaultNamespace: me
+    url: https://atlas.foldwise.ai
+    tokenEnv: ATLAS_API_KEY
 ```
 
 This routes different repo roots to different kegs. Each `alias` is a keg
-reference (here the bare names `pub` and `work`, which resolve to
-`@local/pub` and `@local/work`).
+reference (here the bare names `pub` and `work`, which select remote KEGs based
+on workspace path).
 
 ## Project Override Setup
 
@@ -53,15 +53,13 @@ reference (here the bare names `pub` and `work`, which resolve to
 # .tapper/config.yaml
 defaultKeg: tapper
 fallbackKeg: tapper
-defaultHub: my-laptop
-defaultNamespace: local
+defaultHub: atlas
+defaultNamespace: acme
 kegMap: []
 ```
 
-This makes the repository default to the `tapper` keg on the local hub
-(`<basePath>/@local/tapper`): `defaultKeg: tapper` resolves its namespace from
-`defaultNamespace: local`, and the local namespace selects the local hub. Hubs
-and credentials cannot be set here — only in user config.
+This makes the repository default to `keg:@acme/tapper` on the configured
+`atlas` Hub. Hubs and credentials cannot be set here — only in user config.
 
 ## Hub-Oriented Setup
 
@@ -79,8 +77,7 @@ hubs:
     tokenEnv: KNUT_API_KEY
 ```
 
-Use this when references should resolve to API-style hub targets instead of
-local file paths. `fallbackKeg: public` resolves its namespace from
+Use this for an enterprise Hub. `fallbackKeg: public` resolves its namespace from
 `fallbackNamespace: me` and its hub from that namespace, yielding
 `keg:@me/public` on the `knut` hub.
 
@@ -88,21 +85,21 @@ local file paths. `fallbackKeg: public` resolves its namespace from
 
 ```yaml
 # ~/.config/tapper/config.yaml
-fallbackHub: my-laptop
-fallbackNamespace: local
-fallbackKeg: local
+fallbackHub: enterprise
+fallbackNamespace: acme
+fallbackKeg: private
 disableAtlasHub: true
 hubs:
-  my-laptop:
-    kind: local
-    defaultNamespace: local
-    basePath: ~/Documents/kegs
+  enterprise:
+    kind: remote
+    defaultNamespace: acme
+    url: https://tapper.acme.internal
+    tokenEnv: TAPPER_ENTERPRISE_TOKEN
 ```
 
-Use this when the deployment must prove no implicit network calls happen. With
-`disableAtlasHub: true` and no remote `hubs` entries, hub-dependent commands
-error with `no hub configured; implicit atlas hub disabled` instead of silently
-reaching `https://atlas.foldwise.ai`.
+Use this when the deployment must prove Tapper never contacts the compiled-in
+Atlas endpoint. With `disableAtlasHub: true`, resolution stays on explicitly
+configured enterprise Hubs.
 
 ## Generating A Config
 
@@ -110,15 +107,11 @@ Rather than write any of the above by hand, run `tap bootstrap`:
 
 ```bash
 tap bootstrap                          # cloud (atlas) — the default
-tap bootstrap --kind local             # local hub only
 tap bootstrap --kind enterprise --endpoint keg.acme.com
 ```
 
-Bootstrap writes `fallbackHub`, the built-in local hub (keyed by the machine
-hostname), and the `local → <local hub>` namespace mapping, then asks for a
-default keg and records it as `fallbackKeg` so plain `tap` commands resolve one
-immediately (a project's `defaultKeg` or `kegMap` still overrides it). It does
-not write a global `fallbackNamespace`: the namespace comes from the resolved
-hub's own `defaultNamespace` field (adopted from the hub at login for
-cloud/enterprise).
+Bootstrap writes `fallbackHub`, then asks for a default KEG and records it as
+`fallbackKeg` so plain `tap` commands resolve one immediately (a project's
+`defaultKeg` or `kegMap` still overrides it). The namespace comes from the
+resolved Hub's own `defaultNamespace`, adopted from whoami at login.
 See [User Config](user-config.md#tap-bootstrap).

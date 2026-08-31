@@ -58,8 +58,11 @@ The lead paragraph should:
 
 Interlinking is a core KEG behavior.
 
-- Use relative links for local nodes: `../42`
-- Use cross-KEG links when referencing outside the current keg: `keg:pub/921`
+- Use Markdown links for local nodes: `[title](../42)`
+- Use Markdown links when referencing outside the current keg:
+  `[title](keg:pub/921)` or `[title](keg:@namespace/public/921)`
+- Treat a bare `keg:` reference in prose as plain text; it does not create a
+  graph link or backlink
 - Prefer explicit links over vague references
 
 Recommended execution chain:
@@ -117,4 +120,4 @@ Lots of unrelated thoughts, no links, no lead, no entity context.
 
 ## Reference
 
-- Interlinking best practices: `keg:pub/921`
+- Interlinking best practices: `[descriptive title](keg:pub/921)`

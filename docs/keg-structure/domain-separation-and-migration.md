@@ -18,7 +18,7 @@ with minimal interaction.
 - `@acme/general`: broad cross-domain organization notes
 - `@acme/engineering`: project, architecture, release, and incident memory
 - `@acme/product`: customer, roadmap, and product decision memory
-- `@local/private`: personal notes that should not be shared
+- `@me/private`: personal notes in a private Hub namespace
 - `@acme/domain-x`: a dedicated specialized knowledge base
 
 ## Migration Plan: Move A Low-Overlap Domain Out Of A General Keg
@@ -38,7 +38,7 @@ Create a destination keg target:
 tap keg create @acme/domain-x
 ```
 
-Inspect and edit new keg config:
+Inspect and edit new keg settings:
 
 ```bash
 tap keg settings --keg @acme/domain-x

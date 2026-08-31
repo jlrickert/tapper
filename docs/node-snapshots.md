@@ -31,37 +31,15 @@ tap snapshot restore NODE_ID REV --yes
 tap snapshot restore 12 1 --keg personal --yes
 ```
 
-Overwrites the live node files (README.md, meta.yaml, stats.json) with the
-state captured at revision `REV`. A new snapshot is automatically created to
-record the restore action. Without `--yes`, the command prompts for
+Overwrites the live node aggregate with the state captured at revision `REV`.
+A new snapshot is automatically created to record the restore action. Without `--yes`, the command prompts for
 confirmation on a TTY and refuses in non-interactive contexts.
 
-## Storage Layout
+## Storage Model
 
-Snapshots live in a `snapshots/` directory inside the node directory:
-
-```text
-<keg-root>/
-  12/
-    README.md
-    meta.yaml
-    stats.json
-    snapshots/
-      index.json        # Manifest of all revisions
-      1.full            # Full content at revision 1
-      1.meta            # Metadata at revision 1
-      1.stats           # Stats at revision 1
-      2.patch           # Patch from revision 1 to 2
-      2.meta
-      2.stats
-      3.full            # Checkpoint (full content)
-      3.meta
-      3.stats
-```
-
-### index.json
-
-The manifest is a JSON array of snapshot metadata entries:
+Snapshots are durable PostgreSQL records owned by Tapper Hub and addressed by
+node plus revision. Clients access them only through the Hub-compatible
+snapshot APIs. A revision record has the following logical metadata shape:
 
 ```json
 [
@@ -86,8 +64,8 @@ The manifest is a JSON array of snapshot metadata entries:
 ]
 ```
 
-`Parent` is `0` for the first revision. `IsCheckpoint` marks whether the
-revision stores full content or a patch.
+`Parent` is `0` for the first revision. `IsCheckpoint` marks whether the Hub
+stores full content or a patch internally.
 
 ## Patch-Based Compression
 
@@ -100,7 +78,7 @@ full content. The patch algorithm (`line-patch-v1`) uses three operations:
 | `delete`  | Skip N lines from the base |
 | `insert`  | Add new lines |
 
-Patch files (`.patch`) are JSON:
+Patch payloads use this JSON shape internally:
 
 ```json
 {
@@ -157,8 +135,8 @@ tap archive export -o archive.keg.tar.gz              # includes history
 tap archive export -o archive.keg.tar.gz --no-history  # excludes snapshots/
 ```
 
-The archive preserves the full `snapshots/` directory structure so that
-imported nodes retain their revision history.
+The archive preserves revision history so restored nodes retain their
+snapshots, without making the archive layout a live repository format.
 
 For full backup and restore workflows, see
 [Backups And Archives](backups-and-archives.md).
@@ -168,9 +146,8 @@ For full backup and restore workflows, see
 | File | Purpose |
 |------|---------|
 | `pkg/keg/keg_snapshots.go` | Keg-level snapshot API |
-| `pkg/keg/repository.go` | `RepositorySnapshots` interface |
+| `pkg/keg/repository.go` | `RepositorySnapshots` interface used by Hub-side `LocalKeg` orchestration |
 | `pkg/keg/snapshot_patch.go` | Patch algorithm |
-| `pkg/keg/repo_filesystem_snapshots.go` | Filesystem storage |
-| `pkg/keg/repo_memory_snapshots.go` | In-memory storage (tests) |
+| `internal/testkegrepo/memory_repository.go` | In-memory storage used only by tests |
 | `pkg/tapper/tap_snapshots.go` | Service layer |
 | `pkg/cli/cmd_snapshot.go` | CLI commands |

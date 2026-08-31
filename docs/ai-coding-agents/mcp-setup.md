@@ -4,9 +4,10 @@ The `tap mcp` command starts a Model Context Protocol server on stdio, exposing
 the same agent-safe tools and resources as Tapper Hub's authenticated `/mcp`
 endpoint — the one difference being attachment transfers, where `tap mcp` can
 also read and write local paths because it runs on your machine. Both publish
-immutable flight authority at initialization and on explicit orientation.
-Without one, the server starts in a recovery-only state so the host can inspect
-flights safely. This page is the advanced manual path for MCP hosts that are not
+connection-pinned authority at initialization. Orientation is a read-only view;
+`session_refresh` retries only a broken explicit selection. Without a flight,
+the server uses normal identity-authorized full access for the connection
+lifetime. This page is the advanced manual path for MCP hosts that are not
 using the bundled Claude Code or Codex integrations.
 
 Most users should use the official one-command installs in the project README's
@@ -78,11 +79,14 @@ The MCP server exposes a shared agent surface rather than every machine-local
 CLI capability. Exact tool availability follows the installed Tapper version
 and the active flight; inspect your MCP host's tool list for the live surface.
 
-When no flight is selected, the visible list is intentionally restricted to
-`orient`, `list_flights`, `flight_show`, and `auth_info`. `orient`
-and any guessed KEG-tool call explain that KEG tools are locked and direct the
-agent to inspect flights through MCP, ask the user to run `tap use --flight
-@namespace/+slug`, and call `orient` again on the same connection.
+When no flight is selected, the complete tool inventory is visible. Bare calls
+use every identity-accessible KEG at the caller's real role, and explicit
+`flight` selects any listed real flight for that call. No-flight authority
+never raises Hub ACLs or namespace membership. Create or choose a
+least-privilege flight, pin it with `tap use --flight @namespace/+slug` (or
+`tap mcp --flight`), and start a new connection. `session_refresh` cannot
+narrow the existing connection. Seeing only the six recovery tools means an
+explicitly configured root failed to initialize.
 
 ### Read
 
@@ -103,11 +107,11 @@ agent to inspect flights through MCP, ask the user to run `tap use --flight
 | Tool | Description |
 | --- | --- |
 | `create` | Atomically create 1–100 nodes from `nodes[]`; unique keys support forward/backward `{{node:key}}` body references |
-| `edit` | Atomically replace 1–100 nodes from `edits[]`, with optional hash checks and pre-edit snapshots |
-| `meta` | Read `node_ids[]` or atomically replace metadata through `updates[]` |
-| `remove` | Delete a node |
-| `move` | Move a node to a different ID |
-| `keg_settings_edit` | Replace the complete validated KEG YAML document; requires admin flight authority and editor/admin KEG access |
+| `edit` | Read with `cat`, then atomically replace 1–100 nodes from `edits[]`; every item requires that node's `expected_hash` |
+| `meta` | Read `node_ids[]` without tokens, or read with `cat` and atomically replace metadata through `updates[]`; every update requires that node's `expected_hash` |
+| `remove` | Read with `cat`, then atomically delete 1–100 `nodes[]`; every item requires its own `expected_hash` |
+| `move` | Read with `cat`, then move a node using its required `expected_hash` |
+| `keg_settings_edit` | Read the full document with `keg_settings`, then replace it using its required `expected_hash`; requires admin flight authority and editor/admin KEG access |
 
 Mutation inputs are array-only and each array contains 1–100 items:
 
@@ -116,14 +120,23 @@ Mutation inputs are array-only and each array contains 1–100 items:
 {"edits":[{"node_id":"12","content":"# Revised","expected_hash":"...","snapshot_before":true}]}
 {"node_ids":["12","13"]}
 {"updates":[{"node_id":"12","content":"type: plan\n","expected_hash":"...","snapshot_before":true}]}
+{"nodes":[{"node_id":"12","expected_hash":"..."},{"node_id":"13","expected_hash":"..."}]}
 {"nodes":[{"node_id":"12","message":"reviewed"}]}
 ```
 
 The first and last shapes belong to `create` and `node_snapshot`; the middle
-three belong to `edit` and the two mutually exclusive `meta` modes. Mutation
-results preserve request order and report `node_id`, the resulting hash or
-snapshot revision, and advisory schema validation details when applicable. A
-failed batch returns no partial results and commits none of its changes.
+shapes cover `edit`, the two mutually exclusive `meta` modes, and `remove`.
+Mutation results preserve request order and report `node_id`, the resulting
+hash or snapshot revision, and advisory schema validation details when
+applicable. A failed batch returns no partial results and commits none of its
+changes.
+
+Every protected mutation names the read that supplies its token: `cat` for
+node edits, metadata updates, moves, and removals; `keg_settings` for settings;
+`schema_read` for schema edits/deletes; and `flight_show` for flight
+edits/deletes. A conflict performs no operation and returns the current hash
+and, when practical, current content. Merge or refetch, then retry with that
+current hash.
 
 ### Index, Diagnostics, And Safety
 
@@ -161,8 +174,9 @@ vocabulary to ask.
 
 | Tool | Description |
 | --- | --- |
-| `keg_list` | List identity-authorized kegs filtered through the active flight |
-| `auth_info` | Return structured credential-safe `identities[]` and flight-filtered `kegs[]` |
+| `keg_list` | List canonical KEGs, effective roles, and winning granting flights for the live pinned-root graph by default or exactly one supplied `flight` |
+| `keg_search` | Search all identity-accessible KEG refs, titles, and summaries, including KEGs outside the flight graph; results grant no operational access |
+| `auth_info` | Return structured credential-safe `identities[]` and exact pinned-root-context `kegs[]` |
 
 Each identity includes only its hub locator, user ID, username, display name,
 default namespace, and namespace names. Tokens, email, scopes, cookies, expiry,
@@ -174,21 +188,22 @@ authenticated Hub identity; hosted MCP reports its single authenticated user.
 | Tool | Description |
 | --- | --- |
 | `import_from_keg` | Import nodes from another keg |
-| `orient` | Return the shared KEG system orientation payload |
+| `orient` | Return a read-only view of current instructions, selectable flights, and KEGs |
+| `session_refresh` | Retry activation after a broken explicit selection is repaired; zero arguments and no authority replacement once active |
 | `list_flights`, `flight_show` | Discover and inspect visible flights |
-| `flight_create`, `flight_edit`, `flight_delete` | Manage Hub-backed flights when the active flight grants `manage_flights` and the identity owns/administers the target namespace |
+| `flight_create`, `flight_edit`, `flight_delete` | Manage Hub-backed flights when the active flight grants `manage_flights` and the identity owns/administers the target namespace; edits/deletes require the hash from `flight_show` |
 
 MCP does not expose Tapper configuration, config templates, repository setup,
 archive import/export, raw auth status, license text, keg visibility, or
 namespace administration. Those remain external CLI, configuration, or Hub UI
 operations.
 
-The four mutation tools above intentionally use array-only inputs. Empty
+The five batch mutation modes above intentionally use array-only inputs. Empty
 batches, batches over 100 items, duplicate keys/IDs, unknown create
-placeholders, stale hashes, invalid schemas, or any persistence failure reject
-the entire call. Structured results preserve request order and include node
-IDs plus resulting hashes or snapshot revisions. The removed single-item
-fields are not accepted by the published MCP schemas.
+placeholders, missing or stale hashes, invalid schemas, or any persistence
+failure reject the entire call. Structured results preserve request order and
+include node IDs plus resulting hashes or snapshot revisions. The removed
+single-item fields are not accepted by the published MCP schemas.
 
 `import_from_keg` requires editor identity and flight authority on the source
 when `leave_stubs` is requested, because that option rewrites source nodes.
@@ -208,15 +223,18 @@ server default. This enables multi-keg workflows without restarting the server:
 Use the per-tool `keg` parameter for cross-keg work. Do not restart the MCP
 server just to switch between organization kegs.
 
-There is no model-visible per-call `flight` parameter. The active flight is
-server-owned session state. Config-driven servers adopt configuration changes
-only through explicit orientation; `tap mcp --flight` stays bound to that
-identity for its process lifetime.
+Every authority-bearing MCP tool accepts an optional per-call `flight`.
+Omission uses pinned-root authority for operations, while default `orient` and
+`keg_list` discovery aggregate the root and accessible descendants. Supplying
+the pinned root or a listed descendant selects exactly that flight. The root
+reference stays pinned to the connection, and every call reloads its live
+graph and authority.
 
-Hosted `/mcp` instead selects the authenticated account's global MCP flight
-preference. A successful self-edit adopts the exact returned flight immediately;
-a self-delete enters recovery immediately. Mutation tools disappear as soon as
-the adopted flight no longer grants `manage_flights`.
+Hosted `/mcp` pins the authenticated account's MCP flight preference when the
+connection initializes. Later manifest, relation, cover, identity-role, and ACL
+changes are adopted on the next call. Deleting or losing the connection-pinned
+root makes that connection permanently unavailable, so selecting a different
+root requires a new launch.
 
 ## Troubleshooting
 
@@ -231,19 +249,23 @@ tap mcp --help
 
 ### No Flight Configured
 
-The server connects in recovery-only mode rather than failing startup. Inspect
-the available flights through `list_flights` and `flight_show`, then configure
-a project flight or start the MCP server with an explicit flight:
+The server connects with identity-authorized full access. Inspect the available
+flights through `list_flights` and `flight_show`, then configure a
+least-privilege project flight or start the MCP server with an explicit flight:
 
 ```bash
 tap use --flight @acme/+release-42
 tap mcp --flight @acme/+release-42
 ```
 
-After `tap use`, call `orient` on the existing session. A failed ordinary
-refresh keeps the last valid authority; a blank selection intentionally enters
-recovery mode. If local configuration still names a flight deleted through MCP,
-`orient` reports the stale external reference until configuration is changed.
+After `tap use`, disconnect and start a new MCP connection. The existing
+connection remains on no-flight full access, and `session_refresh` reports
+`already_active` with `nextAction:"new_session"`.
+
+If a non-empty configured flight is missing, inaccessible, or unavailable, the
+server fails closed into recovery mode. Repair that exact selection outside
+MCP, then call `session_refresh` and `orient`; it never falls back to
+no-flight full access.
 
 ### Logs
 

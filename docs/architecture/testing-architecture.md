@@ -1,56 +1,30 @@
 # Testing Architecture
 
-tapper uses unit tests and integration-style CLI tests with a sandbox runtime.
+Tapper uses three complementary test layers.
 
-## Unit Tests
+## Repository-independent orchestration
 
-Unit tests live beside implementation files (for example `pkg/keg/*_test.go`).
+`pkg/keg` tests construct `LocalKeg` over a concurrency-safe in-memory
+repository defined only in test files. These tests cover orchestration,
+validation, indexes, snapshots, locks, attachments, and archives without
+making a filesystem repository part of the product.
 
-They focus on:
+The memory repository must satisfy `Repository` and every optional capability
+that a test exercises. Compile-time interface assertions catch contract drift,
+and race/concurrency tests exercise its locking behavior. It is a test double,
+not a persistence implementation.
 
-- pure behavior of domain and service methods
-- deterministic config and resolution behavior
-- repository-specific edge cases
+## Remote client and command surfaces
 
-## Sandbox Integration Pattern
+`RemoteKeg`, CLI, and MCP tests use Hub-compatible `httptest` servers. They
+assert request paths, authentication, conditional hashes, serialization,
+errors, and remote-only resolution. Filesystem paths and `file://` targets are
+negative cases.
 
-CLI integration tests use `github.com/jlrickert/cli-toolkit/sandbox`.
+## PostgreSQL integration
 
-Common setup pattern:
-
-1. Build a sandbox with fixture data (`NewSandbox(...)` in test helpers).
-2. Build a command process with `tu.NewProcess(...)`.
-3. Run commands against sandbox context/runtime.
-4. Assert stdout/stderr and filesystem effects.
-
-This creates a close-to-real execution path without shelling out to external
-processes.
-
-## Configurable Command Pipelines
-
-A single test usually runs multiple commands sequentially against the same
-sandbox runtime, which acts like an in-memory workflow pipeline.
-
-Example sequence:
-
-1. `tap bootstrap ...`
-2. `tap keg create ...`
-3. `tap use ...`
-4. `tap create ...`
-5. `tap cat ...`
-
-Tests for legacy compatibility can cover hidden aliases separately. Current
-user-facing flows should prefer `tap keg create`.
-
-Because each command runs through `cli.Run(...)`, tests exercise the same
-command wiring and service resolution code used in real usage.
-
-## Fixture-Driven Coverage
-
-Fixtures under package test data directories provide:
-
-- known keg layouts
-- known repo config files
-- expected node/index contents
-
-This keeps tests reproducible and avoids fragile ad hoc setup logic.
+Tapper Hub owns the production repository. Its unit suite exercises handler
+and service behavior; its PostgreSQL suite exercises the real repository,
+transactions, locks, snapshots, schemas, attachments, archives, and
+concurrent mutation semantics. Cross-repository checks use the local `go.work`
+link so Hub tests compile against the candidate Tapper tree.

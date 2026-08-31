@@ -1,4 +1,4 @@
-# Keg Config
+# Keg Settings
 
 Keg config is metadata stored in a keg repository itself.
 
@@ -57,7 +57,7 @@ resolved mode.
 
 Strict does not scan existing nodes when enabled and does not prevent schema
 replacement or deletion because of stored nodes. Node 0, imports, archive
-restores, snapshot restores, and schema/config operations are exempt from the
+restores, snapshot restores, and schema/settings operations are exempt from the
 selection rule. Newly initialized KEGs still set `strict: true`; older configs
 with no `strict` field remain non-strict.
 
@@ -65,7 +65,7 @@ with no `strict` field remain non-strict.
 
 - Edit user config for machine defaults, hubs, and credentials.
 - Edit project config for repo-specific resolution behavior.
-- Edit keg config for keg metadata and index/link declarations.
+- Edit keg settings for keg metadata and index/link declarations.
 
 ## Validation And Safe Editing Tips
 
