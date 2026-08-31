@@ -200,6 +200,10 @@ func TestArchiveExportUsesAssetsDirectoryAndIncludesConfigForFullBackup(t *testi
 	require.NoError(t, json.Unmarshal(entries["keg-archive/manifest.json"], &manifest))
 	require.Equal(t, "keg-archive/v3", manifest.Format)
 	require.True(t, manifest.WithSettings)
+	// The importer accepts the pre-rename `with_config` spelling; the writer
+	// must never emit it, or the legacy alias would outlive the archives that
+	// justify it.
+	require.NotContains(t, string(entries["keg-archive/manifest.json"]), "with_config")
 	require.Contains(t, entries, "keg-archive/keg.yaml")
 	require.Contains(t, entries, "keg-archive/nodes/"+id.ID.Path()+"/assets/doc.txt")
 	require.Contains(t, entries, "keg-archive/nodes/"+id.ID.Path()+"/images/diagram.png")
@@ -281,6 +285,82 @@ func TestArchiveImportRestoresKegSettingsForFullBackup(t *testing.T) {
 	require.Equal(t, []keg.LinkEntry{{Alias: "docs", URL: "https://example.com/docs"}}, got.Links)
 	require.Equal(t, &keg.SnapshotSettings{Mode: keg.SnapshotModeOff, IdleAfter: "2h"}, got.Snapshots)
 	require.Equal(t, &keg.SchemaPolicy{Human: keg.ValidationModeWarn, Agent: keg.ValidationModeBlock, API: keg.ValidationModeBlock}, got.SchemaPolicy)
+
+	rawIndex, err := dst.ReadIndex(ctx, "restored.md")
+	require.NoError(t, err)
+	require.Contains(t, string(rawIndex), "indexed")
+}
+
+// legacyConfigManifest rewrites a v3 manifest to the pre-rename spelling,
+// producing the archive an older Tapper would have written. The format
+// identifier is deliberately left alone: it was never bumped for the rename,
+// which is exactly why these archives still reach the importer.
+func legacyConfigManifest(t *testing.T, rawManifest []byte) []byte {
+	t.Helper()
+	var manifest map[string]any
+	require.NoError(t, json.Unmarshal(rawManifest, &manifest))
+	withSettings, ok := manifest["with_settings"]
+	require.True(t, ok, "fixture expects a manifest that carries keg settings")
+	delete(manifest, "with_settings")
+	manifest["with_config"] = withSettings
+	rewritten, err := json.MarshalIndent(manifest, "", "  ")
+	require.NoError(t, err)
+	return rewritten
+}
+
+// A keg archive is a stored artifact that outlives the code that wrote it. The
+// settings rename changed the manifest key from `with_config` to
+// `with_settings` without bumping the format identifier, so a pre-rename
+// archive still passes the version gate. Before the importer normalized the
+// two spellings, it read WithSettings as false and silently dropped the keg
+// document -- title, summary, instructions, and custom indexes -- while
+// reporting a successful restore.
+func TestArchiveImportRestoresKegSettingsFromLegacyConfigManifest(t *testing.T) {
+	t.Parallel()
+	fx := NewSandbox(t)
+	ctx := fx.Context()
+
+	src := keg.NewLocalKeg(newTestMemoryRepo(fx.Runtime()), fx.Runtime())
+	initNonStrictTestKeg(t, src, ctx)
+	_, err := src.Create(ctx, &keg.CreateOptions{Title: "indexed", Body: []byte("# indexed\n"), Tags: []string{"restored"}})
+	require.NoError(t, err)
+	require.NoError(t, src.UpdateSettings(ctx, func(cfg *keg.Settings) {
+		cfg.Title = "Legacy Title"
+		cfg.Summary = "Legacy summary"
+		cfg.Instructions = "Legacy instructions."
+		cfg.Timezone = "America/Chicago"
+		cfg.Indexes = append(cfg.UserIndexEntries(), keg.IndexEntry{File: "restored.md", Summary: "Restored nodes", Query: "restored"})
+	}))
+
+	archive := mustExportArchive(t, src, keg.ExportNodesOptions{WithAssets: true})
+	entries := readArchiveEntriesForTest(t, archive)
+	legacy := legacyConfigManifest(t, entries["keg-archive/manifest.json"])
+	require.Contains(t, string(legacy), "with_config")
+	require.NotContains(t, string(legacy), "with_settings")
+	archive = replaceArchiveEntry(t, archive, "keg-archive/manifest.json", legacy)
+
+	dst := keg.NewLocalKeg(newTestMemoryRepo(fx.Runtime()), fx.Runtime())
+	initNonStrictTestKeg(t, dst, ctx)
+	require.NoError(t, dst.UpdateSettings(ctx, func(cfg *keg.Settings) {
+		cfg.Title = "Target Title"
+		cfg.Summary = "Target summary"
+		cfg.Instructions = "Target instructions."
+		cfg.Timezone = "UTC"
+	}))
+
+	_, err = dst.ImportNodes(ctx, bytes.NewReader(archive), keg.ImportNodesOptions{})
+	require.NoError(t, err)
+
+	// Each of these differs from what the destination was seeded with, so
+	// matching the source proves the archived document was applied rather than
+	// the import taking the "carried no settings" branch and leaving the
+	// target's own values in place.
+	got, err := dst.Settings(ctx)
+	require.NoError(t, err)
+	require.Equal(t, "Legacy Title", got.Title)
+	require.Equal(t, "Legacy summary", got.Summary)
+	require.Equal(t, "Legacy instructions.", got.Instructions)
+	require.Equal(t, "America/Chicago", got.Timezone)
 
 	rawIndex, err := dst.ReadIndex(ctx, "restored.md")
 	require.NoError(t, err)

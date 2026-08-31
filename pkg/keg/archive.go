@@ -18,6 +18,12 @@ import (
 
 // Archive format identifiers. v3 adds optional keg settings, optional keg schemas,
 // and stores file attachments under assets/ to match the on-disk/web node layout.
+//
+// v3 has two manifest spellings for the keg document. It was written as
+// `with_config` before the settings rename and `with_settings` after, and the
+// format identifier was not bumped between them, so both are accepted on read
+// and normalized in importNodes. The entry itself has always been
+// keg-archive/keg.yaml.
 const (
 	kegArchiveFormatV3 = "keg-archive/v3"
 )
@@ -28,9 +34,15 @@ type archiveManifest struct {
 	ExportedAt   time.Time             `json:"exported_at"`
 	WithHistory  bool                  `json:"with_history,omitempty"`
 	WithSettings bool                  `json:"with_settings,omitempty"`
-	WithSchemas  bool                  `json:"with_schemas,omitempty"`
-	Schemas      []string              `json:"schemas,omitempty"`
-	Nodes        []archiveManifestNode `json:"nodes"`
+	// WithConfig is the pre-rename spelling of WithSettings. An archive is a
+	// stored artifact that outlives the code that wrote it, and v3 tarballs
+	// carrying this spelling are already in users' hands, so it stays readable.
+	// Read-only: export never writes it, and importNodes folds it into
+	// WithSettings immediately after unmarshalling.
+	WithConfig  bool                  `json:"with_config,omitempty"`
+	WithSchemas bool                  `json:"with_schemas,omitempty"`
+	Schemas     []string              `json:"schemas,omitempty"`
+	Nodes       []archiveManifestNode `json:"nodes"`
 }
 
 type archiveManifestNode struct {
@@ -356,6 +368,14 @@ func (k *LocalKeg) importNodes(ctx context.Context, r io.Reader, opts ImportNode
 	}
 	if manifest.Format != kegArchiveFormatV3 {
 		return nil, fmt.Errorf("unsupported archive format %q: %w", manifest.Format, ErrInvalid)
+	}
+	// Fold the pre-rename spelling forward before anything reads WithSettings.
+	// Every later decision -- validating the document, restoring it, and the
+	// inverted branch that stamps settings-updated when an archive carried no
+	// document -- reads this one value, so normalizing here is what keeps a
+	// legacy archive from importing as though it had no keg settings at all.
+	if manifest.WithConfig {
+		manifest.WithSettings = true
 	}
 
 	archivedSchemas, err := readArchiveSchemas(entries, manifest)
