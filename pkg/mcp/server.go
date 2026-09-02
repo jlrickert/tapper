@@ -220,6 +220,10 @@ func errorResult(err error) *sdkmcp.CallToolResult {
 			IsError: true,
 		}
 	}
+	if errors.Is(err, keg.ErrUnauthorized) || errors.Is(err, keg.ErrForbidden) ||
+		errors.Is(err, tapper.ErrTokenRejected) {
+		return unauthorizedResult(err)
+	}
 	if errors.Is(err, keg.ErrPreconditionRequired) {
 		return &sdkmcp.CallToolResult{
 			Content: []sdkmcp.Content{&sdkmcp.TextContent{Text: err.Error()}},
@@ -336,4 +340,40 @@ func truncatePayload(s string, limit int) string {
 		return s
 	}
 	return s[:limit] + "...(truncated)"
+}
+
+// unauthorizedResult explains what an agent can actually do about a rejected
+// credential. Orientation reloads the credential store as well as the config
+// (see KegService.ReloadAuthStore), so a token written by `tap auth login` in
+// another shell takes effect on the next orient without restarting the host
+// process — advice worth giving explicitly, since an agent that reads a bare
+// 401 tends to treat the whole session as dead (tapper#87).
+//
+// A 403 is kept distinct. The credential was accepted and the user simply
+// lacks the grant, so logging in again changes nothing and reorientRequired
+// stays false rather than sending the agent round a loop that cannot succeed.
+//
+// Neither message carries a token, header, or credential detail: both reach an
+// agent transcript.
+func unauthorizedResult(err error) *sdkmcp.CallToolResult {
+	code := "UNAUTHORIZED"
+	action := "Authentication changed or expired. Run `tap auth login` if needed, then reorient. " +
+		"Reorientation refreshes the current MCP session; restarting the host is not required."
+	reorient := true
+	if errors.Is(err, keg.ErrForbidden) && !errors.Is(err, keg.ErrUnauthorized) {
+		code = "FORBIDDEN"
+		action = "The credential was accepted but lacks permission for this operation. " +
+			"Logging in again will not grant it; request access to the keg or namespace instead."
+		reorient = false
+	}
+	return &sdkmcp.CallToolResult{
+		Content: []sdkmcp.Content{&sdkmcp.TextContent{Text: code + ": " + err.Error() + "\n\n" + action}},
+		StructuredContent: map[string]any{
+			"code":               code,
+			"reorientRequired":   reorient,
+			"operationPerformed": false,
+			"action":             action,
+		},
+		IsError: true,
+	}
 }

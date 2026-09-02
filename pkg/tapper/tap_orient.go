@@ -42,6 +42,12 @@ func (t *Tap) Orient(ctx context.Context, opts OrientOptions) (string, error) {
 	if t != nil && t.ConfigService != nil {
 		t.ConfigService.Reload()
 	}
+	// Credentials reload on the same boundary. `tap auth login` runs in a
+	// separate process, so without this a long-lived MCP session keeps the
+	// token it loaded at startup and reorienting cannot clear a 401 (#87).
+	if t != nil && t.KegService != nil {
+		t.KegService.ReloadAuthStore()
+	}
 	flightName := t.ActiveFlightName(opts.Flight)
 	flight, flightNote := t.resolveOrientFlight(ctx, flightName)
 	available, warnings := t.OrientationKegsForFlight(ctx, flight)
