@@ -25,13 +25,18 @@ func registerNamespaceTools(srv *sdkmcp.Server, tap *tapper.Tap, _ KegDefaults) 
 			OpenWorldHint: boolPtr(true),
 		},
 	}, func(ctx context.Context, _ *sdkmcp.CallToolRequest, in namespaceListInput) (*sdkmcp.CallToolResult, any, error) {
-		nss, err := tap.NamespaceList(ctx, tapper.NamespaceListOptions{Hub: in.Hub})
+		res, err := tap.NamespaceList(ctx, tapper.NamespaceListOptions{Hub: in.Hub})
 		if err != nil {
 			return errorResult(err), nil, nil
 		}
-		lines := make([]string, 0, len(nss))
-		for _, ns := range nss {
-			lines = append(lines, fmt.Sprintf("@%s\t%s\t%s", ns.Name, ns.Kind, ns.Role))
+		lines := make([]string, 0, len(res.Namespaces)+len(res.Warnings))
+		for _, ns := range res.Namespaces {
+			// The hub is part of the identity of a row: the same namespace
+			// name can exist on more than one configured hub.
+			lines = append(lines, fmt.Sprintf("@%s\t%s\t%s\t%s", ns.Name, ns.Kind, ns.Role, ns.Hub))
+		}
+		for _, w := range res.Warnings {
+			lines = append(lines, "warning: "+w)
 		}
 		return linesResult(lines), nil, nil
 	})

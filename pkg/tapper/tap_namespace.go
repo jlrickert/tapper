@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"sort"
 	"strings"
 )
 
@@ -11,10 +12,18 @@ import (
 // creating org namespaces. Backs `tap namespace`. The hub endpoints live under
 // /api/v1/namespaces and /api/v1/@{namespace}/members.
 
-// NamespaceListOptions selects which hub to query for namespaces. Empty uses
-// the resolved default hub.
+// NamespaceListOptions selects which hub to query for namespaces. An empty Hub
+// aggregates every configured hub the user can reach.
 type NamespaceListOptions struct {
 	Hub string
+}
+
+// NamespaceListResult carries the aggregated rows plus a note for each hub that
+// could not be reached. Warnings are non-fatal by design: one unreachable hub
+// must not blank out the namespaces the others returned.
+type NamespaceListResult struct {
+	Namespaces []HubNamespace
+	Warnings   []string
 }
 
 // NamespaceMembersOptions selects the namespace whose members to list. Namespace
@@ -66,13 +75,82 @@ type NamespaceCreateResult struct {
 // (distinct from the keg grant roles).
 var namespaceMemberRoles = map[string]bool{"owner": true, "admin": true, "member": true}
 
-// NamespaceList returns the namespaces the caller belongs to on a hub.
-func (t *Tap) NamespaceList(ctx context.Context, opts NamespaceListOptions) ([]HubNamespace, error) {
-	hubURL, token, err := t.resolveHubEndpoint(opts.Hub)
-	if err != nil {
-		return nil, err
+// NamespaceList returns the namespaces the caller belongs to. With no --hub it
+// aggregates across every configured hub rather than only the selected one,
+// which previously hid memberships on every other hub and gave no way to tell
+// which hub a row came from (tapper#73). Every row carries its source hub, so
+// the same namespace name on two hubs stays two distinct rows.
+//
+// With an explicit --hub only that hub is queried and its errors surface
+// directly. In aggregate mode an unreachable or unauthenticated hub is recorded
+// as a warning and skipped. This mirrors HubListKegs.
+//
+// Local namespaces are not represented. Tapper has no local hub kind: config
+// admits only remote and readonly, and every resolver rejects anything else.
+func (t *Tap) NamespaceList(ctx context.Context, opts NamespaceListOptions) (NamespaceListResult, error) {
+	explicit := strings.TrimSpace(opts.Hub)
+	if explicit != "" {
+		hubURL, token, err := t.resolveHubEndpoint(explicit)
+		if err != nil {
+			return NamespaceListResult{}, err
+		}
+		nss, err := ListNamespaces(ctx, hubURL, token)
+		if err != nil {
+			return NamespaceListResult{}, err
+		}
+		return NamespaceListResult{Namespaces: tagNamespaceHub(nss, explicit)}, nil
 	}
-	return ListNamespaces(ctx, hubURL, token)
+
+	cfg, err := t.ConfigService.Config()
+	if err != nil {
+		return NamespaceListResult{}, err
+	}
+
+	var result NamespaceListResult
+	for _, name := range t.allHubNames(cfg) {
+		entry, ok := cfg.Hub(name)
+		if !ok {
+			continue
+		}
+		if kind := hubKindOrDefault(entry.Kind); kind != HubKindRemote && kind != HubKindReadonly {
+			result.Warnings = append(result.Warnings,
+				fmt.Sprintf("hub %q: unsupported kind %q", name, kind))
+			continue
+		}
+		hubURL, token, hErr := remoteHubEndpoint(t, name, entry)
+		if hErr != nil {
+			result.Warnings = append(result.Warnings, fmt.Sprintf("hub %q: %v", name, hErr))
+			continue
+		}
+		nss, lErr := ListNamespaces(ctx, hubURL, token)
+		if lErr != nil {
+			result.Warnings = append(result.Warnings, fmt.Sprintf("hub %q: %v", name, lErr))
+			if lg := t.Runtime.Logger(); lg != nil {
+				lg.Warn("namespace list: skipping hub", "hub", name, "err", lErr)
+			}
+			continue
+		}
+		result.Namespaces = append(result.Namespaces, tagNamespaceHub(nss, name)...)
+	}
+
+	sort.Slice(result.Namespaces, func(i, j int) bool {
+		a, b := result.Namespaces[i], result.Namespaces[j]
+		if a.Hub != b.Hub {
+			return a.Hub < b.Hub
+		}
+		return a.Name < b.Name
+	})
+	return result, nil
+}
+
+// tagNamespaceHub stamps each row with the hub it came from.
+func tagNamespaceHub(nss []HubNamespace, hub string) []HubNamespace {
+	out := make([]HubNamespace, 0, len(nss))
+	for _, ns := range nss {
+		ns.Hub = hub
+		out = append(out, ns)
+	}
+	return out
 }
 
 // NamespaceMembers returns the member roster of a namespace.
