@@ -172,7 +172,7 @@ func (t *Tap) resolveWriteFlightRef(raw string) (FlightRef, HubEntry, string, er
 	if err != nil {
 		return FlightRef{}, HubEntry{}, "", err
 	}
-	ref, err := ParseFlightRef(raw, defaultFlightNamespace(cfg))
+	ref, err := ParseFlightRef(raw, t.defaultFlightNamespace(cfg))
 	if err != nil {
 		return FlightRef{}, HubEntry{}, "", err
 	}
@@ -200,9 +200,22 @@ func (t *Tap) resolveWriteFlightRef(raw string) (FlightRef, HubEntry, string, er
 	return ref, entry, hubName, nil
 }
 
-func defaultFlightNamespace(cfg *Config) string {
+// defaultFlightNamespace supplies the namespace for a flight reference that
+// omits one. Precedence:
+//
+//	active KEG's namespace → defaultNamespace → fallbackNamespace →
+//	the resolved hub's per-hub defaultNamespace
+//
+// The active KEG comes first because a bare flight name typed while working in
+// an org KEG means a flight in that org, not one in the user's personal
+// namespace. Resolving it last put flights in the wrong namespace silently
+// (tapper#74); an explicitly qualified @namespace/+slug never reaches here.
+func (t *Tap) defaultFlightNamespace(cfg *Config) string {
 	if cfg == nil {
 		return ""
+	}
+	if ns := t.activeKegNamespace(cfg); ns != "" {
+		return ns
 	}
 	if ns := strings.TrimSpace(cfg.resolveNamespaceForName()); ns != "" {
 		return ns
@@ -216,6 +229,33 @@ func defaultFlightNamespace(cfg *Config) string {
 		return ns
 	}
 	return ""
+}
+
+// activeKegNamespace returns the namespace of the KEG currently in context, or
+// "" when no KEG is selected or the selector names no namespace. The selector
+// chain mirrors resolveIdentity and resolveKegAdminRef: defaultKeg → project
+// alias → fallbackKeg.
+//
+// Only a namespace the selector states explicitly counts. Running the selector
+// through resolveNamespaceHub would fill an omitted namespace from
+// defaultNamespace, so a bare keg name would report the personal namespace as
+// though the KEG had named it, and this step would stop being distinguishable
+// from the one after it.
+func (t *Tap) activeKegNamespace(cfg *Config) string {
+	if t == nil || cfg == nil {
+		return ""
+	}
+	selector := strings.TrimSpace(cfg.DefaultKeg())
+	if selector == "" {
+		selector = strings.TrimSpace(cfg.LookupAlias(t.Runtime, t.Root))
+	}
+	if selector == "" {
+		selector = strings.TrimSpace(cfg.FallbackKeg())
+	}
+	if selector == "" {
+		return ""
+	}
+	return strings.TrimPrefix(strings.TrimSpace(parseKegRef(selector).Namespace), "@")
 }
 
 func hubCoverFromFlightCover(cover []FlightCover) []HubFlightCover {

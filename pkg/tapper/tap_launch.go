@@ -339,7 +339,7 @@ func (t *Tap) ResolveLaunch(opts LaunchOptions) (*LaunchResult, error) {
 		warnings []string
 	)
 	if rootRef := strings.TrimSpace(t.ActiveFlightName(opts.Flight)); rootRef != "" {
-		parsed, err := ParseFlightRef(rootRef, defaultFlightNamespace(cfg))
+		parsed, err := ParseFlightRef(rootRef, t.defaultFlightNamespace(cfg))
 		if err != nil {
 			return nil, fmt.Errorf("resolve launch flight %q: %w", rootRef, err)
 		}
