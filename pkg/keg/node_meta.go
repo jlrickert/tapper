@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"math"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -524,11 +526,12 @@ func valueToYAMLNode(v any) *yaml.Node {
 	case bool:
 		return &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!bool", Value: fmt.Sprint(t)}
 	case int, int8, int16, int32, int64:
-		return &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: fmt.Sprint(t)}
+		return &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!int", Value: fmt.Sprint(t)}
 	case uint, uint8, uint16, uint32, uint64:
-		return &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: fmt.Sprint(t)}
+		return &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!int", Value: fmt.Sprint(t)}
 	case float32, float64:
-		return &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: fmt.Sprint(t)}
+		tag, text := formatYAMLFloat(t)
+		return &yaml.Node{Kind: yaml.ScalarNode, Tag: tag, Value: text}
 	case time.Time:
 		return &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: t.Format(time.RFC3339)}
 	case []string:
@@ -546,13 +549,45 @@ func valueToYAMLNode(v any) *yaml.Node {
 		return seq
 	case map[string]any:
 		mnode := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
-		for k, v2 := range t {
+		keys := make([]string, 0, len(t))
+		for k := range t {
+			keys = append(keys, k)
+		}
+		// Sorted so repeated writes of the same value produce byte-identical
+		// YAML; ranging a Go map directly would reorder keys run to run.
+		sort.Strings(keys)
+		for _, k := range keys {
 			mnode.Content = append(mnode.Content,
 				&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: k},
-				valueToYAMLNode(v2))
+				valueToYAMLNode(t[k]))
 		}
 		return mnode
 	default:
 		return &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: fmt.Sprint(v)}
 	}
+}
+
+// formatYAMLFloat renders a float as a YAML scalar and reports the tag it
+// should carry. JSON has no integer type, so a value that arrived over the MCP
+// wire as `1` reaches us as float64(1). Tagging that !!float and writing "1"
+// would make the emitter spell out an explicit `!!float` tag, and writing "1.0"
+// would fail a JSON Schema `type: integer` check that the same value satisfies
+// in JSON. Integral floats therefore serialize as plain integers, which is the
+// representation both YAML and JSON Schema agree on.
+func formatYAMLFloat(v any) (string, string) {
+	var f float64
+	switch t := v.(type) {
+	case float32:
+		f = float64(t)
+	case float64:
+		f = t
+	}
+	if math.IsInf(f, 0) || math.IsNaN(f) {
+		// Not representable as a plain YAML scalar of either numeric tag.
+		return "!!str", fmt.Sprint(f)
+	}
+	if f == math.Trunc(f) && math.Abs(f) < 1e15 {
+		return "!!int", strconv.FormatInt(int64(f), 10)
+	}
+	return "!!float", strconv.FormatFloat(f, 'g', -1, 64)
 }
