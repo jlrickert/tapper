@@ -28,6 +28,11 @@ type HubNamespace struct {
 	Name string `json:"name"`
 	Kind string `json:"kind,omitempty"` // user|org
 	Role string `json:"role,omitempty"` // caller's role
+
+	// Hub names the configured hub this row came from. It is filled in
+	// locally by NamespaceList, not by the hub, so identical namespace names
+	// on different hubs stay distinguishable. Not part of namespaceWire.
+	Hub string `json:"hub,omitempty"`
 }
 
 func namespaceMembersPath(namespace string) string {

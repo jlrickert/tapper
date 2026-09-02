@@ -45,16 +45,26 @@ func newNamespaceListCmd(deps *Deps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "list the namespaces you belong to",
-		Args:  cobra.NoArgs,
+		Long: `List the namespaces you belong to as NAMESPACE, KIND, ROLE, HUB.
+
+With no --hub every configured hub is queried and each row names its source
+hub, so the same namespace name on two hubs stays two distinct rows. A hub that
+cannot be reached is reported on stderr and the remaining hubs still list.`,
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			// --hub is the global keg-resolution flag (default: the resolved default hub).
 			opts := tapper.NamespaceListOptions{Hub: globalKegTarget(deps).Hub}
-			nss, err := deps.Tap.NamespaceList(cmd.Context(), opts)
+			res, err := deps.Tap.NamespaceList(cmd.Context(), opts)
 			if err != nil {
 				return err
 			}
-			for _, ns := range nss {
-				fmt.Fprintf(cmd.OutOrStdout(), "@%s\t%s\t%s\n", ns.Name, ns.Kind, ns.Role)
+			for _, ns := range res.Namespaces {
+				fmt.Fprintf(cmd.OutOrStdout(), "@%s\t%s\t%s\t%s\n", ns.Name, ns.Kind, ns.Role, ns.Hub)
+			}
+			// Warnings go to stderr so the rows stay pipeable, and name the hub
+			// that failed so a partial listing is never mistaken for a full one.
+			for _, w := range res.Warnings {
+				fmt.Fprintf(cmd.ErrOrStderr(), "warning: %s\n", w)
 			}
 			return nil
 		},
