@@ -42,6 +42,26 @@ func (s *KegService) ensureCache() {
 	}
 }
 
+// ReloadAuthStore drops the cached credential store so the next resolution
+// reads it back from disk.
+//
+// The store is otherwise loaded once per process. A `tap auth login` run in a
+// separate shell writes a new token to disk that a long-lived MCP server would
+// never see, so telling an agent to log in and reorient was advice that could
+// not work (tapper#87). Orientation is already the reload boundary for
+// configuration; this puts credentials on the same boundary.
+func (s *KegService) ReloadAuthStore() {
+	s.cacheMu.Lock()
+	defer s.cacheMu.Unlock()
+	s.authStoreOnce = sync.Once{}
+	s.authStore = nil
+	s.authStorePath = ""
+	s.authResolver = nil
+	// Kegs resolved earlier captured the old resolver, so dropping the store
+	// alone would leave them holding the stale credential.
+	s.kegCache = nil
+}
+
 func (s *KegService) tokenResolver() keg.TokenResolver {
 	s.authStoreOnce.Do(func() {
 		defer func() {
