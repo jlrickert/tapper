@@ -78,13 +78,16 @@ type createInput struct {
 	Keg   string            `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
 }
 type createNodeInput struct {
-	Key    string            `json:"key"`
-	Schema string            `json:"schema,omitempty" jsonschema:"schema selected for this write; required when strict policy and agent mode both block"`
-	Title  string            `json:"title,omitempty"`
-	Lead   string            `json:"lead,omitempty"`
-	Body   string            `json:"body,omitempty"`
-	Tags   []string          `json:"tags,omitempty"`
-	Attrs  map[string]string `json:"attrs,omitempty"`
+	Key    string   `json:"key"`
+	Schema string   `json:"schema,omitempty" jsonschema:"schema selected for this write; required when strict policy and agent mode both block"`
+	Title  string   `json:"title,omitempty"`
+	Lead   string   `json:"lead,omitempty"`
+	Body   string   `json:"body,omitempty"`
+	Tags   []string `json:"tags,omitempty"`
+	// map[string]any, not map[string]string: a string-typed map generates an
+	// `additionalProperties: {type: string}` schema, which cannot express an
+	// integer at all, so schema fields typed `integer` become unwritable.
+	Attrs map[string]any `json:"attrs,omitempty"`
 }
 
 type createNodeOutput struct {

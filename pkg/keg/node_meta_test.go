@@ -7,6 +7,7 @@ import (
 
 	"github.com/jlrickert/tapper/pkg/keg"
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 )
 
 func TestParseMeta_EmptyReturnsEmptyMeta(t *testing.T) {
@@ -180,4 +181,70 @@ tags:
 	require.Contains(t, out, "- beta")
 	require.Contains(t, out, "- gamma")
 	require.NotContains(t, out, "- alpha")
+}
+
+// TestSetAttrs_PreservesScalarTypes covers tapper#91: SetAttrs used to tag every
+// numeric scalar !!str, so a schema field typed `integer` could never be
+// satisfied through create or through an edit carrying inline frontmatter.
+func TestSetAttrs_PreservesScalarTypes(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	m, err := keg.ParseMeta(ctx, []byte("# initial\ntype: change\n"))
+	require.NoError(t, err)
+
+	require.NoError(t, m.SetAttrs(ctx, map[string]any{
+		// YAML frontmatter decodes an integer literal as int.
+		"contract_count": 1,
+		// JSON (the MCP attrs path) has no integer type, so the same value
+		// arrives as float64 and must still write as an integer.
+		"json_count": float64(2),
+		"ratio":      0.75,
+		"enabled":    true,
+		"label":      "text",
+	}))
+
+	out := m.ToYAML()
+	require.Contains(t, out, "contract_count: 1")
+	require.Contains(t, out, "json_count: 2")
+	require.Contains(t, out, "ratio: 0.75")
+	require.Contains(t, out, "enabled: true")
+	require.Contains(t, out, "label: text")
+	// The bug's signature was a quoted scalar where a number belonged.
+	require.NotContains(t, out, `"1"`)
+	require.NotContains(t, out, `"0.75"`)
+
+	// Round-trip through YAML to confirm the emitted tags actually resolve back
+	// to numbers rather than to strings that merely look unquoted.
+	var back map[string]any
+	require.NoError(t, yaml.Unmarshal([]byte(out), &back))
+	require.Equal(t, 1, back["contract_count"])
+	require.Equal(t, 2, back["json_count"])
+	require.Equal(t, 0.75, back["ratio"])
+	require.Equal(t, true, back["enabled"])
+	require.Equal(t, "text", back["label"])
+}
+
+// TestSetAttrs_NestedMapsAreDeterministic guards the sorted key order in
+// valueToYAMLNode: ranging a Go map directly reordered nested keys run to run,
+// which made otherwise identical writes produce different meta.yaml bytes.
+func TestSetAttrs_NestedMapsAreDeterministic(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	render := func() string {
+		m, err := keg.ParseMeta(ctx, []byte("# initial\n"))
+		require.NoError(t, err)
+		require.NoError(t, m.SetAttrs(ctx, map[string]any{
+			"nested": map[string]any{
+				"zulu": 1, "alpha": 2, "mike": 3, "delta": 4, "papa": 5,
+			},
+		}))
+		return m.ToYAML()
+	}
+
+	first := render()
+	for i := 0; i < 8; i++ {
+		require.Equal(t, first, render())
+	}
 }

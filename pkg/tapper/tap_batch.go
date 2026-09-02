@@ -15,7 +15,7 @@ type BatchCreateNode struct {
 	Lead   string
 	Body   string
 	Tags   []string
-	Attrs  map[string]string
+	Attrs  map[string]any
 }
 type BatchCreateOptions struct {
 	KegTargetOptions
@@ -30,7 +30,7 @@ func (t *Tap) CreateBatch(ctx context.Context, opts BatchCreateOptions) ([]keg.C
 	ctx = keg.WithDefaultValidationActor(ctx, keg.ValidationActorHuman)
 	nodes := make([]keg.NodeCreate, len(opts.Nodes))
 	for i, item := range opts.Nodes {
-		nodes[i] = keg.NodeCreate{Key: item.Key, Schema: item.Schema, Title: item.Title, Lead: item.Lead, Body: []byte(item.Body), Tags: item.Tags, Attrs: createAttrsFromStrings(item.Attrs)}
+		nodes[i] = keg.NodeCreate{Key: item.Key, Schema: item.Schema, Title: item.Title, Lead: item.Lead, Body: []byte(item.Body), Tags: item.Tags, Attrs: item.Attrs}
 	}
 	return k.CreateNodes(ctx, nodes)
 }
