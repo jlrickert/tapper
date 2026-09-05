@@ -99,7 +99,6 @@ func NewServer(tap *tapper.Tap, version string, defaults KegDefaults, opts ...Se
 	registerFileTools(srv, tap, defaults, opt.SharedFilesystem)
 	registerDoctorTools(srv, tap, defaults)
 	registerLockTools(srv, tap, defaults)
-	registerImportTools(srv, tap, defaults)
 	registerFlightTools(srv, defaults, opt.FlightProvider)
 	registerKegTools(srv, defaults, opt.KegProvider, opt.KegSearchProvider)
 	registerResourceTools(srv, tap, defaults)

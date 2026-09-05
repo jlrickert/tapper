@@ -233,7 +233,7 @@ func TestMCP_ToolsList(t *testing.T) {
 		"keg_settings", "keg_settings_edit", "stats", "create", "edit", "meta", "remove", "move",
 		"index", "list_indexes", "index_cat", "doctor", "node_history", "node_snapshot",
 		"node_snapshot_view", "node_restore", "list_files", "list_images", "delete_file", "delete_image",
-		"upload_file", "upload_image", "download_image", "orient", "session_refresh", "import_from_keg",
+		"upload_file", "upload_image", "download_image", "orient", "session_refresh",
 		"lock_acquire", "lock_release", "lock_status", "lock_force_release", "list_flights", "flight_show",
 		"flight_create", "flight_edit", "flight_delete", "schema_list", "schema_read", "schema_create",
 		"schema_edit", "schema_delete", "validate",
@@ -279,7 +279,7 @@ func TestMCP_CommonAgentSafeSurface(t *testing.T) {
 		"list_files", "list_images", "delete_file", "delete_image",
 		"upload_file", "upload_image", "download_image",
 		"schema_list", "schema_read", "schema_create", "schema_edit",
-		"schema_delete", "validate", "doctor", "import_from_keg", "keg_list", "keg_search", "auth_info",
+		"schema_delete", "validate", "doctor", "keg_list", "keg_search", "auth_info",
 		"lock_acquire", "lock_release", "lock_status", "lock_force_release",
 		"list_flights", "flight_show", "flight_create", "flight_edit", "flight_delete",
 	} {
@@ -1453,85 +1453,6 @@ func TestMCP_RepoInitMissingAlias(t *testing.T) {
 	require.True(t, res.IsError, "expected error for missing alias")
 }
 
-// --- import tool tests ---
-
-func TestMCP_ToolsList_ExcludesArchiveImportAndKeepsKegImport(t *testing.T) {
-	t.Parallel()
-	session, ctx := newTestSession(t)
-
-	res, err := session.ListTools(ctx, nil)
-	require.NoError(t, err)
-
-	names := make([]string, len(res.Tools))
-	for i, tool := range res.Tools {
-		names[i] = tool.Name
-	}
-
-	require.Contains(t, names, "import_from_keg")
-	require.NotContains(t, names, "import")
-}
-
-func TestMCP_ImportFromKeg(t *testing.T) {
-	t.Skip("legacy fixture setup depends on removed repo_init; provider parity covers import_from_keg")
-	t.Parallel()
-	session, ctx := newTestSession(t)
-
-	// First, init a second keg to import from.
-	initRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "repo_init",
-		Arguments: map[string]any{
-			"keg":   "source",
-			"user":  true,
-			"title": "Source KEG",
-		},
-	})
-	require.NoError(t, err)
-	require.False(t, initRes.IsError, "repo_init returned error: %s", extractText(t, initRes))
-
-	// Create a node in the source keg.
-	createRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "create",
-		Arguments: batchCreateArgs(map[string]any{
-			"title": "Imported Node",
-			"lead":  "This node will be imported.",
-			"keg":   "source",
-		}),
-	})
-	require.NoError(t, err)
-	require.False(t, createRes.IsError, "create returned error: %s", extractText(t, createRes))
-	srcNodeID := extractText(t, createRes)
-
-	// Import from source into personal (default).
-	importRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "import_from_keg",
-		Arguments: map[string]any{
-			"source_keg":     "source",
-			"node_ids":       []string{srcNodeID},
-			"target_keg":     "personal",
-			"skip_zero_node": true,
-		},
-	})
-	require.NoError(t, err)
-	text := extractText(t, importRes)
-	require.False(t, importRes.IsError, "import_from_keg returned error: %s", text)
-	require.Contains(t, text, "imported 1 node(s)")
-}
-
-func TestMCP_ImportFromKegSameKegError(t *testing.T) {
-	t.Parallel()
-	session, ctx := newTestSession(t)
-
-	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "import_from_keg",
-		Arguments: map[string]any{
-			"source_keg": "personal",
-			"target_keg": "personal",
-		},
-	})
-	require.NoError(t, err)
-	require.True(t, res.IsError, "expected error importing from same keg")
-}
-
 // --- file transfer tool tests ---
 
 func TestMCP_ToolsList_IncludesFileTransferTools(t *testing.T) {
@@ -2073,7 +1994,6 @@ func TestMCP_ToolAnnotations_AllPresent(t *testing.T) {
 		"node_snapshot",
 		"upload_file", "upload_image",
 		"lock_acquire", "lock_release",
-		"import_from_keg",
 	}
 	for _, name := range writeTools {
 		tool, ok := byName[name]

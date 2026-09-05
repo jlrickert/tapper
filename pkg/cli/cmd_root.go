@@ -294,7 +294,6 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 		NewGrepCmd(deps),
 		NewHubCmd(deps),
 		NewImageCmd(deps),
-		NewImportCmd(deps),
 		NewIndexCmd(deps),
 		NewInfoCmd(deps),
 		NewLinksCmd(deps),
