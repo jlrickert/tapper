@@ -76,7 +76,7 @@ summary: from stdin
 func TestEdit_PipedSchemaSelectionPersistsType(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
-	created := NewProcess(t, false, "create", "--keg", "personal", "--title", "Editable").Run(sb.Context(), sb.Runtime())
+	created := NewCreateProcess(t, false, "Editable", "", "--keg", "personal").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, created.Err)
 
 	res := NewProcess(t, false, "edit", "1", "--keg", "personal", "--schema", "task").

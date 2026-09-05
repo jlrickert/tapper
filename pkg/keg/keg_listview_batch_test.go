@@ -61,10 +61,7 @@ func seedNodes(t *testing.T, k *kegpkg.LocalKeg, n int) {
 	t.Helper()
 	ctx := context.Background()
 	for i := range n {
-		_, err := k.Create(ctx, &kegpkg.CreateOptions{
-			Title: fmt.Sprintf("Node %d", i),
-			Attrs: map[string]any{"type": fmt.Sprintf("kind%d", i%3)},
-		})
+		_, err := k.Create(ctx, &kegpkg.CreateOptions{Body: []byte("# " + fmt.Sprintf("Node %d", i) + "\n"), Meta: []byte("type: " + fmt.Sprintf("kind%d", i%3) + "\n")})
 		require.NoError(t, err)
 	}
 }

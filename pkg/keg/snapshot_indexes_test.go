@@ -24,7 +24,7 @@ func TestTimelineIndex_OrdersSnapshotRowsAndReplaysBacklinks(t *testing.T) {
 
 	setSnapshotIndexClock(t, rt, t1)
 	alphaResult, err := k.Create(ctx, &CreateOptions{
-		Body: []byte("---\ntype: task\n---\n# Alpha\n\nSee [three](../3).\n"),
+		Body: []byte("# Alpha\n\nSee [three](../3).\n"), Meta: []byte("type: task\n"),
 	})
 	require.NoError(t, err)
 	alpha := alphaResult.ID
@@ -148,7 +148,7 @@ markdown:
 
 	t1 := time.Date(2026, 2, 26, 10, 0, 0, 0, time.UTC)
 	setSnapshotIndexClock(t, rt, t1)
-	evidenceResult, err := k.Create(ctx, &CreateOptions{Title: "Evidence", Attrs: map[string]any{"type": "evidence", "status": "ready"}})
+	evidenceResult, err := k.Create(ctx, &CreateOptions{Body: []byte("# Evidence\n"), Meta: []byte("type: evidence\nstatus: ready\n")})
 	require.NoError(t, err)
 	evidence := evidenceResult.ID
 	_, err = k.AppendSnapshot(ctx, evidence, "evidence")
@@ -156,8 +156,8 @@ markdown:
 
 	setSnapshotIndexClock(t, rt, t1.Add(time.Hour))
 	sourceResult, err := k.Create(ctx, &CreateOptions{
-		Body:  []byte("# Source\n\n[Evidence](../" + evidence.Path() + ")\n"),
-		Attrs: map[string]any{"type": "note"},
+		Body: []byte("# Source\n\n[Evidence](../" + evidence.Path() + ")\n"),
+		Meta: []byte("type: note\n"),
 	})
 	require.NoError(t, err)
 	source := sourceResult.ID
@@ -166,8 +166,8 @@ markdown:
 
 	setSnapshotIndexClock(t, rt, t1.Add(2*time.Hour))
 	reviewResult, err := k.Create(ctx, &CreateOptions{
-		Body:  []byte("# Review\n\n[Source](../" + source.Path() + ")\n"),
-		Attrs: map[string]any{"type": "evidence", "certainty": 0.5},
+		Body: []byte("# Review\n\n[Source](../" + source.Path() + ")\n"),
+		Meta: []byte("type: evidence\ncertainty: 0.5\n"),
 	})
 	require.NoError(t, err)
 	review := reviewResult.ID

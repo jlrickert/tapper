@@ -55,11 +55,11 @@ func TestTagsCommand_ListAllTagsSorted(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
 
-	res := NewProcess(t, false, "create", "--title", "One", "--tags", "zeta").Run(sb.Context(), sb.Runtime())
+	res := NewCreateProcess(t, false, "One", "tags:\n  - zeta\n").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
-	res = NewProcess(t, false, "create", "--title", "Two", "--tags", "alpha").Run(sb.Context(), sb.Runtime())
+	res = NewCreateProcess(t, false, "Two", "tags:\n  - alpha\n").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
-	res = NewProcess(t, false, "create", "--title", "Three", "--tags", "beta").Run(sb.Context(), sb.Runtime())
+	res = NewCreateProcess(t, false, "Three", "tags:\n  - beta\n").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 
 	out := NewProcess(t, false, "tags").Run(sb.Context(), sb.Runtime())
@@ -75,11 +75,11 @@ func TestTagsCommand_ListNodesForTag(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
 
-	res := NewProcess(t, false, "create", "--title", "Alpha Node", "--tags", "fire").Run(sb.Context(), sb.Runtime())
+	res := NewCreateProcess(t, false, "Alpha Node", "tags:\n  - fire\n").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 	require.Equal(t, "1", strings.TrimSpace(string(res.Stdout)))
 
-	res = NewProcess(t, false, "create", "--title", "Beta Node", "--tags", "fire", "--tags", "earth").Run(sb.Context(), sb.Runtime())
+	res = NewCreateProcess(t, false, "Beta Node", "tags:\n  - fire\n  - earth\n").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 	require.Equal(t, "2", strings.TrimSpace(string(res.Stdout)))
 
@@ -100,15 +100,15 @@ func TestTagsCommand_TagExpression(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
 
-	res := NewProcess(t, false, "create", "--title", "Node AB", "--tags", "a", "--tags", "b").Run(sb.Context(), sb.Runtime())
+	res := NewCreateProcess(t, false, "Node AB", "tags:\n  - a\n  - b\n").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 	require.Equal(t, "1", strings.TrimSpace(string(res.Stdout)))
 
-	res = NewProcess(t, false, "create", "--title", "Node AC", "--tags", "a", "--tags", "c").Run(sb.Context(), sb.Runtime())
+	res = NewCreateProcess(t, false, "Node AC", "tags:\n  - a\n  - c\n").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 	require.Equal(t, "2", strings.TrimSpace(string(res.Stdout)))
 
-	res = NewProcess(t, false, "create", "--title", "Node C", "--tags", "c").Run(sb.Context(), sb.Runtime())
+	res = NewCreateProcess(t, false, "Node C", "tags:\n  - c\n").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 	require.Equal(t, "3", strings.TrimSpace(string(res.Stdout)))
 
@@ -139,7 +139,7 @@ func TestTagsCommand_OffsetWithTagFilter(t *testing.T) {
 	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
 
 	for _, title := range []string{"A", "B", "C"} {
-		res := NewProcess(t, false, "create", "--title", title, "--tags", "group").Run(sb.Context(), sb.Runtime())
+		res := NewCreateProcess(t, false, title, "tags:\n  - group\n").Run(sb.Context(), sb.Runtime())
 		require.NoError(t, res.Err)
 	}
 
@@ -163,11 +163,11 @@ func TestTagsCommand_OffsetListAllTags(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
 
-	res := NewProcess(t, false, "create", "--title", "One", "--tags", "alpha").Run(sb.Context(), sb.Runtime())
+	res := NewCreateProcess(t, false, "One", "tags:\n  - alpha\n").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
-	res = NewProcess(t, false, "create", "--title", "Two", "--tags", "beta").Run(sb.Context(), sb.Runtime())
+	res = NewCreateProcess(t, false, "Two", "tags:\n  - beta\n").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
-	res = NewProcess(t, false, "create", "--title", "Three", "--tags", "gamma").Run(sb.Context(), sb.Runtime())
+	res = NewCreateProcess(t, false, "Three", "tags:\n  - gamma\n").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 
 	// Offset 1 on tag list: skip "alpha", get "beta" and "gamma".

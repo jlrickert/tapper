@@ -11,11 +11,11 @@ func TestTagsCommand_CompletionSuggestsTags(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
 
-	res := NewProcess(t, false, "create", "--title", "One", "--tags", "zeta").Run(sb.Context(), sb.Runtime())
+	res := NewCreateProcess(t, false, "One", "tags:\n  - zeta\n").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
-	res = NewProcess(t, false, "create", "--title", "Two", "--tags", "alpha").Run(sb.Context(), sb.Runtime())
+	res = NewCreateProcess(t, false, "Two", "tags:\n  - alpha\n").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
-	res = NewProcess(t, false, "create", "--title", "Three", "--tags", "beta").Run(sb.Context(), sb.Runtime())
+	res = NewCreateProcess(t, false, "Three", "tags:\n  - beta\n").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 
 	comp := NewCompletionProcess(t, false, 0, "tags", "").Run(sb.Context(), sb.Runtime())
@@ -29,11 +29,11 @@ func TestTagsCommand_CompletionFiltersByPrefix(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
 
-	res := NewProcess(t, false, "create", "--title", "One", "--tags", "alpha").Run(sb.Context(), sb.Runtime())
+	res := NewCreateProcess(t, false, "One", "tags:\n  - alpha\n").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
-	res = NewProcess(t, false, "create", "--title", "Two", "--tags", "alpine").Run(sb.Context(), sb.Runtime())
+	res = NewCreateProcess(t, false, "Two", "tags:\n  - alpine\n").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
-	res = NewProcess(t, false, "create", "--title", "Three", "--tags", "beta").Run(sb.Context(), sb.Runtime())
+	res = NewCreateProcess(t, false, "Three", "tags:\n  - beta\n").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 
 	comp := NewCompletionProcess(t, false, 0, "tags", "al").Run(sb.Context(), sb.Runtime())

@@ -4,21 +4,15 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"strings"
 
 	"github.com/jlrickert/cli-toolkit/toolkit"
 	"github.com/jlrickert/tapper/pkg/keg"
-	"gopkg.in/yaml.v3"
 )
 
 type CreateOptions struct {
 	KegTargetOptions
 
 	Schema string
-	Title  string
-	Lead   string
-	Tags   []string
-	Attrs  map[string]string
 	Stream *toolkit.Stream
 }
 
@@ -44,32 +38,30 @@ func (t *Tap) Create(ctx context.Context, opts CreateOptions) (keg.NodeId, error
 		// on the already-persisted node. This avoids the double-allocation
 		// bug where Next() was called for the editor scaffold and then
 		// Create() called Next() again internally.
-		attrs := createAttrsFromStrings(opts.Attrs)
-		created, createErr := k.Create(ctx, &keg.CreateOptions{
-			Schema: opts.Schema,
-			Title:  opts.Title,
-			Lead:   opts.Lead,
-			Tags:   opts.Tags,
-			Attrs:  attrs,
-		})
+		//
+		// The scaffold is deliberately created WITHOUT opts.Schema. An empty
+		// node already typed `task` would fail that schema's required fields
+		// and, on a strict keg, be rejected before the editor ever opened.
+		// The schema instead rides editWithTempFileSchema, which prefills
+		// `type:` in the editor frontmatter and enforces the schema on save —
+		// where the user's content actually exists.
+		created, createErr := k.Create(ctx, &keg.CreateOptions{})
 		if createErr != nil {
 			return keg.NodeId{}, fmt.Errorf("unable to create node: %w", createErr)
 		}
 		if editErr := t.editWithTempFileSchema(ctx, k, created.ID, opts.Schema); editErr != nil {
 			return keg.NodeId{}, fmt.Errorf("unable to edit new node: %w", editErr)
 		}
-		t.warnSchemaValidation(created.Validation, created.ID, opts.Stream)
+		// Re-validate from storage rather than reporting created.Validation,
+		// which describes the empty pre-edit scaffold: for a schema with
+		// required fields that result is always invalid, so reporting it warns
+		// about a node the user already filled in. This also still warns when
+		// the editor is closed without saving.
+		t.warnSchemaIssues(ctx, k, created.ID, opts.Stream)
 		return created.ID, nil
 	}
 
-	attrs := createAttrsFromStrings(opts.Attrs)
-	created, err := k.Create(ctx, &keg.CreateOptions{
-		Schema: opts.Schema,
-		Title:  opts.Title,
-		Lead:   opts.Lead,
-		Tags:   opts.Tags,
-		Attrs:  attrs,
-	})
+	created, err := k.Create(ctx, &keg.CreateOptions{Schema: opts.Schema})
 	if err != nil {
 		return keg.NodeId{}, fmt.Errorf("unable to create node: %w", err)
 	}
@@ -77,57 +69,38 @@ func (t *Tap) Create(ctx context.Context, opts CreateOptions) (keg.NodeId, error
 	return created.ID, nil
 }
 
-func createAttrsFromStrings(attrs map[string]string) map[string]any {
-	out := make(map[string]any, len(attrs))
-	for k, v := range attrs {
-		out[k] = v
-	}
-	return out
-}
-
+// shouldUseLiveEditorOnCreate reports whether `tap create` should open an
+// editor: an interactive terminal with nothing piped in. --schema no longer
+// suppresses it — the schema is applied in the editor, not instead of it.
 func shouldUseLiveEditorOnCreate(opts CreateOptions) bool {
 	if opts.Stream == nil {
 		return false
 	}
-	if opts.Stream.IsPiped || !opts.Stream.IsTTY {
-		return false
-	}
-	if strings.TrimSpace(opts.Schema) != "" || strings.TrimSpace(opts.Title) != "" || strings.TrimSpace(opts.Lead) != "" {
-		return false
-	}
-	if len(opts.Tags) > 0 || len(opts.Attrs) > 0 {
-		return false
-	}
-	return true
+	return !opts.Stream.IsPiped && opts.Stream.IsTTY
 }
 
 func (t *Tap) createNodeFromRaw(ctx context.Context, k keg.Keg, raw []byte, defaults CreateOptions) (keg.NodeId, error) {
-	createOpts := &keg.CreateOptions{
-		Schema: defaults.Schema,
-		Title:  defaults.Title,
-		Lead:   defaults.Lead,
-		Tags:   defaults.Tags,
-		Attrs:  createAttrsFromStrings(defaults.Attrs),
-	}
+	createOpts := &keg.CreateOptions{Schema: defaults.Schema}
 
-	hasFrontmatter := false
-	var frontmatterRaw []byte
 	if len(raw) > 0 {
-		originalRaw := raw
-		var err error
-		hasFrontmatter, frontmatterRaw, _, err = splitEditNodeFile(raw)
+		// The editor buffer presents metadata as frontmatter above the body
+		// because that reads well to a human, but content and meta are
+		// separate inputs to the keg, which rejects content opening with a
+		// `---` block. Split the buffer into the two fields — exactly what tap
+		// edit already does for UpdateNode — so create and edit accept the
+		// same thing. A type declared up there still reaches schema selection,
+		// now as metadata rather than as frontmatter.
+		hasFrontmatter, frontmatterRaw, bodyRaw, err := splitEditNodeFile(raw)
 		if err != nil {
 			return keg.NodeId{}, err
 		}
-		createOpts.Body = originalRaw
-	}
-	if hasFrontmatter {
-		var attrs map[string]any
-		if err := yaml.Unmarshal(frontmatterRaw, &attrs); err != nil {
-			return keg.NodeId{}, fmt.Errorf("invalid frontmatter metadata: %w", err)
+		if hasFrontmatter {
+			if _, err := keg.ParseMeta(ctx, frontmatterRaw); err != nil {
+				return keg.NodeId{}, fmt.Errorf("invalid frontmatter metadata: %w", err)
+			}
+			createOpts.Meta = frontmatterRaw
 		}
-		// Keep frontmatter in Body so the Keg layer can detect a conflicting
-		// type from --attrs or --schema before applying either source.
+		createOpts.Body = bodyRaw
 	}
 
 	created, err := k.Create(ctx, createOpts)

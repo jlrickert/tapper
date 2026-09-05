@@ -86,7 +86,7 @@ func TestSnapshotPolicy_BadLatestContentHashWithIdenticalContentDoesNotDuplicate
 			fx, k, repo := newInternalSnapshotPolicyTestKeg(t)
 			ctx := fx.Context()
 
-			id, err := k.Create(ctx, &CreateOptions{Title: "Legacy Hash Target"})
+			id, err := k.Create(ctx, &CreateOptions{Body: []byte("# Legacy Hash Target\n")})
 			require.NoError(t, err)
 			fx.Advance(2 * time.Hour)
 			result, err := k.RunSnapshotPolicy(ctx)
@@ -120,7 +120,7 @@ func TestSnapshotPolicy_BadLatestContentHashWithDifferentContentCreatesSnapshot(
 			fx, k, repo := newInternalSnapshotPolicyTestKeg(t)
 			ctx := fx.Context()
 
-			id, err := k.Create(ctx, &CreateOptions{Title: "Legacy Drift Target"})
+			id, err := k.Create(ctx, &CreateOptions{Body: []byte("# Legacy Drift Target\n")})
 			require.NoError(t, err)
 			fx.Advance(2 * time.Hour)
 			result, err := k.RunSnapshotPolicy(ctx)

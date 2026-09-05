@@ -15,9 +15,9 @@ func TestListCommand_IdOnlyOutputsOnlyIDs(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
 
-	res := NewProcess(t, false, "create", "--title", "One").Run(sb.Context(), sb.Runtime())
+	res := NewCreateProcess(t, false, "One", "").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
-	res = NewProcess(t, false, "create", "--title", "Two").Run(sb.Context(), sb.Runtime())
+	res = NewCreateProcess(t, false, "Two", "").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 
 	defaultRes := NewProcess(t, false, "list").Run(sb.Context(), sb.Runtime())
@@ -44,11 +44,11 @@ func TestListCommand_ReverseOrdering(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
 
-	res := NewProcess(t, false, "create", "--title", "One").Run(sb.Context(), sb.Runtime())
+	res := NewCreateProcess(t, false, "One", "").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
-	res = NewProcess(t, false, "create", "--title", "Two").Run(sb.Context(), sb.Runtime())
+	res = NewCreateProcess(t, false, "Two", "").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
-	res = NewProcess(t, false, "create", "--title", "Three").Run(sb.Context(), sb.Runtime())
+	res = NewCreateProcess(t, false, "Three", "").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 
 	normal := NewProcess(t, false, "list", "--id-only").Run(sb.Context(), sb.Runtime())
@@ -75,7 +75,7 @@ func TestListCommand_StaleIndexDoesNotCrash(t *testing.T) {
 	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
 
 	// Create one node through the normal path so the dex has entries.
-	res := NewProcess(t, false, "create", "--title", "Indexed").Run(sb.Context(), sb.Runtime())
+	res := NewCreateProcess(t, false, "Indexed", "").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 
 	// Write bare node directories directly on disk (content only, no dex update).
@@ -110,15 +110,15 @@ func TestListCommand_SortUpdated(t *testing.T) {
 
 	// Create nodes with advancing clock so they have different updated timestamps.
 	sb.Advance(1 * time.Hour)
-	res := NewProcess(t, false, "create", "--title", "First").Run(sb.Context(), sb.Runtime())
+	res := NewCreateProcess(t, false, "First", "").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 
 	sb.Advance(1 * time.Hour)
-	res = NewProcess(t, false, "create", "--title", "Second").Run(sb.Context(), sb.Runtime())
+	res = NewCreateProcess(t, false, "Second", "").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 
 	sb.Advance(1 * time.Hour)
-	res = NewProcess(t, false, "create", "--title", "Third").Run(sb.Context(), sb.Runtime())
+	res = NewCreateProcess(t, false, "Third", "").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 
 	// Sort by updated: oldest first, newest last.
@@ -139,15 +139,15 @@ func TestListCommand_SortUpdated_WithLimit(t *testing.T) {
 	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
 
 	sb.Advance(1 * time.Hour)
-	res := NewProcess(t, false, "create", "--title", "A").Run(sb.Context(), sb.Runtime())
+	res := NewCreateProcess(t, false, "A", "").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 
 	sb.Advance(1 * time.Hour)
-	res = NewProcess(t, false, "create", "--title", "B").Run(sb.Context(), sb.Runtime())
+	res = NewCreateProcess(t, false, "B", "").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 
 	sb.Advance(1 * time.Hour)
-	res = NewProcess(t, false, "create", "--title", "C").Run(sb.Context(), sb.Runtime())
+	res = NewCreateProcess(t, false, "C", "").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 
 	// Limit to first 2 by updated order (oldest first).
@@ -171,7 +171,7 @@ func TestListCommand_FormatCreatedTimestamp(t *testing.T) {
 	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
 
 	sb.Advance(1 * time.Hour)
-	res := NewProcess(t, false, "create", "--title", "FormatTest").Run(sb.Context(), sb.Runtime())
+	res := NewCreateProcess(t, false, "FormatTest", "").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 
 	// Use %c to show created timestamp
@@ -218,7 +218,7 @@ func TestListCommand_OffsetSkipsResults(t *testing.T) {
 
 	// Create 3 nodes (plus zero node = 4 total).
 	for _, title := range []string{"One", "Two", "Three"} {
-		res := NewProcess(t, false, "create", "--title", title).Run(sb.Context(), sb.Runtime())
+		res := NewCreateProcess(t, false, title, "").Run(sb.Context(), sb.Runtime())
 		require.NoError(t, res.Err)
 	}
 
@@ -242,7 +242,7 @@ func TestListCommand_OffsetWithLimit(t *testing.T) {
 	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
 
 	for _, title := range []string{"A", "B", "C", "D", "E"} {
-		res := NewProcess(t, false, "create", "--title", title).Run(sb.Context(), sb.Runtime())
+		res := NewCreateProcess(t, false, title, "").Run(sb.Context(), sb.Runtime())
 		require.NoError(t, res.Err)
 	}
 
@@ -283,11 +283,11 @@ func TestListCommand_DotPrefixQuery_CreatedGT(t *testing.T) {
 	// The zero node is created at the sandbox base time (2000-01-01 00:00:00 UTC
 	// is the default for test sandboxes).
 	sb.Advance(1 * time.Hour)
-	res := NewProcess(t, false, "create", "--title", "Early").Run(sb.Context(), sb.Runtime())
+	res := NewCreateProcess(t, false, "Early", "").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 
 	sb.Advance(48 * time.Hour)
-	res = NewProcess(t, false, "create", "--title", "Late").Run(sb.Context(), sb.Runtime())
+	res = NewCreateProcess(t, false, "Late", "").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 
 	// First, get the actual timestamps from the list output to compute a midpoint.
@@ -336,11 +336,11 @@ func TestListCommand_DotPrefixQuery_CombinedWithAttribute(t *testing.T) {
 	// The zero node exists from the fixture. Create an additional node and
 	// query with a stats field combined with a tag.
 	sb.Advance(1 * time.Hour)
-	res := NewProcess(t, false, "create", "--title", "Tagged", "--tags", "golang").Run(sb.Context(), sb.Runtime())
+	res := NewCreateProcess(t, false, "Tagged", "tags:\n  - golang\n").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 
 	sb.Advance(1 * time.Hour)
-	res = NewProcess(t, false, "create", "--title", "Untagged").Run(sb.Context(), sb.Runtime())
+	res = NewCreateProcess(t, false, "Untagged", "").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 
 	// ".created and golang" should return only the tagged node.
@@ -360,11 +360,11 @@ func TestListCommand_DotPrefixQuery_BooleanCheck(t *testing.T) {
 	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
 
 	sb.Advance(1 * time.Hour)
-	res := NewProcess(t, false, "create", "--title", "A").Run(sb.Context(), sb.Runtime())
+	res := NewCreateProcess(t, false, "A", "").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 
 	sb.Advance(1 * time.Hour)
-	res = NewProcess(t, false, "create", "--title", "B").Run(sb.Context(), sb.Runtime())
+	res = NewCreateProcess(t, false, "B", "").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 
 	// ".created" without operator is a boolean check: all nodes with a
@@ -391,7 +391,7 @@ func TestListCommand_AttrCompare_EntityNotEqual(t *testing.T) {
 
 	// Create nodes with different entity values.
 	sb.Advance(1 * time.Hour)
-	res := NewProcess(t, false, "create", "--title", "Plan node").Run(sb.Context(), sb.Runtime())
+	res := NewCreateProcess(t, false, "Plan node", "").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 	// Set meta for node 1: entity=plan
 	stdin := strings.NewReader("entity: plan\ntags:\n  - golang\n")
@@ -399,7 +399,7 @@ func TestListCommand_AttrCompare_EntityNotEqual(t *testing.T) {
 	require.NoError(t, res.Err)
 
 	sb.Advance(1 * time.Hour)
-	res = NewProcess(t, false, "create", "--title", "Task node").Run(sb.Context(), sb.Runtime())
+	res = NewCreateProcess(t, false, "Task node", "").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 	// Set meta for node 2: entity=task
 	stdin = strings.NewReader("entity: task\ntags:\n  - golang\n")
@@ -407,7 +407,7 @@ func TestListCommand_AttrCompare_EntityNotEqual(t *testing.T) {
 	require.NoError(t, res.Err)
 
 	sb.Advance(1 * time.Hour)
-	res = NewProcess(t, false, "create", "--title", "Concept node").Run(sb.Context(), sb.Runtime())
+	res = NewCreateProcess(t, false, "Concept node", "").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 	// Set meta for node 3: entity=concept
 	stdin = strings.NewReader("entity: concept\n")
@@ -434,21 +434,21 @@ func TestListCommand_AttrCompare_NumericGte(t *testing.T) {
 
 	// Create nodes with different numeric metadata values.
 	sb.Advance(1 * time.Hour)
-	res := NewProcess(t, false, "create", "--title", "Low score").Run(sb.Context(), sb.Runtime())
+	res := NewCreateProcess(t, false, "Low score", "").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 	stdin := strings.NewReader("score: 0.3\n")
 	res = NewProcess(t, false, "meta", "1").RunWithIO(sb.Context(), sb.Runtime(), stdin)
 	require.NoError(t, res.Err)
 
 	sb.Advance(1 * time.Hour)
-	res = NewProcess(t, false, "create", "--title", "Mid score").Run(sb.Context(), sb.Runtime())
+	res = NewCreateProcess(t, false, "Mid score", "").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 	stdin = strings.NewReader("score: 0.5\n")
 	res = NewProcess(t, false, "meta", "2").RunWithIO(sb.Context(), sb.Runtime(), stdin)
 	require.NoError(t, res.Err)
 
 	sb.Advance(1 * time.Hour)
-	res = NewProcess(t, false, "create", "--title", "High score").Run(sb.Context(), sb.Runtime())
+	res = NewCreateProcess(t, false, "High score", "").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 	stdin = strings.NewReader("score: 0.8\n")
 	res = NewProcess(t, false, "meta", "3").RunWithIO(sb.Context(), sb.Runtime(), stdin)
@@ -473,14 +473,14 @@ func TestListCommand_AttrCompare_BackwardCompat_EntityEquals(t *testing.T) {
 
 	// Create a node with entity=plan.
 	sb.Advance(1 * time.Hour)
-	res := NewProcess(t, false, "create", "--title", "Plan node").Run(sb.Context(), sb.Runtime())
+	res := NewCreateProcess(t, false, "Plan node", "").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 	stdin := strings.NewReader("entity: plan\ntags:\n  - golang\n")
 	res = NewProcess(t, false, "meta", "1").RunWithIO(sb.Context(), sb.Runtime(), stdin)
 	require.NoError(t, res.Err)
 
 	sb.Advance(1 * time.Hour)
-	res = NewProcess(t, false, "create", "--title", "Task node").Run(sb.Context(), sb.Runtime())
+	res = NewCreateProcess(t, false, "Task node", "").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 	stdin = strings.NewReader("entity: task\n")
 	res = NewProcess(t, false, "meta", "2").RunWithIO(sb.Context(), sb.Runtime(), stdin)
@@ -504,14 +504,14 @@ func TestListCommand_AttrCompare_MixedWithDotPrefix(t *testing.T) {
 
 	// Create nodes: one is entity=plan, one is entity=task.
 	sb.Advance(1 * time.Hour)
-	res := NewProcess(t, false, "create", "--title", "Plan node").Run(sb.Context(), sb.Runtime())
+	res := NewCreateProcess(t, false, "Plan node", "").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 	stdin := strings.NewReader("entity: plan\n")
 	res = NewProcess(t, false, "meta", "1").RunWithIO(sb.Context(), sb.Runtime(), stdin)
 	require.NoError(t, res.Err)
 
 	sb.Advance(1 * time.Hour)
-	res = NewProcess(t, false, "create", "--title", "Task node").Run(sb.Context(), sb.Runtime())
+	res = NewCreateProcess(t, false, "Task node", "").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 	stdin = strings.NewReader("entity: task\n")
 	res = NewProcess(t, false, "meta", "2").RunWithIO(sb.Context(), sb.Runtime(), stdin)

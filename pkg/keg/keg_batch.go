@@ -81,14 +81,16 @@ func (k *LocalKeg) createNodes(ctx context.Context, nodes []NodeCreate) ([]Creat
 		if err != nil {
 			return nil, &BatchMutationError{Index: i, Key: item.Key, NodeID: ids[i], Err: err}
 		}
-		data, err := k.buildNodeData(ctx, &CreateOptions{Schema: item.Schema, Title: item.Title, Lead: item.Lead, Body: body, Tags: item.Tags, Attrs: item.Attrs}, now, fmt.Sprintf("NodeId %s", ids[i].Path()))
+		data, err := k.buildNodeData(ctx, &CreateOptions{Schema: item.Schema, Body: body, Meta: item.Meta}, now, fmt.Sprintf("NodeId %s", ids[i].Path()))
 		if err != nil {
 			return nil, &BatchMutationError{Index: i, Key: item.Key, NodeID: ids[i], Err: err}
 		}
 		data.ID = ids[i]
+		// Only meta can declare a type: buildNodeData rejects content that
+		// opens with a frontmatter block, so there is no second source to
+		// reconcile against the selected schema.
 		validation, err := k.validateNodeWrite(ctx, schemaWriteCreate, ids[i], data, item.Schema,
-			schemaTypeCandidateFromAttrs("attributes", item.Attrs),
-			schemaTypeCandidateFromFrontmatter("frontmatter", data.Content))
+			schemaTypeCandidateFromMeta("metadata", data.Meta))
 		if err != nil {
 			return nil, &BatchMutationError{Index: i, Key: item.Key, NodeID: ids[i], Err: err}
 		}
@@ -190,6 +192,13 @@ func (k *LocalKeg) updateNodes(ctx context.Context, updates []NodeUpdateOptions)
 		}
 		contentBytes := existing.Content
 		if opts.HasContent {
+			// Only caller-supplied content is held to the no-frontmatter rule.
+			// A node written before the rule existed may have a stored body
+			// that opens with `---`; checking contentBytes would make such a
+			// node permanently unupdatable.
+			if err := RejectFrontmatter(opts.Content); err != nil {
+				return nil, &BatchMutationError{Index: i, NodeID: opts.ID, Err: err}
+			}
 			contentBytes = opts.Content
 		}
 		metaBytes := existing.Meta
@@ -202,7 +211,7 @@ func (k *LocalKeg) updateNodes(ctx context.Context, updates []NodeUpdateOptions)
 		}
 		meta, err := ParseMeta(ctx, metaBytes)
 		if err != nil {
-			return nil, &BatchMutationError{Index: i, NodeID: opts.ID, Err: fmt.Errorf("invalid metadata: %w", err)}
+			return nil, &BatchMutationError{Index: i, NodeID: opts.ID, Err: fmt.Errorf("invalid metadata: %s: %w", err, ErrInvalid)}
 		}
 		stats, err := cloneNodeStats(ctx, existing.Stats)
 		if err != nil {
@@ -216,10 +225,9 @@ func (k *LocalKeg) updateNodes(ctx context.Context, updates []NodeUpdateOptions)
 		if err := data.updateMeta(ctx, k.Runtime, &now); err != nil {
 			return nil, &BatchMutationError{Index: i, NodeID: opts.ID, Err: err}
 		}
-		candidates := make([]schemaTypeCandidate, 0, 2)
-		if opts.HasContent {
-			candidates = append(candidates, schemaTypeCandidateFromFrontmatter("frontmatter", content))
-		}
+		// Only meta can declare a type: RejectFrontmatter above guarantees
+		// submitted content carries none.
+		candidates := make([]schemaTypeCandidate, 0, 1)
 		if opts.HasMeta {
 			candidates = append(candidates, schemaTypeCandidateFromMeta("metadata", meta))
 		}

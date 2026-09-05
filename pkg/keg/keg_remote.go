@@ -427,22 +427,11 @@ func (k *RemoteKeg) Create(ctx context.Context, opts *CreateOptions) (CreateResu
 	if opts == nil {
 		opts = &CreateOptions{}
 	}
-	results, err := k.CreateNodes(ctx, []NodeCreate{{Key: "node", Schema: opts.Schema, Title: opts.Title, Lead: opts.Lead, Body: opts.Body, Tags: opts.Tags, Attrs: opts.Attrs}})
+	results, err := k.CreateNodes(ctx, []NodeCreate{{Key: "node", Schema: opts.Schema, Body: opts.Body, Meta: opts.Meta}})
 	if len(results) == 0 {
 		return CreateResult{}, err
 	}
 	return CreateResult{ID: results[0].ID, Validation: results[0].Validation}, err
-}
-
-// Next implements Keg via GET /nodes/next.
-func (k *RemoteKeg) Next(ctx context.Context) (NodeId, error) {
-	var result struct {
-		ID int `json:"id"`
-	}
-	if err := k.getJSON(ctx, "/nodes/next", "Next", &result); err != nil {
-		return NodeId{}, err
-	}
-	return NodeId{ID: result.ID}, nil
 }
 
 // ListNodes implements Keg via GET /nodes.

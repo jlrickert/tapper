@@ -97,7 +97,7 @@ markdown:
 		t.Fatalf("human-created invalid node validated true; result=%#v", result)
 	}
 
-	id, err = k.Create(ctx, &kegpkg.CreateOptions{Body: []byte("---\ntype: task\n---\n# Typed\n\n## Context\n")})
+	id, err = k.Create(ctx, &kegpkg.CreateOptions{Body: []byte("# Typed\n\n## Context\n"), Meta: []byte("type: task\n")})
 	if err != nil {
 		t.Fatalf("typed Create: %v", err)
 	}
@@ -202,10 +202,7 @@ markdown:
 		t.Fatalf("WriteSchema note: %v", err)
 	}
 
-	evidenceID, err := k.Create(ctx, &kegpkg.CreateOptions{
-		Title: "Evidence",
-		Attrs: map[string]any{"type": "evidence", "status": "ready"},
-	})
+	evidenceID, err := k.Create(ctx, &kegpkg.CreateOptions{Body: []byte("# Evidence\n"), Meta: []byte("type: evidence\nstatus: ready\n")})
 	if err != nil {
 		t.Fatalf("Create evidence: %v", err)
 	}
@@ -217,10 +214,7 @@ markdown:
 	}); err != nil {
 		t.Fatalf("unsnapshotted evidence edit: %v", err)
 	}
-	sourceID, err := k.Create(ctx, &kegpkg.CreateOptions{
-		Body:  []byte("# Source\n\n[Evidence](../" + evidenceID.ID.Path() + ")\n"),
-		Attrs: map[string]any{"type": "note"},
-	})
+	sourceID, err := k.Create(ctx, &kegpkg.CreateOptions{Body: []byte("# Source\n\n[Evidence](../" + evidenceID.ID.Path() + ")\n"), Meta: []byte("type: note\n")})
 	if err != nil {
 		t.Fatalf("Create source: %v", err)
 	}
@@ -240,10 +234,7 @@ markdown:
 		t.Fatalf("snapshot omega = %v, want %v", snapshotOmega, 2.0/3.0)
 	}
 
-	reviewID, err := k.Create(ctx, &kegpkg.CreateOptions{
-		Body:  []byte("# Review\n\n[Source](../" + sourceID.ID.Path() + ")\n"),
-		Attrs: map[string]any{"type": "evidence", "certainty": 0.5},
-	})
+	reviewID, err := k.Create(ctx, &kegpkg.CreateOptions{Body: []byte("# Review\n\n[Source](../" + sourceID.ID.Path() + ")\n"), Meta: []byte("type: evidence\ncertainty: 0.5\n")})
 	if err != nil {
 		t.Fatalf("Create backlink evidence: %v", err)
 	}
@@ -319,10 +310,7 @@ markdown:
 	if err := k.CreateSchema(ctx, "note", schema); err != nil {
 		t.Fatalf("WriteSchema note: %v", err)
 	}
-	id, err := k.Create(ctx, &kegpkg.CreateOptions{
-		Title: "Own Metadata",
-		Attrs: map[string]any{"type": "note", "status": "review"},
-	})
+	id, err := k.Create(ctx, &kegpkg.CreateOptions{Body: []byte("# Own Metadata\n"), Meta: []byte("type: note\nstatus: review\n")})
 	if err != nil {
 		t.Fatalf("Create note: %v", err)
 	}
@@ -374,10 +362,7 @@ markdown:
 	if err := k.CreateSchema(ctx, "note", schema); err != nil {
 		t.Fatalf("WriteSchema note: %v", err)
 	}
-	id, err := k.Create(ctx, &kegpkg.CreateOptions{
-		Title: "Legacy Metadata",
-		Attrs: map[string]any{"type": "note", "status": "ready"},
-	})
+	id, err := k.Create(ctx, &kegpkg.CreateOptions{Body: []byte("# Legacy Metadata\n"), Meta: []byte("type: note\nstatus: ready\n")})
 	if err != nil {
 		t.Fatalf("Create note: %v", err)
 	}
@@ -435,20 +420,14 @@ markdown:
 		t.Fatalf("WriteSchema note: %v", err)
 	}
 
-	evidenceID, err := k.Create(ctx, &kegpkg.CreateOptions{
-		Title: "Evidence",
-		Attrs: map[string]any{"type": "evidence", "confidence": 1},
-	})
+	evidenceID, err := k.Create(ctx, &kegpkg.CreateOptions{Body: []byte("# Evidence\n"), Meta: []byte("type: evidence\nconfidence: 1\n")})
 	if err != nil {
 		t.Fatalf("Create evidence: %v", err)
 	}
 	if _, err := k.AppendSnapshot(ctx, evidenceID.ID, "evidence"); err != nil {
 		t.Fatalf("AppendSnapshot evidence: %v", err)
 	}
-	noteID, err := k.Create(ctx, &kegpkg.CreateOptions{
-		Body:  []byte("# Source\n\n[Evidence](../" + evidenceID.ID.Path() + ")\n"),
-		Attrs: map[string]any{"type": "note", "status": "draft"},
-	})
+	noteID, err := k.Create(ctx, &kegpkg.CreateOptions{Body: []byte("# Source\n\n[Evidence](../" + evidenceID.ID.Path() + ")\n"), Meta: []byte("type: note\nstatus: draft\n")})
 	if err != nil {
 		t.Fatalf("Create note: %v", err)
 	}

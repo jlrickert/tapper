@@ -270,6 +270,27 @@ func (t *Tap) catSingleNode(ctx context.Context, k keg.Keg, nodeID string, opts 
 	return formatFrontmatter(ctx, meta, content), nil
 }
 
+// CatViewDocument returns the machine-readable parts of one node view under
+// opts, for callers handing structured data to a client instead of rendering it
+// for a human.
+//
+// The fields deliberately mirror the write surface: content and meta are
+// exactly what `edit` accepts, so a read result can be modified and sent back
+// without parsing the rendered output. That is why this does not return the
+// composed `---meta---body` document — `edit` rejects frontmatter inside
+// content, so a composed blob could not be round-tripped.
+func CatViewDocument(ctx context.Context, view keg.NodeView, opts CatOptions) (content, meta, stats string) {
+	switch {
+	case opts.ContentOnly:
+		return string(view.Content), "", ""
+	case opts.MetaOnly:
+		return "", normalizeMetaYAML(ctx, view.Meta), ""
+	case opts.StatsOnly:
+		return "", "", formatStatsOnlyYAML(ctx, view.Stats)
+	}
+	return string(view.Content), normalizeMetaYAML(ctx, view.Meta), ""
+}
+
 // formatFrontmatter renders meta as canonical YAML frontmatter ahead of the
 // content body. Raw repository bytes may be JSON (hub kegs store meta as
 // JSONB), so the meta always passes through normalizeMetaYAML.

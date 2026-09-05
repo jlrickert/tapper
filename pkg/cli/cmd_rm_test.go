@@ -12,7 +12,7 @@ func TestRemoveCommand_DeletesNode(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
 
-	res := NewProcess(t, false, "create", "--title", "Delete me").Run(sb.Context(), sb.Runtime())
+	res := NewCreateProcess(t, false, "Delete me", "").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 
 	res = NewProcess(t, false, "rm", "1").Run(sb.Context(), sb.Runtime())

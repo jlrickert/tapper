@@ -77,10 +77,6 @@ type Keg interface {
 	// unique and may be referenced from bodies as {{node:key}}.
 	CreateNodes(ctx context.Context, nodes []NodeCreate) ([]CreateNodeResult, error)
 
-	// Next reserves and returns the next available node id. The reservation does
-	// not become a complete node until content is written.
-	Next(ctx context.Context) (NodeId, error)
-
 	// ListNodes returns all node ids present in the keg.
 	ListNodes(ctx context.Context) ([]NodeId, error)
 

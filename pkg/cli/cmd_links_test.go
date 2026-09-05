@@ -62,11 +62,11 @@ func TestLinksCommand_ListsOutgoingLinks(t *testing.T) {
 	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
 
 	// Create target nodes first (no links).
-	targetA := NewProcess(t, false, "create", "--title", "Target A").Run(sb.Context(), sb.Runtime())
+	targetA := NewCreateProcess(t, false, "Target A", "").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, targetA.Err)
 	require.Equal(t, "1", strings.TrimSpace(string(targetA.Stdout)))
 
-	targetB := NewProcess(t, false, "create", "--title", "Target B").Run(sb.Context(), sb.Runtime())
+	targetB := NewCreateProcess(t, false, "Target B", "").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, targetB.Err)
 	require.Equal(t, "2", strings.TrimSpace(string(targetB.Stdout)))
 
@@ -104,7 +104,7 @@ func TestLinksCommand_OffsetSkipsResults(t *testing.T) {
 
 	// Create 3 target nodes.
 	for _, title := range []string{"Target A", "Target B", "Target C"} {
-		res := NewProcess(t, false, "create", "--title", title).Run(sb.Context(), sb.Runtime())
+		res := NewCreateProcess(t, false, title, "").Run(sb.Context(), sb.Runtime())
 		require.NoError(t, res.Err)
 	}
 
@@ -143,7 +143,7 @@ func TestLinksCommand_MultipleNodeIDsMergesResults(t *testing.T) {
 
 	// Create target nodes.
 	for _, title := range []string{"Target A", "Target B", "Target C"} {
-		res := NewProcess(t, false, "create", "--title", title).Run(sb.Context(), sb.Runtime())
+		res := NewCreateProcess(t, false, title, "").Run(sb.Context(), sb.Runtime())
 		require.NoError(t, res.Err)
 	}
 

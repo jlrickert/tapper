@@ -20,6 +20,8 @@ const orientRulesSummary = "Rules:\n" +
 	"- Use the `mcp__tapper__*` tools for every KEG operation; never read or write node files directly.\n" +
 	"- The target keg resolves from the working directory unless the `keg` parameter overrides it.\n" +
 	"- Take a snapshot before non-trivial edits. Snapshots do not protect against `remove`; preserve content some other way before deletion.\n" +
+	"- Every successful write returns a new hash and invalidates the one you were holding. Re-read with `cat`, `schema_read`, or `keg_settings` before each guarded write; a hash never covers two writes, so an edit followed by a delete needs two reads.\n" +
+	"- Node ids are per-keg counters. Node 4 in one keg has nothing to do with node 4 in another, ids are never reused after a removal, and a create takes the next free id rather than filling a gap.\n" +
 	"- Node 0 is the keg's placeholder landing node. Leave it alone: it carries no `type` on purpose, it is where links to unwritten content land, and removing it makes the keg read as uninitialized. Write your content in a new node instead.\n" +
 	"- Attachments on a node are linked relative to that node's own directory: `[label](./assets/FILE)` for files and `![alt](./images/IMAGE)` for images. Both directory names are plural.\n"
 

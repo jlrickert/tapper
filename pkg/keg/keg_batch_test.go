@@ -48,8 +48,8 @@ func newStrictBatchKeg(t *testing.T) (*keg.LocalKeg, context.Context) {
 func TestCreateNodesResolvesPlaceholdersAndPreservesOrder(t *testing.T) {
 	k, ctx := newStrictBatchKeg(t)
 	results, err := k.CreateNodes(ctx, []keg.NodeCreate{
-		{Key: "first", Schema: "task", Body: []byte("# First\n\n[Second](../{{node:second}})\n"), Attrs: map[string]any{"type": "task"}},
-		{Key: "second", Schema: "task", Body: []byte("# Second\n\n[First](../{{node:first}})\n"), Attrs: map[string]any{"type": "task"}},
+		{Key: "first", Schema: "task", Body: []byte("# First\n\n[Second](../{{node:second}})\n"), Meta: []byte("type: task\n")},
+		{Key: "second", Schema: "task", Body: []byte("# Second\n\n[First](../{{node:first}})\n"), Meta: []byte("type: task\n")},
 	})
 	require.NoError(t, err)
 	require.Equal(t, []string{"first", "second"}, []string{results[0].Key, results[1].Key})
@@ -64,16 +64,95 @@ func TestCreateNodesResolvesPlaceholdersAndPreservesOrder(t *testing.T) {
 
 func TestCreateNodesPreflightFailureLeavesKegUnchanged(t *testing.T) {
 	k, ctx := newStrictBatchKeg(t)
-	_, err := k.CreateNodes(ctx, []keg.NodeCreate{{Key: "one", Schema: "task", Body: []byte("# One\n"), Attrs: map[string]any{"type": "task"}}, {Key: "two", Schema: "task", Body: []byte("# Two\n\n[Missing](../{{node:nope}})\n"), Attrs: map[string]any{"type": "task"}}})
+	_, err := k.CreateNodes(ctx, []keg.NodeCreate{{Key: "one", Schema: "task", Body: []byte("# One\n"), Meta: []byte("type: task\n")}, {Key: "two", Schema: "task", Body: []byte("# Two\n\n[Missing](../{{node:nope}})\n"), Meta: []byte("type: task\n")}})
 	require.Error(t, err)
 	ids, err := k.ListNodes(ctx)
 	require.NoError(t, err)
 	require.Equal(t, []keg.NodeId{{ID: 0}}, ids)
 }
 
+// A malformed metadata document is the caller's mistake, so it has to classify
+// as ErrInvalid — a transport mapping it by error kind (the hub maps ErrInvalid
+// to 400) otherwise answers a client typo with a server error. The same holds
+// for content opening with a frontmatter block, which is rejected outright now
+// that content and meta are separate inputs.
+func TestMutationBatchesRejectMalformedMetaAndContentFrontmatter(t *testing.T) {
+	metas := []struct {
+		name string
+		meta string
+	}{
+		{"sequence", "- one\n- two\n"},
+		{"scalar", "just a string"},
+		{"unterminated flow", "a: [1, 2\n"},
+		{"tab indent", "a:\n\t- b\n"},
+	}
+	for _, tc := range metas {
+		t.Run("create meta "+tc.name, func(t *testing.T) {
+			k, ctx := newStrictBatchKeg(t)
+			_, err := k.CreateNodes(ctx, []keg.NodeCreate{{
+				Key: "n", Schema: "task", Body: []byte("# One\n"), Meta: []byte(tc.meta),
+			}})
+			require.ErrorIs(t, err, keg.ErrInvalid)
+			// No id is consumed by a rejected create.
+			ids, err := k.ListNodes(ctx)
+			require.NoError(t, err)
+			require.Equal(t, []keg.NodeId{{ID: 0}}, ids)
+		})
+	}
+
+	t.Run("update meta", func(t *testing.T) {
+		k, ctx := newStrictBatchKeg(t)
+		created, err := k.CreateNodes(ctx, []keg.NodeCreate{{
+			Key: "n", Schema: "task", Body: []byte("# One\n"), Meta: []byte("type: task\n"),
+		}})
+		require.NoError(t, err)
+		_, err = k.UpdateNodes(ctx, []keg.NodeUpdateOptions{{
+			ID: created[0].ID, Schema: "task", Meta: []byte("- one\n"), HasMeta: true,
+			ExpectedHash: created[0].Hash,
+		}})
+		require.ErrorIs(t, err, keg.ErrInvalid)
+	})
+
+	t.Run("update content frontmatter", func(t *testing.T) {
+		k, ctx := newStrictBatchKeg(t)
+		created, err := k.CreateNodes(ctx, []keg.NodeCreate{{
+			Key: "n", Schema: "task", Body: []byte("# One\n"), Meta: []byte("type: task\n"),
+		}})
+		require.NoError(t, err)
+		_, err = k.UpdateNodes(ctx, []keg.NodeUpdateOptions{{
+			ID: created[0].ID, Schema: "task", HasContent: true,
+			Content:      []byte("---\ntype: task\n---\n# One\n"),
+			ExpectedHash: created[0].Hash,
+		}})
+		require.ErrorIs(t, err, keg.ErrInvalid)
+		require.Contains(t, err.Error(), "must not start with a YAML frontmatter block")
+	})
+
+	// An update that does not carry content must not be judged on the stored
+	// body: a node written before the rule existed can legitimately have one
+	// that opens with `---`, and it still has to be editable.
+	t.Run("stored frontmatter stays updatable", func(t *testing.T) {
+		k, ctx := newStrictBatchKeg(t)
+		created, err := k.CreateNodes(ctx, []keg.NodeCreate{{
+			Key: "n", Schema: "task", Body: []byte("# One\n"), Meta: []byte("type: task\n"),
+		}})
+		require.NoError(t, err)
+		// Write the legacy shape past the create guard, the way a node
+		// predating this rule would already be stored.
+		require.NoError(t, k.Repo.WriteContent(ctx, created[0].ID, []byte("---\ntype: task\n---\n# One\n")))
+		view, err := k.ReadNode(ctx, created[0].ID)
+		require.NoError(t, err)
+		_, err = k.UpdateNodes(ctx, []keg.NodeUpdateOptions{{
+			ID: created[0].ID, Schema: "task", Meta: []byte("type: task\n"), HasMeta: true,
+			ExpectedHash: view.Hash(),
+		}})
+		require.NoError(t, err)
+	})
+}
+
 func TestUpdateNodesPreflightsHashesAndSnapshotsAtomically(t *testing.T) {
 	k, ctx := newStrictBatchKeg(t)
-	created, err := k.CreateNodes(ctx, []keg.NodeCreate{{Key: "one", Schema: "task", Body: []byte("# One\n"), Attrs: map[string]any{"type": "task"}}, {Key: "two", Schema: "task", Body: []byte("# Two\n"), Attrs: map[string]any{"type": "task"}}})
+	created, err := k.CreateNodes(ctx, []keg.NodeCreate{{Key: "one", Schema: "task", Body: []byte("# One\n"), Meta: []byte("type: task\n")}, {Key: "two", Schema: "task", Body: []byte("# Two\n"), Meta: []byte("type: task\n")}})
 	require.NoError(t, err)
 	before, err := k.ReadNode(ctx, created[0].ID)
 	require.NoError(t, err)
@@ -178,7 +257,7 @@ func TestStrictPolicyUsesResolvedValidationMode(t *testing.T) {
 	off := keg.WithValidationMode(ctx, keg.ValidationModeOff)
 	_, err = k.Create(off, &keg.CreateOptions{Body: []byte("# Untyped\n")})
 	require.NoError(t, err)
-	_, err = k.Create(off, &keg.CreateOptions{Body: []byte("---\ntype: missing\n---\n# Unknown\n")})
+	_, err = k.Create(off, &keg.CreateOptions{Body: []byte("# Unknown\n"), Meta: []byte("type: missing\n")})
 	require.NoError(t, err)
 	_, err = k.Create(ctx, &keg.CreateOptions{Body: []byte("# Missing selection\n")})
 	require.ErrorIs(t, err, keg.ErrSchemaInvalid)

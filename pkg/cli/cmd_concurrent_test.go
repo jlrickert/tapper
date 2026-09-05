@@ -29,7 +29,7 @@ func TestConcurrent_Creates_WithTitle(t *testing.T) {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
-			proc := NewProcess(t, false, "create", "--title", fmt.Sprintf("Node %d", idx))
+			proc := NewCreateProcess(t, false, fmt.Sprintf("Node %d", idx), "")
 			res := proc.Run(fx.Context(), fx.Runtime())
 			results[idx] = result{stdout: strings.TrimSpace(string(res.Stdout)), err: res.Err}
 		}(i)
@@ -95,7 +95,7 @@ func TestConcurrent_Edits_DifferentNodes(t *testing.T) {
 	// Pre-create 5 nodes in the personal keg.
 	nodeIDs := make([]string, N)
 	for i := range N {
-		proc := NewProcess(t, false, "create", "--keg", "personal", "--title", fmt.Sprintf("Pre %d", i))
+		proc := NewCreateProcess(t, false, fmt.Sprintf("Pre %d", i), "", "--keg", "personal")
 		res := proc.Run(fx.Context(), fx.Runtime())
 		require.NoError(t, res.Err, "pre-create %d failed", i)
 		nodeIDs[i] = strings.TrimSpace(string(res.Stdout))
@@ -146,7 +146,7 @@ func TestConcurrent_Creates_And_List(t *testing.T) {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
-			proc := NewProcess(t, false, "create", "--title", fmt.Sprintf("Created %d", idx))
+			proc := NewCreateProcess(t, false, fmt.Sprintf("Created %d", idx), "")
 			res := proc.Run(fx.Context(), fx.Runtime())
 			createErrs[idx] = res.Err
 		}(i)
@@ -187,7 +187,7 @@ func TestConcurrent_Creates_And_Cat(t *testing.T) {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
-			proc := NewProcess(t, false, "create", "--title", fmt.Sprintf("Created %d", idx))
+			proc := NewCreateProcess(t, false, fmt.Sprintf("Created %d", idx), "")
 			res := proc.Run(fx.Context(), fx.Runtime())
 			createErrs[idx] = res.Err
 		}(i)
@@ -226,7 +226,7 @@ func TestConcurrent_Creates_And_Edits(t *testing.T) {
 	// Pre-create nodes for the editors to target.
 	editTargets := make([]string, editors)
 	for i := range editors {
-		proc := NewProcess(t, false, "create", "--keg", "personal", "--title", fmt.Sprintf("EditTarget %d", i))
+		proc := NewCreateProcess(t, false, fmt.Sprintf("EditTarget %d", i), "", "--keg", "personal")
 		res := proc.Run(fx.Context(), fx.Runtime())
 		require.NoError(t, res.Err, "pre-create edit target %d failed", i)
 		editTargets[i] = strings.TrimSpace(string(res.Stdout))
@@ -245,7 +245,7 @@ func TestConcurrent_Creates_And_Edits(t *testing.T) {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
-			proc := NewProcess(t, false, "create", "--keg", "personal", "--title", fmt.Sprintf("Concurrent %d", idx))
+			proc := NewCreateProcess(t, false, fmt.Sprintf("Concurrent %d", idx), "", "--keg", "personal")
 			res := proc.Run(fx.Context(), fx.Runtime())
 			createResults[idx] = createResult{stdout: strings.TrimSpace(string(res.Stdout)), err: res.Err}
 		}(i)
@@ -301,7 +301,7 @@ func TestConcurrent_Creates_And_PipedEdits(t *testing.T) {
 	// Pre-create nodes for the editors.
 	editTargets := make([]string, editors)
 	for i := range editors {
-		proc := NewProcess(t, false, "create", "--keg", "personal", "--title", fmt.Sprintf("PipedTarget %d", i))
+		proc := NewCreateProcess(t, false, fmt.Sprintf("PipedTarget %d", i), "", "--keg", "personal")
 		res := proc.Run(fx.Context(), fx.Runtime())
 		require.NoError(t, res.Err, "pre-create piped target %d failed", i)
 		editTargets[i] = strings.TrimSpace(string(res.Stdout))
@@ -377,7 +377,7 @@ func TestConcurrent_Reindex_During_Creates(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for i := range 5 {
-			proc := NewProcess(t, false, "create", "--title", fmt.Sprintf("During reindex %d", i))
+			proc := NewCreateProcess(t, false, fmt.Sprintf("During reindex %d", i), "")
 			res := proc.Run(fx.Context(), fx.Runtime())
 			if res.Err != nil {
 				createErr = res.Err
@@ -416,9 +416,7 @@ func TestConcurrent_Reads_And_Edits_IndexConsistency(t *testing.T) {
 	// Pre-create N nodes, each with a unique tag.
 	nodeIDs := make([]string, N)
 	for i := range N {
-		proc := NewProcess(t, false, "create",
-			"--title", fmt.Sprintf("Original %d", i),
-			"--tags", fmt.Sprintf("pre%d", i))
+		proc := NewCreateProcess(t, false, fmt.Sprintf("Original %d", i), fmt.Sprintf("tags:\n  - pre%d\n", i))
 		res := proc.Run(fx.Context(), fx.Runtime())
 		require.NoError(t, res.Err, "pre-create %d failed", i)
 		nodeIDs[i] = strings.TrimSpace(string(res.Stdout))
@@ -509,8 +507,7 @@ func TestConcurrent_Creates_And_Edits_IndexConsistency(t *testing.T) {
 	// Pre-create nodes for the editors to target.
 	editTargets := make([]string, editors)
 	for i := range editors {
-		proc := NewProcess(t, false, "create",
-			"--title", fmt.Sprintf("EditMe %d", i))
+		proc := NewCreateProcess(t, false, fmt.Sprintf("EditMe %d", i), "")
 		res := proc.Run(fx.Context(), fx.Runtime())
 		require.NoError(t, res.Err, "pre-create edit target %d failed", i)
 		editTargets[i] = strings.TrimSpace(string(res.Stdout))
@@ -529,9 +526,7 @@ func TestConcurrent_Creates_And_Edits_IndexConsistency(t *testing.T) {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
-			proc := NewProcess(t, false, "create",
-				"--title", fmt.Sprintf("New %d", idx),
-				"--tags", "freshly-created")
+			proc := NewCreateProcess(t, false, fmt.Sprintf("New %d", idx), "tags:\n  - freshly-created\n")
 			res := proc.Run(fx.Context(), fx.Runtime())
 			createResults[idx] = createResult{
 				stdout: strings.TrimSpace(string(res.Stdout)),
