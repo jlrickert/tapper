@@ -234,11 +234,56 @@ func errorResult(err error) *sdkmcp.CallToolResult {
 			IsError: true,
 		}
 	}
+	code, _ := keg.RemoteErrorCode(err)
+	action, performed := errorGuidance(code)
 	return &sdkmcp.CallToolResult{
 		Content: []sdkmcp.Content{
-			&sdkmcp.TextContent{Text: err.Error()},
+			&sdkmcp.TextContent{Text: err.Error() + "\n\n" + action},
+		},
+		StructuredContent: map[string]any{
+			"code":               code,
+			"operationPerformed": performed,
+			"action":             action,
 		},
 		IsError: true,
+	}
+}
+
+// errorGuidance maps a wire code to the caller's next step and to whether the
+// operation changed state.
+//
+// operationPerformed is deliberately three-valued. false means the request was
+// refused before anything was written, which is knowable for every code below
+// because each is raised during validation or precondition checking. nil — JSON
+// null — means the outcome is genuinely unknown, which is the honest answer for
+// an unclassified failure that may have been raised mid-write. Reporting false
+// there would be a guess, and the whole point of this field is that an agent
+// can trust it instead of reading the node back to find out.
+//
+// Actions are imperative and name the tool or field to change. They never
+// restate the error text, which is already in the message.
+func errorGuidance(code string) (action string, operationPerformed any) {
+	switch code {
+	case keg.RemoteCodeNotFound:
+		return "The target does not exist. Confirm the id with `list` or `grep`; create it with `create`.", false
+	case keg.RemoteCodeExist, keg.RemoteCodeDestExists:
+		return "Something already occupies that id or name. Choose another, or edit the existing node instead.", false
+	case keg.RemoteCodeSchemaInvalid:
+		return "The node does not satisfy its schema. Read the issues in this error, fix `content` or `meta`, and retry. `schema_read` shows the schema's requirements.", false
+	case keg.RemoteCodeInvalid, keg.RemoteCodeBadRequest:
+		return "The request is malformed. Fix the field named in the error and retry; do not retry the same arguments.", false
+	case keg.RemoteCodeInvalidImage:
+		return "The uploaded bytes are not a decodable image. Re-encode as PNG, JPEG, GIF, or WebP and retry.", false
+	case keg.RemoteCodeLockMismatch:
+		return "Another session holds this node's lock. Call `lock_status` to see the holder; wait, or use `lock_force_release` if you own the session that stranded it.", false
+	case keg.RemoteCodeNotLocked:
+		return "This operation needs a lock you do not hold. Call `lock_acquire` first.", false
+	case keg.RemoteCodeLock, keg.RemoteCodeLockTimeout:
+		return "The lock could not be acquired in time, usually because another write is in flight. Retry shortly; nothing was written.", false
+	case keg.RemoteCodeNotSupported:
+		return "This backend does not implement the operation. Do not retry — use a different tool or target a hub-backed keg.", false
+	default:
+		return "The outcome is unknown: this failure may have been raised after a partial write. Read the node with `cat` to establish current state before retrying, and do not blindly replay the mutation.", nil
 	}
 }
 
