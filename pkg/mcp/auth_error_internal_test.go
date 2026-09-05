@@ -97,12 +97,23 @@ func TestErrorResult_AuthFailuresLeakNoCredentials(t *testing.T) {
 	}
 }
 
-// TestErrorResult_NonAuthErrorsAreUnchanged confirms the new branch did not
+// TestErrorResult_NonAuthErrorsAreUnchanged confirms the auth branch did not
 // swallow the precondition paths that sit next to it.
+//
+// A plain error used to return nil StructuredContent. It no longer does: every
+// error now carries the recovery contract, and an unclassified one reports its
+// outcome as unknown. See TestErrorResultsAlwaysCarryTheRecoveryContract.
 func TestErrorResult_NonAuthErrorsAreUnchanged(t *testing.T) {
 	res := errorResult(errors.New("something ordinary went wrong"))
-	if res.StructuredContent != nil {
-		t.Fatalf("StructuredContent = %v, want nil for a plain error", res.StructuredContent)
+	plain, ok := res.StructuredContent.(map[string]any)
+	if !ok {
+		t.Fatalf("plain error lost its structured content")
+	}
+	if plain["code"] != keg.RemoteCodeInternal {
+		t.Fatalf("code = %v, want %v", plain["code"], keg.RemoteCodeInternal)
+	}
+	if plain["operationPerformed"] != nil {
+		t.Fatalf("operationPerformed = %v, want nil (unknown) for an unclassified error", plain["operationPerformed"])
 	}
 
 	res = errorResult(fmt.Errorf("write: %w", keg.ErrPreconditionRequired))

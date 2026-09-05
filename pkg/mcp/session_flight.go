@@ -584,7 +584,12 @@ func (g *sessionFlightGate) middleware(next sdkmcp.MethodHandler) sdkmcp.MethodH
 				}
 				copyTool := *tool
 				if authorityBearingTool(tool.Name) {
+					// Describe flight where the property is added, so the two
+					// can never drift. Agents read descriptions, not just
+					// schemas: an injected property nothing mentions reads as
+					// absent, and one has already been reported as missing.
 					copyTool.InputSchema = schemaWithFlight(tool.InputSchema)
+					copyTool.Description = strings.TrimRight(copyTool.Description, " ") + flightParameterNote
 				}
 				copyResult.Tools = append(copyResult.Tools, &copyTool)
 			}
@@ -626,6 +631,12 @@ func (g *sessionFlightGate) middleware(next sdkmcp.MethodHandler) sdkmcp.MethodH
 				}
 			}
 			if err != nil {
+				// A denial on a call that named no flight is reported in terms
+				// of what the caller actually did, not in terms of a "requested
+				// flight" they never requested.
+				if selected == "" && errors.Is(err, ErrOrientationDenied) {
+					return orientationFailureResultWithAction(err, bareCallDeniedAction), nil
+				}
 				return orientationFailureResult(err), nil
 			}
 			ctx = context.WithValue(ctx, orientationContextKey{}, callOrientation)
@@ -710,6 +721,11 @@ func extractFlightArgument(params *sdkmcp.CallToolParamsRaw) (string, error) {
 	return strings.TrimSpace(selected), nil
 }
 
+// flightParameterNote documents the flight property injected by
+// schemaWithFlight. It is appended to every authority-bearing tool's
+// description at the same point the property is added.
+const flightParameterNote = " Accepts an optional flight: omit it to use this connection's pinned authority, or name a flight listed by orient to run this call under that flight's cover and capabilities."
+
 func schemaWithFlight(schema any) any {
 	raw, err := json.Marshal(schema)
 	if err != nil {
@@ -731,25 +747,53 @@ func schemaWithFlight(schema any) any {
 	return object
 }
 
+// bareCallDeniedAction answers the denial an agent actually hits most often:
+// it passed `keg` but no `flight`, so the connection's pinned root answered and
+// refused a KEG only a descendant covers. The default wording talks about "the
+// selected flight", which reads as a wrong flight name and sends the agent
+// looking through `list_flights` instead of at the selection it never made.
+const bareCallDeniedAction = "This call named no flight, so it resolved against this connection's pinned root. " +
+	"A `keg` argument chooses a target; it never grants authority. Call `orient`: if the KEG appears under " +
+	"\"Reachable via subflight\", pass that flight as the `flight` argument on this call — reads included, " +
+	"`cat`, `links`, and `backlinks` among them. Nothing was written."
+
 func orientationFailureResult(err error) *sdkmcp.CallToolResult {
+	return orientationFailureResultWithAction(err, "")
+}
+
+// orientationFailureResultWithAction renders a failure with caller-supplied
+// remediation text. An empty action keeps the wording chosen for the error class.
+func orientationFailureResultWithAction(err error, action string) *sdkmcp.CallToolResult {
 	if err == nil {
 		err = ErrOrientationStale
 	}
 	code := "ORIENTATION_STALE"
+	override := action
+	action = "Authority changed between resolution and dispatch. Nothing was written. Review current authority with `orient`, then reissue the call yourself — mutations are never replayed automatically."
 	switch {
 	case errors.Is(err, ErrOrientationRootUnavailable):
 		code = "ORIENTATION_ROOT_UNAVAILABLE"
+		action = "This session's pinned root flight is gone and cannot be replaced from inside MCP. Ask the user to repair or repin the flight outside MCP and start a new connection; `session_refresh` cannot recover this."
 	case errors.Is(err, ErrOrientationUnavailable):
 		code = "ORIENTATION_UNAVAILABLE"
+		action = "Authority could not be resolved right now; this is transient and nothing was written. Retry the same call shortly."
 	case errors.Is(err, ErrOrientationDenied):
 		code = "ORIENTATION_DENIED"
+		// Deliberately does not tell the agent to reorient. A denial is not
+		// disorientation: the next call resolves live authority on its own, and
+		// saying otherwise sends the agent after a remedy that cannot help.
+		action = "The selected flight does not permit this operation. Nothing was written, and neither retrying nor logging in again will change it. Pass a flight that covers this keg, or ask the user to widen the flight's cover or capabilities; `list_flights` shows what exists."
+	}
+	if override != "" {
+		action = override
 	}
 	return &sdkmcp.CallToolResult{
-		Content: []sdkmcp.Content{&sdkmcp.TextContent{Text: err.Error()}},
+		Content: []sdkmcp.Content{&sdkmcp.TextContent{Text: err.Error() + "\n\n" + action}},
 		StructuredContent: map[string]any{
 			"code":               code,
 			"reorientRequired":   false,
 			"operationPerformed": false,
+			"action":             action,
 		},
 		IsError: true,
 	}
