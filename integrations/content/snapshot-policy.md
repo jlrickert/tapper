@@ -17,8 +17,8 @@ Snapshots do protect in-place edits. Take one before any of:
 
 - `mcp__tapper__edit` that rewrites more than a section, pipes in
   generated content, or replaces content the agent did not author.
-- `mcp__tapper__meta` changes that overwrite existing tags, attributes,
-  or frontmatter.
+- `mcp__tapper__edit` writing `meta`, which replaces the node's whole
+  metadata document and so overwrites existing tags and attributes.
 - `mcp__tapper__move` — while the node survives the move, a snapshot
   before the rename makes it easy to confirm the move did not lose
   content and to diff against the pre-move state.

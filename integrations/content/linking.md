@@ -17,6 +17,12 @@ the same keg. A bare `keg:` reference in node prose is plain text: it does not
 create a graph link or backlink. Bare references remain valid as CLI arguments,
 configuration values, schema values, and tool parameters.
 
+Linking across kegs is ordinary authoring, but *copying* nodes across them is
+not an agent operation: no tool moves or duplicates nodes between kegs. Read
+the source with `mcp__tapper__cat` and `mcp__tapper__create` the node in the
+target, which also lets you adjust its links deliberately. Bulk transfer
+between kegs is an operator task the user runs outside MCP.
+
 ## Attachments
 
 A node's uploaded files and images live in two directories inside the node's

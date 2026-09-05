@@ -42,10 +42,10 @@ Always route through tapper's interfaces:
 
 - `mcp__tapper__cat` to read (supports `content_only`, `meta_only`,
   `stats_only`).
-- `mcp__tapper__edit` to write content — accepts markdown with
-  frontmatter and separates it into `README.md` and `meta.yaml`
-  automatically.
-- `mcp__tapper__meta` to update metadata without touching content.
+- `mcp__tapper__edit` to write a node — `content` is the markdown body
+  and `meta` is the metadata document. They are separate fields, so
+  `content` must not carry a frontmatter block; send either one alone to
+  leave the other untouched, or both to replace the whole node.
 
 ## CLI and MCP share Hub concurrency rules
 
@@ -69,7 +69,8 @@ another node first. If you are uncertain the removal is correct, defer.
 Snapshots do protect in-place edits. Take one before:
 
 - Any `mcp__tapper__edit` that rewrites more than a section.
-- Any `mcp__tapper__meta` overwrite of existing tags or attributes.
+- Any `mcp__tapper__edit` writing `meta`, which replaces the whole
+  metadata document and so overwrites existing tags and attributes.
 - `mcp__tapper__move` (the node survives the move, but a pre-move
   snapshot makes before/after diffs trivial).
 - Any multi-tool transformation where a mistake partway through would

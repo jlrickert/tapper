@@ -10,6 +10,27 @@ configuration, namespace/license discovery, `session_refresh`, `list_flights`,
 `flight_show`, and `keg_search` do not accept `flight`. MCP resources use root authority
 while rendering graph-wide discovery.
 
+`flight` is an **operational** parameter, not a discovery-only one: `list`,
+`cat`, `create`, `edit`, and `remove` all take it and all honour it. Pass the
+**exact canonical name** orientation printed under "Selectable flights",
+namespace sigil and `+` included:
+
+```json
+{ "flight": "@admin/+mcp-smoke-readonly", "keg": "@admin/mcp-smoke-readonly", "limit": 10 }
+```
+
+A bare `mcp-smoke-readonly` or `+mcp-smoke-readonly` is not a canonical name.
+Unqualified names resolve against the active KEG, so under a root whose cover is
+empty there is nothing to resolve them against and the call fails
+`ORIENTATION_DENIED` — which reads like a missing feature but is a name that did
+not resolve. Re-read the orientation output and copy the name verbatim.
+
+`keg` never grants authority. It selects a target *within* the authority the
+call already has; it cannot reach a KEG the selected flight does not cover.
+Naming an uncovered KEG is `ORIENTATION_DENIED`, and that is the access control
+working, not a bug. To widen what a call can reach, pass a `flight` that covers
+it.
+
 ## Orientation and management
 
 | Tool | Purpose |
@@ -37,7 +58,7 @@ accessible transitive descendants.
 | `mcp__tapper__grep`                                   | Regex search over node content. Supports `ignore_case`, `limit`, `max_lines`, and `id_only`.                                                             |
 | `mcp__tapper__tags`                                   | List tags or filter nodes by a boolean expression over tags, attributes, and dot-prefix stats fields (for example `tapper and .created>2026-01-01`).     |
 | `mcp__tapper__list`                                   | List nodes in a keg with optional filters.                                                                                                               |
-| `mcp__tapper__cat`                                    | Read one or more node bodies. Supports `meta_only`, `content_only`, `stats_only`, and `tag` expression selection as an alternative to explicit node IDs. |
+| `mcp__tapper__cat`                                    | Read one or more nodes. Each structured row pairs `node_id` and `hash` with that node's `content` and `meta`, so a read feeds straight into `edit`. Supports `meta_only`, `content_only`, `stats_only`, and `tag` expression selection as an alternative to explicit node IDs. |
 | `mcp__tapper__links`                                  | Outbound links from a node.                                                                                                                              |
 | `mcp__tapper__backlinks`                              | Inbound links to a node.                                                                                                                                 |
 | `mcp__tapper__list_indexes`, `mcp__tapper__index_cat` | Read generated index files (tag index, changelog, and others).                                                                                           |
@@ -77,9 +98,8 @@ code; the index does the work in O(matches) rather than O(total).
 
 | Tool                                                                           | Purpose                                                                                                               |
 | ------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------- |
-| `mcp__tapper__create`                                                          | Allocate a new numbered node. Accepts title, lead, tags, and attributes at creation time.                             |
-| `mcp__tapper__edit`                                                            | Call `cat`, then atomically replace content for 1–100 nodes; every edit requires that node's returned hash.           |
-| `mcp__tapper__meta`                                                            | Read metadata without tokens, or call `cat` and atomically update 1–100 nodes; every update requires its hash.        |
+| `mcp__tapper__create`                                                          | Atomically create 1–100 nodes. Each is a markdown `content` document plus an optional YAML `meta` document; the title is the content's H1. Nodes in one batch reference each other with `{{node:KEY}}`. |
+| `mcp__tapper__edit`                                                            | Call `cat`, then atomically replace `content`, `meta`, or both for 1–100 `nodes[]`; every item requires that node's returned hash, and one hash covers content and metadata together. |
 | `mcp__tapper__move`                                                            | Call `cat`, then relocate a node using its required returned hash.                                                    |
 | `mcp__tapper__remove`                                                          | Call `cat`, then atomically remove 1–100 `nodes[]`, each carrying its own required returned hash.                     |
 | `mcp__tapper__delete_file`, `mcp__tapper__delete_image`                        | Destructive attachment operations — see the Snapshots section below before calling.                                 |
@@ -92,3 +112,40 @@ Schema edits and deletes similarly require the hash from `schema_read`. Every
 conflict performs no operation: merge the change into returned current content
 or refetch with the corresponding read, then retry with the returned current
 hash.
+
+A hash covers exactly one write. Every successful write returns a new one and
+invalidates the hash you sent, so a sequence like edit-then-delete needs a
+fresh read between the two calls rather than a reused token. Node ids are
+per-keg counters as well: node 4 in one keg is unrelated to node 4 in another.
+
+### Writing a node
+
+A node is two documents and nothing else: `content`, the markdown body whose H1
+is the title, and `meta`, the complete metadata document. Three placement rules
+cover most first-attempt failures:
+
+- `schema` is a property of the item itself, a sibling of `meta` — never a key
+  inside the metadata.
+- `meta` is a **YAML string**, not a JSON object. `"type: document\n"` is
+  right; `{"type": "document"}` is not.
+- `content` must not open with a `---` frontmatter block. Metadata has one
+  home, and that is `meta`.
+
+Use `schema_list` to see the names a keg accepts, then:
+
+```json
+{"nodes": [{"key": "a1", "content": "# Title\n\nBody", "meta": "type: document\n", "schema": "document"}]}
+```
+
+`edit` takes the same two documents per item plus that node's current hash from
+`cat`, and either document may be omitted to leave it untouched:
+
+```json
+{"nodes": [{"node_id": "12", "content": "# Revised\n\nBody", "expected_hash": "HASH_FROM_CAT"}]}
+```
+
+`remove` carries only ids and hashes:
+
+```json
+{"nodes": [{"node_id": "12", "expected_hash": "HASH_FROM_CAT"}]}
+```
