@@ -2,6 +2,35 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.40.0 - 2026-09-05
+
+
+
+### 🐛 Bug Fixes
+- **keg:** preserve numeric scalar types in node metadata
+- **flight:** resolve unqualified flight names against the active KEG
+- **mcp:** make auth failures actionable and reload credentials on orient
+
+
+### 📚 Documentation
+- record the content/meta node model and flight usage
+
+
+### 🚀 Features
+- **namespace:** aggregate namespace list across configured hubs
+- **mcp:** return structured error guidance from every failed tool call
+- **keg:** build nodes from content and meta only
+
+
+### 🚜 Refactor
+- **cli,mcp:** remove cross-keg import and archive tooling
+- **mcp:** name edit's item list nodes
+
+
+### 🧪 Testing
+- **keg:** cover the integer-schema reproduction end to end
+
+
 ## v0.39.0 - 2026-08-31
 
 

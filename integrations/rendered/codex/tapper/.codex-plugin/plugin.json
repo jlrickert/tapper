@@ -1,6 +1,6 @@
 {
   "name": "tapper",
-  "version": "0.39.0",
+  "version": "0.40.0",
   "description": "MCP-first Tapper KEG access, flight orientation, and safety guidance.",
   "author": {
     "name": "Jared Rickert",
