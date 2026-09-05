@@ -263,7 +263,7 @@ func TestParity_WriteOperations(t *testing.T) {
 
 		// Edit via MCP.
 		_, err = env.runMCP("edit", map[string]any{
-			"edits": []any{map[string]any{
+			"nodes": []any{map[string]any{
 				"node_id":       nodeID,
 				"content":       "# After MCP Edit\n\nEdited content.\n",
 				"expected_hash": env.nodeHash(nodeID),
@@ -302,7 +302,7 @@ func TestParity_WriteOperations(t *testing.T) {
 
 		// Write metadata via MCP.
 		_, err = env.runMCP("edit", map[string]any{
-			"edits": []any{map[string]any{
+			"nodes": []any{map[string]any{
 				"node_id":       nodeID,
 				"meta":          "tags:\n  - updated-meta\n  - parity\n",
 				"expected_hash": env.nodeHash(nodeID),
@@ -345,7 +345,7 @@ func TestParity_WriteOperations(t *testing.T) {
 		nodeID := strings.TrimSpace(out)
 
 		_, err = env.runMCP("edit", map[string]any{
-			"edits": []any{map[string]any{
+			"nodes": []any{map[string]any{
 				"node_id":       nodeID,
 				"meta":          "id: \"" + nodeID + "\"\ntags:\n  - round-trip\n",
 				"expected_hash": env.nodeHash(nodeID),
@@ -359,7 +359,7 @@ func TestParity_WriteOperations(t *testing.T) {
 		require.Contains(t, first, "round-trip")
 
 		_, err = env.runMCP("edit", map[string]any{
-			"edits": []any{map[string]any{
+			"nodes": []any{map[string]any{
 				"node_id":       nodeID,
 				"meta":          first,
 				"expected_hash": env.nodeHash(nodeID),

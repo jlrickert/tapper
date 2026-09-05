@@ -135,7 +135,7 @@ func registerCreate(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 // --- edit ---
 
 type editInput struct {
-	Edits []editItemInput `json:"edits" jsonschema:"1-100 nodes to update atomically"`
+	Nodes []editItemInput `json:"nodes" jsonschema:"1-100 nodes to update atomically"`
 	Keg   string          `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
 }
 type editItemInput struct {
@@ -171,15 +171,15 @@ func registerEdit(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 			"Take a snapshot with node_snapshot before a large or destructive edit. " +
 			"A schema selection is required only when strict policy and the resolved agent mode both block. " +
 			"On conflict, merge into the returned current content (or refetch with cat) and retry with the returned current hash.",
-		InputSchema: boundedMutationInputSchema[editInput]("edits"),
+		InputSchema: boundedMutationInputSchema[editInput]("nodes"),
 		Annotations: &sdkmcp.ToolAnnotations{
 			DestructiveHint: boolPtr(false),
 			OpenWorldHint:   boolPtr(false),
 		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in editInput) (*sdkmcp.CallToolResult, any, error) {
 		ctx = keg.WithValidationActor(ctx, keg.ValidationActorAgent)
-		edits := make([]tapper.BatchEditItem, len(in.Edits))
-		for i, item := range in.Edits {
+		edits := make([]tapper.BatchEditItem, len(in.Nodes))
+		for i, item := range in.Nodes {
 			edit := tapper.BatchEditItem{NodeID: item.NodeID, Schema: item.Schema, ExpectedHash: item.ExpectedHash}
 			if item.Content != nil {
 				edit.Content, edit.HasContent = *item.Content, true

@@ -85,7 +85,7 @@ func TestMCP_MutationSchemasRequireExpectedHashesAtResourceLocation(t *testing.T
 	}
 
 	for tool, array := range map[string]string{
-		"edit": "edits", "remove": "nodes",
+		"edit": "nodes", "remove": "nodes",
 	} {
 		root, ok := schemas[tool]
 		require.True(t, ok, "missing tool %q", tool)

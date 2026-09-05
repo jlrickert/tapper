@@ -620,7 +620,7 @@ func batchCreateArgs(item map[string]any) map[string]any {
 }
 
 func batchEditArgs(item map[string]any) map[string]any {
-	return map[string]any{"edits": []any{item}}
+	return map[string]any{"nodes": []any{item}}
 }
 
 func batchSnapshotArgs(item map[string]any) map[string]any {
@@ -658,8 +658,8 @@ func TestMCPMutationSchemasRejectEmptyAndOversizedArrays(t *testing.T) {
 	}{
 		{"create empty", map[string]any{"nodes": []any{}}},
 		{"create oversized", map[string]any{"nodes": oversizedObjects}},
-		{"edit empty", map[string]any{"edits": []any{}}},
-		{"edit oversized", map[string]any{"edits": oversizedObjects}},
+		{"edit empty", map[string]any{"nodes": []any{}}},
+		{"edit oversized", map[string]any{"nodes": oversizedObjects}},
 		{"remove empty", map[string]any{"nodes": []any{}}},
 		{"remove oversized", map[string]any{"nodes": oversizedRemovals}},
 		{"snapshot empty", map[string]any{"nodes": []any{}}},
