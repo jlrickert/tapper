@@ -1,16 +1,33 @@
 [changelog]
 header = "# Changelog\n\nAll notable changes to this project are documented in this file.\n"
+# Breaking changes get their own section ahead of the type groups, and are
+# marked inline within them. Without this a `feat(keg)!:` reads as an ordinary
+# feature bullet, so a consumer scanning the changelog never learns their
+# client broke. `breaking_description` is the `BREAKING CHANGE:` footer;
+# git-cliff falls back to the subject when there is no footer, so it is only
+# printed when it says something the subject did not.
 body = """
 {% if version %}
 ## {{ version }} - {{ timestamp | date(format=\"%Y-%m-%d\") }}
 {% else %}
 ## Unreleased
 {% endif %}
+{%- set breaking = commits | filter(attribute=\"breaking\", value=true) %}
+{%- if breaking | length > 0 %}
+
+### ⚠️ Breaking Changes
+{% for commit in breaking %}
+**{% if commit.scope %}{{ commit.scope }}: {% endif %}{{ commit.message | trim }}**
+{% if commit.breaking_description and commit.breaking_description | trim != commit.message | trim %}
+{{ commit.breaking_description | trim }}
+{% endif -%}
+{%- endfor -%}
+{%- endif %}
 
 {% for group, commits in commits | group_by(attribute=\"group\") %}
 ### {{ group }}
 {% for commit in commits -%}
-- {% if commit.scope %}**{{ commit.scope }}:** {% endif %}{{ commit.message | trim }}
+- {% if commit.breaking %}⚠️ {% endif %}{% if commit.scope %}**{{ commit.scope }}:** {% endif %}{{ commit.message | trim }}
 {% endfor %}
 {% endfor %}
 """

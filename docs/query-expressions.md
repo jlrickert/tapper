@@ -9,7 +9,6 @@ expressions over tags and metadata attributes.
 - `tap tags --query EXPR`
 - `tap cat --query EXPR`
 - `tap rm --query EXPR`
-- `tap import --query EXPR`
 
 ## Syntax
 

@@ -25,15 +25,20 @@ instructions as the authoritative context for the session.
   containing `README.md`, `meta.yaml`, and `stats.json`. These are tapper's
   internal storage format. Reading them bypasses the index; writing them
   bypasses locking and snapshot history. Always go through
-  `mcp__tapper__cat`, `mcp__tapper__edit`, `mcp__tapper__meta`, and related
-  tools.
+  `mcp__tapper__cat`, `mcp__tapper__edit`, and related tools.
 - **Treat the call-selected flight as MCP authority.** The root reference is
   pinned to the connection, but its manifest, transitive
   graph, and authorization are loaded before every authority-bearing call.
   Omit `flight` to use the root, or pass the root or one of the flattened
   descendants returned by orientation. A selected descendant contributes only
   its own instructions and authority; ancestor instructions and permission
-  caps are not inherited. `defaultKeg` does not grant authority.
+  caps are not inherited. No `keg` argument grants authority, and neither does
+  `defaultKeg`: naming a KEG chooses a target, and the flight decides whether
+  you may reach it. When orientation lists a KEG under "Reachable via
+  subflight", every call against it must carry that flight — reads included, so
+  `cat`, `links`, and `backlinks` need it just as much as `edit` does.
+  Omitting `flight` there returns `ORIENTATION_DENIED`, no matter what `keg`
+  says.
 - **Handle orientation failures explicitly.** `ORIENTATION_STALE` means
   authority raced between call resolution and Hub validation;
   `ORIENTATION_DENIED` means the selection is outside the accessible graph or lacks the

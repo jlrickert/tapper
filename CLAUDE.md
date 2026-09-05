@@ -420,8 +420,10 @@ validation.
   lists) in one operation — a single round trip on RemoteKeg.
 - The keg settings file is named `keg` (no extension), though `keg.yaml` and
   `keg.yml` are also accepted.
-- Node IDs are allocated by the Hub. `GET /nodes/next` is only a read-only
-  probe; creation uses `POST /nodes` with complete content.
+- Node IDs are allocated by the Hub, which owns a per-keg counter that only
+  ever rises: a removed id is never handed out again. There is no way to read
+  the next id ahead of time — creation uses `POST /nodes` with complete
+  content, and the response carries every allocated id.
 - **Cobra skips PersistentPostRunE when RunE returns an error.** Any cleanup
   or logging that must run on both success and failure paths cannot rely on
   PersistentPostRunE. In tapper, invocation logging and log file cleanup are

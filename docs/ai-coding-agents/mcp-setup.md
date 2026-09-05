@@ -106,30 +106,39 @@ explicitly configured root failed to initialize.
 
 | Tool | Description |
 | --- | --- |
-| `create` | Atomically create 1–100 nodes from `nodes[]`; unique keys support forward/backward `{{node:key}}` body references |
-| `edit` | Read with `cat`, then atomically replace 1–100 nodes from `edits[]`; every item requires that node's `expected_hash` |
-| `meta` | Read `node_ids[]` without tokens, or read with `cat` and atomically replace metadata through `updates[]`; every update requires that node's `expected_hash` |
+| `create` | Atomically create 1–100 nodes from `nodes[]`, each a markdown `content` document plus an optional YAML `meta` document; unique keys support forward/backward `{{node:key}}` content references |
+| `edit` | Read with `cat`, then atomically replace `content`, `meta`, or both for 1–100 nodes from `nodes[]`; every item requires that node's `expected_hash`, and one hash covers content and metadata together |
 | `remove` | Read with `cat`, then atomically delete 1–100 `nodes[]`; every item requires its own `expected_hash` |
 | `move` | Read with `cat`, then move a node using its required `expected_hash` |
 | `keg_settings_edit` | Read the full document with `keg_settings`, then replace it using its required `expected_hash`; requires admin flight authority and editor/admin KEG access |
 
-Mutation inputs are array-only and each array contains 1–100 items:
+Mutation inputs are array-only, every batch tool takes its items under `nodes`,
+and each array contains 1–100 items:
 
 ```json
-{"nodes":[{"key":"plan","title":"Plan","body":"See [task](../{{node:task}})"}]}
-{"edits":[{"node_id":"12","content":"# Revised","expected_hash":"...","snapshot_before":true}]}
-{"node_ids":["12","13"]}
-{"updates":[{"node_id":"12","content":"type: plan\n","expected_hash":"...","snapshot_before":true}]}
+// create
+{"nodes":[{"key":"plan","content":"# Plan\n\nSee [task](../{{node:task}})\n","meta":"type: plan\n"}]}
+// edit — content only, metadata only, or both under one hash
+{"nodes":[{"node_id":"12","content":"# Revised\n","expected_hash":"..."}]}
+{"nodes":[{"node_id":"12","meta":"type: plan\n","expected_hash":"..."}]}
+{"nodes":[{"node_id":"12","content":"# Revised\n","meta":"type: plan\n","expected_hash":"..."}]}
+// remove
 {"nodes":[{"node_id":"12","expected_hash":"..."},{"node_id":"13","expected_hash":"..."}]}
+// node_snapshot
 {"nodes":[{"node_id":"12","message":"reviewed"}]}
 ```
 
-The first and last shapes belong to `create` and `node_snapshot`; the middle
-shapes cover `edit`, the two mutually exclusive `meta` modes, and `remove`.
+Read metadata with `cat` and `meta_only`; take snapshots with `node_snapshot`
+before a large or destructive edit.
 Mutation results preserve request order and report `node_id`, the resulting
 hash or snapshot revision, and advisory schema validation details when
 applicable. A failed batch returns no partial results and commits none of its
 changes.
+
+Reads are self-contained: each `cat` row in `structuredContent.nodes[]` pairs
+`node_id` and `hash` with that node's `content` and `meta`, matching the fields
+`edit` accepts, so a read result can be modified and sent back without parsing
+the human-readable rendering.
 
 Every protected mutation names the read that supplies its token: `cat` for
 node edits, metadata updates, moves, and removals; `keg_settings` for settings;
@@ -187,7 +196,6 @@ authenticated Hub identity; hosted MCP reports its single authenticated user.
 
 | Tool | Description |
 | --- | --- |
-| `import_from_keg` | Import nodes from another keg |
 | `orient` | Return a read-only view of current instructions, selectable flights, and KEGs |
 | `session_refresh` | Retry activation after a broken explicit selection is repaired; zero arguments and no authority replacement once active |
 | `list_flights`, `flight_show` | Discover and inspect visible flights |
@@ -196,7 +204,8 @@ authenticated Hub identity; hosted MCP reports its single authenticated user.
 MCP does not expose Tapper configuration, config templates, repository setup,
 archive import/export, raw auth status, license text, keg visibility, or
 namespace administration. Those remain external CLI, configuration, or Hub UI
-operations.
+operations. To put a node's content in another KEG, read it with `cat` and
+`create` it there.
 
 The five batch mutation modes above intentionally use array-only inputs. Empty
 batches, batches over 100 items, duplicate keys/IDs, unknown create
@@ -205,8 +214,6 @@ failure reject the entire call. Structured results preserve request order and
 include node IDs plus resulting hashes or snapshot revisions. The removed
 single-item fields are not accepted by the published MCP schemas.
 
-`import_from_keg` requires editor identity and flight authority on the source
-when `leave_stubs` is requested, because that option rewrites source nodes.
 Both transports also publish `tapper://orient` and the
 `tapper://node/{node_id}{?keg}` resource template.
 
