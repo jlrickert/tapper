@@ -78,12 +78,6 @@ var tapMethodToSurfaces = map[string]struct {
 	"LockStatus":  {CLI: "lock status", MCP: "lock_status"},
 	"ForceUnlock": {CLI: "lock force-release", MCP: "lock_force_release"},
 
-	// Repo management
-	// Note: "import" at top level is ImportFromKeg (live keg import).
-	// "archive import" is Import (archive import). Different commands,
-	// different Tap methods, same word. Only the live-keg one has an MCP peer.
-	"ImportFromKeg": {CLI: "import", MCP: "import_from_keg"},
-
 	// Flights (keg restriction + agent instructions)
 	"ListFlights":  {CLI: "flight list", MCP: "list_flights"},
 	"GetFlight":    {CLI: "flight show", MCP: "flight_show"},
@@ -161,7 +155,7 @@ var tapMethodsExcluded = map[string]string{
 	"ConfigTemplate": "emits starter config files for a human to edit; CLI-only setup step",
 	"InitKeg":        "provisions a keg destination on local disk or a hub; CLI-only setup step",
 	"Export":         "writes a keg archive to the local filesystem; CLI-only bulk operation",
-	"Import":         "reads a keg archive from the local filesystem; CLI-only bulk operation (import_from_keg covers the agent-safe node-level path)",
+	"Import":         "reads a keg archive from the local filesystem; CLI-only bulk operation",
 	"KegVisibility":  "UI-only visibility management; MCP must not flip a keg between public and private",
 	"NamespaceList":  "namespace discovery folded into auth_info's identity payload; the standalone tool was tenant-administration shaped",
 	"License":        "prints bundled license text; CLI-only via `tap version --license`",
