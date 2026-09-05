@@ -1,9 +1,9 @@
 package keg
 
 import (
+	"bytes"
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/jlrickert/cli-toolkit/toolkit"
@@ -81,37 +81,25 @@ func (k *LocalKeg) init(ctx context.Context) error {
 	return nil
 }
 
-// Next reserves and returns the next available node ID from the repository.
-func (k *LocalKeg) Next(ctx context.Context) (NodeId, error) {
-	return withKegWriteValue(ctx, k, func(ctx context.Context) (NodeId, error) {
-		return k.Repo.Next(ctx)
-	})
-}
-
 // CreateOptions specifies parameters for creating a new node
 type CreateOptions struct {
 	// Schema is the explicitly selected schema for this write.
 	Schema string
-	// Title is the human-readable title for the node
-	Title string
-	// Lead is a one-line summary
-	Lead string
-	// Tags are searchable labels for the node
-	Tags []string
-	// Body is the raw markdown content; if empty, default content is generated from Title/Lead
+	// Body is the raw markdown content; its H1 is the node's title. When
+	// empty, a placeholder heading is generated from the allocated node id.
 	Body []byte
-	// Attrs are arbitrary key-value attributes attached to the node
-	Attrs map[string]any
+	// Meta is the node's complete metadata document.
+	Meta []byte
 }
 
 // Create creates a new node: allocates an ID, parses content, generates metadata,
 // and indexes the node in the dex. The node is immediately persisted to the repository.
-// If Body is empty, default markdown content is generated from Title and Lead.
+// If Body is empty, a placeholder heading is generated from the allocated node id.
 func (k *LocalKeg) Create(ctx context.Context, opts *CreateOptions) (CreateResult, error) {
 	if opts == nil {
 		opts = &CreateOptions{}
 	}
-	results, err := k.CreateNodes(ctx, []NodeCreate{{Key: "node", Schema: opts.Schema, Title: opts.Title, Lead: opts.Lead, Body: opts.Body, Tags: opts.Tags, Attrs: opts.Attrs}})
+	results, err := k.CreateNodes(ctx, []NodeCreate{{Key: "node", Schema: opts.Schema, Body: opts.Body, Meta: opts.Meta}})
 	if len(results) == 0 {
 		return CreateResult{}, err
 	}
@@ -189,40 +177,53 @@ func (k *LocalKeg) buildNodeData(ctx context.Context, opts *CreateOptions, now t
 
 // buildCreateNodeData assembles the content/meta/stats for a new node from
 // opts. The node id is not part of the result (callers set it once known)
-// except via fallbackHeading, the H1 used when opts carries neither a Body nor
-// a Title — local creates pass "NodeId <id>" there; remote creates, where the
-// id is assigned by the hub, pass a generic heading.
+// except via fallbackHeading, the H1 used when opts carries no Body — local
+// creates pass "NodeId <id>" there; remote creates, where the id is assigned
+// by the hub, pass a generic heading.
 func buildCreateNodeData(ctx context.Context, rt *toolkit.Runtime, opts *CreateOptions, now time.Time, fallbackHeading string) (*NodeData, error) {
-	var rawContent []byte
-	if len(opts.Body) > 0 {
-		rawContent = opts.Body
-	} else {
-		b := strings.Builder{}
-		if opts.Title != "" {
-			b.WriteString(fmt.Sprintf("# %s\n", opts.Title))
-		} else {
-			b.WriteString(fmt.Sprintf("# %s\n", fallbackHeading))
-		}
-		if opts.Lead != "" {
-			b.WriteString(fmt.Sprintf("\n%s\n", opts.Lead))
-		}
-		rawContent = []byte(b.String())
+	rawContent := opts.Body
+	if len(rawContent) == 0 {
+		rawContent = []byte(fmt.Sprintf("# %s\n", fallbackHeading))
+	}
+	if err := RejectFrontmatter(rawContent); err != nil {
+		return nil, err
 	}
 
 	content, err := ParseContent(rt, rawContent, MarkdownContentFilename)
 	if err != nil {
 		return nil, fmt.Errorf("invalid content: %w", err)
 	}
+
 	m := NewMeta(ctx, now)
-	if len(opts.Attrs) > 0 {
-		m.SetAttrs(ctx, opts.Attrs)
+	if len(bytes.TrimSpace(opts.Meta)) > 0 {
+		m, err = ParseMeta(ctx, opts.Meta)
+		if err != nil {
+			return nil, fmt.Errorf("invalid metadata: %s: %w", err, ErrInvalid)
+		}
 	}
+
 	stats := NewStats(now)
-	if len(opts.Tags) > 0 {
-		m.SetTags(opts.Tags)
-	}
 	nodeData := &NodeData{Content: content, Meta: m, Stats: stats}
 	_ = nodeData.updateMeta(ctx, rt, &now)
 	nodeData.Stats.EnsureTimes(now)
 	return nodeData, nil
+}
+
+// RejectFrontmatter refuses content that opens with a YAML frontmatter
+// delimiter. A node is built from two separate inputs — content, the markdown
+// body opening with its H1 title, and meta, the complete metadata document — so
+// a frontmatter block is a second, silent way to write metadata. The failure
+// mode is severe: a body that legitimately begins with a horizontal rule would
+// either consume the following lines as metadata or fail deep in the parser
+// with an unrelated message.
+//
+// This lives here rather than in the tool layer so every writer reaches the
+// same rule: the REST handlers, the MCP tools, the web UI, and the tap CLI all
+// pass through create and update below.
+func RejectFrontmatter(content []byte) error {
+	trimmed := bytes.TrimPrefix(content, []byte("\xef\xbb\xbf"))
+	if !bytes.HasPrefix(trimmed, []byte("---\n")) && !bytes.HasPrefix(trimmed, []byte("---\r\n")) {
+		return nil
+	}
+	return fmt.Errorf("content must not start with a YAML frontmatter block; send metadata in the meta field instead: %w", ErrInvalid)
 }

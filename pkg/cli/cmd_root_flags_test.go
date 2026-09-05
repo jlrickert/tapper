@@ -87,7 +87,7 @@ func TestTap_DirectCreateBypassesViewerFlightCap(t *testing.T) {
 
 	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
 
-	res := NewProcess(t, false, "create", "--keg", "personal", "--flight", "+focused", "--title", "Allowed CLI Write").Run(sb.Context(), sb.Runtime())
+	res := NewCreateProcess(t, false, "Allowed CLI Write", "", "--keg", "personal", "--flight", "+focused").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 	nodeID := strings.TrimSpace(string(res.Stdout))
 	require.NotEmpty(t, nodeID)

@@ -61,7 +61,7 @@ func TestBacklinksCommand_ListsBacklinkSources(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
 
-	targetCreate := NewProcess(t, false, "create", "--title", "Target").Run(sb.Context(), sb.Runtime())
+	targetCreate := NewCreateProcess(t, false, "Target", "").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, targetCreate.Err)
 	require.Equal(t, "1", strings.TrimSpace(string(targetCreate.Stdout)))
 
@@ -96,7 +96,7 @@ func TestBacklinksCommand_OffsetSkipsResults(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
 
-	targetCreate := NewProcess(t, false, "create", "--title", "Target").Run(sb.Context(), sb.Runtime())
+	targetCreate := NewCreateProcess(t, false, "Target", "").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, targetCreate.Err)
 
 	createWithLinkToTarget(t, sb, "# Source A\n\nSee [target](../1).\n")
@@ -124,11 +124,11 @@ func TestBacklinksCommand_MultipleNodeIDsMergesResults(t *testing.T) {
 	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
 
 	// Create two target nodes.
-	target1 := NewProcess(t, false, "create", "--title", "Target1").Run(sb.Context(), sb.Runtime())
+	target1 := NewCreateProcess(t, false, "Target1", "").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, target1.Err)
 	require.Equal(t, "1", strings.TrimSpace(string(target1.Stdout)))
 
-	target2 := NewProcess(t, false, "create", "--title", "Target2").Run(sb.Context(), sb.Runtime())
+	target2 := NewCreateProcess(t, false, "Target2", "").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, target2.Err)
 	require.Equal(t, "2", strings.TrimSpace(string(target2.Stdout)))
 

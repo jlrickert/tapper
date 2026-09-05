@@ -112,7 +112,7 @@ func TestImport_RejectsZipSlipArchive(t *testing.T) {
 	// Build a legitimate archive (valid manifest/meta/stats) with one attachment.
 	src := keg.NewLocalKeg(newTestMemoryRepo(rt), rt)
 	initNonStrictTestKeg(t, src, ctx)
-	nid, err := src.Create(ctx, &keg.CreateOptions{Title: "x", Body: []byte("# x\n")})
+	nid, err := src.Create(ctx, &keg.CreateOptions{Body: []byte("# x\n")})
 	require.NoError(t, err)
 	require.NoError(t, src.WriteFile(ctx, nid.ID, "doc.txt", []byte("benign")))
 	rc, err := src.ExportNodes(ctx, keg.ExportNodesOptions{WithAssets: true})

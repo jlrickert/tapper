@@ -362,7 +362,7 @@ func TestCatCommand_MultiNode_YAMLStream(t *testing.T) {
 	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
 
 	// Create a second node so we have two to cat.
-	createRes := NewProcess(t, false, "create", "--keg", "personal", "--title", "Second node").Run(sb.Context(), sb.Runtime())
+	createRes := NewCreateProcess(t, false, "Second node", "", "--keg", "personal").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, createRes.Err, "create should succeed")
 
 	res := NewProcess(t, false, "cat", "0", "1", "--keg", "personal").Run(sb.Context(), sb.Runtime())
@@ -390,7 +390,7 @@ func TestCatCommand_MultiNode_ContentOnly(t *testing.T) {
 	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
 
 	// Create a second node so we have two to cat.
-	createRes := NewProcess(t, false, "create", "--keg", "personal", "--title", "Second node").Run(sb.Context(), sb.Runtime())
+	createRes := NewCreateProcess(t, false, "Second node", "", "--keg", "personal").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, createRes.Err, "create should succeed")
 
 	res := NewProcess(t, false, "cat", "0", "1", "--keg", "personal", "--content-only").Run(sb.Context(), sb.Runtime())
@@ -412,7 +412,7 @@ func TestCatCommand_MultiNode_MetaOnly(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
 
-	createRes := NewProcess(t, false, "create", "--keg", "personal", "--title", "Second node").Run(sb.Context(), sb.Runtime())
+	createRes := NewCreateProcess(t, false, "Second node", "", "--keg", "personal").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, createRes.Err, "create should succeed")
 
 	res := NewProcess(t, false, "cat", "0", "1", "--keg", "personal", "--meta-only").Run(sb.Context(), sb.Runtime())
@@ -431,7 +431,7 @@ func TestCatCommand_MultiNode_StatsOnly(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
 
-	createRes := NewProcess(t, false, "create", "--keg", "personal", "--title", "Second node").Run(sb.Context(), sb.Runtime())
+	createRes := NewCreateProcess(t, false, "Second node", "", "--keg", "personal").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, createRes.Err, "create should succeed")
 
 	res := NewProcess(t, false, "cat", "0", "1", "--keg", "personal", "--stats-only").Run(sb.Context(), sb.Runtime())
@@ -571,7 +571,7 @@ func TestCatCommand_TTY_MultipleNodes_PrintsToStdout(t *testing.T) {
 	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
 
 	// Create a second node so we have two to cat.
-	createRes := NewProcess(t, false, "create", "--keg", "personal", "--title", "Second node").
+	createRes := NewCreateProcess(t, false, "Second node", "", "--keg", "personal").
 		Run(sb.Context(), sb.Runtime())
 	require.NoError(t, createRes.Err, "create should succeed")
 

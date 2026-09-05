@@ -184,13 +184,14 @@ type CreateResult struct {
 const MaxMutationBatchSize = 100
 
 type NodeCreate struct {
-	Key    string         `json:"key"`
-	Schema string         `json:"schema,omitempty"`
-	Title  string         `json:"title,omitempty"`
-	Lead   string         `json:"lead,omitempty"`
-	Body   []byte         `json:"body,omitempty"`
-	Tags   []string       `json:"tags,omitempty"`
-	Attrs  map[string]any `json:"attrs,omitempty"`
+	Key    string `json:"key"`
+	Schema string `json:"schema,omitempty"`
+	// Body is the node's complete markdown content; its H1 is the title. Meta
+	// is the node's complete metadata document. These are the only two inputs
+	// a node is built from — there is deliberately no second, field-at-a-time
+	// way to write a title, lead, tags, or attributes.
+	Body []byte `json:"body,omitempty"`
+	Meta []byte `json:"meta,omitempty"`
 }
 
 type CreateNodeResult struct {

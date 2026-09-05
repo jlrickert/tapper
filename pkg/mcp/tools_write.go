@@ -33,7 +33,6 @@ func boundedMutationInputSchema[T any](arrayFields ...string) *jsonschema.Schema
 func registerWriteTools(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	registerCreate(srv, tap, defaults)
 	registerEdit(srv, tap, defaults)
-	registerMeta(srv, tap, defaults)
 	registerRemove(srv, tap, defaults)
 	registerMove(srv, tap, defaults)
 	registerKegSettingsEdit(srv, tap, defaults)
@@ -78,16 +77,10 @@ type createInput struct {
 	Keg   string            `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
 }
 type createNodeInput struct {
-	Key    string   `json:"key"`
-	Schema string   `json:"schema,omitempty" jsonschema:"schema selected for this write; required when strict policy and agent mode both block"`
-	Title  string   `json:"title,omitempty"`
-	Lead   string   `json:"lead,omitempty"`
-	Body   string   `json:"body,omitempty"`
-	Tags   []string `json:"tags,omitempty"`
-	// map[string]any, not map[string]string: a string-typed map generates an
-	// `additionalProperties: {type: string}` schema, which cannot express an
-	// integer at all, so schema fields typed `integer` become unwritable.
-	Attrs map[string]any `json:"attrs,omitempty"`
+	Key     string `json:"key" jsonschema:"caller-chosen label for this node within the batch, unique across the batch. Other nodes in the same batch link to it by writing {{node:KEY}} in their content; each placeholder is replaced with the id this node is assigned."`
+	Content string `json:"content" jsonschema:"the node's complete markdown body, opening with an H1 title. Must not start with a YAML frontmatter block: metadata goes in the meta field."`
+	Meta    string `json:"meta,omitempty" jsonschema:"the node's complete metadata document as YAML, including keys such as type, tags, and any schema-defined attributes. Omit for no metadata."`
+	Schema  string `json:"schema,omitempty" jsonschema:"schema selected for this write. Writes meta.type; a different type declared in meta is a hard error, not an override. Required when strict policy and agent mode both block."`
 }
 
 type createNodeOutput struct {
@@ -107,8 +100,13 @@ func createNodeOutputs(results []keg.CreateNodeResult) []createNodeOutput {
 
 func registerCreate(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
-		Name:        "create",
-		Description: "Atomically create 1-100 KEG nodes with optional intra-batch references. Each optional schema selection is required when strict policy and the resolved agent mode both block.",
+		Name: "create",
+		Description: "Atomically create 1-100 KEG nodes. " +
+			"Each node is a markdown content document plus an optional YAML metadata document. " +
+			"content must not begin with a YAML frontmatter block — metadata goes in meta. " +
+			"A node's title is its content H1 and its lead is the first paragraph, so there are no separate title, lead, tags, or attrs fields. " +
+			"Nodes in one batch can reference each other's not-yet-assigned ids by writing {{node:KEY}} in content. " +
+			"A schema selection is required only when strict policy and the resolved agent mode both block.",
 		InputSchema: boundedMutationInputSchema[createInput]("nodes"),
 		Annotations: &sdkmcp.ToolAnnotations{
 			DestructiveHint: boolPtr(false),
@@ -118,7 +116,7 @@ func registerCreate(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 		ctx = keg.WithValidationActor(ctx, keg.ValidationActorAgent)
 		nodes := make([]tapper.BatchCreateNode, len(in.Nodes))
 		for i, item := range in.Nodes {
-			nodes[i] = tapper.BatchCreateNode{Key: item.Key, Schema: item.Schema, Title: item.Title, Lead: item.Lead, Body: item.Body, Tags: item.Tags, Attrs: item.Attrs}
+			nodes[i] = tapper.BatchCreateNode{Key: item.Key, Schema: item.Schema, Content: item.Content, Meta: item.Meta}
 		}
 		results, err := tap.CreateBatch(ctx, tapper.BatchCreateOptions{KegTargetOptions: resolveKegTarget(ctx, in.Keg, defaults), Nodes: nodes})
 		if err != nil {
@@ -137,15 +135,15 @@ func registerCreate(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 // --- edit ---
 
 type editInput struct {
-	Edits []editItemInput `json:"edits" jsonschema:"1-100 node replacements to apply atomically"`
+	Edits []editItemInput `json:"edits" jsonschema:"1-100 nodes to update atomically"`
 	Keg   string          `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
 }
 type editItemInput struct {
-	NodeID         string `json:"node_id"`
-	Schema         string `json:"schema,omitempty" jsonschema:"schema selected for this write; required when strict policy and agent mode both block"`
-	Content        string `json:"content"`
-	ExpectedHash   string `json:"expected_hash" jsonschema:"precondition token returned by cat"`
-	SnapshotBefore bool   `json:"snapshot_before,omitempty"`
+	NodeID       string  `json:"node_id" jsonschema:"id of the node to update"`
+	Content      *string `json:"content,omitempty" jsonschema:"replacement markdown body, replacing the node's content entirely. Must not start with a YAML frontmatter block: metadata goes in the meta field. Omit to leave content unchanged."`
+	Meta         *string `json:"meta,omitempty" jsonschema:"replacement metadata document as YAML, replacing the node's metadata entirely. Omit to leave metadata unchanged."`
+	ExpectedHash string  `json:"expected_hash" jsonschema:"precondition token returned by cat. One hash covers content and metadata together, so a call that changes only one of them still invalidates the other's hash."`
+	Schema       string  `json:"schema,omitempty" jsonschema:"schema selected for this write. Writes meta.type; a different type declared in meta is a hard error, not an override. Required when strict policy and agent mode both block."`
 }
 
 type nodeUpdateOutput struct {
@@ -164,8 +162,15 @@ func nodeUpdateOutputs(results []keg.NodeUpdateResult) []nodeUpdateOutput {
 
 func registerEdit(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
-		Name:        "edit",
-		Description: "Call cat first for every node, then atomically replace the content of 1-100 nodes using each returned hash as that edit's expected_hash. Each optional schema selection is required when strict policy and the resolved agent mode both block. On conflict, merge into the returned current content (or refetch with cat) and retry with the returned current hash.",
+		Name: "edit",
+		Description: "Atomically replace the content and/or metadata of 1-100 nodes. " +
+			"Supply content, meta, or both for each node; at least one is required. " +
+			"content is the markdown body and must not begin with a YAML frontmatter block — metadata goes in meta. " +
+			"One expected_hash covers a node's content and metadata together, so changing either invalidates the hash for both. " +
+			"Call cat first for every node and pass each returned hash as that node's expected_hash; cat meta_only reads metadata. " +
+			"Take a snapshot with node_snapshot before a large or destructive edit. " +
+			"A schema selection is required only when strict policy and the resolved agent mode both block. " +
+			"On conflict, merge into the returned current content (or refetch with cat) and retry with the returned current hash.",
 		InputSchema: boundedMutationInputSchema[editInput]("edits"),
 		Annotations: &sdkmcp.ToolAnnotations{
 			DestructiveHint: boolPtr(false),
@@ -175,7 +180,14 @@ func registerEdit(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 		ctx = keg.WithValidationActor(ctx, keg.ValidationActorAgent)
 		edits := make([]tapper.BatchEditItem, len(in.Edits))
 		for i, item := range in.Edits {
-			edits[i] = tapper.BatchEditItem{NodeID: item.NodeID, Schema: item.Schema, Content: item.Content, ExpectedHash: item.ExpectedHash, SnapshotBefore: item.SnapshotBefore}
+			edit := tapper.BatchEditItem{NodeID: item.NodeID, Schema: item.Schema, ExpectedHash: item.ExpectedHash}
+			if item.Content != nil {
+				edit.Content, edit.HasContent = *item.Content, true
+			}
+			if item.Meta != nil {
+				edit.Meta, edit.HasMeta = *item.Meta, true
+			}
+			edits[i] = edit
 		}
 		results, err := tap.EditBatch(ctx, tapper.BatchEditOptions{KegTargetOptions: resolveKegTarget(ctx, in.Keg, defaults), Edits: edits})
 		if err != nil {
@@ -183,55 +195,6 @@ func registerEdit(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 		}
 		res := textResult(fmt.Sprintf("updated %d node(s)", len(results)))
 		res.StructuredContent = map[string]any{"results": nodeUpdateOutputs(results)}
-		return res, nil, nil
-	})
-}
-
-// --- meta ---
-
-type metaInput struct {
-	NodeIDs []string          `json:"node_ids,omitempty" jsonschema:"1-100 node IDs to read"`
-	Updates []metaUpdateInput `json:"updates,omitempty" jsonschema:"1-100 metadata replacements to apply atomically"`
-	Keg     string            `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
-}
-type metaUpdateInput struct {
-	NodeID         string `json:"node_id"`
-	Schema         string `json:"schema,omitempty" jsonschema:"schema selected for this write; required when strict policy and agent mode both block"`
-	Content        string `json:"content"`
-	ExpectedHash   string `json:"expected_hash" jsonschema:"precondition token returned by cat"`
-	SnapshotBefore bool   `json:"snapshot_before,omitempty"`
-}
-
-func registerMeta(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
-	sdkmcp.AddTool(srv, &sdkmcp.Tool{
-		Name:        "meta",
-		Description: "Read metadata for 1-100 nodes without a token, or call cat first and atomically replace metadata for 1-100 nodes using each returned hash as that update's expected_hash. Each optional schema selection on an update is required when strict policy and the resolved agent mode both block. On conflict, merge into the returned current metadata (or refetch with cat) and retry with the returned current hash.",
-		InputSchema: boundedMutationInputSchema[metaInput]("node_ids", "updates"),
-		Annotations: &sdkmcp.ToolAnnotations{
-			DestructiveHint: boolPtr(false),
-			OpenWorldHint:   boolPtr(false),
-		},
-	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in metaInput) (*sdkmcp.CallToolResult, any, error) {
-		ctx = keg.WithValidationActor(ctx, keg.ValidationActorAgent)
-		updates := make([]tapper.BatchMetaUpdate, len(in.Updates))
-		for i, item := range in.Updates {
-			updates[i] = tapper.BatchMetaUpdate{NodeID: item.NodeID, Schema: item.Schema, Content: item.Content, ExpectedHash: item.ExpectedHash, SnapshotBefore: item.SnapshotBefore}
-		}
-		reads, writes, err := tap.MetaBatch(ctx, tapper.BatchMetaOptions{KegTargetOptions: resolveKegTarget(ctx, in.Keg, defaults), NodeIDs: in.NodeIDs, Updates: updates})
-		if err != nil {
-			return errorResult(err), nil, nil
-		}
-		if len(writes) > 0 {
-			res := textResult(fmt.Sprintf("updated metadata for %d node(s)", len(writes)))
-			res.StructuredContent = map[string]any{"results": nodeUpdateOutputs(writes)}
-			return res, nil, nil
-		}
-		message := fmt.Sprintf("read metadata for %d node(s)", len(reads))
-		if len(reads) == 1 {
-			message = reads[0].Content
-		}
-		res := textResult(message)
-		res.StructuredContent = map[string]any{"results": reads}
 		return res, nil, nil
 	})
 }

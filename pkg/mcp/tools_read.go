@@ -33,24 +33,30 @@ type catInput struct {
 	Query       string   `json:"query,omitempty" jsonschema:"boolean expression to select nodes (alternative to node_ids)"`
 }
 
-// nodeReadOutput carries the precondition token alongside each node a read
-// returns. Writes require the caller to echo the hash it read, so every read
-// that can precede a write has to hand it over; leaving it buried in the
-// rendered text would force agents to parse output meant for humans.
+// nodeReadOutput is one self-contained read result: the node's document
+// alongside the precondition token a write must echo back. Splitting those
+// across two response surfaces — the hash here, the document only in the
+// rendered text — made a read-modify-write cycle require parsing output meant
+// for humans, and made multi-node reads correlate rows by position.
+//
+// Content and Meta are populated to match the read mode and are exactly the
+// fields `edit` accepts, so a row can be modified and sent straight back.
 type nodeReadOutput struct {
 	NodeID  string `json:"node_id"`
 	Hash    string `json:"hash"`
 	Content string `json:"content,omitempty"`
+	Meta    string `json:"meta,omitempty"`
+	Stats   string `json:"stats,omitempty"`
 }
 
-func nodeReadOutputs(views []keg.NodeView, withContent bool) []nodeReadOutput {
+func nodeReadOutputs(ctx context.Context, views []keg.NodeView, opts tapper.CatOptions) []nodeReadOutput {
 	out := make([]nodeReadOutput, 0, len(views))
 	for _, view := range views {
-		row := nodeReadOutput{NodeID: view.ID.Path(), Hash: view.Hash()}
-		if withContent {
-			row.Content = string(view.Content)
-		}
-		out = append(out, row)
+		content, meta, stats := tapper.CatViewDocument(ctx, view, opts)
+		out = append(out, nodeReadOutput{
+			NodeID: view.ID.Path(), Hash: view.Hash(),
+			Content: content, Meta: meta, Stats: stats,
+		})
 	}
 	return out
 }
@@ -58,8 +64,10 @@ func nodeReadOutputs(views []keg.NodeView, withContent bool) []nodeReadOutput {
 func registerCat(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name: "cat",
-		Description: "Read the content of one or more KEG nodes. Each result carries the " +
-			"node's hash; pass it back as expected_hash when editing that node.",
+		Description: "Read one or more KEG nodes. The default returns metadata and content together; " +
+			"meta_only returns just the metadata document, which is how you read metadata before " +
+			"editing it. Each result carries the node's hash; pass it back as expected_hash when " +
+			"editing that node.",
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(false),
@@ -80,7 +88,7 @@ func registerCat(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 			return errorResult(err), nil, nil
 		}
 		res := textResult(tapper.FormatCatViews(ctx, views, opts))
-		res.StructuredContent = map[string]any{"nodes": nodeReadOutputs(views, false)}
+		res.StructuredContent = map[string]any{"nodes": nodeReadOutputs(ctx, views, opts)}
 		return res, nil, nil
 	})
 }

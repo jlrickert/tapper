@@ -13,6 +13,7 @@ func TestCreate_Table(t *testing.T) {
 	cases := []struct {
 		name               string
 		args               []string
+		stdin              string
 		exactOut           string
 		outRegex           string
 		wantReadmeNotEmpty bool
@@ -22,7 +23,8 @@ func TestCreate_Table(t *testing.T) {
 	}{
 		{
 			name:     "default_keg",
-			args:     []string{"create", "--title", "Note", "--lead", "one-line"},
+			args:     []string{"create"},
+			stdin:    "# Note\n\none-line\n",
 			exactOut: "1",
 			readmeContains: []string{
 				"# Note",
@@ -47,7 +49,8 @@ func TestCreate_Table(t *testing.T) {
 		},
 		{
 			name:     "with_tags",
-			args:     []string{"create", "--title", "Tagged", "--lead", "has tags", "--tags", "alpha", "--tags", "beta"},
+			args:     []string{"create"},
+			stdin:    "---\ntags:\n  - alpha\n  - beta\n---\n# Tagged\n\nhas tags\n",
 			outRegex: `^\d+`,
 			metaContains: []string{
 				"tags:",
@@ -57,7 +60,8 @@ func TestCreate_Table(t *testing.T) {
 		},
 		{
 			name:     "with_schema",
-			args:     []string{"create", "--title", "Schema Note", "--schema", "note"},
+			args:     []string{"create", "--schema", "note"},
+			stdin:    "# Schema Note\n",
 			outRegex: `^\d+`,
 			metaContains: []string{
 				"type: note",
@@ -70,6 +74,9 @@ func TestCreate_Table(t *testing.T) {
 			// Set up a fresh fixture per case so repository state is isolated.
 			fx := NewSandbox(t, testutils.WithFixture("testuser", "/home/testuser"))
 			h := NewProcess(t, false, tc.args...)
+			if tc.stdin != "" {
+				h.SetStdin(strings.NewReader(tc.stdin))
+			}
 
 			// Capture the fixture time for timestamp assertions.
 			now := fx.Now().Format(time.RFC3339)

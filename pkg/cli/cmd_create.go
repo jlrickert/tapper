@@ -11,8 +11,9 @@ import (
 //
 // Usage examples:
 //
-//	Tap create --title "My note" --lead "one-line summary"
-//	Tap create --title "Note" --tags tag1 --tags tag2 --attrs foo=bar --attrs x=1
+//	tap create
+//	tap create --schema task
+//	printf '---\ntype: task\n---\n# My note\n' | tap create
 func NewCreateCmd(deps *Deps) *cobra.Command {
 	var opts tapper.CreateOptions
 
@@ -26,12 +27,13 @@ If stdin is piped with non-empty content, it is used as the node body and no
 editor is launched. The content may optionally include YAML frontmatter; if
 present, the frontmatter is written to meta.yaml.
 
-If no stdin and no flags are provided on a TTY, an editor is opened with a
-pre-populated template.
+Otherwise, on a TTY, an editor is opened on the new node. Everything about the
+node is written there: the title is the H1, and metadata is the YAML
+frontmatter above it.
 
-If flags are provided without stdin, the node is created immediately from the
-flag values without opening an editor. --schema selects the node schema and is
-required when the keg is strict and the resolved human validation mode blocks.`,
+--schema preselects the node type, which is prefilled as type: in the editor's
+frontmatter and applied when you save. It is required when the keg is strict and
+the resolved human validation mode blocks.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts.Stream = deps.Runtime.Stream()
 			applyKegTargetProfile(deps, &opts.KegTargetOptions)
@@ -45,14 +47,7 @@ required when the keg is strict and the resolved human validation mode blocks.`,
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&opts.Title, "title", "", "title for the new node")
 	cmd.Flags().StringVar(&opts.Schema, "schema", "", "schema to select for this write")
-	cmd.Flags().StringVar(&opts.Lead, "lead", "", "lead/short summary for the new node")
-	cmd.Flags().StringSliceVar(&opts.Tags, "tags", nil, "tags to apply to the node (repeatable)")
-	cmd.Flags().StringToStringVar(
-		&opts.Attrs, "attrs", nil,
-		"attributes as key=value pairs (repeatable)",
-	)
 
 	return cmd
 }

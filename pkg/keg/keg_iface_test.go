@@ -19,17 +19,9 @@ func newLiftedKeg(t *testing.T) (*sandbox.Sandbox, *kegpkg.LocalKeg) {
 	k := kegpkg.NewLocalKeg(repo, f.Runtime())
 	initNonStrictTestKeg(t, k, f.Context())
 
-	_, err := k.Create(f.Context(), &kegpkg.CreateOptions{
-		Title: "Alpha node",
-		Body:  []byte("# Alpha node\n\nAlpha body links to [beta](../2)"),
-		Tags:  []string{"alpha", "shared"},
-	})
+	_, err := k.Create(f.Context(), &kegpkg.CreateOptions{Body: []byte("# Alpha node\n\nAlpha body links to [beta](../2)"), Meta: []byte("tags:\n  - alpha\n  - shared\n")})
 	require.NoError(t, err)
-	_, err = k.Create(f.Context(), &kegpkg.CreateOptions{
-		Title: "Beta node",
-		Body:  []byte("# Beta node\n\nBeta body mentions gamma rays"),
-		Tags:  []string{"beta", "shared"},
-	})
+	_, err = k.Create(f.Context(), &kegpkg.CreateOptions{Body: []byte("# Beta node\n\nBeta body mentions gamma rays"), Meta: []byte("tags:\n  - beta\n  - shared\n")})
 	require.NoError(t, err)
 	return f, k
 }

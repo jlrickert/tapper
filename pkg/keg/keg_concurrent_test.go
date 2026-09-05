@@ -32,9 +32,7 @@ func TestConcurrentCreate_UniqueIDs(t *testing.T) {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
-			id, err := k.Create(f.Context(), &kegpkg.CreateOptions{
-				Title: fmt.Sprintf("Node %d", idx),
-			})
+			id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Body: []byte("# " + fmt.Sprintf("Node %d", idx) + "\n")})
 			ids[idx] = id.ID
 			errs[idx] = err
 		}(i)
@@ -71,9 +69,7 @@ func TestConcurrentCreate_MemoryRepository(t *testing.T) {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
-			id, err := k.Create(f.Context(), &kegpkg.CreateOptions{
-				Title: fmt.Sprintf("FsNode %d", idx),
-			})
+			id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Body: []byte("# " + fmt.Sprintf("FsNode %d", idx) + "\n")})
 			ids[idx] = id.ID
 			errs[idx] = err
 		}(i)
@@ -104,9 +100,7 @@ func TestConcurrentSetContent_DifferentNodes(t *testing.T) {
 	const N = 10
 	ids := make([]kegpkg.NodeId, N)
 	for i := range N {
-		id, err := k.Create(f.Context(), &kegpkg.CreateOptions{
-			Title: fmt.Sprintf("Node %d", i),
-		})
+		id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Body: []byte("# " + fmt.Sprintf("Node %d", i) + "\n")})
 		require.NoError(t, err)
 		ids[i] = id.ID
 	}
@@ -146,7 +140,7 @@ func TestConcurrentSetContent_SameNode(t *testing.T) {
 	k := kegpkg.NewLocalKeg(repo, f.Runtime())
 	initNonStrictTestKeg(t, k, f.Context())
 
-	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "Shared"})
+	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Body: []byte("# Shared\n")})
 	require.NoError(t, err)
 
 	const N = 5
@@ -182,7 +176,7 @@ func TestConcurrentSetMeta_SameNode(t *testing.T) {
 	k := kegpkg.NewLocalKeg(repo, f.Runtime())
 	initNonStrictTestKeg(t, k, f.Context())
 
-	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "Shared Meta"})
+	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Body: []byte("# Shared Meta\n")})
 	require.NoError(t, err)
 
 	const N = 5
@@ -218,9 +212,7 @@ func TestConcurrentCreateAndEdit(t *testing.T) {
 	const preCreated = 5
 	preIDs := make([]kegpkg.NodeId, preCreated)
 	for i := range preCreated {
-		id, err := k.Create(f.Context(), &kegpkg.CreateOptions{
-			Title: fmt.Sprintf("Pre %d", i),
-		})
+		id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Body: []byte("# " + fmt.Sprintf("Pre %d", i) + "\n")})
 		require.NoError(t, err)
 		preIDs[i] = id.ID
 	}
@@ -236,9 +228,7 @@ func TestConcurrentCreateAndEdit(t *testing.T) {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
-			_, err := k.Create(f.Context(), &kegpkg.CreateOptions{
-				Title: fmt.Sprintf("Created %d", idx),
-			})
+			_, err := k.Create(f.Context(), &kegpkg.CreateOptions{Body: []byte("# " + fmt.Sprintf("Created %d", idx) + "\n")})
 			createErrs[idx] = err
 		}(i)
 	}
@@ -284,12 +274,12 @@ func TestTwoKegInstances_DexNotOverwritten(t *testing.T) {
 	k2 := kegpkg.NewLocalKeg(repo, f.Runtime())
 
 	// k1 creates node 1
-	id1, err := k1.Create(f.Context(), &kegpkg.CreateOptions{Title: "From K1"})
+	id1, err := k1.Create(f.Context(), &kegpkg.CreateOptions{Body: []byte("# From K1\n")})
 	require.NoError(t, err)
 	require.Equal(t, 1, id1.ID.ID)
 
 	// k2 creates node 2 -- its dex should include node 1 from k1
-	id2, err := k2.Create(f.Context(), &kegpkg.CreateOptions{Title: "From K2"})
+	id2, err := k2.Create(f.Context(), &kegpkg.CreateOptions{Body: []byte("# From K2\n")})
 	require.NoError(t, err)
 	require.Equal(t, 2, id2.ID.ID)
 
@@ -312,7 +302,7 @@ func TestConcurrentCrossLock_OnlyOneWins(t *testing.T) {
 	k := kegpkg.NewLocalKeg(repo, f.Runtime())
 	initNonStrictTestKeg(t, k, f.Context())
 
-	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "Lock Race"})
+	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Body: []byte("# Lock Race\n")})
 	require.NoError(t, err)
 
 	const N = 10
@@ -351,7 +341,7 @@ func TestCrossLock_DoesNotBlockWithNodeLock(t *testing.T) {
 	k := kegpkg.NewLocalKeg(repo, f.Runtime())
 	initNonStrictTestKeg(t, k, f.Context())
 
-	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "Lock Independence"})
+	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Body: []byte("# Lock Independence\n")})
 	require.NoError(t, err)
 
 	// Acquire cross-process lock.
@@ -384,7 +374,7 @@ func TestConcurrentRemoveThenSetContent_RaceCondition(t *testing.T) {
 	k := kegpkg.NewLocalKeg(repo, f.Runtime())
 	initNonStrictTestKeg(t, k, f.Context())
 
-	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "Race Node"})
+	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Body: []byte("# Race Node\n")})
 	require.NoError(t, err)
 
 	var wg sync.WaitGroup
@@ -441,7 +431,7 @@ func TestConcurrentRemoveDuringSetContent_MemoryRepository(t *testing.T) {
 	require.NoError(t, err)
 	initNonStrictTestKeg(t, k, f.Context())
 
-	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "FsDoomed"})
+	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Body: []byte("# FsDoomed\n")})
 	require.NoError(t, err)
 
 	// Remove the node.
@@ -470,10 +460,7 @@ func TestConcurrentRemoveDuringSetMeta_MemoryRepository(t *testing.T) {
 	require.NoError(t, err)
 	initNonStrictTestKeg(t, k, f.Context())
 
-	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{
-		Title: "FsMetaDoomed",
-		Tags:  []string{"victim"},
-	})
+	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Body: []byte("# FsMetaDoomed\n"), Meta: []byte("tags:\n  - victim\n")})
 	require.NoError(t, err)
 
 	meta, err := k.GetMeta(f.Context(), id.ID)
@@ -500,7 +487,7 @@ func TestConcurrentRemoveDuringTouch_MemoryRepository(t *testing.T) {
 	require.NoError(t, err)
 	initNonStrictTestKeg(t, k, f.Context())
 
-	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "FsTouchDoomed"})
+	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Body: []byte("# FsTouchDoomed\n")})
 	require.NoError(t, err)
 
 	require.NoError(t, errOnly(k.Remove(f.Context(), removeOptions(t, f.Context(), k, id.ID))))
@@ -524,7 +511,7 @@ func TestConcurrentRemoveDuringUpdateMeta_MemoryRepository(t *testing.T) {
 	require.NoError(t, err)
 	initNonStrictTestKeg(t, k, f.Context())
 
-	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "FsUpdateDoomed"})
+	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Body: []byte("# FsUpdateDoomed\n")})
 	require.NoError(t, err)
 
 	require.NoError(t, errOnly(k.Remove(f.Context(), removeOptions(t, f.Context(), k, id.ID))))

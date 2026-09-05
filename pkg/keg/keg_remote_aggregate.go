@@ -209,17 +209,21 @@ func (k *RemoteKeg) UpdateNode(ctx context.Context, opts NodeUpdateOptions) (*No
 
 func (k *RemoteKeg) CreateNodes(ctx context.Context, nodes []NodeCreate) ([]CreateNodeResult, error) {
 	type wireNode struct {
-		Key    string         `json:"key"`
-		Schema string         `json:"schema,omitempty"`
-		Title  string         `json:"title,omitempty"`
-		Lead   string         `json:"lead,omitempty"`
-		Body   string         `json:"body,omitempty"`
-		Tags   []string       `json:"tags,omitempty"`
-		Attrs  map[string]any `json:"attrs,omitempty"`
+		Key     string `json:"key"`
+		Schema  string `json:"schema,omitempty"`
+		Content string `json:"content,omitempty"`
+		Meta    string `json:"meta,omitempty"`
 	}
 	wire := make([]wireNode, len(nodes))
 	for i, n := range nodes {
-		wire[i] = wireNode{n.Key, n.Schema, n.Title, n.Lead, string(n.Body), n.Tags, n.Attrs}
+		// Keyed, not positional: a positional literal is what let Meta be added
+		// to NodeCreate and go unsent here without anything failing to compile.
+		wire[i] = wireNode{
+			Key:     n.Key,
+			Schema:  n.Schema,
+			Content: string(n.Body),
+			Meta:    string(n.Meta),
+		}
 	}
 	var response []struct {
 		Key        string                  `json:"key"`

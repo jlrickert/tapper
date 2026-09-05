@@ -117,11 +117,7 @@ func TestCreateNodeWithMeta(t *testing.T) {
 	k := kegpkg.NewLocalKeg(repo, f.Runtime())
 	initNonStrictTestKeg(t, k, f.Context())
 
-	opts := &kegpkg.CreateOptions{
-		Title: "MyTitle",
-		Lead:  "short lead",
-		Tags:  []string{"TagA", "tag-a"},
-	}
+	opts := &kegpkg.CreateOptions{Body: []byte("# MyTitle\n\nshort lead\n"), Meta: []byte("tags:\n  - TagA\n  - tag-a\n")}
 	id, err := k.Create(f.Context(), opts)
 	require.NoError(t, err)
 	require.Equal(t, 1, id.ID.ID, "expected created node id to be 1")
@@ -168,9 +164,13 @@ func TestCreateWithBody(t *testing.T) {
 	require.Equal(t, "body paragraph", stats.Lead())
 }
 
-// New test: Body contains YAML frontmatter. Ensure content written equals the
-// provided bytes and parsed meta reflects the markdown heading and lead.
-func TestCreateWithBodyFrontmatter(t *testing.T) {
+// A node is built from two separate inputs, so content that opens with a
+// frontmatter block is rejected rather than silently folded into metadata —
+// otherwise a body legitimately starting with a horizontal rule would have its
+// following lines eaten as meta. The same declarations belong in Meta, and this
+// pins that the two halves still produce the title, lead, tags, and attributes
+// the merged form used to.
+func TestCreateRejectsBodyFrontmatterAndAcceptsMeta(t *testing.T) {
 	t.Parallel()
 	f := NewSandbox(t)
 
@@ -178,7 +178,7 @@ func TestCreateWithBodyFrontmatter(t *testing.T) {
 	k := kegpkg.NewLocalKeg(repo, f.Runtime())
 	initNonStrictTestKeg(t, k, f.Context())
 
-	rawBody := []byte(`---
+	_, err := k.Create(f.Context(), &kegpkg.CreateOptions{Body: []byte(`---
 tags:
   - fm
 foo: bar
@@ -186,15 +186,21 @@ foo: bar
 # FMTitle
 
 fm lead paragraph
-`)
-	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Body: rawBody})
+`)})
+	require.ErrorIs(t, err, kegpkg.ErrInvalid)
+	require.Contains(t, err.Error(), "must not start with a YAML frontmatter block")
+
+	rawBody := []byte("# FMTitle\n\nfm lead paragraph\n")
+	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{
+		Body: rawBody,
+		Meta: []byte("tags:\n  - fm\nfoo: bar\n"),
+	})
 	require.NoError(t, err)
-	require.Equal(t, 1, id.ID.ID, "expected created node id to be 1")
+	require.Equal(t, 1, id.ID.ID, "the rejected create must not consume an id")
 
 	got, err := k.GetContent(f.Context(), id.ID)
-	content, _ := kegpkg.ParseContent(f.Runtime(), rawBody, kegpkg.FormatMarkdown)
 	require.NoError(t, err)
-	require.Equal(t, content.Body, string(got))
+	require.Equal(t, string(rawBody), string(got))
 
 	m, err := k.GetMeta(f.Context(), id.ID)
 	require.NoError(t, err)
@@ -222,7 +228,7 @@ func TestSetContentAndUpdate(t *testing.T) {
 	_, err := k.Create(f.Context(), nil)
 	require.NoError(t, err)
 
-	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "Initial"})
+	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Body: []byte("# Initial\n")})
 	require.NoError(t, err)
 
 	// change content to include a new lead paragraph
@@ -249,10 +255,7 @@ func TestCreateAndUpdateNodesWithMemoryRepository(t *testing.T) {
 	initNonStrictTestKeg(t, k, f.Context())
 
 	// Create a new node with title and lead.
-	opts := &kegpkg.CreateOptions{
-		Title: "FSNode",
-		Lead:  "lead fs",
-	}
+	opts := &kegpkg.CreateOptions{Body: []byte("# FSNode\n\nlead fs\n")}
 	id, err := k.Create(f.Context(), opts)
 	require.NoError(t, err)
 	require.Equal(t, 1, id.ID.ID, "expected created node id to be 1")
@@ -304,21 +307,13 @@ func TestNodesWithTagsAndInterlinks(t *testing.T) {
 	initNonStrictTestKeg(t, k, f.Context())
 
 	// Create node A with tags
-	optsA := &kegpkg.CreateOptions{
-		Title: "NodeA",
-		Lead:  "lead a",
-		Tags:  []string{"Alpha", "Shared"},
-	}
+	optsA := &kegpkg.CreateOptions{Body: []byte("# NodeA\n\nlead a\n"), Meta: []byte("tags:\n  - Alpha\n  - Shared\n")}
 	idA, err := k.Create(f.Context(), optsA)
 	require.NoError(t, err)
 	require.Equal(t, 1, idA.ID.ID)
 
 	// Create node B with tags
-	optsB := &kegpkg.CreateOptions{
-		Title: "NodeB",
-		Lead:  "lead b",
-		Tags:  []string{"Beta", "Shared"},
-	}
+	optsB := &kegpkg.CreateOptions{Body: []byte("# NodeB\n\nlead b\n"), Meta: []byte("tags:\n  - Beta\n  - Shared\n")}
 	idB, err := k.Create(f.Context(), optsB)
 	require.NoError(t, err)
 	require.Equal(t, 2, idB.ID.ID)
@@ -380,11 +375,11 @@ func TestMarkdownLinkCreatesBacklinkWhileBareKegProseDoesNot(t *testing.T) {
 	k := kegpkg.NewLocalKeg(repo, f.Runtime())
 	initNonStrictTestKeg(t, k, f.Context())
 
-	one, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "One"})
+	one, err := k.Create(f.Context(), &kegpkg.CreateOptions{Body: []byte("# One\n")})
 	require.NoError(t, err)
-	two, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "Two"})
+	two, err := k.Create(f.Context(), &kegpkg.CreateOptions{Body: []byte("# Two\n")})
 	require.NoError(t, err)
-	three, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "Three"})
+	three, err := k.Create(f.Context(), &kegpkg.CreateOptions{Body: []byte("# Three\n")})
 	require.NoError(t, err)
 
 	require.NoError(t, k.SetContent(f.Context(), one.ID, []byte(
@@ -408,7 +403,7 @@ func TestIndex_PreservesUnknownConfigFields(t *testing.T) {
 	require.NoError(t, err, "NewKegFromTarget failed")
 	initNonStrictTestKeg(t, k, f.Context())
 
-	_, err = k.Create(f.Context(), &kegpkg.CreateOptions{Title: "Settings Field Preservation"})
+	_, err = k.Create(f.Context(), &kegpkg.CreateOptions{Body: []byte("# Settings Field Preservation\n")})
 	require.NoError(t, err)
 
 	customSettings := []byte(`kegv: "2025-07"
@@ -445,11 +440,11 @@ func TestMove_RewritesLinksAndUpdatesDex(t *testing.T) {
 	k := kegpkg.NewLocalKeg(repo, f.Runtime())
 	initNonStrictTestKeg(t, k, f.Context())
 
-	id1, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "One"})
+	id1, err := k.Create(f.Context(), &kegpkg.CreateOptions{Body: []byte("# One\n")})
 	require.NoError(t, err)
 	require.Equal(t, 1, id1.ID.ID)
 
-	id2, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "Two"})
+	id2, err := k.Create(f.Context(), &kegpkg.CreateOptions{Body: []byte("# Two\n")})
 	require.NoError(t, err)
 	require.Equal(t, 2, id2.ID.ID)
 
@@ -494,11 +489,11 @@ func TestMove_DestinationExists(t *testing.T) {
 	k := kegpkg.NewLocalKeg(repo, f.Runtime())
 	initNonStrictTestKeg(t, k, f.Context())
 
-	_, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "One"})
+	_, err := k.Create(f.Context(), &kegpkg.CreateOptions{Body: []byte("# One\n")})
 	require.NoError(t, err)
-	_, err = k.Create(f.Context(), &kegpkg.CreateOptions{Title: "Two"})
+	_, err = k.Create(f.Context(), &kegpkg.CreateOptions{Body: []byte("# Two\n")})
 	require.NoError(t, err)
-	_, err = k.Create(f.Context(), &kegpkg.CreateOptions{Title: "Three"})
+	_, err = k.Create(f.Context(), &kegpkg.CreateOptions{Body: []byte("# Three\n")})
 	require.NoError(t, err)
 
 	_, err = k.Move(f.Context(), moveOptions(t, f.Context(), k, kegpkg.NodeId{ID: 2}, kegpkg.NodeId{ID: 3}))
@@ -514,9 +509,9 @@ func TestRemove_DeletesNodeAndUpdatesDex(t *testing.T) {
 	k := kegpkg.NewLocalKeg(repo, f.Runtime())
 	initNonStrictTestKeg(t, k, f.Context())
 
-	id1, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "One"})
+	id1, err := k.Create(f.Context(), &kegpkg.CreateOptions{Body: []byte("# One\n")})
 	require.NoError(t, err)
-	id2, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "Two"})
+	id2, err := k.Create(f.Context(), &kegpkg.CreateOptions{Body: []byte("# Two\n")})
 	require.NoError(t, err)
 
 	require.NoError(t, k.SetContent(f.Context(), id1.ID, []byte("# One\n\nSee [two](../2).\n")))
@@ -553,7 +548,7 @@ func TestSetContent_OnRemovedNode(t *testing.T) {
 	k := kegpkg.NewLocalKeg(repo, f.Runtime())
 	initNonStrictTestKeg(t, k, f.Context())
 
-	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "Doomed"})
+	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Body: []byte("# Doomed\n")})
 	require.NoError(t, err)
 
 	require.NoError(t, errOnly(k.Remove(f.Context(), removeOptions(t, f.Context(), k, id.ID))))
@@ -589,9 +584,9 @@ func TestSetMeta_PreservesLinksInDex(t *testing.T) {
 	initNonStrictTestKeg(t, k, f.Context())
 
 	// Create two nodes
-	id1, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "Source"})
+	id1, err := k.Create(f.Context(), &kegpkg.CreateOptions{Body: []byte("# Source\n")})
 	require.NoError(t, err)
-	id2, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "Target"})
+	id2, err := k.Create(f.Context(), &kegpkg.CreateOptions{Body: []byte("# Target\n")})
 	require.NoError(t, err)
 
 	// Set content with a link from node 1 to node 2
@@ -661,7 +656,7 @@ func TestIndex_MalformedMetaNodeGetsIndexed(t *testing.T) {
 	initNonStrictTestKeg(t, k, f.Context())
 
 	// Create a node normally first, then corrupt its meta.
-	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "Good Node"})
+	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Body: []byte("# Good Node\n")})
 	require.NoError(t, err)
 
 	// Overwrite meta with invalid YAML.
@@ -723,10 +718,7 @@ func TestSetMeta_NoChangeSkipsDexAndConfig(t *testing.T) {
 	require.NoError(t, err)
 	initNonStrictTestKeg(t, k, f.Context())
 
-	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{
-		Title: "Meta NoOp",
-		Tags:  []string{"test"},
-	})
+	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Body: []byte("# Meta NoOp\n"), Meta: []byte("tags:\n  - test\n")})
 	require.NoError(t, err)
 
 	// Normalize on-disk meta format by doing one round-trip through
@@ -766,10 +758,7 @@ func TestSetMeta_WithChangeUpdatesDexAndConfig(t *testing.T) {
 	require.NoError(t, err)
 	initNonStrictTestKeg(t, k, f.Context())
 
-	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{
-		Title: "Meta Change",
-		Tags:  []string{"old-tag"},
-	})
+	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Body: []byte("# Meta Change\n"), Meta: []byte("tags:\n  - old-tag\n")})
 	require.NoError(t, err)
 
 	// Record keg settings updated timestamp after create.
@@ -849,7 +838,7 @@ func TestIndexRefreshesStatsForOutOfBandMetadataChange(t *testing.T) {
 	k := kegpkg.NewLocalKeg(repo, f.Runtime())
 	initNonStrictTestKeg(t, k, f.Context())
 
-	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "Out Of Band Meta"})
+	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Body: []byte("# Out Of Band Meta\n")})
 	require.NoError(t, err)
 	initialStats, err := k.GetStats(f.Context(), id.ID)
 	require.NoError(t, err)
@@ -934,10 +923,7 @@ func TestEditNoChange_SimulatesSaveWithoutChanges(t *testing.T) {
 	initNonStrictTestKeg(t, k, f.Context())
 
 	body := []byte("# Edit NoOp\n\nSome content.\n")
-	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{
-		Body: body,
-		Tags: []string{"edit-test"},
-	})
+	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Body: body, Meta: []byte("tags:\n  - edit-test\n")})
 	require.NoError(t, err)
 
 	// First round-trip normalizes the on-disk meta format from Create's
@@ -986,7 +972,7 @@ func TestCreateAlwaysTriggersUpdate(t *testing.T) {
 	f.Advance(5 * time.Minute)
 	expectedUpdated := f.Now().Format(time.RFC3339)
 
-	_, err = k.Create(f.Context(), &kegpkg.CreateOptions{Title: "New Node"})
+	_, err = k.Create(f.Context(), &kegpkg.CreateOptions{Body: []byte("# New Node\n")})
 	require.NoError(t, err)
 
 	cfg2, err := k.Settings(f.Context())
@@ -1005,14 +991,14 @@ func TestDexFresh_ReloadsForExternalRepoImplementations(t *testing.T) {
 	k := kegpkg.NewLocalKeg(repo, f.Runtime())
 	initNonStrictTestKeg(t, k, f.Context())
 
-	_, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "Original Node"})
+	_, err := k.Create(f.Context(), &kegpkg.CreateOptions{Body: []byte("# Original Node\n")})
 	require.NoError(t, err)
 
 	dex1, err := k.Dex(f.Context())
 	require.NoError(t, err)
 
 	externalKeg := kegpkg.NewLocalKeg(repo, f.Runtime())
-	externalID, err := externalKeg.Create(f.Context(), &kegpkg.CreateOptions{Title: "External Node"})
+	externalID, err := externalKeg.Create(f.Context(), &kegpkg.CreateOptions{Body: []byte("# External Node\n")})
 	require.NoError(t, err)
 
 	require.Nil(t, dex1.GetRef(f.Context(), externalID.ID), "primed dex should not mutate behind the caller")
@@ -1051,7 +1037,7 @@ func TestSetContent_LocalNodeIDStaysBare(t *testing.T) {
 	initNonStrictTestKeg(t, k, f.Context())
 	require.Equal(t, "example", k.Target().KegName, "KegName must be set to reproduce the bug")
 
-	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "Node 2"})
+	id, err := k.Create(f.Context(), &kegpkg.CreateOptions{Body: []byte("# Node 2\n")})
 	require.NoError(t, err)
 
 	// SetContent is the edit path that previously tainted the dex entry.
@@ -1087,9 +1073,9 @@ func TestMove_LocalNodeIDStaysBare(t *testing.T) {
 	require.NoError(t, err)
 	initNonStrictTestKeg(t, k, f.Context())
 
-	target, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "Target"})
+	target, err := k.Create(f.Context(), &kegpkg.CreateOptions{Body: []byte("# Target\n")})
 	require.NoError(t, err)
-	referrer, err := k.Create(f.Context(), &kegpkg.CreateOptions{Title: "Referrer"})
+	referrer, err := k.Create(f.Context(), &kegpkg.CreateOptions{Body: []byte("# Referrer\n")})
 	require.NoError(t, err)
 
 	// Referrer links to target via a canonical relative node link.

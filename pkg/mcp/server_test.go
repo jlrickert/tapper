@@ -86,7 +86,7 @@ func newMemoryTap(t *testing.T, ctx context.Context, rt *toolkit.Runtime) *tappe
 		}
 		created, err := local.Create(ctx, &keg.CreateOptions{
 			Body: []byte("# Hello World\n\nA simple test node that links to [overview](../0).\n"),
-			Tags: []string{"test", "hello"},
+			Meta: []byte("tags:\n  - test\n  - hello\n"),
 		})
 		if err != nil {
 			return nil, err
@@ -230,7 +230,7 @@ func TestMCP_ToolsList(t *testing.T) {
 	}
 	for _, want := range []string{
 		"auth_info", "keg_list", "keg_search", "cat", "list", "grep", "tags", "backlinks", "links", "info",
-		"keg_settings", "keg_settings_edit", "stats", "create", "edit", "meta", "remove", "move",
+		"keg_settings", "keg_settings_edit", "stats", "create", "edit", "remove", "move",
 		"index", "list_indexes", "index_cat", "doctor", "node_history", "node_snapshot",
 		"node_snapshot_view", "node_restore", "list_files", "list_images", "delete_file", "delete_image",
 		"upload_file", "upload_image", "download_image", "orient", "session_refresh",
@@ -273,7 +273,7 @@ func TestMCP_CommonAgentSafeSurface(t *testing.T) {
 	for _, want := range []string{
 		"cat", "list", "grep", "tags", "backlinks", "links", "info", "keg_settings",
 		"keg_settings_edit",
-		"stats", "create", "edit", "meta", "remove", "move", "index",
+		"stats", "create", "edit", "remove", "move", "index",
 		"list_indexes", "index_cat", "node_history", "node_snapshot",
 		"node_snapshot_view", "node_restore", "orient", "session_refresh",
 		"list_files", "list_images", "delete_file", "delete_image",
@@ -293,6 +293,9 @@ func TestMCP_CommonAgentSafeSurface(t *testing.T) {
 		"namespace_list", "namespace_members", "namespace_add_member",
 		"namespace_set_role", "namespace_remove_member", "namespace_create",
 		"flight_update",
+		// meta was folded into edit (writes) and cat meta_only (reads); it
+		// must not come back as a third way to touch node metadata.
+		"meta",
 	} {
 		require.Falsef(t, names[banned], "common surface must not expose %q", banned)
 	}
@@ -593,23 +596,31 @@ func TestMCP_CatError(t *testing.T) {
 
 // --- write tool tests ---
 
+// batchCreateArgs builds a one-node create payload. It accepts the "title" and
+// "lead" shorthands the create tool no longer has and folds them into the
+// markdown content, so tests that only need *a node to exist* stay readable
+// and do not each have to spell out a heading.
 func batchCreateArgs(item map[string]any) map[string]any {
+	title, hasTitle := item["title"].(string)
+	lead, hasLead := item["lead"].(string)
+	if hasTitle || hasLead {
+		delete(item, "title")
+		delete(item, "lead")
+		if !hasTitle {
+			title = "Node"
+		}
+		content := "# " + title + "\n"
+		if hasLead {
+			content += "\n" + lead + "\n"
+		}
+		item["content"] = content
+	}
 	item["key"] = "node"
 	return map[string]any{"nodes": []any{item}}
 }
 
 func batchEditArgs(item map[string]any) map[string]any {
 	return map[string]any{"edits": []any{item}}
-}
-
-func batchMetaArgs(item map[string]any) map[string]any {
-	nodeID := item["node_id"]
-	delete(item, "node_id")
-	if _, writes := item["content"]; writes {
-		item["node_id"] = nodeID
-		return map[string]any{"updates": []any{item}}
-	}
-	return map[string]any{"node_ids": []any{nodeID}}
 }
 
 func batchSnapshotArgs(item map[string]any) map[string]any {
@@ -624,7 +635,6 @@ func TestMCPMutationSchemasRejectLegacySingleItemFields(t *testing.T) {
 	}{
 		{"create", map[string]any{"title": "legacy"}},
 		{"edit", map[string]any{"node_id": "0", "content": "# legacy\n"}},
-		{"meta", map[string]any{"node_id": "0"}},
 		{"remove", map[string]any{"node_ids": []string{"0"}, "expected_hash": "legacy"}},
 		{"node_snapshot", map[string]any{"node_id": "0"}},
 	} {
@@ -637,11 +647,9 @@ func TestMCPMutationSchemasRejectLegacySingleItemFields(t *testing.T) {
 func TestMCPMutationSchemasRejectEmptyAndOversizedArrays(t *testing.T) {
 	session, ctx := newTestSession(t)
 	oversizedObjects := make([]any, 101)
-	oversizedIDs := make([]any, 101)
 	oversizedRemovals := make([]any, 101)
 	for i := range oversizedObjects {
 		oversizedObjects[i] = map[string]any{"key": fmt.Sprintf("node-%d", i)}
-		oversizedIDs[i] = "0"
 		oversizedRemovals[i] = map[string]any{"node_id": fmt.Sprintf("%d", i), "expected_hash": "hash"}
 	}
 	for _, tc := range []struct {
@@ -652,10 +660,6 @@ func TestMCPMutationSchemasRejectEmptyAndOversizedArrays(t *testing.T) {
 		{"create oversized", map[string]any{"nodes": oversizedObjects}},
 		{"edit empty", map[string]any{"edits": []any{}}},
 		{"edit oversized", map[string]any{"edits": oversizedObjects}},
-		{"meta read empty", map[string]any{"node_ids": []any{}}},
-		{"meta read oversized", map[string]any{"node_ids": oversizedIDs}},
-		{"meta update empty", map[string]any{"updates": []any{}}},
-		{"meta update oversized", map[string]any{"updates": oversizedObjects}},
 		{"remove empty", map[string]any{"nodes": []any{}}},
 		{"remove oversized", map[string]any{"nodes": oversizedRemovals}},
 		{"snapshot empty", map[string]any{"nodes": []any{}}},
@@ -702,7 +706,7 @@ meta:
 
 	invalid, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
 		Name:      "create",
-		Arguments: map[string]any{"nodes": []any{map[string]any{"key": "invalid", "body": "# Missing type\n"}}},
+		Arguments: map[string]any{"nodes": []any{map[string]any{"key": "invalid", "content": "# Missing type\n"}}},
 	})
 	require.NoError(t, err)
 	require.True(t, invalid.IsError, "MCP write was reclassified as human and bypassed agent:block")
@@ -711,7 +715,7 @@ meta:
 	valid, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
 		Name: "create",
 		Arguments: map[string]any{"nodes": []any{map[string]any{
-			"key": "valid", "schema": "task", "body": "# Typed\n", "attrs": map[string]any{"type": "task"},
+			"key": "valid", "schema": "task", "content": "# Typed\n", "meta": "type: task\n",
 		}}},
 	})
 	require.NoError(t, err)
@@ -727,7 +731,7 @@ func TestMCP_Create(t *testing.T) {
 		Arguments: batchCreateArgs(map[string]any{
 			"title": "New Node",
 			"lead":  "A node created via MCP.",
-			"tags":  []string{"mcp-test"},
+			"meta":  "tags:\n  - mcp-test\n",
 		}),
 	})
 	require.NoError(t, err)
@@ -750,13 +754,71 @@ func TestMCP_Create(t *testing.T) {
 	require.Contains(t, readText, "A node created via MCP.")
 }
 
+// TestMCP_CreateRejectsFrontmatterInContent keeps content and meta from being
+// two ways to write the same node metadata.
+func TestMCP_CreateRejectsFrontmatterInContent(t *testing.T) {
+	t.Parallel()
+	session, ctx := newTestSession(t)
+
+	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "create",
+		Arguments: map[string]any{"nodes": []any{map[string]any{
+			"key":     "node",
+			"content": "---\ntags:\n  - sneaky\n---\n\n# Body\n",
+		}}},
+	})
+	require.NoError(t, err)
+	require.True(t, res.IsError, "create accepted frontmatter in content")
+	require.Contains(t, extractText(t, res), "meta field")
+}
+
+// TestMCP_CreateRejectsSchemaConflictingWithMeta pins the promise made in the
+// schema field's description: a type declared in meta is not overridden by a
+// different schema selection, it is refused.
+func TestMCP_CreateRejectsSchemaConflictingWithMeta(t *testing.T) {
+	t.Parallel()
+	session, ctx := newTestSession(t)
+
+	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "create",
+		Arguments: map[string]any{"nodes": []any{map[string]any{
+			"key":     "node",
+			"content": "# Conflicted\n",
+			"meta":    "type: note\n",
+			"schema":  "task",
+		}}},
+	})
+	require.NoError(t, err)
+	require.True(t, res.IsError, "create accepted a schema conflicting with meta.type")
+	require.Contains(t, extractText(t, res), "conflicts with")
+}
+
+// TestMCP_CreateRejectsLegacyStructuredFields pins that title, lead, tags, and
+// attrs are gone rather than silently ignored: each was a second way to write
+// something content or meta already carries.
+func TestMCP_CreateRejectsLegacyStructuredFields(t *testing.T) {
+	t.Parallel()
+	session, ctx := newTestSession(t)
+
+	for _, field := range []string{"title", "lead", "body", "tags", "attrs"} {
+		res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+			Name: "create",
+			Arguments: map[string]any{"nodes": []any{map[string]any{
+				"key": "node", "content": "# Legacy\n", field: "x",
+			}}},
+		})
+		require.NoError(t, err)
+		require.Truef(t, res.IsError, "create accepted legacy field %q", field)
+	}
+}
+
 func TestMCP_CreateBatchReturnsOrderedStructuredResults(t *testing.T) {
 	session, ctx := newTestSession(t)
 	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
 		Name: "create",
 		Arguments: map[string]any{"nodes": []any{
-			map[string]any{"key": "first", "body": "# First\n\n[Second](../{{node:second}})\n"},
-			map[string]any{"key": "second", "body": "# Second\n\n[First](../{{node:first}})\n"},
+			map[string]any{"key": "first", "content": "# First\n\n[Second](../{{node:second}})\n"},
+			map[string]any{"key": "second", "content": "# Second\n\n[First](../{{node:first}})\n"},
 		}},
 	})
 	require.NoError(t, err)
@@ -787,7 +849,7 @@ func TestMCP_CreateWithBody(t *testing.T) {
 	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
 		Name: "create",
 		Arguments: batchCreateArgs(map[string]any{
-			"body": body,
+			"content": body,
 		}),
 	})
 	require.NoError(t, err)
@@ -849,28 +911,32 @@ func TestMCP_Edit(t *testing.T) {
 	require.Contains(t, readText, "Edited via MCP.")
 }
 
-func TestMCP_MetaRead(t *testing.T) {
+// metaOnlyText reads a node's metadata document through cat, which is the only
+// metadata read now that the meta tool is gone.
+func metaOnlyText(t *testing.T, session *sdkmcp.ClientSession, ctx context.Context, nodeID string) string {
+	t.Helper()
+	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name:      "cat",
+		Arguments: map[string]any{"node_ids": []string{nodeID}, "meta_only": true},
+	})
+	require.NoError(t, err)
+	text := extractText(t, res)
+	require.False(t, res.IsError, "cat meta_only returned error: %s", text)
+	return text
+}
+
+func TestMCP_MetaReadThroughCat(t *testing.T) {
 	t.Parallel()
 	session, ctx := newTestSession(t)
 
 	// Node 0 has tags: [overview]
-	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "meta",
-		Arguments: batchMetaArgs(map[string]any{
-			"node_id": "0",
-		}),
-	})
-	require.NoError(t, err)
-	text := extractText(t, res)
-	require.False(t, res.IsError, "meta returned error: %s", text)
-	require.Contains(t, text, "overview")
+	require.Contains(t, metaOnlyText(t, session, ctx, "0"), "overview")
 }
 
-func TestMCP_MetaWrite(t *testing.T) {
+func TestMCP_EditWritesMeta(t *testing.T) {
 	t.Parallel()
 	session, ctx := newTestSession(t)
 
-	// Create a node.
 	createRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
 		Name: "create",
 		Arguments: batchCreateArgs(map[string]any{
@@ -881,29 +947,123 @@ func TestMCP_MetaWrite(t *testing.T) {
 	nodeID := extractText(t, createRes)
 	expectedHash := readNodeHash(t, session, ctx, nodeID)
 
-	// Write new metadata.
 	writeRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "meta",
-		Arguments: batchMetaArgs(map[string]any{
+		Name: "edit",
+		Arguments: batchEditArgs(map[string]any{
 			"node_id":       nodeID,
-			"content":       "tags:\n  - updated\n  - mcp\n",
+			"meta":          "tags:\n  - updated\n  - mcp\n",
 			"expected_hash": expectedHash,
 		}),
 	})
 	require.NoError(t, err)
-	require.False(t, writeRes.IsError, "meta write returned error: %s", extractText(t, writeRes))
+	require.False(t, writeRes.IsError, "edit returned error: %s", extractText(t, writeRes))
 
-	// Read back.
-	readRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "meta",
-		Arguments: batchMetaArgs(map[string]any{
-			"node_id": nodeID,
+	readText := metaOnlyText(t, session, ctx, nodeID)
+	require.Contains(t, readText, "updated")
+	require.Contains(t, readText, "mcp")
+}
+
+// TestMCP_EditWritesContentAndMetaTogether covers the case the old two-tool
+// split could not express at all: both halves of a node replaced in one call,
+// under the single hash that covers them both.
+func TestMCP_EditWritesContentAndMetaTogether(t *testing.T) {
+	t.Parallel()
+	session, ctx := newTestSession(t)
+
+	createRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name:      "create",
+		Arguments: batchCreateArgs(map[string]any{"title": "Before Both"}),
+	})
+	require.NoError(t, err)
+	nodeID := extractText(t, createRes)
+
+	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "edit",
+		Arguments: batchEditArgs(map[string]any{
+			"node_id":       nodeID,
+			"content":       "# After Both\n\nRewritten body.\n",
+			"meta":          "tags:\n  - both\n",
+			"expected_hash": readNodeHash(t, session, ctx, nodeID),
 		}),
 	})
 	require.NoError(t, err)
-	readText := extractText(t, readRes)
-	require.Contains(t, readText, "updated")
-	require.Contains(t, readText, "mcp")
+	require.False(t, res.IsError, "edit returned error: %s", extractText(t, res))
+
+	require.Contains(t, metaOnlyText(t, session, ctx, nodeID), "both")
+
+	contentRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name:      "cat",
+		Arguments: map[string]any{"node_ids": []string{nodeID}, "content_only": true},
+	})
+	require.NoError(t, err)
+	require.Contains(t, extractText(t, contentRes), "# After Both")
+}
+
+// TestMCP_EditRejectsFrontmatterInContent pins the footgun this refactor
+// removed: content that opens with a frontmatter delimiter used to be parsed
+// as metadata silently.
+func TestMCP_EditRejectsFrontmatterInContent(t *testing.T) {
+	t.Parallel()
+	session, ctx := newTestSession(t)
+
+	createRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name:      "create",
+		Arguments: batchCreateArgs(map[string]any{"title": "Frontmatter Subject"}),
+	})
+	require.NoError(t, err)
+	nodeID := extractText(t, createRes)
+
+	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "edit",
+		Arguments: batchEditArgs(map[string]any{
+			"node_id":       nodeID,
+			"content":       "---\ntags:\n  - sneaky\n---\n\n# Body\n",
+			"expected_hash": readNodeHash(t, session, ctx, nodeID),
+		}),
+	})
+	require.NoError(t, err)
+	require.True(t, res.IsError, "edit accepted frontmatter in content")
+	require.Contains(t, extractText(t, res), "meta field")
+
+	require.NotContains(t, metaOnlyText(t, session, ctx, nodeID), "sneaky")
+}
+
+// TestMCP_EditRequiresContentOrMeta rejects an item that names a node and a
+// hash but asks for no change.
+func TestMCP_EditRequiresContentOrMeta(t *testing.T) {
+	t.Parallel()
+	session, ctx := newTestSession(t)
+
+	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "edit",
+		Arguments: batchEditArgs(map[string]any{
+			"node_id":       "0",
+			"expected_hash": readNodeHash(t, session, ctx, "0"),
+		}),
+	})
+	require.NoError(t, err)
+	require.True(t, res.IsError, "edit accepted an item with neither content nor meta")
+	require.Contains(t, extractText(t, res), "content or meta is required")
+}
+
+// TestMCP_EditRejectsSnapshotBefore pins the removal of the implicit snapshot
+// flag: a stale caller must fail loudly rather than quietly lose its snapshot.
+func TestMCP_EditRejectsSnapshotBefore(t *testing.T) {
+	t.Parallel()
+	session, ctx := newTestSession(t)
+
+	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "edit",
+		Arguments: batchEditArgs(map[string]any{
+			"node_id":         "0",
+			"content":         "# Zero\n",
+			"expected_hash":   readNodeHash(t, session, ctx, "0"),
+			"snapshot_before": true,
+		}),
+	})
+	require.NoError(t, err)
+	require.True(t, res.IsError, "edit accepted snapshot_before")
+	require.Contains(t, extractText(t, res), "snapshot_before")
 }
 
 func TestMCP_Remove(t *testing.T) {
@@ -1990,7 +2150,7 @@ func TestMCP_ToolAnnotations_AllPresent(t *testing.T) {
 
 	// --- write non-destructive tools ---
 	writeTools := []string{
-		"create", "edit", "meta",
+		"create", "edit",
 		"node_snapshot",
 		"upload_file", "upload_image",
 		"lock_acquire", "lock_release",

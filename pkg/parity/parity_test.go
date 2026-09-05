@@ -194,7 +194,23 @@ func newParityKeg(t *testing.T, ctx context.Context, rt *toolkit.Runtime) keg.Ke
 }
 
 // runCLI executes a CLI command and returns stdout as a string.
+// runCLICreate creates a node through the CLI by piping content on stdin,
+// which is the only way to give a new node a title now that --title/--lead/
+// --tags/--attrs are gone. meta, when non-empty, rides as YAML frontmatter.
+func (e *parityEnv) runCLICreate(title, meta string, args ...string) (string, error) {
+	e.t.Helper()
+	content := "# " + title + "\n"
+	if meta != "" {
+		content = "---\n" + meta + "---\n" + content
+	}
+	return e.runCLIWithStdin(content, append([]string{"create"}, args...)...)
+}
+
 func (e *parityEnv) runCLI(args ...string) (string, error) {
+	return e.runCLIWithStdin("", args...)
+}
+
+func (e *parityEnv) runCLIWithStdin(stdin string, args ...string) (string, error) {
 	e.t.Helper()
 	proc := sandbox.NewProcess(func(ctx context.Context, rt *toolkit.Runtime) (int, error) {
 		ctx = cli.WithTestDepsHook(ctx, func(deps *cli.Deps) {
@@ -202,6 +218,9 @@ func (e *parityEnv) runCLI(args ...string) (string, error) {
 		})
 		return cli.Run(ctx, rt, args)
 	}, false) // isTTY=false to get stdout output, not editor
+	if stdin != "" {
+		proc.SetStdin(strings.NewReader(stdin))
+	}
 	result := proc.Run(e.ctx, e.sb.Runtime())
 	if result.Err != nil {
 		return strings.TrimSpace(string(result.Stdout)), result.Err

@@ -15,7 +15,7 @@ func TestSnapshotPolicy_MissingSnapshotAfterIdle(t *testing.T) {
 	fx, k := newSnapshotPolicyTestKeg(t)
 	ctx := fx.Context()
 
-	id, err := k.Create(ctx, &kegpkg.CreateOptions{Title: "Policy Target"})
+	id, err := k.Create(ctx, &kegpkg.CreateOptions{Body: []byte("# Policy Target\n")})
 	require.NoError(t, err)
 
 	fx.Advance(59 * time.Minute)
@@ -50,7 +50,7 @@ func TestSnapshotPolicy_OffModeSkipsSnapshots(t *testing.T) {
 	require.NoError(t, k.UpdateSettings(ctx, func(cfg *kegpkg.Settings) {
 		cfg.Snapshots = &kegpkg.SnapshotSettings{Mode: kegpkg.SnapshotModeOff}
 	}))
-	_, err := k.Create(ctx, &kegpkg.CreateOptions{Title: "No Auto Snapshot"})
+	_, err := k.Create(ctx, &kegpkg.CreateOptions{Body: []byte("# No Auto Snapshot\n")})
 	require.NoError(t, err)
 
 	fx.Advance(2 * time.Hour)
@@ -64,7 +64,7 @@ func TestSnapshotPolicy_ContentDriftCreatesSnapshot(t *testing.T) {
 	fx, k := newSnapshotPolicyTestKeg(t)
 	ctx := fx.Context()
 
-	id, err := k.Create(ctx, &kegpkg.CreateOptions{Title: "Drift Target"})
+	id, err := k.Create(ctx, &kegpkg.CreateOptions{Body: []byte("# Drift Target\n")})
 	require.NoError(t, err)
 	fx.Advance(2 * time.Hour)
 	result, err := k.RunSnapshotPolicy(ctx)
@@ -84,7 +84,7 @@ func TestSnapshotPolicy_MetadataDriftDoesNotCreateSnapshotAndRemainsDirty(t *tes
 	fx, k := newSnapshotPolicyTestKeg(t)
 	ctx := fx.Context()
 
-	id, err := k.Create(ctx, &kegpkg.CreateOptions{Title: "Metadata Target"})
+	id, err := k.Create(ctx, &kegpkg.CreateOptions{Body: []byte("# Metadata Target\n")})
 	require.NoError(t, err)
 	fx.Advance(2 * time.Hour)
 	result, err := k.RunSnapshotPolicy(ctx)
@@ -117,7 +117,7 @@ func TestSnapshotPolicy_TouchDoesNotCreateSnapshot(t *testing.T) {
 	fx, k := newSnapshotPolicyTestKeg(t)
 	ctx := fx.Context()
 
-	id, err := k.Create(ctx, &kegpkg.CreateOptions{Title: "Touch Target"})
+	id, err := k.Create(ctx, &kegpkg.CreateOptions{Body: []byte("# Touch Target\n")})
 	require.NoError(t, err)
 	fx.Advance(2 * time.Hour)
 	result, err := k.RunSnapshotPolicy(ctx)

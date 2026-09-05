@@ -277,3 +277,94 @@ func TestPrecondition_ReadsExposeDocumentTokens(t *testing.T) {
 	require.False(t, minimal.IsError)
 	require.Nil(t, minimal.StructuredContent, "the minimal summary must not offer a write token")
 }
+
+// TestCat_StructuredRowsAreSelfContained pins tapper#93: one cat row must carry
+// the node's document AND the hash a write echoes back. They used to live in
+// separate response surfaces — hash in structuredContent, document only in the
+// rendered text — so an agent doing read-modify-write had to parse output meant
+// for humans, and a multi-node read had to correlate two lists by position.
+//
+// Content and meta are asserted separately because that is the shape `edit`
+// accepts; a composed ---meta---body blob could not be sent back, since edit
+// rejects frontmatter inside content.
+func TestCat_StructuredRowsAreSelfContained(t *testing.T) {
+	t.Parallel()
+	session, ctx := newTestSession(t)
+
+	first := createNodeForTest(t, session, ctx, "# Alpha\n\nAlpha body.\n", "tags:\n  - alpha\n")
+	second := createNodeForTest(t, session, ctx, "# Beta\n\nBeta body.\n", "tags:\n  - beta\n")
+
+	rows := catRows(t, session, ctx, map[string]any{"node_ids": []string{first, second}})
+	require.Len(t, rows, 2)
+	require.Equal(t, []string{first, second}, []string{rows[0].NodeID, rows[1].NodeID},
+		"rows must stay in request order so no positional correlation is needed")
+	for i, row := range rows {
+		require.NotEmpty(t, row.Hash, "row %d has no hash", i)
+		require.Contains(t, row.Content, "body.", "row %d has no content", i)
+		require.Contains(t, row.Meta, "tags:", "row %d has no meta", i)
+	}
+	require.Contains(t, rows[0].Content, "# Alpha")
+	require.Contains(t, rows[1].Meta, "beta")
+
+	// meta_only: metadata only, and the hash still works for a write.
+	metaRows := catRows(t, session, ctx, map[string]any{"node_ids": []string{first}, "meta_only": true})
+	require.Len(t, metaRows, 1)
+	require.Contains(t, metaRows[0].Meta, "alpha")
+	require.Empty(t, metaRows[0].Content, "meta_only must not return content")
+
+	// content_only: the inverse.
+	contentRows := catRows(t, session, ctx, map[string]any{"node_ids": []string{first}, "content_only": true})
+	require.Len(t, contentRows, 1)
+	require.Contains(t, contentRows[0].Content, "# Alpha")
+	require.Empty(t, contentRows[0].Meta, "content_only must not return meta")
+
+	// stats_only is explicit too.
+	statsRows := catRows(t, session, ctx, map[string]any{"node_ids": []string{first}, "stats_only": true})
+	require.Len(t, statsRows, 1)
+	require.NotEmpty(t, statsRows[0].Stats, "stats_only must return stats")
+
+	// The whole point: a structured row round-trips into edit with no parsing.
+	editRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "edit",
+		Arguments: batchEditArgs(map[string]any{
+			"node_id":       metaRows[0].NodeID,
+			"meta":          metaRows[0].Meta,
+			"expected_hash": metaRows[0].Hash,
+		}),
+	})
+	require.NoError(t, err)
+	require.False(t, editRes.IsError, "structured meta did not round-trip: %s", extractText(t, editRes))
+}
+
+type catRow struct {
+	NodeID  string `json:"node_id"`
+	Hash    string `json:"hash"`
+	Content string `json:"content"`
+	Meta    string `json:"meta"`
+	Stats   string `json:"stats"`
+}
+
+func catRows(t *testing.T, session *sdkmcp.ClientSession, ctx context.Context, args map[string]any) []catRow {
+	t.Helper()
+	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: "cat", Arguments: args})
+	require.NoError(t, err)
+	require.False(t, res.IsError, "cat returned error: %s", extractText(t, res))
+	raw, err := json.Marshal(res.StructuredContent)
+	require.NoError(t, err)
+	var out struct {
+		Nodes []catRow `json:"nodes"`
+	}
+	require.NoError(t, json.Unmarshal(raw, &out))
+	return out.Nodes
+}
+
+func createNodeForTest(t *testing.T, session *sdkmcp.ClientSession, ctx context.Context, content, meta string) string {
+	t.Helper()
+	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name:      "create",
+		Arguments: map[string]any{"nodes": []any{map[string]any{"key": "node", "content": content, "meta": meta}}},
+	})
+	require.NoError(t, err)
+	require.False(t, res.IsError, "create returned error: %s", extractText(t, res))
+	return extractText(t, res)
+}

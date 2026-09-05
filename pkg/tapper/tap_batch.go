@@ -5,17 +5,13 @@ import (
 	"fmt"
 
 	"github.com/jlrickert/tapper/pkg/keg"
-	"gopkg.in/yaml.v3"
 )
 
 type BatchCreateNode struct {
-	Key    string
-	Schema string
-	Title  string
-	Lead   string
-	Body   string
-	Tags   []string
-	Attrs  map[string]any
+	Key     string
+	Schema  string
+	Content string
+	Meta    string
 }
 type BatchCreateOptions struct {
 	KegTargetOptions
@@ -30,17 +26,24 @@ func (t *Tap) CreateBatch(ctx context.Context, opts BatchCreateOptions) ([]keg.C
 	ctx = keg.WithDefaultValidationActor(ctx, keg.ValidationActorHuman)
 	nodes := make([]keg.NodeCreate, len(opts.Nodes))
 	for i, item := range opts.Nodes {
-		nodes[i] = keg.NodeCreate{Key: item.Key, Schema: item.Schema, Title: item.Title, Lead: item.Lead, Body: []byte(item.Body), Tags: item.Tags, Attrs: item.Attrs}
+		// keg.RejectFrontmatter covers this too; naming the batch item here
+		// tells the caller which one to fix.
+		if err := keg.RejectFrontmatter([]byte(item.Content)); err != nil {
+			return nil, fmt.Errorf("create %d (key %q): %w", i, item.Key, err)
+		}
+		nodes[i] = keg.NodeCreate{Key: item.Key, Schema: item.Schema, Body: []byte(item.Content), Meta: []byte(item.Meta)}
 	}
 	return k.CreateNodes(ctx, nodes)
 }
 
 type BatchEditItem struct {
-	NodeID         string
-	Schema         string
-	Content        string
-	ExpectedHash   string
-	SnapshotBefore bool
+	NodeID       string
+	Schema       string
+	Content      string
+	HasContent   bool
+	Meta         string
+	HasMeta      bool
+	ExpectedHash string
 }
 type BatchEditOptions struct {
 	KegTargetOptions
@@ -59,103 +62,26 @@ func (t *Tap) EditBatch(ctx context.Context, opts BatchEditOptions) ([]keg.NodeU
 		if err != nil {
 			return nil, fmt.Errorf("edit %d node %q: %w", i, item.NodeID, err)
 		}
-		hasMeta, rawMeta, body, err := splitEditNodeFile([]byte(item.Content))
-		if err != nil {
-			return nil, fmt.Errorf("edit %d node %q: %w", i, item.NodeID, err)
+		if !item.HasContent && !item.HasMeta {
+			return nil, fmt.Errorf("edit %d node %q: content or meta is required: %w", i, item.NodeID, keg.ErrInvalid)
 		}
-		updates[i] = keg.NodeUpdateOptions{ID: *id, Schema: item.Schema, Content: body, HasContent: true, ExpectedHash: item.ExpectedHash, SnapshotBefore: item.SnapshotBefore}
-		if hasMeta {
-			meta, err := keg.ParseMeta(ctx, rawMeta)
+		update := keg.NodeUpdateOptions{ID: *id, Schema: item.Schema, ExpectedHash: item.ExpectedHash}
+		if item.HasContent {
+			if err := keg.RejectFrontmatter([]byte(item.Content)); err != nil {
+				return nil, fmt.Errorf("edit %d node %q: %w", i, item.NodeID, err)
+			}
+			update.Content, update.HasContent = []byte(item.Content), true
+		}
+		if item.HasMeta {
+			meta, err := keg.ParseMeta(ctx, []byte(item.Meta))
 			if err != nil {
 				return nil, fmt.Errorf("edit %d node %q metadata: %w", i, item.NodeID, err)
 			}
-			updates[i].Meta, updates[i].HasMeta = []byte(meta.ToYAML()), true
+			update.Meta, update.HasMeta = []byte(meta.ToYAML()), true
 		}
+		updates[i] = update
 	}
 	return k.UpdateNodes(ctx, updates)
-}
-
-type BatchMetaUpdate struct {
-	NodeID         string
-	Schema         string
-	Content        string
-	ExpectedHash   string
-	SnapshotBefore bool
-}
-type BatchMetaOptions struct {
-	KegTargetOptions
-	NodeIDs []string
-	Updates []BatchMetaUpdate
-}
-type BatchMetaResult struct {
-	NodeID string `json:"node_id"`
-	// Hash is the node's precondition token, echoed back as ExpectedHash on
-	// the next write to this node. It covers content and metadata together.
-	Hash    string `json:"hash"`
-	Content string `json:"content"`
-}
-
-func (t *Tap) MetaBatch(ctx context.Context, opts BatchMetaOptions) ([]BatchMetaResult, []keg.NodeUpdateResult, error) {
-	role := FlightRoleViewer
-	if len(opts.Updates) > 0 {
-		role = FlightRoleEditor
-	}
-	k, err := t.resolveKegForRole(ctx, opts.KegTargetOptions, role)
-	if err != nil {
-		return nil, nil, err
-	}
-	if len(opts.NodeIDs) > 0 && len(opts.Updates) > 0 {
-		return nil, nil, fmt.Errorf("node_ids and updates are mutually exclusive: %w", keg.ErrInvalid)
-	}
-	if len(opts.Updates) > 0 {
-		ctx = keg.WithDefaultValidationActor(ctx, keg.ValidationActorHuman)
-		updates := make([]keg.NodeUpdateOptions, len(opts.Updates))
-		for i, item := range opts.Updates {
-			id, err := keg.ParseNode(item.NodeID)
-			if err != nil {
-				return nil, nil, fmt.Errorf("metadata update %d node %q: %w", i, item.NodeID, err)
-			}
-			var raw map[string]any
-			if err := yaml.Unmarshal([]byte(item.Content), &raw); err != nil {
-				return nil, nil, fmt.Errorf("metadata update %d node %q: %w", i, item.NodeID, err)
-			}
-			meta, err := keg.ParseMeta(ctx, []byte(item.Content))
-			if err != nil {
-				return nil, nil, fmt.Errorf("metadata update %d node %q: %w", i, item.NodeID, err)
-			}
-			updates[i] = keg.NodeUpdateOptions{ID: *id, Schema: item.Schema, Meta: []byte(meta.ToYAML()), HasMeta: true, ExpectedHash: item.ExpectedHash, SnapshotBefore: item.SnapshotBefore}
-		}
-		results, err := k.UpdateNodes(ctx, updates)
-		return nil, results, err
-	}
-	if len(opts.NodeIDs) == 0 {
-		return nil, nil, fmt.Errorf("node_ids must contain at least one item: %w", keg.ErrInvalid)
-	}
-	if len(opts.NodeIDs) > keg.MaxMutationBatchSize {
-		return nil, nil, fmt.Errorf("node_ids exceeds maximum %d: %w", keg.MaxMutationBatchSize, keg.ErrInvalid)
-	}
-	ids := make([]keg.NodeId, len(opts.NodeIDs))
-	seen := map[keg.NodeId]int{}
-	for i, raw := range opts.NodeIDs {
-		id, err := keg.ParseNode(raw)
-		if err != nil {
-			return nil, nil, fmt.Errorf("metadata read %d node %q: %w", i, raw, err)
-		}
-		ids[i] = *id
-		if first, ok := seen[*id]; ok {
-			return nil, nil, fmt.Errorf("metadata read %d node %q duplicates index %d: %w", i, raw, first, keg.ErrInvalid)
-		}
-		seen[*id] = i
-	}
-	views, err := k.ReadNodes(ctx, keg.ReadNodesOptions{NodeIDs: ids})
-	if err != nil {
-		return nil, nil, err
-	}
-	out := make([]BatchMetaResult, len(views))
-	for i, view := range views {
-		out[i] = BatchMetaResult{NodeID: view.ID.Path(), Hash: view.Hash(), Content: string(view.Meta)}
-	}
-	return out, nil, nil
 }
 
 type BatchSnapshotItem struct {

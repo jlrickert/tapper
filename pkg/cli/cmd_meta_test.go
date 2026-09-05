@@ -103,7 +103,7 @@ tags:
 func TestMetaCommand_ReplaceFromStdinPersistsSchemaSelection(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
-	created := NewProcess(t, false, "create", "--keg", "personal", "--title", "Metadata target").Run(sb.Context(), sb.Runtime())
+	created := NewCreateProcess(t, false, "Metadata target", "", "--keg", "personal").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, created.Err)
 
 	stdin := strings.NewReader("summary: selected\n")

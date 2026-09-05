@@ -29,6 +29,9 @@ type mockOpsHub struct {
 	token    string
 	requests atomic.Int64
 	srv      *httptest.Server
+	// inspectCreate, when set, receives the raw POST /nodes body so a test can
+	// assert on what actually crossed the wire rather than only on the result.
+	inspectCreate func([]byte)
 }
 
 func (h *mockOpsHub) writeJSON(w http.ResponseWriter, status int, v any) {
@@ -82,17 +85,9 @@ func newMockOpsHub(t *testing.T, f *sandbox.Sandbox, token string) *mockOpsHub {
 	repo := newTestMemoryRepo(f.Runtime())
 	backing := kegpkg.NewLocalKeg(repo, f.Runtime())
 	initNonStrictTestKeg(t, backing, f.Context())
-	_, err := backing.Create(f.Context(), &kegpkg.CreateOptions{
-		Title: "Alpha node",
-		Body:  []byte("# Alpha node\n\nAlpha body links to [beta](../2)"),
-		Tags:  []string{"alpha", "shared"},
-	})
+	_, err := backing.Create(f.Context(), &kegpkg.CreateOptions{Body: []byte("# Alpha node\n\nAlpha body links to [beta](../2)"), Meta: []byte("tags:\n  - alpha\n  - shared\n")})
 	require.NoError(t, err)
-	_, err = backing.Create(f.Context(), &kegpkg.CreateOptions{
-		Title: "Beta node",
-		Body:  []byte("# Beta node\n\nBeta body mentions gamma rays"),
-		Tags:  []string{"beta", "shared"},
-	})
+	_, err = backing.Create(f.Context(), &kegpkg.CreateOptions{Body: []byte("# Beta node\n\nBeta body mentions gamma rays"), Meta: []byte("tags:\n  - beta\n  - shared\n")})
 	require.NoError(t, err)
 
 	h := &mockOpsHub{backing: backing, token: token}
@@ -111,33 +106,30 @@ func newMockOpsHub(t *testing.T, f *sandbox.Sandbox, token string) *mockOpsHub {
 		}
 		h.writeJSON(w, http.StatusOK, out)
 	})
-	mux.HandleFunc("GET /nodes/next", func(w http.ResponseWriter, r *http.Request) {
-		id, err := backing.Next(r.Context())
-		if err != nil {
-			h.kegError(w, err)
+	mux.HandleFunc("POST /nodes", func(w http.ResponseWriter, r *http.Request) {
+		raw, readErr := io.ReadAll(r.Body)
+		if readErr != nil {
+			h.writeError(w, http.StatusBadRequest, "unreadable body", "BAD_REQUEST")
 			return
 		}
-		h.writeJSON(w, http.StatusOK, map[string]int{"id": id.ID})
-	})
-	mux.HandleFunc("POST /nodes", func(w http.ResponseWriter, r *http.Request) {
+		if h.inspectCreate != nil {
+			h.inspectCreate(raw)
+		}
 		var req struct {
 			Nodes []struct {
-				Key    string         `json:"key"`
-				Schema string         `json:"schema"`
-				Title  string         `json:"title"`
-				Lead   string         `json:"lead"`
-				Body   string         `json:"body"`
-				Tags   []string       `json:"tags"`
-				Attrs  map[string]any `json:"attrs"`
+				Key     string `json:"key"`
+				Schema  string `json:"schema"`
+				Content string `json:"content"`
+				Meta    string `json:"meta"`
 			} `json:"nodes"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		if err := json.Unmarshal(raw, &req); err != nil {
 			h.writeError(w, http.StatusBadRequest, "invalid JSON body", "BAD_REQUEST")
 			return
 		}
 		nodes := make([]kegpkg.NodeCreate, len(req.Nodes))
 		for i, item := range req.Nodes {
-			nodes[i] = kegpkg.NodeCreate{Key: item.Key, Schema: item.Schema, Title: item.Title, Lead: item.Lead, Body: []byte(item.Body), Tags: item.Tags, Attrs: item.Attrs}
+			nodes[i] = kegpkg.NodeCreate{Key: item.Key, Schema: item.Schema, Body: []byte(item.Content), Meta: []byte(item.Meta)}
 		}
 		results, err := backing.CreateNodes(r.Context(), nodes)
 		if err != nil {
@@ -629,11 +621,7 @@ func TestRemoteKegRoundTripBasics(t *testing.T) {
 	ctx := f.Context()
 
 	// Create with tags carries composed content + meta in one request.
-	id, err := rk.Create(ctx, &kegpkg.CreateOptions{
-		Title: "Gamma node",
-		Lead:  "A gamma lead",
-		Tags:  []string{"gamma"},
-	})
+	id, err := rk.Create(ctx, &kegpkg.CreateOptions{Body: []byte("# Gamma node\n\nA gamma lead\n"), Meta: []byte("tags:\n  - gamma\n")})
 	require.NoError(t, err)
 	require.Equal(t, 3, id.ID.ID)
 
@@ -696,13 +684,10 @@ func TestRemoteKegRoundTripBasics(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, exists)
 
-	// ListNodes and Next agree with the backing keg.
+	// ListNodes agrees with the backing keg.
 	nodeIDs, err := rk.ListNodes(ctx)
 	require.NoError(t, err)
 	require.Len(t, nodeIDs, 4)
-	next, err := rk.Next(ctx)
-	require.NoError(t, err)
-	require.Equal(t, 4, next.ID)
 }
 
 func TestRemoteMutationBatchesPreserveOrderAndAtomicity(t *testing.T) {
@@ -830,10 +815,7 @@ func TestRemoteKegImportRoundTrip(t *testing.T) {
 	// with fresh ids.
 	src := kegpkg.NewLocalKeg(newTestMemoryRepo(f.Runtime()), f.Runtime())
 	initNonStrictTestKeg(t, src, ctx)
-	srcID, err := src.Create(ctx, &kegpkg.CreateOptions{
-		Title: "Imported node",
-		Body:  []byte("# Imported node\n\ntravels by archive"),
-	})
+	srcID, err := src.Create(ctx, &kegpkg.CreateOptions{Body: []byte("# Imported node\n\ntravels by archive")})
 	require.NoError(t, err)
 
 	rc, err := src.ExportNodes(ctx, kegpkg.ExportNodesOptions{NodeIDs: []kegpkg.NodeId{srcID.ID}})
@@ -876,10 +858,7 @@ func TestRemoteKegSingleRoundTrip(t *testing.T) {
 			return err
 		}},
 		{"Create", func() error {
-			_, err := rk.Create(ctx, &kegpkg.CreateOptions{
-				Title: "Budget node",
-				Tags:  []string{"budget"},
-			})
+			_, err := rk.Create(ctx, &kegpkg.CreateOptions{Body: []byte("# Budget node\n"), Meta: []byte("tags:\n  - budget\n")})
 			return err
 		}},
 		{"Index", func() error {
@@ -917,4 +896,47 @@ func TestRemoteKegErrorMapping(t *testing.T) {
 	t.Run("Init is not supported remotely", func(t *testing.T) {
 		require.ErrorIs(t, rk.Init(ctx), kegpkg.ErrNotSupported)
 	})
+}
+
+// TestRemoteCreateCarriesMetaOverTheWire is a regression test for a create
+// wire that silently dropped NodeCreate.Meta. Meta was added to the keg layer
+// and to the MCP create tool, but RemoteKeg.CreateNodes built its wire struct
+// positionally and never sent it, so metadata vanished on every hub-backed
+// create while local creates kept working. Every other create test runs
+// against a LocalKeg, so nothing crossed the transport that lost it.
+//
+// Assert on the decoded request body, not just the resulting node: the point
+// is that meta is actually transmitted.
+func TestRemoteCreateCarriesMetaOverTheWire(t *testing.T) {
+	t.Parallel()
+	f, hub, rk := newRemoteKegFixture(t)
+	ctx := f.Context()
+
+	var sawMeta string
+	hub.inspectCreate = func(body []byte) {
+		var req struct {
+			Nodes []struct {
+				Meta string `json:"meta"`
+			} `json:"nodes"`
+		}
+		require.NoError(t, json.Unmarshal(body, &req))
+		require.Len(t, req.Nodes, 1)
+		sawMeta = req.Nodes[0].Meta
+	}
+
+	results, err := rk.CreateNodes(ctx, []kegpkg.NodeCreate{{
+		Key:  "node",
+		Body: []byte("# Wire Meta\n"),
+		Meta: []byte("tags:\n  - over-the-wire\n"),
+	}})
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+
+	require.Contains(t, sawMeta, "over-the-wire", "meta was not sent in the create request")
+
+	view, err := rk.ReadNode(ctx, results[0].ID)
+	require.NoError(t, err)
+	meta, err := kegpkg.ParseMeta(ctx, view.Meta)
+	require.NoError(t, err)
+	require.Contains(t, meta.Tags(), "over-the-wire", "meta did not persist through a hub-backed create")
 }

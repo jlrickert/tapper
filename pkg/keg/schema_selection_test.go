@@ -105,12 +105,18 @@ func TestExplicitSchemaSelectionPersistsReplacesAndRejectsConflicts(t *testing.T
 	typeName, _ = meta.Get("type")
 	require.Equal(t, "note", typeName)
 
-	_, err = k.Create(ctx, &keg.CreateOptions{
-		Schema: "task", Attrs: map[string]any{"type": "task"},
-		Body: []byte("---\ntype: note\n---\n# Conflict\n"),
-	})
+	// Content is never a second place to declare a type: a body opening with
+	// frontmatter is rejected outright, before schema selection is considered.
+	// That makes it a malformed request (ErrInvalid), not a schema violation.
+	_, err = k.Create(ctx, &keg.CreateOptions{Schema: "task", Body: []byte("---\ntype: note\n---\n# Conflict\n"), Meta: []byte("type: task\n")})
+	require.ErrorIs(t, err, keg.ErrInvalid)
+	require.Contains(t, err.Error(), "must not start with a YAML frontmatter block")
+
+	// A schema selection disagreeing with the type declared in meta stays a
+	// schema error, and is still never resolved by precedence.
+	_, err = k.Create(ctx, &keg.CreateOptions{Schema: "task", Body: []byte("# Conflict\n"), Meta: []byte("type: note\n")})
 	require.ErrorIs(t, err, keg.ErrSchemaInvalid)
-	require.Contains(t, err.Error(), "conflicts with attributes type")
+	require.Contains(t, err.Error(), "conflicts with metadata type")
 
 	_, err = k.Create(ctx, &keg.CreateOptions{Schema: "  ", Body: []byte("# Whitespace\n")})
 	require.ErrorIs(t, err, keg.ErrSchemaInvalid)

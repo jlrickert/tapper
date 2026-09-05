@@ -64,6 +64,15 @@ func ParseMeta(ctx context.Context, raw []byte) (*NodeMeta, error) {
 		return nil, fmt.Errorf("failed to parse meta yaml: %w", err)
 	}
 
+	// A node's metadata is a mapping of keys. Name the shape that arrived
+	// instead of surfacing the decoder's complaint about the internal struct
+	// it failed to fill — this message reaches API clients verbatim.
+	if len(doc.Content) > 0 {
+		if kind := describeYAMLKind(doc.Content[0].Kind); kind != "" {
+			return nil, fmt.Errorf("metadata must be a YAML mapping of keys, got %s", kind)
+		}
+	}
+
 	var tmp metaYAML
 	if len(doc.Content) > 0 {
 		if err := doc.Content[0].Decode(&tmp); err != nil {
@@ -78,6 +87,22 @@ func ParseMeta(ctx context.Context, raw []byte) (*NodeMeta, error) {
 		node: &doc,
 	}
 	return m, nil
+}
+
+// describeYAMLKind names a root node kind that cannot serve as metadata,
+// returning "" for a mapping (the only acceptable shape) and for kinds where
+// naming it would not help the caller.
+func describeYAMLKind(kind yaml.Kind) string {
+	switch kind {
+	case yaml.SequenceNode:
+		return "a sequence"
+	case yaml.ScalarNode:
+		return "a scalar"
+	case yaml.AliasNode:
+		return "an alias"
+	default:
+		return ""
+	}
 }
 
 // ToYAML serializes only manually edited metadata fields.
@@ -228,6 +253,30 @@ func (m *NodeMeta) Get(key string) (string, bool) {
 		return "", false
 	}
 	return val.Value, true
+}
+
+// Keys returns the top-level keys present in the metadata document, in
+// document order. It exists so callers can detect two inputs writing the same
+// key before either write happens; Get cannot serve that purpose because it
+// reports only scalars and so silently misses nested keys.
+func (m *NodeMeta) Keys() []string {
+	if m == nil || m.node == nil || len(m.node.Content) == 0 {
+		if m != nil && len(m.tags) > 0 {
+			return []string{"tags"}
+		}
+		return nil
+	}
+	root := m.node.Content[0]
+	if root == nil || root.Kind != yaml.MappingNode {
+		return nil
+	}
+	out := make([]string, 0, len(root.Content)/2)
+	for i := 0; i+1 < len(root.Content); i += 2 {
+		if k := root.Content[i]; k != nil && k.Kind == yaml.ScalarNode {
+			out = append(out, k.Value)
+		}
+	}
+	return out
 }
 
 // Set updates known NodeMeta keys (tags) and preserves unknown keys in

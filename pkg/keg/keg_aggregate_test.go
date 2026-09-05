@@ -17,9 +17,9 @@ func TestLocalKegAggregateOperations(t *testing.T) {
 	ctx := fx.Context()
 	k := keg.NewLocalKeg(newTestMemoryRepo(fx.Runtime()), fx.Runtime())
 	initNonStrictTestKeg(t, k, ctx)
-	one, err := k.Create(ctx, &keg.CreateOptions{Body: []byte("# One\n\nlead\n"), Tags: []string{"alpha"}})
+	one, err := k.Create(ctx, &keg.CreateOptions{Body: []byte("# One\n\nlead\n"), Meta: []byte("tags:\n  - alpha\n")})
 	require.NoError(t, err)
-	two, err := k.Create(ctx, &keg.CreateOptions{Body: []byte("# Two\n\n[One](../1)\n"), Tags: []string{"beta"}})
+	two, err := k.Create(ctx, &keg.CreateOptions{Body: []byte("# Two\n\n[One](../1)\n"), Meta: []byte("tags:\n  - beta\n")})
 	require.NoError(t, err)
 
 	listing, err := k.ListEntries(ctx, keg.ListEntriesOptions{Query: "alpha"})
@@ -90,7 +90,7 @@ func TestUpdateNodeRollsBackMemoryWritesOnFailure(t *testing.T) {
 	repo := &failOnceContentRepo{Repository: base}
 	k := keg.NewLocalKeg(repo, fx.Runtime())
 	initNonStrictTestKeg(t, k, ctx)
-	created, err := k.Create(ctx, &keg.CreateOptions{Body: []byte("# Original\n\nbody\n"), Tags: []string{"original"}})
+	created, err := k.Create(ctx, &keg.CreateOptions{Body: []byte("# Original\n\nbody\n"), Meta: []byte("tags:\n  - original\n")})
 	require.NoError(t, err)
 	before, err := k.ReadNode(ctx, created.ID)
 	require.NoError(t, err)
@@ -156,7 +156,7 @@ func TestRemoteAggregateMethodsUseOneRequest(t *testing.T) {
 			return err
 		}},
 		{"create one", http.MethodPost, "/nodes", `[{"key":"node","id":1,"hash":"created"}]`, func(ctx context.Context, k *keg.RemoteKeg) error {
-			_, err := k.Create(ctx, &keg.CreateOptions{Title: "One"})
+			_, err := k.Create(ctx, &keg.CreateOptions{Body: []byte("# One\n")})
 			return err
 		}},
 		{"update", http.MethodPut, "/nodes", `[{"id":1,"hash":"updated"}]`, func(ctx context.Context, k *keg.RemoteKeg) error {

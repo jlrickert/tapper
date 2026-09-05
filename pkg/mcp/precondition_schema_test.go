@@ -85,17 +85,18 @@ func TestMCP_MutationSchemasRequireExpectedHashesAtResourceLocation(t *testing.T
 	}
 
 	for tool, array := range map[string]string{
-		"edit": "edits", "meta": "updates", "remove": "nodes",
+		"edit": "edits", "remove": "nodes",
 	} {
 		root, ok := schemas[tool]
 		require.True(t, ok, "missing tool %q", tool)
 		requireSchemaField(t, schemaArrayItem(t, root, array), "expected_hash", true)
 	}
 
-	// Metadata reads use node_ids and never need a mutation token. Requiring
-	// expected_hash only inside updates keeps that read mode token-free.
-	meta := schemas["meta"]
-	requireSchemaField(t, meta, "expected_hash", false)
+	// create allocates ids, so there is no prior revision to guard and no
+	// expected_hash anywhere in its schema.
+	createItem := schemaArrayItem(t, schemas["create"], "nodes")
+	requireSchemaField(t, createItem, "expected_hash", false)
+	requireSchemaField(t, schemas["create"], "expected_hash", false)
 }
 
 func TestMCP_MutationDescriptionsTeachReadMergeRetryProtocol(t *testing.T) {
@@ -105,7 +106,7 @@ func TestMCP_MutationDescriptionsTeachReadMergeRetryProtocol(t *testing.T) {
 	require.NoError(t, err)
 
 	wants := map[string]string{
-		"edit": "cat", "meta": "cat", "remove": "cat", "move": "cat",
+		"edit": "cat", "remove": "cat", "move": "cat",
 		"keg_settings_edit": "keg_settings", "schema_edit": "schema_read",
 		"schema_delete": "schema_read", "flight_edit": "flight_show", "flight_delete": "flight_show",
 	}
@@ -123,4 +124,56 @@ func TestMCP_MutationDescriptionsTeachReadMergeRetryProtocol(t *testing.T) {
 	for tool := range wants {
 		require.True(t, seen[tool], "missing tool description for %q", tool)
 	}
+}
+
+// TestMCP_AuthorityBearingToolsDescribeFlight pins that the injected flight
+// property is also documented. schemaWithFlight adds `flight` to every
+// authority-bearing tool's schema, but an agent reading descriptions rather
+// than raw schemas saw no mention of it and reported the parameter as missing
+// from keg_create. A property nothing describes reads as absent.
+func TestMCP_AuthorityBearingToolsDescribeFlight(t *testing.T) {
+	t.Parallel()
+	session, ctx := newTestSession(t)
+	result, err := session.ListTools(ctx, nil)
+	require.NoError(t, err)
+
+	checked := 0
+	for _, tool := range result.Tools {
+		schema, err := json.Marshal(tool.InputSchema)
+		require.NoError(t, err)
+		var object struct {
+			Properties map[string]json.RawMessage `json:"properties"`
+		}
+		require.NoError(t, json.Unmarshal(schema, &object))
+		if _, ok := object.Properties["flight"]; !ok {
+			continue
+		}
+		checked++
+		require.Containsf(t, strings.ToLower(tool.Description), "flight",
+			"tool %q accepts a flight property but never mentions it in its description", tool.Name)
+	}
+	require.Greater(t, checked, 0, "no tool exposed a flight property; the injection may have broken")
+}
+
+// TestMCP_WriteToolsStateTheContentContract keeps the two rules an agent
+// previously had to discover by triggering them in the descriptions themselves.
+func TestMCP_WriteToolsStateTheContentContract(t *testing.T) {
+	t.Parallel()
+	session, ctx := newTestSession(t)
+	result, err := session.ListTools(ctx, nil)
+	require.NoError(t, err)
+
+	byName := map[string]string{}
+	for _, tool := range result.Tools {
+		byName[tool.Name] = strings.ToLower(tool.Description)
+	}
+
+	for _, name := range []string{"create", "edit"} {
+		desc, ok := byName[name]
+		require.Truef(t, ok, "missing tool %q", name)
+		require.Containsf(t, desc, "frontmatter",
+			"%q does not say content must not begin with a frontmatter block", name)
+	}
+	require.Contains(t, byName["edit"], "content and metadata together",
+		"edit does not state that one hash covers both halves of a node")
 }

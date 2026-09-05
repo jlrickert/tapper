@@ -12,9 +12,9 @@ func TestMoveCommand_RewritesLinks(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
 
-	res := NewProcess(t, false, "create", "--title", "One").Run(sb.Context(), sb.Runtime())
+	res := NewCreateProcess(t, false, "One", "").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
-	res = NewProcess(t, false, "create", "--title", "Two").Run(sb.Context(), sb.Runtime())
+	res = NewCreateProcess(t, false, "Two", "").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 
 	fixtureSetContent(t, sb.Runtime(), "example", "1", "# One\n\nSee [two](../2).\nAlso ../2.\n")
@@ -39,11 +39,11 @@ func TestMoveCommand_ErrorCases(t *testing.T) {
 	require.Error(t, res.Err)
 	require.Contains(t, string(res.Stderr), "node 999 not found")
 
-	res = NewProcess(t, false, "create", "--title", "One").Run(sb.Context(), sb.Runtime())
+	res = NewCreateProcess(t, false, "One", "").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
-	res = NewProcess(t, false, "create", "--title", "Two").Run(sb.Context(), sb.Runtime())
+	res = NewCreateProcess(t, false, "Two", "").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
-	res = NewProcess(t, false, "create", "--title", "Three").Run(sb.Context(), sb.Runtime())
+	res = NewCreateProcess(t, false, "Three", "").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 
 	res = NewProcess(t, false, "mv", "2", "3").Run(sb.Context(), sb.Runtime())
