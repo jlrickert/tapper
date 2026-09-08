@@ -21,7 +21,7 @@ func TestInfoCommand_DisplaysDiagnostics(t *testing.T) {
 	require.Contains(t, stdout, "keg: personal")
 	require.Contains(t, stdout, "ref: keg:@local/personal")
 	require.Contains(t, stdout, "flight:")
-	require.Contains(t, stdout, "summary:")
+	require.Contains(t, stdout, "description:")
 	require.Contains(t, stdout, "node_count:")
 	require.Contains(t, stdout, "files:")
 	require.Contains(t, stdout, "images:")

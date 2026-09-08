@@ -50,6 +50,18 @@ func seedStore(t *testing.T, sb *sandbox.Sandbox, tap *tapper.Tap, entries map[s
 		store.Set(canon, v)
 	}
 	require.NoError(t, store.Save(ctx, rt, storePath))
+	if hubs := store.Hubs(); len(hubs) > 0 {
+		selected := hubs[0]
+		for _, hub := range hubs {
+			e, _ := store.Get(hub)
+			if e.RefreshToken != "" && !e.ExpiresAt.IsZero() && e.ExpiresAt.Before(rt.Clock().Now().Add(time.Minute)) {
+				selected = hub
+				break
+			}
+		}
+		require.NoError(t, rt.AtomicWriteFile(tap.PathService.UserConfig(), []byte(fmt.Sprintf("disableTelemetry: true\nhub: selected\nhubs:\n  selected: {url: %s}\n", selected)), 0644))
+		tap.ConfigService.Reload()
+	}
 	return first
 }
 
@@ -284,7 +296,7 @@ func TestTap_AuthStatus(t *testing.T) {
 		require.Equal(t, "token", res.LoginMethod)
 	})
 
-	t.Run("multiple hubs without hub reports all sorted and validates each", func(t *testing.T) {
+	t.Run("multiple saved hubs validate only the selected hub", func(t *testing.T) {
 		t.Parallel()
 		sb := NewSandbox(t)
 		tap := newTestTap(t, sb)
@@ -309,25 +321,12 @@ func TestTap_AuthStatus(t *testing.T) {
 		res, err := tap.AuthStatus(sb.Context(), tapper.AuthStatusOptions{})
 		require.NoError(t, err)
 		require.True(t, res.Present)
-		require.Empty(t, res.HubURL, "multi-hub status has no single scalar hub")
-		require.Len(t, res.Hubs, 2)
-		require.Equal(t, "https://hub-a.example.com", res.Hubs[0].HubURL)
-		require.Equal(t, "https://hub-b.example.com", res.Hubs[1].HubURL)
-		require.True(t, res.Hubs[0].Valid)
-		require.True(t, res.Hubs[1].Valid)
-		require.Equal(t, []string{
-			"https://hub-a.example.com thub_alphatoken00",
-			"https://hub-b.example.com thub_betatoken0000",
-		}, calls)
-		require.Contains(t, res.Formatted, "hub-a.example.com")
-		require.Contains(t, res.Formatted, "hub-b.example.com")
-		require.Less(t,
-			strings.Index(res.Formatted, "hub-a.example.com"),
-			strings.Index(res.Formatted, "hub-b.example.com"),
-			"store.Hubs sorted order should drive output order")
+		require.Equal(t, "https://hub-a.example.com", res.HubURL)
+		require.Len(t, res.Hubs, 1)
+		require.True(t, res.Valid)
+		require.Equal(t, []string{"https://hub-a.example.com thub_alphatoken00"}, calls)
 		require.Contains(t, res.Formatted, "Logged in as alice")
-		require.Contains(t, res.Formatted, "Logged in as bob")
-		require.Contains(t, res.Formatted, "\n\nhub-b.example.com\n")
+		require.NotContains(t, res.Formatted, "hub-b.example.com")
 	})
 
 	t.Run("multiple hubs offline skips validation for all", func(t *testing.T) {

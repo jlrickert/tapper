@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/jlrickert/cli-toolkit/toolkit"
+	"github.com/jlrickert/tapper/pkg/keg"
 )
 
 // whoamiPath is the hub's identity probe, mounted under the SessionOrBearer
@@ -52,8 +53,8 @@ type WhoAmI struct {
 }
 
 // ValidateToken calls GET {hubURL}/api/v1/whoami with the bearer token and
-// returns the resolved user. A 401/403 is reported as a rejected token; any
-// other non-200 surfaces the hub's status so misconfigurations are visible.
+// returns the resolved user. A 401 is reported as a rejected token; 403 preserves
+// permission denial. Other non-200 responses surface the Hub status.
 // The default HTTP client is used; callers that need to inject one for tests
 // can hit an httptest.Server, whose URL works with http.DefaultClient.
 func ValidateToken(ctx context.Context, rt *toolkit.Runtime, hubURL, token string) (*WhoAmI, error) {
@@ -75,7 +76,7 @@ func ValidateToken(ctx context.Context, rt *toolkit.Runtime, hubURL, token strin
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Accept", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := hubHTTPClient().Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("auth: contact hub: %w", err)
 	}
@@ -84,7 +85,9 @@ func ValidateToken(ctx context.Context, rt *toolkit.Runtime, hubURL, token strin
 	switch resp.StatusCode {
 	case http.StatusOK:
 		// fall through to decode
-	case http.StatusUnauthorized, http.StatusForbidden:
+	case http.StatusForbidden:
+		return nil, fmt.Errorf("auth: %w (%s)%s", keg.ErrForbidden, resp.Status, readHubError(resp))
+	case http.StatusUnauthorized:
 		// Wrap ErrTokenRejected so callers can branch on errors.Is while the
 		// message keeps the actionable hint and the hub's status line.
 		return nil, fmt.Errorf("auth: %w (%s); check that it was copied correctly and has not been revoked", ErrTokenRejected, resp.Status)
@@ -101,4 +104,13 @@ func ValidateToken(ctx context.Context, rt *toolkit.Runtime, hubURL, token strin
 		return nil, fmt.Errorf("auth: parse whoami response: %w", err)
 	}
 	return &who, nil
+}
+
+// SelectedHubIdentity probes only the selected Hub using its live credentials.
+func (t *Tap) SelectedHubIdentity(ctx context.Context) (*WhoAmI, error) {
+	_, entry, err := t.ConfigService.SelectedHub("")
+	if err != nil {
+		return nil, err
+	}
+	return t.AuthValidateFn(ctx, t.Runtime, entry.URL, t.hubToken(entry))
 }

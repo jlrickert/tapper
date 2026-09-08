@@ -21,6 +21,24 @@ import (
 // files, images, snapshots, locks, and events) return ErrNotSupported when the
 // backend lacks the capability.
 type Keg interface {
+	// ListAttachments returns a scoped page for 1–100 node ids.
+	ListAttachments(context.Context, AttachmentListRequest) (*AttachmentPage, error)
+	// ReadAttachment reads original bytes from a kind-qualified filename.
+	ReadAttachment(context.Context, NodeId, AttachmentKind, string) ([]byte, error)
+	// WriteAttachment stores original bytes without altering the filename.
+	WriteAttachment(context.Context, NodeId, AttachmentKind, string, []byte) error
+	// DeleteAttachment removes only the kind-qualified filename.
+	DeleteAttachment(context.Context, NodeId, AttachmentKind, string) error
+
+	// MoveBatch atomically relocates 1–100 guarded nodes, without swaps.
+	MoveBatch(context.Context, []MoveItem) ([]MutationResult, error)
+	// RemoveBatch atomically removes 1–100 guarded nodes.
+	RemoveBatch(context.Context, []RemoveItem) ([]MutationResult, error)
+	// RestoreBatch atomically restores 1–100 guarded live nodes from snapshots.
+	RestoreBatch(context.Context, []RestoreItem) ([]MutationResult, error)
+	// RenewLock extends a live advisory lease using its existing token.
+	RenewLock(context.Context, NodeId, LockToken) (LockInfo, error)
+
 	// Target returns the keg's resolved location, or nil when no target was set.
 	Target() *Target
 

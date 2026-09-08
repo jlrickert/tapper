@@ -30,7 +30,7 @@ func requireConnectionInstructions(t *testing.T, instructions string) {
 	require.Contains(t, instructions, "# KEG System")
 	require.Contains(t, instructions, "Call `orient`")
 	require.NotContains(t, instructions, "## Available KEGs")
-	require.NotContains(t, instructions, "Active flight:")
+	require.NotContains(t, instructions, "Selected flight:")
 }
 
 func TestMCP_ConfigChangesDoNotReplaceConnectionPinnedRoot(t *testing.T) {
@@ -139,8 +139,9 @@ func TestMCP_OrientRepeatsTheRulesInitializationAlreadySent(t *testing.T) {
 
 	oriented := callOrient(t, ctx, session)
 	require.Contains(t, oriented, "# KEG System")
-	require.Contains(t, oriented, "never read or write node files directly")
-	require.Contains(t, oriented, "## Available KEGs", "orient adds the session state on top")
+	require.Contains(t, oriented, "Use only `mcp__tapper__*` tools")
+	require.Contains(t, oriented, "`flight_search`")
+	require.NotContains(t, oriented, "## Available KEGs")
 }
 
 func TestMCP_OrientRejectsKegInputAndInitializationOmitsSessionState(t *testing.T) {
@@ -183,9 +184,9 @@ func TestMCP_RemoteAliasCoverlessRootActivatesFullSurfaceAndCrossFlightKegList(t
 		case "/api/v1/kegs":
 			catalogRequests.Add(1)
 			_ = json.NewEncoder(w).Encode([]tapper.HubKeg{
-				{Namespace: "admin", Alias: "ecw", Title: "ECW", Summary: "Delivery system", Visibility: "private", Role: "admin"},
-				{Namespace: "admin", Alias: "example", Title: "Example", Summary: "Reference material", Visibility: "private", Role: "viewer"},
-				{Namespace: "admin", Alias: "private", Title: "Private", Summary: "Covered child keg", Visibility: "private", Role: "editor"},
+				{Namespace: "admin", Alias: "ecw", Title: "ECW", Description: "Delivery system", Visibility: "private", Role: "admin"},
+				{Namespace: "admin", Alias: "example", Title: "Example", Description: "Reference material", Visibility: "private", Role: "viewer"},
+				{Namespace: "admin", Alias: "private", Title: "Private", Description: "Covered child keg", Visibility: "private", Role: "editor"},
 			})
 		case "/api/v1/@admin/kegs/private/settings":
 			_ = json.NewEncoder(w).Encode(map[string]any{"kegv": "2025-07", "title": "Private", "summary": "Covered child keg"})
@@ -199,7 +200,7 @@ func TestMCP_RemoteAliasCoverlessRootActivatesFullSurfaceAndCrossFlightKegList(t
 	require.NoError(t, sb.Setwd("/home/testuser/project"))
 	rt := sb.Runtime()
 	config := "flight: \"@admin/+admin\"\n" +
-		"fallbackHub: tapper-2-jlrickert\n" +
+		"hub: tapper-2-jlrickert\n" +
 		"fallbackNamespace: admin\n" +
 		"disableAtlasHub: true\n" +
 		"namespaces:\n  admin:\n    hub: tapper-2-jlrickert\n" +
@@ -225,9 +226,9 @@ func TestMCP_RemoteAliasCoverlessRootActivatesFullSurfaceAndCrossFlightKegList(t
 	session := connectFlightSession(t, ctx, srv, nil)
 	requireConnectionInstructions(t, session.InitializeResult().Instructions)
 	initialOrientation := callOrient(t, ctx, session)
-	require.Contains(t, initialOrientation, "Active flight: `@admin/+admin`")
-	require.Contains(t, initialOrientation, "`@admin/+test`")
-	require.Contains(t, initialOrientation, "`@admin/private`")
+	require.Contains(t, initialOrientation, "Selected flight: `@admin/+admin`")
+	require.NotContains(t, initialOrientation, "`@admin/+test`")
+	require.NotContains(t, initialOrientation, "`@admin/private`")
 	require.NotContains(t, initialOrientation, "`@admin/ecw`")
 	require.NotContains(t, initialOrientation, "`@admin/example`")
 
@@ -243,7 +244,7 @@ func TestMCP_RemoteAliasCoverlessRootActivatesFullSurfaceAndCrossFlightKegList(t
 	require.Equal(t, "@admin/private\teditor\t@admin/+test", extractText(t, rootList))
 	rootStructured, err := json.Marshal(rootList.StructuredContent)
 	require.NoError(t, err)
-	require.JSONEq(t, `{"kegs":[{"ref":"@admin/private","role":"editor","flights":["@admin/+test"]}]}`, string(rootStructured))
+	require.JSONEq(t, `{"kegs":[{"ref":"@admin/private","role":"editor","flights":["@admin/+test"]}],"message":"@admin/private\teditor\t@admin/+test"}`, string(rootStructured))
 
 	explicitRoot, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: "keg_list", Arguments: map[string]any{"flight": "@admin/+admin"}})
 	require.NoError(t, err)
@@ -256,8 +257,8 @@ func TestMCP_RemoteAliasCoverlessRootActivatesFullSurfaceAndCrossFlightKegList(t
 	require.Equal(t, "@admin/private\teditor\t@admin/+test", extractText(t, selected))
 	selectedStructured, err := json.Marshal(selected.StructuredContent)
 	require.NoError(t, err)
-	require.JSONEq(t, `{"kegs":[{"ref":"@admin/private","role":"editor","flights":["@admin/+test"]}]}`, string(selectedStructured))
-	require.Equal(t, beforeSelected+1, catalogRequests.Load(), "selected projection discovers the Hub once")
+	require.JSONEq(t, `{"kegs":[{"ref":"@admin/private","role":"editor","flights":["@admin/+test"]}],"message":"@admin/private\teditor\t@admin/+test"}`, string(selectedStructured))
+	require.Equal(t, beforeSelected+1, catalogRequests.Load(), "one active Hub catalog projection")
 
 	deniedOperation, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: "keg_settings", Arguments: map[string]any{"keg": "@admin/private"}})
 	require.NoError(t, err)
@@ -269,7 +270,7 @@ func TestMCP_RemoteAliasCoverlessRootActivatesFullSurfaceAndCrossFlightKegList(t
 
 	defaultOrient, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: "orient", Arguments: map[string]any{}})
 	require.NoError(t, err)
-	require.Contains(t, extractText(t, defaultOrient), "`@admin/private`")
+	require.NotContains(t, extractText(t, defaultOrient), "`@admin/private`")
 	require.NotContains(t, extractText(t, defaultOrient), "`@admin/ecw`")
 
 	explicitRootOrient, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: "orient", Arguments: map[string]any{"flight": "@admin/+admin"}})
@@ -327,7 +328,7 @@ func writeProjectFlight(t *testing.T, rt *toolkit.Runtime, flight string) {
 func writeUserFlight(t *testing.T, rt *toolkit.Runtime, flight string) {
 	t.Helper()
 	hub := orientationTestHubFor(t, rt)
-	body := "defaultKeg: personal\nfallbackHub: home\nfallbackNamespace: local\ndisableAtlasHub: true\n" +
+	body := "keg: personal\nhub: home\nfallbackNamespace: local\ndisableAtlasHub: true\n" +
 		"namespaces:\n  local:\n    hub: home\n" +
 		"hubs:\n  home:\n    kind: remote\n    url: " + hub.server.URL + "\n    tokenEnv: TAPPER_TEST_HUB_TOKEN\n"
 	if flight != "" {
@@ -369,9 +370,9 @@ func installOrientationTestHub(t *testing.T, rt *toolkit.Runtime) *orientationTe
 	hub := &orientationTestHub{
 		flights: map[string]tapper.HubFlight{},
 		kegs: map[string]tapper.HubKeg{
-			"personal": {Namespace: "local", Alias: "personal", Title: "Personal KEG", Summary: "Personal test knowledge", Visibility: "private", Role: "admin"},
-			"other":    {Namespace: "local", Alias: "other", Title: "Other KEG", Summary: "Other test knowledge", Visibility: "private", Role: "admin"},
-			"private":  {Namespace: "local", Alias: "private", Title: "Private KEG", Summary: "Private test knowledge", Visibility: "private", Role: "admin"},
+			"personal": {Namespace: "local", Alias: "personal", Title: "Personal KEG", Description: "Personal test knowledge", Visibility: "private", Role: "admin"},
+			"other":    {Namespace: "local", Alias: "other", Title: "Other KEG", Description: "Other test knowledge", Visibility: "private", Role: "admin"},
+			"private":  {Namespace: "local", Alias: "private", Title: "Private KEG", Description: "Private test knowledge", Visibility: "private", Role: "admin"},
 		},
 	}
 	hub.server = httptest.NewServer(http.HandlerFunc(hub.serveHTTP))

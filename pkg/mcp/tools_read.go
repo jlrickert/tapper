@@ -25,7 +25,7 @@ func registerReadTools(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults
 // --- cat ---
 
 type catInput struct {
-	NodeIDs     []string `json:"node_ids" jsonschema:"node IDs to read"`
+	NodeIDs     []string `json:"node_ids,omitempty" jsonschema:"node IDs to read"`
 	Keg         string   `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
 	ContentOnly bool     `json:"content_only,omitempty" jsonschema:"return content without frontmatter"`
 	MetaOnly    bool     `json:"meta_only,omitempty" jsonschema:"return metadata only"`
@@ -64,7 +64,7 @@ func nodeReadOutputs(ctx context.Context, views []keg.NodeView, opts tapper.CatO
 func registerCat(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name: "cat",
-		Description: "Read one or more KEG nodes. The default returns metadata and content together; " +
+		Description: "Read KEG nodes using node_ids or query; they are mutually exclusive, and omitting both returns no nodes. The default returns metadata and content together; " +
 			"meta_only returns just the metadata document, which is how you read metadata before " +
 			"editing it. Each result carries the node's hash; pass it back as expected_hash when " +
 			"editing that node.",
@@ -129,7 +129,7 @@ func registerList(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 		if err != nil {
 			return errorResult(err), nil, nil
 		}
-		return linesResult(lines), nil, nil
+		return pagedLinesResult(lines, in.Offset, mcpDefaultLimit(in.Limit)), nil, nil
 	})
 }
 
@@ -150,7 +150,7 @@ type grepInput struct {
 func registerGrep(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "grep",
-		Description: "Search KEG node content with a regex pattern",
+		Description: "Search KEG node content with a regex pattern. max_lines defaults to 3 matched lines per node; -1 returns all matched lines. Follow next_offset for more nodes; use cat for complete bodies.",
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(false),
@@ -171,7 +171,7 @@ func registerGrep(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 		if err != nil {
 			return errorResult(err), nil, nil
 		}
-		return linesResult(lines), nil, nil
+		return pagedLinesResult(lines, in.Offset, mcpDefaultLimit(in.Limit)), nil, nil
 	})
 }
 
@@ -209,7 +209,7 @@ func registerTags(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 		if err != nil {
 			return errorResult(err), nil, nil
 		}
-		return linesResult(lines), nil, nil
+		return pagedLinesResult(lines, in.Offset, mcpDefaultLimit(in.Limit)), nil, nil
 	})
 }
 
@@ -247,7 +247,7 @@ func registerBacklinks(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults
 		if err != nil {
 			return errorResult(err), nil, nil
 		}
-		return linesResult(lines), nil, nil
+		return pagedLinesResult(lines, in.Offset, mcpDefaultLimit(in.Limit)), nil, nil
 	})
 }
 
@@ -285,7 +285,7 @@ func registerLinks(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 		if err != nil {
 			return errorResult(err), nil, nil
 		}
-		return linesResult(lines), nil, nil
+		return pagedLinesResult(lines, in.Offset, mcpDefaultLimit(in.Limit)), nil, nil
 	})
 }
 
@@ -300,7 +300,7 @@ type kegSettingsInput struct {
 func registerKegSettings(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "keg_settings",
-		Description: "Show KEG settings (keg file contents). Returns minimal output by default; set minimal=false for full config.",
+		Description: "Read targeted KEG settings and instructions. Defaults to a minimal summary; set minimal=false for one complete YAML data document and its hash, required by keg_settings_edit. Use keg or 1-100 kegs, never both.",
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(false),
@@ -361,7 +361,7 @@ type infoInput struct {
 func registerInfo(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "info",
-		Description: "Show concise path-free diagnostics for a resolved KEG (canonical ref, flight, summary, node count, and capabilities)",
+		Description: "Show concise path-free diagnostics for a resolved KEG (canonical ref, flight, description, node count, and capabilities)",
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(false),

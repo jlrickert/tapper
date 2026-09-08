@@ -1,4 +1,4 @@
-defaultKeg: personal
+keg: personal
 fallbackNamespace: local
 hubs:
   home:

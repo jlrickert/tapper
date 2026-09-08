@@ -57,7 +57,8 @@ type RemoteKeg struct {
 	// resolution chain so a keg cached for hours (e.g. by a long-running MCP
 	// server) picks up refreshed credentials instead of pinning the token it
 	// was constructed with.
-	tokenFn func() string
+	tokenFn         func() string
+	credentialCheck func() error
 
 	// client is the HTTP client used for all requests.
 	client *http.Client
@@ -133,6 +134,14 @@ func (k *RemoteKeg) SetTarget(target *Target) {
 
 // do executes an HTTP request with authentication and context propagation.
 func (k *RemoteKeg) do(ctx context.Context, method, path string, body io.Reader, contentType string, header http.Header) (*http.Response, error) {
+	if k.credentialCheck != nil {
+		if err := k.credentialCheck(); err != nil {
+			return nil, err
+		}
+	}
+	if err := ValidateOrientationTarget(ctx, k.baseURL); err != nil {
+		return nil, err
+	}
 	req, err := http.NewRequestWithContext(ctx, method, k.baseURL+path, body)
 	if err != nil {
 		return nil, NewBackendError("remote", method+" "+path, 0, err, false)
@@ -148,7 +157,8 @@ func (k *RemoteKeg) do(ctx context.Context, method, path string, body io.Reader,
 			req.Header.Add(key, v)
 		}
 	}
-	if orientation, ok := OrientationHeaderValue(ctx); ok {
+	req.Header.Del(OrientationHeaderName)
+	if orientation, ok := OrientationHeaderForURL(ctx, k.baseURL); ok {
 		// Trusted session state wins over any operation-specific header.
 		req.Header.Set(OrientationHeaderName, orientation)
 	}
@@ -157,7 +167,7 @@ func (k *RemoteKeg) do(ctx context.Context, method, path string, body io.Reader,
 			req.Header.Set(key, val)
 		}
 	}
-	resp, err := k.httpClient().Do(req)
+	resp, err := k.orientationHTTPClient(ctx).Do(req)
 	if err != nil {
 		return nil, NewBackendError("remote", method+" "+path, 0, err, true)
 	}
@@ -398,11 +408,12 @@ func (k *RemoteKeg) ValidateNode(ctx context.Context, id NodeId) (*SchemaValidat
 // ValidateNodePayload implements Keg via POST /validate.
 func (k *RemoteKeg) ValidateNodePayload(ctx context.Context, payload NodeValidationPayload) (*SchemaValidationResult, error) {
 	req := struct {
+		Create  bool    `json:"create,omitempty"`
 		ID      int     `json:"id"`
 		Schema  string  `json:"schema,omitempty"`
 		Content *string `json:"content,omitempty"`
 		Meta    *string `json:"meta,omitempty"`
-	}{ID: payload.ID.ID, Schema: payload.Schema}
+	}{ID: payload.ID.ID, Schema: payload.Schema, Create: payload.Create}
 	if payload.HasContent {
 		content := string(payload.Content)
 		req.Content = &content
@@ -1075,4 +1086,13 @@ func (k *RemoteKeg) ForceUnlock(ctx context.Context, id NodeId) error {
 	}
 	_, err = k.readBody(resp, "ForceUnlock", http.StatusOK, http.StatusNoContent)
 	return err
+}
+
+// orientationHTTPClient prevents redirects from forwarding a proof or replaying
+// a governed mutation at a destination that was never resolved for this call.
+func (k *RemoteKeg) orientationHTTPClient(ctx context.Context) *http.Client {
+	client := k.httpClient()
+	governed := *client
+	governed.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	return &governed
 }

@@ -294,7 +294,7 @@ func newMockOpsHub(t *testing.T, f *sandbox.Sandbox, token string) *mockOpsHub {
 		}
 		response := map[string]any{"removed": removed}
 		if result.Failure != nil {
-			response["failure"] = map[string]any{"node_id": result.Failure.NodeID.ID, "code": result.Failure.Code, "status": result.Failure.Status, "message": result.Failure.Message, "current_hash": result.Failure.CurrentHash, "current_content": result.Failure.CurrentContent}
+			response["failure"] = map[string]any{"node_id": result.Failure.NodeID.ID, "code": result.Failure.Code, "status": result.Failure.Status, "message": result.Failure.Message, "current_hash": result.Failure.CurrentHash, "current_content": string(result.Failure.CurrentContent)}
 		}
 		h.writeJSON(w, http.StatusOK, response)
 	})

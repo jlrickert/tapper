@@ -241,7 +241,18 @@ func (t *Tap) AuthStatus(ctx context.Context, opts AuthStatusOptions) (*AuthStat
 		return nil, err
 	}
 
-	hubs, err := resolveAuthStatusTargets(store, opts.Hub)
+	rawHub := opts.Hub
+	if rawHub == "" && !opts.Offline && len(store.Hubs()) > 0 {
+		cfg, err := t.ConfigService.Config()
+		if err != nil {
+			return nil, err
+		}
+		rawHub, err = ResolveLoginHubURL(cfg, "")
+		if err != nil {
+			return nil, err
+		}
+	}
+	hubs, err := resolveAuthStatusTargets(store, rawHub)
 	if err != nil {
 		if errors.Is(err, errNoHubsStored) {
 			// Empty-store soft-success path: unlike AuthLogout this
@@ -525,7 +536,11 @@ func (t *Tap) AuthRefreshAll(ctx context.Context) {
 		return
 	}
 
-	for _, hub := range store.Hubs() {
+	_, selected, selectErr := t.ConfigService.SelectedHub("")
+	if selectErr != nil || selected.TokenEnv != "" || selected.Token != "" {
+		return
+	}
+	for _, hub := range []string{CanonicalConfiguredHubURL(selected.URL)} {
 		entry, ok := store.Get(hub)
 		if !ok || entry == nil {
 			continue

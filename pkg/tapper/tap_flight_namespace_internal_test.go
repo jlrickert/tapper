@@ -42,22 +42,22 @@ func TestDefaultFlightNamespace(t *testing.T) {
 	}{
 		{
 			name:   "active org keg wins over personal default namespace",
-			config: hubs + "defaultNamespace: jlrickert\ndefaultKeg: \"@foldwise/notes\"\n",
+			config: hubs + "defaultNamespace: jlrickert\nkeg: \"@foldwise/notes\"\n",
 			want:   "foldwise",
 		},
 		{
 			name:   "active personal keg resolves to the personal namespace",
-			config: hubs + "defaultNamespace: jlrickert\ndefaultKeg: \"@jlrickert/notes\"\n",
+			config: hubs + "defaultNamespace: jlrickert\nkeg: \"@jlrickert/notes\"\n",
 			want:   "jlrickert",
 		},
 		{
 			name:   "fallback keg supplies the namespace when no default keg is set",
-			config: hubs + "defaultNamespace: jlrickert\nfallbackKeg: \"@foldwise/notes\"\n",
+			config: hubs + "defaultNamespace: jlrickert\nkeg: \"@foldwise/notes\"\n",
 			want:   "foldwise",
 		},
 		{
-			name:   "default keg outranks fallback keg",
-			config: hubs + "defaultKeg: \"@foldwise/notes\"\nfallbackKeg: \"@other/notes\"\n",
+			name:   "retired fallback KEG is ignored",
+			config: hubs + "keg: \"@foldwise/notes\"\nfallbackKeg: \"@other/notes\"\n",
 			want:   "foldwise",
 		},
 		{
@@ -75,7 +75,7 @@ func TestDefaultFlightNamespace(t *testing.T) {
 			// The selector names no namespace, so the active-KEG step must
 			// decline rather than reporting the personal namespace as though
 			// the KEG had named it.
-			config: hubs + "defaultNamespace: jlrickert\ndefaultKeg: notes\n",
+			config: hubs + "defaultNamespace: jlrickert\nkeg: notes\n",
 			want:   "jlrickert",
 		},
 	}
@@ -99,7 +99,7 @@ func TestDefaultFlightNamespace(t *testing.T) {
 func TestResolveWriteFlightRef_QualifiedRefIsPreserved(t *testing.T) {
 	tap := newFlightNamespaceTap(t,
 		"hubs:\n  atlas:\n    kind: remote\n    url: https://atlas.foldwise.ai\n    token: tok\n"+
-			"defaultNamespace: jlrickert\ndefaultKeg: \"@foldwise/notes\"\n")
+			"defaultNamespace: jlrickert\nkeg: \"@foldwise/notes\"\n")
 
 	ref, _, _, err := tap.resolveWriteFlightRef("@other/+plan")
 	if err != nil {

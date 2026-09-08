@@ -81,6 +81,9 @@ func WithTokenResolver(r TokenResolver) KegOption {
 //
 // Returns an error if the target scheme is not supported.
 func NewKegFromTarget(ctx context.Context, target Target, rt *toolkit.Runtime, opts ...KegOption) (Keg, error) {
+	if target.TokenEnv != "" && strings.TrimSpace(rt.Get(target.TokenEnv)) == "" {
+		return nil, fmt.Errorf("configured token environment variable %q is empty: %w", target.TokenEnv, ErrUnauthorized)
+	}
 	var o kegOptions
 	for _, apply := range opts {
 		apply(&o)
@@ -122,12 +125,14 @@ func NewKegFromTarget(ctx context.Context, target Target, rt *toolkit.Runtime, o
 // memoized by callers (KegService's cache) and can live for hours in a
 // long-running MCP server; the hub's access tokens expire in minutes. The
 // resolver refreshes expired tokens as a side effect of ResolveToken, so
-// re-resolving per request is what keeps a cached keg authenticated. Only
-// installed when a resolver exists — a static inline/env token has nothing
-// to re-resolve.
+// re-resolving per request is what keeps a cached keg authenticated. Explicit
+// environment credentials are also rechecked, including when they disappear.
 func installTokenFn(k *RemoteKeg, target *Target, rt *toolkit.Runtime, resolver TokenResolver) {
-	if resolver == nil {
-		return
+	k.credentialCheck = func() error {
+		if target.TokenEnv != "" && strings.TrimSpace(rt.Get(target.TokenEnv)) == "" {
+			return fmt.Errorf("configured token environment variable %q is empty: %w", target.TokenEnv, ErrUnauthorized)
+		}
+		return nil
 	}
 	k.SetTokenFn(func() string {
 		return resolveTargetToken(target, rt, resolver)
@@ -140,9 +145,8 @@ func installTokenFn(k *RemoteKeg, target *Target, rt *toolkit.Runtime, resolver 
 // credential is available.
 func resolveTargetToken(target *Target, rt *toolkit.Runtime, r TokenResolver) string {
 	if target.TokenEnv != "" {
-		if v := rt.Get(target.TokenEnv); v != "" {
-			return v
-		}
+		// Explicit configuration owns credential selection, even when missing.
+		return rt.Get(target.TokenEnv)
 	}
 	if target.Token != "" {
 		return target.Token

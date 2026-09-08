@@ -13,7 +13,7 @@ import (
 // /api/v1/namespaces and /api/v1/@{namespace}/members.
 
 // NamespaceListOptions selects which hub to query for namespaces. An empty Hub
-// aggregates every configured hub the user can reach.
+// uses the active Hub.
 type NamespaceListOptions struct {
 	Hub string
 }
@@ -75,72 +75,23 @@ type NamespaceCreateResult struct {
 // (distinct from the keg grant roles).
 var namespaceMemberRoles = map[string]bool{"owner": true, "admin": true, "member": true}
 
-// NamespaceList returns the namespaces the caller belongs to. With no --hub it
-// aggregates across every configured hub rather than only the selected one,
-// which previously hid memberships on every other hub and gave no way to tell
-// which hub a row came from (tapper#73). Every row carries its source hub, so
-// the same namespace name on two hubs stays two distinct rows.
-//
-// With an explicit --hub only that hub is queried and its errors surface
-// directly. In aggregate mode an unreachable or unauthenticated hub is recorded
-// as a warning and skipped. This mirrors HubListKegs.
-//
-// Local namespaces are not represented. Tapper has no local hub kind: config
-// admits only remote and readonly, and every resolver rejects anything else.
+// NamespaceList returns memberships on the selected Hub.
 func (t *Tap) NamespaceList(ctx context.Context, opts NamespaceListOptions) (NamespaceListResult, error) {
-	explicit := strings.TrimSpace(opts.Hub)
-	if explicit != "" {
-		hubURL, token, err := t.resolveHubEndpoint(explicit)
-		if err != nil {
-			return NamespaceListResult{}, err
-		}
-		nss, err := ListNamespaces(ctx, hubURL, token)
-		if err != nil {
-			return NamespaceListResult{}, err
-		}
-		return NamespaceListResult{Namespaces: tagNamespaceHub(nss, explicit)}, nil
-	}
-
-	cfg, err := t.ConfigService.Config()
+	name, entry, err := t.ConfigService.SelectedHub(opts.Hub)
 	if err != nil {
 		return NamespaceListResult{}, err
 	}
-
-	var result NamespaceListResult
-	for _, name := range t.allHubNames(cfg) {
-		entry, ok := cfg.Hub(name)
-		if !ok {
-			continue
-		}
-		if kind := hubKindOrDefault(entry.Kind); kind != HubKindRemote && kind != HubKindReadonly {
-			result.Warnings = append(result.Warnings,
-				fmt.Sprintf("hub %q: unsupported kind %q", name, kind))
-			continue
-		}
-		hubURL, token, hErr := remoteHubEndpoint(t, name, entry)
-		if hErr != nil {
-			result.Warnings = append(result.Warnings, fmt.Sprintf("hub %q: %v", name, hErr))
-			continue
-		}
-		nss, lErr := ListNamespaces(ctx, hubURL, token)
-		if lErr != nil {
-			result.Warnings = append(result.Warnings, fmt.Sprintf("hub %q: %v", name, lErr))
-			if lg := t.Runtime.Logger(); lg != nil {
-				lg.Warn("namespace list: skipping hub", "hub", name, "err", lErr)
-			}
-			continue
-		}
-		result.Namespaces = append(result.Namespaces, tagNamespaceHub(nss, name)...)
+	hubURL, token, err := remoteHubEndpoint(t, name, entry)
+	if err != nil {
+		return NamespaceListResult{}, err
 	}
-
-	sort.Slice(result.Namespaces, func(i, j int) bool {
-		a, b := result.Namespaces[i], result.Namespaces[j]
-		if a.Hub != b.Hub {
-			return a.Hub < b.Hub
-		}
-		return a.Name < b.Name
-	})
-	return result, nil
+	rows, err := ListNamespaces(ctx, hubURL, token)
+	if err != nil {
+		return NamespaceListResult{}, err
+	}
+	rows = tagNamespaceHub(rows, name)
+	sort.Slice(rows, func(i, j int) bool { return rows[i].Name < rows[j].Name })
+	return NamespaceListResult{Namespaces: rows}, nil
 }
 
 // tagNamespaceHub stamps each row with the hub it came from.
@@ -307,6 +258,10 @@ func (t *Tap) resolveHubUIEndpoint(hubOverride string) (hubName, hubURL string, 
 // remoteHubEndpoint validates a hub entry as a usable remote endpoint and
 // returns its URL + resolved bearer token.
 func remoteHubEndpoint(t *Tap, hubName string, entry HubEntry) (hubURL, token string, err error) {
+	_, entry, err = t.ConfigService.SelectedHub(hubName)
+	if err != nil {
+		return "", "", err
+	}
 	url := strings.TrimSpace(entry.URL)
 	if url == "" {
 		return "", "", fmt.Errorf("hub %q has no url configured", hubName)

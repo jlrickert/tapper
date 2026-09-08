@@ -136,8 +136,8 @@ instructions: |
 	require.Equal(t, []tapper.FlightCapability{tapper.FlightCapabilityManageFlights}, put.Capabilities)
 	require.Equal(t, "New instructions.\n", put.Instructions)
 	require.Equal(t, []tapper.HubFlightCover{
-		{Namespace: "foldwise", Keg: "docs", Role: "admin"},
-		{Keg: "notes", Role: "viewer"},
+		{Namespace: "foldwise", Keg: "docs", Role: "admin", Depth: 2},
+		{Keg: "notes", Role: "viewer", Depth: 2},
 	}, put.Cover)
 }
 
@@ -266,7 +266,7 @@ EOF
 	put := hub.lastPut(t)
 	require.Equal(t, "Edited In Editor", put.Title)
 	require.Equal(t, "From the editor.", put.Instructions)
-	require.Equal(t, []tapper.HubFlightCover{{Keg: "docs", Role: "editor"}}, put.Cover)
+	require.Equal(t, []tapper.HubFlightCover{{Keg: "docs", Role: "editor", Depth: 2}}, put.Cover)
 }
 
 func TestEditFlight_EditorStartsWithSchemaBackedManifest(t *testing.T) {

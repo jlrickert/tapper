@@ -39,8 +39,8 @@ type SettingsV1 struct {
 	// State indicates the current state of the KEG (e.g., living, archived).
 	State string `yaml:"state,omitempty"`
 
-	// Summary provides a brief description or summary of the KEG content.
-	Summary string `yaml:"summary,omitempty"`
+	// Description describes the KEG content.
+	Description string `yaml:"description"`
 
 	// Indexes is a list of index entries that link to related files or nodes.
 	Indexes []IndexEntry `yaml:"indexes,omitempty"`
@@ -69,8 +69,8 @@ type SettingsV2 struct {
 	// State indicates the current state of the KEG (e.g., living, archived).
 	State string `yaml:"state,omitempty" json:"state,omitempty"`
 
-	// Summary provides a brief description or summary of the KEG content.
-	Summary string `yaml:"summary,omitempty" json:"summary,omitempty"`
+	// Description describes the KEG content.
+	Description string `yaml:"description" json:"description"`
 
 	// Instructions are KEG-level guidance shown to agents when orienting to
 	// this keg.
@@ -209,17 +209,17 @@ type Settings = SettingsV2
 // toV2 converts a SettingsV1 value to the SettingsV2 representation.
 func (c *SettingsV1) toV2() *SettingsV2 {
 	return &SettingsV2{
-		Kegv:      SettingsV2VersionString,
-		Updated:   c.Updated,
-		Title:     c.Title,
-		URL:       c.URL,
-		Creator:   c.Creator,
-		State:     c.State,
-		Summary:   c.Summary,
-		Links:     nil, // No links in v1, so leave as nil
-		Indexes:   c.Indexes,
-		Snapshots: DefaultSnapshotSettings(),
-		path:      "",
+		Kegv:        SettingsV2VersionString,
+		Updated:     c.Updated,
+		Title:       c.Title,
+		URL:         c.URL,
+		Creator:     c.Creator,
+		State:       c.State,
+		Description: c.Description,
+		Links:       nil, // No links in v1, so leave as nil
+		Indexes:     c.Indexes,
+		Snapshots:   DefaultSnapshotSettings(),
+		path:        "",
 	}
 }
 
@@ -233,12 +233,12 @@ func NewSettings(options ...SettingsOption) *Settings {
 		URL:     "git@github.com:YOU/keg.git",
 		Creator: "git@github.com:YOU/YOU.git",
 		State:   "living",
-		Summary: `A Knowledge Exchange Graph (KEG). Each numbered directory is a node
+		Description: `A Knowledge Exchange Graph (KEG). Each numbered directory is a node
 	containing a README.md (content), meta.yaml (metadata), and stats.json
 	(programmatic stats).
 
 	Getting started:
-	- Edit this summary to describe your keg's purpose.
+	- Edit this description to describe your keg's purpose.
 	- Update the url and creator fields to point to your keg's repo and
 	  your profile.
 		- The zero node (0/) is a placeholder for planned content.
@@ -298,6 +298,9 @@ func parseKegSettings(data []byte, strict bool) (*Settings, error) {
 		var settingsV1 SettingsV1
 		if err := yaml.Unmarshal(data, &settingsV1); err != nil {
 			return &settingsV2, err
+		}
+		if _, exists := raw["description"]; !exists {
+			settingsV1.Description, _ = raw["summary"].(string)
 		}
 		cfg := settingsV1.toV2()
 		cfg.applyDefaults()
@@ -548,4 +551,48 @@ func (kc *Settings) String() string {
 
 func (kc *Settings) Touch(t time.Time) {
 	kc.Updated = t.Format(time.RFC3339)
+}
+
+// UnmarshalYAML accepts legacy summary only when description is absent.
+func (s *SettingsV2) UnmarshalYAML(node *yaml.Node) error {
+	type plain SettingsV2
+	var value plain
+	if err := node.Decode(&value); err != nil {
+		return err
+	}
+	var fields map[string]yaml.Node
+	if err := node.Decode(&fields); err != nil {
+		return err
+	}
+	if _, exists := fields["description"]; !exists {
+		if old, ok := fields["summary"]; ok {
+			if err := old.Decode(&value.Description); err != nil {
+				return err
+			}
+		}
+	}
+	*s = SettingsV2(value)
+	return nil
+}
+
+// UnmarshalJSON accepts legacy summary only when description is absent.
+func (s *SettingsV2) UnmarshalJSON(data []byte) error {
+	type plain SettingsV2
+	var value plain
+	if err := json.Unmarshal(data, &value); err != nil {
+		return err
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	if _, exists := fields["description"]; !exists {
+		if old, ok := fields["summary"]; ok {
+			if err := json.Unmarshal(old, &value.Description); err != nil {
+				return err
+			}
+		}
+	}
+	*s = SettingsV2(value)
+	return nil
 }

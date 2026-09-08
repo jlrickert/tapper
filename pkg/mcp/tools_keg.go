@@ -2,12 +2,13 @@ package mcp
 
 import (
 	"context"
-	"errors"
+	"fmt"
 	"sort"
 	"strings"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/jlrickert/tapper/pkg/keg"
 	"github.com/jlrickert/tapper/pkg/tapper"
 )
 
@@ -24,7 +25,7 @@ type kegListOutput struct {
 }
 
 type kegSearchInput struct {
-	Query string `json:"query" jsonschema:"required,non-empty case-insensitive literal query matched against canonical ref, title, and summary"`
+	Query string `json:"query" jsonschema:"required,non-empty case-insensitive literal query matched against canonical ref, title, and description"`
 }
 
 type kegCreateInput struct {
@@ -39,9 +40,10 @@ type kegCreateInput struct {
 // real-flight sessions require manage_kegs. Transport-specific hub selection
 // is intentionally absent from the agent surface.
 func registerKegTools(srv *sdkmcp.Server, defaults KegDefaults, kegs KegDiscoveryProvider, search KegSearchProvider) {
+	registerKegDelete(srv, defaults, kegs)
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "keg_list",
-		Description: "Discover canonical KEGs under current authority. With no flight, every identity-accessible KEG is returned at its real role. Supplying flight selects exactly one available real flight for the call",
+		Description: "Discover canonical KEGs and granting-flight provenance. Without a configured root, returns identity-accessible KEGs at their real roles. With a pinned root, omission aggregates its accessible transitive graph for discovery; a discovered child-only KEG still requires that child as flight on operational calls. Supplying flight returns exactly that flight projection",
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(true),
@@ -81,7 +83,7 @@ func registerKegTools(srv *sdkmcp.Server, defaults KegDefaults, kegs KegDiscover
 
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "keg_search",
-		Description: "Search identity-accessible KEG metadata across all configured hubs. Search results never grant access: no-flight calls may operate at the returned identity role, while a real-flight call must also cover the KEG",
+		Description: "Search identity-accessible KEG metadata on the connection-pinned Hub. Search results never grant access: no-flight calls may operate at the returned identity role, while a real-flight call must also cover the KEG",
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(true),
@@ -89,19 +91,22 @@ func registerKegTools(srv *sdkmcp.Server, defaults KegDefaults, kegs KegDiscover
 	}, func(ctx context.Context, _ *sdkmcp.CallToolRequest, in kegSearchInput) (*sdkmcp.CallToolResult, any, error) {
 		query := strings.TrimSpace(in.Query)
 		if query == "" {
-			return errorResult(errors.New("query must not be empty")), nil, nil
+			return errorResult(fmt.Errorf("%w: query must not be empty", keg.ErrInvalid)), nil, nil
 		}
 		found, err := search.SearchKegs(ctx, query)
 		if err != nil {
 			return errorResult(err), nil, nil
 		}
 		lines := make([]string, 0, len(found.Warnings)+len(found.Kegs))
+		if found.Truncated {
+			lines = append(lines, "Results truncated to 50 KEGs; refine the query.")
+		}
 		for _, warning := range found.Warnings {
 			lines = append(lines, "Warning: "+tsvField(warning))
 		}
 		for _, row := range found.Kegs {
 			lines = append(lines, strings.Join([]string{
-				row.Ref, row.Role, tsvField(row.Title), tsvField(row.Summary), row.Visibility, row.Source,
+				row.Ref, row.Role, tsvField(row.Title), tsvField(row.Description), row.Visibility, row.Source,
 			}, "\t"))
 		}
 		res := linesResult(lines)
@@ -187,4 +192,36 @@ func filterKegRefs(ctx context.Context, refs []string) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+type kegDeleteInput struct {
+	Keg string `json:"keg" jsonschema:"explicit canonical @namespace/keg reference to permanently delete"`
+}
+
+func registerKegDelete(srv *sdkmcp.Server, defaults KegDefaults, provider KegDiscoveryProvider) {
+	sdkmcp.AddTool(srv, &sdkmcp.Tool{Name: "keg_delete", Description: "Permanently delete an empty or populated KEG and all its data, including snapshots. Requires identity admin permission; a selected flight also requires delete_kegs and effective admin cover. manage_kegs alone cannot delete. No expected_hash: a settings hash does not cover a whole KEG.", Annotations: &sdkmcp.ToolAnnotations{DestructiveHint: boolPtr(true), OpenWorldHint: boolPtr(true)}}, func(ctx context.Context, _ *sdkmcp.CallToolRequest, in kegDeleteInput) (*sdkmcp.CallToolResult, any, error) {
+		ns, alias, ok := strings.Cut(strings.TrimPrefix(in.Keg, "@"), "/")
+		if !strings.HasPrefix(in.Keg, "@") || !ok || tapper.ValidateKegAlias(ns) != nil || tapper.ValidateKegAlias(alias) != nil {
+			return errorResult(fmt.Errorf("%w: keg must be an explicit canonical @namespace/keg reference", keg.ErrInvalid)), nil, nil
+		}
+		if err := defaults.gate.authorizeCapability(orientationFromContext(ctx), tapper.FlightCapabilityDeleteKegs); err != nil {
+			return errorResult(err), nil, nil
+		}
+		if flight := SessionFlight(ctx); flight != nil {
+			role, covered := flight.RoleFor("", ns, alias)
+			if !covered || role != tapper.FlightRoleAdmin {
+				return errorResult(keg.ErrOrientationDenied), nil, nil
+			}
+		}
+		deleter, ok := provider.(KegDeletionProvider)
+		if !ok {
+			return errorResult(keg.ErrNotSupported), nil, nil
+		}
+		if err := deleter.DeleteKeg(ctx, in.Keg); err != nil {
+			return errorResult(err), nil, nil
+		}
+		out := map[string]any{"keg": in.Keg, "deleted": true}
+		result := &sdkmcp.CallToolResult{StructuredContent: out}
+		return result, nil, nil
+	})
 }

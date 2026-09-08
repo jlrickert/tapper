@@ -47,9 +47,9 @@ func TestFlightService_ListHubFilterContactsOnlySelectedHub(t *testing.T) {
 
 	names, err = tap.ListFlights(fx.Context(), tapper.ListFlightsOptions{})
 	require.NoError(t, err)
-	require.Equal(t, []string{"@one/+focus", "@two/+review"}, names)
+	require.Equal(t, []string{"@one/+focus"}, names)
 	require.EqualValues(t, 2, firstCalls.Load())
-	require.EqualValues(t, 1, secondCalls.Load(), "unfiltered listing should retain all-hub behavior")
+	require.Zero(t, secondCalls.Load(), "default discovery stays on the selected Hub")
 }
 
 func TestFlightService_RemoteGraphUsesOneFreshBatchPerResolution(t *testing.T) {

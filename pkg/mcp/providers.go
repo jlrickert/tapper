@@ -21,8 +21,11 @@ type Orientation struct {
 	AvailableFlights []string
 	Identity         string
 	Revision         string
-	Payload          string
-	Kegs             []tapper.OrientationKeg
+	// RootHub binds the proof to this connection's validating Hub.
+	RootHub        string
+	AllowedTargets []string
+	Payload        string
+	Kegs           []tapper.OrientationKeg
 	// AggregateKegs is the pinned root plus every accessible transitive
 	// descendant, merged by highest effective role. It exists only on a live
 	// per-call candidate and is never published into shared session state.
@@ -90,19 +93,21 @@ type KegDiscoveryProvider interface {
 // KegSearchRow is identity-authorized KEG metadata. Search results are not a
 // flight projection and never grant operational authority.
 type KegSearchRow struct {
-	Ref        string `json:"ref"`
-	Role       string `json:"role"`
-	Title      string `json:"title"`
-	Summary    string `json:"summary"`
-	Visibility string `json:"visibility"`
-	Source     string `json:"source"`
+	Ref         string `json:"ref"`
+	Role        string `json:"role"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	Visibility  string `json:"visibility"`
+	Source      string `json:"source"`
 }
 
 // KegSearchResult includes partial-discovery warnings without failing useful
 // results from reachable hubs.
 type KegSearchResult struct {
-	Kegs     []KegSearchRow `json:"kegs"`
-	Warnings []string       `json:"warnings,omitempty"`
+	Kegs      []KegSearchRow `json:"kegs"`
+	Warnings  []string       `json:"warnings"`
+	Truncated bool           `json:"truncated"`
+	Partial   bool           `json:"partial"`
 }
 
 // KegSearchProvider searches identity-authorized KEG metadata independently
@@ -151,7 +156,7 @@ func CanonicalOrientationIdentity(identity AuthIdentity) (string, error) {
 // IdentityProvider reports who the session is authenticated as.
 type IdentityProvider interface {
 	// Identities returns the authenticated identities, without credentials.
-	// Local MCP reports every configured hub login; hosted MCP reports the one
+	// Local MCP reports the selected Hub login; hosted MCP reports the one
 	// authenticated account.
 	Identities(context.Context) ([]AuthIdentity, error)
 }
@@ -165,26 +170,7 @@ type localOrientationProvider struct {
 // The no-flight state stays active for the connection lifetime; configuration
 // changes intentionally take effect only after the host starts a new session.
 func localUnpinnedInstructions(skipped []string) string {
-	var b strings.Builder
-	b.WriteString("This connection started without a configured flight, so normal identity-authorized full access applies.\n\n")
-	if len(skipped) > 0 {
-		b.WriteString("Some hubs were skipped during discovery, so this projection may be incomplete:\n\n")
-		for _, warning := range skipped {
-			b.WriteString("- " + warning + "\n")
-		}
-		b.WriteString("\n")
-	}
-	b.WriteString("Use this authority only to bootstrap a least-privilege root. Ask the user to:\n\n")
-	b.WriteString("1. Create a flight with `tap flight create @<namespace>/+<slug>` against a hub\n")
-	b.WriteString("   they are logged in to. Give it only the KEG cover, roles, capabilities, and\n")
-	b.WriteString("   instructions needed.\n")
-	b.WriteString("2. Pin it outside MCP by setting `flight: +<slug>` in `~/.config/tapper/config.yaml`\n")
-	b.WriteString("   (or the project's `.tapper/config.yaml`), exporting `TAP_FLIGHT=+<slug>`,\n")
-	b.WriteString("   or passing `tap mcp --flight +<slug>`.\n")
-	b.WriteString("3. Disconnect this MCP connection and start a new one. `session_refresh` cannot\n")
-	b.WriteString("   change this connection's no-flight authority.\n\n")
-	b.WriteString("`full_access` means the authenticated identities' existing access only; it never raises Hub ACLs or namespace membership.\n")
-	return b.String()
+	return "To restrict this connection, pin a least-privilege flight outside MCP using Tapper configuration or TAP_FLIGHT, then disconnect and start a new one. `session_refresh` cannot change no-flight authority."
 }
 
 func localUnpinnedReconnect() string {
@@ -200,7 +186,11 @@ func (p *localOrientationProvider) Load(ctx context.Context) (*Orientation, erro
 	// their connection-pinned --flight but still need fresh hub routing and credentials.
 	// Configuration is otherwise fixed for the life of the process, so this is
 	// where an edit made outside the session takes effect.
+	if err := p.tap.ConfigService.PinHub(); err != nil {
+		return nil, err
+	}
 	p.tap.ConfigService.Reload()
+	p.tap.KegService.ReloadAuthStore()
 	ref := strings.TrimSpace(p.staticFlight)
 	if ref == "" {
 		ref = p.tap.ActiveFlightName("")
@@ -219,7 +209,11 @@ func (p *localOrientationProvider) Resolve(ctx context.Context, rootRef, selecte
 	if p.tap == nil || p.tap.ConfigService == nil || p.tap.FlightService == nil {
 		return nil, errors.New("Tapper flight service is unavailable")
 	}
+	if err := p.tap.ConfigService.PinHub(); err != nil {
+		return nil, err
+	}
 	p.tap.ConfigService.Reload()
+	p.tap.KegService.ReloadAuthStore()
 	if strings.TrimSpace(rootRef) == "" {
 		return p.resolveUnpinned(ctx, selected)
 	}
@@ -235,7 +229,11 @@ func (p *localOrientationProvider) Resolve(ctx context.Context, rootRef, selecte
 
 func (p *localOrientationProvider) resolveUnpinned(ctx context.Context, selected string) (*Orientation, error) {
 	var warnings []string
-	available, err := p.tap.ListFlights(ctx, tapper.ListFlightsOptions{Warnings: &warnings})
+	catalog, err := p.tap.FlightService.FlightCatalog(ctx, "", &warnings)
+	available := make([]string, 0, len(catalog))
+	for _, row := range catalog {
+		available = append(available, row.Name)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("%w: list identity-accessible flights: %v", ErrOrientationUnavailable, err)
 	}
@@ -272,20 +270,23 @@ func (p *localOrientationProvider) resolveUnpinned(ctx context.Context, selected
 	if !allowed {
 		return nil, fmt.Errorf("%w: selected flight %q is not identity-accessible", ErrOrientationDenied, selected)
 	}
+	active = tapper.ComposedFlight(active)
 	kegs := tapper.ProjectOrientationKegs(active, authorized)
 	orientation := &Orientation{
 		Root: active, Flight: active, Path: []string{active.Name}, AvailableFlights: append([]string(nil), available...),
 		Kegs: kegs, AggregateKegs: append([]tapper.OrientationKeg(nil), kegs...), Warnings: warnings,
 	}
-	orientation.Identity, err = p.orientationIdentityForSource(ctx, active.Source)
-	if err != nil {
-		return nil, err
+	if orientation.Root != nil {
+		if err := p.bindRootAuthority(ctx, orientation); err != nil {
+			return nil, err
+		}
 	}
 	if err := FinalizeOrientation(orientation); err != nil {
 		return nil, err
 	}
 	authority := &tapper.OrientationAuthority{
 		Active: active, Path: orientation.Path, AvailableFlights: available, Revision: orientation.Revision,
+		Children:   tapper.ImmediateFlightChildren(active, catalog),
 		FullAccess: true,
 	}
 	payload, err := tapper.BuildOrientationPayload(active, "", p.tap.ActiveAgentName(), kegs, warnings, authority)
@@ -297,9 +298,6 @@ func (p *localOrientationProvider) resolveUnpinned(ctx context.Context, selected
 }
 
 func (p *localOrientationProvider) orientationIdentityForSource(ctx context.Context, source string) (string, error) {
-	if source == "local" {
-		return "", nil
-	}
 	identities, err := (localIdentityProvider{tap: p.tap}).Identities(ctx)
 	if err != nil {
 		return "", fmt.Errorf("%w: load selected Hub identity: %v", ErrOrientationUnavailable, err)
@@ -335,52 +333,38 @@ func (p *localOrientationProvider) resolve(ctx context.Context, root *tapper.Fli
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrOrientationDenied, err)
 	}
+	active, err = p.tap.FlightService.GetFlightFresh(ctx, active.Name)
+	if err != nil {
+		return nil, fmt.Errorf("%w: load active composed cover: %v", ErrOrientationUnavailable, err)
+	}
+	active = tapper.ComposedFlight(active)
 	authorized, warnings := p.tap.IdentityKegCatalog(ctx)
 	kegs := tapper.ProjectOrientationKegs(active, authorized)
+	for i := range kegs {
+		for _, row := range active.EffectiveCover {
+			if row.Ref == kegs[i].Ref {
+				kegs[i].CoverSource = row.Source
+				kegs[i].Distance = row.Distance
+			}
+		}
+	}
+
 	aggregate := AggregateOrientationKegs(graphFlights(graph), authorized)
 	orientation := &Orientation{
 		Root: root, Flight: active, Path: path, AvailableFlights: selectableFlightRefs(graph),
 		Kegs: kegs, AggregateKegs: aggregate, Warnings: warnings,
 	}
-	identities, err := (localIdentityProvider{tap: p.tap}).Identities(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("%w: load root Hub identity: %v", ErrOrientationUnavailable, err)
-	}
-	var rootIdentity *AuthIdentity
-	rootHubURL := ""
-	if root.Source != "local" {
-		cfg, cfgErr := p.tap.ConfigService.Config()
-		if cfgErr != nil {
-			return nil, fmt.Errorf("%w: resolve root Hub %q: %v", ErrOrientationUnavailable, root.Source, cfgErr)
+	if orientation.Root != nil {
+		if err := p.bindRootAuthority(ctx, orientation); err != nil {
+			return nil, err
 		}
-		if entry, ok := cfg.Hub(root.Source); ok && strings.TrimSpace(entry.URL) != "" {
-			rootHubURL = tapper.CanonicalConfiguredHubURL(entry.URL)
-		} else {
-			// A source normally carries the configured alias. Retain support for
-			// older manifests that stored a URL directly.
-			rootHubURL = tapper.CanonicalConfiguredHubURL(root.Source)
-		}
-	}
-	for _, identity := range identities {
-		if root.Source != "local" && tapper.CanonicalConfiguredHubURL(identity.Hub) == rootHubURL {
-			matched := identity
-			rootIdentity = &matched
-			break
-		}
-	}
-	if rootIdentity != nil {
-		orientation.Identity, err = CanonicalOrientationIdentity(*rootIdentity)
-		if err != nil {
-			return nil, fmt.Errorf("%w: canonicalize root Hub identity: %v", ErrOrientationUnavailable, err)
-		}
-	} else if root.Source != "local" {
-		return nil, fmt.Errorf("%w: authenticated identity for root Hub %q is unavailable", ErrOrientationUnavailable, root.Source)
 	}
 	if err := FinalizeOrientation(orientation); err != nil {
 		return nil, err
 	}
 	authority := &tapper.OrientationAuthority{
 		Root: root, Active: active, Path: path, AvailableFlights: orientation.AvailableFlights,
+		Children: tapper.ImmediateFlightChildren(active, graphFlights(graph)),
 		Revision: orientation.Revision,
 	}
 	discovery := kegs
@@ -399,6 +383,11 @@ func (p *localOrientationProvider) Render(ctx context.Context, flight *tapper.Fl
 	authorized, warnings := p.tap.IdentityKegCatalog(ctx)
 	kegs := tapper.ProjectOrientationKegs(flight, authorized)
 	orientation := &Orientation{Root: flight, Flight: flight, Path: []string{flight.Name}, Kegs: kegs, AggregateKegs: append([]tapper.OrientationKeg(nil), kegs...), Warnings: warnings}
+	if orientation.Root != nil {
+		if err := p.bindRootAuthority(ctx, orientation); err != nil {
+			return nil, err
+		}
+	}
 	if err := FinalizeOrientation(orientation); err != nil {
 		return nil, err
 	}
@@ -546,7 +535,8 @@ func FinalizeOrientation(orientation *Orientation) error {
 			return left.Role < right.Role
 		})
 	}
-	for _, row := range orientation.Kegs {
+	rows := orientation.Kegs
+	for _, row := range rows {
 		in.Kegs = append(in.Kegs, kegAuthority{Ref: row.Ref, Role: row.Role, Visibility: row.Visibility, FlightCap: row.FlightCap})
 	}
 	sort.Slice(in.Kegs, func(i, j int) bool { return in.Kegs[i].Ref < in.Kegs[j].Ref })
@@ -601,32 +591,41 @@ func (p localKegDiscoveryProvider) CreateKeg(ctx context.Context, opts tapper.Cr
 
 func (p localKegDiscoveryProvider) SearchKegs(ctx context.Context, query string) (KegSearchResult, error) {
 	rows, warnings := p.tap.IdentityKegCatalog(ctx)
-	return KegSearchResult{Kegs: SearchIdentityKegs(rows, query), Warnings: warnings}, nil
+	out := SearchIdentityKegsResult(rows, query)
+	out.Warnings = append([]string{}, warnings...)
+	out.Partial = len(warnings) > 0
+	return out, nil
 }
 
 // SearchIdentityKegs performs case-insensitive literal matching over canonical
-// ref, title, and summary, returning at most 50 canonically ordered rows.
+// ref, title, and description, returning at most 50 canonically ordered rows.
 func SearchIdentityKegs(rows []tapper.OrientationKeg, query string) []KegSearchRow {
+	return SearchIdentityKegsResult(rows, query).Kegs
+}
+
+// SearchIdentityKegsResult retains truncation information for MCP callers.
+func SearchIdentityKegsResult(rows []tapper.OrientationKeg, query string) KegSearchResult {
 	needle := strings.ToLower(strings.TrimSpace(query))
 	if needle == "" {
-		return nil
+		return KegSearchResult{Kegs: []KegSearchRow{}, Warnings: []string{}}
 	}
 	matched := make([]KegSearchRow, 0, len(rows))
 	for _, row := range rows {
-		haystack := strings.ToLower(row.Ref + "\n" + row.Title + "\n" + row.Summary)
+		haystack := strings.ToLower(row.Ref + "\n" + row.Title + "\n" + row.Description)
 		if !strings.Contains(haystack, needle) {
 			continue
 		}
 		matched = append(matched, KegSearchRow{
 			Ref: row.Ref, Role: tapper.EffectiveOrientationRole(row),
-			Title: row.Title, Summary: row.Summary, Visibility: row.Visibility, Source: row.Source,
+			Title: row.Title, Description: row.Description, Visibility: row.Visibility, Source: row.Source,
 		})
 	}
 	sort.Slice(matched, func(i, j int) bool { return matched[i].Ref < matched[j].Ref })
-	if len(matched) > 50 {
-		matched = matched[:50]
+	out := KegSearchResult{Kegs: matched, Warnings: []string{}, Truncated: len(matched) > 50}
+	if out.Truncated {
+		out.Kegs = out.Kegs[:50]
 	}
-	return matched
+	return out
 }
 
 type localIdentityProvider struct{ tap *tapper.Tap }
@@ -635,27 +634,47 @@ func (p localIdentityProvider) Identities(ctx context.Context) ([]AuthIdentity, 
 	if p.tap == nil || p.tap.PathService == nil || p.tap.Runtime == nil {
 		return nil, errors.New("Tapper authentication service is unavailable")
 	}
-	store, err := tapper.LoadAuthStore(ctx, p.tap.Runtime, p.tap.PathService.AuthStorePath())
+	name, entry, err := p.tap.ConfigService.SelectedHub("")
 	if err != nil {
 		return nil, err
 	}
-	var out []AuthIdentity
-	for _, hub := range store.Hubs() {
-		entry, ok := store.Get(hub)
-		if !ok || strings.TrimSpace(entry.AccessToken) == "" || p.tap.AuthValidateFn == nil {
-			continue
-		}
-		who, err := p.tap.AuthValidateFn(ctx, p.tap.Runtime, hub, entry.AccessToken)
-		if err != nil || who == nil {
-			continue
-		}
-		namespaces := append([]string(nil), who.Namespaces...)
-		sort.Strings(namespaces)
-		out = append(out, AuthIdentity{
-			Hub: hub, UserID: who.UserID, Username: who.Username,
-			DisplayName: who.DisplayName, DefaultNamespace: who.DefaultNamespace,
-			Namespaces: namespaces,
-		})
+	_ = name
+	who, err := p.tap.SelectedHubIdentity(ctx)
+	if err != nil {
+		return nil, err
 	}
+	namespaces := append([]string(nil), who.Namespaces...)
+	sort.Strings(namespaces)
+	out := []AuthIdentity{{Hub: entry.URL, UserID: who.UserID, Username: who.Username, DisplayName: who.DisplayName, DefaultNamespace: who.DefaultNamespace, Namespaces: namespaces}}
+
 	return out, nil
+}
+
+// bindRootAuthority binds the live proof to this connection's selected Hub.
+func (p *localOrientationProvider) bindRootAuthority(ctx context.Context, orientation *Orientation) error {
+	_, entry, err := p.tap.ConfigService.SelectedHub("")
+	if err != nil {
+		return err
+	}
+	orientation.RootHub = tapper.CanonicalConfiguredHubURL(entry.URL)
+	orientation.Identity, err = p.orientationIdentityForSource(ctx, orientation.RootHub)
+	if err != nil {
+		return err
+	}
+	orientation.AllowedTargets = []string{}
+	for _, row := range orientation.Kegs {
+		orientation.AllowedTargets = append(orientation.AllowedTargets, orientation.RootHub+"/api/v1/@"+row.Namespace+"/kegs/"+row.Alias)
+	}
+	return nil
+}
+
+// KegDeletionProvider permanently removes catalog KEGs.
+type KegDeletionProvider interface {
+	// DeleteKeg removes the explicit canonical KEG and all its data, including snapshots.
+	DeleteKeg(context.Context, string) error
+}
+
+func (p localKegDiscoveryProvider) DeleteKeg(ctx context.Context, ref string) error {
+	_, err := p.tap.KegDelete(ctx, tapper.KegDeleteOptions{Keg: ref})
+	return err
 }

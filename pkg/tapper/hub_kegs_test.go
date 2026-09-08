@@ -71,7 +71,7 @@ func TestListUserKegs_Success(t *testing.T) {
 		require.Equal(t, "/api/v1/kegs", r.URL.Path)
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode([]tapper.HubKeg{
-			{Namespace: "jlrickert", Alias: "example", Title: "Example", Summary: "Example summary.", Visibility: "private", Role: "admin"},
+			{Namespace: "jlrickert", Alias: "example", Title: "Example", Description: "Example summary.", Visibility: "private", Role: "admin"},
 			{Namespace: "shared", Alias: "docs", Visibility: "public", Role: "editor"},
 		})
 	}))
@@ -84,11 +84,11 @@ func TestListUserKegs_Success(t *testing.T) {
 	require.Equal(t, "jlrickert", kegs[0].Namespace)
 	require.Equal(t, "example", kegs[0].Alias)
 	require.Equal(t, "Example", kegs[0].Title)
-	require.Equal(t, "Example summary.", kegs[0].Summary)
+	require.Equal(t, "Example summary.", kegs[0].Description)
 	require.Equal(t, "admin", kegs[0].Role)
 }
 
-func TestListUserKegs_Unauthorized(t *testing.T) {
+func TestListUserKegs_Forbidden(t *testing.T) {
 	t.Parallel()
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -98,7 +98,7 @@ func TestListUserKegs_Unauthorized(t *testing.T) {
 
 	_, err := tapper.ListUserKegs(context.Background(), srv.URL, "tok")
 	require.Error(t, err)
-	require.True(t, errors.Is(err, tapper.ErrTokenRejected))
+	require.True(t, errors.Is(err, keg.ErrForbidden))
 }
 
 func TestRenameKeg_Success(t *testing.T) {
@@ -121,4 +121,16 @@ func TestRenameKeg_Success(t *testing.T) {
 	require.Equal(t, http.MethodPost, gotMethod)
 	require.Equal(t, "/api/v1/@jlrickert/kegs/example/rename", gotPath)
 	require.Equal(t, map[string]string{"alias": "renamed"}, gotBody)
+}
+
+func TestCreateKeg_ForbiddenPreservesExplanation(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		_ = json.NewEncoder(w).Encode(map[string]string{"code": "FORBIDDEN", "error": "namespace membership required"})
+	}))
+	defer server.Close()
+	err := tapper.CreateKeg(context.Background(), server.URL, "token", "org", "notes", "", "")
+	require.ErrorIs(t, err, keg.ErrForbidden)
+	require.NotErrorIs(t, err, tapper.ErrTokenRejected)
+	require.ErrorContains(t, err, "namespace membership required")
 }

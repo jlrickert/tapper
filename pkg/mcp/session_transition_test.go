@@ -326,7 +326,7 @@ func (p *perCallFlightBackend) SearchKegs(_ context.Context, query string) (mcp.
 		namespace, alias, _ := strings.Cut(namespaceAlias, "/")
 		rows = append(rows, tapper.OrientationKeg{
 			Ref: ref, Namespace: namespace, Alias: alias, Role: "admin", Source: "test", Visibility: "private",
-			Title: alias, Summary: "summary for " + alias,
+			Title: alias, Description: "summary for " + alias,
 		})
 	}
 	return mcp.KegSearchResult{Kegs: mcp.SearchIdentityKegs(rows, query)}, nil
@@ -522,7 +522,7 @@ func TestMCP_KegSearchIsIdentityScopedLiteralBoundedAndUngoverned(t *testing.T) 
 	require.NoError(t, json.Unmarshal(raw, &structured))
 	require.Equal(t, []mcp.KegSearchRow{{
 		Ref: "@team/new-keg", Role: "admin", Title: "new-keg",
-		Summary: "summary for new-keg", Visibility: "private", Source: "test",
+		Description: "summary for new-keg", Visibility: "private", Source: "test",
 	}}, structured.Kegs)
 
 	empty, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: "keg_search", Arguments: map[string]any{"query": "   "}})
@@ -535,7 +535,7 @@ func TestMCP_KegSearchIsIdentityScopedLiteralBoundedAndUngoverned(t *testing.T) 
 		alias := fmt.Sprintf("match-%02d", i)
 		rows = append(rows, tapper.OrientationKeg{
 			Ref: "@team/" + alias, Namespace: "team", Alias: alias,
-			Title: "A match", Summary: "literal metadata", Role: "viewer",
+			Title: "A match", Description: "literal metadata", Role: "viewer",
 		})
 	}
 	bounded := mcp.SearchIdentityKegs(rows, "MATCH")
@@ -641,7 +641,7 @@ func TestMCP_AuthorityBearingSchemasExposeOptionalFlightAndRejectKegListAll(t *t
 	session, ctx := newPerCallFlightSession(t, backend)
 	result, err := session.ListTools(ctx, nil)
 	require.NoError(t, err)
-	ungoverned := map[string]bool{"auth_info": true, "keg_search": true, "list_flights": true, "flight_show": true, "session_refresh": true}
+	ungoverned := map[string]bool{"guide": true, "flight_search": true, "auth_info": true, "keg_search": true, "list_flights": true, "flight_show": true, "session_refresh": true}
 	seen := map[string]bool{}
 	for _, tool := range result.Tools {
 		seen[tool.Name] = true
@@ -675,6 +675,7 @@ func TestMCP_AuthorityBearingSchemasExposeOptionalFlightAndRejectKegListAll(t *t
 		require.Falsef(t, hasAll, "%s must not expose removed all selection", tool.Name)
 	}
 	require.False(t, seen["repo_init"])
+	require.True(t, seen["keg_delete"])
 	require.True(t, seen["keg_create"], "management tools stay visible even when the root lacks capability")
 	require.True(t, seen["flight_create"])
 
@@ -698,7 +699,7 @@ func TestMCP_SessionRefreshNoFlightRequiresNewSession(t *testing.T) {
 	requireConnectionInstructions(t, session.InitializeResult().Instructions)
 	require.Equal(t, 1, backend.loadCount())
 	noFlightPayload := orientCall(t, session, ctx, map[string]any{})
-	require.Contains(t, noFlightPayload, "No flight was provided")
+	require.Contains(t, noFlightPayload, "No flight is active")
 	require.Equal(t, 1, backend.loadCount(), "no-flight orient must not retry activation")
 
 	refreshed, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: "session_refresh", Arguments: map[string]any{}})
@@ -715,7 +716,7 @@ func TestMCP_SessionRefreshNoFlightRequiresNewSession(t *testing.T) {
 	require.Equal(t, "new_session", unchanged.StructuredContent.(map[string]any)["nextAction"])
 	require.Equal(t, 1, backend.loadCount(), "no-flight refresh must not consult a newly configured root")
 	require.Contains(t, listedToolNames(t, ctx, session), "cat")
-	require.Contains(t, orientCall(t, session, ctx, map[string]any{}), "No flight was provided")
+	require.Contains(t, orientCall(t, session, ctx, map[string]any{}), "No flight is active")
 }
 
 func TestMCP_ActiveSessionRefreshIsProviderFreeAndKeepsPinnedRoot(t *testing.T) {

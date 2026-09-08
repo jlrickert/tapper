@@ -11,13 +11,22 @@
     },
     "visibility": {
       "type": "string",
-      "enum": ["private", "public"],
+      "enum": [
+        "private",
+        "public"
+      ],
       "default": "private",
       "description": "Flight discovery visibility."
     },
     "capabilities": {
       "type": "array",
-      "items": {"type": "string", "enum": ["full_access", "manage_flights", "manage_kegs"]},
+      "items": {
+        "type": "string",
+        "enum": [
+          "manage_flights",
+          "manage_kegs", "delete_kegs"
+        ]
+      },
       "uniqueItems": true,
       "description": "Explicit agent capabilities granted to sessions using this flight."
     },
@@ -38,11 +47,24 @@
           "role": {
             "type": "string",
             "description": "Maximum role granted by this cover entry. Omitted roles default to viewer.",
-            "enum": ["viewer", "editor", "admin"],
+            "enum": [
+              "viewer",
+              "editor",
+              "admin"
+            ],
             "default": "viewer"
+          },
+          "depth": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 8,
+            "default": 2,
+            "description": "Levels of declared same-Hub KEG relationships, including the covered KEG."
           }
         },
-        "required": ["keg"],
+        "required": [
+          "keg"
+        ],
         "additionalProperties": false
       }
     },
@@ -67,6 +89,10 @@
     "instructions": {
       "type": "string",
       "description": "Markdown instructions injected into orientation output while the flight is active."
+    },
+    "description": {
+      "type": "string",
+      "description": "A short sentence describing this flight, separate from instructions."
     }
   },
   "additionalProperties": false

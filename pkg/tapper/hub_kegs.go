@@ -26,18 +26,18 @@ const hubKegsPath = "/api/v1/kegs"
 // HubKeg is one keg the hub reports the authenticated user can reach. It
 // mirrors the hub's handler.UserKegItem JSON body — keep the two in sync.
 type HubKeg struct {
-	Namespace  string `json:"namespace"`
-	Alias      string `json:"alias"`
-	Title      string `json:"title"`
-	Summary    string `json:"summary"`
-	Visibility string `json:"visibility"`
-	Role       string `json:"role"`
+	Namespace   string `json:"namespace"`
+	Alias       string `json:"alias"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	Visibility  string `json:"visibility"`
+	Role        string `json:"role"`
 }
 
 // CreateKeg asks the hub to create @namespace/alias via
 // POST /api/v1/@{namespace}/kegs. A 409 is returned as an error wrapping
-// keg.ErrExist so callers can detect "already exists" with errors.Is; 401/403
-// wrap ErrTokenRejected; other non-2xx statuses surface the hub's status line.
+// keg.ErrExist so callers can detect "already exists" with errors.Is; 401
+// wraps ErrTokenRejected; 403 wraps keg.ErrForbidden; other non-2xx statuses surface the hub's status line.
 func CreateKeg(ctx context.Context, hubURL, token, namespace, alias, title, visibility string) error {
 	base, err := normalizeHubURL(hubURL)
 	if err != nil {
@@ -57,7 +57,7 @@ func CreateKeg(ctx context.Context, hubURL, token, namespace, alias, title, visi
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := hubHTTPClient().Do(req)
 	if err != nil {
 		return fmt.Errorf("hub: contact hub: %w", err)
 	}
@@ -68,7 +68,9 @@ func CreateKeg(ctx context.Context, hubURL, token, namespace, alias, title, visi
 		return nil
 	case http.StatusConflict:
 		return fmt.Errorf("hub: keg @%s/%s already exists: %w", namespace, alias, keg.ErrExist)
-	case http.StatusUnauthorized, http.StatusForbidden:
+	case http.StatusForbidden:
+		return fmt.Errorf("hub: %w (%s)%s", keg.ErrForbidden, resp.Status, readHubError(resp))
+	case http.StatusUnauthorized:
 		return fmt.Errorf("hub: %w (%s)", ErrTokenRejected, resp.Status)
 	default:
 		return fmt.Errorf("hub: create keg @%s/%s failed: %s%s", namespace, alias, resp.Status, readHubError(resp))
@@ -89,7 +91,7 @@ func ListUserKegs(ctx context.Context, hubURL, token string) ([]HubKeg, error) {
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Accept", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := hubHTTPClient().Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("hub: contact hub: %w", err)
 	}
@@ -98,7 +100,9 @@ func ListUserKegs(ctx context.Context, hubURL, token string) ([]HubKeg, error) {
 	switch resp.StatusCode {
 	case http.StatusOK:
 		// fall through to decode
-	case http.StatusUnauthorized, http.StatusForbidden:
+	case http.StatusForbidden:
+		return nil, fmt.Errorf("hub: %w (%s)%s", keg.ErrForbidden, resp.Status, readHubError(resp))
+	case http.StatusUnauthorized:
 		return nil, fmt.Errorf("hub: %w (%s)", ErrTokenRejected, resp.Status)
 	default:
 		return nil, fmt.Errorf("hub: list kegs returned %s for %s", resp.Status, hubKegsPath)
@@ -129,4 +133,71 @@ func readHubError(resp *http.Response) string {
 		return ": " + e.Error
 	}
 	return ""
+}
+
+// hubHTTPClient refuses redirects so credentials and mutations stay on the selected Hub.
+func hubHTTPClient() *http.Client {
+	client := *http.DefaultClient
+	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	return &client
+}
+
+// UnmarshalJSON accepts summary from older Hubs without overriding an explicit description.
+func (k *HubKeg) UnmarshalJSON(data []byte) error {
+	type plain HubKeg
+	var v plain
+	if err := json.Unmarshal(data, &v); err != nil {
+		return err
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	if _, ok := fields["description"]; !ok {
+		if raw, exists := fields["summary"]; exists {
+			if err := json.Unmarshal(raw, &v.Description); err != nil {
+				return err
+			}
+		}
+	}
+	*k = HubKeg(v)
+	return nil
+}
+
+// DeleteKeg permanently deletes a KEG and all dependent data, including snapshots.
+// There is no expected hash: the settings hash does not cover a whole KEG.
+func DeleteKeg(ctx context.Context, hubURL, token, namespace, alias string) error {
+	if !hubKegAliasPattern.MatchString(namespace) || !hubKegAliasPattern.MatchString(alias) {
+		return fmt.Errorf("%w: invalid canonical KEG reference", keg.ErrInvalid)
+	}
+	base, err := normalizeHubURL(hubURL)
+	if err != nil {
+		return err
+	}
+	endpoint := fmt.Sprintf("%s/api/v1/@%s/kegs/%s", base, namespace, alias)
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, endpoint, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	if value, ok := keg.OrientationHeaderForURL(ctx, endpoint); ok {
+		req.Header.Set(keg.OrientationHeaderName, value)
+	}
+	resp, err := hubHTTPClient().Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	switch resp.StatusCode {
+	case http.StatusOK, http.StatusNoContent:
+		return nil
+	case http.StatusNotFound:
+		return fmt.Errorf("hub: %w", keg.ErrNotExist)
+	case http.StatusUnauthorized:
+		return fmt.Errorf("hub: %w", ErrTokenRejected)
+	case http.StatusForbidden:
+		return fmt.Errorf("hub: %w%s", keg.ErrForbidden, readHubError(resp))
+	default:
+		return fmt.Errorf("hub: delete keg failed: %s%s", resp.Status, readHubError(resp))
+	}
 }

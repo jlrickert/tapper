@@ -1,125 +1,104 @@
 # Resolution Order
 
-This page describes how tapper chooses a keg target, how it resolves the hub
-and namespace a keg lives on, and how the config layers cascade.
+Tapper selects one Hub for each CLI invocation or MCP connection. A KEG
+reference such as `@foldwise/dev` identifies a namespace and KEG within that
+Hub; namespaces never route requests to another Hub.
 
-## 1. Explicit Target Flags Win First
+| Selection | Precedence, highest first |
+| --- | --- |
+| KEG | `--keg` → `TAP_KEG` → matching `kegMap.keg` → project `keg` → user `keg` |
+| Hub | `--hub` → `TAP_HUB` → project `hub` → matching `kegMap.hub` → user `hub` → automatic fallback |
 
-If you pass explicit flags, they take precedence:
+A matching rule overrides even a project's `keg`. A project's `hub` overrides
+the rule's Hub. The winning KEG resolves within the winning Hub.
 
-- `--keg` selects a keg by bare name or `@namespace/name`
-- `--namespace` resolves a bare `--keg` in a specific namespace
-- `--hub` overrides namespace-to-hub resolution
-- `--config` bypasses the user/project config cascade
+Automatic Hub fallback selects the alphabetically first explicitly configured
+Hub. If none exist, it uses Atlas (`https://atlas.foldwise.ai`), unless
+`disableAtlasHub: true` or `TAP_DISABLE_ATLAS_HUB=1` disables the built-in.
+An explicitly configured Atlas connection remains available. Operations that
+require a KEG fail when no KEG is selected; there is no automatic KEG fallback.
+An invalid selected value fails instead of falling through.
 
-`--flight` is not a keg selector. It is flight context for orient/MCP: agent
-instructions plus cover caps enforced by the MCP surface. Direct CLI commands
-still use normal keg authorization and do not have access reduced by the flight.
-Its precedence at session initialization is explicit `--flight`, `TAP_FLIGHT`,
-the nearest project `flight`, then the user baseline optionally written by
-`tap bootstrap`. `TAP_AGENT` never selects a flight. The resulting root
-reference cannot change within that MCP connection. See [Flights](flights.md).
+## Directory mappings
 
-Filesystem paths, `file://` targets, and the removed local-creation flags are
-unsupported. `tap keg create` always calls a configured Hub.
+```yaml
+hub: atlas
+keg: "@foldwise/dev"
+hubs:
+  atlas:
+    url: https://atlas.foldwise.ai
+  homelab:
+    url: https://hub.example.test
+kegMap:
+  - pathPrefix: ~/repos/homelab
+    hub: homelab
+    keg: "@homelab/dev"
+```
 
-## 2. No Explicit Keg Flow
+Mappings use the startup directory. The first matching `pathRegex` wins.
+Otherwise, the longest matching `pathPrefix` wins, with ties resolved in
+configuration order. A prefix matches that directory and its descendants,
+never a partial directory name. Invalid nonmatching expressions do not block
+unrelated operations. Environment variables and a leading `~` are expanded.
 
-When no explicit target is supplied, tapper resolves the keg reference in this
-order:
+One rule wins for both fields. Every winning rule must provide a valid KEG;
+its Hub is optional. `alias` remains a compatibility spelling for `keg`, but
+an explicitly present `keg` wins over it. A miss uses the top-level `keg`.
 
-1. `defaultKeg`
-2. `kegMap` match (`pathRegex` first, then longest `pathPrefix`)
-3. `fallbackKeg`
+## Configuration layers and trust boundary
 
-## 3. Namespace-centric model
+Tapper walks from its startup directory to the filesystem root, collecting
+`.tapper/config.yaml` files. Deeper project values override shallower ones.
+The user configuration is the base layer. `--config` selects an explicit file
+instead of the user/project file cascade; environment overrides still apply.
 
-Resolution flows **keg name -> namespace -> Hub**. A keg is identified
-by `@<namespace>/<name>`; the namespace determines which hub hosts it. A keg
-selector (`defaultKeg`, `fallbackKeg`, `--keg`, a `kegMap` alias) is a keg
-reference — a bare name, `@namespace/name`, or `keg:@namespace/name` —
-there is no `kegs` alias map. One config map disambiguates the namespace→hub hop:
+Only user configuration may define `hubs` and their `token` or `tokenEnv`
+credentials. Project files can select saved Hub names, but Hub definitions
+are stripped from project files with a warning (`--strict` makes it an error).
+Unknown and retired fields and comments survive Tapper-owned rewrites.
+Malformed YAML fails; unused entries are not eagerly validated.
 
-- **`namespaces`** maps a namespace to the hub that hosts it — the conflict
-  resolver for a namespace that could live on more than one hub. The scalar
-  shorthand `myns: atlas` is accepted and normalized to `myns: {hub: atlas}`.
+The retired keys `defaultKeg`, `fallbackKeg`, `defaultHub`, `fallbackHub`,
+`namespaces`, and Hub `kind` are ignored data, not compatibility aliases.
+Their old environment overrides no longer select anything.
 
-## 4. Namespace Precedence
+## Namespaces and Flights
 
-An omitted `namespace` is resolved **first**, in this order:
+Namespace-qualified references remain supported. A bare KEG name uses
+`--namespace`, `defaultNamespace`, `fallbackNamespace`, then the selected
+Hub's `defaultNamespace`. `@local` has no special meaning.
 
-1. explicit `namespace` on the reference
-2. `defaultNamespace` (high-precedence slot — set in project config)
-3. `fallbackNamespace` (last-resort slot — set in user config)
-4. once the Hub is known: the Hub's own namespace default; if nothing resolves,
-   the reference is an error
+Flight selection remains independent: `--flight`, `TAP_FLIGHT`, project
+`flight`, then user `flight`. An agent selects a model and telemetry identity,
+never a Flight. See [Flights](flights.md).
 
-Namespaces must be a single portable path segment (`[a-z0-9_-]+`, no dots or
-slashes).
+## MCP connection lifetime
 
-## 5. Hub Precedence
+The canonical Hub URL is pinned for the connection lifetime. Calls reload
+live Flight authority and credentials for that URL. Changing configuration
+can affect a new connection, but cannot retarget an existing one. Discovery,
+authentication probes, and operations stay within the active Hub. Local saved
+connection listings may show every configured Hub.
 
-The hosting hub is resolved **from the namespace**, in this order:
+Foreign direct URLs and event streams are rejected before dispatch. Redirects
+cannot move requests to another Hub. Same-Hub orientation validation remains
+in force; mutations are never automatically replayed after a refusal or an
+ambiguous outcome.
 
-1. explicit `hub` on the reference
-2. `namespaces[ns].hub` (the namespace → hub map)
-3. `defaultHub` (high-precedence slot — set in project config)
-4. `fallbackHub` (last-resort slot — set in user config)
-5. the sole configured Hub (or the alphabetically-first when several exist)
-6. the compiled-in `atlas` remote Hub (`https://atlas.foldwise.ai`)
+Use `tap use` and `tap config --explain keg` or `--explain hub` to inspect the
+selection. Both project and user `tap use` write `keg` in their own scope;
+inspection reports when a mapping overrides that value.
 
-Setting `disableAtlasHub: true` (or `TAP_DISABLE_ATLAS_HUB=1`) removes step
-6: Hub-dependent commands then fail with a clear error instead of silently
-reaching the compiled-in default.
+## Credential precedence
 
-## 6. KEG references and Hub routes
+For the selected Hub, `tokenEnv` takes precedence over inline `token`, followed
+by saved browser-assisted login. A configured `tokenEnv` that is missing or
+empty fails closed; it never falls back to an inline token or saved login.
+A rejected configured token also fails without switching credentials. Cached
+KEG handles recheck environment credentials for requests and stream reconnects.
+Startup refresh skips saved login credentials when a configured token takes
+precedence. Browser context selection does not change this credential order.
 
-A keg reference is the `keg` scheme — `keg:@<namespace>/<name>` (the namespace is
-optional: `keg:<name>`). The hub is **not** part of the reference; it is
-resolved from the namespace via the chains above. A node within a keg appends
-the node id: `keg:@<namespace>/<name>/<nodeID>`.
-
-Remote and read-only Hubs resolve to
-`<hub-url>/api/v1/@<namespace>/kegs/<name>` (namespace first; only the
-namespace segment carries the `@` sigil — keg aliases are bare in the
-tapper-hub route layout).
-
-`@local` is not reserved. It behaves like any other namespace if a remote Hub
-hosts it.
-
-## 7. Config Cascade
-
-The effective config is assembled from several layers, most specific winning:
-
-| Rank | Source                          | Discovery                                       |
-| ---- | ------------------------------- | ----------------------------------------------- |
-| top  | CLI flags (`--log-level`, etc.) | Cobra `cmd.Flags().Changed()`                   |
-| ↑    | Env vars (`TAP_*`)              | `rt.Env().Get()` prefix scan                    |
-| ↑    | Project configs (deepest → …)   | every `.tapper/config.yaml` from cwd up to `/`  |
-| base | User config                     | `~/.config/tapper/config.yaml`                  |
-
-The project layer is itself a walk: starting at the workspace root, tapper
-collects **every** `.tapper/config.yaml` up to the filesystem root and merges
-them so a deeper directory overrides a shallower one. A repository nested inside
-another repository therefore inherits — and can override — the outer config.
-
-### Trust boundary
-
-Only the **user** config may define `hubs{}` and the `token` / `tokenEnv`
-credentials. Those fields are stripped from any walked project config so a
-repository you `cd` into cannot introduce a hub target or harvest a token
-environment variable. Each strip is recorded as a load warning; `--strict`
-turns the warning into a hard error. Project configs may still set `kegMap` and
-the `default*` / `fallback*` selectors.
-
-## 8. Worked Examples
-
-- In a repo with `.tapper/config.yaml` containing `defaultKeg: tapper`,
-  `tap info` resolves `tapper` first.
-- If `defaultKeg` is empty and `kegMap` matches the current path to alias
-  `work`, `tap info` resolves `work`.
-- A reference `{name: notes}` with no Hub and no namespace, under a user config
-  whose `fallbackHub` has `defaultNamespace: acme`, resolves to
-  `keg:@acme/notes` on that Hub.
-- A project config that sets `defaultNamespace: acme` makes the same reference
-  resolve under `@acme` instead, overriding the user-level fallback.
+Explicitly empty `token` or `tokenEnv` fields are invalid. Omit both to use saved
+login. Built-in and newly generated Atlas defaults omit credential fields;
+configure `tokenEnv: ATLAS_API_KEY` explicitly to require that environment token.

@@ -2,23 +2,20 @@
 
 See [CLAUDE.md](./CLAUDE.md) for comprehensive project documentation including architecture, build commands, testing, and contribution guidelines.
 
-## Coordinated immutable-flight delivery gate
+## Coordinated development and dependency pins
 
-The immutable-flight direct-subflight work is a coordinated change with the sibling
-Tapper Hub repository. Until the user explicitly approves delivery after joint
-verification:
+Tapper and the sibling Tapper Hub repository may evolve together. Keep Hub's
+ignored `go.work` for local integration development. Whenever Hub needs newer
+Tapper functionality, commit and push Tapper first, then resolve that exact
+pushed SHA with Go tooling and update Hub's `go.mod` and `go.sum` using
+`GOWORK=off go get github.com/jlrickert/tapper@<sha>` and `GOWORK=off go mod tidy`.
+Commit the dependency bump with the ordinary Hub implementation that needs it.
+Never manufacture a pseudo-version or commit a local replacement. Verify Hub
+with `GOWORK=off` against the pinned module before delivery.
 
-- Do not merge related Tapper or Tapper Hub changes.
-- Do not create or push release tags, GitHub releases, release commits, or
-  trigger release workflows.
-- Do not permanently update Tapper Hub's Tapper dependency pin.
-- Use Tapper Hub's local `go.work` link for cross-repository integration
-  testing.
-- Stop at reviewable local branches/commits, test evidence, and a coordination
-  report. Create or update PRs only when the user requests it.
-
-These restrictions remain in force even when tests pass or either repository
-appears independently ready to ship.
+Dependency bumps are ordinary development work and do not require a release or
+a special pin-only commit. Merges, tags, releases, and publishing workflows
+remain separate actions requiring user authorization. Create PRs only when requested.
 
 Commit messages should follow Conventional Commits.
 

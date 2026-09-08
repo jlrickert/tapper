@@ -2,7 +2,7 @@ package tapper
 
 import "testing"
 
-func TestFlightCapForKeg_FullAccessIncludesEveryAuthorizedKeg(t *testing.T) {
+func TestFlightCapForKeg_RetiredFullAccessDoesNotGrantAccess(t *testing.T) {
 	flight := &Flight{FlightManifest: FlightManifest{
 		Capabilities: []FlightCapability{FlightCapabilityFullAccess},
 		Cover: []FlightCover{
@@ -11,8 +11,8 @@ func TestFlightCapForKeg_FullAccessIncludesEveryAuthorizedKeg(t *testing.T) {
 	}}
 
 	capRole, ok := flightCapForKeg(flight, "local", "outside-cover")
-	if !ok || capRole != string(FlightRoleAdmin) {
-		t.Fatalf("flightCapForKeg full_access = %q, %t; want admin, true", capRole, ok)
+	if ok || capRole != "" {
+		t.Fatalf("flightCapForKeg full_access = %q, %t; want empty, false", capRole, ok)
 	}
 }
 

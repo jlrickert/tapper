@@ -154,7 +154,7 @@ func newTwoHubTap(t *testing.T, atlas, homelab http.Handler) (*tapper.Tap, *sand
 	cfg := fmt.Sprintf("hubs:\n"+
 		"  atlas:\n    kind: remote\n    url: %s\n    token: tok\n"+
 		"  homelab:\n    kind: remote\n    url: %s\n    token: tok\n"+
-		"defaultHub: atlas\n", atlasSrv.URL, homelabSrv.URL)
+		"hub: atlas\n", atlasSrv.URL, homelabSrv.URL)
 	require.NoError(t, fx.Runtime().AtomicWriteFile(tap.PathService.UserConfig(), []byte(cfg), 0o644))
 	return tap, fx
 }
@@ -167,10 +167,10 @@ func namespaceHandler(t *testing.T, nss ...tapper.HubNamespace) http.Handler {
 	})
 }
 
-// TestNamespaceList_AggregatesEveryHub covers tapper#73: listing showed only the
+// TestNamespaceList_UsesActiveHub covers tapper#73: listing showed only the
 // selected hub's memberships, hiding every other configured hub and giving no
 // way to attribute a row.
-func TestNamespaceList_AggregatesEveryHub(t *testing.T) {
+func TestNamespaceList_UsesActiveHub(t *testing.T) {
 	t.Parallel()
 	tap, fx := newTwoHubTap(t,
 		namespaceHandler(t, tapper.HubNamespace{Name: "foldwise", Kind: "org", Role: "owner"}),
@@ -182,13 +182,12 @@ func TestNamespaceList_AggregatesEveryHub(t *testing.T) {
 	require.Empty(t, res.Warnings)
 	require.Equal(t, []tapper.HubNamespace{
 		{Name: "foldwise", Kind: "org", Role: "owner", Hub: "atlas"},
-		{Name: "homestuff", Kind: "org", Role: "member", Hub: "homelab"},
 	}, res.Namespaces)
 }
 
-// TestNamespaceList_SameNameOnTwoHubsStaysDistinct guards the acceptance
+// TestNamespaceList_IgnoresSameNameOnInactiveHub guards the acceptance
 // criterion that identical namespace names remain distinguishable.
-func TestNamespaceList_SameNameOnTwoHubsStaysDistinct(t *testing.T) {
+func TestNamespaceList_IgnoresSameNameOnInactiveHub(t *testing.T) {
 	t.Parallel()
 	tap, fx := newTwoHubTap(t,
 		namespaceHandler(t, tapper.HubNamespace{Name: "shared", Kind: "org", Role: "owner"}),
@@ -199,13 +198,12 @@ func TestNamespaceList_SameNameOnTwoHubsStaysDistinct(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []tapper.HubNamespace{
 		{Name: "shared", Kind: "org", Role: "owner", Hub: "atlas"},
-		{Name: "shared", Kind: "org", Role: "member", Hub: "homelab"},
 	}, res.Namespaces)
 }
 
-// TestNamespaceList_UnreachableHubPreservesOthers covers the criterion that one
+// TestNamespaceList_InactiveHubFailureIsIrrelevant covers the criterion that one
 // bad hub must not blank the listing, and must be named in the report.
-func TestNamespaceList_UnreachableHubPreservesOthers(t *testing.T) {
+func TestNamespaceList_InactiveHubFailureIsIrrelevant(t *testing.T) {
 	t.Parallel()
 	broken := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, "boom", http.StatusInternalServerError)
@@ -220,8 +218,7 @@ func TestNamespaceList_UnreachableHubPreservesOthers(t *testing.T) {
 	require.Equal(t, []tapper.HubNamespace{
 		{Name: "foldwise", Kind: "org", Role: "owner", Hub: "atlas"},
 	}, res.Namespaces)
-	require.Len(t, res.Warnings, 1)
-	require.Contains(t, res.Warnings[0], "homelab")
+	require.Empty(t, res.Warnings)
 }
 
 // TestNamespaceList_ExplicitHubNarrowsAndSurfacesErrors confirms --hub keeps its

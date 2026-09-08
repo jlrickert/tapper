@@ -209,7 +209,7 @@ func TestCLI_Logging_TildeExpansion(t *testing.T) {
 	// namespace-centrically: a bare `personal` reference under the local hub
 	// (fallbackNamespace: local) lands at ~/kegs/@local/personal.
 	rt := sb.Runtime()
-	configContent := []byte(`defaultKeg: personal
+	configContent := []byte(`keg: personal
 logFile: ~/logs/tap.log
 logLevel: info
 fallbackNamespace: local

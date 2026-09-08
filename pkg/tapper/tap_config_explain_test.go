@@ -21,19 +21,19 @@ func TestConfigExplain_UserConfigSource(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Write user config with defaultKeg.
+	// Write user config with keg.
 	require.NoError(t, fx.Runtime().AtomicWriteFile(
 		tap.PathService.UserConfig(),
-		[]byte("defaultKeg: pub\n"),
+		[]byte("keg: pub\n"),
 		0o644,
 	))
 
 	results, err := tap.ConfigExplain(context.Background(), tapper.ConfigExplainOptions{
-		Field: "defaultKeg",
+		Field: "keg",
 	})
 	require.NoError(t, err)
 	require.Len(t, results, 1)
-	require.Equal(t, "defaultKeg", results[0].Field)
+	require.Equal(t, "keg", results[0].Field)
 	require.Equal(t, "pub", results[0].Value)
 	require.Equal(t, "user config", results[0].Source)
 }
@@ -52,17 +52,17 @@ func TestConfigExplain_ProjectConfigOverridesUser(t *testing.T) {
 
 	require.NoError(t, fx.Runtime().AtomicWriteFile(
 		tap.PathService.UserConfig(),
-		[]byte("defaultKeg: userkeg\n"),
+		[]byte("keg: userkeg\n"),
 		0o644,
 	))
 	require.NoError(t, fx.Runtime().AtomicWriteFile(
 		tap.PathService.ProjectConfig(),
-		[]byte("defaultKeg: projectkeg\n"),
+		[]byte("keg: projectkeg\n"),
 		0o644,
 	))
 
 	results, err := tap.ConfigExplain(context.Background(), tapper.ConfigExplainOptions{
-		Field: "defaultKeg",
+		Field: "keg",
 	})
 	require.NoError(t, err)
 	require.Len(t, results, 1)
@@ -84,18 +84,18 @@ func TestConfigExplain_EnvVarOverridesAll(t *testing.T) {
 
 	require.NoError(t, fx.Runtime().AtomicWriteFile(
 		tap.PathService.UserConfig(),
-		[]byte("defaultKeg: userkeg\n"),
+		[]byte("keg: userkeg\n"),
 		0o644,
 	))
 	require.NoError(t, fx.Runtime().AtomicWriteFile(
 		tap.PathService.ProjectConfig(),
-		[]byte("defaultKeg: projectkeg\n"),
+		[]byte("keg: projectkeg\n"),
 		0o644,
 	))
-	require.NoError(t, fx.Runtime().Env().Set("TAP_DEFAULT_KEG", "envkeg"))
+	require.NoError(t, fx.Runtime().Env().Set("TAP_KEG", "envkeg"))
 
 	results, err := tap.ConfigExplain(context.Background(), tapper.ConfigExplainOptions{
-		Field: "defaultKeg",
+		Field: "keg",
 	})
 	require.NoError(t, err)
 	require.Len(t, results, 1)
@@ -140,7 +140,7 @@ func TestConfigExplain_AllFields(t *testing.T) {
 
 	require.NoError(t, fx.Runtime().AtomicWriteFile(
 		tap.PathService.UserConfig(),
-		[]byte("defaultKeg: pub\nlogLevel: info\n"),
+		[]byte("keg: pub\nlogLevel: info\n"),
 		0o644,
 	))
 	require.NoError(t, fx.Runtime().Env().Set("TAP_LOG_FILE", "/tmp/tap.log"))
@@ -156,8 +156,8 @@ func TestConfigExplain_AllFields(t *testing.T) {
 		byField[r.Field] = r
 	}
 
-	require.Equal(t, "pub", byField["defaultKeg"].Value)
-	require.Equal(t, "user config", byField["defaultKeg"].Source)
+	require.Equal(t, "pub", byField["keg"].Value)
+	require.Equal(t, "user config", byField["keg"].Source)
 
 	require.Equal(t, "info", byField["logLevel"].Value)
 	require.Equal(t, "user config", byField["logLevel"].Source)
@@ -165,8 +165,8 @@ func TestConfigExplain_AllFields(t *testing.T) {
 	require.Equal(t, "/tmp/tap.log", byField["logFile"].Value)
 	require.Equal(t, "env vars", byField["logFile"].Source)
 
-	require.Equal(t, "", byField["fallbackKeg"].Value)
-	require.Equal(t, "default", byField["fallbackKeg"].Source)
+	require.Equal(t, "pub", byField["keg"].Value)
+	require.Equal(t, "user config", byField["keg"].Source)
 }
 
 func TestConfigExplain_UnknownField(t *testing.T) {

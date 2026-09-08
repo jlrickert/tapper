@@ -1,6 +1,6 @@
-defaultKeg: personal
+keg: personal
 fallbackNamespace: local
-fallbackHub: home
+hub: home
 hubs:
   home:
     kind: remote

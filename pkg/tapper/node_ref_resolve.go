@@ -32,6 +32,20 @@ func (t *Tap) ResolveNodeRef(ctx context.Context, ref *keg.NodeRef, rc RefContex
 	node := keg.NodeId{ID: ref.Node.ID, Code: ref.Node.Code}
 
 	switch ref.Form {
+	case keg.RefSettingsAlias:
+		if rc.CurrentKeg == nil {
+			return nil, keg.NodeId{}, fmt.Errorf("settings alias requires a current KEG")
+		}
+		settings, err := rc.CurrentKeg.Settings(ctx)
+		if err != nil {
+			return nil, keg.NodeId{}, err
+		}
+		namespace, name, err := keg.ResolveRelationshipAlias(settings.Links, ref.Alias)
+		if err != nil {
+			return nil, keg.NodeId{}, err
+		}
+		return t.ResolveNodeRef(ctx, &keg.NodeRef{Form: keg.RefQualified, Namespace: namespace, KegName: name, Node: node}, rc)
+
 	case keg.RefLocal:
 		if rc.CurrentKeg == nil {
 			return nil, keg.NodeId{}, fmt.Errorf("local node ref %q has no current keg", ref.String())
@@ -120,5 +134,8 @@ func (t *Tap) resolveRefAlias(ctx context.Context, alias string, rc RefContext) 
 
 // openTarget opens a keg at the resolved target using the shared token resolver.
 func (t *Tap) openTarget(ctx context.Context, target *keg.Target) (keg.Keg, error) {
+	if err := t.ConfigService.validateTargetHub(target, ""); err != nil {
+		return nil, err
+	}
 	return keg.NewKegFromTarget(ctx, *target, t.Runtime, keg.WithTokenResolver(t.KegService.tokenResolver()))
 }

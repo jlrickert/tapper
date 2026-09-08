@@ -72,7 +72,7 @@ func TestInitKeg_RemoteCreate_UsesFallbackHubDefaultNamespace(t *testing.T) {
 
 	tap, err := tapper.NewTap(tapper.TapOptions{Root: "/home/testuser", Runtime: fx.Runtime()})
 	require.NoError(t, err)
-	cfg := fmt.Sprintf("fallbackHub: atlas\n"+
+	cfg := fmt.Sprintf("hub: atlas\n"+
 		"hubs:\n  atlas:\n    kind: remote\n    defaultNamespace: teamns\n    url: %s\n    tokenEnv: TEST_TOK\n", srv.URL)
 	require.NoError(t, fx.Runtime().AtomicWriteFile(tap.PathService.UserConfig(), []byte(cfg), 0o644))
 
@@ -96,7 +96,7 @@ func TestInitKeg_RemoteFallbackHubWithoutNamespaceDoesNotFallBackLocal(t *testin
 
 	tap, err := tapper.NewTap(tapper.TapOptions{Root: "/home/testuser", Runtime: fx.Runtime()})
 	require.NoError(t, err)
-	cfg := fmt.Sprintf("fallbackHub: atlas\n"+
+	cfg := fmt.Sprintf("hub: atlas\n"+
 		"hubs:\n  atlas:\n    kind: remote\n    url: %s\n    tokenEnv: TEST_TOK\n", srv.URL)
 	require.NoError(t, fx.Runtime().AtomicWriteFile(tap.PathService.UserConfig(), []byte(cfg), 0o644))
 

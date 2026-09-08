@@ -1,17 +1,26 @@
-# Troubleshooting
+# Recovery
 
-## Troubleshooting
+Read message and action in either text JSON or structuredContent. Both supply
+the same operational information, including error diagnostics and recovery.
 
-- **Stale search results.** The index is rebuilt on write. If a tool returns
-  stale data, re-issue the call or read the index directly via
-  `mcp__tapper__list_indexes` and `mcp__tapper__index_cat`.
-- **Missing older node IDs.** Use `mcp__tapper__list` with an increased
-  `limit` — the default page size may be hiding older nodes.
-
-## See also
-
-- `mcp__tapper__info` reports concise diagnostics for the resolved KEG;
-  `mcp__tapper__keg_settings` reports its configuration. Use
-  `mcp__tapper__orient` to establish the session's flight and KEG context.
-- The tapper documentation in the source repository covers configuration
-  precedence and the server's concurrency model.
+- Validation errors: correct the named field using the input schema. meta is
+  YAML text; mutations use nodes arrays. Do not retry unchanged arguments.
+- PRECONDITION_REQUIRED: cat, schema_read, full keg_settings, or flight_show
+  supplies the matching expected_hash. Snapshot before meaningful node edits.
+- CONFLICT: operationPerformed=false; refetch, merge the intended change, and
+  retry with the current hash. currentContent is diagnostic current content,
+  not necessarily the replacement-document format accepted by edit.
+- ORIENTATION_DENIED: inspect orient and select an accessible flight with the
+  required authority; keg alone cannot grant access.
+- ORIENTATION_UNAVAILABLE: transient lookup failure; retry a read first.
+  ORIENTATION_ROOT_UNAVAILABLE: the pinned root is lost; restore it or have
+  the user select a root and start a new connection.
+- UNAUTHORIZED: have the user repair authentication to the same Hub, then
+  orient. FORBIDDEN: valid credentials lack permission; login cannot grant it.
+- operationPerformed=null: the write outcome is unknown. Inspect state before
+  retrying, including possible creations; do not assume nothing happened.
+- Missing listing rows: follow next_offset until null. For metadata search,
+  refine a query marked truncated. grep limits matched lines; cat reads full
+  bodies. A tool absent from tools/list is unavailable, not a failed operation.
+- Suspected stale indexes: inspect list_indexes/index_cat and doctor. Rebuild
+  with index only when warranted and authorized; reads never repair indexes.

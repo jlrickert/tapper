@@ -35,7 +35,7 @@ func TestFinalizeOrientationHashesOnlyRelevantAuthority(t *testing.T) {
 		Root: root, Flight: root, Path: []string{root.Name}, Identity: `{"user_id":1}`,
 		Kegs: []tapper.OrientationKeg{{
 			Ref: "@local/personal", Role: "admin", Visibility: "private", FlightCap: "editor",
-			Title: "Display title", Summary: "Display summary", Source: "atlas",
+			Title: "Display title", Description: "Display summary", Source: "atlas",
 		}},
 	}
 	revision := func(in *mcp.Orientation) string {
@@ -47,8 +47,11 @@ func TestFinalizeOrientationHashesOnlyRelevantAuthority(t *testing.T) {
 	displayOnly := *base
 	displayOnly.Revision = ""
 	displayOnly.Kegs = append([]tapper.OrientationKeg(nil), base.Kegs...)
+	displayOnly.Flight = copyRevisionTestFlight(base.Flight)
+	displayOnly.Flight.Title = "Metadata only"
+	displayOnly.Flight.Description = "Description only"
 	displayOnly.Kegs[0].Title = "Renamed"
-	displayOnly.Kegs[0].Summary = "Changed summary"
+	displayOnly.Kegs[0].Description = "Changed summary"
 	displayOnly.Kegs[0].Source = "another-display-source"
 	require.Equal(t, want, revision(&displayOnly))
 

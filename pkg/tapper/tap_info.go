@@ -77,7 +77,7 @@ func (t *Tap) kegSettingsMinimal(ctx context.Context, k keg.Keg) (string, error)
 	type minimalConfig struct {
 		Kegv         string `yaml:"kegv,omitempty"`
 		Title        string `yaml:"title,omitempty"`
-		Summary      string `yaml:"summary,omitempty"`
+		Description  string `yaml:"description,omitempty"`
 		Updated      string `yaml:"updated,omitempty"`
 		Instructions string `yaml:"instructions,omitempty"`
 	}
@@ -85,7 +85,7 @@ func (t *Tap) kegSettingsMinimal(ctx context.Context, k keg.Keg) (string, error)
 	out := minimalConfig{
 		Kegv:         cfg.Kegv,
 		Title:        cfg.Title,
-		Summary:      cfg.Summary,
+		Description:  cfg.Description,
 		Updated:      cfg.Updated,
 		Instructions: cfg.Instructions,
 	}
@@ -100,7 +100,7 @@ func (t *Tap) kegSettingsMinimal(ctx context.Context, k keg.Keg) (string, error)
 type minimalKegSettings struct {
 	Keg          string `yaml:"keg"`
 	Title        string `yaml:"title,omitempty"`
-	Summary      string `yaml:"summary,omitempty"`
+	Description  string `yaml:"description,omitempty"`
 	Updated      string `yaml:"updated,omitempty"`
 	Instructions string `yaml:"instructions,omitempty"`
 }
@@ -153,7 +153,7 @@ func (t *Tap) readMinimalKegSettings(ctx context.Context, opts KegSettingsOption
 	return minimalKegSettings{
 		Keg:          ref,
 		Title:        cfg.Title,
-		Summary:      cfg.Summary,
+		Description:  cfg.Description,
 		Updated:      cfg.Updated,
 		Instructions: cfg.Instructions,
 	}, nil
@@ -171,7 +171,7 @@ func marshalMinimalKegSettings(refs []string, details []minimalKegSettings) (str
 		out[i] = minimalKegSettings{
 			Keg:          ref,
 			Title:        details[i].Title,
-			Summary:      details[i].Summary,
+			Description:  details[i].Description,
 			Updated:      details[i].Updated,
 			Instructions: details[i].Instructions,
 		}
@@ -213,7 +213,6 @@ type InfoOptions struct {
 // the opened backend) so it works identically for local and remote kegs.
 type resolvedIdentity struct {
 	Hub       string `yaml:"hub,omitempty" json:"hub,omitempty"`
-	HubKind   string `yaml:"hub_kind,omitempty" json:"hub_kind,omitempty"`
 	Namespace string `yaml:"namespace,omitempty" json:"namespace,omitempty"`
 	Keg       string `yaml:"keg,omitempty" json:"keg,omitempty"`
 	Ref       string `yaml:"ref,omitempty" json:"ref,omitempty"`
@@ -235,11 +234,7 @@ func (t *Tap) resolveIdentity(opts KegTargetOptions) resolvedIdentity {
 	switch {
 	case selector != "":
 	default:
-		if v := strings.TrimSpace(cfg.DefaultKeg()); v != "" {
-			selector = v
-		} else if v := strings.TrimSpace(cfg.LookupAlias(t.Runtime, t.Root)); v != "" {
-			selector = v
-		} else if v := strings.TrimSpace(cfg.FallbackKeg()); v != "" {
+		if v := strings.TrimSpace(cfg.Keg()); v != "" {
 			selector = v
 		}
 	}
@@ -253,13 +248,9 @@ func (t *Tap) resolveIdentity(opts KegTargetOptions) resolvedIdentity {
 				// displays as its fully qualified remote reference. Best-effort: if
 				// it cannot resolve (for example, a hub with no namespace), fall back
 				// to the bare name and leave namespace/hub blank.
-				if ns, hub, entry, rErr := cfg.resolveNamespaceHub(ref.Namespace, ref.Hub); rErr == nil {
+				if ns, hub, _, rErr := cfg.resolveNamespaceHub(ref.Namespace, ref.Hub); rErr == nil {
 					id.Namespace = ns
 					id.Hub = hub
-					id.HubKind = entry.Kind
-					if id.HubKind == "" {
-						id.HubKind = HubKindRemote
-					}
 					if ref.Name != "" {
 						id.Ref = "@" + ns + "/" + ref.Name
 					}
@@ -318,16 +309,16 @@ func (t *Tap) Info(ctx context.Context, opts InfoOptions) (string, error) {
 		KegDirectory     string `yaml:"keg_directory,omitempty" json:"keg_directory,omitempty"`
 	}
 	type diagnostics struct {
-		Hub       string            `yaml:"hub" json:"hub"`
-		Namespace string            `yaml:"namespace" json:"namespace"`
-		Keg       string            `yaml:"keg" json:"keg"`
-		Ref       string            `yaml:"ref" json:"ref"`
-		Flight    string            `yaml:"flight" json:"flight"`
-		Summary   string            `yaml:"summary" json:"summary"`
-		NodeCount int               `yaml:"node_count" json:"node_count"`
-		Files     capability        `yaml:"files" json:"files"`
-		Images    capability        `yaml:"images" json:"images"`
-		Debug     *debugDiagnostics `yaml:"debug,omitempty" json:"debug,omitempty"`
+		Hub         string            `yaml:"hub" json:"hub"`
+		Namespace   string            `yaml:"namespace" json:"namespace"`
+		Keg         string            `yaml:"keg" json:"keg"`
+		Ref         string            `yaml:"ref" json:"ref"`
+		Flight      string            `yaml:"flight" json:"flight"`
+		Description string            `yaml:"description" json:"description"`
+		NodeCount   int               `yaml:"node_count" json:"node_count"`
+		Files       capability        `yaml:"files" json:"files"`
+		Images      capability        `yaml:"images" json:"images"`
+		Debug       *debugDiagnostics `yaml:"debug,omitempty" json:"debug,omitempty"`
 	}
 
 	identity := t.resolveIdentity(opts.KegTargetOptions)
@@ -343,8 +334,8 @@ func (t *Tap) Info(ctx context.Context, opts InfoOptions) (string, error) {
 	}
 
 	// Populate summary from the keg settings.
-	if info.Settings != nil && info.Settings.Summary != "" {
-		out.Summary = info.Settings.Summary
+	if info.Settings != nil && info.Settings.Description != "" {
+		out.Description = info.Settings.Description
 	}
 
 	if opts.Debug {
@@ -355,7 +346,7 @@ func (t *Tap) Info(ctx context.Context, opts InfoOptions) (string, error) {
 		debug := &debugDiagnostics{
 			WorkingDirectory: workingDir,
 			Hub:              identity.Hub,
-			Backend:          identity.HubKind,
+			Backend:          "remote",
 			Namespace:        identity.Namespace,
 			Keg:              identity.Keg,
 		}

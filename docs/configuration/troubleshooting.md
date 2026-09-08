@@ -1,109 +1,43 @@
 # Troubleshooting
 
-## "no keg configured"
+## No KEG configured
 
-Cause:
+Run `tap bootstrap` on a new machine. Set `keg` with
+`tap use @namespace/keg --user` or `tap use @namespace/keg` for a project.
+You can also pass `--keg @namespace/keg`. A missing KEG has no automatic fallback.
 
-- `defaultKeg` and `fallbackKeg` are unset, and no explicit target was provided.
+## Unexpected selection
 
-Fix:
+Run `tap use`, `tap config --explain keg`, and `tap config --explain hub`.
+A matching `kegMap` overrides project and user `keg`, while project `hub`
+overrides the mapping's Hub. Environment variables and explicit flags win.
+Mappings use the startup directory, and project files are loaded from every
+parent directory. See [Resolution Order](resolution-order.md).
 
-- Run `tap bootstrap` if this machine has not been set up yet.
-- Set a fallback with `tap use @namespace/keg --user`, or set a project default
-  with `tap use @namespace/keg`.
-- Or run commands with an explicit target, such as `--keg @namespace/keg`.
+An MCP connection pins its Hub URL. Editing selection or changing a saved
+alias's URL affects new connections; it does not retarget an existing one.
+Live authority and credentials continue to reload for the pinned URL.
 
-## A keg reference fails to resolve
+## Invalid Hub or reference
 
-Cause:
+Check that `hub` names an entry in the user `hubs` map and that the entry has a
+valid URL. Namespace-qualified KEGs resolve within that selected Hub.
+Namespace-to-Hub routing is retired. Bare KEG names need a namespace default;
+use `@namespace/name` to make the namespace explicit.
 
-- The reference resolves to no namespace/hub — e.g. a bare name with no
-  `defaultNamespace`/`fallbackNamespace`, or a name that does not exist on the
-  resolved hub. (There is no `kegs` alias map; resolution is namespace-centric,
-  so there is no alias table to miss.)
+Selected invalid values fail rather than falling through. Fix malformed YAML
+before proceeding. Retired `defaultKeg`, `fallbackKeg`, `defaultHub`,
+`fallbackHub`, `namespaces`, and Hub `kind` are preserved but ignored.
 
-Fix:
+## Project Hub definitions ignored
 
-- Set `defaultKeg`/`fallbackKeg` to a resolvable reference: a bare name plus a
-  `fallbackNamespace`, or an explicit `@namespace/name`.
-- Verify the reference in `defaultKeg`, `fallbackKeg`, and `kegMap` entries, and
-  that the namespace routes to a hub via `defaultHub`/`namespaces`.
-- Run `tap keg list` to see the kegs the configured hubs actually expose.
+Move connection definitions and credentials to `~/.config/tapper/config.yaml`.
+Projects may select saved names with `hub`, but cannot define connections.
+The trust-boundary warning becomes an error under `--strict`.
 
-## "has no namespace and no per-hub, default, or fallback namespace is configured"
+## Orientation refusal
 
-Cause:
-
-- A reference against a remote hub omits its namespace and no per-hub
-  `namespace`, `defaultNamespace`, or `fallbackNamespace` resolves it.
-
-Fix:
-
-- Use an explicit `@namespace/name` reference, or
-- Set the hub's own `namespace` (its default), or
-- Set `defaultNamespace` (project) / `fallbackNamespace` (user).
-
-Filesystem paths and `file://` targets are unsupported; configure the remote
-Hub and namespace that host the KEG.
-
-## "ignored hubs … in project config"
-
-Cause:
-
-- A `.tapper/config.yaml` walked from the project tree defined `hubs{}` or a
-  `token` / `tokenEnv`. Those are user-config-only and are stripped at load.
-
-Fix:
-
-- Move the hub definition and any credentials into
-  `~/.config/tapper/config.yaml`.
-- This is a warning by default; `--strict` turns it into a hard error. See
-  [Resolution Order](resolution-order.md#trust-boundary).
-
-## Unexpected Keg Selected
-
-Cause:
-
-- Precedence selected a different target than expected, possibly from a
-  `.tapper/config.yaml` in a parent directory.
-
-Fix:
-
-- Check `defaultKeg`, `kegMap`, and `fallbackKeg` values.
-- Verify path matches for `kegMap` (`pathRegex` before `pathPrefix`).
-- Remember the project layer is a walk: a deeper `.tapper/config.yaml` overrides
-  a shallower one. Use `tap config --explain FIELD` to see which source set a
-  value.
-
-## "hub … is not configured" / unexpected hub
-
-Cause:
-
-- A reference's resolved Hub name is not present in `hubs` and is not the
-  built-in `atlas` Hub.
-
-Fix:
-
-- Add the hub under `hubs:` in user config, or fix `defaultHub` / `fallbackHub`
-  to name an existing hub.
-
-## Debug Checklist
-
-```bash
-# Show merged config
-tap config
-
-# Inspect user and project configs separately
-tap config --user
-tap config --project
-
-# See which source set a field (or all fields)
-tap config --explain defaultKeg
-tap config --show-sources
-
-# Show active keg settings (resolved target)
-tap keg settings
-
-# Confirm resolution for a specific keg
-tap info --keg @namespace/name
-```
+Inspect current authority with `orient`. Foreign Hub URLs are refused before
+dispatch. A same-Hub stale revision requires a fresh authority check; a denied
+operation requires appropriate Flight cover and Hub permissions. Mutations
+must never be replayed automatically after a refusal or ambiguous outcome.

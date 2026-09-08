@@ -144,7 +144,7 @@ func (k *RemoteKeg) RemoveNodes(ctx context.Context, opts RemoveNodesOptions) (R
 			Status         int    `json:"status"`
 			Message        string `json:"message"`
 			CurrentHash    string `json:"current_hash,omitempty"`
-			CurrentContent []byte `json:"current_content,omitempty"`
+			CurrentContent string `json:"current_content,omitempty"`
 		} `json:"failure,omitempty"`
 	}
 	err := k.postJSON(ctx, "/nodes/remove", "RemoveNodes", req, &wire, http.StatusOK)
@@ -157,7 +157,7 @@ func (k *RemoteKeg) RemoveNodes(ctx context.Context, opts RemoveNodesOptions) (R
 		out.Removed = append(out.Removed, RemovedNode{ID: NodeId{ID: item.ID}, Rewritten: rewritten})
 	}
 	if wire.Failure != nil {
-		out.Failure = &BatchFailure{NodeID: NodeId{ID: wire.Failure.NodeID}, Code: wire.Failure.Code, Status: wire.Failure.Status, Message: wire.Failure.Message, CurrentHash: wire.Failure.CurrentHash, CurrentContent: wire.Failure.CurrentContent}
+		out.Failure = &BatchFailure{NodeID: NodeId{ID: wire.Failure.NodeID}, Code: wire.Failure.Code, Status: wire.Failure.Status, Message: wire.Failure.Message, CurrentHash: wire.Failure.CurrentHash, CurrentContent: []byte(wire.Failure.CurrentContent)}
 	}
 	return out, err
 }

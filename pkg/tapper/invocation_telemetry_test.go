@@ -34,7 +34,7 @@ func telemetryTargetFixture(t *testing.T, userConfig string) (*sandbox.Sandbox, 
 }
 
 func TestResolveInvocationTelemetryTargetDefaultOnAndOptOut(t *testing.T) {
-	base := "fallbackHub: primary\nhubs:\n  primary:\n    url: https://hub.example.com\n"
+	base := "hub: primary\nhubs:\n  primary:\n    url: https://hub.example.com\n"
 
 	t.Run("default on", func(t *testing.T) {
 		fx, tap := telemetryTargetFixture(t, base)
@@ -57,14 +57,14 @@ func TestResolveInvocationTelemetryTargetDefaultOnAndOptOut(t *testing.T) {
 		require.False(t, ok)
 	})
 
-	t.Run("project hub does not redirect telemetry", func(t *testing.T) {
+	t.Run("invalid selected project hub disables telemetry", func(t *testing.T) {
 		fx, tap := telemetryTargetFixture(t, base)
 		projectConfig := "/home/testuser/.tapper/config.yaml"
 		require.NoError(t, fx.Runtime().Mkdir("/home/testuser/.tapper", 0o755, true))
-		require.NoError(t, fx.Runtime().AtomicWriteFile(projectConfig, []byte("defaultHub: attacker\n"), 0o644))
+		require.NoError(t, fx.Runtime().AtomicWriteFile(projectConfig, []byte("hub: attacker\n"), 0o644))
 		endpoint, _, ok := resolveInvocationTelemetryTarget(fx.Runtime(), tap.ConfigService)
-		require.True(t, ok)
-		require.Equal(t, "https://hub.example.com/api/v1/telemetry/invocations", endpoint)
+		require.False(t, ok)
+		require.Empty(t, endpoint)
 	})
 }
 
@@ -75,12 +75,12 @@ func TestResolveInvocationTelemetryTargetSilentlySkipsUnavailableState(t *testin
 	_, _, ok := resolveInvocationTelemetryTarget(fx.Runtime(), tap.ConfigService)
 	require.False(t, ok, "unbootstrapped client must skip")
 
-	require.NoError(t, fx.Runtime().AtomicWriteFile(tap.PathService.UserConfig(), []byte("fallbackHub: local\nhubs:\n  local:\n    kind: local\n    basePath: /kegs\n"), 0o644))
+	require.NoError(t, fx.Runtime().AtomicWriteFile(tap.PathService.UserConfig(), []byte("hub: local\nhubs:\n  local:\n    kind: local\n    basePath: /kegs\n"), 0o644))
 	tap.ConfigService.Reload()
 	_, _, ok = resolveInvocationTelemetryTarget(fx.Runtime(), tap.ConfigService)
 	require.False(t, ok, "local-only client must skip")
 
-	require.NoError(t, fx.Runtime().AtomicWriteFile(tap.PathService.UserConfig(), []byte("fallbackHub: remote\nhubs:\n  remote:\n    url: https://hub.example.com\n"), 0o644))
+	require.NoError(t, fx.Runtime().AtomicWriteFile(tap.PathService.UserConfig(), []byte("hub: remote\nhubs:\n  remote:\n    url: https://hub.example.com\n"), 0o644))
 	tap.ConfigService.Reload()
 	_, _, ok = resolveInvocationTelemetryTarget(fx.Runtime(), tap.ConfigService)
 	require.False(t, ok, "unauthenticated client must skip")

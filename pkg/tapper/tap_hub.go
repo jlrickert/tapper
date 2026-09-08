@@ -11,68 +11,24 @@ import (
 	"github.com/jlrickert/tapper/pkg/keg"
 )
 
-// HubListOptions selects which hub to enumerate. An empty Hub aggregates every
-// configured hub the user can reach.
+// HubListOptions selects a saved Hub; omission uses the active Hub.
 type HubListOptions struct {
 	Hub string
 }
 
-// HubListKegs lists kegs qualified as "@namespace/keg". With no --hub it
-// aggregates across every configured remote/readonly hub via the hub's
-// GET /api/v1/kegs, which returns the kegs the authenticated user can reach
-// (namespace membership + grants). With an explicit --hub only that hub is
-// listed and its errors surface directly; in aggregate mode an unreachable or
-// unauthenticated hub is logged and skipped so one bad hub doesn't blank the
-// whole listing.
+// HubListKegs lists identity-accessible KEGs on the selected Hub.
 func (t *Tap) HubListKegs(ctx context.Context, opts HubListOptions) ([]string, error) {
-	cfg, err := t.ConfigService.Config()
+	name, entry, err := t.ConfigService.SelectedHub(opts.Hub)
 	if err != nil {
 		return nil, err
 	}
-
-	explicit := strings.TrimSpace(opts.Hub)
-	var names []string
-	if explicit != "" {
-		names = []string{explicit}
-	} else {
-		names = t.allHubNames(cfg)
-	}
-
-	seen := map[string]struct{}{}
-	var out []string
-	for _, name := range names {
-		entry, ok := cfg.Hub(name)
-		if !ok {
-			if explicit != "" {
-				return nil, fmt.Errorf("hub %q is not configured", name)
-			}
-			continue
-		}
-		kegs, listErr := t.listHubKegs(ctx, name, entry)
-		if listErr != nil {
-			if explicit != "" {
-				return nil, listErr
-			}
-			if lg := t.Runtime.Logger(); lg != nil {
-				lg.Warn("hub list: skipping hub", "hub", name, "err", listErr)
-			}
-			continue
-		}
-		for _, k := range kegs {
-			if _, dup := seen[k]; dup {
-				continue
-			}
-			seen[k] = struct{}{}
-			out = append(out, k)
-		}
-	}
-	sort.Strings(out)
-	return out, nil
+	return t.listHubKegs(ctx, name, entry)
 }
 
-// allHubNames returns the names of every hub to enumerate in aggregate mode:
-// the configured hubs, or the built-in default hub when none are configured.
-func (t *Tap) allHubNames(cfg *Config) []string {
+// allHubNames returns only the active Hub for remote discovery.
+func (t *Tap) allHubNames(cfg *Config) []string { return dedupeStrings([]string{cfg.resolveHubName()}) }
+
+func (t *Tap) savedHubNames(cfg *Config) []string {
 	hubs := cfg.Hubs()
 	if len(hubs) == 0 {
 		return dedupeStrings([]string{cfg.resolveHubName()})
@@ -87,13 +43,6 @@ func (t *Tap) allHubNames(cfg *Config) []string {
 
 // listHubKegs returns the kegs on a single remote hub as "@namespace/keg".
 func (t *Tap) listHubKegs(ctx context.Context, name string, entry HubEntry) ([]string, error) {
-	kind := strings.TrimSpace(entry.Kind)
-	if kind == "" {
-		kind = HubKindRemote
-	}
-	if kind != HubKindRemote && kind != HubKindReadonly {
-		return nil, fmt.Errorf("hub %q has unsupported kind %q", name, kind)
-	}
 
 	url := strings.TrimSpace(entry.URL)
 	if url == "" {
@@ -138,9 +87,8 @@ func (t *Tap) hubTokenForTarget(target *keg.Target) string {
 		return ""
 	}
 	if target.TokenEnv != "" {
-		if v := t.Runtime.Get(target.TokenEnv); v != "" {
-			return v
-		}
+		// Explicit configuration owns credential selection, even when missing.
+		return t.Runtime.Get(target.TokenEnv)
 	}
 	if target.Token != "" {
 		return target.Token
@@ -159,7 +107,6 @@ func (t *Tap) hubTokenForTarget(target *keg.Target) string {
 type HubInfo struct {
 	Name      string
 	URL       string
-	Kind      string
 	IsDefault bool
 	Source    string // "user" or "built-in"
 }
@@ -172,14 +119,14 @@ func (t *Tap) HubList(_ context.Context) ([]HubInfo, error) {
 	if err != nil {
 		return nil, err
 	}
-	defaultHub := cfg.resolveHubName()
+	hub := cfg.resolveHubName()
 	userHubs := map[string]struct{}{}
 	if userCfg, _ := t.ConfigService.UserConfig(); userCfg != nil {
 		for name := range userCfg.Hubs() {
 			userHubs[name] = struct{}{}
 		}
 	}
-	names := t.allHubNames(cfg)
+	names := t.savedHubNames(cfg)
 	out := make([]HubInfo, 0, len(names))
 	for _, name := range names {
 		entry, ok := cfg.Hub(name)
@@ -193,19 +140,11 @@ func (t *Tap) HubList(_ context.Context) ([]HubInfo, error) {
 		out = append(out, HubInfo{
 			Name:      name,
 			URL:       strings.TrimSpace(entry.URL),
-			Kind:      hubKindOrDefault(entry.Kind),
-			IsDefault: name == defaultHub,
+			IsDefault: name == hub,
 			Source:    source,
 		})
 	}
 	return out, nil
-}
-
-func hubKindOrDefault(kind string) string {
-	if k := strings.TrimSpace(kind); k != "" {
-		return k
-	}
-	return HubKindRemote
 }
 
 // HubAddOptions adds a remote hub connection to user config.
@@ -228,7 +167,7 @@ func (t *Tap) HubAdd(_ context.Context, opts HubAddOptions) error {
 		return fmt.Errorf("a hub url is required (--url)")
 	}
 	return t.mutateConfigFile(t.PathService.UserConfig(), func(c *Config) error {
-		return c.SetHub(name, HubEntry{Kind: HubKindRemote, URL: url, TokenEnv: strings.TrimSpace(opts.TokenEnv)})
+		return c.SetHub(name, HubEntry{URL: url, TokenEnv: strings.TrimSpace(opts.TokenEnv)})
 	})
 }
 
@@ -251,11 +190,6 @@ func (t *Tap) HubRemove(_ context.Context, opts HubRemoveOptions) error {
 			return derr
 		}
 		removed = ok
-		for nsName, ref := range c.Namespaces() {
-			if ref.Hub == name {
-				c.DeleteNamespace(nsName)
-			}
-		}
 		return nil
 	}); err != nil {
 		return err
@@ -273,7 +207,7 @@ type HubSetDefaultOptions struct {
 	User bool
 }
 
-// HubSetDefault sets defaultHub. Unlike the hubs map, defaultHub is allowed in
+// HubSetDefault sets hub. Unlike the hubs map, hub is allowed in
 // project config, so the default write target is the project config, with
 // --user to write the user config instead.
 func (t *Tap) HubSetDefault(ctx context.Context, opts HubSetDefaultOptions) error {
@@ -293,7 +227,7 @@ func (t *Tap) HubSetDefault(ctx context.Context, opts HubSetDefaultOptions) erro
 		path = t.PathService.UserConfig()
 	}
 	return t.mutateConfigFile(path, func(c *Config) error {
-		return c.SetDefaultHub(ctx, name)
+		return c.SetHubName(ctx, name)
 	})
 }
 

@@ -25,6 +25,14 @@ type apiNodeEvent struct {
 // Watch implements Keg by subscribing to the hub's per-node websocket event
 // stream (/nodes/{id}/events) for each requested node.
 func (k *RemoteKeg) Watch(ctx context.Context, ids ...NodeId) (<-chan NodeEvent, error) {
+	if k.credentialCheck != nil {
+		if err := k.credentialCheck(); err != nil {
+			return nil, err
+		}
+	}
+	if err := ValidateOrientationTarget(ctx, k.baseURL); err != nil {
+		return nil, err
+	}
 	if len(ids) == 0 {
 		return nil, fmt.Errorf("remote live watch requires at least one node id")
 	}
@@ -48,10 +56,20 @@ func (k *RemoteKeg) Watch(ctx context.Context, ids ...NodeId) (<-chan NodeEvent,
 }
 
 func (k *RemoteKeg) watchNodeEvents(ctx context.Context, id NodeId, out chan<- NodeEvent) {
+	if err := ValidateOrientationTarget(ctx, k.baseURL); err != nil {
+		k.logDebug("remote live watch routing refused", "error", err)
+		return
+	}
 	backoff := 250 * time.Millisecond
 	for ctx.Err() == nil {
+		if k.credentialCheck != nil {
+			if err := k.credentialCheck(); err != nil {
+				k.logDebug("remote live watch credential unavailable", "error", err)
+				return
+			}
+		}
 		conn, resp, err := websocket.Dial(ctx, k.eventsURL(id), &websocket.DialOptions{
-			HTTPClient: k.httpClient(),
+			HTTPClient: k.orientationHTTPClient(ctx),
 			HTTPHeader: k.eventsHeader(ctx),
 		})
 		if err != nil {
@@ -126,7 +144,7 @@ func (k *RemoteKeg) eventsHeader(ctx context.Context) http.Header {
 	if token := k.currentToken(); token != "" {
 		h.Set("Authorization", "Bearer "+token)
 	}
-	if orientation, ok := OrientationHeaderValue(ctx); ok {
+	if orientation, ok := OrientationHeaderForURL(ctx, k.baseURL); ok {
 		h.Set(OrientationHeaderName, orientation)
 	}
 	return h

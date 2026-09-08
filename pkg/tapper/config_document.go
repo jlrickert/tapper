@@ -2,21 +2,21 @@ package tapper
 
 import (
 	"fmt"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
 
 var configOwnedFields = map[string]struct{}{
-	"logFile": {}, "logLevel": {}, "updated": {}, "defaultKeg": {},
-	"fallbackKeg": {}, "flight": {}, "agent": {}, "kegMap": {},
-	"namespaces": {}, "defaultHub": {}, "fallbackHub": {},
+	"logFile": {}, "logLevel": {}, "updated": {}, "keg": {}, "flight": {}, "agent": {}, "kegMap": {},
+	"hub":              {},
 	"defaultNamespace": {}, "fallbackNamespace": {}, "disableAtlasHub": {},
 	"disableTelemetry": {}, "hubs": {}, "agents": {},
 }
 
 var configObjectOwnedFields = map[string]map[string]struct{}{
 	"hubs": {
-		"kind": {}, "defaultNamespace": {}, "url": {}, "token": {}, "tokenEnv": {},
+		"defaultNamespace": {}, "url": {}, "token": {}, "tokenEnv": {},
 	},
 	"namespaces": {"hub": {}},
 	"agents": {
@@ -26,7 +26,7 @@ var configObjectOwnedFields = map[string]map[string]struct{}{
 }
 
 var kegMapOwnedFields = map[string]struct{}{
-	"alias": {}, "pathPrefix": {}, "pathRegex": {},
+	"keg": {}, "hub": {}, "alias": {}, "pathPrefix": {}, "pathRegex": {},
 }
 
 func overlayConfigDocument(original *yaml.Node, data *configDTO) (*yaml.Node, error) {
@@ -52,6 +52,9 @@ func overlayConfigDocument(original *yaml.Node, data *configDTO) (*yaml.Node, er
 			continue
 		}
 		dstValue, exists := mappingValue(dst, field)
+		if exists && srcValue.Kind == yaml.ScalarNode && strings.HasPrefix(srcValue.Value, "\x00invalid ") {
+			continue
+		}
 		switch field {
 		case "hubs", "namespaces", "agents":
 			if exists && dstValue.Kind == yaml.MappingNode && srcValue.Kind == yaml.MappingNode {
@@ -119,6 +122,9 @@ func overlayOwnedMapping(dst, src *yaml.Node, owned map[string]struct{}) {
 			removeMappingValue(dst, field)
 			continue
 		}
+		if value.Kind == yaml.ScalarNode && strings.HasPrefix(value.Value, "\x00invalid ") {
+			continue
+		}
 		setMappingValue(dst, field, cloneYAMLNode(value))
 	}
 }
@@ -154,6 +160,9 @@ func mappingValue(mapping *yaml.Node, key string) (*yaml.Node, bool) {
 func setMappingValue(mapping *yaml.Node, key string, value *yaml.Node) {
 	for i := 0; i+1 < len(mapping.Content); i += 2 {
 		if mapping.Content[i].Value == key {
+			value.HeadComment = mapping.Content[i+1].HeadComment
+			value.LineComment = mapping.Content[i+1].LineComment
+			value.FootComment = mapping.Content[i+1].FootComment
 			mapping.Content[i+1] = value
 			return
 		}

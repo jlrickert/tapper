@@ -103,13 +103,13 @@ The shared KEG resolves through `@acme/tapper` to its configured remote Hub.
 `.tapper/config.yaml`:
 
 ```yaml
-defaultKeg: tapper
+keg: tapper
 defaultNamespace: acme
 kegMap: []
 ```
 
-`defaultKeg: tapper` is a bare keg reference. `defaultNamespace: acme` makes it
-resolve as `@acme/tapper`, and the namespace-to-hub mapping in user config
+`keg: tapper` is a bare keg reference. `defaultNamespace: acme` makes it
+resolve as `@acme/tapper`, and the selected Hub in user config
 selects where that organization namespace lives.
 
 ## Baker KEG Example
@@ -195,3 +195,11 @@ Interlinking is a core KEG behavior. Notes should be atomic and linked explicitl
 - Keep `0/` as a stable root node in both structures.
 - Keep node files at least to the practical minimum described in
   [Minimum Keg Node](minimum-node.md).
+
+Portable node statistics carry optional `uuid` and `creator`
+JSON fields. The Hub assigns a random UUID v4 once on creation and attributes new
+nodes to the authenticated username. Imports preserve supplied identity; missing
+creator attribution uses the destination namespace owner's username. Copies may share UUIDs. These fields describe provenance and never grant
+permissions. Shared serialization preserves them through edits, exports, imports,
+and statistics regeneration; the Hub repository retains current identity during
+snapshot restores, including restores of older snapshots without identity.

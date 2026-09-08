@@ -107,7 +107,7 @@ func TestPrecondition_CatHashRoundTripsThroughEdit(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, missing.IsError)
 	require.Contains(t, extractText(t, missing), "expected_hash")
-	require.Nil(t, missing.StructuredContent, "schema rejection must happen before the mutation handler")
+	require.Equal(t, false, structuredMap(t, missing)["operationPerformed"], "schema rejection must happen before the mutation handler")
 
 	// The token a read handed out is accepted by the matching write.
 	editRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
@@ -188,7 +188,7 @@ func TestPrecondition_RemoveBatchUsesDistinctTokensAtomically(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, missing.IsError)
 	require.Contains(t, extractText(t, missing), "expected_hash")
-	require.Nil(t, missing.StructuredContent)
+	require.Equal(t, "INVALID_ARGUMENT", structuredMap(t, missing)["code"])
 	require.NotEmpty(t, readNodeHash(t, session, ctx, one))
 	require.NotEmpty(t, readNodeHash(t, session, ctx, two))
 
@@ -275,7 +275,7 @@ func TestPrecondition_ReadsExposeDocumentTokens(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.False(t, minimal.IsError)
-	require.Nil(t, minimal.StructuredContent, "the minimal summary must not offer a write token")
+	require.NotContains(t, structuredMap(t, minimal), "hash", "the minimal summary must not offer a write token")
 }
 
 // TestCat_StructuredRowsAreSelfContained pins tapper#93: one cat row must carry

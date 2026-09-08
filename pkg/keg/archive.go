@@ -29,11 +29,11 @@ const (
 )
 
 type archiveManifest struct {
-	Format       string                `json:"format"`
-	Source       string                `json:"source,omitempty"`
-	ExportedAt   time.Time             `json:"exported_at"`
-	WithHistory  bool                  `json:"with_history,omitempty"`
-	WithSettings bool                  `json:"with_settings,omitempty"`
+	Format       string    `json:"format"`
+	Source       string    `json:"source,omitempty"`
+	ExportedAt   time.Time `json:"exported_at"`
+	WithHistory  bool      `json:"with_history,omitempty"`
+	WithSettings bool      `json:"with_settings,omitempty"`
 	// WithConfig is the pre-rename spelling of WithSettings. An archive is a
 	// stored artifact that outlives the code that wrote it, and v3 tarballs
 	// carrying this spelling are already in users' hands, so it stays readable.
@@ -281,6 +281,21 @@ func (k *LocalKeg) writeArchiveAssets(ctx context.Context, tw *tar.Writer, base 
 				return fmt.Errorf("unable to read image %s for node %s: %w", name, id.Path(), err)
 			}
 			if err := writeTarFile(tw, base+"/images/"+name, data); err != nil {
+				return err
+			}
+		}
+	}
+	if videos, ok := k.Repo.(RepositoryVideos); ok {
+		names, err := videos.ListVideos(ctx, id)
+		if err != nil {
+			return err
+		}
+		for _, name := range names {
+			data, err := videos.ReadVideo(ctx, id, name)
+			if err != nil {
+				return err
+			}
+			if err := writeTarFile(tw, base+"/videos/"+name, data); err != nil {
 				return err
 			}
 		}
@@ -1078,12 +1093,14 @@ func remapStatsLinks(stats *NodeStats, mapping map[string]NodeId) {
 type importedNodeAssets struct {
 	files  map[string][]byte
 	images map[string][]byte
+	videos map[string][]byte
 }
 
 func readImportedNodeAssets(ctx context.Context, repo Repository, id NodeId) (importedNodeAssets, error) {
 	assets := importedNodeAssets{
 		files:  map[string][]byte{},
 		images: map[string][]byte{},
+		videos: map[string][]byte{},
 	}
 
 	if filesRepo, ok := repo.(RepositoryFiles); ok {
@@ -1114,6 +1131,20 @@ func readImportedNodeAssets(ctx context.Context, repo Repository, id NodeId) (im
 		}
 	}
 
+	if videos, ok := repo.(RepositoryVideos); ok {
+		names, err := videos.ListVideos(ctx, id)
+		if err != nil && !errors.Is(err, ErrNotExist) {
+			return importedNodeAssets{}, err
+		}
+		for _, name := range names {
+			data, err := videos.ReadVideo(ctx, id, name)
+			if err != nil {
+				return importedNodeAssets{}, err
+			}
+			assets.videos[name] = append([]byte(nil), data...)
+		}
+	}
+
 	return assets, nil
 }
 
@@ -1134,6 +1165,14 @@ func restoreImportedNodeAssets(ctx context.Context, repo Repository, id NodeId, 
 		}
 	}
 
+	if videos, ok := repo.(RepositoryVideos); ok {
+		for name, data := range assets.videos {
+			if err := videos.WriteVideo(ctx, id, name, data); err != nil {
+				return err
+			}
+		}
+	}
+
 	return nil
 }
 
@@ -1145,8 +1184,24 @@ func writeArchiveEntriesAssets(ctx context.Context, repo Repository, entries map
 
 	filePrefix := base + "/assets/"
 	imagePrefix := base + "/images/"
+	videoPrefix := base + "/videos/"
 	for name, data := range entries {
 		switch {
+		case strings.HasPrefix(name, videoPrefix):
+			repo, ok := repo.(RepositoryVideos)
+			if !ok {
+				return ErrNotSupported
+			}
+			assetName := strings.TrimPrefix(name, videoPrefix)
+			if err := validAssetName(assetName); err != nil {
+				return err
+			}
+			if err := ValidateVideo(data); err != nil {
+				return err
+			}
+			if err := repo.WriteVideo(ctx, id, assetName, data); err != nil {
+				return err
+			}
 		case len(name) > len(filePrefix) && name[:len(filePrefix)] == filePrefix:
 			if !hasFiles {
 				return ErrNotSupported
@@ -1181,7 +1236,7 @@ func validateArchiveAssetEntries(entries map[string][]byte) error {
 			continue
 		}
 		switch parts[3] {
-		case "assets", "images":
+		case "assets", "images", "videos":
 			assetName := strings.Join(parts[4:], "/")
 			if err := validAssetName(assetName); err != nil {
 				return fmt.Errorf("archive asset entry %q: %w", name, err)

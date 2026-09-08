@@ -34,15 +34,13 @@ func TestBootstrap_Cloud(t *testing.T) {
 
 	cfg, err := tap.ConfigService.UserConfig()
 	require.NoError(t, err)
-	require.Equal(t, tapper.DefaultHubName, cfg.FallbackHub())
+	require.Equal(t, tapper.DefaultHubName, cfg.HubName())
 	require.Empty(t, cfg.FallbackNamespace(), "namespace comes from the hub, not a global fallback")
 	hubs := cfg.Hubs()
 	require.Contains(t, hubs, tapper.DefaultHubName)
-	require.Equal(t, tapper.HubKindRemote, hubs[tapper.DefaultHubName].Kind)
 	require.Equal(t, tapper.DefaultHubURL, hubs[tapper.DefaultHubName].URL)
 	require.Empty(t, hubs[tapper.DefaultHubName].DefaultNamespace, "cloud hub namespace stays empty until login adopts it")
 
-	require.Empty(t, cfg.Namespaces())
 }
 
 // TestBootstrap_Enterprise registers a custom remote endpoint and derives the
@@ -64,14 +62,12 @@ func TestBootstrap_Enterprise(t *testing.T) {
 
 	cfg, err := tap.ConfigService.UserConfig()
 	require.NoError(t, err)
-	require.Equal(t, "acme", cfg.FallbackHub())
+	require.Equal(t, "acme", cfg.HubName())
 	require.Empty(t, cfg.FallbackNamespace(), "namespace comes from the hub, not a global fallback")
 	hubs := cfg.Hubs()
 	require.Contains(t, hubs, "acme")
-	require.Equal(t, tapper.HubKindRemote, hubs["acme"].Kind)
 	require.Equal(t, "https://keg.acme.com", hubs["acme"].URL)
 	require.Empty(t, hubs["acme"].DefaultNamespace, "enterprise hub namespace stays empty until login adopts it")
-	require.Empty(t, cfg.Namespaces())
 }
 
 // TestBootstrap_Enterprise_SchemeAddedAndHubNameOverride covers a bare host
@@ -155,7 +151,7 @@ func TestBootstrap_Idempotent_PreservesUserConfig(t *testing.T) {
 	tap := newBootstrapTap(t, fx)
 
 	existing := strings.TrimSpace(`
-fallbackHub: stale
+hub: stale
 fallbackNamespace: olduser
 vendorFeature:
   enabled: true
@@ -179,11 +175,10 @@ hubs:
 
 	cfg, err := tap.ConfigService.UserConfig()
 	require.NoError(t, err)
-	require.Equal(t, tapper.DefaultHubName, cfg.FallbackHub())
+	require.Equal(t, tapper.DefaultHubName, cfg.HubName())
 	// Bootstrap no longer manages fallbackNamespace, so a pre-existing value is
 	// left untouched rather than overwritten with the OS user.
 	require.Equal(t, "olduser", cfg.FallbackNamespace())
-	require.Empty(t, cfg.Namespaces())
 
 	// The user-defined keg-map entry survives the idempotent re-run.
 	out, err := cfg.ToYAML()

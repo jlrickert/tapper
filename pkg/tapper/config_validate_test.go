@@ -16,7 +16,7 @@ func TestValidateConfig_ValidConfig(t *testing.T) {
 	t.Parallel()
 
 	cfg, err := tapper.ParseConfig([]byte(`
-defaultKeg: pub
+keg: pub
 logLevel: info
 kegMap:
   - alias: pub
@@ -63,7 +63,7 @@ kegMap:
 
 	warnings := tapper.ValidateConfig(cfg)
 	require.Len(t, warnings, 1)
-	require.Contains(t, warnings[0].Message, "no alias")
+	require.Contains(t, warnings[0].Message, "no keg")
 }
 
 func TestValidateConfig_KegMapInvalidRegex(t *testing.T) {

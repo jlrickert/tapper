@@ -29,12 +29,12 @@ Common keg fields:
 - `url`
 - `creator`
 - `state`
-- `summary`
+- `description`
 - `links`
 - `indexes`
 - `schemaPolicy`
 
-Use `summary` for a concise discovery description: aggregate orientation uses
+Use `description` for a concise discovery description: orientation uses
 it to help agents identify relevant KEGs and does not automatically truncate
 it. Use `instructions` for targeted operational guidance. Instructions are
 loaded only after an agent explicitly selects the KEG through `keg_settings`;
@@ -75,3 +75,8 @@ with no `strict` field remain non-strict.
 - Save small changes and re-run `tap keg settings` to confirm output.
 - Use `tap info --keg @namespace/name` to confirm a resolved target when
   debugging selection.
+
+Legacy `summary` remains readable when `description` is absent. An explicitly
+empty description takes precedence. New settings and archive exports use
+`description`, preserving the complete stored text. Index and node-schema
+summary fields retain their existing names.

@@ -144,7 +144,7 @@ func (t *Tap) KegRename(ctx context.Context, opts KegRenameOptions) error {
 
 // resolveKegAdminRef resolves the keg an admin command targets. keg is the
 // selector from --keg (a bare name or @namespace/keg); when empty it falls back
-// to the configured defaultKeg then fallbackKeg. nsOverride/hubOverride apply
+// to the configured keg then keg. nsOverride/hubOverride apply
 // the --namespace/--hub flags. It resolves the remote hub backing that
 // namespace and returns the namespace, keg alias, hub URL, and bearer token.
 // Keg administration requires a remote hub-backed namespace with a token.
@@ -155,10 +155,7 @@ func (t *Tap) resolveKegAdminRef(keg, nsOverride, hubOverride string) (namespace
 	}
 	raw := strings.TrimSpace(keg)
 	if raw == "" {
-		raw = strings.TrimSpace(cfg.DefaultKeg())
-	}
-	if raw == "" {
-		raw = strings.TrimSpace(cfg.FallbackKeg())
+		raw = strings.TrimSpace(cfg.Keg())
 	}
 	if raw == "" {
 		return "", "", "", "", fmt.Errorf("no keg specified and no default keg configured; pass --keg @namespace/keg or set one with `tap use`")
@@ -185,4 +182,22 @@ func (t *Tap) resolveKegAdminRef(keg, nsOverride, hubOverride string) (namespace
 		return "", "", "", "", fmt.Errorf("hub %q has no auth token (run `tap auth login --hub %s`)", hubName, url)
 	}
 	return ns, ref.Name, url, tok, nil
+}
+
+// KegDeleteOptions identifies the explicit KEG to permanently delete.
+type KegDeleteOptions struct{ Keg, Namespace, Hub string }
+
+// KegDelete deletes all KEG data, including snapshots, through the Hub catalog.
+func (t *Tap) KegDelete(ctx context.Context, opts KegDeleteOptions) (string, error) {
+	if strings.TrimSpace(opts.Keg) == "" {
+		return "", fmt.Errorf("%w: keg is required", keg.ErrInvalid)
+	}
+	ns, alias, hub, token, err := t.resolveKegAdminRef(opts.Keg, opts.Namespace, opts.Hub)
+	if err != nil {
+		return "", err
+	}
+	if err := DeleteKeg(ctx, hub, token, ns, alias); err != nil {
+		return "", err
+	}
+	return "@" + ns + "/" + alias, nil
 }

@@ -41,7 +41,7 @@ type fakeBootstrapPrompter struct {
 	kind         func() (string, error)
 	endpoint     func() (string, error)
 	confirmLogin func(string) (bool, error)
-	selectKeg    func([]string) (bootstrapDefaultKegSelection, error)
+	selectKeg    func([]string) (bootstrapKegSelection, error)
 	selectFlight func([]string, string) (string, error)
 	manualKeg    func() (string, error)
 	newKeg       func() (string, error)
@@ -75,16 +75,16 @@ func (f *fakeBootstrapPrompter) ConfirmBootstrapLogin(host string) (bool, error)
 	return f.confirmLogin(host)
 }
 
-func (f *fakeBootstrapPrompter) SelectDefaultKeg(available []string) (bootstrapDefaultKegSelection, error) {
+func (f *fakeBootstrapPrompter) SelectKeg(available []string) (bootstrapKegSelection, error) {
 	if f.selectKeg == nil {
-		f.t.Fatal("unexpected SelectDefaultKeg call")
+		f.t.Fatal("unexpected SelectKeg call")
 	}
 	return f.selectKeg(available)
 }
 
-func (f *fakeBootstrapPrompter) PromptManualDefaultKeg() (string, error) {
+func (f *fakeBootstrapPrompter) PromptManualKeg() (string, error) {
 	if f.manualKeg == nil {
-		f.t.Fatal("unexpected PromptManualDefaultKeg call")
+		f.t.Fatal("unexpected PromptManualKeg call")
 	}
 	return f.manualKeg()
 }
@@ -119,13 +119,13 @@ func TestBootstrapCmd_NonInteractive_DefaultsToCloud(t *testing.T) {
 	out := string(res.Stdout)
 	require.Contains(t, out, "Wrote")
 	require.Contains(t, out, "kind:         cloud")
-	require.Contains(t, out, "fallback hub: atlas")
+	require.Contains(t, out, "user Hub: atlas")
 	require.NotContains(t, out, "namespace:",
 		"no login yet, so the cloud hub has no namespace to report")
 	require.Contains(t, out, "tap auth login") // no login happened
 
 	raw := sb.MustReadFile("~/.config/tapper/config.yaml")
-	require.Contains(t, string(raw), "fallbackHub: atlas")
+	require.Contains(t, string(raw), "hub: atlas")
 	require.NotContains(t, string(raw), "fallbackNamespace:",
 		"namespace comes from the hub, not a global fallback")
 }
@@ -235,7 +235,7 @@ func TestBootstrapCmd_Interactive_Enterprise(t *testing.T) {
 
 	out := string(res.Stdout)
 	require.Contains(t, out, "kind:         enterprise")
-	require.Contains(t, out, "fallback hub: acme")
+	require.Contains(t, out, "user Hub: acme")
 
 	raw := sb.MustReadFile("~/.config/tapper/config.yaml")
 	require.Contains(t, string(raw), "url: https://keg.acme.com")
@@ -302,7 +302,7 @@ func TestBootstrapCmd_Enterprise_Login(t *testing.T) {
 	require.NoError(t, res.Err)
 
 	require.Equal(t, tapper.CanonicalHubURL("https://keg.acme.com"), captured.Load().HubURL)
-	require.Contains(t, string(res.Stdout), "fallback hub: acme")
+	require.Contains(t, string(res.Stdout), "user Hub: acme")
 	require.Contains(t, string(res.Stdout), "namespace:    bob",
 		"enterprise bootstrap adopts the hub's default_namespace after login")
 
@@ -345,9 +345,9 @@ func TestBootstrapCmd_Interactive_LoginSelectsExistingKeg(t *testing.T) {
 	}
 	bootstrapPrompter := &fakeBootstrapPrompter{
 		t: t,
-		selectKeg: func(available []string) (bootstrapDefaultKegSelection, error) {
+		selectKeg: func(available []string) (bootstrapKegSelection, error) {
 			require.Equal(t, []string{"@bob/notes"}, available)
-			return bootstrapDefaultKegSelection{Action: bootstrapDefaultKegUseRef, Ref: "@bob/notes"}, nil
+			return bootstrapKegSelection{Action: bootstrapKegUseRef, Ref: "@bob/notes"}, nil
 		},
 	}
 	hook := combineHooks(
@@ -373,7 +373,7 @@ func TestBootstrapCmd_Interactive_LoginSelectsExistingKeg(t *testing.T) {
 	require.NotContains(t, string(res.Stdout), "created keg:")
 
 	cfgRaw := string(sb.MustReadFile("~/.config/tapper/config.yaml"))
-	require.Contains(t, cfgRaw, "fallbackKeg: '@bob/notes'")
+	require.Contains(t, cfgRaw, "keg: '@bob/notes'")
 	require.Contains(t, cfgRaw, "defaultNamespace: bob")
 }
 
@@ -450,7 +450,7 @@ func TestBootstrapCmd_Interactive_NoKegsCreatesOne(t *testing.T) {
 	require.Contains(t, string(res.Stdout), "created keg:  @bob/notes")
 
 	cfgRaw := string(sb.MustReadFile("~/.config/tapper/config.yaml"))
-	require.Contains(t, cfgRaw, "fallbackKeg: '@bob/notes'")
+	require.Contains(t, cfgRaw, "keg: '@bob/notes'")
 	require.Contains(t, cfgRaw, "defaultNamespace: bob")
 }
 

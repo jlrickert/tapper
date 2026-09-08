@@ -3,6 +3,7 @@ package tapper
 import (
 	"context"
 	"fmt"
+	"html"
 	"io/fs"
 	"sort"
 	"strings"
@@ -20,7 +21,7 @@ const orientRulesSummary = "Rules:\n" +
 	"- Use the `mcp__tapper__*` tools for every KEG operation; never read or write node files directly.\n" +
 	"- The target keg resolves from the working directory unless the `keg` parameter overrides it.\n" +
 	"- Take a snapshot before non-trivial edits. Snapshots do not protect against `remove`; preserve content some other way before deletion.\n" +
-	"- Every successful write returns a new hash and invalidates the one you were holding. Re-read with `cat`, `schema_read`, or `keg_settings` before each guarded write; a hash never covers two writes, so an edit followed by a delete needs two reads.\n" +
+	"- Writes may invalidate the hash you were holding; not every mutation returns a replacement. Re-read with `cat`, `schema_read`, or `keg_settings` before each guarded write; a hash never covers two writes, so an edit followed by a delete needs two reads.\n" +
 	"- Node ids are per-keg counters. Node 4 in one keg has nothing to do with node 4 in another, ids are never reused after a removal, and a create takes the next free id rather than filling a gap.\n" +
 	"- Node 0 is the keg's placeholder landing node. Leave it alone: it carries no `type` on purpose, it is where links to unwritten content land, and removing it makes the keg read as uninitialized. Write your content in a new node instead.\n" +
 	"- Attachments on a node are linked relative to that node's own directory: `[label](./assets/FILE)` for files and `![alt](./images/IMAGE)` for images. Both directory names are plural.\n"
@@ -58,6 +59,14 @@ func (t *Tap) Orient(ctx context.Context, opts OrientOptions) (string, error) {
 		available, warnings = t.IdentityKegCatalog(ctx)
 		flightNote = "No flight is configured, so normal identity-authorized full access applies. Pin a least-privilege flight outside MCP and start a new connection to narrow it."
 		authority = &OrientationAuthority{FullAccess: true}
+	}
+	if flight != nil && flightNote == "" {
+		graph, err := t.FlightService.ResolveFlightGraph(ctx, flight)
+		if err != nil {
+			return "", err
+		}
+		rows := append([]*Flight{graph.Root}, graph.Available...)
+		authority = &OrientationAuthority{Root: graph.Root, Active: flight, Children: ImmediateFlightChildren(flight, rows)}
 	}
 	payload, err := BuildOrientationPayload(flight, flightNote, t.ActiveAgentName(), available, warnings, authority)
 	if err != nil {
@@ -163,21 +172,24 @@ func (t *Tap) resolveOrientFlight(ctx context.Context, name string) (*Flight, st
 
 // OrientationKeg is one effective KEG exposed by an orientation context.
 type OrientationKeg struct {
-	Ref        string
-	Namespace  string
-	Alias      string
-	Title      string
-	Summary    string
-	Role       string
-	Source     string
-	Visibility string
-	FlightCap  string
-	Flights    []string
+	CoverSource string
+	Distance    int
+	Ref         string
+	Namespace   string
+	Alias       string
+	Title       string
+	Description string
+	Role        string
+	Source      string
+	Visibility  string
+	FlightCap   string
+	Flights     []string
 }
 
 // OrientationAuthority describes the connection-pinned launch root and the flight
 // selected from its live transitive graph for this call.
 type OrientationAuthority struct {
+	Children         []*Flight
 	Root             *Flight
 	Active           *Flight
 	Path             []string
@@ -251,14 +263,14 @@ func (t *Tap) orientKegsForHub(ctx context.Context, _ *Config, hubName string, e
 	out := make([]OrientationKeg, 0, len(kegs))
 	for _, k := range kegs {
 		row := OrientationKeg{
-			Ref:        "@" + k.Namespace + "/" + k.Alias,
-			Namespace:  k.Namespace,
-			Alias:      k.Alias,
-			Title:      k.Title,
-			Summary:    k.Summary,
-			Role:       k.Role,
-			Source:     hubName,
-			Visibility: k.Visibility,
+			Ref:         "@" + k.Namespace + "/" + k.Alias,
+			Namespace:   k.Namespace,
+			Alias:       k.Alias,
+			Title:       k.Title,
+			Description: k.Description,
+			Role:        k.Role,
+			Source:      hubName,
+			Visibility:  k.Visibility,
 		}
 		out = append(out, row)
 	}
@@ -357,10 +369,8 @@ func kegRefLabel(target *keg.Target) string {
 // MCP server can deliver it once at initialization and let a caller that
 // already knows which flight to pass start work without orienting first.
 //
-// It remains part of the orient payload as well. That duplication is
-// deliberate: initialization instructions are captured once and are discarded
-// by a context reset, so orient has to stay self-contained or a compacted agent
-// has no route back to these rules.
+// Orientation carries a concise reminder after context resets. The guide tool
+// serves this full preamble and canonical operating guidance on demand.
 func OrientationOperatingRules() string {
 	return "# KEG System\n\n" + orientPurpose + "\n\n" + orientRulesSummary
 }
@@ -371,149 +381,143 @@ func OrientationOperatingRules() string {
 // reported because it explains where the flight came from and how to change it.
 func BuildOrientationPayload(flight *Flight, flightNote, agent string, kegs []OrientationKeg, warnings []string, authority *OrientationAuthority) (string, error) {
 	var b strings.Builder
-	b.WriteString(OrientationOperatingRules())
-	b.WriteString("\n")
-
-	// A graph-wide listing mixes KEGs the active flight covers itself with KEGs
-	// only a descendant covers. They are operationally different — the second
-	// group needs a flight selection first — so they are rendered apart rather
-	// than distinguished only by a column an agent can skim past.
-	usable, viaSubflight := partitionOrientationKegs(flight, kegs)
-
-	b.WriteString("## Available KEGs\n\n")
-	if len(warnings) > 0 {
-		for _, warning := range warnings {
-			b.WriteString("- Warning: ")
-			b.WriteString(warning)
-			b.WriteString("\n")
-		}
-		b.WriteString("\n")
-	}
-	if len(usable) == 0 {
-		if len(viaSubflight) > 0 {
-			// The dispatcher shape: a parent flight that carries instructions and
-			// delegates every KEG to a descendant. Saying "no KEGs available"
-			// here would be wrong and would stop an agent that should be reading
-			// the next section instead.
-			b.WriteString("(The active flight covers no KEGs directly. See \"Reachable via subflight\" below.)\n\n")
-		} else {
-			b.WriteString("(No KEGs are currently available from configured hubs")
-			if flight != nil && len(flight.Cover) > 0 {
-				b.WriteString(" after applying the active flight cover")
-			}
-			b.WriteString(".)\n\n")
-		}
-	} else {
-		writeOrientationKegTable(&b, usable, "Flights")
-		b.WriteString("\nCall `keg_settings` for the selected KEG or KEGs before operating in them; targeted settings include KEG-level instructions.\n\n")
+	b.WriteString("# KEG System\n\n")
+	b.WriteString("Call `orient` at session start and after every context reset. Authority is bounded by identity permissions and the selected flight; child authority and instructions are not inherited. Use only `mcp__tapper__*` tools for KEG operations. Call `keg_settings` before operating in a KEG. Snapshot before meaningful edits; snapshots do not protect deletion. Re-read for a fresh hash before each guarded write. Call `guide` for detailed operating, authoring/linking, snapshots, tools, or troubleshooting guidance.\n\n")
+	for _, warning := range warnings {
+		fmt.Fprintf(&b, "Warning: %s\n\n", orientationTableCell(warning))
 	}
 
-	if len(viaSubflight) > 0 {
-		b.WriteString("## Reachable via subflight\n\n")
-		b.WriteString("The active flight does not cover these KEGs, so the KEG tools cannot reach them yet. ")
-		b.WriteString("Pass the named flight as the `flight` argument on a tool call to operate in one. ")
-		b.WriteString("That selection applies to a single call and never changes this session's pinned root.\n\n")
-		writeOrientationKegTable(&b, viaSubflight, "Select flight")
-		b.WriteString("\n")
+	if agent != "" {
+		fmt.Fprintf(&b, "Session agent `%s` selects only the model and telemetry identity; it cannot select or replace the connection root.\n\n", agent)
 	}
-
-	if flight != nil {
-		b.WriteString("## Flight\n\n")
-		if flight.Name != "" {
-			b.WriteString("Active flight: `")
-			b.WriteString(flight.Name)
-			b.WriteString("`\n\n")
-		}
-		if agent != "" {
-			b.WriteString("This session is driven by agent `")
-			b.WriteString(agent)
-			b.WriteString("`. The agent selects only the model and telemetry identity; it cannot ")
-			b.WriteString("select or replace the connection-pinned root in `TAP_FLIGHT`. Call ")
-			b.WriteString("`orient` without a flight to use that root, or name an authorized ")
-			b.WriteString("descendant to work under only that flight's instructions and authority.\n\n")
-		}
-		if flightNote != "" {
-			b.WriteString(flightNote)
-			b.WriteString("\n\n")
-		}
-		if flight.Title != "" {
-			b.WriteString(flight.Title)
-			b.WriteString("\n\n")
-		}
-		if flight.Instructions != "" {
-			b.WriteString(strings.TrimSpace(flight.Instructions))
-			b.WriteString("\n\n")
-		} else if flightNote == "" {
-			b.WriteString("(No flight-level instructions.)\n\n")
-		}
+	b.WriteString("## Flight\n\n")
+	if flightNote != "" {
+		b.WriteString(flightNote + "\n\n")
 	}
 	if flight == nil {
-		b.WriteString("## Flight\n\n")
 		if authority != nil && authority.FullAccess {
-			b.WriteString("No flight was provided. Normal identity-authorized full access applies, so every KEG is available only at the caller's real role; Hub ACLs and namespace membership are never raised or bypassed.\n\n")
-			if flightNote != "" {
-				b.WriteString(strings.TrimSpace(flightNote))
-				b.WriteString("\n\n")
-			}
+			b.WriteString("No flight is active. This session runs under your full identity authority; nothing here is scoped. Use `keg_search` and `flight_search` to discover readable resources; results confer no access. An explicit flight selects only that flight for one call. Pin a least-privilege flight outside MCP and start a new connection to narrow the session.\n")
 		} else {
-			b.WriteString("The explicitly selected flight could not be activated, so this session is in fail-closed recovery and KEG tools are locked. Only `orient`, `session_refresh`, `list_flights`, `flight_show`, `auth_info`, and `keg_search` are available.\n\n")
-			if flightNote != "" {
-				b.WriteString(strings.TrimSpace(flightNote))
-				b.WriteString("\n\n")
-			}
-			b.WriteString("Repair that exact selection outside MCP, then call `session_refresh` and `orient`. This state never falls back to no-flight full access.\n\n")
+			b.WriteString("The configured flight is unavailable: fail-closed recovery; KEG tools are locked. Repair the selection, then call `session_refresh` and `orient`. Use `flight_search`, `list_flights`, `flight_show`, or `auth_info` for recovery.\n")
 		}
+		return b.String(), nil
 	}
-
-	if authority != nil && (authority.Root != nil || authority.FullAccess) {
-		active := authority.Active
-		if active == nil {
-			active = flight
-		}
-		b.WriteString("## Orientation authority\n\n")
-		if authority.Root != nil {
-			b.WriteString("Launch root: `" + authority.Root.Name + "`\n\n")
-		} else {
+	fmt.Fprintf(&b, "## %s\n\nSelected flight: `%s`\n\n", orientationTableCell(resourceTitle(flight.Title, flight.Name)), flight.Name)
+	if flight.Description != "" {
+		b.WriteString(orientationTableCell(DescriptionPreview(flight.Description)) + "\n\n")
+	}
+	if authority != nil {
+		if authority.FullAccess {
 			b.WriteString("Launch root: (none; identity-authorized full access)\n\n")
 		}
-		if active != nil {
-			b.WriteString("Selected flight: `" + active.Name + "`\n\n")
-		}
-		path := authority.Path
-		if len(path) == 0 && authority.Root != nil {
-			path = []string{authority.Root.Name}
-		}
-		if len(path) > 0 {
-			b.WriteString("Resolved path: `" + strings.Join(path, "` → `") + "`\n\n")
-		}
-		b.WriteString("Selectable flights:")
-		if len(authority.AvailableFlights) == 0 {
-			b.WriteString(" (none)\n\n")
-		} else {
-			b.WriteString("\n\n")
-			for _, ref := range authority.AvailableFlights {
-				b.WriteString("- `" + ref + "`\n")
-			}
-			b.WriteString("\n")
+		if authority.Root != nil {
+			fmt.Fprintf(&b, "Launch root: `%s`\n\n", authority.Root.Name)
 		}
 		if authority.Revision != "" {
-			b.WriteString("Authority revision: `" + authority.Revision + "`\n\n")
-		}
-		if authority.FullAccess {
-			b.WriteString("The absence of a flight is pinned to this MCP connection. Bare calls use normal identity-authorized full access and send no governed-flight state. An explicit `flight` selects exactly one identity-accessible real flight for that call and uses only its cover, capabilities, and instructions. Concurrent callers may select different real flights without changing shared session state. Pin a least-privilege flight outside MCP, then start a new connection to narrow access.\n\n")
-		} else {
-			b.WriteString("The root reference is pinned to this MCP connection. Every authority-bearing call reloads its live transitive graph. Default `orient` and `keg_list` discovery summarize the root plus accessible descendants; explicitly supplying `flight` discovers exactly that flight. Operational tools still use only the root when `flight` is omitted, while an explicit root or listed descendant uses only that flight's instructions and authority. Descendant cover, capabilities, and instructions are never inherited. Concurrent callers may select different descendants without changing shared session state. Use `keg_search` to find identity-accessible KEGs outside this graph; results grant no operational access.\n\n")
+			fmt.Fprintf(&b, "Authority revision: `%s`\n\n", authority.Revision)
 		}
 	}
+	fmt.Fprintf(&b, "Effective authority: identity permissions intersect this flight's cover and capabilities (%s). Explicit selection never changes the connection root.\n\n", orientationTableCell(strings.Join(flightCapabilitiesText(flight), ", ")))
+	b.WriteString("### Active instructions\n\n")
+	b.WriteString(flight.Instructions)
+	b.WriteString("\n\n### Effective KEG cover\n\n")
+	// Full-access capabilities expand authority, but discovery remains direct-cover only.
+	direct := *flight
+	direct.Capabilities = nil
+	usable := ProjectOrientationKegs(&direct, kegs)
+	for i := range usable {
+		cap, _ := flightCapForKeg(flight, usable[i].Namespace, usable[i].Alias)
+		usable[i].FlightCap = cap
+	}
+	if len(usable) == 0 {
+		b.WriteString("No covered readable KEGs.\n")
+	} else {
+		writeOrientationKegTable(&b, usable, "")
+	}
+	b.WriteString("\nInspect a flight explicitly to see its children. Use `keg_search` and `flight_search` for metadata discovery. Select a reachable descendant explicitly with the `flight` argument; its instructions apply only to that call.\n")
+	return b.String(), nil
+}
 
-	b.WriteString("## Guidance\n\n")
-	for _, name := range []string{"snapshot-policy.md", "secret-handling.md", "agent-orient.md", "tool-inventory.md", "linking.md", "troubleshooting.md"} {
+func flightCapabilitiesText(f *Flight) []string {
+	out := make([]string, 0, len(f.Capabilities))
+	for _, c := range f.Capabilities {
+		out = append(out, string(c))
+	}
+	if len(out) == 0 {
+		return []string{"none"}
+	}
+	return out
+}
+func resourceTitle(title, ref string) string {
+	if strings.TrimSpace(title) == "" {
+		return ref
+	}
+	return title
+}
+
+// DescriptionPreview collapses whitespace and bounds discovery text to 240 Unicode characters.
+func DescriptionPreview(value string) string {
+	value = strings.Join(strings.Fields(value), " ")
+	chars := []rune(value)
+	if len(chars) > 240 {
+		return string(chars[:239]) + "…"
+	}
+	return value
+}
+
+// ImmediateFlightChildren filters existing readable graph/catalog projections without fetching manifests.
+func ImmediateFlightChildren(active *Flight, rows []*Flight) []*Flight {
+	if active == nil {
+		return nil
+	}
+	byRef := map[string]*Flight{}
+	for _, row := range rows {
+		if row != nil {
+			byRef[row.Name] = row
+		}
+	}
+	out := []*Flight{}
+	for _, name := range active.Subflights {
+		ref, err := ParseFlightRef(name, active.Namespace)
+		if err != nil {
+			continue
+		}
+		if child := byRef[ref.Canonical()]; child != nil {
+			out = append(out, child)
+		}
+	}
+	return out
+}
+
+// OrientationGuide serves canonical detailed guidance on demand.
+func OrientationGuide(topic string) (string, error) {
+	var names []string
+	switch topic {
+	case "operating":
+		names = []string{"secret-handling.md", "agent-orient.md"}
+	case "authoring":
+		names = []string{"authoring.md"}
+	case "linking":
+		names = []string{"linking.md"}
+	case "snapshots":
+		names = []string{"snapshot-policy.md"}
+	case "tools":
+		names = []string{"tool-inventory.md"}
+	case "troubleshooting":
+		names = []string{"troubleshooting.md"}
+	default:
+		return "", fmt.Errorf("unknown guide topic %q; use operating, authoring, linking, snapshots, tools, or troubleshooting", topic)
+	}
+	var b strings.Builder
+	if topic == "operating" {
+		b.WriteString(OrientationOperatingRules() + "\n")
+	}
+	for _, name := range names {
 		if err := appendCanonical(&b, name); err != nil {
 			return "", err
 		}
-		b.WriteString("\n")
+		b.WriteByte('\n')
 	}
-
 	return b.String(), nil
 }
 
@@ -550,35 +554,32 @@ func partitionOrientationKegs(flight *Flight, kegs []OrientationKeg) (usable, vi
 	return usable, viaSubflight
 }
 
-func writeOrientationKegTable(b *strings.Builder, kegs []OrientationKeg, flightsHeading string) {
-	fmt.Fprintf(b, "| KEG | Title | Summary | Role | %s | Source |\n", flightsHeading)
-	b.WriteString("| --- | --- | --- | --- | --- | --- |\n")
+func writeOrientationKegTable(b *strings.Builder, kegs []OrientationKeg, _ string) {
+	provenance := false
+	for _, row := range kegs {
+		provenance = provenance || row.CoverSource != ""
+	}
+	if provenance {
+		b.WriteString("| Title | Reference | Description | Role | Cover source | Distance |\n| --- | --- | --- | --- | --- | --- |\n")
+	} else {
+		b.WriteString("| Title | Reference | Description | Role |\n| --- | --- | --- | --- |\n")
+	}
 	for _, k := range kegs {
-		role := EffectiveOrientationRole(k)
-		flights := "none"
-		if len(k.Flights) > 0 {
-			flights = strings.Join(k.Flights, ", ")
+		fmt.Fprintf(b, "| %s | `%s` | %s | %s |", orientationTableCell(resourceTitle(k.Title, k.Ref)), k.Ref, orientationTableCell(DescriptionPreview(k.Description)), EffectiveOrientationRole(k))
+		if provenance {
+			fmt.Fprintf(b, " %s | %d |", orientationTableCell(k.CoverSource), k.Distance)
 		}
-		source := k.Source
-		if k.Visibility != "" {
-			source += "/" + k.Visibility
-		}
-		fmt.Fprintf(
-			b,
-			"| `%s` | %s | %s | %s | %s | %s |\n",
-			k.Ref,
-			orientationTableCell(k.Title),
-			orientationTableCell(k.Summary),
-			role,
-			orientationTableCell(flights),
-			source,
-		)
+		b.WriteString("\n")
 	}
 }
 
 func orientationTableCell(value string) string {
-	value = strings.TrimSpace(value)
+	value = html.EscapeString(strings.TrimSpace(value))
+
 	value = strings.ReplaceAll(value, "\\", "\\\\")
+	for _, ch := range []string{"*", "_", "[", "]", "`", "#"} {
+		value = strings.ReplaceAll(value, ch, "\\"+ch)
+	}
 	value = strings.ReplaceAll(value, "|", "\\|")
 	value = strings.ReplaceAll(value, "\r\n", "<br>")
 	value = strings.ReplaceAll(value, "\n", "<br>")

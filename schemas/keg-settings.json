@@ -8,7 +8,9 @@
     "kegv": {
       "type": "string",
       "description": "Settings schema version.",
-      "enum": ["2025-07"]
+      "enum": [
+        "2025-07"
+      ]
     },
     "updated": {
       "type": "string",
@@ -31,10 +33,6 @@
       "type": "string",
       "description": "Lifecycle state for the keg, such as living or archived."
     },
-    "summary": {
-      "type": "string",
-      "description": "Short summary of the keg's purpose and contents."
-    },
     "instructions": {
       "type": "string",
       "description": "Markdown guidance for agents working in this keg."
@@ -48,14 +46,17 @@
         "properties": {
           "alias": {
             "type": "string",
-            "description": "Unique alias used to reference the link."
+            "description": "Unique settings alias; use keg:~alias/node to reference a mapped KEG."
           },
           "url": {
             "type": "string",
-            "description": "Destination URL or keg target."
+            "description": "External URL (metadata only) or canonical same-Hub KEG target keg:@namespace/keg."
           }
         },
-        "required": ["alias", "url"],
+        "required": [
+          "alias",
+          "url"
+        ],
         "additionalProperties": true
       }
     },
@@ -88,11 +89,19 @@
           "sort": {
             "type": "string",
             "description": "Sort order for query-filtered index entries.",
-            "enum": ["id", "updated", "created", "accessed"],
+            "enum": [
+              "id",
+              "updated",
+              "created",
+              "accessed"
+            ],
             "default": "updated"
           }
         },
-        "required": ["file", "summary"],
+        "required": [
+          "file",
+          "summary"
+        ],
         "additionalProperties": true
       }
     },
@@ -108,7 +117,10 @@
         "mode": {
           "type": "string",
           "description": "Automatic snapshot mode. \"auto\" lets hub servers snapshot idle changed nodes; \"off\" disables automatic snapshots for this keg.",
-          "enum": ["auto", "off"],
+          "enum": [
+            "auto",
+            "off"
+          ],
           "default": "auto"
         },
         "idleAfter": {
@@ -133,20 +145,43 @@
         },
         "human": {
           "type": "string",
-          "enum": ["off", "warn", "block"]
+          "enum": [
+            "off",
+            "warn",
+            "block"
+          ]
         },
         "agent": {
           "type": "string",
-          "enum": ["off", "warn", "block"]
+          "enum": [
+            "off",
+            "warn",
+            "block"
+          ]
         },
         "api": {
           "type": "string",
-          "enum": ["off", "warn", "block"]
+          "enum": [
+            "off",
+            "warn",
+            "block"
+          ]
         }
       },
       "additionalProperties": false
+    },
+    "description": {
+      "type": "string",
+      "description": "A short sentence describing this KEG. Legacy summary is accepted when description is absent."
+    },
+    "summary": {
+      "type": "string",
+      "deprecated": true,
+      "description": "Legacy alias for description."
     }
   },
-  "required": ["kegv"],
+  "required": [
+    "kegv"
+  ],
   "additionalProperties": true
 }

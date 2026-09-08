@@ -14,6 +14,7 @@ type sessionRefreshInput struct{}
 // registerOrientTools wires the orient surface onto srv. Called from
 // NewServer alongside the other register*Tools helpers.
 func registerOrientTools(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
+	registerGuide(srv)
 	registerOrient(srv, tap, defaults)
 	registerSessionRefresh(srv, defaults)
 }
@@ -38,7 +39,7 @@ func registerOrient(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 			"not — orient. This tool is read-only and never activates or changes the connection's " +
 			"session state. Every authority-bearing call accepts an optional top-level flight. " +
 			"With no flight, omission uses all identity-authorized KEGs while an explicit value selects any listed real flight exactly. " +
-			"For a real root, default orient and keg_list discovery summarize its accessible transitive graph and explicit selection is limited to that graph. Calls reload live authority independently, so concurrent agents may use different flights without " +
+			"Orient reveals effective readable KEGs and immediate readable child flights. With no configured root it is search-first; use keg_search and flight_search to discover resources. Call orient with a child reference to reveal the next level. Explicit descendant selection remains limited to the authorized graph. Calls reload live authority independently, so concurrent agents may use different flights without " +
 			"changing shared session state. " +
 			"If an explicitly configured root fails to load, the session fails closed with only recovery tools. " +
 			"When no root is configured, no-flight full access stays pinned until the connection ends; pin a restrictive flight outside MCP and start a new connection.",
@@ -90,5 +91,19 @@ func registerSessionRefresh(srv *sdkmcp.Server, defaults KegDefaults) {
 		result := textResult(message)
 		result.StructuredContent = out
 		return result, nil, nil
+	})
+}
+
+type guideInput struct {
+	Topic string `json:"topic" jsonschema:"operating, authoring, linking, snapshots, tools, or troubleshooting"`
+}
+
+func registerGuide(srv *sdkmcp.Server) {
+	sdkmcp.AddTool(srv, &sdkmcp.Tool{Name: "guide", Description: "Read canonical KEG guidance on demand by topic.", Annotations: &sdkmcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: boolPtr(false)}}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in guideInput) (*sdkmcp.CallToolResult, any, error) {
+		text, err := tapper.OrientationGuide(in.Topic)
+		if err != nil {
+			return errorResult(err), nil, nil
+		}
+		return textResult(text), nil, nil
 	})
 }

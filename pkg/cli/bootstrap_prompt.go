@@ -12,17 +12,17 @@ import (
 	"github.com/jlrickert/tapper/pkg/tapper"
 )
 
-type bootstrapDefaultKegAction int
+type bootstrapKegAction int
 
 const (
-	bootstrapDefaultKegUseRef bootstrapDefaultKegAction = iota
-	bootstrapDefaultKegManual
-	bootstrapDefaultKegCreate
-	bootstrapDefaultKegSkip
+	bootstrapKegUseRef bootstrapKegAction = iota
+	bootstrapKegManual
+	bootstrapKegCreate
+	bootstrapKegSkip
 )
 
-type bootstrapDefaultKegSelection struct {
-	Action bootstrapDefaultKegAction
+type bootstrapKegSelection struct {
+	Action bootstrapKegAction
 	Ref    string
 }
 
@@ -34,13 +34,13 @@ type BootstrapPrompter interface {
 	PromptBootstrapEndpoint() (string, error)
 	// ConfirmBootstrapLogin reports whether the user wants to log in to host.
 	ConfirmBootstrapLogin(host string) (bool, error)
-	// SelectDefaultKeg chooses an available keg or a create, manual, or skip action.
-	SelectDefaultKeg(available []string) (bootstrapDefaultKegSelection, error)
+	// SelectKeg chooses an available keg or a create, manual, or skip action.
+	SelectKeg(available []string) (bootstrapKegSelection, error)
 	// SelectFlight chooses an available MCP flight, preserving current as the
 	// default selection when possible.
 	SelectFlight(available []string, current string) (string, error)
-	// PromptManualDefaultKeg collects a keg reference not present in the picker.
-	PromptManualDefaultKeg() (string, error)
+	// PromptManualKeg collects a keg reference not present in the picker.
+	PromptManualKeg() (string, error)
 	// PromptNewKegName collects and validates the alias for a new keg.
 	PromptNewKegName() (string, error)
 }
@@ -104,12 +104,12 @@ func (huhAuthPrompter) ConfirmBootstrapLogin(host string) (bool, error) {
 	return login, err
 }
 
-func (huhAuthPrompter) SelectDefaultKeg(available []string) (bootstrapDefaultKegSelection, error) {
-	selection := bootstrapDefaultKegSelection{Action: bootstrapDefaultKegSkip}
-	opts := make([]huh.Option[bootstrapDefaultKegSelection], 0, len(available)+3)
+func (huhAuthPrompter) SelectKeg(available []string) (bootstrapKegSelection, error) {
+	selection := bootstrapKegSelection{Action: bootstrapKegSkip}
+	opts := make([]huh.Option[bootstrapKegSelection], 0, len(available)+3)
 	for i, ref := range available {
-		value := bootstrapDefaultKegSelection{
-			Action: bootstrapDefaultKegUseRef,
+		value := bootstrapKegSelection{
+			Action: bootstrapKegUseRef,
 			Ref:    ref,
 		}
 		opt := huh.NewOption(ref, value)
@@ -120,12 +120,12 @@ func (huhAuthPrompter) SelectDefaultKeg(available []string) (bootstrapDefaultKeg
 		opts = append(opts, opt)
 	}
 	opts = append(opts,
-		huh.NewOption("Create a new keg", bootstrapDefaultKegSelection{Action: bootstrapDefaultKegCreate}),
-		huh.NewOption("Type another keg reference", bootstrapDefaultKegSelection{Action: bootstrapDefaultKegManual}),
-		huh.NewOption("Skip for now", bootstrapDefaultKegSelection{Action: bootstrapDefaultKegSkip}),
+		huh.NewOption("Create a new keg", bootstrapKegSelection{Action: bootstrapKegCreate}),
+		huh.NewOption("Type another keg reference", bootstrapKegSelection{Action: bootstrapKegManual}),
+		huh.NewOption("Skip for now", bootstrapKegSelection{Action: bootstrapKegSkip}),
 	)
 	err := huh.NewForm(huh.NewGroup(
-		huh.NewSelect[bootstrapDefaultKegSelection]().
+		huh.NewSelect[bootstrapKegSelection]().
 			Title("Default keg for plain tap commands").
 			Options(opts...).
 			Value(&selection),
@@ -133,7 +133,7 @@ func (huhAuthPrompter) SelectDefaultKeg(available []string) (bootstrapDefaultKeg
 	return selection, err
 }
 
-func (huhAuthPrompter) PromptManualDefaultKeg() (string, error) {
+func (huhAuthPrompter) PromptManualKeg() (string, error) {
 	var s string
 	err := huh.NewForm(huh.NewGroup(
 		huh.NewInput().

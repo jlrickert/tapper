@@ -9,7 +9,7 @@ import (
 
 const launchConfig = `fallbackNamespace: local
 flight: "@testuser/+root"
-defaultHub: atlas
+hub: atlas
 hubs:
   atlas:
     kind: remote
@@ -148,7 +148,7 @@ func TestLaunchCommand_DryRunWithoutFlightWarnsAndPinsNothing(t *testing.T) {
 	sb := NewSandbox(t)
 	require.NoError(t, sb.Runtime().AtomicWriteFile(
 		"/home/testuser/.config/tapper/config.yaml", []byte(`fallbackNamespace: local
-defaultHub: atlas
+hub: atlas
 hubs:
   atlas:
     kind: remote
