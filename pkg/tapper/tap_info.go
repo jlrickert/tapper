@@ -77,7 +77,7 @@ func (t *Tap) kegSettingsMinimal(ctx context.Context, k keg.Keg) (string, error)
 	type minimalConfig struct {
 		Kegv         string `yaml:"kegv,omitempty"`
 		Title        string `yaml:"title,omitempty"`
-		Summary      string `yaml:"summary,omitempty"`
+		Description  string `yaml:"description,omitempty"`
 		Updated      string `yaml:"updated,omitempty"`
 		Instructions string `yaml:"instructions,omitempty"`
 	}
@@ -85,7 +85,7 @@ func (t *Tap) kegSettingsMinimal(ctx context.Context, k keg.Keg) (string, error)
 	out := minimalConfig{
 		Kegv:         cfg.Kegv,
 		Title:        cfg.Title,
-		Summary:      cfg.Summary,
+		Description:  cfg.Description,
 		Updated:      cfg.Updated,
 		Instructions: cfg.Instructions,
 	}
@@ -100,7 +100,7 @@ func (t *Tap) kegSettingsMinimal(ctx context.Context, k keg.Keg) (string, error)
 type minimalKegSettings struct {
 	Keg          string `yaml:"keg"`
 	Title        string `yaml:"title,omitempty"`
-	Summary      string `yaml:"summary,omitempty"`
+	Description  string `yaml:"description,omitempty"`
 	Updated      string `yaml:"updated,omitempty"`
 	Instructions string `yaml:"instructions,omitempty"`
 }
@@ -153,7 +153,7 @@ func (t *Tap) readMinimalKegSettings(ctx context.Context, opts KegSettingsOption
 	return minimalKegSettings{
 		Keg:          ref,
 		Title:        cfg.Title,
-		Summary:      cfg.Summary,
+		Description:  cfg.Description,
 		Updated:      cfg.Updated,
 		Instructions: cfg.Instructions,
 	}, nil
@@ -171,7 +171,7 @@ func marshalMinimalKegSettings(refs []string, details []minimalKegSettings) (str
 		out[i] = minimalKegSettings{
 			Keg:          ref,
 			Title:        details[i].Title,
-			Summary:      details[i].Summary,
+			Description:  details[i].Description,
 			Updated:      details[i].Updated,
 			Instructions: details[i].Instructions,
 		}
@@ -318,16 +318,16 @@ func (t *Tap) Info(ctx context.Context, opts InfoOptions) (string, error) {
 		KegDirectory     string `yaml:"keg_directory,omitempty" json:"keg_directory,omitempty"`
 	}
 	type diagnostics struct {
-		Hub       string            `yaml:"hub" json:"hub"`
-		Namespace string            `yaml:"namespace" json:"namespace"`
-		Keg       string            `yaml:"keg" json:"keg"`
-		Ref       string            `yaml:"ref" json:"ref"`
-		Flight    string            `yaml:"flight" json:"flight"`
-		Summary   string            `yaml:"summary" json:"summary"`
-		NodeCount int               `yaml:"node_count" json:"node_count"`
-		Files     capability        `yaml:"files" json:"files"`
-		Images    capability        `yaml:"images" json:"images"`
-		Debug     *debugDiagnostics `yaml:"debug,omitempty" json:"debug,omitempty"`
+		Hub         string            `yaml:"hub" json:"hub"`
+		Namespace   string            `yaml:"namespace" json:"namespace"`
+		Keg         string            `yaml:"keg" json:"keg"`
+		Ref         string            `yaml:"ref" json:"ref"`
+		Flight      string            `yaml:"flight" json:"flight"`
+		Description string            `yaml:"description" json:"description"`
+		NodeCount   int               `yaml:"node_count" json:"node_count"`
+		Files       capability        `yaml:"files" json:"files"`
+		Images      capability        `yaml:"images" json:"images"`
+		Debug       *debugDiagnostics `yaml:"debug,omitempty" json:"debug,omitempty"`
 	}
 
 	identity := t.resolveIdentity(opts.KegTargetOptions)
@@ -343,8 +343,8 @@ func (t *Tap) Info(ctx context.Context, opts InfoOptions) (string, error) {
 	}
 
 	// Populate summary from the keg settings.
-	if info.Settings != nil && info.Settings.Summary != "" {
-		out.Summary = info.Settings.Summary
+	if info.Settings != nil && info.Settings.Description != "" {
+		out.Description = info.Settings.Description
 	}
 
 	if opts.Debug {

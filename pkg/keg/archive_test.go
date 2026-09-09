@@ -247,7 +247,7 @@ func TestArchiveImportRestoresKegSettingsForFullBackup(t *testing.T) {
 		cfg.URL = "https://example.com/restored"
 		cfg.Creator = "restorer"
 		cfg.State = "archived"
-		cfg.Summary = "Restored summary"
+		cfg.Description = "Restored summary"
 		cfg.Instructions = "Restore carefully."
 		cfg.Timezone = "America/Chicago"
 		cfg.Links = []keg.LinkEntry{{Alias: "docs", URL: "https://example.com/docs"}}
@@ -266,7 +266,7 @@ func TestArchiveImportRestoresKegSettingsForFullBackup(t *testing.T) {
 	initNonStrictTestKeg(t, dst, ctx)
 	require.NoError(t, dst.UpdateSettings(ctx, func(cfg *keg.Settings) {
 		cfg.Title = "Target Title"
-		cfg.Summary = "Target summary"
+		cfg.Description = "Target summary"
 		cfg.Timezone = "UTC"
 	}))
 
@@ -279,7 +279,7 @@ func TestArchiveImportRestoresKegSettingsForFullBackup(t *testing.T) {
 	require.Equal(t, "https://example.com/restored", got.URL)
 	require.Equal(t, "restorer", got.Creator)
 	require.Equal(t, "archived", got.State)
-	require.Equal(t, "Restored summary", got.Summary)
+	require.Equal(t, "Restored summary", got.Description)
 	require.Equal(t, "Restore carefully.", got.Instructions)
 	require.Equal(t, "America/Chicago", got.Timezone)
 	require.Equal(t, []keg.LinkEntry{{Alias: "docs", URL: "https://example.com/docs"}}, got.Links)
@@ -326,7 +326,7 @@ func TestArchiveImportRestoresKegSettingsFromLegacyConfigManifest(t *testing.T) 
 	require.NoError(t, err)
 	require.NoError(t, src.UpdateSettings(ctx, func(cfg *keg.Settings) {
 		cfg.Title = "Legacy Title"
-		cfg.Summary = "Legacy summary"
+		cfg.Description = "Legacy summary"
 		cfg.Instructions = "Legacy instructions."
 		cfg.Timezone = "America/Chicago"
 		cfg.Indexes = append(cfg.UserIndexEntries(), keg.IndexEntry{File: "restored.md", Summary: "Restored nodes", Query: "restored"})
@@ -343,7 +343,7 @@ func TestArchiveImportRestoresKegSettingsFromLegacyConfigManifest(t *testing.T) 
 	initNonStrictTestKeg(t, dst, ctx)
 	require.NoError(t, dst.UpdateSettings(ctx, func(cfg *keg.Settings) {
 		cfg.Title = "Target Title"
-		cfg.Summary = "Target summary"
+		cfg.Description = "Target summary"
 		cfg.Instructions = "Target instructions."
 		cfg.Timezone = "UTC"
 	}))
@@ -358,7 +358,7 @@ func TestArchiveImportRestoresKegSettingsFromLegacyConfigManifest(t *testing.T) 
 	got, err := dst.Settings(ctx)
 	require.NoError(t, err)
 	require.Equal(t, "Legacy Title", got.Title)
-	require.Equal(t, "Legacy summary", got.Summary)
+	require.Equal(t, "Legacy summary", got.Description)
 	require.Equal(t, "Legacy instructions.", got.Instructions)
 	require.Equal(t, "America/Chicago", got.Timezone)
 
@@ -378,7 +378,7 @@ func TestArchiveImportNodeSubsetDoesNotRestoreKegSettings(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, src.UpdateSettings(ctx, func(cfg *keg.Settings) {
 		cfg.Title = "Source Title"
-		cfg.Summary = "Source summary"
+		cfg.Description = "Source summary"
 	}))
 
 	archive := mustExportArchive(t, src, keg.ExportNodesOptions{NodeIDs: []keg.NodeId{id.ID}, WithAssets: true})
@@ -394,7 +394,7 @@ func TestArchiveImportNodeSubsetDoesNotRestoreKegSettings(t *testing.T) {
 	initNonStrictTestKeg(t, dst, ctx)
 	require.NoError(t, dst.UpdateSettings(ctx, func(cfg *keg.Settings) {
 		cfg.Title = "Target Title"
-		cfg.Summary = "Target summary"
+		cfg.Description = "Target summary"
 	}))
 
 	_, err = dst.ImportNodes(ctx, bytes.NewReader(archive), keg.ImportNodesOptions{})
@@ -402,7 +402,7 @@ func TestArchiveImportNodeSubsetDoesNotRestoreKegSettings(t *testing.T) {
 	got, err := dst.Settings(ctx)
 	require.NoError(t, err)
 	require.Equal(t, "Target Title", got.Title)
-	require.Equal(t, "Target summary", got.Summary)
+	require.Equal(t, "Target summary", got.Description)
 }
 
 func TestArchiveExportNodeSubsetOmitsSchemas(t *testing.T) {

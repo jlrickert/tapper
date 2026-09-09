@@ -326,7 +326,7 @@ func (p *perCallFlightBackend) SearchKegs(_ context.Context, query string) (mcp.
 		namespace, alias, _ := strings.Cut(namespaceAlias, "/")
 		rows = append(rows, tapper.OrientationKeg{
 			Ref: ref, Namespace: namespace, Alias: alias, Role: "admin", Source: "test", Visibility: "private",
-			Title: alias, Summary: "summary for " + alias,
+			Title: alias, Description: "summary for " + alias,
 		})
 	}
 	return mcp.KegSearchResult{Kegs: mcp.SearchIdentityKegs(rows, query)}, nil
@@ -522,7 +522,7 @@ func TestMCP_KegSearchIsIdentityScopedLiteralBoundedAndUngoverned(t *testing.T) 
 	require.NoError(t, json.Unmarshal(raw, &structured))
 	require.Equal(t, []mcp.KegSearchRow{{
 		Ref: "@team/new-keg", Role: "admin", Title: "new-keg",
-		Summary: "summary for new-keg", Visibility: "private", Source: "test",
+		Description: "summary for new-keg", Visibility: "private", Source: "test",
 	}}, structured.Kegs)
 
 	empty, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: "keg_search", Arguments: map[string]any{"query": "   "}})
@@ -535,7 +535,7 @@ func TestMCP_KegSearchIsIdentityScopedLiteralBoundedAndUngoverned(t *testing.T) 
 		alias := fmt.Sprintf("match-%02d", i)
 		rows = append(rows, tapper.OrientationKeg{
 			Ref: "@team/" + alias, Namespace: "team", Alias: alias,
-			Title: "A match", Summary: "literal metadata", Role: "viewer",
+			Title: "A match", Description: "literal metadata", Role: "viewer",
 		})
 	}
 	bounded := mcp.SearchIdentityKegs(rows, "MATCH")

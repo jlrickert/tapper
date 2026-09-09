@@ -26,12 +26,12 @@ const hubKegsPath = "/api/v1/kegs"
 // HubKeg is one keg the hub reports the authenticated user can reach. It
 // mirrors the hub's handler.UserKegItem JSON body — keep the two in sync.
 type HubKeg struct {
-	Namespace  string `json:"namespace"`
-	Alias      string `json:"alias"`
-	Title      string `json:"title"`
-	Summary    string `json:"summary"`
-	Visibility string `json:"visibility"`
-	Role       string `json:"role"`
+	Namespace   string `json:"namespace"`
+	Alias       string `json:"alias"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	Visibility  string `json:"visibility"`
+	Role        string `json:"role"`
 }
 
 // CreateKeg asks the hub to create @namespace/alias via
@@ -129,4 +129,26 @@ func readHubError(resp *http.Response) string {
 		return ": " + e.Error
 	}
 	return ""
+}
+
+// UnmarshalJSON accepts summary from older Hubs without overriding an explicit description.
+func (k *HubKeg) UnmarshalJSON(data []byte) error {
+	type plain HubKeg
+	var v plain
+	if err := json.Unmarshal(data, &v); err != nil {
+		return err
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	if _, ok := fields["description"]; !ok {
+		if raw, exists := fields["summary"]; exists {
+			if err := json.Unmarshal(raw, &v.Description); err != nil {
+				return err
+			}
+		}
+	}
+	*k = HubKeg(v)
+	return nil
 }
