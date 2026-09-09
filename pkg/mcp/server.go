@@ -104,6 +104,10 @@ func NewServer(tap *tapper.Tap, version string, defaults KegDefaults, opts ...Se
 	registerResourceTools(srv, tap, defaults)
 	registerAuthInfoTool(srv, defaults, opt.IdentityProvider, opt.KegProvider)
 
+	// Wrap the gate as well as handlers: recovery and SDK validation errors
+	// obey the same public response contract as successful operations.
+	srv.AddReceivingMiddleware(publicResponseMiddleware)
+
 	if opt.Logger != nil || opt.Reporter != nil {
 		var clk clock.Clock
 		if tap != nil && tap.Runtime != nil {

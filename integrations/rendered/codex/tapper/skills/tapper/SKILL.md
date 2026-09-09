@@ -3,151 +3,46 @@ name: tapper
 description: Orient to Tapper flights and operate on KEGs through MCP-first safety rules.
 ---
 
-# tapper
+# Operating MCP
 
-Interact with Tapper KEGs (Knowledge Exchange Graphs) through the native MCP
-server.
+Call `mcp__tapper__orient` first and again after context reset. Use its newest
+instructions and authority. Then call `mcp__tapper__keg_settings` for each target
+KEG before operating there. Use MCP for KEG operations; never bypass it by
+reading or writing node storage. Leave placeholder node 0 alone.
 
-**Call `mcp__tapper__orient` first, in every session, before doing anything
-else — including answering the user.** Do not wait until KEG work looks like it
-is starting. The selected flight carries the instructions describing what this
-session is for, so until you orient you cannot know whether the work is KEG
-work, which KEGs you may touch, or what the user actually expects of you. A
-message as small as "test" is not a reason to defer: orient, then respond with
-that context in hand.
+The connection pins the Hub and root reference at activation. Live manifests,
+relationships, credentials, and permissions reload for each authority-bearing
+call. Omit flight to use the root, or pass a canonical accessible descendant
+such as @team/+work for that call. A child supplies its own authority and
+instructions; ancestor and sibling permissions are not inherited. Pass the same
+flight on subsequent operations. keg selects a target and never grants access.
 
-After orienting, identify the relevant covered KEGs from their titles and
-summaries and call `mcp__tapper__keg_settings` for those KEGs before operating
-on them. Treat the selected flight, cover, flight instructions, and targeted KEG
-instructions as the authoritative context for the session.
+orient returns current active instructions, effective readable KEGs, and
+immediate readable children. Orient with a child reference to inspect the next
+level. With no root, orientation is search-first; keg_search and flight_search
+find identity-readable metadata. Discovery is independent of selection.
+flight_show inspects a permission-filtered declared manifest and its hash;
+it never activates a session or selects operational authority.
 
-## Rules
+No-root identity authority stays pinned for the connection lifetime. Creating
+a flight does not narrow it. To change the root, the user selects it outside
+MCP and starts a fresh connection. session_refresh only retries failed initial
+activation; it cannot change an active connection.
 
-- **Use the `mcp__tapper__*` tools for every KEG operation.** They are the
-  supported agent surface, return structured results, and participate in
-  tapper's index and cache correctly.
-- **Never read or write node files directly.** A node is a numbered directory
-  containing `README.md`, `meta.yaml`, and `stats.json`. These are tapper's
-  internal storage format. Reading them bypasses the index; writing them
-  bypasses locking and snapshot history. Always go through
-  `mcp__tapper__cat`, `mcp__tapper__edit`, and related tools.
-- **Treat the call-selected flight as MCP authority.** The root reference is
-  pinned to the connection, but its manifest, transitive
-  graph, and authorization are loaded before every authority-bearing call.
-  Omit `flight` to use the root, or pass the root or one of the flattened
-  descendants returned by orientation. A selected descendant contributes only
-  its own instructions and authority; ancestor instructions and permission
-  caps are not inherited. No `keg` argument grants authority, and neither does
-  `defaultKeg`: naming a KEG chooses a target, and the flight decides whether
-  you may reach it. When orientation lists a KEG under "Reachable via
-  subflight", every call against it must carry that flight — reads included, so
-  `cat`, `links`, and `backlinks` need it just as much as `edit` does.
-  Omitting `flight` there returns `ORIENTATION_DENIED`, no matter what `keg`
-  says.
-- **Handle orientation failures explicitly.** `ORIENTATION_STALE` means
-  authority raced between call resolution and Hub validation;
-  `ORIENTATION_DENIED` means the selection is outside the accessible graph or lacks the
-  requested permission; `ORIENTATION_UNAVAILABLE` is transient; and
-  `ORIENTATION_ROOT_UNAVAILABLE` means this session can never replace its lost
-  root. Refused operations report `operationPerformed=false` and do not require
-  session reorientation. Review current authority before retrying, and never
-  replay a mutation automatically.
-- **Leave node 0 alone.** It is the keg's placeholder landing node, created with
-  the keg itself.
+A failed configured root exposes recovery tools: orient, session_refresh,
+list_flights, flight_show, auth_info, keg_search, flight_search, guide. Repair
+the configured root outside MCP, then retry session_refresh and orient.
+An active flight can have no effective KEGs and still expose the full inventory;
+KEG denials in that scope do not imply missing tools.
 
-## Node 0
+On failure, follow code, message, action, and operationPerformed in the returned
+payload. A false outcome means refused; null means unknown, so inspect state
+before repeating a mutation. For task-specific help use guide topics authoring,
+linking, snapshots, tools, or troubleshooting.
 
-Every keg has a node `0`. It is not an ordinary node and is not yours to write:
-
-- It is the **placeholder** a link to unwritten content lands on, so its content
-  is deliberately generic.
-- It carries **no `type`**, on purpose. Do not add one, and do not read its
-  absence as a defect to repair — a node without a type is normally a schema
-  error, and node 0 is the documented exception.
-- **Removing it breaks the keg.** Tapper treats a missing node 0 as an
-  uninitialized keg, so deleting it makes every other node unreachable.
-
-When you have content to write, create a new node. If node 0 genuinely needs to
-change — a keg's landing page is a reasonable thing to want — say so and let the
-user decide; do not fold it into unrelated work.
-
-## Flight-first orientation
-
-Every MCP tool accepts an optional `keg` parameter. Use a covered KEG reference
-returned by orientation to work across KEGs without changing directories or
-restarting the MCP server.
-
-- `mcp__tapper__orient` — read-only discovery returning the connection-pinned
-  root, selected flight, ordered breadth-first selectable flights, selected
-  path, effective graph KEGs with
-  granting-flight provenance, revision, the selected flight's instructions,
-  and canonical safety guidance. Omit `flight` for graph discovery or pass a
-  canonical root/descendant for an exact projection.
-- `mcp__tapper__keg_settings` — returns targeted title, summary, updated
-  metadata, and instructions for one or more selected KEGs.
-- `mcp__tapper__info` — returns concise diagnostics for a covered KEG.
-- `mcp__tapper__keg_list` — lists canonical KEGs, effective roles, and winning
-  granting flights for the live pinned-root graph by default or exactly one
-  accessible flight when `flight` is supplied.
-- `mcp__tapper__keg_search` — searches identity-accessible KEG metadata,
-  including KEGs outside the flight graph. Results do not grant KEG access.
-
-## Bootstrapping a session
-
-Orientation is unconditional and comes first, before any other tool call and
-before your first reply. It is not a lookup step you reach for once KEG work is
-identified — it is how the session learns what it is for. Then load the
-selected KEG instructions with `mcp__tapper__keg_settings`.
-
-**Orient again after any context reset**, such as a clear or a compact. The MCP
-connection survives those, so the server does not re-initialize and will not
-re-send anything on its own — but the flight instructions you were operating
-under are gone from your context. Re-orienting is cheap and idempotent, and it
-resolves a fresh call-local view without changing session state. If you cannot
-tell whether you have oriented in the current context, you have not; orient.
-
-**The newest orientation wins.** A compaction summary may carry a paraphrase of
-an earlier orientation, so a stale copy may sit earlier in your context than
-the fresh one. Initialization deliberately sends only a minimal directive to
-call `orient`; it does not contain flight context. Treat the most recent
-`mcp__tapper__orient` result as authoritative and discard older copies outright
-rather than reconciling them. When no flight is selected, the connection uses
-normal identity-authorized full access and publishes the complete MCP tool
-inventory. Bare calls see every identity-accessible KEG at the caller's real
-role; this never raises Hub ACLs or namespace membership. An explicit `flight`
-selects any listed real flight for that call and uses only its cover,
-capabilities, and instructions.
-
-If only `orient`, `session_refresh`, `list_flights`, `flight_show`, `auth_info`, and
-`keg_search` appear, flight
-authority failed to initialize. A real flight with an empty cover is still
-active and publishes the complete registered tool inventory; its KEG calls
-simply have no covered targets.
-
-When spawning a native subagent, the controller passes the canonical descendant
-reference in the assignment. The subagent must call `mcp__tapper__orient` with
-that exact `flight` after startup and again after context compaction. It must
-also pass the same `flight` to authority-bearing work calls; omission always
-uses the root. Concurrent subagents may use different descendants without
-changing shared session state. Merely mentioning ancestor instructions does
-not grant or inherit their authority.
-
-No-flight authority is pinned for the connection lifetime. Use it only to
-bootstrap a least-privilege flight, then ask the user to pin that flight outside
-MCP and start a new connection. `session_refresh` returns `already_active`
-with `nextAction:"new_session"`; it cannot narrow the current connection.
-Creating a KEG or flight does not change bare-call authority, although a newly
-created real flight is immediately available for explicit call-local selection.
-
-Recovery-only mode is reserved for an explicitly configured root that is
-missing, inaccessible, invalid, or temporarily unavailable. In that mode only
-the recovery tools appear. Fix the configured selection outside MCP, then call
-`mcp__tapper__session_refresh` and `mcp__tapper__orient`.
-
-If `mcp__tapper__orient` is unavailable, report that the Tapper MCP connection
-is unavailable, ask the user to reconnect or restart the host session, and
-never kill or signal host-owned processes. A flight with an empty cover exposes
-no KEGs.
+If orient is unavailable, report that the Tapper MCP connection is unavailable
+and ask the user to reconnect or restart the host session. Never kill or signal
+host-owned processes.
 
 Every authority-bearing tool below accepts an optional top-level `flight`.
 When the connection starts without a flight, omission uses normal
@@ -155,7 +50,7 @@ identity-authorized full access and an explicit value selects any listed real
 flight exactly. With a real pinned root, omission selects that root and an
 explicit value selects the root or an accessible flattened descendant.
 Authentication,
-configuration, namespace/license discovery, `session_refresh`, `list_flights`,
+`session_refresh`, `list_flights`,
 `flight_show`, and `keg_search` do not accept `flight`. MCP resources use root authority
 while rendering graph-wide discovery.
 
@@ -188,7 +83,7 @@ it.
 | `mcp__tapper__session_refresh` | Retry activation only after a broken configured root is repaired. It never replaces active no-flight or real-flight authority; narrowing no-flight access requires a new connection. |
 | `mcp__tapper__keg_list`, `mcp__tapper__keg_create` | Discover every identity-accessible KEG at its real role with no flight, or the effective projection of a selected real flight; no-flight creation uses namespace membership while real-flight creation also requires `manage_kegs`. |
 | `mcp__tapper__flight_create`, `mcp__tapper__flight_edit`, `mcp__tapper__flight_delete` | Manage Hub flights when the selected flight grants `manage_flights`; edits and deletes require the manifest hash returned by `flight_show`, and normal Hub ACLs still apply. |
-| `mcp__tapper__list_flights`, `mcp__tapper__flight_show` | Ungoverned flight discovery; these tools do not select call authority. |
+| `mcp__tapper__list_flights`, `mcp__tapper__flight_show` | Identity-readable discovery; flight_show returns a permission-filtered declared manifest, including explicit empty collections/instructions and hash. Neither tool activates or selects authority. |
 
 `keg_list` returns `@namespace/keg<TAB>role<TAB>@namespace/+flight` text
 (the final field is empty for no-flight authority) and
@@ -207,12 +102,12 @@ accessible transitive descendants.
 | `mcp__tapper__grep`                                   | Regex search over node content. Supports `ignore_case`, `limit`, `max_lines`, and `id_only`.                                                             |
 | `mcp__tapper__tags`                                   | List tags or filter nodes by a boolean expression over tags, attributes, and dot-prefix stats fields (for example `tapper and .created>2026-01-01`).     |
 | `mcp__tapper__list`                                   | List nodes in a keg with optional filters.                                                                                                               |
-| `mcp__tapper__cat`                                    | Read one or more nodes. Each structured row pairs `node_id` and `hash` with that node's `content` and `meta`, so a read feeds straight into `edit`. Supports `meta_only`, `content_only`, `stats_only`, and `tag` expression selection as an alternative to explicit node IDs. |
+| `mcp__tapper__cat`                                    | Read one or more nodes. Each structured row pairs `node_id` and `hash` with that node's `content` and `meta`, so a read feeds straight into `edit`. Supports `meta_only`, `content_only`, `stats_only`, and `query` expression selection as an alternative to explicit node IDs. |
 | `mcp__tapper__links`                                  | Outbound links from a node.                                                                                                                              |
 | `mcp__tapper__backlinks`                              | Inbound links to a node.                                                                                                                                 |
 | `mcp__tapper__list_indexes`, `mcp__tapper__index_cat` | Read generated index files (tag index, changelog, and others).                                                                                           |
-| `mcp__tapper__keg_settings`                           | Read targeted title, summary, updated metadata, and instructions for one or more selected KEGs; batches accept up to 100 canonical references.          |
-| `mcp__tapper__keg_search`                             | Case-insensitive literal search across identity-accessible canonical refs, titles, and summaries. Returns at most 50 rows and never grants operational access. |
+| `mcp__tapper__keg_settings`                           | Read targeted title, description, updated metadata, and instructions for one or more selected KEGs; batches accept up to 100 canonical references.          |
+| `mcp__tapper__keg_search`                             | Case-insensitive literal search across identity-accessible canonical refs, titles, and descriptions. Returns at most 50 rows and never grants operational access. |
 
 Pass `id_only: true` to `grep` and `tags` when you only need IDs for follow-up
 reads — it keeps token consumption bounded on large result sets.
@@ -220,7 +115,7 @@ reads — it keeps token consumption bounded on large result sets.
 ## Query expressions
 
 `mcp__tapper__list` (via `query`), `mcp__tapper__tags` (via `query`), and
-`mcp__tapper__cat` (via `tag`) accept a boolean expression language that
+`mcp__tapper__cat` (via `query`) accept a boolean expression language that
 filters nodes. Three predicate kinds combine with the standard boolean
 operators:
 
@@ -255,15 +150,15 @@ code; the index does the work in O(matches) rather than O(total).
 | `mcp__tapper__node_snapshot`                                                   | Capture a revision before a destructive or large edit.                                                                |
 | `mcp__tapper__node_history`, `mcp__tapper__node_snapshot_view`                 | Inspect read-only prior revisions.                                                                                    |
 | `mcp__tapper__node_restore`                                                    | Recover the current node from a prior revision.                                                                       |
-| `mcp__tapper__keg_settings_edit`                                               | Call `keg_settings`, then replace the complete validated KEG YAML using its required returned hash. Requires an `admin` flight cover or `full_access` plus editor/admin identity access. |
+| `mcp__tapper__keg_settings_edit` | Call `keg_settings` with `minimal=false`, then replace the complete YAML `data` using its `hash` as `expected_hash`. Requires identity admin and effective flight admin authority when a flight is selected. |
 
 Schema edits and deletes similarly require the hash from `schema_read`. Every
 conflict performs no operation: merge the change into returned current content
 or refetch with the corresponding read, then retry with the returned current
 hash.
 
-A hash covers exactly one write. Every successful write returns a new one and
-invalidates the hash you sent, so a sequence like edit-then-delete needs a
+A hash covers the resource version read. Mutations may invalidate it, and not
+every mutation returns a replacement, so a sequence like edit-then-delete needs a
 fresh read between the two calls rather than a reused token. Node ids are
 per-keg counters as well: node 4 in one keg is unrelated to node 4 in another.
 
@@ -298,6 +193,78 @@ Use `schema_list` to see the names a keg accepts, then:
 ```json
 {"nodes": [{"node_id": "12", "expected_hash": "HASH_FROM_CAT"}]}
 ```
+
+## On-demand discovery and guidance
+
+- `mcp__tapper__flight_search`: literal reference/title/description search over
+  readable flights; at most 50 deterministic metadata results, with a truncation
+  notice. No instructions or additional access are returned.
+- `mcp__tapper__guide`: read canonical guidance by topic: `operating`, `authoring`
+  or `linking`, `snapshots`, `tools`, and `troubleshooting`.
+- `mcp__tapper__orient`: full active instructions, effective readable KEGs,
+  and immediate readable child flights. Orient with a child reference for the
+  next level. No-flight orientation points to search without listing resources.
+
+## Response and pagination contracts
+
+Text content is JSON rendered from the same public object as structuredContent.
+The message field preserves prose, diagnostics, and legacy formatted output.
+Images remain in MCP image content blocks alongside JSON metadata.
+
+For list, grep, tags, links, and backlinks, follow next_offset until null,
+keeping the other arguments unchanged. has_more=null means another page is
+uncertain; a final nonempty page can be followed by an empty page. Pages are
+live, not a stable snapshot; reverse reverses each page. limit defaults to 50
+(0 means default; -1 unlimited). grep max_lines defaults to 3 per node; -1
+returns all matching lines. Use cat for complete bodies.
+
+keg_search returns warnings, partial, and truncated. flight_search returns
+truncated. Refine a truncated metadata query; neither search has a cursor.
+Both search the connection-pinned Hub, never other configured Hubs.
+
+Supported flight capabilities are manage_flights, manage_kegs, and delete_kegs; full_access
+is rejected. Declared cover is not effective authority: inspect orient for the
+permission-checked relationship expansion. Creating or inspecting a flight
+does not activate it or change the connection's pinned root.
+
+## Other registered tools
+
+| Tool | Purpose |
+| --- | --- |
+| `mcp__tapper__auth_info` | Credential-free identity and default namespace. Namespace names do not assert administrative membership. |
+| `mcp__tapper__schema_list`, `mcp__tapper__schema_read` | Schema names and YAML data plus hash. |
+| `mcp__tapper__schema_create`, `mcp__tapper__schema_edit`, `mcp__tapper__schema_delete` | Schema lifecycle; requires admin, with current hashes for edit/delete. |
+| `mcp__tapper__validate` | Schema validation findings. |
+| `mcp__tapper__index` | Index rebuild; requires editor. |
+| `mcp__tapper__info`, `mcp__tapper__stats`, `mcp__tapper__doctor` | KEG diagnostics, node statistics, health findings. |
+| `mcp__tapper__lock_acquire`, `mcp__tapper__lock_status`, `mcp__tapper__lock_release`, `mcp__tapper__lock_force_release` | Advisory locks; acquisition returns a private token for release. edit does not accept a lock token. |
+| `mcp__tapper__list_files`, `mcp__tapper__list_images` | Stored attachment names. |
+| `mcp__tapper__upload_file`, `mcp__tapper__upload_image` | Inline base64/data URI/embedded resource uploads; local stdio also accepts source_path. Link the returned stored filename. |
+| `mcp__tapper__download_image` | Image content block and metadata; local stdio optionally accepts dest_path. |
+| `mcp__tapper__download_file` | Local stdio only: writes an explicit destination path. Absent on hosted MCP. |
+
+Configuration, namespace administration, license, archive, and video tools are
+not registered here. Features present elsewhere in Tapper/Hub are not thereby
+callable over MCP. Use tools/list for this connection's available inventory.
+
+Flight cover inputs accept role strings with default depth 2. Custom depth is
+readable in flight_show but cannot be set with flight_create/flight_edit. Omit
+cover on partial edits to preserve existing entries and depths.
+
+
+`mcp__tapper__keg_delete` permanently deletes an empty or populated KEG and all
+its data, including snapshots. Supply an explicit canonical `keg` such as
+`@team/disposable` and, optionally, the standard call-local `flight`.
+No-flight calls require identity admin permission. Flight-scoped deletion also
+requires `delete_kegs` and effective admin cover from that selected flight.
+`manage_kegs` alone cannot delete; deletion does not require `manage_kegs`.
+No `expected_hash` is accepted: the settings hash does not cover a whole KEG.
+Success returns `keg` and `deleted: true` in matching text and structured JSON.
+Missing KEGs return the normal not-found error.
+
+`delete_file` and `delete_image` document `filename` as the attachment name.
+Legacy `name` is accepted. One nonempty name is required; when both fields are
+supplied they must match exactly, or the call is rejected before mutation.
 
 ## Snapshots
 
@@ -342,19 +309,21 @@ If you are unsure whether an in-place edit warrants a snapshot, take
 one. The cost is negligible. For `remove`, a snapshot is not a
 recovery path — preserve the content some other way first.
 
-Tapper supports two link forms in node bodies:
+Tapper supports these link forms in node bodies:
 
 - **Intra-keg:** `[title](../NODEID)` — relative path from the current node's
   directory to the target node's directory. Renders as a link in markdown
   tooling and is resolvable by the index.
-- **Cross-keg (configured):** `[title](keg:ALIAS/NODEID)` — resolves the keg
-  through active configuration and is parsed by the index into a cross-keg
-  edge.
+- **Cross-keg (same namespace):** `[title](keg:ALIAS/NODEID)` — names a KEG
+  in the source namespace.
+- **Settings alias:** `[title](keg:~ALIAS/NODEID)` — explicitly resolves an
+  alias declared in the source KEG settings. The tilde distinguishes a settings
+  alias from a KEG name.
 - **Cross-keg (fully qualified):**
   `[title](keg:@NAMESPACE/ALIAS/NODEID)` — identifies the namespace and keg
   explicitly and is parsed into a cross-keg edge.
 
-Both forms appear in backlinks. Prefer intra-keg links when the target is in
+Indexed links appear in backlinks when readable. Prefer intra-keg links when the target is in
 the same keg. A bare `keg:` reference in node prose is plain text: it does not
 create a graph link or backlink. Bare references remain valid as CLI arguments,
 configuration values, schema values, and tool parameters.
@@ -394,18 +363,27 @@ stored names; the upload may normalize the filename you supplied.
 - If a secret is discovered in a KEG, stop before copying or editing it further
   and follow the user's incident and credential-rotation process.
 
-## Troubleshooting
+Read message and action in either text JSON or structuredContent. Both supply
+the same operational information, including error diagnostics and recovery.
 
-- **Stale search results.** The index is rebuilt on write. If a tool returns
-  stale data, re-issue the call or read the index directly via
-  `mcp__tapper__list_indexes` and `mcp__tapper__index_cat`.
-- **Missing older node IDs.** Use `mcp__tapper__list` with an increased
-  `limit` — the default page size may be hiding older nodes.
-
-## See also
-
-- `mcp__tapper__info` reports concise diagnostics for the resolved KEG;
-  `mcp__tapper__keg_settings` reports its configuration. Use
-  `mcp__tapper__orient` to establish the session's flight and KEG context.
-- The tapper documentation in the source repository covers configuration
-  precedence and the server's concurrency model.
+- Validation errors: correct the named field using the input schema. meta is
+  YAML text; mutations use nodes arrays. Do not retry unchanged arguments.
+- PRECONDITION_REQUIRED: cat, schema_read, full keg_settings, or flight_show
+  supplies the matching expected_hash. Snapshot before meaningful node edits.
+- CONFLICT: operationPerformed=false; refetch, merge the intended change, and
+  retry with the current hash. currentContent is diagnostic current content,
+  not necessarily the replacement-document format accepted by edit.
+- ORIENTATION_DENIED: inspect orient and select an accessible flight with the
+  required authority; keg alone cannot grant access.
+- ORIENTATION_UNAVAILABLE: transient lookup failure; retry a read first.
+  ORIENTATION_ROOT_UNAVAILABLE: the pinned root is lost; restore it or have
+  the user select a root and start a new connection.
+- UNAUTHORIZED: have the user repair authentication to the same Hub, then
+  orient. FORBIDDEN: valid credentials lack permission; login cannot grant it.
+- operationPerformed=null: the write outcome is unknown. Inspect state before
+  retrying, including possible creations; do not assume nothing happened.
+- Missing listing rows: follow next_offset until null. For metadata search,
+  refine a query marked truncated. grep limits matched lines; cat reads full
+  bodies. A tool absent from tools/list is unavailable, not a failed operation.
+- Suspected stale indexes: inspect list_indexes/index_cat and doctor. Rebuild
+  with index only when warranted and authorized; reads never repair indexes.
