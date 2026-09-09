@@ -86,7 +86,7 @@ func newKegListCmd(deps *Deps) *cobra.Command {
 		Short: "list kegs on a hub as @namespace/keg",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			// --hub is the global keg-resolution flag (default: every configured hub).
+			// --hub is the global keg-resolution flag (default: active Hub).
 			opts := tapper.HubListOptions{Hub: globalKegTarget(deps).Hub}
 			kegs, err := deps.Tap.HubListKegs(cmd.Context(), opts)
 			if err != nil {

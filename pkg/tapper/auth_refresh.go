@@ -165,7 +165,7 @@ func RefreshHubToken(ctx context.Context, rt *toolkit.Runtime, hubURL string, en
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := hubHTTPClient().Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("auth refresh: contact hub: %w", err)
 	}

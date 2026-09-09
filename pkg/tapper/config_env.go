@@ -7,14 +7,12 @@ import (
 // tapEnvVarKeys lists the TAP_* env var suffixes (without prefix) that the
 // env provider checks. Each maps to a Config field.
 var tapEnvVarKeys = []string{
-	"DEFAULT_KEG",
-	"FALLBACK_KEG",
+	"KEG",
 	"FLIGHT",
 	"AGENT",
 	"LOG_FILE",
 	"LOG_LEVEL",
-	"DEFAULT_HUB",
-	"FALLBACK_HUB",
+	"HUB",
 	"DEFAULT_NAMESPACE",
 	"FALLBACK_NAMESPACE",
 	"DISABLE_ATLAS_HUB",
@@ -24,7 +22,7 @@ var tapEnvVarKeys = []string{
 const tapEnvPrefix = "TAP_"
 
 // configFromEnvMap builds a *Config from env var values returned by EnvProvider.
-// The map keys are lowercased versions of the env var suffixes (e.g. "default_keg").
+// The map keys are lowercased versions of the env var suffixes (e.g. "keg").
 func configFromEnvMap(envMap map[string]string) *Config {
 	if len(envMap) == 0 {
 		return nil
@@ -32,11 +30,8 @@ func configFromEnvMap(envMap map[string]string) *Config {
 
 	cfg := &Config{data: &configDTO{}}
 
-	if v, ok := envMap["default_keg"]; ok {
-		cfg.data.DefaultKeg = v
-	}
-	if v, ok := envMap["fallback_keg"]; ok {
-		cfg.data.FallbackKeg = v
+	if v, ok := envMap["keg"]; ok {
+		cfg.data.Keg = v
 	}
 	if v, ok := envMap["flight"]; ok {
 		cfg.data.Flight = v
@@ -50,11 +45,8 @@ func configFromEnvMap(envMap map[string]string) *Config {
 	if v, ok := envMap["log_level"]; ok {
 		cfg.data.LogLevel = v
 	}
-	if v, ok := envMap["default_hub"]; ok {
-		cfg.data.DefaultHub = v
-	}
-	if v, ok := envMap["fallback_hub"]; ok {
-		cfg.data.FallbackHub = v
+	if v, ok := envMap["hub"]; ok {
+		cfg.data.HubName = v
 	}
 	if v, ok := envMap["default_namespace"]; ok {
 		cfg.data.DefaultNamespace = v

@@ -55,11 +55,8 @@ func TestConfigService_Config_CorruptUserConfig(t *testing.T) {
 	require.NoError(t, fx.Runtime().AtomicWriteFile(userCfgPath, []byte(":::invalid yaml{{{"), 0o644))
 
 	cfg, err := tap.ConfigService.Config()
-	require.NoError(t, err, "corrupt config should not return error (graceful degradation)")
-	require.NotNil(t, cfg)
-	require.Len(t, loadWarnings(t, tap), 1)
-	require.Contains(t, loadWarnings(t, tap)[0].Message, "failed to load user config")
-	require.Equal(t, "user config", loadWarnings(t, tap)[0].Source)
+	require.Error(t, err)
+	require.Nil(t, cfg)
 }
 
 func TestConfigService_Config_CorruptProjectConfig(t *testing.T) {
@@ -79,11 +76,8 @@ func TestConfigService_Config_CorruptProjectConfig(t *testing.T) {
 	require.NoError(t, fx.Runtime().AtomicWriteFile(projCfgPath, []byte("not: [valid: yaml"), 0o644))
 
 	cfg, err := tap.ConfigService.Config()
-	require.NoError(t, err, "corrupt config should not return error (graceful degradation)")
-	require.NotNil(t, cfg)
-	require.Len(t, loadWarnings(t, tap), 1)
-	require.Contains(t, loadWarnings(t, tap)[0].Message, "failed to load project config")
-	require.Equal(t, "project config", loadWarnings(t, tap)[0].Source)
+	require.Error(t, err)
+	require.Nil(t, cfg)
 }
 
 func TestConfigService_Config_BothCorrupt(t *testing.T) {
@@ -102,9 +96,8 @@ func TestConfigService_Config_BothCorrupt(t *testing.T) {
 	require.NoError(t, fx.Runtime().AtomicWriteFile(tap.PathService.ProjectConfig(), []byte(":::bad"), 0o644))
 
 	cfg, err := tap.ConfigService.Config()
-	require.NoError(t, err)
-	require.NotNil(t, cfg)
-	require.Len(t, loadWarnings(t, tap), 2)
+	require.Error(t, err)
+	require.Nil(t, cfg)
 }
 
 func TestConfigService_Config_ValidUserCorruptProject(t *testing.T) {
@@ -119,16 +112,12 @@ func TestConfigService_Config_ValidUserCorruptProject(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	require.NoError(t, fx.Runtime().AtomicWriteFile(tap.PathService.UserConfig(), []byte("defaultKeg: pub\n"), 0o644))
+	require.NoError(t, fx.Runtime().AtomicWriteFile(tap.PathService.UserConfig(), []byte("keg: pub\n"), 0o644))
 	require.NoError(t, fx.Runtime().AtomicWriteFile(tap.PathService.ProjectConfig(), []byte(":::bad"), 0o644))
 
 	cfg, err := tap.ConfigService.Config()
-	require.NoError(t, err)
-	require.NotNil(t, cfg)
-	require.Len(t, loadWarnings(t, tap), 1)
-	require.Equal(t, "project config", loadWarnings(t, tap)[0].Source)
-	// Valid user config should still be used.
-	require.Equal(t, "pub", cfg.DefaultKeg())
+	require.Error(t, err)
+	require.Nil(t, cfg)
 }
 
 func TestConfigService_ProjectConfig_WalksParents(t *testing.T) {
@@ -143,19 +132,19 @@ func TestConfigService_ProjectConfig_WalksParents(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Shallow ancestor sets defaultKeg and fallbackKeg.
+	// Shallow ancestor sets keg and keg.
 	require.NoError(t, fx.Runtime().AtomicWriteFile(
 		"/home/testuser/a/.tapper/config.yaml",
-		[]byte("defaultKeg: shallow\nfallbackKeg: keep\n"), 0o644))
-	// Deeper dir overrides defaultKeg only.
+		[]byte("keg: shallow\n"), 0o644))
+	// Deeper dir overrides keg only.
 	require.NoError(t, fx.Runtime().AtomicWriteFile(
 		"/home/testuser/a/b/.tapper/config.yaml",
-		[]byte("defaultKeg: deep\n"), 0o644))
+		[]byte("keg: deep\n"), 0o644))
 
 	cfg, err := tap.ConfigService.Config()
 	require.NoError(t, err)
-	require.Equal(t, "deep", cfg.DefaultKeg(), "deeper dir overrides shallower")
-	require.Equal(t, "keep", cfg.FallbackKeg(), "shallower value retained when not overridden")
+	require.Equal(t, "deep", cfg.Keg(), "deeper dir overrides shallower")
+	require.Equal(t, "deep", cfg.Keg(), "one KEG slot is selected")
 }
 
 func TestConfigService_ProjectConfig_StripsHubsAndWarns(t *testing.T) {
@@ -173,7 +162,7 @@ func TestConfigService_ProjectConfig_StripsHubsAndWarns(t *testing.T) {
 	// A project config that tries to define a hub with a token env must be
 	// ignored (hubs/credentials are user-config only) while its other fields
 	// still apply.
-	proj := `defaultKeg: ok
+	proj := `keg: ok
 hubs:
   evil:
     kind: remote
@@ -185,7 +174,7 @@ hubs:
 
 	cfg, err := tap.ConfigService.Config()
 	require.NoError(t, err)
-	require.Equal(t, "ok", cfg.DefaultKeg(), "non-hub project fields still apply")
+	require.Equal(t, "ok", cfg.Keg(), "non-hub project fields still apply")
 	_, ok := cfg.Hubs()["evil"]
 	require.False(t, ok, "project-defined hub must be stripped")
 
@@ -215,23 +204,23 @@ func TestConfigService_SnapshotIsFixedUntilReload(t *testing.T) {
 	require.NoError(t, err)
 
 	require.NoError(t, fx.Runtime().AtomicWriteFile(
-		tap.PathService.UserConfig(), []byte("defaultKeg: before\n"), 0o644))
+		tap.PathService.UserConfig(), []byte("keg: before\n"), 0o644))
 
 	cfg, err := tap.ConfigService.Config()
 	require.NoError(t, err)
-	require.Equal(t, "before", cfg.DefaultKeg())
+	require.Equal(t, "before", cfg.Keg())
 
 	require.NoError(t, fx.Runtime().AtomicWriteFile(
-		tap.PathService.UserConfig(), []byte("defaultKeg: after\n"), 0o644))
+		tap.PathService.UserConfig(), []byte("keg: after\n"), 0o644))
 
 	cfg, err = tap.ConfigService.Config()
 	require.NoError(t, err)
-	require.Equal(t, "before", cfg.DefaultKeg(), "an edit must not leak into a live snapshot")
+	require.Equal(t, "before", cfg.Keg(), "an edit must not leak into a live snapshot")
 
 	tap.ConfigService.Reload()
 	cfg, err = tap.ConfigService.Config()
 	require.NoError(t, err)
-	require.Equal(t, "after", cfg.DefaultKeg(), "Reload adopts the edit")
+	require.Equal(t, "after", cfg.Keg(), "Reload adopts the edit")
 }
 
 // TestConfigService_TiersComeFromTheSameSnapshot guards against the tier
@@ -251,22 +240,22 @@ func TestConfigService_TiersComeFromTheSameSnapshot(t *testing.T) {
 	require.NoError(t, err)
 
 	require.NoError(t, fx.Runtime().AtomicWriteFile(
-		tap.PathService.UserConfig(), []byte("defaultKeg: before\n"), 0o644))
+		tap.PathService.UserConfig(), []byte("keg: before\n"), 0o644))
 
 	user, err := tap.ConfigService.UserConfig()
 	require.NoError(t, err)
-	require.Equal(t, "before", user.DefaultKeg())
+	require.Equal(t, "before", user.Keg())
 
 	require.NoError(t, fx.Runtime().AtomicWriteFile(
-		tap.PathService.UserConfig(), []byte("defaultKeg: after\n"), 0o644))
+		tap.PathService.UserConfig(), []byte("keg: after\n"), 0o644))
 
 	user, err = tap.ConfigService.UserConfig()
 	require.NoError(t, err)
-	require.Equal(t, "before", user.DefaultKeg(), "tier reads share the snapshot")
+	require.Equal(t, "before", user.Keg(), "tier reads share the snapshot")
 
 	onDisk, err := tap.ConfigService.ReadUserConfigFile()
 	require.NoError(t, err)
-	require.Equal(t, "after", onDisk.DefaultKeg(), "ReadUserConfigFile bypasses the snapshot")
+	require.Equal(t, "after", onDisk.Keg(), "ReadUserConfigFile bypasses the snapshot")
 }
 
 // TestConfigService_ConcurrentAccessIsRaceFree covers the one place tapper

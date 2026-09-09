@@ -44,13 +44,13 @@ func ValidateConfig(cfg *Config) []ConfigWarning {
 		if entry.PathPrefix == "" && entry.PathRegex == "" {
 			warnings = append(warnings, ConfigWarning{
 				Field:   fmt.Sprintf("kegMap[%d]", i),
-				Message: fmt.Sprintf("kegMap entry for alias %q has no pathPrefix or pathRegex", entry.Alias),
+				Message: fmt.Sprintf("kegMap entry for alias %q has no pathPrefix or pathRegex", entry.selector()),
 			})
 		}
-		if entry.Alias == "" {
+		if entry.selector() == "" {
 			warnings = append(warnings, ConfigWarning{
 				Field:   fmt.Sprintf("kegMap[%d]", i),
-				Message: "kegMap entry has no alias",
+				Message: "kegMap entry has no keg",
 			})
 		}
 		// Check pathRegex compiles.
@@ -58,7 +58,7 @@ func ValidateConfig(cfg *Config) []ConfigWarning {
 			if _, err := regexp.Compile(entry.PathRegex); err != nil {
 				warnings = append(warnings, ConfigWarning{
 					Field:   fmt.Sprintf("kegMap[%d].pathRegex", i),
-					Message: fmt.Sprintf("invalid regex for alias %q: %v", entry.Alias, err),
+					Message: fmt.Sprintf("invalid regex for alias %q: %v", entry.selector(), err),
 				})
 			}
 		}
@@ -70,11 +70,11 @@ func ValidateConfig(cfg *Config) []ConfigWarning {
 	}
 	seen := make(map[kegMapKey]int)
 	for i, entry := range cfg.data.KegMap {
-		key := kegMapKey{entry.Alias, entry.PathPrefix, entry.PathRegex}
+		key := kegMapKey{entry.selector(), entry.PathPrefix, entry.PathRegex}
 		if prev, ok := seen[key]; ok {
 			warnings = append(warnings, ConfigWarning{
 				Field:   fmt.Sprintf("kegMap[%d]", i),
-				Message: fmt.Sprintf("duplicate kegMap entry (same as index %d): alias=%q", prev, entry.Alias),
+				Message: fmt.Sprintf("duplicate kegMap entry (same as index %d): alias=%q", prev, entry.selector()),
 			})
 		}
 		seen[key] = i

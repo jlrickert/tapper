@@ -5,13 +5,9 @@
   "description": "Schema for tapper user or project configuration.",
   "type": "object",
   "properties": {
-    "defaultKeg": {
+    "keg": {
       "type": "string",
-      "description": "Remote keg reference resolved when no explicit keg is requested: a bare name, @namespace/name, or keg:@namespace/name. Resolved through the namespace-centric chain. Override with TAP_DEFAULT_KEG env var."
-    },
-    "fallbackKeg": {
-      "type": "string",
-      "description": "Last-resort keg reference used when no mapped or default keg resolves. Same reference forms as defaultKeg. Override with TAP_FALLBACK_KEG env var."
+      "description": "KEG reference used when no explicit --keg, TAP_KEG, or matching kegMap selects one. Project keg overrides user keg. A matching mapping overrides both."
     },
     "flight": {
       "type": "string",
@@ -19,15 +15,11 @@
     },
     "agent": {
       "type": "string",
-      "description": "Name of the entry in agents{} driving this process. `tap launch` uses it as the default when --agent is omitted, the same way flight supplies the launch root, and exports the resolved name as TAP_AGENT so the child can report its own identity. Selects a model and supplies telemetry only — flight selection is independent. Override with TAP_AGENT env var. Experimental: expected to change when agents move to the hub."
+      "description": "Name of the entry in agents{} driving this process. `tap launch` uses it as the default when --agent is omitted, the same way flight supplies the launch root, and exports the resolved name as TAP_AGENT so the child can report its own identity. Selects a model and supplies telemetry only \u2014 flight selection is independent. Override with TAP_AGENT env var. Experimental: expected to change when agents move to the hub."
     },
-    "defaultHub": {
+    "hub": {
       "type": "string",
-      "description": "High-precedence hub name used when a keg reference omits its hub. The authoritative choice; set it in project config. Override with TAP_DEFAULT_HUB env var."
-    },
-    "fallbackHub": {
-      "type": "string",
-      "description": "Last-resort hub name used when a keg reference omits its hub and no defaultHub applies. Set it in the global user config so references need not specify a hub. Override with TAP_FALLBACK_HUB env var."
+      "description": "Saved Hub name. Precedence: --hub, TAP_HUB, project hub, matching kegMap.hub, user hub, alphabetically first configured Hub, built-in Atlas unless disabled. All KEGs resolve within this Hub."
     },
     "defaultNamespace": {
       "type": "string",
@@ -45,64 +37,65 @@
       "type": "boolean",
       "description": "When true, disables privacy-minimized Tap CLI and MCP invocation reporting. Reporting is enabled by default and can also be disabled with TAP_DISABLE_TELEMETRY=1."
     },
-    "namespaces": {
-      "type": "object",
-      "description": "Map of namespace name to the hub that hosts it. Role: disambiguate which hub a namespace lives on when the same namespace could exist on more than one configured hub. An entry here wins over the defaultHub/fallbackHub chain during namespace→hub resolution.",
-      "additionalProperties": {
-        "type": "object",
-        "description": "A namespace reference. The scalar shorthand (a bare hub name) is also accepted on load and normalized to {hub: <name>}.",
-        "properties": {
-          "hub": {
-            "type": "string",
-            "description": "Hub name that hosts this namespace. Empty falls back to the hub precedence chain (defaultHub → fallbackHub → sole hub → compiled-in default)."
-          }
-        },
-        "additionalProperties": true
-      }
-    },
     "kegMap": {
       "type": "array",
-      "description": "Path-based rules that map files to keg aliases.",
+      "description": "Startup-directory rules. First matching regex wins; otherwise longest directory prefix wins, with ties in configuration order. One winning rule selects both fields.",
       "items": {
         "type": "object",
-        "description": "Single path-to-alias mapping rule.",
+        "description": "Paired KEG and optional Hub selection.",
         "properties": {
           "alias": {
             "type": "string",
-            "description": "Keg alias selected when this rule matches."
+            "description": "Compatibility spelling for keg; ignored when keg is present."
           },
           "pathPrefix": {
             "type": "string",
-            "description": "Path prefix that must match the current path."
+            "description": "Directory prefix; matches the directory itself and descendants, never a partial directory name."
           },
           "pathRegex": {
             "type": "string",
             "description": "Regular expression used to match the current path."
+          },
+          "keg": {
+            "type": "string",
+            "minLength": 1,
+            "description": "KEG reference, required unless alias is used. Wins over alias."
+          },
+          "hub": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Optional saved Hub name, overridden by project hub, TAP_HUB, or --hub."
           }
         },
-        "required": ["alias"],
-        "additionalProperties": true
+        "additionalProperties": true,
+        "anyOf": [
+          {
+            "required": [
+              "keg"
+            ]
+          },
+          {
+            "required": [
+              "alias"
+            ]
+          }
+        ]
       }
     },
     "hubs": {
       "type": "object",
-      "description": "Map of hub name to hub definition. A hub is a backend kegs are addressed against.",
+      "description": "Saved Hub connections, allowed only in user configuration.",
       "additionalProperties": {
         "type": "object",
         "description": "Single hub configuration entry.",
         "properties": {
-          "kind": {
-            "type": "string",
-            "enum": ["remote", "readonly"],
-            "description": "Hub backend kind: 'remote' (read-write HTTP, the default when omitted) or 'readonly' (read-only HTTP)."
-          },
           "defaultNamespace": {
             "type": "string",
-            "description": "Default namespace for kegs resolved against this hub when the reference omits its namespace. A hub hosts many namespaces; this is only the default. The @ sigil is implied; do not include it. In the namespace-centric model this is a LOWER-precedence source than the top-level defaultNamespace/fallbackNamespace — it applies only on hub-first paths after those chains yield nothing."
+            "description": "Default namespace for kegs resolved against this hub when the reference omits its namespace. A hub hosts many namespaces; this is only the default. The @ sigil is implied; do not include it. In the namespace-centric model this is a LOWER-precedence source than the top-level defaultNamespace/fallbackNamespace \u2014 it applies only on hub-first paths after those chains yield nothing."
           },
           "url": {
             "type": "string",
-            "description": "Base URL for remote/readonly hubs."
+            "description": "Hub base URL."
           },
           "token": {
             "type": "string",
@@ -118,14 +111,14 @@
     },
     "agents": {
       "type": "object",
-      "description": "Named model definitions for `tap launch`, keyed by alias. Agents hold no secrets — apiKeyEnv names a variable, never a value — so unlike hubs they survive the project-config trust strip and may safely be defined in project config. Experimental: expected to change when agents move to the hub.",
+      "description": "Named model definitions for `tap launch`, keyed by alias. Agents hold no secrets \u2014 apiKeyEnv names a variable, never a value \u2014 so unlike hubs they survive the project-config trust strip and may safely be defined in project config. Experimental: expected to change when agents move to the hub.",
       "additionalProperties": {
         "type": "object",
         "description": "Single agent definition: a model plus how to reach and authenticate against it.",
         "properties": {
           "model": {
             "type": "string",
-            "description": "Provider-qualified model, '<provider>/<model>' — anthropic/claude-opus-4, openai/gpt-5, ollama/qwen3.6:35b. The prefix tells the launcher which protocol the harness must speak; recognized providers are anthropic, openai, and ollama."
+            "description": "Provider-qualified model, '<provider>/<model>' \u2014 anthropic/claude-opus-4, openai/gpt-5, ollama/qwen3.6:35b. The prefix tells the launcher which protocol the harness must speak; recognized providers are anthropic, openai, and ollama."
           },
           "baseUrl": {
             "type": "string",
@@ -133,25 +126,34 @@
           },
           "auth": {
             "type": "string",
-            "enum": ["inherit", "subscription", "apiKey", "none"],
+            "enum": [
+              "inherit",
+              "subscription",
+              "apiKey",
+              "none"
+            ],
             "description": "Where the harness gets credentials. 'inherit' passes the ambient environment through untouched. 'subscription' strips inherited provider key variables so the harness falls back to its own stored login. 'apiKey' forwards the variable named by apiKeyEnv. 'none' strips the same variables but implies no stored login to fall back to. When omitted the mode is derived: apiKey if apiKeyEnv is set, else none for ollama models, else inherit."
           },
           "apiKeyEnv": {
             "type": "string",
-            "description": "Name of the environment variable holding the API key — the name is configured, never the secret, mirroring hubs.*.tokenEnv. Setting it also selects auth 'apiKey' when auth is omitted."
+            "description": "Name of the environment variable holding the API key \u2014 the name is configured, never the secret, mirroring hubs.*.tokenEnv. Setting it also selects auth 'apiKey' when auth is omitted."
           },
           "contextWindow": {
             "type": "integer",
             "minimum": 1,
-            "description": "Caps the working context in tokens. Harnesses express this differently — Codex as model metadata, Claude Code as an auto-compact threshold — so the launcher translates it per harness, and launching one with no equivalent is an error rather than a silent drop."
+            "description": "Caps the working context in tokens. Harnesses express this differently \u2014 Codex as model metadata, Claude Code as an auto-compact threshold \u2014 so the launcher translates it per harness, and launching one with no equivalent is an error rather than a silent drop."
           },
           "args": {
             "type": "array",
-            "items": { "type": "string" },
+            "items": {
+              "type": "string"
+            },
             "description": "Extra arguments passed to the harness. Placed before any arguments given after `--` on the tap launch command line, so a one-off invocation can override them."
           }
         },
-        "required": ["model"],
+        "required": [
+          "model"
+        ],
         "additionalProperties": true
       }
     },

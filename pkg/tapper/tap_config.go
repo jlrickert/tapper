@@ -203,7 +203,7 @@ func (t *Tap) ConfigEdit(ctx context.Context, opts ConfigEditOptions) error {
 
 // ConfigExplainResult describes the provenance of a single config field.
 type ConfigExplainResult struct {
-	Field  string // field name (e.g. "defaultKeg")
+	Field  string // field name (e.g. "keg")
 	Value  string // resolved value in the merged config
 	Source string // which provider set this value ("user config", "project config", "env vars", "default")
 }
@@ -216,14 +216,12 @@ type ConfigExplainOptions struct {
 
 // ConfigExplainFields lists the scalar config fields eligible for explain.
 var ConfigExplainFields = []string{
-	"defaultKeg",
-	"fallbackKeg",
+	"keg",
 	"flight",
 	"agent",
 	"logFile",
 	"logLevel",
-	"defaultHub",
-	"fallbackHub",
+	"hub",
 	"defaultNamespace",
 	"fallbackNamespace",
 	"disableAtlasHub",
@@ -239,10 +237,8 @@ func configFieldGetter(cfg *Config, field string) string {
 		return ""
 	}
 	switch field {
-	case "defaultKeg":
-		return cfg.DefaultKeg()
-	case "fallbackKeg":
-		return cfg.FallbackKeg()
+	case "keg":
+		return cfg.Keg()
 	case "flight":
 		return cfg.Flight()
 	case "agent":
@@ -251,10 +247,8 @@ func configFieldGetter(cfg *Config, field string) string {
 		return cfg.LogFile()
 	case "logLevel":
 		return cfg.LogLevel()
-	case "defaultHub":
-		return cfg.DefaultHub()
-	case "fallbackHub":
-		return cfg.FallbackHub()
+	case "hub":
+		return cfg.HubName()
 	case "defaultNamespace":
 		return cfg.DefaultNamespace()
 	case "fallbackNamespace":
@@ -320,6 +314,13 @@ func (t *Tap) ConfigExplain(ctx context.Context, opts ConfigExplainOptions) ([]C
 			source = "user config"
 		}
 
+		if field == "keg" || field == "hub" {
+			if m, ok := merged.LookupMapping(t.Runtime, t.ConfigService.PathService.Root); ok && configFieldGetter(envCfg, field) == "" {
+				if field == "keg" || (m.Hub != "" && configFieldGetter(projectCfg, field) == "") {
+					source = "kegMap (startup directory)"
+				}
+			}
+		}
 		results = append(results, ConfigExplainResult{
 			Field:  field,
 			Value:  mergedVal,

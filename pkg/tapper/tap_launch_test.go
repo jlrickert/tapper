@@ -25,7 +25,7 @@ func newLaunchTap(t *testing.T, userConfig string) *tapper.Tap {
 
 const launchUserConfig = `fallbackNamespace: local
 flight: "@testuser/+root"
-defaultHub: atlas
+hub: atlas
 hubs:
   atlas:
     kind: remote
@@ -352,7 +352,7 @@ func TestResolveLaunch_RequiresHubBackedRoot(t *testing.T) {
 	t.Parallel()
 
 	local := newLaunchTap(t, `flight: "@local/+dev"
-defaultHub: home
+hub: home
 hubs:
   home: {kind: local, basePath: /home/testuser/kegs, defaultNamespace: local}
 agents:
@@ -360,7 +360,7 @@ agents:
 `)
 	_, err := local.ResolveLaunch(tapper.LaunchOptions{Harness: "claude", Agent: "opus"})
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "unsupported kind \"local\"")
+	require.Contains(t, err.Error(), "hub URL")
 }
 
 // A configured root is still pinned immutably for the child's lifetime.
@@ -381,7 +381,7 @@ func TestResolveLaunch_ExplicitFlightOverridesCascade(t *testing.T) {
 	require.NoError(t, sb.Setwd("/home/testuser/work/project"))
 	require.NoError(t, sb.Runtime().AtomicWriteFile(
 		"/home/testuser/.config/tapper/config.yaml", []byte(`flight: "@user/+root"
-defaultHub: atlas
+hub: atlas
 hubs:
   atlas: {kind: remote, url: https://atlas.example.test}
 agents:
@@ -418,7 +418,7 @@ func TestResolveLaunch_ReadsAgentsFromProjectConfig(t *testing.T) {
 	sb := sandbox.NewSandbox(t, &sandbox.Options{Home: "/home/testuser", User: "testuser"})
 	require.NoError(t, sb.Setwd("/home/testuser/work/project"))
 	require.NoError(t, sb.Runtime().AtomicWriteFile(
-		"/home/testuser/.config/tapper/config.yaml", []byte("flight: '@testuser/+root'\ndefaultHub: atlas\nhubs:\n  atlas: {kind: remote, url: https://atlas.example.test}\n"), 0o644))
+		"/home/testuser/.config/tapper/config.yaml", []byte("flight: '@testuser/+root'\nhub: atlas\nhubs:\n  atlas: {kind: remote, url: https://atlas.example.test}\n"), 0o644))
 	// Agents carry no credentials, so unlike hubs they survive the project
 	// config's trust boundary.
 	require.NoError(t, sb.Runtime().AtomicWriteFile(

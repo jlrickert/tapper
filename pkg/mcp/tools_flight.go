@@ -19,8 +19,9 @@ type flightShowInput struct {
 type flightCreateInput struct {
 	Ref          string   `json:"ref" jsonschema:"flight reference (@namespace/+slug; a bare slug uses the default namespace)"`
 	Title        string   `json:"title,omitempty" jsonschema:"flight title"`
+	Description  string   `json:"description,omitempty" jsonschema:"short description, separate from instructions"`
 	Visibility   string   `json:"visibility,omitempty" jsonschema:"flight visibility: private (default) or public"`
-	Capabilities []string `json:"capabilities,omitempty" jsonschema:"explicit capabilities; supported: full_access, manage_flights, manage_kegs"`
+	Capabilities []string `json:"capabilities,omitempty" jsonschema:"explicit capabilities; supported: manage_flights, manage_kegs, delete_kegs; full_access is rejected"`
 	Instructions string   `json:"instructions,omitempty" jsonschema:"markdown instructions"`
 	Cover        []string `json:"cover,omitempty" jsonschema:"covered kegs with role caps, e.g. @ns/keg=viewer, @ns/keg=editor, or @ns/keg=admin (bare entries default to viewer)"`
 	Subflights   []string `json:"subflights,omitempty" jsonschema:"ordered child flight references; bare +slug references use this flight's namespace"`
@@ -29,10 +30,11 @@ type flightCreateInput struct {
 type flightEditInput struct {
 	Ref          string   `json:"ref" jsonschema:"flight reference (@namespace/+slug; a bare slug uses the default namespace)"`
 	Title        *string  `json:"title,omitempty" jsonschema:"new flight title; omit to keep the current title"`
+	Description  *string  `json:"description,omitempty" jsonschema:"short description, separate from instructions"`
 	Visibility   *string  `json:"visibility,omitempty" jsonschema:"new visibility: private or public; omit to keep current"`
-	Capabilities []string `json:"capabilities,omitempty" jsonschema:"replacement capabilities; omit to keep current"`
+	Capabilities []string `json:"capabilities,omitempty" jsonschema:"replacement capabilities: manage_flights, manage_kegs, delete_kegs; full_access is rejected. Omit to keep current; [] clears"`
 	Instructions *string  `json:"instructions,omitempty" jsonschema:"new markdown instructions; omit to keep the current instructions"`
-	Cover        []string `json:"cover,omitempty" jsonschema:"replacement cover entries, e.g. @ns/keg=viewer; omit to keep the current cover"`
+	Cover        []string `json:"cover,omitempty" jsonschema:"replacement declared cover, e.g. @ns/keg=viewer; entries use default depth 2. Custom depth cannot be set here. Omit to preserve all current cover entries and depths; [] clears"`
 	Subflights   []string `json:"subflights,omitempty" jsonschema:"replacement ordered child flight references; omit to keep current"`
 	ExpectedHash string   `json:"expected_hash" jsonschema:"precondition token returned by flight_show"`
 }
@@ -48,6 +50,7 @@ type flightDeleteInput struct {
 // `flight edit`: agents cannot open editors, so the partial-edit tool
 // (omitted fields keep their current values) remains the MCP surface.
 func registerFlightTools(srv *sdkmcp.Server, defaults KegDefaults, flights FlightProvider) {
+	registerFlightSearch(srv, flights)
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "list_flights",
 		Description: "List available flights (keg restrictions + agent instructions)",
@@ -64,9 +67,8 @@ func registerFlightTools(srv *sdkmcp.Server, defaults KegDefaults, flights Fligh
 	})
 
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
-		Name: "flight_show",
-		Description: "Show a flight's cover roles and instructions. The result carries the " +
-			"flight's manifest hash; pass it back as expected_hash when editing this flight.",
+		Name:        "flight_show",
+		Description: "Inspect a permission-filtered flight manifest, including declared cover roles, depth, subflights, instructions, and hash. Inspection never activates a session or selects call authority. Cover is declared cover, not effective authority; use orient with flight for current authority. Pass hash as expected_hash to flight_edit or flight_delete.",
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(false),
@@ -77,10 +79,7 @@ func registerFlightTools(srv *sdkmcp.Server, defaults KegDefaults, flights Fligh
 			return errorResult(err), nil, nil
 		}
 		res := textResult(renderFlight(flight))
-		res.StructuredContent = map[string]any{
-			"name": flight.Name,
-			"hash": flight.ManifestHash,
-		}
+		res.StructuredContent = publicFlight(flight)
 		return res, nil, nil
 	})
 
@@ -97,8 +96,8 @@ func registerFlightTools(srv *sdkmcp.Server, defaults KegDefaults, flights Fligh
 			return errorResult(err), nil, nil
 		}
 		flight, err := flights.CreateFlight(ctx, tapper.CreateFlightOptions{
-			Ref:          in.Ref,
-			Title:        in.Title,
+			Ref:   in.Ref,
+			Title: in.Title, Description: in.Description,
 			Visibility:   in.Visibility,
 			Capabilities: flightCapabilitiesFromStrings(in.Capabilities),
 			Instructions: in.Instructions,
@@ -112,7 +111,9 @@ func registerFlightTools(srv *sdkmcp.Server, defaults KegDefaults, flights Fligh
 		if nudge := defaults.gate.fullAccessReconnect(ctx); nudge != "" {
 			text += "\n" + nudge + "\n"
 		}
-		return textResult(text), nil, nil
+		res := textResult(text)
+		res.StructuredContent = publicFlight(flight)
+		return res, nil, nil
 	})
 
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
@@ -131,8 +132,8 @@ func registerFlightTools(srv *sdkmcp.Server, defaults KegDefaults, flights Fligh
 			return errorResult(err), nil, nil
 		}
 		opts := tapper.UpdateFlightOptions{
-			Ref:          in.Ref,
-			Title:        in.Title,
+			Ref:   in.Ref,
+			Title: in.Title, Description: in.Description,
 			Visibility:   in.Visibility,
 			Instructions: in.Instructions,
 			ExpectedHash: in.ExpectedHash,
@@ -160,7 +161,9 @@ func registerFlightTools(srv *sdkmcp.Server, defaults KegDefaults, flights Fligh
 		if rootTarget || activeTarget {
 			text += "\nThe next authority-bearing call will resolve this live flight graph and authority automatically.\n"
 		}
-		return textResult(text), nil, nil
+		res := textResult(text)
+		res.StructuredContent = publicFlight(flight)
+		return res, nil, nil
 	})
 
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
@@ -193,7 +196,10 @@ func registerFlightTools(srv *sdkmcp.Server, defaults KegDefaults, flights Fligh
 
 func renderFlight(f *tapper.Flight) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "flight: %s\n", f.Name)
+	fmt.Fprintf(&b, "flight: %s\nhash: %s\n", f.Name, f.ManifestHash)
+	if f.Description != "" {
+		fmt.Fprintf(&b, "description: %s\n", f.Description)
+	}
 	if f.Title != "" {
 		fmt.Fprintf(&b, "title: %s\n", f.Title)
 	}
@@ -212,7 +218,7 @@ func renderFlight(f *tapper.Flight) string {
 			}
 		}
 	} else {
-		b.WriteString("cover: (none; denies all KEG access)\n")
+		b.WriteString("cover: (none declared; inspect orient for effective authority)\n")
 	}
 	if len(f.Subflights) > 0 {
 		b.WriteString("subflights:\n")
@@ -240,4 +246,40 @@ func flightCapabilityNames(values []tapper.FlightCapability) []string {
 		out = append(out, string(value))
 	}
 	return out
+}
+
+// PublicFlight is a deliberately explicit, permission-filtered manifest view.
+// Do not serialize Flight itself: effective cover and internal identity fields
+// are not manifest fields and do not describe the authority of an inspection.
+type PublicFlight struct {
+	Name         string              `json:"name"`
+	Hash         string              `json:"hash"`
+	Title        string              `json:"title"`
+	Description  string              `json:"description"`
+	Source       string              `json:"source"`
+	Visibility   string              `json:"visibility"`
+	Capabilities []string            `json:"capabilities"`
+	Cover        []PublicFlightCover `json:"cover"`
+	Subflights   []string            `json:"subflights"`
+	Instructions string              `json:"instructions"`
+}
+type PublicFlightCover struct {
+	Namespace string `json:"namespace"`
+	Keg       string `json:"keg"`
+	Role      string `json:"role"`
+	Depth     int    `json:"depth"`
+}
+
+func publicFlight(f *tapper.Flight) PublicFlight {
+	cover := make([]PublicFlightCover, 0, len(f.Cover))
+	for _, entry := range f.Cover {
+		depth := entry.Depth
+		if depth == 0 {
+			depth = 2
+		}
+		cover = append(cover, PublicFlightCover{Namespace: entry.Namespace, Keg: entry.Keg, Role: string(entry.Role), Depth: depth})
+	}
+	return PublicFlight{Name: f.Name, Hash: f.ManifestHash, Title: f.Title, Description: f.Description,
+		Source: f.Source, Visibility: f.Visibility, Capabilities: flightCapabilityNames(f.Capabilities),
+		Cover: cover, Subflights: append([]string{}, f.Subflights...), Instructions: f.Instructions}
 }

@@ -641,7 +641,7 @@ func TestMCP_AuthorityBearingSchemasExposeOptionalFlightAndRejectKegListAll(t *t
 	session, ctx := newPerCallFlightSession(t, backend)
 	result, err := session.ListTools(ctx, nil)
 	require.NoError(t, err)
-	ungoverned := map[string]bool{"auth_info": true, "keg_search": true, "list_flights": true, "flight_show": true, "session_refresh": true}
+	ungoverned := map[string]bool{"guide": true, "flight_search": true, "auth_info": true, "keg_search": true, "list_flights": true, "flight_show": true, "session_refresh": true}
 	seen := map[string]bool{}
 	for _, tool := range result.Tools {
 		seen[tool.Name] = true
@@ -698,7 +698,7 @@ func TestMCP_SessionRefreshNoFlightRequiresNewSession(t *testing.T) {
 	requireConnectionInstructions(t, session.InitializeResult().Instructions)
 	require.Equal(t, 1, backend.loadCount())
 	noFlightPayload := orientCall(t, session, ctx, map[string]any{})
-	require.Contains(t, noFlightPayload, "No flight was provided")
+	require.Contains(t, noFlightPayload, "No flight is active")
 	require.Equal(t, 1, backend.loadCount(), "no-flight orient must not retry activation")
 
 	refreshed, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: "session_refresh", Arguments: map[string]any{}})
@@ -715,7 +715,7 @@ func TestMCP_SessionRefreshNoFlightRequiresNewSession(t *testing.T) {
 	require.Equal(t, "new_session", unchanged.StructuredContent.(map[string]any)["nextAction"])
 	require.Equal(t, 1, backend.loadCount(), "no-flight refresh must not consult a newly configured root")
 	require.Contains(t, listedToolNames(t, ctx, session), "cat")
-	require.Contains(t, orientCall(t, session, ctx, map[string]any{}), "No flight was provided")
+	require.Contains(t, orientCall(t, session, ctx, map[string]any{}), "No flight is active")
 }
 
 func TestMCP_ActiveSessionRefreshIsProviderFreeAndKeepsPinnedRoot(t *testing.T) {

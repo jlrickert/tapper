@@ -42,7 +42,7 @@ type BootstrapResult struct {
 	Path      string          // user config path written
 	Created   bool            // true when a fresh file was created, false on update
 	Kind      string          // normalized deployment kind
-	Hub       string          // hub name written as fallbackHub
+	Hub       string          // hub name written as hub
 	HubURL    string          // login/display URL
 	Namespace string          // resolved fallback namespace
 	Warnings  []ConfigWarning // semantic warnings from ValidateConfig
@@ -58,7 +58,7 @@ type BootstrapResult struct {
 // field. It is the logged-in user's home namespace, adopted onto the hub after
 // login by SetBootstrapNamespace.
 //
-// It is idempotent: an existing config is loaded and only the fallback hub and
+// It is idempotent: an existing config is loaded and only the user Hub and
 // the selected hub entry are touched, so extension fields and kegMap rules
 // survive a re-run untouched.
 func (t *Tap) Bootstrap(ctx context.Context, opts BootstrapOptions) (*BootstrapResult, error) {
@@ -100,7 +100,7 @@ func (t *Tap) Bootstrap(ctx context.Context, opts BootstrapOptions) (*BootstrapR
 		return nil, fmt.Errorf("unable to load user config: %w", err)
 	}
 
-	// Resolve the kind-specific hub: its config entry, the fallbackHub name,
+	// Resolve the kind-specific hub: its config entry, the hub name,
 	// and the URL the CLI uses for an optional login.
 	var (
 		hubName string
@@ -111,7 +111,7 @@ func (t *Tap) Bootstrap(ctx context.Context, opts BootstrapOptions) (*BootstrapR
 		hubName = DefaultHubName
 		hubURL = DefaultHubURL
 		if _, ok := cfg.Hubs()[hubName]; !ok {
-			if err := cfg.SetHub(hubName, HubEntry{Kind: HubKindRemote, DefaultNamespace: namespace, URL: DefaultHubURL, TokenEnv: DefaultHubTokenEnv}); err != nil {
+			if err := cfg.SetHub(hubName, HubEntry{DefaultNamespace: namespace, URL: DefaultHubURL, TokenEnv: DefaultHubTokenEnv}); err != nil {
 				return nil, err
 			}
 		}
@@ -134,12 +134,12 @@ func (t *Tap) Bootstrap(ctx context.Context, opts BootstrapOptions) (*BootstrapR
 		// Avoid clobbering an unrelated hub of the same derived name: only reuse
 		// the slot when it already points at this URL, else suffix it.
 		hubName = uniqueHubName(cfg, hubName, hubURL)
-		if err := cfg.SetHub(hubName, HubEntry{Kind: HubKindRemote, DefaultNamespace: namespace, URL: hubURL}); err != nil {
+		if err := cfg.SetHub(hubName, HubEntry{DefaultNamespace: namespace, URL: hubURL}); err != nil {
 			return nil, err
 		}
 	}
 
-	if err := cfg.SetFallbackHub(hubName); err != nil {
+	if err := cfg.SetHubName(context.Background(), hubName); err != nil {
 		return nil, err
 	}
 
@@ -241,15 +241,15 @@ func (t *Tap) SetHubDefaultNamespaceByURL(ctx context.Context, hubURL, namespace
 	return "", nil
 }
 
-// SetFallbackKeg sets the user config's fallbackKeg to ref and persists it. It
+// SetKeg sets the user config's keg to ref and persists it. It
 // is the post-login step of `tap bootstrap`: once the user picks a keg (from the
 // hub's list or by typing one), plain `tap` commands resolve it without
 // per-invocation flags. It writes the FALLBACK slot (the global-user convention)
-// rather than defaultKeg, so a project's defaultKeg or a kegMap path rule still
+// rather than keg, so a project's keg or a kegMap path rule still
 // overrides it. ref is a keg reference — a bare name, @namespace/name, keg:...,
 // or a path — stored verbatim and resolved later by ResolveRef. A blank ref is a
 // no-op.
-func (t *Tap) SetFallbackKeg(ctx context.Context, ref string) error {
+func (t *Tap) SetKeg(ctx context.Context, ref string) error {
 	ref = strings.TrimSpace(ref)
 	if ref == "" {
 		return nil
@@ -261,7 +261,7 @@ func (t *Tap) SetFallbackKeg(ctx context.Context, ref string) error {
 		}
 		cfg = &Config{data: &configDTO{}}
 	}
-	if err := cfg.SetFallbackKeg(ref); err != nil {
+	if err := cfg.SetKeg(ref); err != nil {
 		return err
 	}
 	if err := cfg.Write(t.Runtime, t.PathService.UserConfig()); err != nil {

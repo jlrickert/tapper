@@ -1528,7 +1528,7 @@ func TestMCP_ConfigUser(t *testing.T) {
 	require.NoError(t, err)
 	text := extractText(t, res)
 	require.False(t, res.IsError, "config user returned error: %s", text)
-	require.Contains(t, text, "defaultKeg")
+	require.Contains(t, text, "keg")
 }
 
 func TestMCP_ConfigInvalidScope(t *testing.T) {
@@ -1558,7 +1558,7 @@ func TestMCP_ConfigTemplate(t *testing.T) {
 	require.NoError(t, err)
 	text := extractText(t, res)
 	require.False(t, res.IsError, "config_template returned error: %s", text)
-	require.Contains(t, text, "fallbackHub")
+	require.Contains(t, text, "hub")
 }
 
 func TestMCP_ConfigTemplateProject(t *testing.T) {
@@ -1575,7 +1575,7 @@ func TestMCP_ConfigTemplateProject(t *testing.T) {
 	require.NoError(t, err)
 	text := extractText(t, res)
 	require.False(t, res.IsError, "config_template project returned error: %s", text)
-	require.Contains(t, text, "defaultKeg")
+	require.Contains(t, text, "keg")
 }
 
 func TestMCP_RepoInit(t *testing.T) {
@@ -2089,8 +2089,15 @@ func TestMCP_DownloadFileNotFound(t *testing.T) {
 
 // --- archive tool tests ---
 
+// extractText retains the legacy message assertions in service behavior tests.
+// Transport contract tests decode raw text independently instead.
 func extractText(t *testing.T, res *sdkmcp.CallToolResult) string {
 	t.Helper()
+	if payload, ok := res.StructuredContent.(map[string]any); ok {
+		if message, ok := payload["message"].(string); ok {
+			return message
+		}
+	}
 	var parts []string
 	for _, c := range res.Content {
 		if tc, ok := c.(*sdkmcp.TextContent); ok {

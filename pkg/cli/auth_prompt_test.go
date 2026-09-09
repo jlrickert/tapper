@@ -28,9 +28,9 @@ func TestBuildHubChoices_NilConfig(t *testing.T) {
 func TestBuildHubChoices_RemoteHubsOnly_DedupAndScheme(t *testing.T) {
 	t.Parallel()
 	cfg := &tapper.Config{}
-	require.NoError(t, cfg.SetHub("keg-example", tapper.HubEntry{Kind: tapper.HubKindRemote, URL: "keg.example.com"})) // bare host
-	require.NoError(t, cfg.SetHub("home", tapper.HubEntry{Kind: "local"}))                                             // unsupported, excluded
-	require.NoError(t, cfg.SetHub("atlas-again", tapper.HubEntry{Kind: tapper.HubKindRemote, URL: "https://atlas.foldwise.ai"}))
+	require.NoError(t, cfg.SetHub("keg-example", tapper.HubEntry{URL: "keg.example.com"})) // bare host
+	require.NoError(t, cfg.SetHub("home", tapper.HubEntry{Kind: "local"}))                 // unsupported, excluded
+	require.NoError(t, cfg.SetHub("atlas-again", tapper.HubEntry{URL: "https://atlas.foldwise.ai"}))
 
 	choices := buildHubChoices(cfg)
 

@@ -47,9 +47,7 @@ func newNamespaceListCmd(deps *Deps) *cobra.Command {
 		Short: "list the namespaces you belong to",
 		Long: `List the namespaces you belong to as NAMESPACE, KIND, ROLE, HUB.
 
-With no --hub every configured hub is queried and each row names its source
-hub, so the same namespace name on two hubs stays two distinct rows. A hub that
-cannot be reached is reported on stderr and the remaining hubs still list.`,
+Only the active Hub is queried. Use --hub to select another saved connection.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			// --hub is the global keg-resolution flag (default: the resolved default hub).
@@ -204,9 +202,6 @@ func configNamespaceNames(deps *Deps) []string {
 		}
 		seen[n] = struct{}{}
 		names = append(names, n)
-	}
-	for n := range cfg.Namespaces() {
-		add(n)
 	}
 	add(cfg.DefaultNamespace())
 	add(cfg.FallbackNamespace())

@@ -39,7 +39,7 @@ func TestKegService_Resolve_ThreadsAuthStoreToken(t *testing.T) {
 	store.Set(tapper.CanonicalHubURL(hubURL), tapper.AuthEntry{AccessToken: hubToken})
 	require.NoError(t, store.Save(fx.Context(), fx.Runtime(), tap.PathService.AuthStorePath()))
 
-	userCfg := fmt.Sprintf(`defaultKeg: "@me/demo"
+	userCfg := fmt.Sprintf(`keg: "@me/demo"
 namespaces:
   me: { hub: example }
 hubs:
@@ -98,7 +98,7 @@ func TestKegService_Resolve_CachedKegRefreshesMidSession(t *testing.T) {
 	})
 	require.NoError(t, store.Save(fx.Context(), fx.Runtime(), tap.PathService.AuthStorePath()))
 
-	userCfg := fmt.Sprintf(`defaultKeg: "@me/demo"
+	userCfg := fmt.Sprintf(`keg: "@me/demo"
 namespaces:
   me: { hub: example }
 hubs:
@@ -160,7 +160,7 @@ func TestKegService_Resolve_TokenEnvStillWinsOverAuthStore(t *testing.T) {
 
 	require.NoError(t, fx.Runtime().Set("HUB_TOKEN", "env-token"))
 
-	userCfg := fmt.Sprintf(`defaultKeg: "@me/demo"
+	userCfg := fmt.Sprintf(`keg: "@me/demo"
 namespaces:
   me: { hub: example }
 hubs:
@@ -181,4 +181,30 @@ hubs:
 	remote, ok := k.(*keg.RemoteKeg)
 	require.True(t, ok)
 	require.Equal(t, "env-token", remote.Token(), "TokenEnv must win over auth store")
+}
+
+// A saved browser login and inline token cannot fill a missing configured env.
+func TestKegServiceMissingConfiguredTokenDoesNotUseSavedLogin(t *testing.T) {
+	fx := NewSandbox(t)
+	root := "/home/testuser/project"
+	require.NoError(t, fx.Runtime().Mkdir(root, 0o755, true))
+	require.NoError(t, fx.Setwd(root))
+	tap, err := tapper.NewTap(tapper.TapOptions{Root: root, Runtime: fx.Runtime()})
+	require.NoError(t, err)
+	store := &tapper.AuthStore{}
+	store.Set("https://hub.example.com", tapper.AuthEntry{AccessToken: "saved-login"})
+	require.NoError(t, store.Save(fx.Context(), fx.Runtime(), tap.PathService.AuthStorePath()))
+	cfg := `hub: example
+hubs:
+  example:
+    url: https://hub.example.com
+    tokenEnv: MISSING_CREDENTIAL
+    token: inline-token
+`
+	require.NoError(t, fx.Runtime().Mkdir(filepath.Dir(tap.PathService.UserConfig()), 0o755, true))
+	require.NoError(t, fx.Runtime().AtomicWriteFile(tap.PathService.UserConfig(), []byte(cfg), 0o644))
+	_, err = tap.KegService.Resolve(fx.Context(), tapper.ResolveKegOptions{Root: root, Keg: "@me/demo"})
+	require.ErrorIs(t, err, keg.ErrUnauthorized)
+	_, err = tap.SelectedHubIdentity(fx.Context())
+	require.Error(t, err)
 }

@@ -1,5 +1,5 @@
 # yaml-language-server: $schema=https://raw.githubusercontent.com/jlrickert/tapper/main/schemas/tap-config.json
-defaultKeg: personal
+keg: personal
 fallbackNamespace: local
 kegMap:
   - alias: work

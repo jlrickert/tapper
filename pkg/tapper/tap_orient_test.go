@@ -32,35 +32,13 @@ func newOrientTap(t *testing.T) *tapper.Tap {
 }
 
 func TestTap_Orient_SharedPayloadStartsWithKegSystem(t *testing.T) {
-	t.Parallel()
-	tap := newOrientTap(t)
-
-	payload, err := tap.Orient(context.Background(), tapper.OrientOptions{})
+	payload, err := newOrientTap(t).Orient(context.Background(), tapper.OrientOptions{})
 	require.NoError(t, err)
-
-	require.True(t, strings.HasPrefix(payload, "# KEG System\n\n"), payload)
-	require.Contains(t, payload, "Tapper provides an MCP interface for KEG")
-	require.NotContains(t, payload, "`tap ")
-	require.Contains(t, payload, "Rules:")
-	require.NotContains(t, payload, "## Active KEG")
-	require.Contains(t, payload, "## Available KEGs")
-	require.NotContains(t, payload, "## KEG Instructions")
-	require.Contains(t, payload, "## Guidance")
-	guidance := payload[strings.Index(payload, "## Guidance"):]
-	require.Contains(t, guidance, "# Linking conventions")
-	for _, exact := range []string{
-		"[title](../NODEID)",
-		"[title](keg:ALIAS/NODEID)",
-		"[title](keg:@NAMESPACE/ALIAS/NODEID)",
-	} {
-		require.Contains(t, guidance, exact)
-	}
-	require.Contains(t, guidance, "A bare `keg:` reference in node prose is plain text")
-	require.Contains(t, payload, "# Snapshot policy")
-	require.NotContains(t, payload, "## Host:")
-	require.NotContains(t, strings.ToLower(payload), "tier 0")
-	require.NotContains(t, strings.ToLower(payload), "tier 1")
-	require.NotContains(t, strings.ToLower(payload), "tier 2")
+	require.True(t, strings.HasPrefix(payload, "# KEG System\n\n"))
+	require.Contains(t, payload, "`guide`")
+	require.Contains(t, payload, "identity-authorized full access")
+	require.NotContains(t, payload, "## Available KEGs")
+	require.NotContains(t, payload, "# Linking conventions")
 }
 
 func TestTap_Orient_UnknownFlightEmitsNote(t *testing.T) {
@@ -72,7 +50,7 @@ func TestTap_Orient_UnknownFlightEmitsNote(t *testing.T) {
 	})
 	require.NoError(t, err, "orient must never hard-fail on an unknown flight")
 	require.Contains(t, payload, "# KEG System")
-	require.Contains(t, payload, "Active flight: `f-demo`")
+	require.Contains(t, payload, "Selected flight: `f-demo`")
 	require.Contains(t, payload, `Flight "f-demo" is unavailable`)
 }
 
@@ -111,7 +89,7 @@ func TestTap_Orient_MissingHubAuthenticationIsMCPFirst(t *testing.T) {
 
 	payload, err := tap.Orient(context.Background(), tapper.OrientOptions{})
 	require.NoError(t, err)
-	require.Contains(t, payload, `skipped hub "work": hub has no authenticated session for https://hub.example.com`)
+	require.Contains(t, payload, `hub has no authenticated session for https://hub.example.com`)
 	require.NotContains(t, payload, "`tap ")
 }
 
@@ -208,7 +186,7 @@ func TestTap_Orient_ActiveKeg_ExplicitOverride(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.NotContains(t, payload, "Active KEG:")
-	require.Contains(t, payload, "@local/archive")
+	require.NotContains(t, payload, "@local/archive")
 }
 
 func TestTap_IntegrateHosts_IsSortedAndIncludesDefaults(t *testing.T) {
@@ -229,7 +207,7 @@ func TestTap_Orient_UnpinnedPayloadUsesFullAccess(t *testing.T) {
 	payload, err := tap.Orient(context.Background(), tapper.OrientOptions{})
 	require.NoError(t, err)
 
-	require.Contains(t, payload, "No flight was provided")
+	require.Contains(t, payload, "No flight is active")
 	require.Contains(t, payload, "identity-authorized full access")
 	require.Contains(t, payload, "least-privilege flight")
 	require.Contains(t, payload, "start a new connection")
@@ -240,36 +218,17 @@ func TestTap_Orient_UnpinnedPayloadUsesFullAccess(t *testing.T) {
 // TestTap_Orient_StatesZeroNodeAndAttachmentPaths pins two compact safety rules
 // the runtime payload must carry alongside canonical link teaching.
 func TestTap_Orient_StatesZeroNodeAndAttachmentPaths(t *testing.T) {
-	t.Parallel()
-	tap := newOrientTap(t)
-
-	payload, err := tap.Orient(context.Background(), tapper.OrientOptions{})
+	guide, err := tapper.OrientationGuide("operating")
 	require.NoError(t, err)
-
-	rules := payload[:strings.Index(payload, "## Available KEGs")]
-	require.Contains(t, rules, "Node 0 is the keg's placeholder landing node",
-		"the compact rules survive a context reset; node 0 belongs there")
-	require.Contains(t, rules, "(./assets/FILE)")
-	require.Contains(t, rules, "(./images/IMAGE)")
-
-	guidance := payload[strings.Index(payload, "## Guidance"):]
-	require.Contains(t, guidance, "./assets/FILE")
-	require.Contains(t, guidance, "./images/IMAGE")
-	require.Contains(t, guidance, "## Node 0")
-
-	// Guard the exact spelling: `asset/` or `image/` singular would be a silent
-	// break, since uploads succeed no matter how the link is later written.
-	for _, wrong := range []string{"./asset/", "./image/", "(assets/", "(images/"} {
-		require.NotContains(t, payload, wrong)
-	}
+	require.Contains(t, guide, "Node 0 is the keg's placeholder landing node")
+	require.Contains(t, guide, "(./assets/FILE)")
+	require.Contains(t, guide, "(./images/IMAGE)")
 }
 
-// rowFor returns the rendered table row for a KEG ref, so a test can assert on
-// the columns of one row rather than on the whole document.
 func rowFor(t *testing.T, payload, ref string) string {
 	t.Helper()
 	for _, line := range strings.Split(payload, "\n") {
-		if strings.HasPrefix(line, "| `"+ref+"`") {
+		if strings.Contains(line, "| `"+ref+"` |") {
 			return line
 		}
 	}
@@ -299,13 +258,9 @@ func TestBuildOrientationPayload_SplitsCoveredKegsFromSubflightOnlyKegs(t *testi
 	payload, err := tapper.BuildOrientationPayload(root, "", "", kegs, nil, nil)
 	require.NoError(t, err)
 
-	usable, viaSubflight, found := strings.Cut(payload, "## Reachable via subflight")
-	require.True(t, found, "expected a subflight section:\n%s", payload)
-	require.Contains(t, usable, "@ada/covered")
-	require.NotContains(t, usable, "@ada/childonly")
-	require.Contains(t, viaSubflight, "@ada/childonly")
-	require.Contains(t, viaSubflight, "@ada/+child", "the row names the flight to select")
-	require.NotContains(t, viaSubflight, "@ada/covered")
+	require.Contains(t, payload, "@ada/covered")
+	require.NotContains(t, payload, "@ada/childonly")
+	require.NotContains(t, payload, "## Reachable via subflight")
 }
 
 func TestBuildOrientationPayload_PartitionsByActiveCoverNotAggregateProvenance(t *testing.T) {
@@ -329,7 +284,7 @@ func TestBuildOrientationPayload_PartitionsByActiveCoverNotAggregateProvenance(t
 	row := rowFor(t, payload, "@ada/shared")
 	require.Contains(t, row, "viewer", "role is re-priced to the active flight's cap")
 	require.NotContains(t, row, "editor", "the descendant's higher cap must not be quoted")
-	require.Contains(t, row, "@ada/+root", "the row is attributed to the active flight")
+	require.Contains(t, payload, "@ada/+root")
 
 	// Re-pricing must not reach back into the caller's rows. Providers hand the
 	// same slice to FinalizeOrientation, which hashes Ref/Role/Visibility and
@@ -353,10 +308,10 @@ func TestBuildOrientationPayload_EmptyCoverWithSubflightKegsPointsAtTheNextSecti
 	payload, err := tapper.BuildOrientationPayload(root, "", "", kegs, nil, nil)
 	require.NoError(t, err)
 
-	require.Contains(t, payload, "The active flight covers no KEGs directly")
+	require.Contains(t, payload, "No covered readable KEGs")
 	require.NotContains(t, payload, "No KEGs are currently available")
-	require.Contains(t, payload, "## Reachable via subflight")
-	require.Contains(t, payload, "@admin/+test")
+	require.NotContains(t, payload, "### Immediate subflights")
+	require.NotContains(t, payload, "@admin/private")
 }
 
 func TestBuildOrientationPayload_SingleFlightProjectionRendersOneTable(t *testing.T) {

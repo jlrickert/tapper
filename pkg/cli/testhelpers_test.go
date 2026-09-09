@@ -56,8 +56,8 @@ func normalizeFixtureConfig(t *testing.T, rt *toolkit.Runtime) {
 	}
 	body := strings.ReplaceAll(string(raw), "kind: local", "kind: remote")
 	body = strings.ReplaceAll(body, "    basePath: ~/kegs", "    url: https://fixture.invalid\n    token: test-token")
-	if !strings.Contains(body, "fallbackHub:") {
-		body += "fallbackHub: home\n"
+	if !strings.Contains(body, "hub:") {
+		body += "hub: home\n"
 	}
 	if !strings.Contains(body, "namespaces:") {
 		body += "namespaces:\n  local:\n    hub: home\n"
@@ -102,7 +102,7 @@ func NewRemoteKegListSandbox(t *testing.T, kegs []tapper.HubKeg) *tu.Sandbox {
 	}))
 	t.Cleanup(srv.Close)
 	sb := NewSandbox(t)
-	sb.MustWriteFile("~/.config/tapper/config.yaml", []byte(fmt.Sprintf(`fallbackHub: test
+	sb.MustWriteFile("~/.config/tapper/config.yaml", []byte(fmt.Sprintf(`hub: test
 fallbackNamespace: team
 hubs:
   test:
@@ -344,7 +344,7 @@ func newFixtureTapFactory(t *testing.T, ctx context.Context, rt *toolkit.Runtime
 			}
 			if alias == "" {
 				if cfg, cfgErr := tap.ConfigService.Config(); cfgErr == nil && cfg != nil {
-					alias = strings.TrimSpace(cfg.DefaultKeg())
+					alias = strings.TrimSpace(cfg.Keg())
 					if alias == "" {
 						alias = strings.TrimSpace(cfg.LookupAlias(rt, tap.Root))
 					}

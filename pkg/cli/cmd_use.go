@@ -10,14 +10,14 @@ import (
 )
 
 // NewUseCmd returns the `use` command: record which keg (and flight) a project
-// resolves, or a user-wide fallback keg.
+// resolves, or a user-wide user KEG.
 //
 // Usage examples:
 //
-//	tap use @work/dev                  # project keg (defaultKeg)
+//	tap use @work/dev                  # project keg (keg)
 //	tap use +plan                      # project flight
 //	tap use @work/dev --flight @work/+plan
-//	tap use @me/notes --user           # user-wide fallback (fallbackKeg)
+//	tap use @me/notes --user           # user-wide fallback (keg)
 //	tap use --flight @work/+plan       # set/replace just the project flight
 //	tap use --clear                    # unset the scope's slot(s)
 //	tap use                            # show the resolved keg + flight + fallback
@@ -26,13 +26,13 @@ func NewUseCmd(deps *Deps) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "use [@namespace/keg]",
-		Short: "set the project keg + flight, or the user fallback keg",
+		Short: "set the project keg + flight, or the user user KEG",
 		Long: `Record which keg (and flight) the current project resolves, or a
-user-wide fallback keg.
+user-wide user KEG.
 
 Scope picks the keg slot:
-  - project (default) writes defaultKeg to .tapper/config.yaml
-  - --user writes the user-wide fallbackKeg to ~/.config/tapper/config.yaml
+  - project (default) writes keg to .tapper/config.yaml
+  - --user writes the user-wide keg to ~/.config/tapper/config.yaml
 
 Flight is project-scoped. With no arguments, prints the resolved keg, flight,
 and fallback and the config scope that set each.`,
@@ -63,7 +63,7 @@ and fallback and the config scope that set each.`,
 	}
 
 	cmd.Flags().StringVar(&opts.Flight, "flight", "", "flight to record for the project (@namespace/+slug)")
-	cmd.Flags().BoolVar(&opts.User, "user", false, "write the user-wide fallback keg instead of the project keg")
+	cmd.Flags().BoolVar(&opts.User, "user", false, "write the user-wide user KEG instead of the project keg")
 	cmd.Flags().BoolVar(&opts.Clear, "clear", false, "unset the scope's keg slot (and project flight)")
 	mustRegisterFlagCompletion(cmd, "flight", flightFlagCompletionFunc(deps))
 	cmd.ValidArgsFunction = func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {

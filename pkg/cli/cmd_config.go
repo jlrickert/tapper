@@ -17,7 +17,7 @@ import (
 //	tap config
 //	tap config --project
 //	tap config --user
-//	tap config --explain defaultKeg
+//	tap config --explain keg
 //	tap config --show-sources
 //	tap config template user
 //	tap config template project

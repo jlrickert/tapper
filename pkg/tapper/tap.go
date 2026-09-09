@@ -180,7 +180,7 @@ func (t *Tap) resolveKegForRoles(ctx context.Context, opts KegTargetOptions, ide
 		Namespace:        opts.Namespace,
 		Hub:              opts.Hub,
 		RequireBootstrap: opts.RequireBootstrap,
-		NoCache:          false,
+		NoCache:          opts.FlightContext != nil,
 	})
 	if err != nil {
 		return nil, err

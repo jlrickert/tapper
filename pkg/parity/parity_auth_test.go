@@ -11,6 +11,7 @@ package parity_test
 // no coverage over pkg/tapper/auth_flow_test.go.
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -33,6 +34,8 @@ func seedAuthStoreForEnv(t *testing.T, env *parityEnv, hubURL string, entry tapp
 	canon := tapper.CanonicalHubURL(hubURL)
 	store.Set(canon, entry)
 	require.NoError(t, store.Save(env.ctx, env.tap.Runtime, storePath))
+	require.NoError(t, env.tap.Runtime.AtomicWriteFile(env.tap.PathService.UserConfig(), []byte(fmt.Sprintf("disableTelemetry: true\nhub: selected\nhubs:\n  selected: {url: %s}\n", canon)), 0644))
+	env.tap.ConfigService.Reload()
 	return canon
 }
 
@@ -105,7 +108,7 @@ func TestAuthStatusRendering(t *testing.T) {
 		require.NotContains(t, cliOut, "thub_rejectedtoken00")
 	})
 
-	t.Run("multiple_hubs_reported", func(t *testing.T) {
+	t.Run("selected_hub_reported", func(t *testing.T) {
 		t.Parallel()
 		env := newParityEnv(t)
 		hubA := startWhoamiHub(t, http.StatusOK, "alice", "")
@@ -123,9 +126,9 @@ func TestAuthStatusRendering(t *testing.T) {
 		require.NoError(t, err)
 
 		require.Contains(t, cliOut, "Logged in as alice")
-		require.Contains(t, cliOut, "Logged in as bob")
-		require.Equal(t, 2, strings.Count(cliOut, "Logged in as "))
-		require.Contains(t, cliOut, "\n\n")
+		require.NotContains(t, cliOut, "Logged in as bob")
+		require.Equal(t, 1, strings.Count(cliOut, "Logged in as "))
+		require.NotContains(t, cliOut, "\n\n")
 	})
 
 	t.Run("explicit_hub_canonicalizes", func(t *testing.T) {

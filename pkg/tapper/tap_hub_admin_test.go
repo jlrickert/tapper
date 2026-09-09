@@ -58,7 +58,7 @@ func TestHubSetDefault_ProjectByDefault(t *testing.T) {
 
 	proj := string(fx.MustReadFile("/home/testuser/project/.tapper/config.yaml"))
 	require.Contains(t, proj, "atlas")
-	require.True(t, strings.Contains(proj, "defaultHub"))
+	require.True(t, strings.Contains(proj, "hub"))
 
 	// The default write targets the project, not the user config — which the
 	// sandbox starts without, so it must still be absent.
@@ -78,6 +78,6 @@ func TestHubSetDefault_UserFlag(t *testing.T) {
 	require.NoError(t, tap.HubSetDefault(fx.Context(), tapper.HubSetDefaultOptions{Name: "atlas", User: true}))
 
 	saved := string(fx.MustReadFile(tap.PathService.UserConfig()))
-	require.Contains(t, saved, "defaultHub")
+	require.Contains(t, saved, "hub")
 	require.Contains(t, saved, "atlas")
 }

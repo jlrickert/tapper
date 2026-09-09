@@ -16,7 +16,7 @@ func TestWriteUserConfigPreservesCommentsAndUnknownBlocks(t *testing.T) {
 
 	raw := `# Top comment
 # another top comment
-defaultKeg: main
+keg: main
 
 kegs:
   main: "~/keg" # inline url comment
@@ -36,7 +36,7 @@ kegMap:
 	require.Contains(t, out, "# Top comment")
 	require.Contains(t, out, "# inline url comment")
 	require.Contains(t, out, "kegs:")
-	require.Contains(t, out, "defaultKeg: main")
+	require.Contains(t, out, "keg: main")
 	require.Contains(t, out, "pathPrefix: ~/projects")
 }
 
@@ -44,7 +44,7 @@ func TestClone_CopiesData(t *testing.T) {
 	t.Parallel()
 
 	raw := `# config header
-defaultKeg: main
+keg: main
 kegMap:
   - alias: main
     pathPrefix: "~/projects" # keep this inline
@@ -60,7 +60,7 @@ kegMap:
 	require.NoError(t, err)
 	out := string(data)
 
-	require.Contains(t, out, "defaultKeg: main")
+	require.Contains(t, out, "keg: main")
 	require.Contains(t, out, "pathPrefix: ~/projects")
 	require.Contains(t, out, "# config header")
 }
@@ -68,13 +68,13 @@ kegMap:
 func TestParseConfig_AcceptsUnknownFields(t *testing.T) {
 	t.Parallel()
 
-	raw := `defaultKeg: main
+	raw := `keg: main
 unknownKey: value
 `
 
 	cfg, err := tapper.ParseConfig([]byte(raw))
 	require.NoError(t, err)
-	require.Equal(t, "main", cfg.DefaultKeg())
+	require.Equal(t, "main", cfg.Keg())
 	out, err := cfg.ToYAML()
 	require.NoError(t, err)
 	require.Contains(t, string(out), "unknownKey: value")
@@ -83,7 +83,7 @@ unknownKey: value
 func TestConfigRewritePreservesUnknownTopLevelAndNestedFields(t *testing.T) {
 	t.Parallel()
 
-	raw := `defaultKeg: old
+	raw := `keg: old
 vendorFeature:
   enabled: true
 hubs:
@@ -108,30 +108,28 @@ kegMap:
 `
 	cfg, err := tapper.ParseConfig([]byte(raw))
 	require.NoError(t, err)
-	require.NoError(t, cfg.SetDefaultKeg("@team/new-default"))
+	require.NoError(t, cfg.SetKeg("@team/new-default"))
 	require.NoError(t, cfg.SetHub("work", tapper.HubEntry{
-		Kind: "readonly",
-		URL:  "https://new.example.com",
+		URL: "https://new.example.com",
 	}))
-	require.NoError(t, cfg.SetNamespace("team", tapper.NamespaceRef{Hub: "cloud"}))
 
 	out, err := cfg.ToYAML()
 	require.NoError(t, err)
 	var doc map[string]any
 	require.NoError(t, yaml.Unmarshal(out, &doc))
-	require.Equal(t, "@team/new-default", doc["defaultKeg"])
+	require.Equal(t, "@team/new-default", doc["keg"])
 	require.Equal(t, map[string]any{"enabled": true}, doc["vendorFeature"])
 
 	hubs := doc["hubs"].(map[string]any)
 	work := hubs["work"].(map[string]any)
-	require.Equal(t, "readonly", work["kind"])
+	require.Equal(t, "remote", work["kind"])
 	require.Equal(t, "https://new.example.com", work["url"])
 	require.NotContains(t, work, "tokenEnv")
 	require.Equal(t, map[string]any{"attempts": 7}, work["retryPolicy"])
 
 	namespaces := doc["namespaces"].(map[string]any)
 	team := namespaces["team"].(map[string]any)
-	require.Equal(t, "cloud", team["hub"])
+	require.Equal(t, "work", team["hub"])
 	require.Equal(t, "tenant-42", team["tenantId"])
 
 	agents := doc["agents"].(map[string]any)
@@ -155,7 +153,6 @@ namespaces:
 	removed, err := cfg.DeleteHub("remove")
 	require.NoError(t, err)
 	require.True(t, removed)
-	require.True(t, cfg.DeleteNamespace("remove"))
 
 	out, err := cfg.ToYAML()
 	require.NoError(t, err)
@@ -165,7 +162,7 @@ namespaces:
 	require.NotContains(t, hubs, "remove")
 	require.Equal(t, "keep", hubs["keep"].(map[string]any)["vendor"])
 	namespaces := doc["namespaces"].(map[string]any)
-	require.NotContains(t, namespaces, "remove")
+	require.Contains(t, namespaces, "remove")
 	require.Equal(t, "keep", namespaces["keep"].(map[string]any)["vendor"])
 }
 
@@ -173,7 +170,7 @@ func TestParseUserConfigPreservesUnknownKeys(t *testing.T) {
 	t.Parallel()
 
 	// Unknown blocks load and survive Tapper-driven serialization.
-	raw := `defaultKeg: notes
+	raw := `keg: notes
 fallbackNamespace: alice
 kegs:
   notes: { hub: work, namespace: alice, name: notes }
@@ -182,7 +179,7 @@ kegs:
 
 	uc, err := tapper.ParseConfig([]byte(raw))
 	require.NoError(t, err)
-	require.Equal(t, "notes", uc.DefaultKeg())
+	require.Equal(t, "notes", uc.Keg())
 
 	data, err := uc.ToYAML()
 	require.NoError(t, err)
@@ -196,7 +193,7 @@ func TestResolveAlias_Behavior(t *testing.T) {
 
 	// ResolveAlias parses its argument as a keg reference (there is no alias
 	// table) and resolves it through the namespace-centric ResolveRef chain.
-	raw := `defaultHub: remote
+	raw := `hub: remote
 hubs:
   remote:
     kind: remote
@@ -310,7 +307,7 @@ func TestResolveRef_NamespaceCentric(t *testing.T) {
 
 	// kegs[name].Namespace disambiguates the namespace; namespaces[ns].Hub
 	// (struct form) and the scalar shorthand both pin the hosting hub.
-	raw := `defaultHub: cloud
+	raw := `hub: cloud
 hubs:
   cloud:
     kind: remote
@@ -330,7 +327,7 @@ namespaces:
 	// independent of the hub target's textual representation.
 	kt, err := uc.ResolveRef(fx.Runtime(), tapper.KegRef{Namespace: "teamns", Name: "example"})
 	require.NoError(t, err)
-	require.Equal(t, "work", kt.Hub)
+	require.Equal(t, "cloud", kt.Hub)
 	require.Equal(t, "teamns", kt.Namespace)
 	require.Equal(t, "example", kt.KegName)
 
@@ -340,7 +337,7 @@ namespaces:
 	require.Equal(t, "cloud", kt.Hub)
 	require.Equal(t, "scalarns", kt.Namespace)
 
-	// A namespace with no namespaces[ns] entry falls back to defaultHub.
+	// A namespace with no namespaces[ns] entry falls back to hub.
 	kt, err = uc.ResolveRef(fx.Runtime(), tapper.KegRef{Namespace: "lone", Name: "k"})
 	require.NoError(t, err)
 	require.Equal(t, "cloud", kt.Hub)
@@ -354,7 +351,7 @@ func TestResolveProjectKeg_PrefixAndRegexPrecedence(t *testing.T) {
 
 	// Build a config exercising regex precedence and longest-prefix selection.
 	// kegMap aliases are keg references (@namespace/name) resolved via ResolveRef.
-	raw := fmt.Sprintf(`defaultKeg: "@ns/default"
+	raw := fmt.Sprintf(`keg: "@ns/default"
 hubs:
   remote:
     kind: remote
@@ -543,7 +540,7 @@ func TestParseConfigUnknownKeysSurviveRewrite(t *testing.T) {
 	t.Parallel()
 
 	// Arbitrary unknown keys remain semantically present on re-serialization.
-	raw := `fallbackKeg: pub
+	raw := `keg: pub
 kegSearchPaths:
   - ~/Documents/kegs
   - ~/repos/kegs
@@ -553,7 +550,7 @@ kegs: {}
 `
 	cfg, err := tapper.ParseConfig([]byte(raw))
 	require.NoError(t, err)
-	require.Equal(t, "pub", cfg.FallbackKeg())
+	require.Equal(t, "pub", cfg.Keg())
 
 	out, err := cfg.ToYAML()
 	require.NoError(t, err)
@@ -565,16 +562,14 @@ kegs: {}
 func TestMergeConfig_DefaultFallbackPrecedence(t *testing.T) {
 	t.Parallel()
 
-	userRaw := `defaultKeg: pub
-fallbackKeg: pub
-fallbackHub: atlas
+	userRaw := `keg: pub
+hub: atlas
 fallbackNamespace: pub
 kegMap: []
 kegs: {}
 `
-	projectRaw := `defaultKeg: work
-fallbackKeg: work
-defaultHub: atlas
+	projectRaw := `keg: work
+hub: atlas
 defaultNamespace: work
 kegMap: []
 kegs: {}
@@ -586,11 +581,11 @@ kegs: {}
 	require.NoError(t, err)
 
 	merged := tapper.MergeConfig(userCfg, projectCfg)
-	require.Equal(t, "work", merged.DefaultKeg())
-	require.Equal(t, "work", merged.FallbackKeg())
+	require.Equal(t, "work", merged.Keg())
+	require.Equal(t, "work", merged.Keg())
 	// Project defaults and user fallbacks both survive the merge.
-	require.Equal(t, "atlas", merged.DefaultHub())
-	require.Equal(t, "atlas", merged.FallbackHub())
+	require.Equal(t, "atlas", merged.HubName())
+	require.Equal(t, "atlas", merged.HubName())
 	require.Equal(t, "work", merged.DefaultNamespace())
 	require.Equal(t, "pub", merged.FallbackNamespace())
 }

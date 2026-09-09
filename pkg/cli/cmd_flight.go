@@ -64,6 +64,9 @@ func newFlightShowCmd(deps *Deps) *cobra.Command {
 			}
 			out := cmd.OutOrStdout()
 			fmt.Fprintf(out, "flight: %s\n", flight.Name)
+			if flight.Description != "" {
+				fmt.Fprintf(out, "description: %s\n", flight.Description)
+			}
 			if flight.Title != "" {
 				fmt.Fprintf(out, "title:  %s\n", flight.Title)
 			}
@@ -96,7 +99,7 @@ func newFlightShowCmd(deps *Deps) *cobra.Command {
 }
 
 func newFlightCreateCmd(deps *Deps) *cobra.Command {
-	var title, visibility, instructions, instructionsFile string
+	var description, title, visibility, instructions, instructionsFile string
 	var coverSpecs []string
 	var capabilities []string
 	cmd := &cobra.Command{
@@ -113,8 +116,8 @@ func newFlightCreateCmd(deps *Deps) *cobra.Command {
 				return err
 			}
 			flight, err := deps.Tap.CreateFlight(cmd.Context(), tapper.CreateFlightOptions{
-				Ref:          args[0],
-				Title:        title,
+				Ref:   args[0],
+				Title: title, Description: description,
 				Visibility:   visibility,
 				Capabilities: flightCapabilities(capabilities),
 				Instructions: body,
@@ -127,6 +130,8 @@ func newFlightCreateCmd(deps *Deps) *cobra.Command {
 			return nil
 		},
 	}
+	cmd.Flags().StringVar(&description, "description", "", "short flight description")
+	_ = cmd.RegisterFlagCompletionFunc("description", cobra.NoFileCompletions)
 	addFlightWriteFlags(cmd, &title, &instructions, &instructionsFile, &coverSpecs)
 	cmd.Flags().StringVar(&visibility, "visibility", tapper.FlightVisibilityPrivate, "flight visibility: public or private")
 	cmd.Flags().StringArrayVar(&capabilities, "capability", nil, "agent capability (repeatable; supported: full_access, manage_flights)")

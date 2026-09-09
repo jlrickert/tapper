@@ -112,6 +112,9 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 			// Native Codex and Claude hooks run on every host lifecycle/tool
 			// event. They must remain independent of user configuration, KEG
 			// resolution, credential refresh, and invocation logging.
+			if cmd.Name() == "template" && cmd.Parent() != nil && cmd.Parent().Name() == "config" && deps.ConfigPath != "" {
+				return fmt.Errorf("--config cannot be used with config template")
+			}
 			if skipsRootInitialization(cmd) {
 				return nil
 			}
@@ -146,12 +149,21 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 			// status`'s live whoami probe shares the same stub tests inject
 			// via Deps.AuthValidateTokenFn (defaulted above to ValidateToken).
 			tap.AuthValidateFn = deps.AuthValidateTokenFn
+			tap.ConfigService.KegOverride = deps.KegTargetOptions.Keg
+			tap.ConfigService.HubOverride = deps.KegTargetOptions.Hub
+			if cmd.Flags().Changed("hub") {
+				tap.ConfigService.HubOverride, _ = cmd.Flags().GetString("hub")
+			}
+			tap.ConfigService.Reload()
 			deps.Tap = tap
 			deps.Root = wd
 
 			// Fall back to config values when CLI flags are not
 			// explicitly set.  Precedence: CLI flag > config > default.
 			cfg, warnings, cfgErr := tap.ConfigService.Load()
+			if cfgErr != nil {
+				return cfgErr
+			}
 
 			// Surface config load warnings (corrupt YAML, permission errors).
 			if len(warnings) > 0 {
@@ -216,10 +228,15 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 			// with fresh tokens. Skipped for shell completion, which must
 			// never block on a network round trip. After the logger setup
 			// so refresh failures land in the configured log destination.
-			if name := cmd.Name(); name != cobra.ShellCompRequestCmd && name != cobra.ShellCompNoDescRequestCmd {
+			localOnly := cmd.Name() == "bootstrap" || cmd.Name() == "config" || (cmd.Parent() != nil && (cmd.Parent().Name() == "config" || (cmd.Parent().Name() == "hub" && cmd.Name() == "list")))
+			if cmd.Flags().Lookup("offline") != nil {
+				offline, _ := cmd.Flags().GetBool("offline")
+				localOnly = localOnly || offline
+			}
+			if name := cmd.Name(); !localOnly && name != cobra.ShellCompRequestCmd && name != cobra.ShellCompNoDescRequestCmd {
 				tap.AuthRefreshAll(ctx)
 			}
-			if deps.InvocationReporter == nil {
+			if !localOnly && deps.InvocationReporter == nil {
 				deps.InvocationReporter = tapper.NewInvocationReporter(rt, tap.ConfigService, Version)
 			}
 
@@ -456,9 +473,9 @@ func completionBareNamespace(rt *toolkit.Runtime, cfg *tapper.Config) string {
 		}
 	}
 
-	hubName := strings.TrimSpace(cfg.DefaultHub())
+	hubName := strings.TrimSpace(cfg.HubName())
 	if hubName == "" {
-		hubName = strings.TrimSpace(cfg.FallbackHub())
+		hubName = strings.TrimSpace(cfg.HubName())
 	}
 	if hubName != "" {
 		if entry, ok := cfg.Hub(hubName); ok {

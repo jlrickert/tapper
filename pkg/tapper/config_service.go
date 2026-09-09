@@ -3,12 +3,10 @@ package tapper
 import (
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 
-	"github.com/jlrickert/cli-toolkit/cfgcascade"
 	"github.com/jlrickert/cli-toolkit/toolkit"
 	"github.com/jlrickert/tapper/pkg/keg"
 )
@@ -37,7 +35,7 @@ type ConfigLoadWarning struct {
 //
 // The snapshot is immutable once published, so concurrent readers need no
 // coordination beyond the mutex guarding the pointer itself. The pinned flight
-// root remains immutable even though Hub routing and live authority reload.
+// root remains immutable even though credentials and live authority reload.
 // That matters
 // because the MCP SDK dispatches every call except initialize asynchronously.
 //
@@ -49,7 +47,12 @@ type ConfigService struct {
 	PathService *PathService
 
 	// ConfigPath is the path to the config file.
-	ConfigPath string
+	ConfigPath      string
+	KegOverride     string
+	HubOverride     string
+	pinnedHubName   string
+	pinnedHubURL    string
+	pinnedNamespace string
 
 	// mu guards snap. The snapshot it points at is never mutated after being
 	// published, so readers may use it after releasing the lock.
@@ -222,7 +225,7 @@ func (s *ConfigService) readProjectConfig() (*Config, []ConfigLoadWarning, error
 				Message: fmt.Sprintf("failed to load project config at %s: %v", p, err),
 				Err:     err,
 			})
-			continue
+			return nil, warnings, err
 		}
 		for _, field := range stripUntrustedFields(cfg) {
 			warnings = append(warnings, ConfigLoadWarning{
@@ -260,142 +263,56 @@ func (s *ConfigService) Config() (*Config, error) {
 //
 // The merge resolves three providers in rank order — user config, project
 // config, TAP_* env vars. When ConfigPath is set it reads that file instead and
-// bypasses the cascade entirely.
+// replaces the file layers; environment selection still applies.
 func (s *ConfigService) load() (*resolved, error) {
 	out := &resolved{}
-	out.user, out.userErr = s.ReadUserConfigFile()
-
-	var projectWarnings []ConfigLoadWarning
-	out.project, projectWarnings, out.projectErr = s.readProjectConfig()
-
 	if s.ConfigPath != "" {
 		cfg, err := ReadConfig(s.Runtime, s.ConfigPath)
 		if err != nil {
-			return nil, fmt.Errorf("failed to read config at %s: %w", s.ConfigPath, err)
+			return nil, err
 		}
-		if cfg == nil {
-			cfg = &Config{}
+		out.user = cfg
+	} else {
+		out.user, out.userErr = s.ReadUserConfigFile()
+		if out.userErr != nil && !errors.Is(out.userErr, keg.ErrNotExist) {
+			return nil, out.userErr
 		}
-		out.merged = cfg
-		return out, nil
-	}
-
-	userPath := filepath.Join(s.PathService.ConfigRoot, "config.yaml")
-	projectPath := filepath.Join(s.PathService.LocalConfigRoot, "config.yaml")
-
-	cascade := &cfgcascade.Cascade[*Config]{
-		Layers: []cfgcascade.Layer[*Config]{
-			{
-				Rank: 1,
-				Provider: &cfgcascade.FuncProvider[*Config]{
-					ProviderName: "user config",
-					Fn: func(_ func(string) string) (*Config, error) {
-						if out.userErr != nil {
-							if errors.Is(out.userErr, keg.ErrNotExist) {
-								return nil, os.ErrNotExist
-							}
-							return nil, out.userErr
-						}
-						return out.user, nil
-					},
-				},
-			},
-			{
-				Rank: 2,
-				Provider: &cfgcascade.FuncProvider[*Config]{
-					ProviderName: "project config",
-					Fn: func(_ func(string) string) (*Config, error) {
-						if out.projectErr != nil {
-							if errors.Is(out.projectErr, keg.ErrNotExist) {
-								return nil, os.ErrNotExist
-							}
-							return nil, out.projectErr
-						}
-						return out.project, nil
-					},
-				},
-			},
-			{
-				Rank: 3,
-				Provider: &cfgcascade.FuncProvider[*Config]{
-					ProviderName: "env vars",
-					Fn: func(getenv func(string) string) (*Config, error) {
-						envProvider := &cfgcascade.EnvProvider{
-							ProviderName: "env vars",
-							Prefix:       tapEnvPrefix,
-							Keys:         tapEnvVarKeys,
-						}
-						envMap, err := envProvider.Load(getenv)
-						if err != nil {
-							return nil, err
-						}
-						cfg := configFromEnvMap(envMap)
-						if cfg == nil {
-							return nil, os.ErrNotExist
-						}
-						return cfg, nil
-					},
-				},
-			},
-		},
-		MergeFn: func(base, overlay *Config) *Config {
-			return MergeConfig(base, overlay)
-		},
-	}
-
-	rv := cascade.Resolve(s.Runtime.Env().Get)
-
-	// Surface trust-boundary / per-layer warnings accumulated by the project
-	// config walk (the cascade only sees the merged result).
-	out.warnings = append(out.warnings, projectWarnings...)
-
-	// Map cascade provider errors to warnings.
-	for _, pe := range rv.Errors {
-		var path string
-		switch pe.Name {
-		case "user config":
-			path = userPath
-		case "project config":
-			path = projectPath
+		out.project, out.warnings, out.projectErr = s.readProjectConfig()
+		if out.projectErr != nil && !errors.Is(out.projectErr, keg.ErrNotExist) {
+			return nil, out.projectErr
 		}
-		out.warnings = append(out.warnings, ConfigLoadWarning{
-			Source:  pe.Name,
-			Path:    path,
-			Message: fmt.Sprintf("failed to load %s at %s: %v", pe.Name, path, pe.Err),
-			Err:     pe.Err,
-		})
 	}
-
-	out.merged = rv.Value
-	if out.merged == nil {
-		out.merged = &Config{data: &configDTO{}}
+	env := map[string]string{}
+	for _, key := range tapEnvVarKeys {
+		if v := s.Runtime.Get(tapEnvPrefix + key); v != "" {
+			env[strings.ToLower(key)] = v
+		}
 	}
-	return out, nil
+	out.merged = MergeConfig(out.user, out.project, configFromEnvMap(env))
+	return out, s.selection(out)
 }
 
-// ResolveTarget resolves a keg selector to a keg target. When the selector is
-// empty it uses defaultKeg, then fallbackKeg. The selector is parsed as a keg
-// reference and turned into a concrete target by Config.ResolveAlias (the
-// namespace-centric ResolveRef chain and per-hub-kind backend mapping).
+// ResolveTarget resolves an explicit or configured KEG within the selected Hub.
 func (s *ConfigService) ResolveTarget(alias, nsOverride, hubOverride string) (*keg.Target, error) {
 	cfg, err := s.Config()
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve target: %w", err)
 	}
 	requestedAlias := alias
+
 	if requestedAlias == "" {
-		requestedAlias = cfg.DefaultKeg()
+		requestedAlias = cfg.Keg()
 	}
 	if requestedAlias == "" {
-		requestedAlias = cfg.FallbackKeg()
-	}
-	if requestedAlias == "" {
-		return nil, fmt.Errorf("no keg configured (set defaultKeg/fallbackKeg or use --keg)")
+		return nil, fmt.Errorf("no keg configured (set keg or use --keg)")
 	}
 	if target, parseErr := keg.Parse(requestedAlias); parseErr == nil &&
 		(target.Scheme() == keg.SchemeHTTP || target.Scheme() == keg.SchemeHTTPs) {
-		if strings.TrimSpace(nsOverride) != "" || strings.TrimSpace(hubOverride) != "" {
-			return nil, fmt.Errorf("--namespace and --hub cannot be combined with an HTTP(S) KEG endpoint")
+		if strings.TrimSpace(nsOverride) != "" {
+			return nil, fmt.Errorf("--namespace cannot be combined with an HTTP(S) KEG endpoint")
+		}
+		if err := s.validateTargetHub(target, hubOverride); err != nil {
+			return nil, err
 		}
 		return target, nil
 	} else if strings.HasPrefix(requestedAlias, "/") || strings.HasPrefix(requestedAlias, "~") ||
@@ -403,7 +320,12 @@ func (s *ConfigService) ResolveTarget(alias, nsOverride, hubOverride string) (*k
 		return nil, parseErr
 	}
 
-	// Apply the --namespace / --hub overrides onto the parsed reference.
+	name, _, err := s.SelectedHub(hubOverride)
+	if err != nil {
+		return nil, err
+	}
+	hubOverride = name
+	// Apply component overrides.
 	ref, err := applyRefOverrides(parseKegRef(requestedAlias), nsOverride, hubOverride, requestedAlias)
 	if err != nil {
 		return nil, err

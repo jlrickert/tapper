@@ -26,7 +26,7 @@ func TestResolve_RemoteFallbackHubWithoutNamespaceDoesNotFallBackProjectAlias(t 
 	require.NoError(t, fx.Runtime().Mkdir(filepath.Join(root, "kegs", "dev"), 0o755, true))
 	require.NoError(t, fx.Runtime().AtomicWriteFile(filepath.Join(root, "kegs", "dev", "keg"), []byte(""), 0o644))
 	require.NoError(t, fx.Runtime().Mkdir(filepath.Dir(tap.PathService.UserConfig()), 0o755, true))
-	require.NoError(t, fx.Runtime().AtomicWriteFile(tap.PathService.UserConfig(), []byte(`fallbackHub: atlas
+	require.NoError(t, fx.Runtime().AtomicWriteFile(tap.PathService.UserConfig(), []byte(`hub: atlas
 hubs:
   atlas:
     kind: remote

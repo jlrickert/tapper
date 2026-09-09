@@ -64,9 +64,9 @@ func (t *Tap) EditFlight(ctx context.Context, opts EditFlightOptions) (*Flight, 
 			return result, nil
 		}
 		next := HubFlight{
-			Namespace:    ref.Namespace,
-			Slug:         ref.Slug,
-			Title:        m.Title,
+			Namespace: ref.Namespace,
+			Slug:      ref.Slug,
+			Title:     m.Title, Description: m.Description,
 			Visibility:   m.Visibility,
 			Capabilities: append([]FlightCapability{}, m.Capabilities...),
 			Instructions: m.Instructions,
@@ -126,6 +126,7 @@ func flightEditorTempFilePrefix(ref FlightRef) string {
 }
 
 type flightManifestEditorDocument struct {
+	Description  string             `yaml:"description"`
 	Title        string             `yaml:"title"`
 	Visibility   string             `yaml:"visibility"`
 	Capabilities []FlightCapability `yaml:"capabilities"`
@@ -137,7 +138,7 @@ type flightManifestEditorDocument struct {
 func renderFlightManifestEditorDocument(rt *toolkit.Runtime, ref FlightRef, m FlightManifest) ([]byte, error) {
 	canonical := canonicalFlightManifest(m)
 	doc := flightManifestEditorDocument{
-		Title:        canonical.Title,
+		Title: canonical.Title, Description: canonical.Description,
 		Visibility:   canonical.Visibility,
 		Capabilities: append([]FlightCapability{}, canonical.Capabilities...),
 		Cover:        canonical.Cover,
@@ -160,6 +161,7 @@ func renderFlightManifestEditorDocument(rt *toolkit.Runtime, ref FlightRef, m Fl
 }
 
 type comparableFlightManifest struct {
+	Description  string
 	Title        string
 	Visibility   string
 	Capabilities []FlightCapability
@@ -185,7 +187,7 @@ func canonicalFlightManifest(m FlightManifest) comparableFlightManifest {
 		})
 	}
 	return comparableFlightManifest{
-		Title:        m.Title,
+		Title: m.Title, Description: m.Description,
 		Visibility:   m.Visibility,
 		Capabilities: append([]FlightCapability{}, m.Capabilities...),
 		Cover:        cover,
@@ -197,7 +199,7 @@ func canonicalFlightManifest(m FlightManifest) comparableFlightManifest {
 func flightManifestSemanticallyEqual(a, b FlightManifest) bool {
 	ca := canonicalFlightManifest(a)
 	cb := canonicalFlightManifest(b)
-	if ca.Title != cb.Title || ca.Visibility != cb.Visibility || ca.Instructions != cb.Instructions || len(ca.Capabilities) != len(cb.Capabilities) || len(ca.Cover) != len(cb.Cover) || len(ca.Subflights) != len(cb.Subflights) {
+	if ca.Description != cb.Description || ca.Title != cb.Title || ca.Visibility != cb.Visibility || ca.Instructions != cb.Instructions || len(ca.Capabilities) != len(cb.Capabilities) || len(ca.Cover) != len(cb.Cover) || len(ca.Subflights) != len(cb.Subflights) {
 		return false
 	}
 	for i := range ca.Capabilities {

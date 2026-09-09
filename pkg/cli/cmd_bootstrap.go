@@ -32,7 +32,7 @@ func NewBootstrapCmd(deps *Deps) *cobra.Command {
 		kind           string
 		endpoint       string
 		hubName        string
-		defaultKeg     string
+		keg            string
 		login          bool
 		noLogin        bool
 		nonInteractive bool
@@ -48,7 +48,7 @@ per-invocation flags. Choose where your kegs live:
   cloud        atlas.foldwise.ai, the hosted hub
   enterprise   a self-hosted hub at a URL you provide
 
-Bootstrap writes the matching fallback hub. The namespace comes from the hub
+Bootstrap writes the matching user Hub. The namespace comes from the hub
 itself and is adopted at login. It is idempotent: re-running preserves any
 kegs and keg-map entries you already have.
 It can also record a user-level flight baseline for MCP sessions; project
@@ -164,10 +164,10 @@ the endpoint), then offers to log in. Pass --non-interactive to rely on flags.
 			// TTY, listing the hub's reachable kegs when we just logged in. If
 			// a freshly-authenticated hub reports no kegs, immediately offer the
 			// create flow so the user leaves bootstrap with a usable default.
-			chosenKeg := strings.TrimSpace(defaultKeg)
+			chosenKeg := strings.TrimSpace(keg)
 			createdKegLocation := ""
 			if chosenKeg == "" && interactive {
-				ref, created, perr := chooseBootstrapDefaultKeg(ctx, deps, res, loggedIn, resolvedHub, stderr)
+				ref, created, perr := chooseBootstrapKeg(ctx, deps, res, loggedIn, resolvedHub, stderr)
 				if perr != nil {
 					return perr
 				}
@@ -176,7 +176,7 @@ the endpoint), then offers to log in. Pass --non-interactive to rely on flags.
 			}
 
 			if chosenKeg != "" {
-				if serr := deps.Tap.SetFallbackKeg(ctx, chosenKeg); serr != nil {
+				if serr := deps.Tap.SetKeg(ctx, chosenKeg); serr != nil {
 					_, _ = fmt.Fprintf(stderr, "warning: could not set default keg: %v\n", serr)
 					chosenKeg = ""
 				}
@@ -232,7 +232,7 @@ the endpoint), then offers to log in. Pass --non-interactive to rely on flags.
 			}
 			_, _ = fmt.Fprintf(out, "%s %s\n", verb, res.Path)
 			_, _ = fmt.Fprintf(out, "  kind:         %s\n", res.Kind)
-			_, _ = fmt.Fprintf(out, "  fallback hub: %s\n", res.Hub)
+			_, _ = fmt.Fprintf(out, "  user Hub: %s\n", res.Hub)
 			if res.Namespace != "" {
 				_, _ = fmt.Fprintf(out, "  namespace:    %s\n", res.Namespace)
 			}
@@ -263,7 +263,7 @@ the endpoint), then offers to log in. Pass --non-interactive to rely on flags.
 	cmd.Flags().StringVar(&kind, "kind", "", "deployment kind: cloud | enterprise")
 	cmd.Flags().StringVar(&endpoint, "endpoint", "", "enterprise hub endpoint URL (required for --kind enterprise)")
 	cmd.Flags().StringVar(&hubName, "hub-name", "", "name to record an enterprise hub under (default: derived from the endpoint host)")
-	cmd.Flags().StringVar(&defaultKeg, "default-keg", "", "keg reference plain `tap` commands resolve by default (e.g. @you/notes); recorded as the user-level fallbackKeg so a project's defaultKeg or kegMap can override; prompts on a TTY when unset")
+	cmd.Flags().StringVar(&keg, "default-keg", "", "keg reference plain `tap` commands resolve by default (e.g. @you/notes); recorded as the user-level keg so a project's keg or kegMap can override; prompts on a TTY when unset")
 	cmd.Flags().BoolVar(&login, "login", false, "log in to the hub after writing config (cloud/enterprise)")
 	cmd.Flags().BoolVar(&noLogin, "no-login", false, "skip the login step even on a TTY")
 	cmd.Flags().BoolVar(&nonInteractive, "non-interactive", false, "skip interactive prompts even when stdin is a TTY")
@@ -343,7 +343,7 @@ func hostOf(rawURL string) string {
 	return rawURL
 }
 
-func chooseBootstrapDefaultKeg(ctx context.Context, deps *Deps, res *tapper.BootstrapResult, loggedIn bool, resolvedHub string, stderr io.Writer) (string, string, error) {
+func chooseBootstrapKeg(ctx context.Context, deps *Deps, res *tapper.BootstrapResult, loggedIn bool, resolvedHub string, stderr io.Writer) (string, string, error) {
 	if loggedIn && res.HubURL != "" {
 		hubURL := strings.TrimSpace(resolvedHub)
 		if hubURL == "" {
@@ -359,35 +359,35 @@ func chooseBootstrapDefaultKeg(ctx context.Context, deps *Deps, res *tapper.Boot
 				if err != nil {
 					return "", "", err
 				}
-				return bootstrapCreateRemoteDefaultKeg(ctx, deps, res, name)
+				return bootstrapCreateRemoteKeg(ctx, deps, res, name)
 			}
-			choice, err := deps.BootstrapPrompter.SelectDefaultKeg(available)
+			choice, err := deps.BootstrapPrompter.SelectKeg(available)
 			if err != nil {
 				return "", "", err
 			}
 			switch choice.Action {
-			case bootstrapDefaultKegUseRef:
+			case bootstrapKegUseRef:
 				return strings.TrimSpace(choice.Ref), "", nil
-			case bootstrapDefaultKegManual:
-				return promptManualBootstrapDefaultKeg(deps)
-			case bootstrapDefaultKegCreate:
+			case bootstrapKegManual:
+				return promptManualBootstrapKeg(deps)
+			case bootstrapKegCreate:
 				name, err := deps.BootstrapPrompter.PromptNewKegName()
 				if err != nil {
 					return "", "", err
 				}
-				return bootstrapCreateRemoteDefaultKeg(ctx, deps, res, name)
-			case bootstrapDefaultKegSkip:
+				return bootstrapCreateRemoteKeg(ctx, deps, res, name)
+			case bootstrapKegSkip:
 				return "", "", nil
 			default:
 				return "", "", fmt.Errorf("unknown default keg action %d", choice.Action)
 			}
 		}
 	}
-	return promptManualBootstrapDefaultKeg(deps)
+	return promptManualBootstrapKeg(deps)
 }
 
-func promptManualBootstrapDefaultKeg(deps *Deps) (string, string, error) {
-	ref, err := deps.BootstrapPrompter.PromptManualDefaultKeg()
+func promptManualBootstrapKeg(deps *Deps) (string, string, error) {
+	ref, err := deps.BootstrapPrompter.PromptManualKeg()
 	if err != nil {
 		return "", "", err
 	}
@@ -422,7 +422,7 @@ func bootstrapListKegRefs(ctx context.Context, deps *Deps, hubURL string) ([]str
 	return refs, true, nil
 }
 
-func bootstrapCreateRemoteDefaultKeg(ctx context.Context, deps *Deps, res *tapper.BootstrapResult, alias string) (string, string, error) {
+func bootstrapCreateRemoteKeg(ctx context.Context, deps *Deps, res *tapper.BootstrapResult, alias string) (string, string, error) {
 	alias = strings.TrimSpace(alias)
 	if err := tapper.ValidateKegAlias(alias); err != nil {
 		return "", "", err

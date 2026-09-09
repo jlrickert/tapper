@@ -36,7 +36,7 @@ func TestUse_PositionalFlightShorthand(t *testing.T) {
 			cfg, err := tapper.ReadConfig(sb.Runtime(), filepath.Join(project, ".tapper", "config.yaml"))
 			require.NoError(t, err)
 			require.Equal(t, tt.want, cfg.Flight())
-			require.Empty(t, cfg.DefaultKeg())
+			require.Empty(t, cfg.Keg())
 		})
 	}
 }
@@ -53,7 +53,7 @@ func TestUse_BarePositionalStillSetsKeg(t *testing.T) {
 
 	cfg, err := tapper.ReadConfig(sb.Runtime(), filepath.Join(project, ".tapper", "config.yaml"))
 	require.NoError(t, err)
-	require.Equal(t, "personal", cfg.DefaultKeg())
+	require.Equal(t, "personal", cfg.Keg())
 	require.Empty(t, cfg.Flight())
 }
 

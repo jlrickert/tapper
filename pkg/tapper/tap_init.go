@@ -2,7 +2,6 @@ package tapper
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 
@@ -43,16 +42,13 @@ func (t *Tap) InitKeg(ctx context.Context, options InitOptions) (*keg.Target, er
 	if err != nil {
 		return nil, fmt.Errorf("failed to load config: %w", err)
 	}
-	namespace, hubName, entry, err := cfg.resolveNamespaceHub(options.Namespace, options.Hub)
+	hubName, _, err := t.ConfigService.SelectedHub(options.Hub)
+	if err != nil {
+		return nil, err
+	}
+	namespace, hubName, _, err := cfg.resolveNamespaceHub(options.Namespace, hubName)
 	if err != nil {
 		return nil, fmt.Errorf("cannot create %q: %w", name, err)
-	}
-	kind := strings.TrimSpace(entry.Kind)
-	if kind == "" {
-		kind = HubKindRemote
-	}
-	if kind != HubKindRemote {
-		return nil, fmt.Errorf("hub %q kind %q does not support KEG creation: %w", hubName, kind, keg.ErrNotSupported)
 	}
 	target, err := cfg.ResolveRef(t.Runtime, KegRef{Hub: hubName, Namespace: namespace, Name: name})
 	if err != nil {
@@ -76,29 +72,5 @@ func (t *Tap) initRemoteKeg(ctx context.Context, options InitOptions, target *ke
 	if err := CreateKeg(ctx, hubURL, token, namespace, name, options.Title, options.Visibility); err != nil {
 		return nil, err
 	}
-	if err := t.recordInitKeg(hubName, namespace); err != nil {
-		return nil, err
-	}
 	return target, nil
-}
-
-func (t *Tap) recordInitKeg(hubName, namespace string) error {
-	if strings.TrimSpace(namespace) == "" || strings.TrimSpace(hubName) == "" {
-		return nil
-	}
-	userConfig, err := t.ConfigService.ReadUserConfigFile()
-	if err != nil {
-		if !errors.Is(err, keg.ErrNotExist) {
-			return err
-		}
-		userConfig = &Config{data: &configDTO{}}
-	}
-	if err := userConfig.SetNamespace(namespace, NamespaceRef{Hub: hubName}); err != nil {
-		return err
-	}
-	if err := userConfig.Write(t.Runtime, t.PathService.UserConfig()); err != nil {
-		return err
-	}
-	t.ConfigService.Reload()
-	return nil
 }
