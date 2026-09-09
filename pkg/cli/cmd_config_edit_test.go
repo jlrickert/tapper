@@ -17,12 +17,12 @@ func TestConfigEdit_UserUsesPipedStdinWithoutEditor(t *testing.T) {
 	require.NoError(t, sb.Runtime().Set("EDITOR", "/bin/false"))
 	sb.Runtime().Unset("VISUAL")
 
-	input := `fallbackKeg: stdin-user
+	input := `keg: stdin-user
 kegSearchPaths:
   - ~/Documents/kegs
 kegMap: []
 kegs: {}
-defaultHub: ""
+hub: ""
 `
 	res := NewProcess(t, false, "config", "edit", "--user").RunWithIO(
 		sb.Context(),
@@ -40,7 +40,7 @@ func TestConfigEdit_RejectsScopedFlagsWithExplicitConfigPath(t *testing.T) {
 	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
 
 	const configPath = "/tmp/custom-tap-config.yaml"
-	require.NoError(t, sb.Runtime().AtomicWriteFile(configPath, []byte("fallbackKeg: custom\n"), 0o644))
+	require.NoError(t, sb.Runtime().AtomicWriteFile(configPath, []byte("keg: custom\n"), 0o644))
 
 	tests := [][]string{
 		{"-c", configPath, "config", "edit", "--user"},
@@ -69,7 +69,7 @@ func TestConfigEdit_UserRejectsInvalidPipedStdin(t *testing.T) {
 	res := NewProcess(t, false, "config", "edit", "--user").RunWithIO(
 		sb.Context(),
 		sb.Runtime(),
-		strings.NewReader("fallbackKeg: [\n"),
+		strings.NewReader("keg: [\n"),
 	)
 	require.Error(t, res.Err)
 	require.Contains(t, string(res.Stderr), "tap config from stdin is invalid")
@@ -85,7 +85,7 @@ func TestConfigEdit_UserAcceptsUnknownFieldsFromStdin(t *testing.T) {
 	require.NoError(t, sb.Runtime().Set("EDITOR", "/bin/false"))
 	sb.Runtime().Unset("VISUAL")
 
-	input := "defaultKeg: example\nunknownKey: value\n"
+	input := "keg: example\nunknownKey: value\n"
 	res := NewProcess(t, false, "config", "edit", "--user").RunWithIO(
 		sb.Context(),
 		sb.Runtime(),
@@ -106,10 +106,10 @@ func TestConfigEdit_ProjectUsesPipedStdinWithoutEditor(t *testing.T) {
 	require.NoError(t, sb.Runtime().Set("EDITOR", "/bin/false"))
 	sb.Runtime().Unset("VISUAL")
 
-	input := `defaultKeg: stdin-project
+	input := `keg: stdin-project
 kegMap: []
 kegs: {}
-defaultHub: ""
+hub: ""
 `
 	res := NewProcess(t, false, "config", "edit", "--project").RunWithIO(
 		sb.Context(),
@@ -131,10 +131,10 @@ func TestConfigEdit_DefaultsToProjectWithoutFlag(t *testing.T) {
 	require.NoError(t, sb.Runtime().Set("EDITOR", "/bin/false"))
 	sb.Runtime().Unset("VISUAL")
 
-	input := `defaultKeg: stdin-default
+	input := `keg: stdin-default
 kegMap: []
 kegs: {}
-defaultHub: ""
+hub: ""
 `
 	// No --project/--user flag: the default target is the project config.
 	res := NewProcess(t, false, "config", "edit").RunWithIO(
@@ -178,11 +178,11 @@ func TestConfigEdit_ProjectCreateIsInert(t *testing.T) {
 	saved := string(sb.MustReadFile("~/project/.tapper/config.yaml"))
 	// Schema modeline present and the fields are discoverable (commented).
 	require.Contains(t, saved, "yaml-language-server")
-	require.Contains(t, saved, "# defaultKeg")
+	require.Contains(t, saved, "# keg")
 	// No active authoritative slots — an abandoned edit cannot hijack resolution.
 	for _, line := range strings.Split(saved, "\n") {
 		trimmed := strings.TrimSpace(line)
-		for _, field := range []string{"defaultKeg:", "defaultNamespace:", "defaultHub:"} {
+		for _, field := range []string{"keg:", "defaultNamespace:", "hub:"} {
 			require.Falsef(t, strings.HasPrefix(trimmed, field),
 				"created project config must not have an active %s line; got:\n%s", field, saved)
 		}
@@ -194,7 +194,7 @@ func TestConfigEdit_ProjectRejectsInvalidPipedStdin(t *testing.T) {
 	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
 
 	require.NoError(t, sb.Runtime().Mkdir("/home/testuser/project/.tapper", 0o755, true))
-	require.NoError(t, sb.Runtime().AtomicWriteFile("/home/testuser/project/.tapper/config.yaml", []byte("defaultKeg: before\n"), 0o644))
+	require.NoError(t, sb.Runtime().AtomicWriteFile("/home/testuser/project/.tapper/config.yaml", []byte("keg: before\n"), 0o644))
 	sb.Setwd("~/project")
 	require.NoError(t, sb.Runtime().Set("EDITOR", "/bin/false"))
 	sb.Runtime().Unset("VISUAL")
@@ -203,7 +203,7 @@ func TestConfigEdit_ProjectRejectsInvalidPipedStdin(t *testing.T) {
 	res := NewProcess(t, false, "config", "edit", "--project").RunWithIO(
 		sb.Context(),
 		sb.Runtime(),
-		strings.NewReader("defaultKeg: [\n"),
+		strings.NewReader("keg: [\n"),
 	)
 	require.Error(t, res.Err)
 	require.Contains(t, string(res.Stderr), "tap config from stdin is invalid")
@@ -228,7 +228,7 @@ func TestConfigEdit_EditsRealConfigFileAndPreservesUnknownFields(t *testing.T) {
 	script := `#!/bin/sh
 printf '%s' "$1" > "$CAPTURE_FILE"
 cat > "$1" <<'EOF'
-defaultKeg: edited
+keg: edited
 unknownKey: keep-me
 EOF
 `
@@ -246,7 +246,7 @@ EOF
 	require.NoError(t, res.Err)
 
 	saved := string(sb.MustReadFile("~/.config/tapper/config.yaml"))
-	require.Contains(t, saved, "defaultKeg: edited")
+	require.Contains(t, saved, "keg: edited")
 	require.Contains(t, saved, "unknownKey: keep-me")
 
 	rawArg, err := os.ReadFile(capturePath)
@@ -271,7 +271,7 @@ func TestConfigEdit_ReturnsErrorWhenEditorLeavesInvalidYAML(t *testing.T) {
 	scriptPath := filepath.Join(jail, "edit-repo-config-live.sh")
 	script := `#!/bin/sh
 cat > "$1" <<'EOF'
-defaultKeg: [
+keg: [
 EOF
 `
 	require.NoError(t, os.WriteFile(scriptPath, []byte(script), 0o755))

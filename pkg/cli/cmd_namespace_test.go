@@ -9,7 +9,7 @@ import (
 func TestNamespaceCreateCmd_PrintsHubUIURL(t *testing.T) {
 	t.Parallel()
 	sb := newTestSandbox(t)
-	sb.MustWriteFile("~/.config/tapper/config.yaml", []byte(`fallbackHub: atlas
+	sb.MustWriteFile("~/.config/tapper/config.yaml", []byte(`hub: atlas
 hubs:
   atlas:
     kind: remote

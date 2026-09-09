@@ -70,7 +70,7 @@ func RenameKeg(ctx context.Context, hubURL, token, namespace, oldAlias, newAlias
 
 // doHubJSON performs one JSON round-trip against the hub, decoding a non-nil
 // out on success. It maps hub statuses to the shared sentinels (409→ErrExist,
-// 404→ErrNotExist, 401/403→ErrTokenRejected) so callers can branch with
+// 404→ErrNotExist, 401→ErrTokenRejected, 403→ErrForbidden) so callers can branch with
 // errors.Is, and surfaces the hub's {"error": ...} message otherwise. Shared by
 // the grants and namespace client calls; the flight calls use the parallel
 // doHubFlightJSON.
@@ -97,7 +97,7 @@ func doHubJSON(ctx context.Context, method, hubURL, token, path string, payload,
 		req.Header.Set("Content-Type", "application/json")
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := hubHTTPClient().Do(req)
 	if err != nil {
 		return fmt.Errorf("hub: contact hub: %w", err)
 	}
@@ -111,7 +111,9 @@ func doHubJSON(ctx context.Context, method, hubURL, token, path string, payload,
 		return fmt.Errorf("hub: %w%s", keg.ErrExist, readHubError(resp))
 	case http.StatusNotFound:
 		return fmt.Errorf("hub: %w%s", keg.ErrNotExist, readHubError(resp))
-	case http.StatusUnauthorized, http.StatusForbidden:
+	case http.StatusForbidden:
+		return fmt.Errorf("hub: %w (%s)%s", keg.ErrForbidden, resp.Status, readHubError(resp))
+	case http.StatusUnauthorized:
 		return fmt.Errorf("hub: %w (%s)%s", ErrTokenRejected, resp.Status, readHubError(resp))
 	default:
 		return fmt.Errorf("hub: request failed: %s%s", resp.Status, readHubError(resp))

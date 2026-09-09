@@ -24,7 +24,7 @@ func TestKegCreateUsesConfiguredHubExclusively(t *testing.T) {
 	defer srv.Close()
 
 	sb := NewSandbox(t)
-	sb.MustWriteFile("~/.config/tapper/config.yaml", []byte(fmt.Sprintf(`fallbackHub: test
+	sb.MustWriteFile("~/.config/tapper/config.yaml", []byte(fmt.Sprintf(`hub: test
 fallbackNamespace: team
 hubs:
   test:
@@ -42,7 +42,7 @@ hubs:
 	require.Contains(t, string(res.Stdout), "keg:@team/notes")
 
 	config := string(sb.MustReadFile("~/.config/tapper/config.yaml"))
-	require.Contains(t, config, "team:")
+	require.NotContains(t, config, "namespaces:")
 	require.Contains(t, config, "hub: test")
 }
 
@@ -70,7 +70,7 @@ func TestKegCreateRejectsReadonlyAndInvalidAlias(t *testing.T) {
 	t.Parallel()
 
 	sb := NewSandbox(t)
-	sb.MustWriteFile("~/.config/tapper/config.yaml", []byte(`fallbackHub: archive
+	sb.MustWriteFile("~/.config/tapper/config.yaml", []byte(`hub: archive
 fallbackNamespace: team
 hubs:
   archive:
@@ -80,7 +80,7 @@ hubs:
 
 	readonly := NewProcess(t, false, "keg", "create", "notes").Run(sb.Context(), sb.Runtime())
 	require.Error(t, readonly.Err)
-	require.Contains(t, readonly.Err.Error(), "does not support KEG creation")
+	require.Contains(t, readonly.Err.Error(), "not logged in")
 
 	invalid := NewProcess(t, false, "keg", "create", "Bad.Name").Run(sb.Context(), sb.Runtime())
 	require.Error(t, invalid.Err)

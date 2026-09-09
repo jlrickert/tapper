@@ -9,10 +9,10 @@ import (
 )
 
 // UseOptions configures Tap.Use, the `tap use` setter that records which keg
-// (and flight) a project resolves, or a user-wide fallback keg.
+// (and flight) a project resolves, or a user-wide user KEG.
 //
-// Scope picks the keg slot: the default (project) scope writes defaultKeg; the
-// user scope (User=true) writes fallbackKeg. Flight is project-scoped only.
+// Scope picks the keg slot: the default (project) scope writes keg; the
+// user scope (User=true) writes keg. Flight is project-scoped only.
 type UseOptions struct {
 	// Keg is the keg reference to record (a bare name or @namespace/keg). Empty
 	// leaves the keg slot untouched (unless Clear is set).
@@ -20,20 +20,19 @@ type UseOptions struct {
 	// Flight is a flight reference to record for the project (@namespace/+slug,
 	// +slug, or a bare slug). Empty leaves the flight untouched.
 	Flight string
-	// User writes the user config's fallbackKeg instead of the project config's
-	// defaultKeg.
+	// User writes the user config's keg instead of the project config's
+	// keg.
 	User bool
 	// ConfigPath, when set, writes that explicit config file instead of the
 	// user/project file. The slot still follows User.
 	ConfigPath string
-	// Clear unsets the slot(s) for the chosen scope (defaultKeg + flight for the
-	// project scope; fallbackKeg for the user scope).
+	// Clear unsets the slot(s) for the chosen scope (keg + flight for the
+	// project scope; keg for the user scope).
 	Clear bool
 }
 
-// Use records the project's keg + flight, or the user-wide fallback keg, in the
-// appropriate config file. It mirrors the resolution convention: project →
-// defaultKeg, user → fallbackKeg, with flight project-scoped.
+// Use records the project's keg + flight, or the user-wide user KEG, in the
+// appropriate config file. It mirrors the resolution convention: project and user both write keg in their own scope, with flight project-scoped.
 func (t *Tap) Use(ctx context.Context, opts UseOptions) error {
 	kegRef := strings.TrimSpace(opts.Keg)
 	flight := strings.TrimSpace(opts.Flight)
@@ -66,18 +65,14 @@ func (t *Tap) Use(ctx context.Context, opts UseOptions) error {
 	return t.mutateConfigFile(path, func(c *Config) error {
 		if opts.Clear {
 			if opts.User {
-				_ = c.SetFallbackKeg("")
+				_ = c.SetKeg("")
 			} else {
-				_ = c.SetDefaultKeg("")
+				_ = c.SetKeg("")
 				_ = c.SetFlight("")
 			}
 		}
 		if kegRef != "" {
-			if opts.User {
-				_ = c.SetFallbackKeg(kegRef)
-			} else {
-				_ = c.SetDefaultKeg(kegRef)
-			}
+			_ = c.SetKeg(kegRef)
 		}
 		if flightVal != "" {
 			_ = c.SetFlight(flightVal)
@@ -95,16 +90,17 @@ func (t *Tap) UseStatus(_ context.Context, opts KegTargetOptions) (string, error
 		Scope string `yaml:"scope,omitempty"`
 	}
 	type status struct {
-		Resolved    resolvedIdentity `yaml:"resolved"`
-		DefaultKeg  slot             `yaml:"defaultKeg"`
-		FallbackKeg slot             `yaml:"fallbackKeg"`
-		Flight      slot             `yaml:"flight"`
+		Resolved resolvedIdentity `yaml:"resolved"`
+		Keg      slot             `yaml:"keg"`
+		Flight   slot             `yaml:"flight"`
 	}
 
 	out := status{Resolved: t.resolveIdentity(opts)}
 	if cfg, err := t.ConfigService.Config(); err == nil && cfg != nil {
-		out.DefaultKeg = slot{Value: cfg.DefaultKeg(), Scope: t.configFieldScope("defaultKeg")}
-		out.FallbackKeg = slot{Value: cfg.FallbackKeg(), Scope: t.configFieldScope("fallbackKeg")}
+		out.Keg = slot{Value: cfg.Keg(), Scope: t.configFieldScope("keg")}
+		if _, ok := cfg.LookupMapping(t.Runtime, t.ConfigService.PathService.Root); ok && t.Runtime.Get("TAP_KEG") == "" {
+			out.Keg.Scope = "kegMap overrides top-level keg"
+		}
 		out.Flight = slot{Value: cfg.Flight(), Scope: t.configFieldScope("flight")}
 	}
 

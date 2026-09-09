@@ -28,6 +28,7 @@ type GetFlightOptions struct {
 type CreateFlightOptions struct {
 	Ref          string
 	Title        string
+	Description  string `json:"description,omitempty" jsonschema:"short description, separate from instructions"`
 	Visibility   string
 	Capabilities []FlightCapability
 	Instructions string
@@ -43,6 +44,7 @@ type CreateFlightOptions struct {
 type UpdateFlightOptions struct {
 	Ref          string
 	Title        *string
+	Description  *string `json:"description,omitempty" jsonschema:"short description, separate from instructions"`
 	Visibility   *string
 	Capabilities *[]FlightCapability
 	Instructions *string
@@ -77,9 +79,9 @@ func (t *Tap) CreateFlight(ctx context.Context, opts CreateFlightOptions) (*Flig
 		return nil, err
 	}
 	flight := HubFlight{
-		Namespace:    ref.Namespace,
-		Slug:         ref.Slug,
-		Title:        opts.Title,
+		Namespace: ref.Namespace,
+		Slug:      ref.Slug,
+		Title:     opts.Title, Description: opts.Description,
 		Visibility:   normalizeFlightVisibility(opts.Visibility),
 		Capabilities: append([]FlightCapability{}, opts.Capabilities...),
 		Instructions: opts.Instructions,
@@ -121,6 +123,9 @@ func (t *Tap) UpdateFlight(ctx context.Context, opts UpdateFlightOptions) (*Flig
 		return nil, err
 	}
 	next := *current
+	if opts.Description != nil {
+		next.Description = *opts.Description
+	}
 	if opts.Title != nil {
 		next.Title = *opts.Title
 	}
@@ -184,13 +189,6 @@ func (t *Tap) resolveWriteFlightRef(raw string) (FlightRef, HubEntry, string, er
 	if !ok {
 		return FlightRef{}, HubEntry{}, "", fmt.Errorf("hub %q is not configured", hubName)
 	}
-	kind := strings.TrimSpace(entry.Kind)
-	if kind == "" {
-		kind = HubKindRemote
-	}
-	if kind != HubKindRemote && kind != HubKindReadonly {
-		return FlightRef{}, HubEntry{}, "", fmt.Errorf("hub %q has unsupported kind %q", hubName, kind)
-	}
 	if strings.TrimSpace(entry.URL) == "" {
 		return FlightRef{}, HubEntry{}, "", fmt.Errorf("hub %q has no url configured", hubName)
 	}
@@ -233,8 +231,8 @@ func (t *Tap) defaultFlightNamespace(cfg *Config) string {
 
 // activeKegNamespace returns the namespace of the KEG currently in context, or
 // "" when no KEG is selected or the selector names no namespace. The selector
-// chain mirrors resolveIdentity and resolveKegAdminRef: defaultKeg → project
-// alias → fallbackKeg.
+// chain mirrors resolveIdentity and resolveKegAdminRef: keg → project
+// alias → keg.
 //
 // Only a namespace the selector states explicitly counts. Running the selector
 // through resolveNamespaceHub would fill an omitted namespace from
@@ -245,13 +243,7 @@ func (t *Tap) activeKegNamespace(cfg *Config) string {
 	if t == nil || cfg == nil {
 		return ""
 	}
-	selector := strings.TrimSpace(cfg.DefaultKeg())
-	if selector == "" {
-		selector = strings.TrimSpace(cfg.LookupAlias(t.Runtime, t.Root))
-	}
-	if selector == "" {
-		selector = strings.TrimSpace(cfg.FallbackKeg())
-	}
+	selector := strings.TrimSpace(cfg.Keg())
 	if selector == "" {
 		return ""
 	}
@@ -265,6 +257,7 @@ func hubCoverFromFlightCover(cover []FlightCover) []HubFlightCover {
 			Namespace: strings.TrimPrefix(strings.TrimSpace(c.Namespace), "@"),
 			Keg:       strings.TrimSpace(c.Keg),
 			Role:      string(normalizeFlightRole(c.Role)),
+			Depth:     c.Depth,
 		})
 	}
 	return out

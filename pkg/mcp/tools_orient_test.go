@@ -27,26 +27,12 @@ func orientCall(t *testing.T, session *sdkmcp.ClientSession, ctx context.Context
 func TestMCP_OrientTool_ReturnsSharedKegSystemPayload(t *testing.T) {
 	t.Parallel()
 	session, ctx := newTestSession(t)
-
 	text := orientCall(t, session, ctx, map[string]any{})
-
-	require.True(t, strings.HasPrefix(text, "# KEG System\n\n"), text)
-	require.Contains(t, text, "Tapper provides an MCP interface for KEG")
-	require.NotContains(t, text, "/api/v1/orient")
-	require.NotContains(t, text, "## Active KEG")
-	require.Contains(t, text, "## Available KEGs")
-	require.NotContains(t, text, "## KEG Instructions")
+	require.True(t, strings.HasPrefix(text, "# KEG System\n\n"))
 	require.Contains(t, text, "Call `keg_settings`")
-	require.Contains(t, text, "## Guidance")
-	require.Contains(t, text, "# Linking conventions")
-	require.Contains(t, text, "[title](../NODEID)")
-	require.Contains(t, text, "[title](keg:ALIAS/NODEID)")
-	require.Contains(t, text, "[title](keg:@NAMESPACE/ALIAS/NODEID)")
-	require.Contains(t, text, "# Snapshot policy")
-	require.NotContains(t, text, "## Host:")
-	require.NotContains(t, strings.ToLower(text), "tier 0")
-	require.NotContains(t, strings.ToLower(text), "tier 1")
-	require.NotContains(t, strings.ToLower(text), "tier 2")
+	require.Contains(t, text, "`guide`")
+	require.NotContains(t, text, "# Linking conventions")
+	require.NotContains(t, text, "# Snapshot policy")
 }
 
 func TestMCP_OrientToolRejectsKegTarget(t *testing.T) {

@@ -2,12 +2,13 @@ package mcp
 
 import (
 	"context"
-	"errors"
+	"fmt"
 	"sort"
 	"strings"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/jlrickert/tapper/pkg/keg"
 	"github.com/jlrickert/tapper/pkg/tapper"
 )
 
@@ -24,7 +25,7 @@ type kegListOutput struct {
 }
 
 type kegSearchInput struct {
-	Query string `json:"query" jsonschema:"required,non-empty case-insensitive literal query matched against canonical ref, title, and summary"`
+	Query string `json:"query" jsonschema:"required,non-empty case-insensitive literal query matched against canonical ref, title, and description"`
 }
 
 type kegCreateInput struct {
@@ -41,7 +42,7 @@ type kegCreateInput struct {
 func registerKegTools(srv *sdkmcp.Server, defaults KegDefaults, kegs KegDiscoveryProvider, search KegSearchProvider) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "keg_list",
-		Description: "Discover canonical KEGs under current authority. With no flight, every identity-accessible KEG is returned at its real role. Supplying flight selects exactly one available real flight for the call",
+		Description: "Discover canonical KEGs and granting-flight provenance. Without a configured root, returns identity-accessible KEGs at their real roles. With a pinned root, omission aggregates its accessible transitive graph for discovery; a discovered child-only KEG still requires that child as flight on operational calls. Supplying flight returns exactly that flight projection",
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(true),
@@ -81,7 +82,7 @@ func registerKegTools(srv *sdkmcp.Server, defaults KegDefaults, kegs KegDiscover
 
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "keg_search",
-		Description: "Search identity-accessible KEG metadata across all configured hubs. Search results never grant access: no-flight calls may operate at the returned identity role, while a real-flight call must also cover the KEG",
+		Description: "Search identity-accessible KEG metadata on the connection-pinned Hub. Search results never grant access: no-flight calls may operate at the returned identity role, while a real-flight call must also cover the KEG",
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(true),
@@ -89,13 +90,16 @@ func registerKegTools(srv *sdkmcp.Server, defaults KegDefaults, kegs KegDiscover
 	}, func(ctx context.Context, _ *sdkmcp.CallToolRequest, in kegSearchInput) (*sdkmcp.CallToolResult, any, error) {
 		query := strings.TrimSpace(in.Query)
 		if query == "" {
-			return errorResult(errors.New("query must not be empty")), nil, nil
+			return errorResult(fmt.Errorf("%w: query must not be empty", keg.ErrInvalid)), nil, nil
 		}
 		found, err := search.SearchKegs(ctx, query)
 		if err != nil {
 			return errorResult(err), nil, nil
 		}
 		lines := make([]string, 0, len(found.Warnings)+len(found.Kegs))
+		if found.Truncated {
+			lines = append(lines, "Results truncated to 50 KEGs; refine the query.")
+		}
 		for _, warning := range found.Warnings {
 			lines = append(lines, "Warning: "+tsvField(warning))
 		}

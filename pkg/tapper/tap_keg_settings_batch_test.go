@@ -51,8 +51,8 @@ namespaces:
 		Minimal: true,
 	})
 	require.NoError(t, err)
-	require.EqualValues(t, 2, aCalls.Load())
-	require.EqualValues(t, 1, bCalls.Load())
+	require.EqualValues(t, 3, aCalls.Load())
+	require.EqualValues(t, 0, bCalls.Load())
 	first := strings.Index(out, "keg: '@team-a/one'")
 	second := strings.Index(out, "keg: '@team-b/two'")
 	third := strings.Index(out, "keg: '@team-a/three'")

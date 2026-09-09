@@ -90,64 +90,26 @@ func (r *authStoreTokenResolver) refresh(hubURL, key string, entry *AuthEntry) *
 // so SOC2-conscious users see a stable string they can grep for.
 var ErrAtlasHubDisabled = errors.New("no hub configured; implicit atlas hub disabled")
 
-// ResolveLoginHubURL returns the hub URL the login flow should target,
-// applying the hub resolution chain:
-//
-//  1. explicit non-empty → canonicalize and use
-//  2. cfg.DefaultHub names a Hubs entry → use that entry's URL
-//  3. cfg.FallbackHub names a Hubs entry → use that entry's URL
-//  4. cfg.Hubs has exactly one remote/readonly entry → use it
-//  5. cfg.DisableAtlasHub is true → ErrAtlasHubDisabled
-//  6. fall back to DefaultHubURL
-//
-// A misconfigured DefaultHub or FallbackHub is a hard
-// error rather than a silent fall-through to step 3 — typos should
-// surface, not silently route to a different hub.
-//
-// Returned URLs are canonicalized via CanonicalHubURL so callers can
-// compare them against AuthStore keys without re-canonicalizing.
+// ResolveLoginHubURL returns the selected Hub URL. An explicit URL or saved
+// name wins; otherwise selection follows Config's Hub precedence and fallback.
 func ResolveLoginHubURL(cfg *Config, explicit string) (string, error) {
 	if strings.TrimSpace(explicit) != "" {
+		if cfg != nil {
+			if h, ok := cfg.Hub(explicit); ok {
+				return loginHubURLFromEntry("selected hub", explicit, h)
+			}
+		}
 		return CanonicalHubURL(explicit), nil
 	}
 	if cfg == nil {
 		return DefaultHubURL, nil
 	}
 
-	if name := strings.TrimSpace(cfg.DefaultHub()); name != "" {
-		return loginHubURLFromConfigEntry(cfg, "default", name)
-	}
-
-	if name := strings.TrimSpace(cfg.FallbackHub()); name != "" {
-		return loginHubURLFromConfigEntry(cfg, "fallback", name)
-	}
-
-	var (
-		remoteName  string
-		remoteEntry HubEntry
-		remoteCount int
-	)
-	for name, h := range cfg.Hubs() {
-		kind := strings.TrimSpace(h.Kind)
-		if kind == "" {
-			kind = HubKindRemote
-		}
-		if kind != HubKindRemote && kind != HubKindReadonly {
-			continue
-		}
-		remoteName = name
-		remoteEntry = h
-		remoteCount++
-	}
-	if remoteCount == 1 {
-		return loginHubURLFromEntry("hub", remoteName, remoteEntry)
-	}
-
-	if cfg.DisableAtlasHub() {
+	name := cfg.resolveHubName()
+	if name == "" {
 		return "", ErrAtlasHubDisabled
 	}
-
-	return DefaultHubURL, nil
+	return loginHubURLFromConfigEntry(cfg, "selected", name)
 }
 
 func loginHubURLFromConfigEntry(cfg *Config, role, name string) (string, error) {
@@ -159,13 +121,6 @@ func loginHubURLFromConfigEntry(cfg *Config, role, name string) (string, error) 
 }
 
 func loginHubURLFromEntry(label, name string, entry HubEntry) (string, error) {
-	kind := strings.TrimSpace(entry.Kind)
-	if kind == "" {
-		kind = HubKindRemote
-	}
-	if kind != HubKindRemote && kind != HubKindReadonly {
-		return "", fmt.Errorf("auth: %s %q has unsupported kind %q", label, name, kind)
-	}
 	if strings.TrimSpace(entry.URL) == "" {
 		return "", fmt.Errorf("auth: %s %q has no URL configured", label, name)
 	}

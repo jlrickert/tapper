@@ -213,7 +213,6 @@ type InfoOptions struct {
 // the opened backend) so it works identically for local and remote kegs.
 type resolvedIdentity struct {
 	Hub       string `yaml:"hub,omitempty" json:"hub,omitempty"`
-	HubKind   string `yaml:"hub_kind,omitempty" json:"hub_kind,omitempty"`
 	Namespace string `yaml:"namespace,omitempty" json:"namespace,omitempty"`
 	Keg       string `yaml:"keg,omitempty" json:"keg,omitempty"`
 	Ref       string `yaml:"ref,omitempty" json:"ref,omitempty"`
@@ -235,11 +234,7 @@ func (t *Tap) resolveIdentity(opts KegTargetOptions) resolvedIdentity {
 	switch {
 	case selector != "":
 	default:
-		if v := strings.TrimSpace(cfg.DefaultKeg()); v != "" {
-			selector = v
-		} else if v := strings.TrimSpace(cfg.LookupAlias(t.Runtime, t.Root)); v != "" {
-			selector = v
-		} else if v := strings.TrimSpace(cfg.FallbackKeg()); v != "" {
+		if v := strings.TrimSpace(cfg.Keg()); v != "" {
 			selector = v
 		}
 	}
@@ -253,13 +248,9 @@ func (t *Tap) resolveIdentity(opts KegTargetOptions) resolvedIdentity {
 				// displays as its fully qualified remote reference. Best-effort: if
 				// it cannot resolve (for example, a hub with no namespace), fall back
 				// to the bare name and leave namespace/hub blank.
-				if ns, hub, entry, rErr := cfg.resolveNamespaceHub(ref.Namespace, ref.Hub); rErr == nil {
+				if ns, hub, _, rErr := cfg.resolveNamespaceHub(ref.Namespace, ref.Hub); rErr == nil {
 					id.Namespace = ns
 					id.Hub = hub
-					id.HubKind = entry.Kind
-					if id.HubKind == "" {
-						id.HubKind = HubKindRemote
-					}
 					if ref.Name != "" {
 						id.Ref = "@" + ns + "/" + ref.Name
 					}
@@ -355,7 +346,7 @@ func (t *Tap) Info(ctx context.Context, opts InfoOptions) (string, error) {
 		debug := &debugDiagnostics{
 			WorkingDirectory: workingDir,
 			Hub:              identity.Hub,
-			Backend:          identity.HubKind,
+			Backend:          "remote",
 			Namespace:        identity.Namespace,
 			Keg:              identity.Keg,
 		}

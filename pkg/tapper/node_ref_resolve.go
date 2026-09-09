@@ -134,5 +134,8 @@ func (t *Tap) resolveRefAlias(ctx context.Context, alias string, rc RefContext) 
 
 // openTarget opens a keg at the resolved target using the shared token resolver.
 func (t *Tap) openTarget(ctx context.Context, target *keg.Target) (keg.Keg, error) {
+	if err := t.ConfigService.validateTargetHub(target, ""); err != nil {
+		return nil, err
+	}
 	return keg.NewKegFromTarget(ctx, *target, t.Runtime, keg.WithTokenResolver(t.KegService.tokenResolver()))
 }

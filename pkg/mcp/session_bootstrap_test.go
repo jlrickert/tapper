@@ -45,8 +45,8 @@ func TestMCP_NoFlightsAnywhereUsesIdentityFullAccess(t *testing.T) {
 	requireConnectionInstructions(t, session.InitializeResult().Instructions)
 	payload := callOrient(t, ctx, session)
 	flight := flightSection(t, payload)
-	require.Contains(t, flight, "No flight was provided")
-	require.Contains(t, flight, "identity-authorized full access")
+	require.Contains(t, flight, "No flight is active")
+	require.Contains(t, flight, "full identity authority")
 	require.Contains(t, flight, "TAP_FLIGHT",
 		"the stdio surface must nudge toward configuration, not a web UI")
 	require.Contains(t, flight, "start a new one")
@@ -104,13 +104,13 @@ func TestMCP_FlightsExistButUnselectedUsesFullAccessAndExactSelection(t *testing
 	session := connectFlightSession(t, ctx, srv, nil)
 
 	flight := flightSection(t, callOrient(t, ctx, session))
-	require.Contains(t, flight, "No flight was provided")
-	require.Contains(t, flight, "@local/+alpha")
+	require.Contains(t, flight, "No flight is active")
+	require.NotContains(t, flight, "@local/+alpha")
 	require.Contains(t, listedToolNames(t, ctx, session), "cat")
 
 	explicit := orientCall(t, session, ctx, map[string]any{"flight": "@local/+alpha"})
 	require.Contains(t, explicit, "Alpha instructions")
-	require.NotContains(t, explicit, "No flight was provided")
+	require.NotContains(t, explicit, "No flight is active")
 	require.Contains(t, explicit, "Launch root: (none; identity-authorized full access)")
 	require.Contains(t, explicit, "Selected flight: `@local/+alpha`")
 
@@ -149,7 +149,7 @@ func TestMCP_FlightsExistButUnselectedUsesFullAccessAndExactSelection(t *testing
 			require.NotContains(t, got.text, "Alpha instructions")
 		}
 	}
-	require.Contains(t, flightSection(t, callOrient(t, ctx, session)), "No flight was provided",
+	require.Contains(t, flightSection(t, callOrient(t, ctx, session)), "No flight is active",
 		"concurrent explicit selections must not replace no-flight authority")
 }
 
@@ -175,7 +175,7 @@ func TestMCP_NoFlightStaysPinnedAndNewSessionAdoptsConfiguredFlight(t *testing.T
 	writeUserFlight(t, rt, "first")
 
 	beforeRefresh := flightSection(t, callOrient(t, ctx, session))
-	require.Contains(t, beforeRefresh, "No flight was provided",
+	require.Contains(t, beforeRefresh, "No flight is active",
 		"orient must not replace the connection-pinned no-flight state")
 	refreshed, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: "session_refresh", Arguments: map[string]any{}})
 	require.NoError(t, err)
@@ -183,13 +183,13 @@ func TestMCP_NoFlightStaysPinnedAndNewSessionAdoptsConfiguredFlight(t *testing.T
 	require.Equal(t, "already_active", refreshed.StructuredContent.(map[string]any)["status"])
 	require.Equal(t, false, refreshed.StructuredContent.(map[string]any)["toolsChanged"])
 	require.Equal(t, "new_session", refreshed.StructuredContent.(map[string]any)["nextAction"])
-	require.Contains(t, flightSection(t, callOrient(t, ctx, session)), "No flight was provided")
+	require.Contains(t, flightSection(t, callOrient(t, ctx, session)), "No flight is active")
 
 	tap := newMemoryTap(t, ctx, rt)
 	newSession := connectFlightSession(t, ctx, mcp.NewServer(tap, "test", mcp.KegDefaults{}), nil)
 	flight := flightSection(t, callOrient(t, ctx, newSession))
 	require.Contains(t, flight, "@local/+first")
-	require.NotContains(t, flight, "No flight was provided")
+	require.NotContains(t, flight, "No flight is active")
 	require.False(t, callCatKeg(t, ctx, newSession, "@local/first").IsError)
 }
 

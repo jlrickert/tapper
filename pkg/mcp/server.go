@@ -201,8 +201,8 @@ func errorResult(err error) *sdkmcp.CallToolResult {
 	if errors.As(err, &restriction) {
 		return orientationFailureResult(fmt.Errorf("%w: %v", ErrOrientationDenied, err))
 	}
-	if errors.Is(err, ErrOrientationStale) || errors.Is(err, ErrOrientationDenied) ||
-		errors.Is(err, ErrOrientationUnavailable) || errors.Is(err, ErrOrientationRootUnavailable) {
+	if errors.Is(err, keg.ErrOrientationStale) || errors.Is(err, keg.ErrOrientationDenied) ||
+		errors.Is(err, keg.ErrOrientationUnavailable) || errors.Is(err, keg.ErrOrientationRootUnavailable) {
 		return orientationFailureResult(err)
 	}
 	var conflict *keg.PreconditionConflictError
@@ -265,7 +265,7 @@ func errorResult(err error) *sdkmcp.CallToolResult {
 func errorGuidance(code string) (action string, operationPerformed any) {
 	switch code {
 	case keg.RemoteCodeNotFound:
-		return "The target does not exist. Confirm the id with `list` or `grep`; create it with `create`.", false
+		return "The target was not found or is not readable. Confirm its identity with `list`/`grep` for nodes, `schema_list` for schemas, `list_flights`/`flight_search` for flights, or `keg_search` for KEGs before retrying.", false
 	case keg.RemoteCodeExist, keg.RemoteCodeDestExists:
 		return "Something already occupies that id or name. Choose another, or edit the existing node instead.", false
 	case keg.RemoteCodeSchemaInvalid:
@@ -281,9 +281,9 @@ func errorGuidance(code string) (action string, operationPerformed any) {
 	case keg.RemoteCodeLock, keg.RemoteCodeLockTimeout:
 		return "The lock could not be acquired in time, usually because another write is in flight. Retry shortly; nothing was written.", false
 	case keg.RemoteCodeNotSupported:
-		return "This backend does not implement the operation. Do not retry — use a different tool or target a hub-backed keg.", false
+		return "This backend does not implement the operation. Do not retry unchanged; use a supported tool from tools/list or have the operator update the backend.", false
 	default:
-		return "The outcome is unknown: this failure may have been raised after a partial write. Read the node with `cat` to establish current state before retrying, and do not blindly replay the mutation.", nil
+		return "The outcome is unknown: this failure may follow a partial write. Inspect the resource before retrying: `cat` for nodes, `schema_read` for schemas, `keg_settings` with minimal=false for settings, or `flight_show` for flights. Discover possible creations before repeating them; do not blindly replay a mutation.", nil
 	}
 }
 

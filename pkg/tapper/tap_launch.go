@@ -327,12 +327,15 @@ func (t *Tap) ResolveLaunch(opts LaunchOptions) (*LaunchResult, error) {
 		return nil, fmt.Errorf("unknown agent %q (configured: %s)",
 			agentName, strings.Join(configuredAgentNames(cfg), ", "))
 	}
+	if agent.invalid != nil {
+		return nil, fmt.Errorf("agent %q: %w", agentName, agent.invalid)
+	}
 	// A launch root is optional. Without one the child runs under no-flight
 	// identity authority — the same state bare `tap mcp` and hosted /mcp reach —
 	// which is what makes bootstrapping possible: you cannot be required to
 	// select a flight in order to launch the session that creates your first one.
 	// There is nothing to validate in that case, and no namespace to resolve a
-	// hub from; the child discovers across every configured hub itself.
+	// hub from; the child uses the selected Hub.
 	var (
 		root     FlightRef
 		hasRoot  bool
@@ -346,14 +349,8 @@ func (t *Tap) ResolveLaunch(opts LaunchOptions) (*LaunchResult, error) {
 		if parsed.Namespace == "" {
 			return nil, fmt.Errorf("tap launch requires a canonical Hub-backed root flight; %q has no namespace", rootRef)
 		}
-		hubName := cfg.resolveHubForNamespace(parsed.Namespace)
-		hub, ok := cfg.Hub(hubName)
-		if !ok {
-			return nil, fmt.Errorf("resolve launch flight %q: hub %q is not configured", rootRef, hubName)
-		}
-		kind := hubKindOrDefault(hub.Kind)
-		if kind != HubKindRemote && kind != HubKindReadonly {
-			return nil, fmt.Errorf("resolve launch flight %q: hub %q has unsupported kind %q", rootRef, hubName, kind)
+		if _, _, err := t.ConfigService.SelectedHub(""); err != nil {
+			return nil, fmt.Errorf("resolve launch flight %q: %w", rootRef, err)
 		}
 		root, hasRoot = parsed, true
 	} else {
@@ -415,6 +412,14 @@ func (t *Tap) ResolveLaunch(opts LaunchOptions) (*LaunchResult, error) {
 	// `tap mcp` decides it is not launcher-bound and resolves identity authority
 	// instead (see cmd_mcp.go).
 	env["TAP_AGENT"] = agentName
+	hubName, _, err := t.ConfigService.SelectedHub("")
+	if err != nil {
+		return nil, err
+	}
+	env["TAP_HUB"] = hubName
+	if cfg.Keg() != "" {
+		env["TAP_KEG"] = cfg.Keg()
+	}
 	if hasRoot {
 		env["TAP_FLIGHT"] = root.Canonical()
 	}

@@ -101,19 +101,20 @@ var tapMethodToSurfaces = map[string]struct {
 // surface coverage checks. These are internal helpers, config accessors, or
 // methods that are not meant to be directly exposed as standalone tools.
 var tapMethodsExcluded = map[string]string{
-	"CreateBatch":       "MCP batch backing operation; CLI create remains a one-node command",
-	"EditBatch":         "MCP batch backing operation; CLI edit remains a one-node command",
-	"NodeSnapshotBatch": "MCP batch backing operation; CLI snapshot create remains a one-node command",
-	"CatViews":          "structured accessor behind Cat; MCP cat uses it to return per-node precondition hashes without re-reading",
-	"NodeHash":          "explicit CLI read-before-write helper; MCP reads return the same token in structured content",
-	"SchemaHash":        "explicit CLI read-before-write helper; MCP schema_read returns the same token",
-	"KegSettingsHash":   "explicit CLI read-before-write helper; MCP keg_settings returns the same token",
-	"ConfigEdit":        "interactive editor; not exposed via MCP",
-	"AuthRefreshAll":    "startup credential renewal invoked by the CLI root command (covers `tap` and `tap mcp`); not a user-facing operation",
-	"UpdateFlight":      "underlying partial-update operation used by MCP flight_edit; CLI users use `flight edit`",
-	"LookupKeg":         "internal resolution helper; not a user-facing operation",
-	"ResolveNodeRef":    "internal node-reference resolver shared by surfaces; not a user-facing operation",
-	"OrientationKegs":   "internal MCP authority helper; keg_list is the governed user-facing discovery surface",
+	"SelectedHubIdentity": "internal selected-Hub authentication probe",
+	"CreateBatch":         "MCP batch backing operation; CLI create remains a one-node command",
+	"EditBatch":           "MCP batch backing operation; CLI edit remains a one-node command",
+	"NodeSnapshotBatch":   "MCP batch backing operation; CLI snapshot create remains a one-node command",
+	"CatViews":            "structured accessor behind Cat; MCP cat uses it to return per-node precondition hashes without re-reading",
+	"NodeHash":            "explicit CLI read-before-write helper; MCP reads return the same token in structured content",
+	"SchemaHash":          "explicit CLI read-before-write helper; MCP schema_read returns the same token",
+	"KegSettingsHash":     "explicit CLI read-before-write helper; MCP keg_settings returns the same token",
+	"ConfigEdit":          "interactive editor; not exposed via MCP",
+	"AuthRefreshAll":      "startup credential renewal invoked by the CLI root command (covers `tap` and `tap mcp`); not a user-facing operation",
+	"UpdateFlight":        "underlying partial-update operation used by MCP flight_edit; CLI users use `flight edit`",
+	"LookupKeg":           "internal resolution helper; not a user-facing operation",
+	"ResolveNodeRef":      "internal node-reference resolver shared by surfaces; not a user-facing operation",
+	"OrientationKegs":     "internal MCP authority helper; keg_list is the governed user-facing discovery surface",
 	"WatchNode": "streaming, not request/response: CLI surface is `tap watch` (long-lived stream); " +
 		"MCP surface is the resources/subscribe protocol capability (not a tool), wired via " +
 		"SubscribeHandler in pkg/mcp/server.go. Payload parity is impossible — MCP notifications " +
@@ -141,7 +142,7 @@ var tapMethodsExcluded = map[string]string{
 	"SetBootstrapNamespace": "CLI-only bootstrap step; adopts the hub's default namespace after login, not an MCP operation",
 	"SetHubDefaultNamespaceByURL": "CLI-only auth/bootstrap helper; adopts the hub's default namespace after login, " +
 		"not a standalone user-facing operation",
-	"SetFallbackKeg":           "CLI-only bootstrap step; persists the chosen keg as the user-level fallback after login, not an MCP operation",
+	"SetKeg":                   "CLI-only bootstrap step; persists the chosen keg as the user-level fallback after login, not an MCP operation",
 	"SetBootstrapFlight":       "CLI-only bootstrap step; validates and persists the user-level flight baseline, not an MCP operation",
 	"Use":                      "writes the project/user keg + flight to config; CLI-only config management by design",
 	"UseStatus":                "CLI-only summary of the resolved keg/flight context; config inspection via `tap use`",

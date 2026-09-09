@@ -1,5 +1,5 @@
 # yaml-language-server: $schema=https://raw.githubusercontent.com/jlrickert/tapper/main/schemas/tap-config.json
-defaultKeg: example
+keg: example
 fallbackNamespace: local
 hubs:
   home:

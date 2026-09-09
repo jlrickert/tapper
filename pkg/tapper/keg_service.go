@@ -2,7 +2,6 @@ package tapper
 
 import (
 	"context"
-	"fmt"
 	"strings"
 	"sync"
 
@@ -18,6 +17,7 @@ type KegService struct {
 	cacheMu  sync.Mutex
 	kegCache map[string]keg.Keg
 
+	authMu        sync.Mutex
 	authStoreOnce sync.Once
 	authStore     *AuthStore
 	authStorePath string
@@ -53,6 +53,8 @@ func (s *KegService) ensureCache() {
 func (s *KegService) ReloadAuthStore() {
 	s.cacheMu.Lock()
 	defer s.cacheMu.Unlock()
+	s.authMu.Lock()
+	defer s.authMu.Unlock()
 	s.authStoreOnce = sync.Once{}
 	s.authStore = nil
 	s.authStorePath = ""
@@ -63,6 +65,8 @@ func (s *KegService) ReloadAuthStore() {
 }
 
 func (s *KegService) tokenResolver() keg.TokenResolver {
+	s.authMu.Lock()
+	defer s.authMu.Unlock()
 	s.authStoreOnce.Do(func() {
 		defer func() {
 			s.authResolver = NewAuthStoreTokenResolver(s.authStore, s.Runtime, s.authStorePath)
@@ -93,31 +97,7 @@ func (s *KegService) Resolve(ctx context.Context, options ResolveKegOptions) (ke
 	if options.RequireBootstrap && !s.ConfigService.UserConfigExists() {
 		return nil, ErrNotBootstrapped
 	}
-	root := strings.TrimSpace(options.Root)
-	if root == "" {
-		var err error
-		root, err = s.Runtime.Getwd()
-		if err != nil {
-			return nil, fmt.Errorf("failed to get working directory: %w", err)
-		}
-	}
 	selector := strings.TrimSpace(options.Keg)
-	if selector == "" {
-		cfg, err := s.ConfigService.Config()
-		if err != nil {
-			return nil, fmt.Errorf("failed to resolve workspace config: %w", err)
-		}
-		selector = cfg.DefaultKeg()
-		if selector == "" {
-			selector = cfg.LookupAlias(s.Runtime, root)
-		}
-		if selector == "" {
-			selector = cfg.FallbackKeg()
-		}
-	}
-	if selector == "" {
-		return nil, fmt.Errorf("no KEG configured")
-	}
 
 	cacheKey := selector + "\x00" + options.Namespace + "\x00" + options.Hub
 	if !options.NoCache && s.kegCache[cacheKey] != nil {

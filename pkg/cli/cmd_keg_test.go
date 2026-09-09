@@ -29,7 +29,7 @@ func TestKegRenameCommand(t *testing.T) {
     kind: remote
     url: %s
     token: tok
-defaultHub: atlas
+hub: atlas
 defaultNamespace: jlrickert
 namespaces:
   jlrickert:

@@ -12,7 +12,7 @@ import (
 // resolution chain. Each case
 // configures a Config + explicit input shape and asserts the resolved
 // URL or the expected error class. Branches that overlap (e.g. an
-// explicit URL with both DefaultHub and Hubs configured) verify
+// explicit URL with both HubName and Hubs configured) verify
 // precedence: earlier steps unconditionally win over later ones.
 func TestResolveLoginHubURL(t *testing.T) {
 	t.Parallel()
@@ -29,7 +29,7 @@ func TestResolveLoginHubURL(t *testing.T) {
 	cases := []tc{
 		{
 			name:     "step 1: explicit URL wins over everything",
-			yaml:     "defaultHub: knut\ndisableAtlasHub: true\nhubs:\n  knut:\n    url: keg.example.com\n",
+			yaml:     "hub: knut\ndisableAtlasHub: true\nhubs:\n  knut:\n    url: keg.example.com\n",
 			explicit: "https://override.example.com",
 			want:     "https://override.example.com",
 		},
@@ -40,44 +40,44 @@ func TestResolveLoginHubURL(t *testing.T) {
 			want:     "https://hub.example.com",
 		},
 		{
-			name: "step 2: DefaultHub names a Hubs entry",
-			yaml: "defaultHub: primary\nhubs:\n  other:\n    url: other.example.com\n  primary:\n    url: keg.example.com\n",
+			name: "step 2: HubName names a Hubs entry",
+			yaml: "hub: primary\nhubs:\n  other:\n    url: other.example.com\n  primary:\n    url: keg.example.com\n",
 			want: "https://keg.example.com",
 		},
 		{
-			name: "step 2: DefaultHub entry already has scheme",
-			yaml: "defaultHub: knut\nhubs:\n  knut:\n    url: http://localhost:8080\n",
+			name: "step 2: HubName entry already has scheme",
+			yaml: "hub: knut\nhubs:\n  knut:\n    url: http://localhost:8080\n",
 			want: "http://localhost:8080",
 		},
 		{
-			name:     "step 2: DefaultHub names missing entry → error",
-			yaml:     "defaultHub: missing\nhubs:\n  knut:\n    url: keg.example.com\n",
-			errMatch: `default hub "missing" not found`,
+			name:     "step 2: HubName names missing entry → error",
+			yaml:     "hub: missing\nhubs:\n  knut:\n    url: keg.example.com\n",
+			errMatch: `selected hub "missing" not found`,
 		},
 		{
 			name:     "step 2: named entry with empty URL → error",
-			yaml:     "defaultHub: empty\nhubs:\n  empty: {}\n",
-			errMatch: `default hub "empty" has no URL configured`,
+			yaml:     "hub: empty\nhubs:\n  empty: {}\n",
+			errMatch: `selected hub "empty" has no URL configured`,
 		},
 		{
-			name: "step 3: FallbackHub names a Hubs entry",
-			yaml: "fallbackHub: backup\nhubs:\n  localbox:\n    kind: local\n    basePath: /tmp/kegs\n  backup:\n    url: backup.example.com\n",
+			name: "step 3: HubName names a Hubs entry",
+			yaml: "hub: backup\nhubs:\n  localbox:\n    kind: local\n    basePath: /tmp/kegs\n  backup:\n    url: backup.example.com\n",
 			want: "https://backup.example.com",
 		},
 		{
-			name:     "step 3: FallbackHub unsupported entry → error",
-			yaml:     "fallbackHub: home\nhubs:\n  home:\n    kind: local\n    basePath: /tmp/kegs\n",
-			errMatch: `fallback hub "home" has unsupported kind "local"`,
+			name:     "step 3: HubName unsupported entry → error",
+			yaml:     "hub: home\nhubs:\n  home:\n    kind: local\n    basePath: /tmp/kegs\n",
+			errMatch: `selected hub "home" has no URL configured`,
 		},
 		{
-			name: "step 4: exactly one remote Hubs entry, no DefaultHub or FallbackHub",
+			name: "step 4: exactly one remote Hubs entry, no HubName or HubName",
 			yaml: "hubs:\n  solo:\n    url: solo.example.com\n",
 			want: "https://solo.example.com",
 		},
 		{
-			name: "step 4: exactly one remote hub ignores configured local hubs",
-			yaml: "hubs:\n  localbox:\n    kind: local\n    basePath: /tmp/kegs\n  solo:\n    url: solo.example.com\n",
-			want: "https://solo.example.com",
+			name:     "alphabetically selected invalid hub fails",
+			yaml:     "hubs:\n  localbox:\n    kind: local\n    basePath: /tmp/kegs\n  solo:\n    url: solo.example.com\n",
+			errMatch: "no URL configured",
 		},
 		{
 			name:    "step 5: DisableAtlasHub blocks fallback when nothing else matches",
@@ -85,9 +85,9 @@ func TestResolveLoginHubURL(t *testing.T) {
 			wantErr: tapper.ErrAtlasHubDisabled,
 		},
 		{
-			name:    "step 5: DisableAtlasHub fires even with multiple Hubs entries",
-			yaml:    "disableAtlasHub: true\nhubs:\n  a:\n    url: a.example.com\n  b:\n    url: b.example.com\n",
-			wantErr: tapper.ErrAtlasHubDisabled,
+			name: "step 5: DisableAtlasHub fires even with multiple Hubs entries",
+			yaml: "disableAtlasHub: true\nhubs:\n  a:\n    url: a.example.com\n  b:\n    url: b.example.com\n",
+			want: "https://a.example.com",
 		},
 		{
 			name: "step 6: empty config falls back to DefaultHubURL",
@@ -97,7 +97,7 @@ func TestResolveLoginHubURL(t *testing.T) {
 		{
 			name: "step 6: multiple Hubs without defaults fall through to DefaultHubURL",
 			yaml: "hubs:\n  a:\n    url: a.example.com\n  b:\n    url: b.example.com\n",
-			want: tapper.DefaultHubURL,
+			want: "https://a.example.com",
 		},
 		{
 			name: "nil config still resolves to DefaultHubURL",
@@ -143,7 +143,7 @@ func TestResolveLoginHubURL_StepOrdering(t *testing.T) {
 	t.Parallel()
 
 	cfg, err := tapper.ParseConfig([]byte(
-		"defaultHub: a\ndisableAtlasHub: true\nhubs:\n  a:\n    url: a.example.com\n  b:\n    url: b.example.com\n",
+		"hub: a\ndisableAtlasHub: true\nhubs:\n  a:\n    url: a.example.com\n  b:\n    url: b.example.com\n",
 	))
 	require.NoError(t, err)
 

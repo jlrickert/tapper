@@ -164,7 +164,7 @@ func (e *stubAuthError) Error() string { return e.msg }
 
 // TestAuthLoginCmd_MissingHub_FallsBackToDefault confirms the resolution
 // chain (decision keg-dev/1035) lets an unflagged, non-TTY login land on the
-// compiled-in DefaultHubURL when no Config.Hubs entry, no DefaultHub, and no
+// compiled-in DefaultHubURL when no Config.Hubs entry, no HubName, and no
 // DisableAtlasHub override are present. The empty sandbox is equivalent to
 // "no config at all" — the cleanest test of step 5.
 func TestAuthLoginCmd_MissingHub_FallsBackToDefault(t *testing.T) {
@@ -188,7 +188,7 @@ func TestAuthLoginCmd_MissingHub_FallsBackToDefault(t *testing.T) {
 func TestAuthLoginCmd_UsesFallbackHubAndAdoptsNamespace(t *testing.T) {
 	t.Parallel()
 	sb := newTestSandbox(t)
-	sb.MustWriteFile("~/.config/tapper/config.yaml", []byte(`fallbackHub: acme
+	sb.MustWriteFile("~/.config/tapper/config.yaml", []byte(`hub: acme
 namespaces:
   local:
     hub: testhost
@@ -222,7 +222,7 @@ hubs:
 	require.Contains(t, string(res.Stdout), "Logged in to https://keg.acme.com")
 
 	cfgRaw := string(sb.MustReadFile("~/.config/tapper/config.yaml"))
-	require.Contains(t, cfgRaw, "fallbackHub: acme")
+	require.Contains(t, cfgRaw, "hub: acme")
 	require.Contains(t, cfgRaw, "defaultNamespace: acme")
 }
 
@@ -563,6 +563,18 @@ func seedAuthStore(t *testing.T, sb *sandbox.Sandbox, entries map[string]tapper.
 		store.Set(canon, v)
 	}
 	require.NoError(t, store.Save(ctx, rt, storePath))
+	if hubs := store.Hubs(); len(hubs) > 0 {
+		selected := hubs[0]
+		for _, hub := range hubs {
+			e, _ := store.Get(hub)
+			if e.RefreshToken != "" && !e.ExpiresAt.IsZero() && e.ExpiresAt.Before(rt.Clock().Now().Add(time.Minute)) {
+				selected = hub
+				break
+			}
+		}
+		require.NoError(t, rt.AtomicWriteFile(tap.PathService.UserConfig(), []byte(fmt.Sprintf("disableTelemetry: true\nhub: selected\nhubs:\n  selected: {url: %s}\n", selected)), 0644))
+		tap.ConfigService.Reload()
+	}
 	return firstKey
 }
 
@@ -772,7 +784,7 @@ func TestAuthStatusCmd_ShortToken_UsesPlaceholder(t *testing.T) {
 	require.Contains(t, string(res.Stdout), "- Token: [set]")
 }
 
-func TestAuthStatusCmd_MultipleHubs_PrintsAll(t *testing.T) {
+func TestAuthStatusCmd_MultipleHubs_PrintsSelected(t *testing.T) {
 	t.Parallel()
 	sb := newTestSandbox(t)
 	seedAuthStore(t, sb, map[string]tapper.AuthEntry{
@@ -795,14 +807,9 @@ func TestAuthStatusCmd_MultipleHubs_PrintsAll(t *testing.T) {
 	require.NoError(t, res.Err)
 	out := string(res.Stdout)
 	require.Contains(t, out, "hub-a.example.com")
-	require.Contains(t, out, "hub-b.example.com")
-	require.Less(t,
-		strings.Index(out, "hub-a.example.com"),
-		strings.Index(out, "hub-b.example.com"),
-		"auth status should print stored hubs in sorted order")
+	require.NotContains(t, out, "hub-b.example.com")
 	require.Contains(t, out, "Logged in as alice")
-	require.Contains(t, out, "Logged in as bob")
-	require.Contains(t, out, "\n\nhub-b.example.com\n")
+	require.NotContains(t, out, "Logged in as bob")
 }
 
 func TestAuthStatusCmd_UnknownHub_NotPresent(t *testing.T) {

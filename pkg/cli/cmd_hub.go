@@ -52,7 +52,7 @@ func newHubListCmd(deps *Deps) *cobra.Command {
 				if h.IsDefault {
 					marker = "*"
 				}
-				fmt.Fprintf(cmd.OutOrStdout(), "%s %s\t%s\t%s\t%s\n", marker, h.Name, h.Kind, h.URL, h.Source)
+				fmt.Fprintf(cmd.OutOrStdout(), "%s %s\t%s\t%s\n", marker, h.Name, h.URL, h.Source)
 			}
 			return nil
 		},

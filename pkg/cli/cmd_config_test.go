@@ -24,7 +24,7 @@ func TestConfigCommand_DisplaysMergedConfig(t *testing.T) {
 			name:             "config_displays_merged_config",
 			args:             []string{"config"},
 			setupFixture:     strPtr("joe"),
-			expectedInStdout: []string{"defaultKeg:", "hubs:"},
+			expectedInStdout: []string{"keg:", "hubs:"},
 			description:      "Display merged configuration from user config",
 		},
 		{
@@ -39,7 +39,7 @@ func TestConfigCommand_DisplaysMergedConfig(t *testing.T) {
 			args:         []string{"config", "template", "user"},
 			setupFixture: strPtr("joe"),
 			expectedInStdout: []string{
-				"fallbackHub:",
+				"hub:",
 				"defaultNamespace: pub",
 				"hubs:",
 			},
@@ -50,8 +50,8 @@ func TestConfigCommand_DisplaysMergedConfig(t *testing.T) {
 			args:         []string{"config", "template", "project"},
 			setupFixture: strPtr("joe"),
 			expectedInStdout: []string{
-				"defaultKeg:",
-				"defaultHub:",
+				"keg:",
+				"hub:",
 				"defaultNamespace:",
 			},
 			description: "Project template should include the default hub/namespace keys",
@@ -112,7 +112,7 @@ func TestConfigCommand_ReadsExplicitConfigPath(t *testing.T) {
 	sb := NewSandbox(t)
 
 	const configPath = "/tmp/custom-tap-config.yaml"
-	const raw = "fallbackKeg: custom\nunknownKey: keep-me\n"
+	const raw = "keg: custom\nunknownKey: keep-me\n"
 	require.NoError(t, sb.Runtime().AtomicWriteFile(configPath, []byte(raw), 0o644))
 
 	res := NewProcess(t, false, "-c", configPath, "config").Run(sb.Context(), sb.Runtime())
@@ -125,7 +125,7 @@ func TestConfigCommand_RejectsScopedFlagsWithExplicitConfigPath(t *testing.T) {
 	sb := NewSandbox(t)
 
 	const configPath = "/tmp/custom-tap-config.yaml"
-	require.NoError(t, sb.Runtime().AtomicWriteFile(configPath, []byte("fallbackKeg: custom\n"), 0o644))
+	require.NoError(t, sb.Runtime().AtomicWriteFile(configPath, []byte("keg: custom\n"), 0o644))
 
 	tests := [][]string{
 		{"-c", configPath, "config", "--user"},
@@ -164,13 +164,13 @@ func TestConfigCommand_ExplainFlagCompletion(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t)
 
-	comp := NewCompletionProcess(t, false, 0, "config", "--explain", "d").Run(sb.Context(), sb.Runtime())
+	comp := NewCompletionProcess(t, false, 0, "config", "--explain", "").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, comp.Err)
 
 	suggestions := parseCompletionSuggestions(string(comp.Stdout))
-	require.Contains(t, suggestions, "defaultKeg")
-	require.Contains(t, suggestions, "defaultHub")
-	require.NotContains(t, suggestions, "logLevel")
+	require.Contains(t, suggestions, "keg")
+	require.Contains(t, suggestions, "hub")
+	require.Contains(t, suggestions, "logLevel")
 }
 
 func TestConfigCommand_ExplainFlag(t *testing.T) {
@@ -179,11 +179,11 @@ func TestConfigCommand_ExplainFlag(t *testing.T) {
 	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
 	require.NoError(t, sb.Setwd("/home/testuser"))
 
-	res := NewProcess(t, false, "config", "--explain", "defaultKeg").Run(sb.Context(), sb.Runtime())
+	res := NewProcess(t, false, "config", "--explain", "keg").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 
 	stdout := string(res.Stdout)
-	require.Contains(t, stdout, "defaultKeg =")
+	require.Contains(t, stdout, "keg =")
 	require.Contains(t, stdout, "source:")
 }
 
@@ -192,13 +192,13 @@ func TestConfigCommand_ExplainFlagWithEnvVar(t *testing.T) {
 
 	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
 	require.NoError(t, sb.Setwd("/home/testuser"))
-	require.NoError(t, sb.Runtime().Env().Set("TAP_DEFAULT_KEG", "envkeg"))
+	require.NoError(t, sb.Runtime().Env().Set("TAP_KEG", "envkeg"))
 
-	res := NewProcess(t, false, "config", "--explain", "defaultKeg").Run(sb.Context(), sb.Runtime())
+	res := NewProcess(t, false, "config", "--explain", "keg").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 
 	stdout := string(res.Stdout)
-	require.Contains(t, stdout, "defaultKeg = envkeg")
+	require.Contains(t, stdout, "keg = envkeg")
 	require.Contains(t, stdout, "source: env vars")
 }
 
@@ -258,12 +258,12 @@ func TestConfigCommand_ShowSourcesFlag(t *testing.T) {
 
 	stdout := string(res.Stdout)
 	// Should contain all field names.
-	require.Contains(t, stdout, "defaultKeg")
-	require.Contains(t, stdout, "fallbackKeg")
+	require.Contains(t, stdout, "keg")
+	require.Contains(t, stdout, "keg")
 	require.Contains(t, stdout, "logFile")
 	require.Contains(t, stdout, "logLevel")
-	require.Contains(t, stdout, "defaultHub")
-	require.Contains(t, stdout, "fallbackHub")
+	require.Contains(t, stdout, "hub")
+	require.Contains(t, stdout, "hub")
 	require.Contains(t, stdout, "defaultNamespace")
 	require.Contains(t, stdout, "fallbackNamespace")
 	// Should have source annotations in brackets.

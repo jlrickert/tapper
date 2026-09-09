@@ -90,7 +90,7 @@ func newAgentOrientationServerWithEnv(t *testing.T, env map[string]string) (cont
 func writeAgentFlight(t *testing.T, rt *toolkit.Runtime, name, slug string) {
 	t.Helper()
 	hub := orientationTestHubFor(t, rt)
-	body := "defaultKeg: personal\nfallbackHub: home\nfallbackNamespace: local\ndisableAtlasHub: true\n" +
+	body := "keg: personal\nhub: home\nfallbackNamespace: local\ndisableAtlasHub: true\n" +
 		"namespaces:\n  local:\n    hub: home\n" +
 		"hubs:\n  home:\n    kind: remote\n    url: " + hub.server.URL + "\n    tokenEnv: TAPPER_TEST_HUB_TOKEN\n" +
 		"flight: +baseline\n" +

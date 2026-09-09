@@ -36,8 +36,8 @@ type HubKeg struct {
 
 // CreateKeg asks the hub to create @namespace/alias via
 // POST /api/v1/@{namespace}/kegs. A 409 is returned as an error wrapping
-// keg.ErrExist so callers can detect "already exists" with errors.Is; 401/403
-// wrap ErrTokenRejected; other non-2xx statuses surface the hub's status line.
+// keg.ErrExist so callers can detect "already exists" with errors.Is; 401
+// wraps ErrTokenRejected; 403 wraps keg.ErrForbidden; other non-2xx statuses surface the hub's status line.
 func CreateKeg(ctx context.Context, hubURL, token, namespace, alias, title, visibility string) error {
 	base, err := normalizeHubURL(hubURL)
 	if err != nil {
@@ -57,7 +57,7 @@ func CreateKeg(ctx context.Context, hubURL, token, namespace, alias, title, visi
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := hubHTTPClient().Do(req)
 	if err != nil {
 		return fmt.Errorf("hub: contact hub: %w", err)
 	}
@@ -68,7 +68,9 @@ func CreateKeg(ctx context.Context, hubURL, token, namespace, alias, title, visi
 		return nil
 	case http.StatusConflict:
 		return fmt.Errorf("hub: keg @%s/%s already exists: %w", namespace, alias, keg.ErrExist)
-	case http.StatusUnauthorized, http.StatusForbidden:
+	case http.StatusForbidden:
+		return fmt.Errorf("hub: %w (%s)%s", keg.ErrForbidden, resp.Status, readHubError(resp))
+	case http.StatusUnauthorized:
 		return fmt.Errorf("hub: %w (%s)", ErrTokenRejected, resp.Status)
 	default:
 		return fmt.Errorf("hub: create keg @%s/%s failed: %s%s", namespace, alias, resp.Status, readHubError(resp))
@@ -89,7 +91,7 @@ func ListUserKegs(ctx context.Context, hubURL, token string) ([]HubKeg, error) {
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Accept", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := hubHTTPClient().Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("hub: contact hub: %w", err)
 	}
@@ -98,7 +100,9 @@ func ListUserKegs(ctx context.Context, hubURL, token string) ([]HubKeg, error) {
 	switch resp.StatusCode {
 	case http.StatusOK:
 		// fall through to decode
-	case http.StatusUnauthorized, http.StatusForbidden:
+	case http.StatusForbidden:
+		return nil, fmt.Errorf("hub: %w (%s)%s", keg.ErrForbidden, resp.Status, readHubError(resp))
+	case http.StatusUnauthorized:
 		return nil, fmt.Errorf("hub: %w (%s)", ErrTokenRejected, resp.Status)
 	default:
 		return nil, fmt.Errorf("hub: list kegs returned %s for %s", resp.Status, hubKegsPath)
@@ -129,6 +133,13 @@ func readHubError(resp *http.Response) string {
 		return ": " + e.Error
 	}
 	return ""
+}
+
+// hubHTTPClient refuses redirects so credentials and mutations stay on the selected Hub.
+func hubHTTPClient() *http.Client {
+	client := *http.DefaultClient
+	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	return &client
 }
 
 // UnmarshalJSON accepts summary from older Hubs without overriding an explicit description.

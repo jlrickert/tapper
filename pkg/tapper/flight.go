@@ -36,6 +36,7 @@ const (
 
 	FlightCapabilityManageFlights FlightCapability = "manage_flights"
 	FlightCapabilityManageKegs    FlightCapability = "manage_kegs"
+	FlightCapabilityDeleteKegs    FlightCapability = "delete_kegs"
 	FlightCapabilityFullAccess    FlightCapability = "full_access"
 
 	// MaxFlightSubflights bounds the ordered direct allowlist on one manifest.
@@ -81,6 +82,7 @@ func normalizeFlightRole(role FlightRole) FlightRole {
 }
 
 type FlightCover struct {
+	Depth     int        `yaml:"depth,omitempty" json:"depth,omitempty"`
 	Namespace string     `yaml:"namespace,omitempty" json:"namespace,omitempty"`
 	Keg       string     `yaml:"keg" json:"keg"`
 	Role      FlightRole `yaml:"role" json:"role"`
@@ -90,6 +92,7 @@ type FlightCover struct {
 // markdown instructions. AllowedKegs remains a legacy wire field and is
 // normalized into editor-cap cover entries.
 type FlightManifest struct {
+	Description  string             `yaml:"description,omitempty" json:"description,omitempty"`
 	Title        string             `yaml:"title,omitempty" json:"title,omitempty"`
 	Visibility   string             `yaml:"visibility,omitempty" json:"visibility,omitempty"`
 	Capabilities []FlightCapability `yaml:"capabilities,omitempty" json:"capabilities,omitempty"`
@@ -101,11 +104,13 @@ type FlightManifest struct {
 
 // Flight is a discovered flight: its manifest plus provenance.
 type Flight struct {
-	Name         string `yaml:"-" json:"name,omitempty"`
-	Namespace    string `yaml:"-" json:"namespace,omitempty"`
-	Slug         string `yaml:"-" json:"slug,omitempty"`
-	Source       string `yaml:"-" json:"source,omitempty"` // configured hub name
-	ManifestHash string `yaml:"-" json:"-"`
+	// EffectiveCover is supplied by Hub and is never written into the manifest.
+	EffectiveCover []HubEffectiveKeg `json:"-" yaml:"-"`
+	Name           string            `yaml:"-" json:"name,omitempty"`
+	Namespace      string            `yaml:"-" json:"namespace,omitempty"`
+	Slug           string            `yaml:"-" json:"slug,omitempty"`
+	Source         string            `yaml:"-" json:"source,omitempty"` // configured hub name
+	ManifestHash   string            `yaml:"-" json:"-"`
 	FlightManifest
 }
 
@@ -227,13 +232,27 @@ func (s *FlightService) config() (*Config, error) {
 // skipped hub appends one message so user-facing listings can say what was
 // left out.
 func (s *FlightService) ListFlights(ctx context.Context, hub string, warnings *[]string) ([]string, error) {
+	rows, err := s.FlightCatalog(ctx, hub, warnings)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, row.Name)
+	}
+	return out, nil
+}
+
+// FlightCatalog returns readable flight metadata from the existing Hub catalog projection.
+func (s *FlightService) FlightCatalog(ctx context.Context, hub string, warnings *[]string) ([]*Flight, error) {
 	cfg, err := s.config()
 	if err != nil {
 		return nil, err
 	}
 	seen := map[string]struct{}{}
-	var out []string
-	add := func(ref string) {
+	var out []*Flight
+	add := func(f *Flight) {
+		ref := f.Name
 		if ref == "" {
 			return
 		}
@@ -241,46 +260,33 @@ func (s *FlightService) ListFlights(ctx context.Context, hub string, warnings *[
 			return
 		}
 		seen[ref] = struct{}{}
-		out = append(out, ref)
+		out = append(out, f)
 	}
 
-	hub = strings.TrimSpace(hub)
-	hubNames := s.allHubNames(cfg)
-	if hub != "" {
-		if _, ok := cfg.Hub(hub); !ok {
-			return nil, fmt.Errorf("hub %q is not configured", hub)
-		}
-		hubNames = []string{hub}
+	name, _, err := s.ConfigService.SelectedHub(hub)
+	if err != nil {
+		return nil, err
 	}
+	hubNames := []string{name}
 
 	for _, name := range hubNames {
 		entry, ok := cfg.Hub(name)
 		if !ok {
 			continue
 		}
-		kind := strings.TrimSpace(entry.Kind)
-		if kind == "" {
-			kind = HubKindRemote
-		}
-		switch kind {
-		case HubKindRemote, HubKindReadonly:
-			flights, listErr := s.listRemoteFlights(ctx, name, entry)
-			if listErr != nil {
-				if warnings != nil {
-					*warnings = append(*warnings, fmt.Sprintf("skipped hub %q: %v", name, listErr))
-				}
-				continue
-			}
-			for _, f := range flights {
-				add((FlightRef{Namespace: f.Namespace, Slug: f.Slug}).Canonical())
-			}
-		default:
+
+		flights, listErr := s.listRemoteFlights(ctx, name, entry)
+		if listErr != nil {
 			if warnings != nil {
-				*warnings = append(*warnings, fmt.Sprintf("skipped hub %q: unsupported kind %q", name, kind))
+				*warnings = append(*warnings, fmt.Sprintf("skipped hub %q: %v", name, listErr))
 			}
+			continue
+		}
+		for _, f := range flights {
+			add(flightFromHub(f, name))
 		}
 	}
-	sort.Strings(out)
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out, nil
 }
 
@@ -483,30 +489,21 @@ func (s *FlightService) getFlight(ctx context.Context, name string) (*Flight, er
 		return s.getFlightInNamespace(ctx, cfg, ref)
 	}
 
+	hubName, entry, err := s.ConfigService.SelectedHub("")
+	if err != nil {
+		return nil, err
+	}
+	flights, err := s.listRemoteFlights(ctx, hubName, entry)
+	if err != nil {
+		return nil, err
+	}
 	var matches []*Flight
-	for _, hubName := range s.allHubNames(cfg) {
-		entry, ok := cfg.Hub(hubName)
-		if !ok {
-			continue
-		}
-		kind := strings.TrimSpace(entry.Kind)
-		if kind == "" {
-			kind = HubKindRemote
-		}
-		if kind != HubKindRemote && kind != HubKindReadonly {
-			continue
-		}
-		flights, listErr := s.listRemoteFlights(ctx, hubName, entry)
-		if listErr != nil {
-			continue
-		}
-		for _, hf := range flights {
-			if hf.Slug == ref.Slug {
-				f := flightFromHub(hf, hubName)
-				matches = append(matches, f)
-			}
+	for _, hf := range flights {
+		if hf.Slug == ref.Slug {
+			matches = append(matches, flightFromHub(hf, hubName))
 		}
 	}
+
 	switch len(matches) {
 	case 1:
 		return matches[0], nil
@@ -522,13 +519,6 @@ func (s *FlightService) getFlightInNamespace(ctx context.Context, cfg *Config, r
 	entry, ok := cfg.Hub(hubName)
 	if !ok {
 		return nil, fmt.Errorf("hub %q is not configured", hubName)
-	}
-	kind := strings.TrimSpace(entry.Kind)
-	if kind == "" {
-		kind = HubKindRemote
-	}
-	if kind != HubKindRemote && kind != HubKindReadonly {
-		return nil, fmt.Errorf("hub %q has unsupported kind %q", hubName, kind)
 	}
 	if strings.TrimSpace(entry.URL) == "" {
 		return nil, fmt.Errorf("hub %q has no url configured", hubName)
@@ -572,6 +562,9 @@ func normalizeFlightManifest(m *FlightManifest) {
 		}
 	}
 	for i := range m.Cover {
+		if m.Cover[i].Depth == 0 {
+			m.Cover[i].Depth = 2
+		}
 		m.Cover[i].Namespace = strings.TrimPrefix(strings.TrimSpace(m.Cover[i].Namespace), "@")
 		m.Cover[i].Keg = strings.TrimSpace(m.Cover[i].Keg)
 		m.Cover[i].Role = normalizeFlightRole(m.Cover[i].Role)
@@ -608,7 +601,7 @@ func validateFlightManifest(m *FlightManifest, namespace string) error {
 	for _, capability := range m.Capabilities {
 		capability = FlightCapability(strings.TrimSpace(string(capability)))
 		switch capability {
-		case FlightCapabilityManageFlights, FlightCapabilityManageKegs, FlightCapabilityFullAccess:
+		case FlightCapabilityManageFlights, FlightCapabilityManageKegs, FlightCapabilityDeleteKegs:
 		default:
 			return fmt.Errorf("unknown flight capability %q", capability)
 		}
@@ -618,6 +611,9 @@ func validateFlightManifest(m *FlightManifest, namespace string) error {
 		seen[capability] = struct{}{}
 	}
 	for _, cover := range m.Cover {
+		if cover.Depth < 0 || cover.Depth > 8 {
+			return fmt.Errorf("invalid flight cover depth %d: must be 1–8", cover.Depth)
+		}
 		switch normalizeFlightRole(cover.Role) {
 		case FlightRoleViewer, FlightRoleEditor, FlightRoleAdmin:
 		default:
@@ -659,6 +655,9 @@ func validateFlightManifest(m *FlightManifest, namespace string) error {
 
 // HasCapability reports whether a validated manifest grants capability.
 func (f *Flight) HasCapability(capability FlightCapability) bool {
+	if capability == FlightCapabilityFullAccess {
+		return false
+	}
 	if f == nil {
 		return false
 	}
@@ -783,16 +782,7 @@ func ParseFlightCoverSpecs(specs []string) ([]FlightCover, error) {
 }
 
 func (s *FlightService) allHubNames(cfg *Config) []string {
-	hubs := cfg.Hubs()
-	if len(hubs) == 0 {
-		return dedupeStrings([]string{cfg.resolveHubName()})
-	}
-	names := make([]string, 0, len(hubs))
-	for n := range hubs {
-		names = append(names, n)
-	}
-	sort.Strings(names)
-	return names
+	return dedupeStrings([]string{cfg.resolveHubName()})
 }
 
 func (s *FlightService) listRemoteFlights(ctx context.Context, hubName string, entry HubEntry) ([]HubFlight, error) {
@@ -813,9 +803,8 @@ func (s *FlightService) hubToken(entry HubEntry) string {
 		return ""
 	}
 	if entry.TokenEnv != "" {
-		if v := s.Runtime.Get(entry.TokenEnv); v != "" {
-			return v
-		}
+		// Explicit configuration owns credential selection, even when missing.
+		return s.Runtime.Get(entry.TokenEnv)
 	}
 	if entry.Token != "" {
 		return entry.Token
@@ -838,11 +827,11 @@ func flightFromHub(hf HubFlight, hubName string) *Flight {
 		cover = append(cover, FlightCover{
 			Namespace: c.Namespace,
 			Keg:       c.Keg,
-			Role:      normalizeFlightRole(FlightRole(c.Role)),
+			Role:      normalizeFlightRole(FlightRole(c.Role)), Depth: c.Depth,
 		})
 	}
 	m := FlightManifest{
-		Title:        hf.Title,
+		Title: hf.Title, Description: hf.Description,
 		Visibility:   hf.Visibility,
 		Capabilities: append([]FlightCapability{}, hf.Capabilities...),
 		Cover:        cover,
@@ -856,6 +845,7 @@ func flightFromHub(hf HubFlight, hubName string) *Flight {
 		manifestHash = hashFlightManifest(m)
 	}
 	return &Flight{
+		EffectiveCover: hf.EffectiveCover,
 		Name:           ref.Canonical(),
 		Namespace:      hf.Namespace,
 		Slug:           hf.Slug,
@@ -863,4 +853,22 @@ func flightFromHub(hf HubFlight, hubName string) *Flight {
 		ManifestHash:   manifestHash,
 		FlightManifest: m,
 	}
+}
+
+// ComposedFlight applies a Hub-composed cover to an operation-local copy.
+// The original declaration remains available for manifest editing and hashing.
+func ComposedFlight(flight *Flight) *Flight {
+	if flight == nil || flight.EffectiveCover == nil {
+		return flight
+	}
+	composed := *flight
+	composed.Cover = make([]FlightCover, 0, len(flight.EffectiveCover))
+	for _, row := range flight.EffectiveCover {
+		ns, name, ok := strings.Cut(strings.TrimPrefix(row.Ref, "@"), "/")
+		if !ok {
+			continue
+		}
+		composed.Cover = append(composed.Cover, FlightCover{Namespace: ns, Keg: name, Role: row.Role, Depth: 1})
+	}
+	return &composed
 }

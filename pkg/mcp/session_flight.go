@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 
@@ -39,7 +40,7 @@ var ErrOrientationRootUnavailable = fmt.Errorf("ORIENTATION_ROOT_UNAVAILABLE: th
 func failedOrientationPayload(err error) string {
 	return "This session could not establish flight authority: " + err.Error() +
 		"\n\nKEG tools are locked until it does, so only `orient`, `session_refresh`, `list_flights`," +
-		" `flight_show`, `auth_info`, and `keg_search` are published. An empty cover on a" +
+		" `flight_show`, `auth_info`, `keg_search`, `flight_search`, and `guide` are published. An empty cover on a" +
 		" successfully loaded flight would still publish the complete registered" +
 		" inventory. Call `list_flights` to see what" +
 		" actually exists, then ask the user to correct the selected flight in" +
@@ -49,6 +50,7 @@ func failedOrientationPayload(err error) string {
 }
 
 var recoveryToolNames = map[string]bool{
+	"guide": true, "flight_search": true,
 	"orient":          true,
 	"session_refresh": true,
 	"list_flights":    true,
@@ -61,6 +63,7 @@ var recoveryToolNames = map[string]bool{
 // flight argument. Keep administration/configuration discovery here even when
 // a particular build does not register those tools.
 var ungovernedToolNames = map[string]bool{
+	"guide": true, "flight_search": true,
 	"auth_info": true, "auth_status": true, "keg_search": true,
 	"session_refresh": true,
 	"config":          true, "config_template": true,
@@ -111,6 +114,8 @@ type orientationContext struct {
 	availableFlights []string
 	identity         string
 	revision         string
+	rootHub          string
+	allowedTargets   []string
 	payload          string
 	kegs             []tapper.OrientationKeg
 	aggregateKegs    []tapper.OrientationKeg
@@ -288,6 +293,8 @@ func makeOrientationContext(candidate *Orientation) (*orientationContext, error)
 		root: cloneFlight(candidate.Root), flight: cloneFlight(candidate.Flight),
 		path:             append([]string(nil), candidate.Path...),
 		availableFlights: append([]string(nil), candidate.AvailableFlights...),
+		allowedTargets:   slices.Clone(candidate.AllowedTargets),
+		rootHub:          candidate.RootHub,
 		identity:         candidate.Identity, revision: candidate.Revision, payload: candidate.Payload,
 		kegs:          append([]tapper.OrientationKeg(nil), candidate.Kegs...),
 		aggregateKegs: append([]tapper.OrientationKeg(nil), candidate.AggregateKegs...),
@@ -490,7 +497,7 @@ func contextWithOrientation(ctx context.Context, current *orientationContext) co
 		return ctx
 	}
 	return keg.WithOrientationState(ctx, keg.OrientationState{
-		Root: current.root.Name, Active: current.flight.Name, Revision: current.revision,
+		AllowedTargets: current.allowedTargets, RootHub: current.rootHub, Root: current.root.Name, Active: current.flight.Name, Revision: current.revision,
 	})
 }
 
@@ -634,7 +641,7 @@ func (g *sessionFlightGate) middleware(next sdkmcp.MethodHandler) sdkmcp.MethodH
 				// A denial on a call that named no flight is reported in terms
 				// of what the caller actually did, not in terms of a "requested
 				// flight" they never requested.
-				if selected == "" && errors.Is(err, ErrOrientationDenied) {
+				if selected == "" && errors.Is(err, keg.ErrOrientationDenied) {
 					return orientationFailureResultWithAction(err, bareCallDeniedAction), nil
 				}
 				return orientationFailureResult(err), nil
@@ -771,13 +778,13 @@ func orientationFailureResultWithAction(err error, action string) *sdkmcp.CallTo
 	override := action
 	action = "Authority changed between resolution and dispatch. Nothing was written. Review current authority with `orient`, then reissue the call yourself — mutations are never replayed automatically."
 	switch {
-	case errors.Is(err, ErrOrientationRootUnavailable):
+	case errors.Is(err, keg.ErrOrientationRootUnavailable):
 		code = "ORIENTATION_ROOT_UNAVAILABLE"
 		action = "This session's pinned root flight is gone and cannot be replaced from inside MCP. Ask the user to repair or repin the flight outside MCP and start a new connection; `session_refresh` cannot recover this."
-	case errors.Is(err, ErrOrientationUnavailable):
+	case errors.Is(err, keg.ErrOrientationUnavailable):
 		code = "ORIENTATION_UNAVAILABLE"
 		action = "Authority could not be resolved right now; this is transient and nothing was written. Retry the same call shortly."
-	case errors.Is(err, ErrOrientationDenied):
+	case errors.Is(err, keg.ErrOrientationDenied):
 		code = "ORIENTATION_DENIED"
 		// Deliberately does not tell the agent to reorient. A denial is not
 		// disorientation: the next call resolves live authority on its own, and
