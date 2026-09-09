@@ -122,12 +122,12 @@ func TestTap_IdentityKegCatalog_UsesOneKegCatalogRequest(t *testing.T) {
 		requests.Add(1)
 		require.Equal(t, "/api/v1/kegs", r.URL.Path)
 		_ = json.NewEncoder(w).Encode([]tapper.HubKeg{{
-			Namespace:  "foldwise",
-			Alias:      "dev",
-			Title:      "Development",
-			Summary:    "Engineering system of record.",
-			Visibility: "private",
-			Role:       "admin",
+			Namespace:   "foldwise",
+			Alias:       "dev",
+			Title:       "Development",
+			Description: "Engineering system of record.",
+			Visibility:  "private",
+			Role:        "admin",
 		}})
 	}))
 	defer srv.Close()
@@ -143,7 +143,7 @@ func TestTap_IdentityKegCatalog_UsesOneKegCatalogRequest(t *testing.T) {
 	require.Empty(t, warnings)
 	require.Equal(t, []tapper.OrientationKeg{{
 		Ref: "@foldwise/dev", Namespace: "foldwise", Alias: "dev",
-		Title: "Development", Summary: "Engineering system of record.",
+		Title: "Development", Description: "Engineering system of record.",
 		Visibility: "private", Role: "admin", Source: "test",
 	}}, rows)
 }
@@ -156,7 +156,7 @@ func TestTap_IdentityKegCatalog_NeverReadsIndividualSettings(t *testing.T) {
 		case "/api/v1/kegs":
 			_ = json.NewEncoder(w).Encode([]tapper.HubKeg{{
 				Namespace: "foldwise", Alias: "dev", Title: "Catalog title",
-				Summary: "Catalog summary.", Role: "admin",
+				Description: "Catalog summary.", Role: "admin",
 			}})
 		case "/api/v1/@foldwise/kegs/dev/settings":
 			configReads.Add(1)
@@ -178,7 +178,7 @@ func TestTap_IdentityKegCatalog_NeverReadsIndividualSettings(t *testing.T) {
 	require.Empty(t, warnings)
 	require.Len(t, rows, 1)
 	require.Equal(t, "Catalog title", rows[0].Title)
-	require.Equal(t, "Catalog summary.", rows[0].Summary)
+	require.Equal(t, "Catalog summary.", rows[0].Description)
 }
 
 // Explicit KEG selection does not alter the orientation catalog or choose MCP

@@ -183,9 +183,9 @@ func TestMCP_RemoteAliasCoverlessRootActivatesFullSurfaceAndCrossFlightKegList(t
 		case "/api/v1/kegs":
 			catalogRequests.Add(1)
 			_ = json.NewEncoder(w).Encode([]tapper.HubKeg{
-				{Namespace: "admin", Alias: "ecw", Title: "ECW", Summary: "Delivery system", Visibility: "private", Role: "admin"},
-				{Namespace: "admin", Alias: "example", Title: "Example", Summary: "Reference material", Visibility: "private", Role: "viewer"},
-				{Namespace: "admin", Alias: "private", Title: "Private", Summary: "Covered child keg", Visibility: "private", Role: "editor"},
+				{Namespace: "admin", Alias: "ecw", Title: "ECW", Description: "Delivery system", Visibility: "private", Role: "admin"},
+				{Namespace: "admin", Alias: "example", Title: "Example", Description: "Reference material", Visibility: "private", Role: "viewer"},
+				{Namespace: "admin", Alias: "private", Title: "Private", Description: "Covered child keg", Visibility: "private", Role: "editor"},
 			})
 		case "/api/v1/@admin/kegs/private/settings":
 			_ = json.NewEncoder(w).Encode(map[string]any{"kegv": "2025-07", "title": "Private", "summary": "Covered child keg"})
@@ -369,9 +369,9 @@ func installOrientationTestHub(t *testing.T, rt *toolkit.Runtime) *orientationTe
 	hub := &orientationTestHub{
 		flights: map[string]tapper.HubFlight{},
 		kegs: map[string]tapper.HubKeg{
-			"personal": {Namespace: "local", Alias: "personal", Title: "Personal KEG", Summary: "Personal test knowledge", Visibility: "private", Role: "admin"},
-			"other":    {Namespace: "local", Alias: "other", Title: "Other KEG", Summary: "Other test knowledge", Visibility: "private", Role: "admin"},
-			"private":  {Namespace: "local", Alias: "private", Title: "Private KEG", Summary: "Private test knowledge", Visibility: "private", Role: "admin"},
+			"personal": {Namespace: "local", Alias: "personal", Title: "Personal KEG", Description: "Personal test knowledge", Visibility: "private", Role: "admin"},
+			"other":    {Namespace: "local", Alias: "other", Title: "Other KEG", Description: "Other test knowledge", Visibility: "private", Role: "admin"},
+			"private":  {Namespace: "local", Alias: "private", Title: "Private KEG", Description: "Private test knowledge", Visibility: "private", Role: "admin"},
 		},
 	}
 	hub.server = httptest.NewServer(http.HandlerFunc(hub.serveHTTP))

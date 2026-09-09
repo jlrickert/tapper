@@ -163,16 +163,16 @@ func (t *Tap) resolveOrientFlight(ctx context.Context, name string) (*Flight, st
 
 // OrientationKeg is one effective KEG exposed by an orientation context.
 type OrientationKeg struct {
-	Ref        string
-	Namespace  string
-	Alias      string
-	Title      string
-	Summary    string
-	Role       string
-	Source     string
-	Visibility string
-	FlightCap  string
-	Flights    []string
+	Ref         string
+	Namespace   string
+	Alias       string
+	Title       string
+	Description string
+	Role        string
+	Source      string
+	Visibility  string
+	FlightCap   string
+	Flights     []string
 }
 
 // OrientationAuthority describes the connection-pinned launch root and the flight
@@ -251,14 +251,14 @@ func (t *Tap) orientKegsForHub(ctx context.Context, _ *Config, hubName string, e
 	out := make([]OrientationKeg, 0, len(kegs))
 	for _, k := range kegs {
 		row := OrientationKeg{
-			Ref:        "@" + k.Namespace + "/" + k.Alias,
-			Namespace:  k.Namespace,
-			Alias:      k.Alias,
-			Title:      k.Title,
-			Summary:    k.Summary,
-			Role:       k.Role,
-			Source:     hubName,
-			Visibility: k.Visibility,
+			Ref:         "@" + k.Namespace + "/" + k.Alias,
+			Namespace:   k.Namespace,
+			Alias:       k.Alias,
+			Title:       k.Title,
+			Description: k.Description,
+			Role:        k.Role,
+			Source:      hubName,
+			Visibility:  k.Visibility,
 		}
 		out = append(out, row)
 	}
@@ -551,7 +551,7 @@ func partitionOrientationKegs(flight *Flight, kegs []OrientationKeg) (usable, vi
 }
 
 func writeOrientationKegTable(b *strings.Builder, kegs []OrientationKeg, flightsHeading string) {
-	fmt.Fprintf(b, "| KEG | Title | Summary | Role | %s | Source |\n", flightsHeading)
+	fmt.Fprintf(b, "| KEG | Title | Description | Role | %s | Source |\n", flightsHeading)
 	b.WriteString("| --- | --- | --- | --- | --- | --- |\n")
 	for _, k := range kegs {
 		role := EffectiveOrientationRole(k)
@@ -568,7 +568,7 @@ func writeOrientationKegTable(b *strings.Builder, kegs []OrientationKeg, flights
 			"| `%s` | %s | %s | %s | %s | %s |\n",
 			k.Ref,
 			orientationTableCell(k.Title),
-			orientationTableCell(k.Summary),
+			orientationTableCell(k.Description),
 			role,
 			orientationTableCell(flights),
 			source,

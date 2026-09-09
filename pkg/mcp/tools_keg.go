@@ -101,7 +101,7 @@ func registerKegTools(srv *sdkmcp.Server, defaults KegDefaults, kegs KegDiscover
 		}
 		for _, row := range found.Kegs {
 			lines = append(lines, strings.Join([]string{
-				row.Ref, row.Role, tsvField(row.Title), tsvField(row.Summary), row.Visibility, row.Source,
+				row.Ref, row.Role, tsvField(row.Title), tsvField(row.Description), row.Visibility, row.Source,
 			}, "\t"))
 		}
 		res := linesResult(lines)

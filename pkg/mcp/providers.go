@@ -90,12 +90,12 @@ type KegDiscoveryProvider interface {
 // KegSearchRow is identity-authorized KEG metadata. Search results are not a
 // flight projection and never grant operational authority.
 type KegSearchRow struct {
-	Ref        string `json:"ref"`
-	Role       string `json:"role"`
-	Title      string `json:"title"`
-	Summary    string `json:"summary"`
-	Visibility string `json:"visibility"`
-	Source     string `json:"source"`
+	Ref         string `json:"ref"`
+	Role        string `json:"role"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	Visibility  string `json:"visibility"`
+	Source      string `json:"source"`
 }
 
 // KegSearchResult includes partial-discovery warnings without failing useful
@@ -613,13 +613,13 @@ func SearchIdentityKegs(rows []tapper.OrientationKeg, query string) []KegSearchR
 	}
 	matched := make([]KegSearchRow, 0, len(rows))
 	for _, row := range rows {
-		haystack := strings.ToLower(row.Ref + "\n" + row.Title + "\n" + row.Summary)
+		haystack := strings.ToLower(row.Ref + "\n" + row.Title + "\n" + row.Description)
 		if !strings.Contains(haystack, needle) {
 			continue
 		}
 		matched = append(matched, KegSearchRow{
 			Ref: row.Ref, Role: tapper.EffectiveOrientationRole(row),
-			Title: row.Title, Summary: row.Summary, Visibility: row.Visibility, Source: row.Source,
+			Title: row.Title, Description: row.Description, Visibility: row.Visibility, Source: row.Source,
 		})
 	}
 	sort.Slice(matched, func(i, j int) bool { return matched[i].Ref < matched[j].Ref })

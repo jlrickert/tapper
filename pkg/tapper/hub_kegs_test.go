@@ -71,7 +71,7 @@ func TestListUserKegs_Success(t *testing.T) {
 		require.Equal(t, "/api/v1/kegs", r.URL.Path)
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode([]tapper.HubKeg{
-			{Namespace: "jlrickert", Alias: "example", Title: "Example", Summary: "Example summary.", Visibility: "private", Role: "admin"},
+			{Namespace: "jlrickert", Alias: "example", Title: "Example", Description: "Example summary.", Visibility: "private", Role: "admin"},
 			{Namespace: "shared", Alias: "docs", Visibility: "public", Role: "editor"},
 		})
 	}))
@@ -84,7 +84,7 @@ func TestListUserKegs_Success(t *testing.T) {
 	require.Equal(t, "jlrickert", kegs[0].Namespace)
 	require.Equal(t, "example", kegs[0].Alias)
 	require.Equal(t, "Example", kegs[0].Title)
-	require.Equal(t, "Example summary.", kegs[0].Summary)
+	require.Equal(t, "Example summary.", kegs[0].Description)
 	require.Equal(t, "admin", kegs[0].Role)
 }
 
