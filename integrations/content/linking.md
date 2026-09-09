@@ -1,18 +1,20 @@
 # Linking conventions
 
-Tapper supports two link forms in node bodies:
+Tapper supports these link forms in node bodies:
 
 - **Intra-keg:** `[title](../NODEID)` — relative path from the current node's
   directory to the target node's directory. Renders as a link in markdown
   tooling and is resolvable by the index.
-- **Cross-keg (configured):** `[title](keg:ALIAS/NODEID)` — resolves the keg
-  through active configuration and is parsed by the index into a cross-keg
-  edge.
+- **Cross-keg (same namespace):** `[title](keg:ALIAS/NODEID)` — names a KEG
+  in the source namespace.
+- **Settings alias:** `[title](keg:~ALIAS/NODEID)` — explicitly resolves an
+  alias declared in the source KEG settings. The tilde distinguishes a settings
+  alias from a KEG name.
 - **Cross-keg (fully qualified):**
   `[title](keg:@NAMESPACE/ALIAS/NODEID)` — identifies the namespace and keg
   explicitly and is parsed into a cross-keg edge.
 
-Both forms appear in backlinks. Prefer intra-keg links when the target is in
+Indexed links appear in backlinks when readable. Prefer intra-keg links when the target is in
 the same keg. A bare `keg:` reference in node prose is plain text: it does not
 create a graph link or backlink. Bare references remain valid as CLI arguments,
 configuration values, schema values, and tool parameters.

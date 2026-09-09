@@ -261,6 +261,13 @@ func (e *mcpError) Error() string { return e.msg }
 
 func extractText(t *testing.T, res *sdkmcp.CallToolResult) string {
 	t.Helper()
+	// CLI parity compares operation content with MCP's legacy message field;
+	// MCP transport tests independently check the full public JSON contract.
+	if payload, ok := res.StructuredContent.(map[string]any); ok {
+		if message, ok := payload["message"].(string); ok {
+			return message
+		}
+	}
 	var parts []string
 	for _, c := range res.Content {
 		if tc, ok := c.(*sdkmcp.TextContent); ok {

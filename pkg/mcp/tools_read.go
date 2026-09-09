@@ -129,7 +129,7 @@ func registerList(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 		if err != nil {
 			return errorResult(err), nil, nil
 		}
-		return linesResult(lines), nil, nil
+		return pagedLinesResult(lines, in.Offset, mcpDefaultLimit(in.Limit)), nil, nil
 	})
 }
 
@@ -171,7 +171,7 @@ func registerGrep(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 		if err != nil {
 			return errorResult(err), nil, nil
 		}
-		return linesResult(lines), nil, nil
+		return pagedLinesResult(lines, in.Offset, mcpDefaultLimit(in.Limit)), nil, nil
 	})
 }
 
@@ -209,7 +209,7 @@ func registerTags(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 		if err != nil {
 			return errorResult(err), nil, nil
 		}
-		return linesResult(lines), nil, nil
+		return pagedLinesResult(lines, in.Offset, mcpDefaultLimit(in.Limit)), nil, nil
 	})
 }
 
@@ -247,7 +247,7 @@ func registerBacklinks(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults
 		if err != nil {
 			return errorResult(err), nil, nil
 		}
-		return linesResult(lines), nil, nil
+		return pagedLinesResult(lines, in.Offset, mcpDefaultLimit(in.Limit)), nil, nil
 	})
 }
 
@@ -285,7 +285,7 @@ func registerLinks(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 		if err != nil {
 			return errorResult(err), nil, nil
 		}
-		return linesResult(lines), nil, nil
+		return pagedLinesResult(lines, in.Offset, mcpDefaultLimit(in.Limit)), nil, nil
 	})
 }
 
