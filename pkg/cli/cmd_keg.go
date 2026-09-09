@@ -38,6 +38,7 @@ settings.`,
 		newKegRevokeCmd(deps),
 		newKegVisibilityCmd(deps),
 		newKegRenameCmd(deps),
+		newKegDeleteCmd(deps),
 		newKegSettingsCmd(deps),
 	)
 	createCmd := newKegCreateCmd(deps)
@@ -232,5 +233,19 @@ written directly instead of opening an editor.`,
 			return deps.Tap.KegSettingsEdit(cmd.Context(), opts)
 		},
 	}
+	return cmd
+}
+
+func newKegDeleteCmd(deps *Deps) *cobra.Command {
+	cmd := &cobra.Command{Use: "delete <keg>", Short: "permanently delete a KEG and all data, including snapshots", Long: "Permanently delete an empty or populated KEG. There is no expected hash; a settings hash does not cover the whole KEG.", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+		kt := globalKegTarget(deps)
+		ref, err := deps.Tap.KegDelete(cmd.Context(), tapper.KegDeleteOptions{Keg: args[0], Namespace: kt.Namespace, Hub: kt.Hub})
+		if err != nil {
+			return err
+		}
+		_, err = fmt.Fprintf(cmd.OutOrStdout(), "deleted keg %s\n", ref)
+		return err
+	}}
+	cmd.ValidArgsFunction = kegRenameArgCompletionFunc(deps)
 	return cmd
 }

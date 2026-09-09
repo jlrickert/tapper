@@ -37,8 +37,9 @@ var tapMethodToSurfaces = map[string]struct {
 	"Doctor":          {CLI: "doctor", MCP: []string{"doctor"}},
 
 	// Write operations
-	"Create": {CLI: "create", MCP: []string{"create"}},
-	"Edit":   {CLI: "edit", MCP: []string{"edit"}},
+	"KegDelete": {CLI: "keg delete", MCP: []string{"keg_delete"}},
+	"Create":    {CLI: "create", MCP: []string{"create"}},
+	"Edit":      {CLI: "edit", MCP: []string{"edit"}},
 	// tap meta reads and writes; on MCP those halves live in different tools —
 	// cat meta_only reads, edit writes — so the metadata capability is present
 	// on both surfaces without a tool of its own.

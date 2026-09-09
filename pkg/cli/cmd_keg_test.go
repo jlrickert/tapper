@@ -71,3 +71,13 @@ func TestKegRenameCompletion_NewArgSuppressesFileCompletion(t *testing.T) {
 	require.Empty(t, parseCompletionSuggestions(string(comp.Stdout)))
 	require.Contains(t, string(comp.Stdout), fmt.Sprintf(":%d", cobra.ShellCompDirectiveNoFileComp))
 }
+
+func TestKegDeleteCompletion(t *testing.T) {
+	sb := NewRemoteKegListSandbox(t, remoteCompletionKegs())
+	comp := NewCompletionProcess(t, false, 0, "keg", "delete", "").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, comp.Err)
+	require.Contains(t, parseCompletionSuggestions(string(comp.Stdout)), "@team/example")
+	extra := NewCompletionProcess(t, false, 0, "keg", "delete", "@team/example", "").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, extra.Err)
+	require.Empty(t, parseCompletionSuggestions(string(extra.Stdout)))
+}
