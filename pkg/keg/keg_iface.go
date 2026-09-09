@@ -30,6 +30,15 @@ type Keg interface {
 	// DeleteAttachment removes only the kind-qualified filename.
 	DeleteAttachment(context.Context, NodeId, AttachmentKind, string) error
 
+	// MoveBatch atomically relocates 1–100 guarded nodes, without swaps.
+	MoveBatch(context.Context, []MoveItem) ([]MutationResult, error)
+	// RemoveBatch atomically removes 1–100 guarded nodes.
+	RemoveBatch(context.Context, []RemoveItem) ([]MutationResult, error)
+	// RestoreBatch atomically restores 1–100 guarded live nodes from snapshots.
+	RestoreBatch(context.Context, []RestoreItem) ([]MutationResult, error)
+	// RenewLock extends a live advisory lease using its existing token.
+	RenewLock(context.Context, NodeId, LockToken) (LockInfo, error)
+
 	// Target returns the keg's resolved location, or nil when no target was set.
 	Target() *Target
 
