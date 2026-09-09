@@ -19,6 +19,8 @@ import (
 
 // RenderOptions configures markdown-to-HTML rendering.
 type RenderOptions struct {
+	// Links supplies the source KEG settings aliases.
+	Links []LinkEntry
 	// BaseURL is the keg-root URL prefix for rewritten node links; node N
 	// lives at {BaseURL}N. Defaults to "/".
 	BaseURL string
@@ -44,7 +46,7 @@ var nodeRelRE = regexp.MustCompile(`^\.\./\s*(\d+)\s*(.*)$`)
 
 // kegSchemeRE matches keg:-scheme references: keg:ALIAS/N and keg:@NS/ALIAS/N,
 // with an optional fragment or query suffix.
-var kegSchemeRE = regexp.MustCompile(`^keg:(?:@([A-Za-z0-9][A-Za-z0-9_-]*)/)?([A-Za-z0-9][A-Za-z0-9_-]*)/([0-9]+)((?:#|\?).*)?$`)
+var kegSchemeRE = regexp.MustCompile(`^keg:(?:@([A-Za-z0-9][A-Za-z0-9_-]*)/)?(~?[A-Za-z0-9][A-Za-z0-9_-]*)/([0-9]+)((?:#|\?).*)?$`)
 
 // allDigitsRE matches a string of one or more decimal digits.
 var allDigitsRE = regexp.MustCompile(`^[0-9]+$`)
@@ -100,7 +102,18 @@ func ResolveNodeLink(dest string, opts RenderOptions) (string, bool) {
 		if opts.KegResolver == nil {
 			return "", false
 		}
-		resolved := opts.KegResolver(m[1], m[2], m[3])
+		namespace, alias := m[1], m[2]
+		if strings.HasPrefix(alias, "~") {
+			if namespace != "" {
+				return "", false
+			}
+			var err error
+			namespace, alias, err = ResolveRelationshipAlias(opts.Links, strings.TrimPrefix(alias, "~"))
+			if err != nil {
+				return "", false
+			}
+		}
+		resolved := opts.KegResolver(namespace, alias, m[3])
 		if resolved == "" {
 			return "", false
 		}

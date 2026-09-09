@@ -22,6 +22,8 @@ const (
 	// RefQualified is "keg:@<namespace>/<keg>/<id>[-<code>]" — fully qualified;
 	// the hub is implied from the current keg's hub.
 	RefQualified
+	// RefSettingsAlias is the explicit keg:~alias/node form.
+	RefSettingsAlias
 )
 
 // NodeRef is a parsed node reference. Node always carries the numeric id and
@@ -95,15 +97,20 @@ func ParseNodeRef(s string) (*NodeRef, error) {
 	if alias == "" {
 		return nil, fmt.Errorf("parse node ref %q: empty alias", s)
 	}
-	if !refSegmentPattern.MatchString(alias) {
+	if !refSegmentPattern.MatchString(strings.TrimPrefix(alias, "~")) {
 		return nil, fmt.Errorf("parse node ref %q: invalid alias %q: must match %s", s, alias, refSegmentPattern.String())
 	}
 	id, code, err := parseIdCode(body[slash+1:])
 	if err != nil {
 		return nil, err
 	}
+	form := RefAlias
+	if strings.HasPrefix(alias, "~") {
+		form = RefSettingsAlias
+		alias = strings.TrimPrefix(alias, "~")
+	}
 	return &NodeRef{
-		Form:  RefAlias,
+		Form:  form,
 		Node:  NodeId{ID: id, Code: code, Alias: alias},
 		Alias: alias,
 	}, nil
@@ -112,6 +119,8 @@ func ParseNodeRef(s string) (*NodeRef, error) {
 // String renders the canonical text form, the inverse of ParseNodeRef.
 func (r NodeRef) String() string {
 	switch r.Form {
+	case RefSettingsAlias:
+		return "keg:~" + r.Alias + "/" + r.Node.PathNumeric()
 	case RefAlias:
 		return "keg:" + r.Alias + "/" + r.Node.PathNumeric()
 	case RefQualified:

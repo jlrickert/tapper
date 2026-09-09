@@ -68,6 +68,9 @@ func (k *LocalKeg) updateSettings(ctx context.Context, f func(*Settings)) error 
 		}
 	}
 	f(cfg)
+	if err := ValidateRelationships(cfg.Links); err != nil {
+		return err
+	}
 	if err := k.Repo.WriteSettings(ctx, cfg); err != nil {
 		return fmt.Errorf("failed to write settings: %w", err)
 	}
@@ -101,6 +104,9 @@ func (k *LocalKeg) replaceSettings(ctx context.Context, data []byte) error {
 	cfg, err := ParseKegSettingsStrict(data)
 	if err != nil {
 		return fmt.Errorf("unable to parse settings: %w", err)
+	}
+	if err := ValidateRelationships(cfg.Links); err != nil {
+		return err
 	}
 	if store, ok := k.Repo.(RepositorySettingsDocuments); ok {
 		if err := store.WriteSettingsDocument(ctx, data); err != nil {
