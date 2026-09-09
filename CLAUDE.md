@@ -3,23 +3,20 @@
 This file provides guidance to Claude Code (claude.ai/code) when working with
 code in this repository.
 
-## Coordinated immutable-flight delivery gate
+## Coordinated development and dependency pins
 
-The immutable-flight direct-subflight work is a coordinated change with the sibling
-Tapper Hub repository. Until the user explicitly approves delivery after joint
-verification:
+Tapper and the sibling Tapper Hub repository may evolve together. Keep Hub's
+ignored `go.work` for local integration development. Whenever Hub needs newer
+Tapper functionality, commit and push Tapper first, then resolve that exact
+pushed SHA with Go tooling and update Hub's `go.mod` and `go.sum` using
+`GOWORK=off go get github.com/jlrickert/tapper@<sha>` and `GOWORK=off go mod tidy`.
+Commit the dependency bump with the ordinary Hub implementation that needs it.
+Never manufacture a pseudo-version or commit a local replacement. Verify Hub
+with `GOWORK=off` against the pinned module before delivery.
 
-- Do not merge related Tapper or Tapper Hub changes.
-- Do not create or push release tags, GitHub releases, release commits, or
-  trigger release workflows.
-- Do not permanently update Tapper Hub's Tapper dependency pin.
-- Use Tapper Hub's local `go.work` link for cross-repository integration
-  testing.
-- Stop at reviewable local branches/commits, test evidence, and a coordination
-  report. Create or update PRs only when the user requests it.
-
-These restrictions remain in force even when tests pass or either repository
-appears independently ready to ship.
+Dependency bumps are ordinary development work and do not require a release or
+a special pin-only commit. Merges, tags, releases, and publishing workflows
+remain separate actions requiring user authorization. Create PRs only when requested.
 
 ## Overview
 
@@ -142,16 +139,12 @@ exists only in `_test.go` for repository-independent `LocalKeg` tests.
 NodeIndex, TagIndex, LinkIndex, BacklinkIndex, and ChangesIndex. Written as
 deterministic TSV/markdown files under `dex/`.
 
-**KegService** (`pkg/tapper/keg_service.go`) resolves which keg to use via
-config precedence: explicit `--keg` reference → `defaultKeg` → `kegMap` path
-match → `fallbackKeg`, each a keg reference resolved through `ResolveRef`. The
-`default*` slots are authoritative (project config sets them) and win over a
-`kegMap` path rule; `fallback*` is the global-user last resort that `tap
-bootstrap` writes, so anything more specific overrides it. A bare name with no
-resolvable remote namespace and Hub is an error. Active
-flight cover caps are enforced for the MCP surface; direct CLI commands keep
-normal keg authorization and preserve `--flight` only as context for orient and
-MCP defaults (`Tap.resolveKeg`).
+**KegService** delegates selection to `ConfigService.ResolveTarget` using the
+startup directory. KEG precedence is `--keg` → `TAP_KEG` → matching `kegMap`
+→ project `keg` → user `keg`. Hub precedence is `--hub` → `TAP_HUB` → project
+`hub` → matching `kegMap.hub` → user `hub` → alphabetical configured Hub →
+implicit Atlas (unless disabled). A missing KEG is an error. All namespace
+references resolve within that one Hub.
 
 ### Storage Model
 
@@ -178,23 +171,20 @@ deeper directory overrides a shallower one. **Trust boundary:** only the user
 config may define `hubs{}` and `token`/`tokenEnv`; those fields are stripped
 from any walked project config (recorded as a load warning; `--strict` makes it
 a hard error). The merged project layer, the user config, and env vars are then
-resolved by `cfgcascade.Cascade[*Config]` in `ConfigService.Config()`.
+resolved by the centralized selection in `ConfigService.Config()`.
 
-**Hub / namespace resolution** (`Config.ResolveRef`) is namespace-centric:
-**keg name → namespace → Hub**. There is no `kegs` alias map — a keg
-selector (`defaultKeg`, `fallbackKeg`, `--keg`, a `kegMap` alias) is parsed as a
-keg reference by `parseKegRef` and resolved directly. The namespace resolves
-first (explicit → `defaultNamespace` → `fallbackNamespace` → per-Hub default /
-error), then the Hub is resolved *from* the namespace (explicit →
-`namespaces[ns].hub` → `defaultHub` → `fallbackHub` →
-sole/alpha hub → compiled-in `atlas`). The `namespaces` map disambiguates
-namespace→Hub. `@local` has no special meaning.
+**Hub / namespace resolution** selects one Hub per invocation or MCP connection.
+Namespace-qualified KEGs remain supported; a bare KEG uses namespace defaults.
+The retired default/fallback Hub and KEG keys, namespace routing, and Hub `kind`
+are ignored and preserved during rewrites. A matching mapping overrides even
+project `keg`; project `hub` wins over the mapping's Hub. Regexes precede
+prefixes, longest directory prefix wins, and ties retain configuration order.
 
-A keg reference renders as the `keg` scheme — `keg:@<namespace>/<name>` (and
-`keg:@<namespace>/<name>/<nodeID>` for a node). The hub is resolution metadata,
-never part of the reference string; there is no `<hub>:@ns/name` form. To pin a
-hub explicitly, set `defaultHub`/`namespaces[ns].hub` so the namespace routes to
-that hub.
+MCP pins the canonical Hub URL, then reloads live authority and credentials for
+that URL without retargeting it. Foreign targets and redirects are refused.
+Remote discovery and startup authentication probes contact only the active Hub.
+Local saved-connection listings can show every configured Hub.
+See [Resolution Order](docs/configuration/resolution-order.md).
 
 To **list** available kegs, query a hub: `tap keg list` / the `keg_list` MCP
 tool (backed by `GET /api/v1/kegs`).
@@ -224,20 +214,20 @@ resolved KEG. The on-disk discovery selectors `--project`/`--cwd` are gone;
 `--path` is not a KEG target selector.
 
 **`tap use`** records resolution in config: `tap use @ns/keg` sets the project's
-`defaultKeg` (in `.tapper/config.yaml`); `tap use @ns/keg --user` sets the
-user-wide `fallbackKeg`; `--flight @ns/+slug` sets the project's persisted
-flight; bare `tap use` prints the resolved keg/flight/fallback and the scope
+`keg` (in `.tapper/config.yaml`); `tap use @ns/keg --user` sets the
+user `keg`; `--flight @ns/+slug` sets the project's persisted
+flight; bare `tap use` prints the resolved keg/flight and mapping override and the scope
 that set each. A persisted `flight` auto-applies when `--flight` is omitted.
 
-Supported env vars: `TAP_DEFAULT_KEG`, `TAP_FALLBACK_KEG`, `TAP_FLIGHT`,
-`TAP_AGENT`, `TAP_LOG_FILE`, `TAP_LOG_LEVEL`, `TAP_DEFAULT_HUB`, `TAP_FALLBACK_HUB`,
+Supported env vars: `TAP_KEG`, `TAP_FLIGHT`,
+`TAP_AGENT`, `TAP_LOG_FILE`, `TAP_LOG_LEVEL`, `TAP_HUB`,
 `TAP_DEFAULT_NAMESPACE`, `TAP_FALLBACK_NAMESPACE`, `TAP_DISABLE_ATLAS_HUB`,
 `TAP_DISABLE_TELEMETRY` (`1`/`true`/`yes`/`on` for
 the disable flags).
 
 Use `tap config --explain FIELD` to see which source set a value, or
-`tap config --show-sources` for all fields. The `--strict` flag makes config
-load warnings (corrupt YAML) into hard errors.
+`tap config --show-sources` for all fields. Malformed YAML is always an error; `--strict` also makes trust-boundary warnings
+into errors.
 
 KEG settings are separate from Tapper user/project config — different schema,
 different purpose (KEG metadata vs resolver settings) — and are read or written
@@ -434,3 +424,28 @@ validation.
   time the user spends in the editor. This is a known limitation of the
   invocation logging system, not a bug. The `interactive` field in the log entry
   can help distinguish interactive from non-interactive invocations.
+
+KEG metadata uses `description`; legacy settings/archive `summary` is accepted
+only when description is absent. Flight descriptions flow through manifests,
+REST/MCP, editing, and hashes independently of instructions and authority.
+`orient` renders full active instructions, the complete active effective KEG cover; child flights require explicit inspection. No-flight orientation is search-first. `flight_search` returns
+at most 50 ordered metadata rows with a truncation notice; `guide` serves detailed
+canonical guidance by topic. Display descriptions never affect authority revisions.
+
+The coordinated REST/MCP replacement is in progress, not complete. Cover entries
+now carry depth (default 2, range 1–8). The Hub composes authority through declared
+same-Hub settings relationships. `full_access` is rejected, not converted.
+`keg:~alias/node` explicitly resolves the source KEG's settings alias; canonical
+references keep their meaning. Orientation request transport requires a root and
+active flight, with no revision acknowledgment requirement. See the sibling
+Hub's `docs/surface-replacement-verification.md` for scope and verification gaps.
+
+
+KEG hard deletion is available as `tap keg delete <keg>` and MCP `keg_delete`
+with an explicit canonical `keg`. It removes all data, including snapshots,
+without an expected hash (settings hashes do not cover a whole KEG).
+Flight-scoped deletion requires the independent `delete_kegs` capability and
+admin cover plus identity admin permission. No-flight calls require identity
+admin permission. `manage_kegs` alone cannot delete and is not additionally
+required for deletion. Attachment deletion uses `filename`, with `name` retained
+as an equal-only compatibility alias; conflicting or empty inputs fail before mutation.

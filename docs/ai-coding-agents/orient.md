@@ -100,6 +100,13 @@ Fresh permission or selection failures return `ORIENTATION_DENIED`; transient
 Hub failures return `ORIENTATION_UNAVAILABLE`; permanent root loss returns
 `ORIENTATION_ROOT_UNAVAILABLE`. Mutations are never replayed automatically.
 
+A connection selects one Hub and pins its canonical URL. Flight cover, graph,
+identity, catalogs, and operations all resolve within that Hub. Calls reload
+live authority and credentials for the pinned URL, even if configuration changes
+its saved alias or selects another Hub. New connections adopt new selection.
+Foreign direct URLs and streams are rejected before dispatch. Same-Hub revision
+validation remains mandatory; a rejected header is never dropped for a retry.
+
 When initialization could not activate an explicitly configured real flight,
 repairing that same selection is adopted only by `session_refresh`. It returns
 `activated`, `already_active`, or `selection_required` as structured
