@@ -13,6 +13,8 @@ import (
 )
 
 type statsJSON struct {
+	UUID     string   `json:"uuid,omitempty"`
+	Creator  string   `json:"creator,omitempty"`
 	Title    string   `json:"title,omitempty"`
 	Hash     string   `json:"hash,omitempty"`
 	Updated  string   `json:"updated,omitempty"`
@@ -26,6 +28,8 @@ type statsJSON struct {
 
 // NodeStats contains programmatic node data derived by tooling.
 type NodeStats struct {
+	uuid     string
+	creator  string
 	title    string
 	hash     string
 	updated  time.Time
@@ -58,7 +62,9 @@ func ParseStats(ctx context.Context, raw []byte) (*NodeStats, error) {
 	if err := json.Unmarshal(trimmed, &js); err != nil {
 		return nil, fmt.Errorf("failed to parse node stats json: %w", err)
 	}
-	return decodeStats(js.Title, js.Hash, js.Updated, js.Created, js.Accessed, js.Accesses, js.Lead, js.Omega, js.Links), nil
+	stats := decodeStats(js.Title, js.Hash, js.Updated, js.Created, js.Accessed, js.Accesses, js.Lead, js.Omega, js.Links)
+	stats.SetIdentity(js.UUID, js.Creator)
+	return stats, nil
 }
 
 func decodeStats(title, hash, updated, created, accessed string, accesses int, lead string, omega *float64, rawLinks []string) *NodeStats {
@@ -336,6 +342,7 @@ func (s *NodeStats) ToJSON() ([]byte, error) {
 		s = &NodeStats{}
 	}
 	wire := statsJSON{
+		UUID: s.UUID(), Creator: s.Creator(),
 		Title: s.Title(),
 		Hash:  s.Hash(),
 		Lead:  s.Lead(),
@@ -382,4 +389,29 @@ func normalizeNodeIDList(links []NodeId) []NodeId {
 
 	slices.SortFunc(out, func(a, b NodeId) int { return a.Compare(b) })
 	return out
+}
+
+// UUID is the portable node identity. Stored copies may share it.
+func (s *NodeStats) UUID() string {
+	if s == nil {
+		return ""
+	}
+	return s.uuid
+}
+
+// Creator is the attributed username, never an authorization credential.
+func (s *NodeStats) Creator() string {
+	if s == nil {
+		return ""
+	}
+	return s.creator
+}
+
+// SetIdentity preserves portable attribution through serialization. The hosting
+// repository generates and validates identity on supported write paths.
+func (s *NodeStats) SetIdentity(uuid, creator string) {
+	if s == nil {
+		return
+	}
+	s.uuid, s.creator = uuid, creator
 }
