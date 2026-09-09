@@ -51,11 +51,10 @@ func TestResolveTargetToken_Precedence(t *testing.T) {
 			want:     want{token: "env-value", resolverCalled: false},
 		},
 		{
-			name: "literal Token wins when TokenEnv is empty/unset",
+			name: "literal Token wins when TokenEnv is not configured",
 			target: kegpkg.Target{
-				Url:      "https://hub.example.com",
-				TokenEnv: "HUB_TOKEN",
-				Token:    "literal-value",
+				Url:   "https://hub.example.com",
+				Token: "literal-value",
 			},
 			resolver: &stubResolver{token: "resolver-ignored"},
 			want:     want{token: "literal-value", resolverCalled: false},
@@ -111,4 +110,28 @@ func TestResolveTargetToken_Precedence(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestConfiguredTokenEnvMissingFailsClosed(t *testing.T) {
+	f := NewSandbox(t)
+	resolver := &stubResolver{token: "saved-login"}
+	target := kegpkg.Target{Url: "https://hub.example.com", TokenEnv: "MISSING_TOKEN", Token: "inline-token"}
+	_, err := kegpkg.NewKegFromTarget(f.Context(), target, f.Runtime(), kegpkg.WithTokenResolver(resolver))
+	require.ErrorIs(t, err, kegpkg.ErrUnauthorized)
+	require.Zero(t, resolver.called)
+}
+
+func TestConfiguredTokenEnvRemovedFromCachedKegFailsClosed(t *testing.T) {
+	f := NewSandbox(t)
+	require.NoError(t, f.Runtime().Set("HUB_TOKEN", "configured"))
+	resolver := &stubResolver{token: "saved-login"}
+	target := kegpkg.Target{Url: "https://hub.example.com", TokenEnv: "HUB_TOKEN", Token: "inline-token"}
+	k, err := kegpkg.NewKegFromTarget(f.Context(), target, f.Runtime(), kegpkg.WithTokenResolver(resolver))
+	require.NoError(t, err)
+	require.NoError(t, f.Runtime().Set("HUB_TOKEN", ""))
+	_, err = k.ReadNode(f.Context(), kegpkg.NodeId{ID: 1})
+	require.ErrorIs(t, err, kegpkg.ErrUnauthorized)
+	_, err = k.Watch(f.Context(), kegpkg.NodeId{ID: 1})
+	require.ErrorIs(t, err, kegpkg.ErrUnauthorized)
+	require.Zero(t, resolver.called)
 }
