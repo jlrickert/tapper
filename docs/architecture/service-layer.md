@@ -25,49 +25,25 @@ client.
 This keeps path derivation in one place instead of spreading path logic across
 commands.
 
-## ConfigService
+## Configuration and KEG services
 
-`pkg/tapper/config_service.go` provides stateful config APIs:
+`ConfigService` walks project files from the startup directory to the filesystem
+root, merges user/project/environment layers, and selects one paired mapping.
+`KegService` delegates to `ResolveTarget`, so operations share the same KEG and
+Hub selection as discovery, authentication, Flight loading, and inspection.
 
-- read user config
-- walk and merge project config
-- merge effective config via a `cfgcascade.Cascade`
-- cache user/project/merged configs
-- resolve keg references to concrete keg targets
+KEG precedence is explicit flag, environment, mapping, project, then user.
+Hub precedence is explicit flag, environment, project, mapping, user, then
+alphabetical configured Hub or implicit Atlas. See
+[Resolution Order](../configuration/resolution-order.md).
 
-Notable behavior:
+Only user configuration can define Hub connections and credentials. Malformed
+YAML fails. Unused Hub and mapping entries are validated when selected.
 
-1. `ProjectConfig` (`WalkConfigsUp`) walks from the workspace root up to the
-   filesystem root, collecting **every** `.tapper/config.yaml`, and merges them
-   so a deeper directory overrides a shallower one.
-2. The walked project layers, the user config, and `TAP_*` env vars are then
-   resolved by `cfgcascade.Cascade[*Config]` (user = base, project = overlay,
-   env = top).
-3. **Trust boundary:** `stripUntrustedFields` removes `hubs{}` and
-   `token`/`tokenEnv` from any walked project config (user config only). Each
-   strip becomes a `ConfigLoadWarning` surfaced by `Config()`; `--strict`
-   escalates warnings to errors.
-4. Reference resolution (`Config.ResolveRef`) parses the keg selector into a
-   reference (`parseKegRef`), applies the hub and namespace default/fallback
-   chains, and produces `<hub-url>/api/v1/@<ns>/kegs/<name>`.
-
-## KegService
-
-`pkg/tapper/keg_service.go` resolves and caches active keg handles.
-
-Resolution modes on the full `tap` surface:
-
-1. explicit `--keg`, optionally refined by `--namespace` or `--hub`
-2. implicit resolution from config and workspace `kegMap` rules
-
-Default implicit order:
-
-1. `defaultKeg`
-2. `kegMap` lookup
-3. `fallbackKeg`
-
-Bare names are references, not entries in a `kegs` alias table. They resolve
-through the namespace-centric chain.
+MCP pins the canonical Hub URL while reloading Flight authority and credentials.
+Remote discovery stays on that Hub; saved connection listings remain local.
+Foreign direct targets and event streams are refused before dispatch, and
+redirects cannot forward credentials or replay mutations elsewhere.
 
 ## Operation aggregation
 

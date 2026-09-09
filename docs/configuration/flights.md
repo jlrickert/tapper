@@ -204,3 +204,13 @@ selected flight capability.
 - Tapper user/project configuration and hosted flight selection remain
   human-controlled. MCP exposes no Tapper config mutation or flight-switch
   tool.
+
+
+KEG hard deletion is available as `tap keg delete <keg>` and MCP `keg_delete`
+with an explicit canonical `keg`. It removes all data, including snapshots,
+without an expected hash (settings hashes do not cover a whole KEG).
+Flight-scoped deletion requires the independent `delete_kegs` capability and
+admin cover plus identity admin permission. No-flight calls require identity
+admin permission. `manage_kegs` alone cannot delete and is not additionally
+required for deletion. Attachment deletion uses `filename`, with `name` retained
+as an equal-only compatibility alias; conflicting or empty inputs fail before mutation.

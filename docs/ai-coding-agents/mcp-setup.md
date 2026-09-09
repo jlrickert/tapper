@@ -231,8 +231,10 @@ Use the per-tool `keg` parameter for cross-keg work. Do not restart the MCP
 server just to switch between organization kegs.
 
 Every authority-bearing MCP tool accepts an optional per-call `flight`.
-Omission uses pinned-root authority for operations, while default `orient` and
-`keg_list` discovery aggregate the root and accessible descendants. Supplying
+Omission uses pinned-root authority for operations. `orient` shows only direct
+readable KEGs and immediate readable child flights; orient with a child reference
+to reveal its instructions and next-level choices. Default `keg_list` retains
+aggregate discovery of the root and accessible descendants. Supplying
 the pinned root or a listed descendant selects exactly that flight. The root
 reference stays pinned to the connection, and every call reloads its live
 graph and authority.

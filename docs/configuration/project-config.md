@@ -1,74 +1,23 @@
 # Project Config
 
-Project config defines repository-specific defaults. It layers on top of the
-user config and owns the high-precedence `default*` slots.
-
-## Purpose And File Location
-
-- File: `.tapper/config.yaml`
-- Scope: current repository (and any nested directory beneath it)
-
-## View And Edit
-
-```bash
-tap config --project
-tap config edit --project
-tap config template project
-cat config.yaml | tap config edit --project
-```
-
-## Multi-Level Walk
-
-Project config is not a single file. Starting at the workspace root, tapper
-walks **up to the filesystem root** collecting every `.tapper/config.yaml` it
-finds, then merges them so a **deeper directory overrides a shallower one**. A
-repository nested inside another therefore inherits the outer config and can
-override individual keys. The merged project layer then sits above the user
-config in the cascade. For overlapping keys, project values win over user
-values.
-
-Typical usage:
-
-- set `defaultKeg` so commands in this repo resolve to the intended team or
-  project keg
-- set `defaultHub` / `defaultNamespace` to pin this project's hub and namespace
-- keep machine-wide fallback behavior (`fallbackHub`, `fallbackNamespace`,
-  `hubs`) in user config
-
-## What A Project Config May / May Not Set
-
-| Allowed in project config | Forbidden (user config only) |
-| ------------------------- | ---------------------------- |
-| `defaultKeg`, `fallbackKeg` | `hubs{}`                    |
-| `defaultHub`, `defaultNamespace` | `token` / `tokenEnv`   |
-| `fallbackHub`, `fallbackNamespace` |                      |
-| `kegMap`                  |                              |
-
-**Trust boundary:** `hubs{}` and the `token` / `tokenEnv` credentials are
-stripped from any walked project config (recorded as a load warning; `--strict`
-makes it a hard error) so a repository you `cd` into cannot introduce a hub
-target or harvest a token environment variable. See
-[Resolution Order](resolution-order.md#trust-boundary).
-
-> Note: `kegSearchPaths` is not a recognized key and is silently ignored if
-> present.
-
-## Team Setup Pattern
-
-- Commit `.tapper/config.yaml` with the repository's shared `defaultKeg` and,
-  when needed, `defaultNamespace`.
-- Use a shared Hub KEG for team memory; `kegMap` can select different remote
-  KEGs for different workspace paths.
-- Use user config for personal/global hubs, credentials, and fallbacks.
-
-## Minimal Project Config Example
+Project configuration lives in `.tapper/config.yaml`. Tapper loads every such
+file from the startup directory up to the filesystem root; deeper values
+win over parent projects and the user baseline.
 
 ```yaml
-defaultKeg: engineering
-defaultNamespace: acme
-kegMap: []
+hub: atlas
+keg: "@foldwise/dev"
 ```
 
-`defaultKeg: engineering` is a keg reference: the bare name `engineering`
-resolves its namespace from `defaultNamespace: acme`, then that namespace routes
-to the configured hub.
+Use `tap use @foldwise/dev` to write the project's `keg`, or
+`tap hub set-default atlas` to write its `hub`. `tap config edit` edits the
+project file; `tap config --project` inspects the merged project layer.
+
+A matching `kegMap` overrides project `keg`, while project `hub` overrides
+the mapping's Hub. Explicit flags and environment variables win over both.
+See [Resolution Order](resolution-order.md).
+
+Hub definitions and credentials belong in user configuration. A project may
+select saved Hub names and set `kegMap`, namespace defaults, Flight context,
+and agent definitions. Project Hub definitions are stripped with a warning;
+`--strict` treats that warning as an error.
