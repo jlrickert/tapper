@@ -31,3 +31,15 @@ func TestRelationshipAliasRenderingAndParsing(t *testing.T) {
 		t.Fatal("external link grants traversal")
 	}
 }
+
+func TestOrientationStateNeedsScopeButNotRevision(t *testing.T) {
+	state := OrientationState{Root: "@team/+root", Active: "@team/+child"}
+	encoded, err := EncodeOrientationState(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := DecodeOrientationState(encoded)
+	if err != nil || decoded.Root != state.Root || decoded.Active != state.Active {
+		t.Fatalf("round trip: %+v %v", decoded, err)
+	}
+}

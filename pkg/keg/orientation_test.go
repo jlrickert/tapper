@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"net/http"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -21,7 +22,7 @@ func TestRemoteKegCarriesTrustedOrientationHeader(t *testing.T) {
 		if err != nil {
 			t.Fatalf("DecodeOrientationState: %v", err)
 		}
-		if decoded != state {
+		if !reflect.DeepEqual(decoded, state) {
 			t.Fatalf("orientation header = %+v, want %+v", decoded, state)
 		}
 		return &http.Response{StatusCode: http.StatusNoContent, Body: io.NopCloser(strings.NewReader("")), Header: make(http.Header)}, nil
