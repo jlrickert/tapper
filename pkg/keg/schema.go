@@ -186,6 +186,8 @@ type SchemaValidationResult struct {
 }
 
 type NodeValidationPayload struct {
+	// Create validates a complete creation draft without reading or allocating a node.
+	Create     bool
 	ID         NodeId
 	Schema     string
 	Content    []byte
@@ -828,6 +830,26 @@ func (k *LocalKeg) ValidateNodePayload(ctx context.Context, payload NodeValidati
 }
 
 func (k *LocalKeg) validateNodePayload(ctx context.Context, payload NodeValidationPayload) (*SchemaValidationResult, error) {
+	if payload.Create {
+		if !payload.HasContent || !payload.HasMeta {
+			return nil, fmt.Errorf("creation validation requires content and meta: %w", ErrInvalid)
+		}
+		// Settings and schemas are the only persisted inputs to a creation preview.
+		if _, err := k.Repo.ReadSettings(ctx); err != nil {
+			return nil, err
+		}
+		node, err := k.buildNodeData(ctx, &CreateOptions{Body: payload.Content, Meta: payload.Meta}, k.Runtime.Clock().Now(), "Draft")
+		if err != nil {
+			return nil, err
+		}
+		// A nonzero projection ID applies ordinary creation rules, including strict
+		// schema selection, without allocating an ID or consulting any node.
+		result, err := k.previewNodeWrite(ctx, schemaWriteCreate, NodeId{ID: 1}, node, payload.Schema, schemaTypeCandidateFromMeta("metadata", node.Meta))
+		if result != nil {
+			result.NodeID = ""
+		}
+		return result, err
+	}
 	if err := k.checkKegExists(ctx); err != nil {
 		return nil, err
 	}
