@@ -411,7 +411,50 @@ func (t *Tap) resolveAndLookupLinks(ctx context.Context, opts relatedListOptions
 		entries = entries[:opts.Limit]
 	}
 
-	return t.renderNodeEntries(ctx, k, entries, opts.Render)
+	rendered, err := t.renderNodeEntries(ctx, k, entries, opts.Render)
+	if err != nil {
+		return nil, err
+	}
+	if observer, ok := ctx.Value(relationshipObserverKey{}).(RelationshipResultObserver); ok && observer != nil {
+		// RelatedNodes merges endpoints. Resolve each input independently to
+		// retain actual pair membership, then intersect with the final page.
+		page := map[string]bool{}
+		for _, entry := range entries {
+			page[entry.ID] = true
+		}
+		relationships := []Relationship{}
+		seen := map[Relationship]bool{}
+		for _, id := range ids {
+			related, lookupErr := k.RelatedNodes(ctx, keg.RelatedNodesOptions{NodeIDs: []keg.NodeId{id}, Direction: opts.Direction})
+			if lookupErr != nil {
+				return nil, lookupErr
+			}
+			for _, entry := range related {
+				if !page[entry.ID] {
+					continue
+				}
+				other, parseErr := keg.ParseNodeRef(entry.ID)
+				if parseErr != nil {
+					return nil, parseErr
+				}
+				target := other.Node
+				if other.Form == keg.RefQualified {
+					target.Alias = "@" + other.Namespace + "/" + other.KegName
+				}
+				rel := Relationship{Source: id, Target: target}
+				if opts.Direction == keg.RelatedBacklinks {
+					rel.Source, rel.Target = rel.Target, rel.Source
+				}
+				pair := rel
+				if !seen[pair] {
+					seen[pair] = true
+					relationships = append(relationships, rel)
+				}
+			}
+		}
+		observer(ctx, k, relationships)
+	}
+	return rendered, nil
 }
 
 func (t *Tap) Grep(ctx context.Context, opts GrepOptions) ([]string, error) {
