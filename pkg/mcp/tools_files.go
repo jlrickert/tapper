@@ -11,6 +11,7 @@ import (
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/jlrickert/cli-toolkit/toolkit"
+	"github.com/jlrickert/tapper/pkg/keg"
 	"github.com/jlrickert/tapper/pkg/tapper"
 )
 
@@ -106,9 +107,10 @@ func registerListImages(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefault
 // --- delete_file ---
 
 type deleteFileInput struct {
-	NodeID string `json:"node_id" jsonschema:"node ID containing the file"`
-	Name   string `json:"name" jsonschema:"filename to delete"`
-	Keg    string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
+	NodeID   string  `json:"node_id" jsonschema:"node ID containing the file"`
+	Filename *string `json:"filename,omitempty" jsonschema:"filename to delete; required unless name is supplied"`
+	Name     *string `json:"name,omitempty" jsonschema:"compatibility alias for filename; must match when both are supplied"`
+	Keg      string  `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
 }
 
 func registerDeleteFile(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
@@ -120,24 +122,29 @@ func registerDeleteFile(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefault
 			OpenWorldHint:   boolPtr(false),
 		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in deleteFileInput) (*sdkmcp.CallToolResult, any, error) {
+		name, err := deletionFilename(in.Filename, in.Name)
+		if err != nil {
+			return errorResult(err), nil, nil
+		}
 		opts := tapper.DeleteFileOptions{
 			KegTargetOptions: resolveKegTarget(ctx, in.Keg, defaults),
 			NodeID:           in.NodeID,
-			Name:             in.Name,
+			Name:             name,
 		}
 		if err := tap.DeleteFile(ctx, opts); err != nil {
 			return errorResult(err), nil, nil
 		}
-		return textResult(fmt.Sprintf("deleted file %q from node %s", in.Name, in.NodeID)), nil, nil
+		return textResult(fmt.Sprintf("deleted file %q from node %s", name, in.NodeID)), nil, nil
 	})
 }
 
 // --- delete_image ---
 
 type deleteImageInput struct {
-	NodeID string `json:"node_id" jsonschema:"node ID containing the image"`
-	Name   string `json:"name" jsonschema:"image filename to delete"`
-	Keg    string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
+	NodeID   string  `json:"node_id" jsonschema:"node ID containing the image"`
+	Filename *string `json:"filename,omitempty" jsonschema:"filename to delete; required unless name is supplied"`
+	Name     *string `json:"name,omitempty" jsonschema:"compatibility alias for filename; must match when both are supplied"`
+	Keg      string  `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
 }
 
 func registerDeleteImage(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
@@ -149,15 +156,19 @@ func registerDeleteImage(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaul
 			OpenWorldHint:   boolPtr(false),
 		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in deleteImageInput) (*sdkmcp.CallToolResult, any, error) {
+		name, err := deletionFilename(in.Filename, in.Name)
+		if err != nil {
+			return errorResult(err), nil, nil
+		}
 		opts := tapper.DeleteImageOptions{
 			KegTargetOptions: resolveKegTarget(ctx, in.Keg, defaults),
 			NodeID:           in.NodeID,
-			Name:             in.Name,
+			Name:             name,
 		}
 		if err := tap.DeleteImage(ctx, opts); err != nil {
 			return errorResult(err), nil, nil
 		}
-		return textResult(fmt.Sprintf("deleted image %q from node %s", in.Name, in.NodeID)), nil, nil
+		return textResult(fmt.Sprintf("deleted image %q from node %s", name, in.NodeID)), nil, nil
 	})
 }
 
@@ -250,7 +261,9 @@ func handleFileUpload(ctx context.Context, tap *tapper.Tap, defaults KegDefaults
 	if err != nil {
 		return errorResult(err), nil, nil
 	}
-	return textResult(fmt.Sprintf("uploaded file %q to node %s", storedName, nodeID)), nil, nil
+	result := textResult(fmt.Sprintf("uploaded file %q to node %s", storedName, nodeID))
+	result.StructuredContent = map[string]any{"node_id": nodeID, "filename": storedName, "link": "./assets/" + storedName}
+	return result, nil, nil
 }
 
 // resolveUploadName prefers the caller's explicit filename and falls back to
@@ -380,7 +393,9 @@ func handleImageUpload(ctx context.Context, tap *tapper.Tap, defaults KegDefault
 	if err != nil {
 		return errorResult(err), nil, nil
 	}
-	return textResult(fmt.Sprintf("uploaded image %q to node %s", storedName, nodeID)), nil, nil
+	result := textResult(fmt.Sprintf("uploaded image %q to node %s", storedName, nodeID))
+	result.StructuredContent = map[string]any{"node_id": nodeID, "filename": storedName, "link": "./images/" + storedName}
+	return result, nil, nil
 }
 
 // --- download_image ---
@@ -609,4 +624,17 @@ func uploadNameFromURI(raw string) string {
 		return ""
 	}
 	return name
+}
+
+func deletionFilename(filename, alias *string) (string, error) {
+	if filename != nil && alias != nil && *filename != *alias {
+		return "", fmt.Errorf("%w: filename and name must match", keg.ErrInvalid)
+	}
+	if filename == nil {
+		filename = alias
+	}
+	if filename == nil || strings.TrimSpace(*filename) == "" {
+		return "", fmt.Errorf("%w: filename is required", keg.ErrInvalid)
+	}
+	return *filename, nil
 }
