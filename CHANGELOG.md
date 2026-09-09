@@ -2,6 +2,32 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.41.0 - 2026-09-09
+
+
+
+### 🐛 Bug Fixes
+- **mcp:** validate deletion filenames and decode removal conflicts
+- **keg:** bind remote requests to live credentials and Hub scope
+
+
+### 📚 Documentation
+- document selected-Hub contracts and coordinated development
+
+
+### 🚀 Features
+- **keg:** preserve portable node identity and creator
+- **tapper:** observe successful relationship traversals
+- **keg:** add kind-qualified attachments and video archives
+- **keg:** add atomic node batches and lock renewal
+- **keg:** validate creation drafts without allocating nodes
+- **keg:** resolve declared settings relationship aliases
+- **keg:** make resource descriptions canonical with legacy reads
+- **tapper:** centralize Hub selection and live flight authority
+- expose capability-guarded KEG deletion through CLI and MCP
+- **mcp:** normalize public responses and discovery guidance
+
+
 ## v0.40.0 - 2026-09-05
 
 
