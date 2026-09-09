@@ -21,6 +21,15 @@ import (
 // files, images, snapshots, locks, and events) return ErrNotSupported when the
 // backend lacks the capability.
 type Keg interface {
+	// ListAttachments returns a scoped page for 1–100 node ids.
+	ListAttachments(context.Context, AttachmentListRequest) (*AttachmentPage, error)
+	// ReadAttachment reads original bytes from a kind-qualified filename.
+	ReadAttachment(context.Context, NodeId, AttachmentKind, string) ([]byte, error)
+	// WriteAttachment stores original bytes without altering the filename.
+	WriteAttachment(context.Context, NodeId, AttachmentKind, string, []byte) error
+	// DeleteAttachment removes only the kind-qualified filename.
+	DeleteAttachment(context.Context, NodeId, AttachmentKind, string) error
+
 	// Target returns the keg's resolved location, or nil when no target was set.
 	Target() *Target
 
