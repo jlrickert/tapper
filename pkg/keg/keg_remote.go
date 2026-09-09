@@ -398,11 +398,12 @@ func (k *RemoteKeg) ValidateNode(ctx context.Context, id NodeId) (*SchemaValidat
 // ValidateNodePayload implements Keg via POST /validate.
 func (k *RemoteKeg) ValidateNodePayload(ctx context.Context, payload NodeValidationPayload) (*SchemaValidationResult, error) {
 	req := struct {
+		Create  bool    `json:"create,omitempty"`
 		ID      int     `json:"id"`
 		Schema  string  `json:"schema,omitempty"`
 		Content *string `json:"content,omitempty"`
 		Meta    *string `json:"meta,omitempty"`
-	}{ID: payload.ID.ID, Schema: payload.Schema}
+	}{ID: payload.ID.ID, Schema: payload.Schema, Create: payload.Create}
 	if payload.HasContent {
 		content := string(payload.Content)
 		req.Content = &content
