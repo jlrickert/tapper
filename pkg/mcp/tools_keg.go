@@ -40,6 +40,7 @@ type kegCreateInput struct {
 // real-flight sessions require manage_kegs. Transport-specific hub selection
 // is intentionally absent from the agent surface.
 func registerKegTools(srv *sdkmcp.Server, defaults KegDefaults, kegs KegDiscoveryProvider, search KegSearchProvider) {
+	registerKegDelete(srv, defaults, kegs)
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "keg_list",
 		Description: "Discover canonical KEGs and granting-flight provenance. Without a configured root, returns identity-accessible KEGs at their real roles. With a pinned root, omission aggregates its accessible transitive graph for discovery; a discovered child-only KEG still requires that child as flight on operational calls. Supplying flight returns exactly that flight projection",
@@ -191,4 +192,36 @@ func filterKegRefs(ctx context.Context, refs []string) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+type kegDeleteInput struct {
+	Keg string `json:"keg" jsonschema:"explicit canonical @namespace/keg reference to permanently delete"`
+}
+
+func registerKegDelete(srv *sdkmcp.Server, defaults KegDefaults, provider KegDiscoveryProvider) {
+	sdkmcp.AddTool(srv, &sdkmcp.Tool{Name: "keg_delete", Description: "Permanently delete an empty or populated KEG and all its data, including snapshots. Requires identity admin permission; a selected flight also requires delete_kegs and effective admin cover. manage_kegs alone cannot delete. No expected_hash: a settings hash does not cover a whole KEG.", Annotations: &sdkmcp.ToolAnnotations{DestructiveHint: boolPtr(true), OpenWorldHint: boolPtr(true)}}, func(ctx context.Context, _ *sdkmcp.CallToolRequest, in kegDeleteInput) (*sdkmcp.CallToolResult, any, error) {
+		ns, alias, ok := strings.Cut(strings.TrimPrefix(in.Keg, "@"), "/")
+		if !strings.HasPrefix(in.Keg, "@") || !ok || tapper.ValidateKegAlias(ns) != nil || tapper.ValidateKegAlias(alias) != nil {
+			return errorResult(fmt.Errorf("%w: keg must be an explicit canonical @namespace/keg reference", keg.ErrInvalid)), nil, nil
+		}
+		if err := defaults.gate.authorizeCapability(orientationFromContext(ctx), tapper.FlightCapabilityDeleteKegs); err != nil {
+			return errorResult(err), nil, nil
+		}
+		if flight := SessionFlight(ctx); flight != nil {
+			role, covered := flight.RoleFor("", ns, alias)
+			if !covered || role != tapper.FlightRoleAdmin {
+				return errorResult(keg.ErrOrientationDenied), nil, nil
+			}
+		}
+		deleter, ok := provider.(KegDeletionProvider)
+		if !ok {
+			return errorResult(keg.ErrNotSupported), nil, nil
+		}
+		if err := deleter.DeleteKeg(ctx, in.Keg); err != nil {
+			return errorResult(err), nil, nil
+		}
+		out := map[string]any{"keg": in.Keg, "deleted": true}
+		result := &sdkmcp.CallToolResult{StructuredContent: out}
+		return result, nil, nil
+	})
 }

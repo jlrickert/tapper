@@ -183,3 +183,21 @@ func (t *Tap) resolveKegAdminRef(keg, nsOverride, hubOverride string) (namespace
 	}
 	return ns, ref.Name, url, tok, nil
 }
+
+// KegDeleteOptions identifies the explicit KEG to permanently delete.
+type KegDeleteOptions struct{ Keg, Namespace, Hub string }
+
+// KegDelete deletes all KEG data, including snapshots, through the Hub catalog.
+func (t *Tap) KegDelete(ctx context.Context, opts KegDeleteOptions) (string, error) {
+	if strings.TrimSpace(opts.Keg) == "" {
+		return "", fmt.Errorf("%w: keg is required", keg.ErrInvalid)
+	}
+	ns, alias, hub, token, err := t.resolveKegAdminRef(opts.Keg, opts.Namespace, opts.Hub)
+	if err != nil {
+		return "", err
+	}
+	if err := DeleteKeg(ctx, hub, token, ns, alias); err != nil {
+		return "", err
+	}
+	return "@" + ns + "/" + alias, nil
+}

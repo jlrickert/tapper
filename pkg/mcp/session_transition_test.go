@@ -675,6 +675,7 @@ func TestMCP_AuthorityBearingSchemasExposeOptionalFlightAndRejectKegListAll(t *t
 		require.Falsef(t, hasAll, "%s must not expose removed all selection", tool.Name)
 	}
 	require.False(t, seen["repo_init"])
+	require.True(t, seen["keg_delete"])
 	require.True(t, seen["keg_create"], "management tools stay visible even when the root lacks capability")
 	require.True(t, seen["flight_create"])
 

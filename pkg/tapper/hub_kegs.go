@@ -163,3 +163,41 @@ func (k *HubKeg) UnmarshalJSON(data []byte) error {
 	*k = HubKeg(v)
 	return nil
 }
+
+// DeleteKeg permanently deletes a KEG and all dependent data, including snapshots.
+// There is no expected hash: the settings hash does not cover a whole KEG.
+func DeleteKeg(ctx context.Context, hubURL, token, namespace, alias string) error {
+	if !hubKegAliasPattern.MatchString(namespace) || !hubKegAliasPattern.MatchString(alias) {
+		return fmt.Errorf("%w: invalid canonical KEG reference", keg.ErrInvalid)
+	}
+	base, err := normalizeHubURL(hubURL)
+	if err != nil {
+		return err
+	}
+	endpoint := fmt.Sprintf("%s/api/v1/@%s/kegs/%s", base, namespace, alias)
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, endpoint, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	if value, ok := keg.OrientationHeaderForURL(ctx, endpoint); ok {
+		req.Header.Set(keg.OrientationHeaderName, value)
+	}
+	resp, err := hubHTTPClient().Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	switch resp.StatusCode {
+	case http.StatusOK, http.StatusNoContent:
+		return nil
+	case http.StatusNotFound:
+		return fmt.Errorf("hub: %w", keg.ErrNotExist)
+	case http.StatusUnauthorized:
+		return fmt.Errorf("hub: %w", ErrTokenRejected)
+	case http.StatusForbidden:
+		return fmt.Errorf("hub: %w%s", keg.ErrForbidden, readHubError(resp))
+	default:
+		return fmt.Errorf("hub: delete keg failed: %s%s", resp.Status, readHubError(resp))
+	}
+}

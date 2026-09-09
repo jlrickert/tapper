@@ -667,3 +667,14 @@ func (p *localOrientationProvider) bindRootAuthority(ctx context.Context, orient
 	}
 	return nil
 }
+
+// KegDeletionProvider permanently removes catalog KEGs.
+type KegDeletionProvider interface {
+	// DeleteKeg removes the explicit canonical KEG and all its data, including snapshots.
+	DeleteKeg(context.Context, string) error
+}
+
+func (p localKegDiscoveryProvider) DeleteKeg(ctx context.Context, ref string) error {
+	_, err := p.tap.KegDelete(ctx, tapper.KegDeleteOptions{Keg: ref})
+	return err
+}
