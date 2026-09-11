@@ -4,13 +4,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"net/http/httptest"
+
 	"os"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
 
+	"github.com/jlrickert/tapper/internal/testapi"
 	"github.com/jlrickert/tapper/pkg/schemas"
 	"github.com/jlrickert/tapper/pkg/tapper"
 	"github.com/stretchr/testify/require"
@@ -21,7 +22,7 @@ func TestFlightEdit_PipedStdinAppliesManifest(t *testing.T) {
 	sb := NewSandbox(t)
 
 	var put *tapper.HubFlight
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := testapi.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.Method + " " + r.URL.Path {
 		case "GET /api/v1/@foldwise/+agent-work":
@@ -66,7 +67,7 @@ func TestFlightEdit_EditorStartsWithSchemaManifest(t *testing.T) {
 	sb := NewSandbox(t)
 
 	var putCalled atomic.Bool
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := testapi.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.Method + " " + r.URL.Path {
 		case "GET /api/v1/@foldwise/+agent-work":

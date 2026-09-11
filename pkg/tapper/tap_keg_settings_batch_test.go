@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/jlrickert/cli-toolkit/sandbox"
+	"github.com/jlrickert/tapper/internal/testapi"
 	"github.com/jlrickert/tapper/pkg/tapper"
 	"github.com/stretchr/testify/require"
 )
@@ -18,7 +19,7 @@ func TestKegSettingsBatch_UsesOrdinarySettingsAndPreservesInputOrder(t *testing.
 	t.Parallel()
 	var aCalls, bCalls atomic.Int32
 	newHub := func(calls *atomic.Int32, prefix string) *httptest.Server {
-		return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		return testapi.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			calls.Add(1)
 			require.Equal(t, http.MethodGet, r.Method)
 			require.True(t, strings.HasSuffix(r.URL.Path, "/settings"), r.URL.Path)
@@ -64,7 +65,7 @@ namespaces:
 func TestKegSettingsBatch_NeverCallsRemovedOrientationRoute(t *testing.T) {
 	t.Parallel()
 	var settingsCalls atomic.Int32
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := testapi.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/v1/@legacy/kegs/one/settings":
 			settingsCalls.Add(1)

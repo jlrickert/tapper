@@ -10,13 +10,14 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"net/http/httptest"
+
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/jlrickert/cli-toolkit/sandbox"
 	"github.com/jlrickert/cli-toolkit/toolkit"
+	"github.com/jlrickert/tapper/internal/testapi"
 	"github.com/jlrickert/tapper/pkg/tapper"
 	"github.com/stretchr/testify/require"
 )
@@ -440,7 +441,7 @@ func TestTap_AuthStatus(t *testing.T) {
 		sb := NewSandbox(t)
 		tap := newTestTap(t, sb)
 
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		srv := testapi.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"access_token":"thub_refreshednew99","token_type":"Bearer",` +
 				`"expires_in":900,"refresh_token":"rt-rotated"}`))
@@ -485,7 +486,7 @@ func TestTap_AuthStatus(t *testing.T) {
 
 		const hub = "https://hub.example.com"
 		now := sb.Runtime().Clock().Now()
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		srv := testapi.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			winner := &tapper.AuthStore{}
 			winner.Set(hub, tapper.AuthEntry{
 				AccessToken:   "thub_siblingwin00",
@@ -530,7 +531,7 @@ func TestTap_AuthStatus(t *testing.T) {
 		sb := NewSandbox(t)
 		tap := newTestTap(t, sb)
 		// A token endpoint that fails the test if it is ever called.
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		srv := testapi.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			t.Errorf("offline status must not contact the token endpoint")
 			w.WriteHeader(http.StatusInternalServerError)
 		}))

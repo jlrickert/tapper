@@ -4,9 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"net/http/httptest"
+
 	"testing"
 
+	"github.com/jlrickert/tapper/internal/testapi"
 	"github.com/jlrickert/tapper/pkg/keg"
 	"github.com/jlrickert/tapper/pkg/tapper"
 	"github.com/stretchr/testify/require"
@@ -27,7 +28,7 @@ func TestInitKeg_RemoteCreate_Success(t *testing.T) {
 	require.NoError(t, fx.Runtime().Env().Set("TEST_TOK", "tok"))
 
 	var gotPath string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := testapi.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.Path
 		require.Equal(t, "Bearer tok", r.Header.Get("Authorization"))
 		w.WriteHeader(http.StatusCreated)
@@ -62,7 +63,7 @@ func TestInitKeg_RemoteCreate_UsesFallbackHubDefaultNamespace(t *testing.T) {
 	require.NoError(t, fx.Runtime().Env().Set("TEST_TOK", "tok"))
 
 	var gotPath string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := testapi.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.Path
 		require.Equal(t, "Bearer tok", r.Header.Get("Authorization"))
 		w.WriteHeader(http.StatusCreated)
@@ -89,7 +90,7 @@ func TestInitKeg_RemoteFallbackHubWithoutNamespaceDoesNotFallBackLocal(t *testin
 	require.NoError(t, fx.Setwd("/home/testuser"))
 	require.NoError(t, fx.Runtime().Env().Set("TEST_TOK", "tok"))
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := testapi.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Fatalf("remote create should fail before contacting the hub when no namespace is configured: %s %s", r.Method, r.URL.Path)
 	}))
 	defer srv.Close()
@@ -113,7 +114,7 @@ func TestInitKeg_RemoteCreate_Conflict(t *testing.T) {
 	require.NoError(t, fx.Setwd("/home/testuser"))
 	require.NoError(t, fx.Runtime().Env().Set("TEST_TOK", "tok"))
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	srv := testapi.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusConflict)
 		_ = json.NewEncoder(w).Encode(map[string]string{"error": "keg already exists", "code": "CONFLICT"})
 	}))

@@ -15,6 +15,7 @@ import (
 	"io"
 	"net/http"
 
+	"github.com/jlrickert/tapper/pkg/apicontract"
 	"github.com/jlrickert/tapper/pkg/keg"
 )
 
@@ -57,7 +58,7 @@ func CreateKeg(ctx context.Context, hubURL, token, namespace, alias, title, visi
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
 
-	resp, err := hubHTTPClient().Do(req)
+	resp, err := apicontract.Do(hubHTTPClient(), req)
 	if err != nil {
 		return fmt.Errorf("hub: contact hub: %w", err)
 	}
@@ -91,7 +92,7 @@ func ListUserKegs(ctx context.Context, hubURL, token string) ([]HubKeg, error) {
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Accept", "application/json")
 
-	resp, err := hubHTTPClient().Do(req)
+	resp, err := apicontract.Do(hubHTTPClient(), req)
 	if err != nil {
 		return nil, fmt.Errorf("hub: contact hub: %w", err)
 	}
@@ -183,7 +184,7 @@ func DeleteKeg(ctx context.Context, hubURL, token, namespace, alias string) erro
 	if value, ok := keg.OrientationHeaderForURL(ctx, endpoint); ok {
 		req.Header.Set(keg.OrientationHeaderName, value)
 	}
-	resp, err := hubHTTPClient().Do(req)
+	resp, err := apicontract.Do(hubHTTPClient(), req)
 	if err != nil {
 		return err
 	}

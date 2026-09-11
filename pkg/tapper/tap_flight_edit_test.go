@@ -13,6 +13,7 @@ import (
 
 	"github.com/jlrickert/cli-toolkit/sandbox"
 	"github.com/jlrickert/cli-toolkit/toolkit"
+	"github.com/jlrickert/tapper/internal/testapi"
 	"github.com/jlrickert/tapper/pkg/schemas"
 	"github.com/jlrickert/tapper/pkg/tapper"
 	"github.com/stretchr/testify/require"
@@ -40,7 +41,7 @@ func newFlightEditFixture(t *testing.T) *flightEditFixture {
 			Cover:        []tapper.HubFlightCover{{Namespace: "foldwise", Keg: "docs", Role: "viewer"}},
 		},
 	}
-	fx.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	fx.srv = testapi.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.Method + " " + r.URL.Path {
 		case "GET /api/v1/@foldwise/+agent-work":

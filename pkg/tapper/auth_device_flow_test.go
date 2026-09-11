@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/jlrickert/cli-toolkit/toolkit"
+	"github.com/jlrickert/tapper/internal/testapi"
 )
 
 const fakeBadGatewayStep = "__bad_gateway__"
@@ -122,7 +123,7 @@ func newFakeHub(t *testing.T, steps []*tokenErrorResponse) *fakeHub {
 		})
 	})
 
-	h.Server = httptest.NewServer(mux)
+	h.Server = testapi.NewServer(mux)
 	h.URL = h.Server.URL
 	t.Cleanup(h.Server.Close)
 	return h
@@ -405,7 +406,7 @@ func TestAuthLoginDevice_HubMissingDeviceEndpoint(t *testing.T) {
 			"token_endpoint":         "http://" + r.Host + "/oauth/token",
 		})
 	})
-	srv := httptest.NewServer(mux)
+	srv := testapi.NewServer(mux)
 	t.Cleanup(srv.Close)
 
 	rt, _ := toolkit.NewRuntime()

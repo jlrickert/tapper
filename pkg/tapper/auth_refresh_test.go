@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jlrickert/tapper/internal/testapi"
 	"github.com/stretchr/testify/require"
 
 	"github.com/jlrickert/tapper/pkg/keg"
@@ -19,7 +20,7 @@ import (
 // can assert the request shape.
 func rotatingTokenHub(t *testing.T, gotForm *url.Values) *httptest.Server {
 	t.Helper()
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := testapi.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = r.ParseForm()
 		if gotForm != nil {
 			*gotForm = r.PostForm
@@ -63,7 +64,7 @@ func TestRefreshHubToken_RotatesAndRenews(t *testing.T) {
 func TestRefreshHubToken_RejectedRefreshErrors(t *testing.T) {
 	t.Parallel()
 	fx := NewSandbox(t)
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := testapi.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		_, _ = w.Write([]byte(`{"error":"invalid_grant"}`))
 	}))
@@ -129,7 +130,7 @@ func TestTap_AuthRefreshAll_RefreshesOnlyRenewableExpiringEntries(t *testing.T) 
 	tap := newTestTap(t, sb)
 
 	var calls atomic.Int64
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := testapi.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls.Add(1)
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"access_token":"thub_refreshednew99","token_type":"Bearer",` +
@@ -194,7 +195,7 @@ func TestTap_AuthRefreshAll_AdoptsDiskAfterRefreshRejected(t *testing.T) {
 	now := sb.Runtime().Clock().Now()
 	var calls atomic.Int64
 	var srv *httptest.Server
-	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv = testapi.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls.Add(1)
 		winner := &tapper.AuthStore{}
 		winner.Set(hub, tapper.AuthEntry{

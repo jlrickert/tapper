@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/jlrickert/cli-toolkit/sandbox"
+	"github.com/jlrickert/tapper/internal/testapi"
 	kegpkg "github.com/jlrickert/tapper/pkg/keg"
 	"github.com/stretchr/testify/require"
 )
@@ -593,7 +594,7 @@ func newMockOpsHub(t *testing.T, f *sandbox.Sandbox, token string) *mockOpsHub {
 	})
 
 	// Wrap with request counting + bearer auth.
-	h.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	h.srv = testapi.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h.requests.Add(1)
 		if h.token != "" && r.Header.Get("Authorization") != "Bearer "+h.token {
 			h.writeError(w, http.StatusUnauthorized, "authentication required", "UNAUTHORIZED")

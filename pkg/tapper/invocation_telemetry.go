@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/jlrickert/cli-toolkit/toolkit"
+	"github.com/jlrickert/tapper/pkg/apicontract"
 )
 
 const (
@@ -56,6 +57,7 @@ type httpInvocationReporter struct {
 	version  string
 	agent    string
 	client   *http.Client
+	contract *apicontract.Session
 
 	queue chan InvocationEvent
 	done  chan struct{}
@@ -71,6 +73,7 @@ type httpInvocationReporter struct {
 }
 
 type invocationReporterOptions struct {
+	contract       *apicontract.Session
 	client         *http.Client
 	queueSize      int
 	batchSize      int
@@ -82,13 +85,18 @@ type invocationReporterOptions struct {
 // NewInvocationReporter resolves the user-scope reporting destination and
 // existing AuthStore token. It returns nil when telemetry is disabled or the
 // client is not bootstrapped, authenticated, or configured with a remote hub.
-func NewInvocationReporter(rt *toolkit.Runtime, configService *ConfigService, version string) InvocationReporter {
+func NewInvocationReporter(rt *toolkit.Runtime, configService *ConfigService, version string, sessions ...*apicontract.Session) InvocationReporter {
 	endpoint, token, ok := resolveInvocationTelemetryTarget(rt, configService)
 	if !ok {
 		return nil
 	}
+	session := apicontract.NewSession(version, rt.Logger())
+	if len(sessions) > 0 && sessions[0] != nil {
+		session = sessions[0]
+	}
 	return newHTTPInvocationReporter(endpoint, token, version, invocationReporterOptions{
-		agent: resolveTelemetryAgent(configService),
+		contract: session,
+		agent:    resolveTelemetryAgent(configService),
 	})
 }
 
@@ -150,12 +158,16 @@ func newHTTPInvocationReporter(endpoint, token, version string, opts invocationR
 	if opts.client == nil {
 		opts.client = &http.Client{}
 	}
+	if opts.contract == nil {
+		opts.contract = apicontract.NewSession(version, nil)
+	}
 	r := &httpInvocationReporter{
 		endpoint:       endpoint,
 		token:          token,
 		version:        version,
 		agent:          opts.agent,
 		client:         opts.client,
+		contract:       opts.contract,
 		queue:          make(chan InvocationEvent, opts.queueSize),
 		done:           make(chan struct{}),
 		flushInterval:  opts.flushInterval,
@@ -249,8 +261,12 @@ func (r *httpInvocationReporter) send(ctx context.Context, batch []InvocationEve
 	}
 	req.Header.Set("Authorization", "Bearer "+r.token)
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := r.client.Do(req)
+	req = req.WithContext(apicontract.WithSession(req.Context(), r.contract))
+	resp, err := apicontract.Do(r.client, req)
 	if err != nil {
+		if apicontract.IsCompatibility(err) {
+			r.disabled.Store(true)
+		}
 		return
 	}
 	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4<<10))

@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/jlrickert/cli-toolkit/toolkit"
+	"github.com/jlrickert/tapper/pkg/apicontract"
 	"github.com/jlrickert/tapper/pkg/keg"
 )
 
@@ -76,7 +77,7 @@ func ValidateToken(ctx context.Context, rt *toolkit.Runtime, hubURL, token strin
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Accept", "application/json")
 
-	resp, err := hubHTTPClient().Do(req)
+	resp, err := apicontract.Do(hubHTTPClient(), req)
 	if err != nil {
 		return nil, fmt.Errorf("auth: contact hub: %w", err)
 	}

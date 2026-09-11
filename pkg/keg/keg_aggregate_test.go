@@ -4,10 +4,11 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"net/http/httptest"
+
 	"sync/atomic"
 	"testing"
 
+	"github.com/jlrickert/tapper/internal/testapi"
 	"github.com/jlrickert/tapper/pkg/keg"
 	"github.com/stretchr/testify/require"
 )
@@ -175,7 +176,7 @@ func TestRemoteAggregateMethodsUseOneRequest(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			var count atomic.Int32
-			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			srv := testapi.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				count.Add(1)
 				require.Equal(t, tc.method, r.Method)
 				require.Equal(t, tc.path, r.URL.Path)

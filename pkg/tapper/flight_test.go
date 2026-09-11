@@ -5,10 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"net/http/httptest"
+
 	"sync/atomic"
 	"testing"
 
+	"github.com/jlrickert/tapper/internal/testapi"
 	"github.com/jlrickert/tapper/pkg/keg"
 	"github.com/jlrickert/tapper/pkg/tapper"
 	"github.com/stretchr/testify/require"
@@ -17,13 +18,13 @@ import (
 func TestFlightService_ListHubFilterContactsOnlySelectedHub(t *testing.T) {
 	t.Parallel()
 	var firstCalls, secondCalls atomic.Int32
-	first := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	first := testapi.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		firstCalls.Add(1)
 		require.Equal(t, "/api/v1/flights", r.URL.Path)
 		_ = json.NewEncoder(w).Encode([]tapper.HubFlight{{Namespace: "one", Slug: "focus"}})
 	}))
 	defer first.Close()
-	second := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	second := testapi.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		secondCalls.Add(1)
 		require.Equal(t, "/api/v1/flights", r.URL.Path)
 		_ = json.NewEncoder(w).Encode([]tapper.HubFlight{{Namespace: "two", Slug: "review"}})
@@ -54,7 +55,7 @@ func TestFlightService_ListHubFilterContactsOnlySelectedHub(t *testing.T) {
 
 func TestFlightService_RemoteGraphUsesOneFreshBatchPerResolution(t *testing.T) {
 	var calls atomic.Int32
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := testapi.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, "/api/v1/flights", r.URL.Path)
 		require.Equal(t, "Bearer tok", r.Header.Get("Authorization"))
 		generation := calls.Add(1)

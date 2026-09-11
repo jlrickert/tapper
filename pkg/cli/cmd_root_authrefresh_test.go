@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/jlrickert/cli-toolkit/toolkit"
+	"github.com/jlrickert/tapper/internal/testapi"
 	"github.com/jlrickert/tapper/pkg/tapper"
 	"github.com/stretchr/testify/require"
 )
@@ -22,7 +23,7 @@ import (
 func countingRefreshHub(t *testing.T) (*httptest.Server, *atomic.Int64) {
 	t.Helper()
 	var calls atomic.Int64
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := testapi.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls.Add(1)
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"access_token":"thub_startupfresh1","token_type":"Bearer",` +

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/jlrickert/cli-toolkit/toolkit"
+	"github.com/jlrickert/tapper/pkg/apicontract"
 )
 
 // Sentinel errors for remote-API-specific failure conditions.
@@ -61,7 +62,8 @@ type RemoteKeg struct {
 	credentialCheck func() error
 
 	// client is the HTTP client used for all requests.
-	client *http.Client
+	client   *http.Client
+	contract *apicontract.Session
 
 	// logger receives diagnostic output (live watch retries and
 	// terminations). When nil, diagnostics are dropped.
@@ -84,11 +86,12 @@ func NewRemoteKeg(baseURL, token string, rt *toolkit.Runtime) *RemoteKeg {
 		logger = rt.Logger()
 	}
 	return &RemoteKeg{
-		baseURL: strings.TrimRight(baseURL, "/"),
-		token:   token,
-		client:  http.DefaultClient,
-		logger:  logger,
-		rt:      rt,
+		baseURL:  strings.TrimRight(baseURL, "/"),
+		token:    token,
+		client:   http.DefaultClient,
+		contract: apicontract.NewSession("dev", logger),
+		logger:   logger,
+		rt:       rt,
 	}
 }
 
@@ -134,10 +137,16 @@ func (k *RemoteKeg) SetTarget(target *Target) {
 
 // do executes an HTTP request with authentication and context propagation.
 func (k *RemoteKeg) do(ctx context.Context, method, path string, body io.Reader, contentType string, header http.Header) (*http.Response, error) {
+	if apicontract.FromContext(ctx) == nil {
+		ctx = apicontract.WithSession(ctx, k.contract)
+	}
 	if k.credentialCheck != nil {
 		if err := k.credentialCheck(); err != nil {
 			return nil, err
 		}
+	}
+	if err := k.checkContract(ctx); err != nil {
+		return nil, err
 	}
 	if err := ValidateOrientationTarget(ctx, k.baseURL); err != nil {
 		return nil, err
@@ -167,8 +176,11 @@ func (k *RemoteKeg) do(ctx context.Context, method, path string, body io.Reader,
 			req.Header.Set(key, val)
 		}
 	}
-	resp, err := k.orientationHTTPClient(ctx).Do(req)
+	resp, err := apicontract.Do(k.orientationHTTPClient(ctx), req)
 	if err != nil {
+		if apicontract.IsCompatibility(err) {
+			return nil, err
+		}
 		return nil, NewBackendError("remote", method+" "+path, 0, err, true)
 	}
 	return resp, nil
@@ -188,6 +200,19 @@ func (k *RemoteKeg) mapError(resp *http.Response, op string) error {
 	defer resp.Body.Close()
 
 	body, _ := io.ReadAll(resp.Body)
+	var compatibility apicontract.CompatibilityError
+	if resp.StatusCode == http.StatusBadRequest && json.Unmarshal(body, &compatibility) == nil && !compatibility.OperationPerformed && (compatibility.Code == apicontract.Required || compatibility.Code == apicontract.Unsupported) {
+		ctx := context.Background()
+		clientVersion := "dev"
+		if resp.Request != nil {
+			ctx = resp.Request.Context()
+			if value := resp.Request.Header.Get(apicontract.ClientHeader); value != "" {
+				clientVersion = value
+			}
+		}
+		apicontract.LogFailure(ctx, k.logger, slog.LevelError, clientVersion, &compatibility, resp.Header.Get("X-Request-ID"))
+		return &compatibility
+	}
 	var env apiErrorEnvelope
 	var msg, code string
 	if json.Unmarshal(body, &env) == nil && env.Error != "" {
@@ -1095,4 +1120,19 @@ func (k *RemoteKeg) orientationHTTPClient(ctx context.Context) *http.Client {
 	governed := *client
 	governed.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	return &governed
+}
+
+func (k *RemoteKeg) checkContract(ctx context.Context) error {
+	if err := ValidateOrientationTarget(ctx, k.baseURL); err != nil {
+		return err
+	}
+	s := apicontract.FromContext(ctx)
+	if s == nil {
+		s = k.contract
+	}
+	if s == nil {
+		s = apicontract.NewSession("dev", k.logger)
+	}
+	base := strings.Split(k.baseURL, "/api/v1")[0]
+	return s.Check(ctx, k.httpClient(), base)
 }

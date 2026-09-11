@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"slices"
 	"strings"
 	"sync"
 
+	"github.com/jlrickert/tapper/pkg/apicontract"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/jlrickert/tapper/pkg/keg"
@@ -38,6 +40,9 @@ var ErrOrientationRootUnavailable = fmt.Errorf("ORIENTATION_ROOT_UNAVAILABLE: th
 // the reader looking for missing configuration instead of the real fault, which
 // is usually a wrong flight name or an unreachable hub.
 func failedOrientationPayload(err error) string {
+	if apicontract.IsCompatibility(err) {
+		return err.Error() + "\nREST operations are blocked. Upgrade Tapper and Hub to a shared contract and start a new connection. Recovery diagnostics remain available; no operation was performed."
+	}
 	return "This session could not establish flight authority: " + err.Error() +
 		"\n\nKEG tools are locked until it does, so only `orient`, `session_refresh`, `list_flights`," +
 		" `flight_show`, `auth_info`, `keg_search`, `flight_search`, and `guide` are published. An empty cover on a" +
@@ -108,31 +113,35 @@ type flightSessionContextKey struct{}
 // pointer at their boundary, so an in-flight call finishes under the authority
 // with which it began while later calls observe a successful refresh.
 type orientationContext struct {
-	root             *tapper.Flight
-	flight           *tapper.Flight
-	path             []string
-	availableFlights []string
-	identity         string
-	revision         string
-	rootHub          string
-	allowedTargets   []string
-	payload          string
-	kegs             []tapper.OrientationKeg
-	aggregateKegs    []tapper.OrientationKeg
-	warnings         []string
-	fullAccess       bool
-	reconnect        string
-	mode             sessionMode
+	root                *tapper.Flight
+	flight              *tapper.Flight
+	path                []string
+	availableFlights    []string
+	identity            string
+	revision            string
+	rootHub             string
+	allowedTargets      []string
+	payload             string
+	kegs                []tapper.OrientationKeg
+	aggregateKegs       []tapper.OrientationKeg
+	warnings            []string
+	fullAccess          bool
+	reconnect           string
+	mode                sessionMode
+	initializationError error
 }
 
 type flightSessionState struct {
 	mu        sync.RWMutex
 	refreshMu sync.Mutex
 	current   *orientationContext
+	contract  *apicontract.Session
 }
 
 type sessionFlightGate struct {
-	provider OrientationProvider
+	provider      OrientationProvider
+	clientVersion string
+	logger        *slog.Logger
 
 	mu     sync.Mutex
 	states map[string]*flightSessionState
@@ -156,7 +165,7 @@ func (g *sessionFlightGate) state(sessionID string) *flightSessionState {
 	if state := g.states[sessionID]; state != nil {
 		return state
 	}
-	state := &flightSessionState{}
+	state := &flightSessionState{contract: apicontract.NewSession(g.clientVersion, g.logger)}
 	g.states[sessionID] = state
 	return state
 }
@@ -185,7 +194,7 @@ func (g *sessionFlightGate) loadAndPin(ctx context.Context, sessionID string) (*
 			return current, err
 		}
 		// Initialization must remain connectable for recovery.
-		recovery := &orientationContext{payload: failedOrientationPayload(err), mode: modeSelect, warnings: []string{err.Error()}}
+		recovery := &orientationContext{initializationError: err, payload: failedOrientationPayload(err), mode: modeSelect, warnings: []string{err.Error()}}
 		state.mu.Lock()
 		state.current = recovery
 		state.mu.Unlock()
@@ -384,6 +393,9 @@ func allowedTools(current *orientationContext) map[string]bool {
 }
 
 func lockedError(current *orientationContext) error {
+	if current != nil && apicontract.IsCompatibility(current.initializationError) {
+		return current.initializationError
+	}
 	return errMCPFlightRequired
 }
 
@@ -551,6 +563,14 @@ func (g *sessionFlightGate) middleware(next sdkmcp.MethodHandler) sdkmcp.MethodH
 	return func(ctx context.Context, method string, req sdkmcp.Request) (sdkmcp.Result, error) {
 		sessionID := sessionIDFromRequest(req)
 		ctx = context.WithValue(ctx, flightSessionContextKey{}, sessionID)
+		state := g.state(sessionID)
+		state.mu.Lock()
+		if existing := apicontract.FromContext(ctx); method == "initialize" && existing != nil {
+			state.contract = existing
+		}
+		contract := state.contract
+		state.mu.Unlock()
+		ctx = apicontract.WithSession(ctx, contract)
 
 		if method == "initialize" {
 			current, _ := g.loadAndPin(ctx, sessionID)
@@ -562,6 +582,9 @@ func (g *sessionFlightGate) middleware(next sdkmcp.MethodHandler) sdkmcp.MethodH
 			if initialized, ok := result.(*sdkmcp.InitializeResult); ok {
 				copyResult := *initialized
 				copyResult.Instructions = initializationInstructions()
+				if current != nil && current.initializationError != nil {
+					copyResult.Instructions += "\n" + current.payload
+				}
 				return &copyResult, nil
 			}
 			return result, nil
@@ -629,6 +652,9 @@ func (g *sessionFlightGate) middleware(next sdkmcp.MethodHandler) sdkmcp.MethodH
 				callOrientation, err = g.resolveCall(ctx, sessionID, selected)
 			case modeSelect:
 				if params.Name == "orient" {
+					if apicontract.IsCompatibility(current.initializationError) {
+						return errorResult(current.initializationError), nil
+					}
 					if selected != "" {
 						return errorResult(errors.New("cannot select a flight before this connection has an active pinned root; call `session_refresh`, then `orient`")), nil
 					}
@@ -765,12 +791,18 @@ const bareCallDeniedAction = "This call named no flight, so it resolved against 
 	"`cat`, `links`, and `backlinks` among them. Nothing was written."
 
 func orientationFailureResult(err error) *sdkmcp.CallToolResult {
+	if apicontract.IsCompatibility(err) {
+		return errorResult(err)
+	}
 	return orientationFailureResultWithAction(err, "")
 }
 
 // orientationFailureResultWithAction renders a failure with caller-supplied
 // remediation text. An empty action keeps the wording chosen for the error class.
 func orientationFailureResultWithAction(err error, action string) *sdkmcp.CallToolResult {
+	if apicontract.IsCompatibility(err) {
+		return errorResult(err)
+	}
 	if err == nil {
 		err = ErrOrientationStale
 	}

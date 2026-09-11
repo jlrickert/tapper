@@ -11,6 +11,7 @@ import (
 	"sync"
 
 	"github.com/jlrickert/cli-toolkit/toolkit"
+	"github.com/jlrickert/tapper/pkg/apicontract"
 	"github.com/jlrickert/tapper/pkg/keg"
 	"github.com/jlrickert/tapper/pkg/schemas"
 )
@@ -277,6 +278,9 @@ func (s *FlightService) FlightCatalog(ctx context.Context, hub string, warnings 
 
 		flights, listErr := s.listRemoteFlights(ctx, name, entry)
 		if listErr != nil {
+			if apicontract.IsCompatibility(listErr) {
+				return nil, listErr
+			}
 			if warnings != nil {
 				*warnings = append(*warnings, fmt.Sprintf("skipped hub %q: %v", name, listErr))
 			}

@@ -4,11 +4,12 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"net/http/httptest"
+
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/jlrickert/tapper/internal/testapi"
 	"github.com/jlrickert/tapper/pkg/keg"
 )
 
@@ -26,7 +27,7 @@ func TestRemoteKegWatchHandshakeUsesStructuredErrorCode(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			var requests atomic.Int32
-			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			srv := testapi.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				requests.Add(1)
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusConflict)

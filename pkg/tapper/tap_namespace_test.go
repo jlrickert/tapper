@@ -6,10 +6,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/http/httptest"
+
 	"testing"
 
 	"github.com/jlrickert/cli-toolkit/sandbox"
+	"github.com/jlrickert/tapper/internal/testapi"
 	kegpkg "github.com/jlrickert/tapper/pkg/keg"
 	"github.com/jlrickert/tapper/pkg/tapper"
 	"github.com/stretchr/testify/require"
@@ -127,7 +128,7 @@ func TestNamespaceCreate(t *testing.T) {
 
 func TestCreateNamespaceDisabled(t *testing.T) {
 	t.Parallel()
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := testapi.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Fatalf("CreateNamespace should not call the hub API: %s %s", r.Method, r.URL.Path)
 	}))
 	defer srv.Close()
@@ -144,9 +145,9 @@ func newTwoHubTap(t *testing.T, atlas, homelab http.Handler) (*tapper.Tap, *sand
 	t.Helper()
 	fx := NewSandbox(t)
 	require.NoError(t, fx.Setwd("/home/testuser"))
-	atlasSrv := httptest.NewServer(atlas)
+	atlasSrv := testapi.NewServer(atlas)
 	t.Cleanup(atlasSrv.Close)
-	homelabSrv := httptest.NewServer(homelab)
+	homelabSrv := testapi.NewServer(homelab)
 	t.Cleanup(homelabSrv.Close)
 
 	tap, err := tapper.NewTap(tapper.TapOptions{Root: "/home/testuser", Runtime: fx.Runtime()})

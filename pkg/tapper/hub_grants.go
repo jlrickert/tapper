@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/jlrickert/tapper/pkg/apicontract"
 	"github.com/jlrickert/tapper/pkg/keg"
 )
 
@@ -97,7 +98,7 @@ func doHubJSON(ctx context.Context, method, hubURL, token, path string, payload,
 		req.Header.Set("Content-Type", "application/json")
 	}
 
-	resp, err := hubHTTPClient().Do(req)
+	resp, err := apicontract.Do(hubHTTPClient(), req)
 	if err != nil {
 		return fmt.Errorf("hub: contact hub: %w", err)
 	}

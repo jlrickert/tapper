@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/jlrickert/tapper/internal/testapi"
 	kegpkg "github.com/jlrickert/tapper/pkg/keg"
 	"github.com/stretchr/testify/require"
 )
@@ -25,7 +26,7 @@ type authHeaderRecorder struct {
 func newAuthHeaderRecorder(t *testing.T) *authHeaderRecorder {
 	t.Helper()
 	rec := &authHeaderRecorder{}
-	rec.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	rec.srv = testapi.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		rec.mu.Lock()
 		rec.headers = append(rec.headers, r.Header.Get("Authorization"))
 		rec.mu.Unlock()

@@ -16,6 +16,7 @@ import (
 
 	"github.com/jlrickert/cli-toolkit/mylog"
 	"github.com/jlrickert/cli-toolkit/toolkit"
+	"github.com/jlrickert/tapper/pkg/apicontract"
 	"github.com/jlrickert/tapper/pkg/tapper"
 	"github.com/spf13/cobra"
 )
@@ -223,6 +224,8 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 				return err
 			}
 
+			ctx = apicontract.WithSession(ctx, apicontract.NewSession(Version, rt.Logger()))
+
 			// Renew any expired hub credentials before the command runs so
 			// one-off commands and the long-running MCP server both start
 			// with fresh tokens. Skipped for shell completion, which must
@@ -237,7 +240,7 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 				tap.AuthRefreshAll(ctx)
 			}
 			if !localOnly && deps.InvocationReporter == nil {
-				deps.InvocationReporter = tapper.NewInvocationReporter(rt, tap.ConfigService, Version)
+				deps.InvocationReporter = tapper.NewInvocationReporter(rt, tap.ConfigService, Version, apicontract.FromContext(ctx))
 			}
 
 			cmd.SetContext(ctx)

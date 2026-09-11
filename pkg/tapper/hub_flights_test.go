@@ -4,9 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"net/http/httptest"
+
 	"testing"
 
+	"github.com/jlrickert/tapper/internal/testapi"
 	"github.com/jlrickert/tapper/pkg/tapper"
 	"github.com/stretchr/testify/require"
 )
@@ -16,7 +17,7 @@ func TestHubFlights_ClientPaths(t *testing.T) {
 
 	var gotAuth string
 	var seen []string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := testapi.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotAuth = r.Header.Get("Authorization")
 		seen = append(seen, r.Method+" "+r.URL.Path)
 		w.Header().Set("Content-Type", "application/json")
@@ -81,7 +82,7 @@ func TestHubFlights_ClientPaths(t *testing.T) {
 
 func TestHubFlights_ClientRejectsUnknownCoverRole(t *testing.T) {
 	t.Parallel()
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := testapi.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(tapper.HubFlight{
 			Namespace: "foldwise",
@@ -130,7 +131,7 @@ func TestHubFlights_ClientSurfacesHubDiagnosis(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			srv := testapi.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(tc.status)
 				_ = json.NewEncoder(w).Encode(map[string]string{"error": tc.body})

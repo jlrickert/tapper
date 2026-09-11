@@ -4,9 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"net/http/httptest"
+
 	"testing"
 
+	"github.com/jlrickert/tapper/internal/testapi"
 	"github.com/jlrickert/tapper/pkg/tapper"
 	"github.com/stretchr/testify/require"
 )
@@ -37,7 +38,7 @@ func TestHubListKegs_RemoteAggregates(t *testing.T) {
 	fx := NewSandbox(t)
 	require.NoError(t, fx.Setwd("/home/testuser"))
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := testapi.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, "/api/v1/kegs", r.URL.Path)
 		require.Equal(t, "Bearer remote-tok", r.Header.Get("Authorization"))
 		_ = json.NewEncoder(w).Encode([]tapper.HubKeg{

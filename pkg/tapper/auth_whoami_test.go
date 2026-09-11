@@ -4,10 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"net/http/httptest"
+
 	"testing"
 
 	"github.com/jlrickert/cli-toolkit/toolkit"
+	"github.com/jlrickert/tapper/internal/testapi"
 	"github.com/jlrickert/tapper/pkg/tapper"
 	"github.com/stretchr/testify/require"
 )
@@ -25,7 +26,7 @@ func TestValidateToken_Success(t *testing.T) {
 			"email":    "alice@example.com",
 		})
 	})
-	srv := httptest.NewServer(mux)
+	srv := testapi.NewServer(mux)
 	t.Cleanup(srv.Close)
 
 	rt, _ := toolkit.NewRuntime()
@@ -43,7 +44,7 @@ func TestValidateToken_Unauthorized(t *testing.T) {
 	mux.HandleFunc("/api/v1/whoami", func(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, "nope", http.StatusUnauthorized)
 	})
-	srv := httptest.NewServer(mux)
+	srv := testapi.NewServer(mux)
 	t.Cleanup(srv.Close)
 
 	rt, _ := toolkit.NewRuntime()
@@ -58,7 +59,7 @@ func TestValidateToken_OtherStatusSurfacesCode(t *testing.T) {
 	mux.HandleFunc("/api/v1/whoami", func(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, "boom", http.StatusInternalServerError)
 	})
-	srv := httptest.NewServer(mux)
+	srv := testapi.NewServer(mux)
 	t.Cleanup(srv.Close)
 
 	rt, _ := toolkit.NewRuntime()
