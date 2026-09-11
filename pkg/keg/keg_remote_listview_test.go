@@ -8,6 +8,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/jlrickert/tapper/internal/testapi"
 	"github.com/stretchr/testify/require"
 
 	kegpkg "github.com/jlrickert/tapper/pkg/keg"
@@ -25,7 +26,7 @@ type pathRecorder struct {
 func newPathRecorder(t *testing.T, handle func(w http.ResponseWriter, r *http.Request)) *pathRecorder {
 	t.Helper()
 	rec := &pathRecorder{handle: handle}
-	rec.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	rec.srv = testapi.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		rec.mu.Lock()
 		rec.paths = append(rec.paths, r.URL.Path)
 		rec.mu.Unlock()

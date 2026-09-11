@@ -5,12 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"net/http/httptest"
+
 	"strings"
 	"sync"
 	"testing"
 
 	"github.com/jlrickert/cli-toolkit/toolkit"
+	"github.com/jlrickert/tapper/internal/testapi"
 	"github.com/jlrickert/tapper/pkg/keg"
 	"github.com/jlrickert/tapper/pkg/mcp"
 	"github.com/jlrickert/tapper/pkg/tapper"
@@ -40,7 +41,7 @@ func TestTwoHubFlightAuthorityAndRouting(t *testing.T) {
 		require.NoError(t, mcp.FinalizeOrientation(projection))
 		return projection
 	}
-	root := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	root := testapi.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		mu.Lock()
 		defer mu.Unlock()
 		require.Equal(t, "Bearer root-token", r.Header.Get("Authorization"))
@@ -82,7 +83,7 @@ func TestTwoHubFlightAuthorityAndRouting(t *testing.T) {
 		}
 	}))
 	defer root.Close()
-	foreign := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	foreign := testapi.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		mu.Lock()
 		defer mu.Unlock()
 		require.Equal(t, "Bearer foreign-token", r.Header.Get("Authorization"))

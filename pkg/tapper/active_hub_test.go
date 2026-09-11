@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/jlrickert/cli-toolkit/sandbox"
+	"github.com/jlrickert/tapper/internal/testapi"
 	"github.com/jlrickert/tapper/pkg/keg"
 	"github.com/stretchr/testify/require"
 )
@@ -17,7 +18,7 @@ import (
 func TestActiveHubPinnedURLAndNewConnectionSelection(t *testing.T) {
 	var firstCalls, secondCalls atomic.Int32
 	hub := func(calls *atomic.Int32) *httptest.Server {
-		return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		return testapi.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			calls.Add(1)
 			require.Equal(t, "Bearer token", r.Header.Get("Authorization"))
 			switch r.URL.Path {

@@ -4,10 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"net/http/httptest"
+
 	"testing"
 	"time"
 
+	"github.com/jlrickert/tapper/internal/testapi"
 	"github.com/stretchr/testify/require"
 )
 
@@ -15,7 +16,7 @@ func TestOrientationRoutingForRequestsAndEvents(t *testing.T) {
 	for _, foreign := range []bool{false, true} {
 		t.Run(map[bool]string{false: "root", true: "foreign"}[foreign], func(t *testing.T) {
 			count := 0
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			server := testapi.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				count++
 				require.Equal(t, "Bearer destination-token", r.Header.Get("Authorization"))
 				require.Equal(t, !foreign, r.Header.Get(OrientationHeaderName) != "")
@@ -70,9 +71,9 @@ func TestOrientationRoutingForRequestsAndEvents(t *testing.T) {
 
 func TestGovernedRequestsDoNotFollowRedirects(t *testing.T) {
 	calls := 0
-	foreign := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { calls++; w.WriteHeader(http.StatusNoContent) }))
+	foreign := testapi.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { calls++; w.WriteHeader(http.StatusNoContent) }))
 	defer foreign.Close()
-	root := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	root := testapi.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, foreign.URL+r.URL.Path, http.StatusTemporaryRedirect)
 	}))
 	defer root.Close()

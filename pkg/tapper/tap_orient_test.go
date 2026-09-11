@@ -5,12 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"net/http/httptest"
+
 	"strings"
 	"sync/atomic"
 	"testing"
 
 	"github.com/jlrickert/cli-toolkit/sandbox"
+	"github.com/jlrickert/tapper/internal/testapi"
 	"github.com/stretchr/testify/require"
 
 	"github.com/jlrickert/tapper/pkg/tapper"
@@ -96,7 +97,7 @@ func TestTap_Orient_MissingHubAuthenticationIsMCPFirst(t *testing.T) {
 func TestTap_IdentityKegCatalog_UsesOneKegCatalogRequest(t *testing.T) {
 	t.Parallel()
 	var requests atomic.Int32
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := testapi.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests.Add(1)
 		require.Equal(t, "/api/v1/kegs", r.URL.Path)
 		_ = json.NewEncoder(w).Encode([]tapper.HubKeg{{
@@ -116,7 +117,8 @@ func TestTap_IdentityKegCatalog_UsesOneKegCatalogRequest(t *testing.T) {
 	cfg := fmt.Sprintf("hubs:\n  test:\n    kind: remote\n    url: %s\n    token: token\n", srv.URL)
 	require.NoError(t, sb.Runtime().AtomicWriteFile(tap.PathService.UserConfig(), []byte(cfg), 0o644))
 
-	rows, warnings := tap.IdentityKegCatalog(context.Background())
+	rows, warnings, catalogErr := tap.IdentityKegCatalog(context.Background())
+	require.NoError(t, catalogErr)
 	require.EqualValues(t, 1, requests.Load())
 	require.Empty(t, warnings)
 	require.Equal(t, []tapper.OrientationKeg{{
@@ -129,7 +131,7 @@ func TestTap_IdentityKegCatalog_UsesOneKegCatalogRequest(t *testing.T) {
 func TestTap_IdentityKegCatalog_NeverReadsIndividualSettings(t *testing.T) {
 	t.Parallel()
 	var configReads atomic.Int32
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := testapi.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/v1/kegs":
 			_ = json.NewEncoder(w).Encode([]tapper.HubKeg{{
@@ -151,7 +153,8 @@ func TestTap_IdentityKegCatalog_NeverReadsIndividualSettings(t *testing.T) {
 	cfg := fmt.Sprintf("hubs:\n  test:\n    kind: remote\n    url: %s\n    token: token\n", srv.URL)
 	require.NoError(t, sb.Runtime().AtomicWriteFile(tap.PathService.UserConfig(), []byte(cfg), 0o644))
 
-	rows, warnings := tap.IdentityKegCatalog(context.Background())
+	rows, warnings, catalogErr := tap.IdentityKegCatalog(context.Background())
+	require.NoError(t, catalogErr)
 	require.EqualValues(t, 0, configReads.Load())
 	require.Empty(t, warnings)
 	require.Len(t, rows, 1)
@@ -163,7 +166,7 @@ func TestTap_IdentityKegCatalog_NeverReadsIndividualSettings(t *testing.T) {
 // authority; flight selection remains configuration-owned.
 func TestTap_Orient_ActiveKeg_ExplicitOverride(t *testing.T) {
 	t.Parallel()
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := testapi.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, "/api/v1/kegs", r.URL.Path)
 		_ = json.NewEncoder(w).Encode([]tapper.HubKeg{{
 			Namespace: "local", Alias: "archive", Title: "Archive", Role: "admin",

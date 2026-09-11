@@ -4,9 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"net/http/httptest"
+
 	"testing"
 
+	"github.com/jlrickert/tapper/internal/testapi"
 	"github.com/stretchr/testify/require"
 )
 
@@ -14,7 +15,7 @@ func TestKegCreateUsesConfiguredHubExclusively(t *testing.T) {
 	t.Parallel()
 
 	var got map[string]string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := testapi.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, http.MethodPost, r.Method)
 		require.Equal(t, "/api/v1/@team/kegs", r.URL.Path)
 		require.Equal(t, "Bearer test-token", r.Header.Get("Authorization"))

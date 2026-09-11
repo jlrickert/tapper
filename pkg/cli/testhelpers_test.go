@@ -5,8 +5,8 @@ import (
 	"embed"
 	"encoding/json"
 	"fmt"
+	"github.com/jlrickert/tapper/internal/testapi"
 	"net/http"
-	"net/http/httptest"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -76,7 +76,7 @@ func NewRemoteKegListSandbox(t *testing.T, kegs []tapper.HubKeg) *tu.Sandbox {
 		{Namespace: "team", Slug: "environment", Title: "Environment", Visibility: "private", Instructions: "Environment instructions"},
 		{Namespace: "team", Slug: "explicit", Title: "Explicit", Visibility: "private", Instructions: "Explicit instructions"},
 	}
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := testapi.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer test-token" {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return

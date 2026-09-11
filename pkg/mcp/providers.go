@@ -6,9 +6,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"sort"
 	"strings"
 
+	"github.com/jlrickert/tapper/pkg/apicontract"
 	"github.com/jlrickert/tapper/pkg/keg"
 	"github.com/jlrickert/tapper/pkg/tapper"
 )
@@ -189,6 +191,15 @@ func (p *localOrientationProvider) Load(ctx context.Context) (*Orientation, erro
 	if err := p.tap.ConfigService.PinHub(); err != nil {
 		return nil, err
 	}
+	if s := apicontract.FromContext(ctx); s != nil {
+		_, hub, err := p.tap.ConfigService.SelectedHub("")
+		if err != nil {
+			return nil, err
+		}
+		if err := s.Check(ctx, http.DefaultClient, hub.URL); err != nil {
+			return nil, err
+		}
+	}
 	p.tap.ConfigService.Reload()
 	p.tap.KegService.ReloadAuthStore()
 	ref := strings.TrimSpace(p.staticFlight)
@@ -212,6 +223,15 @@ func (p *localOrientationProvider) Resolve(ctx context.Context, rootRef, selecte
 	if err := p.tap.ConfigService.PinHub(); err != nil {
 		return nil, err
 	}
+	if s := apicontract.FromContext(ctx); s != nil {
+		_, hub, err := p.tap.ConfigService.SelectedHub("")
+		if err != nil {
+			return nil, err
+		}
+		if err := s.Check(ctx, http.DefaultClient, hub.URL); err != nil {
+			return nil, err
+		}
+	}
 	p.tap.ConfigService.Reload()
 	p.tap.KegService.ReloadAuthStore()
 	if strings.TrimSpace(rootRef) == "" {
@@ -220,9 +240,9 @@ func (p *localOrientationProvider) Resolve(ctx context.Context, rootRef, selecte
 	root, err := p.tap.FlightService.GetFlightFresh(ctx, rootRef)
 	if err != nil {
 		if errors.Is(err, keg.ErrNotExist) || errors.Is(err, keg.ErrForbidden) || errors.Is(err, keg.ErrUnauthorized) {
-			return nil, fmt.Errorf("%w: launch root %q is no longer available: %v", ErrOrientationRootUnavailable, rootRef, err)
+			return nil, fmt.Errorf("%w: launch root %q is no longer available: %w", ErrOrientationRootUnavailable, rootRef, err)
 		}
-		return nil, fmt.Errorf("%w: refresh launch root %q: %v", ErrOrientationUnavailable, rootRef, err)
+		return nil, fmt.Errorf("%w: refresh launch root %q: %w", ErrOrientationUnavailable, rootRef, err)
 	}
 	return p.resolve(ctx, root, selected)
 }
@@ -235,9 +255,12 @@ func (p *localOrientationProvider) resolveUnpinned(ctx context.Context, selected
 		available = append(available, row.Name)
 	}
 	if err != nil {
-		return nil, fmt.Errorf("%w: list identity-accessible flights: %v", ErrOrientationUnavailable, err)
+		return nil, fmt.Errorf("%w: list identity-accessible flights: %w", ErrOrientationUnavailable, err)
 	}
-	authorized, kegWarnings := p.tap.IdentityKegCatalog(ctx)
+	authorized, kegWarnings, err := p.tap.IdentityKegCatalog(ctx)
+	if err != nil {
+		return nil, err
+	}
 	warnings = append(warnings, kegWarnings...)
 	if strings.TrimSpace(selected) == "" {
 		orientation := &Orientation{
@@ -258,7 +281,7 @@ func (p *localOrientationProvider) resolveUnpinned(ctx context.Context, selected
 	}
 	active, loadErr := p.tap.FlightService.GetFlightFresh(ctx, selected)
 	if loadErr != nil {
-		return nil, fmt.Errorf("%w: selected flight %q is unavailable: %v", ErrOrientationDenied, selected, loadErr)
+		return nil, fmt.Errorf("%w: selected flight %q is unavailable: %w", ErrOrientationDenied, selected, loadErr)
 	}
 	allowed := false
 	for _, ref := range available {
@@ -300,11 +323,11 @@ func (p *localOrientationProvider) resolveUnpinned(ctx context.Context, selected
 func (p *localOrientationProvider) orientationIdentityForSource(ctx context.Context, source string) (string, error) {
 	identities, err := (localIdentityProvider{tap: p.tap}).Identities(ctx)
 	if err != nil {
-		return "", fmt.Errorf("%w: load selected Hub identity: %v", ErrOrientationUnavailable, err)
+		return "", fmt.Errorf("%w: load selected Hub identity: %w", ErrOrientationUnavailable, err)
 	}
 	cfg, err := p.tap.ConfigService.Config()
 	if err != nil {
-		return "", fmt.Errorf("%w: resolve selected Hub %q: %v", ErrOrientationUnavailable, source, err)
+		return "", fmt.Errorf("%w: resolve selected Hub %q: %w", ErrOrientationUnavailable, source, err)
 	}
 	hubURL := tapper.CanonicalConfiguredHubURL(source)
 	if entry, ok := cfg.Hub(source); ok && strings.TrimSpace(entry.URL) != "" {
@@ -316,7 +339,7 @@ func (p *localOrientationProvider) orientationIdentityForSource(ctx context.Cont
 		}
 		canonical, err := CanonicalOrientationIdentity(identity)
 		if err != nil {
-			return "", fmt.Errorf("%w: canonicalize selected Hub identity: %v", ErrOrientationUnavailable, err)
+			return "", fmt.Errorf("%w: canonicalize selected Hub identity: %w", ErrOrientationUnavailable, err)
 		}
 		return canonical, nil
 	}
@@ -326,19 +349,22 @@ func (p *localOrientationProvider) orientationIdentityForSource(ctx context.Cont
 func (p *localOrientationProvider) resolve(ctx context.Context, root *tapper.Flight, selected string) (*Orientation, error) {
 	graph, err := p.tap.FlightService.ResolveFlightGraph(ctx, root)
 	if err != nil {
-		return nil, fmt.Errorf("%w: load flight graph rooted at %s: %v", ErrOrientationUnavailable, root.Name, err)
+		return nil, fmt.Errorf("%w: load flight graph rooted at %s: %w", ErrOrientationUnavailable, root.Name, err)
 	}
 	root = graph.Root
 	active, path, err := graph.Select(selected)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrOrientationDenied, err)
+		return nil, fmt.Errorf("%w: %w", ErrOrientationDenied, err)
 	}
 	active, err = p.tap.FlightService.GetFlightFresh(ctx, active.Name)
 	if err != nil {
-		return nil, fmt.Errorf("%w: load active composed cover: %v", ErrOrientationUnavailable, err)
+		return nil, fmt.Errorf("%w: load active composed cover: %w", ErrOrientationUnavailable, err)
 	}
 	active = tapper.ComposedFlight(active)
-	authorized, warnings := p.tap.IdentityKegCatalog(ctx)
+	authorized, warnings, err := p.tap.IdentityKegCatalog(ctx)
+	if err != nil {
+		return nil, err
+	}
 	kegs := tapper.ProjectOrientationKegs(active, authorized)
 	for i := range kegs {
 		for _, row := range active.EffectiveCover {
@@ -380,7 +406,10 @@ func (p *localOrientationProvider) resolve(ctx context.Context, root *tapper.Fli
 }
 
 func (p *localOrientationProvider) Render(ctx context.Context, flight *tapper.Flight) (*Orientation, error) {
-	authorized, warnings := p.tap.IdentityKegCatalog(ctx)
+	authorized, warnings, err := p.tap.IdentityKegCatalog(ctx)
+	if err != nil {
+		return nil, err
+	}
 	kegs := tapper.ProjectOrientationKegs(flight, authorized)
 	orientation := &Orientation{Root: flight, Flight: flight, Path: []string{flight.Name}, Kegs: kegs, AggregateKegs: append([]tapper.OrientationKeg(nil), kegs...), Warnings: warnings}
 	if orientation.Root != nil {
@@ -590,7 +619,10 @@ func (p localKegDiscoveryProvider) CreateKeg(ctx context.Context, opts tapper.Cr
 }
 
 func (p localKegDiscoveryProvider) SearchKegs(ctx context.Context, query string) (KegSearchResult, error) {
-	rows, warnings := p.tap.IdentityKegCatalog(ctx)
+	rows, warnings, err := p.tap.IdentityKegCatalog(ctx)
+	if err != nil {
+		return KegSearchResult{}, err
+	}
 	out := SearchIdentityKegsResult(rows, query)
 	out.Warnings = append([]string{}, warnings...)
 	out.Partial = len(warnings) > 0

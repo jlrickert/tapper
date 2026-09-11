@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 
+	"github.com/jlrickert/tapper/pkg/apicontract"
 	"github.com/jlrickert/tapper/pkg/keg"
 )
 
@@ -56,7 +57,7 @@ func ListUserFlights(ctx context.Context, hubURL, token string) ([]HubFlight, er
 	}
 	req.Header.Set("Accept", "application/json")
 
-	resp, err := hubHTTPClient().Do(req)
+	resp, err := apicontract.Do(hubHTTPClient(), req)
 	if err != nil {
 		return nil, fmt.Errorf("hub: contact hub: %w", err)
 	}
@@ -188,7 +189,7 @@ func doHubFlightJSON(ctx context.Context, method, hubURL, token, path, expectedH
 		req.Header.Set("Content-Type", "application/json")
 	}
 
-	resp, err := hubHTTPClient().Do(req)
+	resp, err := apicontract.Do(hubHTTPClient(), req)
 	if err != nil {
 		return fmt.Errorf("hub: contact hub: %w", err)
 	}

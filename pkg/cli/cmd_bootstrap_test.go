@@ -9,12 +9,13 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"net/http/httptest"
+
 	"sync/atomic"
 	"testing"
 
 	"github.com/jlrickert/cli-toolkit/sandbox"
 	"github.com/jlrickert/cli-toolkit/toolkit"
+	"github.com/jlrickert/tapper/internal/testapi"
 	"github.com/jlrickert/tapper/pkg/tapper"
 	"github.com/stretchr/testify/require"
 )
@@ -143,7 +144,7 @@ func TestBootstrapCmd_RejectsRemovedLocalKind(t *testing.T) {
 func TestBootstrapCmd_NoFlightsReportsRecoveryOnly(t *testing.T) {
 	t.Parallel()
 	sb := newTestSandbox(t)
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := testapi.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, "/api/v1/flights", r.URL.Path)
 		_ = json.NewEncoder(w).Encode([]tapper.HubFlight{})
 	}))
@@ -176,7 +177,7 @@ func TestBootstrapCmd_ImplicitFlightOverrideIsNotPersisted(t *testing.T) {
 func TestBootstrapCmd_ExplicitRemoteFlightPersistsCanonicalRef(t *testing.T) {
 	t.Parallel()
 	sb := newTestSandbox(t)
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := testapi.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, http.MethodGet, r.Method)
 		require.Equal(t, "/api/v1/@bob/+focused", r.URL.Path)
 		require.Equal(t, "Bearer remote-token", r.Header.Get("Authorization"))
@@ -318,7 +319,7 @@ func TestBootstrapCmd_Interactive_LoginSelectsExistingKeg(t *testing.T) {
 	sb := newTestSandbox(t)
 
 	var sawList atomic.Bool
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := testapi.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet && r.URL.Path == "/api/v1/flights" {
 			_ = json.NewEncoder(w).Encode([]tapper.HubFlight{})
 			return
@@ -383,7 +384,7 @@ func TestBootstrapCmd_Interactive_NoKegsCreatesOne(t *testing.T) {
 
 	var sawList atomic.Bool
 	var sawCreate atomic.Bool
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := testapi.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if got := r.Header.Get("Authorization"); got != "Bearer pasted-token" {
 			t.Errorf("unexpected authorization header: %q", got)
 			w.WriteHeader(http.StatusUnauthorized)

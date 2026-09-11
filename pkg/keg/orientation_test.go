@@ -11,7 +11,12 @@ import (
 
 type orientationRoundTripFunc func(*http.Request) (*http.Response, error)
 
-func (f orientationRoundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) { return f(req) }
+func (f orientationRoundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	if req.URL.Path == "/api/version" {
+		return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"server_version":"test","api_versions":["2026-09-11"]}`))}, nil
+	}
+	return f(req)
+}
 
 func TestRemoteKegCarriesTrustedOrientationHeader(t *testing.T) {
 	state := OrientationState{Root: "@team/+root", Active: "@team/+child", Revision: "revision"}

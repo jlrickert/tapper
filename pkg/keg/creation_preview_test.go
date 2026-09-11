@@ -4,10 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/jlrickert/tapper/internal/testapi"
 	"github.com/jlrickert/tapper/pkg/keg"
 	"github.com/stretchr/testify/require"
 	"net/http"
-	"net/http/httptest"
+
 	"testing"
 )
 
@@ -98,7 +99,7 @@ markdown:
 func TestRemoteCreationPreviewPayload(t *testing.T) {
 	fx := NewSandbox(t)
 	calls := 0
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := testapi.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls++
 		require.Equal(t, "/validate", r.URL.Path)
 		require.Equal(t, http.MethodPost, r.Method)

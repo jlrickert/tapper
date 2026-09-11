@@ -4,9 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"net/http/httptest"
+
 	"testing"
 
+	"github.com/jlrickert/tapper/internal/testapi"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/require"
 )
@@ -16,7 +17,7 @@ func TestKegRenameCommand(t *testing.T) {
 
 	var gotPath string
 	var gotBody map[string]string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := testapi.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.Path
 		_ = json.NewDecoder(r.Body).Decode(&gotBody)
 		_ = json.NewEncoder(w).Encode(map[string]string{"namespace": "jlrickert", "alias": "renamed"})

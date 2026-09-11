@@ -4,9 +4,10 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"net/http/httptest"
+
 	"testing"
 
+	"github.com/jlrickert/tapper/internal/testapi"
 	"github.com/jlrickert/tapper/pkg/keg"
 	"github.com/stretchr/testify/require"
 )
@@ -19,7 +20,7 @@ func TestRemoteKegDocumentWritesSendIfMatch(t *testing.T) {
 		"DELETE /schemas/task": "schema-delete-hash",
 	}
 	seen := map[string]string{}
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := testapi.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		seen[r.Method+" "+r.URL.Path] = r.Header.Get("If-Match")
 		w.WriteHeader(http.StatusNoContent)
 	}))
@@ -36,7 +37,7 @@ func TestRemoteKegDocumentWritesSendIfMatch(t *testing.T) {
 func TestRemoteKegDecodesPreconditionErrorsWithRecoveryFields(t *testing.T) {
 	t.Parallel()
 	t.Run("required", func(t *testing.T) {
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		srv := testapi.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusPreconditionRequired)
 			_, _ = w.Write([]byte(`{"error":"If-Match is required","code":"PRECONDITION_REQUIRED","operationPerformed":false}`))
@@ -48,7 +49,7 @@ func TestRemoteKegDecodesPreconditionErrorsWithRecoveryFields(t *testing.T) {
 	})
 
 	t.Run("conflict", func(t *testing.T) {
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		srv := testapi.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusPreconditionFailed)
 			_, _ = w.Write([]byte(`{"error":"stale","code":"CONFLICT","operationPerformed":false,"currentHash":"fresh","currentContent":"type: task\n"}`))

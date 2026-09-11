@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/jlrickert/cli-toolkit/toolkit"
+	"github.com/jlrickert/tapper/internal/testapi"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/require"
 
@@ -172,7 +173,7 @@ func TestMCP_RemoteAliasCoverlessRootActivatesFullSurfaceAndCrossFlightKegList(t
 		Namespace: "admin", Slug: "test", Title: "Test", Visibility: "private",
 		Cover: []tapper.HubFlightCover{{Namespace: "admin", Keg: "private", Role: "editor"}},
 	}
-	hub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	hub := testapi.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
 		case "/api/v1/flights":
@@ -375,7 +376,7 @@ func installOrientationTestHub(t *testing.T, rt *toolkit.Runtime) *orientationTe
 			"private":  {Namespace: "local", Alias: "private", Title: "Private KEG", Description: "Private test knowledge", Visibility: "private", Role: "admin"},
 		},
 	}
-	hub.server = httptest.NewServer(http.HandlerFunc(hub.serveHTTP))
+	hub.server = testapi.NewServer(http.HandlerFunc(hub.serveHTTP))
 	orientationTestHubs.Store(rt, hub)
 	require.NoError(t, rt.Env().Set("TAPPER_TEST_HUB_TOKEN", "test-token"))
 	t.Cleanup(func() {

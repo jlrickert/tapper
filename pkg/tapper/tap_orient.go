@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/jlrickert/tapper/pkg/apicontract"
 	"github.com/jlrickert/tapper/pkg/integrations"
 	"github.com/jlrickert/tapper/pkg/keg"
 )
@@ -52,11 +53,20 @@ func (t *Tap) Orient(ctx context.Context, opts OrientOptions) (string, error) {
 		t.KegService.ReloadAuthStore()
 	}
 	flightName := t.ActiveFlightName(opts.Flight)
-	flight, flightNote := t.resolveOrientFlight(ctx, flightName)
-	available, warnings := t.OrientationKegsForFlight(ctx, flight)
+	flight, flightNote, err := t.resolveOrientFlight(ctx, flightName)
+	if err != nil {
+		return "", err
+	}
+	available, warnings, err := t.OrientationKegsForFlight(ctx, flight)
+	if err != nil {
+		return "", err
+	}
 	var authority *OrientationAuthority
 	if strings.TrimSpace(flightName) == "" {
-		available, warnings = t.IdentityKegCatalog(ctx)
+		available, warnings, err = t.IdentityKegCatalog(ctx)
+		if err != nil {
+			return "", err
+		}
 		flightNote = "No flight is configured, so normal identity-authorized full access applies. Pin a least-privilege flight outside MCP and start a new connection to narrow it."
 		authority = &OrientationAuthority{FullAccess: true}
 	}
@@ -83,19 +93,22 @@ func (t *Tap) Orient(ctx context.Context, opts OrientOptions) (string, error) {
 // OrientationKegsForFlight returns the effective KEG authority projection
 // without rendering a payload. Providers use it to compute the revision first
 // and then render exactly once.
-func (t *Tap) OrientationKegsForFlight(ctx context.Context, flight *Flight) ([]OrientationKeg, []string) {
-	rows, warnings := t.IdentityKegCatalog(ctx)
-	if flight == nil {
-		return nil, warnings
+func (t *Tap) OrientationKegsForFlight(ctx context.Context, flight *Flight) ([]OrientationKeg, []string, error) {
+	rows, warnings, err := t.IdentityKegCatalog(ctx)
+	if err != nil {
+		return nil, warnings, err
 	}
-	return ProjectOrientationKegs(flight, rows), warnings
+	if flight == nil {
+		return nil, warnings, nil
+	}
+	return ProjectOrientationKegs(flight, rows), warnings, nil
 }
 
 // IdentityKegCatalog discovers the identity-authorized KEGs from every
 // configured hub without applying flight authority. Each hub is queried at
 // most once. Callers must explicitly project these rows through a selected
 // flight or use them only for identity search.
-func (t *Tap) IdentityKegCatalog(ctx context.Context) ([]OrientationKeg, []string) {
+func (t *Tap) IdentityKegCatalog(ctx context.Context) ([]OrientationKeg, []string, error) {
 	return t.identityKegCatalog(ctx)
 }
 
@@ -158,16 +171,19 @@ func (t *Tap) ActiveAgentName() string {
 	return cfg.AgentName()
 }
 
-func (t *Tap) resolveOrientFlight(ctx context.Context, name string) (*Flight, string) {
+func (t *Tap) resolveOrientFlight(ctx context.Context, name string) (*Flight, string, error) {
 	name = strings.TrimSpace(name)
 	if name == "" || t == nil || t.FlightService == nil {
-		return nil, ""
+		return nil, "", nil
 	}
 	flight, err := t.FlightService.GetFlightFresh(ctx, name)
 	if err != nil {
-		return &Flight{Name: name}, fmt.Sprintf("Flight %q is unavailable: %v", name, err)
+		if apicontract.IsCompatibility(err) {
+			return nil, "", err
+		}
+		return &Flight{Name: name}, fmt.Sprintf("Flight %q is unavailable: %v", name, err), nil
 	}
-	return flight, ""
+	return flight, "", nil
 }
 
 // OrientationKeg is one effective KEG exposed by an orientation context.
@@ -198,13 +214,13 @@ type OrientationAuthority struct {
 	FullAccess       bool
 }
 
-func (t *Tap) identityKegCatalog(ctx context.Context) ([]OrientationKeg, []string) {
+func (t *Tap) identityKegCatalog(ctx context.Context) ([]OrientationKeg, []string, error) {
 	if t == nil || t.ConfigService == nil {
-		return nil, []string{"KEG listing unavailable: no config service is configured."}
+		return nil, []string{"KEG listing unavailable: no config service is configured."}, nil
 	}
 	cfg, loadWarnings, err := t.ConfigService.Load()
 	if err != nil {
-		return nil, []string{fmt.Sprintf("KEG listing unavailable: %v", err)}
+		return nil, []string{fmt.Sprintf("KEG listing unavailable: %v", err)}, nil
 	}
 
 	var warnings []string
@@ -225,6 +241,9 @@ func (t *Tap) identityKegCatalog(ctx context.Context) ([]OrientationKeg, []strin
 		}
 		rows, err := t.orientKegsForHub(ctx, cfg, hubName, entry)
 		if err != nil {
+			if apicontract.IsCompatibility(err) {
+				return nil, warnings, err
+			}
 			warnings = append(warnings, fmt.Sprintf("skipped hub %q: %v", hubName, err))
 			continue
 		}
@@ -244,7 +263,7 @@ func (t *Tap) identityKegCatalog(ctx context.Context) ([]OrientationKeg, []strin
 		identity = append(identity, row)
 	}
 	sort.Slice(identity, func(i, j int) bool { return identity[i].Ref < identity[j].Ref })
-	return identity, warnings
+	return identity, warnings, nil
 }
 
 func (t *Tap) orientKegsForHub(ctx context.Context, _ *Config, hubName string, entry HubEntry) ([]OrientationKeg, error) {

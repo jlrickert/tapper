@@ -11,6 +11,7 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
+	"github.com/jlrickert/tapper/pkg/apicontract"
 )
 
 // apiNodeEvent is the hub's live node event wire shape, delivered over the
@@ -25,10 +26,16 @@ type apiNodeEvent struct {
 // Watch implements Keg by subscribing to the hub's per-node websocket event
 // stream (/nodes/{id}/events) for each requested node.
 func (k *RemoteKeg) Watch(ctx context.Context, ids ...NodeId) (<-chan NodeEvent, error) {
+	if apicontract.FromContext(ctx) == nil {
+		ctx = apicontract.WithSession(ctx, k.contract)
+	}
 	if k.credentialCheck != nil {
 		if err := k.credentialCheck(); err != nil {
 			return nil, err
 		}
+	}
+	if err := k.checkContract(ctx); err != nil {
+		return nil, err
 	}
 	if err := ValidateOrientationTarget(ctx, k.baseURL); err != nil {
 		return nil, err
@@ -141,6 +148,10 @@ func (k *RemoteKeg) eventsURL(id NodeId) string {
 
 func (k *RemoteKeg) eventsHeader(ctx context.Context) http.Header {
 	h := make(http.Header)
+	h.Set(apicontract.VersionHeader, apicontract.Revision)
+	if s := apicontract.FromContext(ctx); s != nil {
+		h.Set(apicontract.ClientHeader, s.ClientVersion)
+	}
 	if token := k.currentToken(); token != "" {
 		h.Set("Authorization", "Bearer "+token)
 	}
@@ -151,7 +162,7 @@ func (k *RemoteKeg) eventsHeader(ctx context.Context) http.Header {
 }
 
 func isPermanentWatchError(err error) bool {
-	return errors.Is(err, ErrUnauthorized) || errors.Is(err, ErrForbidden) ||
+	return apicontract.IsCompatibility(err) || errors.Is(err, ErrUnauthorized) || errors.Is(err, ErrForbidden) ||
 		errors.Is(err, ErrNotExist) || errors.Is(err, ErrOrientationStale) ||
 		errors.Is(err, ErrOrientationDenied) || errors.Is(err, ErrOrientationUnavailable) ||
 		errors.Is(err, ErrOrientationRootUnavailable)

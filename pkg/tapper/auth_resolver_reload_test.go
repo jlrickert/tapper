@@ -2,11 +2,12 @@ package tapper_test
 
 import (
 	"net/http"
-	"net/http/httptest"
+
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/jlrickert/tapper/internal/testapi"
 	"github.com/stretchr/testify/require"
 
 	"github.com/jlrickert/tapper/pkg/keg"
@@ -29,7 +30,7 @@ func TestAuthStoreTokenResolver_AdoptsRotatedPairFromDisk(t *testing.T) {
 	path := authStorePath(t, fx)
 
 	var hubCalls atomic.Int64
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := testapi.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		hubCalls.Add(1)
 		w.WriteHeader(http.StatusBadRequest)
 		_, _ = w.Write([]byte(`{"error":"invalid_grant"}`))
@@ -97,7 +98,7 @@ func TestAuthStoreTokenResolver_AdoptsDiskAfterRefreshRejected(t *testing.T) {
 	}
 
 	var hubKeySlot atomic.Value // set once the server URL is known
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := testapi.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// The sibling process wins the race while our request is in flight:
 		// its rotated pair lands on disk before our rejection arrives.
 		hubKey := hubKeySlot.Load().(string)

@@ -5,9 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"net/http/httptest"
+
 	"testing"
 
+	"github.com/jlrickert/tapper/internal/testapi"
 	"github.com/jlrickert/tapper/pkg/keg"
 	"github.com/jlrickert/tapper/pkg/tapper"
 	"github.com/stretchr/testify/require"
@@ -17,7 +18,7 @@ func TestCreateKeg_Success(t *testing.T) {
 	t.Parallel()
 
 	var gotAuth, gotPath, gotBody string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := testapi.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotAuth = r.Header.Get("Authorization")
 		gotPath = r.URL.Path
 		var body map[string]string
@@ -38,7 +39,7 @@ func TestCreateKeg_Success(t *testing.T) {
 func TestCreateKeg_Conflict(t *testing.T) {
 	t.Parallel()
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	srv := testapi.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusConflict)
 		_ = json.NewEncoder(w).Encode(map[string]string{"error": "keg already exists", "code": "CONFLICT"})
 	}))
@@ -52,7 +53,7 @@ func TestCreateKeg_Conflict(t *testing.T) {
 func TestCreateKeg_Unauthorized(t *testing.T) {
 	t.Parallel()
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	srv := testapi.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
 	}))
 	defer srv.Close()
@@ -66,7 +67,7 @@ func TestListUserKegs_Success(t *testing.T) {
 	t.Parallel()
 
 	var gotAuth string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := testapi.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotAuth = r.Header.Get("Authorization")
 		require.Equal(t, "/api/v1/kegs", r.URL.Path)
 		w.Header().Set("Content-Type", "application/json")
@@ -91,7 +92,7 @@ func TestListUserKegs_Success(t *testing.T) {
 func TestListUserKegs_Forbidden(t *testing.T) {
 	t.Parallel()
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	srv := testapi.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusForbidden)
 	}))
 	defer srv.Close()
@@ -106,7 +107,7 @@ func TestRenameKeg_Success(t *testing.T) {
 
 	var gotAuth, gotMethod, gotPath string
 	var gotBody map[string]string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := testapi.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotAuth = r.Header.Get("Authorization")
 		gotMethod = r.Method
 		gotPath = r.URL.Path
@@ -124,7 +125,7 @@ func TestRenameKeg_Success(t *testing.T) {
 }
 
 func TestCreateKeg_ForbiddenPreservesExplanation(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := testapi.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusForbidden)
 		_ = json.NewEncoder(w).Encode(map[string]string{"code": "FORBIDDEN", "error": "namespace membership required"})
 	}))

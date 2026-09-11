@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/jlrickert/cli-toolkit/sandbox"
+	"github.com/jlrickert/tapper/internal/testapi"
 	"github.com/jlrickert/tapper/pkg/keg"
 	"github.com/jlrickert/tapper/pkg/tapper"
 	"github.com/stretchr/testify/require"
@@ -22,7 +23,7 @@ func newRemoteHubTap(t *testing.T, handler http.Handler) (*tapper.Tap, *sandbox.
 	t.Helper()
 	fx := NewSandbox(t)
 	require.NoError(t, fx.Setwd("/home/testuser"))
-	srv := httptest.NewServer(handler)
+	srv := testapi.NewServer(handler)
 	t.Cleanup(srv.Close)
 	tap, err := tapper.NewTap(tapper.TapOptions{Root: "/home/testuser", Runtime: fx.Runtime()})
 	require.NoError(t, err)

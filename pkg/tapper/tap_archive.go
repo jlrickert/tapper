@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/jlrickert/cli-toolkit/toolkit"
+	"github.com/jlrickert/tapper/pkg/apicontract"
 	"github.com/jlrickert/tapper/pkg/keg"
 )
 
@@ -138,7 +139,7 @@ func readArchiveInput(ctx context.Context, rt *toolkit.Runtime, input string) ([
 		if err != nil {
 			return nil, fmt.Errorf("unable to create archive request: %w", err)
 		}
-		resp, err := http.DefaultClient.Do(req)
+		resp, err := apicontract.Do(http.DefaultClient, req)
 		if err != nil {
 			return nil, fmt.Errorf("unable to download archive: %w", err)
 		}

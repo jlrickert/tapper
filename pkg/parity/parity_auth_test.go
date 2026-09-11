@@ -13,10 +13,11 @@ package parity_test
 import (
 	"fmt"
 	"net/http"
-	"net/http/httptest"
+
 	"strings"
 	"testing"
 
+	"github.com/jlrickert/tapper/internal/testapi"
 	"github.com/stretchr/testify/require"
 
 	"github.com/jlrickert/tapper/pkg/tapper"
@@ -45,7 +46,7 @@ func seedAuthStoreForEnv(t *testing.T, env *parityEnv, hubURL string, entry tapp
 // the returned URL, so their formatted output must match byte-for-byte.
 func startWhoamiHub(t *testing.T, status int, username, displayName string) string {
 	t.Helper()
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := testapi.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/v1/whoami" {
 			http.NotFound(w, r)
 			return

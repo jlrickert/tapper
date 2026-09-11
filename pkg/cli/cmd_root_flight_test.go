@@ -5,9 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"net/http/httptest"
+
 	"testing"
 
+	"github.com/jlrickert/tapper/internal/testapi"
 	"github.com/jlrickert/tapper/pkg/tapper"
 	"github.com/stretchr/testify/require"
 )
@@ -15,7 +16,7 @@ import (
 func TestRootConfiguredFlightDoesNotBecomeExplicitDependency(t *testing.T) {
 	t.Parallel()
 	flight := tapper.HubFlight{Namespace: "team", Slug: "project", Title: "Project", Instructions: "Project instructions"}
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := testapi.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
 		case "/api/v1/@team/+project":

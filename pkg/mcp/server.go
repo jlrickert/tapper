@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/jlrickert/tapper/pkg/apicontract"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/jlrickert/cli-toolkit/clock"
@@ -68,6 +69,11 @@ func NewServer(tap *tapper.Tap, version string, defaults KegDefaults, opts ...Se
 		opt.IdentityProvider = localIdentityProvider{tap: tap}
 	}
 	defaults.gate = newSessionFlightGate(opt.OrientationProvider)
+	defaults.gate.clientVersion = version
+	defaults.gate.logger = opt.Logger
+	if defaults.gate.logger == nil && tap != nil && tap.Runtime != nil {
+		defaults.gate.logger = tap.Runtime.Logger()
+	}
 
 	var srv *sdkmcp.Server
 	nodeSubs := newNodeResourceSubscriptions(tap, defaults, func(ctx context.Context, uri string) {
@@ -201,6 +207,10 @@ func mcpDefaultMaxLines(maxLines int) int {
 
 // errorResult returns a CallToolResult with IsError set.
 func errorResult(err error) *sdkmcp.CallToolResult {
+	var compatibility *apicontract.CompatibilityError
+	if errors.As(err, &compatibility) {
+		return &sdkmcp.CallToolResult{IsError: true, Content: []sdkmcp.Content{&sdkmcp.TextContent{Text: compatibility.Error()}}, StructuredContent: compatibility}
+	}
 	var restriction *tapper.FlightRestrictionError
 	if errors.As(err, &restriction) {
 		return orientationFailureResult(fmt.Errorf("%w: %v", ErrOrientationDenied, err))
