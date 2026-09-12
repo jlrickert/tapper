@@ -5,8 +5,8 @@ import (
 	"embed"
 	"encoding/json"
 	"fmt"
-	"github.com/jlrickert/tapper/internal/testapi"
 	"net/http"
+
 	"path/filepath"
 	"sort"
 	"strings"
@@ -15,6 +15,7 @@ import (
 
 	tu "github.com/jlrickert/cli-toolkit/sandbox"
 	"github.com/jlrickert/cli-toolkit/toolkit"
+	"github.com/jlrickert/tapper/internal/testapi"
 	"github.com/jlrickert/tapper/internal/testkegrepo"
 	"github.com/jlrickert/tapper/pkg/cli"
 	"github.com/jlrickert/tapper/pkg/keg"
@@ -142,6 +143,22 @@ func NewProcess(t *testing.T, isTTY bool, args ...string) *tu.Process {
 		activeFactory := factory
 		mu.Unlock()
 		ctx = cli.WithTestDepsHook(ctx, func(deps *cli.Deps) { deps.TapFactory = activeFactory })
+		return cli.Run(ctx, rt, args)
+	}, isTTY)
+}
+
+// NewHubProcess is NewProcess without the fixture keg resolver, so keg
+// resolution runs for real and a config naming a remote hub yields a
+// *keg.RemoteKeg talking HTTP.
+//
+// The fixture resolver NewProcess installs always short-circuits to an
+// in-memory LocalKeg, which means the rest of this suite tests a keg
+// implementation no user ever touches — the client builds only RemoteKegs. That
+// gap is how a create path the hub rejects outright shipped, so anything
+// asserting on what a hub actually receives has to come through here.
+func NewHubProcess(t *testing.T, isTTY bool, args ...string) *tu.Process {
+	t.Helper()
+	return tu.NewProcess(func(ctx context.Context, rt *toolkit.Runtime) (int, error) {
 		return cli.Run(ctx, rt, args)
 	}, isTTY)
 }
