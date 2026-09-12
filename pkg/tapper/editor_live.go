@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,6 +17,29 @@ import (
 	"github.com/jlrickert/cli-toolkit/toolkit"
 	"github.com/jlrickert/tapper/pkg/keg"
 )
+
+// syncWriter serializes writes to a writer shared between goroutines.
+//
+// The editor subprocess writes the caller's stderr (os/exec copies the child's
+// output on its own goroutine for as long as the child lives) and so does the
+// live-save loop, whenever a save is rejected. When stderr is a plain
+// bytes.Buffer — every sandboxed run, and any caller that captures output —
+// those are two unsynchronized writers to one buffer. A full-screen editor
+// keeps running after a refused save, so the overlap is the normal case, not a
+// corner one.
+type syncWriter struct {
+	mu sync.Mutex
+	w  io.Writer
+}
+
+func (s *syncWriter) Write(p []byte) (int, error) {
+	if s == nil || s.w == nil {
+		return len(p), nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.w.Write(p)
+}
 
 // externalWrites tracks the hash of content that reverse sync wrote to the
 // edit file on behalf of another client. Live-save consults it so bytes that
@@ -49,9 +73,11 @@ func (e *externalWrites) matches(sum [sha256.Size]byte) bool {
 // access.
 type liveSaveState struct {
 	// immutable
-	rt       *toolkit.Runtime
-	path     string
-	stream   *toolkit.Stream
+	rt   *toolkit.Runtime
+	path string
+	// errW is the caller's stderr, serialized against the editor
+	// subprocess's own writes to it. See syncWriter.
+	errW     io.Writer
 	onSave   func([]byte) error
 	external *externalWrites
 
@@ -77,7 +103,7 @@ func (s *liveSaveState) process() {
 		}
 		s.attempted = true
 		s.lastApplyErr = fmt.Errorf("unable to read edited file: %w", err)
-		_, _ = fmt.Fprintf(s.stream.Err, "Warning: %v\n", s.lastApplyErr)
+		_, _ = fmt.Fprintf(s.errW, "Warning: %v\n", s.lastApplyErr)
 		return
 	}
 
@@ -102,11 +128,11 @@ func (s *liveSaveState) process() {
 		if errors.Is(err, keg.ErrNotExist) {
 			s.nodeRemoved = true
 			s.lastApplyErr = fmt.Errorf("node was removed while editing — save aborted: %w", err)
-			_, _ = fmt.Fprintf(s.stream.Err, "Warning: %v\n", s.lastApplyErr)
+			_, _ = fmt.Fprintf(s.errW, "Warning: %v\n", s.lastApplyErr)
 			return
 		}
 		s.lastApplyErr = err
-		_, _ = fmt.Fprintf(s.stream.Err, "Warning: %v\n", err)
+		_, _ = fmt.Fprintf(s.errW, "Warning: %v\n", err)
 		return
 	}
 	s.applied = true
@@ -152,9 +178,12 @@ func editWithLiveSaves(ctx context.Context, rt *toolkit.Runtime, path string, ex
 
 	cmd := exec.CommandContext(ctx, parts[0], append(parts[1:], editorPath)...)
 	stream := rt.Stream()
+	// The child and the live-save loop both write stderr, concurrently, for as
+	// long as the editor is open. Hand both the same serialized writer.
+	errW := &syncWriter{w: stream.Err}
 	cmd.Stdin = stream.In
 	cmd.Stdout = stream.Out
-	cmd.Stderr = stream.Err
+	cmd.Stderr = errW
 	cmd.Env = rt.Environ()
 
 	watcher, err := fsnotify.NewWatcher()
@@ -173,7 +202,7 @@ func editWithLiveSaves(ctx context.Context, rt *toolkit.Runtime, path string, ex
 	state := &liveSaveState{
 		rt:       rt,
 		path:     path,
-		stream:   stream,
+		errW:     errW,
 		onSave:   onSave,
 		external: external,
 	}
@@ -220,7 +249,7 @@ func editWithLiveSaves(ctx context.Context, rt *toolkit.Runtime, path string, ex
 			if !ok {
 				continue
 			}
-			_, _ = fmt.Fprintf(stream.Err, "Warning: editor file watcher error: %v\n", watchErr)
+			_, _ = fmt.Fprintf(errW, "Warning: editor file watcher error: %v\n", watchErr)
 		case err := <-done:
 			state.process()
 			if err != nil {

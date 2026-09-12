@@ -27,9 +27,15 @@ If stdin is piped with non-empty content, it is used as the node body and no
 editor is launched. The content may optionally include YAML frontmatter; if
 present, the frontmatter is written to meta.yaml.
 
-Otherwise, on a TTY, an editor is opened on the new node. Everything about the
-node is written there: the title is the H1, and metadata is the YAML
-frontmatter above it.
+Otherwise, on a TTY, an editor is opened on an empty node buffer. Everything
+about the node is written there: the title is the H1, and metadata is the YAML
+frontmatter above it. The node is created on your first save and updated on
+every save after that, so quitting the editor without saving creates nothing.
+A save that cannot be accepted — no H1, say — is reported without ending the
+session, so you can fix it and save again.
+
+With neither piped content nor a terminal there is nothing to build a node
+from, and the command says so rather than creating an untitled node.
 
 --schema preselects the node type, which is prefilled as type: in the editor's
 frontmatter and applied when you save. It is required when the keg is strict and
