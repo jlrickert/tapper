@@ -29,8 +29,7 @@ type kegSearchInput struct {
 }
 
 type kegCreateInput struct {
-	Keg        string `json:"keg" jsonschema:"alias for the new keg (1-64 lowercase letters, digits, or hyphens)"`
-	Namespace  string `json:"namespace,omitempty" jsonschema:"target namespace without the @ sigil; empty uses the session default"`
+	Keg        string `json:"keg" jsonschema:"required,qualified creation reference @namespace/keg; each component is 1-64 lowercase letters, digits, or hyphens and starts with a letter or digit"`
 	Title      string `json:"title,omitempty" jsonschema:"human-readable keg title"`
 	Visibility string `json:"visibility,omitempty" jsonschema:"keg visibility: private (default) or public"`
 }
@@ -133,7 +132,6 @@ func registerKegTools(srv *sdkmcp.Server, defaults KegDefaults, kegs KegDiscover
 		}
 		ref, err := kegs.CreateKeg(ctx, tapper.CreateKegOptions{
 			Keg:        in.Keg,
-			Namespace:  in.Namespace,
 			Title:      in.Title,
 			Visibility: in.Visibility,
 		})
@@ -200,9 +198,9 @@ type kegDeleteInput struct {
 
 func registerKegDelete(srv *sdkmcp.Server, defaults KegDefaults, provider KegDiscoveryProvider) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{Name: "keg_delete", Description: "Permanently delete an empty or populated KEG and all its data, including snapshots. Requires identity admin permission; a selected flight also requires delete_kegs and effective admin cover. manage_kegs alone cannot delete. No expected_hash: a settings hash does not cover a whole KEG.", Annotations: &sdkmcp.ToolAnnotations{DestructiveHint: boolPtr(true), OpenWorldHint: boolPtr(true)}}, func(ctx context.Context, _ *sdkmcp.CallToolRequest, in kegDeleteInput) (*sdkmcp.CallToolResult, any, error) {
-		ns, alias, ok := strings.Cut(strings.TrimPrefix(in.Keg, "@"), "/")
-		if !strings.HasPrefix(in.Keg, "@") || !ok || tapper.ValidateKegAlias(ns) != nil || tapper.ValidateKegAlias(alias) != nil {
-			return errorResult(fmt.Errorf("%w: keg must be an explicit canonical @namespace/keg reference", keg.ErrInvalid)), nil, nil
+		ns, alias, err := tapper.ParseCanonicalKegRef(in.Keg)
+		if err != nil {
+			return errorResult(fmt.Errorf("keg must be an explicit canonical @namespace/keg reference: %w", err)), nil, nil
 		}
 		if err := defaults.gate.authorizeCapability(orientationFromContext(ctx), tapper.FlightCapabilityDeleteKegs); err != nil {
 			return errorResult(err), nil, nil

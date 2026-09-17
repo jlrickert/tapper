@@ -40,32 +40,7 @@ func NewSandbox(t *testing.T, opts ...tu.Option) *tu.Sandbox {
 		Home: "/home/testuser",
 		User: "testuser",
 	}, opts...)
-	normalizeFixtureConfig(t, sb.Runtime())
 	return sb
-}
-
-func normalizeFixtureConfig(t *testing.T, rt *toolkit.Runtime) {
-	t.Helper()
-	home, err := rt.GetHome()
-	if err != nil {
-		return
-	}
-	path := filepath.Join(home, ".config", "tapper", "config.yaml")
-	raw, err := rt.ReadFile(path)
-	if err != nil || !strings.Contains(string(raw), "kind: local") {
-		return
-	}
-	body := strings.ReplaceAll(string(raw), "kind: local", "kind: remote")
-	body = strings.ReplaceAll(body, "    basePath: ~/kegs", "    url: https://fixture.invalid\n    token: test-token")
-	if !strings.Contains(body, "hub:") {
-		body += "hub: home\n"
-	}
-	if !strings.Contains(body, "namespaces:") {
-		body += "namespaces:\n  local:\n    hub: home\n"
-	}
-	if err := rt.AtomicWriteFile(path, []byte(body), 0o644); err != nil {
-		t.Fatalf("normalize fixture config: %v", err)
-	}
 }
 
 func NewRemoteKegListSandbox(t *testing.T, kegs []tapper.HubKeg) *tu.Sandbox {
@@ -365,13 +340,11 @@ func newFixtureTapFactory(t *testing.T, ctx context.Context, rt *toolkit.Runtime
 					if alias == "" {
 						alias = strings.TrimSpace(cfg.LookupAlias(rt, tap.Root))
 					}
-					if namespace == "" {
-						namespace = strings.TrimPrefix(strings.TrimSpace(cfg.DefaultNamespace()), "@")
-						if namespace == "" {
-							namespace = strings.TrimPrefix(strings.TrimSpace(cfg.FallbackNamespace()), "@")
-						}
-					}
+
 				}
+			}
+			if strings.HasPrefix(alias, "@") {
+				namespace, alias, _ = strings.Cut(strings.TrimPrefix(alias, "@"), "/")
 			}
 			if namespace == "" {
 				namespace = "local"

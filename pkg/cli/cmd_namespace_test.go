@@ -12,7 +12,6 @@ func TestNamespaceCreateCmd_PrintsHubUIURL(t *testing.T) {
 	sb.MustWriteFile("~/.config/tapper/config.yaml", []byte(`hub: atlas
 hubs:
   atlas:
-    kind: remote
     url: https://hub.example.com
 `), 0o644)
 

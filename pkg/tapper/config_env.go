@@ -13,8 +13,6 @@ var tapEnvVarKeys = []string{
 	"LOG_FILE",
 	"LOG_LEVEL",
 	"HUB",
-	"DEFAULT_NAMESPACE",
-	"FALLBACK_NAMESPACE",
 	"DISABLE_ATLAS_HUB",
 	"DISABLE_TELEMETRY",
 }
@@ -47,12 +45,6 @@ func configFromEnvMap(envMap map[string]string) *Config {
 	}
 	if v, ok := envMap["hub"]; ok {
 		cfg.data.HubName = v
-	}
-	if v, ok := envMap["default_namespace"]; ok {
-		cfg.data.DefaultNamespace = v
-	}
-	if v, ok := envMap["fallback_namespace"]; ok {
-		cfg.data.FallbackNamespace = v
 	}
 	if v, ok := envMap["disable_atlas_hub"]; ok {
 		cfg.data.DisableAtlasHub = parseEnvBool(v)

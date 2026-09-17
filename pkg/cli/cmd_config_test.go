@@ -40,7 +40,6 @@ func TestConfigCommand_DisplaysMergedConfig(t *testing.T) {
 			setupFixture: strPtr("joe"),
 			expectedInStdout: []string{
 				"hub:",
-				"defaultNamespace: pub",
 				"hubs:",
 			},
 			description: "User template should include the fallback hub, per-hub namespace, and hubs map",
@@ -52,7 +51,6 @@ func TestConfigCommand_DisplaysMergedConfig(t *testing.T) {
 			expectedInStdout: []string{
 				"keg:",
 				"hub:",
-				"defaultNamespace:",
 			},
 			description: "Project template should include the default hub/namespace keys",
 		},
@@ -264,8 +262,8 @@ func TestConfigCommand_ShowSourcesFlag(t *testing.T) {
 	require.Contains(t, stdout, "logLevel")
 	require.Contains(t, stdout, "hub")
 	require.Contains(t, stdout, "hub")
-	require.Contains(t, stdout, "defaultNamespace")
-	require.Contains(t, stdout, "fallbackNamespace")
+	require.NotContains(t, stdout, "defaultNamespace")
+	require.NotContains(t, stdout, "fallbackNamespace")
 	// Should have source annotations in brackets.
 	require.Contains(t, stdout, "[")
 }

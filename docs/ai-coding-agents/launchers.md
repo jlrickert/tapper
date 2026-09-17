@@ -1,9 +1,11 @@
 # Provider-neutral launcher composition
 
 `tap launch` binds an agent process to one connection-pinned Hub-backed flight root.
-Set `flight: @namespace/+slug` in Tapper configuration or export
+Set `flight: @namespace/+slug` in Tapper configuration (including a
+directory-specific `kegMap` rule) or export
 `TAP_FLIGHT=@namespace/+slug`; the launcher validates that the namespace routes
 to a remote Hub before starting the harness. Flights are always Hub-backed.
+Project flight overrides the mapped flight; both override the user baseline.
 For a one-shot root that does not rewrite shared configuration, pass the global
 flag directly:
 

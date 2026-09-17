@@ -10,7 +10,6 @@ import (
 
 // InitOptions configures creation of a KEG on a configured remote hub.
 type InitOptions struct {
-	Namespace  string
 	Hub        string
 	Title      string
 	Keg        string
@@ -22,7 +21,6 @@ type InitOptions struct {
 
 // CreateKegOptions is the agent-facing KEG creation request.
 type CreateKegOptions struct {
-	Namespace  string
 	Keg        string
 	Title      string
 	Visibility string
@@ -30,8 +28,8 @@ type CreateKegOptions struct {
 
 // InitKeg creates a KEG through the configured hub creation endpoint.
 func (t *Tap) InitKeg(ctx context.Context, options InitOptions) (*keg.Target, error) {
-	name := strings.TrimSpace(options.Keg)
-	if err := ValidateKegAlias(name); err != nil {
+	namespace, name, err := ParseKegCreationRef(options.Keg)
+	if err != nil {
 		return nil, err
 	}
 	if options.RequireBootstrap && !t.ConfigService.UserConfigExists() {
@@ -46,7 +44,7 @@ func (t *Tap) InitKeg(ctx context.Context, options InitOptions) (*keg.Target, er
 	if err != nil {
 		return nil, err
 	}
-	namespace, hubName, _, err := cfg.resolveNamespaceHub(options.Namespace, hubName)
+	namespace, hubName, _, err = cfg.resolveNamespaceHub(namespace, hubName)
 	if err != nil {
 		return nil, fmt.Errorf("cannot create %q: %w", name, err)
 	}
@@ -73,4 +71,36 @@ func (t *Tap) initRemoteKeg(ctx context.Context, options InitOptions, target *ke
 		return nil, err
 	}
 	return target, nil
+}
+
+// ParseCanonicalKegRef splits an explicit @namespace/keg reference into its two
+// validated segments. Every surface that accepts a canonical reference parses
+// through here, so the reference rule has exactly one implementation.
+func ParseCanonicalKegRef(raw string) (string, string, error) {
+	ref := strings.TrimSpace(raw)
+	if !strings.HasPrefix(ref, "@") {
+		return "", "", fmt.Errorf("keg reference %q must start with @: %w", raw, keg.ErrInvalid)
+	}
+	namespace, name, ok := strings.Cut(strings.TrimPrefix(ref, "@"), "/")
+	if !ok {
+		return "", "", fmt.Errorf("keg reference %q must be @namespace/keg: %w", raw, keg.ErrInvalid)
+	}
+	if err := ValidateNamespace(namespace); err != nil {
+		return "", "", err
+	}
+	if err := ValidateKegAlias(name); err != nil {
+		return "", "", err
+	}
+	return namespace, name, nil
+}
+
+// ParseKegCreationRef validates the single creation destination before any I/O.
+// The message names the expected shape rather than a command, because callers
+// include hosted MCP clients that have no CLI to run.
+func ParseKegCreationRef(raw string) (string, string, error) {
+	namespace, name, err := ParseCanonicalKegRef(raw)
+	if err != nil {
+		return "", "", fmt.Errorf("invalid KEG creation reference %q: expected @namespace/keg: %w", raw, err)
+	}
+	return namespace, name, nil
 }

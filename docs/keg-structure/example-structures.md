@@ -103,13 +103,11 @@ The shared KEG resolves through `@acme/tapper` to its configured remote Hub.
 `.tapper/config.yaml`:
 
 ```yaml
-keg: tapper
-defaultNamespace: acme
+keg: "@acme/tapper"
 kegMap: []
 ```
 
-`keg: tapper` is a bare keg reference. `defaultNamespace: acme` makes it
-resolve as `@acme/tapper`, and the selected Hub in user config
+The qualified reference selects `@acme/tapper`, and the selected Hub in user config
 selects where that organization namespace lives.
 
 ## Baker KEG Example

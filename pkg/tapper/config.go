@@ -11,7 +11,6 @@ import (
 	"regexp"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/jlrickert/cli-toolkit/toolkit"
 	"github.com/jlrickert/tapper/pkg/keg"
@@ -51,9 +50,6 @@ type configDTO struct {
 	LogFile  string `yaml:"logFile,omitempty"`
 	LogLevel string `yaml:"logLevel,omitempty"`
 
-	// updated is a timestamp.
-	Updated time.Time `yaml:"updated,omitempty"`
-
 	// keg is the keg reference used when no explicit keg is provided. It
 	// is a remote keg selector (a bare name, @namespace/name, or keg:...),
 	// resolved through the selected-Hub ResolveRef chain.
@@ -74,22 +70,13 @@ type configDTO struct {
 	// TAP_FLIGHT pins a launch root.
 	Agent string `yaml:"agent,omitempty"`
 
-	// kegMap maps a project path or pattern to a keg reference.
+	// kegMap maps a project path or pattern to directory defaults.
 	KegMap []KegMapEntry `yaml:"kegMap"`
 
 	// hub names the hub used when a keg reference omits its hub. It is
 	// the high-precedence slot (the authoritative choice); set it in project
 	// config. The value is looked up by name in Hubs.
 	HubName string `yaml:"hub,omitempty"`
-
-	// defaultNamespace is the high-precedence namespace used when a keg
-	// reference omits its namespace; set it in project config.
-	DefaultNamespace string `yaml:"defaultNamespace,omitempty"`
-
-	// fallbackNamespace is the last-resort namespace used when a keg reference
-	// omits its namespace and no defaultNamespace applies; set it in the global
-	// user config.
-	FallbackNamespace string `yaml:"fallbackNamespace,omitempty"`
 
 	// disableAtlasHub turns off the synthesized built-in atlas hub. When true the
 	// compiled-in atlas hub is not synthesized in Hub(), is omitted from hub
@@ -123,14 +110,14 @@ type Config struct {
 	doc *yaml.Node
 }
 
-// KegMapEntry is an entry mapping a path prefix or regex to a keg alias.
+// KegMapEntry maps a path prefix or regex to KEG, Hub, and flight defaults.
 type KegMapEntry struct {
 	hasKeg     bool
 	Keg        string `yaml:"keg,omitempty"`
 	Hub        string `yaml:"hub,omitempty"`
+	Flight     string `yaml:"flight,omitempty"`
 	invalid    error
 	raw        *yaml.Node
-	Alias      string `yaml:"alias,omitempty"`
 	PathPrefix string `yaml:"pathPrefix,omitempty"`
 	PathRegex  string `yaml:"pathRegex,omitempty"`
 }
@@ -142,14 +129,10 @@ type HubEntry struct {
 	invalid error
 	raw     *yaml.Node
 	// Deprecated: Kind has no effect.
-	Kind string `yaml:"-"`
-	// DefaultNamespace is this hub's default namespace, used when a reference
-	// resolved against this hub omits its namespace. A hub hosts many namespaces;
-	// this is only the default. The "@" sigil is implied — store the bare value.
-	DefaultNamespace string `yaml:"defaultNamespace,omitempty"`
-	URL              string `yaml:"url,omitempty"`
-	Token            string `yaml:"token,omitempty"`
-	TokenEnv         string `yaml:"tokenEnv,omitempty"`
+	Kind     string `yaml:"-"`
+	URL      string `yaml:"url,omitempty"`
+	Token    string `yaml:"token,omitempty"`
+	TokenEnv string `yaml:"tokenEnv,omitempty"`
 }
 
 // AgentEntry is an alias for a model plus how to reach and
@@ -190,8 +173,7 @@ type AgentEntry struct {
 }
 
 // KegRef is the (hub, namespace, name) triple a keg alias resolves to. An empty
-// Hub falls back to the selected Hub; an empty Namespace falls back to
-// defaultNamespace/fallbackNamespace (see Config.ResolveRef).
+// Hub falls back to the selected Hub; Namespace must be explicit.
 type KegRef struct {
 	Hub       string `yaml:"hub,omitempty"`
 	Namespace string `yaml:"namespace,omitempty"`
@@ -305,22 +287,6 @@ func (cfg *Config) HubName() string {
 	return cfg.data.HubName
 }
 
-// DefaultNamespace returns the default namespace (high-precedence slot).
-func (cfg *Config) DefaultNamespace() string {
-	if cfg.data == nil {
-		cfg.data = &configDTO{}
-	}
-	return cfg.data.DefaultNamespace
-}
-
-// FallbackNamespace returns the fallback namespace (last-resort slot).
-func (cfg *Config) FallbackNamespace() string {
-	if cfg.data == nil {
-		cfg.data = &configDTO{}
-	}
-	return cfg.data.FallbackNamespace
-}
-
 // DisableAtlasHub returns true when the synthesized built-in atlas hub is
 // suppressed.
 func (cfg *Config) DisableAtlasHub() bool {
@@ -338,7 +304,7 @@ func (cfg *Config) DisableTelemetry() bool {
 	return cfg.data.DisableTelemetry
 }
 
-// KegMap returns the list of path/regex to keg alias mappings.
+// KegMap returns the directory default mappings.
 func (cfg *Config) KegMap() []KegMapEntry {
 	if cfg.data == nil {
 		cfg.data = &configDTO{}
@@ -418,14 +384,6 @@ func (cfg *Config) LogLevel() string {
 	return cfg.data.LogLevel
 }
 
-// Updated returns the last update timestamp.
-func (cfg *Config) Updated() time.Time {
-	if cfg.data == nil {
-		cfg.data = &configDTO{}
-	}
-	return cfg.data.Updated
-}
-
 // --- Setter Methods ---
 
 // SetKeg sets the alias used when no explicit keg is provided.
@@ -452,24 +410,6 @@ func (cfg *Config) SetHubName(_ context.Context, hub string) error {
 		cfg.data = &configDTO{}
 	}
 	cfg.data.HubName = hub
-	return nil
-}
-
-// SetDefaultNamespace sets the default namespace.
-func (cfg *Config) SetDefaultNamespace(ns string) error {
-	if cfg.data == nil {
-		cfg.data = &configDTO{}
-	}
-	cfg.data.DefaultNamespace = ns
-	return nil
-}
-
-// SetFallbackNamespace sets the fallback namespace.
-func (cfg *Config) SetFallbackNamespace(ns string) error {
-	if cfg.data == nil {
-		cfg.data = &configDTO{}
-	}
-	cfg.data.FallbackNamespace = ns
 	return nil
 }
 
@@ -563,20 +503,6 @@ func (cfg *Config) Clone() *Config {
 	return uCfg
 }
 
-// resolveNamespaceForName applies namespace precedence for a keg name in the
-// selected-Hub model: defaultNamespace → fallbackNamespace. It returns ""
-// when neither applies, leaving the per-hub default in ResolveRef to have the
-// final say once the hub is known.
-func (cfg *Config) resolveNamespaceForName() string {
-	if ns := strings.TrimSpace(cfg.DefaultNamespace()); ns != "" {
-		return ns
-	}
-	if ns := strings.TrimSpace(cfg.FallbackNamespace()); ns != "" {
-		return ns
-	}
-	return ""
-}
-
 // resolveHubForNamespace preserves namespace-independent Hub selection.
 func (cfg *Config) resolveHubForNamespace(_ string) string { return cfg.resolveHubName() }
 
@@ -604,15 +530,11 @@ func (cfg *Config) resolveHubName() string {
 	return DefaultHubName
 }
 
-// resolveNamespaceHub applies namespace defaults within the selected Hub.
+// resolveNamespaceHub resolves an explicit namespace within the selected Hub.
 // An explicit Hub overrides the configured selection; namespaces never route.
 func (cfg *Config) resolveNamespaceHub(ns, hubName string) (string, string, HubEntry, error) {
-	// Namespace first: explicit → default → fallback. It may still be empty
-	// here; the per-hub default below gets the final say once the hub is known.
+	// Namespace must be supplied explicitly.
 	ns = strings.TrimSpace(ns)
-	if ns == "" {
-		ns = cfg.resolveNamespaceForName()
-	}
 
 	// Explicit Hub wins over the selected configuration Hub.
 	hubName = strings.TrimSpace(hubName)
@@ -628,14 +550,8 @@ func (cfg *Config) resolveNamespaceHub(ns, hubName string) (string, string, HubE
 		return "", "", HubEntry{}, fmt.Errorf("hub %q is not configured", hubName)
 	}
 
-	// Last-resort namespace once the hub is known: the hub's own default
-	// namespace (lower precedence than the default/fallback chain), else an error.
 	if ns == "" {
-		if strings.TrimSpace(entry.DefaultNamespace) != "" {
-			ns = strings.TrimSpace(entry.DefaultNamespace)
-		} else {
-			return "", "", HubEntry{}, fmt.Errorf("no namespace and no per-hub, default, or fallback namespace is configured")
-		}
+		return "", "", HubEntry{}, fmt.Errorf("namespace is required: use @namespace/keg or explicit --namespace")
 	}
 	if entry.invalid != nil {
 		return "", "", HubEntry{}, entry.invalid
@@ -647,7 +563,7 @@ func (cfg *Config) resolveNamespaceHub(ns, hubName string) (string, string, HubE
 // ResolveRef resolves a KEG name and namespace within the selected Hub.
 func (cfg *Config) ResolveRef(_ *toolkit.Runtime, ref KegRef) (*keg.Target, error) {
 	name := strings.TrimSpace(ref.Name)
-	if err := ValidateNamespace(name); err != nil {
+	if err := ValidateKegAlias(name); err != nil {
 		return nil, fmt.Errorf("invalid KEG name %q: %w", name, err)
 	}
 
@@ -753,7 +669,7 @@ func (cfg *Config) ResolveAlias(rt *toolkit.Runtime, alias string) (*keg.Target,
 	return cfg.ResolveRef(rt, parseKegRef(alias))
 }
 
-// LookupAlias returns the keg alias matching the given project root path.
+// LookupAlias returns the KEG default from the rule matching the project root.
 // It first checks regex patterns in KegMap entries, then prefix matches.
 // For multiple prefix matches, the longest matching prefix wins.
 // Returns empty string if no match is found or config data is nil.
@@ -762,10 +678,10 @@ func (cfg *Config) LookupAlias(rt *toolkit.Runtime, root string) string {
 	if !ok {
 		return ""
 	}
-	return m.selector()
+	return m.Keg
 }
 
-// LookupMapping chooses one rule for both KEG and Hub. Regexes precede
+// LookupMapping chooses one rule for KEG, Hub, and flight. Regexes precede
 // directory prefixes; equal-length prefixes retain configuration order.
 func (cfg *Config) LookupMapping(rt *toolkit.Runtime, root string) (KegMapEntry, bool) {
 	abs, err := toolkit.ExpandPath(rt, toolkit.ExpandEnv(rt, root))
@@ -774,12 +690,16 @@ func (cfg *Config) LookupMapping(rt *toolkit.Runtime, root string) (KegMapEntry,
 	}
 	abs = filepath.Clean(abs)
 	for _, m := range cfg.KegMap() {
-		if m.PathRegex == "" {
+		if !m.hasDefaults() || m.PathRegex == "" {
 			continue
 		}
 		pattern := toolkit.ExpandEnv(rt, m.PathRegex)
 		if strings.HasPrefix(pattern, "~/") {
-			pattern = regexp.QuoteMeta(rt.Get("HOME")) + pattern[1:]
+			home, err := rt.GetHome()
+			if err != nil {
+				continue
+			}
+			pattern = regexp.QuoteMeta(home) + pattern[1:]
 		}
 		if ok, _ := regexp.MatchString(pattern, abs); ok {
 			return m, true
@@ -788,7 +708,7 @@ func (cfg *Config) LookupMapping(rt *toolkit.Runtime, root string) (KegMapEntry,
 	var best KegMapEntry
 	length := -1
 	for _, m := range cfg.KegMap() {
-		if m.PathPrefix == "" {
+		if !m.hasDefaults() || m.PathPrefix == "" {
 			continue
 		}
 		pref, err := toolkit.ExpandPath(rt, toolkit.ExpandEnv(rt, m.PathPrefix))
@@ -803,20 +723,25 @@ func (cfg *Config) LookupMapping(rt *toolkit.Runtime, root string) (KegMapEntry,
 	return best, length >= 0
 }
 
-func (m KegMapEntry) selector() string {
-	if m.hasKeg || m.Keg != "" {
-		return m.Keg
-	}
-	return m.Alias
+// hasDefaults includes an explicitly empty KEG so selection can report it invalid.
+func (m KegMapEntry) hasDefaults() bool {
+	return m.hasKeg || m.Keg != "" || m.Hub != "" || m.Flight != ""
 }
 
-// ResolveKegMap chooses the appropriate keg (via alias) based on path.
+// retiredOnly identifies inert legacy rules without diagnosing retired data.
+func (m KegMapEntry) retiredOnly() bool {
+	_, legacy := mappingValue(m.raw, "alias")
+	return legacy && !m.hasDefaults()
+}
+
+// ResolveKegMap resolves the matching rule's KEG default based on path.
 //
 // Precedence rules:
 //  1. Regex entries in KegMap have the highest precedence.
 //  2. PathPrefix entries are considered next; when multiple prefixes match the
 //     longest prefix wins.
-//  3. If no entry matches, resolution returns an alias-not-found error.
+//  3. If no entry matches or the selected rule has no KEG default, resolution
+//     returns a missing-KEG error.
 //
 // The function expands env vars and tildes prior to comparisons, so stored
 // prefixes and patterns may contain ~ or $VAR values.
@@ -848,7 +773,7 @@ func ParseConfig(raw []byte) (*Config, error) {
 		return uc, nil
 	}
 	typed := cloneYAMLNode(&doc)
-	for _, key := range []string{"keg", "hub"} {
+	for _, key := range []string{"keg", "hub", "flight"} {
 		if n, ok := mappingValue(mappingNode(typed), key); ok && (n.Kind != yaml.ScalarNode || n.Tag != "!!str") {
 			setMappingValue(mappingNode(typed), key, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "\x00invalid " + key})
 		}
@@ -880,7 +805,7 @@ func ReadConfig(rt *toolkit.Runtime, path string) (*Config, error) {
 // only, so a repository you cd into cannot introduce a hub target or harvest a
 // token environment variable. It returns a human-readable description of each
 // removed field for surfacing as a load warning. Project layers may still set
-// kegMap and the default*/fallback* selectors.
+// kegMap and the keg, hub, and flight defaults.
 func stripUntrustedFields(cfg *Config) []string {
 	if cfg == nil || cfg.data == nil {
 		return nil
@@ -898,21 +823,15 @@ func stripUntrustedFields(cfg *Config) []string {
 	return removed
 }
 
-// DefaultUserConfig returns a sensible default global/user Config.
-//
-// The global user config selects a Hub so KEG references
-// need not specify a hub. The namespace is NOT pinned by a global
-// fallbackNamespace — it comes from the resolved hub's own namespace field.
-// `name` seeds the default remote hub's namespace.
-func DefaultUserConfig(name string) *Config {
+// DefaultUserConfig selects the default remote Hub without namespace defaults.
+func DefaultUserConfig(_ string) *Config {
 	return &Config{
 		data: &configDTO{
 			HubName: DefaultHubName,
 			KegMap:  []KegMapEntry{},
 			Hubs: hubMap{
 				DefaultHubName: {
-					DefaultNamespace: name,
-					URL:              DefaultHubURL,
+					URL: DefaultHubURL,
 				},
 			},
 		},
@@ -921,8 +840,7 @@ func DefaultUserConfig(name string) *Config {
 
 // DefaultProjectConfig returns a project-scoped config with sensible defaults.
 //
-// Project config selects hub, keg, and namespace defaults — the
-// authoritative choice for the project, overriding the user-level fallbacks.
+// Project config selects a Hub and qualified KEG, overriding user defaults.
 func DefaultProjectConfig(user, userKegRepo string) *Config {
 	alias := strings.TrimSpace(user)
 	if alias == "" {
@@ -930,11 +848,10 @@ func DefaultProjectConfig(user, userKegRepo string) *Config {
 	}
 	return &Config{
 		data: &configDTO{
-			HubName:          DefaultHubName,
-			DefaultNamespace: alias,
-			Keg:              alias,
-			KegMap:           []KegMapEntry{},
-			Hubs:             hubMap{},
+			HubName: DefaultHubName,
+			Keg:     "@" + alias + "/" + alias,
+			KegMap:  []KegMapEntry{},
+			Hubs:    hubMap{},
 		},
 	}
 }
@@ -1048,17 +965,8 @@ func MergeConfig(cfgs ...*Config) *Config {
 		if c.data.LogLevel != "" {
 			out.data.LogLevel = c.data.LogLevel
 		}
-		if !c.data.Updated.IsZero() {
-			out.data.Updated = c.data.Updated
-		}
 		if c.data.HubName != "" {
 			out.data.HubName = c.data.HubName
-		}
-		if c.data.DefaultNamespace != "" {
-			out.data.DefaultNamespace = c.data.DefaultNamespace
-		}
-		if c.data.FallbackNamespace != "" {
-			out.data.FallbackNamespace = c.data.FallbackNamespace
 		}
 		// Disable flags: any tier that sets one to true wins (fail closed).
 		if c.data.DisableAtlasHub {
@@ -1076,7 +984,7 @@ func MergeConfig(cfgs ...*Config) *Config {
 			out.data.Agents[name] = entry
 		}
 
-		// Merge KegMap entries. Preserve order but override by alias when provided.
+		// Merge KegMap entries in configuration order.
 		for _, e := range c.data.KegMap {
 			out.data.KegMap = append(out.data.KegMap, e)
 		}
@@ -1085,28 +993,25 @@ func MergeConfig(cfgs ...*Config) *Config {
 	return out
 }
 
-// Touch updates the Updated timestamp on the Config using the runtime clock.
-func (cfg *Config) Touch(rt *toolkit.Runtime) {
-	clk := rt.Clock()
-	cfg.data.Updated = clk.Now()
-}
-
 // AddKegMap adds or updates a keg map entry in the Config.
-// Entries are matched by alias + pathPrefix + pathRegex. An entry with the same
-// alias but a different path pattern is treated as a separate mapping.
+// Entries are matched by KEG, Hub, flight, and both path selectors.
+// Different defaults or path patterns remain separate mappings.
 func (cfg *Config) AddKegMap(entry KegMapEntry) error {
 	if cfg == nil {
 		return fmt.Errorf("config is nil")
 	}
-	if entry.selector() == "" {
-		return fmt.Errorf("alias is required")
+	if entry.Keg == "" && entry.Hub == "" && entry.Flight == "" {
+		return fmt.Errorf("at least one of keg, hub, or flight is required")
+	}
+	if entry.PathPrefix == "" && entry.PathRegex == "" {
+		return fmt.Errorf("pathPrefix or pathRegex is required")
 	}
 	if cfg.data == nil {
 		cfg.data = &configDTO{}
 	}
 
 	for i, e := range cfg.data.KegMap {
-		if e.selector() == entry.selector() && e.PathPrefix == entry.PathPrefix && e.PathRegex == entry.PathRegex {
+		if e.Keg == entry.Keg && e.Hub == entry.Hub && e.Flight == entry.Flight && e.PathPrefix == entry.PathPrefix && e.PathRegex == entry.PathRegex {
 			cfg.data.KegMap[i] = entry
 			return nil
 		}

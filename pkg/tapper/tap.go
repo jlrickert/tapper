@@ -103,8 +103,7 @@ type KegTargetOptions struct {
 	Keg string
 
 	// Namespace overrides the namespace the keg resolves in when Keg is a bare
-	// name (it loses to an @namespace/ already present in Keg). Empty means use
-	// the configured defaultNamespace/fallbackNamespace chain.
+	// name. A conflicting namespace on a qualified reference is rejected.
 	Namespace string
 
 	// Hub pins the hub the keg resolves on, overriding namespace→hub resolution.

@@ -78,7 +78,7 @@ enterprise Hub endpoint, then authenticate.
 ```bash
 tap bootstrap --kind cloud
 tap auth login
-tap keg create personal
+tap keg create @alice/personal
 tap use personal --user
 ```
 

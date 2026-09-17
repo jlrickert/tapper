@@ -170,7 +170,8 @@ selected flight capability.
   bounded flattening locally.
 - Hosted `/mcp` uses the account-wide MCP flight preference only at connection
   initialization. Stdio initialization selects explicit `--flight`, then
-  `TAP_FLIGHT`, then the nearest project config, and finally the user baseline.
+  `TAP_FLIGHT`, then project config, then the winning `kegMap.flight`, and
+  finally the user baseline.
 - Hosted deletion of the launch root clears the account preference through the
   flight foreign key, but cannot replace the root of an existing connection.
   That connection reports `ORIENTATION_ROOT_UNAVAILABLE`; a new launch is
@@ -188,7 +189,8 @@ selected flight capability.
   A connection that started with no flight remains fully authorized until it
   ends; the new selection takes effect only on a new connection.
 - Flight selection precedence is explicit runtime `--flight`, then
-  `TAP_FLIGHT`, then the nearest project config, then the user baseline written
+  `TAP_FLIGHT`, then project config, then the winning `kegMap.flight`, then
+  the user baseline written
   by `tap bootstrap`. Project selection
   therefore overrides the machine-wide bootstrap choice without changing it.
 - `tap launch --agent NAME` uses the agent only for model selection and

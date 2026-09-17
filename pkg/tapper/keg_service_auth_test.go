@@ -40,11 +40,8 @@ func TestKegService_Resolve_ThreadsAuthStoreToken(t *testing.T) {
 	require.NoError(t, store.Save(fx.Context(), fx.Runtime(), tap.PathService.AuthStorePath()))
 
 	userCfg := fmt.Sprintf(`keg: "@me/demo"
-namespaces:
-  me: { hub: example }
 hubs:
   example:
-    kind: remote
     url: %s
 `, hubURL)
 	require.NoError(t, fx.Runtime().Mkdir(filepath.Dir(tap.PathService.UserConfig()), 0o755, true))
@@ -99,11 +96,8 @@ func TestKegService_Resolve_CachedKegRefreshesMidSession(t *testing.T) {
 	require.NoError(t, store.Save(fx.Context(), fx.Runtime(), tap.PathService.AuthStorePath()))
 
 	userCfg := fmt.Sprintf(`keg: "@me/demo"
-namespaces:
-  me: { hub: example }
 hubs:
   example:
-    kind: remote
     url: %s
 `, srv.URL)
 	require.NoError(t, fx.Runtime().Mkdir(filepath.Dir(tap.PathService.UserConfig()), 0o755, true))

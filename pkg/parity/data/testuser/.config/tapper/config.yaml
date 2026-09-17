@@ -1,11 +1,6 @@
-keg: personal
-fallbackNamespace: local
+keg: "@local/personal"
 hub: home
 hubs:
   home:
-    kind: remote
     url: https://fixture.invalid
     token: test-token
-namespaces:
-  local:
-    hub: home

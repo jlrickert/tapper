@@ -32,7 +32,7 @@ type BootstrapOptions struct {
 	// HubName overrides the hub key written for an enterprise endpoint. Empty
 	// derives it from the endpoint host (see deriveHubName).
 	HubName string
-	// Namespace overrides the hub's default namespace.
+	// Namespace selects the namespace for guided KEG creation.
 	Namespace string
 }
 
@@ -44,23 +44,12 @@ type BootstrapResult struct {
 	Kind      string          // normalized deployment kind
 	Hub       string          // hub name written as hub
 	HubURL    string          // login/display URL
-	Namespace string          // resolved fallback namespace
+	Namespace string          // transient creation namespace
 	Warnings  []ConfigWarning // semantic warnings from ValidateConfig
 }
 
-// Bootstrap creates or refreshes the user-level config for a chosen deployment
-// kind so plain `tap` commands resolve without per-invocation flags. It writes
-// the FALLBACK hub (the user/global convention — project config owns the
-// high-precedence default* slots).
-//
-// It does not write a global fallbackNamespace or a per-user namespace→hub
-// entry: the preferred namespace comes from the resolved hub's own namespace
-// field. It is the logged-in user's home namespace, adopted onto the hub after
-// login by SetBootstrapNamespace.
-//
-// It is idempotent: an existing config is loaded and only the user Hub and
-// the selected hub entry are touched, so extension fields and kegMap rules
-// survive a re-run untouched.
+// Bootstrap creates or refreshes the selected user Hub and its connection.
+// Existing extension fields and directory mappings survive a re-run.
 func (t *Tap) Bootstrap(ctx context.Context, opts BootstrapOptions) (*BootstrapResult, error) {
 	kind := strings.TrimSpace(strings.ToLower(opts.Kind))
 	if kind == "" {
@@ -72,12 +61,7 @@ func (t *Tap) Bootstrap(ctx context.Context, opts BootstrapOptions) (*BootstrapR
 		return nil, fmt.Errorf("unknown bootstrap kind %q (expected cloud or enterprise)", opts.Kind)
 	}
 
-	// Namespace stored on the hub entry. The authoritative
-	// value is the logged-in user's home namespace, which only the hub knows; it
-	// is adopted after login via SetBootstrapNamespace and lives on the hub's own
-	// namespace field. Until then it stays empty rather than guessing the OS user
-	// — a bogus guess would resolve bare references to the wrong namespace
-	// instead of erroring clearly. An explicit opts.Namespace always wins.
+	// Namespace is transient input for the guided KEG creation step.
 	namespace := strings.TrimSpace(opts.Namespace)
 	path := t.PathService.UserConfig()
 
@@ -111,7 +95,7 @@ func (t *Tap) Bootstrap(ctx context.Context, opts BootstrapOptions) (*BootstrapR
 		hubName = DefaultHubName
 		hubURL = DefaultHubURL
 		if _, ok := cfg.Hubs()[hubName]; !ok {
-			if err := cfg.SetHub(hubName, HubEntry{DefaultNamespace: namespace, URL: DefaultHubURL, TokenEnv: DefaultHubTokenEnv}); err != nil {
+			if err := cfg.SetHub(hubName, HubEntry{URL: DefaultHubURL, TokenEnv: DefaultHubTokenEnv}); err != nil {
 				return nil, err
 			}
 		}
@@ -134,7 +118,7 @@ func (t *Tap) Bootstrap(ctx context.Context, opts BootstrapOptions) (*BootstrapR
 		// Avoid clobbering an unrelated hub of the same derived name: only reuse
 		// the slot when it already points at this URL, else suffix it.
 		hubName = uniqueHubName(cfg, hubName, hubURL)
-		if err := cfg.SetHub(hubName, HubEntry{DefaultNamespace: namespace, URL: hubURL}); err != nil {
+		if err := cfg.SetHub(hubName, HubEntry{URL: hubURL}); err != nil {
 			return nil, err
 		}
 	}
@@ -161,84 +145,6 @@ func (t *Tap) Bootstrap(ctx context.Context, opts BootstrapOptions) (*BootstrapR
 		Namespace: namespace,
 		Warnings:  warnings,
 	}, nil
-}
-
-// SetBootstrapNamespace adopts namespace as the named hub's default namespace,
-// then persists the config. It is the post-login step of `tap bootstrap`: once a
-// cloud/enterprise login resolves the authenticated user's home namespace (from
-// the hub's whoami probe), the CLI calls this so plain references resolved
-// against that hub land in the user's own namespace. The namespace lives on the
-// hub entry so each hub carries its own default — there is no global
-// fallbackNamespace and no per-user namespace→hub entry to maintain.
-//
-// It is idempotent and a no-op when namespace is blank, or when hubName is
-// unknown/blank (nothing to adopt onto), keeping the call safe in either case.
-func (t *Tap) SetBootstrapNamespace(ctx context.Context, hubName, namespace string) error {
-	namespace = strings.TrimSpace(namespace)
-	if namespace == "" {
-		return nil
-	}
-	cfg, err := t.ConfigService.ReadUserConfigFile()
-	if err != nil {
-		return fmt.Errorf("unable to load user config: %w", err)
-	}
-	entry, ok := cfg.Hubs()[hubName]
-	if !ok {
-		return nil
-	}
-	entry.DefaultNamespace = namespace
-	if err := cfg.SetHub(hubName, entry); err != nil {
-		return err
-	}
-	if err := cfg.Write(t.Runtime, t.PathService.UserConfig()); err != nil {
-		return err
-	}
-	// The snapshot predates this write; drop it so nothing in this process
-	// reads back a value we just replaced.
-	t.ConfigService.Reload()
-	return nil
-}
-
-// SetHubDefaultNamespaceByURL adopts namespace onto the configured hub whose
-// URL matches hubURL. It returns the hub name that was updated. When no
-// configured hub matches (for example, auth login fell through to the
-// compiled-in atlas URL without a user config entry), it is a no-op.
-func (t *Tap) SetHubDefaultNamespaceByURL(ctx context.Context, hubURL, namespace string) (string, error) {
-	namespace = strings.TrimSpace(namespace)
-	if namespace == "" {
-		return "", nil
-	}
-	canonical := CanonicalHubURL(hubURLWithScheme(hubURL))
-	if canonical == "" {
-		return "", nil
-	}
-	cfg, err := t.ConfigService.ReadUserConfigFile()
-	if err != nil {
-		if errors.Is(err, keg.ErrNotExist) {
-			return "", nil
-		}
-		return "", fmt.Errorf("unable to load user config: %w", err)
-	}
-	for name, entry := range cfg.Hubs() {
-		if strings.TrimSpace(entry.URL) == "" {
-			continue
-		}
-		if CanonicalHubURL(hubURLWithScheme(entry.URL)) != canonical {
-			continue
-		}
-		entry.DefaultNamespace = namespace
-		if err := cfg.SetHub(name, entry); err != nil {
-			return "", err
-		}
-		if err := cfg.Write(t.Runtime, t.PathService.UserConfig()); err != nil {
-			return "", err
-		}
-		// The snapshot predates this write; drop it so nothing in this process
-		// reads back a value we just replaced.
-		t.ConfigService.Reload()
-		return name, nil
-	}
-	return "", nil
 }
 
 // SetKeg sets the user config's keg to ref and persists it. It

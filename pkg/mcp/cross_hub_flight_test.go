@@ -108,7 +108,7 @@ func TestTwoHubFlightAuthorityAndRouting(t *testing.T) {
 	rt := sb.Runtime()
 	tap, err := tapper.NewTap(tapper.TapOptions{Runtime: rt})
 	require.NoError(t, err)
-	config := fmt.Sprintf("disableAtlasHub: true\nflight: '@root/+work'\nhub: root-alias\nfallbackNamespace: root\nnamespaces:\n  root: {hub: root-alias}\n  foreign: {hub: homelab}\nhubs:\n  root-alias: {url: '%s'}\n  homelab: {url: '%s'}\n", root.URL, foreign.URL)
+	config := fmt.Sprintf("disableAtlasHub: true\nflight: '@root/+work'\nhub: root-alias\nhubs:\n  root-alias: {url: '%s'}\n  homelab: {url: '%s'}\n", root.URL, foreign.URL)
 	require.NoError(t, rt.AtomicWriteFile(tap.PathService.UserConfig(), []byte(config), 0644))
 	tap.ConfigService.Reload()
 	store, err := tapper.LoadAuthStore(ctx, rt, tap.PathService.AuthStorePath())

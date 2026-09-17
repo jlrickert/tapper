@@ -77,13 +77,12 @@ func (t *Tap) Use(ctx context.Context, opts UseOptions) error {
 		if flightVal != "" {
 			_ = c.SetFlight(flightVal)
 		}
-		c.Touch(t.Runtime)
 		return nil
 	})
 }
 
-// UseStatus returns a YAML summary of the resolved keg/flight context plus the
-// configured keg slots and the scope that set each, for `tap use` with no args.
+// UseStatus returns a YAML summary of the resolved KEG, Hub, and flight
+// defaults and the source that set each, for `tap use` with no args.
 func (t *Tap) UseStatus(_ context.Context, opts KegTargetOptions) (string, error) {
 	type slot struct {
 		Value string `yaml:"value,omitempty"`
@@ -91,19 +90,27 @@ func (t *Tap) UseStatus(_ context.Context, opts KegTargetOptions) (string, error
 	}
 	type status struct {
 		Resolved resolvedIdentity `yaml:"resolved"`
+		Hub      slot             `yaml:"hub"`
 		Keg      slot             `yaml:"keg"`
 		Flight   slot             `yaml:"flight"`
 	}
 
 	out := status{Resolved: t.resolveIdentity(opts)}
 	if cfg, err := t.ConfigService.Config(); err == nil && cfg != nil {
+		out.Hub = slot{Value: cfg.resolveHubName(), Scope: t.configFieldScope("hub")}
 		out.Keg = slot{Value: cfg.Keg(), Scope: t.configFieldScope("keg")}
-		if _, ok := cfg.LookupMapping(t.Runtime, t.ConfigService.PathService.Root); ok && t.Runtime.Get("TAP_KEG") == "" {
-			out.Keg.Scope = "kegMap overrides top-level keg"
-		}
 		out.Flight = slot{Value: cfg.Flight(), Scope: t.configFieldScope("flight")}
 	}
 
+	if opts.Keg != "" {
+		out.Keg = slot{Value: opts.Keg, Scope: "flag"}
+	}
+	if opts.Hub != "" {
+		out.Hub = slot{Value: opts.Hub, Scope: "flag"}
+	}
+	if opts.Flight != "" {
+		out.Flight = slot{Value: opts.Flight, Scope: "flag"}
+	}
 	b, err := yaml.Marshal(out)
 	if err != nil {
 		return "", fmt.Errorf("unable to marshal use status: %w", err)

@@ -7,11 +7,11 @@
   "properties": {
     "keg": {
       "type": "string",
-      "description": "KEG reference used when no explicit --keg, TAP_KEG, or matching kegMap selects one. Project keg overrides user keg. A matching mapping overrides both."
+      "description": "KEG reference. Precedence: --keg, TAP_KEG, project keg, matching kegMap.keg, user keg."
     },
     "flight": {
       "type": "string",
-      "description": "Flight context applied when no --flight flag is given: @namespace/+slug, +slug, or a bare slug. Conventionally set in project config so orient/MCP inherit the same context. Override with TAP_FLIGHT env var."
+      "description": "Flight reference (@namespace/+slug, +slug, or bare slug). Precedence: --flight, TAP_FLIGHT, project flight, matching kegMap.flight, user flight."
     },
     "agent": {
       "type": "string",
@@ -20,14 +20,6 @@
     "hub": {
       "type": "string",
       "description": "Saved Hub name. Precedence: --hub, TAP_HUB, project hub, matching kegMap.hub, user hub, alphabetically first configured Hub, built-in Atlas unless disabled. All KEGs resolve within this Hub."
-    },
-    "defaultNamespace": {
-      "type": "string",
-      "description": "High-precedence namespace used when a keg reference omits its namespace. Set it in project config. Override with TAP_DEFAULT_NAMESPACE env var."
-    },
-    "fallbackNamespace": {
-      "type": "string",
-      "description": "Last-resort namespace used when a keg reference omits its namespace and no defaultNamespace applies. Set it in the global user config. Override with TAP_FALLBACK_NAMESPACE env var."
     },
     "disableAtlasHub": {
       "type": "boolean",
@@ -39,44 +31,74 @@
     },
     "kegMap": {
       "type": "array",
-      "description": "Startup-directory rules. First matching regex wins; otherwise longest directory prefix wins, with ties in configuration order. One winning rule selects both fields.",
+      "description": "Startup-directory defaults. First matching regex wins; otherwise longest directory prefix wins, with ties in configuration order. Exactly one rule supplies defaults beneath project config.",
       "items": {
         "type": "object",
-        "description": "Paired KEG and optional Hub selection.",
+        "description": "Any combination of KEG, Hub, and flight defaults. Omitted fields fall back independently to user config.",
         "properties": {
-          "alias": {
-            "type": "string",
-            "description": "Compatibility spelling for keg; ignored when keg is present."
-          },
           "pathPrefix": {
             "type": "string",
-            "description": "Directory prefix; matches the directory itself and descendants, never a partial directory name."
+            "description": "Directory prefix; matches the directory itself and descendants, never a partial directory name.",
+            "minLength": 1
           },
           "pathRegex": {
             "type": "string",
-            "description": "Regular expression used to match the current path."
+            "description": "Regular expression used to match the current path.",
+            "minLength": 1
           },
           "keg": {
             "type": "string",
             "minLength": 1,
-            "description": "KEG reference, required unless alias is used. Wins over alias."
+            "description": "Optional KEG reference. Overridden by project keg, TAP_KEG, or --keg."
           },
           "hub": {
             "type": "string",
             "minLength": 1,
             "description": "Optional saved Hub name, overridden by project hub, TAP_HUB, or --hub."
+          },
+          "flight": {
+            "type": "string",
+            "description": "Optional flight reference, overridden by project flight, TAP_FLIGHT, or --flight. Empty does not clear an inherited flight."
           }
         },
         "additionalProperties": true,
-        "anyOf": [
+        "allOf": [
           {
-            "required": [
-              "keg"
+            "anyOf": [
+              {
+                "required": [
+                  "keg"
+                ]
+              },
+              {
+                "required": [
+                  "hub"
+                ]
+              },
+              {
+                "required": [
+                  "flight"
+                ],
+                "properties": {
+                  "flight": {
+                    "minLength": 1
+                  }
+                }
+              }
             ]
           },
           {
-            "required": [
-              "alias"
+            "anyOf": [
+              {
+                "required": [
+                  "pathPrefix"
+                ]
+              },
+              {
+                "required": [
+                  "pathRegex"
+                ]
+              }
             ]
           }
         ]
@@ -89,10 +111,6 @@
         "type": "object",
         "description": "Single hub configuration entry.",
         "properties": {
-          "defaultNamespace": {
-            "type": "string",
-            "description": "Default namespace for kegs resolved against this hub when the reference omits its namespace. A hub hosts many namespaces; this is only the default. The @ sigil is implied; do not include it. In the namespace-centric model this is a LOWER-precedence source than the top-level defaultNamespace/fallbackNamespace \u2014 it applies only on hub-first paths after those chains yield nothing."
-          },
           "url": {
             "type": "string",
             "description": "Hub base URL."
@@ -164,11 +182,6 @@
     "logLevel": {
       "type": "string",
       "description": "Log verbosity level (debug, info, warn, error). Override with TAP_LOG_LEVEL env var."
-    },
-    "updated": {
-      "type": "string",
-      "description": "RFC3339 timestamp for the last config update.",
-      "format": "date-time"
     }
   },
   "additionalProperties": true

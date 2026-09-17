@@ -191,9 +191,6 @@ func (t *Tap) resolveNamespaceHub(namespace, hubOverride string) (ns, hubURL, to
 	}
 	ns = strings.TrimPrefix(strings.TrimSpace(namespace), "@")
 	if ns == "" {
-		ns = strings.TrimSpace(cfg.resolveNamespaceForName())
-	}
-	if ns == "" {
 		return "", "", "", fmt.Errorf("a namespace is required")
 	}
 	hubName := strings.TrimSpace(hubOverride)

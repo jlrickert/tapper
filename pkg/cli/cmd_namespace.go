@@ -179,7 +179,7 @@ func namespaceMemberRoleArgCompletion(_ *Deps, roleIdx int) func(*cobra.Command,
 }
 
 // configNamespaceNames returns the namespace names known to local config (the
-// namespaces map plus default/fallback), each rendered both bare and with the
+// active qualified KEG), each rendered both bare and with the
 // "@" sigil so completion works whether or not the user typed the prefix.
 func configNamespaceNames(deps *Deps) []string {
 	tap, err := completionTap(deps)
@@ -203,9 +203,10 @@ func configNamespaceNames(deps *Deps) []string {
 		seen[n] = struct{}{}
 		names = append(names, n)
 	}
-	add(cfg.DefaultNamespace())
-	add(cfg.FallbackNamespace())
 
+	if ns, _, ok := splitCanonicalKegRef(cfg.Keg()); ok {
+		add(ns)
+	}
 	out := make([]string, 0, len(names)*2)
 	for _, n := range names {
 		out = append(out, n, "@"+n)

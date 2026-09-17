@@ -183,15 +183,14 @@ func marshalMinimalKegSettings(refs []string, details []minimalKegSettings) (str
 	return string(b), nil
 }
 
-func parseCanonicalKegSelection(raw string) (namespace, alias string, ok bool) {
-	if raw != strings.TrimSpace(raw) || !strings.HasPrefix(raw, "@") {
+func parseCanonicalKegSelection(raw string) (string, string, bool) {
+	// Stricter than the shared parser on purpose: a stored selection must not
+	// carry surrounding whitespace, which ParseCanonicalKegRef would trim.
+	if raw != strings.TrimSpace(raw) {
 		return "", "", false
 	}
-	namespace, alias, ok = splitKegRef(raw)
-	if !ok || strings.Contains(alias, "/") {
-		return "", "", false
-	}
-	if ValidateNamespace(namespace) != nil || ValidateKegAlias(alias) != nil {
+	namespace, alias, err := ParseCanonicalKegRef(raw)
+	if err != nil {
 		return "", "", false
 	}
 	return namespace, alias, true
@@ -268,14 +267,22 @@ func (t *Tap) resolveIdentity(opts KegTargetOptions) resolvedIdentity {
 	return id
 }
 
-// configFieldScope reports which config tier (env|project|user) set a scalar
+// configFieldScope reports which config tier (flag|env|project|kegMap|user) set a scalar
 // field, or "" when only a default/compiled-in value applies.
 func (t *Tap) configFieldScope(field string) string {
+	if (field == "keg" && t.ConfigService.KegOverride != "") || (field == "hub" && t.ConfigService.HubOverride != "") || (field == "flight" && t.ConfigService.FlightOverride != "") {
+		return "flag"
+	}
 	if configFieldGetter(t.loadEnvConfig(), field) != "" {
 		return "env"
 	}
 	if projectCfg, _ := t.ConfigService.ProjectConfig(); configFieldGetter(projectCfg, field) != "" {
 		return "project"
+	}
+	if cfg, err := t.ConfigService.Config(); err == nil {
+		if m, ok := cfg.LookupMapping(t.Runtime, t.ConfigService.PathService.Root); ok && m.defaultValue(field) != "" {
+			return "kegMap"
+		}
 	}
 	if userCfg, _ := t.ConfigService.UserConfig(); configFieldGetter(userCfg, field) != "" {
 		return "user"

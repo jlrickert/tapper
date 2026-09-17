@@ -26,20 +26,18 @@ func TestKegCreateUsesConfiguredHubExclusively(t *testing.T) {
 
 	sb := NewSandbox(t)
 	sb.MustWriteFile("~/.config/tapper/config.yaml", []byte(fmt.Sprintf(`hub: test
-fallbackNamespace: team
 hubs:
   test:
-    kind: remote
     url: %s
     token: test-token
 `, srv.URL)), 0o644)
 
-	res := NewProcess(t, false, "keg", "create", "notes", "--title", "Team Notes", "--visibility", "private").Run(sb.Context(), sb.Runtime())
+	res := NewProcess(t, false, "keg", "create", "@team/notes", "--title", "Team Notes", "--visibility", "private").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err, "stderr=%q", res.Stderr)
 	require.Equal(t, map[string]string{
 		"alias": "notes", "title": "Team Notes", "visibility": "private",
 	}, got)
-	require.Contains(t, string(res.Stdout), "keg notes created")
+	require.Contains(t, string(res.Stdout), "keg @team/notes created")
 	require.Contains(t, string(res.Stdout), "keg:@team/notes")
 
 	config := string(sb.MustReadFile("~/.config/tapper/config.yaml"))
@@ -52,10 +50,10 @@ func TestKegCreateRejectsRemovedLocalSurfaces(t *testing.T) {
 
 	for _, args := range [][]string{
 		{"init", "notes"},
-		{"keg", "create", "notes", "--project"},
-		{"keg", "create", "notes", "--user"},
-		{"keg", "create", "notes", "--cwd"},
-		{"keg", "create", "notes", "--path", "/tmp/notes"},
+		{"keg", "create", "@team/notes", "--project"},
+		{"keg", "create", "@team/notes", "--user"},
+		{"keg", "create", "@team/notes", "--cwd"},
+		{"keg", "create", "@team/notes", "--path", "/tmp/notes"},
 	} {
 		args := args
 		t.Run(fmt.Sprintf("%v", args), func(t *testing.T) {
@@ -72,18 +70,16 @@ func TestKegCreateRejectsReadonlyAndInvalidAlias(t *testing.T) {
 
 	sb := NewSandbox(t)
 	sb.MustWriteFile("~/.config/tapper/config.yaml", []byte(`hub: archive
-fallbackNamespace: team
 hubs:
   archive:
-    kind: readonly
     url: https://archive.example.com
 `), 0o644)
 
-	readonly := NewProcess(t, false, "keg", "create", "notes").Run(sb.Context(), sb.Runtime())
+	readonly := NewProcess(t, false, "keg", "create", "@team/notes").Run(sb.Context(), sb.Runtime())
 	require.Error(t, readonly.Err)
 	require.Contains(t, readonly.Err.Error(), "not logged in")
 
 	invalid := NewProcess(t, false, "keg", "create", "Bad.Name").Run(sb.Context(), sb.Runtime())
 	require.Error(t, invalid.Err)
-	require.Contains(t, invalid.Err.Error(), "invalid keg alias")
+	require.Contains(t, invalid.Err.Error(), "use tap keg create @namespace/keg")
 }

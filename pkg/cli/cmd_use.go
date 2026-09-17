@@ -20,7 +20,7 @@ import (
 //	tap use @me/notes --user           # user-wide fallback (keg)
 //	tap use --flight @work/+plan       # set/replace just the project flight
 //	tap use --clear                    # unset the scope's slot(s)
-//	tap use                            # show the resolved keg + flight + fallback
+//	tap use                            # show the resolved keg + hub + flight
 func NewUseCmd(deps *Deps) *cobra.Command {
 	var opts tapper.UseOptions
 
@@ -34,8 +34,8 @@ Scope picks the keg slot:
   - project (default) writes keg to .tapper/config.yaml
   - --user writes the user-wide keg to ~/.config/tapper/config.yaml
 
-Flight is project-scoped. With no arguments, prints the resolved keg, flight,
-and fallback and the config scope that set each.`,
+Flight is project-scoped. With no arguments, prints the resolved keg, hub,
+and flight and the source that set each.`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()

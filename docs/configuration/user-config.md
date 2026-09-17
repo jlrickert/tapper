@@ -29,24 +29,24 @@ A matching mapping can override those baseline selections. See
 
 - `hub`: selected saved connection name.
 - `keg`: KEG reference, such as `@namespace/name`, `keg:@namespace/name`, or a
-  bare name whose namespace comes from the namespace defaults.
-- `kegMap`: startup-directory rules containing `keg`, optional `hub`, and
-  `pathPrefix` or `pathRegex`. `alias` is accepted as a spelling of `keg`;
-  `keg` wins when both occur.
-- `hubs`: named connections with `url`, optional `defaultNamespace`, and
+  bare name used with an explicit `--namespace`.
+- `kegMap`: startup-directory rules containing any combination of `keg`, `hub`,
+  and `flight`, with at least one default and `pathPrefix` or `pathRegex`.
+  Retired `alias` values are preserved but ignored; use `keg` instead.
+- `hubs`: named connections with `url` and
   `tokenEnv` or `token`. Login credentials can also come from the AuthStore.
-- `defaultNamespace` and `fallbackNamespace`: namespace defaults for bare names.
-- `flight`: baseline Flight context; project config, `TAP_FLIGHT`, and
+- `flight`: baseline Flight context; directory mappings, project config, `TAP_FLIGHT`, and
   `--flight` can override it.
 - `agent`: model and telemetry identity, independent of Flight selection.
 - `disableAtlasHub`: disables the implicit Atlas fallback. Explicit saved
   connections, including Atlas, remain available.
 - `disableTelemetry`: disables invocation reporting.
 
-The environment selections are `TAP_HUB` and `TAP_KEG`. Retired default/fallback
+The environment selections are `TAP_HUB`, `TAP_KEG`, and `TAP_FLIGHT`. Retired default/fallback
 Hub and KEG keys, their environment overrides, namespace-to-Hub mappings, and
 Hub `kind` no longer affect selection. Unknown and retired YAML and comments
-survive configuration rewrites. Malformed YAML fails. Invalid unused Hub and
+survive configuration rewrites, except `updated`: this retired timestamp is
+ignored when read and removed on serialization. Malformed YAML fails. Invalid unused Hub and
 mapping entries do not prevent unrelated operations; selected invalid values
 fail clearly.
 
@@ -55,7 +55,8 @@ fail clearly.
 `tap bootstrap` writes a user `hub` and its connection definition. Deployment
 options remain `--kind cloud` for Atlas or `--kind enterprise --endpoint URL`.
 These bootstrap deployment options are separate from the retired Hub `kind`.
-The Hub's `defaultNamespace` is populated from login's identity probe.
+Login and bootstrap never save namespace defaults. Bootstrap uses the selected
+namespace to create and save a qualified KEG reference.
 
 Interactive bootstrap offers a KEG and Flight from the selected Hub and stores
 `keg` and an optional user `flight`. Project selection and directory mappings

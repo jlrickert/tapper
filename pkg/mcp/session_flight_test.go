@@ -202,10 +202,8 @@ func TestMCP_RemoteAliasCoverlessRootActivatesFullSurfaceAndCrossFlightKegList(t
 	rt := sb.Runtime()
 	config := "flight: \"@admin/+admin\"\n" +
 		"hub: tapper-2-jlrickert\n" +
-		"fallbackNamespace: admin\n" +
 		"disableAtlasHub: true\n" +
-		"namespaces:\n  admin:\n    hub: tapper-2-jlrickert\n" +
-		"hubs:\n  tapper-2-jlrickert:\n    kind: remote\n    url: " + hub.URL + "\n"
+		"hubs:\n  tapper-2-jlrickert:\n    url: " + hub.URL + "\n"
 	tap, err := tapper.NewTap(tapper.TapOptions{Runtime: rt})
 	require.NoError(t, err)
 	require.NoError(t, rt.AtomicWriteFile(tap.PathService.UserConfig(), []byte(config), 0o644))
@@ -329,9 +327,8 @@ func writeProjectFlight(t *testing.T, rt *toolkit.Runtime, flight string) {
 func writeUserFlight(t *testing.T, rt *toolkit.Runtime, flight string) {
 	t.Helper()
 	hub := orientationTestHubFor(t, rt)
-	body := "keg: personal\nhub: home\nfallbackNamespace: local\ndisableAtlasHub: true\n" +
-		"namespaces:\n  local:\n    hub: home\n" +
-		"hubs:\n  home:\n    kind: remote\n    url: " + hub.server.URL + "\n    tokenEnv: TAPPER_TEST_HUB_TOKEN\n"
+	body := "keg: '@local/personal'\nhub: home\ndisableAtlasHub: true\n" +
+		"hubs:\n  home:\n    url: " + hub.server.URL + "\n    tokenEnv: TAPPER_TEST_HUB_TOKEN\n"
 	if flight != "" {
 		body += "flight: +" + flight + "\n"
 	}
@@ -519,4 +516,21 @@ func listedToolNames(t *testing.T, ctx context.Context, session *sdkmcp.ClientSe
 		names = append(names, tool.Name)
 	}
 	return names
+}
+
+func TestMCP_DirectoryFlightDefaultPinsConnectionRoot(t *testing.T) {
+	ctx, srv, rt := newOrientationServer(t, "")
+	path := "/home/testuser/.config/tapper/config.yaml"
+	raw, err := rt.ReadFile(path)
+	require.NoError(t, err)
+	require.NoError(t, rt.AtomicWriteFile(path, append(raw, []byte("\nkegMap:\n- {pathPrefix: ~/project, flight: +beta}\n")...), 0644))
+	writeProjectFlight(t, rt, "")
+	mapped := connectFlightSession(t, ctx, srv, nil)
+	require.Contains(t, callOrient(t, ctx, mapped), "+beta")
+	require.True(t, callCat(t, ctx, mapped).IsError)
+	writeProjectFlight(t, rt, "alpha")
+	require.Contains(t, callOrient(t, ctx, mapped), "+beta", "project edits cannot move a pinned root")
+	project := connectFlightSession(t, ctx, srv, nil)
+	require.Contains(t, callOrient(t, ctx, project), "+alpha")
+	require.False(t, callCat(t, ctx, project).IsError)
 }

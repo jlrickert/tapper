@@ -140,8 +140,8 @@ NodeIndex, TagIndex, LinkIndex, BacklinkIndex, and ChangesIndex. Written as
 deterministic TSV/markdown files under `dex/`.
 
 **KegService** delegates selection to `ConfigService.ResolveTarget` using the
-startup directory. KEG precedence is `--keg` → `TAP_KEG` → matching `kegMap`
-→ project `keg` → user `keg`. Hub precedence is `--hub` → `TAP_HUB` → project
+startup directory. KEG precedence is `--keg` → `TAP_KEG` → project `keg`
+→ matching `kegMap.keg` → user `keg`. Hub precedence is `--hub` → `TAP_HUB` → project
 `hub` → matching `kegMap.hub` → user `hub` → alphabetical configured Hub →
 implicit Atlas (unless disabled). A missing KEG is an error. All namespace
 references resolve within that one Hub.
@@ -162,6 +162,7 @@ Tapper config is resolved via a cascade (most specific wins):
 | top  | CLI flags (`--log-level`, etc.) | Cobra `cmd.Flags().Changed()`                      |
 | ↑    | Env vars (`TAP_*`)              | `rt.Env().Get()` prefix scan                       |
 | ↑    | Project configs (deepest→…)     | every `.tapper/config.yaml` from cwd up to `/`     |
+| ↑    | Matching directory mapping      | one `kegMap` rule supplies `keg`, `hub`, `flight` defaults |
 | base | User config                     | `~/.config/tapper/config.yaml`                     |
 | —    | Defaults                        | Hardcoded in code                                  |
 
@@ -174,10 +175,11 @@ a hard error). The merged project layer, the user config, and env vars are then
 resolved by the centralized selection in `ConfigService.Config()`.
 
 **Hub / namespace resolution** selects one Hub per invocation or MCP connection.
-Namespace-qualified KEGs remain supported; a bare KEG uses namespace defaults.
+Namespace-qualified KEGs remain supported; a bare KEG requires explicit `--namespace`.
 The retired default/fallback Hub and KEG keys, namespace routing, and Hub `kind`
-are ignored and preserved during rewrites. A matching mapping overrides even
-project `keg`; project `hub` wins over the mapping's Hub. Regexes precede
+are ignored and preserved during rewrites. Project `keg`, `hub`, and `flight` each override the matching mapping's
+corresponding default. Omitted mapping fields independently use user defaults;
+exactly one mapping wins, with no inheritance from broader rules. Regexes precede
 prefixes, longest directory prefix wins, and ties retain configuration order.
 
 MCP pins the canonical Hub URL, then reloads live authority and credentials for
@@ -190,8 +192,8 @@ To **list** available kegs, query a hub: `tap keg list` / the `keg_list` MCP
 tool (backed by `GET /api/v1/kegs`).
 (`tap hub list` lists configured *hub connections*, not kegs.)
 
-**`tap keg create`** is namespace-centric too: a bare `tap keg create <name>`
-resolves the default namespace and Hub, then creates via
+**`tap keg create @namespace/keg`** requires exactly one qualified argument,
+resolves the selected Hub, then creates via
 `POST /api/v1/@<ns>/kegs` (failing on 409). When nothing is configured, the full
 `tap` surface refuses with a "run `tap bootstrap`" error (`ErrNotBootstrapped`)
 rather than silently creating local state. `tap init` and the local creation
@@ -216,12 +218,15 @@ resolved KEG. The on-disk discovery selectors `--project`/`--cwd` are gone;
 **`tap use`** records resolution in config: `tap use @ns/keg` sets the project's
 `keg` (in `.tapper/config.yaml`); `tap use @ns/keg --user` sets the
 user `keg`; `--flight @ns/+slug` sets the project's persisted
-flight; bare `tap use` prints the resolved keg/flight and mapping override and the scope
-that set each. A persisted `flight` auto-applies when `--flight` is omitted.
+flight; bare `tap use` prints the resolved keg/hub/flight and the scope
+that set each. A persisted `flight` auto-applies when `--flight` is omitted. Flight precedence
+is `--flight` → `TAP_FLIGHT` → project `flight` → matching `kegMap.flight` →
+user `flight`. The retired Tapper config `updated` timestamp is ignored on read
+and removed on serialization; KEG settings and node timestamps are unchanged.
 
 Supported env vars: `TAP_KEG`, `TAP_FLIGHT`,
 `TAP_AGENT`, `TAP_LOG_FILE`, `TAP_LOG_LEVEL`, `TAP_HUB`,
-`TAP_DEFAULT_NAMESPACE`, `TAP_FALLBACK_NAMESPACE`, `TAP_DISABLE_ATLAS_HUB`,
+`TAP_DISABLE_ATLAS_HUB`,
 `TAP_DISABLE_TELEMETRY` (`1`/`true`/`yes`/`on` for
 the disable flags).
 

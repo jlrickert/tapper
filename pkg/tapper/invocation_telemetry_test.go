@@ -79,10 +79,10 @@ func TestResolveInvocationTelemetryTargetSilentlySkipsUnavailableState(t *testin
 	_, _, ok := resolveInvocationTelemetryTarget(fx.Runtime(), tap.ConfigService)
 	require.False(t, ok, "unbootstrapped client must skip")
 
-	require.NoError(t, fx.Runtime().AtomicWriteFile(tap.PathService.UserConfig(), []byte("hub: local\nhubs:\n  local:\n    kind: local\n    basePath: /kegs\n"), 0o644))
+	require.NoError(t, fx.Runtime().AtomicWriteFile(tap.PathService.UserConfig(), []byte("hub: local\nhubs:\n  local: {}\n"), 0o644))
 	tap.ConfigService.Reload()
 	_, _, ok = resolveInvocationTelemetryTarget(fx.Runtime(), tap.ConfigService)
-	require.False(t, ok, "local-only client must skip")
+	require.False(t, ok, "client whose selected hub has no URL must skip")
 
 	require.NoError(t, fx.Runtime().AtomicWriteFile(tap.PathService.UserConfig(), []byte("hub: remote\nhubs:\n  remote:\n    url: https://hub.example.com\n"), 0o644))
 	tap.ConfigService.Reload()

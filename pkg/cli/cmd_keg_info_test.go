@@ -12,7 +12,7 @@ func TestInfoCommand_DisplaysDiagnostics(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
 
-	res := NewProcess(t, false, "info", "--keg", "personal").Run(sb.Context(), sb.Runtime())
+	res := NewProcess(t, false, "info", "--keg", "personal", "--namespace", "local").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 
 	stdout := string(res.Stdout)
@@ -33,7 +33,7 @@ func TestInfoCommand_DisplaysDiagnostics(t *testing.T) {
 func TestInfoCommand_DebugYAMLAddsBackendDiagnostics(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
-	res := NewProcess(t, false, "info", "--keg", "personal", "--debug").Run(sb.Context(), sb.Runtime())
+	res := NewProcess(t, false, "info", "--keg", "personal", "--namespace", "local", "--debug").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 	stdout := string(res.Stdout)
 	require.Contains(t, stdout, "debug:")
@@ -50,7 +50,7 @@ func TestInfoCommand_ConciseAndDebugJSON(t *testing.T) {
 	t.Parallel()
 	for _, debug := range []bool{false, true} {
 		sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
-		args := []string{"info", "--keg", "personal", "--json"}
+		args := []string{"info", "--keg", "personal", "--namespace", "local", "--json"}
 		if debug {
 			args = append(args, "--debug")
 		}

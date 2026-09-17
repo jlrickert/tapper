@@ -44,7 +44,7 @@ func TestFlightEdit_PipedStdinAppliesManifest(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	cfg := fmt.Sprintf("hubs:\n  cloud:\n    kind: remote\n    url: %s\n    token: tok\n", srv.URL)
+	cfg := fmt.Sprintf("hubs:\n  cloud:\n    url: %s\n    token: tok\n", srv.URL)
 	sb.MustWriteFile("~/.config/tapper/config.yaml", []byte(cfg), 0o644)
 	require.NoError(t, sb.Runtime().Set("EDITOR", "/bin/false"))
 	sb.Runtime().Unset("VISUAL")
@@ -84,7 +84,7 @@ func TestFlightEdit_EditorStartsWithSchemaManifest(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	cfg := fmt.Sprintf("hubs:\n  cloud:\n    kind: remote\n    url: %s\n    token: tok\n", srv.URL)
+	cfg := fmt.Sprintf("hubs:\n  cloud:\n    url: %s\n    token: tok\n", srv.URL)
 	sb.MustWriteFile("~/.config/tapper/config.yaml", []byte(cfg), 0o644)
 
 	jail := sb.Runtime().GetJail()

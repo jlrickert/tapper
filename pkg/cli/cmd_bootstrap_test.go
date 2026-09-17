@@ -277,7 +277,7 @@ func TestBootstrapCmd_Cloud_Login(t *testing.T) {
 	cfgRaw := sb.MustReadFile("~/.config/tapper/config.yaml")
 	require.NotContains(t, string(cfgRaw), "fallbackNamespace:",
 		"the adopted namespace lives on the hub, not as a global fallback")
-	require.Contains(t, string(cfgRaw), "defaultNamespace: alice",
+	require.NotContains(t, string(cfgRaw), "defaultNamespace:",
 		"the adopted namespace becomes the cloud hub's per-hub default")
 }
 
@@ -311,7 +311,7 @@ func TestBootstrapCmd_Enterprise_Login(t *testing.T) {
 	require.NotContains(t, string(cfgRaw), "fallbackNamespace:",
 		"the adopted namespace lives on the hub, not as a global fallback")
 	// The adopted namespace becomes the enterprise hub's per-hub default.
-	require.Contains(t, string(cfgRaw), "defaultNamespace: bob")
+	require.NotContains(t, string(cfgRaw), "defaultNamespace:")
 }
 
 func TestBootstrapCmd_Interactive_LoginSelectsExistingKeg(t *testing.T) {
@@ -375,7 +375,7 @@ func TestBootstrapCmd_Interactive_LoginSelectsExistingKeg(t *testing.T) {
 
 	cfgRaw := string(sb.MustReadFile("~/.config/tapper/config.yaml"))
 	require.Contains(t, cfgRaw, "keg: '@bob/notes'")
-	require.Contains(t, cfgRaw, "defaultNamespace: bob")
+	require.NotContains(t, cfgRaw, "defaultNamespace:")
 }
 
 func TestBootstrapCmd_Interactive_NoKegsCreatesOne(t *testing.T) {
@@ -452,7 +452,7 @@ func TestBootstrapCmd_Interactive_NoKegsCreatesOne(t *testing.T) {
 
 	cfgRaw := string(sb.MustReadFile("~/.config/tapper/config.yaml"))
 	require.Contains(t, cfgRaw, "keg: '@bob/notes'")
-	require.Contains(t, cfgRaw, "defaultNamespace: bob")
+	require.NotContains(t, cfgRaw, "defaultNamespace:")
 }
 
 func TestBootstrapCmd_Enterprise_NonInteractiveRequiresEndpoint(t *testing.T) {

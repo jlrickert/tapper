@@ -34,7 +34,7 @@ func TestRootConfiguredFlightDoesNotBecomeExplicitDependency(t *testing.T) {
 	require.NoError(t, sb.Setwd("/home/testuser/project/child"))
 	require.NoError(t, sb.Runtime().AtomicWriteFile(
 		"/home/testuser/.config/tapper/config.yaml",
-		[]byte(fmt.Sprintf("flight: +baseline\nhub: home\nfallbackNamespace: team\nhubs:\n  home:\n    kind: remote\n    url: %s\n    token: test-token\n", srv.URL)), 0o644))
+		[]byte(fmt.Sprintf("flight: +baseline\nhub: home\nhubs:\n  home:\n    url: %s\n    token: test-token\n", srv.URL)), 0o644))
 	require.NoError(t, sb.Runtime().AtomicWriteFile(
 		"/home/testuser/project/.tapper/config.yaml",
 		[]byte("flight: +project\n"), 0o644))

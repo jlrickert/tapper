@@ -28,10 +28,8 @@ func newRemoteHubTap(t *testing.T, handler http.Handler) (*tapper.Tap, *sandbox.
 	tap, err := tapper.NewTap(tapper.TapOptions{Root: "/home/testuser", Runtime: fx.Runtime()})
 	require.NoError(t, err)
 	cfg := fmt.Sprintf("hubs:\n"+
-		"  atlas:\n    kind: remote\n    url: %s\n    token: tok\n"+
-		"hub: atlas\n"+
-		"defaultNamespace: jlrickert\n"+
-		"namespaces:\n  jlrickert:\n    hub: atlas\n", srv.URL)
+		"  atlas:\n    url: %s\n    token: tok\n"+
+		"hub: atlas\n", srv.URL)
 	require.NoError(t, fx.Runtime().AtomicWriteFile(tap.PathService.UserConfig(), []byte(cfg), 0o644))
 	return tap, fx, srv
 }

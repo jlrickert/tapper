@@ -9,30 +9,11 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// selection applies the paired mapping between the user and project Hub layers,
-// and above both KEG layers. Environment and invocation overrides win last.
+// selection applies invocation overrides and the connection-pinned Hub.
 func (s *ConfigService) selection(out *resolved) error {
 	cfg := out.merged
-	if m, ok := cfg.LookupMapping(s.Runtime, s.PathService.Root); ok {
-		// Retain an invalid winner so explicit KEG selection can override it without
-		// accidentally falling through to a lower-priority KEG.
-		selector := m.selector()
-		if strings.TrimSpace(selector) == "" {
-			selector = "\x00invalid selected kegMap KEG"
-		}
-		cfg.data.Keg = selector
-		if m.Hub != "" {
-			cfg.data.HubName = m.Hub
-		}
-		if out.project != nil && out.project.HubName() != "" {
-			cfg.data.HubName = out.project.HubName()
-		}
-	}
-	if v := s.Runtime.Get("TAP_KEG"); v != "" {
-		cfg.data.Keg = v
-	}
-	if v := s.Runtime.Get("TAP_HUB"); v != "" {
-		cfg.data.HubName = v
+	if s.FlightOverride != "" {
+		cfg.data.Flight = s.FlightOverride
 	}
 	if s.KegOverride != "" {
 		cfg.data.Keg = s.KegOverride
@@ -53,7 +34,7 @@ func (s *ConfigService) selection(out *resolved) error {
 	if s.pinnedHubURL != "" {
 		// Credentials are keyed by URL. Never borrow the token from an alias that
 		// has since been pointed at another server.
-		entry := HubEntry{URL: s.pinnedHubURL, DefaultNamespace: s.pinnedNamespace}
+		entry := HubEntry{URL: s.pinnedHubURL}
 		names := make([]string, 0, len(cfg.Hubs()))
 		for name := range cfg.Hubs() {
 			names = append(names, name)
@@ -99,7 +80,7 @@ func (s *ConfigService) PinHub() error {
 	if err != nil {
 		return err
 	}
-	s.pinnedHubName, s.pinnedHubURL, s.pinnedNamespace = name, CanonicalConfiguredHubURL(url), entry.DefaultNamespace
+	s.pinnedHubName, s.pinnedHubURL = name, CanonicalConfiguredHubURL(url)
 	return nil
 }
 
@@ -142,11 +123,11 @@ func (m *KegMapEntry) UnmarshalYAML(n *yaml.Node) error {
 		m.invalid = fmt.Errorf("kegMap entry must be a mapping")
 		return nil
 	}
-	for key, dst := range map[string]*string{"keg": &m.Keg, "alias": &m.Alias, "hub": &m.Hub, "pathPrefix": &m.PathPrefix, "pathRegex": &m.PathRegex} {
+	for key, dst := range map[string]*string{"keg": &m.Keg, "hub": &m.Hub, "flight": &m.Flight, "pathPrefix": &m.PathPrefix, "pathRegex": &m.PathRegex} {
 		if value, ok := mappingValue(n, key); ok {
 			if value.Kind != yaml.ScalarNode || value.Tag != "!!str" {
 				*dst = "\x00invalid " + key
-				if key == "keg" || key == "alias" {
+				if key == "keg" {
 					m.invalid = fmt.Errorf("%s must be a string", key)
 				}
 				continue
@@ -167,7 +148,7 @@ func (m KegMapEntry) MarshalYAML() (any, error) {
 
 func (h *HubEntry) UnmarshalYAML(n *yaml.Node) error {
 	type plain HubEntry
-	for _, key := range []string{"url", "token", "tokenEnv", "defaultNamespace"} {
+	for _, key := range []string{"url", "token", "tokenEnv"} {
 		if value, ok := mappingValue(n, key); ok && (value.Kind != yaml.ScalarNode || value.Tag != "!!str") {
 			h.invalid = fmt.Errorf("%s must be a string", key)
 			h.raw = cloneYAMLNode(n)
@@ -234,4 +215,26 @@ func (a AgentEntry) MarshalYAML() (any, error) {
 	}
 	type plain AgentEntry
 	return plain(a), nil
+}
+
+// defaultValue returns only the selected rule's own field. Missing fields never
+// inherit from a broader rule. Preserve an explicitly empty KEG as invalid.
+func (m KegMapEntry) defaultValue(field string) string {
+	switch field {
+	case "keg":
+		value := m.Keg
+		if m.hasKeg && strings.TrimSpace(value) == "" {
+			return "\x00invalid selected kegMap KEG"
+		}
+		return value
+	case "hub":
+		return m.Hub
+	case "flight":
+		if m.Flight != "" && strings.TrimSpace(m.Flight) == "" {
+			return "\x00invalid selected kegMap flight"
+		}
+		return m.Flight
+	default:
+		return ""
+	}
 }
