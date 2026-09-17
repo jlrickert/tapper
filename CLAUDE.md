@@ -253,6 +253,10 @@ environment and break test isolation. Specifically:
 
 - **File I/O**: Use `rt.ReadFile` / `rt.WriteFile` — never `os.ReadFile` /
   `os.WriteFile`.
+- **Directories and metadata**: Use `rt.Mkdir` / `rt.Remove` / `rt.Rename` /
+  `rt.Stat` / `rt.ReadDir` / `rt.Glob` — never `os.MkdirAll` / `os.RemoveAll` /
+  `os.Rename` / `os.Stat` / `os.ReadDir` / `os.DirFS`. The Runtime confines
+  paths to a jail; a direct `os` call escapes it.
 - **Streams**: Use `rt.Stream().Out` / `rt.Stream().Err` — never `os.Stdout` /
   `os.Stderr` directly.
 - **Clock**: Use `rt.Clock().Now()` — never `time.Now()`.
@@ -261,6 +265,16 @@ environment and break test isolation. Specifically:
 - **Log files use `rt.OpenFile`**: Since cli-toolkit v1.3.0, log file
   initialization goes through `Runtime.OpenFile` instead of `os.OpenFile`. This
   enables sandbox-based log file tests.
+
+`internal/fsdiscipline` enforces the filesystem half of this rule: it parses
+every non-test file and fails on a direct call to an `os` filesystem function.
+It matches call expressions rather than text, so the `os.ErrNotExist` sentinels,
+`os.IsNotExist`, and the `os.O_CREATE` flags passed *into* `rt.OpenFile` remain
+allowed. Run it with `task lint:fs`; CI runs it on its own line. One file is
+exempt:
+
+- `cmd/render-integrations/main.go` (`os.DirFS`): build-time codegen, invoked by
+  `task render-integrations` and the pre-commit hook before any Runtime exists.
 
 The `cli-toolkit` `clock.Clock` interface only exposes `Now()`; it does not
 provide `After`, `NewTicker`, `AfterFunc`, or similar scheduling primitives.

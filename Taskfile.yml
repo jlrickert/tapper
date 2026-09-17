@@ -24,6 +24,16 @@ tasks:
       - ./internal/apidoc/**/*.go
       - ./pkg/**/*.go
     silent: true
+  lint:fs:
+    desc: Enforce that filesystem access goes through toolkit.Runtime.
+    cmds:
+      - go test ./internal/fsdiscipline
+    sources:
+      - ./internal/fsdiscipline/**/*.go
+      - ./pkg/**/*.go
+      - ./cmd/**/*.go
+      - ./internal/**/*.go
+    silent: true
   install-tap:
     desc: Install the tap CLI (go install ./cmd/tap).
     cmds:

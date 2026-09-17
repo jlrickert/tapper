@@ -13,5 +13,6 @@ jobs:
         with:
           go-version-file: go.mod
       - run: go test ./internal/apidoc
+      - run: go test ./internal/fsdiscipline
       - run: go test ./...
       - run: go test -race ./pkg/keg ./pkg/tapper
