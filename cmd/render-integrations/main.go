@@ -67,6 +67,8 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("resolve %s: %w", canonicalDir, err)
 	}
+	// Exempt from the Runtime Abstraction Rule: build-time codegen, and the
+	// overlay below needs an fs.FS, which toolkit.FileSystem does not provide.
 	primary := os.DirFS(canonicalAbs)
 
 	// Overlay renderdata.FS onto the on-disk canonical tree. The overlay
