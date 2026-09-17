@@ -90,9 +90,8 @@ func newAgentOrientationServerWithEnv(t *testing.T, env map[string]string) (cont
 func writeAgentFlight(t *testing.T, rt *toolkit.Runtime, name, slug string) {
 	t.Helper()
 	hub := orientationTestHubFor(t, rt)
-	body := "keg: personal\nhub: home\nfallbackNamespace: local\ndisableAtlasHub: true\n" +
-		"namespaces:\n  local:\n    hub: home\n" +
-		"hubs:\n  home:\n    kind: remote\n    url: " + hub.server.URL + "\n    tokenEnv: TAPPER_TEST_HUB_TOKEN\n" +
+	body := "keg: '@local/personal'\nhub: home\ndisableAtlasHub: true\n" +
+		"hubs:\n  home:\n    url: " + hub.server.URL + "\n    tokenEnv: TAPPER_TEST_HUB_TOKEN\n" +
 		"flight: +baseline\n" +
 		"agents:\n  " + name + ":\n    model: ollama/qwen3.6:35b\n    flight: +" + slug + "\n"
 	require.NoError(t, rt.AtomicWriteFile("/home/testuser/.config/tapper/config.yaml", []byte(body), 0o644))

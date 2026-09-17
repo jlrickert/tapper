@@ -222,8 +222,6 @@ var ConfigExplainFields = []string{
 	"logFile",
 	"logLevel",
 	"hub",
-	"defaultNamespace",
-	"fallbackNamespace",
 	"disableAtlasHub",
 	"disableTelemetry",
 }
@@ -249,10 +247,6 @@ func configFieldGetter(cfg *Config, field string) string {
 		return cfg.LogLevel()
 	case "hub":
 		return cfg.HubName()
-	case "defaultNamespace":
-		return cfg.DefaultNamespace()
-	case "fallbackNamespace":
-		return cfg.FallbackNamespace()
 	case "disableAtlasHub":
 		if cfg.DisableAtlasHub() {
 			return "true"
@@ -278,13 +272,6 @@ func (t *Tap) ConfigExplain(ctx context.Context, opts ConfigExplainOptions) ([]C
 		return nil, fmt.Errorf("unable to load merged config: %w", err)
 	}
 
-	// Load each tier individually. Missing configs are nil (not errors).
-	userCfg, _ := t.ConfigService.UserConfig()
-	projectCfg, _ := t.ConfigService.ProjectConfig()
-
-	// Build env config by checking TAP_* env vars.
-	envCfg := t.loadEnvConfig()
-
 	fields := ConfigExplainFields
 	if opts.Field != "" {
 		found := false
@@ -304,23 +291,10 @@ func (t *Tap) ConfigExplain(ctx context.Context, opts ConfigExplainOptions) ([]C
 	for _, field := range fields {
 		mergedVal := configFieldGetter(merged, field)
 
-		// Walk from most-specific to least-specific to find which source set this value.
-		source := "default"
-		if envVal := configFieldGetter(envCfg, field); envVal != "" {
-			source = "env vars"
-		} else if projVal := configFieldGetter(projectCfg, field); projVal != "" {
-			source = "project config"
-		} else if userVal := configFieldGetter(userCfg, field); userVal != "" {
-			source = "user config"
-		}
-
-		if field == "keg" || field == "hub" {
-			if m, ok := merged.LookupMapping(t.Runtime, t.ConfigService.PathService.Root); ok && configFieldGetter(envCfg, field) == "" {
-				if field == "keg" || (m.Hub != "" && configFieldGetter(projectCfg, field) == "") {
-					source = "kegMap (startup directory)"
-				}
-			}
-		}
+		source := map[string]string{
+			"flag": "flag", "env": "env vars", "project": "project config",
+			"kegMap": "kegMap (startup directory)", "user": "user config", "": "default",
+		}[t.configFieldScope(field)]
 		results = append(results, ConfigExplainResult{
 			Field:  field,
 			Value:  mergedVal,

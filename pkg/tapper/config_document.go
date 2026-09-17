@@ -7,18 +7,18 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// updated remains owned so legacy timestamps are removed on serialization.
 var configOwnedFields = map[string]struct{}{
 	"logFile": {}, "logLevel": {}, "updated": {}, "keg": {}, "flight": {}, "agent": {}, "kegMap": {},
 	"hub":              {},
-	"defaultNamespace": {}, "fallbackNamespace": {}, "disableAtlasHub": {},
+	"disableAtlasHub":  {},
 	"disableTelemetry": {}, "hubs": {}, "agents": {},
 }
 
 var configObjectOwnedFields = map[string]map[string]struct{}{
 	"hubs": {
-		"defaultNamespace": {}, "url": {}, "token": {}, "tokenEnv": {},
+		"url": {}, "token": {}, "tokenEnv": {},
 	},
-	"namespaces": {"hub": {}},
 	"agents": {
 		"model": {}, "baseUrl": {}, "auth": {}, "apiKeyEnv": {},
 		"contextWindow": {}, "args": {},
@@ -26,7 +26,7 @@ var configObjectOwnedFields = map[string]map[string]struct{}{
 }
 
 var kegMapOwnedFields = map[string]struct{}{
-	"keg": {}, "hub": {}, "alias": {}, "pathPrefix": {}, "pathRegex": {},
+	"keg": {}, "hub": {}, "flight": {}, "pathPrefix": {}, "pathRegex": {},
 }
 
 func overlayConfigDocument(original *yaml.Node, data *configDTO) (*yaml.Node, error) {
@@ -56,7 +56,7 @@ func overlayConfigDocument(original *yaml.Node, data *configDTO) (*yaml.Node, er
 			continue
 		}
 		switch field {
-		case "hubs", "namespaces", "agents":
+		case "hubs", "agents":
 			if exists && dstValue.Kind == yaml.MappingNode && srcValue.Kind == yaml.MappingNode {
 				overlayNamedObjects(dstValue, srcValue, configObjectOwnedFields[field])
 			} else {

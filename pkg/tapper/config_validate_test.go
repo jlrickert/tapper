@@ -19,7 +19,7 @@ func TestValidateConfig_ValidConfig(t *testing.T) {
 keg: pub
 logLevel: info
 kegMap:
-  - alias: pub
+  - keg: pub
     pathPrefix: ~/Documents/kegs
 `))
 	require.NoError(t, err)
@@ -43,7 +43,7 @@ func TestValidateConfig_KegMapMissingPattern(t *testing.T) {
 
 	cfg, err := tapper.ParseConfig([]byte(`
 kegMap:
-  - alias: orphan
+  - keg: orphan
 `))
 	require.NoError(t, err)
 
@@ -52,7 +52,7 @@ kegMap:
 	require.Contains(t, warnings[0].Message, "no pathPrefix or pathRegex")
 }
 
-func TestValidateConfig_KegMapMissingAlias(t *testing.T) {
+func TestValidateConfig_KegMapMissingDefaults(t *testing.T) {
 	t.Parallel()
 
 	cfg, err := tapper.ParseConfig([]byte(`
@@ -71,7 +71,7 @@ func TestValidateConfig_KegMapInvalidRegex(t *testing.T) {
 
 	cfg, err := tapper.ParseConfig([]byte(`
 kegMap:
-  - alias: test
+  - keg: test
     pathRegex: "[invalid"
 `))
 	require.NoError(t, err)
@@ -86,9 +86,9 @@ func TestValidateConfig_DuplicateKegMapEntries(t *testing.T) {
 
 	cfg, err := tapper.ParseConfig([]byte(`
 kegMap:
-  - alias: pub
+  - keg: pub
     pathPrefix: ~/repos
-  - alias: pub
+  - keg: pub
     pathPrefix: ~/repos
 `))
 	require.NoError(t, err)

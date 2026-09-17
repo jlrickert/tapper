@@ -74,11 +74,9 @@ func hasMarkdownTitle(content string) bool {
 func writeHubConfig(t *testing.T, sb *testutils.Sandbox, url string) {
 	t.Helper()
 	sb.MustWriteFile("~/.config/tapper/config.yaml", []byte(fmt.Sprintf(`hub: test
-fallbackNamespace: team
-keg: notes
+keg: "@team/notes"
 hubs:
   test:
-    kind: remote
     url: %s
     token: test-token
 `, url)), 0o644)

@@ -198,47 +198,13 @@ func (t *Tap) resolveWriteFlightRef(raw string) (FlightRef, HubEntry, string, er
 	return ref, entry, hubName, nil
 }
 
-// defaultFlightNamespace supplies the namespace for a flight reference that
-// omits one. Precedence:
-//
-//	active KEG's namespace → defaultNamespace → fallbackNamespace →
-//	the resolved hub's per-hub defaultNamespace
-//
-// The active KEG comes first because a bare flight name typed while working in
-// an org KEG means a flight in that org, not one in the user's personal
-// namespace. Resolving it last put flights in the wrong namespace silently
-// (tapper#74); an explicitly qualified @namespace/+slug never reaches here.
+// defaultFlightNamespace uses only the active KEG's explicit namespace.
 func (t *Tap) defaultFlightNamespace(cfg *Config) string {
-	if cfg == nil {
-		return ""
-	}
-	if ns := t.activeKegNamespace(cfg); ns != "" {
-		return ns
-	}
-	if ns := strings.TrimSpace(cfg.resolveNamespaceForName()); ns != "" {
-		return ns
-	}
-	hubName := cfg.resolveHubName()
-	entry, ok := cfg.Hub(hubName)
-	if !ok {
-		return ""
-	}
-	if ns := strings.TrimPrefix(strings.TrimSpace(entry.DefaultNamespace), "@"); ns != "" {
-		return ns
-	}
-	return ""
+	return t.activeKegNamespace(cfg)
 }
 
-// activeKegNamespace returns the namespace of the KEG currently in context, or
-// "" when no KEG is selected or the selector names no namespace. The selector
-// chain mirrors resolveIdentity and resolveKegAdminRef: keg → project
-// alias → keg.
-//
-// Only a namespace the selector states explicitly counts. Running the selector
-// through resolveNamespaceHub would fill an omitted namespace from
-// defaultNamespace, so a bare keg name would report the personal namespace as
-// though the KEG had named it, and this step would stop being distinguishable
-// from the one after it.
+// activeKegNamespace returns the explicitly qualified active KEG's namespace,
+// or an empty string when no qualified KEG is selected.
 func (t *Tap) activeKegNamespace(cfg *Config) string {
 	if t == nil || cfg == nil {
 		return ""

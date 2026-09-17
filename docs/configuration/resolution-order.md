@@ -6,11 +6,12 @@ Hub; namespaces never route requests to another Hub.
 
 | Selection | Precedence, highest first |
 | --- | --- |
-| KEG | `--keg` → `TAP_KEG` → matching `kegMap.keg` → project `keg` → user `keg` |
+| KEG | `--keg` → `TAP_KEG` → project `keg` → matching `kegMap.keg` → user `keg` |
 | Hub | `--hub` → `TAP_HUB` → project `hub` → matching `kegMap.hub` → user `hub` → automatic fallback |
+| Flight | `--flight` → `TAP_FLIGHT` → project `flight` → matching `kegMap.flight` → user `flight` |
 
-A matching rule overrides even a project's `keg`. A project's `hub` overrides
-the rule's Hub. The winning KEG resolves within the winning Hub.
+Project configuration overrides each corresponding directory default.
+The winning KEG resolves within the winning Hub.
 
 Automatic Hub fallback selects the alphabetically first explicitly configured
 Hub. If none exist, it uses Atlas (`https://atlas.foldwise.ai`), unless
@@ -33,6 +34,8 @@ kegMap:
   - pathPrefix: ~/repos/homelab
     hub: homelab
     keg: "@homelab/dev"
+  - pathPrefix: ~/repos/bitbucket
+    flight: "@work/+development"
 ```
 
 Mappings use the startup directory. The first matching `pathRegex` wins.
@@ -41,21 +44,30 @@ configuration order. A prefix matches that directory and its descendants,
 never a partial directory name. Invalid nonmatching expressions do not block
 unrelated operations. Environment variables and a leading `~` are expanded.
 
-One rule wins for both fields. Every winning rule must provide a valid KEG;
-its Hub is optional. `alias` remains a compatibility spelling for `keg`, but
-an explicitly present `keg` wins over it. A miss uses the top-level `keg`.
+One rule wins for all three fields. Each rule requires a path selector and at
+least one of `keg`, `hub`, or `flight`; any combination is supported. Omitted
+fields fall back independently to user configuration, never to a broader rule.
+`alias` is retired: its value is preserved but ignored, and alias-only rules
+cannot shadow supported mappings. Use `keg` for KEG defaults. A miss uses
+project/user defaults. Empty flight strings do
+not clear an inherited flight. Descendants of `~/repos/bitbucket` in this
+example use `@work/+development` unless a higher-priority source overrides it.
 
 ## Configuration layers and trust boundary
 
 Tapper walks from its startup directory to the filesystem root, collecting
 `.tapper/config.yaml` files. Deeper project values override shallower ones.
 The user configuration is the base layer. `--config` selects an explicit file
-instead of the user/project file cascade; environment overrides still apply.
+instead of the user/project file cascade; its mappings and environment
+overrides still apply.
 
 Only user configuration may define `hubs` and their `token` or `tokenEnv`
 credentials. Project files can select saved Hub names, but Hub definitions
 are stripped from project files with a warning (`--strict` makes it an error).
-Unknown and retired fields and comments survive Tapper-owned rewrites.
+Unknown and retired fields and comments survive Tapper-owned rewrites, except
+for the retired `updated` timestamp: its value is ignored on read and the key
+is removed on the next serialization of user or project config. KEG settings,
+node timestamps, and flight metadata are unchanged.
 Malformed YAML fails; unused entries are not eagerly validated.
 
 The retired keys `defaultKeg`, `fallbackKeg`, `defaultHub`, `fallbackHub`,
@@ -64,12 +76,17 @@ Their old environment overrides no longer select anything.
 
 ## Namespaces and Flights
 
-Namespace-qualified references remain supported. A bare KEG name uses
-`--namespace`, `defaultNamespace`, `fallbackNamespace`, then the selected
-Hub's `defaultNamespace`. `@local` has no special meaning.
+Use qualified `@namespace/keg` references. Existing KEG operations also accept
+a bare name with explicit `--namespace`. Creation requires exactly one
+`@namespace/keg` argument and rejects `--namespace`. Completions offer qualified
+references only. `@local` has no special meaning.
+
+The retired `defaultNamespace`, `fallbackNamespace`, saved Hub namespace defaults,
+`TAP_DEFAULT_NAMESPACE`, and `TAP_FALLBACK_NAMESPACE` are ignored without warnings.
+Bare flight references use only the active qualified KEG's namespace.
 
 Flight selection remains independent: `--flight`, `TAP_FLIGHT`, project
-`flight`, then user `flight`. An agent selects a model and telemetry identity,
+`flight`, matching `kegMap.flight`, then user `flight`. An agent selects a model and telemetry identity,
 never a Flight. See [Flights](flights.md).
 
 ## MCP connection lifetime
@@ -86,8 +103,9 @@ in force; mutations are never automatically replayed after a refusal or an
 ambiguous outcome.
 
 Use `tap use` and `tap config --explain keg` or `--explain hub` to inspect the
-selection. Both project and user `tap use` write `keg` in their own scope;
-inspection reports when a mapping overrides that value.
+selection, or `--explain flight` for the flight source. Both project and user
+`tap use` write `keg` in their own scope; inspection reports the actual source
+for all three defaults.
 
 ## Credential precedence
 

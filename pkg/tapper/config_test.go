@@ -23,7 +23,7 @@ kegs:
   # kegs trailing comment
 
 kegMap:
-  - alias: main
+  - keg: main
     pathPrefix: "~/projects" # prefix comment
 `
 
@@ -46,7 +46,7 @@ func TestClone_CopiesData(t *testing.T) {
 	raw := `# config header
 keg: main
 kegMap:
-  - alias: main
+  - keg: main
     pathPrefix: "~/projects" # keep this inline
 `
 
@@ -102,7 +102,7 @@ agents:
     model: openai/gpt-5
     providerOption: retained
 kegMap:
-  - alias: "@team/notes"
+  - keg: "@team/notes"
     pathPrefix: /workspace
     extensionRule: retained
 `
@@ -246,41 +246,11 @@ hubs:
 	require.NoError(t, err)
 	require.Equal(t, "keg:@own/k", kt.String())
 
-	// In the namespace-centric model the global defaultNamespace outranks the
-	// per-hub default namespace (the per-hub default is now a last resort).
-	kt, err = uc.ResolveRef(fx.Runtime(), tapper.KegRef{Hub: "cloud", Name: "k"})
-	require.NoError(t, err)
-	require.Equal(t, "keg:@defns/k", kt.String())
-
-	// A hub without its own namespace falls back to defaultNamespace.
-	kt, err = uc.ResolveRef(fx.Runtime(), tapper.KegRef{Hub: "bare", Name: "k"})
-	require.NoError(t, err)
-	require.Equal(t, "keg:@defns/k", kt.String())
-
-	// The per-hub namespace applies only as a last resort: when no explicit,
-	// defaultNamespace, or fallbackNamespace value exists.
-	rawPerhubLast := `hubs:
-  cloud:
-    kind: remote
-    url: https://example.com
-    defaultNamespace: hubns
-`
-	ucPerhub, err := tapper.ParseConfig([]byte(rawPerhubLast))
-	require.NoError(t, err)
-	kt, err = ucPerhub.ResolveRef(fx.Runtime(), tapper.KegRef{Hub: "cloud", Name: "k"})
-	require.NoError(t, err)
-	require.Equal(t, "keg:@hubns/k", kt.String())
-
-	// fallbackNamespace applies only when no default/per-hub namespace exists.
-	rawFb := `fallbackNamespace: fbns
-hubs:
-  bare: { kind: remote, url: https://bare.example.com }
-`
-	ucFb, err := tapper.ParseConfig([]byte(rawFb))
-	require.NoError(t, err)
-	kt, err = ucFb.ResolveRef(fx.Runtime(), tapper.KegRef{Hub: "bare", Name: "k"})
-	require.NoError(t, err)
-	require.Equal(t, "keg:@fbns/k", kt.String())
+	// Retired defaults never resolve a bare name.
+	for _, hub := range []string{"cloud", "bare"} {
+		_, err = uc.ResolveRef(fx.Runtime(), tapper.KegRef{Hub: hub, Name: "k"})
+		require.ErrorContains(t, err, "namespace is required")
+	}
 
 	// A remote hub with no namespace anywhere is an error.
 	rawErr := `hubs:
@@ -293,7 +263,7 @@ hubs:
 
 	// An invalid namespace (flights.d) is rejected at resolve time.
 	rawBad := `hubs:
-  bare: { kind: remote, url: https://x.example.com }
+  bare: { url: https://x.example.com }
 `
 	ucBad, err := tapper.ParseConfig([]byte(rawBad))
 	require.NoError(t, err)
@@ -301,67 +271,23 @@ hubs:
 	require.Error(t, err, "flights.d namespace must be rejected")
 }
 
-func TestResolveRef_NamespaceCentric(t *testing.T) {
-	t.Parallel()
-	fx := NewSandbox(t)
-
-	// kegs[name].Namespace disambiguates the namespace; namespaces[ns].Hub
-	// (struct form) and the scalar shorthand both pin the hosting hub.
-	raw := `hub: cloud
-hubs:
-  cloud:
-    kind: remote
-    url: https://cloud.example.com
-  work:
-    kind: remote
-    url: https://work.example.com
-namespaces:
-  teamns: { hub: work }
-  scalarns: cloud
-`
-	uc, err := tapper.ParseConfig([]byte(raw))
-	require.NoError(t, err)
-
-	// An explicit namespace "teamns" routes to hub "work" via the namespaces
-	// map. Assert on the resolved fields rather than String() so the test is
-	// independent of the hub target's textual representation.
-	kt, err := uc.ResolveRef(fx.Runtime(), tapper.KegRef{Namespace: "teamns", Name: "example"})
-	require.NoError(t, err)
-	require.Equal(t, "cloud", kt.Hub)
-	require.Equal(t, "teamns", kt.Namespace)
-	require.Equal(t, "example", kt.KegName)
-
-	// An explicit namespace with a scalar-shorthand namespaces entry.
-	kt, err = uc.ResolveRef(fx.Runtime(), tapper.KegRef{Namespace: "scalarns", Name: "k"})
-	require.NoError(t, err)
-	require.Equal(t, "cloud", kt.Hub)
-	require.Equal(t, "scalarns", kt.Namespace)
-
-	// A namespace with no namespaces[ns] entry falls back to hub.
-	kt, err = uc.ResolveRef(fx.Runtime(), tapper.KegRef{Namespace: "lone", Name: "k"})
-	require.NoError(t, err)
-	require.Equal(t, "cloud", kt.Hub)
-	require.Equal(t, "lone", kt.Namespace)
-
-}
-
 func TestResolveProjectKeg_PrefixAndRegexPrecedence(t *testing.T) {
 	t.Parallel()
 	fx := NewSandbox(t)
 
 	// Build a config exercising regex precedence and longest-prefix selection.
-	// kegMap aliases are keg references (@namespace/name) resolved via ResolveRef.
+	// kegMap KEG defaults are references (@namespace/name) resolved via ResolveRef.
 	raw := fmt.Sprintf(`keg: "@ns/default"
 hubs:
   remote:
     kind: remote
     url: https://example.com
 kegMap:
-  - alias: "@ns/regex"
+  - keg: "@ns/regex"
     pathRegex: "^%s/.*/special$"
-  - alias: "@ns/projfoo"
+  - keg: "@ns/projfoo"
     pathPrefix: "%s/projects/foo"
-  - alias: "@ns/proj"
+  - keg: "@ns/proj"
     pathPrefix: "%s/projects"
 `, fx.GetJail(), fx.GetJail(), fx.GetJail())
 
@@ -395,7 +321,7 @@ kegMap:
 	rawNoDefault := fmt.Sprintf(`hubs:
   remote: { kind: remote, url: https://example.com }
 kegMap:
-  - alias: "@ns/proj"
+  - keg: "@ns/proj"
     pathPrefix: "%s/projects"
 `, fx.GetJail())
 	uc2, err := tapper.ParseConfig([]byte(rawNoDefault))
@@ -409,7 +335,7 @@ func TestAddKegMap_AddsAndUpdatesEntries(t *testing.T) {
 	t.Parallel()
 
 	raw := `kegMap:
-  - alias: existing
+  - keg: existing
     pathPrefix: "/existing"
 `
 	cfg, err := tapper.ParseConfig([]byte(raw))
@@ -417,7 +343,7 @@ func TestAddKegMap_AddsAndUpdatesEntries(t *testing.T) {
 
 	// Add a new keg map entry
 	newEntry := tapper.KegMapEntry{
-		Alias:      "newentry",
+		Keg:        "newentry",
 		PathPrefix: "/new/prefix",
 	}
 	err = cfg.AddKegMap(newEntry)
@@ -427,7 +353,7 @@ func TestAddKegMap_AddsAndUpdatesEntries(t *testing.T) {
 	kegMap := cfg.KegMap()
 	found := false
 	for _, e := range kegMap {
-		if e.Alias == "newentry" && e.PathPrefix == "/new/prefix" {
+		if e.Keg == "newentry" && e.PathPrefix == "/new/prefix" {
 			found = true
 			break
 		}
@@ -437,7 +363,7 @@ func TestAddKegMap_AddsAndUpdatesEntries(t *testing.T) {
 	// Verify the existing entry is still there
 	found = false
 	for _, e := range kegMap {
-		if e.Alias == "existing" && e.PathPrefix == "/existing" {
+		if e.Keg == "existing" && e.PathPrefix == "/existing" {
 			found = true
 			break
 		}
@@ -446,7 +372,7 @@ func TestAddKegMap_AddsAndUpdatesEntries(t *testing.T) {
 
 	// Update an existing entry
 	updatedEntry := tapper.KegMapEntry{
-		Alias:      "existing",
+		Keg:        "existing",
 		PathPrefix: "/updated/prefix",
 		PathRegex:  "^/regex",
 	}
@@ -456,7 +382,7 @@ func TestAddKegMap_AddsAndUpdatesEntries(t *testing.T) {
 	kegMap = cfg.KegMap()
 	found = false
 	for _, e := range kegMap {
-		if e.Alias == "existing" && e.PathPrefix == "/updated/prefix" && e.PathRegex == "^/regex" {
+		if e.Keg == "existing" && e.PathPrefix == "/updated/prefix" && e.PathRegex == "^/regex" {
 			found = true
 			break
 		}
@@ -471,29 +397,29 @@ func TestAddKegMap_AddsAndUpdatesEntries(t *testing.T) {
 	require.Contains(t, out, "/new/prefix")
 }
 
-func TestAddKegMap_ReturnsErrorOnNilOrEmptyAlias(t *testing.T) {
+func TestAddKegMap_ReturnsErrorOnNilOrEmptyDefaults(t *testing.T) {
 	t.Parallel()
 	cfg := tapper.DefaultUserConfig("testuser")
 
 	// Test nil config
 	var nilCfg *tapper.Config
-	err := nilCfg.AddKegMap(tapper.KegMapEntry{Alias: "test"})
+	err := nilCfg.AddKegMap(tapper.KegMapEntry{Keg: "test"})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "config is nil")
 
-	// Test empty alias
-	err = cfg.AddKegMap(tapper.KegMapEntry{Alias: ""})
+	// Test empty defaults
+	err = cfg.AddKegMap(tapper.KegMapEntry{Keg: ""})
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "alias is required")
+	require.Contains(t, err.Error(), "at least one of keg, hub, or flight is required")
 }
 
-func TestAddKegMap_PreservesMultipleEntriesWithSameAlias(t *testing.T) {
+func TestAddKegMap_PreservesMultipleEntriesWithSameKeg(t *testing.T) {
 	t.Parallel()
 
 	raw := `kegMap:
-  - alias: work
+  - keg: work
     pathPrefix: ~/repos/github.com/work-devel/
-  - alias: work
+  - keg: work
     pathPrefix: ~/repos/github.com/jared52/
 `
 	cfg, err := tapper.ParseConfig([]byte(raw))
@@ -505,7 +431,7 @@ func TestAddKegMap_PreservesMultipleEntriesWithSameAlias(t *testing.T) {
 	// Verify both prefixes are present.
 	var prefixes []string
 	for _, e := range kegMap {
-		if e.Alias == "work" {
+		if e.Keg == "work" {
 			prefixes = append(prefixes, e.PathPrefix)
 		}
 	}
@@ -515,13 +441,13 @@ func TestAddKegMap_PreservesMultipleEntriesWithSameAlias(t *testing.T) {
 	}, prefixes)
 }
 
-func TestMergeConfig_PreservesMultipleEntriesWithSameAlias(t *testing.T) {
+func TestMergeConfig_PreservesMultipleEntriesWithSameKeg(t *testing.T) {
 	t.Parallel()
 
 	userRaw := `kegMap:
-  - alias: work
+  - keg: work
     pathPrefix: ~/repos/github.com/work-devel/
-  - alias: work
+  - keg: work
     pathPrefix: ~/repos/github.com/jared52/
 `
 	projectRaw := `kegMap: []
@@ -586,8 +512,7 @@ kegs: {}
 	// Project defaults and user fallbacks both survive the merge.
 	require.Equal(t, "atlas", merged.HubName())
 	require.Equal(t, "atlas", merged.HubName())
-	require.Equal(t, "work", merged.DefaultNamespace())
-	require.Equal(t, "pub", merged.FallbackNamespace())
+
 }
 
 func TestConfigToYAML_PrependsSchemaModeline(t *testing.T) {

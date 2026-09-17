@@ -46,8 +46,6 @@ func TestHookPreToolUse_GuardsCommands(t *testing.T) {
 		{name: "reserved flight env unset", command: "env --unset TAP_FLIGHT codex", deny: true},
 		{name: "user config redirect", command: "printf x > ~/.config/tapper/config.yaml", deny: true},
 		{name: "project config write", command: "touch .tapper/config.yaml", deny: true},
-		{name: "obsolete local flight manifest write", command: "cp next.yaml /tmp/kegs/flights.d/dev.yaml", deny: false},
-		{name: "obsolete local flight manifest rename", command: "mv /tmp/kegs/flights.d/dev.yaml /tmp/dev.yaml", deny: false},
 		{name: "flight patch", command: "apply_patch '*** Update File: .tapper/config.yaml'", deny: true},
 		{name: "anchored patch only", command: "printf 'example *** Update File: .tapper/config.yaml'", deny: false},
 		{name: "sed in place", command: "sed -i.bak s/x/y/ .tapper/config.yaml", deny: true},

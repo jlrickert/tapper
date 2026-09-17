@@ -9,8 +9,8 @@ You can also pass `--keg @namespace/keg`. A missing KEG has no automatic fallbac
 ## Unexpected selection
 
 Run `tap use`, `tap config --explain keg`, and `tap config --explain hub`.
-A matching `kegMap` overrides project and user `keg`, while project `hub`
-overrides the mapping's Hub. Environment variables and explicit flags win.
+Project `keg`, `hub`, and `flight` override the winning `kegMap` rule, whose
+provided fields override user defaults. Use `--explain flight` for its source. Environment variables and explicit flags win.
 Mappings use the startup directory, and project files are loaded from every
 parent directory. See [Resolution Order](resolution-order.md).
 

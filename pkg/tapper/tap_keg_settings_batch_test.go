@@ -37,12 +37,11 @@ func TestKegSettingsBatch_UsesOrdinarySettingsAndPreservesInputOrder(t *testing.
 	sb := sandbox.NewSandbox(t, &sandbox.Options{Home: "/home/testuser", User: "testuser"})
 	tap, err := tapper.NewTap(tapper.TapOptions{Runtime: sb.Runtime()})
 	require.NoError(t, err)
+	// Namespaces no longer route to a hub, so every reference resolves to the
+	// alphabetically-first hub. That is what aCalls==3 / bCalls==0 below proves.
 	cfg := fmt.Sprintf(`hubs:
-  a: {kind: remote, url: %s, token: token-a}
-  b: {kind: remote, url: %s, token: token-b}
-namespaces:
-  team-a: a
-  team-b: b
+  a: {url: %s, token: token-a}
+  b: {url: %s, token: token-b}
 `, hubA.URL, hubB.URL)
 	require.NoError(t, sb.Runtime().AtomicWriteFile(tap.PathService.UserConfig(), []byte(cfg), 0o644))
 
@@ -87,9 +86,7 @@ func TestKegSettingsBatch_NeverCallsRemovedOrientationRoute(t *testing.T) {
 	tap, err := tapper.NewTap(tapper.TapOptions{Runtime: sb.Runtime()})
 	require.NoError(t, err)
 	cfg := fmt.Sprintf(`hubs:
-  legacy: {kind: remote, url: %s, token: token}
-namespaces:
-  legacy: legacy
+  legacy: {url: %s, token: token}
 `, srv.URL)
 	require.NoError(t, sb.Runtime().AtomicWriteFile(tap.PathService.UserConfig(), []byte(cfg), 0o644))
 

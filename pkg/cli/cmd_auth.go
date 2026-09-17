@@ -133,11 +133,6 @@ func runAuthLogin(ctx context.Context, deps *Deps, p authLoginParams) (*authLogi
 	}
 
 	namespace := loginNamespaceFromWho(who)
-	if namespace != "" {
-		if _, err := deps.Tap.SetHubDefaultNamespaceByURL(ctx, hubURL, namespace); err != nil {
-			_, _ = fmt.Fprintf(rt.Stream().Err, "warning: could not adopt namespace from hub: %v\n", err)
-		}
-	}
 
 	return &authLoginResult{HubURL: hubURL, Namespace: namespace}, nil
 }

@@ -152,6 +152,7 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 			tap.AuthValidateFn = deps.AuthValidateTokenFn
 			tap.ConfigService.KegOverride = deps.KegTargetOptions.Keg
 			tap.ConfigService.HubOverride = deps.KegTargetOptions.Hub
+			tap.ConfigService.FlightOverride = deps.KegTargetOptions.Flight
 			if cmd.Flags().Changed("hub") {
 				tap.ConfigService.HubOverride, _ = cmd.Flags().GetString("hub")
 			}
@@ -289,7 +290,7 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 		// that compose with a bare --keg.
 		cmd.PersistentFlags().StringVarP(&deps.KegTargetOptions.Keg, "keg", "k", "", "keg to use: a bare name or an @namespace/keg reference")
 		mustRegisterFlagCompletion(cmd, "keg", kegFlagCompletionFunc(deps))
-		cmd.PersistentFlags().StringVar(&deps.KegTargetOptions.Namespace, "namespace", "", "namespace to resolve a bare --keg in (overrides defaultNamespace)")
+		cmd.PersistentFlags().StringVar(&deps.KegTargetOptions.Namespace, "namespace", "", "namespace to resolve a bare --keg in")
 		mustRegisterFlagCompletion(cmd, "namespace", namespaceFlagCompletionFunc(deps))
 		cmd.PersistentFlags().StringVar(&deps.KegTargetOptions.Hub, "hub", "", "hub to resolve the keg on (overrides namespace→hub resolution)")
 		mustRegisterFlagCompletion(cmd, "hub", hubFlagCompletionFunc(deps))
@@ -402,9 +403,6 @@ func kegFlagCompletions(ctx context.Context, deps *Deps, toComplete string) []st
 		return nil
 	}
 
-	cfg, _ := tap.ConfigService.Config()
-	bareNamespace := completionBareNamespace(deps.Runtime, cfg)
-
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -430,10 +428,8 @@ func kegFlagCompletions(ctx context.Context, deps *Deps, toComplete string) []st
 	}
 
 	for _, ref := range kegs {
-		add(ref)
-		ns, name, ok := splitCanonicalKegRef(ref)
-		if ok && ns == bareNamespace {
-			add(name)
+		if _, _, ok := splitCanonicalKegRef(ref); ok {
+			add(ref)
 		}
 	}
 	sort.Strings(out)
@@ -457,37 +453,6 @@ func completionTap(deps *Deps) (*tapper.Tap, error) {
 		ConfigPath: deps.ConfigPath,
 		Runtime:    deps.Runtime,
 	})
-}
-
-func completionBareNamespace(rt *toolkit.Runtime, cfg *tapper.Config) string {
-	if cfg == nil {
-		return ""
-	}
-	if ns := strings.TrimSpace(cfg.DefaultNamespace()); ns != "" {
-		return ns
-	}
-	if ns := strings.TrimSpace(cfg.FallbackNamespace()); ns != "" {
-		return ns
-	}
-	target, err := cfg.ResolveAlias(rt, "__tap_completion_probe__")
-	if err == nil && target != nil {
-		if ns := strings.TrimSpace(target.Namespace); ns != "" {
-			return ns
-		}
-	}
-
-	hubName := strings.TrimSpace(cfg.HubName())
-	if hubName == "" {
-		hubName = strings.TrimSpace(cfg.HubName())
-	}
-	if hubName != "" {
-		if entry, ok := cfg.Hub(hubName); ok {
-			if ns := strings.TrimSpace(entry.DefaultNamespace); ns != "" {
-				return ns
-			}
-		}
-	}
-	return ""
 }
 
 func splitCanonicalKegRef(ref string) (string, string, bool) {

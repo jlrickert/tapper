@@ -182,7 +182,7 @@ func TestConfigEdit_ProjectCreateIsInert(t *testing.T) {
 	// No active authoritative slots — an abandoned edit cannot hijack resolution.
 	for _, line := range strings.Split(saved, "\n") {
 		trimmed := strings.TrimSpace(line)
-		for _, field := range []string{"keg:", "defaultNamespace:", "hub:"} {
+		for _, field := range []string{"keg:", "hub:"} {
 			require.Falsef(t, strings.HasPrefix(trimmed, field),
 				"created project config must not have an active %s line; got:\n%s", field, saved)
 		}

@@ -27,14 +27,9 @@ func TestKegRenameCommand(t *testing.T) {
 	sb := NewSandbox(t)
 	sb.MustWriteFile("~/.config/tapper/config.yaml", []byte(fmt.Sprintf(`hubs:
   atlas:
-    kind: remote
     url: %s
     token: tok
 hub: atlas
-defaultNamespace: jlrickert
-namespaces:
-  jlrickert:
-    hub: atlas
 `, srv.URL)), 0o644)
 
 	res := NewProcess(t, false, "keg", "rename", "@jlrickert/example", "renamed").Run(sb.Context(), sb.Runtime())
@@ -55,9 +50,9 @@ func TestKegRenameCompletion_OldArgListsKegs(t *testing.T) {
 	require.Contains(t, suggestions, "@team/example")
 	require.Contains(t, suggestions, "@team/personal")
 	require.Contains(t, suggestions, "@team/work")
-	require.Contains(t, suggestions, "example")
-	require.Contains(t, suggestions, "personal")
-	require.Contains(t, suggestions, "work")
+	require.NotContains(t, suggestions, "example")
+	require.NotContains(t, suggestions, "personal")
+	require.NotContains(t, suggestions, "work")
 	require.Contains(t, string(comp.Stdout), fmt.Sprintf(":%d", cobra.ShellCompDirectiveNoFileComp))
 }
 

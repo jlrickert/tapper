@@ -61,14 +61,14 @@ func TestDefaultFlightNamespace(t *testing.T) {
 			want:   "foldwise",
 		},
 		{
-			name:   "no active keg falls back to the configured default namespace",
+			name:   "no active keg ignores retired namespace default",
 			config: hubs + "defaultNamespace: jlrickert\n",
-			want:   "jlrickert",
+			want:   "",
 		},
 		{
-			name:   "no active keg and no default namespace falls back to the hub default",
+			name:   "no active keg ignores retired hub namespace default",
 			config: "hubs:\n  atlas:\n    kind: remote\n    url: https://atlas.foldwise.ai\n    token: tok\n    defaultNamespace: hubns\n",
-			want:   "hubns",
+			want:   "",
 		},
 		{
 			name: "a bare keg name states no namespace and does not shadow the default",
@@ -76,7 +76,7 @@ func TestDefaultFlightNamespace(t *testing.T) {
 			// decline rather than reporting the personal namespace as though
 			// the KEG had named it.
 			config: hubs + "defaultNamespace: jlrickert\nkeg: notes\n",
-			want:   "jlrickert",
+			want:   "",
 		},
 	}
 

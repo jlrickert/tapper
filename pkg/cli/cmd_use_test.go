@@ -55,6 +55,9 @@ func TestUse_BarePositionalStillSetsKeg(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "personal", cfg.Keg())
 	require.Empty(t, cfg.Flight())
+	raw, err := sb.Runtime().ReadFile(filepath.Join(project, ".tapper", "config.yaml"))
+	require.NoError(t, err)
+	require.NotContains(t, string(raw), "updated:")
 }
 
 func TestUseCompletion_SuggestsKegsAndFlights(t *testing.T) {
@@ -66,7 +69,7 @@ func TestUseCompletion_SuggestsKegsAndFlights(t *testing.T) {
 
 	suggestions := parseCompletionSuggestions(string(comp.Stdout))
 	require.Contains(t, suggestions, "@team/personal")
-	require.Contains(t, suggestions, "personal")
+	require.NotContains(t, suggestions, "personal")
 	require.Contains(t, suggestions, "@team/+backend")
 	require.Contains(t, string(comp.Stdout), fmt.Sprintf(":%d", cobra.ShellCompDirectiveNoFileComp))
 }
@@ -90,4 +93,45 @@ func TestUseCompletion_StopsAfterOneArg(t *testing.T) {
 
 	require.Empty(t, parseCompletionSuggestions(string(comp.Stdout)))
 	require.Contains(t, string(comp.Stdout), fmt.Sprintf(":%d", cobra.ShellCompDirectiveNoFileComp))
+}
+
+func TestUse_RemovesLegacyConfigTimestamp(t *testing.T) {
+	for _, user := range []bool{false, true} {
+		t.Run(fmt.Sprint(user), func(t *testing.T) {
+			sb := NewSandbox(t)
+			project := "/home/testuser/project"
+			require.NoError(t, sb.Runtime().Mkdir(project, 0755, true))
+			require.NoError(t, sb.Setwd(project))
+			path := filepath.Join(project, ".tapper", "config.yaml")
+			args := []string{"use", "personal"}
+			if user {
+				path = "/home/testuser/.config/tapper/config.yaml"
+				args = append(args, "--user")
+			}
+			require.NoError(t, sb.Runtime().AtomicWriteFile(path, []byte("updated: not-a-timestamp\ncustom: retained\n"), 0644))
+			res := NewProcess(t, false, args...).Run(sb.Context(), sb.Runtime())
+			require.NoError(t, res.Err)
+			raw, err := sb.Runtime().ReadFile(path)
+			require.NoError(t, err)
+			require.NotContains(t, string(raw), "updated:")
+			require.Contains(t, string(raw), "custom: retained")
+		})
+	}
+}
+
+func TestConfigExplain_DirectoryDefaultsAndFlags(t *testing.T) {
+	for _, field := range []string{"keg", "hub", "flight"} {
+		t.Run(field, func(t *testing.T) {
+			sb := NewSandbox(t)
+			require.NoError(t, sb.Runtime().AtomicWriteFile("/home/testuser/.config/tapper/config.yaml", []byte("kegMap:\n- {pathPrefix: /, "+field+": mapped}\n"), 0644))
+			mapped := NewProcess(t, false, "config", "--explain", field).Run(sb.Context(), sb.Runtime())
+			require.NoError(t, mapped.Err)
+			require.Contains(t, string(mapped.Stdout), field+" = mapped")
+			require.Contains(t, string(mapped.Stdout), "source: kegMap (startup directory)")
+			explicit := NewProcess(t, false, "--"+field, "explicit", "config", "--explain", field).Run(sb.Context(), sb.Runtime())
+			require.NoError(t, explicit.Err)
+			require.Contains(t, string(explicit.Stdout), field+" = explicit")
+			require.Contains(t, string(explicit.Stdout), "source: flag")
+		})
+	}
 }

@@ -22,9 +22,9 @@ func TestKegFlagCompletion_HappyPath(t *testing.T) {
 	require.Contains(t, suggestions, "@team/example")
 	require.Contains(t, suggestions, "@team/personal")
 	require.Contains(t, suggestions, "@team/work")
-	require.Contains(t, suggestions, "example")
-	require.Contains(t, suggestions, "personal")
-	require.Contains(t, suggestions, "work")
+	require.NotContains(t, suggestions, "example")
+	require.NotContains(t, suggestions, "personal")
+	require.NotContains(t, suggestions, "work")
 	require.Contains(t, string(comp.Stdout), fmt.Sprintf(":%d", cobra.ShellCompDirectiveNoFileComp))
 }
 
@@ -37,7 +37,7 @@ func TestKegFlagCompletion_ShortFlag(t *testing.T) {
 
 	suggestions := parseCompletionSuggestions(string(comp.Stdout))
 	require.Contains(t, suggestions, "@team/personal")
-	require.Contains(t, suggestions, "personal")
+	require.NotContains(t, suggestions, "personal")
 }
 
 // TestKegFlagCompletion_PrefixFilter verifies that prefix filtering works for
@@ -50,7 +50,7 @@ func TestKegFlagCompletion_PrefixFilter(t *testing.T) {
 	require.NoError(t, comp.Err)
 
 	suggestions := parseCompletionSuggestions(string(comp.Stdout))
-	require.Equal(t, []string{"personal"}, suggestions)
+	require.Empty(t, suggestions)
 }
 
 func TestKegFlagCompletion_CanonicalPrefixFilter(t *testing.T) {
@@ -80,7 +80,7 @@ func TestKegFlagCompletion_EmptyConfig(t *testing.T) {
 func TestKegFlagCompletion_RemoteFailureIsBestEffort(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t)
-	sb.MustWriteFile("~/.config/tapper/config.yaml", []byte("hubs:\n  atlas:\n    kind: remote\n    url: https://atlas.foldwise.ai\n"), 0o644)
+	sb.MustWriteFile("~/.config/tapper/config.yaml", []byte("hubs:\n  atlas:\n    url: https://atlas.foldwise.ai\n"), 0o644)
 
 	comp := NewCompletionProcess(t, false, 0, "--keg", "").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, comp.Err)
@@ -99,7 +99,7 @@ func TestKegFlagCompletion_IndexSubcommand(t *testing.T) {
 
 	suggestions := parseCompletionSuggestions(string(comp.Stdout))
 	require.Contains(t, suggestions, "@team/personal")
-	require.Contains(t, suggestions, "personal")
+	require.NotContains(t, suggestions, "personal")
 }
 
 func remoteCompletionKegs() []tapper.HubKeg {

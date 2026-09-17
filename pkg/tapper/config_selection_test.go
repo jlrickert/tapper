@@ -13,14 +13,14 @@ func TestSelectionPrecedence(t *testing.T) {
 	cases := []struct{ name, project, mapping, envKeg, envHub, flagKeg, flagHub, wantKeg, wantHub string }{
 		{name: "user", wantKeg: "user", wantHub: "user"},
 		{name: "project", project: "keg: project\nhub: project\n", wantKeg: "project", wantHub: "project"},
-		{name: "mapping beats project keg", project: "keg: project\n", mapping: "{pathPrefix: /workspace, keg: mapped, hub: mapped}", wantKeg: "mapped", wantHub: "mapped"},
-		{name: "project hub beats mapping", project: "keg: project\nhub: project\n", mapping: "{pathPrefix: /workspace, keg: mapped, hub: mapped}", wantKeg: "mapped", wantHub: "project"},
+		{name: "project keg beats mapping", project: "keg: project\n", mapping: "{pathPrefix: /workspace, keg: mapped, hub: mapped}", wantKeg: "project", wantHub: "mapped"},
+		{name: "project hub beats mapping", project: "keg: project\nhub: project\n", mapping: "{pathPrefix: /workspace, keg: mapped, hub: mapped}", wantKeg: "project", wantHub: "project"},
 		{name: "mapping miss", mapping: "{pathPrefix: /elsewhere, keg: mapped, hub: mapped}", wantKeg: "user", wantHub: "user"},
 		{name: "prefix requires boundary", mapping: "{pathPrefix: /work, keg: mapped, hub: mapped}", wantKeg: "user", wantHub: "user"},
 		{name: "mapping inherits hub", mapping: "{pathPrefix: /workspace, keg: mapped}", wantKeg: "mapped", wantHub: "user"},
 		{name: "environment", project: "keg: project\nhub: project\n", mapping: "{pathPrefix: /workspace, keg: mapped, hub: mapped}", envKeg: "env", envHub: "env", wantKeg: "env", wantHub: "env"},
 		{name: "flags", mapping: "{pathPrefix: /workspace, keg: mapped, hub: mapped}", envKeg: "env", envHub: "env", flagKeg: "flag", flagHub: "flag", wantKeg: "flag", wantHub: "flag"},
-		{name: "alias compatibility", mapping: "{pathPrefix: /workspace, alias: old}", wantKeg: "old", wantHub: "user"},
+		{name: "retired alias ignored", mapping: "{pathPrefix: /workspace, alias: old}", wantKeg: "user", wantHub: "user"},
 		{name: "keg beats alias", mapping: "{pathPrefix: /workspace, alias: old, keg: new}", wantKeg: "new", wantHub: "user"},
 	}
 	for _, tc := range cases {
@@ -40,7 +40,7 @@ func TestSelectionPrecedence(t *testing.T) {
 			require.NoError(t, rt.AtomicWriteFile("/workspace/.tapper/config.yaml", []byte(tc.project), 0644))
 			rt.Env().Set("TAP_KEG", tc.envKeg)
 			rt.Env().Set("TAP_HUB", tc.envHub)
-			target, err := s.ResolveTarget(tc.flagKeg, "", tc.flagHub)
+			target, err := s.ResolveTarget(tc.flagKeg, "team", tc.flagHub)
 			require.NoError(t, err)
 			require.Equal(t, tc.wantKeg, target.KegName)
 			require.Equal(t, tc.wantHub, target.Hub)
@@ -59,7 +59,7 @@ func TestMappingOrderAndInvalidSelection(t *testing.T) {
 		{name: "invalid nonmatching regex", rules: "- {pathRegex: '[', keg: bad}\n- {pathPrefix: /workspace, keg: good}", want: "good"},
 		{name: "invalid nonmatching selector", rules: "- {pathPrefix: /elsewhere, keg: [wrong]}\n- {pathPrefix: /workspace, keg: good}", want: "good"},
 		{name: "invalid matching selector", rules: "- {pathPrefix: /workspace, keg: [wrong]}", fail: true},
-		{name: "missing matching selector", rules: "- {pathPrefix: /workspace, hub: atlas}", fail: true},
+		{name: "hub-only mapping", rules: "- {pathPrefix: /workspace, hub: atlas}", want: "fallback"},
 		{name: "empty keg beats alias", rules: "- {pathPrefix: /workspace, keg: '', alias: valid}", fail: true},
 		{name: "keg beats invalid alias", rules: "- {pathPrefix: /workspace, keg: good, alias: [wrong]}", want: "good"},
 		{name: "invalid matching hub", rules: "- {pathPrefix: /workspace, keg: good, hub: [wrong]}", fail: true},
@@ -72,7 +72,7 @@ func TestMappingOrderAndInvalidSelection(t *testing.T) {
 			require.NoError(t, err)
 			raw := "keg: fallback\nfallbackNamespace: team\nkegMap:\n" + tc.rules + "\n"
 			require.NoError(t, rt.AtomicWriteFile(s.PathService.UserConfig(), []byte(raw), 0644))
-			target, err := s.ResolveTarget("", "", "")
+			target, err := s.ResolveTarget("", "team", "")
 			if tc.fail {
 				require.Error(t, err)
 				return
@@ -128,7 +128,7 @@ func TestRetiredEnvironmentIgnoredAndNestedProjects(t *testing.T) {
 	for _, key := range []string{"TAP_DEFAULT_KEG", "TAP_FALLBACK_KEG", "TAP_DEFAULT_HUB", "TAP_FALLBACK_HUB"} {
 		rt.Env().Set(key, "wrong")
 	}
-	target, err := s.ResolveTarget("", "", "")
+	target, err := s.ResolveTarget("", "team", "")
 	require.NoError(t, err)
 	require.Equal(t, "child", target.KegName)
 	require.Equal(t, "atlas", target.Hub)
@@ -147,7 +147,7 @@ func TestEmptyConfiguredCredentialFailsClosed(t *testing.T) {
 			require.NoError(t, sb.Runtime().AtomicWriteFile(s.PathService.UserConfig(), []byte(raw), 0644))
 			_, _, err = s.SelectedHub("")
 			require.ErrorContains(t, err, "must not be empty")
-			_, err = s.ResolveTarget("@me/demo", "", "")
+			_, err = s.ResolveTarget("@me/demo", "team", "")
 			require.Error(t, err)
 		})
 	}

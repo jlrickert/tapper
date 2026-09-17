@@ -41,16 +41,19 @@ func ValidateConfig(cfg *Config) []ConfigWarning {
 
 	// Check kegMap entries have at least one pattern.
 	for i, entry := range cfg.data.KegMap {
+		if entry.retiredOnly() {
+			continue
+		}
 		if entry.PathPrefix == "" && entry.PathRegex == "" {
 			warnings = append(warnings, ConfigWarning{
 				Field:   fmt.Sprintf("kegMap[%d]", i),
-				Message: fmt.Sprintf("kegMap entry for alias %q has no pathPrefix or pathRegex", entry.selector()),
+				Message: "kegMap defaults have no pathPrefix or pathRegex",
 			})
 		}
-		if entry.selector() == "" {
+		if entry.Keg == "" && entry.Hub == "" && entry.Flight == "" {
 			warnings = append(warnings, ConfigWarning{
 				Field:   fmt.Sprintf("kegMap[%d]", i),
-				Message: "kegMap entry has no keg",
+				Message: "kegMap entry has no keg, hub, or flight",
 			})
 		}
 		// Check pathRegex compiles.
@@ -58,23 +61,26 @@ func ValidateConfig(cfg *Config) []ConfigWarning {
 			if _, err := regexp.Compile(entry.PathRegex); err != nil {
 				warnings = append(warnings, ConfigWarning{
 					Field:   fmt.Sprintf("kegMap[%d].pathRegex", i),
-					Message: fmt.Sprintf("invalid regex for alias %q: %v", entry.selector(), err),
+					Message: fmt.Sprintf("invalid regex for kegMap defaults: %v", err),
 				})
 			}
 		}
 	}
 
-	// Check for duplicate aliases in kegMap pointing to the same pattern.
+	// Check for duplicate KEG, Hub, and flight defaults for the same pattern.
 	type kegMapKey struct {
-		alias, prefix, regex string
+		keg, hub, flight, prefix, regex string
 	}
 	seen := make(map[kegMapKey]int)
 	for i, entry := range cfg.data.KegMap {
-		key := kegMapKey{entry.selector(), entry.PathPrefix, entry.PathRegex}
+		if entry.retiredOnly() {
+			continue
+		}
+		key := kegMapKey{entry.Keg, entry.Hub, entry.Flight, entry.PathPrefix, entry.PathRegex}
 		if prev, ok := seen[key]; ok {
 			warnings = append(warnings, ConfigWarning{
 				Field:   fmt.Sprintf("kegMap[%d]", i),
-				Message: fmt.Sprintf("duplicate kegMap entry (same as index %d): alias=%q", prev, entry.selector()),
+				Message: fmt.Sprintf("duplicate kegMap entry (same as index %d): keg=%q hub=%q flight=%q", prev, entry.Keg, entry.Hub, entry.Flight),
 			})
 		}
 		seen[key] = i

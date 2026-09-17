@@ -122,6 +122,9 @@ type FlightRef struct {
 
 func ParseFlightRef(raw string, defaultNamespace string) (FlightRef, error) {
 	raw = strings.TrimSpace(raw)
+	if strings.ContainsRune(raw, '\x00') {
+		return FlightRef{}, fmt.Errorf("invalid flight reference %q", raw)
+	}
 	if raw == "" {
 		return FlightRef{}, fmt.Errorf("flight reference is required")
 	}

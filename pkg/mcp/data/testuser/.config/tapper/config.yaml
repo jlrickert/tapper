@@ -1,6 +1,3 @@
-keg: personal
-fallbackNamespace: local
+keg: "@local/personal"
 hubs:
-  home:
-    kind: local
-    basePath: ~/kegs
+  home: {}

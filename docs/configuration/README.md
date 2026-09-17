@@ -25,7 +25,7 @@ The normal onboarding path is:
 ```bash
 tap bootstrap --kind cloud
 tap auth login
-tap keg create personal
+tap keg create @alice/personal
 tap use personal --user
 ```
 

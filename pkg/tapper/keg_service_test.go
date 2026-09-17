@@ -38,5 +38,5 @@ hubs:
 		Keg:  "dev",
 	})
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "no namespace")
+	require.Contains(t, err.Error(), "namespace is required")
 }

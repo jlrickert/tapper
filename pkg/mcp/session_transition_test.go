@@ -306,11 +306,7 @@ func (p *perCallFlightBackend) ListKegs(context.Context) ([]string, error) {
 }
 
 func (p *perCallFlightBackend) CreateKeg(_ context.Context, opts tapper.CreateKegOptions) (string, error) {
-	namespace := opts.Namespace
-	if namespace == "" {
-		namespace = "team"
-	}
-	ref := "@" + namespace + "/" + opts.Keg
+	ref := opts.Keg
 	p.mu.Lock()
 	p.created = append(p.created, ref)
 	p.mu.Unlock()
@@ -553,7 +549,7 @@ func TestMCP_PerCallSelectionAdoptsGraphAuthorityAndCapabilityChanges(t *testing
 	require.True(t, denied.IsError)
 	require.Equal(t, "ORIENTATION_DENIED", denied.StructuredContent.(map[string]any)["code"])
 
-	created, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: "keg_create", Arguments: map[string]any{"flight": "+child", "keg": "allowed"}})
+	created, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: "keg_create", Arguments: map[string]any{"flight": "+child", "keg": "@team/allowed"}})
 	require.NoError(t, err)
 	require.False(t, created.IsError, extractText(t, created))
 	backend.mu.Lock()

@@ -189,16 +189,9 @@ func TestAuthLoginCmd_UsesFallbackHubAndAdoptsNamespace(t *testing.T) {
 	t.Parallel()
 	sb := newTestSandbox(t)
 	sb.MustWriteFile("~/.config/tapper/config.yaml", []byte(`hub: acme
-namespaces:
-  local:
-    hub: testhost
 hubs:
-  testhost:
-    kind: local
-    defaultNamespace: local
-    basePath: /home/testuser/kegs
+  testhost: {}
   acme:
-    kind: remote
     url: https://keg.acme.com
 `), 0o644)
 
@@ -223,7 +216,7 @@ hubs:
 
 	cfgRaw := string(sb.MustReadFile("~/.config/tapper/config.yaml"))
 	require.Contains(t, cfgRaw, "hub: acme")
-	require.Contains(t, cfgRaw, "defaultNamespace: acme")
+	require.NotContains(t, cfgRaw, "defaultNamespace: acme")
 }
 
 // TestAuthLoginCmd_DisableAtlasHubViaEnv_Errors confirms the SOC2-

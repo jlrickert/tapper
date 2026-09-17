@@ -13,10 +13,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// remoteInitConfig writes a user config whose default namespace routes bare
-// keg names to a remote hub backed by srvURL, authenticated via TEST_TOK.
+// remoteInitConfig configures a remote Hub with retired namespace settings.
 func remoteInitConfig(srvURL string) string {
-	return fmt.Sprintf("defaultNamespace: teamns\n"+
+	return fmt.Sprintf("defaultNamespace: ignored\n"+
 		"namespaces:\n  teamns:\n    hub: atlas\n"+
 		"hubs:\n  atlas:\n    kind: remote\n    url: %s\n    tokenEnv: TEST_TOK\n", srvURL)
 }
@@ -40,23 +39,21 @@ func TestInitKeg_RemoteCreate_Success(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, fx.Runtime().AtomicWriteFile(tap.PathService.UserConfig(), []byte(remoteInitConfig(srv.URL)), 0o644))
 
-	// A bare name resolves to the default namespace + its hub → remote create.
-	target, err := tap.InitKeg(fx.Context(), tapper.InitOptions{Keg: "example"})
+	// The qualified reference determines the creation destination.
+	target, err := tap.InitKeg(fx.Context(), tapper.InitOptions{Keg: "@teamns/example"})
 	require.NoError(t, err)
 	require.Equal(t, "/api/v1/@teamns/kegs", gotPath)
 	require.Equal(t, "atlas", target.Hub)
 	require.Equal(t, "teamns", target.Namespace)
 	require.Equal(t, "example", target.KegName)
 
-	// recordInitKeg no longer writes a kegs alias entry; with the alias table
-	// removed it records only the namespace→hub mapping for the remote keg, so
-	// future bare-name references route through the namespace-centric chain.
+	// Creation leaves the saved configuration intact.
 	cfg := string(fx.MustReadFile(tap.PathService.UserConfig()))
 	require.Contains(t, cfg, "teamns:")
 	require.Contains(t, cfg, "hub: atlas")
 }
 
-func TestInitKeg_RemoteCreate_UsesFallbackHubDefaultNamespace(t *testing.T) {
+func TestInitKeg_RemoteCreate_IgnoresRetiredHubNamespace(t *testing.T) {
 	t.Parallel()
 	fx := NewSandbox(t)
 	require.NoError(t, fx.Setwd("/home/testuser"))
@@ -74,10 +71,10 @@ func TestInitKeg_RemoteCreate_UsesFallbackHubDefaultNamespace(t *testing.T) {
 	tap, err := tapper.NewTap(tapper.TapOptions{Root: "/home/testuser", Runtime: fx.Runtime()})
 	require.NoError(t, err)
 	cfg := fmt.Sprintf("hub: atlas\n"+
-		"hubs:\n  atlas:\n    kind: remote\n    defaultNamespace: teamns\n    url: %s\n    tokenEnv: TEST_TOK\n", srv.URL)
+		"hubs:\n  atlas:\n    kind: remote\n    defaultNamespace: ignored\n    url: %s\n    tokenEnv: TEST_TOK\n", srv.URL)
 	require.NoError(t, fx.Runtime().AtomicWriteFile(tap.PathService.UserConfig(), []byte(cfg), 0o644))
 
-	target, err := tap.InitKeg(fx.Context(), tapper.InitOptions{Keg: "example", RequireBootstrap: true})
+	target, err := tap.InitKeg(fx.Context(), tapper.InitOptions{Keg: "@teamns/example", RequireBootstrap: true})
 	require.NoError(t, err)
 	require.Equal(t, "/api/v1/@teamns/kegs", gotPath)
 	require.Equal(t, "atlas", target.Hub)
@@ -103,7 +100,7 @@ func TestInitKeg_RemoteFallbackHubWithoutNamespaceDoesNotFallBackLocal(t *testin
 
 	_, err = tap.InitKeg(fx.Context(), tapper.InitOptions{Keg: "example", RequireBootstrap: true})
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "no namespace")
+	require.Contains(t, err.Error(), "expected @namespace/keg")
 	_, statErr := fx.Runtime().Stat("/home/testuser/.local/share/tapper/kegs/@local/example/keg", false)
 	require.Error(t, statErr, "remote bootstrap state must not silently create a local keg")
 }
@@ -124,7 +121,7 @@ func TestInitKeg_RemoteCreate_Conflict(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, fx.Runtime().AtomicWriteFile(tap.PathService.UserConfig(), []byte(remoteInitConfig(srv.URL)), 0o644))
 
-	_, err = tap.InitKeg(fx.Context(), tapper.InitOptions{Keg: "example"})
+	_, err = tap.InitKeg(fx.Context(), tapper.InitOptions{Keg: "@teamns/example"})
 	require.Error(t, err)
 	require.ErrorIs(t, err, keg.ErrExist, "an existing remote keg must fail with ErrExist (409)")
 }

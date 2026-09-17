@@ -7,12 +7,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const launchConfig = `fallbackNamespace: local
-flight: "@testuser/+root"
+const launchConfig = `flight: "@testuser/+root"
 hub: atlas
 hubs:
   atlas:
-    kind: remote
     url: https://atlas.example.test
 agents:
   opus:
@@ -147,11 +145,9 @@ func TestLaunchCommand_DryRunWithoutFlightWarnsAndPinsNothing(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t)
 	require.NoError(t, sb.Runtime().AtomicWriteFile(
-		"/home/testuser/.config/tapper/config.yaml", []byte(`fallbackNamespace: local
-hub: atlas
+		"/home/testuser/.config/tapper/config.yaml", []byte(`hub: atlas
 hubs:
   atlas:
-    kind: remote
     url: https://atlas.example.test
 agents:
   opus:

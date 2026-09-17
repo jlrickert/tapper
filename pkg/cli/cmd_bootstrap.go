@@ -429,13 +429,12 @@ func bootstrapCreateRemoteKeg(ctx context.Context, deps *Deps, res *tapper.Boots
 	}
 	namespace := strings.TrimSpace(res.Namespace)
 	if namespace == "" {
-		return "", "", fmt.Errorf("cannot create a keg before %s reports a default namespace; run `tap auth login` and try `tap keg create %s`", res.Hub, alias)
+		return "", "", fmt.Errorf("cannot create a keg before %s reports a default namespace; run `tap auth login` and try `tap keg create @namespace/%s`", res.Hub, alias)
 	}
-	ref := bootstrapKegRef(namespace, alias, "")
+	ref := bootstrapKegRef(namespace, alias)
 	target, err := deps.Tap.InitKeg(ctx, tapper.InitOptions{
-		Keg:              alias,
+		Keg:              ref,
 		Hub:              res.Hub,
-		Namespace:        namespace,
 		RequireBootstrap: true,
 	})
 	switch {
@@ -448,11 +447,8 @@ func bootstrapCreateRemoteKeg(ctx context.Context, deps *Deps, res *tapper.Boots
 	}
 }
 
-func bootstrapKegRef(namespace, name, fallbackNamespace string) string {
+func bootstrapKegRef(namespace, name string) string {
 	ns := strings.TrimSpace(namespace)
-	if ns == "" {
-		ns = strings.TrimSpace(fallbackNamespace)
-	}
 	name = strings.TrimSpace(name)
 	if ns == "" {
 		return name

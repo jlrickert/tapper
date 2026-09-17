@@ -93,7 +93,7 @@ func TestConfigService_EnvOverridesLogLevel(t *testing.T) {
 	require.Equal(t, "debug", cfg.LogLevel(), "TAP_LOG_LEVEL should override user config")
 }
 
-func TestConfigService_EnvDefaultNamespaceOverride(t *testing.T) {
+func TestConfigService_RetiredNamespaceEnvIgnored(t *testing.T) {
 	t.Parallel()
 
 	fx := NewSandbox(t, sandbox.WithFixture("basic", "/home/testuser"))
@@ -110,7 +110,8 @@ func TestConfigService_EnvDefaultNamespaceOverride(t *testing.T) {
 	cfg, err := tap.ConfigService.Config()
 	require.NoError(t, err)
 	require.NotNil(t, cfg)
-	require.Equal(t, "envteam", cfg.DefaultNamespace(), "TAP_DEFAULT_NAMESPACE should set the default namespace")
+	_, err = cfg.ResolveAlias(fx.Runtime(), "notes")
+	require.ErrorContains(t, err, "namespace is required")
 }
 
 func TestConfigService_EnvAbsentFallsThrough(t *testing.T) {

@@ -1,7 +1,7 @@
 updated: "2025-10-11T00:00:00Z"
 keg: blog
 kegMap:
-  - alias: blog
+  - keg: blog
     pathPrefix: ./
 hub: knut
 hubs:

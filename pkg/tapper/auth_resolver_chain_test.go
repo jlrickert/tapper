@@ -61,12 +61,12 @@ func TestResolveLoginHubURL(t *testing.T) {
 		},
 		{
 			name: "step 3: HubName names a Hubs entry",
-			yaml: "hub: backup\nhubs:\n  localbox:\n    kind: local\n    basePath: /tmp/kegs\n  backup:\n    url: backup.example.com\n",
+			yaml: "hub: backup\nhubs:\n  localbox: {}\n  backup:\n    url: backup.example.com\n",
 			want: "https://backup.example.com",
 		},
 		{
-			name:     "step 3: HubName unsupported entry → error",
-			yaml:     "hub: home\nhubs:\n  home:\n    kind: local\n    basePath: /tmp/kegs\n",
+			name:     "step 3: HubName entry with no URL → error",
+			yaml:     "hub: home\nhubs:\n  home: {}\n",
 			errMatch: `selected hub "home" has no URL configured`,
 		},
 		{
@@ -76,7 +76,7 @@ func TestResolveLoginHubURL(t *testing.T) {
 		},
 		{
 			name:     "alphabetically selected invalid hub fails",
-			yaml:     "hubs:\n  localbox:\n    kind: local\n    basePath: /tmp/kegs\n  solo:\n    url: solo.example.com\n",
+			yaml:     "hubs:\n  localbox: {}\n  solo:\n    url: solo.example.com\n",
 			errMatch: "no URL configured",
 		},
 		{

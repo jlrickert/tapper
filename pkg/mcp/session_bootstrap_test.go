@@ -63,7 +63,7 @@ func TestMCP_NoFlightsAnywhereUsesIdentityFullAccess(t *testing.T) {
 	require.False(t, search.IsError, extractText(t, search))
 
 	created, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: "keg_create", Arguments: map[string]any{
-		"keg": "first", "namespace": "local", "title": "First KEG",
+		"keg": "@local/first", "title": "First KEG",
 	}})
 	require.NoError(t, err)
 	require.False(t, created.IsError, extractText(t, created))
@@ -81,7 +81,7 @@ func TestMCP_NoFlightAuthInfoReportsIdentityKegs(t *testing.T) {
 	session, ctx, _ := newNoFlightSession(t)
 
 	created, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: "keg_create", Arguments: map[string]any{
-		"keg": "first", "namespace": "local", "title": "First KEG",
+		"keg": "@local/first", "title": "First KEG",
 	}})
 	require.NoError(t, err)
 	require.False(t, created.IsError, extractText(t, created))
@@ -159,7 +159,7 @@ func TestMCP_NoFlightStaysPinnedAndNewSessionAdoptsConfiguredFlight(t *testing.T
 	session, ctx, rt := newNoFlightSession(t)
 
 	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: "keg_create", Arguments: map[string]any{
-		"keg": "first", "namespace": "local", "title": "First KEG",
+		"keg": "@local/first", "title": "First KEG",
 	}})
 	require.NoError(t, err)
 	require.False(t, res.IsError, extractText(t, res))

@@ -141,7 +141,7 @@ func TestTap_RootPersistentKegFlagCompletion(t *testing.T) {
 
 	suggestions := parseCompletionSuggestions(string(comp.Stdout))
 	require.Contains(t, suggestions, "@team/personal")
-	require.Contains(t, suggestions, "personal")
+	require.NotContains(t, suggestions, "personal")
 }
 
 // TestTap_KegNamespaceConflict verifies that pinning a namespace twice — once

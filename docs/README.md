@@ -34,7 +34,7 @@ structure KEGs, connect agents, and operate the system safely over time.
 ```bash
 tap bootstrap --kind cloud
 tap auth login
-tap keg create personal
+tap keg create @alice/personal
 tap use personal --user
 ```
 

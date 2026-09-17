@@ -465,3 +465,16 @@ func TestLaunchHarnesses(t *testing.T) {
 	t.Parallel()
 	require.Equal(t, []string{"claude", "codex", "pi"}, tapper.LaunchHarnesses())
 }
+
+func TestResolveLaunch_DirectoryFlightDefaults(t *testing.T) {
+	tap := newLaunchTap(t, launchUserConfig+"\nkegMap:\n- {pathPrefix: /, flight: '@mapped/+root'}\n")
+	got, err := tap.ResolveLaunch(tapper.LaunchOptions{Harness: "claude", Agent: "opus"})
+	require.NoError(t, err)
+	require.Equal(t, "@mapped/+root", got.Flight)
+	require.Equal(t, got.Flight, got.Env["TAP_FLIGHT"])
+	require.NoError(t, tap.Runtime.AtomicWriteFile(tap.PathService.ProjectConfig(), []byte("flight: '@project/+root'"), 0644))
+	tap.ConfigService.Reload()
+	got, err = tap.ResolveLaunch(tapper.LaunchOptions{Harness: "claude", Agent: "opus"})
+	require.NoError(t, err)
+	require.Equal(t, "@project/+root", got.Env["TAP_FLIGHT"])
+}

@@ -1,10 +1,10 @@
 # yaml-language-server: $schema=https://raw.githubusercontent.com/jlrickert/tapper/main/schemas/tap-config.json
-keg: personal
-fallbackNamespace: local
+keg: "@local/personal"
+hub: home
 kegMap:
-  - alias: work
+  - keg: work
     pathPrefix: ~/repos/work
 hubs:
   home:
-    kind: local
-    basePath: ~/kegs
+    url: https://fixture.invalid
+    token: test-token

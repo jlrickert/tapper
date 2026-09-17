@@ -11,7 +11,6 @@ hubs:
     tokenEnv: ATLAS_API_KEY
   homelab:
     url: https://hub.example.test
-    defaultNamespace: homelab
 kegMap:
   - pathPrefix: ~/repos/homelab
     hub: homelab

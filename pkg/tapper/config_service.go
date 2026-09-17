@@ -47,12 +47,12 @@ type ConfigService struct {
 	PathService *PathService
 
 	// ConfigPath is the path to the config file.
-	ConfigPath      string
-	KegOverride     string
-	HubOverride     string
-	pinnedHubName   string
-	pinnedHubURL    string
-	pinnedNamespace string
+	ConfigPath     string
+	KegOverride    string
+	HubOverride    string
+	FlightOverride string
+	pinnedHubName  string
+	pinnedHubURL   string
 
 	// mu guards snap. The snapshot it points at is never mutated after being
 	// published, so readers may use it after releasing the lock.
@@ -261,8 +261,8 @@ func (s *ConfigService) Config() (*Config, error) {
 // It builds and returns a value without touching service state, which is what
 // lets snapshot publish it as an immutable pointer.
 //
-// The merge resolves three providers in rank order — user config, project
-// config, TAP_* env vars. When ConfigPath is set it reads that file instead and
+// The merge resolves user config, directory defaults, project config, and
+// TAP_* env vars in rank order. When ConfigPath is set it reads that file instead and
 // replaces the file layers; environment selection still applies.
 func (s *ConfigService) load() (*resolved, error) {
 	out := &resolved{}
@@ -288,7 +288,16 @@ func (s *ConfigService) load() (*resolved, error) {
 			env[strings.ToLower(key)] = v
 		}
 	}
-	out.merged = MergeConfig(out.user, out.project, configFromEnvMap(env))
+	// Choose exactly one mapping from the file layers, then insert its defaults
+	// beneath project and environment values independently for each field.
+	files := MergeConfig(out.user, out.project)
+	var defaults *Config
+	if m, ok := files.LookupMapping(s.Runtime, s.PathService.Root); ok {
+		defaults = &Config{data: &configDTO{
+			Keg: m.defaultValue("keg"), HubName: m.defaultValue("hub"), Flight: m.defaultValue("flight"),
+		}}
+	}
+	out.merged = MergeConfig(out.user, defaults, out.project, configFromEnvMap(env))
 	return out, s.selection(out)
 }
 

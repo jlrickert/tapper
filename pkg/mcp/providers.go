@@ -604,7 +604,6 @@ func (p localKegDiscoveryProvider) ListKegs(ctx context.Context) ([]string, erro
 func (p localKegDiscoveryProvider) CreateKeg(ctx context.Context, opts tapper.CreateKegOptions) (string, error) {
 	target, err := p.tap.InitKeg(ctx, tapper.InitOptions{
 		Keg:              opts.Keg,
-		Namespace:        opts.Namespace,
 		Title:            opts.Title,
 		Visibility:       opts.Visibility,
 		RequireBootstrap: true,
