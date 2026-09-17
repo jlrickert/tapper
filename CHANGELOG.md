@@ -2,6 +2,26 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.42.0 - 2026-09-17
+
+
+
+### 🐛 Bug Fixes
+- **cli:** create nodes on the first editor save
+
+
+### 🚀 Features
+- **api:** require explicit REST contract compatibility
+
+
+### 🚜 Refactor
+- **config:** retire local kegs and namespace routing
+
+
+### 🧪 Testing
+- **fsdiscipline:** enforce runtime filesystem access
+
+
 ## v0.41.0 - 2026-09-09
 
 
