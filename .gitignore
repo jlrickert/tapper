@@ -40,6 +40,14 @@ go.work.sum
 # maintainer's default keg and flight, which are not shared state.
 .tapper/
 
+# opencode reads a plugin's manifest from its own .tapper/ directory, so the
+# rendered tree has committed, generated .tapper/ files that the rule above
+# would otherwise swallow. They ship inside the binary via embed, so an ignored
+# one is not merely missing from review: `tap integrate opencode` cannot find
+# its marketplace at all.
+!integrations/rendered/**/.tapper/
+!integrations/rendered/**/.tapper/**
+
 # macOS
 .DS_Store
 

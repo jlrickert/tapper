@@ -358,7 +358,7 @@ func TestTap_Integrate_ClaudeMarketplaceRegistrationIsScopeSpecific(t *testing.T
 
 func TestTap_IntegrateHosts_IsSortedAndContainsDefaults(t *testing.T) {
 	hosts := tapper.IntegrateHosts()
-	require.Equal(t, []string{"claude", "codex"}, hosts)
+	require.Equal(t, []string{"claude", "codex", "opencode"}, hosts)
 }
 
 // A render adapter decides what ships for a host and an installer decides where
@@ -434,4 +434,19 @@ func TestTap_Integrate_StampsInstallingBinaryVersion(t *testing.T) {
 			}
 		})
 	}
+}
+
+// opencode manifests are tap's own index rather than something the host reads,
+// but a version that lies is still a version that lies.
+func TestTap_Integrate_StampsOpenCodeManifests(t *testing.T) {
+	t.Parallel()
+	sb := sandbox.NewSandbox(t, &sandbox.Options{Home: "/home/testuser", User: "testuser"})
+	tap, err := tapper.NewTap(tapper.TapOptions{Runtime: sb.Runtime(), Version: "v0.43.0"})
+	require.NoError(t, err)
+	installFakeTap(t, sb)
+
+	result, err := tap.Integrate(context.Background(), tapper.IntegrateOptions{Host: "opencode"})
+	require.NoError(t, err)
+	require.Equal(t, "0.43.0", manifestVersion(t, tap,
+		filepath.Join(result.Root, "tapper", ".tapper", "plugin.json")))
 }

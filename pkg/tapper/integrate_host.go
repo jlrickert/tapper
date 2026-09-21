@@ -18,10 +18,10 @@ import (
 // The split with pkg/integrations is deliberate: a render adapter decides what
 // ships inside the binary, an integrationHost decides where it lands on the
 // user's machine. They are separate because the two are not the same shape.
-// Claude and Codex both take a plugin marketplace handed to their own CLI, but
-// a host whose install is a config file it owns rather than a marketplace fits
-// here too. Without this seam every one of those differences becomes another
-// `if host == ...` in Tap.Integrate, which is what this replaces.
+// Claude and Codex both take a plugin marketplace handed to their own CLI;
+// opencode has no such CLI and is installed by writing its config. Without this
+// seam every one of those differences becomes another `if host == ...` in
+// Tap.Integrate, which is what this replaces.
 type integrationHost interface {
 	// Name returns the host's CLI name, which is also its directory under the
 	// embedded rendered root and the value accepted by `tap integrate HOST`.
@@ -101,6 +101,7 @@ func integrationHostRegistry() []integrationHost {
 	return []integrationHost{
 		claudeIntegrationHost(),
 		codexIntegrationHost(),
+		&opencodeHost{},
 	}
 }
 
