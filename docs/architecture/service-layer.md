@@ -79,13 +79,13 @@ reload/mutate/persist cycle. A write may nest reads or writes, a read may nest
 reads, and a read-to-write upgrade is rejected. The boundary is acquired
 before node locks, whose order must remain deterministic.
 
-Production `PgRepo` uses read-only repeatable-read transactions for aggregate reads and
-write transactions that lock the keg's catalog row before taking node locks.
-This intentionally serializes writes within one keg for correctness. Different
-kegs remain independently writable; optimistic dex generations/CAS retries are
-a possible future throughput optimization. The only non-PostgreSQL repository
-is the concurrency-safe internal test helper used for repository-independent
-`LocalKeg` orchestration tests.
+A production repository is expected to honor that boundary transactionally:
+aggregate reads see one coherent snapshot, and a write serializes against
+other writes to the same keg before node locks are taken. Different kegs
+remain independently writable; optimistic dex generations/CAS retries are a
+possible future throughput optimization. How a hub implements this is its own
+concern. The only repository in this tree is the concurrency-safe internal
+test helper used for repository-independent `LocalKeg` orchestration tests.
 
 ## FlightService and flight gating
 

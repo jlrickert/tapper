@@ -21,10 +21,9 @@ assert request paths, authentication, conditional hashes, serialization,
 errors, and remote-only resolution. Filesystem paths and `file://` targets are
 negative cases.
 
-## PostgreSQL integration
+## Durable storage
 
-Tapper Hub owns the production repository. Its unit suite exercises handler
-and service behavior; its PostgreSQL suite exercises the real repository,
-transactions, locks, snapshots, schemas, attachments, archives, and
-concurrent mutation semantics. Cross-repository checks use the local `go.work`
-link so Hub tests compile against the candidate Tapper tree.
+A hub owns the production repository and tests it in its own suite:
+transactions, locks, snapshots, schemas, attachments, archives, and concurrent
+mutation semantics. None of that is this repository's to run or document — the
+`httptest` servers above are how Tapper verifies its half of the contract.

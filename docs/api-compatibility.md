@@ -62,7 +62,6 @@ curl -H 'Tapper-API-Version: 2026-09-11' \
   https://hub.example.com/api/v1/whoami
 ```
 
-Publish the Tapper commit before resolving its exact SHA in Hub with
-`GOWORK=off go get github.com/jlrickert/tapper@<sha>` and `GOWORK=off go mod tidy`.
-Verify Hub against that pin. This development change does not authorize tags,
-releases, merges, or deployment.
+Publish the Tapper commit first; a hub that embeds Tapper then pins that
+published SHA on its own side, by its own procedure. This development change
+does not authorize tags, releases, merges, or deployment.

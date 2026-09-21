@@ -26,6 +26,7 @@ structure KEGs, connect agents, and operate the system safely over time.
 | Back up, migrate, or archive a keg | [Backups And Archives](backups-and-archives.md) |
 | Debug setup or resolution failures | [Troubleshooting](configuration/troubleshooting.md) |
 | Understand internals before contributing | [Architecture Overview](architecture/README.md) |
+| Change Tapper itself: build, test, lint, contribute | [Development](development/README.md) |
 
 ## Core Workflows
 
