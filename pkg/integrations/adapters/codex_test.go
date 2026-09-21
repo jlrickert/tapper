@@ -39,6 +39,11 @@ func testContentFS(t *testing.T) fs.FS {
 		t.Fatal(err)
 	}
 	files["guard/hooks.json"] = &fstest.MapFile{Data: guardHooks}
+	guardPlugin, err := os.ReadFile(filepath.Join("..", "renderdata", "guard", "opencode-plugin.ts"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	files["guard/opencode-plugin.ts"] = &fstest.MapFile{Data: guardPlugin}
 	return files
 }
 
@@ -281,7 +286,7 @@ func TestRenderedManifestsCarryPlaceholderVersion(t *testing.T) {
 		t.Fatal(err)
 	}
 	mem := integrations.NewMemWriter()
-	for _, adapter := range []integrations.Adapter{ClaudeAdapter{}, CodexAdapter{}} {
+	for _, adapter := range []integrations.Adapter{ClaudeAdapter{}, CodexAdapter{}, OpenCodeAdapter{}} {
 		if err := adapter.Render(rt, testContentFS(t), mem); err != nil {
 			t.Fatal(err)
 		}

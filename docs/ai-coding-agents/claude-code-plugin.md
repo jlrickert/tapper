@@ -27,7 +27,8 @@ When `tap hook` runs and cannot decide — empty or malformed input — it exits
 which Claude treats as a blocking error, so the guard fails closed. A `tap`
 missing from `PATH` entirely is the exception: Claude reports the failed hook
 and allows the call, which is why the installer verifies `tap hook` support
-before installing.
+before installing. (opencode's guard, being our own code, blocks in that case
+too.)
 
 `--no-safety` only skips the install; it never removes a guard Claude already
 has. Asking for `--plugin tapper-guard` together with `--no-safety` is an
@@ -61,10 +62,11 @@ settings. Marketplace registration and plugin install/update use the same
 scope, and installations in other scopes are treated independently.
 
 Scopes are per-host, so `--scope` accepts different values depending on which
-host you are installing for. Claude takes all three because its plugin CLI
-does; [Codex](codex.md) is user-only because `codex plugin` has no scope flag at
-all. Shell completion for `--scope` asks the host you named, so it only ever
-suggests values that host accepts.
+host you are installing for. Claude takes all three because its plugin CLI does;
+[opencode](opencode.md) takes `user` and `project`; [Codex](codex.md) is
+user-only because `codex plugin` has no scope flag at all. Shell completion for
+`--scope` asks the host you named, so it only ever suggests values that host
+accepts.
 
 Re-running refreshes the extracted files atomically, removes legacy packaged
 Python hooks, and uses Claude's install or update command according to its JSON

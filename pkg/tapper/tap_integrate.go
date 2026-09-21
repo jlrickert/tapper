@@ -130,8 +130,8 @@ func (t *Tap) verifyIntegrationHookSupport(ctx context.Context) error {
 // selectedIntegrationPlugins resolves the plugin list for one install. The
 // baseline plugin always comes first, the guard follows by default on every
 // host whose embedded marketplace advertises it, and the caller's extras keep
-// their request order. A host whose marketplace advertises no guard makes
-// noSafety a no-op rather than an error.
+// their request order. opencode ships no hooks and therefore no guard, so
+// noSafety is a no-op there rather than an error.
 func selectedIntegrationPlugins(host string, requested []string, noSafety bool) ([]string, error) {
 	available, err := IntegratePlugins(host)
 	if err != nil {

@@ -29,8 +29,8 @@ var (
 	}
 	hookFilesystemTools = map[string]bool{
 		"write": true, "edit": true, "multiedit": true, "notebookedit": true,
-		"apply_patch": true, "write_file": true, "edit_file": true, "delete_file": true,
-		"move_file": true, "rename_file": true,
+		"apply_patch": true, "patch": true, "write_file": true, "edit_file": true,
+		"delete_file": true, "move_file": true, "rename_file": true,
 	}
 	hookMutators = map[string]bool{
 		"apply_patch": true, "chmod": true, "chown": true, "cp": true,
@@ -45,7 +45,7 @@ type hookInputError struct{ message string }
 
 func (e *hookInputError) Error() string { return e.message }
 
-// NewHookCmd builds the protocol the native Claude and Codex plugins
+// NewHookCmd builds the protocol the native Claude, Codex, and opencode plugins
 // invoke. The parent stays hidden because it is host-facing rather than a user
 // workflow, but its subcommands are visible: a hidden subcommand is absent from
 // both `tap hook --help` and shell completion, which left the group looking
@@ -309,7 +309,9 @@ func hookToolInputDenied(rt *toolkit.Runtime, toolName string, input map[string]
 				return true
 			}
 		}
-		if key == "patch" || key == "content" {
+		// opencode's patch tool carries its body under patchText rather than
+		// patch, so match the family rather than the one name.
+		if strings.Contains(key, "patch") || key == "content" {
 			var value string
 			if json.Unmarshal(raw, &value) == nil && hookPatchTargetsProtectedPath(rt, value) {
 				return true
