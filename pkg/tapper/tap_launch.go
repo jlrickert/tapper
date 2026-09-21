@@ -8,6 +8,7 @@ package tapper
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os/exec"
 	"sort"
@@ -222,6 +223,88 @@ func codexOSS(spec launchSpec) ([]string, map[string]string) {
 	return []string{"codex", "--oss", "--local-provider", "ollama", "--model", spec.model}, env
 }
 
+// opencodeProtocol builds the invocation for opencode.
+//
+// opencode selects its model with `--model provider/model`, using the same
+// provider names tapper already parses, so the agent's configured model string
+// passes through unchanged.
+//
+// It does NOT read ANTHROPIC_BASE_URL or OPENAI_BASE_URL: an endpoint is a
+// provider option in its config. Rather than require the user to edit that
+// config before a launch can work, the base URL is injected through
+// OPENCODE_CONFIG_CONTENT, an inline config opencode merges after both the
+// global and project files — so it wins without replacing either. The API keys
+// are ordinary environment variables it does read, so those stay as env.
+func opencodeProtocol(spec launchSpec) ([]string, map[string]string) {
+	env := map[string]string{}
+	if config := opencodeProviderConfig(spec); config != "" {
+		env["OPENCODE_CONFIG_CONTENT"] = config
+	}
+	switch {
+	case spec.apiKey != "":
+		env[opencodeKeyEnv(spec.provider)] = spec.apiKey
+	case spec.provider == ProviderOllama:
+		// Unconditional, for the same reason as the Anthropic and OpenAI
+		// builders: the placeholder is what stops the client reaching for a
+		// stored login and sending it to a host that is not the provider.
+		env["OPENAI_API_KEY"] = "ollama"
+	}
+	return []string{"opencode", "--model", spec.provider + "/" + spec.model}, env
+}
+
+// opencodeKeyEnv names the variable opencode reads a provider's key from.
+func opencodeKeyEnv(provider string) string {
+	if provider == ProviderAnthropic {
+		return "ANTHROPIC_API_KEY"
+	}
+	return "OPENAI_API_KEY"
+}
+
+// opencodeProviderConfig renders the inline provider override, or "" when the
+// harness needs none.
+//
+// Ollama always needs one: opencode ships no ollama provider, so the whole
+// definition — the OpenAI-compatible npm driver, the endpoint, and the model
+// entry — has to be declared. A hosted provider needs one only when the agent
+// overrides baseUrl, and then only the endpoint changes.
+func opencodeProviderConfig(spec launchSpec) string {
+	base := openAIBaseURL(spec.baseURL)
+	if base == "" {
+		return ""
+	}
+	type limits struct {
+		BaseURL string `json:"baseURL"`
+		APIKey  string `json:"apiKey,omitempty"`
+	}
+	type model struct {
+		Name string `json:"name,omitempty"`
+	}
+	provider := struct {
+		NPM     string           `json:"npm,omitempty"`
+		Name    string           `json:"name,omitempty"`
+		Options limits           `json:"options"`
+		Models  map[string]model `json:"models,omitempty"`
+	}{Options: limits{BaseURL: base}}
+	if spec.provider == ProviderOllama {
+		provider.NPM = "@ai-sdk/openai-compatible"
+		provider.Name = "Ollama (local)"
+		// The placeholder key travels in the config rather than the
+		// environment because a custom provider reads its own options first.
+		provider.Options.APIKey = "ollama"
+		provider.Models = map[string]model{spec.model: {Name: spec.model}}
+	}
+	body, err := json.Marshal(map[string]any{
+		"provider": map[string]any{spec.provider: provider},
+	})
+	if err != nil {
+		// Every field is a plain string or map of strings, so this cannot fail.
+		// Returning "" rather than panicking keeps a launch working with the
+		// harness's own endpoint if it somehow does.
+		return ""
+	}
+	return string(body)
+}
+
 func harnessAdapters() map[string]harnessAdapter {
 	return map[string]harnessAdapter{
 		"claude": {
@@ -251,6 +334,18 @@ func harnessAdapters() map[string]harnessAdapter {
 			contextWindowArgs: func(tokens int) []string {
 				return []string{"-c", "model_context_window=" + strconv.Itoa(tokens)}
 			},
+		},
+		"opencode": {
+			command: "opencode",
+			providers: map[string]func(launchSpec) ([]string, map[string]string){
+				ProviderAnthropic: opencodeProtocol,
+				ProviderOpenAI:    opencodeProtocol,
+				ProviderOllama:    opencodeProtocol,
+			},
+			// contextWindowArgs stays nil on purpose. opencode has no flag for
+			// it: a context cap is provider.<p>.models.<m>.limit.context in its
+			// config. Leaving this nil makes a configured contextWindow an
+			// explicit error rather than a setting that silently never applied.
 		},
 		"pi": {
 			command: "pi",

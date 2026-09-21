@@ -5,7 +5,9 @@ import "testing"
 // Hooks are per-plugin, so the PATH check that guarantees a `tap hook`-capable
 // binary has to follow the selection. Codex keeps its SessionStart orientation
 // hook in the baseline plugin and always needs one; Claude ships hooks only in
-// tapper-guard, so a --no-safety install there has nothing to verify.
+// tapper-guard, so a --no-safety install there has nothing to verify. opencode
+// reads no hook table at all, but its guard plugin shells out to the same
+// binary and fails closed, so it needs the check whenever the guard is in.
 func TestRequiresHookSupport_FollowsSelectedPlugins(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -18,6 +20,8 @@ func TestRequiresHookSupport_FollowsSelectedPlugins(t *testing.T) {
 		{"claude without guard", claudeIntegrationHost(), []string{"tapper", "tapper-dev"}, false},
 		{"codex with guard", codexIntegrationHost(), []string{"tapper", "tapper-guard"}, true},
 		{"codex without guard", codexIntegrationHost(), []string{"tapper"}, true},
+		{"opencode without guard", &opencodeHost{}, []string{"tapper"}, false},
+		{"opencode with guard", &opencodeHost{}, []string{"tapper", "tapper-guard"}, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

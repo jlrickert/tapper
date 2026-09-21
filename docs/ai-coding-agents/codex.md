@@ -59,7 +59,8 @@ expose no scope flag, and Codex keeps plugin state solely in
 `~/.codex/config.toml`, so there is nothing for a project scope to write.
 `--scope project` and `--scope local` fail before marketplace extraction or any
 Codex command. For project-level activation use
-[`tap integrate claude --scope project`](claude-code-plugin.md).
+[`tap integrate claude --scope project`](claude-code-plugin.md) or
+[`tap integrate opencode --scope project`](opencode.md).
 
 The baseline plugin distributes only the `tapper` skill; `tapper-dev` remains a
 separately installed optional plugin. It ships no separate management skills or

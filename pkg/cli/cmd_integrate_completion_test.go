@@ -23,6 +23,7 @@ func TestIntegrateCompletion_HostPositionalLists(t *testing.T) {
 	suggestions := parseCompletionSuggestions(string(comp.Stdout))
 	require.Contains(t, suggestions, "claude")
 	require.Contains(t, suggestions, "codex")
+	require.Contains(t, suggestions, "opencode")
 }
 
 // Scopes are per-host, so the completion has to read the host off the
@@ -32,8 +33,9 @@ func TestIntegrateCompletion_ScopeIsHostSpecific(t *testing.T) {
 	t.Parallel()
 
 	for host, want := range map[string][]string{
-		"claude": {"user", "project", "local"},
-		"codex":  {"user"},
+		"claude":   {"user", "project", "local"},
+		"codex":    {"user"},
+		"opencode": {"user", "project"},
 	} {
 		sb := NewSandbox(t)
 		comp := NewCompletionProcess(t, false, 0, "integrate", host, "--scope", "").
@@ -143,4 +145,19 @@ func TestIntegrateCommandRejectsRemovedWithDevFlag(t *testing.T) {
 	res := NewProcess(t, false, "integrate", "claude", "--with-dev", "--dry-run").Run(sb.Context(), sb.Runtime())
 	require.Error(t, res.Err)
 	require.Contains(t, res.Err.Error(), "unknown flag")
+}
+
+// opencode is installed by writing its config rather than by driving a host
+// CLI, so a dry run has file writes to report and no commands.
+func TestIntegrateCommand_OpenCodeDryRunReportsWritesNotCommands(t *testing.T) {
+	t.Parallel()
+	sb := NewSandbox(t)
+
+	res := NewProcess(t, false, "integrate", "opencode", "--dry-run").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+
+	out := string(res.Stdout)
+	require.Contains(t, out, "Would write:")
+	require.NotContains(t, out, "Would run:")
+	require.Contains(t, out, "opencode.json")
 }

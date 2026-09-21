@@ -6,9 +6,10 @@ which conventions keep the KEG safe for humans and agents at the same time.
 
 Vendor-specific project configuration, permission modes, and general plugin
 behavior are covered by the vendors themselves. This directory focuses on
-Tapper's embedded native plugins. Use `tap integrate codex` or `tap integrate
-claude` as the official supported installation and upgrade path; use manual MCP
-configuration only for generic hosts without a native Tapper plugin.
+Tapper's embedded native plugins. Use `tap integrate claude`, `tap integrate
+codex`, or `tap integrate opencode` as the official supported installation and
+upgrade path; use manual MCP configuration only for generic hosts without a
+native Tapper plugin.
 
 ## Guides
 
@@ -17,6 +18,8 @@ configuration only for generic hosts without a native Tapper plugin.
   `tapper` skill.
 - [Codex plugins](codex.md) — install baseline `tapper` and optional
   `tapper-dev` from the embedded local marketplace.
+- [opencode](opencode.md) — install by merging the MCP server into
+  `opencode.json` and writing the Tapper skills, at user or project scope.
 - [Orientation Surface](orient.md) — the shared `orient` payload exposed by
   the `mcp__tapper__orient` tool, the `tapper://orient` resource, and
   `tap orient`.
@@ -35,6 +38,8 @@ configuration only for generic hosts without a native Tapper plugin.
 |---|---|
 | Install tapper in Claude Code in one command | [Claude Code Plugin](claude-code-plugin.md) |
 | Install tapper in Codex in one command | [Codex Install](codex.md) |
+| Install tapper in opencode in one command | [opencode](opencode.md) |
+| Wire tapper into a project the whole team shares | [opencode](opencode.md#scopes) or [Claude Code Plugin](claude-code-plugin.md) |
 | Understand the orientation payload | [Orientation Surface](orient.md) |
 | Wire tapper into a non-bundled MCP host | [MCP Server Setup](mcp-setup.md) |
 | Know which tools the MCP server exposes | [MCP Server Setup — Available Tools](mcp-setup.md#available-tools) |

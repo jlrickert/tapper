@@ -136,34 +136,41 @@ Tapper exposes the same memory to AI agents through MCP. The agent can search,
 read, create, edit, snapshot, and orient itself against a keg without scraping
 files directly.
 
-### Codex and Claude Code
+### Codex, Claude Code, and opencode
 
 ```bash
 tap integrate codex
 tap integrate claude
+tap integrate opencode
 ```
 
 `tap integrate HOST` is the official supported installation, refresh, upgrade,
 plugin-selection, and scope surface. Each command extracts the host-native
 plugins embedded in `tap` and installs the baseline `tapper` plugin together
-with the `tapper-guard` safety plugin. Both hosts are driven through their own
-plugin CLI, and the `tap` executable on `PATH` must be current enough to
-provide the Go-backed `tap hook` commands their plugins use. No GitHub checkout
-or manual MCP configuration is required.
+with the `tapper-guard` safety plugin. Claude and Codex are driven through
+their own plugin CLI, and the `tap` executable on `PATH` must be current enough
+to provide the Go-backed `tap hook` commands their plugins use. opencode has no
+plugin CLI, so `tap` merges the MCP server into its `opencode.json`, writes the
+skills itself, and installs the guard as a plugin module. No GitHub checkout or
+manual MCP configuration is required.
 
 `tapper-guard` is a separate plugin so the `PreToolUse` guard — which denies
 direct agent use of `tap` and `keg` and mutation of Tapper config — can be
 disabled on its own without giving up the MCP server, the skill, or Codex's
 orientation hook. `--no-safety` skips installing it; disabling or removing a
 guard a host already has is done through that host, for example `claude plugin
-disable tapper-guard@tapper-local`.
+disable tapper-guard@tapper-local`. On opencode the guard is a
+`tool.execute.before` plugin module calling the same `tap hook pre-tool-use`
+binary; there `--no-safety` deletes the installed file, because opencode has no
+command to disable a plugin.
 
 Repeat `--plugin` to add optional plugins, for example `tap integrate claude
 --plugin tapper-dev`. Requested plugins keep their order and duplicates are
 ignored. Activation defaults to `--scope user`; Claude also supports `project`
-(shared project settings) and `local` (gitignored project settings), and Codex
-is user-only because its CLI has no scope flag. Use `--dry-run` to inspect
-every extraction path and host command or file write without side effects.
+(shared project settings) and `local` (gitignored project settings), opencode
+supports `project`, and Codex is user-only because its CLI has no scope flag.
+Use `--dry-run` to inspect every extraction path and host command or file write
+without side effects.
 
 Refreshing is atomic and removes legacy packaged Python hooks. Review and trust
 the replacement hooks again, then start a fresh Codex thread or Claude session
