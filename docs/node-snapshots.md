@@ -37,9 +37,9 @@ confirmation on a TTY and refuses in non-interactive contexts.
 
 ## Storage Model
 
-Snapshots are durable PostgreSQL records owned by Tapper Hub and addressed by
-node plus revision. Clients access them only through the Hub-compatible
-snapshot APIs. A revision record has the following logical metadata shape:
+Snapshots are durable records owned by the hub and addressed by node plus
+revision. Clients access them only through the hub's snapshot APIs; how the
+hub stores them is not part of this contract. A revision record has the following logical metadata shape:
 
 ```json
 [

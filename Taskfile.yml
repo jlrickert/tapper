@@ -35,7 +35,7 @@ tasks:
       - ./internal/**/*.go
     silent: true
   install-tap:
-    desc: Install the tap CLI (go install ./cmd/tap).
+    desc: "Install the tap CLI to the host PATH (go install ./cmd/tap). Humans only: this replaces the tap every agent and integration on this machine resolves; test dev builds in a container (task sandbox:shell). See docs/development/commands.md."
     cmds:
       - go install ./cmd/tap
     sources:
