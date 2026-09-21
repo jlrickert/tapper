@@ -105,11 +105,12 @@ type Adapter interface {
 
 	// Render reads canonical from content and writes every host-specific
 	// file to dst with a path prefix of Name()+"/". The runtime carries
-	// env, clock, and filesystem access for adapters that need them
-	// (for example to consult release-time configuration through
-	// rt.Env().Get). rt is required and must not be nil; tests that do
-	// not want to touch the real process environment should use
-	// sandbox.NewSandbox to construct a jailed runtime.
+	// env, clock, and filesystem access for adapters that need them. No
+	// adapter uses it today, and that is deliberate: a render that reads
+	// the environment is not reproducible, which is why plugin versions
+	// are stamped at install time instead. rt is still required and must
+	// not be nil, so an adapter that genuinely needs the seam has it;
+	// tests should use sandbox.NewSandbox for a jailed runtime.
 	Render(rt *toolkit.Runtime, content fs.FS, dst DestWriter) error
 }
 

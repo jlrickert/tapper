@@ -145,16 +145,25 @@ tap integrate claude
 
 `tap integrate HOST` is the official supported installation, refresh, upgrade,
 plugin-selection, and scope surface. Each command extracts the host-native
-marketplace embedded in `tap`, registers the local source, and installs the
-baseline `tapper` plugin. The `tap` executable on `PATH` must be current enough
-to provide the Go-backed `tap hook` commands used by the plugin. No GitHub
-checkout or manual MCP configuration is required. Repeat `--plugin` to add
-optional plugins, for example `tap integrate claude --plugin tapper-dev`.
-Requested plugins keep their order and duplicates are ignored. Activation
-defaults to `--scope user`; Claude also supports `project` (shared project
-settings) and `local` (gitignored project settings), while Codex currently
-supports only `user`. Use `--dry-run` to inspect every extraction path and host
-command without side effects.
+plugins embedded in `tap` and installs the baseline `tapper` plugin together
+with the `tapper-guard` safety plugin. Both hosts are driven through their own
+plugin CLI, and the `tap` executable on `PATH` must be current enough to
+provide the Go-backed `tap hook` commands their plugins use. No GitHub checkout
+or manual MCP configuration is required.
+
+`tapper-guard` is a separate plugin so the `PreToolUse` guard — which denies
+direct agent use of `tap` and `keg` and mutation of Tapper config — can be
+disabled on its own without giving up the MCP server, the skill, or Codex's
+orientation hook. `--no-safety` skips installing it; disabling or removing a
+guard a host already has is done through that host, for example `claude plugin
+disable tapper-guard@tapper-local`.
+
+Repeat `--plugin` to add optional plugins, for example `tap integrate claude
+--plugin tapper-dev`. Requested plugins keep their order and duplicates are
+ignored. Activation defaults to `--scope user`; Claude also supports `project`
+(shared project settings) and `local` (gitignored project settings), and Codex
+is user-only because its CLI has no scope flag. Use `--dry-run` to inspect
+every extraction path and host command or file write without side effects.
 
 Refreshing is atomic and removes legacy packaged Python hooks. Review and trust
 the replacement hooks again, then start a fresh Codex thread or Claude session

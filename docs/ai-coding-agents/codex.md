@@ -8,18 +8,23 @@ tap integrate codex
 
 The installer extracts the marketplace below the platform user-data directory,
 registers it with `codex plugin marketplace add`, and installs
-`tapper@tapper-local`. The plugin owns the `tap mcp` registration, a
-flight-first Tapper skill, and a `PreToolUse` guardrail that blocks direct
-agent use of `tap` and `keg` except harmless help, version, and completion
-probes. A `SessionStart` hook restores a concise reminder after startup,
+`tapper@tapper-local` and `tapper-guard@tapper-local`. The baseline plugin owns
+the `tap mcp` registration, a flight-first Tapper skill, and a `SessionStart`
+hook. The separate `tapper-guard` plugin owns the `PreToolUse` guardrail that
+blocks direct agent use of `tap` and `keg` except harmless help, version, and
+completion probes, and blocks mutation of Tapper configuration. Install without
+it using `tap integrate codex --no-safety`, or turn off one already installed
+through Codex itself. The guard fails closed whenever `tap hook` runs and
+cannot decide; a `tap` missing from `PATH` is the exception, which is why the
+installer checks for `tap hook` support first. The `SessionStart` hook restores a concise reminder after startup,
 resume, clear, and compaction. The reminder tells the main agent to call
 `mcp__tapper__orient` before KEG work, follow the returned flight and KEG
 instructions, and apply the MCP-first safety rules; it does not inject the
 orientation payload itself and does not run for subagents.
 
-After installing or refreshing the plugin, open Codex `/hooks` and review both
-bundled hooks before trusting them again. They invoke `tap hook session-start`
-and `tap hook pre-tool-use`; the latter is a guardrail against accidental
+After installing or refreshing the plugins, open Codex `/hooks` and review both
+bundled hooks before trusting them again. `tapper` invokes `tap hook
+session-start` and `tapper-guard` invokes `tap hook pre-tool-use`; the latter is a guardrail against accidental
 direct CLI use, not a complete shell security boundary. The `tap` executable
 on `PATH` must remain available and support those hidden commands. Re-run
 `tap integrate codex` to receive hook changes, then start a new thread after
@@ -48,9 +53,13 @@ removes legacy packaged Python hooks, and reinstalls from the local source.
 Hook changes require review and trust again. A same-named marketplace pointing
 elsewhere is reported as a conflict and is never replaced automatically.
 
-Codex currently supports only `--scope user`. `--scope project` and `--scope
-local` fail before marketplace extraction or Codex commands; use a user install
-until Codex exposes native project scopes.
+Codex supports only `--scope user`. This is a Codex limitation, not a Tapper
+one: `codex plugin`, `codex plugin add`, and `codex plugin marketplace add`
+expose no scope flag, and Codex keeps plugin state solely in
+`~/.codex/config.toml`, so there is nothing for a project scope to write.
+`--scope project` and `--scope local` fail before marketplace extraction or any
+Codex command. For project-level activation use
+[`tap integrate claude --scope project`](claude-code-plugin.md).
 
 The baseline plugin distributes only the `tapper` skill; `tapper-dev` remains a
 separately installed optional plugin. It ships no separate management skills or
