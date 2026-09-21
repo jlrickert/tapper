@@ -11,6 +11,11 @@
       "description": "MCP-first Tapper KEG access and safety."
     },
     {
+      "name": "tapper-guard",
+      "source": "./tapper-guard",
+      "description": "Optional safety guard for direct CLI and config mutation."
+    },
+    {
       "name": "tapper-dev",
       "source": "./tapper-dev",
       "description": "Optional Plan, Code, Review, and Commit workflow."

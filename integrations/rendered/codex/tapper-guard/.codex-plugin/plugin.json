@@ -1,7 +1,7 @@
 {
-  "name": "tapper-dev",
+  "name": "tapper-guard",
   "version": "0.0.0-dev",
-  "description": "Optional Plan to Code to Review to Commit workflow for Tapper-enabled development.",
+  "description": "PreToolUse guard denying direct tap/keg CLI use and Tapper config mutation.",
   "author": {
     "name": "Jared Rickert",
     "url": "https://github.com/jlrickert/tapper"
@@ -15,19 +15,16 @@
     "mcp",
     "tapper"
   ],
-  "skills": "./skills/",
   "interface": {
-    "displayName": "Tapper Dev",
-    "shortDescription": "Plan, code, review, and commit",
-    "longDescription": "An optional four-stage developer workflow that requires the baseline Tapper plugin and follows live flight instructions.",
+    "displayName": "Tapper Guard",
+    "shortDescription": "Deny direct CLI and config mutation",
+    "longDescription": "Blocks direct tap and keg CLI use and Tapper configuration mutation so KEG work stays on capability-authorized MCP operations.",
     "developerName": "Jared Rickert",
     "category": "Developer Tools",
     "websiteURL": "https://github.com/jlrickert/tapper",
     "capabilities": [
       "Interactive"
     ],
-    "defaultPrompt": [
-      "Plan and implement a change with the Tapper developer workflow."
-    ]
+    "defaultPrompt": []
   }
 }

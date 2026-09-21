@@ -2,7 +2,6 @@ package integrations_test
 
 import (
 	"bytes"
-	"encoding/json"
 	"errors"
 	"io/fs"
 	"os"
@@ -67,35 +66,15 @@ func TestRenderedTreeMatchesAdapters(t *testing.T) {
 	// "<host>/hooks/..." manifests in the content FS and Render fails.
 	content := overlayFS{primary: contentFS, secondary: renderdata.FS}
 
-	// The embedded rendered/claude/.claude-plugin/plugin.json is the
-	// source of truth for the Claude adapter's "version" field: the
-	// release workflow bakes the tag into it, and Claude Code uses that
-	// field as its update gate. Read the embedded value and feed it to
-	// the sandbox runtime via TAPPER_PLUGIN_VERSION so the adapter
-	// re-renders the same bytes whether main carries "dev" (developer
-	// checkout) or "v0.X.0" (post-release).
-	pluginJSON, err := fs.ReadFile(integrations.IntegrationsFS, "rendered/claude/tapper/.claude-plugin/plugin.json")
-	if err != nil {
-		t.Fatalf("read embedded plugin.json: %v", err)
-	}
-	var pluginMeta struct {
-		Version string `json:"version"`
-	}
-	if err := json.Unmarshal(pluginJSON, &pluginMeta); err != nil {
-		t.Fatalf("parse embedded plugin.json: %v", err)
-	}
-	if pluginMeta.Version == "" {
-		t.Fatalf("embedded plugin.json has empty version field; real drift")
-	}
-
+	// No environment setup: the render is a pure function of the canonical
+	// content. Manifest versions are a placeholder here, stamped by
+	// `tap integrate` from the binary doing the install, so this comparison
+	// holds on a developer checkout and at a release tag alike.
 	sb := sandbox.NewSandbox(t, &sandbox.Options{
 		Home: filepath.FromSlash("/home/testuser"),
 		User: "testuser",
 	})
 	rt := sb.Runtime()
-	if err := rt.Env().Set("TAPPER_PLUGIN_VERSION", pluginMeta.Version); err != nil {
-		t.Fatalf("set TAPPER_PLUGIN_VERSION: %v", err)
-	}
 
 	mem := integrations.NewMemWriter()
 	if err := integrations.RenderAll(rt, content, mem, integrations.DefaultAdapters()); err != nil {

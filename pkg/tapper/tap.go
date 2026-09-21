@@ -40,12 +40,39 @@ type Tap struct {
 	// single resolver covers the whole surface. Left nil for the CLI, which keeps
 	// the standard config-driven resolution.
 	KegResolver func(ctx context.Context, opts KegTargetOptions, role FlightRole) (keg.Keg, error)
+
+	// Version is the version of the binary running this Tap, already
+	// normalized by NewTap. `tap integrate` stamps it into every plugin
+	// manifest it extracts, so an installed plugin always reports the tap
+	// that installed it rather than whatever was committed in the repo.
+	Version string
+}
+
+// DevPluginVersion is the version an unreleased binary reports. Manifests must
+// carry something semver-shaped, and the goreleaser ldflags default
+// (pkg/cli.Version == "dev") is not.
+const DevPluginVersion = "0.0.0-dev"
+
+// normalizeVersion maps a binary version onto what a plugin manifest can
+// carry: tags arrive as "v0.43.0" but manifests want "0.43.0", and an
+// unreleased build reports "dev" or nothing at all.
+func normalizeVersion(version string) string {
+	v := strings.TrimSpace(version)
+	if v == "" || v == "dev" {
+		return DevPluginVersion
+	}
+	return strings.TrimPrefix(v, "v")
 }
 
 type TapOptions struct {
 	Root       string
 	ConfigPath string
 	Runtime    *toolkit.Runtime
+	// Version is the running binary's version, as pkg/cli.Version reports
+	// it. pkg/tapper cannot import pkg/cli, so the CLI passes it down the
+	// same way it hands the MCP server its version. Empty means an
+	// unreleased build.
+	Version string
 }
 
 func NewTap(opts TapOptions) (*Tap, error) {
@@ -94,6 +121,7 @@ func NewTap(opts TapOptions) (*Tap, error) {
 		KegService:     kegService,
 		FlightService:  flightService,
 		AuthValidateFn: ValidateToken,
+		Version:        normalizeVersion(opts.Version),
 	}, nil
 }
 
