@@ -25,6 +25,31 @@ func TestIntegrateCompletion_HostPositionalLists(t *testing.T) {
 	require.Contains(t, suggestions, "codex")
 }
 
+// Scopes are per-host, so the completion has to read the host off the
+// positional rather than offer one fixed list. Suggesting a scope the host
+// rejects is worse than suggesting nothing.
+func TestIntegrateCompletion_ScopeIsHostSpecific(t *testing.T) {
+	t.Parallel()
+
+	for host, want := range map[string][]string{
+		"claude": {"user", "project", "local"},
+		"codex":  {"user"},
+	} {
+		sb := NewSandbox(t)
+		comp := NewCompletionProcess(t, false, 0, "integrate", host, "--scope", "").
+			Run(sb.Context(), sb.Runtime())
+		require.NoError(t, comp.Err)
+		require.ElementsMatch(t, want, parseCompletionSuggestions(string(comp.Stdout)), "host %s", host)
+	}
+
+	// With no host chosen yet there is nothing to ask.
+	sb := NewSandbox(t)
+	comp := NewCompletionProcess(t, false, 0, "integrate", "--scope", "").
+		Run(sb.Context(), sb.Runtime())
+	require.NoError(t, comp.Err)
+	require.Empty(t, parseCompletionSuggestions(string(comp.Stdout)))
+}
+
 func TestIntegrateCompletion_StopsAfterOneArg(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t)
@@ -106,6 +131,7 @@ func TestIntegrateCompletion_PluginListsMarketplaceNames(t *testing.T) {
 	suggestions := parseCompletionSuggestions(string(comp.Stdout))
 	require.Contains(t, suggestions, "tapper")
 	require.Contains(t, suggestions, "tapper-dev")
+	require.Contains(t, suggestions, "tapper-guard")
 	out := string(comp.Stdout)
 	expected := fmt.Sprintf(":%d", cobra.ShellCompDirectiveNoFileComp)
 	require.Contains(t, out, expected)

@@ -14,8 +14,7 @@ type ClaudeAdapter struct{}
 
 func (ClaudeAdapter) Name() string { return "claude" }
 
-func (a ClaudeAdapter) Render(rt *toolkit.Runtime, content fs.FS, dst integrations.DestWriter) error {
-	version := pluginVersion(rt)
+func (a ClaudeAdapter) Render(_ *toolkit.Runtime, content fs.FS, dst integrations.DestWriter) error {
 	marketplace, err := renderClaudeMarketplace()
 	if err != nil {
 		return err
@@ -24,7 +23,7 @@ func (a ClaudeAdapter) Render(rt *toolkit.Runtime, content fs.FS, dst integratio
 		return err
 	}
 
-	baselineManifest, err := renderClaudeManifest("tapper", version, "MCP-first Tapper KEG access, flight orientation, and safety guidance.", nil)
+	baselineManifest, err := renderClaudeManifest("tapper", pluginVersionPlaceholder, "MCP-first Tapper KEG access, flight orientation, and safety guidance.", nil)
 	if err != nil {
 		return err
 	}
@@ -34,13 +33,6 @@ func (a ClaudeAdapter) Render(rt *toolkit.Runtime, content fs.FS, dst integratio
 	if err := dst.Write(path.Join(a.Name(), "tapper", ".mcp.json"), renderClaudeMCP()); err != nil {
 		return err
 	}
-	body, err := fs.ReadFile(content, "claude/hooks/hooks.json")
-	if err != nil {
-		return fmt.Errorf("claude: hooks.json: %w", err)
-	}
-	if err := dst.Write(path.Join(a.Name(), "tapper", "hooks", "hooks.json"), body); err != nil {
-		return err
-	}
 	baseline, err := renderSkill(content, "tapper", "Orient to Tapper flights and operate on KEGs through MCP-first safety rules.", baselineOrder)
 	if err != nil {
 		return fmt.Errorf("claude: baseline skill: %w", err)
@@ -48,7 +40,21 @@ func (a ClaudeAdapter) Render(rt *toolkit.Runtime, content fs.FS, dst integratio
 	if err := dst.Write(path.Join(a.Name(), "tapper", "skills", "tapper", "SKILL.md"), baseline); err != nil {
 		return err
 	}
-	devManifest, err := renderClaudeManifest("tapper-dev", version, "Optional Plan to Code to Review to Commit workflow for Tapper-enabled development.", []string{"tapper"})
+	guardManifest, err := renderClaudeManifest(guardPluginName, pluginVersionPlaceholder, guardPluginDescription, []string{"tapper"})
+	if err != nil {
+		return err
+	}
+	if err := dst.Write(path.Join(a.Name(), guardPluginName, ".claude-plugin", "plugin.json"), guardManifest); err != nil {
+		return err
+	}
+	guardHooks, err := fs.ReadFile(content, "guard/hooks.json")
+	if err != nil {
+		return fmt.Errorf("claude: guard hooks.json: %w", err)
+	}
+	if err := dst.Write(path.Join(a.Name(), guardPluginName, "hooks", "hooks.json"), guardHooks); err != nil {
+		return err
+	}
+	devManifest, err := renderClaudeManifest("tapper-dev", pluginVersionPlaceholder, "Optional Plan to Code to Review to Commit workflow for Tapper-enabled development.", []string{"tapper"})
 	if err != nil {
 		return err
 	}
@@ -76,9 +82,9 @@ type author struct {
 	Name string `json:"name"`
 }
 
-func renderClaudeManifest(name, version, description string, dependencies []string) ([]byte, error) {
+func renderClaudeManifest(name, pluginVersionPlaceholder, description string, dependencies []string) ([]byte, error) {
 	return marshalIndented(claudeManifest{
-		Name: name, Description: description, Version: version,
+		Name: name, Description: description, Version: pluginVersionPlaceholder,
 		Author: author{Name: pluginAuthor}, Homepage: pluginHomepage,
 		Dependencies: dependencies,
 	})
@@ -104,6 +110,7 @@ func renderClaudeMarketplace() ([]byte, error) {
 		Description: "Local plugins embedded in the Tapper CLI.",
 		Plugins: []entry{
 			{Name: "tapper", Source: "./tapper", Description: "MCP-first Tapper KEG access and safety."},
+			{Name: guardPluginName, Source: "./" + guardPluginName, Description: guardMarketplaceDescription},
 			{Name: "tapper-dev", Source: "./tapper-dev", Description: "Optional Plan, Code, Review, and Commit workflow."},
 		},
 	}

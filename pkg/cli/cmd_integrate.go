@@ -17,12 +17,25 @@ func NewIntegrateCmd(deps *Deps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "integrate HOST",
 		Short: "install native Tapper plugins for HOST from an embedded local marketplace",
-		Long: `Extract the host-native Tapper marketplace shipped inside the binary,
-register it with Codex or Claude, and install the baseline tapper plugin.
+		Long: `Extract the host-native Tapper plugins shipped inside the binary and
+install the baseline tapper plugin for HOST, plus the tapper-guard safety
+plugin where the host ships one. Claude and Codex are driven through their own
+plugin CLI. Re-running refreshes everything already installed.
+
 Repeat --plugin to add optional plugins such as tapper-dev. Plugin request
-order is preserved and duplicate names are ignored. Scope defaults to user;
-Claude also supports project and local. With --dry-run, print extraction paths
-and exact host commands without writing files or invoking the host.`,
+order is preserved and duplicate names are ignored.
+
+tapper-guard carries the PreToolUse guard that denies direct tap and keg CLI
+use and Tapper config mutation. --no-safety skips installing it; it does not
+remove a guard the host already has. Disable or uninstall that one through the
+host, for example: claude plugin disable tapper-guard@tapper-local.
+
+Scope defaults to user. Claude supports user, project, and local; Codex is
+user-only because its CLI keeps plugins in ~/.codex/config.toml and has no
+scope flag.
+
+With --dry-run, print extraction paths and the exact host commands or file
+writes without touching anything.`,
 		Args: cobra.ExactArgs(1),
 		ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 			if len(args) > 0 {
@@ -54,12 +67,24 @@ and exact host commands without writing files or invoking the host.`,
 				}
 			}
 			if opts.DryRun {
-				if _, err := fmt.Fprintln(out, "Would run:"); err != nil {
-					return err
-				}
-				for _, command := range result.Commands {
-					if _, err := fmt.Fprintln(out, "  "+strings.Join(command, " ")); err != nil {
+				if len(result.Commands) > 0 {
+					if _, err := fmt.Fprintln(out, "Would run:"); err != nil {
 						return err
+					}
+					for _, command := range result.Commands {
+						if _, err := fmt.Fprintln(out, "  "+strings.Join(command, " ")); err != nil {
+							return err
+						}
+					}
+				}
+				if len(result.Steps) > 0 {
+					if _, err := fmt.Fprintln(out, "Would write:"); err != nil {
+						return err
+					}
+					for _, step := range result.Steps {
+						if _, err := fmt.Fprintln(out, "  "+step); err != nil {
+							return err
+						}
 					}
 				}
 			}
@@ -69,6 +94,7 @@ and exact host commands without writing files or invoking the host.`,
 
 	cmd.Flags().BoolVar(&opts.DryRun, "dry-run", false, "print target paths without writing any files")
 	cmd.Flags().StringSliceVar(&opts.Plugins, "plugin", nil, "optional embedded plugin to install (repeatable)")
+	cmd.Flags().BoolVar(&opts.NoSafety, "no-safety", false, "skip the tapper-guard safety plugin")
 	cmd.Flags().StringVar(&opts.Scope, "scope", "user", "host install scope: user, project, or local")
 	mustRegisterFlagCompletion(cmd, "plugin", func(_ *cobra.Command, args []string, _ string) ([]string, cobra.ShellCompDirective) {
 		if len(args) == 0 {
@@ -80,8 +106,14 @@ and exact host commands without writing files or invoking the host.`,
 		}
 		return plugins, cobra.ShellCompDirectiveNoFileComp
 	})
-	mustRegisterFlagCompletion(cmd, "scope", func(_ *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
-		return []string{"user", "project", "local"}, cobra.ShellCompDirectiveNoFileComp
+	// Scopes are per-host: Claude takes all three and Codex has no scope at
+	// all. Suggesting a value the host rejects is worse than suggesting
+	// nothing, so the completion asks the host.
+	mustRegisterFlagCompletion(cmd, "scope", func(_ *cobra.Command, args []string, _ string) ([]string, cobra.ShellCompDirective) {
+		if len(args) == 0 {
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		}
+		return tapper.IntegrateScopes(args[0]), cobra.ShellCompDirectiveNoFileComp
 	})
 
 	return cmd

@@ -142,6 +142,7 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 				Root:       wd,
 				ConfigPath: deps.ConfigPath,
 				Runtime:    rt,
+				Version:    Version,
 			})
 			if err != nil {
 				return err
@@ -452,6 +453,7 @@ func completionTap(deps *Deps) (*tapper.Tap, error) {
 		Root:       wd,
 		ConfigPath: deps.ConfigPath,
 		Runtime:    deps.Runtime,
+		Version:    Version,
 	})
 }
 

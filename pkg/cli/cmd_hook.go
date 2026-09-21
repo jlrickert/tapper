@@ -45,19 +45,41 @@ type hookInputError struct{ message string }
 
 func (e *hookInputError) Error() string { return e.message }
 
-// NewHookCmd builds the hidden protocol used by the native Codex and Claude
-// plugins. It is intentionally host-facing rather than a public user workflow.
+// NewHookCmd builds the protocol the native Claude and Codex plugins
+// invoke. The parent stays hidden because it is host-facing rather than a user
+// workflow, but its subcommands are visible: a hidden subcommand is absent from
+// both `tap hook --help` and shell completion, which left the group looking
+// broken to anyone who went looking.
 func NewHookCmd(deps *Deps) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:    "hook",
-		Short:  "run native Tapper plugin hooks",
+		Use:   "hook",
+		Short: "run native Tapper plugin hooks",
+		Long: `Run one of the hooks the native Tapper plugins invoke.
+
+Every subcommand speaks the same protocol: it reads a single JSON object from
+stdin and writes at most one JSON object to stdout. Hosts run these, not
+people. "tap integrate HOST" installs the wiring that calls them, so there is
+nothing here to configure by hand.
+
+The tap binary these hooks resolve to is whatever is on PATH when the host
+spawns them.`,
 		Hidden: true,
 	}
 	cmd.AddCommand(
 		&cobra.Command{
-			Use:         "session-start",
-			Short:       "restore Tapper guidance at a host session boundary",
-			Hidden:      true,
+			Use:   "session-start",
+			Short: "restore Tapper guidance at a host session boundary",
+			Long: `Emit the orientation reminder at a host session boundary.
+
+Reads a SessionStart payload on stdin and writes an object carrying
+hookSpecificOutput.additionalContext: a short reminder to orient through the
+active flight before KEG work and to keep that work on mcp__tapper__ tools. It
+runs at startup, resume, clear, and compaction, because each of those discards
+the orientation delivered into the conversation.
+
+It fails open. A payload it cannot read produces a diagnostic on stderr and
+allows the session to start: a broken reminder must not cost the user a
+session.`,
 			Args:        cobra.NoArgs,
 			Annotations: map[string]string{skipRootInitializationAnnotation: "true"},
 			RunE: func(_ *cobra.Command, _ []string) error {
@@ -66,9 +88,28 @@ func NewHookCmd(deps *Deps) *cobra.Command {
 			},
 		},
 		&cobra.Command{
-			Use:         "pre-tool-use",
-			Short:       "guard direct tap and keg CLI use by agents",
-			Hidden:      true,
+			Use:   "pre-tool-use",
+			Short: "guard direct tap and keg CLI use by agents",
+			Long: `Decide whether one pending tool call is allowed.
+
+Reads a PreToolUse payload on stdin (tool_name plus tool_input) and denies a
+recognized direct tap or keg invocation, a write to Tapper configuration, or a
+change to TAP_FLIGHT or TAP_AGENT. Reads are never denied, and these probes
+stay allowed: completion, --version, --help.
+
+Silence is the allow verdict. Output appears only to deny, as an object whose
+hookSpecificOutput carries permissionDecision "deny" and a reason.
+
+Exit codes are the fail-closed half of the contract:
+
+  0  a verdict was reached (deny payload written, or nothing for allow)
+  2  the payload could not be read or parsed
+
+Claude treats exit 2 as a blocking error, so input this command cannot
+understand blocks the call rather than waving it through.
+
+This is a guardrail against accidental direct CLI use, not a shell security
+boundary: what the command parser cannot interpret, it allows.`,
 			Args:        cobra.NoArgs,
 			Annotations: map[string]string{skipRootInitializationAnnotation: "true"},
 			RunE: func(_ *cobra.Command, _ []string) error {

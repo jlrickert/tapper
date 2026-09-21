@@ -96,20 +96,14 @@ jobs:
           config: cliff.toml
           args: --use-branch-tags --tag ${{ steps.version.outputs.version }} -o CHANGELOG.md
 
-      - name: Re-render integrations with release version
-        if: steps.version.outputs.existing_tag != 'true'
-        env:
-          TAPPER_PLUGIN_VERSION: ${{ steps.version.outputs.version }}
-        run: go run ./cmd/render-integrations
-
       - name: Commit and push release atomically
         if: steps.version.outputs.existing_tag != 'true'
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
-          git add CHANGELOG.md integrations/rendered
+          git add CHANGELOG.md
           if git diff --staged --quiet; then
-            echo "Error: no release artifacts staged. Expected CHANGELOG and rendered integrations to change." >&2
+            echo "Error: no release artifacts staged. Expected the CHANGELOG to change." >&2
             exit 1
           fi
           git commit -m "chore: release $VERSION"

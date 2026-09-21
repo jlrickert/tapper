@@ -6,18 +6,30 @@ import (
 	"fmt"
 	"io/fs"
 	"path"
-	"strings"
 
 	"github.com/jlrickert/cli-toolkit/toolkit"
 	"github.com/jlrickert/tapper/pkg/integrations"
 )
 
 const (
-	pluginVersionEnv     = "TAPPER_PLUGIN_VERSION"
-	pluginVersionDefault = "0.0.0-dev"
-	pluginAuthor         = "Jared Rickert"
-	pluginHomepage       = "https://github.com/jlrickert/tapper"
-	marketplaceName      = "tapper-local"
+	// pluginVersionPlaceholder is what every rendered manifest carries. The
+	// version that matters belongs to the binary performing the install, not
+	// to a file committed here, so `tap integrate` stamps the real one during
+	// extraction (stampPluginVersions in pkg/tapper). Rendering a constant
+	// keeps the render a pure function of the canonical content: the
+	// pre-commit hook re-renders and can never see spurious churn.
+	pluginVersionPlaceholder = "0.0.0-dev"
+	pluginAuthor             = "Jared Rickert"
+	pluginHomepage           = "https://github.com/jlrickert/tapper"
+	marketplaceName          = "tapper-local"
+
+	// guardPluginName is the separate plugin that carries the PreToolUse
+	// guard. It lives outside the baseline plugin so a session can drop the
+	// enforcement without losing the MCP registration, the skill, or the
+	// orientation hook.
+	guardPluginName             = "tapper-guard"
+	guardPluginDescription      = "PreToolUse guard denying direct tap/keg CLI use and Tapper config mutation."
+	guardMarketplaceDescription = "Optional safety guard for direct CLI and config mutation."
 )
 
 var baselineOrder = []string{
@@ -33,8 +45,7 @@ type CodexAdapter struct{}
 
 func (CodexAdapter) Name() string { return "codex" }
 
-func (a CodexAdapter) Render(rt *toolkit.Runtime, content fs.FS, dst integrations.DestWriter) error {
-	version := pluginVersion(rt)
+func (a CodexAdapter) Render(_ *toolkit.Runtime, content fs.FS, dst integrations.DestWriter) error {
 	marketplace, err := renderCodexMarketplace()
 	if err != nil {
 		return err
@@ -45,7 +56,7 @@ func (a CodexAdapter) Render(rt *toolkit.Runtime, content fs.FS, dst integration
 
 	baselineManifest, err := renderCodexManifest(codexManifest{
 		Name:        "tapper",
-		Version:     version,
+		Version:     pluginVersionPlaceholder,
 		Description: "MCP-first Tapper KEG access, flight orientation, and safety guidance.",
 		Skills:      "./skills/",
 		MCPServers:  "./.mcp.json",
@@ -85,9 +96,35 @@ func (a CodexAdapter) Render(rt *toolkit.Runtime, content fs.FS, dst integration
 		return err
 	}
 
+	guardManifest, err := renderCodexManifest(codexManifest{
+		Name:        guardPluginName,
+		Version:     pluginVersionPlaceholder,
+		Description: guardPluginDescription,
+		Interface: codexInterface{
+			DisplayName:      "Tapper Guard",
+			ShortDescription: "Deny direct CLI and config mutation",
+			LongDescription:  "Blocks direct tap and keg CLI use and Tapper configuration mutation so KEG work stays on capability-authorized MCP operations.",
+			Capabilities:     []string{"Interactive"},
+			DefaultPrompt:    []string{},
+		},
+	})
+	if err != nil {
+		return err
+	}
+	if err := dst.Write(path.Join(a.Name(), guardPluginName, ".codex-plugin", "plugin.json"), guardManifest); err != nil {
+		return err
+	}
+	guardHooks, err := fs.ReadFile(content, "guard/hooks.json")
+	if err != nil {
+		return fmt.Errorf("codex: guard hooks.json: %w", err)
+	}
+	if err := dst.Write(path.Join(a.Name(), guardPluginName, "hooks", "hooks.json"), guardHooks); err != nil {
+		return err
+	}
+
 	devManifest, err := renderCodexManifest(codexManifest{
 		Name:        "tapper-dev",
-		Version:     version,
+		Version:     pluginVersionPlaceholder,
 		Description: "Optional Plan to Code to Review to Commit workflow for Tapper-enabled development.",
 		Skills:      "./skills/",
 		Interface: codexInterface{
@@ -123,7 +160,7 @@ type codexManifest struct {
 	Repository  string         `json:"repository"`
 	License     string         `json:"license"`
 	Keywords    []string       `json:"keywords"`
-	Skills      string         `json:"skills"`
+	Skills      string         `json:"skills,omitempty"`
 	MCPServers  string         `json:"mcpServers,omitempty"`
 	Interface   codexInterface `json:"interface"`
 }
@@ -179,7 +216,7 @@ func renderCodexMarketplace() ([]byte, error) {
 		Plugins []entry `json:"plugins"`
 	}{Name: marketplaceName}
 	v.Interface.DisplayName = "Tapper Local"
-	for _, name := range []string{"tapper", "tapper-dev"} {
+	for _, name := range []string{"tapper", guardPluginName, "tapper-dev"} {
 		v.Plugins = append(v.Plugins, entry{
 			Name:     name,
 			Source:   source{Source: "local", Path: "./" + name},
@@ -229,18 +266,6 @@ func renderCodexMCP() []byte {
   }
 }
 `)
-}
-
-func pluginVersion(rt *toolkit.Runtime) string {
-	if rt == nil {
-		return pluginVersionDefault
-	}
-	v := strings.TrimSpace(rt.Env().Get(pluginVersionEnv))
-	if v == "" {
-		return pluginVersionDefault
-	}
-	v = strings.TrimPrefix(v, "v")
-	return v
 }
 
 func renderSkill(content fs.FS, name, description string, order []string) ([]byte, error) {

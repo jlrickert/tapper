@@ -7,16 +7,18 @@
 // output of those bytes ships in the user binaries via integrations/embed.go,
 // not via this embed FS.
 //
-// The "all:" prefix is required so dot-directories under claude/ (none today,
-// but reserved) are included; without it Go's embed machinery silently skips
-// names starting with "." or "_".
+// The "all:" prefix is required so dot-directories under these roots (none
+// today, but reserved) are included; without it Go's embed machinery silently
+// skips names starting with "." or "_".
 package renderdata
 
 import "embed"
 
 // FS exposes the embedded canonical-source tree. Paths inside the FS are
 // relative to this package's directory — for example
-// "claude/hooks/hooks.json" or "codex/hooks/hooks.json".
+// "codex/hooks/hooks.json" (the baseline orientation hook) or
+// "guard/hooks.json" (the PreToolUse guard both marketplace hosts ship in the
+// separate tapper-guard plugin).
 //
-//go:embed all:claude all:codex all:developer
+//go:embed all:codex all:developer all:guard
 var FS embed.FS
