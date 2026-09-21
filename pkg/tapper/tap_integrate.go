@@ -11,50 +11,60 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
-	"sort"
 	"strings"
 
 	"github.com/jlrickert/cli-toolkit/toolkit"
 	"github.com/jlrickert/tapper/pkg/integrations"
 )
 
-const localIntegrationMarketplace = "tapper-local"
-
 // IntegrateOptions selects the host, native install scope, dry-run behavior,
 // and optional plugins for native plugin installation. The baseline tapper
-// plugin is always installed.
+// plugin is always installed, and so is the tapper-guard safety plugin unless
+// NoSafety is set.
 type IntegrateOptions struct {
 	KegTargetOptions
-	Host    string
-	DryRun  bool
+	Host   string
+	DryRun bool
+	// Plugins are additional embedded plugins to install, such as
+	// tapper-dev. Request order is preserved and duplicates are ignored.
 	Plugins []string
-	Scope   string
+	// NoSafety skips the tapper-guard plugin for hosts that ship it. It does
+	// not uninstall a guard the host already has; removing or disabling that
+	// one is a host-side action.
+	NoSafety bool
+	Scope    string
 }
 
-// IntegrateResult describes the extracted marketplace and the host commands
-// used to inspect, register, and install it.
+// IntegrateResult describes the extracted marketplace and what the install
+// does with it.
+//
+// Commands and Steps are the two shapes an install takes and a host uses one or
+// the other: Commands for a host driven through its own CLI, Steps for a host
+// installed by writing its configuration. A dry run reports whichever is set.
 type IntegrateResult struct {
 	Root     string
 	Paths    []string
 	Commands [][]string
+	Steps    []string
 }
 
-// Integrate atomically refreshes the embedded marketplace for one host,
-// reuses a matching registration, and installs the requested plugins through
-// the host CLI. Dry-run returns the complete plan without side effects.
+// Integrate atomically refreshes the embedded marketplace for one host and
+// installs the requested plugins the way that host expects. Dry-run returns the
+// complete plan without side effects.
 func (t *Tap) Integrate(ctx context.Context, opts IntegrateOptions) (*IntegrateResult, error) {
-	host := strings.TrimSpace(opts.Host)
-	if host == "" {
+	name := strings.TrimSpace(opts.Host)
+	if name == "" {
 		return nil, fmt.Errorf("integrate: host is required")
 	}
-	if !integrationHostExists(host) {
-		return nil, fmt.Errorf("integrate: unknown host %q", host)
-	}
-	scope, err := integrationScope(host, opts.Scope)
+	host, err := lookupIntegrationHost(name)
 	if err != nil {
 		return nil, err
 	}
-	selected, err := selectedIntegrationPlugins(host, opts.Plugins)
+	scope, err := resolveIntegrationScope(host, opts.Scope)
+	if err != nil {
+		return nil, err
+	}
+	selected, err := selectedIntegrationPlugins(host.Name(), opts.Plugins, opts.NoSafety)
 	if err != nil {
 		return nil, err
 	}
@@ -63,8 +73,12 @@ func (t *Tap) Integrate(ctx context.Context, opts IntegrateOptions) (*IntegrateR
 	if err != nil {
 		return nil, fmt.Errorf("integrate: resolve user data directory: %w", err)
 	}
-	root := filepath.Join(dataDir, "tapper", "integrations", host)
-	result, err := integrationPreview(host, root, scope, selected)
+	plan := integratePlan{
+		Root:    filepath.Join(dataDir, "tapper", "integrations", host.Name()),
+		Scope:   scope,
+		Plugins: selected,
+	}
+	result, err := host.Plan(t, plan)
 	if err != nil {
 		return nil, err
 	}
@@ -72,51 +86,13 @@ func (t *Tap) Integrate(ctx context.Context, opts IntegrateOptions) (*IntegrateR
 		return result, nil
 	}
 
-	if err := t.verifyIntegrationHookSupport(ctx); err != nil {
-		return nil, err
-	}
-	executable, err := t.integrationExecutable(host)
-	if err != nil {
-		return nil, err
-	}
-
-	marketplaces, err := t.integrationJSONCommand(ctx, executable, hostMarketplaceListArgs(host))
-	if err != nil {
-		return nil, fmt.Errorf("integrate: list %s marketplaces: %w", host, err)
-	}
-	registered, err := checkMarketplaceState(host, marketplaces, root, scope)
-	if err != nil {
-		return nil, err
-	}
-	plugins, err := t.integrationJSONCommand(ctx, executable, hostPluginListArgs(host))
-	if err != nil {
-		return nil, fmt.Errorf("integrate: list %s plugins: %w", host, err)
-	}
-	installed, err := installedPluginIDs(host, plugins, scope)
-	if err != nil {
-		return nil, fmt.Errorf("integrate: parse %s plugin list: %w", host, err)
-	}
-
-	if err := t.extractIntegration(host, root); err != nil {
-		return nil, err
-	}
-	// The marketplace goes first: Codex installs plugins from its snapshot, so
-	// recapturing it has to happen before any plugin is added back.
-	for _, args := range hostMarketplaceCommands(host, root, scope, registered) {
-		if err := t.runIntegrationCommand(ctx, executable, args); err != nil {
-			return nil, fmt.Errorf("integrate: register %s marketplace: %w", host, err)
+	if host.RequiresHookSupport(plan.Plugins) {
+		if err := t.verifyIntegrationHookSupport(ctx); err != nil {
+			return nil, err
 		}
 	}
-
-	// Each plugin's removal sits immediately before its own add, so a failure
-	// part-way through leaves at most one plugin missing rather than all of them.
-	for _, name := range selected {
-		id := name + "@" + localIntegrationMarketplace
-		for _, args := range hostPluginCommands(host, id, scope, installed[id]) {
-			if err := t.runIntegrationCommand(ctx, executable, args); err != nil {
-				return nil, fmt.Errorf("integrate: install %s with %s: %w", id, host, err)
-			}
-		}
+	if err := host.Apply(ctx, t, plan); err != nil {
+		return nil, err
 	}
 	return result, nil
 }
@@ -151,66 +127,12 @@ func (t *Tap) verifyIntegrationHookSupport(ctx context.Context) error {
 	return nil
 }
 
-func integrationPreview(host, root, scope string, selected []string) (*IntegrateResult, error) {
-	srcRoot := path.Join("rendered", host)
-	var targets []string
-	err := fs.WalkDir(integrations.IntegrationsFS, srcRoot, func(p string, d fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		if d.IsDir() {
-			return nil
-		}
-		rel := strings.TrimPrefix(strings.TrimPrefix(p, srcRoot), "/")
-		targets = append(targets, filepath.Join(root, filepath.FromSlash(rel)))
-		return nil
-	})
-	if err != nil {
-		return nil, fmt.Errorf("integrate: inspect embedded %s marketplace: %w", host, err)
-	}
-	sort.Strings(targets)
-	// The preview is the fresh-install sequence. A dry run deliberately starts no
-	// host process (it returns before the list commands run), so it cannot know
-	// whether the marketplace is registered or a plugin already installed. A real
-	// run against an existing install inserts the corresponding removes — see
-	// hostMarketplaceCommands and hostPluginCommands.
-	commands := [][]string{
-		append([]string{host}, hostMarketplaceListArgs(host)...),
-		append([]string{host}, hostPluginListArgs(host)...),
-	}
-	for _, args := range hostMarketplaceCommands(host, root, scope, false) {
-		commands = append(commands, append([]string{host}, args...))
-	}
-	for _, name := range selected {
-		for _, args := range hostPluginCommands(host, name+"@"+localIntegrationMarketplace, scope, false) {
-			commands = append(commands, append([]string{host}, args...))
-		}
-	}
-	return &IntegrateResult{Root: root, Paths: targets, Commands: commands}, nil
-}
-
-func integrationScope(host, requested string) (string, error) {
-	scope := strings.TrimSpace(requested)
-	if scope == "" {
-		scope = "user"
-	}
-	switch host {
-	case "claude":
-		if scope == "user" || scope == "project" || scope == "local" {
-			return scope, nil
-		}
-		return "", fmt.Errorf("integrate: invalid Claude scope %q; use user, project, or local", scope)
-	case "codex":
-		if scope != "user" {
-			return "", fmt.Errorf("integrate: Codex currently supports only --scope user; use Claude for project or local plugin activation")
-		}
-		return scope, nil
-	default:
-		return "", fmt.Errorf("integrate: unknown host %q", host)
-	}
-}
-
-func selectedIntegrationPlugins(host string, requested []string) ([]string, error) {
+// selectedIntegrationPlugins resolves the plugin list for one install. The
+// baseline plugin always comes first, the guard follows by default on every
+// host whose embedded marketplace advertises it, and the caller's extras keep
+// their request order. A host whose marketplace advertises no guard makes
+// noSafety a no-op rather than an error.
+func selectedIntegrationPlugins(host string, requested []string, noSafety bool) ([]string, error) {
 	available, err := IntegratePlugins(host)
 	if err != nil {
 		return nil, err
@@ -219,15 +141,22 @@ func selectedIntegrationPlugins(host string, requested []string) ([]string, erro
 	for _, name := range available {
 		valid[name] = true
 	}
-	if !valid["tapper"] {
-		return nil, fmt.Errorf("integrate: embedded %s marketplace is missing required plugin %q", host, "tapper")
+	if !valid[baselineIntegrationPlugin] {
+		return nil, fmt.Errorf("integrate: embedded %s marketplace is missing required plugin %q", host, baselineIntegrationPlugin)
 	}
-	selected := []string{"tapper"}
-	seen := map[string]bool{"tapper": true}
+	selected := []string{baselineIntegrationPlugin}
+	seen := map[string]bool{baselineIntegrationPlugin: true}
+	if valid[guardIntegrationPlugin] && !noSafety {
+		selected = append(selected, guardIntegrationPlugin)
+		seen[guardIntegrationPlugin] = true
+	}
 	for _, raw := range requested {
 		name := strings.TrimSpace(raw)
 		if !valid[name] {
 			return nil, fmt.Errorf("integrate: unknown %s plugin %q; available plugins: %s", host, name, strings.Join(available, ", "))
+		}
+		if name == guardIntegrationPlugin && noSafety {
+			return nil, fmt.Errorf("integrate: --no-safety conflicts with --plugin %s", guardIntegrationPlugin)
 		}
 		if !seen[name] {
 			selected = append(selected, name)
@@ -237,13 +166,13 @@ func selectedIntegrationPlugins(host string, requested []string) ([]string, erro
 	return selected, nil
 }
 
-func (t *Tap) extractIntegration(host, root string) error {
+func (t *Tap) extractIntegration(host integrationHost, root string, plugins []string) error {
 	stage := root + ".tmp"
 	backup := root + ".old"
 	_ = t.Runtime.Remove(stage, true)
 	_ = t.Runtime.Remove(backup, true)
 
-	srcRoot := path.Join("rendered", host)
+	srcRoot := path.Join("rendered", host.Name())
 	err := fs.WalkDir(integrations.IntegrationsFS, srcRoot, func(p string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
@@ -255,7 +184,7 @@ func (t *Tap) extractIntegration(host, root string) error {
 		if err != nil {
 			return err
 		}
-		rel := strings.TrimPrefix(strings.TrimPrefix(p, srcRoot), "/")
+		rel := relativeToRoot(p, srcRoot)
 		if err := t.Runtime.WriteFile(filepath.Join(stage, filepath.FromSlash(rel)), body, 0o644); err != nil {
 			return err
 		}
@@ -263,9 +192,13 @@ func (t *Tap) extractIntegration(host, root string) error {
 	})
 	if err != nil {
 		_ = t.Runtime.Remove(stage, true)
-		return fmt.Errorf("integrate: extract embedded %s marketplace: %w", host, err)
+		return fmt.Errorf("integrate: extract embedded %s marketplace: %w", host.Name(), err)
 	}
-	if err := t.validateExtractedIntegration(host, stage); err != nil {
+	if err := t.stampPluginVersions(host, stage); err != nil {
+		_ = t.Runtime.Remove(stage, true)
+		return err
+	}
+	if err := t.validateExtractedIntegration(host, stage, plugins); err != nil {
 		_ = t.Runtime.Remove(stage, true)
 		return err
 	}
@@ -277,7 +210,7 @@ func (t *Tap) extractIntegration(host, root string) error {
 			_ = t.Runtime.Remove(stage, true)
 			return fmt.Errorf("integrate: stage existing marketplace: %w", err)
 		}
-	} else if !errors.Is(err, fs.ErrNotExist) && !os.IsNotExist(err) {
+	} else if !isNotExist(err) {
 		_ = t.Runtime.Remove(stage, true)
 		return fmt.Errorf("integrate: inspect existing marketplace: %w", err)
 	}
@@ -293,18 +226,68 @@ func (t *Tap) extractIntegration(host, root string) error {
 	return nil
 }
 
-func (t *Tap) validateExtractedIntegration(host, root string) error {
-	manifest := filepath.Join(root, ".claude-plugin", "marketplace.json")
-	if host == "codex" {
-		manifest = filepath.Join(root, ".agents", "plugins", "marketplace.json")
-	}
-	filenames := []string{manifest}
-	plugins, err := IntegratePlugins(host)
+// stampPluginVersions rewrites the version in every extracted plugin manifest
+// to the version of the binary doing the install.
+//
+// The rendered tree carries a placeholder, because a version committed to the
+// repo is stale the moment anyone commits past a tag — and Claude Code uses
+// this field as its update gate, so a plugin that changed while claiming the
+// last release may never refresh. The binary knows what it is; the repo does
+// not.
+//
+// It stamps every plugin the marketplace advertises rather than only the
+// selected ones, so a plugin installed later by hand through the host's own
+// CLI reports the same version as one tap installed.
+//
+// The manifest round-trips through a map, so keys come back out in
+// alphabetical order. These are generated install artifacts, and the
+// alternative is a regex over a JSON line.
+func (t *Tap) stampPluginVersions(host integrationHost, root string) error {
+	plugins, err := IntegratePlugins(host.Name())
 	if err != nil {
 		return err
 	}
 	for _, name := range plugins {
-		filenames = append(filenames, filepath.Join(root, name, hostManifestDir(host), "plugin.json"))
+		filename := filepath.Join(root, filepath.FromSlash(host.PluginManifestPath(name)))
+		body, err := t.Runtime.ReadFile(filename)
+		if err != nil {
+			return fmt.Errorf("integrate: read manifest %s: %w", filename, err)
+		}
+		var manifest map[string]json.RawMessage
+		if err := json.Unmarshal(body, &manifest); err != nil {
+			return fmt.Errorf("integrate: parse manifest %s: %w", filename, err)
+		}
+		if _, ok := manifest["version"]; !ok {
+			continue
+		}
+		version, err := json.Marshal(t.Version)
+		if err != nil {
+			return fmt.Errorf("integrate: encode version for %s: %w", filename, err)
+		}
+		manifest["version"] = version
+		stamped, err := json.Marshal(manifest)
+		if err != nil {
+			return fmt.Errorf("integrate: encode manifest %s: %w", filename, err)
+		}
+		indented, err := jsonIndent(stamped)
+		if err != nil {
+			return fmt.Errorf("integrate: format manifest %s: %w", filename, err)
+		}
+		indented = append(indented, '\n')
+		if err := t.Runtime.WriteFile(filename, indented, 0o644); err != nil {
+			return fmt.Errorf("integrate: write manifest %s: %w", filename, err)
+		}
+	}
+	return nil
+}
+
+// validateExtractedIntegration parses the manifests the host will read before
+// the staged tree replaces the live one, so a corrupt render fails while the
+// previous install is still intact.
+func (t *Tap) validateExtractedIntegration(host integrationHost, root string, plugins []string) error {
+	filenames := []string{filepath.Join(root, filepath.FromSlash(host.MarketplacePath()))}
+	for _, name := range plugins {
+		filenames = append(filenames, filepath.Join(root, filepath.FromSlash(host.PluginManifestPath(name))))
 	}
 	for _, filename := range filenames {
 		body, err := t.Runtime.ReadFile(filename)
@@ -317,13 +300,6 @@ func (t *Tap) validateExtractedIntegration(host, root string) error {
 		}
 	}
 	return nil
-}
-
-func hostManifestDir(host string) string {
-	if host == "codex" {
-		return ".codex-plugin"
-	}
-	return ".claude-plugin"
 }
 
 func (t *Tap) integrationExecutable(host string) (string, error) {
@@ -381,202 +357,19 @@ func (t *Tap) runIntegrationCommand(ctx context.Context, executable string, args
 	return cmd.Run()
 }
 
-func hostMarketplaceListArgs(host string) []string {
-	return []string{"plugin", "marketplace", "list", "--json"}
+// isNotExist covers both the fs sentinel and the os predicate, because a
+// Runtime backed by a sandbox and one backed by the real filesystem do not
+// always report a missing path the same way.
+func isNotExist(err error) bool {
+	return errors.Is(err, fs.ErrNotExist) || os.IsNotExist(err)
 }
 
-func hostPluginListArgs(host string) []string {
-	return []string{"plugin", "list", "--json"}
-}
-
-// hostMarketplaceCommands returns the commands that make the host's view of the
-// marketplace match the freshly extracted tree, given whether it is already
-// registered.
-//
-// Codex serves plugins from a snapshot taken when the marketplace was added, so
-// re-extracting files it has already snapshotted changes nothing. Its
-// `marketplace upgrade` only refreshes Git sources, which a local marketplace is
-// not, leaving remove-then-add as the sole way to recapture. Claude reads the
-// registered path directly, so a re-register would be pure churn.
-func hostMarketplaceCommands(host, root, scope string, registered bool) [][]string {
-	add := []string{"plugin", "marketplace", "add", root}
-	if host == "claude" {
-		if registered {
-			return nil
-		}
-		return [][]string{append(add, "--scope", scope)}
-	}
-	if registered {
-		return [][]string{
-			{"plugin", "marketplace", "remove", localIntegrationMarketplace},
-			add,
-		}
-	}
-	return [][]string{add}
-}
-
-// hostPluginCommands returns the commands that install or refresh one plugin.
-//
-// Codex has no update verb and caches the plugin at install time, so an
-// already-installed plugin must be removed before adding it back or the new
-// content never lands — `plugin add` alone silently keeps the cached copy.
-func hostPluginCommands(host, id, scope string, installed bool) [][]string {
-	if host == "claude" {
-		if installed {
-			return [][]string{{"plugin", "update", id, "--scope", scope}}
-		}
-		return [][]string{{"plugin", "install", id, "--scope", scope}}
-	}
-	add := []string{"plugin", "add", id}
-	if installed {
-		return [][]string{{"plugin", "remove", id}, add}
-	}
-	return [][]string{add}
-}
-
-func checkMarketplaceState(host string, body []byte, expectedRoot, scope string) (bool, error) {
-	type codexEntry struct {
-		Name  string `json:"name"`
-		Root  string `json:"root"`
-		Scope string `json:"scope"`
-	}
-	var entries []codexEntry
-	if host == "codex" {
-		var response struct {
-			Marketplaces []codexEntry `json:"marketplaces"`
-		}
-		if err := json.Unmarshal(body, &response); err != nil {
-			return false, fmt.Errorf("integrate: parse codex marketplace list: %w", err)
-		}
-		entries = response.Marketplaces
-	} else {
-		var response []struct {
-			Name            string `json:"name"`
-			Path            string `json:"path"`
-			InstallLocation string `json:"installLocation"`
-			Scope           string `json:"scope"`
-		}
-		if err := json.Unmarshal(body, &response); err != nil {
-			return false, fmt.Errorf("integrate: parse claude marketplace list: %w", err)
-		}
-		for _, item := range response {
-			root := item.Path
-			if root == "" {
-				root = item.InstallLocation
-			}
-			itemScope := item.Scope
-			if itemScope == "" {
-				itemScope = "user"
-			}
-			entries = append(entries, codexEntry{Name: item.Name, Root: root, Scope: itemScope})
-		}
-	}
-	for _, entry := range entries {
-		if entry.Name != localIntegrationMarketplace || (host == "claude" && entry.Scope != scope) {
-			continue
-		}
-		if sameIntegrationPath(entry.Root, expectedRoot) {
-			return true, nil
-		}
-		return false, fmt.Errorf("integrate: marketplace %q already points to %s, expected %s; refusing to replace it", localIntegrationMarketplace, entry.Root, expectedRoot)
-	}
-	return false, nil
-}
-
-func sameIntegrationPath(a, b string) bool {
-	return filepath.Clean(strings.TrimSpace(a)) == filepath.Clean(strings.TrimSpace(b))
-}
-
-func installedPluginIDs(host string, body []byte, scope string) (map[string]bool, error) {
-	out := map[string]bool{}
-	if host == "codex" {
-		var response struct {
-			Installed []struct {
-				PluginID string `json:"pluginId"`
-			} `json:"installed"`
-		}
-		if err := json.Unmarshal(body, &response); err != nil {
-			return nil, err
-		}
-		for _, plugin := range response.Installed {
-			out[plugin.PluginID] = true
-		}
-		return out, nil
-	}
-	var response []struct {
-		ID    string `json:"id"`
-		Scope string `json:"scope"`
-	}
-	if err := json.Unmarshal(body, &response); err != nil {
+// jsonIndent reformats compact JSON with the 2-space, HTML-unescaped style the
+// rendered fragments use.
+func jsonIndent(body []byte) ([]byte, error) {
+	var out bytes.Buffer
+	if err := json.Indent(&out, body, "", "  "); err != nil {
 		return nil, err
 	}
-	for _, plugin := range response {
-		pluginScope := plugin.Scope
-		if pluginScope == "" {
-			pluginScope = "user"
-		}
-		if pluginScope == scope {
-			out[plugin.ID] = true
-		}
-	}
-	return out, nil
-}
-
-func integrationHostExists(host string) bool {
-	for _, adapter := range integrations.DefaultAdapters() {
-		if adapter.Name() == host {
-			return true
-		}
-	}
-	return false
-}
-
-func IntegrateHosts() []string {
-	adapters := integrations.DefaultAdapters()
-	out := make([]string, 0, len(adapters))
-	for _, adapter := range adapters {
-		out = append(out, adapter.Name())
-	}
-	sort.Strings(out)
-	return out
-}
-
-// IntegratePlugins returns the plugin names advertised by the host's embedded
-// rendered marketplace. The marketplace, rather than installer code, is the
-// source of truth as new optional plugins are added.
-func IntegratePlugins(host string) ([]string, error) {
-	return integratePluginsFromFS(integrations.IntegrationsFS, host)
-}
-
-func integratePluginsFromFS(fsys fs.FS, host string) ([]string, error) {
-	manifest := path.Join("rendered", host, ".claude-plugin", "marketplace.json")
-	if host == "codex" {
-		manifest = path.Join("rendered", host, ".agents", "plugins", "marketplace.json")
-	}
-	body, err := fs.ReadFile(fsys, manifest)
-	if err != nil {
-		return nil, fmt.Errorf("integrate: read embedded %s marketplace: %w", host, err)
-	}
-	var marketplace struct {
-		Plugins []struct {
-			Name string `json:"name"`
-		} `json:"plugins"`
-	}
-	if err := json.Unmarshal(body, &marketplace); err != nil {
-		return nil, fmt.Errorf("integrate: parse embedded %s marketplace: %w", host, err)
-	}
-	seen := make(map[string]bool, len(marketplace.Plugins))
-	out := make([]string, 0, len(marketplace.Plugins))
-	for _, plugin := range marketplace.Plugins {
-		name := strings.TrimSpace(plugin.Name)
-		if name != "" && !seen[name] {
-			out = append(out, name)
-			seen[name] = true
-		}
-	}
-	sort.Strings(out)
-	if len(out) == 0 {
-		return nil, fmt.Errorf("integrate: embedded %s marketplace contains no plugins", host)
-	}
-	return out, nil
+	return out.Bytes(), nil
 }

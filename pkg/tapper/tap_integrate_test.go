@@ -2,6 +2,7 @@ package tapper_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"path/filepath"
@@ -66,10 +67,11 @@ func TestTap_Integrate_DryRunIsSideEffectFreeAndShowsExactCommands(t *testing.T)
 	result, err := tap.Integrate(context.Background(), tapper.IntegrateOptions{Host: "codex", DryRun: true, Plugins: []string{"tapper-dev"}})
 	require.NoError(t, err)
 	require.Contains(t, result.Root, filepath.FromSlash(".local/share/tapper/integrations/codex"))
-	require.Len(t, result.Commands, 5)
+	require.Len(t, result.Commands, 6)
 	require.Equal(t, []string{"codex", "plugin", "marketplace", "add", result.Root}, result.Commands[2])
 	require.Equal(t, []string{"codex", "plugin", "add", "tapper@tapper-local"}, result.Commands[3])
-	require.Equal(t, []string{"codex", "plugin", "add", "tapper-dev@tapper-local"}, result.Commands[4])
+	require.Equal(t, []string{"codex", "plugin", "add", "tapper-guard@tapper-local"}, result.Commands[4])
+	require.Equal(t, []string{"codex", "plugin", "add", "tapper-dev@tapper-local"}, result.Commands[5])
 	for _, target := range result.Paths {
 		require.NotEqual(t, ".py", filepath.Ext(target), "dry-run must not advertise legacy Python hooks")
 	}
@@ -85,11 +87,15 @@ func TestTap_Integrate_CodexExtractsAndInvokesNativeCLI(t *testing.T) {
 	result, err := tap.Integrate(context.Background(), tapper.IntegrateOptions{Host: "codex", Plugins: []string{"tapper-dev"}})
 	require.NoError(t, err)
 
+	// The extracted manifest carries everything the embedded one does, except
+	// that its version is stamped from the installing binary rather than
+	// rendered. Compare the rest field by field: a map round-trip also
+	// reorders keys, so bytes no longer match and should not.
 	got, err := sb.Runtime().ReadFile(filepath.Join(result.Root, "tapper", ".codex-plugin", "plugin.json"))
 	require.NoError(t, err)
 	want, err := fs.ReadFile(integrations.IntegrationsFS, "rendered/codex/tapper/.codex-plugin/plugin.json")
 	require.NoError(t, err)
-	require.Equal(t, string(want), string(got))
+	require.Equal(t, manifestFieldsExceptVersion(t, want), manifestFieldsExceptVersion(t, got))
 
 	calls, err := sb.ReadFile("calls")
 	require.NoError(t, err)
@@ -250,9 +256,48 @@ func TestTap_Integrate_PluginsPreserveOrderAndDeduplicate(t *testing.T) {
 		Plugins: []string{"tapper-dev", "tapper", "tapper-dev"},
 	})
 	require.NoError(t, err)
-	require.Len(t, result.Commands, 5)
+	require.Len(t, result.Commands, 6)
 	require.Equal(t, []string{"codex", "plugin", "add", "tapper@tapper-local"}, result.Commands[3])
-	require.Equal(t, []string{"codex", "plugin", "add", "tapper-dev@tapper-local"}, result.Commands[4])
+	require.Equal(t, []string{"codex", "plugin", "add", "tapper-guard@tapper-local"}, result.Commands[4])
+	require.Equal(t, []string{"codex", "plugin", "add", "tapper-dev@tapper-local"}, result.Commands[5])
+}
+
+// The guard ships as its own plugin so a session can drop the PreToolUse
+// enforcement without losing the MCP registration, the skill, or Codex's
+// orientation hook. It installs by default; --no-safety is the opt-out.
+func TestTap_Integrate_InstallsGuardByDefaultAndSkipsItWithNoSafety(t *testing.T) {
+	t.Parallel()
+	for _, host := range []string{"claude", "codex"} {
+		t.Run(host, func(t *testing.T) {
+			t.Parallel()
+			tap, _ := newIntegrateTap(t)
+			withGuard, err := tap.Integrate(context.Background(), tapper.IntegrateOptions{Host: host, DryRun: true})
+			require.NoError(t, err)
+			require.Contains(t, flattenIntegrateCommands(withGuard), "tapper-guard@tapper-local")
+
+			withoutGuard, err := tap.Integrate(context.Background(), tapper.IntegrateOptions{Host: host, DryRun: true, NoSafety: true})
+			require.NoError(t, err)
+			require.NotContains(t, flattenIntegrateCommands(withoutGuard), "tapper-guard@tapper-local")
+			require.Contains(t, flattenIntegrateCommands(withoutGuard), "tapper@tapper-local")
+		})
+	}
+}
+
+func TestTap_Integrate_NoSafetyConflictsWithExplicitGuardRequest(t *testing.T) {
+	t.Parallel()
+	tap, _ := newIntegrateTap(t)
+	_, err := tap.Integrate(context.Background(), tapper.IntegrateOptions{
+		Host: "claude", DryRun: true, NoSafety: true, Plugins: []string{"tapper-guard"},
+	})
+	require.ErrorContains(t, err, "--no-safety conflicts with --plugin tapper-guard")
+}
+
+func flattenIntegrateCommands(result *tapper.IntegrateResult) string {
+	var out []string
+	for _, command := range result.Commands {
+		out = append(out, strings.Join(command, " "))
+	}
+	return strings.Join(out, "\n")
 }
 
 func TestTap_Integrate_UnknownPluginListsMarketplaceNames(t *testing.T) {
@@ -260,7 +305,7 @@ func TestTap_Integrate_UnknownPluginListsMarketplaceNames(t *testing.T) {
 	tap, _ := newIntegrateTap(t)
 	_, err := tap.Integrate(context.Background(), tapper.IntegrateOptions{Host: "claude", DryRun: true, Plugins: []string{"missing"}})
 	require.ErrorContains(t, err, `unknown claude plugin "missing"`)
-	require.ErrorContains(t, err, "available plugins: tapper, tapper-dev")
+	require.ErrorContains(t, err, "available plugins: tapper, tapper-dev, tapper-guard")
 }
 
 func TestTap_Integrate_CodexRejectsUnsupportedScopeWithoutSideEffects(t *testing.T) {
@@ -269,7 +314,7 @@ func TestTap_Integrate_CodexRejectsUnsupportedScopeWithoutSideEffects(t *testing
 			tap, sb := newIntegrateTap(t)
 			installFakeHost(t, sb, "codex")
 			_, err := tap.Integrate(context.Background(), tapper.IntegrateOptions{Host: "codex", Scope: "local", DryRun: dryRun})
-			require.ErrorContains(t, err, "Codex currently supports only --scope user")
+			require.ErrorContains(t, err, "Codex has no local plugin scope")
 			_, err = sb.ReadFile("calls")
 			require.Error(t, err)
 			_, err = sb.Runtime().Stat("/home/testuser/.local/share/tapper/integrations/codex", false)
@@ -314,4 +359,79 @@ func TestTap_Integrate_ClaudeMarketplaceRegistrationIsScopeSpecific(t *testing.T
 func TestTap_IntegrateHosts_IsSortedAndContainsDefaults(t *testing.T) {
 	hosts := tapper.IntegrateHosts()
 	require.Equal(t, []string{"claude", "codex"}, hosts)
+}
+
+// A render adapter decides what ships for a host and an installer decides where
+// it lands, in two different packages. Either one alone is useless: an adapter
+// with no installer renders a tree nothing can install, and an installer with no
+// adapter offers a host whose tree is empty. Neither failure shows up in a
+// normal run, so assert the two sets match.
+func TestTap_IntegrateHosts_MatchRenderAdapters(t *testing.T) {
+	t.Parallel()
+	var rendered []string
+	for _, adapter := range integrations.DefaultAdapters() {
+		rendered = append(rendered, adapter.Name())
+	}
+	require.ElementsMatch(t, rendered, tapper.IntegrateHosts())
+}
+
+// manifestFieldsExceptVersion decodes a plugin manifest and drops the one
+// field `tap integrate` rewrites, so a comparison covers everything else.
+func manifestFieldsExceptVersion(t *testing.T, body []byte) map[string]any {
+	t.Helper()
+	var manifest map[string]any
+	require.NoError(t, json.Unmarshal(body, &manifest))
+	delete(manifest, "version")
+	return manifest
+}
+
+// manifestVersion returns the version an extracted manifest reports.
+func manifestVersion(t *testing.T, tap *tapper.Tap, filename string) string {
+	t.Helper()
+	body, err := tap.Runtime.ReadFile(filename)
+	require.NoError(t, err)
+	var manifest struct {
+		Version string `json:"version"`
+	}
+	require.NoError(t, json.Unmarshal(body, &manifest))
+	return manifest.Version
+}
+
+// The version in a committed manifest is stale the moment anyone commits past
+// a tag, and Claude Code uses that field as its update gate. The binary knows
+// its own version, so it stamps every manifest it extracts.
+func TestTap_Integrate_StampsInstallingBinaryVersion(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name    string
+		version string
+		want    string
+	}{
+		{name: "release tag drops the v", version: "v0.43.0", want: "0.43.0"},
+		{name: "bare semver is kept", version: "0.43.0", want: "0.43.0"},
+		{name: "goreleaser default", version: "dev", want: "0.0.0-dev"},
+		{name: "unset", version: "", want: "0.0.0-dev"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			sb := sandbox.NewSandbox(t, &sandbox.Options{Home: "/home/testuser", User: "testuser"})
+			tap, err := tapper.NewTap(tapper.TapOptions{Runtime: sb.Runtime(), Version: tc.version})
+			require.NoError(t, err)
+			installFakeHost(t, sb, "claude")
+
+			result, err := tap.Integrate(context.Background(), tapper.IntegrateOptions{
+				Host: "claude", Plugins: []string{"tapper-dev"},
+			})
+			require.NoError(t, err)
+
+			// Every advertised plugin is stamped, not just the selected ones:
+			// a plugin installed later through the host's own CLI must report
+			// the same version as one tap installed.
+			for _, plugin := range []string{"tapper", "tapper-guard", "tapper-dev"} {
+				filename := filepath.Join(result.Root, plugin, ".claude-plugin", "plugin.json")
+				require.Equal(t, tc.want, manifestVersion(t, tap, filename), "plugin %s", plugin)
+			}
+		})
+	}
 }

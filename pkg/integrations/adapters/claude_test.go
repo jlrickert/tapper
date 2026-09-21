@@ -17,8 +17,9 @@ func TestClaudeAdapter_RendersMarketplaceDependencyAndSelfContainedPlugins(t *te
 		"claude/.claude-plugin/marketplace.json",
 		"claude/tapper/.claude-plugin/plugin.json",
 		"claude/tapper/.mcp.json",
-		"claude/tapper/hooks/hooks.json",
 		"claude/tapper/skills/tapper/SKILL.md",
+		"claude/tapper-guard/.claude-plugin/plugin.json",
+		"claude/tapper-guard/hooks/hooks.json",
 		"claude/tapper-dev/.claude-plugin/plugin.json",
 		"claude/tapper-dev/skills/tapper-dev/SKILL.md",
 	}
@@ -50,7 +51,7 @@ func TestClaudeAdapter_RendersMarketplaceDependencyAndSelfContainedPlugins(t *te
 	}
 }
 
-func TestClaudeAdapter_RendersGoBackedPreToolUseGuard(t *testing.T) {
+func TestClaudeAdapter_RendersGoBackedPreToolUseGuardInSeparatePlugin(t *testing.T) {
 	mem := integrations.NewMemWriter()
 	if err := (ClaudeAdapter{}).Render(testRuntime(t), testContentFS(t), mem); err != nil {
 		t.Fatal(err)
@@ -65,7 +66,7 @@ func TestClaudeAdapter_RendersGoBackedPreToolUseGuard(t *testing.T) {
 			} `json:"hooks"`
 		} `json:"hooks"`
 	}
-	if err := json.Unmarshal(mem.Files()["claude/tapper/hooks/hooks.json"], &hooks); err != nil {
+	if err := json.Unmarshal(mem.Files()["claude/tapper-guard/hooks/hooks.json"], &hooks); err != nil {
 		t.Fatal(err)
 	}
 	pre := hooks.Hooks["PreToolUse"]
@@ -76,8 +77,52 @@ func TestClaudeAdapter_RendersGoBackedPreToolUseGuard(t *testing.T) {
 	if hook.Type != "command" || hook.Command != "tap hook pre-tool-use" || hook.Timeout != 5 {
 		t.Fatalf("Claude command hook = %+v", hook)
 	}
-	if strings.Contains(string(mem.Files()["claude/tapper/hooks/hooks.json"]), "PLUGIN_ROOT") {
+	if strings.Contains(string(mem.Files()["claude/tapper-guard/hooks/hooks.json"]), "PLUGIN_ROOT") {
 		t.Fatal("Claude hooks must not reference packaged plugin-root scripts")
+	}
+	// The guard is separately installable and separately disableable, so the
+	// baseline plugin must ship no hooks of its own.
+	if _, ok := mem.Files()["claude/tapper/hooks/hooks.json"]; ok {
+		t.Fatal("baseline Claude plugin must ship no hooks")
+	}
+	var guard struct {
+		Dependencies []string `json:"dependencies"`
+	}
+	if err := json.Unmarshal(mem.Files()["claude/tapper-guard/.claude-plugin/plugin.json"], &guard); err != nil {
+		t.Fatal(err)
+	}
+	if len(guard.Dependencies) != 1 || guard.Dependencies[0] != "tapper" {
+		t.Fatalf("guard dependencies = %v", guard.Dependencies)
+	}
+	if strings.Contains(string(mem.Files()["claude/tapper-guard/.claude-plugin/plugin.json"]), "mcpServers") {
+		t.Fatal("guard plugin must not register MCP")
+	}
+}
+
+func TestClaudeAdapter_MarketplaceListsGuardPlugin(t *testing.T) {
+	mem := integrations.NewMemWriter()
+	if err := (ClaudeAdapter{}).Render(testRuntime(t), testContentFS(t), mem); err != nil {
+		t.Fatal(err)
+	}
+	var marketplace struct {
+		Plugins []struct {
+			Name        string `json:"name"`
+			Source      string `json:"source"`
+			Description string `json:"description"`
+		} `json:"plugins"`
+	}
+	if err := json.Unmarshal(mem.Files()["claude/.claude-plugin/marketplace.json"], &marketplace); err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, plugin := range marketplace.Plugins {
+		if plugin.Source != "./"+plugin.Name || plugin.Description == "" {
+			t.Errorf("incomplete marketplace entry: %+v", plugin)
+		}
+		names = append(names, plugin.Name)
+	}
+	if strings.Join(names, ",") != "tapper,tapper-guard,tapper-dev" {
+		t.Fatalf("marketplace plugins = %v", names)
 	}
 }
 

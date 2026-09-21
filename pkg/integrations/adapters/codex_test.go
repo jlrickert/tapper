@@ -29,13 +29,16 @@ func testContentFS(t *testing.T) fs.FS {
 		t.Fatal(err)
 	}
 	files["developer/workflow.md"] = &fstest.MapFile{Data: workflow}
-	for _, host := range []string{"claude", "codex"} {
-		body, err := os.ReadFile(filepath.Join("..", "renderdata", host, "hooks", "hooks.json"))
-		if err != nil {
-			t.Fatal(err)
-		}
-		files[host+"/hooks/hooks.json"] = &fstest.MapFile{Data: body}
+	codexHooks, err := os.ReadFile(filepath.Join("..", "renderdata", "codex", "hooks", "hooks.json"))
+	if err != nil {
+		t.Fatal(err)
 	}
+	files["codex/hooks/hooks.json"] = &fstest.MapFile{Data: codexHooks}
+	guardHooks, err := os.ReadFile(filepath.Join("..", "renderdata", "guard", "hooks.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	files["guard/hooks.json"] = &fstest.MapFile{Data: guardHooks}
 	return files
 }
 
@@ -45,7 +48,7 @@ func testRuntime(t *testing.T) *toolkit.Runtime {
 	return sb.Runtime()
 }
 
-func TestCodexAdapter_RendersNativeMarketplaceAndTwoPlugins(t *testing.T) {
+func TestCodexAdapter_RendersNativeMarketplaceAndThreePlugins(t *testing.T) {
 	mem := integrations.NewMemWriter()
 	if err := (CodexAdapter{}).Render(testRuntime(t), testContentFS(t), mem); err != nil {
 		t.Fatal(err)
@@ -57,6 +60,8 @@ func TestCodexAdapter_RendersNativeMarketplaceAndTwoPlugins(t *testing.T) {
 		"codex/tapper/.mcp.json",
 		"codex/tapper/hooks/hooks.json",
 		"codex/tapper/skills/tapper/SKILL.md",
+		"codex/tapper-guard/.codex-plugin/plugin.json",
+		"codex/tapper-guard/hooks/hooks.json",
 		"codex/tapper-dev/.codex-plugin/plugin.json",
 		"codex/tapper-dev/skills/tapper-dev/SKILL.md",
 	}
@@ -88,7 +93,7 @@ func TestCodexAdapter_RendersNativeMarketplaceAndTwoPlugins(t *testing.T) {
 	if err := json.Unmarshal(mem.Files()[want[0]], &marketplace); err != nil {
 		t.Fatal(err)
 	}
-	if marketplace.Name != marketplaceName || len(marketplace.Plugins) != 2 {
+	if marketplace.Name != marketplaceName || len(marketplace.Plugins) != 3 {
 		t.Fatalf("unexpected marketplace: %+v", marketplace)
 	}
 	for _, plugin := range marketplace.Plugins {
@@ -124,7 +129,7 @@ func TestCodexAdapter_RendersNativeMarketplaceAndTwoPlugins(t *testing.T) {
 	}
 }
 
-func TestCodexAdapter_RendersPreToolUseGuardrailWithoutClaudeExpansion(t *testing.T) {
+func TestCodexAdapter_RendersPreToolUseGuardrailInSeparateGuardPlugin(t *testing.T) {
 	mem := integrations.NewMemWriter()
 	if err := (CodexAdapter{}).Render(testRuntime(t), testContentFS(t), mem); err != nil {
 		t.Fatal(err)
@@ -139,7 +144,7 @@ func TestCodexAdapter_RendersPreToolUseGuardrailWithoutClaudeExpansion(t *testin
 			} `json:"hooks"`
 		} `json:"hooks"`
 	}
-	if err := json.Unmarshal(mem.Files()["codex/tapper/hooks/hooks.json"], &hooks); err != nil {
+	if err := json.Unmarshal(mem.Files()["codex/tapper-guard/hooks/hooks.json"], &hooks); err != nil {
 		t.Fatal(err)
 	}
 	pre := hooks.Hooks["PreToolUse"]
@@ -150,8 +155,25 @@ func TestCodexAdapter_RendersPreToolUseGuardrailWithoutClaudeExpansion(t *testin
 	if hook.Type != "command" || hook.Command != "tap hook pre-tool-use" {
 		t.Fatalf("Codex command hook = %+v", hook)
 	}
-	if strings.Contains(string(mem.Files()["codex/tapper/hooks/hooks.json"]), "PLUGIN_ROOT") {
+	if strings.Contains(string(mem.Files()["codex/tapper-guard/hooks/hooks.json"]), "PLUGIN_ROOT") {
 		t.Fatal("Codex hooks must not reference packaged plugin-root scripts")
+	}
+	// The guard is separately installable, so the baseline must not carry a
+	// second copy of the same PreToolUse hook.
+	var baselineHooks struct {
+		Hooks map[string][]json.RawMessage `json:"hooks"`
+	}
+	if err := json.Unmarshal(mem.Files()["codex/tapper/hooks/hooks.json"], &baselineHooks); err != nil {
+		t.Fatal(err)
+	}
+	if len(baselineHooks.Hooks["PreToolUse"]) != 0 {
+		t.Fatal("baseline Codex plugin must not ship the PreToolUse guard")
+	}
+	if strings.Contains(string(mem.Files()["codex/tapper-guard/.codex-plugin/plugin.json"]), `"skills"`) {
+		t.Fatal("guard plugin ships hooks only and must declare no skills")
+	}
+	if strings.Contains(string(mem.Files()["codex/tapper-guard/.codex-plugin/plugin.json"]), "mcpServers") {
+		t.Fatal("guard plugin must not register MCP")
 	}
 	if _, ok := hooks.Hooks["UserPromptExpansion"]; ok {
 		t.Fatal("Claude-only prompt expansion hooks must not leak into Codex")
@@ -195,8 +217,8 @@ func TestCodexAdapter_RendersSessionStartOrientationReminder(t *testing.T) {
 			t.Errorf("Codex must not register duplicate lifecycle hook %s", duplicate)
 		}
 	}
-	if len(hooks.Hooks["PreToolUse"]) != 1 {
-		t.Fatal("Codex orientation reminder must retain the PreToolUse guard")
+	if len(hooks.Hooks["PreToolUse"]) != 0 {
+		t.Fatal("the PreToolUse guard belongs to tapper-guard, not the baseline plugin")
 	}
 }
 
@@ -249,12 +271,38 @@ func TestCodexAdapter_SeparatesBaselineAndDeveloperWorkflow(t *testing.T) {
 	}
 }
 
-func TestPluginVersionNormalizesReleaseTag(t *testing.T) {
+// Every rendered manifest carries the placeholder, and no environment variable
+// can change it. A render that reads the environment is not reproducible, and
+// an irreproducible render is what made the pre-commit hook fight every
+// commit; the real version is stamped at install time instead.
+func TestRenderedManifestsCarryPlaceholderVersion(t *testing.T) {
 	rt := testRuntime(t)
-	if err := rt.Env().Set(pluginVersionEnv, "v0.31.0"); err != nil {
+	if err := rt.Env().Set("TAPPER_PLUGIN_VERSION", "v0.31.0"); err != nil {
 		t.Fatal(err)
 	}
-	if got := pluginVersion(rt); got != "0.31.0" {
-		t.Fatalf("version = %q", got)
+	mem := integrations.NewMemWriter()
+	for _, adapter := range []integrations.Adapter{ClaudeAdapter{}, CodexAdapter{}} {
+		if err := adapter.Render(rt, testContentFS(t), mem); err != nil {
+			t.Fatal(err)
+		}
+	}
+	manifests := 0
+	for name, body := range mem.Files() {
+		if !strings.HasSuffix(name, "plugin.json") {
+			continue
+		}
+		var manifest struct {
+			Version string `json:"version"`
+		}
+		if err := json.Unmarshal(body, &manifest); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if manifest.Version != pluginVersionPlaceholder {
+			t.Errorf("%s version = %q, want the placeholder %q", name, manifest.Version, pluginVersionPlaceholder)
+		}
+		manifests++
+	}
+	if manifests == 0 {
+		t.Fatal("no plugin manifests rendered")
 	}
 }

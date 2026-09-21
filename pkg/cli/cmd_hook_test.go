@@ -82,6 +82,9 @@ func TestHookPreToolUse_Protocol(t *testing.T) {
 		{name: "deny", input: `{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"tap list"}}`, deny: true},
 		{name: "deny direct write", input: `{"hook_event_name":"PreToolUse","tool_name":"Write","tool_input":{"file_path":"/home/testuser/.config/tapper/config.yaml","content":"flight: +other"}}`, deny: true},
 		{name: "deny direct patch", input: `{"hook_event_name":"PreToolUse","tool_name":"apply_patch","tool_input":{"patch":"*** Update File: .tapper/config.yaml\n@@"}}`, deny: true},
+		{name: "deny lowercase write tool", input: `{"hook_event_name":"PreToolUse","tool_name":"write","tool_input":{"filePath":"/home/testuser/.config/tapper/config.yaml","content":"flight: +other"}}`, deny: true},
+		{name: "deny lowercase bash tool", input: `{"hook_event_name":"PreToolUse","tool_name":"bash","tool_input":{"command":"tap list"}}`, deny: true},
+		{name: "allow lowercase bash probe", input: `{"hook_event_name":"PreToolUse","tool_name":"bash","tool_input":{"command":"tap --version"}}`},
 		{name: "allow direct read", input: `{"hook_event_name":"PreToolUse","tool_name":"Read","tool_input":{"file_path":"/home/testuser/.config/tapper/config.yaml"}}`},
 		{name: "allow grep bypass", input: `{"hook_event_name":"PreToolUse","tool_name":"Grep","tool_input":{"path":"/home/testuser/.config/tapper/config.yaml","pattern":"flight"}}`},
 		{name: "allow glob bypass", input: `{"hook_event_name":"PreToolUse","tool_name":"Glob","tool_input":{"path":"/home/testuser/kegs/flights.d"}}`},
@@ -182,13 +185,27 @@ func TestHookSessionStart_FailsOpen(t *testing.T) {
 	require.Contains(t, string(res.Stderr), "allowing session startup")
 }
 
-func TestHookCommandsAreHiddenOnTap(t *testing.T) {
+// The group is host-facing, so `hook` stays out of the top-level listing. Its
+// subcommands must not: cobra drops a hidden command from both `--help` and
+// completion, which is what left `tap hook --help` printing an empty Usage
+// block and `tap hook <TAB>` suggesting nothing.
+func TestHookParentIsHiddenButSubcommandsAreDiscoverable(t *testing.T) {
 	t.Parallel()
 	sb := newTestSandbox(t)
 	tapRoot := NewRootCmd(&Deps{Profile: TapProfile(), Runtime: sb.Runtime()})
 	hook, _, err := tapRoot.Find([]string{"hook"})
 	require.NoError(t, err)
-	require.True(t, hook.Hidden)
+	require.True(t, hook.Hidden, "hook is a host protocol, not a user workflow")
+	require.NotEmpty(t, hook.Long, "an empty Long is what made this look broken")
+
+	for _, name := range []string{"session-start", "pre-tool-use"} {
+		sub, _, err := tapRoot.Find([]string{"hook", name})
+		require.NoError(t, err)
+		require.Equal(t, name, sub.Name())
+		require.False(t, sub.Hidden, "a hidden %s is absent from help and completion", name)
+		require.NotEmpty(t, sub.Long, "%s needs a help body describing its protocol", name)
+	}
+
 	require.True(t, commandNames(t, sb.Runtime(), TapProfile())["integrate"])
 	require.True(t, commandNames(t, sb.Runtime(), TapProfile())["hook"])
 }
