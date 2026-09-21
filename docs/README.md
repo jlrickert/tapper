@@ -73,14 +73,16 @@ per-keg access when a domain needs a tighter boundary.
 ```bash
 tap integrate codex
 tap integrate claude
+tap integrate opencode
 ```
 
-Both integrations expose the Tapper MCP server plus host-specific prompts or
-skills from a local marketplace embedded in `tap`. `tap integrate HOST` is the
-official supported installation and upgrade surface. Repeat `--plugin`, for
-example `--plugin tapper-dev`, to add optional plugins. `--scope` defaults to
-`user`; Claude also supports `project` and `local`. Agents should use the
-`mcp__tapper__*` tools rather than reading or writing KEG files directly.
+Every integration exposes the Tapper MCP server plus host-specific prompts or
+skills embedded in `tap`. `tap integrate HOST` is the official supported
+installation and upgrade surface. Repeat `--plugin`, for example `--plugin
+tapper-dev`, to add optional plugins. `--scope` defaults to `user`; Claude also
+supports `project` and `local`, opencode supports `project`, and Codex is
+user-only. Agents should use the `mcp__tapper__*` tools rather than reading or
+writing KEG files directly.
 
 ## Command Quick Reference
 

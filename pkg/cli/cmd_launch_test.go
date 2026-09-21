@@ -178,3 +178,22 @@ func TestLaunchCommand_ErrorsOnUnknownAgent(t *testing.T) {
 	require.Error(t, res.Err)
 	require.Contains(t, res.Err.Error(), `unknown agent "nope"`)
 }
+
+func TestLaunchCommand_DryRunResolvesOpenCode(t *testing.T) {
+	t.Parallel()
+	sb := newLaunchSandbox(t)
+
+	res := NewProcess(t, false, "launch", "opencode", "--agent", "local", "--dry-run").
+		Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+
+	out := string(res.Stdout)
+	require.Contains(t, out, "agent local -> ollama/qwen3.6:35b-mlx")
+	require.Contains(t, out, "opencode --model ollama/qwen3.6:35b-mlx")
+	// opencode takes its endpoint from config, not the environment, so the
+	// provider definition travels inline with the launch.
+	require.Contains(t, out, "OPENCODE_CONFIG_CONTENT=")
+	require.Contains(t, out, "http://localhost:11434/v1")
+	require.Contains(t, out, "TAP_AGENT=local")
+	require.Contains(t, out, "TAP_FLIGHT=@testuser/+root")
+}

@@ -1,6 +1,7 @@
 package tapper_test
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/jlrickert/cli-toolkit/sandbox"
@@ -463,7 +464,7 @@ func TestResolveLaunch_ContextWindowTranslatesPerHarness(t *testing.T) {
 
 func TestLaunchHarnesses(t *testing.T) {
 	t.Parallel()
-	require.Equal(t, []string{"claude", "codex", "pi"}, tapper.LaunchHarnesses())
+	require.Equal(t, []string{"claude", "codex", "opencode", "pi"}, tapper.LaunchHarnesses())
 }
 
 func TestResolveLaunch_DirectoryFlightDefaults(t *testing.T) {
@@ -477,4 +478,96 @@ func TestResolveLaunch_DirectoryFlightDefaults(t *testing.T) {
 	got, err = tap.ResolveLaunch(tapper.LaunchOptions{Harness: "claude", Agent: "opus"})
 	require.NoError(t, err)
 	require.Equal(t, "@project/+root", got.Env["TAP_FLIGHT"])
+}
+
+func TestResolveLaunch_OpenCodeHostedProviderPassesModelThrough(t *testing.T) {
+	t.Parallel()
+	tap := newLaunchTap(t, launchUserConfig)
+
+	got, err := tap.ResolveLaunch(tapper.LaunchOptions{Harness: "opencode", Agent: "opus"})
+	require.NoError(t, err)
+	require.Equal(t, []string{"opencode", "--model", "anthropic/claude-opus-4"}, got.Argv)
+	// A hosted provider with no baseUrl override needs no config injection:
+	// opencode already knows the provider and reads its key from the ambient
+	// environment.
+	require.NotContains(t, got.Env, "OPENCODE_CONFIG_CONTENT")
+	require.NotContains(t, got.Env, "ANTHROPIC_API_KEY")
+
+	got, err = tap.ResolveLaunch(tapper.LaunchOptions{Harness: "opencode", Agent: "hosted"})
+	require.NoError(t, err)
+	require.Equal(t, []string{"opencode", "--model", "openai/gpt-5"}, got.Argv)
+}
+
+func TestResolveLaunch_OpenCodeForwardsAPIKeyToTheRightVariable(t *testing.T) {
+	t.Parallel()
+	tap := newLaunchTap(t, launchUserConfig)
+	require.NoError(t, tap.Runtime.Env().Set("WORK_OPENAI_KEY", "sk-work"))
+
+	got, err := tap.ResolveLaunch(tapper.LaunchOptions{Harness: "opencode", Agent: "work"})
+	require.NoError(t, err)
+	require.Equal(t, "sk-work", got.Env["OPENAI_API_KEY"])
+	require.Equal(t, "WORK_OPENAI_KEY", got.KeySource)
+}
+
+func TestResolveLaunch_OpenCodeDeclaresOllamaProviderInline(t *testing.T) {
+	t.Parallel()
+	tap := newLaunchTap(t, launchUserConfig)
+
+	got, err := tap.ResolveLaunch(tapper.LaunchOptions{Harness: "opencode", Agent: "local"})
+	require.NoError(t, err)
+	require.Equal(t, []string{"opencode", "--model", "ollama/qwen3.6:35b-mlx"}, got.Argv)
+
+	// opencode ships no ollama provider, so the whole definition has to travel
+	// with the launch or the model cannot resolve at all.
+	var inline struct {
+		Provider map[string]struct {
+			NPM     string `json:"npm"`
+			Options struct {
+				BaseURL string `json:"baseURL"`
+				APIKey  string `json:"apiKey"`
+			} `json:"options"`
+			Models map[string]struct {
+				Name string `json:"name"`
+			} `json:"models"`
+		} `json:"provider"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(got.Env["OPENCODE_CONFIG_CONTENT"]), &inline))
+	ollama, ok := inline.Provider["ollama"]
+	require.True(t, ok)
+	require.Equal(t, "@ai-sdk/openai-compatible", ollama.NPM)
+	require.Equal(t, "http://localhost:11434/v1", ollama.Options.BaseURL)
+	require.Contains(t, ollama.Models, "qwen3.6:35b-mlx")
+
+	// An explicit baseUrl wins over the local default.
+	got, err = tap.ResolveLaunch(tapper.LaunchOptions{Harness: "opencode", Agent: "lab"})
+	require.NoError(t, err)
+	require.NoError(t, json.Unmarshal([]byte(got.Env["OPENCODE_CONFIG_CONTENT"]), &inline))
+	require.Equal(t, "http://192.168.50.197:11434/v1", inline.Provider["ollama"].Options.BaseURL)
+}
+
+func TestResolveLaunch_OpenCodeLocalModelNeverLeaksRealCredentials(t *testing.T) {
+	t.Parallel()
+	tap := newLaunchTap(t, launchUserConfig)
+
+	got, err := tap.ResolveLaunch(tapper.LaunchOptions{Harness: "opencode", Agent: "local"})
+	require.NoError(t, err)
+	require.Equal(t, tapper.AuthNone, got.Auth)
+	// The placeholder key is what stops opencode falling back to a stored login
+	// and sending it to a server that is not the provider.
+	require.Equal(t, "ollama", got.Env["OPENAI_API_KEY"])
+	require.Contains(t, got.Env["OPENCODE_CONFIG_CONTENT"], `"apiKey":"ollama"`)
+	// And the ambient cloud credentials are removed rather than passed along.
+	require.Contains(t, got.StripEnv, "ANTHROPIC_API_KEY")
+	require.Contains(t, got.StripEnv, "ANTHROPIC_AUTH_TOKEN")
+}
+
+// opencode expresses a context cap as provider.<p>.models.<m>.limit.context,
+// not a flag. Reporting that is the point: a cap that silently never applied is
+// how you discover it months later.
+func TestResolveLaunch_OpenCodeRejectsContextWindow(t *testing.T) {
+	t.Parallel()
+	tap := newLaunchTap(t, launchUserConfig)
+
+	_, err := tap.ResolveLaunch(tapper.LaunchOptions{Harness: "opencode", Agent: "capped"})
+	require.ErrorContains(t, err, "has no way to apply it")
 }

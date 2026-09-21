@@ -1,0 +1,12 @@
+{
+  "name": "tapper-guard",
+  "description": "PreToolUse guard denying direct tap/keg CLI use and Tapper config mutation.",
+  "version": "0.0.0-dev",
+  "author": {
+    "name": "Jared Rickert"
+  },
+  "homepage": "https://github.com/jlrickert/tapper",
+  "dependencies": [
+    "tapper"
+  ]
+}

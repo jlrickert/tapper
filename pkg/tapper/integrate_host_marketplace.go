@@ -91,7 +91,7 @@ func codexIntegrationHost() *marketplaceHost {
 			// keeps plugin state only in ~/.codex/config.toml. There is nothing
 			// for a project scope to write.
 			return fmt.Errorf(
-				"integrate: Codex has no %s plugin scope: the codex CLI installs plugins only into ~/.codex/config.toml. Use --scope user, or `tap integrate claude` for project-level activation",
+				"integrate: Codex has no %s plugin scope: the codex CLI installs plugins only into ~/.codex/config.toml. Use --scope user, or `tap integrate claude`/`tap integrate opencode` for project-level activation",
 				scope)
 		},
 		parseMarketplaces: parseCodexMarketplaces,

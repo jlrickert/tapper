@@ -20,7 +20,9 @@ func NewIntegrateCmd(deps *Deps) *cobra.Command {
 		Long: `Extract the host-native Tapper plugins shipped inside the binary and
 install the baseline tapper plugin for HOST, plus the tapper-guard safety
 plugin where the host ships one. Claude and Codex are driven through their own
-plugin CLI. Re-running refreshes everything already installed.
+plugin CLI; opencode has none, so tap merges the MCP server into its
+opencode.json and writes the skills itself. Re-running refreshes everything
+already installed.
 
 Repeat --plugin to add optional plugins such as tapper-dev. Plugin request
 order is preserved and duplicate names are ignored.
@@ -28,11 +30,12 @@ order is preserved and duplicate names are ignored.
 tapper-guard carries the PreToolUse guard that denies direct tap and keg CLI
 use and Tapper config mutation. --no-safety skips installing it; it does not
 remove a guard the host already has. Disable or uninstall that one through the
-host, for example: claude plugin disable tapper-guard@tapper-local.
+host, for example: claude plugin disable tapper-guard@tapper-local. opencode
+ships no hooks and no guard, so --no-safety does nothing there.
 
-Scope defaults to user. Claude supports user, project, and local; Codex is
-user-only because its CLI keeps plugins in ~/.codex/config.toml and has no
-scope flag.
+Scope defaults to user. Claude supports user, project, and local; opencode
+supports user and project; Codex is user-only because its CLI keeps plugins in
+~/.codex/config.toml and has no scope flag.
 
 With --dry-run, print extraction paths and the exact host commands or file
 writes without touching anything.`,
@@ -106,9 +109,9 @@ writes without touching anything.`,
 		}
 		return plugins, cobra.ShellCompDirectiveNoFileComp
 	})
-	// Scopes are per-host: Claude takes all three and Codex has no scope at
-	// all. Suggesting a value the host rejects is worse than suggesting
-	// nothing, so the completion asks the host.
+	// Scopes are per-host: Claude takes all three, opencode has no gitignored
+	// tier, and Codex has no scope at all. Suggesting a value the host rejects
+	// is worse than suggesting nothing, so the completion asks the host.
 	mustRegisterFlagCompletion(cmd, "scope", func(_ *cobra.Command, args []string, _ string) ([]string, cobra.ShellCompDirective) {
 		if len(args) == 0 {
 			return nil, cobra.ShellCompDirectiveNoFileComp
