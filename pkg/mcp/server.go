@@ -85,8 +85,9 @@ func NewServer(tap *tapper.Tap, version string, defaults KegDefaults, opts ...Se
 		Name:    "tap",
 		Version: version,
 	}, &sdkmcp.ServerOptions{
-		SubscribeHandler:   nodeSubs.Subscribe,
-		UnsubscribeHandler: nodeSubs.Unsubscribe,
+		SubscribeHandler:          nodeSubs.Subscribe,
+		UnsubscribeHandler:        nodeSubs.Unsubscribe,
+		SupportedProtocolVersions: sessionProtocolVersions(),
 	})
 	if defaults.gate != nil {
 		defaults.gate.srv = srv
@@ -123,6 +124,24 @@ func NewServer(tap *tapper.Tap, version string, defaults KegDefaults, opts ...Se
 	}
 
 	return srv
+}
+
+// statelessProtocolVersion is the first MCP revision (SEP-2575) that drops the
+// initialize handshake in favour of per-request server/discover metadata.
+const statelessProtocolVersion = "2026-07-28"
+
+// sessionProtocolVersions returns the SDK's protocol versions that still open
+// a session with initialize. The orientation gate pins a session's flight at
+// initialize and keys every later call on that session, so a stateless
+// revision would reach tool handlers with no orientation at all.
+func sessionProtocolVersions() []string {
+	var out []string
+	for _, v := range sdkmcp.SupportedProtocolVersions() {
+		if v < statelessProtocolVersion {
+			out = append(out, v)
+		}
+	}
+	return out
 }
 
 // resolveKegTarget merges a per-tool keg alias with server-wide defaults.

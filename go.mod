@@ -10,7 +10,7 @@ require (
 	github.com/gen2brain/heic v0.7.2
 	github.com/google/jsonschema-go v0.4.3
 	github.com/jlrickert/cli-toolkit v1.5.2
-	github.com/modelcontextprotocol/go-sdk v1.6.1
+	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.12.1
 	github.com/yuin/goldmark v1.8.6
@@ -58,4 +58,5 @@ require (
 	golang.org/x/sys v0.48.0 // indirect
 	golang.org/x/term v0.43.0 // indirect
 	golang.org/x/text v0.42.0 // indirect
+	golang.org/x/time v0.15.0 // indirect
 )
