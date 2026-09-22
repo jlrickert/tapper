@@ -214,8 +214,17 @@ failure reject the entire call. Structured results preserve request order and
 include node IDs plus resulting hashes or snapshot revisions. The removed
 single-item fields are not accepted by the published MCP schemas.
 
-Both transports also publish `tapper://orient` and the
-`tapper://node/{node_id}{?keg}` resource template.
+Both transports also publish `tapper://orient` and two resource templates:
+
+- `tapper://node/{node_id}{?keg}` returns a node's current markdown.
+- `tapper://node/{node_id}/attachments/{kind}/{name}{?keg}` returns the
+  original bytes of an attachment as a blob, with `kind` one of `image`,
+  `file`, or `video` and `name` percent-encoded. `list_images`, `list_files`,
+  `upload_image`, and `upload_file` return these URIs as `resource_link`
+  content. Reads are capped at 50 MiB.
+
+Either template takes `?keg=` with a URL-escaped keg target to override the
+server default.
 
 ## Keg Targeting
 

@@ -125,6 +125,7 @@ var tapMethodsExcluded = map[string]string{
 	"DoctorConfig":             "tapper-config health check helper; called by Doctor CLI/MCP surfaces",
 	"ConfigExplain":            "shares surface with Config via --explain flag / explain field",
 	"ReadImage":                "underlying byte-read helper used by image download surfaces; not a standalone operation",
+	"ReadAttachment":           "underlying byte-read helper backing the MCP attachment resource template; CLI reads attachments through `file download` and `image download`",
 	"AuthLogout":               "security: MCP agents must not be able to revoke hub credentials; CLI-only by design",
 	"Integrate":                "CLI-only native plugin installation via the official `tap integrate` surface",
 	"HubList":                  "lists local hub connections (config inspection); CLI-only via `tap hub list`",
