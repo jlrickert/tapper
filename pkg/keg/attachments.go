@@ -9,7 +9,9 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"path"
 	"sort"
+	"strings"
 )
 
 // AttachmentKind keeps independent filename namespaces for original media.
@@ -317,4 +319,47 @@ func (k *RemoteKeg) DeleteAttachment(ctx context.Context, id NodeId, kind Attach
 	}
 	_, err = k.readBody(resp, "DeleteAttachment", http.StatusNoContent)
 	return err
+}
+
+// ImageContentType maps a ValidateImage format to its MIME type.
+func ImageContentType(format string) string {
+	switch strings.ToLower(format) {
+	case "jpeg", "jpg":
+		return "image/jpeg"
+	case "png", "gif", "webp", "avif", "heic":
+		return "image/" + strings.ToLower(format)
+	default:
+		return "application/octet-stream"
+	}
+}
+
+// fileExtensionTypes names text formats content sniffing reports only as
+// text/plain. Deliberately static: the mime package would consult host files.
+var fileExtensionTypes = map[string]string{
+	".csv":  "text/csv",
+	".json": "application/json",
+	".md":   "text/markdown",
+	".yaml": "application/yaml",
+	".yml":  "application/yaml",
+}
+
+// AttachmentContentType identifies an attachment's MIME type from its kind and
+// bytes. Images and videos are identified by content only; files fall back to
+// their extension for text formats sniffing cannot tell apart.
+func AttachmentContentType(kind AttachmentKind, name string, data []byte) string {
+	switch kind {
+	case AttachmentImage:
+		format, err := ValidateImage(data)
+		if err != nil {
+			return "application/octet-stream"
+		}
+		return ImageContentType(format)
+	case AttachmentVideo:
+		return VideoContentType(data)
+	}
+	sniffed := http.DetectContentType(data)
+	if typ, ok := fileExtensionTypes[strings.ToLower(path.Ext(name))]; ok && strings.HasPrefix(sniffed, "text/plain") {
+		return typ
+	}
+	return sniffed
 }

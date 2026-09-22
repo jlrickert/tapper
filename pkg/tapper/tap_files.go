@@ -315,3 +315,29 @@ func (t *Tap) DeleteImage(ctx context.Context, opts DeleteImageOptions) error {
 	}
 	return nil
 }
+
+// ReadAttachmentOptions configures behavior for Tap.ReadAttachment.
+type ReadAttachmentOptions struct {
+	KegTargetOptions
+	NodeID string
+	Kind   keg.AttachmentKind
+	Name   string
+}
+
+// ReadAttachment retrieves the original bytes of a kind-qualified node
+// attachment together with the MIME type its content identifies as.
+func (t *Tap) ReadAttachment(ctx context.Context, opts ReadAttachmentOptions) ([]byte, string, error) {
+	k, err := t.resolveKeg(ctx, opts.KegTargetOptions)
+	if err != nil {
+		return nil, "", fmt.Errorf("unable to open keg: %w", err)
+	}
+	k, id, err := t.resolveNodeArg(ctx, k, opts.NodeID)
+	if err != nil {
+		return nil, "", err
+	}
+	data, err := k.ReadAttachment(ctx, id, opts.Kind, opts.Name)
+	if err != nil {
+		return nil, "", fmt.Errorf("unable to read %s %q: %w", opts.Kind, opts.Name, err)
+	}
+	return data, keg.AttachmentContentType(opts.Kind, opts.Name, data), nil
+}
