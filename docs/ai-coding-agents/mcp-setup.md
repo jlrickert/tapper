@@ -221,7 +221,7 @@ Both transports also publish `tapper://orient` and two resource templates:
   original bytes of an attachment as a blob, with `kind` one of `image`,
   `file`, or `video` and `name` percent-encoded. `list_images`, `list_files`,
   `upload_image`, and `upload_file` return these URIs as `resource_link`
-  content. Reads are capped at 50 MiB.
+  content. Reads are capped at 100 MiB.
 
 Either template takes `?keg=` with a URL-escaped keg target to override the
 server default.

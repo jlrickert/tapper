@@ -25,7 +25,7 @@ const (
 	attachmentResourceURITemplate = "tapper://node/{node_id}/attachments/{kind}/{name}{?keg}"
 	// maxAttachmentResourceBytes matches the hub's per-attachment upload cap,
 	// so anything an upload accepted can be read back as a resource.
-	maxAttachmentResourceBytes = 50 << 20
+	maxAttachmentResourceBytes = 100 << 20
 )
 
 // registerResourceTools wires the MCP Resources surface. The orient resource
