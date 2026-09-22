@@ -2,6 +2,29 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.43.0 - 2026-09-22
+
+
+
+### ⚙️ Miscellaneous
+- **deps:** update dependencies
+- **deps:** update go-sdk to v1.8.0
+
+
+### 📚 Documentation
+- split repository guidance into focused references
+
+
+### 🚀 Features
+- **integrate:** add opencode as an integration host
+- **mcp:** expose node attachments as resources
+- **mcp:** raise the attachment resource read cap to 100 MiB
+
+
+### 🚜 Refactor
+- **integrate:** extract per-host install behind a Host seam
+
+
 ## v0.42.0 - 2026-09-17
 
 
