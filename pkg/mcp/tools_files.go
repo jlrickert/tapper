@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/url"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -69,7 +70,7 @@ func registerListFiles(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults
 		if len(files) == 0 {
 			return textResult("no files"), nil, nil
 		}
-		return linesResult(files), nil, nil
+		return attachmentLinesResult(in.NodeID, keg.AttachmentFile, files, in.Keg), nil, nil
 	})
 }
 
@@ -100,7 +101,31 @@ func registerListImages(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefault
 		if len(images) == 0 {
 			return textResult("no images"), nil, nil
 		}
-		return linesResult(images), nil, nil
+		return attachmentLinesResult(in.NodeID, keg.AttachmentImage, images, in.Keg), nil, nil
+	})
+}
+
+// attachmentLinesResult lists attachment names as text, followed by one
+// resource link per name so a client can read each through resources/read.
+func attachmentLinesResult(nodeID string, kind keg.AttachmentKind, names []string, kegTarget string) *sdkmcp.CallToolResult {
+	result := linesResult(names)
+	for _, name := range names {
+		appendAttachmentResourceLink(result, nodeID, kind, name, kegTarget)
+	}
+	return result
+}
+
+// appendAttachmentResourceLink adds a resource link for the attachment. Node
+// arguments that are not a bare numeric id (a qualified ref, say) have no
+// canonical resource URI, so they get the text result alone.
+func appendAttachmentResourceLink(result *sdkmcp.CallToolResult, nodeID string, kind keg.AttachmentKind, name, kegTarget string) {
+	nodeID = strings.TrimSpace(nodeID)
+	if _, err := strconv.Atoi(nodeID); err != nil {
+		return
+	}
+	result.Content = append(result.Content, &sdkmcp.ResourceLink{
+		URI:  attachmentResourceURI(nodeID, kind, name, kegTarget),
+		Name: name,
 	})
 }
 
@@ -262,6 +287,7 @@ func handleFileUpload(ctx context.Context, tap *tapper.Tap, defaults KegDefaults
 		return errorResult(err), nil, nil
 	}
 	result := textResult(fmt.Sprintf("uploaded file %q to node %s", storedName, nodeID))
+	appendAttachmentResourceLink(result, nodeID, keg.AttachmentFile, storedName, kegAlias)
 	result.StructuredContent = map[string]any{"node_id": nodeID, "filename": storedName, "link": "./assets/" + storedName}
 	return result, nil, nil
 }
@@ -394,6 +420,7 @@ func handleImageUpload(ctx context.Context, tap *tapper.Tap, defaults KegDefault
 		return errorResult(err), nil, nil
 	}
 	result := textResult(fmt.Sprintf("uploaded image %q to node %s", storedName, nodeID))
+	appendAttachmentResourceLink(result, nodeID, keg.AttachmentImage, storedName, kegAlias)
 	result.StructuredContent = map[string]any{"node_id": nodeID, "filename": storedName, "link": "./images/" + storedName}
 	return result, nil, nil
 }
@@ -468,7 +495,7 @@ func readImageContent(ctx context.Context, tap *tapper.Tap, defaults KegDefaults
 	if err != nil {
 		return errorResult(err), nil, nil
 	}
-	mimeType := imageMIMEType(format)
+	mimeType := keg.ImageContentType(format)
 	return &sdkmcp.CallToolResult{
 		Content: []sdkmcp.Content{&sdkmcp.ImageContent{Data: data, MIMEType: mimeType}},
 		StructuredContent: map[string]any{
@@ -476,17 +503,6 @@ func readImageContent(ctx context.Context, tap *tapper.Tap, defaults KegDefaults
 			"mime_type": mimeType, "size": len(data),
 		},
 	}, nil, nil
-}
-
-func imageMIMEType(format string) string {
-	switch strings.ToLower(format) {
-	case "jpeg", "jpg":
-		return "image/jpeg"
-	case "png", "gif", "webp", "avif", "heic":
-		return "image/" + strings.ToLower(format)
-	default:
-		return "application/octet-stream"
-	}
 }
 
 type uploadResourceInput struct {
