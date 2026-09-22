@@ -216,6 +216,17 @@ func newTestSessionWithRuntime(t *testing.T, opts ...mcp.ServerOptions) (*sdkmcp
 	return session, rt, ctx
 }
 
+// A client that prefers the stateless revision must fall back to the
+// initialize handshake: the orientation gate pins its session there.
+func TestMCP_NegotiatesSessionProtocol(t *testing.T) {
+	t.Parallel()
+	session, _ := newTestSession(t)
+
+	got := session.InitializeResult().ProtocolVersion
+	require.NotEmpty(t, got)
+	require.Less(t, got, "2026-07-28")
+}
+
 func TestMCP_ToolsList(t *testing.T) {
 	t.Parallel()
 	session, ctx := newTestSession(t)

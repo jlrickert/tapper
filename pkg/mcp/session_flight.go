@@ -652,7 +652,7 @@ func (g *sessionFlightGate) middleware(next sdkmcp.MethodHandler) sdkmcp.MethodH
 				callOrientation, err = g.resolveCall(ctx, sessionID, selected)
 			case modeSelect:
 				if params.Name == "orient" {
-					if apicontract.IsCompatibility(current.initializationError) {
+					if current != nil && apicontract.IsCompatibility(current.initializationError) {
 						return errorResult(current.initializationError), nil
 					}
 					if selected != "" {
