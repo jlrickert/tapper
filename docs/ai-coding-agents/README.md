@@ -28,6 +28,8 @@ native Tapper plugin.
   clients, and the tool categories exposed over MCP.
 - [Provider-neutral launcher composition](launchers.md) — future pinned-root
   `--flight` process binding across agent hosts and runtimes.
+- [Relay](relay.md) — experimental `tap relay`, which offers this machine's
+  model providers, such as a local Ollama, to your Hub account.
 - [Agent Conventions](agent-conventions.md) — tapper invariants every agent
   should follow: MCP-first, never edit node files directly, never mix CLI
   writes with a live MCP session, snapshot before destructive edits.

@@ -335,7 +335,7 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 		NewWatchCmd(deps),
 	}
 	if deps.Profile.IncludeIntegrations {
-		subcommands = append(subcommands, NewIntegrateCmd(deps), NewHookCmd(deps), NewLaunchCmd(deps))
+		subcommands = append(subcommands, NewIntegrateCmd(deps), NewHookCmd(deps), NewLaunchCmd(deps), NewRelayCmd(deps))
 	}
 	var configCmd *cobra.Command
 	if deps.Profile.IncludeConfigCommand {
