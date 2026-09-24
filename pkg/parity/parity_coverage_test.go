@@ -128,6 +128,7 @@ var tapMethodsExcluded = map[string]string{
 	"ReadAttachment":           "underlying byte-read helper backing the MCP attachment resource template; CLI reads attachments through `file download` and `image download`",
 	"AuthLogout":               "security: MCP agents must not be able to revoke hub credentials; CLI-only by design",
 	"Integrate":                "CLI-only native plugin installation via the official `tap integrate` surface",
+	"Relay":                    "experimental long-running foreground process (`tap relay`); not request/response, so CLI-only by design",
 	"HubList":                  "lists local hub connections (config inspection); CLI-only via `tap hub list`",
 	"HubAdd":                   "security: writes hub connections (incl. token refs) to user config; CLI-only by design",
 	"HubRemove":                "security: mutates hub connections in user config; CLI-only by design",
