@@ -35,6 +35,8 @@ A matching mapping can override those baseline selections. See
   Retired `alias` values are preserved but ignored; use `keg` instead.
 - `hubs`: named connections with `url` and
   `tokenEnv` or `token`. Login credentials can also come from the AuthStore.
+- `relay`: providers that [`tap relay`](../ai-coding-agents/relay.md) offers
+  to Hub. User config only; see [Relay providers](#relay-providers).
 - `flight`: baseline Flight context; directory mappings, project config, `TAP_FLIGHT`, and
   `--flight` can override it.
 - `agent`: model and telemetry identity, independent of Flight selection.
@@ -49,6 +51,38 @@ survive configuration rewrites, except `updated`: this retired timestamp is
 ignored when read and removed on serialization. Malformed YAML fails. Invalid unused Hub and
 mapping entries do not prevent unrelated operations; selected invalid values
 fail clearly.
+
+## Relay providers
+
+The `relay` block configures [`tap relay`](../ai-coding-agents/relay.md). Only
+user config may define it: a `relay` block in project config is removed with a
+warning, like `hubs`.
+
+```yaml
+relay:
+  name: laptop                  # optional; defaults to the hostname
+  providers:
+    ollama:
+      kind: ollama
+      models:
+        allow: ["qwen3*"]
+    openrouter:
+      kind: openrouter
+      auth: apiKey
+      apiKeyEnv: OPENROUTER_API_KEY
+```
+
+- `name`: relay name shown in Hub. Defaults to the sanitized hostname.
+- `providers`: keyed by the provider name advertised to Hub.
+  - `kind`: `ollama`, `openai`, `openrouter`, or `openai-compatible`. Defaults
+    to the provider's key.
+  - `baseUrl`: OpenAI-compatible API root. Defaults per kind (Ollama:
+    `http://127.0.0.1:11434/v1`); required for `openai-compatible`.
+  - `auth`: `none` or `apiKey`. Defaults per kind.
+  - `apiKeyEnv`: name of the environment variable holding the API key. The
+    key is read locally and never sent to Hub.
+  - `models.allow` / `models.deny`: glob filters over the provider's model
+    list. An empty `allow` offers every model not denied.
 
 ## Bootstrap
 

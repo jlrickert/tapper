@@ -175,6 +175,80 @@
         "additionalProperties": true
       }
     },
+    "relay": {
+      "type": "object",
+      "description": "Configures `tap relay`: which local or personal model providers this machine contributes to Hub's model catalog. Holds provider access and nothing else — model identity comes from the Hub catalog. Allowed only in user configuration; project layers are stripped.",
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._-]{1,64}$",
+          "description": "Identifies the relay to Hub and prefixes its catalog ids (<relay>/<provider>/<model>). Defaults to a name derived from the hostname; `tap relay --name` overrides it."
+        },
+        "providers": {
+          "type": "object",
+          "description": "Model providers the relay reaches, keyed by the provider name advertised to Hub.",
+          "propertyNames": {
+            "pattern": "^[A-Za-z0-9._-]{1,64}$"
+          },
+          "additionalProperties": {
+            "type": "object",
+            "description": "How the relay reaches one model provider.",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "ollama",
+                  "openai",
+                  "openrouter",
+                  "openai-compatible"
+                ],
+                "description": "Provider adapter. Defaults to the provider's key, so a provider named ollama needs no kind."
+              },
+              "baseUrl": {
+                "type": "string",
+                "pattern": "^https?://",
+                "description": "OpenAI-compatible API base URL, including /v1. Defaults per kind: http://127.0.0.1:11434/v1 for ollama, https://api.openai.com/v1 for openai, https://openrouter.ai/api/v1 for openrouter. Required for openai-compatible."
+              },
+              "auth": {
+                "type": "string",
+                "enum": [
+                  "none",
+                  "apiKey"
+                ],
+                "description": "How the relay authenticates to the provider. 'none' sends no credential (local providers such as Ollama). 'apiKey' sends the key read from the variable named by apiKeyEnv. Defaults to apiKey for openai and openrouter, none otherwise."
+              },
+              "apiKeyEnv": {
+                "type": "string",
+                "description": "Name of the environment variable holding the API key — the name is configured, never the secret, mirroring hubs.*.tokenEnv. Defaults to OPENAI_API_KEY for openai and OPENROUTER_API_KEY for openrouter. The key stays in the relay process and never reaches Hub."
+              },
+              "models": {
+                "type": "object",
+                "description": "Which of the provider's models are offered to Hub, resolved against the provider's own model list.",
+                "properties": {
+                  "allow": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "description": "Model ids or path.Match glob patterns (e.g. qwen3*) to offer. Empty offers every model not denied."
+                  },
+                  "deny": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "description": "Model ids or path.Match glob patterns never to offer. Deny wins over allow."
+                  }
+                },
+                "additionalProperties": true
+              }
+            },
+            "additionalProperties": true
+          }
+        }
+      },
+      "additionalProperties": true
+    },
     "logFile": {
       "type": "string",
       "description": "Path to the log output file. Override with TAP_LOG_FILE env var."
