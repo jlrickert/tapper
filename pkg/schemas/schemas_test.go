@@ -1,12 +1,15 @@
 package schemas_test
 
 import (
+	"encoding/json"
 	"path/filepath"
 	"testing"
 
+	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/jlrickert/cli-toolkit/sandbox"
 	"github.com/jlrickert/tapper/pkg/schemas"
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 )
 
 func newSandbox(t *testing.T) *sandbox.Sandbox {
@@ -181,4 +184,50 @@ func TestModelineHelpers(t *testing.T) {
 		require.Equal(t, []byte(modeline+"title: a\n"),
 			schemas.ReplaceModeline([]byte("title: a\n"), modeline))
 	})
+}
+
+// TestTapConfigRelay keeps the tap-config schema in step with the relay block
+// `tap config edit` validates against, including the enums the relay enforces.
+func TestTapConfigRelay(t *testing.T) {
+	data, err := schemas.Read(schemas.TapConfig)
+	require.NoError(t, err)
+	var schema jsonschema.Schema
+	require.NoError(t, json.Unmarshal(data, &schema))
+	resolved, err := schema.Resolve(nil)
+	require.NoError(t, err)
+
+	validate := func(doc string) error {
+		var v any
+		require.NoError(t, yaml.Unmarshal([]byte(doc), &v))
+		return resolved.Validate(v)
+	}
+
+	require.NoError(t, validate(`
+relay:
+  name: laptop
+  providers:
+    ollama:
+      models:
+        allow: ["qwen3:8b"]
+    openrouter:
+      kind: openrouter
+      auth: apiKey
+      apiKeyEnv: OPENROUTER_API_KEY
+    lan:
+      kind: openai-compatible
+      baseUrl: http://10.0.0.5:8000/v1
+      auth: none
+`))
+
+	for name, doc := range map[string]string{
+		"unknown kind":     "relay: {providers: {x: {kind: anthropic}}}",
+		"unknown auth":     "relay: {providers: {x: {auth: keychain}}}",
+		"non-http baseUrl": "relay: {providers: {x: {baseUrl: 'ftp://host'}}}",
+		"bad relay name":   "relay: {name: 'has space'}",
+		"bad provider key": "relay: {providers: {'a/b': {}}}",
+	} {
+		t.Run(name, func(t *testing.T) {
+			require.Error(t, validate(doc))
+		})
+	}
 }

@@ -96,6 +96,11 @@ type configDTO struct {
 	// agents names model definitions for `tap launch`, keyed by alias.
 	// Experimental and undocumented; see tap_launch.go.
 	Agents map[string]AgentEntry `yaml:"agents,omitempty"`
+
+	// relay configures `tap relay`: which local or personal model providers
+	// this machine contributes to Hub's catalog. User config only; project
+	// layers cannot set it (see stripUntrustedFields).
+	Relay *RelayConfig `yaml:"relay,omitempty"`
 }
 
 // Config represents the user's tapper configuration.
@@ -170,6 +175,35 @@ type AgentEntry struct {
 	APIKeyEnv     string   `yaml:"apiKeyEnv,omitempty"`
 	ContextWindow int      `yaml:"contextWindow,omitempty"`
 	Args          []string `yaml:"args,omitempty"`
+}
+
+// RelayConfig configures `tap relay`. It holds provider access and nothing
+// else: model identity comes from the Hub catalog, never from local config.
+type RelayConfig struct {
+	// Name identifies the relay to Hub. It defaults to the hostname.
+	Name string `yaml:"name,omitempty"`
+	// Providers are keyed by the name advertised to Hub.
+	Providers map[string]RelayProvider `yaml:"providers,omitempty"`
+}
+
+// RelayProvider describes how the relay reaches one model provider.
+//
+// Auth is none (a local provider such as Ollama) or apiKey, in which case
+// APIKeyEnv names the environment variable holding the key. The name is
+// configured, never the secret, mirroring HubEntry.TokenEnv.
+type RelayProvider struct {
+	Kind      string           `yaml:"kind,omitempty"`
+	BaseURL   string           `yaml:"baseUrl,omitempty"`
+	Auth      string           `yaml:"auth,omitempty"`
+	APIKeyEnv string           `yaml:"apiKeyEnv,omitempty"`
+	Models    RelayModelFilter `yaml:"models,omitempty"`
+}
+
+// RelayModelFilter selects which of a provider's models are offered. An empty
+// Allow offers everything not denied.
+type RelayModelFilter struct {
+	Allow []string `yaml:"allow,omitempty"`
+	Deny  []string `yaml:"deny,omitempty"`
 }
 
 // KegRef is the (hub, namespace, name) triple a keg alias resolves to. An empty
@@ -335,6 +369,14 @@ func (cfg *Config) Agents() map[string]AgentEntry {
 		return map[string]AgentEntry{}
 	}
 	return cfg.data.Agents
+}
+
+// Relay returns the `tap relay` configuration, or nil when none is set.
+func (cfg *Config) Relay() *RelayConfig {
+	if cfg == nil || cfg.data == nil {
+		return nil
+	}
+	return cfg.data.Relay
 }
 
 // Agent returns the named agent entry. Unlike Hub there are no synthesized
@@ -801,9 +843,10 @@ func ReadConfig(rt *toolkit.Runtime, path string) (*Config, error) {
 }
 
 // stripUntrustedFields removes configuration a walked (project) config layer is
-// not permitted to set. Hub definitions and their credentials are user-config
-// only, so a repository you cd into cannot introduce a hub target or harvest a
-// token environment variable. It returns a human-readable description of each
+// not permitted to set. Hub definitions, relay providers, and their credentials
+// are user-config only, so a repository you cd into cannot introduce a hub
+// target, point the relay at a provider, or harvest a token environment
+// variable. It returns a human-readable description of each
 // removed field for surfacing as a load warning. Project layers may still set
 // kegMap and the keg, hub, and flight defaults.
 func stripUntrustedFields(cfg *Config) []string {
@@ -819,6 +862,10 @@ func stripUntrustedFields(cfg *Config) []string {
 		sort.Strings(names)
 		removed = append(removed, fmt.Sprintf("hubs (%s)", strings.Join(names, ", ")))
 		cfg.data.Hubs = nil
+	}
+	if cfg.data.Relay != nil {
+		removed = append(removed, "relay")
+		cfg.data.Relay = nil
 	}
 	return removed
 }
@@ -982,6 +1029,10 @@ func MergeConfig(cfgs ...*Config) *Config {
 
 		for name, entry := range c.data.Agents {
 			out.data.Agents[name] = entry
+		}
+
+		if c.data.Relay != nil {
+			out.data.Relay = c.data.Relay
 		}
 
 		// Merge KegMap entries in configuration order.
