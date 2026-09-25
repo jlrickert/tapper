@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"errors"
+	"fmt"
 	"sort"
 	"strings"
 
@@ -12,18 +13,13 @@ import (
 	"github.com/jlrickert/tapper/pkg/relaycontract"
 )
 
-// DefaultRelayMaxConcurrent bounds in-flight requests when neither the flag
-// nor configuration says otherwise.
-const DefaultRelayMaxConcurrent = 4
-
 // RelayOptions configures `tap relay`.
 type RelayOptions struct {
-	// Hub is an explicit hub URL or configured hub name.
+	// Hub is an explicit hub URL or configured hub name. It narrows the
+	// relay to that one hub, overriding relay.hubs.
 	Hub string
 	// Name overrides relay.name from configuration.
 	Name string
-	// MaxConcurrent overrides the default concurrency limit when positive.
-	MaxConcurrent int
 	// Version is the tap version reported at registration.
 	Version string
 	// OnRegistered observes each successful registration.
@@ -33,6 +29,9 @@ type RelayOptions struct {
 // ErrRelayNotConfigured means the user config has no relay providers.
 var ErrRelayNotConfigured = errors.New("no relay providers configured; add a relay.providers block to your user config")
 
+// ErrRelayDisabled means the user config turns the relay off.
+var ErrRelayDisabled = errors.New("the relay is disabled in your user config (relay.enabled: false)")
+
 // Relay connects this machine's configured providers to Hub and serves
 // inference requests until ctx ends or Hub rejects the relay permanently.
 func (t *Tap) Relay(ctx context.Context, opts RelayOptions) error {
@@ -41,6 +40,9 @@ func (t *Tap) Relay(ctx context.Context, opts RelayOptions) error {
 		return err
 	}
 	rc := cfg.Relay()
+	if !rc.IsEnabled() {
+		return ErrRelayDisabled
+	}
 	if rc == nil || len(rc.Providers) == 0 {
 		return ErrRelayNotConfigured
 	}
@@ -48,34 +50,30 @@ func (t *Tap) Relay(ctx context.Context, opts RelayOptions) error {
 	if err != nil {
 		return err
 	}
-	hubURL, err := ResolveLoginHubURL(cfg, opts.Hub)
+	hubURLs, err := relayHubURLs(cfg, rc, opts.Hub)
 	if err != nil {
 		return err
 	}
-	hubURL = strings.TrimRight(hubURLWithScheme(hubURL), "/")
+	hubs := make([]relay.Hub, 0, len(hubURLs))
+	for _, hubURL := range hubURLs {
+		hubs = append(hubs, relay.Hub{
+			URL:   hubURL,
+			Token: func(context.Context) (string, error) { return t.relayToken(cfg, hubURL), nil },
+		})
+	}
 
 	name := cmp.Or(opts.Name, rc.Name)
 	if name == "" {
 		name = relayNameFromHost(t.runtimeHostname())
 	}
-	maxConcurrent := opts.MaxConcurrent
-	if maxConcurrent <= 0 {
-		maxConcurrent = DefaultRelayMaxConcurrent
-	}
 
-	var onRegistered func(relaycontract.Registered)
-	if opts.OnRegistered != nil {
-		onRegistered = func(reg relaycontract.Registered) { opts.OnRegistered(hubURL, reg) }
-	}
 	client, err := relay.NewClient(relay.Options{
-		HubURL:        hubURL,
-		Token:         func(context.Context) (string, error) { return t.relayToken(cfg, hubURL), nil },
-		Name:          name,
-		Version:       opts.Version,
-		MaxConcurrent: maxConcurrent,
-		Providers:     providers,
-		Logger:        t.Runtime.Logger(),
-		OnRegistered:  onRegistered,
+		Hubs:         hubs,
+		Name:         name,
+		Version:      opts.Version,
+		Providers:    providers,
+		Logger:       t.Runtime.Logger(),
+		OnRegistered: opts.OnRegistered,
 	})
 	if err != nil {
 		return err
@@ -93,13 +91,16 @@ func (t *Tap) relayProviders(rc *RelayConfig) ([]*relay.Provider, error) {
 	for _, n := range names {
 		p := rc.Providers[n]
 		provider, err := relay.NewProvider(relay.ProviderConfig{
-			Name:      n,
-			Kind:      p.Kind,
-			BaseURL:   p.BaseURL,
-			Auth:      p.Auth,
-			APIKeyEnv: p.APIKeyEnv,
-			Allow:     p.Models.Allow,
-			Deny:      p.Models.Deny,
+			Name:          n,
+			Kind:          p.Kind,
+			BaseURL:       p.BaseURL,
+			Auth:          p.Auth,
+			APIKeyEnv:     p.APIKeyEnv,
+			Allow:         p.Models.Allow,
+			Deny:          p.Models.Deny,
+			Transcription: p.Models.Transcription,
+			MaxConcurrent: p.MaxConcurrent,
+			Priority:      p.Priority,
 		}, t.Runtime.Get, nil)
 		if err != nil {
 			return nil, err
@@ -112,6 +113,37 @@ func (t *Tap) relayProviders(rc *RelayConfig) ([]*relay.Provider, error) {
 // relayToken resolves the bearer token for hubURL the same way keg access
 // does: a configured hub entry's tokenEnv or token, then the `tap auth login`
 // store, refreshing an expiring OAuth token first.
+// relayHubURLs picks the hubs the relay serves: the explicit hub alone when
+// one is given, else every hub named in relay.hubs, else the one hub login
+// resolution picks. URLs are canonical and listed once each.
+func relayHubURLs(cfg *Config, rc *RelayConfig, explicit string) ([]string, error) {
+	names := rc.Hubs
+	if strings.TrimSpace(explicit) != "" || len(names) == 0 {
+		names = []string{explicit}
+	}
+	out := make([]string, 0, len(names))
+	seen := make(map[string]bool, len(names))
+	for _, name := range names {
+		if strings.TrimSpace(explicit) == "" && len(rc.Hubs) > 0 {
+			if _, ok := cfg.Hub(name); !ok {
+				return nil, fmt.Errorf("relay.hubs: hub %q is not defined in hubs", name)
+			}
+		}
+		hubURL, err := ResolveLoginHubURL(cfg, name)
+		if err != nil {
+			return nil, err
+		}
+		hubURL = strings.TrimRight(hubURLWithScheme(hubURL), "/")
+		key := CanonicalHubURL(hubURL)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, hubURL)
+	}
+	return out, nil
+}
+
 func (t *Tap) relayToken(cfg *Config, hubURL string) string {
 	canonical := CanonicalHubURL(hubURL)
 	for _, entry := range cfg.Hubs() {

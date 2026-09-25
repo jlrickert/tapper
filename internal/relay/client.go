@@ -40,18 +40,24 @@ const (
 	maxBackoff             = 30 * time.Second
 )
 
-// Options configures a Client.
-type Options struct {
-	// HubURL is the hub root, e.g. https://atlas.foldwise.dev.
-	HubURL string
+// Hub is one hub the relay serves.
+type Hub struct {
+	// URL is the hub root, e.g. https://atlas.foldwise.dev.
+	URL string
 	// Token returns the current bearer token. It is called on every dial so a
 	// refreshed token is picked up after a reconnect.
 	Token func(ctx context.Context) (string, error)
+}
+
+// Options configures a Client.
+type Options struct {
+	// Hubs are served at once, each over its own connection, from one shared
+	// concurrency budget and one model catalog.
+	Hubs []Hub
 	// Name identifies the relay to Hub.
 	Name string
 	// Version is the tap version reported at registration.
-	Version       string
-	MaxConcurrent int
+	Version string
 	Providers     []*Provider
 	Logger        *slog.Logger
 	HTTPClient    *http.Client
@@ -61,29 +67,43 @@ type Options struct {
 	// well inside it. Zero means 90 seconds.
 	ReadTimeout time.Duration
 	// OnRegistered, when set, observes each successful registration.
-	OnRegistered func(relaycontract.Registered)
+	OnRegistered func(hubURL string, reg relaycontract.Registered)
 }
 
-// Client maintains the relay's connection to Hub.
+// Client maintains the relay's connections to its hubs.
 type Client struct {
 	opts      Options
 	providers map[string]*Provider
 	logger    *slog.Logger
+
+	mu sync.Mutex
+	// models is the current catalog, listed once for all hubs; sessions are
+	// the registered connections a catalog change is sent to.
+	models   []relaycontract.Model
+	sessions map[*session]struct{}
 }
 
 // NewClient validates opts and returns a Client.
 func NewClient(opts Options) (*Client, error) {
-	if opts.HubURL == "" {
-		return nil, errors.New("relay: hub URL is required")
+	if len(opts.Hubs) == 0 {
+		return nil, errors.New("relay: at least one hub is required")
 	}
-	if opts.Token == nil {
-		return nil, errors.New("relay: token source is required")
+	seen := make(map[string]bool, len(opts.Hubs))
+	for _, h := range opts.Hubs {
+		if h.URL == "" {
+			return nil, errors.New("relay: hub URL is required")
+		}
+		if h.Token == nil {
+			return nil, fmt.Errorf("relay: hub %s has no token source", h.URL)
+		}
+		key := strings.TrimRight(h.URL, "/")
+		if seen[key] {
+			return nil, fmt.Errorf("relay: hub %s is listed twice", h.URL)
+		}
+		seen[key] = true
 	}
 	if !relaycontract.ValidName(opts.Name) {
 		return nil, fmt.Errorf("relay: name %q may contain only letters, digits, '.', '_' and '-'", opts.Name)
-	}
-	if opts.MaxConcurrent < 1 || opts.MaxConcurrent > relaycontract.MaxConcurrentCap {
-		return nil, fmt.Errorf("relay: max concurrent must be between 1 and %d", relaycontract.MaxConcurrentCap)
 	}
 	if len(opts.Providers) == 0 {
 		return nil, errors.New("relay: no providers configured")
@@ -105,14 +125,63 @@ func NewClient(opts Options) (*Client, error) {
 		}
 		providers[p.Name()] = p
 	}
-	return &Client{opts: opts, providers: providers, logger: logger}, nil
+	return &Client{
+		opts:      opts,
+		providers: providers,
+		logger:    logger,
+		sessions:  make(map[*session]struct{}),
+	}, nil
 }
 
-// Run keeps the relay connected until ctx ends or a permanent error occurs.
+// Run keeps the relay connected to every hub until ctx ends. A permanent
+// error on one hub (unauthorized, incompatible, disconnected by its owner)
+// stops that hub only; Run returns those errors once no hub is left.
 func (c *Client) Run(ctx context.Context) error {
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	c.mu.Lock()
+	c.models = c.listModels(runCtx)
+	c.mu.Unlock()
+	go c.refreshCatalog(runCtx)
+
+	errs := make([]error, len(c.opts.Hubs))
+	var wg sync.WaitGroup
+	for i, hub := range c.opts.Hubs {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			errs[i] = c.runHub(runCtx, hub)
+			if errs[i] != nil && len(c.opts.Hubs) > 1 {
+				c.logger.Error("relay stopped serving hub", "hub", hub.URL, "error", errs[i])
+			}
+		}()
+	}
+	wg.Wait()
+	if ctx.Err() != nil {
+		return nil
+	}
+	return errors.Join(errs...)
+}
+
+// advertisedLimit is what the relay tells each hub it can take: the sum of
+// its providers' limits, capped by the protocol. The real limits are per
+// provider and shared by every hub, so a hub can still hear "overloaded"
+// for a busy provider; this only keeps a hub from queueing more than the
+// whole relay could ever run.
+func (c *Client) advertisedLimit() int {
+	total := 0
+	for _, p := range c.opts.Providers {
+		total += p.MaxConcurrent()
+	}
+	return min(total, relaycontract.MaxConcurrentCap)
+}
+
+// runHub keeps one hub connected until ctx ends or that hub rejects the
+// relay for good.
+func (c *Client) runHub(ctx context.Context, hub Hub) error {
 	backoff := minBackoff
 	for {
-		registered, err := c.runOnce(ctx)
+		registered, err := c.runOnce(ctx, hub)
 		if ctx.Err() != nil {
 			return nil
 		}
@@ -126,7 +195,7 @@ func (c *Client) Run(ctx context.Context) error {
 		if registered {
 			backoff = minBackoff
 		}
-		c.logger.Warn("relay disconnected; reconnecting", "error", err, "backoff", backoff)
+		c.logger.Warn("relay disconnected; reconnecting", "hub", hub.URL, "error", err, "backoff", backoff)
 		select {
 		case <-ctx.Done():
 			return nil
@@ -153,12 +222,12 @@ func ConnectURL(hubURL string) (string, error) {
 	return u.String(), nil
 }
 
-func (c *Client) dial(ctx context.Context) (*websocket.Conn, error) {
-	target, err := ConnectURL(c.opts.HubURL)
+func (c *Client) dial(ctx context.Context, hub Hub) (*websocket.Conn, error) {
+	target, err := ConnectURL(hub.URL)
 	if err != nil {
 		return nil, err
 	}
-	token, err := c.opts.Token(ctx)
+	token, err := hub.Token(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -197,14 +266,21 @@ func (c *Client) listModels(ctx context.Context) []relaycontract.Model {
 		ids, err := p.ListModels(ctx)
 		if err != nil {
 			c.logger.Warn("relay provider unavailable", "provider", p.Name(), "error", err)
-			continue
+			ids = nil
 		}
+		// Configured transcription models are offered even when /models
+		// fails or omits them: many speech servers list nothing.
+		ids = p.WithTranscriptionModels(ids)
 		for _, id := range ids {
 			if len(out) == relaycontract.MaxModels {
 				c.logger.Warn("relay model limit reached; remaining models not offered", "limit", relaycontract.MaxModels)
 				return out
 			}
-			out = append(out, relaycontract.Model{ID: id, Provider: p.Name(), Capabilities: []string{"chat", "stream"}})
+			caps := []string{relaycontract.CapabilityChat, relaycontract.CapabilityStream}
+			if p.Transcribes(id) {
+				caps = []string{relaycontract.CapabilityTranscription}
+			}
+			out = append(out, relaycontract.Model{ID: id, Provider: p.Name(), Capabilities: caps, Priority: p.Priority()})
 		}
 	}
 	return out
@@ -221,15 +297,16 @@ type session struct {
 	offered  map[string]struct{} // provider + "/" + model
 	inflight map[string]context.CancelFunc
 
-	sem chan struct{}
-	wg  sync.WaitGroup
+	wg sync.WaitGroup
 }
 
 func modelKey(provider, model string) string { return provider + "/" + model }
 
-func (c *Client) runOnce(ctx context.Context) (registered bool, err error) {
-	models := c.listModels(ctx)
-	conn, err := c.dial(ctx)
+func (c *Client) runOnce(ctx context.Context, hub Hub) (registered bool, err error) {
+	c.mu.Lock()
+	models := c.models
+	c.mu.Unlock()
+	conn, err := c.dial(ctx, hub)
 	if err != nil {
 		return false, err
 	}
@@ -239,13 +316,12 @@ func (c *Client) runOnce(ctx context.Context) (registered bool, err error) {
 		c:        c,
 		conn:     conn,
 		inflight: make(map[string]context.CancelFunc),
-		sem:      make(chan struct{}, c.opts.MaxConcurrent),
 	}
 	s.setOffered(models)
 
 	if err := s.send(ctx, relaycontract.TypeRegister, "", relaycontract.Register{
 		Relay:  relaycontract.RelayInfo{Name: c.opts.Name, Version: c.opts.Version, Protocols: []int{relaycontract.ProtocolVersion}},
-		Limits: relaycontract.Limits{MaxConcurrent: c.opts.MaxConcurrent},
+		Limits: relaycontract.Limits{MaxConcurrent: c.advertisedLimit()},
 		Models: nonNil(models),
 	}); err != nil {
 		return false, err
@@ -260,9 +336,9 @@ func (c *Client) runOnce(ctx context.Context) (registered bool, err error) {
 		if err := env.Decode(&reg); err != nil {
 			return false, err
 		}
-		c.logger.Info("relay registered", "hub", c.opts.HubURL, "name", c.opts.Name, "models", len(reg.Models))
+		c.logger.Info("relay registered", "hub", hub.URL, "name", c.opts.Name, "models", len(reg.Models))
 		if c.opts.OnRegistered != nil {
-			c.opts.OnRegistered(reg)
+			c.opts.OnRegistered(hub.URL, reg)
 		}
 	case relaycontract.TypeError:
 		var e relaycontract.Error
@@ -282,7 +358,21 @@ func (c *Client) runOnce(ctx context.Context) (registered bool, err error) {
 		cancel()
 		s.wg.Wait()
 	}()
-	go s.refreshCatalog(sessCtx)
+	// Join the catalog broadcast only now that the hub has registered us: a
+	// catalog frame before registered would be a protocol error. If the
+	// catalog moved on while we were registering, catch this hub up.
+	c.mu.Lock()
+	c.sessions[s] = struct{}{}
+	latest := c.models
+	c.mu.Unlock()
+	defer func() {
+		c.mu.Lock()
+		delete(c.sessions, s)
+		c.mu.Unlock()
+	}()
+	if !slices.Equal(modelKeys(models), modelKeys(latest)) {
+		s.sendCatalog(sessCtx, latest)
+	}
 	return true, s.readLoop(sessCtx)
 }
 
@@ -375,10 +465,16 @@ func (s *session) startInfer(ctx context.Context, env relaycontract.Envelope) {
 		s.fail(ctx, env.ID, relaycontract.CodeUnknownModel, "model is not offered by this relay")
 		return
 	}
-	select {
-	case s.sem <- struct{}{}:
-	default:
-		s.fail(ctx, env.ID, relaycontract.CodeOverloaded, "relay is at its concurrency limit")
+	// A model does one job: transcription models only transcribe, and
+	// nothing else is sent to /audio/transcriptions.
+	if (req.API == relaycontract.APIOpenAIAudioTranscriptions) != provider.Transcribes(req.Model) {
+		s.fail(ctx, env.ID, relaycontract.CodeUnsupported, "model does not support "+req.API)
+		return
+	}
+	// The provider's limit, shared by every hub: a full Ollama turns this
+	// request away without holding up another provider's.
+	if !provider.tryAcquire() {
+		s.fail(ctx, env.ID, relaycontract.CodeOverloaded, "provider "+provider.Name()+" is at its concurrency limit")
 		return
 	}
 	reqCtx, cancel := context.WithCancel(ctx)
@@ -392,7 +488,7 @@ func (s *session) startInfer(ctx context.Context, env relaycontract.Envelope) {
 			s.mu.Lock()
 			delete(s.inflight, env.ID)
 			s.mu.Unlock()
-			<-s.sem
+			provider.release()
 			s.wg.Done()
 		}()
 		s.infer(ctx, reqCtx, env.ID, provider, req)
@@ -400,9 +496,19 @@ func (s *session) startInfer(ctx context.Context, env relaycontract.Envelope) {
 }
 
 func (s *session) infer(connCtx, reqCtx context.Context, id string, p *Provider, req relaycontract.Infer) {
-	usage, err := p.ChatCompletions(reqCtx, req.Body, req.Model, req.Stream, func(obj json.RawMessage) error {
+	emit := func(obj json.RawMessage) error {
 		return s.send(connCtx, relaycontract.TypeChunk, id, relaycontract.Chunk{Data: obj})
-	})
+	}
+	var usage *relaycontract.Usage
+	var err error
+	if req.API == relaycontract.APIOpenAIAudioTranscriptions {
+		var result json.RawMessage
+		if result, err = p.Transcribe(reqCtx, req.Body, req.Model); err == nil {
+			err = emit(result)
+		}
+	} else {
+		usage, err = p.ChatCompletions(reqCtx, req.Body, req.Model, req.Stream, emit)
+	}
 	if err != nil {
 		code := relaycontract.CodeProviderError
 		msg := err.Error()
@@ -429,41 +535,50 @@ func (s *session) fail(ctx context.Context, id, code, msg string) {
 	}
 }
 
-func (s *session) refreshCatalog(ctx context.Context) {
-	ticker := time.NewTicker(s.c.opts.CatalogInterval)
+// refreshCatalog re-lists the providers on an interval and sends a changed
+// catalog to every registered hub.
+func (c *Client) refreshCatalog(ctx context.Context) {
+	ticker := time.NewTicker(c.opts.CatalogInterval)
 	defer ticker.Stop()
-	s.mu.Lock()
-	current := sortedKeys(s.offered)
-	s.mu.Unlock()
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
 		}
-		models := s.c.listModels(ctx)
-		next := make([]string, 0, len(models))
-		for _, m := range models {
-			next = append(next, modelKey(m.Provider, m.ID))
-		}
-		slices.Sort(next)
-		if slices.Equal(current, next) {
+		models := c.listModels(ctx)
+		c.mu.Lock()
+		if slices.Equal(modelKeys(c.models), modelKeys(models)) {
+			c.mu.Unlock()
 			continue
 		}
-		s.setOffered(models)
-		if err := s.send(ctx, relaycontract.TypeCatalog, "", relaycontract.Catalog{Models: nonNil(models)}); err != nil {
-			s.c.logger.Debug("relay could not send catalog", "error", err)
-			return
+		c.models = models
+		sessions := make([]*session, 0, len(c.sessions))
+		for s := range c.sessions {
+			sessions = append(sessions, s)
 		}
-		current = next
-		s.c.logger.Info("relay catalog updated", "models", len(models))
+		c.mu.Unlock()
+		for _, s := range sessions {
+			s.sendCatalog(ctx, models)
+		}
+		c.logger.Info("relay catalog updated", "models", len(models), "hubs", len(sessions))
 	}
 }
 
-func sortedKeys(m map[string]struct{}) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
+// sendCatalog tells this session's hub the relay now offers models. A send
+// that fails means the connection is going; its read loop ends it.
+func (s *session) sendCatalog(ctx context.Context, models []relaycontract.Model) {
+	s.setOffered(models)
+	if err := s.send(ctx, relaycontract.TypeCatalog, "", relaycontract.Catalog{Models: nonNil(models)}); err != nil {
+		s.c.logger.Debug("relay could not send catalog", "error", err)
+	}
+}
+
+// modelKeys is a catalog's identity: its provider/model ids, sorted.
+func modelKeys(models []relaycontract.Model) []string {
+	out := make([]string, 0, len(models))
+	for _, m := range models {
+		out = append(out, modelKey(m.Provider, m.ID))
 	}
 	slices.Sort(out)
 	return out

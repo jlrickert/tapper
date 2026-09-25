@@ -34,10 +34,27 @@ const (
 	TypeCancel     = "cancel"
 )
 
-// APIOpenAIChatCompletions is the only inference API in protocol version 1.
-// The request body is an OpenAI chat completions request; each chunk is one
-// OpenAI completion or completion-chunk object.
+// APIOpenAIChatCompletions is the chat inference API. The request body is an
+// OpenAI chat completions request; each chunk is one OpenAI completion or
+// completion-chunk object.
 const APIOpenAIChatCompletions = "openai.chat.completions"
+
+// APIOpenAIAudioTranscriptions turns recorded speech into text. The request
+// body is a TranscriptionRequest; the relay answers with exactly one chunk,
+// a TranscriptionResult, then done. Hub only sends it to models advertising
+// CapabilityTranscription, so a relay that predates it never sees one.
+const APIOpenAIAudioTranscriptions = "openai.audio.transcriptions"
+
+// Model capabilities a relay advertises.
+const (
+	CapabilityChat          = "chat"
+	CapabilityStream        = "stream"
+	CapabilityTranscription = "transcription"
+)
+
+// MaxTranscriptionAudioBytes bounds one recording. Base64 in a JSON frame, it
+// stays well inside the 16 MiB frame limit both ends enforce.
+const MaxTranscriptionAudioBytes = 10 << 20
 
 // Error codes carried by an Error payload.
 const (
@@ -62,6 +79,8 @@ const (
 	MaxModelIDLength = 200
 	MaxModels        = 256
 	MaxConcurrentCap = 64
+	// MaxPriority is the lowest-ranked priority a model may carry.
+	MaxPriority = 99
 )
 
 // Envelope is the frame shared by every message. ID correlates an infer
@@ -129,11 +148,15 @@ type Limits struct {
 }
 
 // Model is one model a relay offers. ID is the provider's own model name.
+// Priority is the relay owner's ranking, 1 to MaxPriority with lower
+// preferred; 0 is unranked and sorts after every ranked model. Hub lists
+// models and routes pool requests in that order.
 type Model struct {
 	ID            string   `json:"id"`
 	Provider      string   `json:"provider"`
 	ContextWindow int      `json:"contextWindow,omitempty"`
 	Capabilities  []string `json:"capabilities,omitempty"`
+	Priority      int      `json:"priority,omitempty"`
 }
 
 // Registered is Hub's answer to Register.
@@ -161,6 +184,21 @@ type Infer struct {
 	Model    string          `json:"model"`
 	Stream   bool            `json:"stream"`
 	Body     json.RawMessage `json:"body"`
+}
+
+// TranscriptionRequest is the body of an APIOpenAIAudioTranscriptions infer.
+// Audio is the recording's bytes (base64 on the wire).
+type TranscriptionRequest struct {
+	Audio    []byte `json:"audio"`
+	MimeType string `json:"mimeType"`
+	Filename string `json:"filename,omitempty"`
+	Language string `json:"language,omitempty"`
+	Prompt   string `json:"prompt,omitempty"`
+}
+
+// TranscriptionResult is the one chunk answering a transcription.
+type TranscriptionResult struct {
+	Text string `json:"text"`
 }
 
 // Chunk carries one provider response object for an in-flight request. For a
@@ -208,7 +246,7 @@ func (c *Catalog) Validate() error { return validateModels(c.Models) }
 
 // Validate checks the infer frame.
 func (i *Infer) Validate() error {
-	if i.API != APIOpenAIChatCompletions {
+	if i.API != APIOpenAIChatCompletions && i.API != APIOpenAIAudioTranscriptions {
 		return fmt.Errorf("unsupported api %q", i.API)
 	}
 	if err := validateName("provider", i.Provider); err != nil {
@@ -219,6 +257,23 @@ func (i *Infer) Validate() error {
 	}
 	if !isJSONObject(i.Body) {
 		return errors.New("body must be a JSON object")
+	}
+	return nil
+}
+
+// Validate checks a transcription request.
+func (t *TranscriptionRequest) Validate() error {
+	if len(t.Audio) == 0 {
+		return errors.New("audio is empty")
+	}
+	if len(t.Audio) > MaxTranscriptionAudioBytes {
+		return fmt.Errorf("audio is larger than %d bytes", MaxTranscriptionAudioBytes)
+	}
+	if t.MimeType == "" || len(t.MimeType) > 100 {
+		return errors.New("mimeType is empty or too long")
+	}
+	if len(t.Filename) > 200 || len(t.Language) > 35 || len(t.Prompt) > 4000 {
+		return errors.New("filename, language, or prompt is too long")
 	}
 	return nil
 }
@@ -261,6 +316,9 @@ func validateModels(models []Model) error {
 		}
 		if err := validateName(fmt.Sprintf("models[%d].provider", i), m.Provider); err != nil {
 			return err
+		}
+		if m.Priority < 0 || m.Priority > MaxPriority {
+			return fmt.Errorf("models[%d].priority must be between 0 and %d", i, MaxPriority)
 		}
 		key := m.Provider + "/" + m.ID
 		if _, dup := seen[key]; dup {

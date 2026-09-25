@@ -49,16 +49,18 @@ func TestDecodeRejectsUnknownFields(t *testing.T) {
 
 func TestRegisterValidate(t *testing.T) {
 	cases := map[string]func(*Register){
-		"empty name":       func(r *Register) { r.Relay.Name = "" },
-		"bad name":         func(r *Register) { r.Relay.Name = "a b" },
-		"no protocols":     func(r *Register) { r.Relay.Protocols = nil },
-		"zero concurrency": func(r *Register) { r.Limits.MaxConcurrent = 0 },
-		"huge concurrency": func(r *Register) { r.Limits.MaxConcurrent = MaxConcurrentCap + 1 },
-		"empty model id":   func(r *Register) { r.Models[0].ID = "" },
-		"model newline":    func(r *Register) { r.Models[0].ID = "a\nb" },
-		"bad provider":     func(r *Register) { r.Models[0].Provider = "a/b" },
-		"duplicate model":  func(r *Register) { r.Models = append(r.Models, r.Models[0]) },
-		"long model id":    func(r *Register) { r.Models[0].ID = strings.Repeat("x", MaxModelIDLength+1) },
+		"empty name":        func(r *Register) { r.Relay.Name = "" },
+		"bad name":          func(r *Register) { r.Relay.Name = "a b" },
+		"no protocols":      func(r *Register) { r.Relay.Protocols = nil },
+		"zero concurrency":  func(r *Register) { r.Limits.MaxConcurrent = 0 },
+		"huge concurrency":  func(r *Register) { r.Limits.MaxConcurrent = MaxConcurrentCap + 1 },
+		"empty model id":    func(r *Register) { r.Models[0].ID = "" },
+		"model newline":     func(r *Register) { r.Models[0].ID = "a\nb" },
+		"bad provider":      func(r *Register) { r.Models[0].Provider = "a/b" },
+		"duplicate model":   func(r *Register) { r.Models = append(r.Models, r.Models[0]) },
+		"long model id":     func(r *Register) { r.Models[0].ID = strings.Repeat("x", MaxModelIDLength+1) },
+		"negative priority": func(r *Register) { r.Models[0].Priority = -1 },
+		"huge priority":     func(r *Register) { r.Models[0].Priority = MaxPriority + 1 },
 	}
 	for name, mutate := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -72,6 +74,10 @@ func TestRegisterValidate(t *testing.T) {
 	r := validRegister()
 	if err := r.Validate(); err != nil {
 		t.Fatalf("valid register rejected: %v", err)
+	}
+	r.Models[0].Priority = MaxPriority
+	if err := r.Validate(); err != nil {
+		t.Fatalf("ranked model rejected: %v", err)
 	}
 }
 
@@ -89,6 +95,32 @@ func TestInferValidate(t *testing.T) {
 	bad.Body = json.RawMessage(`[1]`)
 	if err := bad.Validate(); err == nil {
 		t.Fatal("expected non-object body to be rejected")
+	}
+}
+
+func TestInferValidateAcceptsTranscription(t *testing.T) {
+	in := Infer{API: APIOpenAIAudioTranscriptions, Provider: "speech", Model: "whisper-1", Body: json.RawMessage(`{"audio":"AAEC","mimeType":"audio/webm"}`)}
+	if err := in.Validate(); err != nil {
+		t.Fatalf("transcription infer rejected: %v", err)
+	}
+}
+
+func TestTranscriptionRequestValidate(t *testing.T) {
+	ok := TranscriptionRequest{Audio: []byte{1, 2, 3}, MimeType: "audio/webm"}
+	if err := ok.Validate(); err != nil {
+		t.Fatalf("valid request rejected: %v", err)
+	}
+	for name, mutate := range map[string]func(*TranscriptionRequest){
+		"empty audio":  func(r *TranscriptionRequest) { r.Audio = nil },
+		"huge audio":   func(r *TranscriptionRequest) { r.Audio = make([]byte, MaxTranscriptionAudioBytes+1) },
+		"no mime type": func(r *TranscriptionRequest) { r.MimeType = "" },
+		"long prompt":  func(r *TranscriptionRequest) { r.Prompt = strings.Repeat("x", 4001) },
+	} {
+		bad := ok
+		mutate(&bad)
+		if err := bad.Validate(); err == nil {
+			t.Errorf("%s: expected rejection", name)
+		}
 	}
 }
 
