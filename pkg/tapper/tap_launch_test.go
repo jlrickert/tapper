@@ -277,11 +277,12 @@ func TestResolveLaunch_ErrorsOnUnknownInputs(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "unknown agent")
 
-	// launchUserConfig sets no top-level agent, so there is no default to fall
-	// back to and the omission is an error.
+	// launchUserConfig sets no top-level agent, so the launch falls back to hub
+	// mode, which Claude Code does not have yet. The error points at --agent.
 	_, err = tap.ResolveLaunch(tapper.LaunchOptions{Harness: "claude"})
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "an agent is required")
+	require.Contains(t, err.Error(), "cannot use Hub models yet")
+	require.Contains(t, err.Error(), "--agent")
 
 	_, err = tap.ResolveLaunch(tapper.LaunchOptions{Harness: "claude", Agent: "bare"})
 	require.Error(t, err)

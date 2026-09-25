@@ -14,18 +14,30 @@ import (
 	"github.com/jlrickert/tapper/pkg/tapper"
 )
 
-// NewLaunchCmd builds the `tap launch` command. It resolves a configured agent
-// to its model and starts the named harness under the configured root flight.
+// NewLaunchCmd builds the `tap launch` command. It resolves a Hub catalog model
+// or a configured agent and starts the named harness under the configured root
+// flight.
 func NewLaunchCmd(deps *Deps) *cobra.Command {
 	var opts tapper.LaunchOptions
 
 	cmd := &cobra.Command{
 		Use:   "launch HARNESS [-- ARGS...]",
-		Short: "start an agent CLI with a configured model and flight (experimental)",
-		Long: `Start Claude Code, Codex, or pi with a configured agent model and the
-current Hub-backed flight as a connection-pinned root.
+		Short: "start an agent CLI with a Hub or configured model and flight (experimental)",
+		Long: `Start opencode, Claude Code, Codex, or pi with a model and the current
+Hub-backed flight as a connection-pinned root.
 
-An agent selects only a model:
+Hub models. --model names a model from your Hub catalog — the models your
+connected relays offer (see 'tap relay'). The harness talks to Hub through a
+loopback forwarder that lives as long as it does: the forwarder attaches your
+Hub credential to each request, refreshing it as needed, so the credential
+never reaches the harness and a long session outlives an expiring login.
+opencode is the first harness with a Hub mode; its model picker lists your
+whole catalog. With neither --model nor an agent configured, the launch uses
+Hub mode and starts on your first catalog model:
+
+  tap launch opencode --model laptop/ollama/qwen3:8b
+
+Configured agents. An agent selects only a model:
 
   agents:
     opus:
@@ -40,6 +52,9 @@ must speak. TAP_AGENT carries model selection and telemetry only.
 is used instead, the same way 'flight' supplies the launch root:
 
   agent: opus
+
+--model always wins over a configured agent key; --model with --agent is an
+error.
 
 The launch root follows normal flight precedence: explicit --flight,
 TAP_FLIGHT, project flight, then the user baseline. It is resolved once, must
@@ -78,7 +93,12 @@ Experimental and unstable: expect this to change or disappear.`,
 			}
 
 			out := cmd.OutOrStdout()
-			if _, err := fmt.Fprintf(out, "agent %s -> %s/%s\n",
+			if result.Source == tapper.LaunchSourceHub {
+				if _, err := fmt.Fprintf(out, "hub %s -> %s (via loopback forwarder)\n",
+					result.Hub, result.Model); err != nil {
+					return err
+				}
+			} else if _, err := fmt.Fprintf(out, "agent %s -> %s/%s\n",
 				result.Agent, result.Provider, result.Model); err != nil {
 				return err
 			}
@@ -128,6 +148,8 @@ Experimental and unstable: expect this to change or disappear.`,
 
 	cmd.Flags().StringVar(&opts.Agent, "agent", "",
 		"configured agent alias supplying the model (default: the config's agent key, or TAP_AGENT)")
+	cmd.Flags().StringVar(&opts.Model, "model", "",
+		"Hub catalog model id to launch with (e.g. laptop/ollama/qwen3:8b)")
 	cmd.Flags().BoolVar(&opts.DryRun, "dry-run", false, "print the resolved invocation without starting the harness")
 	mustRegisterFlagCompletion(cmd, "agent", func(_ *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
 		return configAgentNames(deps), cobra.ShellCompDirectiveNoFileComp
