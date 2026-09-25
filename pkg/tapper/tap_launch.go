@@ -10,10 +10,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"os/exec"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Providers understood by the launcher, parsed from an agent model's prefix.
@@ -70,6 +73,11 @@ type LaunchOptions struct {
 	// Agent names an entry in the config's agents map. Empty falls back to the
 	// config's agent key (which TAP_AGENT also feeds).
 	Agent string
+	// Model is a Hub catalog id. Setting it selects hub mode: the harness is
+	// wired to Hub's inference endpoints rather than a configured agent's
+	// provider. Hub mode is also what an invocation with neither Model nor
+	// any agent (explicit or configured) falls back to.
+	Model string
 	// Flight is the explicit launch root. Empty falls back through TAP_FLIGHT,
 	// project configuration, and user configuration.
 	Flight string
@@ -91,6 +99,11 @@ type LaunchOptions struct {
 // Warnings are returned rather than printed so a dry run and a real run report
 // the same thing — see ResolveLaunch.
 type LaunchResult struct {
+	// Source is LaunchSourceAgent for a configured agent or LaunchSourceHub
+	// for a Hub catalog model.
+	Source string
+	// Hub names the hub serving a hub-mode launch.
+	Hub       string
 	Harness   string
 	Agent     string
 	Provider  string
@@ -103,6 +116,73 @@ type LaunchResult struct {
 	StripEnv  []string
 	KeySource string
 	Warnings  []string
+
+	// hub finishes a hub-mode invocation once the forwarder is listening; Argv
+	// and Env above carry placeholders for its address and key until then.
+	hub *hubLaunchPlan
+}
+
+// Launch sources, reported in LaunchResult.Source.
+const (
+	LaunchSourceAgent = "agent"
+	LaunchSourceHub   = "hub"
+)
+
+// Placeholders a hub-mode dry run shows where the live forwarder's address and
+// per-launch key go. Neither exists until Launch starts the forwarder.
+const (
+	launchForwarderPlaceholder = "http://127.0.0.1:<port>/v1"
+	launchKeyPlaceholder       = "<launch key>"
+)
+
+// opencodeHubProvider is the provider id hub-mode opencode sessions select
+// models under, as in `--model foldwise/<catalog id>`.
+const opencodeHubProvider = "foldwise"
+
+// HubModel is one entry of the caller's Hub inference catalog.
+type HubModel struct {
+	ID      string `json:"id"`
+	OwnedBy string `json:"owned_by"`
+	// ContextWindow is the model's token limit, or 0 when its relay did not
+	// advertise one.
+	ContextWindow int `json:"context_window,omitempty"`
+}
+
+// hubLaunchSpec is one resolved hub-mode launch, handed to a harness's hub
+// builder.
+type hubLaunchSpec struct {
+	hubName string
+	baseURL string
+	apiKey  string
+	model   string
+	catalog []HubModel
+}
+
+// hubLaunchPlan is what Launch needs to render the real invocation once the
+// forwarder is up. tailArgs and tailEnv are the parts that do not depend on
+// the forwarder: pass-through arguments and the TAP_* variables.
+type hubLaunchPlan struct {
+	hubURL   string
+	token    func() string
+	build    func(hubLaunchSpec) ([]string, map[string]string)
+	spec     hubLaunchSpec
+	tailArgs []string
+	tailEnv  map[string]string
+}
+
+// render builds the invocation against a forwarder at baseURL taking apiKey.
+func (p *hubLaunchPlan) render(baseURL, apiKey string) ([]string, map[string]string) {
+	spec := p.spec
+	spec.baseURL, spec.apiKey = baseURL, apiKey
+	argv, env := p.build(spec)
+	argv = append(argv, p.tailArgs...)
+	if env == nil {
+		env = map[string]string{}
+	}
+	for k, v := range p.tailEnv {
+		env[k] = v
+	}
+	return argv, env
 }
 
 // launchSpec is one resolved agent, handed to a harness builder.
@@ -125,6 +205,9 @@ type harnessAdapter struct {
 	// configured contextWindow is reported rather than silently dropped —
 	// quietly ignoring a context cap is how you discover it never applied.
 	contextWindowArgs func(tokens int) []string
+	// hub builds a hub-mode invocation. Nil means the harness cannot use Hub
+	// catalog models yet.
+	hub func(spec hubLaunchSpec) ([]string, map[string]string)
 }
 
 // openAIBaseURL normalizes a base URL for OpenAI clients, which append
@@ -305,6 +388,57 @@ func opencodeProviderConfig(spec launchSpec) string {
 	return string(body)
 }
 
+// opencodeHub wires opencode to Hub through one inline provider pointed at
+// the launch forwarder. Every catalog model is declared, not just the selected
+// one, so opencode's model picker can switch between them mid-session.
+func opencodeHub(spec hubLaunchSpec) ([]string, map[string]string) {
+	type limit struct {
+		Context int `json:"context"`
+		Output  int `json:"output"`
+	}
+	type model struct {
+		Name  string `json:"name"`
+		Limit *limit `json:"limit,omitempty"`
+	}
+	models := make(map[string]model, len(spec.catalog))
+	for _, m := range spec.catalog {
+		entry := model{Name: m.ID}
+		if m.ContextWindow > 0 {
+			// opencode wants both halves of the limit and a relay advertises
+			// only the context. A quarter of it, capped, leaves room for the
+			// conversation while allowing a long reply.
+			entry.Limit = &limit{Context: m.ContextWindow, Output: min(m.ContextWindow/4, 32000)}
+		}
+		models[m.ID] = entry
+	}
+	name := "Foldwise"
+	if spec.hubName != "" {
+		name += " (" + spec.hubName + ")"
+	}
+	// No HTML escaping: the dry run prints this, and "<launch key>" should
+	// read as itself rather than as \u003claunch key\u003e.
+	var buf strings.Builder
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	err := enc.Encode(map[string]any{
+		"provider": map[string]any{
+			opencodeHubProvider: map[string]any{
+				"npm":  "@ai-sdk/openai-compatible",
+				"name": name,
+				// The key travels in the config rather than the environment
+				// because a custom provider reads its own options first.
+				"options": map[string]string{"baseURL": spec.baseURL, "apiKey": spec.apiKey},
+				"models":  models,
+			},
+		},
+	})
+	env := map[string]string{}
+	if err == nil {
+		env["OPENCODE_CONFIG_CONTENT"] = strings.TrimSpace(buf.String())
+	}
+	return []string{"opencode", "--model", opencodeHubProvider + "/" + spec.model}, env
+}
+
 func harnessAdapters() map[string]harnessAdapter {
 	return map[string]harnessAdapter{
 		"claude": {
@@ -346,6 +480,7 @@ func harnessAdapters() map[string]harnessAdapter {
 			// it: a context cap is provider.<p>.models.<m>.limit.context in its
 			// config. Leaving this nil makes a configured contextWindow an
 			// explicit error rather than a setting that silently never applied.
+			hub: opencodeHub,
 		},
 		"pi": {
 			command: "pi",
@@ -394,6 +529,12 @@ func ParseAgentModel(raw string) (provider, model string, err error) {
 // ResolveLaunch resolves options into a complete invocation without running it.
 // Launch is this plus execution, so a dry run and a real run cannot drift.
 func (t *Tap) ResolveLaunch(opts LaunchOptions) (*LaunchResult, error) {
+	return t.ResolveLaunchContext(context.Background(), opts)
+}
+
+// ResolveLaunchContext is ResolveLaunch with a context for the one network
+// call it can make: a hub-mode launch lists the Hub catalog.
+func (t *Tap) ResolveLaunchContext(ctx context.Context, opts LaunchOptions) (*LaunchResult, error) {
 	harness := strings.TrimSpace(opts.Harness)
 	adapter, ok := harnessAdapters()[harness]
 	if !ok {
@@ -410,13 +551,24 @@ func (t *Tap) ResolveLaunch(opts LaunchOptions) (*LaunchResult, error) {
 	// resolution used for the launch root just below. Reading the fallback off
 	// the same cfg snapshot as the lookup keeps the two from drifting.
 	agentName := strings.TrimSpace(opts.Agent)
-	if agentName == "" {
+	hubModel := strings.TrimSpace(opts.Model)
+	if agentName != "" && hubModel != "" {
+		return nil, fmt.Errorf("--model and --agent are mutually exclusive: --model picks a Hub catalog model, --agent a configured one")
+	}
+	if agentName == "" && hubModel == "" {
 		agentName = cfg.AgentName()
 	}
-	if agentName == "" {
-		return nil, fmt.Errorf(
-			"an agent is required (pass --agent, or set agent in Tapper configuration or TAP_AGENT)")
+
+	root, hasRoot, warnings, err := t.resolveLaunchRoot(cfg, opts.Flight)
+	if err != nil {
+		return nil, err
 	}
+	// No agent anywhere means the Hub catalog, which is where models come
+	// from once the agents map is retired.
+	if agentName == "" {
+		return t.resolveHubLaunch(ctx, harness, adapter, hubModel, opts.Args, cfg, root, hasRoot, warnings)
+	}
+
 	agent, ok := cfg.Agent(agentName)
 	if !ok {
 		return nil, fmt.Errorf("unknown agent %q (configured: %s)",
@@ -424,32 +576,6 @@ func (t *Tap) ResolveLaunch(opts LaunchOptions) (*LaunchResult, error) {
 	}
 	if agent.invalid != nil {
 		return nil, fmt.Errorf("agent %q: %w", agentName, agent.invalid)
-	}
-	// A launch root is optional. Without one the child runs under no-flight
-	// identity authority — the same state bare `tap mcp` and hosted /mcp reach —
-	// which is what makes bootstrapping possible: you cannot be required to
-	// select a flight in order to launch the session that creates your first one.
-	// There is nothing to validate in that case, and no namespace to resolve a
-	// hub from; the child uses the selected Hub.
-	var (
-		root     FlightRef
-		hasRoot  bool
-		warnings []string
-	)
-	if rootRef := strings.TrimSpace(t.ActiveFlightName(opts.Flight)); rootRef != "" {
-		parsed, err := ParseFlightRef(rootRef, t.defaultFlightNamespace(cfg))
-		if err != nil {
-			return nil, fmt.Errorf("resolve launch flight %q: %w", rootRef, err)
-		}
-		if parsed.Namespace == "" {
-			return nil, fmt.Errorf("tap launch requires a canonical Hub-backed root flight; %q has no namespace", rootRef)
-		}
-		if _, _, err := t.ConfigService.SelectedHub(""); err != nil {
-			return nil, fmt.Errorf("resolve launch flight %q: %w", rootRef, err)
-		}
-		root, hasRoot = parsed, true
-	} else {
-		warnings = append(warnings, noLaunchFlightWarning)
 	}
 	provider, model, err := ParseAgentModel(agent.Model)
 	if err != nil {
@@ -500,23 +626,15 @@ func (t *Tap) ResolveLaunch(opts LaunchOptions) (*LaunchResult, error) {
 	if env == nil {
 		env = map[string]string{}
 	}
-	// TAP_AGENT is model selection and telemetry only. TAP_FLIGHT pins the
-	// canonical launch root for the child process lifetime; governed calls may
-	// select a live accessible descendant but never replace that root. It is
-	// left unset when no flight is configured, which is exactly how the child's
-	// `tap mcp` decides it is not launcher-bound and resolves identity authority
-	// instead (see cmd_mcp.go).
+	// TAP_AGENT is model selection and telemetry only; launchTapEnv supplies
+	// the hub, keg, and flight every launch shares.
 	env["TAP_AGENT"] = agentName
-	hubName, _, err := t.ConfigService.SelectedHub("")
+	tapEnv, err := t.launchTapEnv(cfg, root, hasRoot)
 	if err != nil {
 		return nil, err
 	}
-	env["TAP_HUB"] = hubName
-	if cfg.Keg() != "" {
-		env["TAP_KEG"] = cfg.Keg()
-	}
-	if hasRoot {
-		env["TAP_FLIGHT"] = root.Canonical()
+	for k, v := range tapEnv {
+		env[k] = v
 	}
 
 	// Subscription mode has to remove inherited credentials, which an overlay
@@ -536,6 +654,7 @@ func (t *Tap) ResolveLaunch(opts LaunchOptions) (*LaunchResult, error) {
 		flight = root.Canonical()
 	}
 	return &LaunchResult{
+		Source:    LaunchSourceAgent,
 		Harness:   harness,
 		Agent:     agentName,
 		Provider:  provider,
@@ -549,6 +668,184 @@ func (t *Tap) ResolveLaunch(opts LaunchOptions) (*LaunchResult, error) {
 		KeySource: keySource,
 		Warnings:  warnings,
 	}, nil
+}
+
+// resolveLaunchRoot resolves the optional launch root flight.
+func (t *Tap) resolveLaunchRoot(cfg *Config, explicit string) (root FlightRef, hasRoot bool, warnings []string, err error) {
+	// A launch root is optional. Without one the child runs under no-flight
+	// identity authority — the same state bare `tap mcp` and hosted /mcp reach —
+	// which is what makes bootstrapping possible: you cannot be required to
+	// select a flight in order to launch the session that creates your first one.
+	// There is nothing to validate in that case, and no namespace to resolve a
+	// hub from; the child uses the selected Hub.
+	if rootRef := strings.TrimSpace(t.ActiveFlightName(explicit)); rootRef != "" {
+		parsed, err := ParseFlightRef(rootRef, t.defaultFlightNamespace(cfg))
+		if err != nil {
+			return root, false, nil, fmt.Errorf("resolve launch flight %q: %w", rootRef, err)
+		}
+		if parsed.Namespace == "" {
+			return root, false, nil, fmt.Errorf("tap launch requires a canonical Hub-backed root flight; %q has no namespace", rootRef)
+		}
+		if _, _, err := t.ConfigService.SelectedHub(""); err != nil {
+			return root, false, nil, fmt.Errorf("resolve launch flight %q: %w", rootRef, err)
+		}
+		root, hasRoot = parsed, true
+	} else {
+		warnings = append(warnings, noLaunchFlightWarning)
+	}
+	return root, hasRoot, warnings, nil
+}
+
+// launchTapEnv is the TAP_* overlay every launch exports, whichever way its
+// model was chosen. TAP_FLIGHT pins the canonical launch root for the child
+// process lifetime; governed calls may select a live accessible descendant but
+// never replace that root. It is left unset when no flight is configured,
+// which is exactly how the child's `tap mcp` decides it is not launcher-bound
+// and resolves identity authority instead (see cmd_mcp.go).
+func (t *Tap) launchTapEnv(cfg *Config, root FlightRef, hasRoot bool) (map[string]string, error) {
+	hubName, _, err := t.ConfigService.SelectedHub("")
+	if err != nil {
+		return nil, err
+	}
+	env := map[string]string{"TAP_HUB": hubName}
+	if cfg.Keg() != "" {
+		env["TAP_KEG"] = cfg.Keg()
+	}
+	if hasRoot {
+		env["TAP_FLIGHT"] = root.Canonical()
+	}
+	return env, nil
+}
+
+// resolveHubLaunch resolves a hub-mode launch: the model is a Hub catalog id,
+// and the harness reaches it through a loopback forwarder Launch starts, so
+// no Hub credential is handed to the harness.
+func (t *Tap) resolveHubLaunch(ctx context.Context, harness string, adapter harnessAdapter, model string, args []string, cfg *Config, root FlightRef, hasRoot bool, warnings []string) (*LaunchResult, error) {
+	if adapter.hub == nil {
+		return nil, fmt.Errorf(
+			"harness %q cannot use Hub models yet (hub mode supports: %s); pass --agent to use a configured agent",
+			harness, strings.Join(hubHarnesses(), ", "))
+	}
+	hubName, entry, err := t.ConfigService.SelectedHub("")
+	if err != nil {
+		return nil, err
+	}
+	hubURL := strings.TrimRight(hubURLWithScheme(entry.URL), "/")
+	if hubURL == "" {
+		return nil, fmt.Errorf("hub %q has no url", hubName)
+	}
+	token := func() string { return t.hubToken(entry) }
+	catalog, err := fetchHubCatalog(ctx, hubURL, token())
+	if err != nil {
+		return nil, fmt.Errorf("hub %q: %w", hubName, err)
+	}
+	if len(catalog) == 0 {
+		return nil, fmt.Errorf(
+			"hub %q has no models for you yet; run `tap relay` to contribute your own (or pass --agent to use a configured agent)",
+			hubName)
+	}
+	if model == "" {
+		model = catalog[0].ID
+	} else if !hubCatalogHas(catalog, model) {
+		return nil, fmt.Errorf("model %q is not in your catalog on hub %q (is its relay connected?); available: %s",
+			model, hubName, strings.Join(hubCatalogIDs(catalog), ", "))
+	}
+	tailEnv, err := t.launchTapEnv(cfg, root, hasRoot)
+	if err != nil {
+		return nil, err
+	}
+	plan := &hubLaunchPlan{
+		hubURL:   hubURL,
+		token:    token,
+		build:    adapter.hub,
+		spec:     hubLaunchSpec{hubName: hubName, model: model, catalog: catalog},
+		tailArgs: append([]string(nil), args...),
+		tailEnv:  tailEnv,
+	}
+	argv, env := plan.render(launchForwarderPlaceholder, launchKeyPlaceholder)
+	flight := ""
+	if hasRoot {
+		flight = root.Canonical()
+	}
+	return &LaunchResult{
+		Source:   LaunchSourceHub,
+		Hub:      hubName,
+		Harness:  harness,
+		Provider: LaunchSourceHub,
+		Model:    model,
+		BaseURL:  launchForwarderPlaceholder,
+		Flight:   flight,
+		Auth:     LaunchSourceHub,
+		Argv:     argv,
+		Env:      env,
+		Warnings: warnings,
+		hub:      plan,
+	}, nil
+}
+
+// fetchHubCatalog lists the caller's models from Hub's inference endpoint.
+func fetchHubCatalog(ctx context.Context, hubURL, token string) ([]HubModel, error) {
+	if strings.TrimSpace(token) == "" {
+		return nil, fmt.Errorf("not signed in; run `tap auth login`")
+	}
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, hubURL+hubInferencePath+"/models", nil)
+	if err != nil {
+		return nil, fmt.Errorf("list models: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Accept", "application/json")
+	resp, err := hubHTTPClient().Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("list models: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	switch resp.StatusCode {
+	case http.StatusOK:
+	case http.StatusUnauthorized:
+		return nil, fmt.Errorf("the hub rejected your credential; run `tap auth login`")
+	case http.StatusNotFound:
+		return nil, fmt.Errorf("the hub does not serve relay inference (relay disabled, or an older hub)")
+	default:
+		return nil, fmt.Errorf("list models: hub returned %s", resp.Status)
+	}
+	var list struct {
+		Data []HubModel `json:"data"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 4<<20)).Decode(&list); err != nil {
+		return nil, fmt.Errorf("list models: %w", err)
+	}
+	return list.Data, nil
+}
+
+func hubCatalogHas(catalog []HubModel, id string) bool {
+	for _, m := range catalog {
+		if m.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+func hubCatalogIDs(catalog []HubModel) []string {
+	out := make([]string, 0, len(catalog))
+	for _, m := range catalog {
+		out = append(out, m.ID)
+	}
+	return out
+}
+
+// hubHarnesses lists the harnesses with a hub mode, sorted.
+func hubHarnesses() []string {
+	var out []string
+	for name, a := range harnessAdapters() {
+		if a.hub != nil {
+			out = append(out, name)
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 // resolveAuthMode validates an agent's auth field and supplies the default.
@@ -619,7 +916,7 @@ func (t *Tap) resolveAPIKey(agent AgentEntry, auth string) (key, source string, 
 // authority the session had only after it was over. Stderr also keeps them clear
 // of a piped dry-run report.
 func (t *Tap) Launch(ctx context.Context, opts LaunchOptions) (*LaunchResult, error) {
-	resolved, err := t.ResolveLaunch(opts)
+	resolved, err := t.ResolveLaunchContext(ctx, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -636,12 +933,24 @@ func (t *Tap) Launch(ctx context.Context, opts LaunchOptions) (*LaunchResult, er
 		return nil, fmt.Errorf("harness %q is not installed or not on PATH: %w", resolved.Argv[0], err)
 	}
 
-	cmd := exec.CommandContext(ctx, resolved.Argv[0], resolved.Argv[1:]...)
+	argv, env := resolved.Argv, resolved.Env
+	if resolved.hub != nil {
+		// Up before the harness and down after it, so every request the
+		// harness makes has somewhere to go.
+		fw, err := startLaunchForwarder(resolved.hub.hubURL, resolved.hub.token)
+		if err != nil {
+			return nil, err
+		}
+		defer func() { _ = fw.Close() }()
+		argv, env = resolved.hub.render(fw.BaseURL(), fw.Secret())
+	}
+
+	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 	stream := t.Runtime.Stream()
 	cmd.Stdin = stream.In
 	cmd.Stdout = stream.Out
 	cmd.Stderr = stream.Err
-	cmd.Env = append(stripEnv(t.Runtime.Environ(), resolved.StripEnv), envPairs(resolved.Env)...)
+	cmd.Env = append(stripEnv(t.Runtime.Environ(), resolved.StripEnv), envPairs(env)...)
 	if err := cmd.Run(); err != nil {
 		return resolved, fmt.Errorf("%s exited: %w", resolved.Harness, err)
 	}
