@@ -26,20 +26,31 @@ Providers are configured in your user config only; project config cannot set
 them:
 
   relay:
+    enabled: true           # optional; false turns the relay off
     name: laptop            # optional; defaults to the hostname
+    hubs: [work, personal]  # optional; serve these configured hubs at once
     providers:
       ollama:
         kind: ollama        # baseUrl defaults to http://127.0.0.1:11434/v1
+        maxConcurrent: 2    # optional; this provider's in-flight limit (default 4)
         models:
           allow: ["qwen3*"]
       openrouter:
         kind: openrouter
         auth: apiKey
         apiKeyEnv: OPENROUTER_API_KEY   # the variable's name, never the key
+        maxConcurrent: 16
 
-The relay authenticates with the token from 'tap auth login'. It runs in the
-foreground until interrupted, reconnecting if the connection drops. Disconnecting
-it from Hub's Account → Relay page stops it for good; run it again to reconnect.
+Without relay.hubs the relay serves the one hub 'tap auth login' would use;
+--hub narrows it to that hub even when relay.hubs is set. With several hubs,
+every hub sees every provider. Each provider's maxConcurrent (default 4) is
+its limit across all of them: a hub that asks while that provider is full
+hears "overloaded", and the relay's other providers are unaffected.
+
+The relay authenticates to each hub with that hub's token from 'tap auth login'.
+It runs in the foreground until interrupted, reconnecting if a connection drops.
+Disconnecting it from a hub's Account → Relay page stops it for that hub for
+good; the other hubs keep being served. Run it again to reconnect.
 
 Experimental and unstable: expect this to change.`,
 		Args:          cobra.NoArgs,
@@ -59,7 +70,5 @@ Experimental and unstable: expect this to change.`,
 		},
 	}
 	cmd.Flags().StringVar(&opts.Name, "name", "", "relay name shown in Hub (overrides relay.name)")
-	cmd.Flags().IntVar(&opts.MaxConcurrent, "max-concurrent", tapper.DefaultRelayMaxConcurrent,
-		fmt.Sprintf("maximum in-flight requests (1-%d)", relaycontract.MaxConcurrentCap))
 	return cmd
 }

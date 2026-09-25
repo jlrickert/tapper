@@ -28,6 +28,10 @@ type fakeProvider struct {
 	lastBody map[string]any
 	lastAuth string
 	blocked  chan struct{}
+	// The last /audio/transcriptions upload: form fields and file.
+	lastForm     map[string]string
+	lastFile     string
+	lastFileName string
 }
 
 func newFakeProvider(t *testing.T, models ...string) (*fakeProvider, *httptest.Server) {
@@ -80,6 +84,21 @@ func (fp *fakeProvider) serve(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		_, _ = io.WriteString(w, `{"choices":[{"message":{"content":"hello"}}],"usage":{"prompt_tokens":3,"completion_tokens":1}}`)
+	case "/audio/transcriptions":
+		file, header, err := r.FormFile("file")
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		data, _ := io.ReadAll(file)
+		form := map[string]string{}
+		for k, v := range r.MultipartForm.Value {
+			form[k] = v[0]
+		}
+		fp.mu.Lock()
+		fp.lastForm, fp.lastFile, fp.lastFileName = form, string(data), header.Filename
+		fp.mu.Unlock()
+		_, _ = io.WriteString(w, `{"text":"hello world"}`)
 	default:
 		http.NotFound(w, r)
 	}
@@ -150,14 +169,17 @@ func writeEnv(t *testing.T, ctx context.Context, c *websocket.Conn, typ, id stri
 	}
 }
 
+// hubFor points the relay at a fake hub with a fixed bearer token.
+func hubFor(hub *fakeHub, token string) Hub {
+	return Hub{URL: hub.srv.URL, Token: func(context.Context) (string, error) { return token, nil }}
+}
+
 func startRelay(t *testing.T, hub *fakeHub, providers []*Provider, mutate func(*Options)) (context.CancelFunc, chan error) {
 	t.Helper()
 	opts := Options{
-		HubURL:          hub.srv.URL,
-		Token:           func(context.Context) (string, error) { return "tok", nil },
+		Hubs:            []Hub{hubFor(hub, "tok")},
 		Name:            "laptop",
 		Version:         "test",
-		MaxConcurrent:   2,
 		Providers:       providers,
 		CatalogInterval: time.Hour,
 	}
@@ -199,7 +221,13 @@ func handshake(t *testing.T, ctx context.Context, c *websocket.Conn) relaycontra
 
 func ollama(t *testing.T, baseURL string, allow ...string) *Provider {
 	t.Helper()
-	p, err := NewProvider(ProviderConfig{Name: "ollama", Kind: KindOllama, BaseURL: baseURL, Allow: allow}, func(string) string { return "" }, nil)
+	return ollamaLimited(t, baseURL, 2, allow...)
+}
+
+// ollamaLimited is ollama with an explicit in-flight limit.
+func ollamaLimited(t *testing.T, baseURL string, limit int, allow ...string) *Provider {
+	t.Helper()
+	p, err := NewProvider(ProviderConfig{Name: "ollama", Kind: KindOllama, BaseURL: baseURL, Allow: allow, MaxConcurrent: limit}, func(string) string { return "" }, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -359,7 +387,7 @@ func TestCancelStopsProviderCall(t *testing.T) {
 func TestConcurrencyLimitReturnsOverloaded(t *testing.T) {
 	fp, psrv := newFakeProvider(t, "qwen3:8b")
 	hub := newFakeHub(t)
-	startRelay(t, hub, []*Provider{ollama(t, psrv.URL)}, func(o *Options) { o.MaxConcurrent = 1 })
+	startRelay(t, hub, []*Provider{ollamaLimited(t, psrv.URL, 1)}, nil)
 	ctx := context.Background()
 	conn := hub.accept(t)
 	handshake(t, ctx, conn)
@@ -411,7 +439,7 @@ func TestUnauthorizedIsPermanent(t *testing.T) {
 	_, psrv := newFakeProvider(t, "qwen3:8b")
 	hub := newFakeHub(t)
 	_, done := startRelay(t, hub, []*Provider{ollama(t, psrv.URL)}, func(o *Options) {
-		o.Token = func(context.Context) (string, error) { return "revoked", nil }
+		o.Hubs = []Hub{hubFor(hub, "revoked")}
 	})
 	select {
 	case err := <-done:
@@ -495,5 +523,278 @@ func TestNewProviderCredentials(t *testing.T) {
 				t.Fatal("expected an error")
 			}
 		})
+	}
+}
+
+func TestTranscriptionInferReturnsText(t *testing.T) {
+	fp, psrv := newFakeProvider(t, "qwen3:8b")
+	p, err := NewProvider(ProviderConfig{Name: "ollama", Kind: KindOllama, BaseURL: psrv.URL, Transcription: []string{"whisper-1"}}, func(string) string { return "" }, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hub := newFakeHub(t)
+	startRelay(t, hub, []*Provider{p}, nil)
+	ctx := context.Background()
+	conn := hub.accept(t)
+	reg := handshake(t, ctx, conn)
+
+	caps := map[string]string{}
+	for _, m := range reg.Models {
+		caps[m.ID] = strings.Join(m.Capabilities, ",")
+	}
+	if caps["qwen3:8b"] != "chat,stream" || caps["whisper-1"] != "transcription" {
+		t.Fatalf("advertised capabilities = %v", caps)
+	}
+
+	body, _ := json.Marshal(relaycontract.TranscriptionRequest{Audio: []byte("RIFFdata"), MimeType: "audio/webm;codecs=opus", Language: "en"})
+	writeEnv(t, ctx, conn, relaycontract.TypeInfer, "t1", relaycontract.Infer{
+		API: relaycontract.APIOpenAIAudioTranscriptions, Provider: "ollama", Model: "whisper-1", Body: body,
+	})
+	env := readEnv(t, ctx, conn)
+	if env.Type != relaycontract.TypeChunk {
+		t.Fatalf("frame = %q (%s), want chunk", env.Type, env.Payload)
+	}
+	var chunk relaycontract.Chunk
+	if err := env.Decode(&chunk); err != nil {
+		t.Fatal(err)
+	}
+	var result relaycontract.TranscriptionResult
+	if err := json.Unmarshal(chunk.Data, &result); err != nil || result.Text != "hello world" {
+		t.Fatalf("result = %s (%v)", chunk.Data, err)
+	}
+	if env := readEnv(t, ctx, conn); env.Type != relaycontract.TypeDone {
+		t.Fatalf("frame = %q, want done", env.Type)
+	}
+	fp.mu.Lock()
+	defer fp.mu.Unlock()
+	if fp.lastFile != "RIFFdata" || fp.lastFileName != "audio.webm" || fp.lastForm["model"] != "whisper-1" || fp.lastForm["language"] != "en" {
+		t.Fatalf("provider saw file %q named %q, form %v", fp.lastFile, fp.lastFileName, fp.lastForm)
+	}
+}
+
+func TestInferRejectsWrongAPIForModel(t *testing.T) {
+	_, psrv := newFakeProvider(t, "qwen3:8b")
+	p, err := NewProvider(ProviderConfig{Name: "ollama", Kind: KindOllama, BaseURL: psrv.URL, Transcription: []string{"whisper-1"}}, func(string) string { return "" }, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hub := newFakeHub(t)
+	startRelay(t, hub, []*Provider{p}, nil)
+	ctx := context.Background()
+	conn := hub.accept(t)
+	handshake(t, ctx, conn)
+
+	audio, _ := json.Marshal(relaycontract.TranscriptionRequest{Audio: []byte("x"), MimeType: "audio/webm"})
+	for id, in := range map[string]relaycontract.Infer{
+		"chat-on-whisper": {API: relaycontract.APIOpenAIChatCompletions, Provider: "ollama", Model: "whisper-1", Body: json.RawMessage(`{"messages":[]}`)},
+		"audio-on-qwen":   {API: relaycontract.APIOpenAIAudioTranscriptions, Provider: "ollama", Model: "qwen3:8b", Body: audio},
+	} {
+		writeEnv(t, ctx, conn, relaycontract.TypeInfer, id, in)
+		env := readEnv(t, ctx, conn)
+		var e relaycontract.Error
+		if env.Type != relaycontract.TypeError || env.Decode(&e) != nil || e.Code != relaycontract.CodeUnsupported {
+			t.Fatalf("%s: frame %q %s, want unsupported error", id, env.Type, env.Payload)
+		}
+	}
+}
+
+func TestServesSeveralHubsWithOneCatalog(t *testing.T) {
+	fp, psrv := newFakeProvider(t, "qwen3:8b")
+	a, b := newFakeHub(t), newFakeHub(t)
+	registered := make(chan string, 4)
+	startRelay(t, a, []*Provider{ollama(t, psrv.URL)}, func(o *Options) {
+		o.Hubs = append(o.Hubs, hubFor(b, "tok"))
+		o.CatalogInterval = 20 * time.Millisecond
+		o.OnRegistered = func(hubURL string, _ relaycontract.Registered) { registered <- hubURL }
+	})
+	ctx := context.Background()
+	connA, connB := a.accept(t), b.accept(t)
+	for _, conn := range []*websocket.Conn{connA, connB} {
+		reg := handshake(t, ctx, conn)
+		if len(reg.Models) != 1 || reg.Models[0].ID != "qwen3:8b" {
+			t.Fatalf("register models = %+v", reg.Models)
+		}
+	}
+	got := map[string]bool{<-registered: true, <-registered: true}
+	if !got[a.srv.URL] || !got[b.srv.URL] {
+		t.Fatalf("OnRegistered hubs = %v", got)
+	}
+
+	for i, conn := range []*websocket.Conn{connA, connB} {
+		id := fmt.Sprintf("r%d", i)
+		writeEnv(t, ctx, conn, relaycontract.TypeInfer, id, relaycontract.Infer{
+			API: relaycontract.APIOpenAIChatCompletions, Provider: "ollama", Model: "qwen3:8b",
+			Body: json.RawMessage(`{"messages":[]}`),
+		})
+		if env := readEnv(t, ctx, conn); env.Type != relaycontract.TypeChunk || env.ID != id {
+			t.Fatalf("hub %d: frame %q %q, want chunk", i, env.Type, env.ID)
+		}
+		if env := readEnv(t, ctx, conn); env.Type != relaycontract.TypeDone {
+			t.Fatalf("hub %d: frame %q, want done", i, env.Type)
+		}
+	}
+
+	// One provider listing change reaches both hubs.
+	fp.setModels("qwen3:8b", "llama3:8b")
+	for i, conn := range []*websocket.Conn{connA, connB} {
+		env := readEnv(t, ctx, conn)
+		var cat relaycontract.Catalog
+		if env.Type != relaycontract.TypeCatalog || env.Decode(&cat) != nil || len(cat.Models) != 2 {
+			t.Fatalf("hub %d: frame %s %s, want catalog with 2 models", i, env.Type, env.Payload)
+		}
+	}
+}
+
+func TestConcurrencyIsSharedAcrossHubs(t *testing.T) {
+	fp, psrv := newFakeProvider(t, "qwen3:8b")
+	a, b := newFakeHub(t), newFakeHub(t)
+	startRelay(t, a, []*Provider{ollamaLimited(t, psrv.URL, 1)}, func(o *Options) {
+		o.Hubs = append(o.Hubs, hubFor(b, "tok"))
+	})
+	ctx := context.Background()
+	connA, connB := a.accept(t), b.accept(t)
+	handshake(t, ctx, connA)
+	handshake(t, ctx, connB)
+
+	writeEnv(t, ctx, connA, relaycontract.TypeInfer, "busy", relaycontract.Infer{
+		API: relaycontract.APIOpenAIChatCompletions, Provider: "ollama", Model: "qwen3:8b",
+		Body: json.RawMessage(`{"messages":[{"role":"user","content":"block"}]}`),
+	})
+	<-fp.blocked
+	writeEnv(t, ctx, connB, relaycontract.TypeInfer, "second", relaycontract.Infer{
+		API: relaycontract.APIOpenAIChatCompletions, Provider: "ollama", Model: "qwen3:8b",
+		Body: json.RawMessage(`{"messages":[]}`),
+	})
+	env := readEnv(t, ctx, connB)
+	var e relaycontract.Error
+	if env.Type != relaycontract.TypeError || env.Decode(&e) != nil || e.Code != relaycontract.CodeOverloaded {
+		t.Fatalf("second hub got %s %s, want overloaded", env.Type, env.Payload)
+	}
+
+	// Freeing the slot on hub A frees it for hub B.
+	writeEnv(t, ctx, connA, relaycontract.TypeCancel, "busy", nil)
+	if env := readEnv(t, ctx, connA); env.Type != relaycontract.TypeError {
+		t.Fatalf("cancelled request ended with %q", env.Type)
+	}
+	writeEnv(t, ctx, connB, relaycontract.TypeInfer, "third", relaycontract.Infer{
+		API: relaycontract.APIOpenAIChatCompletions, Provider: "ollama", Model: "qwen3:8b",
+		Body: json.RawMessage(`{"messages":[]}`),
+	})
+	if env := readEnv(t, ctx, connB); env.Type != relaycontract.TypeChunk {
+		t.Fatalf("after the slot freed, hub B got %s %s", env.Type, env.Payload)
+	}
+}
+
+func TestRejectedHubDoesNotStopTheOthers(t *testing.T) {
+	_, psrv := newFakeProvider(t, "qwen3:8b")
+	bad, good := newFakeHub(t), newFakeHub(t)
+	_, done := startRelay(t, bad, []*Provider{ollama(t, psrv.URL)}, func(o *Options) {
+		o.Hubs = []Hub{hubFor(bad, "revoked"), hubFor(good, "tok")}
+	})
+	ctx := context.Background()
+	conn := good.accept(t)
+	handshake(t, ctx, conn)
+	writeEnv(t, ctx, conn, relaycontract.TypeInfer, "r1", relaycontract.Infer{
+		API: relaycontract.APIOpenAIChatCompletions, Provider: "ollama", Model: "qwen3:8b",
+		Body: json.RawMessage(`{"messages":[]}`),
+	})
+	if env := readEnv(t, ctx, conn); env.Type != relaycontract.TypeChunk {
+		t.Fatalf("good hub got %s %s", env.Type, env.Payload)
+	}
+	select {
+	case err := <-done:
+		t.Fatalf("Run returned %v while a hub was still served", err)
+	case <-time.After(200 * time.Millisecond):
+	}
+}
+
+func TestNewClientRejectsDuplicateHubs(t *testing.T) {
+	hub := Hub{URL: "https://hub.example", Token: func(context.Context) (string, error) { return "t", nil }}
+	_, err := NewClient(Options{Hubs: []Hub{hub, {URL: "https://hub.example/", Token: hub.Token}}, Name: "laptop", Providers: []*Provider{ollama(t, "http://127.0.0.1:1")}})
+	if err == nil || !strings.Contains(err.Error(), "twice") {
+		t.Fatalf("NewClient = %v, want duplicate hub error", err)
+	}
+}
+
+func TestProviderLimitsAreIndependent(t *testing.T) {
+	fpA, srvA := newFakeProvider(t, "qwen3:8b")
+	_, srvB := newFakeProvider(t, "gpt-4o")
+	local := ollamaLimited(t, srvA.URL, 1)
+	hosted, err := NewProvider(ProviderConfig{Name: "hosted", Kind: KindOpenAICompatible, BaseURL: srvB.URL, MaxConcurrent: 3}, func(string) string { return "" }, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hub := newFakeHub(t)
+	startRelay(t, hub, []*Provider{local, hosted}, nil)
+	ctx := context.Background()
+	conn := hub.accept(t)
+	reg := handshake(t, ctx, conn)
+	if reg.Limits.MaxConcurrent != 4 {
+		t.Fatalf("advertised limit = %d, want the providers' sum 4", reg.Limits.MaxConcurrent)
+	}
+
+	writeEnv(t, ctx, conn, relaycontract.TypeInfer, "busy", relaycontract.Infer{
+		API: relaycontract.APIOpenAIChatCompletions, Provider: "ollama", Model: "qwen3:8b",
+		Body: json.RawMessage(`{"messages":[{"role":"user","content":"block"}]}`),
+	})
+	<-fpA.blocked
+	// The full local provider turns its next request away...
+	writeEnv(t, ctx, conn, relaycontract.TypeInfer, "local2", relaycontract.Infer{
+		API: relaycontract.APIOpenAIChatCompletions, Provider: "ollama", Model: "qwen3:8b",
+		Body: json.RawMessage(`{"messages":[]}`),
+	})
+	env := readEnv(t, ctx, conn)
+	var e relaycontract.Error
+	if env.ID != "local2" || env.Type != relaycontract.TypeError || env.Decode(&e) != nil || e.Code != relaycontract.CodeOverloaded {
+		t.Fatalf("second local request got %s %s %s, want overloaded", env.ID, env.Type, env.Payload)
+	}
+	// ...while the hosted one still serves.
+	writeEnv(t, ctx, conn, relaycontract.TypeInfer, "hosted1", relaycontract.Infer{
+		API: relaycontract.APIOpenAIChatCompletions, Provider: "hosted", Model: "gpt-4o",
+		Body: json.RawMessage(`{"messages":[]}`),
+	})
+	if env := readEnv(t, ctx, conn); env.ID != "hosted1" || env.Type != relaycontract.TypeChunk {
+		t.Fatalf("hosted request got %s %s %s", env.ID, env.Type, env.Payload)
+	}
+}
+
+func TestNewProviderValidatesMaxConcurrent(t *testing.T) {
+	p, err := NewProvider(ProviderConfig{Name: "ollama", Kind: KindOllama}, func(string) string { return "" }, nil)
+	if err != nil || p.MaxConcurrent() != DefaultMaxConcurrent {
+		t.Fatalf("default limit = %v, %v", p, err)
+	}
+	for _, bad := range []int{-1, relaycontract.MaxConcurrentCap + 1} {
+		if _, err := NewProvider(ProviderConfig{Name: "ollama", Kind: KindOllama, MaxConcurrent: bad}, func(string) string { return "" }, nil); err == nil || !strings.Contains(err.Error(), "maxConcurrent") {
+			t.Fatalf("maxConcurrent %d: err = %v", bad, err)
+		}
+	}
+}
+
+func TestProviderPriorityIsAdvertised(t *testing.T) {
+	_, srvA := newFakeProvider(t, "qwen3:8b")
+	_, srvB := newFakeProvider(t, "gpt-4o")
+	local, err := NewProvider(ProviderConfig{Name: "ollama", Kind: KindOllama, BaseURL: srvA.URL, Priority: 1}, func(string) string { return "" }, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hosted, err := NewProvider(ProviderConfig{Name: "hosted", Kind: KindOpenAICompatible, BaseURL: srvB.URL}, func(string) string { return "" }, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hub := newFakeHub(t)
+	startRelay(t, hub, []*Provider{local, hosted}, nil)
+	reg := handshake(t, context.Background(), hub.accept(t))
+	got := map[string]int{}
+	for _, m := range reg.Models {
+		got[m.Provider+"/"+m.ID] = m.Priority
+	}
+	if got["ollama/qwen3:8b"] != 1 || got["hosted/gpt-4o"] != 0 {
+		t.Fatalf("advertised priorities = %v", got)
+	}
+
+	for _, bad := range []int{-1, relaycontract.MaxPriority + 1} {
+		if _, err := NewProvider(ProviderConfig{Name: "ollama", Kind: KindOllama, Priority: bad}, func(string) string { return "" }, nil); err == nil || !strings.Contains(err.Error(), "priority") {
+			t.Fatalf("priority %d: err = %v", bad, err)
+		}
 	}
 }

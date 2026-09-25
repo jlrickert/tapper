@@ -60,19 +60,36 @@ warning, like `hubs`.
 
 ```yaml
 relay:
+  enabled: true                 # optional; false turns the relay off
   name: laptop                  # optional; defaults to the hostname
+  hubs: [atlas, work]           # optional; serve these hubs at once
   providers:
     ollama:
       kind: ollama
+      maxConcurrent: 2          # optional; default 4
+      priority: 1               # optional; lower is preferred
       models:
         allow: ["qwen3*"]
     openrouter:
       kind: openrouter
       auth: apiKey
       apiKeyEnv: OPENROUTER_API_KEY
+      maxConcurrent: 16
+      priority: 2
+    speech:                     # a local Whisper server for dictation
+      kind: openai-compatible
+      baseUrl: http://127.0.0.1:8000/v1
+      models:
+        transcription: ["whisper-1"]
 ```
 
+- `enabled`: `false` makes `tap relay` refuse to start, keeping the rest of
+  the block for later. Omitted means enabled.
 - `name`: relay name shown in Hub. Defaults to the sanitized hostname.
+- `hubs`: names from `hubs` to serve at once, each over its own connection
+  with the same providers. Omitted means the one Hub login resolution picks;
+  `--hub` narrows to one. Provider limits are shared across them. See
+  [Several hubs](../ai-coding-agents/relay.md#several-hubs).
 - `providers`: keyed by the provider name advertised to Hub.
   - `kind`: `ollama`, `openai`, `openrouter`, or `openai-compatible`. Defaults
     to the provider's key.
@@ -81,8 +98,20 @@ relay:
   - `auth`: `none` or `apiKey`. Defaults per kind.
   - `apiKeyEnv`: name of the environment variable holding the API key. The
     key is read locally and never sent to Hub.
+  - `maxConcurrent`: this provider's in-flight requests across all hubs,
+    1–64. Defaults to 4. A full provider answers `overloaded` without
+    affecting the others.
+  - `priority`: this provider's rank on Hub, 1–99, lower preferred. Hub lists
+    the provider's models ahead of lower-ranked ones, so chat defaults to them,
+    and a pool tries the higher-ranked source first when several can serve a
+    model. Omitted means unranked, after every ranked provider. Use it to
+    prefer a free local provider over a paid hosted one.
   - `models.allow` / `models.deny`: glob filters over the provider's model
     list. An empty `allow` offers every model not denied.
+  - `models.transcription`: model ids or globs that turn speech into text
+    through the provider's `/audio/transcriptions` endpoint. Hub offers them
+    for dictation, not chat. Exact ids are offered even when the provider's
+    `/models` list omits them, as many speech servers do.
 
 ## Bootstrap
 

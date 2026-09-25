@@ -180,10 +180,22 @@ type AgentEntry struct {
 // RelayConfig configures `tap relay`. It holds provider access and nothing
 // else: model identity comes from the Hub catalog, never from local config.
 type RelayConfig struct {
+	// Enabled turns the relay off without removing its configuration when
+	// false. Omitted means enabled.
+	Enabled *bool `yaml:"enabled,omitempty"`
 	// Name identifies the relay to Hub. It defaults to the hostname.
 	Name string `yaml:"name,omitempty"`
+	// Hubs names the configured hubs to serve at once. Empty means the one
+	// hub `tap relay` resolves like login does; --hub narrows to one.
+	Hubs []string `yaml:"hubs,omitempty"`
 	// Providers are keyed by the name advertised to Hub.
 	Providers map[string]RelayProvider `yaml:"providers,omitempty"`
+}
+
+// IsEnabled reports whether `tap relay` may run: true unless enabled is
+// explicitly false.
+func (rc *RelayConfig) IsEnabled() bool {
+	return rc == nil || rc.Enabled == nil || *rc.Enabled
 }
 
 // RelayProvider describes how the relay reaches one model provider.
@@ -197,13 +209,23 @@ type RelayProvider struct {
 	Auth      string           `yaml:"auth,omitempty"`
 	APIKeyEnv string           `yaml:"apiKeyEnv,omitempty"`
 	Models    RelayModelFilter `yaml:"models,omitempty"`
+	// MaxConcurrent bounds this provider's in-flight requests across every
+	// hub the relay serves. Zero means the relay default (4).
+	MaxConcurrent int `yaml:"maxConcurrent,omitempty"`
+	// Priority ranks this provider's models on Hub, 1 to 99: lower is
+	// preferred, both in the model list and when a pool picks a source.
+	// Omitted means unranked, after every ranked provider.
+	Priority int `yaml:"priority,omitempty"`
 }
 
 // RelayModelFilter selects which of a provider's models are offered. An empty
-// Allow offers everything not denied.
+// Allow offers everything not denied. Transcription names the models (ids or
+// globs) that turn speech into text through /audio/transcriptions instead of
+// chatting; exact ids are offered even when the provider's /models omits them.
 type RelayModelFilter struct {
-	Allow []string `yaml:"allow,omitempty"`
-	Deny  []string `yaml:"deny,omitempty"`
+	Allow         []string `yaml:"allow,omitempty"`
+	Deny          []string `yaml:"deny,omitempty"`
+	Transcription []string `yaml:"transcription,omitempty"`
 }
 
 // KegRef is the (hub, namespace, name) triple a keg alias resolves to. An empty

@@ -179,10 +179,21 @@
       "type": "object",
       "description": "Configures `tap relay`: which local or personal model providers this machine contributes to Hub's model catalog. Holds provider access and nothing else — model identity comes from the Hub catalog. Allowed only in user configuration; project layers are stripped.",
       "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "false makes `tap relay` refuse to start while keeping the rest of the block. Omitted means enabled."
+        },
         "name": {
           "type": "string",
           "pattern": "^[A-Za-z0-9._-]{1,64}$",
           "description": "Identifies the relay to Hub and prefixes its catalog ids (<relay>/<provider>/<model>). Defaults to a name derived from the hostname; `tap relay --name` overrides it."
+        },
+        "hubs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Names from hubs to serve at once, each over its own connection with the same providers. Omitted means the one hub login resolution picks; `tap relay --hub` narrows to one."
         },
         "providers": {
           "type": "object",
@@ -221,6 +232,18 @@
                 "type": "string",
                 "description": "Name of the environment variable holding the API key — the name is configured, never the secret, mirroring hubs.*.tokenEnv. Defaults to OPENAI_API_KEY for openai and OPENROUTER_API_KEY for openrouter. The key stays in the relay process and never reaches Hub."
               },
+              "maxConcurrent": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 64,
+                "description": "This provider's in-flight requests across every hub the relay serves. Defaults to 4."
+              },
+              "priority": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 99,
+                "description": "This provider's rank on Hub, lower preferred, both in the model list and when a pool picks a source. Omitted means unranked, after every ranked provider."
+              },
               "models": {
                 "type": "object",
                 "description": "Which of the provider's models are offered to Hub, resolved against the provider's own model list.",
@@ -238,6 +261,13 @@
                       "type": "string"
                     },
                     "description": "Model ids or path.Match glob patterns never to offer. Deny wins over allow."
+                  },
+                  "transcription": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "description": "Model ids or path.Match glob patterns that turn speech into text through the provider's /audio/transcriptions endpoint. Offered for dictation, not chat; exact ids are offered even when the provider's /models omits them."
                   }
                 },
                 "additionalProperties": true
