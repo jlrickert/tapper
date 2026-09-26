@@ -60,3 +60,26 @@ func TestRelayRefusesToStartWhenDisabled(t *testing.T) {
 	require.NoError(t, err)
 	require.ErrorIs(t, tap.Relay(context.Background(), RelayOptions{}), ErrRelayDisabled)
 }
+
+func TestRelayModelMetadataAndVariantsParse(t *testing.T) {
+	cfg, err := ParseConfig([]byte(`relay:
+  providers:
+    ollama:
+      kind: ollama
+      models:
+        metadata:
+          "gpt-oss*": {reasoning: effort}
+          llama3:8b: {contextWindow: 8192, maxContextWindow: 131072}
+        variants:
+          qwen3.6:35b-256k: {from: "qwen3.6:35b", contextWindow: 262144, reasoning: toggle}
+`))
+	require.NoError(t, err)
+	models := cfg.Relay().Providers["ollama"].Models
+	require.Equal(t, RelayModelMeta{Reasoning: "effort"}, models.Metadata["gpt-oss*"])
+	require.Equal(t, RelayModelMeta{ContextWindow: 8192, MaxContextWindow: 131072}, models.Metadata["llama3:8b"])
+	require.Equal(t, RelayVariant{From: "qwen3.6:35b", RelayModelMeta: RelayModelMeta{ContextWindow: 262144, Reasoning: "toggle"}}, models.Variants["qwen3.6:35b-256k"])
+
+	variants := relayVariants(models.Variants)
+	require.Equal(t, 262144, variants["qwen3.6:35b-256k"].ContextWindow)
+	require.Equal(t, "qwen3.6:35b", variants["qwen3.6:35b-256k"].From)
+}

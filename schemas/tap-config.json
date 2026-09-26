@@ -125,7 +125,7 @@
     },
     "relay": {
       "type": "object",
-      "description": "Configures `tap relay`: which local or personal model providers this machine contributes to Hub's model catalog. Holds provider access and nothing else — model identity comes from the Hub catalog. Allowed only in user configuration; project layers are stripped.",
+      "description": "Configures `tap relay`: which local or personal model providers this machine contributes to Hub's model catalog. Holds provider access and nothing else \u2014 model identity comes from the Hub catalog. Allowed only in user configuration; project layers are stripped.",
       "properties": {
         "enabled": {
           "type": "boolean",
@@ -178,7 +178,7 @@
               },
               "apiKeyEnv": {
                 "type": "string",
-                "description": "Name of the environment variable holding the API key — the name is configured, never the secret, mirroring hubs.*.tokenEnv. Defaults to OPENAI_API_KEY for openai and OPENROUTER_API_KEY for openrouter. The key stays in the relay process and never reaches Hub."
+                "description": "Name of the environment variable holding the API key \u2014 the name is configured, never the secret, mirroring hubs.*.tokenEnv. Defaults to OPENAI_API_KEY for openai and OPENROUTER_API_KEY for openrouter. The key stays in the relay process and never reaches Hub."
               },
               "maxConcurrent": {
                 "type": "integer",
@@ -216,6 +216,92 @@
                       "type": "string"
                     },
                     "description": "Model ids or path.Match glob patterns that turn speech into text through the provider's /audio/transcriptions endpoint. Offered for dictation, not chat; exact ids are offered even when the provider's /models omits them."
+                  },
+                  "embeddings": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "description": "Embedding model IDs or glob patterns; Ollama discovers its own."
+                  },
+                  "metadata": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "object",
+                      "properties": {
+                        "contextWindow": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "maxContextWindow": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "reasoning": {
+                          "type": "string",
+                          "enum": [
+                            "",
+                            "none",
+                            "toggle",
+                            "effort"
+                          ]
+                        },
+                        "tools": {
+                          "type": "boolean"
+                        },
+                        "vision": {
+                          "type": "boolean"
+                        },
+                        "canonical": {
+                          "type": "string",
+                          "description": "Provider-neutral model name used by Hub pools."
+                        }
+                      },
+                      "additionalProperties": false
+                    }
+                  },
+                  "variants": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "object",
+                      "required": [
+                        "from"
+                      ],
+                      "properties": {
+                        "from": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "contextWindow": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "maxContextWindow": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "reasoning": {
+                          "type": "string",
+                          "enum": [
+                            "",
+                            "none",
+                            "toggle",
+                            "effort"
+                          ]
+                        },
+                        "tools": {
+                          "type": "boolean"
+                        },
+                        "vision": {
+                          "type": "boolean"
+                        },
+                        "canonical": {
+                          "type": "string",
+                          "description": "Provider-neutral model name used by Hub pools."
+                        }
+                      },
+                      "additionalProperties": false
+                    }
                   }
                 },
                 "additionalProperties": true

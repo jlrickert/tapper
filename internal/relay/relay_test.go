@@ -84,6 +84,13 @@ func (fp *fakeProvider) serve(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		_, _ = io.WriteString(w, `{"choices":[{"message":{"content":"hello"}}],"usage":{"prompt_tokens":3,"completion_tokens":1}}`)
+	case "/embeddings":
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		fp.mu.Lock()
+		fp.lastBody = body
+		fp.mu.Unlock()
+		_, _ = io.WriteString(w, `{"object":"list","data":[{"object":"embedding","index":0,"embedding":[0.1,0.2]}],"usage":{"prompt_tokens":2,"total_tokens":2}}`)
 	case "/audio/transcriptions":
 		file, header, err := r.FormFile("file")
 		if err != nil {
@@ -569,6 +576,69 @@ func TestTranscriptionInferReturnsText(t *testing.T) {
 	defer fp.mu.Unlock()
 	if fp.lastFile != "RIFFdata" || fp.lastFileName != "audio.webm" || fp.lastForm["model"] != "whisper-1" || fp.lastForm["language"] != "en" {
 		t.Fatalf("provider saw file %q named %q, form %v", fp.lastFile, fp.lastFileName, fp.lastForm)
+	}
+}
+
+func TestEmbeddingsInferReturnsVectors(t *testing.T) {
+	fp, psrv := newFakeProvider(t, "qwen3:8b", "embed-small")
+	p, err := NewProvider(ProviderConfig{Name: "local", Kind: KindOpenAICompatible, BaseURL: psrv.URL, Embeddings: []string{"embed-*"}}, func(string) string { return "" }, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hub := newFakeHub(t)
+	startRelay(t, hub, []*Provider{p}, nil)
+	ctx := context.Background()
+	conn := hub.accept(t)
+	reg := handshake(t, ctx, conn)
+
+	caps := map[string]string{}
+	for _, m := range reg.Models {
+		caps[m.ID] = strings.Join(m.Capabilities, ",")
+	}
+	if caps["qwen3:8b"] != "chat,stream" || caps["embed-small"] != "embeddings" {
+		t.Fatalf("advertised capabilities = %v", caps)
+	}
+
+	writeEnv(t, ctx, conn, relaycontract.TypeInfer, "e1", relaycontract.Infer{
+		API: relaycontract.APIOpenAIEmbeddings, Provider: "local", Model: "embed-small", Body: json.RawMessage(`{"input":["hi"]}`),
+	})
+	env := readEnv(t, ctx, conn)
+	var chunk relaycontract.Chunk
+	if env.Type != relaycontract.TypeChunk || env.Decode(&chunk) != nil {
+		t.Fatalf("frame = %q (%s), want chunk", env.Type, env.Payload)
+	}
+	var result struct {
+		Data []struct {
+			Embedding []float64 `json:"embedding"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(chunk.Data, &result); err != nil || len(result.Data) != 1 || len(result.Data[0].Embedding) != 2 {
+		t.Fatalf("result = %s (%v)", chunk.Data, err)
+	}
+	env = readEnv(t, ctx, conn)
+	var done relaycontract.Done
+	if env.Type != relaycontract.TypeDone || env.Decode(&done) != nil || done.Usage == nil || done.Usage.PromptTokens != 2 {
+		t.Fatalf("frame = %q %s, want done with usage", env.Type, env.Payload)
+	}
+	fp.mu.Lock()
+	model := fp.lastBody["model"]
+	fp.mu.Unlock()
+	if model != "embed-small" {
+		t.Fatalf("provider saw model %v", model)
+	}
+
+	// Each model does its one job.
+	for id, in := range map[string]relaycontract.Infer{
+		"chat-on-embed":  {API: relaycontract.APIOpenAIChatCompletions, Provider: "local", Model: "embed-small", Body: json.RawMessage(`{"messages":[]}`)},
+		"embed-on-qwen":  {API: relaycontract.APIOpenAIEmbeddings, Provider: "local", Model: "qwen3:8b", Body: json.RawMessage(`{"input":"hi"}`)},
+		"audio-on-embed": {API: relaycontract.APIOpenAIAudioTranscriptions, Provider: "local", Model: "embed-small", Body: json.RawMessage(`{"audio":"AA==","mimeType":"audio/webm"}`)},
+	} {
+		writeEnv(t, ctx, conn, relaycontract.TypeInfer, id, in)
+		env := readEnv(t, ctx, conn)
+		var e relaycontract.Error
+		if env.Type != relaycontract.TypeError || env.Decode(&e) != nil || e.Code != relaycontract.CodeUnsupported {
+			t.Fatalf("%s: frame %q %s, want unsupported error", id, env.Type, env.Payload)
+		}
 	}
 }
 
