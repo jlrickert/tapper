@@ -23,7 +23,7 @@ each one:
 
 | Harness | Protocol | Wiring |
 | --- | --- | --- |
-| Claude Code | Anthropic Messages | `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, and every `ANTHROPIC_*_MODEL` slot set to the model. An inherited `ANTHROPIC_API_KEY` is unset. |
+| Claude Code | Anthropic Messages | `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, and every `ANTHROPIC_*_MODEL` slot set to the model. A session-only `--settings` `modelPicker` replaces `/model`'s Claude lineup with your catalog. An inherited `ANTHROPIC_API_KEY` is unset. |
 | Codex | OpenAI Responses | A `foldwise` model provider passed with `-c`, with `wire_api = "responses"` and its key in `TAP_LAUNCH_KEY` |
 | opencode | OpenAI chat completions | A `foldwise` provider in `OPENCODE_CONFIG_CONTENT` listing the whole catalog |
 | pi | OpenAI chat completions | A generated extension loaded with `-e` that registers a `foldwise` provider for the whole catalog. Your `~/.pi/agent` is untouched. |
