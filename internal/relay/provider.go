@@ -58,12 +58,22 @@ type ProviderConfig struct {
 	// turn speech into text through /audio/transcriptions. /models does not
 	// say which models those are, so the user does.
 	Transcription []string
+	// Embeddings names the models (exact ids or globs) that turn text into
+	// vectors through /embeddings, for providers that do not say. Ollama
+	// reports its own.
+	Embeddings []string
 	// MaxConcurrent bounds this provider's in-flight requests across every
 	// hub. Zero means DefaultMaxConcurrent.
 	MaxConcurrent int
 	// Priority ranks the provider's models on Hub, lower preferred. Zero is
 	// unranked.
 	Priority int
+	// Metadata fills in, or corrects, what the provider says about a model's
+	// context and reasoning. Keys are exact ids or path.Match globs.
+	Metadata map[string]ModelMeta
+	// Variants are models offered under their own id that run another with
+	// fixed settings, keyed by the offered id.
+	Variants map[string]Variant
 }
 
 // DefaultMaxConcurrent is a provider's in-flight limit when its config sets
@@ -74,12 +84,17 @@ const DefaultMaxConcurrent = 4
 // endpoint, and /audio/transcriptions for the Transcription models.
 type Provider struct {
 	name          string
+	kind          string
 	baseURL       string
 	apiKey        string
 	allow         []string
 	deny          []string
 	transcription []string
+	embeddings    []string
 	priority      int
+	metadata      map[string]ModelMeta
+	variants      map[string]Variant
+	shows         showCache
 	client        *http.Client
 	// sem holds one token per in-flight request. A provider is its own
 	// capacity — a local GPU and a hosted API have nothing to share.
@@ -137,9 +152,25 @@ func NewProvider(cfg ProviderConfig, getenv func(string) string, client *http.Cl
 	if cfg.Priority < 0 || cfg.Priority > relaycontract.MaxPriority {
 		return nil, fmt.Errorf("relay provider %q: priority must be between 1 and %d, got %d", cfg.Name, relaycontract.MaxPriority, cfg.Priority)
 	}
+	for id, m := range cfg.Metadata {
+		if err := validateMeta(cfg.Name, id, m); err != nil {
+			return nil, err
+		}
+	}
+	for id, v := range cfg.Variants {
+		if id == "" || len(id) > relaycontract.MaxModelIDLength || strings.ContainsAny(id, "\x00\n\r*?[\\") {
+			return nil, fmt.Errorf("relay provider %q: variant id %q is not a valid model id", cfg.Name, id)
+		}
+		if strings.TrimSpace(v.From) == "" || v.From == id {
+			return nil, fmt.Errorf("relay provider %q: variant %q needs a different model in from", cfg.Name, id)
+		}
+		if err := validateMeta(cfg.Name, id, v.ModelMeta); err != nil {
+			return nil, err
+		}
+	}
 	p := &Provider{
-		name: cfg.Name, baseURL: baseURL, allow: cfg.Allow, deny: cfg.Deny, transcription: cfg.Transcription,
-		priority: cfg.Priority, client: client, sem: make(chan struct{}, limit),
+		name: cfg.Name, kind: kind, baseURL: baseURL, allow: cfg.Allow, deny: cfg.Deny, transcription: cfg.Transcription, embeddings: cfg.Embeddings,
+		priority: cfg.Priority, metadata: cfg.Metadata, variants: cfg.Variants, client: client, sem: make(chan struct{}, limit),
 	}
 	if p.client == nil {
 		p.client = http.DefaultClient
@@ -187,38 +218,6 @@ func (p *Provider) tryAcquire() bool {
 
 func (p *Provider) release() { <-p.sem }
 
-// ListModels returns the provider's models after applying allow and deny.
-func (p *Provider) ListModels(ctx context.Context) ([]string, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.baseURL+"/models", nil)
-	if err != nil {
-		return nil, err
-	}
-	p.authorize(req)
-	resp, err := p.client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("list models from %s: %w", p.name, err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode/100 != 2 {
-		return nil, providerStatusError(p.name, resp)
-	}
-	var list struct {
-		Data []struct {
-			ID string `json:"id"`
-		} `json:"data"`
-	}
-	if err := json.NewDecoder(io.LimitReader(resp.Body, maxResponseBytes)).Decode(&list); err != nil {
-		return nil, fmt.Errorf("list models from %s: %w", p.name, err)
-	}
-	out := make([]string, 0, len(list.Data))
-	for _, m := range list.Data {
-		if m.ID != "" && p.offers(m.ID) {
-			out = append(out, m.ID)
-		}
-	}
-	return out, nil
-}
-
 // Transcribes reports whether model is one of the configured transcription
 // models.
 func (p *Provider) Transcribes(model string) bool {
@@ -230,21 +229,65 @@ func (p *Provider) Transcribes(model string) bool {
 	return false
 }
 
+// Embeds reports whether model is one of the configured embedding models.
+func (p *Provider) Embeds(model string) bool {
+	for _, pattern := range p.embeddings {
+		if matchModel(pattern, model) {
+			return true
+		}
+	}
+	return false
+}
+
+// Embeddings posts an OpenAI /embeddings request and returns the provider's
+// response as is. body is the caller's request; model is the offered id,
+// rewritten to the provider's own name for an alias variant.
+func (p *Provider) Embeddings(ctx context.Context, body json.RawMessage, model string) (json.RawMessage, *relaycontract.Usage, error) {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(body, &fields); err != nil || fields == nil {
+		return nil, nil, errors.New("request body must be a JSON object")
+	}
+	fields["model"], _ = json.Marshal(p.upstream(model))
+	payload, err := json.Marshal(fields)
+	if err != nil {
+		return nil, nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.baseURL+"/embeddings", bytes.NewReader(payload))
+	if err != nil {
+		return nil, nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	p.authorize(req)
+	resp, err := p.client.Do(req)
+	if err != nil {
+		return nil, nil, fmt.Errorf("call %s: %w", p.name, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode/100 != 2 {
+		return nil, nil, providerStatusError(p.name, resp)
+	}
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes))
+	if err != nil {
+		return nil, nil, fmt.Errorf("read %s response: %w", p.name, err)
+	}
+	return raw, usageOf(raw), nil
+}
+
 // WithTranscriptionModels returns listed plus every exact (non-glob)
 // transcription model id missing from it: a speech server often lists no
 // models at all, or not the one configured.
-func (p *Provider) WithTranscriptionModels(listed []string) []string {
-	out := append([]string(nil), listed...)
+func (p *Provider) WithTranscriptionModels(listed []relaycontract.Model) []relaycontract.Model {
+	out := append([]relaycontract.Model(nil), listed...)
 	seen := make(map[string]bool, len(listed))
-	for _, id := range listed {
-		seen[id] = true
+	for _, m := range listed {
+		seen[m.ID] = true
 	}
 	for _, pattern := range p.transcription {
 		if strings.ContainsAny(pattern, "*?[\\") || seen[pattern] || !p.offers(pattern) {
 			continue
 		}
 		seen[pattern] = true
-		out = append(out, pattern)
+		out = append(out, relaycontract.Model{ID: pattern, Provider: p.name})
 	}
 	return out
 }
@@ -385,8 +428,9 @@ func (p *Provider) ChatCompletions(ctx context.Context, body json.RawMessage, mo
 	if err := json.Unmarshal(body, &fields); err != nil || fields == nil {
 		return nil, errors.New("request body must be a JSON object")
 	}
-	fields["model"], _ = json.Marshal(model)
+	fields["model"], _ = json.Marshal(p.upstream(model))
 	fields["stream"], _ = json.Marshal(stream)
+	p.translateReasoning(fields)
 	payload, err := json.Marshal(fields)
 	if err != nil {
 		return nil, err

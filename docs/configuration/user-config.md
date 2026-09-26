@@ -69,6 +69,11 @@ relay:
       priority: 1               # optional; lower is preferred
       models:
         allow: ["qwen3*"]
+        metadata:               # optional; fills in what discovery lacks
+          "gpt-oss*": {reasoning: effort}
+          "my-finetune:latest": {tools: true, canonical: qwen3-8b-ft}
+        variants:               # optional; a fixed context is its own model
+          qwen3.6:35b-256k: {from: "qwen3.6:35b", contextWindow: 262144}
     openrouter:
       kind: openrouter
       auth: apiKey
@@ -111,6 +116,42 @@ relay:
     through the provider's `/audio/transcriptions` endpoint. Hub offers them
     for dictation, not chat. Exact ids are offered even when the provider's
     `/models` list omits them, as many speech servers do.
+  - `models.embeddings`: model ids or globs that turn text into vectors
+    through the provider's `/embeddings` endpoint. Hub offers them at its
+    `/embeddings` route, not for chat. Ollama reports its own embedding models
+    (the `embedding` capability in `/api/show`), so this is for other
+    providers.
+  - `models.metadata`: what to tell Hub about a model's context and reasoning,
+    keyed by model id or glob. Each entry takes `contextWindow` (the window
+    the provider serves), `maxContextWindow` (the most the model supports),
+    `reasoning` (`none`, `toggle` for on/off, or `effort` for
+    low/medium/high), `tools` and `vision` (whether the model calls tools
+    and accepts images), and `canonical` (the provider-neutral name Hub pools
+    the model under, lowercase letters, digits, `.`, `_` and `-`; derived from
+    the id when unset). Set fields override what the relay discovered; globs
+    apply in key order, then an exact id. Use it for providers that report
+    nothing, such as `openai` and most `openai-compatible` servers.
+  - `models.variants`: models offered under their own id that run another
+    (`from`) with fixed settings, plus the same fields as `metadata`. On
+    Ollama a variant with a `contextWindow` is created as a real model with
+    that `num_ctx` (`ollama list` shows it; it shares the base model's
+    weights) and re-created when the value changes, because Ollama's OpenAI
+    API cannot set the context per request. On other providers a variant is
+    an alias: requests go out as `from`, and Hub sees the configured limits.
+
+What the relay reports to Hub, per model:
+
+| Provider | Max context | Served context | Reasoning | Tools, vision |
+|---|---|---|---|---|
+| `ollama` | `/api/show` `model_info.*.context_length` | `num_ctx` parameter, else the loaded context from `/api/ps`, else unknown | `/api/show` `thinking.values`: levels mean `effort`, booleans `toggle`. An `embedding` capability makes it an embedding model | `/api/show` `tools` and `vision` capabilities |
+| `openrouter` | `/models` `context_length` | `top_provider.context_length` | `effort` when `supported_parameters` includes `reasoning` | `supported_parameters` includes `tools`; `architecture.input_modalities` includes `image` |
+| `openai`, `openai-compatible` | from `metadata` | from `metadata` | from `metadata` | from `metadata` |
+
+Hub shows the max and served context beside each model's context setting, and
+offers a reasoning control for models that have one. A reasoning setting
+reaches the relay as `reasoning_effort` (`none`, `low`, `medium`, `high`);
+the relay passes it to Ollama and OpenAI as is and rewrites it to
+`reasoning` for OpenRouter.
 
 ## Bootstrap
 
