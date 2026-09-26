@@ -78,9 +78,10 @@ Chat models also say whether they call tools and accept images:
 
 Hub shows these as badges on agent model lists and sends tool and image requests only to models that support them.
 
-Hub pools models by a **canonical name**, so the same weights served by different providers or relays are one model:
+Hub pools models by a **canonical name**, so the same weights at the same precision served by different providers or relays are one model:
 - `@<you>/qwen3.6-35b`, whether it runs as Ollama's `qwen3.6:35b-mlx` or LM Studio's `qwen/qwen3.6-35b`.
-- The relay derives the name: it lowercases, drops a source prefix and `:latest`, and strips trailing quantization or packaging parts (`mlx`, `q4_k_m`, `4bit`, …).
+- `@<you>/qwen3.6-35b-a3b-8bit` for Ollama's `qwen3.6:35b-a3b-mxfp8` and `qwen3.6:35b-a3b-q8_0` alike; the `nvfp4` build is a separate `qwen3.6-35b-a3b-4bit`.
+- The relay derives the name: it lowercases, drops a source prefix and `:latest`, strips trailing packaging parts (`mlx`, `gguf`, …), and rewrites a trailing quantization part (`q4_k_m`, `mxfp8`, `bf16`, …) as its bits per weight (`4bit`, `8bit`, `16bit`).
 - Set `canonical:` in `models.metadata` when the derived name pools the wrong models together, or keeps apart ones that belong together.
 
 A model does one job. Chat models serve chat completions, speech models
