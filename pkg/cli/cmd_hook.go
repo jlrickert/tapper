@@ -94,7 +94,7 @@ session.`,
 
 Reads a PreToolUse payload on stdin (tool_name plus tool_input) and denies a
 recognized direct tap or keg invocation, a write to Tapper configuration, or a
-change to TAP_FLIGHT or TAP_AGENT. Reads are never denied, and these probes
+change to TAP_FLIGHT, TAP_HARNESS, or TAP_MODEL. Reads are never denied, and these probes
 stay allowed: completion, --version, --help.
 
 Silence is the allow verdict. Output appears only to deny, as an object whose
@@ -321,10 +321,20 @@ func hookToolInputDenied(rt *toolkit.Runtime, toolName string, input map[string]
 	return false
 }
 
+// hookReservedVariable reports whether name is one of the variables
+// `tap launch` sets for the session, which an agent must not change.
+func hookReservedVariable(name string) bool {
+	switch name {
+	case "TAP_FLIGHT", "TAP_HARNESS", "TAP_MODEL":
+		return true
+	}
+	return false
+}
+
 func hookReservedEnvironmentChange(argv []string) bool {
 	for i, arg := range argv {
 		if argv[0] == "env" && (arg == "-u" || arg == "--unset") && i+1 < len(argv) &&
-			(argv[i+1] == "TAP_FLIGHT" || argv[i+1] == "TAP_AGENT") {
+			hookReservedVariable(argv[i+1]) {
 			return true
 		}
 		name := strings.TrimSpace(strings.TrimPrefix(arg, "--unset="))
@@ -332,7 +342,7 @@ func hookReservedEnvironmentChange(argv []string) bool {
 			name = assignment
 		}
 		name = strings.TrimPrefix(name, "export ")
-		if name != "TAP_FLIGHT" && name != "TAP_AGENT" {
+		if !hookReservedVariable(name) {
 			continue
 		}
 		if i == 0 || isHookAssignment(arg) || argv[0] == "export" || argv[0] == "unset" || argv[0] == "env" {

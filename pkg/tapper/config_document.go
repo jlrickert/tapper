@@ -9,19 +9,15 @@ import (
 
 // updated remains owned so legacy timestamps are removed on serialization.
 var configOwnedFields = map[string]struct{}{
-	"logFile": {}, "logLevel": {}, "updated": {}, "keg": {}, "flight": {}, "agent": {}, "kegMap": {},
+	"logFile": {}, "logLevel": {}, "updated": {}, "keg": {}, "flight": {}, "kegMap": {},
 	"hub":              {},
 	"disableAtlasHub":  {},
-	"disableTelemetry": {}, "hubs": {}, "agents": {},
+	"disableTelemetry": {}, "hubs": {},
 }
 
 var configObjectOwnedFields = map[string]map[string]struct{}{
 	"hubs": {
 		"url": {}, "token": {}, "tokenEnv": {},
-	},
-	"agents": {
-		"model": {}, "baseUrl": {}, "auth": {}, "apiKeyEnv": {},
-		"contextWindow": {}, "args": {},
 	},
 }
 
@@ -56,7 +52,7 @@ func overlayConfigDocument(original *yaml.Node, data *configDTO) (*yaml.Node, er
 			continue
 		}
 		switch field {
-		case "hubs", "agents":
+		case "hubs":
 			if exists && dstValue.Kind == yaml.MappingNode && srcValue.Kind == yaml.MappingNode {
 				overlayNamedObjects(dstValue, srcValue, configObjectOwnedFields[field])
 			} else {

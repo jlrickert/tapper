@@ -78,7 +78,7 @@ func (t *Tap) Orient(ctx context.Context, opts OrientOptions) (string, error) {
 		rows := append([]*Flight{graph.Root}, graph.Available...)
 		authority = &OrientationAuthority{Root: graph.Root, Active: flight, Children: ImmediateFlightChildren(flight, rows)}
 	}
-	payload, err := BuildOrientationPayload(flight, flightNote, t.ActiveAgentName(), available, warnings, authority)
+	payload, err := BuildOrientationPayload(flight, flightNote, t.ActiveLaunch(), available, warnings, authority)
 	if err != nil {
 		return "", err
 	}
@@ -157,10 +157,10 @@ func (t *Tap) ActiveFlightName(explicit string) string {
 	return strings.TrimSpace(cfg.Flight())
 }
 
-// ActiveAgentName reports the agent driving this process, or "" when none is
-// selected. Like ActiveFlightName it is a pure read of the current snapshot;
-// the value only changes when a caller reloads.
-func (t *Tap) ActiveAgentName() string {
+// ActiveLaunch describes the `tap launch` session driving this process, as
+// "<harness> on <model>", or "" when it was not launched. Like
+// ActiveFlightName it is a pure read of the current snapshot.
+func (t *Tap) ActiveLaunch() string {
 	if t == nil || t.ConfigService == nil {
 		return ""
 	}
@@ -168,7 +168,15 @@ func (t *Tap) ActiveAgentName() string {
 	if err != nil || cfg == nil {
 		return ""
 	}
-	return cfg.AgentName()
+	harness, model := cfg.LaunchHarness(), cfg.LaunchModel()
+	switch {
+	case harness == "":
+		return ""
+	case model == "":
+		return harness
+	default:
+		return harness + " on " + model
+	}
 }
 
 func (t *Tap) resolveOrientFlight(ctx context.Context, name string) (*Flight, string, error) {
@@ -218,21 +226,12 @@ func (t *Tap) identityKegCatalog(ctx context.Context) ([]OrientationKeg, []strin
 	if t == nil || t.ConfigService == nil {
 		return nil, []string{"KEG listing unavailable: no config service is configured."}, nil
 	}
-	cfg, loadWarnings, err := t.ConfigService.Load()
+	cfg, _, err := t.ConfigService.Load()
 	if err != nil {
 		return nil, []string{fmt.Sprintf("KEG listing unavailable: %v", err)}, nil
 	}
 
 	var warnings []string
-	// Agent-selection warnings are the one config-load class that belongs in the
-	// payload: they explain why the session is on a different flight than the
-	// user expects, and the reader is the only one who can fix it. The rest stay
-	// out so orientation does not turn into a config linter.
-	for _, w := range loadWarnings {
-		if w.Source == "agent" {
-			warnings = append(warnings, w.Message)
-		}
-	}
 	var out []OrientationKeg
 	for _, hubName := range t.allHubNames(cfg) {
 		entry, ok := cfg.Hub(hubName)
@@ -395,10 +394,10 @@ func OrientationOperatingRules() string {
 }
 
 // BuildOrientationPayload renders the provider-neutral orientation document
-// from one flight snapshot and its effective KEG listing. agent names
-// the `tap launch` agent driving the session, or "" when a human is; it is
-// reported because it explains where the flight came from and how to change it.
-func BuildOrientationPayload(flight *Flight, flightNote, agent string, kegs []OrientationKeg, warnings []string, authority *OrientationAuthority) (string, error) {
+// from one flight snapshot and its effective KEG listing. launch describes the
+// `tap launch` session driving the process (see Tap.ActiveLaunch), or "" when
+// a human is.
+func BuildOrientationPayload(flight *Flight, flightNote, launch string, kegs []OrientationKeg, warnings []string, authority *OrientationAuthority) (string, error) {
 	var b strings.Builder
 	b.WriteString("# KEG System\n\n")
 	b.WriteString("Call `orient` at session start and after every context reset. Authority is bounded by identity permissions and the selected flight; child authority and instructions are not inherited. Use only `mcp__tapper__*` tools for KEG operations. Call `keg_settings` before operating in a KEG. Snapshot before meaningful edits; snapshots do not protect deletion. Re-read for a fresh hash before each guarded write. Call `guide` for detailed operating, authoring/linking, snapshots, tools, or troubleshooting guidance.\n\n")
@@ -406,8 +405,8 @@ func BuildOrientationPayload(flight *Flight, flightNote, agent string, kegs []Or
 		fmt.Fprintf(&b, "Warning: %s\n\n", orientationTableCell(warning))
 	}
 
-	if agent != "" {
-		fmt.Fprintf(&b, "Session agent `%s` selects only the model and telemetry identity; it cannot select or replace the connection root.\n\n", agent)
+	if launch != "" {
+		fmt.Fprintf(&b, "Session launched by `tap launch` as `%s`. The harness and model are identity for telemetry only; they cannot select or replace the connection root.\n\n", launch)
 	}
 	b.WriteString("## Flight\n\n")
 	if flightNote != "" {

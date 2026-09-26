@@ -1,574 +1,400 @@
-package tapper_test
+package tapper
 
 import (
+	"bufio"
 	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/jlrickert/cli-toolkit/sandbox"
 	"github.com/stretchr/testify/require"
-
-	"github.com/jlrickert/tapper/pkg/tapper"
 )
 
-// newLaunchTap builds a Tap over a sandbox seeded with the given user config.
-func newLaunchTap(t *testing.T, userConfig string) *tapper.Tap {
+// fakeInferenceHub serves Hub's inference surfaces for token. Every POST
+// echoes the path and bearer it saw plus its body, so a test can tell where a
+// forwarded request went and which Hub token it carried.
+func fakeInferenceHub(t *testing.T, token string, models string) *httptest.Server {
 	t.Helper()
-	sb := sandbox.NewSandbox(t, &sandbox.Options{
-		Home: "/home/testuser",
-		User: "testuser",
-	})
-	require.NoError(t, sb.Runtime().AtomicWriteFile(
-		"/home/testuser/.config/tapper/config.yaml", []byte(userConfig), 0o644))
-	tap, err := tapper.NewTap(tapper.TapOptions{Runtime: sb.Runtime()})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		bearer, _ := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+		if !strings.HasPrefix(bearer, token) {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/inference/openai/v1/models":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, models)
+		case r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/inference/"):
+			body, _ := io.ReadAll(r.Body)
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.Header().Set("X-Internal", "leak")
+			fmt.Fprintf(w, "data: {\"path\":%q,\"bearer\":%q,\"version\":%q,\"body\":%s}\n\n",
+				r.URL.Path, bearer, r.Header.Get("Anthropic-Version"), body)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+const twoModels = `{"object":"list","data":[
+  {"id":"laptop/ollama/qwen3:8b","object":"model","owned_by":"relay:laptop","context_window":32768},
+  {"id":"laptop/ollama/whisper","object":"model","owned_by":"relay:laptop","capabilities":["transcription"]},
+  {"id":"laptop/ollama/llama3","object":"model","owned_by":"relay:laptop"}]}`
+
+// newLaunchTap builds a Tap whose selected hub is hubURL, with extra appended
+// to the user config.
+func newLaunchTap(t *testing.T, hubURL, extra string) *Tap {
+	t.Helper()
+	sb := sandbox.NewSandbox(t, &sandbox.Options{Home: "/home/testuser", User: "testuser"})
+	cfg := fmt.Sprintf("hub: atlas\nhubs:\n  atlas: {kind: remote, url: %s, token: hub-token}\n%s", hubURL, extra)
+	require.NoError(t, sb.Runtime().AtomicWriteFile("/home/testuser/.config/tapper/config.yaml", []byte(cfg), 0o644))
+	tap, err := NewTap(TapOptions{Runtime: sb.Runtime()})
 	require.NoError(t, err)
 	return tap
 }
 
-const launchUserConfig = `fallbackNamespace: local
-flight: "@testuser/+root"
-hub: atlas
-hubs:
-  atlas:
-    kind: remote
-    url: https://atlas.example.test
-agents:
-  opus:
-    model: anthropic/claude-opus-4
-    flight: +dev
-  local:
-    model: ollama/qwen3.6:35b-mlx
-    flight: "@testuser/+scratch"
-  lab:
-    model: ollama/qwen3.6:35b-mlx
-    baseUrl: http://192.168.50.197:11434/v1
-  bare:
-    model: claude-opus-4
-    flight: +dev
-  hosted:
-    model: openai/gpt-5
-  sub:
-    model: anthropic/claude-opus-4
-    auth: subscription
-  work:
-    model: openai/gpt-5
-    apiKeyEnv: WORK_OPENAI_KEY
-  badauth:
-    model: openai/gpt-5
-    auth: nonsense
-  localsub:
-    model: ollama/qwen3.6:35b-mlx
-    auth: subscription
-  capped:
-    model: ollama/qwen3.6:35b-mlx
-    contextWindow: 150000
-    args: ['--search']
-`
-
-func TestParseAgentModel(t *testing.T) {
-	t.Parallel()
-
-	provider, model, err := tapper.ParseAgentModel("ollama/qwen3.6:35b")
-	require.NoError(t, err)
-	require.Equal(t, tapper.ProviderOllama, provider)
-	// The model id keeps its own colons; only the first slash is the split.
-	require.Equal(t, "qwen3.6:35b", model)
-
-	provider, model, err = tapper.ParseAgentModel("anthropic/claude-opus-4")
-	require.NoError(t, err)
-	require.Equal(t, tapper.ProviderAnthropic, provider)
-	require.Equal(t, "claude-opus-4", model)
-
-	// An unqualified model is rejected rather than guessed at, because the
-	// provider decides which protocol the harness must speak.
-	_, _, err = tapper.ParseAgentModel("claude-opus-4")
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "provider-qualified")
-
-	_, _, err = tapper.ParseAgentModel("bedrock/some-model")
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "unknown model provider")
-
-	_, _, err = tapper.ParseAgentModel("")
-	require.Error(t, err)
+// noHubToken checks that no rendered part of a launch carries the Hub token.
+func noHubToken(t *testing.T, got *LaunchResult) {
+	t.Helper()
+	for _, part := range got.Argv {
+		require.NotContains(t, part, "hub-token")
+	}
+	for k, v := range got.Env {
+		require.NotContains(t, v, "hub-token", "the Hub token must not reach the child (%s)", k)
+	}
+	for name, content := range got.Files {
+		require.NotContains(t, content, "hub-token", "the Hub token must not reach the child (%s)", name)
+	}
 }
 
-func TestResolveLaunch_AnthropicOnClaude(t *testing.T) {
+func TestLaunchHarnesses(t *testing.T) {
 	t.Parallel()
-	tap := newLaunchTap(t, launchUserConfig)
-
-	got, err := tap.ResolveLaunch(tapper.LaunchOptions{Harness: "claude", Agent: "opus"})
-	require.NoError(t, err)
-
-	require.Equal(t, tapper.ProviderAnthropic, got.Provider)
-	require.Equal(t, "claude-opus-4", got.Model)
-	// Claude Code takes its model through the environment, not a flag.
-	require.Equal(t, []string{"claude"}, got.Argv)
-	require.Equal(t, "claude-opus-4", got.Env["ANTHROPIC_MODEL"])
-	require.Equal(t, "opus", got.Env["TAP_AGENT"])
-	require.Equal(t, "@testuser/+root", got.Env["TAP_FLIGHT"])
-	require.Equal(t, "@testuser/+root", got.Flight)
+	require.Equal(t, []string{"claude", "codex", "opencode", "pi"}, LaunchHarnesses())
 }
 
-// Codex has first-class local-provider support and configures it through
-// --oss/--local-provider plus CODEX_OSS_BASE_URL. It ignores OPENAI_BASE_URL,
-// and an OPENAI_API_KEY would push it into API-key billing against the wrong
-// provider — `codex doctor` calls that "mixed auth signals".
-func TestResolveLaunch_OllamaOnCodexUsesOSSProvider(t *testing.T) {
+func TestResolveLaunch_Claude(t *testing.T) {
 	t.Parallel()
-	tap := newLaunchTap(t, launchUserConfig)
-
-	got, err := tap.ResolveLaunch(tapper.LaunchOptions{Harness: "codex", Agent: "local"})
+	hub := fakeInferenceHub(t, "hub-token", twoModels)
+	got, err := newLaunchTap(t, hub.URL, "").ResolveLaunch(LaunchOptions{Harness: "claude", Model: "laptop/ollama/llama3"})
 	require.NoError(t, err)
+	require.Equal(t, []string{"claude", "--model", "laptop/ollama/llama3", "--settings"}, got.Argv[:4])
+	var settings struct {
+		ModelPicker []struct{ ID, Model, Label, Description string } `json:"modelPicker"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(got.Argv[4]), &settings))
+	require.Len(t, settings.ModelPicker, 2, "the picker lists every chat model in the catalog, not the speech model")
+	require.Equal(t, "laptop/ollama/qwen3:8b", settings.ModelPicker[0].Model)
+	require.Equal(t, "laptop/ollama/qwen3:8b", settings.ModelPicker[0].Label)
+	require.Equal(t, "Hub · relay:laptop · 32k context", settings.ModelPicker[0].Description)
+	require.Equal(t, "laptop/ollama/llama3", settings.ModelPicker[1].Model)
+	require.Equal(t, launchForwarderPlaceholder+"/anthropic", got.Env["ANTHROPIC_BASE_URL"])
+	require.Equal(t, launchKeyPlaceholder, got.Env["ANTHROPIC_AUTH_TOKEN"])
+	for _, slot := range []string{"ANTHROPIC_MODEL", "ANTHROPIC_DEFAULT_OPUS_MODEL", "ANTHROPIC_DEFAULT_SONNET_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL", "ANTHROPIC_SMALL_FAST_MODEL"} {
+		require.Equal(t, "laptop/ollama/llama3", got.Env[slot], "every model slot stays on Hub (%s)", slot)
+	}
+	require.Equal(t, []string{"ANTHROPIC_API_KEY"}, got.StripEnv, "an inherited key would win over the launch key")
+	require.NotContains(t, got.Env, "CLAUDE_CODE_MAX_CONTEXT_TOKENS", "no window is invented for a model without one")
+	require.Equal(t, "claude", got.Env["TAP_HARNESS"])
+	require.Equal(t, "laptop/ollama/llama3", got.Env["TAP_MODEL"])
+	noHubToken(t, got)
 
-	require.Equal(t, tapper.ProviderOllama, got.Provider)
-	require.Equal(t,
-		[]string{"codex", "--oss", "--local-provider", "ollama", "--model", "qwen3.6:35b-mlx"},
-		got.Argv)
-	require.Equal(t, "http://localhost:11434/v1", got.Env["CODEX_OSS_BASE_URL"])
-	require.NotContains(t, got.Env, "OPENAI_BASE_URL")
-	require.NotContains(t, got.Env, "OPENAI_API_KEY")
-	require.Equal(t, "local", got.Env["TAP_AGENT"])
-	require.Equal(t, "@testuser/+root", got.Env["TAP_FLIGHT"])
+	got, err = newLaunchTap(t, hub.URL, "").ResolveLaunch(LaunchOptions{Harness: "claude", Model: "laptop/ollama/qwen3:8b"})
+	require.NoError(t, err)
+	require.Equal(t, "32768", got.Env["CLAUDE_CODE_MAX_CONTEXT_TOKENS"], "Claude Code compacts against the advertised window")
 }
 
-func TestResolveLaunch_OpenAIOnCodexLeavesDefaultEndpoint(t *testing.T) {
+func TestResolveLaunch_Codex(t *testing.T) {
 	t.Parallel()
-	tap := newLaunchTap(t, launchUserConfig)
-
-	got, err := tap.ResolveLaunch(tapper.LaunchOptions{Harness: "codex", Agent: "hosted"})
+	hub := fakeInferenceHub(t, "hub-token", twoModels)
+	got, err := newLaunchTap(t, hub.URL, "").ResolveLaunch(LaunchOptions{
+		Harness: "codex", Model: "laptop/ollama/qwen3:8b", Args: []string{"--sandbox", "read-only"},
+	})
 	require.NoError(t, err)
+	require.Equal(t, []string{
+		"codex",
+		"-c", `model_providers.foldwise={name="Foldwise (atlas)", base_url="` + launchForwarderPlaceholder + `/v1", env_key="TAP_LAUNCH_KEY", wire_api="responses"}`,
+		"-c", `model_provider="foldwise"`,
+		"-c", "model_context_window=32768",
+		"--model", "laptop/ollama/qwen3:8b",
+		"--sandbox", "read-only",
+	}, got.Argv)
+	require.Equal(t, launchKeyPlaceholder, got.Env[launchKeyEnv])
+	require.NotContains(t, got.Env, "OPENAI_API_KEY", "an API key would put Codex in mixed-auth mode")
+	noHubToken(t, got)
 
-	require.Equal(t, []string{"codex", "--model", "gpt-5"}, got.Argv)
-	require.NotContains(t, got.Env, "OPENAI_BASE_URL")
-	// An agent may omit its legacy flight field; the root is independent.
-	require.Equal(t, "hosted", got.Env["TAP_AGENT"])
-	require.Equal(t, "@testuser/+root", got.Env["TAP_FLIGHT"])
+	// No context window advertised, no override invented.
+	got, err = newLaunchTap(t, hub.URL, "").ResolveLaunch(LaunchOptions{Harness: "codex", Model: "laptop/ollama/llama3"})
+	require.NoError(t, err)
+	require.NotContains(t, strings.Join(got.Argv, " "), "model_context_window")
 }
 
-// Ollama serves both /v1/messages and /v1/chat/completions, so it is the one
-// provider every harness can drive. Claude Code needs the base URL without the
-// /v1 suffix because it appends /v1/messages itself.
-func TestResolveLaunch_OllamaOnClaudeUsesAnthropicProtocol(t *testing.T) {
+func TestResolveLaunch_Opencode(t *testing.T) {
 	t.Parallel()
-	tap := newLaunchTap(t, launchUserConfig)
-
-	got, err := tap.ResolveLaunch(tapper.LaunchOptions{Harness: "claude", Agent: "local"})
+	hub := fakeInferenceHub(t, "hub-token", twoModels)
+	got, err := newLaunchTap(t, hub.URL, "").ResolveLaunch(LaunchOptions{Harness: "opencode", Model: "laptop/ollama/qwen3:8b"})
 	require.NoError(t, err)
+	require.Equal(t, []string{"opencode", "--model", "foldwise/laptop/ollama/qwen3:8b"}, got.Argv)
 
-	require.Equal(t, []string{"claude"}, got.Argv)
-	require.Equal(t, "qwen3.6:35b-mlx", got.Env["ANTHROPIC_MODEL"])
-	require.Equal(t, "http://localhost:11434", got.Env["ANTHROPIC_BASE_URL"])
-	require.Equal(t, "ollama", got.Env["ANTHROPIC_API_KEY"])
+	var cfg struct {
+		Provider map[string]struct {
+			NPM     string            `json:"npm"`
+			Options map[string]string `json:"options"`
+			Models  map[string]struct {
+				Limit *struct{ Context, Output int } `json:"limit"`
+			} `json:"models"`
+		} `json:"provider"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(got.Env["OPENCODE_CONFIG_CONTENT"]), &cfg))
+	p := cfg.Provider["foldwise"]
+	require.Equal(t, "@ai-sdk/openai-compatible", p.NPM)
+	require.Equal(t, launchForwarderPlaceholder+"/v1", p.Options["baseURL"])
+	require.Equal(t, launchKeyPlaceholder, p.Options["apiKey"], "a dry run shows placeholders, never a key")
+	require.Len(t, p.Models, 2, "every chat model is offered so opencode can switch; the speech model is not")
+	require.Equal(t, 32768, p.Models["laptop/ollama/qwen3:8b"].Limit.Context)
+	require.Nil(t, p.Models["laptop/ollama/llama3"].Limit, "no limit is invented for a model without one")
+	noHubToken(t, got)
 }
 
-// One configured baseUrl is correct for both protocols: the launcher adds the
-// /v1 suffix for OpenAI clients and removes it for Anthropic ones.
-func TestResolveLaunch_BaseURLNormalizesPerProtocol(t *testing.T) {
+func TestResolveLaunch_Pi(t *testing.T) {
 	t.Parallel()
-	tap := newLaunchTap(t, launchUserConfig)
-
-	viaClaude, err := tap.ResolveLaunch(tapper.LaunchOptions{Harness: "claude", Agent: "lab"})
+	hub := fakeInferenceHub(t, "hub-token", twoModels)
+	got, err := newLaunchTap(t, hub.URL, "").ResolveLaunch(LaunchOptions{Harness: "pi", Model: "laptop/ollama/qwen3:8b"})
 	require.NoError(t, err)
-	require.Equal(t, "http://192.168.50.197:11434", viaClaude.Env["ANTHROPIC_BASE_URL"])
+	require.Equal(t, []string{"pi", "-e", launchDirPlaceholder + "/foldwise-pi.ts", "--provider", "foldwise", "--model", "laptop/ollama/qwen3:8b"}, got.Argv)
+	require.Equal(t, launchKeyPlaceholder, got.Env[launchKeyEnv])
 
-	viaCodex, err := tap.ResolveLaunch(tapper.LaunchOptions{Harness: "codex", Agent: "lab"})
-	require.NoError(t, err)
-	require.Equal(t, "http://192.168.50.197:11434/v1", viaCodex.Env["CODEX_OSS_BASE_URL"])
+	ext := got.Files["foldwise-pi.ts"]
+	require.Contains(t, ext, `pi.registerProvider("foldwise", `)
+	start, end := strings.Index(ext, "{"), strings.LastIndex(ext, ");")
+	var provider struct {
+		BaseURL string `json:"baseUrl"`
+		APIKey  string `json:"apiKey"`
+		API     string `json:"api"`
+		Models  []struct {
+			ID            string `json:"id"`
+			ContextWindow int    `json:"contextWindow"`
+			MaxTokens     int    `json:"maxTokens"`
+		} `json:"models"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(ext[strings.Index(ext[start+1:], "{")+start+1:end]), &provider))
+	require.Equal(t, launchForwarderPlaceholder+"/v1", provider.BaseURL)
+	require.Equal(t, "$TAP_LAUNCH_KEY", provider.APIKey, "the key is read from the environment, never written to the file")
+	require.Equal(t, "openai-completions", provider.API)
+	require.Len(t, provider.Models, 2)
+	require.Equal(t, 32768, provider.Models[0].ContextWindow)
+	require.Equal(t, 8192, provider.Models[0].MaxTokens)
+	noHubToken(t, got)
 }
 
-func TestResolveLaunch_RejectsIncompatibleProvider(t *testing.T) {
+func TestResolveLaunch_ModelSelection(t *testing.T) {
 	t.Parallel()
-	tap := newLaunchTap(t, launchUserConfig)
+	hub := fakeInferenceHub(t, "hub-token", twoModels)
+	tap := newLaunchTap(t, hub.URL, "")
 
-	// Codex speaks the OpenAI protocol and the Anthropic API is not that, so
-	// this pair stays refused.
-	_, err := tap.ResolveLaunch(tapper.LaunchOptions{Harness: "codex", Agent: "opus"})
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "cannot use a anthropic model")
-
-	// Symmetrically, Claude Code cannot drive a hosted OpenAI model.
-	_, err = tap.ResolveLaunch(tapper.LaunchOptions{Harness: "claude", Agent: "hosted"})
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "cannot use a openai model")
-}
-
-// A local model must never cause real credentials to be sent to it. The
-// placeholder key is what stops the harness falling back to a stored login and
-// posting it to the ollama host, so no auth mode may suppress it — and asking
-// for subscription auth on a local model is rejected rather than honoured.
-func TestResolveLaunch_LocalModelNeverLeaksRealCredentials(t *testing.T) {
-	t.Parallel()
-	tap := newLaunchTap(t, launchUserConfig)
-
-	got, err := tap.ResolveLaunch(tapper.LaunchOptions{Harness: "claude", Agent: "local"})
+	got, err := tap.ResolveLaunch(LaunchOptions{Harness: "opencode"})
 	require.NoError(t, err)
+	require.Equal(t, "laptop/ollama/qwen3:8b", got.Model, "without --model the first catalog model is used")
 
-	// Defaults to none for a local provider without the user asking.
-	require.Equal(t, tapper.AuthNone, got.Auth)
-	require.Equal(t, "ollama", got.Env["ANTHROPIC_API_KEY"])
-	// And the ambient cloud credentials are removed rather than passed along.
-	require.Contains(t, got.StripEnv, "OPENAI_API_KEY")
-	require.Contains(t, got.StripEnv, "ANTHROPIC_AUTH_TOKEN")
+	_, err = tap.ResolveLaunch(LaunchOptions{Harness: "opencode", Model: "desktop/ollama/qwen3:8b"})
+	require.ErrorContains(t, err, "is its relay connected")
+	require.ErrorContains(t, err, "laptop/ollama/llama3", "the error lists what is available")
 
-	_, err = tap.ResolveLaunch(tapper.LaunchOptions{Harness: "claude", Agent: "localsub"})
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "meaningless for a local ollama model")
+	_, err = tap.ResolveLaunch(LaunchOptions{Harness: "claude", Model: "laptop/ollama/whisper"})
+	require.ErrorContains(t, err, "not in your catalog", "a speech model cannot drive a harness")
+
+	_, err = tap.ResolveLaunch(LaunchOptions{Harness: "vim"})
+	require.ErrorContains(t, err, "unknown harness")
 }
 
-func TestResolveLaunch_SubscriptionStripsInheritedKeys(t *testing.T) {
+func TestResolveLaunch_HubErrors(t *testing.T) {
 	t.Parallel()
-	tap := newLaunchTap(t, launchUserConfig)
+	empty := fakeInferenceHub(t, "hub-token", `{"object":"list","data":[]}`)
+	_, err := newLaunchTap(t, empty.URL, "").ResolveLaunch(LaunchOptions{Harness: "opencode"})
+	require.ErrorContains(t, err, "tap relay")
 
-	got, err := tap.ResolveLaunch(tapper.LaunchOptions{Harness: "claude", Agent: "sub"})
-	require.NoError(t, err)
-
-	require.Equal(t, tapper.AuthSubscription, got.Auth)
-	// Absence of a key cannot express "use my login", because absence means
-	// inherit. The inherited variables must be actively removed.
-	require.Contains(t, got.StripEnv, "ANTHROPIC_API_KEY")
-	require.Contains(t, got.StripEnv, "ANTHROPIC_AUTH_TOKEN")
-	require.NotContains(t, got.Env, "ANTHROPIC_API_KEY")
+	wrongToken := fakeInferenceHub(t, "other-token", twoModels)
+	_, err = newLaunchTap(t, wrongToken.URL, "").ResolveLaunch(LaunchOptions{Harness: "opencode"})
+	require.ErrorContains(t, err, "tap auth login")
 }
 
-func TestResolveLaunch_APIKeyEnvForwardsByName(t *testing.T) {
+// Configured agents are gone: a leftover agents block changes nothing, and
+// validation says it is unused.
+func TestResolveLaunch_IgnoresRetiredAgents(t *testing.T) {
 	t.Parallel()
-	sb := sandbox.NewSandbox(t, &sandbox.Options{Home: "/home/testuser", User: "testuser"})
-	require.NoError(t, sb.Runtime().AtomicWriteFile(
-		"/home/testuser/.config/tapper/config.yaml", []byte(launchUserConfig), 0o644))
-	require.NoError(t, sb.Runtime().Env().Set("WORK_OPENAI_KEY", "sk-secret-value"))
-	tap, err := tapper.NewTap(tapper.TapOptions{Runtime: sb.Runtime()})
+	hub := fakeInferenceHub(t, "hub-token", twoModels)
+	tap := newLaunchTap(t, hub.URL, "agent: opus\nagents:\n  opus: {model: anthropic/claude-opus-4}\n")
+	got, err := tap.ResolveLaunch(LaunchOptions{Harness: "claude"})
 	require.NoError(t, err)
+	require.Equal(t, "laptop/ollama/qwen3:8b", got.Model)
 
-	got, err := tap.ResolveLaunch(tapper.LaunchOptions{Harness: "codex", Agent: "work"})
-	require.NoError(t, err)
-
-	require.Equal(t, "sk-secret-value", got.Env["OPENAI_API_KEY"])
-	// The reported source is the variable name, so it stays safe to print.
-	require.Equal(t, "WORK_OPENAI_KEY", got.KeySource)
+	var retired []string
+	for _, issue := range tap.DoctorConfig() {
+		if strings.Contains(issue.Message, "no longer used") {
+			retired = append(retired, issue.Message)
+		}
+	}
+	require.Len(t, retired, 2, "tap doctor names both retired keys")
+	require.Contains(t, retired[0], "user config agent")
+	require.Contains(t, retired[1], "user config agents")
 }
 
-func TestResolveLaunch_APIKeyEnvErrorsWhenUnset(t *testing.T) {
-	t.Parallel()
-	tap := newLaunchTap(t, launchUserConfig)
-
-	_, err := tap.ResolveLaunch(tapper.LaunchOptions{Harness: "codex", Agent: "work"})
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "WORK_OPENAI_KEY")
-}
-
-func TestResolveLaunch_RejectsBadAuthMode(t *testing.T) {
-	t.Parallel()
-	tap := newLaunchTap(t, launchUserConfig)
-
-	_, err := tap.ResolveLaunch(tapper.LaunchOptions{Harness: "codex", Agent: "badauth"})
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "unknown auth mode")
-}
-
-func TestResolveLaunch_ErrorsOnUnknownInputs(t *testing.T) {
-	t.Parallel()
-	tap := newLaunchTap(t, launchUserConfig)
-
-	_, err := tap.ResolveLaunch(tapper.LaunchOptions{Harness: "nope", Agent: "opus"})
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "unknown harness")
-
-	_, err = tap.ResolveLaunch(tapper.LaunchOptions{Harness: "claude", Agent: "missing"})
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "unknown agent")
-
-	// launchUserConfig sets no top-level agent, so the launch falls back to hub
-	// mode, which Claude Code does not have yet. The error points at --agent.
-	_, err = tap.ResolveLaunch(tapper.LaunchOptions{Harness: "claude"})
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "cannot use Hub models yet")
-	require.Contains(t, err.Error(), "--agent")
-
-	_, err = tap.ResolveLaunch(tapper.LaunchOptions{Harness: "claude", Agent: "bare"})
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "provider-qualified")
-}
-
-// TestResolveLaunch_AgentDefaultsToConfig pins the fallback: --agent wins, and
-// omitting it falls back to the top-level agent key, mirroring how flight
-// supplies the launch root.
-func TestResolveLaunch_AgentDefaultsToConfig(t *testing.T) {
-	t.Parallel()
-	tap := newLaunchTap(t, "agent: opus\n"+launchUserConfig)
-
-	got, err := tap.ResolveLaunch(tapper.LaunchOptions{Harness: "claude"})
-	require.NoError(t, err)
-	require.Equal(t, "opus", got.Agent)
-
-	// An explicit --agent still overrides the configured default.
-	got, err = tap.ResolveLaunch(tapper.LaunchOptions{Harness: "claude", Agent: "local"})
-	require.NoError(t, err)
-	require.Equal(t, "local", got.Agent)
-
-	// A default naming an entry that does not exist fails like any other
-	// unknown agent rather than being silently ignored.
-	missing := newLaunchTap(t, "agent: ghost\n"+launchUserConfig)
-	_, err = missing.ResolveLaunch(tapper.LaunchOptions{Harness: "claude"})
-	require.Error(t, err)
-	require.Contains(t, err.Error(), `unknown agent "ghost"`)
-}
-
-// TestResolveLaunch_AgentDefaultsFromEnv covers the other feed into the same
-// key: TAP_AGENT, which is what a launched process inherits.
-func TestResolveLaunch_AgentDefaultsFromEnv(t *testing.T) {
-	t.Parallel()
-	sb := sandbox.NewSandbox(t, &sandbox.Options{Home: "/home/testuser", User: "testuser"})
-	require.NoError(t, sb.Runtime().AtomicWriteFile(
-		"/home/testuser/.config/tapper/config.yaml", []byte(launchUserConfig), 0o644))
-	require.NoError(t, sb.Runtime().Set("TAP_AGENT", "local"))
-
-	tap, err := tapper.NewTap(tapper.TapOptions{Runtime: sb.Runtime()})
-	require.NoError(t, err)
-
-	got, err := tap.ResolveLaunch(tapper.LaunchOptions{Harness: "claude"})
-	require.NoError(t, err)
-	require.Equal(t, "local", got.Agent)
-}
-
-// A flight is optional. Requiring one made bootstrapping impossible: creating
-// the first flight needs an agent session, and launching that session needed a
-// flight. Without one the child gets no TAP_FLIGHT, which is precisely how its
-// `tap mcp` decides it is not launcher-bound and resolves identity authority.
 func TestResolveLaunch_LaunchesWithoutFlight(t *testing.T) {
 	t.Parallel()
-
-	tap := newLaunchTap(t, `agents:
-  opus: {model: anthropic/claude-opus-4}
-`)
-	got, err := tap.ResolveLaunch(tapper.LaunchOptions{Harness: "claude", Agent: "opus"})
+	hub := fakeInferenceHub(t, "hub-token", twoModels)
+	got, err := newLaunchTap(t, hub.URL, "").ResolveLaunch(LaunchOptions{Harness: "claude"})
 	require.NoError(t, err)
 	require.Empty(t, got.Flight)
 	require.NotContains(t, got.Env, "TAP_FLIGHT",
 		"a no-flight launch must not pin a root, or the child reports itself launcher-bound")
-	require.Equal(t, "opus", got.Env["TAP_AGENT"])
 	require.Len(t, got.Warnings, 1)
 	require.Contains(t, got.Warnings[0], "full access")
 }
 
 func TestResolveLaunch_RequiresHubBackedRoot(t *testing.T) {
 	t.Parallel()
-
-	local := newLaunchTap(t, `flight: "@local/+dev"
+	sb := sandbox.NewSandbox(t, &sandbox.Options{Home: "/home/testuser", User: "testuser"})
+	require.NoError(t, sb.Runtime().AtomicWriteFile("/home/testuser/.config/tapper/config.yaml", []byte(`flight: "@local/+dev"
 hub: home
 hubs:
   home: {kind: local, basePath: /home/testuser/kegs, defaultNamespace: local}
-agents:
-  opus: {model: anthropic/claude-opus-4}
-`)
-	_, err := local.ResolveLaunch(tapper.LaunchOptions{Harness: "claude", Agent: "opus"})
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "hub URL")
-}
-
-// A configured root is still pinned immutably for the child's lifetime.
-func TestResolveLaunch_PinsConfiguredRoot(t *testing.T) {
-	t.Parallel()
-	tap := newLaunchTap(t, launchUserConfig)
-
-	got, err := tap.ResolveLaunch(tapper.LaunchOptions{Harness: "claude", Agent: "opus"})
+`), 0o644))
+	tap, err := NewTap(TapOptions{Runtime: sb.Runtime()})
 	require.NoError(t, err)
-	require.NotEmpty(t, got.Flight)
-	require.Equal(t, got.Flight, got.Env["TAP_FLIGHT"])
-	require.Empty(t, got.Warnings)
+	_, err = tap.ResolveLaunch(LaunchOptions{Harness: "claude"})
+	require.ErrorContains(t, err, "hub URL")
 }
 
-func TestResolveLaunch_ExplicitFlightOverridesCascade(t *testing.T) {
+// A configured root is pinned immutably for the child's lifetime, and an
+// explicit flight wins over every other source.
+func TestResolveLaunch_FlightPrecedence(t *testing.T) {
 	t.Parallel()
+	hub := fakeInferenceHub(t, "hub-token", twoModels)
 	sb := sandbox.NewSandbox(t, &sandbox.Options{Home: "/home/testuser", User: "testuser"})
 	require.NoError(t, sb.Setwd("/home/testuser/work/project"))
-	require.NoError(t, sb.Runtime().AtomicWriteFile(
-		"/home/testuser/.config/tapper/config.yaml", []byte(`flight: "@user/+root"
-hub: atlas
-hubs:
-  atlas: {kind: remote, url: https://atlas.example.test}
-agents:
-  opus: {model: anthropic/claude-opus-4}
-`), 0o644))
-	require.NoError(t, sb.Runtime().AtomicWriteFile(
-		"/home/testuser/work/project/.tapper/config.yaml",
+	require.NoError(t, sb.Runtime().AtomicWriteFile("/home/testuser/.config/tapper/config.yaml",
+		[]byte(fmt.Sprintf("flight: '@user/+root'\nhub: atlas\nhubs:\n  atlas: {kind: remote, url: %s, token: hub-token}\n", hub.URL)), 0o644))
+	tap, err := NewTap(TapOptions{Runtime: sb.Runtime()})
+	require.NoError(t, err)
+
+	got, err := tap.ResolveLaunch(LaunchOptions{Harness: "claude"})
+	require.NoError(t, err)
+	require.Equal(t, "@user/+root", got.Flight)
+	require.Equal(t, got.Flight, got.Env["TAP_FLIGHT"])
+	require.Empty(t, got.Warnings)
+
+	require.NoError(t, sb.Runtime().AtomicWriteFile("/home/testuser/work/project/.tapper/config.yaml",
 		[]byte("flight: '@project/+root'\n"), 0o644))
 	require.NoError(t, sb.Runtime().Env().Set("TAP_FLIGHT", "@environment/+root"))
-
-	tap, err := tapper.NewTap(tapper.TapOptions{Runtime: sb.Runtime()})
+	tap.ConfigService.Reload()
+	got, err = tap.ResolveLaunch(LaunchOptions{Harness: "claude", Flight: "@explicit/+root"})
 	require.NoError(t, err)
-	got, err := tap.ResolveLaunch(tapper.LaunchOptions{
-		Harness: "claude", Agent: "opus", Flight: "@explicit/+root",
-	})
-	require.NoError(t, err)
-	require.Equal(t, "@explicit/+root", got.Flight)
 	require.Equal(t, "@explicit/+root", got.Env["TAP_FLIGHT"])
 }
 
-func TestResolveLaunch_AppendsPassthroughArgs(t *testing.T) {
+// The live render fills in what a dry run shows as placeholders.
+func TestLaunchPlan_RenderFillsPlaceholders(t *testing.T) {
 	t.Parallel()
-	tap := newLaunchTap(t, launchUserConfig)
+	hub := fakeInferenceHub(t, "hub-token", twoModels)
+	tap := newLaunchTap(t, hub.URL, "")
+	for _, harness := range LaunchHarnesses() {
+		got, err := tap.ResolveLaunch(LaunchOptions{Harness: harness})
+		require.NoError(t, err)
+		inv := got.plan.render("http://127.0.0.1:9", "secret", "/tmp/launch")
+		rendered := strings.Join(inv.argv, " ")
+		for k, v := range inv.env {
+			rendered += " " + k + "=" + v
+		}
+		for _, content := range inv.files {
+			rendered += " " + content
+		}
+		require.Contains(t, rendered, "http://127.0.0.1:9", harness)
+		for _, placeholder := range []string{launchForwarderPlaceholder, launchKeyPlaceholder, launchDirPlaceholder} {
+			require.NotContains(t, rendered, placeholder, "%s leaves %s unfilled", harness, placeholder)
+		}
+	}
+}
 
-	got, err := tap.ResolveLaunch(tapper.LaunchOptions{
-		Harness: "codex", Agent: "hosted", Args: []string{"--sandbox", "read-only"},
+func TestLaunchForwarder(t *testing.T) {
+	t.Parallel()
+	hub := fakeInferenceHub(t, "hub-token", twoModels)
+	var calls atomic.Int32
+	fw, err := startLaunchForwarder(hub.URL, func() string {
+		// A fresh token per request, as a refreshing resolver would give.
+		return fmt.Sprintf("hub-token-%d", calls.Add(1))
 	})
 	require.NoError(t, err)
-	require.Equal(t, []string{"codex", "--model", "gpt-5", "--sandbox", "read-only"}, got.Argv)
-}
+	t.Cleanup(func() { _ = fw.Close() })
+	require.True(t, strings.HasPrefix(fw.Origin(), "http://127.0.0.1:"))
 
-func TestResolveLaunch_ReadsAgentsFromProjectConfig(t *testing.T) {
-	t.Parallel()
-	sb := sandbox.NewSandbox(t, &sandbox.Options{Home: "/home/testuser", User: "testuser"})
-	require.NoError(t, sb.Setwd("/home/testuser/work/project"))
-	require.NoError(t, sb.Runtime().AtomicWriteFile(
-		"/home/testuser/.config/tapper/config.yaml", []byte("flight: '@testuser/+root'\nhub: atlas\nhubs:\n  atlas: {kind: remote, url: https://atlas.example.test}\n"), 0o644))
-	// Agents carry no credentials, so unlike hubs they survive the project
-	// config's trust boundary.
-	require.NoError(t, sb.Runtime().AtomicWriteFile(
-		"/home/testuser/work/project/.tapper/config.yaml",
-		[]byte("agents:\n  proj:\n    model: openai/gpt-5\n    flight: +ignored\n"), 0o644))
-
-	tap, err := tapper.NewTap(tapper.TapOptions{Runtime: sb.Runtime()})
-	require.NoError(t, err)
-
-	got, err := tap.ResolveLaunch(tapper.LaunchOptions{Harness: "codex", Agent: "proj"})
-	require.NoError(t, err)
-	require.Equal(t, "gpt-5", got.Model)
-	require.Equal(t, "proj", got.Env["TAP_AGENT"])
-	require.Equal(t, "@testuser/+root", got.Flight)
-	require.Equal(t, "@testuser/+root", got.Env["TAP_FLIGHT"])
-}
-
-// A context cap means the same thing to a user on either harness but is spelled
-// differently by each, so the launcher translates rather than passing a raw
-// flag through.
-func TestResolveLaunch_ContextWindowTranslatesPerHarness(t *testing.T) {
-	t.Parallel()
-	tap := newLaunchTap(t, launchUserConfig)
-
-	viaCodex, err := tap.ResolveLaunch(tapper.LaunchOptions{Harness: "codex", Agent: "capped"})
-	require.NoError(t, err)
-	require.Contains(t, viaCodex.Argv, "model_context_window=150000")
-	// Agent args ride along, before any one-off passed at the call site.
-	require.Contains(t, viaCodex.Argv, "--search")
-
-	viaClaude, err := tap.ResolveLaunch(tapper.LaunchOptions{Harness: "claude", Agent: "capped"})
-	require.NoError(t, err)
-	require.Contains(t, viaClaude.Argv, "--autocompact")
-	require.Contains(t, viaClaude.Argv, "150000")
-
-	// pi has no known equivalent, so the cap is reported rather than dropped —
-	// silently ignoring it is how you find out later that it never applied.
-	_, err = tap.ResolveLaunch(tapper.LaunchOptions{Harness: "pi", Agent: "capped"})
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "no way to apply it")
-}
-
-func TestLaunchHarnesses(t *testing.T) {
-	t.Parallel()
-	require.Equal(t, []string{"claude", "codex", "opencode", "pi"}, tapper.LaunchHarnesses())
-}
-
-func TestResolveLaunch_DirectoryFlightDefaults(t *testing.T) {
-	tap := newLaunchTap(t, launchUserConfig+"\nkegMap:\n- {pathPrefix: /, flight: '@mapped/+root'}\n")
-	got, err := tap.ResolveLaunch(tapper.LaunchOptions{Harness: "claude", Agent: "opus"})
-	require.NoError(t, err)
-	require.Equal(t, "@mapped/+root", got.Flight)
-	require.Equal(t, got.Flight, got.Env["TAP_FLIGHT"])
-	require.NoError(t, tap.Runtime.AtomicWriteFile(tap.PathService.ProjectConfig(), []byte("flight: '@project/+root'"), 0644))
-	tap.ConfigService.Reload()
-	got, err = tap.ResolveLaunch(tapper.LaunchOptions{Harness: "claude", Agent: "opus"})
-	require.NoError(t, err)
-	require.Equal(t, "@project/+root", got.Env["TAP_FLIGHT"])
-}
-
-func TestResolveLaunch_OpenCodeHostedProviderPassesModelThrough(t *testing.T) {
-	t.Parallel()
-	tap := newLaunchTap(t, launchUserConfig)
-
-	got, err := tap.ResolveLaunch(tapper.LaunchOptions{Harness: "opencode", Agent: "opus"})
-	require.NoError(t, err)
-	require.Equal(t, []string{"opencode", "--model", "anthropic/claude-opus-4"}, got.Argv)
-	// A hosted provider with no baseUrl override needs no config injection:
-	// opencode already knows the provider and reads its key from the ambient
-	// environment.
-	require.NotContains(t, got.Env, "OPENCODE_CONFIG_CONTENT")
-	require.NotContains(t, got.Env, "ANTHROPIC_API_KEY")
-
-	got, err = tap.ResolveLaunch(tapper.LaunchOptions{Harness: "opencode", Agent: "hosted"})
-	require.NoError(t, err)
-	require.Equal(t, []string{"opencode", "--model", "openai/gpt-5"}, got.Argv)
-}
-
-func TestResolveLaunch_OpenCodeForwardsAPIKeyToTheRightVariable(t *testing.T) {
-	t.Parallel()
-	tap := newLaunchTap(t, launchUserConfig)
-	require.NoError(t, tap.Runtime.Env().Set("WORK_OPENAI_KEY", "sk-work"))
-
-	got, err := tap.ResolveLaunch(tapper.LaunchOptions{Harness: "opencode", Agent: "work"})
-	require.NoError(t, err)
-	require.Equal(t, "sk-work", got.Env["OPENAI_API_KEY"])
-	require.Equal(t, "WORK_OPENAI_KEY", got.KeySource)
-}
-
-func TestResolveLaunch_OpenCodeDeclaresOllamaProviderInline(t *testing.T) {
-	t.Parallel()
-	tap := newLaunchTap(t, launchUserConfig)
-
-	got, err := tap.ResolveLaunch(tapper.LaunchOptions{Harness: "opencode", Agent: "local"})
-	require.NoError(t, err)
-	require.Equal(t, []string{"opencode", "--model", "ollama/qwen3.6:35b-mlx"}, got.Argv)
-
-	// opencode ships no ollama provider, so the whole definition has to travel
-	// with the launch or the model cannot resolve at all.
-	var inline struct {
-		Provider map[string]struct {
-			NPM     string `json:"npm"`
-			Options struct {
-				BaseURL string `json:"baseURL"`
-				APIKey  string `json:"apiKey"`
-			} `json:"options"`
-			Models map[string]struct {
-				Name string `json:"name"`
-			} `json:"models"`
-		} `json:"provider"`
+	do := func(method, path string, headers map[string]string, body string) *http.Response {
+		req, err := http.NewRequest(method, fw.Origin()+path, strings.NewReader(body))
+		require.NoError(t, err)
+		for k, v := range headers {
+			req.Header.Set(k, v)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = resp.Body.Close() })
+		return resp
 	}
-	require.NoError(t, json.Unmarshal([]byte(got.Env["OPENCODE_CONFIG_CONTENT"]), &inline))
-	ollama, ok := inline.Provider["ollama"]
-	require.True(t, ok)
-	require.Equal(t, "@ai-sdk/openai-compatible", ollama.NPM)
-	require.Equal(t, "http://localhost:11434/v1", ollama.Options.BaseURL)
-	require.Contains(t, ollama.Models, "qwen3.6:35b-mlx")
+	bearer := map[string]string{"Authorization": "Bearer " + fw.Secret()}
+	firstEvent := func(resp *http.Response) map[string]any {
+		t.Helper()
+		require.Equal(t, http.StatusOK, resp.StatusCode)
+		require.Equal(t, "text/event-stream", resp.Header.Get("Content-Type"))
+		require.Empty(t, resp.Header.Get("X-Internal"), "upstream headers beyond content negotiation stay behind")
+		scanner := bufio.NewScanner(resp.Body)
+		require.True(t, scanner.Scan())
+		var event map[string]any
+		require.NoError(t, json.Unmarshal([]byte(strings.TrimPrefix(scanner.Text(), "data: ")), &event))
+		return event
+	}
 
-	// An explicit baseUrl wins over the local default.
-	got, err = tap.ResolveLaunch(tapper.LaunchOptions{Harness: "opencode", Agent: "lab"})
+	require.Equal(t, http.StatusUnauthorized, do(http.MethodGet, "/v1/models", nil, "").StatusCode)
+	require.Equal(t, http.StatusUnauthorized, do(http.MethodGet, "/v1/models", map[string]string{"Authorization": "Bearer wrong"}, "").StatusCode)
+	require.Equal(t, http.StatusUnauthorized, do(http.MethodPost, "/anthropic/v1/messages", map[string]string{"X-Api-Key": "wrong"}, "{}").StatusCode)
+	require.Equal(t, http.StatusNotFound, do(http.MethodGet, "/api/v1/whoami", bearer, "").StatusCode,
+		"only the inference routes are forwarded")
+	require.Equal(t, http.StatusNotFound, do(http.MethodPost, "/v1/models", bearer, "").StatusCode)
+	require.Equal(t, int32(0), calls.Load(), "rejected requests never resolve a Hub token")
+
+	require.Equal(t, http.StatusOK, do(http.MethodGet, "/v1/models", bearer, "").StatusCode)
+
+	chat := firstEvent(do(http.MethodPost, "/v1/chat/completions", bearer, `{"model":"m","stream":true}`))
+	require.Equal(t, "/inference/openai/v1/chat/completions", chat["path"])
+	require.Equal(t, "hub-token-2", chat["bearer"], "each request carries a freshly resolved token")
+	require.Equal(t, map[string]any{"model": "m", "stream": true}, chat["body"], "the body goes through verbatim")
+
+	responses := firstEvent(do(http.MethodPost, "/v1/responses", bearer, `{"model":"m"}`))
+	require.Equal(t, "/inference/openai/v1/responses", responses["path"])
+
+	messages := firstEvent(do(http.MethodPost, "/anthropic/v1/messages",
+		map[string]string{"X-Api-Key": fw.Secret(), "Anthropic-Version": "2023-06-01"}, `{"model":"m"}`))
+	require.Equal(t, "/inference/anthropic/v1/messages", messages["path"], "Anthropic clients authenticate with x-api-key")
+	require.Equal(t, "2023-06-01", messages["version"])
+	require.NotEqual(t, fw.Secret(), messages["bearer"], "the launch key never reaches Hub")
+
+	count := firstEvent(do(http.MethodPost, "/anthropic/v1/messages/count_tokens", bearer, `{"model":"m"}`))
+	require.Equal(t, "/inference/anthropic/v1/messages/count_tokens", count["path"])
+
+	empty, err := startLaunchForwarder(hub.URL, func() string { return "" })
 	require.NoError(t, err)
-	require.NoError(t, json.Unmarshal([]byte(got.Env["OPENCODE_CONFIG_CONTENT"]), &inline))
-	require.Equal(t, "http://192.168.50.197:11434/v1", inline.Provider["ollama"].Options.BaseURL)
-}
-
-func TestResolveLaunch_OpenCodeLocalModelNeverLeaksRealCredentials(t *testing.T) {
-	t.Parallel()
-	tap := newLaunchTap(t, launchUserConfig)
-
-	got, err := tap.ResolveLaunch(tapper.LaunchOptions{Harness: "opencode", Agent: "local"})
+	t.Cleanup(func() { _ = empty.Close() })
+	req, _ := http.NewRequest(http.MethodGet, empty.Origin()+"/v1/models", nil)
+	req.Header.Set("Authorization", "Bearer "+empty.Secret())
+	r, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
-	require.Equal(t, tapper.AuthNone, got.Auth)
-	// The placeholder key is what stops opencode falling back to a stored login
-	// and sending it to a server that is not the provider.
-	require.Equal(t, "ollama", got.Env["OPENAI_API_KEY"])
-	require.Contains(t, got.Env["OPENCODE_CONFIG_CONTENT"], `"apiKey":"ollama"`)
-	// And the ambient cloud credentials are removed rather than passed along.
-	require.Contains(t, got.StripEnv, "ANTHROPIC_API_KEY")
-	require.Contains(t, got.StripEnv, "ANTHROPIC_AUTH_TOKEN")
-}
-
-// opencode expresses a context cap as provider.<p>.models.<m>.limit.context,
-// not a flag. Reporting that is the point: a cap that silently never applied is
-// how you discover it months later.
-func TestResolveLaunch_OpenCodeRejectsContextWindow(t *testing.T) {
-	t.Parallel()
-	tap := newLaunchTap(t, launchUserConfig)
-
-	_, err := tap.ResolveLaunch(tapper.LaunchOptions{Harness: "opencode", Agent: "capped"})
-	require.ErrorContains(t, err, "has no way to apply it")
+	defer r.Body.Close()
+	body, _ := io.ReadAll(r.Body)
+	require.Equal(t, http.StatusUnauthorized, r.StatusCode)
+	require.Contains(t, string(body), "tap auth login")
 }

@@ -77,10 +77,12 @@ user `flight`. The retired Tapper config `updated` timestamp is ignored on read
 and removed on serialization; KEG settings and node timestamps are unchanged.
 
 Supported env vars: `TAP_KEG`, `TAP_FLIGHT`,
-`TAP_AGENT`, `TAP_LOG_FILE`, `TAP_LOG_LEVEL`, `TAP_HUB`,
+`TAP_HARNESS`, `TAP_MODEL`, `TAP_LOG_FILE`, `TAP_LOG_LEVEL`, `TAP_HUB`,
 `TAP_DISABLE_ATLAS_HUB`,
 `TAP_DISABLE_TELEMETRY` (`1`/`true`/`yes`/`on` for
-the disable flags).
+the disable flags). `TAP_HARNESS` and `TAP_MODEL` are set by `tap launch` and
+only name the session in orientation and telemetry; no config file key
+corresponds to them.
 
 Use `tap config --explain FIELD` to see which source set a value, or
 `tap config --show-sources` for all fields. Malformed YAML is always an error; `--strict` also makes trust-boundary warnings

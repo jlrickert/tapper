@@ -240,11 +240,10 @@ func renderCodexMarketplace() ([]byte, error) {
 // elsewhere tap mcp fails to authenticate while the same tap in the shell
 // succeeds, which is precisely how this surfaced in a dev container.
 //
-// TAP_AGENT carries `tap launch --agent` selection. Without it the harness has
-// the agent but the MCP server it spawns does not, so the session silently
-// resolves the configured flight instead of the agent's. TAP_FLIGHT must be
-// forwarded too: the launcher sets it to pin the connection root when a flight
-// is configured, and a human may also export it directly. It is deliberately
+// TAP_HARNESS and TAP_MODEL carry the `tap launch` session's identity, which
+// the spawned `tap mcp` reports in orientation and telemetry. TAP_FLIGHT must
+// be forwarded too: the launcher sets it to pin the connection root when a
+// flight is configured, and a human may also export it directly. It is deliberately
 // unset for a no-flight launch, which is how the spawned `tap mcp` knows to
 // resolve identity authority instead of treating itself as launcher-bound.
 func renderCodexMCP() []byte {
@@ -255,8 +254,9 @@ func renderCodexMCP() []byte {
       "args": ["mcp"],
       "env_vars": [
         "HOME",
-        "TAP_AGENT",
         "TAP_FLIGHT",
+        "TAP_HARNESS",
+        "TAP_MODEL",
         "XDG_CONFIG_HOME",
         "XDG_DATA_HOME",
         "XDG_STATE_HOME",
