@@ -97,7 +97,7 @@ func TestEdit_WithCorrectLockToken(t *testing.T) {
 
 	// Edit with correct token should succeed.
 	stdin := strings.NewReader("# Edited with lock\n")
-	editRes := NewProcess(t, false, "edit", "0", "--lock-token", token).
+	editRes := NewProcess(t, false, "node", "edit", "0", "--lock-token", token).
 		RunWithIO(fx.Context(), fx.Runtime(), stdin)
 	require.NoError(t, editRes.Err)
 }
@@ -113,7 +113,7 @@ func TestEdit_WithWrongLockToken(t *testing.T) {
 
 	// Edit with wrong token should fail.
 	stdin := strings.NewReader("# Should not work\n")
-	editRes := NewProcess(t, false, "edit", "0", "--lock-token", "wrong-token").
+	editRes := NewProcess(t, false, "node", "edit", "0", "--lock-token", "wrong-token").
 		RunWithIO(fx.Context(), fx.Runtime(), stdin)
 	require.Error(t, editRes.Err)
 	require.Contains(t, string(editRes.Stderr), "mismatch")
@@ -125,7 +125,7 @@ func TestEdit_WithoutLockToken_NoLockHeld(t *testing.T) {
 
 	// Edit without --lock-token when no lock is held should succeed (backward compat).
 	stdin := strings.NewReader("# No lock needed\n")
-	editRes := NewProcess(t, false, "edit", "0").
+	editRes := NewProcess(t, false, "node", "edit", "0").
 		RunWithIO(fx.Context(), fx.Runtime(), stdin)
 	require.NoError(t, editRes.Err)
 }
@@ -141,7 +141,7 @@ func TestEdit_WithoutLockToken_LockHeld(t *testing.T) {
 
 	// Edit without --lock-token when a lock IS held should fail.
 	stdin := strings.NewReader("# Should be blocked\n")
-	editRes := NewProcess(t, false, "edit", "0").
+	editRes := NewProcess(t, false, "node", "edit", "0").
 		RunWithIO(fx.Context(), fx.Runtime(), stdin)
 	require.Error(t, editRes.Err)
 	require.Contains(t, string(editRes.Stderr), "mismatch")
@@ -158,7 +158,7 @@ func TestMeta_WithoutLockToken_LockHeld(t *testing.T) {
 
 	// Meta write without --lock-token when a lock IS held should fail.
 	stdin := strings.NewReader("tags:\n  - should-fail\n")
-	metaRes := NewProcess(t, false, "meta", "0").
+	metaRes := NewProcess(t, false, "node", "meta", "0").
 		RunWithIO(fx.Context(), fx.Runtime(), stdin)
 	require.Error(t, metaRes.Err)
 	require.Contains(t, string(metaRes.Stderr), "mismatch")
@@ -176,7 +176,7 @@ func TestMeta_WithCorrectLockToken(t *testing.T) {
 
 	// Meta write with correct token should succeed.
 	stdin := strings.NewReader("tags:\n  - locked-edit\n")
-	metaRes := NewProcess(t, false, "meta", "0", "--lock-token", token).
+	metaRes := NewProcess(t, false, "node", "meta", "0", "--lock-token", token).
 		RunWithIO(fx.Context(), fx.Runtime(), stdin)
 	require.NoError(t, metaRes.Err)
 }
@@ -192,7 +192,7 @@ func TestMeta_WithWrongLockToken(t *testing.T) {
 
 	// Meta write with wrong token should fail.
 	stdin := strings.NewReader("tags:\n  - should-fail\n")
-	metaRes := NewProcess(t, false, "meta", "0", "--lock-token", "wrong-token").
+	metaRes := NewProcess(t, false, "node", "meta", "0", "--lock-token", "wrong-token").
 		RunWithIO(fx.Context(), fx.Runtime(), stdin)
 	require.Error(t, metaRes.Err)
 	require.Contains(t, string(metaRes.Stderr), "mismatch")
@@ -209,7 +209,7 @@ func TestMeta_ReadIgnoresLockToken(t *testing.T) {
 
 	// Meta read (no stdin, no --edit) should succeed even with wrong token
 	// because reads don't require lock validation.
-	metaRes := NewProcess(t, false, "meta", "0", "--lock-token", "wrong-token").
+	metaRes := NewProcess(t, false, "node", "meta", "0", "--lock-token", "wrong-token").
 		Run(fx.Context(), fx.Runtime())
 	require.NoError(t, metaRes.Err, "meta read should succeed despite wrong lock token; stderr: %s", string(metaRes.Stderr))
 }

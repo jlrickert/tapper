@@ -16,7 +16,7 @@ func NewDoctorCmd(deps *Deps) *cobra.Command {
 	var tagsMissing bool
 
 	cmd := &cobra.Command{
-		Use:   "doctor",
+		Use:   "check",
 		Short: "check keg health and report issues",
 		Long: `Scan the resolved keg and report health issues.
 

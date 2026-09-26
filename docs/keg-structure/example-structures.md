@@ -85,7 +85,7 @@ lives in the organization's namespace; the repository records that default in
 tap keg create @acme/tapper
 tap use @acme/tapper
 tap config --project
-tap keg settings --keg @acme/tapper
+tap keg settings read --keg @acme/tapper
 ```
 
 ### Example Layout

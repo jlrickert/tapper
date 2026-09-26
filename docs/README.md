@@ -48,8 +48,8 @@ For an enterprise deployment, use
 tap namespace create acme
 tap keg create @acme/engineering
 tap use @acme/engineering
-tap create
-tap grep "release plan"
+tap node create
+tap node search "release plan"
 ```
 
 Use `tap use @namespace/keg` in a repository to set that repo's default keg in
@@ -96,14 +96,14 @@ writing KEG files directly.
 
 ### Common Node Operations
 
-- `tap create` - create a node.
-- `tap cat NODE_ID` - display node content and metadata.
-- `tap edit NODE_ID` - edit a node.
-- `tap list` - list indexed nodes.
-- `tap grep QUERY` - search node content.
-- `tap tags [EXPR]` - list tags or query tagged nodes.
-- `tap backlinks NODE_ID` - show nodes that link to a node.
-- `tap links NODE_ID` - show outgoing links from a node.
+- `tap node create` - create a node.
+- `tap node read NODE_ID` - display node content and metadata.
+- `tap node edit NODE_ID` - edit a node.
+- `tap node list` - list indexed nodes.
+- `tap node search QUERY` - search node content.
+- `tap tag list [EXPR]` - list tags or query tagged nodes.
+- `tap node backlinks NODE_ID` - show nodes that link to a node.
+- `tap node links NODE_ID` - show outgoing links from a node.
 
 ### Keg And Organization Operations
 
@@ -121,11 +121,11 @@ writing KEG files directly.
 ### Safety And Operations
 
 - `tap snapshot create NODE_ID -m "message"` - capture a node revision.
-- `tap snapshot history NODE_ID` - list node revisions.
+- `tap snapshot list NODE_ID` - list node revisions.
 - `tap snapshot restore NODE_ID REV --yes` - restore a revision.
 - `tap archive export -o out.keg.tar.gz` - export a keg archive.
 - `tap archive import out.keg.tar.gz` - import a keg archive.
-- `tap doctor` - check keg health.
+- `tap keg check` - check keg health.
 - `tap index rebuild` - rebuild indexes.
 
 ## Next Steps

@@ -24,6 +24,10 @@ func NewLaunchCmd(deps *Deps) *cobra.Command {
 		Long: `Start Claude Code, Codex, opencode, or pi on a model from your Hub catalog,
 with the current Hub-backed flight as a connection-pinned root.
 
+--agent @namespace/name selects a Hub agent. Its memory flight is used when no
+flight is configured; an explicit flight overrides it. --agent and --model
+are mutually exclusive. Agents are managed with ` + "`tap agent`" + `.
+
 --model names a catalog model: the models your connected relays offer and
 those shared with you (see 'tap relay'). Without it the launch starts on the
 first model in your catalog.
@@ -81,10 +85,15 @@ Experimental and unstable: expect this to change.`,
 		},
 	}
 
+	cmd.Flags().StringVar(&opts.Agent, "agent", "", "Hub agent reference (@namespace/name) supplying model, instructions, tools, and memory flight")
 	cmd.Flags().StringVar(&opts.Model, "model", "",
 		"Hub catalog model id to launch with (default: the first in your catalog)")
 	cmd.Flags().BoolVar(&opts.DryRun, "dry-run", false, "print the resolved invocation without starting the harness")
 
+	_ = cmd.RegisterFlagCompletionFunc("agent", func(cmd *cobra.Command, _ []string, prefix string) ([]string, cobra.ShellCompDirective) {
+		return agentRefCompletion(deps)(cmd, nil, prefix)
+	})
+	cmd.MarkFlagsMutuallyExclusive("agent", "model")
 	return cmd
 }
 
@@ -92,6 +101,9 @@ Experimental and unstable: expect this to change.`,
 // forwarder's address and key, which exist only once the harness starts.
 func printLaunchPlan(out io.Writer, result *tapper.LaunchResult) error {
 	var b strings.Builder
+	if result.HubAgent != "" {
+		fmt.Fprintf(&b, "agent: %s\n", result.HubAgent)
+	}
 	fmt.Fprintf(&b, "hub %s -> %s (via loopback forwarder)\n", result.Hub, result.Model)
 	if result.Flight != "" {
 		fmt.Fprintf(&b, "flight: %s (connection-pinned root)\n", result.Flight)

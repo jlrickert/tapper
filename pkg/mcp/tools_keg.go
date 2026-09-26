@@ -35,8 +35,9 @@ type kegCreateInput struct {
 }
 
 // registerKegTools exposes identity-authorized discovery, optionally narrowed
-// through a call-selected flight snapshot. No-flight sessions may create KEGs;
-// real-flight sessions require manage_kegs. Transport-specific hub selection
+// through a call-selected flight snapshot. Any active session may create KEGs
+// with normal namespace membership; whether it holds keg_create at all is its
+// agent's tool list, gated by the host. Transport-specific hub selection
 // is intentionally absent from the agent surface.
 func registerKegTools(srv *sdkmcp.Server, defaults KegDefaults, kegs KegDiscoveryProvider, search KegSearchProvider) {
 	registerKegDelete(srv, defaults, kegs)
@@ -115,9 +116,8 @@ func registerKegTools(srv *sdkmcp.Server, defaults KegDefaults, kegs KegDiscover
 
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name: "keg_create",
-		Description: "Create a new KEG. No-flight sessions use normal namespace membership; " +
-			"a selected real flight must grant manage_kegs. Creating a KEG never adds it " +
-			"to a real flight's cover.",
+		Description: "Create a new KEG in a namespace you belong to. Creating a KEG " +
+			"never adds it to a flight's cover.",
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:    false,
 			DestructiveHint: boolPtr(false),
@@ -160,7 +160,7 @@ func filterKegRefs(ctx context.Context, refs []string) []string {
 	// Two governed states have no flight snapshot and must not be conflated.
 	// Failed-root recovery reaches nothing, so it filters to empty. No-flight
 	// identity authority reaches everything the identity reaches, so it filters
-	// nothing — otherwise auth_info would report zero KEGs in a session that can
+	// nothing — otherwise session_info would report zero KEGs in a session that can
 	// read them all, contradicting keg_list.
 	if HasSessionOrientation(ctx) && flight == nil && !SessionFullAccess(ctx) {
 		return []string{}
@@ -172,7 +172,7 @@ func filterKegRefs(ctx context.Context, refs []string) []string {
 		if ref == "" {
 			continue
 		}
-		if flight != nil && !flight.HasCapability(tapper.FlightCapabilityFullAccess) {
+		if flight != nil {
 			nsAlias := strings.TrimPrefix(ref, "@")
 			ns, alias, ok := strings.Cut(nsAlias, "/")
 			if !ok {
@@ -197,12 +197,12 @@ type kegDeleteInput struct {
 }
 
 func registerKegDelete(srv *sdkmcp.Server, defaults KegDefaults, provider KegDiscoveryProvider) {
-	sdkmcp.AddTool(srv, &sdkmcp.Tool{Name: "keg_delete", Description: "Permanently delete an empty or populated KEG and all its data, including snapshots. Requires identity admin permission; a selected flight also requires delete_kegs and effective admin cover. manage_kegs alone cannot delete. No expected_hash: a settings hash does not cover a whole KEG.", Annotations: &sdkmcp.ToolAnnotations{DestructiveHint: boolPtr(true), OpenWorldHint: boolPtr(true)}}, func(ctx context.Context, _ *sdkmcp.CallToolRequest, in kegDeleteInput) (*sdkmcp.CallToolResult, any, error) {
+	sdkmcp.AddTool(srv, &sdkmcp.Tool{Name: "keg_delete", Description: "Permanently delete an empty or populated KEG and all its data, including snapshots. Requires identity admin permission; a selected flight also requires effective admin cover. No expected_hash: a settings hash does not cover a whole KEG.", Annotations: &sdkmcp.ToolAnnotations{DestructiveHint: boolPtr(true), OpenWorldHint: boolPtr(true)}}, func(ctx context.Context, _ *sdkmcp.CallToolRequest, in kegDeleteInput) (*sdkmcp.CallToolResult, any, error) {
 		ns, alias, err := tapper.ParseCanonicalKegRef(in.Keg)
 		if err != nil {
 			return errorResult(fmt.Errorf("keg must be an explicit canonical @namespace/keg reference: %w", err)), nil, nil
 		}
-		if err := defaults.gate.authorizeCapability(orientationFromContext(ctx), tapper.FlightCapabilityDeleteKegs); err != nil {
+		if err := defaults.gate.authorizeOriented(orientationFromContext(ctx)); err != nil {
 			return errorResult(err), nil, nil
 		}
 		if flight := SessionFlight(ctx); flight != nil {

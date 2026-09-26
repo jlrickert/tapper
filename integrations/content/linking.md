@@ -21,7 +21,7 @@ configuration values, schema values, and tool parameters.
 
 Linking across kegs is ordinary authoring, but *copying* nodes across them is
 not an agent operation: no tool moves or duplicates nodes between kegs. Read
-the source with `mcp__tapper__cat` and `mcp__tapper__create` the node in the
+the source with `mcp__tapper__node_read` and `mcp__tapper__node_create` the node in the
 target, which also lets you adjust its links deliberately. Bulk transfer
 between kegs is an operator task the user runs outside MCP.
 
@@ -32,13 +32,13 @@ own directory, so they are linked relative to it — the same base the `../NODEI
 form above counts from:
 
 - **File:** `[label](./assets/FILE)` — anything uploaded with
-  `mcp__tapper__upload_file`.
+  `mcp__tapper__file_upload`.
 - **Image:** `![alt](./images/IMAGE)` — anything uploaded with
-  `mcp__tapper__upload_image`.
+  `mcp__tapper__image_upload`.
 
 **Both directory names are plural**: `assets/` and `images/`, never `asset/` or
 `image/`. Uploading succeeds regardless of how you later write the link, so a
 singular path fails silently as a broken reference rather than as an error.
 
-Use `mcp__tapper__list_files` and `mcp__tapper__list_images` to get the exact
+Use `mcp__tapper__file_list` and `mcp__tapper__image_list` to get the exact
 stored names; the upload may normalize the filename you supplied.

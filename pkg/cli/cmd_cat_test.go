@@ -25,41 +25,41 @@ func TestCatCommand_TableDrivenErrorHandling(t *testing.T) {
 	tests := []catTestCase{
 		{
 			name:         "cat_invalid_node_id",
-			args:         []string{"cat", "invalid"},
+			args:         []string{"node", "read", "invalid"},
 			setupFixture: strPtr("joe"),
 			expectedErr:  "invalid node ID",
 			description:  "Error when node ID cannot be parsed",
 		},
 		{
 			name:        "cat_missing_node_id",
-			args:        []string{"cat"},
+			args:        []string{"node", "read"},
 			expectedErr: "at least 1 arg",
 			description: "Error when node ID is not provided",
 		},
 		{
 			name:         "cat_nonexistent_alias",
-			args:         []string{"cat", "0", "--keg", "nonexistent"},
+			args:         []string{"node", "read", "0", "--keg", "nonexistent"},
 			setupFixture: strPtr("joe"),
 			expectedErr:  "keg not initialized",
 			description:  "Error when the remote keg does not exist",
 		},
 		{
 			name:         "cat_nonexistent_node",
-			args:         []string{"cat", "12341234"},
+			args:         []string{"node", "read", "12341234"},
 			setupFixture: strPtr("joe"),
 			expectedErr:  "node 12341234 not found",
 			description:  "Error when node does not exist",
 		},
 		{
 			name:         "cat_conflicting_output_flags",
-			args:         []string{"cat", "0", "--meta-only", "--stats-only"},
+			args:         []string{"node", "read", "0", "--meta-only", "--stats-only"},
 			setupFixture: strPtr("joe"),
 			expectedErr:  "only one output mode may be selected",
 			description:  "Error when multiple output modes are selected",
 		},
 		{
 			name:         "cat_conflicting_edit_and_output_flag",
-			args:         []string{"cat", "0", "--edit", "--stats-only"},
+			args:         []string{"node", "read", "0", "--edit", "--stats-only"},
 			setupFixture: strPtr("joe"),
 			expectedErr:  "only one output mode may be selected",
 			description:  "Error when edit mode conflicts with output flags",
@@ -120,8 +120,7 @@ func TestCatCommand_WithJoeFixture(t *testing.T) {
 		{
 			name: "cat_personal_keg_from_default_location",
 			args: []string{
-				"cat",
-				"0",
+				"node", "read", "0",
 			},
 			setupFixture: strPtr("joe"),
 			expectedInStdout: []string{
@@ -133,8 +132,7 @@ func TestCatCommand_WithJoeFixture(t *testing.T) {
 		{
 			name: "cat_default_keg_overrides_path_resolution",
 			args: []string{
-				"cat",
-				"0",
+				"node", "read", "0",
 			},
 			setupFixture: strPtr("joe"),
 			cwd:          strPtr("~/repos/work/spy-things"),
@@ -147,9 +145,7 @@ func TestCatCommand_WithJoeFixture(t *testing.T) {
 		{
 			name: "cat_explicit_alias_overrides_path_resolution",
 			args: []string{
-				"cat",
-				"0",
-				"--keg", "example",
+				"node", "read", "0", "--keg", "example",
 			},
 			setupFixture: strPtr("joe"),
 			cwd:          strPtr("~/repos/work/spy-things"),
@@ -163,9 +159,7 @@ func TestCatCommand_WithJoeFixture(t *testing.T) {
 		{
 			name: "cat_personal_keg_explicit_alias",
 			args: []string{
-				"cat",
-				"0",
-				"--keg", "personal",
+				"node", "read", "0", "--keg", "personal",
 			},
 			setupFixture: strPtr("joe"),
 			expectedInStdout: []string{
@@ -177,10 +171,7 @@ func TestCatCommand_WithJoeFixture(t *testing.T) {
 		{
 			name: "cat_content_only",
 			args: []string{
-				"cat",
-				"0",
-				"--content-only",
-				"--keg", "personal",
+				"node", "read", "0", "--content-only", "--keg", "personal",
 			},
 			setupFixture: strPtr("joe"),
 			expectedInStdout: []string{
@@ -191,10 +182,7 @@ func TestCatCommand_WithJoeFixture(t *testing.T) {
 		{
 			name: "cat_meta_only",
 			args: []string{
-				"cat",
-				"0",
-				"--meta-only",
-				"--keg", "personal",
+				"node", "read", "0", "--meta-only", "--keg", "personal",
 			},
 			setupFixture: strPtr("joe"),
 			expectedInStdout: []string{
@@ -206,10 +194,7 @@ func TestCatCommand_WithJoeFixture(t *testing.T) {
 		{
 			name: "cat_stats_only",
 			args: []string{
-				"cat",
-				"0",
-				"--stats-only",
-				"--keg", "personal",
+				"node", "read", "0", "--stats-only", "--keg", "personal",
 			},
 			setupFixture: strPtr("joe"),
 			expectedInStdout: []string{
@@ -270,7 +255,7 @@ func TestCatCommand_IntegrationWithInit(t *testing.T) {
 
 func TestCatCommand_UserKeg(t *testing.T) {
 	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
-	res := NewProcess(t, false, "cat", "0", "--keg", "public").Run(sb.Context(), sb.Runtime())
+	res := NewProcess(t, false, "node", "read", "0", "--keg", "public").Run(sb.Context(), sb.Runtime())
 	require.Error(t, res.Err)
 	require.Contains(t, string(res.Stderr), "keg not initialized")
 }
@@ -283,7 +268,7 @@ func TestCatCommand_BumpsAccessedAndAccessCount(t *testing.T) {
 	oldAccessed := "2001-01-01T00:00:00Z"
 	sb.MustWriteFile(statsPath, []byte(`{"accessed":"`+oldAccessed+`","access_count":7}`), 0o644)
 
-	h := NewProcess(t, false, "cat", "0", "--keg", "personal", "--content-only")
+	h := NewProcess(t, false, "node", "read", "0", "--keg", "personal", "--content-only")
 	res := h.Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err, "cat should succeed and bump access metadata")
 
@@ -306,7 +291,7 @@ func TestCatCommand_DefaultFrontmatterDoesNotInjectStats(t *testing.T) {
 	statsPath := "~/kegs/@local/personal/0/stats.json"
 	sb.MustWriteFile(statsPath, []byte(`{"accessed":"2025-01-01T00:00:00Z","access_count":123}`), 0o644)
 
-	res := NewProcess(t, false, "cat", "0", "--keg", "personal").Run(sb.Context(), sb.Runtime())
+	res := NewProcess(t, false, "node", "read", "0", "--keg", "personal").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 
 	out := string(res.Stdout)
@@ -342,7 +327,7 @@ EOF
 	require.NoError(t, sb.Runtime().Set("EDITOR", "/bin/sh "+scriptPath))
 	sb.Runtime().Unset("VISUAL")
 
-	res := NewProcess(t, false, "cat", "0", "--keg", "personal", "--edit").RunWithIO(sb.Context(), sb.Runtime(), strings.NewReader(""))
+	res := NewProcess(t, false, "node", "read", "0", "--keg", "personal", "--edit").RunWithIO(sb.Context(), sb.Runtime(), strings.NewReader(""))
 	require.NoError(t, res.Err)
 	require.Equal(t, "", strings.TrimSpace(string(res.Stdout)))
 
@@ -365,7 +350,7 @@ func TestCatCommand_MultiNode_YAMLStream(t *testing.T) {
 	createRes := NewCreateProcess(t, false, "Second node", "", "--keg", "personal").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, createRes.Err, "create should succeed")
 
-	res := NewProcess(t, false, "cat", "0", "1", "--keg", "personal").Run(sb.Context(), sb.Runtime())
+	res := NewProcess(t, false, "node", "read", "0", "1", "--keg", "personal").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 
 	out := string(res.Stdout)
@@ -393,7 +378,7 @@ func TestCatCommand_MultiNode_ContentOnly(t *testing.T) {
 	createRes := NewCreateProcess(t, false, "Second node", "", "--keg", "personal").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, createRes.Err, "create should succeed")
 
-	res := NewProcess(t, false, "cat", "0", "1", "--keg", "personal", "--content-only").Run(sb.Context(), sb.Runtime())
+	res := NewProcess(t, false, "node", "read", "0", "1", "--keg", "personal", "--content-only").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 
 	out := string(res.Stdout)
@@ -415,7 +400,7 @@ func TestCatCommand_MultiNode_MetaOnly(t *testing.T) {
 	createRes := NewCreateProcess(t, false, "Second node", "", "--keg", "personal").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, createRes.Err, "create should succeed")
 
-	res := NewProcess(t, false, "cat", "0", "1", "--keg", "personal", "--meta-only").Run(sb.Context(), sb.Runtime())
+	res := NewProcess(t, false, "node", "read", "0", "1", "--keg", "personal", "--meta-only").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 
 	out := string(res.Stdout)
@@ -434,7 +419,7 @@ func TestCatCommand_MultiNode_StatsOnly(t *testing.T) {
 	createRes := NewCreateProcess(t, false, "Second node", "", "--keg", "personal").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, createRes.Err, "create should succeed")
 
-	res := NewProcess(t, false, "cat", "0", "1", "--keg", "personal", "--stats-only").Run(sb.Context(), sb.Runtime())
+	res := NewProcess(t, false, "node", "read", "0", "1", "--keg", "personal", "--stats-only").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 
 	out := string(res.Stdout)
@@ -450,7 +435,7 @@ func TestCatCommand_SingleNode_NoIDField(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
 
-	res := NewProcess(t, false, "cat", "0", "--keg", "personal").Run(sb.Context(), sb.Runtime())
+	res := NewProcess(t, false, "node", "read", "0", "--keg", "personal").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 
 	out := string(res.Stdout)
@@ -487,7 +472,7 @@ EOF
 	sb.Runtime().Unset("VISUAL")
 
 	// isTTY=true: should delegate to editor, no stdout output.
-	res := NewProcess(t, true, "cat", "0", "--keg", "personal").
+	res := NewProcess(t, true, "node", "read", "0", "--keg", "personal").
 		RunWithIO(sb.Context(), sb.Runtime(), strings.NewReader(""))
 	require.NoError(t, res.Err)
 	require.Equal(t, "", strings.TrimSpace(string(res.Stdout)),
@@ -509,7 +494,7 @@ func TestCatCommand_NonTTY_SingleNode_PrintsToStdout(t *testing.T) {
 	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
 
 	// isTTY=false: should print to stdout, not open editor.
-	res := NewProcess(t, false, "cat", "0", "--keg", "personal").
+	res := NewProcess(t, false, "node", "read", "0", "--keg", "personal").
 		Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 
@@ -553,7 +538,7 @@ func TestCatCommand_TTY_OutputModeFlags_OverrideTTY(t *testing.T) {
 			sb := NewSandbox(innerT, testutils.WithFixture("joe", "~"))
 
 			// isTTY=true but output-mode flag set: should print to stdout.
-			res := NewProcess(innerT, true, "cat", "0", "--keg", "personal", tt.flag).
+			res := NewProcess(innerT, true, "node", "read", "0", "--keg", "personal", tt.flag).
 				Run(sb.Context(), sb.Runtime())
 			require.NoError(innerT, res.Err)
 
@@ -576,7 +561,7 @@ func TestCatCommand_TTY_MultipleNodes_PrintsToStdout(t *testing.T) {
 	require.NoError(t, createRes.Err, "create should succeed")
 
 	// isTTY=true with multiple nodes: should still print to stdout.
-	res := NewProcess(t, true, "cat", "0", "1", "--keg", "personal").
+	res := NewProcess(t, true, "node", "read", "0", "1", "--keg", "personal").
 		Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 
@@ -594,7 +579,7 @@ func TestCatCommand_QueryFlag(t *testing.T) {
 		innerT.Parallel()
 		sb := NewSandbox(innerT, testutils.WithFixture("joe", "~"))
 
-		res := NewProcess(innerT, false, "cat", "--query", "planned", "--keg", "personal", "--content-only").
+		res := NewProcess(innerT, false, "node", "read", "--query", "planned", "--keg", "personal", "--content-only").
 			Run(sb.Context(), sb.Runtime())
 		require.NoError(innerT, res.Err, "--query should select nodes by expression")
 		require.Contains(innerT, string(res.Stdout), "Sorry, planned but not yet available",
@@ -625,7 +610,7 @@ func TestCatCommand_TTY_BumpsAccessCount(t *testing.T) {
 	statsPath := "~/kegs/@local/personal/0/stats.json"
 	sb.MustWriteFile(statsPath, []byte(`{"accessed":"2001-01-01T00:00:00Z","access_count":5}`), 0o644)
 
-	res := NewProcess(t, true, "cat", "0", "--keg", "personal").
+	res := NewProcess(t, true, "node", "read", "0", "--keg", "personal").
 		RunWithIO(sb.Context(), sb.Runtime(), strings.NewReader(""))
 	require.NoError(t, res.Err)
 

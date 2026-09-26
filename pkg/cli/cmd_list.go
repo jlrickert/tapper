@@ -30,8 +30,6 @@ Query expressions support:
 Use --limit (-n) to cap output (0 for no limit).
 Use --offset to skip the first N results (for pagination).
 Use --sort to order by "id", "updated", "created", or "accessed".`,
-
-		Aliases: []string{"ls"},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			applyKegTargetProfile(deps, &opts.KegTargetOptions)
 			nodes, err := deps.Tap.List(cmd.Context(), opts)

@@ -12,7 +12,7 @@ import (
 func readNodeHash(t *testing.T, session *sdkmcp.ClientSession, ctx context.Context, nodeID string) string {
 	t.Helper()
 	read, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name:      "cat",
+		Name:      "node_read",
 		Arguments: map[string]any{"node_ids": []string{nodeID}},
 	})
 	require.NoError(t, err)
@@ -28,7 +28,7 @@ func readSettingsHash(t *testing.T, session *sdkmcp.ClientSession, ctx context.C
 	if kegRef != "" {
 		args["keg"] = kegRef
 	}
-	read, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: "keg_settings", Arguments: args})
+	read, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: "keg_settings_read", Arguments: args})
 	require.NoError(t, err)
 	require.False(t, read.IsError, "keg_settings failed: %s", extractText(t, read))
 	return structuredHash(t, read)
@@ -77,7 +77,7 @@ func TestPrecondition_CatHashRoundTripsThroughEdit(t *testing.T) {
 	session, ctx := newTestSession(t)
 
 	createRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name:      "create",
+		Name:      "node_create",
 		Arguments: batchCreateArgs(map[string]any{"title": "Precondition Subject"}),
 	})
 	require.NoError(t, err)
@@ -85,7 +85,7 @@ func TestPrecondition_CatHashRoundTripsThroughEdit(t *testing.T) {
 	nodeID := extractText(t, createRes)
 
 	read, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name:      "cat",
+		Name:      "node_read",
 		Arguments: map[string]any{"node_ids": []string{nodeID}},
 	})
 	require.NoError(t, err)
@@ -98,7 +98,7 @@ func TestPrecondition_CatHashRoundTripsThroughEdit(t *testing.T) {
 	require.NotEmpty(t, original, "cat must return a usable precondition token")
 
 	missing, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "edit",
+		Name: "node_edit",
 		Arguments: batchEditArgs(map[string]any{
 			"node_id": nodeID,
 			"content": "# Missing token must fail\n",
@@ -111,7 +111,7 @@ func TestPrecondition_CatHashRoundTripsThroughEdit(t *testing.T) {
 
 	// The token a read handed out is accepted by the matching write.
 	editRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "edit",
+		Name: "node_edit",
 		Arguments: batchEditArgs(map[string]any{
 			"node_id":       nodeID,
 			"content":       "# Precondition Subject\n\nFirst writer wins.\n",
@@ -123,7 +123,7 @@ func TestPrecondition_CatHashRoundTripsThroughEdit(t *testing.T) {
 
 	// The write moved the node, so the old token is now stale.
 	reread, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name:      "cat",
+		Name:      "node_read",
 		Arguments: map[string]any{"node_ids": []string{nodeID}},
 	})
 	require.NoError(t, err)
@@ -134,7 +134,7 @@ func TestPrecondition_CatHashRoundTripsThroughEdit(t *testing.T) {
 	// A second agent still holding the pre-write token is refused rather than
 	// silently clobbering the first writer's change.
 	stale, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "edit",
+		Name: "node_edit",
 		Arguments: batchEditArgs(map[string]any{
 			"node_id":       nodeID,
 			"content":       "# Precondition Subject\n\nSecond writer clobbers.\n",
@@ -152,7 +152,7 @@ func TestPrecondition_CatHashRoundTripsThroughEdit(t *testing.T) {
 
 	// And the refused write left the first writer's content intact.
 	final, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name:      "cat",
+		Name:      "node_read",
 		Arguments: map[string]any{"node_ids": []string{nodeID}, "content_only": true},
 	})
 	require.NoError(t, err)
@@ -165,7 +165,7 @@ func TestPrecondition_RemoveBatchUsesDistinctTokensAtomically(t *testing.T) {
 
 	create := func(title string) string {
 		result, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-			Name:      "create",
+			Name:      "node_create",
 			Arguments: batchCreateArgs(map[string]any{"title": title}),
 		})
 		require.NoError(t, err)
@@ -179,7 +179,7 @@ func TestPrecondition_RemoveBatchUsesDistinctTokensAtomically(t *testing.T) {
 	require.NotEqual(t, oneHash, twoHash)
 
 	missing, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "remove",
+		Name: "node_delete",
 		Arguments: map[string]any{"nodes": []map[string]any{
 			{"node_id": one, "expected_hash": oneHash},
 			{"node_id": two},
@@ -193,7 +193,7 @@ func TestPrecondition_RemoveBatchUsesDistinctTokensAtomically(t *testing.T) {
 	require.NotEmpty(t, readNodeHash(t, session, ctx, two))
 
 	edit, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "edit",
+		Name: "node_edit",
 		Arguments: batchEditArgs(map[string]any{
 			"node_id":       two,
 			"content":       "# Remove batch two\n\nchanged after the removal read\n",
@@ -206,7 +206,7 @@ func TestPrecondition_RemoveBatchUsesDistinctTokensAtomically(t *testing.T) {
 	require.NotEqual(t, twoHash, currentTwoHash)
 
 	stale, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "remove",
+		Name: "node_delete",
 		Arguments: map[string]any{"nodes": []map[string]any{
 			{"node_id": one, "expected_hash": oneHash},
 			{"node_id": two, "expected_hash": twoHash},
@@ -222,7 +222,7 @@ func TestPrecondition_RemoveBatchUsesDistinctTokensAtomically(t *testing.T) {
 	require.Equal(t, currentTwoHash, readNodeHash(t, session, ctx, two))
 
 	valid, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "remove",
+		Name: "node_delete",
 		Arguments: map[string]any{"nodes": []map[string]any{
 			{"node_id": one, "expected_hash": oneHash},
 			{"node_id": two, "expected_hash": currentTwoHash},
@@ -234,7 +234,7 @@ func TestPrecondition_RemoveBatchUsesDistinctTokensAtomically(t *testing.T) {
 
 	for _, nodeID := range []string{one, two} {
 		result, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-			Name:      "cat",
+			Name:      "node_read",
 			Arguments: map[string]any{"node_ids": []string{nodeID}},
 		})
 		require.NoError(t, err)
@@ -260,7 +260,7 @@ func TestPrecondition_ReadsExposeDocumentTokens(t *testing.T) {
 	session, ctx := newTestSession(t)
 
 	settings, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name:      "keg_settings",
+		Name:      "keg_settings_read",
 		Arguments: map[string]any{"minimal": false},
 	})
 	require.NoError(t, err)
@@ -270,7 +270,7 @@ func TestPrecondition_ReadsExposeDocumentTokens(t *testing.T) {
 	// The minimal render is a cross-keg summary, not an editable document, so
 	// it deliberately hands back nothing to echo.
 	minimal, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name:      "keg_settings",
+		Name:      "keg_settings_read",
 		Arguments: map[string]any{"minimal": true},
 	})
 	require.NoError(t, err)
@@ -284,7 +284,7 @@ func TestPrecondition_ReadsExposeDocumentTokens(t *testing.T) {
 // rendered text — so an agent doing read-modify-write had to parse output meant
 // for humans, and a multi-node read had to correlate two lists by position.
 //
-// Content and meta are asserted separately because that is the shape `edit`
+// Content and meta are asserted separately because that is the shape `node_edit`
 // accepts; a composed ---meta---body blob could not be sent back, since edit
 // rejects frontmatter inside content.
 func TestCat_StructuredRowsAreSelfContained(t *testing.T) {
@@ -325,7 +325,7 @@ func TestCat_StructuredRowsAreSelfContained(t *testing.T) {
 
 	// The whole point: a structured row round-trips into edit with no parsing.
 	editRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "edit",
+		Name: "node_edit",
 		Arguments: batchEditArgs(map[string]any{
 			"node_id":       metaRows[0].NodeID,
 			"meta":          metaRows[0].Meta,
@@ -346,7 +346,7 @@ type catRow struct {
 
 func catRows(t *testing.T, session *sdkmcp.ClientSession, ctx context.Context, args map[string]any) []catRow {
 	t.Helper()
-	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: "cat", Arguments: args})
+	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: "node_read", Arguments: args})
 	require.NoError(t, err)
 	require.False(t, res.IsError, "cat returned error: %s", extractText(t, res))
 	raw, err := json.Marshal(res.StructuredContent)
@@ -361,7 +361,7 @@ func catRows(t *testing.T, session *sdkmcp.ClientSession, ctx context.Context, a
 func createNodeForTest(t *testing.T, session *sdkmcp.ClientSession, ctx context.Context, content, meta string) string {
 	t.Helper()
 	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name:      "create",
+		Name:      "node_create",
 		Arguments: map[string]any{"nodes": []any{map[string]any{"key": "node", "content": content, "meta": meta}}},
 	})
 	require.NoError(t, err)

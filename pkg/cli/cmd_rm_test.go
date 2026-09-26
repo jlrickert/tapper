@@ -15,12 +15,12 @@ func TestRemoveCommand_DeletesNode(t *testing.T) {
 	res := NewCreateProcess(t, false, "Delete me", "").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 
-	res = NewProcess(t, false, "rm", "1").Run(sb.Context(), sb.Runtime())
+	res = NewProcess(t, false, "node", "delete", "1").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 
 	require.False(t, fixtureNodeExists(t, sb.Runtime(), "example", "1"), "node should be removed")
 
-	catRes := NewProcess(t, false, "cat", "1").Run(sb.Context(), sb.Runtime())
+	catRes := NewProcess(t, false, "node", "read", "1").Run(sb.Context(), sb.Runtime())
 	require.Error(t, catRes.Err)
 	require.Contains(t, string(catRes.Stderr), "node 1 not found")
 }
@@ -29,11 +29,11 @@ func TestRemoveCommand_ErrorCases(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
 
-	res := NewProcess(t, false, "rm", "999").Run(sb.Context(), sb.Runtime())
+	res := NewProcess(t, false, "node", "delete", "999").Run(sb.Context(), sb.Runtime())
 	require.Error(t, res.Err)
 	require.Contains(t, string(res.Stderr), "node 999 not found")
 
-	res = NewProcess(t, false, "rm", "0").Run(sb.Context(), sb.Runtime())
+	res = NewProcess(t, false, "node", "delete", "0").Run(sb.Context(), sb.Runtime())
 	require.Error(t, res.Err)
 	require.Contains(t, string(res.Stderr), "node 0 cannot be removed")
 }
@@ -52,7 +52,7 @@ func TestRemoveCommand_RedirectsLinksToZero(t *testing.T) {
 	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
 
 	// Remove node 2 (Project Alpha).  Nodes 1 and 3 both link to it.
-	res := NewProcess(t, false, "rm", "2", "--keg", "personal").Run(sb.Context(), sb.Runtime())
+	res := NewProcess(t, false, "node", "delete", "2", "--keg", "personal").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 
 	require.False(t, fixtureNodeExists(t, sb.Runtime(), "personal", "2"), "node 2 should be deleted")
@@ -77,20 +77,20 @@ func TestRemoveCommand_RedirectsLinksCreatedViaStdin(t *testing.T) {
 
 	// Create node 4 that links to node 5 (to be created next).
 	node4Content := "# Task A\n\nDepends on [Task B](../5).\nAlso see ../5.\n"
-	res := NewProcess(t, false, "create", "--keg", "personal").
+	res := NewProcess(t, false, "node", "create", "--keg", "personal").
 		RunWithIO(sb.Context(), sb.Runtime(), strings.NewReader(node4Content))
 	require.NoError(t, res.Err)
 	require.Equal(t, "4", strings.TrimSpace(string(res.Stdout)))
 
 	// Create node 5 that links back to node 4.
 	node5Content := "# Task B\n\nBlocked by [Task A](../4).\n"
-	res = NewProcess(t, false, "create", "--keg", "personal").
+	res = NewProcess(t, false, "node", "create", "--keg", "personal").
 		RunWithIO(sb.Context(), sb.Runtime(), strings.NewReader(node5Content))
 	require.NoError(t, res.Err)
 	require.Equal(t, "5", strings.TrimSpace(string(res.Stdout)))
 
 	// Remove node 5.  Node 4's references to ../5 should become ../0.
-	res = NewProcess(t, false, "rm", "5", "--keg", "personal").Run(sb.Context(), sb.Runtime())
+	res = NewProcess(t, false, "node", "delete", "5", "--keg", "personal").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 
 	require.False(t, fixtureNodeExists(t, sb.Runtime(), "personal", "5"), "node 5 should be deleted")
@@ -107,7 +107,7 @@ func TestRemoveCommand_MultipleNodes(t *testing.T) {
 	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
 
 	// node 1 links to 2 and 3; remove both 2 and 3 in one command.
-	res := NewProcess(t, false, "rm", "2", "3", "--keg", "personal").Run(sb.Context(), sb.Runtime())
+	res := NewProcess(t, false, "node", "delete", "2", "3", "--keg", "personal").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 
 	require.False(t, fixtureNodeExists(t, sb.Runtime(), "personal", "2"))

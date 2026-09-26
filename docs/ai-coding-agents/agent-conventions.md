@@ -40,9 +40,9 @@ locking and snapshot history.
 
 Always route through tapper's interfaces:
 
-- `mcp__tapper__cat` to read (supports `content_only`, `meta_only`,
+- `mcp__tapper__node_read` to read (supports `content_only`, `meta_only`,
   `stats_only`).
-- `mcp__tapper__edit` to write a node — `content` is the markdown body
+- `mcp__tapper__node_edit` to write a node — `content` is the markdown body
   and `meta` is the metadata document. They are separate fields, so
   `content` must not carry a frontmatter block; send either one alone to
   leave the other untouched, or both to replace the whole node.
@@ -56,32 +56,32 @@ snapshots, and structured conflict recovery remain visible to the agent.
 
 ## Snapshot before large in-place edits; preserve content before remove
 
-`mcp__tapper__node_snapshot` captures the node's current revision.
+`mcp__tapper__snapshot_create` captures the node's current revision.
 Snapshots are cheap and content-deduplicated.
 
-**Snapshots are stored inside the node.** `mcp__tapper__remove` deletes
+**Snapshots are stored inside the node.** `mcp__tapper__node_delete` deletes
 the node directory, which takes its entire snapshot history with it — a
 snapshot is not a recovery path for removal. Before removing a node,
 copy the content somewhere that survives the deletion: read it with
-`mcp__tapper__cat` and keep it in your working context, or write it to
+`mcp__tapper__node_read` and keep it in your working context, or write it to
 another node first. If you are uncertain the removal is correct, defer.
 
 Snapshots do protect in-place edits. Take one before:
 
-- Any `mcp__tapper__edit` that rewrites more than a section.
-- Any `mcp__tapper__edit` writing `meta`, which replaces the whole
+- Any `mcp__tapper__node_edit` that rewrites more than a section.
+- Any `mcp__tapper__node_edit` writing `meta`, which replaces the whole
   metadata document and so overwrites existing tags and attributes.
-- `mcp__tapper__move` (the node survives the move, but a pre-move
+- `mcp__tapper__node_move` (the node survives the move, but a pre-move
   snapshot makes before/after diffs trivial).
 - Any multi-tool transformation where a mistake partway through would
   be hard to undo manually.
 
-Recover in-place edits with `mcp__tapper__node_history` (to see
-available snapshots) and `mcp__tapper__node_restore` (to roll back).
+Recover in-place edits with `mcp__tapper__snapshot_list` (to see
+available snapshots) and `mcp__tapper__snapshot_restore` (to roll back).
 
 ## Use query expressions for tag and stats filtering
 
-`mcp__tapper__tags` and `mcp__tapper__list` accept a `query` parameter
+`mcp__tapper__tag_list` and `mcp__tapper__node_list` accept a `query` parameter
 that is a boolean expression over:
 
 - Bare tag names — `tapper` matches nodes tagged `tapper`.
@@ -121,14 +121,14 @@ is in the same keg — they resolve in any markdown renderer.
   single-node operations may run concurrently.
 - The index is rebuilt incrementally on write. Searches issued
   immediately after a write see the new state.
-- `tap watch` consumes Hub events; it does not discover local files.
+- `tap node watch` consumes Hub events; it does not discover local files.
 
 ## Do not bypass completeness checks
 
-- `mcp__tapper__create` asks the Hub to allocate and create a node atomically.
-- `mcp__tapper__remove` runs integrity checks and updates the index. Filesystem
+- `mcp__tapper__node_create` asks the Hub to allocate and create a node atomically.
+- `mcp__tapper__node_delete` runs integrity checks and updates the index. Filesystem
   deletion is not a Tapper operation.
-- `mcp__tapper__move` handles ID reassignment and updates backlinks.
+- `mcp__tapper__node_move` handles ID reassignment and updates backlinks.
 
 If a tool refuses an operation, the refusal is load-bearing — there is a
 consistency or authority reason. Do not work around it through direct HTTP or

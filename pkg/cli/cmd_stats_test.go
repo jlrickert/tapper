@@ -16,24 +16,24 @@ func TestStatsCommand_TableDriven(t *testing.T) {
 	}{
 		{
 			name:        "missing_node_id",
-			args:        []string{"stats"},
+			args:        []string{"node", "stats"},
 			expectedErr: "accepts 1 arg",
 		},
 		{
 			name:        "invalid_node_id",
-			args:        []string{"stats", "abc"},
+			args:        []string{"node", "stats", "abc"},
 			fixture:     strPtr("joe"),
 			expectedErr: "invalid node ID",
 		},
 		{
 			name:        "missing_alias",
-			args:        []string{"stats", "0", "--keg", "missing"},
+			args:        []string{"node", "stats", "0", "--keg", "missing"},
 			fixture:     strPtr("joe"),
 			expectedErr: "keg not initialized",
 		},
 		{
 			name:        "missing_node",
-			args:        []string{"stats", "424242", "--keg", "personal"},
+			args:        []string{"node", "stats", "424242", "--keg", "personal"},
 			fixture:     strPtr("joe"),
 			expectedErr: "node 424242 not found",
 		},
@@ -60,7 +60,7 @@ func TestStatsCommand_WithJoeFixture(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
 
-	res := NewProcess(t, false, "stats", "0", "--keg", "personal").Run(sb.Context(), sb.Runtime())
+	res := NewProcess(t, false, "node", "stats", "0", "--keg", "personal").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 
 	out := string(res.Stdout)

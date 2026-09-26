@@ -28,11 +28,11 @@ func newQuerySandbox(t *testing.T) *testutils.Sandbox {
 	return NewSandbox(t, testutils.WithFixture("queryuser", "~"))
 }
 
-// queryListIDs runs `tap list --id-only --query <expr>` and returns the
+// queryListIDs runs `tap node list --id-only --query <expr>` and returns the
 // resulting node IDs as a trimmed string slice.
 func queryListIDs(t *testing.T, sb *testutils.Sandbox, query string) []string {
 	t.Helper()
-	res := NewProcess(t, false, "list", "--id-only", "--query", query).Run(sb.Context(), sb.Runtime())
+	res := NewProcess(t, false, "node", "list", "--id-only", "--query", query).Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err, "query %q should not error: %s", query, string(res.Stderr))
 	out := strings.TrimSpace(string(res.Stdout))
 	if out == "" {
@@ -275,7 +275,7 @@ func TestQueryExpr_OmegaGteNonNumeric(t *testing.T) {
 	// omega values like "0.7" are lexicographically less than "abc",
 	// some nodes might match via string fallback. The important thing is
 	// it does not error.
-	res := NewProcess(t, false, "list", "--id-only", "--query", "omega>=abc").Run(sb.Context(), sb.Runtime())
+	res := NewProcess(t, false, "node", "list", "--id-only", "--query", "omega>=abc").Run(sb.Context(), sb.Runtime())
 	// Should not error -- it may return results or empty depending on
 	// string comparison fallback behavior.
 	if res.Err != nil {
@@ -290,7 +290,7 @@ func TestQueryExpr_EmptyQueryReturnsAll(t *testing.T) {
 	sb := newQuerySandbox(t)
 
 	// An empty query (no --query flag) should return all nodes.
-	res := NewProcess(t, false, "list", "--id-only").Run(sb.Context(), sb.Runtime())
+	res := NewProcess(t, false, "node", "list", "--id-only").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 	out := strings.TrimSpace(string(res.Stdout))
 	lines := strings.Split(out, "\n")
@@ -305,7 +305,7 @@ func TestQueryExpr_TagAndTag_EmptyResult(t *testing.T) {
 
 	// api and backend -- no nodes have both tags, so the command should
 	// return an error indicating no nodes were found.
-	res := NewProcess(t, false, "list", "--id-only", "--query", "api and backend").Run(sb.Context(), sb.Runtime())
+	res := NewProcess(t, false, "node", "list", "--id-only", "--query", "api and backend").Run(sb.Context(), sb.Runtime())
 	require.Error(t, res.Err, "query with no matching nodes should error")
 	require.Contains(t, res.Err.Error(), "no nodes found")
 }

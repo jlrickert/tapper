@@ -67,7 +67,7 @@ func TestLaunchCommand_Errors(t *testing.T) {
 	sb := newLaunchSandbox(t, "")
 
 	res := NewProcess(t, false, "launch", "codex", "--agent", "opus", "--dry-run").Run(sb.Context(), sb.Runtime())
-	require.ErrorContains(t, res.Err, "unknown flag: --agent", "configured agents are retired")
+	require.ErrorContains(t, res.Err, "must be @namespace/name", "local configured agents remain retired")
 
 	res = NewProcess(t, false, "launch", "codex", "--model", "desktop/ollama/x", "--dry-run").Run(sb.Context(), sb.Runtime())
 	require.ErrorContains(t, res.Err, "is its relay connected")

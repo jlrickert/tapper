@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -32,6 +33,8 @@ const noLaunchFlightWarning = "no flight configured; this agent runs with " +
 type LaunchOptions struct {
 	// Harness names the agent CLI to start: claude, codex, opencode, or pi.
 	Harness string
+	// Agent is an explicit Hub agent reference (@namespace/name).
+	Agent string
 	// Model is a Hub catalog id. Empty starts on the first model in the
 	// catalog, which Hub orders by the relay owners' preference.
 	Model string
@@ -58,6 +61,7 @@ type LaunchOptions struct {
 // the same thing — see ResolveLaunch.
 type LaunchResult struct {
 	// Hub names the hub serving the models.
+	HubAgent string
 	Hub      string
 	Harness  string
 	Model    string
@@ -111,6 +115,7 @@ type launchSpec struct {
 	dir     string
 	model   string
 	catalog []HubModel
+	agent   *HubAgent
 }
 
 // contextWindow is the selected model's advertised token limit, or 0.
@@ -151,6 +156,15 @@ func (p *launchPlan) render(origin, apiKey, dir string) invocation {
 	spec := p.spec
 	spec.origin, spec.apiKey, spec.dir = origin, apiKey, dir
 	inv := p.build(spec)
+	inv.strip = append(inv.strip, "TAP_AGENT")
+	if spec.agent != nil && spec.agent.Instructions != "" {
+		switch inv.argv[0] {
+		case "claude", "pi":
+			inv.argv = append(inv.argv, "--append-system-prompt", spec.agent.Instructions)
+		case "codex":
+			inv.argv = append(inv.argv, "-c", "developer_instructions="+strconv.Quote(spec.agent.Instructions))
+		}
+	}
 	inv.argv = append(inv.argv, p.tailArgs...)
 	if inv.env == nil {
 		inv.env = map[string]string{}
@@ -288,8 +302,14 @@ func opencodeLaunch(spec launchSpec) invocation {
 			},
 		},
 	}
+	argv := []string{"opencode", "--model", hubProviderID + "/" + spec.model}
+	if spec.agent != nil {
+		name := spec.agent.Namespace + "-" + spec.agent.Name
+		config["agent"] = map[string]any{name: map[string]any{"mode": "primary", "model": hubProviderID + "/" + spec.model, "prompt": spec.agent.Instructions, "description": spec.agent.Description}}
+		argv = append(argv, "--agent", name)
+	}
 	return invocation{
-		argv: []string{"opencode", "--model", hubProviderID + "/" + spec.model},
+		argv: argv,
 		env:  map[string]string{"OPENCODE_CONFIG_CONTENT": encodeLaunchJSON(config)},
 	}
 }
@@ -349,7 +369,7 @@ func piLaunch(spec launchSpec) invocation {
 func chatModels(catalog []HubModel) []HubModel {
 	out := make([]HubModel, 0, len(catalog))
 	for _, m := range catalog {
-		if len(m.Capabilities) == 0 {
+		if len(m.Capabilities) == 0 || slices.Contains(m.Capabilities, "chat") {
 			out = append(out, m)
 		}
 	}
@@ -413,9 +433,28 @@ func (t *Tap) ResolveLaunchContext(ctx context.Context, opts LaunchOptions) (*La
 	if err != nil {
 		return nil, err
 	}
+	if opts.Agent != "" && opts.Model != "" {
+		return nil, fmt.Errorf("--model and --agent are mutually exclusive")
+	}
+	var agent *HubAgent
+	if ref := strings.TrimSpace(opts.Agent); ref != "" {
+		agent, err = t.HubAgent(ctx, ref)
+		if err != nil {
+			return nil, fmt.Errorf("agent %s: %w", ref, err)
+		}
+	}
+
 	root, hasRoot, warnings, err := t.resolveLaunchRoot(cfg, opts.Flight)
 	if err != nil {
 		return nil, err
+	}
+
+	if agent != nil && !hasRoot && strings.TrimSpace(agent.Flight) != "" {
+		root, err = ParseFlightRef(agent.Flight, agent.Namespace)
+		if err != nil {
+			return nil, fmt.Errorf("agent %s flight: %w", agent.Ref, err)
+		}
+		hasRoot, warnings = true, nil
 	}
 
 	hubName, entry, err := t.ConfigService.SelectedHub("")
@@ -436,6 +475,9 @@ func (t *Tap) ResolveLaunchContext(ctx context.Context, opts LaunchOptions) (*La
 		return nil, fmt.Errorf("hub %q has no models for you yet; run `tap relay` to contribute your own", hubName)
 	}
 	model := strings.TrimSpace(opts.Model)
+	if agent != nil {
+		model = agent.Model
+	}
 	if model == "" {
 		model = chat[0].ID
 	} else if !hubCatalogHas(chat, model) {
@@ -447,13 +489,18 @@ func (t *Tap) ResolveLaunchContext(ctx context.Context, opts LaunchOptions) (*La
 	if err != nil {
 		return nil, err
 	}
+	agentRef := ""
+	if agent != nil {
+		agentRef = agent.Ref
+		tailEnv["TAP_AGENT"] = agentRef
+	}
 	tailEnv["TAP_HARNESS"] = harness
 	tailEnv["TAP_MODEL"] = model
 	plan := &launchPlan{
 		hubURL:   hubURL,
 		token:    token,
 		build:    build,
-		spec:     launchSpec{hubName: hubName, model: model, catalog: catalog},
+		spec:     launchSpec{hubName: hubName, model: model, catalog: catalog, agent: agent},
 		tailArgs: append([]string(nil), opts.Args...),
 		tailEnv:  tailEnv,
 	}
@@ -463,6 +510,7 @@ func (t *Tap) ResolveLaunchContext(ctx context.Context, opts LaunchOptions) (*La
 		flight = root.Canonical()
 	}
 	return &LaunchResult{
+		HubAgent: agentRef,
 		Hub:      hubName,
 		Harness:  harness,
 		Model:    model,

@@ -15,7 +15,7 @@ import (
 
 // registerSchemaTools exposes keg schema administration over MCP. Schemas
 // describe valid note types for a keg; these tools mirror `tap schema …` and
-// `tap validate`. They are registered on every surface (CLI peer + hub
+// `tap schema validate`. They are registered on every surface (CLI peer + hub
 // connector) and funnel through Tap.resolveKegForRole, so a hub-injected
 // KegResolver scopes them to the caller's catalog with viewer/editor
 // enforcement.
@@ -186,7 +186,7 @@ type validateInput struct {
 
 func registerValidate(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
-		Name:        "validate",
+		Name:        "schema_validate",
 		Description: "Validate nodes against their declared schema type",
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
@@ -207,7 +207,7 @@ func registerValidate(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults)
 // formatValidationResults renders validation results as plain text. Validity
 // is a result the agent reads, not a tool error, so an invalid node yields a
 // normal (non-IsError) text result with an explicit summary line. The per-node
-// lines mirror `tap validate` (see pkg/cli/cmd_validate.go).
+// lines mirror `tap schema validate` (see pkg/cli/cmd_validate.go).
 func formatValidationResults(results []keg.SchemaValidationResult) string {
 	if len(results) == 0 {
 		return "no nodes validated"

@@ -11,16 +11,15 @@ import (
 //
 // Usage examples:
 //
-//	tap create
-//	tap create --schema task
-//	printf '---\ntype: task\n---\n# My note\n' | tap create
+//	tap node create
+//	tap node create --schema task
+//	printf '---\ntype: task\n---\n# My note\n' | tap node create
 func NewCreateCmd(deps *Deps) *cobra.Command {
 	var opts tapper.CreateOptions
 
 	cmd := &cobra.Command{
-		Use:     "create",
-		Short:   "create a new node in the current keg",
-		Aliases: []string{"c"},
+		Use:   "create",
+		Short: "create a new node in the current keg",
 		Long: `Create a new node in the current keg.
 
 If stdin is piped with non-empty content, it is used as the node body and no

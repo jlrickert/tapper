@@ -17,24 +17,24 @@ func TestBacklinksCommand_TableDrivenErrors(t *testing.T) {
 	}{
 		{
 			name:        "missing_node_id",
-			args:        []string{"backlinks"},
+			args:        []string{"node", "backlinks"},
 			expectedErr: "requires at least 1 arg",
 		},
 		{
 			name:        "invalid_node_id",
-			args:        []string{"backlinks", "abc"},
+			args:        []string{"node", "backlinks", "abc"},
 			fixture:     strPtr("joe"),
 			expectedErr: "invalid node ID",
 		},
 		{
 			name:        "missing_alias",
-			args:        []string{"backlinks", "0", "--keg", "missing"},
+			args:        []string{"node", "backlinks", "0", "--keg", "missing"},
 			fixture:     strPtr("joe"),
 			expectedErr: "keg not initialized",
 		},
 		{
 			name:        "missing_node",
-			args:        []string{"backlinks", "424242", "--keg", "personal"},
+			args:        []string{"node", "backlinks", "424242", "--keg", "personal"},
 			fixture:     strPtr("joe"),
 			expectedErr: "node 424242 not found",
 		},
@@ -68,15 +68,15 @@ func TestBacklinksCommand_ListsBacklinkSources(t *testing.T) {
 	createWithLinkToTarget(t, sb, "# Source Two\n\nSee [target](../1).\n")
 	createWithLinkToTarget(t, sb, "# Source Three\n\nAnother link to [target](../1).\n")
 
-	idOnly := NewProcess(t, false, "backlinks", "1", "--id-only").Run(sb.Context(), sb.Runtime())
+	idOnly := NewProcess(t, false, "node", "backlinks", "1", "--id-only").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, idOnly.Err)
 	require.Equal(t, "2\n3", strings.TrimSpace(string(idOnly.Stdout)))
 
-	reversed := NewProcess(t, false, "backlinks", "1", "--id-only", "--reverse").Run(sb.Context(), sb.Runtime())
+	reversed := NewProcess(t, false, "node", "backlinks", "1", "--id-only", "--reverse").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, reversed.Err)
 	require.Equal(t, "3\n2", strings.TrimSpace(string(reversed.Stdout)))
 
-	formatted := NewProcess(t, false, "backlinks", "1", "--format", "%i|%t").Run(sb.Context(), sb.Runtime())
+	formatted := NewProcess(t, false, "node", "backlinks", "1", "--format", "%i|%t").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, formatted.Err)
 	out := strings.TrimSpace(string(formatted.Stdout))
 	require.Contains(t, out, "2|Source Two")
@@ -87,7 +87,7 @@ func TestBacklinksCommand_NoBacklinksReturnsEmptyOutput(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
 
-	res := NewProcess(t, false, "backlinks", "0", "--keg", "personal").Run(sb.Context(), sb.Runtime())
+	res := NewProcess(t, false, "node", "backlinks", "0", "--keg", "personal").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 	require.Equal(t, "", strings.TrimSpace(string(res.Stdout)))
 }
@@ -104,17 +104,17 @@ func TestBacklinksCommand_OffsetSkipsResults(t *testing.T) {
 	createWithLinkToTarget(t, sb, "# Source C\n\nYet another [target](../1).\n")
 
 	// Without offset: nodes 2,3,4.
-	all := NewProcess(t, false, "backlinks", "1", "--id-only").Run(sb.Context(), sb.Runtime())
+	all := NewProcess(t, false, "node", "backlinks", "1", "--id-only").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, all.Err)
 	require.Equal(t, "2\n3\n4", strings.TrimSpace(string(all.Stdout)))
 
 	// Offset 1: skip first backlink.
-	offset := NewProcess(t, false, "backlinks", "1", "--id-only", "--offset", "1").Run(sb.Context(), sb.Runtime())
+	offset := NewProcess(t, false, "node", "backlinks", "1", "--id-only", "--offset", "1").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, offset.Err)
 	require.Equal(t, "3\n4", strings.TrimSpace(string(offset.Stdout)))
 
 	// Offset 1 skips node 2, leaving (3,4). Limit 2 takes first 2: (3,4).
-	combined := NewProcess(t, false, "backlinks", "1", "--id-only", "-n", "2", "--offset", "1").Run(sb.Context(), sb.Runtime())
+	combined := NewProcess(t, false, "node", "backlinks", "1", "--id-only", "-n", "2", "--offset", "1").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, combined.Err)
 	require.Equal(t, "3\n4", strings.TrimSpace(string(combined.Stdout)))
 }
@@ -138,12 +138,12 @@ func TestBacklinksCommand_MultipleNodeIDsMergesResults(t *testing.T) {
 	createWithLinkToTarget(t, sb, "# Source C\n\nLinks to [1](../1) and [2](../2).\n") // node 5 -> 1,2
 
 	// Query backlinks for both targets at once: should merge and deduplicate.
-	res := NewProcess(t, false, "backlinks", "1", "2", "--id-only").Run(sb.Context(), sb.Runtime())
+	res := NewProcess(t, false, "node", "backlinks", "1", "2", "--id-only").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 	require.Equal(t, "3\n4\n5", strings.TrimSpace(string(res.Stdout)))
 
 	// Single-ID still works.
-	single := NewProcess(t, false, "backlinks", "1", "--id-only").Run(sb.Context(), sb.Runtime())
+	single := NewProcess(t, false, "node", "backlinks", "1", "--id-only").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, single.Err)
 	require.Equal(t, "3\n5", strings.TrimSpace(string(single.Stdout)))
 }
@@ -151,6 +151,6 @@ func TestBacklinksCommand_MultipleNodeIDsMergesResults(t *testing.T) {
 func createWithLinkToTarget(t *testing.T, sb *testutils.Sandbox, content string) {
 	t.Helper()
 
-	res := NewProcess(t, true, "create").RunWithIO(sb.Context(), sb.Runtime(), strings.NewReader(content))
+	res := NewProcess(t, true, "node", "create").RunWithIO(sb.Context(), sb.Runtime(), strings.NewReader(content))
 	require.NoError(t, res.Err)
 }

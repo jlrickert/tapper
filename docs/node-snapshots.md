@@ -18,8 +18,8 @@ Captures the current state of the node. Prints the new revision ID to stdout.
 ### List snapshot history
 
 ```bash
-tap snapshot history NODE_ID
-tap snapshot history 12 --keg personal
+tap snapshot list NODE_ID
+tap snapshot list 12 --keg personal
 ```
 
 Outputs a table with columns: `REV`, `CREATED`, `HASH`, `MESSAGE`.

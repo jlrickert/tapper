@@ -11,7 +11,7 @@ func NewGrepCmd(deps *Deps) *cobra.Command {
 	var opts tapper.GrepOptions
 
 	cmd := &cobra.Command{
-		Use:   "grep QUERY",
+		Use:   "search QUERY",
 		Short: "search node content by query",
 		Long: `Search node content with a regex and print matching lines grouped by node.
 

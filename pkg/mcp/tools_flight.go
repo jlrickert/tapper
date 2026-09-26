@@ -21,7 +21,6 @@ type flightCreateInput struct {
 	Title        string   `json:"title,omitempty" jsonschema:"flight title"`
 	Description  string   `json:"description,omitempty" jsonschema:"short description, separate from instructions"`
 	Visibility   string   `json:"visibility,omitempty" jsonschema:"flight visibility: private (default) or public"`
-	Capabilities []string `json:"capabilities,omitempty" jsonschema:"explicit capabilities; supported: manage_flights, manage_kegs, delete_kegs; full_access is rejected"`
 	Instructions string   `json:"instructions,omitempty" jsonschema:"markdown instructions"`
 	Cover        []string `json:"cover,omitempty" jsonschema:"covered kegs with role caps, e.g. @ns/keg=viewer, @ns/keg=editor, or @ns/keg=admin (bare entries default to viewer)"`
 	Subflights   []string `json:"subflights,omitempty" jsonschema:"ordered child flight references; bare +slug references use this flight's namespace"`
@@ -32,16 +31,15 @@ type flightEditInput struct {
 	Title        *string  `json:"title,omitempty" jsonschema:"new flight title; omit to keep the current title"`
 	Description  *string  `json:"description,omitempty" jsonschema:"short description, separate from instructions"`
 	Visibility   *string  `json:"visibility,omitempty" jsonschema:"new visibility: private or public; omit to keep current"`
-	Capabilities []string `json:"capabilities,omitempty" jsonschema:"replacement capabilities: manage_flights, manage_kegs, delete_kegs; full_access is rejected. Omit to keep current; [] clears"`
 	Instructions *string  `json:"instructions,omitempty" jsonschema:"new markdown instructions; omit to keep the current instructions"`
 	Cover        []string `json:"cover,omitempty" jsonschema:"replacement declared cover, e.g. @ns/keg=viewer; entries use default depth 2. Custom depth cannot be set here. Omit to preserve all current cover entries and depths; [] clears"`
 	Subflights   []string `json:"subflights,omitempty" jsonschema:"replacement ordered child flight references; omit to keep current"`
-	ExpectedHash string   `json:"expected_hash" jsonschema:"precondition token returned by flight_show"`
+	ExpectedHash string   `json:"expected_hash" jsonschema:"precondition token returned by flight_read"`
 }
 
 type flightDeleteInput struct {
 	Ref          string `json:"ref" jsonschema:"flight reference (@namespace/+slug; a bare slug uses the default namespace)"`
-	ExpectedHash string `json:"expected_hash" jsonschema:"precondition token returned by flight_show"`
+	ExpectedHash string `json:"expected_hash" jsonschema:"precondition token returned by flight_read"`
 }
 
 // registerFlightTools exposes flight discovery and management over MCP at
@@ -52,7 +50,7 @@ type flightDeleteInput struct {
 func registerFlightTools(srv *sdkmcp.Server, defaults KegDefaults, flights FlightProvider) {
 	registerFlightSearch(srv, flights)
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
-		Name:        "list_flights",
+		Name:        "flight_list",
 		Description: "List available flights (keg restrictions + agent instructions)",
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
@@ -67,7 +65,7 @@ func registerFlightTools(srv *sdkmcp.Server, defaults KegDefaults, flights Fligh
 	})
 
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
-		Name:        "flight_show",
+		Name:        "flight_read",
 		Description: "Inspect a permission-filtered flight manifest, including declared cover roles, depth, subflights, instructions, and hash. Inspection never activates a session or selects call authority. Cover is declared cover, not effective authority; use orient with flight for current authority. Pass hash as expected_hash to flight_edit or flight_delete.",
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
@@ -99,7 +97,6 @@ func registerFlightTools(srv *sdkmcp.Server, defaults KegDefaults, flights Fligh
 			Ref:   in.Ref,
 			Title: in.Title, Description: in.Description,
 			Visibility:   in.Visibility,
-			Capabilities: flightCapabilitiesFromStrings(in.Capabilities),
 			Instructions: in.Instructions,
 			Cover:        cover,
 			Subflights:   append([]string(nil), in.Subflights...),
@@ -118,7 +115,7 @@ func registerFlightTools(srv *sdkmcp.Server, defaults KegDefaults, flights Fligh
 
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "flight_edit",
-		Description: "Call flight_show first, then edit a Hub-backed flight using its manifest hash as expected_hash; omitted fields keep their current values. On conflict, merge into the returned current flight (or refetch with flight_show) and retry with the returned current hash.",
+		Description: "Call flight_read first, then edit a Hub-backed flight using its manifest hash as expected_hash; omitted fields keep their current values. On conflict, merge into the returned current flight (or refetch with flight_read) and retry with the returned current hash.",
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  false,
 			OpenWorldHint: boolPtr(true),
@@ -137,10 +134,6 @@ func registerFlightTools(srv *sdkmcp.Server, defaults KegDefaults, flights Fligh
 			Visibility:   in.Visibility,
 			Instructions: in.Instructions,
 			ExpectedHash: in.ExpectedHash,
-		}
-		if in.Capabilities != nil {
-			capabilities := flightCapabilitiesFromStrings(in.Capabilities)
-			opts.Capabilities = &capabilities
 		}
 		if in.Cover != nil {
 			cover, err := tapper.ParseFlightCoverSpecs(in.Cover)
@@ -168,7 +161,7 @@ func registerFlightTools(srv *sdkmcp.Server, defaults KegDefaults, flights Fligh
 
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "flight_delete",
-		Description: "Call flight_show first, then delete a Hub-backed flight using its manifest hash as expected_hash. On conflict, refetch with flight_show and retry with the returned current hash.",
+		Description: "Call flight_read first, then delete a Hub-backed flight using its manifest hash as expected_hash. On conflict, refetch with flight_read and retry with the returned current hash.",
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  false,
 			OpenWorldHint: boolPtr(true),
@@ -205,9 +198,6 @@ func renderFlight(f *tapper.Flight) string {
 	}
 	fmt.Fprintf(&b, "source: %s\n", f.Source)
 	fmt.Fprintf(&b, "visibility: %s\n", f.Visibility)
-	if len(f.Capabilities) > 0 {
-		fmt.Fprintf(&b, "capabilities: %s\n", strings.Join(flightCapabilityNames(f.Capabilities), ", "))
-	}
 	if len(f.Cover) > 0 {
 		b.WriteString("cover:\n")
 		for _, c := range f.Cover {
@@ -232,22 +222,6 @@ func renderFlight(f *tapper.Flight) string {
 	return b.String()
 }
 
-func flightCapabilitiesFromStrings(values []string) []tapper.FlightCapability {
-	out := make([]tapper.FlightCapability, 0, len(values))
-	for _, value := range values {
-		out = append(out, tapper.FlightCapability(value))
-	}
-	return out
-}
-
-func flightCapabilityNames(values []tapper.FlightCapability) []string {
-	out := make([]string, 0, len(values))
-	for _, value := range values {
-		out = append(out, string(value))
-	}
-	return out
-}
-
 // PublicFlight is a deliberately explicit, permission-filtered manifest view.
 // Do not serialize Flight itself: effective cover and internal identity fields
 // are not manifest fields and do not describe the authority of an inspection.
@@ -258,7 +232,6 @@ type PublicFlight struct {
 	Description  string              `json:"description"`
 	Source       string              `json:"source"`
 	Visibility   string              `json:"visibility"`
-	Capabilities []string            `json:"capabilities"`
 	Cover        []PublicFlightCover `json:"cover"`
 	Subflights   []string            `json:"subflights"`
 	Instructions string              `json:"instructions"`
@@ -280,6 +253,6 @@ func publicFlight(f *tapper.Flight) PublicFlight {
 		cover = append(cover, PublicFlightCover{Namespace: entry.Namespace, Keg: entry.Keg, Role: string(entry.Role), Depth: depth})
 	}
 	return PublicFlight{Name: f.Name, Hash: f.ManifestHash, Title: f.Title, Description: f.Description,
-		Source: f.Source, Visibility: f.Visibility, Capabilities: flightCapabilityNames(f.Capabilities),
+		Source: f.Source, Visibility: f.Visibility,
 		Cover: cover, Subflights: append([]string{}, f.Subflights...), Instructions: f.Instructions}
 }

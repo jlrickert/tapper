@@ -5,10 +5,10 @@ expressions over tags and metadata attributes.
 
 ## Commands That Support `--query`
 
-- `tap list --query EXPR`
-- `tap tags --query EXPR`
-- `tap cat --query EXPR`
-- `tap rm --query EXPR`
+- `tap node list --query EXPR`
+- `tap tag list --query EXPR`
+- `tap node read --query EXPR`
+- `tap node delete --query EXPR`
 
 ## Syntax
 
@@ -93,49 +93,49 @@ Backslash escapes work inside quoted strings (`\"`, `\'`).
 List all nodes tagged `golang`:
 
 ```bash
-tap list --query "golang"
+tap node list --query "golang"
 ```
 
 List all plan entities:
 
 ```bash
-tap list --query "entity=plan"
+tap node list --query "entity=plan"
 ```
 
 List plan entities that are also tagged `golang`:
 
 ```bash
-tap list --query "entity=plan and golang"
+tap node list --query "entity=plan and golang"
 ```
 
 List nodes that are either tricks or concepts:
 
 ```bash
-tap list --query "entity=trick or entity=concept"
+tap node list --query "entity=trick or entity=concept"
 ```
 
 List nodes tagged `planned` but not tricks:
 
 ```bash
-tap list --query "planned and not entity=trick"
+tap node list --query "planned and not entity=trick"
 ```
 
 List all nodes that are **not** concepts:
 
 ```bash
-tap list --query "not entity=concept"
+tap node list --query "not entity=concept"
 ```
 
 Group with parentheses:
 
 ```bash
-tap list --query "(golang or rust) and entity=patch"
+tap node list --query "(golang or rust) and entity=patch"
 ```
 
 Remove nodes matching a query instead of listing node IDs:
 
 ```bash
-tap rm --query "entity=draft and not shipped"
+tap node delete --query "entity=draft and not shipped"
 ```
 
 ## Operator Precedence
@@ -157,6 +157,6 @@ a or (b and (not c))
 Invalid expressions produce a parse error:
 
 ```bash
-tap list --query "a and (b"
+tap node list --query "a and (b"
 # Error: expected ')' before end of expression
 ```

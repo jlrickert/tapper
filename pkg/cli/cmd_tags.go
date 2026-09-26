@@ -12,7 +12,7 @@ func NewTagsCmd(deps *Deps) *cobra.Command {
 	var opts tapper.TagsOptions
 
 	cmd := &cobra.Command{
-		Use:   "tags [EXPR]",
+		Use:   "list [EXPR]",
 		Short: "list tags or query nodes by tag expression",
 		Long: `List all tags when no expression is provided.
 
@@ -30,17 +30,17 @@ Expression language:
 ` + formatHelp + `
 
 Examples:
-  tap tags
-  tap tags fire
-  tap tags "fire and (project or guide)"
-  tap tags "fire and not archived" --id-only
-  tap tags ".created>2026-01-01 and entity=plan"
-  tap tags "client && !draft" --format "%i|%t"`,
-		Example: `  tap tags
-  tap tags fire
-  tap tags "fire and (project or guide)"
-  tap tags "fire and not archived" --id-only
-  tap tags "client && !draft" --format "%i|%t"`,
+  tap tag list
+  tap tag list fire
+  tap tag list "fire and (project or guide)"
+  tap tag list "fire and not archived" --id-only
+  tap tag list ".created>2026-01-01 and entity=plan"
+  tap tag list "client && !draft" --format "%i|%t"`,
+		Example: `  tap tag list
+  tap tag list fire
+  tap tag list "fire and (project or guide)"
+  tap tag list "fire and not archived" --id-only
+  tap tag list "client && !draft" --format "%i|%t"`,
 		Args: cobra.MaximumNArgs(1),
 		ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 			if len(args) > 0 || deps.Tap == nil {

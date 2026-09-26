@@ -20,8 +20,8 @@ Schema documents declare the note `type`, an optional `summary`, optional
 metadata JSON Schema under `meta`, markdown structure rules under `markdown`,
 and relation requirements under `relations`.
 
-Select a schema for a node write with `tap create --schema TYPE`, `tap edit
---schema TYPE`, or `tap meta --schema TYPE`. The selected type is persisted as
+Select a schema for a node write with `tap node create --schema TYPE`, `tap node edit
+--schema TYPE`, or `tap node meta --schema TYPE`. The selected type is persisted as
 `meta.type`, then the complete projected node is validated. A conflicting
 `type` in attributes, Markdown frontmatter, or metadata is rejected instead of
 silently taking precedence. Under `schemaPolicy.strict`, selection is required

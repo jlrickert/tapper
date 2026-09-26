@@ -11,7 +11,6 @@ func NewEditCmd(deps *Deps) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:               "edit NODE_ID",
-		Aliases:           []string{"e"},
 		Short:             "edit a node using a temporary markdown file",
 		ValidArgsFunction: nodeIDCompletionFunc(deps, 1),
 		Long: `Edit a node in a temporary markdown file.

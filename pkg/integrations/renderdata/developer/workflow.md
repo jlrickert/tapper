@@ -35,8 +35,8 @@ success through prose.
 Before assigning a verdict, recompute knowledge discovery against the final
 tree rather than trusting only the plan's original cover. Start from the
 touched KEG subjects and the vocabulary and behavior changed by the diff. Use
-targeted `mcp__tapper__backlinks`, `mcp__tapper__links`, and
-`mcp__tapper__grep` calls in the active flight's covered KEGs to find plausible
+targeted `mcp__tapper__node_backlinks`, `mcp__tapper__node_links`, and
+`mcp__tapper__node_search` calls in the active flight's covered KEGs to find plausible
 decisions, patterns, research, incidents, interfaces, and verifications, then
 read only the relevant notes. Informative knowledge guides interpretation;
 only applicable active or stale interfaces and verifications enter gating

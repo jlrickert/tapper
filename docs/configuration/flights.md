@@ -23,24 +23,20 @@ A flight carries five details:
 3. **Visibility** (`visibility`). Hub flights default to `private`; `public`
    flights are anonymously discoverable and may cover only public kegs when
    created or updated.
-4. **Capabilities** (`capabilities`). `full_access` supplies admin-class flight
-   authority across every KEG the authenticated identity can already access,
-   while normal Hub authorization still applies. It never raises the
-   identity's actual KEG role. `manage_flights` exposes flight mutation tools
-   to the session, but Hub still requires the authenticated identity to own or
-   administer the target namespace. `manage_kegs` exposes `keg_create`, and
-   Hub still requires the identity to belong to the target namespace. The
-   capabilities are independent.
-5. **Ordered direct child entries** (`subflights`). Each flight may list up to
+4. **Ordered direct child entries** (`subflights`). Each flight may list up to
    64 canonical children. Runtime flattening is ordered breadth-first, emits a
    shared descendant once, tolerates cycles by deduplicating already loaded and
    expanded flights, and retains the deterministic shortest selection path.
    There is no depth-eight rule. A pinned root may expose at most 256 unique
    accessible descendants at runtime; exceeding that cap refuses the call.
-   A selected descendant supplies only its own instructions, capabilities, and
+   A selected descendant supplies only its own instructions and
    cover and may be broader or different from its ancestors. Cross-Hub
    relations and duplicate canonical children are rejected; referenced
    children cannot be deleted.
+
+A flight is memory only: it carries no tools and no capabilities. What a
+session may do is its agent's tool list (`tap agent`, `TAP_AGENT`), and an
+agent names its own flight. See [Agents](#agents-and-flights) below.
 
 Because a flight is not a KEG target selector, `tap mcp --flight` binds only
 the process flight identity. `tap mcp --keg` remains an independent default for
@@ -50,14 +46,11 @@ subsequent KEG operations. `tap orient` is flight-scoped and rejects
 ## Manifest Format
 
 Flights are stored by Tapper Hub and addressed as `@namespace/+slug`. Each
-manifest has six optional fields:
+manifest has five optional fields:
 
 ```yaml
 title: Release 42 cut
 visibility: private
-capabilities:
-  - full_access
-  - manage_flights
 subflights:
   - "@acme/+release-notes"
   - "@acme/+verification"
@@ -88,7 +81,7 @@ with an explicit `=viewer` suffix keeps its viewer cap.
 | Goal                                  | Command                                   |
 | ------------------------------------- | ----------------------------------------- |
 | List discovered flights               | `tap flight list`                         |
-| Show a flight's cover + body          | `tap flight show @namespace/+slug`        |
+| Show a flight's cover + body          | `tap flight read @namespace/+slug`        |
 | Start MCP with an explicit flight     | `tap mcp --flight @namespace/+slug`       |
 | Preview orientation for a flight      | `tap orient --flight @namespace/+slug`    |
 | Persist the project flight            | `tap use --flight @namespace/+slug` or `tap use +slug` |
@@ -102,48 +95,58 @@ with an explicit `=viewer` suffix keeps its viewer cap.
 first line is a `yaml-language-server` schema modeline for
 `schemas/flight-manifest.json`, followed by a short comment that the
 `@namespace/+slug` ref is immutable. The editable fields are `title`,
-`visibility`, `capabilities`, `subflights`, `cover`, and `instructions`; comments and the
+`visibility`, `subflights`, `cover`, and `instructions`; comments and the
 modeline are ignored when deciding whether the manifest changed.
 
-MCP always exposes `list_flights` and `flight_show`. In an active session it
-also keeps `flight_create`, `flight_edit`, `flight_delete`, and `keg_create`
-visible because a selectable descendant may grant their capability even when
-the root does not. Dispatch checks `manage_flights` or `manage_kegs` against
-the flight selected for that call, then applies normal Hub authorization.
+MCP always exposes `flight_list` and `flight_read`. In an active session the
+rest of the inventory is the session agent's tools: `flight_create`,
+`flight_edit`, `flight_delete`, and `keg_create` appear when the agent holds
+them, and dispatch then applies normal Hub authorization (namespace owner or
+admin for flights, membership for `keg_create`).
 `flight_edit` is a partial update where omitted fields retain their current
-values. Call `flight_show` first and pass its manifest hash as the required
+values. Call `flight_read` first and pass its manifest hash as the required
 `expected_hash` for both edits and deletes. On conflict, merge or refetch and
 retry with the returned current hash. Graph and authority edits are adopted on
 the next call automatically. Mutations are never replayed. A referenced
 subflight cannot be deleted.
 
 Flight mutations always use normal Hub authorization in addition to the
-selected flight capability.
+agent's tools.
+
+## Agents and flights
+
+A Hub agent is a model, instructions, a tool allowlist, and a flight. Its tools
+decide what a session may do; its flight is the memory it works in. An agent
+with no flight has no KEG access: a Hub session running it comes up in
+recovery mode with KEG tools locked until the agent is given a flight, after
+which `session_refresh` activates it. Hosted apps and API tokens run as an
+agent, and `tap launch --agent @ns/name` roots the session on the agent's
+flight unless `--flight` or `TAP_FLIGHT` names another. Set an agent's flight
+with `tap agent edit @ns/name --flight @ns/+slug` (`--flight ""` clears it) or
+on the agent's page on Hub.
 
 ## Behavior
 
 - MCP tools reject a keg outside the call-selected flight's cover
   with a "keg … is not available in flight …" error.
 - MCP writes against a `viewer` cover row are rejected as viewer-only.
-- A fresh selection, cover, capability, or role refusal reports
+- A fresh selection, cover, or role refusal reports
   `ORIENTATION_DENIED`, `reorientRequired=false`, and
   `operationPerformed=false`. A change racing between call resolution and Hub
   validation reports `ORIENTATION_STALE`; transient graph or identity failures report
   `ORIENTATION_UNAVAILABLE`; permanent loss of the connection-pinned root reports
   `ORIENTATION_ROOT_UNAVAILABLE` and requires a new session.
 - `keg_settings_edit` replaces the complete validated KEG YAML document and
-  requires an `admin` cover (or `full_access`) plus editor/admin identity access
-  to that KEG. Read the full document with `keg_settings` and pass its hash as
+  requires an `admin` cover plus editor/admin identity access
+  to that KEG. Read the full document with `keg_settings_read` and pass its hash as
   the required `expected_hash`; merge or refetch after conflicts and retry with
   the returned current hash. An admin flight cap never creates a Hub admin identity.
-- `full_access` permits admin-class flight operations outside the cover, but
-  does not bypass normal identity authorization or implicitly grant
-  `manage_flights`.
-- Without a selected flight, MCP publishes the complete tool inventory and bare
-  calls use normal identity-authorized full access. Every accessible KEG appears
+- Without a selected flight, local `tap mcp` publishes the complete tool
+  inventory and bare calls use normal identity-authorized full access. (Hub
+  connections always run as an agent on its flight; see above.) Every accessible KEG appears
   at the caller's real role; this never raises Hub ACLs or namespace membership.
   An explicit `flight` selects any listed identity-accessible real flight for
-  that call and uses only its cover, capabilities, and instructions.
+  that call and uses only its cover and instructions.
 - No-flight authority is pinned for the connection lifetime. Creating a KEG or
   flight does not replace it, and `session_refresh` returns `already_active`
   with `nextAction:"new_session"`. Create a least-privilege flight, pin it
@@ -151,7 +154,7 @@ selected flight capability.
   flights are immediately available for explicit call-local selection.
 - Recovery-only mode applies only when an explicitly configured root is
   missing, inaccessible, invalid, or unavailable. Seeing only `orient`,
-  `session_refresh`, `list_flights`, `flight_show`, `auth_info`, and
+  `session_refresh`, `flight_list`, `flight_read`, `session_info`, and
   `keg_search` means configured authority failed to initialize. Repair the
   configured root outside MCP, then call `session_refresh` and `orient`.
 - Every MCP connection pins either no-flight authority or one real root at
@@ -162,7 +165,7 @@ selected flight capability.
   no-flight state, an explicit value may name any listed real flight; from a
   real root, it may name only that root or an accessible transitive descendant.
   The selected flight's authority is never inherited or combined.
-- Graph, cover, capability, role, relation, and identity changes are loaded on
+- Graph, cover, role, relation, and identity changes are loaded on
   the next call without an explicit refresh. A transient load failure refuses
   that call with `ORIENTATION_UNAVAILABLE`; it never falls back to cached
   authority. A remote resolution obtains the accessible manifests from one
@@ -180,7 +183,7 @@ selected flight capability.
 - Each in-flight call uses its own immutable orientation context. Concurrent
   root, child, sibling, and grandchild calls cannot change one another's
   selection. MCP resources have no `flight` parameter and use the pinned root.
-- Direct CLI commands such as `tap cat`, `tap edit`, and `tap create` ignore
+- Direct CLI commands such as `tap node read`, `tap node edit`, and `tap node create` ignore
   flight cover caps; access is governed by normal keg authorization.
 - `tap orient --flight @namespace/+slug` injects the flight's title, available
   kegs, and instructions into the orientation payload.
@@ -210,8 +213,7 @@ selected flight capability.
 KEG hard deletion is available as `tap keg delete <keg>` and MCP `keg_delete`
 with an explicit canonical `keg`. It removes all data, including snapshots,
 without an expected hash (settings hashes do not cover a whole KEG).
-Flight-scoped deletion requires the independent `delete_kegs` capability and
-admin cover plus identity admin permission. No-flight calls require identity
-admin permission. `manage_kegs` alone cannot delete and is not additionally
-required for deletion. Attachment deletion uses `filename`, with `name` retained
+Flight-scoped deletion requires admin cover plus identity admin permission, and
+the session agent must hold `keg_delete` (`keg_create` alone cannot delete).
+No-flight calls require identity admin permission. Attachment deletion uses `filename`, with `name` retained
 as an equal-only compatibility alias; conflicting or empty inputs fail before mutation.

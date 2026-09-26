@@ -77,7 +77,7 @@ func TestMCP_MutationSchemasRequireExpectedHashesAtResourceLocation(t *testing.T
 	schemas := listedToolSchemas(t)
 
 	for _, tool := range []string{
-		"keg_settings_edit", "move", "schema_edit", "schema_delete", "flight_edit", "flight_delete",
+		"keg_settings_edit", "node_move", "schema_edit", "schema_delete", "flight_edit", "flight_delete",
 	} {
 		schema, ok := schemas[tool]
 		require.True(t, ok, "missing tool %q", tool)
@@ -85,7 +85,7 @@ func TestMCP_MutationSchemasRequireExpectedHashesAtResourceLocation(t *testing.T
 	}
 
 	for tool, array := range map[string]string{
-		"edit": "nodes", "remove": "nodes",
+		"node_edit": "nodes", "node_delete": "nodes",
 	} {
 		root, ok := schemas[tool]
 		require.True(t, ok, "missing tool %q", tool)
@@ -94,9 +94,9 @@ func TestMCP_MutationSchemasRequireExpectedHashesAtResourceLocation(t *testing.T
 
 	// create allocates ids, so there is no prior revision to guard and no
 	// expected_hash anywhere in its schema.
-	createItem := schemaArrayItem(t, schemas["create"], "nodes")
+	createItem := schemaArrayItem(t, schemas["node_create"], "nodes")
 	requireSchemaField(t, createItem, "expected_hash", false)
-	requireSchemaField(t, schemas["create"], "expected_hash", false)
+	requireSchemaField(t, schemas["node_create"], "expected_hash", false)
 }
 
 func TestMCP_MutationDescriptionsTeachReadMergeRetryProtocol(t *testing.T) {
@@ -106,9 +106,9 @@ func TestMCP_MutationDescriptionsTeachReadMergeRetryProtocol(t *testing.T) {
 	require.NoError(t, err)
 
 	wants := map[string]string{
-		"edit": "cat", "remove": "cat", "move": "cat",
-		"keg_settings_edit": "keg_settings", "schema_edit": "schema_read",
-		"schema_delete": "schema_read", "flight_edit": "flight_show", "flight_delete": "flight_show",
+		"node_edit": "node_read", "node_delete": "node_read", "node_move": "node_read",
+		"keg_settings_edit": "keg_settings_read", "schema_edit": "schema_read",
+		"schema_delete": "schema_read", "flight_edit": "flight_read", "flight_delete": "flight_read",
 	}
 	seen := map[string]bool{}
 	for _, tool := range result.Tools {
@@ -168,12 +168,12 @@ func TestMCP_WriteToolsStateTheContentContract(t *testing.T) {
 		byName[tool.Name] = strings.ToLower(tool.Description)
 	}
 
-	for _, name := range []string{"create", "edit"} {
+	for _, name := range []string{"node_create", "node_edit"} {
 		desc, ok := byName[name]
 		require.Truef(t, ok, "missing tool %q", name)
 		require.Containsf(t, desc, "frontmatter",
 			"%q does not say content must not begin with a frontmatter block", name)
 	}
-	require.Contains(t, byName["edit"], "content and metadata together",
+	require.Contains(t, byName["node_edit"], "content and metadata together",
 		"edit does not state that one hash covers both halves of a node")
 }

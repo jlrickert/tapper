@@ -19,24 +19,24 @@ func TestMetaCommand_TableDrivenErrors(t *testing.T) {
 	}{
 		{
 			name:        "missing_node_id",
-			args:        []string{"meta"},
+			args:        []string{"node", "meta"},
 			expectedErr: "accepts 1 arg",
 		},
 		{
 			name:        "invalid_node_id",
-			args:        []string{"meta", "abc"},
+			args:        []string{"node", "meta", "abc"},
 			fixture:     strPtr("joe"),
 			expectedErr: "invalid node ID",
 		},
 		{
 			name:        "missing_alias",
-			args:        []string{"meta", "0", "--keg", "missing"},
+			args:        []string{"node", "meta", "0", "--keg", "missing"},
 			fixture:     strPtr("joe"),
 			expectedErr: "keg not initialized",
 		},
 		{
 			name:        "missing_node",
-			args:        []string{"meta", "424242", "--keg", "personal"},
+			args:        []string{"node", "meta", "424242", "--keg", "personal"},
 			fixture:     strPtr("joe"),
 			expectedErr: "node 424242 not found",
 		},
@@ -69,7 +69,7 @@ func TestMetaCommand_PrintsFormattedMeta(t *testing.T) {
 summary: hello world
 `), 0o644)
 
-	res := NewProcess(t, false, "meta", "0", "--keg", "personal").Run(sb.Context(), sb.Runtime())
+	res := NewProcess(t, false, "node", "meta", "0", "--keg", "personal").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 
 	out := strings.TrimSpace(string(res.Stdout))
@@ -89,7 +89,7 @@ tags:
   - zeta
   - alpha
 `)
-	res := NewProcess(t, false, "meta", "0", "--keg", "personal").RunWithIO(sb.Context(), sb.Runtime(), stdin)
+	res := NewProcess(t, false, "node", "meta", "0", "--keg", "personal").RunWithIO(sb.Context(), sb.Runtime(), stdin)
 	require.NoError(t, res.Err)
 	require.Equal(t, "", strings.TrimSpace(string(res.Stdout)))
 
@@ -107,7 +107,7 @@ func TestMetaCommand_ReplaceFromStdinPersistsSchemaSelection(t *testing.T) {
 	require.NoError(t, created.Err)
 
 	stdin := strings.NewReader("summary: selected\n")
-	res := NewProcess(t, false, "meta", "1", "--keg", "personal", "--schema", "note").RunWithIO(sb.Context(), sb.Runtime(), stdin)
+	res := NewProcess(t, false, "node", "meta", "1", "--keg", "personal", "--schema", "note").RunWithIO(sb.Context(), sb.Runtime(), stdin)
 	require.NoError(t, res.Err)
 	meta := fixtureMeta(t, sb.Runtime(), "personal", "1")
 	require.Contains(t, meta, "summary: selected")
@@ -120,7 +120,7 @@ func TestMetaCommand_ReplaceFromStdinRejectsInvalidYaml(t *testing.T) {
 
 	before := fixtureMeta(t, sb.Runtime(), "personal", "0")
 	stdin := strings.NewReader("tags: [\n")
-	res := NewProcess(t, false, "meta", "0", "--keg", "personal").RunWithIO(sb.Context(), sb.Runtime(), stdin)
+	res := NewProcess(t, false, "node", "meta", "0", "--keg", "personal").RunWithIO(sb.Context(), sb.Runtime(), stdin)
 	require.Error(t, res.Err)
 	require.Contains(t, string(res.Stderr), "metadata from stdin is invalid")
 
@@ -156,7 +156,7 @@ EOF
 	require.NoError(t, sb.Runtime().Set("EDITOR", "/bin/sh "+scriptPath))
 	sb.Runtime().Unset("VISUAL")
 
-	res := NewProcess(t, false, "meta", "0", "--keg", "personal", "--edit").RunWithIO(sb.Context(), sb.Runtime(), strings.NewReader(""))
+	res := NewProcess(t, false, "node", "meta", "0", "--keg", "personal", "--edit").RunWithIO(sb.Context(), sb.Runtime(), strings.NewReader(""))
 	require.NoError(t, res.Err)
 
 	meta := fixtureMeta(t, sb.Runtime(), "personal", "0")
@@ -196,7 +196,7 @@ EOF
 	sb.Runtime().Unset("VISUAL")
 
 	before := fixtureMeta(t, sb.Runtime(), "personal", "0")
-	res := NewProcess(t, false, "meta", "0", "--keg", "personal", "--edit").RunWithIO(sb.Context(), sb.Runtime(), strings.NewReader(""))
+	res := NewProcess(t, false, "node", "meta", "0", "--keg", "personal", "--edit").RunWithIO(sb.Context(), sb.Runtime(), strings.NewReader(""))
 	require.Error(t, res.Err)
 	require.Contains(t, string(res.Stderr), "node metadata is invalid after editing")
 
@@ -234,7 +234,7 @@ EOF
 tags:
   - draft
 `)
-	res := NewProcess(t, false, "meta", "0", "--keg", "personal", "--edit").RunWithIO(sb.Context(), sb.Runtime(), stdin)
+	res := NewProcess(t, false, "node", "meta", "0", "--keg", "personal", "--edit").RunWithIO(sb.Context(), sb.Runtime(), stdin)
 	require.NoError(t, res.Err)
 
 	initialRaw, err := os.ReadFile(capturePath)
@@ -275,7 +275,7 @@ EOF
 	require.NoError(t, sb.Runtime().Set("EDITOR", "/bin/sh "+scriptPath))
 	sb.Runtime().Unset("VISUAL")
 
-	res := NewProcess(t, false, "meta", "0", "--keg", "personal", "--edit").RunWithIO(sb.Context(), sb.Runtime(), strings.NewReader(""))
+	res := NewProcess(t, false, "node", "meta", "0", "--keg", "personal", "--edit").RunWithIO(sb.Context(), sb.Runtime(), strings.NewReader(""))
 	require.NoError(t, res.Err)
 
 	meta := fixtureMeta(t, sb.Runtime(), "personal", "0")

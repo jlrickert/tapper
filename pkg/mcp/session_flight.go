@@ -17,7 +17,7 @@ import (
 	"github.com/jlrickert/tapper/pkg/tapper"
 )
 
-var errMCPFlightRequired = errors.New("the explicitly configured flight could not be activated; KEG tools are locked. Inspect flights with `list_flights` and `flight_show`, repair that exact selection outside MCP, then call `session_refresh` and `orient`")
+var errMCPFlightRequired = errors.New("the explicitly configured flight could not be activated; KEG tools are locked. Inspect flights with `flight_list` and `flight_read`, repair that exact selection outside MCP, then call `session_refresh` and `orient`")
 
 // ErrOrientationStale is returned without performing the requested operation.
 var ErrOrientationStale = fmt.Errorf("ORIENTATION_STALE: authority changed between per-call resolution and dispatch; retry the operation yourself after reviewing current authority. Mutations are never replayed automatically: %w", keg.ErrOrientationStale)
@@ -44,12 +44,12 @@ func failedOrientationPayload(err error) string {
 		return err.Error() + "\nREST operations are blocked. Upgrade Tapper and Hub to a shared contract and start a new connection. Recovery diagnostics remain available; no operation was performed."
 	}
 	return "This session could not establish flight authority: " + err.Error() +
-		"\n\nKEG tools are locked until it does, so only `orient`, `session_refresh`, `list_flights`," +
-		" `flight_show`, `auth_info`, `keg_search`, `flight_search`, and `guide` are published. An empty cover on a" +
+		"\n\nKEG tools are locked until it does, so only `orient`, `session_refresh`, `flight_list`," +
+		" `flight_read`, `session_info`, `keg_search`, `flight_search`, and `guide` are published. An empty cover on a" +
 		" successfully loaded flight would still publish the complete registered" +
-		" inventory. Call `list_flights` to see what" +
-		" actually exists, then ask the user to correct the selected flight in" +
-		" Tapper configuration, then call `session_refresh`, then `orient` on this same connection." +
+		" inventory. Call `flight_list` to see what" +
+		" actually exists, then ask the user to correct the selected flight (in" +
+		" Tapper configuration, or the agent's flight on Hub), then call `session_refresh`, then `orient` on this same connection." +
 		" An empty flight list usually means this machine is not bootstrapped or" +
 		" not authenticated to the hub that hosts the flight."
 }
@@ -58,9 +58,9 @@ var recoveryToolNames = map[string]bool{
 	"guide": true, "flight_search": true,
 	"orient":          true,
 	"session_refresh": true,
-	"list_flights":    true,
-	"flight_show":     true,
-	"auth_info":       true,
+	"flight_list":     true,
+	"flight_read":     true,
+	"session_info":    true,
 	"keg_search":      true,
 }
 
@@ -69,12 +69,13 @@ var recoveryToolNames = map[string]bool{
 // a particular build does not register those tools.
 var ungovernedToolNames = map[string]bool{
 	"guide": true, "flight_search": true,
-	"auth_info": true, "auth_status": true, "keg_search": true,
+	"session_info": true, "auth_status": true, "keg_search": true,
 	"session_refresh": true,
 	"config":          true, "config_template": true,
 	"namespace_list": true, "namespace_create": true, "namespace_members": true,
 	"namespace_add_member": true, "namespace_set_role": true, "namespace_remove_member": true,
-	"license": true, "list_flights": true, "flight_show": true,
+	"license": true, "flight_list": true, "flight_read": true,
+	"namespace_search": true, "agent_list": true, "agent_read": true,
 }
 
 // sessionMode is the authority state of one MCP session.
@@ -205,7 +206,7 @@ func (g *sessionFlightGate) loadAndPin(ctx context.Context, sessionID string) (*
 		return current, err
 	}
 	// Aggregate authority is intentionally call-local. The pinned session keeps
-	// only root context for auth_info and future live resolutions.
+	// only root context for session_info and future live resolutions.
 	next.aggregateKegs = nil
 	g.publish(sessionID, next, false)
 	return next, nil
@@ -341,7 +342,6 @@ func cloneFlight(f *tapper.Flight) *tapper.Flight {
 		return nil
 	}
 	out := *f
-	out.Capabilities = append([]tapper.FlightCapability(nil), f.Capabilities...)
 	out.Cover = append([]tapper.FlightCover(nil), f.Cover...)
 	out.Subflights = append([]string(nil), f.Subflights...)
 	out.AllowedKegs = append([]string(nil), f.AllowedKegs...)
@@ -421,12 +421,16 @@ func (g *sessionFlightGate) payload(ctx context.Context) string {
 	return current.payload
 }
 
+// authorizeMutation and authorizeKegCreation only require that the session
+// has authority to act at all. What an agent may do is decided by its tools,
+// which the host gates before the call reaches here; identity and cover checks
+// still run on the write itself.
 func (g *sessionFlightGate) authorizeMutation(ctx context.Context) error {
-	return g.authorizeCapability(orientationFromContext(ctx), tapper.FlightCapabilityManageFlights)
+	return g.authorizeOriented(orientationFromContext(ctx))
 }
 
 func (g *sessionFlightGate) authorizeKegCreation(ctx context.Context) error {
-	return g.authorizeCapability(orientationFromContext(ctx), tapper.FlightCapabilityManageKegs)
+	return g.authorizeOriented(orientationFromContext(ctx))
 }
 
 func (g *sessionFlightGate) fullAccessReconnect(ctx context.Context) string {
@@ -441,15 +445,12 @@ func (g *sessionFlightGate) fullAccessReconnect(ctx context.Context) string {
 	return ""
 }
 
-func (g *sessionFlightGate) authorizeCapability(current *orientationContext, capability tapper.FlightCapability) error {
+func (g *sessionFlightGate) authorizeOriented(current *orientationContext) error {
 	if current == nil || current.flight == nil {
 		if current != nil && current.fullAccess {
 			return nil
 		}
 		return errMCPFlightRequired
-	}
-	if !current.flight.HasCapability(capability) {
-		return fmt.Errorf("%w: selected flight does not grant %s", ErrOrientationDenied, capability)
 	}
 	return nil
 }
@@ -757,7 +758,7 @@ func extractFlightArgument(params *sdkmcp.CallToolParamsRaw) (string, error) {
 // flightParameterNote documents the flight property injected by
 // schemaWithFlight. It is appended to every authority-bearing tool's
 // description at the same point the property is added.
-const flightParameterNote = " Accepts an optional flight: omit it to use this connection's pinned authority, or name a flight listed by orient to run this call under that flight's cover and capabilities."
+const flightParameterNote = " Accepts an optional flight: omit it to use this connection's pinned authority, or name a flight listed by orient to run this call under that flight's cover and instructions."
 
 func schemaWithFlight(schema any) any {
 	raw, err := json.Marshal(schema)
@@ -784,11 +785,11 @@ func schemaWithFlight(schema any) any {
 // it passed `keg` but no `flight`, so the connection's pinned root answered and
 // refused a KEG only a descendant covers. The default wording talks about "the
 // selected flight", which reads as a wrong flight name and sends the agent
-// looking through `list_flights` instead of at the selection it never made.
+// looking through `flight_list` instead of at the selection it never made.
 const bareCallDeniedAction = "This call named no flight, so it resolved against this connection's pinned root. " +
 	"A `keg` argument chooses a target; it never grants authority. Call `orient`: if the KEG appears under " +
 	"\"Reachable via subflight\", pass that flight as the `flight` argument on this call — reads included, " +
-	"`cat`, `links`, and `backlinks` among them. Nothing was written."
+	"`node_read`, `node_links`, and `node_backlinks` among them. Nothing was written."
 
 func orientationFailureResult(err error) *sdkmcp.CallToolResult {
 	if apicontract.IsCompatibility(err) {
@@ -821,7 +822,7 @@ func orientationFailureResultWithAction(err error, action string) *sdkmcp.CallTo
 		// Deliberately does not tell the agent to reorient. A denial is not
 		// disorientation: the next call resolves live authority on its own, and
 		// saying otherwise sends the agent after a remedy that cannot help.
-		action = "The selected flight does not permit this operation. Nothing was written, and neither retrying nor logging in again will change it. Pass a flight that covers this keg, or ask the user to widen the flight's cover or capabilities; `list_flights` shows what exists."
+		action = "The selected flight does not permit this operation. Nothing was written, and neither retrying nor logging in again will change it. Pass a flight that covers this keg, or ask the user to widen the flight's cover; `flight_list` shows what exists."
 	}
 	if override != "" {
 		action = override

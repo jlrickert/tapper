@@ -77,7 +77,7 @@ func TestFileList_ShowsUploadedFiles(t *testing.T) {
 	NewProcess(t, false, "file", "upload", "0", "~/test-images/other.txt").
 		Run(sb.Context(), sb.Runtime())
 
-	res := NewProcess(t, false, "file", "ls", "0").Run(sb.Context(), sb.Runtime())
+	res := NewProcess(t, false, "file", "list", "0").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 
 	out := strings.TrimSpace(string(res.Stdout))
@@ -89,7 +89,7 @@ func TestFileList_EmptyWhenNoFiles(t *testing.T) {
 	t.Parallel()
 	sb := fileFixture(t)
 
-	res := NewProcess(t, false, "file", "ls", "0").Run(sb.Context(), sb.Runtime())
+	res := NewProcess(t, false, "file", "list", "0").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 	require.Empty(t, strings.TrimSpace(string(res.Stdout)))
 }
@@ -148,11 +148,11 @@ func TestFileRm_RemovesFile(t *testing.T) {
 	NewProcess(t, false, "file", "upload", "0", "~/test-images/default.png").
 		Run(sb.Context(), sb.Runtime())
 
-	rmRes := NewProcess(t, false, "file", "rm", "0", "default.png").Run(sb.Context(), sb.Runtime())
+	rmRes := NewProcess(t, false, "file", "delete", "0", "default.png").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, rmRes.Err)
 	require.Empty(t, strings.TrimSpace(string(rmRes.Stdout)), "rm should produce no output on success")
 
-	lsRes := NewProcess(t, false, "file", "ls", "0").Run(sb.Context(), sb.Runtime())
+	lsRes := NewProcess(t, false, "file", "list", "0").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, lsRes.Err)
 	require.Empty(t, strings.TrimSpace(string(lsRes.Stdout)))
 }
@@ -180,12 +180,12 @@ func TestFile_ErrorCases(t *testing.T) {
 		},
 		{
 			name:        "rm_missing_file",
-			args:        []string{"file", "rm", "0", "ghost.txt"},
+			args:        []string{"file", "delete", "0", "ghost.txt"},
 			wantErrFrag: "ghost.txt",
 		},
 		{
 			name:        "ls_missing_node",
-			args:        []string{"file", "ls", "999"},
+			args:        []string{"file", "list", "999"},
 			wantErrFrag: "file does not exist",
 		},
 	}

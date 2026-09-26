@@ -12,7 +12,7 @@ import (
 func callKegSettings(t *testing.T, ctx context.Context, session *sdkmcp.ClientSession, args map[string]any) *sdkmcp.CallToolResult {
 	t.Helper()
 	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name:      "keg_settings",
+		Name:      "keg_settings_read",
 		Arguments: args,
 	})
 	require.NoError(t, err)

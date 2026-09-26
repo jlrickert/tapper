@@ -203,7 +203,7 @@ func (e *parityEnv) runCLICreate(title, meta string, args ...string) (string, er
 	if meta != "" {
 		content = "---\n" + meta + "---\n" + content
 	}
-	return e.runCLIWithStdin(content, append([]string{"create"}, args...)...)
+	return e.runCLIWithStdin(content, append([]string{"node", "create"}, args...)...)
 }
 
 func (e *parityEnv) runCLI(args ...string) (string, error) {

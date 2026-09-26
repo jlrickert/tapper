@@ -57,6 +57,28 @@ shared configuration to redirect the running process to another root. The
 controller may select any identity-accessible flattened descendant explicitly;
 that flight contributes independent instructions and authority for that call.
 
+## Agents
+
+A session runs one agent. Agents live on the Hub: a namespace-owned model,
+instructions, tool allowlist, and flight. The agent brings its flight as the
+launch root; `--flight` (or `TAP_FLIGHT`, or the project's configured flight)
+overrides it for one session. Pass the agent by reference:
+
+```sh
+tap launch opencode --agent @namespace/researcher
+tap launch opencode --agent @namespace/researcher --flight @namespace/+other
+```
+
+With `--flight` and neither `--agent` nor `--model`, the launch runs your first
+catalog model with no Hub agent. An agent with no flight, launched without
+`--flight`, has no launch root. The agent's model runs through the Hub (a Hub agent with no model takes
+your first catalog model), its instructions reach the harness (opencode gets
+them as a primary agent), and the launcher exports `TAP_AGENT=@namespace/name`
+so the child's `tap mcp` lists and runs only the agent's tools, with `orient`
+and `guide` always available. The allowlist reloads on each tool request. If `tap mcp` cannot load the agent it serves no
+other tools. An agent without a memory flight or an explicit flight override
+remains locked to recovery tools. `--agent` accepts only a qualified Hub reference; local `agents:` entries remain retired.
+
 The launcher specification is deliberately provider-neutral:
 
 1. Choose an agent host and model command.

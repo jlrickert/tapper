@@ -1,7 +1,5 @@
 title: MCP tests
 visibility: private
-capabilities:
-  - manage_flights
 cover:
   - namespace: local
     keg: personal

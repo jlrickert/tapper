@@ -12,7 +12,7 @@ call.
 `pkg/cli/cli.go` is the thin runtime wrapper:
 
 1. Validate or construct the runtime.
-2. Apply shorthand behavior for numeric first args (`tap 10` -> `tap cat 10`).
+2. Apply shorthand behavior for numeric first args (`tap 10` -> `tap node read 10`).
 3. Build a shared `Deps` object.
 4. Build and execute the root Cobra command.
 

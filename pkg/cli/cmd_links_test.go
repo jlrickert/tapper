@@ -17,24 +17,24 @@ func TestLinksCommand_TableDrivenErrors(t *testing.T) {
 	}{
 		{
 			name:        "missing_node_id",
-			args:        []string{"links"},
+			args:        []string{"node", "links"},
 			expectedErr: "requires at least 1 arg",
 		},
 		{
 			name:        "invalid_node_id",
-			args:        []string{"links", "abc"},
+			args:        []string{"node", "links", "abc"},
 			fixture:     strPtr("joe"),
 			expectedErr: "invalid node ID",
 		},
 		{
 			name:        "missing_alias",
-			args:        []string{"links", "0", "--keg", "missing"},
+			args:        []string{"node", "links", "0", "--keg", "missing"},
 			fixture:     strPtr("joe"),
 			expectedErr: "keg not initialized",
 		},
 		{
 			name:        "missing_node",
-			args:        []string{"links", "424242", "--keg", "personal"},
+			args:        []string{"node", "links", "424242", "--keg", "personal"},
 			fixture:     strPtr("joe"),
 			expectedErr: "node 424242 not found",
 		},
@@ -71,7 +71,7 @@ func TestLinksCommand_ListsOutgoingLinks(t *testing.T) {
 	require.Equal(t, "2", strings.TrimSpace(string(targetB.Stdout)))
 
 	// Create a source node that links to both targets.
-	source := NewProcess(t, true, "create").RunWithIO(
+	source := NewProcess(t, true, "node", "create").RunWithIO(
 		sb.Context(),
 		sb.Runtime(),
 		strings.NewReader("# Source\n\nLinks to [A](../1) and [B](../2).\n"),
@@ -83,15 +83,15 @@ func TestLinksCommand_ListsOutgoingLinks(t *testing.T) {
 	reindex := NewProcess(t, false, "index", "rebuild").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, reindex.Err)
 
-	idOnly := NewProcess(t, false, "links", "3", "--id-only").Run(sb.Context(), sb.Runtime())
+	idOnly := NewProcess(t, false, "node", "links", "3", "--id-only").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, idOnly.Err)
 	require.Equal(t, "1\n2", strings.TrimSpace(string(idOnly.Stdout)))
 
-	reversed := NewProcess(t, false, "links", "3", "--id-only", "--reverse").Run(sb.Context(), sb.Runtime())
+	reversed := NewProcess(t, false, "node", "links", "3", "--id-only", "--reverse").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, reversed.Err)
 	require.Equal(t, "2\n1", strings.TrimSpace(string(reversed.Stdout)))
 
-	formatted := NewProcess(t, false, "links", "3", "--format", "%i|%t").Run(sb.Context(), sb.Runtime())
+	formatted := NewProcess(t, false, "node", "links", "3", "--format", "%i|%t").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, formatted.Err)
 	out := strings.TrimSpace(string(formatted.Stdout))
 	require.Contains(t, out, "1|Target A")
@@ -109,7 +109,7 @@ func TestLinksCommand_OffsetSkipsResults(t *testing.T) {
 	}
 
 	// Create source node linking to all three.
-	source := NewProcess(t, true, "create").RunWithIO(
+	source := NewProcess(t, true, "node", "create").RunWithIO(
 		sb.Context(),
 		sb.Runtime(),
 		strings.NewReader("# Source\n\nLinks to [A](../1), [B](../2), and [C](../3).\n"),
@@ -122,17 +122,17 @@ func TestLinksCommand_OffsetSkipsResults(t *testing.T) {
 	require.NoError(t, reindex.Err)
 
 	// Without offset: links are 1,2,3.
-	all := NewProcess(t, false, "links", "4", "--id-only").Run(sb.Context(), sb.Runtime())
+	all := NewProcess(t, false, "node", "links", "4", "--id-only").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, all.Err)
 	require.Equal(t, "1\n2\n3", strings.TrimSpace(string(all.Stdout)))
 
 	// Offset 1: skip first link.
-	offset := NewProcess(t, false, "links", "4", "--id-only", "--offset", "1").Run(sb.Context(), sb.Runtime())
+	offset := NewProcess(t, false, "node", "links", "4", "--id-only", "--offset", "1").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, offset.Err)
 	require.Equal(t, "2\n3", strings.TrimSpace(string(offset.Stdout)))
 
 	// Offset 1 skips node 1, leaving (2,3). Limit 2 takes first 2: (2,3).
-	combined := NewProcess(t, false, "links", "4", "--id-only", "-n", "2", "--offset", "1").Run(sb.Context(), sb.Runtime())
+	combined := NewProcess(t, false, "node", "links", "4", "--id-only", "-n", "2", "--offset", "1").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, combined.Err)
 	require.Equal(t, "2\n3", strings.TrimSpace(string(combined.Stdout)))
 }
@@ -148,7 +148,7 @@ func TestLinksCommand_MultipleNodeIDsMergesResults(t *testing.T) {
 	}
 
 	// Create source node 4 linking to A(1) and B(2).
-	source1 := NewProcess(t, true, "create").RunWithIO(
+	source1 := NewProcess(t, true, "node", "create").RunWithIO(
 		sb.Context(),
 		sb.Runtime(),
 		strings.NewReader("# Source1\n\nLinks to [A](../1) and [B](../2).\n"),
@@ -157,7 +157,7 @@ func TestLinksCommand_MultipleNodeIDsMergesResults(t *testing.T) {
 	require.Equal(t, "4", strings.TrimSpace(string(source1.Stdout)))
 
 	// Create source node 5 linking to B(2) and C(3).
-	source2 := NewProcess(t, true, "create").RunWithIO(
+	source2 := NewProcess(t, true, "node", "create").RunWithIO(
 		sb.Context(),
 		sb.Runtime(),
 		strings.NewReader("# Source2\n\nLinks to [B](../2) and [C](../3).\n"),
@@ -170,13 +170,13 @@ func TestLinksCommand_MultipleNodeIDsMergesResults(t *testing.T) {
 	require.NoError(t, reindex.Err)
 
 	// Query links for both source nodes at once: should merge and deduplicate.
-	res := NewProcess(t, false, "links", "4", "5", "--id-only").Run(sb.Context(), sb.Runtime())
+	res := NewProcess(t, false, "node", "links", "4", "5", "--id-only").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 	// Node 4 links to 1,2. Node 5 links to 2,3. Merged+dedup: 1,2,3.
 	require.Equal(t, "1\n2\n3", strings.TrimSpace(string(res.Stdout)))
 
 	// Single-ID still works.
-	single := NewProcess(t, false, "links", "4", "--id-only").Run(sb.Context(), sb.Runtime())
+	single := NewProcess(t, false, "node", "links", "4", "--id-only").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, single.Err)
 	require.Equal(t, "1\n2", strings.TrimSpace(string(single.Stdout)))
 }
@@ -185,7 +185,7 @@ func TestLinksCommand_NoLinksReturnsEmptyOutput(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
 
-	res := NewProcess(t, false, "links", "0", "--keg", "personal").Run(sb.Context(), sb.Runtime())
+	res := NewProcess(t, false, "node", "links", "0", "--keg", "personal").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 	require.Equal(t, "", strings.TrimSpace(string(res.Stdout)))
 }

@@ -21,8 +21,8 @@ const orientRulesSummary = "Rules:\n" +
 	"- These operating rules also ship once at initialization and do not change. The flight, its cover, and its instructions do change, and this payload is the only current source for them: a compaction summary may paraphrase a previous orientation, and an older copy can still be present. If anything you remember about the flight, its cover, or its instructions disagrees with what you are reading here, this is current and that is stale. Do not merge them; replace.\n" +
 	"- Use the `mcp__tapper__*` tools for every KEG operation; never read or write node files directly.\n" +
 	"- The target keg resolves from the working directory unless the `keg` parameter overrides it.\n" +
-	"- Take a snapshot before non-trivial edits. Snapshots do not protect against `remove`; preserve content some other way before deletion.\n" +
-	"- Writes may invalidate the hash you were holding; not every mutation returns a replacement. Re-read with `cat`, `schema_read`, or `keg_settings` before each guarded write; a hash never covers two writes, so an edit followed by a delete needs two reads.\n" +
+	"- Take a snapshot before non-trivial edits. Snapshots do not protect against `node_delete`; preserve content some other way before deletion.\n" +
+	"- Writes may invalidate the hash you were holding; not every mutation returns a replacement. Re-read with `node_read`, `schema_read`, or `keg_settings_read` before each guarded write; a hash never covers two writes, so an edit followed by a delete needs two reads.\n" +
 	"- Node ids are per-keg counters. Node 4 in one keg has nothing to do with node 4 in another, ids are never reused after a removal, and a create takes the next free id rather than filling a gap.\n" +
 	"- Node 0 is the keg's placeholder landing node. Leave it alone: it carries no `type` on purpose, it is where links to unwritten content land, and removing it makes the keg read as uninitialized. Write your content in a new node instead.\n" +
 	"- Attachments on a node are linked relative to that node's own directory: `[label](./assets/FILE)` for files and `![alt](./images/IMAGE)` for images. Both directory names are plural.\n"
@@ -299,9 +299,6 @@ func flightCapForKeg(flight *Flight, namespace, alias string) (string, bool) {
 	if flight == nil {
 		return "", false
 	}
-	if flight.HasCapability(FlightCapabilityFullAccess) {
-		return string(FlightRoleAdmin), true
-	}
 	if len(flight.Cover) == 0 {
 		return "", false
 	}
@@ -400,7 +397,7 @@ func OrientationOperatingRules() string {
 func BuildOrientationPayload(flight *Flight, flightNote, launch string, kegs []OrientationKeg, warnings []string, authority *OrientationAuthority) (string, error) {
 	var b strings.Builder
 	b.WriteString("# KEG System\n\n")
-	b.WriteString("Call `orient` at session start and after every context reset. Authority is bounded by identity permissions and the selected flight; child authority and instructions are not inherited. Use only `mcp__tapper__*` tools for KEG operations. Call `keg_settings` before operating in a KEG. Snapshot before meaningful edits; snapshots do not protect deletion. Re-read for a fresh hash before each guarded write. Call `guide` for detailed operating, authoring/linking, snapshots, tools, or troubleshooting guidance.\n\n")
+	b.WriteString("Call `orient` at session start and after every context reset. Authority is bounded by identity permissions and the selected flight; child authority and instructions are not inherited. Use only `mcp__tapper__*` tools for KEG operations. Call `keg_settings_read` before operating in a KEG. Snapshot before meaningful edits; snapshots do not protect deletion. Re-read for a fresh hash before each guarded write. Call `guide` for detailed operating, authoring/linking, snapshots, tools, or troubleshooting guidance.\n\n")
 	for _, warning := range warnings {
 		fmt.Fprintf(&b, "Warning: %s\n\n", orientationTableCell(warning))
 	}
@@ -416,7 +413,7 @@ func BuildOrientationPayload(flight *Flight, flightNote, launch string, kegs []O
 		if authority != nil && authority.FullAccess {
 			b.WriteString("No flight is active. This session runs under your full identity authority; nothing here is scoped. Use `keg_search` and `flight_search` to discover readable resources; results confer no access. An explicit flight selects only that flight for one call. Pin a least-privilege flight outside MCP and start a new connection to narrow the session.\n")
 		} else {
-			b.WriteString("The configured flight is unavailable: fail-closed recovery; KEG tools are locked. Repair the selection, then call `session_refresh` and `orient`. Use `flight_search`, `list_flights`, `flight_show`, or `auth_info` for recovery.\n")
+			b.WriteString("The configured flight is unavailable: fail-closed recovery; KEG tools are locked. Repair the selection, then call `session_refresh` and `orient`. Use `flight_search`, `flight_list`, `flight_read`, or `session_info` for recovery.\n")
 		}
 		return b.String(), nil
 	}
@@ -435,14 +432,11 @@ func BuildOrientationPayload(flight *Flight, flightNote, launch string, kegs []O
 			fmt.Fprintf(&b, "Authority revision: `%s`\n\n", authority.Revision)
 		}
 	}
-	fmt.Fprintf(&b, "Effective authority: identity permissions intersect this flight's cover and capabilities (%s). Explicit selection never changes the connection root.\n\n", orientationTableCell(strings.Join(flightCapabilitiesText(flight), ", ")))
+	b.WriteString("Effective authority: identity permissions intersect this flight's cover. What you may do is set by your agent's tools, not by the flight. Explicit selection never changes the connection root.\n\n")
 	b.WriteString("### Active instructions\n\n")
 	b.WriteString(flight.Instructions)
 	b.WriteString("\n\n### Effective KEG cover\n\n")
-	// Full-access capabilities expand authority, but discovery remains direct-cover only.
-	direct := *flight
-	direct.Capabilities = nil
-	usable := ProjectOrientationKegs(&direct, kegs)
+	usable := ProjectOrientationKegs(flight, kegs)
 	for i := range usable {
 		cap, _ := flightCapForKeg(flight, usable[i].Namespace, usable[i].Alias)
 		usable[i].FlightCap = cap
@@ -456,16 +450,6 @@ func BuildOrientationPayload(flight *Flight, flightNote, launch string, kegs []O
 	return b.String(), nil
 }
 
-func flightCapabilitiesText(f *Flight) []string {
-	out := make([]string, 0, len(f.Capabilities))
-	for _, c := range f.Capabilities {
-		out = append(out, string(c))
-	}
-	if len(out) == 0 {
-		return []string{"none"}
-	}
-	return out
-}
 func resourceTitle(title, ref string) string {
 	if strings.TrimSpace(title) == "" {
 		return ref
