@@ -105,6 +105,8 @@ func TestResolveLaunch_HubAgentSelection(t *testing.T) {
 	require.Equal(t, "@me/admin", got.HubAgent)
 	require.Equal(t, "laptop/ollama/qwen3:8b", got.Model)
 	require.Empty(t, got.Flight)
+	require.Contains(t, strings.Join(got.Warnings, " "), "KEG tools remain locked")
+	require.NotContains(t, strings.Join(got.Warnings, " "), "full access")
 
 	// An unknown agent is refused.
 	_, err = tap.ResolveLaunch(LaunchOptions{Harness: "opencode", Agent: "@me/stranger"})

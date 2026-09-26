@@ -457,6 +457,10 @@ func (t *Tap) ResolveLaunchContext(ctx context.Context, opts LaunchOptions) (*La
 		hasRoot, warnings = true, nil
 	}
 
+	if agent != nil && !hasRoot {
+		warnings = []string{fmt.Sprintf("agent %s has no memory flight; KEG tools remain locked until a flight is assigned or explicitly selected", agent.Ref)}
+	}
+
 	hubName, entry, err := t.ConfigService.SelectedHub("")
 	if err != nil {
 		return nil, err
