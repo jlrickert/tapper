@@ -9,7 +9,8 @@ import (
 var tapEnvVarKeys = []string{
 	"KEG",
 	"FLIGHT",
-	"AGENT",
+	"HARNESS",
+	"MODEL",
 	"LOG_FILE",
 	"LOG_LEVEL",
 	"HUB",
@@ -34,8 +35,11 @@ func configFromEnvMap(envMap map[string]string) *Config {
 	if v, ok := envMap["flight"]; ok {
 		cfg.data.Flight = v
 	}
-	if v, ok := envMap["agent"]; ok {
-		cfg.data.Agent = v
+	if v, ok := envMap["harness"]; ok {
+		cfg.data.LaunchHarness = v
+	}
+	if v, ok := envMap["model"]; ok {
+		cfg.data.LaunchModel = v
 	}
 	if v, ok := envMap["log_file"]; ok {
 		cfg.data.LogFile = v

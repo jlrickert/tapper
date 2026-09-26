@@ -47,6 +47,28 @@ func (t *Tap) DoctorConfig() []Issue {
 			Message: fmt.Sprintf("%s: %s", w.Field, w.Message),
 		})
 	}
+	// Retired keys live in individual files, which the merged config does not
+	// keep, so each file is checked on its own.
+	for _, layer := range []struct {
+		source string
+		read   func() (*Config, error)
+	}{
+		{"user config", t.ConfigService.UserConfig},
+		{"project config", t.ConfigService.ProjectConfig},
+	} {
+		source := layer.source
+		file, err := layer.read()
+		if err != nil {
+			continue
+		}
+		for _, w := range RetiredConfigFields(file) {
+			issues = append(issues, Issue{
+				Level:   "warning",
+				Kind:    "config-validate",
+				Message: fmt.Sprintf("%s %s: %s", source, w.Field, w.Message),
+			})
+		}
+	}
 
 	return issues
 }

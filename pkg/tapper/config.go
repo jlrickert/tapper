@@ -58,17 +58,15 @@ type configDTO struct {
 	// flight is the flight context applied when no --flight flag is given. It is
 	// a flight reference (@namespace/+slug, +slug, or a bare slug) and is
 	// may be set as a user baseline by bootstrap or overridden in project config;
-	// TAP_FLIGHT and an explicit --flight have higher precedence. Agent entries
-	// never participate in flight selection.
+	// TAP_FLIGHT and an explicit --flight have higher precedence.
 	Flight string `yaml:"flight,omitempty"`
 
-	// agent names the entry in agents{} driving this process. It serves two
-	// directions: `tap launch` exports the agent it resolved here as TAP_AGENT
-	// so the child can report its own identity, and `tap launch` reads it as the
-	// default when --agent is omitted (mirroring flight/TAP_FLIGHT). It selects
-	// a model and supplies telemetry only; flight selection is independent and
-	// TAP_FLIGHT pins a launch root.
-	Agent string `yaml:"agent,omitempty"`
+	// launchHarness and launchModel say which harness and Hub catalog model
+	// `tap launch` started this process under, from TAP_HARNESS and TAP_MODEL.
+	// They are telemetry and orientation identity only, never selection, and
+	// never come from or go to a config file.
+	LaunchHarness string `yaml:"-"`
+	LaunchModel   string `yaml:"-"`
 
 	// kegMap maps a project path or pattern to directory defaults.
 	KegMap []KegMapEntry `yaml:"kegMap"`
@@ -92,10 +90,6 @@ type configDTO struct {
 
 	// hubs describes configured hubs available to the user, keyed by name.
 	Hubs hubMap `yaml:"hubs,omitempty"`
-
-	// agents names model definitions for `tap launch`, keyed by alias.
-	// Experimental and undocumented; see tap_launch.go.
-	Agents map[string]AgentEntry `yaml:"agents,omitempty"`
 
 	// relay configures `tap relay`: which local or personal model providers
 	// this machine contributes to Hub's catalog. User config only; project
@@ -138,43 +132,6 @@ type HubEntry struct {
 	URL      string `yaml:"url,omitempty"`
 	Token    string `yaml:"token,omitempty"`
 	TokenEnv string `yaml:"tokenEnv,omitempty"`
-}
-
-// AgentEntry is an alias for a model plus how to reach and
-// authenticate against that model, keyed by name in the agents map and consumed
-// by `tap launch`.
-//
-// Model is provider-qualified ("anthropic/claude-opus-4", "ollama/qwen3.6:35b")
-// so the launcher knows which protocol the harness must speak. Launch roots
-// come from the top-level flight cascade; legacy per-agent flight keys are
-// ignored and preserved as unknown extension data when configuration is
-// rewritten.
-//
-// BaseURL overrides the provider's endpoint. One value serves both protocols:
-// the launcher adds or removes the /v1 suffix to suit whichever the harness
-// speaks. It defaults to the local Ollama server for ollama models and is empty
-// for hosted providers, leaving the harness on its own endpoint.
-//
-// Auth selects where credentials come from — inherit (default), subscription,
-// or apiKey. APIKeyEnv names the environment variable holding the key; the
-// name is configured, never the secret, mirroring HubEntry.TokenEnv. Agents
-// therefore hold no secrets, so unlike hubs they need no trust-boundary strip
-// and a project config may safely define them.
-//
-// Experimental: this shape is expected to change when agents move to the hub.
-// ContextWindow caps the working context in tokens. Harnesses express this
-// differently — Codex as model metadata, Claude Code as an auto-compact
-// threshold — so the launcher translates it per harness rather than passing a
-// raw flag, and reports rather than drops it where there is no equivalent.
-type AgentEntry struct {
-	invalid       error
-	raw           *yaml.Node
-	Model         string   `yaml:"model,omitempty"`
-	BaseURL       string   `yaml:"baseUrl,omitempty"`
-	Auth          string   `yaml:"auth,omitempty"`
-	APIKeyEnv     string   `yaml:"apiKeyEnv,omitempty"`
-	ContextWindow int      `yaml:"contextWindow,omitempty"`
-	Args          []string `yaml:"args,omitempty"`
 }
 
 // RelayConfig configures `tap relay`. It holds provider access and nothing
@@ -309,8 +266,7 @@ func (cfg *Config) Keg() string {
 }
 
 // Flight returns the persisted flight reference applied when no --flight flag
-// is given. On a merged config this may have come from the active agent rather
-// than from any file — see ConfigService.load.
+// is given.
 func (cfg *Config) Flight() string {
 	if cfg.data == nil {
 		cfg.data = &configDTO{}
@@ -318,13 +274,22 @@ func (cfg *Config) Flight() string {
 	return cfg.data.Flight
 }
 
-// AgentName returns the name of the agent driving this process, or "" when none
-// is selected. It indexes Agents; it is not itself an agent definition.
-func (cfg *Config) AgentName() string {
+// LaunchHarness returns the harness `tap launch` started this process under,
+// or "" when it was not launched.
+func (cfg *Config) LaunchHarness() string {
 	if cfg.data == nil {
 		cfg.data = &configDTO{}
 	}
-	return strings.TrimSpace(cfg.data.Agent)
+	return strings.TrimSpace(cfg.data.LaunchHarness)
+}
+
+// LaunchModel returns the Hub catalog model `tap launch` started this process
+// on, or "" when it was not launched.
+func (cfg *Config) LaunchModel() string {
+	if cfg.data == nil {
+		cfg.data = &configDTO{}
+	}
+	return strings.TrimSpace(cfg.data.LaunchModel)
 }
 
 // LookupAliasForTarget previously reverse-mapped a resolved target back to its
@@ -382,34 +347,12 @@ func (cfg *Config) Hubs() map[string]HubEntry {
 	return cfg.data.Hubs
 }
 
-// Agents returns the configured `tap launch` agents keyed by alias.
-func (cfg *Config) Agents() map[string]AgentEntry {
-	if cfg.data == nil {
-		cfg.data = &configDTO{}
-	}
-	if cfg.data.Agents == nil {
-		return map[string]AgentEntry{}
-	}
-	return cfg.data.Agents
-}
-
 // Relay returns the `tap relay` configuration, or nil when none is set.
 func (cfg *Config) Relay() *RelayConfig {
 	if cfg == nil || cfg.data == nil {
 		return nil
 	}
 	return cfg.data.Relay
-}
-
-// Agent returns the named agent entry. Unlike Hub there are no synthesized
-// built-ins: an agent exists only if configured.
-func (cfg *Config) Agent(name string) (AgentEntry, bool) {
-	name = strings.TrimSpace(name)
-	if name == "" {
-		return AgentEntry{}, false
-	}
-	e, ok := cfg.Agents()[name]
-	return e, ok
 }
 
 // Hub returns the named hub entry. The built-in atlas remote hub is synthesized
@@ -1009,7 +952,6 @@ func MergeConfig(cfgs ...*Config) *Config {
 		data: &configDTO{
 			KegMap: make([]KegMapEntry, 0),
 			Hubs:   make(hubMap),
-			Agents: make(map[string]AgentEntry),
 		},
 	}
 
@@ -1025,8 +967,11 @@ func MergeConfig(cfgs ...*Config) *Config {
 		if c.data.Flight != "" {
 			out.data.Flight = c.data.Flight
 		}
-		if c.data.Agent != "" {
-			out.data.Agent = c.data.Agent
+		if c.data.LaunchHarness != "" {
+			out.data.LaunchHarness = c.data.LaunchHarness
+		}
+		if c.data.LaunchModel != "" {
+			out.data.LaunchModel = c.data.LaunchModel
 		}
 		if c.data.LogFile != "" {
 			out.data.LogFile = c.data.LogFile
@@ -1047,10 +992,6 @@ func MergeConfig(cfgs ...*Config) *Config {
 
 		for name, entry := range c.data.Hubs {
 			out.data.Hubs[name] = entry
-		}
-
-		for name, entry := range c.data.Agents {
-			out.data.Agents[name] = entry
 		}
 
 		if c.data.Relay != nil {

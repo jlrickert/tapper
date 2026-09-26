@@ -17,10 +17,26 @@ import (
 	"time"
 )
 
-// hubInferencePath is Hub's OpenAI-compatible inference surface, relative to
-// the hub base URL. It sits outside /api/v1 because unmodified harnesses
-// cannot send Tapper-API-Version.
-const hubInferencePath = "/inference/openai/v1"
+// Hub's provider-shaped inference surfaces, relative to the hub base URL.
+// They sit outside /api/v1 because unmodified harnesses cannot send
+// Tapper-API-Version.
+const (
+	hubOpenAIPath    = "/inference/openai/v1"
+	hubAnthropicPath = "/inference/anthropic/v1"
+)
+
+// forwarderRoutes maps each request the forwarder accepts, as "METHOD path",
+// to its Hub path. It is the whole surface: nothing else is forwarded.
+var forwarderRoutes = map[string]string{
+	"GET /v1/models":                           hubOpenAIPath + "/models",
+	"POST /v1/chat/completions":                hubOpenAIPath + "/chat/completions",
+	"POST /v1/responses":                       hubOpenAIPath + "/responses",
+	"POST /anthropic/v1/messages":              hubAnthropicPath + "/messages",
+	"POST /anthropic/v1/messages/count_tokens": hubAnthropicPath + "/messages/count_tokens",
+}
+
+// forwardedRequestHeaders are the client headers Hub needs to read a request.
+var forwardedRequestHeaders = []string{"Content-Type", "Accept", "Anthropic-Version", "Anthropic-Beta"}
 
 // forwardedResponseHeaders are the upstream headers a harness needs to read a
 // response correctly. Nothing else is copied back.
@@ -35,11 +51,11 @@ var forwardedResponseHeaders = []string{"Content-Type", "Cache-Control", "Retry-
 // access uses — so a long session keeps working, and the Hub token never
 // enters the child's environment or config at all.
 //
-// It is deliberately not a general proxy: two fixed routes, no header
+// It is deliberately not a general proxy: a fixed table of routes, no header
 // passthrough beyond content negotiation, and a per-launch secret so another
 // local process cannot borrow the user's identity through it.
 type launchForwarder struct {
-	upstream string // hub base URL + hubInferencePath
+	upstream string // hub base URL
 	token    func() string
 	secret   string
 	client   *http.Client
@@ -59,7 +75,7 @@ func startLaunchForwarder(hubURL string, token func() string) (*launchForwarder,
 		return nil, fmt.Errorf("start inference forwarder: %w", err)
 	}
 	f := &launchForwarder{
-		upstream: strings.TrimRight(hubURL, "/") + hubInferencePath,
+		upstream: strings.TrimRight(hubURL, "/"),
 		token:    token,
 		secret:   secret,
 		// No overall timeout: a streamed completion legitimately runs for
@@ -72,8 +88,9 @@ func startLaunchForwarder(hubURL string, token func() string) (*launchForwarder,
 	return f, nil
 }
 
-// BaseURL is the OpenAI-style base URL a harness should be given.
-func (f *launchForwarder) BaseURL() string { return "http://" + f.ln.Addr().String() + "/v1" }
+// Origin is the forwarder's origin. A harness is given it plus the path of the
+// protocol it speaks: /v1 for OpenAI clients, /anthropic for Anthropic ones.
+func (f *launchForwarder) Origin() string { return "http://" + f.ln.Addr().String() }
 
 // Secret is the API key a harness must present.
 func (f *launchForwarder) Secret() string { return f.secret }
@@ -90,17 +107,21 @@ func (f *launchForwarder) Close() error {
 }
 
 func (f *launchForwarder) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	var target string
-	switch {
-	case r.Method == http.MethodGet && r.URL.Path == "/v1/models":
-		target = f.upstream + "/models"
-	case r.Method == http.MethodPost && r.URL.Path == "/v1/chat/completions":
-		target = f.upstream + "/chat/completions"
-	default:
-		forwarderError(w, http.StatusNotFound, "not_found", "the tap launch forwarder serves only /v1/models and /v1/chat/completions")
+	path, ok := forwarderRoutes[r.Method+" "+r.URL.Path]
+	if !ok {
+		forwarderError(w, http.StatusNotFound, "not_found", "the tap launch forwarder serves only Hub's inference routes")
 		return
 	}
+	target := f.upstream + path
+	if r.URL.RawQuery != "" {
+		target += "?" + r.URL.RawQuery
+	}
+	// OpenAI clients send the key as a bearer token, Anthropic ones as
+	// x-api-key or a bearer token.
 	presented, _ := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+	if presented == "" {
+		presented = r.Header.Get("X-Api-Key")
+	}
 	if subtle.ConstantTimeCompare([]byte(presented), []byte(f.secret)) != 1 {
 		forwarderError(w, http.StatusUnauthorized, "unauthorized", "invalid launch key")
 		return
@@ -117,7 +138,7 @@ func (f *launchForwarder) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req.ContentLength = r.ContentLength
-	for _, name := range []string{"Content-Type", "Accept"} {
+	for _, name := range forwardedRequestHeaders {
 		if v := r.Header.Get(name); v != "" {
 			req.Header.Set(name, v)
 		}

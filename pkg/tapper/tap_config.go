@@ -218,7 +218,6 @@ type ConfigExplainOptions struct {
 var ConfigExplainFields = []string{
 	"keg",
 	"flight",
-	"agent",
 	"logFile",
 	"logLevel",
 	"hub",
@@ -239,8 +238,6 @@ func configFieldGetter(cfg *Config, field string) string {
 		return cfg.Keg()
 	case "flight":
 		return cfg.Flight()
-	case "agent":
-		return cfg.AgentName()
 	case "logFile":
 		return cfg.LogFile()
 	case "logLevel":

@@ -1,11 +1,10 @@
 package cli
 
-// EXPERIMENTAL — see pkg/tapper/tap_launch.go. Undocumented on purpose; this
-// command is a testing scaffold and will be redesigned when agents move to the
-// hub.
+// EXPERIMENTAL — see pkg/tapper/tap_launch.go.
 
 import (
 	"fmt"
+	"io"
 	"sort"
 	"strings"
 
@@ -14,47 +13,34 @@ import (
 	"github.com/jlrickert/tapper/pkg/tapper"
 )
 
-// NewLaunchCmd builds the `tap launch` command. It resolves a Hub catalog model
-// or a configured agent and starts the named harness under the configured root
-// flight.
+// NewLaunchCmd builds the `tap launch` command. It starts the named harness on
+// a model from the caller's Hub catalog under the configured root flight.
 func NewLaunchCmd(deps *Deps) *cobra.Command {
 	var opts tapper.LaunchOptions
 
 	cmd := &cobra.Command{
 		Use:   "launch HARNESS [-- ARGS...]",
-		Short: "start an agent CLI with a Hub or configured model and flight (experimental)",
-		Long: `Start opencode, Claude Code, Codex, or pi with a model and the current
-Hub-backed flight as a connection-pinned root.
+		Short: "start an agent CLI on a Hub model under the current flight (experimental)",
+		Long: `Start Claude Code, Codex, opencode, or pi on a model from your Hub catalog,
+with the current Hub-backed flight as a connection-pinned root.
 
-Hub models. --model names a model from your Hub catalog — the models your
-connected relays offer (see 'tap relay'). The harness talks to Hub through a
-loopback forwarder that lives as long as it does: the forwarder attaches your
-Hub credential to each request, refreshing it as needed, so the credential
-never reaches the harness and a long session outlives an expiring login.
-opencode is the first harness with a Hub mode; its model picker lists your
-whole catalog. With neither --model nor an agent configured, the launch uses
-Hub mode and starts on your first catalog model:
+--model names a catalog model: the models your connected relays offer and
+those shared with you (see 'tap relay'). Without it the launch starts on the
+first model in your catalog.
 
-  tap launch opencode --model laptop/ollama/qwen3:8b
+  tap launch claude --model laptop/ollama/qwen3:8b
+  tap launch codex
 
-Configured agents. An agent selects only a model:
+Each harness talks to Hub in the protocol it was built for: Claude Code the
+Anthropic Messages API, Codex the OpenAI Responses API, opencode and pi OpenAI
+chat completions. It reaches Hub through a loopback forwarder that lives as
+long as it does. The forwarder attaches your Hub credential to each request,
+refreshing it as needed, so the credential never reaches the harness and a
+long session outlives an expiring login. opencode and pi list your whole
+catalog in their model pickers.
 
-  agents:
-    opus:
-      model: anthropic/claude-opus-4
-    local:
-      model: ollama/qwen3.6:35b
-
-Models are provider-qualified so the launcher knows which protocol the harness
-must speak. TAP_AGENT carries model selection and telemetry only.
-
---agent picks which entry to use. When it is omitted the top-level 'agent' key
-is used instead, the same way 'flight' supplies the launch root:
-
-  agent: opus
-
---model always wins over a configured agent key; --model with --agent is an
-error.
+The child gets TAP_HARNESS and TAP_MODEL, which Tapper reports as the
+session's identity in telemetry and orientation. They select nothing.
 
 The launch root follows normal flight precedence: explicit --flight,
 TAP_FLIGHT, project flight, then the user baseline. It is resolved once, must
@@ -69,7 +55,7 @@ The launcher warns when it does this. Selecting a flight is how you narrow it.
 
 Arguments after -- are passed through to the harness.
 
-Experimental and unstable: expect this to change or disappear.`,
+Experimental and unstable: expect this to change.`,
 		Args:          cobra.MinimumNArgs(1),
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -91,90 +77,51 @@ Experimental and unstable: expect this to change or disappear.`,
 			if !opts.DryRun {
 				return nil
 			}
-
-			out := cmd.OutOrStdout()
-			if result.Source == tapper.LaunchSourceHub {
-				if _, err := fmt.Fprintf(out, "hub %s -> %s (via loopback forwarder)\n",
-					result.Hub, result.Model); err != nil {
-					return err
-				}
-			} else if _, err := fmt.Fprintf(out, "agent %s -> %s/%s\n",
-				result.Agent, result.Provider, result.Model); err != nil {
-				return err
-			}
-			if result.Flight != "" {
-				if _, err := fmt.Fprintf(out, "flight: %s (connection-pinned root)\n", result.Flight); err != nil {
-					return err
-				}
-			}
-			auth := result.Auth
-			if result.KeySource != "" {
-				// The variable name, never the key itself.
-				auth += " (from $" + result.KeySource + ")"
-			}
-			if _, err := fmt.Fprintf(out, "auth: %s\n", auth); err != nil {
-				return err
-			}
-			for _, name := range result.StripEnv {
-				if _, err := fmt.Fprintf(out, "unset: %s (inherited)\n", name); err != nil {
-					return err
-				}
-			}
-			if _, err := fmt.Fprintln(out, "Would run:"); err != nil {
-				return err
-			}
-			if _, err := fmt.Fprintln(out, "  "+strings.Join(result.Argv, " ")); err != nil {
-				return err
-			}
-			if len(result.Env) == 0 {
-				return nil
-			}
-			if _, err := fmt.Fprintln(out, "With environment:"); err != nil {
-				return err
-			}
-			keys := make([]string, 0, len(result.Env))
-			for k := range result.Env {
-				keys = append(keys, k)
-			}
-			sort.Strings(keys)
-			for _, k := range keys {
-				if _, err := fmt.Fprintf(out, "  %s=%s\n", k, result.Env[k]); err != nil {
-					return err
-				}
-			}
-			return nil
+			return printLaunchPlan(cmd.OutOrStdout(), result)
 		},
 	}
 
-	cmd.Flags().StringVar(&opts.Agent, "agent", "",
-		"configured agent alias supplying the model (default: the config's agent key, or TAP_AGENT)")
 	cmd.Flags().StringVar(&opts.Model, "model", "",
-		"Hub catalog model id to launch with (e.g. laptop/ollama/qwen3:8b)")
+		"Hub catalog model id to launch with (default: the first in your catalog)")
 	cmd.Flags().BoolVar(&opts.DryRun, "dry-run", false, "print the resolved invocation without starting the harness")
-	mustRegisterFlagCompletion(cmd, "agent", func(_ *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
-		return configAgentNames(deps), cobra.ShellCompDirectiveNoFileComp
-	})
 
 	return cmd
 }
 
-// configAgentNames returns the agent aliases known to local config
-// (best-effort, offline), sorted for stable completion output.
-func configAgentNames(deps *Deps) []string {
-	tap, err := completionTap(deps)
-	if err != nil {
-		return nil
+// printLaunchPlan writes a dry run's report. Placeholders stand in for the
+// forwarder's address and key, which exist only once the harness starts.
+func printLaunchPlan(out io.Writer, result *tapper.LaunchResult) error {
+	var b strings.Builder
+	fmt.Fprintf(&b, "hub %s -> %s (via loopback forwarder)\n", result.Hub, result.Model)
+	if result.Flight != "" {
+		fmt.Fprintf(&b, "flight: %s (connection-pinned root)\n", result.Flight)
 	}
-	cfg, err := tap.ConfigService.Config()
-	if err != nil || cfg == nil {
-		return nil
+	for _, name := range result.StripEnv {
+		fmt.Fprintf(&b, "unset: %s (inherited)\n", name)
 	}
-	var names []string
-	for name := range cfg.Agents() {
-		if name = strings.TrimSpace(name); name != "" {
-			names = append(names, name)
+	b.WriteString("Would run:\n  " + strings.Join(result.Argv, " ") + "\n")
+	if len(result.Env) > 0 {
+		b.WriteString("With environment:\n")
+		keys := make([]string, 0, len(result.Env))
+		for k := range result.Env {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			fmt.Fprintf(&b, "  %s=%s\n", k, result.Env[k])
 		}
 	}
+	names := make([]string, 0, len(result.Files))
+	for name := range result.Files {
+		names = append(names, name)
+	}
 	sort.Strings(names)
-	return names
+	for _, name := range names {
+		fmt.Fprintf(&b, "Writing <launch dir>/%s:\n", name)
+		for _, line := range strings.Split(strings.TrimRight(result.Files[name], "\n"), "\n") {
+			b.WriteString("  " + line + "\n")
+		}
+	}
+	_, err := io.WriteString(out, b.String())
+	return err
 }

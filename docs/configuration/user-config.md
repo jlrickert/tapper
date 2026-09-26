@@ -39,7 +39,6 @@ A matching mapping can override those baseline selections. See
   to Hub. User config only; see [Relay providers](#relay-providers).
 - `flight`: baseline Flight context; directory mappings, project config, `TAP_FLIGHT`, and
   `--flight` can override it.
-- `agent`: model and telemetry identity, independent of Flight selection.
 - `disableAtlasHub`: disables the implicit Atlas fallback. Explicit saved
   connections, including Atlas, remain available.
 - `disableTelemetry`: disables invocation reporting.
