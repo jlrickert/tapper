@@ -316,7 +316,7 @@ func TestFlattenFlightGraph_ExcludesInaccessibleBranchAndKeepsIndependentAuthori
 	root := &tapper.Flight{Name: "@team/+root", Namespace: "team", Slug: "root", Source: "atlas",
 		FlightManifest: tapper.FlightManifest{Subflights: []string{"+hidden", "+manager"}}}
 	manager := &tapper.Flight{Name: "@team/+manager", Namespace: "team", Slug: "manager", Source: "atlas",
-		FlightManifest: tapper.FlightManifest{Capabilities: []tapper.FlightCapability{tapper.FlightCapabilityManageKegs}}}
+		FlightManifest: tapper.FlightManifest{Instructions: "manager"}}
 	graph, err := tapper.FlattenFlightGraph(t.Context(), root, func(_ context.Context, ref string) (*tapper.Flight, error) {
 		if ref == "@team/+hidden" {
 			return nil, keg.ErrForbidden
@@ -329,7 +329,7 @@ func TestFlattenFlightGraph_ExcludesInaccessibleBranchAndKeepsIndependentAuthori
 	require.ErrorIs(t, err, tapper.ErrFlightSubflightNotAllowed)
 	selected, _, err := graph.Select("+manager")
 	require.NoError(t, err)
-	require.True(t, selected.HasCapability(tapper.FlightCapabilityManageKegs))
+	require.Equal(t, "manager", selected.Instructions)
 }
 
 func TestFlattenFlightGraph_EnforcesDirectAndUniqueBounds(t *testing.T) {

@@ -99,8 +99,11 @@ func (t *Tap) relayProviders(rc *RelayConfig) ([]*relay.Provider, error) {
 			Allow:         p.Models.Allow,
 			Deny:          p.Models.Deny,
 			Transcription: p.Models.Transcription,
+			Embeddings:    p.Models.Embeddings,
 			MaxConcurrent: p.MaxConcurrent,
 			Priority:      p.Priority,
+			Metadata:      relayMetadata(p.Models.Metadata),
+			Variants:      relayVariants(p.Models.Variants),
 		}, t.Runtime.Get, nil)
 		if err != nil {
 			return nil, err
@@ -108,6 +111,28 @@ func (t *Tap) relayProviders(rc *RelayConfig) ([]*relay.Provider, error) {
 		out = append(out, provider)
 	}
 	return out, nil
+}
+
+func relayMetadata(in map[string]RelayModelMeta) map[string]relay.ModelMeta {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]relay.ModelMeta, len(in))
+	for id, m := range in {
+		out[id] = relay.ModelMeta(m)
+	}
+	return out
+}
+
+func relayVariants(in map[string]RelayVariant) map[string]relay.Variant {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]relay.Variant, len(in))
+	for id, v := range in {
+		out[id] = relay.Variant{From: v.From, ModelMeta: relay.ModelMeta(v.RelayModelMeta)}
+	}
+	return out
 }
 
 // relayToken resolves the bearer token for hubURL the same way keg access

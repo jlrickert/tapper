@@ -179,10 +179,44 @@ type RelayProvider struct {
 // Allow offers everything not denied. Transcription names the models (ids or
 // globs) that turn speech into text through /audio/transcriptions instead of
 // chatting; exact ids are offered even when the provider's /models omits them.
+// Embeddings names the models (ids or globs) that turn text into vectors
+// through /embeddings; Ollama reports its own, so it is for other providers.
+//
+// Metadata fills in what the provider does not report about a model's
+// context and reasoning, keyed by id or glob; it also overrides what it does
+// report. Variants offer a model under its own id with fixed settings: on
+// Ollama a variant with a contextWindow is created as a real model with that
+// num_ctx, elsewhere it is an alias of `from`.
 type RelayModelFilter struct {
-	Allow         []string `yaml:"allow,omitempty"`
-	Deny          []string `yaml:"deny,omitempty"`
-	Transcription []string `yaml:"transcription,omitempty"`
+	Allow         []string                  `yaml:"allow,omitempty"`
+	Deny          []string                  `yaml:"deny,omitempty"`
+	Transcription []string                  `yaml:"transcription,omitempty"`
+	Embeddings    []string                  `yaml:"embeddings,omitempty"`
+	Metadata      map[string]RelayModelMeta `yaml:"metadata,omitempty"`
+	Variants      map[string]RelayVariant   `yaml:"variants,omitempty"`
+}
+
+// RelayModelMeta is configured model metadata. ContextWindow is the window
+// the provider serves; MaxContextWindow the most the model supports.
+// Reasoning is none, toggle (on or off), or effort (low, medium, high).
+// Tools and Vision say whether the model calls tools and accepts images,
+// when the provider does not report it or reports it wrong. Canonical is the
+// provider-neutral name Hub pools the model under, when the derived one
+// (lowercase, no source prefix, no quantization suffix) is not the right
+// match.
+type RelayModelMeta struct {
+	ContextWindow    int    `yaml:"contextWindow,omitempty"`
+	MaxContextWindow int    `yaml:"maxContextWindow,omitempty"`
+	Reasoning        string `yaml:"reasoning,omitempty"`
+	Tools            *bool  `yaml:"tools,omitempty"`
+	Vision           *bool  `yaml:"vision,omitempty"`
+	Canonical        string `yaml:"canonical,omitempty"`
+}
+
+// RelayVariant is a model offered under its own id that runs From.
+type RelayVariant struct {
+	From           string `yaml:"from"`
+	RelayModelMeta `yaml:",inline"`
 }
 
 // KegRef is the (hub, namespace, name) triple a keg alias resolves to. An empty

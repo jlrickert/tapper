@@ -11,17 +11,16 @@ import (
 //
 // Usage examples:
 //
-//	tap cat 0
-//	tap cat 0 1 2
-//	tap cat --query "fire and not archived"
-//	tap cat 0 --keg myalias
+//	tap node read 0
+//	tap node read 0 1 2
+//	tap node read --query "fire and not archived"
+//	tap node read 0 --keg myalias
 func NewCatCmd(deps *Deps) *cobra.Command {
 	var opts tapper.CatOptions
 
 	cmd := &cobra.Command{
-		Use:               "cat [NODE_ID...]",
+		Use:               "read [NODE_ID...]",
 		Short:             "display node(s) content with metadata as frontmatter",
-		Aliases:           []string{"show"},
 		ValidArgsFunction: nodeIDCompletionFunc(deps, 0),
 		Args: func(cmd *cobra.Command, args []string) error {
 			if opts.Query != "" {

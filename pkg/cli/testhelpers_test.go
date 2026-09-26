@@ -138,7 +138,7 @@ func NewHubProcess(t *testing.T, isTTY bool, args ...string) *tu.Process {
 	}, isTTY)
 }
 
-// NewCreateProcess builds a `tap create` process whose node content is piped
+// NewCreateProcess builds a `tap node create` process whose node content is piped
 // on stdin. Content is the only way to give a new node a title now that
 // --title, --lead, --tags and --attrs are gone, so tests that merely need a
 // node with a known title go through here instead of repeating the heredoc.
@@ -146,7 +146,7 @@ func NewHubProcess(t *testing.T, isTTY bool, args ...string) *tu.Process {
 // meta, when non-empty, is emitted as the content's YAML frontmatter — the
 // documented CLI channel for metadata on a piped create.
 func NewCreateProcess(t *testing.T, isTTY bool, title, meta string, extraArgs ...string) *tu.Process {
-	proc := NewProcess(t, isTTY, append([]string{"create"}, extraArgs...)...)
+	proc := NewProcess(t, isTTY, append([]string{"node", "create"}, extraArgs...)...)
 	content := "# " + title + "\n"
 	if meta != "" {
 		content = "---\n" + meta + "---\n" + content

@@ -26,7 +26,7 @@ func TestParity_WriteOperations(t *testing.T) {
 		require.NotEmpty(t, cliNodeID, "CLI should return a node ID")
 
 		// Create via MCP.
-		mcpOut, err := env.runMCP("create", map[string]any{
+		mcpOut, err := env.runMCP("node_create", map[string]any{
 			"nodes": []any{map[string]any{
 				"key":     "node",
 				"content": "# MCP Node\n",
@@ -38,7 +38,7 @@ func TestParity_WriteOperations(t *testing.T) {
 		require.NotEmpty(t, mcpNodeID, "MCP should return a node ID")
 
 		// Verify CLI-created node is readable from MCP.
-		mcpReadCLI, err := env.runMCP("cat", map[string]any{
+		mcpReadCLI, err := env.runMCP("node_read", map[string]any{
 			"node_ids":     []string{cliNodeID},
 			"content_only": true,
 		})
@@ -46,16 +46,16 @@ func TestParity_WriteOperations(t *testing.T) {
 		require.Contains(t, mcpReadCLI, "CLI Node", "MCP should see CLI node title")
 
 		// Verify MCP-created node is readable from CLI.
-		cliReadMCP, err := env.runCLI("cat", mcpNodeID, "--content-only")
+		cliReadMCP, err := env.runCLI("node", "read", mcpNodeID, "--content-only")
 		require.NoError(t, err, "CLI should read MCP-created node")
 		require.Contains(t, cliReadMCP, "MCP Node", "CLI should see MCP node title")
 
 		// Verify tags are set on both.
-		cliMeta, err := env.runCLI("cat", cliNodeID, "--meta-only")
+		cliMeta, err := env.runCLI("node", "read", cliNodeID, "--meta-only")
 		require.NoError(t, err)
 		require.Contains(t, cliMeta, "parity-test", "CLI-created node should have tag")
 
-		mcpMeta, err := env.runMCP("cat", map[string]any{
+		mcpMeta, err := env.runMCP("node_read", map[string]any{
 			"node_ids":  []string{mcpNodeID},
 			"meta_only": true,
 		})
@@ -63,12 +63,12 @@ func TestParity_WriteOperations(t *testing.T) {
 		require.Contains(t, mcpMeta, "parity-test", "MCP-created node should have tag")
 
 		// Verify dex: tags index shows both nodes for "parity-test" from both surfaces.
-		cliTags, err := env.runCLI("tags", "--query", "parity-test", "--id-only")
+		cliTags, err := env.runCLI("tag", "list", "--query", "parity-test", "--id-only")
 		require.NoError(t, err, "CLI tags query should succeed")
 		require.Contains(t, cliTags, cliNodeID, "CLI tags should list CLI-created node")
 		require.Contains(t, cliTags, mcpNodeID, "CLI tags should list MCP-created node")
 
-		mcpTags, err := env.runMCP("tags", map[string]any{
+		mcpTags, err := env.runMCP("tag_list", map[string]any{
 			"query":   "parity-test",
 			"id_only": true,
 		})
@@ -86,20 +86,20 @@ func TestParity_WriteOperations(t *testing.T) {
 		require.NoError(t, err)
 		cliID := strings.TrimSpace(cliOut)
 
-		mcpOut, err := env.runMCP("create", map[string]any{
+		mcpOut, err := env.runMCP("node_create", map[string]any{
 			"nodes": []any{map[string]any{"key": "node", "content": "# Listed MCP\n"}},
 		})
 		require.NoError(t, err)
 		mcpID := strings.TrimSpace(mcpOut)
 
 		// Both should appear in CLI list.
-		cliList, err := env.runCLI("list", "--id-only", "-n", "0")
+		cliList, err := env.runCLI("node", "list", "--id-only", "-n", "0")
 		require.NoError(t, err)
 		require.True(t, containsLine(cliList, cliID), "CLI list should contain CLI-created node")
 		require.True(t, containsLine(cliList, mcpID), "CLI list should contain MCP-created node")
 
 		// Both should appear in MCP list.
-		mcpList, err := env.runMCP("list", map[string]any{
+		mcpList, err := env.runMCP("node_list", map[string]any{
 			"id_only": true,
 		})
 		require.NoError(t, err)
@@ -112,25 +112,25 @@ func TestParity_WriteOperations(t *testing.T) {
 		env := newParityEnv(t)
 
 		// Create a node.
-		out, err := env.runMCP("create", map[string]any{
+		out, err := env.runMCP("node_create", map[string]any{
 			"nodes": []any{map[string]any{"key": "node", "content": "# To Remove\n"}},
 		})
 		require.NoError(t, err)
 		nodeID := strings.TrimSpace(out)
 
 		// Remove via CLI.
-		_, err = env.runCLI("rm", nodeID)
+		_, err = env.runCLI("node", "delete", nodeID)
 		require.NoError(t, err, "CLI rm should succeed")
 
 		// MCP should not find it.
-		_, err = env.runMCP("cat", map[string]any{
+		_, err = env.runMCP("node_read", map[string]any{
 			"node_ids": []string{nodeID},
 		})
 		require.Error(t, err, "MCP should not find removed node")
 
 		// Verify dex: list should NOT contain the removed node.
 		// CLI creates a fresh Tap per invocation, so it re-reads the dex from disk.
-		cliList, err := env.runCLI("list", "--id-only", "-n", "0")
+		cliList, err := env.runCLI("node", "list", "--id-only", "-n", "0")
 		require.NoError(t, err)
 		require.False(t, containsLine(cliList, nodeID), "CLI list should not contain removed node")
 	})
@@ -145,7 +145,7 @@ func TestParity_WriteOperations(t *testing.T) {
 		nodeID := strings.TrimSpace(out)
 
 		// Remove via MCP.
-		_, err = env.runMCP("remove", map[string]any{
+		_, err = env.runMCP("node_delete", map[string]any{
 			"nodes": []map[string]any{{
 				"node_id":       nodeID,
 				"expected_hash": env.nodeHash(nodeID),
@@ -154,15 +154,15 @@ func TestParity_WriteOperations(t *testing.T) {
 		require.NoError(t, err, "MCP remove should succeed")
 
 		// CLI should not find it.
-		_, err = env.runCLI("cat", nodeID, "--content-only")
+		_, err = env.runCLI("node", "read", nodeID, "--content-only")
 		require.Error(t, err, "CLI should not find removed node")
 
 		// Verify dex: list should NOT contain the removed node from both surfaces.
-		cliList, err := env.runCLI("list", "--id-only", "-n", "0")
+		cliList, err := env.runCLI("node", "list", "--id-only", "-n", "0")
 		require.NoError(t, err)
 		require.False(t, containsLine(cliList, nodeID), "CLI list should not contain removed node")
 
-		mcpList, err := env.runMCP("list", map[string]any{
+		mcpList, err := env.runMCP("node_list", map[string]any{
 			"id_only": true,
 		})
 		require.NoError(t, err)
@@ -174,18 +174,18 @@ func TestParity_WriteOperations(t *testing.T) {
 		env := newParityEnv(t)
 
 		// Create a node.
-		out, err := env.runMCP("create", map[string]any{
+		out, err := env.runMCP("node_create", map[string]any{
 			"nodes": []any{map[string]any{"key": "node", "content": "# Movable CLI\n"}},
 		})
 		require.NoError(t, err)
 		srcID := strings.TrimSpace(out)
 
 		// Move via CLI.
-		_, err = env.runCLI("mv", srcID, "888")
+		_, err = env.runCLI("node", "move", srcID, "888")
 		require.NoError(t, err, "CLI mv should succeed")
 
 		// MCP should find it at new ID.
-		mcpRead, err := env.runMCP("cat", map[string]any{
+		mcpRead, err := env.runMCP("node_read", map[string]any{
 			"node_ids":     []string{"888"},
 			"content_only": true,
 		})
@@ -193,14 +193,14 @@ func TestParity_WriteOperations(t *testing.T) {
 		require.Contains(t, mcpRead, "Movable CLI")
 
 		// Old ID should be gone from MCP.
-		_, err = env.runMCP("cat", map[string]any{
+		_, err = env.runMCP("node_read", map[string]any{
 			"node_ids": []string{srcID},
 		})
 		require.Error(t, err, "MCP should not find node at old ID")
 
 		// Verify dex: list should show "888" but NOT srcID.
 		// CLI creates a fresh Tap per invocation, so it re-reads the dex from disk.
-		cliList, err := env.runCLI("list", "--id-only", "-n", "0")
+		cliList, err := env.runCLI("node", "list", "--id-only", "-n", "0")
 		require.NoError(t, err)
 		require.True(t, containsLine(cliList, "888"), "CLI list should contain new ID")
 		require.False(t, containsLine(cliList, srcID), "CLI list should not contain old ID")
@@ -216,7 +216,7 @@ func TestParity_WriteOperations(t *testing.T) {
 		srcID := strings.TrimSpace(out)
 
 		// Move via MCP.
-		_, err = env.runMCP("move", map[string]any{
+		_, err = env.runMCP("node_move", map[string]any{
 			"source_id":     srcID,
 			"dest_id":       "777",
 			"expected_hash": env.nodeHash(srcID),
@@ -224,23 +224,23 @@ func TestParity_WriteOperations(t *testing.T) {
 		require.NoError(t, err, "MCP move should succeed")
 
 		// CLI should find it at new ID.
-		cliRead, err := env.runCLI("cat", "777", "--content-only")
+		cliRead, err := env.runCLI("node", "read", "777", "--content-only")
 		require.NoError(t, err, "CLI should find node at new ID")
 		require.Contains(t, cliRead, "Movable MCP")
 
 		// Old ID should be gone from CLI.
-		_, err = env.runCLI("cat", srcID, "--content-only")
+		_, err = env.runCLI("node", "read", srcID, "--content-only")
 		require.Error(t, err, "CLI should not find node at old ID")
 
 		// Verify dex: list should show "777" but NOT srcID from both surfaces.
 		// MCP performed the move, so its in-memory dex is updated. CLI re-reads
 		// from disk on each invocation.
-		cliList, err := env.runCLI("list", "--id-only", "-n", "0")
+		cliList, err := env.runCLI("node", "list", "--id-only", "-n", "0")
 		require.NoError(t, err)
 		require.True(t, containsLine(cliList, "777"), "CLI list should contain new ID")
 		require.False(t, containsLine(cliList, srcID), "CLI list should not contain old ID")
 
-		mcpList, err := env.runMCP("list", map[string]any{
+		mcpList, err := env.runMCP("node_list", map[string]any{
 			"id_only": true,
 		})
 		require.NoError(t, err)
@@ -255,14 +255,14 @@ func TestParity_WriteOperations(t *testing.T) {
 		env := newParityEnv(t)
 
 		// Create a node.
-		out, err := env.runMCP("create", map[string]any{
+		out, err := env.runMCP("node_create", map[string]any{
 			"nodes": []any{map[string]any{"key": "node", "content": "# Before Edit\n"}},
 		})
 		require.NoError(t, err)
 		nodeID := strings.TrimSpace(out)
 
 		// Edit via MCP.
-		_, err = env.runMCP("edit", map[string]any{
+		_, err = env.runMCP("node_edit", map[string]any{
 			"nodes": []any{map[string]any{
 				"node_id":       nodeID,
 				"content":       "# After MCP Edit\n\nEdited content.\n",
@@ -272,17 +272,17 @@ func TestParity_WriteOperations(t *testing.T) {
 		require.NoError(t, err, "MCP edit should succeed")
 
 		// CLI should see the updated content.
-		cliRead, err := env.runCLI("cat", nodeID, "--content-only")
+		cliRead, err := env.runCLI("node", "read", nodeID, "--content-only")
 		require.NoError(t, err)
 		require.Contains(t, cliRead, "After MCP Edit")
 		require.Contains(t, cliRead, "Edited content.")
 
 		// Verify dex: list should show the new title.
-		cliList, err := env.runCLI("list", "-f", "%i %t", "-n", "0")
+		cliList, err := env.runCLI("node", "list", "-f", "%i %t", "-n", "0")
 		require.NoError(t, err)
 		require.Contains(t, cliList, "After MCP Edit", "CLI list should show updated title")
 
-		mcpList, err := env.runMCP("list", map[string]any{
+		mcpList, err := env.runMCP("node_list", map[string]any{
 			"format": "%i %t",
 		})
 		require.NoError(t, err)
@@ -294,14 +294,14 @@ func TestParity_WriteOperations(t *testing.T) {
 		env := newParityEnv(t)
 
 		// Create a node.
-		out, err := env.runMCP("create", map[string]any{
+		out, err := env.runMCP("node_create", map[string]any{
 			"nodes": []any{map[string]any{"key": "node", "content": "# Meta Test\n"}},
 		})
 		require.NoError(t, err)
 		nodeID := strings.TrimSpace(out)
 
 		// Write metadata via MCP.
-		_, err = env.runMCP("edit", map[string]any{
+		_, err = env.runMCP("node_edit", map[string]any{
 			"nodes": []any{map[string]any{
 				"node_id":       nodeID,
 				"meta":          "tags:\n  - updated-meta\n  - parity\n",
@@ -311,17 +311,17 @@ func TestParity_WriteOperations(t *testing.T) {
 		require.NoError(t, err, "MCP metadata write should succeed")
 
 		// CLI should see the updated metadata.
-		cliMeta, err := env.runCLI("cat", nodeID, "--meta-only")
+		cliMeta, err := env.runCLI("node", "read", nodeID, "--meta-only")
 		require.NoError(t, err)
 		require.Contains(t, cliMeta, "updated-meta")
 		require.Contains(t, cliMeta, "parity")
 
 		// Verify dex: tags index should show the node for "updated-meta".
-		cliTags, err := env.runCLI("tags", "--query", "updated-meta", "--id-only")
+		cliTags, err := env.runCLI("tag", "list", "--query", "updated-meta", "--id-only")
 		require.NoError(t, err)
 		require.Contains(t, cliTags, nodeID, "CLI tags should list node with updated-meta tag")
 
-		mcpTags, err := env.runMCP("tags", map[string]any{
+		mcpTags, err := env.runMCP("tag_list", map[string]any{
 			"query":   "updated-meta",
 			"id_only": true,
 		})
@@ -338,13 +338,13 @@ func TestParity_WriteOperations(t *testing.T) {
 		t.Parallel()
 		env := newParityEnv(t)
 
-		out, err := env.runMCP("create", map[string]any{
+		out, err := env.runMCP("node_create", map[string]any{
 			"nodes": []any{map[string]any{"key": "node", "content": "# Id Strip Test\n"}},
 		})
 		require.NoError(t, err)
 		nodeID := strings.TrimSpace(out)
 
-		_, err = env.runMCP("edit", map[string]any{
+		_, err = env.runMCP("node_edit", map[string]any{
 			"nodes": []any{map[string]any{
 				"node_id":       nodeID,
 				"meta":          "id: \"" + nodeID + "\"\ntags:\n  - round-trip\n",
@@ -353,12 +353,12 @@ func TestParity_WriteOperations(t *testing.T) {
 		})
 		require.NoError(t, err, "MCP metadata write should succeed")
 
-		first, err := env.runCLI("cat", nodeID, "--meta-only")
+		first, err := env.runCLI("node", "read", nodeID, "--meta-only")
 		require.NoError(t, err)
 		require.NotContains(t, first, "id:", "id field must not be persisted to meta.yaml")
 		require.Contains(t, first, "round-trip")
 
-		_, err = env.runMCP("edit", map[string]any{
+		_, err = env.runMCP("node_edit", map[string]any{
 			"nodes": []any{map[string]any{
 				"node_id":       nodeID,
 				"meta":          first,
@@ -367,7 +367,7 @@ func TestParity_WriteOperations(t *testing.T) {
 		})
 		require.NoError(t, err, "second MCP metadata write should succeed")
 
-		second, err := env.runCLI("cat", nodeID, "--meta-only")
+		second, err := env.runCLI("node", "read", nodeID, "--meta-only")
 		require.NoError(t, err)
 		require.Equal(t, first, second, "round-trip cat → meta write → cat must be byte-identical")
 	})
@@ -377,10 +377,10 @@ func TestParity_WriteOperations(t *testing.T) {
 		env := newParityEnv(t)
 
 		// Read metadata for node 0 via both surfaces.
-		cliMeta, err := env.runCLI("meta", "0")
+		cliMeta, err := env.runCLI("node", "meta", "0")
 		require.NoError(t, err)
 
-		mcpMeta, err := env.runMCP("cat", map[string]any{
+		mcpMeta, err := env.runMCP("node_read", map[string]any{
 			"node_ids":  []string{"0"},
 			"meta_only": true,
 		})

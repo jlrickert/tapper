@@ -19,7 +19,7 @@ func TestMoveCommand_RewritesLinks(t *testing.T) {
 
 	fixtureSetContent(t, sb.Runtime(), "example", "1", "# One\n\nSee [two](../2).\nAlso ../2.\n")
 
-	res = NewProcess(t, false, "mv", "2", "3").Run(sb.Context(), sb.Runtime())
+	res = NewProcess(t, false, "node", "move", "2", "3").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 
 	content := fixtureContent(t, sb.Runtime(), "example", "1")
@@ -35,7 +35,7 @@ func TestMoveCommand_ErrorCases(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
 
-	res := NewProcess(t, false, "mv", "999", "1000").Run(sb.Context(), sb.Runtime())
+	res := NewProcess(t, false, "node", "move", "999", "1000").Run(sb.Context(), sb.Runtime())
 	require.Error(t, res.Err)
 	require.Contains(t, string(res.Stderr), "node 999 not found")
 
@@ -46,7 +46,7 @@ func TestMoveCommand_ErrorCases(t *testing.T) {
 	res = NewCreateProcess(t, false, "Three", "").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 
-	res = NewProcess(t, false, "mv", "2", "3").Run(sb.Context(), sb.Runtime())
+	res = NewProcess(t, false, "node", "move", "2", "3").Run(sb.Context(), sb.Runtime())
 	require.Error(t, res.Err)
 	require.Contains(t, string(res.Stderr), "destination node 3 already exists")
 }
@@ -65,7 +65,7 @@ func TestMoveCommand_UpdatesAllBacklinksInFixture(t *testing.T) {
 	//
 	// Move node 2 → 5.  Both node 1 and node 3 must update their references.
 
-	res := NewProcess(t, false, "mv", "2", "5", "--keg", "personal").Run(sb.Context(), sb.Runtime())
+	res := NewProcess(t, false, "node", "move", "2", "5", "--keg", "personal").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 
 	content1 := fixtureContent(t, sb.Runtime(), "personal", "1")
@@ -83,27 +83,27 @@ func TestMoveCommand_UpdatesAllBacklinksInFixture(t *testing.T) {
 
 // TestMoveCommand_CreatesNodesViaStdinThenMoves creates nodes by piping content
 // via stdin (simulating `tap c --keg personal`), writes cross-links, then
-// exercises `tap mv` to confirm link rewriting works end-to-end.
+// exercises `tap node move` to confirm link rewriting works end-to-end.
 func TestMoveCommand_CreatesNodesViaStdinThenMoves(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
 
 	// Create node 4: references future node 5.
 	node4Content := "# Alpha Task\n\nSee [Beta Task](../5) for follow-up.\n"
-	res := NewProcess(t, false, "create", "--keg", "personal").
+	res := NewProcess(t, false, "node", "create", "--keg", "personal").
 		RunWithIO(sb.Context(), sb.Runtime(), strings.NewReader(node4Content))
 	require.NoError(t, res.Err)
 	require.Equal(t, "4", strings.TrimSpace(string(res.Stdout)))
 
 	// Create node 5 via stdin.
 	node5Content := "# Beta Task\n\nRelated to [Alpha Task](../4).\n"
-	res = NewProcess(t, false, "create", "--keg", "personal").
+	res = NewProcess(t, false, "node", "create", "--keg", "personal").
 		RunWithIO(sb.Context(), sb.Runtime(), strings.NewReader(node5Content))
 	require.NoError(t, res.Err)
 	require.Equal(t, "5", strings.TrimSpace(string(res.Stdout)))
 
 	// Move node 5 → 6.  Node 4 must be updated automatically.
-	res = NewProcess(t, false, "mv", "5", "6", "--keg", "personal").Run(sb.Context(), sb.Runtime())
+	res = NewProcess(t, false, "node", "move", "5", "6", "--keg", "personal").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 
 	content4 := fixtureContent(t, sb.Runtime(), "personal", "4")

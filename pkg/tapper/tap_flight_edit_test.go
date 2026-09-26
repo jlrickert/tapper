@@ -112,8 +112,6 @@ func TestEditFlight_PipedAppliesManifest(t *testing.T) {
 
 	manifest := `title: Reworked
 visibility: public
-capabilities:
-  - manage_flights
 cover:
   - namespace: foldwise
     keg: docs
@@ -134,7 +132,6 @@ instructions: |
 	put := hub.lastPut(t)
 	require.Equal(t, "Reworked", put.Title)
 	require.Equal(t, tapper.FlightVisibilityPublic, put.Visibility)
-	require.Equal(t, []tapper.FlightCapability{tapper.FlightCapabilityManageFlights}, put.Capabilities)
 	require.Equal(t, "New instructions.\n", put.Instructions)
 	require.Equal(t, []tapper.HubFlightCover{
 		{Namespace: "foldwise", Keg: "docs", Role: "admin", Depth: 2},
@@ -216,9 +213,9 @@ func TestEditFlight_PipedRejectsInvalidManifests(t *testing.T) {
 			wantErr:  `invalid flight cover role "owner"`,
 		},
 		{
-			name:     "unknown capability",
-			manifest: "capabilities: [shell_access]\n",
-			wantErr:  `unknown flight capability "shell_access"`,
+			name:     "retired capabilities key",
+			manifest: "capabilities: [manage_flights]\n",
+			wantErr:  `field capabilities not found`,
 		},
 	}
 	for _, tc := range cases {
@@ -301,10 +298,10 @@ func TestEditFlight_EditorStartsWithSchemaBackedManifest(t *testing.T) {
 	// is published on main.
 	require.True(t, strings.HasPrefix(opened,
 		schemas.ModelinePrefix+schemas.ModelineURI(fx.Runtime(), schemas.FlightManifest)+"\n"), "got: %s", opened)
-	require.Contains(t, opened, "# Flight @foldwise/+agent-work. Ref is immutable; edit title, visibility, capabilities, cover, and instructions.")
+	require.Contains(t, opened, "# Flight @foldwise/+agent-work. Ref is immutable; edit title, visibility, cover, and instructions.")
 	require.Contains(t, opened, `title: ""`)
 	require.Contains(t, opened, `visibility: private`)
-	require.Contains(t, opened, `capabilities: []`)
+	require.NotContains(t, opened, "capabilities")
 	require.Contains(t, opened, "cover: []")
 	require.Contains(t, opened, `instructions: ""`)
 	require.NotContains(t, opened, "{}")

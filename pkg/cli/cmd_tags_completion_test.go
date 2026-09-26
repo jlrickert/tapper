@@ -18,7 +18,7 @@ func TestTagsCommand_CompletionSuggestsTags(t *testing.T) {
 	res = NewCreateProcess(t, false, "Three", "tags:\n  - beta\n").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 
-	comp := NewCompletionProcess(t, false, 0, "tags", "").Run(sb.Context(), sb.Runtime())
+	comp := NewCompletionProcess(t, false, 0, "tag", "list", "").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, comp.Err)
 
 	suggestions := parseCompletionSuggestions(string(comp.Stdout))
@@ -36,7 +36,7 @@ func TestTagsCommand_CompletionFiltersByPrefix(t *testing.T) {
 	res = NewCreateProcess(t, false, "Three", "tags:\n  - beta\n").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 
-	comp := NewCompletionProcess(t, false, 0, "tags", "al").Run(sb.Context(), sb.Runtime())
+	comp := NewCompletionProcess(t, false, 0, "tag", "list", "al").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, comp.Err)
 
 	suggestions := parseCompletionSuggestions(string(comp.Stdout))

@@ -57,10 +57,10 @@ type Options struct {
 	// Name identifies the relay to Hub.
 	Name string
 	// Version is the tap version reported at registration.
-	Version string
-	Providers     []*Provider
-	Logger        *slog.Logger
-	HTTPClient    *http.Client
+	Version    string
+	Providers  []*Provider
+	Logger     *slog.Logger
+	HTTPClient *http.Client
 	// CatalogInterval is how often providers are re-listed. Zero means a minute.
 	CatalogInterval time.Duration
 	// ReadTimeout drops a connection that has been silent this long. Hub pings
@@ -263,24 +263,49 @@ func (c *Client) dial(ctx context.Context, hub Hub) (*websocket.Conn, error) {
 func (c *Client) listModels(ctx context.Context) []relaycontract.Model {
 	var out []relaycontract.Model
 	for _, p := range c.opts.Providers {
-		ids, err := p.ListModels(ctx)
+		models, err := p.ListModels(ctx)
 		if err != nil {
-			c.logger.Warn("relay provider unavailable", "provider", p.Name(), "error", err)
-			ids = nil
+			// With models in hand the error only reports metadata the relay
+			// could not get; without, the provider is down.
+			if models == nil {
+				c.logger.Warn("relay provider unavailable", "provider", p.Name(), "error", err)
+			} else {
+				c.logger.Warn("relay provider metadata incomplete", "provider", p.Name(), "error", err)
+			}
 		}
 		// Configured transcription models are offered even when /models
 		// fails or omits them: many speech servers list nothing.
-		ids = p.WithTranscriptionModels(ids)
-		for _, id := range ids {
+		models = p.WithTranscriptionModels(models)
+		for _, m := range models {
 			if len(out) == relaycontract.MaxModels {
 				c.logger.Warn("relay model limit reached; remaining models not offered", "limit", relaycontract.MaxModels)
 				return out
 			}
-			caps := []string{relaycontract.CapabilityChat, relaycontract.CapabilityStream}
-			if p.Transcribes(id) {
-				caps = []string{relaycontract.CapabilityTranscription}
+			// A model does one job. ListModels marks embedding models (Ollama
+			// says so; config names the rest); everything else chats.
+			switch {
+			case p.Transcribes(m.ID):
+				m.Capabilities = []string{relaycontract.CapabilityTranscription}
+				m.ContextWindow, m.MaxContextWindow, m.Reasoning = 0, 0, ""
+			case slices.Contains(m.Capabilities, relaycontract.CapabilityEmbeddings):
+				m.Capabilities = []string{relaycontract.CapabilityEmbeddings}
+				m.Reasoning = ""
+			default:
+				// Tools and vision, when discovery or config found them, ride
+				// along with chat.
+				caps := []string{relaycontract.CapabilityChat, relaycontract.CapabilityStream}
+				for _, c := range []string{relaycontract.CapabilityTools, relaycontract.CapabilityVision} {
+					if slices.Contains(m.Capabilities, c) {
+						caps = append(caps, c)
+					}
+				}
+				m.Capabilities = caps
 			}
-			out = append(out, relaycontract.Model{ID: id, Provider: p.Name(), Capabilities: caps, Priority: p.Priority()})
+			if m.Canonical == "" {
+				m.Canonical = relaycontract.CanonicalModel(m.ID)
+			}
+			m.Priority = p.Priority()
+			out = append(out, m)
 		}
 	}
 	return out
@@ -370,7 +395,7 @@ func (c *Client) runOnce(ctx context.Context, hub Hub) (registered bool, err err
 		delete(c.sessions, s)
 		c.mu.Unlock()
 	}()
-	if !slices.Equal(modelKeys(models), modelKeys(latest)) {
+	if !sameCatalog(models, latest) {
 		s.sendCatalog(sessCtx, latest)
 	}
 	return true, s.readLoop(sessCtx)
@@ -465,9 +490,9 @@ func (s *session) startInfer(ctx context.Context, env relaycontract.Envelope) {
 		s.fail(ctx, env.ID, relaycontract.CodeUnknownModel, "model is not offered by this relay")
 		return
 	}
-	// A model does one job: transcription models only transcribe, and
-	// nothing else is sent to /audio/transcriptions.
-	if (req.API == relaycontract.APIOpenAIAudioTranscriptions) != provider.Transcribes(req.Model) {
+	// A model does one job: transcription models only transcribe, embedding
+	// models only embed, and chat goes to neither.
+	if req.API != s.c.apiFor(provider, req.Model) {
 		s.fail(ctx, env.ID, relaycontract.CodeUnsupported, "model does not support "+req.API)
 		return
 	}
@@ -501,12 +526,18 @@ func (s *session) infer(connCtx, reqCtx context.Context, id string, p *Provider,
 	}
 	var usage *relaycontract.Usage
 	var err error
-	if req.API == relaycontract.APIOpenAIAudioTranscriptions {
+	switch req.API {
+	case relaycontract.APIOpenAIAudioTranscriptions:
 		var result json.RawMessage
 		if result, err = p.Transcribe(reqCtx, req.Body, req.Model); err == nil {
 			err = emit(result)
 		}
-	} else {
+	case relaycontract.APIOpenAIEmbeddings:
+		var result json.RawMessage
+		if result, usage, err = p.Embeddings(reqCtx, req.Body, req.Model); err == nil {
+			err = emit(result)
+		}
+	default:
 		usage, err = p.ChatCompletions(reqCtx, req.Body, req.Model, req.Stream, emit)
 	}
 	if err != nil {
@@ -548,7 +579,7 @@ func (c *Client) refreshCatalog(ctx context.Context) {
 		}
 		models := c.listModels(ctx)
 		c.mu.Lock()
-		if slices.Equal(modelKeys(c.models), modelKeys(models)) {
+		if sameCatalog(c.models, models) {
 			c.mu.Unlock()
 			continue
 		}
@@ -574,12 +605,41 @@ func (s *session) sendCatalog(ctx context.Context, models []relaycontract.Model)
 	}
 }
 
-// modelKeys is a catalog's identity: its provider/model ids, sorted.
-func modelKeys(models []relaycontract.Model) []string {
-	out := make([]string, 0, len(models))
-	for _, m := range models {
-		out = append(out, modelKey(m.Provider, m.ID))
+// apiFor is the one API a model serves: transcription for the provider's
+// configured speech models, embeddings for models the catalog marks so, and
+// chat completions for the rest.
+func (c *Client) apiFor(p *Provider, model string) string {
+	if p.Transcribes(model) {
+		return relaycontract.APIOpenAIAudioTranscriptions
 	}
-	slices.Sort(out)
-	return out
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for _, m := range c.models {
+		if m.Provider == p.Name() && m.ID == model && slices.Contains(m.Capabilities, relaycontract.CapabilityEmbeddings) {
+			return relaycontract.APIOpenAIEmbeddings
+		}
+	}
+	return relaycontract.APIOpenAIChatCompletions
+}
+
+// sameCatalog reports whether two catalogs offer the same models with the
+// same metadata, in any order. A changed context window or reasoning mode is
+// a change Hub has to hear about, not just a new or removed id.
+func sameCatalog(a, b []relaycontract.Model) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	key := func(m relaycontract.Model) string {
+		raw, _ := json.Marshal(m)
+		return string(raw)
+	}
+	keys := func(models []relaycontract.Model) []string {
+		out := make([]string, 0, len(models))
+		for _, m := range models {
+			out = append(out, key(m))
+		}
+		slices.Sort(out)
+		return out
+	}
+	return slices.Equal(keys(a), keys(b))
 }

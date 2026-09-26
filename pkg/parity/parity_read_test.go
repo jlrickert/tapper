@@ -12,15 +12,15 @@ import (
 //
 // Command mapping (CLI -> MCP):
 //
-//	tap cat       -> cat         (both call Tap.Cat)
-//	tap list      -> list        (both call Tap.List)
-//	tap grep      -> grep        (both call Tap.Grep)
-//	tap tags      -> tags        (both call Tap.Tags)
-//	tap backlinks -> backlinks   (both call Tap.Backlinks)
-//	tap links     -> links       (both call Tap.Links)
-//	tap keg settings -> keg_settings (both call Tap.KegSettings; MCP uses Minimal=true by default)
-//	tap info         -> info         (both call Tap.Info)
-//	tap stats     -> stats       (both call Tap.Stats)
+//	tap node read       -> cat         (both call Tap.Cat)
+//	tap node list      -> list        (both call Tap.List)
+//	tap node search      -> grep        (both call Tap.Grep)
+//	tap tag list      -> tags        (both call Tap.Tags)
+//	tap node backlinks -> backlinks   (both call Tap.Backlinks)
+//	tap node links     -> links       (both call Tap.Links)
+//	tap keg settings read -> keg_settings (both call Tap.KegSettings; MCP uses Minimal=true by default)
+//	tap keg info         -> info         (both call Tap.Info)
+//	tap node stats     -> stats       (both call Tap.Stats)
 func TestParity_ReadOperations(t *testing.T) {
 	t.Parallel()
 
@@ -28,8 +28,8 @@ func TestParity_ReadOperations(t *testing.T) {
 		// --- cat (Tap.Cat) ---
 		{
 			Name:    "cat/content_only",
-			CLIArgs: []string{"cat", "0", "--content-only"},
-			MCPTool: "cat",
+			CLIArgs: []string{"node", "read", "0", "--content-only"},
+			MCPTool: "node_read",
 			MCPInput: map[string]any{
 				"node_ids":     []string{"0"},
 				"content_only": true,
@@ -37,8 +37,8 @@ func TestParity_ReadOperations(t *testing.T) {
 		},
 		{
 			Name:    "cat/meta_only",
-			CLIArgs: []string{"cat", "0", "--meta-only"},
-			MCPTool: "cat",
+			CLIArgs: []string{"node", "read", "0", "--meta-only"},
+			MCPTool: "node_read",
 			MCPInput: map[string]any{
 				"node_ids":  []string{"0"},
 				"meta_only": true,
@@ -46,16 +46,16 @@ func TestParity_ReadOperations(t *testing.T) {
 		},
 		{
 			Name:    "cat/default_with_frontmatter",
-			CLIArgs: []string{"cat", "0"},
-			MCPTool: "cat",
+			CLIArgs: []string{"node", "read", "0"},
+			MCPTool: "node_read",
 			MCPInput: map[string]any{
 				"node_ids": []string{"0"},
 			},
 		},
 		{
 			Name:    "cat/multiple_nodes",
-			CLIArgs: []string{"cat", "0", "1", "--content-only"},
-			MCPTool: "cat",
+			CLIArgs: []string{"node", "read", "0", "1", "--content-only"},
+			MCPTool: "node_read",
 			MCPInput: map[string]any{
 				"node_ids":     []string{"0", "1"},
 				"content_only": true,
@@ -63,8 +63,8 @@ func TestParity_ReadOperations(t *testing.T) {
 		},
 		{
 			Name:    "cat/stats_only",
-			CLIArgs: []string{"cat", "0", "--stats-only"},
-			MCPTool: "cat",
+			CLIArgs: []string{"node", "read", "0", "--stats-only"},
+			MCPTool: "node_read",
 			MCPInput: map[string]any{
 				"node_ids":   []string{"0"},
 				"stats_only": true,
@@ -83,8 +83,8 @@ func TestParity_ReadOperations(t *testing.T) {
 		},
 		{
 			Name:    "cat/nonexistent_node_errors",
-			CLIArgs: []string{"cat", "999"},
-			MCPTool: "cat",
+			CLIArgs: []string{"node", "read", "999"},
+			MCPTool: "node_read",
 			MCPInput: map[string]any{
 				"node_ids": []string{"999"},
 			},
@@ -96,8 +96,8 @@ func TestParity_ReadOperations(t *testing.T) {
 		// explicit unlimited here so output matches.
 		{
 			Name:    "list/id_only",
-			CLIArgs: []string{"list", "--id-only"},
-			MCPTool: "list",
+			CLIArgs: []string{"node", "list", "--id-only"},
+			MCPTool: "node_list",
 			MCPInput: map[string]any{
 				"id_only": true,
 				"limit":   -1,
@@ -105,8 +105,8 @@ func TestParity_ReadOperations(t *testing.T) {
 		},
 		{
 			Name:    "list/id_only_reverse",
-			CLIArgs: []string{"list", "--id-only", "--reverse"},
-			MCPTool: "list",
+			CLIArgs: []string{"node", "list", "--id-only", "--reverse"},
+			MCPTool: "node_list",
 			MCPInput: map[string]any{
 				"id_only": true,
 				"reverse": true,
@@ -115,8 +115,8 @@ func TestParity_ReadOperations(t *testing.T) {
 		},
 		{
 			Name:    "list/custom_format",
-			CLIArgs: []string{"list", "-f", "%i %t"},
-			MCPTool: "list",
+			CLIArgs: []string{"node", "list", "-f", "%i %t"},
+			MCPTool: "node_list",
 			MCPInput: map[string]any{
 				"format": "%i %t",
 				"limit":  -1,
@@ -131,8 +131,8 @@ func TestParity_ReadOperations(t *testing.T) {
 		// advertised them.
 		{
 			Name:    "list/format_legacy_verbs",
-			CLIArgs: []string{"list", "-f", "%i|%t|%d|%c|%a"},
-			MCPTool: "list",
+			CLIArgs: []string{"node", "list", "-f", "%i|%t|%d|%c|%a"},
+			MCPTool: "node_list",
 			MCPInput: map[string]any{
 				"format": "%i|%t|%d|%c|%a",
 				"limit":  -1,
@@ -140,8 +140,8 @@ func TestParity_ReadOperations(t *testing.T) {
 		},
 		{
 			Name:    "list/format_named_intrinsics",
-			CLIArgs: []string{"list", "-f", "%{id}|%{title}"},
-			MCPTool: "list",
+			CLIArgs: []string{"node", "list", "-f", "%{id}|%{title}"},
+			MCPTool: "node_list",
 			MCPInput: map[string]any{
 				"format": "%{id}|%{title}",
 				"limit":  -1,
@@ -149,8 +149,8 @@ func TestParity_ReadOperations(t *testing.T) {
 		},
 		{
 			Name:    "list/format_index_times",
-			CLIArgs: []string{"list", "-f", "%{.updated}|%{.created}|%{.accessed}"},
-			MCPTool: "list",
+			CLIArgs: []string{"node", "list", "-f", "%{.updated}|%{.created}|%{.accessed}"},
+			MCPTool: "node_list",
 			MCPInput: map[string]any{
 				"format": "%{.updated}|%{.created}|%{.accessed}",
 				"limit":  -1,
@@ -158,8 +158,8 @@ func TestParity_ReadOperations(t *testing.T) {
 		},
 		{
 			Name:    "list/format_tags",
-			CLIArgs: []string{"list", "-f", "%i\t%{tags}"},
-			MCPTool: "list",
+			CLIArgs: []string{"node", "list", "-f", "%i\t%{tags}"},
+			MCPTool: "node_list",
 			MCPInput: map[string]any{
 				"format": "%i\t%{tags}",
 				"limit":  -1,
@@ -167,8 +167,8 @@ func TestParity_ReadOperations(t *testing.T) {
 		},
 		{
 			Name:    "list/format_stats_hash",
-			CLIArgs: []string{"list", "-f", "%i\t%{.hash}"},
-			MCPTool: "list",
+			CLIArgs: []string{"node", "list", "-f", "%i\t%{.hash}"},
+			MCPTool: "node_list",
 			MCPInput: map[string]any{
 				"format": "%i\t%{.hash}",
 				"limit":  -1,
@@ -176,8 +176,8 @@ func TestParity_ReadOperations(t *testing.T) {
 		},
 		{
 			Name:    "list/format_stats_access_count",
-			CLIArgs: []string{"list", "-f", "%i\t%{.accessCount}"},
-			MCPTool: "list",
+			CLIArgs: []string{"node", "list", "-f", "%i\t%{.accessCount}"},
+			MCPTool: "node_list",
 			MCPInput: map[string]any{
 				"format": "%i\t%{.accessCount}",
 				"limit":  -1,
@@ -187,8 +187,8 @@ func TestParity_ReadOperations(t *testing.T) {
 			// An absent metadata key renders empty on both surfaces, so a
 			// tabular format keeps a stable column count.
 			Name:    "list/format_absent_meta_key",
-			CLIArgs: []string{"list", "-f", "%i|%{type}|end"},
-			MCPTool: "list",
+			CLIArgs: []string{"node", "list", "-f", "%i|%{type}|end"},
+			MCPTool: "node_list",
 			MCPInput: map[string]any{
 				"format": "%i|%{type}|end",
 				"limit":  -1,
@@ -197,8 +197,8 @@ func TestParity_ReadOperations(t *testing.T) {
 		{
 			// Documented in the help for a long time, implemented only now.
 			Name:    "list/format_literal_percent",
-			CLIArgs: []string{"list", "-f", "%i 100%%"},
-			MCPTool: "list",
+			CLIArgs: []string{"node", "list", "-f", "%i 100%%"},
+			MCPTool: "node_list",
 			MCPInput: map[string]any{
 				"format": "%i 100%%",
 				"limit":  -1,
@@ -206,8 +206,8 @@ func TestParity_ReadOperations(t *testing.T) {
 		},
 		{
 			Name:    "list/format_unknown_stats_field",
-			CLIArgs: []string{"list", "-f", "%{.bogus}"},
-			MCPTool: "list",
+			CLIArgs: []string{"node", "list", "-f", "%{.bogus}"},
+			MCPTool: "node_list",
 			MCPInput: map[string]any{
 				"format": "%{.bogus}",
 				"limit":  -1,
@@ -217,8 +217,8 @@ func TestParity_ReadOperations(t *testing.T) {
 		},
 		{
 			Name:    "list/format_unterminated_brace",
-			CLIArgs: []string{"list", "-f", "%{id"},
-			MCPTool: "list",
+			CLIArgs: []string{"node", "list", "-f", "%{id"},
+			MCPTool: "node_list",
 			MCPInput: map[string]any{
 				"format": "%{id",
 				"limit":  -1,
@@ -230,8 +230,8 @@ func TestParity_ReadOperations(t *testing.T) {
 			// Pasting query syntax into field position is the likely mistake,
 			// so both surfaces must name it rather than fail generically.
 			Name:    "list/format_predicate_in_field_position",
-			CLIArgs: []string{"list", "-f", "%{type=plan}"},
-			MCPTool: "list",
+			CLIArgs: []string{"node", "list", "-f", "%{type=plan}"},
+			MCPTool: "node_list",
 			MCPInput: map[string]any{
 				"format": "%{type=plan}",
 				"limit":  -1,
@@ -243,8 +243,8 @@ func TestParity_ReadOperations(t *testing.T) {
 			// The vocabulary must be identical on every command sharing the
 			// formatter, not just list.
 			Name:    "tags/format_named_selectors",
-			CLIArgs: []string{"tags", "hello", "-f", "%i\t%{tags}"},
-			MCPTool: "tags",
+			CLIArgs: []string{"tag", "list", "hello", "-f", "%i\t%{tags}"},
+			MCPTool: "tag_list",
 			MCPInput: map[string]any{
 				"query":  "hello",
 				"format": "%i\t%{tags}",
@@ -255,8 +255,8 @@ func TestParity_ReadOperations(t *testing.T) {
 		// --- list with sort (Tap.List) ---
 		{
 			Name:    "list/sort_updated",
-			CLIArgs: []string{"list", "--id-only", "--sort", "updated"},
-			MCPTool: "list",
+			CLIArgs: []string{"node", "list", "--id-only", "--sort", "updated"},
+			MCPTool: "node_list",
 			MCPInput: map[string]any{
 				"id_only": true,
 				"sort":    "updated",
@@ -267,8 +267,8 @@ func TestParity_ReadOperations(t *testing.T) {
 		// --- grep (Tap.Grep) ---
 		{
 			Name:    "grep/id_only",
-			CLIArgs: []string{"grep", "Hello", "--id-only"},
-			MCPTool: "grep",
+			CLIArgs: []string{"node", "search", "Hello", "--id-only"},
+			MCPTool: "node_search",
 			MCPInput: map[string]any{
 				"query":   "Hello",
 				"id_only": true,
@@ -277,8 +277,8 @@ func TestParity_ReadOperations(t *testing.T) {
 		},
 		{
 			Name:    "grep/default_format",
-			CLIArgs: []string{"grep", "Hello"},
-			MCPTool: "grep",
+			CLIArgs: []string{"node", "search", "Hello"},
+			MCPTool: "node_search",
 			MCPInput: map[string]any{
 				"query": "Hello",
 				"limit": -1,
@@ -286,8 +286,8 @@ func TestParity_ReadOperations(t *testing.T) {
 		},
 		{
 			Name:    "grep/no_match_returns_empty",
-			CLIArgs: []string{"grep", "ZZZZNOTFOUND", "--id-only"},
-			MCPTool: "grep",
+			CLIArgs: []string{"node", "search", "ZZZZNOTFOUND", "--id-only"},
+			MCPTool: "node_search",
 			MCPInput: map[string]any{
 				"query":   "ZZZZNOTFOUND",
 				"id_only": true,
@@ -304,8 +304,8 @@ func TestParity_ReadOperations(t *testing.T) {
 		// --- tags (Tap.Tags) ---
 		{
 			Name:    "tags/list_all",
-			CLIArgs: []string{"tags"},
-			MCPTool: "tags",
+			CLIArgs: []string{"tag", "list"},
+			MCPTool: "tag_list",
 			MCPInput: map[string]any{
 				"limit": -1,
 			},
@@ -318,8 +318,8 @@ func TestParity_ReadOperations(t *testing.T) {
 		},
 		{
 			Name:    "tags/filter_by_tag_id_only",
-			CLIArgs: []string{"tags", "--query", "test", "--id-only"},
-			MCPTool: "tags",
+			CLIArgs: []string{"tag", "list", "--query", "test", "--id-only"},
+			MCPTool: "tag_list",
 			MCPInput: map[string]any{
 				"query":   "test",
 				"id_only": true,
@@ -330,8 +330,8 @@ func TestParity_ReadOperations(t *testing.T) {
 		// --- backlinks (Tap.Backlinks) ---
 		{
 			Name:    "backlinks/node_0_id_only",
-			CLIArgs: []string{"backlinks", "0", "--id-only"},
-			MCPTool: "backlinks",
+			CLIArgs: []string{"node", "backlinks", "0", "--id-only"},
+			MCPTool: "node_backlinks",
 			MCPInput: map[string]any{
 				"node_ids": []string{"0"},
 				"id_only":  true,
@@ -342,8 +342,8 @@ func TestParity_ReadOperations(t *testing.T) {
 		// --- links (Tap.Links) ---
 		{
 			Name:    "links/node_1_id_only",
-			CLIArgs: []string{"links", "1", "--id-only"},
-			MCPTool: "links",
+			CLIArgs: []string{"node", "links", "1", "--id-only"},
+			MCPTool: "node_links",
 			MCPInput: map[string]any{
 				"node_ids": []string{"1"},
 				"id_only":  true,
@@ -354,8 +354,8 @@ func TestParity_ReadOperations(t *testing.T) {
 		// --- list with offset (Tap.List) ---
 		{
 			Name:    "list/offset_skips_results",
-			CLIArgs: []string{"list", "--id-only", "--offset", "1"},
-			MCPTool: "list",
+			CLIArgs: []string{"node", "list", "--id-only", "--offset", "1"},
+			MCPTool: "node_list",
 			MCPInput: map[string]any{
 				"id_only": true,
 				"offset":  1,
@@ -366,8 +366,8 @@ func TestParity_ReadOperations(t *testing.T) {
 		// --- tags with offset (Tap.Tags) ---
 		{
 			Name:    "tags/offset_skips_tag_list",
-			CLIArgs: []string{"tags", "--offset", "1"},
-			MCPTool: "tags",
+			CLIArgs: []string{"tag", "list", "--offset", "1"},
+			MCPTool: "tag_list",
 			MCPInput: map[string]any{
 				"offset": 1,
 				"limit":  -1,
@@ -382,8 +382,8 @@ func TestParity_ReadOperations(t *testing.T) {
 		},
 		{
 			Name:    "tags/offset_with_filter",
-			CLIArgs: []string{"tags", "--query", "test or overview", "--id-only", "--offset", "1"},
-			MCPTool: "tags",
+			CLIArgs: []string{"tag", "list", "--query", "test or overview", "--id-only", "--offset", "1"},
+			MCPTool: "tag_list",
 			MCPInput: map[string]any{
 				"query":   "test or overview",
 				"id_only": true,
@@ -395,8 +395,8 @@ func TestParity_ReadOperations(t *testing.T) {
 		// --- grep with offset (Tap.Grep) ---
 		{
 			Name:    "grep/offset_skips_results",
-			CLIArgs: []string{"grep", "node", "--id-only", "--ignore-case", "--offset", "1"},
-			MCPTool: "grep",
+			CLIArgs: []string{"node", "search", "node", "--id-only", "--ignore-case", "--offset", "1"},
+			MCPTool: "node_search",
 			MCPInput: map[string]any{
 				"query":       "node",
 				"id_only":     true,
@@ -409,8 +409,8 @@ func TestParity_ReadOperations(t *testing.T) {
 		// --- backlinks with offset (Tap.Backlinks) ---
 		{
 			Name:    "backlinks/offset_skips_results",
-			CLIArgs: []string{"backlinks", "0", "--id-only", "--offset", "1"},
-			MCPTool: "backlinks",
+			CLIArgs: []string{"node", "backlinks", "0", "--id-only", "--offset", "1"},
+			MCPTool: "node_backlinks",
 			MCPInput: map[string]any{
 				"node_ids": []string{"0"},
 				"id_only":  true,
@@ -429,8 +429,8 @@ func TestParity_ReadOperations(t *testing.T) {
 		// --- links with offset (Tap.Links) ---
 		{
 			Name:    "links/offset_skips_results",
-			CLIArgs: []string{"links", "1", "--id-only", "--offset", "1"},
-			MCPTool: "links",
+			CLIArgs: []string{"node", "links", "1", "--id-only", "--offset", "1"},
+			MCPTool: "node_links",
 			MCPInput: map[string]any{
 				"node_ids": []string{"1"},
 				"id_only":  true,
@@ -448,13 +448,13 @@ func TestParity_ReadOperations(t *testing.T) {
 
 		// --- keg_settings (Tap.KegSettings) ---
 		//
-		// CLI `tap keg settings` and MCP `keg_settings` both call Tap.KegSettings. However, MCP
+		// CLI `tap keg settings read` and MCP `keg_settings` both call Tap.KegSettings. However, MCP
 		// uses Minimal=true by default, returning only core fields. This test
 		// verifies both contain the keg title.
 		{
 			Name:     "keg_settings/both_contain_keg_title",
-			CLIArgs:  []string{"keg", "settings"},
-			MCPTool:  "keg_settings",
+			CLIArgs:  []string{"keg", "settings", "read"},
+			MCPTool:  "keg_settings_read",
 			MCPInput: map[string]any{},
 			Compare: func(t *testing.T, cliOut, mcpOut string) {
 				t.Helper()
@@ -465,11 +465,11 @@ func TestParity_ReadOperations(t *testing.T) {
 
 		// --- info (Tap.Info) ---
 		//
-		// CLI `tap info` and MCP `info` both call Tap.Info.
+		// CLI `tap keg info` and MCP `info` both call Tap.Info.
 		{
 			Name:     "info/both_show_diagnostics",
-			CLIArgs:  []string{"info"},
-			MCPTool:  "info",
+			CLIArgs:  []string{"keg", "info"},
+			MCPTool:  "keg_info",
 			MCPInput: map[string]any{},
 			Compare: func(t *testing.T, cliOut, mcpOut string) {
 				t.Helper()
@@ -491,8 +491,8 @@ func TestParity_ReadOperations(t *testing.T) {
 		// --- stats (Tap.Stats) ---
 		{
 			Name:    "stats/node_0",
-			CLIArgs: []string{"stats", "0"},
-			MCPTool: "stats",
+			CLIArgs: []string{"node", "stats", "0"},
+			MCPTool: "node_stats",
 			MCPInput: map[string]any{
 				"node_id": "0",
 			},
@@ -513,8 +513,8 @@ func TestParity_ReadOperations(t *testing.T) {
 		// result on both surfaces.
 		{
 			Name:    "backlinks/multi_id_merged",
-			CLIArgs: []string{"backlinks", "0", "1", "--id-only"},
-			MCPTool: "backlinks",
+			CLIArgs: []string{"node", "backlinks", "0", "1", "--id-only"},
+			MCPTool: "node_backlinks",
 			MCPInput: map[string]any{
 				"node_ids": []string{"0", "1"},
 				"id_only":  true,
@@ -525,8 +525,8 @@ func TestParity_ReadOperations(t *testing.T) {
 		// --- multi-ID links (Tap.Links) ---
 		{
 			Name:    "links/multi_id_merged",
-			CLIArgs: []string{"links", "0", "1", "--id-only"},
-			MCPTool: "links",
+			CLIArgs: []string{"node", "links", "0", "1", "--id-only"},
+			MCPTool: "node_links",
 			MCPInput: map[string]any{
 				"node_ids": []string{"0", "1"},
 				"id_only":  true,
@@ -540,8 +540,8 @@ func TestParity_ReadOperations(t *testing.T) {
 		// resolves to 3 for MCP) should produce the same output.
 		{
 			Name:    "grep/max_lines_default_parity",
-			CLIArgs: []string{"grep", "node", "--max-lines", "3", "--ignore-case"},
-			MCPTool: "grep",
+			CLIArgs: []string{"node", "search", "node", "--max-lines", "3", "--ignore-case"},
+			MCPTool: "node_search",
 			MCPInput: map[string]any{
 				"query":       "node",
 				"ignore_case": true,

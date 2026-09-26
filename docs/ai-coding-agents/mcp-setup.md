@@ -19,7 +19,7 @@ for generic MCP hosts that do not have a native Tapper plugin.
 If an installed Tapper MCP connection goes stale, do not kill host-owned
 processes. Claude users should try `/reload-plugins` and then a new session;
 Codex users should start a new thread and then restart the app if needed.
-Verify recovery with Tapper `info` and `orient`. Re-running `tap integrate` is
+Verify recovery with Tapper `keg_info` and `orient`. Re-running `tap integrate` is
 for installation or upgrades, not connection reset.
 
 ## Quick Start
@@ -75,6 +75,9 @@ With a default keg:
 
 ## Available Tools
 
+Tool names are `<resource>_<verb>` (`node_read`, `flight_list`,
+`agent_edit`), and each matches the CLI command `tap <resource> <verb>`.
+
 The MCP server exposes a shared agent surface rather than every machine-local
 CLI capability. Exact tool availability follows the installed Tapper version
 and the active flight; inspect your MCP host's tool list for the live surface.
@@ -92,57 +95,57 @@ explicitly configured root failed to initialize.
 
 | Tool | Description |
 | --- | --- |
-| `cat` | Read content of one or more nodes |
-| `list` | List nodes with optional query filtering |
-| `grep` | Full-text search across node content |
-| `tags` | List tags or find nodes by query |
-| `backlinks` | Find nodes linking to a node |
-| `links` | List outgoing links from a node |
-| `info` | Show concise diagnostics for the resolved keg |
-| `keg_settings` | Read targeted minimal config for one or more selected KEGs; `minimal=false` reads one complete config |
-| `stats` | Show node statistics |
+| `node_read` | Read content of one or more nodes |
+| `node_list` | List nodes with optional query filtering |
+| `node_search` | Full-text search across node content |
+| `tag_list` | List tags or find nodes by query |
+| `node_backlinks` | Find nodes linking to a node |
+| `node_links` | List outgoing links from a node |
+| `keg_info` | Show concise diagnostics for the resolved keg |
+| `keg_settings_read` | Read targeted minimal config for one or more selected KEGs; `minimal=false` reads one complete config |
+| `node_stats` | Show node statistics |
 
 ### Write
 
 | Tool | Description |
 | --- | --- |
-| `create` | Atomically create 1–100 nodes from `nodes[]`, each a markdown `content` document plus an optional YAML `meta` document; unique keys support forward/backward `{{node:key}}` content references |
-| `edit` | Read with `cat`, then atomically replace `content`, `meta`, or both for 1–100 nodes from `nodes[]`; every item requires that node's `expected_hash`, and one hash covers content and metadata together |
-| `remove` | Read with `cat`, then atomically delete 1–100 `nodes[]`; every item requires its own `expected_hash` |
-| `move` | Read with `cat`, then move a node using its required `expected_hash` |
-| `keg_settings_edit` | Read the full document with `keg_settings`, then replace it using its required `expected_hash`; requires admin flight authority and editor/admin KEG access |
+| `node_create` | Atomically create 1–100 nodes from `nodes[]`, each a markdown `content` document plus an optional YAML `meta` document; unique keys support forward/backward `{{node:key}}` content references |
+| `node_edit` | Read with `node_read`, then atomically replace `content`, `meta`, or both for 1–100 nodes from `nodes[]`; every item requires that node's `expected_hash`, and one hash covers content and metadata together |
+| `node_delete` | Read with `node_read`, then atomically delete 1–100 `nodes[]`; every item requires its own `expected_hash` |
+| `node_move` | Read with `node_read`, then move a node using its required `expected_hash` |
+| `keg_settings_edit` | Read the full document with `keg_settings_read`, then replace it using its required `expected_hash`; requires admin flight authority and editor/admin KEG access |
 
 Mutation inputs are array-only, every batch tool takes its items under `nodes`,
 and each array contains 1–100 items:
 
 ```json
-// create
+// node_create
 {"nodes":[{"key":"plan","content":"# Plan\n\nSee [task](../{{node:task}})\n","meta":"type: plan\n"}]}
-// edit — content only, metadata only, or both under one hash
+// node_edit — content only, metadata only, or both under one hash
 {"nodes":[{"node_id":"12","content":"# Revised\n","expected_hash":"..."}]}
 {"nodes":[{"node_id":"12","meta":"type: plan\n","expected_hash":"..."}]}
 {"nodes":[{"node_id":"12","content":"# Revised\n","meta":"type: plan\n","expected_hash":"..."}]}
-// remove
+// node_delete
 {"nodes":[{"node_id":"12","expected_hash":"..."},{"node_id":"13","expected_hash":"..."}]}
-// node_snapshot
+// snapshot_create
 {"nodes":[{"node_id":"12","message":"reviewed"}]}
 ```
 
-Read metadata with `cat` and `meta_only`; take snapshots with `node_snapshot`
+Read metadata with `node_read` and `meta_only`; take snapshots with `snapshot_create`
 before a large or destructive edit.
 Mutation results preserve request order and report `node_id`, the resulting
 hash or snapshot revision, and advisory schema validation details when
 applicable. A failed batch returns no partial results and commits none of its
 changes.
 
-Reads are self-contained: each `cat` row in `structuredContent.nodes[]` pairs
+Reads are self-contained: each `node_read` row in `structuredContent.nodes[]` pairs
 `node_id` and `hash` with that node's `content` and `meta`, matching the fields
-`edit` accepts, so a read result can be modified and sent back without parsing
+`node_edit` accepts, so a read result can be modified and sent back without parsing
 the human-readable rendering.
 
-Every protected mutation names the read that supplies its token: `cat` for
-node edits, metadata updates, moves, and removals; `keg_settings` for settings;
-`schema_read` for schema edits/deletes; and `flight_show` for flight
+Every protected mutation names the read that supplies its token: `node_read` for
+node edits, metadata updates, moves, and removals; `keg_settings_read` for settings;
+`schema_read` for schema edits/deletes; and `flight_read` for flight
 edits/deletes. A conflict performs no operation and returns the current hash
 and, when practical, current content. Merge or refetch, then retry with that
 current hash.
@@ -151,31 +154,31 @@ current hash.
 
 | Tool | Description |
 | --- | --- |
-| `index`, `list_indexes`, `index_cat` | Rebuild or inspect indexes |
-| `doctor` | Check only the selected keg's health (not local Tapper configuration) |
-| `node_history`, `node_snapshot`, `node_snapshot_view`, `node_restore` | Manage node snapshots; `node_snapshot` accepts 1–100 nodes atomically |
+| `index_rebuild`, `index_list`, `index_read` | Rebuild or inspect indexes |
+| `keg_check` | Check only the selected keg's health (not local Tapper configuration) |
+| `snapshot_list`, `snapshot_create`, `snapshot_read`, `snapshot_restore` | Manage node snapshots; `snapshot_create` accepts 1–100 nodes atomically |
 | `lock_acquire`, `lock_release`, `lock_status`, `lock_force_release` | Coordinate cross-process node locks |
 
 ### Files And Images
 
 | Tool | Description |
 | --- | --- |
-| `list_files`, `upload_file`, `download_file`, `delete_file` | Manage file attachments |
-| `list_images`, `upload_image`, `download_image`, `delete_image` | Manage image attachments |
+| `file_list`, `file_upload`, `file_download`, `file_delete` | Manage file attachments |
+| `image_list`, `image_upload`, `image_download`, `image_delete` | Manage image attachments |
 
 The transfer tools come in two variants, chosen by whether the server shares a
 filesystem with the agent driving it.
 
 Local `tap mcp` runs on your machine, so a path names the same file on both
-sides. It publishes the full round-trip: `upload_file` and `upload_image` accept
+sides. It publishes the full round-trip: `file_upload` and `image_upload` accept
 `source_path` and `file:` URIs alongside `data_base64`, data URIs, and embedded
-resources; `download_file` writes to `dest_path`; and `download_image` takes an
+resources; `file_download` writes to `dest_path`; and `image_download` takes an
 optional `dest_path`, returning the image as MCP content when you omit it.
 
 Hosted `/mcp` shares no filesystem with the agent, so a path there would name
 the server's own disk. Its uploads accept only embedded resources, data URIs,
-and base64 bytes; `download_image` always returns MCP image content; and
-`download_file` is not registered. Those fields are absent from the published
+and base64 bytes; `image_download` always returns MCP image content; and
+`file_download` is not registered. Those fields are absent from the published
 schema rather than refused at call time, so a hosted agent never has the
 vocabulary to ask.
 
@@ -185,12 +188,28 @@ vocabulary to ask.
 | --- | --- |
 | `keg_list` | List canonical KEGs, effective roles, and winning granting flights for the live pinned-root graph by default or exactly one supplied `flight` |
 | `keg_search` | Search all identity-accessible KEG refs, titles, and summaries, including KEGs outside the flight graph; results grant no operational access |
-| `auth_info` | Return structured credential-safe `identities[]` and exact pinned-root-context `kegs[]` |
+| `session_info` | Return structured credential-safe `identities[]` and exact pinned-root-context `kegs[]` |
+| `namespace_list` | List the namespaces you belong to, with your role |
+| `namespace_search` | Search the people and org namespaces visible on the Hub; discovery only |
 
 Each identity includes only its hub locator, user ID, username, display name,
 default namespace, and namespace names. Tokens, email, scopes, cookies, expiry,
 and session data are never returned. Local MCP reports every configured
 authenticated Hub identity; hosted MCP reports its single authenticated user.
+
+### Agents
+
+| Tool | Description |
+| --- | --- |
+| `agent_list` | List Hub agents in one namespace, or every namespace you belong to |
+| `agent_read` | Read one agent: model, instructions, tools (groups and names) and `effective_tools` |
+| `agent_create` | Create an agent in a namespace you own or administer |
+| `agent_edit` | Change an agent; omitted fields keep their values |
+| `agent_delete` | Delete an agent |
+
+Agent writes need namespace owner or admin. `agent_create` and `agent_edit`
+accept `flight` (`@ns/+slug`): the agent's memory flight, which must be one you
+can read; an agent with no flight has no KEG access.
 
 ### Automation And Setup
 
@@ -198,14 +217,14 @@ authenticated Hub identity; hosted MCP reports its single authenticated user.
 | --- | --- |
 | `orient` | Return a read-only view of current instructions, selectable flights, and KEGs |
 | `session_refresh` | Retry activation after a broken explicit selection is repaired; zero arguments and no authority replacement once active |
-| `list_flights`, `flight_show` | Discover and inspect visible flights |
-| `flight_create`, `flight_edit`, `flight_delete` | Manage Hub-backed flights when the active flight grants `manage_flights` and the identity owns/administers the target namespace; edits/deletes require the hash from `flight_show` |
+| `flight_list`, `flight_read` | Discover and inspect visible flights |
+| `flight_create`, `flight_edit`, `flight_delete` | Manage Hub-backed flights when the session agent holds the tool and the identity owns/administers the target namespace; edits/deletes require the hash from `flight_read` |
 
 MCP does not expose Tapper configuration, config templates, repository setup,
 archive import/export, raw auth status, license text, keg visibility, or
 namespace administration. Those remain external CLI, configuration, or Hub UI
-operations. To put a node's content in another KEG, read it with `cat` and
-`create` it there.
+operations. To put a node's content in another KEG, read it with `node_read` and
+`node_create` it there.
 
 The five batch mutation modes above intentionally use array-only inputs. Empty
 batches, batches over 100 items, duplicate keys/IDs, unknown create
@@ -219,8 +238,8 @@ Both transports also publish `tapper://orient` and two resource templates:
 - `tapper://node/{node_id}{?keg}` returns a node's current markdown.
 - `tapper://node/{node_id}/attachments/{kind}/{name}{?keg}` returns the
   original bytes of an attachment as a blob, with `kind` one of `image`,
-  `file`, or `video` and `name` percent-encoded. `list_images`, `list_files`,
-  `upload_image`, and `upload_file` return these URIs as `resource_link`
+  `file`, or `video` and `name` percent-encoded. `image_list`, `file_list`,
+  `image_upload`, and `file_upload` return these URIs as `resource_link`
   content. Reads are capped at 100 MiB.
 
 Either template takes `?keg=` with a URL-escaped keg target to override the
@@ -268,7 +287,7 @@ tap mcp --help
 ### No Flight Configured
 
 The server connects with identity-authorized full access. Inspect the available
-flights through `list_flights` and `flight_show`, then configure a
+flights through `flight_list` and `flight_read`, then configure a
 least-privilege project flight or start the MCP server with an explicit flight:
 
 ```bash

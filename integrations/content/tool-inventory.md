@@ -5,13 +5,13 @@ When the connection starts without a flight, omission uses normal
 identity-authorized full access and an explicit value selects any listed real
 flight exactly. With a real pinned root, omission selects that root and an
 explicit value selects the root or an accessible flattened descendant.
-Authentication,
-`session_refresh`, `list_flights`,
-`flight_show`, and `keg_search` do not accept `flight`. MCP resources use root authority
-while rendering graph-wide discovery.
+`session_info`, `session_refresh`, `flight_list`, `flight_read`,
+`flight_search`, `keg_search`, `namespace_list`, `namespace_search`,
+`agent_list`, and `agent_read` do not accept `flight`. MCP resources use root
+authority while rendering graph-wide discovery.
 
-`flight` is an **operational** parameter, not a discovery-only one: `list`,
-`cat`, `create`, `edit`, and `remove` all take it and all honour it. Pass the
+`flight` is an **operational** parameter, not a discovery-only one: `node_list`,
+`node_read`, `node_create`, `node_edit`, and `node_delete` all take it and all honour it. Pass the
 **exact canonical name** orientation printed under "Selectable flights",
 namespace sigil and `+` included:
 
@@ -38,8 +38,8 @@ it.
 | `mcp__tapper__orient` | Read-only view of no-flight identity authority or the pinned real root, an optional exact real-flight selection, revision, available KEGs, and current instructions. |
 | `mcp__tapper__session_refresh` | Retry activation only after a broken configured root is repaired. It never replaces active no-flight or real-flight authority; narrowing no-flight access requires a new connection. |
 | `mcp__tapper__keg_list`, `mcp__tapper__keg_create` | Discover every identity-accessible KEG at its real role with no flight, or the effective projection of a selected real flight; no-flight creation uses namespace membership while real-flight creation also requires `manage_kegs`. |
-| `mcp__tapper__flight_create`, `mcp__tapper__flight_edit`, `mcp__tapper__flight_delete` | Manage Hub flights when the selected flight grants `manage_flights`; edits and deletes require the manifest hash returned by `flight_show`, and normal Hub ACLs still apply. |
-| `mcp__tapper__list_flights`, `mcp__tapper__flight_show` | Identity-readable discovery; flight_show returns a permission-filtered declared manifest, including explicit empty collections/instructions and hash. Neither tool activates or selects authority. |
+| `mcp__tapper__flight_create`, `mcp__tapper__flight_edit`, `mcp__tapper__flight_delete` | Manage Hub flights when the selected flight grants `manage_flights`; edits and deletes require the manifest hash returned by `flight_read`, and normal Hub ACLs still apply. |
+| `mcp__tapper__flight_list`, `mcp__tapper__flight_read` | Identity-readable discovery; flight_read returns a permission-filtered declared manifest, including explicit empty collections/instructions and hash. Neither tool activates or selects authority. |
 
 `keg_list` returns `@namespace/keg<TAB>role<TAB>@namespace/+flight` text
 (the final field is empty for no-flight authority) and
@@ -55,23 +55,23 @@ accessible transitive descendants.
 
 | Tool                                                  | Purpose                                                                                                                                                  |
 | ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `mcp__tapper__grep`                                   | Regex search over node content. Supports `ignore_case`, `limit`, `max_lines`, and `id_only`.                                                             |
-| `mcp__tapper__tags`                                   | List tags or filter nodes by a boolean expression over tags, attributes, and dot-prefix stats fields (for example `tapper and .created>2026-01-01`).     |
-| `mcp__tapper__list`                                   | List nodes in a keg with optional filters.                                                                                                               |
-| `mcp__tapper__cat`                                    | Read one or more nodes. Each structured row pairs `node_id` and `hash` with that node's `content` and `meta`, so a read feeds straight into `edit`. Supports `meta_only`, `content_only`, `stats_only`, and `query` expression selection as an alternative to explicit node IDs. |
-| `mcp__tapper__links`                                  | Outbound links from a node.                                                                                                                              |
-| `mcp__tapper__backlinks`                              | Inbound links to a node.                                                                                                                                 |
-| `mcp__tapper__list_indexes`, `mcp__tapper__index_cat` | Read generated index files (tag index, changelog, and others).                                                                                           |
-| `mcp__tapper__keg_settings`                           | Read targeted title, description, updated metadata, and instructions for one or more selected KEGs; batches accept up to 100 canonical references.          |
+| `mcp__tapper__node_search`                                   | Regex search over node content. Supports `ignore_case`, `limit`, `max_lines`, and `id_only`.                                                             |
+| `mcp__tapper__tag_list`                                   | List tags or filter nodes by a boolean expression over tags, attributes, and dot-prefix stats fields (for example `tapper and .created>2026-01-01`).     |
+| `mcp__tapper__node_list`                                   | List nodes in a keg with optional filters.                                                                                                               |
+| `mcp__tapper__node_read`                                    | Read one or more nodes. Each structured row pairs `node_id` and `hash` with that node's `content` and `meta`, so a read feeds straight into `node_edit`. Supports `meta_only`, `content_only`, `stats_only`, and `query` expression selection as an alternative to explicit node IDs. |
+| `mcp__tapper__node_links`                                  | Outbound links from a node.                                                                                                                              |
+| `mcp__tapper__node_backlinks`                              | Inbound links to a node.                                                                                                                                 |
+| `mcp__tapper__index_list`, `mcp__tapper__index_read` | Read generated index files (tag index, changelog, and others).                                                                                           |
+| `mcp__tapper__keg_settings_read`                           | Read targeted title, description, updated metadata, and instructions for one or more selected KEGs; batches accept up to 100 canonical references.          |
 | `mcp__tapper__keg_search`                             | Case-insensitive literal search across identity-accessible canonical refs, titles, and descriptions. Returns at most 50 rows and never grants operational access. |
 
-Pass `id_only: true` to `grep` and `tags` when you only need IDs for follow-up
+Pass `id_only: true` to `node_search` and `tag_list` when you only need IDs for follow-up
 reads — it keeps token consumption bounded on large result sets.
 
 ## Query expressions
 
-`mcp__tapper__list` (via `query`), `mcp__tapper__tags` (via `query`), and
-`mcp__tapper__cat` (via `query`) accept a boolean expression language that
+`mcp__tapper__node_list` (via `query`), `mcp__tapper__tag_list` (via `query`), and
+`mcp__tapper__node_read` (via `query`) accept a boolean expression language that
 filters nodes. Three predicate kinds combine with the standard boolean
 operators:
 
@@ -98,15 +98,15 @@ code; the index does the work in O(matches) rather than O(total).
 
 | Tool                                                                           | Purpose                                                                                                               |
 | ------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------- |
-| `mcp__tapper__create`                                                          | Atomically create 1–100 nodes. Each is a markdown `content` document plus an optional YAML `meta` document; the title is the content's H1. Nodes in one batch reference each other with `{{node:KEY}}`. |
-| `mcp__tapper__edit`                                                            | Call `cat`, then atomically replace `content`, `meta`, or both for 1–100 `nodes[]`; every item requires that node's returned hash, and one hash covers content and metadata together. |
-| `mcp__tapper__move`                                                            | Call `cat`, then relocate a node using its required returned hash.                                                    |
-| `mcp__tapper__remove`                                                          | Call `cat`, then atomically remove 1–100 `nodes[]`, each carrying its own required returned hash.                     |
-| `mcp__tapper__delete_file`, `mcp__tapper__delete_image`                        | Destructive attachment operations — see the Snapshots section below before calling.                                 |
-| `mcp__tapper__node_snapshot`                                                   | Capture a revision before a destructive or large edit.                                                                |
-| `mcp__tapper__node_history`, `mcp__tapper__node_snapshot_view`                 | Inspect read-only prior revisions.                                                                                    |
-| `mcp__tapper__node_restore`                                                    | Recover the current node from a prior revision.                                                                       |
-| `mcp__tapper__keg_settings_edit` | Call `keg_settings` with `minimal=false`, then replace the complete YAML `data` using its `hash` as `expected_hash`. Requires identity admin and effective flight admin authority when a flight is selected. |
+| `mcp__tapper__node_create`                                                          | Atomically create 1–100 nodes. Each is a markdown `content` document plus an optional YAML `meta` document; the title is the content's H1. Nodes in one batch reference each other with `{{node:KEY}}`. |
+| `mcp__tapper__node_edit`                                                            | Call `node_read`, then atomically replace `content`, `meta`, or both for 1–100 `nodes[]`; every item requires that node's returned hash, and one hash covers content and metadata together. |
+| `mcp__tapper__node_move`                                                            | Call `node_read`, then relocate a node using its required returned hash.                                                    |
+| `mcp__tapper__node_delete`                                                          | Call `node_read`, then atomically remove 1–100 `nodes[]`, each carrying its own required returned hash.                     |
+| `mcp__tapper__file_delete`, `mcp__tapper__image_delete`                        | Destructive attachment operations — see the Snapshots section below before calling.                                 |
+| `mcp__tapper__snapshot_create`                                                   | Capture a revision before a destructive or large edit.                                                                |
+| `mcp__tapper__snapshot_list`, `mcp__tapper__snapshot_read`                 | Inspect read-only prior revisions.                                                                                    |
+| `mcp__tapper__snapshot_restore`                                                    | Recover the current node from a prior revision.                                                                       |
+| `mcp__tapper__keg_settings_edit` | Call `keg_settings_read` with `minimal=false`, then replace the complete YAML `data` using its `hash` as `expected_hash`. Requires identity admin and effective flight admin authority when a flight is selected. |
 
 Schema edits and deletes similarly require the hash from `schema_read`. Every
 conflict performs no operation: merge the change into returned current content
@@ -137,20 +137,43 @@ Use `schema_list` to see the names a keg accepts, then:
 {"nodes": [{"key": "a1", "content": "# Title\n\nBody", "meta": "type: document\n", "schema": "document"}]}
 ```
 
-`edit` takes the same two documents per item plus that node's current hash from
-`cat`, and either document may be omitted to leave it untouched:
+`node_edit` takes the same two documents per item plus that node's current hash from
+`node_read`, and either document may be omitted to leave it untouched:
 
 ```json
 {"nodes": [{"node_id": "12", "content": "# Revised\n\nBody", "expected_hash": "HASH_FROM_CAT"}]}
 ```
 
-`remove` carries only ids and hashes:
+`node_delete` carries only ids and hashes:
 
 ```json
 {"nodes": [{"node_id": "12", "expected_hash": "HASH_FROM_CAT"}]}
 ```
 
+## Agents
+
+Hub agents are a namespace-owned model, description, markdown instructions, and
+tool allowlist. A flight names the agents that run on it. Members of a
+namespace read its agents; owners and admins change them. Agent refs are
+`@namespace/name`.
+
+| Tool | Purpose |
+| --- | --- |
+| `mcp__tapper__agent_list`, `mcp__tapper__agent_read` | Identity-readable agents in one namespace or every namespace you belong to; `agent_read` adds instructions and `effective_tools`. Neither accepts `flight`. |
+| `mcp__tapper__agent_create`, `mcp__tapper__agent_edit`, `mcp__tapper__agent_delete` | Manage agents in a namespace you own or administer. A selected real flight must also grant `manage_flights`. `agent_edit` keeps omitted fields; an edit applies to open sessions on their next call. |
+
+An agent's `tools` hold tool group ids (`keg:read`, `keg:write`, `keg:admin`,
+`flight:read`, `flight:admin`, `agent:read`, `agent:admin`, `discover`) and
+single tool names; empty means every tool. `orient`, `guide`, `session_info`,
+and `session_refresh` are always available.
+
 ## On-demand discovery and guidance
+
+- `mcp__tapper__namespace_list`: the namespaces you belong to, with your role.
+- `mcp__tapper__namespace_search`: people and org namespaces visible on the
+  Hub, not only your own, matched by name or display name; empty query browses.
+  Discovery only: a match grants nothing. Follow up with `keg_search` and
+  `flight_search`.
 
 - `mcp__tapper__flight_search`: literal reference/title/description search over
   readable flights; at most 50 deterministic metadata results, with a truncation
@@ -167,12 +190,13 @@ Text content is JSON rendered from the same public object as structuredContent.
 The message field preserves prose, diagnostics, and legacy formatted output.
 Images remain in MCP image content blocks alongside JSON metadata.
 
-For list, grep, tags, links, and backlinks, follow next_offset until null,
+For node_list, node_search, tag_list, node_links, and node_backlinks, follow
+next_offset until null,
 keeping the other arguments unchanged. has_more=null means another page is
 uncertain; a final nonempty page can be followed by an empty page. Pages are
 live, not a stable snapshot; reverse reverses each page. limit defaults to 50
-(0 means default; -1 unlimited). grep max_lines defaults to 3 per node; -1
-returns all matching lines. Use cat for complete bodies.
+(0 means default; -1 unlimited). node_search max_lines defaults to 3 per node; -1
+returns all matching lines. Use node_read for complete bodies.
 
 keg_search returns warnings, partial, and truncated. flight_search returns
 truncated. Refine a truncated metadata query; neither search has a cursor.
@@ -187,24 +211,24 @@ does not activate it or change the connection's pinned root.
 
 | Tool | Purpose |
 | --- | --- |
-| `mcp__tapper__auth_info` | Credential-free identity and default namespace. Namespace names do not assert administrative membership. |
+| `mcp__tapper__session_info` | Credential-free identity and default namespace. Namespace names do not assert administrative membership. |
 | `mcp__tapper__schema_list`, `mcp__tapper__schema_read` | Schema names and YAML data plus hash. |
 | `mcp__tapper__schema_create`, `mcp__tapper__schema_edit`, `mcp__tapper__schema_delete` | Schema lifecycle; requires admin, with current hashes for edit/delete. |
-| `mcp__tapper__validate` | Schema validation findings. |
-| `mcp__tapper__index` | Index rebuild; requires editor. |
-| `mcp__tapper__info`, `mcp__tapper__stats`, `mcp__tapper__doctor` | KEG diagnostics, node statistics, health findings. |
-| `mcp__tapper__lock_acquire`, `mcp__tapper__lock_status`, `mcp__tapper__lock_release`, `mcp__tapper__lock_force_release` | Advisory locks; acquisition returns a private token for release. edit does not accept a lock token. |
-| `mcp__tapper__list_files`, `mcp__tapper__list_images` | Stored attachment names. |
-| `mcp__tapper__upload_file`, `mcp__tapper__upload_image` | Inline base64/data URI/embedded resource uploads; local stdio also accepts source_path. Link the returned stored filename. |
-| `mcp__tapper__download_image` | Image content block and metadata; local stdio optionally accepts dest_path. |
-| `mcp__tapper__download_file` | Local stdio only: writes an explicit destination path. Absent on hosted MCP. |
+| `mcp__tapper__schema_validate` | Schema validation findings. |
+| `mcp__tapper__index_rebuild` | Index rebuild; requires editor. |
+| `mcp__tapper__keg_info`, `mcp__tapper__node_stats`, `mcp__tapper__keg_check` | KEG diagnostics, node statistics, health findings. |
+| `mcp__tapper__lock_acquire`, `mcp__tapper__lock_status`, `mcp__tapper__lock_release`, `mcp__tapper__lock_force_release` | Advisory locks; acquisition returns a private token for release. node_edit does not accept a lock token. |
+| `mcp__tapper__file_list`, `mcp__tapper__image_list` | Stored attachment names. |
+| `mcp__tapper__file_upload`, `mcp__tapper__image_upload` | Inline base64/data URI/embedded resource uploads; local stdio also accepts source_path. Link the returned stored filename. |
+| `mcp__tapper__image_download` | Image content block and metadata; local stdio optionally accepts dest_path. |
+| `mcp__tapper__file_download` | Local stdio only: writes an explicit destination path. Absent on hosted MCP. |
 
 Configuration, namespace administration, license, archive, and video tools are
 not registered here. Features present elsewhere in Tapper/Hub are not thereby
 callable over MCP. Use tools/list for this connection's available inventory.
 
 Flight cover inputs accept role strings with default depth 2. Custom depth is
-readable in flight_show but cannot be set with flight_create/flight_edit. Omit
+readable in flight_read but cannot be set with flight_create/flight_edit. Omit
 cover on partial edits to preserve existing entries and depths.
 
 
@@ -218,6 +242,6 @@ No `expected_hash` is accepted: the settings hash does not cover a whole KEG.
 Success returns `keg` and `deleted: true` in matching text and structured JSON.
 Missing KEGs return the normal not-found error.
 
-`delete_file` and `delete_image` document `filename` as the attachment name.
+`file_delete` and `image_delete` document `filename` as the attachment name.
 Legacy `name` is accepted. One nonempty name is required; when both fields are
 supplied they must match exactly, or the call is rejected before mutation.

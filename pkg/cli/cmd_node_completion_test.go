@@ -54,19 +54,19 @@ func TestNodeCompletion_Cat(t *testing.T) {
 	runNodeCompletionCases(t, []nodeCompletionCase{
 		{
 			name:    "lists_all_ids",
-			words:   []string{"cat", "--keg", "personal", ""},
+			words:   []string{"node", "read", "--keg", "personal", ""},
 			wantAll: true,
 		},
 		{
 			name:        "prefix_filter",
-			words:       []string{"cat", "--keg", "personal", "1"},
+			words:       []string{"node", "read", "--keg", "personal", "1"},
 			wantContain: []string{"1"},
 			wantAbsent:  []string{"0", "2", "3"},
 		},
 		{
 			// cat has unlimited args: still offers completions after first ID
 			name:        "offers_completions_after_first_arg",
-			words:       []string{"cat", "--keg", "personal", "1", ""},
+			words:       []string{"node", "read", "--keg", "personal", "1", ""},
 			wantContain: []string{"0", "2", "3"},
 		},
 	})
@@ -77,13 +77,13 @@ func TestNodeCompletion_Edit(t *testing.T) {
 	runNodeCompletionCases(t, []nodeCompletionCase{
 		{
 			name:    "lists_all_ids",
-			words:   []string{"edit", "--keg", "personal", ""},
+			words:   []string{"node", "edit", "--keg", "personal", ""},
 			wantAll: true,
 		},
 		{
 			// edit takes exactly 1 arg: no completions after first
 			name:      "stops_after_one_arg",
-			words:     []string{"edit", "--keg", "personal", "1", ""},
+			words:     []string{"node", "edit", "--keg", "personal", "1", ""},
 			wantEmpty: true,
 		},
 	})
@@ -94,13 +94,13 @@ func TestNodeCompletion_Watch(t *testing.T) {
 	runNodeCompletionCases(t, []nodeCompletionCase{
 		{
 			name:    "lists_all_ids",
-			words:   []string{"watch", "--keg", "personal", ""},
+			words:   []string{"node", "watch", "--keg", "personal", ""},
 			wantAll: true,
 		},
 		{
 			// watch takes exactly 1 arg: no completions after first
 			name:      "stops_after_one_arg",
-			words:     []string{"watch", "--keg", "personal", "1", ""},
+			words:     []string{"node", "watch", "--keg", "personal", "1", ""},
 			wantEmpty: true,
 		},
 	})
@@ -111,12 +111,12 @@ func TestNodeCompletion_Backlinks(t *testing.T) {
 	runNodeCompletionCases(t, []nodeCompletionCase{
 		{
 			name:    "lists_all_ids",
-			words:   []string{"backlinks", "--keg", "personal", ""},
+			words:   []string{"node", "backlinks", "--keg", "personal", ""},
 			wantAll: true,
 		},
 		{
 			name:    "continues_after_one_arg",
-			words:   []string{"backlinks", "--keg", "personal", "1", ""},
+			words:   []string{"node", "backlinks", "--keg", "personal", "1", ""},
 			wantAll: true,
 		},
 	})
@@ -127,12 +127,12 @@ func TestNodeCompletion_Links(t *testing.T) {
 	runNodeCompletionCases(t, []nodeCompletionCase{
 		{
 			name:    "lists_all_ids",
-			words:   []string{"links", "--keg", "personal", ""},
+			words:   []string{"node", "links", "--keg", "personal", ""},
 			wantAll: true,
 		},
 		{
 			name:    "continues_after_one_arg",
-			words:   []string{"links", "--keg", "personal", "1", ""},
+			words:   []string{"node", "links", "--keg", "personal", "1", ""},
 			wantAll: true,
 		},
 	})
@@ -143,12 +143,12 @@ func TestNodeCompletion_Meta(t *testing.T) {
 	runNodeCompletionCases(t, []nodeCompletionCase{
 		{
 			name:    "lists_all_ids",
-			words:   []string{"meta", "--keg", "personal", ""},
+			words:   []string{"node", "meta", "--keg", "personal", ""},
 			wantAll: true,
 		},
 		{
 			name:      "stops_after_one_arg",
-			words:     []string{"meta", "--keg", "personal", "1", ""},
+			words:     []string{"node", "meta", "--keg", "personal", "1", ""},
 			wantEmpty: true,
 		},
 	})
@@ -159,12 +159,12 @@ func TestNodeCompletion_Stats(t *testing.T) {
 	runNodeCompletionCases(t, []nodeCompletionCase{
 		{
 			name:    "lists_all_ids",
-			words:   []string{"stats", "--keg", "personal", ""},
+			words:   []string{"node", "stats", "--keg", "personal", ""},
 			wantAll: true,
 		},
 		{
 			name:      "stops_after_one_arg",
-			words:     []string{"stats", "--keg", "personal", "1", ""},
+			words:     []string{"node", "stats", "--keg", "personal", "1", ""},
 			wantEmpty: true,
 		},
 	})
@@ -175,13 +175,13 @@ func TestNodeCompletion_Rm(t *testing.T) {
 	runNodeCompletionCases(t, []nodeCompletionCase{
 		{
 			name:    "lists_all_ids",
-			words:   []string{"rm", "--keg", "personal", ""},
+			words:   []string{"node", "delete", "--keg", "personal", ""},
 			wantAll: true,
 		},
 		{
 			// rm accepts multiple IDs: still offers completions after first
 			name:        "offers_completions_after_first_arg",
-			words:       []string{"rm", "--keg", "personal", "1", ""},
+			words:       []string{"node", "delete", "--keg", "personal", "1", ""},
 			wantContain: []string{"0", "2", "3"},
 		},
 	})
@@ -192,18 +192,18 @@ func TestNodeCompletion_Mv(t *testing.T) {
 	runNodeCompletionCases(t, []nodeCompletionCase{
 		{
 			name:    "lists_all_ids_for_src",
-			words:   []string{"mv", "--keg", "personal", ""},
+			words:   []string{"node", "move", "--keg", "personal", ""},
 			wantAll: true,
 		},
 		{
 			name:        "lists_all_ids_for_dst",
-			words:       []string{"mv", "--keg", "personal", "1", ""},
+			words:       []string{"node", "move", "--keg", "personal", "1", ""},
 			wantContain: []string{"0", "2", "3"},
 		},
 		{
 			// mv takes exactly 2 args: no completions after second
 			name:      "stops_after_two_args",
-			words:     []string{"mv", "--keg", "personal", "1", "2", ""},
+			words:     []string{"node", "move", "--keg", "personal", "1", "2", ""},
 			wantEmpty: true,
 		},
 	})
@@ -217,7 +217,7 @@ func TestNodeCompletion_RespectsKegFlag(t *testing.T) {
 
 	// Default keg for joe is "personal" (nodes 0-3).
 	// "work" keg has only node 0.
-	comp := NewCompletionProcess(t, false, 0, "cat", "--keg", "work", "").Run(sb.Context(), sb.Runtime())
+	comp := NewCompletionProcess(t, false, 0, "node", "read", "--keg", "work", "").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, comp.Err)
 
 	suggestions := parseCompletionSuggestions(string(comp.Stdout))
@@ -232,7 +232,7 @@ func TestNodeCompletion_EmptyKeg(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
 
-	comp := NewCompletionProcess(t, false, 0, "cat", "").Run(sb.Context(), sb.Runtime())
+	comp := NewCompletionProcess(t, false, 0, "node", "read", "").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, comp.Err)
 
 	suggestions := parseCompletionSuggestions(string(comp.Stdout))

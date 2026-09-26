@@ -20,13 +20,13 @@ func TestListCommand_IdOnlyOutputsOnlyIDs(t *testing.T) {
 	res = NewCreateProcess(t, false, "Two", "").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 
-	defaultRes := NewProcess(t, false, "list").Run(sb.Context(), sb.Runtime())
+	defaultRes := NewProcess(t, false, "node", "list").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, defaultRes.Err)
 	defaultOut := strings.TrimSpace(string(defaultRes.Stdout))
 	require.NotEmpty(t, defaultOut)
 	require.Contains(t, defaultOut, "\t", "default list output should include formatted columns")
 
-	idOnlyRes := NewProcess(t, false, "list", "--id-only").Run(sb.Context(), sb.Runtime())
+	idOnlyRes := NewProcess(t, false, "node", "list", "--id-only").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, idOnlyRes.Err)
 	idOnlyOut := strings.TrimSpace(string(idOnlyRes.Stdout))
 	require.NotEmpty(t, idOnlyOut)
@@ -51,14 +51,14 @@ func TestListCommand_ReverseOrdering(t *testing.T) {
 	res = NewCreateProcess(t, false, "Three", "").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 
-	normal := NewProcess(t, false, "list", "--id-only").Run(sb.Context(), sb.Runtime())
+	normal := NewProcess(t, false, "node", "list", "--id-only").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, normal.Err)
 	normalLines := strings.Split(strings.TrimSpace(string(normal.Stdout)), "\n")
 	require.GreaterOrEqual(t, len(normalLines), 4)
 	require.Equal(t, "0", strings.TrimSpace(normalLines[0]))
 	require.Equal(t, "3", strings.TrimSpace(normalLines[len(normalLines)-1]))
 
-	reversed := NewProcess(t, false, "list", "--id-only", "--reverse").Run(sb.Context(), sb.Runtime())
+	reversed := NewProcess(t, false, "node", "list", "--id-only", "--reverse").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, reversed.Err)
 	reversedLines := strings.Split(strings.TrimSpace(string(reversed.Stdout)), "\n")
 	require.GreaterOrEqual(t, len(reversedLines), 4)
@@ -94,7 +94,7 @@ func TestListCommand_StaleIndexDoesNotCrash(t *testing.T) {
 
 	// list should still succeed — the stale-index warning fires via the logger
 	// but the command output is unaffected.
-	listRes := NewProcess(t, false, "list", "--id-only").Run(sb.Context(), sb.Runtime())
+	listRes := NewProcess(t, false, "node", "list", "--id-only").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, listRes.Err)
 	listOut := strings.TrimSpace(string(listRes.Stdout))
 	require.NotEmpty(t, listOut)
@@ -122,7 +122,7 @@ func TestListCommand_SortUpdated(t *testing.T) {
 	require.NoError(t, res.Err)
 
 	// Sort by updated: oldest first, newest last.
-	listRes := NewProcess(t, false, "list", "--id-only", "--sort", "updated").Run(sb.Context(), sb.Runtime())
+	listRes := NewProcess(t, false, "node", "list", "--id-only", "--sort", "updated").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, listRes.Err)
 	lines := strings.Split(strings.TrimSpace(string(listRes.Stdout)), "\n")
 	trimmed := make([]string, len(lines))
@@ -151,7 +151,7 @@ func TestListCommand_SortUpdated_WithLimit(t *testing.T) {
 	require.NoError(t, res.Err)
 
 	// Limit to first 2 by updated order (oldest first).
-	listRes := NewProcess(t, false, "list", "--id-only", "--sort", "updated", "-n", "2").Run(sb.Context(), sb.Runtime())
+	listRes := NewProcess(t, false, "node", "list", "--id-only", "--sort", "updated", "-n", "2").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, listRes.Err)
 	lines := strings.Split(strings.TrimSpace(string(listRes.Stdout)), "\n")
 	require.Len(t, lines, 2)
@@ -175,7 +175,7 @@ func TestListCommand_FormatCreatedTimestamp(t *testing.T) {
 	require.NoError(t, res.Err)
 
 	// Use %c to show created timestamp
-	listRes := NewProcess(t, false, "list", "-f", "%i\t%c\t%t", "--sort", "created").Run(sb.Context(), sb.Runtime())
+	listRes := NewProcess(t, false, "node", "list", "-f", "%i\t%c\t%t", "--sort", "created").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, listRes.Err)
 	out := strings.TrimSpace(string(listRes.Stdout))
 	require.NotEmpty(t, out)
@@ -193,7 +193,7 @@ func TestListCommand_SortInvalid(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
 
-	listRes := NewProcess(t, false, "list", "--sort", "bogus").Run(sb.Context(), sb.Runtime())
+	listRes := NewProcess(t, false, "node", "list", "--sort", "bogus").Run(sb.Context(), sb.Runtime())
 	require.Error(t, listRes.Err)
 	require.Contains(t, listRes.Err.Error(), "unknown sort type")
 }
@@ -202,7 +202,7 @@ func TestListCommand_SortFlagCompletion(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
 
-	comp := NewCompletionProcess(t, false, 0, "list", "--sort", "").Run(sb.Context(), sb.Runtime())
+	comp := NewCompletionProcess(t, false, 0, "node", "list", "--sort", "").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, comp.Err)
 
 	suggestions := parseCompletionSuggestions(string(comp.Stdout))
@@ -223,13 +223,13 @@ func TestListCommand_OffsetSkipsResults(t *testing.T) {
 	}
 
 	// Without offset: should see 0,1,2,3.
-	all := NewProcess(t, false, "list", "--id-only").Run(sb.Context(), sb.Runtime())
+	all := NewProcess(t, false, "node", "list", "--id-only").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, all.Err)
 	allLines := strings.Split(strings.TrimSpace(string(all.Stdout)), "\n")
 	require.Len(t, allLines, 4)
 
 	// Offset 2: skip first 2 nodes.
-	offset := NewProcess(t, false, "list", "--id-only", "--offset", "2").Run(sb.Context(), sb.Runtime())
+	offset := NewProcess(t, false, "node", "list", "--id-only", "--offset", "2").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, offset.Err)
 	offsetLines := strings.Split(strings.TrimSpace(string(offset.Stdout)), "\n")
 	require.Len(t, offsetLines, 2)
@@ -247,7 +247,7 @@ func TestListCommand_OffsetWithLimit(t *testing.T) {
 	}
 
 	// 6 total nodes (0-5). Offset 1 skips node 0, leaving (1,2,3,4,5). Limit 4 takes first 4: (1,2,3,4).
-	res := NewProcess(t, false, "list", "--id-only", "-n", "4", "--offset", "1").Run(sb.Context(), sb.Runtime())
+	res := NewProcess(t, false, "node", "list", "--id-only", "-n", "4", "--offset", "1").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 	lines := strings.Split(strings.TrimSpace(string(res.Stdout)), "\n")
 	require.Len(t, lines, 4)
@@ -261,7 +261,7 @@ func TestListCommand_NegativeOffsetErrors(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
 
-	res := NewProcess(t, false, "list", "--id-only", "--offset", "-1").Run(sb.Context(), sb.Runtime())
+	res := NewProcess(t, false, "node", "list", "--id-only", "--offset", "-1").Run(sb.Context(), sb.Runtime())
 	require.Error(t, res.Err)
 	require.Contains(t, string(res.Stderr), "offset must be >= 0")
 }
@@ -270,7 +270,7 @@ func TestListCommand_OffsetBeyondRange(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
 
-	res := NewProcess(t, false, "list", "--id-only", "--offset", "9999").Run(sb.Context(), sb.Runtime())
+	res := NewProcess(t, false, "node", "list", "--id-only", "--offset", "9999").Run(sb.Context(), sb.Runtime())
 	// Should error because no nodes found after offset.
 	require.Error(t, res.Err)
 }
@@ -291,7 +291,7 @@ func TestListCommand_DotPrefixQuery_CreatedGT(t *testing.T) {
 	require.NoError(t, res.Err)
 
 	// First, get the actual timestamps from the list output to compute a midpoint.
-	fullRes := NewProcess(t, false, "list", "-f", "%i\t%c").Run(sb.Context(), sb.Runtime())
+	fullRes := NewProcess(t, false, "node", "list", "-f", "%i\t%c").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, fullRes.Err)
 	// Parse the created timestamp of node 1 ("Early") to use as a boundary.
 	var earlyCreated, lateCreated time.Time
@@ -318,7 +318,7 @@ func TestListCommand_DotPrefixQuery_CreatedGT(t *testing.T) {
 	midpoint := earlyCreated.Add(lateCreated.Sub(earlyCreated) / 2)
 	queryDate := midpoint.Format("2006-01-02T15:04:05Z")
 
-	listRes := NewProcess(t, false, "list", "--id-only", "--query", fmt.Sprintf(".created>%s", queryDate)).Run(sb.Context(), sb.Runtime())
+	listRes := NewProcess(t, false, "node", "list", "--id-only", "--query", fmt.Sprintf(".created>%s", queryDate)).Run(sb.Context(), sb.Runtime())
 	require.NoError(t, listRes.Err)
 	lines := strings.Split(strings.TrimSpace(string(listRes.Stdout)), "\n")
 	trimmed := make([]string, len(lines))
@@ -344,7 +344,7 @@ func TestListCommand_DotPrefixQuery_CombinedWithAttribute(t *testing.T) {
 	require.NoError(t, res.Err)
 
 	// ".created and golang" should return only the tagged node.
-	listRes := NewProcess(t, false, "list", "--id-only", "--query", ".created and golang").Run(sb.Context(), sb.Runtime())
+	listRes := NewProcess(t, false, "node", "list", "--id-only", "--query", ".created and golang").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, listRes.Err)
 	lines := strings.Split(strings.TrimSpace(string(listRes.Stdout)), "\n")
 	trimmed := make([]string, len(lines))
@@ -371,7 +371,7 @@ func TestListCommand_DotPrefixQuery_BooleanCheck(t *testing.T) {
 	// non-zero created timestamp should match. The fixture zero node may
 	// have a zero created time if its dex entry lacks it, so we only
 	// check that at least the newly created nodes appear.
-	listRes := NewProcess(t, false, "list", "--id-only", "--query", ".created").Run(sb.Context(), sb.Runtime())
+	listRes := NewProcess(t, false, "node", "list", "--id-only", "--query", ".created").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, listRes.Err)
 	out := strings.TrimSpace(string(listRes.Stdout))
 	require.NotEmpty(t, out)
@@ -395,7 +395,7 @@ func TestListCommand_AttrCompare_EntityNotEqual(t *testing.T) {
 	require.NoError(t, res.Err)
 	// Set meta for node 1: entity=plan
 	stdin := strings.NewReader("entity: plan\ntags:\n  - golang\n")
-	res = NewProcess(t, false, "meta", "1").RunWithIO(sb.Context(), sb.Runtime(), stdin)
+	res = NewProcess(t, false, "node", "meta", "1").RunWithIO(sb.Context(), sb.Runtime(), stdin)
 	require.NoError(t, res.Err)
 
 	sb.Advance(1 * time.Hour)
@@ -403,7 +403,7 @@ func TestListCommand_AttrCompare_EntityNotEqual(t *testing.T) {
 	require.NoError(t, res.Err)
 	// Set meta for node 2: entity=task
 	stdin = strings.NewReader("entity: task\ntags:\n  - golang\n")
-	res = NewProcess(t, false, "meta", "2").RunWithIO(sb.Context(), sb.Runtime(), stdin)
+	res = NewProcess(t, false, "node", "meta", "2").RunWithIO(sb.Context(), sb.Runtime(), stdin)
 	require.NoError(t, res.Err)
 
 	sb.Advance(1 * time.Hour)
@@ -411,12 +411,12 @@ func TestListCommand_AttrCompare_EntityNotEqual(t *testing.T) {
 	require.NoError(t, res.Err)
 	// Set meta for node 3: entity=concept
 	stdin = strings.NewReader("entity: concept\n")
-	res = NewProcess(t, false, "meta", "3").RunWithIO(sb.Context(), sb.Runtime(), stdin)
+	res = NewProcess(t, false, "node", "meta", "3").RunWithIO(sb.Context(), sb.Runtime(), stdin)
 	require.NoError(t, res.Err)
 
 	// "entity!=plan" should return nodes that are NOT entity=plan.
 	// Node 0 (zero node) has no entity, node 1 is plan, node 2 is task, node 3 is concept.
-	listRes := NewProcess(t, false, "list", "--id-only", "--query", "entity!=plan").Run(sb.Context(), sb.Runtime())
+	listRes := NewProcess(t, false, "node", "list", "--id-only", "--query", "entity!=plan").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, listRes.Err)
 	lines := strings.Split(strings.TrimSpace(string(listRes.Stdout)), "\n")
 	trimmed := make([]string, len(lines))
@@ -437,25 +437,25 @@ func TestListCommand_AttrCompare_NumericGte(t *testing.T) {
 	res := NewCreateProcess(t, false, "Low score", "").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 	stdin := strings.NewReader("score: 0.3\n")
-	res = NewProcess(t, false, "meta", "1").RunWithIO(sb.Context(), sb.Runtime(), stdin)
+	res = NewProcess(t, false, "node", "meta", "1").RunWithIO(sb.Context(), sb.Runtime(), stdin)
 	require.NoError(t, res.Err)
 
 	sb.Advance(1 * time.Hour)
 	res = NewCreateProcess(t, false, "Mid score", "").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 	stdin = strings.NewReader("score: 0.5\n")
-	res = NewProcess(t, false, "meta", "2").RunWithIO(sb.Context(), sb.Runtime(), stdin)
+	res = NewProcess(t, false, "node", "meta", "2").RunWithIO(sb.Context(), sb.Runtime(), stdin)
 	require.NoError(t, res.Err)
 
 	sb.Advance(1 * time.Hour)
 	res = NewCreateProcess(t, false, "High score", "").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 	stdin = strings.NewReader("score: 0.8\n")
-	res = NewProcess(t, false, "meta", "3").RunWithIO(sb.Context(), sb.Runtime(), stdin)
+	res = NewProcess(t, false, "node", "meta", "3").RunWithIO(sb.Context(), sb.Runtime(), stdin)
 	require.NoError(t, res.Err)
 
 	// "score>=0.5" should return nodes with score >= 0.5.
-	listRes := NewProcess(t, false, "list", "--id-only", "--query", "score>=0.5").Run(sb.Context(), sb.Runtime())
+	listRes := NewProcess(t, false, "node", "list", "--id-only", "--query", "score>=0.5").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, listRes.Err)
 	lines := strings.Split(strings.TrimSpace(string(listRes.Stdout)), "\n")
 	trimmed := make([]string, len(lines))
@@ -476,18 +476,18 @@ func TestListCommand_AttrCompare_BackwardCompat_EntityEquals(t *testing.T) {
 	res := NewCreateProcess(t, false, "Plan node", "").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 	stdin := strings.NewReader("entity: plan\ntags:\n  - golang\n")
-	res = NewProcess(t, false, "meta", "1").RunWithIO(sb.Context(), sb.Runtime(), stdin)
+	res = NewProcess(t, false, "node", "meta", "1").RunWithIO(sb.Context(), sb.Runtime(), stdin)
 	require.NoError(t, res.Err)
 
 	sb.Advance(1 * time.Hour)
 	res = NewCreateProcess(t, false, "Task node", "").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 	stdin = strings.NewReader("entity: task\n")
-	res = NewProcess(t, false, "meta", "2").RunWithIO(sb.Context(), sb.Runtime(), stdin)
+	res = NewProcess(t, false, "node", "meta", "2").RunWithIO(sb.Context(), sb.Runtime(), stdin)
 	require.NoError(t, res.Err)
 
 	// "entity=plan" (bare =) should continue to work as before.
-	listRes := NewProcess(t, false, "list", "--id-only", "--query", "entity=plan").Run(sb.Context(), sb.Runtime())
+	listRes := NewProcess(t, false, "node", "list", "--id-only", "--query", "entity=plan").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, listRes.Err)
 	lines := strings.Split(strings.TrimSpace(string(listRes.Stdout)), "\n")
 	trimmed := make([]string, len(lines))
@@ -507,18 +507,18 @@ func TestListCommand_AttrCompare_MixedWithDotPrefix(t *testing.T) {
 	res := NewCreateProcess(t, false, "Plan node", "").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 	stdin := strings.NewReader("entity: plan\n")
-	res = NewProcess(t, false, "meta", "1").RunWithIO(sb.Context(), sb.Runtime(), stdin)
+	res = NewProcess(t, false, "node", "meta", "1").RunWithIO(sb.Context(), sb.Runtime(), stdin)
 	require.NoError(t, res.Err)
 
 	sb.Advance(1 * time.Hour)
 	res = NewCreateProcess(t, false, "Task node", "").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 	stdin = strings.NewReader("entity: task\n")
-	res = NewProcess(t, false, "meta", "2").RunWithIO(sb.Context(), sb.Runtime(), stdin)
+	res = NewProcess(t, false, "node", "meta", "2").RunWithIO(sb.Context(), sb.Runtime(), stdin)
 	require.NoError(t, res.Err)
 
 	// "entity!=plan and .created" combines attribute comparison with dot-prefix boolean.
-	listRes := NewProcess(t, false, "list", "--id-only", "--query", "entity!=plan and .created").Run(sb.Context(), sb.Runtime())
+	listRes := NewProcess(t, false, "node", "list", "--id-only", "--query", "entity!=plan and .created").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, listRes.Err)
 	out := strings.TrimSpace(string(listRes.Stdout))
 	require.NotEmpty(t, out, "should have results for combined attr+stats query")
@@ -537,7 +537,7 @@ func TestListCommand_FormatLiteralPercent(t *testing.T) {
 
 	// %% was documented in the help long before it was implemented; the old
 	// replace-chain left it untouched.
-	res := NewProcess(t, false, "list", "-f", "%i 100%%").Run(sb.Context(), sb.Runtime())
+	res := NewProcess(t, false, "node", "list", "-f", "%i 100%%").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 
 	out := strings.TrimSpace(string(res.Stdout))
@@ -552,7 +552,7 @@ func TestListCommand_FormatMetadataSelector(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("queryuser", "~"))
 
-	res := NewProcess(t, false, "list", "-f", "%i\t%{entity}\t%{status}").Run(sb.Context(), sb.Runtime())
+	res := NewProcess(t, false, "node", "list", "-f", "%i\t%{entity}\t%{status}").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 	out := strings.TrimSpace(string(res.Stdout))
 	require.NotEmpty(t, out)
@@ -570,7 +570,7 @@ func TestListCommand_FormatTagsSelector(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("queryuser", "~"))
 
-	res := NewProcess(t, false, "list", "-f", "%i\t%{tags}").Run(sb.Context(), sb.Runtime())
+	res := NewProcess(t, false, "node", "list", "-f", "%i\t%{tags}").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 	out := strings.TrimSpace(string(res.Stdout))
 
@@ -582,9 +582,9 @@ func TestListCommand_FormatIntrinsicsShadowMetadata(t *testing.T) {
 	sb := NewSandbox(t, testutils.WithFixture("queryuser", "~"))
 
 	// %{title} is the intrinsic index title, never a `title` metadata key.
-	titles := NewProcess(t, false, "list", "-f", "%{title}").Run(sb.Context(), sb.Runtime())
+	titles := NewProcess(t, false, "node", "list", "-f", "%{title}").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, titles.Err)
-	legacy := NewProcess(t, false, "list", "-f", "%t").Run(sb.Context(), sb.Runtime())
+	legacy := NewProcess(t, false, "node", "list", "-f", "%t").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, legacy.Err)
 
 	require.Equal(t, string(legacy.Stdout), string(titles.Stdout),
@@ -597,7 +597,7 @@ func TestListCommand_FormatUnknownStatsFieldErrors(t *testing.T) {
 
 	// The stats vocabulary is closed, so a typo is reported rather than
 	// silently rendering an empty column.
-	res := NewProcess(t, false, "list", "-f", "%{.bogus}").Run(sb.Context(), sb.Runtime())
+	res := NewProcess(t, false, "node", "list", "-f", "%{.bogus}").Run(sb.Context(), sb.Runtime())
 	require.Error(t, res.Err)
 	require.Contains(t, res.Err.Error(), "invalid format")
 	require.Contains(t, res.Err.Error(), "unknown stats field")
@@ -607,7 +607,7 @@ func TestListCommand_FormatUnterminatedBraceErrors(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
 
-	res := NewProcess(t, false, "list", "-f", "%{id").Run(sb.Context(), sb.Runtime())
+	res := NewProcess(t, false, "node", "list", "-f", "%{id").Run(sb.Context(), sb.Runtime())
 	require.Error(t, res.Err)
 	require.Contains(t, res.Err.Error(), "invalid format")
 }
@@ -616,7 +616,7 @@ func TestListCommand_FormatCompletionSuggestsSelectors(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
 
-	res := NewCompletionProcess(t, false, 0, "list", "--format", "").Run(sb.Context(), sb.Runtime())
+	res := NewCompletionProcess(t, false, 0, "node", "list", "--format", "").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 	suggestions := parseCompletionSuggestions(string(res.Stdout))
 
@@ -634,7 +634,7 @@ func TestListCommand_KegSettingsListFieldsDrivesDefault(t *testing.T) {
 	sb.MustWriteFile("~/kegs/@local/query/keg", []byte(
 		"kegv: 2025-07\ntitle: Query\nlistFields:\n  - id\n  - entity\n  - status\n  - title\n"), 0o644)
 
-	res := NewProcess(t, false, "list", "--keg", "query").Run(sb.Context(), sb.Runtime())
+	res := NewProcess(t, false, "node", "list", "--keg", "query").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 	out := strings.TrimSpace(string(res.Stdout))
 	require.NotEmpty(t, out)
@@ -653,7 +653,7 @@ func TestListCommand_ExplicitFormatBeatsKegSettings(t *testing.T) {
 	sb.MustWriteFile("~/kegs/@local/query/keg", []byte(
 		"kegv: 2025-07\ntitle: Query\nlistFields:\n  - id\n  - entity\n"), 0o644)
 
-	res := NewProcess(t, false, "list", "--keg", "query", "-f", "%{id}|%{title}").Run(sb.Context(), sb.Runtime())
+	res := NewProcess(t, false, "node", "list", "--keg", "query", "-f", "%{id}|%{title}").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 	out := strings.TrimSpace(string(res.Stdout))
 	require.Contains(t, out, "|")

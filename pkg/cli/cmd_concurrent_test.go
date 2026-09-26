@@ -65,7 +65,7 @@ func TestConcurrent_Creates_PipedStdin(t *testing.T) {
 		go func(idx int) {
 			defer wg.Done()
 			content := fmt.Sprintf("# Piped Node %d\n\nContent for node %d.\n", idx, idx)
-			proc := NewProcess(t, true, "create")
+			proc := NewProcess(t, true, "node", "create")
 			res := proc.RunWithIO(fx.Context(), fx.Runtime(), strings.NewReader(content))
 			results[idx] = result{stdout: strings.TrimSpace(string(res.Stdout)), err: res.Err}
 		}(i)
@@ -109,7 +109,7 @@ func TestConcurrent_Edits_DifferentNodes(t *testing.T) {
 		go func(idx int) {
 			defer wg.Done()
 			content := fmt.Sprintf("---\ntags:\n  - edited\n---\n# Edited %d\n\nUnique content %d.\n", idx, idx)
-			proc := NewProcess(t, false, "edit", nodeIDs[idx], "--keg", "personal")
+			proc := NewProcess(t, false, "node", "edit", nodeIDs[idx], "--keg", "personal")
 			res := proc.RunWithIO(fx.Context(), fx.Runtime(), strings.NewReader(content))
 			errs[idx] = res.Err
 		}(i)
@@ -122,7 +122,7 @@ func TestConcurrent_Edits_DifferentNodes(t *testing.T) {
 
 	// Verify each node has its specific content.
 	for i, id := range nodeIDs {
-		proc := NewProcess(t, false, "cat", id, "--keg", "personal", "--content-only")
+		proc := NewProcess(t, false, "node", "read", id, "--keg", "personal", "--content-only")
 		res := proc.Run(fx.Context(), fx.Runtime())
 		require.NoError(t, res.Err, "cat node %s failed", id)
 		out := string(res.Stdout)
@@ -156,7 +156,7 @@ func TestConcurrent_Creates_And_List(t *testing.T) {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
-			proc := NewProcess(t, false, "list", "--id-only")
+			proc := NewProcess(t, false, "node", "list", "--id-only")
 			res := proc.Run(fx.Context(), fx.Runtime())
 			listErrs[idx] = res.Err
 		}(i)
@@ -197,7 +197,7 @@ func TestConcurrent_Creates_And_Cat(t *testing.T) {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
-			proc := NewProcess(t, false, "cat", "0", "--content-only")
+			proc := NewProcess(t, false, "node", "read", "0", "--content-only")
 			res := proc.Run(fx.Context(), fx.Runtime())
 			catErrs[idx] = res.Err
 		}(i)
@@ -257,7 +257,7 @@ func TestConcurrent_Creates_And_Edits(t *testing.T) {
 		go func(idx int) {
 			defer wg.Done()
 			content := fmt.Sprintf("---\ntags:\n  - mixed\n---\n# Mixed Edit %d\n\nMixed content %d.\n", idx, idx)
-			proc := NewProcess(t, false, "edit", editTargets[idx], "--keg", "personal")
+			proc := NewProcess(t, false, "node", "edit", editTargets[idx], "--keg", "personal")
 			res := proc.RunWithIO(fx.Context(), fx.Runtime(), strings.NewReader(content))
 			editErrs[idx] = res.Err
 		}(i)
@@ -279,7 +279,7 @@ func TestConcurrent_Creates_And_Edits(t *testing.T) {
 		require.NoError(t, err, "editor %d failed", i)
 	}
 	for i, id := range editTargets {
-		proc := NewProcess(t, false, "cat", id, "--keg", "personal", "--content-only")
+		proc := NewProcess(t, false, "node", "read", id, "--keg", "personal", "--content-only")
 		res := proc.Run(fx.Context(), fx.Runtime())
 		require.NoError(t, res.Err, "cat node %s failed", id)
 		out := string(res.Stdout)
@@ -321,7 +321,7 @@ func TestConcurrent_Creates_And_PipedEdits(t *testing.T) {
 		go func(idx int) {
 			defer wg.Done()
 			content := fmt.Sprintf("# Piped Create %d\n\nPiped create content %d.\n", idx, idx)
-			proc := NewProcess(t, true, "create", "--keg", "personal")
+			proc := NewProcess(t, true, "node", "create", "--keg", "personal")
 			res := proc.RunWithIO(fx.Context(), fx.Runtime(), strings.NewReader(content))
 			createResults[idx] = createResult{stdout: strings.TrimSpace(string(res.Stdout)), err: res.Err}
 		}(i)
@@ -333,7 +333,7 @@ func TestConcurrent_Creates_And_PipedEdits(t *testing.T) {
 		go func(idx int) {
 			defer wg.Done()
 			content := fmt.Sprintf("---\ntags:\n  - piped-mixed\n---\n# Piped Edit %d\n\nPiped edit content %d.\n", idx, idx)
-			proc := NewProcess(t, false, "edit", editTargets[idx], "--keg", "personal")
+			proc := NewProcess(t, false, "node", "edit", editTargets[idx], "--keg", "personal")
 			res := proc.RunWithIO(fx.Context(), fx.Runtime(), strings.NewReader(content))
 			editErrs[idx] = res.Err
 		}(i)
@@ -355,7 +355,7 @@ func TestConcurrent_Creates_And_PipedEdits(t *testing.T) {
 		require.NoError(t, err, "piped editor %d failed", i)
 	}
 	for i, id := range editTargets {
-		proc := NewProcess(t, false, "cat", id, "--keg", "personal", "--content-only")
+		proc := NewProcess(t, false, "node", "read", id, "--keg", "personal", "--content-only")
 		res := proc.Run(fx.Context(), fx.Runtime())
 		require.NoError(t, res.Err, "cat node %s failed", id)
 		out := string(res.Stdout)
@@ -431,7 +431,7 @@ func TestConcurrent_Reads_And_Edits_IndexConsistency(t *testing.T) {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
-			proc := NewProcess(t, false, "cat", nodeIDs[idx], "--content-only")
+			proc := NewProcess(t, false, "node", "read", nodeIDs[idx], "--content-only")
 			res := proc.Run(fx.Context(), fx.Runtime())
 			catErrs[idx] = res.Err
 		}(i)
@@ -442,7 +442,7 @@ func TestConcurrent_Reads_And_Edits_IndexConsistency(t *testing.T) {
 		go func(idx int) {
 			defer wg.Done()
 			content := fmt.Sprintf("---\ntags:\n  - updated\n---\n# Updated %d\n\nEdited content %d.\n", idx, idx)
-			proc := NewProcess(t, false, "edit", nodeIDs[idx])
+			proc := NewProcess(t, false, "node", "edit", nodeIDs[idx])
 			res := proc.RunWithIO(fx.Context(), fx.Runtime(), strings.NewReader(content))
 			editErrs[idx] = res.Err
 		}(i)
@@ -461,7 +461,7 @@ func TestConcurrent_Reads_And_Edits_IndexConsistency(t *testing.T) {
 	require.NoError(t, rebuildRes.Err, "index rebuild should succeed")
 
 	// Verify tag index: all edited nodes should have the "updated" tag.
-	tagRes := NewProcess(t, false, "tags", "updated", "--id-only").Run(fx.Context(), fx.Runtime())
+	tagRes := NewProcess(t, false, "tag", "list", "updated", "--id-only").Run(fx.Context(), fx.Runtime())
 	require.NoError(t, tagRes.Err)
 	taggedIDs := strings.Split(strings.TrimSpace(string(tagRes.Stdout)), "\n")
 	require.Len(t, taggedIDs, N, "all %d edited nodes should have 'updated' tag", N)
@@ -476,14 +476,14 @@ func TestConcurrent_Reads_And_Edits_IndexConsistency(t *testing.T) {
 
 	// Verify old per-node tags are gone from the index.
 	for i := range N {
-		oldRes := NewProcess(t, false, "tags", fmt.Sprintf("pre%d", i), "--id-only").Run(fx.Context(), fx.Runtime())
+		oldRes := NewProcess(t, false, "tag", "list", fmt.Sprintf("pre%d", i), "--id-only").Run(fx.Context(), fx.Runtime())
 		require.NoError(t, oldRes.Err)
 		require.Empty(t, strings.TrimSpace(string(oldRes.Stdout)),
 			"old tag pre%d should have no nodes after edit", i)
 	}
 
 	// Verify list shows updated titles.
-	listRes := NewProcess(t, false, "list", "-n", "0", "--format", "%i|%t").Run(fx.Context(), fx.Runtime())
+	listRes := NewProcess(t, false, "node", "list", "-n", "0", "--format", "%i|%t").Run(fx.Context(), fx.Runtime())
 	require.NoError(t, listRes.Err)
 	listOut := string(listRes.Stdout)
 	for i, id := range nodeIDs {
@@ -540,7 +540,7 @@ func TestConcurrent_Creates_And_Edits_IndexConsistency(t *testing.T) {
 		go func(idx int) {
 			defer wg.Done()
 			content := fmt.Sprintf("---\ntags:\n  - freshly-edited\n---\n# Edited %d\n\nEdited content %d.\n", idx, idx)
-			proc := NewProcess(t, false, "edit", editTargets[idx])
+			proc := NewProcess(t, false, "node", "edit", editTargets[idx])
 			res := proc.RunWithIO(fx.Context(), fx.Runtime(), strings.NewReader(content))
 			editErrs[idx] = res.Err
 		}(i)
@@ -563,14 +563,14 @@ func TestConcurrent_Creates_And_Edits_IndexConsistency(t *testing.T) {
 	// Verify total node count in the index.
 	// Expected: 1 (zero node) + editors (pre-created) + creators (concurrent).
 	expectedCount := 1 + editors + creators
-	listRes := NewProcess(t, false, "list", "-n", "0", "--id-only").Run(fx.Context(), fx.Runtime())
+	listRes := NewProcess(t, false, "node", "list", "-n", "0", "--id-only").Run(fx.Context(), fx.Runtime())
 	require.NoError(t, listRes.Err)
 	allIDs := strings.Split(strings.TrimSpace(string(listRes.Stdout)), "\n")
 	require.Len(t, allIDs, expectedCount,
 		"index should contain %d nodes (1 zero + %d pre-created + %d concurrent)", expectedCount, editors, creators)
 
 	// Verify created nodes have the "freshly-created" tag.
-	createdRes := NewProcess(t, false, "tags", "freshly-created", "--id-only").Run(fx.Context(), fx.Runtime())
+	createdRes := NewProcess(t, false, "tag", "list", "freshly-created", "--id-only").Run(fx.Context(), fx.Runtime())
 	require.NoError(t, createdRes.Err)
 	createdIDs := strings.Split(strings.TrimSpace(string(createdRes.Stdout)), "\n")
 	require.Len(t, createdIDs, creators,
@@ -586,7 +586,7 @@ func TestConcurrent_Creates_And_Edits_IndexConsistency(t *testing.T) {
 	}
 
 	// Verify edited nodes have the "freshly-edited" tag.
-	editedRes := NewProcess(t, false, "tags", "freshly-edited", "--id-only").Run(fx.Context(), fx.Runtime())
+	editedRes := NewProcess(t, false, "tag", "list", "freshly-edited", "--id-only").Run(fx.Context(), fx.Runtime())
 	require.NoError(t, editedRes.Err)
 	editedIDs := strings.Split(strings.TrimSpace(string(editedRes.Stdout)), "\n")
 	require.Len(t, editedIDs, editors,
@@ -602,7 +602,7 @@ func TestConcurrent_Creates_And_Edits_IndexConsistency(t *testing.T) {
 	}
 
 	// Verify edited nodes show updated titles in list output.
-	fullListRes := NewProcess(t, false, "list", "-n", "0", "--format", "%i|%t").Run(fx.Context(), fx.Runtime())
+	fullListRes := NewProcess(t, false, "node", "list", "-n", "0", "--format", "%i|%t").Run(fx.Context(), fx.Runtime())
 	require.NoError(t, fullListRes.Err)
 	fullListOut := string(fullListRes.Stdout)
 	for i, id := range editTargets {

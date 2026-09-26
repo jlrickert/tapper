@@ -12,7 +12,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// watchEventJSON is the NDJSON shape emitted by `tap watch --json`. It mirrors
+// watchEventJSON is the NDJSON shape emitted by `tap node watch --json`. It mirrors
 // keg.NodeEvent plus an observation timestamp.
 type watchEventJSON struct {
 	Kind  string `json:"kind"`

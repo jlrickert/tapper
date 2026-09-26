@@ -12,7 +12,7 @@ func TestFileCompletion_LsCompletesNodeIDs(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
 
-	comp := NewCompletionProcess(t, false, 0, "file", "ls", "--keg", "personal", "").
+	comp := NewCompletionProcess(t, false, 0, "file", "list", "--keg", "personal", "").
 		Run(sb.Context(), sb.Runtime())
 	require.NoError(t, comp.Err)
 
@@ -24,7 +24,7 @@ func TestFileCompletion_LsStopsAfterOneArg(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
 
-	comp := NewCompletionProcess(t, false, 0, "file", "ls", "--keg", "personal", "0", "").
+	comp := NewCompletionProcess(t, false, 0, "file", "list", "--keg", "personal", "0", "").
 		Run(sb.Context(), sb.Runtime())
 	require.NoError(t, comp.Err)
 
@@ -125,7 +125,7 @@ func TestFileCompletion_RmCompletesFileNames(t *testing.T) {
 	NewProcess(t, false, "file", "upload", "0", "~/test-images/default.png").
 		Run(sb.Context(), sb.Runtime())
 
-	comp := NewCompletionProcess(t, false, 0, "file", "rm", "0", "").
+	comp := NewCompletionProcess(t, false, 0, "file", "delete", "0", "").
 		Run(sb.Context(), sb.Runtime())
 	require.NoError(t, comp.Err)
 

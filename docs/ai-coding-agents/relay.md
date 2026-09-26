@@ -63,6 +63,32 @@ them first. Set `priority: 1` on a free local provider to prefer it over a
 paid one. See
 [User Config: Relay providers](../configuration/user-config.md#relay-providers).
 
+Each model also carries its context limits and reasoning mode where the
+provider reports them: Ollama through `/api/show` and `/api/ps`, OpenRouter
+through its model list. `models.metadata` fills in or corrects them for
+providers that report nothing. A model with a fixed context is its own model:
+declare it under `models.variants` (on Ollama the relay creates it with that
+`num_ctx`). A metadata change reaches Hub on the next catalog refresh, like a
+new model.
+
+Chat models also say whether they call tools and accept images:
+- Ollama reports both through `/api/show`.
+- OpenRouter reports them through `supported_parameters` and `architecture.input_modalities`.
+- `models.metadata` can set `tools: true|false` and `vision: true|false` for any provider.
+
+Hub shows these as badges on agent model lists and sends tool and image requests only to models that support them.
+
+Hub pools models by a **canonical name**, so the same weights served by different providers or relays are one model:
+- `@<you>/qwen3.6-35b`, whether it runs as Ollama's `qwen3.6:35b-mlx` or LM Studio's `qwen/qwen3.6-35b`.
+- The relay derives the name: it lowercases, drops a source prefix and `:latest`, and strips trailing quantization or packaging parts (`mlx`, `q4_k_m`, `4bit`, …).
+- Set `canonical:` in `models.metadata` when the derived name pools the wrong models together, or keeps apart ones that belong together.
+
+A model does one job. Chat models serve chat completions, speech models
+(`models.transcription`) serve `/audio/transcriptions`, and embedding models
+serve `/embeddings`. Ollama marks its embedding models itself; for other
+providers, list them under `models.embeddings`. `tap launch` leaves speech and
+embedding models out of a harness's model list.
+
 | Flag | Effect |
 |---|---|
 | `--name` | Relay name shown in Hub; overrides `relay.name` |

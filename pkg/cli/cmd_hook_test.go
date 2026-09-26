@@ -29,16 +29,16 @@ func TestHookPreToolUse_GuardsCommands(t *testing.T) {
 		command string
 		deny    bool
 	}{
-		{name: "tap direct", command: "tap list", deny: true},
+		{name: "tap direct", command: "tap node list", deny: true},
 		{name: "keg direct", command: "keg", deny: true},
-		{name: "absolute path", command: "/usr/local/bin/tap cat 1", deny: true},
-		{name: "escaped basename", command: `\tap list`, deny: true},
-		{name: "environment assignments", command: "FOO=bar OTHER=two tap list", deny: true},
-		{name: "wrapper", command: "command tap list", deny: true},
+		{name: "absolute path", command: "/usr/local/bin/tap node read 1", deny: true},
+		{name: "escaped basename", command: `\tap node list`, deny: true},
+		{name: "environment assignments", command: "FOO=bar OTHER=two tap node list", deny: true},
+		{name: "wrapper", command: "command tap node list", deny: true},
 		{name: "wrapper with assignment", command: "sudo FOO=bar keg cat 1", deny: true},
-		{name: "pipeline", command: "printf ok | tap list", deny: true},
+		{name: "pipeline", command: "printf ok | tap node list", deny: true},
 		{name: "boolean pipeline", command: "printf ok && keg list", deny: true},
-		{name: "nested shell", command: `sh -c 'tap list | head'`, deny: true},
+		{name: "nested shell", command: `sh -c 'tap node list | head'`, deny: true},
 		{name: "double quoted nested shell", command: `bash -c "keg cat 1"`, deny: true},
 		{name: "reserved flight assignment", command: "TAP_FLIGHT=@team/+other codex", deny: true},
 		{name: "reserved harness export", command: "export TAP_HARNESS=other", deny: true},
@@ -57,14 +57,14 @@ func TestHookPreToolUse_GuardsCommands(t *testing.T) {
 		{name: "version long", command: "tap --version", deny: false},
 		{name: "version short", command: "keg -v", deny: false},
 		{name: "completion", command: "tap completion zsh", deny: false},
-		{name: "quoted command text", command: `echo "tap list && keg cat 1"`, deny: false},
+		{name: "quoted command text", command: `echo "tap node list && keg cat 1"`, deny: false},
 		{name: "substring", command: "taproom list", deny: false},
 		{name: "config read", command: "cat ~/.config/tapper/config.yaml", deny: false},
 		{name: "flight read", command: "rg title /tmp/kegs/flights.d/dev.yaml", deny: false},
 		{name: "copy config out is read", command: "cp ~/.config/tapper/config.yaml /tmp/config-copy.yaml", deny: false},
-		{name: "lowercase assignment is not shell env prefix", command: "foo=bar tap list", deny: false},
-		{name: "unbalanced quote fails open", command: `echo 'tap list`, deny: false},
-		{name: "shell recursion is one level", command: `sh -c "sh -c 'tap list'"`, deny: false},
+		{name: "lowercase assignment is not shell env prefix", command: "foo=bar tap node list", deny: false},
+		{name: "unbalanced quote fails open", command: `echo 'tap node list`, deny: false},
+		{name: "shell recursion is one level", command: `sh -c "sh -c 'tap node list'"`, deny: false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -81,17 +81,17 @@ func TestHookPreToolUse_Protocol(t *testing.T) {
 		exitCode int
 		deny     bool
 	}{
-		{name: "deny", input: `{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"tap list"}}`, deny: true},
+		{name: "deny", input: `{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"tap node list"}}`, deny: true},
 		{name: "deny direct write", input: `{"hook_event_name":"PreToolUse","tool_name":"Write","tool_input":{"file_path":"/home/testuser/.config/tapper/config.yaml","content":"flight: +other"}}`, deny: true},
 		{name: "deny direct patch", input: `{"hook_event_name":"PreToolUse","tool_name":"apply_patch","tool_input":{"patch":"*** Update File: .tapper/config.yaml\n@@"}}`, deny: true},
 		{name: "deny opencode patch tool", input: `{"hook_event_name":"PreToolUse","tool_name":"patch","tool_input":{"patchText":"*** Update File: .tapper/config.yaml\n@@"}}`, deny: true},
 		{name: "deny opencode write tool", input: `{"hook_event_name":"PreToolUse","tool_name":"write","tool_input":{"filePath":"/home/testuser/.config/tapper/config.yaml","content":"flight: +other"}}`, deny: true},
-		{name: "deny opencode bash tool", input: `{"hook_event_name":"PreToolUse","tool_name":"bash","tool_input":{"command":"tap list"}}`, deny: true},
+		{name: "deny opencode bash tool", input: `{"hook_event_name":"PreToolUse","tool_name":"bash","tool_input":{"command":"tap node list"}}`, deny: true},
 		{name: "allow opencode bash probe", input: `{"hook_event_name":"PreToolUse","tool_name":"bash","tool_input":{"command":"tap --version"}}`},
 		{name: "allow direct read", input: `{"hook_event_name":"PreToolUse","tool_name":"Read","tool_input":{"file_path":"/home/testuser/.config/tapper/config.yaml"}}`},
 		{name: "allow grep bypass", input: `{"hook_event_name":"PreToolUse","tool_name":"Grep","tool_input":{"path":"/home/testuser/.config/tapper/config.yaml","pattern":"flight"}}`},
 		{name: "allow glob bypass", input: `{"hook_event_name":"PreToolUse","tool_name":"Glob","tool_input":{"path":"/home/testuser/kegs/flights.d"}}`},
-		{name: "allow tapper mcp diff content", input: `{"hook_event_name":"PreToolUse","tool_name":"mcp__tapper__edit","tool_input":{"keg":"@local/dev","content":"*** Update File: .tapper/config.yaml"}}`},
+		{name: "allow tapper mcp diff content", input: `{"hook_event_name":"PreToolUse","tool_name":"mcp__tapper__node_edit","tool_input":{"keg":"@local/dev","content":"*** Update File: .tapper/config.yaml"}}`},
 		{name: "allow", input: `{"tool_input":{"command":"tap --help"}}`},
 		{name: "missing tool input", input: `{}`},
 		{name: "missing command", input: `{"tool_input":{}}`},
@@ -167,7 +167,7 @@ func TestHookSessionStart_EmitsOrientationForLifecycleSources(t *testing.T) {
 			for _, want := range []string{
 				"mcp__tapper__orient", "flight and KEG instructions", "Tapper MCP connection is unavailable",
 				"reconnect or restart the host session", "never kill host-owned processes",
-				"mcp__tapper__node_snapshot", "never read or write tapper node storage files directly",
+				"mcp__tapper__snapshot_create", "never read or write tapper node storage files directly",
 				"Direct `tap` / `keg` CLI use",
 			} {
 				require.Contains(t, output.HookSpecificOutput.AdditionalContext, want)

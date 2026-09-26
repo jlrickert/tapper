@@ -30,17 +30,16 @@ type HubEffectiveKeg struct {
 }
 
 type HubFlight struct {
-	EffectiveCover []HubEffectiveKeg  `json:"effective_cover,omitempty"`
-	Namespace      string             `json:"namespace"`
-	Slug           string             `json:"slug"`
-	Title          string             `json:"title"`
-	Description    string             `json:"description,omitempty" jsonschema:"short description, separate from instructions"`
-	Instructions   string             `json:"instructions"`
-	Visibility     string             `json:"visibility"`
-	Capabilities   []FlightCapability `json:"capabilities"`
-	Cover          []HubFlightCover   `json:"cover"`
-	Subflights     []string           `json:"subflights"`
-	Hash           string             `json:"hash,omitempty"`
+	EffectiveCover []HubEffectiveKeg `json:"effective_cover,omitempty"`
+	Namespace      string            `json:"namespace"`
+	Slug           string            `json:"slug"`
+	Title          string            `json:"title"`
+	Description    string            `json:"description,omitempty" jsonschema:"short description, separate from instructions"`
+	Instructions   string            `json:"instructions"`
+	Visibility     string            `json:"visibility"`
+	Cover          []HubFlightCover  `json:"cover"`
+	Subflights     []string          `json:"subflights"`
+	Hash           string            `json:"hash,omitempty"`
 }
 
 func ListUserFlights(ctx context.Context, hubURL, token string) ([]HubFlight, error) {
@@ -146,10 +145,9 @@ func validateHubFlight(flight HubFlight) error {
 		})
 	}
 	return validateFlightManifest(&FlightManifest{
-		Visibility:   flight.Visibility,
-		Capabilities: flight.Capabilities,
-		Cover:        cover,
-		Subflights:   flight.Subflights,
+		Visibility: flight.Visibility,
+		Cover:      cover,
+		Subflights: flight.Subflights,
 	}, flight.Namespace)
 }
 

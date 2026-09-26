@@ -18,18 +18,6 @@
       "default": "private",
       "description": "Flight discovery visibility."
     },
-    "capabilities": {
-      "type": "array",
-      "items": {
-        "type": "string",
-        "enum": [
-          "manage_flights",
-          "manage_kegs", "delete_kegs"
-        ]
-      },
-      "uniqueItems": true,
-      "description": "Explicit agent capabilities granted to sessions using this flight."
-    },
     "cover": {
       "type": "array",
       "description": "Kegs available while the flight is active. Empty or omitted denies all KEG access.",

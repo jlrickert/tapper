@@ -49,7 +49,7 @@ func TestFlightEdit_PipedStdinAppliesManifest(t *testing.T) {
 	require.NoError(t, sb.Runtime().Set("EDITOR", "/bin/false"))
 	sb.Runtime().Unset("VISUAL")
 
-	stdin := strings.NewReader("title: Piped Title\nvisibility: public\ncapabilities: [manage_flights]\ninstructions: piped instructions\n")
+	stdin := strings.NewReader("title: Piped Title\nvisibility: public\ninstructions: piped instructions\n")
 	res := NewProcess(t, false, "flight", "edit", "@foldwise/+agent-work").
 		RunWithIO(sb.Context(), sb.Runtime(), stdin)
 	require.NoError(t, res.Err)
@@ -59,7 +59,6 @@ func TestFlightEdit_PipedStdinAppliesManifest(t *testing.T) {
 	require.Equal(t, "Piped Title", put.Title)
 	require.Equal(t, "piped instructions", put.Instructions)
 	require.Equal(t, tapper.FlightVisibilityPublic, put.Visibility)
-	require.Equal(t, []tapper.FlightCapability{tapper.FlightCapabilityManageFlights}, put.Capabilities)
 }
 
 func TestFlightEdit_EditorStartsWithSchemaManifest(t *testing.T) {
@@ -117,7 +116,6 @@ func TestFlightEdit_EditorStartsWithSchemaManifest(t *testing.T) {
 		schemas.ModelinePrefix+schemas.ModelineURI(sb.Runtime(), schemas.FlightManifest)+"\n"), "got: %s", opened)
 	require.Contains(t, opened, `title: ""`)
 	require.Contains(t, opened, `visibility: private`)
-	require.Contains(t, opened, `capabilities: []`)
 	require.Contains(t, opened, "cover: []")
 	require.Contains(t, opened, `instructions: ""`)
 	require.NotContains(t, opened, "{}")

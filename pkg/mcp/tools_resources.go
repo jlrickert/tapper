@@ -92,7 +92,7 @@ func registerAttachmentResource(srv *sdkmcp.Server, tap *tapper.Tap, defaults Ke
 	srv.AddResourceTemplate(&sdkmcp.ResourceTemplate{
 		URITemplate: attachmentResourceURITemplate,
 		Name:        "tapper node attachment",
-		Description: "Original bytes of a node attachment. kind is image, file, or video; name is the percent-encoded filename. list_images and list_files return these URIs as resource links. Add ?keg= with a URL-escaped keg target to override the server default.",
+		Description: "Original bytes of a node attachment. kind is image, file, or video; name is the percent-encoded filename. image_list and file_list return these URIs as resource links. Add ?keg= with a URL-escaped keg target to override the server default.",
 	}, func(ctx context.Context, req *sdkmcp.ReadResourceRequest) (*sdkmcp.ReadResourceResult, error) {
 		uri := req.Params.URI
 		ref, ok := parseAttachmentResourceURI(uri)

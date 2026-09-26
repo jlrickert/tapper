@@ -42,14 +42,14 @@ func registerWriteTools(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefault
 
 type kegSettingsEditInput struct {
 	Data         string `json:"data" jsonschema:"complete validated KEG YAML document"`
-	ExpectedHash string `json:"expected_hash" jsonschema:"precondition token returned by keg_settings"`
+	ExpectedHash string `json:"expected_hash" jsonschema:"precondition token returned by keg_settings_read"`
 	Keg          string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
 }
 
 func registerKegSettingsEdit(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "keg_settings_edit",
-		Description: "Call keg_settings with minimal=false first, then replace the complete KEG settings with a validated YAML document using its hash as expected_hash. Requires admin access to the KEG itself, plus admin cover when a flight is selected. On conflict, merge into the returned current settings (or refetch with keg_settings) and retry with the returned current hash.",
+		Description: "Call keg_settings_read with minimal=false first, then replace the complete KEG settings with a validated YAML document using its hash as expected_hash. Requires admin access to the KEG itself, plus admin cover when a flight is selected. On conflict, merge into the returned current settings (or refetch with keg_settings_read) and retry with the returned current hash.",
 		Annotations: &sdkmcp.ToolAnnotations{
 			DestructiveHint: boolPtr(true),
 			OpenWorldHint:   boolPtr(false),
@@ -100,7 +100,7 @@ func createNodeOutputs(results []keg.CreateNodeResult) []createNodeOutput {
 
 func registerCreate(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
-		Name: "create",
+		Name: "node_create",
 		Description: "Atomically create 1-100 KEG nodes. " +
 			"Each node is a markdown content document plus an optional YAML metadata document. " +
 			"content must not begin with a YAML frontmatter block — metadata goes in meta. " +
@@ -142,7 +142,7 @@ type editItemInput struct {
 	NodeID       string  `json:"node_id" jsonschema:"id of the node to update"`
 	Content      *string `json:"content,omitempty" jsonschema:"replacement markdown body, replacing the node's content entirely. Must not start with a YAML frontmatter block: metadata goes in the meta field. Omit to leave content unchanged."`
 	Meta         *string `json:"meta,omitempty" jsonschema:"replacement metadata document as YAML, replacing the node's metadata entirely. Omit to leave metadata unchanged."`
-	ExpectedHash string  `json:"expected_hash" jsonschema:"precondition token returned by cat. One hash covers content and metadata together, so a call that changes only one of them still invalidates the other's hash."`
+	ExpectedHash string  `json:"expected_hash" jsonschema:"precondition token returned by node_read. One hash covers content and metadata together, so a call that changes only one of them still invalidates the other's hash."`
 	Schema       string  `json:"schema,omitempty" jsonschema:"schema selected for this write. Writes meta.type; a different type declared in meta is a hard error, not an override. Required when strict policy and agent mode both block."`
 }
 
@@ -162,15 +162,15 @@ func nodeUpdateOutputs(results []keg.NodeUpdateResult) []nodeUpdateOutput {
 
 func registerEdit(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
-		Name: "edit",
+		Name: "node_edit",
 		Description: "Atomically replace the content and/or metadata of 1-100 nodes. " +
 			"Supply content, meta, or both for each node; at least one is required. " +
 			"content is the markdown body and must not begin with a YAML frontmatter block — metadata goes in meta. " +
 			"One expected_hash covers a node's content and metadata together, so changing either invalidates the hash for both. " +
-			"Call cat first for every node and pass each returned hash as that node's expected_hash; cat meta_only reads metadata. " +
-			"Take a snapshot with node_snapshot before a large or destructive edit. " +
+			"Call node_read first for every node and pass each returned hash as that node's expected_hash; node_read meta_only reads metadata. " +
+			"Take a snapshot with snapshot_create before a large or destructive edit. " +
 			"A schema selection is required only when strict policy and the resolved agent mode both block. " +
-			"On conflict, merge into the returned current content (or refetch with cat) and retry with the returned current hash.",
+			"On conflict, merge into the returned current content (or refetch with node_read) and retry with the returned current hash.",
 		InputSchema: boundedMutationInputSchema[editInput]("nodes"),
 		Annotations: &sdkmcp.ToolAnnotations{
 			DestructiveHint: boolPtr(false),
@@ -208,13 +208,13 @@ type removeInput struct {
 
 type removeNodeInput struct {
 	NodeID       string `json:"node_id"`
-	ExpectedHash string `json:"expected_hash" jsonschema:"precondition token returned by cat"`
+	ExpectedHash string `json:"expected_hash" jsonschema:"precondition token returned by node_read"`
 }
 
 func registerRemove(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
-		Name:        "remove",
-		Description: "Call cat first for every node, then atomically remove 1-100 nodes using each returned hash as that node's expected_hash. On conflict, refetch with cat and retry with the returned current hash.",
+		Name:        "node_delete",
+		Description: "Call node_read first for every node, then atomically remove 1-100 nodes using each returned hash as that node's expected_hash. On conflict, refetch with node_read and retry with the returned current hash.",
 		InputSchema: boundedMutationInputSchema[removeInput]("nodes"),
 		Annotations: &sdkmcp.ToolAnnotations{
 			DestructiveHint: boolPtr(true),
@@ -245,14 +245,14 @@ func registerRemove(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 type moveInput struct {
 	SourceID     string `json:"source_id" jsonschema:"source node ID"`
 	DestID       string `json:"dest_id" jsonschema:"destination node ID"`
-	ExpectedHash string `json:"expected_hash" jsonschema:"precondition token returned by cat"`
+	ExpectedHash string `json:"expected_hash" jsonschema:"precondition token returned by node_read"`
 	Keg          string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
 }
 
 func registerMove(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
-		Name:        "move",
-		Description: "Call cat first, then move (rename) a KEG node to a new ID using the returned hash as expected_hash. On conflict, refetch with cat and retry with the returned current hash.",
+		Name:        "node_move",
+		Description: "Call node_read first, then move (rename) a KEG node to a new ID using the returned hash as expected_hash. On conflict, refetch with node_read and retry with the returned current hash.",
 		Annotations: &sdkmcp.ToolAnnotations{
 			DestructiveHint: boolPtr(true),
 			OpenWorldHint:   boolPtr(false),

@@ -12,7 +12,7 @@ func TestInfoCommand_DisplaysDiagnostics(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
 
-	res := NewProcess(t, false, "info", "--keg", "personal", "--namespace", "local").Run(sb.Context(), sb.Runtime())
+	res := NewProcess(t, false, "keg", "info", "--keg", "personal", "--namespace", "local").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 
 	stdout := string(res.Stdout)
@@ -33,7 +33,7 @@ func TestInfoCommand_DisplaysDiagnostics(t *testing.T) {
 func TestInfoCommand_DebugYAMLAddsBackendDiagnostics(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
-	res := NewProcess(t, false, "info", "--keg", "personal", "--namespace", "local", "--debug").Run(sb.Context(), sb.Runtime())
+	res := NewProcess(t, false, "keg", "info", "--keg", "personal", "--namespace", "local", "--debug").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 	stdout := string(res.Stdout)
 	require.Contains(t, stdout, "debug:")
@@ -50,7 +50,7 @@ func TestInfoCommand_ConciseAndDebugJSON(t *testing.T) {
 	t.Parallel()
 	for _, debug := range []bool{false, true} {
 		sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
-		args := []string{"info", "--keg", "personal", "--namespace", "local", "--json"}
+		args := []string{"keg", "info", "--keg", "personal", "--namespace", "local", "--json"}
 		if debug {
 			args = append(args, "--debug")
 		}
@@ -73,7 +73,7 @@ func TestInfoCommand_NoConfiguredKegErrors(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t)
 
-	res := NewProcess(t, false, "info").Run(sb.Context(), sb.Runtime())
+	res := NewProcess(t, false, "keg", "info").Run(sb.Context(), sb.Runtime())
 	require.Error(t, res.Err)
 	require.Contains(t, string(res.Stderr), "tap bootstrap")
 }
@@ -82,7 +82,7 @@ func TestInfoCommand_WithNonexistentAliasErrors(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
 
-	res := NewProcess(t, false, "info", "--keg", "does-not-exist").Run(sb.Context(), sb.Runtime())
+	res := NewProcess(t, false, "keg", "info", "--keg", "does-not-exist").Run(sb.Context(), sb.Runtime())
 	require.Error(t, res.Err)
 	require.Contains(t, string(res.Stderr), "keg not initialized")
 }
@@ -92,7 +92,7 @@ func TestInfoCommand_WithInvalidKegSettingsErrors(t *testing.T) {
 	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
 	sb.MustWriteFile("~/kegs/@local/example/keg", []byte("kegv: [\n"), 0o644)
 
-	res := NewProcess(t, false, "info", "--keg", "example").Run(sb.Context(), sb.Runtime())
+	res := NewProcess(t, false, "keg", "info", "--keg", "example").Run(sb.Context(), sb.Runtime())
 	require.Error(t, res.Err)
 	require.Contains(t, string(res.Stderr), "unable to read keg settings")
 }

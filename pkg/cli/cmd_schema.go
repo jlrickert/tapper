@@ -21,6 +21,7 @@ func NewSchemaCmd(deps *Deps) *cobra.Command {
 		newSchemaCreateCmd(deps),
 		newSchemaEditCmd(deps),
 		newSchemaRmCmd(deps),
+		NewValidateCmd(deps),
 	)
 	return cmd
 }
@@ -49,7 +50,7 @@ func newSchemaListCmd(deps *Deps) *cobra.Command {
 func newSchemaGetCmd(deps *Deps) *cobra.Command {
 	var opts tapper.SchemaOptions
 	cmd := &cobra.Command{
-		Use:               "get TYPE",
+		Use:               "read TYPE",
 		Short:             "print a schema",
 		Args:              cobra.ExactArgs(1),
 		ValidArgsFunction: schemaTypeCompletionFunc(deps),
@@ -117,8 +118,7 @@ written directly instead of opening an editor.`,
 func newSchemaRmCmd(deps *Deps) *cobra.Command {
 	var opts tapper.SchemaOptions
 	cmd := &cobra.Command{
-		Use:               "rm TYPE",
-		Aliases:           []string{"remove", "delete"},
+		Use:               "delete TYPE",
 		Short:             "delete a schema",
 		Args:              cobra.ExactArgs(1),
 		ValidArgsFunction: schemaTypeCompletionFunc(deps),

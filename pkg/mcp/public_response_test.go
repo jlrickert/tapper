@@ -45,39 +45,39 @@ func TestPublicContractIndependentNodeWorkflow(t *testing.T) {
 				return wirePayload(t, result, mode)
 			}
 			call("orient", nil, false)
-			settings := call("keg_settings", map[string]any{"minimal": false}, false)
+			settings := call("keg_settings_read", map[string]any{"minimal": false}, false)
 			require.NotEmpty(t, settings["hash"])
 			require.Contains(t, settings["data"], "title:")
-			created := call("create", map[string]any{"nodes": []any{map[string]any{"key": "subject", "content": "# Wire subject\n\nBefore.", "meta": "tags: [wire-contract]"}}}, false)
+			created := call("node_create", map[string]any{"nodes": []any{map[string]any{"key": "subject", "content": "# Wire subject\n\nBefore.", "meta": "tags: [wire-contract]"}}}, false)
 			row := created["results"].([]any)[0].(map[string]any)
 			id := row["node_id"].(string)
-			call("node_snapshot", map[string]any{"nodes": []any{map[string]any{"node_id": id}}}, false)
+			call("snapshot_create", map[string]any{"nodes": []any{map[string]any{"node_id": id}}}, false)
 			read := func() map[string]any {
-				return call("cat", map[string]any{"node_ids": []string{id}}, false)["nodes"].([]any)[0].(map[string]any)
+				return call("node_read", map[string]any{"node_ids": []string{id}}, false)["nodes"].([]any)[0].(map[string]any)
 			}
 			before := read()
-			invalid := call("edit", map[string]any{"nodes": []any{map[string]any{"node_id": id, "content": "# Invalid"}}}, true)
+			invalid := call("node_edit", map[string]any{"nodes": []any{map[string]any{"node_id": id, "content": "# Invalid"}}}, true)
 			require.Contains(t, invalid["message"], "expected_hash")
 			require.NotEmpty(t, invalid["action"])
 			require.Equal(t, false, invalid["operationPerformed"])
 			args := map[string]any{"nodes": []any{map[string]any{"node_id": id, "expected_hash": before["hash"], "content": "# Wire subject\n\nAfter."}}}
-			edited := call("edit", args, false)
+			edited := call("node_edit", args, false)
 			after := read()
 			require.Contains(t, after["content"], "After.")
 			require.Equal(t, before["meta"], after["meta"])
 			require.Equal(t, after["hash"], edited["results"].([]any)[0].(map[string]any)["hash"])
-			conflict := call("edit", args, true)
+			conflict := call("node_edit", args, true)
 			require.Equal(t, "CONFLICT", conflict["code"])
 			require.Equal(t, false, conflict["operationPerformed"])
 			require.Equal(t, after["hash"], conflict["currentHash"])
 			require.NotEmpty(t, conflict["action"])
 			require.Equal(t, after["content"], read()["content"])
-			selected := call("cat", map[string]any{"query": "wire-contract", "meta_only": true}, false)
+			selected := call("node_read", map[string]any{"query": "wire-contract", "meta_only": true}, false)
 			require.Len(t, selected["nodes"], 1)
 			seen := []string{}
 			offset := any(0)
 			for page := 0; page < 10; page++ {
-				result := call("list", map[string]any{"query": "wire-contract", "id_only": true, "limit": 1, "offset": offset}, false)
+				result := call("node_list", map[string]any{"query": "wire-contract", "id_only": true, "limit": 1, "offset": offset}, false)
 				for _, line := range result["lines"].([]any) {
 					seen = append(seen, line.(string))
 				}
@@ -88,7 +88,7 @@ func TestPublicContractIndependentNodeWorkflow(t *testing.T) {
 				require.Less(t, page, 9, "pagination must terminate")
 			}
 			require.Equal(t, []string{id}, seen)
-			call("remove", map[string]any{"nodes": []any{map[string]any{"node_id": id, "expected_hash": read()["hash"]}}}, false)
+			call("node_delete", map[string]any{"nodes": []any{map[string]any{"node_id": id, "expected_hash": read()["hash"]}}}, false)
 		})
 	}
 }
@@ -102,13 +102,12 @@ func TestPublicContractFlightManifest(t *testing.T) {
 				f.Title = "Title"
 				f.Description = "Description"
 				f.Instructions = "Complete\nInstructions"
-				f.Capabilities = []tapper.FlightCapability{tapper.FlightCapability("manage_flights")}
 				f.Cover = []tapper.FlightCover{{Namespace: "team", Keg: "notes", Role: tapper.FlightRoleViewer, Depth: 3}}
 				f.Subflights = []string{"@team/+child"}
 			}
 			backend.flights[f.Name] = f
 			session, ctx := newTestSessionWithOpts(t, mcp.ServerOptions{FlightProvider: backend})
-			result, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: "flight_show", Arguments: map[string]any{"name": f.Name}})
+			result, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: "flight_read", Arguments: map[string]any{"name": f.Name}})
 			require.NoError(t, err)
 			require.False(t, result.IsError)
 			text := wirePayload(t, result, "text")
@@ -116,13 +115,14 @@ func TestPublicContractFlightManifest(t *testing.T) {
 			require.Equal(t, text, structured)
 			for _, mode := range []string{"text", "structured"} {
 				out := wirePayload(t, result, mode)
-				for _, key := range []string{"name", "hash", "title", "description", "source", "visibility", "capabilities", "cover", "subflights", "instructions"} {
+				for _, key := range []string{"name", "hash", "title", "description", "source", "visibility", "cover", "subflights", "instructions"} {
 					require.Contains(t, out, key)
 					require.NotNil(t, out[key])
 				}
 				require.Equal(t, f.ManifestHash, out["hash"])
 				require.Equal(t, f.Instructions, out["instructions"])
 				require.NotContains(t, out, "effective_cover")
+				require.NotContains(t, out, "capabilities")
 				require.NotContains(t, out, "allowedKegs")
 				if populated {
 					cover := out["cover"].([]any)[0].(map[string]any)

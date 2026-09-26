@@ -38,6 +38,8 @@ type ServerOptions struct {
 	KegProvider         KegDiscoveryProvider
 	KegSearchProvider   KegSearchProvider
 	IdentityProvider    IdentityProvider
+	AgentProvider       AgentProvider
+	NamespaceProvider   NamespaceProvider
 	// SharedFilesystem reports that this server and the agent host driving it
 	// see the same filesystem. That holds for stdio (`tap mcp`), where a path in
 	// a tool argument names the same file on both sides, and never for a hosted
@@ -67,6 +69,12 @@ func NewServer(tap *tapper.Tap, version string, defaults KegDefaults, opts ...Se
 	}
 	if opt.IdentityProvider == nil {
 		opt.IdentityProvider = localIdentityProvider{tap: tap}
+	}
+	if opt.AgentProvider == nil {
+		opt.AgentProvider = localAgentProvider{tap: tap}
+	}
+	if opt.NamespaceProvider == nil {
+		opt.NamespaceProvider = localNamespaceProvider{tap: tap}
 	}
 	defaults.gate = newSessionFlightGate(opt.OrientationProvider)
 	defaults.gate.clientVersion = version
@@ -110,6 +118,8 @@ func NewServer(tap *tapper.Tap, version string, defaults KegDefaults, opts ...Se
 	registerKegTools(srv, defaults, opt.KegProvider, opt.KegSearchProvider)
 	registerResourceTools(srv, tap, defaults)
 	registerAuthInfoTool(srv, defaults, opt.IdentityProvider, opt.KegProvider)
+	registerAgentTools(srv, defaults, opt.AgentProvider)
+	registerNamespaceTools(srv, opt.NamespaceProvider)
 
 	// Wrap the gate as well as handlers: recovery and SDK validation errors
 	// obey the same public response contract as successful operations.
@@ -204,12 +214,12 @@ func mcpDefaultLimit(limit int) int {
 }
 
 // mcpDefaultMaxLinesValue is the default maximum number of matched lines per
-// node returned by MCP grep when the caller does not specify max_lines. CLI
+// node returned by MCP node_search when the caller does not specify max_lines. CLI
 // defaults to unlimited (0); MCP callers benefit from bounded output to
 // reduce token usage.
 const mcpDefaultMaxLinesValue = 3
 
-// mcpDefaultMaxLines resolves the max_lines value for MCP grep. When the
+// mcpDefaultMaxLines resolves the max_lines value for MCP node_search. When the
 // caller omits max_lines (JSON zero value 0), the default of 3 is applied.
 // Passing -1 explicitly requests unlimited (converted to 0 for the Tap API).
 // Any positive value is passed through unchanged.
@@ -298,7 +308,7 @@ func errorResult(err error) *sdkmcp.CallToolResult {
 func errorGuidance(code string) (action string, operationPerformed any) {
 	switch code {
 	case keg.RemoteCodeNotFound:
-		return "The target was not found or is not readable. Confirm its identity with `list`/`grep` for nodes, `schema_list` for schemas, `list_flights`/`flight_search` for flights, or `keg_search` for KEGs before retrying.", false
+		return "The target was not found or is not readable. Confirm its identity with `node_list`/`node_search` for nodes, `schema_list` for schemas, `flight_list`/`flight_search` for flights, or `keg_search` for KEGs before retrying.", false
 	case keg.RemoteCodeExist, keg.RemoteCodeDestExists:
 		return "Something already occupies that id or name. Choose another, or edit the existing node instead.", false
 	case keg.RemoteCodeSchemaInvalid:
@@ -316,7 +326,7 @@ func errorGuidance(code string) (action string, operationPerformed any) {
 	case keg.RemoteCodeNotSupported:
 		return "This backend does not implement the operation. Do not retry unchanged; use a supported tool from tools/list or have the operator update the backend.", false
 	default:
-		return "The outcome is unknown: this failure may follow a partial write. Inspect the resource before retrying: `cat` for nodes, `schema_read` for schemas, `keg_settings` with minimal=false for settings, or `flight_show` for flights. Discover possible creations before repeating them; do not blindly replay a mutation.", nil
+		return "The outcome is unknown: this failure may follow a partial write. Inspect the resource before retrying: `node_read` for nodes, `schema_read` for schemas, `keg_settings_read` with minimal=false for settings, or `flight_read` for flights. Discover possible creations before repeating them; do not blindly replay a mutation.", nil
 	}
 }
 

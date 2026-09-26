@@ -32,10 +32,10 @@ func (t *Tap) Create(ctx context.Context, opts CreateOptions) (keg.NodeId, error
 	}
 	ctx = keg.WithDefaultValidationActor(ctx, keg.ValidationActorHuman)
 
-	// An attached but empty pipe is not content. tap edit and tap config edit
+	// An attached but empty pipe is not content. tap node edit and tap config edit
 	// both read the pipe and fall through to the editor when nothing came
 	// through it; create used to branch on the attachment alone, so
-	// `tap create < /dev/null` on a terminal tried to build a node out of
+	// `tap node create < /dev/null` on a terminal tried to build a node out of
 	// nothing instead of opening an editor — and its own help already promised
 	// the opposite ("if stdin is piped with non-empty content").
 	var piped []byte
@@ -159,7 +159,7 @@ func (t *Tap) createWithEditor(ctx context.Context, k keg.Keg, opts CreateOption
 	return created, nil
 }
 
-// shouldUseLiveEditorOnCreate reports whether `tap create` should open an
+// shouldUseLiveEditorOnCreate reports whether `tap node create` should open an
 // editor. Callers reach it only once piped content has been ruled out, so a
 // terminal is the whole condition — an attached but empty pipe still gets the
 // editor. --schema does not suppress it either: the schema is applied in the

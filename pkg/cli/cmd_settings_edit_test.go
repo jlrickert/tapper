@@ -175,7 +175,7 @@ func TestSettingsHelp_UsesEditSubcommand(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
 
-	res := NewProcess(t, false, "keg", "settings", "--help").Run(sb.Context(), sb.Runtime())
+	res := NewProcess(t, false, "keg", "settings", "read", "--help").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 
 	stdout := string(res.Stdout)
@@ -186,7 +186,7 @@ func TestSettingsHelp_UsesEditSubcommand(t *testing.T) {
 	require.NoError(t, editRes.Err)
 	require.Contains(t, string(editRes.Stdout), "piped")
 
-	oldRes := NewProcess(t, false, "keg", "settings", "--edit").Run(sb.Context(), sb.Runtime())
+	oldRes := NewProcess(t, false, "keg", "settings", "read", "--edit").Run(sb.Context(), sb.Runtime())
 	require.Error(t, oldRes.Err)
 	require.Contains(t, string(oldRes.Stderr), "unknown flag: --edit")
 }

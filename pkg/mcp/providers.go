@@ -86,10 +86,38 @@ type KegDiscoveryProvider interface {
 	// implementations do not filter by flight themselves.
 	ListKegs(context.Context) ([]string, error)
 	// CreateKeg provisions a keg and returns its canonical @namespace/keg ref.
-	// The MCP gate has already checked the flight's manage_kegs capability;
-	// implementations apply their own transport's identity authorization, which
-	// the capability never substitutes for.
+	// The MCP gate has already checked that the session is active; whether it
+	// may call keg_create at all is its agent's tools. Implementations apply
+	// their own transport's identity authorization.
 	CreateKeg(context.Context, tapper.CreateKegOptions) (string, error)
+}
+
+// AgentProvider reads and manages Hub agents: a namespace-owned model,
+// instructions, and tool allowlist. Implementations apply the caller's
+// namespace role (members read, owners and admins write); agent refs are
+// @namespace/name.
+type AgentProvider interface {
+	// ListAgents returns a namespace's agents, or with an empty namespace the
+	// agents of every namespace the caller belongs to.
+	ListAgents(ctx context.Context, namespace string) ([]tapper.HubAgent, error)
+	// GetAgent returns one agent, including its instructions.
+	GetAgent(ctx context.Context, ref string) (*tapper.HubAgent, error)
+	// CreateAgent creates an agent and returns it as stored.
+	CreateAgent(context.Context, tapper.CreateAgentOptions) (*tapper.HubAgent, error)
+	// EditAgent applies the set fields and returns the agent as stored.
+	EditAgent(context.Context, tapper.EditAgentOptions) (*tapper.HubAgent, error)
+	// DeleteAgent removes an agent.
+	DeleteAgent(ctx context.Context, ref string) error
+}
+
+// NamespaceProvider discovers namespaces: the caller's own, and a search
+// across the hub. Discovery never grants authority.
+type NamespaceProvider interface {
+	// ListNamespaces returns the namespaces the caller belongs to, with role.
+	ListNamespaces(context.Context) ([]tapper.HubNamespace, error)
+	// SearchNamespaces returns a bounded page of namespaces visible on the
+	// hub whose name or display name matches query; empty browses.
+	SearchNamespaces(ctx context.Context, query string) (tapper.NamespaceSearchResult, error)
 }
 
 // KegSearchRow is identity-authorized KEG metadata. Search results are not a
@@ -205,6 +233,18 @@ func (p *localOrientationProvider) Load(ctx context.Context) (*Orientation, erro
 	ref := strings.TrimSpace(p.staticFlight)
 	if ref == "" {
 		ref = p.tap.ActiveFlightName("")
+	}
+	if agentRef := strings.TrimSpace(p.tap.Runtime.Env().Get("TAP_AGENT")); agentRef != "" {
+		agent, err := p.tap.HubAgent(ctx, agentRef)
+		if err != nil {
+			return nil, err
+		}
+		if ref == "" {
+			ref = strings.TrimSpace(agent.Flight)
+		}
+		if ref == "" {
+			return nil, fmt.Errorf("agent %s has no flight, so it has no KEG access: %w", agentRef, ErrOrientationDenied)
+		}
 	}
 	if strings.TrimSpace(ref) == "" {
 		return p.resolveUnpinned(ctx, "")
@@ -452,8 +492,7 @@ func selectableFlightRefs(graph *tapper.FlightGraph) []string {
 }
 
 // EffectiveOrientationRole intersects the identity's current ACL role with
-// the selected flight's cover cap. full_access is represented by an admin cap,
-// so it naturally contributes the identity role without widening it.
+// the selected flight's cover cap, so a cover never widens the identity role.
 func EffectiveOrientationRole(row tapper.OrientationKeg) string {
 	return tapper.EffectiveOrientationRole(row)
 }
@@ -519,11 +558,10 @@ func FinalizeOrientation(orientation *Orientation) error {
 		return nil
 	}
 	type flightAuthority struct {
-		Name         string                    `json:"name"`
-		Visibility   string                    `json:"visibility"`
-		Capabilities []tapper.FlightCapability `json:"capabilities"`
-		Cover        []tapper.FlightCover      `json:"cover"`
-		Instructions string                    `json:"instructions"`
+		Name         string               `json:"name"`
+		Visibility   string               `json:"visibility"`
+		Cover        []tapper.FlightCover `json:"cover"`
+		Instructions string               `json:"instructions"`
 	}
 	type kegAuthority struct {
 		Ref        string `json:"ref"`
@@ -548,11 +586,9 @@ func FinalizeOrientation(orientation *Orientation) error {
 	if orientation.Flight != nil {
 		in.Active = flightAuthority{
 			Name: orientation.Flight.Name, Visibility: orientation.Flight.Visibility,
-			Capabilities: append([]tapper.FlightCapability(nil), orientation.Flight.Capabilities...),
 			Cover:        append([]tapper.FlightCover(nil), orientation.Flight.Cover...),
 			Instructions: orientation.Flight.Instructions,
 		}
-		sort.Slice(in.Active.Capabilities, func(i, j int) bool { return in.Active.Capabilities[i] < in.Active.Capabilities[j] })
 		sort.Slice(in.Active.Cover, func(i, j int) bool {
 			left, right := in.Active.Cover[i], in.Active.Cover[j]
 			if left.Namespace != right.Namespace {
@@ -657,6 +693,34 @@ func SearchIdentityKegsResult(rows []tapper.OrientationKeg, query string) KegSea
 		out.Kegs = out.Kegs[:50]
 	}
 	return out
+}
+
+type localAgentProvider struct{ tap *tapper.Tap }
+
+func (p localAgentProvider) ListAgents(ctx context.Context, namespace string) ([]tapper.HubAgent, error) {
+	return p.tap.ListAgents(ctx, tapper.ListAgentsOptions{Namespace: namespace})
+}
+func (p localAgentProvider) GetAgent(ctx context.Context, ref string) (*tapper.HubAgent, error) {
+	return p.tap.GetAgent(ctx, tapper.GetAgentOptions{Ref: ref})
+}
+func (p localAgentProvider) CreateAgent(ctx context.Context, opts tapper.CreateAgentOptions) (*tapper.HubAgent, error) {
+	return p.tap.CreateAgent(ctx, opts)
+}
+func (p localAgentProvider) EditAgent(ctx context.Context, opts tapper.EditAgentOptions) (*tapper.HubAgent, error) {
+	return p.tap.EditAgent(ctx, opts)
+}
+func (p localAgentProvider) DeleteAgent(ctx context.Context, ref string) error {
+	return p.tap.DeleteAgent(ctx, tapper.DeleteAgentOptions{Ref: ref})
+}
+
+type localNamespaceProvider struct{ tap *tapper.Tap }
+
+func (p localNamespaceProvider) ListNamespaces(ctx context.Context) ([]tapper.HubNamespace, error) {
+	res, err := p.tap.NamespaceList(ctx, tapper.NamespaceListOptions{})
+	return res.Namespaces, err
+}
+func (p localNamespaceProvider) SearchNamespaces(ctx context.Context, query string) (tapper.NamespaceSearchResult, error) {
+	return p.tap.NamespaceSearch(ctx, tapper.NamespaceSearchOptions{Query: query})
 }
 
 type localIdentityProvider struct{ tap *tapper.Tap }

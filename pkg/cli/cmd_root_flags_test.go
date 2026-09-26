@@ -77,7 +77,7 @@ func TestTap_DirectCatBypassesFlightCover(t *testing.T) {
 
 	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
 
-	res := NewProcess(t, false, "cat", "0", "--keg", "work", "--flight", "+focused", "--content-only").Run(sb.Context(), sb.Runtime())
+	res := NewProcess(t, false, "node", "read", "0", "--keg", "work", "--flight", "+focused", "--content-only").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 	require.Contains(t, string(res.Stdout), "# Sorry, planned but not yet available")
 }
@@ -100,7 +100,7 @@ func TestTap_RootPersistentKegFlagBeforeCommand(t *testing.T) {
 
 	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
 
-	res := NewProcess(t, false, "--keg", "personal", "cat", "1").Run(sb.Context(), sb.Runtime())
+	res := NewProcess(t, false, "--keg", "personal", "node", "read", "1").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 	require.Contains(t, string(res.Stdout), "# Personal Overview")
 }
@@ -152,7 +152,7 @@ func TestTap_KegNamespaceConflict(t *testing.T) {
 
 	sb := NewSandbox(t, testutils.WithFixture("testuser", "~"))
 
-	res := NewProcess(t, false, "cat", "0", "--keg", "@work/dev", "--namespace", "other").Run(sb.Context(), sb.Runtime())
+	res := NewProcess(t, false, "node", "read", "0", "--keg", "@work/dev", "--namespace", "other").Run(sb.Context(), sb.Runtime())
 	require.Error(t, res.Err)
 	require.Contains(t, string(res.Stderr), "conflicts with the namespace")
 }

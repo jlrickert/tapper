@@ -10,13 +10,13 @@ Keg config is metadata stored in a keg repository itself.
 ## View And Edit
 
 ```bash
-tap keg settings
-tap keg settings --keg @namespace/name
+tap keg settings read
+tap keg settings read --keg @namespace/name
 tap keg settings edit
 cat keg.yaml | tap keg settings edit --keg @namespace/name
 ```
 
-Use `tap keg settings` commands for keg metadata. Use `tap config` for
+Use `tap keg settings read` commands for keg metadata. Use `tap config` for
 user/project resolver settings.
 
 ## Field Reference (User-Facing)
@@ -37,7 +37,7 @@ Common keg fields:
 Use `description` for a concise discovery description: orientation uses
 it to help agents identify relevant KEGs and does not automatically truncate
 it. Use `instructions` for targeted operational guidance. Instructions are
-loaded only after an agent explicitly selects the KEG through `keg_settings`;
+loaded only after an agent explicitly selects the KEG through `keg_settings_read`;
 they are not included in aggregate orientation.
 
 `schemaPolicy.strict` is a live-write selection rule. When strict is enabled
@@ -45,7 +45,7 @@ and a nonzero node create or edit resolves to validation mode `block`, that
 write must explicitly select one schema. The selection becomes the completed
 node's `meta.type`, and the completed content and metadata are validated
 against it. An existing stored type does not satisfy the explicit-selection
-requirement. Use `--schema TYPE` with `tap create`, `tap edit`, or metadata
+requirement. Use `--schema TYPE` with `tap node create`, `tap node edit`, or metadata
 writes.
 
 `human`, `agent`, and `api` each accept `off`, `warn`, or `block`, and continue
@@ -72,8 +72,8 @@ with no `strict` field remain non-strict.
 - Prefer `tap keg settings edit` to edit with validation.
 - Pipe YAML to `tap keg settings edit` when you want non-interactive updates.
 - Keep YAML valid and key names consistent.
-- Save small changes and re-run `tap keg settings` to confirm output.
-- Use `tap info --keg @namespace/name` to confirm a resolved target when
+- Save small changes and re-run `tap keg settings read` to confirm output.
+- Use `tap keg info --keg @namespace/name` to confirm a resolved target when
   debugging selection.
 
 Legacy `summary` remains readable when `description` is absent. An explicitly

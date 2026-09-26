@@ -87,3 +87,15 @@ func ListNamespaces(ctx context.Context, hubURL, token string) ([]HubNamespace, 
 func CreateNamespace(ctx context.Context, hubURL, token, name string) (*HubNamespace, error) {
 	return nil, fmt.Errorf("hub namespace creation is disabled for remote clients; use the hub UI: %w", keg.ErrNotSupported)
 }
+
+// SearchHubNamespaces searches the hub's visible namespaces by name.
+func SearchHubNamespaces(ctx context.Context, hubURL, token, query string) (NamespaceSearchResult, error) {
+	var out NamespaceSearchResult
+	if err := doHubJSON(ctx, http.MethodPost, hubURL, token, "/api/v1/namespaces/search", map[string]string{"query": query}, &out); err != nil {
+		return NamespaceSearchResult{}, err
+	}
+	if out.Namespaces == nil {
+		out.Namespaces = []NamespaceMatch{}
+	}
+	return out, nil
+}

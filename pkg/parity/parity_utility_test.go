@@ -17,7 +17,7 @@ func TestParity_IndexOperations(t *testing.T) {
 		{
 			Name:     "index/rebuild_succeeds_on_both",
 			CLIArgs:  []string{"index", "rebuild"},
-			MCPTool:  "index",
+			MCPTool:  "index_rebuild",
 			MCPInput: map[string]any{},
 			Compare: func(t *testing.T, cliOut, mcpOut string) {
 				t.Helper()
@@ -34,7 +34,7 @@ func TestParity_IndexOperations(t *testing.T) {
 		{
 			Name:     "list_indexes/both_show_index_files",
 			CLIArgs:  []string{"index", "list"},
-			MCPTool:  "list_indexes",
+			MCPTool:  "index_list",
 			MCPInput: map[string]any{},
 			Compare: func(t *testing.T, cliOut, mcpOut string) {
 				t.Helper()
@@ -49,8 +49,8 @@ func TestParity_IndexOperations(t *testing.T) {
 		// CLI uses `index get`, MCP uses `index_cat`.
 		{
 			Name:    "index_cat/nodes_tsv",
-			CLIArgs: []string{"index", "get", "nodes.tsv"},
-			MCPTool: "index_cat",
+			CLIArgs: []string{"index", "read", "nodes.tsv"},
+			MCPTool: "index_read",
 			MCPInput: map[string]any{
 				"name": "nodes.tsv",
 			},
@@ -59,8 +59,8 @@ func TestParity_IndexOperations(t *testing.T) {
 		// --- doctor ---
 		{
 			Name:     "doctor/both_succeed",
-			CLIArgs:  []string{"doctor"},
-			MCPTool:  "doctor",
+			CLIArgs:  []string{"keg", "check"},
+			MCPTool:  "keg_check",
 			MCPInput: map[string]any{},
 			Compare: func(t *testing.T, cliOut, mcpOut string) {
 				t.Helper()
@@ -87,7 +87,7 @@ func TestParity_SnapshotOperations(t *testing.T) {
 		require.NoError(t, err, "CLI snapshot should succeed")
 
 		// Check history via MCP.
-		mcpHistory, err := env.runMCP("node_history", map[string]any{
+		mcpHistory, err := env.runMCP("snapshot_list", map[string]any{
 			"node_id": "0",
 		})
 		require.NoError(t, err, "MCP node_history should succeed")
@@ -100,7 +100,7 @@ func TestParity_SnapshotOperations(t *testing.T) {
 		env := newParityEnv(t)
 
 		// Snapshot node 0 via MCP.
-		_, err := env.runMCP("node_snapshot", map[string]any{
+		_, err := env.runMCP("snapshot_create", map[string]any{
 			"nodes": []any{map[string]any{
 				"node_id": "0",
 				"message": "mcp snapshot",
@@ -109,7 +109,7 @@ func TestParity_SnapshotOperations(t *testing.T) {
 		require.NoError(t, err, "MCP snapshot should succeed")
 
 		// Check history via CLI.
-		cliHistory, err := env.runCLI("snapshot", "history", "0")
+		cliHistory, err := env.runCLI("snapshot", "list", "0")
 		require.NoError(t, err, "CLI snapshot list should succeed")
 		require.Contains(t, cliHistory, "mcp snapshot",
 			"CLI should see MCP-created snapshot in history")
@@ -122,10 +122,10 @@ func TestParity_SnapshotOperations(t *testing.T) {
 		t.Parallel()
 		env := newParityEnv(t)
 
-		cliHistory, err := env.runCLI("snapshot", "history", "0")
+		cliHistory, err := env.runCLI("snapshot", "list", "0")
 		require.NoError(t, err)
 
-		mcpHistory, err := env.runMCP("node_history", map[string]any{
+		mcpHistory, err := env.runMCP("snapshot_list", map[string]any{
 			"node_id": "0",
 		})
 		require.NoError(t, err)
@@ -285,8 +285,8 @@ func TestParity_FileOperations(t *testing.T) {
 		// while MCP returns "no files" / "no images".
 		{
 			Name:    "list_files/empty_node",
-			CLIArgs: []string{"file", "ls", "0"},
-			MCPTool: "list_files",
+			CLIArgs: []string{"file", "list", "0"},
+			MCPTool: "file_list",
 			MCPInput: map[string]any{
 				"node_id": "0",
 			},
@@ -301,8 +301,8 @@ func TestParity_FileOperations(t *testing.T) {
 		},
 		{
 			Name:    "list_images/empty_node",
-			CLIArgs: []string{"image", "ls", "0"},
-			MCPTool: "list_images",
+			CLIArgs: []string{"image", "list", "0"},
+			MCPTool: "image_list",
 			MCPInput: map[string]any{
 				"node_id": "0",
 			},
@@ -338,7 +338,7 @@ func TestParity_FileUploadDownload(t *testing.T) {
 
 	// Download via MCP to verify CLI upload worked.
 	mcpDestPath := "/home/testuser/parity-mcp-download.txt"
-	mcpDownload, err := env.runMCP("download_file", map[string]any{
+	mcpDownload, err := env.runMCP("file_download", map[string]any{
 		"node_id":   "0",
 		"filename":  "parity.txt",
 		"dest_path": mcpDestPath,
@@ -351,10 +351,10 @@ func TestParity_FileUploadDownload(t *testing.T) {
 	require.Equal(t, "parity test data", string(mcpGot))
 
 	// Clean up and re-upload via MCP.
-	_, err = env.runCLI("file", "rm", "0", "parity.txt")
+	_, err = env.runCLI("file", "delete", "0", "parity.txt")
 	require.NoError(t, err)
 
-	_, err = env.runMCP("upload_file", map[string]any{
+	_, err = env.runMCP("file_upload", map[string]any{
 		"node_id":     "0",
 		"filename":    "parity.txt",
 		"source_path": srcPath,
@@ -391,7 +391,7 @@ func TestParity_ImageUploadDownload(t *testing.T) {
 
 	// Download via MCP to verify CLI upload worked.
 	mcpDestPath := "/home/testuser/parity-mcp-image.png"
-	mcpDownload, err := env.runMCP("download_image", map[string]any{
+	mcpDownload, err := env.runMCP("image_download", map[string]any{
 		"node_id":   "0",
 		"filename":  "parity.png",
 		"dest_path": mcpDestPath,
@@ -404,10 +404,10 @@ func TestParity_ImageUploadDownload(t *testing.T) {
 	require.Equal(t, pngData, mcpGot)
 
 	// Clean up and re-upload via MCP.
-	_, err = env.runCLI("image", "rm", "0", "parity.png")
+	_, err = env.runCLI("image", "delete", "0", "parity.png")
 	require.NoError(t, err)
 
-	_, err = env.runMCP("upload_image", map[string]any{
+	_, err = env.runMCP("image_upload", map[string]any{
 		"node_id":     "0",
 		"filename":    "parity.png",
 		"source_path": srcPath,

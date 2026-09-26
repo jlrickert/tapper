@@ -29,7 +29,7 @@ func renderOne(t *testing.T, format string, src nodeFieldSource) string {
 
 func TestCompileListFormatDefaultIsUnchanged(t *testing.T) {
 	// The default must stay byte-identical to the historical output, or every
-	// script parsing `tap list` breaks.
+	// script parsing `tap node list` breaks.
 	got := renderOne(t, "", nodeFieldSource{entry: testEntry()})
 	want := "3\t2026-07-29T12:00:00Z\tA Node"
 	if got != want {

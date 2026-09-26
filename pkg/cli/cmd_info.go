@@ -11,8 +11,8 @@ import (
 //
 // Usage examples:
 //
-//	tap info
-//	tap info --keg myalias
+//	tap keg info
+//	tap keg info --keg myalias
 func NewInfoCmd(deps *Deps) *cobra.Command {
 	var opts tapper.InfoOptions
 

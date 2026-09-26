@@ -87,7 +87,7 @@ type SettingsV2 struct {
 	// the vocabulary of ParseFieldSelector: a bare word names a metadata key
 	// ("type", "subkind"), a leading dot names a statistics field (".omega"),
 	// and "id", "title", and "tags" are reserved. One setting drives both the
-	// default `tap list` format and the columns of the hosted node list, so a
+	// default `tap node list` format and the columns of the hosted node list, so a
 	// keg presents the same shape everywhere. Empty means the built-in default.
 	ListFields []string `yaml:"listFields,omitempty" json:"list_fields,omitempty"`
 

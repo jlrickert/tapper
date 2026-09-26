@@ -78,7 +78,7 @@ func publicToolResponse(call *sdkmcp.CallToolResult) (*sdkmcp.CallToolResult, er
 }
 
 // Offset listings have no stable cursor or total in the service result. Do not
-// invent a completion claim from rendered line counts (grep spans many lines).
+// invent a completion claim from rendered line counts (node_search spans many lines).
 // A nonempty bounded page supplies a safe next request; an empty page ends it.
 func pagedLinesResult(lines []string, offset, limit int) *sdkmcp.CallToolResult {
 	result := linesResult(lines)

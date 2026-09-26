@@ -37,7 +37,7 @@ func schemaProperties(t *testing.T, schema any) map[string]string {
 
 // formatToolNames are the tools whose output is rendered through the shared
 // listing formatter, and which therefore must advertise the shared vocabulary.
-var formatToolNames = []string{"list", "grep", "tags", "backlinks", "links"}
+var formatToolNames = []string{"node_list", "node_search", "tag_list", "node_backlinks", "node_links"}
 
 // TestMCP_FormatSchemaAdvertisesSharedVocabulary pins the generated tool
 // schemas to the vocabulary the formatter actually implements.

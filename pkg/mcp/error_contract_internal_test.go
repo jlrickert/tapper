@@ -15,7 +15,7 @@ import (
 // error contract from decaying back into bare prose.
 //
 // An agent that gets only a sentence cannot tell whether its write landed, and
-// in field testing that gap produced invented rules: a tester concluded `edit`
+// in field testing that gap produced invented rules: a tester concluded `node_edit`
 // required `schema` and that `expected_hash` validation was self-contradictory,
 // because errors said what was wrong without saying where or what to do next.
 //
@@ -95,5 +95,5 @@ func TestUnclassifiedErrorsDoNotClaimNothingHappened(t *testing.T) {
 	performed, present := got["operationPerformed"]
 	require.True(t, present)
 	require.Nil(t, performed, "an unclassified failure must report unknown, not false")
-	require.Contains(t, got["action"], "cat", "the action must tell the agent how to establish current state")
+	require.Contains(t, got["action"], "node_read", "the action must tell the agent how to establish current state")
 }

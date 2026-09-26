@@ -63,7 +63,7 @@ func TestQuery_AttrPredicate_Tags(t *testing.T) {
 			t.Parallel()
 			sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
 
-			res := NewProcess(t, false, "tags", "--keg", "personal", "--query", tc.query, "--id-only").
+			res := NewProcess(t, false, "tag", "list", "--keg", "personal", "--query", tc.query, "--id-only").
 				Run(sb.Context(), sb.Runtime())
 			require.NoError(t, res.Err)
 
@@ -85,7 +85,7 @@ func TestQuery_AttrPredicate_List(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
 
-	res := NewProcess(t, false, "list", "--keg", "personal", "--query", "entity=concept", "--id-only").
+	res := NewProcess(t, false, "node", "list", "--keg", "personal", "--query", "entity=concept", "--id-only").
 		Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 
@@ -99,7 +99,7 @@ func TestQuery_AttrPredicate_Cat(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
 
-	res := NewProcess(t, false, "cat", "--keg", "personal", "--query", "entity=concept").
+	res := NewProcess(t, false, "node", "read", "--keg", "personal", "--query", "entity=concept").
 		Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 
@@ -114,7 +114,7 @@ func TestQuery_InvalidExpression(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
 
-	res := NewProcess(t, false, "tags", "--keg", "personal", "--query", "a and (b").
+	res := NewProcess(t, false, "tag", "list", "--keg", "personal", "--query", "a and (b").
 		Run(sb.Context(), sb.Runtime())
 	require.Error(t, res.Err)
 	require.Contains(t, string(res.Stderr), "invalid query expression")

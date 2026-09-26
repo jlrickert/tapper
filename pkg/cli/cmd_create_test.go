@@ -25,7 +25,7 @@ func TestCreate_Table(t *testing.T) {
 	}{
 		{
 			name:     "default_keg",
-			args:     []string{"create"},
+			args:     []string{"node", "create"},
 			stdin:    "# Note\n\none-line\n",
 			exactOut: "1",
 			readmeContains: []string{
@@ -41,7 +41,7 @@ func TestCreate_Table(t *testing.T) {
 		},
 		{
 			name:     "with_tags",
-			args:     []string{"create"},
+			args:     []string{"node", "create"},
 			stdin:    "---\ntags:\n  - alpha\n  - beta\n---\n# Tagged\n\nhas tags\n",
 			outRegex: `^\d+`,
 			metaContains: []string{
@@ -52,7 +52,7 @@ func TestCreate_Table(t *testing.T) {
 		},
 		{
 			name:     "with_schema",
-			args:     []string{"create", "--schema", "note"},
+			args:     []string{"node", "create", "--schema", "note"},
 			stdin:    "# Schema Note\n",
 			outRegex: `^\d+`,
 			metaContains: []string{
@@ -130,7 +130,7 @@ func TestCreate_FromStdin(t *testing.T) {
 		testutils.WithFixture("testuser", "/home/testuser"),
 	)
 
-	proc := NewProcess(t, true, "create")
+	proc := NewProcess(t, true, "node", "create")
 
 	stdin := "Title line\n\nThis content came from stdin.\n"
 	res := proc.RunWithIO(fx.Context(), fx.Runtime(), strings.NewReader(stdin))
@@ -157,7 +157,7 @@ func TestCreate_FromStdin(t *testing.T) {
 func TestCreate_WithoutContentOrTerminal(t *testing.T) {
 	fx := NewSandbox(t, testutils.WithFixture("testuser", "/home/testuser"))
 
-	res := NewProcess(t, false, "create").Run(fx.Context(), fx.Runtime())
+	res := NewProcess(t, false, "node", "create").Run(fx.Context(), fx.Runtime())
 
 	require.Error(t, res.Err)
 	require.Contains(t, res.Err.Error(), "no content to create a node from")
@@ -192,14 +192,14 @@ func TestCreate_EditorWritesTheNode(t *testing.T) {
 		"---\ntags:\n  - drafted\n---\n# Written In The Editor\n\nBody typed by the author.\n"+
 		"' > \"$1\"\n")
 
-	res := NewProcess(t, true, "create").RunWithIO(sb.Context(), sb.Runtime(), strings.NewReader(""))
+	res := NewProcess(t, true, "node", "create").RunWithIO(sb.Context(), sb.Runtime(), strings.NewReader(""))
 	require.NoError(t, res.Err)
 	require.Regexp(t, `^\d+`, strings.TrimSpace(string(res.Stdout)))
 
 	content := fixtureContent(t, sb.Runtime(), "example", "1")
 	require.Contains(t, content, "# Written In The Editor")
 	require.Contains(t, content, "Body typed by the author.")
-	// Frontmatter lands in meta, exactly as tap edit splits it: the buffer is
+	// Frontmatter lands in meta, exactly as tap node edit splits it: the buffer is
 	// one document to the author and two fields to the keg.
 	require.NotContains(t, content, "tags:")
 	require.Contains(t, fixtureMeta(t, sb.Runtime(), "example", "1"), "- drafted")
@@ -212,7 +212,7 @@ func TestCreate_EditorQuitWithoutSavingCreatesNothing(t *testing.T) {
 	sb := NewSandbox(t, testutils.WithFixture("testuser", "/home/testuser"))
 	editorScript(t, sb, "create-abandon", "#!/bin/sh\nexit 0\n")
 
-	res := NewProcess(t, true, "create").RunWithIO(sb.Context(), sb.Runtime(), strings.NewReader(""))
+	res := NewProcess(t, true, "node", "create").RunWithIO(sb.Context(), sb.Runtime(), strings.NewReader(""))
 	require.Error(t, res.Err)
 	require.Contains(t, res.Err.Error(), "exited without saving")
 	require.Empty(t, strings.TrimSpace(string(res.Stdout)))
@@ -232,7 +232,7 @@ func TestCreate_EditorRetriesAfterRejectedSave(t *testing.T) {
 		"printf '%s' '# Fixed Title\n\nSecond attempt.\n' > \"$1\"\n"+
 		"sleep 3\n")
 
-	res := NewProcess(t, true, "create").RunWithIO(sb.Context(), sb.Runtime(), strings.NewReader(""))
+	res := NewProcess(t, true, "node", "create").RunWithIO(sb.Context(), sb.Runtime(), strings.NewReader(""))
 	require.NoError(t, res.Err)
 
 	content := fixtureContent(t, sb.Runtime(), "example", "1")
@@ -260,7 +260,7 @@ func TestCreate_EditorKeepsCreatedNodeWhenALaterSaveIsRejected(t *testing.T) {
 		"printf '%s' '---\nnot: [valid\n---\n# Broken Final\n' > \"$1\"\n"+
 		"sleep 3\n")
 
-	res := NewProcess(t, true, "create").RunWithIO(sb.Context(), sb.Runtime(), strings.NewReader(""))
+	res := NewProcess(t, true, "node", "create").RunWithIO(sb.Context(), sb.Runtime(), strings.NewReader(""))
 	require.NoError(t, res.Err)
 
 	content := fixtureContent(t, sb.Runtime(), "example", "1")
@@ -276,7 +276,7 @@ func TestCreate_EditorKeepsCreatedNodeWhenALaterSaveIsRejected(t *testing.T) {
 
 // TestCreate_EditorPreservesDraftWhenNothingCanBeCreated covers the data-loss
 // path. If every save is rejected, the author's work exists only in the temp
-// buffer — deleting it on the way out, which is safe for tap edit because its
+// buffer — deleting it on the way out, which is safe for tap node edit because its
 // saves land during the session, would throw the whole draft away here.
 func TestCreate_EditorPreservesDraftWhenNothingCanBeCreated(t *testing.T) {
 	sb := NewSandbox(t, testutils.WithFixture("testuser", "/home/testuser"))
@@ -284,7 +284,7 @@ func TestCreate_EditorPreservesDraftWhenNothingCanBeCreated(t *testing.T) {
 		"printf '%s' '---\nnot: [valid\n---\n# Hours Of Work\n' > \"$1\"\n"+
 		"sleep 3\n")
 
-	res := NewProcess(t, true, "create").RunWithIO(sb.Context(), sb.Runtime(), strings.NewReader(""))
+	res := NewProcess(t, true, "node", "create").RunWithIO(sb.Context(), sb.Runtime(), strings.NewReader(""))
 	require.Error(t, res.Err)
 	require.Contains(t, res.Err.Error(), "your draft is kept at ")
 	require.False(t, fixtureNodeExists(t, sb.Runtime(), "example", "1"))
@@ -309,7 +309,7 @@ func TestCreate_EditorSchemaPrefillsType(t *testing.T) {
 		"cp \"$1\" \"$(dirname \"$1\")/opened-buffer.txt\"\n"+
 		"printf '%s' '# Typed Note\n' > \"$1\"\n")
 
-	res := NewProcess(t, true, "create", "--schema", "note").RunWithIO(sb.Context(), sb.Runtime(), strings.NewReader(""))
+	res := NewProcess(t, true, "node", "create", "--schema", "note").RunWithIO(sb.Context(), sb.Runtime(), strings.NewReader(""))
 	require.NoError(t, res.Err)
 	require.Contains(t, fixtureMeta(t, sb.Runtime(), "example", "1"), "type: note")
 }

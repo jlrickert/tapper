@@ -45,11 +45,33 @@ const APIOpenAIChatCompletions = "openai.chat.completions"
 // CapabilityTranscription, so a relay that predates it never sees one.
 const APIOpenAIAudioTranscriptions = "openai.audio.transcriptions"
 
+// APIOpenAIEmbeddings turns text into vectors. The request body is OpenAI's
+// /embeddings JSON (input, and optionally dimensions and encoding_format); the
+// relay answers with exactly one chunk, the provider's response, then done.
+// Hub only sends it to models advertising CapabilityEmbeddings, so a relay
+// that predates it never sees one.
+const APIOpenAIEmbeddings = "openai.embeddings"
+
 // Model capabilities a relay advertises.
 const (
 	CapabilityChat          = "chat"
 	CapabilityStream        = "stream"
 	CapabilityTranscription = "transcription"
+	CapabilityEmbeddings    = "embeddings"
+	// CapabilityTools: the model can call tools (OpenAI function calling).
+	CapabilityTools = "tools"
+	// CapabilityVision: the model accepts image input.
+	CapabilityVision = "vision"
+)
+
+// Reasoning modes a relay advertises for a model. Empty means the model does
+// not reason, or the relay cannot tell. A value Hub does not know reads as
+// empty, so a newer relay never fails registration over it.
+const (
+	// ReasoningToggle: thinking can be turned on or off, with no levels.
+	ReasoningToggle = "toggle"
+	// ReasoningEffort: thinking takes an effort level (low, medium, high).
+	ReasoningEffort = "effort"
 )
 
 // MaxTranscriptionAudioBytes bounds one recording. Base64 in a JSON frame, it
@@ -151,12 +173,25 @@ type Limits struct {
 // Priority is the relay owner's ranking, 1 to MaxPriority with lower
 // preferred; 0 is unranked and sorts after every ranked model. Hub lists
 // models and routes pool requests in that order.
+//
+// ContextWindow is the window the provider actually serves the model with
+// (for Ollama, the allocated num_ctx); MaxContextWindow is the most the model
+// supports. Either is 0 when unknown. Reasoning is one of the Reasoning*
+// modes, or empty.
+//
+// Canonical is the provider-neutral name the model pools under, so the same
+// weights served by different providers or relays share one Hub id. Empty
+// means Hub derives it with CanonicalModel; a value ValidCanonical rejects is
+// ignored the same way.
 type Model struct {
-	ID            string   `json:"id"`
-	Provider      string   `json:"provider"`
-	ContextWindow int      `json:"contextWindow,omitempty"`
-	Capabilities  []string `json:"capabilities,omitempty"`
-	Priority      int      `json:"priority,omitempty"`
+	ID               string   `json:"id"`
+	Provider         string   `json:"provider"`
+	ContextWindow    int      `json:"contextWindow,omitempty"`
+	MaxContextWindow int      `json:"maxContextWindow,omitempty"`
+	Reasoning        string   `json:"reasoning,omitempty"`
+	Capabilities     []string `json:"capabilities,omitempty"`
+	Priority         int      `json:"priority,omitempty"`
+	Canonical        string   `json:"canonical,omitempty"`
 }
 
 // Registered is Hub's answer to Register.
@@ -246,7 +281,7 @@ func (c *Catalog) Validate() error { return validateModels(c.Models) }
 
 // Validate checks the infer frame.
 func (i *Infer) Validate() error {
-	if i.API != APIOpenAIChatCompletions && i.API != APIOpenAIAudioTranscriptions {
+	if i.API != APIOpenAIChatCompletions && i.API != APIOpenAIAudioTranscriptions && i.API != APIOpenAIEmbeddings {
 		return fmt.Errorf("unsupported api %q", i.API)
 	}
 	if err := validateName("provider", i.Provider); err != nil {
@@ -319,6 +354,9 @@ func validateModels(models []Model) error {
 		}
 		if m.Priority < 0 || m.Priority > MaxPriority {
 			return fmt.Errorf("models[%d].priority must be between 0 and %d", i, MaxPriority)
+		}
+		if m.ContextWindow < 0 || m.MaxContextWindow < 0 {
+			return fmt.Errorf("models[%d] context windows must not be negative", i)
 		}
 		key := m.Provider + "/" + m.ID
 		if _, dup := seen[key]; dup {

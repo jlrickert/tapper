@@ -60,9 +60,9 @@ instructions: |
 identity `keg_search`.
 It should help an agent decide whether the KEG is relevant and is not
 automatically truncated. `instructions` is targeted operational guidance.
-Aggregate orientation never includes it, even under `full_access`.
+Aggregate orientation never includes it.
 
-After selecting relevant KEGs, call `keg_settings` with either `keg` or
+After selecting relevant KEGs, call `keg_settings_read` with either `keg` or
 `kegs`. Minimal mode is the default and returns title, summary, updated
 metadata, and instructions. Up to 100 canonical references may be expanded
 together:
