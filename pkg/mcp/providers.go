@@ -272,7 +272,7 @@ func (p *localOrientationProvider) resolveUnpinned(ctx context.Context, selected
 			return nil, err
 		}
 		authority := &tapper.OrientationAuthority{FullAccess: true, AvailableFlights: available, Revision: orientation.Revision}
-		payload, err := tapper.BuildOrientationPayload(nil, localUnpinnedInstructions(warnings), p.tap.ActiveAgentName(), authorized, warnings, authority)
+		payload, err := tapper.BuildOrientationPayload(nil, localUnpinnedInstructions(warnings), p.tap.ActiveLaunch(), authorized, warnings, authority)
 		if err != nil {
 			return nil, err
 		}
@@ -312,7 +312,7 @@ func (p *localOrientationProvider) resolveUnpinned(ctx context.Context, selected
 		Children:   tapper.ImmediateFlightChildren(active, catalog),
 		FullAccess: true,
 	}
-	payload, err := tapper.BuildOrientationPayload(active, "", p.tap.ActiveAgentName(), kegs, warnings, authority)
+	payload, err := tapper.BuildOrientationPayload(active, "", p.tap.ActiveLaunch(), kegs, warnings, authority)
 	if err != nil {
 		return nil, err
 	}
@@ -397,7 +397,7 @@ func (p *localOrientationProvider) resolve(ctx context.Context, root *tapper.Fli
 	if strings.TrimSpace(selected) == "" {
 		discovery = aggregate
 	}
-	payload, err := tapper.BuildOrientationPayload(active, "", p.tap.ActiveAgentName(), discovery, warnings, authority)
+	payload, err := tapper.BuildOrientationPayload(active, "", p.tap.ActiveLaunch(), discovery, warnings, authority)
 	if err != nil {
 		return nil, err
 	}
@@ -423,7 +423,7 @@ func (p *localOrientationProvider) Render(ctx context.Context, flight *tapper.Fl
 	authority := &tapper.OrientationAuthority{
 		Root: flight, Active: flight, Path: orientation.Path, Revision: orientation.Revision,
 	}
-	payload, err := tapper.BuildOrientationPayload(flight, "", p.tap.ActiveAgentName(), kegs, warnings, authority)
+	payload, err := tapper.BuildOrientationPayload(flight, "", p.tap.ActiveLaunch(), kegs, warnings, authority)
 	if err != nil {
 		return nil, err
 	}

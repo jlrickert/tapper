@@ -28,9 +28,9 @@ const (
 // Tool according to Surface. ClientVersion and Agent are injected by the
 // reporter.
 //
-// Agent is the configured `tap launch` agent alias driving the process, empty
-// when a human is. It is a user-chosen label, not an identifier, and separates
-// agent-driven usage from human usage in aggregate.
+// Agent is the harness `tap launch` started the process under (TAP_HARNESS),
+// empty when a human is. It separates agent-driven usage from human usage in
+// aggregate.
 type InvocationEvent struct {
 	Surface       string `json:"surface"`
 	Command       string `json:"command,omitempty"`
@@ -100,9 +100,9 @@ func NewInvocationReporter(rt *toolkit.Runtime, configService *ConfigService, ve
 	})
 }
 
-// resolveTelemetryAgent reads the active agent from the merged config, which is
-// where TAP_AGENT lands. It is resolved once at construction rather than per
-// event: the agent driving a process cannot change while it runs.
+// resolveTelemetryAgent reads the launching harness from the merged config,
+// which is where TAP_HARNESS lands. It is resolved once at construction rather
+// than per event: the harness driving a process cannot change while it runs.
 func resolveTelemetryAgent(configService *ConfigService) string {
 	if configService == nil {
 		return ""
@@ -111,7 +111,7 @@ func resolveTelemetryAgent(configService *ConfigService) string {
 	if err != nil || cfg == nil {
 		return ""
 	}
-	return cfg.AgentName()
+	return cfg.LaunchHarness()
 }
 
 func resolveInvocationTelemetryTarget(rt *toolkit.Runtime, configService *ConfigService) (string, string, bool) {

@@ -119,29 +119,18 @@ direct CLI use, not a security boundary. See
 
 ## Launching
 
-`tap launch opencode` starts opencode with a configured agent's model and the
-current flight as a connection-pinned root:
+`tap launch opencode` starts opencode on a model from your Hub catalog, with
+the current flight as a connection-pinned root:
 
 ```bash
-tap launch opencode --agent opus
+tap launch opencode --model laptop/ollama/qwen3:8b
 ```
 
-opencode selects its model as `provider/model`, the same shape Tapper agents
-already use, so the configured model passes straight through to
-`opencode --model`.
-
-For `anthropic` and `openai` models, opencode reads `ANTHROPIC_API_KEY` and
-`OPENAI_API_KEY` from the environment, and the usual `auth` modes
-(`inherit`, `subscription`, `apiKey`, `none`) apply unchanged.
-
-An `ollama` model needs more: opencode ships no ollama provider and takes an
-endpoint from its configuration rather than an environment variable. Rather
-than require you to edit that config before a launch can work, the launcher
-declares the provider inline through `OPENCODE_CONFIG_CONTENT`, which opencode
-merges after both the global and project configs — so it applies without
-replacing either. `tap launch opencode --agent <ollama-agent> --dry-run` prints
-exactly what gets injected.
-
-An agent's `contextWindow` is rejected for this harness. opencode expresses a
-context cap as `provider.<p>.models.<m>.limit.context` in configuration, not as
-a flag, so the launcher reports the setting rather than dropping it silently.
+The launcher declares a `foldwise` provider inline through
+`OPENCODE_CONFIG_CONTENT`, which opencode merges after both the global and
+project configs, so it applies without replacing either. The provider lists
+your whole catalog, with each model's context window where its relay
+advertises one, so opencode's model picker can switch between them. See
+[Provider-neutral launcher composition](launchers.md) for how the other
+harnesses are wired. `tap launch opencode --dry-run` prints exactly what gets
+injected.

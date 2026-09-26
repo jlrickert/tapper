@@ -193,10 +193,9 @@ selected flight capability.
   the user baseline written
   by `tap bootstrap`. Project selection
   therefore overrides the machine-wide bootstrap choice without changing it.
-- `tap launch --agent NAME` uses the agent only for model selection and
-  telemetry. Launch requires a Hub-backed root and exports its canonical
-  reference once as `TAP_FLIGHT`. Legacy `agents[NAME].flight`
-  values are ignored.
+- `tap launch` selects only the model. Launch requires a Hub-backed root
+  and exports its canonical reference once as `TAP_FLIGHT`. Retired
+  `agents[NAME].flight` values are ignored.
 - MCP tools have no model-visible root-switch input. Their optional `flight`
   makes only a call-local selection. To change the connection's default
   authority, the user starts a new session after changing configuration;

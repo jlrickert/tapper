@@ -1,10 +1,10 @@
 package tapper
 
-// EXPERIMENTAL — `tap launch` is a scaffold for exercising Tapper against a
-// chosen model and flight without editing config between runs. It is
-// deliberately undocumented: agents are expected to move to Tapper Hub, at
-// which point this file and its config shape are torn out and redesigned.
-// Nothing else in the package should grow a dependency on it.
+// EXPERIMENTAL — `tap launch` starts an agent harness on a model from the
+// caller's Tapper Hub catalog, under the configured flight. Hub is the only
+// inference plane: the launcher knows harnesses, not providers, and a model is
+// always a catalog id. Nothing else in the package should grow a dependency
+// on it.
 
 import (
 	"context"
@@ -13,50 +13,12 @@ import (
 	"io"
 	"net/http"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 )
-
-// Providers understood by the launcher, parsed from an agent model's prefix.
-const (
-	ProviderAnthropic = "anthropic"
-	ProviderOpenAI    = "openai"
-	ProviderOllama    = "ollama"
-)
-
-// defaultOllamaBaseURL is the local Ollama server. Ollama serves BOTH the
-// OpenAI protocol (/v1/chat/completions) and the Anthropic Messages protocol
-// (/v1/messages), which is why it is the one provider every harness can use.
-const defaultOllamaBaseURL = "http://localhost:11434/v1"
-
-// Auth modes for an agent, selecting where the harness gets its credentials.
-const (
-	// AuthInherit passes the ambient environment through untouched. It is the
-	// default because it matches running the harness bare in your shell.
-	AuthInherit = "inherit"
-	// AuthSubscription strips inherited provider key variables so the harness
-	// falls back to its own stored login. Absence of a key cannot express this
-	// on its own, because absence means inherit.
-	AuthSubscription = "subscription"
-	// AuthAPIKey forwards the variable named by an agent's apiKeyEnv.
-	AuthAPIKey = "apiKey"
-	// AuthNone means the model needs no credential of ours. It strips the same
-	// inherited variables as AuthSubscription but does not imply a stored login
-	// to fall back to, which is what a local provider actually wants — and it
-	// leaves the placeholder key in place so the harness cannot fall back at
-	// all. It is the default for ollama models.
-	AuthNone = "none"
-)
-
-// providerKeyEnv lists the credential variables each provider's clients read.
-// AuthSubscription and AuthNone remove these from the child environment.
-var providerKeyEnv = map[string][]string{
-	ProviderAnthropic: {"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"},
-	ProviderOpenAI:    {"OPENAI_API_KEY"},
-	ProviderOllama:    {"OPENAI_API_KEY", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"},
-}
 
 // noLaunchFlightWarning is emitted when a launch resolves no root. The session
 // is not unauthorized — it inherits exactly the identity's own access — but that
@@ -68,15 +30,10 @@ const noLaunchFlightWarning = "no flight configured; this agent runs with " +
 
 // LaunchOptions configures behavior for Tap.Launch.
 type LaunchOptions struct {
-	// Harness names the agent CLI to start: claude, codex, or pi.
+	// Harness names the agent CLI to start: claude, codex, opencode, or pi.
 	Harness string
-	// Agent names an entry in the config's agents map. Empty falls back to the
-	// config's agent key (which TAP_AGENT also feeds).
-	Agent string
-	// Model is a Hub catalog id. Setting it selects hub mode: the harness is
-	// wired to Hub's inference endpoints rather than a configured agent's
-	// provider. Hub mode is also what an invocation with neither Model nor
-	// any agent (explicit or configured) falls back to.
+	// Model is a Hub catalog id. Empty starts on the first model in the
+	// catalog, which Hub orders by the relay owners' preference.
 	Model string
 	// Flight is the explicit launch root. Empty falls back through TAP_FLIGHT,
 	// project configuration, and user configuration.
@@ -89,8 +46,9 @@ type LaunchOptions struct {
 
 // LaunchResult reports the resolved invocation. Env holds only the overlay
 // applied on top of the inherited environment; StripEnv names variables removed
-// from it. Neither contains a secret value — a forwarded key is reported by the
-// variable it came from.
+// from it. Files are written to a per-launch directory for the harness to read.
+// None of them carries a secret: the forwarder's address, its per-launch key,
+// and that directory show as placeholders until Launch fills them in.
 //
 // Flight is the canonical connection-pinned Hub-backed root exported to the
 // child as TAP_FLIGHT. It is empty when no flight is configured; the harness
@@ -99,45 +57,36 @@ type LaunchOptions struct {
 // Warnings are returned rather than printed so a dry run and a real run report
 // the same thing — see ResolveLaunch.
 type LaunchResult struct {
-	// Source is LaunchSourceAgent for a configured agent or LaunchSourceHub
-	// for a Hub catalog model.
-	Source string
-	// Hub names the hub serving a hub-mode launch.
-	Hub       string
-	Harness   string
-	Agent     string
-	Provider  string
-	Model     string
-	BaseURL   string
-	Flight    string
-	Auth      string
-	Argv      []string
-	Env       map[string]string
-	StripEnv  []string
-	KeySource string
-	Warnings  []string
+	// Hub names the hub serving the models.
+	Hub      string
+	Harness  string
+	Model    string
+	Flight   string
+	Argv     []string
+	Env      map[string]string
+	StripEnv []string
+	Files    map[string]string
+	Warnings []string
 
-	// hub finishes a hub-mode invocation once the forwarder is listening; Argv
-	// and Env above carry placeholders for its address and key until then.
-	hub *hubLaunchPlan
+	plan *launchPlan
 }
 
-// Launch sources, reported in LaunchResult.Source.
+// Placeholders a dry run shows where the live forwarder's origin, its
+// per-launch key, and the per-launch file directory go. None exists until
+// Launch starts the forwarder.
 const (
-	LaunchSourceAgent = "agent"
-	LaunchSourceHub   = "hub"
-)
-
-// Placeholders a hub-mode dry run shows where the live forwarder's address and
-// per-launch key go. Neither exists until Launch starts the forwarder.
-const (
-	launchForwarderPlaceholder = "http://127.0.0.1:<port>/v1"
+	launchForwarderPlaceholder = "http://127.0.0.1:<port>"
 	launchKeyPlaceholder       = "<launch key>"
+	launchDirPlaceholder       = "<launch dir>"
 )
 
-// opencodeHubProvider is the provider id hub-mode opencode sessions select
-// models under, as in `--model foldwise/<catalog id>`.
-const opencodeHubProvider = "foldwise"
+// launchKeyEnv carries the forwarder's per-launch key to harnesses that read
+// their API key from a named variable.
+const launchKeyEnv = "TAP_LAUNCH_KEY"
+
+// hubProviderID is the provider id harnesses list Hub's models under, as in
+// opencode's `foldwise/<catalog id>`.
+const hubProviderID = "foldwise"
 
 // HubModel is one entry of the caller's Hub inference catalog.
 type HubModel struct {
@@ -146,252 +95,141 @@ type HubModel struct {
 	// ContextWindow is the model's token limit, or 0 when its relay did not
 	// advertise one.
 	ContextWindow int `json:"context_window,omitempty"`
+	// Capabilities is set only for models that are not for chat, such as
+	// speech to text.
+	Capabilities []string `json:"capabilities,omitempty"`
 }
 
-// hubLaunchSpec is one resolved hub-mode launch, handed to a harness's hub
-// builder.
-type hubLaunchSpec struct {
+// launchSpec is one resolved launch, handed to a harness builder.
+type launchSpec struct {
 	hubName string
-	baseURL string
-	apiKey  string
+	// origin is the forwarder's origin, without a path; each builder appends
+	// the path of the protocol its harness speaks.
+	origin string
+	apiKey string
+	// dir is where the harness's per-launch files are written.
+	dir     string
 	model   string
 	catalog []HubModel
 }
 
-// hubLaunchPlan is what Launch needs to render the real invocation once the
+// contextWindow is the selected model's advertised token limit, or 0.
+func (s launchSpec) contextWindow() int {
+	for _, m := range s.catalog {
+		if m.ID == s.model {
+			return m.ContextWindow
+		}
+	}
+	return 0
+}
+
+// invocation is what a harness builder produces.
+type invocation struct {
+	argv []string
+	env  map[string]string
+	// strip names inherited variables that must not reach the harness.
+	strip []string
+	// files are written to the launch directory, keyed by file name.
+	files map[string]string
+}
+
+// launchPlan is what Launch needs to render the real invocation once the
 // forwarder is up. tailArgs and tailEnv are the parts that do not depend on
 // the forwarder: pass-through arguments and the TAP_* variables.
-type hubLaunchPlan struct {
+type launchPlan struct {
 	hubURL   string
 	token    func() string
-	build    func(hubLaunchSpec) ([]string, map[string]string)
-	spec     hubLaunchSpec
+	build    func(launchSpec) invocation
+	spec     launchSpec
 	tailArgs []string
 	tailEnv  map[string]string
 }
 
-// render builds the invocation against a forwarder at baseURL taking apiKey.
-func (p *hubLaunchPlan) render(baseURL, apiKey string) ([]string, map[string]string) {
+// render builds the invocation against a forwarder at origin taking apiKey,
+// with its files in dir.
+func (p *launchPlan) render(origin, apiKey, dir string) invocation {
 	spec := p.spec
-	spec.baseURL, spec.apiKey = baseURL, apiKey
-	argv, env := p.build(spec)
-	argv = append(argv, p.tailArgs...)
-	if env == nil {
-		env = map[string]string{}
+	spec.origin, spec.apiKey, spec.dir = origin, apiKey, dir
+	inv := p.build(spec)
+	inv.argv = append(inv.argv, p.tailArgs...)
+	if inv.env == nil {
+		inv.env = map[string]string{}
 	}
 	for k, v := range p.tailEnv {
-		env[k] = v
+		inv.env[k] = v
 	}
-	return argv, env
+	return inv
 }
 
-// launchSpec is one resolved agent, handed to a harness builder.
-type launchSpec struct {
-	provider string
-	model    string
-	baseURL  string
-	apiKey   string
-	auth     string
-}
-
-// harnessAdapter maps a provider onto an invocation for one agent CLI. Absence
-// from providers means the harness cannot speak that provider's protocol, which
-// is reported rather than launched.
-type harnessAdapter struct {
-	command   string
-	providers map[string]func(spec launchSpec) ([]string, map[string]string)
-	// contextWindowArgs renders an agent's contextWindow into this harness's
-	// own flags. Nil means the harness has no equivalent, in which case a
-	// configured contextWindow is reported rather than silently dropped —
-	// quietly ignoring a context cap is how you discover it never applied.
-	contextWindowArgs func(tokens int) []string
-	// hub builds a hub-mode invocation. Nil means the harness cannot use Hub
-	// catalog models yet.
-	hub func(spec hubLaunchSpec) ([]string, map[string]string)
-}
-
-// openAIBaseURL normalizes a base URL for OpenAI clients, which append
-// /chat/completions and therefore expect the /v1 prefix present.
-func openAIBaseURL(raw string) string {
-	trimmed := strings.TrimRight(strings.TrimSpace(raw), "/")
-	if trimmed == "" {
-		return ""
-	}
-	if strings.HasSuffix(trimmed, "/v1") {
-		return trimmed
-	}
-	return trimmed + "/v1"
-}
-
-// anthropicBaseURL normalizes a base URL for Anthropic clients, which append
-// /v1/messages themselves and therefore expect the /v1 suffix absent. One
-// configured baseUrl is thus correct for both protocols.
-func anthropicBaseURL(raw string) string {
-	trimmed := strings.TrimRight(strings.TrimSpace(raw), "/")
-	return strings.TrimSuffix(trimmed, "/v1")
-}
-
-// anthropicProtocol builds the invocation for harnesses speaking the Anthropic
-// Messages API. Claude Code selects its model through the environment rather
-// than a flag, so argv stays bare.
-func anthropicProtocol(command string) func(launchSpec) ([]string, map[string]string) {
-	return func(spec launchSpec) ([]string, map[string]string) {
-		env := map[string]string{"ANTHROPIC_MODEL": spec.model}
-		if base := anthropicBaseURL(spec.baseURL); base != "" {
-			env["ANTHROPIC_BASE_URL"] = base
-		}
-		switch {
-		case spec.apiKey != "":
-			env["ANTHROPIC_API_KEY"] = spec.apiKey
-		case spec.provider == ProviderOllama:
-			// Unconditional for a local provider. Ollama ignores the value, but
-			// without one the client falls back to its stored login and sends
-			// real subscription credentials to a host that is not Anthropic.
-			// This placeholder is the thing preventing that, so no auth mode may
-			// switch it off.
-			env["ANTHROPIC_API_KEY"] = "ollama"
-		}
-		return []string{command}, env
+// harnessBuilders maps each harness to how it is wired to Hub. The harnesses
+// speak different protocols, and Hub serves each: Claude Code the Anthropic
+// Messages API, Codex the OpenAI Responses API, and opencode and pi OpenAI
+// chat completions.
+func harnessBuilders() map[string]func(launchSpec) invocation {
+	return map[string]func(launchSpec) invocation{
+		"claude":   claudeLaunch,
+		"codex":    codexLaunch,
+		"opencode": opencodeLaunch,
+		"pi":       piLaunch,
 	}
 }
 
-// openAIProtocol builds the invocation for harnesses that take their endpoint
-// and key from the conventional OPENAI_* environment variables.
-//
-// Codex does NOT: it configures providers through ~/.codex/config.toml and its
-// own CODEX_OSS_* variables, and ignores OPENAI_BASE_URL entirely. Setting
-// OPENAI_API_KEY there is actively harmful — `codex doctor` reports "mixed auth
-// signals: ChatGPT login plus API key env var" and switches to API-key billing.
-// Codex therefore has its own builders below.
-func openAIProtocol(command string) func(launchSpec) ([]string, map[string]string) {
-	return func(spec launchSpec) ([]string, map[string]string) {
-		env := map[string]string{}
-		if base := openAIBaseURL(spec.baseURL); base != "" {
-			env["OPENAI_BASE_URL"] = base
-		}
-		switch {
-		case spec.apiKey != "":
-			env["OPENAI_API_KEY"] = spec.apiKey
-		case spec.provider == ProviderOllama:
-			// Unconditional, for the same reason as the Anthropic builder: the
-			// placeholder is what stops the client reaching for a stored login
-			// and sending it to a host that is not the provider.
-			env["OPENAI_API_KEY"] = "ollama"
-		}
-		return []string{command, "--model", spec.model}, env
+// claudeLaunch points Claude Code at Hub's Anthropic Messages endpoint. Every
+// model slot it uses, including the small one for background work, is the
+// selected model, so nothing leaves Hub. An inherited ANTHROPIC_API_KEY is
+// removed: Claude Code would otherwise send it in preference, and warn about
+// the conflict. Claude Code does not know catalog models, so their context
+// window, when the relay advertised one, is passed as the limit it compacts
+// against; otherwise it assumes 200k.
+func claudeLaunch(spec launchSpec) invocation {
+	env := map[string]string{
+		"ANTHROPIC_BASE_URL":             spec.origin + "/anthropic",
+		"ANTHROPIC_AUTH_TOKEN":           spec.apiKey,
+		"ANTHROPIC_MODEL":                spec.model,
+		"ANTHROPIC_DEFAULT_OPUS_MODEL":   spec.model,
+		"ANTHROPIC_DEFAULT_SONNET_MODEL": spec.model,
+		"ANTHROPIC_DEFAULT_HAIKU_MODEL":  spec.model,
+		"ANTHROPIC_SMALL_FAST_MODEL":     spec.model,
+	}
+	if n := spec.contextWindow(); n > 0 {
+		env["CLAUDE_CODE_MAX_CONTEXT_TOKENS"] = strconv.Itoa(n)
+	}
+	return invocation{
+		argv:  []string{"claude", "--model", spec.model},
+		env:   env,
+		strip: []string{"ANTHROPIC_API_KEY"},
 	}
 }
 
-// codexHosted drives Codex against OpenAI proper. Codex owns its own auth — a
-// stored ChatGPT login or OPENAI_API_KEY from the environment — so nothing is
-// injected here beyond the model.
-func codexHosted(spec launchSpec) ([]string, map[string]string) {
-	env := map[string]string{}
-	if spec.apiKey != "" {
-		env["OPENAI_API_KEY"] = spec.apiKey
+// codexLaunch declares Hub as a Codex model provider on the command line.
+// Codex only speaks the Responses API, so the provider's wire API is
+// "responses", and it reads the key from the variable env_key names. No
+// OPENAI_API_KEY is set: Codex treats one alongside a stored ChatGPT login as
+// mixed auth, and this provider does not use it.
+func codexLaunch(spec launchSpec) invocation {
+	name := "Foldwise"
+	if spec.hubName != "" {
+		name += " (" + spec.hubName + ")"
 	}
-	return []string{"codex", "--model", spec.model}, env
+	provider := fmt.Sprintf(`model_providers.%s={name=%s, base_url=%s, env_key=%s, wire_api="responses"}`,
+		hubProviderID, strconv.Quote(name), strconv.Quote(spec.origin+"/v1"), strconv.Quote(launchKeyEnv))
+	argv := []string{"codex", "-c", provider, "-c", `model_provider="` + hubProviderID + `"`}
+	if n := spec.contextWindow(); n > 0 {
+		// Codex keeps this as model metadata for a model it does not know,
+		// which decides when it compacts.
+		argv = append(argv, "-c", "model_context_window="+strconv.Itoa(n))
+	}
+	argv = append(argv, "--model", spec.model)
+	return invocation{
+		argv: argv,
+		env:  map[string]string{launchKeyEnv: spec.apiKey},
+	}
 }
 
-// codexOSS drives Codex against a local Ollama server. Codex has first-class
-// support for this through --oss/--local-provider and reads the endpoint from
-// CODEX_OSS_BASE_URL, so the OPENAI_* variables are neither used nor set: an
-// OPENAI_API_KEY here would only push Codex into API-key mode against the wrong
-// provider.
-func codexOSS(spec launchSpec) ([]string, map[string]string) {
-	env := map[string]string{}
-	if base := openAIBaseURL(spec.baseURL); base != "" {
-		env["CODEX_OSS_BASE_URL"] = base
-	}
-	return []string{"codex", "--oss", "--local-provider", "ollama", "--model", spec.model}, env
-}
-
-// opencodeProtocol builds the invocation for opencode.
-//
-// opencode selects its model with `--model provider/model`, using the same
-// provider names tapper already parses, so the agent's configured model string
-// passes through unchanged.
-//
-// It does NOT read ANTHROPIC_BASE_URL or OPENAI_BASE_URL: an endpoint is a
-// provider option in its config. Rather than require the user to edit that
-// config before a launch can work, the base URL is injected through
-// OPENCODE_CONFIG_CONTENT, an inline config opencode merges after both the
-// global and project files — so it wins without replacing either. The API keys
-// are ordinary environment variables it does read, so those stay as env.
-func opencodeProtocol(spec launchSpec) ([]string, map[string]string) {
-	env := map[string]string{}
-	if config := opencodeProviderConfig(spec); config != "" {
-		env["OPENCODE_CONFIG_CONTENT"] = config
-	}
-	switch {
-	case spec.apiKey != "":
-		env[opencodeKeyEnv(spec.provider)] = spec.apiKey
-	case spec.provider == ProviderOllama:
-		// Unconditional, for the same reason as the Anthropic and OpenAI
-		// builders: the placeholder is what stops the client reaching for a
-		// stored login and sending it to a host that is not the provider.
-		env["OPENAI_API_KEY"] = "ollama"
-	}
-	return []string{"opencode", "--model", spec.provider + "/" + spec.model}, env
-}
-
-// opencodeKeyEnv names the variable opencode reads a provider's key from.
-func opencodeKeyEnv(provider string) string {
-	if provider == ProviderAnthropic {
-		return "ANTHROPIC_API_KEY"
-	}
-	return "OPENAI_API_KEY"
-}
-
-// opencodeProviderConfig renders the inline provider override, or "" when the
-// harness needs none.
-//
-// Ollama always needs one: opencode ships no ollama provider, so the whole
-// definition — the OpenAI-compatible npm driver, the endpoint, and the model
-// entry — has to be declared. A hosted provider needs one only when the agent
-// overrides baseUrl, and then only the endpoint changes.
-func opencodeProviderConfig(spec launchSpec) string {
-	base := openAIBaseURL(spec.baseURL)
-	if base == "" {
-		return ""
-	}
-	type limits struct {
-		BaseURL string `json:"baseURL"`
-		APIKey  string `json:"apiKey,omitempty"`
-	}
-	type model struct {
-		Name string `json:"name,omitempty"`
-	}
-	provider := struct {
-		NPM     string           `json:"npm,omitempty"`
-		Name    string           `json:"name,omitempty"`
-		Options limits           `json:"options"`
-		Models  map[string]model `json:"models,omitempty"`
-	}{Options: limits{BaseURL: base}}
-	if spec.provider == ProviderOllama {
-		provider.NPM = "@ai-sdk/openai-compatible"
-		provider.Name = "Ollama (local)"
-		// The placeholder key travels in the config rather than the
-		// environment because a custom provider reads its own options first.
-		provider.Options.APIKey = "ollama"
-		provider.Models = map[string]model{spec.model: {Name: spec.model}}
-	}
-	body, err := json.Marshal(map[string]any{
-		"provider": map[string]any{spec.provider: provider},
-	})
-	if err != nil {
-		// Every field is a plain string or map of strings, so this cannot fail.
-		// Returning "" rather than panicking keeps a launch working with the
-		// harness's own endpoint if it somehow does.
-		return ""
-	}
-	return string(body)
-}
-
-// opencodeHub wires opencode to Hub through one inline provider pointed at
-// the launch forwarder. Every catalog model is declared, not just the selected
-// one, so opencode's model picker can switch between them mid-session.
-func opencodeHub(spec hubLaunchSpec) ([]string, map[string]string) {
+// opencodeLaunch wires opencode to Hub through one inline provider. Every
+// catalog model is declared, not just the selected one, so opencode's model
+// picker can switch between them mid-session.
+func opencodeLaunch(spec launchSpec) invocation {
 	type limit struct {
 		Context int `json:"context"`
 		Output  int `json:"output"`
@@ -401,129 +239,129 @@ func opencodeHub(spec hubLaunchSpec) ([]string, map[string]string) {
 		Limit *limit `json:"limit,omitempty"`
 	}
 	models := make(map[string]model, len(spec.catalog))
-	for _, m := range spec.catalog {
+	for _, m := range chatModels(spec.catalog) {
 		entry := model{Name: m.ID}
 		if m.ContextWindow > 0 {
-			// opencode wants both halves of the limit and a relay advertises
-			// only the context. A quarter of it, capped, leaves room for the
-			// conversation while allowing a long reply.
-			entry.Limit = &limit{Context: m.ContextWindow, Output: min(m.ContextWindow/4, 32000)}
+			entry.Limit = &limit{Context: m.ContextWindow, Output: outputLimit(m.ContextWindow)}
 		}
 		models[m.ID] = entry
 	}
-	name := "Foldwise"
-	if spec.hubName != "" {
-		name += " (" + spec.hubName + ")"
-	}
-	// No HTML escaping: the dry run prints this, and "<launch key>" should
-	// read as itself rather than as \u003claunch key\u003e.
-	var buf strings.Builder
-	enc := json.NewEncoder(&buf)
-	enc.SetEscapeHTML(false)
-	err := enc.Encode(map[string]any{
+	config := map[string]any{
 		"provider": map[string]any{
-			opencodeHubProvider: map[string]any{
+			hubProviderID: map[string]any{
 				"npm":  "@ai-sdk/openai-compatible",
-				"name": name,
+				"name": providerName(spec),
 				// The key travels in the config rather than the environment
 				// because a custom provider reads its own options first.
-				"options": map[string]string{"baseURL": spec.baseURL, "apiKey": spec.apiKey},
+				"options": map[string]string{"baseURL": spec.origin + "/v1", "apiKey": spec.apiKey},
 				"models":  models,
 			},
 		},
-	})
-	env := map[string]string{}
-	if err == nil {
-		env["OPENCODE_CONFIG_CONTENT"] = strings.TrimSpace(buf.String())
 	}
-	return []string{"opencode", "--model", opencodeHubProvider + "/" + spec.model}, env
+	return invocation{
+		argv: []string{"opencode", "--model", hubProviderID + "/" + spec.model},
+		env:  map[string]string{"OPENCODE_CONFIG_CONTENT": encodeLaunchJSON(config)},
+	}
 }
 
-func harnessAdapters() map[string]harnessAdapter {
-	return map[string]harnessAdapter{
-		"claude": {
-			command: "claude",
-			providers: map[string]func(launchSpec) ([]string, map[string]string){
-				ProviderAnthropic: anthropicProtocol("claude"),
-				// Ollama serves /v1/messages, so Claude Code works against it
-				// once ANTHROPIC_BASE_URL points at the server.
-				ProviderOllama: anthropicProtocol("claude"),
-			},
-			// Claude Code has no model-metadata override; the nearest thing is
-			// the threshold at which it auto-compacts, which is what a context
-			// cap means in practice. It accepts roughly 100k-1M.
-			contextWindowArgs: func(tokens int) []string {
-				return []string{"--autocompact", strconv.Itoa(tokens)}
-			},
-		},
-		"codex": {
-			command: "codex",
-			providers: map[string]func(launchSpec) ([]string, map[string]string){
-				ProviderOpenAI: codexHosted,
-				ProviderOllama: codexOSS,
-			},
-			// Codex treats it as model metadata. Setting it also silences the
-			// "model metadata not found, defaulting to fallback" warning for a
-			// local tag Codex does not know.
-			contextWindowArgs: func(tokens int) []string {
-				return []string{"-c", "model_context_window=" + strconv.Itoa(tokens)}
-			},
-		},
-		"opencode": {
-			command: "opencode",
-			providers: map[string]func(launchSpec) ([]string, map[string]string){
-				ProviderAnthropic: opencodeProtocol,
-				ProviderOpenAI:    opencodeProtocol,
-				ProviderOllama:    opencodeProtocol,
-			},
-			// contextWindowArgs stays nil on purpose. opencode has no flag for
-			// it: a context cap is provider.<p>.models.<m>.limit.context in its
-			// config. Leaving this nil makes a configured contextWindow an
-			// explicit error rather than a setting that silently never applied.
-			hub: opencodeHub,
-		},
-		"pi": {
-			command: "pi",
-			providers: map[string]func(launchSpec) ([]string, map[string]string){
-				ProviderOpenAI: openAIProtocol("pi"),
-				ProviderOllama: openAIProtocol("pi"),
-			},
-		},
+// piLaunch wires pi to Hub with a generated extension that registers one
+// provider for the whole catalog. pi takes custom endpoints only from its
+// models.json or an extension; an extension loaded with -e leaves the user's
+// own pi directory, logins, and sessions alone. The key is read from the
+// environment when pi resolves it, so it is never written to the file.
+func piLaunch(spec launchSpec) invocation {
+	type cost struct {
+		Input      int `json:"input"`
+		Output     int `json:"output"`
+		CacheRead  int `json:"cacheRead"`
+		CacheWrite int `json:"cacheWrite"`
 	}
+	type model struct {
+		ID            string   `json:"id"`
+		Name          string   `json:"name"`
+		Reasoning     bool     `json:"reasoning"`
+		Input         []string `json:"input"`
+		Cost          cost     `json:"cost"`
+		ContextWindow int      `json:"contextWindow"`
+		MaxTokens     int      `json:"maxTokens"`
+	}
+	var models []model
+	for _, m := range chatModels(spec.catalog) {
+		window := m.ContextWindow
+		if window == 0 {
+			window = 128000
+		}
+		models = append(models, model{
+			ID: m.ID, Name: m.ID, Input: []string{"text", "image"},
+			ContextWindow: window, MaxTokens: outputLimit(window),
+		})
+	}
+	config := map[string]any{
+		"name":    providerName(spec),
+		"baseUrl": spec.origin + "/v1",
+		"apiKey":  "$" + launchKeyEnv,
+		"api":     "openai-completions",
+		"models":  models,
+	}
+	const file = "foldwise-pi.ts"
+	source := "// Written by `tap launch pi` for this session only.\n" +
+		"export default function (pi: any) {\n" +
+		"  pi.registerProvider(\"" + hubProviderID + "\", " + encodeLaunchJSON(config) + ");\n" +
+		"}\n"
+	return invocation{
+		argv:  []string{"pi", "-e", filepath.Join(spec.dir, file), "--provider", hubProviderID, "--model", spec.model},
+		env:   map[string]string{launchKeyEnv: spec.apiKey},
+		files: map[string]string{file: source},
+	}
+}
+
+// chatModels drops models that cannot chat, such as speech to text.
+func chatModels(catalog []HubModel) []HubModel {
+	out := make([]HubModel, 0, len(catalog))
+	for _, m := range catalog {
+		if len(m.Capabilities) == 0 {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+// outputLimit is how much of a context window a harness may spend on one
+// reply. Relays advertise only the context; a quarter of it, capped, leaves
+// room for the conversation while allowing a long reply.
+func outputLimit(window int) int {
+	return min(window/4, 32000)
+}
+
+func providerName(spec launchSpec) string {
+	if spec.hubName == "" {
+		return "Foldwise"
+	}
+	return "Foldwise (" + spec.hubName + ")"
+}
+
+// encodeLaunchJSON renders v without HTML escaping, so a dry run shows
+// "<launch key>" as itself rather than as <launch key>.
+func encodeLaunchJSON(v any) string {
+	var buf strings.Builder
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(v); err != nil {
+		return "{}"
+	}
+	return strings.TrimSpace(buf.String())
 }
 
 // LaunchHarnesses returns the launchable harness names, sorted. It backs shell
 // completion the way IntegrateHosts does for `tap integrate`.
 func LaunchHarnesses() []string {
-	adapters := harnessAdapters()
-	out := make([]string, 0, len(adapters))
-	for name := range adapters {
+	builders := harnessBuilders()
+	out := make([]string, 0, len(builders))
+	for name := range builders {
 		out = append(out, name)
 	}
 	sort.Strings(out)
 	return out
-}
-
-// ParseAgentModel splits a provider-qualified model into its provider and model
-// id. An unqualified model is an error rather than a guess, because the
-// provider decides which protocol the harness must speak.
-func ParseAgentModel(raw string) (provider, model string, err error) {
-	trimmed := strings.TrimSpace(raw)
-	if trimmed == "" {
-		return "", "", fmt.Errorf("agent model is empty")
-	}
-	prefix, rest, ok := strings.Cut(trimmed, "/")
-	if !ok || strings.TrimSpace(rest) == "" {
-		return "", "", fmt.Errorf(
-			"agent model %q must be provider-qualified, e.g. %s/<model>, %s/<model>, or %s/<model>",
-			trimmed, ProviderAnthropic, ProviderOpenAI, ProviderOllama)
-	}
-	prefix = strings.ToLower(strings.TrimSpace(prefix))
-	switch prefix {
-	case ProviderAnthropic, ProviderOpenAI, ProviderOllama:
-		return prefix, strings.TrimSpace(rest), nil
-	}
-	return "", "", fmt.Errorf("unknown model provider %q in %q", prefix, trimmed)
 }
 
 // ResolveLaunch resolves options into a complete invocation without running it.
@@ -533,140 +371,78 @@ func (t *Tap) ResolveLaunch(opts LaunchOptions) (*LaunchResult, error) {
 }
 
 // ResolveLaunchContext is ResolveLaunch with a context for the one network
-// call it can make: a hub-mode launch lists the Hub catalog.
+// call it makes: listing the Hub catalog.
 func (t *Tap) ResolveLaunchContext(ctx context.Context, opts LaunchOptions) (*LaunchResult, error) {
 	harness := strings.TrimSpace(opts.Harness)
-	adapter, ok := harnessAdapters()[harness]
+	build, ok := harnessBuilders()[harness]
 	if !ok {
 		return nil, fmt.Errorf("unknown harness %q (available: %s)",
 			opts.Harness, strings.Join(LaunchHarnesses(), ", "))
 	}
-
 	cfg, err := t.ConfigService.Config()
 	if err != nil {
 		return nil, err
 	}
-	// --agent wins; otherwise fall back to the config's agent key, which
-	// TAP_AGENT also feeds. This mirrors ActiveFlightName's explicit-then-config
-	// resolution used for the launch root just below. Reading the fallback off
-	// the same cfg snapshot as the lookup keeps the two from drifting.
-	agentName := strings.TrimSpace(opts.Agent)
-	hubModel := strings.TrimSpace(opts.Model)
-	if agentName != "" && hubModel != "" {
-		return nil, fmt.Errorf("--model and --agent are mutually exclusive: --model picks a Hub catalog model, --agent a configured one")
-	}
-	if agentName == "" && hubModel == "" {
-		agentName = cfg.AgentName()
-	}
-
 	root, hasRoot, warnings, err := t.resolveLaunchRoot(cfg, opts.Flight)
 	if err != nil {
 		return nil, err
 	}
-	// No agent anywhere means the Hub catalog, which is where models come
-	// from once the agents map is retired.
-	if agentName == "" {
-		return t.resolveHubLaunch(ctx, harness, adapter, hubModel, opts.Args, cfg, root, hasRoot, warnings)
-	}
 
-	agent, ok := cfg.Agent(agentName)
-	if !ok {
-		return nil, fmt.Errorf("unknown agent %q (configured: %s)",
-			agentName, strings.Join(configuredAgentNames(cfg), ", "))
-	}
-	if agent.invalid != nil {
-		return nil, fmt.Errorf("agent %q: %w", agentName, agent.invalid)
-	}
-	provider, model, err := ParseAgentModel(agent.Model)
-	if err != nil {
-		return nil, fmt.Errorf("agent %q: %w", agentName, err)
-	}
-	build, ok := adapter.providers[provider]
-	if !ok {
-		return nil, fmt.Errorf(
-			"harness %q cannot use a %s model: it speaks a different protocol (supported here: %s)",
-			harness, provider, strings.Join(adapterProviders(adapter), ", "))
-	}
-
-	auth, err := resolveAuthMode(agent, provider)
-	if err != nil {
-		return nil, fmt.Errorf("agent %q: %w", agentName, err)
-	}
-
-	// An explicit baseUrl always wins; Ollama otherwise defaults to the local
-	// server. Hosted providers stay empty so the harness keeps its own endpoint.
-	baseURL := strings.TrimSpace(agent.BaseURL)
-	if baseURL == "" && provider == ProviderOllama {
-		baseURL = defaultOllamaBaseURL
-	}
-
-	apiKey, keySource, err := t.resolveAPIKey(agent, auth)
-	if err != nil {
-		return nil, fmt.Errorf("agent %q: %w", agentName, err)
-	}
-
-	argv, env := build(launchSpec{
-		provider: provider,
-		model:    model,
-		baseURL:  baseURL,
-		apiKey:   apiKey,
-		auth:     auth,
-	})
-	if agent.ContextWindow > 0 {
-		if adapter.contextWindowArgs == nil {
-			return nil, fmt.Errorf(
-				"agent %q sets contextWindow but harness %q has no way to apply it",
-				agentName, harness)
-		}
-		argv = append(argv, adapter.contextWindowArgs(agent.ContextWindow)...)
-	}
-	// Agent args first, then the invocation's own, so a one-off can override.
-	argv = append(argv, agent.Args...)
-	argv = append(argv, opts.Args...)
-	if env == nil {
-		env = map[string]string{}
-	}
-	// TAP_AGENT is model selection and telemetry only; launchTapEnv supplies
-	// the hub, keg, and flight every launch shares.
-	env["TAP_AGENT"] = agentName
-	tapEnv, err := t.launchTapEnv(cfg, root, hasRoot)
+	hubName, entry, err := t.ConfigService.SelectedHub("")
 	if err != nil {
 		return nil, err
 	}
-	for k, v := range tapEnv {
-		env[k] = v
+	hubURL := strings.TrimRight(hubURLWithScheme(entry.URL), "/")
+	if hubURL == "" {
+		return nil, fmt.Errorf("hub %q has no url", hubName)
+	}
+	token := func() string { return t.hubToken(entry) }
+	catalog, err := fetchHubCatalog(ctx, hubURL, token())
+	if err != nil {
+		return nil, fmt.Errorf("hub %q: %w", hubName, err)
+	}
+	chat := chatModels(catalog)
+	if len(chat) == 0 {
+		return nil, fmt.Errorf("hub %q has no models for you yet; run `tap relay` to contribute your own", hubName)
+	}
+	model := strings.TrimSpace(opts.Model)
+	if model == "" {
+		model = chat[0].ID
+	} else if !hubCatalogHas(chat, model) {
+		return nil, fmt.Errorf("model %q is not in your catalog on hub %q (is its relay connected?); available: %s",
+			model, hubName, strings.Join(hubCatalogIDs(chat), ", "))
 	}
 
-	// Subscription mode has to remove inherited credentials, which an overlay
-	// cannot express: appending can override a variable but never unset one.
-	var strip []string
-	if auth == AuthSubscription || auth == AuthNone {
-		for _, name := range providerKeyEnv[provider] {
-			if _, set := env[name]; !set {
-				strip = append(strip, name)
-			}
-		}
-		sort.Strings(strip)
+	tailEnv, err := t.launchTapEnv(cfg, root, hasRoot)
+	if err != nil {
+		return nil, err
 	}
-
+	tailEnv["TAP_HARNESS"] = harness
+	tailEnv["TAP_MODEL"] = model
+	plan := &launchPlan{
+		hubURL:   hubURL,
+		token:    token,
+		build:    build,
+		spec:     launchSpec{hubName: hubName, model: model, catalog: catalog},
+		tailArgs: append([]string(nil), opts.Args...),
+		tailEnv:  tailEnv,
+	}
+	inv := plan.render(launchForwarderPlaceholder, launchKeyPlaceholder, launchDirPlaceholder)
 	flight := ""
 	if hasRoot {
 		flight = root.Canonical()
 	}
 	return &LaunchResult{
-		Source:    LaunchSourceAgent,
-		Harness:   harness,
-		Agent:     agentName,
-		Provider:  provider,
-		Model:     model,
-		BaseURL:   baseURL,
-		Flight:    flight,
-		Auth:      auth,
-		Argv:      argv,
-		Env:       env,
-		StripEnv:  strip,
-		KeySource: keySource,
-		Warnings:  warnings,
+		Hub:      hubName,
+		Harness:  harness,
+		Model:    model,
+		Flight:   flight,
+		Argv:     inv.argv,
+		Env:      inv.env,
+		StripEnv: inv.strip,
+		Files:    inv.files,
+		Warnings: warnings,
+		plan:     plan,
 	}, nil
 }
 
@@ -696,12 +472,12 @@ func (t *Tap) resolveLaunchRoot(cfg *Config, explicit string) (root FlightRef, h
 	return root, hasRoot, warnings, nil
 }
 
-// launchTapEnv is the TAP_* overlay every launch exports, whichever way its
-// model was chosen. TAP_FLIGHT pins the canonical launch root for the child
-// process lifetime; governed calls may select a live accessible descendant but
-// never replace that root. It is left unset when no flight is configured,
-// which is exactly how the child's `tap mcp` decides it is not launcher-bound
-// and resolves identity authority instead (see cmd_mcp.go).
+// launchTapEnv is the TAP_* overlay every launch exports. TAP_FLIGHT pins the
+// canonical launch root for the child process lifetime; governed calls may
+// select a live accessible descendant but never replace that root. It is left
+// unset when no flight is configured, which is exactly how the child's `tap
+// mcp` decides it is not launcher-bound and resolves identity authority
+// instead (see cmd_mcp.go).
 func (t *Tap) launchTapEnv(cfg *Config, root FlightRef, hasRoot bool) (map[string]string, error) {
 	hubName, _, err := t.ConfigService.SelectedHub("")
 	if err != nil {
@@ -717,72 +493,6 @@ func (t *Tap) launchTapEnv(cfg *Config, root FlightRef, hasRoot bool) (map[strin
 	return env, nil
 }
 
-// resolveHubLaunch resolves a hub-mode launch: the model is a Hub catalog id,
-// and the harness reaches it through a loopback forwarder Launch starts, so
-// no Hub credential is handed to the harness.
-func (t *Tap) resolveHubLaunch(ctx context.Context, harness string, adapter harnessAdapter, model string, args []string, cfg *Config, root FlightRef, hasRoot bool, warnings []string) (*LaunchResult, error) {
-	if adapter.hub == nil {
-		return nil, fmt.Errorf(
-			"harness %q cannot use Hub models yet (hub mode supports: %s); pass --agent to use a configured agent",
-			harness, strings.Join(hubHarnesses(), ", "))
-	}
-	hubName, entry, err := t.ConfigService.SelectedHub("")
-	if err != nil {
-		return nil, err
-	}
-	hubURL := strings.TrimRight(hubURLWithScheme(entry.URL), "/")
-	if hubURL == "" {
-		return nil, fmt.Errorf("hub %q has no url", hubName)
-	}
-	token := func() string { return t.hubToken(entry) }
-	catalog, err := fetchHubCatalog(ctx, hubURL, token())
-	if err != nil {
-		return nil, fmt.Errorf("hub %q: %w", hubName, err)
-	}
-	if len(catalog) == 0 {
-		return nil, fmt.Errorf(
-			"hub %q has no models for you yet; run `tap relay` to contribute your own (or pass --agent to use a configured agent)",
-			hubName)
-	}
-	if model == "" {
-		model = catalog[0].ID
-	} else if !hubCatalogHas(catalog, model) {
-		return nil, fmt.Errorf("model %q is not in your catalog on hub %q (is its relay connected?); available: %s",
-			model, hubName, strings.Join(hubCatalogIDs(catalog), ", "))
-	}
-	tailEnv, err := t.launchTapEnv(cfg, root, hasRoot)
-	if err != nil {
-		return nil, err
-	}
-	plan := &hubLaunchPlan{
-		hubURL:   hubURL,
-		token:    token,
-		build:    adapter.hub,
-		spec:     hubLaunchSpec{hubName: hubName, model: model, catalog: catalog},
-		tailArgs: append([]string(nil), args...),
-		tailEnv:  tailEnv,
-	}
-	argv, env := plan.render(launchForwarderPlaceholder, launchKeyPlaceholder)
-	flight := ""
-	if hasRoot {
-		flight = root.Canonical()
-	}
-	return &LaunchResult{
-		Source:   LaunchSourceHub,
-		Hub:      hubName,
-		Harness:  harness,
-		Provider: LaunchSourceHub,
-		Model:    model,
-		BaseURL:  launchForwarderPlaceholder,
-		Flight:   flight,
-		Auth:     LaunchSourceHub,
-		Argv:     argv,
-		Env:      env,
-		Warnings: warnings,
-		hub:      plan,
-	}, nil
-}
-
 // fetchHubCatalog lists the caller's models from Hub's inference endpoint.
 func fetchHubCatalog(ctx context.Context, hubURL, token string) ([]HubModel, error) {
 	if strings.TrimSpace(token) == "" {
@@ -790,7 +500,7 @@ func fetchHubCatalog(ctx context.Context, hubURL, token string) ([]HubModel, err
 	}
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, hubURL+hubInferencePath+"/models", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, hubURL+hubOpenAIPath+"/models", nil)
 	if err != nil {
 		return nil, fmt.Errorf("list models: %w", err)
 	}
@@ -836,77 +546,7 @@ func hubCatalogIDs(catalog []HubModel) []string {
 	return out
 }
 
-// hubHarnesses lists the harnesses with a hub mode, sorted.
-func hubHarnesses() []string {
-	var out []string
-	for name, a := range harnessAdapters() {
-		if a.hub != nil {
-			out = append(out, name)
-		}
-	}
-	sort.Strings(out)
-	return out
-}
-
-// resolveAuthMode validates an agent's auth field and supplies the default.
-//
-// A local provider defaults to none rather than inherit: cloud credentials have
-// no business reaching a model running on your own hardware, and inheriting
-// them is how an exported OPENAI_API_KEY ends up confusing a harness that is
-// not talking to OpenAI at all.
-func resolveAuthMode(agent AgentEntry, provider string) (string, error) {
-	mode := strings.TrimSpace(agent.Auth)
-	if mode == "" {
-		switch {
-		case strings.TrimSpace(agent.APIKeyEnv) != "":
-			return AuthAPIKey, nil
-		case provider == ProviderOllama:
-			return AuthNone, nil
-		default:
-			return AuthInherit, nil
-		}
-	}
-	switch mode {
-	case AuthSubscription:
-		if provider == ProviderOllama {
-			// There is no subscription behind a local model, and honouring the
-			// request would mean withholding the placeholder key that stops the
-			// harness reaching for a real stored login.
-			return "", fmt.Errorf(
-				"auth %q is meaningless for a local %s model; use %q (the default) instead",
-				AuthSubscription, ProviderOllama, AuthNone)
-		}
-		return mode, nil
-	case AuthInherit, AuthAPIKey, AuthNone:
-		return mode, nil
-	default:
-		return "", fmt.Errorf("unknown auth mode %q (want %s, %s, %s, or %s)",
-			mode, AuthInherit, AuthSubscription, AuthAPIKey, AuthNone)
-	}
-}
-
-// resolveAPIKey reads the variable named by apiKeyEnv. The name is configured,
-// never the secret, so nothing sensitive lands in a config file. The returned
-// source is the variable name, safe to print.
-func (t *Tap) resolveAPIKey(agent AgentEntry, auth string) (key, source string, err error) {
-	name := strings.TrimSpace(agent.APIKeyEnv)
-	if name == "" {
-		if auth == AuthAPIKey {
-			return "", "", fmt.Errorf("auth %q requires apiKeyEnv naming the variable holding the key", AuthAPIKey)
-		}
-		return "", "", nil
-	}
-	if auth == AuthSubscription || auth == AuthNone {
-		return "", "", fmt.Errorf("auth %q cannot be combined with apiKeyEnv", auth)
-	}
-	value := strings.TrimSpace(t.Runtime.Env().Get(name))
-	if value == "" {
-		return "", "", fmt.Errorf("apiKeyEnv names %s but that variable is empty or unset", name)
-	}
-	return value, name, nil
-}
-
-// Launch resolves the agent and starts the harness, wiring it to the runtime's
+// Launch resolves the model and starts the harness, wiring it to the runtime's
 // streams so it runs interactively. With DryRun set it resolves and returns
 // without executing.
 //
@@ -933,33 +573,45 @@ func (t *Tap) Launch(ctx context.Context, opts LaunchOptions) (*LaunchResult, er
 		return nil, fmt.Errorf("harness %q is not installed or not on PATH: %w", resolved.Argv[0], err)
 	}
 
-	argv, env := resolved.Argv, resolved.Env
-	if resolved.hub != nil {
-		// Up before the harness and down after it, so every request the
-		// harness makes has somewhere to go.
-		fw, err := startLaunchForwarder(resolved.hub.hubURL, resolved.hub.token)
-		if err != nil {
-			return nil, err
+	// Up before the harness and down after it, so every request the harness
+	// makes has somewhere to go.
+	fw, err := startLaunchForwarder(resolved.plan.hubURL, resolved.plan.token)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = fw.Close() }()
+	dir := ""
+	if len(resolved.Files) > 0 {
+		// Named after the forwarder's secret, so it is unguessable and
+		// private to this launch.
+		dir = filepath.Join(t.Runtime.GetTempDir(), "tap-launch-"+fw.Secret()[len(fw.Secret())-16:])
+		if err := t.Runtime.Mkdir(dir, 0o700, true); err != nil {
+			return nil, fmt.Errorf("create launch directory: %w", err)
 		}
-		defer func() { _ = fw.Close() }()
-		argv, env = resolved.hub.render(fw.BaseURL(), fw.Secret())
+		defer func() { _ = t.Runtime.Remove(dir, true) }()
+	}
+	inv := resolved.plan.render(fw.Origin(), fw.Secret(), dir)
+	for name, content := range inv.files {
+		if err := t.Runtime.WriteFile(filepath.Join(dir, name), []byte(content), 0o600); err != nil {
+			return nil, fmt.Errorf("write launch file %s: %w", name, err)
+		}
 	}
 
-	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
+	cmd := exec.CommandContext(ctx, inv.argv[0], inv.argv[1:]...)
 	stream := t.Runtime.Stream()
 	cmd.Stdin = stream.In
 	cmd.Stdout = stream.Out
 	cmd.Stderr = stream.Err
-	cmd.Env = append(stripEnv(t.Runtime.Environ(), resolved.StripEnv), envPairs(env)...)
+	cmd.Env = append(stripEnv(t.Runtime.Environ(), inv.strip), envPairs(inv.env)...)
 	if err := cmd.Run(); err != nil {
 		return resolved, fmt.Errorf("%s exited: %w", resolved.Harness, err)
 	}
 	return resolved, nil
 }
 
-// stripEnv removes the named variables from a KEY=VALUE environment. Unsetting
-// is why subscription mode cannot be expressed as an overlay: appending can
-// override a variable's value but never make it absent.
+// stripEnv removes the named variables from a KEY=VALUE environment. An
+// overlay can override a variable's value but never make it absent, which is
+// what keeping a stray provider key away from a harness needs.
 func stripEnv(environ []string, names []string) []string {
 	if len(names) == 0 {
 		return environ
@@ -991,27 +643,5 @@ func envPairs(env map[string]string) []string {
 	for _, k := range keys {
 		out = append(out, k+"="+env[k])
 	}
-	return out
-}
-
-func configuredAgentNames(cfg *Config) []string {
-	agents := cfg.Agents()
-	if len(agents) == 0 {
-		return []string{"none"}
-	}
-	out := make([]string, 0, len(agents))
-	for name := range agents {
-		out = append(out, name)
-	}
-	sort.Strings(out)
-	return out
-}
-
-func adapterProviders(a harnessAdapter) []string {
-	out := make([]string, 0, len(a.providers))
-	for p := range a.providers {
-		out = append(out, p)
-	}
-	sort.Strings(out)
 	return out
 }

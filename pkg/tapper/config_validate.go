@@ -20,6 +20,27 @@ var validLogLevels = map[string]struct{}{
 	"error": {},
 }
 
+// RetiredConfigFields reports keys a config file still carries that Tapper no
+// longer reads. They survive rewrites as unknown data, so nothing is lost,
+// but they do nothing. It needs a config read from one file: a merged config
+// keeps no document to inspect.
+func RetiredConfigFields(cfg *Config) []ConfigWarning {
+	if cfg == nil {
+		return nil
+	}
+	var warnings []ConfigWarning
+	// agent and agents configured `tap launch` before it moved to Hub models.
+	for _, field := range []string{"agent", "agents"} {
+		if _, ok := mappingValue(mappingNode(cfg.doc), field); ok {
+			warnings = append(warnings, ConfigWarning{
+				Field:   field,
+				Message: "no longer used: tap launch starts harnesses on Hub catalog models (tap launch HARNESS --model ID); remove it",
+			})
+		}
+	}
+	return warnings
+}
+
 // ValidateConfig checks a Config for semantic issues that are valid YAML but
 // likely mistakes. It returns warnings, not errors — the config is still usable.
 func ValidateConfig(cfg *Config) []ConfigWarning {
@@ -27,7 +48,7 @@ func ValidateConfig(cfg *Config) []ConfigWarning {
 		return nil
 	}
 
-	var warnings []ConfigWarning
+	warnings := RetiredConfigFields(cfg)
 
 	// Check logLevel is a recognized value.
 	if lvl := cfg.data.LogLevel; lvl != "" {

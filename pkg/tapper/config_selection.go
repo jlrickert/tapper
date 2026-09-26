@@ -198,25 +198,6 @@ func (s *ConfigService) validateTargetHub(target *keg.Target, explicit string) e
 	return nil
 }
 
-func (a *AgentEntry) UnmarshalYAML(n *yaml.Node) error {
-	type plain AgentEntry
-	var value plain
-	if err := n.Decode(&value); err != nil {
-		a.invalid = err
-		a.raw = cloneYAMLNode(n)
-		return nil
-	}
-	*a = AgentEntry(value)
-	return nil
-}
-func (a AgentEntry) MarshalYAML() (any, error) {
-	if a.invalid != nil {
-		return a.raw, nil
-	}
-	type plain AgentEntry
-	return plain(a), nil
-}
-
 // defaultValue returns only the selected rule's own field. Missing fields never
 // inherit from a broader rule. Preserve an explicitly empty KEG as invalid.
 func (m KegMapEntry) defaultValue(field string) string {

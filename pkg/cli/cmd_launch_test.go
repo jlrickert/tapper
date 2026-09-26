@@ -1,199 +1,76 @@
 package cli_test
 
 import (
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	tu "github.com/jlrickert/cli-toolkit/sandbox"
 	"github.com/stretchr/testify/require"
 )
 
-const launchConfig = `flight: "@testuser/+root"
-hub: atlas
-hubs:
-  atlas:
-    url: https://atlas.example.test
-agents:
-  opus:
-    model: anthropic/claude-opus-4
-    flight: +dev
-  local:
-    model: ollama/qwen3.6:35b-mlx
-    flight: "@testuser/+scratch"
-  lab:
-    model: ollama/qwen3.6:35b-mlx
-    baseUrl: http://192.168.50.197:11434/v1
-    flight: "@testuser/+scratch"
-  sub:
-    model: anthropic/claude-opus-4
-    auth: subscription
-    flight: +dev
-`
-
-func newLaunchSandbox(t *testing.T) *tu.Sandbox {
+// newLaunchSandbox configures a sandbox whose hub serves a one-model
+// catalog, with extra appended to the user config.
+func newLaunchSandbox(t *testing.T, extra string) *tu.Sandbox {
 	t.Helper()
+	hub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/inference/openai/v1/models" || r.Header.Get("Authorization") != "Bearer hub-token" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		_, _ = io.WriteString(w, `{"object":"list","data":[{"id":"laptop/ollama/qwen3:8b","object":"model","owned_by":"relay:laptop","context_window":32768}]}`)
+	}))
+	t.Cleanup(hub.Close)
 	sb := NewSandbox(t)
-	require.NoError(t, sb.Runtime().AtomicWriteFile(
-		"/home/testuser/.config/tapper/config.yaml", []byte(launchConfig), 0o644))
+	cfg := fmt.Sprintf("hub: atlas\nhubs:\n  atlas: {url: %s, token: hub-token}\n%s", hub.URL, extra)
+	require.NoError(t, sb.Runtime().AtomicWriteFile("/home/testuser/.config/tapper/config.yaml", []byte(cfg), 0o644))
 	return sb
 }
 
-func TestLaunchCommand_DryRunResolvesOllamaThroughOpenAI(t *testing.T) {
+func TestLaunchCommand_DryRunClaude(t *testing.T) {
 	t.Parallel()
-	sb := newLaunchSandbox(t)
+	sb := newLaunchSandbox(t, "flight: \"@testuser/+root\"\n")
 
-	res := NewProcess(t, false, "launch", "codex", "--agent", "local", "--dry-run").
-		Run(sb.Context(), sb.Runtime())
+	res := NewProcess(t, false, "launch", "claude", "--dry-run", "--", "--verbose").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
-
 	out := string(res.Stdout)
-	require.Contains(t, out, "agent local -> ollama/qwen3.6:35b-mlx")
+	require.Contains(t, out, "hub atlas -> laptop/ollama/qwen3:8b (via loopback forwarder)")
 	require.Contains(t, out, "flight: @testuser/+root (connection-pinned root)")
-	require.Contains(t, out, "codex --oss --local-provider ollama --model qwen3.6:35b-mlx")
-	require.Contains(t, out, "CODEX_OSS_BASE_URL=http://localhost:11434/v1")
-
-	require.Contains(t, out, "TAP_AGENT=local")
-	require.Contains(t, out, "TAP_FLIGHT=@testuser/+root")
-}
-
-func TestLaunchCommand_DryRunResolvesAnthropicThroughEnv(t *testing.T) {
-	t.Parallel()
-	sb := newLaunchSandbox(t)
-
-	res := NewProcess(t, false, "launch", "claude", "--agent", "opus", "--dry-run").
-		Run(sb.Context(), sb.Runtime())
-	require.NoError(t, res.Err)
-
-	out := string(res.Stdout)
-	require.Contains(t, out, "ANTHROPIC_MODEL=claude-opus-4")
-	require.Contains(t, out, "TAP_AGENT=opus")
-	require.Contains(t, out, "TAP_FLIGHT=@testuser/+root")
-}
-
-func TestLaunchCommand_DryRunHonorsExplicitFlight(t *testing.T) {
-	t.Parallel()
-	sb := newLaunchSandbox(t)
-	require.NoError(t, sb.Runtime().Env().Set("TAP_FLIGHT", "@environment/+root"))
-
-	res := NewProcess(t, false, "launch", "claude", "--agent", "opus", "--dry-run",
-		"--flight", "@admin/+mcp-smoke-root").Run(sb.Context(), sb.Runtime())
-	require.NoError(t, res.Err)
-
-	out := string(res.Stdout)
-	require.Contains(t, out, "flight: @admin/+mcp-smoke-root (connection-pinned root)")
-	require.Contains(t, out, "TAP_FLIGHT=@admin/+mcp-smoke-root")
-	require.NotContains(t, out, "@environment/+root")
-	require.NotContains(t, out, "@testuser/+root")
-}
-
-func TestLaunchCommand_DryRunPassesThroughExtraArgs(t *testing.T) {
-	t.Parallel()
-	sb := newLaunchSandbox(t)
-
-	res := NewProcess(t, false, "launch", "codex", "--agent", "local", "--dry-run",
-		"--", "--sandbox", "read-only").Run(sb.Context(), sb.Runtime())
-	require.NoError(t, res.Err)
-	require.Contains(t, string(res.Stdout), "codex --oss --local-provider ollama --model qwen3.6:35b-mlx --sandbox read-only")
-}
-
-// Ollama serves the Anthropic Messages API as well, so Claude Code can drive it
-// once ANTHROPIC_BASE_URL points at the server — minus the /v1 suffix, which
-// the client appends itself.
-func TestLaunchCommand_DryRunDrivesOllamaFromClaude(t *testing.T) {
-	t.Parallel()
-	sb := newLaunchSandbox(t)
-
-	res := NewProcess(t, false, "launch", "claude", "--agent", "lab", "--dry-run").
-		Run(sb.Context(), sb.Runtime())
-	require.NoError(t, res.Err)
-
-	out := string(res.Stdout)
-	require.Contains(t, out, "ANTHROPIC_BASE_URL=http://192.168.50.197:11434")
-	require.NotContains(t, out, "ANTHROPIC_BASE_URL=http://192.168.50.197:11434/v1")
-	require.Contains(t, out, "ANTHROPIC_MODEL=qwen3.6:35b-mlx")
-}
-
-func TestLaunchCommand_ErrorsBeforeLaunchingOnIncompatiblePair(t *testing.T) {
-	t.Parallel()
-	sb := newLaunchSandbox(t)
-
-	// A dry run is not needed to prove this: resolution fails first, so no
-	// harness is ever started. Codex speaks the OpenAI protocol only.
-	res := NewProcess(t, false, "launch", "codex", "--agent", "opus").
-		Run(sb.Context(), sb.Runtime())
-	require.Error(t, res.Err)
-	require.Contains(t, res.Err.Error(), "cannot use a anthropic model")
-}
-
-func TestLaunchCommand_DryRunReportsSubscriptionStrip(t *testing.T) {
-	t.Parallel()
-	sb := newLaunchSandbox(t)
-
-	res := NewProcess(t, false, "launch", "claude", "--agent", "sub", "--dry-run").
-		Run(sb.Context(), sb.Runtime())
-	require.NoError(t, res.Err)
-
-	out := string(res.Stdout)
-	require.Contains(t, out, "auth: subscription")
 	require.Contains(t, out, "unset: ANTHROPIC_API_KEY (inherited)")
-}
-
-// Launching with no flight is the bootstrap path: it must resolve rather than
-// error, report no pinned root, and leave TAP_FLIGHT unset so the harness's
-// `tap mcp` resolves identity authority. The warning goes to stderr so it cannot
-// corrupt a piped dry-run report.
-func TestLaunchCommand_DryRunWithoutFlightWarnsAndPinsNothing(t *testing.T) {
-	t.Parallel()
-	sb := NewSandbox(t)
-	require.NoError(t, sb.Runtime().AtomicWriteFile(
-		"/home/testuser/.config/tapper/config.yaml", []byte(`hub: atlas
-hubs:
-  atlas:
-    url: https://atlas.example.test
-agents:
-  opus:
-    model: anthropic/claude-opus-4
-`), 0o644))
-
-	res := NewProcess(t, false, "launch", "claude", "--agent", "opus", "--dry-run").
-		Run(sb.Context(), sb.Runtime())
-	require.NoError(t, res.Err)
-
-	out := string(res.Stdout)
-	require.Contains(t, out, "agent opus -> anthropic/claude-opus-4")
-	require.NotContains(t, out, "connection-pinned root")
-	require.NotContains(t, out, "TAP_FLIGHT")
-	require.Contains(t, out, "TAP_AGENT=opus")
-
-	require.Contains(t, string(res.Stderr), "identity-authorized full access")
-	require.NotContains(t, out, "identity-authorized full access",
-		"the warning belongs on stderr, clear of the dry-run report")
-}
-
-func TestLaunchCommand_ErrorsOnUnknownAgent(t *testing.T) {
-	t.Parallel()
-	sb := newLaunchSandbox(t)
-
-	res := NewProcess(t, false, "launch", "codex", "--agent", "nope", "--dry-run").
-		Run(sb.Context(), sb.Runtime())
-	require.Error(t, res.Err)
-	require.Contains(t, res.Err.Error(), `unknown agent "nope"`)
-}
-
-func TestLaunchCommand_DryRunResolvesOpenCode(t *testing.T) {
-	t.Parallel()
-	sb := newLaunchSandbox(t)
-
-	res := NewProcess(t, false, "launch", "opencode", "--agent", "local", "--dry-run").
-		Run(sb.Context(), sb.Runtime())
-	require.NoError(t, res.Err)
-
-	out := string(res.Stdout)
-	require.Contains(t, out, "agent local -> ollama/qwen3.6:35b-mlx")
-	require.Contains(t, out, "opencode --model ollama/qwen3.6:35b-mlx")
-	// opencode takes its endpoint from config, not the environment, so the
-	// provider definition travels inline with the launch.
-	require.Contains(t, out, "OPENCODE_CONFIG_CONTENT=")
-	require.Contains(t, out, "http://localhost:11434/v1")
-	require.Contains(t, out, "TAP_AGENT=local")
+	require.Contains(t, out, "claude --model laptop/ollama/qwen3:8b --verbose")
+	require.Contains(t, out, "ANTHROPIC_BASE_URL=http://127.0.0.1:<port>/anthropic")
+	require.Contains(t, out, "ANTHROPIC_AUTH_TOKEN=<launch key>")
+	require.Contains(t, out, "TAP_HARNESS=claude")
+	require.Contains(t, out, "TAP_MODEL=laptop/ollama/qwen3:8b")
 	require.Contains(t, out, "TAP_FLIGHT=@testuser/+root")
+	require.NotContains(t, out, "hub-token", "the Hub credential never appears")
+}
+
+func TestLaunchCommand_DryRunShowsGeneratedFiles(t *testing.T) {
+	t.Parallel()
+	sb := newLaunchSandbox(t, "")
+
+	res := NewProcess(t, false, "launch", "pi", "--dry-run").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+	out := string(res.Stdout)
+	require.Contains(t, out, "pi -e <launch dir>/foldwise-pi.ts --provider foldwise --model laptop/ollama/qwen3:8b")
+	require.Contains(t, out, "Writing <launch dir>/foldwise-pi.ts:")
+	require.Contains(t, out, `pi.registerProvider("foldwise"`)
+	require.Contains(t, string(res.Stderr), "no flight configured", "a no-flight launch warns")
+}
+
+func TestLaunchCommand_Errors(t *testing.T) {
+	t.Parallel()
+	sb := newLaunchSandbox(t, "")
+
+	res := NewProcess(t, false, "launch", "codex", "--agent", "opus", "--dry-run").Run(sb.Context(), sb.Runtime())
+	require.ErrorContains(t, res.Err, "unknown flag: --agent", "configured agents are retired")
+
+	res = NewProcess(t, false, "launch", "codex", "--model", "desktop/ollama/x", "--dry-run").Run(sb.Context(), sb.Runtime())
+	require.ErrorContains(t, res.Err, "is its relay connected")
+
+	res = NewProcess(t, false, "launch", "emacs", "--dry-run").Run(sb.Context(), sb.Runtime())
+	require.ErrorContains(t, res.Err, "unknown harness")
 }
