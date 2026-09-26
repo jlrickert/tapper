@@ -41,7 +41,7 @@ tap keg create @acme/domain-x
 Inspect and edit new keg settings:
 
 ```bash
-tap keg settings --keg @acme/domain-x
+tap keg settings read --keg @acme/domain-x
 tap keg settings edit --keg @acme/domain-x
 ```
 

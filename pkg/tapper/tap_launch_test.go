@@ -100,7 +100,7 @@ func TestResolveLaunch_Claude(t *testing.T) {
 	for _, slot := range []string{"ANTHROPIC_MODEL", "ANTHROPIC_DEFAULT_OPUS_MODEL", "ANTHROPIC_DEFAULT_SONNET_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL", "ANTHROPIC_SMALL_FAST_MODEL"} {
 		require.Equal(t, "laptop/ollama/llama3", got.Env[slot], "every model slot stays on Hub (%s)", slot)
 	}
-	require.Equal(t, []string{"ANTHROPIC_API_KEY"}, got.StripEnv, "an inherited key would win over the launch key")
+	require.Equal(t, []string{"ANTHROPIC_API_KEY", "TAP_AGENT"}, got.StripEnv, "an inherited key would win over the launch key")
 	require.NotContains(t, got.Env, "CLAUDE_CODE_MAX_CONTEXT_TOKENS", "no window is invented for a model without one")
 	require.Equal(t, "claude", got.Env["TAP_HARNESS"])
 	require.Equal(t, "laptop/ollama/llama3", got.Env["TAP_MODEL"])

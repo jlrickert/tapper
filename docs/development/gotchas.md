@@ -21,8 +21,8 @@ Behavior that has surprised people before.
   PersistentPostRunE. In tapper, invocation logging and log file cleanup are
   performed in `RunWithProfile` after `ExecuteContext` returns, bypassing this
   Cobra limitation.
-- **`duration_ms` in invocation logs includes editor wait time.** For `tap edit`
-  and `tap cat` (which open an editor on TTY), the logged duration includes the
+- **`duration_ms` in invocation logs includes editor wait time.** For `tap node edit`
+  and `tap node read` (which open an editor on TTY), the logged duration includes the
   time the user spends in the editor. This is a known limitation of the
   invocation logging system, not a bug. The `interactive` field in the log entry
   can help distinguish interactive from non-interactive invocations.
@@ -38,7 +38,7 @@ canonical guidance by topic. Display descriptions never affect authority revisio
 
 The coordinated REST/MCP replacement is in progress, not complete. Cover entries
 now carry depth (default 2, range 1–8). The Hub composes authority through declared
-same-Hub settings relationships. `full_access` is rejected, not converted.
+same-Hub settings relationships. Flights carry no capabilities; an agent's tools decide what a session may do.
 `keg:~alias/node` explicitly resolves the source KEG's settings alias; canonical
 references keep their meaning. Orientation request transport requires a root and
 active flight, with no revision acknowledgment requirement. The hub publishes
@@ -47,8 +47,7 @@ its own verification status for the replacement's scope and gaps.
 KEG hard deletion is available as `tap keg delete <keg>` and MCP `keg_delete`
 with an explicit canonical `keg`. It removes all data, including snapshots,
 without an expected hash (settings hashes do not cover a whole KEG).
-Flight-scoped deletion requires the independent `delete_kegs` capability and
-admin cover plus identity admin permission. No-flight calls require identity
-admin permission. `manage_kegs` alone cannot delete and is not additionally
-required for deletion. Attachment deletion uses `filename`, with `name` retained
+Flight-scoped deletion requires admin cover plus identity admin permission, and
+the session agent must hold `keg_delete` (`keg_create` alone cannot delete).
+No-flight calls require identity admin permission. Attachment deletion uses `filename`, with `name` retained
 as an equal-only compatibility alias; conflicting or empty inputs fail before mutation.

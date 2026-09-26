@@ -38,7 +38,7 @@ EOF
 	require.NoError(t, sb.Runtime().Set("EDITOR", "/bin/sh "+scriptPath))
 	sb.Runtime().Unset("VISUAL")
 
-	res := NewProcess(t, false, "edit", "0", "--keg", "personal").RunWithIO(sb.Context(), sb.Runtime(), strings.NewReader(""))
+	res := NewProcess(t, false, "node", "edit", "0", "--keg", "personal").RunWithIO(sb.Context(), sb.Runtime(), strings.NewReader(""))
 	require.NoError(t, res.Err)
 
 	meta := fixtureMeta(t, sb.Runtime(), "personal", "0")
@@ -63,7 +63,7 @@ summary: from stdin
 ---
 # Piped Body
 `)
-	res := NewProcess(t, false, "edit", "0", "--keg", "personal").RunWithIO(sb.Context(), sb.Runtime(), stdin)
+	res := NewProcess(t, false, "node", "edit", "0", "--keg", "personal").RunWithIO(sb.Context(), sb.Runtime(), stdin)
 	require.NoError(t, res.Err)
 
 	meta := fixtureMeta(t, sb.Runtime(), "personal", "0")
@@ -79,7 +79,7 @@ func TestEdit_PipedSchemaSelectionPersistsType(t *testing.T) {
 	created := NewCreateProcess(t, false, "Editable", "", "--keg", "personal").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, created.Err)
 
-	res := NewProcess(t, false, "edit", "1", "--keg", "personal", "--schema", "task").
+	res := NewProcess(t, false, "node", "edit", "1", "--keg", "personal", "--schema", "task").
 		RunWithIO(sb.Context(), sb.Runtime(), strings.NewReader("# Edited with schema\n"))
 	require.NoError(t, res.Err)
 	require.Contains(t, fixtureMeta(t, sb.Runtime(), "personal", "1"), "type: task")
@@ -99,7 +99,7 @@ tags: [
 ---
 # Broken
 `)
-	res := NewProcess(t, false, "edit", "0", "--keg", "personal").RunWithIO(sb.Context(), sb.Runtime(), stdin)
+	res := NewProcess(t, false, "node", "edit", "0", "--keg", "personal").RunWithIO(sb.Context(), sb.Runtime(), stdin)
 	require.Error(t, res.Err)
 	require.Contains(t, string(res.Stderr), "invalid frontmatter yaml")
 
@@ -145,7 +145,7 @@ EOF
 	require.NoError(t, sb.Runtime().Set("EDITOR", "/bin/sh "+scriptPath))
 	sb.Runtime().Unset("VISUAL")
 
-	res := NewProcess(t, false, "edit", "0", "--keg", "personal").RunWithIO(sb.Context(), sb.Runtime(), strings.NewReader(""))
+	res := NewProcess(t, false, "node", "edit", "0", "--keg", "personal").RunWithIO(sb.Context(), sb.Runtime(), strings.NewReader(""))
 	require.NoError(t, res.Err)
 
 	meta := fixtureMeta(t, sb.Runtime(), "personal", "0")
@@ -179,7 +179,7 @@ func TestEdit_InteractiveEdit_BumpsAccessCount(t *testing.T) {
 	statsPath := "~/kegs/@local/personal/0/stats.json"
 	sb.MustWriteFile(statsPath, []byte(`{"accessed":"2001-01-01T00:00:00Z","access_count":3}`), 0o644)
 
-	res := NewProcess(t, false, "edit", "0", "--keg", "personal").
+	res := NewProcess(t, false, "node", "edit", "0", "--keg", "personal").
 		RunWithIO(sb.Context(), sb.Runtime(), strings.NewReader(""))
 	require.NoError(t, res.Err)
 
@@ -205,7 +205,7 @@ tags:
 ---
 # Piped Count Test
 `)
-	res := NewProcess(t, false, "edit", "0", "--keg", "personal").
+	res := NewProcess(t, false, "node", "edit", "0", "--keg", "personal").
 		RunWithIO(sb.Context(), sb.Runtime(), stdin)
 	require.NoError(t, res.Err)
 

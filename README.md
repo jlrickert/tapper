@@ -85,16 +85,16 @@ tap use personal --user
 Create your first memory:
 
 ```bash
-tap create
+tap node create
 ```
 
 Write a short note in your editor, for example a project decision or onboarding
 fact. Then read, list, and search it:
 
 ```bash
-tap list
-tap cat 1
-tap grep "decision"
+tap node list
+tap node read 1
+tap node search "decision"
 ```
 
 The important thing is the workflow: capture context close to the work, then
@@ -185,22 +185,22 @@ agent conventions, flight-first orientation, and manual MCP configuration.
 Capture something worth remembering:
 
 ```bash
-tap create --keg @acme/engineering
+tap node create --keg @acme/engineering
 ```
 
 Find related context:
 
 ```bash
-tap grep "billing migration" --keg @acme/engineering
-tap tags "release and payments" --keg @acme/engineering
-tap backlinks 42 --keg @acme/engineering
+tap node search "billing migration" --keg @acme/engineering
+tap tag list "release and payments" --keg @acme/engineering
+tap node backlinks 42 --keg @acme/engineering
 ```
 
 Preserve an important state before changing it:
 
 ```bash
 tap snapshot create 42 --keg @acme/engineering -m "before release edits"
-tap snapshot history 42 --keg @acme/engineering
+tap snapshot list 42 --keg @acme/engineering
 ```
 
 Move a repository or session onto the right shared memory:

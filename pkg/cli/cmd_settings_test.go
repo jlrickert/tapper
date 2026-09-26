@@ -22,7 +22,7 @@ func TestSettingsCommand_DisplaysKegMetadata(t *testing.T) {
 	tests := []infoTestCase{
 		{
 			name:        "info_not_bootstrapped",
-			args:        []string{"keg", "settings"},
+			args:        []string{"keg", "settings", "read"},
 			expectedErr: "tap bootstrap",
 			description: "Error when tapper is not bootstrapped and no alias specified",
 		},
@@ -69,14 +69,14 @@ func TestSettingsCommand_WithJoeFixture(t *testing.T) {
 	tests := []infoTestCase{
 		{
 			name:             "info_with_explicit_alias",
-			args:             []string{"keg", "settings", "--keg", "personal"},
+			args:             []string{"keg", "settings", "read", "--keg", "personal"},
 			setupFixture:     strPtr("joe"),
 			expectedInStdout: []string{"kegv:", "indexes:"},
 			description:      "Display info for explicitly specified keg alias",
 		},
 		{
 			name:         "info_with_nonexistent_alias",
-			args:         []string{"keg", "settings", "--keg", "nonexistent"},
+			args:         []string{"keg", "settings", "read", "--keg", "nonexistent"},
 			setupFixture: strPtr("joe"),
 			expectedErr:  "keg not initialized",
 			description:  "Error when keg does not exist on disk",
@@ -135,7 +135,7 @@ custom_block:
 		ExpectedHash: current.Hash(),
 	}))
 
-	infoCmd := NewProcess(t, false, "keg", "settings", "--keg", "example")
+	infoCmd := NewProcess(t, false, "keg", "settings", "read", "--keg", "example")
 	infoRes := infoCmd.Run(sb.Context(), sb.Runtime())
 	require.NoError(t, infoRes.Err)
 

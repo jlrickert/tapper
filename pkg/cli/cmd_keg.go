@@ -22,7 +22,7 @@ var kegVisibilityValues = []string{"public", "private"}
 //	tap keg revoke @ns/blog @alice
 //	tap keg visibility @ns/blog public
 //	tap keg rename @ns/blog docs
-//	tap keg settings
+//	tap keg settings read
 func NewKegCmd(deps *Deps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "keg",
@@ -40,6 +40,8 @@ settings.`,
 		newKegRenameCmd(deps),
 		newKegDeleteCmd(deps),
 		newKegSettingsCmd(deps),
+		NewInfoCmd(deps),
+		NewDoctorCmd(deps),
 	)
 	createCmd := newKegCreateCmd(deps)
 	if deps.Profile.withDefaults().AllowKegAliasFlags {
@@ -183,13 +185,23 @@ func newKegVisibilityCmd(deps *Deps) *cobra.Command {
 	return cmd
 }
 
-// newKegSettingsCmd returns `tap keg settings` (formerly `tap settings`): the
-// keg's own configuration (title, creator, links, schema policy, …).
+// newKegSettingsCmd returns `tap keg settings read`: the keg's own configuration
+// (title, creator, links, schema policy, …), read and edited through its
+// `read` and `edit` subcommands.
 func newKegSettingsCmd(deps *Deps) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "settings",
+		Short: "read or edit keg settings",
+	}
+	cmd.AddCommand(newKegSettingsReadCmd(deps), newKegSettingsEditCmd(deps))
+	return cmd
+}
+
+func newKegSettingsReadCmd(deps *Deps) *cobra.Command {
 	var opts tapper.KegSettingsOptions
 
 	cmd := &cobra.Command{
-		Use:   "settings",
+		Use:   "read",
 		Short: "display keg settings",
 		Long: `Display the keg settings (keg file contents).
 
@@ -208,7 +220,6 @@ configuration.`,
 			return err
 		},
 	}
-	cmd.AddCommand(newKegSettingsEditCmd(deps))
 	return cmd
 }
 

@@ -32,6 +32,7 @@ manage org-namespace membership and roles, and create org namespaces.`,
 	}
 	cmd.AddCommand(
 		newNamespaceListCmd(deps),
+		newNamespaceSearchCmd(deps),
 		newNamespaceMembersCmd(deps),
 		newNamespaceAddMemberCmd(deps),
 		newNamespaceSetRoleCmd(deps),
@@ -68,6 +69,34 @@ Only the active Hub is queried. Use --hub to select another saved connection.`,
 		},
 	}
 	return cmd
+}
+
+func newNamespaceSearchCmd(deps *Deps) *cobra.Command {
+	return &cobra.Command{
+		Use:   "search [QUERY]",
+		Short: "search the namespaces visible on the hub",
+		Long: `Search the people and org namespaces visible on the active Hub, not only
+your own, as NAMESPACE, KIND, DISPLAY NAME, ROLE. ROLE is set where you are a
+member. With no query, browse. Discovery only: a match grants nothing.`,
+		Args: cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			query := ""
+			if len(args) == 1 {
+				query = args[0]
+			}
+			res, err := deps.Tap.NamespaceSearch(cmd.Context(), tapper.NamespaceSearchOptions{Query: query, Hub: globalKegTarget(deps).Hub})
+			if err != nil {
+				return err
+			}
+			for _, ns := range res.Namespaces {
+				fmt.Fprintf(cmd.OutOrStdout(), "@%s\t%s\t%s\t%s\n", ns.Name, ns.Kind, ns.DisplayName, ns.Role)
+			}
+			if res.Truncated {
+				fmt.Fprintln(cmd.ErrOrStderr(), "warning: results truncated; refine the query")
+			}
+			return nil
+		},
+	}
 }
 
 func newNamespaceMembersCmd(deps *Deps) *cobra.Command {

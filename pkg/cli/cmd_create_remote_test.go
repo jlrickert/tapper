@@ -106,7 +106,7 @@ func TestCreate_AgainstHubSendsATitle(t *testing.T) {
 	editorScript(t, sb, "hub-create", "#!/bin/sh\n"+
 		"printf '%s' '---\ntags:\n  - remote\n---\n# Titled By The Author\n\nBody.\n' > \"$1\"\n")
 
-	res := NewHubProcess(t, true, "create").RunWithIO(sb.Context(), sb.Runtime(), strings.NewReader(""))
+	res := NewHubProcess(t, true, "node", "create").RunWithIO(sb.Context(), sb.Runtime(), strings.NewReader(""))
 	require.NoError(t, res.Err, "stderr=%q", string(res.Stderr))
 
 	require.Len(t, seen, 1, "exactly one create reaches the hub")
@@ -129,7 +129,7 @@ func TestCreate_AgainstHubWithoutTerminalDoesNotCallIt(t *testing.T) {
 	sb := NewSandbox(t)
 	writeHubConfig(t, sb, srv.URL)
 
-	res := NewHubProcess(t, false, "create").Run(sb.Context(), sb.Runtime())
+	res := NewHubProcess(t, false, "node", "create").Run(sb.Context(), sb.Runtime())
 	require.Error(t, res.Err)
 	require.Contains(t, res.Err.Error(), "no content to create a node from")
 	require.Empty(t, seen, "a create with nothing to create from must not reach the hub at all")
@@ -148,7 +148,7 @@ func TestCreate_AgainstHubPipedKeepsWorking(t *testing.T) {
 	require.NoError(t, sb.Runtime().Set("EDITOR", "/bin/false"))
 	sb.Runtime().Unset("VISUAL")
 
-	res := NewHubProcess(t, true, "create").RunWithIO(sb.Context(), sb.Runtime(),
+	res := NewHubProcess(t, true, "node", "create").RunWithIO(sb.Context(), sb.Runtime(),
 		strings.NewReader("# Piped Title\n\nPiped body.\n"))
 	require.NoError(t, res.Err, "stderr=%q", string(res.Stderr))
 

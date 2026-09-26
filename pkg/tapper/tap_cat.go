@@ -16,7 +16,7 @@ type CatOptions struct {
 	// Multiple IDs produce concatenated output separated by blank lines.
 	NodeIDs []string
 
-	// Query is an optional boolean expression (same syntax as tap tags) used
+	// Query is an optional boolean expression (same syntax as tap tag list) used
 	// to select nodes. Mutually exclusive with NodeIDs.
 	Query string
 
@@ -275,9 +275,9 @@ func (t *Tap) catSingleNode(ctx context.Context, k keg.Keg, nodeID string, opts 
 // for a human.
 //
 // The fields deliberately mirror the write surface: content and meta are
-// exactly what `edit` accepts, so a read result can be modified and sent back
+// exactly what `node_edit` accepts, so a read result can be modified and sent back
 // without parsing the rendered output. That is why this does not return the
-// composed `---meta---body` document — `edit` rejects frontmatter inside
+// composed `---meta---body` document — `node_edit` rejects frontmatter inside
 // content, so a composed blob could not be round-tripped.
 func CatViewDocument(ctx context.Context, view keg.NodeView, opts CatOptions) (content, meta, stats string) {
 	switch {

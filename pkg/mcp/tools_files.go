@@ -43,7 +43,7 @@ func registerFileTools(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults
 	registerDownloadImage(srv, tap, defaults)
 }
 
-// --- list_files ---
+// --- file_list ---
 
 type listFilesInput struct {
 	NodeID string `json:"node_id" jsonschema:"node ID to list files for"`
@@ -52,7 +52,7 @@ type listFilesInput struct {
 
 func registerListFiles(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
-		Name:        "list_files",
+		Name:        "file_list",
 		Description: "List file attachments for a node",
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
@@ -74,7 +74,7 @@ func registerListFiles(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults
 	})
 }
 
-// --- list_images ---
+// --- image_list ---
 
 type listImagesInput struct {
 	NodeID string `json:"node_id" jsonschema:"node ID to list images for"`
@@ -83,7 +83,7 @@ type listImagesInput struct {
 
 func registerListImages(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
-		Name:        "list_images",
+		Name:        "image_list",
 		Description: "List image attachments for a node",
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
@@ -129,7 +129,7 @@ func appendAttachmentResourceLink(result *sdkmcp.CallToolResult, nodeID string, 
 	})
 }
 
-// --- delete_file ---
+// --- file_delete ---
 
 type deleteFileInput struct {
 	NodeID   string  `json:"node_id" jsonschema:"node ID containing the file"`
@@ -140,7 +140,7 @@ type deleteFileInput struct {
 
 func registerDeleteFile(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
-		Name:        "delete_file",
+		Name:        "file_delete",
 		Description: "Delete a file attachment from a node",
 		Annotations: &sdkmcp.ToolAnnotations{
 			DestructiveHint: boolPtr(true),
@@ -163,7 +163,7 @@ func registerDeleteFile(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefault
 	})
 }
 
-// --- delete_image ---
+// --- image_delete ---
 
 type deleteImageInput struct {
 	NodeID   string  `json:"node_id" jsonschema:"node ID containing the image"`
@@ -174,7 +174,7 @@ type deleteImageInput struct {
 
 func registerDeleteImage(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
-		Name:        "delete_image",
+		Name:        "image_delete",
 		Description: "Delete an image attachment from a node",
 		Annotations: &sdkmcp.ToolAnnotations{
 			DestructiveHint: boolPtr(true),
@@ -197,7 +197,7 @@ func registerDeleteImage(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaul
 	})
 }
 
-// --- upload_file ---
+// --- file_upload ---
 
 type uploadFileInput struct {
 	NodeID     string               `json:"node_id" jsonschema:"node ID to attach the file to"`
@@ -259,7 +259,7 @@ const (
 
 func uploadFileTool(description string) *sdkmcp.Tool {
 	return &sdkmcp.Tool{
-		Name:        "upload_file",
+		Name:        "file_upload",
 		Description: description + uploadFileLinkHint,
 		Annotations: &sdkmcp.ToolAnnotations{
 			DestructiveHint: boolPtr(false),
@@ -306,7 +306,7 @@ func resolveUploadName(explicit, derived string) (string, error) {
 	return name, nil
 }
 
-// --- download_file ---
+// --- file_download ---
 
 type downloadFileInput struct {
 	NodeID   string `json:"node_id" jsonschema:"node ID containing the file"`
@@ -317,7 +317,7 @@ type downloadFileInput struct {
 
 func registerDownloadFile(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
-		Name:        "download_file",
+		Name:        "file_download",
 		Description: "Download a file attachment from a node to a local file path",
 		Annotations: &sdkmcp.ToolAnnotations{
 			OpenWorldHint: boolPtr(false),
@@ -340,7 +340,7 @@ func registerDownloadFile(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefau
 	})
 }
 
-// --- upload_image ---
+// --- image_upload ---
 
 type uploadImageInput struct {
 	NodeID     string               `json:"node_id" jsonschema:"node ID to attach the image to"`
@@ -392,7 +392,7 @@ func registerLocalUploadImage(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegD
 
 func uploadImageTool(description string) *sdkmcp.Tool {
 	return &sdkmcp.Tool{
-		Name:        "upload_image",
+		Name:        "image_upload",
 		Description: description + uploadImageLinkHint,
 		Annotations: &sdkmcp.ToolAnnotations{
 			DestructiveHint: boolPtr(false),
@@ -425,7 +425,7 @@ func handleImageUpload(ctx context.Context, tap *tapper.Tap, defaults KegDefault
 	return result, nil, nil
 }
 
-// --- download_image ---
+// --- image_download ---
 
 type downloadImageInput struct {
 	NodeID   string `json:"node_id" jsonschema:"node ID containing the image"`
@@ -477,7 +477,7 @@ func registerLocalDownloadImage(srv *sdkmcp.Server, tap *tapper.Tap, defaults Ke
 
 func downloadImageTool(description string) *sdkmcp.Tool {
 	return &sdkmcp.Tool{
-		Name:        "download_image",
+		Name:        "image_download",
 		Description: description,
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,

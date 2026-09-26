@@ -1,9 +1,11 @@
 package cli
 
 import (
+	"context"
 	"errors"
 	"io"
 	"log/slog"
+	"strings"
 
 	"github.com/jlrickert/cli-toolkit/mylog"
 	"github.com/jlrickert/cli-toolkit/toolkit"
@@ -53,6 +55,19 @@ per-command permission prompts.`,
 				defaults.Flight = ""
 			}
 			srv := mcp.NewServer(deps.Tap, Version, defaults, mcpServerOptions(rt.Logger(), deps.InvocationReporter))
+			// A launched session runs a Hub agent (TAP_AGENT=@ns/name): serve
+			// only its tools. If the agent cannot be loaded the session fails
+			// closed to orient/guide rather than quietly offering everything.
+			if ref := strings.TrimSpace(rt.Env().Get("TAP_AGENT")); ref != "" {
+				allow := &mcp.ToolAllowlist{Agent: ref, Resolve: func(ctx context.Context) (*mcp.ToolAllowlist, error) {
+					agent, err := deps.Tap.HubAgent(ctx, ref)
+					if err != nil {
+						return nil, err
+					}
+					return &mcp.ToolAllowlist{Agent: ref, Names: agent.ToolNames()}, nil
+				}}
+				srv.AddReceivingMiddleware(allow.Middleware)
+			}
 			err = srv.Run(cmd.Context(), &sdkmcp.StdioTransport{})
 			if err != nil && errors.Is(err, io.EOF) {
 				return nil

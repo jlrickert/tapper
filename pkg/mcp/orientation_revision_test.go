@@ -8,12 +8,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func revisionTestFlight(slug string, capabilities []tapper.FlightCapability, kegName, instructions string) *tapper.Flight {
+func revisionTestFlight(slug string, kegName, instructions string) *tapper.Flight {
 	return &tapper.Flight{
 		Name: "@local/+" + slug, Namespace: "local", Slug: slug, Source: "test",
 		FlightManifest: tapper.FlightManifest{
 			Visibility:   tapper.FlightVisibilityPrivate,
-			Capabilities: append([]tapper.FlightCapability(nil), capabilities...),
 			Cover:        []tapper.FlightCover{{Namespace: "local", Keg: kegName, Role: tapper.FlightRoleEditor}},
 			Instructions: instructions,
 		},
@@ -22,14 +21,13 @@ func revisionTestFlight(slug string, capabilities []tapper.FlightCapability, keg
 
 func copyRevisionTestFlight(in *tapper.Flight) *tapper.Flight {
 	out := *in
-	out.Capabilities = append([]tapper.FlightCapability(nil), in.Capabilities...)
 	out.Cover = append([]tapper.FlightCover(nil), in.Cover...)
 	out.Subflights = append([]string(nil), in.Subflights...)
 	return &out
 }
 
 func TestFinalizeOrientationHashesOnlyRelevantAuthority(t *testing.T) {
-	root := revisionTestFlight("root", nil, "personal", "root instructions")
+	root := revisionTestFlight("root", "personal", "root instructions")
 	root.Subflights = []string{"@local/+child"}
 	base := &mcp.Orientation{
 		Root: root, Flight: root, Path: []string{root.Name}, Identity: `{"user_id":1}`,
@@ -77,9 +75,9 @@ func TestFinalizeOrientationHashesOnlyRelevantAuthority(t *testing.T) {
 }
 
 func TestFinalizeOrientationChildIgnoresItsOwnSubflights(t *testing.T) {
-	root := revisionTestFlight("root", nil, "personal", "root")
+	root := revisionTestFlight("root", "personal", "root")
 	root.Subflights = []string{"@local/+child"}
-	child := revisionTestFlight("child", []tapper.FlightCapability{tapper.FlightCapabilityManageKegs}, "other", "child")
+	child := revisionTestFlight("child", "other", "child")
 	child.Subflights = []string{"@local/+grandchild"}
 	base := &mcp.Orientation{Root: root, Flight: child, Path: []string{root.Name, child.Name}, Identity: "identity"}
 	require.NoError(t, mcp.FinalizeOrientation(base))

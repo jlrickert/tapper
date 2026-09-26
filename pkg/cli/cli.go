@@ -193,7 +193,7 @@ func reportCLIInvocation(deps *Deps, execErr error) {
 
 // maxArgBytes is the maximum byte length for a single CLI argument in
 // invocation log entries. Arguments longer than this are truncated with a
-// trailing ellipsis. This prevents tap edit and tap create from dumping
+// trailing ellipsis. This prevents tap node edit and tap node create from dumping
 // full file contents into the log.
 const maxArgBytes = 512
 
@@ -255,7 +255,7 @@ func rewriteDefaultCatArgs(args []string) ([]string, bool) {
 
 	rewritten := append([]string{}, prefix...)
 	rewritten = append(rewritten, args[start:actualIdx]...)
-	rewritten = append(rewritten, "cat")
+	rewritten = append(rewritten, "node", "read")
 	rewritten = append(rewritten, args[actualIdx:]...)
 	return rewritten, true
 }

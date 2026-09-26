@@ -20,8 +20,8 @@ list revisions, "snapshot view" to read a prior revision, and "snapshot restore"
 to recover the current node from a prior revision.`,
 		Example: strings.TrimSpace(`
 tap snapshot create 12 --keg personal -m "before refactor"
-tap snapshot history 12 --keg personal
-tap snapshot view 12 1 --keg personal
+tap snapshot list 12 --keg personal
+tap snapshot read 12 1 --keg personal
 tap snapshot restore 12 1 --keg personal
 `),
 		Args: cobra.NoArgs,
@@ -70,7 +70,7 @@ func NewSnapshotHistoryCmd(deps *Deps) *cobra.Command {
 	var opts tapper.NodeHistoryOptions
 
 	cmd := &cobra.Command{
-		Use:   "history NODE_ID",
+		Use:   "list NODE_ID",
 		Short: "list snapshots for a node",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -102,10 +102,10 @@ func NewSnapshotViewCmd(deps *Deps) *cobra.Command {
 	var opts tapper.NodeSnapshotViewOptions
 
 	cmd := &cobra.Command{
-		Use:   "view NODE_ID REV",
+		Use:   "read NODE_ID REV",
 		Short: "view a read-only snapshot revision",
 		Example: strings.TrimSpace(`
-tap snapshot view 12 1 --keg personal
+tap snapshot read 12 1 --keg personal
 keg snapshot view 12 1
 `),
 		Args: cobra.ExactArgs(2),

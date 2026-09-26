@@ -17,18 +17,18 @@ func TestTagsCommand_TableDrivenErrors(t *testing.T) {
 	}{
 		{
 			name:        "too_many_args",
-			args:        []string{"tags", "a", "b"},
+			args:        []string{"tag", "list", "a", "b"},
 			expectedErr: "accepts at most 1 arg",
 		},
 		{
 			name:        "missing_alias",
-			args:        []string{"tags", "--keg", "missing"},
+			args:        []string{"tag", "list", "--keg", "missing"},
 			fixture:     strPtr("joe"),
 			expectedErr: "keg not initialized",
 		},
 		{
 			name:        "invalid_expression",
-			args:        []string{"tags", "a and (b", "--keg", "personal"},
+			args:        []string{"tag", "list", "a and (b", "--keg", "personal"},
 			fixture:     strPtr("joe"),
 			expectedErr: "invalid query expression",
 		},
@@ -62,11 +62,11 @@ func TestTagsCommand_ListAllTagsSorted(t *testing.T) {
 	res = NewCreateProcess(t, false, "Three", "tags:\n  - beta\n").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 
-	out := NewProcess(t, false, "tags").Run(sb.Context(), sb.Runtime())
+	out := NewProcess(t, false, "tag", "list").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, out.Err)
 	require.Equal(t, "alpha\nbeta\nzeta", strings.TrimSpace(string(out.Stdout)))
 
-	reverseOut := NewProcess(t, false, "tags", "--reverse").Run(sb.Context(), sb.Runtime())
+	reverseOut := NewProcess(t, false, "tag", "list", "--reverse").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, reverseOut.Err)
 	require.Equal(t, "zeta\nbeta\nalpha", strings.TrimSpace(string(reverseOut.Stdout)))
 }
@@ -83,15 +83,15 @@ func TestTagsCommand_ListNodesForTag(t *testing.T) {
 	require.NoError(t, res.Err)
 	require.Equal(t, "2", strings.TrimSpace(string(res.Stdout)))
 
-	idOnly := NewProcess(t, false, "tags", "fire", "--id-only").Run(sb.Context(), sb.Runtime())
+	idOnly := NewProcess(t, false, "tag", "list", "fire", "--id-only").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, idOnly.Err)
 	require.Equal(t, "1\n2", strings.TrimSpace(string(idOnly.Stdout)))
 
-	formatted := NewProcess(t, false, "tags", "fire", "--format", "%i|%t").Run(sb.Context(), sb.Runtime())
+	formatted := NewProcess(t, false, "tag", "list", "fire", "--format", "%i|%t").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, formatted.Err)
 	require.Equal(t, "1|Alpha Node\n2|Beta Node", strings.TrimSpace(string(formatted.Stdout)))
 
-	reverse := NewProcess(t, false, "tags", "fire", "--id-only", "--reverse").Run(sb.Context(), sb.Runtime())
+	reverse := NewProcess(t, false, "tag", "list", "fire", "--id-only", "--reverse").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, reverse.Err)
 	require.Equal(t, "2\n1", strings.TrimSpace(string(reverse.Stdout)))
 }
@@ -112,15 +112,15 @@ func TestTagsCommand_TagExpression(t *testing.T) {
 	require.NoError(t, res.Err)
 	require.Equal(t, "3", strings.TrimSpace(string(res.Stdout)))
 
-	orExpr := NewProcess(t, false, "tags", "a and (b or c)", "--id-only").Run(sb.Context(), sb.Runtime())
+	orExpr := NewProcess(t, false, "tag", "list", "a and (b or c)", "--id-only").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, orExpr.Err)
 	require.Equal(t, "1\n2", strings.TrimSpace(string(orExpr.Stdout)))
 
-	notExpr := NewProcess(t, false, "tags", "a and not c", "--id-only").Run(sb.Context(), sb.Runtime())
+	notExpr := NewProcess(t, false, "tag", "list", "a and not c", "--id-only").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, notExpr.Err)
 	require.Equal(t, "1", strings.TrimSpace(string(notExpr.Stdout)))
 
-	symbolExpr := NewProcess(t, false, "tags", "a && !c", "--id-only").Run(sb.Context(), sb.Runtime())
+	symbolExpr := NewProcess(t, false, "tag", "list", "a && !c", "--id-only").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, symbolExpr.Err)
 	require.Equal(t, "1", strings.TrimSpace(string(symbolExpr.Stdout)))
 }
@@ -129,7 +129,7 @@ func TestTagsCommand_NoMatchesReturnsEmptyOutput(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
 
-	res := NewProcess(t, false, "tags", "missing-tag", "--keg", "personal").Run(sb.Context(), sb.Runtime())
+	res := NewProcess(t, false, "tag", "list", "missing-tag", "--keg", "personal").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 	require.Equal(t, "", strings.TrimSpace(string(res.Stdout)))
 }
@@ -144,17 +144,17 @@ func TestTagsCommand_OffsetWithTagFilter(t *testing.T) {
 	}
 
 	// Without offset: nodes 1,2,3 match "group".
-	all := NewProcess(t, false, "tags", "group", "--id-only").Run(sb.Context(), sb.Runtime())
+	all := NewProcess(t, false, "tag", "list", "group", "--id-only").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, all.Err)
 	require.Equal(t, "1\n2\n3", strings.TrimSpace(string(all.Stdout)))
 
 	// Offset 1: skip first match.
-	offset := NewProcess(t, false, "tags", "group", "--id-only", "--offset", "1").Run(sb.Context(), sb.Runtime())
+	offset := NewProcess(t, false, "tag", "list", "group", "--id-only", "--offset", "1").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, offset.Err)
 	require.Equal(t, "2\n3", strings.TrimSpace(string(offset.Stdout)))
 
 	// Offset 1 skips node 1, leaving (2,3). Limit 2 takes first 2: (2,3).
-	combined := NewProcess(t, false, "tags", "group", "--id-only", "-n", "2", "--offset", "1").Run(sb.Context(), sb.Runtime())
+	combined := NewProcess(t, false, "tag", "list", "group", "--id-only", "-n", "2", "--offset", "1").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, combined.Err)
 	require.Equal(t, "2\n3", strings.TrimSpace(string(combined.Stdout)))
 }
@@ -171,7 +171,7 @@ func TestTagsCommand_OffsetListAllTags(t *testing.T) {
 	require.NoError(t, res.Err)
 
 	// Offset 1 on tag list: skip "alpha", get "beta" and "gamma".
-	offset := NewProcess(t, false, "tags", "--offset", "1").Run(sb.Context(), sb.Runtime())
+	offset := NewProcess(t, false, "tag", "list", "--offset", "1").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, offset.Err)
 	require.Equal(t, "beta\ngamma", strings.TrimSpace(string(offset.Stdout)))
 }

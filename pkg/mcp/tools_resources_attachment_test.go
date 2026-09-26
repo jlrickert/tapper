@@ -39,24 +39,24 @@ func TestMCP_AttachmentResource_ReadsLinkedAttachments(t *testing.T) {
 	session, ctx := newTestSession(t)
 
 	createRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name:      "create",
+		Name:      "node_create",
 		Arguments: batchCreateArgs(map[string]any{"title": "Attachment Resource Node"}),
 	})
 	require.NoError(t, err)
 	nodeID := extractText(t, createRes)
 
 	pngData := tinyPNG(t)
-	upload := uploadAttachment(t, ctx, session, "upload_image", nodeID, "diagram.png", pngData)
+	upload := uploadAttachment(t, ctx, session, "image_upload", nodeID, "diagram.png", pngData)
 	links := resourceLinks(upload)
 	require.Len(t, links, 1)
 	imageURI := "tapper://node/" + nodeID + "/attachments/image/diagram.png"
 	require.Equal(t, imageURI, links[0].URI)
 
 	csv := []byte("a,b\n1,2\n")
-	uploadAttachment(t, ctx, session, "upload_file", nodeID, "my data.csv", csv)
+	uploadAttachment(t, ctx, session, "file_upload", nodeID, "my data.csv", csv)
 
 	listRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name:      "list_files",
+		Name:      "file_list",
 		Arguments: map[string]any{"node_id": nodeID},
 	})
 	require.NoError(t, err)

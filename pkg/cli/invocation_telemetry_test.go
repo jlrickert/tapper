@@ -43,7 +43,7 @@ func TestRunReportsExactCobraCommandPathsOnSuccessAndFailure(t *testing.T) {
 		command string
 	}{
 		{name: "success", args: []string{"config", "--show-sources"}, success: true, command: "tap config"},
-		{name: "failure", args: []string{"cat", "99999"}, success: false, command: "tap cat"},
+		{name: "failure", args: []string{"node", "read", "99999"}, success: false, command: "tap node read"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

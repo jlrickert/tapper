@@ -1,18 +1,18 @@
 # Output Formats
 
-`tap list`, `tap grep`, `tap tags`, `tap links`, and `tap backlinks` all render
+`tap node list`, `tap node search`, `tap tag list`, `tap node links`, and `tap node backlinks` all render
 node listings through one `--format` template, and the MCP tools of the same
 names accept the same string.
 
 ## Quick reference
 
 ```sh
-tap list                                   # id, updated, title (default)
-tap list -f '%i %t'                        # id and title
-tap list -f '%i\t%{type}\t%{status}'       # metadata columns
-tap list -f '%i\t%{tags}'                  # the tag list
-tap list -f '%i\t%{.accessCount}'          # a statistics field
-tap list -f '100%%'                        # a literal percent
+tap node list                                   # id, updated, title (default)
+tap node list -f '%i %t'                        # id and title
+tap node list -f '%i\t%{type}\t%{status}'       # metadata columns
+tap node list -f '%i\t%{tags}'                  # the tag list
+tap node list -f '%i\t%{.accessCount}'          # a statistics field
+tap node list -f '100%%'                        # a literal percent
 ```
 
 The default format is `"%i\t%d\t%t"`.
@@ -67,7 +67,7 @@ escapes itself. This is what makes the tab-separated default typeable at a
 prompt:
 
 ```sh
-tap list -f "%{id}\t%{type}\t%{title}"     # real tabs
+tap node list -f "%{id}\t%{type}\t%{title}"     # real tabs
 ```
 
 | Escape | Renders |
@@ -106,7 +106,7 @@ tabular format keeps a stable column count no matter which nodes carry a key.
 A sentinel such as `-` would be indistinguishable from a real value.
 
 ```sh
-tap list -f '%i\t%{type}' | cut -f2      # stays column 2 for every node
+tap node list -f '%i\t%{type}' | cut -f2      # stays column 2 for every node
 ```
 
 These all render empty: a metadata key the node does not have, a metadata value

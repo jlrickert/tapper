@@ -240,20 +240,22 @@ func TestMCP_ToolsList(t *testing.T) {
 		names[tool.Name] = true
 	}
 	for _, want := range []string{
-		"auth_info", "keg_list", "keg_search", "cat", "list", "grep", "tags", "backlinks", "links", "info",
-		"keg_settings", "keg_settings_edit", "stats", "create", "edit", "remove", "move",
-		"index", "list_indexes", "index_cat", "doctor", "node_history", "node_snapshot",
-		"node_snapshot_view", "node_restore", "list_files", "list_images", "delete_file", "delete_image",
-		"upload_file", "upload_image", "download_image", "orient", "session_refresh",
-		"lock_acquire", "lock_release", "lock_status", "lock_force_release", "list_flights", "flight_show",
+		"session_info", "keg_list", "keg_search", "node_read", "node_list", "node_search", "tag_list", "node_backlinks", "node_links", "keg_info",
+		"keg_settings_read", "keg_settings_edit", "node_stats", "node_create", "node_edit", "node_delete", "node_move",
+		"index_rebuild", "index_list", "index_read", "keg_check", "snapshot_list", "snapshot_create",
+		"snapshot_read", "snapshot_restore", "file_list", "image_list", "file_delete", "image_delete",
+		"file_upload", "image_upload", "image_download", "orient", "session_refresh",
+		"lock_acquire", "lock_release", "lock_status", "lock_force_release", "flight_list", "flight_read",
 		"flight_create", "flight_edit", "flight_delete", "schema_list", "schema_read", "schema_create",
-		"schema_edit", "schema_delete", "validate",
+		"schema_edit", "schema_delete", "schema_validate",
+		"agent_list", "agent_read", "agent_create", "agent_edit", "agent_delete",
+		"namespace_list", "namespace_search",
 	} {
 		require.Truef(t, names[want], "agent-safe surface missing %q", want)
 	}
 	for _, banned := range []string{
 		"config", "config_template", "repo_init", "export", "import", "auth_status", "license",
-		"download_file", "keg_visibility", "namespace_list", "namespace_create",
+		"file_download", "keg_visibility", "namespace_create",
 	} {
 		require.Falsef(t, names[banned], "agent-safe surface exposed %q", banned)
 	}
@@ -282,29 +284,31 @@ func TestMCP_CommonAgentSafeSurface(t *testing.T) {
 
 	// Common KEG and account tools must be present.
 	for _, want := range []string{
-		"cat", "list", "grep", "tags", "backlinks", "links", "info", "keg_settings",
+		"node_read", "node_list", "node_search", "tag_list", "node_backlinks", "node_links", "keg_info", "keg_settings_read",
 		"keg_settings_edit",
-		"stats", "create", "edit", "remove", "move", "index",
-		"list_indexes", "index_cat", "node_history", "node_snapshot",
-		"node_snapshot_view", "node_restore", "orient", "session_refresh",
-		"list_files", "list_images", "delete_file", "delete_image",
-		"upload_file", "upload_image", "download_image",
+		"node_stats", "node_create", "node_edit", "node_delete", "node_move", "index_rebuild",
+		"index_list", "index_read", "snapshot_list", "snapshot_create",
+		"snapshot_read", "snapshot_restore", "orient", "session_refresh",
+		"file_list", "image_list", "file_delete", "image_delete",
+		"file_upload", "image_upload", "image_download",
 		"schema_list", "schema_read", "schema_create", "schema_edit",
-		"schema_delete", "validate", "doctor", "keg_list", "keg_search", "auth_info",
+		"schema_delete", "schema_validate", "keg_check", "keg_list", "keg_search", "session_info",
 		"lock_acquire", "lock_release", "lock_status", "lock_force_release",
-		"list_flights", "flight_show", "flight_create", "flight_edit", "flight_delete",
+		"flight_list", "flight_read", "flight_create", "flight_edit", "flight_delete",
+		"agent_list", "agent_read", "agent_create", "agent_edit", "agent_delete",
+		"namespace_list", "namespace_search",
 	} {
 		require.Truef(t, names[want], "common surface should expose %q", want)
 	}
 
 	// Machine-local and tenant-administration tools must be absent.
 	for _, banned := range []string{
-		"auth_status", "config", "config_template", "license", "repo_init", "integrate", "export", "import", "download_file",
+		"auth_status", "config", "config_template", "license", "repo_init", "integrate", "export", "import", "file_download",
 		"keg_grants", "keg_grant", "keg_revoke", "keg_visibility",
-		"namespace_list", "namespace_members", "namespace_add_member",
+		"namespace_members", "namespace_add_member",
 		"namespace_set_role", "namespace_remove_member", "namespace_create",
 		"flight_update",
-		// meta was folded into edit (writes) and cat meta_only (reads); it
+		// meta was folded into node_edit (writes) and node_read meta_only (reads); it
 		// must not come back as a third way to touch node metadata.
 		"meta",
 	} {
@@ -317,7 +321,7 @@ func TestMCP_Cat(t *testing.T) {
 	session, ctx := newTestSession(t)
 
 	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "cat",
+		Name: "node_read",
 		Arguments: map[string]any{
 			"node_ids": []string{"0"},
 		},
@@ -345,7 +349,7 @@ func TestMCP_KegSettingsEdit_ReplacesValidatedDocument(t *testing.T) {
 	callOrient(t, ctx, session)
 
 	read, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "keg_settings",
+		Name: "keg_settings_read",
 		Arguments: map[string]any{
 			"minimal": false,
 		},
@@ -366,7 +370,7 @@ func TestMCP_KegSettingsEdit_ReplacesValidatedDocument(t *testing.T) {
 	require.True(t, invalid.IsError)
 
 	read, err = session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name:      "keg_settings",
+		Name:      "keg_settings_read",
 		Arguments: map[string]any{"minimal": false},
 	})
 	require.NoError(t, err)
@@ -379,7 +383,7 @@ func TestMCP_CatContentOnly(t *testing.T) {
 	session, ctx := newTestSession(t)
 
 	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "cat",
+		Name: "node_read",
 		Arguments: map[string]any{
 			"node_ids":     []string{"0"},
 			"content_only": true,
@@ -396,7 +400,7 @@ func TestMCP_List(t *testing.T) {
 	session, ctx := newTestSession(t)
 
 	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name:      "list",
+		Name:      "node_list",
 		Arguments: map[string]any{},
 	})
 	require.NoError(t, err)
@@ -411,7 +415,7 @@ func TestMCP_ListIdOnly(t *testing.T) {
 	session, ctx := newTestSession(t)
 
 	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "list",
+		Name: "node_list",
 		Arguments: map[string]any{
 			"id_only": true,
 		},
@@ -431,7 +435,7 @@ func TestMCP_ListDefaultLimit(t *testing.T) {
 	// has only 2 nodes, so all are returned — but the important thing is
 	// that the call succeeds with the default applied.
 	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "list",
+		Name: "node_list",
 		Arguments: map[string]any{
 			"id_only": true,
 		},
@@ -449,7 +453,7 @@ func TestMCP_ListUnlimitedWithNegativeOne(t *testing.T) {
 
 	// Passing limit=-1 should request unlimited results (no cap).
 	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "list",
+		Name: "node_list",
 		Arguments: map[string]any{
 			"id_only": true,
 			"limit":   -1,
@@ -468,7 +472,7 @@ func TestMCP_ListExplicitLimit(t *testing.T) {
 
 	// Passing limit=1 should cap at 1 result.
 	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "list",
+		Name: "node_list",
 		Arguments: map[string]any{
 			"id_only": true,
 			"limit":   1,
@@ -486,7 +490,7 @@ func TestMCP_Grep(t *testing.T) {
 	session, ctx := newTestSession(t)
 
 	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "grep",
+		Name: "node_search",
 		Arguments: map[string]any{
 			"query": "Hello",
 		},
@@ -502,7 +506,7 @@ func TestMCP_Tags(t *testing.T) {
 	session, ctx := newTestSession(t)
 
 	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "tags",
+		Name: "tag_list",
 		Arguments: map[string]any{
 			"query": "test",
 		},
@@ -518,7 +522,7 @@ func TestMCP_Backlinks(t *testing.T) {
 	session, ctx := newTestSession(t)
 
 	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "backlinks",
+		Name: "node_backlinks",
 		Arguments: map[string]any{
 			"node_ids": []string{"0"},
 		},
@@ -534,7 +538,7 @@ func TestMCP_Links(t *testing.T) {
 	session, ctx := newTestSession(t)
 
 	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "links",
+		Name: "node_links",
 		Arguments: map[string]any{
 			"node_ids": []string{"1"},
 		},
@@ -550,7 +554,7 @@ func TestMCP_Info(t *testing.T) {
 	session, ctx := newTestSession(t)
 
 	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name:      "info",
+		Name:      "keg_info",
 		Arguments: map[string]any{},
 	})
 	require.NoError(t, err)
@@ -566,7 +570,7 @@ func TestMCP_KegSettings(t *testing.T) {
 	session, ctx := newTestSession(t)
 
 	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name:      "keg_settings",
+		Name:      "keg_settings_read",
 		Arguments: map[string]any{},
 	})
 	require.NoError(t, err)
@@ -581,7 +585,7 @@ func TestMCP_Stats(t *testing.T) {
 	session, ctx := newTestSession(t)
 
 	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "stats",
+		Name: "node_stats",
 		Arguments: map[string]any{
 			"node_id": "0",
 		},
@@ -596,7 +600,7 @@ func TestMCP_CatError(t *testing.T) {
 	session, ctx := newTestSession(t)
 
 	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "cat",
+		Name: "node_read",
 		Arguments: map[string]any{
 			"node_ids": []string{"999"},
 		},
@@ -644,10 +648,10 @@ func TestMCPMutationSchemasRejectLegacySingleItemFields(t *testing.T) {
 		name string
 		args map[string]any
 	}{
-		{"create", map[string]any{"title": "legacy"}},
-		{"edit", map[string]any{"node_id": "0", "content": "# legacy\n"}},
-		{"remove", map[string]any{"node_ids": []string{"0"}, "expected_hash": "legacy"}},
-		{"node_snapshot", map[string]any{"node_id": "0"}},
+		{"node_create", map[string]any{"title": "legacy"}},
+		{"node_edit", map[string]any{"node_id": "0", "content": "# legacy\n"}},
+		{"node_delete", map[string]any{"node_ids": []string{"0"}, "expected_hash": "legacy"}},
+		{"snapshot_create", map[string]any{"node_id": "0"}},
 	} {
 		res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: tc.name, Arguments: tc.args})
 		require.NoError(t, err)
@@ -676,10 +680,7 @@ func TestMCPMutationSchemasRejectEmptyAndOversizedArrays(t *testing.T) {
 		{"snapshot empty", map[string]any{"nodes": []any{}}},
 		{"snapshot oversized", map[string]any{"nodes": oversizedObjects}},
 	} {
-		tool := strings.Fields(tc.name)[0]
-		if tool == "snapshot" {
-			tool = "node_snapshot"
-		}
+		tool := map[string]string{"create": "node_create", "edit": "node_edit", "remove": "node_delete", "snapshot": "snapshot_create"}[strings.Fields(tc.name)[0]]
 		res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: tool, Arguments: tc.args})
 		require.NoError(t, err)
 		require.True(t, res.IsError, "%s accepted invalid array bounds", tc.name)
@@ -716,7 +717,7 @@ meta:
 	require.False(t, schema.IsError, "schema create failed: %s", extractText(t, schema))
 
 	invalid, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name:      "create",
+		Name:      "node_create",
 		Arguments: map[string]any{"nodes": []any{map[string]any{"key": "invalid", "content": "# Missing type\n"}}},
 	})
 	require.NoError(t, err)
@@ -724,7 +725,7 @@ meta:
 	require.Contains(t, extractText(t, invalid), "explicit schema selection is required")
 
 	valid, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "create",
+		Name: "node_create",
 		Arguments: map[string]any{"nodes": []any{map[string]any{
 			"key": "valid", "schema": "task", "content": "# Typed\n", "meta": "type: task\n",
 		}}},
@@ -738,7 +739,7 @@ func TestMCP_Create(t *testing.T) {
 	session, ctx := newTestSession(t)
 
 	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "create",
+		Name: "node_create",
 		Arguments: batchCreateArgs(map[string]any{
 			"title": "New Node",
 			"lead":  "A node created via MCP.",
@@ -752,7 +753,7 @@ func TestMCP_Create(t *testing.T) {
 
 	// Read it back.
 	readRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "cat",
+		Name: "node_read",
 		Arguments: map[string]any{
 			"node_ids":     []string{text},
 			"content_only": true,
@@ -772,7 +773,7 @@ func TestMCP_CreateRejectsFrontmatterInContent(t *testing.T) {
 	session, ctx := newTestSession(t)
 
 	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "create",
+		Name: "node_create",
 		Arguments: map[string]any{"nodes": []any{map[string]any{
 			"key":     "node",
 			"content": "---\ntags:\n  - sneaky\n---\n\n# Body\n",
@@ -791,7 +792,7 @@ func TestMCP_CreateRejectsSchemaConflictingWithMeta(t *testing.T) {
 	session, ctx := newTestSession(t)
 
 	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "create",
+		Name: "node_create",
 		Arguments: map[string]any{"nodes": []any{map[string]any{
 			"key":     "node",
 			"content": "# Conflicted\n",
@@ -813,7 +814,7 @@ func TestMCP_CreateRejectsLegacyStructuredFields(t *testing.T) {
 
 	for _, field := range []string{"title", "lead", "body", "tags", "attrs"} {
 		res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-			Name: "create",
+			Name: "node_create",
 			Arguments: map[string]any{"nodes": []any{map[string]any{
 				"key": "node", "content": "# Legacy\n", field: "x",
 			}}},
@@ -826,7 +827,7 @@ func TestMCP_CreateRejectsLegacyStructuredFields(t *testing.T) {
 func TestMCP_CreateBatchReturnsOrderedStructuredResults(t *testing.T) {
 	session, ctx := newTestSession(t)
 	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "create",
+		Name: "node_create",
 		Arguments: map[string]any{"nodes": []any{
 			map[string]any{"key": "first", "content": "# First\n\n[Second](../{{node:second}})\n"},
 			map[string]any{"key": "second", "content": "# Second\n\n[First](../{{node:first}})\n"},
@@ -858,7 +859,7 @@ func TestMCP_CreateWithBody(t *testing.T) {
 
 	body := "# Custom Title\n\nCustom body content.\n"
 	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "create",
+		Name: "node_create",
 		Arguments: batchCreateArgs(map[string]any{
 			"content": body,
 		}),
@@ -868,7 +869,7 @@ func TestMCP_CreateWithBody(t *testing.T) {
 	require.False(t, res.IsError, "create returned error: %s", text)
 
 	readRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "cat",
+		Name: "node_read",
 		Arguments: map[string]any{
 			"node_ids":     []string{text},
 			"content_only": true,
@@ -886,7 +887,7 @@ func TestMCP_Edit(t *testing.T) {
 
 	// Create a node first.
 	createRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "create",
+		Name: "node_create",
 		Arguments: batchCreateArgs(map[string]any{
 			"title": "Before Edit",
 		}),
@@ -898,7 +899,7 @@ func TestMCP_Edit(t *testing.T) {
 
 	// Edit it.
 	editRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "edit",
+		Name: "node_edit",
 		Arguments: batchEditArgs(map[string]any{
 			"node_id":       nodeID,
 			"content":       "# After Edit\n\nEdited via MCP.\n",
@@ -910,7 +911,7 @@ func TestMCP_Edit(t *testing.T) {
 
 	// Read back.
 	readRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "cat",
+		Name: "node_read",
 		Arguments: map[string]any{
 			"node_ids":     []string{nodeID},
 			"content_only": true,
@@ -927,7 +928,7 @@ func TestMCP_Edit(t *testing.T) {
 func metaOnlyText(t *testing.T, session *sdkmcp.ClientSession, ctx context.Context, nodeID string) string {
 	t.Helper()
 	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name:      "cat",
+		Name:      "node_read",
 		Arguments: map[string]any{"node_ids": []string{nodeID}, "meta_only": true},
 	})
 	require.NoError(t, err)
@@ -949,7 +950,7 @@ func TestMCP_EditWritesMeta(t *testing.T) {
 	session, ctx := newTestSession(t)
 
 	createRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "create",
+		Name: "node_create",
 		Arguments: batchCreateArgs(map[string]any{
 			"title": "Meta Test",
 		}),
@@ -959,7 +960,7 @@ func TestMCP_EditWritesMeta(t *testing.T) {
 	expectedHash := readNodeHash(t, session, ctx, nodeID)
 
 	writeRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "edit",
+		Name: "node_edit",
 		Arguments: batchEditArgs(map[string]any{
 			"node_id":       nodeID,
 			"meta":          "tags:\n  - updated\n  - mcp\n",
@@ -982,14 +983,14 @@ func TestMCP_EditWritesContentAndMetaTogether(t *testing.T) {
 	session, ctx := newTestSession(t)
 
 	createRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name:      "create",
+		Name:      "node_create",
 		Arguments: batchCreateArgs(map[string]any{"title": "Before Both"}),
 	})
 	require.NoError(t, err)
 	nodeID := extractText(t, createRes)
 
 	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "edit",
+		Name: "node_edit",
 		Arguments: batchEditArgs(map[string]any{
 			"node_id":       nodeID,
 			"content":       "# After Both\n\nRewritten body.\n",
@@ -1003,7 +1004,7 @@ func TestMCP_EditWritesContentAndMetaTogether(t *testing.T) {
 	require.Contains(t, metaOnlyText(t, session, ctx, nodeID), "both")
 
 	contentRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name:      "cat",
+		Name:      "node_read",
 		Arguments: map[string]any{"node_ids": []string{nodeID}, "content_only": true},
 	})
 	require.NoError(t, err)
@@ -1018,14 +1019,14 @@ func TestMCP_EditRejectsFrontmatterInContent(t *testing.T) {
 	session, ctx := newTestSession(t)
 
 	createRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name:      "create",
+		Name:      "node_create",
 		Arguments: batchCreateArgs(map[string]any{"title": "Frontmatter Subject"}),
 	})
 	require.NoError(t, err)
 	nodeID := extractText(t, createRes)
 
 	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "edit",
+		Name: "node_edit",
 		Arguments: batchEditArgs(map[string]any{
 			"node_id":       nodeID,
 			"content":       "---\ntags:\n  - sneaky\n---\n\n# Body\n",
@@ -1046,7 +1047,7 @@ func TestMCP_EditRequiresContentOrMeta(t *testing.T) {
 	session, ctx := newTestSession(t)
 
 	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "edit",
+		Name: "node_edit",
 		Arguments: batchEditArgs(map[string]any{
 			"node_id":       "0",
 			"expected_hash": readNodeHash(t, session, ctx, "0"),
@@ -1064,7 +1065,7 @@ func TestMCP_EditRejectsSnapshotBefore(t *testing.T) {
 	session, ctx := newTestSession(t)
 
 	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "edit",
+		Name: "node_edit",
 		Arguments: batchEditArgs(map[string]any{
 			"node_id":         "0",
 			"content":         "# Zero\n",
@@ -1083,7 +1084,7 @@ func TestMCP_Remove(t *testing.T) {
 
 	// Create a node.
 	createRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "create",
+		Name: "node_create",
 		Arguments: batchCreateArgs(map[string]any{
 			"title": "To Be Removed",
 		}),
@@ -1094,7 +1095,7 @@ func TestMCP_Remove(t *testing.T) {
 
 	// Remove it.
 	removeRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "remove",
+		Name: "node_delete",
 		Arguments: map[string]any{
 			"nodes": []map[string]any{{
 				"node_id":       nodeID,
@@ -1107,7 +1108,7 @@ func TestMCP_Remove(t *testing.T) {
 
 	// Confirm it's gone.
 	catRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "cat",
+		Name: "node_read",
 		Arguments: map[string]any{
 			"node_ids": []string{nodeID},
 		},
@@ -1122,7 +1123,7 @@ func TestMCP_Move(t *testing.T) {
 
 	// Create a node.
 	createRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "create",
+		Name: "node_create",
 		Arguments: batchCreateArgs(map[string]any{
 			"title": "Movable Node",
 		}),
@@ -1133,7 +1134,7 @@ func TestMCP_Move(t *testing.T) {
 
 	// Move it to ID 999.
 	moveRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "move",
+		Name: "node_move",
 		Arguments: map[string]any{
 			"source_id":     srcID,
 			"dest_id":       "999",
@@ -1145,7 +1146,7 @@ func TestMCP_Move(t *testing.T) {
 
 	// Old ID is gone.
 	oldRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "cat",
+		Name: "node_read",
 		Arguments: map[string]any{
 			"node_ids": []string{srcID},
 		},
@@ -1155,7 +1156,7 @@ func TestMCP_Move(t *testing.T) {
 
 	// New ID exists.
 	newRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "cat",
+		Name: "node_read",
 		Arguments: map[string]any{
 			"node_ids":     []string{"999"},
 			"content_only": true,
@@ -1174,7 +1175,7 @@ func TestMCP_NodeHistory_Empty(t *testing.T) {
 	session, ctx := newTestSession(t)
 
 	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "node_history",
+		Name: "snapshot_list",
 		Arguments: map[string]any{
 			"node_id": "0",
 		},
@@ -1191,7 +1192,7 @@ func TestMCP_NodeSnapshotAndHistory(t *testing.T) {
 
 	// Snapshot node 0.
 	snapRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "node_snapshot",
+		Name: "snapshot_create",
 		Arguments: batchSnapshotArgs(map[string]any{
 			"node_id": "0",
 			"message": "initial snapshot",
@@ -1204,7 +1205,7 @@ func TestMCP_NodeSnapshotAndHistory(t *testing.T) {
 
 	// Check history.
 	histRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "node_history",
+		Name: "snapshot_list",
 		Arguments: map[string]any{
 			"node_id": "0",
 		},
@@ -1216,7 +1217,7 @@ func TestMCP_NodeSnapshotAndHistory(t *testing.T) {
 	require.Contains(t, histText, "initial snapshot")
 
 	viewRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "node_snapshot_view",
+		Name: "snapshot_read",
 		Arguments: map[string]any{
 			"node_id": "0",
 			"rev":     "1",
@@ -1228,7 +1229,7 @@ func TestMCP_NodeSnapshotAndHistory(t *testing.T) {
 	require.Contains(t, viewText, "This is the zero node of the personal KEG.")
 
 	currentRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "cat",
+		Name: "node_read",
 		Arguments: map[string]any{
 			"node_ids":     []string{"0"},
 			"content_only": true,
@@ -1245,7 +1246,7 @@ func TestMCP_ListFiles_Empty(t *testing.T) {
 	session, ctx := newTestSession(t)
 
 	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "list_files",
+		Name: "file_list",
 		Arguments: map[string]any{
 			"node_id": "0",
 		},
@@ -1261,7 +1262,7 @@ func TestMCP_ListImages_Empty(t *testing.T) {
 	session, ctx := newTestSession(t)
 
 	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "list_images",
+		Name: "image_list",
 		Arguments: map[string]any{
 			"node_id": "0",
 		},
@@ -1279,7 +1280,7 @@ func TestMCP_ListIndexes(t *testing.T) {
 	session, ctx := newTestSession(t)
 
 	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name:      "list_indexes",
+		Name:      "index_list",
 		Arguments: map[string]any{},
 	})
 	require.NoError(t, err)
@@ -1296,7 +1297,7 @@ func TestMCP_IndexCat(t *testing.T) {
 	session, ctx := newTestSession(t)
 
 	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "index_cat",
+		Name: "index_read",
 		Arguments: map[string]any{
 			"name": "nodes.tsv",
 		},
@@ -1309,7 +1310,7 @@ func TestMCP_IndexCat(t *testing.T) {
 
 	for _, name := range []string{"timeline", "dirty"} {
 		res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-			Name: "index_cat",
+			Name: "index_read",
 			Arguments: map[string]any{
 				"name": name,
 			},
@@ -1325,7 +1326,7 @@ func TestMCP_IndexRebuild(t *testing.T) {
 	session, ctx := newTestSession(t)
 
 	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name:      "index",
+		Name:      "index_rebuild",
 		Arguments: map[string]any{},
 	})
 	require.NoError(t, err)
@@ -1339,7 +1340,7 @@ func TestMCP_Doctor(t *testing.T) {
 	session, ctx := newTestSession(t)
 
 	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name:      "doctor",
+		Name:      "keg_check",
 		Arguments: map[string]any{},
 	})
 	require.NoError(t, err)
@@ -1638,10 +1639,10 @@ func TestMCP_ToolsList_IncludesFileTransferTools(t *testing.T) {
 		names[i] = tool.Name
 	}
 
-	require.Contains(t, names, "upload_file")
-	require.NotContains(t, names, "download_file")
-	require.Contains(t, names, "upload_image")
-	require.Contains(t, names, "download_image")
+	require.Contains(t, names, "file_upload")
+	require.NotContains(t, names, "file_download")
+	require.Contains(t, names, "image_upload")
+	require.Contains(t, names, "image_download")
 }
 
 // TestMCP_LocalSurfacePublishesLocalPathTransfers pins the `tap mcp` half of
@@ -1668,10 +1669,10 @@ func TestMCP_LocalSurfacePublishesLocalPathTransfers(t *testing.T) {
 	}
 
 	for _, want := range []struct{ tool, field string }{
-		{"upload_file", "source_path"},
-		{"upload_image", "source_path"},
-		{"download_file", "dest_path"},
-		{"download_image", "dest_path"},
+		{"file_upload", "source_path"},
+		{"image_upload", "source_path"},
+		{"file_download", "dest_path"},
+		{"image_download", "dest_path"},
 	} {
 		require.Contains(t, properties, want.tool, "tap mcp must publish %s", want.tool)
 		require.Contains(t, properties[want.tool], want.field,
@@ -1685,7 +1686,7 @@ func TestMCP_UploadAndDownloadFile(t *testing.T) {
 
 	// Create a node to attach files to.
 	createRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "create",
+		Name: "node_create",
 		Arguments: batchCreateArgs(map[string]any{
 			"title": "File Test Node",
 		}),
@@ -1699,7 +1700,7 @@ func TestMCP_UploadAndDownloadFile(t *testing.T) {
 
 	// Upload the file via source_path.
 	uploadRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "upload_file",
+		Name: "file_upload",
 		Arguments: map[string]any{
 			"node_id":     nodeID,
 			"filename":    "test.txt",
@@ -1713,7 +1714,7 @@ func TestMCP_UploadAndDownloadFile(t *testing.T) {
 
 	// List files to verify.
 	listRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "list_files",
+		Name: "file_list",
 		Arguments: map[string]any{
 			"node_id": nodeID,
 		},
@@ -1724,7 +1725,7 @@ func TestMCP_UploadAndDownloadFile(t *testing.T) {
 	// Download the file to a dest_path.
 	destPath := "/home/testuser/download-test.txt"
 	downloadRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "download_file",
+		Name: "file_download",
 		Arguments: map[string]any{
 			"node_id":   nodeID,
 			"filename":  "test.txt",
@@ -1748,7 +1749,7 @@ func TestMCP_UploadAndDownloadImage(t *testing.T) {
 
 	// Create a node to attach images to.
 	createRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "create",
+		Name: "node_create",
 		Arguments: batchCreateArgs(map[string]any{
 			"title": "Image Test Node",
 		}),
@@ -1763,7 +1764,7 @@ func TestMCP_UploadAndDownloadImage(t *testing.T) {
 
 	// Upload the image via source_path.
 	uploadRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "upload_image",
+		Name: "image_upload",
 		Arguments: map[string]any{
 			"node_id":     nodeID,
 			"filename":    "test.png",
@@ -1777,7 +1778,7 @@ func TestMCP_UploadAndDownloadImage(t *testing.T) {
 
 	// List images to verify.
 	listRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "list_images",
+		Name: "image_list",
 		Arguments: map[string]any{
 			"node_id": nodeID,
 		},
@@ -1788,7 +1789,7 @@ func TestMCP_UploadAndDownloadImage(t *testing.T) {
 	// Download the image to a dest_path.
 	destPath := "/home/testuser/download-test.png"
 	downloadRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "download_image",
+		Name: "image_download",
 		Arguments: map[string]any{
 			"node_id":   nodeID,
 			"filename":  "test.png",
@@ -1811,7 +1812,7 @@ func TestMCP_DownloadImageReturnsImageContent(t *testing.T) {
 	session, ctx := newTestSessionWithOpts(t)
 
 	createRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "create",
+		Name: "node_create",
 		Arguments: batchCreateArgs(map[string]any{
 			"title": "Hosted Image Download Node",
 		}),
@@ -1821,7 +1822,7 @@ func TestMCP_DownloadImageReturnsImageContent(t *testing.T) {
 
 	pngData := tinyPNG(t)
 	uploadRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "upload_image",
+		Name: "image_upload",
 		Arguments: map[string]any{
 			"node_id":     nodeID,
 			"filename":    "hosted.png",
@@ -1832,7 +1833,7 @@ func TestMCP_DownloadImageReturnsImageContent(t *testing.T) {
 	require.False(t, uploadRes.IsError, "upload_image returned error: %s", extractText(t, uploadRes))
 
 	downloadRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "download_image",
+		Name: "image_download",
 		Arguments: map[string]any{
 			"node_id":  nodeID,
 			"filename": "hosted.png",
@@ -1866,7 +1867,7 @@ func TestMCP_DownloadImageSchemaRejectsDestPath(t *testing.T) {
 	session, ctx := newTestSessionWithOpts(t)
 
 	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "download_image",
+		Name: "image_download",
 		Arguments: map[string]any{
 			"node_id":   "0",
 			"filename":  "hosted.png",
@@ -1883,7 +1884,7 @@ func TestMCP_UploadFileFromBase64(t *testing.T) {
 	session, rt, ctx := newLocalTestSessionWithRuntime(t)
 
 	createRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "create",
+		Name: "node_create",
 		Arguments: batchCreateArgs(map[string]any{
 			"title": "Base64 File Node",
 		}),
@@ -1893,7 +1894,7 @@ func TestMCP_UploadFileFromBase64(t *testing.T) {
 
 	payload := []byte("hello from base64")
 	uploadRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "upload_file",
+		Name: "file_upload",
 		Arguments: map[string]any{
 			"node_id":     nodeID,
 			"filename":    "raw.txt",
@@ -1905,7 +1906,7 @@ func TestMCP_UploadFileFromBase64(t *testing.T) {
 
 	destPath := "/home/testuser/base64-download.txt"
 	downloadRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "download_file",
+		Name: "file_download",
 		Arguments: map[string]any{
 			"node_id":   nodeID,
 			"filename":  "raw.txt",
@@ -1924,7 +1925,7 @@ func TestMCP_UploadFileFromEmbeddedResource(t *testing.T) {
 	session, rt, ctx := newLocalTestSessionWithRuntime(t)
 
 	createRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "create",
+		Name: "node_create",
 		Arguments: batchCreateArgs(map[string]any{
 			"title": "Embedded File Node",
 		}),
@@ -1934,7 +1935,7 @@ func TestMCP_UploadFileFromEmbeddedResource(t *testing.T) {
 
 	payload := []byte("hello from embedded resource")
 	uploadRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "upload_file",
+		Name: "file_upload",
 		Arguments: map[string]any{
 			"node_id": nodeID,
 			"resource": map[string]any{
@@ -1950,7 +1951,7 @@ func TestMCP_UploadFileFromEmbeddedResource(t *testing.T) {
 
 	destPath := "/home/testuser/embedded-download.txt"
 	downloadRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "download_file",
+		Name: "file_download",
 		Arguments: map[string]any{
 			"node_id":   nodeID,
 			"filename":  "embedded.txt",
@@ -1969,7 +1970,7 @@ func TestMCP_UploadImageFromEmbeddedResource(t *testing.T) {
 	session, ctx := newTestSession(t)
 
 	createRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "create",
+		Name: "node_create",
 		Arguments: batchCreateArgs(map[string]any{
 			"title": "Embedded Image Node",
 		}),
@@ -1978,7 +1979,7 @@ func TestMCP_UploadImageFromEmbeddedResource(t *testing.T) {
 	nodeID := extractText(t, createRes)
 
 	uploadRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "upload_image",
+		Name: "image_upload",
 		Arguments: map[string]any{
 			"node_id": nodeID,
 			"resource": map[string]any{
@@ -1993,7 +1994,7 @@ func TestMCP_UploadImageFromEmbeddedResource(t *testing.T) {
 	require.Contains(t, extractText(t, uploadRes), "embedded.png")
 
 	listRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "list_images",
+		Name: "image_list",
 		Arguments: map[string]any{
 			"node_id": nodeID,
 		},
@@ -2007,7 +2008,7 @@ func TestMCP_UploadImageRejectsInvalidImage(t *testing.T) {
 	session, ctx := newTestSession(t)
 
 	createRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "create",
+		Name: "node_create",
 		Arguments: batchCreateArgs(map[string]any{
 			"title": "Invalid Image Node",
 		}),
@@ -2016,7 +2017,7 @@ func TestMCP_UploadImageRejectsInvalidImage(t *testing.T) {
 	nodeID := extractText(t, createRes)
 
 	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "upload_image",
+		Name: "image_upload",
 		Arguments: map[string]any{
 			"node_id":     nodeID,
 			"filename":    "bad.png",
@@ -2033,7 +2034,7 @@ func TestMCP_UploadRejectsMultipleSources(t *testing.T) {
 	session, ctx := newTestSession(t)
 
 	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "upload_file",
+		Name: "file_upload",
 		Arguments: map[string]any{
 			"node_id":     "0",
 			"filename":    "test.txt",
@@ -2051,7 +2052,7 @@ func TestMCP_UploadSchemaRejectsLocalSourcePath(t *testing.T) {
 	session, ctx := newTestSessionWithOpts(t)
 
 	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "upload_file",
+		Name: "file_upload",
 		Arguments: map[string]any{
 			"node_id":     "0",
 			"filename":    "test.txt",
@@ -2070,7 +2071,7 @@ func TestMCP_UploadFileMissingSource(t *testing.T) {
 	session, _, ctx := newLocalTestSessionWithRuntime(t)
 
 	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "upload_file",
+		Name: "file_upload",
 		Arguments: map[string]any{
 			"node_id":     "0",
 			"filename":    "test.txt",
@@ -2087,7 +2088,7 @@ func TestMCP_DownloadFileNotFound(t *testing.T) {
 	session, _, ctx := newLocalTestSessionWithRuntime(t)
 
 	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "download_file",
+		Name: "file_download",
 		Arguments: map[string]any{
 			"node_id":   "0",
 			"filename":  "nonexistent.txt",
@@ -2139,11 +2140,11 @@ func TestMCP_ToolAnnotations_AllPresent(t *testing.T) {
 
 	// --- read-only tools ---
 	readOnlyTools := []string{
-		"cat", "list", "grep", "tags", "backlinks", "links",
-		"info", "keg_settings", "stats",
-		"list_files", "list_images",
-		"list_indexes", "index_cat",
-		"doctor", "lock_status", "node_history", "node_snapshot_view",
+		"node_read", "node_list", "node_search", "tag_list", "node_backlinks", "node_links",
+		"keg_info", "keg_settings_read", "node_stats",
+		"file_list", "image_list",
+		"index_list", "index_read",
+		"keg_check", "lock_status", "snapshot_list", "snapshot_read",
 	}
 	for _, name := range readOnlyTools {
 		tool, ok := byName[name]
@@ -2155,8 +2156,8 @@ func TestMCP_ToolAnnotations_AllPresent(t *testing.T) {
 
 	// --- destructive tools ---
 	destructiveTools := []string{
-		"remove", "move", "node_restore",
-		"delete_file", "delete_image",
+		"node_delete", "node_move", "snapshot_restore",
+		"file_delete", "image_delete",
 		"lock_force_release",
 	}
 	for _, name := range destructiveTools {
@@ -2168,9 +2169,9 @@ func TestMCP_ToolAnnotations_AllPresent(t *testing.T) {
 
 	// --- write non-destructive tools ---
 	writeTools := []string{
-		"create", "edit",
-		"node_snapshot",
-		"upload_file", "upload_image",
+		"node_create", "node_edit",
+		"snapshot_create",
+		"file_upload", "image_upload",
 		"lock_acquire", "lock_release",
 	}
 	for _, name := range writeTools {
@@ -2181,7 +2182,7 @@ func TestMCP_ToolAnnotations_AllPresent(t *testing.T) {
 	}
 
 	// --- idempotent tool ---
-	indexTool, ok := byName["index"]
+	indexTool, ok := byName["index_rebuild"]
 	require.True(t, ok, "index tool not found")
 	require.NotNil(t, indexTool.Annotations.DestructiveHint, "index should have DestructiveHint set")
 	require.False(t, *indexTool.Annotations.DestructiveHint, "index should have DestructiveHint=false")
@@ -2202,7 +2203,7 @@ func TestMCP_InvocationLogging(t *testing.T) {
 
 	// Call a known tool to trigger the middleware.
 	_, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "doctor",
+		Name: "keg_check",
 	})
 	require.NoError(t, err)
 
@@ -2214,7 +2215,7 @@ func TestMCP_InvocationLogging(t *testing.T) {
 
 	require.Equal(t, slog.LevelInfo, entry.Level)
 	require.Equal(t, "mcp", entry.Attrs["surface"])
-	require.Equal(t, "doctor", entry.Attrs["tool"])
+	require.Equal(t, "keg_check", entry.Attrs["tool"])
 	require.Equal(t, true, entry.Attrs["success"])
 
 	// duration_ms should be present and non-negative. Sandbox tests use a
@@ -2242,19 +2243,19 @@ func TestMCP_InvocationLogging_ToolError(t *testing.T) {
 
 	// Call a tool that will return an error result (nonexistent node).
 	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name:      "cat",
+		Name:      "node_read",
 		Arguments: map[string]any{"node_ids": []string{"99999"}},
 	})
 	require.NoError(t, err) // RPC itself succeeds; the tool returns IsError.
 	require.True(t, res.IsError, "tool should return an error result")
 
 	entry := mylog.RequireEntry(t, th, func(e mylog.LoggedEntry) bool {
-		return e.Msg == "invocation" && e.Attrs["tool"] == "cat"
+		return e.Msg == "invocation" && e.Attrs["tool"] == "node_read"
 	}, 2*time.Second)
 
 	require.Equal(t, false, entry.Attrs["success"],
 		"invocation log should reflect tool-level failure")
-	require.Equal(t, "cat", entry.Attrs["tool"])
+	require.Equal(t, "node_read", entry.Attrs["tool"])
 }
 
 func TestMCP_InvocationLogging_WithKegAlias(t *testing.T) {
@@ -2269,12 +2270,12 @@ func TestMCP_InvocationLogging_WithKegAlias(t *testing.T) {
 
 	// Call a tool with an explicit keg alias in arguments.
 	_, _ = session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name:      "list",
+		Name:      "node_list",
 		Arguments: map[string]any{"keg": "personal"},
 	})
 
 	entry := mylog.RequireEntry(t, th, func(e mylog.LoggedEntry) bool {
-		return e.Msg == "invocation" && e.Attrs["tool"] == "list"
+		return e.Msg == "invocation" && e.Attrs["tool"] == "node_list"
 	}, 2*time.Second)
 
 	require.Equal(t, "personal", entry.Attrs["keg"],
@@ -2304,10 +2305,10 @@ func TestMCP_InvocationTelemetryReportsExactToolAndOutcome(t *testing.T) {
 	reporter := &invocationTelemetryRecorder{}
 	session, ctx := newTestSessionWithOpts(t, mcp.ServerOptions{Reporter: reporter})
 
-	_, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: "doctor"})
+	_, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: "keg_check"})
 	require.NoError(t, err)
 	failed, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name:      "cat",
+		Name:      "node_read",
 		Arguments: map[string]any{"node_ids": []string{"99999"}, "keg": "sensitive-target"},
 	})
 	require.NoError(t, err)
@@ -2315,9 +2316,9 @@ func TestMCP_InvocationTelemetryReportsExactToolAndOutcome(t *testing.T) {
 
 	events := reporter.snapshot()
 	require.Len(t, events, 2)
-	require.Equal(t, tapper.InvocationEvent{Surface: "mcp", Tool: "doctor", Success: true}, events[0])
+	require.Equal(t, tapper.InvocationEvent{Surface: "mcp", Tool: "keg_check", Success: true}, events[0])
 	require.Equal(t, "mcp", events[1].Surface)
-	require.Equal(t, "cat", events[1].Tool)
+	require.Equal(t, "node_read", events[1].Tool)
 	require.False(t, events[1].Success)
 	require.Empty(t, events[1].Command)
 	require.Nil(t, events[1].Interactive)

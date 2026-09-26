@@ -108,12 +108,11 @@ func (p *refreshFlightBackend) blockNextLoad(start chan<- struct{}, wait <-chan 
 }
 
 func newPerCallFlightBackend() *perCallFlightBackend {
-	flight := func(slug string, cover []string, capabilities ...tapper.FlightCapability) *tapper.Flight {
+	flight := func(slug string, cover []string) *tapper.Flight {
 		f := &tapper.Flight{
 			Name: "@team/+" + slug, Namespace: "team", Slug: slug, Source: "test",
 			FlightManifest: tapper.FlightManifest{
 				Title: slug, Visibility: tapper.FlightVisibilityPrivate,
-				Capabilities: append([]tapper.FlightCapability(nil), capabilities...),
 				Instructions: "instructions for " + slug,
 			},
 		}
@@ -123,7 +122,7 @@ func newPerCallFlightBackend() *perCallFlightBackend {
 		return f
 	}
 	root := flight("root", []string{"root-keg"})
-	child := flight("child", []string{"child-keg"}, tapper.FlightCapabilityManageKegs)
+	child := flight("child", []string{"child-keg"})
 	sibling := flight("sibling", []string{"sibling-keg"})
 	grandchild := flight("grandchild", []string{"grandchild-keg"})
 	root.Subflights = []string{"+child", "+sibling"}
@@ -142,7 +141,6 @@ func clonePerCallFlight(in *tapper.Flight) *tapper.Flight {
 		return nil
 	}
 	out := *in
-	out.Capabilities = append([]tapper.FlightCapability(nil), in.Capabilities...)
 	out.Cover = append([]tapper.FlightCover(nil), in.Cover...)
 	out.Subflights = append([]string(nil), in.Subflights...)
 	return &out
@@ -277,7 +275,7 @@ func (p *perCallFlightBackend) CreateFlight(_ context.Context, opts tapper.Creat
 		return nil, err
 	}
 	flight := &tapper.Flight{Name: ref.Canonical(), Namespace: ref.Namespace, Slug: ref.Slug, Source: "test",
-		FlightManifest: tapper.FlightManifest{Title: opts.Title, Visibility: opts.Visibility, Capabilities: opts.Capabilities, Cover: opts.Cover, Subflights: opts.Subflights, Instructions: opts.Instructions}}
+		FlightManifest: tapper.FlightManifest{Title: opts.Title, Visibility: opts.Visibility, Cover: opts.Cover, Subflights: opts.Subflights, Instructions: opts.Instructions}}
 	p.mu.Lock()
 	p.flights[flight.Name] = flight
 	p.mu.Unlock()
@@ -360,7 +358,7 @@ func newRefreshFlightSession(t *testing.T, backend *refreshFlightBackend, opts *
 
 func callCatKeg(t *testing.T, ctx context.Context, session *sdkmcp.ClientSession, kegRef string) *sdkmcp.CallToolResult {
 	t.Helper()
-	result, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: "cat", Arguments: map[string]any{
+	result, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: "node_read", Arguments: map[string]any{
 		"keg": kegRef, "node_ids": []string{"0"}, "content_only": true,
 	}})
 	require.NoError(t, err)
@@ -540,14 +538,9 @@ func TestMCP_KegSearchIsIdentityScopedLiteralBoundedAndUngoverned(t *testing.T) 
 	require.Equal(t, "@team/match-49", bounded[49].Ref)
 }
 
-func TestMCP_PerCallSelectionAdoptsGraphAuthorityAndCapabilityChanges(t *testing.T) {
+func TestMCP_PerCallSelectionAdoptsGraphAuthorityChanges(t *testing.T) {
 	backend := newPerCallFlightBackend()
 	session, ctx := newPerCallFlightSession(t, backend)
-
-	denied, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: "keg_create", Arguments: map[string]any{"keg": "denied"}})
-	require.NoError(t, err)
-	require.True(t, denied.IsError)
-	require.Equal(t, "ORIENTATION_DENIED", denied.StructuredContent.(map[string]any)["code"])
 
 	created, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: "keg_create", Arguments: map[string]any{"flight": "+child", "keg": "@team/allowed"}})
 	require.NoError(t, err)
@@ -637,7 +630,7 @@ func TestMCP_AuthorityBearingSchemasExposeOptionalFlightAndRejectKegListAll(t *t
 	session, ctx := newPerCallFlightSession(t, backend)
 	result, err := session.ListTools(ctx, nil)
 	require.NoError(t, err)
-	ungoverned := map[string]bool{"guide": true, "flight_search": true, "auth_info": true, "keg_search": true, "list_flights": true, "flight_show": true, "session_refresh": true}
+	ungoverned := map[string]bool{"guide": true, "flight_search": true, "session_info": true, "keg_search": true, "flight_list": true, "flight_read": true, "session_refresh": true, "namespace_list": true, "namespace_search": true, "agent_list": true, "agent_read": true}
 	seen := map[string]bool{}
 	for _, tool := range result.Tools {
 		seen[tool.Name] = true
@@ -711,7 +704,7 @@ func TestMCP_SessionRefreshNoFlightRequiresNewSession(t *testing.T) {
 	require.False(t, unchanged.IsError, extractText(t, unchanged))
 	require.Equal(t, "new_session", unchanged.StructuredContent.(map[string]any)["nextAction"])
 	require.Equal(t, 1, backend.loadCount(), "no-flight refresh must not consult a newly configured root")
-	require.Contains(t, listedToolNames(t, ctx, session), "cat")
+	require.Contains(t, listedToolNames(t, ctx, session), "node_read")
 	require.Contains(t, orientCall(t, session, ctx, map[string]any{}), "No flight is active")
 }
 

@@ -18,12 +18,12 @@ func TestWatchCommand_ErrorHandling(t *testing.T) {
 	}{
 		{
 			name:        "watch_missing_node_id",
-			args:        []string{"watch"},
+			args:        []string{"node", "watch"},
 			expectedErr: "accepts 1 arg",
 		},
 		{
 			name:        "watch_invalid_node_id",
-			args:        []string{"watch", "invalid"},
+			args:        []string{"node", "watch", "invalid"},
 			expectedErr: "invalid node ID",
 		},
 	}
@@ -48,7 +48,7 @@ func TestWatchCommand_TimeoutWithNoEvents(t *testing.T) {
 	t.Parallel()
 	sb := NewSandbox(t, tu.WithFixture("joe", "~"))
 
-	h := NewProcess(t, false, "watch", "0", "--keg", "personal", "--timeout", "300ms")
+	h := NewProcess(t, false, "node", "watch", "0", "--keg", "personal", "--timeout", "300ms")
 	res := h.Run(sb.Context(), sb.Runtime())
 
 	require.NoError(t, res.Err)
@@ -65,7 +65,7 @@ func TestWatchCommand_EmitsEventOnContentChange(t *testing.T) {
 	done := make(chan *tu.ProcessResult, 1)
 	go func() {
 		h := NewProcess(t, false,
-			"watch", "0", "--keg", "personal", "--json", "--count", "1", "--timeout", "15s")
+			"node", "watch", "0", "--keg", "personal", "--json", "--count", "1", "--timeout", "15s")
 		res := h.Run(sb.Context(), sb.Runtime())
 		done <- res
 	}()

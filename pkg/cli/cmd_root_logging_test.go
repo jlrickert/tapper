@@ -17,10 +17,7 @@ func TestCLI_Logging_StderrTextFormat(t *testing.T) {
 	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
 
 	h := NewProcess(t, false,
-		"--log-file", "tap.log",
-		"--log-json",
-		"--log-level", "info",
-		"list", "--keg", "personal",
+		"--log-file", "tap.log", "--log-json", "--log-level", "info", "node", "list", "--keg", "personal",
 	)
 	res := h.Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err, "list command should succeed")
@@ -53,9 +50,7 @@ func TestCLI_Logging_StderrErrorLevelOnly(t *testing.T) {
 	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
 
 	h := NewProcess(t, false,
-		"--log-file", "tap.log",
-		"--log-level", "info",
-		"list", "--keg", "personal",
+		"--log-file", "tap.log", "--log-level", "info", "node", "list", "--keg", "personal",
 	)
 	res := h.Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err, "list command should succeed")
@@ -80,7 +75,7 @@ func TestCLI_Logging_InteractiveField(t *testing.T) {
 	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
 
 	// Non-TTY run
-	h := NewProcess(t, false, "--log-json", "list", "--keg", "personal")
+	h := NewProcess(t, false, "--log-json", "node", "list", "--keg", "personal")
 	res := h.Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 	entry := findJSONLogEntry(t, string(res.Stderr), "invocation")
@@ -90,7 +85,7 @@ func TestCLI_Logging_InteractiveField(t *testing.T) {
 	require.Equal(t, false, interactive, "non-TTY should report interactive=false")
 
 	// TTY run
-	hTTY := NewProcess(t, true, "--log-json", "list", "--keg", "personal")
+	hTTY := NewProcess(t, true, "--log-json", "node", "list", "--keg", "personal")
 	resTTY := hTTY.Run(sb.Context(), sb.Runtime())
 	require.NoError(t, resTTY.Err)
 	entryTTY := findJSONLogEntry(t, string(resTTY.Stderr), "invocation")
@@ -111,7 +106,7 @@ func TestCLI_Logging_PayloadTruncation(t *testing.T) {
 
 	// Pass the big argument as a flag value that will appear in args.
 	// Using --keg with a huge value to trigger truncation in the log.
-	h := NewProcess(t, false, "--log-json", "list", "--keg", bigArg)
+	h := NewProcess(t, false, "--log-json", "node", "list", "--keg", bigArg)
 	res := h.Run(sb.Context(), sb.Runtime())
 	// Command may fail (bad keg alias), but we only care about the log entry.
 
@@ -149,9 +144,7 @@ func TestCLI_Logging_LogFileViaSandbox(t *testing.T) {
 	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
 
 	h := NewProcess(t, false,
-		"--log-file", "state/tapper/tap.log",
-		"--log-level", "info",
-		"list", "--keg", "personal",
+		"--log-file", "state/tapper/tap.log", "--log-level", "info", "node", "list", "--keg", "personal",
 	)
 	res := h.Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err, "list command should succeed")
@@ -217,7 +210,7 @@ hubs:
 	err := rt.WriteFile(".config/tapper/config.yaml", configContent, 0o644)
 	require.NoError(t, err)
 
-	h := NewProcess(t, false, "list", "--keg", "personal")
+	h := NewProcess(t, false, "node", "list", "--keg", "personal")
 	res := h.Run(sb.Context(), rt)
 	require.NoError(t, res.Err, "list command should succeed")
 
@@ -235,9 +228,7 @@ func TestCLI_Logging_AbsoluteLogFilePath(t *testing.T) {
 	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
 
 	h := NewProcess(t, false,
-		"--log-file", "absolute/path/tap.log",
-		"--log-level", "info",
-		"list", "--keg", "personal",
+		"--log-file", "absolute/path/tap.log", "--log-level", "info", "node", "list", "--keg", "personal",
 	)
 	res := h.Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err, "list command should succeed")
@@ -255,9 +246,7 @@ func TestCLI_Logging_JSONAutoDetect(t *testing.T) {
 	sb := NewSandbox(t, testutils.WithFixture("joe", "~"))
 
 	h := NewProcess(t, false,
-		"--log-file", "tap.json",
-		"--log-level", "info",
-		"list", "--keg", "personal",
+		"--log-file", "tap.json", "--log-level", "info", "node", "list", "--keg", "personal",
 	)
 	res := h.Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err, "list command should succeed")

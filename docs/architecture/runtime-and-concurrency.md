@@ -91,7 +91,7 @@ use of `time.Now()` that cannot be driven by a fake clock:
   HTTP round trip, and the hub serializes per-node writes server-side. There
   is no client-side lock lease or dex write over HTTP.
 - **Advisory locks are session primitives**: `Keg.Lock`/`Unlock`/
-  `LockStatus`/`ForceUnlock` (used by `tap lock` / `tap edit`) are opt-in
+  `LockStatus`/`ForceUnlock` (used by `tap lock` / `tap node edit`) are opt-in
   advisory locks backed by the Hub's `/nodes/{id}/lock` endpoints. Leases carry a TTL
   (`DefaultLockTTL`, 5 minutes) with **no renewal**: a session that outlives
   the TTL loses the lock.

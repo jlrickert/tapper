@@ -269,3 +269,35 @@ func remoteHubEndpoint(t *Tap, hubName string, entry HubEntry) (hubURL, token st
 	}
 	return url, tok, nil
 }
+
+// NamespaceSearchOptions searches the namespaces visible across a hub: people
+// and org namespaces, not only the caller's own. An empty Query browses.
+type NamespaceSearchOptions struct {
+	Query string
+	Hub   string
+}
+
+// NamespaceMatch is one namespace a search found. Role is the caller's role
+// when they belong to it, empty otherwise.
+type NamespaceMatch struct {
+	Name        string `json:"name"`
+	Kind        string `json:"kind"`
+	DisplayName string `json:"display_name,omitempty"`
+	Role        string `json:"role,omitempty"`
+}
+
+// NamespaceSearchResult is a bounded page of matches.
+type NamespaceSearchResult struct {
+	Namespaces []NamespaceMatch `json:"namespaces"`
+	Truncated  bool             `json:"truncated"`
+}
+
+// NamespaceSearch finds namespaces on the selected hub by name or display
+// name. It is discovery only: a match grants nothing.
+func (t *Tap) NamespaceSearch(ctx context.Context, opts NamespaceSearchOptions) (NamespaceSearchResult, error) {
+	hubURL, token, err := t.resolveHubEndpoint(opts.Hub)
+	if err != nil {
+		return NamespaceSearchResult{}, err
+	}
+	return SearchHubNamespaces(ctx, hubURL, token, strings.TrimSpace(opts.Query))
+}

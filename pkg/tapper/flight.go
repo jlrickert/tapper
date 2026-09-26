@@ -25,8 +25,6 @@ const (
 
 type FlightRole string
 
-type FlightCapability string
-
 const (
 	FlightRoleViewer FlightRole = "viewer"
 	FlightRoleEditor FlightRole = "editor"
@@ -34,11 +32,6 @@ const (
 
 	FlightVisibilityPrivate = "private"
 	FlightVisibilityPublic  = "public"
-
-	FlightCapabilityManageFlights FlightCapability = "manage_flights"
-	FlightCapabilityManageKegs    FlightCapability = "manage_kegs"
-	FlightCapabilityDeleteKegs    FlightCapability = "delete_kegs"
-	FlightCapabilityFullAccess    FlightCapability = "full_access"
 
 	// MaxFlightSubflights bounds the ordered direct allowlist on one manifest.
 	MaxFlightSubflights = 64
@@ -93,14 +86,13 @@ type FlightCover struct {
 // markdown instructions. AllowedKegs remains a legacy wire field and is
 // normalized into editor-cap cover entries.
 type FlightManifest struct {
-	Description  string             `yaml:"description,omitempty" json:"description,omitempty"`
-	Title        string             `yaml:"title,omitempty" json:"title,omitempty"`
-	Visibility   string             `yaml:"visibility,omitempty" json:"visibility,omitempty"`
-	Capabilities []FlightCapability `yaml:"capabilities,omitempty" json:"capabilities,omitempty"`
-	Cover        []FlightCover      `yaml:"cover,omitempty" json:"cover,omitempty"`
-	Subflights   []string           `yaml:"subflights,omitempty" json:"subflights,omitempty"`
-	AllowedKegs  []string           `yaml:"allowedKegs,omitempty" json:"allowedKegs,omitempty"`
-	Instructions string             `yaml:"instructions,omitempty" json:"instructions,omitempty"`
+	Description  string        `yaml:"description,omitempty" json:"description,omitempty"`
+	Title        string        `yaml:"title,omitempty" json:"title,omitempty"`
+	Visibility   string        `yaml:"visibility,omitempty" json:"visibility,omitempty"`
+	Cover        []FlightCover `yaml:"cover,omitempty" json:"cover,omitempty"`
+	Subflights   []string      `yaml:"subflights,omitempty" json:"subflights,omitempty"`
+	AllowedKegs  []string      `yaml:"allowedKegs,omitempty" json:"allowedKegs,omitempty"`
+	Instructions string        `yaml:"instructions,omitempty" json:"instructions,omitempty"`
 }
 
 // Flight is a discovered flight: its manifest plus provenance.
@@ -550,12 +542,6 @@ func normalizeFlightManifest(m *FlightManifest) {
 	} else {
 		m.Visibility = strings.TrimSpace(m.Visibility)
 	}
-	for i := range m.Capabilities {
-		m.Capabilities[i] = FlightCapability(strings.TrimSpace(string(m.Capabilities[i])))
-	}
-	sort.Slice(m.Capabilities, func(i, j int) bool {
-		return m.Capabilities[i] < m.Capabilities[j]
-	})
 	if len(m.Cover) == 0 && len(m.AllowedKegs) > 0 {
 		for _, entry := range m.AllowedKegs {
 			if c, ok := parseFlightCoverEntry(entry); ok {
@@ -604,19 +590,6 @@ func validateFlightManifest(m *FlightManifest, namespace string) error {
 	if visibility != "" && visibility != FlightVisibilityPrivate && visibility != FlightVisibilityPublic {
 		return fmt.Errorf("invalid flight visibility %q", visibility)
 	}
-	seen := map[FlightCapability]struct{}{}
-	for _, capability := range m.Capabilities {
-		capability = FlightCapability(strings.TrimSpace(string(capability)))
-		switch capability {
-		case FlightCapabilityManageFlights, FlightCapabilityManageKegs, FlightCapabilityDeleteKegs:
-		default:
-			return fmt.Errorf("unknown flight capability %q", capability)
-		}
-		if _, ok := seen[capability]; ok {
-			return fmt.Errorf("duplicate flight capability %q", capability)
-		}
-		seen[capability] = struct{}{}
-	}
 	for _, cover := range m.Cover {
 		if cover.Depth < 0 || cover.Depth > 8 {
 			return fmt.Errorf("invalid flight cover depth %d: must be 1–8", cover.Depth)
@@ -658,22 +631,6 @@ func validateFlightManifest(m *FlightManifest, namespace string) error {
 		seenSubflights[canonical] = struct{}{}
 	}
 	return nil
-}
-
-// HasCapability reports whether a validated manifest grants capability.
-func (f *Flight) HasCapability(capability FlightCapability) bool {
-	if capability == FlightCapabilityFullAccess {
-		return false
-	}
-	if f == nil {
-		return false
-	}
-	for _, got := range f.Capabilities {
-		if got == capability {
-			return true
-		}
-	}
-	return false
 }
 
 func parseFlightCoverEntry(entry string) (FlightCover, bool) {
@@ -840,7 +797,6 @@ func flightFromHub(hf HubFlight, hubName string) *Flight {
 	m := FlightManifest{
 		Title: hf.Title, Description: hf.Description,
 		Visibility:   hf.Visibility,
-		Capabilities: append([]FlightCapability{}, hf.Capabilities...),
 		Cover:        cover,
 		Subflights:   append([]string(nil), hf.Subflights...),
 		Instructions: hf.Instructions,

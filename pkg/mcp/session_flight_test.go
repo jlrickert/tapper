@@ -232,7 +232,7 @@ func TestMCP_RemoteAliasCoverlessRootActivatesFullSurfaceAndCrossFlightKegList(t
 	require.NotContains(t, initialOrientation, "`@admin/example`")
 
 	names := listedToolNames(t, ctx, session)
-	for _, want := range []string{"cat", "create", "edit", "keg_list", "keg_settings", "schema_list", "validate", "flight_create"} {
+	for _, want := range []string{"node_read", "node_create", "node_edit", "keg_list", "keg_settings_read", "schema_list", "schema_validate", "flight_create"} {
 		require.Contains(t, names, want, "coverless active root must publish the complete registered inventory")
 	}
 	require.Greater(t, len(names), 40)
@@ -259,10 +259,10 @@ func TestMCP_RemoteAliasCoverlessRootActivatesFullSurfaceAndCrossFlightKegList(t
 	require.JSONEq(t, `{"kegs":[{"ref":"@admin/private","role":"editor","flights":["@admin/+test"]}],"message":"@admin/private\teditor\t@admin/+test"}`, string(selectedStructured))
 	require.Equal(t, beforeSelected+1, catalogRequests.Load(), "one active Hub catalog projection")
 
-	deniedOperation, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: "keg_settings", Arguments: map[string]any{"keg": "@admin/private"}})
+	deniedOperation, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: "keg_settings_read", Arguments: map[string]any{"keg": "@admin/private"}})
 	require.NoError(t, err)
 	require.True(t, deniedOperation.IsError)
-	allowedOperation, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: "keg_settings", Arguments: map[string]any{"flight": "+test", "keg": "@admin/private"}})
+	allowedOperation, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: "keg_settings_read", Arguments: map[string]any{"flight": "+test", "keg": "@admin/private"}})
 	require.NoError(t, err)
 	require.False(t, allowedOperation.IsError, extractText(t, allowedOperation))
 	require.Contains(t, extractText(t, allowedOperation), "title: Private")
@@ -356,6 +356,7 @@ func writeFlightCover(t *testing.T, rt *toolkit.Runtime, slug, instructions, keg
 
 type orientationTestHub struct {
 	mu      sync.RWMutex
+	agents  map[string]tapper.HubAgent
 	flights map[string]tapper.HubFlight
 	kegs    map[string]tapper.HubKeg
 	server  *httptest.Server
@@ -366,6 +367,7 @@ var orientationTestHubs sync.Map
 func installOrientationTestHub(t *testing.T, rt *toolkit.Runtime) *orientationTestHub {
 	t.Helper()
 	hub := &orientationTestHub{
+		agents:  map[string]tapper.HubAgent{},
 		flights: map[string]tapper.HubFlight{},
 		kegs: map[string]tapper.HubKeg{
 			"personal": {Namespace: "local", Alias: "personal", Title: "Personal KEG", Description: "Personal test knowledge", Visibility: "private", Role: "admin"},
@@ -400,7 +402,7 @@ func (h *orientationTestHub) putFlight(flight tapper.HubFlight) {
 		flight.Visibility = tapper.FlightVisibilityPrivate
 	}
 	flight.Hash = tapper.FlightManifestHash(tapper.FlightManifest{
-		Title: flight.Title, Visibility: flight.Visibility, Capabilities: flight.Capabilities,
+		Title: flight.Title, Visibility: flight.Visibility,
 		Cover: hubFlightCover(flight.Cover), Subflights: flight.Subflights, Instructions: flight.Instructions,
 	})
 	h.flights[flight.Slug] = flight
@@ -419,6 +421,13 @@ func (h *orientationTestHub) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	switch {
+	case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/api/v1/@local/agents/"):
+		agent, ok := h.agents[strings.TrimPrefix(r.URL.Path, "/api/v1/@local/agents/")]
+		if !ok {
+			http.NotFound(w, r)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(agent)
 	case r.Method == http.MethodGet && r.URL.Path == "/api/v1/flights":
 		rows := make([]tapper.HubFlight, 0, len(h.flights))
 		for _, flight := range h.flights {
@@ -496,7 +505,7 @@ func callOrient(t *testing.T, ctx context.Context, session *sdkmcp.ClientSession
 func callCat(t *testing.T, ctx context.Context, session *sdkmcp.ClientSession) *sdkmcp.CallToolResult {
 	t.Helper()
 	result, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "cat",
+		Name: "node_read",
 		Arguments: map[string]any{
 			"keg":          "@local/personal",
 			"node_ids":     []string{"0"},

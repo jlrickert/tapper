@@ -53,8 +53,8 @@ func TestMCP_NoFlightsAnywhereUsesIdentityFullAccess(t *testing.T) {
 	require.Equal(t, payload, callOrient(t, ctx, session), "orient is read-only and idempotent")
 
 	tools := listedToolNames(t, ctx, session)
-	require.Contains(t, tools, "cat")
-	require.Contains(t, tools, "create")
+	require.Contains(t, tools, "node_read")
+	require.Contains(t, tools, "node_create")
 	require.Contains(t, tools, "flight_create")
 	require.Contains(t, tools, "keg_create")
 	require.Contains(t, tools, "keg_delete")
@@ -91,7 +91,7 @@ func TestMCP_NoFlightAuthInfoReportsIdentityKegs(t *testing.T) {
 	require.False(t, listed.IsError, extractText(t, listed))
 	require.Contains(t, extractText(t, listed), "@local/first")
 
-	info, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: "auth_info", Arguments: map[string]any{}})
+	info, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: "session_info", Arguments: map[string]any{}})
 	require.NoError(t, err)
 	require.False(t, info.IsError, extractText(t, info))
 	require.Contains(t, extractText(t, info), "@local/first",
@@ -107,7 +107,7 @@ func TestMCP_FlightsExistButUnselectedUsesFullAccessAndExactSelection(t *testing
 	flight := flightSection(t, callOrient(t, ctx, session))
 	require.Contains(t, flight, "No flight is active")
 	require.NotContains(t, flight, "@local/+alpha")
-	require.Contains(t, listedToolNames(t, ctx, session), "cat")
+	require.Contains(t, listedToolNames(t, ctx, session), "node_read")
 
 	explicit := orientCall(t, session, ctx, map[string]any{"flight": "@local/+alpha"})
 	require.Contains(t, explicit, "Alpha instructions")
@@ -204,4 +204,33 @@ func TestMCP_NoFlightCreatesFlightThroughRemoteHub(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, res.IsError, extractText(t, res))
 	require.Contains(t, extractText(t, res), "@local/+attempt")
+}
+
+func TestMCP_HubAgentWithoutMemoryCannotUseIdentityAuthority(t *testing.T) {
+	ctx := context.Background()
+	sb := newTestSandbox(t)
+	require.NoError(t, sb.Setwd("/home/testuser"))
+	rt := sb.Runtime()
+	hub := installOrientationTestHub(t, rt)
+	writeUserFlight(t, rt, "")
+	require.NoError(t, rt.Env().Set("TAP_AGENT", "@local/reader"))
+	hub.mu.Lock()
+	hub.agents["reader"] = tapper.HubAgent{Ref: "@local/reader", Namespace: "local", Name: "reader"}
+	hub.mu.Unlock()
+	srv := mcp.NewServer(newMemoryTap(t, ctx, rt), "test", mcp.KegDefaults{})
+	session := connectFlightSession(t, ctx, srv, nil)
+	require.Contains(t, callOrient(t, ctx, session), "has no flight")
+	require.NotContains(t, listedToolNames(t, ctx, session), "node_read")
+	require.True(t, callCat(t, ctx, session).IsError)
+	writeFlight(t, rt, "memory", "Reader memory")
+	hub.mu.Lock()
+	a := hub.agents["reader"]
+	a.Flight = "@local/+memory"
+	hub.agents["reader"] = a
+	hub.mu.Unlock()
+	result, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: "session_refresh", Arguments: map[string]any{}})
+	require.NoError(t, err)
+	require.False(t, result.IsError, extractText(t, result))
+	require.Contains(t, callOrient(t, ctx, session), "Reader memory")
+	require.Contains(t, listedToolNames(t, ctx, session), "node_read")
 }

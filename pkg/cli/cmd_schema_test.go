@@ -113,7 +113,7 @@ func TestSchemaCompletion_TypeArgs(t *testing.T) {
 	createSchemaForCLI(t, sb, "example", "type: task\n")
 	createSchemaForCLI(t, sb, "example", "type: person\n")
 
-	for _, subcommand := range []string{"get", "edit", "rm"} {
+	for _, subcommand := range []string{"read", "edit", "delete"} {
 		subcommand := subcommand
 		t.Run(subcommand, func(t *testing.T) {
 			comp := NewCompletionProcess(t, false, 0, "schema", subcommand, "--keg", "example", "").
@@ -143,14 +143,14 @@ func TestSchemaCompletion_RespectsKegFlag(t *testing.T) {
 	createSchemaForCLI(t, sb, "personal", "type: task\n")
 	createSchemaForCLI(t, sb, "work", "type: workitem\n")
 
-	workComp := NewCompletionProcess(t, false, 0, "schema", "get", "--keg", "work", "").
+	workComp := NewCompletionProcess(t, false, 0, "schema", "read", "--keg", "work", "").
 		Run(sb.Context(), sb.Runtime())
 	require.NoError(t, workComp.Err)
 	workSuggestions := parseCompletionSuggestions(string(workComp.Stdout))
 	require.Equal(t, []string{"workitem"}, workSuggestions)
 	require.NotContains(t, workSuggestions, "task")
 
-	defaultComp := NewCompletionProcess(t, false, 0, "schema", "get", "").
+	defaultComp := NewCompletionProcess(t, false, 0, "schema", "read", "").
 		Run(sb.Context(), sb.Runtime())
 	require.NoError(t, defaultComp.Err)
 	defaultSuggestions := parseCompletionSuggestions(string(defaultComp.Stdout))
@@ -167,7 +167,7 @@ func createSchemaForCLI(t *testing.T, sb *testutils.Sandbox, kegName string, sch
 
 func readSchemaForCLI(t *testing.T, sb *testutils.Sandbox, kegName string, typeName string) string {
 	t.Helper()
-	res := NewProcess(t, false, "schema", "get", "--keg", kegName, typeName).
+	res := NewProcess(t, false, "schema", "read", "--keg", kegName, typeName).
 		Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 	return string(res.Stdout)

@@ -2,9 +2,8 @@ package tapper
 
 import "testing"
 
-func TestFlightCapForKeg_RetiredFullAccessDoesNotGrantAccess(t *testing.T) {
+func TestFlightCapForKeg_OutsideCoverDenies(t *testing.T) {
 	flight := &Flight{FlightManifest: FlightManifest{
-		Capabilities: []FlightCapability{FlightCapabilityFullAccess},
 		Cover: []FlightCover{
 			{Namespace: "local", Keg: "personal", Role: FlightRoleViewer},
 		},
@@ -12,7 +11,7 @@ func TestFlightCapForKeg_RetiredFullAccessDoesNotGrantAccess(t *testing.T) {
 
 	capRole, ok := flightCapForKeg(flight, "local", "outside-cover")
 	if ok || capRole != "" {
-		t.Fatalf("flightCapForKeg full_access = %q, %t; want empty, false", capRole, ok)
+		t.Fatalf("flightCapForKeg outside cover = %q, %t; want empty, false", capRole, ok)
 	}
 }
 

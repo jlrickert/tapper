@@ -52,7 +52,7 @@ func TestTwoHubFlightAuthorityAndRouting(t *testing.T) {
 		switch r.URL.Path {
 		case "/api/v1/flights":
 			f := rootFlight()
-			_ = json.NewEncoder(w).Encode([]tapper.HubFlight{{Namespace: f.Namespace, Slug: f.Slug, Visibility: f.Visibility, Capabilities: f.Capabilities, Cover: func() []tapper.HubFlightCover {
+			_ = json.NewEncoder(w).Encode([]tapper.HubFlight{{Namespace: f.Namespace, Slug: f.Slug, Visibility: f.Visibility, Cover: func() []tapper.HubFlightCover {
 				var rows []tapper.HubFlightCover
 				for _, c := range f.Cover {
 					rows = append(rows, tapper.HubFlightCover{Namespace: c.Namespace, Keg: c.Keg, Role: string(c.Role), Depth: c.Depth})
@@ -61,7 +61,7 @@ func TestTwoHubFlightAuthorityAndRouting(t *testing.T) {
 			}()}})
 		case "/api/v1/@root/+work":
 			f := rootFlight()
-			_ = json.NewEncoder(w).Encode(tapper.HubFlight{Namespace: f.Namespace, Slug: f.Slug, Visibility: f.Visibility, Capabilities: f.Capabilities, Cover: func() []tapper.HubFlightCover {
+			_ = json.NewEncoder(w).Encode(tapper.HubFlight{Namespace: f.Namespace, Slug: f.Slug, Visibility: f.Visibility, Cover: func() []tapper.HubFlightCover {
 				var rows []tapper.HubFlightCover
 				for _, c := range f.Cover {
 					rows = append(rows, tapper.HubFlightCover{Namespace: c.Namespace, Keg: c.Keg, Role: string(c.Role), Depth: c.Depth})
@@ -129,7 +129,7 @@ func TestTwoHubFlightAuthorityAndRouting(t *testing.T) {
 		require.NoError(t, err)
 		return result
 	}
-	settings := func(ref string) *sdkmcp.CallToolResult { return call("keg_settings", map[string]any{"keg": ref}) }
+	settings := func(ref string) *sdkmcp.CallToolResult { return call("keg_settings_read", map[string]any{"keg": ref}) }
 	oriented := callOrient(t, ctx, session)
 	require.NotContains(t, oriented, "@foreign/notes")
 	result := settings("@root/notes")
@@ -177,7 +177,7 @@ func TestTwoHubFlightAuthorityAndRouting(t *testing.T) {
 	mu.Unlock()
 	result = settings("@foreign/notes")
 	require.True(t, result.IsError)
-	result = call("create", map[string]any{"keg": "@foreign/notes", "nodes": []map[string]any{{"key": "new", "content": "# Denied"}}})
+	result = call("node_create", map[string]any{"keg": "@foreign/notes", "nodes": []map[string]any{{"key": "new", "content": "# Denied"}}})
 	require.True(t, result.IsError)
 	mu.Lock()
 	require.Equal(t, before, foreignCalls)

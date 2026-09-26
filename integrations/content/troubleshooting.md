@@ -5,11 +5,12 @@ the same operational information, including error diagnostics and recovery.
 
 - Validation errors: correct the named field using the input schema. meta is
   YAML text; mutations use nodes arrays. Do not retry unchanged arguments.
-- PRECONDITION_REQUIRED: cat, schema_read, full keg_settings, or flight_show
+- PRECONDITION_REQUIRED: node_read, schema_read, full keg_settings_read, or
+  flight_read
   supplies the matching expected_hash. Snapshot before meaningful node edits.
 - CONFLICT: operationPerformed=false; refetch, merge the intended change, and
   retry with the current hash. currentContent is diagnostic current content,
-  not necessarily the replacement-document format accepted by edit.
+  not necessarily the replacement-document format accepted by node_edit.
 - ORIENTATION_DENIED: inspect orient and select an accessible flight with the
   required authority; keg alone cannot grant access.
 - ORIENTATION_UNAVAILABLE: transient lookup failure; retry a read first.
@@ -20,7 +21,8 @@ the same operational information, including error diagnostics and recovery.
 - operationPerformed=null: the write outcome is unknown. Inspect state before
   retrying, including possible creations; do not assume nothing happened.
 - Missing listing rows: follow next_offset until null. For metadata search,
-  refine a query marked truncated. grep limits matched lines; cat reads full
+  refine a query marked truncated. node_search limits matched lines; node_read
+  reads full
   bodies. A tool absent from tools/list is unavailable, not a failed operation.
-- Suspected stale indexes: inspect list_indexes/index_cat and doctor. Rebuild
-  with index only when warranted and authorized; reads never repair indexes.
+- Suspected stale indexes: inspect index_list/index_read and keg_check.
+  Rebuild with index_rebuild only when warranted and authorized; reads never repair indexes.

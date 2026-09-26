@@ -22,7 +22,7 @@ func TestHubFlightWritesSendIfMatch(t *testing.T) {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"namespace":"foldwise","slug":"agent-work","title":"Agent Work","visibility":"private","capabilities":[],"cover":[],"subflights":[],"hash":"next"}`))
+		_, _ = w.Write([]byte(`{"namespace":"foldwise","slug":"agent-work","title":"Agent Work","visibility":"private","cover":[],"subflights":[],"hash":"next"}`))
 	}))
 	t.Cleanup(srv.Close)
 

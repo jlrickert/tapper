@@ -23,7 +23,7 @@ type indexInput struct {
 
 func registerIndex(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
-		Name:        "index",
+		Name:        "index_rebuild",
 		Description: "Rebuild all KEG indexes from scratch (nodes, tags, links, backlinks)",
 		Annotations: &sdkmcp.ToolAnnotations{
 			DestructiveHint: boolPtr(false),
@@ -42,7 +42,7 @@ func registerIndex(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	})
 }
 
-// --- list_indexes ---
+// --- index_list ---
 
 type listIndexesInput struct {
 	Keg string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
@@ -50,7 +50,7 @@ type listIndexesInput struct {
 
 func registerListIndexes(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
-		Name:        "list_indexes",
+		Name:        "index_list",
 		Description: "List available index files for a KEG",
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
@@ -68,7 +68,7 @@ func registerListIndexes(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaul
 	})
 }
 
-// --- index_cat ---
+// --- index_read ---
 
 type indexCatInput struct {
 	Name string `json:"name" jsonschema:"index file name (e.g. nodes.tsv, tags, links, backlinks, changes.md)"`
@@ -77,7 +77,7 @@ type indexCatInput struct {
 
 func registerIndexCat(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
-		Name:        "index_cat",
+		Name:        "index_read",
 		Description: "Read the raw contents of a KEG index file",
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,

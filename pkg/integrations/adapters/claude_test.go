@@ -153,9 +153,9 @@ func TestClaudeAdapter_BaselineExcludesDeveloperLifecycle(t *testing.T) {
 	}
 	for _, want := range []string{
 		"recompute knowledge discovery",
-		"`mcp__tapper__backlinks`",
-		"`mcp__tapper__links`",
-		"`mcp__tapper__grep`",
+		"`mcp__tapper__node_backlinks`",
+		"`mcp__tapper__node_links`",
+		"`mcp__tapper__node_search`",
 		"active or stale interfaces and verifications",
 		"Each needs a surviving subject or consumer",
 		"word `legacy`",

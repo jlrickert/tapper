@@ -62,7 +62,7 @@
     },
     "listFields": {
       "type": "array",
-      "description": "Field selectors shown by default in node listings, used by both `tap list` and the hosted node list. A bare word names a metadata key (\"type\", \"subkind\"); a leading dot names a statistics field (\".omega\"); \"id\", \"title\", and \"tags\" are reserved.",
+      "description": "Field selectors shown by default in node listings, used by both `tap node list` and the hosted node list. A bare word names a metadata key (\"type\", \"subkind\"); a leading dot names a statistics field (\".omega\"); \"id\", \"title\", and \"tags\" are reserved.",
       "items": {
         "type": "string"
       }

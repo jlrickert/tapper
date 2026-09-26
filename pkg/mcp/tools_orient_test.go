@@ -29,7 +29,7 @@ func TestMCP_OrientTool_ReturnsSharedKegSystemPayload(t *testing.T) {
 	session, ctx := newTestSession(t)
 	text := orientCall(t, session, ctx, map[string]any{})
 	require.True(t, strings.HasPrefix(text, "# KEG System\n\n"))
-	require.Contains(t, text, "Call `keg_settings`")
+	require.Contains(t, text, "Call `keg_settings_read`")
 	require.Contains(t, text, "`guide`")
 	require.NotContains(t, text, "# Linking conventions")
 	require.NotContains(t, text, "# Snapshot policy")

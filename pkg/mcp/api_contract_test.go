@@ -87,9 +87,9 @@ func TestMCPRESTCompatibilityInitializationAndDeployment(t *testing.T) {
 				for _, tool := range listed.Tools {
 					names = append(names, tool.Name)
 				}
-				require.Contains(t, names, "auth_info")
+				require.Contains(t, names, "session_info")
 				require.Contains(t, names, "guide")
-				require.NotContains(t, names, "create")
+				require.NotContains(t, names, "node_create")
 				require.True(t, strings.Contains(session.InitializeResult().Instructions, apicontract.Unsupported))
 			}
 		})

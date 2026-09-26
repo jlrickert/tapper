@@ -302,37 +302,26 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 		// cover caps; MCP keeps enforcing them.
 	}
 
+	// Commands are `<resource> <verb>`, matching the MCP tools'
+	// `<resource>_<verb>` names: `tap node read` is `node_read`.
 	subcommands := []*cobra.Command{
+		NewAgentCmd(deps),
 		NewAuthCmd(deps),
-		NewBacklinksCmd(deps),
-		NewCatCmd(deps),
-		NewCreateCmd(deps),
-		NewDoctorCmd(deps),
 		NewDocsCmd(deps),
-		NewEditCmd(deps),
 		NewArchiveCmd(deps),
 		NewFileCmd(deps),
 		NewFlightCmd(deps),
-		NewGrepCmd(deps),
 		NewHubCmd(deps),
 		NewImageCmd(deps),
 		NewIndexCmd(deps),
-		NewInfoCmd(deps),
-		NewLinksCmd(deps),
-		NewListCmd(deps),
 		NewLockCmd(deps),
 		NewMcpCmd(deps),
-		NewMetaCmd(deps),
-		NewMoveCmd(deps),
+		NewNodeCmd(deps),
 		NewOrientCmd(deps),
 		NewSchemaCmd(deps),
 		NewSnapshotCmd(deps),
-		NewRemoveCmd(deps),
-		NewStatsCmd(deps),
-		NewTagsCmd(deps),
-		NewValidateCmd(deps),
+		NewTagCmd(deps),
 		NewVersionCmd(deps),
-		NewWatchCmd(deps),
 	}
 	if deps.Profile.IncludeIntegrations {
 		subcommands = append(subcommands, NewIntegrateCmd(deps), NewHookCmd(deps), NewLaunchCmd(deps), NewRelayCmd(deps))

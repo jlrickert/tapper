@@ -20,7 +20,7 @@ type authInfoOutput struct {
 // absent from both the structured and human-readable response.
 func registerAuthInfoTool(srv *sdkmcp.Server, _ KegDefaults, identities IdentityProvider, kegs KegDiscoveryProvider) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
-		Name:        "auth_info",
+		Name:        "session_info",
 		Description: "Report authenticated hub identities and exact pinned-root KEG authority without exposing credentials or private account data. Use keg_list for live flight-graph discovery and keg_search for identity-accessible KEGs outside that graph",
 		Annotations: &sdkmcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: boolPtr(true)},
 	}, func(ctx context.Context, _ *sdkmcp.CallToolRequest, _ authInfoInput) (*sdkmcp.CallToolResult, any, error) {

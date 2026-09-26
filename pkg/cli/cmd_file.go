@@ -29,9 +29,8 @@ func newFileLsCmd(deps *Deps) *cobra.Command {
 	var opts tapper.ListFilesOptions
 
 	cmd := &cobra.Command{
-		Use:               "ls NODE_ID",
+		Use:               "list NODE_ID",
 		Short:             "list file attachments for a node",
-		Aliases:           []string{"list"},
 		Args:              cobra.ExactArgs(1),
 		ValidArgsFunction: nodeIDCompletionFunc(deps, 1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -112,10 +111,9 @@ func newFileRmCmd(deps *Deps) *cobra.Command {
 	var opts tapper.DeleteFileOptions
 
 	cmd := &cobra.Command{
-		Use:     "rm NODE_ID NAME",
-		Short:   "remove a file attachment from a node",
-		Aliases: []string{"remove"},
-		Args:    cobra.ExactArgs(2),
+		Use:   "delete NODE_ID NAME",
+		Short: "remove a file attachment from a node",
+		Args:  cobra.ExactArgs(2),
 		ValidArgsFunction: nodeAndNameCompletionFunc(deps, func(ctx context.Context, nodeID string, kegOpts tapper.KegTargetOptions) ([]string, error) {
 			return deps.Tap.ListFiles(ctx, tapper.ListFilesOptions{
 				KegTargetOptions: kegOpts,

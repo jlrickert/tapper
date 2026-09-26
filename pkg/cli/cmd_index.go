@@ -12,8 +12,8 @@ import (
 // Usage examples:
 //
 //	tap index list
-//	tap index get changes.md
-//	tap index get -k work nodes.tsv
+//	tap index read changes.md
+//	tap index read -k work nodes.tsv
 //	tap index rebuild
 func NewIndexCmd(deps *Deps) *cobra.Command {
 	cmd := &cobra.Command{
@@ -63,7 +63,7 @@ func newIndexGetCmd(deps *Deps) *cobra.Command {
 	var opts tapper.IndexCatOptions
 
 	cmd := &cobra.Command{
-		Use:   "get INDEX",
+		Use:   "read INDEX",
 		Short: "dump a named index",
 		Long: `Print the contents of a named index file.
 

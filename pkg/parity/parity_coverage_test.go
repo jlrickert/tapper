@@ -18,64 +18,65 @@ import (
 // (e.g., internal helpers, config-only methods, or methods that don't have
 // a direct consumer surface).
 var tapMethodToSurfaces = map[string]struct {
-	CLI string   // CLI command path (e.g., "list", "repo init", "index rebuild")
-	MCP []string // MCP tool names covering it (e.g., "list", "repo_init", "index")
+	CLI string   // CLI command path (e.g., "node list", "index rebuild")
+	MCP []string // MCP tool names covering it (e.g., "node_list", "index_rebuild")
 }{
-	// Read operations
-	"Cat":             {CLI: "cat", MCP: []string{"cat"}},
-	"List":            {CLI: "list", MCP: []string{"list"}},
-	"Grep":            {CLI: "grep", MCP: []string{"grep"}},
-	"Tags":            {CLI: "tags", MCP: []string{"tags"}},
-	"Backlinks":       {CLI: "backlinks", MCP: []string{"backlinks"}},
-	"Links":           {CLI: "links", MCP: []string{"links"}},
-	"Info":            {CLI: "info", MCP: []string{"info"}},
-	"KegSettings":     {CLI: "keg settings", MCP: []string{"keg_settings"}},
+	// Node reads. CLI commands are `<resource> <verb>` and MCP tools
+	// `<resource>_<verb>`, so each pair names the same thing.
+	"Cat":             {CLI: "node read", MCP: []string{"node_read"}},
+	"List":            {CLI: "node list", MCP: []string{"node_list"}},
+	"Grep":            {CLI: "node search", MCP: []string{"node_search"}},
+	"Tags":            {CLI: "tag list", MCP: []string{"tag_list"}},
+	"Backlinks":       {CLI: "node backlinks", MCP: []string{"node_backlinks"}},
+	"Links":           {CLI: "node links", MCP: []string{"node_links"}},
+	"Info":            {CLI: "keg info", MCP: []string{"keg_info"}},
+	"KegSettings":     {CLI: "keg settings read", MCP: []string{"keg_settings_read"}},
 	"KegSettingsEdit": {CLI: "keg settings edit", MCP: []string{"keg_settings_edit"}},
-	"Stats":           {CLI: "stats", MCP: []string{"stats"}},
-	"ListIndexes":     {CLI: "index list", MCP: []string{"list_indexes"}},
-	"IndexCat":        {CLI: "index get", MCP: []string{"index_cat"}},
-	"Doctor":          {CLI: "doctor", MCP: []string{"doctor"}},
+	"Stats":           {CLI: "node stats", MCP: []string{"node_stats"}},
+	"ListIndexes":     {CLI: "index list", MCP: []string{"index_list"}},
+	"IndexCat":        {CLI: "index read", MCP: []string{"index_read"}},
+	"Doctor":          {CLI: "keg check", MCP: []string{"keg_check"}},
 
 	// Write operations
 	"KegDelete": {CLI: "keg delete", MCP: []string{"keg_delete"}},
 	"InitKeg":   {CLI: "keg create", MCP: []string{"keg_create"}},
-	"Create":    {CLI: "create", MCP: []string{"create"}},
-	"Edit":      {CLI: "edit", MCP: []string{"edit"}},
-	// tap meta reads and writes; on MCP those halves live in different tools —
-	// cat meta_only reads, edit writes — so the metadata capability is present
-	// on both surfaces without a tool of its own.
-	"Meta":   {CLI: "meta", MCP: []string{"cat", "edit"}},
-	"Remove": {CLI: "rm", MCP: []string{"remove"}},
-	"Move":   {CLI: "mv", MCP: []string{"move"}},
+	"Create":    {CLI: "node create", MCP: []string{"node_create"}},
+	"Edit":      {CLI: "node edit", MCP: []string{"node_edit"}},
+	// tap node meta reads and writes; on MCP those halves live in different
+	// tools — node_read meta_only reads, node_edit writes — so the metadata
+	// capability is present on both surfaces without a tool of its own.
+	"Meta":   {CLI: "node meta", MCP: []string{"node_read", "node_edit"}},
+	"Remove": {CLI: "node delete", MCP: []string{"node_delete"}},
+	"Move":   {CLI: "node move", MCP: []string{"node_move"}},
 
 	// Index operations
-	"Index": {CLI: "index rebuild", MCP: []string{"index"}},
+	"Index": {CLI: "index rebuild", MCP: []string{"index_rebuild"}},
 
 	// Schema operations (type-based keg schemas). Full CRUD + validation is
 	// exposed on both MCP surfaces; schema mutation resolves at editor role,
 	// consistent with node writes.
 	"ListSchemas":  {CLI: "schema list", MCP: []string{"schema_list"}},
-	"ReadSchema":   {CLI: "schema get", MCP: []string{"schema_read"}},
+	"ReadSchema":   {CLI: "schema read", MCP: []string{"schema_read"}},
 	"CreateSchema": {CLI: "schema create", MCP: []string{"schema_create"}},
 	"EditSchema":   {CLI: "schema edit", MCP: []string{"schema_edit"}},
-	"DeleteSchema": {CLI: "schema rm", MCP: []string{"schema_delete"}},
-	"Validate":     {CLI: "validate", MCP: []string{"validate"}},
+	"DeleteSchema": {CLI: "schema delete", MCP: []string{"schema_delete"}},
+	"Validate":     {CLI: "schema validate", MCP: []string{"schema_validate"}},
 
 	// Snapshot operations
-	"NodeSnapshot":     {CLI: "snapshot create", MCP: []string{"node_snapshot"}},
-	"NodeHistory":      {CLI: "snapshot history", MCP: []string{"node_history"}},
-	"NodeSnapshotView": {CLI: "snapshot view", MCP: []string{"node_snapshot_view"}},
-	"NodeRestore":      {CLI: "snapshot restore", MCP: []string{"node_restore"}},
+	"NodeSnapshot":     {CLI: "snapshot create", MCP: []string{"snapshot_create"}},
+	"NodeHistory":      {CLI: "snapshot list", MCP: []string{"snapshot_list"}},
+	"NodeSnapshotView": {CLI: "snapshot read", MCP: []string{"snapshot_read"}},
+	"NodeRestore":      {CLI: "snapshot restore", MCP: []string{"snapshot_restore"}},
 
 	// File operations
-	"ListFiles":     {CLI: "file ls", MCP: []string{"list_files"}},
-	"ListImages":    {CLI: "image ls", MCP: []string{"list_images"}},
-	"DeleteFile":    {CLI: "file rm", MCP: []string{"delete_file"}},
-	"DeleteImage":   {CLI: "image rm", MCP: []string{"delete_image"}},
-	"UploadFile":    {CLI: "file upload", MCP: []string{"upload_file"}},
-	"DownloadFile":  {CLI: "file download", MCP: []string{"download_file"}},
-	"UploadImage":   {CLI: "image upload", MCP: []string{"upload_image"}},
-	"DownloadImage": {CLI: "image download", MCP: []string{"download_image"}},
+	"ListFiles":     {CLI: "file list", MCP: []string{"file_list"}},
+	"ListImages":    {CLI: "image list", MCP: []string{"image_list"}},
+	"DeleteFile":    {CLI: "file delete", MCP: []string{"file_delete"}},
+	"DeleteImage":   {CLI: "image delete", MCP: []string{"image_delete"}},
+	"UploadFile":    {CLI: "file upload", MCP: []string{"file_upload"}},
+	"DownloadFile":  {CLI: "file download", MCP: []string{"file_download"}},
+	"UploadImage":   {CLI: "image upload", MCP: []string{"image_upload"}},
+	"DownloadImage": {CLI: "image download", MCP: []string{"image_download"}},
 
 	// Lock operations
 	"Lock":        {CLI: "lock acquire", MCP: []string{"lock_acquire"}},
@@ -84,15 +85,25 @@ var tapMethodToSurfaces = map[string]struct {
 	"ForceUnlock": {CLI: "lock force-release", MCP: []string{"lock_force_release"}},
 
 	// Flights (keg restriction + agent instructions)
-	"ListFlights":  {CLI: "flight list", MCP: []string{"list_flights"}},
-	"GetFlight":    {CLI: "flight show", MCP: []string{"flight_show"}},
+	"ListFlights":  {CLI: "flight list", MCP: []string{"flight_list"}},
+	"GetFlight":    {CLI: "flight read", MCP: []string{"flight_read"}},
 	"CreateFlight": {CLI: "flight create", MCP: []string{"flight_create"}},
 	"EditFlight":   {CLI: "flight edit", MCP: []string{"flight_edit"}},
 	"DeleteFlight": {CLI: "flight delete", MCP: []string{"flight_delete"}},
 
-	// Keg discovery (hub-side). HubListKegs backs `tap keg list`; on MCP the
-	// same listing is filtered through the session's active flight cover.
-	"HubListKegs": {CLI: "keg list", MCP: []string{"keg_list"}},
+	// Hub agents (namespace-owned model + instructions + tools)
+	"ListAgents":  {CLI: "agent list", MCP: []string{"agent_list"}},
+	"GetAgent":    {CLI: "agent read", MCP: []string{"agent_read"}},
+	"CreateAgent": {CLI: "agent create", MCP: []string{"agent_create"}},
+	"EditAgent":   {CLI: "agent edit", MCP: []string{"agent_edit"}},
+	"DeleteAgent": {CLI: "agent delete", MCP: []string{"agent_delete"}},
+
+	// Keg and namespace discovery (hub-side). HubListKegs backs `tap keg list`;
+	// on MCP the same listing is filtered through the session's active flight
+	// cover.
+	"HubListKegs":     {CLI: "keg list", MCP: []string{"keg_list"}},
+	"NamespaceList":   {CLI: "namespace list", MCP: []string{"namespace_list"}},
+	"NamespaceSearch": {CLI: "namespace search", MCP: []string{"namespace_search"}},
 
 	// Agent orientation remains shared. Native plugin installation is an
 	// intentionally CLI-only host operation (see tapMethodsExcluded).
@@ -104,20 +115,20 @@ var tapMethodToSurfaces = map[string]struct {
 // methods that are not meant to be directly exposed as standalone tools.
 var tapMethodsExcluded = map[string]string{
 	"SelectedHubIdentity": "internal selected-Hub authentication probe",
-	"CreateBatch":         "MCP batch backing operation; CLI create remains a one-node command",
-	"EditBatch":           "MCP batch backing operation; CLI edit remains a one-node command",
+	"CreateBatch":         "MCP batch backing operation; CLI node create remains a one-node command",
+	"EditBatch":           "MCP batch backing operation; CLI node edit remains a one-node command",
 	"NodeSnapshotBatch":   "MCP batch backing operation; CLI snapshot create remains a one-node command",
-	"CatViews":            "structured accessor behind Cat; MCP cat uses it to return per-node precondition hashes without re-reading",
+	"CatViews":            "structured accessor behind Cat; MCP node_read uses it to return per-node precondition hashes without re-reading",
 	"NodeHash":            "explicit CLI read-before-write helper; MCP reads return the same token in structured content",
 	"SchemaHash":          "explicit CLI read-before-write helper; MCP schema_read returns the same token",
-	"KegSettingsHash":     "explicit CLI read-before-write helper; MCP keg_settings returns the same token",
+	"KegSettingsHash":     "explicit CLI read-before-write helper; MCP keg_settings_read returns the same token",
 	"ConfigEdit":          "interactive editor; not exposed via MCP",
 	"AuthRefreshAll":      "startup credential renewal invoked by the CLI root command (covers `tap` and `tap mcp`); not a user-facing operation",
 	"UpdateFlight":        "underlying partial-update operation used by MCP flight_edit; CLI users use `flight edit`",
 	"LookupKeg":           "internal resolution helper; not a user-facing operation",
 	"ResolveNodeRef":      "internal node-reference resolver shared by surfaces; not a user-facing operation",
 	"OrientationKegs":     "internal MCP authority helper; keg_list is the governed user-facing discovery surface",
-	"WatchNode": "streaming, not request/response: CLI surface is `tap watch` (long-lived stream); " +
+	"WatchNode": "streaming, not request/response: CLI surface is `tap node watch` (long-lived stream); " +
 		"MCP surface is the resources/subscribe protocol capability (not a tool), wired via " +
 		"SubscribeHandler in pkg/mcp/server.go. Payload parity is impossible — MCP notifications " +
 		"are spec-thin (URI only) while the CLI stream carries kind/field — but both surfaces " +
@@ -154,20 +165,20 @@ var tapMethodsExcluded = map[string]string{
 	// Dropped from MCP when the surface was unified behind providers: these
 	// operate on machine-local Tapper state or perform tenant administration,
 	// neither of which an agent should reach through either transport.
-	"AuthStatus":     "replaced on MCP by the credential-free auth_info tool; `tap auth status` renders local token state and has no agent-safe peer",
+	"AuthStatus":     "replaced on MCP by the credential-free session_info tool; `tap auth status` renders local token state and has no agent-safe peer",
 	"Config":         "reads the local Tapper config cascade; configuration is an external CLI concern, not an MCP operation",
 	"ConfigTemplate": "emits starter config files for a human to edit; CLI-only setup step",
 
 	"Export":        "writes a keg archive to the local filesystem; CLI-only bulk operation",
 	"Import":        "reads a keg archive from the local filesystem; CLI-only bulk operation",
 	"KegVisibility": "UI-only visibility management; MCP must not flip a keg between public and private",
-	"NamespaceList": "namespace discovery folded into auth_info's identity payload; the standalone tool was tenant-administration shaped",
 	"License":       "prints bundled license text; CLI-only via `tap version --license`",
 	// Experimental launcher. Starting a process on the operator's machine is
 	// not an agent operation and must not become an MCP tool.
 	"Launch":               "CLI-only: starts an agent harness as a local subprocess; MCP must never spawn processes on its host",
 	"ResolveLaunch":        "pure resolution half of Launch, exposed so a dry run and a real run cannot drift",
 	"ResolveLaunchContext": "ResolveLaunch with a context for hub mode's catalog lookup; same CLI-only launch surface",
+	"HubAgent":             "loads the launched session's Hub agent so `tap mcp` can serve only its tools; plumbing for TAP_AGENT, not an operation",
 }
 
 // TestCoverage_AllTapMethodsHaveBothSurfaces uses reflection to enumerate

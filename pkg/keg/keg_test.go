@@ -601,7 +601,7 @@ func TestSetMeta_PreservesLinksInDex(t *testing.T) {
 	require.Len(t, links, 1)
 	require.Equal(t, id2.ID.ID, links[0].ID)
 
-	// Now simulate what tap edit does: SetMeta then SetContent with same body
+	// Now simulate what tap node edit does: SetMeta then SetContent with same body
 	meta, err := k.GetMeta(f.Context(), id1.ID)
 	require.NoError(t, err)
 	meta.SetTags([]string{"new-tag"})
@@ -910,7 +910,7 @@ func TestSetContent_WithChangeUpdatesDexAndConfig(t *testing.T) {
 	require.Equal(t, string(newBody), string(got))
 }
 
-// TestEditNoChange_SimulatesSaveWithoutChanges simulates the tap edit
+// TestEditNoChange_SimulatesSaveWithoutChanges simulates the tap node edit
 // flow where SetMeta and SetContent are called with unchanged data.
 // After the first normalization round-trip, neither the dex files nor the
 // keg settings should be modified on a second save-without-changes.
@@ -941,7 +941,7 @@ func TestEditNoChange_SimulatesSaveWithoutChanges(t *testing.T) {
 	// Advance clock so any new write would produce a different timestamp.
 	f.Advance(10 * time.Minute)
 
-	// Simulate tap edit save-without-changes: SetMeta then SetContent
+	// Simulate tap node edit save-without-changes: SetMeta then SetContent
 	// with identical data (this is what applyEditedNodeRaw does).
 	meta, err = k.GetMeta(f.Context(), id.ID)
 	require.NoError(t, err)

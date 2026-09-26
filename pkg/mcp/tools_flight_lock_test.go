@@ -15,7 +15,7 @@ func TestMCP_DefaultFlightRestrictsKegs(t *testing.T) {
 	session, ctx, privateID := newFlightLockedSession(t)
 
 	covered, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "cat",
+		Name: "node_read",
 		Arguments: map[string]any{
 			"node_ids":     []string{"0"},
 			"content_only": true,
@@ -27,7 +27,7 @@ func TestMCP_DefaultFlightRestrictsKegs(t *testing.T) {
 	require.Contains(t, coveredText, "# Personal Overview")
 
 	blocked, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "cat",
+		Name: "node_read",
 		Arguments: map[string]any{
 			"keg":          "private",
 			"node_ids":     []string{privateID},
@@ -45,7 +45,7 @@ func TestMCP_OutsideToolFlightCannotOverridePinnedRoot(t *testing.T) {
 	session, ctx, privateID := newFlightLockedSession(t)
 
 	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "cat",
+		Name: "node_read",
 		Arguments: map[string]any{
 			"keg":          "private",
 			"flight":       "+other",
@@ -58,7 +58,7 @@ func TestMCP_OutsideToolFlightCannotOverridePinnedRoot(t *testing.T) {
 	require.Contains(t, extractText(t, res), "ORIENTATION_DENIED")
 
 	covered, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "cat",
+		Name: "node_read",
 		Arguments: map[string]any{
 			"keg":          "personal",
 			"node_ids":     []string{"0"},

@@ -24,7 +24,7 @@ For this documentation pattern, `README.md` should contain:
 - a title line (`# ...`)
 - a lead paragraph directly under the title
 
-Optional metadata can be supplied as YAML frontmatter or through `tap meta`:
+Optional metadata can be supplied as YAML frontmatter or through `tap node meta`:
 
 ```yaml
 entity: concept
