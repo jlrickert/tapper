@@ -85,7 +85,16 @@ func TestResolveLaunch_Claude(t *testing.T) {
 	hub := fakeInferenceHub(t, "hub-token", twoModels)
 	got, err := newLaunchTap(t, hub.URL, "").ResolveLaunch(LaunchOptions{Harness: "claude", Model: "laptop/ollama/llama3"})
 	require.NoError(t, err)
-	require.Equal(t, []string{"claude", "--model", "laptop/ollama/llama3"}, got.Argv)
+	require.Equal(t, []string{"claude", "--model", "laptop/ollama/llama3", "--settings"}, got.Argv[:4])
+	var settings struct {
+		ModelPicker []struct{ ID, Model, Label, Description string } `json:"modelPicker"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(got.Argv[4]), &settings))
+	require.Len(t, settings.ModelPicker, 2, "the picker lists every chat model in the catalog, not the speech model")
+	require.Equal(t, "laptop/ollama/qwen3:8b", settings.ModelPicker[0].Model)
+	require.Equal(t, "laptop/ollama/qwen3:8b", settings.ModelPicker[0].Label)
+	require.Equal(t, "Hub · relay:laptop · 32k context", settings.ModelPicker[0].Description)
+	require.Equal(t, "laptop/ollama/llama3", settings.ModelPicker[1].Model)
 	require.Equal(t, launchForwarderPlaceholder+"/anthropic", got.Env["ANTHROPIC_BASE_URL"])
 	require.Equal(t, launchKeyPlaceholder, got.Env["ANTHROPIC_AUTH_TOKEN"])
 	for _, slot := range []string{"ANTHROPIC_MODEL", "ANTHROPIC_DEFAULT_OPUS_MODEL", "ANTHROPIC_DEFAULT_SONNET_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL", "ANTHROPIC_SMALL_FAST_MODEL"} {

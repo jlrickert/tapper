@@ -181,6 +181,12 @@ func harnessBuilders() map[string]func(launchSpec) invocation {
 // the conflict. Claude Code does not know catalog models, so their context
 // window, when the relay advertised one, is passed as the limit it compacts
 // against; otherwise it assumes 200k.
+//
+// Claude Code's /model picker lists only its built-in Claude lineup, which
+// would all route to the one model above. A session-only modelPicker setting
+// replaces that lineup with the catalog, so the picker switches between Hub
+// models the way opencode's and pi's do. --settings layers over the user's
+// own settings file rather than replacing it.
 func claudeLaunch(spec launchSpec) invocation {
 	env := map[string]string{
 		"ANTHROPIC_BASE_URL":             spec.origin + "/anthropic",
@@ -194,11 +200,35 @@ func claudeLaunch(spec launchSpec) invocation {
 	if n := spec.contextWindow(); n > 0 {
 		env["CLAUDE_CODE_MAX_CONTEXT_TOKENS"] = strconv.Itoa(n)
 	}
+	type row struct {
+		ID          string `json:"id"`
+		Model       string `json:"model"`
+		Label       string `json:"label"`
+		Description string `json:"description,omitempty"`
+	}
+	var rows []row
+	for _, m := range chatModels(spec.catalog) {
+		rows = append(rows, row{ID: m.ID, Model: m.ID, Label: m.ID, Description: catalogDescription(m)})
+	}
+	settings := encodeLaunchJSON(map[string]any{"modelPicker": rows})
 	return invocation{
-		argv:  []string{"claude", "--model", spec.model},
+		argv:  []string{"claude", "--model", spec.model, "--settings", settings},
 		env:   env,
 		strip: []string{"ANTHROPIC_API_KEY"},
 	}
+}
+
+// catalogDescription says where a catalog model comes from and how much
+// context it takes, for a harness's model picker.
+func catalogDescription(m HubModel) string {
+	parts := []string{"Hub"}
+	if source := strings.TrimSpace(m.OwnedBy); source != "" {
+		parts = append(parts, source)
+	}
+	if m.ContextWindow > 0 {
+		parts = append(parts, fmt.Sprintf("%dk context", m.ContextWindow/1024))
+	}
+	return strings.Join(parts, " · ")
 }
 
 // codexLaunch declares Hub as a Codex model provider on the command line.
