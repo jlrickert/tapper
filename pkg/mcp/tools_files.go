@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"net/url"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -215,7 +216,7 @@ type uploadFileInput struct {
 type localUploadFileInput struct {
 	NodeID     string               `json:"node_id" jsonschema:"node ID to attach the file to"`
 	Filename   string               `json:"filename,omitempty" jsonschema:"filename for the attachment; derived from the source path, data URI, or resource URI if empty"`
-	SourcePath string               `json:"source_path,omitempty" jsonschema:"absolute path to the source file on the machine running the server"`
+	SourcePath string               `json:"source_path,omitempty" jsonschema:"regular file within the server working directory"`
 	SourceURI  string               `json:"source_uri,omitempty" jsonschema:"file: or data: URI for the source file"`
 	DataBase64 string               `json:"data_base64,omitempty" jsonschema:"base64-encoded file bytes"`
 	MIMEType   string               `json:"mime_type,omitempty" jsonschema:"optional MIME type hint for raw file bytes"`
@@ -311,7 +312,7 @@ func resolveUploadName(explicit, derived string) (string, error) {
 type downloadFileInput struct {
 	NodeID   string `json:"node_id" jsonschema:"node ID containing the file"`
 	Filename string `json:"filename" jsonschema:"filename to download"`
-	DestPath string `json:"dest_path" jsonschema:"absolute path to write the downloaded file"`
+	DestPath string `json:"dest_path" jsonschema:"new file path within the server working directory; existing files are refused"`
 	Keg      string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
 }
 
@@ -326,11 +327,16 @@ func registerDownloadFile(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefau
 		if in.DestPath == "-" {
 			return errorResult(fmt.Errorf("stdout mode is not supported over MCP")), nil, nil
 		}
+		destPath, pathErr := confinedTransferPath(tap.Runtime, in.DestPath, true)
+		if pathErr != nil {
+			return errorResult(pathErr), nil, nil
+		}
 		opts := tapper.DownloadFileOptions{
 			KegTargetOptions: resolveKegTarget(ctx, in.Keg, defaults),
 			NodeID:           in.NodeID,
 			Name:             in.Filename,
-			Dest:             in.DestPath,
+			Dest:             destPath,
+			NoOverwrite:      true,
 		}
 		dest, err := tap.DownloadFile(ctx, opts)
 		if err != nil {
@@ -357,7 +363,7 @@ type uploadImageInput struct {
 type localUploadImageInput struct {
 	NodeID     string               `json:"node_id" jsonschema:"node ID to attach the image to"`
 	Filename   string               `json:"filename,omitempty" jsonschema:"image filename for the attachment; derived from the source path, data URI, or resource URI if empty"`
-	SourcePath string               `json:"source_path,omitempty" jsonschema:"absolute path to the source image on the machine running the server"`
+	SourcePath string               `json:"source_path,omitempty" jsonschema:"regular image file within the server working directory"`
 	SourceURI  string               `json:"source_uri,omitempty" jsonschema:"file: or data: URI for the source image"`
 	DataBase64 string               `json:"data_base64,omitempty" jsonschema:"base64-encoded image bytes"`
 	MIMEType   string               `json:"mime_type,omitempty" jsonschema:"optional MIME type hint for raw image bytes"`
@@ -439,7 +445,7 @@ type downloadImageInput struct {
 type localDownloadImageInput struct {
 	NodeID   string `json:"node_id" jsonschema:"node ID containing the image"`
 	Filename string `json:"filename" jsonschema:"image filename to download"`
-	DestPath string `json:"dest_path,omitempty" jsonschema:"absolute path to write the image to; omit to receive the image as MCP content"`
+	DestPath string `json:"dest_path,omitempty" jsonschema:"new file path within the server working directory; existing files are refused; omit to receive the image as MCP content"`
 	Keg      string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
 }
 
@@ -452,9 +458,10 @@ func registerDownloadImage(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefa
 }
 
 func registerLocalDownloadImage(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
-	sdkmcp.AddTool(srv, downloadImageTool(
-		"Download an image attachment from a node, either to a local file path or as MCP image content",
-	), func(ctx context.Context, req *sdkmcp.CallToolRequest, in localDownloadImageInput) (*sdkmcp.CallToolResult, any, error) {
+	tool := downloadImageTool("Return image content, or create a new private file within the working directory; existing files are never overwritten")
+	tool.Annotations.ReadOnlyHint = false
+	tool.Annotations.DestructiveHint = boolPtr(false)
+	sdkmcp.AddTool(srv, tool, func(ctx context.Context, req *sdkmcp.CallToolRequest, in localDownloadImageInput) (*sdkmcp.CallToolResult, any, error) {
 		dest := strings.TrimSpace(in.DestPath)
 		if dest == "" {
 			return readImageContent(ctx, tap, defaults, in.Keg, in.NodeID, in.Filename)
@@ -462,11 +469,16 @@ func registerLocalDownloadImage(srv *sdkmcp.Server, tap *tapper.Tap, defaults Ke
 		if dest == "-" {
 			return errorResult(fmt.Errorf("stdout mode is not supported over MCP; omit dest_path to receive image content")), nil, nil
 		}
+		dest, pathErr := confinedTransferPath(tap.Runtime, dest, true)
+		if pathErr != nil {
+			return errorResult(pathErr), nil, nil
+		}
 		written, err := tap.DownloadImage(ctx, tapper.DownloadImageOptions{
 			KegTargetOptions: resolveKegTarget(ctx, in.Keg, defaults),
 			NodeID:           in.NodeID,
 			Name:             in.Filename,
 			Dest:             dest,
+			NoOverwrite:      true,
 		})
 		if err != nil {
 			return errorResult(err), nil, nil
@@ -591,6 +603,10 @@ func readLocalUploadSource(rt *toolkit.Runtime, path string, allowLocalSources b
 	if !allowLocalSources {
 		return nil, "", fmt.Errorf("local file sources are not available on this MCP surface; use data_base64 or an embedded resource blob")
 	}
+	path, err := confinedTransferPath(rt, path, false)
+	if err != nil {
+		return nil, "", fmt.Errorf("unable to read local file: %w", err)
+	}
 	data, err := rt.ReadFile(path)
 	if err != nil {
 		return nil, "", fmt.Errorf("unable to read local file %q: %w", path, err)
@@ -653,4 +669,58 @@ func deletionFilename(filename, alias *string) (string, error) {
 		return "", fmt.Errorf("%w: filename is required", keg.ErrInvalid)
 	}
 	return *filename, nil
+}
+
+// Resolve symlinks and environment expansion before checking the workspace
+// boundary. Downloads additionally use O_EXCL, so a final symlink cannot be
+// used to overwrite an existing destination.
+func confinedTransferPath(rt *toolkit.Runtime, raw string, writing bool) (string, error) {
+	if strings.TrimSpace(raw) == "" || raw == "-" {
+		return "", fmt.Errorf("an explicit workspace file path is required")
+	}
+	root, err := rt.ResolvePath(".", true)
+	if err != nil {
+		return "", err
+	}
+	path, err := rt.ResolvePath(raw, false)
+	// Runtime filesystem calls expand variables again. A resolved path must
+	// be literal so a nested variable cannot change it after confinement.
+	if strings.ContainsAny(root+path, "$") {
+		return "", fmt.Errorf("file transfer paths must resolve to literal paths")
+	}
+	if err == nil {
+		if writing {
+			var parent string
+			parent, err = rt.ResolvePath(filepath.Dir(path), true)
+			path = filepath.Join(parent, filepath.Base(path))
+		} else {
+			path, err = rt.ResolvePath(path, true)
+		}
+	}
+	if err != nil {
+		return "", err
+	}
+	if strings.Contains(path, "$") {
+		return "", fmt.Errorf("file transfer paths must resolve to literal paths")
+	}
+	rel, err := filepath.Rel(root, path)
+	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return "", fmt.Errorf("file transfers must stay within the server working directory")
+	}
+	if writing {
+		if _, err := rt.Stat(path, false); err == nil {
+			return "", fmt.Errorf("destination already exists")
+		} else if !os.IsNotExist(err) {
+			return "", err
+		}
+	} else {
+		info, err := rt.Stat(path, true)
+		if err != nil {
+			return "", err
+		}
+		if !info.Mode().IsRegular() {
+			return "", fmt.Errorf("source must be a regular file")
+		}
+	}
+	return path, nil
 }
