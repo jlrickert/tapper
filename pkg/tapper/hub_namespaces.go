@@ -49,11 +49,14 @@ func ListNamespaceMembers(ctx context.Context, hubURL, token, namespace string) 
 	return out, nil
 }
 
-// AddNamespaceMember upserts a member via POST /api/v1/@{namespace}/members.
-// role is owner|admin|member.
-func AddNamespaceMember(ctx context.Context, hubURL, token, namespace, username, role string) error {
+// AddNamespaceMember invites a member, or changes an existing member's role,
+// via POST /api/v1/@{namespace}/members. role is owner|admin|member. A new
+// member joins only when they accept, which the result reports.
+func AddNamespaceMember(ctx context.Context, hubURL, token, namespace, username, role string) (AccessChange, error) {
 	payload := map[string]string{"username": strings.TrimPrefix(strings.TrimSpace(username), "@"), "role": role}
-	return doHubJSON(ctx, http.MethodPost, hubURL, token, namespaceMembersPath(namespace), payload, nil)
+	var out AccessChange
+	err := doHubJSON(ctx, http.MethodPost, hubURL, token, namespaceMembersPath(namespace), payload, &out)
+	return out, err
 }
 
 // SetNamespaceMemberRole changes a member's role via

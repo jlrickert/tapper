@@ -722,6 +722,9 @@ func (p localNamespaceProvider) ListNamespaces(ctx context.Context) ([]tapper.Hu
 func (p localNamespaceProvider) SearchNamespaces(ctx context.Context, query string) (tapper.NamespaceSearchResult, error) {
 	return p.tap.NamespaceSearch(ctx, tapper.NamespaceSearchOptions{Query: query})
 }
+func (p localNamespaceProvider) ListInvitations(ctx context.Context) ([]tapper.HubInvitation, error) {
+	return p.tap.InvitationList(ctx, tapper.InvitationOptions{})
+}
 
 type localIdentityProvider struct{ tap *tapper.Tap }
 

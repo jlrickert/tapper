@@ -191,6 +191,7 @@ vocabulary to ask.
 | `session_info` | Return structured credential-safe `identities[]` and exact pinned-root-context `kegs[]` |
 | `namespace_list` | List the namespaces you belong to, with your role |
 | `namespace_search` | Search the people and org namespaces visible on the Hub; discovery only |
+| `invitation_list` | List pending invitations to namespaces and kegs addressed to you; read-only, since accepting is the user's decision |
 
 Each identity includes only its hub locator, user ID, username, display name,
 default namespace, and namespace names. Tokens, email, scopes, cookies, expiry,

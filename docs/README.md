@@ -66,7 +66,14 @@ tap keg rename @acme/engineering docs
 ```
 
 Namespace membership handles organization-level access. Keg grants handle
-per-keg access when a domain needs a tighter boundary.
+per-keg access when a domain needs a tighter boundary. Adding a member or a
+grantee sends an invitation: access starts only when they accept it.
+
+```bash
+tap invitation list          # invitations addressed to you
+tap invitation accept 42     # or: tap invitation decline 42
+tap invitation revoke 42     # withdraw one you sent
+```
 
 ### Connect An Agent
 
@@ -115,7 +122,9 @@ writing KEG files directly.
 - `tap keg visibility public|private` - set keg visibility.
 - `tap keg rename @namespace/old new` - rename a keg alias in its namespace.
 - `tap namespace create|list|members|add-member|set-role|remove-member` -
-  manage namespaces and membership.
+  manage namespaces and membership. Member management requires the owner role.
+- `tap invitation list|accept|decline|revoke` - review invitations to
+  namespaces and kegs; access starts only when accepted.
 - `tap hub list|status|add|remove|set-default` - manage hub connections.
 
 ### Safety And Operations

@@ -42,10 +42,14 @@ func ListGrants(ctx context.Context, hubURL, token, namespace, alias string) ([]
 	return out, nil
 }
 
-// CreateGrant upserts a grant via POST .../grants. role is viewer|editor|admin.
-func CreateGrant(ctx context.Context, hubURL, token, namespace, alias, username, role string) error {
+// CreateGrant sets a grant via POST .../grants. role is viewer|editor|admin.
+// An existing grantee's role changes immediately; anyone else is invited and
+// gains access only when they accept, which the result reports.
+func CreateGrant(ctx context.Context, hubURL, token, namespace, alias, username, role string) (AccessChange, error) {
 	payload := map[string]string{"username": strings.TrimPrefix(strings.TrimSpace(username), "@"), "role": role}
-	return doHubJSON(ctx, http.MethodPost, hubURL, token, kegGrantsPath(namespace, alias), payload, nil)
+	var out AccessChange
+	err := doHubJSON(ctx, http.MethodPost, hubURL, token, kegGrantsPath(namespace, alias), payload, &out)
+	return out, err
 }
 
 // RevokeGrant removes a grant via DELETE .../grants/@{username}.
@@ -105,7 +109,7 @@ func doHubJSON(ctx context.Context, method, hubURL, token, path string, payload,
 	defer func() { _ = resp.Body.Close() }()
 
 	switch resp.StatusCode {
-	case http.StatusOK, http.StatusCreated:
+	case http.StatusOK, http.StatusCreated, http.StatusAccepted:
 	case http.StatusNoContent:
 		return nil
 	case http.StatusConflict:
@@ -116,6 +120,8 @@ func doHubJSON(ctx context.Context, method, hubURL, token, path string, payload,
 		return fmt.Errorf("hub: %w (%s)%s", keg.ErrForbidden, resp.Status, readHubError(resp))
 	case http.StatusUnauthorized:
 		return fmt.Errorf("hub: %w (%s)%s", ErrTokenRejected, resp.Status, readHubError(resp))
+	case http.StatusGone:
+		return fmt.Errorf("hub: %w%s", ErrInvitationVoid, readHubError(resp))
 	default:
 		return fmt.Errorf("hub: request failed: %s%s", resp.Status, readHubError(resp))
 	}

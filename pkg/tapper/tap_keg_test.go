@@ -60,8 +60,24 @@ func TestKegGrant_Upsert(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(map[string]string{"username": "bob", "role": "editor"})
 	})
 	tap, fx, _ := newRemoteHubTap(t, h)
-	require.NoError(t, tap.KegGrant(fx.Context(), tapper.KegGrantOptions{Keg: "@jlrickert/example", User: "@bob", Role: "editor"}))
+	change, err := tap.KegGrant(fx.Context(), tapper.KegGrantOptions{Keg: "@jlrickert/example", User: "@bob", Role: "editor"})
+	require.NoError(t, err)
+	require.False(t, change.Invited(), "an existing grantee's role changes immediately")
 	require.Equal(t, map[string]string{"username": "bob", "role": "editor"}, gotBody)
+}
+
+// A new grantee is invited: the hub answers 202 and access waits on them.
+func TestKegGrant_Invites(t *testing.T) {
+	t.Parallel()
+	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusAccepted)
+		_ = json.NewEncoder(w).Encode(map[string]any{"status": "invited", "invitation_id": 7, "username": "bob", "role": "editor"})
+	})
+	tap, fx, _ := newRemoteHubTap(t, h)
+	change, err := tap.KegGrant(fx.Context(), tapper.KegGrantOptions{Keg: "@jlrickert/example", User: "bob", Role: "editor"})
+	require.NoError(t, err)
+	require.True(t, change.Invited())
+	require.Equal(t, int64(7), change.InvitationID)
 }
 
 func TestKegGrant_InvalidRole(t *testing.T) {
@@ -70,7 +86,7 @@ func TestKegGrant_InvalidRole(t *testing.T) {
 		t.Errorf("hub should not be contacted for an invalid role")
 	})
 	tap, fx, _ := newRemoteHubTap(t, h)
-	err := tap.KegGrant(fx.Context(), tapper.KegGrantOptions{Keg: "@jlrickert/example", User: "bob", Role: "superuser"})
+	_, err := tap.KegGrant(fx.Context(), tapper.KegGrantOptions{Keg: "@jlrickert/example", User: "bob", Role: "superuser"})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "invalid role")
 }

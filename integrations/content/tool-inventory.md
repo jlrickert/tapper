@@ -7,7 +7,7 @@ flight exactly. With a real pinned root, omission selects that root and an
 explicit value selects the root or an accessible flattened descendant.
 `session_info`, `session_refresh`, `flight_list`, `flight_read`,
 `flight_search`, `keg_search`, `namespace_list`, `namespace_search`,
-`agent_list`, and `agent_read` do not accept `flight`. MCP resources use root
+`invitation_list`, `agent_list`, and `agent_read` do not accept `flight`. MCP resources use root
 authority while rendering graph-wide discovery.
 
 `flight` is an **operational** parameter, not a discovery-only one: `node_list`,
@@ -174,6 +174,10 @@ and `session_refresh` are always available.
   Hub, not only your own, matched by name or display name; empty query browses.
   Discovery only: a match grants nothing. Follow up with `keg_search` and
   `flight_search`.
+- `mcp__tapper__invitation_list`: pending invitations addressed to your user,
+  org memberships and keg grants that take effect only if accepted. Read-only:
+  accepting or declining is your user's decision (Hub account page or
+  `tap invitation`), so tell them rather than acting.
 
 - `mcp__tapper__flight_search`: literal reference/title/description search over
   readable flights; at most 50 deterministic metadata results, with a truncation

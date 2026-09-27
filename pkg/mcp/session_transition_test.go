@@ -630,7 +630,7 @@ func TestMCP_AuthorityBearingSchemasExposeOptionalFlightAndRejectKegListAll(t *t
 	session, ctx := newPerCallFlightSession(t, backend)
 	result, err := session.ListTools(ctx, nil)
 	require.NoError(t, err)
-	ungoverned := map[string]bool{"guide": true, "flight_search": true, "session_info": true, "keg_search": true, "flight_list": true, "flight_read": true, "session_refresh": true, "namespace_list": true, "namespace_search": true, "agent_list": true, "agent_read": true}
+	ungoverned := map[string]bool{"guide": true, "flight_search": true, "session_info": true, "keg_search": true, "flight_list": true, "flight_read": true, "session_refresh": true, "namespace_list": true, "namespace_search": true, "invitation_list": true, "agent_list": true, "agent_read": true}
 	seen := map[string]bool{}
 	for _, tool := range result.Tools {
 		seen[tool.Name] = true

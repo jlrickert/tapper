@@ -75,19 +75,20 @@ func (t *Tap) KegGrants(ctx context.Context, opts KegGrantsOptions) ([]HubGrant,
 	return ListGrants(ctx, hubURL, token, ns, alias)
 }
 
-// KegGrant upserts a grant (user → role) on a keg.
-func (t *Tap) KegGrant(ctx context.Context, opts KegGrantOptions) error {
+// KegGrant grants a user a role on a keg. An existing grantee's role changes
+// now; anyone else is invited and gains access when they accept.
+func (t *Tap) KegGrant(ctx context.Context, opts KegGrantOptions) (AccessChange, error) {
 	role := strings.TrimSpace(opts.Role)
 	if !kegGrantRoles[role] {
-		return fmt.Errorf("invalid role %q: expected viewer, editor, or admin", opts.Role)
+		return AccessChange{}, fmt.Errorf("invalid role %q: expected viewer, editor, or admin", opts.Role)
 	}
 	user := strings.TrimPrefix(strings.TrimSpace(opts.User), "@")
 	if user == "" {
-		return fmt.Errorf("a username is required")
+		return AccessChange{}, fmt.Errorf("a username is required")
 	}
 	ns, alias, hubURL, token, err := t.resolveKegAdminRef(opts.Keg, opts.Namespace, opts.Hub)
 	if err != nil {
-		return err
+		return AccessChange{}, err
 	}
 	return CreateGrant(ctx, hubURL, token, ns, alias, user, role)
 }

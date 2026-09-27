@@ -104,6 +104,7 @@ var tapMethodToSurfaces = map[string]struct {
 	"HubListKegs":     {CLI: "keg list", MCP: []string{"keg_list"}},
 	"NamespaceList":   {CLI: "namespace list", MCP: []string{"namespace_list"}},
 	"NamespaceSearch": {CLI: "namespace search", MCP: []string{"namespace_search"}},
+	"InvitationList":  {CLI: "invitation list", MCP: []string{"invitation_list"}},
 
 	// Agent orientation remains shared. Native plugin installation is an
 	// intentionally CLI-only host operation (see tapMethodsExcluded).
@@ -153,6 +154,9 @@ var tapMethodsExcluded = map[string]string{
 	"KegGrants":                "UI-only user/role inspection for now; MCP must not expose keg grants",
 	"KegGrant":                 "UI-only user/role management for now; MCP must not mutate keg grants",
 	"KegRevoke":                "UI-only user/role management for now; MCP must not mutate keg grants",
+	"InvitationAccept":         "security: accepting access is the account holder's consent decision; agents must not accept on their behalf",
+	"InvitationDecline":        "security: declining access is the account holder's consent decision; agents must not decide on their behalf",
+	"InvitationRevoke":         "UI-only user/role management for now; MCP must not withdraw invitations",
 	"KegRename":                "UI-only alias management for now; MCP must not rename kegs",
 	"SetKeg":                   "CLI-only bootstrap step; persists the chosen keg as the user-level fallback after login, not an MCP operation",
 	"SetBootstrapFlight":       "CLI-only bootstrap step; validates and persists the user-level flight baseline, not an MCP operation",

@@ -69,7 +69,8 @@ func TestNamespaceAddMember(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(map[string]string{"username": "bob", "role": "member"})
 	})
 	tap, fx, _ := newRemoteHubTap(t, h)
-	require.NoError(t, tap.NamespaceAddMember(fx.Context(), tapper.NamespaceAddMemberOptions{Namespace: "acme", User: "@bob", Role: "member"}))
+	_, err := tap.NamespaceAddMember(fx.Context(), tapper.NamespaceAddMemberOptions{Namespace: "acme", User: "@bob", Role: "member"})
+	require.NoError(t, err)
 	require.Equal(t, map[string]string{"username": "bob", "role": "member"}, gotBody)
 }
 
@@ -80,7 +81,7 @@ func TestNamespaceAddMember_InvalidRole(t *testing.T) {
 	})
 	tap, fx, _ := newRemoteHubTap(t, h)
 	// "viewer" is a keg grant role, not a namespace membership role.
-	err := tap.NamespaceAddMember(fx.Context(), tapper.NamespaceAddMemberOptions{Namespace: "acme", User: "bob", Role: "viewer"})
+	_, err := tap.NamespaceAddMember(fx.Context(), tapper.NamespaceAddMemberOptions{Namespace: "acme", User: "bob", Role: "viewer"})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "invalid role")
 }
