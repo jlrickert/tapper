@@ -27,6 +27,11 @@ features at parity.
 - Tests verify both surfaces produce equivalent results for the same input.
 - Docs document features, not surfaces — one description covers both CLI and MCP
   usage.
+- The only exceptions are recorded, with a reason, in the exemption map in
+  `pkg/parity/parity_coverage_test.go`. Consent decisions are one class:
+  accepting or declining an invitation to a namespace or keg is the account
+  holder's own choice, so MCP exposes `invitation_list` read-only and never
+  accept or decline.
 
 ## Checklist
 

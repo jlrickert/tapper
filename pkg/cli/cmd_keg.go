@@ -129,17 +129,24 @@ func newKegGrantCmd(deps *Deps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "grant <@user> <role>",
 		Short: "grant a user a role on a keg (viewer|editor|admin)",
-		Long:  "Grant a user a role on the keg selected by --keg/--namespace/--hub (default: the resolved keg).",
+		Long: "Grant a user a role on the keg selected by --keg/--namespace/--hub (default: the resolved keg).\n\n" +
+			"An existing grantee's role changes immediately. Anyone else is sent an invitation and gains access\n" +
+			"only after accepting it (tap invitation accept); withdraw a pending one with tap invitation revoke.",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			kt := globalKegTarget(deps)
-			return deps.Tap.KegGrant(cmd.Context(), tapper.KegGrantOptions{
+			change, err := deps.Tap.KegGrant(cmd.Context(), tapper.KegGrantOptions{
 				Keg:       kt.Keg,
 				Namespace: kt.Namespace,
 				Hub:       kt.Hub,
 				User:      args[0],
 				Role:      args[1],
 			})
+			if err != nil {
+				return err
+			}
+			printAccessChange(cmd, change, args[0], args[1])
+			return nil
 		},
 	}
 	cmd.ValidArgsFunction = func(_ *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {

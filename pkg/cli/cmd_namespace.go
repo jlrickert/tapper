@@ -123,17 +123,24 @@ func newNamespaceMembersCmd(deps *Deps) *cobra.Command {
 func newNamespaceAddMemberCmd(deps *Deps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "add-member <@user> <role>",
-		Short: "add a member to a namespace (owner|admin|member)",
-		Long:  "Add a member to the namespace selected by --namespace/--hub (default: the resolved namespace).",
+		Short: "invite a member to a namespace (owner|admin|member)",
+		Long: "Invite a member to the namespace selected by --namespace/--hub (default: the resolved namespace).\n\n" +
+			"They join only after accepting the invitation (tap invitation accept). For an existing member the\n" +
+			"role changes immediately. Member management requires the owner role.",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			kt := globalKegTarget(deps)
-			return deps.Tap.NamespaceAddMember(cmd.Context(), tapper.NamespaceAddMemberOptions{
+			change, err := deps.Tap.NamespaceAddMember(cmd.Context(), tapper.NamespaceAddMemberOptions{
 				Namespace: kt.Namespace,
 				Hub:       kt.Hub,
 				User:      args[0],
 				Role:      args[1],
 			})
+			if err != nil {
+				return err
+			}
+			printAccessChange(cmd, change, args[0], args[1])
+			return nil
 		},
 	}
 	cmd.ValidArgsFunction = namespaceMemberRoleArgCompletion(deps, 1)

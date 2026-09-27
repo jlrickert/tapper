@@ -113,19 +113,20 @@ func (t *Tap) NamespaceMembers(ctx context.Context, opts NamespaceMembersOptions
 	return ListNamespaceMembers(ctx, hubURL, token, ns)
 }
 
-// NamespaceAddMember upserts a member (user → role) into a namespace.
-func (t *Tap) NamespaceAddMember(ctx context.Context, opts NamespaceAddMemberOptions) error {
+// NamespaceAddMember invites a member (user → role) to a namespace, or
+// changes an existing member's role. A new member joins when they accept.
+func (t *Tap) NamespaceAddMember(ctx context.Context, opts NamespaceAddMemberOptions) (AccessChange, error) {
 	role := strings.TrimSpace(opts.Role)
 	if !namespaceMemberRoles[role] {
-		return fmt.Errorf("invalid role %q: expected owner, admin, or member", opts.Role)
+		return AccessChange{}, fmt.Errorf("invalid role %q: expected owner, admin, or member", opts.Role)
 	}
 	user := strings.TrimPrefix(strings.TrimSpace(opts.User), "@")
 	if user == "" {
-		return fmt.Errorf("a username is required")
+		return AccessChange{}, fmt.Errorf("a username is required")
 	}
 	ns, hubURL, token, err := t.resolveNamespaceHub(opts.Namespace, opts.Hub)
 	if err != nil {
-		return err
+		return AccessChange{}, err
 	}
 	return AddNamespaceMember(ctx, hubURL, token, ns, user, role)
 }

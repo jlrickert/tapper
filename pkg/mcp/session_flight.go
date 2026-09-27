@@ -75,7 +75,7 @@ var ungovernedToolNames = map[string]bool{
 	"namespace_list": true, "namespace_create": true, "namespace_members": true,
 	"namespace_add_member": true, "namespace_set_role": true, "namespace_remove_member": true,
 	"license": true, "flight_list": true, "flight_read": true,
-	"namespace_search": true, "agent_list": true, "agent_read": true,
+	"namespace_search": true, "invitation_list": true, "agent_list": true, "agent_read": true,
 }
 
 // sessionMode is the authority state of one MCP session.
