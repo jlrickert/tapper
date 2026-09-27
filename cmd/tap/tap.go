@@ -19,6 +19,8 @@ var licenseText string
 
 func main() {
 	cli.LicenseText = licenseText
+	// Hubs list signed-in clients by user agent; name tap rather than Go.
+	cli.InstallUserAgent()
 
 	ctx := context.Background()
 	// Signal handling is intentionally not registered at the entrypoint.
