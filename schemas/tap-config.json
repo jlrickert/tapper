@@ -315,11 +315,11 @@
     },
     "logFile": {
       "type": "string",
-      "description": "Path to the log output file. Override with TAP_LOG_FILE env var."
+      "description": "Path to the log output file. Allowed only in user configuration; project layers are stripped. Override with TAP_LOG_FILE env var."
     },
     "logLevel": {
       "type": "string",
-      "description": "Log verbosity level (debug, info, warn, error). Override with TAP_LOG_LEVEL env var."
+      "description": "Log verbosity level (debug, info, warn, error). Allowed only in user configuration; project layers are stripped. Override with TAP_LOG_LEVEL env var."
     }
   },
   "additionalProperties": true

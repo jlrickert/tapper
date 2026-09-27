@@ -62,8 +62,12 @@ instead of the user/project file cascade; its mappings and environment
 overrides still apply.
 
 Only user configuration may define `hubs` and their `token` or `tokenEnv`
-credentials. Project files can select saved Hub names, but Hub definitions
-are stripped from project files with a warning (`--strict` makes it an error).
+credentials, `relay`, `logFile`, and `logLevel`. Project files can select saved
+Hub names, but these fields are stripped from project files with a warning
+(`--strict` makes it an error). A repository you work in therefore cannot
+introduce a Hub target, read a credential variable, or choose the file Tapper
+appends its logs to. The `--log-file` and `--log-level` flags and the
+`TAP_LOG_FILE` and `TAP_LOG_LEVEL` environment variables still apply.
 Unknown and retired fields and comments survive Tapper-owned rewrites, except
 for the retired `updated` timestamp: its value is ignored on read and the key
 is removed on the next serialization of user or project config. KEG settings,

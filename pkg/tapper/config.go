@@ -844,8 +844,8 @@ func ReadConfig(rt *toolkit.Runtime, path string) (*Config, error) {
 // stripUntrustedFields removes configuration a walked (project) config layer is
 // not permitted to set. Hub definitions, relay providers, and their credentials
 // are user-config only, so a repository you cd into cannot introduce a hub
-// target, point the relay at a provider, or harvest a token environment
-// variable. It returns a human-readable description of each
+// target, point the relay at a provider, harvest a token environment
+// variable, or redirect tap's log file. It returns a human-readable description of each
 // removed field for surfacing as a load warning. Project layers may still set
 // kegMap and the keg, hub, and flight defaults.
 func stripUntrustedFields(cfg *Config) []string {
@@ -865,6 +865,18 @@ func stripUntrustedFields(cfg *Config) []string {
 	if cfg.data.Relay != nil {
 		removed = append(removed, "relay")
 		cfg.data.Relay = nil
+	}
+	// A repository must not choose where tap writes its logs: logFile is
+	// opened for append on every command, so a project value could target a
+	// shell rc file. logLevel goes with it so a repository cannot raise what
+	// reaches a user-chosen log either.
+	if cfg.data.LogFile != "" {
+		removed = append(removed, "logFile")
+		cfg.data.LogFile = ""
+	}
+	if cfg.data.LogLevel != "" {
+		removed = append(removed, "logLevel")
+		cfg.data.LogLevel = ""
 	}
 	return removed
 }
