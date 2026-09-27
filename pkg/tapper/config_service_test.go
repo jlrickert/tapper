@@ -227,6 +227,69 @@ relay:
 	require.True(t, found, "expected a warning about the stripped relay, got %+v", loadWarnings(t, tap))
 }
 
+func TestConfigService_ProjectConfig_StripsLoggingAndWarns(t *testing.T) {
+	t.Parallel()
+
+	fx := NewSandbox(t, sandbox.WithFixture("basic", "/home/testuser"))
+	require.NoError(t, fx.Setwd("/home/testuser/proj"))
+
+	tap, err := tapper.NewTap(tapper.TapOptions{
+		Root:    "/home/testuser/proj",
+		Runtime: fx.Runtime(),
+	})
+	require.NoError(t, err)
+
+	// A repository must not choose the file tap appends logs to (a shell rc
+	// file, say) or raise the level of what gets written there.
+	proj := `keg: ok
+logFile: ~/.bashrc
+logLevel: debug
+`
+	require.NoError(t, fx.Runtime().AtomicWriteFile(
+		"/home/testuser/proj/.tapper/config.yaml", []byte(proj), 0o644))
+
+	cfg, err := tap.ConfigService.Config()
+	require.NoError(t, err)
+	require.Equal(t, "ok", cfg.Keg(), "non-logging project fields still apply")
+	require.Empty(t, cfg.LogFile(), "project-defined logFile must be stripped")
+	require.Empty(t, cfg.LogLevel(), "project-defined logLevel must be stripped")
+
+	var fields []string
+	for _, w := range loadWarnings(t, tap) {
+		for _, f := range []string{"logFile", "logLevel"} {
+			if strings.Contains(w.Message, "ignored "+f+" ") {
+				fields = append(fields, f)
+			}
+		}
+	}
+	require.ElementsMatch(t, []string{"logFile", "logLevel"}, fields, "expected warnings for both stripped fields, got %+v", loadWarnings(t, tap))
+}
+
+func TestConfigService_UserConfigLoggingStillApplies(t *testing.T) {
+	t.Parallel()
+
+	fx := NewSandbox(t, sandbox.WithFixture("basic", "/home/testuser"))
+	require.NoError(t, fx.Setwd("/home/testuser/proj"))
+
+	tap, err := tapper.NewTap(tapper.TapOptions{
+		Root:    "/home/testuser/proj",
+		Runtime: fx.Runtime(),
+	})
+	require.NoError(t, err)
+
+	const userPath = "/home/testuser/.config/tapper/config.yaml"
+	existing, _ := fx.Runtime().ReadFile(userPath)
+	require.NoError(t, fx.Runtime().AtomicWriteFile(userPath,
+		append(existing, []byte("\nlogFile: /home/testuser/.local/state/tapper/tap.log\n")...), 0o644))
+	require.NoError(t, fx.Runtime().AtomicWriteFile(
+		"/home/testuser/proj/.tapper/config.yaml", []byte("logFile: /home/testuser/.bashrc\n"), 0o644))
+	tap.ConfigService.Reload()
+
+	cfg, err := tap.ConfigService.Config()
+	require.NoError(t, err)
+	require.Equal(t, "/home/testuser/.local/state/tapper/tap.log", cfg.LogFile(), "user-config logFile wins; project value is ignored")
+}
+
 // TestConfigService_SnapshotIsFixedUntilReload pins the contract the whole
 // design rests on: configuration is read once and stays put, and Reload is the
 // only thing that adopts an edit. Orientation is its sole production caller, so

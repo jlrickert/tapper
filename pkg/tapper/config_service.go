@@ -231,7 +231,7 @@ func (s *ConfigService) readProjectConfig() (*Config, []ConfigLoadWarning, error
 			warnings = append(warnings, ConfigLoadWarning{
 				Source:  "project config",
 				Path:    p,
-				Message: fmt.Sprintf("ignored %s in project config at %s (hubs and credentials may only be set in the user config)", field, p),
+				Message: fmt.Sprintf("ignored %s in project config at %s (hubs, credentials, relay, and logging may only be set in the user config)", field, p),
 			})
 		}
 		if merged == nil {
