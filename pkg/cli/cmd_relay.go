@@ -27,7 +27,7 @@ them:
 
   relay:
     enabled: true           # optional; false turns the relay off
-    name: laptop            # optional; defaults to the hostname
+    name: workstation       # optional; defaults to the hostname
     hubs: [work, personal]  # optional; serve these configured hubs at once
     providers:
       ollama:

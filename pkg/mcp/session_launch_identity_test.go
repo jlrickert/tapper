@@ -14,12 +14,12 @@ import (
 func TestMCP_LaunchIsNamedInTheOrientationPayload(t *testing.T) {
 	ctx, srv, _ := newLaunchOrientationServer(t, map[string]string{
 		"TAP_HARNESS": "codex",
-		"TAP_MODEL":   "laptop/ollama/qwen3:8b",
+		"TAP_MODEL":   "@me/qwen3:8b",
 	})
 	session := connectFlightSession(t, ctx, srv, nil)
 
 	oriented := callOrient(t, ctx, session)
-	require.Contains(t, oriented, "`codex on laptop/ollama/qwen3:8b`")
+	require.Contains(t, oriented, "`codex on @me/qwen3:8b`")
 	require.Contains(t, oriented, "telemetry only")
 	require.Contains(t, oriented, "cannot select or replace")
 	require.Contains(t, oriented, "+baseline", "the launch identity selects no flight")

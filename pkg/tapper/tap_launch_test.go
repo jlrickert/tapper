@@ -45,9 +45,9 @@ func fakeInferenceHub(t *testing.T, token string, models string) *httptest.Serve
 }
 
 const twoModels = `{"object":"list","data":[
-  {"id":"laptop/ollama/qwen3:8b","object":"model","owned_by":"relay:laptop","context_window":32768},
-  {"id":"laptop/ollama/whisper","object":"model","owned_by":"relay:laptop","capabilities":["transcription"]},
-  {"id":"laptop/ollama/llama3","object":"model","owned_by":"relay:laptop"}]}`
+  {"id":"@me/qwen3:8b","object":"model","owned_by":"pool:@me","contributors":2,"context_window":32768,"capabilities":["chat","stream"]},
+  {"id":"@me/whisper","object":"model","owned_by":"pool:@me","contributors":1,"capabilities":["transcription"]},
+  {"id":"@me/llama3","object":"model","owned_by":"pool:@me","contributors":1,"capabilities":["chat","stream"]}]}`
 
 // newLaunchTap builds a Tap whose selected hub is hubURL, with extra appended
 // to the user config.
@@ -83,30 +83,33 @@ func TestLaunchHarnesses(t *testing.T) {
 func TestResolveLaunch_Claude(t *testing.T) {
 	t.Parallel()
 	hub := fakeInferenceHub(t, "hub-token", twoModels)
-	got, err := newLaunchTap(t, hub.URL, "").ResolveLaunch(LaunchOptions{Harness: "claude", Model: "laptop/ollama/llama3"})
+	got, err := newLaunchTap(t, hub.URL, "").ResolveLaunch(LaunchOptions{Harness: "claude", Model: "@me/llama3"})
 	require.NoError(t, err)
-	require.Equal(t, []string{"claude", "--model", "laptop/ollama/llama3", "--settings"}, got.Argv[:4])
+	require.Equal(t, []string{"claude", "--model", "@me/llama3", "--settings"}, got.Argv[:4])
 	var settings struct {
-		ModelPicker []struct{ ID, Model, Label, Description string } `json:"modelPicker"`
+		ModelPicker struct {
+			Options []struct{ Model, Label, Description string } `json:"options"`
+		} `json:"modelPicker"`
 	}
 	require.NoError(t, json.Unmarshal([]byte(got.Argv[4]), &settings))
-	require.Len(t, settings.ModelPicker, 2, "the picker lists every chat model in the catalog, not the speech model")
-	require.Equal(t, "laptop/ollama/qwen3:8b", settings.ModelPicker[0].Model)
-	require.Equal(t, "laptop/ollama/qwen3:8b", settings.ModelPicker[0].Label)
-	require.Equal(t, "Hub · relay:laptop · 32k context", settings.ModelPicker[0].Description)
-	require.Equal(t, "laptop/ollama/llama3", settings.ModelPicker[1].Model)
+	options := settings.ModelPicker.Options
+	require.Len(t, options, 2, "the picker lists every chat model in the catalog, not the speech model")
+	require.Equal(t, "@me/qwen3:8b", options[0].Model)
+	require.Equal(t, "@me/qwen3:8b", options[0].Label)
+	require.Equal(t, "Foldwise (atlas) · @me pool · 32k context", options[0].Description)
+	require.Equal(t, "@me/llama3", options[1].Model)
 	require.Equal(t, launchForwarderPlaceholder+"/anthropic", got.Env["ANTHROPIC_BASE_URL"])
 	require.Equal(t, launchKeyPlaceholder, got.Env["ANTHROPIC_AUTH_TOKEN"])
 	for _, slot := range []string{"ANTHROPIC_MODEL", "ANTHROPIC_DEFAULT_OPUS_MODEL", "ANTHROPIC_DEFAULT_SONNET_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL", "ANTHROPIC_SMALL_FAST_MODEL"} {
-		require.Equal(t, "laptop/ollama/llama3", got.Env[slot], "every model slot stays on Hub (%s)", slot)
+		require.Equal(t, "@me/llama3", got.Env[slot], "every model slot stays on Hub (%s)", slot)
 	}
 	require.Equal(t, []string{"ANTHROPIC_API_KEY", "TAP_AGENT"}, got.StripEnv, "an inherited key would win over the launch key")
 	require.NotContains(t, got.Env, "CLAUDE_CODE_MAX_CONTEXT_TOKENS", "no window is invented for a model without one")
 	require.Equal(t, "claude", got.Env["TAP_HARNESS"])
-	require.Equal(t, "laptop/ollama/llama3", got.Env["TAP_MODEL"])
+	require.Equal(t, "@me/llama3", got.Env["TAP_MODEL"])
 	noHubToken(t, got)
 
-	got, err = newLaunchTap(t, hub.URL, "").ResolveLaunch(LaunchOptions{Harness: "claude", Model: "laptop/ollama/qwen3:8b"})
+	got, err = newLaunchTap(t, hub.URL, "").ResolveLaunch(LaunchOptions{Harness: "claude", Model: "@me/qwen3:8b"})
 	require.NoError(t, err)
 	require.Equal(t, "32768", got.Env["CLAUDE_CODE_MAX_CONTEXT_TOKENS"], "Claude Code compacts against the advertised window")
 }
@@ -115,7 +118,7 @@ func TestResolveLaunch_Codex(t *testing.T) {
 	t.Parallel()
 	hub := fakeInferenceHub(t, "hub-token", twoModels)
 	got, err := newLaunchTap(t, hub.URL, "").ResolveLaunch(LaunchOptions{
-		Harness: "codex", Model: "laptop/ollama/qwen3:8b", Args: []string{"--sandbox", "read-only"},
+		Harness: "codex", Model: "@me/qwen3:8b", Args: []string{"--sandbox", "read-only"},
 	})
 	require.NoError(t, err)
 	require.Equal(t, []string{
@@ -123,7 +126,7 @@ func TestResolveLaunch_Codex(t *testing.T) {
 		"-c", `model_providers.foldwise={name="Foldwise (atlas)", base_url="` + launchForwarderPlaceholder + `/v1", env_key="TAP_LAUNCH_KEY", wire_api="responses"}`,
 		"-c", `model_provider="foldwise"`,
 		"-c", "model_context_window=32768",
-		"--model", "laptop/ollama/qwen3:8b",
+		"--model", "@me/qwen3:8b",
 		"--sandbox", "read-only",
 	}, got.Argv)
 	require.Equal(t, launchKeyPlaceholder, got.Env[launchKeyEnv])
@@ -131,7 +134,7 @@ func TestResolveLaunch_Codex(t *testing.T) {
 	noHubToken(t, got)
 
 	// No context window advertised, no override invented.
-	got, err = newLaunchTap(t, hub.URL, "").ResolveLaunch(LaunchOptions{Harness: "codex", Model: "laptop/ollama/llama3"})
+	got, err = newLaunchTap(t, hub.URL, "").ResolveLaunch(LaunchOptions{Harness: "codex", Model: "@me/llama3"})
 	require.NoError(t, err)
 	require.NotContains(t, strings.Join(got.Argv, " "), "model_context_window")
 }
@@ -139,9 +142,9 @@ func TestResolveLaunch_Codex(t *testing.T) {
 func TestResolveLaunch_Opencode(t *testing.T) {
 	t.Parallel()
 	hub := fakeInferenceHub(t, "hub-token", twoModels)
-	got, err := newLaunchTap(t, hub.URL, "").ResolveLaunch(LaunchOptions{Harness: "opencode", Model: "laptop/ollama/qwen3:8b"})
+	got, err := newLaunchTap(t, hub.URL, "").ResolveLaunch(LaunchOptions{Harness: "opencode", Model: "@me/qwen3:8b"})
 	require.NoError(t, err)
-	require.Equal(t, []string{"opencode", "--model", "foldwise/laptop/ollama/qwen3:8b"}, got.Argv)
+	require.Equal(t, []string{"opencode", "--model", "foldwise/@me/qwen3:8b"}, got.Argv)
 
 	var cfg struct {
 		Provider map[string]struct {
@@ -158,17 +161,17 @@ func TestResolveLaunch_Opencode(t *testing.T) {
 	require.Equal(t, launchForwarderPlaceholder+"/v1", p.Options["baseURL"])
 	require.Equal(t, launchKeyPlaceholder, p.Options["apiKey"], "a dry run shows placeholders, never a key")
 	require.Len(t, p.Models, 2, "every chat model is offered so opencode can switch; the speech model is not")
-	require.Equal(t, 32768, p.Models["laptop/ollama/qwen3:8b"].Limit.Context)
-	require.Nil(t, p.Models["laptop/ollama/llama3"].Limit, "no limit is invented for a model without one")
+	require.Equal(t, 32768, p.Models["@me/qwen3:8b"].Limit.Context)
+	require.Nil(t, p.Models["@me/llama3"].Limit, "no limit is invented for a model without one")
 	noHubToken(t, got)
 }
 
 func TestResolveLaunch_Pi(t *testing.T) {
 	t.Parallel()
 	hub := fakeInferenceHub(t, "hub-token", twoModels)
-	got, err := newLaunchTap(t, hub.URL, "").ResolveLaunch(LaunchOptions{Harness: "pi", Model: "laptop/ollama/qwen3:8b"})
+	got, err := newLaunchTap(t, hub.URL, "").ResolveLaunch(LaunchOptions{Harness: "pi", Model: "@me/qwen3:8b"})
 	require.NoError(t, err)
-	require.Equal(t, []string{"pi", "-e", launchDirPlaceholder + "/foldwise-pi.ts", "--provider", "foldwise", "--model", "laptop/ollama/qwen3:8b"}, got.Argv)
+	require.Equal(t, []string{"pi", "-e", launchDirPlaceholder + "/foldwise-pi.ts", "--provider", "foldwise", "--model", "@me/qwen3:8b"}, got.Argv)
 	require.Equal(t, launchKeyPlaceholder, got.Env[launchKeyEnv])
 
 	ext := got.Files["foldwise-pi.ts"]
@@ -201,13 +204,13 @@ func TestResolveLaunch_ModelSelection(t *testing.T) {
 
 	got, err := tap.ResolveLaunch(LaunchOptions{Harness: "opencode"})
 	require.NoError(t, err)
-	require.Equal(t, "laptop/ollama/qwen3:8b", got.Model, "without --model the first catalog model is used")
+	require.Equal(t, "@me/qwen3:8b", got.Model, "without --model the first catalog model is used")
 
-	_, err = tap.ResolveLaunch(LaunchOptions{Harness: "opencode", Model: "desktop/ollama/qwen3:8b"})
-	require.ErrorContains(t, err, "is its relay connected")
-	require.ErrorContains(t, err, "laptop/ollama/llama3", "the error lists what is available")
+	_, err = tap.ResolveLaunch(LaunchOptions{Harness: "opencode", Model: "@other/qwen3:8b"})
+	require.ErrorContains(t, err, "is a relay serving it connected")
+	require.ErrorContains(t, err, "@me/llama3", "the error lists what is available")
 
-	_, err = tap.ResolveLaunch(LaunchOptions{Harness: "claude", Model: "laptop/ollama/whisper"})
+	_, err = tap.ResolveLaunch(LaunchOptions{Harness: "claude", Model: "@me/whisper"})
 	require.ErrorContains(t, err, "not in your catalog", "a speech model cannot drive a harness")
 
 	_, err = tap.ResolveLaunch(LaunchOptions{Harness: "vim"})
@@ -233,7 +236,7 @@ func TestResolveLaunch_IgnoresRetiredAgents(t *testing.T) {
 	tap := newLaunchTap(t, hub.URL, "agent: opus\nagents:\n  opus: {model: anthropic/claude-opus-4}\n")
 	got, err := tap.ResolveLaunch(LaunchOptions{Harness: "claude"})
 	require.NoError(t, err)
-	require.Equal(t, "laptop/ollama/qwen3:8b", got.Model)
+	require.Equal(t, "@me/qwen3:8b", got.Model)
 
 	var retired []string
 	for _, issue := range tap.DoctorConfig() {
@@ -397,4 +400,18 @@ func TestLaunchForwarder(t *testing.T) {
 	body, _ := io.ReadAll(r.Body)
 	require.Equal(t, http.StatusUnauthorized, r.StatusCode)
 	require.Contains(t, string(body), "tap auth login")
+}
+
+// Picker descriptions credit Foldwise with the model and name the pool serving
+// it; an older hub that names the relay itself still reads sensibly.
+func TestCatalogDescription(t *testing.T) {
+	t.Parallel()
+	spec := launchSpec{hubName: "atlas"}
+	require.Equal(t, "Foldwise (atlas) · @me pool · 32k context",
+		catalogDescription(spec, HubModel{OwnedBy: "pool:@me", ContextWindow: 32768}))
+	require.Equal(t, "Foldwise (atlas) · @team pool",
+		catalogDescription(spec, HubModel{OwnedBy: "pool:@team"}))
+	require.Equal(t, "Foldwise (atlas) · relay:laptop · 32k context",
+		catalogDescription(spec, HubModel{OwnedBy: "relay:laptop", ContextWindow: 32768}))
+	require.Equal(t, "Foldwise", catalogDescription(launchSpec{}, HubModel{}))
 }

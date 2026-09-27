@@ -5,15 +5,19 @@ your Hub catalog and binds it to one connection-pinned Hub-backed flight root.
 
 ## Models
 
-Hub is the only inference plane. `--model` names a catalog id, one of the
-models your connected relays offer or that are shared with you (see
-[`tap relay`](relay.md)). Without it the launch starts on the first model in
-your catalog, which Hub orders by the relay owners' `priority`. There is no
+Hub is the only inference plane. `--model` names a catalog id: a pooled model
+such as `@you/qwen3:8b`, served by your own connected relays or by a pool shared
+with you (see [`tap relay`](relay.md)). Each id is one model however many relays
+back it; Hub routes each request to one of them. Without `--model` the launch
+starts on the first model in your catalog, which Hub orders by the best
+`priority` any contributing relay owner gave it. Harness model pickers list the
+catalog under the Foldwise provider, for example
+`Foldwise (atlas) · @you pool · 32k context`. There is no
 local model configuration: the `agent` and `agents` keys are retired and
 ignored, and `tap doctor` flags them.
 
 ```sh
-tap launch claude --model laptop/ollama/qwen3:8b
+tap launch claude --model @you/qwen3:8b
 tap launch codex
 tap launch opencode --dry-run
 ```

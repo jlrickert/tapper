@@ -32,7 +32,7 @@ are mutually exclusive. Agents are managed with ` + "`tap agent`" + `.
 those shared with you (see 'tap relay'). Without it the launch starts on the
 first model in your catalog.
 
-  tap launch claude --model laptop/ollama/qwen3:8b
+  tap launch claude --model @you/qwen3:8b
   tap launch codex
 
 Each harness talks to Hub in the protocol it was built for: Claude Code the

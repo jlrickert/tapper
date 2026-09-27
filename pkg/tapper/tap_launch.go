@@ -36,7 +36,8 @@ type LaunchOptions struct {
 	// Agent is an explicit Hub agent reference (@namespace/name).
 	Agent string
 	// Model is a Hub catalog id. Empty starts on the first model in the
-	// catalog, which Hub orders by the relay owners' preference.
+	// catalog, which Hub orders by the best priority any contributing relay
+	// owner gave each pooled model.
 	Model string
 	// Flight is the explicit launch root. Empty falls back through TAP_FLIGHT,
 	// project configuration, and user configuration.
@@ -215,16 +216,15 @@ func claudeLaunch(spec launchSpec) invocation {
 		env["CLAUDE_CODE_MAX_CONTEXT_TOKENS"] = strconv.Itoa(n)
 	}
 	type row struct {
-		ID          string `json:"id"`
 		Model       string `json:"model"`
 		Label       string `json:"label"`
 		Description string `json:"description,omitempty"`
 	}
 	var rows []row
 	for _, m := range chatModels(spec.catalog) {
-		rows = append(rows, row{ID: m.ID, Model: m.ID, Label: m.ID, Description: catalogDescription(m)})
+		rows = append(rows, row{Model: m.ID, Label: m.ID, Description: catalogDescription(spec, m)})
 	}
-	settings := encodeLaunchJSON(map[string]any{"modelPicker": rows})
+	settings := encodeLaunchJSON(map[string]any{"modelPicker": map[string]any{"options": rows}})
 	return invocation{
 		argv:  []string{"claude", "--model", spec.model, "--settings", settings},
 		env:   env,
@@ -233,11 +233,16 @@ func claudeLaunch(spec launchSpec) invocation {
 }
 
 // catalogDescription says where a catalog model comes from and how much
-// context it takes, for a harness's model picker.
-func catalogDescription(m HubModel) string {
-	parts := []string{"Hub"}
-	if source := strings.TrimSpace(m.OwnedBy); source != "" {
-		parts = append(parts, source)
+// context it takes, for a harness's model picker: the Foldwise hub that
+// provides it and the pool serving it.
+func catalogDescription(spec launchSpec, m HubModel) string {
+	parts := []string{providerName(spec)}
+	owner := strings.TrimSpace(m.OwnedBy)
+	if pool, ok := strings.CutPrefix(owner, "pool:"); ok {
+		parts = append(parts, pool+" pool")
+	} else if owner != "" {
+		// An older hub names the relay itself.
+		parts = append(parts, owner)
 	}
 	if m.ContextWindow > 0 {
 		parts = append(parts, fmt.Sprintf("%dk context", m.ContextWindow/1024))
@@ -251,12 +256,8 @@ func catalogDescription(m HubModel) string {
 // OPENAI_API_KEY is set: Codex treats one alongside a stored ChatGPT login as
 // mixed auth, and this provider does not use it.
 func codexLaunch(spec launchSpec) invocation {
-	name := "Foldwise"
-	if spec.hubName != "" {
-		name += " (" + spec.hubName + ")"
-	}
 	provider := fmt.Sprintf(`model_providers.%s={name=%s, base_url=%s, env_key=%s, wire_api="responses"}`,
-		hubProviderID, strconv.Quote(name), strconv.Quote(spec.origin+"/v1"), strconv.Quote(launchKeyEnv))
+		hubProviderID, strconv.Quote(providerName(spec)), strconv.Quote(spec.origin+"/v1"), strconv.Quote(launchKeyEnv))
 	argv := []string{"codex", "-c", provider, "-c", `model_provider="` + hubProviderID + `"`}
 	if n := spec.contextWindow(); n > 0 {
 		// Codex keeps this as model metadata for a model it does not know,
@@ -485,7 +486,7 @@ func (t *Tap) ResolveLaunchContext(ctx context.Context, opts LaunchOptions) (*La
 	if model == "" {
 		model = chat[0].ID
 	} else if !hubCatalogHas(chat, model) {
-		return nil, fmt.Errorf("model %q is not in your catalog on hub %q (is its relay connected?); available: %s",
+		return nil, fmt.Errorf("model %q is not in your catalog on hub %q (is a relay serving it connected?); available: %s",
 			model, hubName, strings.Join(hubCatalogIDs(chat), ", "))
 	}
 

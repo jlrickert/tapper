@@ -123,7 +123,7 @@ direct CLI use, not a security boundary. See
 the current flight as a connection-pinned root:
 
 ```bash
-tap launch opencode --model laptop/ollama/qwen3:8b
+tap launch opencode --model @you/qwen3:8b
 ```
 
 The launcher declares a `foldwise` provider inline through
