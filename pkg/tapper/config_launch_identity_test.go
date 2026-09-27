@@ -34,14 +34,14 @@ func newLaunchIdentityTap(t *testing.T, projectConfig string, env map[string]str
 // TAP_HARNESS and TAP_MODEL name the launch session and select nothing.
 func TestLaunchIdentity_ReportsWithoutSelecting(t *testing.T) {
 	t.Parallel()
-	tap := newLaunchIdentityTap(t, "", map[string]string{"TAP_HARNESS": "codex", "TAP_MODEL": "laptop/ollama/qwen3:8b"})
+	tap := newLaunchIdentityTap(t, "", map[string]string{"TAP_HARNESS": "codex", "TAP_MODEL": "@me/qwen3:8b"})
 
 	cfg, err := tap.ConfigService.Config()
 	require.NoError(t, err)
 	require.Equal(t, "codex", cfg.LaunchHarness())
-	require.Equal(t, "laptop/ollama/qwen3:8b", cfg.LaunchModel())
+	require.Equal(t, "@me/qwen3:8b", cfg.LaunchModel())
 	require.Equal(t, "+user", cfg.Flight())
-	require.Equal(t, "codex on laptop/ollama/qwen3:8b", tap.ActiveLaunch())
+	require.Equal(t, "codex on @me/qwen3:8b", tap.ActiveLaunch())
 }
 
 func TestLaunchIdentity_TapFlightStillPinsTheRoot(t *testing.T) {

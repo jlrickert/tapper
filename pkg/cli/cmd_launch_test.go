@@ -20,7 +20,7 @@ func newLaunchSandbox(t *testing.T, extra string) *tu.Sandbox {
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
-		_, _ = io.WriteString(w, `{"object":"list","data":[{"id":"laptop/ollama/qwen3:8b","object":"model","owned_by":"relay:laptop","context_window":32768}]}`)
+		_, _ = io.WriteString(w, `{"object":"list","data":[{"id":"@me/qwen3:8b","object":"model","owned_by":"pool:@me","contributors":2,"context_window":32768,"capabilities":["chat","stream"]}]}`)
 	}))
 	t.Cleanup(hub.Close)
 	sb := NewSandbox(t)
@@ -36,15 +36,15 @@ func TestLaunchCommand_DryRunClaude(t *testing.T) {
 	res := NewProcess(t, false, "launch", "claude", "--dry-run", "--", "--verbose").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 	out := string(res.Stdout)
-	require.Contains(t, out, "hub atlas -> laptop/ollama/qwen3:8b (via loopback forwarder)")
+	require.Contains(t, out, "hub atlas -> @me/qwen3:8b (via loopback forwarder)")
 	require.Contains(t, out, "flight: @testuser/+root (connection-pinned root)")
 	require.Contains(t, out, "unset: ANTHROPIC_API_KEY (inherited)")
-	require.Contains(t, out, `claude --model laptop/ollama/qwen3:8b --settings {"modelPicker":[{"id":"laptop/ollama/qwen3:8b"`)
-	require.Contains(t, out, `}]} --verbose`, "passthrough arguments follow the launcher's own")
+	require.Contains(t, out, `claude --model @me/qwen3:8b --settings {"modelPicker":{"options":[{"model":"@me/qwen3:8b"`)
+	require.Contains(t, out, `}]}} --verbose`, "passthrough arguments follow the launcher's own")
 	require.Contains(t, out, "ANTHROPIC_BASE_URL=http://127.0.0.1:<port>/anthropic")
 	require.Contains(t, out, "ANTHROPIC_AUTH_TOKEN=<launch key>")
 	require.Contains(t, out, "TAP_HARNESS=claude")
-	require.Contains(t, out, "TAP_MODEL=laptop/ollama/qwen3:8b")
+	require.Contains(t, out, "TAP_MODEL=@me/qwen3:8b")
 	require.Contains(t, out, "TAP_FLIGHT=@testuser/+root")
 	require.NotContains(t, out, "hub-token", "the Hub credential never appears")
 }
@@ -56,7 +56,7 @@ func TestLaunchCommand_DryRunShowsGeneratedFiles(t *testing.T) {
 	res := NewProcess(t, false, "launch", "pi", "--dry-run").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 	out := string(res.Stdout)
-	require.Contains(t, out, "pi -e <launch dir>/foldwise-pi.ts --provider foldwise --model laptop/ollama/qwen3:8b")
+	require.Contains(t, out, "pi -e <launch dir>/foldwise-pi.ts --provider foldwise --model @me/qwen3:8b")
 	require.Contains(t, out, "Writing <launch dir>/foldwise-pi.ts:")
 	require.Contains(t, out, `pi.registerProvider("foldwise"`)
 	require.Contains(t, string(res.Stderr), "no flight configured", "a no-flight launch warns")
@@ -69,8 +69,8 @@ func TestLaunchCommand_Errors(t *testing.T) {
 	res := NewProcess(t, false, "launch", "codex", "--agent", "opus", "--dry-run").Run(sb.Context(), sb.Runtime())
 	require.ErrorContains(t, res.Err, "must be @namespace/name", "local configured agents remain retired")
 
-	res = NewProcess(t, false, "launch", "codex", "--model", "desktop/ollama/x", "--dry-run").Run(sb.Context(), sb.Runtime())
-	require.ErrorContains(t, res.Err, "is its relay connected")
+	res = NewProcess(t, false, "launch", "codex", "--model", "@other/x", "--dry-run").Run(sb.Context(), sb.Runtime())
+	require.ErrorContains(t, res.Err, "is a relay serving it connected")
 
 	res = NewProcess(t, false, "launch", "emacs", "--dry-run").Run(sb.Context(), sb.Runtime())
 	require.ErrorContains(t, res.Err, "unknown harness")

@@ -8,7 +8,7 @@ through the relay.
 
 ```sh
 tap relay
-tap relay --name laptop
+tap relay --name workstation
 ```
 
 It is registered alongside `tap integrate` and `tap launch`, so it is available

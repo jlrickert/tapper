@@ -53,7 +53,7 @@ func fakeAgentHub(t *testing.T, token string, models string, routes map[string]s
 
 const researcherAgent = `{"ref":"@me/researcher","namespace":"me","name":"researcher","title":"Researcher",
   "description":"Finds and cites sources.","instructions":"Cite your sources.",
-  "model":"laptop/ollama/llama3","tools":["node_read","node_search"],"flight":"@me/+work"}`
+  "model":"@me/llama3","tools":["node_read","node_search"],"flight":"@me/+work"}`
 
 // The agent is the unit of authority: it brings its model, its instructions
 // (as an opencode primary agent), TAP_AGENT so the child's tap mcp serves only
@@ -66,11 +66,11 @@ func TestResolveLaunch_HubAgentBringsItsFlight(t *testing.T) {
 	got, err := tap.ResolveLaunch(LaunchOptions{Harness: "opencode", Agent: "@me/researcher"})
 	require.NoError(t, err)
 	require.Equal(t, "@me/researcher", got.HubAgent)
-	require.Equal(t, "laptop/ollama/llama3", got.Model)
+	require.Equal(t, "@me/llama3", got.Model)
 	require.Equal(t, "@me/researcher", got.Env["TAP_AGENT"])
 	require.Equal(t, "@me/+work", got.Env["TAP_FLIGHT"])
 	require.Equal(t, "@me/+work", got.Flight)
-	require.Equal(t, []string{"opencode", "--model", "foldwise/laptop/ollama/llama3", "--agent", "me-researcher"}, got.Argv)
+	require.Equal(t, []string{"opencode", "--model", "foldwise/@me/llama3", "--agent", "me-researcher"}, got.Argv)
 
 	var cfg struct {
 		Agent map[string]struct {
@@ -80,7 +80,7 @@ func TestResolveLaunch_HubAgentBringsItsFlight(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(got.Env["OPENCODE_CONFIG_CONTENT"]), &cfg))
 	agent := cfg.Agent["me-researcher"]
 	require.Equal(t, "primary", agent.Mode)
-	require.Equal(t, "foldwise/laptop/ollama/llama3", agent.Model)
+	require.Equal(t, "foldwise/@me/llama3", agent.Model)
 	require.Equal(t, "Cite your sources.", agent.Prompt)
 }
 
@@ -103,7 +103,7 @@ func TestResolveLaunch_HubAgentSelection(t *testing.T) {
 	got, err = tap.ResolveLaunch(LaunchOptions{Harness: "opencode", Agent: "@me/admin"})
 	require.NoError(t, err)
 	require.Equal(t, "@me/admin", got.HubAgent)
-	require.Equal(t, "laptop/ollama/qwen3:8b", got.Model)
+	require.Equal(t, "@me/qwen3:8b", got.Model)
 	require.Empty(t, got.Flight)
 	require.Contains(t, strings.Join(got.Warnings, " "), "KEG tools remain locked")
 	require.NotContains(t, strings.Join(got.Warnings, " "), "full access")
@@ -119,7 +119,7 @@ func TestResolveLaunch_HubAgentSelection(t *testing.T) {
 	require.NotContains(t, got.Env, "TAP_AGENT")
 
 	// --model still picks a bare catalog model on a flight.
-	got, err = tap.ResolveLaunch(LaunchOptions{Harness: "opencode", Flight: "@me/+work", Model: "laptop/ollama/qwen3:8b"})
+	got, err = tap.ResolveLaunch(LaunchOptions{Harness: "opencode", Flight: "@me/+work", Model: "@me/qwen3:8b"})
 	require.NoError(t, err)
 	require.Empty(t, got.HubAgent)
 }
@@ -132,7 +132,7 @@ func TestResolveLaunch_HubAgentEveryHarness(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, "@me/researcher", got.Env["TAP_AGENT"])
 			require.Equal(t, "@me/+work", got.Flight)
-			require.Equal(t, "laptop/ollama/llama3", got.Model)
+			require.Equal(t, "@me/llama3", got.Model)
 			require.Contains(t, strings.Join(got.Argv, " ")+got.Env["OPENCODE_CONFIG_CONTENT"], "Cite your sources.")
 			noHubToken(t, got)
 		})

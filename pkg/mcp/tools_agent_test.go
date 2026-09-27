@@ -80,7 +80,7 @@ func TestAgentTools_CRUD(t *testing.T) {
 	session, ctx := newTestSessionWithOpts(t, mcp.ServerOptions{AgentProvider: agents, NamespaceProvider: &fakeNamespaces{}})
 
 	res := callTool(t, ctx, session, "agent_create", map[string]any{
-		"agent": "@me/writer", "title": "Writer", "model": "relay/ollama/qwen3", "tools": []string{"keg:read", "node_edit"},
+		"agent": "@me/writer", "title": "Writer", "model": "@me/qwen3", "tools": []string{"keg:read", "node_edit"},
 	})
 	require.False(t, res.IsError, "%v", res.Content)
 	created := wirePayload(t, res, "structured")
@@ -99,7 +99,7 @@ func TestAgentTools_CRUD(t *testing.T) {
 
 	res = callTool(t, ctx, session, "agent_read", map[string]any{"agent": "@me/writer"})
 	require.False(t, res.IsError)
-	require.Equal(t, "relay/ollama/qwen3", wirePayload(t, res, "structured")["model"])
+	require.Equal(t, "@me/qwen3", wirePayload(t, res, "structured")["model"])
 
 	res = callTool(t, ctx, session, "agent_delete", map[string]any{"agent": "@me/writer"})
 	require.False(t, res.IsError)
