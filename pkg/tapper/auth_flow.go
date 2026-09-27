@@ -142,6 +142,9 @@ func discoverAuthServerMetadata(ctx context.Context, client *http.Client, hubURL
 // rt.Stream().Err so the user can copy-paste it manually — that's a
 // successful fallback, not a hard error.
 func OpenBrowser(ctx context.Context, rt *toolkit.Runtime, rawURL string) error {
+	if err := ValidateBrowserURL(rawURL, ""); err != nil {
+		return err
+	}
 	var cmd *exec.Cmd
 	switch runtime.GOOS {
 	case "darwin":
@@ -149,10 +152,9 @@ func OpenBrowser(ctx context.Context, rt *toolkit.Runtime, rawURL string) error 
 	case "linux":
 		cmd = exec.CommandContext(ctx, "xdg-open", rawURL)
 	case "windows":
-		// cmd /c start "" <url> — the empty title avoids cmd.exe
-		// treating the URL as a window title (a well-known Windows
-		// cmd gotcha).
-		cmd = exec.CommandContext(ctx, "cmd", "/c", "start", "", rawURL)
+		// Do not pass server-controlled URLs through cmd.exe. The manual
+		// fallback avoids shell metacharacter interpretation on Windows.
+		return fallbackBrowserPrompt(rt, rawURL, fmt.Errorf("open the verification URL manually on Windows"))
 	default:
 		return fallbackBrowserPrompt(rt, rawURL, fmt.Errorf("no browser opener for GOOS=%s", runtime.GOOS))
 	}
@@ -175,6 +177,31 @@ func fallbackBrowserPrompt(rt *toolkit.Runtime, rawURL string, cause error) erro
 		_, _ = fmt.Fprintf(streams.Err,
 			"warning: unable to open browser (%v). Visit this URL to continue:\n  %s\n",
 			cause, rawURL)
+	}
+	return nil
+}
+
+// ValidateBrowserURL accepts web URLs only. Device login supplies hubURL to
+// require the configured origin before displaying or opening server input.
+func ValidateBrowserURL(rawURL, hubURL string) error {
+	u, err := url.Parse(rawURL)
+	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Hostname() == "" || u.User != nil || strings.ContainsAny(rawURL, "\\\r\n\t") {
+		return fmt.Errorf("invalid browser verification URL")
+	}
+	if hubURL != "" {
+		hub, err := url.Parse(hubURL)
+		port := func(v *url.URL) string {
+			if v.Port() != "" {
+				return v.Port()
+			}
+			if v.Scheme == "https" {
+				return "443"
+			}
+			return "80"
+		}
+		if err != nil || u.Scheme != hub.Scheme || !strings.EqualFold(u.Hostname(), hub.Hostname()) || port(u) != port(hub) {
+			return fmt.Errorf("verification URL must have the configured Hub origin")
+		}
 	}
 	return nil
 }

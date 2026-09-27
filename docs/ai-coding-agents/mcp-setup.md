@@ -327,3 +327,11 @@ echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | tap mcp
 - [Codex Install](codex.md)
 - [Orientation Surface](orient.md)
 - [Agent Conventions](agent-conventions.md)
+
+## Device-login verification URLs
+
+Device-login verification URLs must be HTTP(S) and have the same origin
+(scheme, host, and effective port) as the configured Hub. Other schemes,
+credentials in URLs, and cross-origin verification addresses are refused before
+the browser callback. Windows displays the URL for manual opening instead of
+passing it through `cmd.exe`.

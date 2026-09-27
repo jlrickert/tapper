@@ -208,6 +208,14 @@ func AuthLoginDevice(ctx context.Context, rt *toolkit.Runtime, opts AuthLoginDev
 		return nil, err
 	}
 
+	if err := ValidateBrowserURL(dar.VerificationURI, hubURL); err != nil {
+		return nil, err
+	}
+	if dar.VerificationURIComplete != "" {
+		if err := ValidateBrowserURL(dar.VerificationURIComplete, hubURL); err != nil {
+			return nil, err
+		}
+	}
 	// Present the code + verification URI. A caller-supplied OnUserCode
 	// owns the interaction (the CLI opens the browser on Enter); otherwise
 	// fall back to the plain copy/paste prompt so the library default never
