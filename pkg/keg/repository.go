@@ -169,6 +169,18 @@ func repositoryBatchRead(repo Repository) (RepositoryBatchRead, bool) {
 	return capability, ok
 }
 
+// RepositoryContentScan is an optional capability that lets grep read content
+// in one operation instead of one read per node.
+type RepositoryContentScan interface {
+	// ScanContent returns node content keyed by node id path. When literal is
+	// non-empty the backend may return only nodes whose content contains it
+	// (case-insensitively when ignoreCase is set), an index-assisted
+	// narrowing. The result may include nodes that do not contain literal
+	// but must never omit one that does; grep still applies the full pattern
+	// to every result.
+	ScanContent(ctx context.Context, literal string, ignoreCase bool) (map[string][]byte, error)
+}
+
 // RepositoryFiles provides optional per-node file attachment access.
 type RepositoryFiles interface {
 	// ListFiles lists file attachment names for a node.

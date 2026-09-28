@@ -189,7 +189,7 @@ type Keg interface {
 	// RelatedNodes returns the deduplicated union of links or backlinks for the
 	// supplied nodes, ordered by node id. It fails if no ids are supplied, an id
 	// is missing, or the direction is invalid.
-	RelatedNodes(ctx context.Context, opts RelatedNodesOptions) ([]NodeIndexEntry, error)
+	RelatedNodes(ctx context.Context, opts RelatedNodesOptions) (*RelatedNodesResult, error)
 
 	// Doctor inspects configuration, content, links, metadata, stats, and schema
 	// validation and returns deterministic diagnostic issues without mutating the
@@ -348,18 +348,28 @@ type QueryOptions struct {
 // GrepOptions configures Keg.Grep.
 type GrepOptions struct {
 	// Pattern is a Go regular expression matched against content lines.
-	Pattern string
+	Pattern string `json:"pattern"`
 	// IgnoreCase makes the match case-insensitive.
-	IgnoreCase bool
+	IgnoreCase bool `json:"ignore_case,omitempty"`
 	// MaxLines caps matched lines per node. 0 means no cap.
-	MaxLines int
+	MaxLines int `json:"max_lines,omitempty"`
+	// Fields are field selectors to resolve for each returned match, in the
+	// vocabulary of ParseFieldSelector. They are resolved after paging, in
+	// one batch, so a formatted grep never reads nodes one at a time.
+	Fields []string `json:"fields,omitempty"`
+	// Offset skips the first N matching nodes; Limit caps the matches
+	// returned (0 means no limit). Both apply before field projection.
+	Offset int `json:"offset,omitempty"`
+	Limit  int `json:"limit,omitempty"`
 }
 
 // GrepMatch reports one node's content matches for Keg.Grep.
 type GrepMatch struct {
-	Entry NodeIndexEntry
+	Entry NodeIndexEntry `json:"entry"`
 	// Lines are rendered "lineno:text" match lines.
-	Lines []string
+	Lines []string `json:"lines"`
+	// Fields holds the requested selectors' values keyed by selector text.
+	Fields map[string]string `json:"fields,omitempty"`
 }
 
 // AssetSummary aggregates one asset kind for KegSummary.

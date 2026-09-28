@@ -688,27 +688,19 @@ func (k *RemoteKeg) Query(ctx context.Context, opts QueryOptions) ([]NodeIndexEn
 	return result.Entries, nil
 }
 
-// Grep implements Keg via POST /grep.
+// Grep implements Keg via POST /grep. Paging and field projection happen on
+// the server, so a formatted grep is one request regardless of result size.
 func (k *RemoteKeg) Grep(ctx context.Context, opts GrepOptions) ([]GrepMatch, error) {
 	var result struct {
-		Matches []struct {
-			Entry NodeIndexEntry `json:"entry"`
-			Lines []string       `json:"lines"`
-		} `json:"matches"`
+		Matches []GrepMatch `json:"matches"`
 	}
-	req := struct {
-		Pattern    string `json:"pattern"`
-		IgnoreCase bool   `json:"ignore_case"`
-		MaxLines   int    `json:"max_lines"`
-	}{Pattern: opts.Pattern, IgnoreCase: opts.IgnoreCase, MaxLines: opts.MaxLines}
-	if err := k.postJSON(ctx, "/grep", "Grep", req, &result, http.StatusOK); err != nil {
+	if err := k.postJSON(ctx, "/grep", "Grep", opts, &result, http.StatusOK); err != nil {
 		return nil, err
 	}
-	out := make([]GrepMatch, len(result.Matches))
-	for i, m := range result.Matches {
-		out[i] = GrepMatch{Entry: m.Entry, Lines: m.Lines}
+	if result.Matches == nil {
+		result.Matches = []GrepMatch{}
 	}
-	return out, nil
+	return result.Matches, nil
 }
 
 // Index implements Keg via POST /indexes/rebuild.

@@ -223,7 +223,7 @@ func TestExpandFormatAbsentMetaAndStatsRenderEmpty(t *testing.T) {
 func TestExpandFormatAccessCountRendersZero(t *testing.T) {
 	// accessCount has no absent state on disk, so it always renders a number.
 	now := time.Date(2026, 7, 29, 12, 0, 0, 0, time.UTC)
-	src := nodeFieldSource{entry: testEntry(), stats: keg.NewStats(now)}
+	src := resolvedSource(t, "%{.accessCount}", nil, keg.NewStats(now))
 	if got := renderOne(t, "%{.accessCount}", src); got != "0" {
 		t.Errorf("accessCount = %q, want %q", got, "0")
 	}
@@ -236,7 +236,7 @@ func TestExpandFormatIntrinsicsShadowMetadata(t *testing.T) {
 	if err := meta.Set(t.Context(), "title", "metadata title"); err != nil {
 		t.Fatalf("set title: %v", err)
 	}
-	src := nodeFieldSource{entry: testEntry(), meta: meta}
+	src := resolvedSource(t, "%{title}", meta, nil)
 	if got := renderOne(t, "%{title}", src); got != "A Node" {
 		t.Errorf("title = %q, want the intrinsic %q", got, "A Node")
 	}
@@ -285,4 +285,21 @@ func TestCompileListFormatRealTabIsUnaffected(t *testing.T) {
 	if got := renderOne(t, "%i\t%t", src); got != "3\tA Node" {
 		t.Errorf("real tab = %q, want %q", got, "3\tA Node")
 	}
+}
+
+// resolvedSource resolves a format's fields the way the keg does before
+// rendering, so these tests exercise the renderer with keg-resolved values.
+func resolvedSource(t *testing.T, format string, meta *keg.NodeMeta, stats *keg.NodeStats) nodeFieldSource {
+	t.Helper()
+	compiled, err := compileListFormat(format)
+	if err != nil {
+		t.Fatalf("compile %q: %v", format, err)
+	}
+	src := nodeFieldSource{entry: testEntry(), resolved: map[string]string{}}
+	for _, seg := range compiled.segments {
+		if seg.isField {
+			src.resolved[seg.sel.Text] = keg.FieldValue(seg.sel, src.entry, meta, stats)
+		}
+	}
+	return src
 }

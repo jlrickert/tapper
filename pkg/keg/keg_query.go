@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"regexp/syntax"
 	"strconv"
 	"strings"
 	"time"
@@ -53,6 +54,13 @@ func (k *LocalKeg) Grep(ctx context.Context, opts GrepOptions) ([]GrepMatch, err
 }
 
 func (k *LocalKeg) grep(ctx context.Context, opts GrepOptions) ([]GrepMatch, error) {
+	if opts.Offset < 0 || opts.Limit < 0 {
+		return nil, fmt.Errorf("grep offset and limit must be >= 0: %w", ErrInvalid)
+	}
+	selectors, err := ParseFieldSelectors(opts.Fields)
+	if err != nil {
+		return nil, err
+	}
 	pattern := opts.Pattern
 	if opts.IgnoreCase {
 		pattern = "(?i)" + pattern
@@ -67,18 +75,39 @@ func (k *LocalKeg) grep(ctx context.Context, opts GrepOptions) ([]GrepMatch, err
 		return nil, fmt.Errorf("unable to read dex: %w", err)
 	}
 
+	// A backend that can scan content answers in one operation, narrowed by
+	// an index when the pattern is a plain literal. Otherwise each node is
+	// read individually.
+	var scanned map[string][]byte
+	if scan, ok := k.Repo.(RepositoryContentScan); ok {
+		literal, fold := grepLiteral(opts.Pattern, opts.IgnoreCase)
+		scanned, err = scan.ScanContent(ctx, literal, fold)
+		if err != nil {
+			return nil, fmt.Errorf("unable to scan node content: %w", err)
+		}
+	}
+
 	matches := make([]GrepMatch, 0)
 	for _, entry := range dex.Nodes(ctx) {
 		id, parseErr := ParseNode(entry.ID)
 		if parseErr != nil || id == nil {
 			continue
 		}
-		raw, readErr := k.Repo.ReadContent(ctx, *id)
-		if readErr != nil {
-			if errors.Is(readErr, ErrNotExist) {
+		var raw []byte
+		if scanned != nil {
+			var ok bool
+			if raw, ok = scanned[id.Path()]; !ok {
 				continue
 			}
-			return nil, fmt.Errorf("unable to read node content: %w", readErr)
+		} else {
+			var readErr error
+			raw, readErr = k.Repo.ReadContent(ctx, *id)
+			if readErr != nil {
+				if errors.Is(readErr, ErrNotExist) {
+					continue
+				}
+				return nil, fmt.Errorf("unable to read node content: %w", readErr)
+			}
 		}
 		lines := grepContentLineMatches(re, raw)
 		if opts.MaxLines > 0 && len(lines) > opts.MaxLines {
@@ -88,7 +117,44 @@ func (k *LocalKeg) grep(ctx context.Context, opts GrepOptions) ([]GrepMatch, err
 			matches = append(matches, GrepMatch{Entry: entry, Lines: lines})
 		}
 	}
+
+	if opts.Offset > 0 {
+		if opts.Offset >= len(matches) {
+			matches = matches[:0]
+		} else {
+			matches = matches[opts.Offset:]
+		}
+	}
+	if opts.Limit > 0 && len(matches) > opts.Limit {
+		matches = matches[:opts.Limit]
+	}
+	if len(selectors) > 0 && len(matches) > 0 {
+		entries := make([]NodeIndexEntry, len(matches))
+		for i, m := range matches {
+			entries[i] = m.Entry
+		}
+		values := k.loadFieldValues(ctx, entries, selectors)
+		for i := range matches {
+			matches[i].Fields = resolveRowFields(matches[i].Entry, selectors, values)
+		}
+	}
 	return matches, nil
+}
+
+// grepLiteral returns the literal text pattern must contain when the whole
+// pattern is a plain literal, so a content scan can be narrowed by an index.
+// Anything else returns "", which scans every node.
+func grepLiteral(pattern string, ignoreCase bool) (string, bool) {
+	parsed, err := syntax.Parse(pattern, syntax.Perl)
+	if err != nil {
+		return "", false
+	}
+	parsed = parsed.Simplify()
+	if parsed.Op != syntax.OpLiteral || len(parsed.Rune) == 0 {
+		return "", false
+	}
+	fold := ignoreCase || parsed.Flags&syntax.FoldCase != 0
+	return string(parsed.Rune), fold
 }
 
 // grepContentLineMatches returns "lineno:text" lines of raw content matching re.

@@ -36,9 +36,9 @@ that appears in both means the same thing in both.
 | `%{id}` | the node id | free |
 | `%{title}` | the node title | free |
 | `%{.updated}`, `%{.created}`, `%{.accessed}` | index timestamps, RFC3339 | free |
-| `%{.hash}`, `%{.lead}`, `%{.accessCount}`, `%{.omega}` | statistics fields | one read per node |
-| `%{tags}` | the node's tags, comma separated | one read per node |
-| `%{anything-else}` | that metadata key | one read per node |
+| `%{.hash}`, `%{.lead}`, `%{.accessCount}`, `%{.omega}` | statistics fields | one batch per listing |
+| `%{tags}` | the node's tags, comma separated | one batch per listing |
+| `%{anything-else}` | that metadata key | one batch per listing |
 
 `id`, `title`, and `tags` are reserved. A node carrying metadata under one of
 those keys cannot address it in field position; the intrinsic wins.
@@ -127,9 +127,12 @@ Formats naming only `id`, `title`, the three dates, or the legacy verbs — whic
 includes the default — read nothing beyond the index that a listing already
 loads.
 
-Any other selector reads one file per node, for the nodes in the result window
-only. Combine with `--limit` on a large keg. The same is true of the equivalent
-query predicates: filtering on `entity=plan` or `.hash=` also reads per node.
+Any other selector is resolved by the Hub for the nodes in the result window
+only, in one batch with the listing itself: `list` and `grep` stay a single
+request, and `links`, `backlinks`, and a `tags` query add one listing request
+however many rows they return. Paging (`--limit`, `--offset`) happens before
+fields are resolved, so combine it with a large keg. Query predicates on the
+same fields (`entity=plan`, `.hash=`) are evaluated by the Hub as well.
 
 ## Notes
 

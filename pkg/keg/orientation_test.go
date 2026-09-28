@@ -13,7 +13,7 @@ type orientationRoundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f orientationRoundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 	if req.URL.Path == "/api/version" {
-		return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"server_version":"test","api_versions":["2026-09-11"]}`))}, nil
+		return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"server_version":"test","api_versions":["2026-09-28"]}`))}, nil
 	}
 	return f(req)
 }

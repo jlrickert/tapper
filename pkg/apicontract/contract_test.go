@@ -85,8 +85,8 @@ func TestClientDiscoveryMatrix(t *testing.T) {
 		name, body, code string
 		status           int
 	}{
-		{"matching", `{"server_version":"0.24.0","api_versions":["2026-09-11"]}`, "", 200},
-		{"newer compatible", `{"server_version":"99.0.0","api_versions":["2026-09-11","2099-01-01"]}`, "", 200},
+		{"matching", `{"server_version":"0.24.0","api_versions":["2026-09-28"]}`, "", 200},
+		{"newer compatible", `{"server_version":"99.0.0","api_versions":["2026-09-28","2099-01-01"]}`, "", 200},
 		{"newer incompatible", `{"server_version":"99.0.0","api_versions":["2099-01-01"]}`, Unsupported, 200},
 		{"legacy", "", DiscoveryUnavailable, 404}, {"redirect", "", DiscoveryUnavailable, 302},
 		{"malformed", "oops", DiscoveryInvalid, 200}, {"missing versions", `{"server_version":"v1"}`, DiscoveryInvalid, 200},
