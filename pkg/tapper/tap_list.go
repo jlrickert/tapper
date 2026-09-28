@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/jlrickert/tapper/pkg/tapapi"
 	"regexp"
 	"strings"
 	"time"
@@ -327,9 +328,9 @@ type relatedListOptions struct {
 	Direction keg.RelatedDirection
 }
 
-// resolveAndLookupLinks is a shared helper for Backlinks and Links. It resolves
-// the keg, validates the node IDs, calls the provided lookup function against the
-// dex for each node, merges and deduplicates results, and renders the entries.
+// resolveAndLookupLinks is the shared body of Backlinks and Links. The whole
+// operation — relationship lookup, paging, and the fields the format renders —
+// runs through Operations, so a Hub KEG answers it in one request.
 func (t *Tap) resolveAndLookupLinks(ctx context.Context, opts relatedListOptions) ([]string, error) {
 	if len(opts.NodeIDs) == 0 {
 		return []string{}, fmt.Errorf("at least one node ID is required")
@@ -339,55 +340,42 @@ func (t *Tap) resolveAndLookupLinks(ctx context.Context, opts relatedListOptions
 	if err != nil {
 		return []string{}, fmt.Errorf("unable to open keg: %w", err)
 	}
-	ids := make([]keg.NodeId, 0, len(opts.NodeIDs))
+	ids := make([]string, 0, len(opts.NodeIDs))
 	for _, nodeID := range opts.NodeIDs {
 		// Intentionally NOT routed through resolveNodeArg: a cross-keg ref would
-		// produce related nodes owned by a different keg, but the dedup key
-		// (rel.Path()) and the entry rendering below (dex.GetRef) both assume a
-		// single owning dex. Carrying each related node's home keg through dedup,
-		// sort, offset/limit, and render is a larger change than this slice
-		// covers, so links/backlinks stay scoped to the current keg.
+		// produce related nodes owned by a different keg, but paging and
+		// rendering assume a single owning keg, so links/backlinks stay scoped
+		// to the current keg.
 		id, err := parseNodeID(nodeID)
 		if err != nil {
 			return []string{}, err
 		}
-
-		ids = append(ids, id)
+		ids = append(ids, id.Path())
 	}
-	related, err := k.RelatedNodes(ctx, keg.RelatedNodesOptions{NodeIDs: ids, Direction: opts.Direction})
+	compiled, err := compileListFormat(opts.Render.Format)
+	if err != nil {
+		return nil, err
+	}
+	related, err := t.operations().Related(ctx, k, opts.Direction, tapapi.RelatedRequest{
+		NodeIDs: ids,
+		Fields:  compiled.selectorTexts(opts.Render.IdOnly),
+		Offset:  opts.Offset,
+		Limit:   opts.Limit,
+	})
 	if err != nil {
 		if strings.Contains(err.Error(), "keg not initialized") {
 			return []string{}, err
 		}
 		if errors.Is(err, keg.ErrNotExist) {
-			return []string{}, fmt.Errorf("node %s not found in %s", ids[0].Path(), describeKeg(k))
+			return []string{}, fmt.Errorf("node %s not found in %s", ids[0], describeKeg(k))
 		}
 		return []string{}, err
 	}
-
-	entries := applyOffset(related.Entries, opts.Offset)
-
-	if opts.Limit > 0 && len(entries) > opts.Limit {
-		entries = entries[:opts.Limit]
-	}
-
-	rendered, err := t.renderNodeEntries(ctx, k, entries, opts.Render)
-	if err != nil {
-		return nil, err
-	}
+	rendered := renderListView(compiled, related.Rows, opts.Render)
 	if observer, ok := ctx.Value(relationshipObserverKey{}).(RelationshipResultObserver); ok && observer != nil {
-		// RelatedNodes attributes each relationship to its input, so the
-		// observer sees actual pairs, intersected with the final page.
-		page := map[string]bool{}
-		for _, entry := range entries {
-			page[entry.ID] = true
-		}
 		relationships := []Relationship{}
 		seen := map[Relationship]bool{}
 		for _, pair := range related.Pairs {
-			if !page[pair.To] {
-				continue
-			}
 			source, parseErr := keg.ParseNode(pair.From)
 			if parseErr != nil || source == nil {
 				return nil, fmt.Errorf("invalid relationship source %q: %w", pair.From, keg.ErrInvalid)
@@ -469,53 +457,36 @@ func (t *Tap) Tags(ctx context.Context, opts TagsOptions) ([]string, error) {
 	if err != nil {
 		return []string{}, fmt.Errorf("unable to open keg: %w", err)
 	}
-	listing, err := k.ListEntries(ctx, keg.ListEntriesOptions{Query: opts.Query})
+	compiled, err := compileListFormat(opts.Format)
 	if err != nil {
-		if strings.TrimSpace(opts.Query) != "" {
+		return []string{}, err
+	}
+	queryExpr := strings.TrimSpace(opts.Query)
+	result, err := t.operations().Tags(ctx, k, tapapi.TagsRequest{
+		Query:  queryExpr,
+		Fields: compiled.selectorTexts(opts.IdOnly),
+		Offset: opts.Offset,
+		Limit:  opts.Limit,
+	})
+	if err != nil {
+		if queryExpr != "" {
 			return []string{}, fmt.Errorf("invalid query expression: %w", err)
 		}
 		return []string{}, fmt.Errorf("unable to list entries: %w", err)
 	}
-
-	queryExpr := strings.TrimSpace(opts.Query)
-
 	if queryExpr == "" {
-		tags := listing.Tags
-		sortStringsAsc(tags)
-		tags = applyOffsetStrings(tags, opts.Offset)
-		if opts.Limit > 0 && len(tags) > opts.Limit {
-			tags = tags[:opts.Limit]
+		tags := result.Tags
+		if tags == nil {
+			tags = []string{}
 		}
 		if opts.Reverse {
 			reverseStrings(tags)
 		}
 		return tags, nil
 	}
-
-	matchedEntries := listing.Entries
-	if len(matchedEntries) == 0 {
-		return []string{}, nil
-	}
-	matchedIDs := make(map[string]struct{}, len(matchedEntries)*2)
-	for _, entry := range matchedEntries {
-		matchedIDs[entry.ID] = struct{}{}
-		if node, parseErr := keg.ParseNode(entry.ID); parseErr == nil && node != nil {
-			matchedIDs[node.Path()] = struct{}{}
-		}
-	}
-
-	entries := matchedEntries
-	sortNodeIndexEntries(entries)
-
-	entries = applyOffset(entries, opts.Offset)
-
-	if opts.Limit > 0 && len(entries) > opts.Limit {
-		entries = entries[:opts.Limit]
-	}
-
-	return t.renderNodeEntries(ctx, k, entries, renderOptions{
+	return renderListView(compiled, result.Rows, renderOptions{
 		Format: opts.Format, IdOnly: opts.IdOnly, Reverse: opts.Reverse,
-	})
+	}), nil
 }
 
 func grepContentLineMatches(re *regexp.Regexp, raw []byte) []string {
@@ -572,53 +543,6 @@ type renderOptions struct {
 	Format  string
 	IdOnly  bool
 	Reverse bool
-}
-
-// renderNodeEntries renders one line per entry using the compiled format.
-//
-// Formats naming only intrinsics, index timestamps, or legacy verbs — which
-// includes the default — perform no additional I/O. A format naming metadata
-// or a statistics field resolves them for the whole set with one ListView
-// call, never one read per node.
-func (t *Tap) renderNodeEntries(
-	ctx context.Context,
-	k keg.Keg,
-	entries []keg.NodeIndexEntry,
-	opts renderOptions,
-) ([]string, error) {
-	if opts.IdOnly {
-		return renderNodeIDs(entries, opts.Reverse), nil
-	}
-
-	compiled, err := compileListFormat(opts.Format)
-	if err != nil {
-		return nil, err
-	}
-
-	rows := make([]keg.ListViewRow, len(entries))
-	for i, entry := range entries {
-		rows[i] = keg.ListViewRow{Entry: entry}
-	}
-	if fields := compiled.selectorTexts(false); len(fields) > 0 && len(entries) > 0 {
-		ids := make([]keg.NodeId, 0, len(entries))
-		for _, entry := range entries {
-			if id, parseErr := keg.ParseNode(entry.ID); parseErr == nil && id != nil {
-				ids = append(ids, *id)
-			}
-		}
-		view, err := k.ListView(ctx, keg.ListViewOptions{NodeIDs: ids, Fields: fields})
-		if err != nil {
-			return nil, fmt.Errorf("unable to resolve listing fields: %w", err)
-		}
-		resolved := make(map[string]map[string]string, len(view.Rows))
-		for _, row := range view.Rows {
-			resolved[row.Entry.ID] = row.Fields
-		}
-		for i := range rows {
-			rows[i].Fields = resolved[rows[i].Entry.ID]
-		}
-	}
-	return renderListView(compiled, rows, opts), nil
 }
 
 func renderNodeIDs(entries []keg.NodeIndexEntry, reverse bool) []string {

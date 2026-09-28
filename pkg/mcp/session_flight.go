@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/jlrickert/tapper/pkg/apicontract"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -144,15 +145,30 @@ type sessionFlightGate struct {
 	clientVersion string
 	logger        *slog.Logger
 
-	mu     sync.Mutex
-	states map[string]*flightSessionState
-	srv    *sdkmcp.Server
+	// cacheTTL, when positive, reuses a session's resolved orientation for
+	// that long instead of resolving it again on every tool call. now is the
+	// clock it is measured against.
+	cacheTTL time.Duration
+	now      func() time.Time
+
+	mu       sync.Mutex
+	states   map[string]*flightSessionState
+	resolved map[string]cachedOrientation
+	srv      *sdkmcp.Server
+}
+
+// cachedOrientation is one session's most recent per-call resolution.
+type cachedOrientation struct {
+	root, selected string
+	orientation    *Orientation
+	at             time.Time
 }
 
 func newSessionFlightGate(provider OrientationProvider) *sessionFlightGate {
 	g := &sessionFlightGate{
 		provider: provider,
 		states:   map[string]*flightSessionState{},
+		resolved: map[string]cachedOrientation{},
 	}
 	return g
 }
@@ -283,11 +299,50 @@ func (g *sessionFlightGate) resolveCall(ctx context.Context, sessionID, selected
 	if pinned.root != nil {
 		rootRef = pinned.root.Name
 	}
+	if candidate, ok := g.cachedResolution(sessionID, rootRef, selected); ok {
+		return makeOrientationContext(candidate)
+	}
 	candidate, err := resolver.Resolve(ctx, rootRef, selected)
 	if err != nil {
+		g.forgetResolution(sessionID)
 		return nil, err
 	}
+	g.rememberResolution(sessionID, rootRef, selected, candidate)
 	return makeOrientationContext(candidate)
+}
+
+// cachedResolution returns a session's resolved orientation while it is
+// fresh. Reuse is safe because the Hub rechecks authority on every KEG
+// request; the cache only spares the client from rebuilding its view of that
+// authority on every tool call.
+func (g *sessionFlightGate) cachedResolution(sessionID, root, selected string) (*Orientation, bool) {
+	if g.cacheTTL <= 0 || g.now == nil {
+		return nil, false
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	entry, ok := g.resolved[sessionID]
+	if !ok || entry.root != root || entry.selected != selected || g.now().Sub(entry.at) >= g.cacheTTL {
+		return nil, false
+	}
+	return entry.orientation, true
+}
+
+func (g *sessionFlightGate) rememberResolution(sessionID, root, selected string, orientation *Orientation) {
+	if g.cacheTTL <= 0 || g.now == nil || orientation == nil {
+		return
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.resolved[sessionID] = cachedOrientation{root: root, selected: selected, orientation: orientation, at: g.now()}
+}
+
+// forgetResolution drops a session's cached orientation so the next call
+// resolves current authority.
+func (g *sessionFlightGate) forgetResolution(sessionID string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	delete(g.resolved, sessionID)
 }
 
 func makeOrientationContext(candidate *Orientation) (*orientationContext, error) {
@@ -628,6 +683,11 @@ func (g *sessionFlightGate) middleware(next sdkmcp.MethodHandler) sdkmcp.MethodH
 		}
 		if method == "tools/call" {
 			params, _ := req.GetParams().(*sdkmcp.CallToolParamsRaw)
+			if params != nil && (params.Name == "orient" || params.Name == "session_refresh" || isFlightMutationTool(params.Name)) {
+				// These ask for, or change, current authority: never answer
+				// them or the calls after them from a cached resolution.
+				g.forgetResolution(sessionID)
+			}
 			if allowed := allowedTools(current); params != nil && allowed != nil && !allowed[params.Name] {
 				return errorResult(lockedError(current)), nil
 			}
@@ -686,7 +746,12 @@ func (g *sessionFlightGate) middleware(next sdkmcp.MethodHandler) sdkmcp.MethodH
 					return orientationFailureResult(err), nil
 				}
 			}
-			return next(ctx, method, req)
+			result, err := next(ctx, method, req)
+			if called, ok := result.(*sdkmcp.CallToolResult); err != nil || (ok && called.IsError) {
+				// A failure may mean authority changed under the cached view.
+				g.forgetResolution(sessionID)
+			}
+			return result, err
 		}
 		if method == "resources/read" || method == "resources/subscribe" {
 			if params, ok := req.GetParams().(*sdkmcp.ReadResourceParams); ok && params.URI == orientResourceURI {

@@ -90,6 +90,12 @@ use of `time.Now()` that cannot be driven by a fake clock:
 - **Remote operations are single-request**: each `RemoteKeg` method is one
   HTTP round trip, and the hub serializes per-node writes server-side. There
   is no client-side lock lease or dex write over HTTP.
+- **Orientation reuse in `tap mcp`**: each tool call needs the session's
+  resolved orientation, which costs several Hub requests to build. `tap mcp`
+  reuses it for up to ten seconds (`ServerOptions.OrientationCacheTTL`);
+  `orient`, `session_refresh`, flight mutations, and any failed call discard
+  it. Reuse cannot widen access, because the Hub rechecks the orientation
+  header and KEG authority on every request. Hosted servers leave it off.
 - **Advisory locks are session primitives**: `Keg.Lock`/`Unlock`/
   `LockStatus`/`ForceUnlock` (used by `tap lock` / `tap node edit`) are opt-in
   advisory locks backed by the Hub's `/nodes/{id}/lock` endpoints. Leases carry a TTL

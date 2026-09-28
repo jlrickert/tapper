@@ -10,6 +10,7 @@ import (
 
 	"github.com/jlrickert/tapper/internal/testapi"
 	"github.com/jlrickert/tapper/pkg/keg"
+	"github.com/jlrickert/tapper/pkg/tapapi"
 	"github.com/jlrickert/tapper/pkg/tapper"
 	"github.com/stretchr/testify/require"
 )
@@ -121,4 +122,42 @@ func TestFormattedLinksAreTwoRequests(t *testing.T) {
 	require.Equal(t, "1 idea", lines[0])
 	require.Equal(t, []string{"/related", "/list/view"}, rec.recorded())
 	require.Len(t, rec.bodies["/list/view"]["node_ids"], related)
+}
+
+// A Hub keg answers links with its fields and relationship pairs in one
+// request to the Hub's TAP operation.
+func TestHubLinksAreOneTapRequest(t *testing.T) {
+	t.Parallel()
+	rec := &hubRecorder{}
+	srv := testapi.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rec.record(r)
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path != "/api/v1/tap/links" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(tapapi.RelatedResponse{
+			Rows:  []keg.ListViewRow{{Entry: keg.NodeIndexEntry{ID: "7", Title: "Seven"}, Fields: map[string]string{"type": "idea"}}},
+			Pairs: []keg.RelatedPair{{From: "0", To: "7"}},
+			Total: 1,
+		})
+	}))
+	t.Cleanup(srv.Close)
+	sb := NewSandbox(t)
+	tap := newTestTap(t, sb)
+	k := keg.NewRemoteKeg(srv.URL+"/api/v1/@team/notes", "token", sb.Runtime())
+	k.SetTarget(&keg.Target{Namespace: "team", KegName: "notes"})
+	tap.KegResolver = func(context.Context, tapper.KegTargetOptions, tapper.FlightRole) (keg.Keg, error) { return k, nil }
+
+	var observed []tapper.Relationship
+	ctx := tapper.WithRelationshipResultObserver(t.Context(), func(_ context.Context, _ keg.Keg, rows []tapper.Relationship) { observed = rows })
+	lines, err := tap.Links(ctx, tapper.LinksOptions{NodeIDs: []string{"0"}, Format: "%i %{type}", Limit: 5})
+	require.NoError(t, err)
+	require.Equal(t, []string{"7 idea"}, lines)
+	require.Equal(t, []string{"/api/v1/tap/links"}, rec.recorded())
+	body := rec.bodies["/api/v1/tap/links"]
+	require.Equal(t, "@team/notes", body["keg"])
+	require.Equal(t, []any{"type"}, body["fields"])
+	require.EqualValues(t, 5, body["limit"])
+	require.Equal(t, []tapper.Relationship{{Source: keg.NodeId{ID: 0}, Target: keg.NodeId{ID: 7}}}, observed)
 }
