@@ -41,6 +41,11 @@ type Tap struct {
 	// the standard config-driven resolution.
 	KegResolver func(ctx context.Context, opts KegTargetOptions, role FlightRole) (keg.Keg, error)
 
+	// Operations, when non-nil, executes complete TAP operations (links,
+	// backlinks, tags) instead of DefaultOperations. A Hub serving its own MCP
+	// endpoint injects its in-process TAP service here.
+	Operations Operations
+
 	// Version is the version of the binary running this Tap, already
 	// normalized by NewTap. `tap integrate` stamps it into every plugin
 	// manifest it extracts, so an installed plugin always reports the tap

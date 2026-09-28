@@ -67,7 +67,7 @@ func (k *LocalKeg) grep(ctx context.Context, opts GrepOptions) ([]GrepMatch, err
 	}
 	re, err := regexp.Compile(pattern)
 	if err != nil {
-		return nil, fmt.Errorf("invalid grep pattern %q: %w", opts.Pattern, err)
+		return nil, fmt.Errorf("invalid grep pattern %q: %v: %w", opts.Pattern, err, ErrInvalid)
 	}
 
 	dex, err := k.Dex(ctx)

@@ -137,6 +137,49 @@ func (k *RemoteKeg) SetTarget(target *Target) {
 
 // do executes an HTTP request with authentication and context propagation.
 func (k *RemoteKeg) do(ctx context.Context, method, path string, body io.Reader, contentType string, header http.Header) (*http.Response, error) {
+	return k.doURL(ctx, method, k.baseURL+path, path, body, contentType, header)
+}
+
+// hubAPIRoot is the Hub's /api/v1 root this keg's routes live under.
+func (k *RemoteKeg) hubAPIRoot() (string, error) {
+	const marker = "/api/v1/"
+	i := strings.Index(k.baseURL, marker)
+	if i < 0 {
+		return "", NewBackendError("remote", "hub root", 0, fmt.Errorf("keg URL %q is not under %s: %w", k.baseURL, marker, ErrInvalid), false)
+	}
+	return k.baseURL[:i+len(marker)-1], nil
+}
+
+// HubPost sends a JSON request to a path under this keg's Hub API root (for
+// example "/tap/links") with the same credentials, contract negotiation, and
+// orientation as the keg's own routes, and decodes the JSON response into out.
+func (k *RemoteKeg) HubPost(ctx context.Context, path, op string, in, out any) error {
+	root, err := k.hubAPIRoot()
+	if err != nil {
+		return err
+	}
+	payload, err := json.Marshal(in)
+	if err != nil {
+		return NewBackendError("remote", op, 0, err, false)
+	}
+	resp, err := k.doURL(ctx, http.MethodPost, root+path, path, bytes.NewReader(payload), "application/json", nil)
+	if err != nil {
+		return err
+	}
+	body, err := k.readBody(resp, op, http.StatusOK)
+	if err != nil {
+		return err
+	}
+	if out == nil {
+		return nil
+	}
+	if err := json.Unmarshal(body, out); err != nil {
+		return NewBackendError("remote", op, 0, err, false)
+	}
+	return nil
+}
+
+func (k *RemoteKeg) doURL(ctx context.Context, method, url, path string, body io.Reader, contentType string, header http.Header) (*http.Response, error) {
 	if apicontract.FromContext(ctx) == nil {
 		ctx = apicontract.WithSession(ctx, k.contract)
 	}
@@ -151,7 +194,7 @@ func (k *RemoteKeg) do(ctx context.Context, method, path string, body io.Reader,
 	if err := ValidateOrientationTarget(ctx, k.baseURL); err != nil {
 		return nil, err
 	}
-	req, err := http.NewRequestWithContext(ctx, method, k.baseURL+path, body)
+	req, err := http.NewRequestWithContext(ctx, method, url, body)
 	if err != nil {
 		return nil, NewBackendError("remote", method+" "+path, 0, err, false)
 	}

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/jlrickert/tapper/pkg/apicontract"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -47,6 +48,13 @@ type ServerOptions struct {
 	// attachment transfer tools: see registerFileTools. The zero value is the
 	// safe one, so a caller that forgets it gets the hosted surface.
 	SharedFilesystem bool
+	// OrientationCacheTTL, when positive, lets a session reuse its resolved
+	// orientation for that long instead of resolving it on every tool call.
+	// It suits a client of a remote Hub, where each resolution costs several
+	// requests and the Hub rechecks authority on every KEG request anyway.
+	// orient, session_refresh, flight mutations, and any failed call always
+	// discard the cached view.
+	OrientationCacheTTL time.Duration
 }
 
 // NewServer builds an MCP server with all registered tools.
@@ -78,6 +86,10 @@ func NewServer(tap *tapper.Tap, version string, defaults KegDefaults, opts ...Se
 	}
 	defaults.gate = newSessionFlightGate(opt.OrientationProvider)
 	defaults.gate.clientVersion = version
+	if opt.OrientationCacheTTL > 0 && tap != nil && tap.Runtime != nil {
+		defaults.gate.cacheTTL = opt.OrientationCacheTTL
+		defaults.gate.now = tap.Runtime.Clock().Now
+	}
 	defaults.gate.logger = opt.Logger
 	if defaults.gate.logger == nil && tap != nil && tap.Runtime != nil {
 		defaults.gate.logger = tap.Runtime.Logger()

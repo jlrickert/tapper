@@ -49,6 +49,8 @@ touching). Two implementations exist:
   and maintains derived state itself.
 - `*keg.RemoteKeg` (`keg_remote.go`) speaks the hub's operation-level HTTP
   API — one request per operation; all orchestration happens server-side.
+  Complete TAP operations (links, backlinks, tags) forward to the Hub's
+  `/api/v1/tap/*` routes through `Tap.Operations`.
 
 `pkg/tapper` resolves a keg via `keg.NewKegFromTarget`, which returns the
 interface; `pkg/tapper` never touches `Repository` directly. All node

@@ -242,18 +242,19 @@ func (t *Tap) catSingleNode(ctx context.Context, k keg.Keg, nodeID string, opts 
 		return "", err
 	}
 
-	view, err := k.ReadNode(ctx, node)
+	// One touched read: the node and its access update travel together.
+	views, err := k.ReadNodes(ctx, keg.ReadNodesOptions{NodeIDs: []keg.NodeId{node}, Touch: true})
+	if err == nil && len(views) != 1 {
+		err = keg.ErrNotExist
+	}
 	if err != nil {
 		if errors.Is(err, keg.ErrNotExist) {
 			return "", fmt.Errorf("node %s not found in %s: %w", node.Path(), describeKeg(k), err)
 		}
 		return "", fmt.Errorf("unable to read node %s in %s: %w", node.Path(), describeKeg(k), err)
 	}
+	view := views[0]
 	content, meta := view.Content, view.Meta
-
-	if err := k.Touch(ctx, node); err != nil {
-		return "", fmt.Errorf("unable to update node access: %w", err)
-	}
 
 	if opts.ContentOnly {
 		return string(content), nil
@@ -336,18 +337,19 @@ func (t *Tap) catSingleNodeForStream(ctx context.Context, k keg.Keg, nodeID stri
 		return "", err
 	}
 
-	view, err := k.ReadNode(ctx, node)
+	// One touched read: the node and its access update travel together.
+	views, err := k.ReadNodes(ctx, keg.ReadNodesOptions{NodeIDs: []keg.NodeId{node}, Touch: true})
+	if err == nil && len(views) != 1 {
+		err = keg.ErrNotExist
+	}
 	if err != nil {
 		if errors.Is(err, keg.ErrNotExist) {
 			return "", fmt.Errorf("node %s not found in %s: %w", node.Path(), describeKeg(k), err)
 		}
 		return "", fmt.Errorf("unable to read node %s in %s: %w", node.Path(), describeKeg(k), err)
 	}
+	view := views[0]
 	content, meta := view.Content, view.Meta
-
-	if err := k.Touch(ctx, node); err != nil {
-		return "", fmt.Errorf("unable to update node access: %w", err)
-	}
 
 	id := node.Path()
 

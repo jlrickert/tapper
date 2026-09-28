@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/jlrickert/cli-toolkit/mylog"
 	"github.com/jlrickert/cli-toolkit/toolkit"
@@ -89,8 +90,15 @@ func mcpServerOptions(logger *slog.Logger, reporter tapper.InvocationReporter) m
 		// stdio puts the server on the same machine as its agent host, so
 		// attachment paths in tool arguments name the same files for both sides.
 		SharedFilesystem: true,
+		// Each orientation resolution costs several Hub requests; an agent's
+		// burst of tool calls reuses one for a few seconds (#123).
+		OrientationCacheTTL: mcpOrientationCacheTTL,
 	}
 }
+
+// mcpOrientationCacheTTL bounds how long `tap mcp` reuses a resolved
+// orientation between tool calls.
+const mcpOrientationCacheTTL = 10 * time.Second
 
 // buildMCPLogger constructs the structured logger for the MCP server.
 // Unlike CLI commands, MCP always logs to stderr because stdout is reserved

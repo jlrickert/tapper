@@ -60,7 +60,8 @@ type TagsResponse struct {
 }
 
 // CatRequest reads nodes across any number of KEGs on this Hub in one call.
-// Each reference is "@namespace/alias/id". Touch records the read as an open.
+// Each reference is qualified, "keg:@namespace/alias/id". Touch records the
+// read as an open.
 type CatRequest struct {
 	Nodes []string `json:"nodes"`
 	Touch bool     `json:"touch,omitempty"`

@@ -55,6 +55,18 @@ editor open/save, schema creation, dex reads, create, and
 lock acquisition therefore have matching local and hosted semantics without
 client fan-out.
 
+Listings resolve the fields their format renders where the data lives:
+`grep` sends its paging and field selectors with the scan, and any known
+result set resolves fields with one `ListView` call restricted by `node_ids`.
+No listing reads metadata one node at a time.
+
+Complete TAP operations go through `Tap.Operations`. `links`, `backlinks`, and
+`tags` are each one unit — the lookup, paging, and the fields the format
+renders — so `DefaultOperations` forwards a Hub KEG's operation to the Hub's
+`/api/v1/tap/*` route (`pkg/tapapi`) in one request and composes KEG
+operations only for a KEG without a Hub. A Hub serving its own MCP endpoint
+injects its in-process TAP service here.
+
 The Tap layer groups mixed-keg read and validation arguments by resolved keg,
 issues one batch per group, and restores caller order. Interactive editing and
 watching remain separate phases. Cross-keg import uses one source export, one
