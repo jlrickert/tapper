@@ -15,7 +15,7 @@ import (
 	"time"
 )
 
-const Revision = "2026-09-11"
+const Revision = "2026-09-28"
 const VersionHeader = "Tapper-API-Version"
 const ClientHeader = "Tapper-Client-Version"
 const Required = "API_VERSION_REQUIRED"

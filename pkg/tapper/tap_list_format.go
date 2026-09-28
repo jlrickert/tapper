@@ -196,14 +196,11 @@ func renderListView(compiled compiledFormat, rows []keg.ListViewRow, opts render
 // nodeFieldSource carries everything needed to expand a compiled format for
 // one node.
 //
-// Values resolved by the server arrive already rendered in `resolved`, keyed by
-// selector text. meta and stats are only populated on the fallback path, where
-// the client had to read them itself.
+// Values the keg resolved arrive already rendered in `resolved`, keyed by
+// selector text; everything else comes from the index entry.
 type nodeFieldSource struct {
 	entry    keg.NodeIndexEntry
 	resolved map[string]string
-	meta     *keg.NodeMeta
-	stats    *keg.NodeStats
 }
 
 // fieldValue resolves one selector against a node, preferring a value the
@@ -216,7 +213,7 @@ func fieldValue(sel keg.FieldSelector, src nodeFieldSource) string {
 			return value
 		}
 	}
-	return keg.FieldValue(sel, src.entry, src.meta, src.stats)
+	return keg.FieldValue(sel, src.entry, nil, nil)
 }
 
 // expandFormat renders one line for a node.

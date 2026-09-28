@@ -41,6 +41,11 @@ type ListViewOptions struct {
 	// it here rather than in the caller keeps paging and TotalMatches correct.
 	TitleContains string `json:"title_contains,omitempty"`
 
+	// NodeIDs, when set, restricts the listing to these nodes. It is how a
+	// caller that already knows its result set (grep, links, tags) resolves
+	// the fields for all of it in one call instead of one read per node.
+	NodeIDs []NodeId `json:"node_ids,omitempty"`
+
 	// Fields are field selectors to resolve per row, in the vocabulary of
 	// ParseFieldSelector ("type", ".omega", "tags"). Intrinsics and index
 	// timestamps cost nothing; other selectors are read per returned row.
@@ -94,6 +99,22 @@ const (
 type RelatedNodesOptions struct {
 	NodeIDs   []NodeId         `json:"node_ids"`
 	Direction RelatedDirection `json:"direction"`
+}
+
+// RelatedPair is one relationship found by RelatedNodes: From is the input
+// node's path and To is the related entry's ID exactly as it appears in
+// Entries, which may be a qualified reference into another keg.
+type RelatedPair struct {
+	From string `json:"from"`
+	To   string `json:"to"`
+}
+
+// RelatedNodesResult is the merged set of related entries plus the pairs that
+// produced them, so callers can attribute each relationship to its input
+// without asking once per input.
+type RelatedNodesResult struct {
+	Entries []NodeIndexEntry `json:"entries"`
+	Pairs   []RelatedPair    `json:"pairs"`
 }
 
 type KegInfo struct {
@@ -266,6 +287,19 @@ func (k *LocalKeg) listView(ctx context.Context, opts ListViewOptions) (*ListVie
 		kept := make([]NodeIndexEntry, 0, len(entries))
 		for _, entry := range entries {
 			if strings.Contains(strings.ToLower(entry.Title), needle) {
+				kept = append(kept, entry)
+			}
+		}
+		entries = kept
+	}
+	if len(opts.NodeIDs) > 0 {
+		wanted := make(map[string]struct{}, len(opts.NodeIDs))
+		for _, id := range opts.NodeIDs {
+			wanted[id.Path()] = struct{}{}
+		}
+		kept := make([]NodeIndexEntry, 0, len(opts.NodeIDs))
+		for _, entry := range entries {
+			if _, ok := wanted[nodeKey(entry)]; ok {
 				kept = append(kept, entry)
 			}
 		}
@@ -543,11 +577,11 @@ func (k *LocalKeg) readNodes(ctx context.Context, opts ReadNodesOptions) ([]Node
 	return views, nil
 }
 
-func (k *LocalKeg) RelatedNodes(ctx context.Context, opts RelatedNodesOptions) ([]NodeIndexEntry, error) {
-	return withKegReadValue(ctx, k, func(ctx context.Context) ([]NodeIndexEntry, error) { return k.relatedNodes(ctx, opts) })
+func (k *LocalKeg) RelatedNodes(ctx context.Context, opts RelatedNodesOptions) (*RelatedNodesResult, error) {
+	return withKegReadValue(ctx, k, func(ctx context.Context) (*RelatedNodesResult, error) { return k.relatedNodes(ctx, opts) })
 }
 
-func (k *LocalKeg) relatedNodes(ctx context.Context, opts RelatedNodesOptions) ([]NodeIndexEntry, error) {
+func (k *LocalKeg) relatedNodes(ctx context.Context, opts RelatedNodesOptions) (*RelatedNodesResult, error) {
 	if len(opts.NodeIDs) == 0 {
 		return nil, fmt.Errorf("at least one node id is required: %w", ErrInvalid)
 	}
@@ -556,6 +590,8 @@ func (k *LocalKeg) relatedNodes(ctx context.Context, opts RelatedNodesOptions) (
 		return nil, err
 	}
 	seen := map[string]struct{}{}
+	pairs := []RelatedPair{}
+	pairSeen := map[RelatedPair]struct{}{}
 	for _, id := range opts.NodeIDs {
 		exists, err := k.NodeExists(ctx, id)
 		if err != nil {
@@ -575,6 +611,11 @@ func (k *LocalKeg) relatedNodes(ctx context.Context, opts RelatedNodesOptions) (
 		}
 		for _, rel := range related {
 			seen[rel.Path()] = struct{}{}
+			pair := RelatedPair{From: id.Path(), To: rel.Path()}
+			if _, dup := pairSeen[pair]; !dup {
+				pairSeen[pair] = struct{}{}
+				pairs = append(pairs, pair)
+			}
 		}
 	}
 	entriesByID := map[string]NodeIndexEntry{}
@@ -594,7 +635,7 @@ func (k *LocalKeg) relatedNodes(ctx context.Context, opts RelatedNodesOptions) (
 			out = append(out, NodeIndexEntry{ID: id})
 		}
 	}
-	return out, nil
+	return &RelatedNodesResult{Entries: out, Pairs: pairs}, nil
 }
 
 func (k *LocalKeg) Info(ctx context.Context) (*KegInfo, error) {

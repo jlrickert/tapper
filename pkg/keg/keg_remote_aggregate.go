@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 )
@@ -17,19 +16,10 @@ func (k *RemoteKeg) ListEntries(ctx context.Context, opts ListEntriesOptions) (*
 	return &out, nil
 }
 
-// ErrListViewUnsupported reports that the hub predates the server-resolved
-// listing endpoint. Callers degrade to assembling the listing client-side.
-var ErrListViewUnsupported = errors.New("hub list view API is unavailable")
-
-// ListView resolves a whole listing page in one request. A hub that does not
-// implement the route answers 404, which is reported as
-// ErrListViewUnsupported so the caller can fall back rather than fail.
+// ListView resolves a whole listing page in one request.
 func (k *RemoteKeg) ListView(ctx context.Context, opts ListViewOptions) (*ListViewResult, error) {
 	var out ListViewResult
 	if err := k.postJSON(ctx, "/list/view", "ListView", opts, &out, http.StatusOK); err != nil {
-		if _, status := RemoteErrorCode(err); status == http.StatusNotFound {
-			return nil, fmt.Errorf("%w: %w", ErrListViewUnsupported, err)
-		}
 		return nil, err
 	}
 	return &out, nil
@@ -84,7 +74,7 @@ func (k *RemoteKeg) ReadNodes(ctx context.Context, opts ReadNodesOptions) ([]Nod
 	return out, nil
 }
 
-func (k *RemoteKeg) RelatedNodes(ctx context.Context, opts RelatedNodesOptions) ([]NodeIndexEntry, error) {
+func (k *RemoteKeg) RelatedNodes(ctx context.Context, opts RelatedNodesOptions) (*RelatedNodesResult, error) {
 	ids := make([]int, len(opts.NodeIDs))
 	for i, id := range opts.NodeIDs {
 		ids[i] = id.ID
@@ -93,13 +83,17 @@ func (k *RemoteKeg) RelatedNodes(ctx context.Context, opts RelatedNodesOptions) 
 		NodeIDs   []int            `json:"node_ids"`
 		Direction RelatedDirection `json:"direction"`
 	}{ids, opts.Direction}
-	var out struct {
-		Entries []NodeIndexEntry `json:"entries"`
-	}
+	var out RelatedNodesResult
 	if err := k.postJSON(ctx, "/related", "RelatedNodes", req, &out, http.StatusOK); err != nil {
 		return nil, err
 	}
-	return out.Entries, nil
+	if out.Entries == nil {
+		out.Entries = []NodeIndexEntry{}
+	}
+	if out.Pairs == nil {
+		out.Pairs = []RelatedPair{}
+	}
+	return &out, nil
 }
 
 func (k *RemoteKeg) Info(ctx context.Context) (*KegInfo, error) {

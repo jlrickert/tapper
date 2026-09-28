@@ -1,7 +1,7 @@
 # REST API contract compatibility
 
 Tapper and Tapper Hub select a REST contract independently of their release
-numbers. The initial and currently sole supported revision is `2026-09-11`.
+numbers. The sole supported revision is `2026-09-28`, which replaced `2026-09-11` when grep, listing, and relationship responses gained server-side projection.
 Change the revision for incompatible API behavior. Compatible additions and
 fixes retain the revision; release numbers remain diagnostic metadata.
 
@@ -9,11 +9,11 @@ fixes retain the revision; release numbers remain diagnostic metadata.
 returns `Cache-Control: no-store` with the actual server build version:
 
 ```json
-{"server_version":"0.24.0","api_versions":["2026-09-11"]}
+{"server_version":"0.24.0","api_versions":["2026-09-28"]}
 ```
 
 Every request under `/api/v1`, including event-stream handshakes and telemetry,
-must send exactly one `Tapper-API-Version: 2026-09-11` header. Accepted requests
+must send exactly one `Tapper-API-Version: 2026-09-28` header. Accepted requests
 echo it in the response. Clients send their release in `Tapper-Client-Version`.
 The Hub validates the contract before authentication, flight authority, or
 application handlers. Discovery, health, OAuth, browser routes, and hosted
@@ -26,7 +26,7 @@ duplicate, comma-joined, or unsupported values return HTTP 400 with
 `operationPerformed: false`, for example:
 
 ```json
-{"error":"unsupported REST contract; upgrade Tapper and Hub together","code":"API_VERSION_UNSUPPORTED","requested_api_versions":["2099-01-01"],"supported_api_versions":["2026-09-11"],"server_version":"0.24.0","operationPerformed":false}
+{"error":"unsupported REST contract; upgrade Tapper and Hub together","code":"API_VERSION_UNSUPPORTED","requested_api_versions":["2099-01-01"],"supported_api_versions":["2026-09-28"],"server_version":"0.24.0","operationPerformed":false}
 ```
 
 CLI invocations and MCP connections discover each selected Hub once, before
@@ -57,7 +57,7 @@ working against the new Hub, and new clients reject legacy Hubs. Update custom
 scripts explicitly, for example:
 
 ```sh
-curl -H 'Tapper-API-Version: 2026-09-11' \
+curl -H 'Tapper-API-Version: 2026-09-28' \
   -H "Authorization: Bearer ${TAPPER_TOKEN}" \
   https://hub.example.com/api/v1/whoami
 ```

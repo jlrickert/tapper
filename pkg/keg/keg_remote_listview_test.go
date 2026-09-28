@@ -92,22 +92,6 @@ func TestRemoteListViewIsOneRoundTrip(t *testing.T) {
 	}
 }
 
-// TestRemoteListViewUnsupportedIsDetectable proves a hub that predates the
-// route is reported distinctly, so callers degrade to assembling the listing
-// themselves instead of surfacing a bare 404.
-func TestRemoteListViewUnsupportedIsDetectable(t *testing.T) {
-	t.Parallel()
-
-	rec := newPathRecorder(t, func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusNotFound)
-	})
-
-	k := newRecorderKeg(t, rec)
-	_, err := k.ListView(context.Background(), kegpkg.ListViewOptions{Fields: []string{"type"}})
-	require.Error(t, err)
-	require.ErrorIs(t, err, kegpkg.ErrListViewUnsupported)
-}
-
 func itoa(i int) string {
 	if i == 0 {
 		return "0"

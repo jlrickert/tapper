@@ -10,14 +10,15 @@ import (
 
 type observedLinksKeg struct{ keg.Keg }
 
-func (k *observedLinksKeg) RelatedNodes(_ context.Context, o keg.RelatedNodesOptions) ([]keg.NodeIndexEntry, error) {
-	if len(o.NodeIDs) > 1 {
-		return []keg.NodeIndexEntry{{ID: "3"}, {ID: "4"}}, nil
+// Node 1 relates to 3 and node 2 relates to 4.
+func (k *observedLinksKeg) RelatedNodes(_ context.Context, o keg.RelatedNodesOptions) (*keg.RelatedNodesResult, error) {
+	out := &keg.RelatedNodesResult{}
+	for _, id := range o.NodeIDs {
+		to := map[int]string{1: "3", 2: "4"}[id.ID]
+		out.Entries = append(out.Entries, keg.NodeIndexEntry{ID: to})
+		out.Pairs = append(out.Pairs, keg.RelatedPair{From: id.Path(), To: to})
 	}
-	if o.NodeIDs[0].ID == 1 {
-		return []keg.NodeIndexEntry{{ID: "3"}}, nil
-	}
-	return []keg.NodeIndexEntry{{ID: "4"}}, nil
+	return out, nil
 }
 func TestRelationshipObserverOnlyActualPairsInResultPage(t *testing.T) {
 	k := &observedLinksKeg{}
@@ -55,14 +56,25 @@ type crossObservedKeg struct {
 	malformed bool
 }
 
-func (k *crossObservedKeg) RelatedNodes(_ context.Context, o keg.RelatedNodesOptions) ([]keg.NodeIndexEntry, error) {
-	if k.fail && len(o.NodeIDs) == 1 {
+// Every input relates to the same two cross-keg nodes.
+func (k *crossObservedKeg) RelatedNodes(_ context.Context, o keg.RelatedNodesOptions) (*keg.RelatedNodesResult, error) {
+	if k.fail {
 		return nil, fmt.Errorf("lookup failed")
 	}
+	targets := []string{"keg:other/4", "keg:@team/third/4"}
 	if k.malformed {
-		return []keg.NodeIndexEntry{{ID: "keg:@broken"}}, nil
+		targets = []string{"keg:@broken"}
 	}
-	return []keg.NodeIndexEntry{{ID: "keg:other/4"}, {ID: "keg:@team/third/4"}, {ID: "keg:other/4"}}, nil
+	out := &keg.RelatedNodesResult{}
+	for _, target := range targets {
+		out.Entries = append(out.Entries, keg.NodeIndexEntry{ID: target})
+	}
+	for _, id := range o.NodeIDs {
+		for _, target := range targets {
+			out.Pairs = append(out.Pairs, keg.RelatedPair{From: id.Path(), To: target})
+		}
+	}
+	return out, nil
 }
 func TestRelationshipObserverFullIdentitiesAndFailures(t *testing.T) {
 	for _, back := range []bool{false, true} {
