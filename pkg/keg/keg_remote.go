@@ -558,20 +558,16 @@ func parseRewritten(paths []string) ([]NodeId, error) {
 	return out, nil
 }
 
-// Move implements Keg via POST /nodes/{src}/move.
+// Move implements Keg as a batch-of-one call to POST /nodes/move.
 func (k *RemoteKeg) Move(ctx context.Context, opts NodeMoveOptions) ([]NodeId, error) {
-	var result struct {
-		Rewritten []string `json:"rewritten"`
-	}
-	req := struct {
-		Dst          int    `json:"dst"`
-		ExpectedHash string `json:"expected_hash"`
-	}{Dst: opts.Destination.ID, ExpectedHash: opts.ExpectedHash}
-	path := fmt.Sprintf("/nodes/%d/move", opts.Source.ID)
-	if err := k.postJSON(ctx, path, "Move", req, &result, http.StatusOK); err != nil {
+	results, err := k.MoveBatch(ctx, []MoveItem{{Source: opts.Source.ID, Destination: opts.Destination.ID, ExpectedHash: opts.ExpectedHash}})
+	if err != nil {
 		return nil, err
 	}
-	return parseRewritten(result.Rewritten)
+	if len(results) != 1 {
+		return nil, NewBackendError("remote", "Move", 0, fmt.Errorf("invalid response: expected one moved node, got %d", len(results)), false)
+	}
+	return results[0].Rewritten, nil
 }
 
 // Remove implements Keg as a batch-of-one call to POST /nodes/remove.
@@ -783,83 +779,85 @@ func (k *RemoteKeg) Summary(ctx context.Context) (*KegSummary, error) {
 
 // --- Assets and images ---
 
-// listAssets fetches an asset name list (assets or images) for a node.
+// attachmentKind maps the legacy asset families onto attachment kinds.
+func attachmentKind(kind string) AttachmentKind {
+	if kind == "images" {
+		return AttachmentImage
+	}
+	return AttachmentFile
+}
+
+// listAssets lists one attachment kind for a node through the attachment
+// listing, following its cursor to the end.
 func (k *RemoteKeg) listAssets(ctx context.Context, id NodeId, kind, op string) ([]string, error) {
-	var names []string
-	if err := k.getJSON(ctx, fmt.Sprintf("/nodes/%d/%s", id.ID, kind), op, &names); err != nil {
-		return nil, err
+	want := attachmentKind(kind)
+	names := []string{}
+	cursor := ""
+	for {
+		page, err := k.ListAttachments(ctx, AttachmentListRequest{IDs: []int{id.ID}, Cursor: cursor, Limit: 100})
+		if err != nil {
+			return nil, err
+		}
+		for _, item := range page.Results {
+			if item.Kind == want {
+				names = append(names, item.Name)
+			}
+		}
+		if page.Cursor == "" || page.Cursor == cursor {
+			return names, nil
+		}
+		cursor = page.Cursor
 	}
-	return names, nil
 }
 
-// readAsset fetches one asset payload (asset or image) for a node.
-func (k *RemoteKeg) readAsset(ctx context.Context, id NodeId, kind, name, op string) ([]byte, error) {
-	path := fmt.Sprintf("/nodes/%d/%s/%s", id.ID, kind, url.PathEscape(name))
-	resp, err := k.do(ctx, http.MethodGet, path, nil, "", nil)
-	if err != nil {
-		return nil, err
-	}
-	return k.readBody(resp, op, http.StatusOK)
+func (k *RemoteKeg) readAsset(ctx context.Context, id NodeId, kind, name, _ string) ([]byte, error) {
+	return k.ReadAttachment(ctx, id, attachmentKind(kind), name)
 }
 
-// writeAsset stores one asset payload (asset or image) for a node.
-func (k *RemoteKeg) writeAsset(ctx context.Context, id NodeId, kind, name string, data []byte, op string) error {
-	path := fmt.Sprintf("/nodes/%d/%s/%s", id.ID, kind, url.PathEscape(name))
-	resp, err := k.do(ctx, http.MethodPut, path, bytes.NewReader(data), "application/octet-stream", nil)
-	if err != nil {
-		return err
-	}
-	_, err = k.readBody(resp, op, http.StatusOK, http.StatusNoContent)
-	return err
+func (k *RemoteKeg) writeAsset(ctx context.Context, id NodeId, kind, name string, data []byte, _ string) error {
+	return k.WriteAttachment(ctx, id, attachmentKind(kind), name, data)
 }
 
-// deleteAsset removes one asset (asset or image) from a node.
-func (k *RemoteKeg) deleteAsset(ctx context.Context, id NodeId, kind, name, op string) error {
-	path := fmt.Sprintf("/nodes/%d/%s/%s", id.ID, kind, url.PathEscape(name))
-	resp, err := k.do(ctx, http.MethodDelete, path, nil, "", nil)
-	if err != nil {
-		return err
-	}
-	_, err = k.readBody(resp, op, http.StatusOK, http.StatusNoContent)
-	return err
+func (k *RemoteKeg) deleteAsset(ctx context.Context, id NodeId, kind, name, _ string) error {
+	return k.DeleteAttachment(ctx, id, attachmentKind(kind), name)
 }
 
-// ListFiles implements Keg via GET /nodes/{id}/assets.
+// ListFiles implements Keg through the attachment listing.
 func (k *RemoteKeg) ListFiles(ctx context.Context, id NodeId) ([]string, error) {
 	return k.listAssets(ctx, id, "assets", "ListFiles")
 }
 
-// ReadFile implements Keg via GET /nodes/{id}/assets/{name}.
+// ReadFile implements Keg through the file attachment route.
 func (k *RemoteKeg) ReadFile(ctx context.Context, id NodeId, name string) ([]byte, error) {
 	return k.readAsset(ctx, id, "assets", name, "ReadFile")
 }
 
-// WriteFile implements Keg via PUT /nodes/{id}/assets/{name}.
+// WriteFile implements Keg through the file attachment route.
 func (k *RemoteKeg) WriteFile(ctx context.Context, id NodeId, name string, data []byte) error {
 	return k.writeAsset(ctx, id, "assets", name, data, "WriteFile")
 }
 
-// DeleteFile implements Keg via DELETE /nodes/{id}/assets/{name}.
+// DeleteFile implements Keg through the file attachment route.
 func (k *RemoteKeg) DeleteFile(ctx context.Context, id NodeId, name string) error {
 	return k.deleteAsset(ctx, id, "assets", name, "DeleteFile")
 }
 
-// ListImages implements Keg via GET /nodes/{id}/images.
+// ListImages implements Keg through the attachment listing.
 func (k *RemoteKeg) ListImages(ctx context.Context, id NodeId) ([]string, error) {
 	return k.listAssets(ctx, id, "images", "ListImages")
 }
 
-// ReadImage implements Keg via GET /nodes/{id}/images/{name}.
+// ReadImage implements Keg through the image attachment route.
 func (k *RemoteKeg) ReadImage(ctx context.Context, id NodeId, name string) ([]byte, error) {
 	return k.readAsset(ctx, id, "images", name, "ReadImage")
 }
 
-// WriteImage implements Keg via PUT /nodes/{id}/images/{name}.
+// WriteImage implements Keg through the image attachment route.
 func (k *RemoteKeg) WriteImage(ctx context.Context, id NodeId, name string, data []byte) error {
 	return k.writeAsset(ctx, id, "images", name, data, "WriteImage")
 }
 
-// DeleteImage implements Keg via DELETE /nodes/{id}/images/{name}.
+// DeleteImage implements Keg through the image attachment route.
 func (k *RemoteKeg) DeleteImage(ctx context.Context, id NodeId, name string) error {
 	return k.deleteAsset(ctx, id, "images", name, "DeleteImage")
 }
@@ -977,10 +975,29 @@ func (k *RemoteKeg) ReadContentAt(ctx context.Context, id NodeId, rev RevisionID
 	return k.readBody(resp, "ReadContentAt", http.StatusOK)
 }
 
-// RestoreSnapshot implements Keg via POST /nodes/{id}/snapshots/{rev}/restore.
+// RestoreSnapshot implements Keg as a batch-of-one call to POST
+// /nodes/snapshots/restore, guarded by the node's current hash.
 func (k *RemoteKeg) RestoreSnapshot(ctx context.Context, id NodeId, rev RevisionID) error {
-	path := fmt.Sprintf("/nodes/%d/snapshots/%d/restore", id.ID, int64(rev))
-	return k.postJSON(ctx, path, "RestoreSnapshot", struct{}{}, nil, http.StatusOK, http.StatusNoContent)
+	hash, err := k.currentHash(ctx, id)
+	if err != nil {
+		return err
+	}
+	_, err = k.RestoreBatch(ctx, []RestoreItem{{ID: id.ID, Revision: rev, ExpectedHash: hash}})
+	return err
+}
+
+// currentHash reads a node's precondition hash from its metadata route's
+// ETag, which neither loads content nor counts as a read.
+func (k *RemoteKeg) currentHash(ctx context.Context, id NodeId) (string, error) {
+	resp, err := k.do(ctx, http.MethodGet, fmt.Sprintf("/nodes/%d/meta", id.ID), nil, "", nil)
+	if err != nil {
+		return "", err
+	}
+	etag := resp.Header.Get("ETag")
+	if _, err := k.readBody(resp, "RestoreSnapshot", http.StatusOK); err != nil {
+		return "", err
+	}
+	return strings.Trim(etag, `"`), nil
 }
 
 // --- Bulk transfer ---

@@ -299,25 +299,20 @@ func newMockOpsHub(t *testing.T, f *sandbox.Sandbox, token string) *mockOpsHub {
 		}
 		h.writeJSON(w, http.StatusOK, response)
 	})
-	mux.HandleFunc("POST /nodes/{id}/move", func(w http.ResponseWriter, r *http.Request) {
-		id, ok := h.parseID(w, r)
-		if !ok {
-			return
-		}
+	mux.HandleFunc("POST /nodes/move", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
-			Dst          int    `json:"dst"`
-			ExpectedHash string `json:"expected_hash"`
+			Nodes []kegpkg.MoveItem `json:"nodes"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			h.writeError(w, http.StatusBadRequest, "invalid JSON body", "BAD_REQUEST")
 			return
 		}
-		rewritten, err := backing.Move(r.Context(), kegpkg.NodeMoveOptions{Source: id, Destination: kegpkg.NodeId{ID: req.Dst}, ExpectedHash: req.ExpectedHash})
+		results, err := backing.MoveBatch(r.Context(), req.Nodes)
 		if err != nil {
 			h.kegError(w, err)
 			return
 		}
-		h.writeJSON(w, http.StatusOK, map[string][]string{"rewritten": rewrittenWire(rewritten)})
+		h.writeJSON(w, http.StatusOK, results)
 	})
 	mux.HandleFunc("POST /nodes/{id}/touch", func(w http.ResponseWriter, r *http.Request) {
 		id, ok := h.parseID(w, r)

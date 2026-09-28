@@ -33,13 +33,16 @@ type MutationResult struct {
 	Rewritten []NodeId `json:"rewritten,omitempty"`
 }
 
-func (k *LocalKeg) preflightMutation(ctx context.Context, ids []int, hashes []string) error {
+// preflightMutation checks a batch's nodes exist at the expected versions.
+// The root (node 0) is accepted only when allowRoot is set: it can be restored
+// from its own history but never moved or removed.
+func (k *LocalKeg) preflightMutation(ctx context.Context, ids []int, hashes []string, allowRoot bool) error {
 	if err := validateMutationBatchSize(len(ids)); err != nil {
 		return err
 	}
 	seen := map[int]bool{}
 	for i, id := range ids {
-		if id <= 0 || seen[id] {
+		if id < 0 || (id == 0 && !allowRoot) || seen[id] {
 			return fmt.Errorf("duplicate or invalid node %d: %w", id, ErrInvalid)
 		}
 		seen[id] = true
@@ -66,7 +69,7 @@ func (k *LocalKeg) MoveBatch(ctx context.Context, items []MoveItem) ([]MutationR
 			}
 			destinations[item.Destination] = true
 		}
-		if err := k.preflightMutation(ctx, ids, hashes); err != nil {
+		if err := k.preflightMutation(ctx, ids, hashes, false); err != nil {
 			return nil, err
 		}
 		// Check all destinations before any move so an earlier move cannot vacate a
@@ -114,7 +117,7 @@ func (k *LocalKeg) RemoveBatch(ctx context.Context, items []RemoveItem) ([]Mutat
 		for i, item := range items {
 			ids[i], hashes[i] = item.ID, item.ExpectedHash
 		}
-		if err := k.preflightMutation(ctx, ids, hashes); err != nil {
+		if err := k.preflightMutation(ctx, ids, hashes, false); err != nil {
 			return nil, err
 		}
 		out := make([]MutationResult, 0, len(items))
@@ -140,7 +143,7 @@ func (k *LocalKeg) RestoreBatch(ctx context.Context, items []RestoreItem) ([]Mut
 		for i, item := range items {
 			ids[i], hashes[i] = item.ID, item.ExpectedHash
 		}
-		if err := k.preflightMutation(ctx, ids, hashes); err != nil {
+		if err := k.preflightMutation(ctx, ids, hashes, true); err != nil {
 			return nil, err
 		}
 		out := make([]MutationResult, 0, len(items))
@@ -180,10 +183,25 @@ func (k *RemoteKeg) MoveBatch(ctx context.Context, items []MoveItem) ([]Mutation
 	err := k.postJSON(ctx, "/nodes/move", "MoveBatch", map[string]any{"nodes": items}, &out, http.StatusOK)
 	return out, err
 }
+// RemoveBatch implements Keg through POST /nodes/remove, the Hub's single
+// removal contract: all items are removed atomically or none are.
 func (k *RemoteKeg) RemoveBatch(ctx context.Context, items []RemoveItem) ([]MutationResult, error) {
-	var out []MutationResult
-	err := k.postJSON(ctx, "/nodes/remove", "RemoveBatch", map[string]any{"nodes": items}, &out, http.StatusOK)
-	return out, err
+	nodes := make([]NodeRemoveOptions, len(items))
+	for i, item := range items {
+		nodes[i] = NodeRemoveOptions{ID: NodeId{ID: item.ID}, ExpectedHash: item.ExpectedHash}
+	}
+	result, err := k.RemoveNodes(ctx, RemoveNodesOptions{Nodes: nodes})
+	if err != nil {
+		return nil, err
+	}
+	if result.Failure != nil {
+		return nil, result.Failure.Err()
+	}
+	out := make([]MutationResult, len(result.Removed))
+	for i, removed := range result.Removed {
+		out[i] = MutationResult{ID: removed.ID.ID, Rewritten: removed.Rewritten}
+	}
+	return out, nil
 }
 func (k *RemoteKeg) RestoreBatch(ctx context.Context, items []RestoreItem) ([]MutationResult, error) {
 	var out []MutationResult
