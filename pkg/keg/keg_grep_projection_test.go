@@ -69,35 +69,43 @@ func TestListViewRestrictsToNodeIDs(t *testing.T) {
 }
 
 // scanRepo implements the optional content scan the way an index-backed
-// store would: a literal narrows the scan to nodes containing it.
+// store would: the filter's substrings narrow the scan, compared with a
+// lowercase fold like SQL ILIKE rather than Go's case folding.
 type scanRepo struct {
 	keg.Repository
-	scans    int
-	literals []string
+	delivered int
 }
 
-func (r *scanRepo) ScanContent(ctx context.Context, literal string, ignoreCase bool) (map[string][]byte, error) {
-	r.scans++
-	r.literals = append(r.literals, literal)
+func (r *scanRepo) ScanContent(ctx context.Context, filter keg.ContentFilter, fn func(keg.NodeId, []byte) error) error {
 	ids, err := r.ListNodes(ctx)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	out := map[string][]byte{}
 	for _, id := range ids {
 		raw, err := r.ReadContent(ctx, id)
 		if err != nil {
 			continue
 		}
-		haystack, needle := string(raw), literal
-		if ignoreCase {
-			haystack, needle = strings.ToLower(haystack), strings.ToLower(needle)
+		haystack := string(raw)
+		if filter.IgnoreCase {
+			haystack = strings.ToLower(haystack)
 		}
-		if strings.Contains(haystack, needle) {
-			out[id.Path()] = raw
+		keep := true
+		for _, sub := range filter.Substrings {
+			if filter.IgnoreCase {
+				sub = strings.ToLower(sub)
+			}
+			keep = keep && strings.Contains(haystack, sub)
+		}
+		if !keep {
+			continue
+		}
+		r.delivered++
+		if err := fn(id, raw); err != nil {
+			return err
 		}
 	}
-	return out, nil
+	return nil
 }
 
 func TestGrepWithContentScanMatchesPlainGrep(t *testing.T) {
@@ -111,17 +119,45 @@ func TestGrepWithContentScanMatchesPlainGrep(t *testing.T) {
 		{Pattern: "needle", IgnoreCase: true},
 		{Pattern: `\bneedle\s+t`},
 		{Pattern: "(?i)needle"},
+		{Pattern: "(?i)NEEDLE two"},
+		{Pattern: `needle\s+(one|two)`},
+		{Pattern: "nothing|needle"},
+		{Pattern: "ne+dle"},
+		{Pattern: "need(le)?"},
+		{Pattern: `(?:needle ){1,2}three`},
+		{Pattern: "needle", MaxLines: 1},
 	} {
 		want, err := plain.Grep(ctx, opts)
 		require.NoError(t, err)
 		got, err := scanned.Grep(ctx, opts)
 		require.NoError(t, err)
-		require.Equal(t, grepIDs(want), grepIDs(got), "pattern %q", opts.Pattern)
+		require.Equal(t, want, got, "pattern %q", opts.Pattern)
 	}
-	// Literal patterns narrow the scan (case folded under (?i)); anything
-	// else scans every node.
-	for i := range repo.literals {
-		repo.literals[i] = strings.ToLower(repo.literals[i])
+}
+
+func TestGrepContentScanNarrowsToRequiredText(t *testing.T) {
+	fx := NewSandbox(t)
+	repo := &scanRepo{Repository: newTestMemoryRepo(fx.Runtime())}
+	k, ctx := seedGrepKeg(t, repo)
+	_, err := k.Grep(ctx, keg.GrepOptions{Pattern: `needle\s+t`})
+	require.NoError(t, err)
+	// Only the nodes containing "needle" cross the scan, not all four.
+	require.Equal(t, 2, repo.delivered)
+}
+
+func TestGrepContentScanKeepsGoCaseFolding(t *testing.T) {
+	// Go's (?i)s also matches U+017F (long s), which a lowercase comparison
+	// does not fold; the scan must not drop that node.
+	fx := NewSandbox(t)
+	for _, repo := range []keg.Repository{newTestMemoryRepo(fx.Runtime()), &scanRepo{Repository: newTestMemoryRepo(fx.Runtime())}} {
+		k := keg.NewLocalKeg(repo, fx.Runtime())
+		ctx := fx.Context()
+		initNonStrictTestKeg(t, k, ctx)
+		_, err := k.Create(ctx, &keg.CreateOptions{Body: []byte("# Note\n\nthe \u017ftar\n")})
+		require.NoError(t, err)
+		require.NoError(t, k.Index(ctx, keg.IndexOptions{}))
+		got, err := k.Grep(ctx, keg.GrepOptions{Pattern: "star", IgnoreCase: true})
+		require.NoError(t, err)
+		require.Len(t, got, 1)
 	}
-	require.Equal(t, []string{"needle", "needle", "", "needle"}, repo.literals)
 }

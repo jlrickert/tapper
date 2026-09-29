@@ -13,6 +13,49 @@ func (k *LocalKeg) ReadNode(ctx context.Context, id NodeId) (*NodeView, error) {
 	return withKegReadValue(ctx, k, func(ctx context.Context) (*NodeView, error) { return k.readNode(ctx, id) })
 }
 
+// readNodeMeta is readNode without content or asset lists: raw meta (empty
+// when absent), stats, and the state hash. Content is read only for a node
+// whose stats carry no hash, because that hash is derived from content. The
+// caller holds the read operation.
+func (k *LocalKeg) readNodeMeta(ctx context.Context, id NodeId) (*NodeView, error) {
+	if err := k.checkKegExists(ctx); err != nil {
+		return nil, fmt.Errorf("failed to read node meta: %w", err)
+	}
+	exists, err := k.Repo.HasNode(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if !exists {
+		return nil, ErrNotExist
+	}
+	meta, err := k.Repo.ReadMeta(ctx, id)
+	if err != nil && !errors.Is(err, ErrNotExist) {
+		return nil, err
+	}
+	stats, err := k.Repo.ReadStats(ctx, id)
+	if err != nil && !errors.Is(err, ErrNotExist) {
+		return nil, err
+	}
+	if stats == nil {
+		stats = &NodeStats{}
+	}
+	view := &NodeView{ID: id, Meta: meta, Stats: stats}
+	if stats.Hash() == "" {
+		content, err := k.Repo.ReadContent(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		parsedContent, parseErr := ParseContent(k.Runtime, content, MarkdownContentFilename)
+		if parseErr == nil {
+			parsedMeta, metaErr := ParseMeta(ctx, meta)
+			if metaErr == nil {
+				view.hash = nodeStateHash(k.Runtime, parsedContent.Hash, parsedMeta)
+			}
+		}
+	}
+	return view, nil
+}
+
 func (k *LocalKeg) readNode(ctx context.Context, id NodeId) (*NodeView, error) {
 	if err := k.checkKegExists(ctx); err != nil {
 		return nil, fmt.Errorf("failed to read node: %w", err)

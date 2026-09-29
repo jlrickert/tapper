@@ -75,13 +75,26 @@ func (k *LocalKeg) grep(ctx context.Context, opts GrepOptions) ([]GrepMatch, err
 		return nil, fmt.Errorf("unable to read dex: %w", err)
 	}
 
-	// A backend that can scan content answers in one operation, narrowed by
-	// an index when the pattern is a plain literal. Otherwise each node is
+	// A backend that can scan content streams it in one operation, narrowed
+	// by the substrings every match must contain. Only matching lines are
+	// kept, so memory follows the result, not the KEG. Otherwise each node is
 	// read individually.
-	var scanned map[string][]byte
+	matchLines := func(raw []byte) []string {
+		lines := grepContentLineMatches(re, raw)
+		if opts.MaxLines > 0 && len(lines) > opts.MaxLines {
+			lines = lines[:opts.MaxLines]
+		}
+		return lines
+	}
+	var scanned map[string][]string
 	if scan, ok := k.Repo.(RepositoryContentScan); ok {
-		literal, fold := grepLiteral(opts.Pattern, opts.IgnoreCase)
-		scanned, err = scan.ScanContent(ctx, literal, fold)
+		scanned = map[string][]string{}
+		err = scan.ScanContent(ctx, grepContentFilter(opts.Pattern, opts.IgnoreCase), func(id NodeId, raw []byte) error {
+			if lines := matchLines(raw); len(lines) > 0 {
+				scanned[id.Path()] = lines
+			}
+			return nil
+		})
 		if err != nil {
 			return nil, fmt.Errorf("unable to scan node content: %w", err)
 		}
@@ -93,25 +106,18 @@ func (k *LocalKeg) grep(ctx context.Context, opts GrepOptions) ([]GrepMatch, err
 		if parseErr != nil || id == nil {
 			continue
 		}
-		var raw []byte
+		var lines []string
 		if scanned != nil {
-			var ok bool
-			if raw, ok = scanned[id.Path()]; !ok {
-				continue
-			}
+			lines = scanned[id.Path()]
 		} else {
-			var readErr error
-			raw, readErr = k.Repo.ReadContent(ctx, *id)
+			raw, readErr := k.Repo.ReadContent(ctx, *id)
 			if readErr != nil {
 				if errors.Is(readErr, ErrNotExist) {
 					continue
 				}
 				return nil, fmt.Errorf("unable to read node content: %w", readErr)
 			}
-		}
-		lines := grepContentLineMatches(re, raw)
-		if opts.MaxLines > 0 && len(lines) > opts.MaxLines {
-			lines = lines[:opts.MaxLines]
+			lines = matchLines(raw)
 		}
 		if len(lines) > 0 {
 			matches = append(matches, GrepMatch{Entry: entry, Lines: lines})
@@ -141,20 +147,107 @@ func (k *LocalKeg) grep(ctx context.Context, opts GrepOptions) ([]GrepMatch, err
 	return matches, nil
 }
 
-// grepLiteral returns the literal text pattern must contain when the whole
-// pattern is a plain literal, so a content scan can be narrowed by an index.
-// Anything else returns "", which scans every node.
-func grepLiteral(pattern string, ignoreCase bool) (string, bool) {
+// grepMinSubstring is the shortest substring worth narrowing a scan by:
+// trigram indexes cannot use anything shorter.
+const grepMinSubstring = 3
+
+// grepContentFilter returns substrings that every line matching pattern must
+// contain, so a content scan can be narrowed by an index. It may return fewer
+// substrings than the pattern requires, never one it does not require.
+//
+// Case-insensitive substrings are kept only when a database's lowercase
+// comparison folds them exactly as Go does: ASCII, and split at 's', whose
+// Go case-fold orbit includes U+017F (long s), which lower() leaves alone.
+func grepContentFilter(pattern string, ignoreCase bool) ContentFilter {
 	parsed, err := syntax.Parse(pattern, syntax.Perl)
 	if err != nil {
-		return "", false
+		return ContentFilter{}
 	}
-	parsed = parsed.Simplify()
-	if parsed.Op != syntax.OpLiteral || len(parsed.Rune) == 0 {
-		return "", false
+	if ignoreCase {
+		foldAll(parsed)
 	}
-	fold := ignoreCase || parsed.Flags&syntax.FoldCase != 0
-	return string(parsed.Rune), fold
+	var filter ContentFilter
+	for _, lit := range requiredLiterals(parsed.Simplify()) {
+		pieces := []string{lit.text}
+		if lit.fold {
+			if !isASCII(lit.text) {
+				continue
+			}
+			pieces = strings.FieldsFunc(lit.text, func(r rune) bool { return r == 's' || r == 'S' })
+		}
+		for _, piece := range pieces {
+			if len(piece) < grepMinSubstring || strings.ContainsAny(piece, "\r\n") {
+				continue
+			}
+			filter.Substrings = append(filter.Substrings, piece)
+			filter.IgnoreCase = filter.IgnoreCase || lit.fold
+		}
+	}
+	return filter
+}
+
+type grepLiteral struct {
+	text string
+	fold bool
+}
+
+// requiredLiterals returns literal runs that every match of re contains.
+func requiredLiterals(re *syntax.Regexp) []grepLiteral {
+	switch re.Op {
+	case syntax.OpLiteral:
+		if len(re.Rune) == 0 {
+			return nil
+		}
+		return []grepLiteral{{text: string(re.Rune), fold: re.Flags&syntax.FoldCase != 0}}
+	case syntax.OpCapture, syntax.OpPlus:
+		return requiredLiterals(re.Sub[0])
+	case syntax.OpRepeat:
+		if re.Min >= 1 {
+			return requiredLiterals(re.Sub[0])
+		}
+	case syntax.OpConcat:
+		var out []grepLiteral
+		var run []rune
+		runFold := false
+		flush := func() {
+			if len(run) > 0 {
+				out = append(out, grepLiteral{text: string(run), fold: runFold})
+				run = nil
+			}
+		}
+		for _, sub := range re.Sub {
+			if sub.Op == syntax.OpLiteral {
+				fold := sub.Flags&syntax.FoldCase != 0
+				if len(run) > 0 && fold != runFold {
+					flush()
+				}
+				run, runFold = append(run, sub.Rune...), fold
+				continue
+			}
+			flush()
+			out = append(out, requiredLiterals(sub)...)
+		}
+		flush()
+		return out
+	}
+	return nil
+}
+
+// foldAll marks every literal case-insensitive, as a leading (?i) would.
+func foldAll(re *syntax.Regexp) {
+	re.Flags |= syntax.FoldCase
+	for _, sub := range re.Sub {
+		foldAll(sub)
+	}
+}
+
+func isASCII(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] >= 0x80 {
+			return false
+		}
+	}
+	return true
 }
 
 // grepContentLineMatches returns "lineno:text" lines of raw content matching re.
