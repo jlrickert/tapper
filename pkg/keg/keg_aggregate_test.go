@@ -196,7 +196,8 @@ func TestRemoteAggregateMethodsUseOneRequest(t *testing.T) {
 func TestReadNodesMetaOnly(t *testing.T) {
 	fx := NewSandbox(t)
 	ctx := fx.Context()
-	k := keg.NewLocalKeg(newTestMemoryRepo(fx.Runtime()), fx.Runtime())
+	repo := newTestMemoryRepo(fx.Runtime())
+	k := keg.NewLocalKeg(repo, fx.Runtime())
 	initNonStrictTestKeg(t, k, ctx)
 	created, err := k.Create(ctx, &keg.CreateOptions{Body: []byte("# One\n\nbody\n"), Meta: []byte("kind: note\n")})
 	require.NoError(t, err)
@@ -213,6 +214,21 @@ func TestReadNodesMetaOnly(t *testing.T) {
 
 	_, err = k.ReadNodes(ctx, keg.ReadNodesOptions{NodeIDs: []keg.NodeId{{ID: 999}}, MetaOnly: true})
 	require.ErrorIs(t, err, keg.ErrNotExist)
+
+	// A node that exists without metadata, and whose stats predate the state
+	// hash, is still a node: empty metadata and a hash derived from content.
+	bare, err := k.Create(ctx, &keg.CreateOptions{Body: []byte("# Bare\n\nbody\n")})
+	require.NoError(t, err)
+	require.NoError(t, repo.WriteMeta(ctx, bare.ID, nil))
+	require.NoError(t, repo.WriteStats(ctx, bare.ID, &keg.NodeStats{}))
+	bareFull, err := k.ReadNode(ctx, bare.ID)
+	require.NoError(t, err)
+	views, err = k.ReadNodes(ctx, keg.ReadNodesOptions{NodeIDs: []keg.NodeId{bare.ID}, MetaOnly: true})
+	require.NoError(t, err)
+	require.Len(t, views, 1)
+	require.Empty(t, views[0].Meta)
+	require.NotEmpty(t, views[0].Hash())
+	require.Equal(t, bareFull.Hash(), views[0].Hash())
 	_, err = k.ReadNodes(ctx, keg.ReadNodesOptions{NodeIDs: []keg.NodeId{id}, MetaOnly: true, Touch: true})
 	require.ErrorIs(t, err, keg.ErrInvalid)
 }
