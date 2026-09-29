@@ -2,6 +2,47 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.44.0 - 2026-09-29
+
+
+
+### ⚡ Performance
+- **keg:** resolve listing fields in one batch instead of per node
+- **tapper:** forward whole TAP operations and reuse orientation
+- **keg:** stream grep scans and read metadata without content
+- **keg:** let a repository grep content in its own regex engine
+
+
+### 🐛 Bug Fixes
+- **launch:** describe locked tools for agents without a flight
+- **config:** strip logFile and logLevel from project config
+- **auth:** validate device-login verification URLs
+
+
+### 🚀 Features
+- **config:** add user-only relay provider configuration
+- **relay:** define the tap relay wire contract and client
+- **cli:** add experimental tap relay command
+- **relay:** add provider limits, priority, transcription, and multi-hub serving
+- **launch:** run harnesses on Hub models through a loopback forwarder
+- **launch:** run every harness on Hub models and retire local agents
+- **launch:** list the Hub catalog in Claude Code's model picker
+- **relay:** discover canonical models and capabilities
+- **agents:** add Hub agents and align CLI and MCP commands
+- **relay:** keep quantization precision in canonical model names
+- **invitation:** accept Hub invitations for memberships and grants
+- **cli:** identify tap in the HTTP user agent
+- **launch:** describe pooled Hub models in harness pickers
+
+
+### 🚜 Refactor
+- **keg:** call the Hub's replacement routes for single-item changes
+
+
+### 🧪 Testing
+- **keg:** cover metadata-only reads of nodes without metadata
+
+
 ## v0.43.0 - 2026-09-22
 
 
