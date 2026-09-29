@@ -169,16 +169,23 @@ func repositoryBatchRead(repo Repository) (RepositoryBatchRead, bool) {
 	return capability, ok
 }
 
+// ContentFilter narrows a content scan to nodes whose content contains every
+// substring, case-insensitively when IgnoreCase is set. An empty filter
+// matches every node.
+type ContentFilter struct {
+	Substrings []string
+	IgnoreCase bool
+}
+
 // RepositoryContentScan is an optional capability that lets grep read content
 // in one operation instead of one read per node.
 type RepositoryContentScan interface {
-	// ScanContent returns node content keyed by node id path. When literal is
-	// non-empty the backend may return only nodes whose content contains it
-	// (case-insensitively when ignoreCase is set), an index-assisted
-	// narrowing. The result may include nodes that do not contain literal
-	// but must never omit one that does; grep still applies the full pattern
-	// to every result.
-	ScanContent(ctx context.Context, literal string, ignoreCase bool) (map[string][]byte, error)
+	// ScanContent calls fn with each node's content, in no particular order,
+	// and stops at the first error fn returns. The backend may skip nodes
+	// that do not satisfy filter, an index-assisted narrowing; it may also
+	// pass nodes that do not, but must never skip one that does. Grep still
+	// applies the full pattern to every node it receives.
+	ScanContent(ctx context.Context, filter ContentFilter, fn func(id NodeId, content []byte) error) error
 }
 
 // RepositoryFiles provides optional per-node file attachment access.

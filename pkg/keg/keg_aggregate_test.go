@@ -192,3 +192,27 @@ func TestRemoteAggregateMethodsUseOneRequest(t *testing.T) {
 		})
 	}
 }
+
+func TestReadNodesMetaOnly(t *testing.T) {
+	fx := NewSandbox(t)
+	ctx := fx.Context()
+	k := keg.NewLocalKeg(newTestMemoryRepo(fx.Runtime()), fx.Runtime())
+	initNonStrictTestKeg(t, k, ctx)
+	created, err := k.Create(ctx, &keg.CreateOptions{Body: []byte("# One\n\nbody\n"), Meta: []byte("kind: note\n")})
+	require.NoError(t, err)
+	id := created.ID
+
+	full, err := k.ReadNode(ctx, id)
+	require.NoError(t, err)
+	views, err := k.ReadNodes(ctx, keg.ReadNodesOptions{NodeIDs: []keg.NodeId{id}, MetaOnly: true})
+	require.NoError(t, err)
+	require.Len(t, views, 1)
+	require.Equal(t, full.Meta, views[0].Meta)
+	require.Equal(t, full.Hash(), views[0].Hash())
+	require.Empty(t, views[0].Content)
+
+	_, err = k.ReadNodes(ctx, keg.ReadNodesOptions{NodeIDs: []keg.NodeId{{ID: 999}}, MetaOnly: true})
+	require.ErrorIs(t, err, keg.ErrNotExist)
+	_, err = k.ReadNodes(ctx, keg.ReadNodesOptions{NodeIDs: []keg.NodeId{id}, MetaOnly: true, Touch: true})
+	require.ErrorIs(t, err, keg.ErrInvalid)
+}

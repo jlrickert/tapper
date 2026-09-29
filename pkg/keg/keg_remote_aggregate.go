@@ -55,10 +55,11 @@ func (k *RemoteKeg) ReadNodes(ctx context.Context, opts ReadNodesOptions) ([]Nod
 		ids[i] = id.ID
 	}
 	req := struct {
-		NodeIDs []int  `json:"node_ids,omitempty"`
-		Query   string `json:"query,omitempty"`
-		Touch   bool   `json:"touch,omitempty"`
-	}{ids, opts.Query, opts.Touch}
+		NodeIDs  []int  `json:"node_ids,omitempty"`
+		Query    string `json:"query,omitempty"`
+		Touch    bool   `json:"touch,omitempty"`
+		MetaOnly bool   `json:"meta_only,omitempty"`
+	}{ids, opts.Query, opts.Touch, opts.MetaOnly}
 	var wire []remoteNodeView
 	if err := k.postJSON(ctx, "/nodes/read", "ReadNodes", req, &wire, http.StatusOK); err != nil {
 		return nil, err

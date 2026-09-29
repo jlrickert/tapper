@@ -87,6 +87,12 @@ type ReadNodesOptions struct {
 	NodeIDs []NodeId `json:"node_ids,omitempty"`
 	Query   string   `json:"query,omitempty"`
 	Touch   bool     `json:"touch,omitempty"`
+	// MetaOnly reads each node's metadata and stats without its content or
+	// asset lists, in the same consistent read, so a listing that renders
+	// metadata fields never loads bodies. Content is still read for a node
+	// whose stats predate the state hash, to derive it. It cannot be combined
+	// with Touch: a metadata read is not someone opening the node.
+	MetaOnly bool `json:"meta_only,omitempty"`
 }
 
 type RelatedDirection string
@@ -520,6 +526,9 @@ func (k *LocalKeg) ReadNodes(ctx context.Context, opts ReadNodesOptions) ([]Node
 }
 
 func (k *LocalKeg) readNodes(ctx context.Context, opts ReadNodesOptions) ([]NodeView, error) {
+	if opts.MetaOnly && opts.Touch {
+		return nil, fmt.Errorf("meta_only and touch are mutually exclusive: %w", ErrInvalid)
+	}
 	ids := slices.Clone(opts.NodeIDs)
 	if q := strings.TrimSpace(opts.Query); q != "" {
 		if len(ids) != 0 {
@@ -560,9 +569,13 @@ func (k *LocalKeg) readNodes(ctx context.Context, opts ReadNodesOptions) ([]Node
 		}
 	}
 
+	read := k.ReadNode
+	if opts.MetaOnly {
+		read = k.readNodeMeta
+	}
 	views := make([]NodeView, 0, len(ids))
 	for _, id := range ids {
-		view, err := k.ReadNode(ctx, id)
+		view, err := read(ctx, id)
 		if err != nil {
 			if errors.Is(err, ErrNotExist) {
 				err = fmt.Errorf("node %s not found: %w", id.Path(), err)
