@@ -169,23 +169,26 @@ func repositoryBatchRead(repo Repository) (RepositoryBatchRead, bool) {
 	return capability, ok
 }
 
-// ContentFilter narrows a content scan to nodes whose content contains every
-// substring, case-insensitively when IgnoreCase is set. An empty filter
-// matches every node.
-type ContentFilter struct {
-	Substrings []string
+// GrepContentOptions is a content search a backend runs itself.
+type GrepContentOptions struct {
+	// Pattern is a regular expression in the backend's own dialect.
+	Pattern string
+	// IgnoreCase matches case-insensitively.
 	IgnoreCase bool
+	// MaxLines caps matched lines per node; 0 means no cap.
+	MaxLines int
 }
 
-// RepositoryContentScan is an optional capability that lets grep read content
-// in one operation instead of one read per node.
-type RepositoryContentScan interface {
-	// ScanContent calls fn with each node's content, in no particular order,
-	// and stops at the first error fn returns. The backend may skip nodes
-	// that do not satisfy filter, an index-assisted narrowing; it may also
-	// pass nodes that do not, but must never skip one that does. Grep still
-	// applies the full pattern to every node it receives.
-	ScanContent(ctx context.Context, filter ContentFilter, fn func(id NodeId, content []byte) error) error
+// RepositoryGrep is an optional capability that lets a backend match content
+// itself, in its own regular-expression dialect, so content never has to be
+// read out to be searched. It reports a pattern it cannot evaluate as
+// ErrInvalid.
+type RepositoryGrep interface {
+	// GrepContent calls fn once per node with a matching line, in no
+	// particular node order, and stops at the first error fn returns. Lines
+	// are "lineno:text" in line order: 1-based numbers over content split at
+	// "\n" after "\r\n" becomes "\n", with a trailing "\r" trimmed.
+	GrepContent(ctx context.Context, opts GrepContentOptions, fn func(id NodeId, lines []string) error) error
 }
 
 // RepositoryFiles provides optional per-node file attachment access.
