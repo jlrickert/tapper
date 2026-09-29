@@ -136,7 +136,7 @@ func registerList(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 // --- node_search ---
 
 type grepInput struct {
-	Query      string `json:"query" jsonschema:"regex pattern to search node content"`
+	Query      string `json:"query" jsonschema:"regex pattern to search node content, matched per line. Local KEGs use Go RE2 syntax; Hub KEGs use PostgreSQL regex, where \\y (not \\b) is a word boundary and lookahead is allowed"`
 	Keg        string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
 	Format     string `json:"format,omitempty" jsonschema:"output format template. Legacy verbs %i (id), %t (title), %d (updated), %c (created), %a (accessed); %% is a literal percent. Named selectors use %{...}: a bare word names a metadata key such as %{type} or %{status}, a leading dot names a statistics field such as %{.accessCount} or %{.omega}, and %{tags} is the node's tag list. Backslash escapes are interpreted: \\t tab, \\n newline, \\r return, \\\\ backslash. Selectors other than id, title, and the three dates are resolved by the Hub for the returned page in one batch. Use id_only for compact MCP output."`
 	IdOnly     bool   `json:"id_only,omitempty" jsonschema:"return node IDs only (recommended for MCP to reduce token usage)"`
