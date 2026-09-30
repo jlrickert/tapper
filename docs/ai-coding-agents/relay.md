@@ -4,7 +4,8 @@
 
 `tap relay` offers this machine's model providers, such as a local Ollama, to
 your Hub account's model catalog. Hub then routes inference for those models
-through the relay.
+through the relay. It can also offer the tools of local MCP servers to Hub's
+chat; see [MCP servers](#mcp-servers).
 
 ```sh
 tap relay
@@ -90,6 +91,56 @@ serve `/embeddings`. Ollama marks its embedding models itself; for other
 providers, list them under `models.embeddings`. `tap launch` leaves speech and
 embedding models out of a harness's model list.
 
+## MCP servers
+
+List MCP servers under `relay.mcp` and the relay forwards their tools to Hub's
+chat. A server is either a stdio program the relay starts or a streamable HTTP
+server that is already running:
+
+```yaml
+relay:
+  mcp:
+    everything:
+      command: npx
+      args: ["-y", "@modelcontextprotocol/server-everything"]
+    notes:
+      url: http://127.0.0.1:3000/mcp
+      headersFromEnv: {Authorization: NOTES_MCP_AUTH}
+      tools:
+        deny: ["delete_*"]
+```
+
+- The relay starts every server when it starts, lists its tools, and sends the
+  list to each Hub. It re-lists when a server announces a change, and on the
+  catalog refresh for servers that do not. A server that exits drops out of
+  the list and is restarted, backing off from one second to a minute.
+- Hub calls a tool by the server and tool names the relay listed, with a JSON
+  object of arguments. It cannot name a command, URL, header, or environment
+  variable. Cancelling the call in Hub cancels it on the server.
+- A stdio server gets `PATH`, `HOME`, `USER`, `SHELL`, `TMPDIR`, locale
+  settings, the variables named in `envFrom`, and the literal `env` values.
+  Hub tokens and provider API keys are not passed unless you name them.
+  `inheritEnv: true` passes the whole environment instead. The server runs in
+  its own process group, which the relay kills when it stops. Its stderr goes
+  to the relay's log at debug level.
+- Each server has its own `maxConcurrent` (default 4) across all hubs, and a
+  `timeout` per call (default `2m`). A full server answers `overloaded`; a
+  call past its timeout ends with `timeout`.
+- Tools reach only Hub's chat, and only for agents that allow relay tools.
+  Hub's approval setting applies: a tool the server marks read-only can run
+  without asking, so only forward servers whose annotations you trust.
+- `shareable: true` lets people you share the server with on Hub call its
+  tools. The calls run on this machine with your server's access. Without it
+  the relay refuses every call that is not yours, whatever Hub's shares say.
+- Tools need Hub support for relay protocol 2. An older Hub gets the models
+  alone, and the relay logs that it does not support relayed tools.
+- A relay can offer MCP servers without any providers.
+
+Limits: 32 servers, 128 tools per server, 512 tools in all. A tool whose name
+is not letters, digits, `.`, `_` and `-`, or whose description or input schema
+is too large, is skipped with a warning. A result larger than 4 MiB reaches Hub
+as an error result.
+
 | Flag | Effect |
 |---|---|
 | `--name` | Relay name shown in Hub; overrides `relay.name` |
@@ -97,5 +148,5 @@ embedding models out of a harness's model list.
 
 ## Surfaces
 
-The relay is a long-running foreground process, so it has no MCP tool. It is
-available only as a CLI command.
+The relay is a long-running foreground process, so it has no MCP tool of its
+own. It is available only as a CLI command.

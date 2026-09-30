@@ -85,6 +85,17 @@ relay:
       baseUrl: http://127.0.0.1:8000/v1
       models:
         transcription: ["whisper-1"]
+  mcp:
+    everything:                 # a stdio server the relay starts
+      command: npx
+      args: ["-y", "@modelcontextprotocol/server-everything"]
+      envFrom: [GITHUB_TOKEN]
+      timeout: 2m
+    notes:                      # a running streamable HTTP server
+      url: http://127.0.0.1:3000/mcp
+      headersFromEnv: {Authorization: NOTES_MCP_AUTH}
+      tools: {deny: ["delete_*"]}
+      shareable: true
 ```
 
 - `enabled`: `false` makes `tap relay` refuse to start, keeping the rest of
@@ -138,6 +149,30 @@ relay:
     weights) and re-created when the value changes, because Ollama's OpenAI
     API cannot set the context per request. On other providers a variant is
     an alias: requests go out as `from`, and Hub sees the configured limits.
+
+- `mcp`: local MCP servers whose tools are forwarded to Hub's chat, keyed by
+  the server name advertised to Hub. See
+  [Relay: MCP servers](../ai-coding-agents/relay.md#mcp-servers).
+  - `command`, `args`, `cwd`: a stdio server the relay starts. Set either
+    `command` or `url`, not both.
+  - `env`: literal variables for the server. Keep secrets out of it.
+  - `envFrom`: names of variables passed through from the relay's
+    environment. Only `PATH`, `HOME`, locale settings and a few basics are
+    passed otherwise.
+  - `inheritEnv`: pass the relay's whole environment instead. Defaults to
+    `false`.
+  - `url`: a running streamable HTTP MCP server.
+  - `headers`: literal headers sent to `url`. `headersFromEnv` maps a header
+    name to the variable holding its value, so the secret is not in the file.
+  - `tools.allow` / `tools.deny`: name or glob filters over the server's
+    tools. An empty `allow` offers every tool not denied.
+  - `maxConcurrent`: this server's in-flight calls across all hubs, 1–64.
+    Defaults to 4.
+  - `timeout`: longest one call may run, as a Go duration (`30s`, `5m`).
+    Defaults to `2m`.
+  - `shareable`: let people you share the server with on Hub call its tools.
+    Defaults to `false`.
+  - `enabled`: `false` leaves the server out.
 
 What the relay reports to Hub, per model:
 
