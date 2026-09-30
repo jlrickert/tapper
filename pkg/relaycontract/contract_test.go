@@ -27,7 +27,7 @@ func TestEnvelopeRoundTrip(t *testing.T) {
 	if err := json.Unmarshal(raw, &back); err != nil {
 		t.Fatal(err)
 	}
-	if back.V != ProtocolVersion || back.Type != TypeRegister {
+	if back.V != EnvelopeVersion || back.Type != TypeRegister {
 		t.Fatalf("envelope header = %+v", back)
 	}
 	var reg Register
@@ -125,10 +125,13 @@ func TestTranscriptionRequestValidate(t *testing.T) {
 }
 
 func TestSelectProtocol(t *testing.T) {
-	if got := SelectProtocol([]int{1, 2, 3}); got != 1 {
+	if got := SelectProtocol([]int{1, 2, 3}); got != 2 {
+		t.Fatalf("SelectProtocol = %d, want 2", got)
+	}
+	if got := SelectProtocol([]int{1}); got != 1 {
 		t.Fatalf("SelectProtocol = %d, want 1", got)
 	}
-	if got := SelectProtocol([]int{2}); got != 0 {
+	if got := SelectProtocol([]int{3}); got != 0 {
 		t.Fatalf("SelectProtocol = %d, want 0", got)
 	}
 }

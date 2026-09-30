@@ -14,8 +14,16 @@ import (
 	"strings"
 )
 
-// ProtocolVersion is the newest relay protocol this package speaks.
-const ProtocolVersion = 1
+// ProtocolVersion is the newest relay protocol this package speaks. It is
+// negotiated once, in register and registered, and gates which frames a
+// session may carry: version 2 adds tools and call.
+const ProtocolVersion = 2
+
+// EnvelopeVersion is the frame shape every envelope carries in V. It is
+// separate from ProtocolVersion because a peer checks V before it knows what
+// was negotiated: a relay stamping its newest protocol there would be refused
+// by every Hub that predates it. The shape has not changed since version 1.
+const EnvelopeVersion = 1
 
 // ConnectPath is the Hub route a relay dials, relative to the hub base URL.
 const ConnectPath = "/api/v1/relay/connect"
@@ -32,6 +40,13 @@ const (
 	TypeDone       = "done"
 	TypeError      = "error"
 	TypeCancel     = "cancel"
+	// TypeTools replaces the relay's advertised MCP servers and their tools.
+	// It is connection-level and is sent only on a protocol 2 session.
+	TypeTools = "tools"
+	// TypeCall asks the relay to call one advertised tool. It is answered
+	// like an infer: one chunk holding the CallToolResult, then done, or an
+	// error. Cancel stops it.
+	TypeCall = "call"
 )
 
 // APIOpenAIChatCompletions is the chat inference API. The request body is an
@@ -93,6 +108,15 @@ const (
 	// it from Hub. It is connection-level (no id) and the relay must not
 	// reconnect: the owner asked for it to go away.
 	CodeDisconnected = "disconnected"
+	// CodeUnknownTool: the call names a server or tool the relay does not
+	// currently offer.
+	CodeUnknownTool = "unknown_tool"
+	// CodeToolUnavailable: the MCP server is down or failed the call at the
+	// protocol level. A tool that ran and failed answers a result with
+	// isError instead.
+	CodeToolUnavailable = "tool_unavailable"
+	// CodeTimeout: the call ran past the server's configured timeout.
+	CodeTimeout = "timeout"
 )
 
 // Limits on what a relay may advertise.
@@ -117,7 +141,7 @@ type Envelope struct {
 
 // NewEnvelope marshals payload into an envelope of the given type.
 func NewEnvelope(typ, id string, payload any) (Envelope, error) {
-	env := Envelope{V: ProtocolVersion, ID: id, Type: typ}
+	env := Envelope{V: EnvelopeVersion, ID: id, Type: typ}
 	if payload != nil {
 		raw, err := json.Marshal(payload)
 		if err != nil {
