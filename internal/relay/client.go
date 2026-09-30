@@ -168,13 +168,20 @@ func (c *Client) Run(ctx context.Context) error {
 // provider and shared by every hub, so a hub can still hear "overloaded"
 // for a busy provider; this only keeps a hub from queueing more than the
 // whole relay could ever run.
+//
+// It is at least 1 because register requires it, even for a relay that
+// offers no providers.
 func (c *Client) advertisedLimit() int {
 	total := 0
 	for _, p := range c.opts.Providers {
 		total += p.MaxConcurrent()
 	}
-	return min(total, relaycontract.MaxConcurrentCap)
+	return max(1, min(total, relaycontract.MaxConcurrentCap))
 }
+
+// supportedProtocols are the relay protocol versions this client speaks,
+// offered in register. Hub picks the highest it also speaks.
+var supportedProtocols = []int{1, 2}
 
 // runHub keeps one hub connected until ctx ends or that hub rejects the
 // relay for good.
@@ -316,6 +323,10 @@ type session struct {
 	c    *Client
 	conn *websocket.Conn
 
+	// protocol is the version Hub chose in registered. Frames newer than it
+	// must not be sent on this session.
+	protocol int
+
 	writeMu sync.Mutex
 
 	mu       sync.Mutex
@@ -345,7 +356,7 @@ func (c *Client) runOnce(ctx context.Context, hub Hub) (registered bool, err err
 	s.setOffered(models)
 
 	if err := s.send(ctx, relaycontract.TypeRegister, "", relaycontract.Register{
-		Relay:  relaycontract.RelayInfo{Name: c.opts.Name, Version: c.opts.Version, Protocols: []int{relaycontract.ProtocolVersion}},
+		Relay:  relaycontract.RelayInfo{Name: c.opts.Name, Version: c.opts.Version, Protocols: supportedProtocols},
 		Limits: relaycontract.Limits{MaxConcurrent: c.advertisedLimit()},
 		Models: nonNil(models),
 	}); err != nil {
@@ -361,7 +372,11 @@ func (c *Client) runOnce(ctx context.Context, hub Hub) (registered bool, err err
 		if err := env.Decode(&reg); err != nil {
 			return false, err
 		}
-		c.logger.Info("relay registered", "hub", hub.URL, "name", c.opts.Name, "models", len(reg.Models))
+		if !slices.Contains(supportedProtocols, reg.Protocol) {
+			return false, fmt.Errorf("%w: hub chose protocol %d", ErrIncompatible, reg.Protocol)
+		}
+		s.protocol = reg.Protocol
+		c.logger.Info("relay registered", "hub", hub.URL, "name", c.opts.Name, "protocol", reg.Protocol, "models", len(reg.Models))
 		if c.opts.OnRegistered != nil {
 			c.opts.OnRegistered(hub.URL, reg)
 		}

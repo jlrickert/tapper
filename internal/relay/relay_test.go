@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -475,6 +476,52 @@ func TestUnsupportedVersionIsPermanent(t *testing.T) {
 		done <- err
 	case <-time.After(5 * time.Second):
 		t.Fatal("relay kept retrying an incompatible hub")
+	}
+}
+
+// A Hub that predates protocol 2 checks the envelope version before it reads
+// register, so the relay must keep stamping version 1 while offering 2.
+func TestRegisterOffersProtocol2InVersion1Envelope(t *testing.T) {
+	_, psrv := newFakeProvider(t, "qwen3:8b")
+	hub := newFakeHub(t)
+	startRelay(t, hub, []*Provider{ollama(t, psrv.URL)}, nil)
+	ctx := context.Background()
+	conn := hub.accept(t)
+	env := readEnv(t, ctx, conn)
+	if env.V != 1 {
+		t.Fatalf("register envelope v = %d, want 1", env.V)
+	}
+	var reg relaycontract.Register
+	if err := env.Decode(&reg); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(reg.Relay.Protocols, []int{1, 2}) {
+		t.Fatalf("protocols = %v, want [1 2]", reg.Relay.Protocols)
+	}
+	// An old hub answers with protocol 1 and the session works as before.
+	writeEnv(t, ctx, conn, relaycontract.TypeRegistered, "", relaycontract.Registered{Protocol: 1, Models: []relaycontract.CatalogBinding{}})
+	writeEnv(t, ctx, conn, relaycontract.TypePing, "", nil)
+	if got := readEnv(t, ctx, conn); got.Type != relaycontract.TypePong {
+		t.Fatalf("frame = %q, want pong", got.Type)
+	}
+}
+
+func TestHubChoosingUnofferedProtocolIsPermanent(t *testing.T) {
+	_, psrv := newFakeProvider(t, "qwen3:8b")
+	hub := newFakeHub(t)
+	_, done := startRelay(t, hub, []*Provider{ollama(t, psrv.URL)}, nil)
+	ctx := context.Background()
+	conn := hub.accept(t)
+	readEnv(t, ctx, conn)
+	writeEnv(t, ctx, conn, relaycontract.TypeRegistered, "", relaycontract.Registered{Protocol: 3, Models: []relaycontract.CatalogBinding{}})
+	select {
+	case err := <-done:
+		if !errors.Is(err, ErrIncompatible) {
+			t.Fatalf("Run = %v, want ErrIncompatible", err)
+		}
+		done <- err
+	case <-time.After(5 * time.Second):
+		t.Fatal("relay kept retrying a hub that chose an unoffered protocol")
 	}
 }
 
