@@ -217,14 +217,33 @@ relay:
       kind: openai-compatible
       baseUrl: http://10.0.0.5:8000/v1
       auth: none
+  mcp:
+    everything:
+      command: npx
+      args: ["-y", "@modelcontextprotocol/server-everything"]
+      envFrom: [GITHUB_TOKEN]
+      timeout: 30s
+      shareable: true
+    web:
+      url: http://127.0.0.1:3000/mcp
+      headersFromEnv: {Authorization: MCP_AUTH}
+      tools: {deny: ["delete_*"]}
+      maxConcurrent: 2
 `))
 
 	for name, doc := range map[string]string{
-		"unknown kind":     "relay: {providers: {x: {kind: anthropic}}}",
-		"unknown auth":     "relay: {providers: {x: {auth: keychain}}}",
-		"non-http baseUrl": "relay: {providers: {x: {baseUrl: 'ftp://host'}}}",
-		"bad relay name":   "relay: {name: 'has space'}",
-		"bad provider key": "relay: {providers: {'a/b': {}}}",
+		"unknown kind":         "relay: {providers: {x: {kind: anthropic}}}",
+		"unknown auth":         "relay: {providers: {x: {auth: keychain}}}",
+		"non-http baseUrl":     "relay: {providers: {x: {baseUrl: 'ftp://host'}}}",
+		"bad relay name":       "relay: {name: 'has space'}",
+		"bad provider key":     "relay: {providers: {'a/b': {}}}",
+		"mcp without endpoint": "relay: {mcp: {x: {args: [a]}}}",
+		"mcp with both":        "relay: {mcp: {x: {command: npx, url: 'http://h'}}}",
+		"mcp non-http url":     "relay: {mcp: {x: {url: 'ftp://h'}}}",
+		"mcp bad server key":   "relay: {mcp: {'a b': {command: npx}}}",
+		"mcp bad timeout":      "relay: {mcp: {x: {command: npx, timeout: soon}}}",
+		"mcp unknown field":    "relay: {mcp: {x: {command: npx, shell: true}}}",
+		"mcp bad env name":     "relay: {mcp: {x: {command: npx, envFrom: ['A-B']}}}",
 	} {
 		t.Run(name, func(t *testing.T) {
 			require.Error(t, validate(doc))

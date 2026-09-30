@@ -125,7 +125,7 @@
     },
     "relay": {
       "type": "object",
-      "description": "Configures `tap relay`: which local or personal model providers this machine contributes to Hub's model catalog. Holds provider access and nothing else \u2014 model identity comes from the Hub catalog. Allowed only in user configuration; project layers are stripped.",
+      "description": "Configures `tap relay`: which local or personal model providers this machine contributes to Hub's model catalog. Holds provider and MCP server access and nothing else \u2014 model identity comes from the Hub catalog. Allowed only in user configuration; project layers are stripped.",
       "properties": {
         "enabled": {
           "type": "boolean",
@@ -308,6 +308,142 @@
               }
             },
             "additionalProperties": true
+          }
+        },
+        "mcp": {
+          "type": "object",
+          "description": "Local MCP servers whose tools the relay forwards to Hub's chat, keyed by the server name advertised to Hub. Hub can only name a server and tool from this list; the command, URL, headers and environment never leave this machine.",
+          "propertyNames": {
+            "pattern": "^[A-Za-z0-9._-]{1,64}$"
+          },
+          "additionalProperties": {
+            "type": "object",
+            "description": "One MCP server: set command for a stdio server the relay starts, or url for a running streamable HTTP server.",
+            "properties": {
+              "enabled": {
+                "type": "boolean",
+                "description": "false leaves this server out. Omitted means enabled."
+              },
+              "title": {
+                "type": "string",
+                "maxLength": 200,
+                "description": "Display name shown on Hub."
+              },
+              "command": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Program to start as a stdio MCP server, e.g. npx."
+              },
+              "args": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Arguments for command."
+              },
+              "cwd": {
+                "type": "string",
+                "description": "Working directory for command."
+              },
+              "env": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "description": "Literal environment variables for command. Keep secrets out; pass them with envFrom."
+              },
+              "envFrom": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                },
+                "description": "Variables passed through from the relay's environment. Otherwise only PATH, HOME, locale and a few basics are passed, so hub tokens and provider keys stay out."
+              },
+              "inheritEnv": {
+                "type": "boolean",
+                "description": "Pass the relay's whole environment instead of the filtered one. Defaults to false."
+              },
+              "url": {
+                "type": "string",
+                "pattern": "^https?://",
+                "description": "Endpoint of a running streamable HTTP MCP server."
+              },
+              "headers": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "description": "Literal headers sent to url. Keep secrets out; use headersFromEnv."
+              },
+              "headersFromEnv": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                },
+                "description": "Header name to the environment variable holding its value, e.g. {Authorization: MCP_AUTH}."
+              },
+              "tools": {
+                "type": "object",
+                "description": "Which of the server's tools are offered, by name or glob.",
+                "properties": {
+                  "allow": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "description": "Offer only these tools. Empty offers every tool not denied."
+                  },
+                  "deny": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "description": "Never offer these tools."
+                  }
+                },
+                "additionalProperties": false
+              },
+              "maxConcurrent": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 64,
+                "description": "This server's in-flight calls across every hub the relay serves. Defaults to 4."
+              },
+              "timeout": {
+                "type": "string",
+                "pattern": "^([0-9]+(\\.[0-9]+)?(ns|us|\u00b5s|ms|s|m|h))+$",
+                "description": "Longest one call may run, as a Go duration such as 30s or 5m. Defaults to 2m."
+              },
+              "shareable": {
+                "type": "boolean",
+                "description": "Let people you share this server with on Hub call its tools. They run on this machine. Defaults to false: only you can."
+              }
+            },
+            "oneOf": [
+              {
+                "required": [
+                  "command"
+                ],
+                "not": {
+                  "required": [
+                    "url"
+                  ]
+                }
+              },
+              {
+                "required": [
+                  "url"
+                ],
+                "not": {
+                  "required": [
+                    "command"
+                  ]
+                }
+              }
+            ],
+            "additionalProperties": false
           }
         }
       },

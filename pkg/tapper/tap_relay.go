@@ -5,8 +5,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/jlrickert/tapper/internal/relay"
 	"github.com/jlrickert/tapper/pkg/keg"
@@ -26,14 +28,16 @@ type RelayOptions struct {
 	OnRegistered func(hubURL string, reg relaycontract.Registered)
 }
 
-// ErrRelayNotConfigured means the user config has no relay providers.
-var ErrRelayNotConfigured = errors.New("no relay providers configured; add a relay.providers block to your user config")
+// ErrRelayNotConfigured means the user config has nothing for the relay to
+// offer: no providers and no MCP servers.
+var ErrRelayNotConfigured = errors.New("nothing to relay; add a relay.providers or relay.mcp block to your user config")
 
 // ErrRelayDisabled means the user config turns the relay off.
 var ErrRelayDisabled = errors.New("the relay is disabled in your user config (relay.enabled: false)")
 
-// Relay connects this machine's configured providers to Hub and serves
-// inference requests until ctx ends or Hub rejects the relay permanently.
+// Relay connects this machine's configured providers and MCP servers to Hub
+// and serves inference and tool calls until ctx ends or Hub rejects the relay
+// permanently.
 func (t *Tap) Relay(ctx context.Context, opts RelayOptions) error {
 	cfg, err := t.ConfigService.Config()
 	if err != nil {
@@ -43,12 +47,19 @@ func (t *Tap) Relay(ctx context.Context, opts RelayOptions) error {
 	if !rc.IsEnabled() {
 		return ErrRelayDisabled
 	}
-	if rc == nil || len(rc.Providers) == 0 {
+	if rc == nil || (len(rc.Providers) == 0 && len(rc.MCP) == 0) {
 		return ErrRelayNotConfigured
 	}
 	providers, err := t.relayProviders(rc)
 	if err != nil {
 		return err
+	}
+	toolServers, err := t.relayToolServers(rc)
+	if err != nil {
+		return err
+	}
+	if len(providers) == 0 && len(toolServers) == 0 {
+		return ErrRelayNotConfigured
 	}
 	hubURLs, err := relayHubURLs(cfg, rc, opts.Hub)
 	if err != nil {
@@ -72,6 +83,7 @@ func (t *Tap) Relay(ctx context.Context, opts RelayOptions) error {
 		Name:         name,
 		Version:      opts.Version,
 		Providers:    providers,
+		ToolServers:  toolServers,
 		Logger:       t.Runtime.Logger(),
 		OnRegistered: opts.OnRegistered,
 	})
@@ -109,6 +121,62 @@ func (t *Tap) relayProviders(rc *RelayConfig) ([]*relay.Provider, error) {
 			return nil, err
 		}
 		out = append(out, provider)
+	}
+	return out, nil
+}
+
+// relayToolServers builds the enabled MCP servers, in name order. Secrets are
+// read here, from the variables the config names, and stay in this process.
+func (t *Tap) relayToolServers(rc *RelayConfig) ([]*relay.ToolServer, error) {
+	names := make([]string, 0, len(rc.MCP))
+	for n, s := range rc.MCP {
+		if s.IsEnabled() {
+			names = append(names, n)
+		}
+	}
+	sort.Strings(names)
+	out := make([]*relay.ToolServer, 0, len(names))
+	for _, n := range names {
+		s := rc.MCP[n]
+		var timeout time.Duration
+		if s.Timeout != "" {
+			d, err := time.ParseDuration(s.Timeout)
+			if err != nil || d <= 0 {
+				return nil, fmt.Errorf("relay.mcp.%s.timeout %q must be a positive duration such as 30s or 5m", n, s.Timeout)
+			}
+			timeout = d
+		}
+		headers := make(map[string]string, len(s.Headers)+len(s.HeadersFromEnv))
+		maps.Copy(headers, s.Headers)
+		for header, name := range s.HeadersFromEnv {
+			v := t.Runtime.Get(name)
+			if v == "" {
+				return nil, fmt.Errorf("relay.mcp.%s.headersFromEnv: %s is not set", n, name)
+			}
+			headers[header] = v
+		}
+		cfg := relay.ToolServerConfig{
+			Name:          n,
+			Title:         s.Title,
+			URL:           s.URL,
+			Headers:       headers,
+			Allow:         s.Tools.Allow,
+			Deny:          s.Tools.Deny,
+			MaxConcurrent: s.MaxConcurrent,
+			Timeout:       timeout,
+			Shareable:     s.Shareable,
+		}
+		if s.Command != "" {
+			cfg.Command = s.Command
+			cfg.Args = s.Args
+			cfg.Dir = s.Cwd
+			cfg.Env = relay.ToolEnv(t.Runtime.Environ(), s.InheritEnv, s.EnvFrom, s.Env)
+		}
+		server, err := relay.NewToolServer(cfg)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, server)
 	}
 	return out, nil
 }

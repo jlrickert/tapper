@@ -17,13 +17,14 @@ func NewRelayCmd(deps *Deps) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "relay",
-		Short: "offer this machine's models to Hub (experimental)",
+		Short: "offer this machine's models and tools to Hub (experimental)",
 		Long: `Connect to Hub and offer the models of your configured providers to your
-account's model catalog. The relay dials out to Hub and stays connected, so no
-inbound port is needed. Provider credentials stay on this machine.
+account's model catalog, and the tools of your configured MCP servers to Hub's
+chat. The relay dials out to Hub and stays connected, so no inbound port is
+needed. Provider credentials and MCP server settings stay on this machine.
 
-Providers are configured in your user config only; project config cannot set
-them:
+Providers and MCP servers are configured in your user config only; project
+config cannot set them:
 
   relay:
     enabled: true           # optional; false turns the relay off
@@ -40,12 +41,30 @@ them:
         auth: apiKey
         apiKeyEnv: OPENROUTER_API_KEY   # the variable's name, never the key
         maxConcurrent: 16
+    mcp:
+      everything:           # a stdio server the relay starts
+        command: npx
+        args: ["-y", "@modelcontextprotocol/server-everything"]
+        envFrom: [GITHUB_TOKEN]   # passed through; others are not
+        timeout: 2m         # optional; longest one call may run
+      notes:                # a streamable HTTP server already running
+        url: http://127.0.0.1:3000/mcp
+        headersFromEnv: {Authorization: NOTES_MCP_AUTH}
+        tools:
+          deny: ["delete_*"]
+        shareable: true     # optional; people you share it with may call it
 
 Without relay.hubs the relay serves the one hub 'tap auth login' would use;
 --hub narrows it to that hub even when relay.hubs is set. With several hubs,
 every hub sees every provider. Each provider's maxConcurrent (default 4) is
 its limit across all of them: a hub that asks while that provider is full
 hears "overloaded", and the relay's other providers are unaffected.
+
+MCP servers are forwarded only to hubs that support relayed tools; others get
+the models alone. Hub can call a tool only by the server and tool names the
+relay listed; a stdio server gets PATH, HOME, locale settings and the variables
+in envFrom, not the relay's whole environment. A server that exits is
+restarted. Tools reach only Hub's chat, for agents that allow relay tools.
 
 The relay authenticates to each hub with that hub's token from 'tap auth login'.
 It runs in the foreground until interrupted, reconnecting if a connection drops.
@@ -61,7 +80,7 @@ Experimental and unstable: expect this to change.`,
 			opts.Version = Version
 			out := cmd.ErrOrStderr()
 			opts.OnRegistered = func(hubURL string, reg relaycontract.Registered) {
-				fmt.Fprintf(out, "relay connected to %s with %d model(s)\n", hubURL, len(reg.Models))
+				fmt.Fprintf(out, "relay connected to %s (protocol %d) with %d model(s)\n", hubURL, reg.Protocol, len(reg.Models))
 				for _, m := range reg.Models {
 					fmt.Fprintf(out, "  %s\n", m.CatalogID)
 				}

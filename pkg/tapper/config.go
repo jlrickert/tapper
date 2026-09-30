@@ -147,6 +147,58 @@ type RelayConfig struct {
 	Hubs []string `yaml:"hubs,omitempty"`
 	// Providers are keyed by the name advertised to Hub.
 	Providers map[string]RelayProvider `yaml:"providers,omitempty"`
+	// MCP are local MCP servers whose tools the relay forwards to Hub's
+	// chat, keyed by the server name advertised to Hub.
+	MCP map[string]RelayMCPServer `yaml:"mcp,omitempty"`
+}
+
+// RelayMCPServer describes one MCP server the relay forwards tools from.
+// Exactly one of Command (a stdio server the relay starts) or URL (a running
+// streamable HTTP server) is set. Like provider keys, secrets are named, not
+// written: EnvFrom and HeadersFromEnv name environment variables.
+type RelayMCPServer struct {
+	// Enabled leaves the server out when false. Omitted means enabled.
+	Enabled *bool  `yaml:"enabled,omitempty"`
+	Title   string `yaml:"title,omitempty"`
+
+	Command string   `yaml:"command,omitempty"`
+	Args    []string `yaml:"args,omitempty"`
+	Cwd     string   `yaml:"cwd,omitempty"`
+	// Env sets literal variables for the server. Keep secrets out of it;
+	// pass them with EnvFrom.
+	Env map[string]string `yaml:"env,omitempty"`
+	// EnvFrom names variables passed through from the relay's environment.
+	// Only a small base set (PATH, HOME, locale, ...) is passed otherwise.
+	EnvFrom []string `yaml:"envFrom,omitempty"`
+	// InheritEnv passes the relay's whole environment instead.
+	InheritEnv bool `yaml:"inheritEnv,omitempty"`
+
+	URL     string            `yaml:"url,omitempty"`
+	Headers map[string]string `yaml:"headers,omitempty"`
+	// HeadersFromEnv maps a header name to the variable holding its value.
+	HeadersFromEnv map[string]string `yaml:"headersFromEnv,omitempty"`
+
+	Tools RelayToolFilter `yaml:"tools,omitempty"`
+	// MaxConcurrent bounds this server's in-flight calls across every hub.
+	// Zero means the relay default (4).
+	MaxConcurrent int `yaml:"maxConcurrent,omitempty"`
+	// Timeout bounds one call, as a Go duration ("30s", "5m"). Empty means
+	// two minutes.
+	Timeout string `yaml:"timeout,omitempty"`
+	// Shareable lets people the owner shares this server with on Hub call
+	// its tools. Without it only the owner can, whatever Hub's shares say.
+	Shareable bool `yaml:"shareable,omitempty"`
+}
+
+// IsEnabled reports whether the server is forwarded: true unless enabled is
+// explicitly false.
+func (s RelayMCPServer) IsEnabled() bool { return s.Enabled == nil || *s.Enabled }
+
+// RelayToolFilter selects which of a server's tools are offered, by name or
+// glob. An empty Allow offers everything not denied.
+type RelayToolFilter struct {
+	Allow []string `yaml:"allow,omitempty"`
+	Deny  []string `yaml:"deny,omitempty"`
 }
 
 // IsEnabled reports whether `tap relay` may run: true unless enabled is

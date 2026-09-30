@@ -2,9 +2,13 @@
 // locally configured providers to Tapper Hub over an outbound WebSocket and
 // forwards the inference requests Hub pushes back down to those providers.
 //
-// The relay forwards inference and nothing else. Destinations are the
-// providers named in the user's own configuration; nothing Hub sends can name
-// a URL, host, or header.
+// It also forwards tool calls to the MCP servers named in the same
+// configuration, to hubs that speak relay protocol 2.
+//
+// The relay forwards inference and tool calls and nothing else. Destinations
+// are the providers and MCP servers named in the user's own configuration;
+// nothing Hub sends can name a command, URL, host, header, or environment
+// variable. A tool call names only a server and tool the relay advertised.
 package relay
 
 import (

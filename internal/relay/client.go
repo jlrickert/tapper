@@ -57,10 +57,13 @@ type Options struct {
 	// Name identifies the relay to Hub.
 	Name string
 	// Version is the tap version reported at registration.
-	Version    string
-	Providers  []*Provider
-	Logger     *slog.Logger
-	HTTPClient *http.Client
+	Version   string
+	Providers []*Provider
+	// ToolServers are the MCP servers whose tools the relay forwards to hubs
+	// that speak protocol 2.
+	ToolServers []*ToolServer
+	Logger      *slog.Logger
+	HTTPClient  *http.Client
 	// CatalogInterval is how often providers are re-listed. Zero means a minute.
 	CatalogInterval time.Duration
 	// ReadTimeout drops a connection that has been silent this long. Hub pings
@@ -81,6 +84,12 @@ type Client struct {
 	// the registered connections a catalog change is sent to.
 	models   []relaycontract.Model
 	sessions map[*session]struct{}
+
+	toolServers map[string]*ToolServer
+	// tools is the current tools frame; toolsVersion counts its changes so
+	// a session never sends an older list after a newer one.
+	tools        []relaycontract.ToolServer
+	toolsVersion uint64
 }
 
 // NewClient validates opts and returns a Client.
@@ -105,8 +114,11 @@ func NewClient(opts Options) (*Client, error) {
 	if !relaycontract.ValidName(opts.Name) {
 		return nil, fmt.Errorf("relay: name %q may contain only letters, digits, '.', '_' and '-'", opts.Name)
 	}
-	if len(opts.Providers) == 0 {
-		return nil, errors.New("relay: no providers configured")
+	if len(opts.Providers) == 0 && len(opts.ToolServers) == 0 {
+		return nil, errors.New("relay: no providers or mcp servers configured")
+	}
+	if len(opts.ToolServers) > relaycontract.MaxToolServers {
+		return nil, fmt.Errorf("relay: at most %d mcp servers may be configured", relaycontract.MaxToolServers)
 	}
 	if opts.CatalogInterval <= 0 {
 		opts.CatalogInterval = defaultCatalogInterval
@@ -125,12 +137,26 @@ func NewClient(opts Options) (*Client, error) {
 		}
 		providers[p.Name()] = p
 	}
-	return &Client{
-		opts:      opts,
-		providers: providers,
-		logger:    logger,
-		sessions:  make(map[*session]struct{}),
-	}, nil
+	c := &Client{
+		opts:        opts,
+		providers:   providers,
+		logger:      logger,
+		sessions:    make(map[*session]struct{}),
+		toolServers: make(map[string]*ToolServer, len(opts.ToolServers)),
+		tools:       []relaycontract.ToolServer{},
+	}
+	for _, ts := range opts.ToolServers {
+		if _, dup := c.toolServers[ts.Name()]; dup {
+			return nil, fmt.Errorf("relay: duplicate mcp server %q", ts.Name())
+		}
+		ts.logger = logger
+		if ts.http == nil {
+			ts.http = opts.HTTPClient
+		}
+		ts.onChange = c.toolsChanged
+		c.toolServers[ts.Name()] = ts
+	}
+	return c, nil
 }
 
 // Run keeps the relay connected to every hub until ctx ends. A permanent
@@ -143,6 +169,9 @@ func (c *Client) Run(ctx context.Context) error {
 	c.models = c.listModels(runCtx)
 	c.mu.Unlock()
 	go c.refreshCatalog(runCtx)
+	for _, ts := range c.opts.ToolServers {
+		go ts.run(runCtx)
+	}
 
 	errs := make([]error, len(c.opts.Hubs))
 	var wg sync.WaitGroup
@@ -327,6 +356,10 @@ type session struct {
 	// must not be sent on this session.
 	protocol int
 
+	// toolsMu orders tools frames; sentTools is the version last sent.
+	toolsMu   sync.Mutex
+	sentTools uint64
+
 	writeMu sync.Mutex
 
 	mu       sync.Mutex
@@ -404,6 +437,7 @@ func (c *Client) runOnce(ctx context.Context, hub Hub) (registered bool, err err
 	c.mu.Lock()
 	c.sessions[s] = struct{}{}
 	latest := c.models
+	tools, toolsVersion := c.tools, c.toolsVersion
 	c.mu.Unlock()
 	defer func() {
 		c.mu.Lock()
@@ -412,6 +446,11 @@ func (c *Client) runOnce(ctx context.Context, hub Hub) (registered bool, err err
 	}()
 	if !sameCatalog(models, latest) {
 		s.sendCatalog(sessCtx, latest)
+	}
+	if s.protocol >= 2 {
+		s.sendTools(sessCtx, toolsVersion, tools)
+	} else if len(c.toolServers) > 0 {
+		c.logger.Warn("hub does not support relayed tools; serving models only", "hub", hub.URL, "protocol", s.protocol)
 	}
 	return true, s.readLoop(sessCtx)
 }
@@ -473,6 +512,8 @@ func (s *session) readLoop(ctx context.Context) error {
 			}
 		case relaycontract.TypeInfer:
 			s.startInfer(ctx, env)
+		case relaycontract.TypeCall:
+			s.startCall(ctx, env)
 		case relaycontract.TypeCancel:
 			s.mu.Lock()
 			cancel := s.inflight[env.ID]
@@ -575,6 +616,76 @@ func (s *session) infer(connCtx, reqCtx context.Context, id string, p *Provider,
 	}
 }
 
+func (s *session) startCall(ctx context.Context, env relaycontract.Envelope) {
+	if env.ID == "" {
+		return
+	}
+	if s.protocol < 2 {
+		s.fail(ctx, env.ID, relaycontract.CodeUnsupported, "tool calls need relay protocol 2")
+		return
+	}
+	var req relaycontract.Call
+	if err := env.Decode(&req); err != nil {
+		s.fail(ctx, env.ID, relaycontract.CodeBadRequest, err.Error())
+		return
+	}
+	server := s.c.toolServers[req.Server]
+	if server == nil || !server.offers(req.Tool) {
+		s.fail(ctx, env.ID, relaycontract.CodeUnknownTool, "tool is not offered by this relay")
+		return
+	}
+	// The owner decides who may run their tools: a server not marked
+	// shareable serves its owner only, whatever Hub's shares say.
+	if req.Shared && !server.Shareable() {
+		s.fail(ctx, env.ID, relaycontract.CodeUnsupported, "mcp server "+server.Name()+" is not shared")
+		return
+	}
+	if !server.tryAcquire() {
+		s.fail(ctx, env.ID, relaycontract.CodeOverloaded, "mcp server "+server.Name()+" is at its concurrency limit")
+		return
+	}
+	reqCtx, cancel := context.WithCancel(ctx)
+	s.mu.Lock()
+	s.inflight[env.ID] = cancel
+	s.mu.Unlock()
+	s.wg.Add(1)
+	go func() {
+		defer func() {
+			cancel()
+			s.mu.Lock()
+			delete(s.inflight, env.ID)
+			s.mu.Unlock()
+			server.release()
+			s.wg.Done()
+		}()
+		s.call(ctx, reqCtx, env.ID, server, req)
+	}()
+}
+
+func (s *session) call(connCtx, reqCtx context.Context, id string, server *ToolServer, req relaycontract.Call) {
+	callCtx, stop := context.WithTimeout(reqCtx, server.cfg.Timeout)
+	defer stop()
+	result, err := server.call(callCtx, req.Tool, req.Arguments)
+	if err != nil {
+		code, msg := relaycontract.CodeToolUnavailable, err.Error()
+		switch {
+		case reqCtx.Err() != nil:
+			code, msg = relaycontract.CodeCancelled, "call cancelled"
+		case errors.Is(callCtx.Err(), context.DeadlineExceeded):
+			code, msg = relaycontract.CodeTimeout, "call ran past "+server.cfg.Timeout.String()
+		}
+		s.fail(connCtx, id, code, msg)
+		return
+	}
+	if err := s.send(connCtx, relaycontract.TypeChunk, id, relaycontract.Chunk{Data: result}); err != nil {
+		s.c.logger.Debug("relay could not send tool result", "error", err)
+		return
+	}
+	if err := s.send(connCtx, relaycontract.TypeDone, id, relaycontract.Done{}); err != nil {
+		s.c.logger.Debug("relay could not send done", "error", err)
+	}
+}
+
 func (s *session) fail(ctx context.Context, id, code, msg string) {
 	if err := s.send(ctx, relaycontract.TypeError, id, relaycontract.Error{Code: code, Message: msg}); err != nil {
 		s.c.logger.Debug("relay could not send error", "error", err)
@@ -591,6 +702,10 @@ func (c *Client) refreshCatalog(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+		}
+		// A server that never announces list changes is caught up here.
+		for _, ts := range c.opts.ToolServers {
+			ts.refresh(ctx)
 		}
 		models := c.listModels(ctx)
 		c.mu.Lock()
@@ -618,6 +733,79 @@ func (s *session) sendCatalog(ctx context.Context, models []relaycontract.Model)
 	if err := s.send(ctx, relaycontract.TypeCatalog, "", relaycontract.Catalog{Models: nonNil(models)}); err != nil {
 		s.c.logger.Debug("relay could not send catalog", "error", err)
 	}
+}
+
+// toolsChanged rebuilds the tools frame from the servers that are up and
+// sends it to every protocol 2 hub when it changed.
+func (c *Client) toolsChanged() {
+	tools := c.toolCatalog()
+	c.mu.Lock()
+	if sameToolCatalog(c.tools, tools) {
+		c.mu.Unlock()
+		return
+	}
+	c.tools = tools
+	c.toolsVersion++
+	version := c.toolsVersion
+	sessions := make([]*session, 0, len(c.sessions))
+	for s := range c.sessions {
+		if s.protocol >= 2 {
+			sessions = append(sessions, s)
+		}
+	}
+	c.mu.Unlock()
+	for _, s := range sessions {
+		s.sendTools(context.Background(), version, tools)
+	}
+}
+
+// toolCatalog lists the servers that are up, in configuration order, within
+// the protocol's limits on total tools and frame size.
+func (c *Client) toolCatalog() []relaycontract.ToolServer {
+	out := []relaycontract.ToolServer{}
+	total := 0
+	for _, ts := range c.opts.ToolServers {
+		server, up := ts.catalog()
+		if !up {
+			continue
+		}
+		if room := relaycontract.MaxTools - total; len(server.Tools) > room {
+			c.logger.Warn("relay offers too many mcp tools; skipping the rest", "server", server.Name, "limit", relaycontract.MaxTools)
+			server.Tools = server.Tools[:room]
+		}
+		total += len(server.Tools)
+		out = append(out, server)
+	}
+	for {
+		raw, _ := json.Marshal(relaycontract.Tools{Servers: out})
+		if len(raw) <= relaycontract.MaxToolsFrameBytes || len(out) == 0 {
+			return out
+		}
+		last := &out[len(out)-1]
+		c.logger.Warn("relay mcp tools exceed the frame limit; skipping a server", "server", last.Name)
+		out = out[:len(out)-1]
+	}
+}
+
+func sameToolCatalog(a, b []relaycontract.ToolServer) bool {
+	ra, _ := json.Marshal(a)
+	rb, _ := json.Marshal(b)
+	return string(ra) == string(rb)
+}
+
+// sendTools tells this session's hub which tools the relay offers, unless a
+// newer list was already sent.
+func (s *session) sendTools(ctx context.Context, version uint64, tools []relaycontract.ToolServer) {
+	s.toolsMu.Lock()
+	defer s.toolsMu.Unlock()
+	if version != 0 && version <= s.sentTools {
+		return
+	}
+	if err := s.send(ctx, relaycontract.TypeTools, "", relaycontract.Tools{Servers: tools}); err != nil {
+		s.c.logger.Debug("relay could not send tools", "error", err)
+		return
+	}
+	s.sentTools = version
 }
 
 // apiFor is the one API a model serves: transcription for the provider's

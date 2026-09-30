@@ -83,3 +83,48 @@ func TestRelayModelMetadataAndVariantsParse(t *testing.T) {
 	require.Equal(t, 262144, variants["qwen3.6:35b-256k"].ContextWindow)
 	require.Equal(t, "qwen3.6:35b", variants["qwen3.6:35b-256k"].From)
 }
+
+func TestRelayToolServersFromConfig(t *testing.T) {
+	sb := sandbox.NewSandbox(t, &sandbox.Options{Home: "/home/testuser", User: "testuser"})
+	tap, err := NewTap(TapOptions{Runtime: sb.Runtime()})
+	require.NoError(t, err)
+	cfg, err := ParseConfig([]byte(`relay:
+  mcp:
+    everything:
+      command: npx
+      args: ["-y", "@modelcontextprotocol/server-everything"]
+      envFrom: [GITHUB_TOKEN]
+      timeout: 30s
+      shareable: true
+    web:
+      url: http://127.0.0.1:3000/mcp
+      headersFromEnv: {Authorization: MCP_AUTH}
+      tools: {deny: ["delete_*"]}
+    off:
+      enabled: false
+      command: nope
+`))
+	require.NoError(t, err)
+	rc := cfg.Relay()
+	require.Equal(t, []string{"delete_*"}, rc.MCP["web"].Tools.Deny)
+
+	_, err = tap.relayToolServers(rc)
+	require.ErrorContains(t, err, "MCP_AUTH", "a named header variable must be set")
+
+	require.NoError(t, sb.Runtime().Set("MCP_AUTH", "Bearer x"))
+	servers, err := tap.relayToolServers(rc)
+	require.NoError(t, err)
+	require.Len(t, servers, 2, "a disabled server is left out")
+	require.Equal(t, "everything", servers[0].Name())
+	require.True(t, servers[0].Shareable())
+	require.Equal(t, "web", servers[1].Name())
+	require.False(t, servers[1].Shareable(), "servers are not shareable unless the owner says so")
+
+	bad := &RelayConfig{MCP: map[string]RelayMCPServer{"s": {Command: "x", Timeout: "soon"}}}
+	_, err = tap.relayToolServers(bad)
+	require.ErrorContains(t, err, "timeout")
+
+	both := &RelayConfig{MCP: map[string]RelayMCPServer{"s": {Command: "x", URL: "http://h"}}}
+	_, err = tap.relayToolServers(both)
+	require.ErrorContains(t, err, "both command and url")
+}
