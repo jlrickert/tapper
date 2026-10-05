@@ -38,6 +38,12 @@ func (a *ToolAllowlist) Allows(name string) bool {
 	if a.Refused != "" {
 		return false
 	}
+	// Hub already applied the agent's gate to relayed tools (the session asks
+	// /mcp/relay as that agent); its tool list names the relay group, not
+	// each relayed tool.
+	if IsRelayedToolName(name) {
+		return true
+	}
 	return len(a.Names) == 0 || slices.Contains(a.Names, name)
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"sort"
 	"strings"
@@ -61,6 +62,26 @@ func (t *Tap) listHubKegs(ctx context.Context, name string, entry HubEntry) ([]s
 		out = append(out, "@"+k.Namespace+"/"+k.Alias)
 	}
 	return out, nil
+}
+
+// HubRelayTools returns the selected hub's /mcp/relay endpoint and a token
+// source for it, for `tap mcp` to proxy the caller's relayed tools. agent,
+// when set, asks as that agent so Hub applies its gate; empty asks as the
+// caller. ok is false when no hub is selected or nobody is signed in to it.
+func (t *Tap) HubRelayTools(agent string) (endpoint string, token func() string, ok bool) {
+	_, entry, err := t.ConfigService.SelectedHub("")
+	if err != nil {
+		return "", nil, false
+	}
+	base := strings.TrimRight(hubURLWithScheme(entry.URL), "/")
+	if base == "" || strings.TrimSpace(t.hubToken(entry)) == "" {
+		return "", nil, false
+	}
+	endpoint = base + "/mcp/relay"
+	if agent = strings.TrimSpace(agent); agent != "" {
+		endpoint += "?agent=" + url.QueryEscape(agent)
+	}
+	return endpoint, func() string { return t.hubToken(entry) }, true
 }
 
 // hubToken resolves the bearer token for a configured remote hub. It builds a

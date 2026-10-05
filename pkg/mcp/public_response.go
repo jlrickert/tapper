@@ -20,6 +20,10 @@ func publicResponseMiddleware(next sdkmcp.MethodHandler) sdkmcp.MethodHandler {
 		if err != nil || method != "tools/call" {
 			return result, err
 		}
+		// A relayed tool's result is its own server's, passed through as sent.
+		if params, _ := req.GetParams().(*sdkmcp.CallToolParamsRaw); params != nil && IsRelayedToolName(params.Name) {
+			return result, nil
+		}
 		call, ok := result.(*sdkmcp.CallToolResult)
 		if !ok || call == nil {
 			return result, nil
