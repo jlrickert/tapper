@@ -35,6 +35,21 @@ first model in your catalog.
   tap launch claude --model @you/qwen3:8b
   tap launch codex
 
+Claude Code keeps your own Claude login by default (split mode): its /model
+picker shows its Claude models plus your Hub catalog, and the forwarder sends
+each request where its model lives. Claude models go to Anthropic with the
+credential Claude Code sent, which never reaches Hub; Hub models go to Hub.
+Without --model or --agent it starts on Claude Code's own default. --hub sends
+every request to Hub instead (the earlier behavior); --subscription leaves
+models alone, so Hub supplies only tools and agents.
+
+An --agent that allows relayed tools gets them from the tapper plugin's
+'tap mcp', which serves them alongside the KEG tools. For Claude Code, the
+agent's subagents (or every agent you can see, with --subagents all) become
+Claude Code subagents. Each subagent gets
+only its own Hub tools plus --subagent-builtins (default Read,Grep,Glob).
+Hub still gates every call to the launch agent's tools.
+
 Each harness talks to Hub in the protocol it was built for: Claude Code the
 Anthropic Messages API, Codex the OpenAI Responses API, opencode and pi OpenAI
 chat completions. It reaches Hub through a loopback forwarder that lives as
@@ -89,6 +104,21 @@ Experimental and unstable: expect this to change.`,
 	cmd.Flags().StringVar(&opts.Model, "model", "",
 		"Hub catalog model id to launch with (default: the first in your catalog)")
 	cmd.Flags().BoolVar(&opts.DryRun, "dry-run", false, "print the resolved invocation without starting the harness")
+	var hubOnly, subscription bool
+	cmd.Flags().BoolVar(&hubOnly, "hub", false, "claude: send every model request to Hub")
+	cmd.Flags().BoolVar(&subscription, "subscription", false, "claude: use only your Claude login for models; Hub supplies tools and agents")
+	cmd.MarkFlagsMutuallyExclusive("hub", "subscription")
+	cmd.Flags().StringVar(&opts.Subagents, "subagents", "", "claude: Hub agents to offer as subagents: all, or none (default: the agent's own subagents)")
+	cmd.Flags().StringSliceVar(&opts.SubagentBuiltins, "subagent-builtins", nil, "claude: built-in tools each Hub subagent gets (default Read,Grep,Glob)")
+	cmd.PreRunE = func(cmd *cobra.Command, _ []string) error {
+		switch {
+		case hubOnly:
+			opts.Inference = tapper.LaunchInferenceHub
+		case subscription:
+			opts.Inference = tapper.LaunchInferenceSubscription
+		}
+		return nil
+	}
 
 	_ = cmd.RegisterFlagCompletionFunc("agent", func(cmd *cobra.Command, _ []string, prefix string) ([]string, cobra.ShellCompDirective) {
 		return agentRefCompletion(deps)(cmd, nil, prefix)
@@ -104,7 +134,18 @@ func printLaunchPlan(out io.Writer, result *tapper.LaunchResult) error {
 	if result.HubAgent != "" {
 		fmt.Fprintf(&b, "agent: %s\n", result.HubAgent)
 	}
-	fmt.Fprintf(&b, "hub %s -> %s (via loopback forwarder)\n", result.Hub, result.Model)
+	switch result.Inference {
+	case tapper.LaunchInferenceSplit:
+		model := result.Model
+		if model == "" {
+			model = "Claude Code's default"
+		}
+		fmt.Fprintf(&b, "split: Claude models via your Claude login, hub %s models via loopback forwarder; starting on %s\n", result.Hub, model)
+	case tapper.LaunchInferenceSubscription:
+		fmt.Fprintf(&b, "subscription: models via your Claude login; hub %s supplies tools and agents\n", result.Hub)
+	default:
+		fmt.Fprintf(&b, "hub %s -> %s (via loopback forwarder)\n", result.Hub, result.Model)
+	}
 	if result.Flight != "" {
 		fmt.Fprintf(&b, "flight: %s (connection-pinned root)\n", result.Flight)
 	}

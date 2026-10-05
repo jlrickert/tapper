@@ -83,7 +83,7 @@ func TestLaunchHarnesses(t *testing.T) {
 func TestResolveLaunch_Claude(t *testing.T) {
 	t.Parallel()
 	hub := fakeInferenceHub(t, "hub-token", twoModels)
-	got, err := newLaunchTap(t, hub.URL, "").ResolveLaunch(LaunchOptions{Harness: "claude", Model: "@me/llama3"})
+	got, err := newLaunchTap(t, hub.URL, "").ResolveLaunch(LaunchOptions{Harness: "claude", Inference: LaunchInferenceHub, Model: "@me/llama3"})
 	require.NoError(t, err)
 	require.Equal(t, []string{"claude", "--model", "@me/llama3", "--settings"}, got.Argv[:4])
 	var settings struct {
@@ -109,7 +109,7 @@ func TestResolveLaunch_Claude(t *testing.T) {
 	require.Equal(t, "@me/llama3", got.Env["TAP_MODEL"])
 	noHubToken(t, got)
 
-	got, err = newLaunchTap(t, hub.URL, "").ResolveLaunch(LaunchOptions{Harness: "claude", Model: "@me/qwen3:8b"})
+	got, err = newLaunchTap(t, hub.URL, "").ResolveLaunch(LaunchOptions{Harness: "claude", Inference: LaunchInferenceHub, Model: "@me/qwen3:8b"})
 	require.NoError(t, err)
 	require.Equal(t, "32768", got.Env["CLAUDE_CODE_MAX_CONTEXT_TOKENS"], "Claude Code compacts against the advertised window")
 }
@@ -211,7 +211,7 @@ func TestResolveLaunch_ModelSelection(t *testing.T) {
 	require.ErrorContains(t, err, "@me/llama3", "the error lists what is available")
 
 	_, err = tap.ResolveLaunch(LaunchOptions{Harness: "claude", Model: "@me/whisper"})
-	require.ErrorContains(t, err, "not in your catalog", "a speech model cannot drive a harness")
+	require.ErrorContains(t, err, "in your catalog", "a speech model cannot drive a harness")
 
 	_, err = tap.ResolveLaunch(LaunchOptions{Harness: "vim"})
 	require.ErrorContains(t, err, "unknown harness")
@@ -234,7 +234,7 @@ func TestResolveLaunch_IgnoresRetiredAgents(t *testing.T) {
 	t.Parallel()
 	hub := fakeInferenceHub(t, "hub-token", twoModels)
 	tap := newLaunchTap(t, hub.URL, "agent: opus\nagents:\n  opus: {model: anthropic/claude-opus-4}\n")
-	got, err := tap.ResolveLaunch(LaunchOptions{Harness: "claude"})
+	got, err := tap.ResolveLaunch(LaunchOptions{Harness: "claude", Inference: LaunchInferenceHub})
 	require.NoError(t, err)
 	require.Equal(t, "@me/qwen3:8b", got.Model)
 
@@ -329,7 +329,7 @@ func TestLaunchForwarder(t *testing.T) {
 	t.Parallel()
 	hub := fakeInferenceHub(t, "hub-token", twoModels)
 	var calls atomic.Int32
-	fw, err := startLaunchForwarder(hub.URL, func() string {
+	fw, err := startLaunchForwarder(hub.URL, "opencode", func() string {
 		// A fresh token per request, as a refreshing resolver would give.
 		return fmt.Sprintf("hub-token-%d", calls.Add(1))
 	})
@@ -389,7 +389,7 @@ func TestLaunchForwarder(t *testing.T) {
 	count := firstEvent(do(http.MethodPost, "/anthropic/v1/messages/count_tokens", bearer, `{"model":"m"}`))
 	require.Equal(t, "/inference/anthropic/v1/messages/count_tokens", count["path"])
 
-	empty, err := startLaunchForwarder(hub.URL, func() string { return "" })
+	empty, err := startLaunchForwarder(hub.URL, "opencode", func() string { return "" })
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = empty.Close() })
 	req, _ := http.NewRequest(http.MethodGet, empty.Origin()+"/v1/models", nil)
@@ -414,4 +414,27 @@ func TestCatalogDescription(t *testing.T) {
 	require.Equal(t, "Foldwise (atlas) · relay:laptop · 32k context",
 		catalogDescription(spec, HubModel{OwnedBy: "relay:laptop", ContextWindow: 32768}))
 	require.Equal(t, "Foldwise", catalogDescription(launchSpec{}, HubModel{}))
+}
+
+// The forwarder names the harness to Hub so Hub can label its requests.
+func TestLaunchForwarderNamesHarness(t *testing.T) {
+	t.Parallel()
+	got := make(chan string, 1)
+	hub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got <- r.Header.Get("X-Tap-Harness")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[]}`))
+	}))
+	t.Cleanup(hub.Close)
+	fw, err := startLaunchForwarder(hub.URL, "opencode", func() string { return "hub-token" })
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = fw.Close() })
+	req, _ := http.NewRequest(http.MethodGet, fw.Origin()+"/v1/models", nil)
+	req.Header.Set("Authorization", "Bearer "+fw.Secret())
+	// A harness cannot choose the label itself.
+	req.Header.Set("X-Tap-Harness", "spoofed")
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	_ = resp.Body.Close()
+	require.Equal(t, "opencode", <-got)
 }
