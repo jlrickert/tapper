@@ -19,8 +19,8 @@ func NewRelayCmd(deps *Deps) *cobra.Command {
 		Use:   "relay",
 		Short: "offer this machine's models and tools to Hub (experimental)",
 		Long: `Connect to Hub and offer the models of your configured providers to your
-account's model catalog, and the tools of your configured MCP servers to Hub's
-chat. The relay dials out to Hub and stays connected, so no inbound port is
+account's model catalog, and the tools of your configured MCP servers and of
+this machine's coding agents to Hub. The relay dials out to Hub and stays connected, so no inbound port is
 needed. Provider credentials and MCP server settings stay on this machine.
 
 Providers and MCP servers are configured in your user config only; project
@@ -52,7 +52,12 @@ config cannot set them:
         headersFromEnv: {Authorization: NOTES_MCP_AUTH}
         tools:
           deny: ["delete_*"]
-        shareable: true     # optional; people you share it with may call it
+    runners:                # optional; the built-in servers below, all off
+      claude: {run: true, tools: true}  # "claude" and "claude-tools"
+      codex: {run: true}    # "codex"; likewise opencode and pi
+      roots: [~/src]        # where delegated tasks may work (default ~)
+      timeout: 30m          # longest one delegated task may run
+      maxConcurrent: 2      # delegated tasks running at once, per server
 
 Without relay.hubs the relay serves the one hub 'tap auth login' would use;
 --hub narrows it to that hub even when relay.hubs is set. With several hubs,
@@ -64,7 +69,23 @@ MCP servers are forwarded only to hubs that support relayed tools; others get
 the models alone. Hub can call a tool only by the server and tool names the
 relay listed; a stdio server gets PATH, HOME, locale settings and the variables
 in envFrom, not the relay's whole environment. A server that exits is
-restarted. Tools reach only Hub's chat, for agents that allow relay tools.
+restarted.
+
+Relayed tools reach Hub's chat, Hub's /mcp/relay endpoint, and every 'tap mcp'
+(the Claude Code plugin's server included). Without an agent a caller gets all
+of their own relayed tools plus those shared with them; with an agent
+(TAP_AGENT for 'tap mcp') they are gated by that agent's relay:tools.
+TAP_RELAY_TOOLS=off keeps a 'tap mcp' from offering them.
+
+Built-in servers are off until relay.runners turns them on, and each is
+offered only when its program is on PATH. "claude", "codex", "opencode" and
+"pi" (relay.runners.NAME.run) each run 'tap runner serve --runner NAME', one
+tool (claude_code_run, codex_run, opencode_run, pi_run) that runs a task in a
+directory under relay.runners.roots. "claude-tools"
+(relay.runners.claude.tools) runs 'claude mcp serve'. Each agent keeps its own
+permission settings. Who may call them is decided on Hub, where each server is
+enabled and shared on its own. A relay.mcp entry with the same name replaces a
+built-in, or removes it with enabled: false.
 
 The relay authenticates to each hub with that hub's token from 'tap auth login'.
 It runs in the foreground until interrupted, reconnecting if a connection drops.

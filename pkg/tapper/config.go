@@ -147,9 +147,118 @@ type RelayConfig struct {
 	Hubs []string `yaml:"hubs,omitempty"`
 	// Providers are keyed by the name advertised to Hub.
 	Providers map[string]RelayProvider `yaml:"providers,omitempty"`
-	// MCP are local MCP servers whose tools the relay forwards to Hub's
-	// chat, keyed by the server name advertised to Hub.
+	// MCP are local MCP servers whose tools the relay forwards to Hub,
+	// keyed by the server name advertised to Hub.
 	MCP map[string]RelayMCPServer `yaml:"mcp,omitempty"`
+	// Runners configures the relay's built-in servers, one per coding agent
+	// CLI ("claude", "codex", "opencode", "pi") plus "claude-tools", Claude
+	// Code's own tools. Each is off unless turned on here. A server in MCP
+	// with the same name replaces (or, with enabled: false, removes) a
+	// built-in.
+	Runners *RelayRunners `yaml:"runners,omitempty"`
+}
+
+// RelayRunners configures the relay's built-in coding-runner servers. Every
+// harness is off unless its options turn it on, and each is offered only when
+// its CLI is on PATH.
+type RelayRunners struct {
+	// Claude offers Claude Code: run as the "claude" server (claude_code_run)
+	// and tools as the "claude-tools" server (`claude mcp serve`).
+	Claude *RelayClaudeRunner `yaml:"claude,omitempty"`
+	// Codex offers Codex as the "codex" server (codex_run).
+	Codex *RelayRunner `yaml:"codex,omitempty"`
+	// Opencode offers opencode as the "opencode" server (opencode_run).
+	Opencode *RelayRunner `yaml:"opencode,omitempty"`
+	// Pi offers pi as the "pi" server (pi_run).
+	Pi *RelayRunner `yaml:"pi,omitempty"`
+	// Roots are the directories a delegated task may work in. Empty means
+	// the home directory. The first is also claude-tools' working directory.
+	Roots []string `yaml:"roots,omitempty"`
+	// Timeout bounds one delegated task, as a Go duration. Empty means 30m.
+	Timeout string `yaml:"timeout,omitempty"`
+	// MaxConcurrent bounds the tasks running at once on each runner server.
+	// Zero means 2.
+	MaxConcurrent int `yaml:"maxConcurrent,omitempty"`
+}
+
+// RelayClaudeRunner holds Claude Code's options, the only harness with an MCP
+// serve mode.
+type RelayClaudeRunner struct {
+	// Run offers the "claude" server, which hands tasks to Claude Code.
+	Run bool `yaml:"run,omitempty"`
+	// Tools offers the "claude-tools" server, Claude Code's own tools.
+	Tools bool `yaml:"tools,omitempty"`
+}
+
+// RelayRunner holds the options of a harness that can only run tasks. It has
+// no tools option: only Claude Code serves its own tools over MCP.
+type RelayRunner struct {
+	// Run offers the harness's server, which hands tasks to it.
+	Run bool `yaml:"run,omitempty"`
+	// unsupported names keys set here that this harness does not support,
+	// such as tools, so the relay can refuse them by name.
+	unsupported []string
+}
+
+// UnmarshalYAML decodes run and remembers any tools key, which only Claude
+// Code supports, so the relay can refuse it rather than silently ignore it.
+func (r *RelayRunner) UnmarshalYAML(n *yaml.Node) error {
+	type plain RelayRunner
+	var p plain
+	if err := n.Decode(&p); err != nil {
+		return err
+	}
+	*r = RelayRunner(p)
+	if n.Kind == yaml.MappingNode {
+		for i := 0; i+1 < len(n.Content); i += 2 {
+			if key := n.Content[i].Value; key == "tools" {
+				r.unsupported = append(r.unsupported, key)
+			}
+		}
+	}
+	return nil
+}
+
+// ClaudeRun reports whether the "claude" runner server is turned on.
+func (r *RelayRunners) ClaudeRun() bool { return r != nil && r.Claude != nil && r.Claude.Run }
+
+// ClaudeTools reports whether the "claude-tools" server is turned on.
+func (r *RelayRunners) ClaudeTools() bool { return r != nil && r.Claude != nil && r.Claude.Tools }
+
+// harness returns the run-only options for the named harness, or nil.
+func (r *RelayRunners) harness(name string) *RelayRunner {
+	if r == nil {
+		return nil
+	}
+	switch name {
+	case "codex":
+		return r.Codex
+	case "opencode":
+		return r.Opencode
+	case "pi":
+		return r.Pi
+	}
+	return nil
+}
+
+// Runs reports whether the named harness's runner server is turned on.
+func (r *RelayRunners) Runs(name string) bool {
+	if name == "claude" {
+		return r.ClaudeRun()
+	}
+	h := r.harness(name)
+	return h != nil && h.Run
+}
+
+// Validate refuses options a harness does not support, such as tools on
+// codex, opencode, or pi.
+func (r *RelayRunners) Validate() error {
+	for _, name := range []string{"codex", "opencode", "pi"} {
+		if h := r.harness(name); h != nil && len(h.unsupported) > 0 {
+			return fmt.Errorf("relay.runners.%s.%s: not supported by this harness", name, h.unsupported[0])
+		}
+	}
+	return nil
 }
 
 // RelayMCPServer describes one MCP server the relay forwards tools from.

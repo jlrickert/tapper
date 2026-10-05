@@ -95,7 +95,9 @@ relay:
       url: http://127.0.0.1:3000/mcp
       headersFromEnv: {Authorization: NOTES_MCP_AUTH}
       tools: {deny: ["delete_*"]}
-      shareable: true
+  runners:                      # built-in servers, all off by default
+    claude: {run: true, tools: true}
+    codex: {run: true}
 ```
 
 - `enabled`: `false` makes `tap relay` refuse to start, keeping the rest of
@@ -150,7 +152,7 @@ relay:
     API cannot set the context per request. On other providers a variant is
     an alias: requests go out as `from`, and Hub sees the configured limits.
 
-- `mcp`: local MCP servers whose tools are forwarded to Hub's chat, keyed by
+- `mcp`: local MCP servers whose tools are forwarded to Hub, keyed by
   the server name advertised to Hub. See
   [Relay: MCP servers](../ai-coding-agents/relay.md#mcp-servers).
   - `command`, `args`, `cwd`: a stdio server the relay starts. Set either
@@ -170,9 +172,25 @@ relay:
     Defaults to 4.
   - `timeout`: longest one call may run, as a Go duration (`30s`, `5m`).
     Defaults to `2m`.
-  - `shareable`: let people you share the server with on Hub call its tools.
-    Defaults to `false`.
-  - `enabled`: `false` leaves the server out.
+  - `enabled`: `false` leaves the server out. An entry named like a built-in
+    server (`claude`, `codex`, `opencode`, `pi`, `claude-tools`) replaces it;
+    with `enabled: false` alone it removes it.
+  - Who may call a server is decided on Hub, where you enable and share it.
+- `runners`: the relay's built-in servers, all off by default and each
+  offered only when its CLI is on `PATH`. See
+  [Relay: Built-in servers](../ai-coding-agents/relay.md#built-in-servers).
+  - `claude.run`: offer the `claude` server (`claude_code_run`). Defaults to
+    `false`.
+  - `claude.tools`: offer the `claude-tools` server, Claude Code's own tools
+    through `claude mcp serve`. Defaults to `false`.
+  - `codex.run`, `opencode.run`, `pi.run`: offer the `codex`, `opencode`, or
+    `pi` server (`codex_run`, `opencode_run`, `pi_run`). Default to `false`.
+    These harnesses have no `tools`; the relay refuses it.
+  - `roots`: directories a delegated task may work in. Defaults to your home
+    directory. The first is also `claude-tools`' working directory.
+  - `timeout`: longest one task may run, as a Go duration. Defaults to `30m`.
+  - `maxConcurrent`: tasks running at once on each runner server, 1–64.
+    Defaults to 2.
 
 What the relay reports to Hub, per model:
 
