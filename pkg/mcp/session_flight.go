@@ -665,7 +665,9 @@ func (g *sessionFlightGate) middleware(next sdkmcp.MethodHandler) sdkmcp.MethodH
 				if tool.Name == toolListTransitionMarker {
 					continue
 				}
-				if allowed != nil && !allowed[tool.Name] {
+				// Relayed tools carry no KEG authority: a missing or
+				// locked flight does not hide them.
+				if allowed != nil && !allowed[tool.Name] && !IsRelayedToolName(tool.Name) {
 					continue
 				}
 				copyTool := *tool
@@ -687,6 +689,9 @@ func (g *sessionFlightGate) middleware(next sdkmcp.MethodHandler) sdkmcp.MethodH
 				// These ask for, or change, current authority: never answer
 				// them or the calls after them from a cached resolution.
 				g.forgetResolution(sessionID)
+			}
+			if params != nil && IsRelayedToolName(params.Name) {
+				return next(ctx, method, req)
 			}
 			if allowed := allowedTools(current); params != nil && allowed != nil && !allowed[params.Name] {
 				return errorResult(lockedError(current)), nil

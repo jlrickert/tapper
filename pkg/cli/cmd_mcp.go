@@ -69,6 +69,17 @@ per-command permission prompts.`,
 				}}
 				srv.AddReceivingMiddleware(allow.Middleware)
 			}
+			// The caller's relayed tools ride along beside the KEG tools.
+			// Hub decides which: all of the caller's own and shared ones, or
+			// the launched agent's gate when TAP_AGENT names one.
+			if relayToolsEnabled(rt) {
+				if endpoint, token, ok := deps.Tap.HubRelayTools(rt.Env().Get("TAP_AGENT")); ok {
+					stop := mcp.StartRelayProxy(cmd.Context(), srv, mcp.RelayProxyOptions{
+						Endpoint: endpoint, Token: token, Logger: rt.Logger(), Version: Version,
+					})
+					defer stop()
+				}
+			}
 			err = srv.Run(cmd.Context(), &sdkmcp.StdioTransport{})
 			if err != nil && errors.Is(err, io.EOF) {
 				return nil
@@ -77,6 +88,17 @@ per-command permission prompts.`,
 		},
 	}
 	return cmd
+}
+
+// relayToolsEnabled reports whether `tap mcp` should proxy relayed tools:
+// not when TAP_RELAY_TOOLS=off, and not inside a run a runner tool started
+// (TAP_RUNNER_DEPTH), which must not delegate again through the same tools.
+func relayToolsEnabled(rt *toolkit.Runtime) bool {
+	if strings.EqualFold(strings.TrimSpace(rt.Env().Get("TAP_RELAY_TOOLS")), "off") {
+		return false
+	}
+	depth := strings.TrimSpace(rt.Env().Get("TAP_RUNNER_DEPTH"))
+	return depth == "" || depth == "0"
 }
 
 // mcpServerOptions builds the option set for `tap mcp`. It exists as a named

@@ -246,6 +246,29 @@ Both transports also publish `tapper://orient` and two resource templates:
 Either template takes `?keg=` with a URL-escaped keg target to override the
 server default.
 
+### Relayed Tools
+
+`tap mcp` also serves the MCP tools your relays forward to Hub (see
+[Relay](relay.md#where-relayed-tools-appear)), under Hub's names:
+`mcp__<owner>__<server>__<tool>`, where `<owner>` is the username of the
+person whose relay runs it. Claude Code shows them with the plugin's prefix, as
+`mcp__plugin_tapper_tapper__mcp__<owner>__<server>__<tool>`.
+
+- It connects to the selected Hub's `/mcp/relay` with your Hub token in the
+  background, so startup never waits on it and an unreachable Hub only means
+  no relayed tools until it answers.
+- The list refreshes every 60 seconds and whenever Hub announces a change; a
+  tool whose relay or share went away is removed.
+- Without `TAP_AGENT` you get the servers granted to your personal namespace:
+  your own enabled servers and the shares you accepted. With `TAP_AGENT` (set
+  by `tap launch --agent`) Hub offers the servers granted to that agent's
+  namespace, as far as its `relay:tools` allows; the agent's tool allowlist
+  lets relayed names through, since Hub has already gated them.
+- Calls go to Hub, which forwards them to the relay serving the tool.
+- `TAP_RELAY_TOOLS=off` turns relayed tools off for that server. Agents the
+  relay's coding runners start get it, along with `TAP_RUNNER_DEPTH`, which
+  also turns them off.
+
 ## Keg Targeting
 
 Every KEG-oriented tool accepts an optional `keg` parameter to override the

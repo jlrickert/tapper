@@ -183,6 +183,7 @@ var tapMethodsExcluded = map[string]string{
 	"ResolveLaunch":        "pure resolution half of Launch, exposed so a dry run and a real run cannot drift",
 	"ResolveLaunchContext": "ResolveLaunch with a context for hub mode's catalog lookup; same CLI-only launch surface",
 	"HubAgent":             "loads the launched session's Hub agent so `tap mcp` can serve only its tools; plumbing for TAP_AGENT, not an operation",
+	"HubRelayTools":        "resolves Hub's /mcp/relay endpoint and token so `tap mcp` can proxy relayed tools; plumbing, not an operation",
 }
 
 // TestCoverage_AllTapMethodsHaveBothSurfaces uses reflection to enumerate
