@@ -98,6 +98,32 @@ func TestInferValidate(t *testing.T) {
 	}
 }
 
+// The attribution fields become HTTP headers on the relay, so anything that
+// could break or smuggle a header is refused.
+func TestInferValidateApp(t *testing.T) {
+	ok := Infer{API: APIOpenAIChatCompletions, Provider: "openrouter", Model: "m", Body: json.RawMessage(`{}`),
+		AppTitle: "tap launch opencode", AppURL: "https://hub.example/tap-launch/opencode"}
+	if err := ok.Validate(); err != nil {
+		t.Fatalf("valid attribution rejected: %v", err)
+	}
+	for name, in := range map[string]Infer{
+		"newline title":  {AppTitle: "Atlas\r\nX-Evil: 1"},
+		"non-ascii":      {AppTitle: "Atlas · chat"},
+		"long title":     {AppTitle: strings.Repeat("a", MaxAppTitleLength+1)},
+		"relative url":   {AppURL: "/chat"},
+		"other scheme":   {AppURL: "javascript:alert(1)"},
+		"url with space": {AppURL: "https://hub.example/a b"},
+		"url with user":  {AppURL: "https://u:p@hub.example/"},
+		"long url":       {AppURL: "https://hub.example/" + strings.Repeat("a", MaxAppURLLength)},
+	} {
+		bad := ok
+		bad.AppTitle, bad.AppURL = in.AppTitle, in.AppURL
+		if err := bad.Validate(); err == nil {
+			t.Errorf("%s: accepted %q %q", name, bad.AppTitle, bad.AppURL)
+		}
+	}
+}
+
 func TestInferValidateAcceptsTranscription(t *testing.T) {
 	in := Infer{API: APIOpenAIAudioTranscriptions, Provider: "speech", Model: "whisper-1", Body: json.RawMessage(`{"audio":"AAEC","mimeType":"audio/webm"}`)}
 	if err := in.Validate(); err != nil {
@@ -125,13 +151,13 @@ func TestTranscriptionRequestValidate(t *testing.T) {
 }
 
 func TestSelectProtocol(t *testing.T) {
-	if got := SelectProtocol([]int{1, 2, 3}); got != 2 {
-		t.Fatalf("SelectProtocol = %d, want 2", got)
+	if got := SelectProtocol([]int{1, 2, 3, 4}); got != 3 {
+		t.Fatalf("SelectProtocol = %d, want 3", got)
 	}
 	if got := SelectProtocol([]int{1}); got != 1 {
 		t.Fatalf("SelectProtocol = %d, want 1", got)
 	}
-	if got := SelectProtocol([]int{3}); got != 0 {
+	if got := SelectProtocol([]int{4}); got != 0 {
 		t.Fatalf("SelectProtocol = %d, want 0", got)
 	}
 }

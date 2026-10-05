@@ -11,13 +11,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 )
 
 // ProtocolVersion is the newest relay protocol this package speaks. It is
 // negotiated once, in register and registered, and gates which frames a
-// session may carry: version 2 adds tools and call.
-const ProtocolVersion = 2
+// session may carry: version 2 adds tools and call, version 3 adds the
+// attribution fields of infer.
+const ProtocolVersion = 3
 
 // EnvelopeVersion is the frame shape every envelope carries in V. It is
 // separate from ProtocolVersion because a peer checks V before it knows what
@@ -243,7 +245,19 @@ type Infer struct {
 	Model    string          `json:"model"`
 	Stream   bool            `json:"stream"`
 	Body     json.RawMessage `json:"body"`
+	// AppTitle and AppURL name the app the request came from, such as Hub's
+	// chat or a `tap launch` harness, for providers that attribute usage to
+	// apps (OpenRouter's X-Title and HTTP-Referer). Hub sends them only on
+	// protocol 3 and later; they never select or authorize anything.
+	AppTitle string `json:"appTitle,omitempty"`
+	AppURL   string `json:"appUrl,omitempty"`
 }
+
+// Limits on Infer's attribution fields, which a relay sends as HTTP headers.
+const (
+	MaxAppTitleLength = 64
+	MaxAppURLLength   = 256
+)
 
 // TranscriptionRequest is the body of an APIOpenAIAudioTranscriptions infer.
 // Audio is the recording's bytes (base64 on the wire).
@@ -316,6 +330,36 @@ func (i *Infer) Validate() error {
 	}
 	if !isJSONObject(i.Body) {
 		return errors.New("body must be a JSON object")
+	}
+	return validateApp(i.AppTitle, i.AppURL)
+}
+
+// validateApp checks infer's attribution: a title of printable ASCII and an
+// absolute http(s) URL, both short, so neither can break the header it
+// becomes.
+func validateApp(title, appURL string) error {
+	if len(title) > MaxAppTitleLength {
+		return fmt.Errorf("appTitle is longer than %d bytes", MaxAppTitleLength)
+	}
+	for _, r := range title {
+		if r < 0x20 || r > 0x7e {
+			return errors.New("appTitle must be printable ASCII")
+		}
+	}
+	if appURL == "" {
+		return nil
+	}
+	if len(appURL) > MaxAppURLLength {
+		return fmt.Errorf("appUrl is longer than %d bytes", MaxAppURLLength)
+	}
+	u, err := url.Parse(appURL)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil {
+		return errors.New("appUrl must be an absolute http or https URL")
+	}
+	for _, r := range appURL {
+		if r <= 0x20 || r > 0x7e {
+			return errors.New("appUrl must be printable ASCII without spaces")
+		}
 	}
 	return nil
 }

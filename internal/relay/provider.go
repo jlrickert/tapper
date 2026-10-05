@@ -473,6 +473,35 @@ func (p *Provider) authorize(req *http.Request) {
 	if p.apiKey != "" {
 		req.Header.Set("Authorization", "Bearer "+p.apiKey)
 	}
+	p.attribute(req)
+}
+
+// app is where a request came from, as Hub named it in infer.
+type app struct{ title, url string }
+
+type appKey struct{}
+
+// withApp carries a request's app to the provider call it makes.
+func withApp(ctx context.Context, a app) context.Context {
+	if a == (app{}) {
+		return ctx
+	}
+	return context.WithValue(ctx, appKey{}, a)
+}
+
+// attribute names the request's app to OpenRouter, which shows it in its
+// logs and rankings (X-Title, HTTP-Referer). No other provider kind is told.
+func (p *Provider) attribute(req *http.Request) {
+	if p.kind != KindOpenRouter {
+		return
+	}
+	a, _ := req.Context().Value(appKey{}).(app)
+	if a.title != "" {
+		req.Header.Set("X-Title", a.title)
+	}
+	if a.url != "" {
+		req.Header.Set("HTTP-Referer", a.url)
+	}
 }
 
 // readSSE forwards each `data:` event and returns the last usage reported.

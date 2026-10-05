@@ -210,7 +210,7 @@ func (c *Client) advertisedLimit() int {
 
 // supportedProtocols are the relay protocol versions this client speaks,
 // offered in register. Hub picks the highest it also speaks.
-var supportedProtocols = []int{1, 2}
+var supportedProtocols = []int{1, 2, 3}
 
 // runHub keeps one hub connected until ctx ends or that hub rejects the
 // relay for good.
@@ -577,6 +577,7 @@ func (s *session) startInfer(ctx context.Context, env relaycontract.Envelope) {
 }
 
 func (s *session) infer(connCtx, reqCtx context.Context, id string, p *Provider, req relaycontract.Infer) {
+	reqCtx = withApp(reqCtx, app{title: req.AppTitle, url: req.AppURL})
 	emit := func(obj json.RawMessage) error {
 		return s.send(connCtx, relaycontract.TypeChunk, id, relaycontract.Chunk{Data: obj})
 	}
