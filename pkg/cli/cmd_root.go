@@ -324,7 +324,7 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 		NewVersionCmd(deps),
 	}
 	if deps.Profile.IncludeIntegrations {
-		subcommands = append(subcommands, NewIntegrateCmd(deps), NewHookCmd(deps), NewLaunchCmd(deps), NewRelayCmd(deps))
+		subcommands = append(subcommands, NewIntegrateCmd(deps), NewHookCmd(deps), NewLaunchCmd(deps), NewRelayCmd(deps), NewRunnerCmd(deps))
 	}
 	var configCmd *cobra.Command
 	if deps.Profile.IncludeConfigCommand {
