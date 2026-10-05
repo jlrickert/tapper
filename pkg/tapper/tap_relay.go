@@ -164,7 +164,6 @@ func (t *Tap) relayToolServers(rc *RelayConfig) ([]*relay.ToolServer, error) {
 			Deny:          s.Tools.Deny,
 			MaxConcurrent: s.MaxConcurrent,
 			Timeout:       timeout,
-			Shareable:     s.Shareable,
 		}
 		if s.Command != "" {
 			cfg.Command = s.Command

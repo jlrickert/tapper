@@ -185,9 +185,6 @@ type RelayMCPServer struct {
 	// Timeout bounds one call, as a Go duration ("30s", "5m"). Empty means
 	// two minutes.
 	Timeout string `yaml:"timeout,omitempty"`
-	// Shareable lets people the owner shares this server with on Hub call
-	// its tools. Without it only the owner can, whatever Hub's shares say.
-	Shareable bool `yaml:"shareable,omitempty"`
 }
 
 // IsEnabled reports whether the server is forwarded: true unless enabled is

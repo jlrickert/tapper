@@ -59,8 +59,6 @@ type ToolServerConfig struct {
 	MaxConcurrent int
 	// Timeout bounds one call. Zero means DefaultToolTimeout.
 	Timeout time.Duration
-	// Shareable lets people the owner shares this server with call it.
-	Shareable bool
 }
 
 // ToolServer supervises one MCP server: it connects (starting the command
@@ -113,9 +111,6 @@ func NewToolServer(cfg ToolServerConfig) (*ToolServer, error) {
 // Name returns the server's configured name.
 func (s *ToolServer) Name() string { return s.cfg.Name }
 
-// Shareable reports whether the owner lets people they share it with call it.
-func (s *ToolServer) Shareable() bool { return s.cfg.Shareable }
-
 func (s *ToolServer) tryAcquire() bool {
 	select {
 	case s.sem <- struct{}{}:
@@ -139,7 +134,6 @@ func (s *ToolServer) catalog() (relaycontract.ToolServer, bool) {
 		Name:          s.cfg.Name,
 		Title:         s.cfg.Title,
 		MaxConcurrent: cap(s.sem),
-		Shareable:     s.cfg.Shareable,
 		Tools:         slices.Clone(s.tools),
 	}, true
 }
