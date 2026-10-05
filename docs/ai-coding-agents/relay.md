@@ -4,8 +4,9 @@
 
 `tap relay` offers this machine's model providers, such as a local Ollama, to
 your Hub account's model catalog. Hub then routes inference for those models
-through the relay. It can also offer the tools of local MCP servers to Hub's
-chat; see [MCP servers](#mcp-servers).
+through the relay. It can also offer the tools of local MCP servers to Hub,
+see [MCP servers](#mcp-servers), and offers the coding agents installed on
+this machine as tools, see [Built-in servers](#built-in-servers).
 
 ```sh
 tap relay
@@ -93,8 +94,8 @@ embedding models out of a harness's model list.
 
 ## MCP servers
 
-List MCP servers under `relay.mcp` and the relay forwards their tools to Hub's
-chat. A server is either a stdio program the relay starts or a streamable HTTP
+List MCP servers under `relay.mcp` and the relay forwards their tools to Hub.
+A server is either a stdio program the relay starts or a streamable HTTP
 server that is already running:
 
 ```yaml
@@ -126,15 +127,160 @@ relay:
 - Each server has its own `maxConcurrent` (default 4) across all hubs, and a
   `timeout` per call (default `2m`). A full server answers `overloaded`; a
   call past its timeout ends with `timeout`.
-- Tools reach only Hub's chat, and only for agents that allow relay tools.
-  Hub's approval setting applies: a tool the server marks read-only can run
-  without asking, so only forward servers whose annotations you trust.
-- `shareable: true` lets people you share the server with on Hub call its
-  tools. The calls run on this machine with your server's access. Without it
-  the relay refuses every call that is not yours, whatever Hub's shares say.
+- Relayed tools reach Hub's chat, Hub's `/mcp/relay` endpoint, and every
+  `tap mcp`, including the Claude Code plugin's server; see
+  [Where relayed tools appear](#where-relayed-tools-appear). In chat, every
+  relayed call asks for approval unless the approval setting is `full`,
+  whatever the server's annotations say.
+- Who may call a server is decided on Hub: you enable it there, and share it
+  from there. A shared call runs on this machine with your server's access.
 - Tools need Hub support for relay protocol 2. An older Hub gets the models
   alone, and the relay logs that it does not support relayed tools.
 - A relay can offer MCP servers without any providers.
+- On relay protocol 3, Hub names the app each request came from (its chat,
+  `tap launch <harness>`, or its API), and the relay passes it to OpenRouter
+  providers as `X-Title` and `HTTP-Referer` so OpenRouter's logs show it. No
+  other provider is told.
+
+## Where relayed tools appear
+
+Hub names a relayed tool `mcp__<owner>__<server>__<tool>` and offers it in
+three places:
+
+- **Hub's chat**, to agents that allow relay tools (`relay:tools`).
+- **Hub's `/mcp/relay` endpoint**, for any MCP client with a Hub token.
+- **Every `tap mcp`**, including the server the Claude Code plugin starts. It
+  connects to `/mcp/relay` in the background and serves the relayed tools
+  next to the KEG tools; see
+  [MCP Server Setup: Relayed tools](mcp-setup.md#relayed-tools).
+
+A server serves no one until you enable it on Hub's Relay page. Once enabled,
+it serves agents in your personal namespace. To lend it to others, share it
+from the Relay page into a namespace: an organization, or another person's
+personal namespace. That namespace's owner or an admin accepts the share, and
+from then on it serves agents in that namespace. Tool calls run on your
+machine, so a share never takes effect until it is accepted.
+
+Hub scopes relayed tools by the namespace of the agent asking. With an agent
+(`?agent=@ns/name` on `/mcp/relay`, or `TAP_AGENT` for `tap mcp`, which
+`tap launch --agent` sets) it offers the servers granted to that agent's
+namespace, gated by the agent's `relay:tools`. Without an agent it offers
+those granted to your personal namespace: your own enabled servers and the
+shares you accepted. Set `TAP_RELAY_TOOLS=off` to keep a `tap mcp` from
+offering them.
+
+The namespace in a tool's name is always its owner's username:
+`mcp__<owner>__<server>__<tool>`, wherever it was shared.
+
+### Why don't I see a shared server?
+
+A server another person runs shows up for an agent only when all of these
+hold:
+
+1. Its owner enabled it on Hub's Relay page.
+2. Its owner shared it into the agent's namespace.
+3. That namespace's owner or an admin accepted the share. For your personal
+   namespace, that is you.
+4. For an organization, its owner is still a member.
+5. Their relay is online.
+
+For tools a whole organization should have, run them on a relay owned by a
+service user who is a member, not on a person's laptop, so they do not depend
+on one person's machine being on.
+
+## Built-in servers
+
+Besides the servers in `relay.mcp`, the relay can offer its own. All are off
+until `relay.runners` turns them on, and each is offered only when its program
+is on `PATH`:
+
+| Server | Runs | Turned on by |
+|---|---|---|
+| `claude` ("Claude Code") | `tap runner serve --runner claude` | `claude.run: true` |
+| `codex` ("Codex") | `tap runner serve --runner codex` | `codex.run: true` |
+| `opencode` ("opencode") | `tap runner serve --runner opencode` | `opencode.run: true` |
+| `pi` ("pi") | `tap runner serve --runner pi` | `pi.run: true` |
+| `claude-tools` ("Claude Code tools") | `claude mcp serve`, in the first root | `claude.tools: true` |
+
+Each is a server of its own, so you enable and share them on Hub one by one.
+They act as you, on this machine, and inherit the relay's whole environment,
+since the agents need their own credentials and configuration. A relay with no
+providers and no `relay.mcp` still starts when a built-in server is turned on
+and available.
+
+Configure them under `relay.runners`:
+
+```yaml
+relay:
+  runners:
+    claude:
+      run: true            # the claude server: claude_code_run
+      tools: true          # the claude-tools server: claude mcp serve
+    codex: {run: true}     # likewise opencode and pi
+    roots: [~/src, ~/work] # where a delegated task may work; default ~
+    timeout: 30m           # longest one task may run
+    maxConcurrent: 2       # tasks running at once, per server
+  mcp:
+    claude-tools:
+      enabled: false       # a relay.mcp entry with a built-in's name replaces it
+```
+
+Only `claude` has `tools`: no other harness has an MCP serve mode, and the
+relay refuses `tools` on `codex`, `opencode`, or `pi`. A `relay.mcp` entry with
+a built-in server's name replaces that server, and `enabled: false` on it
+removes the server.
+
+**Sharing the built-ins.** A shared call to a runner or to `claude-tools` runs
+a coding agent, or a shell, with the relay user's access inside `roots`.
+Share them only from a host built for it, such as a locked-down VM or
+container that serves as an organization's coding worker. Narrow `roots` to
+its workspace and run the relay as an unprivileged user:
+
+```yaml
+relay:
+  runners:
+    claude: {run: true}
+    roots: [/workspace]
+```
+
+### Runner tools
+
+Each runner server has one tool: `claude_code_run`, `codex_run`,
+`opencode_run` or `pi_run`. Each takes:
+
+| Argument | |
+|---|---|
+| `task` | The instruction, as you would type it. Required. |
+| `cwd` | Absolute directory to work in. Required; it must exist and, with symlinks resolved, be under one of the roots. |
+| `session` | A session id from an earlier result, to continue that conversation. |
+| `model` | A model in the runner's own naming. |
+
+The tool runs the agent non-interactively in `cwd` (`claude -p`,
+`codex exec`, `opencode run`, `pi --mode json`) and returns its final reply,
+as text headed by the session id and as structured content
+`{runner, session, reply, is_error}`. A run that fails, or exits non-zero, is
+an error result carrying the end of its stderr. Replies over 1 MiB are
+truncated.
+
+Each agent applies its own permission settings, and the tools add no bypass
+flags. Claude Code's print mode denies anything that would need an
+interactive prompt, `codex exec` runs in a read-only sandbox unless your
+config grants more, and opencode and pi follow their own configuration.
+
+`tap runner serve` serves every installed agent, or with `--runner NAME`
+just that one. It reads these variables; the relay sets the first two from
+`relay.runners`:
+
+| Variable | Effect |
+|---|---|
+| `TAP_RUNNER_ROOTS` | Directories a task's `cwd` must be under, as a `PATH`-style list. Defaults to `$HOME`. |
+| `TAP_RUNNER_TIMEOUT` | Longest one task may run, as a Go duration. Defaults to `30m`. |
+| `TAP_RUNNER_DEPTH` | At 1 or more, every call is refused. Each agent a runner starts gets it incremented, so a delegated agent cannot delegate again. |
+
+Agents a runner starts also get `TAP_RELAY_TOOLS=off`, so their own `tap mcp`
+does not offer relayed tools.
+
+## Limits
 
 Limits: 32 servers, 128 tools per server, 512 tools in all. A tool whose name
 is not letters, digits, `.`, `_` and `-`, or whose description or input schema
@@ -149,4 +295,5 @@ as an error result.
 ## Surfaces
 
 The relay is a long-running foreground process, so it has no MCP tool of its
-own. It is available only as a CLI command.
+own. It is available only as a CLI command. `tap runner serve` is an MCP server
+the relay starts, not a command to run by hand.
