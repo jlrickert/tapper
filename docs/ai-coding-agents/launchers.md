@@ -5,7 +5,9 @@ your Hub catalog and binds it to one connection-pinned Hub-backed flight root.
 
 ## Models
 
-Hub is the only inference plane. `--model` names a catalog id: a pooled model
+For Codex, opencode, and pi, Hub is the only inference plane. Claude Code
+defaults to split mode (below), which adds Hub's catalog beside your own Claude
+models. `--model` names a catalog id: a pooled model
 such as `@you/qwen3:8b`, served by your own connected relays or by a pool shared
 with you (see [`tap relay`](relay.md)). Each id is one model however many relays
 back it; Hub routes each request to one of them. Without `--model` the launch
@@ -27,7 +29,7 @@ each one:
 
 | Harness | Protocol | Wiring |
 | --- | --- | --- |
-| Claude Code | Anthropic Messages | `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, and every `ANTHROPIC_*_MODEL` slot set to the model. A session-only `--settings` `modelPicker` replaces `/model`'s Claude lineup with your catalog. An inherited `ANTHROPIC_API_KEY` is unset. |
+| Claude Code | Anthropic Messages | Split mode (default): `ANTHROPIC_BASE_URL` set to the forwarder's per-launch path, and a session-only `--settings` `modelPicker` adding your catalog to `/model` with `replaceBuiltInOptions: false`. `--hub`: `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, and every `ANTHROPIC_*_MODEL` slot set to the model, the picker replaced by your catalog, and an inherited `ANTHROPIC_API_KEY` unset. `--subscription`: no model wiring at all. |
 | Codex | OpenAI Responses | A `foldwise` model provider passed with `-c`, with `wire_api = "responses"` and its key in `TAP_LAUNCH_KEY` |
 | opencode | OpenAI chat completions | A `foldwise` provider in `OPENCODE_CONFIG_CONTENT` listing the whole catalog |
 | pi | OpenAI chat completions | A generated extension loaded with `-e` that registers a `foldwise` provider for the whole catalog. Your `~/.pi/agent` is untouched. |
@@ -38,6 +40,53 @@ per-launch key, and attaches your Hub credential to each request, refreshing a
 `tap auth login` token as it nears expiry. The credential never reaches the
 harness. `--dry-run` prints the invocation with placeholders for the
 forwarder's address, key, and file directory.
+
+### Claude Code: split, hub, and subscription
+
+Claude Code takes one base URL, so split mode routes inside the forwarder.
+Claude Code sends every model request to
+`http://127.0.0.1:<port>/t/<launch key>/anthropic`. A request naming a Claude
+model (`claude-*`, or an alias such as `sonnet`) goes on to Anthropic exactly
+as Claude Code sent it, with your own Claude login or `ANTHROPIC_API_KEY`;
+`tap launch` adds nothing to it, and that credential never reaches Hub. Any
+other model goes to Hub with your Hub credential, which never reaches
+Anthropic or Claude Code. Without `--model` or `--agent` the session starts on
+Claude Code's own default model, and background work stays on its small Claude
+model. If the launching shell set `ANTHROPIC_BASE_URL`, Claude models go there
+instead of `https://api.anthropic.com`. If Hub cannot list your models, the
+launch warns and continues with Claude models only.
+
+The per-launch key sits in the path because Claude Code's credential in split
+mode is your Claude login, not the key. Outside that path the forwarder still
+requires the key, and the path opens no routes beyond the inference ones.
+
+`--hub` restores Hub-only inference: every slot on the selected Hub model.
+`--subscription` leaves Claude Code's models alone, so Hub supplies only tools
+and agents.
+
+### Claude Code: relayed tools and subagents
+
+Relayed MCP tools come through the tapper plugin's `tap mcp`, not through the
+launch. The session's `tap mcp` sees `TAP_AGENT`, so Hub offers it the relayed
+tools the `--agent` allows (`relay:tools`). Claude Code names them
+`mcp__plugin_tapper_tapper__mcp__<owner>__<server>__<tool>`. See
+[Relay: Where relayed tools appear](relay.md#where-relayed-tools-appear).
+
+The agent's subagents become Claude Code subagents through `--agents`, named
+`<namespace>-<name>`. `--subagents all` offers every agent you can see instead,
+and `--subagents none` offers none. Each subagent gets:
+
+- its Hub tools, as `mcp__plugin_tapper_tapper__<tool>` (every hosted tool when
+  its list is empty), using `runtime_tools`, so the organization's tool policy
+  applies;
+- its relayed tools, as `mcp__plugin_tapper_tapper__<name>`, when both it and
+  the launch agent allow them;
+- the built-ins in `--subagent-builtins`, by default `Read,Grep,Glob`;
+- its model, when the launch can reach it; otherwise it inherits the session's.
+
+Hub still checks every call against the launch agent, because the MCP sessions
+run as that agent. A subagent's list can narrow what it is offered but never
+widen it.
 
 The child also gets `TAP_HARNESS` and `TAP_MODEL`. Tapper reports them in
 orientation and telemetry as the session's identity, and they select nothing.

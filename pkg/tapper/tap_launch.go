@@ -42,6 +42,17 @@ type LaunchOptions struct {
 	// Flight is the explicit launch root. Empty falls back through TAP_FLIGHT,
 	// project configuration, and user configuration.
 	Flight string
+	// Inference is where a Claude Code launch sends model requests:
+	// LaunchInferenceSplit (the default for claude), LaunchInferenceHub, or
+	// LaunchInferenceSubscription. Other harnesses use Hub only.
+	Inference string
+	// Subagents picks the Hub agents a Claude Code launch offers as
+	// subagents: "" the agent's own subagents, "all" every agent the caller
+	// can see, "none" none.
+	Subagents string
+	// SubagentBuiltins are the Claude Code built-in tools each subagent gets
+	// beside its Hub tools. Nil means DefaultSubagentBuiltins.
+	SubagentBuiltins []string
 	// DryRun resolves and reports the invocation without executing it.
 	DryRun bool
 	// Args are extra arguments appended to the harness invocation.
@@ -61,6 +72,8 @@ type LaunchOptions struct {
 // Warnings are returned rather than printed so a dry run and a real run report
 // the same thing — see ResolveLaunch.
 type LaunchResult struct {
+	// Inference is a Claude Code launch's mode; empty for other harnesses.
+	Inference string
 	// Hub names the hub serving the models.
 	HubAgent string
 	Hub      string
@@ -84,6 +97,28 @@ const (
 	launchKeyPlaceholder       = "<launch key>"
 	launchDirPlaceholder       = "<launch dir>"
 )
+
+// Inference modes for a Claude Code launch.
+const (
+	// LaunchInferenceSplit keeps Claude Code on the user's own Claude login
+	// for Claude models and adds the Hub catalog beside them: the forwarder
+	// routes each request by the model it names.
+	LaunchInferenceSplit = "split"
+	// LaunchInferenceHub sends every model request to Hub.
+	LaunchInferenceHub = "hub"
+	// LaunchInferenceSubscription leaves model requests alone entirely;
+	// Hub supplies only tools and agents.
+	LaunchInferenceSubscription = "subscription"
+)
+
+// DefaultSubagentBuiltins are the Claude Code built-in tools a Hub subagent
+// gets: read-only, so a Hub agent's authority stays what its tools say.
+var DefaultSubagentBuiltins = []string{"Read", "Grep", "Glob"}
+
+// claudeTapperToolPrefix is Claude Code's name prefix for the tapper plugin's
+// MCP tools, mcp__<server>__<tool>. `tap mcp` also serves the caller's relayed
+// tools, so they carry the same prefix.
+const claudeTapperToolPrefix = "mcp__plugin_tapper_tapper__"
 
 // launchKeyEnv carries the forwarder's per-launch key to harnesses that read
 // their API key from a named variable.
@@ -117,7 +152,25 @@ type launchSpec struct {
 	model   string
 	catalog []HubModel
 	agent   *HubAgent
+	// inference is the Claude Code launch mode; empty for other harnesses.
+	inference string
+	// subagents are offered to Claude Code as subagents.
+	subagents []HubAgent
+	// builtins are the built-in tools each subagent gets.
+	builtins []string
+	// hostedTools is every hosted Hub tool, for a subagent allowed them all.
+	hostedTools []string
+	// relayAllowed reports that the launch agent allows relayed tools, which
+	// the plugin's `tap mcp` serves; relayTools are their names.
+	relayAllowed bool
+	relayTools   []string
 }
+
+// pinned is the forwarder origin plus its key-in-path prefix.
+func (s launchSpec) pinned() string { return s.origin + "/t/" + s.apiKey }
+
+// hubModel reports whether id is in the Hub catalog.
+func (s launchSpec) hubModel(id string) bool { return hubCatalogHas(s.catalog, id) }
 
 // contextWindow is the selected model's advertised token limit, or 0.
 func (s launchSpec) contextWindow() int {
@@ -143,12 +196,15 @@ type invocation struct {
 // forwarder is up. tailArgs and tailEnv are the parts that do not depend on
 // the forwarder: pass-through arguments and the TAP_* variables.
 type launchPlan struct {
-	hubURL   string
-	token    func() string
-	build    func(launchSpec) invocation
-	spec     launchSpec
-	tailArgs []string
-	tailEnv  map[string]string
+	hubURL string
+	token  func() string
+	// anthropic is where a split launch sends Claude models; empty when
+	// unused.
+	anthropic string
+	build     func(launchSpec) invocation
+	spec      launchSpec
+	tailArgs  []string
+	tailEnv   map[string]string
 }
 
 // render builds the invocation against a forwarder at origin taking apiKey,
@@ -189,9 +245,31 @@ func harnessBuilders() map[string]func(launchSpec) invocation {
 	}
 }
 
-// claudeLaunch points Claude Code at Hub's Anthropic Messages endpoint. Every
-// model slot it uses, including the small one for background work, is the
-// selected model, so nothing leaves Hub. An inherited ANTHROPIC_API_KEY is
+// claudeLaunch points Claude Code at its models, then adds the launch's Hub
+// subagents. Where the models come from depends on the
+// mode; see claudeHubLaunch and claudeSplitLaunch.
+func claudeLaunch(spec launchSpec) invocation {
+	var inv invocation
+	switch spec.inference {
+	case LaunchInferenceSplit:
+		inv = claudeSplitLaunch(spec)
+	case LaunchInferenceSubscription:
+		inv = invocation{argv: []string{"claude"}, env: map[string]string{}}
+		if spec.model != "" {
+			inv.argv = append(inv.argv, "--model", spec.model)
+		}
+	default:
+		inv = claudeHubLaunch(spec)
+	}
+	if agents := claudeSubagents(spec); agents != nil {
+		inv.argv = append(inv.argv, "--agents", encodeLaunchJSON(agents))
+	}
+	return inv
+}
+
+// claudeHubLaunch points Claude Code at Hub's Anthropic Messages endpoint.
+// Every model slot it uses, including the small one for background work, is
+// the selected model, so nothing leaves Hub. An inherited ANTHROPIC_API_KEY is
 // removed: Claude Code would otherwise send it in preference, and warn about
 // the conflict. Claude Code does not know catalog models, so their context
 // window, when the relay advertised one, is passed as the limit it compacts
@@ -202,7 +280,7 @@ func harnessBuilders() map[string]func(launchSpec) invocation {
 // replaces that lineup with the catalog, so the picker switches between Hub
 // models the way opencode's and pi's do. --settings layers over the user's
 // own settings file rather than replacing it.
-func claudeLaunch(spec launchSpec) invocation {
+func claudeHubLaunch(spec launchSpec) invocation {
 	env := map[string]string{
 		"ANTHROPIC_BASE_URL":             spec.origin + "/anthropic",
 		"ANTHROPIC_AUTH_TOKEN":           spec.apiKey,
@@ -215,20 +293,117 @@ func claudeLaunch(spec launchSpec) invocation {
 	if n := spec.contextWindow(); n > 0 {
 		env["CLAUDE_CODE_MAX_CONTEXT_TOKENS"] = strconv.Itoa(n)
 	}
-	type row struct {
-		Model       string `json:"model"`
-		Label       string `json:"label"`
-		Description string `json:"description,omitempty"`
-	}
-	var rows []row
-	for _, m := range chatModels(spec.catalog) {
-		rows = append(rows, row{Model: m.ID, Label: m.ID, Description: catalogDescription(spec, m)})
-	}
-	settings := encodeLaunchJSON(map[string]any{"modelPicker": map[string]any{"options": rows}})
+	settings := encodeLaunchJSON(map[string]any{"modelPicker": map[string]any{"options": claudePickerRows(spec)}})
 	return invocation{
 		argv:  []string{"claude", "--model", spec.model, "--settings", settings},
 		env:   env,
 		strip: []string{"ANTHROPIC_API_KEY"},
+	}
+}
+
+// claudeSplitLaunch keeps Claude Code on the user's own Claude credential and
+// adds the Hub catalog beside its built-in models. Claude Code takes one base
+// URL, so it is the forwarder's pinned prefix: the forwarder sends requests
+// naming a Claude model on to Anthropic with the credential Claude Code sent,
+// and the rest to Hub with the Hub credential. Claude Code's own model
+// defaults stay, so background work runs on its small Claude model. Nothing
+// inherited is stripped: an ANTHROPIC_API_KEY the user set is that user's
+// Anthropic credential, and still only reaches Anthropic.
+//
+// The context limit is set only when the session starts on a Hub model; it
+// applies to the whole session, so it would otherwise cap Claude models at a
+// Hub model's window.
+func claudeSplitLaunch(spec launchSpec) invocation {
+	env := map[string]string{"ANTHROPIC_BASE_URL": spec.pinned() + "/anthropic"}
+	argv := []string{"claude"}
+	if spec.model != "" {
+		argv = append(argv, "--model", spec.model)
+		if n := spec.contextWindow(); n > 0 && spec.hubModel(spec.model) {
+			env["CLAUDE_CODE_MAX_CONTEXT_TOKENS"] = strconv.Itoa(n)
+		}
+	}
+	if rows := claudePickerRows(spec); len(rows) > 0 {
+		argv = append(argv, "--settings", encodeLaunchJSON(map[string]any{
+			"modelPicker": map[string]any{"options": rows, "replaceBuiltInOptions": false},
+		}))
+	}
+	return invocation{argv: argv, env: env}
+}
+
+// claudePickerRow is one /model picker entry.
+type claudePickerRow struct {
+	Model       string `json:"model"`
+	Label       string `json:"label"`
+	Description string `json:"description,omitempty"`
+}
+
+func claudePickerRows(spec launchSpec) []claudePickerRow {
+	var rows []claudePickerRow
+	for _, m := range chatModels(spec.catalog) {
+		rows = append(rows, claudePickerRow{Model: m.ID, Label: m.ID, Description: catalogDescription(spec, m)})
+	}
+	return rows
+}
+
+// claudeSubagent is one entry of Claude Code's --agents JSON.
+type claudeSubagent struct {
+	Description string   `json:"description"`
+	Prompt      string   `json:"prompt"`
+	Tools       []string `json:"tools"`
+	Model       string   `json:"model,omitempty"`
+}
+
+// claudeSubagents renders the launch's Hub subagents for --agents, or nil for
+// none. Each gets only its own Hub tools, as Claude Code names them, plus the
+// launch's built-ins. Hub still gates every call to the main agent's tools:
+// the MCP sessions run as the launch agent, so a subagent's list can narrow
+// what it is offered but never widen it.
+func claudeSubagents(spec launchSpec) map[string]claudeSubagent {
+	if len(spec.subagents) == 0 {
+		return nil
+	}
+	out := make(map[string]claudeSubagent, len(spec.subagents))
+	for _, a := range spec.subagents {
+		tools := slices.Clone(spec.builtins)
+		names := a.ToolNames()
+		if len(names) == 0 {
+			names = spec.hostedTools
+		}
+		for _, name := range names {
+			tools = append(tools, claudeTapperToolPrefix+name)
+		}
+		if a.RelayTools && spec.relayAllowed {
+			for _, name := range spec.relayTools {
+				tools = append(tools, claudeTapperToolPrefix+name)
+			}
+		}
+		description := strings.TrimSpace(a.Description)
+		if description == "" {
+			description = strings.TrimSpace(a.Title)
+		}
+		if description == "" {
+			description = "Hub agent " + a.Ref
+		}
+		entry := claudeSubagent{Description: description, Prompt: a.Instructions, Tools: tools}
+		if a.Model != "" && claudeModelUsable(spec, a.Model) {
+			entry.Model = a.Model
+		}
+		out[a.Namespace+"-"+a.Name] = entry
+	}
+	return out
+}
+
+// claudeModelUsable reports whether a Claude Code launch in spec's mode can
+// reach model: Hub models in hub and split mode, Claude models in split and
+// subscription mode.
+func claudeModelUsable(spec launchSpec, model string) bool {
+	switch spec.inference {
+	case LaunchInferenceSplit:
+		return spec.hubModel(model) || IsClaudeModel(model)
+	case LaunchInferenceSubscription:
+		return IsClaudeModel(model)
+	default:
+		return spec.hubModel(model)
 	}
 }
 
@@ -471,23 +646,46 @@ func (t *Tap) ResolveLaunchContext(ctx context.Context, opts LaunchOptions) (*La
 		return nil, fmt.Errorf("hub %q has no url", hubName)
 	}
 	token := func() string { return t.hubToken(entry) }
-	catalog, err := fetchHubCatalog(ctx, hubURL, token())
+	inference, err := launchInference(harness, opts.Inference)
 	if err != nil {
-		return nil, fmt.Errorf("hub %q: %w", hubName, err)
-	}
-	chat := chatModels(catalog)
-	if len(chat) == 0 {
-		return nil, fmt.Errorf("hub %q has no models for you yet; run `tap relay` to contribute your own", hubName)
+		return nil, err
 	}
 	model := strings.TrimSpace(opts.Model)
 	if agent != nil {
 		model = agent.Model
 	}
-	if model == "" {
-		model = chat[0].ID
-	} else if !hubCatalogHas(chat, model) {
-		return nil, fmt.Errorf("model %q is not in your catalog on hub %q (is a relay serving it connected?); available: %s",
-			model, hubName, strings.Join(hubCatalogIDs(chat), ", "))
+	var catalog []HubModel
+	switch inference {
+	case LaunchInferenceSubscription:
+		if model != "" && !IsClaudeModel(model) {
+			warnings = append(warnings, fmt.Sprintf("model %q is a Hub model; a subscription launch starts on Claude Code's default instead", model))
+			model = ""
+		}
+	case LaunchInferenceSplit:
+		// Claude models work without Hub's catalog, so a hub that cannot
+		// list one degrades the launch rather than failing it.
+		catalog, err = fetchHubCatalog(ctx, hubURL, token())
+		if err != nil {
+			warnings = append(warnings, fmt.Sprintf("hub %q: %v; launching with Claude models only", hubName, err))
+		}
+		if model != "" && !IsClaudeModel(model) && !hubCatalogHas(chatModels(catalog), model) {
+			return nil, fmt.Errorf("model %q is neither a Claude model nor in your catalog on hub %q (is a relay serving it connected?)", model, hubName)
+		}
+	default:
+		catalog, err = fetchHubCatalog(ctx, hubURL, token())
+		if err != nil {
+			return nil, fmt.Errorf("hub %q: %w", hubName, err)
+		}
+		chat := chatModels(catalog)
+		if len(chat) == 0 {
+			return nil, fmt.Errorf("hub %q has no models for you yet; run `tap relay` to contribute your own", hubName)
+		}
+		if model == "" {
+			model = chat[0].ID
+		} else if !hubCatalogHas(chat, model) {
+			return nil, fmt.Errorf("model %q is not in your catalog on hub %q (is a relay serving it connected?); available: %s",
+				model, hubName, strings.Join(hubCatalogIDs(chat), ", "))
+		}
 	}
 
 	tailEnv, err := t.launchTapEnv(cfg, root, hasRoot)
@@ -500,14 +698,31 @@ func (t *Tap) ResolveLaunchContext(ctx context.Context, opts LaunchOptions) (*La
 		tailEnv["TAP_AGENT"] = agentRef
 	}
 	tailEnv["TAP_HARNESS"] = harness
-	tailEnv["TAP_MODEL"] = model
+	if model != "" {
+		tailEnv["TAP_MODEL"] = model
+	}
+	spec := launchSpec{hubName: hubName, model: model, catalog: catalog, agent: agent}
+	if harness == "claude" {
+		spec.inference = inference
+		more, err := t.resolveClaudeExtras(ctx, &spec, hubURL, token(), opts)
+		if err != nil {
+			return nil, err
+		}
+		warnings = append(warnings, more...)
+	}
 	plan := &launchPlan{
 		hubURL:   hubURL,
 		token:    token,
 		build:    build,
-		spec:     launchSpec{hubName: hubName, model: model, catalog: catalog, agent: agent},
+		spec:     spec,
 		tailArgs: append([]string(nil), opts.Args...),
 		tailEnv:  tailEnv,
+	}
+	if spec.inference == LaunchInferenceSplit {
+		plan.anthropic = t.Runtime.Env().Get("ANTHROPIC_BASE_URL")
+		if plan.anthropic == "" {
+			plan.anthropic = DefaultAnthropicURL
+		}
 	}
 	inv := plan.render(launchForwarderPlaceholder, launchKeyPlaceholder, launchDirPlaceholder)
 	flight := ""
@@ -515,18 +730,101 @@ func (t *Tap) ResolveLaunchContext(ctx context.Context, opts LaunchOptions) (*La
 		flight = root.Canonical()
 	}
 	return &LaunchResult{
-		HubAgent: agentRef,
-		Hub:      hubName,
-		Harness:  harness,
-		Model:    model,
-		Flight:   flight,
-		Argv:     inv.argv,
-		Env:      inv.env,
-		StripEnv: inv.strip,
-		Files:    inv.files,
-		Warnings: warnings,
-		plan:     plan,
+		Inference: spec.inference,
+		HubAgent:  agentRef,
+		Hub:       hubName,
+		Harness:   harness,
+		Model:     model,
+		Flight:    flight,
+		Argv:      inv.argv,
+		Env:       inv.env,
+		StripEnv:  inv.strip,
+		Files:     inv.files,
+		Warnings:  warnings,
+		plan:      plan,
 	}, nil
+}
+
+// launchInference validates a launch's inference mode, defaulting Claude Code
+// to split and every other harness to Hub, the only mode they support.
+func launchInference(harness, mode string) (string, error) {
+	mode = strings.TrimSpace(mode)
+	if harness != "claude" {
+		if mode != "" && mode != LaunchInferenceHub {
+			return "", fmt.Errorf("%s launches use Hub models only; --%s is for claude", harness, mode)
+		}
+		return LaunchInferenceHub, nil
+	}
+	switch mode {
+	case "":
+		return LaunchInferenceSplit, nil
+	case LaunchInferenceSplit, LaunchInferenceHub, LaunchInferenceSubscription:
+		return mode, nil
+	}
+	return "", fmt.Errorf("unknown inference mode %q (want %s, %s or %s)", mode, LaunchInferenceSplit, LaunchInferenceHub, LaunchInferenceSubscription)
+}
+
+// resolveClaudeExtras fills in a Claude Code launch's subagents and the relayed
+// tool names they get. What cannot be fetched is left out with a warning: neither is
+// needed to start the session.
+func (t *Tap) resolveClaudeExtras(ctx context.Context, spec *launchSpec, hubURL, token string, opts LaunchOptions) ([]string, error) {
+	var warnings []string
+	spec.builtins = opts.SubagentBuiltins
+	if spec.builtins == nil {
+		spec.builtins = DefaultSubagentBuiltins
+	}
+	spec.relayAllowed = spec.agent != nil && spec.agent.RelayTools
+
+	switch mode := strings.TrimSpace(opts.Subagents); mode {
+	case "none":
+	case "all":
+		all, err := ListHubAgents(ctx, hubURL, token, "")
+		if err != nil {
+			return nil, fmt.Errorf("list agents for subagents: %w", err)
+		}
+		for _, a := range all {
+			if spec.agent == nil || a.Ref != spec.agent.Ref {
+				spec.subagents = append(spec.subagents, a)
+			}
+		}
+	case "":
+		if spec.agent == nil {
+			break
+		}
+		for _, ref := range spec.agent.Subagents {
+			a, err := t.HubAgent(ctx, ref)
+			if err != nil {
+				warnings = append(warnings, fmt.Sprintf("subagent %s skipped: %v", ref, err))
+				continue
+			}
+			spec.subagents = append(spec.subagents, *a)
+		}
+	default:
+		return nil, fmt.Errorf("unknown --subagents value %q (want all or none)", mode)
+	}
+
+	needHosted, needRelay := false, false
+	for _, a := range spec.subagents {
+		needHosted = needHosted || len(a.ToolNames()) == 0
+		needRelay = needRelay || (a.RelayTools && spec.relayAllowed)
+	}
+	if needHosted {
+		if tools, err := GetHubTools(ctx, hubURL, token); err != nil {
+			warnings = append(warnings, fmt.Sprintf("subagents allowed every Hub tool get none: %v", err))
+		} else {
+			spec.hostedTools = append(slices.Clone(tools.Tools), tools.AlwaysAvailable...)
+			slices.Sort(spec.hostedTools)
+			spec.hostedTools = slices.Compact(spec.hostedTools)
+		}
+	}
+	if needRelay {
+		if names, err := ListHubRelayToolNames(ctx, hubURL, token); err != nil {
+			warnings = append(warnings, fmt.Sprintf("subagents get no relayed tools: %v", err))
+		} else {
+			spec.relayTools = names
+		}
+	}
+	return warnings, nil
 }
 
 // resolveLaunchRoot resolves the optional launch root flight.
@@ -658,7 +956,10 @@ func (t *Tap) Launch(ctx context.Context, opts LaunchOptions) (*LaunchResult, er
 
 	// Up before the harness and down after it, so every request the harness
 	// makes has somewhere to go.
-	fw, err := startLaunchForwarder(resolved.plan.hubURL, resolved.plan.token)
+	fw, err := startLaunchForwarderWith(launchForwarderConfig{
+		hubURL: resolved.plan.hubURL, harness: resolved.Harness, token: resolved.plan.token,
+		anthropic: resolved.plan.anthropic,
+	})
 	if err != nil {
 		return nil, err
 	}

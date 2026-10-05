@@ -33,7 +33,7 @@ func TestLaunchCommand_DryRunClaude(t *testing.T) {
 	t.Parallel()
 	sb := newLaunchSandbox(t, "flight: \"@testuser/+root\"\n")
 
-	res := NewProcess(t, false, "launch", "claude", "--dry-run", "--", "--verbose").Run(sb.Context(), sb.Runtime())
+	res := NewProcess(t, false, "launch", "claude", "--hub", "--dry-run", "--", "--verbose").Run(sb.Context(), sb.Runtime())
 	require.NoError(t, res.Err)
 	out := string(res.Stdout)
 	require.Contains(t, out, "hub atlas -> @me/qwen3:8b (via loopback forwarder)")
@@ -47,6 +47,31 @@ func TestLaunchCommand_DryRunClaude(t *testing.T) {
 	require.Contains(t, out, "TAP_MODEL=@me/qwen3:8b")
 	require.Contains(t, out, "TAP_FLIGHT=@testuser/+root")
 	require.NotContains(t, out, "hub-token", "the Hub credential never appears")
+}
+
+// Claude Code defaults to split mode: its own login for Claude models, Hub's
+// catalog beside them, and no Hub key in its environment.
+func TestLaunchCommand_DryRunClaudeSplit(t *testing.T) {
+	t.Parallel()
+	sb := newLaunchSandbox(t, "flight: \"@testuser/+root\"\n")
+
+	res := NewProcess(t, false, "launch", "claude", "--dry-run").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+	out := string(res.Stdout)
+	require.Contains(t, out, "split: Claude models via your Claude login, hub atlas models via loopback forwarder; starting on Claude Code's default")
+	require.Contains(t, out, `"replaceBuiltInOptions":false`)
+	require.Contains(t, out, "ANTHROPIC_BASE_URL=http://127.0.0.1:<port>/t/<launch key>/anthropic")
+	require.NotContains(t, out, "ANTHROPIC_AUTH_TOKEN")
+	require.NotContains(t, out, "unset: ANTHROPIC_API_KEY")
+	require.NotContains(t, out, "hub-token")
+
+	res = NewProcess(t, false, "launch", "claude", "--subscription", "--dry-run").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+	require.Contains(t, string(res.Stdout), "subscription: models via your Claude login")
+	require.NotContains(t, string(res.Stdout), "ANTHROPIC_BASE_URL")
+
+	res = NewProcess(t, false, "launch", "claude", "--hub", "--subscription", "--dry-run").Run(sb.Context(), sb.Runtime())
+	require.Error(t, res.Err, "--hub and --subscription conflict")
 }
 
 func TestLaunchCommand_DryRunShowsGeneratedFiles(t *testing.T) {

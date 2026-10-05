@@ -26,14 +26,28 @@ type HubAgent struct {
 	// EffectiveTools is Tools with its groups expanded to tool names by the
 	// hub, for filtering a tool list by name. Empty means every tool.
 	EffectiveTools []string `json:"effective_tools,omitempty"`
+	// RuntimeTools is EffectiveTools narrowed by the agent's organization's
+	// tool policy: what a session running it may use. Empty means every
+	// tool; nil means the hub predates it.
+	RuntimeTools []string `json:"runtime_tools,omitempty"`
+	// RelayTools reports whether a session running the agent also gets the
+	// caller's relayed MCP tools.
+	RelayTools bool `json:"relay_tools,omitempty"`
+	// Subagents are the agents (@ns/name) this one may hand work to.
+	Subagents []string `json:"subagents,omitempty"`
 	// Flight is the agent's memory flight (@ns/+slug); empty means the agent
 	// has no KEG access.
 	Flight string `json:"flight"`
 }
 
-// ToolNames returns the tool names the agent may use: EffectiveTools when the
-// hub sent them, else Tools (an older hub stores only names).
+// ToolNames returns the tool names the agent may use: RuntimeTools when the
+// hub sent them, so the organization's tool policy applies here as it does on
+// hosted MCP; else EffectiveTools; else Tools (an older hub stores only
+// names). Empty means every tool.
 func (a HubAgent) ToolNames() []string {
+	if a.RuntimeTools != nil {
+		return a.RuntimeTools
+	}
 	if len(a.EffectiveTools) > 0 {
 		return a.EffectiveTools
 	}
@@ -148,4 +162,38 @@ func (t *Tap) HubAgent(ctx context.Context, ref string) (*HubAgent, error) {
 		return nil, fmt.Errorf("hub %q: not signed in; run `tap auth login`", hubName)
 	}
 	return GetHubAgent(ctx, strings.TrimRight(hubURLWithScheme(entry.URL), "/"), token, ns, name)
+}
+
+// HubToolCatalog is Hub's hosted MCP tool list: every tool an agent may be
+// granted, and the ones every agent always has.
+type HubToolCatalog struct {
+	Tools           []string `json:"tools"`
+	AlwaysAvailable []string `json:"always_available"`
+}
+
+// GetHubTools lists Hub's hosted MCP tools.
+func GetHubTools(ctx context.Context, hubURL, token string) (*HubToolCatalog, error) {
+	var out HubToolCatalog
+	if err := doHubFlightJSON(ctx, "GET", hubURL, token, "/api/v1/tools", "", nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// ListHubRelayToolNames returns the names of the relayed MCP tools the caller
+// can reach, as Hub lists them to an agent that allows relayed tools.
+func ListHubRelayToolNames(ctx context.Context, hubURL, token string) ([]string, error) {
+	var out struct {
+		Data []struct {
+			Name string `json:"name"`
+		} `json:"data"`
+	}
+	if err := doHubFlightJSON(ctx, "GET", hubURL, token, "/api/v1/relay/tools", "", nil, &out); err != nil {
+		return nil, err
+	}
+	names := make([]string, 0, len(out.Data))
+	for _, t := range out.Data {
+		names = append(names, t.Name)
+	}
+	return names, nil
 }
