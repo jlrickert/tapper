@@ -262,16 +262,26 @@ func errorResult(err error) *sdkmcp.CallToolResult {
 	}
 	var conflict *keg.PreconditionConflictError
 	if errors.As(err, &conflict) {
+		structured := map[string]any{
+			"code":               keg.RemoteCodeConflict,
+			"operationPerformed": false,
+			"currentHash":        conflict.CurrentHash,
+			"currentContent":     string(conflict.CurrentContent),
+			"action":             "read the current resource, merge the change, and retry with currentHash",
+		}
+		if conflict.CurrentContentHash != "" || conflict.CurrentMetaHash != "" {
+			if conflict.CurrentContentHash != "" {
+				structured["currentContentHash"] = conflict.CurrentContentHash
+			}
+			if conflict.CurrentMetaHash != "" {
+				structured["currentMetaHash"] = conflict.CurrentMetaHash
+			}
+			structured["action"] = "read the current node, merge the change, and retry node_edit with currentContentHash as expected_content_hash and currentMetaHash as expected_meta_hash (node_delete and node_move take currentHash)"
+		}
 		return &sdkmcp.CallToolResult{
-			Content: []sdkmcp.Content{&sdkmcp.TextContent{Text: err.Error()}},
-			StructuredContent: map[string]any{
-				"code":               keg.RemoteCodeConflict,
-				"operationPerformed": false,
-				"currentHash":        conflict.CurrentHash,
-				"currentContent":     string(conflict.CurrentContent),
-				"action":             "read the current resource, merge the change, and retry with currentHash",
-			},
-			IsError: true,
+			Content:           []sdkmcp.Content{&sdkmcp.TextContent{Text: err.Error()}},
+			StructuredContent: structured,
+			IsError:           true,
 		}
 	}
 	if errors.Is(err, keg.ErrUnauthorized) || errors.Is(err, keg.ErrForbidden) ||

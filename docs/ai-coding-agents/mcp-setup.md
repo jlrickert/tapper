@@ -110,9 +110,9 @@ explicitly configured root failed to initialize.
 | Tool | Description |
 | --- | --- |
 | `node_create` | Atomically create 1–100 nodes from `nodes[]`, each a markdown `content` document plus an optional YAML `meta` document; unique keys support forward/backward `{{node:key}}` content references |
-| `node_edit` | Read with `node_read`, then atomically replace `content`, `meta`, or both for 1–100 nodes from `nodes[]`; every item requires that node's `expected_hash`, and one hash covers content and metadata together |
-| `node_delete` | Read with `node_read`, then atomically delete 1–100 `nodes[]`; every item requires its own `expected_hash` |
-| `node_move` | Read with `node_read`, then move a node using its required `expected_hash` |
+| `node_edit` | Read with `node_read`, then atomically replace `content`, `meta`, or both for 1–100 nodes from `nodes[]`; supplied `content` requires `expected_content_hash` (the read's `content_hash`) and supplied `meta` requires `expected_meta_hash` (its `meta_hash`); editing one part never invalidates the other's hash |
+| `node_delete` | Read with `node_read`, then atomically delete 1–100 `nodes[]`; every item requires its own `expected_hash` (the combined `hash` from `node_read`) |
+| `node_move` | Read with `node_read`, then move a node using its required `expected_hash` (the combined `hash` from `node_read`) |
 | `keg_settings_edit` | Read the full document with `keg_settings_read`, then replace it using its required `expected_hash`; requires admin flight authority and editor/admin KEG access |
 
 Mutation inputs are array-only, every batch tool takes its items under `nodes`,
@@ -121,10 +121,10 @@ and each array contains 1–100 items:
 ```json
 // node_create
 {"nodes":[{"key":"plan","content":"# Plan\n\nSee [task](../{{node:task}})\n","meta":"type: plan\n"}]}
-// node_edit — content only, metadata only, or both under one hash
-{"nodes":[{"node_id":"12","content":"# Revised\n","expected_hash":"..."}]}
-{"nodes":[{"node_id":"12","meta":"type: plan\n","expected_hash":"..."}]}
-{"nodes":[{"node_id":"12","content":"# Revised\n","meta":"type: plan\n","expected_hash":"..."}]}
+// node_edit — content only, metadata only, or both; each part under its own hash
+{"nodes":[{"node_id":"12","content":"# Revised\n","expected_content_hash":"..."}]}
+{"nodes":[{"node_id":"12","meta":"type: plan\n","expected_meta_hash":"..."}]}
+{"nodes":[{"node_id":"12","content":"# Revised\n","meta":"type: plan\n","expected_content_hash":"...","expected_meta_hash":"..."}]}
 // node_delete
 {"nodes":[{"node_id":"12","expected_hash":"..."},{"node_id":"13","expected_hash":"..."}]}
 // snapshot_create
@@ -134,21 +134,28 @@ and each array contains 1–100 items:
 Read metadata with `node_read` and `meta_only`; take snapshots with `snapshot_create`
 before a large or destructive edit.
 Mutation results preserve request order and report `node_id`, the resulting
-hash or snapshot revision, and advisory schema validation details when
+hash or snapshot revision (`node_edit` results also carry the new
+`content_hash` and `meta_hash`, so a follow-up edit needs no re-read), and advisory schema validation details when
 applicable. A failed batch returns no partial results and commits none of its
 changes.
 
 Reads are self-contained: each `node_read` row in `structuredContent.nodes[]` pairs
-`node_id` and `hash` with that node's `content` and `meta`, matching the fields
-`node_edit` accepts, so a read result can be modified and sent back without parsing
-the human-readable rendering.
+`node_id`, the combined `hash`, and the per-part `content_hash` and `meta_hash`
+(present for the parts the read mode returned) with that node's `content` and
+`meta`, matching the fields `node_edit` accepts, so a read result can be modified
+and sent back without parsing. Each document is sent once, in `nodes[]`; the
+text message is only a summary. `node_edit` takes `content_hash` as
+`expected_content_hash` and `meta_hash` as `expected_meta_hash`; editing one part
+never invalidates the other's hash. `node_delete` and `node_move` take the
+combined `hash`.
 
 Every protected mutation names the read that supplies its token: `node_read` for
 node edits, metadata updates, moves, and removals; `keg_settings_read` for settings;
 `schema_read` for schema edits/deletes; and `flight_read` for flight
 edits/deletes. A conflict performs no operation and returns the current hash
-and, when practical, current content. Merge or refetch, then retry with that
-current hash.
+and, when practical, current content; node conflicts also return
+`currentContentHash` and `currentMetaHash`. Merge or refetch, then retry with
+the current hash for what you are writing.
 
 ### Index, Diagnostics, And Safety
 

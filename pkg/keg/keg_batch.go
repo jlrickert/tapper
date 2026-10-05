@@ -186,8 +186,7 @@ func (k *LocalKeg) updateNodes(ctx context.Context, updates []NodeUpdateOptions)
 		if err := k.validateAggregateLock(ctx, opts.ID, opts.LockToken); err != nil {
 			return nil, &BatchMutationError{Index: i, NodeID: opts.ID, Err: err}
 		}
-		currentHash := existing.Hash()
-		if err := checkExpectedHash("node "+opts.ID.Path(), opts.ExpectedHash, currentHash, nodeRecoveryContent(existing)); err != nil {
+		if err := checkNodeUpdatePrecondition(ctx, k.Runtime, opts, existing); err != nil {
 			return nil, &BatchMutationError{Index: i, NodeID: opts.ID, Err: err}
 		}
 		contentBytes := existing.Content
@@ -269,7 +268,8 @@ func (k *LocalKeg) updateNodes(ctx context.Context, updates []NodeUpdateOptions)
 			}
 			return nil, &BatchMutationError{Index: i, NodeID: item.opts.ID, Err: errors.Join(err, errors.Join(rollback...))}
 		}
-		results[i] = NodeUpdateResult{ID: item.opts.ID, Validation: item.validation, Hash: item.data.Stats.Hash()}
+		contentHash, metaHash := NodePartHashes(k.Runtime, item.content, item.data.Meta)
+		results[i] = NodeUpdateResult{ID: item.opts.ID, Validation: item.validation, Hash: item.data.Stats.Hash(), ContentHash: contentHash, MetaHash: metaHash}
 	}
 	updatedNodes := make([]*NodeData, len(prepared))
 	for i := range prepared {

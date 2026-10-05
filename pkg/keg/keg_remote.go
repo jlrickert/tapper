@@ -36,6 +36,8 @@ type apiErrorEnvelope struct {
 	Code               string `json:"code"`
 	OperationPerformed bool   `json:"operationPerformed"`
 	CurrentHash        string `json:"currentHash"`
+	CurrentContentHash string `json:"currentContentHash"`
+	CurrentMetaHash    string `json:"currentMetaHash"`
 	CurrentContent     string `json:"currentContent"`
 }
 
@@ -281,9 +283,11 @@ func (k *RemoteKeg) mapError(resp *http.Response, op string) error {
 	}
 	if resp.StatusCode == http.StatusPreconditionFailed {
 		return &PreconditionConflictError{
-			Resource:       where,
-			CurrentHash:    env.CurrentHash,
-			CurrentContent: []byte(env.CurrentContent),
+			Resource:           where,
+			CurrentHash:        env.CurrentHash,
+			CurrentContentHash: env.CurrentContentHash,
+			CurrentMetaHash:    env.CurrentMetaHash,
+			CurrentContent:     []byte(env.CurrentContent),
 		}
 	}
 
@@ -627,14 +631,16 @@ func (k *RemoteKeg) ReadNode(ctx context.Context, id NodeId) (*NodeView, error) 
 		}
 		stats = parsed
 	}
-	return &NodeView{
+	view := &NodeView{
 		ID:      viewID,
 		Content: []byte(resp.Content),
 		Meta:    []byte(resp.Meta),
 		Stats:   stats,
 		Files:   resp.Assets,
 		Images:  resp.Images,
-	}, nil
+	}
+	view.setPartHashes(ctx, nil, true)
+	return view, nil
 }
 
 // GetContent implements Keg via GET /nodes/{id}/content.

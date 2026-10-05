@@ -139,23 +139,29 @@ type editInput struct {
 	Keg   string          `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
 }
 type editItemInput struct {
-	NodeID       string  `json:"node_id" jsonschema:"id of the node to update"`
-	Content      *string `json:"content,omitempty" jsonschema:"replacement markdown body, replacing the node's content entirely. Must not start with a YAML frontmatter block: metadata goes in the meta field. Omit to leave content unchanged."`
-	Meta         *string `json:"meta,omitempty" jsonschema:"replacement metadata document as YAML, replacing the node's metadata entirely. Omit to leave metadata unchanged."`
-	ExpectedHash string  `json:"expected_hash" jsonschema:"precondition token returned by node_read. One hash covers content and metadata together, so a call that changes only one of them still invalidates the other's hash."`
-	Schema       string  `json:"schema,omitempty" jsonschema:"schema selected for this write. Writes meta.type; a different type declared in meta is a hard error, not an override. Required when strict policy and agent mode both block."`
+	NodeID              string  `json:"node_id" jsonschema:"id of the node to update"`
+	Content             *string `json:"content,omitempty" jsonschema:"replacement markdown body, replacing the node's content entirely. Must not start with a YAML frontmatter block: metadata goes in the meta field. Omit to leave content unchanged."`
+	Meta                *string `json:"meta,omitempty" jsonschema:"replacement metadata document as YAML, replacing the node's metadata entirely. Omit to leave metadata unchanged."`
+	ExpectedContentHash string  `json:"expected_content_hash,omitempty" jsonschema:"content_hash from node_read (or from a previous node_edit result); required when content is supplied"`
+	ExpectedMetaHash    string  `json:"expected_meta_hash,omitempty" jsonschema:"meta_hash from node_read (or from a previous node_edit result); required when meta is supplied"`
+	Schema              string  `json:"schema,omitempty" jsonschema:"schema selected for this write. Writes meta.type; a different type declared in meta is a hard error, not an override. Required when strict policy and agent mode both block."`
 }
 
+// nodeUpdateOutput carries the written node's tokens. content_hash and
+// meta_hash are what a follow-up node_edit echoes back, so a second edit
+// needs no re-read; hash is the combined token node_delete and node_move take.
 type nodeUpdateOutput struct {
-	NodeID     string                      `json:"node_id"`
-	Hash       string                      `json:"hash"`
-	Validation *keg.SchemaValidationResult `json:"validation,omitempty"`
+	NodeID      string                      `json:"node_id"`
+	Hash        string                      `json:"hash"`
+	ContentHash string                      `json:"content_hash,omitempty"`
+	MetaHash    string                      `json:"meta_hash,omitempty"`
+	Validation  *keg.SchemaValidationResult `json:"validation,omitempty"`
 }
 
 func nodeUpdateOutputs(results []keg.NodeUpdateResult) []nodeUpdateOutput {
 	out := make([]nodeUpdateOutput, len(results))
 	for i, item := range results {
-		out[i] = nodeUpdateOutput{NodeID: item.ID.Path(), Hash: item.Hash, Validation: item.Validation}
+		out[i] = nodeUpdateOutput{NodeID: item.ID.Path(), Hash: item.Hash, ContentHash: item.ContentHash, MetaHash: item.MetaHash, Validation: item.Validation}
 	}
 	return out
 }
@@ -166,11 +172,13 @@ func registerEdit(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 		Description: "Atomically replace the content and/or metadata of 1-100 nodes. " +
 			"Supply content, meta, or both for each node; at least one is required. " +
 			"content is the markdown body and must not begin with a YAML frontmatter block — metadata goes in meta. " +
-			"One expected_hash covers a node's content and metadata together, so changing either invalidates the hash for both. " +
-			"Call node_read first for every node and pass each returned hash as that node's expected_hash; node_read meta_only reads metadata. " +
+			"Each part has its own precondition token: pass node_read's content_hash as expected_content_hash when supplying content, and its meta_hash as expected_meta_hash when supplying meta. " +
+			"Editing content never invalidates meta_hash and editing meta never invalidates content_hash, so a concurrent edit to the other part does not conflict. " +
+			"Call node_read first for every node; node_read meta_only reads metadata. " +
+			"Each result returns the node's new content_hash and meta_hash, so a follow-up edit needs no re-read; its combined hash (for node_delete or node_move) changes with every edit. " +
 			"Take a snapshot with snapshot_create before a large or destructive edit. " +
 			"A schema selection is required only when strict policy and the resolved agent mode both block. " +
-			"On conflict, merge into the returned current content (or refetch with node_read) and retry with the returned current hash.",
+			"On conflict, merge into the returned current content (or refetch with node_read) and retry with the returned current hash for the part you are writing: currentContentHash as expected_content_hash, currentMetaHash as expected_meta_hash.",
 		InputSchema: boundedMutationInputSchema[editInput]("nodes"),
 		Annotations: &sdkmcp.ToolAnnotations{
 			DestructiveHint: boolPtr(false),
@@ -180,7 +188,7 @@ func registerEdit(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 		ctx = keg.WithValidationActor(ctx, keg.ValidationActorAgent)
 		edits := make([]tapper.BatchEditItem, len(in.Nodes))
 		for i, item := range in.Nodes {
-			edit := tapper.BatchEditItem{NodeID: item.NodeID, Schema: item.Schema, ExpectedHash: item.ExpectedHash}
+			edit := tapper.BatchEditItem{NodeID: item.NodeID, Schema: item.Schema, ExpectedContentHash: item.ExpectedContentHash, ExpectedMetaHash: item.ExpectedMetaHash}
 			if item.Content != nil {
 				edit.Content, edit.HasContent = *item.Content, true
 			}
@@ -208,13 +216,13 @@ type removeInput struct {
 
 type removeNodeInput struct {
 	NodeID       string `json:"node_id"`
-	ExpectedHash string `json:"expected_hash" jsonschema:"precondition token returned by node_read"`
+	ExpectedHash string `json:"expected_hash" jsonschema:"the combined hash returned by node_read (not content_hash or meta_hash)"`
 }
 
 func registerRemove(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "node_delete",
-		Description: "Call node_read first for every node, then atomically remove 1-100 nodes using each returned hash as that node's expected_hash. On conflict, refetch with node_read and retry with the returned current hash.",
+		Description: "Call node_read first for every node, then atomically remove 1-100 nodes using the hash from node_read (the combined hash, not content_hash or meta_hash) as that node's expected_hash. On conflict, refetch with node_read and retry with the returned current hash.",
 		InputSchema: boundedMutationInputSchema[removeInput]("nodes"),
 		Annotations: &sdkmcp.ToolAnnotations{
 			DestructiveHint: boolPtr(true),
@@ -245,14 +253,14 @@ func registerRemove(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 type moveInput struct {
 	SourceID     string `json:"source_id" jsonschema:"source node ID"`
 	DestID       string `json:"dest_id" jsonschema:"destination node ID"`
-	ExpectedHash string `json:"expected_hash" jsonschema:"precondition token returned by node_read"`
+	ExpectedHash string `json:"expected_hash" jsonschema:"the combined hash returned by node_read (not content_hash or meta_hash)"`
 	Keg          string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
 }
 
 func registerMove(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "node_move",
-		Description: "Call node_read first, then move (rename) a KEG node to a new ID using the returned hash as expected_hash. On conflict, refetch with node_read and retry with the returned current hash.",
+		Description: "Call node_read first, then move (rename) a KEG node to a new ID using the hash from node_read (the combined hash, not content_hash or meta_hash) as expected_hash. On conflict, refetch with node_read and retry with the returned current hash.",
 		Annotations: &sdkmcp.ToolAnnotations{
 			DestructiveHint: boolPtr(true),
 			OpenWorldHint:   boolPtr(false),

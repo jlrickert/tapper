@@ -170,12 +170,14 @@ type RemoveNodesResult struct {
 }
 
 type BatchFailure struct {
-	NodeID         NodeId `json:"node_id"`
-	Code           string `json:"code"`
-	Status         int    `json:"status"`
-	Message        string `json:"message"`
-	CurrentHash    string `json:"current_hash,omitempty"`
-	CurrentContent []byte `json:"current_content,omitempty"`
+	NodeID             NodeId `json:"node_id"`
+	Code               string `json:"code"`
+	Status             int    `json:"status"`
+	Message            string `json:"message"`
+	CurrentHash        string `json:"current_hash,omitempty"`
+	CurrentContentHash string `json:"current_content_hash,omitempty"`
+	CurrentMetaHash    string `json:"current_meta_hash,omitempty"`
+	CurrentContent     []byte `json:"current_content,omitempty"`
 }
 
 func newBatchFailure(id NodeId, err error) *BatchFailure {
@@ -184,6 +186,8 @@ func newBatchFailure(id NodeId, err error) *BatchFailure {
 	var conflict *PreconditionConflictError
 	if errors.As(err, &conflict) {
 		f.CurrentHash = conflict.CurrentHash
+		f.CurrentContentHash = conflict.CurrentContentHash
+		f.CurrentMetaHash = conflict.CurrentMetaHash
 		f.CurrentContent = append([]byte(nil), conflict.CurrentContent...)
 	}
 	return f
@@ -194,7 +198,7 @@ func (f *BatchFailure) Err() error {
 		return nil
 	}
 	if f.Status == http.StatusPreconditionFailed {
-		return &PreconditionConflictError{Resource: f.NodeID.Path(), CurrentHash: f.CurrentHash, CurrentContent: append([]byte(nil), f.CurrentContent...)}
+		return &PreconditionConflictError{Resource: f.NodeID.Path(), CurrentHash: f.CurrentHash, CurrentContentHash: f.CurrentContentHash, CurrentMetaHash: f.CurrentMetaHash, CurrentContent: append([]byte(nil), f.CurrentContent...)}
 	}
 	return RemoteErrorFromCode(f.Code, f.Status, f.Message)
 }
@@ -235,21 +239,35 @@ type NodeOpenOptions struct {
 }
 
 type NodeUpdateOptions struct {
-	ID             NodeId    `json:"id"`
-	Schema         string    `json:"schema,omitempty"`
-	Content        []byte    `json:"content"`
-	HasContent     bool      `json:"has_content,omitempty"`
-	Meta           []byte    `json:"meta,omitempty"`
-	HasMeta        bool      `json:"has_meta,omitempty"`
-	LockToken      LockToken `json:"lock_token,omitempty"`
-	ExpectedHash   string    `json:"expected_hash,omitempty"`
-	SnapshotBefore bool      `json:"snapshot_before,omitempty"`
+	ID         NodeId    `json:"id"`
+	Schema     string    `json:"schema,omitempty"`
+	Content    []byte    `json:"content"`
+	HasContent bool      `json:"has_content,omitempty"`
+	Meta       []byte    `json:"meta,omitempty"`
+	HasMeta    bool      `json:"has_meta,omitempty"`
+	LockToken  LockToken `json:"lock_token,omitempty"`
+	// ExpectedHash is the combined content+metadata token (NodeView.Hash).
+	// It is checked only when neither part token below is set.
+	ExpectedHash string `json:"expected_hash,omitempty"`
+	// ExpectedContentHash and ExpectedMetaHash are per-part tokens
+	// (NodeView.ContentHash, NodeView.MetaHash). When either is set the
+	// combined ExpectedHash is ignored and each supplied part is checked
+	// against its own token: content requires ExpectedContentHash when
+	// HasContent, metadata requires ExpectedMetaHash when HasMeta. Editing one
+	// part therefore never conflicts with a concurrent edit to the other.
+	ExpectedContentHash string `json:"expected_content_hash,omitempty"`
+	ExpectedMetaHash    string `json:"expected_meta_hash,omitempty"`
+	SnapshotBefore      bool   `json:"snapshot_before,omitempty"`
 }
 
 type NodeUpdateResult struct {
 	ID         NodeId                  `json:"id"`
 	Validation *SchemaValidationResult `json:"validation,omitempty"`
 	Hash       string                  `json:"hash"`
+	// ContentHash and MetaHash are the written node's per-part tokens, so a
+	// follow-up node edit needs no re-read.
+	ContentHash string `json:"content_hash,omitempty"`
+	MetaHash    string `json:"meta_hash,omitempty"`
 }
 
 type NodeSnapshotRequest struct {
@@ -914,8 +932,7 @@ func (k *LocalKeg) updateNode(ctx context.Context, opts NodeUpdateOptions) (*Nod
 		if err := k.validateAggregateLock(lockCtx, opts.ID, opts.LockToken); err != nil {
 			return err
 		}
-		currentHash := existing.Hash()
-		if err := checkExpectedHash("node "+opts.ID.Path(), opts.ExpectedHash, currentHash, nodeRecoveryContent(existing)); err != nil {
+		if err := checkNodeUpdatePrecondition(lockCtx, k.Runtime, opts, existing); err != nil {
 			return err
 		}
 

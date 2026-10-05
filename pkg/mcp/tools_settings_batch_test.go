@@ -80,6 +80,7 @@ func TestMCP_KegSettingsMinimalIncludesInstructions(t *testing.T) {
 		"minimal": false,
 	})
 	require.False(t, full.IsError, extractText(t, full))
-	require.Contains(t, extractText(t, full), "kegv:")
-	require.Contains(t, extractText(t, full), "title: Personal KEG")
+	require.Equal(t, "Settings are in data.", extractText(t, full), "the document travels once, in data")
+	require.Contains(t, structuredMap(t, full)["data"], "kegv:")
+	require.Contains(t, structuredMap(t, full)["data"], "title: Personal KEG")
 }

@@ -2,6 +2,7 @@ package keg_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 
@@ -63,4 +64,33 @@ func TestRemoteKegDecodesPreconditionErrorsWithRecoveryFields(t *testing.T) {
 		require.Equal(t, "fresh", conflict.CurrentHash)
 		require.Equal(t, "type: task\n", string(conflict.CurrentContent))
 	})
+}
+
+func TestRemoteKegUpdateNodesSendsPartTokensAndDecodesPartConflicts(t *testing.T) {
+	t.Parallel()
+	var body map[string]any
+	srv := testapi.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusPreconditionFailed)
+		_, _ = w.Write([]byte(`{"error":"stale","code":"CONFLICT","operationPerformed":false,"currentHash":"fresh","currentContentHash":"c2","currentMetaHash":"m2","currentContent":"# Now\n"}`))
+	}))
+	t.Cleanup(srv.Close)
+	rk := keg.NewRemoteKeg(srv.URL, "", nil)
+	_, err := rk.UpdateNodes(context.Background(), []keg.NodeUpdateOptions{{
+		ID: keg.NodeId{ID: 3}, Content: []byte("# New\n"), HasContent: true, ExpectedContentHash: "c1",
+	}})
+	require.ErrorIs(t, err, keg.ErrConflict)
+	var conflict *keg.PreconditionConflictError
+	require.True(t, errors.As(err, &conflict))
+	require.Equal(t, "fresh", conflict.CurrentHash)
+	require.Equal(t, "c2", conflict.CurrentContentHash)
+	require.Equal(t, "m2", conflict.CurrentMetaHash)
+
+	updates := body["updates"].([]any)
+	require.Len(t, updates, 1)
+	update := updates[0].(map[string]any)
+	require.Equal(t, "c1", update["expected_content_hash"])
+	require.NotContains(t, update, "expected_meta_hash")
+	require.NotContains(t, update, "expected_hash")
 }

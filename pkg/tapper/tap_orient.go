@@ -22,7 +22,7 @@ const orientRulesSummary = "Rules:\n" +
 	"- Use the `mcp__tapper__*` tools for every KEG operation; never read or write node files directly.\n" +
 	"- The target keg resolves from the working directory unless the `keg` parameter overrides it.\n" +
 	"- Take a snapshot before non-trivial edits. Snapshots do not protect against `node_delete`; preserve content some other way before deletion.\n" +
-	"- Writes may invalidate the hash you were holding; not every mutation returns a replacement. Re-read with `node_read`, `schema_read`, or `keg_settings_read` before each guarded write; a hash never covers two writes, so an edit followed by a delete needs two reads.\n" +
+	"- Writes may invalidate the hash you were holding; not every mutation returns a replacement. Re-read with `node_read`, `schema_read`, or `keg_settings_read` before each guarded write; a hash never covers two writes, so an edit followed by a delete needs two reads. `node_edit` uses per-part hashes: pass `node_read`'s `content_hash` as `expected_content_hash` and `meta_hash` as `expected_meta_hash`; editing one part never invalidates the other's hash, and each edit result returns the new part hashes. `node_delete` and `node_move` take the combined `hash`.\n" +
 	"- Node ids are per-keg counters. Node 4 in one keg has nothing to do with node 4 in another, ids are never reused after a removal, and a create takes the next free id rather than filling a gap.\n" +
 	"- Node 0 is the keg's placeholder landing node. Leave it alone: it carries no `type` on purpose, it is where links to unwritten content land, and removing it makes the keg read as uninitialized. Write your content in a new node instead.\n" +
 	"- Attachments on a node are linked relative to that node's own directory: `[label](./assets/FILE)` for files and `![alt](./images/IMAGE)` for images. Both directory names are plural.\n"
@@ -397,7 +397,7 @@ func OrientationOperatingRules() string {
 func BuildOrientationPayload(flight *Flight, flightNote, launch string, kegs []OrientationKeg, warnings []string, authority *OrientationAuthority) (string, error) {
 	var b strings.Builder
 	b.WriteString("# KEG System\n\n")
-	b.WriteString("Call `orient` at session start and after every context reset. Authority is bounded by identity permissions and the selected flight; child authority and instructions are not inherited. Use only `mcp__tapper__*` tools for KEG operations. Call `keg_settings_read` before operating in a KEG. Snapshot before meaningful edits; snapshots do not protect deletion. Re-read for a fresh hash before each guarded write. Call `guide` for detailed operating, authoring/linking, snapshots, tools, or troubleshooting guidance.\n\n")
+	b.WriteString("Call `orient` at session start and after every context reset. Authority is bounded by identity permissions and the selected flight; child authority and instructions are not inherited. Use only `mcp__tapper__*` tools for KEG operations. Call `keg_settings_read` before operating in a KEG. Snapshot before meaningful edits; snapshots do not protect deletion. Re-read for a fresh hash before each guarded write; `node_edit` takes per-part hashes (`content_hash`, `meta_hash`), `node_delete` and `node_move` the combined `hash`. Call `guide` for detailed operating, authoring/linking, snapshots, tools, or troubleshooting guidance.\n\n")
 	for _, warning := range warnings {
 		fmt.Fprintf(&b, "Warning: %s\n\n", orientationTableCell(warning))
 	}

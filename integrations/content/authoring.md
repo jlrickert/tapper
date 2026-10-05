@@ -15,11 +15,16 @@ Example node_create arguments:
 ```
 
 Before a meaningful edit, call snapshot_create. Read node_read with node_ids (or
-query) and use each node_id and hash in node_edit nodes as node_id and
-expected_hash.
+query) and use each node_id, content_hash, and meta_hash in node_edit nodes as
+node_id, expected_content_hash (required with content), and expected_meta_hash
+(required with meta).
 content and meta are separate replacement documents; omit one to preserve it.
-Inspect results and validation before proceeding. Re-read before the next
-guarded mutation, since not every mutation returns a replacement hash.
+Each part's hash is independent: editing content never invalidates meta_hash
+and vice versa. node_edit results return the new content_hash and meta_hash,
+so a follow-up edit needs no re-read. node_delete and node_move take the
+combined hash from node_read. Inspect results and validation before
+proceeding. Re-read before the next guarded mutation that has no returned
+replacement hash.
 
 For settings use keg_settings_read minimal=false and retain the complete data and
 hash. For schemas use schema_read. For flights use flight_read; cover is a

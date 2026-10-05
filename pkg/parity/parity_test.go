@@ -253,6 +253,27 @@ func (e *parityEnv) nodeHash(nodeID string) string {
 	return hash
 }
 
+// contentHash and metaHash return the per-part tokens node_edit takes.
+func (e *parityEnv) contentHash(nodeID string) string {
+	e.t.Helper()
+	return e.partHashes(nodeID).ContentHash()
+}
+
+func (e *parityEnv) metaHash(nodeID string) string {
+	e.t.Helper()
+	return e.partHashes(nodeID).MetaHash()
+}
+
+func (e *parityEnv) partHashes(nodeID string) keg.NodeView {
+	e.t.Helper()
+	views, err := e.tap.CatViews(e.ctx, tapper.CatOptions{NodeIDs: []string{nodeID}})
+	require.NoError(e.t, err)
+	require.Len(e.t, views, 1)
+	require.NotEmpty(e.t, views[0].ContentHash())
+	require.NotEmpty(e.t, views[0].MetaHash())
+	return views[0]
+}
+
 type mcpError struct {
 	msg string
 }
@@ -264,6 +285,12 @@ func extractText(t *testing.T, res *sdkmcp.CallToolResult) string {
 	// CLI parity compares operation content with MCP's legacy message field;
 	// MCP transport tests independently check the full public JSON contract.
 	if payload, ok := res.StructuredContent.(map[string]any); ok {
+		// node_read sends each document once, in nodes[]; its message is only
+		// a summary. Render the rows the way the CLI does so the two surfaces
+		// stay comparable.
+		if rows, ok := payload["nodes"].([]any); ok && len(rows) > 0 && !res.IsError {
+			return renderNodeReadRows(rows)
+		}
 		if message, ok := payload["message"].(string); ok {
 			return message
 		}
@@ -398,4 +425,49 @@ func runParityTests(t *testing.T, cases []ParityTestCase) {
 			}
 		})
 	}
+}
+
+// renderNodeReadRows mirrors tapper.FormatCatViews over node_read's structured
+// rows. The read mode is recovered from which part tokens a row carries:
+// content_hash and meta_hash for the default read, one of them for
+// content_only or meta_only, neither for stats_only.
+func renderNodeReadRows(rows []any) string {
+	withID := len(rows) > 1
+	var buf strings.Builder
+	for i, raw := range rows {
+		row, _ := raw.(map[string]any)
+		str := func(key string) string { v, _ := row[key].(string); return v }
+		id, content, meta, stats := str("node_id"), str("content"), str("meta"), str("stats")
+		hasContent, hasMeta := str("content_hash") != "", str("meta_hash") != ""
+		var out string
+		switch {
+		case hasContent && hasMeta:
+			if withID {
+				out = fmt.Sprintf("---\nid: %q\n%s\n---\n%s", id, meta, content)
+			} else {
+				out = fmt.Sprintf("---\n%s\n---\n%s", meta, content)
+			}
+		case hasContent:
+			out = content
+			if withID {
+				out = fmt.Sprintf("---\nid: %q\n---\n%s", id, content)
+			}
+		case hasMeta:
+			out = meta
+			if withID {
+				out = fmt.Sprintf("---\nid: %q\n%s", id, meta)
+			}
+		default:
+			out = stats
+			if withID {
+				out = fmt.Sprintf("---\nid: %q\n%s", id, strings.TrimRight(stats, "\n"))
+			}
+		}
+		if i > 0 {
+			buf.WriteString("\n")
+		}
+		buf.WriteString(strings.TrimRight(out, "\n"))
+		buf.WriteString("\n")
+	}
+	return buf.String()
 }
