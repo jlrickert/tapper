@@ -223,27 +223,45 @@ relay:
       args: ["-y", "@modelcontextprotocol/server-everything"]
       envFrom: [GITHUB_TOKEN]
       timeout: 30s
-      shareable: true
     web:
       url: http://127.0.0.1:3000/mcp
       headersFromEnv: {Authorization: MCP_AUTH}
       tools: {deny: ["delete_*"]}
       maxConcurrent: 2
+    claude-tools:
+      enabled: false
+  runners:
+    claude: {run: true, tools: false}
+    codex: {run: true}
+    opencode: {run: false}
+    pi: {}
+    roots: [~/src, /work]
+    timeout: 45m
+    maxConcurrent: 3
 `))
 
 	for name, doc := range map[string]string{
-		"unknown kind":         "relay: {providers: {x: {kind: anthropic}}}",
-		"unknown auth":         "relay: {providers: {x: {auth: keychain}}}",
-		"non-http baseUrl":     "relay: {providers: {x: {baseUrl: 'ftp://host'}}}",
-		"bad relay name":       "relay: {name: 'has space'}",
-		"bad provider key":     "relay: {providers: {'a/b': {}}}",
-		"mcp without endpoint": "relay: {mcp: {x: {args: [a]}}}",
-		"mcp with both":        "relay: {mcp: {x: {command: npx, url: 'http://h'}}}",
-		"mcp non-http url":     "relay: {mcp: {x: {url: 'ftp://h'}}}",
-		"mcp bad server key":   "relay: {mcp: {'a b': {command: npx}}}",
-		"mcp bad timeout":      "relay: {mcp: {x: {command: npx, timeout: soon}}}",
-		"mcp unknown field":    "relay: {mcp: {x: {command: npx, shell: true}}}",
-		"mcp bad env name":     "relay: {mcp: {x: {command: npx, envFrom: ['A-B']}}}",
+		"unknown kind":                 "relay: {providers: {x: {kind: anthropic}}}",
+		"unknown auth":                 "relay: {providers: {x: {auth: keychain}}}",
+		"non-http baseUrl":             "relay: {providers: {x: {baseUrl: 'ftp://host'}}}",
+		"bad relay name":               "relay: {name: 'has space'}",
+		"bad provider key":             "relay: {providers: {'a/b': {}}}",
+		"mcp without endpoint":         "relay: {mcp: {x: {args: [a]}}}",
+		"mcp with both":                "relay: {mcp: {x: {command: npx, url: 'http://h'}}}",
+		"mcp non-http url":             "relay: {mcp: {x: {url: 'ftp://h'}}}",
+		"mcp bad server key":           "relay: {mcp: {'a b': {command: npx}}}",
+		"mcp bad timeout":              "relay: {mcp: {x: {command: npx, timeout: soon}}}",
+		"mcp unknown field":            "relay: {mcp: {x: {command: npx, shell: true}}}",
+		"mcp bad env name":             "relay: {mcp: {x: {command: npx, envFrom: ['A-B']}}}",
+		"mcp enabled without endpoint": "relay: {mcp: {x: {enabled: true}}}",
+		"runners bad timeout":          "relay: {runners: {timeout: soon}}",
+		"runners unknown field":        "relay: {runners: {enabled: true}}",
+		"runners not an object":        "relay: {runners: {codex: false}}",
+		"runners codex tools":          "relay: {runners: {codex: {run: true, tools: true}}}",
+		"runners pi tools":             "relay: {runners: {pi: {tools: true}}}",
+		"runners claude unknown field": "relay: {runners: {claude: {serve: true}}}",
+		"mcp shareable":                "relay: {mcp: {x: {command: npx, shareable: true}}}",
+		"runners shareable":            "relay: {runners: {shareable: true}}",
 	} {
 		t.Run(name, func(t *testing.T) {
 			require.Error(t, validate(doc))

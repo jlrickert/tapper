@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -28,9 +30,10 @@ type RelayOptions struct {
 	OnRegistered func(hubURL string, reg relaycontract.Registered)
 }
 
-// ErrRelayNotConfigured means the user config has nothing for the relay to
-// offer: no providers and no MCP servers.
-var ErrRelayNotConfigured = errors.New("nothing to relay; add a relay.providers or relay.mcp block to your user config")
+// ErrRelayNotConfigured means the relay has nothing to offer: no providers,
+// no MCP servers, and no built-in server (no coding agent CLI on PATH, or
+// relay.runners turned off).
+var ErrRelayNotConfigured = errors.New("nothing to relay; add a relay.providers or relay.mcp block to your user config, or install a coding agent CLI for the built-in runners")
 
 // ErrRelayDisabled means the user config turns the relay off.
 var ErrRelayDisabled = errors.New("the relay is disabled in your user config (relay.enabled: false)")
@@ -47,8 +50,8 @@ func (t *Tap) Relay(ctx context.Context, opts RelayOptions) error {
 	if !rc.IsEnabled() {
 		return ErrRelayDisabled
 	}
-	if rc == nil || (len(rc.Providers) == 0 && len(rc.MCP) == 0) {
-		return ErrRelayNotConfigured
+	if rc == nil {
+		rc = &RelayConfig{}
 	}
 	providers, err := t.relayProviders(rc)
 	if err != nil {
@@ -125,8 +128,9 @@ func (t *Tap) relayProviders(rc *RelayConfig) ([]*relay.Provider, error) {
 	return out, nil
 }
 
-// relayToolServers builds the enabled MCP servers, in name order. Secrets are
-// read here, from the variables the config names, and stay in this process.
+// relayToolServers builds the enabled configured MCP servers, in name order,
+// followed by the built-in ones (see relayBuiltinServers). Secrets are read
+// here, from the variables the config names, and stay in this process.
 func (t *Tap) relayToolServers(rc *RelayConfig) ([]*relay.ToolServer, error) {
 	names := make([]string, 0, len(rc.MCP))
 	for n, s := range rc.MCP {
@@ -176,6 +180,137 @@ func (t *Tap) relayToolServers(rc *RelayConfig) ([]*relay.ToolServer, error) {
 			return nil, err
 		}
 		out = append(out, server)
+	}
+	builtins, err := t.relayBuiltinServers(rc)
+	if err != nil {
+		return nil, err
+	}
+	for _, cfg := range builtins {
+		server, err := relay.NewToolServer(cfg)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, server)
+	}
+	return out, nil
+}
+
+// RelayClaudeToolsServer names the built-in server that offers Claude Code's
+// own tools. Each runner server is named for its harness (RunnerSpec.Name).
+const RelayClaudeToolsServer = "claude-tools"
+
+// Defaults for the built-in servers.
+const (
+	defaultRunnersMaxConcurrent = 2
+	// runnersTimeoutMargin lets `tap runner serve` report its own timeout
+	// before the relay gives up on the call.
+	runnersTimeoutMargin  = time.Minute
+	claudeCodeToolTimeout = 10 * time.Minute
+)
+
+// relayExecutable locates the running tap binary, which each runner server
+// runs as `tap runner serve --runner NAME`. A variable so tests can stand in
+// a path.
+var relayExecutable = os.Executable
+
+// relayBuiltinServers configures the built-in MCP servers relay.runners turns
+// on. All are off by default:
+//
+//   - "claude", "codex", "opencode", "pi" each run
+//     `tap runner serve --runner NAME`, one tool that hands tasks to that
+//     coding agent CLI (claude_code_run, codex_run, ...); turned on by
+//     relay.runners.NAME.run.
+//   - "claude-tools" runs `claude mcp serve`, Claude Code's own tools; turned
+//     on by relay.runners.claude.tools.
+//
+// Each is offered only when its CLI is on PATH. A relay.mcp entry with the
+// same name, enabled or not, replaces a built-in. Each is a server of its own
+// so Hub can enable and share them one by one. All inherit the relay's whole
+// environment, since the agents need their own credentials and configuration.
+func (t *Tap) relayBuiltinServers(rc *RelayConfig) ([]relay.ToolServerConfig, error) {
+	runners := rc.Runners
+	if runners == nil {
+		return nil, nil
+	}
+	if err := runners.Validate(); err != nil {
+		return nil, err
+	}
+	installed := DetectRunners(t.Runtime.Get("PATH"))
+	var run []InstalledRunner
+	var claudePath string
+	for _, r := range installed {
+		if _, own := rc.MCP[r.Name]; !own && runners.Runs(r.Name) {
+			run = append(run, r)
+		}
+		if r.Name == "claude" {
+			claudePath = r.Path
+		}
+	}
+	_, ownClaudeTools := rc.MCP[RelayClaudeToolsServer]
+	wantClaudeTools := !ownClaudeTools && claudePath != "" && runners.ClaudeTools()
+	if len(run) == 0 && !wantClaudeTools {
+		return nil, nil
+	}
+
+	timeout := DefaultRunnerTimeout
+	if runners.Timeout != "" {
+		d, err := time.ParseDuration(runners.Timeout)
+		if err != nil || d <= 0 {
+			return nil, fmt.Errorf("relay.runners.timeout %q must be a positive duration such as 30m", runners.Timeout)
+		}
+		timeout = d
+	}
+	var roots []string
+	for _, root := range runners.Roots {
+		abs, err := t.Runtime.AbsPath(root)
+		if err != nil {
+			return nil, fmt.Errorf("relay.runners.roots: %q: %w", root, err)
+		}
+		if abs != "" {
+			roots = append(roots, abs)
+		}
+	}
+	if len(roots) == 0 {
+		home, err := t.Runtime.GetHome()
+		if err != nil || home == "" {
+			return nil, errors.New("relay.runners: no roots set and no home directory to default to")
+		}
+		roots = []string{home}
+	}
+	maxConcurrent := cmp.Or(runners.MaxConcurrent, defaultRunnersMaxConcurrent)
+
+	environ := t.Runtime.Environ()
+	var out []relay.ToolServerConfig
+	if len(run) > 0 {
+		exe, err := relayExecutable()
+		if err != nil {
+			return nil, fmt.Errorf("relay.runners: locate tap: %w", err)
+		}
+		for _, r := range run {
+			out = append(out, relay.ToolServerConfig{
+				Name:    r.Name,
+				Title:   r.Title,
+				Command: exe,
+				Args:    []string{"runner", "serve", "--runner", r.Name},
+				Env: relay.ToolEnv(environ, true, nil, map[string]string{
+					RunnerRootsEnv:   strings.Join(roots, string(filepath.ListSeparator)),
+					RunnerTimeoutEnv: timeout.String(),
+				}),
+				MaxConcurrent: maxConcurrent,
+				Timeout:       timeout + runnersTimeoutMargin,
+			})
+		}
+	}
+	if wantClaudeTools {
+		out = append(out, relay.ToolServerConfig{
+			Name:    RelayClaudeToolsServer,
+			Title:   "Claude Code tools",
+			Command: claudePath,
+			Args:    []string{"mcp", "serve"},
+			Dir:     roots[0],
+			Env:     relay.ToolEnv(environ, true, nil, map[string]string{RelayToolsEnv: "off"}),
+			Timeout: claudeCodeToolTimeout,
+		})
 	}
 	return out, nil
 }

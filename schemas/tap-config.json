@@ -4,6 +4,19 @@
   "title": "tapper user/project config",
   "description": "Schema for tapper user or project configuration.",
   "type": "object",
+  "definitions": {
+    "relayRunner": {
+      "type": "object",
+      "description": "A coding agent that can only run tasks: it has no tools option, which only claude supports.",
+      "properties": {
+        "run": {
+          "type": "boolean",
+          "description": "Offer this harness's runner server. Defaults to false."
+        }
+      },
+      "additionalProperties": false
+    }
+  },
   "properties": {
     "keg": {
       "type": "string",
@@ -312,7 +325,7 @@
         },
         "mcp": {
           "type": "object",
-          "description": "Local MCP servers whose tools the relay forwards to Hub's chat, keyed by the server name advertised to Hub. Hub can only name a server and tool from this list; the command, URL, headers and environment never leave this machine.",
+          "description": "Local MCP servers whose tools the relay forwards to Hub, keyed by the server name advertised to Hub. Hub can only name a server and tool from this list; the command, URL, headers and environment never leave this machine.",
           "propertyNames": {
             "pattern": "^[A-Za-z0-9._-]{1,64}$"
           },
@@ -415,13 +428,34 @@
                 "type": "string",
                 "pattern": "^([0-9]+(\\.[0-9]+)?(ns|us|\u00b5s|ms|s|m|h))+$",
                 "description": "Longest one call may run, as a Go duration such as 30s or 5m. Defaults to 2m."
-              },
-              "shareable": {
-                "type": "boolean",
-                "description": "Let people you share this server with on Hub call its tools. They run on this machine. Defaults to false: only you can."
               }
             },
             "oneOf": [
+              {
+                "description": "A disabled entry needs no endpoint; with a built-in server's name it removes that server.",
+                "required": [
+                  "enabled"
+                ],
+                "properties": {
+                  "enabled": {
+                    "const": false
+                  }
+                },
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": [
+                        "command"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "url"
+                      ]
+                    }
+                  ]
+                }
+              },
               {
                 "required": [
                   "command"
@@ -445,6 +479,59 @@
             ],
             "additionalProperties": false
           }
+        },
+        "runners": {
+          "type": "object",
+          "description": "The relay's built-in MCP servers, all off by default and each offered only when its CLI is on PATH: \"claude\", \"codex\", \"opencode\" and \"pi\" (each runs `tap runner serve --runner NAME`, one tool that hands tasks to that coding agent: claude_code_run, codex_run, opencode_run, pi_run) and \"claude-tools\" (Claude Code's own tools via `claude mcp serve`). A relay.mcp entry with the same name replaces one, or removes it with enabled: false.",
+          "properties": {
+            "claude": {
+              "type": "object",
+              "description": "Claude Code's built-in servers.",
+              "properties": {
+                "run": {
+                  "type": "boolean",
+                  "description": "Offer the \"claude\" server (claude_code_run). Defaults to false."
+                },
+                "tools": {
+                  "type": "boolean",
+                  "description": "Offer the \"claude-tools\" server, Claude Code's own tools via `claude mcp serve`. Defaults to false."
+                }
+              },
+              "additionalProperties": false
+            },
+            "codex": {
+              "$ref": "#/definitions/relayRunner",
+              "description": "Offer the \"codex\" server (codex_run)."
+            },
+            "opencode": {
+              "$ref": "#/definitions/relayRunner",
+              "description": "Offer the \"opencode\" server (opencode_run)."
+            },
+            "pi": {
+              "$ref": "#/definitions/relayRunner",
+              "description": "Offer the \"pi\" server (pi_run)."
+            },
+            "roots": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "description": "Directories a delegated task's cwd must be under. Defaults to your home directory. The first is also claude-tools' working directory."
+            },
+            "timeout": {
+              "type": "string",
+              "pattern": "^([0-9]+(\\.[0-9]+)?(ns|us|\u00b5s|ms|s|m|h))+$",
+              "description": "Longest one delegated task may run, as a Go duration. Defaults to 30m."
+            },
+            "maxConcurrent": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 64,
+              "description": "Delegated tasks running at once on each runner server. Defaults to 2."
+            }
+          },
+          "additionalProperties": false
         }
       },
       "additionalProperties": true
