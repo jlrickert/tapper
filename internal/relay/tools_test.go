@@ -294,7 +294,7 @@ func TestHTTPToolServerCatalogAndCall(t *testing.T) {
 	handshakeProtocol(t, ctx, conn, 2)
 	tools := waitTools(t, ctx, conn, hasServer("web"))
 	s := tools.Servers[0]
-	if s.Title != "Web tools" || s.MaxConcurrent != 3 || s.Shareable {
+	if s.Title != "Web tools" || s.MaxConcurrent != 3 {
 		t.Fatalf("server = %+v", s)
 	}
 	// hidden is denied; "bad name" is not a valid tool name and is dropped.
@@ -349,7 +349,6 @@ func TestToolCallErrors(t *testing.T) {
 		{"unknown server", relaycontract.Call{Server: "nope", Tool: "echo"}, relaycontract.CodeUnknownTool},
 		{"unknown tool", relaycontract.Call{Server: "web", Tool: "nope"}, relaycontract.CodeUnknownTool},
 		{"denied tool", relaycontract.Call{Server: "web", Tool: "hidden"}, relaycontract.CodeUnknownTool},
-		{"shared but not shareable", relaycontract.Call{Server: "web", Tool: "echo", Shared: true}, relaycontract.CodeUnsupported},
 	}
 	for i, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -365,23 +364,6 @@ func TestToolCallErrors(t *testing.T) {
 	var e relaycontract.Error
 	if env.Type != relaycontract.TypeError || env.Decode(&e) != nil || e.Code != relaycontract.CodeBadRequest {
 		t.Fatalf("bad call = %s %+v, want bad_request", env.Type, e)
-	}
-}
-
-func TestSharedCallToShareableServer(t *testing.T) {
-	mcp := newHTTPMCP(t)
-	hub := newFakeHub(t)
-	startToolRelay(t, hub, []*ToolServer{newToolServer(t, ToolServerConfig{Name: "web", URL: mcp.url, Shareable: true})}, nil)
-	ctx := context.Background()
-	conn := hub.accept(t)
-	handshakeProtocol(t, ctx, conn, 2)
-	tools := waitTools(t, ctx, conn, hasServer("web"))
-	if !tools.Servers[0].Shareable {
-		t.Fatal("shareable server not advertised as shareable")
-	}
-	res, e := callTool(t, ctx, conn, "s1", relaycontract.Call{Server: "web", Tool: "echo", Arguments: json.RawMessage(`{"message":"shared"}`), Shared: true})
-	if e != nil || resultText(res) != "shared" {
-		t.Fatalf("shared call = %+v, %+v", res, e)
 	}
 }
 

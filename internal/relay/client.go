@@ -635,12 +635,6 @@ func (s *session) startCall(ctx context.Context, env relaycontract.Envelope) {
 		s.fail(ctx, env.ID, relaycontract.CodeUnknownTool, "tool is not offered by this relay")
 		return
 	}
-	// The owner decides who may run their tools: a server not marked
-	// shareable serves its owner only, whatever Hub's shares say.
-	if req.Shared && !server.Shareable() {
-		s.fail(ctx, env.ID, relaycontract.CodeUnsupported, "mcp server "+server.Name()+" is not shared")
-		return
-	}
 	if !server.tryAcquire() {
 		s.fail(ctx, env.ID, relaycontract.CodeOverloaded, "mcp server "+server.Name()+" is at its concurrency limit")
 		return

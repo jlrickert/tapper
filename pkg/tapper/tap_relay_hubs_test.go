@@ -95,7 +95,6 @@ func TestRelayToolServersFromConfig(t *testing.T) {
       args: ["-y", "@modelcontextprotocol/server-everything"]
       envFrom: [GITHUB_TOKEN]
       timeout: 30s
-      shareable: true
     web:
       url: http://127.0.0.1:3000/mcp
       headersFromEnv: {Authorization: MCP_AUTH}
@@ -116,9 +115,7 @@ func TestRelayToolServersFromConfig(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, servers, 2, "a disabled server is left out")
 	require.Equal(t, "everything", servers[0].Name())
-	require.True(t, servers[0].Shareable())
 	require.Equal(t, "web", servers[1].Name())
-	require.False(t, servers[1].Shareable(), "servers are not shareable unless the owner says so")
 
 	bad := &RelayConfig{MCP: map[string]RelayMCPServer{"s": {Command: "x", Timeout: "soon"}}}
 	_, err = tap.relayToolServers(bad)

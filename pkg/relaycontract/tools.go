@@ -31,13 +31,10 @@ type Tools struct {
 // ToolServer is one MCP server from the relay owner's configuration. Name is
 // the key the owner gave it, not anything the server reports. MaxConcurrent
 // bounds this server's in-flight calls across every hub the relay serves.
-// Shareable is the owner's consent for people they share it with to call it;
-// the relay refuses a shared call to a server without it.
 type ToolServer struct {
 	Name          string `json:"name"`
 	Title         string `json:"title,omitempty"`
 	MaxConcurrent int    `json:"maxConcurrent"`
-	Shareable     bool   `json:"shareable,omitempty"`
 	Tools         []Tool `json:"tools"`
 }
 
@@ -63,13 +60,11 @@ type ToolAnnotations struct {
 
 // Call is one tool call pushed from Hub to a relay. Server and Tool name an
 // entry from the relay's own tools frame; nothing in a call can name a
-// command, URL, header, or environment variable. Shared is set when the
-// person calling is not the relay's owner.
+// command, URL, header, or environment variable.
 type Call struct {
 	Server    string          `json:"server"`
 	Tool      string          `json:"tool"`
 	Arguments json.RawMessage `json:"arguments"`
-	Shared    bool            `json:"shared,omitempty"`
 }
 
 // Validate checks the tools frame against protocol limits.
