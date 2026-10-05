@@ -40,6 +40,7 @@ func (k *LocalKeg) readNodeMeta(ctx context.Context, id NodeId) (*NodeView, erro
 		stats = &NodeStats{}
 	}
 	view := &NodeView{ID: id, Meta: meta, Stats: stats}
+	view.setPartHashes(ctx, k.Runtime, false)
 	if stats.Hash() == "" {
 		content, err := k.Repo.ReadContent(ctx, id)
 		if err != nil {
@@ -88,6 +89,7 @@ func (k *LocalKeg) readNode(ctx context.Context, id NodeId) (*NodeView, error) {
 		Meta:    meta,
 		Stats:   stats,
 	}
+	view.setPartHashes(ctx, k.Runtime, true)
 	if view.Stats.Hash() == "" {
 		parsedContent, parseErr := ParseContent(k.Runtime, content, MarkdownContentFilename)
 		if parseErr == nil {

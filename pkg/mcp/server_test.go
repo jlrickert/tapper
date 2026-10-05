@@ -327,7 +327,7 @@ func TestMCP_Cat(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	text := extractText(t, res)
+	text := nodeReadText(t, res)
 	require.False(t, res.IsError, "cat returned error: %s", text)
 	require.Contains(t, text, "Personal Overview")
 }
@@ -391,7 +391,7 @@ func TestMCP_CatContentOnly(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.False(t, res.IsError)
-	text := extractText(t, res)
+	text := nodeReadText(t, res)
 	require.Contains(t, text, "# Personal Overview")
 }
 
@@ -760,7 +760,7 @@ func TestMCP_Create(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	readText := extractText(t, readRes)
+	readText := nodeReadText(t, readRes)
 	require.False(t, readRes.IsError, "cat returned error: %s", readText)
 	require.Contains(t, readText, "# New Node")
 	require.Contains(t, readText, "A node created via MCP.")
@@ -876,7 +876,7 @@ func TestMCP_CreateWithBody(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	readText := extractText(t, readRes)
+	readText := nodeReadText(t, readRes)
 	require.Contains(t, readText, "# Custom Title")
 	require.Contains(t, readText, "Custom body content.")
 }
@@ -895,15 +895,15 @@ func TestMCP_Edit(t *testing.T) {
 	require.NoError(t, err)
 	nodeID := extractText(t, createRes)
 	require.False(t, createRes.IsError)
-	expectedHash := readNodeHash(t, session, ctx, nodeID)
+	expectedHash := readContentHash(t, session, ctx, nodeID)
 
 	// Edit it.
 	editRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
 		Name: "node_edit",
 		Arguments: batchEditArgs(map[string]any{
-			"node_id":       nodeID,
-			"content":       "# After Edit\n\nEdited via MCP.\n",
-			"expected_hash": expectedHash,
+			"node_id":               nodeID,
+			"content":               "# After Edit\n\nEdited via MCP.\n",
+			"expected_content_hash": expectedHash,
 		}),
 	})
 	require.NoError(t, err)
@@ -918,7 +918,7 @@ func TestMCP_Edit(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	readText := extractText(t, readRes)
+	readText := nodeReadText(t, readRes)
 	require.Contains(t, readText, "# After Edit")
 	require.Contains(t, readText, "Edited via MCP.")
 }
@@ -932,9 +932,8 @@ func metaOnlyText(t *testing.T, session *sdkmcp.ClientSession, ctx context.Conte
 		Arguments: map[string]any{"node_ids": []string{nodeID}, "meta_only": true},
 	})
 	require.NoError(t, err)
-	text := extractText(t, res)
-	require.False(t, res.IsError, "cat meta_only returned error: %s", text)
-	return text
+	require.False(t, res.IsError, "cat meta_only returned error: %s", extractText(t, res))
+	return nodeReadText(t, res)
 }
 
 func TestMCP_MetaReadThroughCat(t *testing.T) {
@@ -957,14 +956,14 @@ func TestMCP_EditWritesMeta(t *testing.T) {
 	})
 	require.NoError(t, err)
 	nodeID := extractText(t, createRes)
-	expectedHash := readNodeHash(t, session, ctx, nodeID)
+	expectedHash := readMetaHash(t, session, ctx, nodeID)
 
 	writeRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
 		Name: "node_edit",
 		Arguments: batchEditArgs(map[string]any{
-			"node_id":       nodeID,
-			"meta":          "tags:\n  - updated\n  - mcp\n",
-			"expected_hash": expectedHash,
+			"node_id":            nodeID,
+			"meta":               "tags:\n  - updated\n  - mcp\n",
+			"expected_meta_hash": expectedHash,
 		}),
 	})
 	require.NoError(t, err)
@@ -992,10 +991,10 @@ func TestMCP_EditWritesContentAndMetaTogether(t *testing.T) {
 	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
 		Name: "node_edit",
 		Arguments: batchEditArgs(map[string]any{
-			"node_id":       nodeID,
-			"content":       "# After Both\n\nRewritten body.\n",
-			"meta":          "tags:\n  - both\n",
-			"expected_hash": readNodeHash(t, session, ctx, nodeID),
+			"node_id":               nodeID,
+			"content":               "# After Both\n\nRewritten body.\n",
+			"meta":                  "tags:\n  - both\n",
+			"expected_content_hash": readContentHash(t, session, ctx, nodeID), "expected_meta_hash": readMetaHash(t, session, ctx, nodeID),
 		}),
 	})
 	require.NoError(t, err)
@@ -1008,7 +1007,7 @@ func TestMCP_EditWritesContentAndMetaTogether(t *testing.T) {
 		Arguments: map[string]any{"node_ids": []string{nodeID}, "content_only": true},
 	})
 	require.NoError(t, err)
-	require.Contains(t, extractText(t, contentRes), "# After Both")
+	require.Contains(t, nodeReadText(t, contentRes), "# After Both")
 }
 
 // TestMCP_EditRejectsFrontmatterInContent pins the footgun this refactor
@@ -1028,9 +1027,9 @@ func TestMCP_EditRejectsFrontmatterInContent(t *testing.T) {
 	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
 		Name: "node_edit",
 		Arguments: batchEditArgs(map[string]any{
-			"node_id":       nodeID,
-			"content":       "---\ntags:\n  - sneaky\n---\n\n# Body\n",
-			"expected_hash": readNodeHash(t, session, ctx, nodeID),
+			"node_id":               nodeID,
+			"content":               "---\ntags:\n  - sneaky\n---\n\n# Body\n",
+			"expected_content_hash": readContentHash(t, session, ctx, nodeID),
 		}),
 	})
 	require.NoError(t, err)
@@ -1049,8 +1048,8 @@ func TestMCP_EditRequiresContentOrMeta(t *testing.T) {
 	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
 		Name: "node_edit",
 		Arguments: batchEditArgs(map[string]any{
-			"node_id":       "0",
-			"expected_hash": readNodeHash(t, session, ctx, "0"),
+			"node_id":               "0",
+			"expected_content_hash": readContentHash(t, session, ctx, "0"),
 		}),
 	})
 	require.NoError(t, err)
@@ -1067,10 +1066,10 @@ func TestMCP_EditRejectsSnapshotBefore(t *testing.T) {
 	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
 		Name: "node_edit",
 		Arguments: batchEditArgs(map[string]any{
-			"node_id":         "0",
-			"content":         "# Zero\n",
-			"expected_hash":   readNodeHash(t, session, ctx, "0"),
-			"snapshot_before": true,
+			"node_id":               "0",
+			"content":               "# Zero\n",
+			"expected_content_hash": readContentHash(t, session, ctx, "0"),
+			"snapshot_before":       true,
 		}),
 	})
 	require.NoError(t, err)
@@ -1163,7 +1162,7 @@ func TestMCP_Move(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	newText := extractText(t, newRes)
+	newText := nodeReadText(t, newRes)
 	require.False(t, newRes.IsError, "cat returned error: %s", newText)
 	require.Contains(t, newText, "Movable Node")
 }
@@ -1236,7 +1235,7 @@ func TestMCP_NodeSnapshotAndHistory(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	currentText := extractText(t, currentRes)
+	currentText := nodeReadText(t, currentRes)
 	require.False(t, currentRes.IsError, "cat returned error: %s", currentText)
 	require.Contains(t, currentText, "This is the zero node of the personal KEG.")
 }

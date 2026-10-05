@@ -34,7 +34,7 @@ type remoteNodeView struct {
 	Images  []string        `json:"images"`
 }
 
-func decodeRemoteNodeView(resp remoteNodeView) (NodeView, error) {
+func decodeRemoteNodeView(resp remoteNodeView, withContent bool) (NodeView, error) {
 	id, err := ParseNode(resp.ID)
 	if err != nil {
 		return NodeView{}, err
@@ -46,7 +46,9 @@ func decodeRemoteNodeView(resp remoteNodeView) (NodeView, error) {
 			return NodeView{}, err
 		}
 	}
-	return NodeView{ID: *id, Content: []byte(resp.Content), Meta: []byte(resp.Meta), Stats: stats, Files: resp.Assets, Images: resp.Images}, nil
+	view := NodeView{ID: *id, Content: []byte(resp.Content), Meta: []byte(resp.Meta), Stats: stats, Files: resp.Assets, Images: resp.Images}
+	view.setPartHashes(context.Background(), nil, withContent)
+	return view, nil
 }
 
 func (k *RemoteKeg) ReadNodes(ctx context.Context, opts ReadNodesOptions) ([]NodeView, error) {
@@ -66,7 +68,7 @@ func (k *RemoteKeg) ReadNodes(ctx context.Context, opts ReadNodesOptions) ([]Nod
 	}
 	out := make([]NodeView, 0, len(wire))
 	for _, item := range wire {
-		view, err := decodeRemoteNodeView(item)
+		view, err := decodeRemoteNodeView(item, !opts.MetaOnly)
 		if err != nil {
 			return nil, NewBackendError("remote", "ReadNodes", 0, err, false)
 		}
@@ -186,7 +188,7 @@ func (k *RemoteKeg) OpenNode(ctx context.Context, opts NodeOpenOptions) (*NodeVi
 	}{opts.Touch, string(opts.LockToken)}, &wire, http.StatusOK); err != nil {
 		return nil, err
 	}
-	view, err := decodeRemoteNodeView(wire)
+	view, err := decodeRemoteNodeView(wire, true)
 	if err != nil {
 		return nil, err
 	}
@@ -240,17 +242,30 @@ func (k *RemoteKeg) CreateNodes(ctx context.Context, nodes []NodeCreate) ([]Crea
 
 func (k *RemoteKeg) UpdateNodes(ctx context.Context, updates []NodeUpdateOptions) ([]NodeUpdateResult, error) {
 	type wireUpdate struct {
-		NodeID         int     `json:"node_id"`
-		Schema         string  `json:"schema,omitempty"`
-		Content        *string `json:"content,omitempty"`
-		Meta           *string `json:"meta,omitempty"`
-		LockToken      string  `json:"lock_token,omitempty"`
-		ExpectedHash   string  `json:"expected_hash,omitempty"`
-		SnapshotBefore bool    `json:"snapshot_before,omitempty"`
+		NodeID       int     `json:"node_id"`
+		Schema       string  `json:"schema,omitempty"`
+		Content      *string `json:"content,omitempty"`
+		Meta         *string `json:"meta,omitempty"`
+		LockToken    string  `json:"lock_token,omitempty"`
+		ExpectedHash string  `json:"expected_hash,omitempty"`
+		// The part tokens are keyed, not positional, for the same reason
+		// as CreateNodes: a field added to NodeUpdateOptions must not go
+		// unsent here without anything failing.
+		ExpectedContentHash string `json:"expected_content_hash,omitempty"`
+		ExpectedMetaHash    string `json:"expected_meta_hash,omitempty"`
+		SnapshotBefore      bool   `json:"snapshot_before,omitempty"`
 	}
 	wire := make([]wireUpdate, len(updates))
 	for i, item := range updates {
-		wire[i] = wireUpdate{NodeID: item.ID.ID, Schema: item.Schema, LockToken: string(item.LockToken), ExpectedHash: item.ExpectedHash, SnapshotBefore: item.SnapshotBefore}
+		wire[i] = wireUpdate{
+			NodeID:              item.ID.ID,
+			Schema:              item.Schema,
+			LockToken:           string(item.LockToken),
+			ExpectedHash:        item.ExpectedHash,
+			ExpectedContentHash: item.ExpectedContentHash,
+			ExpectedMetaHash:    item.ExpectedMetaHash,
+			SnapshotBefore:      item.SnapshotBefore,
+		}
 		if item.HasContent {
 			v := string(item.Content)
 			wire[i].Content = &v
@@ -261,9 +276,11 @@ func (k *RemoteKeg) UpdateNodes(ctx context.Context, updates []NodeUpdateOptions
 		}
 	}
 	var response []struct {
-		ID         int                     `json:"id"`
-		Hash       string                  `json:"hash"`
-		Validation *SchemaValidationResult `json:"validation,omitempty"`
+		ID          int                     `json:"id"`
+		Hash        string                  `json:"hash"`
+		ContentHash string                  `json:"content_hash,omitempty"`
+		MetaHash    string                  `json:"meta_hash,omitempty"`
+		Validation  *SchemaValidationResult `json:"validation,omitempty"`
 	}
 	if err := k.putJSON(ctx, "/nodes", "UpdateNodes", struct {
 		Updates []wireUpdate `json:"updates"`
@@ -272,7 +289,7 @@ func (k *RemoteKeg) UpdateNodes(ctx context.Context, updates []NodeUpdateOptions
 	}
 	out := make([]NodeUpdateResult, len(response))
 	for i, item := range response {
-		out[i] = NodeUpdateResult{ID: NodeId{ID: item.ID}, Hash: item.Hash, Validation: item.Validation}
+		out[i] = NodeUpdateResult{ID: NodeId{ID: item.ID}, Hash: item.Hash, ContentHash: item.ContentHash, MetaHash: item.MetaHash, Validation: item.Validation}
 	}
 	return out, nil
 }

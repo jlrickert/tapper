@@ -22,7 +22,7 @@ func TestMCP_DefaultFlightRestrictsKegs(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	coveredText := extractText(t, covered)
+	coveredText := nodeReadText(t, covered)
 	require.False(t, covered.IsError, "covered cat returned error: %s", coveredText)
 	require.Contains(t, coveredText, "# Personal Overview")
 
@@ -66,7 +66,7 @@ func TestMCP_OutsideToolFlightCannotOverridePinnedRoot(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	coveredText := extractText(t, covered)
+	coveredText := nodeReadText(t, covered)
 	require.False(t, covered.IsError, "session flight must remain active: %s", coveredText)
 	require.Contains(t, coveredText, "# Personal Overview")
 	_ = privateID

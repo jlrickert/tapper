@@ -264,9 +264,9 @@ func TestParity_WriteOperations(t *testing.T) {
 		// Edit via MCP.
 		_, err = env.runMCP("node_edit", map[string]any{
 			"nodes": []any{map[string]any{
-				"node_id":       nodeID,
-				"content":       "# After MCP Edit\n\nEdited content.\n",
-				"expected_hash": env.nodeHash(nodeID),
+				"node_id":               nodeID,
+				"content":               "# After MCP Edit\n\nEdited content.\n",
+				"expected_content_hash": env.contentHash(nodeID),
 			}},
 		})
 		require.NoError(t, err, "MCP edit should succeed")
@@ -303,9 +303,9 @@ func TestParity_WriteOperations(t *testing.T) {
 		// Write metadata via MCP.
 		_, err = env.runMCP("node_edit", map[string]any{
 			"nodes": []any{map[string]any{
-				"node_id":       nodeID,
-				"meta":          "tags:\n  - updated-meta\n  - parity\n",
-				"expected_hash": env.nodeHash(nodeID),
+				"node_id":            nodeID,
+				"meta":               "tags:\n  - updated-meta\n  - parity\n",
+				"expected_meta_hash": env.metaHash(nodeID),
 			}},
 		})
 		require.NoError(t, err, "MCP metadata write should succeed")
@@ -346,9 +346,9 @@ func TestParity_WriteOperations(t *testing.T) {
 
 		_, err = env.runMCP("node_edit", map[string]any{
 			"nodes": []any{map[string]any{
-				"node_id":       nodeID,
-				"meta":          "id: \"" + nodeID + "\"\ntags:\n  - round-trip\n",
-				"expected_hash": env.nodeHash(nodeID),
+				"node_id":            nodeID,
+				"meta":               "id: \"" + nodeID + "\"\ntags:\n  - round-trip\n",
+				"expected_meta_hash": env.metaHash(nodeID),
 			}},
 		})
 		require.NoError(t, err, "MCP metadata write should succeed")
@@ -360,9 +360,9 @@ func TestParity_WriteOperations(t *testing.T) {
 
 		_, err = env.runMCP("node_edit", map[string]any{
 			"nodes": []any{map[string]any{
-				"node_id":       nodeID,
-				"meta":          first,
-				"expected_hash": env.nodeHash(nodeID),
+				"node_id":            nodeID,
+				"meta":               first,
+				"expected_meta_hash": env.metaHash(nodeID),
 			}},
 		})
 		require.NoError(t, err, "second MCP metadata write should succeed")

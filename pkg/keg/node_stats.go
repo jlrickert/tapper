@@ -331,6 +331,64 @@ func nodeStateHash(rt *toolkit.Runtime, contentHash string, meta *NodeMeta) stri
 	return hasher.Hash(buf.Bytes())
 }
 
+// NodePartHashes returns the per-part precondition tokens for a node: one for
+// its content and one for its metadata. Unlike the combined state hash
+// (nodeStateHash), editing one part never changes the other part's token, so
+// a content edit and a metadata edit on one node do not conflict.
+//
+// contentHash is the same value ParseContent records as NodeContent.Hash.
+// metaHash hashes the same normalized YAML the combined hash uses
+// (programmatic keys stripped, tags normalized). Both are always non-empty,
+// even for empty content or absent metadata, so a caller always has a token to
+// echo back.
+func NodePartHashes(rt *toolkit.Runtime, content []byte, meta *NodeMeta) (contentHash, metaHash string) {
+	return nodeContentHash(rt, content), nodeMetaHash(rt, meta)
+}
+
+func nodePartHasher(rt *toolkit.Runtime) toolkit.Hasher {
+	if rt != nil {
+		return toolkit.OrDefaultHasher(rt.Hasher())
+	}
+	return toolkit.OrDefaultHasher(nil)
+}
+
+func nodeContentHash(rt *toolkit.Runtime, content []byte) string {
+	if content == nil {
+		content = []byte{}
+	}
+	return nodePartHasher(rt).Hash(content)
+}
+
+func nodeMetaHash(rt *toolkit.Runtime, meta *NodeMeta) string {
+	metaYAML := ""
+	if meta != nil {
+		metaYAML = meta.ToYAML()
+	}
+	if strings.TrimSpace(metaYAML) == "" {
+		metaYAML = ""
+	}
+	return nodePartHasher(rt).Hash([]byte(metaYAML))
+}
+
+// nodeRawMetaHash is nodeMetaHash over stored meta bytes. Bytes that do not
+// parse fall back to a hash of the raw bytes, so the token stays deterministic
+// and a caller can still overwrite broken metadata.
+func nodeRawMetaHash(ctx context.Context, rt *toolkit.Runtime, raw []byte) string {
+	meta, err := ParseMeta(ctx, raw)
+	if err != nil {
+		return nodePartHasher(rt).Hash(raw)
+	}
+	return nodeMetaHash(rt, meta)
+}
+
+// setPartHashes fills the per-part tokens from the view's loaded bytes.
+func (v *NodeView) setPartHashes(ctx context.Context, rt *toolkit.Runtime, withContent bool) {
+	if withContent {
+		v.contentHash = nodeContentHash(rt, v.Content)
+	}
+	v.metaHash = nodeRawMetaHash(ctx, rt, v.Meta)
+}
+
 func writeNodeStateHashPart(buf *bytes.Buffer, value string) {
 	_, _ = fmt.Fprintf(buf, "%d:", len(value))
 	buf.WriteString(value)

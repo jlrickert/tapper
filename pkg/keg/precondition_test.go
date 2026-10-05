@@ -199,3 +199,121 @@ func TestLocalKegQueryRemovalPinsHashesInsideWriteBoundary(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, exists)
 }
+
+func TestNodePartHashesAreDeterministicAndNormalized(t *testing.T) {
+	t.Parallel()
+	fx := NewSandbox(t)
+	ctx := fx.Context()
+
+	emptyContent, emptyMeta := keg.NodePartHashes(fx.Runtime(), nil, nil)
+	require.NotEmpty(t, emptyContent, "empty content still has a token")
+	require.NotEmpty(t, emptyMeta, "absent meta still has a token")
+	parsedEmpty, err := keg.ParseMeta(ctx, nil)
+	require.NoError(t, err)
+	_, parsedEmptyMeta := keg.NodePartHashes(fx.Runtime(), []byte{}, parsedEmpty)
+	require.Equal(t, emptyMeta, parsedEmptyMeta, "nil and empty meta share a token")
+
+	content := []byte("# Title\n\nBody.\n")
+	parsed, err := keg.ParseContent(fx.Runtime(), content, keg.MarkdownContentFilename)
+	require.NoError(t, err)
+	contentHash, _ := keg.NodePartHashes(fx.Runtime(), content, nil)
+	require.Equal(t, parsed.Hash, contentHash, "content token matches ParseContent's hash")
+
+	a, err := keg.ParseMeta(ctx, []byte("tags:\n  - b\n  - a\n"))
+	require.NoError(t, err)
+	b, err := keg.ParseMeta(ctx, []byte("tags:\n  - a\n  - b\n"))
+	require.NoError(t, err)
+	_, aHash := keg.NodePartHashes(fx.Runtime(), nil, a)
+	_, bHash := keg.NodePartHashes(fx.Runtime(), nil, b)
+	require.Equal(t, aHash, bHash, "meta token uses the normalized YAML")
+}
+
+func TestLocalKegNodePartPreconditionsAreIndependent(t *testing.T) {
+	t.Parallel()
+	fx := NewSandbox(t)
+	ctx := fx.Context()
+	k := keg.NewLocalKeg(newTestMemoryRepo(fx.Runtime()), fx.Runtime())
+	initNonStrictTestKeg(t, k, ctx)
+	created, err := k.Create(ctx, &keg.CreateOptions{Body: []byte("# Original\n"), Meta: []byte("tags:\n  - before\n")})
+	require.NoError(t, err)
+	original, err := k.ReadNode(ctx, created.ID)
+	require.NoError(t, err)
+	require.NotEmpty(t, original.ContentHash())
+	require.NotEmpty(t, original.MetaHash())
+
+	// Meta-only edit under the meta token: content token unchanged.
+	metaResults, err := k.UpdateNodes(ctx, []keg.NodeUpdateOptions{{
+		ID: created.ID, Meta: []byte("tags: [after]\n"), HasMeta: true, ExpectedMetaHash: original.MetaHash(),
+	}})
+	require.NoError(t, err)
+	require.Equal(t, original.ContentHash(), metaResults[0].ContentHash)
+	require.NotEqual(t, original.MetaHash(), metaResults[0].MetaHash)
+	afterMeta, err := k.ReadNode(ctx, created.ID)
+	require.NoError(t, err)
+	require.Equal(t, original.ContentHash(), afterMeta.ContentHash())
+	require.Equal(t, metaResults[0].MetaHash, afterMeta.MetaHash(), "result token matches a fresh read")
+	require.Equal(t, metaResults[0].Hash, afterMeta.Hash())
+	require.NotEqual(t, original.Hash(), afterMeta.Hash(), "combined hash still covers meta")
+
+	// Content edit with only the pre-meta-edit content token succeeds.
+	contentResults, err := k.UpdateNodes(ctx, []keg.NodeUpdateOptions{{
+		ID: created.ID, Content: []byte("# Edited\n"), HasContent: true, ExpectedContentHash: original.ContentHash(),
+	}})
+	require.NoError(t, err)
+	require.Equal(t, afterMeta.MetaHash(), contentResults[0].MetaHash)
+	require.NotEqual(t, original.ContentHash(), contentResults[0].ContentHash)
+
+	// A stale content token conflicts and carries the current part tokens.
+	current, err := k.ReadNode(ctx, created.ID)
+	require.NoError(t, err)
+	_, err = k.UpdateNodes(ctx, []keg.NodeUpdateOptions{{
+		ID: created.ID, Content: []byte("# Stale\n"), HasContent: true, ExpectedContentHash: original.ContentHash(),
+	}})
+	require.ErrorIs(t, err, keg.ErrConflict)
+	var conflict *keg.PreconditionConflictError
+	require.True(t, errors.As(err, &conflict))
+	require.Equal(t, current.Hash(), conflict.CurrentHash)
+	require.Equal(t, current.ContentHash(), conflict.CurrentContentHash)
+	require.Equal(t, current.MetaHash(), conflict.CurrentMetaHash)
+
+	// A supplied part without its token is refused, even when the other
+	// part's token is present and the combined hash is current.
+	_, err = k.UpdateNodes(ctx, []keg.NodeUpdateOptions{{
+		ID: created.ID, Content: []byte("# Both\n"), HasContent: true, Meta: []byte("tags: [both]\n"), HasMeta: true,
+		ExpectedContentHash: current.ContentHash(), ExpectedHash: current.Hash(),
+	}})
+	require.ErrorIs(t, err, keg.ErrPreconditionRequired)
+
+	// The combined token still guards writes that use it (CLI path).
+	combined, err := k.UpdateNodes(ctx, []keg.NodeUpdateOptions{{
+		ID: created.ID, Content: []byte("# Combined\n"), HasContent: true, ExpectedHash: current.Hash(),
+	}})
+	require.NoError(t, err)
+	require.NotEmpty(t, combined[0].ContentHash)
+	_, err = k.UpdateNodes(ctx, []keg.NodeUpdateOptions{{
+		ID: created.ID, Content: []byte("# Combined stale\n"), HasContent: true, ExpectedHash: current.Hash(),
+	}})
+	require.ErrorIs(t, err, keg.ErrConflict)
+	require.True(t, errors.As(err, &conflict))
+	latest, err := k.ReadNode(ctx, created.ID)
+	require.NoError(t, err)
+	require.Equal(t, latest.ContentHash(), conflict.CurrentContentHash, "combined conflicts also report part tokens")
+	require.Equal(t, "# Combined\n", string(latest.Content))
+}
+
+func TestLocalKegMetaOnlyReadOmitsContentHash(t *testing.T) {
+	t.Parallel()
+	fx := NewSandbox(t)
+	ctx := fx.Context()
+	k := keg.NewLocalKeg(newTestMemoryRepo(fx.Runtime()), fx.Runtime())
+	initNonStrictTestKeg(t, k, ctx)
+	created, err := k.Create(ctx, &keg.CreateOptions{Body: []byte("# Meta only\n"), Meta: []byte("tags: [x]\n")})
+	require.NoError(t, err)
+	full, err := k.ReadNode(ctx, created.ID)
+	require.NoError(t, err)
+	views, err := k.ReadNodes(ctx, keg.ReadNodesOptions{NodeIDs: []keg.NodeId{created.ID}, MetaOnly: true})
+	require.NoError(t, err)
+	require.Len(t, views, 1)
+	require.Empty(t, views[0].ContentHash())
+	require.Equal(t, full.MetaHash(), views[0].MetaHash())
+}

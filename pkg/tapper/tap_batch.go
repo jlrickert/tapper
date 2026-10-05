@@ -37,13 +37,21 @@ func (t *Tap) CreateBatch(ctx context.Context, opts BatchCreateOptions) ([]keg.C
 }
 
 type BatchEditItem struct {
-	NodeID       string
-	Schema       string
-	Content      string
-	HasContent   bool
-	Meta         string
-	HasMeta      bool
+	NodeID     string
+	Schema     string
+	Content    string
+	HasContent bool
+	Meta       string
+	HasMeta    bool
+	// ExpectedHash is the combined content+metadata token (node_read's
+	// hash). It is used only when neither part token is set; the CLI and
+	// other single-token callers rely on it.
 	ExpectedHash string
+	// ExpectedContentHash and ExpectedMetaHash are the per-part tokens
+	// (node_read's content_hash and meta_hash). When either is set, each
+	// supplied part must carry its own token and ExpectedHash is ignored.
+	ExpectedContentHash string
+	ExpectedMetaHash    string
 }
 type BatchEditOptions struct {
 	KegTargetOptions
@@ -65,7 +73,16 @@ func (t *Tap) EditBatch(ctx context.Context, opts BatchEditOptions) ([]keg.NodeU
 		if !item.HasContent && !item.HasMeta {
 			return nil, fmt.Errorf("edit %d node %q: content or meta is required: %w", i, item.NodeID, keg.ErrInvalid)
 		}
-		update := keg.NodeUpdateOptions{ID: *id, Schema: item.Schema, ExpectedHash: item.ExpectedHash}
+		if err := requireEditPartHashes(i, item); err != nil {
+			return nil, err
+		}
+		update := keg.NodeUpdateOptions{
+			ID:                  *id,
+			Schema:              item.Schema,
+			ExpectedHash:        item.ExpectedHash,
+			ExpectedContentHash: item.ExpectedContentHash,
+			ExpectedMetaHash:    item.ExpectedMetaHash,
+		}
 		if item.HasContent {
 			if err := keg.RejectFrontmatter([]byte(item.Content)); err != nil {
 				return nil, fmt.Errorf("edit %d node %q: %w", i, item.NodeID, err)
@@ -107,4 +124,22 @@ func (t *Tap) NodeSnapshotBatch(ctx context.Context, opts BatchSnapshotOptions) 
 		nodes[i] = keg.NodeSnapshotRequest{ID: *id, Message: item.Message}
 	}
 	return k.AppendSnapshots(ctx, nodes)
+}
+
+// requireEditPartHashes rejects an edit that supplies a part without that
+// part's token. It applies whenever the caller holds no combined ExpectedHash
+// (node_edit never sends one), so an unguarded part can never fall through to
+// the keg layer's combined-hash path. It runs after keg resolution so
+// authorization failures still surface first.
+func requireEditPartHashes(i int, item BatchEditItem) error {
+	if item.ExpectedHash != "" && item.ExpectedContentHash == "" && item.ExpectedMetaHash == "" {
+		return nil
+	}
+	if item.HasContent && item.ExpectedContentHash == "" {
+		return fmt.Errorf("edit %d node %q: content requires expected_content_hash (the content_hash from node_read): %w", i, item.NodeID, keg.ErrPreconditionRequired)
+	}
+	if item.HasMeta && item.ExpectedMetaHash == "" {
+		return fmt.Errorf("edit %d node %q: meta requires expected_meta_hash (the meta_hash from node_read): %w", i, item.NodeID, keg.ErrPreconditionRequired)
+	}
+	return nil
 }

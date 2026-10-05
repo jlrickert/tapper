@@ -53,9 +53,14 @@ var (
 // preserving the current representation needed to recover and retry. It
 // unwraps to ErrConflict so existing conflict checks continue to work.
 type PreconditionConflictError struct {
-	Resource       string
-	CurrentHash    string
-	CurrentContent []byte
+	Resource    string
+	CurrentHash string
+	// CurrentContentHash and CurrentMetaHash are the node's current per-part
+	// tokens (see NodePartHashes). Set for node conflicts; empty for
+	// whole-document resources such as schemas and settings.
+	CurrentContentHash string
+	CurrentMetaHash    string
+	CurrentContent     []byte
 }
 
 func (e *PreconditionConflictError) Error() string {

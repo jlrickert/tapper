@@ -84,13 +84,21 @@ func TestMCP_MutationSchemasRequireExpectedHashesAtResourceLocation(t *testing.T
 		requireSchemaField(t, schema, "expected_hash", true)
 	}
 
-	for tool, array := range map[string]string{
-		"node_edit": "nodes", "node_delete": "nodes",
-	} {
-		root, ok := schemas[tool]
-		require.True(t, ok, "missing tool %q", tool)
-		requireSchemaField(t, schemaArrayItem(t, root, array), "expected_hash", true)
-	}
+	deleteItem := schemaArrayItem(t, schemas["node_delete"], "nodes")
+	requireSchemaField(t, deleteItem, "expected_hash", true)
+
+	// node_edit guards each part with its own token. Which token is required
+	// depends on which part is supplied, so neither is schema-required; the
+	// handler rejects a supplied part without its token. The combined
+	// expected_hash is gone from node_edit entirely.
+	editItem := schemaArrayItem(t, schemas["node_edit"], "nodes")
+	editProps, ok := editItem["properties"].(map[string]any)
+	require.True(t, ok)
+	require.NotContains(t, editProps, "expected_hash")
+	require.Contains(t, editProps, "expected_content_hash")
+	require.Contains(t, editProps, "expected_meta_hash")
+	requireSchemaField(t, editItem, "expected_content_hash", false)
+	requireSchemaField(t, editItem, "expected_meta_hash", false)
 
 	// create allocates ids, so there is no prior revision to guard and no
 	// expected_hash anywhere in its schema.
@@ -174,6 +182,10 @@ func TestMCP_WriteToolsStateTheContentContract(t *testing.T) {
 		require.Containsf(t, desc, "frontmatter",
 			"%q does not say content must not begin with a frontmatter block", name)
 	}
-	require.Contains(t, byName["node_edit"], "content and metadata together",
-		"edit does not state that one hash covers both halves of a node")
+	for _, want := range []string{"expected_content_hash", "expected_meta_hash", "never invalidates"} {
+		require.Containsf(t, byName["node_edit"], want,
+			"edit does not state that each part of a node has its own hash (%q)", want)
+	}
+	require.Contains(t, byName["node_read"], "content_hash")
+	require.Contains(t, byName["node_read"], "meta_hash")
 }

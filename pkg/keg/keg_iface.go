@@ -322,6 +322,10 @@ type NodeView struct {
 	Files  []string
 	Images []string
 	hash   string
+	// contentHash and metaHash are the per-part tokens (NodePartHashes),
+	// filled at read time for the parts the read loaded.
+	contentHash string
+	metaHash    string
 }
 
 // Hash is the node's precondition token: the value a caller echoes back as
@@ -338,6 +342,17 @@ func (v NodeView) Hash() string {
 	}
 	return v.Stats.Hash()
 }
+
+// ContentHash is the content part's precondition token: the value a caller
+// echoes back as NodeUpdateOptions.ExpectedContentHash. Unlike Hash it covers
+// content only, so a metadata edit never invalidates it. Empty when the read
+// did not load content (a meta-only read).
+func (v NodeView) ContentHash() string { return v.contentHash }
+
+// MetaHash is the metadata part's precondition token: the value a caller
+// echoes back as NodeUpdateOptions.ExpectedMetaHash. A content edit never
+// invalidates it. Empty when the read did not load metadata.
+func (v NodeView) MetaHash() string { return v.metaHash }
 
 // QueryOptions configures Keg.Query.
 type QueryOptions struct {

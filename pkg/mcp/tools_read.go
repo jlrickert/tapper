@@ -41,24 +41,46 @@ type catInput struct {
 //
 // Content and Meta are populated to match the read mode and are exactly the
 // fields `node_edit` accepts, so a row can be modified and sent straight back.
+//
+// ContentHash and MetaHash are the per-part tokens node_edit takes, present
+// only for the parts the read mode returned. Hash is the combined token
+// node_delete and node_move take.
 type nodeReadOutput struct {
-	NodeID  string `json:"node_id"`
-	Hash    string `json:"hash"`
-	Content string `json:"content,omitempty"`
-	Meta    string `json:"meta,omitempty"`
-	Stats   string `json:"stats,omitempty"`
+	NodeID      string `json:"node_id"`
+	Hash        string `json:"hash"`
+	ContentHash string `json:"content_hash,omitempty"`
+	MetaHash    string `json:"meta_hash,omitempty"`
+	Content     string `json:"content,omitempty"`
+	Meta        string `json:"meta,omitempty"`
+	Stats       string `json:"stats,omitempty"`
 }
 
 func nodeReadOutputs(ctx context.Context, views []keg.NodeView, opts tapper.CatOptions) []nodeReadOutput {
 	out := make([]nodeReadOutput, 0, len(views))
 	for _, view := range views {
 		content, meta, stats := tapper.CatViewDocument(ctx, view, opts)
-		out = append(out, nodeReadOutput{
+		row := nodeReadOutput{
 			NodeID: view.ID.Path(), Hash: view.Hash(),
 			Content: content, Meta: meta, Stats: stats,
-		})
+		}
+		if !opts.MetaOnly && !opts.StatsOnly {
+			row.ContentHash = view.ContentHash()
+		}
+		if !opts.ContentOnly && !opts.StatsOnly {
+			row.MetaHash = view.MetaHash()
+		}
+		out = append(out, row)
 	}
 	return out
+}
+
+// nodeReadSummary is node_read's text message when structured rows carry the
+// documents: repeating each body in the text would send it twice.
+func nodeReadSummary(count int) string {
+	if count == 1 {
+		return "Read 1 node; its document is in nodes[]"
+	}
+	return fmt.Sprintf("Read %d nodes; each document is in nodes[]", count)
 }
 
 func registerCat(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
@@ -66,8 +88,10 @@ func registerCat(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 		Name: "node_read",
 		Description: "Read KEG nodes using node_ids or query; they are mutually exclusive, and omitting both returns no nodes. The default returns metadata and content together; " +
 			"meta_only returns just the metadata document, which is how you read metadata before " +
-			"editing it. Each result carries the node's hash; pass it back as expected_hash when " +
-			"editing that node.",
+			"editing it. Each result carries content_hash (when content was read) and meta_hash (when " +
+			"metadata was read): pass content_hash as expected_content_hash and meta_hash as " +
+			"expected_meta_hash to node_edit. Each part's hash is independent, so editing one part " +
+			"never invalidates the other's. The combined hash is for node_delete and node_move.",
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(false),
@@ -87,7 +111,12 @@ func registerCat(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 		if err != nil {
 			return errorResult(err), nil, nil
 		}
-		res := textResult(tapper.FormatCatViews(ctx, views, opts))
+		if len(views) == 0 {
+			res := textResult(tapper.FormatCatViews(ctx, views, opts))
+			res.StructuredContent = map[string]any{"nodes": nodeReadOutputs(ctx, views, opts)}
+			return res, nil, nil
+		}
+		res := textResult(nodeReadSummary(len(views)))
 		res.StructuredContent = map[string]any{"nodes": nodeReadOutputs(ctx, views, opts)}
 		return res, nil, nil
 	})
@@ -338,6 +367,8 @@ func registerKegSettings(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaul
 		}
 		res := textResult(result)
 		if !minimal {
+			// The document travels once, in data; the text is only a pointer.
+			res = textResult("Settings are in data.")
 			// Only the full read returns the stored document verbatim (raw
 			// file bytes, or cfg.String() for a remote keg) — the same source
 			// keg_settings_edit replaces. The minimal render is a cross-keg

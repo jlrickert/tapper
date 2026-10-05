@@ -143,9 +143,9 @@ code; the index does the work in O(matches) rather than O(total).
 | Tool                                                                           | Purpose                                                                                                               |
 | ------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------- |
 | `mcp__tapper__node_create`                                                          | Atomically create 1–100 nodes. Each is a markdown `content` document plus an optional YAML `meta` document; the title is the content's H1. Nodes in one batch reference each other with `{{node:KEY}}`. |
-| `mcp__tapper__node_edit`                                                            | Call `node_read`, then atomically replace `content`, `meta`, or both for 1–100 `nodes[]`; every item requires that node's returned hash, and one hash covers content and metadata together. |
-| `mcp__tapper__node_move`                                                            | Call `node_read`, then relocate a node using its required returned hash.                                                    |
-| `mcp__tapper__node_delete`                                                          | Call `node_read`, then atomically remove 1–100 `nodes[]`, each carrying its own required returned hash.                     |
+| `mcp__tapper__node_edit`                                                            | Call `node_read`, then atomically replace `content`, `meta`, or both for 1–100 `nodes[]`. Each part has its own hash: supplied `content` requires `expected_content_hash` (the read's `content_hash`) and supplied `meta` requires `expected_meta_hash` (its `meta_hash`). Editing one part never invalidates the other's hash, and results return the new `content_hash` and `meta_hash`. |
+| `mcp__tapper__node_move`                                                            | Call `node_read`, then relocate a node using the combined `hash` from `node_read` as `expected_hash`.                       |
+| `mcp__tapper__node_delete`                                                          | Call `node_read`, then atomically remove 1–100 `nodes[]`, each carrying the combined `hash` from `node_read` as `expected_hash`. |
 | `mcp__tapper__file_delete`, `mcp__tapper__image_delete`                        | Destructive attachment operations — see the Snapshots section below before calling.                                 |
 | `mcp__tapper__snapshot_create`                                                   | Capture a revision before a destructive or large edit.                                                                |
 | `mcp__tapper__snapshot_list`, `mcp__tapper__snapshot_read`                 | Inspect read-only prior revisions.                                                                                    |
@@ -155,11 +155,15 @@ code; the index does the work in O(matches) rather than O(total).
 Schema edits and deletes similarly require the hash from `schema_read`. Every
 conflict performs no operation: merge the change into returned current content
 or refetch with the corresponding read, then retry with the returned current
-hash.
+hash — for `node_edit`, the returned `currentContentHash` or `currentMetaHash`
+of the part being written.
 
-A hash covers the resource version read. Mutations may invalidate it, and not
-every mutation returns a replacement, so a sequence like edit-then-delete needs a
-fresh read between the two calls rather than a reused token. Node ids are
+A hash covers the resource version read. `node_read` returns three per node:
+`content_hash` and `meta_hash` for `node_edit`, and the combined `hash` for
+`node_delete` and `node_move`. Mutations may invalidate a hash, and not every
+mutation returns a replacement for every hash, so a sequence like
+edit-then-delete needs a fresh read between the two calls rather than a reused
+token. Node ids are
 per-keg counters as well: node 4 in one keg is unrelated to node 4 in another.
 
 ### Writing a node
@@ -181,17 +185,18 @@ Use `schema_list` to see the names a keg accepts, then:
 {"nodes": [{"key": "a1", "content": "# Title\n\nBody", "meta": "type: document\n", "schema": "document"}]}
 ```
 
-`node_edit` takes the same two documents per item plus that node's current hash from
-`node_read`, and either document may be omitted to leave it untouched:
+`node_edit` takes the same two documents per item, each guarded by its own hash
+from `node_read`, and either document may be omitted to leave it untouched:
 
 ```json
-{"nodes": [{"node_id": "12", "content": "# Revised\n\nBody", "expected_hash": "HASH_FROM_CAT"}]}
+{"nodes": [{"node_id": "12", "content": "# Revised\n\nBody", "expected_content_hash": "CONTENT_HASH_FROM_READ"}]}
+{"nodes": [{"node_id": "12", "meta": "type: document\n", "expected_meta_hash": "META_HASH_FROM_READ"}]}
 ```
 
-`node_delete` carries only ids and hashes:
+`node_delete` carries only ids and the combined hashes:
 
 ```json
-{"nodes": [{"node_id": "12", "expected_hash": "HASH_FROM_CAT"}]}
+{"nodes": [{"node_id": "12", "expected_hash": "HASH_FROM_READ"}]}
 ```
 
 ## Agents
@@ -398,9 +403,12 @@ the same operational information, including error diagnostics and recovery.
   YAML text; mutations use nodes arrays. Do not retry unchanged arguments.
 - PRECONDITION_REQUIRED: node_read, schema_read, full keg_settings_read, or
   flight_read
-  supplies the matching expected_hash. Snapshot before meaningful node edits.
+  supplies the matching expected_hash. node_edit needs expected_content_hash
+  for supplied content and expected_meta_hash for supplied meta (node_read's
+  content_hash and meta_hash). Snapshot before meaningful node edits.
 - CONFLICT: operationPerformed=false; refetch, merge the intended change, and
-  retry with the current hash. currentContent is diagnostic current content,
+  retry with the current hash (for node_edit, currentContentHash or
+  currentMetaHash of the part being written). currentContent is diagnostic current content,
   not necessarily the replacement-document format accepted by node_edit.
 - ORIENTATION_DENIED: inspect orient and select an accessible flight with the
   required authority; keg alone cannot grant access.

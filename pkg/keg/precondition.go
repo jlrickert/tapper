@@ -1,8 +1,12 @@
 package keg
 
 import (
+	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
+
+	"github.com/jlrickert/cli-toolkit/toolkit"
 )
 
 // DocumentHash returns the precondition token for a whole-document keg
@@ -61,4 +65,59 @@ func nodeRecoveryContent(view *NodeView) []byte {
 	out = append(out, "---\n"...)
 	out = append(out, view.Content...)
 	return out
+}
+
+// checkNodeUpdatePrecondition guards a node update against the state it was
+// read at.
+//
+// When the caller supplies a per-part token (ExpectedContentHash or
+// ExpectedMetaHash), each part being written is checked against its own token
+// and the combined ExpectedHash is ignored: a part written without its token
+// is ErrPreconditionRequired, a stale token is a PreconditionConflictError.
+// Otherwise the combined ExpectedHash is checked exactly as before, which is
+// what callers that hold NodeView.Hash rely on.
+func checkNodeUpdatePrecondition(ctx context.Context, rt *toolkit.Runtime, opts NodeUpdateOptions, existing *NodeView) error {
+	resource := "node " + opts.ID.Path()
+	currentContentHash, currentMetaHash := existing.ContentHash(), existing.MetaHash()
+	if currentContentHash == "" {
+		currentContentHash = nodeContentHash(rt, existing.Content)
+	}
+	if currentMetaHash == "" {
+		currentMetaHash = nodeRawMetaHash(ctx, rt, existing.Meta)
+	}
+	conflict := func() error {
+		return &PreconditionConflictError{
+			Resource:           resource,
+			CurrentHash:        existing.Hash(),
+			CurrentContentHash: currentContentHash,
+			CurrentMetaHash:    currentMetaHash,
+			CurrentContent:     nodeRecoveryContent(existing),
+		}
+	}
+	if opts.ExpectedContentHash == "" && opts.ExpectedMetaHash == "" {
+		err := checkExpectedHash(resource, opts.ExpectedHash, existing.Hash(), nodeRecoveryContent(existing))
+		var pc *PreconditionConflictError
+		if errors.As(err, &pc) {
+			pc.CurrentContentHash = currentContentHash
+			pc.CurrentMetaHash = currentMetaHash
+		}
+		return err
+	}
+	if opts.HasContent {
+		if opts.ExpectedContentHash == "" {
+			return fmt.Errorf("%s content (expected content hash): %w", resource, ErrPreconditionRequired)
+		}
+		if opts.ExpectedContentHash != currentContentHash {
+			return conflict()
+		}
+	}
+	if opts.HasMeta {
+		if opts.ExpectedMetaHash == "" {
+			return fmt.Errorf("%s metadata (expected meta hash): %w", resource, ErrPreconditionRequired)
+		}
+		if opts.ExpectedMetaHash != currentMetaHash {
+			return conflict()
+		}
+	}
+	return nil
 }
