@@ -481,7 +481,7 @@ func TestUnsupportedVersionIsPermanent(t *testing.T) {
 
 // A Hub that predates protocol 2 checks the envelope version before it reads
 // register, so the relay must keep stamping version 1 while offering 2.
-func TestRegisterOffersProtocol2InVersion1Envelope(t *testing.T) {
+func TestRegisterOffersEveryProtocolInVersion1Envelope(t *testing.T) {
 	_, psrv := newFakeProvider(t, "qwen3:8b")
 	hub := newFakeHub(t)
 	startRelay(t, hub, []*Provider{ollama(t, psrv.URL)}, nil)
@@ -495,8 +495,8 @@ func TestRegisterOffersProtocol2InVersion1Envelope(t *testing.T) {
 	if err := env.Decode(&reg); err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(reg.Relay.Protocols, []int{1, 2}) {
-		t.Fatalf("protocols = %v, want [1 2]", reg.Relay.Protocols)
+	if !slices.Equal(reg.Relay.Protocols, []int{1, 2, 3}) {
+		t.Fatalf("protocols = %v, want [1 2 3]", reg.Relay.Protocols)
 	}
 	// An old hub answers with protocol 1 and the session works as before.
 	writeEnv(t, ctx, conn, relaycontract.TypeRegistered, "", relaycontract.Registered{Protocol: 1, Models: []relaycontract.CatalogBinding{}})
@@ -513,7 +513,7 @@ func TestHubChoosingUnofferedProtocolIsPermanent(t *testing.T) {
 	ctx := context.Background()
 	conn := hub.accept(t)
 	readEnv(t, ctx, conn)
-	writeEnv(t, ctx, conn, relaycontract.TypeRegistered, "", relaycontract.Registered{Protocol: 3, Models: []relaycontract.CatalogBinding{}})
+	writeEnv(t, ctx, conn, relaycontract.TypeRegistered, "", relaycontract.Registered{Protocol: 4, Models: []relaycontract.CatalogBinding{}})
 	select {
 	case err := <-done:
 		if !errors.Is(err, ErrIncompatible) {
