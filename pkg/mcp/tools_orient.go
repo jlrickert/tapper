@@ -67,8 +67,9 @@ func registerSessionRefresh(srv *sdkmcp.Server, defaults KegDefaults) {
 			"Takes no arguments and never changes an already-active connection. A no-flight full-access " +
 			"connection therefore requires a new MCP connection after a restrictive flight is pinned.",
 		Annotations: &sdkmcp.ToolAnnotations{
-			ReadOnlyHint:  false,
-			OpenWorldHint: boolPtr(true),
+			ReadOnlyHint:    false,
+			DestructiveHint: boolPtr(false),
+			OpenWorldHint:   boolPtr(true),
 		},
 	}, func(ctx context.Context, _ *sdkmcp.CallToolRequest, _ sessionRefreshInput) (*sdkmcp.CallToolResult, any, error) {
 		out, err := defaults.gate.refresh(ctx, sessionIDFromContext(ctx))

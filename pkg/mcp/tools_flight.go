@@ -85,8 +85,9 @@ func registerFlightTools(srv *sdkmcp.Server, defaults KegDefaults, flights Fligh
 		Name:        "flight_create",
 		Description: "Create a Hub-backed flight (cover roles + agent instructions)",
 		Annotations: &sdkmcp.ToolAnnotations{
-			ReadOnlyHint:  false,
-			OpenWorldHint: boolPtr(true),
+			ReadOnlyHint:    false,
+			DestructiveHint: boolPtr(false),
+			OpenWorldHint:   boolPtr(true),
 		},
 	}, func(ctx context.Context, _ *sdkmcp.CallToolRequest, in flightCreateInput) (*sdkmcp.CallToolResult, any, error) {
 		cover, err := tapper.ParseFlightCoverSpecs(in.Cover)
@@ -117,8 +118,9 @@ func registerFlightTools(srv *sdkmcp.Server, defaults KegDefaults, flights Fligh
 		Name:        "flight_edit",
 		Description: "Call flight_read first, then edit a Hub-backed flight using its manifest hash as expected_hash; omitted fields keep their current values. On conflict, merge into the returned current flight (or refetch with flight_read) and retry with the returned current hash.",
 		Annotations: &sdkmcp.ToolAnnotations{
-			ReadOnlyHint:  false,
-			OpenWorldHint: boolPtr(true),
+			ReadOnlyHint:    false,
+			DestructiveHint: boolPtr(true),
+			OpenWorldHint:   boolPtr(true),
 		},
 	}, func(ctx context.Context, _ *sdkmcp.CallToolRequest, in flightEditInput) (*sdkmcp.CallToolResult, any, error) {
 		if err := defaults.gate.authorizeMutation(ctx); err != nil {
@@ -163,8 +165,9 @@ func registerFlightTools(srv *sdkmcp.Server, defaults KegDefaults, flights Fligh
 		Name:        "flight_delete",
 		Description: "Call flight_read first, then delete a Hub-backed flight using its manifest hash as expected_hash. On conflict, refetch with flight_read and retry with the returned current hash.",
 		Annotations: &sdkmcp.ToolAnnotations{
-			ReadOnlyHint:  false,
-			OpenWorldHint: boolPtr(true),
+			ReadOnlyHint:    false,
+			DestructiveHint: boolPtr(true),
+			OpenWorldHint:   boolPtr(true),
 		},
 	}, func(ctx context.Context, _ *sdkmcp.CallToolRequest, in flightDeleteInput) (*sdkmcp.CallToolResult, any, error) {
 		if err := defaults.gate.authorizeMutation(ctx); err != nil {
