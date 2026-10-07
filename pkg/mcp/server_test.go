@@ -2158,6 +2158,7 @@ func TestMCP_ToolAnnotations_AllPresent(t *testing.T) {
 		"node_delete", "node_move", "snapshot_restore",
 		"file_delete", "image_delete",
 		"lock_force_release",
+		"flight_edit", "flight_delete",
 	}
 	for _, name := range destructiveTools {
 		tool, ok := byName[name]
@@ -2172,6 +2173,7 @@ func TestMCP_ToolAnnotations_AllPresent(t *testing.T) {
 		"snapshot_create",
 		"file_upload", "image_upload",
 		"lock_acquire", "lock_release",
+		"flight_create", "session_refresh",
 	}
 	for _, name := range writeTools {
 		tool, ok := byName[name]
