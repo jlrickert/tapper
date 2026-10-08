@@ -2,6 +2,30 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.45.0 - 2026-10-08
+
+
+
+### 🐛 Bug Fixes
+- **mcp:** mark which flight and session tools are destructive
+
+
+### 📚 Documentation
+- **relay:** document relayed tool reach and built-in servers
+
+
+### 🚀 Features
+- **relay:** negotiate relay protocol 2 for tool forwarding
+- **relay:** forward local MCP server tools to Hub
+- **relay:** attribute OpenRouter requests to the calling app
+- **relay:** leave relayed tool sharing decisions to Hub
+- **mcp:** serve the caller's relayed Hub tools from tap mcp
+- **runner:** add tap runner serve for local coding agents
+- **relay:** offer coding agents as built-in relay MCP servers
+- **launch:** split Claude Code models between Claude and Hub
+- **mcp:** guard node_edit with separate content and meta hashes
+
+
 ## v0.44.0 - 2026-09-29
 
 
