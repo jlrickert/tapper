@@ -410,6 +410,13 @@ func SearchHitLines(hits []tapapi.SearchHit, open, close string) []string {
 	return lines
 }
 
+// SearchNextCursorLine renders the line that hands a text reader the next
+// page's cursor. The CLI prints it to stderr and node_search ends its text
+// with it, so both surfaces show the cursor the same way.
+func SearchNextCursorLine(cursor string) string {
+	return "next cursor: " + cursor
+}
+
 // searchLineField keeps a value on one tab-separated line.
 func searchLineField(value string) string {
 	return strings.TrimSpace(strings.NewReplacer("\r", " ", "\n", " ", "\t", " ").Replace(value))

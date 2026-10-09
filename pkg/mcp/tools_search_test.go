@@ -71,6 +71,7 @@ func TestMCP_NodeSearchUsesTheInjectedProvider(t *testing.T) {
 	text := extractText(t, res)
 	require.Contains(t, text, "Warning: partial")
 	require.Contains(t, text, "keg:@acme/notes/12\t4.250\tFestival trip\t**festival** in Los Angeles")
+	require.Contains(t, text, "next cursor: c2", "text-only clients need the cursor to page")
 
 	payload, ok := res.StructuredContent.(map[string]any)
 	require.True(t, ok)
@@ -99,6 +100,7 @@ func TestMCP_NodeSearchOmittedLimitStaysZero(t *testing.T) {
 	payload := res.StructuredContent.(map[string]any)
 	require.Equal(t, []any{}, payload["hits"], "a nil hit list renders as an empty array")
 	require.Contains(t, extractText(t, res), "No matching nodes.")
+	require.NotContains(t, extractText(t, res), "next cursor", "the last page names no cursor")
 	require.Equal(t, "This is the last page.", payload["pagination"])
 }
 

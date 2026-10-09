@@ -68,7 +68,7 @@ tap node search -- deploy -staging
 				}
 			}
 			if resp.NextCursor != "" {
-				fmt.Fprintln(errOut, "next cursor: "+resp.NextCursor)
+				fmt.Fprintln(errOut, tapper.SearchNextCursorLine(resp.NextCursor))
 			}
 			return nil
 		},
