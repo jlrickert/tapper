@@ -746,7 +746,7 @@ func (cfg *Config) resolveNamespaceHub(ns, hubName string) (string, string, HubE
 
 	entry, ok := cfg.Hub(hubName)
 	if !ok {
-		return "", "", HubEntry{}, fmt.Errorf("hub %q is not configured", hubName)
+		return "", "", HubEntry{}, hubNotConfiguredError(hubName)
 	}
 
 	if ns == "" {

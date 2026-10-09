@@ -128,6 +128,10 @@ func TestMCP_NodeSearchUnavailableNamesNodeGrep(t *testing.T) {
 	res := callNodeSearch(t, session, ctx, map[string]any{"query": "x"})
 	require.True(t, res.IsError)
 	require.Contains(t, extractText(t, res), "ranked search unavailable")
+	payload := res.StructuredContent.(map[string]any)
+	require.Equal(t, keg.RemoteCodeNotSupported, payload["code"], "a missing capability is not an unknown failure")
+	require.Equal(t, false, payload["operationPerformed"], "a search never writes")
+	require.Contains(t, payload["action"], "supported tool")
 }
 
 func TestMCP_NodeGrepKeepsRegexBehavior(t *testing.T) {

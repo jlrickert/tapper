@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -19,7 +18,15 @@ import (
 // ErrRankedSearchUnavailable reports that ranked search cannot run for the
 // target: it is not a Hub KEG, or its Hub predates ranked search. Regex
 // matching (Tap.Grep, `tap node grep`, node_grep) still works in both cases.
-var ErrRankedSearchUnavailable = errors.New("ranked search unavailable")
+// It matches keg.ErrNotSupported, so every surface reports NOT_SUPPORTED and
+// points the caller at a supported tool rather than at a partial write.
+var ErrRankedSearchUnavailable error = rankedSearchUnavailableError{}
+
+type rankedSearchUnavailableError struct{}
+
+func (rankedSearchUnavailableError) Error() string { return "ranked search unavailable" }
+
+func (rankedSearchUnavailableError) Is(target error) bool { return target == keg.ErrNotSupported }
 
 // searchResponseLimit bounds how much of a search response is read.
 const searchResponseLimit = 8 << 20
@@ -127,14 +134,14 @@ func (t *Tap) searchOneKeg(ctx context.Context, opts KegTargetOptions, flight *F
 	}
 	ref := searchKegRef(target)
 	if strings.TrimSpace(target.HubURL) == "" || ref == "" {
-		return nil, fmt.Errorf("%w: %q is not a Hub KEG; use tap node grep for regex matching", ErrRankedSearchUnavailable, opts.Keg)
+		return nil, fmt.Errorf("%w: %q is not a Hub KEG; use tap node grep (node_grep) for regex matching", ErrRankedSearchUnavailable, opts.Keg)
 	}
 	if err := t.enforceFlightTarget(flight, target, FlightRoleViewer); err != nil {
 		return nil, err
 	}
 	token := t.hubTokenForTarget(target)
 	if token == "" {
-		return nil, fmt.Errorf("not logged in to hub %q (run `tap auth login --hub %s`)", target.Hub, target.HubURL)
+		return nil, notLoggedInError(target.Hub, target.HubURL)
 	}
 	req.Kegs = []string{ref}
 	return postHubSearch(ctx, target.HubURL, token, req)

@@ -74,7 +74,7 @@ func (s *ConfigService) PinHub() error {
 	name := cfg.resolveHubName()
 	entry, ok := cfg.Hub(name)
 	if !ok {
-		return fmt.Errorf("hub %q is not configured", name)
+		return hubNotConfiguredError(name)
 	}
 	url, err := normalizeHubURL(CanonicalConfiguredHubURL(entry.URL))
 	if err != nil {
@@ -97,7 +97,7 @@ func (s *ConfigService) SelectedHub(explicit string) (string, HubEntry, error) {
 	}
 	entry, ok := cfg.Hub(name)
 	if !ok {
-		return "", HubEntry{}, fmt.Errorf("hub %q is not configured", name)
+		return "", HubEntry{}, hubNotConfiguredError(name)
 	}
 	if entry.invalid != nil {
 		return "", HubEntry{}, fmt.Errorf("hub %q: %w", name, entry.invalid)
