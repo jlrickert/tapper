@@ -109,7 +109,7 @@ writing KEG files directly.
 - `tap node list` - list indexed nodes.
 - `tap node search QUERY...` - find the nodes most relevant to a query, ranked
   by the hub across every keg you can read, one keg (`--keg`), or listed kegs
-  (`--kegs @ns/a,@ns/b`). The query takes plain terms, `"quoted phrases"`, and
+  (`--kegs @ns/a,@ns/b`, at most 50). The query takes plain terms, `"quoted phrases"`, and
   `-exclusions`. Each hit prints reference, score, title, and a highlighted
   snippet; `--limit` caps a page (the hub chooses by default), the next page's
   cursor is printed to stderr for `--cursor`, `--id-only` prints references,

@@ -35,12 +35,15 @@ const searchResponseLimit = 8 << 20
 //
 // With Keg set, the search covers that one Hub KEG. Otherwise it covers every
 // KEG the caller may read on the selected Hub, narrowed to Kegs when given and
-// to the active flight's cover unless BypassFlightRestrictions is set.
+// to the active flight's cover unless BypassFlightRestrictions is set. A
+// governed call that carries the orientation proof leaves an unscoped search
+// for the Hub to scope to the cover; otherwise the client names the cover,
+// which must fit in tapapi.SearchMaxKegs.
 type SearchOptions struct {
 	KegTargetOptions
 
-	// Kegs narrows a whole-Hub search to these "@namespace/alias" references.
-	// It cannot be combined with Keg.
+	// Kegs narrows a whole-Hub search to these "@namespace/alias" references,
+	// at most tapapi.SearchMaxKegs of them. It cannot be combined with Keg.
 	Kegs []string
 
 	// Query is plain terms, "quoted phrases", and -exclusions. The Hub parses
@@ -82,6 +85,10 @@ func (o SearchOptions) Validate() ([]string, error) {
 			kegs = append(kegs, ref)
 		}
 	}
+	if len(kegs) > tapapi.SearchMaxKegs {
+		return nil, fmt.Errorf("search names %d KEGs; one search can name at most %d, so split the kegs across searches: %w",
+			len(kegs), tapapi.SearchMaxKegs, keg.ErrInvalid)
+	}
 	return kegs, nil
 }
 
@@ -111,10 +118,22 @@ func (t *Tap) Search(ctx context.Context, opts SearchOptions) (*tapapi.SearchRes
 		// that narrowed to nothing must never reach it.
 		return &tapapi.SearchResponse{Hits: []tapapi.SearchHit{}, Warnings: scope.warnings}, nil
 	}
-	req.Kegs = scope.kegs
 	hubURL, token, err := t.resolveHubEndpoint(opts.Hub)
 	if err != nil {
 		return nil, err
+	}
+	req.Kegs = scope.kegs
+	if len(kegs) == 0 && flight != nil {
+		if hubScopesToCover(ctx, hubURL) {
+			// The orientation proof travels with this request, and the Hub
+			// scopes an unscoped governed search to the proof's flight cover
+			// itself. Naming the cover instead would trip the per-request KEG
+			// cap for a wide flight.
+			req.Kegs = nil
+		} else if len(req.Kegs) > tapapi.SearchMaxKegs {
+			return nil, fmt.Errorf("flight %s covers %d KEGs, more than the %d one search can name; narrow the search with kegs (--kegs): %w",
+				flight.Name, len(req.Kegs), tapapi.SearchMaxKegs, keg.ErrInvalid)
+		}
 	}
 	resp, err := postHubSearch(ctx, hubURL, token, req)
 	if err != nil {
@@ -250,11 +269,32 @@ func searchCover(flight *Flight) (refs, warnings []string) {
 	return refs, warnings
 }
 
+// searchEndpoint is the Hub's TAP search route.
+func searchEndpoint(hubURL string) (string, error) {
+	base, err := normalizeHubURL(hubURL)
+	if err != nil {
+		return "", err
+	}
+	return base + "/api/v1" + tapapi.PathSearch, nil
+}
+
+// hubScopesToCover reports whether a search sent to hubURL carries the
+// orientation proof, which makes the Hub scope an unscoped search to the
+// proof's flight cover.
+func hubScopesToCover(ctx context.Context, hubURL string) bool {
+	endpoint, err := searchEndpoint(hubURL)
+	if err != nil {
+		return false
+	}
+	_, ok := keg.OrientationHeaderForURL(ctx, endpoint)
+	return ok
+}
+
 // postHubSearch sends one ranked-search request to the Hub's TAP search route
 // with the caller's credentials and, inside a governed MCP call, its
 // orientation proof.
 func postHubSearch(ctx context.Context, hubURL, token string, in tapapi.SearchRequest) (*tapapi.SearchResponse, error) {
-	base, err := normalizeHubURL(hubURL)
+	endpoint, err := searchEndpoint(hubURL)
 	if err != nil {
 		return nil, err
 	}
@@ -262,7 +302,6 @@ func postHubSearch(ctx context.Context, hubURL, token string, in tapapi.SearchRe
 	if err != nil {
 		return nil, fmt.Errorf("hub: encode search request: %w", err)
 	}
-	endpoint := base + "/api/v1" + tapapi.PathSearch
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(payload))
 	if err != nil {
 		return nil, fmt.Errorf("hub: build search request: %w", err)

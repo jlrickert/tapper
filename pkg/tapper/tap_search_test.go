@@ -25,6 +25,7 @@ import (
 type fakeSearchHub struct {
 	mu       sync.Mutex
 	bodies   []string
+	proofs   []string
 	calls    atomic.Int32
 	status   int
 	reply    string
@@ -48,6 +49,7 @@ func newFakeSearchHubRouted(t *testing.T, status int, reply string, routed bool)
 		raw, _ := io.ReadAll(r.Body)
 		hub.mu.Lock()
 		hub.bodies = append(hub.bodies, string(raw))
+		hub.proofs = append(hub.proofs, r.Header.Get(keg.OrientationHeaderName))
 		hub.mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
 		if !hub.unrouted {
@@ -68,6 +70,14 @@ func (h *fakeSearchHub) last(t *testing.T) tapapi.SearchRequest {
 	var got tapapi.SearchRequest
 	require.NoError(t, json.Unmarshal([]byte(h.bodies[len(h.bodies)-1]), &got))
 	return got
+}
+
+func (h *fakeSearchHub) lastProof(t *testing.T) string {
+	t.Helper()
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	require.NotEmpty(t, h.proofs, "the Hub received no search request")
+	return h.proofs[len(h.proofs)-1]
 }
 
 func (h *fakeSearchHub) lastRaw(t *testing.T) map[string]any {
@@ -200,6 +210,77 @@ func TestSearch_FlightCoverScopesTheSearch(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Equal(t, []string{"@other/private"}, hub.last(t).Kegs)
+}
+
+// wideCoverFlight returns a flight whose cover is wider than one search can
+// name.
+func wideCoverFlight(n int) (*tapper.Flight, []string) {
+	flight := &tapper.Flight{Name: "@acme/+wide", EffectiveCover: []tapper.HubEffectiveKeg{}}
+	refs := make([]string, 0, n)
+	for i := range n {
+		ref := fmt.Sprintf("@acme/k%02d", i)
+		refs = append(refs, ref)
+		flight.EffectiveCover = append(flight.EffectiveCover, tapper.HubEffectiveKeg{Ref: ref, Role: tapper.FlightRoleViewer})
+	}
+	return flight, refs
+}
+
+func TestSearch_GovernedUnscopedSearchLetsTheHubScopeToTheCover(t *testing.T) {
+	t.Parallel()
+
+	hub, url := newFakeSearchHub(t, http.StatusOK, `{"hits":[]}`)
+	tap := newSearchTap(t, url)
+	flight, refs := wideCoverFlight(tapapi.SearchMaxKegs + 10)
+	ctx := keg.WithOrientationState(t.Context(), keg.OrientationState{RootHub: url, Root: "@acme/+root", Active: "@acme/+wide"})
+	inFlight := tapper.KegTargetOptions{FlightContext: flight}
+
+	_, err := tap.Search(ctx, tapper.SearchOptions{KegTargetOptions: inFlight, Query: "release"})
+	require.NoError(t, err)
+	_, named := hub.lastRaw(t)["kegs"]
+	require.False(t, named, "with the orientation proof attached, the Hub scopes an unscoped search to the cover")
+	require.NotEmpty(t, hub.lastProof(t), "the cover is only implied by the proof, so the proof must travel")
+
+	// Explicit kegs still narrow, and still only within the cover.
+	resp, err := tap.Search(ctx, tapper.SearchOptions{KegTargetOptions: inFlight, Kegs: []string{refs[3], "@other/private"}, Query: "release"})
+	require.NoError(t, err)
+	require.Equal(t, []string{refs[3]}, hub.last(t).Kegs)
+	require.Contains(t, strings.Join(resp.Warnings, "\n"), "@other/private")
+
+	// A governed flight that covers nothing still never reaches the Hub.
+	before := hub.calls.Load()
+	empty := tapper.KegTargetOptions{FlightContext: &tapper.Flight{Name: "@acme/+empty", EffectiveCover: []tapper.HubEffectiveKeg{}}}
+	resp, err = tap.Search(ctx, tapper.SearchOptions{KegTargetOptions: empty, Query: "release"})
+	require.NoError(t, err)
+	require.Empty(t, resp.Hits)
+	require.Equal(t, before, hub.calls.Load())
+}
+
+func TestSearch_TooManyKegsAreRefusedBeforeTheHub(t *testing.T) {
+	t.Parallel()
+
+	hub, url := newFakeSearchHub(t, http.StatusOK, `{"hits":[]}`)
+	tap := newSearchTap(t, url)
+	flight, refs := wideCoverFlight(tapapi.SearchMaxKegs + 1)
+
+	// Without the orientation proof the client names the cover, so a cover
+	// wider than the Hub's cap is refused clearly instead of with a Hub 400.
+	_, err := tap.Search(t.Context(), tapper.SearchOptions{KegTargetOptions: tapper.KegTargetOptions{FlightContext: flight}, Query: "release"})
+	require.ErrorIs(t, err, keg.ErrInvalid)
+	require.ErrorContains(t, err, "flight @acme/+wide covers 51 KEGs")
+	require.ErrorContains(t, err, "--kegs")
+
+	// Naming more KEGs than one search can carry is refused on every path.
+	governed := keg.WithOrientationState(t.Context(), keg.OrientationState{RootHub: url, Root: "@acme/+root", Active: "@acme/+wide"})
+	_, err = tap.Search(governed, tapper.SearchOptions{KegTargetOptions: tapper.KegTargetOptions{FlightContext: flight}, Kegs: refs, Query: "release"})
+	require.ErrorIs(t, err, keg.ErrInvalid)
+	require.ErrorContains(t, err, "at most 50")
+	require.Zero(t, hub.calls.Load())
+
+	// Narrowing a wide cover with explicit kegs works.
+	_, err = tap.Search(t.Context(), tapper.SearchOptions{KegTargetOptions: tapper.KegTargetOptions{FlightContext: flight}, Kegs: refs[:2], Query: "release"})
+	require.NoError(t, err)
+	require.Equal(t, refs[:2], hub.last(t).Kegs)
+	require.Empty(t, hub.lastProof(t))
 }
 
 func TestSearch_ExplicitKegsNeedANamespacedCoverEntry(t *testing.T) {
