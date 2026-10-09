@@ -135,3 +135,86 @@ func TestCreateKeg_ForbiddenPreservesExplanation(t *testing.T) {
 	require.NotErrorIs(t, err, tapper.ErrTokenRejected)
 	require.ErrorContains(t, err, "namespace membership required")
 }
+
+func TestCreateHubKeg_SendsKegVersion(t *testing.T) {
+	t.Parallel()
+
+	var body map[string]any
+	srv := testapi.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		w.WriteHeader(http.StatusCreated)
+	}))
+	defer srv.Close()
+
+	err := tapper.CreateHubKeg(context.Background(), srv.URL, "tok", "acme", tapper.HubKegCreate{Alias: "graph", KegVersion: keg.KegVersionV2})
+	require.NoError(t, err)
+	require.Equal(t, keg.KegVersionV2, body["kegv"])
+	require.Equal(t, "graph", body["alias"])
+}
+
+func TestCreateKeg_OmitsKegVersionByDefault(t *testing.T) {
+	t.Parallel()
+
+	var body map[string]any
+	srv := testapi.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		w.WriteHeader(http.StatusCreated)
+	}))
+	defer srv.Close()
+
+	require.NoError(t, tapper.CreateKeg(context.Background(), srv.URL, "tok", "acme", "notes", "", ""))
+	_, present := body["kegv"]
+	require.False(t, present, "an unversioned create must not send kegv, so Hubs that predate versioned KEGs accept it")
+}
+
+func TestCreateHubKeg_BadRequestMapsToErrInvalid(t *testing.T) {
+	t.Parallel()
+
+	srv := testapi.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "KEGv2 preview is disabled", "code": "INVALID"})
+	}))
+	defer srv.Close()
+
+	err := tapper.CreateHubKeg(context.Background(), srv.URL, "tok", "acme", tapper.HubKegCreate{Alias: "graph", KegVersion: keg.KegVersionV2})
+	require.ErrorIs(t, err, keg.ErrInvalid)
+	require.ErrorContains(t, err, "KEGv2 preview is disabled")
+}
+
+func TestListUserKegs_DecodesKegVersion(t *testing.T) {
+	t.Parallel()
+
+	srv := testapi.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[{"namespace":"acme","alias":"graph","kegv":"2026-09"},{"namespace":"acme","alias":"notes"}]`))
+	}))
+	defer srv.Close()
+
+	kegs, err := tapper.ListUserKegs(context.Background(), srv.URL, "tok")
+	require.NoError(t, err)
+	require.Equal(t, keg.KegVersionV2, kegs[0].KegVersion)
+	require.Empty(t, kegs[1].KegVersion, "an unreported version stays empty and reads as KEGv1")
+}
+
+func TestKegTitleWithVersion(t *testing.T) {
+	t.Parallel()
+
+	require.Equal(t, "Notes", tapper.KegTitleWithVersion("Notes", ""))
+	require.Equal(t, "Notes", tapper.KegTitleWithVersion("Notes", keg.KegVersionV1))
+	require.Equal(t, "Graph (KEGv2 preview)", tapper.KegTitleWithVersion("Graph", keg.KegVersionV2))
+	require.Equal(t, "KEGv2 preview", tapper.KegTitleWithVersion(" ", keg.KegVersionV2))
+}
+
+func TestNormalizeKegVersion(t *testing.T) {
+	t.Parallel()
+
+	v, err := tapper.NormalizeKegVersion(" 2026-09 ")
+	require.NoError(t, err)
+	require.Equal(t, keg.KegVersionV2, v)
+	v, err = tapper.NormalizeKegVersion("")
+	require.NoError(t, err)
+	require.Empty(t, v)
+	_, err = tapper.NormalizeKegVersion("2027-01")
+	require.ErrorIs(t, err, keg.ErrInvalid)
+	require.ErrorContains(t, err, "keg version")
+}

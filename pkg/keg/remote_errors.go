@@ -24,6 +24,7 @@ const (
 	RemoteCodeLock                       = "LOCK"
 	RemoteCodeLockTimeout                = "LOCK_TIMEOUT"
 	RemoteCodeNotSupported               = "NOT_SUPPORTED"
+	RemoteCodeKegVersionUnsupported      = "KEG_VERSION_UNSUPPORTED"
 	RemoteCodeUnauthorized               = "UNAUTHORIZED"
 	RemoteCodeForbidden                  = "FORBIDDEN"
 	RemoteCodeBadRequest                 = "BAD_REQUEST"
@@ -53,6 +54,7 @@ var remoteCodeTable = []struct {
 	{ErrLockTimeout, RemoteCodeLockTimeout, http.StatusConflict},
 	{ErrLock, RemoteCodeLock, http.StatusConflict},
 	{ErrNotSupported, RemoteCodeNotSupported, http.StatusNotImplemented},
+	{ErrKegVersionUnsupported, RemoteCodeKegVersionUnsupported, http.StatusConflict},
 	{ErrOrientationStale, RemoteCodeOrientationStale, http.StatusConflict},
 	{ErrOrientationDenied, RemoteCodeOrientationDenied, http.StatusForbidden},
 	{ErrOrientationUnavailable, RemoteCodeOrientationUnavailable, http.StatusServiceUnavailable},

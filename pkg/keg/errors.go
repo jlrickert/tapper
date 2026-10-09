@@ -21,6 +21,12 @@ var (
 	ErrNotSupported         = errors.New("not supported")
 	ErrSchemaInvalid        = errors.New("schema validation failed")
 
+	// ErrKegVersionUnsupported reports an operation the target KEG's version
+	// does not offer, such as a KEGv1 node operation against a KEGv2 KEG. It
+	// is deliberately distinct from ErrNotSupported, which callers treat as an
+	// absent optional capability and degrade around silently.
+	ErrKegVersionUnsupported = errors.New("operation not supported for this keg version")
+
 	// ErrInvalidAssetName is returned when a node asset name is not a single safe
 	// path component (empty, ".", "..", contains a path separator, or absolute).
 	// Such names could let filepath.Join resolve outside the keg root, so they

@@ -33,22 +33,44 @@ type HubKeg struct {
 	Description string `json:"description"`
 	Visibility  string `json:"visibility"`
 	Role        string `json:"role"`
+	// KegVersion is the KEG's immutable storage version (keg.KegVersionV1 or
+	// keg.KegVersionV2). Hubs that predate versioned KEGs omit it; an empty
+	// value reads as KEGv1.
+	KegVersion string `json:"kegv,omitempty"`
 }
 
-// CreateKeg asks the hub to create @namespace/alias via
-// POST /api/v1/@{namespace}/kegs. A 409 is returned as an error wrapping
-// keg.ErrExist so callers can detect "already exists" with errors.Is; 401
-// wraps ErrTokenRejected; 403 wraps keg.ErrForbidden; other non-2xx statuses surface the hub's status line.
+// HubKegCreate is the body of the Hub's keg-create request. An empty
+// KegVersion is omitted so the Hub applies its default (KEGv1), which keeps
+// the request acceptable to Hubs that predate versioned KEGs.
+type HubKegCreate struct {
+	Alias      string `json:"alias"`
+	Title      string `json:"title"`
+	Visibility string `json:"visibility"`
+	KegVersion string `json:"kegv,omitempty"`
+}
+
+// CreateKeg asks the hub to create @namespace/alias with the Hub's default
+// KEG version. See CreateHubKeg.
 func CreateKeg(ctx context.Context, hubURL, token, namespace, alias, title, visibility string) error {
+	return CreateHubKeg(ctx, hubURL, token, namespace, HubKegCreate{Alias: alias, Title: title, Visibility: visibility})
+}
+
+// CreateHubKeg asks the hub to create a KEG in namespace via
+// POST /api/v1/@{namespace}/kegs. A 409 is returned as an error wrapping
+// keg.ErrExist so callers can detect "already exists" with errors.Is; 400
+// wraps keg.ErrInvalid (an unknown or disabled KEG version, for example); 401
+// wraps ErrTokenRejected; 403 wraps keg.ErrForbidden; other non-2xx statuses
+// surface the hub's status line.
+func CreateHubKeg(ctx context.Context, hubURL, token, namespace string, in HubKegCreate) error {
 	base, err := normalizeHubURL(hubURL)
 	if err != nil {
 		return err
 	}
-	payload, _ := json.Marshal(map[string]string{
-		"alias":      alias,
-		"title":      title,
-		"visibility": visibility,
-	})
+	payload, err := json.Marshal(in)
+	if err != nil {
+		return fmt.Errorf("hub: encode create-keg request: %w", err)
+	}
+	alias := in.Alias
 	endpoint := fmt.Sprintf("%s/api/v1/@%s/kegs", base, namespace)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(payload))
 	if err != nil {
@@ -69,6 +91,8 @@ func CreateKeg(ctx context.Context, hubURL, token, namespace, alias, title, visi
 		return nil
 	case http.StatusConflict:
 		return fmt.Errorf("hub: keg @%s/%s already exists: %w", namespace, alias, keg.ErrExist)
+	case http.StatusBadRequest:
+		return fmt.Errorf("hub: create keg @%s/%s: %w%s", namespace, alias, keg.ErrInvalid, readHubError(resp))
 	case http.StatusForbidden:
 		return fmt.Errorf("hub: %w (%s)%s", keg.ErrForbidden, resp.Status, readHubError(resp))
 	case http.StatusUnauthorized:

@@ -124,8 +124,13 @@ type RelatedNodesResult struct {
 }
 
 type KegInfo struct {
+	// Settings and Summary may be nil for a KEG version whose engine has no
+	// KEGv1 settings document or node summary.
 	Settings *Settings   `json:"settings"`
 	Summary  *KegSummary `json:"summary"`
+	// KegVersion is the KEG's immutable storage version, reported by a Hub
+	// that versions its KEGs. Empty means the Hub predates versions (KEGv1).
+	KegVersion string `json:"kegv,omitempty"`
 }
 
 type DoctorIssue struct {

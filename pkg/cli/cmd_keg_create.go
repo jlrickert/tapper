@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/jlrickert/tapper/pkg/keg"
 	"github.com/jlrickert/tapper/pkg/tapper"
 	"github.com/spf13/cobra"
 )
@@ -18,6 +19,7 @@ func newKegCreateCmd(deps *Deps) *cobra.Command {
 tap keg create @acme/notes
 tap keg create @acme/engineering --title "Engineering"
 tap keg create @alice/notes --hub enterprise
+tap keg create @acme/graph --kegv 2026-09
 `),
 	}
 	configureKegCreateCmd(deps, cmd)
@@ -62,4 +64,11 @@ func configureKegCreateCmd(deps *Deps, cmd *cobra.Command) {
 	cmd.Flags().StringVar(&options.Hub, "hub", "", "configured hub name")
 	cmd.Flags().StringVar(&options.Title, "title", "", "human-readable KEG title")
 	cmd.Flags().StringVar(&options.Visibility, "visibility", "", "KEG visibility: private or public")
+	cmd.Flags().StringVar(&options.KegVersion, "kegv", "", "immutable KEG version: "+keg.KegVersionV1+" (KEGv1, default) or "+keg.KegVersionV2+" (KEGv2 preview, where the hub enables it)")
+	_ = cmd.RegisterFlagCompletionFunc("kegv", func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
+		return []string{
+			keg.KegVersionV1 + "\tKEGv1 (Markdown)",
+			keg.KegVersionV2 + "\tKEGv2 preview",
+		}, cobra.ShellCompDirectiveNoFileComp
+	})
 }
