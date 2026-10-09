@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -199,6 +200,48 @@ func TestSearch_FlightCoverScopesTheSearch(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Equal(t, []string{"@other/private"}, hub.last(t).Kegs)
+}
+
+func TestSearch_ExplicitKegsNeedANamespacedCoverEntry(t *testing.T) {
+	t.Parallel()
+
+	hub, url := newFakeSearchHub(t, http.StatusOK, `{"hits":[]}`)
+	tap := newSearchTap(t, url)
+	flight := &tapper.Flight{Name: "@acme/+work", FlightManifest: tapper.FlightManifest{Cover: []tapper.FlightCover{
+		{Keg: "notes", Role: tapper.FlightRoleViewer},
+		{Namespace: "acme", Keg: "eng", Role: tapper.FlightRoleViewer},
+	}}}
+	inFlight := tapper.KegTargetOptions{FlightContext: flight}
+
+	// A namespace-less cover entry matches no namespace, explicit or implicit.
+	resp, err := tap.Search(t.Context(), tapper.SearchOptions{KegTargetOptions: inFlight, Kegs: []string{"@other/notes", "@acme/eng"}, Query: "release"})
+	require.NoError(t, err)
+	require.Equal(t, []string{"@acme/eng"}, hub.last(t).Kegs)
+	require.Contains(t, strings.Join(resp.Warnings, "\n"), "@other/notes is not in flight")
+
+	resp, err = tap.Search(t.Context(), tapper.SearchOptions{KegTargetOptions: inFlight, Query: "release"})
+	require.NoError(t, err)
+	require.Equal(t, []string{"@acme/eng"}, hub.last(t).Kegs)
+	require.Contains(t, strings.Join(resp.Warnings, "\n"), `cover entry "notes" names no namespace`)
+}
+
+func TestSearch_LegacyAllowedKegsScopeBothPaths(t *testing.T) {
+	t.Parallel()
+
+	hub, url := newFakeSearchHub(t, http.StatusOK, `{"hits":[]}`)
+	tap := newSearchTap(t, url)
+	flight := &tapper.Flight{Name: "@acme/+legacy", FlightManifest: tapper.FlightManifest{
+		AllowedKegs: []string{"@acme/notes", "@acme/eng=viewer", "bare"},
+	}}
+	inFlight := tapper.KegTargetOptions{FlightContext: flight}
+
+	_, err := tap.Search(t.Context(), tapper.SearchOptions{KegTargetOptions: inFlight, Query: "release"})
+	require.NoError(t, err)
+	require.Equal(t, []string{"@acme/notes", "@acme/eng"}, hub.last(t).Kegs, "an unscoped search covers the legacy allowlist")
+
+	_, err = tap.Search(t.Context(), tapper.SearchOptions{KegTargetOptions: inFlight, Kegs: []string{"@acme/eng", "@other/bare"}, Query: "release"})
+	require.NoError(t, err)
+	require.Equal(t, []string{"@acme/eng"}, hub.last(t).Kegs, "an explicit search honors the same allowlist")
 }
 
 func TestSearch_EmptyRestrictedScopeNeverReachesTheHub(t *testing.T) {
