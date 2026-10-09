@@ -62,6 +62,17 @@ curl -H 'Tapper-API-Version: 2026-09-28' \
   https://hub.example.com/api/v1/whoami
 ```
 
+## Ranked search route
+
+Ranked search is an optional Hub capability, so a client must tell a Hub
+without it from the route's own failures. Every response from
+`POST /api/v1/tap/search`, success and error alike, carries
+`Tapper-Search: ranked` (`tapapi.SearchRouteHeader` and
+`tapapi.SearchRouteHeaderValue`). Tapper reads a 404 or 405 without that
+header as a Hub that does not offer ranked search and points at
+`node_grep`; with the header, the error envelope
+maps as usual, so a `NOT_FOUND` names a KEG the caller cannot read.
+
 Publish the Tapper commit first; a hub that embeds Tapper then pins that
 published SHA on its own side, by its own procedure. This development change
 does not authorize tags, releases, merges, or deployment.

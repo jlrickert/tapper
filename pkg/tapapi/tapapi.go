@@ -85,6 +85,16 @@ type CatResponse struct {
 	Nodes []CatNode `json:"nodes"`
 }
 
+// SearchRouteHeader is a response header the Hub's search route sets to
+// SearchRouteHeaderValue on every response, success and error alike. It tells
+// the route's own answers apart from a Hub without the route: such a Hub
+// answers 404 or 405, often with the same NOT_FOUND envelope the route uses
+// for an unreadable KEG, but never with this header.
+const (
+	SearchRouteHeader      = "Tapper-Search"
+	SearchRouteHeaderValue = "ranked"
+)
+
 // SearchRequest asks for nodes ranked by relevance to Query across every KEG
 // the caller may read on this Hub, narrowed to Kegs when it is non-empty: an
 // empty Kegs means every readable KEG. The Hub resolves each KEG through its
