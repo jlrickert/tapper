@@ -91,7 +91,7 @@ func CreateHubKeg(ctx context.Context, hubURL, token, namespace string, in HubKe
 
 	switch resp.StatusCode {
 	case http.StatusCreated, http.StatusOK:
-		return nil
+		return checkCreatedKegVersion(resp, namespace, alias, in.KegVersion)
 	case http.StatusConflict:
 		code, msg := readHubErrorEnvelope(resp)
 		// Hubs that predate the EXIST code report a duplicate KEG as a
@@ -112,6 +112,61 @@ func CreateHubKeg(ctx context.Context, hubURL, token, namespace string, in HubKe
 	default:
 		return fmt.Errorf("hub: create keg @%s/%s failed: %s%s", namespace, alias, resp.Status, readHubError(resp))
 	}
+}
+
+// KegVersionNotAppliedError reports a KEG the Hub created at a version other
+// than the one requested. A Hub that predates versioned KEGs ignores the
+// requested version and creates a KEGv1 KEG. The KEG exists: the error
+// reports the outcome and never deletes it. It unwraps to
+// keg.ErrKegVersionUnsupported.
+type KegVersionNotAppliedError struct {
+	Namespace string
+	Alias     string
+	Requested string
+	Created   string
+}
+
+func (e *KegVersionNotAppliedError) Error() string {
+	return fmt.Sprintf("hub: created @%s/%s as %s (%s), not the requested %s (%s), because the Hub does not support KEG version %s; "+
+		"the KEG exists: use it as %s or delete it",
+		e.Namespace, e.Alias, kegVersionName(e.Created), e.Created, kegVersionName(e.Requested), e.Requested, e.Requested, kegVersionName(e.Created))
+}
+
+func (e *KegVersionNotAppliedError) Unwrap() error { return keg.ErrKegVersionUnsupported }
+
+// kegVersionName names a KEG version for messages.
+func kegVersionName(v string) string {
+	if label := KegVersionLabel(v); label != "" {
+		return label
+	}
+	if v == keg.KegVersionV1 {
+		return "KEGv1"
+	}
+	return "KEG version " + v
+}
+
+// checkCreatedKegVersion compares the version the Hub reports in its create
+// response with the requested one. A Hub that predates versioned KEGs reports
+// no version and created KEGv1, which satisfies only a KEGv1 request.
+func checkCreatedKegVersion(resp *http.Response, namespace, alias, requested string) error {
+	requested = strings.TrimSpace(requested)
+	if requested == "" {
+		return nil
+	}
+	var created struct {
+		KegVersion string `json:"kegv"`
+	}
+	if b, err := io.ReadAll(io.LimitReader(resp.Body, 4096)); err == nil {
+		_ = json.Unmarshal(b, &created)
+	}
+	got := strings.TrimSpace(created.KegVersion)
+	if got == "" {
+		got = keg.KegVersionV1
+	}
+	if got == requested {
+		return nil
+	}
+	return &KegVersionNotAppliedError{Namespace: namespace, Alias: alias, Requested: requested, Created: got}
 }
 
 // ListUserKegs returns every keg the hub reports the bearer token can reach

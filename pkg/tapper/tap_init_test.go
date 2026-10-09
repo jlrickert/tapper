@@ -137,6 +137,7 @@ func TestInitKeg_RemoteCreate_SendsKegVersion(t *testing.T) {
 	srv := testapi.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewDecoder(r.Body).Decode(&body)
 		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(map[string]any{"namespace": "teamns", "alias": "graph", "kegv": body["kegv"]})
 	}))
 	defer srv.Close()
 
