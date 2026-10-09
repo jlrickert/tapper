@@ -267,7 +267,8 @@ func postHubSearch(ctx context.Context, hubURL, token string, in tapapi.SearchRe
 		return nil, fmt.Errorf("hub: read search response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, searchError(resp.StatusCode, body, len(in.Kegs) == 0)
+		routed := resp.Header.Get(tapapi.SearchRouteHeader) == tapapi.SearchRouteHeaderValue
+		return nil, searchError(resp.StatusCode, body, routed)
 	}
 	var out tapapi.SearchResponse
 	if err := json.Unmarshal(body, &out); err != nil {
@@ -282,17 +283,17 @@ func postHubSearch(ctx context.Context, hubURL, token string, in tapapi.SearchRe
 // searchError maps a failed search response to the shared sentinels. It is the
 // only place search statuses are interpreted.
 //
-// A Hub that predates ranked search has no route for it. A 405, a 404 without
-// the Hub's error envelope, or any 404 for a whole-Hub request (which names no
-// KEG that could be missing) can only mean that.
-func searchError(status int, body []byte, wholeHub bool) error {
+// routed reports the search route's tapapi.SearchRouteHeader. A Hub that
+// predates ranked search has no route for it and answers 404 or 405 without
+// the header, often with the same NOT_FOUND envelope the route uses for an
+// unreadable KEG; only the header tells the two apart.
+func searchError(status int, body []byte, routed bool) error {
 	var envelope struct {
 		Error string `json:"error"`
 		Code  string `json:"code"`
 	}
 	_ = json.Unmarshal(body, &envelope)
-	missingRoute := status == http.StatusMethodNotAllowed ||
-		(status == http.StatusNotFound && (envelope.Code == "" || wholeHub))
+	missingRoute := !routed && (status == http.StatusNotFound || status == http.StatusMethodNotAllowed)
 	switch {
 	case missingRoute:
 		return fmt.Errorf("%w: this Hub does not offer ranked search; upgrade the Hub, or use tap node grep (node_grep) for regex matching", ErrRankedSearchUnavailable)

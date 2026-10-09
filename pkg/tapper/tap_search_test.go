@@ -18,18 +18,26 @@ import (
 )
 
 // fakeSearchHub records every ranked-search request body and answers with a
-// fixed status and body.
+// fixed status and body. Like the Hub's search route, it marks its responses
+// with tapapi.SearchRouteHeader unless unrouted is set, which mimics a Hub
+// answering a route it does not have.
 type fakeSearchHub struct {
-	mu     sync.Mutex
-	bodies []string
-	calls  atomic.Int32
-	status int
-	reply  string
+	mu       sync.Mutex
+	bodies   []string
+	calls    atomic.Int32
+	status   int
+	reply    string
+	unrouted bool
 }
 
 func newFakeSearchHub(t *testing.T, status int, reply string) (*fakeSearchHub, string) {
 	t.Helper()
-	hub := &fakeSearchHub{status: status, reply: reply}
+	return newFakeSearchHubRouted(t, status, reply, true)
+}
+
+func newFakeSearchHubRouted(t *testing.T, status int, reply string, routed bool) (*fakeSearchHub, string) {
+	t.Helper()
+	hub := &fakeSearchHub{status: status, reply: reply, unrouted: !routed}
 	srv := testapi.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/v1"+tapapi.PathSearch || r.Method != http.MethodPost {
 			http.NotFound(w, r)
@@ -41,6 +49,9 @@ func newFakeSearchHub(t *testing.T, status int, reply string) (*fakeSearchHub, s
 		hub.bodies = append(hub.bodies, string(raw))
 		hub.mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
+		if !hub.unrouted {
+			w.Header().Set(tapapi.SearchRouteHeader, tapapi.SearchRouteHeaderValue)
+		}
 		w.WriteHeader(hub.status)
 		_, _ = w.Write([]byte(hub.reply))
 	}))
@@ -299,23 +310,30 @@ func TestSearch_HubErrorsMapToSentinels(t *testing.T) {
 		status   int
 		body     string
 		wholeHub bool
+		routed   bool
 		want     error
 	}{
-		{"405 is a missing route", http.StatusMethodNotAllowed, "", false, tapper.ErrRankedSearchUnavailable},
-		{"bare 404 is a missing route", http.StatusNotFound, "404 page not found", false, tapper.ErrRankedSearchUnavailable},
-		{"whole-Hub 404 is a missing route", http.StatusNotFound, envelope(keg.RemoteCodeNotFound), true, tapper.ErrRankedSearchUnavailable},
-		{"enveloped 404 for a named KEG", http.StatusNotFound, envelope(keg.RemoteCodeNotFound), false, keg.ErrNotExist},
-		{"401", http.StatusUnauthorized, envelope("UNAUTHORIZED"), false, tapper.ErrTokenRejected},
-		{"403", http.StatusForbidden, envelope("FORBIDDEN"), false, keg.ErrForbidden},
-		{"400", http.StatusBadRequest, envelope(keg.RemoteCodeInvalid), false, keg.ErrInvalid},
-		{"409 version", http.StatusConflict, envelope(keg.RemoteCodeKegVersionUnsupported), false, keg.ErrKegVersionUnsupported},
-		{"429", http.StatusTooManyRequests, envelope("RATE_LIMITED"), false, nil},
-		{"500", http.StatusInternalServerError, "", false, nil},
+		{"405 without the route header is a missing route", http.StatusMethodNotAllowed, "", false, false, tapper.ErrRankedSearchUnavailable},
+		{"bare 404 without the route header is a missing route", http.StatusNotFound, "404 page not found", false, false, tapper.ErrRankedSearchUnavailable},
+		// Hubs answer unknown /api/v1 routes with an enveloped NOT_FOUND, the
+		// same body the route uses for an unreadable KEG.
+		{"enveloped scoped 404 without the route header is a missing route", http.StatusNotFound, envelope(keg.RemoteCodeNotFound), false, false, tapper.ErrRankedSearchUnavailable},
+		{"enveloped whole-Hub 404 without the route header is a missing route", http.StatusNotFound, envelope(keg.RemoteCodeNotFound), true, false, tapper.ErrRankedSearchUnavailable},
+		{"routed 404 for a named KEG", http.StatusNotFound, envelope(keg.RemoteCodeNotFound), false, true, keg.ErrNotExist},
+		{"routed whole-Hub 404", http.StatusNotFound, envelope(keg.RemoteCodeNotFound), true, true, keg.ErrNotExist},
+		{"routed 405", http.StatusMethodNotAllowed, envelope(keg.RemoteCodeBadRequest), false, true, nil},
+		{"401", http.StatusUnauthorized, envelope("UNAUTHORIZED"), false, true, tapper.ErrTokenRejected},
+		{"403", http.StatusForbidden, envelope("FORBIDDEN"), false, true, keg.ErrForbidden},
+		{"400", http.StatusBadRequest, envelope(keg.RemoteCodeInvalid), false, true, keg.ErrInvalid},
+		{"409 version", http.StatusConflict, envelope(keg.RemoteCodeKegVersionUnsupported), false, true, keg.ErrKegVersionUnsupported},
+		{"429", http.StatusTooManyRequests, envelope("RATE_LIMITED"), false, true, nil},
+		{"500", http.StatusInternalServerError, "", false, true, nil},
+		{"unrouted 500 is not a missing route", http.StatusInternalServerError, "", false, false, nil},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			_, url := newFakeSearchHub(t, tc.status, tc.body)
+			_, url := newFakeSearchHubRouted(t, tc.status, tc.body, tc.routed)
 			tap := newSearchTap(t, url)
 			opts := tapper.SearchOptions{Query: "release"}
 			if !tc.wholeHub {

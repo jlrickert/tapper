@@ -35,6 +35,7 @@ func newSearchParityEnv(t *testing.T) (*parityEnv, func() []string) {
 		bodies = append(bodies, string(raw))
 		mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set(tapapi.SearchRouteHeader, tapapi.SearchRouteHeaderValue)
 		_, _ = w.Write([]byte(searchHubReply))
 	}))
 	t.Cleanup(srv.Close)
