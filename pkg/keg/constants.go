@@ -28,3 +28,21 @@ var (
 	// FormatRST is the short format identifier for reStructuredText content.
 	FormatRST = "rst"
 )
+
+// KEG versions select the storage format a Hub KEG is created with. A KEG's
+// version is immutable and owned by the Hub's catalog. It is not the settings
+// document version above, even though KEGv1 and the current settings document
+// share the value 2025-07.
+const (
+	// KegVersionV1 is the Markdown-first KEG format, the Hub's default.
+	KegVersionV1 = "2025-07"
+
+	// KegVersionV2 is the graph-authoritative KEG format (preview).
+	KegVersionV2 = "2026-09"
+)
+
+// ValidKegVersion reports whether v names a known KEG version. The empty
+// string is not a version: callers treat it as "let the Hub choose".
+func ValidKegVersion(v string) bool {
+	return v == KegVersionV1 || v == KegVersionV2
+}

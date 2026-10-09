@@ -206,8 +206,11 @@ type OrientationKeg struct {
 	Role        string
 	Source      string
 	Visibility  string
-	FlightCap   string
-	Flights     []string
+	// KegVersion is the KEG's immutable storage version; empty means the Hub
+	// predates versioned KEGs and the KEG is KEGv1.
+	KegVersion string
+	FlightCap  string
+	Flights    []string
 }
 
 // OrientationAuthority describes the connection-pinned launch root and the flight
@@ -289,6 +292,7 @@ func (t *Tap) orientKegsForHub(ctx context.Context, _ *Config, hubName string, e
 			Role:        k.Role,
 			Source:      hubName,
 			Visibility:  k.Visibility,
+			KegVersion:  k.KegVersion,
 		}
 		out = append(out, row)
 	}
@@ -567,11 +571,34 @@ func writeOrientationKegTable(b *strings.Builder, kegs []OrientationKeg, _ strin
 		b.WriteString("| Title | Reference | Description | Role |\n| --- | --- | --- | --- |\n")
 	}
 	for _, k := range kegs {
-		fmt.Fprintf(b, "| %s | `%s` | %s | %s |", orientationTableCell(resourceTitle(k.Title, k.Ref)), k.Ref, orientationTableCell(DescriptionPreview(k.Description)), EffectiveOrientationRole(k))
+		fmt.Fprintf(b, "| %s | `%s` | %s | %s |", orientationTableCell(KegTitleWithVersion(resourceTitle(k.Title, k.Ref), k.KegVersion)), k.Ref, orientationTableCell(DescriptionPreview(k.Description)), EffectiveOrientationRole(k))
 		if provenance {
 			fmt.Fprintf(b, " %s | %d |", orientationTableCell(k.CoverSource), k.Distance)
 		}
 		b.WriteString("\n")
+	}
+}
+
+// KegVersionLabel names a non-default KEG version for display. KEGv1, the
+// default, and an unreported version both yield "", so their output is
+// unchanged.
+func KegVersionLabel(version string) string {
+	if version == keg.KegVersionV2 {
+		return "KEGv2 preview"
+	}
+	return ""
+}
+
+// KegTitleWithVersion appends a KEG's version label to its display title.
+func KegTitleWithVersion(title, version string) string {
+	label := KegVersionLabel(version)
+	switch {
+	case label == "":
+		return title
+	case strings.TrimSpace(title) == "":
+		return label
+	default:
+		return title + " (" + label + ")"
 	}
 }
 

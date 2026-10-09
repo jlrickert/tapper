@@ -129,6 +129,7 @@ type KegSearchRow struct {
 	Description string `json:"description"`
 	Visibility  string `json:"visibility"`
 	Source      string `json:"source"`
+	KegVersion  string `json:"kegv,omitempty"`
 }
 
 // KegSearchResult includes partial-discovery warnings without failing useful
@@ -642,6 +643,7 @@ func (p localKegDiscoveryProvider) CreateKeg(ctx context.Context, opts tapper.Cr
 		Keg:              opts.Keg,
 		Title:            opts.Title,
 		Visibility:       opts.Visibility,
+		KegVersion:       opts.KegVersion,
 		RequireBootstrap: true,
 	})
 	if err != nil {
@@ -685,6 +687,7 @@ func SearchIdentityKegsResult(rows []tapper.OrientationKeg, query string) KegSea
 		matched = append(matched, KegSearchRow{
 			Ref: row.Ref, Role: tapper.EffectiveOrientationRole(row),
 			Title: row.Title, Description: row.Description, Visibility: row.Visibility, Source: row.Source,
+			KegVersion: row.KegVersion,
 		})
 	}
 	sort.Slice(matched, func(i, j int) bool { return matched[i].Ref < matched[j].Ref })

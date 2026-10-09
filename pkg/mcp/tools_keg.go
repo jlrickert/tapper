@@ -15,9 +15,10 @@ import (
 type kegListInput struct{}
 
 type kegListRow struct {
-	Ref     string   `json:"ref"`
-	Role    string   `json:"role"`
-	Flights []string `json:"flights"`
+	Ref        string   `json:"ref"`
+	Role       string   `json:"role"`
+	Flights    []string `json:"flights"`
+	KegVersion string   `json:"kegv,omitempty"`
 }
 
 type kegListOutput struct {
@@ -32,6 +33,7 @@ type kegCreateInput struct {
 	Keg        string `json:"keg" jsonschema:"required,qualified creation reference @namespace/keg; each component is 1-64 lowercase letters, digits, or hyphens and starts with a letter or digit"`
 	Title      string `json:"title,omitempty" jsonschema:"human-readable keg title"`
 	Visibility string `json:"visibility,omitempty" jsonschema:"keg visibility: private (default) or public"`
+	KegVersion string `json:"kegv,omitempty" jsonschema:"immutable keg version: 2025-07 for a Markdown KEGv1 (the default) or 2026-09 for a KEGv2 preview, available only where the Hub enables it"`
 }
 
 // registerKegTools exposes identity-authorized discovery, optionally narrowed
@@ -56,8 +58,12 @@ func registerKegTools(srv *sdkmcp.Server, defaults KegDefaults, kegs KegDiscover
 			for _, row := range rows {
 				effective := EffectiveOrientationRole(row)
 				flights := append([]string{}, row.Flights...)
-				out.Kegs = append(out.Kegs, kegListRow{Ref: row.Ref, Role: effective, Flights: flights})
-				lines = append(lines, row.Ref+"\t"+effective+"\t"+strings.Join(flights, ","))
+				out.Kegs = append(out.Kegs, kegListRow{Ref: row.Ref, Role: effective, Flights: flights, KegVersion: row.KegVersion})
+				line := row.Ref + "\t" + effective + "\t" + strings.Join(flights, ",")
+				if label := tapper.KegVersionLabel(row.KegVersion); label != "" {
+					line += "\t" + label
+				}
+				lines = append(lines, line)
 			}
 			res := linesResult(lines)
 			res.StructuredContent = out
@@ -106,7 +112,7 @@ func registerKegTools(srv *sdkmcp.Server, defaults KegDefaults, kegs KegDiscover
 		}
 		for _, row := range found.Kegs {
 			lines = append(lines, strings.Join([]string{
-				row.Ref, row.Role, tsvField(row.Title), tsvField(row.Description), row.Visibility, row.Source,
+				row.Ref, row.Role, tsvField(tapper.KegTitleWithVersion(row.Title, row.KegVersion)), tsvField(row.Description), row.Visibility, row.Source,
 			}, "\t"))
 		}
 		res := linesResult(lines)
@@ -130,10 +136,15 @@ func registerKegTools(srv *sdkmcp.Server, defaults KegDefaults, kegs KegDiscover
 		if err := defaults.gate.authorizeKegCreation(ctx); err != nil {
 			return errorResult(err), nil, nil
 		}
+		version, err := tapper.NormalizeKegVersion(in.KegVersion)
+		if err != nil {
+			return errorResult(err), nil, nil
+		}
 		ref, err := kegs.CreateKeg(ctx, tapper.CreateKegOptions{
 			Keg:        in.Keg,
 			Title:      in.Title,
 			Visibility: in.Visibility,
+			KegVersion: version,
 		})
 		if err != nil {
 			return errorResult(err), nil, nil

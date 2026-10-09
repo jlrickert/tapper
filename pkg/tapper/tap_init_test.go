@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sync/atomic"
 
 	"testing"
 
@@ -124,4 +125,48 @@ func TestInitKeg_RemoteCreate_Conflict(t *testing.T) {
 	_, err = tap.InitKeg(fx.Context(), tapper.InitOptions{Keg: "@teamns/example"})
 	require.Error(t, err)
 	require.ErrorIs(t, err, keg.ErrExist, "an existing remote keg must fail with ErrExist (409)")
+}
+
+func TestInitKeg_RemoteCreate_SendsKegVersion(t *testing.T) {
+	t.Parallel()
+	fx := NewSandbox(t)
+	require.NoError(t, fx.Setwd("/home/testuser"))
+	require.NoError(t, fx.Runtime().Env().Set("TEST_TOK", "tok"))
+
+	var body map[string]any
+	srv := testapi.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		w.WriteHeader(http.StatusCreated)
+	}))
+	defer srv.Close()
+
+	tap, err := tapper.NewTap(tapper.TapOptions{Root: "/home/testuser", Runtime: fx.Runtime()})
+	require.NoError(t, err)
+	require.NoError(t, fx.Runtime().AtomicWriteFile(tap.PathService.UserConfig(), []byte(remoteInitConfig(srv.URL)), 0o644))
+
+	_, err = tap.InitKeg(fx.Context(), tapper.InitOptions{Keg: "@teamns/graph", KegVersion: keg.KegVersionV2})
+	require.NoError(t, err)
+	require.Equal(t, keg.KegVersionV2, body["kegv"])
+}
+
+func TestInitKeg_RejectsUnknownKegVersion(t *testing.T) {
+	t.Parallel()
+	fx := NewSandbox(t)
+	require.NoError(t, fx.Setwd("/home/testuser"))
+	require.NoError(t, fx.Runtime().Env().Set("TEST_TOK", "tok"))
+
+	var calls atomic.Int32
+	srv := testapi.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
+		w.WriteHeader(http.StatusCreated)
+	}))
+	defer srv.Close()
+
+	tap, err := tapper.NewTap(tapper.TapOptions{Root: "/home/testuser", Runtime: fx.Runtime()})
+	require.NoError(t, err)
+	require.NoError(t, fx.Runtime().AtomicWriteFile(tap.PathService.UserConfig(), []byte(remoteInitConfig(srv.URL)), 0o644))
+
+	_, err = tap.InitKeg(fx.Context(), tapper.InitOptions{Keg: "@teamns/graph", KegVersion: "2027-01"})
+	require.ErrorIs(t, err, keg.ErrInvalid)
+	require.Zero(t, calls.Load(), "an unknown version must be rejected before contacting the Hub")
 }

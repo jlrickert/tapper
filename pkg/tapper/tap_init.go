@@ -15,6 +15,11 @@ type InitOptions struct {
 	Keg        string
 	Visibility string
 
+	// KegVersion selects the new KEG's immutable storage version
+	// (keg.KegVersionV1 or keg.KegVersionV2). Empty lets the Hub choose its
+	// default, KEGv1.
+	KegVersion string
+
 	// RequireBootstrap rejects config-driven creation until user setup exists.
 	RequireBootstrap bool
 }
@@ -24,12 +29,29 @@ type CreateKegOptions struct {
 	Keg        string
 	Title      string
 	Visibility string
+	// KegVersion is validated with NormalizeKegVersion; empty lets the Hub
+	// choose.
+	KegVersion string
+}
+
+// NormalizeKegVersion trims a requested KEG version and rejects an unknown
+// one with keg.ErrInvalid. Empty stays empty: the Hub chooses the default.
+func NormalizeKegVersion(raw string) (string, error) {
+	v := strings.TrimSpace(raw)
+	if v != "" && !keg.ValidKegVersion(v) {
+		return "", fmt.Errorf("keg version %q must be %s (KEGv1) or %s (KEGv2 preview): %w",
+			v, keg.KegVersionV1, keg.KegVersionV2, keg.ErrInvalid)
+	}
+	return v, nil
 }
 
 // InitKeg creates a KEG through the configured hub creation endpoint.
 func (t *Tap) InitKeg(ctx context.Context, options InitOptions) (*keg.Target, error) {
 	namespace, name, err := ParseKegCreationRef(options.Keg)
 	if err != nil {
+		return nil, err
+	}
+	if options.KegVersion, err = NormalizeKegVersion(options.KegVersion); err != nil {
 		return nil, err
 	}
 	if options.RequireBootstrap && !t.ConfigService.UserConfigExists() {
@@ -67,7 +89,9 @@ func (t *Tap) initRemoteKeg(ctx context.Context, options InitOptions, target *ke
 	if token == "" {
 		return nil, fmt.Errorf("not logged in to hub %q (run `tap auth login --hub %s`)", hubName, hubURL)
 	}
-	if err := CreateKeg(ctx, hubURL, token, namespace, name, options.Title, options.Visibility); err != nil {
+	if err := CreateHubKeg(ctx, hubURL, token, namespace, HubKegCreate{
+		Alias: name, Title: options.Title, Visibility: options.Visibility, KegVersion: options.KegVersion,
+	}); err != nil {
 		return nil, err
 	}
 	return target, nil

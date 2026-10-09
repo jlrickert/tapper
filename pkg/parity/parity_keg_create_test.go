@@ -63,3 +63,38 @@ func TestParity_KegCreateQualifiedReference(t *testing.T) {
 	defer mu.Unlock()
 	require.Equal(t, []string{"/api/v1/@acme/kegs/engineering", "/api/v1/@acme/kegs/engineering"}, destinations)
 }
+
+func TestParity_KegCreateVersion(t *testing.T) {
+	e := newParityEnv(t)
+	var mu sync.Mutex
+	var versions []string
+	srv := testapi.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]string
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+		mu.Lock()
+		versions = append(versions, body["alias"]+"="+body["kegv"])
+		mu.Unlock()
+		w.WriteHeader(http.StatusCreated)
+	}))
+	defer srv.Close()
+	e.sb.MustWriteFile("~/.config/tapper/config.yaml", []byte(fmt.Sprintf("hub: home\nhubs:\n  home:\n    url: %s\n    token: test-token\n", srv.URL)), 0644)
+	e.tap.ConfigService.Reload()
+
+	_, err := e.runCLI("keg", "create", "@acme/cli-graph", "--kegv", "2026-09")
+	require.NoError(t, err)
+	_, err = e.runMCP("keg_create", map[string]any{"keg": "@acme/mcp-graph", "kegv": "2026-09"})
+	require.NoError(t, err)
+	_, err = e.runCLI("keg", "create", "@acme/cli-notes")
+	require.NoError(t, err)
+	_, err = e.runMCP("keg_create", map[string]any{"keg": "@acme/mcp-notes"})
+	require.NoError(t, err)
+
+	_, cliErr := e.runCLI("keg", "create", "@acme/bad", "--kegv", "2027-01")
+	_, mcpErr := e.runMCP("keg_create", map[string]any{"keg": "@acme/bad", "kegv": "2027-01"})
+	require.ErrorContains(t, cliErr, "keg version")
+	require.ErrorContains(t, mcpErr, "keg version")
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.Equal(t, []string{"cli-graph=2026-09", "mcp-graph=2026-09", "cli-notes=", "mcp-notes="}, versions)
+}

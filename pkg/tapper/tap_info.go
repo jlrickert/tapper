@@ -301,6 +301,10 @@ func (t *Tap) Info(ctx context.Context, opts InfoOptions) (string, error) {
 		return "", fmt.Errorf("unable to read keg settings: %w", err)
 	}
 	summary := info.Summary
+	if summary == nil {
+		// A KEG version without a KEGv1 node summary reports none.
+		summary = &keg.KegSummary{}
+	}
 
 	type capability struct {
 		Supported bool `yaml:"supported" json:"supported"`
@@ -322,6 +326,7 @@ func (t *Tap) Info(ctx context.Context, opts InfoOptions) (string, error) {
 		Ref         string            `yaml:"ref" json:"ref"`
 		Flight      string            `yaml:"flight" json:"flight"`
 		Description string            `yaml:"description" json:"description"`
+		KegVersion  string            `yaml:"kegv,omitempty" json:"kegv,omitempty"`
 		NodeCount   int               `yaml:"node_count" json:"node_count"`
 		Files       capability        `yaml:"files" json:"files"`
 		Images      capability        `yaml:"images" json:"images"`
@@ -330,14 +335,15 @@ func (t *Tap) Info(ctx context.Context, opts InfoOptions) (string, error) {
 
 	identity := t.resolveIdentity(opts.KegTargetOptions)
 	out := diagnostics{
-		Hub:       identity.Hub,
-		Namespace: identity.Namespace,
-		Keg:       identity.Keg,
-		Ref:       canonicalKegRef(identity.Ref),
-		Flight:    identity.Flight,
-		NodeCount: summary.NodeCount,
-		Files:     capability{Supported: summary.Files.Supported},
-		Images:    capability{Supported: summary.Images.Supported},
+		Hub:        identity.Hub,
+		Namespace:  identity.Namespace,
+		Keg:        identity.Keg,
+		Ref:        canonicalKegRef(identity.Ref),
+		Flight:     identity.Flight,
+		KegVersion: info.KegVersion,
+		NodeCount:  summary.NodeCount,
+		Files:      capability{Supported: summary.Files.Supported},
+		Images:     capability{Supported: summary.Images.Supported},
 	}
 
 	// Populate summary from the keg settings.
