@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-
+	"sync/atomic"
 	"testing"
 
 	"github.com/jlrickert/tapper/internal/testapi"
@@ -172,6 +172,7 @@ func TestCreateHubKeg_SendsKegVersion(t *testing.T) {
 	srv := testapi.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewDecoder(r.Body).Decode(&body)
 		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(map[string]any{"namespace": "acme", "alias": "graph", "kegv": body["kegv"]})
 	}))
 	defer srv.Close()
 
@@ -179,6 +180,56 @@ func TestCreateHubKeg_SendsKegVersion(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, keg.KegVersionV2, body["kegv"])
 	require.Equal(t, "graph", body["alias"])
+}
+
+func TestCreateHubKeg_ReportsAVersionTheHubDidNotApply(t *testing.T) {
+	t.Parallel()
+
+	cases := map[string]struct {
+		reply     string
+		requested string
+		created   string
+	}{
+		"hub predating kegv echoes no version": {`{"namespace":"acme","alias":"graph"}`, keg.KegVersionV2, keg.KegVersionV1},
+		"hub reports another version":          {`{"namespace":"acme","alias":"graph","kegv":"2025-07"}`, keg.KegVersionV2, keg.KegVersionV1},
+		"empty create response":                {``, keg.KegVersionV2, keg.KegVersionV1},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			var deletes atomic.Int32
+			srv := testapi.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method == http.MethodDelete {
+					deletes.Add(1)
+				}
+				w.WriteHeader(http.StatusCreated)
+				_, _ = w.Write([]byte(tc.reply))
+			}))
+			defer srv.Close()
+
+			err := tapper.CreateHubKeg(context.Background(), srv.URL, "tok", "acme", tapper.HubKegCreate{Alias: "graph", KegVersion: tc.requested})
+			var notApplied *tapper.KegVersionNotAppliedError
+			require.ErrorAs(t, err, &notApplied)
+			require.Equal(t, tc.created, notApplied.Created)
+			require.ErrorIs(t, err, keg.ErrKegVersionUnsupported)
+			require.ErrorContains(t, err, "created @acme/graph as KEGv1 (2025-07)")
+			require.ErrorContains(t, err, "does not support KEG version 2026-09")
+			require.Zero(t, deletes.Load(), "the created KEG is reported, never deleted")
+		})
+	}
+}
+
+func TestCreateHubKeg_KegV1RequestAcceptsAnUnversionedReply(t *testing.T) {
+	t.Parallel()
+
+	srv := testapi.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"namespace":"acme","alias":"notes"}`))
+	}))
+	defer srv.Close()
+
+	err := tapper.CreateHubKeg(context.Background(), srv.URL, "tok", "acme", tapper.HubKegCreate{Alias: "notes", KegVersion: keg.KegVersionV1})
+	require.NoError(t, err, "a Hub that reports no version created KEGv1, which is what was asked for")
 }
 
 func TestCreateKeg_OmitsKegVersionByDefault(t *testing.T) {

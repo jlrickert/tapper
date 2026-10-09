@@ -268,6 +268,20 @@ func errorResult(err error) *sdkmcp.CallToolResult {
 		errors.Is(err, keg.ErrOrientationUnavailable) || errors.Is(err, keg.ErrOrientationRootUnavailable) {
 		return orientationFailureResult(err)
 	}
+	var notApplied *tapper.KegVersionNotAppliedError
+	if errors.As(err, &notApplied) {
+		action := "The KEG was created, at the version this error names rather than the requested one. Do not create it again: use it as that version, or delete it with keg_delete and ask the operator for a Hub that offers the requested version."
+		return &sdkmcp.CallToolResult{
+			Content: []sdkmcp.Content{&sdkmcp.TextContent{Text: err.Error() + "\n\n" + action}},
+			StructuredContent: map[string]any{
+				"code":               keg.RemoteCodeKegVersionUnsupported,
+				"operationPerformed": true,
+				"action":             action,
+				"kegv":               notApplied.Created,
+			},
+			IsError: true,
+		}
+	}
 	var conflict *keg.PreconditionConflictError
 	if errors.As(err, &conflict) {
 		structured := map[string]any{

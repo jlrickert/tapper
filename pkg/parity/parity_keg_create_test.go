@@ -75,6 +75,7 @@ func TestParity_KegCreateVersion(t *testing.T) {
 		versions = append(versions, body["alias"]+"="+body["kegv"])
 		mu.Unlock()
 		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(map[string]string{"namespace": "acme", "alias": body["alias"], "kegv": body["kegv"]})
 	}))
 	defer srv.Close()
 	e.sb.MustWriteFile("~/.config/tapper/config.yaml", []byte(fmt.Sprintf("hub: home\nhubs:\n  home:\n    url: %s\n    token: test-token\n", srv.URL)), 0644)
@@ -122,4 +123,27 @@ func TestParity_KegCreateVersionUnsupported(t *testing.T) {
 		require.NotContains(t, err.Error(), "already exists", name)
 	}
 	require.ErrorContains(t, mcpErr, "omit kegv", "MCP guidance must point at creating a KEGv1 KEG")
+}
+
+// TestParity_KegCreateVersionNotApplied checks that both surfaces report a
+// KEG a Hub created as KEGv1 because it ignored the requested version.
+func TestParity_KegCreateVersionNotApplied(t *testing.T) {
+	e := newParityEnv(t)
+	srv := testapi.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]string
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		// A Hub that predates versioned KEGs echoes no kegv.
+		_ = json.NewEncoder(w).Encode(map[string]string{"namespace": "acme", "alias": body["alias"]})
+	}))
+	defer srv.Close()
+	e.sb.MustWriteFile("~/.config/tapper/config.yaml", []byte(fmt.Sprintf("hub: home\nhubs:\n  home:\n    url: %s\n    token: test-token\n", srv.URL)), 0644)
+	e.tap.ConfigService.Reload()
+
+	_, cliErr := e.runCLI("keg", "create", "@acme/cli-graph", "--kegv", "2026-09")
+	_, mcpErr := e.runMCP("keg_create", map[string]any{"keg": "@acme/mcp-graph", "kegv": "2026-09"})
+	require.ErrorContains(t, cliErr, "created @acme/cli-graph as KEGv1 (2025-07)")
+	require.ErrorContains(t, mcpErr, "created @acme/mcp-graph as KEGv1 (2025-07)")
+	require.ErrorContains(t, mcpErr, "Do not create it again")
 }

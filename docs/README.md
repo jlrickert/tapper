@@ -127,7 +127,10 @@ writing KEG files directly.
 - `tap use [@namespace/keg]` - set or inspect project/user keg selection.
 - `tap keg create @namespace/name` - create a keg. `--kegv 2026-09` creates a
   KEGv2 preview keg where the hub enables it; the default, `2025-07`, is a
-  Markdown KEGv1. A keg's version never changes after creation. Keg listings,
+  Markdown KEGv1. A hub with the preview off refuses `--kegv 2026-09` with
+  `KEG_VERSION_UNSUPPORTED`; a hub that predates versioned kegs creates a
+  KEGv1 keg, and `tap` reports that the keg exists as KEGv1 rather than
+  succeeding. A keg's version never changes after creation. Keg listings,
   `tap keg info`, and orientation label KEGv2 kegs, and an operation a keg's
   version does not offer fails with `KEG_VERSION_UNSUPPORTED`.
 - `tap keg list` - list kegs visible on a hub.
