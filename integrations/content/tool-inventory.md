@@ -211,8 +211,9 @@ live, not a stable snapshot; reverse reverses each page. limit defaults to 50
 returns all matching lines. Use node_read for complete bodies.
 
 node_search pages with an opaque cursor instead: repeat the same query with
-next_cursor as cursor until next_cursor is absent. An omitted limit lets the
-Hub choose the page size. Hits are ordered by score, then KEG, then node id;
+next_cursor as cursor until next_cursor is absent (text output ends with a
+`next cursor:` line while more remain). An omitted or 0 limit lets the Hub
+choose the page size; -1 is not accepted. Hits are ordered by score, then KEG, then node id;
 mode reports `keyword` when the Hub ranked without semantic matching. A KEG
 outside the flight's cover is never searched, and a Hub without ranked search
 fails with a message pointing at node_grep.

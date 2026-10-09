@@ -17,7 +17,7 @@ type nodeSearchInput struct {
 	Keg    string   `json:"keg,omitempty" jsonschema:"search only this KEG (@namespace/keg or alias). Omit to search every KEG this call may read; never combined with kegs"`
 	Kegs   []string `json:"kegs,omitempty" jsonschema:"narrow the search to these @namespace/keg references (at most 50); omit to search every KEG this call may read"`
 	Cursor string   `json:"cursor,omitempty" jsonschema:"next_cursor from a previous node_search response for the same query, passed back unchanged"`
-	Limit  int      `json:"limit,omitempty" jsonschema:"maximum hits to return; omit to let the Hub choose its default"`
+	Limit  int      `json:"limit,omitempty" jsonschema:"maximum hits to return, 0 or more; omit it or pass 0 to let the Hub choose its default. Unlike listing tools, -1 (unlimited) is not accepted"`
 }
 
 type nodeSearchOutput struct {
@@ -82,7 +82,8 @@ func sessionReachesNothing(ctx context.Context) bool {
 	return HasSessionOrientation(ctx) && SessionFlight(ctx) == nil && !SessionFullAccess(ctx)
 }
 
-// nodeSearchLines renders warnings, then one line per hit.
+// nodeSearchLines renders warnings, one line per hit, then the next page's
+// cursor when there is one.
 func nodeSearchLines(resp *tapapi.SearchResponse) []string {
 	lines := make([]string, 0, len(resp.Warnings)+len(resp.Hits)+1)
 	for _, warning := range resp.Warnings {
@@ -91,6 +92,11 @@ func nodeSearchLines(resp *tapapi.SearchResponse) []string {
 	lines = append(lines, tapper.SearchHitLines(resp.Hits, "**", "**")...)
 	if len(resp.Hits) == 0 {
 		lines = append(lines, "No matching nodes.")
+	}
+	if resp.NextCursor != "" {
+		// Text-only clients page from this line; structured clients read
+		// next_cursor.
+		lines = append(lines, tapper.SearchNextCursorLine(resp.NextCursor))
 	}
 	return lines
 }

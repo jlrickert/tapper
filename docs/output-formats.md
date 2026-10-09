@@ -164,7 +164,9 @@ and the snippet with matches wrapped in `**` (bold on a terminal). Control
 characters collapse to spaces. `--id-only` prints only references, and
 `--json` prints the hub's response unchanged, including matched `fields`,
 `sources`, highlight offsets, `terms`, and `mode`. Warnings and the next page's
-cursor go to stderr, so stdout stays one hit per line.
+cursor go to stderr, so stdout stays one hit per line. `node_search` text ends
+with the same `next cursor: ...` line when another page remains, so text-only
+clients can page too.
 
 ## See also
 
