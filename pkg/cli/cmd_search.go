@@ -74,7 +74,7 @@ tap node search -- deploy -staging
 		},
 	}
 
-	cmd.Flags().StringSliceVar(&opts.Kegs, "kegs", nil, "narrow the search to these @namespace/keg references (comma separated or repeated)")
+	cmd.Flags().StringSliceVar(&opts.Kegs, "kegs", nil, "narrow the search to these @namespace/keg references, at most 50 (comma separated or repeated)")
 	mustRegisterFlagCompletion(cmd, "kegs", kegListFlagCompletionFunc(deps))
 	cmd.Flags().StringVar(&opts.Cursor, "cursor", "", "continue from a previous page's next cursor")
 	cmd.Flags().IntVarP(&opts.Limit, "limit", "n", 0, "maximum hits to return (0 lets the hub choose)")

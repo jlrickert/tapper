@@ -95,10 +95,18 @@ const (
 	SearchRouteHeaderValue = "ranked"
 )
 
+// SearchMaxKegs is the most KEGs one SearchRequest may name. The Hub refuses
+// a longer Kegs list with 400.
+const SearchMaxKegs = 50
+
 // SearchRequest asks for nodes ranked by relevance to Query across every KEG
 // the caller may read on this Hub, narrowed to Kegs when it is non-empty: an
-// empty Kegs means every readable KEG. The Hub resolves each KEG through its
-// authority boundary; naming a KEG only narrows and never grants access.
+// empty Kegs means every readable KEG. A request carrying the orientation
+// proof (keg.OrientationHeaderName) is governed: there an empty Kegs means
+// every readable KEG in the proof's flight cover, which the Hub resolves
+// itself, so a client never has to name a cover wider than SearchMaxKegs. The
+// Hub resolves each KEG through its authority boundary; naming a KEG only
+// narrows and never grants access.
 //
 // Cursor continues a previous response's NextCursor; it is opaque and passed
 // through unchanged. Limit 0 lets the Hub choose the page size. Defaults and

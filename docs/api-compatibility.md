@@ -73,6 +73,14 @@ header as a Hub that does not offer ranked search, reported as
 `NOT_SUPPORTED` with a pointer to `node_grep`; with the header, the error envelope
 maps as usual, so a `NOT_FOUND` names a KEG the caller cannot read.
 
+A search request names at most 50 KEGs (`tapapi.SearchMaxKegs`). A governed
+request, one carrying the `Tapper-Orientation` proof, may leave `kegs` empty:
+the Hub then searches every readable KEG in the proof's flight cover. Tapper
+relies on that for an unscoped `node_search` inside a flight, so a cover wider
+than 50 KEGs still searches in one request. Without the proof, Tapper names
+the flight's cover itself and refuses a cover wider than 50 KEGs with
+`INVALID`, asking for `kegs` to narrow it.
+
 Publish the Tapper commit first; a hub that embeds Tapper then pins that
 published SHA on its own side, by its own procedure. This development change
 does not authorize tags, releases, merges, or deployment.
