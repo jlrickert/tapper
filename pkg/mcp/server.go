@@ -356,7 +356,7 @@ func errorGuidance(code string) (action string, operationPerformed any) {
 	case keg.RemoteCodeNotSupported:
 		return "This backend does not implement the operation. Do not retry unchanged; use a supported tool from tools/list or have the operator update the backend.", false
 	case keg.RemoteCodeKegVersionUnsupported:
-		return "This KEG's version does not offer the operation. Do not retry unchanged; keg_list and keg_search label KEGv2 preview KEGs, so pick a KEGv1 KEG for node tools.", false
+		return "The KEG version does not offer the operation, or the Hub does not offer the requested KEG version. Do not retry unchanged: for keg_create, omit kegv to create a KEGv1 KEG; for node tools, keg_list and keg_search label KEGv2 preview KEGs, so pick a KEGv1 KEG.", false
 	default:
 		return "The outcome is unknown: this failure may follow a partial write. Inspect the resource before retrying: `node_read` for nodes, `schema_read` for schemas, `keg_settings_read` with minimal=false for settings, or `flight_read` for flights. Discover possible creations before repeating them; do not blindly replay a mutation.", nil
 	}

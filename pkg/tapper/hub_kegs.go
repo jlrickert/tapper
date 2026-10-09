@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/jlrickert/tapper/pkg/apicontract"
 	"github.com/jlrickert/tapper/pkg/keg"
@@ -56,11 +57,13 @@ func CreateKeg(ctx context.Context, hubURL, token, namespace, alias, title, visi
 }
 
 // CreateHubKeg asks the hub to create a KEG in namespace via
-// POST /api/v1/@{namespace}/kegs. A 409 is returned as an error wrapping
-// keg.ErrExist so callers can detect "already exists" with errors.Is; 400
-// wraps keg.ErrInvalid (an unknown or disabled KEG version, for example); 401
-// wraps ErrTokenRejected; 403 wraps keg.ErrForbidden; other non-2xx statuses
-// surface the hub's status line.
+// POST /api/v1/@{namespace}/kegs. A 409 maps by the error envelope's code:
+// KEG_VERSION_UNSUPPORTED (the Hub does not offer the requested KEG version,
+// such as KEGv2 while its preview is off) wraps keg.ErrKegVersionUnsupported,
+// and EXIST, CONFLICT, or a 409 without a code wraps keg.ErrExist so callers
+// can detect "already exists" with errors.Is. 400 wraps keg.ErrInvalid (an unknown KEG
+// version, for example); 401 wraps ErrTokenRejected; 403 wraps
+// keg.ErrForbidden; other non-2xx statuses surface the hub's status line.
 func CreateHubKeg(ctx context.Context, hubURL, token, namespace string, in HubKegCreate) error {
 	base, err := normalizeHubURL(hubURL)
 	if err != nil {
@@ -90,7 +93,16 @@ func CreateHubKeg(ctx context.Context, hubURL, token, namespace string, in HubKe
 	case http.StatusCreated, http.StatusOK:
 		return nil
 	case http.StatusConflict:
-		return fmt.Errorf("hub: keg @%s/%s already exists: %w", namespace, alias, keg.ErrExist)
+		code, msg := readHubErrorEnvelope(resp)
+		// Hubs that predate the EXIST code report a duplicate KEG as a
+		// generic CONFLICT, so both still mean "already exists".
+		if code == "" || code == keg.RemoteCodeExist || code == keg.RemoteCodeConflict {
+			return fmt.Errorf("hub: keg @%s/%s already exists: %w", namespace, alias, keg.ErrExist)
+		}
+		if msg == "" {
+			msg = resp.Status
+		}
+		return fmt.Errorf("hub: create keg @%s/%s: %w", namespace, alias, keg.RemoteErrorFromCode(code, resp.StatusCode, msg))
 	case http.StatusBadRequest:
 		return fmt.Errorf("hub: create keg @%s/%s: %w%s", namespace, alias, keg.ErrInvalid, readHubError(resp))
 	case http.StatusForbidden:
@@ -147,17 +159,27 @@ func ListUserKegs(ctx context.Context, hubURL, token string) ([]HubKeg, error) {
 // readHubError best-effort extracts the hub's {"error": ...} message from a
 // failed response so the surfaced error carries the hub's own explanation.
 func readHubError(resp *http.Response) string {
+	if _, msg := readHubErrorEnvelope(resp); msg != "" {
+		return ": " + msg
+	}
+	return ""
+}
+
+// readHubErrorEnvelope best-effort decodes the hub's {"error", "code"}
+// envelope from a failed response. Either value is empty when absent.
+func readHubErrorEnvelope(resp *http.Response) (code, msg string) {
 	b, err := io.ReadAll(io.LimitReader(resp.Body, 4096))
 	if err != nil || len(b) == 0 {
-		return ""
+		return "", ""
 	}
 	var e struct {
 		Error string `json:"error"`
+		Code  string `json:"code"`
 	}
-	if json.Unmarshal(b, &e) == nil && e.Error != "" {
-		return ": " + e.Error
+	if json.Unmarshal(b, &e) != nil {
+		return "", ""
 	}
-	return ""
+	return strings.TrimSpace(e.Code), strings.TrimSpace(e.Error)
 }
 
 // hubHTTPClient refuses redirects so credentials and mutations stay on the selected Hub.
