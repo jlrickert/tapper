@@ -12,6 +12,7 @@ import (
 
 	"github.com/jlrickert/tapper/pkg/apicontract"
 	"github.com/jlrickert/tapper/pkg/keg"
+	"github.com/jlrickert/tapper/pkg/tapapi"
 	"github.com/jlrickert/tapper/pkg/tapper"
 )
 
@@ -118,6 +119,21 @@ type NamespaceProvider interface {
 	// SearchNamespaces returns a bounded page of namespaces visible on the
 	// hub whose name or display name matches query; empty browses.
 	SearchNamespaces(ctx context.Context, query string) (tapper.NamespaceSearchResult, error)
+}
+
+// NodeSearchProvider ranks nodes by relevance across the KEGs a call may
+// read. opts.Keg names one KEG; otherwise the search covers opts.Kegs, narrowed
+// to the call's flight cover (opts.FlightContext), or with neither, every KEG
+// the caller may read. The node_search tool has already run opts.Validate.
+type NodeSearchProvider interface {
+	// SearchNodes returns one ranked page for opts.Query.
+	SearchNodes(ctx context.Context, opts tapper.SearchOptions) (*tapapi.SearchResponse, error)
+}
+
+type localNodeSearchProvider struct{ tap *tapper.Tap }
+
+func (p localNodeSearchProvider) SearchNodes(ctx context.Context, opts tapper.SearchOptions) (*tapapi.SearchResponse, error) {
+	return p.tap.Search(ctx, opts)
 }
 
 // KegSearchRow is identity-authorized KEG metadata. Search results are not a

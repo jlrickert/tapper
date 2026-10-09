@@ -162,7 +162,7 @@ func registerList(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	})
 }
 
-// --- node_search ---
+// --- node_grep ---
 
 type grepInput struct {
 	Query      string `json:"query" jsonschema:"regex pattern to search node content, matched per line. Local KEGs use Go RE2 syntax; Hub KEGs use PostgreSQL regex, where \\y (not \\b) is a word boundary and lookahead is allowed"`
@@ -178,8 +178,8 @@ type grepInput struct {
 
 func registerGrep(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
-		Name:        "node_search",
-		Description: "Search KEG node content with a regex pattern. max_lines defaults to 3 matched lines per node; -1 returns all matched lines. Follow next_offset for more nodes; use node_read for complete bodies.",
+		Name:        "node_grep",
+		Description: "Match KEG node content lines against a regex pattern in one KEG, in node id order. Use it for exact identifiers, symbols, and audits; use node_search to find the nodes about a topic. max_lines defaults to 3 matched lines per node; -1 returns all matched lines. Follow next_offset for more nodes; use node_read for complete bodies.",
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(false),

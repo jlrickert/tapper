@@ -14,7 +14,8 @@ import (
 //
 //	tap node read       -> cat         (both call Tap.Cat)
 //	tap node list      -> list        (both call Tap.List)
-//	tap node search      -> grep        (both call Tap.Grep)
+//	tap node grep      -> grep        (both call Tap.Grep)
+//	tap node search    -> node_search (both call Tap.Search; see TestParity_NodeSearchRequest)
 //	tap tag list      -> tags        (both call Tap.Tags)
 //	tap node backlinks -> backlinks   (both call Tap.Backlinks)
 //	tap node links     -> links       (both call Tap.Links)
@@ -267,8 +268,8 @@ func TestParity_ReadOperations(t *testing.T) {
 		// --- grep (Tap.Grep) ---
 		{
 			Name:    "grep/id_only",
-			CLIArgs: []string{"node", "search", "Hello", "--id-only"},
-			MCPTool: "node_search",
+			CLIArgs: []string{"node", "grep", "Hello", "--id-only"},
+			MCPTool: "node_grep",
 			MCPInput: map[string]any{
 				"query":   "Hello",
 				"id_only": true,
@@ -277,8 +278,8 @@ func TestParity_ReadOperations(t *testing.T) {
 		},
 		{
 			Name:    "grep/default_format",
-			CLIArgs: []string{"node", "search", "Hello"},
-			MCPTool: "node_search",
+			CLIArgs: []string{"node", "grep", "Hello"},
+			MCPTool: "node_grep",
 			MCPInput: map[string]any{
 				"query": "Hello",
 				"limit": -1,
@@ -286,8 +287,8 @@ func TestParity_ReadOperations(t *testing.T) {
 		},
 		{
 			Name:    "grep/no_match_returns_empty",
-			CLIArgs: []string{"node", "search", "ZZZZNOTFOUND", "--id-only"},
-			MCPTool: "node_search",
+			CLIArgs: []string{"node", "grep", "ZZZZNOTFOUND", "--id-only"},
+			MCPTool: "node_grep",
 			MCPInput: map[string]any{
 				"query":   "ZZZZNOTFOUND",
 				"id_only": true,
@@ -395,8 +396,8 @@ func TestParity_ReadOperations(t *testing.T) {
 		// --- grep with offset (Tap.Grep) ---
 		{
 			Name:    "grep/offset_skips_results",
-			CLIArgs: []string{"node", "search", "node", "--id-only", "--ignore-case", "--offset", "1"},
-			MCPTool: "node_search",
+			CLIArgs: []string{"node", "grep", "node", "--id-only", "--ignore-case", "--offset", "1"},
+			MCPTool: "node_grep",
 			MCPInput: map[string]any{
 				"query":       "node",
 				"id_only":     true,
@@ -540,8 +541,8 @@ func TestParity_ReadOperations(t *testing.T) {
 		// resolves to 3 for MCP) should produce the same output.
 		{
 			Name:    "grep/max_lines_default_parity",
-			CLIArgs: []string{"node", "search", "node", "--max-lines", "3", "--ignore-case"},
-			MCPTool: "node_search",
+			CLIArgs: []string{"node", "grep", "node", "--max-lines", "3", "--ignore-case"},
+			MCPTool: "node_grep",
 			MCPInput: map[string]any{
 				"query":       "node",
 				"ignore_case": true,

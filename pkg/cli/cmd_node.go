@@ -7,7 +7,8 @@ import "github.com/spf13/cobra"
 //
 //	tap node read 12
 //	tap node list --query 'tag:draft'
-//	tap node search 'TODO'
+//	tap node search 'release plan'
+//	tap node grep 'TODO'
 //	tap node create < note.md
 //	tap node edit 12
 //	tap node move 12 40
@@ -20,6 +21,7 @@ func NewNodeCmd(deps *Deps) *cobra.Command {
 	cmd.AddCommand(
 		NewCatCmd(deps),
 		NewListCmd(deps),
+		NewSearchCmd(deps),
 		NewGrepCmd(deps),
 		NewLinksCmd(deps),
 		NewBacklinksCmd(deps),
