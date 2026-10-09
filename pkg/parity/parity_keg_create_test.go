@@ -98,3 +98,28 @@ func TestParity_KegCreateVersion(t *testing.T) {
 	defer mu.Unlock()
 	require.Equal(t, []string{"cli-graph=2026-09", "mcp-graph=2026-09", "cli-notes=", "mcp-notes="}, versions)
 }
+
+// TestParity_KegCreateVersionUnsupported checks that a Hub refusing the
+// requested KEG version is reported as that, not as an existing KEG, on both
+// surfaces.
+func TestParity_KegCreateVersionUnsupported(t *testing.T) {
+	e := newParityEnv(t)
+	srv := testapi.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusConflict)
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"error": "KEG version 2026-09 is not enabled on this hub", "code": "KEG_VERSION_UNSUPPORTED",
+		})
+	}))
+	defer srv.Close()
+	e.sb.MustWriteFile("~/.config/tapper/config.yaml", []byte(fmt.Sprintf("hub: home\nhubs:\n  home:\n    url: %s\n    token: test-token\n", srv.URL)), 0644)
+	e.tap.ConfigService.Reload()
+
+	_, cliErr := e.runCLI("keg", "create", "@acme/graph", "--kegv", "2026-09")
+	_, mcpErr := e.runMCP("keg_create", map[string]any{"keg": "@acme/graph", "kegv": "2026-09"})
+	for name, err := range map[string]error{"cli": cliErr, "mcp": mcpErr} {
+		require.ErrorContains(t, err, "is not enabled on this hub", name)
+		require.NotContains(t, err.Error(), "already exists", name)
+	}
+	require.ErrorContains(t, mcpErr, "omit kegv", "MCP guidance must point at creating a KEGv1 KEG")
+}

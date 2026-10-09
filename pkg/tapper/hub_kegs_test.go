@@ -39,15 +39,44 @@ func TestCreateKeg_Success(t *testing.T) {
 func TestCreateKeg_Conflict(t *testing.T) {
 	t.Parallel()
 
+	// EXIST is the current Hub's code; CONFLICT comes from Hubs that predate
+	// it, and a bare 409 carries no envelope at all.
+	for name, body := range map[string]string{
+		"EXIST":    `{"error":"keg @jlrickert/example already exists","code":"EXIST"}`,
+		"CONFLICT": `{"error":"keg already exists","code":"CONFLICT"}`,
+		"no code":  ``,
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			srv := testapi.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusConflict)
+				_, _ = w.Write([]byte(body))
+			}))
+			defer srv.Close()
+
+			err := tapper.CreateKeg(context.Background(), srv.URL, "tok", "jlrickert", "example", "", "")
+			require.ErrorIs(t, err, keg.ErrExist, "409 must map to keg.ErrExist so callers detect 'already exists'")
+			require.ErrorContains(t, err, "already exists")
+		})
+	}
+}
+
+func TestCreateHubKeg_VersionUnsupportedIsNotExist(t *testing.T) {
+	t.Parallel()
+
 	srv := testapi.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusConflict)
-		_ = json.NewEncoder(w).Encode(map[string]string{"error": "keg already exists", "code": "CONFLICT"})
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"error": "KEG version 2026-09 is not enabled on this hub", "code": keg.RemoteCodeKegVersionUnsupported,
+		})
 	}))
 	defer srv.Close()
 
-	err := tapper.CreateKeg(context.Background(), srv.URL, "tok", "jlrickert", "example", "", "")
-	require.Error(t, err)
-	require.ErrorIs(t, err, keg.ErrExist, "409 must map to keg.ErrExist so callers detect 'already exists'")
+	err := tapper.CreateHubKeg(context.Background(), srv.URL, "tok", "acme", tapper.HubKegCreate{Alias: "graph", KegVersion: keg.KegVersionV2})
+	require.ErrorIs(t, err, keg.ErrKegVersionUnsupported)
+	require.NotErrorIs(t, err, keg.ErrExist, "a disabled KEG version is not an existing KEG")
+	require.ErrorContains(t, err, "is not enabled on this hub")
+	require.NotContains(t, err.Error(), "already exists")
 }
 
 func TestCreateKeg_Unauthorized(t *testing.T) {
