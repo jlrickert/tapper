@@ -97,7 +97,8 @@ explicitly configured root failed to initialize.
 | --- | --- |
 | `node_read` | Read content of one or more nodes |
 | `node_list` | List nodes with optional query filtering |
-| `node_search` | Full-text search across node content |
+| `node_search` | Rank nodes by relevance to a query across every readable KEG, one `keg`, or listed `kegs`; pages with `next_cursor` |
+| `node_grep` | Match node content lines against a regex in one KEG |
 | `tag_list` | List tags or find nodes by query |
 | `node_backlinks` | Find nodes linking to a node |
 | `node_links` | List outgoing links from a node |
