@@ -657,14 +657,12 @@ func parseFlightCoverEntry(entry string) (FlightCover, bool) {
 	return FlightCover{Namespace: strings.TrimSpace(ns), Keg: name, Role: normalizeFlightRole(role)}, true
 }
 
-// RoleFor reports the flight-scoped role for a keg. An empty cover denies all
-// KEG access.
-// Manifests normally arrive through normalizeFlightManifest, which folds
-// legacy AllowedKegs into Cover; the fallback here only covers Flight values
-// constructed by hand.
-func (f *Flight) RoleFor(alias, namespace, kegName string) (FlightRole, bool) {
+// coverEntries returns the cover RoleFor evaluates, trimmed and without
+// entries that name no KEG: Cover, or for a Flight that carries only legacy
+// AllowedKegs, those entries (editor unless the entry names a role).
+func (f *Flight) coverEntries() []FlightCover {
 	if f == nil {
-		return "", false
+		return nil
 	}
 	cover := append([]FlightCover(nil), f.Cover...)
 	if len(cover) == 0 && len(f.AllowedKegs) > 0 {
@@ -677,6 +675,24 @@ func (f *Flight) RoleFor(alias, namespace, kegName string) (FlightRole, bool) {
 			}
 		}
 	}
+	out := cover[:0]
+	for _, c := range cover {
+		c.Namespace = strings.TrimPrefix(strings.TrimSpace(c.Namespace), "@")
+		c.Keg = strings.TrimSpace(c.Keg)
+		if c.Keg != "" {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// RoleFor reports the flight-scoped role for a keg. An empty cover denies all
+// KEG access.
+// Manifests normally arrive through normalizeFlightManifest, which folds
+// legacy AllowedKegs into Cover; the fallback here only covers Flight values
+// constructed by hand.
+func (f *Flight) RoleFor(alias, namespace, kegName string) (FlightRole, bool) {
+	cover := f.coverEntries()
 	if len(cover) == 0 {
 		return "", false
 	}
@@ -684,11 +700,6 @@ func (f *Flight) RoleFor(alias, namespace, kegName string) (FlightRole, bool) {
 	kegName = strings.TrimSpace(kegName)
 	alias = strings.TrimSpace(alias)
 	for _, c := range cover {
-		c.Namespace = strings.TrimPrefix(strings.TrimSpace(c.Namespace), "@")
-		c.Keg = strings.TrimSpace(c.Keg)
-		if c.Keg == "" {
-			continue
-		}
 		if c.Namespace == "" {
 			if (alias != "" && c.Keg == alias) || (kegName != "" && c.Keg == kegName) {
 				return normalizeFlightRole(c.Role), true

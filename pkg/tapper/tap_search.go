@@ -198,41 +198,56 @@ type searchScopeResult struct {
 }
 
 // searchScope narrows explicit KEGs to the flight's cover, or without explicit
-// KEGs, names the flight's cover.
+// KEGs, names the flight's cover. Both read the cover through searchCover, so
+// a KEG is searchable on exactly the same terms either way.
 func searchScope(explicit []string, flight *Flight) searchScopeResult {
 	if flight == nil {
 		return searchScopeResult{kegs: explicit, restricted: len(explicit) > 0}
 	}
-	out := searchScopeResult{kegs: []string{}, restricted: true}
-	if len(explicit) > 0 {
-		for _, ref := range explicit {
-			namespace, alias, _ := strings.Cut(strings.TrimPrefix(ref, "@"), "/")
-			if role, ok := flight.RoleFor("", namespace, alias); ok && role.AtLeast(FlightRoleViewer) {
-				out.kegs = append(out.kegs, ref)
-				continue
-			}
-			out.warnings = append(out.warnings, fmt.Sprintf("%s is not in flight %s's cover and was not searched", ref, flight.Name))
-		}
+	cover, warnings := searchCover(flight)
+	out := searchScopeResult{kegs: []string{}, restricted: true, warnings: warnings}
+	if len(explicit) == 0 {
+		out.kegs = cover
 		return out
 	}
-	seen := map[string]bool{}
-	for _, c := range flight.Cover {
-		namespace := strings.TrimPrefix(strings.TrimSpace(c.Namespace), "@")
-		alias := strings.TrimSpace(c.Keg)
-		if alias == "" {
-			continue
-		}
-		if namespace == "" {
-			out.warnings = append(out.warnings, fmt.Sprintf("cover entry %q names no namespace and was not searched", alias))
-			continue
-		}
-		ref := "@" + namespace + "/" + alias
-		if !seen[ref] {
-			seen[ref] = true
+	covered := make(map[string]bool, len(cover))
+	for _, ref := range cover {
+		covered[ref] = true
+	}
+	for _, ref := range explicit {
+		if covered[ref] {
 			out.kegs = append(out.kegs, ref)
+			continue
 		}
+		out.warnings = append(out.warnings, fmt.Sprintf("%s is not in flight %s's cover and was not searched", ref, flight.Name))
 	}
 	return out
+}
+
+// searchCover lists, in cover order and once each, the "@namespace/alias"
+// references of the flight's cover a search may read: the entries RoleFor
+// evaluates, legacy AllowedKegs included, at viewer or above. Ranked search
+// names KEGs canonically, so a cover entry without a namespace cannot be
+// searched; it is reported as a warning rather than matched against any
+// namespace.
+func searchCover(flight *Flight) (refs, warnings []string) {
+	refs = []string{}
+	seen := map[string]bool{}
+	for _, c := range flight.coverEntries() {
+		if c.Namespace == "" {
+			warnings = append(warnings, fmt.Sprintf("cover entry %q names no namespace and was not searched", c.Keg))
+			continue
+		}
+		if !normalizeFlightRole(c.Role).AtLeast(FlightRoleViewer) {
+			continue
+		}
+		ref := "@" + c.Namespace + "/" + c.Keg
+		if !seen[ref] {
+			seen[ref] = true
+			refs = append(refs, ref)
+		}
+	}
+	return refs, warnings
 }
 
 // postHubSearch sends one ranked-search request to the Hub's TAP search route
