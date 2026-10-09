@@ -87,7 +87,7 @@ func (t *Tap) initRemoteKeg(ctx context.Context, options InitOptions, target *ke
 	}
 	token := t.hubTokenForTarget(target)
 	if token == "" {
-		return nil, fmt.Errorf("not logged in to hub %q (run `tap auth login --hub %s`)", hubName, hubURL)
+		return nil, notLoggedInError(hubName, hubURL)
 	}
 	if err := CreateHubKeg(ctx, hubURL, token, namespace, HubKegCreate{
 		Alias: name, Title: options.Title, Visibility: options.Visibility, KegVersion: options.KegVersion,

@@ -433,7 +433,7 @@ the same operational information, including error diagnostics and recovery.
   refine a query marked truncated. node_search pages with next_cursor;
   node_grep limits matched lines; node_read reads full bodies. A tool absent
   from tools/list is unavailable, not a failed operation.
-- "ranked search unavailable": the Hub predates ranked search. Use node_grep
-  with a regex for the terms, one KEG at a time.
+- "ranked search unavailable" (NOT_SUPPORTED): the Hub predates ranked
+  search. Use node_grep with a regex for the terms, one KEG at a time.
 - Suspected stale indexes: inspect index_list/index_read and keg_check.
   Rebuild with index_rebuild only when warranted and authorized; reads never repair indexes.

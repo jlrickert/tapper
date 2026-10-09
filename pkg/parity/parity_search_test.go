@@ -137,3 +137,18 @@ func TestParity_NodeSearchRejectsTheSameInput(t *testing.T) {
 	}
 	require.Empty(t, drain(), "invalid searches must not reach the Hub")
 }
+
+// TestParity_NodeSearchWithoutLoginNeedsLogin checks that both surfaces report
+// a Hub without a credential as an authentication problem.
+func TestParity_NodeSearchWithoutLoginNeedsLogin(t *testing.T) {
+	e, drain := newSearchParityEnv(t)
+	e.sb.MustWriteFile("~/.config/tapper/config.yaml", []byte("hub: home\nhubs:\n  home:\n    url: https://hub.example.invalid\n"), 0644)
+	e.tap.ConfigService.Reload()
+
+	_, cliErr := e.runCLI("node", "search", "festival")
+	_, mcpErr := e.runMCP("node_search", map[string]any{"query": "festival"})
+	require.ErrorContains(t, cliErr, "tap auth login")
+	require.ErrorContains(t, mcpErr, "UNAUTHORIZED")
+	require.ErrorContains(t, mcpErr, "tap auth login")
+	require.Empty(t, drain())
+}

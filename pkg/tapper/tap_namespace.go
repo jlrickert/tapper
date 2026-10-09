@@ -6,6 +6,8 @@ import (
 	"net/url"
 	"sort"
 	"strings"
+
+	"github.com/jlrickert/tapper/pkg/keg"
 )
 
 // Namespace administration: listing namespaces, managing membership roles, and
@@ -200,7 +202,7 @@ func (t *Tap) resolveNamespaceHub(namespace, hubOverride string) (ns, hubURL, to
 	}
 	entry, ok := cfg.Hub(hubName)
 	if !ok {
-		return "", "", "", fmt.Errorf("hub %q is not configured", hubName)
+		return "", "", "", hubNotConfiguredError(hubName)
 	}
 	url, tok, err := remoteHubEndpoint(t, hubName, entry)
 	if err != nil {
@@ -222,7 +224,7 @@ func (t *Tap) resolveHubEndpoint(hubOverride string) (hubURL, token string, err 
 	}
 	entry, ok := cfg.Hub(hubName)
 	if !ok {
-		return "", "", fmt.Errorf("hub %q is not configured", hubName)
+		return "", "", hubNotConfiguredError(hubName)
 	}
 	return remoteHubEndpoint(t, hubName, entry)
 }
@@ -262,13 +264,40 @@ func remoteHubEndpoint(t *Tap, hubName string, entry HubEntry) (hubURL, token st
 	}
 	url := strings.TrimSpace(entry.URL)
 	if url == "" {
-		return "", "", fmt.Errorf("hub %q has no url configured", hubName)
+		return "", "", sentinelError{msg: fmt.Sprintf("hub %q has no url configured", hubName), sentinel: keg.ErrInvalid}
 	}
 	tok := t.hubToken(entry)
 	if tok == "" {
-		return "", "", fmt.Errorf("hub %q has no auth token (run `tap auth login --hub %s`)", hubName, url)
+		return "", "", notLoggedInError(hubName, url)
 	}
 	return url, tok, nil
+}
+
+// sentinelError keeps msg as the whole error text while matching sentinel
+// with errors.Is, so a configuration message reads unchanged on the CLI and
+// still maps to its wire code (and MCP guidance) on every surface.
+type sentinelError struct {
+	msg      string
+	sentinel error
+}
+
+func (e sentinelError) Error() string { return e.msg }
+func (e sentinelError) Unwrap() error { return e.sentinel }
+
+// hubNotConfiguredError reports a hub name absent from configuration. It
+// wraps keg.ErrInvalid: the request named, or defaulted to, a hub that does
+// not exist.
+func hubNotConfiguredError(hubName string) error {
+	return sentinelError{msg: fmt.Sprintf("hub %q is not configured", hubName), sentinel: keg.ErrInvalid}
+}
+
+// notLoggedInError reports a configured hub with no credential. It wraps
+// keg.ErrUnauthorized, which every surface reports as needing a login.
+func notLoggedInError(hubName, hubURL string) error {
+	return sentinelError{
+		msg:      fmt.Sprintf("not logged in to hub %q (run `tap auth login --hub %s`)", hubName, hubURL),
+		sentinel: keg.ErrUnauthorized,
+	}
 }
 
 // NamespaceSearchOptions searches the namespaces visible across a hub: people

@@ -351,6 +351,45 @@ func TestSearch_HubErrorsMapToSentinels(t *testing.T) {
 	}
 }
 
+func TestSearch_UnavailableIsNotSupported(t *testing.T) {
+	t.Parallel()
+
+	require.ErrorIs(t, tapper.ErrRankedSearchUnavailable, keg.ErrNotSupported)
+	_, url := newFakeSearchHubRouted(t, http.StatusNotFound, "404 page not found", false)
+	_, err := newSearchTap(t, url).Search(t.Context(), tapper.SearchOptions{Query: "release"})
+	require.ErrorIs(t, err, tapper.ErrRankedSearchUnavailable)
+	code, _ := keg.RemoteErrorCode(err)
+	require.Equal(t, keg.RemoteCodeNotSupported, code, "a Hub without ranked search is an unsupported operation, not an unknown failure")
+	require.ErrorContains(t, err, "node_grep")
+}
+
+func TestSearch_MissingHubOrLoginMapToCodes(t *testing.T) {
+	t.Parallel()
+
+	hub, url := newFakeSearchHub(t, http.StatusOK, `{"hits":[]}`)
+	fx := NewSandbox(t)
+	require.NoError(t, fx.Setwd("/home/testuser"))
+	tap, err := tapper.NewTap(tapper.TapOptions{Root: "/home/testuser", Runtime: fx.Runtime()})
+	require.NoError(t, err)
+	config := fmt.Sprintf("hub: atlas\nhubs:\n  atlas:\n    url: %s\n", url)
+	require.NoError(t, fx.Runtime().AtomicWriteFile(tap.PathService.UserConfig(), []byte(config), 0o644))
+	tap.ConfigService.Reload()
+
+	for name, opts := range map[string]tapper.SearchOptions{
+		"whole hub": {Query: "release"},
+		"one keg":   {Query: "release", KegTargetOptions: tapper.KegTargetOptions{Keg: "@acme/notes"}},
+	} {
+		_, err := tap.Search(t.Context(), opts)
+		require.ErrorIs(t, err, keg.ErrUnauthorized, name)
+		require.ErrorContains(t, err, "tap auth login", name)
+	}
+
+	_, err = tap.Search(t.Context(), tapper.SearchOptions{Query: "release", KegTargetOptions: tapper.KegTargetOptions{Hub: "nowhere"}})
+	require.ErrorIs(t, err, keg.ErrInvalid)
+	require.ErrorContains(t, err, `hub "nowhere" is not configured`)
+	require.Zero(t, hub.calls.Load())
+}
+
 func TestHighlightSnippet(t *testing.T) {
 	t.Parallel()
 

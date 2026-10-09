@@ -69,8 +69,8 @@ without it from the route's own failures. Every response from
 `POST /api/v1/tap/search`, success and error alike, carries
 `Tapper-Search: ranked` (`tapapi.SearchRouteHeader` and
 `tapapi.SearchRouteHeaderValue`). Tapper reads a 404 or 405 without that
-header as a Hub that does not offer ranked search and points at
-`node_grep`; with the header, the error envelope
+header as a Hub that does not offer ranked search, reported as
+`NOT_SUPPORTED` with a pointer to `node_grep`; with the header, the error envelope
 maps as usual, so a `NOT_FOUND` names a KEG the caller cannot read.
 
 Publish the Tapper commit first; a hub that embeds Tapper then pins that
