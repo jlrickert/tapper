@@ -268,12 +268,21 @@ func (t *Tap) enforceFlightSnapshot(flight *Flight, k keg.Keg, want FlightRole) 
 	if flight == nil || k == nil {
 		return nil
 	}
+	return t.enforceFlightTarget(flight, k.Target(), want)
+}
+
+// enforceFlightTarget applies a resolved flight snapshot to a KEG target that
+// has not been opened, such as a ranked search scope.
+func (t *Tap) enforceFlightTarget(flight *Flight, target *keg.Target, want FlightRole) error {
+	if flight == nil {
+		return nil
+	}
 	var alias, namespace, kegName string
-	if k.Target() != nil {
-		namespace = k.Target().Namespace
-		kegName = k.Target().KegName
+	if target != nil {
+		namespace = target.Namespace
+		kegName = target.KegName
 		if cfg, cErr := t.ConfigService.Config(); cErr == nil {
-			alias = cfg.LookupAliasForTarget(t.Runtime, k.Target().String())
+			alias = cfg.LookupAliasForTarget(t.Runtime, target.String())
 		}
 	}
 	role, ok := flight.RoleFor(alias, namespace, kegName)
@@ -288,8 +297,8 @@ func (t *Tap) enforceFlightSnapshot(flight *Flight, k keg.Keg, want FlightRole) 
 	if label == "" && kegName != "" {
 		label = kegName
 	}
-	if label == "" && k.Target() != nil {
-		label = k.Target().String()
+	if label == "" && target != nil {
+		label = target.String()
 	}
 	return &FlightRestrictionError{Flight: flight.Name, Keg: label, Want: want, Got: role}
 }

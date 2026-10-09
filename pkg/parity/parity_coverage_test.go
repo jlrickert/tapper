@@ -25,7 +25,8 @@ var tapMethodToSurfaces = map[string]struct {
 	// `<resource>_<verb>`, so each pair names the same thing.
 	"Cat":             {CLI: "node read", MCP: []string{"node_read"}},
 	"List":            {CLI: "node list", MCP: []string{"node_list"}},
-	"Grep":            {CLI: "node search", MCP: []string{"node_search"}},
+	"Search":          {CLI: "node search", MCP: []string{"node_search"}},
+	"Grep":            {CLI: "node grep", MCP: []string{"node_grep"}},
 	"Tags":            {CLI: "tag list", MCP: []string{"tag_list"}},
 	"Backlinks":       {CLI: "node backlinks", MCP: []string{"node_backlinks"}},
 	"Links":           {CLI: "node links", MCP: []string{"node_links"}},

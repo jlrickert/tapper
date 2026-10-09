@@ -99,7 +99,8 @@ accessible transitive descendants.
 
 | Tool                                                  | Purpose                                                                                                                                                  |
 | ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `mcp__tapper__node_search`                                   | Regex search over node content. Supports `ignore_case`, `limit`, `max_lines`, and `id_only`.                                                             |
+| `mcp__tapper__node_search`                                   | Find the nodes most relevant to a query, ranked by the Hub across every KEG the call may read, one `keg`, or the listed `kegs`. Takes plain terms, `"quoted phrases"`, and `-exclusions`. Hits carry `ref`, `score`, `title`, matched `fields`, and a `snippet` with highlights; follow `next_cursor`. |
+| `mcp__tapper__node_grep`                                   | Regex match over node content lines in one KEG, in node id order, for exact identifiers, symbols, and audits. Supports `ignore_case`, `limit`, `max_lines`, and `id_only`. |
 | `mcp__tapper__tag_list`                                   | List tags or filter nodes by a boolean expression over tags, attributes, and dot-prefix stats fields (for example `tapper and .created>2026-01-01`).     |
 | `mcp__tapper__node_list`                                   | List nodes in a keg with optional filters.                                                                                                               |
 | `mcp__tapper__node_read`                                    | Read one or more nodes. Each structured row pairs `node_id` and `hash` with that node's `content` and `meta`, so a read feeds straight into `node_edit`. Supports `meta_only`, `content_only`, `stats_only`, and `query` expression selection as an alternative to explicit node IDs. |
@@ -109,8 +110,10 @@ accessible transitive descendants.
 | `mcp__tapper__keg_settings_read`                           | Read targeted title, description, updated metadata, and instructions for one or more selected KEGs; batches accept up to 100 canonical references.          |
 | `mcp__tapper__keg_search`                             | Case-insensitive literal search across identity-accessible canonical refs, titles, and descriptions. Returns at most 50 rows and never grants operational access. |
 
-Pass `id_only: true` to `node_search` and `tag_list` when you only need IDs for follow-up
-reads — it keeps token consumption bounded on large result sets.
+Start topic lookups with `node_search`; reach for `node_grep` when you need
+every line matching an exact pattern. Pass `id_only: true` to `node_grep` and
+`tag_list` when you only need IDs for follow-up reads — it keeps token
+consumption bounded on large result sets.
 
 ## Query expressions
 
@@ -243,13 +246,20 @@ Text content is JSON rendered from the same public object as structuredContent.
 The message field preserves prose, diagnostics, and legacy formatted output.
 Images remain in MCP image content blocks alongside JSON metadata.
 
-For node_list, node_search, tag_list, node_links, and node_backlinks, follow
+For node_list, node_grep, tag_list, node_links, and node_backlinks, follow
 next_offset until null,
 keeping the other arguments unchanged. has_more=null means another page is
 uncertain; a final nonempty page can be followed by an empty page. Pages are
 live, not a stable snapshot; reverse reverses each page. limit defaults to 50
-(0 means default; -1 unlimited). node_search max_lines defaults to 3 per node; -1
+(0 means default; -1 unlimited). node_grep max_lines defaults to 3 per node; -1
 returns all matching lines. Use node_read for complete bodies.
+
+node_search pages with an opaque cursor instead: repeat the same query with
+next_cursor as cursor until next_cursor is absent. An omitted limit lets the
+Hub choose the page size. Hits are ordered by score, then KEG, then node id;
+mode reports `keyword` when the Hub ranked without semantic matching. A KEG
+outside the flight's cover is never searched, and a Hub without ranked search
+fails with a message pointing at node_grep.
 
 keg_search returns warnings, partial, and truncated. flight_search returns
 truncated. Refine a truncated metadata query; neither search has a cursor.
@@ -420,8 +430,10 @@ the same operational information, including error diagnostics and recovery.
 - operationPerformed=null: the write outcome is unknown. Inspect state before
   retrying, including possible creations; do not assume nothing happened.
 - Missing listing rows: follow next_offset until null. For metadata search,
-  refine a query marked truncated. node_search limits matched lines; node_read
-  reads full
-  bodies. A tool absent from tools/list is unavailable, not a failed operation.
+  refine a query marked truncated. node_search pages with next_cursor;
+  node_grep limits matched lines; node_read reads full bodies. A tool absent
+  from tools/list is unavailable, not a failed operation.
+- "ranked search unavailable": the Hub predates ranked search. Use node_grep
+  with a regex for the terms, one KEG at a time.
 - Suspected stale indexes: inspect index_list/index_read and keg_check.
   Rebuild with index_rebuild only when warranted and authorized; reads never repair indexes.

@@ -240,7 +240,7 @@ func TestMCP_ToolsList(t *testing.T) {
 		names[tool.Name] = true
 	}
 	for _, want := range []string{
-		"session_info", "keg_list", "keg_search", "node_read", "node_list", "node_search", "tag_list", "node_backlinks", "node_links", "keg_info",
+		"session_info", "keg_list", "keg_search", "node_read", "node_list", "node_search", "node_grep", "tag_list", "node_backlinks", "node_links", "keg_info",
 		"keg_settings_read", "keg_settings_edit", "node_stats", "node_create", "node_edit", "node_delete", "node_move",
 		"index_rebuild", "index_list", "index_read", "keg_check", "snapshot_list", "snapshot_create",
 		"snapshot_read", "snapshot_restore", "file_list", "image_list", "file_delete", "image_delete",
@@ -284,7 +284,7 @@ func TestMCP_CommonAgentSafeSurface(t *testing.T) {
 
 	// Common KEG and account tools must be present.
 	for _, want := range []string{
-		"node_read", "node_list", "node_search", "tag_list", "node_backlinks", "node_links", "keg_info", "keg_settings_read",
+		"node_read", "node_list", "node_search", "node_grep", "tag_list", "node_backlinks", "node_links", "keg_info", "keg_settings_read",
 		"keg_settings_edit",
 		"node_stats", "node_create", "node_edit", "node_delete", "node_move", "index_rebuild",
 		"index_list", "index_read", "snapshot_list", "snapshot_create",
@@ -490,7 +490,7 @@ func TestMCP_Grep(t *testing.T) {
 	session, ctx := newTestSession(t)
 
 	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "node_search",
+		Name: "node_grep",
 		Arguments: map[string]any{
 			"query": "Hello",
 		},
@@ -2139,7 +2139,7 @@ func TestMCP_ToolAnnotations_AllPresent(t *testing.T) {
 
 	// --- read-only tools ---
 	readOnlyTools := []string{
-		"node_read", "node_list", "node_search", "tag_list", "node_backlinks", "node_links",
+		"node_read", "node_list", "node_search", "node_grep", "tag_list", "node_backlinks", "node_links",
 		"keg_info", "keg_settings_read", "node_stats",
 		"file_list", "image_list",
 		"index_list", "index_read",

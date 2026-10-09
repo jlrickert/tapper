@@ -19,6 +19,7 @@ const (
 	PathBacklinks = "/tap/backlinks"
 	PathTags      = "/tap/tags"
 	PathCat       = "/tap/cat"
+	PathSearch    = "/tap/search"
 )
 
 // RelatedRequest asks for a node set's links or backlinks in one KEG, paged
@@ -82,4 +83,87 @@ type CatNode struct {
 // CatResponse returns the requested nodes in request order.
 type CatResponse struct {
 	Nodes []CatNode `json:"nodes"`
+}
+
+// SearchRequest asks for nodes ranked by relevance to Query across every KEG
+// the caller may read on this Hub, narrowed to Kegs when it is non-empty: an
+// empty Kegs means every readable KEG. The Hub resolves each KEG through its
+// authority boundary; naming a KEG only narrows and never grants access.
+//
+// Cursor continues a previous response's NextCursor; it is opaque and passed
+// through unchanged. Limit 0 lets the Hub choose the page size. Defaults and
+// clamping live only on the Hub.
+type SearchRequest struct {
+	Query string `json:"query"`
+	// Kegs are qualified references, "@namespace/alias".
+	Kegs   []string `json:"kegs,omitempty"`
+	Cursor string   `json:"cursor,omitempty"`
+	Limit  int      `json:"limit,omitempty"`
+}
+
+// Span is a highlighted range of a hit's Snippet in rune offsets: Start is
+// inclusive and End exclusive.
+type Span struct {
+	Start int `json:"start"`
+	End   int `json:"end"`
+}
+
+// Search hit fields name where a hit matched.
+const (
+	SearchFieldTitle = "title"
+	SearchFieldMeta  = "meta"
+	SearchFieldBody  = "body"
+)
+
+// Search hit sources name the ranking signals that found a hit.
+const (
+	SearchSourceKeyword  = "keyword"
+	SearchSourceSemantic = "semantic"
+)
+
+// Search modes report how a response was ranked. SearchModeKeyword means
+// semantic ranking was not used: the Hub has no embedding model or degraded.
+const (
+	SearchModeKeyword = "keyword"
+	SearchModeHybrid  = "hybrid"
+)
+
+// SearchHit is one ranked node. Hits arrive in a total order: Score
+// descending, then Keg, then NodeID.
+type SearchHit struct {
+	// Ref is the qualified node reference, "keg:@namespace/alias/id".
+	Ref string `json:"ref"`
+	// Keg is the qualified KEG reference, "@namespace/alias".
+	Keg    string  `json:"keg"`
+	NodeID string  `json:"node_id"`
+	Title  string  `json:"title"`
+	Score  float64 `json:"score"`
+	// Fields lists where the node matched: SearchFieldTitle, SearchFieldMeta,
+	// SearchFieldBody.
+	Fields []string `json:"fields"`
+	// Sources lists the signals that found the node: SearchSourceKeyword,
+	// SearchSourceSemantic.
+	Sources []string `json:"sources,omitempty"`
+	Snippet string   `json:"snippet,omitempty"`
+	// Highlights are the matched ranges of Snippet.
+	Highlights []Span `json:"highlights,omitempty"`
+}
+
+// TermExpansion reports how the Hub interpreted one query term: the lexemes it
+// searched for, and whether they came from typo expansion.
+type TermExpansion struct {
+	Term    string   `json:"term"`
+	Lexemes []string `json:"lexemes"`
+	Typo    bool     `json:"typo"`
+}
+
+// SearchResponse is one page of ranked hits. NextCursor is empty on the last
+// page. Mode is SearchModeKeyword or SearchModeHybrid. Warnings report
+// partial results the caller should know about.
+type SearchResponse struct {
+	Hits       []SearchHit     `json:"hits"`
+	NextCursor string          `json:"next_cursor,omitempty"`
+	Terms      []TermExpansion `json:"terms,omitempty"`
+	Mode       string          `json:"mode,omitempty"`
+	Warnings   []string        `json:"warnings,omitempty"`
 }

@@ -41,6 +41,10 @@ type ServerOptions struct {
 	IdentityProvider    IdentityProvider
 	AgentProvider       AgentProvider
 	NamespaceProvider   NamespaceProvider
+	// NodeSearchProvider runs ranked node search. The local default asks the
+	// selected Hub over REST; a Hub serving its own MCP endpoint injects one
+	// backed by its search service.
+	NodeSearchProvider NodeSearchProvider
 	// SharedFilesystem reports that this server and the agent host driving it
 	// see the same filesystem. That holds for stdio (`tap mcp`), where a path in
 	// a tool argument names the same file on both sides, and never for a hosted
@@ -84,6 +88,9 @@ func NewServer(tap *tapper.Tap, version string, defaults KegDefaults, opts ...Se
 	if opt.NamespaceProvider == nil {
 		opt.NamespaceProvider = localNamespaceProvider{tap: tap}
 	}
+	if opt.NodeSearchProvider == nil {
+		opt.NodeSearchProvider = localNodeSearchProvider{tap: tap}
+	}
 	defaults.gate = newSessionFlightGate(opt.OrientationProvider)
 	defaults.gate.clientVersion = version
 	if opt.OrientationCacheTTL > 0 && tap != nil && tap.Runtime != nil {
@@ -118,6 +125,7 @@ func NewServer(tap *tapper.Tap, version string, defaults KegDefaults, opts ...Se
 	// through Tap.resolveKegForRole, so a hub-injected KegResolver scopes them
 	// to the caller's catalog with viewer/editor enforcement.
 	registerReadTools(srv, tap, defaults)
+	registerNodeSearch(srv, defaults, opt.NodeSearchProvider)
 	registerWriteTools(srv, tap, defaults)
 	registerIndexTools(srv, tap, defaults)
 	registerSnapshotTools(srv, tap, defaults)
@@ -226,12 +234,12 @@ func mcpDefaultLimit(limit int) int {
 }
 
 // mcpDefaultMaxLinesValue is the default maximum number of matched lines per
-// node returned by MCP node_search when the caller does not specify max_lines. CLI
+// node returned by MCP node_grep when the caller does not specify max_lines. CLI
 // defaults to unlimited (0); MCP callers benefit from bounded output to
 // reduce token usage.
 const mcpDefaultMaxLinesValue = 3
 
-// mcpDefaultMaxLines resolves the max_lines value for MCP node_search. When the
+// mcpDefaultMaxLines resolves the max_lines value for MCP node_grep. When the
 // caller omits max_lines (JSON zero value 0), the default of 3 is applied.
 // Passing -1 explicitly requests unlimited (converted to 0 for the Tap API).
 // Any positive value is passed through unchanged.
@@ -330,7 +338,7 @@ func errorResult(err error) *sdkmcp.CallToolResult {
 func errorGuidance(code string) (action string, operationPerformed any) {
 	switch code {
 	case keg.RemoteCodeNotFound:
-		return "The target was not found or is not readable. Confirm its identity with `node_list`/`node_search` for nodes, `schema_list` for schemas, `flight_list`/`flight_search` for flights, or `keg_search` for KEGs before retrying.", false
+		return "The target was not found or is not readable. Confirm its identity with `node_list`/`node_search`/`node_grep` for nodes, `schema_list` for schemas, `flight_list`/`flight_search` for flights, or `keg_search` for KEGs before retrying.", false
 	case keg.RemoteCodeExist, keg.RemoteCodeDestExists:
 		return "Something already occupies that id or name. Choose another, or edit the existing node instead.", false
 	case keg.RemoteCodeSchemaInvalid:

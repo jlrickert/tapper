@@ -11,9 +11,12 @@ func NewGrepCmd(deps *Deps) *cobra.Command {
 	var opts tapper.GrepOptions
 
 	cmd := &cobra.Command{
-		Use:   "search QUERY",
-		Short: "search node content by query",
-		Long: `Search node content with a regex and print matching lines grouped by node.
+		Use:   "grep PATTERN",
+		Short: "match node content lines against a regex",
+		Long: `Match node content lines in one KEG against a regex and print the
+matching lines grouped by node, in node id order. Use it for exact
+identifiers, symbols, and audits; use tap node search to find the nodes
+about a topic.
 
 With --format or --id-only, matching nodes are listed instead of their
 matching lines.
