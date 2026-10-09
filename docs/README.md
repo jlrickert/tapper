@@ -107,7 +107,16 @@ writing KEG files directly.
 - `tap node read NODE_ID` - display node content and metadata.
 - `tap node edit NODE_ID` - edit a node.
 - `tap node list` - list indexed nodes.
-- `tap node search QUERY` - search node content.
+- `tap node search QUERY...` - find the nodes most relevant to a query, ranked
+  by the hub across every keg you can read, one keg (`--keg`), or listed kegs
+  (`--kegs @ns/a,@ns/b`). The query takes plain terms, `"quoted phrases"`, and
+  `-exclusions`. Each hit prints reference, score, title, and a highlighted
+  snippet; `--limit` caps a page (the hub chooses by default), the next page's
+  cursor is printed to stderr for `--cursor`, `--id-only` prints references,
+  and `--json` prints the hub's response. MCP's `node_search` takes the same
+  parameters; under a flight it never searches outside the cover.
+- `tap node grep PATTERN` - match node content lines in one keg against a
+  regex (MCP `node_grep`), for exact identifiers and audits.
 - `tap tag list [EXPR]` - list tags or query tagged nodes.
 - `tap node backlinks NODE_ID` - show nodes that link to a node.
 - `tap node links NODE_ID` - show outgoing links from a node.

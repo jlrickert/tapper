@@ -1,6 +1,6 @@
 # Output Formats
 
-`tap node list`, `tap node search`, `tap tag list`, `tap node links`, and `tap node backlinks` all render
+`tap node list`, `tap node grep`, `tap tag list`, `tap node links`, and `tap node backlinks` all render
 node listings through one `--format` template, and the MCP tools of the same
 names accept the same string.
 
@@ -148,6 +148,23 @@ same fields (`entity=plan`, `.hash=`) are evaluated by the Hub as well.
   survives.
 - **Values are never re-scanned.** A node whose title contains `%c` renders it
   literally.
+
+## Ranked search output
+
+`tap node search` and `node_search` rank hits across KEGs, so their rows are
+not node listings and take no `--format` template. Each hit is one
+tab-separated line:
+
+```text
+keg:@acme/notes/12	4.250	Festival trip	**festival** in Los Angeles
+```
+
+The columns are the node reference, the score to three decimals, the title,
+and the snippet with matches wrapped in `**` (bold on a terminal). Control
+characters collapse to spaces. `--id-only` prints only references, and
+`--json` prints the hub's response unchanged, including matched `fields`,
+`sources`, highlight offsets, `terms`, and `mode`. Warnings and the next page's
+cursor go to stderr, so stdout stays one hit per line.
 
 ## See also
 

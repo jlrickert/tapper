@@ -192,6 +192,7 @@ Find related context:
 
 ```bash
 tap node search "billing migration" --keg @acme/engineering
+tap node grep 'BILL-[0-9]+' --keg @acme/engineering
 tap tag list "release and payments" --keg @acme/engineering
 tap node backlinks 42 --keg @acme/engineering
 ```
