@@ -44,9 +44,15 @@ they are not included in aggregate orientation.
 and a nonzero node create or edit resolves to validation mode `block`, that
 write must explicitly select one schema. The selection becomes the completed
 node's `meta.type`, and the completed content and metadata are validated
-against it. An existing stored type does not satisfy the explicit-selection
-requirement. Use `--schema TYPE` with `tap node create`, `tap node edit`, or metadata
-writes.
+against it. A `type` declared in submitted metadata does not satisfy the
+explicit-selection requirement. Use `--schema TYPE` with `tap node create`,
+`tap node edit`, or metadata writes.
+
+An edit that replaces only content leaves metadata alone, so it keeps the
+node's stored type instead: it needs no selection and is validated against that
+type. This does not cover an untyped node, which has no type to keep, or
+content whose frontmatter declares a different type. Metadata-only edits and
+edits of both parts still need a selection.
 
 `human`, `agent`, and `api` each accept `off`, `warn`, or `block`, and continue
 to control validation even when strict is enabled. The defaults remain

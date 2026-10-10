@@ -238,6 +238,20 @@ func IsSchemaInvalid(err error) bool { return errors.Is(err, ErrSchemaInvalid) }
 type schemaTypeCandidate struct {
 	Source string
 	Value  string
+	// Inherited marks the type a node already carries when a write leaves
+	// its metadata alone. It satisfies a strict explicit-selection
+	// requirement but declares nothing, so it never conflicts with a
+	// selected schema.
+	Inherited bool
+}
+
+// schemaTypeCandidateInherited is the existing node type a content-only
+// edit keeps: under a strict blocking policy it stands in for an explicit
+// selection, since the edit does not change the node's metadata.
+func schemaTypeCandidateInherited(meta *NodeMeta) schemaTypeCandidate {
+	candidate := schemaTypeCandidateFromMeta("existing metadata", meta)
+	candidate.Inherited = true
+	return candidate
 }
 
 func schemaTypeCandidateFromAttrs(source string, attrs map[string]any) schemaTypeCandidate {
@@ -299,6 +313,24 @@ func (k *LocalKeg) explicitSchemaRequired(ctx context.Context, op schemaWriteOpe
 	return k.effectiveValidationMode(ctx, op) == ValidationModeBlock
 }
 
+// schemaSelectionRequiredMessage explains a missing explicit selection in
+// terms a caller can act on: the field to pass and the schemas this keg
+// defines. Listing the schemas is best effort.
+func (k *LocalKeg) schemaSelectionRequiredMessage(ctx context.Context, op schemaWriteOperation) string {
+	msg := "explicit schema selection is required: pass the schema field"
+	if op == schemaWriteUpdate {
+		msg += " (an edit that leaves metadata unchanged keeps the node's type and needs none)"
+	}
+	if names, err := k.listSchemas(ctx); err == nil {
+		if len(names) == 0 {
+			msg += "; this keg defines no schemas, so an admin must add one or relax schemaPolicy"
+		} else {
+			msg += "; this keg defines: " + strings.Join(names, ", ")
+		}
+	}
+	return msg
+}
+
 // projectNodeWrite resolves one live create/update's explicit schema
 // selection, applies it to the projected metadata, and validates the complete
 // projected node. Payload type declarations may agree with the selection, but
@@ -308,9 +340,14 @@ func (k *LocalKeg) projectNodeWrite(ctx context.Context, op schemaWriteOperation
 	selected := strings.TrimSpace(schema)
 	if id.ID != 0 {
 		var declared schemaTypeCandidate
+		inherited := ""
 		for _, candidate := range candidates {
 			candidate.Value = strings.TrimSpace(candidate.Value)
 			if candidate.Value == "" {
+				continue
+			}
+			if candidate.Inherited {
+				inherited = candidate.Value
 				continue
 			}
 			if declared.Value != "" && candidate.Value != declared.Value {
@@ -321,8 +358,11 @@ func (k *LocalKeg) projectNodeWrite(ctx context.Context, op schemaWriteOperation
 				return schemaSelectionError(id, selected, fmt.Sprintf("selected schema %q conflicts with %s type %q", selected, candidate.Source, candidate.Value))
 			}
 		}
-		if k.explicitSchemaRequired(ctx, op, id) && selected == "" {
-			return schemaSelectionError(id, "", "explicit schema selection is required")
+		// A write that keeps the node's existing type (a content-only edit
+		// whose content declares no other type) needs no selection.
+		keepsType := inherited != "" && (declared.Value == "" || declared.Value == inherited)
+		if selected == "" && !keepsType && k.explicitSchemaRequired(ctx, op, id) {
+			return schemaSelectionError(id, "", k.schemaSelectionRequiredMessage(ctx, op))
 		}
 		if selected != "" {
 			if node == nil {
@@ -883,6 +923,8 @@ func (k *LocalKeg) validateNodePayload(ctx context.Context, payload NodeValidati
 	if err != nil {
 		return nil, err
 	}
+	// Read the stored type before updateMeta folds frontmatter into meta.
+	kept := schemaTypeCandidateInherited(meta)
 	node := &NodeData{ID: id, Content: content, Meta: meta, Stats: &NodeStats{}}
 	if err := node.updateMeta(ctx, k.Runtime, nil); err != nil {
 		return nil, err
@@ -893,6 +935,8 @@ func (k *LocalKeg) validateNodePayload(ctx context.Context, payload NodeValidati
 	}
 	if payload.HasMeta {
 		candidates = append(candidates, schemaTypeCandidateFromMeta("metadata", meta))
+	} else {
+		candidates = append(candidates, kept)
 	}
 	return k.previewNodeWrite(ctx, schemaWriteUpdate, id, node, payload.Schema, candidates...)
 }

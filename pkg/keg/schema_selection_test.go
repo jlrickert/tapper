@@ -140,7 +140,8 @@ func TestSchemaSelectionBatchFailureIsAtomic(t *testing.T) {
 	require.NoError(t, err)
 	_, err = k.UpdateNodes(ctx, []keg.NodeUpdateOptions{
 		{ID: created[0].ID, Schema: "task", Content: []byte("# Changed\n"), HasContent: true, SnapshotBefore: true, ExpectedHash: one.Hash()},
-		{ID: created[1].ID, Content: []byte("# Missing selection\n"), HasContent: true, SnapshotBefore: true, ExpectedHash: two.Hash()},
+		// A metadata edit needs a selection; a content-only edit would not.
+		{ID: created[1].ID, Meta: []byte("type: task\nowner: alice\n"), HasMeta: true, SnapshotBefore: true, ExpectedHash: two.Hash()},
 	})
 	require.ErrorIs(t, err, keg.ErrSchemaInvalid)
 	var batchErr *keg.BatchMutationError
@@ -195,6 +196,95 @@ func TestStrictSchemaSelectionRejectsLegacyMetadataMutation(t *testing.T) {
 	require.Empty(t, meta.Tags())
 }
 
+// TestStrictSchemaSelectionEditRules pins the three strict edit cases for an
+// agent: a content-only edit keeps the node's type, while a metadata-only edit
+// and an edit of both parts need an explicit selection.
+func TestStrictSchemaSelectionEditRules(t *testing.T) {
+	k, ctx := newSchemaSelectionKeg(t)
+	agentCtx := keg.WithValidationActor(ctx, keg.ValidationActorAgent)
+	created, err := k.Create(agentCtx, &keg.CreateOptions{Schema: "note", Body: []byte("# Typed\n")})
+	require.NoError(t, err)
+
+	update := func(opts keg.NodeUpdateOptions) error {
+		t.Helper()
+		view, err := k.ReadNode(ctx, created.ID)
+		require.NoError(t, err)
+		opts.ID, opts.ExpectedHash = created.ID, view.Hash()
+		_, err = k.UpdateNodes(agentCtx, []keg.NodeUpdateOptions{opts})
+		return err
+	}
+	typeOf := func() string {
+		t.Helper()
+		meta, err := k.GetMeta(ctx, created.ID)
+		require.NoError(t, err)
+		typeName, _ := meta.Get("type")
+		return typeName
+	}
+
+	t.Run("content only keeps the type", func(t *testing.T) {
+		require.NoError(t, update(keg.NodeUpdateOptions{Content: []byte("# Body edit\n"), HasContent: true}))
+		require.Equal(t, "note", typeOf())
+		content, err := k.GetContent(ctx, created.ID)
+		require.NoError(t, err)
+		require.Equal(t, "# Body edit\n", string(content))
+	})
+
+	t.Run("content only is validated against the kept type", func(t *testing.T) {
+		err := update(keg.NodeUpdateOptions{Content: []byte("\n"), HasContent: true})
+		require.ErrorIs(t, err, keg.ErrSchemaInvalid)
+		require.Contains(t, err.Error(), "title")
+	})
+
+	t.Run("meta only needs a selection", func(t *testing.T) {
+		err := update(keg.NodeUpdateOptions{Meta: []byte("type: note\nowner: alice\n"), HasMeta: true})
+		require.ErrorIs(t, err, keg.ErrSchemaInvalid)
+		require.Contains(t, err.Error(), "explicit schema selection is required: pass the schema field")
+		require.Contains(t, err.Error(), "this keg defines: note, task")
+		require.NoError(t, update(keg.NodeUpdateOptions{Schema: "note", Meta: []byte("type: note\nowner: alice\n"), HasMeta: true}))
+	})
+
+	t.Run("both parts need a selection and follow it", func(t *testing.T) {
+		err := update(keg.NodeUpdateOptions{Content: []byte("# Both\n"), HasContent: true, Meta: []byte("type: note\n"), HasMeta: true})
+		require.ErrorIs(t, err, keg.ErrSchemaInvalid)
+		require.Contains(t, err.Error(), "explicit schema selection is required")
+
+		err = update(keg.NodeUpdateOptions{Schema: "note", Content: []byte("\n"), HasContent: true, Meta: []byte("type: note\n"), HasMeta: true})
+		require.ErrorIs(t, err, keg.ErrSchemaInvalid, "content must satisfy the selected schema")
+		require.Contains(t, err.Error(), "title")
+
+		err = update(keg.NodeUpdateOptions{Schema: "note", Content: []byte("# Both\n"), HasContent: true, Meta: []byte("type: task\n"), HasMeta: true})
+		require.ErrorIs(t, err, keg.ErrSchemaInvalid, "meta must agree with the selected schema")
+
+		require.NoError(t, update(keg.NodeUpdateOptions{Schema: "task", Content: []byte("# Both\n"), HasContent: true, Meta: []byte("type: task\n"), HasMeta: true}))
+		require.Equal(t, "task", typeOf())
+	})
+
+	t.Run("preview agrees with the write", func(t *testing.T) {
+		result, err := k.ValidateNodePayload(agentCtx, keg.NodeValidationPayload{ID: created.ID, Content: []byte("# Preview\n"), HasContent: true})
+		require.NoError(t, err)
+		require.True(t, result.Valid, "%+v", result.Issues)
+	})
+
+	t.Run("untyped node has no type to keep", func(t *testing.T) {
+		require.NoError(t, k.UpdateSettings(ctx, func(cfg *keg.Settings) { cfg.SchemaPolicy.Strict = false }))
+		untyped, err := k.Create(agentCtx, &keg.CreateOptions{Body: []byte("# Untyped\n")})
+		require.NoError(t, err)
+		require.NoError(t, k.UpdateSettings(ctx, func(cfg *keg.Settings) { cfg.SchemaPolicy.Strict = true }))
+		view, err := k.ReadNode(ctx, untyped.ID)
+		require.NoError(t, err)
+		_, err = k.UpdateNodes(agentCtx, []keg.NodeUpdateOptions{{ID: untyped.ID, Content: []byte("# Still untyped\n"), HasContent: true, ExpectedHash: view.Hash()}})
+		require.ErrorIs(t, err, keg.ErrSchemaInvalid)
+		require.Contains(t, err.Error(), "explicit schema selection is required")
+	})
+
+	t.Run("create with only meta.type needs a selection", func(t *testing.T) {
+		_, err := k.Create(agentCtx, &keg.CreateOptions{Body: []byte("# Declared\n"), Meta: []byte("type: note\n")})
+		require.ErrorIs(t, err, keg.ErrSchemaInvalid)
+		require.Contains(t, err.Error(), "this keg defines: note, task")
+		require.NotContains(t, err.Error(), "keeps the node's type", "the edit hint is for updates only")
+	})
+}
+
 func TestSchemaAwareDirectWritesPersistReplaceAndMutateAtomically(t *testing.T) {
 	k, ctx := newSchemaSelectionKeg(t)
 	humanCtx := keg.WithValidationActor(ctx, keg.ValidationActorHuman)
@@ -204,7 +294,9 @@ func TestSchemaAwareDirectWritesPersistReplaceAndMutateAtomically(t *testing.T) 
 	created, err := k.Create(humanCtx, &keg.CreateOptions{Schema: "note", Body: []byte("# Typed\n")})
 	require.NoError(t, err)
 
-	err = k.SetContent(humanCtx, created.ID, []byte("# Missing selection\n"))
+	// Content whose frontmatter declares another type changes the node's
+	// type, so it needs a selection even though metadata is untouched.
+	err = k.SetContent(humanCtx, created.ID, []byte("---\ntype: task\n---\n# Missing selection\n"))
 	require.ErrorIs(t, err, keg.ErrSchemaInvalid)
 	content, readErr := k.GetContent(ctx, created.ID)
 	require.NoError(t, readErr)
@@ -270,7 +362,7 @@ func TestValidateNodePayloadProjectsSchemaWithoutPersistence(t *testing.T) {
 		payload keg.NodeValidationPayload
 		want    string
 	}{
-		{"missing", keg.NodeValidationPayload{ID: created.ID, Content: []byte("# Preview\n"), HasContent: true}, "explicit schema selection is required"},
+		{"missing", keg.NodeValidationPayload{ID: created.ID, Meta: []byte("type: note\nowner: alice\n"), HasMeta: true}, "explicit schema selection is required"},
 		{"unknown", keg.NodeValidationPayload{ID: created.ID, Schema: "missing", Content: []byte("# Preview\n"), HasContent: true}, "unknown schema"},
 		{"conflict", keg.NodeValidationPayload{ID: created.ID, Schema: "task", Meta: []byte("type: note\n"), HasMeta: true}, "conflicts with metadata type"},
 		{"invalid", keg.NodeValidationPayload{ID: created.ID, Schema: "task", Content: []byte("\n"), HasContent: true}, "title"},

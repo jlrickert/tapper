@@ -67,13 +67,15 @@ func (k *LocalKeg) setContentNoDexWithOptions(ctx context.Context, id NodeId, da
 		if stats == nil {
 			stats = &NodeStats{}
 		}
+		// Read the stored type before updateMeta folds frontmatter into meta.
+		kept := schemaTypeCandidateInherited(meta)
 		now := k.Runtime.Clock().Now()
 		proposed := &NodeData{ID: id, Content: content, Meta: meta, Stats: stats}
 		if err := proposed.updateMeta(lockCtx, k.Runtime, &now); err != nil {
 			return fmt.Errorf("failed to update node metadata from content: %w", err)
 		}
 		if _, err := k.validateNodeWrite(lockCtx, schemaWriteUpdate, id, proposed, opts.Schema,
-			schemaTypeCandidateFromFrontmatter("frontmatter", content)); err != nil {
+			schemaTypeCandidateFromFrontmatter("frontmatter", content), kept); err != nil {
 			return err
 		}
 

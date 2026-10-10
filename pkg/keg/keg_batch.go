@@ -219,6 +219,9 @@ func (k *LocalKeg) updateNodes(ctx context.Context, updates []NodeUpdateOptions)
 		if stats == nil {
 			stats = &NodeStats{}
 		}
+		// Without submitted meta, meta is the stored metadata: a content-only
+		// edit keeps its type. Read it before updateMeta touches meta.
+		kept := schemaTypeCandidateInherited(meta)
 		now := k.Runtime.Clock().Now()
 		data := &NodeData{ID: opts.ID, Content: content, Meta: meta, Stats: stats}
 		if err := data.updateMeta(ctx, k.Runtime, &now); err != nil {
@@ -229,6 +232,8 @@ func (k *LocalKeg) updateNodes(ctx context.Context, updates []NodeUpdateOptions)
 		candidates := make([]schemaTypeCandidate, 0, 1)
 		if opts.HasMeta {
 			candidates = append(candidates, schemaTypeCandidateFromMeta("metadata", meta))
+		} else {
+			candidates = append(candidates, kept)
 		}
 		validation, err := k.validateNodeWrite(ctx, schemaWriteUpdate, opts.ID, data, opts.Schema, candidates...)
 		if err != nil && !errors.Is(err, ErrNotSupported) {

@@ -6,8 +6,13 @@ schema_read returns a schema's YAML data and hash. Follow its requirements.
 node_create accepts nodes (1-100), each with a unique key and markdown content
 beginning with an H1. meta is a YAML string, not a JSON object. Metadata must
 not be embedded as content frontmatter. schema is a sibling of meta; it sets
-meta.type and a conflicting type is rejected. Schema selection is required only
-when strict policy and agent mode both block.
+meta.type and a conflicting type is rejected. On a strict keg (the default for
+new kegs, while agent validation blocks) schema is required:
+- node_create: always; type in meta alone does not count.
+- node_edit with meta only: required.
+- node_edit with content only: not needed; the node keeps its current type and
+  the content is validated against it.
+- node_edit with both: required, and both content and meta must satisfy it.
 
 Example node_create arguments:
 ```json
