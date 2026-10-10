@@ -149,8 +149,13 @@ from `node_read`, and either document may be omitted to leave it untouched:
 
 ```json
 {"nodes": [{"node_id": "12", "content": "# Revised\n\nBody", "expected_content_hash": "CONTENT_HASH_FROM_READ"}]}
-{"nodes": [{"node_id": "12", "meta": "type: document\n", "expected_meta_hash": "META_HASH_FROM_READ"}]}
+{"nodes": [{"node_id": "12", "meta": "type: document\n", "expected_meta_hash": "META_HASH_FROM_READ", "schema": "document"}]}
 ```
+
+On a strict keg (the default for new kegs) every `node_create` item and every
+`node_edit` item that supplies `meta` needs `schema`; `type` in `meta` alone does
+not count. A content-only edit keeps the node's current type and is validated
+against it, so it needs no `schema`.
 
 `node_delete` carries only ids and the combined hashes:
 

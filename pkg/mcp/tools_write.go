@@ -80,7 +80,7 @@ type createNodeInput struct {
 	Key     string `json:"key" jsonschema:"caller-chosen label for this node within the batch, unique across the batch. Other nodes in the same batch link to it by writing {{node:KEY}} in their content; each placeholder is replaced with the id this node is assigned."`
 	Content string `json:"content" jsonschema:"the node's complete markdown body, opening with an H1 title. Must not start with a YAML frontmatter block: metadata goes in the meta field."`
 	Meta    string `json:"meta,omitempty" jsonschema:"the node's complete metadata document as YAML, including keys such as type, tags, and any schema-defined attributes. Omit for no metadata."`
-	Schema  string `json:"schema,omitempty" jsonschema:"schema selected for this write. Writes meta.type; a different type declared in meta is a hard error, not an override. Required when strict policy and agent mode both block."`
+	Schema  string `json:"schema,omitempty" jsonschema:"schema selected for this write, one of the types schema_list returns. Writes meta.type; a different type declared in meta is a hard error, not an override. Required on a strict keg (the default for new kegs), where type in meta alone does not count as a selection."`
 }
 
 type createNodeOutput struct {
@@ -106,7 +106,7 @@ func registerCreate(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 			"content must not begin with a YAML frontmatter block — metadata goes in meta. " +
 			"A node's title is its content H1 and its lead is the first paragraph, so there are no separate title, lead, tags, or attrs fields. " +
 			"Nodes in one batch can reference each other's not-yet-assigned ids by writing {{node:KEY}} in content. " +
-			"A schema selection is required only when strict policy and the resolved agent mode both block.",
+			"On a strict keg (the default for new kegs) every node needs schema, and type in meta alone does not count; call schema_list once per keg before the first write to learn its types.",
 		InputSchema: boundedMutationInputSchema[createInput]("nodes"),
 		Annotations: &sdkmcp.ToolAnnotations{
 			DestructiveHint: boolPtr(false),
@@ -144,7 +144,7 @@ type editItemInput struct {
 	Meta                *string `json:"meta,omitempty" jsonschema:"replacement metadata document as YAML, replacing the node's metadata entirely. Omit to leave metadata unchanged."`
 	ExpectedContentHash string  `json:"expected_content_hash,omitempty" jsonschema:"content_hash from node_read (or from a previous node_edit result); required when content is supplied"`
 	ExpectedMetaHash    string  `json:"expected_meta_hash,omitempty" jsonschema:"meta_hash from node_read (or from a previous node_edit result); required when meta is supplied"`
-	Schema              string  `json:"schema,omitempty" jsonschema:"schema selected for this write. Writes meta.type; a different type declared in meta is a hard error, not an override. Required when strict policy and agent mode both block."`
+	Schema              string  `json:"schema,omitempty" jsonschema:"schema selected for this write, one of the types schema_list returns. Writes meta.type; a different type declared in meta is a hard error, not an override. On a strict keg (the default for new kegs) required whenever meta is supplied; a content-only edit keeps the node's current type and needs none."`
 }
 
 // nodeUpdateOutput carries the written node's tokens. content_hash and
@@ -177,7 +177,7 @@ func registerEdit(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 			"Call node_read first for every node; node_read meta_only reads metadata. " +
 			"Each result returns the node's new content_hash and meta_hash, so a follow-up edit needs no re-read; its combined hash (for node_delete or node_move) changes with every edit. " +
 			"Take a snapshot with snapshot_create before a large or destructive edit. " +
-			"A schema selection is required only when strict policy and the resolved agent mode both block. " +
+			"On a strict keg (the default for new kegs) an edit that supplies meta needs schema; a content-only edit keeps the node's current type and is validated against it. " +
 			"On conflict, merge into the returned current content (or refetch with node_read) and retry with the returned current hash for the part you are writing: currentContentHash as expected_content_hash, currentMetaHash as expected_meta_hash.",
 		InputSchema: boundedMutationInputSchema[editInput]("nodes"),
 		Annotations: &sdkmcp.ToolAnnotations{

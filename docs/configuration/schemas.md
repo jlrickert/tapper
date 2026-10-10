@@ -26,7 +26,9 @@ Select a schema for a node write with `tap node create --schema TYPE`, `tap node
 `type` in attributes, Markdown frontmatter, or metadata is rejected instead of
 silently taking precedence. Under `schemaPolicy.strict`, selection is required
 only when the resolved actor validation mode is `block`; it remains optional
-for `warn`, `off`, non-strict kegs, and node 0.
+for `warn`, `off`, non-strict kegs, and node 0. A content-only edit of a typed
+node keeps its stored type and needs no selection; see
+[KEG settings](keg-settings.md).
 
 Metadata property rows can define note maturity scoring under the property's
 `maturity` key. The property name is the scored metadata attribute, so each row

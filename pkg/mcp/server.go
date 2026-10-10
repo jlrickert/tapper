@@ -356,7 +356,7 @@ func errorGuidance(code string) (action string, operationPerformed any) {
 	case keg.RemoteCodeExist, keg.RemoteCodeDestExists:
 		return "Something already occupies that id or name. Choose another, or edit the existing node instead.", false
 	case keg.RemoteCodeSchemaInvalid:
-		return "The node does not satisfy its schema. Read the issues in this error, fix `content` or `meta`, and retry. `schema_read` shows the schema's requirements.", false
+		return "If the error says a schema selection is required, pass `schema` with one of the types it lists (`schema_list` lists them) and retry; type in `meta` alone does not count. Otherwise the node does not satisfy its schema: read the issues in this error, fix `content` or `meta`, and retry. `schema_read` shows the schema's requirements.", false
 	case keg.RemoteCodeInvalid, keg.RemoteCodeBadRequest:
 		return "The request is malformed. Fix the field named in the error and retry; do not retry the same arguments.", false
 	case keg.RemoteCodeInvalidImage:
