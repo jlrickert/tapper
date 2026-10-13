@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
+	"strings"
 )
 
 // Move renames a node from src to dst and rewrites in-content links that
@@ -57,47 +59,19 @@ func (k *LocalKeg) move(ctx context.Context, opts NodeMoveOptions) ([]NodeId, er
 	if dstExists {
 		return nil, fmt.Errorf("destination node %s already exists: %w", dst.Path(), ErrDestinationExists)
 	}
+	dstTrashed, err := k.idTrashed(ctx, dst)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check the trash for the destination node: %w", err)
+	}
+	if dstTrashed {
+		return nil, fmt.Errorf("node %s is in the trash; restore or purge it before moving a node there: %w", dst.Path(), ErrDestinationExists)
+	}
 
 	if err := k.Repo.MoveNode(ctx, src, dst); err != nil {
 		return nil, fmt.Errorf("failed to move node %s to %s: %w", src.Path(), dst.Path(), err)
 	}
 
-	ids, err := k.Repo.ListNodes(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list nodes for link rewrite: %w", err)
-	}
-
-	// Rewrite links in all nodes, collecting changed NodeData without
-	// writing the dex after each individual change. A single batched dex
-	// write follows the loop.
-	var errs []error
-	var changedNodes []*NodeData
-	linkRE := compileNodeLinkPattern(src)
-	for _, id := range ids {
-		raw, readErr := k.Repo.ReadContent(ctx, id)
-		if readErr != nil {
-			if errors.Is(readErr, ErrNotExist) {
-				continue
-			}
-			errs = append(errs, fmt.Errorf("failed to read node content %s: %w", id.Path(), readErr))
-			continue
-		}
-
-		updated, changed := rewriteNodeLinks(raw, linkRE, dst)
-		if !changed {
-			continue
-		}
-		// Link rewrites are part of the move operation rather than a live node
-		// edit, so strict explicit-selection does not apply.
-		nd, err := k.setContentNoDex(WithValidationMode(ctx, ValidationModeOff), id, updated)
-		if err != nil {
-			errs = append(errs, fmt.Errorf("failed to rewrite links for node %s: %w", id.Path(), err))
-			continue
-		}
-		if nd != nil {
-			changedNodes = append(changedNodes, nd)
-		}
-	}
+	changedNodes, errs := k.rewriteLinksNoDex(ctx, src, dst)
 
 	// Single batched dex update: load fresh dex, apply all changes, write once.
 	dex, err := k.ensureDexFresh(ctx)
@@ -173,10 +147,13 @@ func (k *LocalKeg) remove(ctx context.Context, opts NodeRemoveOptions) ([]NodeId
 	if err := checkExpectedHash("node "+id.Path(), opts.ExpectedHash, current.Hash(), nodeRecoveryContent(current)); err != nil {
 		return nil, err
 	}
-	return k.removeUnchecked(ctx, id)
+	return k.removeUnchecked(ctx, id, manualRemoval)
 }
 
-func (k *LocalKeg) removeUnchecked(ctx context.Context, id NodeId) ([]NodeId, error) {
+// removeUnchecked removes id without checking its hash. A repository with a
+// trash keeps the node there and leaves links to it alone, so restoring it is
+// lossless; otherwise the node is deleted and links to it point at node 0.
+func (k *LocalKeg) removeUnchecked(ctx context.Context, id NodeId, info trashInfo) ([]NodeId, error) {
 	if !id.Valid() {
 		return nil, fmt.Errorf("invalid node id: %w", ErrInvalid)
 	}
@@ -195,6 +172,13 @@ func (k *LocalKeg) removeUnchecked(ctx context.Context, id NodeId) ([]NodeId, er
 	}
 	if !exists {
 		return nil, fmt.Errorf("node %s not found: %w", id.Path(), ErrNotExist)
+	}
+
+	if trash, ok := repoTrash(k.Repo); ok {
+		if err := k.trashNode(ctx, trash, id, info); err != nil {
+			return nil, err
+		}
+		return nil, k.afterRemove(ctx, id, nil)
 	}
 
 	// Acquire node lock to prevent concurrent writes from resurrecting
@@ -247,6 +231,12 @@ func (k *LocalKeg) removeUnchecked(ctx context.Context, id NodeId) ([]NodeId, er
 		}
 	}
 
+	return rewritten, k.afterRemove(ctx, id, errs)
+}
+
+// afterRemove drops a removed node from the dex and stamps the keg, adding
+// any failure to errs.
+func (k *LocalKeg) afterRemove(ctx context.Context, id NodeId, errs []error) error {
 	// Single batched dex update: remove deleted node, write once.
 	dex, err := k.ensureDexFresh(ctx)
 	if err != nil {
@@ -271,7 +261,95 @@ func (k *LocalKeg) removeUnchecked(ctx context.Context, id NodeId) ([]NodeId, er
 	if err := k.refreshSnapshotGeneratedIndexes(ctx); err != nil {
 		errs = append(errs, fmt.Errorf("failed to refresh snapshot indexes after remove: %w", err))
 	}
+	return errors.Join(errs...)
+}
 
+// rewriteLinksNoDex points every ../from link in the keg at to, returning the
+// nodes it rewrote for the caller's single dex update. Link rewrites belong to
+// the operation that caused them rather than being live edits, so strict
+// explicit-selection does not apply. Nodes in skip are neither read nor
+// rewritten.
+func (k *LocalKeg) rewriteLinksNoDex(ctx context.Context, from, to NodeId, skip ...NodeId) ([]*NodeData, []error) {
+	return k.rewriteMatchingLinksNoDex(ctx, compileNodeLinkPattern(from), to, skip...)
+}
+
+// rewriteMatchingLinksNoDex points every link linkRE matches at to, in one
+// scan of the keg.
+func (k *LocalKeg) rewriteMatchingLinksNoDex(ctx context.Context, linkRE *regexp.Regexp, to NodeId, skip ...NodeId) ([]*NodeData, []error) {
+	ids, err := k.Repo.ListNodes(ctx)
+	if err != nil {
+		return nil, []error{fmt.Errorf("failed to list nodes for link rewrite: %w", err)}
+	}
+	var errs []error
+	var changedNodes []*NodeData
+	for _, id := range ids {
+		if slices.Contains(skip, id) {
+			continue
+		}
+		raw, readErr := k.Repo.ReadContent(ctx, id)
+		if readErr != nil {
+			if errors.Is(readErr, ErrNotExist) {
+				continue
+			}
+			errs = append(errs, fmt.Errorf("failed to read node content %s: %w", id.Path(), readErr))
+			continue
+		}
+		updated, changed := rewriteNodeLinks(raw, linkRE, to)
+		if !changed {
+			continue
+		}
+		nd, err := k.setContentNoDex(WithValidationMode(ctx, ValidationModeOff), id, updated)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("failed to rewrite links for node %s: %w", id.Path(), err))
+			continue
+		}
+		if nd != nil {
+			changedNodes = append(changedNodes, nd)
+		}
+	}
+	return changedNodes, errs
+}
+
+// retargetLinks points every ../from link in the keg at to and brings the dex
+// up to date in one write. It returns the ids of the rewritten nodes. Nodes
+// in skip are left as they are.
+func (k *LocalKeg) retargetLinks(ctx context.Context, from, to NodeId, skip ...NodeId) ([]NodeId, error) {
+	return k.retargetLinksMany(ctx, []NodeId{from}, to, skip...)
+}
+
+// retargetLinksMany is retargetLinks for several ids at once: one scan of
+// the keg and one dex write.
+func (k *LocalKeg) retargetLinksMany(ctx context.Context, from []NodeId, to NodeId, skip ...NodeId) ([]NodeId, error) {
+	changedNodes, errs := k.rewriteMatchingLinksNoDex(ctx, compileNodeLinksPattern(from), to, skip...)
+	rewritten := make([]NodeId, 0, len(changedNodes))
+	for _, nd := range changedNodes {
+		rewritten = append(rewritten, nd.ID)
+	}
+	if len(changedNodes) == 0 {
+		return rewritten, errors.Join(errs...)
+	}
+	dex, err := k.ensureDexFresh(ctx)
+	if err != nil {
+		return rewritten, errors.Join(append(errs, fmt.Errorf("failed to retrieve dex after link rewrite: %w", err))...)
+	}
+	for _, nd := range changedNodes {
+		if err := dex.Remove(ctx, nd.ID); err != nil {
+			errs = append(errs, fmt.Errorf("failed to remove stale dex entry for %s: %w", nd.ID.Path(), err))
+		}
+		if err := dex.Add(ctx, nd); err != nil {
+			errs = append(errs, fmt.Errorf("failed to add changed node %s to dex: %w", nd.ID.Path(), err))
+		}
+	}
+	if err := dex.Write(ctx, k.Repo); err != nil {
+		errs = append(errs, fmt.Errorf("failed to write dex after link rewrite: %w", err))
+	} else {
+		k.dexMu.Lock()
+		k.recordDexWrite()
+		k.dexMu.Unlock()
+	}
+	if err := k.touchSettingsUpdated(ctx, k.Runtime.Clock().Now()); err != nil {
+		errs = append(errs, fmt.Errorf("failed to update settings after link rewrite: %w", err))
+	}
 	return rewritten, errors.Join(errs...)
 }
 
@@ -279,10 +357,25 @@ func (k *LocalKeg) removeUnchecked(ctx context.Context, id NodeId) ([]NodeId, er
 // links "../N" for the given source node ID. Pre-compile once and pass to
 // rewriteNodeLinks to avoid recompilation per call.
 func compileNodeLinkPattern(src NodeId) *regexp.Regexp {
-	oldID := src.Path()
+	return compileNodeLinksPattern([]NodeId{src})
+}
+
+// compileNodeLinksPattern matches canonical "../N" links to any of ids.
+func compileNodeLinksPattern(ids []NodeId) *regexp.Regexp {
+	alternatives := make([]string, len(ids))
+	for i, id := range ids {
+		alternatives[i] = regexp.QuoteMeta(id.Path())
+	}
 	delimiters := `[[:space:]\)\]\}\>\.,;:!?'\"#]`
-	pattern := `\.\./\s*` + regexp.QuoteMeta(oldID) + `(` + delimiters + `|$)`
+	pattern := `\.\./\s*(?:` + strings.Join(alternatives, "|") + `)(` + delimiters + `|$)`
 	return regexp.MustCompile(pattern)
+}
+
+// RetargetLinks returns content with every canonical "../from" node link
+// pointed at to, as moving or merging a node rewrites the keg's links.
+func RetargetLinks(content []byte, from, to NodeId) []byte {
+	updated, _ := rewriteNodeLinks(content, compileNodeLinkPattern(from), to)
+	return updated
 }
 
 func rewriteNodeLinks(raw []byte, re *regexp.Regexp, dst NodeId) ([]byte, bool) {

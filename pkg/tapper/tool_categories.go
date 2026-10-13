@@ -48,7 +48,7 @@ var toolCategoryOf = map[string]ToolCategory{
 	"file_delete": ToolCategoryMemory, "image_list": ToolCategoryMemory, "image_download": ToolCategoryMemory,
 	"image_upload": ToolCategoryMemory, "image_delete": ToolCategoryMemory, "snapshot_list": ToolCategoryMemory,
 	"snapshot_read": ToolCategoryMemory, "snapshot_create": ToolCategoryMemory, "snapshot_restore": ToolCategoryMemory,
-	"lock_acquire": ToolCategoryMemory,
+	"trash_list": ToolCategoryMemory, "trash_restore": ToolCategoryMemory, "lock_acquire": ToolCategoryMemory,
 	"lock_release": ToolCategoryMemory, "lock_status": ToolCategoryMemory,
 	"flight_list": ToolCategoryMemory, "flight_read": ToolCategoryMemory,
 
