@@ -734,6 +734,9 @@ func (k *LocalKeg) doctor(ctx context.Context) ([]DoctorIssue, error) {
 					issues = append(issues, DoctorIssue{Level: "error", Kind: "broken-link", NodeID: path, Message: fmt.Sprintf("broken link to node %s", link.Path())})
 				}
 			}
+			for _, problem := range KegLinkProblems(content, cfg.Aliases) {
+				issues = append(issues, DoctorIssue{Level: "error", Kind: "malformed-keg-link", NodeID: path, Message: problem})
+			}
 		}
 		rawMeta, metaErr := k.GetMetaRaw(ctx, id)
 		if metaErr == nil {

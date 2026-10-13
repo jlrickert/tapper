@@ -36,7 +36,7 @@ indexes:
 	require.Len(t, userIndexes, 2)
 	require.Equal(t, "index1.md", userIndexes[0].File)
 	require.Equal(t, "index2.md", userIndexes[1].File)
-	require.Empty(t, settings.Links)
+	require.Empty(t, settings.Aliases)
 }
 
 func TestParseConfigDataV2(t *testing.T) {
@@ -73,9 +73,9 @@ schemaPolicy:
 	require.Equal(t, "Test KEG V2", settings.Title)
 	require.Equal(t, "Use this KEG for parser tests.", settings.Instructions)
 
-	require.Len(t, settings.Links, 2, "expected 2 links")
+	require.Len(t, settings.Aliases, 2, "expected 2 links")
 	links := map[string]string{}
-	for _, l := range settings.Links {
+	for _, l := range settings.Aliases {
 		links[l.Alias] = l.URL
 	}
 	require.Contains(t, links, "home")
@@ -451,4 +451,32 @@ func indexFiles(entries []keg.IndexEntry) []string {
 		out = append(out, entry.File)
 	}
 	return out
+}
+
+// Settings written before the rename call aliases links. They are still
+// read, in YAML and JSON, but only when aliases is absent, and the
+// settings are written back under aliases alone.
+func TestSettingsReadLegacyLinksAsAliases(t *testing.T) {
+	legacy := "kegv: \"2025-07\"\ntitle: T\nlinks:\n  - alias: docs\n    url: keg:@team/manual\n"
+	settings, err := keg.ParseKegSettings([]byte(legacy))
+	require.NoError(t, err)
+	require.Equal(t, []keg.AliasEntry{{Alias: "docs", URL: "keg:@team/manual"}}, settings.Aliases)
+
+	out, err := settings.ToYAML()
+	require.NoError(t, err)
+	require.Contains(t, string(out), "aliases:")
+	require.NotContains(t, string(out), "links:")
+
+	both := legacy + "aliases:\n  - alias: kb\n    url: keg:@team/kb\n"
+	settings, err = keg.ParseKegSettings([]byte(both))
+	require.NoError(t, err)
+	require.Equal(t, []keg.AliasEntry{{Alias: "kb", URL: "keg:@team/kb"}}, settings.Aliases, "aliases wins over legacy links")
+
+	var fromJSON keg.Settings
+	require.NoError(t, json.Unmarshal([]byte(`{"kegv":"2025-07","links":[{"alias":"docs","url":"keg:@team/manual"}]}`), &fromJSON))
+	require.Equal(t, []keg.AliasEntry{{Alias: "docs", URL: "keg:@team/manual"}}, fromJSON.Aliases)
+	encoded, err := fromJSON.ToJSON()
+	require.NoError(t, err)
+	require.Contains(t, string(encoded), `"aliases":`)
+	require.NotContains(t, string(encoded), `"links":`)
 }

@@ -9,7 +9,8 @@ import (
 var relationshipRefRE = regexp.MustCompile(`^@[a-z0-9][a-z0-9-]{0,63}/[a-z0-9][a-z0-9-]{0,63}$`)
 
 // RelationshipTarget returns the canonical same-Hub KEG reference of a
-// settings relationship. Ordinary external URLs are metadata only.
+// settings alias or flight cover target. Ordinary external URLs are metadata
+// only.
 func RelationshipTarget(raw string) (string, bool, error) {
 	ref := strings.TrimPrefix(raw, "keg:")
 	if !strings.HasPrefix(raw, "keg:") && !strings.HasPrefix(raw, "@") {
@@ -21,8 +22,8 @@ func RelationshipTarget(raw string) (string, bool, error) {
 	return ref, true, nil
 }
 
-// ValidateRelationships requires unique aliases and canonical KEG targets.
-func ValidateRelationships(links []LinkEntry) error {
+// ValidateAliases requires unique aliases and canonical KEG targets.
+func ValidateAliases(links []AliasEntry) error {
 	seen := map[string]bool{}
 	for _, link := range links {
 		if link.Alias != "" {
@@ -41,10 +42,10 @@ func ValidateRelationships(links []LinkEntry) error {
 	return nil
 }
 
-// ResolveRelationshipAlias resolves the explicit keg:~alias/node form using
+// ResolveSettingsAlias resolves the explicit keg:~alias/node form using
 // only the source KEG's settings, preserving canonical keg:@namespace/keg/node.
-func ResolveRelationshipAlias(links []LinkEntry, alias string) (namespace, name string, err error) {
-	if err = ValidateRelationships(links); err != nil {
+func ResolveSettingsAlias(links []AliasEntry, alias string) (namespace, name string, err error) {
+	if err = ValidateAliases(links); err != nil {
 		return
 	}
 	for _, link := range links {

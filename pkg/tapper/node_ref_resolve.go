@@ -9,7 +9,7 @@ import (
 )
 
 // RefContext carries the "current keg" so a node reference can resolve a
-// keg-local alias against that keg's Links table and imply the hub for a
+// keg-local alias against that keg's aliases and imply the hub for a
 // qualified reference from the current keg's hub.
 type RefContext struct {
 	CurrentKeg keg.Keg
@@ -19,7 +19,7 @@ type RefContext struct {
 // the numeric node id within that keg:
 //
 //   - RefLocal:     the current keg, with the bare node id.
-//   - RefAlias:     the alias is resolved against the current keg's Links table
+//   - RefAlias:     the alias is resolved against the current keg's aliases
 //     first (so authored links travel with the keg), then the
 //     Tapper configuration.
 //   - RefQualified: a (hub, namespace, keg) reference whose hub is implied from
@@ -40,7 +40,7 @@ func (t *Tap) ResolveNodeRef(ctx context.Context, ref *keg.NodeRef, rc RefContex
 		if err != nil {
 			return nil, keg.NodeId{}, err
 		}
-		namespace, name, err := keg.ResolveRelationshipAlias(settings.Links, ref.Alias)
+		namespace, name, err := keg.ResolveSettingsAlias(settings.Aliases, ref.Alias)
 		if err != nil {
 			return nil, keg.NodeId{}, err
 		}
@@ -94,7 +94,7 @@ func (t *Tap) ResolveNodeRef(ctx context.Context, ref *keg.NodeRef, rc RefContex
 //
 //   - "<id>" / "<id>-<code>"        operate on currentKeg (unchanged behavior).
 //   - "keg:<alias>/<id>"            redirect to the keg the alias names (the
-//     current keg's Links table first, then tap-config kegs).
+//     current keg's aliases first, then tap-config kegs).
 //   - "keg:@<ns>/<keg>/<id>"        redirect to the fully qualified keg; the hub
 //     is implied from currentKeg's hub.
 //
