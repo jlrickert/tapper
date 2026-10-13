@@ -416,6 +416,17 @@ func (k *LocalKeg) importNodes(ctx context.Context, r io.Reader, opts ImportNode
 	if err != nil {
 		return nil, err
 	}
+	if opts.restoreTo != nil {
+		if len(ordered) != 1 {
+			return nil, fmt.Errorf("a trash bundle holds one node, not %d: %w", len(ordered), ErrInvalid)
+		}
+		mapping[ordered[0]] = *opts.restoreTo
+	}
+	if opts.restoreFromTrash {
+		if err := k.mapPurgedLinks(ctx, entries, ordered, mapping); err != nil {
+			return nil, err
+		}
+	}
 	if opts.AssignNewIDs && len(ordered) > 0 {
 		reserved := make([]NodeId, 0, len(ordered))
 		defer func() { k.cleanupUnusedImportReservations(ctx, reserved) }()
@@ -487,6 +498,46 @@ func (k *LocalKeg) importNodes(ctx context.Context, r io.Reader, opts ImportNode
 		}
 		if err != nil {
 			return nil, fmt.Errorf("imported node %s: %w", sourceID, err)
+		}
+	}
+
+	// An archive always lands on its own ids. A trashed node holding one
+	// of them moves to a fresh id first, so the trashed copy stays
+	// restorable rather than being lost or blocking the import.
+	if !opts.AssignNewIDs && !opts.restoreFromTrash {
+		landing := make(map[NodeId]bool, len(ordered))
+		highest := NodeId{}
+		for _, sourceID := range ordered {
+			id := mapping[sourceID]
+			landing[id] = true
+			if id.Code == "" && id.ID > highest.ID {
+				highest = id
+			}
+		}
+		// Raise the counter past every id the archive lands on before
+		// displacing anything, so no displaced entry is handed one of them.
+		if counter, ok := k.Repo.(RepositoryNodeCounter); ok && len(ordered) > 0 {
+			if err := counter.RaiseNodeCounter(ctx, highest); err != nil {
+				return nil, fmt.Errorf("unable to reserve the archive's node ids: %w", err)
+			}
+		}
+		for _, sourceID := range ordered {
+			if _, _, err := k.displaceTrashed(ctx, mapping[sourceID], landing); err != nil {
+				return nil, err
+			}
+		}
+	}
+	// A trash restore never replaces a live node: refuse before anything
+	// is written.
+	if opts.restoreFromTrash {
+		for _, sourceID := range ordered {
+			exists, err := k.nodeExistsWithContent(ctx, mapping[sourceID])
+			if err != nil {
+				return nil, err
+			}
+			if exists {
+				return nil, fmt.Errorf("node %s exists, so a trashed copy cannot be restored over it: %w", mapping[sourceID].Path(), ErrDestinationExists)
+			}
 		}
 	}
 
@@ -580,12 +631,16 @@ func (k *LocalKeg) importNodes(ctx context.Context, r io.Reader, opts ImportNode
 			return nil, fmt.Errorf("unable to restore keg settings after import: %w", err)
 		}
 	}
-	if err := k.rebuildDexFromRepo(ctx); err != nil {
-		return nil, err
-	}
-	if !manifest.WithSettings {
-		if err := k.touchSettingsUpdated(ctx, k.Runtime.Clock().Now()); err != nil {
-			return nil, fmt.Errorf("unable to update keg settings after import: %w", err)
+	// A trash restore updates the dex itself, once for its whole batch,
+	// rather than rebuilding it from every node for each restored one.
+	if !opts.restoreFromTrash {
+		if err := k.rebuildDexFromRepo(ctx); err != nil {
+			return nil, err
+		}
+		if !manifest.WithSettings {
+			if err := k.touchSettingsUpdated(ctx, k.Runtime.Clock().Now()); err != nil {
+				return nil, fmt.Errorf("unable to update keg settings after import: %w", err)
+			}
 		}
 	}
 

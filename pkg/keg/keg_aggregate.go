@@ -827,7 +827,7 @@ func (k *LocalKeg) removeNodes(ctx context.Context, opts RemoveNodesOptions) (Re
 		}
 	}
 	for _, item := range items {
-		rewritten, err := k.removeUnchecked(ctx, item.ID)
+		rewritten, err := k.removeUnchecked(ctx, item.ID, manualRemoval)
 		if err != nil {
 			result.Failure = newBatchFailure(item.ID, err)
 			return result, nil
