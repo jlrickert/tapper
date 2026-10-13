@@ -2,6 +2,38 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.46.0 - 2026-10-13
+
+
+
+### 🐛 Bug Fixes
+- **keg:** report a refused KEG version apart from a duplicate
+- **keg:** report a KEG version the hub did not apply
+- **search:** tell a missing search route by its response header
+- **search:** map unavailable search and missing login to codes
+- **search:** scope explicit and implicit KEGs by one cover rule
+- **search:** let the hub scope governed searches to the cover
+- **search:** show the next cursor in node_search text
+- **keg:** keep a node's type on content-only strict edits
+
+
+### 📚 Documentation
+- describe ranked node search and node grep
+
+
+### 🚀 Features
+- **keg:** create and label versioned kegs
+- **search:** add ranked node_search and keep regex as node_grep
+- **mcp:** sort tools into categories and explore the public directory
+- **flight:** follow note links in covers and block KEGs with none
+- **auth:** show the personal namespace the hub reports
+- **keg:** edit a node's content with a unified diff
+- **keg:** keep removed nodes in a restorable trash
+- **mcp:** merge nodes and replace text across a keg
+- link to Hub pages with tap url and the url tool
+- **cli:** show the CLI's context with tap info
+
+
 ## v0.45.0 - 2026-10-08
 
 
