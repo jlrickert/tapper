@@ -77,6 +77,7 @@ With a default keg:
 
 Tool names are `<resource>_<verb>` (`node_read`, `flight_list`,
 `agent_edit`), and each matches the CLI command `tap <resource> <verb>`.
+`orient` and `url` are single words, matching `tap orient` and `tap url`.
 
 The MCP server exposes a shared agent surface rather than every machine-local
 CLI capability. Exact tool availability follows the installed Tapper version
@@ -105,6 +106,7 @@ explicitly configured root failed to initialize.
 | `keg_info` | Show concise diagnostics for the resolved keg |
 | `keg_settings_read` | Read targeted minimal config for one or more selected KEGs; `minimal=false` reads one complete config |
 | `node_stats` | Show node statistics |
+| `url` | Hub web link for a KEG, note, flight, or namespace, to hand the reader a clickable link |
 
 ### Write
 

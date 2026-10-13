@@ -46,6 +46,11 @@ type Tap struct {
 	// endpoint injects its in-process TAP service here.
 	Operations Operations
 
+	// WebBaseURL is the public web origin of the Hub serving this Tap. A Hub
+	// that injects KegResolver sets it so WebURL links point at the Hub
+	// itself; the CLI leaves it empty and links to the configured hub.
+	WebBaseURL string
+
 	// Version is the version of the binary running this Tap, already
 	// normalized by NewTap. `tap integrate` stamps it into every plugin
 	// manifest it extracts, so an installed plugin always reports the tap

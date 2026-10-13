@@ -3,7 +3,6 @@ package cli
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/jlrickert/tapper/pkg/tapper"
 	"github.com/spf13/cobra"
@@ -52,7 +51,7 @@ and flight and the source that set each.`,
 				return err
 			}
 
-			if len(args) == 1 && opts.Flight == "" && isFlightUseArg(args[0]) {
+			if len(args) == 1 && opts.Flight == "" && tapper.IsFlightRef(args[0]) {
 				opts.Flight = args[0]
 			} else if len(args) == 1 {
 				opts.Keg = args[0]
@@ -91,16 +90,4 @@ func useArgCompletions(ctx context.Context, deps *Deps, toComplete string) []str
 	add(kegFlagCompletions(ctx, deps, toComplete))
 	add(flightFlagCompletions(ctx, deps, toComplete))
 	return out
-}
-
-func isFlightUseArg(raw string) bool {
-	raw = strings.TrimSpace(raw)
-	if strings.HasPrefix(raw, "+") {
-		return true
-	}
-	if rest, ok := strings.CutPrefix(raw, "@"); ok {
-		_, slug, found := strings.Cut(rest, "/")
-		return found && strings.HasPrefix(slug, "+")
-	}
-	return false
 }
