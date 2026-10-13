@@ -175,6 +175,7 @@ var tapMethodsExcluded = map[string]string{
 	"SetBootstrapFlight":       "CLI-only bootstrap step; validates and persists the user-level flight baseline, not an MCP operation",
 	"Use":                      "writes the project/user keg + flight to config; CLI-only config management by design",
 	"UseStatus":                "CLI-only summary of the resolved keg/flight context; config inspection via `tap use`",
+	"ContextInfo":              "CLI-only `tap info` summary of the local hub, keg, and flight defaults; an MCP session learns its identity from session_info and its flight and KEGs from orient",
 	"ActiveFlightName":         "internal pure read of the explicit flight or the loaded cascade's selection; backs Orient and MCP session adoption rather than being an operation of its own",
 	"ActiveLaunch":             "internal pure read of the `tap launch` harness and model driving the process; reported in orientation rather than being an operation of its own",
 	"OrientationKegsForFlight": "internal authority projection used by MCP providers to compute a revision before rendering once",
