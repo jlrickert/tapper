@@ -141,8 +141,9 @@ type editInput struct {
 type editItemInput struct {
 	NodeID              string  `json:"node_id" jsonschema:"id of the node to update"`
 	Content             *string `json:"content,omitempty" jsonschema:"replacement markdown body, replacing the node's content entirely. Must not start with a YAML frontmatter block: metadata goes in the meta field. Omit to leave content unchanged."`
+	Patch               *string `json:"patch,omitempty" jsonschema:"unified diff (the @@ hunks of diff -u) against the node's current content, an alternative to content. Each hunk's context and removed lines must match the current content exactly; header line numbers are a hint. Prefer it for small changes to long notes. The body keeps its line endings; a '\\ No newline at end of file' marker may only follow a hunk that reaches the end."`
 	Meta                *string `json:"meta,omitempty" jsonschema:"replacement metadata document as YAML, replacing the node's metadata entirely. Omit to leave metadata unchanged."`
-	ExpectedContentHash string  `json:"expected_content_hash,omitempty" jsonschema:"content_hash from node_read (or from a previous node_edit result); required when content is supplied"`
+	ExpectedContentHash string  `json:"expected_content_hash,omitempty" jsonschema:"content_hash from node_read (or from a previous node_edit result); required when content or patch is supplied"`
 	ExpectedMetaHash    string  `json:"expected_meta_hash,omitempty" jsonschema:"meta_hash from node_read (or from a previous node_edit result); required when meta is supplied"`
 	Schema              string  `json:"schema,omitempty" jsonschema:"schema selected for this write, one of the types schema_list returns. Writes meta.type; a different type declared in meta is a hard error, not an override. On a strict keg (the default for new kegs) required whenever meta is supplied; a content-only edit keeps the node's current type and needs none."`
 }
@@ -169,10 +170,13 @@ func nodeUpdateOutputs(results []keg.NodeUpdateResult) []nodeUpdateOutput {
 func registerEdit(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name: "node_edit",
-		Description: "Memory: Atomically replace the content and/or metadata of 1-100 nodes. " +
-			"Supply content, meta, or both for each node; at least one is required. " +
-			"content is the markdown body and must not begin with a YAML frontmatter block — metadata goes in meta. " +
-			"Each part has its own precondition token: pass node_read's content_hash as expected_content_hash when supplying content, and its meta_hash as expected_meta_hash when supplying meta. " +
+		Description: "Memory: Atomically change the content and/or metadata of 1-100 nodes. " +
+			"For each node supply content or patch, meta, or both; at least one is required. " +
+			"content is the full replacement markdown body and must not begin with a YAML frontmatter block — metadata goes in meta. " +
+			"patch is a unified diff against the current body (@@ -a,b +c,d @@ hunks of context ' ', removed '-' and added '+' lines), an alternative to content: prefer it for small changes to a long note, since only the changed lines are sent. " +
+			"Each hunk's context and removed lines must match the current body exactly and in only one place; the header line numbers are a hint. A patch that does not fit is refused with the lines it expected and nothing is written: re-read the node and rebuild the patch, or send content. " +
+			"A patch keeps the body's line endings (CRLF stays CRLF), and '\\ No newline at end of file' may only follow a hunk that reaches the end of the body. " +
+			"Each part has its own precondition token: pass node_read's content_hash as expected_content_hash when supplying content or patch, and its meta_hash as expected_meta_hash when supplying meta. " +
 			"Editing content never invalidates meta_hash and editing meta never invalidates content_hash, so a concurrent edit to the other part does not conflict. " +
 			"Call node_read first for every node; node_read meta_only reads metadata. " +
 			"Each result returns the node's new content_hash and meta_hash, so a follow-up edit needs no re-read; its combined hash (for node_delete or node_move) changes with every edit. " +
@@ -191,6 +195,9 @@ func registerEdit(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 			edit := tapper.BatchEditItem{NodeID: item.NodeID, Schema: item.Schema, ExpectedContentHash: item.ExpectedContentHash, ExpectedMetaHash: item.ExpectedMetaHash}
 			if item.Content != nil {
 				edit.Content, edit.HasContent = *item.Content, true
+			}
+			if item.Patch != nil {
+				edit.ContentPatch, edit.HasContentPatch = *item.Patch, true
 			}
 			if item.Meta != nil {
 				edit.Meta, edit.HasMeta = *item.Meta, true
