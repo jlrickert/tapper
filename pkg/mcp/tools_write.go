@@ -228,8 +228,9 @@ type removeNodeInput struct {
 
 func registerRemove(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
-		Name:        "node_delete",
-		Description: "Memory: Call node_read first for every node, then atomically remove 1-100 nodes using the hash from node_read (the combined hash, not content_hash or meta_hash) as that node's expected_hash. On conflict, refetch with node_read and retry with the returned current hash.",
+		Name: "node_delete",
+		Description: "Memory: Call node_read first for every node, then atomically remove 1-100 nodes using the hash from node_read (the combined hash, not content_hash or meta_hash) as that node's expected_hash. On conflict, refetch with node_read and retry with the returned current hash. " +
+			"Where the keg keeps a trash, a removed node goes there with its history and assets and trash_restore brings it back; links to it are left alone until it is purged. Otherwise the node and its snapshots are gone and links to it point at node 0.",
 		InputSchema: boundedMutationInputSchema[removeInput]("nodes"),
 		Annotations: &sdkmcp.ToolAnnotations{
 			DestructiveHint: boolPtr(true),

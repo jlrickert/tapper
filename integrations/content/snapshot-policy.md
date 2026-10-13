@@ -6,12 +6,19 @@
 are cheap, deduplicated by content hash, and stored inside the node they
 belong to.
 
-**Important: snapshots are stored inside the node. Removing a node
-removes its snapshot history with it. A snapshot does not protect
-against `mcp__tapper__node_delete`.** Before a removal, copy the content
-somewhere that survives the deletion — read it with `mcp__tapper__node_read`
-and keep the result in your working context, or write it to another
-node first. If you are not certain the removal is correct, defer it.
+**Important: snapshots are stored inside the node. A snapshot does not
+protect against `mcp__tapper__node_delete`.** On a hub keg, a removed node
+goes to the keg's trash with its snapshots, files, and images:
+`mcp__tapper__trash_list` shows it and `mcp__tapper__trash_restore` puts it
+back, until the keg's retention purges it. Until then its id stays reserved:
+no node can be moved onto it. An archive restore that needs the id moves the
+trashed node to a new id first (`displaced_from` in `mcp__tapper__trash_list`
+names the old one), and restoring it puts it back at the new id. Elsewhere, removing a node removes
+its snapshot history with it. Either way, before a removal you are not sure
+of, copy the content somewhere that survives the deletion — read it with
+`mcp__tapper__node_read` and keep the result in your working context, or
+write it to another node first. If you are not certain the removal is
+correct, defer it.
 
 Snapshots do protect in-place edits. Take one before any of:
 
@@ -41,4 +48,5 @@ Recover with:
 
 If you are unsure whether an in-place edit warrants a snapshot, take
 one. The cost is negligible. For `node_delete`, a snapshot is not a
-recovery path — preserve the content some other way first.
+recovery path — the trash is, where the keg has one; otherwise preserve the
+content some other way first.
