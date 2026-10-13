@@ -133,6 +133,8 @@ writing KEG files directly.
   succeeding. A keg's version never changes after creation. Keg listings,
   `tap keg info`, and orientation label KEGv2 kegs, and an operation a keg's
   version does not offer fails with `KEG_VERSION_UNSUPPORTED`.
+- `tap info` - show the hub and signed-in user, the default keg, the active
+  flight, and the kegs that flight covers.
 - `tap url [REF]` - print the hub web link for the current keg, a node (`42`,
   `@namespace/keg/42`, `keg:~alias/42`), a keg, a flight (`+slug`), or a
   namespace (`@namespace`). `--open` also opens it in the browser and `--json`

@@ -507,3 +507,92 @@ func (t *Tap) KegSettingsEdit(ctx context.Context, opts KegSettingsEditOptions) 
 	}
 	return nil
 }
+
+// ContextInfoHub is the hub the CLI talks to and who it is signed in as.
+type ContextInfoHub struct {
+	Name  string `yaml:"name,omitempty" json:"name,omitempty"`
+	URL   string `yaml:"url,omitempty" json:"url,omitempty"`
+	User  string `yaml:"user,omitempty" json:"user,omitempty"`
+	Scope string `yaml:"scope,omitempty" json:"scope,omitempty"`
+}
+
+// ContextInfoKeg is the CLI's default KEG.
+type ContextInfoKeg struct {
+	Ref   string `yaml:"ref,omitempty" json:"ref,omitempty"`
+	Scope string `yaml:"scope,omitempty" json:"scope,omitempty"`
+}
+
+// ContextInfoFlight is the active flight.
+type ContextInfoFlight struct {
+	Ref   string `yaml:"ref,omitempty" json:"ref,omitempty"`
+	Title string `yaml:"title,omitempty" json:"title,omitempty"`
+	Scope string `yaml:"scope,omitempty" json:"scope,omitempty"`
+}
+
+// ContextInfoFlightKeg is one KEG the active flight covers, at the role the
+// caller holds through it.
+type ContextInfoFlightKeg struct {
+	Ref   string `yaml:"ref" json:"ref"`
+	Role  string `yaml:"role,omitempty" json:"role,omitempty"`
+	Title string `yaml:"title,omitempty" json:"title,omitempty"`
+}
+
+// ContextInfoResult summarizes the CLI's context for `tap info`.
+type ContextInfoResult struct {
+	Hub      ContextInfoHub         `yaml:"hub" json:"hub"`
+	Keg      ContextInfoKeg         `yaml:"keg" json:"keg"`
+	Flight   ContextInfoFlight      `yaml:"flight" json:"flight"`
+	Kegs     []ContextInfoFlightKeg `yaml:"kegs" json:"kegs"`
+	Warnings []string               `yaml:"warnings,omitempty" json:"warnings,omitempty"`
+}
+
+// ContextInfo reports the hub, the default KEG, the active flight, and the
+// KEGs that flight covers. It is best-effort: a hub that cannot be reached or
+// a flight that cannot be loaded becomes a warning, and the locally
+// configured defaults are still reported.
+func (t *Tap) ContextInfo(ctx context.Context, opts KegTargetOptions) (ContextInfoResult, error) {
+	out := ContextInfoResult{Kegs: []ContextInfoFlightKeg{}}
+	slots := t.configSlots(opts)
+
+	out.Hub = ContextInfoHub{Name: slots.Hub.Value, Scope: slots.Hub.Scope}
+	if name, entry, err := t.ConfigService.SelectedHub(opts.Hub); err != nil {
+		out.Warnings = append(out.Warnings, fmt.Sprintf("hub: %v", err))
+	} else {
+		out.Hub.Name, out.Hub.URL = name, entry.URL
+		if who, err := t.SelectedHubIdentity(ctx); err != nil {
+			out.Warnings = append(out.Warnings, fmt.Sprintf("hub identity: %v", err))
+		} else if who != nil {
+			out.Hub.User = who.Username
+		}
+	}
+
+	out.Keg = ContextInfoKeg{Ref: slots.Keg.Value, Scope: slots.Keg.Scope}
+	if ref := t.resolveIdentity(opts).Ref; ref != "" {
+		out.Keg.Ref = ref
+	}
+
+	out.Flight = ContextInfoFlight{Ref: t.ActiveFlightName(opts.Flight), Scope: slots.Flight.Scope}
+	if out.Flight.Ref == "" {
+		return out, nil
+	}
+	flight, note, err := t.resolveOrientFlight(ctx, out.Flight.Ref)
+	if err != nil {
+		out.Warnings = append(out.Warnings, fmt.Sprintf("flight: %v", err))
+		return out, nil
+	}
+	if note != "" {
+		out.Warnings = append(out.Warnings, note)
+		return out, nil
+	}
+	out.Flight.Ref, out.Flight.Title = flight.Name, flight.Title
+	rows, warnings, err := t.OrientationKegsForFlight(ctx, flight)
+	out.Warnings = append(out.Warnings, warnings...)
+	if err != nil {
+		out.Warnings = append(out.Warnings, fmt.Sprintf("flight kegs: %v", err))
+		return out, nil
+	}
+	for _, row := range rows {
+		out.Kegs = append(out.Kegs, ContextInfoFlightKeg{Ref: row.Ref, Role: EffectiveOrientationRole(row), Title: row.Title})
+	}
+	return out, nil
+}
