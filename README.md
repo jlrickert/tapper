@@ -209,10 +209,14 @@ Move a repository or session onto the right shared memory:
 ```bash
 tap use @acme/engineering
 tap use @acme/engineering --flight @acme/+release-42
+tap url 42 --open
 ```
 
-`tap explore kegs|flights|people QUERY` searches the hub's public directory;
-your own kegs come from `tap keg list`.
+`tap url [REF]` prints the hub web
+link for the current keg, a node (`42`, `@acme/engineering/42`), a flight
+(`+release-42`), or a namespace (`@acme`); `--open` also opens it in the
+browser. Agents get the same link from the MCP `url` tool. `tap explore kegs|flights|people QUERY`
+searches the hub's public directory; your own kegs come from `tap keg list`.
 
 Export a keg for backup or migration:
 

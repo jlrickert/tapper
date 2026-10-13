@@ -92,6 +92,32 @@ KEG settings are separate from Tapper user/project config — different schema,
 different purpose (KEG metadata vs resolver settings) — and are read or written
 through the Hub.
 
+## Hub Web Links
+
+`tap url` and the MCP `url` tool (`Tap.WebURL`, `pkg/tapper/tap_url.go`) turn a
+reference into a link to the Hub's web pages. Resolution reuses the keg
+resolution above: a keg or node reference resolves to its target, whose
+configured hub URL is the link's origin. Flights and namespaces use the
+selected hub. Only a keg-local `keg:~alias` reads the current keg's settings,
+so the command skips the startup credential refresh. A Hub serving its own MCP
+sets `Tap.WebBaseURL` to its public address and resolves kegs through its
+injected `KegResolver`.
+
+The links depend on four Hub browser routes. They are outside the Hub's REST
+contract (see [API Compatibility](../api-compatibility.md)), so a Hub that
+moves them breaks these links:
+
+| Page | Path |
+| --- | --- |
+| Namespace | `/@namespace` |
+| KEG | `/@namespace/keg` |
+| Note | `/@namespace/keg/42` (plain decimal node id, no code) |
+| Flight | `/@namespace/+slug` |
+
+Every namespace, keg, and slug segment matches `^[a-z0-9_-]+$`, so paths are
+never escaped. A raw HTTP(S) keg endpoint that no configured hub serves has no
+web page and is refused.
+
 ## Read Next
 
 - [Resolution Order](../configuration/resolution-order.md)
