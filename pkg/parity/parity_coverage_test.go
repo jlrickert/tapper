@@ -127,6 +127,8 @@ var tapMethodsExcluded = map[string]string{
 	"NodeSnapshotBatch":   "MCP batch backing operation; CLI snapshot create remains a one-node command",
 	"CatViews":            "structured accessor behind Cat; MCP node_read uses it to return per-node precondition hashes without re-reading",
 	"NodeHash":            "explicit CLI read-before-write helper; MCP reads return the same token in structured content",
+	"Merge":               "MCP node_merge only so far; no tap node merge command yet",
+	"Replace":             "MCP keg_replace only so far; no tap keg replace command yet",
 	"TrashList":           "MCP trash_list only so far; no tap trash command yet",
 	"TrashRestore":        "MCP trash_restore only so far; no tap trash command yet",
 	"SchemaHash":          "explicit CLI read-before-write helper; MCP schema_read returns the same token",

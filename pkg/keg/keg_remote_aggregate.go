@@ -428,3 +428,75 @@ func remoteNodeNumbers(ids []NodeId) []int {
 	}
 	return out
 }
+
+func (k *RemoteKeg) MergeNodes(ctx context.Context, opts MergeNodesOptions) (MergeNodesResult, error) {
+	type wireTarget struct {
+		NodeID              int     `json:"node_id"`
+		Schema              string  `json:"schema,omitempty"`
+		Content             *string `json:"content,omitempty"`
+		ContentPatch        *string `json:"content_patch,omitempty"`
+		Meta                *string `json:"meta,omitempty"`
+		ExpectedHash        string  `json:"expected_hash,omitempty"`
+		ExpectedContentHash string  `json:"expected_content_hash,omitempty"`
+		ExpectedMetaHash    string  `json:"expected_meta_hash,omitempty"`
+	}
+	target := wireTarget{
+		NodeID:              opts.Target.ID.ID,
+		Schema:              opts.Target.Schema,
+		ExpectedHash:        opts.Target.ExpectedHash,
+		ExpectedContentHash: opts.Target.ExpectedContentHash,
+		ExpectedMetaHash:    opts.Target.ExpectedMetaHash,
+	}
+	if opts.Target.HasContent {
+		v := string(opts.Target.Content)
+		target.Content = &v
+	}
+	if opts.Target.HasContentPatch {
+		v := opts.Target.ContentPatch
+		target.ContentPatch = &v
+	}
+	if opts.Target.HasMeta {
+		v := string(opts.Target.Meta)
+		target.Meta = &v
+	}
+	var wire struct {
+		Target struct {
+			ID          int                     `json:"id"`
+			Hash        string                  `json:"hash"`
+			ContentHash string                  `json:"content_hash,omitempty"`
+			MetaHash    string                  `json:"meta_hash,omitempty"`
+			Validation  *SchemaValidationResult `json:"validation,omitempty"`
+		} `json:"target"`
+		Rewritten []int `json:"rewritten"`
+	}
+	if err := k.postJSON(ctx, "/nodes/merge", "MergeNodes", struct {
+		Source             int        `json:"source"`
+		ExpectedSourceHash string     `json:"expected_source_hash"`
+		Target             wireTarget `json:"target"`
+	}{opts.Source.ID, opts.ExpectedSourceHash, target}, &wire, http.StatusOK); err != nil {
+		return MergeNodesResult{}, err
+	}
+	out := MergeNodesResult{Target: NodeUpdateResult{ID: NodeId{ID: wire.Target.ID}, Hash: wire.Target.Hash, ContentHash: wire.Target.ContentHash, MetaHash: wire.Target.MetaHash, Validation: wire.Target.Validation}}
+	for _, id := range wire.Rewritten {
+		out.Rewritten = append(out.Rewritten, NodeId{ID: id})
+	}
+	return out, nil
+}
+
+func (k *RemoteKeg) ReplaceText(ctx context.Context, opts ReplaceTextOptions) (ReplaceTextResult, error) {
+	var wire struct {
+		Nodes []struct {
+			ReplacedNode
+			ID int `json:"id"`
+		} `json:"nodes"`
+	}
+	if err := k.postJSON(ctx, "/nodes/replace", "ReplaceText", opts, &wire, http.StatusOK); err != nil {
+		return ReplaceTextResult{}, err
+	}
+	out := ReplaceTextResult{Nodes: make([]ReplacedNode, len(wire.Nodes))}
+	for i, item := range wire.Nodes {
+		out.Nodes[i] = item.ReplacedNode
+		out.Nodes[i].ID = NodeId{ID: item.ID}
+	}
+	return out, nil
+}

@@ -110,6 +110,15 @@ type Keg interface {
 	// the ids of nodes whose content was rewritten.
 	Remove(ctx context.Context, opts NodeRemoveOptions) ([]NodeId, error)
 
+	// MergeNodes folds a source node into a target as one write: the target
+	// takes the merged body, links to the source are pointed at the target,
+	// and the source is removed (to the trash where the keg keeps one).
+	MergeNodes(ctx context.Context, opts MergeNodesOptions) (MergeNodesResult, error)
+
+	// ReplaceText finds and replaces text across the keg as one write, or
+	// with DryRun only reports what would change.
+	ReplaceText(ctx context.Context, opts ReplaceTextOptions) (ReplaceTextResult, error)
+
 	// ListTrash returns removed nodes kept for restoring, newest first.
 	// ErrNotSupported when the keg keeps no trash.
 	ListTrash(ctx context.Context) ([]TrashEntry, error)
