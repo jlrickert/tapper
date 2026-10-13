@@ -1,6 +1,7 @@
 package mcp_test
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"regexp"
@@ -182,14 +183,17 @@ func TestPublicContractGuideInventory(t *testing.T) {
 	require.Contains(t, wirePayload(t, invalid, "structured")["message"], "operating")
 }
 
-func TestPublicContractSearchTruncation(t *testing.T) {
-	rows := []tapper.OrientationKeg{}
-	for i := 0; i < 51; i++ {
-		rows = append(rows, tapper.OrientationKeg{Ref: fmt.Sprintf("@team/notes%d", i), Title: "Match"})
-	}
-	out := mcp.SearchIdentityKegsResult(rows, "Match")
-	require.Len(t, out.Kegs, 50)
-	require.True(t, out.Truncated)
-	require.False(t, out.Partial)
-	require.False(t, mcp.SearchIdentityKegsResult(rows[:50], "Match").Truncated)
+type truncatedExplore struct{}
+
+func (truncatedExplore) Explore(_ context.Context, kind tapper.ExploreKind, _ string) (tapper.ExploreResult, error) {
+	return tapper.ExploreResult{Kind: kind, Results: []tapper.ExploreRow{{Ref: "@team/notes", Name: "Notes"}}, Truncated: true}, nil
+}
+
+func TestPublicContractExploreTruncation(t *testing.T) {
+	session, ctx := newTestSessionWithOpts(t, mcp.ServerOptions{ExploreProvider: truncatedExplore{}})
+	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: "explore_kegs", Arguments: map[string]any{"query": "notes"}})
+	require.NoError(t, err)
+	require.False(t, res.IsError)
+	require.True(t, wirePayload(t, res, "structured")["truncated"].(bool))
+	require.Contains(t, extractText(t, res), "Results truncated; refine the query.")
 }

@@ -240,7 +240,7 @@ func TestMCP_ToolsList(t *testing.T) {
 		names[tool.Name] = true
 	}
 	for _, want := range []string{
-		"session_info", "keg_list", "keg_search", "node_read", "node_list", "node_search", "node_grep", "tag_list", "node_backlinks", "node_links", "keg_info",
+		"session_info", "keg_list", "explore_kegs", "explore_flights", "explore_people", "node_read", "node_list", "node_search", "node_grep", "tag_list", "node_backlinks", "node_links", "keg_info",
 		"keg_settings_read", "keg_settings_edit", "node_stats", "node_create", "node_edit", "node_delete", "node_move",
 		"index_rebuild", "index_list", "index_read", "keg_check", "snapshot_list", "snapshot_create",
 		"snapshot_read", "snapshot_restore", "file_list", "image_list", "file_delete", "image_delete",
@@ -249,7 +249,7 @@ func TestMCP_ToolsList(t *testing.T) {
 		"flight_create", "flight_edit", "flight_delete", "schema_list", "schema_read", "schema_create",
 		"schema_edit", "schema_delete", "schema_validate",
 		"agent_list", "agent_read", "agent_create", "agent_edit", "agent_delete",
-		"namespace_list", "namespace_search",
+		"namespace_list",
 	} {
 		require.Truef(t, names[want], "agent-safe surface missing %q", want)
 	}
@@ -292,11 +292,11 @@ func TestMCP_CommonAgentSafeSurface(t *testing.T) {
 		"file_list", "image_list", "file_delete", "image_delete",
 		"file_upload", "image_upload", "image_download",
 		"schema_list", "schema_read", "schema_create", "schema_edit",
-		"schema_delete", "schema_validate", "keg_check", "keg_list", "keg_search", "session_info",
+		"schema_delete", "schema_validate", "keg_check", "keg_list", "explore_kegs", "explore_flights", "explore_people", "session_info",
 		"lock_acquire", "lock_release", "lock_status", "lock_force_release",
 		"flight_list", "flight_read", "flight_create", "flight_edit", "flight_delete",
 		"agent_list", "agent_read", "agent_create", "agent_edit", "agent_delete",
-		"namespace_list", "namespace_search",
+		"namespace_list",
 	} {
 		require.Truef(t, names[want], "common surface should expose %q", want)
 	}

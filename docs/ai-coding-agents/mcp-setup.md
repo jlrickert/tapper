@@ -192,14 +192,22 @@ vocabulary to ask.
 
 ### Discovery And Identity
 
-| Tool | Description |
-| --- | --- |
-| `keg_list` | List canonical KEGs, effective roles, and winning granting flights for the live pinned-root graph by default or exactly one supplied `flight` |
-| `keg_search` | Search all identity-accessible KEG refs, titles, and summaries, including KEGs outside the flight graph; results grant no operational access |
-| `session_info` | Return structured credential-safe `identities[]` and exact pinned-root-context `kegs[]` |
-| `namespace_list` | List the namespaces you belong to, with your role |
-| `namespace_search` | Search the people and org namespaces visible on the Hub; discovery only |
-| `invitation_list` | List pending invitations to namespaces and kegs addressed to you; read-only, since accepting is the user's decision |
+Every tool belongs to one category, and its description opens with the
+category name: **Session** (identity and what the session may do; always
+available), **Memory** (reading and writing notes in the covered KEGs),
+**Explore** (the Hub's public directory), or **Manage** (KEGs, settings,
+schemas, repair, flights, and agents). Your own resources are listed, never
+searched; search is for note content (`node_search`) and the public directory.
+
+| Tool | Category | Description |
+| --- | --- | --- |
+| `keg_list` | Memory | List canonical KEGs with effective roles, titles, descriptions, and winning granting flights for the live pinned-root graph by default or exactly one supplied `flight` |
+| `session_info` | Session | Return structured credential-safe `identities[]` and exact pinned-root-context `kegs[]` |
+| `namespace_list` | Session | List the namespaces you belong to, with your role |
+| `invitation_list` | Session | List pending invitations to namespaces and kegs addressed to you; read-only, since accepting is the user's decision |
+| `explore_kegs` | Explore | Search the Hub's public KEGs; results grant no operational access |
+| `explore_flights` | Explore | Search the Hub's public flights; metadata only |
+| `explore_people` | Explore | Search the people and org namespaces on the Hub; discovery only |
 
 Each identity includes only its hub locator, user ID, username, display name,
 default namespace, and namespace names. Tokens, email, scopes, cookies, expiry,

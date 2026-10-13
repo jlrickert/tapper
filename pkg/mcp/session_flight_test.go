@@ -141,7 +141,8 @@ func TestMCP_OrientRepeatsTheRulesInitializationAlreadySent(t *testing.T) {
 	oriented := callOrient(t, ctx, session)
 	require.Contains(t, oriented, "# KEG System")
 	require.Contains(t, oriented, "Use only `mcp__tapper__*` tools")
-	require.Contains(t, oriented, "`flight_search`")
+	require.Contains(t, oriented, "`flight_list`")
+	require.Contains(t, oriented, "`explore_flights`")
 	require.NotContains(t, oriented, "## Available KEGs")
 }
 
@@ -240,10 +241,10 @@ func TestMCP_RemoteAliasCoverlessRootActivatesFullSurfaceAndCrossFlightKegList(t
 	rootList, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: "keg_list", Arguments: map[string]any{}})
 	require.NoError(t, err)
 	require.False(t, rootList.IsError, extractText(t, rootList))
-	require.Equal(t, "@admin/private\teditor\t@admin/+test", extractText(t, rootList))
+	require.Equal(t, "@admin/private\teditor\t@admin/+test\tPrivate\tCovered child keg", extractText(t, rootList))
 	rootStructured, err := json.Marshal(rootList.StructuredContent)
 	require.NoError(t, err)
-	require.JSONEq(t, `{"kegs":[{"ref":"@admin/private","role":"editor","flights":["@admin/+test"]}],"message":"@admin/private\teditor\t@admin/+test"}`, string(rootStructured))
+	require.JSONEq(t, `{"kegs":[{"ref":"@admin/private","role":"editor","title":"Private","description":"Covered child keg","flights":["@admin/+test"]}],"message":"@admin/private\teditor\t@admin/+test\tPrivate\tCovered child keg"}`, string(rootStructured))
 
 	explicitRoot, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: "keg_list", Arguments: map[string]any{"flight": "@admin/+admin"}})
 	require.NoError(t, err)
@@ -253,10 +254,10 @@ func TestMCP_RemoteAliasCoverlessRootActivatesFullSurfaceAndCrossFlightKegList(t
 	beforeSelected := catalogRequests.Load()
 	selected, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: "keg_list", Arguments: map[string]any{"flight": "+test"}})
 	require.NoError(t, err)
-	require.Equal(t, "@admin/private\teditor\t@admin/+test", extractText(t, selected))
+	require.Equal(t, "@admin/private\teditor\t@admin/+test\tPrivate\tCovered child keg", extractText(t, selected))
 	selectedStructured, err := json.Marshal(selected.StructuredContent)
 	require.NoError(t, err)
-	require.JSONEq(t, `{"kegs":[{"ref":"@admin/private","role":"editor","flights":["@admin/+test"]}],"message":"@admin/private\teditor\t@admin/+test"}`, string(selectedStructured))
+	require.JSONEq(t, `{"kegs":[{"ref":"@admin/private","role":"editor","title":"Private","description":"Covered child keg","flights":["@admin/+test"]}],"message":"@admin/private\teditor\t@admin/+test\tPrivate\tCovered child keg"}`, string(selectedStructured))
 	require.Equal(t, beforeSelected+1, catalogRequests.Load(), "one active Hub catalog projection")
 
 	deniedOperation, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: "keg_settings_read", Arguments: map[string]any{"keg": "@admin/private"}})
@@ -275,13 +276,6 @@ func TestMCP_RemoteAliasCoverlessRootActivatesFullSurfaceAndCrossFlightKegList(t
 	explicitRootOrient, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: "orient", Arguments: map[string]any{"flight": "@admin/+admin"}})
 	require.NoError(t, err)
 	require.NotContains(t, extractText(t, explicitRootOrient), "`@admin/private`")
-
-	for _, query := range []string{"ecw", "EXAMPLE", "covered child"} {
-		found, searchErr := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: "keg_search", Arguments: map[string]any{"query": query}})
-		require.NoError(t, searchErr)
-		require.False(t, found.IsError, extractText(t, found))
-		require.NotEmpty(t, extractText(t, found))
-	}
 
 	beforeInvalid := catalogRequests.Load()
 	invalid, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: "keg_list", Arguments: map[string]any{"all": true}})

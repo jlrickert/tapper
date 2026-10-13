@@ -58,9 +58,9 @@ func TestMCP_NoFlightsAnywhereUsesIdentityFullAccess(t *testing.T) {
 	require.Contains(t, tools, "flight_create")
 	require.Contains(t, tools, "keg_create")
 	require.Contains(t, tools, "keg_delete")
-	search, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: "keg_search", Arguments: map[string]any{"query": "anything"}})
+	listed, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: "keg_list", Arguments: map[string]any{}})
 	require.NoError(t, err)
-	require.False(t, search.IsError, extractText(t, search))
+	require.False(t, listed.IsError, extractText(t, listed))
 
 	created, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: "keg_create", Arguments: map[string]any{
 		"keg": "@local/first", "title": "First KEG",
