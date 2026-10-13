@@ -36,6 +36,27 @@ func TestValidateToken_Success(t *testing.T) {
 	require.Equal(t, int64(42), who.UserID)
 	require.Equal(t, "alice", who.Username)
 	require.Equal(t, "alice@example.com", who.Email)
+	require.Nil(t, who.PersonalNamespace, "an older hub's silence is not a missing namespace")
+}
+
+// personal_namespace "" (the hub found none) decodes apart from its absence.
+func TestValidateToken_PersonalNamespace(t *testing.T) {
+	t.Parallel()
+	for _, want := range []string{"alice", ""} {
+		mux := http.NewServeMux()
+		mux.HandleFunc("/api/v1/whoami", func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{"user_id": 42, "username": "alice", "personal_namespace": want})
+		})
+		srv := testapi.NewServer(mux)
+		t.Cleanup(srv.Close)
+
+		rt, _ := toolkit.NewRuntime()
+		who, err := tapper.ValidateToken(context.Background(), rt, srv.URL, "thub_abc")
+		require.NoError(t, err)
+		require.NotNil(t, who.PersonalNamespace)
+		require.Equal(t, want, *who.PersonalNamespace)
+	}
 }
 
 func TestValidateToken_Unauthorized(t *testing.T) {
