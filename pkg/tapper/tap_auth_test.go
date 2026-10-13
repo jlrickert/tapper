@@ -223,6 +223,36 @@ func TestTap_AuthStatus(t *testing.T) {
 		require.NotContains(t, res.Formatted, tok)
 	})
 
+	t.Run("personal namespace is shown as the hub reports it", func(t *testing.T) {
+		t.Parallel()
+		named, none := "alice", ""
+		for _, tc := range []struct {
+			name     string
+			personal *string
+			want     string
+		}{
+			{"set", &named, "  ✓ Logged in as alice\n  - Namespace: @alice\n"},
+			{"none", &none, "  ✓ Logged in as alice\n  - Namespace: none (the hub has no personal namespace for this account)\n"},
+			{"older hub", nil, "  ✓ Logged in as alice\n  - Method:"},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				sb := NewSandbox(t)
+				tap := newTestTap(t, sb)
+				seedStore(t, sb, tap, map[string]tapper.AuthEntry{
+					"https://hub.example.com": {AccessToken: "thub_personalns0000", TokenType: "Bearer"},
+				})
+				tap.AuthValidateFn = func(context.Context, *toolkit.Runtime, string, string) (*tapper.WhoAmI, error) {
+					return &tapper.WhoAmI{Username: "alice", PersonalNamespace: tc.personal}, nil
+				}
+
+				res, err := tap.AuthStatus(sb.Context(), tapper.AuthStatusOptions{})
+				require.NoError(t, err)
+				require.Contains(t, res.Formatted, tc.want)
+				require.Equal(t, tc.personal, res.PersonalNamespace)
+			})
+		}
+	})
+
 	t.Run("valid token without display name omits parens", func(t *testing.T) {
 		t.Parallel()
 		sb := NewSandbox(t)

@@ -43,14 +43,19 @@ var ErrTokenRejected = errors.New("hub rejected the token")
 // fallback namespace so the hub, not the client, decides which namespace a
 // fresh login lands in. Namespaces lists every namespace the user belongs to
 // (personal + orgs) and is empty when the hub omits it (older hub).
+//
+// PersonalNamespace is the namespace of kind user the hub found the account
+// owning, read from its database rather than assumed from the username. Nil
+// when the hub omits it (older hub) or could not tell; "" when it has none.
 type WhoAmI struct {
-	UserID           int64     `json:"user_id"`
-	Username         string    `json:"username"`
-	DisplayName      string    `json:"display_name"`
-	Email            string    `json:"email"`
-	CreatedAt        time.Time `json:"created_at"`
-	DefaultNamespace string    `json:"default_namespace"`
-	Namespaces       []string  `json:"namespaces,omitempty"`
+	UserID            int64     `json:"user_id"`
+	Username          string    `json:"username"`
+	DisplayName       string    `json:"display_name"`
+	Email             string    `json:"email"`
+	CreatedAt         time.Time `json:"created_at"`
+	DefaultNamespace  string    `json:"default_namespace"`
+	Namespaces        []string  `json:"namespaces,omitempty"`
+	PersonalNamespace *string   `json:"personal_namespace,omitempty"`
 }
 
 // ValidateToken calls GET {hubURL}/api/v1/whoami with the bearer token and
