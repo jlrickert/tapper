@@ -23,6 +23,14 @@ import (
 
 type shutdownKey struct{}
 
+// localOnlyAnnotation marks a command that works from local configuration, so
+// the root skips the startup credential refresh and invocation reporting.
+const localOnlyAnnotation = "tapper.io/local-only"
+
+func runsLocalOnly(cmd *cobra.Command) bool {
+	return cmd != nil && cmd.Annotations[localOnlyAnnotation] == "true"
+}
+
 type Deps struct {
 	Root     string
 	Shutdown func()
@@ -57,6 +65,11 @@ type Deps struct {
 	// before the token is written to the AuthStore. Nil is lazy-defaulted to
 	// tapper.ValidateToken; tests inject a stub to avoid the network call.
 	AuthValidateTokenFn func(ctx context.Context, rt *toolkit.Runtime, hubURL, token string) (*tapper.WhoAmI, error)
+
+	// OpenBrowserFn opens a link in the user's browser for `tap url --open`.
+	// Nil is lazy-defaulted to tapper.OpenBrowser; tests inject a stub so no
+	// browser process starts.
+	OpenBrowserFn func(ctx context.Context, rt *toolkit.Runtime, rawURL string) error
 
 	// AuthPrompter renders the interactive hub / method / URL / token prompts
 	// for `tap auth login`. Nil is lazy-defaulted to the huh-backed prompter;
@@ -96,6 +109,9 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 	}
 	if deps.AuthValidateTokenFn == nil {
 		deps.AuthValidateTokenFn = tapper.ValidateToken
+	}
+	if deps.OpenBrowserFn == nil {
+		deps.OpenBrowserFn = tapper.OpenBrowser
 	}
 	if deps.AuthPrompter == nil {
 		deps.AuthPrompter = huhAuthPrompter{}
@@ -233,7 +249,7 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 			// with fresh tokens. Skipped for shell completion, which must
 			// never block on a network round trip. After the logger setup
 			// so refresh failures land in the configured log destination.
-			localOnly := cmd.Name() == "bootstrap" || cmd.Name() == "config" || (cmd.Parent() != nil && (cmd.Parent().Name() == "config" || (cmd.Parent().Name() == "hub" && cmd.Name() == "list")))
+			localOnly := runsLocalOnly(cmd) || cmd.Name() == "bootstrap" || cmd.Name() == "config" || (cmd.Parent() != nil && (cmd.Parent().Name() == "config" || (cmd.Parent().Name() == "hub" && cmd.Name() == "list")))
 			if cmd.Flags().Lookup("offline") != nil {
 				offline, _ := cmd.Flags().GetBool("offline")
 				localOnly = localOnly || offline
@@ -338,6 +354,7 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 			NewNamespaceCmd(deps),
 			NewInvitationCmd(deps),
 			NewUseCmd(deps),
+			NewURLCmd(deps),
 			NewBootstrapCmd(deps),
 			configCmd,
 		)

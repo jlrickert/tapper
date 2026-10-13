@@ -124,3 +124,28 @@ func TestStartup_APITokenNeverRefreshed(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, "thub_pastedtoken0", entry.AccessToken, "pasted API token must be untouched")
 }
+
+// TestStartup_URLSkipsRefresh: `tap url` builds a link from configuration,
+// so it is local-only and never renews credentials, even expired ones.
+func TestStartup_URLSkipsRefresh(t *testing.T) {
+	t.Parallel()
+	sb := newTestSandbox(t)
+	srv, calls := countingRefreshHub(t)
+
+	now := sb.Runtime().Clock().Now()
+	seedAuthStore(t, sb, map[string]tapper.AuthEntry{
+		srv.URL: {
+			AccessToken:   "thub_expiredseed0",
+			TokenType:     "Bearer",
+			ExpiresAt:     now.Add(-time.Hour),
+			RefreshToken:  "rt-old",
+			ClientID:      "tapper-cli",
+			TokenEndpoint: srv.URL,
+		},
+	})
+
+	res := newAuthProcess(t, nil, "url", "@team/notes/1").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+	require.Equal(t, tapper.CanonicalHubURL(srv.URL)+"/@team/notes/1\n", string(res.Stdout))
+	require.Equal(t, int64(0), calls.Load(), "tap url must not refresh credentials")
+}

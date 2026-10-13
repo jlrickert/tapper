@@ -37,6 +37,9 @@ var tapMethodToSurfaces = map[string]struct {
 	"ListIndexes":     {CLI: "index list", MCP: []string{"index_list"}},
 	"IndexCat":        {CLI: "index read", MCP: []string{"index_read"}},
 	"Doctor":          {CLI: "keg check", MCP: []string{"keg_check"}},
+	// Hub web links. `tap url --open` also launches the browser, a CLI-only
+	// convenience; the link itself is the same on both surfaces.
+	"WebURL": {CLI: "url", MCP: []string{"url"}},
 
 	// Write operations
 	"KegDelete": {CLI: "keg delete", MCP: []string{"keg_delete"}},

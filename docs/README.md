@@ -133,6 +133,11 @@ writing KEG files directly.
   succeeding. A keg's version never changes after creation. Keg listings,
   `tap keg info`, and orientation label KEGv2 kegs, and an operation a keg's
   version does not offer fails with `KEG_VERSION_UNSUPPORTED`.
+- `tap url [REF]` - print the hub web link for the current keg, a node (`42`,
+  `@namespace/keg/42`, `keg:~alias/42`), a keg, a flight (`+slug`), or a
+  namespace (`@namespace`). `--open` also opens it in the browser and `--json`
+  adds the kind and canonical reference. MCP's `url` tool returns the same
+  link.
 - `tap keg list` - list your kegs on a hub. The list is complete; search is
   only for the public directory.
 - `tap explore kegs|flights|people QUERY` - search the hub's public directory.

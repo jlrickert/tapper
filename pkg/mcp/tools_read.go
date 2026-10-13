@@ -20,6 +20,7 @@ func registerReadTools(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults
 	registerInfo(srv, tap, defaults)
 	registerKegSettings(srv, tap, defaults)
 	registerStats(srv, tap, defaults)
+	registerURL(srv, tap, defaults)
 }
 
 // --- node_read ---
