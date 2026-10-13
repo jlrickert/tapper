@@ -28,7 +28,8 @@ type nodeSearchOutput struct {
 func registerNodeSearch(srv *sdkmcp.Server, defaults KegDefaults, provider NodeSearchProvider) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name: "node_search",
-		Description: "Find the KEG nodes most relevant to a query, ranked across every KEG this call may read, one named keg, or the listed kegs. " +
+		Description: "Memory: Find notes about a topic: the KEG nodes most relevant to a query, ranked across every KEG this call may read (omit keg), one named keg, or the listed kegs. " +
+			"This is the only search over note content: explore_kegs finds public KEGs, never notes, and keg_list lists your own KEGs. " +
 			"Matches titles, metadata, tags, and bodies. Use node_grep for exact regex matching of identifiers or symbols. " +
 			"Each hit gives the node reference, score, title, matched fields, and a snippet with matches in **bold**; " +
 			"follow next_cursor for more and use node_read for complete bodies.",

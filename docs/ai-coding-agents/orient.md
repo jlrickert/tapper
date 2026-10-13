@@ -56,8 +56,8 @@ instructions: |
   Snapshot any node before changing public API guidance.
 ```
 
-`summary` is the concise discovery description shown by graph orientation and
-identity `keg_search`.
+`summary` is the concise discovery description shown by graph orientation,
+`keg_list`, and, for a public KEG, `explore_kegs`.
 It should help an agent decide whether the KEG is relevant and is not
 automatically truncated. `instructions` is targeted operational guidance.
 Aggregate orientation never includes it.
@@ -117,11 +117,11 @@ access requires reconnecting. A failed refresh returns
 `SESSION_REFRESH_FAILED`, keeps the prior mode and tool surface, and reports
 `toolsChanged:false`.
 
-`keg_search` is deliberately outside this authority flow. It performs a
-case-insensitive literal match over canonical ref, title, and summary for all
-identity-accessible KEGs and returns at most 50 canonical rows. Finding a KEG
-does not change authority: no-flight calls still use the identity role, while a
-real-flight call must also cover it.
+`explore_kegs`, `explore_flights`, and `explore_people` are deliberately
+outside this authority flow. They search only the Hub's public directory with a
+literal, non-empty query and return a capped page. Finding a KEG does not change
+authority: a real-flight call must still cover it. Your own KEGs come from
+`keg_list`, which is complete and needs no query.
 
 ## MCP Resource
 

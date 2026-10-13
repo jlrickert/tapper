@@ -133,7 +133,10 @@ writing KEG files directly.
   succeeding. A keg's version never changes after creation. Keg listings,
   `tap keg info`, and orientation label KEGv2 kegs, and an operation a keg's
   version does not offer fails with `KEG_VERSION_UNSUPPORTED`.
-- `tap keg list` - list kegs visible on a hub.
+- `tap keg list` - list your kegs on a hub. The list is complete; search is
+  only for the public directory.
+- `tap explore kegs|flights|people QUERY` - search the hub's public directory.
+  A match grants no access.
 - `tap keg grant|grants|revoke` - manage per-keg access.
 - `tap keg visibility public|private` - set keg visibility.
 - `tap keg rename @namespace/old new` - rename a keg alias in its namespace.

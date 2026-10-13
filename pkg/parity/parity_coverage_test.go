@@ -102,10 +102,15 @@ var tapMethodToSurfaces = map[string]struct {
 	// Keg and namespace discovery (hub-side). HubListKegs backs `tap keg list`;
 	// on MCP the same listing is filtered through the session's active flight
 	// cover.
-	"HubListKegs":     {CLI: "keg list", MCP: []string{"keg_list"}},
-	"NamespaceList":   {CLI: "namespace list", MCP: []string{"namespace_list"}},
-	"NamespaceSearch": {CLI: "namespace search", MCP: []string{"namespace_search"}},
-	"InvitationList":  {CLI: "invitation list", MCP: []string{"invitation_list"}},
+	"HubListKegs":    {CLI: "keg list", MCP: []string{"keg_list"}},
+	"NamespaceList":  {CLI: "namespace list", MCP: []string{"namespace_list"}},
+	"InvitationList": {CLI: "invitation list", MCP: []string{"invitation_list"}},
+
+	// The hub's public directory. Searching is reserved for it; the caller's
+	// own KEGs, flights, and namespaces are listed above.
+	"ExploreKegs":    {CLI: "explore kegs", MCP: []string{"explore_kegs"}},
+	"ExploreFlights": {CLI: "explore flights", MCP: []string{"explore_flights"}},
+	"ExplorePeople":  {CLI: "explore people", MCP: []string{"explore_people"}},
 
 	// Agent orientation remains shared. Native plugin installation is an
 	// intentionally CLI-only host operation (see tapMethodsExcluded).
@@ -166,7 +171,7 @@ var tapMethodsExcluded = map[string]string{
 	"ActiveFlightName":         "internal pure read of the explicit flight or the loaded cascade's selection; backs Orient and MCP session adoption rather than being an operation of its own",
 	"ActiveLaunch":             "internal pure read of the `tap launch` harness and model driving the process; reported in orientation rather than being an operation of its own",
 	"OrientationKegsForFlight": "internal authority projection used by MCP providers to compute a revision before rendering once",
-	"IdentityKegCatalog":       "internal identity metadata projection used by MCP providers for graph discovery and ungoverned keg_search",
+	"IdentityKegCatalog":       "internal identity metadata projection used by MCP providers for graph discovery and keg_list",
 	// Dropped from MCP when the surface was unified behind providers: these
 	// operate on machine-local Tapper state or perform tenant administration,
 	// neither of which an agent should reach through either transport.

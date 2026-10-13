@@ -56,14 +56,17 @@ func (f *fakeAgents) DeleteAgent(_ context.Context, ref string) error {
 	return nil
 }
 
-type fakeNamespaces struct{ lastQuery string }
+type fakeNamespaces struct{}
 
 func (f *fakeNamespaces) ListNamespaces(context.Context) ([]tapper.HubNamespace, error) {
 	return []tapper.HubNamespace{{Name: "me", Kind: "user", Role: "owner"}}, nil
 }
-func (f *fakeNamespaces) SearchNamespaces(_ context.Context, query string) (tapper.NamespaceSearchResult, error) {
-	f.lastQuery = query
-	return tapper.NamespaceSearchResult{Namespaces: []tapper.NamespaceMatch{{Name: "acme", Kind: "org", DisplayName: "Acme"}}}, nil
+
+type fakeExplore struct{ lastKind tapper.ExploreKind }
+
+func (f *fakeExplore) Explore(_ context.Context, kind tapper.ExploreKind, query string) (tapper.ExploreResult, error) {
+	f.lastKind = kind
+	return tapper.ExploreResult{Kind: kind, Results: []tapper.ExploreRow{{Ref: "@acme", Name: "Acme", Role: "member"}}}, nil
 }
 
 func callTool(t *testing.T, ctx context.Context, session *sdkmcp.ClientSession, name string, args map[string]any) *sdkmcp.CallToolResult {
@@ -106,15 +109,15 @@ func TestAgentTools_CRUD(t *testing.T) {
 	require.Empty(t, agents.byRef)
 }
 
-func TestNamespaceTools_ListAndSearch(t *testing.T) {
-	namespaces := &fakeNamespaces{}
-	session, ctx := newTestSessionWithOpts(t, mcp.ServerOptions{AgentProvider: &fakeAgents{byRef: map[string]tapper.HubAgent{}}, NamespaceProvider: namespaces})
+func TestNamespaceListAndExplorePeople(t *testing.T) {
+	explore := &fakeExplore{}
+	session, ctx := newTestSessionWithOpts(t, mcp.ServerOptions{AgentProvider: &fakeAgents{byRef: map[string]tapper.HubAgent{}}, NamespaceProvider: &fakeNamespaces{}, ExploreProvider: explore})
 
-	res := callTool(t, ctx, session, "namespace_search", map[string]any{"query": "ac"})
+	res := callTool(t, ctx, session, "explore_people", map[string]any{"query": "ac"})
 	require.False(t, res.IsError)
-	require.Equal(t, "ac", namespaces.lastQuery)
-	found := wirePayload(t, res, "structured")["namespaces"].([]any)
-	require.Equal(t, "acme", found[0].(map[string]any)["name"])
+	require.Equal(t, tapper.ExplorePeople, explore.lastKind)
+	found := wirePayload(t, res, "structured")["results"].([]any)
+	require.Equal(t, "@acme", found[0].(map[string]any)["ref"])
 
 	res = callTool(t, ctx, session, "namespace_list", nil)
 	require.False(t, res.IsError)

@@ -14,8 +14,9 @@ flight on subsequent operations. keg selects a target and never grants access.
 
 orient returns current active instructions, effective readable KEGs, and
 immediate readable children. Orient with a child reference to inspect the next
-level. With no root, orientation is search-first; keg_search and flight_search
-find identity-readable metadata. Discovery is independent of selection.
+level. With no root, keg_list and flight_list are the complete lists of what
+your identity reads, and explore_kegs and explore_flights search the public
+directory. Discovery is independent of selection.
 flight_read inspects a permission-filtered declared manifest and its hash;
 it never activates a session or selects operational authority.
 
@@ -25,7 +26,7 @@ MCP and starts a fresh connection. session_refresh only retries failed initial
 activation; it cannot change an active connection.
 
 A failed configured root exposes recovery tools: orient, session_refresh,
-flight_list, flight_read, session_info, keg_search, flight_search, guide. Repair
+flight_list, flight_read, session_info, guide. Repair
 the configured root outside MCP, then retry session_refresh and orient.
 An active flight can have no effective KEGs and still expose the full inventory;
 KEG denials in that scope do not imply missing tools.

@@ -27,7 +27,7 @@ type lockAcquireInput struct {
 func registerLockAcquire(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "lock_acquire",
-		Description: "Acquire a cross-process lock on a node and return the token",
+		Description: "Memory: Acquire a cross-process lock on a node and return the token",
 		Annotations: &sdkmcp.ToolAnnotations{
 			DestructiveHint: boolPtr(false),
 			OpenWorldHint:   boolPtr(false),
@@ -56,7 +56,7 @@ type lockReleaseInput struct {
 func registerLockRelease(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "lock_release",
-		Description: "Release a cross-process lock on a node",
+		Description: "Memory: Release a cross-process lock on a node",
 		Annotations: &sdkmcp.ToolAnnotations{
 			DestructiveHint: boolPtr(false),
 			OpenWorldHint:   boolPtr(false),
@@ -84,7 +84,7 @@ type lockStatusInput struct {
 func registerLockStatus(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "lock_status",
-		Description: "Check the lock state of a node",
+		Description: "Memory: Check the lock state of a node",
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(false),
@@ -120,7 +120,7 @@ type lockForceReleaseInput struct {
 func registerLockForceRelease(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "lock_force_release",
-		Description: "Unconditionally remove a lock on a node",
+		Description: "Manage: Unconditionally remove a lock on a node",
 		Annotations: &sdkmcp.ToolAnnotations{
 			DestructiveHint: boolPtr(true),
 			OpenWorldHint:   boolPtr(false),

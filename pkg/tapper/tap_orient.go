@@ -402,6 +402,7 @@ func BuildOrientationPayload(flight *Flight, flightNote, launch string, kegs []O
 	var b strings.Builder
 	b.WriteString("# KEG System\n\n")
 	b.WriteString("Call `orient` at session start and after every context reset. Authority is bounded by identity permissions and the selected flight; child authority and instructions are not inherited. Use only `mcp__tapper__*` tools for KEG operations. Call `keg_settings_read` before operating in a KEG. Snapshot before meaningful edits; snapshots do not protect deletion. Re-read for a fresh hash before each guarded write; `node_edit` takes per-part hashes (`content_hash`, `meta_hash`), `node_delete` and `node_move` the combined `hash`. Call `guide` for detailed operating, authoring/linking, snapshots, tools, or troubleshooting guidance.\n\n")
+	writeToolCategories(&b)
 	for _, warning := range warnings {
 		fmt.Fprintf(&b, "Warning: %s\n\n", orientationTableCell(warning))
 	}
@@ -415,9 +416,9 @@ func BuildOrientationPayload(flight *Flight, flightNote, launch string, kegs []O
 	}
 	if flight == nil {
 		if authority != nil && authority.FullAccess {
-			b.WriteString("No flight is active. This session runs under your full identity authority; nothing here is scoped. Use `keg_search` and `flight_search` to discover readable resources; results confer no access. An explicit flight selects only that flight for one call. Pin a least-privilege flight outside MCP and start a new connection to narrow the session.\n")
+			b.WriteString("No flight is active. This session runs under your full identity authority; nothing here is scoped. `keg_list` and `flight_list` list every readable resource; `explore_kegs` and `explore_flights` search the public directory and confer no access. An explicit flight selects only that flight for one call. Pin a least-privilege flight outside MCP and start a new connection to narrow the session.\n")
 		} else {
-			b.WriteString("The configured flight is unavailable: fail-closed recovery; KEG tools are locked. Repair the selection, then call `session_refresh` and `orient`. Use `flight_search`, `flight_list`, `flight_read`, or `session_info` for recovery.\n")
+			b.WriteString("The configured flight is unavailable: fail-closed recovery; KEG tools are locked. Repair the selection, then call `session_refresh` and `orient`. Use `flight_list`, `flight_read`, or `session_info` for recovery.\n")
 		}
 		return b.String(), nil
 	}
@@ -450,7 +451,7 @@ func BuildOrientationPayload(flight *Flight, flightNote, launch string, kegs []O
 	} else {
 		writeOrientationKegTable(&b, usable, "")
 	}
-	b.WriteString("\nInspect a flight explicitly to see its children. Use `keg_search` and `flight_search` for metadata discovery. Select a reachable descendant explicitly with the `flight` argument; its instructions apply only to that call.\n")
+	b.WriteString("\nInspect a flight explicitly to see its children. Use `keg_list` and `flight_list` for your own resources and `explore_kegs` and `explore_flights` for the public directory. Select a reachable descendant explicitly with the `flight` argument; its instructions apply only to that call.\n")
 	return b.String(), nil
 }
 
@@ -628,4 +629,14 @@ func appendCanonical(b *strings.Builder, name string) error {
 		b.WriteByte('\n')
 	}
 	return nil
+}
+
+// writeToolCategories tells the agent what each tool category is for. Every
+// tool description opens with its category label, so this is the key.
+func writeToolCategories(b *strings.Builder) {
+	b.WriteString("Tool categories:\n")
+	for _, c := range ToolCategories {
+		fmt.Fprintf(b, "- %s: %s\n", c.Category, c.Intent)
+	}
+	b.WriteString("\n")
 }

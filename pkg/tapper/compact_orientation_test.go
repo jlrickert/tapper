@@ -32,7 +32,11 @@ func TestCompactOrientationProgressiveMetadata(t *testing.T) {
 	noflight, err := BuildOrientationPayload(nil, "", "", kegs, nil, &OrientationAuthority{FullAccess: true, AvailableFlights: []string{root.Name}, Children: children})
 	require.NoError(t, err)
 	require.NotContains(t, noflight, "@n/")
-	require.Contains(t, noflight, "flight_search")
+	require.Contains(t, noflight, "flight_list", "the no-flight payload points at the complete private list")
+	require.Contains(t, noflight, "explore_flights", "and at the public directory")
+	for _, c := range ToolCategories {
+		require.Contains(t, noflight, string(c.Category)+": "+c.Intent, "orientation explains every tool category")
+	}
 	// Representative legacy payload sections: rules, full catalog, and all canonical guides.
 	var before strings.Builder
 	before.WriteString(OrientationOperatingRules())
