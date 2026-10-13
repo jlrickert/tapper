@@ -1054,7 +1054,92 @@ func TestMCP_EditRequiresContentOrMeta(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.True(t, res.IsError, "edit accepted an item with neither content nor meta")
-	require.Contains(t, extractText(t, res), "content or meta is required")
+	require.Contains(t, extractText(t, res), "content, patch, or meta is required")
+}
+
+func TestMCP_EditAppliesPatch(t *testing.T) {
+	t.Parallel()
+	session, ctx := newTestSession(t)
+
+	createRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name:      "node_create",
+		Arguments: batchCreateArgs(map[string]any{"title": "Patch Subject"}),
+	})
+	require.NoError(t, err)
+	nodeID := extractText(t, createRes)
+	editRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "node_edit",
+		Arguments: batchEditArgs(map[string]any{
+			"node_id":               nodeID,
+			"content":               "# Patch Subject\n\n## Status\nDraft\n\nKeep this line.\n",
+			"expected_content_hash": readContentHash(t, session, ctx, nodeID),
+		}),
+	})
+	require.NoError(t, err)
+	require.False(t, editRes.IsError, "edit returned error: %s", extractText(t, editRes))
+
+	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "node_edit",
+		Arguments: batchEditArgs(map[string]any{
+			"node_id":               nodeID,
+			"patch":                 "@@ -3,2 +3,2 @@\n ## Status\n-Draft\n+Published\n",
+			"expected_content_hash": readContentHash(t, session, ctx, nodeID),
+		}),
+	})
+	require.NoError(t, err)
+	require.False(t, res.IsError, "patch returned error: %s", extractText(t, res))
+
+	readRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name:      "node_read",
+		Arguments: map[string]any{"node_ids": []string{nodeID}, "content_only": true},
+	})
+	require.NoError(t, err)
+	body := nodeReadText(t, readRes)
+	require.Contains(t, body, "## Status\nPublished\n")
+	require.NotContains(t, body, "Draft")
+	require.Contains(t, body, "Keep this line.")
+}
+
+func TestMCP_EditRefusesPatchesItCannotApply(t *testing.T) {
+	t.Parallel()
+	session, ctx := newTestSession(t)
+
+	createRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name:      "node_create",
+		Arguments: batchCreateArgs(map[string]any{"title": "Unpatched"}),
+	})
+	require.NoError(t, err)
+	nodeID := extractText(t, createRes)
+	hash := readContentHash(t, session, ctx, nodeID)
+	cases := []struct {
+		name     string
+		item     map[string]any
+		contains string
+	}{
+		{
+			name:     "context not in the note",
+			item:     map[string]any{"patch": "@@ -1 +1 @@\n-# Not the title\n+# New\n", "expected_content_hash": hash},
+			contains: "do not match",
+		},
+		{
+			name:     "no content token",
+			item:     map[string]any{"patch": "@@ -1 +1 @@\n-# Unpatched\n+# New\n"},
+			contains: "expected_content_hash",
+		},
+		{
+			name:     "content and patch together",
+			item:     map[string]any{"content": "# New\n", "patch": "@@ -1 +1 @@\n-# Unpatched\n+# New\n", "expected_content_hash": hash},
+			contains: "alternatives",
+		},
+	}
+	for _, tc := range cases {
+		tc.item["node_id"] = nodeID
+		res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: "node_edit", Arguments: batchEditArgs(tc.item)})
+		require.NoError(t, err, tc.name)
+		require.True(t, res.IsError, "%s: edit was accepted", tc.name)
+		require.Contains(t, extractText(t, res), tc.contains, tc.name)
+	}
+	require.Equal(t, hash, readContentHash(t, session, ctx, nodeID), "a refused patch changed the note")
 }
 
 // TestMCP_EditRejectsSnapshotBefore pins the removal of the implicit snapshot

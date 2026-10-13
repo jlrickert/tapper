@@ -147,11 +147,49 @@ func expandNodePlaceholders(body []byte, ids map[string]NodeId) ([]byte, error) 
 }
 
 type preparedNodeUpdate struct {
-	opts       NodeUpdateOptions
-	data       *NodeData
-	content    []byte
-	validation *SchemaValidationResult
-	backup     *aggregateBackup
+	opts NodeUpdateOptions
+	// existing is the node as it was read before the update.
+	existing *NodeView
+	data     *NodeData
+	content  []byte
+	// writeContent says the update carries a body (full content or a
+	// patch), so content is written.
+	writeContent bool
+	validation   *SchemaValidationResult
+	backup       *aggregateBackup
+}
+
+// PlanContentUpdate works out the body an update would leave a node with,
+// given the node's current body. It reports whether the update writes a body
+// at all; without content or a patch it returns existing unchanged.
+//
+// Content and a content patch are alternatives. A patch must apply to
+// existing exactly (see ApplyUnifiedPatch). Either way the result may open
+// with a frontmatter block only when existing already does: a stored body
+// written before the no-frontmatter rule stays editable, but no update can
+// introduce one.
+func PlanContentUpdate(existing []byte, opts NodeUpdateOptions) ([]byte, bool, error) {
+	var result []byte
+	switch {
+	case opts.HasContent && opts.HasContentPatch:
+		return nil, false, fmt.Errorf("content and a content patch are alternatives; send one: %w", ErrInvalid)
+	case opts.HasContentPatch:
+		patched, err := ApplyUnifiedPatch(existing, opts.ContentPatch)
+		if err != nil {
+			return nil, false, err
+		}
+		result = patched
+	case opts.HasContent:
+		result = opts.Content
+	default:
+		return existing, false, nil
+	}
+	if RejectFrontmatter(existing) == nil {
+		if err := RejectFrontmatter(result); err != nil {
+			return nil, false, err
+		}
+	}
+	return result, true, nil
 }
 
 func (k *LocalKeg) UpdateNodes(ctx context.Context, updates []NodeUpdateOptions) ([]NodeUpdateResult, error) {
@@ -168,81 +206,26 @@ func (k *LocalKeg) updateNodes(ctx context.Context, updates []NodeUpdateOptions)
 		if !opts.ID.Valid() {
 			return nil, &BatchMutationError{Index: i, NodeID: opts.ID, Err: fmt.Errorf("node id is required: %w", ErrInvalid)}
 		}
-		if !opts.HasContent && !opts.HasMeta {
-			return nil, &BatchMutationError{Index: i, NodeID: opts.ID, Err: fmt.Errorf("content or metadata replacement is required: %w", ErrInvalid)}
+		if !opts.HasContent && !opts.HasContentPatch && !opts.HasMeta {
+			return nil, &BatchMutationError{Index: i, NodeID: opts.ID, Err: fmt.Errorf("content, a content patch, or metadata replacement is required: %w", ErrInvalid)}
+		}
+		if opts.HasContent && opts.HasContentPatch {
+			return nil, &BatchMutationError{Index: i, NodeID: opts.ID, Err: fmt.Errorf("content and a content patch are alternatives; send one: %w", ErrInvalid)}
 		}
 		if first, ok := seen[opts.ID]; ok {
 			return nil, &BatchMutationError{Index: i, NodeID: opts.ID, Err: fmt.Errorf("duplicate node id (first at index %d): %w", first, ErrInvalid)}
 		}
 		seen[opts.ID] = i
-		existing, err := k.ReadNode(ctx, opts.ID)
+		item, err := k.prepareNodeUpdate(ctx, opts)
 		if err != nil {
 			return nil, &BatchMutationError{Index: i, NodeID: opts.ID, Err: err}
 		}
-		backup, err := k.captureAggregateBackup(ctx, existing)
+		backup, err := k.captureAggregateBackup(ctx, item.existing)
 		if err != nil {
 			return nil, &BatchMutationError{Index: i, NodeID: opts.ID, Err: err}
 		}
-		if err := k.validateAggregateLock(ctx, opts.ID, opts.LockToken); err != nil {
-			return nil, &BatchMutationError{Index: i, NodeID: opts.ID, Err: err}
-		}
-		if err := checkNodeUpdatePrecondition(ctx, k.Runtime, opts, existing); err != nil {
-			return nil, &BatchMutationError{Index: i, NodeID: opts.ID, Err: err}
-		}
-		contentBytes := existing.Content
-		if opts.HasContent {
-			// Only caller-supplied content is held to the no-frontmatter rule.
-			// A node written before the rule existed may have a stored body
-			// that opens with `---`; checking contentBytes would make such a
-			// node permanently unupdatable.
-			if err := RejectFrontmatter(opts.Content); err != nil {
-				return nil, &BatchMutationError{Index: i, NodeID: opts.ID, Err: err}
-			}
-			contentBytes = opts.Content
-		}
-		metaBytes := existing.Meta
-		if opts.HasMeta {
-			metaBytes = opts.Meta
-		}
-		content, err := ParseContent(k.Runtime, contentBytes, MarkdownContentFilename)
-		if err != nil {
-			return nil, &BatchMutationError{Index: i, NodeID: opts.ID, Err: fmt.Errorf("invalid content: %w", err)}
-		}
-		meta, err := ParseMeta(ctx, metaBytes)
-		if err != nil {
-			return nil, &BatchMutationError{Index: i, NodeID: opts.ID, Err: fmt.Errorf("invalid metadata: %s: %w", err, ErrInvalid)}
-		}
-		stats, err := cloneNodeStats(ctx, existing.Stats)
-		if err != nil {
-			return nil, &BatchMutationError{Index: i, NodeID: opts.ID, Err: err}
-		}
-		if stats == nil {
-			stats = &NodeStats{}
-		}
-		// Without submitted meta, meta is the stored metadata: a content-only
-		// edit keeps its type. Read it before updateMeta touches meta.
-		kept := schemaTypeCandidateInherited(meta)
-		now := k.Runtime.Clock().Now()
-		data := &NodeData{ID: opts.ID, Content: content, Meta: meta, Stats: stats}
-		if err := data.updateMeta(ctx, k.Runtime, &now); err != nil {
-			return nil, &BatchMutationError{Index: i, NodeID: opts.ID, Err: err}
-		}
-		// Only meta can declare a type: RejectFrontmatter above guarantees
-		// submitted content carries none.
-		candidates := make([]schemaTypeCandidate, 0, 1)
-		if opts.HasMeta {
-			candidates = append(candidates, schemaTypeCandidateFromMeta("metadata", meta))
-		} else {
-			candidates = append(candidates, kept)
-		}
-		validation, err := k.validateNodeWrite(ctx, schemaWriteUpdate, opts.ID, data, opts.Schema, candidates...)
-		if err != nil && !errors.Is(err, ErrNotSupported) {
-			return nil, &BatchMutationError{Index: i, NodeID: opts.ID, Err: err}
-		}
-		if validation != nil && validation.Valid {
-			validation = nil
-		}
-		prepared[i] = preparedNodeUpdate{opts: opts, data: data, content: contentBytes, validation: validation, backup: backup}
+		item.backup = backup
+		prepared[i] = item
 	}
 	results := make([]NodeUpdateResult, len(prepared))
 	createdSnapshots := false
@@ -259,7 +242,7 @@ func (k *LocalKeg) updateNodes(ctx context.Context, updates []NodeUpdateOptions)
 					return err
 				}
 			}
-			if item.opts.HasContent {
+			if item.writeContent {
 				if err := k.Repo.WriteContent(lockCtx, item.opts.ID, item.content); err != nil {
 					return err
 				}
@@ -292,6 +275,76 @@ func (k *LocalKeg) updateNodes(ctx context.Context, updates []NodeUpdateOptions)
 		}
 	}
 	return results, nil
+}
+
+// prepareNodeUpdate checks one update against the node as it stands and
+// builds what it would write, without writing anything: the lock, the
+// precondition tokens, the planned body (PlanContentUpdate), metadata that
+// parses, and the keg's schema rules. Any error means the update would be
+// refused.
+func (k *LocalKeg) prepareNodeUpdate(ctx context.Context, opts NodeUpdateOptions) (preparedNodeUpdate, error) {
+	existing, err := k.ReadNode(ctx, opts.ID)
+	if err != nil {
+		return preparedNodeUpdate{}, err
+	}
+	if err := k.validateAggregateLock(ctx, opts.ID, opts.LockToken); err != nil {
+		return preparedNodeUpdate{}, err
+	}
+	// A patch is a content write: it is held to the content token, and
+	// checked before it is applied so a stale token reports a conflict
+	// rather than a patch that no longer fits.
+	check := opts
+	if opts.HasContentPatch {
+		check.HasContent = true
+	}
+	if err := checkNodeUpdatePrecondition(ctx, k.Runtime, check, existing); err != nil {
+		return preparedNodeUpdate{}, err
+	}
+	contentBytes, writeContent, err := PlanContentUpdate(existing.Content, opts)
+	if err != nil {
+		return preparedNodeUpdate{}, err
+	}
+	metaBytes := existing.Meta
+	if opts.HasMeta {
+		metaBytes = opts.Meta
+	}
+	content, err := ParseContent(k.Runtime, contentBytes, MarkdownContentFilename)
+	if err != nil {
+		return preparedNodeUpdate{}, fmt.Errorf("invalid content: %w", err)
+	}
+	meta, err := ParseMeta(ctx, metaBytes)
+	if err != nil {
+		return preparedNodeUpdate{}, fmt.Errorf("invalid metadata: %s: %w", err, ErrInvalid)
+	}
+	stats, err := cloneNodeStats(ctx, existing.Stats)
+	if err != nil {
+		return preparedNodeUpdate{}, err
+	}
+	if stats == nil {
+		stats = &NodeStats{}
+	}
+	// Without submitted meta, meta is the stored metadata: a content-only
+	// edit keeps its type. Read it before updateMeta touches meta.
+	kept := schemaTypeCandidateInherited(meta)
+	now := k.Runtime.Clock().Now()
+	data := &NodeData{ID: opts.ID, Content: content, Meta: meta, Stats: stats}
+	if err := data.updateMeta(ctx, k.Runtime, &now); err != nil {
+		return preparedNodeUpdate{}, err
+	}
+	// Only meta can declare a type: content may not introduce a frontmatter
+	// block, and a legacy one is not read as a type.
+	candidate := kept
+	if opts.HasMeta {
+		candidate = schemaTypeCandidateFromMeta("metadata", meta)
+	}
+	validation, err := k.validateNodeWrite(ctx, schemaWriteUpdate, opts.ID, data, opts.Schema, candidate)
+	if err != nil && !errors.Is(err, ErrNotSupported) {
+		return preparedNodeUpdate{}, err
+	}
+	if validation != nil && validation.Valid {
+		validation = nil
+	}
+	return preparedNodeUpdate{opts: opts, existing: existing, data: data, content: contentBytes, writeContent: writeContent, validation: validation}, nil
 }
 
 func (k *LocalKeg) AppendSnapshots(ctx context.Context, nodes []NodeSnapshotRequest) ([]Snapshot, error) {
