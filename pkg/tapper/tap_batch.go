@@ -41,8 +41,12 @@ type BatchEditItem struct {
 	Schema     string
 	Content    string
 	HasContent bool
-	Meta       string
-	HasMeta    bool
+	// ContentPatch is a unified diff against the node's current content,
+	// an alternative to Content.
+	ContentPatch    string
+	HasContentPatch bool
+	Meta            string
+	HasMeta         bool
 	// ExpectedHash is the combined content+metadata token (node_read's
 	// hash). It is used only when neither part token is set; the CLI and
 	// other single-token callers rely on it.
@@ -66,39 +70,54 @@ func (t *Tap) EditBatch(ctx context.Context, opts BatchEditOptions) ([]keg.NodeU
 	ctx = keg.WithDefaultValidationActor(ctx, keg.ValidationActorHuman)
 	updates := make([]keg.NodeUpdateOptions, len(opts.Edits))
 	for i, item := range opts.Edits {
-		id, err := keg.ParseNode(item.NodeID)
+		update, err := batchEditUpdate(ctx, i, item)
 		if err != nil {
-			return nil, fmt.Errorf("edit %d node %q: %w", i, item.NodeID, err)
-		}
-		if !item.HasContent && !item.HasMeta {
-			return nil, fmt.Errorf("edit %d node %q: content or meta is required: %w", i, item.NodeID, keg.ErrInvalid)
-		}
-		if err := requireEditPartHashes(i, item); err != nil {
 			return nil, err
-		}
-		update := keg.NodeUpdateOptions{
-			ID:                  *id,
-			Schema:              item.Schema,
-			ExpectedHash:        item.ExpectedHash,
-			ExpectedContentHash: item.ExpectedContentHash,
-			ExpectedMetaHash:    item.ExpectedMetaHash,
-		}
-		if item.HasContent {
-			if err := keg.RejectFrontmatter([]byte(item.Content)); err != nil {
-				return nil, fmt.Errorf("edit %d node %q: %w", i, item.NodeID, err)
-			}
-			update.Content, update.HasContent = []byte(item.Content), true
-		}
-		if item.HasMeta {
-			meta, err := keg.ParseMeta(ctx, []byte(item.Meta))
-			if err != nil {
-				return nil, fmt.Errorf("edit %d node %q metadata: %w", i, item.NodeID, err)
-			}
-			update.Meta, update.HasMeta = []byte(meta.ToYAML()), true
 		}
 		updates[i] = update
 	}
 	return k.UpdateNodes(ctx, updates)
+}
+
+// batchEditUpdate checks one edit item and turns it into the keg update.
+func batchEditUpdate(ctx context.Context, i int, item BatchEditItem) (keg.NodeUpdateOptions, error) {
+	id, err := keg.ParseNode(item.NodeID)
+	if err != nil {
+		return keg.NodeUpdateOptions{}, fmt.Errorf("edit %d node %q: %w", i, item.NodeID, err)
+	}
+	if !item.HasContent && !item.HasContentPatch && !item.HasMeta {
+		return keg.NodeUpdateOptions{}, fmt.Errorf("edit %d node %q: content, patch, or meta is required: %w", i, item.NodeID, keg.ErrInvalid)
+	}
+	if item.HasContent && item.HasContentPatch {
+		return keg.NodeUpdateOptions{}, fmt.Errorf("edit %d node %q: content and patch are alternatives; send one: %w", i, item.NodeID, keg.ErrInvalid)
+	}
+	if err := requireEditPartHashes(i, item); err != nil {
+		return keg.NodeUpdateOptions{}, err
+	}
+	update := keg.NodeUpdateOptions{
+		ID:                  *id,
+		Schema:              item.Schema,
+		ExpectedHash:        item.ExpectedHash,
+		ExpectedContentHash: item.ExpectedContentHash,
+		ExpectedMetaHash:    item.ExpectedMetaHash,
+	}
+	if item.HasContent {
+		if err := keg.RejectFrontmatter([]byte(item.Content)); err != nil {
+			return keg.NodeUpdateOptions{}, fmt.Errorf("edit %d node %q: %w", i, item.NodeID, err)
+		}
+		update.Content, update.HasContent = []byte(item.Content), true
+	}
+	if item.HasContentPatch {
+		update.ContentPatch, update.HasContentPatch = item.ContentPatch, true
+	}
+	if item.HasMeta {
+		meta, err := keg.ParseMeta(ctx, []byte(item.Meta))
+		if err != nil {
+			return keg.NodeUpdateOptions{}, fmt.Errorf("edit %d node %q metadata: %w", i, item.NodeID, err)
+		}
+		update.Meta, update.HasMeta = []byte(meta.ToYAML()), true
+	}
+	return update, nil
 }
 
 type BatchSnapshotItem struct {
@@ -134,6 +153,9 @@ func (t *Tap) NodeSnapshotBatch(ctx context.Context, opts BatchSnapshotOptions) 
 func requireEditPartHashes(i int, item BatchEditItem) error {
 	if item.ExpectedHash != "" && item.ExpectedContentHash == "" && item.ExpectedMetaHash == "" {
 		return nil
+	}
+	if item.HasContentPatch && item.ExpectedContentHash == "" {
+		return fmt.Errorf("edit %d node %q: patch requires expected_content_hash (the content_hash from node_read): %w", i, item.NodeID, keg.ErrPreconditionRequired)
 	}
 	if item.HasContent && item.ExpectedContentHash == "" {
 		return fmt.Errorf("edit %d node %q: content requires expected_content_hash (the content_hash from node_read): %w", i, item.NodeID, keg.ErrPreconditionRequired)

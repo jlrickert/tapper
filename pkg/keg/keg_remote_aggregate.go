@@ -196,7 +196,9 @@ func (k *RemoteKeg) OpenNode(ctx context.Context, opts NodeOpenOptions) (*NodeVi
 }
 
 func (k *RemoteKeg) UpdateNode(ctx context.Context, opts NodeUpdateOptions) (*NodeUpdateResult, error) {
-	opts.HasContent = true
+	// A single-node update carries content unless it carries a patch, as
+	// LocalKeg.UpdateNode treats it.
+	opts.HasContent = !opts.HasContentPatch
 	results, err := k.UpdateNodes(ctx, []NodeUpdateOptions{opts})
 	if len(results) == 0 {
 		return nil, err
@@ -245,6 +247,7 @@ func (k *RemoteKeg) UpdateNodes(ctx context.Context, updates []NodeUpdateOptions
 		NodeID       int     `json:"node_id"`
 		Schema       string  `json:"schema,omitempty"`
 		Content      *string `json:"content,omitempty"`
+		ContentPatch *string `json:"content_patch,omitempty"`
 		Meta         *string `json:"meta,omitempty"`
 		LockToken    string  `json:"lock_token,omitempty"`
 		ExpectedHash string  `json:"expected_hash,omitempty"`
@@ -269,6 +272,10 @@ func (k *RemoteKeg) UpdateNodes(ctx context.Context, updates []NodeUpdateOptions
 		if item.HasContent {
 			v := string(item.Content)
 			wire[i].Content = &v
+		}
+		if item.HasContentPatch {
+			v := item.ContentPatch
+			wire[i].ContentPatch = &v
 		}
 		if item.HasMeta {
 			v := string(item.Meta)

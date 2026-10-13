@@ -244,13 +244,18 @@ type NodeOpenOptions struct {
 }
 
 type NodeUpdateOptions struct {
-	ID         NodeId    `json:"id"`
-	Schema     string    `json:"schema,omitempty"`
-	Content    []byte    `json:"content"`
-	HasContent bool      `json:"has_content,omitempty"`
-	Meta       []byte    `json:"meta,omitempty"`
-	HasMeta    bool      `json:"has_meta,omitempty"`
-	LockToken  LockToken `json:"lock_token,omitempty"`
+	ID         NodeId `json:"id"`
+	Schema     string `json:"schema,omitempty"`
+	Content    []byte `json:"content"`
+	HasContent bool   `json:"has_content,omitempty"`
+	// ContentPatch is a unified diff applied to the node's current content
+	// (see ApplyUnifiedPatch), an alternative to Content. It is checked
+	// like a content write: it needs ExpectedContentHash or ExpectedHash.
+	ContentPatch    string    `json:"content_patch,omitempty"`
+	HasContentPatch bool      `json:"has_content_patch,omitempty"`
+	Meta            []byte    `json:"meta,omitempty"`
+	HasMeta         bool      `json:"has_meta,omitempty"`
+	LockToken       LockToken `json:"lock_token,omitempty"`
 	// ExpectedHash is the combined content+metadata token (NodeView.Hash).
 	// It is checked only when neither part token below is set.
 	ExpectedHash string `json:"expected_hash,omitempty"`
@@ -922,7 +927,7 @@ func (k *LocalKeg) openNode(ctx context.Context, opts NodeOpenOptions) (*NodeVie
 }
 
 func (k *LocalKeg) UpdateNode(ctx context.Context, opts NodeUpdateOptions) (*NodeUpdateResult, error) {
-	opts.HasContent = true
+	opts.HasContent = !opts.HasContentPatch
 	results, err := k.UpdateNodes(ctx, []NodeUpdateOptions{opts})
 	if len(results) == 0 {
 		return nil, err
