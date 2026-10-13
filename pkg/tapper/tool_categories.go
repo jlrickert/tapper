@@ -41,7 +41,7 @@ var toolCategoryOf = map[string]ToolCategory{
 	"node_read": ToolCategoryMemory, "node_list": ToolCategoryMemory, "node_search": ToolCategoryMemory,
 	"node_grep": ToolCategoryMemory, "node_links": ToolCategoryMemory, "node_backlinks": ToolCategoryMemory,
 	"node_stats": ToolCategoryMemory, "node_create": ToolCategoryMemory, "node_edit": ToolCategoryMemory,
-	"node_move": ToolCategoryMemory, "node_delete": ToolCategoryMemory,
+	"node_move": ToolCategoryMemory, "node_delete": ToolCategoryMemory, "node_merge": ToolCategoryMemory,
 	"tag_list": ToolCategoryMemory, "schema_list": ToolCategoryMemory, "schema_read": ToolCategoryMemory,
 	"schema_validate": ToolCategoryMemory, "index_list": ToolCategoryMemory, "index_read": ToolCategoryMemory,
 	"file_list": ToolCategoryMemory, "file_download": ToolCategoryMemory, "file_upload": ToolCategoryMemory,
@@ -55,7 +55,7 @@ var toolCategoryOf = map[string]ToolCategory{
 	"explore_kegs": ToolCategoryExplore, "explore_flights": ToolCategoryExplore, "explore_people": ToolCategoryExplore,
 
 	"keg_create": ToolCategoryManage, "keg_delete": ToolCategoryManage, "keg_settings_edit": ToolCategoryManage,
-	"schema_create": ToolCategoryManage, "schema_edit": ToolCategoryManage,
+	"keg_replace": ToolCategoryManage, "schema_create": ToolCategoryManage, "schema_edit": ToolCategoryManage,
 	"schema_delete": ToolCategoryManage, "index_rebuild": ToolCategoryManage, "keg_check": ToolCategoryManage,
 	"lock_force_release": ToolCategoryManage, "flight_create": ToolCategoryManage, "flight_edit": ToolCategoryManage,
 	"flight_delete": ToolCategoryManage, "agent_list": ToolCategoryManage, "agent_read": ToolCategoryManage,
