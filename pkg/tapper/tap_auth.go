@@ -112,6 +112,11 @@ type AuthStatusHub struct {
 	// Empty when the hub omits it or validation didn't run.
 	DisplayName string
 
+	// PersonalNamespace is the personal namespace the hub reported for the
+	// account. Nil when the hub didn't say (older hub, --offline, failed
+	// probe); a pointer to "" when the hub found none.
+	PersonalNamespace *string
+
 	// Valid is true when the live whoami probe confirmed the token. False
 	// when the token was rejected, the hub was unreachable, or --offline
 	// skipped the check.
@@ -180,6 +185,11 @@ type AuthStatusResult struct {
 	// DisplayName is the human name the hub reported alongside Account.
 	// Empty when the hub omits it or validation didn't run.
 	DisplayName string
+
+	// PersonalNamespace is the personal namespace the hub reported for the
+	// account. Nil when the hub didn't say (older hub, --offline, failed
+	// probe); a pointer to "" when the hub found none.
+	PersonalNamespace *string
 
 	// Valid is true when the live whoami probe confirmed the token. False
 	// when the token was rejected, the hub was unreachable, or --offline
@@ -297,21 +307,22 @@ func (t *Tap) AuthStatus(ctx context.Context, opts AuthStatusOptions) (*AuthStat
 
 func authStatusResultFromHub(status AuthStatusHub) *AuthStatusResult {
 	return &AuthStatusResult{
-		Present:         status.Present,
-		HubURL:          status.HubURL,
-		TokenPrefix:     status.TokenPrefix,
-		TokenType:       status.TokenType,
-		Account:         status.Account,
-		DisplayName:     status.DisplayName,
-		Valid:           status.Valid,
-		ValidationError: status.ValidationError,
-		Scope:           status.Scope,
-		ExpiresAt:       status.ExpiresAt,
-		ExpiryStatus:    status.ExpiryStatus,
-		LoginMethod:     status.LoginMethod,
-		Renewable:       status.Renewable,
-		Hubs:            []AuthStatusHub{status},
-		Formatted:       status.Formatted,
+		Present:           status.Present,
+		HubURL:            status.HubURL,
+		TokenPrefix:       status.TokenPrefix,
+		TokenType:         status.TokenType,
+		Account:           status.Account,
+		DisplayName:       status.DisplayName,
+		PersonalNamespace: status.PersonalNamespace,
+		Valid:             status.Valid,
+		ValidationError:   status.ValidationError,
+		Scope:             status.Scope,
+		ExpiresAt:         status.ExpiresAt,
+		ExpiryStatus:      status.ExpiryStatus,
+		LoginMethod:       status.LoginMethod,
+		Renewable:         status.Renewable,
+		Hubs:              []AuthStatusHub{status},
+		Formatted:         status.Formatted,
 	}
 }
 
@@ -384,6 +395,7 @@ func (t *Tap) authStatusForHub(ctx context.Context, store *AuthStore, storePath,
 	var (
 		account    string
 		display    string
+		personal   *string
 		valid      bool
 		validErr   string
 		statusLine string
@@ -405,6 +417,7 @@ func (t *Tap) authStatusForHub(ctx context.Context, store *AuthStore, storePath,
 			valid = true
 			account = who.Username
 			display = who.DisplayName
+			personal = who.PersonalNamespace
 			ident := account
 			if display != "" {
 				ident = fmt.Sprintf("%s (%s)", account, display)
@@ -451,6 +464,16 @@ func (t *Tap) authStatusForHub(ctx context.Context, store *AuthStore, storePath,
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s\n", host)
 	fmt.Fprintf(&b, "%s\n", statusLine)
+	// The personal namespace is the hub's answer, not the username assumed:
+	// relayed MCP tools are granted from it, so a missing one is worth seeing.
+	// An older hub doesn't report it, and then there is no line.
+	if personal != nil {
+		if *personal == "" {
+			b.WriteString("  - Namespace: none (the hub has no personal namespace for this account)\n")
+		} else {
+			fmt.Fprintf(&b, "  - Namespace: @%s\n", *personal)
+		}
+	}
 	fmt.Fprintf(&b, "%s\n", methodLine)
 	// The token prefix is only useful for a pasted API token: the hub lists
 	// token[:12] in the account UI, so showing the same prefix lets the user
@@ -476,20 +499,21 @@ func (t *Tap) authStatusForHub(ctx context.Context, store *AuthStore, storePath,
 	}
 
 	return AuthStatusHub{
-		Present:         true,
-		HubURL:          hub,
-		TokenPrefix:     tokenPrefix,
-		TokenType:       entry.TokenType,
-		Account:         account,
-		DisplayName:     display,
-		Valid:           valid,
-		ValidationError: validErr,
-		Scope:           entry.Scope,
-		ExpiresAt:       entry.ExpiresAt,
-		ExpiryStatus:    expiryStatus,
-		LoginMethod:     loginMethod,
-		Renewable:       renewable,
-		Formatted:       b.String(),
+		Present:           true,
+		HubURL:            hub,
+		TokenPrefix:       tokenPrefix,
+		TokenType:         entry.TokenType,
+		Account:           account,
+		DisplayName:       display,
+		PersonalNamespace: personal,
+		Valid:             valid,
+		ValidationError:   validErr,
+		Scope:             entry.Scope,
+		ExpiresAt:         entry.ExpiresAt,
+		ExpiryStatus:      expiryStatus,
+		LoginMethod:       loginMethod,
+		Renewable:         renewable,
+		Formatted:         b.String(),
 	}, nil
 }
 
