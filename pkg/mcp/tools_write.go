@@ -49,7 +49,7 @@ type kegSettingsEditInput struct {
 func registerKegSettingsEdit(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "keg_settings_edit",
-		Description: "Call keg_settings_read with minimal=false first, then replace the complete KEG settings with a validated YAML document using its hash as expected_hash. Requires admin access to the KEG itself, plus admin cover when a flight is selected. On conflict, merge into the returned current settings (or refetch with keg_settings_read) and retry with the returned current hash.",
+		Description: "Manage: Call keg_settings_read with minimal=false first, then replace the complete KEG settings with a validated YAML document using its hash as expected_hash. Requires admin access to the KEG itself, plus admin cover when a flight is selected. On conflict, merge into the returned current settings (or refetch with keg_settings_read) and retry with the returned current hash.",
 		Annotations: &sdkmcp.ToolAnnotations{
 			DestructiveHint: boolPtr(true),
 			OpenWorldHint:   boolPtr(false),
@@ -101,7 +101,7 @@ func createNodeOutputs(results []keg.CreateNodeResult) []createNodeOutput {
 func registerCreate(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name: "node_create",
-		Description: "Atomically create 1-100 KEG nodes. " +
+		Description: "Memory: Atomically create 1-100 KEG nodes. " +
 			"Each node is a markdown content document plus an optional YAML metadata document. " +
 			"content must not begin with a YAML frontmatter block — metadata goes in meta. " +
 			"A node's title is its content H1 and its lead is the first paragraph, so there are no separate title, lead, tags, or attrs fields. " +
@@ -169,7 +169,7 @@ func nodeUpdateOutputs(results []keg.NodeUpdateResult) []nodeUpdateOutput {
 func registerEdit(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name: "node_edit",
-		Description: "Atomically replace the content and/or metadata of 1-100 nodes. " +
+		Description: "Memory: Atomically replace the content and/or metadata of 1-100 nodes. " +
 			"Supply content, meta, or both for each node; at least one is required. " +
 			"content is the markdown body and must not begin with a YAML frontmatter block — metadata goes in meta. " +
 			"Each part has its own precondition token: pass node_read's content_hash as expected_content_hash when supplying content, and its meta_hash as expected_meta_hash when supplying meta. " +
@@ -222,7 +222,7 @@ type removeNodeInput struct {
 func registerRemove(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "node_delete",
-		Description: "Call node_read first for every node, then atomically remove 1-100 nodes using the hash from node_read (the combined hash, not content_hash or meta_hash) as that node's expected_hash. On conflict, refetch with node_read and retry with the returned current hash.",
+		Description: "Memory: Call node_read first for every node, then atomically remove 1-100 nodes using the hash from node_read (the combined hash, not content_hash or meta_hash) as that node's expected_hash. On conflict, refetch with node_read and retry with the returned current hash.",
 		InputSchema: boundedMutationInputSchema[removeInput]("nodes"),
 		Annotations: &sdkmcp.ToolAnnotations{
 			DestructiveHint: boolPtr(true),
@@ -260,7 +260,7 @@ type moveInput struct {
 func registerMove(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "node_move",
-		Description: "Call node_read first, then move (rename) a KEG node to a new ID using the hash from node_read (the combined hash, not content_hash or meta_hash) as expected_hash. On conflict, refetch with node_read and retry with the returned current hash.",
+		Description: "Memory: Call node_read first, then move (rename) a KEG node to a new ID using the hash from node_read (the combined hash, not content_hash or meta_hash) as expected_hash. The destination must be free: the id of a node in the trash stays reserved until it is restored or purged. On conflict, refetch with node_read and retry with the returned current hash.",
 		Annotations: &sdkmcp.ToolAnnotations{
 			DestructiveHint: boolPtr(true),
 			OpenWorldHint:   boolPtr(false),

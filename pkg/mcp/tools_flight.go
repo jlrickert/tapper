@@ -48,10 +48,9 @@ type flightDeleteInput struct {
 // `flight edit`: agents cannot open editors, so the partial-edit tool
 // (omitted fields keep their current values) remains the MCP surface.
 func registerFlightTools(srv *sdkmcp.Server, defaults KegDefaults, flights FlightProvider) {
-	registerFlightSearch(srv, flights)
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "flight_list",
-		Description: "List available flights (keg restrictions + agent instructions)",
+		Description: "Memory: List available flights (keg restrictions + agent instructions)",
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(false),
@@ -66,7 +65,7 @@ func registerFlightTools(srv *sdkmcp.Server, defaults KegDefaults, flights Fligh
 
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "flight_read",
-		Description: "Inspect a permission-filtered flight manifest, including declared cover roles, depth, subflights, instructions, and hash. Inspection never activates a session or selects call authority. Cover is declared cover, not effective authority; use orient with flight for current authority. Pass hash as expected_hash to flight_edit or flight_delete.",
+		Description: "Memory: Inspect a permission-filtered flight manifest, including declared cover roles, depth, subflights, instructions, and hash. Inspection never activates a session or selects call authority. Cover is declared cover, not effective authority; use orient with flight for current authority. Pass hash as expected_hash to flight_edit or flight_delete.",
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(false),
@@ -83,11 +82,11 @@ func registerFlightTools(srv *sdkmcp.Server, defaults KegDefaults, flights Fligh
 
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "flight_create",
-		Description: "Create a Hub-backed flight (cover roles + agent instructions)",
+		Description: "Manage: Create a Hub-backed flight (cover roles + agent instructions)",
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:    false,
 			DestructiveHint: boolPtr(false),
-			OpenWorldHint:   boolPtr(true),
+			OpenWorldHint:   boolPtr(false),
 		},
 	}, func(ctx context.Context, _ *sdkmcp.CallToolRequest, in flightCreateInput) (*sdkmcp.CallToolResult, any, error) {
 		cover, err := tapper.ParseFlightCoverSpecs(in.Cover)
@@ -116,11 +115,11 @@ func registerFlightTools(srv *sdkmcp.Server, defaults KegDefaults, flights Fligh
 
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "flight_edit",
-		Description: "Call flight_read first, then edit a Hub-backed flight using its manifest hash as expected_hash; omitted fields keep their current values. On conflict, merge into the returned current flight (or refetch with flight_read) and retry with the returned current hash.",
+		Description: "Manage: Call flight_read first, then edit a Hub-backed flight using its manifest hash as expected_hash; omitted fields keep their current values. On conflict, merge into the returned current flight (or refetch with flight_read) and retry with the returned current hash.",
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:    false,
 			DestructiveHint: boolPtr(true),
-			OpenWorldHint:   boolPtr(true),
+			OpenWorldHint:   boolPtr(false),
 		},
 	}, func(ctx context.Context, _ *sdkmcp.CallToolRequest, in flightEditInput) (*sdkmcp.CallToolResult, any, error) {
 		if err := defaults.gate.authorizeMutation(ctx); err != nil {
@@ -163,11 +162,11 @@ func registerFlightTools(srv *sdkmcp.Server, defaults KegDefaults, flights Fligh
 
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "flight_delete",
-		Description: "Call flight_read first, then delete a Hub-backed flight using its manifest hash as expected_hash. On conflict, refetch with flight_read and retry with the returned current hash.",
+		Description: "Manage: Call flight_read first, then delete a Hub-backed flight using its manifest hash as expected_hash. On conflict, refetch with flight_read and retry with the returned current hash.",
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:    false,
 			DestructiveHint: boolPtr(true),
-			OpenWorldHint:   boolPtr(true),
+			OpenWorldHint:   boolPtr(false),
 		},
 	}, func(ctx context.Context, _ *sdkmcp.CallToolRequest, in flightDeleteInput) (*sdkmcp.CallToolResult, any, error) {
 		if err := defaults.gate.authorizeMutation(ctx); err != nil {

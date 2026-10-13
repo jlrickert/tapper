@@ -27,7 +27,7 @@ type nodeHistoryInput struct {
 func registerNodeHistory(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "snapshot_list",
-		Description: "List snapshot history for a node",
+		Description: "Memory: List snapshot history for a node",
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(false),
@@ -76,7 +76,7 @@ type nodeSnapshotOutput struct {
 func registerNodeSnapshot(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "snapshot_create",
-		Description: "Atomically snapshot the current state of 1-100 nodes",
+		Description: "Memory: Atomically snapshot the current state of 1-100 nodes",
 		InputSchema: boundedMutationInputSchema[nodeSnapshotInput]("nodes"),
 		Annotations: &sdkmcp.ToolAnnotations{
 			DestructiveHint: boolPtr(false),
@@ -116,7 +116,7 @@ type nodeSnapshotViewInput struct {
 func registerNodeSnapshotView(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "snapshot_read",
-		Description: "View read-only content for a previous snapshot revision",
+		Description: "Memory: View read-only content for a previous snapshot revision",
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(false),
@@ -146,7 +146,7 @@ type nodeRestoreInput struct {
 func registerNodeRestore(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "snapshot_restore",
-		Description: "Restore a node to a previous snapshot revision",
+		Description: "Memory: Restore a node to a previous snapshot revision",
 		Annotations: &sdkmcp.ToolAnnotations{
 			DestructiveHint: boolPtr(true),
 			OpenWorldHint:   boolPtr(false),

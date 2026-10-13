@@ -12,8 +12,9 @@ import (
 // they carry no KEG authority. orient and guide are how a session learns what
 // it may do; session_info reports the identity and authority it already acts
 // with; session_refresh retries a failed flight activation and cannot change
-// a working one.
-var AlwaysAvailableTools = []string{"orient", "guide", "session_info", "session_refresh"}
+// a working one; namespace_list and invitation_list report the caller's own
+// memberships and pending invitations.
+var AlwaysAvailableTools = []string{"orient", "guide", "session_info", "session_refresh", "namespace_list", "invitation_list"}
 
 // ToolAllowlist limits a server to an agent's tools. The zero value (and a
 // nil *ToolAllowlist) admits every tool.

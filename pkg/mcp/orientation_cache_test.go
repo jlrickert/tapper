@@ -20,7 +20,7 @@ func newCachedFlightSession(t *testing.T, backend *perCallFlightBackend, ttl tim
 	require.NoError(t, err)
 	server := mcp.NewServer(tap, "test", mcp.KegDefaults{}, mcp.ServerOptions{
 		OrientationProvider: backend, FlightProvider: backend, KegProvider: backend,
-		KegSearchProvider: backend, IdentityProvider: backend,
+		ExploreProvider: backend, IdentityProvider: backend,
 		OrientationCacheTTL: ttl,
 	})
 	return connectFlightSession(t, ctx, server, nil), ctx, func(d time.Duration) { sb.Advance(d) }

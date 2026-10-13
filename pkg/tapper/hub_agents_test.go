@@ -31,11 +31,12 @@ func TestHubAgents_ClientPaths(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(agent)
 		case "DELETE /api/v1/@acme/agents/writer":
 			w.WriteHeader(http.StatusNoContent)
-		case "POST /api/v1/namespaces/search":
-			var body map[string]string
+		case "POST /api/v1/explore":
+			var body tapper.ExploreRequest
 			require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
-			require.Equal(t, "ac", body["query"])
-			_ = json.NewEncoder(w).Encode(tapper.NamespaceSearchResult{Namespaces: []tapper.NamespaceMatch{{Name: "acme", Kind: "org"}}})
+			require.Equal(t, tapper.ExplorePeople, body.Kind)
+			require.Equal(t, "ac", body.Query)
+			_ = json.NewEncoder(w).Encode(tapper.ExploreResult{Kind: tapper.ExplorePeople, Results: []tapper.ExploreRow{{Ref: "@acme", Name: "Acme"}}})
 		default:
 			http.NotFound(w, r)
 		}
@@ -58,13 +59,13 @@ func TestHubAgents_ClientPaths(t *testing.T) {
 	require.Equal(t, "Scribe", wrote.Title)
 	require.NoError(t, tapper.DeleteHubAgent(ctx, srv.URL, "tok", "acme", "writer"))
 
-	found, err := tapper.SearchHubNamespaces(ctx, srv.URL, "tok", "ac")
+	found, err := tapper.ExploreHub(ctx, srv.URL, "tok", tapper.ExplorePeople, "ac")
 	require.NoError(t, err)
-	require.Equal(t, "acme", found.Namespaces[0].Name)
+	require.Equal(t, "@acme", found.Results[0].Ref)
 
 	require.Equal(t, []string{
 		"GET /api/v1/agents", "GET /api/v1/@acme/agents", "POST /api/v1/@acme/agents",
-		"PUT /api/v1/@acme/agents/writer", "DELETE /api/v1/@acme/agents/writer", "POST /api/v1/namespaces/search",
+		"PUT /api/v1/@acme/agents/writer", "DELETE /api/v1/@acme/agents/writer", "POST /api/v1/explore",
 	}, seen)
 
 	// An older hub sends no effective tools; the stored names are the list.

@@ -111,14 +111,11 @@ type AgentProvider interface {
 	DeleteAgent(ctx context.Context, ref string) error
 }
 
-// NamespaceProvider discovers namespaces: the caller's own, and a search
-// across the hub. Discovery never grants authority.
+// NamespaceProvider lists the caller's own namespaces. The hub-wide people
+// directory is ExploreProvider's. Listing never grants authority.
 type NamespaceProvider interface {
 	// ListNamespaces returns the namespaces the caller belongs to, with role.
 	ListNamespaces(context.Context) ([]tapper.HubNamespace, error)
-	// SearchNamespaces returns a bounded page of namespaces visible on the
-	// hub whose name or display name matches query; empty browses.
-	SearchNamespaces(ctx context.Context, query string) (tapper.NamespaceSearchResult, error)
 }
 
 // NodeSearchProvider ranks nodes by relevance across the KEGs a call may
@@ -134,34 +131,6 @@ type localNodeSearchProvider struct{ tap *tapper.Tap }
 
 func (p localNodeSearchProvider) SearchNodes(ctx context.Context, opts tapper.SearchOptions) (*tapapi.SearchResponse, error) {
 	return p.tap.Search(ctx, opts)
-}
-
-// KegSearchRow is identity-authorized KEG metadata. Search results are not a
-// flight projection and never grant operational authority.
-type KegSearchRow struct {
-	Ref         string `json:"ref"`
-	Role        string `json:"role"`
-	Title       string `json:"title"`
-	Description string `json:"description"`
-	Visibility  string `json:"visibility"`
-	Source      string `json:"source"`
-	KegVersion  string `json:"kegv,omitempty"`
-}
-
-// KegSearchResult includes partial-discovery warnings without failing useful
-// results from reachable hubs.
-type KegSearchResult struct {
-	Kegs      []KegSearchRow `json:"kegs"`
-	Warnings  []string       `json:"warnings"`
-	Truncated bool           `json:"truncated"`
-	Partial   bool           `json:"partial"`
-}
-
-// KegSearchProvider searches identity-authorized KEG metadata independently
-// of flight authority.
-type KegSearchProvider interface {
-	// SearchKegs returns bounded identity-authorized metadata matches.
-	SearchKegs(context.Context, string) (KegSearchResult, error)
 }
 
 // AuthIdentity is deliberately credential-free. Do not add token, email,
@@ -671,49 +640,6 @@ func (p localKegDiscoveryProvider) CreateKeg(ctx context.Context, opts tapper.Cr
 	return opts.Keg, nil
 }
 
-func (p localKegDiscoveryProvider) SearchKegs(ctx context.Context, query string) (KegSearchResult, error) {
-	rows, warnings, err := p.tap.IdentityKegCatalog(ctx)
-	if err != nil {
-		return KegSearchResult{}, err
-	}
-	out := SearchIdentityKegsResult(rows, query)
-	out.Warnings = append([]string{}, warnings...)
-	out.Partial = len(warnings) > 0
-	return out, nil
-}
-
-// SearchIdentityKegs performs case-insensitive literal matching over canonical
-// ref, title, and description, returning at most 50 canonically ordered rows.
-func SearchIdentityKegs(rows []tapper.OrientationKeg, query string) []KegSearchRow {
-	return SearchIdentityKegsResult(rows, query).Kegs
-}
-
-// SearchIdentityKegsResult retains truncation information for MCP callers.
-func SearchIdentityKegsResult(rows []tapper.OrientationKeg, query string) KegSearchResult {
-	needle := strings.ToLower(strings.TrimSpace(query))
-	if needle == "" {
-		return KegSearchResult{Kegs: []KegSearchRow{}, Warnings: []string{}}
-	}
-	matched := make([]KegSearchRow, 0, len(rows))
-	for _, row := range rows {
-		haystack := strings.ToLower(row.Ref + "\n" + row.Title + "\n" + row.Description)
-		if !strings.Contains(haystack, needle) {
-			continue
-		}
-		matched = append(matched, KegSearchRow{
-			Ref: row.Ref, Role: tapper.EffectiveOrientationRole(row),
-			Title: row.Title, Description: row.Description, Visibility: row.Visibility, Source: row.Source,
-			KegVersion: row.KegVersion,
-		})
-	}
-	sort.Slice(matched, func(i, j int) bool { return matched[i].Ref < matched[j].Ref })
-	out := KegSearchResult{Kegs: matched, Warnings: []string{}, Truncated: len(matched) > 50}
-	if out.Truncated {
-		out.Kegs = out.Kegs[:50]
-	}
-	return out
-}
-
 type localAgentProvider struct{ tap *tapper.Tap }
 
 func (p localAgentProvider) ListAgents(ctx context.Context, namespace string) ([]tapper.HubAgent, error) {
@@ -737,9 +663,6 @@ type localNamespaceProvider struct{ tap *tapper.Tap }
 func (p localNamespaceProvider) ListNamespaces(ctx context.Context) ([]tapper.HubNamespace, error) {
 	res, err := p.tap.NamespaceList(ctx, tapper.NamespaceListOptions{})
 	return res.Namespaces, err
-}
-func (p localNamespaceProvider) SearchNamespaces(ctx context.Context, query string) (tapper.NamespaceSearchResult, error) {
-	return p.tap.NamespaceSearch(ctx, tapper.NamespaceSearchOptions{Query: query})
 }
 func (p localNamespaceProvider) ListInvitations(ctx context.Context) ([]tapper.HubInvitation, error) {
 	return p.tap.InvitationList(ctx, tapper.InvitationOptions{})

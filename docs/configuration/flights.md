@@ -155,7 +155,7 @@ on the agent's page on Hub.
 - Recovery-only mode applies only when an explicitly configured root is
   missing, inaccessible, invalid, or unavailable. Seeing only `orient`,
   `session_refresh`, `flight_list`, `flight_read`, `session_info`, and
-  `keg_search` means configured authority failed to initialize. Repair the
+  `guide` means configured authority failed to initialize. Repair the
   configured root outside MCP, then call `session_refresh` and `orient`.
 - Every MCP connection pins either no-flight authority or one real root at
   initialization. Configuration and account-preference changes cannot change

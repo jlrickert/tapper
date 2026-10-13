@@ -190,7 +190,7 @@ func TestLaunchForwarder_NoRelayMCP(t *testing.T) {
 func TestResolveLaunch_ClaudeAgentExtras(t *testing.T) {
 	t.Parallel()
 	hub := fakeAgentHub(t, "hub-token", twoModels, map[string]string{
-		"/api/v1/tools":       `{"tools":["keg_search","node_read"],"always_available":["orient"]}`,
+		"/api/v1/tools":       `{"tools":["explore_kegs","node_read"],"always_available":["orient"]}`,
 		"/api/v1/relay/tools": `{"data":[{"name":"mcp__me__everything__echo"}]}`,
 		"/api/v1/@me/agents/lead": `{"ref":"@me/lead","namespace":"me","name":"lead","instructions":"Lead.","model":"@me/llama3",
 			"tools":["relay:tools"],"runtime_tools":[],"relay_tools":true,"subagents":["@me/reader","@me/open","@me/gone"]}`,
@@ -224,7 +224,7 @@ func TestResolveLaunch_ClaudeAgentExtras(t *testing.T) {
 	require.Equal(t, "Open", open.Description)
 	require.Empty(t, open.Model, "a model the launch cannot reach is left to inherit")
 	require.Equal(t, []string{"Read", "Grep", "Glob",
-		"mcp__plugin_tapper_tapper__keg_search", "mcp__plugin_tapper_tapper__node_read", "mcp__plugin_tapper_tapper__orient"}, open.Tools,
+		"mcp__plugin_tapper_tapper__explore_kegs", "mcp__plugin_tapper_tapper__node_read", "mcp__plugin_tapper_tapper__orient"}, open.Tools,
 		"every Hub tool, and no relayed tool without relay_tools")
 
 	got, err = newLaunchTap(t, hub.URL, "").ResolveLaunch(LaunchOptions{Harness: "claude", Agent: "@me/lead", Subagents: "none", SubagentBuiltins: []string{}})

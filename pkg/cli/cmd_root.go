@@ -334,6 +334,7 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 		configCmd = NewConfigCmd(deps)
 		subcommands = append(subcommands,
 			NewKegCmd(deps),
+			NewExploreCmd(deps),
 			NewNamespaceCmd(deps),
 			NewInvitationCmd(deps),
 			NewUseCmd(deps),
