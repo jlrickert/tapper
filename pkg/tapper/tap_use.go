@@ -84,36 +84,51 @@ func (t *Tap) Use(ctx context.Context, opts UseOptions) error {
 // UseStatus returns a YAML summary of the resolved KEG, Hub, and flight
 // defaults and the source that set each, for `tap use` with no args.
 func (t *Tap) UseStatus(_ context.Context, opts KegTargetOptions) (string, error) {
-	type slot struct {
-		Value string `yaml:"value,omitempty"`
-		Scope string `yaml:"scope,omitempty"`
-	}
 	type status struct {
 		Resolved resolvedIdentity `yaml:"resolved"`
-		Hub      slot             `yaml:"hub"`
-		Keg      slot             `yaml:"keg"`
-		Flight   slot             `yaml:"flight"`
+		Hub      ConfigSlot       `yaml:"hub"`
+		Keg      ConfigSlot       `yaml:"keg"`
+		Flight   ConfigSlot       `yaml:"flight"`
 	}
 
-	out := status{Resolved: t.resolveIdentity(opts)}
-	if cfg, err := t.ConfigService.Config(); err == nil && cfg != nil {
-		out.Hub = slot{Value: cfg.resolveHubName(), Scope: t.configFieldScope("hub")}
-		out.Keg = slot{Value: cfg.Keg(), Scope: t.configFieldScope("keg")}
-		out.Flight = slot{Value: cfg.Flight(), Scope: t.configFieldScope("flight")}
-	}
-
-	if opts.Keg != "" {
-		out.Keg = slot{Value: opts.Keg, Scope: "flag"}
-	}
-	if opts.Hub != "" {
-		out.Hub = slot{Value: opts.Hub, Scope: "flag"}
-	}
-	if opts.Flight != "" {
-		out.Flight = slot{Value: opts.Flight, Scope: "flag"}
-	}
+	slots := t.configSlots(opts)
+	out := status{Resolved: t.resolveIdentity(opts), Hub: slots.Hub, Keg: slots.Keg, Flight: slots.Flight}
 	b, err := yaml.Marshal(out)
 	if err != nil {
 		return "", fmt.Errorf("unable to marshal use status: %w", err)
 	}
 	return string(b), nil
+}
+
+// ConfigSlot is one configured default and the config tier that set it
+// (flag, env, project, kegMap, or user).
+type ConfigSlot struct {
+	Value string `yaml:"value,omitempty" json:"value,omitempty"`
+	Scope string `yaml:"scope,omitempty" json:"scope,omitempty"`
+}
+
+type configSlots struct {
+	Hub, Keg, Flight ConfigSlot
+}
+
+// configSlots resolves the hub, keg, and flight defaults and where each came
+// from, with explicit flags winning. `tap use` and `tap info` share it so they
+// never disagree about the CLI's context.
+func (t *Tap) configSlots(opts KegTargetOptions) configSlots {
+	var out configSlots
+	if cfg, err := t.ConfigService.Config(); err == nil && cfg != nil {
+		out.Hub = ConfigSlot{Value: cfg.resolveHubName(), Scope: t.configFieldScope("hub")}
+		out.Keg = ConfigSlot{Value: cfg.Keg(), Scope: t.configFieldScope("keg")}
+		out.Flight = ConfigSlot{Value: cfg.Flight(), Scope: t.configFieldScope("flight")}
+	}
+	if opts.Keg != "" {
+		out.Keg = ConfigSlot{Value: opts.Keg, Scope: "flag"}
+	}
+	if opts.Hub != "" {
+		out.Hub = ConfigSlot{Value: opts.Hub, Scope: "flag"}
+	}
+	if opts.Flight != "" {
+		out.Flight = ConfigSlot{Value: opts.Flight, Scope: "flag"}
+	}
+	return out
 }
