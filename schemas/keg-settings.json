@@ -37,9 +37,9 @@
       "type": "string",
       "description": "Markdown guidance for agents working in this keg."
     },
-    "links": {
+    "aliases": {
       "type": "array",
-      "description": "Named external links or related keg references.",
+      "description": "Named KEGs and external URLs. A note links keg:~alias/N to reach the KEG an alias names, so the link survives the KEG moving: only the alias changes.",
       "items": {
         "type": "object",
         "description": "A single named link entry.",
@@ -58,6 +58,14 @@
           "url"
         ],
         "additionalProperties": true
+      }
+    },
+    "links": {
+      "type": "array",
+      "deprecated": true,
+      "description": "Legacy name for aliases, read only when aliases is absent.",
+      "items": {
+        "$ref": "#/properties/aliases/items"
       }
     },
     "listFields": {

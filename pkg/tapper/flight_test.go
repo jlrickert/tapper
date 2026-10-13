@@ -453,3 +453,18 @@ func TestFlattenFlightGraph_ToleratesCycles(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []string{"@team/+y", "@team/+z"}, ringGraph.AvailableRefs())
 }
+
+// A cover entry with role none blocks its KEG: specs accept it, and it
+// covers nothing, even when another entry names the same KEG.
+func TestFlightCoverNoneBlocks(t *testing.T) {
+	cover, err := tapper.ParseFlightCoverSpecs([]string{"@team/notes=viewer", "@team/secret=none"})
+	require.NoError(t, err)
+	require.Equal(t, tapper.FlightRoleNone, cover[1].Role)
+	flight := &tapper.Flight{Namespace: "team", FlightManifest: tapper.FlightManifest{Cover: cover}}
+	_, ok := flight.RoleFor("", "team", "secret")
+	require.False(t, ok, "a blocked KEG is not covered")
+	role, ok := flight.RoleFor("", "team", "notes")
+	require.True(t, ok)
+	require.Equal(t, tapper.FlightRoleViewer, role)
+	require.False(t, tapper.FlightRoleNone.AtLeast(tapper.FlightRoleViewer))
+}
