@@ -311,19 +311,14 @@ func (p *perCallFlightBackend) CreateKeg(_ context.Context, opts tapper.CreateKe
 	return ref, nil
 }
 
-func (p *perCallFlightBackend) SearchKegs(_ context.Context, query string) (mcp.KegSearchResult, error) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	rows := make([]tapper.OrientationKeg, 0, len(p.kegs))
-	for _, ref := range p.kegs {
-		namespaceAlias := strings.TrimPrefix(ref, "@")
-		namespace, alias, _ := strings.Cut(namespaceAlias, "/")
-		rows = append(rows, tapper.OrientationKeg{
-			Ref: ref, Namespace: namespace, Alias: alias, Role: "admin", Source: "test", Visibility: "private",
-			Title: alias, Description: "summary for " + alias,
-		})
+// Explore answers from a fixed public directory that holds none of the
+// backend's own KEGs, so a test can tell a public match from a private one.
+func (p *perCallFlightBackend) Explore(_ context.Context, kind tapper.ExploreKind, query string) (tapper.ExploreResult, error) {
+	out := tapper.ExploreResult{Kind: kind, Results: []tapper.ExploreRow{}}
+	if kind == tapper.ExploreKegs && strings.Contains("public-notes", strings.ToLower(query)) {
+		out.Results = append(out.Results, tapper.ExploreRow{Ref: "@world/public-notes", Name: "Public notes", Description: "shared with everyone"})
 	}
-	return mcp.KegSearchResult{Kegs: mcp.SearchIdentityKegs(rows, query)}, nil
+	return out, nil
 }
 
 func (p *perCallFlightBackend) Identities(context.Context) ([]mcp.AuthIdentity, error) {
@@ -338,7 +333,7 @@ func newPerCallFlightSession(t *testing.T, backend *perCallFlightBackend) (*sdkm
 	require.NoError(t, err)
 	server := mcp.NewServer(tap, "test", mcp.KegDefaults{}, mcp.ServerOptions{
 		OrientationProvider: backend, FlightProvider: backend, KegProvider: backend,
-		KegSearchProvider: backend, IdentityProvider: backend,
+		ExploreProvider: backend, IdentityProvider: backend,
 	})
 	return connectFlightSession(t, ctx, server, nil), ctx
 }
@@ -351,7 +346,7 @@ func newRefreshFlightSession(t *testing.T, backend *refreshFlightBackend, opts *
 	require.NoError(t, err)
 	server := mcp.NewServer(tap, "test", mcp.KegDefaults{}, mcp.ServerOptions{
 		OrientationProvider: backend, FlightProvider: backend, KegProvider: backend,
-		KegSearchProvider: backend, IdentityProvider: backend,
+		ExploreProvider: backend, IdentityProvider: backend,
 	})
 	return connectFlightSession(t, ctx, server, opts), ctx
 }
@@ -501,41 +496,32 @@ func TestAggregateOrientationKegsMergesEqualWinningFlightProvenance(t *testing.T
 	require.Equal(t, []string{"@team/+child", "@team/+root"}, rows[0].Flights)
 }
 
-func TestMCP_KegSearchIsIdentityScopedLiteralBoundedAndUngoverned(t *testing.T) {
+func TestMCP_ExploreKegsSearchesOnlyThePublicDirectory(t *testing.T) {
 	backend := newPerCallFlightBackend()
 	session, ctx := newPerCallFlightSession(t, backend)
 
-	found, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: "keg_search", Arguments: map[string]any{"query": "NEW-KEG"}})
+	found, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: "explore_kegs", Arguments: map[string]any{"query": "PUBLIC"}})
 	require.NoError(t, err)
 	require.False(t, found.IsError, extractText(t, found))
-	require.Equal(t, "@team/new-keg\tadmin\tnew-keg\tsummary for new-keg\tprivate\ttest", extractText(t, found))
-	require.NotContains(t, extractText(t, found), "flight")
+	require.Equal(t, "@world/public-notes\tPublic notes\tshared with everyone\t", extractText(t, found))
 	raw, err := json.Marshal(found.StructuredContent)
 	require.NoError(t, err)
-	var structured mcp.KegSearchResult
+	var structured tapper.ExploreResult
 	require.NoError(t, json.Unmarshal(raw, &structured))
-	require.Equal(t, []mcp.KegSearchRow{{
-		Ref: "@team/new-keg", Role: "admin", Title: "new-keg",
-		Description: "summary for new-keg", Visibility: "private", Source: "test",
-	}}, structured.Kegs)
+	require.Equal(t, tapper.ExploreKegs, structured.Kind)
+	require.Equal(t, []tapper.ExploreRow{{Ref: "@world/public-notes", Name: "Public notes", Description: "shared with everyone"}}, structured.Results)
 
-	empty, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: "keg_search", Arguments: map[string]any{"query": "   "}})
+	private, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: "explore_kegs", Arguments: map[string]any{"query": "new-keg"}})
 	require.NoError(t, err)
-	require.True(t, empty.IsError)
-	require.Contains(t, extractText(t, empty), "query must not be empty")
+	require.False(t, private.IsError, extractText(t, private))
+	require.Empty(t, extractText(t, private), "the session's own KEGs are listed by keg_list, never explored")
 
-	rows := make([]tapper.OrientationKeg, 0, 60)
-	for i := 59; i >= 0; i-- {
-		alias := fmt.Sprintf("match-%02d", i)
-		rows = append(rows, tapper.OrientationKeg{
-			Ref: "@team/" + alias, Namespace: "team", Alias: alias,
-			Title: "A match", Description: "literal metadata", Role: "viewer",
-		})
+	for _, tool := range []string{"explore_kegs", "explore_flights", "explore_people"} {
+		empty, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: tool, Arguments: map[string]any{"query": "   "}})
+		require.NoError(t, err)
+		require.True(t, empty.IsError, tool)
+		require.Contains(t, extractText(t, empty), "query must not be empty", tool)
 	}
-	bounded := mcp.SearchIdentityKegs(rows, "MATCH")
-	require.Len(t, bounded, 50)
-	require.Equal(t, "@team/match-00", bounded[0].Ref)
-	require.Equal(t, "@team/match-49", bounded[49].Ref)
 }
 
 func TestMCP_PerCallSelectionAdoptsGraphAuthorityChanges(t *testing.T) {
@@ -630,7 +616,7 @@ func TestMCP_AuthorityBearingSchemasExposeOptionalFlightAndRejectKegListAll(t *t
 	session, ctx := newPerCallFlightSession(t, backend)
 	result, err := session.ListTools(ctx, nil)
 	require.NoError(t, err)
-	ungoverned := map[string]bool{"guide": true, "flight_search": true, "session_info": true, "keg_search": true, "flight_list": true, "flight_read": true, "session_refresh": true, "namespace_list": true, "namespace_search": true, "invitation_list": true, "agent_list": true, "agent_read": true}
+	ungoverned := map[string]bool{"guide": true, "explore_kegs": true, "explore_flights": true, "explore_people": true, "session_info": true, "flight_list": true, "flight_read": true, "session_refresh": true, "namespace_list": true, "invitation_list": true, "agent_list": true, "agent_read": true}
 	seen := map[string]bool{}
 	for _, tool := range result.Tools {
 		seen[tool.Name] = true
@@ -655,7 +641,7 @@ func TestMCP_AuthorityBearingSchemasExposeOptionalFlightAndRejectKegListAll(t *t
 		if tool.Name == "session_refresh" {
 			require.Empty(t, properties, "session_refresh must remain zero-argument")
 		}
-		if tool.Name == "keg_search" {
+		if strings.HasPrefix(tool.Name, "explore_") {
 			require.Contains(t, properties, "query")
 			required, _ := schema["required"].([]any)
 			require.Contains(t, required, "query")

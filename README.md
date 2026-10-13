@@ -211,6 +211,9 @@ tap use @acme/engineering
 tap use @acme/engineering --flight @acme/+release-42
 ```
 
+`tap explore kegs|flights|people QUERY` searches the hub's public directory;
+your own kegs come from `tap keg list`.
+
 Export a keg for backup or migration:
 
 ```bash

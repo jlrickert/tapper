@@ -155,7 +155,7 @@ func newFlightSearchSession(t *testing.T, mode string, provider mcp.NodeSearchPr
 	require.NoError(t, err)
 	server := mcp.NewServer(tap, "test", mcp.KegDefaults{}, mcp.ServerOptions{
 		OrientationProvider: backend, FlightProvider: backend, KegProvider: backend,
-		KegSearchProvider: backend, IdentityProvider: backend, NodeSearchProvider: provider,
+		ExploreProvider: backend, IdentityProvider: backend, NodeSearchProvider: provider,
 	})
 	return connectFlightSession(t, ctx, server, nil), ctx
 }

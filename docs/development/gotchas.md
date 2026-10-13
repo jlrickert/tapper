@@ -32,8 +32,7 @@ Behavior that has surprised people before.
 KEG metadata uses `description`; legacy settings/archive `summary` is accepted
 only when description is absent. Flight descriptions flow through manifests,
 REST/MCP, editing, and hashes independently of instructions and authority.
-`orient` renders full active instructions, the complete active effective KEG cover; child flights require explicit inspection. No-flight orientation is search-first. `flight_search` returns
-at most 50 ordered metadata rows with a truncation notice; `guide` serves detailed
+`orient` renders full active instructions, the complete active effective KEG cover; child flights require explicit inspection. No-flight orientation points to the complete `keg_list` and `flight_list`, and to the `explore_*` tools for the public directory, which return a capped page with a truncation notice; `guide` serves detailed
 canonical guidance by topic. Display descriptions never affect authority revisions.
 
 The coordinated REST/MCP replacement is in progress, not complete. Cover entries

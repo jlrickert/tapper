@@ -86,7 +86,7 @@ func nodeReadSummary(count int) string {
 func registerCat(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name: "node_read",
-		Description: "Read KEG nodes using node_ids or query; they are mutually exclusive, and omitting both returns no nodes. The default returns metadata and content together; " +
+		Description: "Memory: Read KEG nodes using node_ids or query; they are mutually exclusive, and omitting both returns no nodes. The default returns metadata and content together; " +
 			"meta_only returns just the metadata document, which is how you read metadata before " +
 			"editing it. Each result carries content_hash (when content was read) and meta_hash (when " +
 			"metadata was read): pass content_hash as expected_content_hash and meta_hash as " +
@@ -138,7 +138,7 @@ type listInput struct {
 func registerList(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "node_list",
-		Description: "List KEG nodes, optionally filtered by a query expression",
+		Description: "Memory: List KEG nodes, optionally filtered by a query expression",
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(false),
@@ -179,7 +179,7 @@ type grepInput struct {
 func registerGrep(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "node_grep",
-		Description: "Match KEG node content lines against a regex pattern in one KEG, in node id order. Use it for exact identifiers, symbols, and audits; use node_search to find the nodes about a topic. max_lines defaults to 3 matched lines per node; -1 returns all matched lines. Follow next_offset for more nodes; use node_read for complete bodies.",
+		Description: "Memory: Match KEG node content lines against a regex pattern in one KEG, in node id order. Use it for exact identifiers, symbols, and audits; use node_search to find the nodes about a topic. max_lines defaults to 3 matched lines per node; -1 returns all matched lines. Follow next_offset for more nodes; use node_read for complete bodies.",
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(false),
@@ -219,7 +219,7 @@ type tagsInput struct {
 func registerTags(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "tag_list",
-		Description: "List tags or filter nodes by tag expression",
+		Description: "Memory: List tags or filter nodes by tag expression",
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(false),
@@ -257,7 +257,7 @@ type backlinksInput struct {
 func registerBacklinks(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "node_backlinks",
-		Description: "List nodes that link to a given node",
+		Description: "Memory: List nodes that link to a given node",
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(false),
@@ -295,7 +295,7 @@ type linksInput struct {
 func registerLinks(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "node_links",
-		Description: "List outgoing links from a node",
+		Description: "Memory: List outgoing links from a node",
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(false),
@@ -329,7 +329,7 @@ type kegSettingsInput struct {
 func registerKegSettings(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "keg_settings_read",
-		Description: "Read targeted KEG settings and instructions. Defaults to a minimal summary; set minimal=false for one complete YAML data document and its hash, required by keg_settings_edit. Use keg or 1-100 kegs, never both.",
+		Description: "Memory: Read targeted KEG settings and instructions. Defaults to a minimal summary; set minimal=false for one complete YAML data document and its hash, required by keg_settings_edit. Use keg or 1-100 kegs, never both.",
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(false),
@@ -392,7 +392,7 @@ type infoInput struct {
 func registerInfo(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "keg_info",
-		Description: "Show concise path-free diagnostics for a resolved KEG (canonical ref, flight, description, node count, and capabilities)",
+		Description: "Memory: Show concise path-free diagnostics for a resolved KEG (canonical ref, flight, description, node count, and capabilities)",
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(false),
@@ -419,7 +419,7 @@ type statsInput struct {
 func registerStats(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "node_stats",
-		Description: "Show stats (hash, timestamps, access count) for a node",
+		Description: "Memory: Show stats (hash, timestamps, access count) for a node",
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(false),

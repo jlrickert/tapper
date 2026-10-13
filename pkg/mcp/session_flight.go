@@ -46,7 +46,7 @@ func failedOrientationPayload(err error) string {
 	}
 	return "This session could not establish flight authority: " + err.Error() +
 		"\n\nKEG tools are locked until it does, so only `orient`, `session_refresh`, `flight_list`," +
-		" `flight_read`, `session_info`, `keg_search`, `flight_search`, and `guide` are published. An empty cover on a" +
+		" `flight_read`, `session_info`, and `guide` are published. An empty cover on a" +
 		" successfully loaded flight would still publish the complete registered" +
 		" inventory. Call `flight_list` to see what" +
 		" actually exists, then ask the user to correct the selected flight (in" +
@@ -56,27 +56,26 @@ func failedOrientationPayload(err error) string {
 }
 
 var recoveryToolNames = map[string]bool{
-	"guide": true, "flight_search": true,
+	"guide":           true,
 	"orient":          true,
 	"session_refresh": true,
 	"flight_list":     true,
 	"flight_read":     true,
 	"session_info":    true,
-	"keg_search":      true,
 }
 
 // ungovernedToolNames never select authority and therefore do not advertise a
 // flight argument. Keep administration/configuration discovery here even when
 // a particular build does not register those tools.
 var ungovernedToolNames = map[string]bool{
-	"guide": true, "flight_search": true,
-	"session_info": true, "auth_status": true, "keg_search": true,
+	"guide": true, "explore_kegs": true, "explore_flights": true, "explore_people": true,
+	"session_info": true, "auth_status": true,
 	"session_refresh": true,
 	"config":          true, "config_template": true,
 	"namespace_list": true, "namespace_create": true, "namespace_members": true,
 	"namespace_add_member": true, "namespace_set_role": true, "namespace_remove_member": true,
 	"license": true, "flight_list": true, "flight_read": true,
-	"namespace_search": true, "invitation_list": true, "agent_list": true, "agent_read": true,
+	"invitation_list": true, "agent_list": true, "agent_read": true,
 }
 
 // sessionMode is the authority state of one MCP session.

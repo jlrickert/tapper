@@ -37,7 +37,7 @@ type ServerOptions struct {
 	OrientationProvider OrientationProvider
 	FlightProvider      FlightProvider
 	KegProvider         KegDiscoveryProvider
-	KegSearchProvider   KegSearchProvider
+	ExploreProvider     ExploreProvider
 	IdentityProvider    IdentityProvider
 	AgentProvider       AgentProvider
 	NamespaceProvider   NamespaceProvider
@@ -76,8 +76,8 @@ func NewServer(tap *tapper.Tap, version string, defaults KegDefaults, opts ...Se
 	if opt.KegProvider == nil {
 		opt.KegProvider = localKegDiscoveryProvider{tap: tap}
 	}
-	if opt.KegSearchProvider == nil {
-		opt.KegSearchProvider = localKegDiscoveryProvider{tap: tap}
+	if opt.ExploreProvider == nil {
+		opt.ExploreProvider = localExploreProvider{tap: tap}
 	}
 	if opt.IdentityProvider == nil {
 		opt.IdentityProvider = localIdentityProvider{tap: tap}
@@ -135,7 +135,8 @@ func NewServer(tap *tapper.Tap, version string, defaults KegDefaults, opts ...Se
 	registerDoctorTools(srv, tap, defaults)
 	registerLockTools(srv, tap, defaults)
 	registerFlightTools(srv, defaults, opt.FlightProvider)
-	registerKegTools(srv, defaults, opt.KegProvider, opt.KegSearchProvider)
+	registerKegTools(srv, defaults, opt.KegProvider)
+	registerExploreTools(srv, opt.ExploreProvider)
 	registerResourceTools(srv, tap, defaults)
 	registerAuthInfoTool(srv, defaults, opt.IdentityProvider, opt.KegProvider)
 	registerAgentTools(srv, defaults, opt.AgentProvider)
@@ -352,7 +353,7 @@ func errorResult(err error) *sdkmcp.CallToolResult {
 func errorGuidance(code string) (action string, operationPerformed any) {
 	switch code {
 	case keg.RemoteCodeNotFound:
-		return "The target was not found or is not readable. Confirm its identity with `node_list`/`node_search`/`node_grep` for nodes, `schema_list` for schemas, `flight_list`/`flight_search` for flights, or `keg_search` for KEGs before retrying.", false
+		return "The target was not found or is not readable. Confirm its identity with `node_list`/`node_search`/`node_grep` for nodes, `schema_list` for schemas, `flight_list` for flights, or `keg_list` for KEGs before retrying.", false
 	case keg.RemoteCodeExist, keg.RemoteCodeDestExists:
 		return "Something already occupies that id or name. Choose another, or edit the existing node instead.", false
 	case keg.RemoteCodeSchemaInvalid:
@@ -370,7 +371,7 @@ func errorGuidance(code string) (action string, operationPerformed any) {
 	case keg.RemoteCodeNotSupported:
 		return "This backend does not implement the operation. Do not retry unchanged; use a supported tool from tools/list or have the operator update the backend.", false
 	case keg.RemoteCodeKegVersionUnsupported:
-		return "The KEG version does not offer the operation, or the Hub does not offer the requested KEG version. Do not retry unchanged: for keg_create, omit kegv to create a KEGv1 KEG; for node tools, keg_list and keg_search label KEGv2 preview KEGs, so pick a KEGv1 KEG.", false
+		return "The KEG version does not offer the operation, or the Hub does not offer the requested KEG version. Do not retry unchanged: for keg_create, omit kegv to create a KEGv1 KEG; for node tools, keg_list labels KEGv2 preview KEGs, so pick a KEGv1 KEG.", false
 	default:
 		return "The outcome is unknown: this failure may follow a partial write. Inspect the resource before retrying: `node_read` for nodes, `schema_read` for schemas, `keg_settings_read` with minimal=false for settings, or `flight_read` for flights. Discover possible creations before repeating them; do not blindly replay a mutation.", nil
 	}

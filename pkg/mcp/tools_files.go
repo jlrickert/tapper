@@ -53,7 +53,7 @@ type listFilesInput struct {
 func registerListFiles(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "file_list",
-		Description: "List file attachments for a node",
+		Description: "Memory: List file attachments for a node",
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(false),
@@ -84,7 +84,7 @@ type listImagesInput struct {
 func registerListImages(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "image_list",
-		Description: "List image attachments for a node",
+		Description: "Memory: List image attachments for a node",
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(false),
@@ -141,7 +141,7 @@ type deleteFileInput struct {
 func registerDeleteFile(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "file_delete",
-		Description: "Delete a file attachment from a node",
+		Description: "Memory: Delete a file attachment from a node",
 		Annotations: &sdkmcp.ToolAnnotations{
 			DestructiveHint: boolPtr(true),
 			OpenWorldHint:   boolPtr(false),
@@ -175,7 +175,7 @@ type deleteImageInput struct {
 func registerDeleteImage(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "image_delete",
-		Description: "Delete an image attachment from a node",
+		Description: "Memory: Delete an image attachment from a node",
 		Annotations: &sdkmcp.ToolAnnotations{
 			DestructiveHint: boolPtr(true),
 			OpenWorldHint:   boolPtr(false),
@@ -225,7 +225,7 @@ type localUploadFileInput struct {
 
 func registerUploadFile(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, uploadFileTool(
-		"Upload a file attachment to a node from raw bytes, a data URI, or an embedded resource",
+		"Memory: Upload a file attachment to a node from raw bytes, a data URI, or an embedded resource",
 	), func(ctx context.Context, req *sdkmcp.CallToolRequest, in uploadFileInput) (*sdkmcp.CallToolResult, any, error) {
 		return handleFileUpload(ctx, tap, defaults, in.Keg, in.NodeID, in.Filename, uploadSourceInput{
 			SourceURI:  in.SourceURI,
@@ -237,7 +237,7 @@ func registerUploadFile(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefault
 
 func registerLocalUploadFile(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, uploadFileTool(
-		"Upload a file attachment to a node from a local path, raw bytes, a data URI, or an embedded resource",
+		"Memory: Upload a file attachment to a node from a local path, raw bytes, a data URI, or an embedded resource",
 	), func(ctx context.Context, req *sdkmcp.CallToolRequest, in localUploadFileInput) (*sdkmcp.CallToolResult, any, error) {
 		return handleFileUpload(ctx, tap, defaults, in.Keg, in.NodeID, in.Filename, uploadSourceInput{
 			SourcePath: in.SourcePath,
@@ -318,7 +318,7 @@ type downloadFileInput struct {
 func registerDownloadFile(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "file_download",
-		Description: "Download a file attachment from a node to a local file path",
+		Description: "Memory: Download a file attachment from a node to a local file path",
 		Annotations: &sdkmcp.ToolAnnotations{
 			OpenWorldHint: boolPtr(false),
 		},
@@ -367,7 +367,7 @@ type localUploadImageInput struct {
 
 func registerUploadImage(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, uploadImageTool(
-		"Upload an image attachment to a node from raw bytes, a data URI, or an embedded resource",
+		"Memory: Upload an image attachment to a node from raw bytes, a data URI, or an embedded resource",
 	), func(ctx context.Context, req *sdkmcp.CallToolRequest, in uploadImageInput) (*sdkmcp.CallToolResult, any, error) {
 		return handleImageUpload(ctx, tap, defaults, in.Keg, in.NodeID, in.Filename, uploadSourceInput{
 			SourceURI:  in.SourceURI,
@@ -379,7 +379,7 @@ func registerUploadImage(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaul
 
 func registerLocalUploadImage(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, uploadImageTool(
-		"Upload an image attachment to a node from a local path, raw bytes, a data URI, or an embedded resource",
+		"Memory: Upload an image attachment to a node from a local path, raw bytes, a data URI, or an embedded resource",
 	), func(ctx context.Context, req *sdkmcp.CallToolRequest, in localUploadImageInput) (*sdkmcp.CallToolResult, any, error) {
 		return handleImageUpload(ctx, tap, defaults, in.Keg, in.NodeID, in.Filename, uploadSourceInput{
 			SourcePath: in.SourcePath,
@@ -445,7 +445,7 @@ type localDownloadImageInput struct {
 
 func registerDownloadImage(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, downloadImageTool(
-		"Return an image attachment from a node as MCP image content",
+		"Memory: Return an image attachment from a node as MCP image content",
 	), func(ctx context.Context, req *sdkmcp.CallToolRequest, in downloadImageInput) (*sdkmcp.CallToolResult, any, error) {
 		return readImageContent(ctx, tap, defaults, in.Keg, in.NodeID, in.Filename)
 	})
@@ -453,7 +453,7 @@ func registerDownloadImage(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefa
 
 func registerLocalDownloadImage(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, downloadImageTool(
-		"Download an image attachment from a node, either to a local file path or as MCP image content",
+		"Memory: Download an image attachment from a node, either to a local file path or as MCP image content",
 	), func(ctx context.Context, req *sdkmcp.CallToolRequest, in localDownloadImageInput) (*sdkmcp.CallToolResult, any, error) {
 		dest := strings.TrimSpace(in.DestPath)
 		if dest == "" {

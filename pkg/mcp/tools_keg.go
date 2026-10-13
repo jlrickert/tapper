@@ -15,18 +15,16 @@ import (
 type kegListInput struct{}
 
 type kegListRow struct {
-	Ref        string   `json:"ref"`
-	Role       string   `json:"role"`
-	Flights    []string `json:"flights"`
-	KegVersion string   `json:"kegv,omitempty"`
+	Ref         string   `json:"ref"`
+	Role        string   `json:"role"`
+	Title       string   `json:"title,omitempty"`
+	Description string   `json:"description,omitempty"`
+	Flights     []string `json:"flights"`
+	KegVersion  string   `json:"kegv,omitempty"`
 }
 
 type kegListOutput struct {
 	Kegs []kegListRow `json:"kegs"`
-}
-
-type kegSearchInput struct {
-	Query string `json:"query" jsonschema:"required,non-empty case-insensitive literal query matched against canonical ref, title, and description"`
 }
 
 type kegCreateInput struct {
@@ -41,14 +39,14 @@ type kegCreateInput struct {
 // with normal namespace membership; whether it holds keg_create at all is its
 // agent's tool list, gated by the host. Transport-specific hub selection
 // is intentionally absent from the agent surface.
-func registerKegTools(srv *sdkmcp.Server, defaults KegDefaults, kegs KegDiscoveryProvider, search KegSearchProvider) {
+func registerKegTools(srv *sdkmcp.Server, defaults KegDefaults, kegs KegDiscoveryProvider) {
 	registerKegDelete(srv, defaults, kegs)
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "keg_list",
-		Description: "Discover canonical KEGs and granting-flight provenance. Without a configured root, returns identity-accessible KEGs at their real roles. With a pinned root, omission aggregates its accessible transitive graph for discovery; a discovered child-only KEG still requires that child as flight on operational calls. Supplying flight returns exactly that flight projection",
+		Description: "Memory: List every KEG this session can work in, with role, title, description, and granting-flight provenance. The list is complete, so read it rather than searching; explore_kegs searches public KEGs you do not hold. Without a configured root, returns identity-accessible KEGs at their real roles. With a pinned root, omission aggregates its accessible transitive graph for discovery; a discovered child-only KEG still requires that child as flight on operational calls. Supplying flight returns exactly that flight projection",
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
-			OpenWorldHint: boolPtr(true),
+			OpenWorldHint: boolPtr(false),
 		},
 	}, func(ctx context.Context, _ *sdkmcp.CallToolRequest, in kegListInput) (*sdkmcp.CallToolResult, any, error) {
 		if HasSessionOrientation(ctx) {
@@ -58,12 +56,16 @@ func registerKegTools(srv *sdkmcp.Server, defaults KegDefaults, kegs KegDiscover
 			for _, row := range rows {
 				effective := EffectiveOrientationRole(row)
 				flights := append([]string{}, row.Flights...)
-				out.Kegs = append(out.Kegs, kegListRow{Ref: row.Ref, Role: effective, Flights: flights, KegVersion: row.KegVersion})
-				line := row.Ref + "\t" + effective + "\t" + strings.Join(flights, ",")
-				if label := tapper.KegVersionLabel(row.KegVersion); label != "" {
-					line += "\t" + label
-				}
-				lines = append(lines, line)
+				out.Kegs = append(out.Kegs, kegListRow{
+					Ref: row.Ref, Role: effective, Title: row.Title, Description: row.Description,
+					Flights: flights, KegVersion: row.KegVersion,
+				})
+				// Title and description trail so a row without them keeps the
+				// ref, role, and flights columns unpadded.
+				lines = append(lines, strings.TrimRight(strings.Join([]string{
+					row.Ref, effective, strings.Join(flights, ","),
+					tsvField(tapper.KegTitleWithVersion(row.Title, row.KegVersion)), tsvField(row.Description),
+				}, "\t"), "\t"))
 			}
 			res := linesResult(lines)
 			res.StructuredContent = out
@@ -88,46 +90,13 @@ func registerKegTools(srv *sdkmcp.Server, defaults KegDefaults, kegs KegDiscover
 	})
 
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
-		Name:        "keg_search",
-		Description: "Search identity-accessible KEG metadata on the connection-pinned Hub. Search results never grant access: no-flight calls may operate at the returned identity role, while a real-flight call must also cover the KEG",
-		Annotations: &sdkmcp.ToolAnnotations{
-			ReadOnlyHint:  true,
-			OpenWorldHint: boolPtr(true),
-		},
-	}, func(ctx context.Context, _ *sdkmcp.CallToolRequest, in kegSearchInput) (*sdkmcp.CallToolResult, any, error) {
-		query := strings.TrimSpace(in.Query)
-		if query == "" {
-			return errorResult(fmt.Errorf("%w: query must not be empty", keg.ErrInvalid)), nil, nil
-		}
-		found, err := search.SearchKegs(ctx, query)
-		if err != nil {
-			return errorResult(err), nil, nil
-		}
-		lines := make([]string, 0, len(found.Warnings)+len(found.Kegs))
-		if found.Truncated {
-			lines = append(lines, "Results truncated to 50 KEGs; refine the query.")
-		}
-		for _, warning := range found.Warnings {
-			lines = append(lines, "Warning: "+tsvField(warning))
-		}
-		for _, row := range found.Kegs {
-			lines = append(lines, strings.Join([]string{
-				row.Ref, row.Role, tsvField(tapper.KegTitleWithVersion(row.Title, row.KegVersion)), tsvField(row.Description), row.Visibility, row.Source,
-			}, "\t"))
-		}
-		res := linesResult(lines)
-		res.StructuredContent = found
-		return res, nil, nil
-	})
-
-	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name: "keg_create",
-		Description: "Create a new KEG in a namespace you belong to. Creating a KEG " +
+		Description: "Manage: Create a new KEG in a namespace you belong to. Creating a KEG " +
 			"never adds it to a flight's cover.",
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:    false,
 			DestructiveHint: boolPtr(false),
-			OpenWorldHint:   boolPtr(true),
+			OpenWorldHint:   boolPtr(false),
 		},
 	}, func(ctx context.Context, _ *sdkmcp.CallToolRequest, in kegCreateInput) (*sdkmcp.CallToolResult, any, error) {
 		// The gate refuses this tool before dispatch; the check is repeated here
@@ -208,7 +177,7 @@ type kegDeleteInput struct {
 }
 
 func registerKegDelete(srv *sdkmcp.Server, defaults KegDefaults, provider KegDiscoveryProvider) {
-	sdkmcp.AddTool(srv, &sdkmcp.Tool{Name: "keg_delete", Description: "Permanently delete an empty or populated KEG and all its data, including snapshots. Requires identity admin permission; a selected flight also requires effective admin cover. No expected_hash: a settings hash does not cover a whole KEG.", Annotations: &sdkmcp.ToolAnnotations{DestructiveHint: boolPtr(true), OpenWorldHint: boolPtr(true)}}, func(ctx context.Context, _ *sdkmcp.CallToolRequest, in kegDeleteInput) (*sdkmcp.CallToolResult, any, error) {
+	sdkmcp.AddTool(srv, &sdkmcp.Tool{Name: "keg_delete", Description: "Manage: Permanently delete an empty or populated KEG and all its data, including snapshots. Requires identity admin permission; a selected flight also requires effective admin cover. No expected_hash: a settings hash does not cover a whole KEG.", Annotations: &sdkmcp.ToolAnnotations{DestructiveHint: boolPtr(true), OpenWorldHint: boolPtr(false)}}, func(ctx context.Context, _ *sdkmcp.CallToolRequest, in kegDeleteInput) (*sdkmcp.CallToolResult, any, error) {
 		ns, alias, err := tapper.ParseCanonicalKegRef(in.Keg)
 		if err != nil {
 			return errorResult(fmt.Errorf("keg must be an explicit canonical @namespace/keg reference: %w", err)), nil, nil
