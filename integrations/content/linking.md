@@ -8,11 +8,19 @@ Tapper supports these link forms in node bodies:
 - **Cross-keg (same namespace):** `[title](keg:ALIAS/NODEID)` — names a KEG
   in the source namespace.
 - **Settings alias:** `[title](keg:~ALIAS/NODEID)` — explicitly resolves an
-  alias declared in the source KEG settings. The tilde distinguishes a settings
-  alias from a KEG name.
+  alias declared in the source KEG settings `aliases`. The tilde distinguishes
+  a settings alias from a KEG name. An alias keeps links working when the KEG
+  it names moves: only the alias's target changes.
 - **Cross-keg (fully qualified):**
   `[title](keg:@NAMESPACE/ALIAS/NODEID)` — identifies the namespace and keg
-  explicitly and is parsed into a cross-keg edge.
+  explicitly and is parsed into a cross-keg edge. `NODEID` may be `0`, the
+  KEG's root node, to link the KEG as a whole. The `@` is required:
+  `keg:NAMESPACE/ALIAS/NODEID` is not a link, and `keg_check` reports it.
+
+On a Hub, a flight that covers a KEG also covers the KEGs its notes link to,
+as far as the cover entry's depth reaches, so a cross-keg link can widen what
+an agent under that flight may read. A flight blocks a KEG by listing it with
+role `none`.
 
 Indexed links appear in backlinks when readable. Prefer intra-keg links when the target is in
 the same keg. A bare `keg:` reference in node prose is plain text: it does not

@@ -36,10 +36,13 @@ REST/MCP, editing, and hashes independently of instructions and authority.
 canonical guidance by topic. Display descriptions never affect authority revisions.
 
 The coordinated REST/MCP replacement is in progress, not complete. Cover entries
-now carry depth (default 2, range 1–8). The Hub composes authority through declared
-same-Hub settings relationships. Flights carry no capabilities; an agent's tools decide what a session may do.
-`keg:~alias/node` explicitly resolves the source KEG's settings alias; canonical
-references keep their meaning. Orientation request transport requires a root and
+now carry depth (default 2, range 1–8). The Hub composes a flight's cover from
+its listed KEGs and the same-Hub KEGs their notes link to; a cover entry with
+role `none` blocks a KEG however it is reached. Flights carry no capabilities;
+an agent's tools decide what a session may do. `keg:~alias/node` explicitly
+resolves the source KEG's settings alias (settings `aliases`, formerly `links`,
+which is still read when `aliases` is absent); canonical references keep their
+meaning. Orientation request transport requires a root and
 active flight, with no revision acknowledgment requirement. The hub publishes
 its own verification status for the replacement's scope and gaps.
 

@@ -250,7 +250,7 @@ func TestArchiveImportRestoresKegSettingsForFullBackup(t *testing.T) {
 		cfg.Description = "Restored summary"
 		cfg.Instructions = "Restore carefully."
 		cfg.Timezone = "America/Chicago"
-		cfg.Links = []keg.LinkEntry{{Alias: "docs", URL: "https://example.com/docs"}}
+		cfg.Aliases = []keg.AliasEntry{{Alias: "docs", URL: "https://example.com/docs"}}
 		cfg.Indexes = append(cfg.UserIndexEntries(), keg.IndexEntry{File: "restored.md", Summary: "Restored nodes", Query: "restored"})
 		cfg.Snapshots = &keg.SnapshotSettings{Mode: keg.SnapshotModeOff, IdleAfter: "2h"}
 		cfg.SchemaPolicy = &keg.SchemaPolicy{
@@ -282,7 +282,7 @@ func TestArchiveImportRestoresKegSettingsForFullBackup(t *testing.T) {
 	require.Equal(t, "Restored summary", got.Description)
 	require.Equal(t, "Restore carefully.", got.Instructions)
 	require.Equal(t, "America/Chicago", got.Timezone)
-	require.Equal(t, []keg.LinkEntry{{Alias: "docs", URL: "https://example.com/docs"}}, got.Links)
+	require.Equal(t, []keg.AliasEntry{{Alias: "docs", URL: "https://example.com/docs"}}, got.Aliases)
 	require.Equal(t, &keg.SnapshotSettings{Mode: keg.SnapshotModeOff, IdleAfter: "2h"}, got.Snapshots)
 	require.Equal(t, &keg.SchemaPolicy{Human: keg.ValidationModeWarn, Agent: keg.ValidationModeBlock, API: keg.ValidationModeBlock}, got.SchemaPolicy)
 

@@ -22,7 +22,7 @@ type flightCreateInput struct {
 	Description  string   `json:"description,omitempty" jsonschema:"short description, separate from instructions"`
 	Visibility   string   `json:"visibility,omitempty" jsonschema:"flight visibility: private (default) or public"`
 	Instructions string   `json:"instructions,omitempty" jsonschema:"markdown instructions"`
-	Cover        []string `json:"cover,omitempty" jsonschema:"covered kegs with role caps, e.g. @ns/keg=viewer, @ns/keg=editor, or @ns/keg=admin (bare entries default to viewer)"`
+	Cover        []string `json:"cover,omitempty" jsonschema:"covered kegs with role caps, e.g. @ns/keg=viewer, @ns/keg=editor, or @ns/keg=admin (bare entries default to viewer). A covered keg also covers the kegs its notes link to, to depth 2; @ns/keg=none blocks a keg however it is reached"`
 	Subflights   []string `json:"subflights,omitempty" jsonschema:"ordered child flight references; bare +slug references use this flight's namespace"`
 }
 
@@ -32,7 +32,7 @@ type flightEditInput struct {
 	Description  *string  `json:"description,omitempty" jsonschema:"short description, separate from instructions"`
 	Visibility   *string  `json:"visibility,omitempty" jsonschema:"new visibility: private or public; omit to keep current"`
 	Instructions *string  `json:"instructions,omitempty" jsonschema:"new markdown instructions; omit to keep the current instructions"`
-	Cover        []string `json:"cover,omitempty" jsonschema:"replacement declared cover, e.g. @ns/keg=viewer; entries use default depth 2. Custom depth cannot be set here. Omit to preserve all current cover entries and depths; [] clears"`
+	Cover        []string `json:"cover,omitempty" jsonschema:"replacement declared cover, e.g. @ns/keg=viewer, or @ns/keg=none to block a keg its notes link to; entries use default depth 2. Custom depth cannot be set here. Omit to preserve all current cover entries and depths; [] clears"`
 	Subflights   []string `json:"subflights,omitempty" jsonschema:"replacement ordered child flight references; omit to keep current"`
 	ExpectedHash string   `json:"expected_hash" jsonschema:"precondition token returned by flight_read"`
 }

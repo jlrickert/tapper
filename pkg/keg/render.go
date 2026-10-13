@@ -19,8 +19,8 @@ import (
 
 // RenderOptions configures markdown-to-HTML rendering.
 type RenderOptions struct {
-	// Links supplies the source KEG settings aliases.
-	Links []LinkEntry
+	// Aliases supplies the source KEG's settings aliases, for keg:~alias/N.
+	Aliases []AliasEntry
 	// BaseURL is the keg-root URL prefix for rewritten node links; node N
 	// lives at {BaseURL}N. Defaults to "/".
 	BaseURL string
@@ -108,7 +108,7 @@ func ResolveNodeLink(dest string, opts RenderOptions) (string, bool) {
 				return "", false
 			}
 			var err error
-			namespace, alias, err = ResolveRelationshipAlias(opts.Links, strings.TrimPrefix(alias, "~"))
+			namespace, alias, err = ResolveSettingsAlias(opts.Aliases, strings.TrimPrefix(alias, "~"))
 			if err != nil {
 				return "", false
 			}
@@ -197,4 +197,46 @@ func (t *nodeLinkTransformer) Transform(doc *ast.Document, reader text.Reader, p
 		}
 		return ast.WalkContinue, nil
 	})
+}
+
+// unqualifiedKegLinkRE matches keg:NS/KEG/N, a cross-KEG link missing the @
+// that marks its namespace.
+var unqualifiedKegLinkRE = regexp.MustCompile(`^keg:([A-Za-z0-9][A-Za-z0-9_-]*)/([A-Za-z0-9][A-Za-z0-9_-]*)/([0-9]+)`)
+
+// KegLinkProblems reports each keg: link in markdown src that cannot be
+// followed: one outside the keg: syntax, which renders as a dead link and
+// links nothing, or a keg:~alias/N whose alias aliases does not name. Each
+// problem is reported once, in order of first appearance.
+func KegLinkProblems(src []byte, aliases []AliasEntry) []string {
+	doc := goldmark.New().Parser().Parse(text.NewReader(src))
+	var problems []string
+	seen := map[string]bool{}
+	_ = ast.Walk(doc, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
+		link, ok := n.(*ast.Link)
+		if !entering || !ok {
+			return ast.WalkContinue, nil
+		}
+		dest := strings.TrimSpace(string(link.Destination))
+		if !strings.HasPrefix(dest, "keg:") || seen[dest] {
+			return ast.WalkContinue, nil
+		}
+		seen[dest] = true
+		m := kegSchemeRE.FindStringSubmatch(dest)
+		switch {
+		case m == nil:
+			if u := unqualifiedKegLinkRE.FindStringSubmatch(dest); u != nil {
+				problems = append(problems, fmt.Sprintf("link %q is not a keg link; to link another KEG write keg:@%s/%s/%s", dest, u[1], u[2], u[3]))
+			} else {
+				problems = append(problems, fmt.Sprintf("link %q is not a keg link; write keg:@namespace/keg/N, or keg:~alias/N through the settings aliases", dest))
+			}
+		case strings.HasPrefix(m[2], "~"):
+			if m[1] != "" {
+				problems = append(problems, fmt.Sprintf("link %q names both a namespace and an alias; write keg:~alias/N or keg:@namespace/keg/N", dest))
+			} else if _, _, err := ResolveSettingsAlias(aliases, strings.TrimPrefix(m[2], "~")); err != nil {
+				problems = append(problems, fmt.Sprintf("link %q cannot be followed: %v", dest, err))
+			}
+		}
+		return ast.WalkContinue, nil
+	})
+	return problems
 }

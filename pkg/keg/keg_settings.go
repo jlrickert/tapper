@@ -76,9 +76,11 @@ type SettingsV2 struct {
 	// this keg.
 	Instructions string `yaml:"instructions,omitempty" json:"instructions,omitempty"`
 
-	// Links holds a list of LinkEntry objects representing related links or
-	// references in the configuration.
-	Links []LinkEntry `yaml:"links,omitempty" json:"links,omitempty"`
+	// Aliases name same-Hub KEGs (and external URLs) so a note can link
+	// keg:~alias/N and keep that link when a KEG moves: only the alias's
+	// target changes. Documents written before the rename call this links;
+	// it is read when aliases is absent.
+	Aliases []AliasEntry `yaml:"aliases,omitempty" json:"aliases,omitempty"`
 
 	// Indexes is a list of index entries that link to related files or nodes.
 	Indexes []IndexEntry `yaml:"indexes,omitempty" json:"indexes,omitempty"`
@@ -182,11 +184,16 @@ func formatSnapshotDuration(d time.Duration) string {
 	return d.String()
 }
 
-// LinkEntry represents a named link in the KEG settings.
-type LinkEntry struct {
-	Alias string `yaml:"alias" json:"alias"` // Alias for the link
-	URL   string `yaml:"url" json:"url"`     // URL of the link
+// AliasEntry names a KEG, or an external URL, in the KEG settings.
+type AliasEntry struct {
+	Alias string `yaml:"alias" json:"alias"` // the name a keg:~alias/N link uses
+	URL   string `yaml:"url" json:"url"`     // keg:@namespace/keg, or an external URL
 }
+
+// LinkEntry is the old name of AliasEntry.
+//
+// Deprecated: use AliasEntry.
+type LinkEntry = AliasEntry
 
 // IndexEntry represents an entry in the indexes list in the KEG settings.
 //
@@ -216,7 +223,7 @@ func (c *SettingsV1) toV2() *SettingsV2 {
 		Creator:     c.Creator,
 		State:       c.State,
 		Description: c.Description,
-		Links:       nil, // No links in v1, so leave as nil
+		Aliases:     nil, // No aliases in v1, so leave as nil
 		Indexes:     c.Indexes,
 		Snapshots:   DefaultSnapshotSettings(),
 		path:        "",
@@ -486,7 +493,7 @@ func (kc *Settings) Location() *time.Location {
 }
 
 func (kc *Settings) ResolveAlias(alias string) (*Target, error) {
-	for _, entry := range kc.Links {
+	for _, entry := range kc.Aliases {
 		if alias == entry.Alias {
 			kt, err := Parse(entry.URL)
 			if err != nil {
@@ -553,7 +560,8 @@ func (kc *Settings) Touch(t time.Time) {
 	kc.Updated = t.Format(time.RFC3339)
 }
 
-// UnmarshalYAML accepts legacy summary only when description is absent.
+// UnmarshalYAML accepts legacy summary only when description is absent, and
+// legacy links only when aliases is.
 func (s *SettingsV2) UnmarshalYAML(node *yaml.Node) error {
 	type plain SettingsV2
 	var value plain
@@ -571,11 +579,19 @@ func (s *SettingsV2) UnmarshalYAML(node *yaml.Node) error {
 			}
 		}
 	}
+	if _, exists := fields["aliases"]; !exists {
+		if old, ok := fields["links"]; ok {
+			if err := old.Decode(&value.Aliases); err != nil {
+				return err
+			}
+		}
+	}
 	*s = SettingsV2(value)
 	return nil
 }
 
-// UnmarshalJSON accepts legacy summary only when description is absent.
+// UnmarshalJSON accepts legacy summary only when description is absent, and
+// legacy links only when aliases is.
 func (s *SettingsV2) UnmarshalJSON(data []byte) error {
 	type plain SettingsV2
 	var value plain
@@ -589,6 +605,13 @@ func (s *SettingsV2) UnmarshalJSON(data []byte) error {
 	if _, exists := fields["description"]; !exists {
 		if old, ok := fields["summary"]; ok {
 			if err := json.Unmarshal(old, &value.Description); err != nil {
+				return err
+			}
+		}
+	}
+	if _, exists := fields["aliases"]; !exists {
+		if old, ok := fields["links"]; ok {
+			if err := json.Unmarshal(old, &value.Aliases); err != nil {
 				return err
 			}
 		}
