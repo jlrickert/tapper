@@ -365,3 +365,56 @@ func TestStrictArchiveImportRemainsExempt(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, after, len(before)+1)
 }
+
+func TestUpdateKeepsALegacyFrontmatterBodyEditable(t *testing.T) {
+	fx := NewSandbox(t)
+	ctx := fx.Context()
+	k := keg.NewLocalKeg(newTestMemoryRepo(fx.Runtime()), fx.Runtime())
+	initNonStrictTestKeg(t, k, ctx)
+	legacy, err := k.Create(ctx, &keg.CreateOptions{Body: []byte("# T\n")})
+	require.NoError(t, err)
+	// Store the legacy shape past the write guard, as a node predating the
+	// no-frontmatter rule already is.
+	require.NoError(t, k.Repo.WriteContent(ctx, legacy.ID, []byte("---\na: 1\n---\n# T\n")))
+	view, err := k.ReadNode(ctx, legacy.ID)
+	require.NoError(t, err)
+
+	_, err = k.UpdateNodes(ctx, []keg.NodeUpdateOptions{{
+		ID: legacy.ID, Content: []byte("---\na: 1\n---\n# T\n\nMore.\n"), HasContent: true, ExpectedContentHash: view.ContentHash(),
+	}})
+	require.NoError(t, err, "a full-content edit keeping the stored block is allowed")
+	got, err := k.ReadNode(ctx, legacy.ID)
+	require.NoError(t, err)
+	require.Equal(t, "---\na: 1\n---\n# T\n\nMore.\n", string(got.Content))
+
+	normal, err := k.Create(ctx, &keg.CreateOptions{Body: []byte("# N\n")})
+	require.NoError(t, err)
+	nview, err := k.ReadNode(ctx, normal.ID)
+	require.NoError(t, err)
+	_, err = k.UpdateNodes(ctx, []keg.NodeUpdateOptions{{
+		ID: normal.ID, Content: []byte("---\na: 1\n---\n# N\n"), HasContent: true, ExpectedContentHash: nview.ContentHash(),
+	}})
+	require.ErrorIs(t, err, keg.ErrInvalid, "content may not introduce a frontmatter block")
+	unchanged, err := k.ReadNode(ctx, normal.ID)
+	require.NoError(t, err)
+	require.Equal(t, "# N\n", string(unchanged.Content))
+}
+
+func TestPlanContentUpdate(t *testing.T) {
+	t.Parallel()
+	got, has, err := keg.PlanContentUpdate([]byte("# A\n"), keg.NodeUpdateOptions{})
+	require.NoError(t, err)
+	require.False(t, has)
+	require.Equal(t, "# A\n", string(got))
+
+	got, has, err = keg.PlanContentUpdate([]byte("# A\nx\n"), keg.NodeUpdateOptions{ContentPatch: "@@ -2 +2 @@\n-x\n+y\n", HasContentPatch: true})
+	require.NoError(t, err)
+	require.True(t, has)
+	require.Equal(t, "# A\ny\n", string(got))
+
+	_, _, err = keg.PlanContentUpdate([]byte("# A\n"), keg.NodeUpdateOptions{Content: []byte("# B\n"), HasContent: true, ContentPatch: "@@ -1 +1 @@\n-# A\n+# B\n", HasContentPatch: true})
+	require.ErrorIs(t, err, keg.ErrInvalid)
+
+	_, _, err = keg.PlanContentUpdate([]byte("# A\n"), keg.NodeUpdateOptions{ContentPatch: "@@ -1 +1,3 @@\n-# A\n+---\n+a: 1\n+---\n", HasContentPatch: true})
+	require.ErrorIs(t, err, keg.ErrInvalid)
+}

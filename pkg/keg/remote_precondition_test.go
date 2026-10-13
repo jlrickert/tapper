@@ -94,3 +94,23 @@ func TestRemoteKegUpdateNodesSendsPartTokensAndDecodesPartConflicts(t *testing.T
 	require.NotContains(t, update, "expected_meta_hash")
 	require.NotContains(t, update, "expected_hash")
 }
+
+func TestRemoteKegUpdateNodeSendsAPatchWithoutContent(t *testing.T) {
+	t.Parallel()
+	var body map[string]any
+	srv := testapi.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"results":[{"id":3,"hash":"h"}]}`))
+	}))
+	t.Cleanup(srv.Close)
+	rk := keg.NewRemoteKeg(srv.URL, "", nil)
+	_, _ = rk.UpdateNode(context.Background(), keg.NodeUpdateOptions{
+		ID: keg.NodeId{ID: 3}, ContentPatch: "@@ -1 +1 @@\n-a\n+b\n", HasContentPatch: true, ExpectedContentHash: "c1",
+	})
+	updates := body["updates"].([]any)
+	require.Len(t, updates, 1)
+	update := updates[0].(map[string]any)
+	require.Equal(t, "@@ -1 +1 @@\n-a\n+b\n", update["content_patch"])
+	require.NotContains(t, update, "content", "a patch-only update sends no content")
+}
