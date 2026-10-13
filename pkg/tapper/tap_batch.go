@@ -165,3 +165,33 @@ func requireEditPartHashes(i int, item BatchEditItem) error {
 	}
 	return nil
 }
+
+type MergeOptions struct {
+	KegTargetOptions
+	SourceID           string
+	ExpectedSourceHash string
+	// Target is the surviving node's rewrite, as for one EditBatch item.
+	Target BatchEditItem
+}
+
+// Merge folds a source node into a target: the target takes the merged
+// body, links to the source follow it, and the source goes to the trash.
+func (t *Tap) Merge(ctx context.Context, opts MergeOptions) (keg.MergeNodesResult, error) {
+	k, err := t.resolveKegForRole(ctx, opts.KegTargetOptions, FlightRoleEditor)
+	if err != nil {
+		return keg.MergeNodesResult{}, err
+	}
+	ctx = keg.WithDefaultValidationActor(ctx, keg.ValidationActorHuman)
+	source, err := keg.ParseNode(opts.SourceID)
+	if err != nil {
+		return keg.MergeNodesResult{}, fmt.Errorf("merge source %q: %w", opts.SourceID, err)
+	}
+	if !opts.Target.HasContent && !opts.Target.HasContentPatch {
+		return keg.MergeNodesResult{}, fmt.Errorf("merge into %q: content or patch is required, since a merge rewrites the target: %w", opts.Target.NodeID, keg.ErrInvalid)
+	}
+	update, err := batchEditUpdate(ctx, 0, opts.Target)
+	if err != nil {
+		return keg.MergeNodesResult{}, err
+	}
+	return k.MergeNodes(ctx, keg.MergeNodesOptions{Source: *source, ExpectedSourceHash: opts.ExpectedSourceHash, Target: update})
+}

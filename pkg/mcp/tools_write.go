@@ -35,6 +35,8 @@ func registerWriteTools(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefault
 	registerEdit(srv, tap, defaults)
 	registerRemove(srv, tap, defaults)
 	registerMove(srv, tap, defaults)
+	registerMerge(srv, tap, defaults)
+	registerReplace(srv, tap, defaults)
 	registerKegSettingsEdit(srv, tap, defaults)
 }
 
