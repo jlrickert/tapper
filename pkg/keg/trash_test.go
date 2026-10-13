@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"fmt"
 	"io"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -232,6 +233,141 @@ func TestRemoveWithoutTrashRewritesLinks(t *testing.T) {
 	require.ErrorIs(t, err, keg.ErrNotSupported)
 }
 
+func TestMergeNodesFoldsADuplicateIntoTheTarget(t *testing.T) {
+	t.Parallel()
+	fx := NewSandbox(t)
+	ctx := fx.Context()
+	repo := &trashingRepo{MemoryRepository: newTestMemoryRepo(fx.Runtime()), trash: map[keg.NodeId]trashedNode{}}
+	k := keg.NewLocalKeg(repo, fx.Runtime())
+	initNonStrictTestKeg(t, k, ctx)
+
+	target, err := k.Create(ctx, &keg.CreateOptions{Body: []byte("# Topic\n\nFirst take.\n")})
+	require.NoError(t, err)
+	dup, err := k.Create(ctx, &keg.CreateOptions{Body: []byte("# Topic again\n\nSecond take.\n")})
+	require.NoError(t, err)
+	linker, err := k.Create(ctx, &keg.CreateOptions{Body: []byte(fmt.Sprintf("# Linker\n\n[one](../%d) and [two](../%d)\n", target.ID.ID, dup.ID.ID))})
+	require.NoError(t, err)
+	targetView, err := k.ReadNode(ctx, target.ID)
+	require.NoError(t, err)
+	dupView, err := k.ReadNode(ctx, dup.ID)
+	require.NoError(t, err)
+
+	merged := fmt.Sprintf("# Topic\n\nFirst take.\n\nSecond take, once [a duplicate](../%d).\n", dup.ID.ID)
+	_, err = k.MergeNodes(ctx, keg.MergeNodesOptions{
+		Source: dup.ID, ExpectedSourceHash: "stale",
+		Target: keg.NodeUpdateOptions{ID: target.ID, Content: []byte(merged), HasContent: true, ExpectedContentHash: targetView.ContentHash()},
+	})
+	var conflict *keg.PreconditionConflictError
+	require.ErrorAs(t, err, &conflict, "a stale source hash changes nothing")
+	unchanged, err := k.ReadNode(ctx, target.ID)
+	require.NoError(t, err)
+	require.Equal(t, targetView.Content, unchanged.Content)
+
+	result, err := k.MergeNodes(ctx, keg.MergeNodesOptions{
+		Source: dup.ID, ExpectedSourceHash: dupView.Hash(),
+		Target: keg.NodeUpdateOptions{ID: target.ID, Content: []byte(merged), HasContent: true, ExpectedContentHash: targetView.ContentHash()},
+	})
+	require.NoError(t, err)
+	require.Equal(t, []keg.NodeId{linker.ID}, result.Rewritten)
+
+	after, err := k.ReadNode(ctx, target.ID)
+	require.NoError(t, err)
+	require.Equal(t, fmt.Sprintf("# Topic\n\nFirst take.\n\nSecond take, once [a duplicate](../%d).\n", target.ID.ID), string(after.Content), "the target's own link to the source points at itself")
+	require.Equal(t, after.ContentHash(), result.Target.ContentHash)
+	linking, err := k.ReadNode(ctx, linker.ID)
+	require.NoError(t, err)
+	require.Equal(t, fmt.Sprintf("# Linker\n\n[one](../%d) and [two](../%d)\n", target.ID.ID, target.ID.ID), string(linking.Content))
+
+	exists, err := k.NodeExists(ctx, dup.ID)
+	require.NoError(t, err)
+	require.False(t, exists)
+	trash, err := k.ListTrash(ctx)
+	require.NoError(t, err)
+	require.Len(t, trash, 1)
+	require.Equal(t, keg.TrashReasonMerge, trash[0].Reason)
+	require.NotNil(t, trash[0].MergedInto)
+	require.Equal(t, target.ID, *trash[0].MergedInto)
+
+	// Restoring the source brings it back; the links stay with the target.
+	require.NoError(t, k.RestoreTrashed(ctx, []keg.NodeId{dup.ID}))
+	restored, err := k.ReadNode(ctx, dup.ID)
+	require.NoError(t, err)
+	require.Contains(t, string(restored.Content), "Second take.")
+	linking, err = k.ReadNode(ctx, linker.ID)
+	require.NoError(t, err)
+	require.NotContains(t, string(linking.Content), fmt.Sprintf("../%d)", dup.ID.ID))
+}
+
+func TestMergeNodesRefusesWhatIsNotAMerge(t *testing.T) {
+	t.Parallel()
+	fx := NewSandbox(t)
+	ctx := fx.Context()
+	k := keg.NewLocalKeg(newTestMemoryRepo(fx.Runtime()), fx.Runtime())
+	initNonStrictTestKeg(t, k, ctx)
+	a, err := k.Create(ctx, &keg.CreateOptions{Body: []byte("# A\n")})
+	require.NoError(t, err)
+	view, err := k.ReadNode(ctx, a.ID)
+	require.NoError(t, err)
+	for name, opts := range map[string]keg.MergeNodesOptions{
+		"into itself": {Source: a.ID, ExpectedSourceHash: view.Hash(), Target: keg.NodeUpdateOptions{ID: a.ID, Content: []byte("# A\n"), HasContent: true, ExpectedContentHash: view.ContentHash()}},
+		"node 0":      {Source: keg.NodeId{ID: 0}, Target: keg.NodeUpdateOptions{ID: a.ID, Content: []byte("# A\n"), HasContent: true}},
+		"no body":     {Source: keg.NodeId{ID: 0}, Target: keg.NodeUpdateOptions{ID: a.ID, Meta: []byte("tags: [x]\n"), HasMeta: true}},
+	} {
+		_, err := k.MergeNodes(ctx, opts)
+		require.ErrorIs(t, err, keg.ErrInvalid, name)
+	}
+}
+
+func TestReplaceTextAcrossTheKeg(t *testing.T) {
+	t.Parallel()
+	fx := NewSandbox(t)
+	ctx := fx.Context()
+	k := keg.NewLocalKeg(newTestMemoryRepo(fx.Runtime()), fx.Runtime())
+	initNonStrictTestKeg(t, k, ctx)
+	a, err := k.Create(ctx, &keg.CreateOptions{Body: []byte("# Alpha\n\nUses Widget v1 and Widget v1.\n"), Meta: []byte("tags: [widget]\n")})
+	require.NoError(t, err)
+	b, err := k.Create(ctx, &keg.CreateOptions{Body: []byte("# Beta\n\nWidget v1 here too.\n"), Meta: []byte("tags: [other]\n")})
+	require.NoError(t, err)
+	c, err := k.Create(ctx, &keg.CreateOptions{Body: []byte("# Gamma\n\nNothing to see.\n")})
+	require.NoError(t, err)
+	read := func(id keg.NodeId) *keg.NodeView {
+		view, err := k.ReadNode(ctx, id)
+		require.NoError(t, err)
+		return view
+	}
+	before := read(c.ID).Hash()
+
+	dry, err := k.ReplaceText(ctx, keg.ReplaceTextOptions{Find: "Widget v1", Replace: "Widget v2", DryRun: true})
+	require.NoError(t, err)
+	require.Len(t, dry.Nodes, 2)
+	require.Equal(t, 3, dry.Nodes[0].Matches+dry.Nodes[1].Matches, "three matches over two nodes")
+	require.Contains(t, string(read(a.ID).Content), "Widget v1", "a dry run writes nothing")
+
+	done, err := k.ReplaceText(ctx, keg.ReplaceTextOptions{Find: `Widget v(\d)`, Replace: "Gadget v$1", Regex: true, Query: "widget"})
+	require.NoError(t, err)
+	require.Len(t, done.Nodes, 1, "the query keeps it to the tagged node")
+	require.Equal(t, "# Alpha\n\nUses Gadget v1 and Gadget v1.\n", string(read(a.ID).Content))
+	require.Equal(t, read(a.ID).ContentHash(), done.Nodes[0].ContentHash)
+	require.Contains(t, string(read(b.ID).Content), "Widget v1")
+	require.Equal(t, before, read(c.ID).Hash())
+
+	broken, err := k.ReplaceText(ctx, keg.ReplaceTextOptions{Find: "tags: [other]", Replace: "tags: [other", IncludeMeta: true})
+	require.NoError(t, err)
+	require.Len(t, broken.Nodes, 1)
+	require.NotEmpty(t, broken.Nodes[0].Error, "metadata that would not parse is reported")
+	require.Contains(t, string(read(b.ID).Meta), "other]", "and left alone")
+
+	meta, err := k.ReplaceText(ctx, keg.ReplaceTextOptions{Find: "widget", Replace: "gadget", IncludeMeta: true})
+	require.NoError(t, err)
+	require.Len(t, meta.Nodes, 1)
+	require.Contains(t, string(read(a.ID).Meta), "gadget")
+
+	_, err = k.ReplaceText(ctx, keg.ReplaceTextOptions{Find: "(", Regex: true})
+	require.ErrorIs(t, err, keg.ErrInvalid)
+	_, err = k.ReplaceText(ctx, keg.ReplaceTextOptions{})
+	require.ErrorIs(t, err, keg.ErrInvalid)
+}
+
 func newTrashingKeg(t *testing.T) (*keg.LocalKeg, *trashingRepo, context.Context) {
 	t.Helper()
 	fx := NewSandbox(t)
@@ -392,10 +528,113 @@ func TestRestoreTrashedRefusesDuplicateIDs(t *testing.T) {
 	require.Len(t, trash, 1)
 }
 
+func TestMergedSourceRestoresAsItWas(t *testing.T) {
+	t.Parallel()
+	k, _, ctx := newTrashingKeg(t)
+	target, err := k.Create(ctx, &keg.CreateOptions{Body: []byte("# Target\n")})
+	require.NoError(t, err)
+	source, err := k.Create(ctx, &keg.CreateOptions{Body: []byte("# Source\n")})
+	require.NoError(t, err)
+	selfLinking := fmt.Sprintf("# Source\n\nSee [myself](../%d).\n", source.ID.ID)
+	require.NoError(t, k.Repo.WriteContent(ctx, source.ID, []byte(selfLinking)))
+	third, err := k.Create(ctx, &keg.CreateOptions{Body: []byte(fmt.Sprintf("# Third\n\n[src](../%d)\n", source.ID.ID))})
+	require.NoError(t, err)
+	sourceView, err := k.ReadNode(ctx, source.ID)
+	require.NoError(t, err)
+	targetView, err := k.ReadNode(ctx, target.ID)
+	require.NoError(t, err)
+
+	_, err = k.MergeNodes(ctx, keg.MergeNodesOptions{
+		Source: source.ID, ExpectedSourceHash: sourceView.Hash(),
+		Target: keg.NodeUpdateOptions{ID: target.ID, Content: []byte("# Target\n\nMerged.\n"), HasContent: true, ExpectedContentHash: targetView.ContentHash()},
+	})
+	require.NoError(t, err)
+	thirdView, err := k.ReadNode(ctx, third.ID)
+	require.NoError(t, err)
+	require.Equal(t, fmt.Sprintf("# Third\n\n[src](../%d)\n", target.ID.ID), string(thirdView.Content))
+
+	require.NoError(t, k.RestoreTrashed(ctx, []keg.NodeId{source.ID}))
+	restored, err := k.ReadNode(ctx, source.ID)
+	require.NoError(t, err)
+	require.Equal(t, selfLinking, string(restored.Content))
+}
+
 func TestRetargetLinks(t *testing.T) {
 	t.Parallel()
 	got := keg.RetargetLinks([]byte("[a](../3) [b](../30) [c](../3#x)\n"), keg.NodeId{ID: 3}, keg.NodeId{ID: 7})
 	require.Equal(t, "[a](../7) [b](../30) [c](../7#x)\n", string(got))
+}
+
+func TestReplaceTextLeavesRefusedNodesAloneAndDryRunPredictsThem(t *testing.T) {
+	t.Parallel()
+	k, ctx := newStrictBatchKeg(t)
+	created, err := k.CreateNodes(ctx, []keg.NodeCreate{
+		{Key: "typed", Schema: "task", Body: []byte("# Typed\n\nfoo here\n"), Meta: []byte("type: task\n")},
+		{Key: "untyped", Schema: "task", Body: []byte("# Untyped\n\nfoo there\n"), Meta: []byte("type: task\n")},
+		{Key: "breaks", Schema: "task", Body: []byte("# Breaks\n\nfoo again\n"), Meta: []byte("type: task\nnote: foo\n")},
+	})
+	require.NoError(t, err)
+	typed, untyped, breaks := created[0].ID, created[1].ID, created[2].ID
+	// An untyped node, as one written before the keg turned strict is.
+	require.NoError(t, k.Repo.WriteMeta(ctx, untyped, []byte("tags: [foo]\n")))
+	// Metadata that breaks the schema once "foo" in it is replaced.
+	require.NoError(t, k.Repo.WriteMeta(ctx, breaks, []byte("type: foo\n")))
+	before := map[keg.NodeId]*keg.NodeView{}
+	for _, id := range []keg.NodeId{typed, untyped, breaks} {
+		view, err := k.ReadNode(ctx, id)
+		require.NoError(t, err)
+		before[id] = view
+	}
+	opts := keg.ReplaceTextOptions{Find: "foo", Replace: "bar", IncludeMeta: true, DryRun: true}
+	errorsOf := func(r keg.ReplaceTextResult) map[keg.NodeId]string {
+		out := map[keg.NodeId]string{}
+		for _, n := range r.Nodes {
+			out[n.ID] = n.Error
+		}
+		return out
+	}
+
+	dry, err := k.ReplaceText(ctx, opts)
+	require.NoError(t, err)
+	opts.DryRun = false
+	done, err := k.ReplaceText(ctx, opts)
+	require.NoError(t, err, "a node that would be refused does not fail the replace")
+	require.Equal(t, errorsOf(dry), errorsOf(done), "the dry run predicts the same refusals")
+
+	for _, n := range done.Nodes {
+		after, err := k.ReadNode(ctx, n.ID)
+		require.NoError(t, err)
+		if n.Error == "" {
+			require.NotEmpty(t, n.Hash)
+			require.Contains(t, string(after.Content), "bar")
+			continue
+		}
+		require.Empty(t, n.Hash)
+		require.Equal(t, before[n.ID].Content, after.Content, "node %s is left alone", n.ID.Path())
+		require.Equal(t, before[n.ID].Meta, after.Meta)
+	}
+	errs := errorsOf(done)
+	require.Empty(t, errs[typed])
+	require.NotEmpty(t, errs[breaks], "metadata that breaks the schema is refused")
+	require.NotContains(t, errs[breaks], "invalid argument")
+}
+
+func TestReplaceTextEditsALegacyFrontmatterBody(t *testing.T) {
+	t.Parallel()
+	fx := NewSandbox(t)
+	ctx := fx.Context()
+	k := keg.NewLocalKeg(newTestMemoryRepo(fx.Runtime()), fx.Runtime())
+	initNonStrictTestKeg(t, k, ctx)
+	legacy, err := k.Create(ctx, &keg.CreateOptions{Body: []byte("# T\n")})
+	require.NoError(t, err)
+	require.NoError(t, k.Repo.WriteContent(ctx, legacy.ID, []byte("---\na: 1\n---\n# T\n\nold word\n")))
+	done, err := k.ReplaceText(ctx, keg.ReplaceTextOptions{Find: "old word", Replace: "new word"})
+	require.NoError(t, err)
+	require.Len(t, done.Nodes, 1)
+	require.Empty(t, done.Nodes[0].Error)
+	got, err := k.ReadNode(ctx, legacy.ID)
+	require.NoError(t, err)
+	require.Equal(t, "---\na: 1\n---\n# T\n\nnew word\n", string(got.Content))
 }
 
 func TestPurgeLeavesLinksToALiveNodeAlone(t *testing.T) {
@@ -471,6 +710,47 @@ func TestPurgeTrashedReportsWhatItPurged(t *testing.T) {
 	}
 	_, err = k.PurgeTrashed(ctx, keg.PurgeTrashOptions{IDs: ids})
 	require.ErrorIs(t, err, keg.ErrInvalid)
+}
+
+// A replace is capped on every node it changes, refused ones included, and a
+// refused node carries its error rather than its bodies.
+func TestReplaceTextCapsRefusedNodesAndOmitsTheirBodies(t *testing.T) {
+	t.Parallel()
+	k, ctx := newStrictBatchKeg(t)
+	var ids []keg.NodeId
+	for len(ids) <= keg.MaxReplaceNodes {
+		batch := make([]keg.NodeCreate, 0, keg.MaxMutationBatchSize)
+		for i := 0; i < keg.MaxMutationBatchSize && len(ids)+len(batch) <= keg.MaxReplaceNodes; i++ {
+			batch = append(batch, keg.NodeCreate{Key: fmt.Sprintf("n%d-%d", len(ids), i), Schema: "task", Body: []byte("# N\n\nfoo\n"), Meta: []byte("type: task\n")})
+		}
+		created, err := k.CreateNodes(ctx, batch)
+		require.NoError(t, err)
+		for _, c := range created {
+			ids = append(ids, c.ID)
+		}
+	}
+	// Untyped, as nodes written before the keg turned strict are: a strict
+	// keg refuses to edit them without a schema.
+	for _, id := range ids {
+		require.NoError(t, k.Repo.WriteMeta(ctx, id, []byte("tags: [x]\n")))
+	}
+	_, err := k.ReplaceText(ctx, keg.ReplaceTextOptions{Find: "foo", Replace: "bar", DryRun: true})
+	require.ErrorIs(t, err, keg.ErrInvalid, "%d refused nodes still count against the cap", len(ids))
+
+	small, smallCtx := newStrictBatchKeg(t)
+	created, err := small.CreateNodes(smallCtx, []keg.NodeCreate{{Key: "a", Schema: "task", Body: []byte("# N\n\nfoo\n"), Meta: []byte("type: task\n")}})
+	require.NoError(t, err)
+	require.NoError(t, small.Repo.WriteMeta(smallCtx, created[0].ID, []byte("tags: [x]\n")))
+	few, err := small.ReplaceText(smallCtx, keg.ReplaceTextOptions{Find: "foo", Replace: "bar", DryRun: true})
+	require.NoError(t, err)
+	require.Len(t, few.Nodes, 1)
+	n := few.Nodes[0]
+	require.NotEmpty(t, n.Error)
+	require.Equal(t, 1, n.Matches)
+	require.Empty(t, n.ContentBefore)
+	require.Empty(t, n.ContentAfter)
+	require.Empty(t, n.MetaBefore)
+	require.Empty(t, n.MetaAfter)
 }
 
 // archiveOf builds a keg archive whose nodes sit at ids 1..len(bodies), each
@@ -616,6 +896,59 @@ func TestRestoreOntoALiveNodeIsRefused(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "# Squatter\n", string(got.Content))
 	require.Equal(t, gone.ID, onlyTrashEntry(t, ctx, k).ID)
+}
+
+// A replace measures what it would build before building it: a node that
+// would grow too large, or has too many matches, is left alone with an
+// error, and a replace that would grow every node together too large fails
+// before writing any.
+func TestReplaceTextBoundsWhatItBuilds(t *testing.T) {
+	t.Parallel()
+	fx := NewSandbox(t)
+	ctx := fx.Context()
+	k := keg.NewLocalKeg(newTestMemoryRepo(fx.Runtime()), fx.Runtime())
+	initNonStrictTestKeg(t, k, ctx)
+	read := func(id keg.NodeId) string {
+		view, err := k.ReadNode(ctx, id)
+		require.NoError(t, err)
+		return string(view.Content)
+	}
+
+	small, err := k.Create(ctx, &keg.CreateOptions{Body: []byte("# Small\n\n" + strings.Repeat("word ", 40) + "\n")})
+	require.NoError(t, err)
+	wide := strings.Repeat("W", 64<<10)
+	for _, dryRun := range []bool{true, false} {
+		// Matching the empty string matches at every position.
+		got, err := k.ReplaceText(ctx, keg.ReplaceTextOptions{Find: "x*", Replace: wide, Regex: true, DryRun: dryRun})
+		require.NoError(t, err)
+		require.NotEmpty(t, got.Nodes)
+		for _, node := range got.Nodes {
+			require.Contains(t, node.Error, "MiB", "node %s", node.ID.Path())
+			require.Empty(t, node.ContentAfter)
+		}
+		require.NotContains(t, read(small.ID), "WWW", "the oversized note is left alone")
+	}
+
+	many, err := k.Create(ctx, &keg.CreateOptions{Body: []byte("# Many\n\n" + strings.Repeat("q", keg.MaxReplaceNodeMatches+1) + "\n")})
+	require.NoError(t, err)
+	got, err := k.ReplaceText(ctx, keg.ReplaceTextOptions{Find: "q", Replace: "r"})
+	require.NoError(t, err)
+	require.Len(t, got.Nodes, 1)
+	require.Contains(t, got.Nodes[0].Error, "matches")
+	require.Contains(t, read(many.ID), "qqq")
+
+	perNode := keg.MaxReplaceNodeBytes / 2
+	var ids []keg.NodeId
+	for written := 0; written <= keg.MaxReplaceTotalBytes; written += perNode {
+		created, err := k.Create(ctx, &keg.CreateOptions{Body: []byte("# Big\n\nZZ\n")})
+		require.NoError(t, err)
+		ids = append(ids, created.ID)
+	}
+	_, err = k.ReplaceText(ctx, keg.ReplaceTextOptions{Find: "ZZ", Replace: strings.Repeat("z", perNode)})
+	require.ErrorIs(t, err, keg.ErrInvalid)
+	for _, id := range ids {
+		require.Contains(t, read(id), "ZZ", "a replace too large in all writes nothing")
+	}
 }
 
 // readCountingRepo is a trash that counts reads of each node's content.
