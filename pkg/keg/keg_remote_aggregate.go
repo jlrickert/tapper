@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"time"
 )
 
 func (k *RemoteKeg) ListEntries(ctx context.Context, opts ListEntriesOptions) (*ListEntriesResult, error) {
@@ -339,4 +340,91 @@ func (k *RemoteKeg) DexArtifacts(ctx context.Context) (*DexArtifacts, error) {
 		out.Indexes[name] = []byte(data)
 	}
 	return out, nil
+}
+
+// trashWireEntry is one GET /trash item.
+type trashWireEntry struct {
+	ID         int        `json:"id"`
+	Title      string     `json:"title"`
+	Reason     string     `json:"reason"`
+	MergedInto *int       `json:"merged_into,omitempty"`
+	TrashedAt  time.Time  `json:"trashed_at"`
+	ExpiresAt  *time.Time `json:"expires_at,omitempty"`
+	Size       int64      `json:"size"`
+	// DisplacedFrom is the id the entry was trashed at before an archive
+	// restore moved it.
+	DisplacedFrom *int `json:"displaced_from,omitempty"`
+}
+
+func (k *RemoteKeg) ListTrash(ctx context.Context) ([]TrashEntry, error) {
+	var wire struct {
+		Trash []trashWireEntry `json:"trash"`
+	}
+	if err := k.getJSON(ctx, "/trash", "ListTrash", &wire); err != nil {
+		return nil, err
+	}
+	out := make([]TrashEntry, len(wire.Trash))
+	for i, item := range wire.Trash {
+		out[i] = TrashEntry{ID: NodeId{ID: item.ID}, Title: item.Title, Reason: item.Reason, TrashedAt: item.TrashedAt, ExpiresAt: item.ExpiresAt, Size: item.Size}
+		if item.MergedInto != nil {
+			out[i].MergedInto = &NodeId{ID: *item.MergedInto}
+		}
+		if item.DisplacedFrom != nil {
+			out[i].DisplacedFrom = &NodeId{ID: *item.DisplacedFrom}
+		}
+	}
+	return out, nil
+}
+
+// TrashInfo finds id in the hub's trash listing; the REST API has no route
+// for a single entry. ErrNotExist when id is not trashed.
+func (k *RemoteKeg) TrashInfo(ctx context.Context, id NodeId) (TrashEntry, error) {
+	entries, err := k.ListTrash(ctx)
+	if err != nil {
+		return TrashEntry{}, err
+	}
+	for _, entry := range entries {
+		if entry.ID.ID == id.ID {
+			return entry, nil
+		}
+	}
+	return TrashEntry{}, fmt.Errorf("trashed node %s: %w", id.Path(), ErrNotExist)
+}
+
+func (k *RemoteKeg) RestoreTrashed(ctx context.Context, ids []NodeId) error {
+	return k.postJSON(ctx, "/trash/restore", "RestoreTrashed", struct {
+		Nodes []int `json:"nodes"`
+	}{remoteNodeNumbers(ids)}, nil, http.StatusOK)
+}
+
+func (k *RemoteKeg) PurgeTrashed(ctx context.Context, opts PurgeTrashOptions) (PurgeTrashResult, error) {
+	if opts.ExpiredAt != nil {
+		// The hub runs its own retention sweep; an expiry purge is local.
+		return PurgeTrashResult{}, ErrNotSupported
+	}
+	var wire struct {
+		Purged    []int `json:"purged"`
+		Rewritten []int `json:"rewritten"`
+	}
+	if err := k.postJSON(ctx, "/trash/purge", "PurgeTrashed", struct {
+		Nodes []int `json:"nodes"`
+	}{remoteNodeNumbers(opts.IDs)}, &wire, http.StatusOK); err != nil {
+		return PurgeTrashResult{}, err
+	}
+	out := PurgeTrashResult{Purged: make([]NodeId, len(wire.Purged)), Rewritten: make([]NodeId, len(wire.Rewritten))}
+	for i, id := range wire.Purged {
+		out.Purged[i] = NodeId{ID: id}
+	}
+	for i, id := range wire.Rewritten {
+		out.Rewritten[i] = NodeId{ID: id}
+	}
+	return out, nil
+}
+
+func remoteNodeNumbers(ids []NodeId) []int {
+	out := make([]int, len(ids))
+	for i, id := range ids {
+		out[i] = id.ID
+	}
+	return out
 }

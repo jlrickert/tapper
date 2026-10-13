@@ -110,6 +110,24 @@ type Keg interface {
 	// the ids of nodes whose content was rewritten.
 	Remove(ctx context.Context, opts NodeRemoveOptions) ([]NodeId, error)
 
+	// ListTrash returns removed nodes kept for restoring, newest first.
+	// ErrNotSupported when the keg keeps no trash.
+	ListTrash(ctx context.Context) ([]TrashEntry, error)
+
+	// TrashInfo returns the trash entry for one id, the cheap check for
+	// whether that id is trashed. ErrNotExist when the id has no entry,
+	// ErrNotSupported when the keg keeps no trash.
+	TrashInfo(ctx context.Context, id NodeId) (TrashEntry, error)
+
+	// RestoreTrashed puts 1-100 trashed nodes back at their ids, all or
+	// nothing.
+	RestoreTrashed(ctx context.Context, ids []NodeId) error
+
+	// PurgeTrashed deletes 1-100 trashed nodes for good, as one write, and
+	// points links that still name them at node 0. It reports the ids it
+	// purged and the nodes whose links it rewrote.
+	PurgeTrashed(ctx context.Context, opts PurgeTrashOptions) (PurgeTrashResult, error)
+
 	// Commit promotes a temporary, code-backed node to a permanent numeric id.
 	// It is a no-op for an already-permanent node.
 	Commit(ctx context.Context, id NodeId) error
@@ -434,6 +452,13 @@ type ImportNodesOptions struct {
 	// TargetAlias, when set, rewrites keg:TargetAlias/N links in imported
 	// content to relative ../N links.
 	TargetAlias string
+	// restoreFromTrash lets the import land on ids held by trashed nodes; only
+	// restoring from the trash does that.
+	restoreFromTrash bool
+	// restoreTo lands a single-node archive (a trash bundle) on this id
+	// rather than its own, its links to itself following. Restoring from
+	// the trash always sets it to the entry's current id.
+	restoreTo *NodeId
 }
 
 // ImportedNode maps an archive source id to the node id it landed on.
