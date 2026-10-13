@@ -34,8 +34,9 @@
           },
           "role": {
             "type": "string",
-            "description": "Maximum role granted by this cover entry. Omitted roles default to viewer.",
+            "description": "Maximum role granted by this cover entry. Omitted roles default to viewer. none blocks the KEG: it is out of the cover however notes link to it, and the cover does not follow its links.",
             "enum": [
+              "none",
               "viewer",
               "editor",
               "admin"

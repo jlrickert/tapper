@@ -26,6 +26,9 @@ const (
 type FlightRole string
 
 const (
+	// FlightRoleNone blocks a KEG: listed with it, the KEG is out of the
+	// flight's cover however its links reach it, and grants nothing.
+	FlightRoleNone   FlightRole = "none"
 	FlightRoleViewer FlightRole = "viewer"
 	FlightRoleEditor FlightRole = "editor"
 	FlightRoleAdmin  FlightRole = "admin"
@@ -64,6 +67,8 @@ func (r FlightRole) AtLeast(want FlightRole) bool {
 
 func normalizeFlightRole(role FlightRole) FlightRole {
 	switch FlightRole(strings.TrimSpace(string(role))) {
+	case FlightRoleNone:
+		return FlightRoleNone
 	case FlightRoleAdmin:
 		return FlightRoleAdmin
 	case FlightRoleEditor:
@@ -595,7 +600,7 @@ func validateFlightManifest(m *FlightManifest, namespace string) error {
 			return fmt.Errorf("invalid flight cover depth %d: must be 1–8", cover.Depth)
 		}
 		switch normalizeFlightRole(cover.Role) {
-		case FlightRoleViewer, FlightRoleEditor, FlightRoleAdmin:
+		case FlightRoleNone, FlightRoleViewer, FlightRoleEditor, FlightRoleAdmin:
 		default:
 			return fmt.Errorf("invalid flight cover role %q", cover.Role)
 		}
@@ -700,15 +705,20 @@ func (f *Flight) RoleFor(alias, namespace, kegName string) (FlightRole, bool) {
 	kegName = strings.TrimSpace(kegName)
 	alias = strings.TrimSpace(alias)
 	for _, c := range cover {
+		match := false
 		if c.Namespace == "" {
-			if (alias != "" && c.Keg == alias) || (kegName != "" && c.Keg == kegName) {
-				return normalizeFlightRole(c.Role), true
-			}
+			match = (alias != "" && c.Keg == alias) || (kegName != "" && c.Keg == kegName)
+		} else {
+			match = c.Namespace == namespace && c.Keg == kegName
+		}
+		if !match {
 			continue
 		}
-		if c.Namespace == namespace && c.Keg == kegName {
-			return normalizeFlightRole(c.Role), true
+		// A blocked KEG is not covered, whatever else names it.
+		if role := normalizeFlightRole(c.Role); role != FlightRoleNone {
+			return role, true
 		}
+		return "", false
 	}
 	return "", false
 }
@@ -727,6 +737,8 @@ func ParseFlightCoverSpecs(specs []string) ([]FlightCover, error) {
 		role := FlightRoleViewer
 		if hasRole {
 			switch FlightRole(strings.TrimSpace(roleRaw)) {
+			case FlightRoleNone:
+				role = FlightRoleNone
 			case FlightRoleViewer:
 				role = FlightRoleViewer
 			case FlightRoleEditor:
