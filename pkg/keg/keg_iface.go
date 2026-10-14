@@ -444,6 +444,23 @@ type ExportNodesOptions struct {
 	WithAssets bool
 	// Source labels the archive manifest with the origin keg reference.
 	Source string
+	// Limits bounds the archive. Export fails with *ArchiveLimitError rather
+	// than produce an archive an import under the same limits would refuse.
+	// Zero fields are unlimited.
+	Limits ArchiveLimits
+	// Spool, when set, receives the archive instead of an in-memory buffer,
+	// and the returned reader reads it back.
+	Spool ArchiveSpool
+}
+
+// ArchiveSpool holds an exported archive between the write, which happens
+// inside the keg's read boundary, and the caller's read, which does not.
+type ArchiveSpool interface {
+	io.Writer
+	// Reader returns the spooled archive. Closing it releases the spool.
+	Reader() (io.ReadCloser, error)
+	// Discard releases a spool whose export failed.
+	Discard() error
 }
 
 // ImportNodesOptions configures Keg.ImportNodes.
@@ -468,6 +485,54 @@ type ImportNodesOptions struct {
 	// rather than its own, its links to itself following. Restoring from
 	// the trash always sets it to the entry's current id.
 	restoreTo *NodeId
+	// Source, when set, is a staged plain-tar archive (see StageArchive) read
+	// by offset in place of the reader passed to ImportNodes, which must then
+	// be nil. Import memory is bounded by the largest entry rather than the
+	// archive.
+	Source ArchiveSource
+	// Limits bounds the archive. Zero fields are unlimited.
+	Limits ArchiveLimits
+	// ReplaceAll removes every node the archive does not carry, so the keg
+	// ends up holding exactly the archive's nodes. Removal deletes nodes
+	// through the repository without rewriting links in the surviving nodes.
+	// It cannot be combined with AssignNewIDs.
+	ReplaceAll bool
+	// Progress, when set, is called as the import advances.
+	Progress func(ImportProgress)
+	// Report, when set, is filled in with what the import changed beyond the
+	// imported nodes.
+	Report *ImportReport
+}
+
+// Import progress phases reported through ImportNodesOptions.Progress.
+const (
+	ImportPhaseValidating = "validating"
+	ImportPhaseImporting  = "importing"
+	ImportPhasePruning    = "pruning"
+	ImportPhaseIndexing   = "indexing"
+)
+
+// ImportProgress reports how far an import has advanced through one phase.
+// Done and Total count nodes; Total is zero when a phase has no count.
+type ImportProgress struct {
+	Phase string
+	Done  int
+	Total int
+}
+
+// ImportReport describes side effects of an import.
+type ImportReport struct {
+	// Removed counts the nodes ReplaceAll deleted.
+	Removed int64
+}
+
+// RepositoryNodePruner is an optional Repository capability that deletes every
+// node not in keep in one operation, returning how many went. ReplaceAll uses
+// it when present and falls back to DeleteNode per node otherwise.
+type RepositoryNodePruner interface {
+	// PruneNodesExcept deletes every node whose id is not in keep and returns
+	// the number deleted.
+	PruneNodesExcept(ctx context.Context, keep []NodeId) (int64, error)
 }
 
 // ImportedNode maps an archive source id to the node id it landed on.

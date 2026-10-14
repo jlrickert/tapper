@@ -51,6 +51,11 @@ var (
 	// failures.
 	ErrLock = errors.New("cannot acquire lock")
 
+	// ErrKegRestoring reports a write refused because the keg is being
+	// restored from an archive. The restore replaces the keg's contents, so a
+	// write would be lost; retry once the restore finishes.
+	ErrKegRestoring = errors.New("keg is being restored from an archive")
+
 	// ErrKegLockUpgrade reports an attempted read-to-write operation-boundary
 	// upgrade. Callers must leave the read boundary before starting a write.
 	ErrKegLockUpgrade = errors.New("cannot upgrade keg read boundary to write")

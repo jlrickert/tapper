@@ -263,5 +263,16 @@ Understanding these behaviors helps avoid surprises during import:
 - **Dex rebuild**: Keg indices are automatically rebuilt after a successful
   import.
 
-- **Compression fallback**: The importer tries gzip decompression first. If
-  that fails, it falls back to reading the archive as an uncompressed tar.
+- **Compression detection**: An archive that starts with the gzip magic bytes
+  is decompressed; anything else is read as an uncompressed tar.
+
+- **Streaming read**: The importer decompresses an archive once into a plain
+  tar and reads each entry by offset, so it never holds every payload in
+  memory at once. Directory entries are ignored, an entry name that is
+  absolute or contains `..` rejects the archive, and when a name appears more
+  than once the last entry wins.
+
+- **Size limits**: A Tapper Hub bounds the archives it exports and restores by
+  entry count, entry size, and compressed and uncompressed size. It checks the
+  same limits on both sides, so an archive the hub exports is one it will
+  restore.

@@ -1069,7 +1069,15 @@ func (k *RemoteKeg) ImportNodes(ctx context.Context, r io.Reader, opts ImportNod
 	if enc := q.Encode(); enc != "" {
 		path += "?" + enc
 	}
-	resp, err := k.do(ctx, http.MethodPost, path, r, "application/gzip", nil)
+	contentType := "application/gzip"
+	if opts.Source != nil {
+		if r != nil {
+			return nil, fmt.Errorf("import takes a reader or a staged source, not both: %w", ErrInvalid)
+		}
+		r = io.NewSectionReader(opts.Source, 0, opts.Source.Size())
+		contentType = "application/x-tar"
+	}
+	resp, err := k.do(ctx, http.MethodPost, path, r, contentType, nil)
 	if err != nil {
 		return nil, err
 	}
