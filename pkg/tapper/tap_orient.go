@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/jlrickert/tapper/pkg/apicontract"
 	"github.com/jlrickert/tapper/pkg/integrations"
@@ -53,27 +54,47 @@ func (t *Tap) Orient(ctx context.Context, opts OrientOptions) (string, error) {
 		t.KegService.ReloadAuthStore()
 	}
 	flightName := t.ActiveFlightName(opts.Flight)
-	flight, flightNote, err := t.resolveOrientFlight(ctx, flightName)
+
+	// The flight (then its graph) and the identity KEG catalog are
+	// independent, so they load together. Results are checked in the order
+	// the requests used to run, so the same error wins.
+	var (
+		flight     *Flight
+		flightNote string
+		flightErr  error
+		graph      *FlightGraph
+		graphErr   error
+		wg         sync.WaitGroup
+	)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		flight, flightNote, flightErr = t.resolveOrientFlight(ctx, flightName)
+		if flightErr == nil && flight != nil && flightNote == "" {
+			graph, graphErr = t.FlightService.ResolveFlightGraph(ctx, flight)
+		}
+	}()
+	catalog, warnings, err := t.IdentityKegCatalog(ctx)
+	wg.Wait()
+	if flightErr != nil {
+		return "", flightErr
+	}
 	if err != nil {
 		return "", err
 	}
-	available, warnings, err := t.OrientationKegsForFlight(ctx, flight)
-	if err != nil {
-		return "", err
-	}
+	var available []OrientationKeg
 	var authority *OrientationAuthority
 	if strings.TrimSpace(flightName) == "" {
-		available, warnings, err = t.IdentityKegCatalog(ctx)
-		if err != nil {
-			return "", err
-		}
+		// No flight: the identity catalog is the listing.
+		available = catalog
 		flightNote = "No flight is configured, so normal identity-authorized full access applies. Pin a least-privilege flight outside MCP and start a new connection to narrow it."
 		authority = &OrientationAuthority{FullAccess: true}
+	} else if flight != nil {
+		available = ProjectOrientationKegs(flight, catalog)
 	}
 	if flight != nil && flightNote == "" {
-		graph, err := t.FlightService.ResolveFlightGraph(ctx, flight)
-		if err != nil {
-			return "", err
+		if graphErr != nil {
+			return "", graphErr
 		}
 		rows := append([]*Flight{graph.Root}, graph.Available...)
 		authority = &OrientationAuthority{Root: graph.Root, Active: flight, Children: ImmediateFlightChildren(flight, rows)}
@@ -233,25 +254,60 @@ func (t *Tap) identityKegCatalog(ctx context.Context) ([]OrientationKeg, []strin
 	if err != nil {
 		return nil, []string{fmt.Sprintf("KEG listing unavailable: %v", err)}, nil
 	}
+	return mergeHubKegs(t.orientKegsForHubs(ctx, cfg, ""))
+}
 
-	var warnings []string
-	var out []OrientationKeg
+// hubKegsResult is one configured hub's identity KEG listing.
+type hubKegsResult struct {
+	name string
+	rows []OrientationKeg
+	err  error
+}
+
+// orientKegsForHubs lists every configured hub's KEGs concurrently, in hub
+// order. The hub named skip is left as a placeholder for a caller that
+// already has its rows.
+func (t *Tap) orientKegsForHubs(ctx context.Context, cfg *Config, skip string) []hubKegsResult {
+	var out []hubKegsResult
+	var entries []HubEntry
 	for _, hubName := range t.allHubNames(cfg) {
 		entry, ok := cfg.Hub(hubName)
 		if !ok {
 			continue
 		}
-		rows, err := t.orientKegsForHub(ctx, cfg, hubName, entry)
-		if err != nil {
-			if apicontract.IsCompatibility(err) {
-				return nil, warnings, err
-			}
-			warnings = append(warnings, fmt.Sprintf("skipped hub %q: %v", hubName, err))
+		out = append(out, hubKegsResult{name: hubName})
+		entries = append(entries, entry)
+	}
+	var wg sync.WaitGroup
+	for i := range out {
+		if out[i].name == skip {
 			continue
 		}
-		for _, row := range rows {
-			out = append(out, row)
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			out[i].rows, out[i].err = t.orientKegsForHub(ctx, cfg, out[i].name, entries[i])
+		}(i)
+	}
+	wg.Wait()
+	return out
+}
+
+// mergeHubKegs folds per-hub listings into the identity catalog in hub order.
+// A compatibility error from any hub fails the catalog; any other hub error
+// becomes a skipped-hub warning. Rows are deduplicated by Ref and sorted.
+func mergeHubKegs(results []hubKegsResult) ([]OrientationKeg, []string, error) {
+	var warnings []string
+	var out []OrientationKeg
+	for _, res := range results {
+		if res.err != nil {
+			if apicontract.IsCompatibility(res.err) {
+				return nil, warnings, res.err
+			}
+			warnings = append(warnings, fmt.Sprintf("skipped hub %q: %v", res.name, res.err))
+			continue
 		}
+		out = append(out, res.rows...)
 	}
 	seen := map[string]struct{}{}
 	identity := make([]OrientationKeg, 0, len(out))

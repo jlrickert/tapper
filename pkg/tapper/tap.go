@@ -56,6 +56,10 @@ type Tap struct {
 	// manifest it extracts, so an installed plugin always reports the tap
 	// that installed it rather than whatever was committed in the repo.
 	Version string
+
+	// hubContextProbe remembers Hubs that predate GET /api/v1/context. Nil
+	// (a Tap built without NewTap) asks every time.
+	hubContextProbe *hubContextProbe
 }
 
 // DevPluginVersion is the version an unreleased binary reports. Manifests must
@@ -124,14 +128,15 @@ func NewTap(opts TapOptions) (*Tap, error) {
 		KegService:    kegService,
 	}
 	return &Tap{
-		Runtime:        rt,
-		Root:           opts.Root,
-		PathService:    pathService,
-		ConfigService:  configService,
-		KegService:     kegService,
-		FlightService:  flightService,
-		AuthValidateFn: ValidateToken,
-		Version:        normalizeVersion(opts.Version),
+		Runtime:         rt,
+		Root:            opts.Root,
+		PathService:     pathService,
+		ConfigService:   configService,
+		KegService:      kegService,
+		FlightService:   flightService,
+		AuthValidateFn:  ValidateToken,
+		Version:         normalizeVersion(opts.Version),
+		hubContextProbe: &hubContextProbe{},
 	}, nil
 }
 

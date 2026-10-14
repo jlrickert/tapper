@@ -59,6 +59,10 @@ type ServerOptions struct {
 	// orient, session_refresh, flight mutations, and any failed call always
 	// discard the cached view.
 	OrientationCacheTTL time.Duration
+	// DiscoveryCache, when set, persists each session's Hub API discovery
+	// successes (see apicontract.Session.Cache). `tap mcp` keeps them on
+	// disk; hosted servers leave it nil.
+	DiscoveryCache apicontract.DiscoveryCache
 }
 
 // NewServer builds an MCP server with all registered tools.
@@ -96,6 +100,10 @@ func NewServer(tap *tapper.Tap, version string, defaults KegDefaults, opts ...Se
 	if opt.OrientationCacheTTL > 0 && tap != nil && tap.Runtime != nil {
 		defaults.gate.cacheTTL = opt.OrientationCacheTTL
 		defaults.gate.now = tap.Runtime.Clock().Now
+	}
+	defaults.gate.discoveryCache = opt.DiscoveryCache
+	if tap != nil && tap.Runtime != nil {
+		defaults.gate.discoveryNow = tap.Runtime.Clock().Now
 	}
 	defaults.gate.logger = opt.Logger
 	if defaults.gate.logger == nil && tap != nil && tap.Runtime != nil {

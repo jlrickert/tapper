@@ -3,8 +3,11 @@ package tapper
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -111,6 +114,11 @@ func TestHTTPInvocationReporterPayloadIsMinimalAndBatched(t *testing.T) {
 	interactive := true
 	r.Report(InvocationEvent{Surface: "cli", Command: "tap keg list", DurationMS: 10, Success: true, Interactive: &interactive})
 	r.Report(InvocationEvent{Surface: "mcp", Tool: "keg_list", DurationMS: 20, Success: false})
+	require.Eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(requests) > 0
+	}, time.Second, time.Millisecond, "a full batch is sent without waiting for Close")
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	r.Close(ctx)
@@ -212,14 +220,16 @@ func TestHTTPInvocationReporterInjectsAgent(t *testing.T) {
 		client: client, batchSize: 1, flushInterval: time.Hour, agent: "qwen",
 	})
 	r.Report(InvocationEvent{Surface: "mcp", Tool: "list"})
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-	r.Close(ctx)
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		r.Close(ctx)
+	}()
 
 	select {
 	case body := <-bodies:
 		require.Contains(t, string(body), `"agent":"qwen"`)
-	default:
+	case <-time.After(time.Second):
 		t.Fatal("no telemetry batch was sent")
 	}
 }
@@ -250,4 +260,153 @@ func TestHTTPInvocationReporterConcurrentReportAndClose(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	r.Close(ctx)
+}
+
+func spoolFixture(t *testing.T) (*sandbox.Sandbox, string) {
+	t.Helper()
+	fx := sandbox.NewSandbox(t, &sandbox.Options{Home: "/home/testuser", User: "testuser"})
+	tap, err := NewTap(TapOptions{Root: "/home/testuser", Runtime: fx.Runtime()})
+	require.NoError(t, err)
+	return fx, invocationTelemetrySpoolPath(tap.ConfigService)
+}
+
+func readSpoolForTest(t *testing.T, fx *sandbox.Sandbox, path string) []InvocationEvent {
+	t.Helper()
+	raw, err := fx.Runtime().ReadFile(path)
+	require.NoError(t, err)
+	var events []InvocationEvent
+	require.NoError(t, json.Unmarshal(raw, &events))
+	return events
+}
+
+func writeSpoolForTest(t *testing.T, fx *sandbox.Sandbox, path string, events []InvocationEvent) {
+	t.Helper()
+	raw, err := json.Marshal(events)
+	require.NoError(t, err)
+	require.NoError(t, fx.Runtime().Mkdir(filepath.Dir(path), 0o700, true))
+	require.NoError(t, fx.Runtime().AtomicWriteFile(path, raw, 0o600))
+}
+
+func noContent() (*http.Response, error) {
+	return &http.Response{StatusCode: http.StatusNoContent, Body: io.NopCloser(strings.NewReader("")), Header: make(http.Header)}, nil
+}
+
+// A slow Hub must not hold up exit: Close waits only briefly for the send in
+// flight, then spools it with everything still queued.
+func TestHTTPInvocationReporterCloseSpoolsInsteadOfWaiting(t *testing.T) {
+	fx, spool := spoolFixture(t)
+	started := make(chan struct{}, 1)
+	client := &http.Client{Transport: telemetryRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		started <- struct{}{}
+		<-req.Context().Done()
+		return nil, req.Context().Err()
+	})}
+	r := newHTTPInvocationReporter("https://hub.example.com/api/v1/telemetry/invocations", "token", "test", invocationReporterOptions{
+		rt: fx.Runtime(), spoolPath: spool, client: client, batchSize: 1, flushInterval: time.Hour, requestTimeout: time.Minute,
+	})
+	r.Report(InvocationEvent{Surface: "cli", Command: "tap first"})
+	<-started
+	r.Report(InvocationEvent{Surface: "cli", Command: "tap info"})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	begin := time.Now()
+	r.Close(ctx)
+	require.Less(t, time.Since(begin), time.Second, "Close must not wait out the request timeout")
+
+	events := readSpoolForTest(t, fx, spool)
+	require.Len(t, events, 2)
+	require.Equal(t, "tap first", events[0].Command)
+	require.Equal(t, "tap info", events[1].Command)
+}
+
+func TestHTTPInvocationReporterSendsAndClearsSpool(t *testing.T) {
+	fx, spool := spoolFixture(t)
+	writeSpoolForTest(t, fx, spool, []InvocationEvent{
+		{Surface: "cli", Command: "tap one", ClientVersion: "v0.old"},
+		{Surface: "cli", Command: "tap two", ClientVersion: "v0.old"},
+	})
+	bodies := make(chan []InvocationEvent, 4)
+	client := &http.Client{Transport: telemetryRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		var batch []InvocationEvent
+		_ = json.NewDecoder(req.Body).Decode(&batch)
+		bodies <- batch
+		return noContent()
+	})}
+	r := newHTTPInvocationReporter("https://hub.example.com/api/v1/telemetry/invocations", "token", "test", invocationReporterOptions{
+		rt: fx.Runtime(), spoolPath: spool, client: client, flushInterval: time.Hour,
+	})
+
+	select {
+	case batch := <-bodies:
+		require.Len(t, batch, 2)
+		require.Equal(t, "tap one", batch[0].Command)
+		require.Equal(t, "v0.old", batch[0].ClientVersion, "spooled events keep the version that produced them")
+	case <-time.After(time.Second):
+		t.Fatal("the spool was not sent at startup")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	r.Close(ctx)
+	_, err := fx.Runtime().Stat(spool, false)
+	require.ErrorIs(t, err, os.ErrNotExist, "a delivered spool is cleared")
+}
+
+func TestHTTPInvocationReporterSpoolIsBounded(t *testing.T) {
+	fx, spool := spoolFixture(t)
+	old := make([]InvocationEvent, invocationTelemetrySpoolLimit)
+	for i := range old {
+		old[i] = InvocationEvent{Surface: "cli", Command: fmt.Sprintf("old-%d", i)}
+	}
+	writeSpoolForTest(t, fx, spool, old)
+	client := &http.Client{Transport: telemetryRoundTripFunc(func(_ *http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: http.StatusServiceUnavailable, Body: io.NopCloser(strings.NewReader("")), Header: make(http.Header)}, nil
+	})}
+	r := newHTTPInvocationReporter("https://hub.example.com/api/v1/telemetry/invocations", "token", "test", invocationReporterOptions{
+		rt: fx.Runtime(), spoolPath: spool, client: client, flushInterval: time.Hour,
+	})
+	for i := range 3 {
+		r.Report(InvocationEvent{Surface: "cli", Command: fmt.Sprintf("new-%d", i)})
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	r.Close(ctx)
+
+	events := readSpoolForTest(t, fx, spool)
+	require.Len(t, events, invocationTelemetrySpoolLimit)
+	require.Equal(t, "old-3", events[0].Command, "the oldest events are dropped first")
+	require.Equal(t, "new-2", events[len(events)-1].Command)
+}
+
+func TestInvocationTelemetryDisabledLeavesSpoolAlone(t *testing.T) {
+	t.Run("opted out", func(t *testing.T) {
+		fx, tap := telemetryTargetFixture(t, "disableTelemetry: true\nhub: primary\nhubs:\n  primary:\n    url: https://hub.example.com\n")
+		spool := invocationTelemetrySpoolPath(tap.ConfigService)
+		writeSpoolForTest(t, fx, spool, []InvocationEvent{{Surface: "cli", Command: "tap kept"}})
+		before, err := fx.Runtime().ReadFile(spool)
+		require.NoError(t, err)
+
+		require.Nil(t, NewInvocationReporter(fx.Runtime(), tap.ConfigService, "test"))
+		after, err := fx.Runtime().ReadFile(spool)
+		require.NoError(t, err)
+		require.Equal(t, before, after, "disabled telemetry neither sends nor rewrites the spool")
+	})
+
+	t.Run("rejected by the Hub", func(t *testing.T) {
+		fx, spool := spoolFixture(t)
+		client := &http.Client{Transport: telemetryRoundTripFunc(func(_ *http.Request) (*http.Response, error) {
+			return &http.Response{StatusCode: http.StatusNotFound, Body: io.NopCloser(strings.NewReader("")), Header: make(http.Header)}, nil
+		})}
+		r := newHTTPInvocationReporter("https://old.example.com/api/v1/telemetry/invocations", "token", "test", invocationReporterOptions{
+			rt: fx.Runtime(), spoolPath: spool, client: client, batchSize: 1, flushInterval: time.Hour,
+		})
+		r.Report(InvocationEvent{Surface: "cli", Command: "tap first"})
+		require.Eventually(t, r.disabled.Load, time.Second, time.Millisecond)
+		r.Report(InvocationEvent{Surface: "cli", Command: "tap second"})
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		r.Close(ctx)
+		_, err := fx.Runtime().Stat(spool, false)
+		require.ErrorIs(t, err, os.ErrNotExist, "a Hub that rejects telemetry gets no spool")
+	})
 }

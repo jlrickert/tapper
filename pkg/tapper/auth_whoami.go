@@ -114,9 +114,5 @@ func ValidateToken(ctx context.Context, rt *toolkit.Runtime, hubURL, token strin
 
 // SelectedHubIdentity probes only the selected Hub using its live credentials.
 func (t *Tap) SelectedHubIdentity(ctx context.Context) (*WhoAmI, error) {
-	_, entry, err := t.ConfigService.SelectedHub("")
-	if err != nil {
-		return nil, err
-	}
-	return t.AuthValidateFn(ctx, t.Runtime, entry.URL, t.hubToken(entry))
+	return t.hubIdentity(ctx, "")
 }

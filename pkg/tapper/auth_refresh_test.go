@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -122,6 +123,59 @@ func TestAuthStoreTokenResolver_RefreshesExpiredToken(t *testing.T) {
 	require.Equal(t, "thub_refreshednew99", got2.AccessToken)
 	require.Equal(t, "rt-rotated", got2.RefreshToken)
 	require.False(t, got2.ExpiresAt.IsZero())
+}
+
+// TestAuthStoreTokenResolver_ConcurrentResolvesDuringRefresh resolves tokens
+// from many goroutines while one of them refreshes an expired entry, so the
+// race detector sees the store's reads and the refresh's write overlap.
+func TestAuthStoreTokenResolver_ConcurrentResolvesDuringRefresh(t *testing.T) {
+	t.Parallel()
+	fx := NewSandbox(t)
+	path := authStorePath(t, fx)
+	srv := rotatingTokenHub(t, nil)
+
+	expiredKey := tapper.CanonicalHubURL(srv.URL)
+	const freshHub = "https://fresh.example.com"
+	store := &tapper.AuthStore{}
+	store.Set(expiredKey, tapper.AuthEntry{
+		AccessToken:   "thub_expiredtok00",
+		TokenType:     "Bearer",
+		ExpiresAt:     fx.Runtime().Clock().Now().Add(-time.Hour),
+		RefreshToken:  "rt-old",
+		ClientID:      "tapper-cli",
+		TokenEndpoint: srv.URL,
+	})
+	store.Set(tapper.CanonicalHubURL(freshHub), tapper.AuthEntry{AccessToken: "thub_freshtok000"})
+	require.NoError(t, store.Save(fx.Context(), fx.Runtime(), path))
+
+	resolver := tapper.NewAuthStoreTokenResolver(store, fx.Runtime(), path)
+	expiredTarget := keg.Target{Url: srv.URL + "/api/v1/@me/kegs/@demo/nodes"}
+	freshTarget := keg.Target{Url: freshHub + "/api/v1/@me/kegs/@demo/nodes"}
+
+	const workers = 16
+	tokens := make([]string, workers)
+	var wg sync.WaitGroup
+	for i := range workers {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			if i%2 == 0 {
+				tokens[i] = resolver.ResolveToken(&expiredTarget)
+				return
+			}
+			tokens[i] = resolver.ResolveToken(&freshTarget)
+			_ = store.Hubs()
+		}(i)
+	}
+	wg.Wait()
+
+	for i, tok := range tokens {
+		if i%2 == 0 {
+			require.Equal(t, "thub_refreshednew99", tok, "worker %d", i)
+			continue
+		}
+		require.Equal(t, "thub_freshtok000", tok, "worker %d", i)
+	}
 }
 
 func TestTap_AuthRefreshAll_RefreshesOnlyRenewableExpiringEntries(t *testing.T) {

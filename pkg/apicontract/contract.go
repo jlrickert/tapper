@@ -108,12 +108,75 @@ type check struct {
 	err  error
 }
 
+// DefaultDiscoveryCacheTTL is how long a cached discovery success is trusted
+// when Session.CacheTTL is unset.
+const DefaultDiscoveryCacheTTL = time.Hour
+
+// DiscoveryCache persists successful discovery beyond one Session, so a new
+// invocation can skip GET /api/version. Keys name a Hub base URL and this
+// package's Revision. Only successes are stored; failures stay with the
+// Session that saw them. Implementations must be safe for concurrent use and
+// treat every error as a miss.
+type DiscoveryCache interface {
+	// Get returns when key last passed discovery.
+	Get(key string) (time.Time, bool)
+	// Put records that key passed discovery at checked.
+	Put(key string, checked time.Time)
+	// Delete forgets key after the Hub rejected the cached contract.
+	Delete(key string)
+}
+
 // Session caches discovery per Hub for one invocation or MCP connection.
+//
+// Cache, when set, extends a success past the Session for CacheTTL
+// (DefaultDiscoveryCacheTTL when zero), measured with Now (time.Now when
+// nil). A stale entry is safe: the Hub still validates every request, and a
+// typed rejection evicts the entry.
 type Session struct {
 	mu            sync.Mutex
 	checks        map[string]*check
 	ClientVersion string
 	Logger        *slog.Logger
+
+	Cache    DiscoveryCache
+	CacheTTL time.Duration
+	Now      func() time.Time
+}
+
+// discoveryCacheKey names base under the current Revision, so a client built
+// for another revision never trusts this one's result.
+func discoveryCacheKey(base string) string { return Revision + " " + base }
+
+func (s *Session) now() time.Time {
+	if s.Now != nil {
+		return s.Now()
+	}
+	return time.Now()
+}
+
+// cachedSuccess reports whether the persistent cache vouches for base.
+func (s *Session) cachedSuccess(base string) bool {
+	if s.Cache == nil {
+		return false
+	}
+	checked, ok := s.Cache.Get(discoveryCacheKey(base))
+	if !ok {
+		return false
+	}
+	ttl := s.CacheTTL
+	if ttl <= 0 {
+		ttl = DefaultDiscoveryCacheTTL
+	}
+	age := s.now().Sub(checked)
+	return age >= 0 && age < ttl
+}
+
+// evict drops base from the persistent cache after the Hub rejected the
+// contract the cache vouched for.
+func (s *Session) evict(base string) {
+	if s.Cache != nil {
+		s.Cache.Delete(discoveryCacheKey(base))
+	}
 }
 
 func NewSession(client string, logger *slog.Logger) *Session {
@@ -146,7 +209,14 @@ func (s *Session) Check(ctx context.Context, client *http.Client, base string) e
 	c := &check{done: make(chan struct{})}
 	s.checks[base] = c
 	s.mu.Unlock()
+	if s.cachedSuccess(base) {
+		close(c.done)
+		return nil
+	}
 	c.err = discover(ctx, client, base)
+	if c.err == nil && s.Cache != nil {
+		s.Cache.Put(discoveryCacheKey(base), s.now())
+	}
 	LogFailure(ctx, s.Logger, slog.LevelError, s.ClientVersion, c.err, "")
 	close(c.done)
 	return c.err
@@ -237,6 +307,7 @@ func Do(client *http.Client, req *http.Request) (*http.Response, error) {
 		var e CompatibilityError
 		if len(raw) <= 65536 && json.Unmarshal(raw, &e) == nil && (e.Code == Required || e.Code == Unsupported) && !e.OperationPerformed {
 			resp.Body.Close()
+			s.evict(strings.TrimRight(base.String(), "/"))
 			LogFailure(req.Context(), s.Logger, slog.LevelError, s.ClientVersion, &e, resp.Header.Get("X-Request-ID"))
 			return nil, &e
 		}

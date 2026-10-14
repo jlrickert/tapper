@@ -150,6 +150,11 @@ type sessionFlightGate struct {
 	cacheTTL time.Duration
 	now      func() time.Time
 
+	// discoveryCache and discoveryNow back each session's API contract
+	// discovery; see apicontract.Session.Cache.
+	discoveryCache apicontract.DiscoveryCache
+	discoveryNow   func() time.Time
+
 	mu       sync.Mutex
 	states   map[string]*flightSessionState
 	resolved map[string]cachedOrientation
@@ -181,7 +186,10 @@ func (g *sessionFlightGate) state(sessionID string) *flightSessionState {
 	if state := g.states[sessionID]; state != nil {
 		return state
 	}
-	state := &flightSessionState{contract: apicontract.NewSession(g.clientVersion, g.logger)}
+	contract := apicontract.NewSession(g.clientVersion, g.logger)
+	contract.Cache = g.discoveryCache
+	contract.Now = g.discoveryNow
+	state := &flightSessionState{contract: contract}
 	g.states[sessionID] = state
 	return state
 }

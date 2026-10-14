@@ -223,3 +223,153 @@ func TestDeploymentMismatchPreservesErrorAndDoesNotReplay(t *testing.T) {
 		t.Fatal(logs.String())
 	}
 }
+
+// memoryDiscoveryCache is an in-memory DiscoveryCache for tests.
+type memoryDiscoveryCache struct {
+	mu      sync.Mutex
+	entries map[string]time.Time
+}
+
+func (c *memoryDiscoveryCache) Get(key string) (time.Time, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	at, ok := c.entries[key]
+	return at, ok
+}
+
+func (c *memoryDiscoveryCache) Put(key string, at time.Time) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.entries == nil {
+		c.entries = map[string]time.Time{}
+	}
+	c.entries[key] = at
+}
+
+func (c *memoryDiscoveryCache) Delete(key string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	delete(c.entries, key)
+}
+
+func (c *memoryDiscoveryCache) len() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return len(c.entries)
+}
+
+// discoveryCountingHub answers discovery with status and the operation with
+// 204, or with a typed rejection when reject is set.
+func discoveryCountingHub(t *testing.T, status int, reject *atomic.Bool) (*httptest.Server, *atomic.Int32) {
+	t.Helper()
+	var discoveries atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/version" {
+			discoveries.Add(1)
+			w.WriteHeader(status)
+			if status == http.StatusOK {
+				json.NewEncoder(w).Encode(Discovery{"v1", []string{Revision}})
+			}
+			return
+		}
+		if reject != nil && reject.Load() {
+			w.WriteHeader(400)
+			json.NewEncoder(w).Encode(failure(Unsupported, "upgrade", "v2", []string{Revision}, []string{"2099-01-01"}))
+			return
+		}
+		w.WriteHeader(204)
+	}))
+	t.Cleanup(server.Close)
+	return server, &discoveries
+}
+
+func cachedSession(cache DiscoveryCache, now *time.Time) *Session {
+	s := NewSession("test", nil)
+	s.Cache = cache
+	s.Now = func() time.Time { return *now }
+	return s
+}
+
+func doOperation(t *testing.T, s *Session, server *httptest.Server) error {
+	t.Helper()
+	req, _ := http.NewRequestWithContext(WithSession(context.Background(), s), "GET", server.URL+"/api/v1/operation", nil)
+	resp, err := Do(server.Client(), req)
+	if err == nil {
+		resp.Body.Close()
+	}
+	return err
+}
+
+func TestDiscoveryCacheHitSkipsDiscovery(t *testing.T) {
+	server, discoveries := discoveryCountingHub(t, http.StatusOK, nil)
+	cache := &memoryDiscoveryCache{}
+	now := time.Date(2026, 10, 13, 12, 0, 0, 0, time.UTC)
+
+	if err := doOperation(t, cachedSession(cache, &now), server); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(30 * time.Minute)
+	if err := doOperation(t, cachedSession(cache, &now), server); err != nil {
+		t.Fatal(err)
+	}
+	if discoveries.Load() != 1 {
+		t.Fatalf("a fresh cached success must skip discovery; got %d discoveries", discoveries.Load())
+	}
+}
+
+func TestDiscoveryCacheExpiredRediscovers(t *testing.T) {
+	server, discoveries := discoveryCountingHub(t, http.StatusOK, nil)
+	cache := &memoryDiscoveryCache{}
+	now := time.Date(2026, 10, 13, 12, 0, 0, 0, time.UTC)
+
+	if err := doOperation(t, cachedSession(cache, &now), server); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(DefaultDiscoveryCacheTTL + time.Second)
+	if err := doOperation(t, cachedSession(cache, &now), server); err != nil {
+		t.Fatal(err)
+	}
+	if discoveries.Load() != 2 {
+		t.Fatalf("an expired entry must rediscover; got %d discoveries", discoveries.Load())
+	}
+}
+
+func TestDiscoveryCacheFailureNotCached(t *testing.T) {
+	server, discoveries := discoveryCountingHub(t, http.StatusNotFound, nil)
+	cache := &memoryDiscoveryCache{}
+	now := time.Date(2026, 10, 13, 12, 0, 0, 0, time.UTC)
+
+	for i := 0; i < 2; i++ {
+		if err := doOperation(t, cachedSession(cache, &now), server); !IsCompatibility(err) {
+			t.Fatalf("want compatibility error, got %v", err)
+		}
+	}
+	if cache.len() != 0 || discoveries.Load() != 2 {
+		t.Fatalf("failures stay session-scoped; cache %d, discoveries %d", cache.len(), discoveries.Load())
+	}
+}
+
+func TestDiscoveryCacheEvictedOnCompatibilityRejection(t *testing.T) {
+	var reject atomic.Bool
+	server, discoveries := discoveryCountingHub(t, http.StatusOK, &reject)
+	cache := &memoryDiscoveryCache{}
+	now := time.Date(2026, 10, 13, 12, 0, 0, 0, time.UTC)
+
+	if err := doOperation(t, cachedSession(cache, &now), server); err != nil {
+		t.Fatal(err)
+	}
+	reject.Store(true)
+	if err := doOperation(t, cachedSession(cache, &now), server); !IsCompatibility(err) {
+		t.Fatalf("want compatibility error, got %v", err)
+	}
+	if cache.len() != 0 {
+		t.Fatal("a typed rejection must evict the cached success")
+	}
+	reject.Store(false)
+	if err := doOperation(t, cachedSession(cache, &now), server); err != nil {
+		t.Fatal(err)
+	}
+	if discoveries.Load() != 2 {
+		t.Fatalf("the next session must rediscover after eviction; got %d discoveries", discoveries.Load())
+	}
+}
