@@ -45,7 +45,17 @@ Always route through tapper's interfaces:
 - `mcp__tapper__node_edit` to write a node — `content` is the markdown body
   and `meta` is the metadata document. They are separate fields, so
   `content` must not carry a frontmatter block; send either one alone to
-  leave the other untouched, or both to replace the whole node.
+  leave the other untouched, or both to replace the whole node. Each part
+  needs its token from `node_read`: `content_hash` as
+  `expected_content_hash`, `meta_hash` as `expected_meta_hash`. A refusal for
+  a missing token names the exact `node_read` call to make; make it rather
+  than resending the same arguments.
+  `schema` is a type name from `schema_list`, such as `task`, never a
+  description of the note.
+
+A tool error's `action` is the next call to make. A failure carrying
+`repeat_count` means the same call has already failed that many times; do not
+send it again unchanged.
 
 ## CLI and MCP share Hub concurrency rules
 

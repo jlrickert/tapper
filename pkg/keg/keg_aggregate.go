@@ -821,7 +821,7 @@ func (k *LocalKeg) removeNodes(ctx context.Context, opts RemoveNodesOptions) (Re
 			result.Failure = newBatchFailure(item.ID, err)
 			return result, nil
 		}
-		if err := checkExpectedHash("node "+item.ID.Path(), item.ExpectedHash, view.Hash(), nodeRecoveryContent(view)); err != nil {
+		if err := checkExpectedHash("node "+item.ID.Path(), nodeHashSource, item.ExpectedHash, view.Hash(), nodeRecoveryContent(view)); err != nil {
 			result.Failure = newBatchFailure(item.ID, err)
 			return result, nil
 		}

@@ -33,7 +33,7 @@ func (k *LocalKeg) move(ctx context.Context, opts NodeMoveOptions) ([]NodeId, er
 	if err != nil {
 		return nil, err
 	}
-	if err := checkExpectedHash("node "+src.Path(), opts.ExpectedHash, current.Hash(), nodeRecoveryContent(current)); err != nil {
+	if err := checkExpectedHash("node "+src.Path(), nodeHashSource, opts.ExpectedHash, current.Hash(), nodeRecoveryContent(current)); err != nil {
 		return nil, err
 	}
 	if src.Equals(dst) {
@@ -144,7 +144,7 @@ func (k *LocalKeg) remove(ctx context.Context, opts NodeRemoveOptions) ([]NodeId
 	if err != nil {
 		return nil, err
 	}
-	if err := checkExpectedHash("node "+id.Path(), opts.ExpectedHash, current.Hash(), nodeRecoveryContent(current)); err != nil {
+	if err := checkExpectedHash("node "+id.Path(), nodeHashSource, opts.ExpectedHash, current.Hash(), nodeRecoveryContent(current)); err != nil {
 		return nil, err
 	}
 	return k.removeUnchecked(ctx, id, manualRemoval)

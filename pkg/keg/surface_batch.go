@@ -50,7 +50,7 @@ func (k *LocalKeg) preflightMutation(ctx context.Context, ids []int, hashes []st
 		if err != nil {
 			return err
 		}
-		if err := checkExpectedHash(fmt.Sprintf("node %d", id), hashes[i], node.Hash(), nodeRecoveryContent(node)); err != nil {
+		if err := checkExpectedHash(fmt.Sprintf("node %d", id), nodeHashSource, hashes[i], node.Hash(), nodeRecoveryContent(node)); err != nil {
 			return err
 		}
 	}

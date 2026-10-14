@@ -49,7 +49,7 @@ func (k *LocalKeg) mergeNodes(ctx context.Context, opts MergeNodesOptions) (Merg
 	if err != nil {
 		return MergeNodesResult{}, fmt.Errorf("merge source %s: %w", source.Path(), err)
 	}
-	if err := checkExpectedHash("node "+source.Path(), opts.ExpectedSourceHash, current.Hash(), nodeRecoveryContent(current)); err != nil {
+	if err := checkExpectedHash("node "+source.Path(), mergeSourceHashSource, opts.ExpectedSourceHash, current.Hash(), nodeRecoveryContent(current)); err != nil {
 		return MergeNodesResult{}, err
 	}
 	results, err := k.updateNodes(ctx, []NodeUpdateOptions{opts.Target})

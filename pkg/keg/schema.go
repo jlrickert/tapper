@@ -8,8 +8,10 @@ import (
 	"fmt"
 	"math"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/jlrickert/tapper/pkg/schemas"
@@ -321,14 +323,21 @@ func (k *LocalKeg) schemaSelectionRequiredMessage(ctx context.Context, op schema
 	if op == schemaWriteUpdate {
 		msg += " (an edit that leaves metadata unchanged keeps the node's type and needs none)"
 	}
-	if names, err := k.listSchemas(ctx); err == nil {
-		if len(names) == 0 {
-			msg += "; this keg defines no schemas, so an admin must add one or relax schemaPolicy"
-		} else {
-			msg += "; this keg defines: " + strings.Join(names, ", ")
-		}
+	return k.withKegSchemaList(ctx, msg)
+}
+
+// withKegSchemaList appends the schemas this keg defines to msg, so a caller
+// who picked a wrong or missing schema sees the valid choices without another
+// call. Listing is best effort: msg is returned unchanged when it fails.
+func (k *LocalKeg) withKegSchemaList(ctx context.Context, msg string) string {
+	names, err := k.listSchemas(ctx)
+	if err != nil {
+		return msg
 	}
-	return msg
+	if len(names) == 0 {
+		return msg + "; this keg defines no schemas, so an admin must add one or relax schemaPolicy"
+	}
+	return msg + "; this keg defines: " + strings.Join(names, ", ")
 }
 
 // projectNodeWrite resolves one live create/update's explicit schema
@@ -338,6 +347,13 @@ func (k *LocalKeg) schemaSelectionRequiredMessage(ctx context.Context, op schema
 // resolved by precedence.
 func (k *LocalKeg) projectNodeWrite(ctx context.Context, op schemaWriteOperation, id NodeId, node *NodeData, schema string, candidates ...schemaTypeCandidate) (*SchemaValidationResult, error) {
 	selected := strings.TrimSpace(schema)
+	if selected != "" {
+		// Every backend refuses a malformed selection the same way, before
+		// it is compared with declarations or looked up as a file.
+		if err := ValidSchemaTypeName(selected); err != nil {
+			return schemaSelectionError(id, selected, k.withKegSchemaList(ctx, strings.TrimSuffix(err.Error(), ": "+ErrInvalid.Error())))
+		}
+	}
 	if id.ID != 0 {
 		var declared schemaTypeCandidate
 		inherited := ""
@@ -386,7 +402,7 @@ func (k *LocalKeg) projectNodeWrite(ctx context.Context, op schemaWriteOperation
 			if result.Issues[i].Field == "meta.type" {
 				result.Issues[i].Field = "schema"
 				if strings.HasPrefix(result.Issues[i].Message, "unknown type ") {
-					result.Issues[i].Message = "unknown schema " + strings.TrimPrefix(result.Issues[i].Message, "unknown type ")
+					result.Issues[i].Message = k.withKegSchemaList(ctx, "unknown schema "+strings.TrimPrefix(result.Issues[i].Message, "unknown type "))
 				}
 			}
 		}
@@ -759,13 +775,30 @@ func normalizeRelationDirection(raw string) (string, bool) {
 	}
 }
 
+// SchemaTypeNameMaxLength bounds a schema type name, in characters.
+const SchemaTypeNameMaxLength = 64
+
+// SchemaTypeNamePattern is ValidSchemaTypeName's character rule as a regular
+// expression that both Go and JSON Schema accept, so a tool's input schema can
+// refuse a bad name before any backend sees it. A type name is one word: no
+// whitespace, control characters, or path separators, and no "..".
+const SchemaTypeNamePattern = `^(?:[^\s/\\.\x00-\x1f]|\.[^\s/\\.\x00-\x1f])+\.?$`
+
+var schemaTypeNameRE = regexp.MustCompile(SchemaTypeNamePattern)
+
+// ValidSchemaTypeName reports whether typeName can name a schema. The name
+// becomes a file name and is what callers pass as a write's schema, so a
+// sentence or a path is refused rather than looked up.
 func ValidSchemaTypeName(typeName string) error {
 	typeName = strings.TrimSpace(typeName)
 	if typeName == "" || typeName == "." || typeName == ".." {
 		return fmt.Errorf("schema type is required: %w", ErrInvalid)
 	}
-	if filepath.IsAbs(typeName) || strings.ContainsAny(typeName, "/\\\x00") || strings.Contains(typeName, "..") {
-		return fmt.Errorf("invalid schema type %q: %w", typeName, ErrInvalid)
+	if utf8.RuneCountInString(typeName) > SchemaTypeNameMaxLength {
+		return fmt.Errorf("invalid schema type: longer than %d characters; a schema type is a short name such as \"task\": %w", SchemaTypeNameMaxLength, ErrInvalid)
+	}
+	if filepath.IsAbs(typeName) || !schemaTypeNameRE.MatchString(typeName) {
+		return fmt.Errorf("invalid schema type %q: a schema type is one word with no spaces or path separators, such as \"task\": %w", typeName, ErrInvalid)
 	}
 	return nil
 }
@@ -823,7 +856,7 @@ func (k *LocalKeg) writeSchema(ctx context.Context, typeName string, data []byte
 	if err != nil {
 		return err
 	}
-	if err := checkExpectedHash("schema "+typeName, opts.ExpectedHash, DocumentHash(current), current); err != nil {
+	if err := checkExpectedHash("schema "+typeName, schemaHashSource, opts.ExpectedHash, DocumentHash(current), current); err != nil {
 		return err
 	}
 	return store.WriteSchema(ctx, typeName, data)
@@ -842,7 +875,7 @@ func (k *LocalKeg) deleteSchema(ctx context.Context, typeName string, opts Schem
 	if err != nil {
 		return err
 	}
-	if err := checkExpectedHash("schema "+typeName, opts.ExpectedHash, DocumentHash(current), current); err != nil {
+	if err := checkExpectedHash("schema "+typeName, schemaHashSource, opts.ExpectedHash, DocumentHash(current), current); err != nil {
 		return err
 	}
 	return store.DeleteSchema(ctx, typeName)

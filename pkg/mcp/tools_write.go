@@ -26,7 +26,36 @@ func boundedMutationInputSchema[T any](arrayFields ...string) *jsonschema.Schema
 		}
 		property.MinItems = &minItems
 		property.MaxItems = &maxItems
+		if property.Items != nil {
+			constrainSchemaTypeField(property.Items)
+		}
 	}
+	constrainSchemaTypeField(schema)
+	return schema
+}
+
+// constrainSchemaTypeField gives an object's schema-selection property the
+// same rule keg.ValidSchemaTypeName enforces. Struct tags cannot carry a
+// pattern, so it is set on the derived schema; the SDK then refuses a
+// sentence or a path as a schema before the handler runs.
+func constrainSchemaTypeField(object *jsonschema.Schema) {
+	property := object.Properties["schema"]
+	if property == nil {
+		return
+	}
+	maxLength := keg.SchemaTypeNameMaxLength
+	property.Pattern = keg.SchemaTypeNamePattern
+	property.MaxLength = &maxLength
+}
+
+// constrainedInputSchema derives T's input schema with its schema-selection
+// field constrained, for tools that take one schema outside a batch.
+func constrainedInputSchema[T any]() *jsonschema.Schema {
+	schema, err := jsonschema.For[T](nil)
+	if err != nil {
+		panic(fmt.Sprintf("derive MCP input schema: %v", err))
+	}
+	constrainSchemaTypeField(schema)
 	return schema
 }
 
@@ -82,7 +111,7 @@ type createNodeInput struct {
 	Key     string `json:"key" jsonschema:"caller-chosen label for this node within the batch, unique across the batch. Other nodes in the same batch link to it by writing {{node:KEY}} in their content; each placeholder is replaced with the id this node is assigned."`
 	Content string `json:"content" jsonschema:"the node's complete markdown body, opening with an H1 title. Must not start with a YAML frontmatter block: metadata goes in the meta field."`
 	Meta    string `json:"meta,omitempty" jsonschema:"the node's complete metadata document as YAML, including keys such as type, tags, and any schema-defined attributes. Omit for no metadata."`
-	Schema  string `json:"schema,omitempty" jsonschema:"schema selected for this write, one of the types schema_list returns. Writes meta.type; a different type declared in meta is a hard error, not an override. Required on a strict keg (the default for new kegs), where type in meta alone does not count as a selection."`
+	Schema  string `json:"schema,omitempty" jsonschema:"schema selected for this write: a type name such as task, one of the types schema_list returns, never a description. Writes meta.type; a different type declared in meta is a hard error, not an override. Required on a strict keg (the default for new kegs), where type in meta alone does not count as a selection."`
 }
 
 type createNodeOutput struct {
@@ -147,7 +176,7 @@ type editItemInput struct {
 	Meta                *string `json:"meta,omitempty" jsonschema:"replacement metadata document as YAML, replacing the node's metadata entirely. Omit to leave metadata unchanged."`
 	ExpectedContentHash string  `json:"expected_content_hash,omitempty" jsonschema:"content_hash from node_read (or from a previous node_edit result); required when content or patch is supplied"`
 	ExpectedMetaHash    string  `json:"expected_meta_hash,omitempty" jsonschema:"meta_hash from node_read (or from a previous node_edit result); required when meta is supplied"`
-	Schema              string  `json:"schema,omitempty" jsonschema:"schema selected for this write, one of the types schema_list returns. Writes meta.type; a different type declared in meta is a hard error, not an override. On a strict keg (the default for new kegs) required whenever meta is supplied; a content-only edit keeps the node's current type and needs none."`
+	Schema              string  `json:"schema,omitempty" jsonschema:"schema selected for this write: a type name such as task, one of the types schema_list returns, never a description. Writes meta.type; a different type declared in meta is a hard error, not an override. On a strict keg (the default for new kegs) required whenever meta is supplied; a content-only edit keeps the node's current type and needs none."`
 }
 
 // nodeUpdateOutput carries the written node's tokens. content_hash and
@@ -180,7 +209,7 @@ func registerEdit(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 			"A patch keeps the body's line endings (CRLF stays CRLF), and '\\ No newline at end of file' may only follow a hunk that reaches the end of the body. " +
 			"Each part has its own precondition token: pass node_read's content_hash as expected_content_hash when supplying content or patch, and its meta_hash as expected_meta_hash when supplying meta. " +
 			"Editing content never invalidates meta_hash and editing meta never invalidates content_hash, so a concurrent edit to the other part does not conflict. " +
-			"Call node_read first for every node; node_read meta_only reads metadata. " +
+			"Call node_read first for every node; node_read meta_only reads metadata. A part sent without its token is refused, writing nothing, with the exact node_read call that supplies every missing token. " +
 			"Each result returns the node's new content_hash and meta_hash, so a follow-up edit needs no re-read; its combined hash (for node_delete or node_move) changes with every edit. " +
 			"Take a snapshot with snapshot_create before a large or destructive edit. " +
 			"On a strict keg (the default for new kegs) an edit that supplies meta needs schema; a content-only edit keeps the node's current type and is validated against it. " +

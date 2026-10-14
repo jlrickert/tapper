@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 
 	"testing"
@@ -64,6 +65,37 @@ func TestRemoteKegDecodesPreconditionErrorsWithRecoveryFields(t *testing.T) {
 		require.Equal(t, "fresh", conflict.CurrentHash)
 		require.Equal(t, "type: task\n", string(conflict.CurrentContent))
 	})
+}
+
+// TestPartPreconditionRequiredRoundTripsThroughTheHub pins that the typed
+// missing-hash error keeps its wire code: a hub serving it answers
+// PRECONDITION_REQUIRED with its message, and the client decodes that back to
+// ErrPreconditionRequired with the message intact.
+func TestPartPreconditionRequiredRoundTripsThroughTheHub(t *testing.T) {
+	t.Parallel()
+	typed := &keg.PartPreconditionRequiredError{NodeID: "3", Missing: []keg.MissingPartHash{
+		{Part: "content", Field: "expected_content_hash", TokenField: "content_hash"},
+		{Part: "meta", Field: "expected_meta_hash", TokenField: "meta_hash"},
+	}}
+	require.ErrorIs(t, typed, keg.ErrPreconditionRequired)
+	code, status := keg.RemoteErrorCode(fmt.Errorf("edit: %w", typed))
+	require.Equal(t, keg.RemoteCodePreconditionRequired, code)
+	require.Equal(t, http.StatusPreconditionRequired, status)
+
+	srv := testapi.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(status)
+		body, _ := json.Marshal(map[string]any{"error": typed.Error(), "code": code, "operationPerformed": false})
+		_, _ = w.Write(body)
+	}))
+	t.Cleanup(srv.Close)
+	rk := keg.NewRemoteKeg(srv.URL, "", nil)
+	_, err := rk.UpdateNodes(context.Background(), []keg.NodeUpdateOptions{{
+		ID: keg.NodeId{ID: 3}, Content: []byte("# New\n"), HasContent: true,
+	}})
+	require.ErrorIs(t, err, keg.ErrPreconditionRequired)
+	require.Contains(t, err.Error(), "content requires expected_content_hash")
+	require.Contains(t, err.Error(), "meta requires expected_meta_hash")
 }
 
 func TestRemoteKegUpdateNodesSendsPartTokensAndDecodesPartConflicts(t *testing.T) {

@@ -154,6 +154,9 @@ func NewServer(tap *tapper.Tap, version string, defaults KegDefaults, opts ...Se
 	// Wrap the gate as well as handlers: recovery and SDK validation errors
 	// obey the same public response contract as successful operations.
 	srv.AddReceivingMiddleware(publicResponseMiddleware)
+	// Outside the public contract, so input validation failures are counted
+	// in their final form and a flagged repeat keeps its original code.
+	srv.AddReceivingMiddleware(newRepeatFailureTracker().middleware)
 
 	if opt.Logger != nil || opt.Reporter != nil {
 		var clk clock.Clock
@@ -320,13 +323,47 @@ func errorResult(err error) *sdkmcp.CallToolResult {
 		errors.Is(err, tapper.ErrTokenRejected) {
 		return unauthorizedResult(err)
 	}
-	if errors.Is(err, keg.ErrPreconditionRequired) {
+	var partHashes *keg.PartPreconditionRequiredError
+	if errors.As(err, &partHashes) {
+		action := partPreconditionAction(partHashes)
+		missing := make([]string, len(partHashes.Missing))
+		for i, m := range partHashes.Missing {
+			missing[i] = m.Field
+		}
 		return &sdkmcp.CallToolResult{
-			Content: []sdkmcp.Content{&sdkmcp.TextContent{Text: err.Error()}},
+			Content: []sdkmcp.Content{&sdkmcp.TextContent{Text: err.Error() + "\n\n" + action}},
 			StructuredContent: map[string]any{
 				"code":               keg.RemoteCodePreconditionRequired,
 				"operationPerformed": false,
-				"action":             "read the resource and retry with its returned hash",
+				"action":             action,
+				"node_id":            partHashes.NodeID,
+				"missing":            missing,
+			},
+			IsError: true,
+		}
+	}
+	if errors.Is(err, keg.ErrPreconditionRequired) {
+		action := "Nothing was written. Call the read tool the message names (node_read, schema_read, or keg_settings_read), then retry with the hash it returns in the field the message names."
+		return &sdkmcp.CallToolResult{
+			Content: []sdkmcp.Content{&sdkmcp.TextContent{Text: err.Error() + "\n\n" + action}},
+			StructuredContent: map[string]any{
+				"code":               keg.RemoteCodePreconditionRequired,
+				"operationPerformed": false,
+				"action":             action,
+			},
+			IsError: true,
+		}
+	}
+	var emptyEdit *tapper.EmptyEditError
+	if errors.As(err, &emptyEdit) {
+		action := fmt.Sprintf("Add content (or patch) to change node %s's body, or meta to change its metadata, with the matching hash from node_read. To make a new node, use node_create instead.", emptyEdit.NodeID)
+		return &sdkmcp.CallToolResult{
+			Content: []sdkmcp.Content{&sdkmcp.TextContent{Text: err.Error() + "\n\n" + action}},
+			StructuredContent: map[string]any{
+				"code":               keg.RemoteCodeInvalid,
+				"operationPerformed": false,
+				"action":             action,
+				"node_id":            emptyEdit.NodeID,
 			},
 			IsError: true,
 		}
@@ -344,6 +381,21 @@ func errorResult(err error) *sdkmcp.CallToolResult {
 		},
 		IsError: true,
 	}
+}
+
+// partPreconditionAction names the exact read that supplies a node edit's
+// missing tokens and the fields to pass them in, so the next call is
+// copyable rather than inferred from prose.
+func partPreconditionAction(e *keg.PartPreconditionRequiredError) string {
+	read := fmt.Sprintf("node_read(node_id=%q)", e.NodeID)
+	if e.Keg != "" {
+		read = fmt.Sprintf("node_read(keg=%q, node_id=%q)", e.Keg, e.NodeID)
+	}
+	pass := make([]string, len(e.Missing))
+	for i, m := range e.Missing {
+		pass[i] = fmt.Sprintf("%s as %s", m.TokenField, m.Field)
+	}
+	return fmt.Sprintf("Nothing was written. Call %s and pass %s, then retry the same call with those fields set.", read, strings.Join(pass, " and "))
 }
 
 // errorGuidance maps a wire code to the caller's next step and to whether the
