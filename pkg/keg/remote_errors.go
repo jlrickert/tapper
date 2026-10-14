@@ -32,6 +32,8 @@ const (
 	RemoteCodeOrientationDenied          = "ORIENTATION_DENIED"
 	RemoteCodeOrientationUnavailable     = "ORIENTATION_UNAVAILABLE"
 	RemoteCodeOrientationRootUnavailable = "ORIENTATION_ROOT_UNAVAILABLE"
+	RemoteCodeKegRestoring               = "KEG_RESTORING"
+	RemoteCodeArchiveTooLarge            = "ARCHIVE_TOO_LARGE"
 	RemoteCodeInternal                   = "INTERNAL"
 )
 
@@ -42,6 +44,8 @@ var remoteCodeTable = []struct {
 	status int
 }{
 	{ErrNotExist, RemoteCodeNotFound, http.StatusNotFound},
+	{ErrKegRestoring, RemoteCodeKegRestoring, http.StatusConflict},
+	{ErrArchiveTooLarge, RemoteCodeArchiveTooLarge, http.StatusRequestEntityTooLarge},
 	{ErrDestinationExists, RemoteCodeDestExists, http.StatusConflict},
 	{ErrExist, RemoteCodeExist, http.StatusConflict},
 	{ErrPreconditionRequired, RemoteCodePreconditionRequired, http.StatusPreconditionRequired},

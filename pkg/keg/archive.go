@@ -1,7 +1,6 @@
 package keg
 
 import (
-	"archive/tar"
 	"bytes"
 	"compress/gzip"
 	"context"
@@ -115,18 +114,25 @@ func (k *LocalKeg) exportNodes(ctx context.Context, opts ExportNodesOptions) (io
 		}
 	}
 
-	var artifact bytes.Buffer
-	if err := k.writeArchive(ctx, &artifact, ids, snapshotRepo, opts); err != nil {
-		return nil, err
+	if opts.Spool == nil {
+		var artifact bytes.Buffer
+		if err := k.writeArchive(ctx, &artifact, ids, snapshotRepo, opts); err != nil {
+			return nil, err
+		}
+		return io.NopCloser(bytes.NewReader(artifact.Bytes())), nil
 	}
-	return io.NopCloser(bytes.NewReader(artifact.Bytes())), nil
+	if err := k.writeArchive(ctx, opts.Spool, ids, snapshotRepo, opts); err != nil {
+		return nil, errors.Join(err, opts.Spool.Discard())
+	}
+	return opts.Spool.Reader()
 }
 
 // writeArchive writes the complete keg-archive representation to w. The caller
 // decides whether w is a materialized buffer or a streaming destination.
 func (k *LocalKeg) writeArchive(ctx context.Context, w io.Writer, ids []NodeId, snapshotRepo RepositorySnapshots, opts ExportNodesOptions) error {
-	gz := gzip.NewWriter(w)
-	tw := tar.NewWriter(gz)
+	compressed := &countingWriter{w: w}
+	gz := gzip.NewWriter(compressed)
+	aw := newArchiveWriter(gz, opts.Limits)
 	withSettings := len(opts.NodeIDs) == 0 && strings.TrimSpace(opts.Query) == "" && !opts.SkipZeroNode
 
 	manifest := archiveManifest{
@@ -146,10 +152,10 @@ func (k *LocalKeg) writeArchive(ctx context.Context, w io.Writer, ids []NodeId, 
 		if err != nil {
 			return fmt.Errorf("unable to encode keg settings for archive: %w", err)
 		}
-		if err := writeTarFile(tw, "keg-archive/keg.yaml", rawSettings); err != nil {
+		if err := aw.writeFile("keg-archive/keg.yaml", rawSettings); err != nil {
 			return err
 		}
-		if err := k.writeArchiveSchemas(ctx, tw, &manifest); err != nil {
+		if err := k.writeArchiveSchemas(ctx, aw, &manifest); err != nil {
 			return err
 		}
 	}
@@ -176,51 +182,64 @@ func (k *LocalKeg) writeArchive(ctx context.Context, w io.Writer, ids []NodeId, 
 		}
 
 		base := filepath.ToSlash(filepath.Join("keg-archive", "nodes", id.Path()))
-		if err := writeTarFile(tw, base+"/README.md", content); err != nil {
+		if err := aw.writeFile(base+"/README.md", content); err != nil {
 			return err
 		}
-		if err := writeTarFile(tw, base+"/meta.yaml", meta); err != nil {
+		if err := aw.writeFile(base+"/meta.yaml", meta); err != nil {
 			return err
 		}
-		if err := writeTarFile(tw, base+"/stats.json", statsBytes); err != nil {
+		if err := aw.writeFile(base+"/stats.json", statsBytes); err != nil {
 			return err
 		}
 
 		if opts.WithAssets {
-			if err := k.writeArchiveAssets(ctx, tw, base, id); err != nil {
+			if err := k.writeArchiveAssets(ctx, aw, base, id); err != nil {
 				return err
 			}
 		}
 
 		entry := archiveManifestNode{SourceID: id.Path(), SourceHash: stats.Hash()}
 		if opts.WithHistory {
-			count, err := k.writeArchiveHistory(ctx, tw, base, id, snapshotRepo)
+			count, err := k.writeArchiveHistory(ctx, aw, base, id, snapshotRepo)
 			if err != nil {
 				return err
 			}
 			entry.RevisionCount = count
 		}
 		manifest.Nodes = append(manifest.Nodes, entry)
+		if err := checkCompressedSize(compressed.n, opts.Limits); err != nil {
+			return err
+		}
 	}
 
 	rawManifest, err := json.MarshalIndent(manifest, "", "  ")
 	if err != nil {
 		return fmt.Errorf("unable to encode archive manifest: %w", err)
 	}
-	if err := writeTarFile(tw, "keg-archive/manifest.json", rawManifest); err != nil {
+	if err := aw.writeFile(archiveManifestName, rawManifest); err != nil {
 		return err
 	}
-	if err := tw.Close(); err != nil {
-		return fmt.Errorf("unable to finalize archive: %w", err)
+	if err := aw.close(); err != nil {
+		return err
 	}
 	if err := gz.Close(); err != nil {
 		return fmt.Errorf("unable to finalize archive compression: %w", err)
+	}
+	return checkCompressedSize(compressed.n, opts.Limits)
+}
+
+// checkCompressedSize fails an export whose gzip stream has outgrown the
+// compressed ceiling. Mid-export the count trails what gzip has buffered, so
+// only the final check is exact.
+func checkCompressedSize(n int64, lim ArchiveLimits) error {
+	if lim.MaxCompressedBytes > 0 && n > lim.MaxCompressedBytes {
+		return &ArchiveLimitError{Limit: ArchiveLimitCompressedBytes, Max: lim.MaxCompressedBytes, Actual: n}
 	}
 	return nil
 }
 
 // writeArchiveSchemas adds keg-level schema definitions to a full archive.
-func (k *LocalKeg) writeArchiveSchemas(ctx context.Context, tw *tar.Writer, manifest *archiveManifest) error {
+func (k *LocalKeg) writeArchiveSchemas(ctx context.Context, aw *archiveWriter, manifest *archiveManifest) error {
 	store, ok := repoSchemas(k.Repo)
 	if !ok {
 		return nil
@@ -244,7 +263,7 @@ func (k *LocalKeg) writeArchiveSchemas(ctx context.Context, tw *tar.Writer, mani
 		if _, err := validateSchemaDefinitionForType(typeName, rawSchema); err != nil {
 			return fmt.Errorf("schema %q is invalid: %w", typeName, err)
 		}
-		if err := writeTarFile(tw, "keg-archive/schemas/"+filename, rawSchema); err != nil {
+		if err := aw.writeFile("keg-archive/schemas/"+filename, rawSchema); err != nil {
 			return err
 		}
 		manifest.Schemas = append(manifest.Schemas, typeName)
@@ -254,7 +273,7 @@ func (k *LocalKeg) writeArchiveSchemas(ctx context.Context, tw *tar.Writer, mani
 }
 
 // writeArchiveAssets adds assets/ and images/ entries for one node.
-func (k *LocalKeg) writeArchiveAssets(ctx context.Context, tw *tar.Writer, base string, id NodeId) error {
+func (k *LocalKeg) writeArchiveAssets(ctx context.Context, aw *archiveWriter, base string, id NodeId) error {
 	if files, ok := k.Repo.(RepositoryFiles); ok {
 		names, err := files.ListFiles(ctx, id)
 		if err != nil && !errors.Is(err, ErrNotExist) {
@@ -265,7 +284,7 @@ func (k *LocalKeg) writeArchiveAssets(ctx context.Context, tw *tar.Writer, base 
 			if err != nil {
 				return fmt.Errorf("unable to read file %s for node %s: %w", name, id.Path(), err)
 			}
-			if err := writeTarFile(tw, base+"/assets/"+name, data); err != nil {
+			if err := aw.writeFile(base+"/assets/"+name, data); err != nil {
 				return err
 			}
 		}
@@ -280,7 +299,7 @@ func (k *LocalKeg) writeArchiveAssets(ctx context.Context, tw *tar.Writer, base 
 			if err != nil {
 				return fmt.Errorf("unable to read image %s for node %s: %w", name, id.Path(), err)
 			}
-			if err := writeTarFile(tw, base+"/images/"+name, data); err != nil {
+			if err := aw.writeFile(base+"/images/"+name, data); err != nil {
 				return err
 			}
 		}
@@ -295,7 +314,7 @@ func (k *LocalKeg) writeArchiveAssets(ctx context.Context, tw *tar.Writer, base 
 			if err != nil {
 				return err
 			}
-			if err := writeTarFile(tw, base+"/videos/"+name, data); err != nil {
+			if err := aw.writeFile(base+"/videos/"+name, data); err != nil {
 				return err
 			}
 		}
@@ -305,7 +324,7 @@ func (k *LocalKeg) writeArchiveAssets(ctx context.Context, tw *tar.Writer, base 
 
 // writeArchiveHistory adds snapshot payloads and the per-node snapshot index
 // for one node, returning the revision count.
-func (k *LocalKeg) writeArchiveHistory(ctx context.Context, tw *tar.Writer, base string, id NodeId, snapshotRepo RepositorySnapshots) (int, error) {
+func (k *LocalKeg) writeArchiveHistory(ctx context.Context, aw *archiveWriter, base string, id NodeId, snapshotRepo RepositorySnapshots) (int, error) {
 	history, err := snapshotRepo.ListSnapshots(ctx, id)
 	if err != nil {
 		return 0, fmt.Errorf("unable to list snapshots for node %s: %w", id.Path(), err)
@@ -328,13 +347,13 @@ func (k *LocalKeg) writeArchiveHistory(ctx context.Context, tw *tar.Writer, base
 			return 0, fmt.Errorf("unable to encode snapshot %d stats for node %s: %w", snap.ID, id.Path(), err)
 		}
 		snapBase := base + "/snapshots/" + fmt.Sprintf("%d", snap.ID)
-		if err := writeTarFile(tw, snapBase+".full", snapContent); err != nil {
+		if err := aw.writeFile(snapBase+".full", snapContent); err != nil {
 			return 0, err
 		}
-		if err := writeTarFile(tw, snapBase+".meta", snapMeta); err != nil {
+		if err := aw.writeFile(snapBase+".meta", snapMeta); err != nil {
 			return 0, err
 		}
-		if err := writeTarFile(tw, snapBase+".stats", statsBytes); err != nil {
+		if err := aw.writeFile(snapBase+".stats", statsBytes); err != nil {
 			return 0, err
 		}
 	}
@@ -342,7 +361,7 @@ func (k *LocalKeg) writeArchiveHistory(ctx context.Context, tw *tar.Writer, base
 	if err != nil {
 		return 0, fmt.Errorf("unable to encode snapshot index for node %s: %w", id.Path(), err)
 	}
-	if err := writeTarFile(tw, base+"/snapshots/index.json", rawIndex); err != nil {
+	if err := aw.writeFile(base+"/snapshots/index.json", rawIndex); err != nil {
 		return 0, err
 	}
 	return len(history), nil
@@ -362,17 +381,24 @@ func (k *LocalKeg) importNodes(ctx context.Context, r io.Reader, opts ImportNode
 	if err := k.checkKegExists(ctx); err != nil {
 		return nil, fmt.Errorf("failed to import nodes: %w", err)
 	}
-
-	data, err := io.ReadAll(r)
-	if err != nil {
-		return nil, fmt.Errorf("unable to read archive stream: %w", err)
+	if opts.ReplaceAll && opts.AssignNewIDs {
+		return nil, fmt.Errorf("import cannot both replace the keg and assign new ids: %w", ErrInvalid)
 	}
-	entries, err := readArchiveEntries(data)
+	progress := func(phase string, done, total int) {
+		if opts.Progress != nil {
+			opts.Progress(ImportProgress{Phase: phase, Done: done, Total: total})
+		}
+	}
+
+	entries, err := openArchiveEntries(ctx, r, opts)
 	if err != nil {
 		return nil, err
 	}
 
-	rawManifest, ok := entries["keg-archive/manifest.json"]
+	rawManifest, ok, err := entries.Read("keg-archive/manifest.json")
+	if err != nil {
+		return nil, err
+	}
 	if !ok {
 		return nil, fmt.Errorf("archive manifest missing: %w", ErrInvalid)
 	}
@@ -457,7 +483,8 @@ func (k *LocalKeg) importNodes(ctx context.Context, r io.Reader, opts ImportNode
 		return nil, err
 	}
 
-	for _, sourceID := range ordered {
+	for i, sourceID := range ordered {
+		progress(ImportPhaseValidating, i, len(ordered))
 		newID := mapping[sourceID]
 		base := filepath.ToSlash(filepath.Join("keg-archive", "nodes", sourceID))
 		content, err := readRequiredArchiveEntry(entries, base+"/README.md")
@@ -565,7 +592,8 @@ func (k *LocalKeg) importNodes(ctx context.Context, r io.Reader, opts ImportNode
 		}
 	}
 
-	for _, sourceID := range ordered {
+	for i, sourceID := range ordered {
+		progress(ImportPhaseImporting, i, len(ordered))
 		newID := mapping[sourceID]
 		nodeManifest := manifestNodes[sourceID]
 		base := filepath.ToSlash(filepath.Join("keg-archive", "nodes", sourceID))
@@ -631,9 +659,22 @@ func (k *LocalKeg) importNodes(ctx context.Context, r io.Reader, opts ImportNode
 			return nil, fmt.Errorf("unable to restore keg settings after import: %w", err)
 		}
 	}
+	var removed int64
+	if opts.ReplaceAll {
+		progress(ImportPhasePruning, 0, 0)
+		keep := make([]NodeId, 0, len(ordered))
+		for _, sourceID := range ordered {
+			keep = append(keep, mapping[sourceID])
+		}
+		removed, err = k.pruneNodesExcept(ctx, keep)
+		if err != nil {
+			return nil, fmt.Errorf("unable to remove nodes the archive does not carry: %w", err)
+		}
+	}
 	// A trash restore updates the dex itself, once for its whole batch,
 	// rather than rebuilding it from every node for each restored one.
 	if !opts.restoreFromTrash {
+		progress(ImportPhaseIndexing, 0, 0)
 		if err := k.rebuildDexFromRepo(ctx); err != nil {
 			return nil, err
 		}
@@ -648,7 +689,61 @@ func (k *LocalKeg) importNodes(ctx context.Context, r io.Reader, opts ImportNode
 	for _, sourceID := range ordered {
 		imported = append(imported, ImportedNode{SourceID: sourceID, SourceHash: manifestNodes[sourceID].SourceHash, ID: mapping[sourceID]})
 	}
+	if opts.Report != nil {
+		*opts.Report = ImportReport{Removed: removed}
+	}
 	return imported, nil
+}
+
+// pruneNodesExcept deletes every node not in keep, in bulk when the
+// repository supports it. Nodes go through the repository rather than
+// RemoveNodes so links in the surviving, just-imported content stay as the
+// archive wrote them.
+func (k *LocalKeg) pruneNodesExcept(ctx context.Context, keep []NodeId) (int64, error) {
+	if pruner, ok := k.Repo.(RepositoryNodePruner); ok {
+		return pruner.PruneNodesExcept(ctx, keep)
+	}
+	kept := make(map[string]struct{}, len(keep))
+	for _, id := range keep {
+		kept[id.Path()] = struct{}{}
+	}
+	ids, err := k.Repo.ListNodes(ctx)
+	if err != nil {
+		return 0, err
+	}
+	var removed int64
+	for _, id := range ids {
+		if _, ok := kept[id.Path()]; ok {
+			continue
+		}
+		if err := k.Repo.DeleteNode(ctx, id); err != nil {
+			return removed, err
+		}
+		removed++
+	}
+	return removed, nil
+}
+
+// openArchiveEntries indexes the archive an import reads. A caller-staged
+// Source is indexed in place; a stream is first staged into memory as a plain
+// tar, which costs the archive's uncompressed size but never a second copy of
+// every payload.
+func openArchiveEntries(ctx context.Context, r io.Reader, opts ImportNodesOptions) (archiveEntries, error) {
+	if opts.Source != nil {
+		if r != nil {
+			return nil, fmt.Errorf("import takes a reader or a staged source, not both: %w", ErrInvalid)
+		}
+		return indexArchive(ctx, opts.Source, opts.Limits)
+	}
+	if r == nil {
+		return nil, fmt.Errorf("import has no archive: %w", ErrInvalid)
+	}
+	var staged bytes.Buffer
+	if _, err := StageArchive(ctx, r, &staged, opts.Limits); err != nil {
+		return nil, err
+	}
+	// StageArchive has already enforced the limits on this tar.
+	return indexArchive(ctx, bytes.NewReader(staged.Bytes()), ArchiveLimits{})
 }
 
 func (k *LocalKeg) cleanupUnusedImportReservations(ctx context.Context, ids []NodeId) {
@@ -663,7 +758,7 @@ func (k *LocalKeg) cleanupUnusedImportReservations(ctx context.Context, ids []No
 // importNodeHistory replays a node's archived snapshot revisions.
 func (k *LocalKeg) importNodeHistory(
 	ctx context.Context,
-	entries map[string][]byte,
+	entries archiveEntries,
 	base, sourceID string,
 	newID NodeId,
 	nodeManifest archiveManifestNode,
@@ -671,7 +766,10 @@ func (k *LocalKeg) importNodeHistory(
 	snapshotRepo RepositorySnapshots,
 	opts ImportNodesOptions,
 ) error {
-	rawIndex, ok := entries[base+"/snapshots/index.json"]
+	rawIndex, ok, err := entries.Read(base + "/snapshots/index.json")
+	if err != nil {
+		return err
+	}
 	if !ok {
 		if nodeManifest.RevisionCount > 0 {
 			return fmt.Errorf("archive node %s missing snapshots/index.json: %w", sourceID, ErrInvalid)
@@ -719,6 +817,7 @@ func (k *LocalKeg) importNodeHistory(
 				Kind: SnapshotContentKindFull,
 				Base: expectedParent,
 				Data: content,
+				Hash: hashSnapshotBytes(k.Runtime, content),
 			},
 		})
 		if err != nil {
@@ -818,70 +917,6 @@ func (k *LocalKeg) loadNodeDataForDex(ctx context.Context, id NodeId) (*NodeData
 
 // -- archive entry helpers
 
-func writeTarFile(tw *tar.Writer, name string, data []byte) error {
-	header := &tar.Header{
-		Name:     filepath.ToSlash(name),
-		Mode:     0o644,
-		Size:     int64(len(data)),
-		Typeflag: tar.TypeReg,
-	}
-	if err := tw.WriteHeader(header); err != nil {
-		return fmt.Errorf("unable to write archive header for %s: %w", name, err)
-	}
-	if _, err := tw.Write(data); err != nil {
-		return fmt.Errorf("unable to write archive payload for %s: %w", name, err)
-	}
-	return nil
-}
-
-func readArchiveEntries(data []byte) (map[string][]byte, error) {
-	gz, err := gzip.NewReader(bytes.NewReader(data))
-	if err == nil {
-		defer gz.Close()
-		return readTarEntries(tar.NewReader(gz))
-	}
-
-	entries, tarErr := readTarEntries(tar.NewReader(bytes.NewReader(data)))
-	if tarErr == nil {
-		return entries, nil
-	}
-
-	return nil, fmt.Errorf("unable to open archive stream: gzip=%v; tar=%v", err, tarErr)
-}
-
-func readTarEntries(tr *tar.Reader) (map[string][]byte, error) {
-	entries := map[string][]byte{}
-	for {
-		header, err := tr.Next()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return nil, fmt.Errorf("unable to read archive entry: %w", err)
-		}
-		if header.FileInfo().IsDir() {
-			continue
-		}
-		if !safeArchiveEntryName(header.Name) {
-			return nil, fmt.Errorf("unsafe archive entry %q: %w", header.Name, ErrInvalid)
-		}
-		payload, err := io.ReadAll(tr)
-		if err != nil {
-			return nil, fmt.Errorf("unable to read archive payload %s: %w", header.Name, err)
-		}
-		entries[filepath.ToSlash(header.Name)] = payload
-	}
-	return entries, nil
-}
-
-func readRequiredArchiveEntry(entries map[string][]byte, path string) ([]byte, error) {
-	value, ok := entries[path]
-	if !ok {
-		return nil, ErrInvalid
-	}
-	return value, nil
-}
-
 const (
 	archiveSchemasDir    = "keg-archive/schemas"
 	archiveSchemasPrefix = archiveSchemasDir + "/"
@@ -891,7 +926,7 @@ type archiveSchemaStore struct {
 	schemas map[string][]byte
 }
 
-func readArchiveSchemas(entries map[string][]byte, manifest archiveManifest) (*archiveSchemaStore, error) {
+func readArchiveSchemas(entries archiveEntries, manifest archiveManifest) (*archiveSchemaStore, error) {
 	manifestSchemas := make(map[string]struct{}, len(manifest.Schemas))
 	for _, typeName := range manifest.Schemas {
 		typeName = strings.TrimSpace(typeName)
@@ -905,7 +940,7 @@ func readArchiveSchemas(entries map[string][]byte, manifest archiveManifest) (*a
 	}
 
 	store := &archiveSchemaStore{schemas: map[string][]byte{}}
-	for name, data := range entries {
+	for _, name := range entries.WithPrefix(archiveSchemasDir) {
 		if name == archiveSchemasDir {
 			return nil, fmt.Errorf("invalid archive schema entry %q: %w", name, ErrInvalid)
 		}
@@ -913,6 +948,10 @@ func readArchiveSchemas(entries map[string][]byte, manifest archiveManifest) (*a
 			continue
 		}
 
+		data, err := readRequiredArchiveEntry(entries, name)
+		if err != nil {
+			return nil, err
+		}
 		typeName, err := archiveSchemaTypeFromEntry(name)
 		if err != nil {
 			return nil, err
@@ -1231,63 +1270,82 @@ func restoreImportedNodeAssets(ctx context.Context, repo Repository, id NodeId, 
 	return nil
 }
 
-// writeArchiveEntriesAssets writes a v3 archive's assets/ and images/ payloads
-// for one node onto the repository.
-func writeArchiveEntriesAssets(ctx context.Context, repo Repository, entries map[string][]byte, base string, id NodeId) error {
+// writeArchiveEntriesAssets writes a v3 archive's assets/, images/, and
+// videos/ payloads for one node onto the repository.
+func writeArchiveEntriesAssets(ctx context.Context, repo Repository, entries archiveEntries, base string, id NodeId) error {
 	filesRepo, hasFiles := repo.(RepositoryFiles)
 	imagesRepo, hasImages := repo.(RepositoryImages)
 
-	filePrefix := base + "/assets/"
-	imagePrefix := base + "/images/"
 	videoPrefix := base + "/videos/"
-	for name, data := range entries {
-		switch {
-		case strings.HasPrefix(name, videoPrefix):
-			repo, ok := repo.(RepositoryVideos)
-			if !ok {
-				return ErrNotSupported
-			}
-			assetName := strings.TrimPrefix(name, videoPrefix)
-			if err := validAssetName(assetName); err != nil {
-				return err
-			}
-			if err := ValidateVideo(data); err != nil {
-				return err
-			}
-			if err := repo.WriteVideo(ctx, id, assetName, data); err != nil {
-				return err
-			}
-		case len(name) > len(filePrefix) && name[:len(filePrefix)] == filePrefix:
-			if !hasFiles {
-				return ErrNotSupported
-			}
-			assetName := name[len(filePrefix):]
-			if err := validAssetName(assetName); err != nil {
-				return err
-			}
-			if err := filesRepo.WriteFile(ctx, id, assetName, data); err != nil {
-				return err
-			}
-		case len(name) > len(imagePrefix) && name[:len(imagePrefix)] == imagePrefix:
-			if !hasImages {
-				return ErrNotSupported
-			}
-			assetName := name[len(imagePrefix):]
-			if err := validAssetName(assetName); err != nil {
-				return err
-			}
-			if err := imagesRepo.WriteImage(ctx, id, assetName, data); err != nil {
-				return err
-			}
+	for _, name := range entries.WithPrefix(videoPrefix) {
+		videos, ok := repo.(RepositoryVideos)
+		if !ok {
+			return ErrNotSupported
+		}
+		assetName := strings.TrimPrefix(name, videoPrefix)
+		if err := validAssetName(assetName); err != nil {
+			return err
+		}
+		data, err := readRequiredArchiveEntry(entries, name)
+		if err != nil {
+			return err
+		}
+		if err := ValidateVideo(data); err != nil {
+			return err
+		}
+		if err := videos.WriteVideo(ctx, id, assetName, data); err != nil {
+			return err
+		}
+	}
+
+	filePrefix := base + "/assets/"
+	for _, name := range entries.WithPrefix(filePrefix) {
+		if name == filePrefix {
+			continue
+		}
+		if !hasFiles {
+			return ErrNotSupported
+		}
+		assetName := name[len(filePrefix):]
+		if err := validAssetName(assetName); err != nil {
+			return err
+		}
+		data, err := readRequiredArchiveEntry(entries, name)
+		if err != nil {
+			return err
+		}
+		if err := filesRepo.WriteFile(ctx, id, assetName, data); err != nil {
+			return err
+		}
+	}
+
+	imagePrefix := base + "/images/"
+	for _, name := range entries.WithPrefix(imagePrefix) {
+		if name == imagePrefix {
+			continue
+		}
+		if !hasImages {
+			return ErrNotSupported
+		}
+		assetName := name[len(imagePrefix):]
+		if err := validAssetName(assetName); err != nil {
+			return err
+		}
+		data, err := readRequiredArchiveEntry(entries, name)
+		if err != nil {
+			return err
+		}
+		if err := imagesRepo.WriteImage(ctx, id, assetName, data); err != nil {
+			return err
 		}
 	}
 	return nil
 }
 
-func validateArchiveAssetEntries(entries map[string][]byte) error {
-	for name := range entries {
+func validateArchiveAssetEntries(entries archiveEntries) error {
+	for _, name := range entries.WithPrefix("keg-archive/nodes/") {
 		parts := strings.Split(name, "/")
-		if len(parts) < 4 || parts[0] != "keg-archive" || parts[1] != "nodes" {
+		if len(parts) < 4 {
 			continue
 		}
 		switch parts[3] {

@@ -471,16 +471,24 @@ func addDexLink(dex *Dex, src, dst NodeId) {
 // good -- purged since the node was trashed, neither live nor in the trash --
 // at node 0, as purging did to the links live nodes held. Links to a live
 // node or to another trashed node are left alone.
-func (k *LocalKeg) mapPurgedLinks(ctx context.Context, entries map[string][]byte, ordered []string, mapping map[string]NodeId) error {
+func (k *LocalKeg) mapPurgedLinks(ctx context.Context, entries archiveEntries, ordered []string, mapping map[string]NodeId) error {
 	for _, sourceID := range ordered {
 		base := "keg-archive/nodes/" + sourceID
 		var targets []NodeId
-		if raw, ok := entries[base+"/README.md"]; ok {
+		raw, ok, err := entries.Read(base + "/README.md")
+		if err != nil {
+			return err
+		}
+		if ok {
 			if content, err := ParseContent(k.Runtime, raw, MarkdownContentFilename); err == nil {
 				targets = append(targets, content.Links...)
 			}
 		}
-		if raw, ok := entries[base+"/stats.json"]; ok {
+		raw, ok, err = entries.Read(base + "/stats.json")
+		if err != nil {
+			return err
+		}
+		if ok {
 			if stats, err := ParseStats(ctx, raw); err == nil {
 				targets = append(targets, stats.Links()...)
 			}
