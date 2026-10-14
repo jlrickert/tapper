@@ -70,7 +70,7 @@ func (t *Tap) EditBatch(ctx context.Context, opts BatchEditOptions) ([]keg.NodeU
 	ctx = keg.WithDefaultValidationActor(ctx, keg.ValidationActorHuman)
 	updates := make([]keg.NodeUpdateOptions, len(opts.Edits))
 	for i, item := range opts.Edits {
-		update, err := batchEditUpdate(ctx, i, item)
+		update, err := batchEditUpdate(ctx, i, opts.Keg, item)
 		if err != nil {
 			return nil, err
 		}
@@ -80,18 +80,20 @@ func (t *Tap) EditBatch(ctx context.Context, opts BatchEditOptions) ([]keg.NodeU
 }
 
 // batchEditUpdate checks one edit item and turns it into the keg update.
-func batchEditUpdate(ctx context.Context, i int, item BatchEditItem) (keg.NodeUpdateOptions, error) {
+// kegAlias is the keg the caller targeted, carried into a missing-hash error
+// so it can name the node_read that fixes it.
+func batchEditUpdate(ctx context.Context, i int, kegAlias string, item BatchEditItem) (keg.NodeUpdateOptions, error) {
 	id, err := keg.ParseNode(item.NodeID)
 	if err != nil {
 		return keg.NodeUpdateOptions{}, fmt.Errorf("edit %d node %q: %w", i, item.NodeID, err)
 	}
 	if !item.HasContent && !item.HasContentPatch && !item.HasMeta {
-		return keg.NodeUpdateOptions{}, fmt.Errorf("edit %d node %q: content, patch, or meta is required: %w", i, item.NodeID, keg.ErrInvalid)
+		return keg.NodeUpdateOptions{}, &EmptyEditError{Item: i, NodeID: item.NodeID}
 	}
 	if item.HasContent && item.HasContentPatch {
 		return keg.NodeUpdateOptions{}, fmt.Errorf("edit %d node %q: content and patch are alternatives; send one: %w", i, item.NodeID, keg.ErrInvalid)
 	}
-	if err := requireEditPartHashes(i, item); err != nil {
+	if err := requireEditPartHashes(i, kegAlias, item); err != nil {
 		return keg.NodeUpdateOptions{}, err
 	}
 	update := keg.NodeUpdateOptions{
@@ -119,6 +121,21 @@ func batchEditUpdate(ctx context.Context, i int, item BatchEditItem) (keg.NodeUp
 	}
 	return update, nil
 }
+
+// EmptyEditError reports an edit item that supplies none of content, patch,
+// or meta, so it has nothing to change. It unwraps to keg.ErrInvalid; the
+// typed form lets a surface say which field to add instead of a generic
+// malformed-request hint.
+type EmptyEditError struct {
+	Item   int
+	NodeID string
+}
+
+func (e *EmptyEditError) Error() string {
+	return fmt.Sprintf("item %d (node %q) has nothing to change: supply content, patch, or meta: %s", e.Item, e.NodeID, keg.ErrInvalid)
+}
+
+func (e *EmptyEditError) Unwrap() error { return keg.ErrInvalid }
 
 type BatchSnapshotItem struct {
 	NodeID  string
@@ -149,21 +166,28 @@ func (t *Tap) NodeSnapshotBatch(ctx context.Context, opts BatchSnapshotOptions) 
 // part's token. It applies whenever the caller holds no combined ExpectedHash
 // (node_edit never sends one), so an unguarded part can never fall through to
 // the keg layer's combined-hash path. It runs after keg resolution so
-// authorization failures still surface first.
-func requireEditPartHashes(i int, item BatchEditItem) error {
+// authorization failures still surface first. Every missing token is reported
+// at once, so one node_read is enough to fix the call.
+func requireEditPartHashes(i int, kegAlias string, item BatchEditItem) error {
 	if item.ExpectedHash != "" && item.ExpectedContentHash == "" && item.ExpectedMetaHash == "" {
 		return nil
 	}
-	if item.HasContentPatch && item.ExpectedContentHash == "" {
-		return fmt.Errorf("edit %d node %q: patch requires expected_content_hash (the content_hash from node_read): %w", i, item.NodeID, keg.ErrPreconditionRequired)
-	}
-	if item.HasContent && item.ExpectedContentHash == "" {
-		return fmt.Errorf("edit %d node %q: content requires expected_content_hash (the content_hash from node_read): %w", i, item.NodeID, keg.ErrPreconditionRequired)
+	var missing []keg.MissingPartHash
+	if item.ExpectedContentHash == "" {
+		switch {
+		case item.HasContentPatch:
+			missing = append(missing, keg.MissingPartHash{Part: "patch", Field: "expected_content_hash", TokenField: "content_hash"})
+		case item.HasContent:
+			missing = append(missing, keg.MissingPartHash{Part: "content", Field: "expected_content_hash", TokenField: "content_hash"})
+		}
 	}
 	if item.HasMeta && item.ExpectedMetaHash == "" {
-		return fmt.Errorf("edit %d node %q: meta requires expected_meta_hash (the meta_hash from node_read): %w", i, item.NodeID, keg.ErrPreconditionRequired)
+		missing = append(missing, keg.MissingPartHash{Part: "meta", Field: "expected_meta_hash", TokenField: "meta_hash"})
 	}
-	return nil
+	if len(missing) == 0 {
+		return nil
+	}
+	return &keg.PartPreconditionRequiredError{Item: i, Keg: kegAlias, NodeID: item.NodeID, Missing: missing}
 }
 
 type MergeOptions struct {
@@ -189,7 +213,7 @@ func (t *Tap) Merge(ctx context.Context, opts MergeOptions) (keg.MergeNodesResul
 	if !opts.Target.HasContent && !opts.Target.HasContentPatch {
 		return keg.MergeNodesResult{}, fmt.Errorf("merge into %q: content or patch is required, since a merge rewrites the target: %w", opts.Target.NodeID, keg.ErrInvalid)
 	}
-	update, err := batchEditUpdate(ctx, 0, opts.Target)
+	update, err := batchEditUpdate(ctx, 0, opts.Keg, opts.Target)
 	if err != nil {
 		return keg.MergeNodesResult{}, err
 	}

@@ -91,7 +91,7 @@ func (k *LocalKeg) setSettings(ctx context.Context, data []byte, opts SettingsWr
 	if err != nil {
 		return fmt.Errorf("failed to read current settings: %w", err)
 	}
-	if err := checkExpectedHash("settings", opts.ExpectedHash, current.Hash(), current.Raw()); err != nil {
+	if err := checkExpectedHash("settings", settingsHashSource, opts.ExpectedHash, current.Hash(), current.Raw()); err != nil {
 		return err
 	}
 	return k.replaceSettings(ctx, data)

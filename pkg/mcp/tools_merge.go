@@ -33,6 +33,7 @@ func registerMerge(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 			"Every ../SOURCE link in the keg, the target's own included, is repointed at the target, and the source goes to the trash, recorded as merged into the target, where trash_restore can bring it back. " +
 			"Guard the source with its combined hash as expected_source_hash, and the target with its content_hash (and meta_hash when sending meta). " +
 			"The result returns the target's new hashes and the other nodes whose links moved.",
+		InputSchema: constrainedInputSchema[mergeInput](),
 		Annotations: &sdkmcp.ToolAnnotations{
 			DestructiveHint: boolPtr(true),
 			OpenWorldHint:   boolPtr(false),

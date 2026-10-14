@@ -3,6 +3,7 @@ package keg_test
 import (
 	"context"
 	"errors"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -123,6 +124,14 @@ func TestExplicitSchemaSelectionPersistsReplacesAndRejectsConflicts(t *testing.T
 	_, err = k.Create(ctx, &keg.CreateOptions{Schema: "missing", Body: []byte("# Unknown\n")})
 	require.ErrorIs(t, err, keg.ErrSchemaInvalid)
 	require.Contains(t, err.Error(), "schema: unknown schema \"missing\"")
+	require.Contains(t, err.Error(), "this keg defines:", "an unknown schema names the keg's types")
+
+	// A selection that cannot be a type name is refused by the keg itself,
+	// so a backend without an input schema in front behaves the same.
+	_, err = k.Create(ctx, &keg.CreateOptions{Schema: "a note about planning", Body: []byte("# Prose\n")})
+	require.ErrorIs(t, err, keg.ErrSchemaInvalid)
+	require.Contains(t, err.Error(), "one word with no spaces")
+	require.Contains(t, err.Error(), "this keg defines:")
 }
 
 func TestSchemaSelectionBatchFailureIsAtomic(t *testing.T) {
@@ -393,4 +402,24 @@ func TestResolveValidationModeParity(t *testing.T) {
 	require.Equal(t, keg.ValidationModeWarn, keg.ResolveValidationMode(keg.WithValidationActor(ctx, keg.ValidationActorAPI), policy))
 	require.Equal(t, keg.ValidationModeWarn, keg.ResolveValidationMode(keg.WithValidationActor(ctx, keg.ValidationActorHuman), nil))
 	require.Equal(t, keg.ValidationModeOff, keg.ResolveValidationMode(keg.WithValidationMode(keg.WithValidationActor(ctx, keg.ValidationActorHuman), keg.ValidationModeOff), policy))
+}
+
+func TestValidSchemaTypeNameMatchesItsPattern(t *testing.T) {
+	t.Parallel()
+	pattern := regexp.MustCompile(keg.SchemaTypeNamePattern)
+	for name, valid := range map[string]bool{
+		"task": true, "meeting-note": true, "v2.task": true, "Task_2": true,
+		"": false, ".": false, "..": false, "a..b": false, "a/b": false, `a\b`: false,
+		"a note": false, "tab\tname": false, strings.Repeat("x", keg.SchemaTypeNameMaxLength+1): false,
+	} {
+		err := keg.ValidSchemaTypeName(name)
+		if valid {
+			require.NoError(t, err, name)
+		} else {
+			require.ErrorIs(t, err, keg.ErrInvalid, name)
+		}
+		if len(name) <= keg.SchemaTypeNameMaxLength && name != "" {
+			require.Equal(t, valid, pattern.MatchString(name), "pattern and rule disagree on %q", name)
+		}
+	}
 }

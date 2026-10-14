@@ -1054,7 +1054,19 @@ func TestMCP_EditRequiresContentOrMeta(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.True(t, res.IsError, "edit accepted an item with neither content nor meta")
-	require.Contains(t, extractText(t, res), "content, patch, or meta is required")
+	require.Contains(t, extractText(t, res), `item 0 (node "0") has nothing to change: supply content, patch, or meta`)
+
+	// The action names the fields to add and the tool a create belongs in,
+	// not the generic malformed-request hint.
+	structured := structuredMap(t, res)
+	require.Equal(t, "INVALID", structured["code"])
+	require.Equal(t, false, structured["operationPerformed"])
+	require.Equal(t, "0", structured["node_id"])
+	action, _ := structured["action"].(string)
+	require.Contains(t, action, "content")
+	require.Contains(t, action, "meta")
+	require.Contains(t, action, "node_create")
+	require.NotContains(t, action, "malformed")
 }
 
 func TestMCP_EditAppliesPatch(t *testing.T) {

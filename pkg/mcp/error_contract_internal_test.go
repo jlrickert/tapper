@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/jlrickert/tapper/pkg/keg"
+	"github.com/jlrickert/tapper/pkg/tapper"
 )
 
 // TestErrorResultsAlwaysCarryTheRecoveryContract is the guard that keeps the
@@ -40,6 +41,8 @@ func TestErrorResultsAlwaysCarryTheRecoveryContract(t *testing.T) {
 		{"lock timeout", keg.ErrLockTimeout},
 		{"not supported", keg.ErrNotSupported},
 		{"precondition required", keg.ErrPreconditionRequired},
+		{"part precondition required", &keg.PartPreconditionRequiredError{NodeID: "3", Missing: []keg.MissingPartHash{{Part: "content", Field: "expected_content_hash", TokenField: "content_hash"}}}},
+		{"empty edit", &tapper.EmptyEditError{NodeID: "3"}},
 		{"precondition conflict", &keg.PreconditionConflictError{Resource: "node 1", CurrentHash: "abc"}},
 		{"unauthorized", keg.ErrUnauthorized},
 		{"forbidden", keg.ErrForbidden},

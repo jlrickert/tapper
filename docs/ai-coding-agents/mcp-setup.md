@@ -113,7 +113,7 @@ explicitly configured root failed to initialize.
 | Tool | Description |
 | --- | --- |
 | `node_create` | Atomically create 1–100 nodes from `nodes[]`, each a markdown `content` document plus an optional YAML `meta` document; unique keys support forward/backward `{{node:key}}` content references |
-| `node_edit` | Read with `node_read`, then atomically replace `content`, `meta`, or both for 1–100 nodes from `nodes[]`; supplied `content` requires `expected_content_hash` (the read's `content_hash`) and supplied `meta` requires `expected_meta_hash` (its `meta_hash`); editing one part never invalidates the other's hash |
+| `node_edit` | Read with `node_read`, then atomically replace `content` (or apply a `patch`), `meta`, or both for 1–100 nodes from `nodes[]`; supplied `content` or `patch` requires `expected_content_hash` (the read's `content_hash`) and supplied `meta` requires `expected_meta_hash` (its `meta_hash`); editing one part never invalidates the other's hash |
 | `node_delete` | Read with `node_read`, then atomically delete 1–100 `nodes[]`; every item requires its own `expected_hash` (the combined `hash` from `node_read`) |
 | `node_move` | Read with `node_read`, then move a node using its required `expected_hash` (the combined `hash` from `node_read`) |
 | `keg_settings_edit` | Read the full document with `keg_settings_read`, then replace it using its required `expected_hash`; requires admin flight authority and editor/admin KEG access |
@@ -159,6 +159,31 @@ edits/deletes. A conflict performs no operation and returns the current hash
 and, when practical, current content; node conflicts also return
 `currentContentHash` and `currentMetaHash`. Merge or refetch, then retry with
 the current hash for what you are writing.
+
+A protected mutation sent without its token fails with `PRECONDITION_REQUIRED`
+and writes nothing. The message names the missing field and the read that
+fills it. For `node_edit`, `node_merge`'s target included, the error lists every
+missing token at once in `missing`, carries the `node_id`, and its `action` is
+the call to make, such as
+`node_read(keg="notes", node_id="12")` then `content_hash as expected_content_hash`.
+A `node_edit` item that supplies none of `content`, `patch`, or `meta` fails
+with `INVALID` and an action naming the field to add; new nodes go through
+`node_create`.
+
+`schema` on `node_create`, `node_edit`, and `node_merge` is a schema type name
+from `schema_list`, such as `task`: one word of at most 64 characters, with no
+spaces or path separators. The input schema carries that rule as a `pattern`
+and `maxLength`, so a sentence is refused with `INVALID_ARGUMENT` before the
+call runs, and every backend applies the same rule. A well-formed name the keg
+does not define fails with `SCHEMA_INVALID`, and the message lists the types the
+keg does define.
+
+A tool call that fails three times in a row with identical arguments in the
+same session keeps its original `code` and gains `repeat_count` and an
+`action` that says to stop retrying it, followed by the original action: read
+the target or change the arguments the error names. Arguments are compared
+independent of key order and whitespace. A success, or a call with different
+arguments, starts that tool's count again.
 
 ### Index, Diagnostics, And Safety
 

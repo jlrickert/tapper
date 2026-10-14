@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -77,6 +78,43 @@ func (e *PreconditionConflictError) Error() string {
 }
 
 func (e *PreconditionConflictError) Unwrap() error { return ErrConflict }
+
+// MissingPartHash names one node part written without its per-part
+// precondition token: the part supplied ("content", "patch", or "meta"), the
+// field that carries its token (expected_content_hash), and the node_read
+// field that token comes from (content_hash).
+type MissingPartHash struct {
+	Part       string
+	Field      string
+	TokenField string
+}
+
+// PartPreconditionRequiredError reports a node edit that supplies parts
+// without their per-part tokens. Missing lists every absent token, so one
+// node_read fixes them all, and Keg and NodeID let a surface name that read.
+// It unwraps to ErrPreconditionRequired so wire-code mapping and errors.Is
+// checks keep working.
+type PartPreconditionRequiredError struct {
+	// Item is the edit's position in its batch.
+	Item int
+	// Keg is the keg alias the caller targeted; empty for the default keg.
+	Keg     string
+	NodeID  string
+	Missing []MissingPartHash
+}
+
+func (e *PartPreconditionRequiredError) Error() string {
+	if e == nil || len(e.Missing) == 0 {
+		return ErrPreconditionRequired.Error()
+	}
+	parts := make([]string, len(e.Missing))
+	for i, m := range e.Missing {
+		parts[i] = fmt.Sprintf("%s requires %s (the %s from node_read)", m.Part, m.Field, m.TokenField)
+	}
+	return fmt.Sprintf("edit %d node %q: %s: %s", e.Item, e.NodeID, strings.Join(parts, "; "), ErrPreconditionRequired)
+}
+
+func (e *PartPreconditionRequiredError) Unwrap() error { return ErrPreconditionRequired }
 
 // AliasNotFoundError is a typed error that carries the missing alias for callers
 // that need richer diagnostic information.

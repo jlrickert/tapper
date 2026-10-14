@@ -3,6 +3,7 @@ package mcp_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -553,6 +554,79 @@ func TestPrecondition_NodeEditRequiresMatchingPartHashes(t *testing.T) {
 	require.Equal(t, currentMeta, conflict["currentMetaHash"])
 	require.NotEmpty(t, conflict["currentHash"])
 	require.Contains(t, conflict["currentContent"], "first")
+}
+
+// TestPrecondition_NodeEditMissingHashNamesTheRead pins the recovery for an
+// edit sent without its tokens: the action is a copyable node_read for this
+// keg and node, and every missing token is reported in one error so a single
+// read fixes the call.
+func TestPrecondition_NodeEditMissingHashNamesTheRead(t *testing.T) {
+	t.Parallel()
+	session, ctx := newTestSession(t)
+
+	nodeID := createNodeForTest(t, session, ctx, "# Guarded\n\nBody.\n", "tags:\n  - guarded\n")
+
+	patchOnly, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "node_edit",
+		Arguments: map[string]any{
+			"keg":   "personal",
+			"nodes": []any{map[string]any{"node_id": nodeID, "patch": "@@ -1 +1 @@\n-# Guarded\n+# Patched\n"}},
+		},
+	})
+	require.NoError(t, err)
+	require.True(t, patchOnly.IsError)
+	structured := structuredMap(t, patchOnly)
+	require.Equal(t, "PRECONDITION_REQUIRED", structured["code"])
+	require.Equal(t, false, structured["operationPerformed"])
+	require.Equal(t, nodeID, structured["node_id"])
+	require.Equal(t, []any{"expected_content_hash"}, structured["missing"])
+	action, _ := structured["action"].(string)
+	require.Contains(t, action, fmt.Sprintf(`node_read(keg="personal", node_id=%q)`, nodeID))
+	require.Contains(t, action, "content_hash as expected_content_hash")
+	require.Contains(t, extractText(t, patchOnly), action, "the action is appended to the message")
+
+	both, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "node_edit",
+		Arguments: batchEditArgs(map[string]any{
+			"node_id": nodeID,
+			"content": "# Guarded\n\nNew body.\n",
+			"meta":    "tags:\n  - changed\n",
+		}),
+	})
+	require.NoError(t, err)
+	require.True(t, both.IsError)
+	structured = structuredMap(t, both)
+	require.Equal(t, []any{"expected_content_hash", "expected_meta_hash"}, structured["missing"])
+	action, _ = structured["action"].(string)
+	require.Contains(t, action, fmt.Sprintf("node_read(node_id=%q)", nodeID))
+	require.Contains(t, action, "content_hash as expected_content_hash and meta_hash as expected_meta_hash")
+	text := extractText(t, both)
+	require.Contains(t, text, "content requires expected_content_hash")
+	require.Contains(t, text, "meta requires expected_meta_hash")
+}
+
+// TestPrecondition_WholeNodeMissingHashNamesFieldAndRead covers the tools
+// that take the combined hash: their refusals name the field and node_read.
+func TestPrecondition_WholeNodeMissingHashNamesFieldAndRead(t *testing.T) {
+	t.Parallel()
+	session, ctx := newTestSession(t)
+
+	nodeID := createNodeForTest(t, session, ctx, "# Doomed\n", "")
+	for _, tc := range []struct {
+		tool string
+		args map[string]any
+	}{
+		{"node_delete", map[string]any{"nodes": []any{map[string]any{"node_id": nodeID, "expected_hash": ""}}}},
+		{"node_move", map[string]any{"source_id": nodeID, "dest_id": "900", "expected_hash": ""}},
+	} {
+		res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: tc.tool, Arguments: tc.args})
+		require.NoError(t, err)
+		require.True(t, res.IsError, tc.tool)
+		require.Equal(t, "PRECONDITION_REQUIRED", structuredMap(t, res)["code"], tc.tool)
+		text := extractText(t, res)
+		require.Contains(t, text, "expected_hash is required", tc.tool)
+		require.Contains(t, text, "node_read", tc.tool)
+	}
 }
 
 // TestCat_TextIsSummaryWhenRowsCarryDocuments pins that node_read sends each

@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/jlrickert/tapper/pkg/keg"
 )
 
 func listedToolSchemas(t *testing.T) map[string]map[string]any {
@@ -188,4 +190,28 @@ func TestMCP_WriteToolsStateTheContentContract(t *testing.T) {
 	}
 	require.Contains(t, byName["node_read"], "content_hash")
 	require.Contains(t, byName["node_read"], "meta_hash")
+}
+
+// TestMCP_SchemaSelectionFieldsAreConstrained pins the schema field's rule in
+// the advertised input schemas: the same pattern and length bound
+// keg.ValidSchemaTypeName enforces, so a client or the SDK refuses a sentence
+// before any backend sees it. The guard tokens stay optional.
+func TestMCP_SchemaSelectionFieldsAreConstrained(t *testing.T) {
+	t.Parallel()
+	schemas := listedToolSchemas(t)
+
+	fields := map[string]map[string]any{
+		"node_edit":   schemaProperty(t, schemas["node_edit"], schemaArrayItem(t, schemas["node_edit"], "nodes"), "schema"),
+		"node_create": schemaProperty(t, schemas["node_create"], schemaArrayItem(t, schemas["node_create"], "nodes"), "schema"),
+		"node_merge":  schemaProperty(t, schemas["node_merge"], schemas["node_merge"], "schema"),
+	}
+	for tool, field := range fields {
+		require.Equal(t, keg.SchemaTypeNamePattern, field["pattern"], tool)
+		require.EqualValues(t, keg.SchemaTypeNameMaxLength, field["maxLength"], tool)
+	}
+
+	editItem := schemaArrayItem(t, schemas["node_edit"], "nodes")
+	requireSchemaField(t, editItem, "schema", false)
+	requireSchemaField(t, editItem, "expected_content_hash", false)
+	requireSchemaField(t, editItem, "expected_meta_hash", false)
 }

@@ -28,15 +28,32 @@ func DocumentHash(data []byte) string {
 	return fmt.Sprintf("%x", sha256.Sum256(data))
 }
 
-func requireExpectedHash(resource, expected string) error {
+// hashSource names where a guarded write's token comes from: the request
+// field that carries it and the read tool whose hash fills it. A missing token
+// names both, so the caller's next step is in the message itself.
+type hashSource struct {
+	Field string
+	Read  string
+}
+
+var (
+	nodeHashSource        = hashSource{Field: "expected_hash", Read: "node_read"}
+	mergeSourceHashSource = hashSource{Field: "expected_source_hash", Read: "node_read"}
+	schemaHashSource      = hashSource{Field: "expected_hash", Read: "schema_read"}
+	settingsHashSource    = hashSource{Field: "expected_hash", Read: "keg_settings_read"}
+	nodeContentHashSource = hashSource{Field: "expected_content_hash", Read: "node_read"}
+	nodeMetaHashSource    = hashSource{Field: "expected_meta_hash", Read: "node_read"}
+)
+
+func requireExpectedHash(resource string, source hashSource, expected string) error {
 	if expected != "" {
 		return nil
 	}
-	return fmt.Errorf("%s: %w", resource, ErrPreconditionRequired)
+	return fmt.Errorf("%s: %s is required: call %s and pass its hash: %w", resource, source.Field, source.Read, ErrPreconditionRequired)
 }
 
-func checkExpectedHash(resource, expected, current string, content []byte) error {
-	if err := requireExpectedHash(resource, expected); err != nil {
+func checkExpectedHash(resource string, source hashSource, expected, current string, content []byte) error {
+	if err := requireExpectedHash(resource, source, expected); err != nil {
 		return err
 	}
 	if expected == current {
@@ -95,7 +112,7 @@ func checkNodeUpdatePrecondition(ctx context.Context, rt *toolkit.Runtime, opts 
 		}
 	}
 	if opts.ExpectedContentHash == "" && opts.ExpectedMetaHash == "" {
-		err := checkExpectedHash(resource, opts.ExpectedHash, existing.Hash(), nodeRecoveryContent(existing))
+		err := checkExpectedHash(resource, nodeHashSource, opts.ExpectedHash, existing.Hash(), nodeRecoveryContent(existing))
 		var pc *PreconditionConflictError
 		if errors.As(err, &pc) {
 			pc.CurrentContentHash = currentContentHash
@@ -104,16 +121,16 @@ func checkNodeUpdatePrecondition(ctx context.Context, rt *toolkit.Runtime, opts 
 		return err
 	}
 	if opts.HasContent {
-		if opts.ExpectedContentHash == "" {
-			return fmt.Errorf("%s content (expected content hash): %w", resource, ErrPreconditionRequired)
+		if err := requireExpectedHash(resource+" content", nodeContentHashSource, opts.ExpectedContentHash); err != nil {
+			return err
 		}
 		if opts.ExpectedContentHash != currentContentHash {
 			return conflict()
 		}
 	}
 	if opts.HasMeta {
-		if opts.ExpectedMetaHash == "" {
-			return fmt.Errorf("%s metadata (expected meta hash): %w", resource, ErrPreconditionRequired)
+		if err := requireExpectedHash(resource+" metadata", nodeMetaHashSource, opts.ExpectedMetaHash); err != nil {
+			return err
 		}
 		if opts.ExpectedMetaHash != currentMetaHash {
 			return conflict()
