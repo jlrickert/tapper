@@ -8,7 +8,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/jlrickert/cli-toolkit/toolkit"
 	"github.com/jlrickert/tapper/pkg/tapper"
@@ -106,7 +105,10 @@ func RunWithProfile(ctx context.Context, rt *toolkit.Runtime, args []string, pro
 	logCLIInvocation(deps, args, execErr)
 	reportCLIInvocation(deps, execErr)
 	if deps.InvocationReporter != nil {
-		flushCtx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+		// Close waits only for a send already in flight and spools the rest,
+		// including this invocation's event, for the next process to send.
+		// The deadline is a ceiling on that wait plus the spool write.
+		flushCtx, cancel := context.WithTimeout(context.Background(), 2*tapper.InvocationTelemetryInFlightWait)
 		deps.InvocationReporter.Close(flushCtx)
 		cancel()
 	}

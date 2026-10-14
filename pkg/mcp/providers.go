@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/jlrickert/tapper/pkg/apicontract"
 	"github.com/jlrickert/tapper/pkg/keg"
@@ -235,11 +236,13 @@ func (p *localOrientationProvider) Load(ctx context.Context) (*Orientation, erro
 	if strings.TrimSpace(ref) == "" {
 		return p.resolveUnpinned(ctx, "")
 	}
+	pre := p.prefetchOrientation(ctx, true)
+	defer pre.wait()
 	flight, err := p.tap.FlightService.GetFlightFresh(ctx, ref)
 	if err != nil {
 		return nil, err
 	}
-	return p.resolve(ctx, flight, "")
+	return p.resolve(ctx, flight, "", pre)
 }
 
 func (p *localOrientationProvider) Resolve(ctx context.Context, rootRef, selected string) (*Orientation, error) {
@@ -263,6 +266,8 @@ func (p *localOrientationProvider) Resolve(ctx context.Context, rootRef, selecte
 	if strings.TrimSpace(rootRef) == "" {
 		return p.resolveUnpinned(ctx, selected)
 	}
+	pre := p.prefetchOrientation(ctx, true)
+	defer pre.wait()
 	root, err := p.tap.FlightService.GetFlightFresh(ctx, rootRef)
 	if err != nil {
 		if errors.Is(err, keg.ErrNotExist) || errors.Is(err, keg.ErrForbidden) || errors.Is(err, keg.ErrUnauthorized) {
@@ -270,10 +275,28 @@ func (p *localOrientationProvider) Resolve(ctx context.Context, rootRef, selecte
 		}
 		return nil, fmt.Errorf("%w: refresh launch root %q: %w", ErrOrientationUnavailable, rootRef, err)
 	}
-	return p.resolve(ctx, root, selected)
+	return p.resolve(ctx, root, selected, pre)
 }
 
 func (p *localOrientationProvider) resolveUnpinned(ctx context.Context, selected string) (*Orientation, error) {
+	// The flight catalog, the KEG catalog, the selected flight, and the Hub
+	// identity are independent, so they load together.
+	pinned := strings.TrimSpace(selected) != ""
+	pre := p.prefetchOrientation(ctx, pinned)
+	defer pre.wait()
+	var (
+		active  *tapper.Flight
+		loadErr error
+		loaded  sync.WaitGroup
+	)
+	if pinned {
+		loaded.Add(1)
+		go func() {
+			defer loaded.Done()
+			active, loadErr = p.tap.FlightService.GetFlightFresh(ctx, selected)
+		}()
+	}
+	defer loaded.Wait()
 	var warnings []string
 	catalog, err := p.tap.FlightService.FlightCatalog(ctx, "", &warnings)
 	available := make([]string, 0, len(catalog))
@@ -283,7 +306,7 @@ func (p *localOrientationProvider) resolveUnpinned(ctx context.Context, selected
 	if err != nil {
 		return nil, fmt.Errorf("%w: list identity-accessible flights: %w", ErrOrientationUnavailable, err)
 	}
-	authorized, kegWarnings, err := p.tap.IdentityKegCatalog(ctx)
+	authorized, kegWarnings, err := pre.catalog()
 	if err != nil {
 		return nil, err
 	}
@@ -305,7 +328,7 @@ func (p *localOrientationProvider) resolveUnpinned(ctx context.Context, selected
 		orientation.Payload = payload
 		return orientation, nil
 	}
-	active, loadErr := p.tap.FlightService.GetFlightFresh(ctx, selected)
+	loaded.Wait()
 	if loadErr != nil {
 		return nil, fmt.Errorf("%w: selected flight %q is unavailable: %w", ErrOrientationDenied, selected, loadErr)
 	}
@@ -326,7 +349,7 @@ func (p *localOrientationProvider) resolveUnpinned(ctx context.Context, selected
 		Kegs: kegs, AggregateKegs: append([]tapper.OrientationKeg(nil), kegs...), Warnings: warnings,
 	}
 	if orientation.Root != nil {
-		if err := p.bindRootAuthority(ctx, orientation); err != nil {
+		if err := p.bindRootAuthority(ctx, orientation, pre); err != nil {
 			return nil, err
 		}
 	}
@@ -372,7 +395,10 @@ func (p *localOrientationProvider) orientationIdentityForSource(ctx context.Cont
 	return "", fmt.Errorf("%w: authenticated identity for selected Hub %q is unavailable", ErrOrientationUnavailable, source)
 }
 
-func (p *localOrientationProvider) resolve(ctx context.Context, root *tapper.Flight, selected string) (*Orientation, error) {
+// resolve loads the flight graph rooted at root and selects from it. pre
+// carries the KEG catalog and Hub identity, already loading alongside the
+// graph.
+func (p *localOrientationProvider) resolve(ctx context.Context, root *tapper.Flight, selected string, pre *orientationPrefetch) (*Orientation, error) {
 	graph, err := p.tap.FlightService.ResolveFlightGraph(ctx, root)
 	if err != nil {
 		return nil, fmt.Errorf("%w: load flight graph rooted at %s: %w", ErrOrientationUnavailable, root.Name, err)
@@ -387,7 +413,7 @@ func (p *localOrientationProvider) resolve(ctx context.Context, root *tapper.Fli
 		return nil, fmt.Errorf("%w: load active composed cover: %w", ErrOrientationUnavailable, err)
 	}
 	active = tapper.ComposedFlight(active)
-	authorized, warnings, err := p.tap.IdentityKegCatalog(ctx)
+	authorized, warnings, err := pre.catalog()
 	if err != nil {
 		return nil, err
 	}
@@ -407,7 +433,7 @@ func (p *localOrientationProvider) resolve(ctx context.Context, root *tapper.Fli
 		Kegs: kegs, AggregateKegs: aggregate, Warnings: warnings,
 	}
 	if orientation.Root != nil {
-		if err := p.bindRootAuthority(ctx, orientation); err != nil {
+		if err := p.bindRootAuthority(ctx, orientation, pre); err != nil {
 			return nil, err
 		}
 	}
@@ -432,14 +458,16 @@ func (p *localOrientationProvider) resolve(ctx context.Context, root *tapper.Fli
 }
 
 func (p *localOrientationProvider) Render(ctx context.Context, flight *tapper.Flight) (*Orientation, error) {
-	authorized, warnings, err := p.tap.IdentityKegCatalog(ctx)
+	pre := p.prefetchOrientation(ctx, flight != nil)
+	defer pre.wait()
+	authorized, warnings, err := pre.catalog()
 	if err != nil {
 		return nil, err
 	}
 	kegs := tapper.ProjectOrientationKegs(flight, authorized)
 	orientation := &Orientation{Root: flight, Flight: flight, Path: []string{flight.Name}, Kegs: kegs, AggregateKegs: append([]tapper.OrientationKeg(nil), kegs...), Warnings: warnings}
 	if orientation.Root != nil {
-		if err := p.bindRootAuthority(ctx, orientation); err != nil {
+		if err := p.bindRootAuthority(ctx, orientation, pre); err != nil {
 			return nil, err
 		}
 	}
@@ -690,14 +718,16 @@ func (p localIdentityProvider) Identities(ctx context.Context) ([]AuthIdentity, 
 	return out, nil
 }
 
-// bindRootAuthority binds the live proof to this connection's selected Hub.
-func (p *localOrientationProvider) bindRootAuthority(ctx context.Context, orientation *Orientation) error {
-	_, entry, err := p.tap.ConfigService.SelectedHub("")
-	if err != nil {
-		return err
+// bindRootAuthority binds the live proof to this connection's selected Hub,
+// using the identity pre already loaded when it has one.
+func (p *localOrientationProvider) bindRootAuthority(ctx context.Context, orientation *Orientation, pre *orientationPrefetch) error {
+	var err error
+	if pre != nil && pre.withIdentity {
+		pre.wait()
+		orientation.RootHub, orientation.Identity, err = pre.rootHub, pre.identity, pre.identityErr
+	} else {
+		orientation.RootHub, orientation.Identity, err = p.rootIdentity(ctx)
 	}
-	orientation.RootHub = tapper.CanonicalConfiguredHubURL(entry.URL)
-	orientation.Identity, err = p.orientationIdentityForSource(ctx, orientation.RootHub)
 	if err != nil {
 		return err
 	}
@@ -706,6 +736,62 @@ func (p *localOrientationProvider) bindRootAuthority(ctx context.Context, orient
 		orientation.AllowedTargets = append(orientation.AllowedTargets, orientation.RootHub+"/api/v1/@"+row.Namespace+"/kegs/"+row.Alias)
 	}
 	return nil
+}
+
+// rootIdentity resolves the selected Hub and the canonical identity
+// authenticated to it.
+func (p *localOrientationProvider) rootIdentity(ctx context.Context) (rootHub, identity string, err error) {
+	_, entry, err := p.tap.ConfigService.SelectedHub("")
+	if err != nil {
+		return "", "", err
+	}
+	rootHub = tapper.CanonicalConfiguredHubURL(entry.URL)
+	identity, err = p.orientationIdentityForSource(ctx, rootHub)
+	return rootHub, identity, err
+}
+
+// orientationPrefetch loads the parts of an orientation that do not depend on
+// the flight graph, the identity KEG catalog and the selected Hub identity,
+// while the caller loads the graph. Callers read each result where the
+// sequential code made the request, so errors surface in the same order.
+type orientationPrefetch struct {
+	wg           sync.WaitGroup
+	withIdentity bool
+
+	authorized []tapper.OrientationKeg
+	warnings   []string
+	catalogErr error
+
+	rootHub     string
+	identity    string
+	identityErr error
+}
+
+// prefetchOrientation starts the KEG catalog and, when withIdentity, the Hub
+// identity. Callers defer wait so no request outlives the orientation.
+func (p *localOrientationProvider) prefetchOrientation(ctx context.Context, withIdentity bool) *orientationPrefetch {
+	pre := &orientationPrefetch{withIdentity: withIdentity}
+	pre.wg.Add(1)
+	go func() {
+		defer pre.wg.Done()
+		pre.authorized, pre.warnings, pre.catalogErr = p.tap.IdentityKegCatalog(ctx)
+	}()
+	if withIdentity {
+		pre.wg.Add(1)
+		go func() {
+			defer pre.wg.Done()
+			pre.rootHub, pre.identity, pre.identityErr = p.rootIdentity(ctx)
+		}()
+	}
+	return pre
+}
+
+func (pre *orientationPrefetch) wait() { pre.wg.Wait() }
+
+// catalog returns the identity KEG catalog once it has loaded.
+func (pre *orientationPrefetch) catalog() ([]tapper.OrientationKeg, []string, error) {
+	pre.wait()
+	return pre.authorized, pre.warnings, pre.catalogErr
 }
 
 // KegDeletionProvider permanently removes catalog KEGs.

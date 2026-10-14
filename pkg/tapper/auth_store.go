@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/jlrickert/cli-toolkit/toolkit"
@@ -60,7 +61,11 @@ type authStoreDTO struct {
 // authStoreDTO. All methods are nil-safe on the receiver: a (*AuthStore)(nil)
 // reads as an empty store and writes are no-ops. This lets callers skip
 // the "did Load return something?" dance when the file didn't exist.
+//
+// mu guards data: the token resolver reads the store from concurrent hub
+// requests while a refresh may be writing a rotated entry.
 type AuthStore struct {
+	mu   sync.RWMutex
 	data *authStoreDTO
 }
 
@@ -101,7 +106,12 @@ func LoadAuthStore(ctx context.Context, rt *toolkit.Runtime, path string) (*Auth
 // return a value (not a pointer into the map) so callers can't mutate
 // the stored entry by accident — all edits must go through Set.
 func (s *AuthStore) Get(hubURL string) (*AuthEntry, bool) {
-	if s == nil || s.data == nil || s.data.Hubs == nil {
+	if s == nil {
+		return nil, false
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.data == nil || s.data.Hubs == nil {
 		return nil, false
 	}
 	entry, ok := s.data.Hubs[hubURL]
@@ -120,6 +130,8 @@ func (s *AuthStore) Set(hubURL string, entry AuthEntry) {
 	if s == nil {
 		return
 	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.data == nil {
 		s.data = &authStoreDTO{}
 	}
@@ -134,7 +146,12 @@ func (s *AuthStore) Set(hubURL string, entry AuthEntry) {
 // callers can use this to decide whether to log "logged out" vs "was
 // already logged out".
 func (s *AuthStore) Delete(hubURL string) bool {
-	if s == nil || s.data == nil || s.data.Hubs == nil {
+	if s == nil {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.data == nil || s.data.Hubs == nil {
 		return false
 	}
 	if _, ok := s.data.Hubs[hubURL]; !ok {
@@ -147,7 +164,12 @@ func (s *AuthStore) Delete(hubURL string) bool {
 // Hubs returns the hub URL keys, sorted, for enumeration. Sorted output
 // makes CLI listings stable without callers having to re-sort.
 func (s *AuthStore) Hubs() []string {
-	if s == nil || s.data == nil || s.data.Hubs == nil {
+	if s == nil {
+		return []string{}
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.data == nil || s.data.Hubs == nil {
 		return []string{}
 	}
 	keys := make([]string, 0, len(s.data.Hubs))
@@ -161,7 +183,12 @@ func (s *AuthStore) Hubs() []string {
 // IsEmpty reports whether the store has no hubs. Used by Save to decide
 // whether to delete the file rather than write an empty document.
 func (s *AuthStore) IsEmpty() bool {
-	if s == nil || s.data == nil || s.data.Hubs == nil {
+	if s == nil {
+		return true
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.data == nil || s.data.Hubs == nil {
 		return true
 	}
 	return len(s.data.Hubs) == 0
@@ -205,7 +232,9 @@ func (s *AuthStore) Save(ctx context.Context, rt *toolkit.Runtime, path string) 
 		}
 	}
 
+	s.mu.RLock()
 	data, err := yaml.Marshal(s.data)
+	s.mu.RUnlock()
 	if err != nil {
 		return fmt.Errorf("unable to marshal auth store: %w", err)
 	}

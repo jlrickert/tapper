@@ -55,7 +55,11 @@ per-command permission prompts.`,
 				// Config-driven selection is re-resolved on initialize/orient.
 				defaults.Flight = ""
 			}
-			srv := mcp.NewServer(deps.Tap, Version, defaults, mcpServerOptions(rt.Logger(), deps.InvocationReporter))
+			opts := mcpServerOptions(rt.Logger(), deps.InvocationReporter)
+			if deps.Tap != nil {
+				opts.DiscoveryCache = tapper.NewAPIDiscoveryCache(rt, deps.Tap.PathService)
+			}
+			srv := mcp.NewServer(deps.Tap, Version, defaults, opts)
 			// A launched session runs a Hub agent (TAP_AGENT=@ns/name): serve
 			// only its tools. If the agent cannot be loaded the session fails
 			// closed to orient/guide rather than quietly offering everything.

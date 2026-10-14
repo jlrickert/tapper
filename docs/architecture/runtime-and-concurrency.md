@@ -69,9 +69,12 @@ use of `time.Now()` that cannot be driven by a fake clock:
 - `pkg/keg/node_id.go` (crypto/rand fallback uses `time.Now().UnixNano()`):
   used as an entropy source for a short random code when `crypto/rand` fails,
   not as a time measurement.
-- `pkg/tapper/invocation_telemetry.go` (flush ticker and request/shutdown
-  deadlines): coalesces best-effort network uploads and bounds their wall-clock
-  impact independently of the frozen domain clock.
+- `pkg/tapper/invocation_telemetry.go` (flush ticker, request deadline, and
+  the in-flight wait at `Close`): coalesces best-effort network uploads and
+  bounds their wall-clock impact independently of the frozen domain clock.
+  `Close` never starts a send; it waits at most
+  `InvocationTelemetryInFlightWait` for one already running and spools the
+  rest through `rt.AtomicWriteFile`.
 
 ## Concurrency Model
 
@@ -87,6 +90,9 @@ use of `time.Now()` that cannot be driven by a fake clock:
   repository.
 - **KegService cache**: `cacheMu sync.Mutex` guards the shared keg resolution
   cache.
+- **Auth store**: `AuthStore.mu sync.RWMutex` guards the in-memory credential
+  map, because the token resolver reads it from concurrent hub requests while
+  a refresh writes the rotated entry.
 - **Remote operations are single-request**: each `RemoteKeg` method is one
   HTTP round trip, and the hub serializes per-node writes server-side. There
   is no client-side lock lease or dex write over HTTP.
@@ -96,6 +102,13 @@ use of `time.Now()` that cannot be driven by a fake clock:
   `orient`, `session_refresh`, flight mutations, and any failed call discard
   it. Reuse cannot widen access, because the Hub rechecks the orientation
   header and KEG authority on every request. Hosted servers leave it off.
+- **Orientation requests overlap**: `tap info`, `tap orient`, and the MCP
+  orientation provider issue the Hub requests that do not depend on each other
+  (identity, flight, flight graph, KEG catalog) from separate goroutines and
+  read the results in the order the sequential code checked them, so errors
+  and warnings are reported exactly as before. `tap info` asks for all of it in
+  one `GET /api/v1/context` where the Hub supports it (see
+  [REST API contract compatibility](../api-compatibility.md#caller-context-route)).
 - **Advisory locks are session primitives**: `Keg.Lock`/`Unlock`/
   `LockStatus`/`ForceUnlock` (used by `tap lock` / `tap node edit`) are opt-in
   advisory locks backed by the Hub's `/nodes/{id}/lock` endpoints. Leases carry a TTL

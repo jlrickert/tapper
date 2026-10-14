@@ -230,5 +230,10 @@ Invocation telemetry goes to `/api/v1/telemetry/invocations` on the active Hub,
 using an existing login. It reports the surface, command/tool name, duration,
 success, optional CLI interactivity, version, and agent identity. Arguments,
 content, paths, errors, credentials, and KEG/node identifiers are not uploaded.
-Reporting is best effort. Disable it with `disableTelemetry: true` or
-`TAP_DISABLE_TELEMETRY=1`.
+Reporting is best effort and never delays exit: a CLI invocation's own event,
+and anything else not yet delivered, is written to
+`telemetry-spool.json` under the state directory (beside `auth.yaml`) and
+sent by the next invocation while its command runs. The spool holds events
+only, never credentials, and keeps the newest 500. Disable reporting with
+`disableTelemetry: true` or `TAP_DISABLE_TELEMETRY=1`; a disabled client
+neither sends nor writes the spool.

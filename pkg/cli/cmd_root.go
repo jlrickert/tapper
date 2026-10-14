@@ -242,7 +242,12 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 				return err
 			}
 
-			ctx = apicontract.WithSession(ctx, apicontract.NewSession(Version, rt.Logger()))
+			// Discovery successes persist under CacheRoot, so an invocation
+			// within the TTL goes straight to its first REST request.
+			contract := apicontract.NewSession(Version, rt.Logger())
+			contract.Cache = tapper.NewAPIDiscoveryCache(rt, tap.PathService)
+			contract.Now = rt.Clock().Now
+			ctx = apicontract.WithSession(ctx, contract)
 
 			// Renew any expired hub credentials before the command runs so
 			// one-off commands and the long-running MCP server both start

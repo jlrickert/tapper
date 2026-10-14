@@ -30,7 +30,11 @@ duplicate, comma-joined, or unsupported values return HTTP 400 with
 ```
 
 CLI invocations and MCP connections discover each selected Hub once, before
-REST operations or flight-authority loading. Discovery sends no credentials or
+REST operations or flight-authority loading. `tap` and `tap mcp` also keep a
+successful discovery in `api-discovery.json` under the cache directory, keyed
+by Hub URL and contract revision, and trust it for an hour, so most
+invocations skip `GET /api/version` entirely. A stale entry is safe: the Hub
+still validates every request, and its typed rejection evicts the entry. Discovery sends no credentials or
 cookies, refuses redirects, and is bounded by the caller's deadline and five
 seconds. Library callers can share `apicontract.Session` through their context.
 Standalone clients check discovery too. Legacy Hubs with no discovery endpoint
@@ -43,7 +47,8 @@ The Hub validates every request even after deployment during an existing MCP
 connection. Rejections preserve typed compatibility errors and supported
 revisions in MCP results. Initialization failures leave recovery diagnostics
 available. Upgrade both sides to a common contract and start a new invocation
-or connection; discovery results, including failures, are connection-scoped.
+or connection; discovery failures are connection-scoped and never cached, and
+the rejection that ends a connection also evicts any cached success.
 Clients never switch contracts or replay mutations automatically.
 
 Compatibility failures emit structured `api.compatibility_failure` logs:
@@ -80,6 +85,32 @@ relies on that for an unscoped `node_search` inside a flight, so a cover wider
 than 50 KEGs still searches in one request. Without the proof, Tapper names
 the flight's cover itself and refuses a cover wider than 50 KEGs with
 `INVALID`, asking for `kegs` to narrow it.
+
+## Caller context route
+
+`GET /api/v1/context` is an additive route, so it did not change the
+revision. It returns, in one request, what `tap info` otherwise asks the
+selected Hub in three: the `whoami` user, the flight named by the optional
+`flight` query parameter (`@namespace/+slug`, or a bare `+slug` the Hub
+resolves in the caller's personal namespace), and the identity KEG catalog.
+A flight the Hub cannot read comes back as `flight: null` with the reason in
+`flight_error` and HTTP 200, so the rest of the context still arrives. The
+flight's `cover` is the Hub-composed cover, the rows a flight read reports as
+`effective_cover`:
+
+```json
+{"user":{"user_id":1,"username":"jared","default_namespace":"jared"},
+ "flight":{"name":"@jared/+work","title":"Work","cover":[{"ref":"@jared/dev","role":"editor","source":"@jared/dev","distance":0}]},
+ "flight_error":null,
+ "kegs":[{"ref":"@jared/dev","namespace":"jared","alias":"dev","title":"Dev","role":"admin","flight_cap":"editor","effective_role":"editor"}]}
+```
+
+Tapper ignores fields it does not know and projects the catalog through the
+composed cover itself; `tap info` lists the composed cover on either path,
+the authority MCP enforces. A Hub that predates the route answers 404;
+Tapper then sends `whoami`, the flight read, and `GET /api/v1/kegs`
+concurrently, and skips the route on that Hub for the rest of the invocation
+or connection.
 
 Publish the Tapper commit first; a hub that embeds Tapper then pins that
 published SHA on its own side, by its own procedure. This development change

@@ -549,49 +549,53 @@ type ContextInfoResult struct {
 // ContextInfo reports the hub, the default KEG, the active flight, and the
 // KEGs that flight covers. It is best-effort: a hub that cannot be reached or
 // a flight that cannot be loaded becomes a warning, and the locally
-// configured defaults are still reported.
+// configured defaults are still reported. The hub's part comes from one
+// GET /api/v1/context, or from concurrent requests on a hub without it.
 func (t *Tap) ContextInfo(ctx context.Context, opts KegTargetOptions) (ContextInfoResult, error) {
 	out := ContextInfoResult{Kegs: []ContextInfoFlightKeg{}}
 	slots := t.configSlots(opts)
-
-	out.Hub = ContextInfoHub{Name: slots.Hub.Value, Scope: slots.Hub.Scope}
-	if name, entry, err := t.ConfigService.SelectedHub(opts.Hub); err != nil {
-		out.Warnings = append(out.Warnings, fmt.Sprintf("hub: %v", err))
-	} else {
-		out.Hub.Name, out.Hub.URL = name, entry.URL
-		if who, err := t.SelectedHubIdentity(ctx); err != nil {
-			out.Warnings = append(out.Warnings, fmt.Sprintf("hub identity: %v", err))
-		} else if who != nil {
-			out.Hub.User = who.Username
-		}
-	}
 
 	out.Keg = ContextInfoKeg{Ref: slots.Keg.Value, Scope: slots.Keg.Scope}
 	if ref := t.resolveIdentity(opts).Ref; ref != "" {
 		out.Keg.Ref = ref
 	}
-
 	out.Flight = ContextInfoFlight{Ref: t.ActiveFlightName(opts.Flight), Scope: slots.Flight.Scope}
+
+	out.Hub = ContextInfoHub{Name: slots.Hub.Value, Scope: slots.Hub.Scope}
+	name, entry, hubErr := t.ConfigService.SelectedHub(opts.Hub)
+	hub := t.loadHubContext(ctx, hubContextRequest{hub: opts.Hub, flight: out.Flight.Ref, kegs: out.Flight.Ref != ""})
+	if hubErr != nil {
+		out.Warnings = append(out.Warnings, fmt.Sprintf("hub: %v", hubErr))
+	} else {
+		out.Hub.Name, out.Hub.URL = name, entry.URL
+		if hub.whoErr != nil {
+			out.Warnings = append(out.Warnings, fmt.Sprintf("hub identity: %v", hub.whoErr))
+		} else if hub.who != nil {
+			out.Hub.User = hub.who.Username
+		}
+	}
+
 	if out.Flight.Ref == "" {
 		return out, nil
 	}
-	flight, note, err := t.resolveOrientFlight(ctx, out.Flight.Ref)
-	if err != nil {
-		out.Warnings = append(out.Warnings, fmt.Sprintf("flight: %v", err))
+	if hub.flightErr != nil {
+		out.Warnings = append(out.Warnings, fmt.Sprintf("flight: %v", hub.flightErr))
 		return out, nil
 	}
-	if note != "" {
-		out.Warnings = append(out.Warnings, note)
+	if hub.flightNote != "" {
+		out.Warnings = append(out.Warnings, hub.flightNote)
 		return out, nil
 	}
+	// Project the Hub-composed cover, the authority MCP enforces. A flight
+	// read from an older Hub carries it as EffectiveCover.
+	flight := ComposedFlight(hub.flight)
 	out.Flight.Ref, out.Flight.Title = flight.Name, flight.Title
-	rows, warnings, err := t.OrientationKegsForFlight(ctx, flight)
-	out.Warnings = append(out.Warnings, warnings...)
-	if err != nil {
-		out.Warnings = append(out.Warnings, fmt.Sprintf("flight kegs: %v", err))
+	out.Warnings = append(out.Warnings, hub.warnings...)
+	if hub.kegsErr != nil {
+		out.Warnings = append(out.Warnings, fmt.Sprintf("flight kegs: %v", hub.kegsErr))
 		return out, nil
 	}
-	for _, row := range rows {
+	for _, row := range ProjectOrientationKegs(flight, hub.kegs) {
 		out.Kegs = append(out.Kegs, ContextInfoFlightKeg{Ref: row.Ref, Role: EffectiveOrientationRole(row), Title: row.Title})
 	}
 	return out, nil
