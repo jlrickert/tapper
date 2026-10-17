@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jlrickert/tapper/pkg/apicontract"
 	"github.com/stretchr/testify/require"
 )
 
@@ -19,7 +20,7 @@ func rejectingTelemetryHub(t *testing.T, status *atomic.Int32) (*httptest.Server
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		if req.URL.Path == "/api/version" {
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"server_version":"test","api_versions":["2026-10-12"]}`))
+			_, _ = w.Write([]byte(`{"server_version":"test","api_versions":["` + apicontract.Revision + `"]}`))
 			return
 		}
 		posts.Add(1)

@@ -24,13 +24,20 @@ func TestGateBeforeApplication(t *testing.T) {
 		code   string
 	}{
 		{"missing", nil, Required}, {"empty", []string{""}, Unsupported}, {"valid", []string{Revision}, ""},
+		{"previous", []string{"2026-10-12"}, ""}, {"mixed", []string{Revision, "2026-10-12"}, Unsupported},
+		{"retired", []string{"2026-09-28"}, Unsupported},
 		{"duplicate", []string{Revision, Revision}, Unsupported}, {"comma", []string{Revision + ", " + Revision}, Unsupported},
 		{"malformed", []string{" " + Revision}, Unsupported}, {"unsupported", []string{"2099-01-01"}, Unsupported},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			called := false
+			seen := ""
 			var logs bytes.Buffer
-			h := Middleware("0.24.0", slog.New(slog.NewJSONHandler(&logs, nil)))(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { called = true; w.WriteHeader(204) }))
+			h := Middleware("0.24.0", slog.New(slog.NewJSONHandler(&logs, nil)))(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				called = true
+				seen = RequestRevision(r.Context())
+				w.WriteHeader(204)
+			}))
 			req := httptest.NewRequest("POST", "/api/v1/@ns/kegs/k/nodes", strings.NewReader("private content"))
 			req.Header[http.CanonicalHeaderKey(VersionHeader)] = tc.values
 			req.Header.Set("Authorization", "Bearer secret")
@@ -38,8 +45,8 @@ func TestGateBeforeApplication(t *testing.T) {
 			rec := httptest.NewRecorder()
 			h.ServeHTTP(rec, req)
 			if tc.code == "" {
-				if !called || rec.Code != 204 || rec.Header().Get(VersionHeader) != Revision {
-					t.Fatal(rec, called)
+				if !called || rec.Code != 204 || rec.Header().Get(VersionHeader) != tc.values[0] || seen != tc.values[0] {
+					t.Fatal(rec, called, seen)
 				}
 				return
 			}
@@ -50,13 +57,29 @@ func TestGateBeforeApplication(t *testing.T) {
 			if err := json.Unmarshal(rec.Body.Bytes(), &e); err != nil {
 				t.Fatal(err)
 			}
-			if e.Code != tc.code || e.OperationPerformed || len(e.Supported) != 1 {
+			if e.Code != tc.code || e.OperationPerformed || strings.Join(e.Supported, ",") != "2026-10-17,2026-10-12" {
 				t.Fatalf("%+v", e)
 			}
 			if !strings.Contains(logs.String(), `"level":"WARN"`) || strings.Contains(logs.String(), "secret") || strings.Contains(logs.String(), "private content") {
 				t.Fatal(logs.String())
 			}
 		})
+	}
+}
+
+// A Hub keeps accepting the previous revision so released clients survive
+// the upgrade, but a client always speaks the newest one.
+func TestRevisionPolicy(t *testing.T) {
+	if Revision != "2026-10-17" {
+		t.Fatal(Revision)
+	}
+	got := SupportedRevisions()
+	got[0] = "mutated"
+	if strings.Join(SupportedRevisions(), ",") != "2026-10-17,2026-10-12" {
+		t.Fatal(SupportedRevisions())
+	}
+	if RequestRevision(context.Background()) != "" {
+		t.Fatal("a request outside the gate has no revision")
 	}
 }
 
@@ -75,7 +98,7 @@ func TestDiscoveryAndExemptions(t *testing.T) {
 	if err := json.Unmarshal(r.Body.Bytes(), &d); err != nil {
 		t.Fatal(err)
 	}
-	if r.Code != 200 || r.Header().Get("Cache-Control") != "no-store" || d.ServerVersion != "build-release" || len(d.APIVersions) != 1 || d.APIVersions[0] != Revision {
+	if r.Code != 200 || r.Header().Get("Cache-Control") != "no-store" || d.ServerVersion != "build-release" || strings.Join(d.APIVersions, ",") != "2026-10-17,2026-10-12" {
 		t.Fatal(r, d)
 	}
 }
@@ -85,8 +108,9 @@ func TestClientDiscoveryMatrix(t *testing.T) {
 		name, body, code string
 		status           int
 	}{
-		{"matching", `{"server_version":"0.24.0","api_versions":["2026-10-12"]}`, "", 200},
-		{"newer compatible", `{"server_version":"99.0.0","api_versions":["2026-10-12","2099-01-01"]}`, "", 200},
+		{"matching", `{"server_version":"0.24.0","api_versions":["2026-10-17","2026-10-12"]}`, "", 200},
+		{"newer compatible", `{"server_version":"99.0.0","api_versions":["2026-10-17","2099-01-01"]}`, "", 200},
+		{"older hub", `{"server_version":"0.29.1","api_versions":["2026-10-12"]}`, Unsupported, 200},
 		{"newer incompatible", `{"server_version":"99.0.0","api_versions":["2099-01-01"]}`, Unsupported, 200},
 		{"legacy", "", DiscoveryUnavailable, 404}, {"redirect", "", DiscoveryUnavailable, 302},
 		{"malformed", "oops", DiscoveryInvalid, 200}, {"missing versions", `{"server_version":"v1"}`, DiscoveryInvalid, 200},

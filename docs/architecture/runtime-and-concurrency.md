@@ -120,6 +120,13 @@ use of `time.Now()` that cannot be driven by a fake clock:
   five seconds. A process that times out never refreshes unlocked: it adopts a
   fresher on-disk entry or keeps its cached token. A token that is still fresh
   never touches the lock.
+- **Refused versus failed refresh**: only an OAuth error body naming
+  `invalid_grant` or `invalid_client`, at any HTTP status, counts as the hub
+  refusing the refresh token (`ErrRefreshRejected`); the sign-in is gone and
+  only `tap auth login` restores it. A 5xx, a `server_error` or
+  `invalid_request` answer, or a body that is not an OAuth error is a failure
+  that may pass, so callers such as the relay retry with backoff instead of
+  giving up on a credential that is still good.
 - **Remote operations are single-request**: each `RemoteKeg` method is one
   HTTP round trip, and the hub serializes per-node writes server-side. There
   is no client-side lock lease or dex write over HTTP.

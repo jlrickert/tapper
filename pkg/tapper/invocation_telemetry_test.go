@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/jlrickert/cli-toolkit/sandbox"
+	"github.com/jlrickert/tapper/pkg/apicontract"
 	"github.com/stretchr/testify/require"
 )
 
@@ -24,7 +25,7 @@ type telemetryRoundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f telemetryRoundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 	if req.URL.Path == "/api/version" {
-		return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"server_version":"test","api_versions":["2026-10-12"]}`))}, nil
+		return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"server_version":"test","api_versions":["` + apicontract.Revision + `"]}`))}, nil
 	}
 
 	return f(req)

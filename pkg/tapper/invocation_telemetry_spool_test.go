@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/jlrickert/cli-toolkit/sandbox"
+	"github.com/jlrickert/tapper/pkg/apicontract"
 	"github.com/stretchr/testify/require"
 )
 
@@ -33,7 +34,7 @@ func newFakeTelemetryHub(t *testing.T) *fakeTelemetryHub {
 	h.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		if req.URL.Path == "/api/version" {
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = io.WriteString(w, `{"server_version":"test","api_versions":["2026-10-12"]}`)
+			_, _ = io.WriteString(w, `{"server_version":"test","api_versions":["`+apicontract.Revision+`"]}`)
 			return
 		}
 		if h.failing.Load() {

@@ -1,20 +1,32 @@
 # REST API contract compatibility
 
 Tapper and Tapper Hub select a REST contract independently of their release
-numbers. The sole supported revision is `2026-10-12`, which replaced `2026-09-28` when `POST /api/v1/namespaces/search` was removed in favor of `POST /api/v1/explore`, the public directory of KEGs, flights, and people. `2026-09-28` had replaced `2026-09-11` when grep, listing, and relationship responses gained server-side projection.
+numbers. The current revision is `2026-10-17`, which replaced `2026-10-12`
+when `POST /api/v1/@{ns}/kegs/{alias}/archive/restore` started answering
+`202 Accepted` with a restore job and a `Location` to poll instead of
+`200 {imported, removed}`. `2026-10-12` had replaced `2026-09-28` when `POST /api/v1/namespaces/search` was removed in favor of `POST /api/v1/explore`, the public directory of KEGs, flights, and people. `2026-09-28` had replaced `2026-09-11` when grep, listing, and relationship responses gained server-side projection.
 Change the revision for incompatible API behavior. Compatible additions and
 fixes retain the revision; release numbers remain diagnostic metadata.
+
+A Hub also keeps accepting the previous revision, `2026-10-12`
+(`apicontract.SupportedRevisions`), so released clients keep working through
+the upgrade. A request made under it gets that revision's behavior: the Hub
+reads the negotiated revision with `apicontract.RequestRevision` and does not
+answer such a request with the asynchronous restore. A client always sends the
+newest revision it knows (`apicontract.Revision`) and never falls back, so a
+new client still needs a Hub that serves `2026-10-17`.
 
 `GET /api/version` is public, requires no database access or credentials, and
 returns `Cache-Control: no-store` with the actual server build version:
 
 ```json
-{"server_version":"0.24.0","api_versions":["2026-10-12"]}
+{"server_version":"0.24.0","api_versions":["2026-10-17","2026-10-12"]}
 ```
 
 Every request under `/api/v1`, including event-stream handshakes and telemetry,
-must send exactly one `Tapper-API-Version: 2026-10-12` header. Accepted requests
-echo it in the response. Clients send their release in `Tapper-Client-Version`.
+must send exactly one `Tapper-API-Version` header naming a supported revision,
+for example `Tapper-API-Version: 2026-10-17`. Accepted requests echo the
+revision they sent in the response. Clients send their release in `Tapper-Client-Version`.
 The Hub validates the contract before authentication, flight authority, or
 application handlers. Discovery, health, OAuth, browser routes, and hosted
 `/mcp` are outside this REST gate. Browser code calling REST still sends it.
@@ -26,7 +38,7 @@ duplicate, comma-joined, or unsupported values return HTTP 400 with
 `operationPerformed: false`, for example:
 
 ```json
-{"error":"unsupported REST contract; upgrade Tapper and Hub together","code":"API_VERSION_UNSUPPORTED","requested_api_versions":["2099-01-01"],"supported_api_versions":["2026-10-12"],"server_version":"0.24.0","operationPerformed":false}
+{"error":"unsupported REST contract; upgrade Tapper and Hub together","code":"API_VERSION_UNSUPPORTED","requested_api_versions":["2099-01-01"],"supported_api_versions":["2026-10-17","2026-10-12"],"server_version":"0.24.0","operationPerformed":false}
 ```
 
 CLI invocations and MCP connections discover each selected Hub once, before
@@ -57,12 +69,12 @@ Fields include client/server releases, requested/supported revisions,
 `operationPerformed`, and a request identifier when available. Credentials,
 arguments, and request content are excluded.
 
-This is a coordinated upgrade: old clients and scripts without the header stop
-working against the new Hub, and new clients reject legacy Hubs. Update custom
+Clients and scripts without the header do not work against a Hub, and a
+client rejects a Hub whose discovery does not list the client's revision. Update custom
 scripts explicitly, for example:
 
 ```sh
-curl -H 'Tapper-API-Version: 2026-10-12' \
+curl -H 'Tapper-API-Version: 2026-10-17' \
   -H "Authorization: Bearer ${TAPPER_TOKEN}" \
   https://hub.example.com/api/v1/whoami
 ```

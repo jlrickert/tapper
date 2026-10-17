@@ -33,10 +33,13 @@ const (
 	authRefreshTimeout = 10 * time.Second
 )
 
-// ErrRefreshRejected means the hub refused the refresh token itself
-// (invalid_grant or invalid_client): the sign-in is gone and only a new
-// `tap auth login` restores it. Any other refresh failure, such as an
-// unreachable hub, may succeed on a later attempt.
+// ErrRefreshRejected means the hub refused the refresh token itself: its
+// token endpoint answered with an OAuth error body whose `error` is
+// invalid_grant or invalid_client, whatever the HTTP status. The sign-in is
+// gone and only a new `tap auth login` restores it. Every other failure is
+// not a refusal and may succeed on a later attempt: an unreachable hub, a
+// 5xx, a server_error or invalid_request answer, or a body that does not
+// parse as an OAuth error.
 var ErrRefreshRejected = errors.New("auth refresh: hub rejected refresh token")
 
 // authEntryNeedsRefresh reports whether entry has a refresh token and an access
@@ -205,12 +208,7 @@ func RefreshHubToken(ctx context.Context, rt *toolkit.Runtime, hubURL string, en
 		return nil, fmt.Errorf("auth refresh: read response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		// A rejected/expired/replayed refresh token returns invalid_grant.
-		// Surface the status so callers can fall back to a full re-login.
-		if resp.StatusCode == http.StatusBadRequest || resp.StatusCode == http.StatusUnauthorized {
-			return nil, fmt.Errorf("%w (%s)", ErrRefreshRejected, resp.Status)
-		}
-		return nil, fmt.Errorf("auth refresh: hub answered %s", resp.Status)
+		return nil, refreshFailure(resp.Status, body)
 	}
 
 	var tok tokenResponse
@@ -245,4 +243,24 @@ func RefreshHubToken(ctx context.Context, rt *toolkit.Runtime, hubURL string, en
 		next.ExpiresAt = rt.Clock().Now().Add(time.Duration(tok.ExpiresIn) * time.Second)
 	}
 	return next, nil
+}
+
+// refreshFailure classifies a non-200 token-endpoint answer. Only an OAuth
+// error body naming invalid_grant (the refresh token is expired, revoked, or
+// spent) or invalid_client (the client is gone) is ErrRefreshRejected; the
+// status code alone decides nothing, because a hub whose store is failing can
+// answer 400 or 401 for a credential that is still good. Everything else is
+// an ordinary error the caller may retry.
+func refreshFailure(status string, body []byte) error {
+	var oauthErr tokenErrorResponse
+	if json.Unmarshal(body, &oauthErr) == nil {
+		switch oauthErr.Error {
+		case "invalid_grant", "invalid_client":
+			return fmt.Errorf("%w (%s: %s)", ErrRefreshRejected, status, oauthErr.Error)
+		case "":
+		default:
+			return fmt.Errorf("auth refresh: hub answered %s: %s", status, oauthErr.Error)
+		}
+	}
+	return fmt.Errorf("auth refresh: hub answered %s", status)
 }
