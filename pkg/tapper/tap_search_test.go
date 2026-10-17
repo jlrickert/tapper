@@ -313,6 +313,63 @@ func TestSearch_ExplicitKegsNeedANamespacedCoverEntry(t *testing.T) {
 	require.Contains(t, strings.Join(resp.Warnings, "\n"), `cover entry "notes" names no namespace`)
 }
 
+// Search reads the same cover the role check does: a KEG the flight blocks
+// for a reader is not searched for that reader, whichever cover entry blocks
+// it and whatever later entry names it again.
+func TestSearch_CoverAgreesWithRoleFor(t *testing.T) {
+	t.Parallel()
+
+	hub, url := newFakeSearchHub(t, http.StatusOK, `{"hits":[]}`)
+	tap := newSearchTap(t, url)
+	cases := map[string][]tapper.FlightCover{
+		"blocked first by the same reference": {
+			{Namespace: "acme", Keg: "eng", Role: tapper.FlightRoleNone},
+			{Namespace: "acme", Keg: "eng", Role: tapper.FlightRoleViewer},
+			{Namespace: "acme", Keg: "notes", Role: tapper.FlightRoleViewer},
+		},
+		"blocked first by a bare entry": {
+			{Keg: "eng", Role: tapper.FlightRoleNone},
+			{Namespace: "acme", Keg: "eng", Role: tapper.FlightRoleEditor},
+			{Namespace: "acme", Keg: "notes", Role: tapper.FlightRoleViewer},
+		},
+	}
+	for name, cover := range cases {
+		flight := &tapper.Flight{Name: "@acme/+work", FlightManifest: tapper.FlightManifest{Cover: cover}}
+		_, covered := flight.RoleFor("", "acme", "eng")
+		require.False(t, covered, "%s: the role check denies @acme/eng", name)
+		inFlight := tapper.KegTargetOptions{FlightContext: flight}
+
+		_, err := tap.Search(t.Context(), tapper.SearchOptions{KegTargetOptions: inFlight, Query: "release"})
+		require.NoError(t, err, name)
+		require.Equal(t, []string{"@acme/notes"}, hub.last(t).Kegs, "%s: an unscoped search leaves out what the role check denies", name)
+
+		_, err = tap.Search(t.Context(), tapper.SearchOptions{KegTargetOptions: inFlight, Kegs: []string{"@acme/eng"}, Query: "release"})
+		require.ErrorContains(t, err, "does not cover @acme/eng", "%s: naming a denied KEG is refused", name)
+	}
+}
+
+// The first matching entry decides, so a block that comes after a grant does
+// not take the KEG out of search, just as it does not take it out of reach.
+func TestSearch_CoverKeepsWhatRoleForGrants(t *testing.T) {
+	t.Parallel()
+
+	hub, url := newFakeSearchHub(t, http.StatusOK, `{"hits":[]}`)
+	tap := newSearchTap(t, url)
+	flight := &tapper.Flight{Name: "@acme/+work", FlightManifest: tapper.FlightManifest{Cover: []tapper.FlightCover{
+		{Namespace: "acme", Keg: "eng", Role: tapper.FlightRoleViewer},
+		{Namespace: "acme", Keg: "eng", Role: tapper.FlightRoleNone},
+		{Keg: "notes", Role: tapper.FlightRoleViewer},
+	}}}
+	role, covered := flight.RoleFor("", "acme", "eng")
+	require.True(t, covered)
+	require.Equal(t, tapper.FlightRoleViewer, role)
+
+	resp, err := tap.Search(t.Context(), tapper.SearchOptions{KegTargetOptions: tapper.KegTargetOptions{FlightContext: flight}, Query: "release"})
+	require.NoError(t, err)
+	require.Equal(t, []string{"@acme/eng"}, hub.last(t).Kegs)
+	require.Contains(t, strings.Join(resp.Warnings, "\n"), `cover entry "notes" names no namespace`, "a bare entry is still reported")
+}
+
 func TestSearch_LegacyAllowedKegsScopeBothPaths(t *testing.T) {
 	t.Parallel()
 

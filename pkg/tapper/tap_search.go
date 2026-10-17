@@ -269,11 +269,13 @@ func checkSearchCover(flight *Flight, cover, kegs []string) error {
 }
 
 // searchCover lists, in cover order and once each, the "@namespace/alias"
-// references of the flight's cover a search may read: the entries RoleFor
-// evaluates, legacy AllowedKegs included, at viewer or above. Ranked search
-// names KEGs canonically, so a cover entry without a namespace cannot be
-// searched; it is reported as a warning rather than matched against any
-// namespace.
+// references of the flight's cover a search may read. Each namespaced entry
+// names a candidate, and the candidate is kept only when RoleFor grants it
+// viewer or above, so search and the role check agree on every KEG: an
+// earlier entry that blocks it, bare or namespaced, takes it out of search
+// just as it takes it out of reach. Ranked search names KEGs canonically, so
+// a cover entry without a namespace cannot itself be searched; it is reported
+// as a warning rather than matched against any namespace.
 func searchCover(flight *Flight) (refs, warnings []string) {
 	refs = []string{}
 	seen := map[string]bool{}
@@ -282,12 +284,12 @@ func searchCover(flight *Flight) (refs, warnings []string) {
 			warnings = append(warnings, fmt.Sprintf("cover entry %q names no namespace and was not searched", c.Keg))
 			continue
 		}
-		if !normalizeFlightRole(c.Role).AtLeast(FlightRoleViewer) {
+		ref := "@" + c.Namespace + "/" + c.Keg
+		if seen[ref] {
 			continue
 		}
-		ref := "@" + c.Namespace + "/" + c.Keg
-		if !seen[ref] {
-			seen[ref] = true
+		seen[ref] = true
+		if role, ok := flight.RoleFor("", c.Namespace, c.Keg); ok && role.AtLeast(FlightRoleViewer) {
 			refs = append(refs, ref)
 		}
 	}

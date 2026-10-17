@@ -75,7 +75,8 @@ use of `time.Now()` that cannot be driven by a fake clock:
   `Close` never starts a send; it waits at most
   `InvocationTelemetryInFlightWait` for one already running and spools the
   rest through `rt.AtomicWriteFile`, into a new file in the spool directory
-  for its destination (`telemetry-spool/<key>/`, keyed by Hub URL and login),
+  for its destination (`telemetry-spool/<key>/`, keyed by Hub URL and the
+  login's stable `AuthEntry.AccountKey`, never by a rotating credential),
   so events are never sent to another Hub or account. Concurrent processes
   never share a file: each writes its own, and a starting process claims a
   file with `rt.Rename` before reading it, so each spooled event is sent by
@@ -93,7 +94,12 @@ use of `time.Now()` that cannot be driven by a fake clock:
   `keg.LockWaitFrom(ctx)` reads it back; zero means wait as long as it takes.
   A touched `ReadNodes` or `OpenNode` waits about two seconds. When the lock
   stays busy the touch is skipped and the nodes are read untouched, so a read
-  never queues behind a long writer just to record an access.
+  never queues behind a long writer just to record an access. The bound is
+  advisory and in-process only: it travels in `ctx`, is not part of the Hub
+  API, and so never reaches a Hub through `RemoteKeg`. A `Repository` that
+  does not read it (the in-memory test repository does not) waits as before,
+  and its touched reads wait for the lock rather than skip the touch. Nothing
+  may depend on the bound for correctness.
 - **Dex mutex**: `Dex.mu sync.RWMutex` guards index data; `LocalKeg.dexMu`
   guards lazy initialization.
 - **Node allocation**: Production allocation is a hub operation;

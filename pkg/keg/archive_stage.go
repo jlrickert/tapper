@@ -35,6 +35,8 @@ type archiveWriter struct {
 	tar     *countingWriter
 	lim     ArchiveLimits
 	entries int
+	// index is the archive's measure under MaxIndexBytes so far.
+	index int64
 }
 
 func newArchiveWriter(w io.Writer, lim ArchiveLimits) *archiveWriter {
@@ -51,6 +53,10 @@ func (a *archiveWriter) admit(name string, size int64) error {
 	}
 	if a.lim.MaxEntryBytes > 0 && size > a.lim.MaxEntryBytes {
 		return &ArchiveLimitError{Limit: ArchiveLimitEntryBytes, Max: a.lim.MaxEntryBytes, Actual: size, Entry: name}
+	}
+	a.index += archiveIndexCost(filepath.ToSlash(name))
+	if a.lim.MaxIndexBytes > 0 && a.index > a.lim.MaxIndexBytes {
+		return &ArchiveLimitError{Limit: ArchiveLimitIndexBytes, Max: a.lim.MaxIndexBytes, Actual: a.index, Entry: name}
 	}
 	return nil
 }
@@ -128,6 +134,8 @@ type ArchiveStageStats struct {
 	CompressedBytes int64
 	// Nodes is the number of nodes the manifest lists.
 	Nodes int
+	// IndexBytes is the archive's measure under ArchiveLimits.MaxIndexBytes.
+	IndexBytes int64
 	// Complete reports that the manifest says the archive carries the whole
 	// keg (with_settings, or the legacy with_config spelling). An archive
 	// exported with a node selection, a query, or without node 0 is not
@@ -232,7 +240,7 @@ func StageArchive(ctx context.Context, r io.Reader, w io.Writer, lim ArchiveLimi
 			continue
 		}
 		if !safeArchiveEntryName(header.Name) {
-			return stats, fmt.Errorf("unsafe archive entry %q: %w", header.Name, ErrInvalid)
+			return stats, unsafeArchiveEntryError(header.Name)
 		}
 		name := filepath.ToSlash(header.Name)
 		if name == archiveManifestName {
@@ -294,6 +302,7 @@ func StageArchive(ctx context.Context, r io.Reader, w io.Writer, lim ArchiveLimi
 	}
 
 	stats.Entries = aw.entries
+	stats.IndexBytes = aw.index
 	stats.TarBytes = aw.tar.n
 	if gzipped {
 		stats.CompressedBytes = compressed.n

@@ -121,6 +121,9 @@ func runAuthLogin(ctx context.Context, deps *Deps, p authLoginParams) (*authLogi
 	if err != nil {
 		return nil, err
 	}
+	// A login is a new identity: it gets a key of its own rather than
+	// inheriting the previous login's.
+	entry.AccountKey = tapper.NewAuthAccountKey()
 	store.Set(tapper.CanonicalHubURL(hubURL), *entry)
 	if err := store.Save(ctx, rt, storePath); err != nil {
 		return nil, err

@@ -60,14 +60,20 @@ func (h *fakeTelemetryHub) commands() []string {
 }
 
 // signInForTelemetry points the user config at hubURL and stores a login
-// whose refresh token is refresh.
+// whose refresh token is refresh. It writes the entry as an earlier release
+// did, with no AccountKey, unless the same login is already stored.
 func signInForTelemetry(t *testing.T, fx *sandbox.Sandbox, tap *Tap, hubURL, refresh string) {
 	t.Helper()
 	cfg := fmt.Sprintf("hub: primary\nhubs:\n  primary:\n    url: %s\n", hubURL)
 	require.NoError(t, fx.Runtime().AtomicWriteFile(tap.PathService.UserConfig(), []byte(cfg), 0o644))
 	store, err := LoadAuthStore(fx.Context(), fx.Runtime(), tap.PathService.AuthStorePath())
 	require.NoError(t, err)
-	store.Set(hubURL, AuthEntry{AccessToken: "access-" + refresh, RefreshToken: refresh})
+	entry := AuthEntry{AccessToken: "access-" + refresh, RefreshToken: refresh}
+	if prev, ok := store.Get(hubURL); ok && prev.RefreshToken == refresh {
+		// Signing in again with the same credential is the same login.
+		entry.AccountKey = prev.AccountKey
+	}
+	store.Set(hubURL, entry)
 	require.NoError(t, store.Save(fx.Context(), fx.Runtime(), tap.PathService.AuthStorePath()))
 	tap.ConfigService.Reload()
 }
