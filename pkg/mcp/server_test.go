@@ -437,7 +437,7 @@ func TestMCP_ListDefaultLimit(t *testing.T) {
 	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
 		Name: "node_list",
 		Arguments: map[string]any{
-			"id_only": true,
+			"format": "%i",
 		},
 	})
 	require.NoError(t, err)
@@ -455,8 +455,8 @@ func TestMCP_ListUnlimitedWithNegativeOne(t *testing.T) {
 	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
 		Name: "node_list",
 		Arguments: map[string]any{
-			"id_only": true,
-			"limit":   -1,
+			"format": "%i",
+			"limit":  -1,
 		},
 	})
 	require.NoError(t, err)
@@ -474,8 +474,8 @@ func TestMCP_ListExplicitLimit(t *testing.T) {
 	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
 		Name: "node_list",
 		Arguments: map[string]any{
-			"id_only": true,
-			"limit":   1,
+			"format": "%i",
+			"limit":  1,
 		},
 	})
 	require.NoError(t, err)

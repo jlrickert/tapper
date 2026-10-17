@@ -9,6 +9,7 @@ import (
 
 func NewLinksCmd(deps *Deps) *cobra.Command {
 	var opts tapper.LinksOptions
+	var idOnly bool
 
 	cmd := &cobra.Command{
 		Use:   "links NODE_ID [NODE_ID...]",
@@ -24,6 +25,9 @@ Default format: "%i\t%d\t%t".`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts.NodeIDs = args
 			applyKegTargetProfile(deps, &opts.KegTargetOptions)
+			if idOnly {
+				opts.Format = tapper.IDOnlyFormat
+			}
 
 			nodes, err := deps.Tap.Links(cmd.Context(), opts)
 			if err != nil {
@@ -36,7 +40,7 @@ Default format: "%i\t%d\t%t".`,
 		},
 	}
 
-	cmd.Flags().BoolVarP(&opts.IdOnly, "id-only", "", false, "show only ids")
+	cmd.Flags().BoolVar(&idOnly, "id-only", false, "show only ids (shorthand for --format %i)")
 	cmd.Flags().BoolVar(&opts.Reverse, "reverse", false, "list nodes in reverse order")
 	cmd.Flags().IntVarP(&opts.Limit, "limit", "n", 0, "maximum number of results (0 for no limit)")
 	cmd.Flags().IntVar(&opts.Offset, "offset", 0, "skip the first N results")

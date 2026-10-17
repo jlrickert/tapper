@@ -35,7 +35,7 @@ func (p localExploreProvider) Explore(ctx context.Context, kind tapper.ExploreKi
 }
 
 type exploreInput struct {
-	Query string `json:"query" jsonschema:"literal text to match against public names, references, and descriptions"`
+	Query string `json:"query" jsonschema:"Literal text to match against public names, references, and descriptions."`
 }
 
 // registerExploreTools exposes the public directory, at parity with
@@ -50,18 +50,18 @@ func registerExploreTools(srv *sdkmcp.Server, explore ExploreProvider) {
 	}{
 		{
 			name: "explore_kegs", kind: tapper.ExploreKegs,
-			desc: "Explore: search the hub's public KEGs by reference, title, or description. " +
+			desc: "Explore: Search the hub's public KEGs by reference, title, or description. " +
 				"Discovery only: a result grants no access, and a KEG outside the flight still needs a flight that covers it. " +
 				"Your own KEGs come from keg_list; notes come from node_search, never from here.",
 		},
 		{
 			name: "explore_flights", kind: tapper.ExploreFlights,
-			desc: "Explore: search the hub's public flights by reference, title, or description. " +
+			desc: "Explore: Search the hub's public flights by reference, title, or description. " +
 				"Discovery only: returns metadata, never instructions, and grants no access. Your own flights come from flight_list.",
 		},
 		{
 			name: "explore_people", kind: tapper.ExplorePeople,
-			desc: "Explore: search the people and org namespaces on the hub by name or display name. " +
+			desc: "Explore: Search the people and org namespaces on the hub by name or display name. " +
 				"Discovery only: role is set where you already belong. Your own namespaces come from namespace_list.",
 		},
 	}

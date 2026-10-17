@@ -33,9 +33,9 @@ func TestRelationshipObserverOnlyActualPairsInResultPage(t *testing.T) {
 		})
 		var err error
 		if back {
-			_, err = tap.Backlinks(ctx, BacklinksOptions{NodeIDs: []string{"1", "2"}, IdOnly: true, Offset: 1, Limit: 1})
+			_, err = tap.Backlinks(ctx, BacklinksOptions{NodeIDs: []string{"1", "2"}, Offset: 1, Limit: 1})
 		} else {
-			_, err = tap.Links(ctx, LinksOptions{NodeIDs: []string{"1", "2"}, IdOnly: true, Offset: 1, Limit: 1})
+			_, err = tap.Links(ctx, LinksOptions{NodeIDs: []string{"1", "2"}, Offset: 1, Limit: 1})
 		}
 		if err != nil {
 			t.Fatal(err)
@@ -85,9 +85,9 @@ func TestRelationshipObserverFullIdentitiesAndFailures(t *testing.T) {
 			ctx := WithRelationshipResultObserver(context.Background(), func(_ context.Context, _ keg.Keg, p []Relationship) { got = p })
 			var err error
 			if back {
-				_, err = tap.Backlinks(ctx, BacklinksOptions{NodeIDs: []string{"1", "2"}, IdOnly: true})
+				_, err = tap.Backlinks(ctx, BacklinksOptions{NodeIDs: []string{"1", "2"}})
 			} else {
-				_, err = tap.Links(ctx, LinksOptions{NodeIDs: []string{"1", "2"}, IdOnly: true})
+				_, err = tap.Links(ctx, LinksOptions{NodeIDs: []string{"1", "2"}})
 			}
 			if fail != "" {
 				if err == nil || len(got) != 0 {

@@ -17,13 +17,13 @@ func registerDoctorTools(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaul
 // --- doctor ---
 
 type doctorInput struct {
-	Keg string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
+	Keg string `json:"keg,omitempty" jsonschema:"KEG to use, as @namespace/keg; a bare name uses your default namespace. Omit it to use the default KEG."`
 }
 
 func registerDoctor(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "keg_check",
-		Description: "Manage: Check KEG health and report issues",
+		Description: "Manage: Check a KEG's health and report issues.",
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(false),

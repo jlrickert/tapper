@@ -87,7 +87,7 @@ func nodeIDCompletionFunc(deps *Deps, maxArgs int) func(*cobra.Command, []string
 		applyKegTargetProfile(deps, &kegOpts)
 		ids, err := deps.Tap.List(cmd.Context(), tapper.ListOptions{
 			KegTargetOptions: kegOpts,
-			IdOnly:           true,
+			Format:           tapper.IDOnlyFormat,
 		})
 		if err != nil {
 			return nil, cobra.ShellCompDirectiveNoFileComp
@@ -116,7 +116,7 @@ func nodeAndNameCompletionFunc(
 		case 0:
 			ids, err := deps.Tap.List(cmd.Context(), tapper.ListOptions{
 				KegTargetOptions: kegOpts,
-				IdOnly:           true,
+				Format:           tapper.IDOnlyFormat,
 			})
 			if err != nil {
 				return nil, cobra.ShellCompDirectiveNoFileComp
@@ -152,7 +152,7 @@ func nodeIDWithLocalFileCompletionFunc(deps *Deps) func(*cobra.Command, []string
 			applyKegTargetProfile(deps, &kegOpts)
 			ids, err := deps.Tap.List(cmd.Context(), tapper.ListOptions{
 				KegTargetOptions: kegOpts,
-				IdOnly:           true,
+				Format:           tapper.IDOnlyFormat,
 			})
 			if err != nil {
 				return nil, cobra.ShellCompDirectiveNoFileComp

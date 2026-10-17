@@ -14,14 +14,15 @@ import (
 	"github.com/jlrickert/tapper/pkg/keg"
 )
 
-const orientPurpose = "Tapper provides an MCP interface for KEG (Knowledge Exchange Graph) systems. A KEG is a numbered collection of markdown nodes with metadata, links, tags, and snapshot history. Agents operate on a KEG through the `mcp__tapper__*` tools; reading or writing node files directly bypasses indexing, locking, and snapshots."
+const orientPurpose = "Tapper provides an MCP interface for KEG (Knowledge Exchange Graph) systems. A KEG is a numbered collection of markdown nodes with metadata, links, tags, and snapshot history, hosted on a Tapper Hub. Agents operate on a KEG only through the `mcp__tapper__*` tools, which enforce access, locking, indexing, and snapshots."
 
 const orientRulesSummary = "Rules:\n" +
 	"- Call `orient` first in every session, before any other tool and before replying. The active flight carries this session's instructions, so until you orient you do not know what the session is for.\n" +
 	"- Call `orient` again after any context reset such as a clear or a compact. These instructions were delivered into the conversation and are discarded with it; the connection survives, so nothing re-sends them on its own. If you cannot tell whether you have oriented in the current context, you have not.\n" +
 	"- These operating rules also ship once at initialization and do not change. The flight, its cover, and its instructions do change, and this payload is the only current source for them: a compaction summary may paraphrase a previous orientation, and an older copy can still be present. If anything you remember about the flight, its cover, or its instructions disagrees with what you are reading here, this is current and that is stale. Do not merge them; replace.\n" +
-	"- Use the `mcp__tapper__*` tools for every KEG operation; never read or write node files directly.\n" +
-	"- The target keg resolves from the working directory unless the `keg` parameter overrides it.\n" +
+	"- Use the `mcp__tapper__*` tools for every KEG operation. KEGs live on the Hub, not in local files, so there are no node files to read or write.\n" +
+	"- Pass `keg` as `@namespace/keg` to choose a tool's target KEG. A call that omits it uses the configured default KEG and fails when none is configured.\n" +
+	"- Every KEG tool takes an optional `flight`, such as `+work` or `@namespace/+work`. Omit it to run under this connection's flight; name a flight `orient` lists to run that one call under its cover and instructions. Naming a flight never widens what your identity may do.\n" +
 	"- Take a snapshot before non-trivial edits. Snapshots do not protect against `node_delete`; preserve content some other way before deletion.\n" +
 	"- Writes may invalidate the hash you were holding; not every mutation returns a replacement. Re-read with `node_read`, `schema_read`, or `keg_settings_read` before each guarded write; a hash never covers two writes, so an edit followed by a delete needs two reads. `node_edit` uses per-part hashes: pass `node_read`'s `content_hash` as `expected_content_hash` and `meta_hash` as `expected_meta_hash`; editing one part never invalidates the other's hash, and each edit result returns the new part hashes. `node_delete` and `node_move` take the combined `hash`.\n" +
 	"- Node ids are per-keg counters. Node 4 in one keg has nothing to do with node 4 in another, ids are never reused after a removal, and a create takes the next free id rather than filling a gap.\n" +

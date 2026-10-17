@@ -21,7 +21,7 @@ type authInfoOutput struct {
 func registerAuthInfoTool(srv *sdkmcp.Server, _ KegDefaults, identities IdentityProvider, kegs KegDiscoveryProvider) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "session_info",
-		Description: "Session: Report authenticated hub identities and exact pinned-root KEG authority without exposing credentials or private account data. Use keg_list for the KEGs this session can work in and orient for the flight and its instructions",
+		Description: "Session: Report authenticated hub identities and exact pinned-root KEG authority without exposing credentials or private account data. Use keg_list for the KEGs this session can work in and orient for the flight and its instructions.",
 		Annotations: &sdkmcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: boolPtr(false)},
 	}, func(ctx context.Context, _ *sdkmcp.CallToolRequest, _ authInfoInput) (*sdkmcp.CallToolResult, any, error) {
 		found, err := identities.Identities(ctx)

@@ -13,16 +13,16 @@ import (
 // --- node_merge ---
 
 type mergeInput struct {
-	SourceID            string  `json:"source_id" jsonschema:"id of the node merged away; it goes to the trash"`
-	ExpectedSourceHash  string  `json:"expected_source_hash" jsonschema:"the source's combined hash from node_read (not content_hash or meta_hash)"`
-	TargetID            string  `json:"target_id" jsonschema:"id of the node that survives and takes the merged body"`
-	Content             *string `json:"content,omitempty" jsonschema:"the target's merged markdown body, replacing its content entirely. Must not start with a YAML frontmatter block. Send content or patch."`
-	Patch               *string `json:"patch,omitempty" jsonschema:"unified diff against the target's current content, an alternative to content when the target already holds most of the merged body"`
-	Meta                *string `json:"meta,omitempty" jsonschema:"the target's replacement metadata as YAML, for combining tags and fields; omit to keep it"`
-	ExpectedContentHash string  `json:"expected_content_hash" jsonschema:"the target's content_hash from node_read"`
-	ExpectedMetaHash    string  `json:"expected_meta_hash,omitempty" jsonschema:"the target's meta_hash from node_read; required when meta is supplied"`
-	Schema              string  `json:"schema,omitempty" jsonschema:"schema for the target, as for node_edit: required on a strict keg when meta is supplied"`
-	Keg                 string  `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
+	SourceID            string  `json:"source_id" jsonschema:"ID of the node merged away; it goes to the trash."`
+	ExpectedSourceHash  string  `json:"expected_source_hash" jsonschema:"The source's combined hash from node_read, not content_hash or meta_hash."`
+	TargetID            string  `json:"target_id" jsonschema:"ID of the node that survives and takes the merged body."`
+	Content             *string `json:"content,omitempty" jsonschema:"The target's merged markdown body, replacing its content entirely. Must not start with a YAML frontmatter block. Send content or patch."`
+	Patch               *string `json:"patch,omitempty" jsonschema:"Unified diff against the target's current content, an alternative to content when the target already holds most of the merged body."`
+	Meta                *string `json:"meta,omitempty" jsonschema:"The target's replacement metadata as YAML, for combining tags and fields; omit to keep it."`
+	ExpectedContentHash string  `json:"expected_content_hash" jsonschema:"The target's content_hash from node_read."`
+	ExpectedMetaHash    string  `json:"expected_meta_hash,omitempty" jsonschema:"The target's meta_hash from node_read. Required with meta."`
+	Schema              string  `json:"schema,omitempty" jsonschema:"Schema for the target, as for node_edit: required on a strict keg when meta is supplied."`
+	Keg                 string  `json:"keg,omitempty" jsonschema:"KEG to use, as @namespace/keg; a bare name uses your default namespace. Omit it to use the default KEG."`
 }
 
 func registerMerge(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {

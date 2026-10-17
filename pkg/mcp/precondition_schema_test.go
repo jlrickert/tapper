@@ -136,12 +136,13 @@ func TestMCP_MutationDescriptionsTeachReadMergeRetryProtocol(t *testing.T) {
 	}
 }
 
-// TestMCP_AuthorityBearingToolsDescribeFlight pins that the injected flight
-// property is also documented. schemaWithFlight adds `flight` to every
-// authority-bearing tool's schema, but an agent reading descriptions rather
-// than raw schemas saw no mention of it and reported the parameter as missing
-// from keg_create. A property nothing describes reads as absent.
-func TestMCP_AuthorityBearingToolsDescribeFlight(t *testing.T) {
+// TestMCP_FlightIsExplainedOnceOnTheParameter pins where flight selection is
+// documented. schemaWithFlight adds `flight` to every authority-bearing tool;
+// an injected property nothing describes reads as absent (an agent once
+// reported it missing from keg_create), so the property carries its own
+// description. Tool descriptions do not repeat it: the same sentence on every
+// tool buried each tool's own text, and the operating rules explain it once.
+func TestMCP_FlightIsExplainedOnceOnTheParameter(t *testing.T) {
 	t.Parallel()
 	session, ctx := newTestSession(t)
 	result, err := session.ListTools(ctx, nil)
@@ -149,20 +150,31 @@ func TestMCP_AuthorityBearingToolsDescribeFlight(t *testing.T) {
 
 	checked := 0
 	for _, tool := range result.Tools {
+		require.NotEmptyf(t, strings.TrimSpace(tool.Description), "tool %q has no description", tool.Name)
+		require.NotContainsf(t, tool.Description, "Accepts an optional flight",
+			"tool %q repeats the flight explanation its parameter carries", tool.Name)
 		schema, err := json.Marshal(tool.InputSchema)
 		require.NoError(t, err)
 		var object struct {
-			Properties map[string]json.RawMessage `json:"properties"`
+			Properties map[string]struct {
+				Description string `json:"description"`
+			} `json:"properties"`
 		}
 		require.NoError(t, json.Unmarshal(schema, &object))
-		if _, ok := object.Properties["flight"]; !ok {
+		flight, ok := object.Properties["flight"]
+		if !ok {
 			continue
 		}
 		checked++
-		require.Containsf(t, strings.ToLower(tool.Description), "flight",
-			"tool %q accepts a flight property but never mentions it in its description", tool.Name)
+		require.Containsf(t, flight.Description, "Omit it",
+			"tool %q: the flight property must say what omitting it does", tool.Name)
+		require.NotContainsf(t, tool.Description, flight.Description,
+			"tool %q repeats its flight property's description", tool.Name)
 	}
 	require.Greater(t, checked, 0, "no tool exposed a flight property; the injection may have broken")
+
+	instructions := session.InitializeResult().Instructions
+	require.Contains(t, instructions, "`flight`", "the operating rules must explain the flight argument once")
 }
 
 // TestMCP_WriteToolsStateTheContentContract keeps the two rules an agent

@@ -140,7 +140,7 @@ func TestMCP_NodeGrepKeepsRegexBehavior(t *testing.T) {
 	t.Parallel()
 	session, ctx := newTestSession(t)
 
-	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: "node_grep", Arguments: map[string]any{"query": "Hel+o", "id_only": true}})
+	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: "node_grep", Arguments: map[string]any{"query": "Hel+o", "format": "%i"}})
 	require.NoError(t, err)
 	require.False(t, res.IsError, "node_grep failed: %v", extractText(t, res))
 	require.NotEmpty(t, extractText(t, res))

@@ -72,9 +72,9 @@ func registerWriteTools(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefault
 // --- keg_settings_edit ---
 
 type kegSettingsEditInput struct {
-	Data         string `json:"data" jsonschema:"complete validated KEG YAML document"`
-	ExpectedHash string `json:"expected_hash" jsonschema:"precondition token returned by keg_settings_read"`
-	Keg          string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
+	Data         string `json:"data" jsonschema:"Complete validated KEG YAML document."`
+	ExpectedHash string `json:"expected_hash" jsonschema:"Precondition token returned by keg_settings_read."`
+	Keg          string `json:"keg,omitempty" jsonschema:"KEG to use, as @namespace/keg; a bare name uses your default namespace. Omit it to use the default KEG."`
 }
 
 func registerKegSettingsEdit(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
@@ -104,14 +104,14 @@ func registerKegSettingsEdit(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDe
 // --- create ---
 
 type createInput struct {
-	Nodes []createNodeInput `json:"nodes" jsonschema:"1-100 nodes to create atomically"`
-	Keg   string            `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
+	Nodes []createNodeInput `json:"nodes" jsonschema:"1-100 nodes to create atomically."`
+	Keg   string            `json:"keg,omitempty" jsonschema:"KEG to use, as @namespace/keg; a bare name uses your default namespace. Omit it to use the default KEG."`
 }
 type createNodeInput struct {
-	Key     string `json:"key" jsonschema:"caller-chosen label for this node within the batch, unique across the batch. Other nodes in the same batch refer to it by writing {{node:KEY}} in their content; each placeholder is replaced with the bare id this node is assigned, so link to it as [Title](../{{node:KEY}}) (a placeholder that is the whole link target gets the ../ added)."`
-	Content string `json:"content" jsonschema:"the node's complete markdown body, opening with an H1 title. Must not start with a YAML frontmatter block: metadata goes in the meta field."`
-	Meta    string `json:"meta,omitempty" jsonschema:"the node's complete metadata document as YAML, including keys such as type, tags, and any schema-defined attributes. Omit for no metadata."`
-	Schema  string `json:"schema,omitempty" jsonschema:"schema selected for this write: a type name such as task, one of the types schema_list returns, never a description. Writes meta.type; a different type declared in meta is a hard error, not an override. Required on a strict keg (the default for new kegs), where type in meta alone does not count as a selection."`
+	Key     string `json:"key" jsonschema:"Caller-chosen label for this node within the batch, unique across the batch. Other nodes in the same batch refer to it by writing {{node:KEY}} in their content; each placeholder is replaced with the bare id this node is assigned, so link to it as [Title](../{{node:KEY}}) (a placeholder that is the whole link target gets the ../ added)."`
+	Content string `json:"content" jsonschema:"The node's complete markdown body, opening with an H1 title. Must not start with a YAML frontmatter block: metadata goes in the meta field."`
+	Meta    string `json:"meta,omitempty" jsonschema:"The node's complete metadata document as YAML, including keys such as type, tags, and any schema-defined attributes. Omit for no metadata."`
+	Schema  string `json:"schema,omitempty" jsonschema:"Schema selected for this write: a type name such as task, one of the types schema_list returns, never a description. Writes meta.type; a different type declared in meta is a hard error, not an override. Required on a strict keg (the default for new kegs), where type in meta alone does not count as a selection."`
 }
 
 type createNodeOutput struct {
@@ -166,17 +166,17 @@ func registerCreate(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 // --- edit ---
 
 type editInput struct {
-	Nodes []editItemInput `json:"nodes" jsonschema:"1-100 nodes to update atomically"`
-	Keg   string          `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
+	Nodes []editItemInput `json:"nodes" jsonschema:"1-100 nodes to update atomically."`
+	Keg   string          `json:"keg,omitempty" jsonschema:"KEG to use, as @namespace/keg; a bare name uses your default namespace. Omit it to use the default KEG."`
 }
 type editItemInput struct {
-	NodeID              string  `json:"node_id" jsonschema:"id of the node to update"`
-	Content             *string `json:"content,omitempty" jsonschema:"replacement markdown body, replacing the node's content entirely. Must not start with a YAML frontmatter block: metadata goes in the meta field. Omit to leave content unchanged."`
-	Patch               *string `json:"patch,omitempty" jsonschema:"unified diff (the @@ hunks of diff -u) against the node's current content, an alternative to content. Each hunk's context and removed lines must match the current content exactly; header line numbers are a hint. Prefer it for small changes to long notes. The body keeps its line endings; a '\\ No newline at end of file' marker may only follow a hunk that reaches the end."`
-	Meta                *string `json:"meta,omitempty" jsonschema:"replacement metadata document as YAML, replacing the node's metadata entirely. Omit to leave metadata unchanged."`
-	ExpectedContentHash string  `json:"expected_content_hash,omitempty" jsonschema:"content_hash from node_read (or from a previous node_edit result); required when content or patch is supplied"`
-	ExpectedMetaHash    string  `json:"expected_meta_hash,omitempty" jsonschema:"meta_hash from node_read (or from a previous node_edit result); required when meta is supplied"`
-	Schema              string  `json:"schema,omitempty" jsonschema:"schema selected for this write: a type name such as task, one of the types schema_list returns, never a description. Writes meta.type; a different type declared in meta is a hard error, not an override. On a strict keg (the default for new kegs) required whenever meta is supplied; a content-only edit keeps the node's current type and needs none."`
+	NodeID              string  `json:"node_id" jsonschema:"ID of the node to update."`
+	Content             *string `json:"content,omitempty" jsonschema:"Replacement markdown body, replacing the node's content entirely. Must not start with a YAML frontmatter block: metadata goes in the meta field. Omit to leave content unchanged."`
+	Patch               *string `json:"patch,omitempty" jsonschema:"Unified diff (the @@ hunks of diff -u) against the node's current content, an alternative to content. Each hunk's context and removed lines must match the current content exactly; header line numbers are a hint. Prefer it for small changes to long notes. The body keeps its line endings; a '\\ No newline at end of file' marker may only follow a hunk that reaches the end."`
+	Meta                *string `json:"meta,omitempty" jsonschema:"Replacement metadata document as YAML, replacing the node's metadata entirely. Omit to leave metadata unchanged."`
+	ExpectedContentHash string  `json:"expected_content_hash,omitempty" jsonschema:"The content_hash from node_read or a previous node_edit result. Required with content or patch."`
+	ExpectedMetaHash    string  `json:"expected_meta_hash,omitempty" jsonschema:"The meta_hash from node_read or a previous node_edit result. Required with meta."`
+	Schema              string  `json:"schema,omitempty" jsonschema:"Schema selected for this write: a type name such as task, one of the types schema_list returns, never a description. Writes meta.type; a different type declared in meta is a hard error, not an override. On a strict keg (the default for new kegs) required whenever meta is supplied; a content-only edit keeps the node's current type and needs none."`
 }
 
 // nodeUpdateOutput carries the written node's tokens. content_hash and
@@ -248,13 +248,13 @@ func registerEdit(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 // --- remove ---
 
 type removeInput struct {
-	Nodes []removeNodeInput `json:"nodes" jsonschema:"1-100 nodes to remove atomically"`
-	Keg   string            `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
+	Nodes []removeNodeInput `json:"nodes" jsonschema:"1-100 nodes to remove atomically."`
+	Keg   string            `json:"keg,omitempty" jsonschema:"KEG to use, as @namespace/keg; a bare name uses your default namespace. Omit it to use the default KEG."`
 }
 
 type removeNodeInput struct {
 	NodeID       string `json:"node_id"`
-	ExpectedHash string `json:"expected_hash" jsonschema:"the combined hash returned by node_read (not content_hash or meta_hash)"`
+	ExpectedHash string `json:"expected_hash" jsonschema:"The combined hash from node_read, not content_hash or meta_hash."`
 }
 
 func registerRemove(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
@@ -290,10 +290,10 @@ func registerRemove(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 // --- move ---
 
 type moveInput struct {
-	SourceID     string `json:"source_id" jsonschema:"source node ID"`
-	DestID       string `json:"dest_id" jsonschema:"destination node ID"`
-	ExpectedHash string `json:"expected_hash" jsonschema:"the combined hash returned by node_read (not content_hash or meta_hash)"`
-	Keg          string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
+	SourceID     string `json:"source_id" jsonschema:"Source node ID."`
+	DestID       string `json:"dest_id" jsonschema:"Destination node ID."`
+	ExpectedHash string `json:"expected_hash" jsonschema:"The combined hash from node_read, not content_hash or meta_hash."`
+	Keg          string `json:"keg,omitempty" jsonschema:"KEG to use, as @namespace/keg; a bare name uses your default namespace. Omit it to use the default KEG."`
 }
 
 func registerMove(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {

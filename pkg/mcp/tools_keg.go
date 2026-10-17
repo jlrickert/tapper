@@ -28,10 +28,10 @@ type kegListOutput struct {
 }
 
 type kegCreateInput struct {
-	Keg        string `json:"keg" jsonschema:"required,qualified creation reference @namespace/keg; each component is 1-64 lowercase letters, digits, or hyphens and starts with a letter or digit"`
-	Title      string `json:"title,omitempty" jsonschema:"human-readable keg title"`
-	Visibility string `json:"visibility,omitempty" jsonschema:"keg visibility: private (default) or public"`
-	KegVersion string `json:"kegv,omitempty" jsonschema:"immutable keg version: 2025-07 for a Markdown KEGv1 (the default) or 2026-09 for a KEGv2 preview, available only where the Hub enables it"`
+	Keg        string `json:"keg" jsonschema:"Reference of the KEG to create, as @namespace/keg. Each part is 1-64 lowercase letters, digits, or hyphens, starting with a letter or digit."`
+	Title      string `json:"title,omitempty" jsonschema:"Human-readable keg title."`
+	Visibility string `json:"visibility,omitempty" jsonschema:"Keg visibility: private (default) or public."`
+	KegVersion string `json:"kegv,omitempty" jsonschema:"Immutable keg version: 2025-07 for a Markdown KEGv1 (the default) or 2026-09 for a KEGv2 preview, available only where the Hub enables it."`
 }
 
 // registerKegTools exposes identity-authorized discovery, optionally narrowed
@@ -43,7 +43,7 @@ func registerKegTools(srv *sdkmcp.Server, defaults KegDefaults, kegs KegDiscover
 	registerKegDelete(srv, defaults, kegs)
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "keg_list",
-		Description: "Memory: List every KEG this session can work in, with role, title, description, and granting-flight provenance. The list is complete, so read it rather than searching; explore_kegs searches public KEGs you do not hold. Without a configured root, returns identity-accessible KEGs at their real roles. With a pinned root, omission aggregates its accessible transitive graph for discovery; a discovered child-only KEG still requires that child as flight on operational calls. Supplying flight returns exactly that flight projection",
+		Description: "Memory: List every KEG this session can work in, with role, title, description, and granting-flight provenance. The list is complete, so read it rather than searching; explore_kegs searches public KEGs you do not hold. Without a configured root, returns identity-accessible KEGs at their real roles. With a pinned root, omission aggregates its accessible transitive graph for discovery; a discovered child-only KEG still requires that child as flight on operational calls. Supplying flight returns exactly that flight's projection.",
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(false),
@@ -173,7 +173,7 @@ func filterKegRefs(ctx context.Context, refs []string) []string {
 }
 
 type kegDeleteInput struct {
-	Keg string `json:"keg" jsonschema:"explicit canonical @namespace/keg reference to permanently delete"`
+	Keg string `json:"keg" jsonschema:"Explicit canonical @namespace/keg reference to permanently delete."`
 }
 
 func registerKegDelete(srv *sdkmcp.Server, defaults KegDefaults, provider KegDiscoveryProvider) {

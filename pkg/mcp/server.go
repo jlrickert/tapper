@@ -128,6 +128,9 @@ func NewServer(tap *tapper.Tap, version string, defaults KegDefaults, opts ...Se
 		defaults.gate.srv = srv
 		srv.AddReceivingMiddleware(defaults.gate.middleware)
 	}
+	// Wraps the gate, so old argument names are rewritten before anything
+	// reads the call; see legacy_arguments.go.
+	srv.AddReceivingMiddleware(legacyArgumentsMiddleware)
 
 	// Node read/write tools. These all funnel
 	// through Tap.resolveKegForRole, so a hub-injected KegResolver scopes them

@@ -11,35 +11,35 @@ import (
 )
 
 type agentListInput struct {
-	Namespace string `json:"namespace,omitempty" jsonschema:"namespace whose agents to list; omit for every namespace you belong to"`
+	Namespace string `json:"namespace,omitempty" jsonschema:"Namespace whose agents to list; omit for every namespace you belong to."`
 }
 
 type agentReadInput struct {
-	Agent string `json:"agent" jsonschema:"agent reference (@namespace/name)"`
+	Agent string `json:"agent" jsonschema:"Agent reference (@namespace/name)."`
 }
 
 type agentCreateInput struct {
-	Agent        string   `json:"agent" jsonschema:"agent reference (@namespace/name); the name is permanent"`
-	Title        string   `json:"title,omitempty" jsonschema:"agent title"`
-	Description  string   `json:"description,omitempty" jsonschema:"what the agent is for, in a sentence; a coordinator reads it to pick an agent"`
-	Instructions string   `json:"instructions,omitempty" jsonschema:"markdown system prompt; the flight's orientation is added after it"`
-	Model        string   `json:"model,omitempty" jsonschema:"Hub model id (relay/provider/model or @namespace/model)"`
-	Tools        []string `json:"tools,omitempty" jsonschema:"tool group ids (e.g. keg:read) and single tool names; omit or [] for every tool"`
-	Flight       string   `json:"flight,omitempty" jsonschema:"the agent's memory flight (@namespace/+slug); omit for none, which leaves the agent without KEG access"`
+	Agent        string   `json:"agent" jsonschema:"Agent reference (@namespace/name); the name is permanent."`
+	Title        string   `json:"title,omitempty" jsonschema:"Agent title."`
+	Description  string   `json:"description,omitempty" jsonschema:"What the agent is for, in a sentence; a coordinator reads it to pick an agent."`
+	Instructions string   `json:"instructions,omitempty" jsonschema:"Markdown system prompt; the flight's orientation is added after it."`
+	Model        string   `json:"model,omitempty" jsonschema:"Hub model id (relay/provider/model or @namespace/model)."`
+	Tools        []string `json:"tools,omitempty" jsonschema:"Tool group ids (such as keg:read) and single tool names; omit it or pass [] for every tool."`
+	Flight       string   `json:"flight,omitempty" jsonschema:"The agent's memory flight (@namespace/+slug); omit for none, which leaves the agent without KEG access."`
 }
 
 type agentEditInput struct {
-	Agent        string    `json:"agent" jsonschema:"agent reference (@namespace/name)"`
-	Title        *string   `json:"title,omitempty" jsonschema:"new title; omit to keep"`
-	Description  *string   `json:"description,omitempty" jsonschema:"new description; omit to keep"`
-	Instructions *string   `json:"instructions,omitempty" jsonschema:"new markdown instructions; omit to keep"`
-	Model        *string   `json:"model,omitempty" jsonschema:"new Hub model id; omit to keep"`
-	Tools        *[]string `json:"tools,omitempty" jsonschema:"replacement tool groups and names; omit to keep, [] for every tool"`
-	Flight       *string   `json:"flight,omitempty" jsonschema:"new memory flight (@namespace/+slug); omit to keep, \"\" to clear"`
+	Agent        string    `json:"agent" jsonschema:"Agent reference (@namespace/name)."`
+	Title        *string   `json:"title,omitempty" jsonschema:"New title; omit to keep."`
+	Description  *string   `json:"description,omitempty" jsonschema:"New description; omit to keep."`
+	Instructions *string   `json:"instructions,omitempty" jsonschema:"New markdown instructions; omit to keep."`
+	Model        *string   `json:"model,omitempty" jsonschema:"New Hub model id; omit to keep."`
+	Tools        *[]string `json:"tools,omitempty" jsonschema:"Replacement tool groups and names; omit to keep, [] for every tool."`
+	Flight       *string   `json:"flight,omitempty" jsonschema:"New memory flight (@namespace/+slug); omit to keep, \"\" to clear."`
 }
 
 type agentDeleteInput struct {
-	Agent string `json:"agent" jsonschema:"agent reference (@namespace/name)"`
+	Agent string `json:"agent" jsonschema:"Agent reference (@namespace/name)."`
 }
 
 // registerAgentTools exposes Hub agents over MCP at parity with
@@ -49,7 +49,7 @@ type agentDeleteInput struct {
 func registerAgentTools(srv *sdkmcp.Server, defaults KegDefaults, agents AgentProvider) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "agent_list",
-		Description: "Manage: List Hub agents (model, description, tool allowlist, flight) in a namespace, or in every namespace you belong to",
+		Description: "Manage: List Hub agents (model, description, tool allowlist, flight) in a namespace, or in every namespace you belong to.",
 		Annotations: &sdkmcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: boolPtr(false)},
 	}, func(ctx context.Context, _ *sdkmcp.CallToolRequest, in agentListInput) (*sdkmcp.CallToolResult, any, error) {
 		rows, err := agents.ListAgents(ctx, in.Namespace)
@@ -67,7 +67,7 @@ func registerAgentTools(srv *sdkmcp.Server, defaults KegDefaults, agents AgentPr
 
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "agent_read",
-		Description: "Manage: Read one Hub agent: model, description, instructions, tool allowlist (groups and names, plus effective_tools expanded), and its memory flight",
+		Description: "Manage: Read one Hub agent: model, description, instructions, tool allowlist (groups and names, plus effective_tools expanded), and its memory flight.",
 		Annotations: &sdkmcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: boolPtr(false)},
 	}, func(ctx context.Context, _ *sdkmcp.CallToolRequest, in agentReadInput) (*sdkmcp.CallToolResult, any, error) {
 		agent, err := agents.GetAgent(ctx, in.Agent)

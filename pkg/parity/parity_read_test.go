@@ -100,8 +100,8 @@ func TestParity_ReadOperations(t *testing.T) {
 			CLIArgs: []string{"node", "list", "--id-only"},
 			MCPTool: "node_list",
 			MCPInput: map[string]any{
-				"id_only": true,
-				"limit":   -1,
+				"format": "%i",
+				"limit":  -1,
 			},
 		},
 		{
@@ -109,7 +109,7 @@ func TestParity_ReadOperations(t *testing.T) {
 			CLIArgs: []string{"node", "list", "--id-only", "--reverse"},
 			MCPTool: "node_list",
 			MCPInput: map[string]any{
-				"id_only": true,
+				"format":  "%i",
 				"reverse": true,
 				"limit":   -1,
 			},
@@ -259,9 +259,9 @@ func TestParity_ReadOperations(t *testing.T) {
 			CLIArgs: []string{"node", "list", "--id-only", "--sort", "updated"},
 			MCPTool: "node_list",
 			MCPInput: map[string]any{
-				"id_only": true,
-				"sort":    "updated",
-				"limit":   -1,
+				"format": "%i",
+				"sort":   "updated",
+				"limit":  -1,
 			},
 		},
 
@@ -271,9 +271,9 @@ func TestParity_ReadOperations(t *testing.T) {
 			CLIArgs: []string{"node", "grep", "Hello", "--id-only"},
 			MCPTool: "node_grep",
 			MCPInput: map[string]any{
-				"query":   "Hello",
-				"id_only": true,
-				"limit":   -1,
+				"query":  "Hello",
+				"format": "%i",
+				"limit":  -1,
 			},
 		},
 		{
@@ -290,9 +290,9 @@ func TestParity_ReadOperations(t *testing.T) {
 			CLIArgs: []string{"node", "grep", "ZZZZNOTFOUND", "--id-only"},
 			MCPTool: "node_grep",
 			MCPInput: map[string]any{
-				"query":   "ZZZZNOTFOUND",
-				"id_only": true,
-				"limit":   -1,
+				"query":  "ZZZZNOTFOUND",
+				"format": "%i",
+				"limit":  -1,
 			},
 			Compare: func(t *testing.T, cliOut, mcpOut string) {
 				t.Helper()
@@ -322,9 +322,9 @@ func TestParity_ReadOperations(t *testing.T) {
 			CLIArgs: []string{"tag", "list", "--query", "test", "--id-only"},
 			MCPTool: "tag_list",
 			MCPInput: map[string]any{
-				"query":   "test",
-				"id_only": true,
-				"limit":   -1,
+				"query":  "test",
+				"format": "%i",
+				"limit":  -1,
 			},
 		},
 
@@ -335,7 +335,7 @@ func TestParity_ReadOperations(t *testing.T) {
 			MCPTool: "node_backlinks",
 			MCPInput: map[string]any{
 				"node_ids": []string{"0"},
-				"id_only":  true,
+				"format":   "%i",
 				"limit":    -1,
 			},
 		},
@@ -347,7 +347,7 @@ func TestParity_ReadOperations(t *testing.T) {
 			MCPTool: "node_links",
 			MCPInput: map[string]any{
 				"node_ids": []string{"1"},
-				"id_only":  true,
+				"format":   "%i",
 				"limit":    -1,
 			},
 		},
@@ -358,9 +358,9 @@ func TestParity_ReadOperations(t *testing.T) {
 			CLIArgs: []string{"node", "list", "--id-only", "--offset", "1"},
 			MCPTool: "node_list",
 			MCPInput: map[string]any{
-				"id_only": true,
-				"offset":  1,
-				"limit":   -1,
+				"format": "%i",
+				"offset": 1,
+				"limit":  -1,
 			},
 		},
 
@@ -386,10 +386,10 @@ func TestParity_ReadOperations(t *testing.T) {
 			CLIArgs: []string{"tag", "list", "--query", "test or overview", "--id-only", "--offset", "1"},
 			MCPTool: "tag_list",
 			MCPInput: map[string]any{
-				"query":   "test or overview",
-				"id_only": true,
-				"offset":  1,
-				"limit":   -1,
+				"query":  "test or overview",
+				"format": "%i",
+				"offset": 1,
+				"limit":  -1,
 			},
 		},
 
@@ -400,7 +400,7 @@ func TestParity_ReadOperations(t *testing.T) {
 			MCPTool: "node_grep",
 			MCPInput: map[string]any{
 				"query":       "node",
-				"id_only":     true,
+				"format":      "%i",
 				"ignore_case": true,
 				"offset":      1,
 				"limit":       -1,
@@ -414,7 +414,7 @@ func TestParity_ReadOperations(t *testing.T) {
 			MCPTool: "node_backlinks",
 			MCPInput: map[string]any{
 				"node_ids": []string{"0"},
-				"id_only":  true,
+				"format":   "%i",
 				"offset":   1,
 				"limit":    -1,
 			},
@@ -434,7 +434,7 @@ func TestParity_ReadOperations(t *testing.T) {
 			MCPTool: "node_links",
 			MCPInput: map[string]any{
 				"node_ids": []string{"1"},
-				"id_only":  true,
+				"format":   "%i",
 				"offset":   1,
 				"limit":    -1,
 			},
@@ -518,7 +518,7 @@ func TestParity_ReadOperations(t *testing.T) {
 			MCPTool: "node_backlinks",
 			MCPInput: map[string]any{
 				"node_ids": []string{"0", "1"},
-				"id_only":  true,
+				"format":   "%i",
 				"limit":    -1,
 			},
 		},
@@ -530,7 +530,7 @@ func TestParity_ReadOperations(t *testing.T) {
 			MCPTool: "node_links",
 			MCPInput: map[string]any{
 				"node_ids": []string{"0", "1"},
-				"id_only":  true,
+				"format":   "%i",
 				"limit":    -1,
 			},
 		},

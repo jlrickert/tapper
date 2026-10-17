@@ -47,14 +47,14 @@ func registerFileTools(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults
 // --- file_list ---
 
 type listFilesInput struct {
-	NodeID string `json:"node_id" jsonschema:"node ID to list files for"`
-	Keg    string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
+	NodeID string `json:"node_id" jsonschema:"Node ID to list files for."`
+	Keg    string `json:"keg,omitempty" jsonschema:"KEG to use, as @namespace/keg; a bare name uses your default namespace. Omit it to use the default KEG."`
 }
 
 func registerListFiles(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "file_list",
-		Description: "Memory: List file attachments for a node",
+		Description: "Memory: List a node's file attachments.",
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(false),
@@ -78,14 +78,14 @@ func registerListFiles(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults
 // --- image_list ---
 
 type listImagesInput struct {
-	NodeID string `json:"node_id" jsonschema:"node ID to list images for"`
-	Keg    string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
+	NodeID string `json:"node_id" jsonschema:"Node ID to list images for."`
+	Keg    string `json:"keg,omitempty" jsonschema:"KEG to use, as @namespace/keg; a bare name uses your default namespace. Omit it to use the default KEG."`
 }
 
 func registerListImages(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "image_list",
-		Description: "Memory: List image attachments for a node",
+		Description: "Memory: List a node's image attachments.",
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(false),
@@ -133,16 +133,16 @@ func appendAttachmentResourceLink(result *sdkmcp.CallToolResult, nodeID string, 
 // --- file_delete ---
 
 type deleteFileInput struct {
-	NodeID   string  `json:"node_id" jsonschema:"node ID containing the file"`
-	Filename *string `json:"filename,omitempty" jsonschema:"filename to delete; required unless name is supplied"`
-	Name     *string `json:"name,omitempty" jsonschema:"compatibility alias for filename; must match when both are supplied"`
-	Keg      string  `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
+	NodeID   string  `json:"node_id" jsonschema:"Node ID containing the file."`
+	Filename *string `json:"filename,omitempty" jsonschema:"Filename to delete; required unless name is supplied."`
+	Name     *string `json:"name,omitempty" jsonschema:"Compatibility alias for filename; must match when both are supplied."`
+	Keg      string  `json:"keg,omitempty" jsonschema:"KEG to use, as @namespace/keg; a bare name uses your default namespace. Omit it to use the default KEG."`
 }
 
 func registerDeleteFile(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "file_delete",
-		Description: "Memory: Delete a file attachment from a node",
+		Description: "Memory: Delete a file attachment from a node.",
 		Annotations: &sdkmcp.ToolAnnotations{
 			DestructiveHint: boolPtr(true),
 			OpenWorldHint:   boolPtr(false),
@@ -167,16 +167,16 @@ func registerDeleteFile(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefault
 // --- image_delete ---
 
 type deleteImageInput struct {
-	NodeID   string  `json:"node_id" jsonschema:"node ID containing the image"`
-	Filename *string `json:"filename,omitempty" jsonschema:"filename to delete; required unless name is supplied"`
-	Name     *string `json:"name,omitempty" jsonschema:"compatibility alias for filename; must match when both are supplied"`
-	Keg      string  `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
+	NodeID   string  `json:"node_id" jsonschema:"Node ID containing the image."`
+	Filename *string `json:"filename,omitempty" jsonschema:"Filename to delete; required unless name is supplied."`
+	Name     *string `json:"name,omitempty" jsonschema:"Compatibility alias for filename; must match when both are supplied."`
+	Keg      string  `json:"keg,omitempty" jsonschema:"KEG to use, as @namespace/keg; a bare name uses your default namespace. Omit it to use the default KEG."`
 }
 
 func registerDeleteImage(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "image_delete",
-		Description: "Memory: Delete an image attachment from a node",
+		Description: "Memory: Delete an image attachment from a node.",
 		Annotations: &sdkmcp.ToolAnnotations{
 			DestructiveHint: boolPtr(true),
 			OpenWorldHint:   boolPtr(false),
@@ -201,32 +201,32 @@ func registerDeleteImage(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaul
 // --- file_upload ---
 
 type uploadFileInput struct {
-	NodeID     string               `json:"node_id" jsonschema:"node ID to attach the file to"`
-	Filename   string               `json:"filename,omitempty" jsonschema:"filename for the attachment; derived from a data URI or resource URI if empty"`
-	SourceURI  string               `json:"source_uri,omitempty" jsonschema:"data: URI for the source file"`
-	DataBase64 string               `json:"data_base64,omitempty" jsonschema:"base64-encoded file bytes"`
-	MIMEType   string               `json:"mime_type,omitempty" jsonschema:"optional MIME type hint for raw file bytes"`
-	Resource   *uploadResourceInput `json:"resource,omitempty" jsonschema:"embedded resource with uri, mime_type or mimeType, and blob or text"`
-	Keg        string               `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
+	NodeID     string               `json:"node_id" jsonschema:"Node ID to attach the file to."`
+	Filename   string               `json:"filename,omitempty" jsonschema:"Filename for the attachment; derived from a data URI or resource URI if empty."`
+	SourceURI  string               `json:"source_uri,omitempty" jsonschema:"Source file as a data: URI."`
+	DataBase64 string               `json:"data_base64,omitempty" jsonschema:"Base64-encoded file bytes."`
+	MIMEType   string               `json:"mime_type,omitempty" jsonschema:"Optional MIME type hint for raw file bytes."`
+	Resource   *uploadResourceInput `json:"resource,omitempty" jsonschema:"Embedded resource with uri, mime_type or mimeType, and blob or text."`
+	Keg        string               `json:"keg,omitempty" jsonschema:"KEG to use, as @namespace/keg; a bare name uses your default namespace. Omit it to use the default KEG."`
 }
 
 // localUploadFileInput is uploadFileInput plus the local-path source that only
 // a shared-filesystem transport can honour. Keeping it a separate type is what
 // keeps source_path out of the hosted schema.
 type localUploadFileInput struct {
-	NodeID     string               `json:"node_id" jsonschema:"node ID to attach the file to"`
-	Filename   string               `json:"filename,omitempty" jsonschema:"filename for the attachment; derived from the source path, data URI, or resource URI if empty"`
-	SourcePath string               `json:"source_path,omitempty" jsonschema:"regular file within the server working directory"`
-	SourceURI  string               `json:"source_uri,omitempty" jsonschema:"file: or data: URI for the source file"`
-	DataBase64 string               `json:"data_base64,omitempty" jsonschema:"base64-encoded file bytes"`
-	MIMEType   string               `json:"mime_type,omitempty" jsonschema:"optional MIME type hint for raw file bytes"`
-	Resource   *uploadResourceInput `json:"resource,omitempty" jsonschema:"embedded resource with uri, mime_type or mimeType, and blob or text"`
-	Keg        string               `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
+	NodeID     string               `json:"node_id" jsonschema:"Node ID to attach the file to."`
+	Filename   string               `json:"filename,omitempty" jsonschema:"Filename for the attachment; derived from the source path, data URI, or resource URI if empty."`
+	SourcePath string               `json:"source_path,omitempty" jsonschema:"Regular file within the server working directory."`
+	SourceURI  string               `json:"source_uri,omitempty" jsonschema:"Source file as a file: or data: URI."`
+	DataBase64 string               `json:"data_base64,omitempty" jsonschema:"Base64-encoded file bytes."`
+	MIMEType   string               `json:"mime_type,omitempty" jsonschema:"Optional MIME type hint for raw file bytes."`
+	Resource   *uploadResourceInput `json:"resource,omitempty" jsonschema:"Embedded resource with uri, mime_type or mimeType, and blob or text."`
+	Keg        string               `json:"keg,omitempty" jsonschema:"KEG to use, as @namespace/keg; a bare name uses your default namespace. Omit it to use the default KEG."`
 }
 
 func registerUploadFile(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, uploadFileTool(
-		"Memory: Upload a file attachment to a node from raw bytes, a data URI, or an embedded resource",
+		"Memory: Upload a file attachment to a node from raw bytes, a data URI, or an embedded resource.",
 	), func(ctx context.Context, req *sdkmcp.CallToolRequest, in uploadFileInput) (*sdkmcp.CallToolResult, any, error) {
 		return handleFileUpload(ctx, tap, defaults, in.Keg, in.NodeID, in.Filename, uploadSourceInput{
 			SourceURI:  in.SourceURI,
@@ -238,7 +238,7 @@ func registerUploadFile(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefault
 
 func registerLocalUploadFile(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, uploadFileTool(
-		"Memory: Upload a file attachment to a node from a local path, raw bytes, a data URI, or an embedded resource",
+		"Memory: Upload a file attachment to a node from a local path, raw bytes, a data URI, or an embedded resource.",
 	), func(ctx context.Context, req *sdkmcp.CallToolRequest, in localUploadFileInput) (*sdkmcp.CallToolResult, any, error) {
 		return handleFileUpload(ctx, tap, defaults, in.Keg, in.NodeID, in.Filename, uploadSourceInput{
 			SourcePath: in.SourcePath,
@@ -310,16 +310,16 @@ func resolveUploadName(explicit, derived string) (string, error) {
 // --- file_download ---
 
 type downloadFileInput struct {
-	NodeID   string `json:"node_id" jsonschema:"node ID containing the file"`
-	Filename string `json:"filename" jsonschema:"filename to download"`
-	DestPath string `json:"dest_path" jsonschema:"new file path within the server working directory; existing files are refused"`
-	Keg      string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
+	NodeID   string `json:"node_id" jsonschema:"Node ID containing the file."`
+	Filename string `json:"filename" jsonschema:"Filename to download."`
+	DestPath string `json:"dest_path" jsonschema:"New file path within the server working directory; existing files are refused."`
+	Keg      string `json:"keg,omitempty" jsonschema:"KEG to use, as @namespace/keg; a bare name uses your default namespace. Omit it to use the default KEG."`
 }
 
 func registerDownloadFile(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "file_download",
-		Description: "Memory: Download a file attachment from a node to a local file path",
+		Description: "Memory: Download a file attachment from a node to a new local file.",
 		Annotations: &sdkmcp.ToolAnnotations{
 			OpenWorldHint: boolPtr(false),
 		},
@@ -349,31 +349,31 @@ func registerDownloadFile(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefau
 // --- image_upload ---
 
 type uploadImageInput struct {
-	NodeID     string               `json:"node_id" jsonschema:"node ID to attach the image to"`
-	Filename   string               `json:"filename,omitempty" jsonschema:"image filename for the attachment; derived from a data URI or resource URI if empty"`
-	SourceURI  string               `json:"source_uri,omitempty" jsonschema:"data: URI for the source image"`
-	DataBase64 string               `json:"data_base64,omitempty" jsonschema:"base64-encoded image bytes"`
-	MIMEType   string               `json:"mime_type,omitempty" jsonschema:"optional MIME type hint for raw image bytes"`
-	Resource   *uploadResourceInput `json:"resource,omitempty" jsonschema:"embedded resource with uri, mime_type or mimeType, and blob"`
-	Keg        string               `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
+	NodeID     string               `json:"node_id" jsonschema:"Node ID to attach the image to."`
+	Filename   string               `json:"filename,omitempty" jsonschema:"Image filename for the attachment; derived from a data URI or resource URI if empty."`
+	SourceURI  string               `json:"source_uri,omitempty" jsonschema:"Source image as a data: URI."`
+	DataBase64 string               `json:"data_base64,omitempty" jsonschema:"Base64-encoded image bytes."`
+	MIMEType   string               `json:"mime_type,omitempty" jsonschema:"Optional MIME type hint for raw image bytes."`
+	Resource   *uploadResourceInput `json:"resource,omitempty" jsonschema:"Embedded resource with uri, mime_type or mimeType, and blob."`
+	Keg        string               `json:"keg,omitempty" jsonschema:"KEG to use, as @namespace/keg; a bare name uses your default namespace. Omit it to use the default KEG."`
 }
 
 // localUploadImageInput is uploadImageInput plus the local-path source. See
 // localUploadFileInput for why this is a separate type.
 type localUploadImageInput struct {
-	NodeID     string               `json:"node_id" jsonschema:"node ID to attach the image to"`
-	Filename   string               `json:"filename,omitempty" jsonschema:"image filename for the attachment; derived from the source path, data URI, or resource URI if empty"`
-	SourcePath string               `json:"source_path,omitempty" jsonschema:"regular image file within the server working directory"`
-	SourceURI  string               `json:"source_uri,omitempty" jsonschema:"file: or data: URI for the source image"`
-	DataBase64 string               `json:"data_base64,omitempty" jsonschema:"base64-encoded image bytes"`
-	MIMEType   string               `json:"mime_type,omitempty" jsonschema:"optional MIME type hint for raw image bytes"`
-	Resource   *uploadResourceInput `json:"resource,omitempty" jsonschema:"embedded resource with uri, mime_type or mimeType, and blob"`
-	Keg        string               `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
+	NodeID     string               `json:"node_id" jsonschema:"Node ID to attach the image to."`
+	Filename   string               `json:"filename,omitempty" jsonschema:"Image filename for the attachment; derived from the source path, data URI, or resource URI if empty."`
+	SourcePath string               `json:"source_path,omitempty" jsonschema:"Regular image file within the server working directory."`
+	SourceURI  string               `json:"source_uri,omitempty" jsonschema:"Source image as a file: or data: URI."`
+	DataBase64 string               `json:"data_base64,omitempty" jsonschema:"Base64-encoded image bytes."`
+	MIMEType   string               `json:"mime_type,omitempty" jsonschema:"Optional MIME type hint for raw image bytes."`
+	Resource   *uploadResourceInput `json:"resource,omitempty" jsonschema:"Embedded resource with uri, mime_type or mimeType, and blob."`
+	Keg        string               `json:"keg,omitempty" jsonschema:"KEG to use, as @namespace/keg; a bare name uses your default namespace. Omit it to use the default KEG."`
 }
 
 func registerUploadImage(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, uploadImageTool(
-		"Memory: Upload an image attachment to a node from raw bytes, a data URI, or an embedded resource",
+		"Memory: Upload an image attachment to a node from raw bytes, a data URI, or an embedded resource.",
 	), func(ctx context.Context, req *sdkmcp.CallToolRequest, in uploadImageInput) (*sdkmcp.CallToolResult, any, error) {
 		return handleImageUpload(ctx, tap, defaults, in.Keg, in.NodeID, in.Filename, uploadSourceInput{
 			SourceURI:  in.SourceURI,
@@ -385,7 +385,7 @@ func registerUploadImage(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaul
 
 func registerLocalUploadImage(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, uploadImageTool(
-		"Memory: Upload an image attachment to a node from a local path, raw bytes, a data URI, or an embedded resource",
+		"Memory: Upload an image attachment to a node from a local path, raw bytes, a data URI, or an embedded resource.",
 	), func(ctx context.Context, req *sdkmcp.CallToolRequest, in localUploadImageInput) (*sdkmcp.CallToolResult, any, error) {
 		return handleImageUpload(ctx, tap, defaults, in.Keg, in.NodeID, in.Filename, uploadSourceInput{
 			SourcePath: in.SourcePath,
@@ -434,31 +434,31 @@ func handleImageUpload(ctx context.Context, tap *tapper.Tap, defaults KegDefault
 // --- image_download ---
 
 type downloadImageInput struct {
-	NodeID   string `json:"node_id" jsonschema:"node ID containing the image"`
-	Filename string `json:"filename" jsonschema:"image filename to download"`
-	Keg      string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
+	NodeID   string `json:"node_id" jsonschema:"Node ID containing the image."`
+	Filename string `json:"filename" jsonschema:"Image filename to download."`
+	Keg      string `json:"keg,omitempty" jsonschema:"KEG to use, as @namespace/keg; a bare name uses your default namespace. Omit it to use the default KEG."`
 }
 
 // localDownloadImageInput adds an optional destination path. Omitting it keeps
 // the inline-content behaviour, so a shared-filesystem agent can either look at
 // the image or save it without needing two different tools.
 type localDownloadImageInput struct {
-	NodeID   string `json:"node_id" jsonschema:"node ID containing the image"`
-	Filename string `json:"filename" jsonschema:"image filename to download"`
-	DestPath string `json:"dest_path,omitempty" jsonschema:"new file path within the server working directory; existing files are refused; omit to receive the image as MCP content"`
-	Keg      string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
+	NodeID   string `json:"node_id" jsonschema:"Node ID containing the image."`
+	Filename string `json:"filename" jsonschema:"Image filename to download."`
+	DestPath string `json:"dest_path,omitempty" jsonschema:"New file path within the server working directory; existing files are refused; omit to receive the image as MCP content."`
+	Keg      string `json:"keg,omitempty" jsonschema:"KEG to use, as @namespace/keg; a bare name uses your default namespace. Omit it to use the default KEG."`
 }
 
 func registerDownloadImage(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, downloadImageTool(
-		"Memory: Return an image attachment from a node as MCP image content",
+		"Memory: Return an image attachment from a node as MCP image content.",
 	), func(ctx context.Context, req *sdkmcp.CallToolRequest, in downloadImageInput) (*sdkmcp.CallToolResult, any, error) {
 		return readImageContent(ctx, tap, defaults, in.Keg, in.NodeID, in.Filename)
 	})
 }
 
 func registerLocalDownloadImage(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
-	tool := downloadImageTool("Memory: Return image content, or create a new private file within the working directory; existing files are never overwritten")
+	tool := downloadImageTool("Memory: Return an image attachment as MCP image content, or save it to a new private file within the working directory; existing files are never overwritten.")
 	tool.Annotations.ReadOnlyHint = false
 	tool.Annotations.DestructiveHint = boolPtr(false)
 	sdkmcp.AddTool(srv, tool, func(ctx context.Context, req *sdkmcp.CallToolRequest, in localDownloadImageInput) (*sdkmcp.CallToolResult, any, error) {
@@ -518,11 +518,11 @@ func readImageContent(ctx context.Context, tap *tapper.Tap, defaults KegDefaults
 }
 
 type uploadResourceInput struct {
-	URI          string `json:"uri,omitempty" jsonschema:"resource URI"`
-	MIMEType     string `json:"mime_type,omitempty" jsonschema:"resource MIME type"`
-	MIMETypeSpec string `json:"mimeType,omitempty" jsonschema:"resource MIME type using MCP field casing"`
-	Blob         string `json:"blob,omitempty" jsonschema:"base64-encoded binary resource bytes"`
-	Text         string `json:"text,omitempty" jsonschema:"text resource contents for file uploads"`
+	URI          string `json:"uri,omitempty" jsonschema:"Resource URI."`
+	MIMEType     string `json:"mime_type,omitempty" jsonschema:"Resource MIME type."`
+	MIMETypeSpec string `json:"mimeType,omitempty" jsonschema:"Resource MIME type using MCP field casing."`
+	Blob         string `json:"blob,omitempty" jsonschema:"Base64-encoded binary resource bytes."`
+	Text         string `json:"text,omitempty" jsonschema:"Text resource contents for file uploads."`
 }
 
 type uploadSourceInput struct {

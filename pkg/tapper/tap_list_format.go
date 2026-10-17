@@ -152,10 +152,7 @@ func compileListFormat(format string) (compiledFormat, error) {
 // server to resolve. Intrinsics and index timestamps are omitted: they come
 // from the index entry that every listing already carries, so asking for them
 // would make the server do work the client can do for free.
-func (c compiledFormat) selectorTexts(idOnly bool) []string {
-	if idOnly {
-		return nil
-	}
+func (c compiledFormat) selectorTexts() []string {
 	seen := make(map[string]struct{}, len(c.segments))
 	out := make([]string, 0, len(c.segments))
 	for _, seg := range c.segments {
@@ -181,10 +178,6 @@ func renderListView(compiled compiledFormat, rows []keg.ListViewRow, opts render
 	lines := make([]string, 0, len(rows))
 	start, end, step := iterationBounds(len(rows), opts.Reverse)
 	for i := start; i != end; i += step {
-		if opts.IdOnly {
-			lines = append(lines, rows[i].Entry.ID)
-			continue
-		}
 		lines = append(lines, expandFormat(compiled, nodeFieldSource{
 			entry:    rows[i].Entry,
 			resolved: rows[i].Fields,

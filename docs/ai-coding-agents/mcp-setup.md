@@ -99,7 +99,7 @@ explicitly configured root failed to initialize.
 | `node_read` | Read content of one or more nodes |
 | `node_list` | List nodes with optional query filtering |
 | `node_search` | Rank nodes by relevance to a query across every readable KEG, one `keg`, or listed `kegs`; pages with `next_cursor` |
-| `node_grep` | Match node content lines against a regex in one KEG |
+| `node_grep` | Match node content lines against a PostgreSQL regular expression in one KEG |
 | `tag_list` | List tags or find nodes by query |
 | `node_backlinks` | Find nodes linking to a node |
 | `node_links` | List outgoing links from a node |
@@ -192,7 +192,7 @@ arguments, starts that tool's count again.
 | `index_rebuild`, `index_list`, `index_read` | Rebuild or inspect indexes |
 | `keg_check` | Check only the selected keg's health (not local Tapper configuration) |
 | `snapshot_list`, `snapshot_create`, `snapshot_read`, `snapshot_restore` | Manage node snapshots; `snapshot_create` accepts 1–100 nodes atomically |
-| `lock_acquire`, `lock_release`, `lock_status`, `lock_force_release` | Coordinate cross-process node locks |
+| `lock_acquire`, `lock_release`, `lock_status`, `lock_force_release` | Coordinate Hub-held node locks |
 
 ### Files And Images
 
