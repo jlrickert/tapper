@@ -10,6 +10,7 @@ package tapper
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -31,6 +32,12 @@ const (
 
 	authRefreshTimeout = 10 * time.Second
 )
+
+// ErrRefreshRejected means the hub refused the refresh token itself
+// (invalid_grant or invalid_client): the sign-in is gone and only a new
+// `tap auth login` restores it. Any other refresh failure, such as an
+// unreachable hub, may succeed on a later attempt.
+var ErrRefreshRejected = errors.New("auth refresh: hub rejected refresh token")
 
 // authEntryNeedsRefresh reports whether entry has a refresh token and an access
 // token that is expired or within refreshSkew of expiring.
@@ -196,7 +203,10 @@ func RefreshHubToken(ctx context.Context, rt *toolkit.Runtime, hubURL string, en
 	if resp.StatusCode != http.StatusOK {
 		// A rejected/expired/replayed refresh token returns invalid_grant.
 		// Surface the status so callers can fall back to a full re-login.
-		return nil, fmt.Errorf("auth refresh: hub rejected refresh token (%s)", resp.Status)
+		if resp.StatusCode == http.StatusBadRequest || resp.StatusCode == http.StatusUnauthorized {
+			return nil, fmt.Errorf("%w (%s)", ErrRefreshRejected, resp.Status)
+		}
+		return nil, fmt.Errorf("auth refresh: hub answered %s", resp.Status)
 	}
 
 	var tok tokenResponse

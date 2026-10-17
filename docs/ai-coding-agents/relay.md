@@ -29,6 +29,12 @@ wherever those commands are.
 - It runs in the foreground until interrupted and reconnects if the connection
   drops. Disconnecting the relay from a Hub's Account → Relay page stops it
   for that Hub; run it again to reconnect.
+- When the login token that opened a connection expires, Hub ends that
+  connection with `credential_expired`. The relay refreshes the token and
+  reconnects at once. A failed refresh (the Hub unreachable, say) is retried
+  with backoff. A revoked sign-in is final: Hub ends the connection with
+  `disconnected`, or refuses the next dial, and the relay stops serving that
+  Hub.
 
 ## Several hubs
 

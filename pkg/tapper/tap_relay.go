@@ -72,7 +72,7 @@ func (t *Tap) Relay(ctx context.Context, opts RelayOptions) error {
 	for _, hubURL := range hubURLs {
 		hubs = append(hubs, relay.Hub{
 			URL:   hubURL,
-			Token: func(context.Context) (string, error) { return t.relayToken(cfg, hubURL), nil },
+			Token: func(context.Context) (string, error) { return t.relayToken(cfg, hubURL) },
 		})
 	}
 
@@ -337,9 +337,6 @@ func relayVariants(in map[string]RelayVariant) map[string]relay.Variant {
 	return out
 }
 
-// relayToken resolves the bearer token for hubURL the same way keg access
-// does: a configured hub entry's tokenEnv or token, then the `tap auth login`
-// store, refreshing an expiring OAuth token first.
 // relayHubURLs picks the hubs the relay serves: the explicit hub alone when
 // one is given, else every hub named in relay.hubs, else the one hub login
 // resolution picks. URLs are canonical and listed once each.
@@ -371,14 +368,27 @@ func relayHubURLs(cfg *Config, rc *RelayConfig, explicit string) ([]string, erro
 	return out, nil
 }
 
-func (t *Tap) relayToken(cfg *Config, hubURL string) string {
+// relayToken resolves the bearer token for hubURL the same way keg access
+// does: a configured hub entry's tokenEnv or token, then the `tap auth login`
+// store, refreshing an expiring OAuth token first. A refresh that failed for
+// a reason that may pass (the hub unreachable, a 5xx) is an error, so the
+// relay retries with backoff rather than dial with the expired token and be
+// rejected for good. A refresh token the hub refused returns the cached token:
+// the sign-in is gone, and the hub's 401 stops the relay.
+func (t *Tap) relayToken(cfg *Config, hubURL string) (string, error) {
+	target := keg.Target{Url: hubURL, HubURL: hubURL}
 	canonical := CanonicalHubURL(hubURL)
 	for _, entry := range cfg.Hubs() {
 		if entry.URL != "" && CanonicalHubURL(hubURLWithScheme(entry.URL)) == canonical {
-			return t.hubToken(entry)
+			target, _ = hubEntryTarget(entry)
+			break
 		}
 	}
-	return t.hubTokenForTarget(&keg.Target{Url: hubURL, HubURL: hubURL})
+	token, err := t.resolveHubToken(&target)
+	if err != nil && !errors.Is(err, ErrRefreshRejected) {
+		return "", fmt.Errorf("relay: refreshing the hub token: %w", err)
+	}
+	return token, nil
 }
 
 // runtimeHostname reports the host name captured by the runtime, or "" when

@@ -3,6 +3,7 @@ package relay
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -539,5 +540,103 @@ func TestToolEnv(t *testing.T) {
 	all := ToolEnv(environ, true, nil, nil)
 	if !slices.Equal(all, environ) {
 		t.Fatalf("inherit = %v, want %v", all, environ)
+	}
+}
+
+// bigMCP serves n tools whose input and output schemas each carry a
+// description of about inBytes and outBytes (0 leaves an output schema off).
+func bigMCP(t *testing.T, n, inBytes, outBytes int) string {
+	t.Helper()
+	server := sdkmcp.NewServer(&sdkmcp.Implementation{Name: "big", Version: "1"}, nil)
+	for i := range n {
+		tool := &sdkmcp.Tool{
+			Name:        fmt.Sprintf("tool%03d", i),
+			InputSchema: map[string]any{"type": "object", "description": strings.Repeat("i", inBytes)},
+		}
+		if outBytes > 0 {
+			tool.OutputSchema = map[string]any{"type": "object", "description": strings.Repeat("o", outBytes)}
+		}
+		server.AddTool(tool, func(context.Context, *sdkmcp.CallToolRequest) (*sdkmcp.CallToolResult, error) {
+			return textResult("ok"), nil
+		})
+	}
+	srv := httptest.NewServer(sdkmcp.NewStreamableHTTPHandler(func(*http.Request) *sdkmcp.Server { return server }, nil))
+	t.Cleanup(srv.Close)
+	return srv.URL
+}
+
+func waitBothServers(t *testing.T, ctx context.Context, conn *websocket.Conn, a, b string) relaycontract.Tools {
+	t.Helper()
+	return waitTools(t, ctx, conn, func(x relaycontract.Tools) bool { return hasServer(a)(x) || hasServer(b)(x) })
+}
+
+// Over the frame limit, output schemas go before whole servers do.
+func TestToolCatalogStripsOutputSchemasBeforeDroppingServers(t *testing.T) {
+	const tools, schema = 40, 60_000 // two servers × 40 × 60 KB ≈ 4.8 MB of output schemas
+	hub := newFakeHub(t)
+	startToolRelay(t, hub, []*ToolServer{
+		newToolServer(t, ToolServerConfig{Name: "one", URL: bigMCP(t, tools, 10, schema)}),
+		newToolServer(t, ToolServerConfig{Name: "two", URL: bigMCP(t, tools, 10, schema)}),
+	}, nil)
+	ctx := context.Background()
+	conn := hub.accept(t)
+	conn.SetReadLimit(16 << 20)
+	handshakeProtocol(t, ctx, conn, 2)
+	got := waitTools(t, ctx, conn, func(x relaycontract.Tools) bool { return hasServer("one")(x) && hasServer("two")(x) })
+	if raw, _ := json.Marshal(got); len(raw) > relaycontract.MaxToolsFrameBytes {
+		t.Fatalf("tools frame is %d bytes, over the %d limit", len(raw), relaycontract.MaxToolsFrameBytes)
+	}
+	kept := 0
+	for _, s := range got.Servers {
+		if len(s.Tools) != tools {
+			t.Fatalf("server %s offers %d tools, want all %d", s.Name, len(s.Tools), tools)
+		}
+		for _, tool := range s.Tools {
+			if len(tool.InputSchema) == 0 {
+				t.Fatalf("%s/%s lost its input schema", s.Name, tool.Name)
+			}
+			if len(tool.OutputSchema) > 0 {
+				kept++
+			}
+		}
+	}
+	if kept == 0 || kept == 2*tools {
+		t.Fatalf("kept %d of %d output schemas, want only as many stripped as needed", kept, 2*tools)
+	}
+}
+
+// When input schemas alone overflow the frame, a server still has to go.
+func TestToolCatalogDropsServerWhenInputSchemasOverflow(t *testing.T) {
+	const tools, schema = 40, 60_000
+	hub := newFakeHub(t)
+	startToolRelay(t, hub, []*ToolServer{
+		newToolServer(t, ToolServerConfig{Name: "one", URL: bigMCP(t, tools, schema, 0)}),
+		newToolServer(t, ToolServerConfig{Name: "two", URL: bigMCP(t, tools, schema, 0)}),
+	}, nil)
+	ctx := context.Background()
+	conn := hub.accept(t)
+	conn.SetReadLimit(16 << 20)
+	handshakeProtocol(t, ctx, conn, 2)
+	got := waitBothServers(t, ctx, conn, "one", "two")
+	// Let both servers come up and the catalog settle.
+	time.Sleep(500 * time.Millisecond)
+	writeEnv(t, ctx, conn, relaycontract.TypePing, "", nil)
+	for {
+		env := readEnv(t, ctx, conn)
+		if env.Type == relaycontract.TypePong {
+			break
+		}
+		if env.Type == relaycontract.TypeTools {
+			got = relaycontract.Tools{}
+			if err := env.Decode(&got); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if raw, _ := json.Marshal(got); len(raw) > relaycontract.MaxToolsFrameBytes {
+		t.Fatalf("tools frame is %d bytes, over the limit", len(raw))
+	}
+	if len(got.Servers) != 1 || got.Servers[0].Name != "one" {
+		t.Fatalf("servers = %v, want only the first", got.Servers)
 	}
 }

@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -913,5 +914,74 @@ func TestProviderPriorityIsAdvertised(t *testing.T) {
 		if _, err := NewProvider(ProviderConfig{Name: "ollama", Kind: KindOllama, Priority: bad}, func(string) string { return "" }, nil); err == nil || !strings.Contains(err.Error(), "priority") {
 			t.Fatalf("priority %d: err = %v", bad, err)
 		}
+	}
+}
+
+// countingTokens hands out tok-1, tok-2, … one per dial, like a token source
+// that refreshes an expired credential.
+func countingTokens(n *atomic.Int32) func(context.Context) (string, error) {
+	return func(context.Context) (string, error) {
+		return fmt.Sprintf("tok-%d", n.Add(1)), nil
+	}
+}
+
+func TestRunHubReconnectsAfterCredentialExpired(t *testing.T) {
+	_, psrv := newFakeProvider(t, "qwen3:8b")
+	hub := newFakeHub(t)
+	var dials atomic.Int32
+	_, done := startRelay(t, hub, []*Provider{ollama(t, psrv.URL)}, func(o *Options) {
+		o.Hubs = []Hub{{URL: hub.srv.URL, Token: countingTokens(&dials)}}
+	})
+	ctx := context.Background()
+	conn := hub.accept(t)
+	if got := <-hub.auth; got != "Bearer tok-1" {
+		t.Fatalf("first dial auth = %q", got)
+	}
+	handshake(t, ctx, conn)
+	// A session that lived a while, as one does until its token expires.
+	time.Sleep(minBackoff + 100*time.Millisecond)
+	writeEnv(t, ctx, conn, relaycontract.TypeError, "", relaycontract.Error{
+		Code: relaycontract.CodeCredentialExpired, Message: "credential expired",
+	})
+	_ = conn.Close(websocket.StatusTryAgainLater, "credential expired")
+
+	select {
+	case got := <-hub.auth:
+		if got != "Bearer tok-2" {
+			t.Fatalf("reconnect auth = %q, want a fresh token", got)
+		}
+	case err := <-done:
+		done <- err
+		t.Fatalf("relay stopped after credential_expired: %v", err)
+	case <-time.After(minBackoff / 2):
+		t.Fatal("relay did not redial promptly after credential_expired")
+	}
+	handshake(t, ctx, hub.accept(t))
+}
+
+// A hub that answers every session with credential_expired straight away
+// must not make the relay redial in a tight loop.
+func TestRunHubBacksOffWhenCredentialExpiresAtOnce(t *testing.T) {
+	_, psrv := newFakeProvider(t, "qwen3:8b")
+	hub := newFakeHub(t)
+	var dials atomic.Int32
+	startRelay(t, hub, []*Provider{ollama(t, psrv.URL)}, func(o *Options) {
+		o.Hubs = []Hub{{URL: hub.srv.URL, Token: countingTokens(&dials)}}
+	})
+	ctx := context.Background()
+	conn := hub.accept(t)
+	<-hub.auth
+	handshake(t, ctx, conn)
+	writeEnv(t, ctx, conn, relaycontract.TypeError, "", relaycontract.Error{Code: relaycontract.CodeCredentialExpired})
+	_ = conn.Close(websocket.StatusTryAgainLater, "credential expired")
+	select {
+	case <-hub.auth:
+		t.Fatal("relay redialed without backing off")
+	case <-time.After(minBackoff / 2):
+	}
+	select {
+	case <-hub.auth:
+	case <-time.After(5 * time.Second):
+		t.Fatal("relay never redialed")
 	}
 }

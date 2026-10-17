@@ -217,6 +217,7 @@ var supportedProtocols = []int{1, 2, 3}
 func (c *Client) runHub(ctx context.Context, hub Hub) error {
 	backoff := minBackoff
 	for {
+		started := time.Now()
 		registered, err := c.runOnce(ctx, hub)
 		if ctx.Err() != nil {
 			return nil
@@ -227,6 +228,16 @@ func (c *Client) runHub(ctx context.Context, hub Hub) error {
 		var hubErr *relaycontract.Error
 		if errors.As(err, &hubErr) && hubErr.Code == relaycontract.CodeDisconnected {
 			return ErrDisconnected
+		}
+		if errors.As(err, &hubErr) && hubErr.Code == relaycontract.CodeCredentialExpired &&
+			registered && time.Since(started) >= minBackoff {
+			// The token that opened the session expired. Redial at once:
+			// dial asks Token again, which refreshes it. A session that
+			// ends this way faster than minBackoff takes the normal backoff,
+			// so a hub that keeps answering it cannot make the relay spin.
+			c.logger.Info("relay credential expired; reconnecting with a fresh token", "hub", hub.URL)
+			backoff = minBackoff
+			continue
 		}
 		if registered {
 			backoff = minBackoff
@@ -755,7 +766,10 @@ func (c *Client) toolsChanged() {
 }
 
 // toolCatalog lists the servers that are up, in configuration order, within
-// the protocol's limits on total tools and frame size.
+// the protocol's limits on total tools and frame size. Over the frame limit,
+// output schemas go first, largest first: they only describe results, which
+// still pass through, so losing one costs less than losing a server. Only
+// when every output schema is gone does it drop servers from the end.
 func (c *Client) toolCatalog() []relaycontract.ToolServer {
 	out := []relaycontract.ToolServer{}
 	total := 0
@@ -771,6 +785,9 @@ func (c *Client) toolCatalog() []relaycontract.ToolServer {
 		total += len(server.Tools)
 		out = append(out, server)
 	}
+	if raw, _ := json.Marshal(relaycontract.Tools{Servers: out}); len(raw) > relaycontract.MaxToolsFrameBytes {
+		c.stripOutputSchemas(out, len(raw)-relaycontract.MaxToolsFrameBytes)
+	}
 	for {
 		raw, _ := json.Marshal(relaycontract.Tools{Servers: out})
 		if len(raw) <= relaycontract.MaxToolsFrameBytes || len(out) == 0 {
@@ -779,6 +796,39 @@ func (c *Client) toolCatalog() []relaycontract.ToolServer {
 		last := &out[len(out)-1]
 		c.logger.Warn("relay mcp tools exceed the frame limit; skipping a server", "server", last.Name)
 		out = out[:len(out)-1]
+	}
+}
+
+// stripOutputSchemas removes output schemas from servers, largest first,
+// until about excess bytes are saved. Tools slices come from
+// ToolServer.catalog, which clones them, so this never touches a server's
+// own listing.
+func (c *Client) stripOutputSchemas(servers []relaycontract.ToolServer, excess int) {
+	type ref struct{ server, tool int }
+	var refs []ref
+	for i := range servers {
+		for j := range servers[i].Tools {
+			if len(servers[i].Tools[j].OutputSchema) > 0 {
+				refs = append(refs, ref{i, j})
+			}
+		}
+	}
+	size := func(r ref) int { return len(servers[r.server].Tools[r.tool].OutputSchema) }
+	slices.SortStableFunc(refs, func(a, b ref) int { return size(b) - size(a) })
+	// The field's key and separators go with the schema.
+	const fieldOverhead = len(`,"outputSchema":`)
+	stripped := 0
+	for _, r := range refs {
+		if excess <= 0 {
+			break
+		}
+		tool := &servers[r.server].Tools[r.tool]
+		excess -= len(tool.OutputSchema) + fieldOverhead
+		tool.OutputSchema = nil
+		stripped++
+	}
+	if stripped > 0 {
+		c.logger.Warn("relay mcp tools exceed the frame limit; leaving off output schemas", "tools", stripped)
 	}
 }
 
