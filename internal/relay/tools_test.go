@@ -51,10 +51,11 @@ func textResult(text string) *sdkmcp.CallToolResult {
 
 func addEchoTool(server *sdkmcp.Server) {
 	server.AddTool(&sdkmcp.Tool{
-		Name:        "echo",
-		Description: "Echoes its message.",
-		InputSchema: map[string]any{"type": "object", "properties": map[string]any{"message": map[string]any{"type": "string"}}},
-		Annotations: &sdkmcp.ToolAnnotations{ReadOnlyHint: true},
+		Name:         "echo",
+		Description:  "Echoes its message.",
+		InputSchema:  map[string]any{"type": "object", "properties": map[string]any{"message": map[string]any{"type": "string"}}},
+		OutputSchema: map[string]any{"type": "object", "properties": map[string]any{"echoed": map[string]any{"type": "string"}}},
+		Annotations:  &sdkmcp.ToolAnnotations{ReadOnlyHint: true},
 	}, func(_ context.Context, req *sdkmcp.CallToolRequest) (*sdkmcp.CallToolResult, error) {
 		var args struct {
 			Message string `json:"message"`
@@ -307,9 +308,15 @@ func TestHTTPToolServerCatalogAndCall(t *testing.T) {
 			if a := tool.Annotations; a == nil || a.ReadOnlyHint == nil || !*a.ReadOnlyHint {
 				t.Fatalf("echo annotations = %+v, want readOnly", a)
 			}
+			if !strings.Contains(string(tool.OutputSchema), `"echoed"`) {
+				t.Fatalf("echo outputSchema = %s, want the server's own", tool.OutputSchema)
+			}
 		case "sleep":
 			if a := tool.Annotations; a == nil || a.DestructiveHint == nil || !*a.DestructiveHint {
 				t.Fatalf("sleep annotations = %+v, want destructive", a)
+			}
+			if len(tool.OutputSchema) != 0 {
+				t.Fatalf("sleep declares no outputSchema, got %s", tool.OutputSchema)
 			}
 		}
 	}

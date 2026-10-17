@@ -92,13 +92,49 @@ least-privilege flight, pin it with `tap use --flight @namespace/+slug` (or
 narrow the existing connection. Seeing only the six recovery tools means an
 explicitly configured root failed to initialize.
 
+### Tool Schemas
+
+Each tool description opens with its category (`Session:`, `Memory:`,
+`Explore:`, or `Manage:`). Every authority-bearing tool also takes an
+optional `flight` argument, added to its input schema; the property's own
+description is the one per-tool explanation of it ("Flight to run this call
+under, such as +work or @ns/+work. Omit it to use the connection's flight."),
+and the operating rules explain it once per session. Tool descriptions do not
+repeat it.
+
+Every tool declares an `outputSchema` for its `structuredContent`: the paging
+fields of the listing tools (`lines`, `offset`, `limit`, `next_offset`,
+`has_more`, `pagination`), `node_read`'s `nodes`, `node_search`'s `hits` and
+`next_cursor`, the write tools' new hashes, and so on. A tool whose result is
+only text declares `{message}`, the object every result carries its text in.
+The schemas leave additional properties open, so a newer server's extra field
+never fails a client that validates results.
+
+An `outputSchema` describes a tool's success. A failed call (`isError: true`)
+carries no `structuredContent`: its payload (`code`, `message`, `action`,
+`operationPerformed`, and any error-specific fields such as `currentHash` or
+`missing`) is the result's first text block, as a JSON object. Clients that
+validate `structuredContent` against the schema even on errors, as the
+TypeScript SDK does, therefore see the tool's error rather than a JSON-RPC
+`-32602`. Relayed tools follow the same rule.
+
+Two arguments left the schemas because another one says the same thing.
+Calls that still send them keep working; neither is advertised again:
+
+- `id_only` on `node_list`, `node_grep`, `tag_list`, `node_backlinks`, and
+  `node_links` is `format: "%i"`, which prints the same lines. A true
+  `id_only` overrides any `format` sent with it, as it always did. The CLI
+  keeps `--id-only` as shorthand for `--format %i`.
+- `keg` on `node_search` is searched as the one KEG named, bare names
+  included. New calls name KEGs in `kegs`.
+
 ### Read
 
 | Tool | Description |
 | --- | --- |
 | `node_read` | Read content of one or more nodes |
 | `node_list` | List nodes with optional query filtering |
-| `node_search` | Rank nodes by relevance to a query across every readable KEG, one `keg`, or listed `kegs`; pages with `next_cursor` |
+| `node_search` | Rank nodes by relevance to a query across every KEG the call's flight covers, or only the listed `kegs` (each inside that cover); pages with `next_cursor` |
 | `node_grep` | Match node content lines against a PostgreSQL regular expression in one KEG |
 | `tag_list` | List tags or find nodes by query |
 | `node_backlinks` | Find nodes linking to a node |

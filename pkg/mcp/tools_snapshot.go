@@ -26,8 +26,9 @@ type nodeHistoryInput struct {
 
 func registerNodeHistory(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
-		Name:        "snapshot_list",
-		Description: "Memory: List a node's snapshot history.",
+		Name:         "snapshot_list",
+		Description:  "Memory: List a node's snapshot history.",
+		OutputSchema: textOutputSchema(),
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(false),
@@ -68,16 +69,22 @@ type nodeSnapshotItemInput struct {
 }
 
 type nodeSnapshotOutput struct {
-	NodeID   string `json:"node_id"`
-	Revision int64  `json:"revision"`
-	Message  string `json:"message,omitempty"`
+	NodeID   string `json:"node_id" jsonschema:"The node's ID."`
+	Revision int64  `json:"revision" jsonschema:"The new snapshot's revision number."`
+	Message  string `json:"message,omitempty" jsonschema:"The snapshot's message, when one was given."`
+}
+
+// snapshotCreateOutput is snapshot_create's structured content.
+type snapshotCreateOutput struct {
+	Results []nodeSnapshotOutput `json:"results" jsonschema:"One snapshot per node, in request order."`
 }
 
 func registerNodeSnapshot(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
-		Name:        "snapshot_create",
-		Description: "Memory: Snapshot the current state of 1-100 nodes atomically.",
-		InputSchema: boundedMutationInputSchema[nodeSnapshotInput]("nodes"),
+		Name:         "snapshot_create",
+		Description:  "Memory: Snapshot the current state of 1-100 nodes atomically.",
+		InputSchema:  boundedMutationInputSchema[nodeSnapshotInput]("nodes"),
+		OutputSchema: outputSchema[snapshotCreateOutput](),
 		Annotations: &sdkmcp.ToolAnnotations{
 			DestructiveHint: boolPtr(false),
 			OpenWorldHint:   boolPtr(false),
@@ -100,7 +107,7 @@ func registerNodeSnapshot(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefau
 		for i, snap := range snaps {
 			structured[i] = nodeSnapshotOutput{NodeID: snap.Node.Path(), Revision: int64(snap.ID), Message: snap.Message}
 		}
-		res.StructuredContent = map[string]any{"results": structured}
+		res.StructuredContent = snapshotCreateOutput{Results: structured}
 		return res, nil, nil
 	})
 }
@@ -115,8 +122,9 @@ type nodeSnapshotViewInput struct {
 
 func registerNodeSnapshotView(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
-		Name:        "snapshot_read",
-		Description: "Memory: Read a node's content at a previous snapshot revision.",
+		Name:         "snapshot_read",
+		Description:  "Memory: Read a node's content at a previous snapshot revision.",
+		OutputSchema: textOutputSchema(),
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(false),
@@ -145,8 +153,9 @@ type nodeRestoreInput struct {
 
 func registerNodeRestore(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
-		Name:        "snapshot_restore",
-		Description: "Memory: Restore a node to a previous snapshot revision.",
+		Name:         "snapshot_restore",
+		Description:  "Memory: Restore a node to a previous snapshot revision.",
+		OutputSchema: textOutputSchema(),
 		Annotations: &sdkmcp.ToolAnnotations{
 			DestructiveHint: boolPtr(true),
 			OpenWorldHint:   boolPtr(false),

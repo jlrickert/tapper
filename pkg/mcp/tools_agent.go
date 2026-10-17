@@ -48,9 +48,10 @@ type agentDeleteInput struct {
 // authority: its tools say what it may do and its flight is its memory.
 func registerAgentTools(srv *sdkmcp.Server, defaults KegDefaults, agents AgentProvider) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
-		Name:        "agent_list",
-		Description: "Manage: List Hub agents (model, description, tool allowlist, flight) in a namespace, or in every namespace you belong to.",
-		Annotations: &sdkmcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: boolPtr(false)},
+		Name:         "agent_list",
+		Description:  "Manage: List Hub agents (model, description, tool allowlist, flight) in a namespace, or in every namespace you belong to.",
+		OutputSchema: outputSchema[agentListOutput](),
+		Annotations:  &sdkmcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: boolPtr(false)},
 	}, func(ctx context.Context, _ *sdkmcp.CallToolRequest, in agentListInput) (*sdkmcp.CallToolResult, any, error) {
 		rows, err := agents.ListAgents(ctx, in.Namespace)
 		if err != nil {
@@ -61,14 +62,15 @@ func registerAgentTools(srv *sdkmcp.Server, defaults KegDefaults, agents AgentPr
 			lines = append(lines, strings.Join([]string{a.Ref, tsvField(a.Title), a.Model, tsvField(a.Description)}, "\t"))
 		}
 		res := linesResult(lines)
-		res.StructuredContent = map[string]any{"agents": publicAgents(rows)}
+		res.StructuredContent = agentListOutput{Agents: publicAgents(rows)}
 		return res, nil, nil
 	})
 
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
-		Name:        "agent_read",
-		Description: "Manage: Read one Hub agent: model, description, instructions, tool allowlist (groups and names, plus effective_tools expanded), and its memory flight.",
-		Annotations: &sdkmcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: boolPtr(false)},
+		Name:         "agent_read",
+		Description:  "Manage: Read one Hub agent: model, description, instructions, tool allowlist (groups and names, plus effective_tools expanded), and its memory flight.",
+		OutputSchema: outputSchema[publicAgent](),
+		Annotations:  &sdkmcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: boolPtr(false)},
 	}, func(ctx context.Context, _ *sdkmcp.CallToolRequest, in agentReadInput) (*sdkmcp.CallToolResult, any, error) {
 		agent, err := agents.GetAgent(ctx, in.Agent)
 		if err != nil {
@@ -78,9 +80,10 @@ func registerAgentTools(srv *sdkmcp.Server, defaults KegDefaults, agents AgentPr
 	})
 
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
-		Name:        "agent_create",
-		Description: "Manage: Create a Hub agent in a namespace you own or administer. Its tools say what it may do; its flight is the memory it works in.",
-		Annotations: &sdkmcp.ToolAnnotations{ReadOnlyHint: false, DestructiveHint: boolPtr(false), OpenWorldHint: boolPtr(false)},
+		Name:         "agent_create",
+		Description:  "Manage: Create a Hub agent in a namespace you own or administer. Its tools say what it may do; its flight is the memory it works in.",
+		OutputSchema: outputSchema[publicAgent](),
+		Annotations:  &sdkmcp.ToolAnnotations{ReadOnlyHint: false, DestructiveHint: boolPtr(false), OpenWorldHint: boolPtr(false)},
 	}, func(ctx context.Context, _ *sdkmcp.CallToolRequest, in agentCreateInput) (*sdkmcp.CallToolResult, any, error) {
 		if err := defaults.gate.authorizeMutation(ctx); err != nil {
 			return errorResult(err), nil, nil
@@ -96,9 +99,10 @@ func registerAgentTools(srv *sdkmcp.Server, defaults KegDefaults, agents AgentPr
 	})
 
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
-		Name:        "agent_edit",
-		Description: "Manage: Edit a Hub agent in a namespace you own or administer; omitted fields keep their current values. An edit applies to open sessions running the agent on their next call.",
-		Annotations: &sdkmcp.ToolAnnotations{ReadOnlyHint: false, DestructiveHint: boolPtr(false), OpenWorldHint: boolPtr(false)},
+		Name:         "agent_edit",
+		Description:  "Manage: Edit a Hub agent in a namespace you own or administer; omitted fields keep their current values. An edit applies to open sessions running the agent on their next call.",
+		OutputSchema: outputSchema[publicAgent](),
+		Annotations:  &sdkmcp.ToolAnnotations{ReadOnlyHint: false, DestructiveHint: boolPtr(false), OpenWorldHint: boolPtr(false)},
 	}, func(ctx context.Context, _ *sdkmcp.CallToolRequest, in agentEditInput) (*sdkmcp.CallToolResult, any, error) {
 		if err := defaults.gate.authorizeMutation(ctx); err != nil {
 			return errorResult(err), nil, nil
@@ -114,9 +118,10 @@ func registerAgentTools(srv *sdkmcp.Server, defaults KegDefaults, agents AgentPr
 	})
 
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
-		Name:        "agent_delete",
-		Description: "Manage: Delete a Hub agent in a namespace you own or administer. Apps and tokens bound to it lose access.",
-		Annotations: &sdkmcp.ToolAnnotations{ReadOnlyHint: false, DestructiveHint: boolPtr(true), OpenWorldHint: boolPtr(false)},
+		Name:         "agent_delete",
+		Description:  "Manage: Delete a Hub agent in a namespace you own or administer. Apps and tokens bound to it lose access.",
+		OutputSchema: textOutputSchema(),
+		Annotations:  &sdkmcp.ToolAnnotations{ReadOnlyHint: false, DestructiveHint: boolPtr(true), OpenWorldHint: boolPtr(false)},
 	}, func(ctx context.Context, _ *sdkmcp.CallToolRequest, in agentDeleteInput) (*sdkmcp.CallToolResult, any, error) {
 		if err := defaults.gate.authorizeMutation(ctx); err != nil {
 			return errorResult(err), nil, nil
@@ -126,6 +131,11 @@ func registerAgentTools(srv *sdkmcp.Server, defaults KegDefaults, agents AgentPr
 		}
 		return textResult("deleted " + in.Agent), nil, nil
 	})
+}
+
+// agentListOutput is agent_list's structured content.
+type agentListOutput struct {
+	Agents []publicAgent `json:"agents" jsonschema:"The agents, without their instructions; agent_read returns those."`
 }
 
 // publicAgent is the MCP wire shape of an agent. Every slice is non-nil so

@@ -299,6 +299,13 @@ func contractTool(tool *sdkmcp.Tool) (relaycontract.Tool, error) {
 		Description: tool.Description,
 		InputSchema: schema,
 	}
+	// An output schema Hub would refuse is left off rather than costing the
+	// tool: it only describes results, and the results still pass through.
+	if tool.OutputSchema != nil {
+		if out, err := json.Marshal(tool.OutputSchema); err == nil && len(out) <= relaycontract.MaxToolSchemaBytes && out[0] == '{' {
+			t.OutputSchema = out
+		}
+	}
 	if a := tool.Annotations; a != nil {
 		if t.Title == "" {
 			t.Title = a.Title

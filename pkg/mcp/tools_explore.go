@@ -68,8 +68,9 @@ func registerExploreTools(srv *sdkmcp.Server, explore ExploreProvider) {
 	for _, tool := range tools {
 		kind := tool.kind
 		sdkmcp.AddTool(srv, &sdkmcp.Tool{
-			Name:        tool.name,
-			Description: tool.desc,
+			Name:         tool.name,
+			Description:  tool.desc,
+			OutputSchema: outputSchema[tapper.ExploreResult](),
 			Annotations: &sdkmcp.ToolAnnotations{
 				ReadOnlyHint:  true,
 				OpenWorldHint: boolPtr(true),

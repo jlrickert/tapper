@@ -25,6 +25,12 @@ type mergeInput struct {
 	Keg                 string  `json:"keg,omitempty" jsonschema:"KEG to use, as @namespace/keg; a bare name uses your default namespace. Omit it to use the default KEG."`
 }
 
+// mergeOutput is node_merge's structured content.
+type mergeOutput struct {
+	Target    nodeUpdateOutput `json:"target" jsonschema:"The surviving node's new hashes."`
+	Rewritten []string         `json:"rewritten" jsonschema:"IDs of the other nodes whose links to the source now point at the target."`
+}
+
 func registerMerge(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name: "node_merge",
@@ -33,7 +39,8 @@ func registerMerge(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 			"Every ../SOURCE link in the keg, the target's own included, is repointed at the target, and the source goes to the trash, recorded as merged into the target, where trash_restore can bring it back. " +
 			"Guard the source with its combined hash as expected_source_hash, and the target with its content_hash (and meta_hash when sending meta). " +
 			"The result returns the target's new hashes and the other nodes whose links moved.",
-		InputSchema: constrainedInputSchema[mergeInput](),
+		InputSchema:  constrainedInputSchema[mergeInput](),
+		OutputSchema: outputSchema[mergeOutput](),
 		Annotations: &sdkmcp.ToolAnnotations{
 			DestructiveHint: boolPtr(true),
 			OpenWorldHint:   boolPtr(false),
@@ -64,10 +71,7 @@ func registerMerge(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 			rewritten[i] = id.Path()
 		}
 		res := textResult(fmt.Sprintf("merged %s into %s; %d other node(s) relinked", in.SourceID, result.Target.ID.Path(), len(rewritten)))
-		res.StructuredContent = map[string]any{
-			"target":    nodeUpdateOutputs([]keg.NodeUpdateResult{result.Target})[0],
-			"rewritten": rewritten,
-		}
+		res.StructuredContent = mergeOutput{Target: nodeUpdateOutputs([]keg.NodeUpdateResult{result.Target})[0], Rewritten: rewritten}
 		return res, nil, nil
 	})
 }

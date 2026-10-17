@@ -112,7 +112,10 @@ func (t *Tap) Search(ctx context.Context, opts SearchOptions) (*tapapi.SearchRes
 		return t.searchOneKeg(ctx, opts.KegTargetOptions, flight, req)
 	}
 
-	scope := searchScope(kegs, flight)
+	scope, err := searchScope(kegs, flight)
+	if err != nil {
+		return nil, err
+	}
 	if scope.restricted && len(scope.kegs) == 0 {
 		// An empty KEG list asks the Hub for every readable KEG, so a scope
 		// that narrowed to nothing must never reach it.
@@ -216,31 +219,53 @@ type searchScopeResult struct {
 	warnings   []string
 }
 
-// searchScope narrows explicit KEGs to the flight's cover, or without explicit
-// KEGs, names the flight's cover. Both read the cover through searchCover, so
-// a KEG is searchable on exactly the same terms either way.
-func searchScope(explicit []string, flight *Flight) searchScopeResult {
+// searchScope names the flight's cover when no KEGs are explicit, and
+// otherwise checks that every explicit KEG is inside it. Both read the cover
+// through searchCover, so a KEG is searchable on exactly the same terms either
+// way.
+func searchScope(explicit []string, flight *Flight) (searchScopeResult, error) {
 	if flight == nil {
-		return searchScopeResult{kegs: explicit, restricted: len(explicit) > 0}
+		return searchScopeResult{kegs: explicit, restricted: len(explicit) > 0}, nil
 	}
 	cover, warnings := searchCover(flight)
-	out := searchScopeResult{kegs: []string{}, restricted: true, warnings: warnings}
 	if len(explicit) == 0 {
-		out.kegs = cover
-		return out
+		return searchScopeResult{kegs: cover, restricted: true, warnings: warnings}, nil
 	}
+	if err := checkSearchCover(flight, cover, explicit); err != nil {
+		return searchScopeResult{}, err
+	}
+	return searchScopeResult{kegs: explicit, restricted: true, warnings: warnings}, nil
+}
+
+// CheckSearchCover refuses a search that names KEGs outside the flight's
+// cover, naming every one of them. Naming KEGs only narrows a flight's search;
+// it never reaches past the cover. kegs are canonical "@namespace/alias"
+// references, as SearchOptions.Validate returns them. A nil flight (no-flight
+// full access) restricts nothing.
+func CheckSearchCover(flight *Flight, kegs []string) error {
+	if flight == nil || len(kegs) == 0 {
+		return nil
+	}
+	cover, _ := searchCover(flight)
+	return checkSearchCover(flight, cover, kegs)
+}
+
+func checkSearchCover(flight *Flight, cover, kegs []string) error {
 	covered := make(map[string]bool, len(cover))
 	for _, ref := range cover {
 		covered[ref] = true
 	}
-	for _, ref := range explicit {
-		if covered[ref] {
-			out.kegs = append(out.kegs, ref)
-			continue
+	var outside []string
+	for _, ref := range kegs {
+		if !covered[ref] {
+			outside = append(outside, ref)
 		}
-		out.warnings = append(out.warnings, fmt.Sprintf("%s is not in flight %s's cover and was not searched", ref, flight.Name))
 	}
-	return out
+	if len(outside) == 0 {
+		return nil
+	}
+	return fmt.Errorf("flight %s does not cover %s; name only KEGs its cover lists (see orient), omit kegs to search the whole cover, or pass a flight that covers them: %w",
+		flight.Name, strings.Join(outside, ", "), keg.ErrInvalid)
 }
 
 // searchCover lists, in cover order and once each, the "@namespace/alias"

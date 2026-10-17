@@ -23,11 +23,14 @@ import (
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/require"
 
+	"encoding/json"
+	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/jlrickert/tapper/internal/testkegrepo"
 	"github.com/jlrickert/tapper/pkg/cli"
 	"github.com/jlrickert/tapper/pkg/keg"
 	"github.com/jlrickert/tapper/pkg/mcp"
 	"github.com/jlrickert/tapper/pkg/tapper"
+	"sync"
 )
 
 //go:embed all:data/**
@@ -102,8 +105,11 @@ func newParityEnv(t *testing.T) *parityEnv {
 		Name:    "parity-test",
 		Version: "0.1",
 	}, nil)
+	var connected *sdkmcp.ClientSession
+	client.AddSendingMiddleware(checkOutputSchemas(t, &connected))
 	session, err := client.Connect(ctx, clientTransport, nil)
 	require.NoError(t, err)
+	connected = session
 	t.Cleanup(func() {
 		session.Close()
 	})
@@ -470,4 +476,51 @@ func renderNodeReadRows(rows []any) string {
 		buf.WriteString("\n")
 	}
 	return buf.String()
+}
+
+// checkOutputSchemas fails t when a successful tool result does not match the
+// outputSchema its tool declares, as a client that validates results would.
+func checkOutputSchemas(t *testing.T, session **sdkmcp.ClientSession) sdkmcp.Middleware {
+	var (
+		once    sync.Once
+		schemas map[string]*jsonschema.Resolved
+	)
+	load := func(ctx context.Context) {
+		schemas = map[string]*jsonschema.Resolved{}
+		listed, err := (*session).ListTools(ctx, nil)
+		if err != nil {
+			t.Errorf("list tools for their output schemas: %v", err)
+			return
+		}
+		for _, tool := range listed.Tools {
+			raw, _ := json.Marshal(tool.OutputSchema)
+			var schema jsonschema.Schema
+			if tool.OutputSchema == nil || json.Unmarshal(raw, &schema) != nil {
+				continue
+			}
+			if resolved, err := schema.Resolve(nil); err == nil {
+				schemas[tool.Name] = resolved
+			}
+		}
+	}
+	return func(next sdkmcp.MethodHandler) sdkmcp.MethodHandler {
+		return func(ctx context.Context, method string, req sdkmcp.Request) (sdkmcp.Result, error) {
+			result, err := next(ctx, method, req)
+			res, ok := result.(*sdkmcp.CallToolResult)
+			params, _ := req.GetParams().(*sdkmcp.CallToolParams)
+			if err != nil || method != "tools/call" || !ok || res == nil || res.IsError || params == nil || *session == nil {
+				return result, err
+			}
+			once.Do(func() { load(ctx) })
+			if schema := schemas[params.Name]; schema != nil {
+				raw, _ := json.Marshal(res.StructuredContent)
+				var instance any
+				_ = json.Unmarshal(raw, &instance)
+				if verr := schema.Validate(instance); verr != nil {
+					t.Errorf("%s result does not match its outputSchema: %v", params.Name, verr)
+				}
+			}
+			return result, err
+		}
+	}
 }

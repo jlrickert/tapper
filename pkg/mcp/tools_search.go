@@ -2,7 +2,6 @@ package mcp
 
 import (
 	"context"
-	"strings"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -14,34 +13,35 @@ import (
 
 type nodeSearchInput struct {
 	Query  string   `json:"query" jsonschema:"What to find: plain terms (any may match; more matches, and matches in titles or metadata, rank higher), \"quoted phrases\" that must appear, and -exclusions."`
-	Keg    string   `json:"keg,omitempty" jsonschema:"Search only this KEG (@namespace/keg, or a bare name in your default namespace). Omit to search every KEG this call may read; never combined with kegs."`
-	Kegs   []string `json:"kegs,omitempty" jsonschema:"Narrow the search to these @namespace/keg references (at most 50); omit to search every KEG this call may read."`
+	Kegs   []string `json:"kegs,omitempty" jsonschema:"KEGs to search, as @namespace/keg references (at most 50), each inside the call's flight cover. Omit it or pass [] to search every KEG the flight covers."`
 	Cursor string   `json:"cursor,omitempty" jsonschema:"The next_cursor of a previous node_search response for the same query, passed back unchanged."`
 	Limit  int      `json:"limit,omitempty" jsonschema:"Maximum hits to return; 0 or omitted lets the Hub choose. Unlike listing tools, -1 is not accepted."`
 }
 
 type nodeSearchOutput struct {
 	tapapi.SearchResponse
-	Pagination string `json:"pagination"`
+	Pagination string `json:"pagination" jsonschema:"How to page this search."`
 }
 
 func registerNodeSearch(srv *sdkmcp.Server, defaults KegDefaults, provider NodeSearchProvider) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name: "node_search",
-		Description: "Memory: Find notes about a topic: the KEG nodes most relevant to a query, ranked across every KEG this call may read (omit keg), one named keg, or the listed kegs. " +
-			"This is the only search over note content: explore_kegs finds public KEGs, never notes, and keg_list lists your own KEGs. " +
-			"Matches titles, metadata, tags, and bodies. Use node_grep for exact regex matching of identifiers or symbols. " +
+		Description: "Memory: Find the notes about a topic: KEG nodes ranked by relevance to a query, across every KEG the call's flight covers or only the kegs you name. " +
+			"It matches titles, metadata, tags, and bodies, and is the only search over note content: explore_kegs finds public KEGs, and keg_list lists your own. " +
+			"Use node_grep for exact regex matches of identifiers or symbols. " +
 			"Each hit gives the node reference, score, title, matched fields, and a snippet with matches in **bold**; " +
-			"follow next_cursor for more and use node_read for complete bodies.",
+			"follow next_cursor for more, and use node_read for complete bodies.",
+		OutputSchema: outputSchema[nodeSearchOutput](),
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(false),
 		},
 	}, func(ctx context.Context, _ *sdkmcp.CallToolRequest, in nodeSearchInput) (*sdkmcp.CallToolResult, any, error) {
-		target := resolveKegTarget(ctx, in.Keg, defaults)
-		// An omitted keg means the whole readable scope, never the server's
-		// default KEG.
-		target.Keg = strings.TrimSpace(in.Keg)
+		// The scope is the call's flight cover, narrowed by kegs; never the
+		// server's default KEG. Only a pre-kegs caller's keg argument names
+		// one KEG through the keg target (see legacySearchKeg).
+		target := resolveKegTarget(ctx, "", defaults)
+		target.Keg = legacySearchKeg(ctx)
 		opts := tapper.SearchOptions{
 			KegTargetOptions: target,
 			Kegs:             in.Kegs,
@@ -49,7 +49,14 @@ func registerNodeSearch(srv *sdkmcp.Server, defaults KegDefaults, provider NodeS
 			Cursor:           in.Cursor,
 			Limit:            in.Limit,
 		}
-		if _, err := opts.Validate(); err != nil {
+		kegs, err := opts.Validate()
+		if err != nil {
+			return errorResult(err), nil, nil
+		}
+		// Naming KEGs narrows the flight's search and never reaches past its
+		// cover. Refusing here names every KEG outside it, the same way on
+		// every Hub, instead of the Hub reporting the first as not found.
+		if err := tapper.CheckSearchCover(tapper.ComposedFlight(target.FlightContext), kegs); err != nil {
 			return errorResult(err), nil, nil
 		}
 		var resp *tapapi.SearchResponse
@@ -58,7 +65,6 @@ func registerNodeSearch(srv *sdkmcp.Server, defaults KegDefaults, provider NodeS
 			// unscoped request would ask the Hub for everything.
 			resp = &tapapi.SearchResponse{Hits: []tapapi.SearchHit{}}
 		} else {
-			var err error
 			resp, err = provider.SearchNodes(ctx, opts)
 			if err != nil {
 				return errorResult(err), nil, nil

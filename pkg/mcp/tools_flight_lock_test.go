@@ -120,10 +120,7 @@ func newFlightLockedSession(t *testing.T) (*sdkmcp.ClientSession, context.Contex
 		<-done
 	})
 
-	client := sdkmcp.NewClient(&sdkmcp.Implementation{
-		Name:    "test-client",
-		Version: "0.1",
-	}, nil)
+	client := newTestClient(t, "test-client", nil)
 	session, err := client.Connect(ctx, clientTransport, nil)
 	require.NoError(t, err)
 	t.Cleanup(func() {

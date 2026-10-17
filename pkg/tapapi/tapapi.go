@@ -122,8 +122,8 @@ type SearchRequest struct {
 // Span is a highlighted range of a hit's Snippet in rune offsets: Start is
 // inclusive and End exclusive.
 type Span struct {
-	Start int `json:"start"`
-	End   int `json:"end"`
+	Start int `json:"start" jsonschema:"First highlighted rune of the snippet."`
+	End   int `json:"end" jsonschema:"Rune just past the highlight."`
 }
 
 // Search hit fields name where a hit matched.
@@ -150,38 +150,38 @@ const (
 // descending, then Keg, then NodeID.
 type SearchHit struct {
 	// Ref is the qualified node reference, "keg:@namespace/alias/id".
-	Ref string `json:"ref"`
+	Ref string `json:"ref" jsonschema:"The node reference, keg:@namespace/keg/id."`
 	// Keg is the qualified KEG reference, "@namespace/alias".
-	Keg    string  `json:"keg"`
-	NodeID string  `json:"node_id"`
-	Title  string  `json:"title"`
-	Score  float64 `json:"score"`
+	Keg    string  `json:"keg" jsonschema:"The KEG, as @namespace/keg."`
+	NodeID string  `json:"node_id" jsonschema:"The node's ID in its KEG."`
+	Title  string  `json:"title" jsonschema:"The node's title."`
+	Score  float64 `json:"score" jsonschema:"Relevance; hits arrive highest first."`
 	// Fields lists where the node matched: SearchFieldTitle, SearchFieldMeta,
 	// SearchFieldBody.
-	Fields []string `json:"fields"`
+	Fields []string `json:"fields" jsonschema:"Where the node matched: title, meta, or body."`
 	// Sources lists the signals that found the node: SearchSourceKeyword,
 	// SearchSourceSemantic.
-	Sources []string `json:"sources,omitempty"`
-	Snippet string   `json:"snippet,omitempty"`
+	Sources []string `json:"sources,omitempty" jsonschema:"The signals that found the node: keyword, semantic."`
+	Snippet string   `json:"snippet,omitempty" jsonschema:"An excerpt around the match."`
 	// Highlights are the matched ranges of Snippet.
-	Highlights []Span `json:"highlights,omitempty"`
+	Highlights []Span `json:"highlights,omitempty" jsonschema:"The matched ranges of snippet."`
 }
 
 // TermExpansion reports how the Hub interpreted one query term: the lexemes it
 // searched for, and whether they came from typo expansion.
 type TermExpansion struct {
-	Term    string   `json:"term"`
-	Lexemes []string `json:"lexemes"`
-	Typo    bool     `json:"typo"`
+	Term    string   `json:"term" jsonschema:"A term of the query."`
+	Lexemes []string `json:"lexemes" jsonschema:"The lexemes searched for it."`
+	Typo    bool     `json:"typo" jsonschema:"True when the lexemes came from typo expansion."`
 }
 
 // SearchResponse is one page of ranked hits. NextCursor is empty on the last
 // page. Mode is SearchModeKeyword or SearchModeHybrid. Warnings report
 // partial results the caller should know about.
 type SearchResponse struct {
-	Hits       []SearchHit     `json:"hits"`
-	NextCursor string          `json:"next_cursor,omitempty"`
-	Terms      []TermExpansion `json:"terms,omitempty"`
-	Mode       string          `json:"mode,omitempty"`
-	Warnings   []string        `json:"warnings,omitempty"`
+	Hits       []SearchHit     `json:"hits" jsonschema:"The page's hits, most relevant first."`
+	NextCursor string          `json:"next_cursor,omitempty" jsonschema:"Pass as cursor, with the same query, for the next page; absent on the last page."`
+	Terms      []TermExpansion `json:"terms,omitempty" jsonschema:"How the Hub interpreted each query term."`
+	Mode       string          `json:"mode,omitempty" jsonschema:"How the page was ranked: keyword or hybrid."`
+	Warnings   []string        `json:"warnings,omitempty" jsonschema:"Partial results or degraded ranking to know about."`
 }

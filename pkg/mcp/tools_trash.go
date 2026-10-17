@@ -34,6 +34,11 @@ type trashEntryOutput struct {
 	DisplacedFrom string `json:"displaced_from,omitempty"`
 }
 
+// trashListOutput is trash_list's structured content.
+type trashListOutput struct {
+	Trash []trashEntryOutput `json:"trash" jsonschema:"The KEG's removed nodes, newest first."`
+}
+
 func trashEntryOutputs(entries []keg.TrashEntry) []trashEntryOutput {
 	out := make([]trashEntryOutput, len(entries))
 	for i, entry := range entries {
@@ -57,6 +62,7 @@ func registerTrashList(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults
 		Description: "Memory: List a keg's removed nodes, newest first: id, title, why it was removed (manual, or merge with the node it was merged into), when, and when it will be purged for good. " +
 			"Restore one with trash_restore. A trashed node's id stays reserved, and links to it are left in place until it is purged. " +
 			"An archive restore that needs a trashed node's id moves the entry to a new id first; displaced_from names the id it was trashed at, and restoring puts it back at its new id.",
+		OutputSchema: outputSchema[trashListOutput](),
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(false),
@@ -68,7 +74,7 @@ func registerTrashList(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults
 		}
 		if len(entries) == 0 {
 			res := textResult("trash is empty")
-			res.StructuredContent = map[string]any{"trash": []trashEntryOutput{}}
+			res.StructuredContent = trashListOutput{Trash: []trashEntryOutput{}}
 			return res, nil, nil
 		}
 		structured := trashEntryOutputs(entries)
@@ -87,7 +93,7 @@ func registerTrashList(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults
 			lines[i] = line
 		}
 		res := linesResult(lines)
-		res.StructuredContent = map[string]any{"trash": structured}
+		res.StructuredContent = trashListOutput{Trash: structured}
 		return res, nil, nil
 	})
 }
@@ -104,7 +110,8 @@ func registerTrashRestore(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefau
 		Name: "trash_restore",
 		Description: "Memory: Atomically restore 1-100 trashed nodes (see trash_list) at their own ids, with their content, metadata, history, files, and images. " +
 			"Links that still name a restored node resolve again. A node merged into another comes back as it was before the merge; links the merge repointed stay on the node it was merged into.",
-		InputSchema: boundedMutationInputSchema[trashRestoreInput]("node_ids"),
+		InputSchema:  boundedMutationInputSchema[trashRestoreInput]("node_ids"),
+		OutputSchema: textOutputSchema(),
 		Annotations: &sdkmcp.ToolAnnotations{
 			DestructiveHint: boolPtr(false),
 			OpenWorldHint:   boolPtr(false),

@@ -113,8 +113,9 @@ writing KEG files directly.
   `-exclusions`. Each hit prints reference, score, title, and a highlighted
   snippet; `--limit` caps a page (the hub chooses by default), the next page's
   cursor is printed to stderr for `--cursor`, `--id-only` prints references,
-  and `--json` prints the hub's response. MCP's `node_search` takes the same
-  parameters; under a flight it never searches outside the cover.
+  and `--json` prints the hub's response. MCP's `node_search` takes `kegs`,
+  `cursor`, and `limit`: an empty `kegs` searches the call's whole flight
+  cover, and naming a KEG outside the cover is an error that names it.
 - `tap node grep PATTERN` - match node content lines in one keg against a
   regex (MCP `node_grep`), for exact identifiers and audits.
 - `tap tag list [EXPR]` - list tags or query tagged nodes.

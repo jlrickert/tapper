@@ -19,6 +19,16 @@ type InvitationLister interface {
 	ListInvitations(context.Context) ([]tapper.HubInvitation, error)
 }
 
+// invitationListOutput is invitation_list's structured content.
+type invitationListOutput struct {
+	Invitations []tapper.HubInvitation `json:"invitations" jsonschema:"Pending invitations addressed to you."`
+}
+
+// namespaceListOutput is namespace_list's structured content.
+type namespaceListOutput struct {
+	Namespaces []tapper.HubNamespace `json:"namespaces" jsonschema:"The namespaces you belong to, with your role in each."`
+}
+
 // registerNamespaceTools exposes namespace discovery over MCP, at parity with
 // `tap namespace list`. The hub-wide people directory is explore_people. Listing never grants
 // authority. Member rosters and role changes stay UI-only, so those tools are
@@ -28,8 +38,9 @@ type InvitationLister interface {
 func registerNamespaceTools(srv *sdkmcp.Server, namespaces NamespaceProvider) {
 	if lister, ok := namespaces.(InvitationLister); ok {
 		sdkmcp.AddTool(srv, &sdkmcp.Tool{
-			Name:        "invitation_list",
-			Description: "Session: List pending invitations addressed to you: org memberships and keg grants that take effect only if you accept them. Read-only; accepting or declining is your user's decision, made in the Hub UI or with `tap invitation`, so ask them rather than acting.",
+			Name:         "invitation_list",
+			Description:  "Session: List pending invitations addressed to you: org memberships and keg grants that take effect only if you accept them. Read-only; accepting or declining is your user's decision, made in the Hub UI or with `tap invitation`, so ask them rather than acting.",
+			OutputSchema: outputSchema[invitationListOutput](),
 			Annotations: &sdkmcp.ToolAnnotations{
 				ReadOnlyHint:  true,
 				OpenWorldHint: boolPtr(false),
@@ -44,13 +55,14 @@ func registerNamespaceTools(srv *sdkmcp.Server, namespaces NamespaceProvider) {
 				lines = append(lines, fmt.Sprintf("%d\t%s\t%s\t%s\t@%s", inv.ID, inv.Kind, inv.Target, inv.Role, inv.InvitedBy))
 			}
 			res := linesResult(lines)
-			res.StructuredContent = map[string]any{"invitations": rows}
+			res.StructuredContent = invitationListOutput{Invitations: rows}
 			return res, nil, nil
 		})
 	}
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
-		Name:        "namespace_list",
-		Description: "Session: List the namespaces you belong to, with your role in each.",
+		Name:         "namespace_list",
+		Description:  "Session: List the namespaces you belong to, with your role in each.",
+		OutputSchema: outputSchema[namespaceListOutput](),
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(false),
@@ -65,7 +77,7 @@ func registerNamespaceTools(srv *sdkmcp.Server, namespaces NamespaceProvider) {
 			lines = append(lines, fmt.Sprintf("@%s\t%s\t%s", ns.Name, ns.Kind, ns.Role))
 		}
 		res := linesResult(lines)
-		res.StructuredContent = map[string]any{"namespaces": rows}
+		res.StructuredContent = namespaceListOutput{Namespaces: rows}
 		return res, nil, nil
 	})
 }

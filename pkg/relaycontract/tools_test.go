@@ -54,6 +54,10 @@ func TestToolsValidate(t *testing.T) {
 		"schema too large": func(x *Tools) {
 			x.Servers[0].Tools[0].InputSchema = json.RawMessage(`{"d":"` + strings.Repeat("a", MaxToolSchemaBytes) + `"}`)
 		},
+		"output schema not object": func(x *Tools) { x.Servers[0].Tools[0].OutputSchema = json.RawMessage(`"object"`) },
+		"output schema too large": func(x *Tools) {
+			x.Servers[0].Tools[0].OutputSchema = json.RawMessage(`{"d":"` + strings.Repeat("a", MaxToolSchemaBytes) + `"}`)
+		},
 		"too many servers": func(x *Tools) {
 			for i := 0; i < MaxToolServers; i++ {
 				s := x.Servers[0]
@@ -82,6 +86,18 @@ func TestToolsValidate(t *testing.T) {
 	tools := validTools()
 	if err := tools.Validate(); err != nil {
 		t.Fatalf("valid tools rejected: %v", err)
+	}
+	// An output schema is optional; a relay that predates it sends none.
+	tools.Servers[0].Tools[0].OutputSchema = json.RawMessage(`{"type":"object"}`)
+	if err := tools.Validate(); err != nil {
+		t.Fatalf("tool with an output schema rejected: %v", err)
+	}
+	raw, err := json.Marshal(validTools())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "outputSchema") {
+		t.Fatalf("a tool without an output schema must not send one: %s", raw)
 	}
 }
 

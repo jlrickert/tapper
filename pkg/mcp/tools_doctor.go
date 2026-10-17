@@ -22,8 +22,9 @@ type doctorInput struct {
 
 func registerDoctor(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
-		Name:        "keg_check",
-		Description: "Manage: Check a KEG's health and report issues.",
+		Name:         "keg_check",
+		Description:  "Manage: Check a KEG's health and report issues.",
+		OutputSchema: textOutputSchema(),
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(false),

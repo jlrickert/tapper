@@ -47,13 +47,18 @@ type catInput struct {
 // only for the parts the read mode returned. Hash is the combined token
 // node_delete and node_move take.
 type nodeReadOutput struct {
-	NodeID      string `json:"node_id"`
-	Hash        string `json:"hash"`
-	ContentHash string `json:"content_hash,omitempty"`
-	MetaHash    string `json:"meta_hash,omitempty"`
-	Content     string `json:"content,omitempty"`
-	Meta        string `json:"meta,omitempty"`
-	Stats       string `json:"stats,omitempty"`
+	NodeID      string `json:"node_id" jsonschema:"The node's ID."`
+	Hash        string `json:"hash" jsonschema:"The combined hash node_delete and node_move take as expected_hash."`
+	ContentHash string `json:"content_hash,omitempty" jsonschema:"Present when content was read; node_edit's expected_content_hash."`
+	MetaHash    string `json:"meta_hash,omitempty" jsonschema:"Present when metadata was read; node_edit's expected_meta_hash."`
+	Content     string `json:"content,omitempty" jsonschema:"The markdown body, unless meta_only or stats_only."`
+	Meta        string `json:"meta,omitempty" jsonschema:"The metadata document as YAML, unless content_only or stats_only."`
+	Stats       string `json:"stats,omitempty" jsonschema:"The node's stats, with stats_only."`
+}
+
+// nodeReadResult is node_read's structured content.
+type nodeReadResult struct {
+	Nodes []nodeReadOutput `json:"nodes" jsonschema:"One entry per node read, in request order."`
 }
 
 func nodeReadOutputs(ctx context.Context, views []keg.NodeView, opts tapper.CatOptions) []nodeReadOutput {
@@ -93,6 +98,7 @@ func registerCat(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 			"metadata was read): pass content_hash as expected_content_hash and meta_hash as " +
 			"expected_meta_hash to node_edit. Each part's hash is independent, so editing one part " +
 			"never invalidates the other's. The combined hash is for node_delete and node_move.",
+		OutputSchema: outputSchema[nodeReadResult](),
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(false),
@@ -114,11 +120,11 @@ func registerCat(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 		}
 		if len(views) == 0 {
 			res := textResult(tapper.FormatCatViews(ctx, views, opts))
-			res.StructuredContent = map[string]any{"nodes": nodeReadOutputs(ctx, views, opts)}
+			res.StructuredContent = nodeReadResult{Nodes: nodeReadOutputs(ctx, views, opts)}
 			return res, nil, nil
 		}
 		res := textResult(nodeReadSummary(len(views)))
-		res.StructuredContent = map[string]any{"nodes": nodeReadOutputs(ctx, views, opts)}
+		res.StructuredContent = nodeReadResult{Nodes: nodeReadOutputs(ctx, views, opts)}
 		return res, nil, nil
 	})
 }
@@ -137,8 +143,9 @@ type listInput struct {
 
 func registerList(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
-		Name:        "node_list",
-		Description: "Memory: List a KEG's nodes, optionally filtered by a query expression, one line per node rendered by format. Follow next_offset for more.",
+		Name:         "node_list",
+		Description:  "Memory: List a KEG's nodes, optionally filtered by a query expression, one line per node rendered by format. Follow next_offset for more.",
+		OutputSchema: outputSchema[pagedLinesOutput](),
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(false),
@@ -176,8 +183,9 @@ type grepInput struct {
 
 func registerGrep(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
-		Name:        "node_grep",
-		Description: "Memory: Match node content lines in one KEG against a PostgreSQL regular expression, in node ID order. Use it for exact identifiers, symbols, and audits; use node_search to find the nodes about a topic. Follow next_offset for more nodes, and use node_read for complete bodies.",
+		Name:         "node_grep",
+		Description:  "Memory: Match node content lines in one KEG against a PostgreSQL regular expression, in node ID order. Use it for exact identifiers, symbols, and audits; use node_search to find the nodes about a topic. Follow next_offset for more nodes, and use node_read for complete bodies.",
+		OutputSchema: outputSchema[pagedLinesOutput](),
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(false),
@@ -214,8 +222,9 @@ type tagsInput struct {
 
 func registerTags(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
-		Name:        "tag_list",
-		Description: "Memory: List a KEG's tags, or the nodes a query expression selects.",
+		Name:         "tag_list",
+		Description:  "Memory: List a KEG's tags, or the nodes a query expression selects.",
+		OutputSchema: outputSchema[pagedLinesOutput](),
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(false),
@@ -250,8 +259,9 @@ type backlinksInput struct {
 
 func registerBacklinks(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
-		Name:        "node_backlinks",
-		Description: "Memory: List the nodes that link to the given nodes.",
+		Name:         "node_backlinks",
+		Description:  "Memory: List the nodes that link to the given nodes.",
+		OutputSchema: outputSchema[pagedLinesOutput](),
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(false),
@@ -286,8 +296,9 @@ type linksInput struct {
 
 func registerLinks(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
-		Name:        "node_links",
-		Description: "Memory: List the nodes the given nodes link to.",
+		Name:         "node_links",
+		Description:  "Memory: List the nodes the given nodes link to.",
+		OutputSchema: outputSchema[pagedLinesOutput](),
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(false),
@@ -319,8 +330,9 @@ type kegSettingsInput struct {
 
 func registerKegSettings(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
-		Name:        "keg_settings_read",
-		Description: "Memory: Read targeted KEG settings and instructions. Defaults to a minimal summary; set minimal=false for one complete YAML data document and its hash, required by keg_settings_edit. Use keg or 1-100 kegs, never both.",
+		Name:         "keg_settings_read",
+		Description:  "Memory: Read targeted KEG settings and instructions. Defaults to a minimal summary; set minimal=false for one complete YAML data document and its hash, required by keg_settings_edit. Use keg or 1-100 kegs, never both.",
+		OutputSchema: outputSchema[kegSettingsReadOutput](),
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(false),
@@ -365,13 +377,17 @@ func registerKegSettings(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaul
 			// keg_settings_edit replaces. The minimal render is a cross-keg
 			// summary, so hashing it would hand back a token for something
 			// nobody can write.
-			res.StructuredContent = map[string]any{
-				"hash": keg.DocumentHash([]byte(result)),
-				"data": result,
-			}
+			res.StructuredContent = kegSettingsReadOutput{Hash: keg.DocumentHash([]byte(result)), Data: result}
 		}
 		return res, nil, nil
 	})
+}
+
+// kegSettingsReadOutput is keg_settings_read's structured content. The
+// minimal summary is text only; minimal=false adds the document and its hash.
+type kegSettingsReadOutput struct {
+	Hash string `json:"hash,omitempty" jsonschema:"With minimal=false, the settings document's hash: keg_settings_edit's expected_hash."`
+	Data string `json:"data,omitempty" jsonschema:"With minimal=false, the complete settings document as YAML."`
 }
 
 // --- info ---
@@ -382,8 +398,9 @@ type infoInput struct {
 
 func registerInfo(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
-		Name:        "keg_info",
-		Description: "Memory: Show concise diagnostics for a KEG: canonical reference, flight, description, node count, and capabilities.",
+		Name:         "keg_info",
+		Description:  "Memory: Show concise diagnostics for a KEG: canonical reference, flight, description, node count, and capabilities.",
+		OutputSchema: textOutputSchema(),
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(false),
@@ -409,8 +426,9 @@ type statsInput struct {
 
 func registerStats(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
-		Name:        "node_stats",
-		Description: "Memory: Show a node's stats: hash, timestamps, and access count.",
+		Name:         "node_stats",
+		Description:  "Memory: Show a node's stats: hash, timestamps, and access count.",
+		OutputSchema: textOutputSchema(),
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(false),

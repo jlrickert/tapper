@@ -36,8 +36,9 @@ type schemaListInput struct {
 
 func registerSchemaList(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
-		Name:        "schema_list",
-		Description: "Memory: List the schema type names a KEG defines.",
+		Name:         "schema_list",
+		Description:  "Memory: List the schema type names a KEG defines.",
+		OutputSchema: textOutputSchema(),
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(false),
@@ -63,11 +64,19 @@ type schemaReadInput struct {
 	Keg  string `json:"keg,omitempty" jsonschema:"KEG to use, as @namespace/keg; a bare name uses your default namespace. Omit it to use the default KEG."`
 }
 
+// schemaReadOutput is schema_read's structured content.
+type schemaReadOutput struct {
+	Type string `json:"type" jsonschema:"The schema type name."`
+	Hash string `json:"hash" jsonschema:"The schema's hash: schema_edit's and schema_delete's expected_hash."`
+	Data string `json:"data" jsonschema:"The schema definition as YAML."`
+}
+
 func registerSchemaRead(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name: "schema_read",
 		Description: "Memory: Read one schema definition as YAML. The result carries the schema's " +
 			"hash; pass it back as expected_hash when editing this schema.",
+		OutputSchema: outputSchema[schemaReadOutput](),
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(false),
@@ -81,11 +90,7 @@ func registerSchemaRead(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefault
 			return errorResult(err), nil, nil
 		}
 		res := textResult(string(data))
-		res.StructuredContent = map[string]any{
-			"type": in.Type,
-			"hash": keg.DocumentHash(data),
-			"data": string(data),
-		}
+		res.StructuredContent = schemaReadOutput{Type: in.Type, Hash: keg.DocumentHash(data), Data: string(data)}
 		return res, nil, nil
 	})
 }
@@ -99,8 +104,9 @@ type schemaCreateInput struct {
 
 func registerSchemaCreate(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
-		Name:        "schema_create",
-		Description: "Manage: Create a new keg schema from a YAML definition (fails if the type already exists). Requires admin access to the KEG, and admin cover when a flight is selected.",
+		Name:         "schema_create",
+		Description:  "Manage: Create a new keg schema from a YAML definition (fails if the type already exists). Requires admin access to the KEG, and admin cover when a flight is selected.",
+		OutputSchema: textOutputSchema(),
 		Annotations: &sdkmcp.ToolAnnotations{
 			DestructiveHint: boolPtr(false),
 			OpenWorldHint:   boolPtr(false),
@@ -127,8 +133,9 @@ type schemaEditInput struct {
 
 func registerSchemaEdit(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
-		Name:        "schema_edit",
-		Description: "Manage: Change how a KEG validates notes; writing a note never needs this, so pick an existing type from schema_list instead. Call schema_read first, then replace an existing keg schema with a new YAML definition using its hash as expected_hash. Requires admin access to the KEG, and admin cover when a flight is selected. On conflict, merge into the returned current schema (or refetch with schema_read) and retry with the returned current hash.",
+		Name:         "schema_edit",
+		Description:  "Manage: Change how a KEG validates notes; writing a note never needs this, so pick an existing type from schema_list instead. Call schema_read first, then replace an existing keg schema with a new YAML definition using its hash as expected_hash. Requires admin access to the KEG, and admin cover when a flight is selected. On conflict, merge into the returned current schema (or refetch with schema_read) and retry with the returned current hash.",
+		OutputSchema: textOutputSchema(),
 		Annotations: &sdkmcp.ToolAnnotations{
 			DestructiveHint: boolPtr(false),
 			OpenWorldHint:   boolPtr(false),
@@ -159,8 +166,9 @@ type schemaDeleteInput struct {
 
 func registerSchemaDelete(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
-		Name:        "schema_delete",
-		Description: "Manage: Call schema_read first, then delete a keg schema using its hash as expected_hash. Requires admin access to the KEG, and admin cover when a flight is selected. On conflict, refetch with schema_read and retry with the returned current hash.",
+		Name:         "schema_delete",
+		Description:  "Manage: Call schema_read first, then delete a keg schema using its hash as expected_hash. Requires admin access to the KEG, and admin cover when a flight is selected. On conflict, refetch with schema_read and retry with the returned current hash.",
+		OutputSchema: textOutputSchema(),
 		Annotations: &sdkmcp.ToolAnnotations{
 			DestructiveHint: boolPtr(true),
 			OpenWorldHint:   boolPtr(false),
@@ -186,8 +194,9 @@ type validateInput struct {
 
 func registerValidate(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
-		Name:        "schema_validate",
-		Description: "Memory: Validate nodes against their declared schema type.",
+		Name:         "schema_validate",
+		Description:  "Memory: Validate nodes against their declared schema type.",
+		OutputSchema: textOutputSchema(),
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(false),

@@ -23,12 +23,18 @@ type replaceInput struct {
 }
 
 type replaceNodeOutput struct {
-	NodeID      string `json:"node_id"`
-	Matches     int    `json:"matches"`
-	Error       string `json:"error,omitempty"`
-	ContentHash string `json:"content_hash,omitempty"`
-	MetaHash    string `json:"meta_hash,omitempty"`
-	Hash        string `json:"hash,omitempty"`
+	NodeID      string `json:"node_id" jsonschema:"The node's ID."`
+	Matches     int    `json:"matches" jsonschema:"How many matches the node has."`
+	Error       string `json:"error,omitempty" jsonschema:"Why the node was left alone, when it was."`
+	ContentHash string `json:"content_hash,omitempty" jsonschema:"The node's new content_hash, after a write."`
+	MetaHash    string `json:"meta_hash,omitempty" jsonschema:"The node's new meta_hash, after a write."`
+	Hash        string `json:"hash,omitempty" jsonschema:"The node's new combined hash, after a write."`
+}
+
+// replaceOutput is keg_replace's structured content.
+type replaceOutput struct {
+	DryRun bool                `json:"dry_run" jsonschema:"True when nothing was written."`
+	Nodes  []replaceNodeOutput `json:"nodes" jsonschema:"Every node with a match, changed or left alone."`
 }
 
 func registerReplace(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
@@ -41,6 +47,7 @@ func registerReplace(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) 
 			fmt.Sprintf("At most %d matching nodes in one call, counting those left alone. ", keg.MaxReplaceNodes) +
 			fmt.Sprintf("A node with more than %d matches, or that would grow past %d MiB, is left alone with its error; a replace that would grow the changed nodes past %d MiB in all fails. ", keg.MaxReplaceNodeMatches, keg.MaxReplaceNodeBytes>>20, keg.MaxReplaceTotalBytes>>20) +
 			"Results return each changed node's new hashes.",
+		OutputSchema: outputSchema[replaceOutput](),
 		Annotations: &sdkmcp.ToolAnnotations{
 			DestructiveHint: boolPtr(true),
 			OpenWorldHint:   boolPtr(false),
@@ -76,7 +83,7 @@ func registerReplace(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) 
 		}
 		lines = append([]string{fmt.Sprintf("%s %d node(s), %d match(es)", verb, changed, matches)}, lines...)
 		res := linesResult(lines)
-		res.StructuredContent = map[string]any{"dry_run": in.DryRun, "nodes": nodes}
+		res.StructuredContent = replaceOutput{DryRun: in.DryRun, Nodes: nodes}
 		return res, nil, nil
 	})
 }
