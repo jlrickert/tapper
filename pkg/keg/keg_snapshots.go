@@ -16,7 +16,7 @@ func (k *LocalKeg) AppendSnapshot(ctx context.Context, id NodeId, msg string) (S
 }
 
 func (k *LocalKeg) appendSnapshot(ctx context.Context, id NodeId, msg string, refreshIndexes bool) (Snapshot, error) {
-	out, err := k.appendSnapshotNoRefresh(ctx, id, msg)
+	out, err := k.appendSnapshotNoRefresh(ctx, nil, id, msg)
 	if err != nil {
 		return out, err
 	}
@@ -28,7 +28,10 @@ func (k *LocalKeg) appendSnapshot(ctx context.Context, id NodeId, msg string, re
 	return out, nil
 }
 
-func (k *LocalKeg) appendSnapshotLocked(ctx context.Context, id NodeId, msg string) (Snapshot, error) {
+// appendSnapshotLocked appends a snapshot of node id's current state. history
+// is the batch's snapshot timeline, which the append reads and extends; nil
+// loads a fresh one for this append alone. The caller holds the node lock.
+func (k *LocalKeg) appendSnapshotLocked(ctx context.Context, history *snapshotTimeline, id NodeId, msg string) (Snapshot, error) {
 	snapshots, ok := repoSnapshots(k.Repo)
 	if !ok {
 		return Snapshot{}, ErrNotSupported
@@ -73,7 +76,7 @@ func (k *LocalKeg) appendSnapshotLocked(ctx context.Context, id NodeId, msg stri
 	if err != nil {
 		return Snapshot{}, fmt.Errorf("failed to prepare snapshot timeline event: %w", err)
 	}
-	omega, err := k.computePendingSnapshotOmega(ctx, pending)
+	omega, err := k.computePendingSnapshotOmega(ctx, history, pending)
 	if err != nil {
 		return Snapshot{}, fmt.Errorf("failed to compute snapshot omega: %w", err)
 	}
@@ -99,10 +102,15 @@ func (k *LocalKeg) appendSnapshotLocked(ctx context.Context, id NodeId, msg stri
 	if err != nil {
 		return Snapshot{}, err
 	}
+	if history != nil {
+		if err := history.add(ctx, k, id, out); err != nil {
+			return Snapshot{}, err
+		}
+	}
 	return out, nil
 }
 
-func (k *LocalKeg) appendSnapshotNoRefresh(ctx context.Context, id NodeId, msg string) (Snapshot, error) {
+func (k *LocalKeg) appendSnapshotNoRefresh(ctx context.Context, history *snapshotTimeline, id NodeId, msg string) (Snapshot, error) {
 	if err := k.checkKegExists(ctx); err != nil {
 		return Snapshot{}, fmt.Errorf("failed to snapshot node: %w", err)
 	}
@@ -111,7 +119,7 @@ func (k *LocalKeg) appendSnapshotNoRefresh(ctx context.Context, id NodeId, msg s
 	}
 	var out Snapshot
 	err := k.withNodeLock(ctx, id, func(lockCtx context.Context) error {
-		snap, err := k.appendSnapshotLocked(lockCtx, id, msg)
+		snap, err := k.appendSnapshotLocked(lockCtx, history, id, msg)
 		if err != nil {
 			return err
 		}
@@ -124,11 +132,11 @@ func (k *LocalKeg) appendSnapshotNoRefresh(ctx context.Context, id NodeId, msg s
 	return out, nil
 }
 
-func (k *LocalKeg) refreshSnapshotIndexesAfterPolicy(ctx context.Context, created int) error {
+func (k *LocalKeg) refreshSnapshotIndexesAfterPolicy(ctx context.Context, history *snapshotTimeline, created int) error {
 	if created == 0 {
 		return nil
 	}
-	if err := k.refreshSnapshotGeneratedIndexes(ctx); err != nil {
+	if err := k.refreshSnapshotGeneratedIndexesFrom(ctx, history); err != nil {
 		return fmt.Errorf("failed to refresh snapshot indexes: %w", err)
 	}
 	return nil

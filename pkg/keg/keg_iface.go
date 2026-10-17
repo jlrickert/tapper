@@ -149,13 +149,17 @@ type Keg interface {
 
 	// OpenNode validates any held advisory lock against opts.LockToken,
 	// optionally records an access touch, and returns one coherent node view.
-	// If the operation fails after touching, the touch is rolled back.
+	// If the operation fails after touching, the touch is rolled back. A touch
+	// that cannot get the keg write lock within a bounded wait is skipped and
+	// the node is read untouched.
 	OpenNode(ctx context.Context, opts NodeOpenOptions) (*NodeView, error)
 
 	// ReadNodes reads either opts.NodeIDs in caller order or the nodes selected
 	// by opts.Query in dex order; the selectors are mutually exclusive. All
 	// views come from one coherent keg snapshot. When Touch is set, either every
-	// selected node is touched or all touch side effects are rolled back.
+	// selected node is touched or all touch side effects are rolled back; a
+	// touch that cannot get the keg write lock within a bounded wait is
+	// skipped and the nodes are read untouched.
 	ReadNodes(ctx context.Context, opts ReadNodesOptions) ([]NodeView, error)
 
 	// UpdateNode validates advisory-lock ownership and an optional expected

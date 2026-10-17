@@ -88,6 +88,12 @@ use of `time.Now()` that cannot be driven by a fake clock:
   concurrency-safe in-memory implementation exists only in tests.
 - **Lock context propagation**: `contextWithNodeLock`/`contextHasNodeLock` allow
   re-entrant locking within the same call chain.
+- **Bounded keg lock wait**: `keg.WithLockWait(ctx, d)` asks the repository to
+  give up acquiring the keg write lock after `d` with `ErrLockTimeout`, and
+  `keg.LockWaitFrom(ctx)` reads it back; zero means wait as long as it takes.
+  A touched `ReadNodes` or `OpenNode` waits about two seconds. When the lock
+  stays busy the touch is skipped and the nodes are read untouched, so a read
+  never queues behind a long writer just to record an access.
 - **Dex mutex**: `Dex.mu sync.RWMutex` guards index data; `LocalKeg.dexMu`
   guards lazy initialization.
 - **Node allocation**: Production allocation is a hub operation;

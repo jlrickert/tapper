@@ -242,9 +242,10 @@ func (k *LocalKeg) updateNodes(ctx context.Context, updates []NodeUpdateOptions)
 	}
 	results := make([]NodeUpdateResult, len(prepared))
 	createdSnapshots := false
+	history := &snapshotTimeline{}
 	for i, item := range prepared {
 		if item.opts.SnapshotBefore {
-			if _, err := k.appendSnapshotNoRefresh(ctx, item.opts.ID, "before batch update"); err != nil {
+			if _, err := k.appendSnapshotNoRefresh(ctx, history, item.opts.ID, "before batch update"); err != nil {
 				return nil, &BatchMutationError{Index: i, NodeID: item.opts.ID, Err: err}
 			}
 			createdSnapshots = true
@@ -283,7 +284,7 @@ func (k *LocalKeg) updateNodes(ctx context.Context, updates []NodeUpdateOptions)
 		return nil, err
 	}
 	if createdSnapshots {
-		if err := k.refreshSnapshotGeneratedIndexes(ctx); err != nil {
+		if err := k.refreshSnapshotGeneratedIndexesFrom(ctx, history); err != nil {
 			return nil, err
 		}
 	}
@@ -379,14 +380,15 @@ func (k *LocalKeg) AppendSnapshots(ctx context.Context, nodes []NodeSnapshotRequ
 			}
 		}
 		out := make([]Snapshot, len(nodes))
+		history := &snapshotTimeline{}
 		for i, item := range nodes {
-			snap, err := k.appendSnapshotNoRefresh(ctx, item.ID, item.Message)
+			snap, err := k.appendSnapshotNoRefresh(ctx, history, item.ID, item.Message)
 			if err != nil {
 				return nil, &BatchMutationError{Index: i, NodeID: item.ID, Err: err}
 			}
 			out[i] = snap
 		}
-		if err := k.refreshSnapshotGeneratedIndexes(ctx); err != nil {
+		if err := k.refreshSnapshotGeneratedIndexesFrom(ctx, history); err != nil {
 			return nil, err
 		}
 		return out, nil

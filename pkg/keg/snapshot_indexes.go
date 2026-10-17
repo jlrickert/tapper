@@ -57,8 +57,59 @@ type timelineSnapshotState struct {
 	stats    *NodeStats
 }
 
+// snapshotTimeline is the keg's snapshot history and omega schemas, loaded
+// once for a batch of appends instead of once per append. It loads on first
+// use, and each append adds the record of the snapshot it wrote, so it stays
+// what a fresh load would return. It is valid only within one keg write
+// operation, where nothing else appends snapshots or changes schemas.
+type snapshotTimeline struct {
+	loaded  bool
+	records []timelineSnapshotState
+	schemas map[string]*SchemaDefinition
+}
+
+func (t *snapshotTimeline) load(ctx context.Context, k *LocalKeg) error {
+	if t.loaded {
+		return nil
+	}
+	records, err := k.loadTimelineSnapshotStates(ctx)
+	if err != nil {
+		return err
+	}
+	schemas, err := k.loadOmegaSchemas(ctx)
+	if err != nil {
+		return err
+	}
+	t.records, t.schemas, t.loaded = records, schemas, true
+	return nil
+}
+
+// add records snapshot snap of node id, which the caller just appended.
+func (t *snapshotTimeline) add(ctx context.Context, k *LocalKeg, id NodeId, snap Snapshot) error {
+	if !t.loaded {
+		return nil
+	}
+	snapshots, ok := repoSnapshots(k.Repo)
+	if !ok {
+		return nil
+	}
+	state, err := k.loadTimelineSnapshotState(ctx, snapshots, id, snap.ID)
+	if err != nil {
+		return err
+	}
+	t.records = append(t.records, state)
+	sortTimelineSnapshotStates(t.records)
+	return nil
+}
+
 func (k *LocalKeg) refreshSnapshotGeneratedIndexes(ctx context.Context) error {
-	timeline, replay, err := k.buildTimelineIndexDataWithReplay(ctx)
+	return k.refreshSnapshotGeneratedIndexesFrom(ctx, nil)
+}
+
+// refreshSnapshotGeneratedIndexesFrom is refreshSnapshotGeneratedIndexes over
+// a batch's timeline; a nil timeline loads a fresh one.
+func (k *LocalKeg) refreshSnapshotGeneratedIndexesFrom(ctx context.Context, history *snapshotTimeline) error {
+	timeline, replay, err := k.buildTimelineIndexDataFrom(ctx, history)
 	if err != nil {
 		return err
 	}
@@ -88,14 +139,18 @@ func (k *LocalKeg) buildTimelineIndexData(ctx context.Context) ([]byte, error) {
 }
 
 func (k *LocalKeg) buildTimelineIndexDataWithReplay(ctx context.Context) ([]byte, snapshotTimelineReplay, error) {
-	records, err := k.loadTimelineSnapshotStates(ctx)
-	if err != nil {
+	return k.buildTimelineIndexDataFrom(ctx, nil)
+}
+
+func (k *LocalKeg) buildTimelineIndexDataFrom(ctx context.Context, history *snapshotTimeline) ([]byte, snapshotTimelineReplay, error) {
+	if history == nil {
+		history = &snapshotTimeline{}
+	}
+	if err := history.load(ctx, k); err != nil {
 		return nil, snapshotTimelineReplay{}, err
 	}
-	replay, err := k.replaySnapshotTimeline(ctx, records)
-	if err != nil {
-		return nil, snapshotTimelineReplay{}, err
-	}
+	records := history.records
+	replay := replaySnapshotTimelineWith(history.schemas, records)
 
 	rows := make([]timelineIndexRow, 0, len(replay.Steps))
 	latestLinks := make(map[string][]NodeId, len(records))
@@ -149,24 +204,9 @@ func (k *LocalKeg) loadTimelineSnapshotStates(ctx context.Context) ([]timelineSn
 			return nil, fmt.Errorf("list snapshots for node %s: %w", id.Path(), err)
 		}
 		for _, snap := range nodeSnapshots {
-			loaded, content, meta, stats, err := snapshots.GetSnapshot(ctx, id, snap.ID, SnapshotReadOptions{ResolveContent: true})
-			if err != nil && errors.Is(err, ErrConflict) {
-				if unchecked, ok := k.Repo.(interface {
-					readContentAtUnchecked(context.Context, NodeId, RevisionID) ([]byte, error)
-				}); ok {
-					loaded, _, meta, stats, err = snapshots.GetSnapshot(ctx, id, snap.ID, SnapshotReadOptions{})
-					if err == nil {
-						content, err = unchecked.readContentAtUnchecked(ctx, id, snap.ID)
-					}
-				}
-			}
+			state, err := k.loadTimelineSnapshotState(ctx, snapshots, id, snap.ID)
 			if err != nil {
-				return nil, fmt.Errorf("read snapshot node %s rev %d: %w", id.Path(), snap.ID, err)
-			}
-			loaded.Node = id
-			state, err := timelineSnapshotStateFromPayload(ctx, k.Runtime, loaded, content, meta, stats)
-			if err != nil {
-				return nil, fmt.Errorf("parse snapshot node %s rev %d: %w", id.Path(), snap.ID, err)
+				return nil, err
 			}
 			records = append(records, state)
 		}
@@ -174,6 +214,29 @@ func (k *LocalKeg) loadTimelineSnapshotStates(ctx context.Context) ([]timelineSn
 
 	sortTimelineSnapshotStates(records)
 	return records, nil
+}
+
+func (k *LocalKeg) loadTimelineSnapshotState(ctx context.Context, snapshots RepositorySnapshots, id NodeId, rev RevisionID) (timelineSnapshotState, error) {
+	loaded, content, meta, stats, err := snapshots.GetSnapshot(ctx, id, rev, SnapshotReadOptions{ResolveContent: true})
+	if err != nil && errors.Is(err, ErrConflict) {
+		if unchecked, ok := k.Repo.(interface {
+			readContentAtUnchecked(context.Context, NodeId, RevisionID) ([]byte, error)
+		}); ok {
+			loaded, _, meta, stats, err = snapshots.GetSnapshot(ctx, id, rev, SnapshotReadOptions{})
+			if err == nil {
+				content, err = unchecked.readContentAtUnchecked(ctx, id, rev)
+			}
+		}
+	}
+	if err != nil {
+		return timelineSnapshotState{}, fmt.Errorf("read snapshot node %s rev %d: %w", id.Path(), rev, err)
+	}
+	loaded.Node = id
+	state, err := timelineSnapshotStateFromPayload(ctx, k.Runtime, loaded, content, meta, stats)
+	if err != nil {
+		return timelineSnapshotState{}, fmt.Errorf("parse snapshot node %s rev %d: %w", id.Path(), rev, err)
+	}
+	return state, nil
 }
 
 func timelineSnapshotStateFromPayload(ctx context.Context, rt *toolkit.Runtime, snap Snapshot, contentBytes, metaBytes []byte, stats *NodeStats) (timelineSnapshotState, error) {
@@ -228,35 +291,29 @@ func (k *LocalKeg) buildDirtyIndexData(ctx context.Context) ([]byte, error) {
 	}
 	slices.SortFunc(ids, func(a, b NodeId) int { return a.Compare(b) })
 
+	// Read each node's content once; a node without content has no row.
+	type dirtyCandidate struct {
+		id     NodeId
+		hash   string
+		title  string
+		latest Snapshot
+		hasRev bool
+	}
 	snapshots, supportsSnapshots := repoSnapshots(k.Repo)
-	rows := make([]dirtyIndexRow, 0)
+	candidates := make([]dirtyCandidate, 0, len(ids))
 	for _, id := range ids {
-		exists, err := k.nodeExistsWithContent(ctx, id)
-		if err != nil {
-			return nil, fmt.Errorf("check node %s for %s index: %w", id.Path(), DirtyIndexName, err)
-		}
-		if !exists {
-			continue
-		}
-
 		contentBytes, err := k.Repo.ReadContent(ctx, id)
 		if err != nil {
-			return nil, fmt.Errorf("read node %s content for %s index: %w", id.Path(), DirtyIndexName, err)
-		}
-		metaBytes, err := k.Repo.ReadMeta(ctx, id)
-		if err != nil {
-			if !errors.Is(err, ErrNotExist) {
-				return nil, fmt.Errorf("read node %s meta for %s index: %w", id.Path(), DirtyIndexName, err)
+			if errors.Is(err, ErrNotExist) {
+				continue
 			}
-			metaBytes = nil
+			return nil, fmt.Errorf("read node %s content for %s index: %w", id.Path(), DirtyIndexName, err)
 		}
 		content, err := ParseContent(k.Runtime, contentBytes, FormatMarkdown)
 		if err != nil {
 			return nil, fmt.Errorf("parse node %s content for %s index: %w", id.Path(), DirtyIndexName, err)
 		}
-
-		var latest Snapshot
-		hasSnapshot := false
+		candidate := dirtyCandidate{id: id, hash: content.Hash, title: content.Title}
 		if supportsSnapshots {
 			nodeSnapshots, err := snapshots.ListSnapshots(ctx, id)
 			if err != nil {
@@ -265,37 +322,101 @@ func (k *LocalKeg) buildDirtyIndexData(ctx context.Context) ([]byte, error) {
 				}
 			}
 			if len(nodeSnapshots) > 0 {
-				latest = nodeSnapshots[len(nodeSnapshots)-1]
-				hasSnapshot = true
+				candidate.latest = nodeSnapshots[len(nodeSnapshots)-1]
+				candidate.hasRev = true
 			}
 		}
+		candidates = append(candidates, candidate)
+	}
 
-		currentHash := content.Hash
-		currentMetaHash := hashSnapshotBytes(k.Runtime, metaBytes)
-		if hasSnapshot && latest.ContentHash == currentHash && latest.MetaHash == currentMetaHash {
+	present := make([]NodeId, 0, len(candidates))
+	for _, candidate := range candidates {
+		present = append(present, candidate.id)
+	}
+	metas, err := k.readDirtyIndexMeta(ctx, present)
+	if err != nil {
+		return nil, err
+	}
+
+	rows := make([]dirtyIndexRow, 0)
+	var untitled []NodeId
+	for _, candidate := range candidates {
+		currentMetaHash := hashSnapshotBytes(k.Runtime, metas[candidate.id.Path()])
+		if candidate.hasRev && candidate.latest.ContentHash == candidate.hash && candidate.latest.MetaHash == currentMetaHash {
 			continue
 		}
-
-		title := content.Title
-		if title == "" {
-			if stats, err := k.Repo.ReadStats(ctx, id); err == nil && stats != nil {
-				title = stats.Title()
-			}
+		if candidate.title == "" {
+			untitled = append(untitled, candidate.id)
 		}
-
 		rows = append(rows, dirtyIndexRow{
 			V:                1,
-			Node:             id.Path(),
-			CurrentHash:      currentHash,
+			Node:             candidate.id.Path(),
+			CurrentHash:      candidate.hash,
 			CurrentMetaHash:  currentMetaHash,
-			SnapshotRevision: int64(latest.ID),
-			SnapshotHash:     latest.ContentHash,
-			SnapshotMetaHash: latest.MetaHash,
-			Title:            title,
+			SnapshotRevision: int64(candidate.latest.ID),
+			SnapshotHash:     candidate.latest.ContentHash,
+			SnapshotMetaHash: candidate.latest.MetaHash,
+			Title:            candidate.title,
 		})
 	}
 
+	// A row whose content has no title falls back to the stats title.
+	if len(untitled) > 0 {
+		titles := k.readDirtyIndexStatsTitles(ctx, untitled)
+		for i := range rows {
+			if rows[i].Title == "" {
+				rows[i].Title = titles[rows[i].Node]
+			}
+		}
+	}
+
 	return jsonLines(rows)
+}
+
+// readDirtyIndexMeta returns raw metadata keyed by node id path, leaving out
+// nodes that have none. It reads the whole set at once when the repository
+// supports batch reads.
+func (k *LocalKeg) readDirtyIndexMeta(ctx context.Context, ids []NodeId) (map[string][]byte, error) {
+	if batch, ok := repositoryBatchRead(k.Repo); ok {
+		metas, err := batch.ReadMetaBatch(ctx, ids)
+		if err != nil {
+			return nil, fmt.Errorf("read node meta for %s index: %w", DirtyIndexName, err)
+		}
+		return metas, nil
+	}
+	metas := make(map[string][]byte, len(ids))
+	for _, id := range ids {
+		raw, err := k.Repo.ReadMeta(ctx, id)
+		if err != nil {
+			if errors.Is(err, ErrNotExist) {
+				continue
+			}
+			return nil, fmt.Errorf("read node %s meta for %s index: %w", id.Path(), DirtyIndexName, err)
+		}
+		metas[id.Path()] = raw
+	}
+	return metas, nil
+}
+
+// readDirtyIndexStatsTitles returns the stats title keyed by node id path. A
+// node whose stats cannot be read has no title, as it would on a single read.
+func (k *LocalKeg) readDirtyIndexStatsTitles(ctx context.Context, ids []NodeId) map[string]string {
+	titles := make(map[string]string, len(ids))
+	if batch, ok := repositoryBatchRead(k.Repo); ok {
+		stats, err := batch.ReadStatsBatch(ctx, ids)
+		if err == nil {
+			for key, s := range stats {
+				titles[key] = s.Title()
+			}
+			return titles
+		}
+	}
+	for _, id := range ids {
+		if stats, err := k.Repo.ReadStats(ctx, id); err == nil && stats != nil {
+			titles[id.Path()] = stats.Title()
+		}
+	}
+	return titles
 }
 
 func sortTimelineSnapshotStates(records []timelineSnapshotState) {
