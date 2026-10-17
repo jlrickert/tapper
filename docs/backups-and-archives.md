@@ -9,7 +9,7 @@ sharing.
 # Export a team keg to an archive
 tap archive export --keg @acme/engineering -o ~/backups/engineering-2026-03-14.tar.gz
 
-# Import an archive into a keg
+# Import an archive into a keg (not accepted by a Tapper Hub; see Import)
 tap archive import ~/backups/engineering-2026-03-14.tar.gz --keg @acme/engineering
 ```
 
@@ -57,6 +57,12 @@ tap archive import ARCHIVE [flags]
 
 Imports nodes from an archive into the target keg. Prints the path of each
 imported node to stdout.
+
+A Tapper Hub does not accept archive imports: against a hub-backed keg,
+`tap archive import` fails with a "not supported" error that names the hub's
+archive restore endpoint (`POST /api/v1/@{namespace}/kegs/{alias}/archive/restore`).
+Restore the archive on the hub instead. A restore replaces the keg's contents
+and runs as a background job on the hub rather than merging nodes in.
 
 ### Flags
 
@@ -209,6 +215,10 @@ tap archive export -o ~/backups/engineering-$DATE.tar.gz --keg @acme/engineering
 ```
 
 ## Migration And Sharing
+
+The import steps below need a keg that accepts archive imports. To load an
+archive into a keg on a Tapper Hub, restore it on the hub instead; see
+[Import](#import).
 
 ### Move a keg between machines
 

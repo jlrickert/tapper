@@ -1,6 +1,7 @@
 package tapper_test
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -65,18 +66,45 @@ func TestRefreshHubToken_RotatesAndRenews(t *testing.T) {
 	require.Equal(t, "tapper-cli", got.Get("client_id"))
 }
 
-func TestRefreshHubToken_RejectedRefreshErrors(t *testing.T) {
+// TestRefreshHubToken_ClassifiesHubAnswers proves only an OAuth
+// invalid_grant or invalid_client answer reads as a refused refresh token,
+// whatever the status; any other failure stays retryable, so an outage on
+// the hub never looks like a lost sign-in.
+func TestRefreshHubToken_ClassifiesHubAnswers(t *testing.T) {
 	t.Parallel()
-	fx := NewSandbox(t)
-	srv := testapi.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusBadRequest)
-		_, _ = w.Write([]byte(`{"error":"invalid_grant"}`))
-	}))
-	t.Cleanup(srv.Close)
+	cases := []struct {
+		name     string
+		status   int
+		body     string
+		rejected bool
+	}{
+		{"400 invalid_grant", http.StatusBadRequest, `{"error":"invalid_grant"}`, true},
+		{"401 invalid_client", http.StatusUnauthorized, `{"error":"invalid_client"}`, true},
+		{"503 invalid_grant", http.StatusServiceUnavailable, `{"error":"invalid_grant","error_description":"spent"}`, true},
+		{"503 server_error", http.StatusServiceUnavailable, `{"error":"server_error"}`, false},
+		{"500 empty body", http.StatusInternalServerError, ``, false},
+		{"400 invalid_request", http.StatusBadRequest, `{"error":"invalid_request"}`, false},
+		{"400 not json", http.StatusBadRequest, `<html>bad request</html>`, false},
+		{"401 no error field", http.StatusUnauthorized, `{"message":"unauthorized"}`, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			fx := NewSandbox(t)
+			srv := testapi.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(tc.status)
+				_, _ = w.Write([]byte(tc.body))
+			}))
+			t.Cleanup(srv.Close)
 
-	entry := &tapper.AuthEntry{RefreshToken: "spent", ClientID: "tapper-cli", TokenEndpoint: srv.URL}
-	_, err := tapper.RefreshHubToken(fx.Context(), fx.Runtime(), "https://hub", entry)
-	require.Error(t, err)
+			entry := &tapper.AuthEntry{RefreshToken: "rt", ClientID: "tapper-cli", TokenEndpoint: srv.URL}
+			next, err := tapper.RefreshHubToken(fx.Context(), fx.Runtime(), "https://hub", entry)
+			require.Error(t, err)
+			require.Nil(t, next)
+			require.Equal(t, tc.rejected, errors.Is(err, tapper.ErrRefreshRejected), "err: %v", err)
+		})
+	}
 }
 
 func TestRefreshHubToken_NoRefreshTokenErrors(t *testing.T) {

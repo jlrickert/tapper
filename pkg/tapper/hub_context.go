@@ -63,9 +63,10 @@ type hubContextKeg struct {
 }
 
 // getHubContext calls GET /api/v1/context. flight, when non-empty, is an
-// @namespace/+slug ref, or a bare +slug the Hub resolves in the caller's
-// personal namespace; a flight the Hub cannot load comes back in
-// FlightError, not as a failure.
+// @namespace/+slug ref, or a bare +slug the Hub resolves among the flights
+// GET /api/v1/flights lists for the caller: one match is that flight, none
+// is not found, and several are ambiguous. A flight the Hub cannot load or
+// resolve comes back in FlightError, not as a failure.
 // A 404 wraps errHubContextUnsupported.
 func getHubContext(ctx context.Context, hubURL, token, flight string) (*hubContextResponse, error) {
 	base, err := normalizeHubURL(hubURL)

@@ -15,7 +15,52 @@ import (
 	"time"
 )
 
-const Revision = "2026-10-12"
+// Revision is the contract this build speaks: the revision a client sends
+// on every REST request and the newest one a Hub serves.
+const Revision = "2026-10-17"
+
+// previousRevisions are older revisions a Hub still accepts, so released
+// clients keep working through an upgrade. 2026-10-12 differs from
+// 2026-10-17 only in POST /api/v1/@{ns}/kegs/{alias}/archive/restore, which
+// 2026-10-17 answers with 202 and a job instead of 200 {imported,removed}.
+// A handler whose behavior changed between revisions reads the negotiated
+// one with RequestRevision and must not serve the new behavior to a request
+// made under an older revision.
+var previousRevisions = []string{"2026-10-12"}
+
+// SupportedRevisions lists every revision a Hub accepts, newest first. The
+// slice is a fresh copy on each call.
+func SupportedRevisions() []string {
+	return append([]string{Revision}, previousRevisions...)
+}
+
+func supported(rev string) bool {
+	if rev == Revision {
+		return true
+	}
+	for _, old := range previousRevisions {
+		if rev == old {
+			return true
+		}
+	}
+	return false
+}
+
+type revisionKey struct{}
+
+// RequestRevision reports the contract revision Middleware accepted for the
+// request carrying ctx, or "" when the request did not pass the REST gate.
+func RequestRevision(ctx context.Context) string {
+	rev, _ := ctx.Value(revisionKey{}).(string)
+	return rev
+}
+
+// WithRequestRevision returns ctx recording rev as the negotiated revision,
+// as Middleware does for every accepted REST request. Tests of handlers that
+// answer per revision use it to stand in for the gate.
+func WithRequestRevision(ctx context.Context, rev string) context.Context {
+	return context.WithValue(ctx, revisionKey{}, rev)
+}
 const VersionHeader = "Tapper-API-Version"
 const ClientHeader = "Tapper-Client-Version"
 const Required = "API_VERSION_REQUIRED"
@@ -52,14 +97,15 @@ func failure(code, message, server string, requested, supported []string) *Compa
 	return &CompatibilityError{Message: message, Code: code, Requested: requested, Supported: supported, ServerVersion: server}
 }
 
-// Validate accepts exactly one unmodified contract revision header value.
+// Validate accepts exactly one unmodified contract revision header value
+// naming one of SupportedRevisions.
 func Validate(h http.Header, server string) *CompatibilityError {
 	values := h.Values(VersionHeader)
 	if len(values) == 0 {
-		return failure(Required, "send "+VersionHeader+": "+Revision, server, values, []string{Revision})
+		return failure(Required, "send "+VersionHeader+": "+Revision, server, values, SupportedRevisions())
 	}
-	if len(values) != 1 || values[0] != Revision {
-		return failure(Unsupported, "unsupported REST contract; upgrade Tapper and Hub together", server, values, []string{Revision})
+	if len(values) != 1 || !supported(values[0]) {
+		return failure(Unsupported, "unsupported REST contract; upgrade Tapper and Hub together", server, values, SupportedRevisions())
 	}
 	return nil
 }
@@ -78,13 +124,15 @@ func LogFailure(ctx context.Context, logger *slog.Logger, level slog.Level, clie
 
 // Middleware gates all /api/v1 paths, including unknown operations, before auth.
 // Discovery is build-only and remains usable when database services are down.
+// An accepted request carries its revision in the response header and in its
+// context (RequestRevision).
 func Middleware(server string, logger *slog.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.URL.Path == "/api/version" && r.Method == http.MethodGet {
 				w.Header().Set("Cache-Control", "no-store")
 				w.Header().Set("Content-Type", "application/json")
-				_ = json.NewEncoder(w).Encode(Discovery{server, []string{Revision}})
+				_ = json.NewEncoder(w).Encode(Discovery{server, SupportedRevisions()})
 				return
 			}
 			if r.URL.Path == "/api/v1" || strings.HasPrefix(r.URL.Path, "/api/v1/") {
@@ -96,7 +144,9 @@ func Middleware(server string, logger *slog.Logger) func(http.Handler) http.Hand
 					_ = json.NewEncoder(w).Encode(err)
 					return
 				}
-				w.Header().Set(VersionHeader, Revision)
+				rev := r.Header.Get(VersionHeader)
+				w.Header().Set(VersionHeader, rev)
+				r = r.WithContext(WithRequestRevision(r.Context(), rev))
 			}
 			next.ServeHTTP(w, r)
 		})

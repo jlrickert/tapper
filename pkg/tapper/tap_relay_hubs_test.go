@@ -283,14 +283,14 @@ func TestRelayRunsWithOnlyBuiltins(t *testing.T) {
 }
 
 // relayTokenWith seeds an expired, refreshable login for a hub whose token
-// endpoint answers with status (and a rotated pair on 200), then resolves
-// the relay's token for that hub.
-func relayTokenWith(t *testing.T, status int) (string, error) {
+// endpoint answers with status and body (and a rotated pair on 200), then
+// resolves the relay's token for that hub.
+func relayTokenWith(t *testing.T, status int, body string) (string, error) {
 	t.Helper()
 	srv := testapi.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if status != http.StatusOK {
 			w.WriteHeader(status)
-			_, _ = w.Write([]byte(`{"error":"invalid_grant"}`))
+			_, _ = w.Write([]byte(body))
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -319,13 +319,25 @@ func relayTokenWith(t *testing.T, status int) (string, error) {
 // expired token: the hub would reject the dial, and the relay treats that
 // rejection as final.
 func TestRelayTokenRetriesWhenRefreshFails(t *testing.T) {
-	token, err := relayTokenWith(t, http.StatusServiceUnavailable)
-	require.Error(t, err, "a transient refresh failure is an error the relay retries")
-	require.Empty(t, token)
+	cases := map[string]struct {
+		status int
+		body   string
+	}{
+		"503 server_error":    {http.StatusServiceUnavailable, `{"error":"server_error"}`},
+		"400 invalid_request": {http.StatusBadRequest, `{"error":"invalid_request"}`},
+		"400 not json":        {http.StatusBadRequest, `bad request`},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			token, err := relayTokenWith(t, tc.status, tc.body)
+			require.Error(t, err, "a transient refresh failure is an error the relay retries")
+			require.Empty(t, token)
+		})
+	}
 }
 
 func TestRelayTokenRefreshesExpiredLogin(t *testing.T) {
-	token, err := relayTokenWith(t, http.StatusOK)
+	token, err := relayTokenWith(t, http.StatusOK, "")
 	require.NoError(t, err)
 	require.Equal(t, "thub_fresh000000", token)
 }
@@ -333,7 +345,7 @@ func TestRelayTokenRefreshesExpiredLogin(t *testing.T) {
 // A refresh token the hub refused is a lost sign-in, not something to retry:
 // the relay dials with what it has and the hub's 401 stops it.
 func TestRelayTokenStopsRetryingWhenRefreshIsRejected(t *testing.T) {
-	token, err := relayTokenWith(t, http.StatusBadRequest)
+	token, err := relayTokenWith(t, http.StatusBadRequest, `{"error":"invalid_grant"}`)
 	require.NoError(t, err)
 	require.Equal(t, "thub_expired0000", token)
 }

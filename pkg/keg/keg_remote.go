@@ -1050,7 +1050,9 @@ func (k *RemoteKeg) ExportNodes(ctx context.Context, opts ExportNodesOptions) (i
 }
 
 // ImportNodes implements Keg via POST /archive, streaming r as the request
-// body.
+// body. A Tapper Hub has no such route: it answers 404 or 405, which reads
+// as ErrNotSupported pointing at the hub's archive restore, the hub's way to
+// load an archive into a keg.
 func (k *RemoteKeg) ImportNodes(ctx context.Context, r io.Reader, opts ImportNodesOptions) ([]ImportedNode, error) {
 	q := url.Values{}
 	if opts.AssignNewIDs {
@@ -1080,6 +1082,12 @@ func (k *RemoteKeg) ImportNodes(ctx context.Context, r io.Reader, opts ImportNod
 	resp, err := k.do(ctx, http.MethodPost, path, r, contentType, nil)
 	if err != nil {
 		return nil, err
+	}
+	if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusMethodNotAllowed {
+		_ = resp.Body.Close()
+		return nil, fmt.Errorf("archive import into %s: %w: this hub does not accept archive imports; "+
+			"restore the archive on the hub instead (POST %s/archive/restore, which replaces the keg's contents)",
+			k.baseURL, ErrNotSupported, k.baseURL)
 	}
 	body, err := k.readBody(resp, "ImportNodes", http.StatusOK, http.StatusCreated)
 	if err != nil {
