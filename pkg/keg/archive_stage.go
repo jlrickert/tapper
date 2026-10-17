@@ -128,6 +128,11 @@ type ArchiveStageStats struct {
 	CompressedBytes int64
 	// Nodes is the number of nodes the manifest lists.
 	Nodes int
+	// Complete reports that the manifest says the archive carries the whole
+	// keg (with_settings, or the legacy with_config spelling). An archive
+	// exported with a node selection, a query, or without node 0 is not
+	// complete and cannot replace a keg.
+	Complete bool
 }
 
 // countingReader counts bytes read and fails once more than max are read.
@@ -152,6 +157,34 @@ func (c *countingReader) Read(p []byte) (int, error) {
 	return n, err
 }
 
+// archiveSinkError marks a failure writing to StageArchive's destination, so
+// it is not mistaken for an unreadable archive.
+type archiveSinkError struct{ err error }
+
+func (e *archiveSinkError) Error() string { return e.err.Error() }
+func (e *archiveSinkError) Unwrap() error { return e.err }
+
+// sinkWriter tags every write error from w as an *archiveSinkError.
+type sinkWriter struct{ w io.Writer }
+
+func (s sinkWriter) Write(p []byte) (int, error) {
+	n, err := s.w.Write(p)
+	if err != nil {
+		err = &archiveSinkError{err: err}
+	}
+	return n, err
+}
+
+// sinkFailure returns the destination's own error when err came from writing
+// to it.
+func sinkFailure(err error) (error, bool) {
+	var sinkErr *archiveSinkError
+	if errors.As(err, &sinkErr) {
+		return sinkErr.Unwrap(), true
+	}
+	return nil, false
+}
+
 // StageArchive reads a keg-archive from r, gzip or plain tar, and writes it to
 // w as a normalized plain tar that import can index by offset. Directory
 // entries are dropped and names are slash-normalized; every other entry,
@@ -161,7 +194,8 @@ func (c *countingReader) Read(p []byte) (int, error) {
 // StageArchive rejects unsafe entry names and checks lim while streaming, and
 // it requires a keg-archive/v3 manifest. Memory use is bounded by the
 // manifest, not by the archive. A rejected archive returns an error wrapping
-// ErrInvalid or ErrArchiveTooLarge; w may hold a partial tar.
+// ErrInvalid or ErrArchiveTooLarge; w may hold a partial tar. A failure
+// writing to w is returned as is.
 func StageArchive(ctx context.Context, r io.Reader, w io.Writer, lim ArchiveLimits) (ArchiveStageStats, error) {
 	var stats ArchiveStageStats
 	compressed := &countingReader{r: r}
@@ -180,7 +214,7 @@ func StageArchive(ctx context.Context, r io.Reader, w io.Writer, lim ArchiveLimi
 		tarStream = gz
 	}
 
-	aw := newArchiveWriter(w, lim)
+	aw := newArchiveWriter(sinkWriter{w: w}, lim)
 	tr := tar.NewReader(tarStream)
 	var manifest []byte
 	for {
@@ -213,11 +247,17 @@ func StageArchive(ctx context.Context, r io.Reader, w io.Writer, lim ArchiveLimi
 			}
 			manifest = buf.Bytes()
 			if err := aw.writeAdmitted(name, manifest); err != nil {
+				if sinkErr, ok := sinkFailure(err); ok {
+					return stats, sinkErr
+				}
 				return stats, err
 			}
 			continue
 		}
 		if err := aw.copyFile(name, header.Size, tr); err != nil {
+			if sinkErr, ok := sinkFailure(err); ok {
+				return stats, sinkErr
+			}
 			var limitErr *ArchiveLimitError
 			if errors.As(err, &limitErr) {
 				return stats, err
@@ -226,6 +266,9 @@ func StageArchive(ctx context.Context, r io.Reader, w io.Writer, lim ArchiveLimi
 		}
 	}
 	if err := aw.close(); err != nil {
+		if sinkErr, ok := sinkFailure(err); ok {
+			return stats, sinkErr
+		}
 		return stats, err
 	}
 	// The tar can end, and the loop with it, before a limit error from the
@@ -238,8 +281,10 @@ func StageArchive(ctx context.Context, r io.Reader, w io.Writer, lim ArchiveLimi
 		return stats, fmt.Errorf("archive manifest missing: %w", ErrInvalid)
 	}
 	var head struct {
-		Format string            `json:"format"`
-		Nodes  []json.RawMessage `json:"nodes"`
+		Format       string            `json:"format"`
+		WithSettings bool              `json:"with_settings"`
+		WithConfig   bool              `json:"with_config"`
+		Nodes        []json.RawMessage `json:"nodes"`
 	}
 	if err := json.Unmarshal(manifest, &head); err != nil {
 		return stats, fmt.Errorf("unable to parse archive manifest: %v: %w", err, ErrInvalid)
@@ -254,6 +299,7 @@ func StageArchive(ctx context.Context, r io.Reader, w io.Writer, lim ArchiveLimi
 		stats.CompressedBytes = compressed.n
 	}
 	stats.Nodes = len(head.Nodes)
+	stats.Complete = head.WithSettings || head.WithConfig
 	return stats, nil
 }
 

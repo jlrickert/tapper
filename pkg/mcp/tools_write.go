@@ -108,7 +108,7 @@ type createInput struct {
 	Keg   string            `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
 }
 type createNodeInput struct {
-	Key     string `json:"key" jsonschema:"caller-chosen label for this node within the batch, unique across the batch. Other nodes in the same batch link to it by writing {{node:KEY}} in their content; each placeholder is replaced with the id this node is assigned."`
+	Key     string `json:"key" jsonschema:"caller-chosen label for this node within the batch, unique across the batch. Other nodes in the same batch refer to it by writing {{node:KEY}} in their content; each placeholder is replaced with the bare id this node is assigned, so link to it as [Title](../{{node:KEY}}) (a placeholder that is the whole link target gets the ../ added)."`
 	Content string `json:"content" jsonschema:"the node's complete markdown body, opening with an H1 title. Must not start with a YAML frontmatter block: metadata goes in the meta field."`
 	Meta    string `json:"meta,omitempty" jsonschema:"the node's complete metadata document as YAML, including keys such as type, tags, and any schema-defined attributes. Omit for no metadata."`
 	Schema  string `json:"schema,omitempty" jsonschema:"schema selected for this write: a type name such as task, one of the types schema_list returns, never a description. Writes meta.type; a different type declared in meta is a hard error, not an override. Required on a strict keg (the default for new kegs), where type in meta alone does not count as a selection."`
@@ -136,7 +136,7 @@ func registerCreate(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 			"Each node is a markdown content document plus an optional YAML metadata document. " +
 			"content must not begin with a YAML frontmatter block — metadata goes in meta. " +
 			"A node's title is its content H1 and its lead is the first paragraph, so there are no separate title, lead, tags, or attrs fields. " +
-			"Nodes in one batch can reference each other's not-yet-assigned ids by writing {{node:KEY}} in content. " +
+			"Nodes in one batch can reference each other's not-yet-assigned ids by writing {{node:KEY}} in content: it becomes the bare id, so a link is [Title](../{{node:KEY}}) and a cross-KEG reference keg:@namespace/keg/{{node:KEY}}. " +
 			"On a strict keg (the default for new kegs) every node needs schema, and type in meta alone does not count; call schema_list once per keg before the first write to learn its types.",
 		InputSchema: boundedMutationInputSchema[createInput]("nodes"),
 		Annotations: &sdkmcp.ToolAnnotations{

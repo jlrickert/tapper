@@ -1,5 +1,12 @@
 package testapi
 
+// The Hub resolves GET /api/v1/context?flight= the way Tapper's orient does.
+// A qualified @namespace/+slug names one flight. A bare +slug is matched
+// against every flight the user can read (the list GET /api/v1/flights
+// returns), not only the personal namespace: exactly one match resolves to
+// it, none answers HubContextFlightNotFound, and several answer
+// HubContextFlightAmbiguous.
+
 // HubContextWork is a GET /api/v1/context body in the shape tapper-hub serves
 // (its handler.ContextResponse, documented in tapper-hub's
 // docs/tapper-hub-api-v1.md), for user jared and flight @foldwise/+work. The
@@ -48,6 +55,20 @@ const HubContextFlightNotFound = `{
   "user": {"user_id": 1, "username": "jared", "default_namespace": "foldwise"},
   "flight": null,
   "flight_error": "flight not found",
+  "kegs": [
+    {"ref": "@foldwise/dev", "namespace": "foldwise", "alias": "dev", "title": "Development",
+     "description": "", "visibility": "private", "keg_version": "", "role": "admin",
+     "flight_cap": "", "effective_role": "admin"}
+  ]
+}`
+
+// HubContextFlightAmbiguous is the answer to a bare +work when the user can
+// read more than one flight with that slug: still 200, with flight null and
+// the same reason orient gives when it resolves the slug itself.
+const HubContextFlightAmbiguous = `{
+  "user": {"user_id": 1, "username": "jared", "default_namespace": "foldwise"},
+  "flight": null,
+  "flight_error": "flight \"+work\" is ambiguous; use @namespace/+work",
   "kegs": [
     {"ref": "@foldwise/dev", "namespace": "foldwise", "alias": "dev", "title": "Development",
      "description": "", "visibility": "private", "keg_version": "", "role": "admin",

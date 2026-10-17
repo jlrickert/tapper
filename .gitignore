@@ -60,6 +60,8 @@ __pycache__/
 
 node_modules
 
+graphify-out
+
 # Local scratch task notes — never tracked
 task.md
 TASK.md

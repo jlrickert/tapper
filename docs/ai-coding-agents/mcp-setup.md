@@ -112,7 +112,7 @@ explicitly configured root failed to initialize.
 
 | Tool | Description |
 | --- | --- |
-| `node_create` | Atomically create 1–100 nodes from `nodes[]`, each a markdown `content` document plus an optional YAML `meta` document; unique keys support forward/backward `{{node:key}}` content references |
+| `node_create` | Atomically create 1–100 nodes from `nodes[]`, each a markdown `content` document plus an optional YAML `meta` document; unique keys support forward/backward `{{node:key}}` content references, each replaced with the bare id, so a link is `[Title](../{{node:key}})` (a placeholder that is a whole link target gets the `../` added) |
 | `node_edit` | Read with `node_read`, then atomically replace `content` (or apply a `patch`), `meta`, or both for 1–100 nodes from `nodes[]`; supplied `content` or `patch` requires `expected_content_hash` (the read's `content_hash`) and supplied `meta` requires `expected_meta_hash` (its `meta_hash`); editing one part never invalidates the other's hash |
 | `node_delete` | Read with `node_read`, then atomically delete 1–100 `nodes[]`; every item requires its own `expected_hash` (the combined `hash` from `node_read`) |
 | `node_move` | Read with `node_read`, then move a node using its required `expected_hash` (the combined `hash` from `node_read`) |

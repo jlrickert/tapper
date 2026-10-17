@@ -3,12 +3,17 @@ package tapper
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -31,8 +36,23 @@ const (
 	// invocationTelemetrySpoolLimit bounds the spool; the oldest events are
 	// dropped first.
 	invocationTelemetrySpoolLimit = 500
-	invocationTelemetrySpoolFile  = "telemetry-spool.json"
+	// invocationTelemetrySpoolDir holds one spool directory per destination
+	// (hub and account), so events are only ever resent where they belong.
+	invocationTelemetrySpoolDir = "telemetry-spool"
+	// invocationTelemetryLegacySpoolFile is the single shared spool file of
+	// earlier releases. Its events carry no destination, so it is deleted
+	// unsent.
+	invocationTelemetryLegacySpoolFile = "telemetry-spool.json"
+	// invocationTelemetryClaimMarker separates a spool file's name from the
+	// claim suffix a reporter adds when it takes the file.
+	invocationTelemetryClaimMarker = ".claimed-"
+	// invocationTelemetryStaleClaim is how long a claimed file may linger
+	// before it is treated as left behind by a crashed process.
+	invocationTelemetryStaleClaim = 24 * time.Hour
 )
+
+// invocationSpoolSeq keeps spool file names unique within one process.
+var invocationSpoolSeq atomic.Uint64
 
 // InvocationEvent is the privacy-minimized shape accepted by the Tapper Hub
 // invocation telemetry endpoint. Callers must set exactly one of Command or
@@ -79,10 +99,10 @@ type httpInvocationReporter struct {
 	sendCtx    context.Context
 	cancelSend context.CancelFunc
 
-	// rt and spoolPath locate the spool. An empty spoolPath disables it:
-	// unsent events are then dropped at Close.
-	rt        *toolkit.Runtime
-	spoolPath string
+	// rt and spoolDir locate this destination's spool. An empty spoolDir
+	// disables it: unsent events are then dropped at Close.
+	rt       *toolkit.Runtime
+	spoolDir string
 	// spooled holds the previous process's events, sent at startup.
 	spooled []InvocationEvent
 
@@ -101,7 +121,7 @@ type httpInvocationReporter struct {
 
 type invocationReporterOptions struct {
 	rt             *toolkit.Runtime
-	spoolPath      string
+	spoolDir       string
 	contract       *apicontract.Session
 	client         *http.Client
 	queueSize      int
@@ -115,29 +135,55 @@ type invocationReporterOptions struct {
 // existing AuthStore token. It returns nil when telemetry is disabled or the
 // client is not bootstrapped, authenticated, or configured with a remote hub.
 func NewInvocationReporter(rt *toolkit.Runtime, configService *ConfigService, version string, sessions ...*apicontract.Session) InvocationReporter {
-	endpoint, token, ok := resolveInvocationTelemetryTarget(rt, configService)
+	endpoint, token, key, ok := resolveInvocationTelemetryTarget(rt, configService)
 	if !ok {
 		return nil
+	}
+	if legacy := invocationTelemetryLegacySpoolPath(configService); legacy != "" {
+		_ = rt.Remove(legacy, false)
 	}
 	session := apicontract.NewSession(version, rt.Logger())
 	if len(sessions) > 0 && sessions[0] != nil {
 		session = sessions[0]
 	}
 	return newHTTPInvocationReporter(endpoint, token, version, invocationReporterOptions{
-		rt:        rt,
-		spoolPath: invocationTelemetrySpoolPath(configService),
-		contract:  session,
-		agent:     resolveTelemetryAgent(configService),
+		rt:       rt,
+		spoolDir: invocationTelemetrySpoolDirFor(configService, key),
+		contract: session,
+		agent:    resolveTelemetryAgent(configService),
 	})
 }
 
-// invocationTelemetrySpoolPath places the spool beside the auth store under
-// StateRoot. It holds events only, never credentials.
-func invocationTelemetrySpoolPath(configService *ConfigService) string {
+// invocationTelemetrySpoolDirFor places a destination's spool beside the auth
+// store under StateRoot. It holds events only, never credentials; key names
+// the destination without revealing it.
+func invocationTelemetrySpoolDirFor(configService *ConfigService, key string) string {
+	if configService == nil || configService.PathService == nil || key == "" {
+		return ""
+	}
+	return filepath.Join(configService.PathService.StateRoot, invocationTelemetrySpoolDir, key)
+}
+
+func invocationTelemetryLegacySpoolPath(configService *ConfigService) string {
 	if configService == nil || configService.PathService == nil {
 		return ""
 	}
-	return filepath.Join(configService.PathService.StateRoot, invocationTelemetrySpoolFile)
+	return filepath.Join(configService.PathService.StateRoot, invocationTelemetryLegacySpoolFile)
+}
+
+// invocationTelemetryKey identifies where spooled events may be sent: the
+// hub and the account signed in to it. AuthEntry has no account id, so the
+// credential stands in: a refresh token survives access-token renewals, and
+// a pasted API token is its own identity. A new login or another hub yields
+// another key, so events are never sent to a destination that did not
+// produce them.
+func invocationTelemetryKey(hubURL string, entry *AuthEntry) string {
+	credential := entry.RefreshToken
+	if strings.TrimSpace(credential) == "" {
+		credential = entry.AccessToken
+	}
+	sum := sha256.Sum256([]byte(CanonicalHubURL(hubURL) + "\n" + credential))
+	return hex.EncodeToString(sum[:])[:16]
 }
 
 // resolveTelemetryAgent reads the launching harness from the merged config,
@@ -154,32 +200,34 @@ func resolveTelemetryAgent(configService *ConfigService) string {
 	return cfg.LaunchHarness()
 }
 
-func resolveInvocationTelemetryTarget(rt *toolkit.Runtime, configService *ConfigService) (string, string, bool) {
+// resolveInvocationTelemetryTarget returns the endpoint, the bearer token,
+// and the spool identity key (see invocationTelemetryKey).
+func resolveInvocationTelemetryTarget(rt *toolkit.Runtime, configService *ConfigService) (endpoint, token, key string, ok bool) {
 	if rt == nil || configService == nil || !configService.UserConfigExists() {
-		return "", "", false
+		return "", "", "", false
 	}
 	if parseEnvBool(rt.Env().Get("TAP_DISABLE_TELEMETRY")) {
-		return "", "", false
+		return "", "", "", false
 	}
 
 	cfg, err := configService.Config()
 	if err != nil || cfg == nil || cfg.DisableTelemetry() {
-		return "", "", false
+		return "", "", "", false
 	}
 
 	hubURL, err := ResolveLoginHubURL(cfg, "")
 	if err != nil || strings.TrimSpace(hubURL) == "" {
-		return "", "", false
+		return "", "", "", false
 	}
 	store, err := LoadAuthStore(context.Background(), rt, configService.PathService.AuthStorePath())
 	if err != nil {
-		return "", "", false
+		return "", "", "", false
 	}
-	entry, ok := store.Get(hubURL)
-	if !ok || strings.TrimSpace(entry.AccessToken) == "" {
-		return "", "", false
+	entry, found := store.Get(hubURL)
+	if !found || strings.TrimSpace(entry.AccessToken) == "" {
+		return "", "", "", false
 	}
-	return strings.TrimRight(hubURL, "/") + "/api/v1/telemetry/invocations", entry.AccessToken, true
+	return strings.TrimRight(hubURL, "/") + "/api/v1/telemetry/invocations", entry.AccessToken, invocationTelemetryKey(hubURL, entry), true
 }
 
 func newHTTPInvocationReporter(endpoint, token, version string, opts invocationReporterOptions) *httpInvocationReporter {
@@ -206,7 +254,7 @@ func newHTTPInvocationReporter(endpoint, token, version string, opts invocationR
 		sendCtx:        sendCtx,
 		cancelSend:     cancelSend,
 		rt:             opts.rt,
-		spoolPath:      opts.spoolPath,
+		spoolDir:       opts.spoolDir,
 		endpoint:       endpoint,
 		token:          token,
 		version:        version,
@@ -343,42 +391,129 @@ func (r *httpInvocationReporter) keepUnsent(events []InvocationEvent) {
 	}
 }
 
-// takeSpool reads and removes the previous process's spool. Any problem
-// reading it just means there is nothing to resend.
+// takeSpool claims and removes every spooled file for this destination. A
+// file is claimed by renaming it, so when several processes start at once
+// each file goes to exactly one of them. Any problem reading the spool just
+// means there is nothing to resend.
 func (r *httpInvocationReporter) takeSpool() []InvocationEvent {
-	if r.rt == nil || r.spoolPath == "" {
+	if r.rt == nil || r.spoolDir == "" {
 		return nil
 	}
-	events := readInvocationSpool(r.rt, r.spoolPath)
-	if len(events) > 0 {
-		_ = r.rt.Remove(r.spoolPath, false)
+	entries, err := r.rt.ReadDir(r.spoolDir)
+	if err != nil {
+		return nil
+	}
+	now := r.rt.Clock().Now()
+	names := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if claimedAt, ok := invocationSpoolClaimTime(name); ok {
+			if now.Sub(claimedAt) > invocationTelemetryStaleClaim {
+				_ = r.rt.Remove(filepath.Join(r.spoolDir, name), false)
+			}
+			continue
+		}
+		if strings.HasSuffix(name, ".json") {
+			names = append(names, name)
+		}
+	}
+	slices.Sort(names)
+
+	var events []InvocationEvent
+	for _, name := range names {
+		path := filepath.Join(r.spoolDir, name)
+		claimed := fmt.Sprintf("%s%s%d-%d", path, invocationTelemetryClaimMarker, now.UnixNano(), r.pid())
+		if err := r.rt.Rename(path, claimed); err != nil {
+			// Another process claimed it first.
+			continue
+		}
+		events = append(events, readInvocationSpool(r.rt, claimed)...)
+		_ = r.rt.Remove(claimed, false)
 	}
 	return events
 }
 
-// writeSpool appends the unsent events to the spool, keeping the newest
-// invocationTelemetrySpoolLimit. A disabled reporter writes nothing: the Hub
-// will not accept those events from this client.
+// invocationSpoolClaimTime reports when a claimed spool file was claimed.
+func invocationSpoolClaimTime(name string) (time.Time, bool) {
+	i := strings.LastIndex(name, invocationTelemetryClaimMarker)
+	if i < 0 {
+		return time.Time{}, false
+	}
+	stamp, _, _ := strings.Cut(name[i+len(invocationTelemetryClaimMarker):], "-")
+	nanos, err := strconv.ParseInt(stamp, 10, 64)
+	if err != nil {
+		// Unparseable: treat it as ancient so it is cleaned up.
+		return time.Time{}, true
+	}
+	return time.Unix(0, nanos), true
+}
+
+func (r *httpInvocationReporter) pid() int {
+	if p := r.rt.Process(); p != nil {
+		return p.PID
+	}
+	return 0
+}
+
+// writeSpool writes the unsent events to a new file of their own, so
+// concurrent processes never read-modify-write a shared file, then prunes
+// the oldest files so the spool keeps at most invocationTelemetrySpoolLimit
+// events. A disabled reporter writes nothing: the Hub will not accept those
+// events from this client.
 func (r *httpInvocationReporter) writeSpool() {
-	if r.rt == nil || r.spoolPath == "" || len(r.unsent) == 0 || r.disabled.Load() {
+	if r.rt == nil || r.spoolDir == "" || len(r.unsent) == 0 || r.disabled.Load() {
 		return
 	}
-	events := append(readInvocationSpool(r.rt, r.spoolPath), r.unsent...)
-	if len(events) > invocationTelemetrySpoolLimit {
-		events = events[len(events)-invocationTelemetrySpoolLimit:]
-	}
-	data, err := json.Marshal(events)
+	data, err := json.Marshal(r.unsent)
 	if err != nil {
 		return
 	}
-	if parent := filepath.Dir(r.spoolPath); parent != "" {
-		if _, err := r.rt.Stat(parent, false); errors.Is(err, os.ErrNotExist) {
-			if err := r.rt.Mkdir(parent, 0o700, true); err != nil {
-				return
-			}
+	if _, err := r.rt.Stat(r.spoolDir, false); errors.Is(err, os.ErrNotExist) {
+		if err := r.rt.Mkdir(r.spoolDir, 0o700, true); err != nil {
+			return
 		}
 	}
-	_ = r.rt.AtomicWriteFile(r.spoolPath, data, 0o600)
+	name := fmt.Sprintf("%020d-%d-%d.json", r.rt.Clock().Now().UnixNano(), r.pid(), invocationSpoolSeq.Add(1))
+	if err := r.rt.AtomicWriteFile(filepath.Join(r.spoolDir, name), data, 0o600); err != nil {
+		return
+	}
+	r.pruneSpool()
+}
+
+// pruneSpool drops the oldest spool files, by name, until the rest hold at
+// most invocationTelemetrySpoolLimit events. Whole files go, never part of
+// one, so a file another process is claiming is never rewritten.
+func (r *httpInvocationReporter) pruneSpool() {
+	entries, err := r.rt.ReadDir(r.spoolDir)
+	if err != nil {
+		return
+	}
+	var names []string
+	for _, entry := range entries {
+		name := entry.Name()
+		if !entry.IsDir() && strings.HasSuffix(name, ".json") && !strings.Contains(name, invocationTelemetryClaimMarker) {
+			names = append(names, name)
+		}
+	}
+	slices.Sort(names)
+	total := 0
+	for i := len(names) - 1; i >= 0; i-- {
+		path := filepath.Join(r.spoolDir, names[i])
+		if total >= invocationTelemetrySpoolLimit {
+			_ = r.rt.Remove(path, false)
+			continue
+		}
+		n := len(readInvocationSpool(r.rt, path))
+		if total+n > invocationTelemetrySpoolLimit {
+			_ = r.rt.Remove(path, false)
+			total = invocationTelemetrySpoolLimit
+			continue
+		}
+		total += n
+	}
 }
 
 func readInvocationSpool(rt *toolkit.Runtime, path string) []InvocationEvent {

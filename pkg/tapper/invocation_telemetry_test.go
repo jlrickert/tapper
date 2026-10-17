@@ -3,11 +3,13 @@ package tapper
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -45,7 +47,7 @@ func TestResolveInvocationTelemetryTargetDefaultOnAndOptOut(t *testing.T) {
 
 	t.Run("default on", func(t *testing.T) {
 		fx, tap := telemetryTargetFixture(t, base)
-		endpoint, token, ok := resolveInvocationTelemetryTarget(fx.Runtime(), tap.ConfigService)
+		endpoint, token, _, ok := resolveInvocationTelemetryTarget(fx.Runtime(), tap.ConfigService)
 		require.True(t, ok)
 		require.Equal(t, "https://hub.example.com/api/v1/telemetry/invocations", endpoint)
 		require.Equal(t, "stored-token", token)
@@ -53,14 +55,14 @@ func TestResolveInvocationTelemetryTargetDefaultOnAndOptOut(t *testing.T) {
 
 	t.Run("user config opt out", func(t *testing.T) {
 		fx, tap := telemetryTargetFixture(t, "disableTelemetry: true\n"+base)
-		_, _, ok := resolveInvocationTelemetryTarget(fx.Runtime(), tap.ConfigService)
+		_, _, _, ok := resolveInvocationTelemetryTarget(fx.Runtime(), tap.ConfigService)
 		require.False(t, ok)
 	})
 
 	t.Run("environment opt out", func(t *testing.T) {
 		fx, tap := telemetryTargetFixture(t, base)
 		require.NoError(t, fx.Runtime().Env().Set("TAP_DISABLE_TELEMETRY", "1"))
-		_, _, ok := resolveInvocationTelemetryTarget(fx.Runtime(), tap.ConfigService)
+		_, _, _, ok := resolveInvocationTelemetryTarget(fx.Runtime(), tap.ConfigService)
 		require.False(t, ok)
 	})
 
@@ -69,7 +71,7 @@ func TestResolveInvocationTelemetryTargetDefaultOnAndOptOut(t *testing.T) {
 		projectConfig := "/home/testuser/.tapper/config.yaml"
 		require.NoError(t, fx.Runtime().Mkdir("/home/testuser/.tapper", 0o755, true))
 		require.NoError(t, fx.Runtime().AtomicWriteFile(projectConfig, []byte("hub: attacker\n"), 0o644))
-		endpoint, _, ok := resolveInvocationTelemetryTarget(fx.Runtime(), tap.ConfigService)
+		endpoint, _, _, ok := resolveInvocationTelemetryTarget(fx.Runtime(), tap.ConfigService)
 		require.False(t, ok)
 		require.Empty(t, endpoint)
 	})
@@ -79,17 +81,17 @@ func TestResolveInvocationTelemetryTargetSilentlySkipsUnavailableState(t *testin
 	fx := sandbox.NewSandbox(t, &sandbox.Options{Home: "/home/testuser", User: "testuser"})
 	tap, err := NewTap(TapOptions{Root: "/home/testuser", Runtime: fx.Runtime()})
 	require.NoError(t, err)
-	_, _, ok := resolveInvocationTelemetryTarget(fx.Runtime(), tap.ConfigService)
+	_, _, _, ok := resolveInvocationTelemetryTarget(fx.Runtime(), tap.ConfigService)
 	require.False(t, ok, "unbootstrapped client must skip")
 
 	require.NoError(t, fx.Runtime().AtomicWriteFile(tap.PathService.UserConfig(), []byte("hub: local\nhubs:\n  local: {}\n"), 0o644))
 	tap.ConfigService.Reload()
-	_, _, ok = resolveInvocationTelemetryTarget(fx.Runtime(), tap.ConfigService)
+	_, _, _, ok = resolveInvocationTelemetryTarget(fx.Runtime(), tap.ConfigService)
 	require.False(t, ok, "client whose selected hub has no URL must skip")
 
 	require.NoError(t, fx.Runtime().AtomicWriteFile(tap.PathService.UserConfig(), []byte("hub: remote\nhubs:\n  remote:\n    url: https://hub.example.com\n"), 0o644))
 	tap.ConfigService.Reload()
-	_, _, ok = resolveInvocationTelemetryTarget(fx.Runtime(), tap.ConfigService)
+	_, _, _, ok = resolveInvocationTelemetryTarget(fx.Runtime(), tap.ConfigService)
 	require.False(t, ok, "unauthenticated client must skip")
 }
 
@@ -267,24 +269,51 @@ func spoolFixture(t *testing.T) (*sandbox.Sandbox, string) {
 	fx := sandbox.NewSandbox(t, &sandbox.Options{Home: "/home/testuser", User: "testuser"})
 	tap, err := NewTap(TapOptions{Root: "/home/testuser", Runtime: fx.Runtime()})
 	require.NoError(t, err)
-	return fx, invocationTelemetrySpoolPath(tap.ConfigService)
+	return fx, invocationTelemetrySpoolDirFor(tap.ConfigService, "testkey")
 }
 
-func readSpoolForTest(t *testing.T, fx *sandbox.Sandbox, path string) []InvocationEvent {
+// spoolFilesForTest lists the unclaimed spool files in dir, oldest first.
+func spoolFilesForTest(t *testing.T, fx *sandbox.Sandbox, dir string) []string {
 	t.Helper()
-	raw, err := fx.Runtime().ReadFile(path)
+	entries, err := fx.Runtime().ReadDir(dir)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
 	require.NoError(t, err)
+	var names []string
+	for _, entry := range entries {
+		if strings.HasSuffix(entry.Name(), ".json") && !strings.Contains(entry.Name(), invocationTelemetryClaimMarker) {
+			names = append(names, entry.Name())
+		}
+	}
+	sort.Strings(names)
+	return names
+}
+
+// readSpoolForTest returns every event spooled in dir, oldest first.
+func readSpoolForTest(t *testing.T, fx *sandbox.Sandbox, dir string) []InvocationEvent {
+	t.Helper()
 	var events []InvocationEvent
-	require.NoError(t, json.Unmarshal(raw, &events))
+	for _, name := range spoolFilesForTest(t, fx, dir) {
+		raw, err := fx.Runtime().ReadFile(filepath.Join(dir, name))
+		require.NoError(t, err)
+		var batch []InvocationEvent
+		require.NoError(t, json.Unmarshal(raw, &batch))
+		events = append(events, batch...)
+	}
 	return events
 }
 
-func writeSpoolForTest(t *testing.T, fx *sandbox.Sandbox, path string, events []InvocationEvent) {
+var spoolTestSeq atomic.Int64
+
+// writeSpoolForTest adds one spool file holding events to dir.
+func writeSpoolForTest(t *testing.T, fx *sandbox.Sandbox, dir string, events []InvocationEvent) {
 	t.Helper()
 	raw, err := json.Marshal(events)
 	require.NoError(t, err)
-	require.NoError(t, fx.Runtime().Mkdir(filepath.Dir(path), 0o700, true))
-	require.NoError(t, fx.Runtime().AtomicWriteFile(path, raw, 0o600))
+	require.NoError(t, fx.Runtime().Mkdir(dir, 0o700, true))
+	name := fmt.Sprintf("%020d-test.json", spoolTestSeq.Add(1))
+	require.NoError(t, fx.Runtime().AtomicWriteFile(filepath.Join(dir, name), raw, 0o600))
 }
 
 func noContent() (*http.Response, error) {
@@ -302,7 +331,7 @@ func TestHTTPInvocationReporterCloseSpoolsInsteadOfWaiting(t *testing.T) {
 		return nil, req.Context().Err()
 	})}
 	r := newHTTPInvocationReporter("https://hub.example.com/api/v1/telemetry/invocations", "token", "test", invocationReporterOptions{
-		rt: fx.Runtime(), spoolPath: spool, client: client, batchSize: 1, flushInterval: time.Hour, requestTimeout: time.Minute,
+		rt: fx.Runtime(), spoolDir: spool, client: client, batchSize: 1, flushInterval: time.Hour, requestTimeout: time.Minute,
 	})
 	r.Report(InvocationEvent{Surface: "cli", Command: "tap first"})
 	<-started
@@ -334,7 +363,7 @@ func TestHTTPInvocationReporterSendsAndClearsSpool(t *testing.T) {
 		return noContent()
 	})}
 	r := newHTTPInvocationReporter("https://hub.example.com/api/v1/telemetry/invocations", "token", "test", invocationReporterOptions{
-		rt: fx.Runtime(), spoolPath: spool, client: client, flushInterval: time.Hour,
+		rt: fx.Runtime(), spoolDir: spool, client: client, flushInterval: time.Hour,
 	})
 
 	select {
@@ -348,8 +377,7 @@ func TestHTTPInvocationReporterSendsAndClearsSpool(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	r.Close(ctx)
-	_, err := fx.Runtime().Stat(spool, false)
-	require.ErrorIs(t, err, os.ErrNotExist, "a delivered spool is cleared")
+	require.Empty(t, spoolFilesForTest(t, fx, spool), "a delivered spool is cleared")
 }
 
 func TestHTTPInvocationReporterSpoolIsBounded(t *testing.T) {
@@ -363,7 +391,7 @@ func TestHTTPInvocationReporterSpoolIsBounded(t *testing.T) {
 		return &http.Response{StatusCode: http.StatusServiceUnavailable, Body: io.NopCloser(strings.NewReader("")), Header: make(http.Header)}, nil
 	})}
 	r := newHTTPInvocationReporter("https://hub.example.com/api/v1/telemetry/invocations", "token", "test", invocationReporterOptions{
-		rt: fx.Runtime(), spoolPath: spool, client: client, flushInterval: time.Hour,
+		rt: fx.Runtime(), spoolDir: spool, client: client, flushInterval: time.Hour,
 	})
 	for i := range 3 {
 		r.Report(InvocationEvent{Surface: "cli", Command: fmt.Sprintf("new-%d", i)})
@@ -381,15 +409,12 @@ func TestHTTPInvocationReporterSpoolIsBounded(t *testing.T) {
 func TestInvocationTelemetryDisabledLeavesSpoolAlone(t *testing.T) {
 	t.Run("opted out", func(t *testing.T) {
 		fx, tap := telemetryTargetFixture(t, "disableTelemetry: true\nhub: primary\nhubs:\n  primary:\n    url: https://hub.example.com\n")
-		spool := invocationTelemetrySpoolPath(tap.ConfigService)
+		spool := invocationTelemetrySpoolDirFor(tap.ConfigService, "testkey")
 		writeSpoolForTest(t, fx, spool, []InvocationEvent{{Surface: "cli", Command: "tap kept"}})
-		before, err := fx.Runtime().ReadFile(spool)
-		require.NoError(t, err)
+		before := readSpoolForTest(t, fx, spool)
 
 		require.Nil(t, NewInvocationReporter(fx.Runtime(), tap.ConfigService, "test"))
-		after, err := fx.Runtime().ReadFile(spool)
-		require.NoError(t, err)
-		require.Equal(t, before, after, "disabled telemetry neither sends nor rewrites the spool")
+		require.Equal(t, before, readSpoolForTest(t, fx, spool), "disabled telemetry neither sends nor rewrites the spool")
 	})
 
 	t.Run("rejected by the Hub", func(t *testing.T) {
@@ -398,7 +423,7 @@ func TestInvocationTelemetryDisabledLeavesSpoolAlone(t *testing.T) {
 			return &http.Response{StatusCode: http.StatusNotFound, Body: io.NopCloser(strings.NewReader("")), Header: make(http.Header)}, nil
 		})}
 		r := newHTTPInvocationReporter("https://old.example.com/api/v1/telemetry/invocations", "token", "test", invocationReporterOptions{
-			rt: fx.Runtime(), spoolPath: spool, client: client, batchSize: 1, flushInterval: time.Hour,
+			rt: fx.Runtime(), spoolDir: spool, client: client, batchSize: 1, flushInterval: time.Hour,
 		})
 		r.Report(InvocationEvent{Surface: "cli", Command: "tap first"})
 		require.Eventually(t, r.disabled.Load, time.Second, time.Millisecond)
@@ -406,7 +431,6 @@ func TestInvocationTelemetryDisabledLeavesSpoolAlone(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 		defer cancel()
 		r.Close(ctx)
-		_, err := fx.Runtime().Stat(spool, false)
-		require.ErrorIs(t, err, os.ErrNotExist, "a Hub that rejects telemetry gets no spool")
+		require.Empty(t, spoolFilesForTest(t, fx, spool), "a Hub that rejects telemetry gets no spool")
 	})
 }

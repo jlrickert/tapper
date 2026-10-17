@@ -853,6 +853,41 @@ func TestMCP_CreateBatchReturnsOrderedStructuredResults(t *testing.T) {
 	require.NotEmpty(t, structured.Results[1].Hash)
 }
 
+// Agents write a batch link as [Title]({{node:KEY}}); the stored link must be
+// ../ID or it never registers.
+func TestMCP_CreateBatchLinksBarePlaceholderTargets(t *testing.T) {
+	t.Parallel()
+	session, ctx := newTestSession(t)
+	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "node_create",
+		Arguments: map[string]any{"nodes": []any{
+			map[string]any{"key": "first", "content": "# First\n\n[Second]({{node:second}})\n"},
+			map[string]any{"key": "second", "content": "# Second\n"},
+		}},
+	})
+	require.NoError(t, err)
+	require.False(t, res.IsError, "batch create returned error: %s", extractText(t, res))
+	raw, err := json.Marshal(res.StructuredContent)
+	require.NoError(t, err)
+	var structured struct {
+		Results []struct {
+			NodeID string `json:"node_id"`
+		} `json:"results"`
+	}
+	require.NoError(t, json.Unmarshal(raw, &structured))
+	require.Len(t, structured.Results, 2)
+
+	read, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name:      "node_read",
+		Arguments: map[string]any{"node_ids": []any{structured.Results[0].NodeID}, "content_only": true},
+	})
+	require.NoError(t, err)
+	require.False(t, read.IsError, "node_read returned error: %s", extractText(t, read))
+	readRaw, err := json.Marshal(read.StructuredContent)
+	require.NoError(t, err)
+	require.Contains(t, string(readRaw), "[Second](../"+structured.Results[1].NodeID+")")
+}
+
 func TestMCP_CreateWithBody(t *testing.T) {
 	t.Parallel()
 	session, ctx := newTestSession(t)

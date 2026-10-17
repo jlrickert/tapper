@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
+	"strings"
 	"sync"
 	"testing"
 
@@ -44,8 +45,37 @@ var workEffectiveCover = []tapper.HubEffectiveKeg{
 	{Ref: "@foldwise/linked", Role: tapper.FlightRoleViewer, Source: "@foldwise/dev", Distance: 1},
 }
 
+// workFlight is the one flight named work the default mock Hub serves.
+var workFlight = tapper.HubFlight{
+	Namespace: "foldwise", Slug: "work", Title: "Work",
+	Cover: []tapper.HubFlightCover{{Namespace: "foldwise", Keg: "dev", Role: "editor"}},
+}
+
+type contextHubOptions struct {
+	serveContext   bool
+	flightNotFound bool
+	// flights is what the user can read, as GET /api/v1/flights lists it.
+	// Nil means just workFlight.
+	flights []tapper.HubFlight
+}
+
 func newContextHub(t *testing.T, serveContext, flightNotFound bool) (*contextHub, string) {
 	t.Helper()
+	return newContextHubWith(t, contextHubOptions{serveContext: serveContext, flightNotFound: flightNotFound})
+}
+
+// newContextHubWith serves a mock Hub. Its /api/v1/context resolves a bare
+// +slug the way the real Hub and orient do: across the flights the user can
+// read, so +work resolves to @foldwise/+work only because that is the user's
+// one readable flight named work, even though jared is the personal
+// namespace.
+func newContextHubWith(t *testing.T, opts contextHubOptions) (*contextHub, string) {
+	t.Helper()
+	flights := opts.flights
+	if flights == nil {
+		flights = []tapper.HubFlight{workFlight}
+	}
+	serveContext, flightNotFound := opts.serveContext, opts.flightNotFound
 	rec := &contextHub{}
 	srv := testapi.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		rec.record(r.URL.Path)
@@ -57,12 +87,35 @@ func newContextHub(t *testing.T, serveContext, flightNotFound bool) (*contextHub
 				return
 			}
 			flight := r.URL.Query().Get("flight")
-			if r.Header.Get("Authorization") != "Bearer tok" || (flight != "@foldwise/+work" && flight != "+work") {
+			if r.Header.Get("Authorization") != "Bearer tok" {
 				http.Error(w, "unexpected context request", http.StatusTeapot)
 				return
 			}
 			if flightNotFound {
 				_, _ = w.Write([]byte(testapi.HubContextFlightNotFound))
+				return
+			}
+			resolved := flight
+			if slug, bare := strings.CutPrefix(flight, "+"); bare {
+				var matches []string
+				for _, f := range flights {
+					if f.Slug == slug {
+						matches = append(matches, "@"+f.Namespace+"/+"+f.Slug)
+					}
+				}
+				switch len(matches) {
+				case 0:
+					_, _ = w.Write([]byte(testapi.HubContextFlightNotFound))
+					return
+				case 1:
+					resolved = matches[0]
+				default:
+					_, _ = w.Write([]byte(testapi.HubContextFlightAmbiguous))
+					return
+				}
+			}
+			if resolved != "@foldwise/+work" {
+				http.Error(w, "unexpected context request", http.StatusTeapot)
 				return
 			}
 			_, _ = w.Write([]byte(testapi.HubContextWork))
@@ -75,10 +128,7 @@ func newContextHub(t *testing.T, serveContext, flightNotFound bool) (*contextHub
 				EffectiveCover: workEffectiveCover,
 			})
 		case "GET /api/v1/flights":
-			_ = json.NewEncoder(w).Encode([]tapper.HubFlight{{
-				Namespace: "foldwise", Slug: "work", Title: "Work",
-				Cover: []tapper.HubFlightCover{{Namespace: "foldwise", Keg: "dev", Role: "editor"}},
-			}})
+			_ = json.NewEncoder(w).Encode(flights)
 		case "GET /api/v1/kegs":
 			_ = json.NewEncoder(w).Encode([]tapper.HubKeg{
 				{Namespace: "foldwise", Alias: "dev", Title: "Development", Role: "admin"},
@@ -222,4 +272,52 @@ func TestOrient_FlightLoadsGraphAndCatalog(t *testing.T) {
 	require.Contains(t, out, "`@foldwise/dev`")
 	require.NotContains(t, out, "`@foldwise/private`")
 	require.Equal(t, []string{"/api/v1/@foldwise/+work", "/api/v1/flights", "/api/v1/kegs"}, rec.seen())
+}
+
+func writeBareSlugConfig(t *testing.T, sb *sandbox.Sandbox, hubURL string) {
+	t.Helper()
+	cfg := fmt.Sprintf("hub: cloud\nkeg: \"@foldwise/dev\"\nflight: \"+work\"\nhubs:\n  cloud: {url: %s, token: tok}\n", hubURL)
+	require.NoError(t, sb.Runtime().AtomicWriteFile("/home/testuser/.config/tapper/config.yaml", []byte(cfg), 0o600))
+}
+
+// A bare +slug means the same flight whether the Hub resolves it through
+// /api/v1/context or Tapper resolves it itself against an older Hub.
+func TestContextInfo_BareSlugAgreesWithFallback(t *testing.T) {
+	t.Parallel()
+	var infos []tapper.ContextInfoResult
+	for _, serveContext := range []bool{true, false} {
+		sb := NewSandbox(t)
+		_, url := newContextHub(t, serveContext, false)
+		writeBareSlugConfig(t, sb, url)
+		tap := newTestTap(t, sb)
+		info, err := tap.ContextInfo(sb.Context(), tapper.KegTargetOptions{})
+		require.NoError(t, err)
+		require.Empty(t, info.Warnings, "serveContext=%v", serveContext)
+		infos = append(infos, info)
+	}
+	require.Equal(t, infos[0].Flight, infos[1].Flight)
+	require.Equal(t, "@foldwise/+work", infos[0].Flight.Ref)
+	require.Equal(t, "Work", infos[0].Flight.Title)
+}
+
+// When the user can read two flights named work, a bare +work is ambiguous
+// on both paths, and both report it in the same words.
+func TestContextInfo_AmbiguousBareSlugAgreesWithFallback(t *testing.T) {
+	t.Parallel()
+	personal := workFlight
+	personal.Namespace = "jared"
+	var warnings [][]string
+	for _, serveContext := range []bool{true, false} {
+		sb := NewSandbox(t)
+		_, url := newContextHubWith(t, contextHubOptions{serveContext: serveContext, flights: []tapper.HubFlight{workFlight, personal}})
+		writeBareSlugConfig(t, sb, url)
+		tap := newTestTap(t, sb)
+		info, err := tap.ContextInfo(sb.Context(), tapper.KegTargetOptions{})
+		require.NoError(t, err)
+		require.Empty(t, info.Kegs)
+		warnings = append(warnings, info.Warnings)
+	}
+	want := []string{`Flight "+work" is unavailable: flight "+work" is ambiguous; use @namespace/+work`}
+	require.Equal(t, want, warnings[0], "through /api/v1/context")
+	require.Equal(t, want, warnings[1], "through the fallback")
 }
