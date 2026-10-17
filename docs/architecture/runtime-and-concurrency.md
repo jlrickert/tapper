@@ -104,6 +104,16 @@ use of `time.Now()` that cannot be driven by a fake clock:
 - **Auth store**: `AuthStore.mu sync.RWMutex` guards the in-memory credential
   map, because the token resolver reads it from concurrent hub requests while
   a refresh writes the rotated entry.
+- **Auth refresh across processes**: hubs rotate refresh tokens single-use, so
+  two `tap` processes sharing one auth store must not both spend the stored
+  token. A refresh takes an exclusive OS lock on `<auth store>.lock` (`flock`
+  on Unix, `LockFileEx` on Windows, opened through the runtime so the jail
+  applies), re-reads the store under it, and adopts a pair another process
+  persisted while it waited; only otherwise does it call the hub and persist
+  the result before unlocking. The wait is bounded by the refresh timeout plus
+  five seconds. A process that times out never refreshes unlocked: it adopts a
+  fresher on-disk entry or keeps its cached token. A token that is still fresh
+  never touches the lock.
 - **Remote operations are single-request**: each `RemoteKeg` method is one
   HTTP round trip, and the hub serializes per-node writes server-side. There
   is no client-side lock lease or dex write over HTTP.

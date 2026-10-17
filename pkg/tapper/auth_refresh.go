@@ -43,9 +43,12 @@ func authEntryNeedsRefresh(rt *toolkit.Runtime, entry *AuthEntry) bool {
 
 // refreshAuthStoreEntryIfNeeded renews one stored hub credential when its
 // access token is expired or close to expiry. It also handles the cross-process
-// rotation race: before contacting the hub, and again after a rejected refresh,
-// it adopts a fresher on-disk entry when another process has already persisted
-// one.
+// rotation race: the refresh runs under an OS lock on the store file
+// (lockAuthStore), so of several processes sharing one store only the first
+// spends the refresh token, and the rest adopt the pair it persisted when they
+// get the lock. A process that cannot get the lock in time never refreshes
+// unlocked: it adopts a fresher on-disk entry if there is one, and otherwise
+// fails so the caller keeps its cached token.
 func refreshAuthStoreEntryIfNeeded(ctx context.Context, rt *toolkit.Runtime, store *AuthStore, storePath, hubURL, key string, entry *AuthEntry) (*AuthEntry, error) {
 	if !authEntryNeedsRefresh(rt, entry) {
 		return entry, nil
@@ -65,6 +68,21 @@ func refreshAuthStoreEntryIfNeeded(ctx context.Context, rt *toolkit.Runtime, sto
 
 	if disk := adoptFresherAuthEntryFromDisk(ctx, rt, store, storePath, key); disk != nil {
 		return disk, nil
+	}
+
+	if storePath != "" {
+		unlock, err := lockAuthStore(ctx, rt, storePath, authStoreLockWait)
+		if err != nil {
+			if disk := adoptFresherAuthEntryFromDisk(ctx, rt, store, storePath, key); disk != nil {
+				return disk, nil
+			}
+			return nil, fmt.Errorf("auth refresh: %w", err)
+		}
+		defer unlock()
+		// Another process may have refreshed while this one waited.
+		if disk := adoptFresherAuthEntryFromDisk(ctx, rt, store, storePath, key); disk != nil {
+			return disk, nil
+		}
 	}
 
 	rctx, cancel := context.WithTimeout(ctx, authRefreshTimeout)

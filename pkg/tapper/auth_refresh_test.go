@@ -1,6 +1,7 @@
 package tapper_test
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -287,4 +288,120 @@ func TestTap_AuthRefreshAll_AdoptsDiskAfterRefreshRejected(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, "thub_siblingwin00", entry.AccessToken)
 	require.Equal(t, "rt-sibling", entry.RefreshToken)
+}
+
+// singleUseTokenHub is a hub that rotates refresh tokens single-use, the way
+// a real hub without a grace window does: each POST spends the presented
+// token and mints a new pair, and a spent token is refused. It answers after
+// delay, so concurrent refreshers overlap.
+func singleUseTokenHub(t *testing.T, first string, delay time.Duration, posts *atomic.Int64) *httptest.Server {
+	t.Helper()
+	var mu sync.Mutex
+	live := first
+	srv := testapi.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		n := posts.Add(1)
+		time.Sleep(delay)
+		mu.Lock()
+		defer mu.Unlock()
+		if r.PostForm.Get("refresh_token") != live {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":"invalid_grant"}`))
+			return
+		}
+		live = fmt.Sprintf("rt-%d", n)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprintf(w, `{"access_token":"thub_access%04d","token_type":"Bearer","expires_in":900,"refresh_token":%q}`, n, live)
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// Two processes sharing one auth store, each with its own in-memory copy,
+// find the stored token expired at once. Only one of them spends the refresh
+// token; the other adopts the pair it persisted.
+func TestRefreshAcrossStoresSpendsRefreshTokenOnce(t *testing.T) {
+	t.Parallel()
+	fx := NewSandbox(t)
+	path := authStorePath(t, fx)
+	var posts atomic.Int64
+	srv := singleUseTokenHub(t, "rt-old", 200*time.Millisecond, &posts)
+	hubKey := tapper.CanonicalHubURL(srv.URL)
+	seed := &tapper.AuthStore{}
+	seed.Set(hubKey, tapper.AuthEntry{
+		AccessToken:   "thub_expiredtok00",
+		TokenType:     "Bearer",
+		ExpiresAt:     fx.Runtime().Clock().Now().Add(-time.Hour),
+		RefreshToken:  "rt-old",
+		ClientID:      "tapper-cli",
+		TokenEndpoint: srv.URL,
+	})
+	require.NoError(t, seed.Save(fx.Context(), fx.Runtime(), path))
+
+	const processes = 2
+	target := keg.Target{Url: srv.URL + "/api/v1/@me/kegs/@demo/nodes"}
+	tokens := make([]string, processes)
+	var wg sync.WaitGroup
+	for i := range processes {
+		store, err := tapper.LoadAuthStore(fx.Context(), fx.Runtime(), path)
+		require.NoError(t, err)
+		resolver := tapper.NewAuthStoreTokenResolver(store, fx.Runtime(), path)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			tokens[i] = resolver.ResolveToken(&target)
+		}()
+	}
+	wg.Wait()
+
+	require.Equal(t, int64(1), posts.Load(), "the refresh token is spent once")
+	for i, tok := range tokens {
+		require.Equal(t, "thub_access0001", tok, "process %d uses the one refreshed token", i)
+	}
+	stored, err := tapper.LoadAuthStore(fx.Context(), fx.Runtime(), path)
+	require.NoError(t, err)
+	entry, ok := stored.Get(hubKey)
+	require.True(t, ok)
+	require.Equal(t, "rt-1", entry.RefreshToken)
+}
+
+// A process whose token is still fresh never waits on another process's
+// refresh of the same store.
+func TestRefreshLockDoesNotBlockFreshTokens(t *testing.T) {
+	t.Parallel()
+	fx := NewSandbox(t)
+	path := authStorePath(t, fx)
+	var posts atomic.Int64
+	srv := singleUseTokenHub(t, "rt-old", 2*time.Second, &posts)
+	expiredKey := tapper.CanonicalHubURL(srv.URL)
+	const freshHub = "https://fresh.example.com"
+	seed := &tapper.AuthStore{}
+	seed.Set(expiredKey, tapper.AuthEntry{
+		AccessToken:   "thub_expiredtok00",
+		ExpiresAt:     fx.Runtime().Clock().Now().Add(-time.Hour),
+		RefreshToken:  "rt-old",
+		ClientID:      "tapper-cli",
+		TokenEndpoint: srv.URL,
+	})
+	seed.Set(tapper.CanonicalHubURL(freshHub), tapper.AuthEntry{AccessToken: "thub_freshtok000"})
+	require.NoError(t, seed.Save(fx.Context(), fx.Runtime(), path))
+
+	slow, err := tapper.LoadAuthStore(fx.Context(), fx.Runtime(), path)
+	require.NoError(t, err)
+	refreshing := make(chan struct{})
+	go func() {
+		defer close(refreshing)
+		tapper.NewAuthStoreTokenResolver(slow, fx.Runtime(), path).
+			ResolveToken(&keg.Target{Url: srv.URL + "/api/v1/@me/kegs/@demo/nodes"})
+	}()
+	require.Eventually(t, func() bool { return posts.Load() == 1 }, 2*time.Second, 5*time.Millisecond)
+
+	other, err := tapper.LoadAuthStore(fx.Context(), fx.Runtime(), path)
+	require.NoError(t, err)
+	start := time.Now()
+	tok := tapper.NewAuthStoreTokenResolver(other, fx.Runtime(), path).
+		ResolveToken(&keg.Target{Url: freshHub + "/api/v1/@me/kegs/@demo/nodes"})
+	require.Equal(t, "thub_freshtok000", tok)
+	require.Less(t, time.Since(start), time.Second, "a fresh token does not wait for the refresh lock")
+	<-refreshing
 }
