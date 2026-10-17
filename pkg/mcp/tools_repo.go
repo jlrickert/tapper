@@ -24,8 +24,9 @@ type configInput struct {
 
 func registerConfig(srv *sdkmcp.Server, tap *tapper.Tap) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
-		Name:        "config",
-		Description: "Read tap configuration (merged, user, or project scope)",
+		Name:         "config",
+		Description:  "Read tap configuration (merged, user, or project scope)",
+		OutputSchema: textOutputSchema(),
 		Annotations: &sdkmcp.ToolAnnotations{
 			DestructiveHint: boolPtr(false),
 			OpenWorldHint:   boolPtr(false),
@@ -87,8 +88,9 @@ type configTemplateInput struct {
 
 func registerConfigTemplate(srv *sdkmcp.Server, tap *tapper.Tap) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
-		Name:        "config_template",
-		Description: "Return starter YAML template for tap configuration",
+		Name:         "config_template",
+		Description:  "Return starter YAML template for tap configuration",
+		OutputSchema: textOutputSchema(),
 		Annotations: &sdkmcp.ToolAnnotations{
 			DestructiveHint: boolPtr(false),
 			OpenWorldHint:   boolPtr(false),

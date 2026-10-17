@@ -290,8 +290,13 @@ func TestPrecondition_RemoveBatchUsesDistinctTokensAtomically(t *testing.T) {
 	}
 }
 
+// structuredMap returns a result's public payload: a success's structured
+// content, or a failure's JSON text, the only place a failure carries it.
 func structuredMap(t *testing.T, result *sdkmcp.CallToolResult) map[string]any {
 	t.Helper()
+	if result.IsError {
+		return errorPayload(t, result)
+	}
 	require.NotNil(t, result.StructuredContent)
 	raw, err := json.Marshal(result.StructuredContent)
 	require.NoError(t, err)

@@ -24,7 +24,7 @@ func newURLSession(t *testing.T, webBaseURL string) (*sdkmcp.ClientSession, cont
 	done := make(chan error, 1)
 	go func() { done <- srv.Run(ctx, serverTransport) }()
 	t.Cleanup(func() { <-done })
-	session, err := sdkmcp.NewClient(&sdkmcp.Implementation{Name: "test-client", Version: "0.1"}, nil).
+	session, err := newTestClient(t, "test-client", nil).
 		Connect(ctx, clientTransport, nil)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = session.Close() })

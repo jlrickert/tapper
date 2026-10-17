@@ -15,10 +15,15 @@ import (
 
 // These clients deliberately consume one wire representation only. Unlike
 // legacy behavior helpers, text decoding never consults StructuredContent.
+// A failure has no structured content (its outputSchema describes success),
+// so a structured client reads a failure's payload from text like any other.
 func wirePayload(t *testing.T, result *sdkmcp.CallToolResult, mode string) map[string]any {
 	t.Helper()
 	var raw []byte
-	if mode == "text" {
+	if result.IsError {
+		require.Nil(t, result.StructuredContent, "a failure carries no structured content")
+	}
+	if mode == "text" || result.IsError {
 		for _, block := range result.Content {
 			if text, ok := block.(*sdkmcp.TextContent); ok {
 				raw = append(raw, text.Text...)

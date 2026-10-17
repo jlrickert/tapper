@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"strings"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -19,10 +20,24 @@ import (
 //   - id_only on node_list, node_grep, tag_list, node_backlinks, and
 //     node_links is format "%i", which prints the same lines. A true id_only
 //     wins over any format sent with it, as it always did.
+//   - keg on node_search named the one KEG to search. kegs now names any
+//     number of them, so a legacy keg is searched as if it were the only
+//     entry in kegs (see legacySearchKeg).
 
 // idOnlyTools are the listing tools that accepted id_only.
 var idOnlyTools = map[string]bool{
 	"node_list": true, "node_grep": true, "tag_list": true, "node_backlinks": true, "node_links": true,
+}
+
+type legacySearchKegKey struct{}
+
+// legacySearchKeg returns the keg a pre-kegs node_search call named, or "".
+// It travels outside the arguments because a bare name ("notes", meaning the
+// caller's default namespace) is not a valid kegs entry; node_search resolves
+// it the way the keg argument always was.
+func legacySearchKeg(ctx context.Context) string {
+	keg, _ := ctx.Value(legacySearchKegKey{}).(string)
+	return keg
 }
 
 func legacyArgumentsMiddleware(next sdkmcp.MethodHandler) sdkmcp.MethodHandler {
@@ -45,6 +60,18 @@ func legacyArgumentsMiddleware(next sdkmcp.MethodHandler) sdkmcp.MethodHandler {
 				var idOnly bool
 				if json.Unmarshal(raw, &idOnly) == nil && idOnly {
 					args["format"], _ = json.Marshal(tapper.IDOnlyFormat)
+				}
+			})
+		case params.Name == "node_search":
+			rewriteArguments(params, func(args map[string]json.RawMessage) {
+				raw, ok := args["keg"]
+				if !ok {
+					return
+				}
+				delete(args, "keg")
+				var keg string
+				if json.Unmarshal(raw, &keg) == nil && strings.TrimSpace(keg) != "" {
+					ctx = context.WithValue(ctx, legacySearchKegKey{}, strings.TrimSpace(keg))
 				}
 			})
 		}

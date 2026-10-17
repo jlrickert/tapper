@@ -42,8 +42,9 @@ type kegCreateInput struct {
 func registerKegTools(srv *sdkmcp.Server, defaults KegDefaults, kegs KegDiscoveryProvider) {
 	registerKegDelete(srv, defaults, kegs)
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
-		Name:        "keg_list",
-		Description: "Memory: List every KEG this session can work in, with role, title, description, and granting-flight provenance. The list is complete, so read it rather than searching; explore_kegs searches public KEGs you do not hold. Without a configured root, returns identity-accessible KEGs at their real roles. With a pinned root, omission aggregates its accessible transitive graph for discovery; a discovered child-only KEG still requires that child as flight on operational calls. Supplying flight returns exactly that flight's projection.",
+		Name:         "keg_list",
+		Description:  "Memory: List every KEG this session can work in, with role, title, description, and granting-flight provenance. The list is complete, so read it rather than searching; explore_kegs searches public KEGs you do not hold. Without a configured root, returns identity-accessible KEGs at their real roles. With a pinned root, omission aggregates its accessible transitive graph for discovery; a discovered child-only KEG still requires that child as flight on operational calls. Supplying flight returns exactly that flight's projection.",
+		OutputSchema: outputSchema[kegListOutput](),
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(false),
@@ -93,6 +94,7 @@ func registerKegTools(srv *sdkmcp.Server, defaults KegDefaults, kegs KegDiscover
 		Name: "keg_create",
 		Description: "Manage: Create a new KEG in a namespace you belong to. Creating a KEG " +
 			"never adds it to a flight's cover.",
+		OutputSchema: textOutputSchema(),
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:    false,
 			DestructiveHint: boolPtr(false),
@@ -176,8 +178,14 @@ type kegDeleteInput struct {
 	Keg string `json:"keg" jsonschema:"Explicit canonical @namespace/keg reference to permanently delete."`
 }
 
+// kegDeleteOutput is keg_delete's structured content.
+type kegDeleteOutput struct {
+	Keg     string `json:"keg" jsonschema:"The deleted KEG."`
+	Deleted bool   `json:"deleted" jsonschema:"Always true: a delete that fails returns an error instead."`
+}
+
 func registerKegDelete(srv *sdkmcp.Server, defaults KegDefaults, provider KegDiscoveryProvider) {
-	sdkmcp.AddTool(srv, &sdkmcp.Tool{Name: "keg_delete", Description: "Manage: Permanently delete an empty or populated KEG and all its data, including snapshots. Requires identity admin permission; a selected flight also requires effective admin cover. No expected_hash: a settings hash does not cover a whole KEG.", Annotations: &sdkmcp.ToolAnnotations{DestructiveHint: boolPtr(true), OpenWorldHint: boolPtr(false)}}, func(ctx context.Context, _ *sdkmcp.CallToolRequest, in kegDeleteInput) (*sdkmcp.CallToolResult, any, error) {
+	sdkmcp.AddTool(srv, &sdkmcp.Tool{Name: "keg_delete", OutputSchema: outputSchema[kegDeleteOutput](), Description: "Manage: Permanently delete an empty or populated KEG and all its data, including snapshots. Requires identity admin permission; a selected flight also requires effective admin cover. No expected_hash: a settings hash does not cover a whole KEG.", Annotations: &sdkmcp.ToolAnnotations{DestructiveHint: boolPtr(true), OpenWorldHint: boolPtr(false)}}, func(ctx context.Context, _ *sdkmcp.CallToolRequest, in kegDeleteInput) (*sdkmcp.CallToolResult, any, error) {
 		ns, alias, err := tapper.ParseCanonicalKegRef(in.Keg)
 		if err != nil {
 			return errorResult(fmt.Errorf("keg must be an explicit canonical @namespace/keg reference: %w", err)), nil, nil
@@ -198,8 +206,7 @@ func registerKegDelete(srv *sdkmcp.Server, defaults KegDefaults, provider KegDis
 		if err := deleter.DeleteKeg(ctx, in.Keg); err != nil {
 			return errorResult(err), nil, nil
 		}
-		out := map[string]any{"keg": in.Keg, "deleted": true}
-		result := &sdkmcp.CallToolResult{StructuredContent: out}
+		result := &sdkmcp.CallToolResult{StructuredContent: kegDeleteOutput{Keg: in.Keg, Deleted: true}}
 		return result, nil, nil
 	})
 }

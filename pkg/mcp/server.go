@@ -160,6 +160,9 @@ func NewServer(tap *tapper.Tap, version string, defaults KegDefaults, opts ...Se
 	// Outside the public contract, so input validation failures are counted
 	// in their final form and a flagged repeat keeps its original code.
 	srv.AddReceivingMiddleware(newRepeatFailureTracker().middleware)
+	// Outside the tracker, which reads a failure's structured payload: a
+	// failed result leaves with its payload as JSON text only.
+	srv.AddReceivingMiddleware(errorResultMiddleware)
 
 	if opt.Logger != nil || opt.Reporter != nil {
 		var clk clock.Clock

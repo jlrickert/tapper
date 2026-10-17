@@ -43,6 +43,7 @@ func registerOrient(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 			"changing shared session state. " +
 			"If an explicitly configured root fails to load, the session fails closed with only recovery tools. " +
 			"When no root is configured, no-flight full access stays pinned until the connection ends; pin a restrictive flight outside MCP and start a new connection.",
+		OutputSchema: textOutputSchema(),
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(false),
@@ -66,6 +67,7 @@ func registerSessionRefresh(srv *sdkmcp.Server, defaults KegDefaults) {
 		Description: "Session: Retry MCP session activation after a failed configured flight becomes available. " +
 			"Takes no arguments and never changes an already-active connection. A no-flight full-access " +
 			"connection therefore requires a new MCP connection after a restrictive flight is pinned.",
+		OutputSchema: outputSchema[sessionRefreshOutput](),
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:    false,
 			DestructiveHint: boolPtr(false),
@@ -100,7 +102,7 @@ type guideInput struct {
 }
 
 func registerGuide(srv *sdkmcp.Server) {
-	sdkmcp.AddTool(srv, &sdkmcp.Tool{Name: "guide", Description: "Session: Read canonical KEG guidance on demand by topic.", Annotations: &sdkmcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: boolPtr(false)}}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in guideInput) (*sdkmcp.CallToolResult, any, error) {
+	sdkmcp.AddTool(srv, &sdkmcp.Tool{Name: "guide", OutputSchema: textOutputSchema(), Description: "Session: Read canonical KEG guidance on demand by topic.", Annotations: &sdkmcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: boolPtr(false)}}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in guideInput) (*sdkmcp.CallToolResult, any, error) {
 		text, err := tapper.OrientationGuide(in.Topic)
 		if err != nil {
 			return errorResult(err), nil, nil

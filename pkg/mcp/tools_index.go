@@ -23,8 +23,9 @@ type indexInput struct {
 
 func registerIndex(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
-		Name:        "index_rebuild",
-		Description: "Manage: Rebuild every KEG index (nodes, tags, links, backlinks) from scratch.",
+		Name:         "index_rebuild",
+		Description:  "Manage: Rebuild every KEG index (nodes, tags, links, backlinks) from scratch.",
+		OutputSchema: textOutputSchema(),
 		Annotations: &sdkmcp.ToolAnnotations{
 			DestructiveHint: boolPtr(false),
 			IdempotentHint:  true,
@@ -50,8 +51,9 @@ type listIndexesInput struct {
 
 func registerListIndexes(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
-		Name:        "index_list",
-		Description: "Memory: List a KEG's index files.",
+		Name:         "index_list",
+		Description:  "Memory: List a KEG's index files.",
+		OutputSchema: textOutputSchema(),
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(false),
@@ -77,8 +79,9 @@ type indexCatInput struct {
 
 func registerIndexCat(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
-		Name:        "index_read",
-		Description: "Memory: Read the raw contents of a KEG index file.",
+		Name:         "index_read",
+		Description:  "Memory: Read the raw contents of a KEG index file.",
+		OutputSchema: textOutputSchema(),
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(false),

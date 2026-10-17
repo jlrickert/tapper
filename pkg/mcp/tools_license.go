@@ -16,8 +16,9 @@ type licenseInput struct{}
 
 func registerLicense(srv *sdkmcp.Server, licenseText string) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
-		Name:        "license",
-		Description: "Return the full license text embedded in the binary",
+		Name:         "license",
+		Description:  "Return the full license text embedded in the binary",
+		OutputSchema: textOutputSchema(),
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(false),

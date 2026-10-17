@@ -137,6 +137,18 @@ func newMemoryTap(t *testing.T, ctx context.Context, rt *toolkit.Runtime) *tappe
 
 func newTestSessionWithOpts(t *testing.T, opts ...mcp.ServerOptions) (*sdkmcp.ClientSession, context.Context) {
 	t.Helper()
+	return connectTestSession(t, newTestClient(t, "test-client", nil), opts...)
+}
+
+// newPlainTestSession connects without checking results against their
+// outputSchemas: the listing those checks read comes from it.
+func newPlainTestSession(t *testing.T, opts ...mcp.ServerOptions) (*sdkmcp.ClientSession, context.Context) {
+	t.Helper()
+	return connectTestSession(t, sdkmcp.NewClient(&sdkmcp.Implementation{Name: "test-client", Version: "0.1"}, nil), opts...)
+}
+
+func connectTestSession(t *testing.T, client *sdkmcp.Client, opts ...mcp.ServerOptions) (*sdkmcp.ClientSession, context.Context) {
+	t.Helper()
 	ctx := context.Background()
 
 	sb := newTestSandbox(t)
@@ -156,10 +168,6 @@ func newTestSessionWithOpts(t *testing.T, opts ...mcp.ServerOptions) (*sdkmcp.Cl
 		<-done
 	})
 
-	client := sdkmcp.NewClient(&sdkmcp.Implementation{
-		Name:    "test-client",
-		Version: "0.1",
-	}, nil)
 	session, err := client.Connect(ctx, clientTransport, nil)
 	require.NoError(t, err)
 	t.Cleanup(func() {
@@ -203,10 +211,7 @@ func newTestSessionWithRuntime(t *testing.T, opts ...mcp.ServerOptions) (*sdkmcp
 		<-done
 	})
 
-	client := sdkmcp.NewClient(&sdkmcp.Implementation{
-		Name:    "test-client",
-		Version: "0.1",
-	}, nil)
+	client := newTestClient(t, "test-client", nil)
 	session, err := client.Connect(ctx, clientTransport, nil)
 	require.NoError(t, err)
 	t.Cleanup(func() {
@@ -2239,6 +2244,17 @@ func extractText(t *testing.T, res *sdkmcp.CallToolResult) string {
 	if payload, ok := res.StructuredContent.(map[string]any); ok {
 		if message, ok := payload["message"].(string); ok {
 			return message
+		}
+	}
+	// A failure carries its payload as the leading JSON text block only.
+	if len(res.Content) > 0 {
+		if tc, ok := res.Content[0].(*sdkmcp.TextContent); ok {
+			var payload map[string]any
+			if json.Unmarshal([]byte(tc.Text), &payload) == nil {
+				if message, ok := payload["message"].(string); ok {
+					return message
+				}
+			}
 		}
 	}
 	var parts []string

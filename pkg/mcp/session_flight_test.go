@@ -481,7 +481,7 @@ func connectFlightSession(t *testing.T, ctx context.Context, srv *sdkmcp.Server,
 	serverSession, err := srv.Connect(ctx, serverTransport, nil)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = serverSession.Close() })
-	client := sdkmcp.NewClient(&sdkmcp.Implementation{Name: "flight-test", Version: "0.1"}, opts)
+	client := newTestClient(t, "flight-test", opts)
 	session, err := client.Connect(ctx, clientTransport, nil)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = session.Close() })

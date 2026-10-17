@@ -79,8 +79,8 @@ accessible transitive descendants.
 
 | Tool                                                  | Purpose                                                                                                                                                  |
 | ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `mcp__tapper__node_search`                                   | Find the nodes most relevant to a query, ranked by the Hub across every KEG the call may read, one `keg`, or the listed `kegs`. Takes plain terms, `"quoted phrases"`, and `-exclusions`. Hits carry `ref`, `score`, `title`, matched `fields`, and a `snippet` with highlights; follow `next_cursor`. |
-| `mcp__tapper__node_grep`                                   | PostgreSQL regular-expression match over node content lines in one KEG (`\y` is a word boundary), in node id order, for exact identifiers, symbols, and audits. Supports `ignore_case`, `limit`, `max_lines`, and `id_only`. |
+| `mcp__tapper__node_search`                                   | Find the nodes most relevant to a query, ranked by the Hub across every KEG the call's flight covers, or only the KEGs listed in `kegs` (each inside that cover). Takes plain terms, `"quoted phrases"`, and `-exclusions`. Hits carry `ref`, `score`, `title`, matched `fields`, and a `snippet` with highlights; follow `next_cursor`. |
+| `mcp__tapper__node_grep`                                   | PostgreSQL regular-expression match over node content lines in one KEG (`\y` is a word boundary), in node id order, for exact identifiers, symbols, and audits. Supports `ignore_case`, `limit`, `max_lines`, and `format`. |
 | `mcp__tapper__tag_list`                                   | List tags or filter nodes by a boolean expression over tags, attributes, and dot-prefix stats fields (for example `tapper and .created>2026-01-01`).     |
 | `mcp__tapper__node_list`                                   | List nodes in a keg with optional filters.                                                                                                               |
 | `mcp__tapper__node_read`                                    | Read one or more nodes. Each structured row pairs `node_id` and `hash` with that node's `content` and `meta`, so a read feeds straight into `node_edit`. Supports `meta_only`, `content_only`, `stats_only`, and `query` expression selection as an alternative to explicit node IDs. |
@@ -90,7 +90,7 @@ accessible transitive descendants.
 | `mcp__tapper__keg_settings_read`                           | Read targeted title, description, updated metadata, and instructions for one or more selected KEGs; batches accept up to 100 canonical references.          |
 
 Start topic lookups with `node_search`; reach for `node_grep` when you need
-every line matching an exact pattern. Pass `id_only: true` to `node_grep` and
+every line matching an exact pattern. Pass `format: "%i"` to `node_grep` and
 `tag_list` when you only need IDs for follow-up reads — it keeps token
 consumption bounded on large result sets.
 
@@ -240,7 +240,9 @@ listing resources.
 
 Text content is JSON rendered from the same public object as structuredContent.
 The message field preserves prose, diagnostics, and legacy formatted output.
-Images remain in MCP image content blocks alongside JSON metadata.
+Images remain in MCP image content blocks alongside JSON metadata. Every tool
+declares the object's shape as its `outputSchema`; a tool whose result is only
+text declares `{message}`.
 
 For node_list, node_grep, tag_list, node_links, and node_backlinks, follow
 next_offset until null,
@@ -254,9 +256,10 @@ node_search pages with an opaque cursor instead: repeat the same query with
 next_cursor as cursor until next_cursor is absent (text output ends with a
 `next cursor:` line while more remain). An omitted or 0 limit lets the Hub
 choose the page size; -1 is not accepted. Hits are ordered by score, then KEG, then node id;
-mode reports `keyword` when the Hub ranked without semantic matching. A KEG
-outside the flight's cover is never searched, and a Hub without ranked search
-fails with a message pointing at node_grep.
+mode reports `keyword` when the Hub ranked without semantic matching. An empty
+or omitted `kegs` searches every KEG the call's flight covers; naming a KEG
+outside that cover fails with an error that names it, and a Hub without ranked
+search fails with a message pointing at node_grep.
 
 The explore tools return truncated and have no cursor; refine the query.
 

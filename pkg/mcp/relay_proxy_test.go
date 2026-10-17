@@ -139,3 +139,32 @@ func TestToolAllowlist_AdmitsRelayedToolsUnlessRefused(t *testing.T) {
 	refused := &mcp.ToolAllowlist{Agent: "@alice/agent", Refused: "agent could not be loaded"}
 	require.False(t, refused.Allows(relayEcho), "a failed agent load fails closed for relayed tools too")
 }
+
+// A relayed failure follows the same rule as a KEG tool's: no structured
+// content, with any payload it carried kept as leading JSON text beside the
+// relayed server's own text.
+func TestRelayProxy_FailureCarriesPayloadAsText(t *testing.T) {
+	t.Parallel()
+	hub, remote, _ := fakeRelayHub(t)
+	const relayFail = "mcp__alice__everything__fail"
+	remote.AddTool(&sdkmcp.Tool{
+		Name:        relayFail,
+		InputSchema: map[string]any{"type": "object"},
+	}, func(context.Context, *sdkmcp.CallToolRequest) (*sdkmcp.CallToolResult, error) {
+		return &sdkmcp.CallToolResult{
+			IsError:           true,
+			Content:           []sdkmcp.Content{&sdkmcp.TextContent{Text: "relay: failed on purpose"}},
+			StructuredContent: map[string]any{"code": "RELAY_FAILED"},
+		}, nil
+	})
+	session, ctx := relayLocalSession(t, hub.URL)
+	require.Eventually(t, func() bool { return slices.Contains(relayToolNames(t, ctx, session), relayFail) }, 5*time.Second, 20*time.Millisecond)
+
+	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: relayFail, Arguments: map[string]any{}})
+	require.NoError(t, err)
+	require.True(t, res.IsError)
+	require.Nil(t, res.StructuredContent)
+	require.Equal(t, "RELAY_FAILED", errorPayload(t, res)["code"])
+	require.Len(t, res.Content, 2)
+	require.Equal(t, "relay: failed on purpose", res.Content[1].(*sdkmcp.TextContent).Text, "the relayed server's text is kept")
+}

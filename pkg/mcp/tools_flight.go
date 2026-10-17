@@ -49,8 +49,9 @@ type flightDeleteInput struct {
 // (omitted fields keep their current values) remains the MCP surface.
 func registerFlightTools(srv *sdkmcp.Server, defaults KegDefaults, flights FlightProvider) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
-		Name:        "flight_list",
-		Description: "Memory: List the flights you can use, with their KEG cover and agent instructions.",
+		Name:         "flight_list",
+		Description:  "Memory: List the flights you can use, with their KEG cover and agent instructions.",
+		OutputSchema: textOutputSchema(),
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(false),
@@ -64,8 +65,9 @@ func registerFlightTools(srv *sdkmcp.Server, defaults KegDefaults, flights Fligh
 	})
 
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
-		Name:        "flight_read",
-		Description: "Memory: Inspect a permission-filtered flight manifest, including declared cover roles, depth, subflights, instructions, and hash. Inspection never activates a session or selects call authority. Cover is declared cover, not effective authority; use orient with flight for current authority. Pass hash as expected_hash to flight_edit or flight_delete.",
+		Name:         "flight_read",
+		Description:  "Memory: Inspect a permission-filtered flight manifest, including declared cover roles, depth, subflights, instructions, and hash. Inspection never activates a session or selects call authority. Cover is declared cover, not effective authority; use orient with flight for current authority. Pass hash as expected_hash to flight_edit or flight_delete.",
+		OutputSchema: outputSchema[PublicFlight](),
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(false),
@@ -81,8 +83,9 @@ func registerFlightTools(srv *sdkmcp.Server, defaults KegDefaults, flights Fligh
 	})
 
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
-		Name:        "flight_create",
-		Description: "Manage: Create a flight: its KEG cover with role caps, and its agent instructions.",
+		Name:         "flight_create",
+		Description:  "Manage: Create a flight: its KEG cover with role caps, and its agent instructions.",
+		OutputSchema: outputSchema[PublicFlight](),
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:    false,
 			DestructiveHint: boolPtr(false),
@@ -114,8 +117,9 @@ func registerFlightTools(srv *sdkmcp.Server, defaults KegDefaults, flights Fligh
 	})
 
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
-		Name:        "flight_edit",
-		Description: "Manage: Call flight_read first, then edit a Hub-backed flight using its manifest hash as expected_hash; omitted fields keep their current values. On conflict, merge into the returned current flight (or refetch with flight_read) and retry with the returned current hash.",
+		Name:         "flight_edit",
+		Description:  "Manage: Call flight_read first, then edit a Hub-backed flight using its manifest hash as expected_hash; omitted fields keep their current values. On conflict, merge into the returned current flight (or refetch with flight_read) and retry with the returned current hash.",
+		OutputSchema: outputSchema[PublicFlight](),
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:    false,
 			DestructiveHint: boolPtr(true),
@@ -161,8 +165,9 @@ func registerFlightTools(srv *sdkmcp.Server, defaults KegDefaults, flights Fligh
 	})
 
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
-		Name:        "flight_delete",
-		Description: "Manage: Call flight_read first, then delete a Hub-backed flight using its manifest hash as expected_hash. On conflict, refetch with flight_read and retry with the returned current hash.",
+		Name:         "flight_delete",
+		Description:  "Manage: Call flight_read first, then delete a Hub-backed flight using its manifest hash as expected_hash. On conflict, refetch with flight_read and retry with the returned current hash.",
+		OutputSchema: textOutputSchema(),
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:    false,
 			DestructiveHint: boolPtr(true),

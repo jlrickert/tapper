@@ -53,8 +53,9 @@ type listFilesInput struct {
 
 func registerListFiles(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
-		Name:        "file_list",
-		Description: "Memory: List a node's file attachments.",
+		Name:         "file_list",
+		Description:  "Memory: List a node's file attachments.",
+		OutputSchema: textOutputSchema(),
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(false),
@@ -84,8 +85,9 @@ type listImagesInput struct {
 
 func registerListImages(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
-		Name:        "image_list",
-		Description: "Memory: List a node's image attachments.",
+		Name:         "image_list",
+		Description:  "Memory: List a node's image attachments.",
+		OutputSchema: textOutputSchema(),
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(false),
@@ -141,8 +143,9 @@ type deleteFileInput struct {
 
 func registerDeleteFile(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
-		Name:        "file_delete",
-		Description: "Memory: Delete a file attachment from a node.",
+		Name:         "file_delete",
+		Description:  "Memory: Delete a file attachment from a node.",
+		OutputSchema: textOutputSchema(),
 		Annotations: &sdkmcp.ToolAnnotations{
 			DestructiveHint: boolPtr(true),
 			OpenWorldHint:   boolPtr(false),
@@ -175,8 +178,9 @@ type deleteImageInput struct {
 
 func registerDeleteImage(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
-		Name:        "image_delete",
-		Description: "Memory: Delete an image attachment from a node.",
+		Name:         "image_delete",
+		Description:  "Memory: Delete an image attachment from a node.",
+		OutputSchema: textOutputSchema(),
 		Annotations: &sdkmcp.ToolAnnotations{
 			DestructiveHint: boolPtr(true),
 			OpenWorldHint:   boolPtr(false),
@@ -260,8 +264,9 @@ const (
 
 func uploadFileTool(description string) *sdkmcp.Tool {
 	return &sdkmcp.Tool{
-		Name:        "file_upload",
-		Description: description + uploadFileLinkHint,
+		Name:         "file_upload",
+		Description:  description + uploadFileLinkHint,
+		OutputSchema: outputSchema[uploadOutput](),
 		Annotations: &sdkmcp.ToolAnnotations{
 			DestructiveHint: boolPtr(false),
 			OpenWorldHint:   boolPtr(false),
@@ -289,8 +294,25 @@ func handleFileUpload(ctx context.Context, tap *tapper.Tap, defaults KegDefaults
 	}
 	result := textResult(fmt.Sprintf("uploaded file %q to node %s", storedName, nodeID))
 	appendAttachmentResourceLink(result, nodeID, keg.AttachmentFile, storedName, kegAlias)
-	result.StructuredContent = map[string]any{"node_id": nodeID, "filename": storedName, "link": "./assets/" + storedName}
+	result.StructuredContent = uploadOutput{NodeID: nodeID, Filename: storedName, Link: "./assets/" + storedName}
 	return result, nil, nil
+}
+
+// uploadOutput is file_upload's and image_upload's structured content.
+type uploadOutput struct {
+	NodeID   string `json:"node_id" jsonschema:"The node the attachment belongs to."`
+	Filename string `json:"filename" jsonschema:"The stored filename, which may differ from the one sent."`
+	Link     string `json:"link" jsonschema:"The relative link to write in the node body."`
+}
+
+// imageContentOutput describes the image image_download returns as MCP image
+// content. Saving to dest_path (shared-filesystem servers only) returns text
+// alone, so every field is optional.
+type imageContentOutput struct {
+	NodeID   string `json:"node_id,omitempty" jsonschema:"The node the image belongs to."`
+	Filename string `json:"filename,omitempty" jsonschema:"The image's filename."`
+	MIMEType string `json:"mime_type,omitempty" jsonschema:"The image's MIME type."`
+	Size     int    `json:"size,omitempty" jsonschema:"The image's size in bytes."`
 }
 
 // resolveUploadName prefers the caller's explicit filename and falls back to
@@ -318,8 +340,9 @@ type downloadFileInput struct {
 
 func registerDownloadFile(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
-		Name:        "file_download",
-		Description: "Memory: Download a file attachment from a node to a new local file.",
+		Name:         "file_download",
+		Description:  "Memory: Download a file attachment from a node to a new local file.",
+		OutputSchema: textOutputSchema(),
 		Annotations: &sdkmcp.ToolAnnotations{
 			OpenWorldHint: boolPtr(false),
 		},
@@ -398,8 +421,9 @@ func registerLocalUploadImage(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegD
 
 func uploadImageTool(description string) *sdkmcp.Tool {
 	return &sdkmcp.Tool{
-		Name:        "image_upload",
-		Description: description + uploadImageLinkHint,
+		Name:         "image_upload",
+		Description:  description + uploadImageLinkHint,
+		OutputSchema: outputSchema[uploadOutput](),
 		Annotations: &sdkmcp.ToolAnnotations{
 			DestructiveHint: boolPtr(false),
 			OpenWorldHint:   boolPtr(false),
@@ -427,7 +451,7 @@ func handleImageUpload(ctx context.Context, tap *tapper.Tap, defaults KegDefault
 	}
 	result := textResult(fmt.Sprintf("uploaded image %q to node %s", storedName, nodeID))
 	appendAttachmentResourceLink(result, nodeID, keg.AttachmentImage, storedName, kegAlias)
-	result.StructuredContent = map[string]any{"node_id": nodeID, "filename": storedName, "link": "./images/" + storedName}
+	result.StructuredContent = uploadOutput{NodeID: nodeID, Filename: storedName, Link: "./images/" + storedName}
 	return result, nil, nil
 }
 
@@ -489,8 +513,9 @@ func registerLocalDownloadImage(srv *sdkmcp.Server, tap *tapper.Tap, defaults Ke
 
 func downloadImageTool(description string) *sdkmcp.Tool {
 	return &sdkmcp.Tool{
-		Name:        "image_download",
-		Description: description,
+		Name:         "image_download",
+		Description:  description,
+		OutputSchema: outputSchema[imageContentOutput](),
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(false),
@@ -509,11 +534,8 @@ func readImageContent(ctx context.Context, tap *tapper.Tap, defaults KegDefaults
 	}
 	mimeType := keg.ImageContentType(format)
 	return &sdkmcp.CallToolResult{
-		Content: []sdkmcp.Content{&sdkmcp.ImageContent{Data: data, MIMEType: mimeType}},
-		StructuredContent: map[string]any{
-			"node_id": nodeID, "filename": filename,
-			"mime_type": mimeType, "size": len(data),
-		},
+		Content:           []sdkmcp.Content{&sdkmcp.ImageContent{Data: data, MIMEType: mimeType}},
+		StructuredContent: imageContentOutput{NodeID: nodeID, Filename: filename, MIMEType: mimeType, Size: len(data)},
 	}, nil, nil
 }
 

@@ -79,8 +79,9 @@ type kegSettingsEditInput struct {
 
 func registerKegSettingsEdit(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
-		Name:        "keg_settings_edit",
-		Description: "Manage: Call keg_settings_read with minimal=false first, then replace the complete KEG settings with a validated YAML document using its hash as expected_hash. Requires admin access to the KEG itself, plus admin cover when a flight is selected. On conflict, merge into the returned current settings (or refetch with keg_settings_read) and retry with the returned current hash.",
+		Name:         "keg_settings_edit",
+		Description:  "Manage: Call keg_settings_read with minimal=false first, then replace the complete KEG settings with a validated YAML document using its hash as expected_hash. Requires admin access to the KEG itself, plus admin cover when a flight is selected. On conflict, merge into the returned current settings (or refetch with keg_settings_read) and retry with the returned current hash.",
+		OutputSchema: textOutputSchema(),
 		Annotations: &sdkmcp.ToolAnnotations{
 			DestructiveHint: boolPtr(true),
 			OpenWorldHint:   boolPtr(false),
@@ -115,10 +116,15 @@ type createNodeInput struct {
 }
 
 type createNodeOutput struct {
-	Key        string                      `json:"key"`
-	NodeID     string                      `json:"node_id"`
-	Hash       string                      `json:"hash"`
-	Validation *keg.SchemaValidationResult `json:"validation,omitempty"`
+	Key        string                      `json:"key" jsonschema:"The key the node was sent with."`
+	NodeID     string                      `json:"node_id" jsonschema:"The ID the node was assigned."`
+	Hash       string                      `json:"hash" jsonschema:"The node's combined hash."`
+	Validation *keg.SchemaValidationResult `json:"validation,omitempty" jsonschema:"How the node validated against its schema, when it has one."`
+}
+
+// nodeCreateOutput is node_create's structured content.
+type nodeCreateOutput struct {
+	Results []createNodeOutput `json:"results" jsonschema:"One entry per node created, in request order."`
 }
 
 func createNodeOutputs(results []keg.CreateNodeResult) []createNodeOutput {
@@ -138,7 +144,8 @@ func registerCreate(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 			"A node's title is its content H1 and its lead is the first paragraph, so there are no separate title, lead, tags, or attrs fields. " +
 			"Nodes in one batch can reference each other's not-yet-assigned ids by writing {{node:KEY}} in content: it becomes the bare id, so a link is [Title](../{{node:KEY}}) and a cross-KEG reference keg:@namespace/keg/{{node:KEY}}. " +
 			"On a strict keg (the default for new kegs) every node needs schema, and type in meta alone does not count; call schema_list once per keg before the first write to learn its types.",
-		InputSchema: boundedMutationInputSchema[createInput]("nodes"),
+		InputSchema:  boundedMutationInputSchema[createInput]("nodes"),
+		OutputSchema: outputSchema[nodeCreateOutput](),
 		Annotations: &sdkmcp.ToolAnnotations{
 			DestructiveHint: boolPtr(false),
 			OpenWorldHint:   boolPtr(false),
@@ -158,7 +165,7 @@ func registerCreate(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 			message = results[0].ID.String()
 		}
 		res := textResult(message)
-		res.StructuredContent = map[string]any{"results": createNodeOutputs(results)}
+		res.StructuredContent = nodeCreateOutput{Results: createNodeOutputs(results)}
 		return res, nil, nil
 	})
 }
@@ -183,11 +190,16 @@ type editItemInput struct {
 // meta_hash are what a follow-up node_edit echoes back, so a second edit
 // needs no re-read; hash is the combined token node_delete and node_move take.
 type nodeUpdateOutput struct {
-	NodeID      string                      `json:"node_id"`
-	Hash        string                      `json:"hash"`
-	ContentHash string                      `json:"content_hash,omitempty"`
-	MetaHash    string                      `json:"meta_hash,omitempty"`
-	Validation  *keg.SchemaValidationResult `json:"validation,omitempty"`
+	NodeID      string                      `json:"node_id" jsonschema:"The node's ID."`
+	Hash        string                      `json:"hash" jsonschema:"The node's new combined hash."`
+	ContentHash string                      `json:"content_hash,omitempty" jsonschema:"The node's new content_hash, for the next edit."`
+	MetaHash    string                      `json:"meta_hash,omitempty" jsonschema:"The node's new meta_hash, for the next edit."`
+	Validation  *keg.SchemaValidationResult `json:"validation,omitempty" jsonschema:"How the node validated against its schema, when it has one."`
+}
+
+// nodeEditOutput is node_edit's structured content.
+type nodeEditOutput struct {
+	Results []nodeUpdateOutput `json:"results" jsonschema:"One entry per node updated, in request order."`
 }
 
 func nodeUpdateOutputs(results []keg.NodeUpdateResult) []nodeUpdateOutput {
@@ -214,7 +226,8 @@ func registerEdit(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 			"Take a snapshot with snapshot_create before a large or destructive edit. " +
 			"On a strict keg (the default for new kegs) an edit that supplies meta needs schema; a content-only edit keeps the node's current type and is validated against it. " +
 			"On conflict, merge into the returned current content (or refetch with node_read) and retry with the returned current hash for the part you are writing: currentContentHash as expected_content_hash, currentMetaHash as expected_meta_hash.",
-		InputSchema: boundedMutationInputSchema[editInput]("nodes"),
+		InputSchema:  boundedMutationInputSchema[editInput]("nodes"),
+		OutputSchema: outputSchema[nodeEditOutput](),
 		Annotations: &sdkmcp.ToolAnnotations{
 			DestructiveHint: boolPtr(false),
 			OpenWorldHint:   boolPtr(false),
@@ -240,7 +253,7 @@ func registerEdit(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 			return errorResult(err), nil, nil
 		}
 		res := textResult(fmt.Sprintf("updated %d node(s)", len(results)))
-		res.StructuredContent = map[string]any{"results": nodeUpdateOutputs(results)}
+		res.StructuredContent = nodeEditOutput{Results: nodeUpdateOutputs(results)}
 		return res, nil, nil
 	})
 }
@@ -262,7 +275,8 @@ func registerRemove(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 		Name: "node_delete",
 		Description: "Memory: Call node_read first for every node, then atomically remove 1-100 nodes using the hash from node_read (the combined hash, not content_hash or meta_hash) as that node's expected_hash. On conflict, refetch with node_read and retry with the returned current hash. " +
 			"Where the keg keeps a trash, a removed node goes there with its history and assets and trash_restore brings it back; links to it are left alone until it is purged. Otherwise the node and its snapshots are gone and links to it point at node 0.",
-		InputSchema: boundedMutationInputSchema[removeInput]("nodes"),
+		InputSchema:  boundedMutationInputSchema[removeInput]("nodes"),
+		OutputSchema: textOutputSchema(),
 		Annotations: &sdkmcp.ToolAnnotations{
 			DestructiveHint: boolPtr(true),
 			OpenWorldHint:   boolPtr(false),
@@ -298,8 +312,9 @@ type moveInput struct {
 
 func registerMove(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
-		Name:        "node_move",
-		Description: "Memory: Call node_read first, then move (rename) a KEG node to a new ID using the hash from node_read (the combined hash, not content_hash or meta_hash) as expected_hash. The destination must be free: the id of a node in the trash stays reserved until it is restored or purged. On conflict, refetch with node_read and retry with the returned current hash.",
+		Name:         "node_move",
+		Description:  "Memory: Call node_read first, then move (rename) a KEG node to a new ID using the hash from node_read (the combined hash, not content_hash or meta_hash) as expected_hash. The destination must be free: the id of a node in the trash stays reserved until it is restored or purged. On conflict, refetch with node_read and retry with the returned current hash.",
+		OutputSchema: textOutputSchema(),
 		Annotations: &sdkmcp.ToolAnnotations{
 			DestructiveHint: boolPtr(true),
 			OpenWorldHint:   boolPtr(false),

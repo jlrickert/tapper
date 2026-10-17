@@ -26,8 +26,9 @@ type lockAcquireInput struct {
 
 func registerLockAcquire(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
-		Name:        "lock_acquire",
-		Description: "Memory: Acquire a Hub-held lock on a node and return its token.",
+		Name:         "lock_acquire",
+		Description:  "Memory: Acquire a Hub-held lock on a node and return its token.",
+		OutputSchema: textOutputSchema(),
 		Annotations: &sdkmcp.ToolAnnotations{
 			DestructiveHint: boolPtr(false),
 			OpenWorldHint:   boolPtr(false),
@@ -55,8 +56,9 @@ type lockReleaseInput struct {
 
 func registerLockRelease(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
-		Name:        "lock_release",
-		Description: "Memory: Release a lock on a node.",
+		Name:         "lock_release",
+		Description:  "Memory: Release a lock on a node.",
+		OutputSchema: textOutputSchema(),
 		Annotations: &sdkmcp.ToolAnnotations{
 			DestructiveHint: boolPtr(false),
 			OpenWorldHint:   boolPtr(false),
@@ -83,8 +85,9 @@ type lockStatusInput struct {
 
 func registerLockStatus(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
-		Name:        "lock_status",
-		Description: "Memory: Check a node's lock state.",
+		Name:         "lock_status",
+		Description:  "Memory: Check a node's lock state.",
+		OutputSchema: textOutputSchema(),
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(false),
@@ -119,8 +122,9 @@ type lockForceReleaseInput struct {
 
 func registerLockForceRelease(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
-		Name:        "lock_force_release",
-		Description: "Manage: Remove a lock on a node unconditionally.",
+		Name:         "lock_force_release",
+		Description:  "Manage: Remove a lock on a node unconditionally.",
+		OutputSchema: textOutputSchema(),
 		Annotations: &sdkmcp.ToolAnnotations{
 			DestructiveHint: boolPtr(true),
 			OpenWorldHint:   boolPtr(false),

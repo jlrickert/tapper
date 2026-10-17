@@ -39,14 +39,17 @@ type ToolServer struct {
 }
 
 // Tool is one tool as its MCP server lists it. InputSchema is the tool's JSON
-// Schema for its arguments; Annotations are the server's own hints, passed
-// through as the server reported them.
+// Schema for its arguments, and OutputSchema the one for its structured
+// result when the server declares one; a relay that predates OutputSchema, or
+// a server that declares none, leaves it out. Annotations are the server's own
+// hints, passed through as the server reported them.
 type Tool struct {
-	Name        string           `json:"name"`
-	Title       string           `json:"title,omitempty"`
-	Description string           `json:"description,omitempty"`
-	InputSchema json.RawMessage  `json:"inputSchema"`
-	Annotations *ToolAnnotations `json:"annotations,omitempty"`
+	Name         string           `json:"name"`
+	Title        string           `json:"title,omitempty"`
+	Description  string           `json:"description,omitempty"`
+	InputSchema  json.RawMessage  `json:"inputSchema"`
+	OutputSchema json.RawMessage  `json:"outputSchema,omitempty"`
+	Annotations  *ToolAnnotations `json:"annotations,omitempty"`
 }
 
 // ToolAnnotations mirrors MCP's tool annotations. Nil means the server did not
@@ -135,6 +138,14 @@ func (t *Tool) Validate() error {
 	}
 	if !isJSONObject(t.InputSchema) {
 		return errors.New("inputSchema must be a JSON object")
+	}
+	if len(t.OutputSchema) > 0 {
+		if len(t.OutputSchema) > MaxToolSchemaBytes {
+			return fmt.Errorf("outputSchema is larger than %d bytes", MaxToolSchemaBytes)
+		}
+		if !isJSONObject(t.OutputSchema) {
+			return errors.New("outputSchema must be a JSON object")
+		}
 	}
 	return nil
 }

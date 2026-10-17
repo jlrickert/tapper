@@ -70,10 +70,7 @@ func TestMCPRESTCompatibilityInitializationAndDeployment(t *testing.T) {
 			result, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: "orient", Arguments: map[string]any{}})
 			require.NoError(t, err)
 			require.True(t, result.IsError)
-			raw, err := json.Marshal(result.StructuredContent)
-			require.NoError(t, err)
-			var payload map[string]any
-			require.NoError(t, json.Unmarshal(raw, &payload))
+			payload := errorPayload(t, result)
 			require.Equal(t, apicontract.Unsupported, payload["code"])
 			require.Equal(t, false, payload["operationPerformed"])
 			require.Equal(t, []any{"2099-01-01"}, payload["supported_api_versions"])

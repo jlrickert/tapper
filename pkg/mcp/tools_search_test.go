@@ -90,12 +90,11 @@ func TestMCP_NodeSearchOmittedLimitStaysZero(t *testing.T) {
 	provider := &recordingNodeSearch{resp: &tapapi.SearchResponse{}}
 	session, ctx := newTestSessionWithOpts(t, mcp.ServerOptions{NodeSearchProvider: provider})
 
-	res := callNodeSearch(t, session, ctx, map[string]any{"query": "festival", "keg": "@acme/notes"})
+	res := callNodeSearch(t, session, ctx, map[string]any{"query": "festival", "kegs": []string{"@acme/notes"}})
 	require.False(t, res.IsError, "node_search failed: %v", extractText(t, res))
 	calls := provider.recorded()
 	require.Len(t, calls, 1)
 	require.Zero(t, calls[0].Limit, "the Hub owns the default page size")
-	require.Equal(t, "@acme/notes", calls[0].Keg)
 
 	payload := res.StructuredContent.(map[string]any)
 	require.Equal(t, []any{}, payload["hits"], "a nil hit list renders as an empty array")
@@ -117,7 +116,7 @@ func TestMCP_NodeSearchRefusesInvalidInputBeforeTheProvider(t *testing.T) {
 	} {
 		res := callNodeSearch(t, session, ctx, args)
 		require.True(t, res.IsError, name)
-		require.Equal(t, keg.RemoteCodeInvalid, res.StructuredContent.(map[string]any)["code"], name)
+		require.Equal(t, keg.RemoteCodeInvalid, errorPayload(t, res)["code"], name)
 	}
 	require.Empty(t, provider.recorded())
 }
@@ -130,7 +129,7 @@ func TestMCP_NodeSearchUnavailableNamesNodeGrep(t *testing.T) {
 	res := callNodeSearch(t, session, ctx, map[string]any{"query": "x"})
 	require.True(t, res.IsError)
 	require.Contains(t, extractText(t, res), "ranked search unavailable")
-	payload := res.StructuredContent.(map[string]any)
+	payload := errorPayload(t, res)
 	require.Equal(t, keg.RemoteCodeNotSupported, payload["code"], "a missing capability is not an unknown failure")
 	require.Equal(t, false, payload["operationPerformed"], "a search never writes")
 	require.Contains(t, payload["action"], "supported tool")
@@ -183,4 +182,84 @@ func TestMCP_NodeSearchReachesNothingWithoutAuthority(t *testing.T) {
 		require.Equal(t, []any{}, res.StructuredContent.(map[string]any)["hits"])
 	}
 	require.Empty(t, provider.recorded(), "a session that reaches no KEG must not search the Hub")
+}
+
+// node_search scopes to the call's flight: kegs only narrows it. One kegs
+// list replaced the old keg/kegs pair, so the schema names no keg.
+func TestMCP_NodeSearchSearchesTheFlightCoverAndNarrowsWithinIt(t *testing.T) {
+	t.Parallel()
+	provider := &recordingNodeSearch{resp: &tapapi.SearchResponse{}}
+	session, ctx := newFlightSearchSession(t, "active", provider)
+
+	listed, err := session.ListTools(ctx, nil)
+	require.NoError(t, err)
+	for _, tool := range listed.Tools {
+		if tool.Name != "node_search" {
+			continue
+		}
+		props := schemaProperties(t, tool.InputSchema)
+		require.Contains(t, props, "kegs")
+		require.NotContains(t, props, "keg", "kegs is the one way to name KEGs")
+	}
+
+	// Empty or omitted kegs searches the whole cover of the call's flight.
+	for _, args := range []map[string]any{
+		{"query": "release"},
+		{"query": "release", "kegs": []string{}},
+	} {
+		res := callNodeSearch(t, session, ctx, args)
+		require.False(t, res.IsError, "node_search failed: %v", extractText(t, res))
+	}
+	// An explicit flight selects that flight's cover instead.
+	res := callNodeSearch(t, session, ctx, map[string]any{"query": "release", "flight": "@team/+child"})
+	require.False(t, res.IsError, "node_search failed: %v", extractText(t, res))
+	calls := provider.recorded()
+	require.Len(t, calls, 3)
+	for i, call := range calls {
+		require.Emptyf(t, call.Kegs, "call %d named KEGs; the whole cover is searched", i)
+		require.Emptyf(t, call.Keg, "call %d named a single KEG", i)
+	}
+	require.Equal(t, "@team/+root", calls[0].FlightContext.Name)
+	require.Equal(t, "@team/+child", calls[2].FlightContext.Name)
+
+	// Naming KEGs inside the cover narrows to them.
+	res = callNodeSearch(t, session, ctx, map[string]any{"query": "release", "kegs": []string{"@team/root-keg"}})
+	require.False(t, res.IsError, "node_search failed: %v", extractText(t, res))
+	require.Equal(t, []string{"@team/root-keg"}, provider.recorded()[3].Kegs)
+
+	// Naming any outside it is refused, naming each, and searches nothing.
+	res = callNodeSearch(t, session, ctx, map[string]any{"query": "release", "kegs": []string{"@team/root-keg", "@team/child-keg", "@other/notes"}})
+	require.True(t, res.IsError)
+	require.Equal(t, keg.RemoteCodeInvalid, errorPayload(t, res)["code"])
+	text := extractText(t, res)
+	require.Contains(t, text, "@team/child-keg, @other/notes")
+	require.NotContains(t, text, "root-keg")
+	// The same KEG is in cover under the flight that covers it.
+	res = callNodeSearch(t, session, ctx, map[string]any{"query": "release", "flight": "@team/+child", "kegs": []string{"@team/child-keg"}})
+	require.False(t, res.IsError, "node_search failed: %v", extractText(t, res))
+	require.Len(t, provider.recorded(), 5)
+}
+
+// A client written before kegs replaced keg still sends keg. It is searched
+// as the one KEG named, bare names included, rather than refused by the
+// schema.
+func TestMCP_NodeSearchAcceptsLegacyKeg(t *testing.T) {
+	t.Parallel()
+	provider := &recordingNodeSearch{resp: &tapapi.SearchResponse{}}
+	session, ctx := newTestSessionWithOpts(t, mcp.ServerOptions{NodeSearchProvider: provider})
+
+	for _, ref := range []string{"@acme/notes", "notes"} {
+		res := callNodeSearch(t, session, ctx, map[string]any{"query": "festival", "keg": ref})
+		require.False(t, res.IsError, "legacy keg %q: %v", ref, extractText(t, res))
+	}
+	calls := provider.recorded()
+	require.Len(t, calls, 2)
+	require.Equal(t, "@acme/notes", calls[0].Keg)
+	require.Equal(t, "notes", calls[1].Keg)
+	require.Empty(t, calls[0].Kegs)
+
+	// An empty legacy keg asks for nothing narrower than the whole scope.
+	res := callNodeSearch(t, session, ctx, map[string]any{"query": "festival", "keg": ""})
+	require.False(t, res.IsError, extractText(t, res))
+	require.Empty(t, provider.recorded()[2].Keg)
 }

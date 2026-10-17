@@ -20,6 +20,7 @@ func registerURL(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 		Name: "url",
 		Description: "Memory: Get the Hub web link for a KEG, note, flight, or namespace, to give the reader a clickable link. " +
 			"Returns url, kind (namespace, keg, node, or flight), and the canonical ref. Building a link never reads the note.",
+		OutputSchema: outputSchema[tapper.WebURL](),
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(false),

@@ -547,7 +547,7 @@ func TestMCP_PerCallSelectionAdoptsGraphAuthorityChanges(t *testing.T) {
 	delisted, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: "keg_list", Arguments: map[string]any{"flight": "+grandchild"}})
 	require.NoError(t, err)
 	require.True(t, delisted.IsError)
-	structured := delisted.StructuredContent.(map[string]any)
+	structured := errorPayload(t, delisted)
 	require.Equal(t, "ORIENTATION_DENIED", structured["code"])
 	require.Equal(t, false, structured["operationPerformed"])
 	require.Equal(t, false, structured["reorientRequired"])
@@ -585,7 +585,7 @@ func TestMCP_PerCallDiscoveryAdoptsGraphAdditionDeletionAndTransientRecovery(t *
 	denied, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: "keg_list", Arguments: map[string]any{"flight": "+child"}})
 	require.NoError(t, err)
 	require.True(t, denied.IsError)
-	require.Equal(t, "ORIENTATION_DENIED", denied.StructuredContent.(map[string]any)["code"])
+	require.Equal(t, "ORIENTATION_DENIED", errorPayload(t, denied)["code"])
 
 	backend.mu.Lock()
 	backend.resolveErr = errors.New("temporary Hub failure")
@@ -593,7 +593,7 @@ func TestMCP_PerCallDiscoveryAdoptsGraphAdditionDeletionAndTransientRecovery(t *
 	transient, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: "keg_list", Arguments: map[string]any{}})
 	require.NoError(t, err)
 	require.True(t, transient.IsError)
-	require.Equal(t, "ORIENTATION_UNAVAILABLE", transient.StructuredContent.(map[string]any)["code"])
+	require.Equal(t, "ORIENTATION_UNAVAILABLE", errorPayload(t, transient)["code"])
 	backend.mu.Lock()
 	backend.resolveErr = nil
 	backend.mu.Unlock()
@@ -608,7 +608,7 @@ func TestMCP_PerCallDiscoveryAdoptsGraphAdditionDeletionAndTransientRecovery(t *
 	lost, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: "keg_list", Arguments: map[string]any{}})
 	require.NoError(t, err)
 	require.True(t, lost.IsError)
-	require.Equal(t, "ORIENTATION_ROOT_UNAVAILABLE", lost.StructuredContent.(map[string]any)["code"])
+	require.Equal(t, "ORIENTATION_ROOT_UNAVAILABLE", errorPayload(t, lost)["code"])
 }
 
 func TestMCP_AuthorityBearingSchemasExposeOptionalFlightAndRejectKegListAll(t *testing.T) {
@@ -746,7 +746,7 @@ func TestMCP_FailedSessionRefreshPreservesRecoveryState(t *testing.T) {
 	failed, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: "session_refresh", Arguments: map[string]any{}})
 	require.NoError(t, err)
 	require.True(t, failed.IsError)
-	structured := failed.StructuredContent.(map[string]any)
+	structured := errorPayload(t, failed)
 	require.Equal(t, "SESSION_REFRESH_FAILED", structured["code"])
 	require.Equal(t, "recovery", structured["mode"])
 	require.Equal(t, false, structured["toolsChanged"])
@@ -788,7 +788,7 @@ func TestMCP_FailedSessionRefreshDoesNotBlockPublishedRecoveryOrientation(t *tes
 	case failed := <-refreshDone:
 		require.NotNil(t, failed)
 		require.True(t, failed.IsError)
-		require.Equal(t, "SESSION_REFRESH_FAILED", failed.StructuredContent.(map[string]any)["code"])
+		require.Equal(t, "SESSION_REFRESH_FAILED", errorPayload(t, failed)["code"])
 	case <-time.After(time.Second):
 		t.Fatal("session refresh did not finish")
 	}
