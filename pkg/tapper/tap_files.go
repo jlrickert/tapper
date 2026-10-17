@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 
 	"github.com/jlrickert/tapper/pkg/keg"
@@ -29,6 +30,8 @@ type DownloadFileOptions struct {
 	NodeID string
 	Name   string
 	Dest   string
+	// NoOverwrite creates a private new file and refuses existing destinations.
+	NoOverwrite bool
 }
 
 // DeleteFileOptions configures behavior for Tap.DeleteFile.
@@ -59,6 +62,8 @@ type DownloadImageOptions struct {
 	NodeID string
 	Name   string
 	Dest   string
+	// NoOverwrite creates a private new file and refuses existing destinations.
+	NoOverwrite bool
 }
 
 // ReadImageOptions configures behavior for Tap.ReadImage.
@@ -163,7 +168,7 @@ func (t *Tap) DownloadFile(ctx context.Context, opts DownloadFileOptions) (strin
 		}
 		dest = filepath.Join(cwd, opts.Name)
 	}
-	if err := t.Runtime.WriteFile(dest, data, 0o644); err != nil {
+	if err := t.writeDownload(dest, data, opts.NoOverwrite); err != nil {
 		return "", fmt.Errorf("unable to write file to %q: %w", dest, err)
 	}
 	return dest, nil
@@ -294,7 +299,7 @@ func (t *Tap) DownloadImage(ctx context.Context, opts DownloadImageOptions) (str
 		}
 		dest = filepath.Join(cwd, opts.Name)
 	}
-	if err := t.Runtime.WriteFile(dest, data, 0o644); err != nil {
+	if err := t.writeDownload(dest, data, opts.NoOverwrite); err != nil {
 		return "", fmt.Errorf("unable to write image to %q: %w", dest, err)
 	}
 	return dest, nil
@@ -340,4 +345,19 @@ func (t *Tap) ReadAttachment(ctx context.Context, opts ReadAttachmentOptions) ([
 		return nil, "", fmt.Errorf("unable to read %s %q: %w", opts.Kind, opts.Name, err)
 	}
 	return data, keg.AttachmentContentType(opts.Kind, opts.Name, data), nil
+}
+
+func (t *Tap) writeDownload(dest string, data []byte, exclusive bool) error {
+	if !exclusive {
+		return t.Runtime.WriteFile(dest, data, 0o644)
+	}
+	f, err := t.Runtime.OpenFile(dest, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return err
+	}
+	if _, err := f.Write(data); err != nil {
+		_ = f.Close()
+		return err
+	}
+	return f.Close()
 }
