@@ -1,8 +1,54 @@
 package keg
 
-import "context"
+import (
+	"context"
+	"errors"
+	"time"
+)
 
 type localKegOperationContextKey struct{}
+
+type lockWaitContextKey struct{}
+
+// touchLockWait bounds how long a read that records an access waits for the
+// keg write lock. The access is bookkeeping, so a read behind a long writer
+// gives it up and serves the content rather than queue for the lock.
+const touchLockWait = 2 * time.Second
+
+// WithLockWait returns ctx carrying a bound on how long a repository waits to
+// acquire the keg write lock. A repository that honors it fails with
+// ErrLockTimeout once d passes without the lock; the bound covers acquiring
+// the lock, not the work done under it. A d of zero or less leaves the wait
+// unbounded, which is the default.
+func WithLockWait(ctx context.Context, d time.Duration) context.Context {
+	return context.WithValue(ctx, lockWaitContextKey{}, d)
+}
+
+// LockWaitFrom returns the keg lock wait bound carried by ctx, or zero when
+// the wait is unbounded.
+func LockWaitFrom(ctx context.Context) time.Duration {
+	d, _ := ctx.Value(lockWaitContextKey{}).(time.Duration)
+	if d < 0 {
+		return 0
+	}
+	return d
+}
+
+// touchLockContext bounds the keg lock wait of a touched read, keeping any
+// bound the caller already set.
+func touchLockContext(ctx context.Context) context.Context {
+	if LockWaitFrom(ctx) > 0 {
+		return ctx
+	}
+	return WithLockWait(ctx, touchLockWait)
+}
+
+// touchLockBusy reports whether a touched read failed only because the keg
+// lock stayed busy, so the read can be served without the touch. A canceled
+// or expired ctx also surfaces as ErrLockTimeout; that read fails as it is.
+func touchLockBusy(ctx context.Context, err error) bool {
+	return errors.Is(err, ErrLockTimeout) && ctx.Err() == nil
+}
 
 func localKegOperationActive(ctx context.Context, k *LocalKeg) bool {
 	held, _ := ctx.Value(localKegOperationContextKey{}).(*LocalKeg)

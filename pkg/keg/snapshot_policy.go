@@ -82,8 +82,9 @@ func (k *LocalKeg) runSnapshotPolicy(ctx context.Context) (SnapshotPolicyResult,
 	result.Scanned = len(ids)
 
 	msg := AutoSnapshotMessage(idleAfter)
+	history := &snapshotTimeline{}
 	for _, id := range ids {
-		snap, created, err := k.appendPolicySnapshotIfEligible(ctx, id, idleAfter, msg)
+		snap, created, err := k.appendPolicySnapshotIfEligible(ctx, history, id, idleAfter, msg)
 		if err != nil {
 			if errors.Is(err, ErrNotExist) {
 				continue
@@ -94,13 +95,13 @@ func (k *LocalKeg) runSnapshotPolicy(ctx context.Context) (SnapshotPolicyResult,
 			result.Created = append(result.Created, snap)
 		}
 	}
-	if err := k.refreshSnapshotIndexesAfterPolicy(ctx, len(result.Created)); err != nil {
+	if err := k.refreshSnapshotIndexesAfterPolicy(ctx, history, len(result.Created)); err != nil {
 		return result, err
 	}
 	return result, nil
 }
 
-func (k *LocalKeg) appendPolicySnapshotIfEligible(ctx context.Context, id NodeId, idleAfter time.Duration, msg string) (Snapshot, bool, error) {
+func (k *LocalKeg) appendPolicySnapshotIfEligible(ctx context.Context, history *snapshotTimeline, id NodeId, idleAfter time.Duration, msg string) (Snapshot, bool, error) {
 	var out Snapshot
 	created := false
 	err := k.withNodeLock(ctx, id, func(lockCtx context.Context) error {
@@ -111,7 +112,7 @@ func (k *LocalKeg) appendPolicySnapshotIfEligible(ctx context.Context, id NodeId
 		if !eligible {
 			return nil
 		}
-		snap, err := k.appendSnapshotLocked(lockCtx, id, msg)
+		snap, err := k.appendSnapshotLocked(lockCtx, history, id, msg)
 		if err != nil {
 			return err
 		}

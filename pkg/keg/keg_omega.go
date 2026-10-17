@@ -40,12 +40,7 @@ type snapshotOmegaReplayer struct {
 	latestLinks map[string][]NodeId
 }
 
-func (k *LocalKeg) replaySnapshotTimeline(ctx context.Context, records []timelineSnapshotState) (snapshotTimelineReplay, error) {
-	schemas, err := k.loadOmegaSchemas(ctx)
-	if err != nil {
-		return snapshotTimelineReplay{}, err
-	}
-
+func replaySnapshotTimelineWith(schemas map[string]*SchemaDefinition, records []timelineSnapshotState) snapshotTimelineReplay {
 	replayer := snapshotOmegaReplayer{
 		schemas:     schemas,
 		latest:      make(map[string]snapshotNodeState, len(records)),
@@ -62,7 +57,7 @@ func (k *LocalKeg) replaySnapshotTimeline(ctx context.Context, records []timelin
 		}
 		out.Steps = append(out.Steps, step)
 	}
-	return out, nil
+	return out
 }
 
 func (k *LocalKeg) loadOmegaSchemas(ctx context.Context) (map[string]*SchemaDefinition, error) {
@@ -263,18 +258,21 @@ func omegaAttributeScore(enum map[string]float64, rawValue string) (float64, boo
 	return clampOmegaScore(score), true
 }
 
-func (k *LocalKeg) computePendingSnapshotOmega(ctx context.Context, pending timelineSnapshotState) (*float64, error) {
-	records, err := k.loadTimelineSnapshotStates(ctx)
-	if err != nil {
+// computePendingSnapshotOmega replays history with pending added and returns
+// pending's omega. A nil history loads a fresh one.
+func (k *LocalKeg) computePendingSnapshotOmega(ctx context.Context, history *snapshotTimeline, pending timelineSnapshotState) (*float64, error) {
+	if history == nil {
+		history = &snapshotTimeline{}
+	}
+	if err := history.load(ctx, k); err != nil {
 		return nil, err
 	}
+	records := make([]timelineSnapshotState, 0, len(history.records)+1)
+	records = append(records, history.records...)
 	records = append(records, pending)
 	sortTimelineSnapshotStates(records)
 
-	replay, err := k.replaySnapshotTimeline(ctx, records)
-	if err != nil {
-		return nil, err
-	}
+	replay := replaySnapshotTimelineWith(history.schemas, records)
 	for _, step := range replay.Steps {
 		if !step.Record.snapshot.Node.Equals(pending.snapshot.Node) || step.Record.snapshot.ID != pending.snapshot.ID {
 			continue

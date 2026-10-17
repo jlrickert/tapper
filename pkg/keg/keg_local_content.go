@@ -371,8 +371,7 @@ func (k *LocalKeg) touch(ctx context.Context, id NodeId) error {
 		return fmt.Errorf("failed to touch node: %w", err)
 	}
 
-	now := k.Runtime.Clock().Now()
-
+	var refresh bool
 	if err := k.withNodeLock(ctx, id, func(lockCtx context.Context) error {
 		// Verify the node truly exists (has content) under the lock.
 		exists, exErr := k.nodeExistsWithContent(lockCtx, id)
@@ -383,28 +382,56 @@ func (k *LocalKeg) touch(ctx context.Context, id NodeId) error {
 			return fmt.Errorf("node %s not found: %w", id.Path(), ErrNotExist)
 		}
 
-		meta, stats, err := k.getMetaAndStats(lockCtx, id)
-		if errors.Is(err, ErrNotExist) {
-			meta = NewMeta(lockCtx, now)
-			stats = NewStats(now)
-		} else if err != nil {
+		meta, err := k.Repo.ReadMeta(lockCtx, id)
+		if err != nil && !errors.Is(err, ErrNotExist) {
 			return fmt.Errorf("failed to read node metadata: %w", err)
 		}
-		if stats == nil {
-			stats = &NodeStats{}
+		stats, err := k.getStats(lockCtx, id)
+		if err != nil {
+			return fmt.Errorf("failed to read node stats: %w", err)
 		}
-
-		stats.SetAccessed(now)
-		stats.IncrementAccessCount()
-		stats.EnsureTimes(now)
-		if err := k.Repo.WriteMeta(lockCtx, id, []byte(meta.ToYAML())); err != nil {
-			return err
-		}
-		return k.Repo.WriteStats(lockCtx, id, stats)
+		refresh, err = k.touchNoRefresh(lockCtx, id, meta, stats)
+		return err
 	}); err != nil {
 		return err
 	}
+	if !refresh {
+		return nil
+	}
 	return k.refreshDirtyIndex(ctx)
+}
+
+// touchNoRefresh records one access in stats, which the caller read under the
+// node lock along with rawMeta, the node's stored metadata. It leaves existing
+// metadata alone and writes it only for a node that has none.
+//
+// It does not refresh the dirty index, so a batch pays for that once. It
+// reports whether the index needs it, which is only when the metadata it
+// wrote hashes differently from what was stored. Stats never change a dirty
+// row: the row falls back to the stats title only when content has none, and
+// a touch never changes the title, so a stats-only write leaves the index as
+// a rebuild would make it.
+func (k *LocalKeg) touchNoRefresh(ctx context.Context, id NodeId, rawMeta []byte, stats *NodeStats) (bool, error) {
+	now := k.Runtime.Clock().Now()
+	if stats == nil {
+		stats = &NodeStats{}
+	}
+	stats.SetAccessed(now)
+	stats.IncrementAccessCount()
+	stats.EnsureTimes(now)
+
+	refresh := false
+	if len(bytes.TrimSpace(rawMeta)) == 0 {
+		created := []byte(NewMeta(ctx, now).ToYAML())
+		if err := k.Repo.WriteMeta(ctx, id, created); err != nil {
+			return false, err
+		}
+		refresh = hashSnapshotBytes(k.Runtime, created) != hashSnapshotBytes(k.Runtime, rawMeta)
+	}
+	if err := k.Repo.WriteStats(ctx, id, stats); err != nil {
+		return false, err
+	}
+	return refresh, nil
 }
 
 // Node returns a Node handle bound to this keg's repository and runtime for the

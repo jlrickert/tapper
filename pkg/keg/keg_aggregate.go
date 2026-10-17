@@ -545,12 +545,20 @@ func (k *LocalKeg) listEntries(ctx context.Context, opts ListEntriesOptions) (*L
 	return &ListEntriesResult{Query: strings.TrimSpace(opts.Query), Entries: entries, Tags: tags, IndexedCount: indexed, NodeCount: len(ids)}, nil
 }
 
+// ReadNodes reads the selected nodes. A touched read waits a bounded time for
+// the keg write lock; when the lock stays busy it serves the nodes untouched,
+// since the content matters to the caller and the access record does not.
 func (k *LocalKeg) ReadNodes(ctx context.Context, opts ReadNodesOptions) ([]NodeView, error) {
-	fn := func(ctx context.Context) ([]NodeView, error) { return k.readNodes(ctx, opts) }
 	if opts.Touch {
-		return withKegWriteValue(ctx, k, fn)
+		views, err := withKegWriteValue(touchLockContext(ctx), k, func(ctx context.Context) ([]NodeView, error) {
+			return k.readNodes(ctx, opts)
+		})
+		if !touchLockBusy(ctx, err) {
+			return views, err
+		}
+		opts.Touch = false
 	}
-	return withKegReadValue(ctx, k, fn)
+	return withKegReadValue(ctx, k, func(ctx context.Context) ([]NodeView, error) { return k.readNodes(ctx, opts) })
 }
 
 func (k *LocalKeg) readNodes(ctx context.Context, opts ReadNodesOptions) ([]NodeView, error) {
@@ -573,28 +581,8 @@ func (k *LocalKeg) readNodes(ctx context.Context, opts ReadNodesOptions) ([]Node
 			}
 		}
 	}
-	var touchBackups []*aggregateBackup
 	if opts.Touch {
-		touchBackups = make([]*aggregateBackup, 0, len(ids))
-		for _, id := range ids {
-			view, err := k.ReadNode(ctx, id)
-			if err != nil {
-				if errors.Is(err, ErrNotExist) {
-					return nil, fmt.Errorf("node %s not found: %w", id.Path(), err)
-				}
-				return nil, err
-			}
-			backup, err := k.captureAggregateBackup(ctx, view)
-			if err != nil {
-				return nil, err
-			}
-			touchBackups = append(touchBackups, backup)
-		}
-		for _, id := range ids {
-			if err := k.Touch(ctx, id); err != nil {
-				return nil, errors.Join(err, k.restoreTouchBackups(ctx, touchBackups))
-			}
-		}
+		return k.readTouchedNodes(ctx, ids)
 	}
 
 	read := k.ReadNode
@@ -608,14 +596,107 @@ func (k *LocalKeg) readNodes(ctx context.Context, opts ReadNodesOptions) ([]Node
 			if errors.Is(err, ErrNotExist) {
 				err = fmt.Errorf("node %s not found: %w", id.Path(), err)
 			}
-			if opts.Touch {
-				err = errors.Join(err, k.restoreTouchBackups(ctx, touchBackups))
-			}
 			return nil, err
 		}
 		views = append(views, *view)
 	}
 	return views, nil
+}
+
+// readTouchedNodes reads and touches every id in order, refreshing the dirty
+// index at most once at the end. Any failure restores every touch already
+// written, so either all ids are touched or none are. The caller holds the
+// keg write operation.
+func (k *LocalKeg) readTouchedNodes(ctx context.Context, ids []NodeId) ([]NodeView, error) {
+	if err := k.checkKegExists(ctx); err != nil {
+		return nil, fmt.Errorf("failed to read node: %w", err)
+	}
+	views := make([]NodeView, 0, len(ids))
+	backups := make([]*aggregateBackup, 0, len(ids))
+	refresh := false
+	fail := func(err error) ([]NodeView, error) {
+		return nil, errors.Join(err, k.restoreTouchBackups(ctx, backups))
+	}
+	for _, id := range ids {
+		err := k.withNodeLock(ctx, id, func(lockCtx context.Context) error {
+			view, backup, changed, err := k.readTouchedNode(lockCtx, id)
+			if backup != nil {
+				backups = append(backups, backup)
+			}
+			if err != nil {
+				return err
+			}
+			refresh = refresh || changed
+			views = append(views, *view)
+			return nil
+		})
+		if err != nil {
+			if errors.Is(err, ErrNotExist) {
+				err = fmt.Errorf("node %s not found: %w", id.Path(), err)
+			}
+			return fail(err)
+		}
+	}
+	if refresh {
+		if err := k.refreshDirtyIndex(ctx); err != nil {
+			return fail(err)
+		}
+	}
+	// A repeated id is touched once per occurrence; every view of it shows
+	// the stats after the last one.
+	last := make(map[NodeId]*NodeStats, len(views))
+	for _, view := range views {
+		last[view.ID] = view.Stats
+	}
+	for i := range views {
+		if final := last[views[i].ID]; views[i].Stats != final {
+			stats, err := cloneNodeStats(ctx, final)
+			if err != nil {
+				return fail(err)
+			}
+			views[i].Stats = stats
+		}
+	}
+	return views, nil
+}
+
+// readTouchedNode reads id, records one access, and returns the view with the
+// touched stats. It also returns the backup that undoes the touch, which is
+// non-nil once the touch may have written anything, and whether the dirty
+// index needs a refresh. The caller holds the keg write operation and the
+// node lock.
+func (k *LocalKeg) readTouchedNode(ctx context.Context, id NodeId) (*NodeView, *aggregateBackup, bool, error) {
+	view, err := k.readNode(ctx, id)
+	if err != nil {
+		return nil, nil, false, err
+	}
+	backup, err := k.captureAggregateBackup(ctx, view)
+	if err != nil {
+		return nil, nil, false, err
+	}
+	stats, err := cloneNodeStats(ctx, view.Stats)
+	if err != nil {
+		return nil, nil, false, err
+	}
+	refresh, err := k.touchNoRefresh(ctx, id, view.Meta, stats)
+	if err != nil {
+		return nil, backup, false, err
+	}
+	if refresh {
+		// The touch wrote metadata, which feeds the view's hashes.
+		view, err = k.readNode(ctx, id)
+		return view, backup, true, err
+	}
+	// Reread stats rather than reuse the touched copy: a repository may
+	// normalize what it stores, and the view shows what a reread would.
+	stored, err := k.Repo.ReadStats(ctx, id)
+	if err != nil {
+		return nil, backup, false, err
+	}
+	if stored != nil {
+		view.Stats = stored
+	}
+	return view, backup, false, nil
 }
 
 func (k *LocalKeg) RelatedNodes(ctx context.Context, opts RelatedNodesOptions) (*RelatedNodesResult, error) {
@@ -882,12 +963,19 @@ func (k *LocalKeg) createSchema(ctx context.Context, typeName string, data []byt
 	return nil
 }
 
+// OpenNode opens one node. Like ReadNodes, a touched open whose keg lock stays
+// busy serves the node untouched.
 func (k *LocalKeg) OpenNode(ctx context.Context, opts NodeOpenOptions) (*NodeView, error) {
-	fn := func(ctx context.Context) (*NodeView, error) { return k.openNode(ctx, opts) }
 	if opts.Touch {
-		return withKegWriteValue(ctx, k, fn)
+		view, err := withKegWriteValue(touchLockContext(ctx), k, func(ctx context.Context) (*NodeView, error) {
+			return k.openNode(ctx, opts)
+		})
+		if !touchLockBusy(ctx, err) {
+			return view, err
+		}
+		opts.Touch = false
 	}
-	return withKegReadValue(ctx, k, fn)
+	return withKegReadValue(ctx, k, func(ctx context.Context) (*NodeView, error) { return k.openNode(ctx, opts) })
 }
 
 func (k *LocalKeg) openNode(ctx context.Context, opts NodeOpenOptions) (*NodeView, error) {
@@ -903,21 +991,16 @@ func (k *LocalKeg) openNode(ctx context.Context, opts NodeOpenOptions) (*NodeVie
 		if err := k.validateAggregateLock(lockCtx, opts.ID, opts.LockToken); err != nil {
 			return err
 		}
-		var backup *aggregateBackup
-		if opts.Touch {
-			before, err := k.ReadNode(lockCtx, opts.ID)
-			if err != nil {
-				return err
-			}
-			backup, err = k.captureAggregateBackup(lockCtx, before)
-			if err != nil {
-				return err
-			}
-			if err := k.Touch(lockCtx, opts.ID); err != nil {
-				return err
-			}
+		if !opts.Touch {
+			view, err = k.readNode(lockCtx, opts.ID)
+			return err
 		}
-		view, err = k.ReadNode(lockCtx, opts.ID)
+		var backup *aggregateBackup
+		var refresh bool
+		view, backup, refresh, err = k.readTouchedNode(lockCtx, opts.ID)
+		if err == nil && refresh {
+			err = k.refreshDirtyIndex(lockCtx)
+		}
 		if err != nil && backup != nil {
 			err = errors.Join(err, k.restoreTouchBackups(lockCtx, []*aggregateBackup{backup}))
 		}
@@ -1051,9 +1134,11 @@ func (k *LocalKeg) restoreAggregateBackup(ctx context.Context, backup *aggregate
 	return errors.Join(errs...)
 }
 
+// restoreTouchBackups undoes touches newest first, so a node touched twice
+// ends at the state its first backup captured.
 func (k *LocalKeg) restoreTouchBackups(ctx context.Context, backups []*aggregateBackup) error {
 	var errs []error
-	for _, backup := range backups {
+	for _, backup := range slices.Backward(backups) {
 		if backup == nil {
 			continue
 		}
