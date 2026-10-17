@@ -10,6 +10,7 @@ import (
 
 func NewTagsCmd(deps *Deps) *cobra.Command {
 	var opts tapper.TagsOptions
+	var idOnly bool
 
 	cmd := &cobra.Command{
 		Use:   "list [EXPR]",
@@ -74,6 +75,9 @@ Examples:
 				opts.Query = args[0]
 			}
 			applyKegTargetProfile(deps, &opts.KegTargetOptions)
+			if idOnly {
+				opts.Format = tapper.IDOnlyFormat
+			}
 
 			items, err := deps.Tap.Tags(cmd.Context(), opts)
 			if err != nil {
@@ -86,7 +90,7 @@ Examples:
 		},
 	}
 
-	cmd.Flags().BoolVarP(&opts.IdOnly, "id-only", "", false, "show only ids when TAG is provided")
+	cmd.Flags().BoolVar(&idOnly, "id-only", false, "show only ids when TAG is provided (shorthand for --format %i)")
 	cmd.Flags().BoolVar(&opts.Reverse, "reverse", false, "list in reverse order")
 	cmd.Flags().IntVarP(&opts.Limit, "limit", "n", 0, "maximum number of results (0 for no limit)")
 	cmd.Flags().IntVar(&opts.Offset, "offset", 0, "skip the first N results")

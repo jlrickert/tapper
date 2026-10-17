@@ -13,11 +13,11 @@ import (
 // --- node_search ---
 
 type nodeSearchInput struct {
-	Query  string   `json:"query" jsonschema:"required,what to find: plain terms (any may match; more matches and title or metadata matches rank higher), \"quoted phrases\" that must appear, and -exclusions"`
-	Keg    string   `json:"keg,omitempty" jsonschema:"search only this KEG (@namespace/keg or alias). Omit to search every KEG this call may read; never combined with kegs"`
-	Kegs   []string `json:"kegs,omitempty" jsonschema:"narrow the search to these @namespace/keg references (at most 50); omit to search every KEG this call may read"`
-	Cursor string   `json:"cursor,omitempty" jsonschema:"next_cursor from a previous node_search response for the same query, passed back unchanged"`
-	Limit  int      `json:"limit,omitempty" jsonschema:"maximum hits to return, 0 or more; omit it or pass 0 to let the Hub choose its default. Unlike listing tools, -1 (unlimited) is not accepted"`
+	Query  string   `json:"query" jsonschema:"What to find: plain terms (any may match; more matches, and matches in titles or metadata, rank higher), \"quoted phrases\" that must appear, and -exclusions."`
+	Keg    string   `json:"keg,omitempty" jsonschema:"Search only this KEG (@namespace/keg, or a bare name in your default namespace). Omit to search every KEG this call may read; never combined with kegs."`
+	Kegs   []string `json:"kegs,omitempty" jsonschema:"Narrow the search to these @namespace/keg references (at most 50); omit to search every KEG this call may read."`
+	Cursor string   `json:"cursor,omitempty" jsonschema:"The next_cursor of a previous node_search response for the same query, passed back unchanged."`
+	Limit  int      `json:"limit,omitempty" jsonschema:"Maximum hits to return; 0 or omitted lets the Hub choose. Unlike listing tools, -1 is not accepted."`
 }
 
 type nodeSearchOutput struct {

@@ -50,7 +50,7 @@ func registerNamespaceTools(srv *sdkmcp.Server, namespaces NamespaceProvider) {
 	}
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "namespace_list",
-		Description: "Session: List the namespaces you belong to, with your role in each",
+		Description: "Session: List the namespaces you belong to, with your role in each.",
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(false),

@@ -26,12 +26,12 @@ func registerReadTools(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults
 // --- node_read ---
 
 type catInput struct {
-	NodeIDs     []string `json:"node_ids,omitempty" jsonschema:"node IDs to read"`
-	Keg         string   `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
-	ContentOnly bool     `json:"content_only,omitempty" jsonschema:"return content without frontmatter"`
-	MetaOnly    bool     `json:"meta_only,omitempty" jsonschema:"return metadata only"`
-	StatsOnly   bool     `json:"stats_only,omitempty" jsonschema:"return stats only"`
-	Query       string   `json:"query,omitempty" jsonschema:"boolean expression to select nodes (alternative to node_ids)"`
+	NodeIDs     []string `json:"node_ids,omitempty" jsonschema:"Node IDs to read."`
+	Keg         string   `json:"keg,omitempty" jsonschema:"KEG to use, as @namespace/keg; a bare name uses your default namespace. Omit it to use the default KEG."`
+	ContentOnly bool     `json:"content_only,omitempty" jsonschema:"Return content only, without metadata."`
+	MetaOnly    bool     `json:"meta_only,omitempty" jsonschema:"Return metadata only."`
+	StatsOnly   bool     `json:"stats_only,omitempty" jsonschema:"Return stats only."`
+	Query       string   `json:"query,omitempty" jsonschema:"Query expression selecting nodes, instead of node_ids."`
 }
 
 // nodeReadOutput is one self-contained read result: the node's document
@@ -126,20 +126,19 @@ func registerCat(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 // --- list ---
 
 type listInput struct {
-	Query   string `json:"query,omitempty" jsonschema:"boolean query expression to filter nodes. Supports tags ('golang'), key=value attributes ('entity=plan'), and dot-prefix stats fields ('.created>2026-01-01', '.accessCount>=5', '.hash=abc123'). Combine with 'and', 'or', 'not'."`
-	Keg     string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
-	Format  string `json:"format,omitempty" jsonschema:"output format template. Legacy verbs %i (id), %t (title), %d (updated), %c (created), %a (accessed); %% is a literal percent. Named selectors use %{...}: a bare word names a metadata key such as %{type} or %{status}, a leading dot names a statistics field such as %{.accessCount} or %{.omega}, and %{tags} is the node's tag list. Backslash escapes are interpreted: \\t tab, \\n newline, \\r return, \\\\ backslash. Selectors other than id, title, and the three dates are resolved by the Hub for the returned page in one batch."`
-	IdOnly  bool   `json:"id_only,omitempty" jsonschema:"return node IDs only"`
-	Reverse bool   `json:"reverse,omitempty" jsonschema:"reverse output order"`
-	Sort    string `json:"sort,omitempty" jsonschema:"sort order: 'id' (default), 'updated', 'created', or 'accessed'"`
-	Limit   int    `json:"limit,omitempty" jsonschema:"maximum results to return (default: 50, 0 in request means use default, -1 for unlimited)"`
-	Offset  int    `json:"offset,omitempty" jsonschema:"skip the first N results (for pagination)"`
+	Query   string `json:"query,omitempty" jsonschema:"Query expression selecting nodes: tags (golang), key=value attributes (entity=plan), and stats fields with a leading dot (.created>2026-01-01, .accessCount>=5), combined with and, or, and not."`
+	Keg     string `json:"keg,omitempty" jsonschema:"KEG to use, as @namespace/keg; a bare name uses your default namespace. Omit it to use the default KEG."`
+	Format  string `json:"format,omitempty" jsonschema:"Output template per node. Verbs: %i id, %t title, %d updated, %c created, %a accessed, %% a literal percent. Selectors: %{key} a metadata key such as %{type}, %{.field} a stats field such as %{.accessCount}, %{tags} the tag list. Escapes: \\t, \\n, \\r, \\\\."`
+	Reverse bool   `json:"reverse,omitempty" jsonschema:"Reverse the order of each page."`
+	Sort    string `json:"sort,omitempty" jsonschema:"Sort order: id (default), updated, created, or accessed."`
+	Limit   int    `json:"limit,omitempty" jsonschema:"Maximum results; 0 or omitted means 50, and -1 means no limit."`
+	Offset  int    `json:"offset,omitempty" jsonschema:"Results to skip; pass the previous page's next_offset to page."`
 }
 
 func registerList(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "node_list",
-		Description: "Memory: List KEG nodes, optionally filtered by a query expression",
+		Description: "Memory: List a KEG's nodes, optionally filtered by a query expression, one line per node rendered by format. Follow next_offset for more.",
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(false),
@@ -149,7 +148,6 @@ func registerList(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 			KegTargetOptions: resolveKegTarget(ctx, in.Keg, defaults),
 			Query:            in.Query,
 			Format:           in.Format,
-			IdOnly:           in.IdOnly,
 			Reverse:          in.Reverse,
 			Sort:             tapper.ListSortType(in.Sort),
 			Limit:            mcpDefaultLimit(in.Limit),
@@ -166,21 +164,20 @@ func registerList(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 // --- node_grep ---
 
 type grepInput struct {
-	Query      string `json:"query" jsonschema:"regex pattern to search node content, matched per line. Local KEGs use Go RE2 syntax; Hub KEGs use PostgreSQL regex, where \\y (not \\b) is a word boundary and lookahead is allowed"`
-	Keg        string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
-	Format     string `json:"format,omitempty" jsonschema:"output format template. Legacy verbs %i (id), %t (title), %d (updated), %c (created), %a (accessed); %% is a literal percent. Named selectors use %{...}: a bare word names a metadata key such as %{type} or %{status}, a leading dot names a statistics field such as %{.accessCount} or %{.omega}, and %{tags} is the node's tag list. Backslash escapes are interpreted: \\t tab, \\n newline, \\r return, \\\\ backslash. Selectors other than id, title, and the three dates are resolved by the Hub for the returned page in one batch. Use id_only for compact MCP output."`
-	IdOnly     bool   `json:"id_only,omitempty" jsonschema:"return node IDs only (recommended for MCP to reduce token usage)"`
-	Reverse    bool   `json:"reverse,omitempty" jsonschema:"reverse output order"`
-	IgnoreCase bool   `json:"ignore_case,omitempty" jsonschema:"case-insensitive matching"`
-	MaxLines   int    `json:"max_lines,omitempty" jsonschema:"max matched lines per node (default: unlimited for CLI, 3 for MCP)"`
-	Limit      int    `json:"limit,omitempty" jsonschema:"maximum results to return (default: 50, 0 in request means use default, -1 for unlimited)"`
-	Offset     int    `json:"offset,omitempty" jsonschema:"skip the first N results (for pagination)"`
+	Query      string `json:"query" jsonschema:"PostgreSQL regular expression matched against each line of node content. \\y (not \\b) is a word boundary; lookahead is allowed."`
+	Keg        string `json:"keg,omitempty" jsonschema:"KEG to use, as @namespace/keg; a bare name uses your default namespace. Omit it to use the default KEG."`
+	Format     string `json:"format,omitempty" jsonschema:"Output template per node. Verbs: %i id, %t title, %d updated, %c created, %a accessed, %% a literal percent. Selectors: %{key} a metadata key such as %{type}, %{.field} a stats field such as %{.accessCount}, %{tags} the tag list. Escapes: \\t, \\n, \\r, \\\\."`
+	Reverse    bool   `json:"reverse,omitempty" jsonschema:"Reverse the order of each page."`
+	IgnoreCase bool   `json:"ignore_case,omitempty" jsonschema:"Match case-insensitively."`
+	MaxLines   int    `json:"max_lines,omitempty" jsonschema:"Matched lines to show per node; 0 or omitted means 3, and -1 means all."`
+	Limit      int    `json:"limit,omitempty" jsonschema:"Maximum results; 0 or omitted means 50, and -1 means no limit."`
+	Offset     int    `json:"offset,omitempty" jsonschema:"Results to skip; pass the previous page's next_offset to page."`
 }
 
 func registerGrep(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "node_grep",
-		Description: "Memory: Match KEG node content lines against a regex pattern in one KEG, in node id order. Use it for exact identifiers, symbols, and audits; use node_search to find the nodes about a topic. max_lines defaults to 3 matched lines per node; -1 returns all matched lines. Follow next_offset for more nodes; use node_read for complete bodies.",
+		Description: "Memory: Match node content lines in one KEG against a PostgreSQL regular expression, in node ID order. Use it for exact identifiers, symbols, and audits; use node_search to find the nodes about a topic. Follow next_offset for more nodes, and use node_read for complete bodies.",
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(false),
@@ -190,7 +187,6 @@ func registerGrep(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 			KegTargetOptions: resolveKegTarget(ctx, in.Keg, defaults),
 			Query:            in.Query,
 			Format:           in.Format,
-			IdOnly:           in.IdOnly,
 			Reverse:          in.Reverse,
 			IgnoreCase:       in.IgnoreCase,
 			MaxLines:         mcpDefaultMaxLines(in.MaxLines),
@@ -208,19 +204,18 @@ func registerGrep(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 // --- tags ---
 
 type tagsInput struct {
-	Query   string `json:"query,omitempty" jsonschema:"boolean expression to filter by tags, attributes, and dot-prefix stats fields (e.g. '.created>2026-01-01 and entity=plan')"`
-	Keg     string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
-	Format  string `json:"format,omitempty" jsonschema:"output format template. Legacy verbs %i (id), %t (title), %d (updated), %c (created), %a (accessed); %% is a literal percent. Named selectors use %{...}: a bare word names a metadata key such as %{type} or %{status}, a leading dot names a statistics field such as %{.accessCount} or %{.omega}, and %{tags} is the node's tag list. Backslash escapes are interpreted: \\t tab, \\n newline, \\r return, \\\\ backslash. Selectors other than id, title, and the three dates are resolved by the Hub for the returned page in one batch."`
-	IdOnly  bool   `json:"id_only,omitempty" jsonschema:"return node IDs only"`
-	Reverse bool   `json:"reverse,omitempty" jsonschema:"reverse output order"`
-	Limit   int    `json:"limit,omitempty" jsonschema:"maximum results to return (default: 50, 0 in request means use default, -1 for unlimited)"`
-	Offset  int    `json:"offset,omitempty" jsonschema:"skip the first N results (for pagination)"`
+	Query   string `json:"query,omitempty" jsonschema:"Query expression selecting nodes, such as .created>2026-01-01 and entity=plan. Omit it to list the KEG's tags."`
+	Keg     string `json:"keg,omitempty" jsonschema:"KEG to use, as @namespace/keg; a bare name uses your default namespace. Omit it to use the default KEG."`
+	Format  string `json:"format,omitempty" jsonschema:"Output template per node. Verbs: %i id, %t title, %d updated, %c created, %a accessed, %% a literal percent. Selectors: %{key} a metadata key such as %{type}, %{.field} a stats field such as %{.accessCount}, %{tags} the tag list. Escapes: \\t, \\n, \\r, \\\\."`
+	Reverse bool   `json:"reverse,omitempty" jsonschema:"Reverse the order of each page."`
+	Limit   int    `json:"limit,omitempty" jsonschema:"Maximum results; 0 or omitted means 50, and -1 means no limit."`
+	Offset  int    `json:"offset,omitempty" jsonschema:"Results to skip; pass the previous page's next_offset to page."`
 }
 
 func registerTags(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "tag_list",
-		Description: "Memory: List tags or filter nodes by tag expression",
+		Description: "Memory: List a KEG's tags, or the nodes a query expression selects.",
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(false),
@@ -230,7 +225,6 @@ func registerTags(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 			KegTargetOptions: resolveKegTarget(ctx, in.Keg, defaults),
 			Query:            in.Query,
 			Format:           in.Format,
-			IdOnly:           in.IdOnly,
 			Reverse:          in.Reverse,
 			Limit:            mcpDefaultLimit(in.Limit),
 			Offset:           in.Offset,
@@ -246,19 +240,18 @@ func registerTags(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 // --- backlinks ---
 
 type backlinksInput struct {
-	NodeIDs []string `json:"node_ids" jsonschema:"target node IDs to find incoming links for (results merged and deduplicated)"`
-	Keg     string   `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
-	Format  string   `json:"format,omitempty" jsonschema:"output format template. Legacy verbs %i (id), %t (title), %d (updated), %c (created), %a (accessed); %% is a literal percent. Named selectors use %{...}: a bare word names a metadata key such as %{type} or %{status}, a leading dot names a statistics field such as %{.accessCount} or %{.omega}, and %{tags} is the node's tag list. Backslash escapes are interpreted: \\t tab, \\n newline, \\r return, \\\\ backslash. Selectors other than id, title, and the three dates are resolved by the Hub for the returned page in one batch."`
-	IdOnly  bool     `json:"id_only,omitempty" jsonschema:"return node IDs only"`
-	Reverse bool     `json:"reverse,omitempty" jsonschema:"reverse output order"`
-	Limit   int      `json:"limit,omitempty" jsonschema:"maximum results to return (default: 50, 0 in request means use default, -1 for unlimited)"`
-	Offset  int      `json:"offset,omitempty" jsonschema:"skip the first N results (for pagination)"`
+	NodeIDs []string `json:"node_ids" jsonschema:"Target node IDs to find incoming links for (results merged and deduplicated)."`
+	Keg     string   `json:"keg,omitempty" jsonschema:"KEG to use, as @namespace/keg; a bare name uses your default namespace. Omit it to use the default KEG."`
+	Format  string   `json:"format,omitempty" jsonschema:"Output template per node. Verbs: %i id, %t title, %d updated, %c created, %a accessed, %% a literal percent. Selectors: %{key} a metadata key such as %{type}, %{.field} a stats field such as %{.accessCount}, %{tags} the tag list. Escapes: \\t, \\n, \\r, \\\\."`
+	Reverse bool     `json:"reverse,omitempty" jsonschema:"Reverse the order of each page."`
+	Limit   int      `json:"limit,omitempty" jsonschema:"Maximum results; 0 or omitted means 50, and -1 means no limit."`
+	Offset  int      `json:"offset,omitempty" jsonschema:"Results to skip; pass the previous page's next_offset to page."`
 }
 
 func registerBacklinks(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "node_backlinks",
-		Description: "Memory: List nodes that link to a given node",
+		Description: "Memory: List the nodes that link to the given nodes.",
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(false),
@@ -268,7 +261,6 @@ func registerBacklinks(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults
 			KegTargetOptions: resolveKegTarget(ctx, in.Keg, defaults),
 			NodeIDs:          in.NodeIDs,
 			Format:           in.Format,
-			IdOnly:           in.IdOnly,
 			Reverse:          in.Reverse,
 			Limit:            mcpDefaultLimit(in.Limit),
 			Offset:           in.Offset,
@@ -284,19 +276,18 @@ func registerBacklinks(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults
 // --- links ---
 
 type linksInput struct {
-	NodeIDs []string `json:"node_ids" jsonschema:"source node IDs to find outgoing links for (results merged and deduplicated)"`
-	Keg     string   `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
-	Format  string   `json:"format,omitempty" jsonschema:"output format template. Legacy verbs %i (id), %t (title), %d (updated), %c (created), %a (accessed); %% is a literal percent. Named selectors use %{...}: a bare word names a metadata key such as %{type} or %{status}, a leading dot names a statistics field such as %{.accessCount} or %{.omega}, and %{tags} is the node's tag list. Backslash escapes are interpreted: \\t tab, \\n newline, \\r return, \\\\ backslash. Selectors other than id, title, and the three dates are resolved by the Hub for the returned page in one batch."`
-	IdOnly  bool     `json:"id_only,omitempty" jsonschema:"return node IDs only"`
-	Reverse bool     `json:"reverse,omitempty" jsonschema:"reverse output order"`
-	Limit   int      `json:"limit,omitempty" jsonschema:"maximum results to return (default: 50, 0 in request means use default, -1 for unlimited)"`
-	Offset  int      `json:"offset,omitempty" jsonschema:"skip the first N results (for pagination)"`
+	NodeIDs []string `json:"node_ids" jsonschema:"Source node IDs to find outgoing links for (results merged and deduplicated)."`
+	Keg     string   `json:"keg,omitempty" jsonschema:"KEG to use, as @namespace/keg; a bare name uses your default namespace. Omit it to use the default KEG."`
+	Format  string   `json:"format,omitempty" jsonschema:"Output template per node. Verbs: %i id, %t title, %d updated, %c created, %a accessed, %% a literal percent. Selectors: %{key} a metadata key such as %{type}, %{.field} a stats field such as %{.accessCount}, %{tags} the tag list. Escapes: \\t, \\n, \\r, \\\\."`
+	Reverse bool     `json:"reverse,omitempty" jsonschema:"Reverse the order of each page."`
+	Limit   int      `json:"limit,omitempty" jsonschema:"Maximum results; 0 or omitted means 50, and -1 means no limit."`
+	Offset  int      `json:"offset,omitempty" jsonschema:"Results to skip; pass the previous page's next_offset to page."`
 }
 
 func registerLinks(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "node_links",
-		Description: "Memory: List outgoing links from a node",
+		Description: "Memory: List the nodes the given nodes link to.",
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(false),
@@ -306,7 +297,6 @@ func registerLinks(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 			KegTargetOptions: resolveKegTarget(ctx, in.Keg, defaults),
 			NodeIDs:          in.NodeIDs,
 			Format:           in.Format,
-			IdOnly:           in.IdOnly,
 			Reverse:          in.Reverse,
 			Limit:            mcpDefaultLimit(in.Limit),
 			Offset:           in.Offset,
@@ -322,9 +312,9 @@ func registerLinks(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 // --- keg_settings_read ---
 
 type kegSettingsInput struct {
-	Keg     string   `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
-	Kegs    []string `json:"kegs,omitempty" jsonschema:"canonical keg references to read together (maximum 100; minimal mode only)"`
-	Minimal *bool    `json:"minimal,omitempty" jsonschema:"return only core config fields (default true)"`
+	Keg     string   `json:"keg,omitempty" jsonschema:"KEG to use, as @namespace/keg; a bare name uses your default namespace. Omit it to use the default KEG."`
+	Kegs    []string `json:"kegs,omitempty" jsonschema:"1-100 @namespace/keg references to read together; minimal mode only. Not combined with keg."`
+	Minimal *bool    `json:"minimal,omitempty" jsonschema:"Return only the core settings fields (default true)."`
 }
 
 func registerKegSettings(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
@@ -387,13 +377,13 @@ func registerKegSettings(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaul
 // --- info ---
 
 type infoInput struct {
-	Keg string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
+	Keg string `json:"keg,omitempty" jsonschema:"KEG to use, as @namespace/keg; a bare name uses your default namespace. Omit it to use the default KEG."`
 }
 
 func registerInfo(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "keg_info",
-		Description: "Memory: Show concise path-free diagnostics for a resolved KEG (canonical ref, flight, description, node count, and capabilities)",
+		Description: "Memory: Show concise diagnostics for a KEG: canonical reference, flight, description, node count, and capabilities.",
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(false),
@@ -413,14 +403,14 @@ func registerInfo(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 // --- stats ---
 
 type statsInput struct {
-	NodeID string `json:"node_id" jsonschema:"node ID to inspect"`
-	Keg    string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
+	NodeID string `json:"node_id" jsonschema:"Node ID to inspect."`
+	Keg    string `json:"keg,omitempty" jsonschema:"KEG to use, as @namespace/keg; a bare name uses your default namespace. Omit it to use the default KEG."`
 }
 
 func registerStats(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "node_stats",
-		Description: "Memory: Show stats (hash, timestamps, access count) for a node",
+		Description: "Memory: Show a node's stats: hash, timestamps, and access count.",
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(false),

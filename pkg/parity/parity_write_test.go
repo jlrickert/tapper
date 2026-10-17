@@ -69,8 +69,8 @@ func TestParity_WriteOperations(t *testing.T) {
 		require.Contains(t, cliTags, mcpNodeID, "CLI tags should list MCP-created node")
 
 		mcpTags, err := env.runMCP("tag_list", map[string]any{
-			"query":   "parity-test",
-			"id_only": true,
+			"query":  "parity-test",
+			"format": "%i",
 		})
 		require.NoError(t, err, "MCP tags query should succeed")
 		require.Contains(t, mcpTags, cliNodeID, "MCP tags should list CLI-created node")
@@ -100,7 +100,7 @@ func TestParity_WriteOperations(t *testing.T) {
 
 		// Both should appear in MCP list.
 		mcpList, err := env.runMCP("node_list", map[string]any{
-			"id_only": true,
+			"format": "%i",
 		})
 		require.NoError(t, err)
 		require.True(t, containsLine(mcpList, cliID), "MCP list should contain CLI-created node")
@@ -163,7 +163,7 @@ func TestParity_WriteOperations(t *testing.T) {
 		require.False(t, containsLine(cliList, nodeID), "CLI list should not contain removed node")
 
 		mcpList, err := env.runMCP("node_list", map[string]any{
-			"id_only": true,
+			"format": "%i",
 		})
 		require.NoError(t, err)
 		require.False(t, containsLine(mcpList, nodeID), "MCP list should not contain removed node")
@@ -241,7 +241,7 @@ func TestParity_WriteOperations(t *testing.T) {
 		require.False(t, containsLine(cliList, srcID), "CLI list should not contain old ID")
 
 		mcpList, err := env.runMCP("node_list", map[string]any{
-			"id_only": true,
+			"format": "%i",
 		})
 		require.NoError(t, err)
 		require.True(t, containsLine(mcpList, "777"), "MCP list should contain new ID")
@@ -322,8 +322,8 @@ func TestParity_WriteOperations(t *testing.T) {
 		require.Contains(t, cliTags, nodeID, "CLI tags should list node with updated-meta tag")
 
 		mcpTags, err := env.runMCP("tag_list", map[string]any{
-			"query":   "updated-meta",
-			"id_only": true,
+			"query":  "updated-meta",
+			"format": "%i",
 		})
 		require.NoError(t, err)
 		require.Contains(t, mcpTags, nodeID, "MCP tags should list node with updated-meta tag")

@@ -18,13 +18,13 @@ func registerIndexTools(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefault
 // --- index (rebuild) ---
 
 type indexInput struct {
-	Keg string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
+	Keg string `json:"keg,omitempty" jsonschema:"KEG to use, as @namespace/keg; a bare name uses your default namespace. Omit it to use the default KEG."`
 }
 
 func registerIndex(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "index_rebuild",
-		Description: "Manage: Rebuild all KEG indexes from scratch (nodes, tags, links, backlinks)",
+		Description: "Manage: Rebuild every KEG index (nodes, tags, links, backlinks) from scratch.",
 		Annotations: &sdkmcp.ToolAnnotations{
 			DestructiveHint: boolPtr(false),
 			IdempotentHint:  true,
@@ -45,13 +45,13 @@ func registerIndex(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 // --- index_list ---
 
 type listIndexesInput struct {
-	Keg string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
+	Keg string `json:"keg,omitempty" jsonschema:"KEG to use, as @namespace/keg; a bare name uses your default namespace. Omit it to use the default KEG."`
 }
 
 func registerListIndexes(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "index_list",
-		Description: "Memory: List available index files for a KEG",
+		Description: "Memory: List a KEG's index files.",
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(false),
@@ -71,14 +71,14 @@ func registerListIndexes(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaul
 // --- index_read ---
 
 type indexCatInput struct {
-	Name string `json:"name" jsonschema:"index file name (e.g. nodes.tsv, tags, links, backlinks, changes.md)"`
-	Keg  string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
+	Name string `json:"name" jsonschema:"Index file name, such as nodes.tsv, tags, links, backlinks, or changes.md."`
+	Keg  string `json:"keg,omitempty" jsonschema:"KEG to use, as @namespace/keg; a bare name uses your default namespace. Omit it to use the default KEG."`
 }
 
 func registerIndexCat(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "index_read",
-		Description: "Memory: Read the raw contents of a KEG index file",
+		Description: "Memory: Read the raw contents of a KEG index file.",
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(false),

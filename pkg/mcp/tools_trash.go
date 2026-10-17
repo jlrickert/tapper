@@ -19,7 +19,7 @@ func registerTrashTools(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefault
 // --- trash_list ---
 
 type trashListInput struct {
-	Keg string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
+	Keg string `json:"keg,omitempty" jsonschema:"KEG to use, as @namespace/keg; a bare name uses your default namespace. Omit it to use the default KEG."`
 }
 
 type trashEntryOutput struct {
@@ -95,8 +95,8 @@ func registerTrashList(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults
 // --- trash_restore ---
 
 type trashRestoreInput struct {
-	NodeIDs []string `json:"node_ids" jsonschema:"1-100 trashed node ids to restore atomically"`
-	Keg     string   `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
+	NodeIDs []string `json:"node_ids" jsonschema:"1-100 trashed node ids to restore atomically."`
+	Keg     string   `json:"keg,omitempty" jsonschema:"KEG to use, as @namespace/keg; a bare name uses your default namespace. Omit it to use the default KEG."`
 }
 
 func registerTrashRestore(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {

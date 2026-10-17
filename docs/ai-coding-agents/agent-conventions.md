@@ -23,20 +23,14 @@ The CLI remains the right tool for interactive editor sessions,
 diagnostics that have no MCP equivalent, and shell-integration tasks.
 See the safety rules in the bundled [tapper skill](../../integrations/rendered/claude/tapper/skills/tapper/SKILL.md).
 
-## Never read or write node files directly
+## Never bypass the tools
 
-A tapper node is a numbered directory:
-
-```
-<keg-root>/42/
-  README.md        # node content
-  meta.yaml        # user-facing metadata
-  stats.json       # programmatic stats: hash, timestamps, access count
-```
-
-These files are tapper's internal storage format, not an external API.
-Reading them bypasses the index. Writing them bypasses per-node
-locking and snapshot history.
+Every KEG is hosted on a Tapper Hub, so there are no node files on the
+agent's machine to read or edit. A node's content (markdown), metadata
+(YAML), and stats (hash, timestamps, access count) are reached only through
+the Hub, which enforces access, per-node locking, indexing, and snapshot
+history on every call. An archive or export written to disk is a copy, not
+the live KEG; editing it changes nothing.
 
 Always route through tapper's interfaces:
 

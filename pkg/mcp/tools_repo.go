@@ -18,8 +18,8 @@ func registerRepoTools(srv *sdkmcp.Server, tap *tapper.Tap) {
 // --- config ---
 
 type configInput struct {
-	Scope   string `json:"scope,omitempty" jsonschema:"config scope: user, project, or empty for merged"`
-	Explain string `json:"explain,omitempty" jsonschema:"when set, return provenance for this field (or 'all' for all fields) instead of config dump"`
+	Scope   string `json:"scope,omitempty" jsonschema:"Config scope: user, project, or empty for merged."`
+	Explain string `json:"explain,omitempty" jsonschema:"When set, return provenance for this field (or 'all' for all fields) instead of config dump."`
 }
 
 func registerConfig(srv *sdkmcp.Server, tap *tapper.Tap) {
@@ -82,7 +82,7 @@ func formatExplainResults(results []tapper.ConfigExplainResult) string {
 // --- config_template ---
 
 type configTemplateInput struct {
-	Scope string `json:"scope,omitempty" jsonschema:"template scope: user (default) or project"`
+	Scope string `json:"scope,omitempty" jsonschema:"Template scope: user (default) or project."`
 }
 
 func registerConfigTemplate(srv *sdkmcp.Server, tap *tapper.Tap) {

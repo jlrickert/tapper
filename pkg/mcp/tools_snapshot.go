@@ -20,14 +20,14 @@ func registerSnapshotTools(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefa
 // --- snapshot_list ---
 
 type nodeHistoryInput struct {
-	NodeID string `json:"node_id" jsonschema:"node ID to show history for"`
-	Keg    string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
+	NodeID string `json:"node_id" jsonschema:"Node ID to show history for."`
+	Keg    string `json:"keg,omitempty" jsonschema:"KEG to use, as @namespace/keg; a bare name uses your default namespace. Omit it to use the default KEG."`
 }
 
 func registerNodeHistory(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "snapshot_list",
-		Description: "Memory: List snapshot history for a node",
+		Description: "Memory: List a node's snapshot history.",
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(false),
@@ -59,8 +59,8 @@ func registerNodeHistory(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaul
 // --- snapshot_create ---
 
 type nodeSnapshotInput struct {
-	Nodes []nodeSnapshotItemInput `json:"nodes" jsonschema:"1-100 nodes to snapshot atomically"`
-	Keg   string                  `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
+	Nodes []nodeSnapshotItemInput `json:"nodes" jsonschema:"1-100 nodes to snapshot atomically."`
+	Keg   string                  `json:"keg,omitempty" jsonschema:"KEG to use, as @namespace/keg; a bare name uses your default namespace. Omit it to use the default KEG."`
 }
 type nodeSnapshotItemInput struct {
 	NodeID  string `json:"node_id"`
@@ -76,7 +76,7 @@ type nodeSnapshotOutput struct {
 func registerNodeSnapshot(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "snapshot_create",
-		Description: "Memory: Atomically snapshot the current state of 1-100 nodes",
+		Description: "Memory: Snapshot the current state of 1-100 nodes atomically.",
 		InputSchema: boundedMutationInputSchema[nodeSnapshotInput]("nodes"),
 		Annotations: &sdkmcp.ToolAnnotations{
 			DestructiveHint: boolPtr(false),
@@ -108,15 +108,15 @@ func registerNodeSnapshot(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefau
 // --- snapshot_read ---
 
 type nodeSnapshotViewInput struct {
-	NodeID string `json:"node_id" jsonschema:"node ID to view"`
-	Rev    string `json:"rev" jsonschema:"revision number to view"`
-	Keg    string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
+	NodeID string `json:"node_id" jsonschema:"Node ID to view."`
+	Rev    string `json:"rev" jsonschema:"Revision number to view."`
+	Keg    string `json:"keg,omitempty" jsonschema:"KEG to use, as @namespace/keg; a bare name uses your default namespace. Omit it to use the default KEG."`
 }
 
 func registerNodeSnapshotView(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "snapshot_read",
-		Description: "Memory: View read-only content for a previous snapshot revision",
+		Description: "Memory: Read a node's content at a previous snapshot revision.",
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(false),
@@ -138,15 +138,15 @@ func registerNodeSnapshotView(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegD
 // --- snapshot_restore ---
 
 type nodeRestoreInput struct {
-	NodeID string `json:"node_id" jsonschema:"node ID to restore"`
-	Rev    string `json:"rev" jsonschema:"revision number to restore to"`
-	Keg    string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
+	NodeID string `json:"node_id" jsonschema:"Node ID to restore."`
+	Rev    string `json:"rev" jsonschema:"Revision number to restore to."`
+	Keg    string `json:"keg,omitempty" jsonschema:"KEG to use, as @namespace/keg; a bare name uses your default namespace. Omit it to use the default KEG."`
 }
 
 func registerNodeRestore(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "snapshot_restore",
-		Description: "Memory: Restore a node to a previous snapshot revision",
+		Description: "Memory: Restore a node to a previous snapshot revision.",
 		Annotations: &sdkmcp.ToolAnnotations{
 			DestructiveHint: boolPtr(true),
 			OpenWorldHint:   boolPtr(false),

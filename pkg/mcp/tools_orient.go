@@ -96,7 +96,7 @@ func registerSessionRefresh(srv *sdkmcp.Server, defaults KegDefaults) {
 }
 
 type guideInput struct {
-	Topic string `json:"topic" jsonschema:"operating, authoring, linking, snapshots, tools, or troubleshooting"`
+	Topic string `json:"topic" jsonschema:"Topic: operating, authoring, linking, snapshots, tools, or troubleshooting."`
 }
 
 func registerGuide(srv *sdkmcp.Server) {

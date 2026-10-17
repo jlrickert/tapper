@@ -85,7 +85,7 @@ func TestPublicContractIndependentNodeWorkflow(t *testing.T) {
 			seen := []string{}
 			offset := any(0)
 			for page := 0; page < 10; page++ {
-				result := call("node_list", map[string]any{"query": "wire-contract", "id_only": true, "limit": 1, "offset": offset}, false)
+				result := call("node_list", map[string]any{"query": "wire-contract", "format": "%i", "limit": 1, "offset": offset}, false)
 				for _, line := range result["lines"].([]any) {
 					seen = append(seen, line.(string))
 				}

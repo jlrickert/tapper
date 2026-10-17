@@ -89,7 +89,7 @@ var LegacyFormatVerbs = map[byte]string{
 // FormatVocabularyDescription is the one-line summary of the listing field
 // vocabulary. It is duplicated as a literal in the MCP tool schemas, which
 // require a constant struct tag; a test holds the two in agreement.
-const FormatVocabularyDescription = "output format template. Legacy verbs %i (id), %t (title), %d (updated), %c (created), %a (accessed); %% is a literal percent. Named selectors use %{...}: a bare word names a metadata key such as %{type} or %{status}, a leading dot names a statistics field such as %{.accessCount} or %{.omega}, and %{tags} is the node's tag list. Backslash escapes are interpreted: \\t tab, \\n newline, \\r return, \\\\ backslash. Selectors other than id, title, and the three dates are resolved by the Hub for the returned page in one batch."
+const FormatVocabularyDescription = "Output template per node. Verbs: %i id, %t title, %d updated, %c created, %a accessed, %% a literal percent. Selectors: %{key} a metadata key such as %{type}, %{.field} a stats field such as %{.accessCount}, %{tags} the tag list. Escapes: \\t, \\n, \\r, \\\\."
 
 func isIndexTimeField(name string) bool {
 	return slices.Contains(IndexTimeFieldNames, name)

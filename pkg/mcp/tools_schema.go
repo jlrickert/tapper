@@ -31,13 +31,13 @@ func registerSchemaTools(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaul
 // --- schema_list ---
 
 type schemaListInput struct {
-	Keg string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
+	Keg string `json:"keg,omitempty" jsonschema:"KEG to use, as @namespace/keg; a bare name uses your default namespace. Omit it to use the default KEG."`
 }
 
 func registerSchemaList(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "schema_list",
-		Description: "Memory: List the schema type names defined for a keg",
+		Description: "Memory: List the schema type names a KEG defines.",
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(false),
@@ -59,8 +59,8 @@ func registerSchemaList(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefault
 // --- schema_read ---
 
 type schemaReadInput struct {
-	Type string `json:"type" jsonschema:"schema type name to read"`
-	Keg  string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
+	Type string `json:"type" jsonschema:"Schema type name to read."`
+	Keg  string `json:"keg,omitempty" jsonschema:"KEG to use, as @namespace/keg; a bare name uses your default namespace. Omit it to use the default KEG."`
 }
 
 func registerSchemaRead(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
@@ -93,14 +93,14 @@ func registerSchemaRead(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefault
 // --- schema_create ---
 
 type schemaCreateInput struct {
-	Data string `json:"data" jsonschema:"full schema definition as YAML; the document must declare its type"`
-	Keg  string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
+	Data string `json:"data" jsonschema:"Full schema definition as YAML; the document must declare its type."`
+	Keg  string `json:"keg,omitempty" jsonschema:"KEG to use, as @namespace/keg; a bare name uses your default namespace. Omit it to use the default KEG."`
 }
 
 func registerSchemaCreate(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "schema_create",
-		Description: "Manage: Create a new keg schema from a YAML definition (fails if the type already exists). Requires admin access to the KEG, and admin cover when a flight is selected",
+		Description: "Manage: Create a new keg schema from a YAML definition (fails if the type already exists). Requires admin access to the KEG, and admin cover when a flight is selected.",
 		Annotations: &sdkmcp.ToolAnnotations{
 			DestructiveHint: boolPtr(false),
 			OpenWorldHint:   boolPtr(false),
@@ -119,10 +119,10 @@ func registerSchemaCreate(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefau
 // --- schema_edit ---
 
 type schemaEditInput struct {
-	Type         string `json:"type" jsonschema:"schema type name to replace"`
-	Data         string `json:"data" jsonschema:"full schema definition as YAML; its declared type must match"`
-	ExpectedHash string `json:"expected_hash" jsonschema:"precondition token returned by schema_read"`
-	Keg          string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
+	Type         string `json:"type" jsonschema:"Schema type name to replace."`
+	Data         string `json:"data" jsonschema:"Full schema definition as YAML; its declared type must match."`
+	ExpectedHash string `json:"expected_hash" jsonschema:"Precondition token returned by schema_read."`
+	Keg          string `json:"keg,omitempty" jsonschema:"KEG to use, as @namespace/keg; a bare name uses your default namespace. Omit it to use the default KEG."`
 }
 
 func registerSchemaEdit(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
@@ -152,9 +152,9 @@ func registerSchemaEdit(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefault
 // --- schema_delete ---
 
 type schemaDeleteInput struct {
-	Type         string `json:"type" jsonschema:"schema type name to delete"`
-	ExpectedHash string `json:"expected_hash" jsonschema:"precondition token returned by schema_read"`
-	Keg          string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
+	Type         string `json:"type" jsonschema:"Schema type name to delete."`
+	ExpectedHash string `json:"expected_hash" jsonschema:"Precondition token returned by schema_read."`
+	Keg          string `json:"keg,omitempty" jsonschema:"KEG to use, as @namespace/keg; a bare name uses your default namespace. Omit it to use the default KEG."`
 }
 
 func registerSchemaDelete(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
@@ -180,14 +180,14 @@ func registerSchemaDelete(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefau
 // --- validate ---
 
 type validateInput struct {
-	NodeIDs []string `json:"node_ids,omitempty" jsonschema:"node IDs to validate (validates every node if empty)"`
-	Keg     string   `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
+	NodeIDs []string `json:"node_ids,omitempty" jsonschema:"Node IDs to validate (validates every node if empty)."`
+	Keg     string   `json:"keg,omitempty" jsonschema:"KEG to use, as @namespace/keg; a bare name uses your default namespace. Omit it to use the default KEG."`
 }
 
 func registerValidate(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "schema_validate",
-		Description: "Memory: Validate nodes against their declared schema type",
+		Description: "Memory: Validate nodes against their declared schema type.",
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(false),

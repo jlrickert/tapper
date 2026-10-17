@@ -23,6 +23,10 @@ const (
 	SortByAccessed ListSortType = "accessed" // ascending by last-accessed timestamp
 )
 
+// IDOnlyFormat is the listing format that prints only node IDs, which every
+// surface's id-only shorthand expands to.
+const IDOnlyFormat = "%i"
+
 type ListOptions struct {
 	KegTargetOptions
 
@@ -39,8 +43,6 @@ type ListOptions struct {
 	// id, title, and the three dates are resolved by the keg for the
 	// returned page in one batch.
 	Format string
-
-	IdOnly bool
 
 	Reverse bool
 
@@ -70,8 +72,6 @@ type BacklinksOptions struct {
 	// returned page in one batch.
 	Format string
 
-	IdOnly bool
-
 	Reverse bool
 
 	// Limit caps the number of results returned. 0 means no limit.
@@ -97,8 +97,6 @@ type LinksOptions struct {
 	// returned page in one batch.
 	Format string
 
-	IdOnly bool
-
 	Reverse bool
 
 	// Limit caps the number of results returned. 0 means no limit.
@@ -122,8 +120,6 @@ type GrepOptions struct {
 	// id, title, and the three dates are resolved by the keg for the
 	// returned page in one batch.
 	Format string
-
-	IdOnly bool
 
 	Reverse bool
 
@@ -158,8 +154,6 @@ type TagsOptions struct {
 	// id, title, and the three dates are resolved by the keg for the
 	// returned page in one batch.
 	Format string
-
-	IdOnly bool
 
 	Reverse bool
 
@@ -199,7 +193,7 @@ func (t *Tap) List(ctx context.Context, opts ListOptions) ([]string, error) {
 	// costs the same as displaying a title.
 	view, err := k.ListView(ctx, keg.ListViewOptions{
 		Query:  opts.Query,
-		Fields: compiled.selectorTexts(opts.IdOnly),
+		Fields: compiled.selectorTexts(),
 		Sort:   sortSelector,
 		Limit:  opts.Limit,
 		Offset: opts.Offset,
@@ -213,7 +207,7 @@ func (t *Tap) List(ctx context.Context, opts ListOptions) ([]string, error) {
 	}
 	t.warnStaleIndex(view.IndexedCount, view.NodeCount)
 	return renderListView(compiled, view.Rows, renderOptions{
-		Format: opts.Format, IdOnly: opts.IdOnly, Reverse: opts.Reverse,
+		Format: opts.Format, Reverse: opts.Reverse,
 	}), nil
 }
 
@@ -287,7 +281,7 @@ func (t *Tap) Backlinks(ctx context.Context, opts BacklinksOptions) ([]string, e
 	return t.resolveAndLookupLinks(ctx, relatedListOptions{
 		KegTargetOptions: opts.KegTargetOptions,
 		NodeIDs:          opts.NodeIDs,
-		Render:           renderOptions{Format: opts.Format, IdOnly: opts.IdOnly, Reverse: opts.Reverse},
+		Render:           renderOptions{Format: opts.Format, Reverse: opts.Reverse},
 		Limit:            opts.Limit,
 		Offset:           opts.Offset,
 		Direction:        keg.RelatedBacklinks,
@@ -301,7 +295,7 @@ func (t *Tap) Links(ctx context.Context, opts LinksOptions) ([]string, error) {
 	return t.resolveAndLookupLinks(ctx, relatedListOptions{
 		KegTargetOptions: opts.KegTargetOptions,
 		NodeIDs:          opts.NodeIDs,
-		Render:           renderOptions{Format: opts.Format, IdOnly: opts.IdOnly, Reverse: opts.Reverse},
+		Render:           renderOptions{Format: opts.Format, Reverse: opts.Reverse},
 		Limit:            opts.Limit,
 		Offset:           opts.Offset,
 		Direction:        keg.RelatedLinks,
@@ -358,7 +352,7 @@ func (t *Tap) resolveAndLookupLinks(ctx context.Context, opts relatedListOptions
 	}
 	related, err := t.operations().Related(ctx, k, opts.Direction, tapapi.RelatedRequest{
 		NodeIDs: ids,
-		Fields:  compiled.selectorTexts(opts.Render.IdOnly),
+		Fields:  compiled.selectorTexts(),
 		Offset:  opts.Offset,
 		Limit:   opts.Limit,
 	})
@@ -412,7 +406,7 @@ func (t *Tap) Grep(ctx context.Context, opts GrepOptions) ([]string, error) {
 		return []string{}, fmt.Errorf("unable to open keg: %w", err)
 	}
 
-	formatted := opts.IdOnly || opts.Format != ""
+	formatted := opts.Format != ""
 	var compiled compiledFormat
 	if formatted {
 		if compiled, err = compileListFormat(opts.Format); err != nil {
@@ -425,7 +419,7 @@ func (t *Tap) Grep(ctx context.Context, opts GrepOptions) ([]string, error) {
 		Pattern:    opts.Query,
 		IgnoreCase: opts.IgnoreCase,
 		MaxLines:   opts.MaxLines,
-		Fields:     compiled.selectorTexts(opts.IdOnly),
+		Fields:     compiled.selectorTexts(),
 		Offset:     opts.Offset,
 		Limit:      opts.Limit,
 	})
@@ -438,7 +432,7 @@ func (t *Tap) Grep(ctx context.Context, opts GrepOptions) ([]string, error) {
 			rows[i] = keg.ListViewRow{Entry: m.Entry, Fields: m.Fields}
 		}
 		return renderListView(compiled, rows, renderOptions{
-			Format: opts.Format, IdOnly: opts.IdOnly, Reverse: opts.Reverse,
+			Format: opts.Format, Reverse: opts.Reverse,
 		}), nil
 	}
 	matches := make([]grepMatch, 0, len(kegMatches))
@@ -464,7 +458,7 @@ func (t *Tap) Tags(ctx context.Context, opts TagsOptions) ([]string, error) {
 	queryExpr := strings.TrimSpace(opts.Query)
 	result, err := t.operations().Tags(ctx, k, tapapi.TagsRequest{
 		Query:  queryExpr,
-		Fields: compiled.selectorTexts(opts.IdOnly),
+		Fields: compiled.selectorTexts(),
 		Offset: opts.Offset,
 		Limit:  opts.Limit,
 	})
@@ -485,7 +479,7 @@ func (t *Tap) Tags(ctx context.Context, opts TagsOptions) ([]string, error) {
 		return tags, nil
 	}
 	return renderListView(compiled, result.Rows, renderOptions{
-		Format: opts.Format, IdOnly: opts.IdOnly, Reverse: opts.Reverse,
+		Format: opts.Format, Reverse: opts.Reverse,
 	}), nil
 }
 
@@ -541,7 +535,6 @@ func renderGrepMatches(matches []grepMatch, reverse bool) []string {
 // renderOptions carries the presentation knobs shared by every listing surface.
 type renderOptions struct {
 	Format  string
-	IdOnly  bool
 	Reverse bool
 }
 

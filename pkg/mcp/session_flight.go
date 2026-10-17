@@ -679,12 +679,12 @@ func (g *sessionFlightGate) middleware(next sdkmcp.MethodHandler) sdkmcp.MethodH
 				}
 				copyTool := *tool
 				if authorityBearingTool(tool.Name) {
-					// Describe flight where the property is added, so the two
-					// can never drift. Agents read descriptions, not just
-					// schemas: an injected property nothing mentions reads as
-					// absent, and one has already been reported as missing.
+					// The property carries its own description, the one place
+					// flight selection is explained per tool; the operating
+					// rules and orient explain it once for the session.
+					// Repeating it in every tool description only buried each
+					// tool's own text under the same sentence.
 					copyTool.InputSchema = schemaWithFlight(tool.InputSchema)
-					copyTool.Description = strings.TrimRight(copyTool.Description, " ") + flightParameterNote
 				}
 				copyResult.Tools = append(copyResult.Tools, &copyTool)
 			}
@@ -832,10 +832,10 @@ func extractFlightArgument(params *sdkmcp.CallToolParamsRaw) (string, error) {
 	return strings.TrimSpace(selected), nil
 }
 
-// flightParameterNote documents the flight property injected by
-// schemaWithFlight. It is appended to every authority-bearing tool's
-// description at the same point the property is added.
-const flightParameterNote = " Accepts an optional flight: omit it to use this connection's pinned authority, or name a flight listed by orient to run this call under that flight's cover and instructions."
+// flightParameterDescription documents the flight property schemaWithFlight
+// adds to every authority-bearing tool. It is the only per-tool explanation of
+// flight selection; tool descriptions do not repeat it.
+const flightParameterDescription = "Flight to run this call under, such as +work or @ns/+work; orient lists the ones you can name. Omit it to use the connection's flight."
 
 func schemaWithFlight(schema any) any {
 	raw, err := json.Marshal(schema)
@@ -853,7 +853,7 @@ func schemaWithFlight(schema any) any {
 	}
 	properties["flight"] = map[string]any{
 		"type":        "string",
-		"description": "optional real flight available to current connection authority; omitted uses the connection-pinned authority",
+		"description": flightParameterDescription,
 	}
 	return object
 }

@@ -31,7 +31,7 @@ native Tapper plugin.
 - [Relay](relay.md) — experimental `tap relay`, which offers this machine's
   model providers, such as a local Ollama, to your Hub account.
 - [Agent Conventions](agent-conventions.md) — tapper invariants every agent
-  should follow: MCP-first, never edit node files directly, never mix CLI
+  should follow: MCP-first, never bypass the tools, never mix CLI
   writes with a live MCP session, snapshot before destructive edits.
 
 ## Quick pick

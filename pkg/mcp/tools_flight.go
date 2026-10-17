@@ -13,33 +13,33 @@ import (
 type listFlightsInput struct{}
 
 type flightShowInput struct {
-	Name string `json:"name" jsonschema:"flight name to inspect"`
+	Name string `json:"name" jsonschema:"Flight name to inspect."`
 }
 
 type flightCreateInput struct {
-	Ref          string   `json:"ref" jsonschema:"flight reference (@namespace/+slug; a bare slug uses the default namespace)"`
-	Title        string   `json:"title,omitempty" jsonschema:"flight title"`
-	Description  string   `json:"description,omitempty" jsonschema:"short description, separate from instructions"`
-	Visibility   string   `json:"visibility,omitempty" jsonschema:"flight visibility: private (default) or public"`
-	Instructions string   `json:"instructions,omitempty" jsonschema:"markdown instructions"`
-	Cover        []string `json:"cover,omitempty" jsonschema:"covered kegs with role caps, e.g. @ns/keg=viewer, @ns/keg=editor, or @ns/keg=admin (bare entries default to viewer). A covered keg also covers the kegs its notes link to, to depth 2; @ns/keg=none blocks a keg however it is reached"`
-	Subflights   []string `json:"subflights,omitempty" jsonschema:"ordered child flight references; bare +slug references use this flight's namespace"`
+	Ref          string   `json:"ref" jsonschema:"Flight reference (@namespace/+slug; a bare slug uses the default namespace)."`
+	Title        string   `json:"title,omitempty" jsonschema:"Flight title."`
+	Description  string   `json:"description,omitempty" jsonschema:"Short description, separate from instructions."`
+	Visibility   string   `json:"visibility,omitempty" jsonschema:"Flight visibility: private (default) or public."`
+	Instructions string   `json:"instructions,omitempty" jsonschema:"Markdown instructions."`
+	Cover        []string `json:"cover,omitempty" jsonschema:"Covered KEGs with role caps, such as @ns/keg=viewer, @ns/keg=editor, or @ns/keg=admin (bare entries default to viewer). A covered keg also covers the kegs its notes link to, to depth 2; @ns/keg=none blocks a keg however it is reached."`
+	Subflights   []string `json:"subflights,omitempty" jsonschema:"Ordered child flight references; bare +slug references use this flight's namespace."`
 }
 
 type flightEditInput struct {
-	Ref          string   `json:"ref" jsonschema:"flight reference (@namespace/+slug; a bare slug uses the default namespace)"`
-	Title        *string  `json:"title,omitempty" jsonschema:"new flight title; omit to keep the current title"`
-	Description  *string  `json:"description,omitempty" jsonschema:"short description, separate from instructions"`
-	Visibility   *string  `json:"visibility,omitempty" jsonschema:"new visibility: private or public; omit to keep current"`
-	Instructions *string  `json:"instructions,omitempty" jsonschema:"new markdown instructions; omit to keep the current instructions"`
-	Cover        []string `json:"cover,omitempty" jsonschema:"replacement declared cover, e.g. @ns/keg=viewer, or @ns/keg=none to block a keg its notes link to; entries use default depth 2. Custom depth cannot be set here. Omit to preserve all current cover entries and depths; [] clears"`
-	Subflights   []string `json:"subflights,omitempty" jsonschema:"replacement ordered child flight references; omit to keep current"`
-	ExpectedHash string   `json:"expected_hash" jsonschema:"precondition token returned by flight_read"`
+	Ref          string   `json:"ref" jsonschema:"Flight reference (@namespace/+slug; a bare slug uses the default namespace)."`
+	Title        *string  `json:"title,omitempty" jsonschema:"New flight title; omit to keep the current title."`
+	Description  *string  `json:"description,omitempty" jsonschema:"Short description, separate from instructions."`
+	Visibility   *string  `json:"visibility,omitempty" jsonschema:"New visibility: private or public; omit to keep current."`
+	Instructions *string  `json:"instructions,omitempty" jsonschema:"New markdown instructions; omit to keep the current instructions."`
+	Cover        []string `json:"cover,omitempty" jsonschema:"Replacement declared cover, such as @ns/keg=viewer, or @ns/keg=none to block a keg its notes link to; entries use default depth 2. Custom depth cannot be set here. Omit to preserve all current cover entries and depths; [] clears."`
+	Subflights   []string `json:"subflights,omitempty" jsonschema:"Replacement ordered child flight references; omit to keep current."`
+	ExpectedHash string   `json:"expected_hash" jsonschema:"Precondition token returned by flight_read."`
 }
 
 type flightDeleteInput struct {
-	Ref          string `json:"ref" jsonschema:"flight reference (@namespace/+slug; a bare slug uses the default namespace)"`
-	ExpectedHash string `json:"expected_hash" jsonschema:"precondition token returned by flight_read"`
+	Ref          string `json:"ref" jsonschema:"Flight reference (@namespace/+slug; a bare slug uses the default namespace)."`
+	ExpectedHash string `json:"expected_hash" jsonschema:"Precondition token returned by flight_read."`
 }
 
 // registerFlightTools exposes flight discovery and management over MCP at
@@ -50,7 +50,7 @@ type flightDeleteInput struct {
 func registerFlightTools(srv *sdkmcp.Server, defaults KegDefaults, flights FlightProvider) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "flight_list",
-		Description: "Memory: List available flights (keg restrictions + agent instructions)",
+		Description: "Memory: List the flights you can use, with their KEG cover and agent instructions.",
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(false),
@@ -82,7 +82,7 @@ func registerFlightTools(srv *sdkmcp.Server, defaults KegDefaults, flights Fligh
 
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "flight_create",
-		Description: "Manage: Create a Hub-backed flight (cover roles + agent instructions)",
+		Description: "Manage: Create a flight: its KEG cover with role caps, and its agent instructions.",
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:    false,
 			DestructiveHint: boolPtr(false),

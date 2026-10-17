@@ -11,8 +11,8 @@ import (
 // --- url ---
 
 type urlInput struct {
-	Ref string `json:"ref,omitempty" jsonschema:"what to link: a node id in keg (42), a KEG (keg:alias, keg:~alias, @ns/keg), a note (keg:alias/42, keg:~alias/42, @ns/keg/42), a flight (+slug, @ns/+slug), or a namespace (@ns). Empty links keg itself."`
-	Keg string `json:"keg,omitempty" jsonschema:"keg a bare node id or keg-local ~alias resolves against (uses default if empty)"`
+	Ref string `json:"ref,omitempty" jsonschema:"What to link: a node id in keg (42), a KEG (@ns/keg, keg:name, keg:~alias), a note (@ns/keg/42, keg:name/42, keg:~alias/42), a flight (+slug, @ns/+slug), or a namespace (@ns). Empty links keg itself."`
+	Keg string `json:"keg,omitempty" jsonschema:"KEG a bare node id or ~alias resolves against, as @namespace/keg; a bare name uses your default namespace. Omit it to use the default KEG."`
 }
 
 func registerURL(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {

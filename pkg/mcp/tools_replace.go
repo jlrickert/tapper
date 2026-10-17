@@ -13,13 +13,13 @@ import (
 // --- keg_replace ---
 
 type replaceInput struct {
-	Find        string `json:"find" jsonschema:"text to find; with regex, a Go (RE2) regular expression"`
-	Replace     string `json:"replace" jsonschema:"replacement text; with regex, $1 and ${name} insert captured groups"`
-	Regex       bool   `json:"regex,omitempty" jsonschema:"treat find as a regular expression instead of literal text"`
-	Query       string `json:"query,omitempty" jsonschema:"limit the replace to the nodes this node_list query selects, e.g. a tag; empty means every node"`
-	IncludeMeta bool   `json:"include_meta,omitempty" jsonschema:"replace in each node's metadata YAML as well as its body"`
-	DryRun      bool   `json:"dry_run,omitempty" jsonschema:"report what would change without writing"`
-	Keg         string `json:"keg,omitempty" jsonschema:"keg alias (uses default if empty)"`
+	Find        string `json:"find" jsonschema:"Text to find; with regex, a Go RE2 regular expression (unlike node_grep, which uses PostgreSQL syntax)."`
+	Replace     string `json:"replace" jsonschema:"Replacement text; with regex, $1 and ${name} insert captured groups."`
+	Regex       bool   `json:"regex,omitempty" jsonschema:"Treat find as a regular expression instead of literal text."`
+	Query       string `json:"query,omitempty" jsonschema:"Limit the replace to the nodes this node_list query selects, such as a tag; empty means every node."`
+	IncludeMeta bool   `json:"include_meta,omitempty" jsonschema:"Replace in each node's metadata YAML as well as its body."`
+	DryRun      bool   `json:"dry_run,omitempty" jsonschema:"Report what would change without writing."`
+	Keg         string `json:"keg,omitempty" jsonschema:"KEG to use, as @namespace/keg; a bare name uses your default namespace. Omit it to use the default KEG."`
 }
 
 type replaceNodeOutput struct {
