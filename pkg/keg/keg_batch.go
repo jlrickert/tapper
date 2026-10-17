@@ -10,6 +10,17 @@ import (
 
 var nodePlaceholderPattern = regexp.MustCompile(`\{\{node:([^{}]+)\}\}`)
 
+// A placeholder expands to a bare id, which is not a link: a node link is
+// ../ID. These match a placeholder that is the whole target of an inline link
+// or a reference definition, the one position where a bare id can only be a
+// mistake, so expansion can supply the ../ the caller left out. An inline
+// link may carry a title after the target. A footnote definition ([^label]:)
+// is not a reference definition: its text is prose, so it is left alone.
+var (
+	inlineLinkPlaceholderPattern = regexp.MustCompile(`\]\([ \t]*(\{\{node:[^{}]+\}\})((?:[ \t]+(?:"[^"\n]*"|'[^'\n]*'|\([^)\n]*\)))?)[ \t]*\)`)
+	refDefPlaceholderPattern     = regexp.MustCompile(`(?m)^( {0,3}\[[^\]^\n][^\]\n]*\]:[ \t]*)(\{\{node:[^{}]+\}\})([ \t]|$)`)
+)
+
 type BatchMutationError struct {
 	Index  int
 	Key    string
@@ -129,8 +140,10 @@ func (k *LocalKeg) createNodes(ctx context.Context, nodes []NodeCreate) ([]Creat
 }
 
 func expandNodePlaceholders(body []byte, ids map[string]NodeId) ([]byte, error) {
+	text := inlineLinkPlaceholderPattern.ReplaceAllString(string(body), "](../${1}${2})")
+	text = refDefPlaceholderPattern.ReplaceAllString(text, "${1}../${2}${3}")
 	var unknown string
-	out := nodePlaceholderPattern.ReplaceAllStringFunc(string(body), func(match string) string {
+	out := nodePlaceholderPattern.ReplaceAllStringFunc(text, func(match string) string {
 		parts := nodePlaceholderPattern.FindStringSubmatch(match)
 		key := strings.TrimSpace(parts[1])
 		id, ok := ids[key]

@@ -449,7 +449,8 @@ type ExportNodesOptions struct {
 	// Zero fields are unlimited.
 	Limits ArchiveLimits
 	// Spool, when set, receives the archive instead of an in-memory buffer,
-	// and the returned reader reads it back.
+	// and the returned reader reads it back. ExportNodes owns the spool: when
+	// it returns an error the spool has been discarded.
 	Spool ArchiveSpool
 }
 
@@ -459,7 +460,8 @@ type ArchiveSpool interface {
 	io.Writer
 	// Reader returns the spooled archive. Closing it releases the spool.
 	Reader() (io.ReadCloser, error)
-	// Discard releases a spool whose export failed.
+	// Discard releases a spool whose export failed. It must be idempotent and
+	// safe to call after the reader returned by Reader has been closed.
 	Discard() error
 }
 
@@ -494,8 +496,10 @@ type ImportNodesOptions struct {
 	Limits ArchiveLimits
 	// ReplaceAll removes every node the archive does not carry, so the keg
 	// ends up holding exactly the archive's nodes. Removal deletes nodes
-	// through the repository without rewriting links in the surviving nodes.
-	// It cannot be combined with AssignNewIDs.
+	// through the repository without rewriting links in the surviving nodes,
+	// and node 0 is never removed. It needs a full-keg archive (see
+	// ArchiveStageStats.Complete) and fails with ErrInvalid on an archive
+	// exported with a node selection. It cannot be combined with AssignNewIDs.
 	ReplaceAll bool
 	// Progress, when set, is called as the import advances.
 	Progress func(ImportProgress)

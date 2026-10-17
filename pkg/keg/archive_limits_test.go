@@ -251,15 +251,21 @@ func TestImportNodesReplaceAllRemovesNodesNotInArchive(t *testing.T) {
 type recordingSpool struct {
 	bytes.Buffer
 	read, discarded bool
+	discards        int
+	readerErr       error
 }
 
 func (s *recordingSpool) Reader() (io.ReadCloser, error) {
 	s.read = true
+	if s.readerErr != nil {
+		return nil, s.readerErr
+	}
 	return io.NopCloser(bytes.NewReader(s.Bytes())), nil
 }
 
 func (s *recordingSpool) Discard() error {
 	s.discarded = true
+	s.discards++
 	return nil
 }
 

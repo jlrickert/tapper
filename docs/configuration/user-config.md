@@ -231,9 +231,16 @@ using an existing login. It reports the surface, command/tool name, duration,
 success, optional CLI interactivity, version, and agent identity. Arguments,
 content, paths, errors, credentials, and KEG/node identifiers are not uploaded.
 Reporting is best effort and never delays exit: a CLI invocation's own event,
-and anything else not yet delivered, is written to
-`telemetry-spool.json` under the state directory (beside `auth.yaml`) and
-sent by the next invocation while its command runs. The spool holds events
-only, never credentials, and keeps the newest 500. Disable reporting with
+and anything else not yet delivered, is written to a spool under the state
+directory (beside `auth.yaml`) and sent by the next invocation while its
+command runs. Each destination -- the Hub plus the login on it -- has its own
+directory, `telemetry-spool/<key>/`, where the key is a short hash of the Hub
+URL and the login's credential, so spooled events are only ever sent to the
+Hub and account that produced them: never to another Hub, and not after a new
+login. Each process writes its own file and claims files by renaming them, so
+concurrent invocations neither overwrite each other's events nor send one
+twice. The spool holds events only, never credentials, and keeps the newest
+500 per destination. The single `telemetry-spool.json` file earlier releases
+wrote is deleted unsent. Disable reporting with
 `disableTelemetry: true` or `TAP_DISABLE_TELEMETRY=1`; a disabled client
 neither sends nor writes the spool.

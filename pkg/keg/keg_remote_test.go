@@ -686,6 +686,22 @@ func TestRemoteKegRoundTripBasics(t *testing.T) {
 	require.Len(t, nodeIDs, 4)
 }
 
+func TestRemoteCreateNodesLinksBarePlaceholderTargets(t *testing.T) {
+	t.Parallel()
+	fx, hub, remote := newRemoteKegFixture(t)
+	ctx := fx.Context()
+	require.NoError(t, hub.backing.CreateSchema(ctx, "note", []byte("type: note\n")))
+
+	created, err := remote.CreateNodes(ctx, []kegpkg.NodeCreate{
+		{Key: "source", Schema: "note", Body: []byte("# Source\n\n[Target]({{node:target}})\n")},
+		{Key: "target", Schema: "note", Body: []byte("# Target\n")},
+	})
+	require.NoError(t, err)
+	source, err := remote.ReadNode(ctx, created[0].ID)
+	require.NoError(t, err)
+	require.Contains(t, string(source.Content), fmt.Sprintf("[Target](../%d)", created[1].ID.ID))
+}
+
 func TestRemoteMutationBatchesPreserveOrderAndAtomicity(t *testing.T) {
 	t.Parallel()
 	fx, hub, remote := newRemoteKegFixture(t)

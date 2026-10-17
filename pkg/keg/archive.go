@@ -54,7 +54,25 @@ type archiveManifestNode struct {
 // coherent read snapshot. LocalKeg materializes the archive before returning,
 // so the operation boundary is released while the caller reads the artifact
 // and a slow download does not block same-keg writers.
-func (k *LocalKeg) ExportNodes(ctx context.Context, opts ExportNodesOptions) (io.ReadCloser, error) {
+//
+// When opts.Spool is set, ExportNodes owns it: on any error the spool has
+// been discarded, so the caller must not reuse it.
+func (k *LocalKeg) ExportNodes(ctx context.Context, opts ExportNodesOptions) (rc io.ReadCloser, err error) {
+	if opts.Spool != nil {
+		defer func() {
+			if err == nil {
+				return
+			}
+			if rc != nil {
+				// The read boundary failed after the spool's reader was
+				// opened. Closing it releases the spool; Discard below is
+				// idempotent per the ArchiveSpool contract.
+				err = errors.Join(err, rc.Close())
+				rc = nil
+			}
+			err = errors.Join(err, opts.Spool.Discard())
+		}()
+	}
 	return withKegReadValue(ctx, k, func(ctx context.Context) (io.ReadCloser, error) {
 		return k.exportNodes(ctx, opts)
 	})
@@ -121,8 +139,9 @@ func (k *LocalKeg) exportNodes(ctx context.Context, opts ExportNodesOptions) (io
 		}
 		return io.NopCloser(bytes.NewReader(artifact.Bytes())), nil
 	}
+	// ExportNodes discards the spool on every error return, this one included.
 	if err := k.writeArchive(ctx, opts.Spool, ids, snapshotRepo, opts); err != nil {
-		return nil, errors.Join(err, opts.Spool.Discard())
+		return nil, err
 	}
 	return opts.Spool.Reader()
 }
@@ -418,6 +437,12 @@ func (k *LocalKeg) importNodes(ctx context.Context, r io.Reader, opts ImportNode
 	if manifest.WithConfig {
 		manifest.WithSettings = true
 	}
+	// Only a full-keg export carries keg settings, so WithSettings is what
+	// marks an archive as holding the whole keg. Replacing a keg from a node
+	// selection would prune every node the selection left out.
+	if opts.ReplaceAll && !manifest.WithSettings {
+		return nil, fmt.Errorf("replacing a keg needs a full-keg archive; this one was exported with a node selection: %w", ErrInvalid)
+	}
 
 	archivedSchemas, err := readArchiveSchemas(entries, manifest)
 	if err != nil {
@@ -662,7 +687,7 @@ func (k *LocalKeg) importNodes(ctx context.Context, r io.Reader, opts ImportNode
 	var removed int64
 	if opts.ReplaceAll {
 		progress(ImportPhasePruning, 0, 0)
-		keep := make([]NodeId, 0, len(ordered))
+		keep := make([]NodeId, 0, len(ordered)+1)
 		for _, sourceID := range ordered {
 			keep = append(keep, mapping[sourceID])
 		}
@@ -699,7 +724,11 @@ func (k *LocalKeg) importNodes(ctx context.Context, r io.Reader, opts ImportNode
 // repository supports it. Nodes go through the repository rather than
 // RemoveNodes so links in the surviving, just-imported content stay as the
 // archive wrote them.
+//
+// Node 0 is always kept: it is the keg's landing node, and removing it makes
+// the keg read as uninitialized.
 func (k *LocalKeg) pruneNodesExcept(ctx context.Context, keep []NodeId) (int64, error) {
+	keep = append(keep[:len(keep):len(keep)], NodeId{ID: 0})
 	if pruner, ok := k.Repo.(RepositoryNodePruner); ok {
 		return pruner.PruneNodesExcept(ctx, keep)
 	}

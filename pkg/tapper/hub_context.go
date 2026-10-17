@@ -190,8 +190,11 @@ func (t *Tap) loadHubContext(ctx context.Context, req hubContextRequest) hubCont
 		return t.loadHubContextSeparately(ctx, req)
 	}
 
-	// The Hub resolves the flight itself, a bare +slug included; a ref it
-	// cannot parse comes back as flight_error like any other unreadable one.
+	// The Hub resolves the flight itself. It resolves a bare +slug the way
+	// orient does (see FlightService.getFlight): across the flights the user
+	// can read, so one match is that flight, none is "flight not found", and
+	// several are an ambiguous flight_error. A ref it cannot parse comes back
+	// as flight_error like any other unreadable one.
 	flightName := strings.TrimSpace(req.flight)
 	contextFlight := flightName
 	if ref, err := ParseFlightRef(flightName, ""); err == nil {

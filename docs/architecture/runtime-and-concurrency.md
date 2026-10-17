@@ -74,7 +74,12 @@ use of `time.Now()` that cannot be driven by a fake clock:
   bounds their wall-clock impact independently of the frozen domain clock.
   `Close` never starts a send; it waits at most
   `InvocationTelemetryInFlightWait` for one already running and spools the
-  rest through `rt.AtomicWriteFile`.
+  rest through `rt.AtomicWriteFile`, into a new file in the spool directory
+  for its destination (`telemetry-spool/<key>/`, keyed by Hub URL and login),
+  so events are never sent to another Hub or account. Concurrent processes
+  never share a file: each writes its own, and a starting process claims a
+  file with `rt.Rename` before reading it, so each spooled event is sent by
+  exactly one process.
 
 ## Concurrency Model
 

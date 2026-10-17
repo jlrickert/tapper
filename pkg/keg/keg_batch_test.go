@@ -62,6 +62,72 @@ func TestCreateNodesResolvesPlaceholdersAndPreservesOrder(t *testing.T) {
 	require.Contains(t, string(two), "[First](../1)")
 }
 
+// A placeholder written as a bare link target gains the ../ a node link needs,
+// so the link registers; everywhere else it stays the bare id, so ../ and
+// keg: references written in full are not prefixed twice.
+func TestCreateNodesLinksBarePlaceholderTargets(t *testing.T) {
+	k, ctx := newStrictBatchKeg(t)
+	body := "# Source\n\n" +
+		"[Inline]({{node:target}})\n" +
+		"[Spaced]( {{node:target}} )\n" +
+		"[Relative](../{{node:target}})\n" +
+		"Cross: keg:@ns/k/{{node:target}}\n" +
+		"See node {{node:target}}.\n\n" +
+		"[ref]: {{node:target}}\n"
+	results, err := k.CreateNodes(ctx, []keg.NodeCreate{
+		{Key: "source", Schema: "task", Body: []byte(body), Meta: []byte("type: task\n")},
+		{Key: "target", Schema: "task", Body: []byte("# Target\n"), Meta: []byte("type: task\n")},
+	})
+	require.NoError(t, err)
+	raw, err := k.GetContent(ctx, results[0].ID)
+	require.NoError(t, err)
+	got := string(raw)
+	require.Contains(t, got, "[Inline](../2)")
+	require.Contains(t, got, "[Spaced](../2)")
+	require.Contains(t, got, "[Relative](../2)")
+	require.NotContains(t, got, "../../2")
+	require.Contains(t, got, "Cross: keg:@ns/k/2\n")
+	require.Contains(t, got, "See node 2.")
+	require.Contains(t, got, "[ref]: ../2\n")
+
+	content, err := keg.ParseContent(k.Runtime, raw, keg.MarkdownContentFilename)
+	require.NoError(t, err)
+	require.Contains(t, content.Links, results[1].ID)
+}
+
+// A titled inline link still gains its ../, and a footnote definition is
+// prose, not a link target, so its placeholder stays the bare id.
+func TestCreateNodesPlaceholderTitlesAndFootnotes(t *testing.T) {
+	k, ctx := newStrictBatchKeg(t)
+	body := "# Source\n\n" +
+		"[Titled]({{node:target}} \"T\")\n" +
+		"[Single]({{node:target}} 'T')\n" +
+		"[Paren]( {{node:target}} (T) )\n" +
+		"See[^1].\n\n" +
+		"[^1]: {{node:target}}\n" +
+		"[ref]: {{node:target}}\n"
+	results, err := k.CreateNodes(ctx, []keg.NodeCreate{
+		{Key: "source", Schema: "task", Body: []byte(body), Meta: []byte("type: task\n")},
+		{Key: "target", Schema: "task", Body: []byte("# Target\n"), Meta: []byte("type: task\n")},
+	})
+	require.NoError(t, err)
+	raw, err := k.GetContent(ctx, results[0].ID)
+	require.NoError(t, err)
+	got := string(raw)
+	require.Contains(t, got, "[Titled](../2 \"T\")\n")
+	require.Contains(t, got, "[Single](../2 'T')\n")
+	require.Contains(t, got, "[Paren](../2 (T))\n")
+	require.Contains(t, got, "[^1]: 2\n")
+	require.Contains(t, got, "[ref]: ../2\n")
+}
+
+func TestCreateNodesRejectsUnknownPlaceholderLinkTarget(t *testing.T) {
+	k, ctx := newStrictBatchKeg(t)
+	_, err := k.CreateNodes(ctx, []keg.NodeCreate{{Key: "one", Schema: "task", Body: []byte("# One\n\n[Missing]({{node:nope}})\n"), Meta: []byte("type: task\n")}})
+	require.ErrorIs(t, err, keg.ErrInvalid)
+	require.ErrorContains(t, err, `unknown node placeholder "nope"`)
+}
+
 func TestCreateNodesPreflightFailureLeavesKegUnchanged(t *testing.T) {
 	k, ctx := newStrictBatchKeg(t)
 	_, err := k.CreateNodes(ctx, []keg.NodeCreate{{Key: "one", Schema: "task", Body: []byte("# One\n"), Meta: []byte("type: task\n")}, {Key: "two", Schema: "task", Body: []byte("# Two\n\n[Missing](../{{node:nope}})\n"), Meta: []byte("type: task\n")}})
