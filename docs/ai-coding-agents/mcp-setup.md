@@ -3,7 +3,7 @@
 The `tap mcp` command starts a Model Context Protocol server on stdio, exposing
 the same agent-safe tools and resources as Tapper Hub's authenticated `/mcp`
 endpoint — the one difference being attachment transfers, where `tap mcp` can
-also read and write local paths because it runs on your machine. Both publish
+also transfer files inside its working directory because it runs on your machine. Both publish
 connection-pinned authority at initialization. Orientation is a read-only view;
 `session_refresh` retries only a broken explicit selection. Without a flight,
 the server uses normal identity-authorized full access for the connection
@@ -402,3 +402,19 @@ Device-login verification URLs must be HTTP(S) and have the same origin
 credentials in URLs, and cross-origin verification addresses are refused before
 the browser callback. Windows displays the URL for manual opening instead of
 passing it through `cmd.exe`.
+
+## Local attachment transfer boundary
+
+Local MCP `source_path` and `file:` upload sources must resolve to regular files
+inside the server's working directory. Parent traversal and symlink escapes are
+rejected. Download destinations must be explicit paths inside that directory
+with an existing parent, and must not already exist; files are created with
+exclusive creation and owner-only permissions. Environment expansion cannot
+change a validated path on a later filesystem call. The local `image_download`
+tool is marked as mutating because a destination writes a file. Hosted tools
+continue to exchange attachment bytes without access to host paths.
+
+Start the MCP process in a project directory that contains only the files you
+intend it to transfer. The boundary is its working directory, not the selected
+KEG or a host-reported roots list. The CLI's explicitly requested local file
+operations retain their existing path and overwrite behavior.
