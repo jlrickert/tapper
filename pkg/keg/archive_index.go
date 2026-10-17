@@ -33,8 +33,9 @@ type archiveIndexEntry struct {
 
 // indexArchive scans the tar in src once and records where each file entry's
 // payload lives. It applies the same rules as StageArchive: directory entries
-// are skipped, unsafe names are rejected, names are slash-normalized, the last
-// of duplicate names wins, and lim is enforced.
+// are skipped, unsafe names (overlong ones included) are rejected, names are
+// slash-normalized, the last of duplicate names wins, and lim is enforced,
+// MaxIndexBytes as the index grows, so its memory stays within that bound.
 func indexArchive(ctx context.Context, src ArchiveSource, lim ArchiveLimits) (*archiveIndex, error) {
 	if lim.MaxTarBytes > 0 && src.Size() > lim.MaxTarBytes {
 		return nil, &ArchiveLimitError{Limit: ArchiveLimitTarBytes, Max: lim.MaxTarBytes, Actual: src.Size()}
@@ -43,6 +44,7 @@ func indexArchive(ctx context.Context, src ArchiveSource, lim ArchiveLimits) (*a
 	tr := tar.NewReader(sr)
 	idx := &archiveIndex{src: src, offsets: map[string]archiveIndexEntry{}}
 	entries := 0
+	var index int64
 	for {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -58,7 +60,7 @@ func indexArchive(ctx context.Context, src ArchiveSource, lim ArchiveLimits) (*a
 			continue
 		}
 		if !safeArchiveEntryName(header.Name) {
-			return nil, fmt.Errorf("unsafe archive entry %q: %w", header.Name, ErrInvalid)
+			return nil, unsafeArchiveEntryError(header.Name)
 		}
 		// A sparse entry's payload is not stored contiguously, so it has no
 		// single offset. StageArchive rewrites sparse entries as regular ones.
@@ -72,6 +74,11 @@ func indexArchive(ctx context.Context, src ArchiveSource, lim ArchiveLimits) (*a
 		if lim.MaxEntryBytes > 0 && header.Size > lim.MaxEntryBytes {
 			return nil, &ArchiveLimitError{Limit: ArchiveLimitEntryBytes, Max: lim.MaxEntryBytes, Actual: header.Size, Entry: header.Name}
 		}
+		name := filepath.ToSlash(header.Name)
+		index += archiveIndexCost(name)
+		if lim.MaxIndexBytes > 0 && index > lim.MaxIndexBytes {
+			return nil, &ArchiveLimitError{Limit: ArchiveLimitIndexBytes, Max: lim.MaxIndexBytes, Actual: index, Entry: name}
+		}
 		// After Next the section reader sits at the start of the payload.
 		off, err := sr.Seek(0, io.SeekCurrent)
 		if err != nil {
@@ -80,7 +87,6 @@ func indexArchive(ctx context.Context, src ArchiveSource, lim ArchiveLimits) (*a
 		if off+header.Size > src.Size() {
 			return nil, archiveStreamError(io.ErrUnexpectedEOF)
 		}
-		name := filepath.ToSlash(header.Name)
 		if _, seen := idx.offsets[name]; !seen {
 			idx.names = append(idx.names, name)
 		}

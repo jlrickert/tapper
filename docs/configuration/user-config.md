@@ -235,12 +235,27 @@ and anything else not yet delivered, is written to a spool under the state
 directory (beside `auth.yaml`) and sent by the next invocation while its
 command runs. Each destination -- the Hub plus the login on it -- has its own
 directory, `telemetry-spool/<key>/`, where the key is a short hash of the Hub
-URL and the login's credential, so spooled events are only ever sent to the
-Hub and account that produced them: never to another Hub, and not after a new
-login. Each process writes its own file and claims files by renaming them, so
+URL and the login's `account_key` in `auth.yaml`. That key is random, minted
+at `tap auth login`, never sent to the Hub, and kept when the access and
+refresh tokens rotate, so a refresh never strands what was spooled before it.
+Spooled events are only ever sent to the Hub and account that produced them:
+never to another Hub, and not after a new login. Another login's directory is
+kept for 7 days after its last write in case that login returns, and at most
+8 directories are kept in all. A login written by an earlier release gets its
+`account_key` the first time telemetry runs or its token is refreshed,
+whichever comes first, and claims the directory those releases keyed by its
+credential. Each process writes its own file and claims files by renaming them, so
 concurrent invocations neither overwrite each other's events nor send one
 twice. The spool holds events only, never credentials, and keeps the newest
 500 per destination. The single `telemetry-spool.json` file earlier releases
-wrote is deleted unsent. Disable reporting with
+wrote is deleted unsent. When the Hub refuses this client's events outright
+(an older Hub, or a status that says it never will accept them), the client
+records that in a `rejected` marker in the destination's directory, and
+later invocations of the same version skip telemetry for 24 hours instead of
+each sending a request bound to be refused. Another version tries again at
+once. A refused credential (`401` or `403`, such as an expired access token)
+is not a refusal of the client: it stops reporting for that invocation only
+and writes no marker, so the next invocation with a valid token reports
+again. Disable reporting with
 `disableTelemetry: true` or `TAP_DISABLE_TELEMETRY=1`; a disabled client
 neither sends nor writes the spool.

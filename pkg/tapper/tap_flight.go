@@ -62,9 +62,13 @@ func (t *Tap) ListFlights(ctx context.Context, opts ListFlightsOptions) ([]strin
 	return t.FlightService.ListFlights(ctx, opts.Hub, opts.Warnings)
 }
 
-// GetFlight loads a single flight by name.
+// GetFlight loads a single flight by name, as the Hub holds it now. It is
+// the inspection read behind `tap flight show` and MCP flight_read, and its
+// hash is the precondition for a guarded edit or delete, so it never serves
+// the process cache that per-operation flight gating uses: a long-running
+// `tap mcp` would otherwise show a flight as it was when first read.
 func (t *Tap) GetFlight(ctx context.Context, opts GetFlightOptions) (*Flight, error) {
-	return t.FlightService.GetFlight(ctx, opts.Name)
+	return t.FlightService.GetFlightFresh(ctx, opts.Name)
 }
 
 func (t *Tap) CreateFlight(ctx context.Context, opts CreateFlightOptions) (*Flight, error) {

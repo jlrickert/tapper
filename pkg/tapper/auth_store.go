@@ -14,6 +14,8 @@ package tapper
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -45,6 +47,63 @@ type AuthEntry struct {
 	RefreshToken  string `yaml:"refresh_token,omitempty"`
 	ClientID      string `yaml:"client_id,omitempty"`
 	TokenEndpoint string `yaml:"token_endpoint,omitempty"`
+
+	// AccountKey is a random, local-only name for the login this entry
+	// holds. It is minted at login and kept across token refreshes, so state
+	// that belongs to the login (the telemetry spool) stays put while its
+	// credentials rotate. It is never sent to a hub.
+	AccountKey string `yaml:"account_key,omitempty"`
+}
+
+// NewAuthAccountKey mints a fresh AuthEntry.AccountKey.
+func NewAuthAccountKey() string {
+	b := make([]byte, 16)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
+}
+
+// carryAuthAccountKey keeps prev's AccountKey on next when next has none, so
+// replacing an entry's credentials never renames the login.
+func carryAuthAccountKey(next, prev *AuthEntry) {
+	if next != nil && prev != nil && next.AccountKey == "" {
+		next.AccountKey = prev.AccountKey
+	}
+}
+
+// ensureAuthAccountKey returns the AccountKey of the stored entry for hubKey,
+// minting and saving one when the entry predates account keys. It holds the
+// auth store lock while it reads, mints, and saves, so two processes naming
+// the same login at once agree on one key, and neither writes back a token
+// pair that a concurrent refresh has already rotated.
+func ensureAuthAccountKey(ctx context.Context, rt *toolkit.Runtime, storePath, hubKey string) (string, error) {
+	unlock, err := lockAuthStore(ctx, rt, storePath, authStoreLockWait)
+	if err != nil {
+		return "", err
+	}
+	defer unlock()
+	return ensureAuthAccountKeyLocked(ctx, rt, storePath, hubKey)
+}
+
+// ensureAuthAccountKeyLocked is ensureAuthAccountKey for a caller that already
+// holds the auth store lock, such as a refresh.
+func ensureAuthAccountKeyLocked(ctx context.Context, rt *toolkit.Runtime, storePath, hubKey string) (string, error) {
+	store, err := LoadAuthStore(ctx, rt, storePath)
+	if err != nil {
+		return "", err
+	}
+	entry, ok := store.Get(hubKey)
+	if !ok {
+		return "", fmt.Errorf("auth store: no login for %s", hubKey)
+	}
+	if entry.AccountKey != "" {
+		return entry.AccountKey, nil
+	}
+	entry.AccountKey = NewAuthAccountKey()
+	store.Set(hubKey, *entry)
+	if err := store.Save(ctx, rt, storePath); err != nil {
+		return "", err
+	}
+	return entry.AccountKey, nil
 }
 
 // authStoreDTO is the on-disk shape. Private so callers can't couple to

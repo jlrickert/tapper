@@ -102,6 +102,7 @@ func refreshAuthStoreEntryIfNeeded(ctx context.Context, rt *toolkit.Runtime, sto
 		return nil, err
 	}
 
+	keepSpoolAcrossRotation(ctx, rt, storePath, key, hubURL, entry, next)
 	store.Set(key, *next)
 	if err := persistAuthStoreEntry(ctx, rt, storePath, key, next); err != nil {
 		return next, fmt.Errorf("auth refresh: persist: %w", err)
@@ -145,6 +146,9 @@ func persistAuthStoreEntry(ctx context.Context, rt *toolkit.Runtime, storePath, 
 	disk, err := LoadAuthStore(ctx, rt, storePath)
 	if err != nil {
 		return err
+	}
+	if prev, ok := disk.Get(key); ok {
+		carryAuthAccountKey(entry, prev)
 	}
 	disk.Set(key, *entry)
 	return disk.Save(ctx, rt, storePath)
@@ -236,6 +240,7 @@ func RefreshHubToken(ctx context.Context, rt *toolkit.Runtime, hubURL string, en
 	if next.Scope == "" {
 		next.Scope = entry.Scope
 	}
+	carryAuthAccountKey(next, entry)
 	if tok.ExpiresIn > 0 {
 		next.ExpiresAt = rt.Clock().Now().Add(time.Duration(tok.ExpiresIn) * time.Second)
 	}

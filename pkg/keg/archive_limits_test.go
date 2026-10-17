@@ -74,6 +74,7 @@ func TestArchiveLimitsAgreeBetweenExportAndImport(t *testing.T) {
 		keg.ArchiveLimitEntryBytes:      {MaxEntryBytes: largestEntry(t, archive)},
 		keg.ArchiveLimitTarBytes:        {MaxTarBytes: stats.TarBytes},
 		keg.ArchiveLimitCompressedBytes: {MaxCompressedBytes: int64(len(archive))},
+		keg.ArchiveLimitIndexBytes:      {MaxIndexBytes: stats.IndexBytes},
 	}
 	below := func(lim keg.ArchiveLimits) keg.ArchiveLimits {
 		switch {
@@ -83,6 +84,8 @@ func TestArchiveLimitsAgreeBetweenExportAndImport(t *testing.T) {
 			lim.MaxEntryBytes--
 		case lim.MaxTarBytes > 0:
 			lim.MaxTarBytes--
+		case lim.MaxIndexBytes > 0:
+			lim.MaxIndexBytes--
 		default:
 			lim.MaxCompressedBytes--
 		}
@@ -392,4 +395,84 @@ func TestStageArchiveSkipsDirectoriesAndKeepsLongNames(t *testing.T) {
 		names = append(names, hdr.Name)
 	}
 	require.ElementsMatch(t, []string{"keg-archive/manifest.json", long}, names)
+}
+
+// paxTar builds a tar whose entries carry the given names, as PAX headers do
+// for names longer than the ustar fields.
+func paxTar(t *testing.T, names ...string) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+	manifest := `{"format":"keg-archive/v3","nodes":[]}`
+	require.NoError(t, tw.WriteHeader(&tar.Header{Name: "keg-archive/manifest.json", Mode: 0o644, Size: int64(len(manifest)), Typeflag: tar.TypeReg}))
+	_, err := tw.Write([]byte(manifest))
+	require.NoError(t, err)
+	for _, name := range names {
+		require.NoError(t, tw.WriteHeader(&tar.Header{Name: name, Mode: 0o644, Typeflag: tar.TypeReg, Format: tar.FormatPAX}))
+	}
+	require.NoError(t, tw.Close())
+	return buf.Bytes()
+}
+
+func importStaged(t *testing.T, tarball []byte, lim keg.ArchiveLimits) error {
+	t.Helper()
+	fx := NewSandbox(t)
+	dst := keg.NewLocalKeg(newTestMemoryRepo(fx.Runtime()), fx.Runtime())
+	initNonStrictTestKeg(t, dst, fx.Context())
+	_, err := dst.ImportNodes(fx.Context(), nil, keg.ImportNodesOptions{Source: bytes.NewReader(tarball), Limits: lim})
+	return err
+}
+
+// An entry name no export writes is refused, and the refusal does not echo
+// the whole name back.
+func TestArchiveRefusesOverlongEntryNames(t *testing.T) {
+	t.Parallel()
+	long := "keg-archive/nodes/1/assets/" + strings.Repeat("n", 1<<19)
+	tarball := paxTar(t, long)
+
+	_, err := stageStats(t, tarball, keg.ArchiveLimits{})
+	require.ErrorIs(t, err, keg.ErrInvalid)
+	require.Less(t, len(err.Error()), 1024, "the error does not carry the name")
+
+	err = importStaged(t, tarball, keg.ArchiveLimits{})
+	require.ErrorIs(t, err, keg.ErrInvalid)
+	require.Less(t, len(err.Error()), 1024)
+}
+
+// A long name that is still a plausible path is kept.
+func TestArchiveKeepsEntryNamesUpToTheCap(t *testing.T) {
+	t.Parallel()
+	prefix := "keg-archive/nodes/1/assets/"
+	name := prefix + strings.Repeat("n", 4096-len(prefix))
+	stats, err := stageStats(t, paxTar(t, name), keg.ArchiveLimits{})
+	require.NoError(t, err)
+	require.Equal(t, 2, stats.Entries)
+	require.NoError(t, importStaged(t, paxTar(t, name), keg.ArchiveLimits{}))
+}
+
+// The memory an import's entry index takes is bounded, by staging and by an
+// import from an already staged source alike.
+func TestArchiveIndexBytesAreBounded(t *testing.T) {
+	t.Parallel()
+	names := make([]string, 200)
+	for i := range names {
+		names[i] = fmt.Sprintf("keg-archive/nodes/1/assets/%04d-%s", i, strings.Repeat("n", 2000))
+	}
+	tarball := paxTar(t, names...)
+	stats, err := stageStats(t, tarball, keg.ArchiveLimits{})
+	require.NoError(t, err)
+	require.Greater(t, stats.IndexBytes, int64(200*2000))
+
+	lim := keg.ArchiveLimits{MaxIndexBytes: 64 << 10}
+	_, err = stageStats(t, tarball, lim)
+	requireLimitError(t, err, keg.ArchiveLimitIndexBytes)
+	requireLimitError(t, importStaged(t, tarball, lim), keg.ArchiveLimitIndexBytes)
+
+	fx := NewSandbox(t)
+	dst := keg.NewLocalKeg(newTestMemoryRepo(fx.Runtime()), fx.Runtime())
+	initNonStrictTestKeg(t, dst, fx.Context())
+	_, err = dst.ImportNodes(fx.Context(), bytes.NewReader(tarball), keg.ImportNodesOptions{Limits: lim})
+	requireLimitError(t, err, keg.ArchiveLimitIndexBytes)
+
+	require.NoError(t, importStaged(t, tarball, keg.ArchiveLimits{MaxIndexBytes: stats.IndexBytes}), "an archive at the limit is accepted")
 }

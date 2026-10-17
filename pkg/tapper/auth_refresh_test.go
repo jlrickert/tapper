@@ -48,9 +48,11 @@ func TestRefreshHubToken_RotatesAndRenews(t *testing.T) {
 		RefreshToken:  "rt-old",
 		ClientID:      "tapper-cli",
 		TokenEndpoint: srv.URL,
+		AccountKey:    "account-key",
 	}
 	next, err := tapper.RefreshHubToken(fx.Context(), fx.Runtime(), "https://hub.example.com", entry)
 	require.NoError(t, err)
+	require.Equal(t, "account-key", next.AccountKey, "a refresh renews the credential, not the login")
 	require.Equal(t, "thub_refreshednew99", next.AccessToken)
 	require.Equal(t, "rt-rotated", next.RefreshToken)
 	require.Equal(t, "tapper-cli", next.ClientID)

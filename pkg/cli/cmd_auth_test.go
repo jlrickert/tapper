@@ -294,6 +294,35 @@ func TestAuthLoginCmd_PersistsStoreAndPrintsHub(t *testing.T) {
 	require.Equal(t, "read write", entry.Scope)
 }
 
+// Each login names itself with a fresh account key, so state kept for one
+// login (the telemetry spool) is never carried into the next.
+func TestAuthLoginCmd_MintsAccountKeyPerLogin(t *testing.T) {
+	t.Parallel()
+	sb := newTestSandbox(t)
+	hook := stubDeviceLoginHook(func(_ context.Context, _ *toolkit.Runtime, _ tapper.AuthLoginDeviceOptions) (*tapper.AuthEntry, error) {
+		return &tapper.AuthEntry{AccessToken: "stub-access-token", RefreshToken: "stub-refresh"}, nil
+	})
+	accountKey := func() string {
+		var parsed struct {
+			Hubs map[string]struct {
+				AccountKey string `yaml:"account_key"`
+			} `yaml:"hubs"`
+		}
+		require.NoError(t, yaml.Unmarshal(sb.MustReadFile("~/.local/state/tapper/auth.yaml"), &parsed))
+		return parsed.Hubs["https://hub.example.com"].AccountKey
+	}
+
+	res := newAuthProcess(t, hook, "auth", "login", "--hub", "https://hub.example.com").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+	first := accountKey()
+	require.NotEmpty(t, first)
+
+	res = newAuthProcess(t, hook, "auth", "login", "--hub", "https://hub.example.com").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+	require.NotEmpty(t, accountKey())
+	require.NotEqual(t, first, accountKey())
+}
+
 func TestAuthDeviceLabelIncludesHostnameWhenRuntimeHasProcessInfo(t *testing.T) {
 	t.Parallel()
 	rt, err := toolkit.NewRuntime(toolkit.WithProcessInfo(toolkit.ProcessInfo{

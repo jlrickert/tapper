@@ -34,7 +34,14 @@ func ValidateAssetName(name string) error {
 // archives plant ".." in an asset entry (e.g. keg-archive/nodes/1/assets/../../x)
 // to escape the keg root when imported (zip-slip, CWE-22). Import rejects an
 // archive containing any such entry before writing anything to the repository.
+//
+// A name longer than maxArchiveNameBytes is refused too. No export writes one,
+// and a tar header can carry a name of up to a megabyte, which an import
+// would otherwise keep in memory for every entry.
 func safeArchiveEntryName(name string) bool {
+	if len(name) > maxArchiveNameBytes {
+		return false
+	}
 	name = filepath.ToSlash(name)
 	if name == "" || filepath.IsAbs(name) || strings.HasPrefix(name, "/") {
 		return false
@@ -45,4 +52,17 @@ func safeArchiveEntryName(name string) bool {
 		}
 	}
 	return true
+}
+
+// maxArchiveNameBytes is the longest keg-archive entry name accepted, the
+// usual PATH_MAX.
+const maxArchiveNameBytes = 4096
+
+// unsafeArchiveEntryError reports an entry safeArchiveEntryName refused,
+// quoting at most the start of its name so a huge one is not echoed back.
+func unsafeArchiveEntryError(name string) error {
+	if len(name) > maxArchiveNameBytes {
+		return fmt.Errorf("archive entry name of %d bytes starting %q is over the %d byte limit: %w", len(name), name[:64], maxArchiveNameBytes, ErrInvalid)
+	}
+	return fmt.Errorf("unsafe archive entry %q: %w", name, ErrInvalid)
 }

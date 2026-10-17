@@ -15,6 +15,7 @@ const (
 	ArchiveLimitEntryBytes      = "entry_bytes"
 	ArchiveLimitTarBytes        = "tar_bytes"
 	ArchiveLimitCompressedBytes = "compressed_bytes"
+	ArchiveLimitIndexBytes      = "index_bytes"
 )
 
 // ArchiveLimits bounds a keg-archive. Export and import measure the same
@@ -32,6 +33,21 @@ type ArchiveLimits struct {
 	MaxTarBytes int64
 	// MaxCompressedBytes bounds the gzip stream.
 	MaxCompressedBytes int64
+	// MaxIndexBytes bounds the memory an import's entry index takes: the
+	// sum, over every file entry, of its name's length plus
+	// ArchiveIndexEntryOverhead. Entry names are caller-supplied, and the
+	// index holds every one of them for the whole import.
+	MaxIndexBytes int64
+}
+
+// ArchiveIndexEntryOverhead is what MaxIndexBytes charges each entry on top
+// of its name: the bookkeeping an index keeps per entry.
+const ArchiveIndexEntryOverhead = 64
+
+// archiveIndexCost is what one entry adds to the measure MaxIndexBytes
+// bounds.
+func archiveIndexCost(name string) int64 {
+	return int64(len(name)) + ArchiveIndexEntryOverhead
 }
 
 // ArchiveLimitError reports which ArchiveLimits ceiling an archive crossed.
@@ -59,6 +75,8 @@ func (e *ArchiveLimitError) Error() string {
 		return fmt.Sprintf("archive expands beyond the %d byte limit", e.Max)
 	case ArchiveLimitCompressedBytes:
 		return fmt.Sprintf("archive is larger than the %d byte limit", e.Max)
+	case ArchiveLimitIndexBytes:
+		return fmt.Sprintf("archive entry names need more than the %d byte index limit", e.Max)
 	default:
 		return fmt.Sprintf("archive exceeds %s limit of %d", e.Limit, e.Max)
 	}

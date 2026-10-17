@@ -20,12 +20,21 @@ const touchLockWait = 2 * time.Second
 // ErrLockTimeout once d passes without the lock; the bound covers acquiring
 // the lock, not the work done under it. A d of zero or less leaves the wait
 // unbounded, which is the default.
+//
+// The bound is advisory. It lives only in ctx and is not part of the Hub API,
+// so it never crosses the wire: it applies only where the Repository runs in
+// the same process as the caller and reads it with LockWaitFrom. A Repository
+// that does not, the in-memory test repository included, waits as it always
+// has, and a touched read there waits for the lock instead of skipping the
+// touch. Callers must not rely on the bound for correctness, only to keep a
+// read from queueing behind a long writer where it is honored.
 func WithLockWait(ctx context.Context, d time.Duration) context.Context {
 	return context.WithValue(ctx, lockWaitContextKey{}, d)
 }
 
 // LockWaitFrom returns the keg lock wait bound carried by ctx, or zero when
-// the wait is unbounded.
+// the wait is unbounded. Repository implementations call it when they acquire
+// the keg write lock; see WithLockWait for which ones do.
 func LockWaitFrom(ctx context.Context) time.Duration {
 	d, _ := ctx.Value(lockWaitContextKey{}).(time.Duration)
 	if d < 0 {
