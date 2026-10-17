@@ -110,6 +110,12 @@ const (
 	// it from Hub. It is connection-level (no id) and the relay must not
 	// reconnect: the owner asked for it to go away.
 	CodeDisconnected = "disconnected"
+	// CodeCredentialExpired ends a session because the access token that
+	// opened it expired. It is connection-level (no id) and, unlike
+	// CodeDisconnected, retryable: the relay should reconnect at once with a
+	// refreshed token. Hub closes the WebSocket with status 1013 (try again
+	// later) after sending it.
+	CodeCredentialExpired = "credential_expired"
 	// CodeUnknownTool: the call names a server or tool the relay does not
 	// currently offer.
 	CodeUnknownTool = "unknown_tool"

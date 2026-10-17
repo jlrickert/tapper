@@ -87,41 +87,60 @@ func (t *Tap) HubRelayTools(agent string) (endpoint string, token func() string,
 // hubToken resolves the bearer token for a configured remote hub. It builds a
 // synthetic target from the hub entry and defers to hubTokenForTarget.
 func (t *Tap) hubToken(entry HubEntry) string {
-	url := hubURLWithScheme(strings.TrimSpace(entry.URL))
-	if url == "" {
+	target, ok := hubEntryTarget(entry)
+	if !ok {
 		return ""
 	}
-	target := keg.Target{
+	return t.hubTokenForTarget(&target)
+}
+
+// hubEntryTarget is the synthetic target a configured hub entry resolves its
+// credential through; ok is false for an entry with no URL.
+func hubEntryTarget(entry HubEntry) (keg.Target, bool) {
+	url := hubURLWithScheme(strings.TrimSpace(entry.URL))
+	if url == "" {
+		return keg.Target{}, false
+	}
+	return keg.Target{
 		Url:      strings.TrimRight(url, "/"),
 		HubURL:   url,
 		Token:    entry.Token,
 		TokenEnv: entry.TokenEnv,
-	}
-	return t.hubTokenForTarget(&target)
+	}, true
 }
 
 // hubTokenForTarget resolves the bearer token for a remote target: TokenEnv
 // (environment variable) → inline Token → the AuthStore keyed by the hub URL
 // (the token `tap auth login` persists). Returns "" when no credential applies.
 func (t *Tap) hubTokenForTarget(target *keg.Target) string {
+	token, _ := t.resolveHubToken(target)
+	return token
+}
+
+// resolveHubToken is hubTokenForTarget that also reports a failed refresh of
+// a stored OAuth token, alongside the cached token it fell back to.
+func (t *Tap) resolveHubToken(target *keg.Target) (string, error) {
 	if target == nil {
-		return ""
+		return "", nil
 	}
 	if target.TokenEnv != "" {
 		// Explicit configuration owns credential selection, even when missing.
-		return t.Runtime.Get(target.TokenEnv)
+		return t.Runtime.Get(target.TokenEnv), nil
 	}
 	if target.Token != "" {
-		return target.Token
+		return target.Token, nil
 	}
 	if t.KegService == nil {
-		return ""
+		return "", nil
 	}
 	resolver := t.KegService.tokenResolver()
 	if resolver == nil {
-		return ""
+		return "", nil
 	}
-	return resolver.ResolveToken(target)
+	if store, ok := resolver.(*authStoreTokenResolver); ok {
+		return store.resolveToken(target)
+	}
+	return resolver.ResolveToken(target), nil
 }
 
 // HubInfo describes a configured hub for `tap hub list`.

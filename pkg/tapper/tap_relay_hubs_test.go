@@ -2,6 +2,8 @@ package tapper
 
 import (
 	"context"
+	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"testing"
@@ -11,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/jlrickert/tapper/internal/relay"
+	"github.com/jlrickert/tapper/internal/testapi"
 )
 
 func TestRelayHubURLs(t *testing.T) {
@@ -277,4 +280,60 @@ func TestRelayRunsWithOnlyBuiltins(t *testing.T) {
 	require.NoError(t, sb.Runtime().Set("PATH", stubRunners(t)))
 	require.ErrorIs(t, tap.Relay(context.Background(), RelayOptions{}), ErrRelayNotConfigured,
 		"no providers, no servers and no runners: nothing to relay")
+}
+
+// relayTokenWith seeds an expired, refreshable login for a hub whose token
+// endpoint answers with status (and a rotated pair on 200), then resolves
+// the relay's token for that hub.
+func relayTokenWith(t *testing.T, status int) (string, error) {
+	t.Helper()
+	srv := testapi.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if status != http.StatusOK {
+			w.WriteHeader(status)
+			_, _ = w.Write([]byte(`{"error":"invalid_grant"}`))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"access_token":"thub_fresh000000","token_type":"Bearer","expires_in":900,"refresh_token":"rt-next"}`))
+	}))
+	t.Cleanup(srv.Close)
+	sb := sandbox.NewSandbox(t, &sandbox.Options{Home: "/home/testuser", User: "testuser"})
+	rt := sb.Runtime()
+	tap, err := NewTap(TapOptions{Runtime: rt})
+	require.NoError(t, err)
+	require.NoError(t, rt.AtomicWriteFile(tap.PathService.UserConfig(),
+		[]byte(fmt.Sprintf("hub: work\nhubs:\n  work: {url: %s}\n", srv.URL)), 0o644))
+	store, err := LoadAuthStore(context.Background(), rt, tap.PathService.AuthStorePath())
+	require.NoError(t, err)
+	store.Set(CanonicalHubURL(srv.URL), AuthEntry{
+		AccessToken: "thub_expired0000", ExpiresAt: rt.Clock().Now().Add(-time.Minute),
+		RefreshToken: "rt-old", ClientID: "tapper-cli", TokenEndpoint: srv.URL,
+	})
+	require.NoError(t, store.Save(context.Background(), rt, tap.PathService.AuthStorePath()))
+	cfg, err := tap.ConfigService.Config()
+	require.NoError(t, err)
+	return tap.relayToken(cfg, srv.URL)
+}
+
+// A refresh that fails for a passing reason must not hand the relay the
+// expired token: the hub would reject the dial, and the relay treats that
+// rejection as final.
+func TestRelayTokenRetriesWhenRefreshFails(t *testing.T) {
+	token, err := relayTokenWith(t, http.StatusServiceUnavailable)
+	require.Error(t, err, "a transient refresh failure is an error the relay retries")
+	require.Empty(t, token)
+}
+
+func TestRelayTokenRefreshesExpiredLogin(t *testing.T) {
+	token, err := relayTokenWith(t, http.StatusOK)
+	require.NoError(t, err)
+	require.Equal(t, "thub_fresh000000", token)
+}
+
+// A refresh token the hub refused is a lost sign-in, not something to retry:
+// the relay dials with what it has and the hub's 401 stops it.
+func TestRelayTokenStopsRetryingWhenRefreshIsRejected(t *testing.T) {
+	token, err := relayTokenWith(t, http.StatusBadRequest)
+	require.NoError(t, err)
+	require.Equal(t, "thub_expired0000", token)
 }

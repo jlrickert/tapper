@@ -41,24 +41,33 @@ func NewAuthStoreTokenResolver(store *AuthStore, rt *toolkit.Runtime, storePath 
 // any failure falls back to the cached token, leaving the hub's 401 as the
 // backstop signal.
 func (r *authStoreTokenResolver) ResolveToken(target *keg.Target) string {
+	token, _ := r.resolveToken(target)
+	return token
+}
+
+// resolveToken is ResolveToken that also reports a failed refresh, alongside
+// the cached token it fell back to.
+func (r *authStoreTokenResolver) resolveToken(target *keg.Target) (string, error) {
 	if r == nil || r.store == nil || target == nil {
-		return ""
+		return "", nil
 	}
 	hubRoot := hubRootFromTarget(target)
 	if hubRoot == "" {
-		return ""
+		return "", nil
 	}
 	key := CanonicalHubURL(hubRoot)
 	entry, ok := r.store.Get(key)
 	if !ok || entry == nil {
-		return ""
+		return "", nil
 	}
 	if r.shouldRefresh(entry) {
-		if next := r.refresh(hubRoot, key, entry); next != nil {
-			return next.AccessToken
+		next, err := r.refresh(hubRoot, key, entry)
+		if next != nil {
+			return next.AccessToken, nil
 		}
+		return entry.AccessToken, err
 	}
-	return entry.AccessToken
+	return entry.AccessToken, nil
 }
 
 // shouldRefresh reports whether entry has a refresh token and an access token
@@ -67,9 +76,10 @@ func (r *authStoreTokenResolver) shouldRefresh(entry *AuthEntry) bool {
 	return authEntryNeedsRefresh(r.rt, entry)
 }
 
-// refresh renews the token under a lock and persists the rotated pair. Returns
-// the fresh entry, or nil on failure (callers fall back to the cached token).
-func (r *authStoreTokenResolver) refresh(hubURL, key string, entry *AuthEntry) *AuthEntry {
+// refresh renews the token under a lock and persists the rotated pair. It
+// returns the fresh entry, or nil and the refresh error on failure (callers
+// fall back to the cached token).
+func (r *authStoreTokenResolver) refresh(hubURL, key string, entry *AuthEntry) (*AuthEntry, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	next, err := refreshAuthStoreEntryIfNeeded(context.Background(), r.rt, r.store, r.storePath, hubURL, key, entry)
@@ -79,9 +89,9 @@ func (r *authStoreTokenResolver) refresh(hubURL, key string, entry *AuthEntry) *
 		}
 	}
 	if next != nil {
-		return next
+		return next, nil
 	}
-	return nil
+	return nil, err
 }
 
 // ErrAtlasHubDisabled is returned by ResolveLoginHubURL when the chain
