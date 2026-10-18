@@ -3,6 +3,7 @@ package cli_test
 import (
 	"strings"
 	"testing"
+	"time"
 
 	testutils "github.com/jlrickert/cli-toolkit/sandbox"
 	"github.com/stretchr/testify/require"
@@ -212,4 +213,30 @@ func TestMeta_ReadIgnoresLockToken(t *testing.T) {
 	metaRes := NewProcess(t, false, "node", "meta", "0", "--lock-token", "wrong-token").
 		Run(fx.Context(), fx.Runtime())
 	require.NoError(t, metaRes.Err, "meta read should succeed despite wrong lock token; stderr: %s", string(metaRes.Stderr))
+}
+
+func TestLock_AcquireHeldLockTimesOutAtWait(t *testing.T) {
+	t.Parallel()
+	fx := NewSandbox(t, testutils.WithFixture("testuser", "~"))
+	first := NewProcess(t, false, "lock", "acquire", "0").Run(fx.Context(), fx.Runtime())
+	require.NoError(t, first.Err)
+
+	start := time.Now()
+	second := NewProcess(t, false, "lock", "acquire", "0", "--wait", "500ms").Run(fx.Context(), fx.Runtime())
+	elapsed := time.Since(start)
+	require.Error(t, second.Err, "a held lock must not be acquired twice")
+	require.Contains(t, string(second.Stderr), "lock acquire timeout")
+	require.Less(t, elapsed, 5*time.Second)
+}
+
+func TestLock_AcquireFreeLockWithWaitSucceeds(t *testing.T) {
+	t.Parallel()
+	fx := NewSandbox(t, testutils.WithFixture("testuser", "~"))
+	res := NewProcess(t, false, "lock", "acquire", "0", "--wait", "500ms").Run(fx.Context(), fx.Runtime())
+	require.NoError(t, res.Err)
+	require.NotEmpty(t, strings.TrimSpace(string(res.Stdout)))
+
+	negative := NewProcess(t, false, "lock", "acquire", "0", "--wait", "-1s").Run(fx.Context(), fx.Runtime())
+	require.Error(t, negative.Err)
+	require.Contains(t, string(negative.Stderr), "must not be negative")
 }

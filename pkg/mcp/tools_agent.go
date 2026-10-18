@@ -119,7 +119,7 @@ func registerAgentTools(srv *sdkmcp.Server, defaults KegDefaults, agents AgentPr
 
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:         "agent_delete",
-		Description:  "Manage: Delete a Hub agent in a namespace you own or administer. Apps and tokens bound to it lose access.",
+		Description:  "Manage: Delete a Hub agent in a namespace you own or administer.",
 		OutputSchema: textOutputSchema(),
 		Annotations:  &sdkmcp.ToolAnnotations{ReadOnlyHint: false, DestructiveHint: boolPtr(true), OpenWorldHint: boolPtr(false)},
 	}, func(ctx context.Context, _ *sdkmcp.CallToolRequest, in agentDeleteInput) (*sdkmcp.CallToolResult, any, error) {

@@ -43,9 +43,12 @@ func newLockAcquireCmd(deps *Deps) *cobra.Command {
 	var opts tapper.LockOptions
 
 	cmd := &cobra.Command{
-		Use:               "acquire NODE_ID",
-		Short:             "acquire a cross-process lock on a node",
-		Long:              "Acquire a cross-process lock and print the token to stdout.",
+		Use:   "acquire NODE_ID",
+		Short: "acquire a cross-process lock on a node",
+		Long: `Acquire a cross-process lock and print the token to stdout.
+
+A lock another holder has is waited for up to --wait (default 10s, at most
+60s); a lock still held then fails with a lock timeout.`,
 		ValidArgsFunction: nodeIDCompletionFunc(deps, 1),
 		Args:              cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -59,6 +62,7 @@ func newLockAcquireCmd(deps *Deps) *cobra.Command {
 			return err
 		},
 	}
+	cmd.Flags().DurationVar(&opts.Wait, "wait", 0, "how long to wait for a held lock (default 10s, max 60s)")
 	return cmd
 }
 

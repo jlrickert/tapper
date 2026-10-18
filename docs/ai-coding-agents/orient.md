@@ -22,6 +22,13 @@ The payload always starts with KEG system context:
 5. Canonical Tapper agent guidance: linking, snapshots, tool inventory, and
    troubleshooting.
 
+When `TAP_AGENT` names a Hub agent (a `tap launch --agent` session's
+`tap mcp`, or `tap orient` run in that environment), the payload names the
+agent and says its tool allowlist and flight govern the session. It never
+claims the identity's full authority, even with no flight: an agent holds no
+credentials of its own, and Hub narrows its requests to the flight `tap mcp`
+sends.
+
 Orient is best-effort. If a configured hub is unreachable or a selected flight
 cannot be resolved, the payload still renders the KEG system basics and includes
 a warning about what was skipped.

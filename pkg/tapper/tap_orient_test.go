@@ -333,3 +333,49 @@ func TestBuildOrientationPayload_SingleFlightProjectionRendersOneTable(t *testin
 	require.Contains(t, payload, "@ada/notes")
 	require.NotContains(t, payload, "## Reachable via subflight")
 }
+
+// An agent session (TAP_AGENT, set for `tap mcp`) holds no credentials of its
+// own, so its orientation must not claim the identity's full authority.
+func TestTap_Orient_AgentSessionNamesAllowlistNotIdentityAuthority(t *testing.T) {
+	t.Parallel()
+	sb := sandbox.NewSandbox(t, &sandbox.Options{Home: "/home/testuser", User: "testuser"})
+	require.NoError(t, sb.Runtime().Env().Set("TAP_AGENT", "@acme/researcher"))
+	tap, err := tapper.NewTap(tapper.TapOptions{Runtime: sb.Runtime()})
+	require.NoError(t, err)
+
+	payload, err := tap.Orient(context.Background(), tapper.OrientOptions{})
+	require.NoError(t, err)
+
+	require.NotContains(t, payload, "full identity authority")
+	require.NotContains(t, payload, "full access")
+	require.Contains(t, payload, "agent `@acme/researcher`")
+	require.Contains(t, payload, "tool allowlist")
+}
+
+func TestTap_Orient_PersonWithoutAgentKeepsFullIdentityAuthority(t *testing.T) {
+	t.Parallel()
+	payload, err := newOrientTap(t).Orient(context.Background(), tapper.OrientOptions{})
+	require.NoError(t, err)
+
+	require.Contains(t, payload, "full identity authority")
+	require.NotContains(t, payload, "tool allowlist")
+}
+
+func TestBuildOrientationPayload_AgentFlightNamesAllowlistNotFullAccess(t *testing.T) {
+	t.Parallel()
+	flight := orientFlight("@ada/+memory", "ada", "memory",
+		tapper.FlightCover{Namespace: "ada", Keg: "notes", Role: tapper.FlightRoleEditor})
+
+	payload, err := tapper.BuildOrientationPayload(flight, "", "", nil, nil,
+		&tapper.OrientationAuthority{Active: flight, FullAccess: true, Agent: "@ada/researcher"})
+	require.NoError(t, err)
+	require.NotContains(t, payload, "full access")
+	require.Contains(t, payload, "Agent: `@ada/researcher`")
+	require.Contains(t, payload, "tool allowlist and this flight govern")
+
+	person, err := tapper.BuildOrientationPayload(flight, "", "", nil, nil,
+		&tapper.OrientationAuthority{Active: flight, FullAccess: true})
+	require.NoError(t, err)
+	require.Contains(t, person, "Launch root: (none; identity-authorized full access)")
+	require.NotContains(t, person, "tool allowlist")
+}

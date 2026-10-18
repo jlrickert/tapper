@@ -228,7 +228,7 @@ arguments, starts that tool's count again.
 | `index_rebuild`, `index_list`, `index_read` | Rebuild or inspect indexes |
 | `keg_check` | Check only the selected keg's health (not local Tapper configuration) |
 | `snapshot_list`, `snapshot_create`, `snapshot_read`, `snapshot_restore` | Manage node snapshots; `snapshot_create` accepts 1–100 nodes atomically |
-| `lock_acquire`, `lock_release`, `lock_status`, `lock_force_release` | Coordinate Hub-held node locks |
+| `lock_acquire`, `lock_release`, `lock_status`, `lock_force_release` | Coordinate Hub-held node locks; `lock_acquire` waits up to `wait_seconds` (default 10, max 60) for a held lock |
 
 ### Files And Images
 

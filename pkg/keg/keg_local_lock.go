@@ -2,6 +2,7 @@ package keg
 
 import (
 	"context"
+	"errors"
 	"fmt"
 )
 
@@ -22,7 +23,7 @@ func (k *LocalKeg) Lock(ctx context.Context, id NodeId) (LockInfo, error) {
 	if !ok {
 		return LockInfo{}, ErrNotSupported
 	}
-	token, err := locker.AcquireLock(ctx, id)
+	token, err := acquireNodeLock(ctx, locker, id)
 	if err != nil {
 		return LockInfo{}, err
 	}
@@ -70,4 +71,24 @@ func (k *LocalKeg) ForceUnlock(ctx context.Context, id NodeId) error {
 		return ErrNotSupported
 	}
 	return locker.ForceReleaseLock(ctx, id)
+}
+
+// acquireNodeLock acquires id's lock within the bound WithNodeLockWait set on
+// ctx, if any. A lock still held when the bound passes fails with
+// ErrLockTimeout; a canceled caller fails with its own error.
+func acquireNodeLock(ctx context.Context, locker RepositoryLock, id NodeId) (LockToken, error) {
+	wait := NodeLockWaitFrom(ctx)
+	if wait <= 0 {
+		return locker.AcquireLock(ctx, id)
+	}
+	bounded, cancel := context.WithTimeout(ctx, wait)
+	defer cancel()
+	token, err := locker.AcquireLock(bounded, id)
+	if err == nil {
+		return token, nil
+	}
+	if ctx.Err() == nil && errors.Is(bounded.Err(), context.DeadlineExceeded) && !errors.Is(err, ErrLockTimeout) {
+		return "", fmt.Errorf("%w: node %s still locked after %s: %w", ErrLockTimeout, id.Path(), wait, err)
+	}
+	return "", err
 }

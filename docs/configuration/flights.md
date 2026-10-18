@@ -119,9 +119,16 @@ A Hub agent is a model, instructions, a tool allowlist, and a flight. Its tools
 decide what a session may do; its flight is the memory it works in. An agent
 with no flight has no KEG access: a Hub session running it comes up in
 recovery mode with KEG tools locked until the agent is given a flight, after
-which `session_refresh` activates it. Hosted apps and API tokens run as an
-agent, and `tap launch --agent @ns/name` roots the session on the agent's
-flight unless `--flight` or `TAP_FLIGHT` names another. Set an agent's flight
+which `session_refresh` activates it. Hosted apps run as an agent, and
+`tap launch --agent @ns/name` roots the session on the agent's flight unless
+`--flight` or `TAP_FLIGHT` names another.
+
+An agent holds no credentials of its own. A local agent session reaches Hub
+only through `tap mcp`, which applies the agent's tool allowlist (`TAP_AGENT`)
+and sends its flight as `?flight=`, and Hub narrows each request to that
+flight. Its orientation names the agent and says the allowlist and flight
+govern the session, never the identity's full authority. An API token is never
+bound to an agent: a token handed to one carries its owner's full access. Set an agent's flight
 with `tap agent edit @ns/name --flight @ns/+slug` (`--flight ""` clears it) or
 on the agent's page on Hub.
 

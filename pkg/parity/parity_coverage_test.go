@@ -178,6 +178,7 @@ var tapMethodsExcluded = map[string]string{
 	"ContextInfo":              "CLI-only `tap info` summary of the local hub, keg, and flight defaults; an MCP session learns its identity from session_info and its flight and KEGs from orient",
 	"ActiveFlightName":         "internal pure read of the explicit flight or the loaded cascade's selection; backs Orient and MCP session adoption rather than being an operation of its own",
 	"ActiveLaunch":             "internal pure read of the `tap launch` harness and model driving the process; reported in orientation rather than being an operation of its own",
+	"ActiveAgent":              "internal pure read of the TAP_AGENT Hub agent a `tap mcp` session runs as; reported in orientation rather than being an operation of its own",
 	"OrientationKegsForFlight": "internal authority projection used by MCP providers to compute a revision before rendering once",
 	"IdentityKegCatalog":       "internal identity metadata projection used by MCP providers for graph discovery and keg_list",
 	// Dropped from MCP when the surface was unified behind providers: these

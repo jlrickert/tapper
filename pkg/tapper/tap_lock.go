@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/jlrickert/tapper/pkg/keg"
 )
@@ -11,6 +12,10 @@ import (
 // LockOptions configures behavior for Tap.Lock.
 type LockOptions struct {
 	NodeID string
+	// Wait bounds how long to wait for a lock another holder has, clamped by
+	// keg.ClampNodeLockWait: zero means the 10s default, and anything above 60s
+	// waits 60s. See keg.WithNodeLockWait.
+	Wait time.Duration
 	KegTargetOptions
 }
 
@@ -45,6 +50,10 @@ func (t *Tap) Lock(ctx context.Context, opts LockOptions) (keg.LockToken, error)
 		return "", err
 	}
 
+	if opts.Wait < 0 {
+		return "", fmt.Errorf("%w: lock wait must not be negative", keg.ErrInvalid)
+	}
+	ctx = keg.WithNodeLockWait(ctx, keg.ClampNodeLockWait(opts.Wait))
 	info, err := k.Lock(ctx, id)
 	if err != nil {
 		if errors.Is(err, keg.ErrNotExist) {

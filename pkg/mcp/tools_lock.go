@@ -7,6 +7,7 @@ import (
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/jlrickert/tapper/pkg/keg"
 	"github.com/jlrickert/tapper/pkg/tapper"
 )
 
@@ -20,23 +21,29 @@ func registerLockTools(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults
 // --- lock_acquire ---
 
 type lockAcquireInput struct {
-	NodeID string `json:"node_id" jsonschema:"Node ID to lock."`
-	Keg    string `json:"keg,omitempty" jsonschema:"KEG to use, as @namespace/keg; a bare name uses your default namespace. Omit it to use the default KEG."`
+	NodeID      string `json:"node_id" jsonschema:"Node ID to lock."`
+	WaitSeconds int    `json:"wait_seconds,omitempty" jsonschema:"Seconds to wait for a lock another holder has before failing with LOCK_TIMEOUT. Default 10; values above 60 wait 60."`
+	Keg         string `json:"keg,omitempty" jsonschema:"KEG to use, as @namespace/keg; a bare name uses your default namespace. Omit it to use the default KEG."`
 }
 
 func registerLockAcquire(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:         "lock_acquire",
-		Description:  "Memory: Acquire a Hub-held lock on a node and return its token.",
+		Description:  "Memory: Acquire a Hub-held lock on a node and return its token. A held lock is waited for up to wait_seconds (default 10, max 60), then fails with LOCK_TIMEOUT.",
 		OutputSchema: textOutputSchema(),
 		Annotations: &sdkmcp.ToolAnnotations{
 			DestructiveHint: boolPtr(false),
 			OpenWorldHint:   boolPtr(false),
 		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in lockAcquireInput) (*sdkmcp.CallToolResult, any, error) {
+		if in.WaitSeconds < 0 {
+			return errorResult(fmt.Errorf("%w: wait_seconds must not be negative", keg.ErrInvalid)), nil, nil
+		}
+		// Tap.Lock applies the default and the 60s cap.
 		opts := tapper.LockOptions{
 			KegTargetOptions: resolveKegTarget(ctx, in.Keg, defaults),
 			NodeID:           in.NodeID,
+			Wait:             time.Duration(in.WaitSeconds) * time.Second,
 		}
 		token, err := tap.Lock(ctx, opts)
 		if err != nil {

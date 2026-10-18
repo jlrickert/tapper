@@ -11,6 +11,48 @@ import (
 // DefaultLockTTL is the default time-to-live for a cross-process lock.
 const DefaultLockTTL = 5 * time.Minute
 
+// DefaultNodeLockWait is how long a node lock acquisition waits for a held
+// lock when the caller names no bound. MaxNodeLockWait caps any requested
+// bound, so a caller never hangs for the lock's whole TTL.
+const (
+	DefaultNodeLockWait = 10 * time.Second
+	MaxNodeLockWait     = 60 * time.Second
+)
+
+// ClampNodeLockWait returns the node lock wait bound for a requested d: the
+// default when d is zero or less, and at most MaxNodeLockWait.
+func ClampNodeLockWait(d time.Duration) time.Duration {
+	switch {
+	case d <= 0:
+		return DefaultNodeLockWait
+	case d > MaxNodeLockWait:
+		return MaxNodeLockWait
+	default:
+		return d
+	}
+}
+
+type nodeLockWaitContextKey struct{}
+
+// WithNodeLockWait returns ctx carrying a bound on how long Keg.Lock waits for
+// a node lock another holder has. RemoteKeg sends it to the Hub as
+// ?wait=<seconds>; LocalKeg gives up acquiring after d. Either way a lock still
+// held when the bound passes fails with ErrLockTimeout. A d of zero or less
+// leaves the bound to the backend.
+func WithNodeLockWait(ctx context.Context, d time.Duration) context.Context {
+	return context.WithValue(ctx, nodeLockWaitContextKey{}, d)
+}
+
+// NodeLockWaitFrom returns the node lock wait bound carried by ctx, or zero
+// when the caller set none.
+func NodeLockWaitFrom(ctx context.Context) time.Duration {
+	d, _ := ctx.Value(nodeLockWaitContextKey{}).(time.Duration)
+	if d < 0 {
+		return 0
+	}
+	return d
+}
+
 // LockToken is an opaque string identifying lock ownership.
 type LockToken string
 
