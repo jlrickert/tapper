@@ -88,8 +88,11 @@ func (t *Tap) Orient(ctx context.Context, opts OrientOptions) (string, error) {
 	if strings.TrimSpace(flightName) == "" {
 		// No flight: the identity catalog is the listing.
 		available = catalog
+		authority = &OrientationAuthority{FullAccess: true, Agent: t.ActiveAgent()}
 		flightNote = "No flight is configured, so normal identity-authorized full access applies. Pin a least-privilege flight outside MCP and start a new connection to narrow it."
-		authority = &OrientationAuthority{FullAccess: true}
+		if authority.Agent != "" {
+			flightNote = "No flight is configured for this agent session."
+		}
 	} else if flight != nil {
 		available = ProjectOrientationKegs(flight, catalog)
 	}
@@ -98,7 +101,7 @@ func (t *Tap) Orient(ctx context.Context, opts OrientOptions) (string, error) {
 			return "", graphErr
 		}
 		rows := append([]*Flight{graph.Root}, graph.Available...)
-		authority = &OrientationAuthority{Root: graph.Root, Active: flight, Children: ImmediateFlightChildren(flight, rows)}
+		authority = &OrientationAuthority{Root: graph.Root, Active: flight, Children: ImmediateFlightChildren(flight, rows), Agent: t.ActiveAgent()}
 	}
 	payload, err := BuildOrientationPayload(flight, flightNote, t.ActiveLaunch(), available, warnings, authority)
 	if err != nil {
@@ -201,6 +204,15 @@ func (t *Tap) ActiveLaunch() string {
 	}
 }
 
+// ActiveAgent returns the Hub agent this process runs as (TAP_AGENT, set by
+// `tap launch` for a `tap mcp` session), or "" when a person is driving it.
+func (t *Tap) ActiveAgent() string {
+	if t == nil || t.Runtime == nil {
+		return ""
+	}
+	return strings.TrimSpace(t.Runtime.Env().Get("TAP_AGENT"))
+}
+
 func (t *Tap) resolveOrientFlight(ctx context.Context, name string) (*Flight, string, error) {
 	name = strings.TrimSpace(name)
 	if name == "" || t == nil || t.FlightService == nil {
@@ -245,6 +257,10 @@ type OrientationAuthority struct {
 	AvailableFlights []string
 	Revision         string
 	FullAccess       bool
+	// Agent names the Hub agent a `tap mcp` session runs as (TAP_AGENT), or
+	// "" when a person is. An agent session never claims identity authority:
+	// the agent's tool allowlist and the flight govern what it may do.
+	Agent string
 }
 
 func (t *Tap) identityKegCatalog(ctx context.Context) ([]OrientationKeg, []string, error) {
@@ -472,7 +488,9 @@ func BuildOrientationPayload(flight *Flight, flightNote, launch string, kegs []O
 		b.WriteString(flightNote + "\n\n")
 	}
 	if flight == nil {
-		if authority != nil && authority.FullAccess {
+		if authority != nil && authority.FullAccess && authority.Agent != "" {
+			fmt.Fprintf(&b, "No flight is active. This session runs as agent `%s`: the agent's tool allowlist governs which tools it may call, and the flight it runs under governs which KEGs it may reach. `keg_list` and `flight_list` list readable resources; `explore_kegs` and `explore_flights` search the public directory and confer no access. Give the agent a flight and start a new connection to narrow its KEG access.\n", orientationTableCell(authority.Agent))
+		} else if authority != nil && authority.FullAccess {
 			b.WriteString("No flight is active. This session runs under your full identity authority; nothing here is scoped. `keg_list` and `flight_list` list every readable resource; `explore_kegs` and `explore_flights` search the public directory and confer no access. An explicit flight selects only that flight for one call. Pin a least-privilege flight outside MCP and start a new connection to narrow the session.\n")
 		} else {
 			b.WriteString("The configured flight is unavailable: fail-closed recovery; KEG tools are locked. Repair the selection, then call `session_refresh` and `orient`. Use `flight_list`, `flight_read`, or `session_info` for recovery.\n")
@@ -484,7 +502,9 @@ func BuildOrientationPayload(flight *Flight, flightNote, launch string, kegs []O
 		b.WriteString(orientationTableCell(DescriptionPreview(flight.Description)) + "\n\n")
 	}
 	if authority != nil {
-		if authority.FullAccess {
+		if authority.Agent != "" {
+			fmt.Fprintf(&b, "Agent: `%s`. The agent's tool allowlist and this flight govern what this session may do.\n\n", orientationTableCell(authority.Agent))
+		} else if authority.FullAccess {
 			b.WriteString("Launch root: (none; identity-authorized full access)\n\n")
 		}
 		if authority.Root != nil {

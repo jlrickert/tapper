@@ -28,7 +28,9 @@ Members read a namespace's agents; owners and admins change them.
 
 The agent is the unit of authority: its tools say what it may do, and its
 flight (--flight @ns/+slug) is the memory it works in. An agent with no flight
-has no KEG access. Apps and tokens bind to an agent, not a flight.
+has no KEG access. An agent holds no credentials of its own: it reaches Hub
+only through 'tap mcp' (TAP_AGENT), which applies its tool allowlist and
+passes its flight to Hub.
 
 Tools are tool group ids (keg:read, keg:write, keg:admin, flight:read,
 flight:admin, agent:read, agent:admin, discover) and single MCP tool names. No

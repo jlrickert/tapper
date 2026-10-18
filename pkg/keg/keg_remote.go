@@ -1141,11 +1141,17 @@ func (li remoteLockInfo) toLockInfo() LockInfo {
 	return info
 }
 
-// Lock implements Keg via POST /nodes/{id}/lock. The hub owns the lease; no
-// client-side renewal goroutine runs.
+// Lock implements Keg via POST /nodes/{id}/lock, with ?wait= carrying the
+// WithNodeLockWait bound. The hub owns the lease; no client-side renewal
+// goroutine runs.
 func (k *RemoteKeg) Lock(ctx context.Context, id NodeId) (LockInfo, error) {
 	var info remoteLockInfo
 	path := fmt.Sprintf("/nodes/%d/lock", id.ID)
+	if wait := NodeLockWaitFrom(ctx); wait > 0 {
+		// The Hub takes whole seconds; round up so a sub-second bound still
+		// waits rather than asking for no wait at all.
+		path += "?wait=" + strconv.Itoa(int((wait+time.Second-1)/time.Second))
+	}
 	if err := k.postJSON(ctx, path, "Lock", struct{}{}, &info, http.StatusOK, http.StatusCreated); err != nil {
 		return LockInfo{}, err
 	}

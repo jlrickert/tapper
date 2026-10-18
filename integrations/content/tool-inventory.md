@@ -276,7 +276,7 @@ does not activate it or change the connection's pinned root.
 | `mcp__tapper__schema_validate` | Schema validation findings. |
 | `mcp__tapper__keg_info`, `mcp__tapper__node_stats` | KEG diagnostics and node statistics. |
 | `mcp__tapper__url` | The Hub web link for a KEG, note, flight, or namespace (`ref` as `42`, `@ns/keg/42`, `keg:~alias/42`, `+slug`, `@ns`), returned as `url`, `kind`, and canonical `ref`. Use it to hand the reader a clickable link; it never reads the note. |
-| `mcp__tapper__lock_acquire`, `mcp__tapper__lock_status`, `mcp__tapper__lock_release` | Advisory locks; acquisition returns a private token for release. node_edit does not accept a lock token. |
+| `mcp__tapper__lock_acquire`, `mcp__tapper__lock_status`, `mcp__tapper__lock_release` | Advisory locks; acquisition returns a private token for release. A held lock is waited for up to `wait_seconds` (default 10, max 60), then fails with `LOCK_TIMEOUT`. node_edit does not accept a lock token. |
 | `mcp__tapper__file_list`, `mcp__tapper__image_list` | Stored attachment names. |
 | `mcp__tapper__file_upload`, `mcp__tapper__image_upload` | Inline base64/data URI/embedded resource uploads; local stdio also accepts source_path. Link the returned stored filename. |
 | `mcp__tapper__image_download` | Image content block and metadata; local stdio optionally accepts dest_path. |

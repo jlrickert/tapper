@@ -231,6 +231,10 @@ func TestMCP_HubAgentWithoutMemoryCannotUseIdentityAuthority(t *testing.T) {
 	result, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: "session_refresh", Arguments: map[string]any{}})
 	require.NoError(t, err)
 	require.False(t, result.IsError, extractText(t, result))
-	require.Contains(t, callOrient(t, ctx, session), "Reader memory")
+	oriented := callOrient(t, ctx, session)
+	require.Contains(t, oriented, "Reader memory")
+	require.Contains(t, oriented, "Agent: `@local/reader`")
+	require.NotContains(t, oriented, "full identity authority")
+	require.NotContains(t, oriented, "identity-authorized full access")
 	require.Contains(t, listedToolNames(t, ctx, session), "node_read")
 }

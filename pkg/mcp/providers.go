@@ -320,7 +320,7 @@ func (p *localOrientationProvider) resolveUnpinned(ctx context.Context, selected
 		if err := FinalizeOrientation(orientation); err != nil {
 			return nil, err
 		}
-		authority := &tapper.OrientationAuthority{FullAccess: true, AvailableFlights: available, Revision: orientation.Revision}
+		authority := &tapper.OrientationAuthority{FullAccess: true, AvailableFlights: available, Revision: orientation.Revision, Agent: p.tap.ActiveAgent()}
 		payload, err := tapper.BuildOrientationPayload(nil, localUnpinnedInstructions(warnings), p.tap.ActiveLaunch(), authorized, warnings, authority)
 		if err != nil {
 			return nil, err
@@ -360,6 +360,7 @@ func (p *localOrientationProvider) resolveUnpinned(ctx context.Context, selected
 		Active: active, Path: orientation.Path, AvailableFlights: available, Revision: orientation.Revision,
 		Children:   tapper.ImmediateFlightChildren(active, catalog),
 		FullAccess: true,
+		Agent:      p.tap.ActiveAgent(),
 	}
 	payload, err := tapper.BuildOrientationPayload(active, "", p.tap.ActiveLaunch(), kegs, warnings, authority)
 	if err != nil {
@@ -444,6 +445,7 @@ func (p *localOrientationProvider) resolve(ctx context.Context, root *tapper.Fli
 		Root: root, Active: active, Path: path, AvailableFlights: orientation.AvailableFlights,
 		Children: tapper.ImmediateFlightChildren(active, graphFlights(graph)),
 		Revision: orientation.Revision,
+		Agent:    p.tap.ActiveAgent(),
 	}
 	discovery := kegs
 	if strings.TrimSpace(selected) == "" {
@@ -476,6 +478,7 @@ func (p *localOrientationProvider) Render(ctx context.Context, flight *tapper.Fl
 	}
 	authority := &tapper.OrientationAuthority{
 		Root: flight, Active: flight, Path: orientation.Path, Revision: orientation.Revision,
+		Agent: p.tap.ActiveAgent(),
 	}
 	payload, err := tapper.BuildOrientationPayload(flight, "", p.tap.ActiveLaunch(), kegs, warnings, authority)
 	if err != nil {

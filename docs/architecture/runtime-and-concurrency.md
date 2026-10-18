@@ -100,6 +100,15 @@ use of `time.Now()` that cannot be driven by a fake clock:
   does not read it (the in-memory test repository does not) waits as before,
   and its touched reads wait for the lock rather than skip the touch. Nothing
   may depend on the bound for correctness.
+- **Bounded node lock wait**: `keg.WithNodeLockWait(ctx, d)` bounds how long
+  `Keg.Lock` waits for a node lock another holder has, and
+  `keg.NodeLockWaitFrom(ctx)` reads it back. Unlike the keg write lock bound it
+  crosses the wire: `RemoteKeg.Lock` sends it as `?wait=<seconds>` on
+  `POST /nodes/{id}/lock`, and `LocalKeg.Lock` stops acquiring after it. A lock
+  still held when it passes fails with `ErrLockTimeout` (`LOCK_TIMEOUT`).
+  `Tap.Lock` always sets it through `keg.ClampNodeLockWait` from MCP
+  `lock_acquire`'s `wait_seconds` or `tap lock acquire --wait`: 10 seconds by
+  default, at most 60.
 - **Dex mutex**: `Dex.mu sync.RWMutex` guards index data; `LocalKeg.dexMu`
   guards lazy initialization.
 - **Node allocation**: Production allocation is a hub operation;
