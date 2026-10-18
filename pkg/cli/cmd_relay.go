@@ -87,10 +87,14 @@ permission settings. Who may call them is decided on Hub, where each server is
 enabled and shared on its own. A relay.mcp entry with the same name replaces a
 built-in, or removes it with enabled: false.
 
-The relay authenticates to each hub with that hub's token from 'tap auth login'.
-It runs in the foreground until interrupted, reconnecting if a connection drops.
-Disconnecting it from a hub's Account → Relay page stops it for that hub for
-good; the other hubs keep being served. Run it again to reconnect.
+The relay authenticates to each hub with that hub's token from 'tap auth login'
+and renews it on the live connection before the hub would expire it, so
+in-flight requests are not cut. It runs in the foreground until interrupted,
+reconnecting if a connection drops or the hub restarts. Disconnecting it from a
+hub's Account → Relay page stops it for that hub for good; the other hubs keep
+being served. Run it again to reconnect. A revoked sign-in (a sign-out, a
+revoked token) also stops it for that hub: run 'tap auth login', then start
+the relay again.
 
 Experimental and unstable: expect this to change.`,
 		Args:          cobra.NoArgs,

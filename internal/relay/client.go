@@ -1,11 +1,13 @@
 package relay
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
+	"math/rand/v2"
 	"net/http"
 	"net/url"
 	"slices"
@@ -31,6 +33,16 @@ var ErrIncompatible = errors.New("hub does not support this relay's protocol ver
 // Reconnecting would undo that, so it is permanent.
 var ErrDisconnected = errors.New("relay was disconnected from Hub by its owner; restart `tap relay` to reconnect")
 
+// ErrRevoked means Hub revoked the credential the relay runs under (a
+// sign-out, a revoked token). Reconnecting cannot fix it; the user has to
+// sign in again.
+var ErrRevoked = errors.New("hub revoked the relay's sign-in; run `tap auth login`, then restart `tap relay`")
+
+// errDialRejected is a dial Hub answered 401 or 403. It is ErrUnauthorized,
+// but runHub gives it one retry with a forced refresh first: the local view
+// of the token's expiry can be wrong (a skewed clock), and only Hub knows.
+var errDialRejected = fmt.Errorf("%w (hub refused the token)", ErrUnauthorized)
+
 const (
 	defaultCatalogInterval = time.Minute
 	defaultReadTimeout     = 90 * time.Second
@@ -47,6 +59,12 @@ type Hub struct {
 	// Token returns the current bearer token. It is called on every dial so a
 	// refreshed token is picked up after a reconnect.
 	Token func(ctx context.Context) (string, error)
+	// Refresh, when set, returns a freshly refreshed token whatever the
+	// cached one's recorded expiry says. The relay calls it to reauth a live
+	// session before Hub expires its token, to redial after
+	// credential_expired, and to retry a dial Hub refused. An error wrapping
+	// ErrUnauthorized means the sign-in is gone. Without it Token is used.
+	Refresh func(ctx context.Context) (string, error)
 }
 
 // Options configures a Client.
@@ -210,37 +228,77 @@ func (c *Client) advertisedLimit() int {
 
 // supportedProtocols are the relay protocol versions this client speaks,
 // offered in register. Hub picks the highest it also speaks.
-var supportedProtocols = []int{1, 2, 3}
+var supportedProtocols = []int{1, 2, 3, 4}
 
 // runHub keeps one hub connected until ctx ends or that hub rejects the
 // relay for good.
+//
+// Each connection-level end code has its own arm: disconnected (the owner)
+// and credential_revoked are final, credential_expired redials at once with
+// a forced refresh, going_away redials after a short random delay, and any
+// other code, one this relay does not know included, redials with backoff.
 func (c *Client) runHub(ctx context.Context, hub Hub) error {
 	backoff := minBackoff
+	// force makes the next dial present a freshly refreshed token;
+	// rejectRetries is how many refused dials still get a forced retry.
+	force, rejectRetries := false, 1
 	for {
 		started := time.Now()
-		registered, err := c.runOnce(ctx, hub)
+		registered, err := c.runOnce(ctx, hub, force)
+		force = false
 		if ctx.Err() != nil {
 			return nil
+		}
+		if registered {
+			backoff, rejectRetries = minBackoff, 1
+		}
+		if errors.Is(err, errDialRejected) && rejectRetries > 0 && hub.Refresh != nil {
+			// Hub refused a token this relay thought was good. One dial
+			// with a forced refresh tells a skewed clock from a lost
+			// sign-in; a second refusal is final.
+			rejectRetries--
+			force = true
+			c.logger.Info("hub refused the relay credential; retrying with a refreshed token", "hub", hub.URL)
+			continue
 		}
 		if errors.Is(err, ErrUnauthorized) || errors.Is(err, ErrIncompatible) {
 			return err
 		}
 		var hubErr *relaycontract.Error
-		if errors.As(err, &hubErr) && hubErr.Code == relaycontract.CodeDisconnected {
-			return ErrDisconnected
-		}
-		if errors.As(err, &hubErr) && hubErr.Code == relaycontract.CodeCredentialExpired &&
-			registered && time.Since(started) >= minBackoff {
-			// The token that opened the session expired. Redial at once:
-			// dial asks Token again, which refreshes it. A session that
-			// ends this way faster than minBackoff takes the normal backoff,
-			// so a hub that keeps answering it cannot make the relay spin.
-			c.logger.Info("relay credential expired; reconnecting with a fresh token", "hub", hub.URL)
-			backoff = minBackoff
-			continue
-		}
-		if registered {
-			backoff = minBackoff
+		if errors.As(err, &hubErr) {
+			switch hubErr.Code {
+			case relaycontract.CodeDisconnected:
+				return ErrDisconnected
+			case relaycontract.CodeCredentialRevoked:
+				return ErrRevoked
+			case relaycontract.CodeCredentialExpired:
+				// Whatever the local clock thinks, Hub says the token
+				// expired: the next dial refreshes it, and a refusal of that
+				// token still gets its one forced retry.
+				force, rejectRetries = true, 1
+				if registered && time.Since(started) >= minBackoff {
+					// A session that ends this way faster than minBackoff
+					// takes the normal backoff, so a hub that keeps answering
+					// it cannot make the relay spin.
+					c.logger.Info("relay credential expired; reconnecting with a fresh token", "hub", hub.URL)
+					backoff = minBackoff
+					continue
+				}
+			case relaycontract.CodeGoingAway:
+				if registered {
+					// Hub is restarting. Come back at once, spread over a
+					// moment so every relay does not arrive together, and
+					// without counting it against the backoff.
+					wait := rand.N(minBackoff)
+					c.logger.Info("hub is restarting; reconnecting", "hub", hub.URL, "after", wait)
+					select {
+					case <-ctx.Done():
+						return nil
+					case <-time.After(wait):
+					}
+					continue
+				}
+			}
 		}
 		c.logger.Warn("relay disconnected; reconnecting", "hub", hub.URL, "error", err, "backoff", backoff)
 		select {
@@ -269,12 +327,21 @@ func ConnectURL(hubURL string) (string, error) {
 	return u.String(), nil
 }
 
-func (c *Client) dial(ctx context.Context, hub Hub) (*websocket.Conn, error) {
+// hubToken asks hub for its bearer token: a forced refresh when force is set
+// and the hub can refresh, the current token otherwise.
+func hubToken(ctx context.Context, hub Hub, force bool) (string, error) {
+	if force && hub.Refresh != nil {
+		return hub.Refresh(ctx)
+	}
+	return hub.Token(ctx)
+}
+
+func (c *Client) dial(ctx context.Context, hub Hub, force bool) (*websocket.Conn, error) {
 	target, err := ConnectURL(hub.URL)
 	if err != nil {
 		return nil, err
 	}
-	token, err := hub.Token(ctx)
+	token, err := hubToken(ctx, hub, force)
 	if err != nil {
 		return nil, err
 	}
@@ -292,7 +359,7 @@ func (c *Client) dial(ctx context.Context, hub Hub) (*websocket.Conn, error) {
 		if resp != nil {
 			switch resp.StatusCode {
 			case http.StatusUnauthorized, http.StatusForbidden:
-				return nil, ErrUnauthorized
+				return nil, errDialRejected
 			case http.StatusBadRequest:
 				if resp.Header.Get(apicontract.VersionHeader) == "" {
 					return nil, fmt.Errorf("%w: %v", ErrIncompatible, err)
@@ -362,6 +429,7 @@ func (c *Client) listModels(ctx context.Context) []relaycontract.Model {
 type session struct {
 	c    *Client
 	conn *websocket.Conn
+	hub  Hub
 
 	// protocol is the version Hub chose in registered. Frames newer than it
 	// must not be sent on this session.
@@ -377,25 +445,40 @@ type session struct {
 	offered  map[string]struct{} // provider + "/" + model
 	inflight map[string]context.CancelFunc
 
+	// reauthID is the id of the reauth awaiting Hub's answer, which the
+	// read loop hands to reauthReply.
+	reauthID    string
+	reauthReply chan reauthResult
+	reauthSeq   int
+
 	wg sync.WaitGroup
+}
+
+// reauthResult is Hub's answer to a reauth: the new lifetime, or rejected.
+type reauthResult struct {
+	expiresIn int
+	at        time.Time
+	rejected  string
 }
 
 func modelKey(provider, model string) string { return provider + "/" + model }
 
-func (c *Client) runOnce(ctx context.Context, hub Hub) (registered bool, err error) {
+func (c *Client) runOnce(ctx context.Context, hub Hub, force bool) (registered bool, err error) {
 	c.mu.Lock()
 	models := c.models
 	c.mu.Unlock()
-	conn, err := c.dial(ctx, hub)
+	conn, err := c.dial(ctx, hub, force)
 	if err != nil {
 		return false, err
 	}
 	defer conn.CloseNow()
 
 	s := &session{
-		c:        c,
-		conn:     conn,
-		inflight: make(map[string]context.CancelFunc),
+		c:           c,
+		conn:        conn,
+		hub:         hub,
+		inflight:    make(map[string]context.CancelFunc),
+		reauthReply: make(chan reauthResult, 1),
 	}
 	s.setOffered(models)
 
@@ -410,6 +493,9 @@ func (c *Client) runOnce(ctx context.Context, hub Hub) (registered bool, err err
 	if err != nil {
 		return false, err
 	}
+	// The credential's lifetime counts from here, on the monotonic clock.
+	receivedAt := time.Now()
+	var expiresIn int
 	switch env.Type {
 	case relaycontract.TypeRegistered:
 		var reg relaycontract.Registered
@@ -420,6 +506,9 @@ func (c *Client) runOnce(ctx context.Context, hub Hub) (registered bool, err err
 			return false, fmt.Errorf("%w: hub chose protocol %d", ErrIncompatible, reg.Protocol)
 		}
 		s.protocol = reg.Protocol
+		if reg.Protocol >= 4 {
+			expiresIn = reg.CredentialExpiresIn
+		}
 		c.logger.Info("relay registered", "hub", hub.URL, "name", c.opts.Name, "protocol", reg.Protocol, "models", len(reg.Models))
 		if c.opts.OnRegistered != nil {
 			c.opts.OnRegistered(hub.URL, reg)
@@ -462,6 +551,13 @@ func (c *Client) runOnce(ctx context.Context, hub Hub) (registered bool, err err
 		s.sendTools(sessCtx, toolsVersion, tools)
 	} else if len(c.toolServers) > 0 {
 		c.logger.Warn("hub does not support relayed tools; serving models only", "hub", hub.URL, "protocol", s.protocol)
+	}
+	if expiresIn > 0 {
+		s.wg.Add(1)
+		go func() {
+			defer s.wg.Done()
+			s.keepCredential(sessCtx, receivedAt, expiresIn)
+		}()
 	}
 	return true, s.readLoop(sessCtx)
 }
@@ -532,14 +628,136 @@ func (s *session) readLoop(ctx context.Context) error {
 			if cancel != nil {
 				cancel()
 			}
+		case relaycontract.TypeReauthed:
+			var r relaycontract.Reauthed
+			if env.Decode(&r) == nil {
+				s.deliverReauth(env.ID, reauthResult{expiresIn: r.CredentialExpiresIn, at: time.Now()})
+			}
 		case relaycontract.TypeError:
 			var e relaycontract.Error
-			if env.Decode(&e) == nil && env.ID == "" {
+			if env.Decode(&e) != nil {
+				continue
+			}
+			if e.Code == relaycontract.CodeReauthRejected {
+				// Not an end: the old credential stands until it expires.
+				s.deliverReauth(env.ID, reauthResult{rejected: cmp.Or(e.Message, e.Code)})
+				continue
+			}
+			if env.ID == "" {
 				return &e
 			}
 		default:
 			s.c.logger.Debug("relay ignoring frame", "type", env.Type)
 		}
+	}
+}
+
+// refreshAt is the share of a credential's lifetime after which the relay
+// reauths, leaving the rest for a refresh that has to be retried.
+const refreshAt = 0.8
+
+// reauthTimeout bounds the wait for Hub's answer to one reauth.
+const reauthTimeout = 30 * time.Second
+
+// keepCredential reauths the session before Hub expires its credential:
+// at refreshAt of each lifetime, timed on the monotonic clock from the frame
+// that announced it, so a skewed wall clock on either side cannot move it.
+// A failed or rejected reauth is retried halfway to the expiry while that is
+// still a second or more away; after that the session ends with
+// credential_expired and the relay redials with a fresh token.
+func (s *session) keepCredential(ctx context.Context, from time.Time, expiresIn int) {
+	lifetime := time.Duration(expiresIn) * time.Second
+	deadline := from.Add(lifetime)
+	next := from.Add(time.Duration(float64(lifetime) * refreshAt))
+	for {
+		timer := time.NewTimer(time.Until(next))
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return
+		case <-timer.C:
+		}
+		res, err := s.reauth(ctx)
+		if ctx.Err() != nil {
+			return
+		}
+		if err == nil && res.rejected == "" {
+			if res.expiresIn <= 0 {
+				// Hub no longer expires this session.
+				return
+			}
+			lifetime = time.Duration(res.expiresIn) * time.Second
+			deadline = res.at.Add(lifetime)
+			next = res.at.Add(time.Duration(float64(lifetime) * refreshAt))
+			s.c.logger.Debug("relay credential renewed", "hub", s.hub.URL, "expiresIn", res.expiresIn)
+			continue
+		}
+		if err == nil {
+			err = errors.New(res.rejected)
+		}
+		wait := time.Until(deadline) / 2
+		s.c.logger.Warn("relay could not renew its credential", "hub", s.hub.URL, "error", err, "retryIn", max(wait, 0))
+		if wait < minBackoff {
+			return
+		}
+		next = time.Now().Add(wait)
+	}
+}
+
+// reauth presents a freshly refreshed token and waits for Hub's answer.
+func (s *session) reauth(ctx context.Context) (reauthResult, error) {
+	token, err := hubToken(ctx, s.hub, true)
+	if err != nil {
+		return reauthResult{}, err
+	}
+	if token == "" {
+		return reauthResult{}, ErrUnauthorized
+	}
+	// Drop an answer that arrived after an earlier reauth gave up on it.
+	select {
+	case <-s.reauthReply:
+	default:
+	}
+	s.mu.Lock()
+	s.reauthSeq++
+	id := fmt.Sprintf("reauth-%d", s.reauthSeq)
+	s.reauthID = id
+	s.mu.Unlock()
+	defer func() {
+		s.mu.Lock()
+		s.reauthID = ""
+		s.mu.Unlock()
+	}()
+	if err := s.send(ctx, relaycontract.TypeReauth, id, relaycontract.Reauth{Token: token}); err != nil {
+		return reauthResult{}, err
+	}
+	timer := time.NewTimer(reauthTimeout)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return reauthResult{}, ctx.Err()
+	case <-timer.C:
+		return reauthResult{}, errors.New("hub did not answer the reauth")
+	case res := <-s.reauthReply:
+		return res, nil
+	}
+}
+
+// deliverReauth hands Hub's answer to the reauth awaiting it. An answer for
+// no pending reauth is dropped. Hub echoes the reauth's id; an answer with
+// no id is taken for the pending one.
+func (s *session) deliverReauth(id string, res reauthResult) {
+	s.mu.Lock()
+	pending := s.reauthID
+	if pending == "" || (id != "" && id != pending) {
+		s.mu.Unlock()
+		return
+	}
+	s.reauthID = ""
+	s.mu.Unlock()
+	select {
+	case s.reauthReply <- res:
+	default:
 	}
 }
 

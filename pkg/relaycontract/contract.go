@@ -18,8 +18,10 @@ import (
 // ProtocolVersion is the newest relay protocol this package speaks. It is
 // negotiated once, in register and registered, and gates which frames a
 // session may carry: version 2 adds tools and call, version 3 adds the
-// attribution fields of infer.
-const ProtocolVersion = 3
+// attribution fields of infer, version 4 adds in-band reauthentication
+// (registered's credentialExpiresIn, reauth and reauthed) and the
+// credential_revoked and going_away end codes.
+const ProtocolVersion = 4
 
 // EnvelopeVersion is the frame shape every envelope carries in V. It is
 // separate from ProtocolVersion because a peer checks V before it knows what
@@ -49,6 +51,16 @@ const (
 	// like an infer: one chunk holding the CallToolResult, then done, or an
 	// error. Cancel stops it.
 	TypeCall = "call"
+	// TypeReauth presents a refreshed access token on a live session, so
+	// the session outlives the token that opened it. The relay sends it,
+	// with an id of its choosing, only on a protocol 4 session whose
+	// registered frame advertised credentialExpiresIn. Hub answers with
+	// reauthed carrying the same id, or with an error of that id and code
+	// CodeReauthRejected; either way the session goes on.
+	TypeReauth = "reauth"
+	// TypeReauthed accepts a reauth: the session now runs under the new
+	// token, which expires credentialExpiresIn seconds from this frame.
+	TypeReauthed = "reauthed"
 )
 
 // APIOpenAIChatCompletions is the chat inference API. The request body is an
@@ -108,14 +120,29 @@ const (
 	CodeInternal            = "internal"
 	// CodeDisconnected ends a session because the relay's owner disconnected
 	// it from Hub. It is connection-level (no id) and the relay must not
-	// reconnect: the owner asked for it to go away.
+	// reconnect: the owner asked for it to go away. From protocol 4 it means
+	// only that; a revoked credential ends with CodeCredentialRevoked.
 	CodeDisconnected = "disconnected"
 	// CodeCredentialExpired ends a session because the access token that
-	// opened it expired. It is connection-level (no id) and, unlike
-	// CodeDisconnected, retryable: the relay should reconnect at once with a
-	// refreshed token. Hub closes the WebSocket with status 1013 (try again
-	// later) after sending it.
+	// opened it (or the last reauth) expired. It is connection-level (no id)
+	// and, unlike CodeDisconnected, retryable: the relay should reconnect at
+	// once with a refreshed token. Hub closes the WebSocket with status 1013
+	// (try again later) after sending it.
 	CodeCredentialExpired = "credential_expired"
+	// CodeCredentialRevoked ends a session because the credential behind it
+	// was revoked: a sign-out, a revoked token, or a removed account. It is
+	// connection-level and final; only a new sign-in restores the relay.
+	// Hub sends it only on protocol 4 sessions.
+	CodeCredentialRevoked = "credential_revoked"
+	// CodeGoingAway ends a session because Hub is shutting down or
+	// restarting. It is connection-level and retryable at once: the relay
+	// reconnects after a short random delay, without a backoff penalty.
+	// Hub sends it only on protocol 4 sessions.
+	CodeGoingAway = "going_away"
+	// CodeReauthRejected answers a reauth Hub refused (the token is not
+	// valid, or not for the same account). It carries the reauth's id and
+	// does not end the session: the old credential stands until it expires.
+	CodeReauthRejected = "reauth_rejected"
 	// CodeUnknownTool: the call names a server or tool the relay does not
 	// currently offer.
 	CodeUnknownTool = "unknown_tool"
@@ -227,9 +254,52 @@ type Model struct {
 }
 
 // Registered is Hub's answer to Register.
+//
+// CredentialExpiresIn is how many seconds after this frame the access token
+// that opened the session expires. Zero means Hub does not end the session
+// at a token expiry (the token does not expire, or Hub predates protocol 4).
+// Hub sends it only on protocol 4 sessions, since older relays decode
+// registered strictly. The relay times its reauth from when it read this
+// frame, never from its own wall clock, so clock skew cannot move it.
 type Registered struct {
-	Protocol int              `json:"protocol"`
-	Models   []CatalogBinding `json:"models"`
+	Protocol            int              `json:"protocol"`
+	Models              []CatalogBinding `json:"models"`
+	CredentialExpiresIn int              `json:"credentialExpiresIn,omitempty"`
+}
+
+// Reauth is the payload of a reauth frame.
+type Reauth struct {
+	Token string `json:"token"`
+}
+
+// Reauthed is the payload of a reauthed frame. CredentialExpiresIn counts
+// seconds from this frame, like Registered's.
+type Reauthed struct {
+	CredentialExpiresIn int `json:"credentialExpiresIn"`
+}
+
+// Validate checks the reauth frame.
+func (r *Reauth) Validate() error {
+	if r.Token == "" {
+		return errors.New("token is empty")
+	}
+	return nil
+}
+
+// Validate checks the reauthed frame.
+func (r *Reauthed) Validate() error {
+	if r.CredentialExpiresIn < 0 {
+		return errors.New("credentialExpiresIn must not be negative")
+	}
+	return nil
+}
+
+// Validate checks the registered frame.
+func (r *Registered) Validate() error {
+	if r.CredentialExpiresIn < 0 {
+		return errors.New("credentialExpiresIn must not be negative")
+	}
+	return nil
 }
 
 // CatalogBinding maps a relay's model to the catalog id Hub assigned it.
