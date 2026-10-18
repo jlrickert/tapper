@@ -58,15 +58,24 @@ func newRepeatFailureTracker() *repeatFailureTracker {
 
 // middleware must wrap publicResponseMiddleware, so that it sees SDK input
 // validation failures in their public form, with their code already set.
+//
+// The digest is taken before the call runs. Inner layers rewrite the
+// arguments in place (the flight gate strips `flight`, legacy names are
+// renamed), and a digest of the rewritten form would count calls under
+// different flights as one repeated call.
 func (r *repeatFailureTracker) middleware(next sdkmcp.MethodHandler) sdkmcp.MethodHandler {
 	return func(ctx context.Context, method string, req sdkmcp.Request) (sdkmcp.Result, error) {
-		result, err := next(ctx, method, req)
-		if err != nil || method != "tools/call" {
-			return result, err
+		if method != "tools/call" {
+			return next(ctx, method, req)
 		}
 		params, _ := req.GetParams().(*sdkmcp.CallToolParamsRaw)
 		if params == nil || IsRelayedToolName(params.Name) {
-			return result, nil
+			return next(ctx, method, req)
+		}
+		tool, digest := params.Name, canonicalArgumentsDigest(params.Arguments)
+		result, err := next(ctx, method, req)
+		if err != nil {
+			return result, err
 		}
 		call, ok := result.(*sdkmcp.CallToolResult)
 		if !ok || call == nil {
@@ -76,7 +85,7 @@ func (r *repeatFailureTracker) middleware(next sdkmcp.MethodHandler) sdkmcp.Meth
 		if sess, ok := req.GetSession().(*sdkmcp.ServerSession); ok && sess != nil {
 			sessionID = sess.ID()
 		}
-		count := r.record(sessionID, params.Name, canonicalArgumentsDigest(params.Arguments), call.IsError)
+		count := r.record(sessionID, tool, digest, call.IsError)
 		if count < repeatFailureThreshold {
 			return result, nil
 		}

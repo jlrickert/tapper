@@ -200,7 +200,7 @@ func (t *Tap) List(ctx context.Context, opts ListOptions) ([]string, error) {
 	})
 	switch {
 	case err == nil:
-	case strings.TrimSpace(opts.Query) != "":
+	case strings.TrimSpace(opts.Query) != "" && errors.Is(err, keg.ErrInvalid):
 		return []string{}, fmt.Errorf("invalid query expression: %w", err)
 	default:
 		return []string{}, fmt.Errorf("unable to list keg: %w", err)
@@ -361,7 +361,7 @@ func (t *Tap) resolveAndLookupLinks(ctx context.Context, opts relatedListOptions
 			return []string{}, err
 		}
 		if errors.Is(err, keg.ErrNotExist) {
-			return []string{}, fmt.Errorf("node %s not found in %s", ids[0], describeKeg(k))
+			return []string{}, fmt.Errorf("node %s not found in %s: %w", ids[0], describeKeg(k), keg.ErrNotExist)
 		}
 		return []string{}, err
 	}
@@ -424,7 +424,10 @@ func (t *Tap) Grep(ctx context.Context, opts GrepOptions) ([]string, error) {
 		Limit:      opts.Limit,
 	})
 	if err != nil {
-		return []string{}, fmt.Errorf("invalid query regex %q: %w", opts.Query, err)
+		if errors.Is(err, keg.ErrInvalid) {
+			return []string{}, fmt.Errorf("invalid query regex %q: %w", opts.Query, err)
+		}
+		return []string{}, fmt.Errorf("unable to search keg: %w", err)
 	}
 	if formatted {
 		rows := make([]keg.ListViewRow, len(kegMatches))
@@ -463,7 +466,7 @@ func (t *Tap) Tags(ctx context.Context, opts TagsOptions) ([]string, error) {
 		Limit:  opts.Limit,
 	})
 	if err != nil {
-		if queryExpr != "" {
+		if queryExpr != "" && errors.Is(err, keg.ErrInvalid) {
 			return []string{}, fmt.Errorf("invalid query expression: %w", err)
 		}
 		return []string{}, fmt.Errorf("unable to list entries: %w", err)

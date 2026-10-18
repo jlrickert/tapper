@@ -85,7 +85,7 @@ func (t *Tap) EditBatch(ctx context.Context, opts BatchEditOptions) ([]keg.NodeU
 func batchEditUpdate(ctx context.Context, i int, kegAlias string, item BatchEditItem) (keg.NodeUpdateOptions, error) {
 	id, err := keg.ParseNode(item.NodeID)
 	if err != nil {
-		return keg.NodeUpdateOptions{}, fmt.Errorf("edit %d node %q: %w", i, item.NodeID, err)
+		return keg.NodeUpdateOptions{}, fmt.Errorf("edit %d node %q: %w: %w", i, item.NodeID, err, keg.ErrInvalid)
 	}
 	if !item.HasContent && !item.HasContentPatch && !item.HasMeta {
 		return keg.NodeUpdateOptions{}, &EmptyEditError{Item: i, NodeID: item.NodeID}
@@ -155,7 +155,7 @@ func (t *Tap) NodeSnapshotBatch(ctx context.Context, opts BatchSnapshotOptions) 
 	for i, item := range opts.Nodes {
 		id, err := keg.ParseNode(item.NodeID)
 		if err != nil {
-			return nil, fmt.Errorf("snapshot %d node %q: %w", i, item.NodeID, err)
+			return nil, fmt.Errorf("snapshot %d node %q: %w: %w", i, item.NodeID, err, keg.ErrInvalid)
 		}
 		nodes[i] = keg.NodeSnapshotRequest{ID: *id, Message: item.Message}
 	}
@@ -208,7 +208,7 @@ func (t *Tap) Merge(ctx context.Context, opts MergeOptions) (keg.MergeNodesResul
 	ctx = keg.WithDefaultValidationActor(ctx, keg.ValidationActorHuman)
 	source, err := keg.ParseNode(opts.SourceID)
 	if err != nil {
-		return keg.MergeNodesResult{}, fmt.Errorf("merge source %q: %w", opts.SourceID, err)
+		return keg.MergeNodesResult{}, fmt.Errorf("merge source %q: %w: %w", opts.SourceID, err, keg.ErrInvalid)
 	}
 	if !opts.Target.HasContent && !opts.Target.HasContentPatch {
 		return keg.MergeNodesResult{}, fmt.Errorf("merge into %q: content or patch is required, since a merge rewrites the target: %w", opts.Target.NodeID, keg.ErrInvalid)

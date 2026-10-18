@@ -343,14 +343,14 @@ func registerKegSettings(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaul
 			minimal = *in.Minimal
 		}
 		if in.Keg != "" && in.Kegs != nil {
-			return errorResult(fmt.Errorf("keg and kegs are mutually exclusive")), nil, nil
+			return errorResult(fmt.Errorf("keg and kegs are mutually exclusive: %w", keg.ErrInvalid)), nil, nil
 		}
 		if in.Kegs != nil {
 			if len(in.Kegs) == 0 || len(in.Kegs) > 100 {
-				return errorResult(fmt.Errorf("kegs must contain 1 to 100 canonical references")), nil, nil
+				return errorResult(fmt.Errorf("kegs must contain 1 to 100 canonical references: %w", keg.ErrInvalid)), nil, nil
 			}
 			if !minimal && len(in.Kegs) != 1 {
-				return errorResult(fmt.Errorf("minimal=false requires exactly one keg")), nil, nil
+				return errorResult(fmt.Errorf("minimal=false requires exactly one keg: %w", keg.ErrInvalid)), nil, nil
 			}
 		}
 		target := in.Keg

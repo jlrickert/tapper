@@ -27,12 +27,14 @@ type QueryExpr struct {
 }
 
 // ParseQueryExpression compiles raw into a QueryExpr that can be evaluated with
-// EvaluateQueryExpression. Returns an error if raw is empty or syntactically
-// invalid.
+// EvaluateQueryExpression. Returns an error wrapping ErrInvalid if raw is empty
+// or syntactically invalid: the expression is the caller's input, so a parse
+// failure is theirs to fix. Callers parsing a stored expression rather than a
+// caller's own must reclassify (see WithSettings).
 func ParseQueryExpression(raw string) (QueryExpr, error) {
 	node, err := parseQueryExpression(raw)
 	if err != nil {
-		return QueryExpr{}, err
+		return QueryExpr{}, fmt.Errorf("%w: %w", err, ErrInvalid)
 	}
 	return QueryExpr{root: node}, nil
 }

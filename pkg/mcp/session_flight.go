@@ -18,7 +18,16 @@ import (
 	"github.com/jlrickert/tapper/pkg/tapper"
 )
 
-var errMCPFlightRequired = errors.New("the explicitly configured flight could not be activated; KEG tools are locked. Inspect flights with `flight_list` and `flight_read`, repair that exact selection outside MCP, then call `session_refresh` and `orient`")
+// errMCPFlightRequired refuses a KEG tool while the session holds no flight
+// authority. It wraps the denied sentinel because nothing was performed and
+// the session's authority does not grant the call; orientationFailureResult
+// gives it its own action, since naming another flight cannot help here.
+var errMCPFlightRequired = fmt.Errorf("the explicitly configured flight could not be activated; KEG tools are locked. Inspect flights with `flight_list` and `flight_read`, repair that exact selection outside MCP, then call `session_refresh` and `orient`: %w", keg.ErrOrientationDenied)
+
+// flightRequiredAction is errMCPFlightRequired's next step. It differs from a
+// denial's: the session has no active flight at all, so passing another one
+// per call is refused the same way until the selection is repaired.
+const flightRequiredAction = "KEG tools are locked because this session's configured flight could not be activated. Nothing was written. Passing a different flight will not unlock them: call `flight_list` to see what exists, ask the user to correct the selected flight outside MCP, then call `session_refresh` and `orient`."
 
 // ErrOrientationStale is returned without performing the requested operation.
 var ErrOrientationStale = fmt.Errorf("ORIENTATION_STALE: authority changed between per-call resolution and dispatch; retry the operation yourself after reviewing current authority. Mutations are never replayed automatically: %w", keg.ErrOrientationStale)
@@ -712,7 +721,9 @@ func (g *sessionFlightGate) middleware(next sdkmcp.MethodHandler) sdkmcp.MethodH
 					return errorResult(validationErr), nil
 				}
 				if present {
-					return errorResult(errors.New(`validating "arguments": validating root: unexpected additional properties ["all"]`)), nil
+					// The SDK's own input-schema refusal, which the public
+					// response reports as INVALID_ARGUMENT.
+					return &sdkmcp.CallToolResult{IsError: true, Content: []sdkmcp.Content{&sdkmcp.TextContent{Text: `validating "arguments": validating root: unexpected additional properties ["all"]`}}}, nil
 				}
 			}
 			selected, err := extractFlightArgument(params)
@@ -729,7 +740,8 @@ func (g *sessionFlightGate) middleware(next sdkmcp.MethodHandler) sdkmcp.MethodH
 						return errorResult(current.initializationError), nil
 					}
 					if selected != "" {
-						return errorResult(errors.New("cannot select a flight before this connection has an active pinned root; call `session_refresh`, then `orient`")), nil
+						return orientationFailureResultWithAction(fmt.Errorf("%w: cannot select a flight before this connection has an active pinned root", keg.ErrOrientationStale),
+							"Nothing was done. Call `session_refresh`, then `orient`; a flight can be selected once the connection has an active pinned root."), nil
 					}
 					callOrientation = current
 				} else {
@@ -740,7 +752,7 @@ func (g *sessionFlightGate) middleware(next sdkmcp.MethodHandler) sdkmcp.MethodH
 				// A denial on a call that named no flight is reported in terms
 				// of what the caller actually did, not in terms of a "requested
 				// flight" they never requested.
-				if selected == "" && errors.Is(err, keg.ErrOrientationDenied) {
+				if selected == "" && errors.Is(err, keg.ErrOrientationDenied) && !errors.Is(err, errMCPFlightRequired) {
 					return orientationFailureResultWithAction(err, bareCallDeniedAction), nil
 				}
 				return orientationFailureResult(err), nil
@@ -801,7 +813,7 @@ func toolArgumentPresent(params *sdkmcp.CallToolParamsRaw, name string) (bool, e
 	}
 	var object map[string]json.RawMessage
 	if err := json.Unmarshal(params.Arguments, &object); err != nil {
-		return false, fmt.Errorf("tool arguments must be an object: %w", err)
+		return false, fmt.Errorf("tool arguments must be an object: %w: %w", keg.ErrInvalid, err)
 	}
 	_, ok := object[name]
 	return ok, nil
@@ -888,6 +900,9 @@ func orientationFailureResultWithAction(err error, action string) *sdkmcp.CallTo
 	override := action
 	action = "Authority changed between resolution and dispatch. Nothing was written. Review current authority with `orient`, then reissue the call yourself — mutations are never replayed automatically."
 	switch {
+	case errors.Is(err, errMCPFlightRequired):
+		code = "ORIENTATION_DENIED"
+		action = flightRequiredAction
 	case errors.Is(err, keg.ErrOrientationRootUnavailable):
 		code = "ORIENTATION_ROOT_UNAVAILABLE"
 		action = "This session's pinned root flight is gone and cannot be replaced from inside MCP. Ask the user to repair or repin the flight outside MCP and start a new connection; `session_refresh` cannot recover this."

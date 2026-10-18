@@ -62,7 +62,7 @@ func (t *Tap) Cat(ctx context.Context, opts CatOptions) (string, error) {
 	nodeIDs := opts.NodeIDs
 	if opts.Query != "" {
 		if len(nodeIDs) > 0 {
-			return "", fmt.Errorf("cannot specify both node IDs and --query")
+			return "", fmt.Errorf("cannot specify both node IDs and --query: %w", keg.ErrInvalid)
 		}
 	}
 
@@ -149,7 +149,7 @@ func FormatCatViews(ctx context.Context, views []keg.NodeView, opts CatOptions) 
 func (t *Tap) CatViews(ctx context.Context, opts CatOptions) ([]keg.NodeView, error) {
 	nodeIDs := opts.NodeIDs
 	if opts.Query != "" && len(nodeIDs) > 0 {
-		return nil, fmt.Errorf("cannot specify both node IDs and --query")
+		return nil, fmt.Errorf("cannot specify both node IDs and --query: %w", keg.ErrInvalid)
 	}
 	if len(nodeIDs) == 0 && opts.Query == "" {
 		return nil, nil

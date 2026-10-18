@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"strings"
 	"time"
 
@@ -374,6 +375,25 @@ func errorResult(err error) *sdkmcp.CallToolResult {
 			IsError: true,
 		}
 	}
+	var limited *keg.RateLimitError
+	if errors.As(err, &limited) {
+		// A rate limit refuses the request before it runs, so the outcome is
+		// known; the wait is the Hub's Retry-After when it sent one.
+		action := "Too many requests; nothing was done. Wait retryAfterSeconds, when given, then retry the same call."
+		structured := map[string]any{
+			"code":               keg.RemoteCodeRateLimited,
+			"operationPerformed": false,
+			"action":             action,
+		}
+		if limited.RetryAfter > 0 {
+			structured["retryAfterSeconds"] = int(math.Ceil(limited.RetryAfter.Seconds()))
+		}
+		return &sdkmcp.CallToolResult{
+			Content:           []sdkmcp.Content{&sdkmcp.TextContent{Text: err.Error() + "\n\n" + action}},
+			StructuredContent: structured,
+			IsError:           true,
+		}
+	}
 	code, _ := keg.RemoteErrorCode(err)
 	action, performed := errorGuidance(code)
 	return &sdkmcp.CallToolResult{
@@ -423,6 +443,10 @@ func errorGuidance(code string) (action string, operationPerformed any) {
 		return "The target was not found or is not readable. Confirm its identity with `node_list`/`node_search`/`node_grep` for nodes, `schema_list` for schemas, `flight_list` for flights, or `keg_list` for KEGs before retrying.", false
 	case keg.RemoteCodeExist, keg.RemoteCodeDestExists:
 		return "Something already occupies that id or name. Choose another, or edit the existing node instead.", false
+	case keg.RemoteCodeConflict:
+		// A conflict is a refusal against current state, such as a flight or
+		// agent name already taken, decided before anything is written.
+		return "The request conflicts with current state. Read what exists (`flight_list`, `agent_list`, or the matching read tool), then choose another name or edit the existing one; do not repeat the same call.", false
 	case keg.RemoteCodeSchemaInvalid:
 		return "If the error says a schema selection is required, pass `schema` with one of the types it lists (`schema_list` lists them) and retry; type in `meta` alone does not count. Otherwise the node does not satisfy its schema: read the issues in this error, fix `content` or `meta`, and retry. `schema_read` shows the schema's requirements.", false
 	case keg.RemoteCodeInvalid, keg.RemoteCodeBadRequest:
@@ -437,6 +461,10 @@ func errorGuidance(code string) (action string, operationPerformed any) {
 		return "The lock could not be acquired in time, usually because another write is in flight. Retry shortly; nothing was written.", false
 	case keg.RemoteCodeNotSupported:
 		return "This backend does not implement the operation. Do not retry unchanged; use a supported tool from tools/list or have the operator update the backend.", false
+	case keg.RemoteCodeKegRestoring:
+		return "The KEG is being restored from an archive and refuses writes until the restore ends. Reads still work; retry the write after the restore finishes.", false
+	case keg.RemoteCodeArchiveTooLarge:
+		return "The archive exceeds a size or count limit named in the error. Archive fewer nodes or smaller files and retry; the KEG was not changed.", false
 	case keg.RemoteCodeKegVersionUnsupported:
 		return "The KEG version does not offer the operation, or the Hub does not offer the requested KEG version. Do not retry unchanged: for keg_create, omit kegv to create a KEGv1 KEG; for node tools, keg_list labels KEGv2 preview KEGs, so pick a KEGv1 KEG.", false
 	default:

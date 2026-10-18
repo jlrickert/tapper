@@ -36,6 +36,13 @@ Branching, commits, versioning, and error handling.
 - Typed errors: `BackendError` (with Retryable), `RateLimitError`,
   `TransientError`.
 - Check with `errors.Is()` for sentinels, `errors.As()` for typed errors.
+- A sentinel decides the wire code and the MCP failure result (see
+  [Failure Results](../ai-coding-agents/mcp-setup.md#failure-results)); an
+  unwrapped error is `INTERNAL` with an unknown outcome. Wrap a failure the
+  caller can fix with `keg.ErrInvalid` (`fmt.Errorf("...: %w", keg.ErrInvalid)`)
+  where the caller's input is parsed. When the same parser also reads stored
+  data, the stored-data caller drops that classification (as the settings
+  index loader does), because a bad stored value is not the caller's mistake.
 
 ## Read Next
 

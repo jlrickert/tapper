@@ -103,7 +103,7 @@ func (t *Tap) resolveSnapshotNode(ctx context.Context, targetOpts KegTargetOptio
 func parseNodeID(raw string) (keg.NodeId, error) {
 	node, err := keg.ParseNode(raw)
 	if err != nil {
-		return keg.NodeId{}, fmt.Errorf("invalid node ID %q: %w", raw, err)
+		return keg.NodeId{}, fmt.Errorf("invalid node ID %q: %w: %w", raw, err, keg.ErrInvalid)
 	}
 	if node == nil {
 		return keg.NodeId{}, fmt.Errorf("invalid node ID %q: %w", raw, keg.ErrInvalid)

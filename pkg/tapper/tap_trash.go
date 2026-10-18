@@ -31,7 +31,7 @@ func (t *Tap) TrashRestore(ctx context.Context, opts TrashRestoreOptions) error 
 	for i, raw := range opts.NodeIDs {
 		id, err := keg.ParseNode(raw)
 		if err != nil {
-			return fmt.Errorf("restore %d node %q: %w", i, raw, err)
+			return fmt.Errorf("restore %d node %q: %w: %w", i, raw, err, keg.ErrInvalid)
 		}
 		ids[i] = *id
 	}
