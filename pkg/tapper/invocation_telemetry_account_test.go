@@ -100,7 +100,7 @@ func TestAuthRefreshKeepsAccountKeyMintedMeanwhile(t *testing.T) {
 	expired := storedEntryForTest(t, fx, tap, hubURL)
 	expired.TokenEndpoint = tokens.URL
 	expired.ExpiresAt = fx.Runtime().Clock().Now().Add(-time.Minute)
-	require.NoError(t, persistAuthStoreEntry(fx.Context(), fx.Runtime(), storePath, hubURL, expired))
+	require.NoError(t, persistAuthStoreEntry(fx.Context(), fx.Runtime(), storePath, hubURL, expired.RefreshToken, expired))
 
 	stale, err := LoadAuthStore(fx.Context(), fx.Runtime(), storePath)
 	require.NoError(t, err)

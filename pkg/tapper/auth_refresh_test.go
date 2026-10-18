@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jlrickert/cli-toolkit/sandbox"
 	"github.com/jlrickert/tapper/internal/testapi"
 	"github.com/stretchr/testify/require"
 
@@ -434,4 +435,105 @@ func TestRefreshLockDoesNotBlockFreshTokens(t *testing.T) {
 	require.Equal(t, "thub_freshtok000", tok)
 	require.Less(t, time.Since(start), time.Second, "a fresh token does not wait for the refresh lock")
 	<-refreshing
+}
+
+// expiredLoginForTest is a stored login whose access token has expired, so
+// the next resolve refreshes it at tokenEndpoint.
+func expiredLoginForTest(fx *sandbox.Sandbox, refreshToken, tokenEndpoint string) tapper.AuthEntry {
+	return tapper.AuthEntry{
+		AccessToken:   "thub_expiredtok00",
+		TokenType:     "Bearer",
+		ExpiresAt:     fx.Runtime().Clock().Now().Add(-time.Hour),
+		RefreshToken:  refreshToken,
+		ClientID:      "tapper-cli",
+		TokenEndpoint: tokenEndpoint,
+	}
+}
+
+// A running process loaded the login before `tap auth logout` removed it.
+// When its token expires it does not sign the user back in.
+func TestRefreshAfterLogoutLeavesUserLoggedOut(t *testing.T) {
+	t.Parallel()
+	fx := NewSandbox(t)
+	tap := newTestTap(t, fx)
+	var posts atomic.Int64
+	srv := singleUseTokenHub(t, "rt-old", 0, &posts)
+	hubKey := seedStore(t, fx, tap, map[string]tapper.AuthEntry{srv.URL: expiredLoginForTest(fx, "rt-old", srv.URL)})
+	path := tap.PathService.AuthStorePath()
+
+	running, err := tapper.LoadAuthStore(fx.Context(), fx.Runtime(), path)
+	require.NoError(t, err)
+	res, err := tap.AuthLogout(fx.Context(), tapper.AuthLogoutOptions{Hub: hubKey})
+	require.NoError(t, err)
+	require.True(t, res.Removed)
+
+	tok := tapper.NewAuthStoreTokenResolver(running, fx.Runtime(), path).
+		ResolveToken(&keg.Target{Url: srv.URL + "/api/v1/@me/kegs/@demo/nodes"})
+	require.NotEqual(t, "thub_access0001", tok, "the logged-out process gets no new token")
+	require.Zero(t, posts.Load(), "the removed login's refresh token is not spent")
+
+	stored, err := tapper.LoadAuthStore(fx.Context(), fx.Runtime(), path)
+	require.NoError(t, err)
+	_, ok := stored.Get(hubKey)
+	require.False(t, ok, "the logout stays in effect")
+}
+
+// `tap auth logout` while another process is mid-refresh: the refresh does
+// not write the login back after the logout removed it.
+func TestLogoutDuringRefreshStaysLoggedOut(t *testing.T) {
+	t.Parallel()
+	fx := NewSandbox(t)
+	tap := newTestTap(t, fx)
+	var posts atomic.Int64
+	srv := singleUseTokenHub(t, "rt-old", 300*time.Millisecond, &posts)
+	hubKey := seedStore(t, fx, tap, map[string]tapper.AuthEntry{srv.URL: expiredLoginForTest(fx, "rt-old", srv.URL)})
+	path := tap.PathService.AuthStorePath()
+
+	running, err := tapper.LoadAuthStore(fx.Context(), fx.Runtime(), path)
+	require.NoError(t, err)
+	refreshed := make(chan struct{})
+	go func() {
+		defer close(refreshed)
+		tapper.NewAuthStoreTokenResolver(running, fx.Runtime(), path).
+			ResolveToken(&keg.Target{Url: srv.URL + "/api/v1/@me/kegs/@demo/nodes"})
+	}()
+	require.Eventually(t, func() bool { return posts.Load() == 1 }, 2*time.Second, 5*time.Millisecond)
+
+	res, err := tap.AuthLogout(fx.Context(), tapper.AuthLogoutOptions{Hub: hubKey})
+	require.NoError(t, err)
+	require.True(t, res.Removed)
+	<-refreshed
+
+	stored, err := tapper.LoadAuthStore(fx.Context(), fx.Runtime(), path)
+	require.NoError(t, err)
+	_, ok := stored.Get(hubKey)
+	require.False(t, ok, "the refresh did not undo the logout")
+}
+
+// This process still holds a refresh token another process already spent;
+// the stored pair has since expired too. The refresh presents the stored
+// token, so the hub sees no replay.
+func TestRefreshUsesStoredTokenOverStaleInMemoryToken(t *testing.T) {
+	t.Parallel()
+	fx := NewSandbox(t)
+	path := authStorePath(t, fx)
+	var posts atomic.Int64
+	srv := singleUseTokenHub(t, "rt-stored", 0, &posts)
+	hubKey := tapper.CanonicalHubURL(srv.URL)
+	disk := &tapper.AuthStore{}
+	disk.Set(hubKey, expiredLoginForTest(fx, "rt-stored", srv.URL))
+	require.NoError(t, disk.Save(fx.Context(), fx.Runtime(), path))
+
+	stale := &tapper.AuthStore{}
+	stale.Set(hubKey, expiredLoginForTest(fx, "rt-spent", srv.URL))
+	tok := tapper.NewAuthStoreTokenResolver(stale, fx.Runtime(), path).
+		ResolveToken(&keg.Target{Url: srv.URL + "/api/v1/@me/kegs/@demo/nodes"})
+	require.Equal(t, "thub_access0001", tok)
+	require.Equal(t, int64(1), posts.Load())
+
+	stored, err := tapper.LoadAuthStore(fx.Context(), fx.Runtime(), path)
+	require.NoError(t, err)
+	entry, ok := stored.Get(hubKey)
+	require.True(t, ok)
+	require.Equal(t, "rt-1", entry.RefreshToken)
 }

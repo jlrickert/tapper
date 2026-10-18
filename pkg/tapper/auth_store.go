@@ -70,6 +70,24 @@ func carryAuthAccountKey(next, prev *AuthEntry) {
 	}
 }
 
+// SaveAuthLogin stores entry as the login for hubKey in the auth store at
+// storePath, replacing any earlier login for that hub. It holds the auth store
+// lock while it reads and saves, so a refresh running in another tap process
+// neither loses the write nor overwrites it with the earlier login's tokens.
+func SaveAuthLogin(ctx context.Context, rt *toolkit.Runtime, storePath, hubKey string, entry AuthEntry) error {
+	unlock, err := lockAuthStore(ctx, rt, storePath, authStoreLockWait)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	store, err := LoadAuthStore(ctx, rt, storePath)
+	if err != nil {
+		return err
+	}
+	store.Set(hubKey, entry)
+	return store.Save(ctx, rt, storePath)
+}
+
 // ensureAuthAccountKey returns the AccountKey of the stored entry for hubKey,
 // minting and saving one when the entry predates account keys. It holds the
 // auth store lock while it reads, mints, and saves, so two processes naming

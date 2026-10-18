@@ -623,6 +623,13 @@ type AuthLogoutResult struct {
 func (t *Tap) AuthLogout(ctx context.Context, opts AuthLogoutOptions) (*AuthLogoutResult, error) {
 	rt := t.Runtime
 	storePath := t.PathService.AuthStorePath()
+	// Hold the store lock so a refresh running in another tap process
+	// cannot write the entry back after it is removed.
+	unlock, err := lockAuthStore(ctx, rt, storePath, authStoreLockWait)
+	if err != nil {
+		return nil, fmt.Errorf("auth logout: %w", err)
+	}
+	defer unlock()
 	store, err := LoadAuthStore(ctx, rt, storePath)
 	if err != nil {
 		return nil, err

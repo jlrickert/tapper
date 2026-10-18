@@ -119,7 +119,13 @@ use of `time.Now()` that cannot be driven by a fake clock:
   the result before unlocking. The wait is bounded by the refresh timeout plus
   five seconds. A process that times out never refreshes unlocked: it adopts a
   fresher on-disk entry or keeps its cached token. A token that is still fresh
-  never touches the lock.
+  never touches the lock. Under the lock the store file is authoritative: the
+  refresh spends the refresh token stored there rather than a stale in-memory
+  one, does not run once a logout removed the entry, and persists
+  compare-and-set, only while the stored entry still holds the refresh token
+  it started from. `tap auth login` and `tap auth logout` write the store
+  under the same lock, so a running process can neither undo a logout nor
+  overwrite a newer login.
 - **Refused versus failed refresh**: only an OAuth error body naming
   `invalid_grant` or `invalid_client`, at any HTTP status, counts as the hub
   refusing the refresh token (`ErrRefreshRejected`); the sign-in is gone and

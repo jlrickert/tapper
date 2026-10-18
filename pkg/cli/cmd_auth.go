@@ -117,15 +117,10 @@ func runAuthLogin(ctx context.Context, deps *Deps, p authLoginParams) (*authLogi
 	// PersistentPreRunE, so PathService is available for the store location —
 	// no second resolution pass needed.
 	storePath := deps.Tap.PathService.AuthStorePath()
-	store, err := tapper.LoadAuthStore(ctx, rt, storePath)
-	if err != nil {
-		return nil, err
-	}
 	// A login is a new identity: it gets a key of its own rather than
 	// inheriting the previous login's.
 	entry.AccountKey = tapper.NewAuthAccountKey()
-	store.Set(tapper.CanonicalHubURL(hubURL), *entry)
-	if err := store.Save(ctx, rt, storePath); err != nil {
+	if err := tapper.SaveAuthLogin(ctx, rt, storePath, tapper.CanonicalHubURL(hubURL), *entry); err != nil {
 		return nil, err
 	}
 

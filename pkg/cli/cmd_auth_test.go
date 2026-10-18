@@ -323,6 +323,34 @@ func TestAuthLoginCmd_MintsAccountKeyPerLogin(t *testing.T) {
 	require.NotEqual(t, first, accountKey())
 }
 
+// A login over an existing one replaces its tokens and keeps the other
+// hubs' logins.
+func TestAuthLoginCmd_ReplacesExistingLogin(t *testing.T) {
+	t.Parallel()
+	sb := newTestSandbox(t)
+	seedAuthStore(t, sb, map[string]tapper.AuthEntry{
+		"https://hub.example.com":   {AccessToken: "thub_oldaccess000", RefreshToken: "old-refresh"},
+		"https://other.example.com": {AccessToken: "thub_otheraccess0"},
+	})
+	hook := stubDeviceLoginHook(func(context.Context, *toolkit.Runtime, tapper.AuthLoginDeviceOptions) (*tapper.AuthEntry, error) {
+		return &tapper.AuthEntry{AccessToken: "thub_newaccess000", RefreshToken: "new-refresh"}, nil
+	})
+
+	res := newAuthProcess(t, hook, "auth", "login", "--hub", "https://hub.example.com").Run(sb.Context(), sb.Runtime())
+	require.NoError(t, res.Err)
+
+	var parsed struct {
+		Hubs map[string]struct {
+			AccessToken  string `yaml:"access_token"`
+			RefreshToken string `yaml:"refresh_token"`
+		} `yaml:"hubs"`
+	}
+	require.NoError(t, yaml.Unmarshal(sb.MustReadFile("~/.local/state/tapper/auth.yaml"), &parsed))
+	require.Equal(t, "thub_newaccess000", parsed.Hubs["https://hub.example.com"].AccessToken)
+	require.Equal(t, "new-refresh", parsed.Hubs["https://hub.example.com"].RefreshToken)
+	require.Equal(t, "thub_otheraccess0", parsed.Hubs["https://other.example.com"].AccessToken)
+}
+
 func TestAuthDeviceLabelIncludesHostnameWhenRuntimeHasProcessInfo(t *testing.T) {
 	t.Parallel()
 	rt, err := toolkit.NewRuntime(toolkit.WithProcessInfo(toolkit.ProcessInfo{

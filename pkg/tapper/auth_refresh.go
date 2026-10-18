@@ -58,7 +58,10 @@ func authEntryNeedsRefresh(rt *toolkit.Runtime, entry *AuthEntry) bool {
 // spends the refresh token, and the rest adopt the pair it persisted when they
 // get the lock. A process that cannot get the lock in time never refreshes
 // unlocked: it adopts a fresher on-disk entry if there is one, and otherwise
-// fails so the caller keeps its cached token.
+// fails so the caller keeps its cached token. Under the lock the store file is
+// authoritative: a refresh spends the refresh token stored there, not a stale
+// in-memory one, does not run at all once a logout removed the entry, and
+// persists only over the entry it started from.
 func refreshAuthStoreEntryIfNeeded(ctx context.Context, rt *toolkit.Runtime, store *AuthStore, storePath, hubURL, key string, entry *AuthEntry) (*AuthEntry, error) {
 	if !authEntryNeedsRefresh(rt, entry) {
 		return entry, nil
@@ -93,6 +96,20 @@ func refreshAuthStoreEntryIfNeeded(ctx context.Context, rt *toolkit.Runtime, sto
 		if disk := adoptFresherAuthEntryFromDisk(ctx, rt, store, storePath, key); disk != nil {
 			return disk, nil
 		}
+		// The store file, not this process's copy, holds the live login. A
+		// logout may have removed it, and another process may have rotated
+		// the refresh token this copy holds: presenting the spent one is a
+		// replay, and the hub revokes the whole sign-in for it.
+		if disk, err := LoadAuthStore(ctx, rt, storePath); err == nil {
+			cur, ok := disk.Get(key)
+			if !ok || cur == nil {
+				store.Delete(key)
+				return nil, fmt.Errorf("auth refresh: login for %s was removed", key)
+			}
+			if cur.RefreshToken != entry.RefreshToken {
+				entry = cur
+			}
+		}
 	}
 
 	rctx, cancel := context.WithTimeout(ctx, authRefreshTimeout)
@@ -106,12 +123,32 @@ func refreshAuthStoreEntryIfNeeded(ctx context.Context, rt *toolkit.Runtime, sto
 	}
 
 	keepSpoolAcrossRotation(ctx, rt, storePath, key, hubURL, entry, next)
-	store.Set(key, *next)
-	if err := persistAuthStoreEntry(ctx, rt, storePath, key, next); err != nil {
+	if err := persistAuthStoreEntry(ctx, rt, storePath, key, entry.RefreshToken, next); err != nil {
+		if errors.Is(err, errAuthStoreEntryChanged) {
+			// A logout or a new login replaced the entry this refresh
+			// started from; that write wins over the rotated pair.
+			if disk := adoptFresherAuthEntryFromDisk(ctx, rt, store, storePath, key); disk != nil {
+				return disk, nil
+			}
+			if disk, lerr := LoadAuthStore(ctx, rt, storePath); lerr == nil {
+				if cur, ok := disk.Get(key); ok && cur != nil {
+					store.Set(key, *cur)
+				} else {
+					store.Delete(key)
+				}
+			}
+			return nil, fmt.Errorf("auth refresh: %w", err)
+		}
+		store.Set(key, *next)
 		return next, fmt.Errorf("auth refresh: persist: %w", err)
 	}
+	store.Set(key, *next)
 	return next, nil
 }
+
+// errAuthStoreEntryChanged means the stored entry a refresh started from was
+// removed or replaced before the refresh could persist its rotated pair.
+var errAuthStoreEntryChanged = errors.New("auth store entry changed during refresh")
 
 // adoptFresherAuthEntryFromDisk re-reads the auth store file and, when it holds
 // an entry for key that does not itself need refreshing, copies it into store
@@ -136,7 +173,11 @@ func adoptFresherAuthEntryFromDisk(ctx context.Context, rt *toolkit.Runtime, sto
 	return entry
 }
 
-func persistAuthStoreEntry(ctx context.Context, rt *toolkit.Runtime, storePath, key string, entry *AuthEntry) error {
+// persistAuthStoreEntry writes entry under key only while the stored entry is
+// still the one the refresh started from, the one holding refreshToken.
+// Otherwise it writes nothing and returns errAuthStoreEntryChanged, so a
+// refresh never brings back a logged-out entry or replaces a newer login.
+func persistAuthStoreEntry(ctx context.Context, rt *toolkit.Runtime, storePath, key, refreshToken string, entry *AuthEntry) error {
 	if rt == nil {
 		return fmt.Errorf("auth refresh: runtime is nil")
 	}
@@ -150,9 +191,11 @@ func persistAuthStoreEntry(ctx context.Context, rt *toolkit.Runtime, storePath, 
 	if err != nil {
 		return err
 	}
-	if prev, ok := disk.Get(key); ok {
-		carryAuthAccountKey(entry, prev)
+	prev, ok := disk.Get(key)
+	if !ok || prev == nil || prev.RefreshToken != refreshToken {
+		return errAuthStoreEntryChanged
 	}
+	carryAuthAccountKey(entry, prev)
 	disk.Set(key, *entry)
 	return disk.Save(ctx, rt, storePath)
 }

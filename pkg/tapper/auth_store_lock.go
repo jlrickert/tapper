@@ -35,6 +35,16 @@ type lockFile interface {
 // a lockable file, the returned unlock is a no-op and refreshes are serialized
 // within the process only.
 func lockAuthStore(ctx context.Context, rt *toolkit.Runtime, storePath string, wait time.Duration) (func(), error) {
+	// A login on a new machine takes the lock before the store exists.
+	// Create the store's directory owner-only here, as Save would, rather
+	// than let opening the lock file create it with wider permissions.
+	if parent := parentDir(storePath); parent != "" {
+		if _, err := rt.Stat(parent, false); errors.Is(err, os.ErrNotExist) {
+			if err := rt.Mkdir(parent, 0o700, true); err != nil {
+				return nil, fmt.Errorf("auth store: create directory: %w", err)
+			}
+		}
+	}
 	w, err := rt.OpenFile(storePath+".lock", os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
 		return nil, fmt.Errorf("auth store: open lock: %w", err)
