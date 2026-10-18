@@ -135,6 +135,13 @@ use of `time.Now()` that cannot be driven by a fake clock:
   it started from. `tap auth login` and `tap auth logout` write the store
   under the same lock, so a running process can neither undo a logout nor
   overwrite a newer login.
+- **Forced refresh**: the relay refreshes when the hub, not the local clock,
+  says a token is spent or soon will be (a reauth at 80% of the lifetime the
+  hub announced, a redial after `credential_expired`, a refused dial). That
+  refresh ignores the stored expiry, so clock skew cannot keep a dead token in
+  use, and otherwise follows the same lock discipline. Under the lock, a
+  stored access token that differs from the one the process held means another
+  process already rotated it, and that pair is adopted instead.
 - **Refused versus failed refresh**: only an OAuth error body naming
   `invalid_grant` or `invalid_client`, at any HTTP status, counts as the hub
   refusing the refresh token (`ErrRefreshRejected`); the sign-in is gone and

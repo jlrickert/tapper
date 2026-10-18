@@ -29,12 +29,23 @@ wherever those commands are.
 - It runs in the foreground until interrupted and reconnects if the connection
   drops. Disconnecting the relay from a Hub's Account → Relay page stops it
   for that Hub; run it again to reconnect.
-- When the login token that opened a connection expires, Hub ends that
-  connection with `credential_expired`. The relay refreshes the token and
-  reconnects at once. A failed refresh (the Hub unreachable, say) is retried
-  with backoff. A revoked sign-in is final: Hub ends the connection with
-  `disconnected`, or refuses the next dial, and the relay stops serving that
-  Hub.
+- On relay protocol 4, Hub tells the relay how long its login token has
+  left, and the relay refreshes the token and presents it on the live
+  connection (a `reauth` frame) at 80% of that time. The timing counts from
+  when the relay heard it, not from either machine's clock, so clock skew does
+  not matter, and requests in flight are not cut at the token's expiry. A Hub
+  without protocol 4 never sees a `reauth`.
+- If the token does expire, Hub ends the connection with
+  `credential_expired`. The relay forces a refresh and reconnects at once; if
+  Hub refuses a dial's token, the relay forces one more refresh before giving
+  up. A failed refresh (the Hub unreachable, say) is retried with backoff.
+- When Hub restarts it ends the connection with `going_away`, and the relay
+  reconnects within a second.
+- A revoked sign-in is final: Hub ends the connection with
+  `credential_revoked` (`disconnected` before protocol 4), or refuses the
+  next dial, and the relay stops serving that Hub and says to run
+  `tap auth login`. An end code the relay does not know reconnects with
+  backoff.
 
 ## Several hubs
 

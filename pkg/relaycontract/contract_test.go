@@ -151,13 +151,59 @@ func TestTranscriptionRequestValidate(t *testing.T) {
 }
 
 func TestSelectProtocol(t *testing.T) {
-	if got := SelectProtocol([]int{1, 2, 3, 4}); got != 3 {
-		t.Fatalf("SelectProtocol = %d, want 3", got)
+	if got := SelectProtocol([]int{1, 2, 3, 4, 5}); got != 4 {
+		t.Fatalf("SelectProtocol = %d, want 4", got)
+	}
+	if got := SelectProtocol([]int{1, 2, 3}); got != 3 {
+		t.Fatalf("SelectProtocol = %d, want 3 for a relay that predates reauth", got)
 	}
 	if got := SelectProtocol([]int{1}); got != 1 {
 		t.Fatalf("SelectProtocol = %d, want 1", got)
 	}
-	if got := SelectProtocol([]int{4}); got != 0 {
+	if got := SelectProtocol([]int{5}); got != 0 {
 		t.Fatalf("SelectProtocol = %d, want 0", got)
+	}
+}
+
+// A relay that predates protocol 4 decodes registered strictly, so a hub
+// that leaves credentialExpiresIn at zero must not put the field on the wire.
+func TestRegisteredOmitsZeroCredentialExpiry(t *testing.T) {
+	env, err := NewEnvelope(TypeRegistered, "", Registered{Protocol: 3, Models: []CatalogBinding{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(env.Payload), "credentialExpiresIn") {
+		t.Fatalf("payload = %s, want no credentialExpiresIn", env.Payload)
+	}
+	env, err = NewEnvelope(TypeRegistered, "", Registered{Protocol: 4, Models: []CatalogBinding{}, CredentialExpiresIn: 3600})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var reg Registered
+	if err := env.Decode(&reg); err != nil || reg.CredentialExpiresIn != 3600 {
+		t.Fatalf("registered = %+v, %v", reg, err)
+	}
+}
+
+func TestReauthFramesValidate(t *testing.T) {
+	ok, err := NewEnvelope(TypeReauth, "reauth-1", Reauth{Token: "tok"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var r Reauth
+	if err := ok.Decode(&r); err != nil || r.Token != "tok" {
+		t.Fatalf("reauth = %+v, %v", r, err)
+	}
+	empty, _ := NewEnvelope(TypeReauth, "reauth-1", Reauth{})
+	if err := empty.Decode(&Reauth{}); err == nil {
+		t.Fatal("reauth with no token accepted")
+	}
+	neg, _ := NewEnvelope(TypeReauthed, "reauth-1", Reauthed{CredentialExpiresIn: -1})
+	if err := neg.Decode(&Reauthed{}); err == nil {
+		t.Fatal("reauthed with a negative lifetime accepted")
+	}
+	zero, _ := NewEnvelope(TypeReauthed, "reauth-1", Reauthed{})
+	if err := zero.Decode(&Reauthed{}); err != nil {
+		t.Fatalf("reauthed with no expiry rejected: %v", err)
 	}
 }

@@ -146,6 +146,83 @@ func refreshAuthStoreEntryIfNeeded(ctx context.Context, rt *toolkit.Runtime, sto
 	return next, nil
 }
 
+// forceRefreshAuthStoreEntry renews the stored credential for key whatever
+// its recorded expiry says. A long-lived caller (the relay) uses it when the
+// hub, not the local clock, says the access token is spent or soon will be:
+// the hub refused it, ended a session for its expiry, or announced when it
+// will. authEntryNeedsRefresh is not consulted, so a skewed local clock
+// cannot keep a dead token in use.
+//
+// It follows refreshAuthStoreEntryIfNeeded's discipline: the refresh runs
+// under lockAuthStore, spends the refresh token stored on disk, and persists
+// only over the entry it started from. "Already refreshed" means the stored
+// access token differs from the one this process held: another process
+// rotated past it, and that pair is adopted instead. A stored entry without a
+// refresh token (a pasted API token) has nothing to renew and is returned as
+// it is.
+func forceRefreshAuthStoreEntry(ctx context.Context, rt *toolkit.Runtime, store *AuthStore, storePath, hubURL, key string) (*AuthEntry, error) {
+	if store == nil {
+		return nil, fmt.Errorf("auth refresh: store is nil")
+	}
+	entry, ok := store.Get(key)
+	if !ok || entry == nil {
+		return nil, fmt.Errorf("auth refresh: no login stored for %s", key)
+	}
+	if entry.RefreshToken == "" {
+		return entry, nil
+	}
+	held := entry.AccessToken
+
+	if storePath != "" {
+		unlock, err := lockAuthStore(ctx, rt, storePath, authStoreLockWait)
+		if err != nil {
+			return nil, fmt.Errorf("auth refresh: %w", err)
+		}
+		defer unlock()
+		if disk, err := LoadAuthStore(ctx, rt, storePath); err == nil {
+			cur, ok := disk.Get(key)
+			if !ok || cur == nil {
+				store.Delete(key)
+				return nil, fmt.Errorf("auth refresh: login for %s was removed", key)
+			}
+			if cur.AccessToken != held {
+				store.Set(key, *cur)
+				return cur, nil
+			}
+			entry = cur
+		}
+	}
+
+	rctx, cancel := context.WithTimeout(ctx, authRefreshTimeout)
+	next, err := RefreshHubToken(rctx, rt, hubURL, entry)
+	cancel()
+	if err != nil {
+		return nil, err
+	}
+
+	keepSpoolAcrossRotation(ctx, rt, storePath, key, hubURL, entry, next)
+	if storePath == "" {
+		store.Set(key, *next)
+		return next, nil
+	}
+	if err := persistAuthStoreEntry(ctx, rt, storePath, key, entry.RefreshToken, next); err != nil {
+		if errors.Is(err, errAuthStoreEntryChanged) {
+			if disk, lerr := LoadAuthStore(ctx, rt, storePath); lerr == nil {
+				if cur, ok := disk.Get(key); ok && cur != nil {
+					store.Set(key, *cur)
+				} else {
+					store.Delete(key)
+				}
+			}
+			return nil, fmt.Errorf("auth refresh: %w", err)
+		}
+		store.Set(key, *next)
+		return next, fmt.Errorf("auth refresh: persist: %w", err)
+	}
+	store.Set(key, *next)
+	return next, nil
+}
+
 // errAuthStoreEntryChanged means the stored entry a refresh started from was
 // removed or replaced before the refresh could persist its rotated pair.
 var errAuthStoreEntryChanged = errors.New("auth store entry changed during refresh")

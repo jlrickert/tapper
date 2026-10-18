@@ -71,8 +71,9 @@ func (t *Tap) Relay(ctx context.Context, opts RelayOptions) error {
 	hubs := make([]relay.Hub, 0, len(hubURLs))
 	for _, hubURL := range hubURLs {
 		hubs = append(hubs, relay.Hub{
-			URL:   hubURL,
-			Token: func(context.Context) (string, error) { return t.relayToken(cfg, hubURL) },
+			URL:     hubURL,
+			Token:   func(context.Context) (string, error) { return t.relayToken(cfg, hubURL) },
+			Refresh: func(ctx context.Context) (string, error) { return t.relayRefresh(ctx, cfg, hubURL) },
 		})
 	}
 
@@ -376,6 +377,45 @@ func relayHubURLs(cfg *Config, rc *RelayConfig, explicit string) ([]string, erro
 // rejected for good. A refresh token the hub refused returns the cached token:
 // the sign-in is gone, and the hub's 401 stops the relay.
 func (t *Tap) relayToken(cfg *Config, hubURL string) (string, error) {
+	target := relayTarget(cfg, hubURL)
+	token, err := t.resolveHubToken(&target)
+	if err != nil && !errors.Is(err, ErrRefreshRejected) {
+		return "", fmt.Errorf("relay: refreshing the hub token: %w", err)
+	}
+	return token, nil
+}
+
+// relayRefresh is relayToken with a forced refresh: the stored OAuth token is
+// renewed whatever its recorded expiry says, because the hub has said it is
+// spent or is about to be, and the local clock may disagree. A configured
+// tokenEnv or token has nothing to refresh and is returned as relayToken
+// would. A refresh token the hub refused means the sign-in is gone, which the
+// relay treats as final.
+func (t *Tap) relayRefresh(ctx context.Context, cfg *Config, hubURL string) (string, error) {
+	target := relayTarget(cfg, hubURL)
+	if target.TokenEnv != "" || target.Token != "" || t.KegService == nil {
+		return t.relayToken(cfg, hubURL)
+	}
+	resolver, _ := t.KegService.tokenResolver().(*authStoreTokenResolver)
+	hubRoot := hubRootFromTarget(&target)
+	if resolver == nil || resolver.store == nil || hubRoot == "" {
+		return t.relayToken(cfg, hubURL)
+	}
+	resolver.mu.Lock()
+	defer resolver.mu.Unlock()
+	next, err := forceRefreshAuthStoreEntry(ctx, resolver.rt, resolver.store, resolver.storePath, hubRoot, CanonicalHubURL(hubRoot))
+	if next != nil {
+		return next.AccessToken, nil
+	}
+	if errors.Is(err, ErrRefreshRejected) {
+		return "", fmt.Errorf("%w: %v", relay.ErrUnauthorized, err)
+	}
+	return "", fmt.Errorf("relay: refreshing the hub token: %w", err)
+}
+
+// relayTarget is the keg target whose credential the relay presents to
+// hubURL: a configured hub entry's, when one names that hub.
+func relayTarget(cfg *Config, hubURL string) keg.Target {
 	target := keg.Target{Url: hubURL, HubURL: hubURL}
 	canonical := CanonicalHubURL(hubURL)
 	for _, entry := range cfg.Hubs() {
@@ -384,11 +424,7 @@ func (t *Tap) relayToken(cfg *Config, hubURL string) (string, error) {
 			break
 		}
 	}
-	token, err := t.resolveHubToken(&target)
-	if err != nil && !errors.Is(err, ErrRefreshRejected) {
-		return "", fmt.Errorf("relay: refreshing the hub token: %w", err)
-	}
-	return token, nil
+	return target
 }
 
 // runtimeHostname reports the host name captured by the runtime, or "" when
