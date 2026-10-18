@@ -35,6 +35,9 @@ const (
 	RemoteCodeKegRestoring               = "KEG_RESTORING"
 	RemoteCodeArchiveTooLarge            = "ARCHIVE_TOO_LARGE"
 	RemoteCodeInternal                   = "INTERNAL"
+	// RemoteCodeRateLimited is reported for a *RateLimitError. It has no
+	// sentinel row: an HTTP 429 is decoded into RateLimitError directly.
+	RemoteCodeRateLimited = "RATE_LIMITED"
 )
 
 // remoteCodeTable pairs each sentinel with its wire code and HTTP status.

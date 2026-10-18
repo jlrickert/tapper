@@ -590,7 +590,7 @@ func OrientationGuide(topic string) (string, error) {
 	case "troubleshooting":
 		names = []string{"troubleshooting.md"}
 	default:
-		return "", fmt.Errorf("unknown guide topic %q; use operating, authoring, linking, snapshots, tools, or troubleshooting", topic)
+		return "", fmt.Errorf("unknown guide topic %q; use operating, authoring, linking, snapshots, tools, or troubleshooting: %w", topic, keg.ErrInvalid)
 	}
 	var b strings.Builder
 	if topic == "operating" {

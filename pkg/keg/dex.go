@@ -90,7 +90,11 @@ func WithSettings(cfg *Settings) DexOption {
 			}
 			idx, err := NewQueryFilteredIndexWithSort(entry.File, query, resolver, sortOrder)
 			if err != nil {
-				return fmt.Errorf("dex: settings index %q: %w", entry.File, err)
+				// The query is stored keg configuration, not the current
+				// caller's input, so the parser's ErrInvalid is dropped: a
+				// read that trips over it must not be told to fix its own
+				// arguments.
+				return fmt.Errorf("dex: settings index %q: %v", entry.File, err)
 			}
 			d.custom = append(d.custom, idx)
 		}

@@ -324,7 +324,7 @@ func resolveUploadName(explicit, derived string) (string, error) {
 		name = derived
 	}
 	if name == "" {
-		return "", fmt.Errorf("filename is required when the upload source has no filename")
+		return "", fmt.Errorf("filename is required when the upload source has no filename: %w", keg.ErrInvalid)
 	}
 	return name, nil
 }
@@ -348,7 +348,7 @@ func registerDownloadFile(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefau
 		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in downloadFileInput) (*sdkmcp.CallToolResult, any, error) {
 		if in.DestPath == "-" {
-			return errorResult(fmt.Errorf("stdout mode is not supported over MCP")), nil, nil
+			return errorResult(fmt.Errorf("%w: stdout mode is not supported over MCP", keg.ErrInvalid)), nil, nil
 		}
 		destPath, pathErr := confinedTransferPath(tap.Runtime, in.DestPath, true)
 		if pathErr != nil {
@@ -491,7 +491,7 @@ func registerLocalDownloadImage(srv *sdkmcp.Server, tap *tapper.Tap, defaults Ke
 			return readImageContent(ctx, tap, defaults, in.Keg, in.NodeID, in.Filename)
 		}
 		if dest == "-" {
-			return errorResult(fmt.Errorf("stdout mode is not supported over MCP; omit dest_path to receive image content")), nil, nil
+			return errorResult(fmt.Errorf("%w: stdout mode is not supported over MCP; omit dest_path to receive image content", keg.ErrInvalid)), nil, nil
 		}
 		dest, pathErr := confinedTransferPath(tap.Runtime, dest, true)
 		if pathErr != nil {
@@ -569,7 +569,7 @@ func resolveUploadSource(rt *toolkit.Runtime, in uploadSourceInput, allowLocalSo
 		provided++
 	}
 	if provided != 1 {
-		return nil, "", fmt.Errorf("provide exactly one upload source")
+		return nil, "", fmt.Errorf("provide exactly one upload source: %w", keg.ErrInvalid)
 	}
 
 	switch {
@@ -587,7 +587,7 @@ func resolveUploadSource(rt *toolkit.Runtime, in uploadSourceInput, allowLocalSo
 
 func readUploadResource(rt *toolkit.Runtime, resource *uploadResourceInput, allowLocalSources bool) ([]byte, string, error) {
 	if resource == nil {
-		return nil, "", fmt.Errorf("embedded resource is empty")
+		return nil, "", fmt.Errorf("embedded resource is empty: %w", keg.ErrInvalid)
 	}
 	name := uploadNameFromURI(resource.URI)
 	if strings.TrimSpace(resource.Blob) != "" {
@@ -598,7 +598,7 @@ func readUploadResource(rt *toolkit.Runtime, resource *uploadResourceInput, allo
 		return []byte(resource.Text), name, nil
 	}
 	if strings.TrimSpace(resource.URI) == "" {
-		return nil, "", fmt.Errorf("embedded resource must include blob, text, or uri")
+		return nil, "", fmt.Errorf("embedded resource must include blob, text, or uri: %w", keg.ErrInvalid)
 	}
 	return readUploadURI(rt, strings.TrimSpace(resource.URI), allowLocalSources)
 }
@@ -610,20 +610,20 @@ func readUploadURI(rt *toolkit.Runtime, raw string, allowLocalSources bool) ([]b
 	}
 	u, err := url.Parse(raw)
 	if err != nil {
-		return nil, "", fmt.Errorf("invalid source_uri: %w", err)
+		return nil, "", fmt.Errorf("invalid source_uri: %w: %w", err, keg.ErrInvalid)
 	}
 	if u.Scheme == "file" {
 		if u.Host != "" && u.Host != "localhost" {
-			return nil, "", fmt.Errorf("file URI host %q is not supported", u.Host)
+			return nil, "", fmt.Errorf("file URI host %q is not supported: %w", u.Host, keg.ErrInvalid)
 		}
 		return readLocalUploadSource(rt, u.Path, allowLocalSources)
 	}
-	return nil, "", fmt.Errorf("unsupported source_uri scheme %q", u.Scheme)
+	return nil, "", fmt.Errorf("unsupported source_uri scheme %q: %w", u.Scheme, keg.ErrInvalid)
 }
 
 func readLocalUploadSource(rt *toolkit.Runtime, path string, allowLocalSources bool) ([]byte, string, error) {
 	if !allowLocalSources {
-		return nil, "", fmt.Errorf("local file sources are not available on this MCP surface; use data_base64 or an embedded resource blob")
+		return nil, "", fmt.Errorf("local file sources are not available on this MCP surface; use data_base64 or an embedded resource blob: %w", keg.ErrInvalid)
 	}
 	path, err := confinedTransferPath(rt, path, false)
 	if err != nil {
@@ -639,14 +639,14 @@ func readLocalUploadSource(rt *toolkit.Runtime, path string, allowLocalSources b
 func decodeDataURI(raw string) ([]byte, error) {
 	prefix, payload, ok := strings.Cut(raw, ",")
 	if !ok {
-		return nil, fmt.Errorf("invalid data URI")
+		return nil, fmt.Errorf("invalid data URI: %w", keg.ErrInvalid)
 	}
 	if strings.Contains(strings.ToLower(prefix), ";base64") {
 		return decodeUploadBase64(payload)
 	}
 	decoded, err := url.PathUnescape(payload)
 	if err != nil {
-		return nil, fmt.Errorf("invalid data URI payload: %w", err)
+		return nil, fmt.Errorf("invalid data URI payload: %w: %w", err, keg.ErrInvalid)
 	}
 	return []byte(decoded), nil
 }
@@ -659,7 +659,7 @@ func decodeUploadBase64(raw string) ([]byte, error) {
 	if data, rawErr := base64.RawStdEncoding.DecodeString(raw); rawErr == nil {
 		return data, nil
 	}
-	return nil, fmt.Errorf("invalid base64 upload data: %w", err)
+	return nil, fmt.Errorf("invalid base64 upload data: %w: %w", err, keg.ErrInvalid)
 }
 
 func uploadNameFromURI(raw string) string {

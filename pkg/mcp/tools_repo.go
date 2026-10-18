@@ -7,6 +7,7 @@ import (
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/jlrickert/tapper/pkg/keg"
 	"github.com/jlrickert/tapper/pkg/tapper"
 )
 
@@ -56,7 +57,7 @@ func registerConfig(srv *sdkmcp.Server, tap *tapper.Tap) {
 		case "", "merged":
 			// default: merged config
 		default:
-			return errorResult(fmt.Errorf("invalid scope %q: must be user, project, or empty for merged", in.Scope)), nil, nil
+			return errorResult(fmt.Errorf("invalid scope %q: must be user, project, or empty for merged: %w", in.Scope, keg.ErrInvalid)), nil, nil
 		}
 
 		result, err := tap.Config(opts)
@@ -103,7 +104,7 @@ func registerConfigTemplate(srv *sdkmcp.Server, tap *tapper.Tap) {
 		case "", "user":
 			// default: user template
 		default:
-			return errorResult(fmt.Errorf("invalid scope %q: must be user or project", in.Scope)), nil, nil
+			return errorResult(fmt.Errorf("invalid scope %q: must be user or project: %w", in.Scope, keg.ErrInvalid)), nil, nil
 		}
 
 		result, err := tap.ConfigTemplate(opts)

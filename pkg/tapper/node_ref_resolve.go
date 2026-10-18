@@ -105,7 +105,9 @@ func (t *Tap) ResolveNodeRef(ctx context.Context, ref *keg.NodeRef, rc RefContex
 func (t *Tap) resolveNodeArg(ctx context.Context, currentKeg keg.Keg, raw string) (keg.Keg, keg.NodeId, error) {
 	ref, err := keg.ParseNodeRef(raw)
 	if err != nil {
-		return nil, keg.NodeId{}, fmt.Errorf("invalid node ID %q: %w", raw, err)
+		// raw is the caller's argument; the parser stays unclassified because
+		// it also reads stored ids.
+		return nil, keg.NodeId{}, fmt.Errorf("invalid node ID %q: %w: %w", raw, err, keg.ErrInvalid)
 	}
 	return t.ResolveNodeRef(ctx, ref, RefContext{CurrentKeg: currentKeg})
 }

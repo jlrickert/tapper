@@ -277,10 +277,16 @@ func ParseKegSettings(data []byte) (*Settings, error) {
 // ParseKegSettingsStrict parses raw user-supplied settings data for persistence.
 // It rejects user-defined index entries that collide with required system
 // indexes or duplicate another user index.
+//
+// Every failure wraps ErrInvalid: the bytes are the caller's, so a missing
+// kegv, bad YAML, or a bad index query is theirs to fix.
 func ParseKegSettingsStrict(data []byte) (*Settings, error) {
 	cfg, err := parseKegSettings(data, true)
 	if cfg != nil {
 		cfg.raw = append([]byte(nil), data...)
+	}
+	if err != nil && !errors.Is(err, ErrInvalid) {
+		err = fmt.Errorf("%w: %w", err, ErrInvalid)
 	}
 	return cfg, err
 }
@@ -438,6 +444,13 @@ func userIndexEntries(entries []IndexEntry, strict bool) ([]IndexEntry, error) {
 		}
 		if _, ok := seen[name]; ok {
 			return nil, fmt.Errorf("duplicate user index %q", name)
+		}
+		if strict && strings.TrimSpace(entry.Query) != "" {
+			// Refuse at the edit what would otherwise fail every later read
+			// of this keg when the index is built.
+			if _, err := ParseQueryExpression(entry.Query); err != nil {
+				return nil, fmt.Errorf("index %q query: %w", name, err)
+			}
 		}
 		seen[name] = struct{}{}
 		out = append(out, entry)

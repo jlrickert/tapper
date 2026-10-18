@@ -118,6 +118,54 @@ validate `structuredContent` against the schema even on errors, as the
 TypeScript SDK does, therefore see the tool's error rather than a JSON-RPC
 `-32602`. Relayed tools follow the same rule.
 
+### Failure Results
+
+Every failed tool call has one shape, whichever layer refused it (input
+validation, flight authority, the tool, or the Hub). The result has
+`isError: true`, no `structuredContent`, and a first text block holding one
+JSON object. Non-text attachments, if any, follow that block; no second text
+block repeats the message.
+
+```json
+{
+  "code": "CONFLICT",
+  "message": "flight @me/+work already exists\n\nThe request conflicts with current state. ...",
+  "action": "The request conflicts with current state. ...",
+  "operationPerformed": false,
+  "retryAfterSeconds": 2,
+  "repeat_count": 3
+}
+```
+
+| Field | Type | Presence | Meaning |
+| --- | --- | --- | --- |
+| `code` | string | always | Wire code: the Hub REST code for the same failure (`INVALID`, `NOT_FOUND`, `CONFLICT`, `RATE_LIMITED`, `ORIENTATION_DENIED`, ...), `INVALID_ARGUMENT` for input-schema validation, or `INTERNAL` when the cause is unknown. |
+| `message` | string | always | The error text followed by the action, for a reader that shows only this field. |
+| `action` | string | always | The next step, naming the tool or field to change. It never restates the error. |
+| `operationPerformed` | `false`, `true`, or `null` | always | `false`: refused before anything was written. `true`: it ran, as `action` describes. `null`: unknown, reported only for `INTERNAL` (or a code this version does not know); read the target before retrying. |
+| `retryAfterSeconds` | integer | rate limits only | Whole seconds to wait before retrying, rounded up, when the Hub sent one. |
+| `repeat_count` | integer | third identical failure on | How many times in a row this session sent this exact call and it failed. `action` then starts with an instruction to stop. |
+
+Some codes add their own fields: `reorientRequired` for authority and
+orientation failures, `currentHash`, `currentContentHash`, `currentMetaHash`,
+and `currentContent` for a stale-hash `CONFLICT`, `node_id` and `missing` for
+`PRECONDITION_REQUIRED`, and `kegv` for a KEG created at another version.
+Clients ignore fields they do not know.
+
+Input the caller can fix (a malformed query expression, node id, settings
+document, base64 payload, or guide topic) is `INVALID` with
+`operationPerformed: false`. A failure in stored state the caller did not send,
+such as a KEG settings index query saved before edits were validated, stays
+`INTERNAL`. A Hub `CONFLICT`, such as a flight or agent name already taken, is
+a refusal with `operationPerformed: false`. A KEG tool called while the
+session's configured flight could not be activated is `ORIENTATION_DENIED`, and
+its action says to repair the selection and call `session_refresh`, since
+naming another flight per call cannot unlock it.
+
+A host that wraps this server, such as a Hub serving MCP, reports its own
+classification by setting these fields on the same object, keeping
+`repeat_count` and `message`, rather than adding a second block.
+
 Two arguments left the schemas because another one says the same thing.
 Calls that still send them keep working; neither is advertised again:
 
@@ -218,8 +266,9 @@ A tool call that fails three times in a row with identical arguments in the
 same session keeps its original `code` and gains `repeat_count` and an
 `action` that says to stop retrying it, followed by the original action: read
 the target or change the arguments the error names. Arguments are compared
-independent of key order and whitespace. A success, or a call with different
-arguments, starts that tool's count again.
+as the client sent them, `flight` included, independent of key order and
+whitespace: the same call under another flight is a different call. A success,
+or a call with different arguments, starts that tool's count again.
 
 ### Index, Diagnostics, And Safety
 

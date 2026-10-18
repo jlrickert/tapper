@@ -3,6 +3,8 @@ package tapper
 import (
 	"context"
 	"fmt"
+
+	"github.com/jlrickert/tapper/pkg/keg"
 )
 
 type StatsOptions struct {
@@ -28,7 +30,7 @@ func (t *Tap) Stats(ctx context.Context, opts StatsOptions) (string, error) {
 		return "", fmt.Errorf("unable to inspect node: %w", err)
 	}
 	if !exists {
-		return "", fmt.Errorf("node %s not found in %s", node.Path(), describeKeg(k))
+		return "", fmt.Errorf("node %s not found in %s: %w", node.Path(), describeKeg(k), keg.ErrNotExist)
 	}
 
 	stats, err := k.GetStats(ctx, node)
