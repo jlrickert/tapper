@@ -28,6 +28,27 @@ func (c *countingWriter) Write(p []byte) (int, error) {
 	return n, err
 }
 
+// tarBudgetWriter refuses any write that would take the tar past
+// MaxTarBytes, holding back room for the end-of-archive marker until close
+// writes it. Nothing past the ceiling ever reaches the destination.
+type tarBudgetWriter struct {
+	w *countingWriter
+	a *archiveWriter
+}
+
+func (b tarBudgetWriter) Write(p []byte) (int, error) {
+	if max := b.a.lim.MaxTarBytes; max > 0 {
+		total := b.w.n + int64(len(p))
+		if !b.a.closing {
+			total += 2 * tarBlock
+		}
+		if total > max {
+			return 0, &ArchiveLimitError{Limit: ArchiveLimitTarBytes, Max: max, Actual: total, Entry: b.a.entry}
+		}
+	}
+	return b.w.Write(p)
+}
+
 // archiveWriter writes keg-archive tar entries and enforces ArchiveLimits.
 // Export and staging share it, so both measure an archive the same way.
 type archiveWriter struct {
@@ -37,16 +58,25 @@ type archiveWriter struct {
 	entries int
 	// index is the archive's measure under MaxIndexBytes so far.
 	index int64
+	// entry names the entry being written, for limit errors.
+	entry string
+	// closing is set while close writes the end-of-archive marker.
+	closing bool
 }
 
 func newArchiveWriter(w io.Writer, lim ArchiveLimits) *archiveWriter {
 	cw := &countingWriter{w: w}
-	return &archiveWriter{tw: tar.NewWriter(cw), tar: cw, lim: lim}
+	a := &archiveWriter{tar: cw, lim: lim}
+	a.tw = tar.NewWriter(tarBudgetWriter{w: cw, a: a})
+	return a
 }
 
 // admit counts one entry of the given size, failing before anything is
-// written when it would cross the entry-count or entry-size ceiling.
+// written when it would cross the entry-count, entry-size, or index ceiling,
+// or when its header and padded payload alone would take the tar past
+// MaxTarBytes.
 func (a *archiveWriter) admit(name string, size int64) error {
+	a.entry = name
 	a.entries++
 	if a.lim.MaxEntries > 0 && a.entries > a.lim.MaxEntries {
 		return &ArchiveLimitError{Limit: ArchiveLimitEntries, Max: int64(a.lim.MaxEntries), Actual: int64(a.entries), Entry: name}
@@ -58,17 +88,25 @@ func (a *archiveWriter) admit(name string, size int64) error {
 	if a.lim.MaxIndexBytes > 0 && a.index > a.lim.MaxIndexBytes {
 		return &ArchiveLimitError{Limit: ArchiveLimitIndexBytes, Max: a.lim.MaxIndexBytes, Actual: a.index, Entry: name}
 	}
+	if a.lim.MaxTarBytes > 0 && size >= 0 {
+		// The least this entry can add: one header block and its payload
+		// padded to a block, plus the end-of-archive marker.
+		if size > a.lim.MaxTarBytes {
+			return &ArchiveLimitError{Limit: ArchiveLimitTarBytes, Max: a.lim.MaxTarBytes, Actual: size, Entry: name}
+		}
+		padded := (size + tarBlock - 1) / tarBlock * tarBlock
+		if need := a.tar.n + tarBlock + padded + 2*tarBlock; need > a.lim.MaxTarBytes {
+			return &ArchiveLimitError{Limit: ArchiveLimitTarBytes, Max: a.lim.MaxTarBytes, Actual: need, Entry: name}
+		}
+	}
 	return nil
 }
 
-// settle flushes the current entry's padding and checks the tar total,
-// counting the end-of-archive marker that close will add.
+// settle flushes the current entry's padding. The tar total is enforced on
+// every write, so an entry that fits has already been checked.
 func (a *archiveWriter) settle(name string) error {
 	if err := a.tw.Flush(); err != nil {
 		return fmt.Errorf("unable to write archive payload for %s: %w", name, err)
-	}
-	if total := a.tar.n + 2*tarBlock; a.lim.MaxTarBytes > 0 && total > a.lim.MaxTarBytes {
-		return &ArchiveLimitError{Limit: ArchiveLimitTarBytes, Max: a.lim.MaxTarBytes, Actual: total, Entry: name}
 	}
 	return nil
 }
@@ -117,6 +155,7 @@ func (a *archiveWriter) copyFile(name string, size int64, r io.Reader) error {
 
 // close writes the end-of-archive marker.
 func (a *archiveWriter) close() error {
+	a.closing = true
 	if err := a.tw.Close(); err != nil {
 		return fmt.Errorf("unable to finalize archive: %w", err)
 	}
@@ -143,16 +182,18 @@ type ArchiveStageStats struct {
 	Complete bool
 }
 
-// countingReader counts bytes read and fails once more than max are read.
+// countingReader counts bytes read and fails, naming limit, once more than
+// max are read. It reads at most one byte past max.
 type countingReader struct {
-	r   io.Reader
-	n   int64
-	max int64
+	r     io.Reader
+	n     int64
+	max   int64
+	limit string
 }
 
 func (c *countingReader) Read(p []byte) (int, error) {
 	if c.max > 0 && c.n > c.max {
-		return 0, &ArchiveLimitError{Limit: ArchiveLimitCompressedBytes, Max: c.max, Actual: c.n}
+		return 0, &ArchiveLimitError{Limit: c.limit, Max: c.max, Actual: c.n}
 	}
 	if c.max > 0 && int64(len(p)) > c.max-c.n+1 {
 		p = p[:c.max-c.n+1]
@@ -160,9 +201,45 @@ func (c *countingReader) Read(p []byte) (int, error) {
 	n, err := c.r.Read(p)
 	c.n += int64(n)
 	if c.max > 0 && c.n > c.max {
-		return n, &ArchiveLimitError{Limit: ArchiveLimitCompressedBytes, Max: c.max, Actual: c.n}
+		return n, &ArchiveLimitError{Limit: c.limit, Max: c.max, Actual: c.n}
 	}
 	return n, err
+}
+
+// maxArchiveHeaderBytes bounds what the tar reader may read to reach one
+// entry: the previous entry's padding, its header block, and any PAX or GNU
+// long-name and long-link records before it. A record can otherwise be a
+// megabyte, held in memory while it is parsed, and an archive can carry one
+// per entry. It leaves ample room for a name of maxArchiveNameBytes.
+const maxArchiveHeaderBytes = 64 << 10
+
+// tarHeaderReader sits under the tar reader and, while it is between
+// entries, refuses to read past a bound.
+type tarHeaderReader struct {
+	r *countingReader
+	// end is the stream offset reading must not pass, or -1 inside an
+	// entry's payload.
+	end int64
+}
+
+func (h *tarHeaderReader) Read(p []byte) (int, error) {
+	if h.end >= 0 {
+		if h.r.n >= h.end {
+			return 0, fmt.Errorf("archive entry header is over the %d byte limit: %w", maxArchiveHeaderBytes, ErrInvalid)
+		}
+		if int64(len(p)) > h.end-h.r.n {
+			p = p[:h.end-h.r.n]
+		}
+	}
+	return h.r.Read(p)
+}
+
+// next advances tr to the next entry, reading at most maxArchiveHeaderBytes
+// to get there.
+func (h *tarHeaderReader) next(tr *tar.Reader) (*tar.Header, error) {
+	h.end = h.r.n + maxArchiveHeaderBytes
+	defer func() { h.end = -1 }()
+	return tr.Next()
 }
 
 // archiveSinkError marks a failure writing to StageArchive's destination, so
@@ -199,14 +276,18 @@ func sinkFailure(err error) (error, bool) {
 // duplicates included, is copied in order, so import resolves duplicates the
 // same way it would from the original.
 //
-// StageArchive rejects unsafe entry names and checks lim while streaming, and
-// it requires a keg-archive/v3 manifest. Memory use is bounded by the
-// manifest, not by the archive. A rejected archive returns an error wrapping
-// ErrInvalid or ErrArchiveTooLarge; w may hold a partial tar. A failure
-// writing to w is returned as is.
+// StageArchive rejects unsafe entry names, attachment entries whose name is
+// not a valid asset name (wrapping ErrInvalidAssetName), and oversized entry
+// headers, and it requires a keg-archive/v3 manifest. It checks lim while
+// streaming: MaxTarBytes bounds both every byte read from the uncompressed
+// stream, extended headers included, and the staged output, which is checked
+// before each write, so w never receives more than MaxTarBytes. Memory use is
+// bounded by the manifest, not by the archive. A rejected archive returns an
+// error wrapping ErrInvalid or ErrArchiveTooLarge; w may hold a partial tar.
+// A failure writing to w is returned as is.
 func StageArchive(ctx context.Context, r io.Reader, w io.Writer, lim ArchiveLimits) (ArchiveStageStats, error) {
 	var stats ArchiveStageStats
-	compressed := &countingReader{r: r}
+	compressed := &countingReader{r: r, limit: ArchiveLimitCompressedBytes}
 	br := bufio.NewReader(compressed)
 
 	var tarStream io.Reader = br
@@ -223,13 +304,17 @@ func StageArchive(ctx context.Context, r io.Reader, w io.Writer, lim ArchiveLimi
 	}
 
 	aw := newArchiveWriter(sinkWriter{w: w}, lim)
-	tr := tar.NewReader(tarStream)
+	// Every byte of the uncompressed stream counts toward MaxTarBytes, not
+	// just what staging writes back out: extended headers, padding, and
+	// skipped entries are all decompressed and parsed.
+	raw := &tarHeaderReader{r: &countingReader{r: tarStream, max: lim.MaxTarBytes, limit: ArchiveLimitTarBytes}, end: -1}
+	tr := tar.NewReader(raw)
 	var manifest []byte
 	for {
 		if err := ctx.Err(); err != nil {
 			return stats, err
 		}
-		header, err := tr.Next()
+		header, err := raw.next(tr)
 		if err == io.EOF {
 			break
 		}
@@ -237,12 +322,20 @@ func StageArchive(ctx context.Context, r io.Reader, w io.Writer, lim ArchiveLimi
 			return stats, archiveStreamError(err)
 		}
 		if header.FileInfo().IsDir() {
+			// Read past any payload here, so the next header's bound
+			// covers only headers.
+			if _, err := io.Copy(io.Discard, tr); err != nil {
+				return stats, archiveStreamError(err)
+			}
 			continue
 		}
 		if !safeArchiveEntryName(header.Name) {
 			return stats, unsafeArchiveEntryError(header.Name)
 		}
 		name := filepath.ToSlash(header.Name)
+		if err := checkArchiveAssetEntry(name); err != nil {
+			return stats, err
+		}
 		if name == archiveManifestName {
 			// The manifest is the one entry held in memory, so it is admitted
 			// against the entry-size ceiling before it is buffered.

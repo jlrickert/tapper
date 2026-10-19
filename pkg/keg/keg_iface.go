@@ -313,10 +313,6 @@ type Keg interface {
 	// read snapshot, and the caller must Close the returned reader.
 	ExportNodes(ctx context.Context, opts ExportNodesOptions) (io.ReadCloser, error)
 
-	// ImportNodes loads a keg-archive stream into the keg, replacing
-	// existing nodes with matching ids, and rebuilds derived state.
-	ImportNodes(ctx context.Context, r io.Reader, opts ImportNodesOptions) ([]ImportedNode, error)
-
 	// Cross-process locks
 
 	// Lock acquires a cross-process advisory lock on a node.
@@ -469,7 +465,17 @@ type ArchiveSpool interface {
 	Discard() error
 }
 
-// ImportNodesOptions configures Keg.ImportNodes.
+// NodeImporter loads keg-archives into a keg. It is not part of Keg: only a
+// storage engine that owns the keg's data implements it (LocalKeg, and a
+// hub's own engine for its archive restore). A keg reached over a hub's API
+// has no import; the hub loads an archive through its restore instead.
+type NodeImporter interface {
+	// ImportNodes loads a keg-archive stream into the keg, replacing
+	// existing nodes with matching ids, and rebuilds derived state.
+	ImportNodes(ctx context.Context, r io.Reader, opts ImportNodesOptions) ([]ImportedNode, error)
+}
+
+// ImportNodesOptions configures NodeImporter.ImportNodes.
 type ImportNodesOptions struct {
 	// AssignNewIDs allocates fresh sequential node ids for the archive's
 	// nodes instead of landing them on their archive ids. Links between

@@ -350,7 +350,7 @@ can read; an agent with no flight has no KEG access.
 | `flight_create`, `flight_edit`, `flight_delete` | Manage Hub-backed flights when the session agent holds the tool and the identity owns/administers the target namespace; edits/deletes require the hash from `flight_read` |
 
 MCP does not expose Tapper configuration, config templates, repository setup,
-archive import/export, raw auth status, license text, keg visibility, or
+archive export, raw auth status, license text, keg visibility, or
 namespace administration. Those remain external CLI, configuration, or Hub UI
 operations. To put a node's content in another KEG, read it with `node_read` and
 `node_create` it there.

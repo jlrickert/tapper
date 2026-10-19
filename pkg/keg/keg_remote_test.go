@@ -502,24 +502,6 @@ func newMockOpsHub(t *testing.T, f *sandbox.Sandbox, token string) *mockOpsHub {
 		w.Header().Set("Content-Type", "application/gzip")
 		_, _ = io.Copy(w, rc)
 	})
-	mux.HandleFunc("POST /archive", func(w http.ResponseWriter, r *http.Request) {
-		imported, err := backing.ImportNodes(r.Context(), r.Body, kegpkg.ImportNodesOptions{
-			AssignNewIDs: r.URL.Query().Get("assign_new_ids") == "1",
-		})
-		if err != nil {
-			h.kegError(w, err)
-			return
-		}
-		type importedWire struct {
-			Source string `json:"source"`
-			ID     string `json:"id"`
-		}
-		out := make([]importedWire, len(imported))
-		for i, n := range imported {
-			out[i] = importedWire{Source: n.SourceID, ID: n.ID.Path()}
-		}
-		h.writeJSON(w, http.StatusOK, map[string]any{"imported": out})
-	})
 
 	// Locks
 	mux.HandleFunc("POST /nodes/{id}/lock", func(w http.ResponseWriter, r *http.Request) {
@@ -816,31 +798,6 @@ func TestRemoteKegExportImport(t *testing.T) {
 	content, err := dst.GetContent(ctx, kegpkg.NodeId{ID: 1})
 	require.NoError(t, err)
 	require.Contains(t, string(content), "Alpha body")
-}
-
-func TestRemoteKegImportRoundTrip(t *testing.T) {
-	t.Parallel()
-	f, _, rk := newRemoteKegFixture(t)
-	ctx := f.Context()
-
-	// Export a node from a local keg and import it into the remote keg
-	// with fresh ids.
-	src := kegpkg.NewLocalKeg(newTestMemoryRepo(f.Runtime()), f.Runtime())
-	initNonStrictTestKeg(t, src, ctx)
-	srcID, err := src.Create(ctx, &kegpkg.CreateOptions{Body: []byte("# Imported node\n\ntravels by archive")})
-	require.NoError(t, err)
-
-	rc, err := src.ExportNodes(ctx, kegpkg.ExportNodesOptions{NodeIDs: []kegpkg.NodeId{srcID.ID}})
-	require.NoError(t, err)
-	defer rc.Close()
-
-	imported, err := rk.ImportNodes(ctx, rc, kegpkg.ImportNodesOptions{AssignNewIDs: true})
-	require.NoError(t, err)
-	require.Len(t, imported, 1)
-
-	content, err := rk.GetContent(ctx, imported[0].ID)
-	require.NoError(t, err)
-	require.Contains(t, string(content), "travels by archive")
 }
 
 // TestRemoteKegSingleRoundTrip is the headline guarantee of the RemoteKeg

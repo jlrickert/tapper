@@ -255,5 +255,8 @@ func (k *LocalKeg) SetTarget(target *Target) {
 	k.target = target
 }
 
-// LocalKeg implements the full Keg interface.
-var _ Keg = (*LocalKeg)(nil)
+// LocalKeg implements the full Keg interface and imports archives.
+var (
+	_ Keg          = (*LocalKeg)(nil)
+	_ NodeImporter = (*LocalKeg)(nil)
+)

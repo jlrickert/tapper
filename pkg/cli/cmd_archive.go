@@ -11,13 +11,12 @@ import (
 func NewArchiveCmd(deps *Deps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "archive",
-		Short: "import and export keg archives",
-		Long:  `Export nodes to a tar archive or import nodes from one.`,
+		Short: "export keg archives",
+		Long:  `Export nodes to a tar archive.`,
 	}
 
 	cmd.AddCommand(
 		NewArchiveExportCmd(deps),
-		NewArchiveImportCmd(deps),
 	)
 	return cmd
 }
@@ -50,37 +49,6 @@ func NewArchiveExportCmd(deps *Deps) *cobra.Command {
 	cmd.Flags().StringVarP(&opts.OutputPath, "output", "o", "", "archive output path")
 	_ = cmd.MarkFlagRequired("output")
 	_ = cmd.MarkFlagFilename("output", "tar", "tar.gz", "tgz", "gz")
-	return cmd
-}
-
-func NewArchiveImportCmd(deps *Deps) *cobra.Command {
-	var opts tapper.ImportOptions
-
-	cmd := &cobra.Command{
-		Use:   "import ARCHIVE",
-		Short: "import nodes from a keg archive",
-		Args:  cobra.ExactArgs(1),
-		ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-			if len(args) == 0 {
-				return nil, cobra.ShellCompDirectiveDefault
-			}
-			return nil, cobra.ShellCompDirectiveNoFileComp
-		},
-		RunE: func(cmd *cobra.Command, args []string) error {
-			applyKegTargetProfile(deps, &opts.KegTargetOptions)
-			opts.Input = args[0]
-			imported, err := deps.Tap.Import(cmd.Context(), opts)
-			if err != nil {
-				return err
-			}
-			for _, id := range imported {
-				if _, err := fmt.Fprintln(cmd.OutOrStdout(), id.Path()); err != nil {
-					return err
-				}
-			}
-			return nil
-		},
-	}
 	return cmd
 }
 

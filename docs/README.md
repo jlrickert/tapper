@@ -160,7 +160,7 @@ writing KEG files directly.
 - `tap snapshot list NODE_ID` - list node revisions.
 - `tap snapshot restore NODE_ID REV --yes` - restore a revision.
 - `tap archive export -o out.keg.tar.gz` - export a keg archive.
-- `tap archive import out.keg.tar.gz` - import a keg archive.
+- Restore an archive on the keg's hub; see [Backups And Archives](backups-and-archives.md#restore).
 - `tap keg check` - check keg health.
 - `tap index rebuild` - rebuild indexes.
 

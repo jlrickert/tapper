@@ -220,11 +220,11 @@ link for the current keg, a node (`42`, `@acme/engineering/42`), a flight
 browser. Agents get the same link from the MCP `url` tool. `tap explore kegs|flights|people QUERY`
 searches the hub's public directory; your own kegs come from `tap keg list`.
 
-Export a keg for backup or migration:
+Export a keg for backup or migration, then restore it on the keg's hub (see
+[Backups And Archives](docs/backups-and-archives.md#restore)):
 
 ```bash
 tap archive export --keg @acme/engineering -o engineering.keg.tar.gz
-tap archive import engineering.keg.tar.gz --keg @acme/engineering
 ```
 
 ## Concepts

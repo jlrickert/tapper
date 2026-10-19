@@ -1,16 +1,13 @@
 # Backups And Archives
 
-Export and import kegs as `.tar.gz` archives for backup, migration, and
-sharing.
+Export kegs as `.tar.gz` archives for backup, migration, and sharing, and
+restore a whole keg from one on its Tapper Hub.
 
 ## Quick Start
 
 ```bash
 # Export a team keg to an archive
 tap archive export --keg @acme/engineering -o ~/backups/engineering-2026-03-14.tar.gz
-
-# Import an archive into a keg (not accepted by a Tapper Hub; see Import)
-tap archive import ~/backups/engineering-2026-03-14.tar.gz --keg @acme/engineering
 ```
 
 ## Export
@@ -49,42 +46,14 @@ tap archive export -o lightweight.tar.gz --no-history
 tap archive export -o engineering.tar.gz --keg @acme/engineering
 ```
 
-## Import
+## Restore
 
-```bash
-tap archive import ARCHIVE [flags]
-```
-
-Imports nodes from an archive into the target keg. Prints the path of each
-imported node to stdout.
-
-A Tapper Hub does not accept archive imports: against a hub-backed keg,
-`tap archive import` fails with a "not supported" error that names the hub's
-archive restore endpoint (`POST /api/v1/@{namespace}/kegs/{alias}/archive/restore`).
-Restore the archive on the hub instead. A restore replaces the keg's contents
-and runs as a background job on the hub rather than merging nodes in.
-
-### Flags
-
-| Flag | Description |
-|------|-------------|
-| `--keg @namespace/name` | Target a specific keg |
-| `--namespace NAME` | Resolve a bare keg name in a namespace |
-| `--hub NAME` | Override namespace-to-hub resolution |
-
-### Sources
-
-Archives can be loaded from local files or remote URLs:
-
-```bash
-# Local file
-tap archive import ./backup.tar.gz
-
-# Remote URL
-tap archive import https://example.com/shared-keg.tar.gz
-```
-
-HTTP and HTTPS URLs are downloaded automatically before import.
+`tap` does not load archives into a keg. A full-keg export is restored on the
+Tapper Hub that holds the keg, through its archive restore endpoint
+(`POST /api/v1/@{namespace}/kegs/{alias}/archive/restore`) or the keg's
+settings page. A restore replaces the keg's contents with the archive's and
+runs as a background job on the hub; it needs an archive exported without
+`--nodes`.
 
 ## Archive Format
 
@@ -122,7 +91,7 @@ keg-archive/
 
 `stats.json` is included because it is derived/internal node state (for
 example hashes, timestamps, access counters, and link summaries). It is carried
-so imports can restore or remap node state consistently; authors normally edit
+so a restore can bring node state back consistently; authors normally edit
 `README.md`, `meta.yaml`, and schema files instead.
 
 ### manifest.json
@@ -151,13 +120,11 @@ revisions included.
 
 Full-keg exports include `keg.yaml`, the keg settings document, and any
 available keg-level schemas under `schemas/<type>.schema.yaml`. Exports that
-select explicit nodes with `--nodes` omit `keg.yaml` and schemas; imported
-node-filtered archives do not overwrite the target keg's settings or schemas.
+select explicit nodes with `--nodes` omit `keg.yaml` and schemas, so they
+cannot be restored over a keg.
 
-When an archive contains schemas, import validates nodes against those archived
-schemas and then replaces matching schema types in the target keg. Schema types
-that exist only in the target keg are preserved. Archives without schema
-entries continue to validate against the target keg's current schemas.
+When an archive contains schemas, a restore validates nodes against those
+archived schemas and then replaces matching schema types in the keg.
 
 ## Snapshot History
 
@@ -173,7 +140,7 @@ tap archive export -o slim.tar.gz --no-history
 ```
 
 When history is included, each node's `snapshots/` directory is preserved in
-the archive and replayed on import with original timestamps intact.
+the archive and replayed on restore with original timestamps intact.
 
 For details on how snapshots work, see [Node Snapshots](node-snapshots.md).
 
@@ -216,24 +183,15 @@ tap archive export -o ~/backups/engineering-$DATE.tar.gz --keg @acme/engineering
 
 ## Migration And Sharing
 
-The import steps below need a keg that accepts archive imports. To load an
-archive into a keg on a Tapper Hub, restore it on the hub instead; see
-[Import](#import).
+### Move a keg between hubs
 
-### Move a keg between machines
-
-On the source machine:
+Export the keg from the source hub:
 
 ```bash
 tap archive export -o engineering.tar.gz --keg @acme/engineering
 ```
 
-Copy the archive to the target machine (scp, USB drive, cloud storage, etc.),
-then import:
-
-```bash
-tap archive import engineering.tar.gz --keg @acme/engineering
-```
+Then restore the archive into a keg on the target hub (see [Restore](#restore)).
 
 ### Share nodes with a collaborator
 
@@ -243,46 +201,26 @@ Export specific nodes and host the archive or share the file directly:
 tap archive export -o shared-notes.tar.gz --nodes 10,20,30
 ```
 
-The recipient imports from a local file or a URL:
-
-```bash
-tap archive import https://example.com/shared-notes.tar.gz
-```
+The archive is a plain gzip tar, so its nodes can be read without `tap`.
 
 ## Behavior Details
 
-Understanding these behaviors helps avoid surprises during import:
-
-- **Preserved IDs**: Archive imports restore nodes at their archive IDs,
-  replacing existing nodes at matching IDs. The hub API can request fresh IDs
-  with `assign_new_ids=1`; the CLI archive import keeps archive IDs.
-
-- **Link rewriting**: Relative links (`../N`) in node content are
-  automatically rewritten to point to the newly allocated IDs. Links in
-  `stats.json` are also remapped.
-
-- **Asset preservation**: If an imported node replaces an existing node at the
-  same target ID, any file and image attachments on the existing node are
-  preserved. Archive-carried `assets/` and `images/` entries land last and win
-  when names collide.
-
-- **Atomic failure**: If any node fails to import, the entire import operation
-  fails. Partially imported nodes are not rolled back, but the dex is only
-  rebuilt on complete success.
-
-- **Dex rebuild**: Keg indices are automatically rebuilt after a successful
-  import.
+- **Preserved IDs**: A restore lands nodes at their archive IDs and removes
+  every node the archive does not carry; node 0 is never removed.
 
 - **Compression detection**: An archive that starts with the gzip magic bytes
   is decompressed; anything else is read as an uncompressed tar.
 
-- **Streaming read**: The importer decompresses an archive once into a plain
-  tar and reads each entry by offset, so it never holds every payload in
-  memory at once. Directory entries are ignored, an entry name that is
-  absolute or contains `..` rejects the archive, and when a name appears more
-  than once the last entry wins.
+- **Streaming read**: A restore decompresses an archive once into a plain tar
+  and reads each entry by offset, so it never holds every payload in memory
+  at once. Directory entries are ignored, and when a name appears more than
+  once the last entry wins. An entry name that is absolute or contains `..`
+  rejects the archive, as does an attachment entry under `assets/`, `images/`,
+  or `videos/` whose name is not a single plain filename.
 
 - **Size limits**: A Tapper Hub bounds the archives it exports and restores by
-  entry count, entry size, and compressed and uncompressed size. It checks the
-  same limits on both sides, so an archive the hub exports is one it will
-  restore.
+  entry count, entry size, and compressed and uncompressed size. The
+  uncompressed size counts every byte of the tar stream, extended (PAX and GNU
+  long-name) headers included, and an archive is refused as soon as it crosses
+  a limit rather than after it has been read in full. The hub checks the same
+  limits on both sides, so an archive the hub exports is one it will restore.
