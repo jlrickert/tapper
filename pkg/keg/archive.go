@@ -1373,16 +1373,31 @@ func writeArchiveEntriesAssets(ctx context.Context, repo Repository, entries arc
 
 func validateArchiveAssetEntries(entries archiveEntries) error {
 	for _, name := range entries.WithPrefix("keg-archive/nodes/") {
-		parts := strings.Split(name, "/")
-		if len(parts) < 4 {
-			continue
+		if err := checkArchiveAssetEntry(name); err != nil {
+			return err
 		}
-		switch parts[3] {
-		case "assets", "images", "videos":
-			assetName := strings.Join(parts[4:], "/")
-			if err := validAssetName(assetName); err != nil {
-				return fmt.Errorf("archive asset entry %q: %w", name, err)
-			}
+	}
+	return nil
+}
+
+// checkArchiveAssetEntry rejects a node attachment entry (under a node's
+// assets/, images/, or videos/) whose name import would refuse to write, so
+// staging and import agree on which archives are valid. The error wraps both
+// ErrInvalidAssetName and ErrInvalid: the archive, not the keg, is at fault.
+// Other entries pass.
+func checkArchiveAssetEntry(name string) error {
+	rest, ok := strings.CutPrefix(name, "keg-archive/nodes/")
+	if !ok {
+		return nil
+	}
+	parts := strings.Split(rest, "/")
+	if len(parts) < 2 {
+		return nil
+	}
+	switch parts[1] {
+	case "assets", "images", "videos":
+		if err := validAssetName(strings.Join(parts[2:], "/")); err != nil {
+			return fmt.Errorf("archive asset entry %q: %w: %w", name, err, ErrInvalid)
 		}
 	}
 	return nil
