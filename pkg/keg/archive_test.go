@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -655,4 +656,93 @@ func TestArchiveImportRejectsNestedAssetNameBeforeWritingNodes(t *testing.T) {
 	exists, err := dst.NodeExists(ctx, id.ID)
 	require.NoError(t, err)
 	require.False(t, exists)
+}
+
+// rewriteArchive replaces old with new in every entry's name and content,
+// standing in for an archive another version wrote.
+func rewriteArchive(t *testing.T, archive []byte, old, new string) []byte {
+	t.Helper()
+	gzr, err := gzip.NewReader(bytes.NewReader(archive))
+	require.NoError(t, err)
+	defer gzr.Close()
+
+	var raw bytes.Buffer
+	tr := tar.NewReader(gzr)
+	gzw := gzip.NewWriter(&raw)
+	tw := tar.NewWriter(gzw)
+	for {
+		header, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		require.NoError(t, err)
+		data, err := io.ReadAll(tr)
+		require.NoError(t, err)
+		data = bytes.ReplaceAll(data, []byte(old), []byte(new))
+		copyHeader := *header
+		copyHeader.Name = strings.ReplaceAll(header.Name, old, new)
+		copyHeader.Size = int64(len(data))
+		require.NoError(t, tw.WriteHeader(&copyHeader))
+		_, err = tw.Write(data)
+		require.NoError(t, err)
+	}
+	require.NoError(t, tw.Close())
+	require.NoError(t, gzw.Close())
+	return raw.Bytes()
+}
+
+// A schema name earlier versions accepted, such as one with a space, still
+// imports from an archive, and its nodes still validate against it. Only
+// names that would escape the schemas directory are refused.
+func TestArchiveImportKeepsLegacySchemaNames(t *testing.T) {
+	t.Parallel()
+	fx := NewSandbox(t)
+	ctx := fx.Context()
+
+	const placeholder = "legacyplaceholdertype"
+	src := keg.NewLocalKeg(newTestMemoryRepo(fx.Runtime()), fx.Runtime())
+	initNonStrictTestKeg(t, src, ctx)
+	require.NoError(t, src.CreateSchema(ctx, placeholder, bytes.ReplaceAll(archiveTaskSchema, []byte("task"), []byte(placeholder))))
+	_, err := src.Create(ctx, &keg.CreateOptions{Body: []byte("# Standup\n"), Meta: []byte("type: " + placeholder + "\n")})
+	require.NoError(t, err)
+	archive := mustExportArchive(t, src, keg.ExportNodesOptions{})
+
+	for _, name := range []string{"meeting notes", strings.Repeat("long", 20)} {
+		t.Run(name, func(t *testing.T) {
+			dst := keg.NewLocalKeg(newTestMemoryRepo(fx.Runtime()), fx.Runtime())
+			initNonStrictTestKeg(t, dst, ctx)
+			imported, err := dst.ImportNodes(ctx, bytes.NewReader(rewriteArchive(t, archive, placeholder, name)), keg.ImportNodesOptions{})
+			require.NoError(t, err)
+			var standup keg.NodeId
+			for _, node := range imported {
+				if node.SourceID == "1" {
+					standup = node.ID
+				}
+			}
+			require.NotZero(t, standup.ID, "imported: %v", imported)
+
+			raw, err := dst.ReadSchema(ctx, name)
+			require.NoError(t, err)
+			require.Contains(t, string(raw), "type: "+name)
+			result, err := dst.ValidateNode(ctx, standup)
+			require.NoError(t, err)
+			require.True(t, result.Valid, "issues: %v", result.Issues)
+			require.Equal(t, name, result.Type)
+
+			// An imported legacy schema can still be edited, but no new
+			// schema can take such a name.
+			require.NoError(t, dst.WriteSchema(ctx, name, raw, keg.SchemaWriteOptions{ExpectedHash: keg.DocumentHash(raw)}))
+			other := name + " two"
+			require.ErrorIs(t, dst.CreateSchema(ctx, other, bytes.ReplaceAll(raw, []byte(name), []byte(other))), keg.ErrInvalid)
+		})
+	}
+
+	for _, name := range []string{"a..b", `a\b`} {
+		t.Run("refuses "+name, func(t *testing.T) {
+			dst := keg.NewLocalKeg(newTestMemoryRepo(fx.Runtime()), fx.Runtime())
+			initNonStrictTestKeg(t, dst, ctx)
+			_, err := dst.ImportNodes(ctx, bytes.NewReader(rewriteArchive(t, archive, placeholder, name)), keg.ImportNodesOptions{})
+			require.ErrorIs(t, err, keg.ErrInvalid)
+		})
+	}
 }

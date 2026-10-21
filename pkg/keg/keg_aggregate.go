@@ -951,6 +951,11 @@ func (k *LocalKeg) createSchema(ctx context.Context, typeName string, data []byt
 	if !ok {
 		return ErrNotSupported
 	}
+	// A new schema takes the strict name; one restored from an archive is
+	// written as it was named.
+	if err := ValidSchemaTypeName(typeName); err != nil {
+		return err
+	}
 	if _, err := validateSchemaDefinitionForType(typeName, data); err != nil {
 		return err
 	}

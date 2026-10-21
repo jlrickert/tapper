@@ -1,6 +1,6 @@
 // Package tapper — the Hub's one-call caller context.
 //
-// GET /api/v1/context answers, in one round trip, what `tap info` otherwise
+// GET /api/v1/info answers, in one round trip, what `tap info` otherwise
 // asks the selected Hub in three: who the token belongs to, the active flight,
 // and the identity KEG catalog. Hubs that predate the endpoint answer 404; the
 // client then issues the three requests concurrently and remembers the 404 for
@@ -22,12 +22,12 @@ import (
 	"github.com/jlrickert/tapper/pkg/keg"
 )
 
-const hubContextPath = "/api/v1/context"
+const hubContextPath = "/api/v1/info"
 
-// errHubContextUnsupported reports a Hub that has no /api/v1/context.
+// errHubContextUnsupported reports a Hub that has no /api/v1/info.
 var errHubContextUnsupported = errors.New("hub has no context endpoint")
 
-// hubContextResponse is the body of GET /api/v1/context. Decoding ignores
+// hubContextResponse is the body of GET /api/v1/info. Decoding ignores
 // unknown fields so the Hub can extend it without a contract revision.
 type hubContextResponse struct {
 	User        *WhoAmI           `json:"user"`
@@ -62,7 +62,7 @@ type hubContextKeg struct {
 	EffectiveRole string `json:"effective_role"`
 }
 
-// getHubContext calls GET /api/v1/context. flight, when non-empty, is an
+// getHubContext calls GET /api/v1/info. flight, when non-empty, is an
 // @namespace/+slug ref, or a bare +slug the Hub resolves among the flights
 // GET /api/v1/flights lists for the caller: one match is that flight, none
 // is not found, and several are ambiguous. A flight the Hub cannot load or
@@ -99,7 +99,7 @@ func getHubContext(ctx context.Context, hubURL, token, flight string) (*hubConte
 	case http.StatusUnauthorized:
 		return nil, fmt.Errorf("hub: %w (%s)", ErrTokenRejected, resp.Status)
 	default:
-		return nil, fmt.Errorf("hub: context returned %s for %s", resp.Status, hubContextPath)
+		return nil, fmt.Errorf("hub: info returned %s for %s", resp.Status, hubContextPath)
 	}
 
 	body, err := io.ReadAll(resp.Body)
@@ -113,7 +113,7 @@ func getHubContext(ctx context.Context, hubURL, token, flight string) (*hubConte
 	return &out, nil
 }
 
-// hubContextProbe remembers which Hubs answered 404 for /api/v1/context, so a
+// hubContextProbe remembers which Hubs answered 404 for /api/v1/info, so a
 // long-lived Tap asks an older Hub only once.
 type hubContextProbe struct {
 	mu          sync.Mutex
@@ -173,7 +173,7 @@ type hubContext struct {
 
 // loadHubContext resolves the selected hub's identity, the requested flight,
 // and the identity KEG catalog. The selected hub answers all three with one
-// GET /api/v1/context; a hub without it gets the three requests concurrently.
+// GET /api/v1/info; a hub without it gets the three requests concurrently.
 func (t *Tap) loadHubContext(ctx context.Context, req hubContextRequest) hubContext {
 	if t == nil || t.ConfigService == nil {
 		return t.loadHubContextSeparately(ctx, req)
@@ -251,7 +251,7 @@ func (t *Tap) loadHubContext(ctx context.Context, req hubContextRequest) hubCont
 	return out
 }
 
-// loadHubContextSeparately is the fallback for hubs without /api/v1/context:
+// loadHubContextSeparately is the fallback for hubs without /api/v1/info:
 // the identity probe, the flight, and the catalog, issued concurrently.
 func (t *Tap) loadHubContextSeparately(ctx context.Context, req hubContextRequest) hubContext {
 	var out hubContext

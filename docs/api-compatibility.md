@@ -100,7 +100,7 @@ the flight's cover itself and refuses a cover wider than 50 KEGs with
 
 ## Caller context route
 
-`GET /api/v1/context` is an additive route, so it did not change the
+`GET /api/v1/info` is an additive route, so it did not change the
 revision. It returns, in one request, what `tap info` otherwise asks the
 selected Hub in three: the `whoami` user, the flight named by the optional
 `flight` query parameter (`@namespace/+slug`, or a bare `+slug` the Hub

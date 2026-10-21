@@ -530,11 +530,16 @@ type ContextInfoFlight struct {
 }
 
 // ContextInfoFlightKeg is one KEG the active flight covers, at the role the
-// caller holds through it.
+// caller holds through it. Source is the KEG the flight lists whose role it
+// took, Distance the links between them, and Path, for a KEG reached through
+// links, the KEGs along that shortest path from Source to Ref.
 type ContextInfoFlightKeg struct {
-	Ref   string `yaml:"ref" json:"ref"`
-	Role  string `yaml:"role,omitempty" json:"role,omitempty"`
-	Title string `yaml:"title,omitempty" json:"title,omitempty"`
+	Ref      string   `yaml:"ref" json:"ref"`
+	Role     string   `yaml:"role,omitempty" json:"role,omitempty"`
+	Title    string   `yaml:"title,omitempty" json:"title,omitempty"`
+	Source   string   `yaml:"source,omitempty" json:"source,omitempty"`
+	Distance int      `yaml:"distance,omitempty" json:"distance,omitempty"`
+	Path     []string `yaml:"path,omitempty" json:"path,omitempty"`
 }
 
 // ContextInfoResult summarizes the CLI's context for `tap info`.
@@ -550,7 +555,7 @@ type ContextInfoResult struct {
 // KEGs that flight covers. It is best-effort: a hub that cannot be reached or
 // a flight that cannot be loaded becomes a warning, and the locally
 // configured defaults are still reported. The hub's part comes from one
-// GET /api/v1/context, or from concurrent requests on a hub without it.
+// GET /api/v1/info, or from concurrent requests on a hub without it.
 func (t *Tap) ContextInfo(ctx context.Context, opts KegTargetOptions) (ContextInfoResult, error) {
 	out := ContextInfoResult{Kegs: []ContextInfoFlightKeg{}}
 	slots := t.configSlots(opts)
@@ -595,8 +600,21 @@ func (t *Tap) ContextInfo(ctx context.Context, opts KegTargetOptions) (ContextIn
 		out.Warnings = append(out.Warnings, fmt.Sprintf("flight kegs: %v", hub.kegsErr))
 		return out, nil
 	}
+	decided := map[string]HubEffectiveKeg{}
+	if hub.flight != nil {
+		for _, c := range hub.flight.EffectiveCover {
+			decided[c.Ref] = c
+		}
+	}
 	for _, row := range ProjectOrientationKegs(flight, hub.kegs) {
-		out.Kegs = append(out.Kegs, ContextInfoFlightKeg{Ref: row.Ref, Role: EffectiveOrientationRole(row), Title: row.Title})
+		k := ContextInfoFlightKeg{Ref: row.Ref, Role: EffectiveOrientationRole(row), Title: row.Title}
+		if c, ok := decided[row.Ref]; ok {
+			k.Source, k.Distance = c.Source, c.Distance
+			if c.Distance > 0 {
+				k.Path = c.Path
+			}
+		}
+		out.Kegs = append(out.Kegs, k)
 	}
 	return out, nil
 }

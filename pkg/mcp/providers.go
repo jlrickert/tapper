@@ -803,6 +803,17 @@ type KegDeletionProvider interface {
 	DeleteKeg(context.Context, string) error
 }
 
+// KegDeletionAuthorizer is a KegDeletionProvider that authorizes a delete
+// with the session's full authority itself, as a Hub does: that authority may
+// reach past the session flight's cover (a flight managing the namespace's
+// KEGs), so keg_delete leaves the decision to it instead of pre-checking the
+// cover.
+type KegDeletionAuthorizer interface {
+	// AuthorizesKegDeletion reports whether DeleteKeg authorizes the delete
+	// itself, so keg_delete skips its cover pre-check.
+	AuthorizesKegDeletion() bool
+}
+
 func (p localKegDiscoveryProvider) DeleteKeg(ctx context.Context, ref string) error {
 	_, err := p.tap.KegDelete(ctx, tapper.KegDeleteOptions{Keg: ref})
 	return err

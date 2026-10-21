@@ -26,6 +26,7 @@ type perCallFlightBackend struct {
 	created    []string
 	resolves   int
 	resolveErr error
+	updates    []tapper.UpdateFlightOptions
 }
 
 type refreshFlightBackend struct {
@@ -275,7 +276,7 @@ func (p *perCallFlightBackend) CreateFlight(_ context.Context, opts tapper.Creat
 		return nil, err
 	}
 	flight := &tapper.Flight{Name: ref.Canonical(), Namespace: ref.Namespace, Slug: ref.Slug, Source: "test",
-		FlightManifest: tapper.FlightManifest{Title: opts.Title, Visibility: opts.Visibility, Cover: opts.Cover, Subflights: opts.Subflights, Instructions: opts.Instructions}}
+		FlightManifest: tapper.FlightManifest{Title: opts.Title, Visibility: opts.Visibility, Cover: opts.Cover, Subflights: opts.Subflights, Instructions: opts.Instructions, ManageKegs: opts.ManageKegs, ManageFlights: opts.ManageFlights}}
 	p.mu.Lock()
 	p.flights[flight.Name] = flight
 	p.mu.Unlock()
@@ -283,6 +284,9 @@ func (p *perCallFlightBackend) CreateFlight(_ context.Context, opts tapper.Creat
 }
 
 func (p *perCallFlightBackend) UpdateFlight(_ context.Context, opts tapper.UpdateFlightOptions) (*tapper.Flight, error) {
+	p.mu.Lock()
+	p.updates = append(p.updates, opts)
+	p.mu.Unlock()
 	return p.GetFlight(context.Background(), opts.Ref)
 }
 

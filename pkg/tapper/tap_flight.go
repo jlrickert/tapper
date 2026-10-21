@@ -33,6 +33,10 @@ type CreateFlightOptions struct {
 	Instructions string
 	Cover        []FlightCover
 	Subflights   []string
+	// ManageKegs and ManageFlights are the flight's switches
+	// (FlightManifest.ManageKegs, FlightManifest.ManageFlights).
+	ManageKegs    bool
+	ManageFlights bool
 }
 
 // UpdateFlightOptions is a partial update: nil fields keep the flight's
@@ -41,14 +45,16 @@ type CreateFlightOptions struct {
 // slug that exists in several places cannot read one flight and
 // overwrite another.
 type UpdateFlightOptions struct {
-	Ref          string
-	Title        *string
-	Description  *string `json:"description,omitempty" jsonschema:"short description, separate from instructions"`
-	Visibility   *string
-	Instructions *string
-	Cover        *[]FlightCover
-	Subflights   *[]string
-	ExpectedHash string
+	Ref           string
+	Title         *string
+	Description   *string `json:"description,omitempty" jsonschema:"short description, separate from instructions"`
+	Visibility    *string
+	Instructions  *string
+	Cover         *[]FlightCover
+	Subflights    *[]string
+	ManageKegs    *bool
+	ManageFlights *bool
+	ExpectedHash  string
 }
 
 type DeleteFlightOptions struct {
@@ -88,6 +94,12 @@ func (t *Tap) CreateFlight(ctx context.Context, opts CreateFlightOptions) (*Flig
 		Instructions: opts.Instructions,
 		Cover:        hubCoverFromFlightCover(opts.Cover),
 		Subflights:   append([]string(nil), opts.Subflights...),
+	}
+	if opts.ManageKegs {
+		flight.ManageKegs = boolRef(true)
+	}
+	if opts.ManageFlights {
+		flight.ManageFlights = boolRef(true)
 	}
 	hf, err := CreateHubFlight(ctx, entry.URL, t.FlightService.hubToken(entry), ref.Namespace, flight)
 	if err != nil {
@@ -139,6 +151,16 @@ func (t *Tap) UpdateFlight(ctx context.Context, opts UpdateFlightOptions) (*Flig
 	if opts.Subflights != nil {
 		next.Subflights = append([]string(nil), (*opts.Subflights)...)
 	}
+	// The switches are sent only when the caller changes them: leaving one
+	// out keeps the flight's current value, so an edit of anything else
+	// never touches what the flight lets a request manage.
+	next.Manage, next.ManageKegs, next.ManageFlights = nil, nil, nil
+	if opts.ManageKegs != nil {
+		next.ManageKegs = boolRef(*opts.ManageKegs)
+	}
+	if opts.ManageFlights != nil {
+		next.ManageFlights = boolRef(*opts.ManageFlights)
+	}
 	hf, err := UpdateHubFlight(ctx, entry.URL, token, ref.Namespace, ref.Slug, next, opts.ExpectedHash)
 	if err != nil {
 		return nil, err
@@ -146,6 +168,8 @@ func (t *Tap) UpdateFlight(ctx context.Context, opts UpdateFlightOptions) (*Flig
 	t.FlightService.invalidateFlights()
 	return flightFromHub(*hf, hubName), nil
 }
+
+func boolRef(v bool) *bool { return &v }
 
 func normalizeFlightVisibility(visibility string) string {
 	visibility = strings.TrimSpace(visibility)

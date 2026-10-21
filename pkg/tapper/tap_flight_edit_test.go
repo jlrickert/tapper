@@ -28,6 +28,9 @@ type flightEditFixture struct {
 	mu      sync.Mutex
 	current tapper.HubFlight
 	puts    []tapper.HubFlight
+	// received holds each PUT body exactly as sent, before the fake Hub
+	// fills in what a write left out.
+	received []tapper.HubFlight
 }
 
 func newFlightEditFixture(t *testing.T) *flightEditFixture {
@@ -55,6 +58,17 @@ func newFlightEditFixture(t *testing.T) *flightEditFixture {
 			body.Namespace = "foldwise"
 			body.Slug = "agent-work"
 			fx.mu.Lock()
+			fx.received = append(fx.received, body)
+			// The Hub keeps a switch when a write leaves it out.
+			if body.ManageKegs == nil {
+				body.ManageKegs = fx.current.ManageKegs
+			}
+			if body.ManageFlights == nil {
+				body.ManageFlights = fx.current.ManageFlights
+			}
+			if body.ManageKegs == nil && body.ManageFlights == nil {
+				body.Manage = fx.current.Manage
+			}
 			fx.puts = append(fx.puts, body)
 			fx.current = body
 			fx.mu.Unlock()
@@ -298,7 +312,9 @@ func TestEditFlight_EditorStartsWithSchemaBackedManifest(t *testing.T) {
 	// is published on main.
 	require.True(t, strings.HasPrefix(opened,
 		schemas.ModelinePrefix+schemas.ModelineURI(fx.Runtime(), schemas.FlightManifest)+"\n"), "got: %s", opened)
-	require.Contains(t, opened, "# Flight @foldwise/+agent-work. Ref is immutable; edit title, visibility, cover, and instructions.")
+	require.Contains(t, opened, "# Flight @foldwise/+agent-work. Ref is immutable; edit title, visibility, cover, manageKegs, manageFlights, and instructions.")
+	require.Contains(t, opened, "manageKegs: false")
+	require.Contains(t, opened, "manageFlights: false")
 	require.Contains(t, opened, `title: ""`)
 	require.Contains(t, opened, `visibility: private`)
 	require.NotContains(t, opened, "capabilities")

@@ -64,7 +64,7 @@ func (t *Tap) SchemaHash(ctx context.Context, opts SchemaOptions) (string, error
 // DeleteSchema. Reading schemas stays viewer.
 func (t *Tap) EditSchema(ctx context.Context, opts EditSchemaOptions) error {
 	typeName := strings.TrimSpace(opts.Type)
-	if err := keg.ValidSchemaTypeName(typeName); err != nil {
+	if err := keg.ValidSchemaStorageName(typeName); err != nil {
 		return err
 	}
 	k, err := t.resolveKegForRole(ctx, opts.KegTargetOptions, FlightRoleAdmin)
