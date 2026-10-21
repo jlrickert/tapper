@@ -17,24 +17,30 @@ type flightShowInput struct {
 }
 
 type flightCreateInput struct {
-	Ref          string   `json:"ref" jsonschema:"Flight reference (@namespace/+slug; a bare slug uses the default namespace)."`
-	Title        string   `json:"title,omitempty" jsonschema:"Flight title."`
-	Description  string   `json:"description,omitempty" jsonschema:"Short description, separate from instructions."`
-	Visibility   string   `json:"visibility,omitempty" jsonschema:"Flight visibility: private (default) or public."`
-	Instructions string   `json:"instructions,omitempty" jsonschema:"Markdown instructions."`
-	Cover        []string `json:"cover,omitempty" jsonschema:"Covered KEGs with role caps, such as @ns/keg=viewer, @ns/keg=editor, or @ns/keg=admin (bare entries default to viewer). A covered keg also covers the kegs its notes link to, to depth 2; @ns/keg=none blocks a keg however it is reached."`
-	Subflights   []string `json:"subflights,omitempty" jsonschema:"Ordered child flight references; bare +slug references use this flight's namespace."`
+	Ref           string   `json:"ref" jsonschema:"Flight reference (@namespace/+slug; a bare slug uses the default namespace)."`
+	Title         string   `json:"title,omitempty" jsonschema:"Flight title."`
+	Description   string   `json:"description,omitempty" jsonschema:"Short description, separate from instructions."`
+	Visibility    string   `json:"visibility,omitempty" jsonschema:"Flight visibility: private (default) or public."`
+	Instructions  string   `json:"instructions,omitempty" jsonschema:"Markdown instructions."`
+	Cover         []string `json:"cover,omitempty" jsonschema:"Covered KEGs with role caps, such as @ns/keg=viewer, @ns/keg=editor, or @ns/keg=admin (bare entries default to viewer). A covered keg also covers the kegs its notes link to, to depth 2; @ns/keg=none blocks a keg however it is reached."`
+	Subflights    []string `json:"subflights,omitempty" jsonschema:"Ordered child flight references; bare +slug references use this flight's namespace."`
+	ManageKegs    bool     `json:"manage_kegs,omitempty" jsonschema:"Let a request rooted on this flight administer every KEG in the flight's namespace: create and delete KEGs, edit their settings, change their visibility, and manage their grants, even outside its cover (node content outside the cover stays out of reach), within your own role. Default false."`
+	ManageFlights bool     `json:"manage_flights,omitempty" jsonschema:"Let a request rooted on this flight create, edit, and delete the flights of its namespace, within your own role. Default false."`
+	Manage        bool     `json:"manage,omitempty" jsonschema:"Deprecated: sets both manage_kegs and manage_flights."`
 }
 
 type flightEditInput struct {
-	Ref          string   `json:"ref" jsonschema:"Flight reference (@namespace/+slug; a bare slug uses the default namespace)."`
-	Title        *string  `json:"title,omitempty" jsonschema:"New flight title; omit to keep the current title."`
-	Description  *string  `json:"description,omitempty" jsonschema:"Short description, separate from instructions."`
-	Visibility   *string  `json:"visibility,omitempty" jsonschema:"New visibility: private or public; omit to keep current."`
-	Instructions *string  `json:"instructions,omitempty" jsonschema:"New markdown instructions; omit to keep the current instructions."`
-	Cover        []string `json:"cover,omitempty" jsonschema:"Replacement declared cover, such as @ns/keg=viewer, or @ns/keg=none to block a keg its notes link to; entries use default depth 2. Custom depth cannot be set here. Omit to preserve all current cover entries and depths; [] clears."`
-	Subflights   []string `json:"subflights,omitempty" jsonschema:"Replacement ordered child flight references; omit to keep current."`
-	ExpectedHash string   `json:"expected_hash" jsonschema:"Precondition token returned by flight_read."`
+	Ref           string   `json:"ref" jsonschema:"Flight reference (@namespace/+slug; a bare slug uses the default namespace)."`
+	Title         *string  `json:"title,omitempty" jsonschema:"New flight title; omit to keep the current title."`
+	Description   *string  `json:"description,omitempty" jsonschema:"Short description, separate from instructions."`
+	Visibility    *string  `json:"visibility,omitempty" jsonschema:"New visibility: private or public; omit to keep current."`
+	Instructions  *string  `json:"instructions,omitempty" jsonschema:"New markdown instructions; omit to keep the current instructions."`
+	Cover         []string `json:"cover,omitempty" jsonschema:"Replacement declared cover, such as @ns/keg=viewer, or @ns/keg=none to block a keg its notes link to; entries use default depth 2. Custom depth cannot be set here. Omit to preserve all current cover entries and depths; [] clears."`
+	Subflights    []string `json:"subflights,omitempty" jsonschema:"Replacement ordered child flight references; omit to keep current."`
+	ManageKegs    *bool    `json:"manage_kegs,omitempty" jsonschema:"Whether to let a request rooted on this flight administer every KEG in the flight's namespace: create and delete KEGs, edit their settings, change their visibility, and manage their grants, even outside its cover (node content outside the cover stays out of reach), within your own role; omit to keep current. Turning it on takes a namespace owner or admin, unrooted or rooted on a flight that already manages the namespace's KEGs."`
+	ManageFlights *bool    `json:"manage_flights,omitempty" jsonschema:"Whether to let a request rooted on this flight create, edit, and delete the flights of its namespace, within your own role; omit to keep current. Turning it on takes a namespace owner or admin, unrooted or rooted on a flight that already manages the namespace's flights."`
+	Manage        *bool    `json:"manage,omitempty" jsonschema:"Deprecated: sets both manage_kegs and manage_flights where they are omitted."`
+	ExpectedHash  string   `json:"expected_hash" jsonschema:"Precondition token returned by flight_read."`
 }
 
 type flightDeleteInput struct {
@@ -99,10 +105,12 @@ func registerFlightTools(srv *sdkmcp.Server, defaults KegDefaults, flights Fligh
 		flight, err := flights.CreateFlight(ctx, tapper.CreateFlightOptions{
 			Ref:   in.Ref,
 			Title: in.Title, Description: in.Description,
-			Visibility:   in.Visibility,
-			Instructions: in.Instructions,
-			Cover:        cover,
-			Subflights:   append([]string(nil), in.Subflights...),
+			Visibility:    in.Visibility,
+			Instructions:  in.Instructions,
+			Cover:         cover,
+			Subflights:    append([]string(nil), in.Subflights...),
+			ManageKegs:    in.ManageKegs || in.Manage,
+			ManageFlights: in.ManageFlights || in.Manage,
 		})
 		if err != nil {
 			return errorResult(err), nil, nil
@@ -136,9 +144,11 @@ func registerFlightTools(srv *sdkmcp.Server, defaults KegDefaults, flights Fligh
 		opts := tapper.UpdateFlightOptions{
 			Ref:   in.Ref,
 			Title: in.Title, Description: in.Description,
-			Visibility:   in.Visibility,
-			Instructions: in.Instructions,
-			ExpectedHash: in.ExpectedHash,
+			Visibility:    in.Visibility,
+			Instructions:  in.Instructions,
+			ManageKegs:    switchOrAlias(in.ManageKegs, in.Manage),
+			ManageFlights: switchOrAlias(in.ManageFlights, in.Manage),
+			ExpectedHash:  in.ExpectedHash,
 		}
 		if in.Cover != nil {
 			cover, err := tapper.ParseFlightCoverSpecs(in.Cover)
@@ -205,6 +215,12 @@ func renderFlight(f *tapper.Flight) string {
 	}
 	fmt.Fprintf(&b, "source: %s\n", f.Source)
 	fmt.Fprintf(&b, "visibility: %s\n", f.Visibility)
+	if f.ManageKegs {
+		b.WriteString("manage_kegs: true (a request rooted on this flight administers its namespace's KEGs)\n")
+	}
+	if f.ManageFlights {
+		b.WriteString("manage_flights: true (a request rooted on this flight creates, edits, and deletes its namespace's flights)\n")
+	}
 	if len(f.Cover) > 0 {
 		b.WriteString("cover:\n")
 		for _, c := range f.Cover {
@@ -233,15 +249,17 @@ func renderFlight(f *tapper.Flight) string {
 // Do not serialize Flight itself: effective cover and internal identity fields
 // are not manifest fields and do not describe the authority of an inspection.
 type PublicFlight struct {
-	Name         string              `json:"name"`
-	Hash         string              `json:"hash"`
-	Title        string              `json:"title"`
-	Description  string              `json:"description"`
-	Source       string              `json:"source"`
-	Visibility   string              `json:"visibility"`
-	Cover        []PublicFlightCover `json:"cover"`
-	Subflights   []string            `json:"subflights"`
-	Instructions string              `json:"instructions"`
+	Name          string              `json:"name"`
+	Hash          string              `json:"hash"`
+	Title         string              `json:"title"`
+	Description   string              `json:"description"`
+	Source        string              `json:"source"`
+	Visibility    string              `json:"visibility"`
+	Cover         []PublicFlightCover `json:"cover"`
+	Subflights    []string            `json:"subflights"`
+	ManageKegs    bool                `json:"manage_kegs"`
+	ManageFlights bool                `json:"manage_flights"`
+	Instructions  string              `json:"instructions"`
 }
 type PublicFlightCover struct {
 	Namespace string `json:"namespace"`
@@ -261,5 +279,14 @@ func publicFlight(f *tapper.Flight) PublicFlight {
 	}
 	return PublicFlight{Name: f.Name, Hash: f.ManifestHash, Title: f.Title, Description: f.Description,
 		Source: f.Source, Visibility: f.Visibility,
-		Cover: cover, Subflights: append([]string{}, f.Subflights...), Instructions: f.Instructions}
+		Cover: cover, Subflights: append([]string{}, f.Subflights...), ManageKegs: f.ManageKegs, ManageFlights: f.ManageFlights, Instructions: f.Instructions}
+}
+
+// switchOrAlias is a flight_edit switch, or the deprecated manage alias when
+// the switch itself is omitted.
+func switchOrAlias(value, manage *bool) *bool {
+	if value != nil {
+		return value
+	}
+	return manage
 }

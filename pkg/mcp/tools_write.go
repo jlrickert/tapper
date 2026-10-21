@@ -80,15 +80,17 @@ type kegSettingsEditInput struct {
 func registerKegSettingsEdit(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:         "keg_settings_edit",
-		Description:  "Manage: Call keg_settings_read with minimal=false first, then replace the complete KEG settings with a validated YAML document using its hash as expected_hash. Requires admin access to the KEG itself, plus admin cover when a flight is selected. On conflict, merge into the returned current settings (or refetch with keg_settings_read) and retry with the returned current hash.",
+		Description:  "Manage: Call keg_settings_read with minimal=false first, then replace the complete KEG settings with a validated YAML document using its hash as expected_hash. Requires admin access to the KEG itself, plus admin cover when a flight is selected, or a Hub flight that manages the namespace's KEGs (manage_kegs). On conflict, merge into the returned current settings (or refetch with keg_settings_read) and retry with the returned current hash.",
 		OutputSchema: textOutputSchema(),
 		Annotations: &sdkmcp.ToolAnnotations{
 			DestructiveHint: boolPtr(true),
 			OpenWorldHint:   boolPtr(false),
 		},
 	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in kegSettingsEditInput) (*sdkmcp.CallToolResult, any, error) {
+		target := resolveKegTarget(ctx, in.Keg, defaults)
+		target.KegAdministration = true
 		opts := tapper.KegSettingsEditOptions{
-			KegTargetOptions: resolveKegTarget(ctx, in.Keg, defaults),
+			KegTargetOptions: target,
 			ExpectedHash:     in.ExpectedHash,
 			Stream: &toolkit.Stream{
 				IsPiped: true,

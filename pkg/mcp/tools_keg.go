@@ -93,7 +93,8 @@ func registerKegTools(srv *sdkmcp.Server, defaults KegDefaults, kegs KegDiscover
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name: "keg_create",
 		Description: "Manage: Create a new KEG in a namespace you belong to. Creating a KEG " +
-			"never adds it to a flight's cover.",
+			"never adds it to a flight's cover. A session on a Hub flight creates KEGs only " +
+			"where that flight manages the namespace's KEGs (manage_kegs).",
 		OutputSchema: textOutputSchema(),
 		Annotations: &sdkmcp.ToolAnnotations{
 			ReadOnlyHint:    false,
@@ -185,7 +186,7 @@ type kegDeleteOutput struct {
 }
 
 func registerKegDelete(srv *sdkmcp.Server, defaults KegDefaults, provider KegDiscoveryProvider) {
-	sdkmcp.AddTool(srv, &sdkmcp.Tool{Name: "keg_delete", OutputSchema: outputSchema[kegDeleteOutput](), Description: "Manage: Permanently delete an empty or populated KEG and all its data, including snapshots. Requires identity admin permission; a selected flight also requires effective admin cover. No expected_hash: a settings hash does not cover a whole KEG.", Annotations: &sdkmcp.ToolAnnotations{DestructiveHint: boolPtr(true), OpenWorldHint: boolPtr(false)}}, func(ctx context.Context, _ *sdkmcp.CallToolRequest, in kegDeleteInput) (*sdkmcp.CallToolResult, any, error) {
+	sdkmcp.AddTool(srv, &sdkmcp.Tool{Name: "keg_delete", OutputSchema: outputSchema[kegDeleteOutput](), Description: "Manage: Permanently delete an empty or populated KEG and all its data, including snapshots. Requires identity admin permission; a session on a Hub flight also needs that flight to manage the namespace's KEGs (manage_kegs), which reaches KEGs outside its cover. No expected_hash: a settings hash does not cover a whole KEG.", Annotations: &sdkmcp.ToolAnnotations{DestructiveHint: boolPtr(true), OpenWorldHint: boolPtr(false)}}, func(ctx context.Context, _ *sdkmcp.CallToolRequest, in kegDeleteInput) (*sdkmcp.CallToolResult, any, error) {
 		ns, alias, err := tapper.ParseCanonicalKegRef(in.Keg)
 		if err != nil {
 			return errorResult(fmt.Errorf("keg must be an explicit canonical @namespace/keg reference: %w", err)), nil, nil
@@ -193,15 +194,16 @@ func registerKegDelete(srv *sdkmcp.Server, defaults KegDefaults, provider KegDis
 		if err := defaults.gate.authorizeOriented(orientationFromContext(ctx)); err != nil {
 			return errorResult(err), nil, nil
 		}
-		if flight := SessionFlight(ctx); flight != nil {
+		deleter, ok := provider.(KegDeletionProvider)
+		if !ok {
+			return errorResult(keg.ErrNotSupported), nil, nil
+		}
+		authorizer, decides := provider.(KegDeletionAuthorizer)
+		if flight := SessionFlight(ctx); flight != nil && !(decides && authorizer.AuthorizesKegDeletion()) {
 			role, covered := flight.RoleFor("", ns, alias)
 			if !covered || role != tapper.FlightRoleAdmin {
 				return errorResult(keg.ErrOrientationDenied), nil, nil
 			}
-		}
-		deleter, ok := provider.(KegDeletionProvider)
-		if !ok {
-			return errorResult(keg.ErrNotSupported), nil, nil
 		}
 		if err := deleter.DeleteKeg(ctx, in.Keg); err != nil {
 			return errorResult(err), nil, nil

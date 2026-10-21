@@ -72,6 +72,14 @@ func (t *Tap) EditFlight(ctx context.Context, opts EditFlightOptions) (*Flight, 
 			Cover:        hubCoverFromFlightCover(m.Cover),
 			Subflights:   append([]string(nil), m.Subflights...),
 		}
+		// The document always shows the switches, so each is sent only
+		// when the edit changed it; an unchanged one stays the Hub's to keep.
+		if m.ManageKegs != lastManifest.ManageKegs {
+			next.ManageKegs = boolRef(m.ManageKegs)
+		}
+		if m.ManageFlights != lastManifest.ManageFlights {
+			next.ManageFlights = boolRef(m.ManageFlights)
+		}
 		hf, err := UpdateHubFlight(ctx, entry.URL, token, ref.Namespace, ref.Slug, next, expectedHash)
 		if err != nil {
 			return nil, err
@@ -125,22 +133,26 @@ func flightEditorTempFilePrefix(ref FlightRef) string {
 }
 
 type flightManifestEditorDocument struct {
-	Description  string        `yaml:"description"`
-	Title        string        `yaml:"title"`
-	Visibility   string        `yaml:"visibility"`
-	Cover        []FlightCover `yaml:"cover"`
-	Subflights   []string      `yaml:"subflights"`
-	Instructions string        `yaml:"instructions"`
+	Description   string        `yaml:"description"`
+	Title         string        `yaml:"title"`
+	Visibility    string        `yaml:"visibility"`
+	Cover         []FlightCover `yaml:"cover"`
+	Subflights    []string      `yaml:"subflights"`
+	ManageKegs    bool          `yaml:"manageKegs"`
+	ManageFlights bool          `yaml:"manageFlights"`
+	Instructions  string        `yaml:"instructions"`
 }
 
 func renderFlightManifestEditorDocument(rt *toolkit.Runtime, ref FlightRef, m FlightManifest) ([]byte, error) {
 	canonical := canonicalFlightManifest(m)
 	doc := flightManifestEditorDocument{
 		Title: canonical.Title, Description: canonical.Description,
-		Visibility:   canonical.Visibility,
-		Cover:        canonical.Cover,
-		Subflights:   canonical.Subflights,
-		Instructions: canonical.Instructions,
+		Visibility:    canonical.Visibility,
+		Cover:         canonical.Cover,
+		Subflights:    canonical.Subflights,
+		ManageKegs:    canonical.ManageKegs,
+		ManageFlights: canonical.ManageFlights,
+		Instructions:  canonical.Instructions,
 	}
 	body, err := yaml.Marshal(doc)
 	if err != nil {
@@ -149,7 +161,7 @@ func renderFlightManifestEditorDocument(rt *toolkit.Runtime, ref FlightRef, m Fl
 
 	var out bytes.Buffer
 	out.WriteString(schemas.Modeline(rt, schemas.FlightManifest))
-	fmt.Fprintf(&out, "# Flight %s. Ref is immutable; edit title, visibility, cover, and instructions.\n", ref.Canonical())
+	fmt.Fprintf(&out, "# Flight %s. Ref is immutable; edit title, visibility, cover, manageKegs, manageFlights, and instructions.\n", ref.Canonical())
 	out.Write(body)
 	if !bytes.HasSuffix(out.Bytes(), []byte("\n")) {
 		out.WriteByte('\n')
@@ -158,12 +170,14 @@ func renderFlightManifestEditorDocument(rt *toolkit.Runtime, ref FlightRef, m Fl
 }
 
 type comparableFlightManifest struct {
-	Description  string
-	Title        string
-	Visibility   string
-	Cover        []FlightCover
-	Subflights   []string
-	Instructions string
+	Description   string
+	Title         string
+	Visibility    string
+	Cover         []FlightCover
+	Subflights    []string
+	ManageKegs    bool
+	ManageFlights bool
+	Instructions  string
 }
 
 func canonicalFlightManifest(m FlightManifest) comparableFlightManifest {
@@ -184,17 +198,19 @@ func canonicalFlightManifest(m FlightManifest) comparableFlightManifest {
 	}
 	return comparableFlightManifest{
 		Title: m.Title, Description: m.Description,
-		Visibility:   m.Visibility,
-		Cover:        cover,
-		Subflights:   append([]string(nil), m.Subflights...),
-		Instructions: m.Instructions,
+		Visibility:    m.Visibility,
+		Cover:         cover,
+		Subflights:    append([]string(nil), m.Subflights...),
+		ManageKegs:    m.ManageKegs,
+		ManageFlights: m.ManageFlights,
+		Instructions:  m.Instructions,
 	}
 }
 
 func flightManifestSemanticallyEqual(a, b FlightManifest) bool {
 	ca := canonicalFlightManifest(a)
 	cb := canonicalFlightManifest(b)
-	if ca.Description != cb.Description || ca.Title != cb.Title || ca.Visibility != cb.Visibility || ca.Instructions != cb.Instructions || len(ca.Cover) != len(cb.Cover) || len(ca.Subflights) != len(cb.Subflights) {
+	if ca.Description != cb.Description || ca.Title != cb.Title || ca.Visibility != cb.Visibility || ca.Instructions != cb.Instructions || ca.ManageKegs != cb.ManageKegs || ca.ManageFlights != cb.ManageFlights || len(ca.Cover) != len(cb.Cover) || len(ca.Subflights) != len(cb.Subflights) {
 		return false
 	}
 	for i := range ca.Cover {

@@ -1,14 +1,14 @@
 package testapi
 
-// The Hub resolves GET /api/v1/context?flight= the way Tapper's orient does.
+// The Hub resolves GET /api/v1/info?flight= the way Tapper's orient does.
 // A qualified @namespace/+slug names one flight. A bare +slug is matched
 // against every flight the user can read (the list GET /api/v1/flights
 // returns), not only the personal namespace: exactly one match resolves to
 // it, none answers HubContextFlightNotFound, and several answer
 // HubContextFlightAmbiguous.
 
-// HubContextWork is a GET /api/v1/context body in the shape tapper-hub serves
-// (its handler.ContextResponse, documented in tapper-hub's
+// HubContextWork is a GET /api/v1/info body in the shape tapper-hub serves
+// (its handler.InfoResponse, documented in tapper-hub's
 // docs/tapper-hub-api-v1.md), for user jared and flight @foldwise/+work. The
 // flight's cover is the Hub-composed cover: @foldwise/dev is listed, and
 // @foldwise/linked is reached through dev's links at distance 1.
@@ -29,8 +29,8 @@ const HubContextWork = `{
     "name": "@foldwise/+work",
     "title": "Work",
     "cover": [
-      {"ref": "@foldwise/dev", "role": "editor", "source": "@foldwise/dev", "distance": 0},
-      {"ref": "@foldwise/linked", "role": "viewer", "source": "@foldwise/dev", "distance": 1}
+      {"ref": "@foldwise/dev", "role": "editor", "source": "@foldwise/dev", "distance": 0, "path": ["@foldwise/dev"]},
+      {"ref": "@foldwise/linked", "role": "viewer", "source": "@foldwise/dev", "distance": 1, "path": ["@foldwise/dev", "@foldwise/linked"]}
     ]
   },
   "flight_error": null,

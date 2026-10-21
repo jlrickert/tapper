@@ -357,8 +357,10 @@ func registerKegSettings(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaul
 		if !minimal && len(in.Kegs) == 1 {
 			target = in.Kegs[0]
 		}
+		kegTarget := resolveKegTarget(ctx, target, defaults)
+		kegTarget.KegAdministration = true
 		opts := tapper.KegSettingsOptions{
-			KegTargetOptions: resolveKegTarget(ctx, target, defaults),
+			KegTargetOptions: kegTarget,
 			Minimal:          minimal,
 		}
 		if minimal {

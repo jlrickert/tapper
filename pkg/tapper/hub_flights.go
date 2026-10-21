@@ -27,6 +27,9 @@ type HubEffectiveKeg struct {
 	Role     FlightRole `json:"role"`
 	Source   string     `json:"source"`
 	Distance int        `json:"distance"`
+	// Path is the shortest link path that decided Role, from Source to Ref
+	// (Distance+1 KEGs). A Hub that predates it leaves it empty.
+	Path []string `json:"path,omitempty"`
 }
 
 type HubFlight struct {
@@ -39,7 +42,23 @@ type HubFlight struct {
 	Visibility     string            `json:"visibility"`
 	Cover          []HubFlightCover  `json:"cover"`
 	Subflights     []string          `json:"subflights"`
-	Hash           string            `json:"hash,omitempty"`
+	// ManageKegs and ManageFlights are the manifest's switches. A write
+	// that leaves one nil keeps the flight's current value.
+	ManageKegs    *bool `json:"manage_kegs,omitempty"`
+	ManageFlights *bool `json:"manage_flights,omitempty"`
+	// Manage is the single flag an older Hub answers with in place of the
+	// two switches; it is read, never sent.
+	Manage *bool  `json:"manage,omitempty"`
+	Hash   string `json:"hash,omitempty"`
+}
+
+// hubSwitch is one switch as a Hub answered it, falling back to an older
+// Hub's single manage flag.
+func hubSwitch(value, legacy *bool) bool {
+	if value != nil {
+		return *value
+	}
+	return legacy != nil && *legacy
 }
 
 func ListUserFlights(ctx context.Context, hubURL, token string) ([]HubFlight, error) {

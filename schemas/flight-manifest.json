@@ -75,6 +75,16 @@
         "type": "string"
       }
     },
+    "manageKegs": {
+      "type": "boolean",
+      "default": false,
+      "description": "Let a request rooted on this flight create and delete the KEGs of the flight's own namespace and administer any of them (settings, rename, visibility, grants), even outside its cover; their notes stay out of reach. A subflight in another namespace that sets it adds that namespace for its roots. Never more than the user's own role."
+    },
+    "manageFlights": {
+      "type": "boolean",
+      "default": false,
+      "description": "Let a request rooted on this flight create, edit, and delete the flights of its own namespace, widening them up to the user's own role. A subflight in another namespace that sets it adds that namespace for its roots."
+    },
     "instructions": {
       "type": "string",
       "description": "Markdown instructions injected into orientation output while the flight is active."

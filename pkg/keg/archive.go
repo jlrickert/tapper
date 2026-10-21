@@ -959,7 +959,7 @@ func readArchiveSchemas(entries archiveEntries, manifest archiveManifest) (*arch
 	manifestSchemas := make(map[string]struct{}, len(manifest.Schemas))
 	for _, typeName := range manifest.Schemas {
 		typeName = strings.TrimSpace(typeName)
-		if err := ValidSchemaTypeName(typeName); err != nil {
+		if err := ValidSchemaStorageName(typeName); err != nil {
 			return nil, fmt.Errorf("invalid archive manifest schema %q: %w", typeName, err)
 		}
 		if _, exists := manifestSchemas[typeName]; exists {
@@ -1047,7 +1047,7 @@ func (s *archiveSchemaStore) ListSchemas(ctx context.Context) ([]string, error) 
 
 func (s *archiveSchemaStore) ReadSchema(ctx context.Context, typeName string) ([]byte, error) {
 	_ = ctx
-	if err := ValidSchemaTypeName(typeName); err != nil {
+	if err := ValidSchemaStorageName(typeName); err != nil {
 		return nil, err
 	}
 	data, ok := s.schemas[strings.TrimSpace(typeName)]
@@ -1081,7 +1081,7 @@ func (s *archiveSchemaStore) CreateSchema(ctx context.Context, typeName string, 
 func (s *archiveSchemaStore) DeleteSchema(ctx context.Context, typeName string) error {
 	_ = ctx
 	typeName = strings.TrimSpace(typeName)
-	if err := ValidSchemaTypeName(typeName); err != nil {
+	if err := ValidSchemaStorageName(typeName); err != nil {
 		return err
 	}
 	if _, ok := s.schemas[typeName]; !ok {

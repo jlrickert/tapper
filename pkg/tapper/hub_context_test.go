@@ -17,7 +17,7 @@ import (
 )
 
 // contextHub is a mock Hub that records the paths it serves. With
-// serveContext false it answers /api/v1/context with 404, as a Hub that
+// serveContext false it answers /api/v1/info with 404, as a Hub that
 // predates the endpoint does.
 type contextHub struct {
 	mu    sync.Mutex
@@ -41,8 +41,8 @@ func (h *contextHub) seen() []string {
 // workEffectiveCover is the composed cover testapi.HubContextWork reports, as
 // an older Hub's flight read carries it.
 var workEffectiveCover = []tapper.HubEffectiveKeg{
-	{Ref: "@foldwise/dev", Role: tapper.FlightRoleEditor, Source: "@foldwise/dev", Distance: 0},
-	{Ref: "@foldwise/linked", Role: tapper.FlightRoleViewer, Source: "@foldwise/dev", Distance: 1},
+	{Ref: "@foldwise/dev", Role: tapper.FlightRoleEditor, Source: "@foldwise/dev", Distance: 0, Path: []string{"@foldwise/dev"}},
+	{Ref: "@foldwise/linked", Role: tapper.FlightRoleViewer, Source: "@foldwise/dev", Distance: 1, Path: []string{"@foldwise/dev", "@foldwise/linked"}},
 }
 
 // workFlight is the one flight named work the default mock Hub serves.
@@ -64,7 +64,7 @@ func newContextHub(t *testing.T, serveContext, flightNotFound bool) (*contextHub
 	return newContextHubWith(t, contextHubOptions{serveContext: serveContext, flightNotFound: flightNotFound})
 }
 
-// newContextHubWith serves a mock Hub. Its /api/v1/context resolves a bare
+// newContextHubWith serves a mock Hub. Its /api/v1/info resolves a bare
 // +slug the way the real Hub and orient do: across the flights the user can
 // read, so +work resolves to @foldwise/+work only because that is the user's
 // one readable flight named work, even though jared is the personal
@@ -81,7 +81,7 @@ func newContextHubWith(t *testing.T, opts contextHubOptions) (*contextHub, strin
 		rec.record(r.URL.Path)
 		w.Header().Set("Content-Type", "application/json")
 		switch r.Method + " " + r.URL.Path {
-		case "GET /api/v1/context":
+		case "GET /api/v1/info":
 			if !serveContext {
 				http.NotFound(w, r)
 				return
@@ -155,9 +155,9 @@ func wantWorkInfo(t *testing.T, info tapper.ContextInfoResult) {
 	require.Equal(t, "@foldwise/+work", info.Flight.Ref)
 	require.Equal(t, "Work", info.Flight.Title)
 	require.Equal(t, []tapper.ContextInfoFlightKeg{
-		{Ref: "@foldwise/dev", Role: "editor", Title: "Development"},
-		{Ref: "@foldwise/linked", Role: "viewer", Title: "Linked"},
-	}, info.Kegs, "the composed cover, at the role the flight caps each KEG to")
+		{Ref: "@foldwise/dev", Role: "editor", Title: "Development", Source: "@foldwise/dev"},
+		{Ref: "@foldwise/linked", Role: "viewer", Title: "Linked", Source: "@foldwise/dev", Distance: 1, Path: []string{"@foldwise/dev", "@foldwise/linked"}},
+	}, info.Kegs, "the composed cover, at the role the flight caps each KEG to, with the path that decided it")
 	require.Empty(t, info.Warnings)
 }
 
@@ -171,7 +171,7 @@ func TestContextInfo_UsesOneContextRequest(t *testing.T) {
 	info, err := tap.ContextInfo(sb.Context(), tapper.KegTargetOptions{})
 	require.NoError(t, err)
 	wantWorkInfo(t, info)
-	require.Equal(t, []string{"/api/v1/context"}, rec.seen(), "the context endpoint replaces whoami, flight, and kegs")
+	require.Equal(t, []string{"/api/v1/info"}, rec.seen(), "the context endpoint replaces whoami, flight, and kegs")
 }
 
 func TestContextInfo_SendsBareSlugToContext(t *testing.T) {
@@ -185,7 +185,7 @@ func TestContextInfo_SendsBareSlugToContext(t *testing.T) {
 	info, err := tap.ContextInfo(sb.Context(), tapper.KegTargetOptions{})
 	require.NoError(t, err)
 	wantWorkInfo(t, info)
-	require.Equal(t, []string{"/api/v1/context"}, rec.seen(), "the Hub resolves a bare slug itself")
+	require.Equal(t, []string{"/api/v1/info"}, rec.seen(), "the Hub resolves a bare slug itself")
 }
 
 func TestContextInfo_FallsBackOnOlderHubAndRemembersIt(t *testing.T) {
@@ -198,7 +198,7 @@ func TestContextInfo_FallsBackOnOlderHubAndRemembersIt(t *testing.T) {
 	info, err := tap.ContextInfo(sb.Context(), tapper.KegTargetOptions{})
 	require.NoError(t, err)
 	wantWorkInfo(t, info)
-	require.Equal(t, []string{"/api/v1/@foldwise/+work", "/api/v1/context", "/api/v1/kegs", "/api/v1/whoami"}, rec.seen())
+	require.Equal(t, []string{"/api/v1/@foldwise/+work", "/api/v1/info", "/api/v1/kegs", "/api/v1/whoami"}, rec.seen())
 
 	info, err = tap.ContextInfo(sb.Context(), tapper.KegTargetOptions{})
 	require.NoError(t, err)
@@ -206,7 +206,7 @@ func TestContextInfo_FallsBackOnOlderHubAndRemembersIt(t *testing.T) {
 	seen := rec.seen()
 	contextCalls := 0
 	for _, p := range seen {
-		if p == "/api/v1/context" {
+		if p == "/api/v1/info" {
 			contextCalls++
 		}
 	}
@@ -281,7 +281,7 @@ func writeBareSlugConfig(t *testing.T, sb *sandbox.Sandbox, hubURL string) {
 }
 
 // A bare +slug means the same flight whether the Hub resolves it through
-// /api/v1/context or Tapper resolves it itself against an older Hub.
+// /api/v1/info or Tapper resolves it itself against an older Hub.
 func TestContextInfo_BareSlugAgreesWithFallback(t *testing.T) {
 	t.Parallel()
 	var infos []tapper.ContextInfoResult
@@ -318,6 +318,6 @@ func TestContextInfo_AmbiguousBareSlugAgreesWithFallback(t *testing.T) {
 		warnings = append(warnings, info.Warnings)
 	}
 	want := []string{`Flight "+work" is unavailable: flight "+work" is ambiguous; use @namespace/+work`}
-	require.Equal(t, want, warnings[0], "through /api/v1/context")
+	require.Equal(t, want, warnings[0], "through /api/v1/info")
 	require.Equal(t, want, warnings[1], "through the fallback")
 }

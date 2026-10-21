@@ -431,7 +431,7 @@ func ParseSchemaDefinition(data []byte) (*SchemaDefinition, error) {
 
 func validateSchemaDefinitionForType(typeName string, data []byte) (*SchemaDefinition, error) {
 	typeName = strings.TrimSpace(typeName)
-	if err := ValidSchemaTypeName(typeName); err != nil {
+	if err := ValidSchemaStorageName(typeName); err != nil {
 		return nil, err
 	}
 	parsed, err := ParseSchemaDefinition(data)
@@ -786,9 +786,10 @@ const SchemaTypeNamePattern = `^(?:[^\s/\\.\x00-\x1f]|\.[^\s/\\.\x00-\x1f])+\.?$
 
 var schemaTypeNameRE = regexp.MustCompile(SchemaTypeNamePattern)
 
-// ValidSchemaTypeName reports whether typeName can name a schema. The name
-// becomes a file name and is what callers pass as a write's schema, so a
-// sentence or a path is refused rather than looked up.
+// ValidSchemaTypeName reports whether typeName can name a new schema. The
+// name becomes a file name and is what callers pass as a write's schema, so a
+// sentence or a path is refused rather than looked up. A schema that already
+// exists answers to ValidSchemaStorageName instead.
 func ValidSchemaTypeName(typeName string) error {
 	typeName = strings.TrimSpace(typeName)
 	if typeName == "" || typeName == "." || typeName == ".." {
@@ -803,9 +804,25 @@ func ValidSchemaTypeName(typeName string) error {
 	return nil
 }
 
+// ValidSchemaStorageName reports whether typeName can name a schema that
+// already exists: one stored in a keg or carried by an archive. Earlier
+// versions accepted any name that stays inside the schemas directory, so
+// only that is required here; ValidSchemaTypeName's stricter rule applies
+// when a schema is created.
+func ValidSchemaStorageName(typeName string) error {
+	typeName = strings.TrimSpace(typeName)
+	if typeName == "" || typeName == "." || typeName == ".." {
+		return fmt.Errorf("schema type is required: %w", ErrInvalid)
+	}
+	if filepath.IsAbs(typeName) || strings.ContainsAny(typeName, "/\\\x00") || strings.Contains(typeName, "..") {
+		return fmt.Errorf("invalid schema type %q: %w", typeName, ErrInvalid)
+	}
+	return nil
+}
+
 func SchemaFilename(typeName string) (string, error) {
 	typeName = strings.TrimSpace(typeName)
-	if err := ValidSchemaTypeName(typeName); err != nil {
+	if err := ValidSchemaStorageName(typeName); err != nil {
 		return "", err
 	}
 	return typeName + SchemaFileSuffix, nil

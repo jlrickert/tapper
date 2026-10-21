@@ -9,7 +9,7 @@ live graph and the requested flight before every authority-bearing tool call.
 
 ## What A Flight Does
 
-A flight carries five details:
+A flight carries six details:
 
 1. **A keg cover** (`cover`). MCP tools reject kegs outside the cover. Each
    cover entry has a `viewer`, `editor`, or `admin` cap. Reads require
@@ -33,6 +33,22 @@ A flight carries five details:
    cover and may be broader or different from its ancestors. Cross-Hub
    relations and duplicate canonical children are rejected; referenced
    children cannot be deleted.
+5. **Namespace management** (`manageKegs`, `manageFlights`, default
+   `false`). A request rooted on a flight writes no flight and creates or
+   deletes no KEG without them. `manageKegs` lets it create and delete the
+   namespace's KEGs and administer any of them (settings, rename,
+   visibility, grants and grant invitations), even outside its cover, though
+   their notes stay out of reach. `manageFlights` lets it create, edit, and
+   delete the namespace's flights, widening them past its cover. Each
+   switch covers the flight's own namespace; a subflight in another
+   namespace that sets one adds that namespace for every root whose graph
+   reaches it, which is how one flight manages several. Neither ever gives
+   more than the user's own role. Namespace membership, membership
+   invitations, policies, tokens, and relay shares stay refused to every
+   rooted request. Turning a switch on from a rooted request takes a root
+   that already holds it for the namespace; attaching a subflight that sets
+   one takes an owner or admin of that subflight's namespace. The old
+   `manage` flag sets both.
 
 A flight is memory only: it carries no tools and no capabilities. What a
 session may do is its agent's tool list (`tap agent`, `TAP_AGENT`), and an
@@ -46,7 +62,7 @@ subsequent KEG operations. `tap orient` is flight-scoped and rejects
 ## Manifest Format
 
 Flights are stored by Tapper Hub and addressed as `@namespace/+slug`. Each
-manifest has five optional fields:
+manifest has six optional fields:
 
 ```yaml
 title: Release 42 cut
@@ -54,6 +70,8 @@ visibility: private
 subflights:
   - "@acme/+release-notes"
   - "@acme/+verification"
+manageKegs: false
+manageFlights: false
 cover:
   - namespace: acme
     keg: release-notes
@@ -86,7 +104,7 @@ with an explicit `=viewer` suffix keeps its viewer cap.
 | Preview orientation for a flight      | `tap orient --flight @namespace/+slug`    |
 | Persist the project flight            | `tap use --flight @namespace/+slug` or `tap use +slug` |
 | Persist the user bootstrap baseline   | `tap bootstrap --flight @namespace/+slug` |
-| Create a Hub-backed flight            | `tap flight create @namespace/+slug --cover @namespace/keg=viewer` |
+| Create a Hub-backed flight            | `tap flight create @namespace/+slug --cover @namespace/keg=viewer` (add `--manage-kegs` and `--manage-flights` for a flight that manages its namespace's KEGs and flights) |
 | Edit a Hub-backed flight in $EDITOR   | `tap flight edit @namespace/+slug` (the manifest opens as YAML; every save is applied) |
 | Apply a manifest from a script        | `cat manifest.yaml \| tap flight edit @namespace/+slug` |
 | Delete a Hub-backed flight            | `tap flight delete @namespace/+slug`      |
@@ -95,8 +113,11 @@ with an explicit `=viewer` suffix keeps its viewer cap.
 first line is a `yaml-language-server` schema modeline for
 `schemas/flight-manifest.json`, followed by a short comment that the
 `@namespace/+slug` ref is immutable. The editable fields are `title`,
-`visibility`, `subflights`, `cover`, and `instructions`; comments and the
-modeline are ignored when deciding whether the manifest changed.
+`visibility`, `subflights`, `cover`, `manageKegs`, `manageFlights`, and
+`instructions`; comments and the modeline are ignored when deciding whether
+the manifest changed. Each switch is sent to the Hub only when the edit
+changes it, so editing anything else never touches it; a piped manifest
+without one clears it.
 
 MCP always exposes `flight_list` and `flight_read`. In an active session the
 rest of the inventory is the session agent's tools: `flight_create`,
@@ -104,7 +125,8 @@ rest of the inventory is the session agent's tools: `flight_create`,
 them, and dispatch then applies normal Hub authorization (namespace owner or
 admin for flights, membership for `keg_create`).
 `flight_edit` is a partial update where omitted fields retain their current
-values. Call `flight_read` first and pass its manifest hash as the required
+values; `flight_create` and `flight_edit` take `manage`, and `flight_read`
+reports it. Call `flight_read` first and pass its manifest hash as the required
 `expected_hash` for both edits and deletes. On conflict, merge or refetch and
 retry with the returned current hash. Graph and authority edits are adopted on
 the next call automatically. Mutations are never replayed. A referenced

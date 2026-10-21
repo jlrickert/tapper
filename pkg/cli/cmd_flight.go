@@ -72,6 +72,12 @@ func newFlightShowCmd(deps *Deps) *cobra.Command {
 			}
 			fmt.Fprintf(out, "source: %s\n", flight.Source)
 			fmt.Fprintf(out, "visibility: %s\n", flight.Visibility)
+			if flight.ManageKegs {
+				fmt.Fprintln(out, "manageKegs: true (a request rooted on this flight administers its namespace's kegs)")
+			}
+			if flight.ManageFlights {
+				fmt.Fprintln(out, "manageFlights: true (a request rooted on this flight creates, edits, and deletes its namespace's flights)")
+			}
 			if len(flight.Cover) > 0 {
 				fmt.Fprintln(out, "cover:")
 				for _, c := range flight.Cover {
@@ -98,6 +104,7 @@ func newFlightShowCmd(deps *Deps) *cobra.Command {
 func newFlightCreateCmd(deps *Deps) *cobra.Command {
 	var description, title, visibility, instructions, instructionsFile string
 	var coverSpecs []string
+	var manage, manageKegs, manageFlights bool
 	cmd := &cobra.Command{
 		Use:   "create <ref>",
 		Short: "create a Hub-backed flight",
@@ -114,9 +121,11 @@ func newFlightCreateCmd(deps *Deps) *cobra.Command {
 			flight, err := deps.Tap.CreateFlight(cmd.Context(), tapper.CreateFlightOptions{
 				Ref:   args[0],
 				Title: title, Description: description,
-				Visibility:   visibility,
-				Instructions: body,
-				Cover:        cover,
+				Visibility:    visibility,
+				Instructions:  body,
+				Cover:         cover,
+				ManageKegs:    manageKegs || manage,
+				ManageFlights: manageFlights || manage,
 			})
 			if err != nil {
 				return err
@@ -129,6 +138,10 @@ func newFlightCreateCmd(deps *Deps) *cobra.Command {
 	_ = cmd.RegisterFlagCompletionFunc("description", cobra.NoFileCompletions)
 	addFlightWriteFlags(cmd, &title, &instructions, &instructionsFile, &coverSpecs)
 	cmd.Flags().StringVar(&visibility, "visibility", tapper.FlightVisibilityPrivate, "flight visibility: public or private")
+	cmd.Flags().BoolVar(&manageKegs, "manage-kegs", false, "let a request rooted on this flight administer every keg in its namespace (create, delete, settings, visibility, grants), within your own role")
+	cmd.Flags().BoolVar(&manageFlights, "manage-flights", false, "let a request rooted on this flight create, edit, and delete its namespace's flights, within your own role")
+	cmd.Flags().BoolVar(&manage, "manage", false, "deprecated: sets --manage-kegs and --manage-flights")
+	_ = cmd.Flags().MarkHidden("manage")
 	return cmd
 }
 
@@ -136,7 +149,7 @@ func newFlightEditCmd(deps *Deps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "edit <ref>",
 		Short: "edit a Hub-backed flight's manifest in the default editor",
-		Long:  `Opens the flight manifest (title, visibility, subflights, cover, instructions) as YAML in the configured editor with a yaml-language-server schema modeline; every save is applied to the hub. Piped stdin applies a full manifest without opening an editor.`,
+		Long:  `Opens the flight manifest (title, visibility, subflights, cover, manage, instructions) as YAML in the configured editor with a yaml-language-server schema modeline; every save is applied to the hub. Piped stdin applies a full manifest without opening an editor.`,
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			current, err := deps.Tap.GetFlight(cmd.Context(), tapper.GetFlightOptions{Name: args[0]})

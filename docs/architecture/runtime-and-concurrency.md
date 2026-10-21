@@ -163,7 +163,7 @@ use of `time.Now()` that cannot be driven by a fake clock:
   (identity, flight, flight graph, KEG catalog) from separate goroutines and
   read the results in the order the sequential code checked them, so errors
   and warnings are reported exactly as before. `tap info` asks for all of it in
-  one `GET /api/v1/context` where the Hub supports it (see
+  one `GET /api/v1/info` where the Hub supports it (see
   [REST API contract compatibility](../api-compatibility.md#caller-context-route)).
 - **Advisory locks are session primitives**: `Keg.Lock`/`Unlock`/
   `LockStatus`/`ForceUnlock` (used by `tap lock` / `tap node edit`) are opt-in

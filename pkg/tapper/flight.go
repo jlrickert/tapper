@@ -98,6 +98,18 @@ type FlightManifest struct {
 	Subflights   []string      `yaml:"subflights,omitempty" json:"subflights,omitempty"`
 	AllowedKegs  []string      `yaml:"allowedKegs,omitempty" json:"allowedKegs,omitempty"`
 	Instructions string        `yaml:"instructions,omitempty" json:"instructions,omitempty"`
+	// ManageKegs lets a request rooted on this flight administer every keg
+	// in the flight's own namespace: create and delete kegs, edit their
+	// settings, change their visibility, and manage their grants, even for
+	// kegs outside its cover. It never reaches node content outside the
+	// cover and never gives more than the user's own role. A subflight in
+	// another namespace that sets it adds that namespace for its roots.
+	ManageKegs bool `yaml:"manageKegs,omitempty" json:"manageKegs,omitempty"`
+	// ManageFlights lets a request rooted on this flight create, edit, and
+	// delete the flights of its own namespace, widening them up to the
+	// user's own role. A subflight in another namespace that sets it adds
+	// that namespace for its roots.
+	ManageFlights bool `yaml:"manageFlights,omitempty" json:"manageFlights,omitempty"`
 }
 
 // Flight is a discovered flight: its manifest plus provenance.
@@ -819,10 +831,12 @@ func flightFromHub(hf HubFlight, hubName string) *Flight {
 	}
 	m := FlightManifest{
 		Title: hf.Title, Description: hf.Description,
-		Visibility:   hf.Visibility,
-		Cover:        cover,
-		Subflights:   append([]string(nil), hf.Subflights...),
-		Instructions: hf.Instructions,
+		Visibility:    hf.Visibility,
+		Cover:         cover,
+		Subflights:    append([]string(nil), hf.Subflights...),
+		Instructions:  hf.Instructions,
+		ManageKegs:    hubSwitch(hf.ManageKegs, hf.Manage),
+		ManageFlights: hubSwitch(hf.ManageFlights, hf.Manage),
 	}
 	normalizeFlightManifest(&m)
 	ref := FlightRef{Namespace: hf.Namespace, Slug: hf.Slug}

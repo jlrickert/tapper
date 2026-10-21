@@ -57,7 +57,7 @@ type Tap struct {
 	// that installed it rather than whatever was committed in the repo.
 	Version string
 
-	// hubContextProbe remembers Hubs that predate GET /api/v1/context. Nil
+	// hubContextProbe remembers Hubs that predate GET /api/v1/info. Nil
 	// (a Tap built without NewTap) asks every time.
 	hubContextProbe *hubContextProbe
 }
@@ -170,6 +170,14 @@ type KegTargetOptions struct {
 	// orient. Leave false for MCP and other agent-facing surfaces.
 	BypassFlightRestrictions bool
 
+	// KegAdministration marks a call that administers the KEG itself (its
+	// settings) rather than its notes. A Hub resolver (KegResolver) decides
+	// it with the session flight's full authority, which may reach past the
+	// flight's cover when the flight manages the namespace's KEGs, so the
+	// client-side cover check below defers to it there. Without a resolver
+	// the check applies as for any call.
+	KegAdministration bool
+
 	// RequireBootstrap makes config-driven resolution fail with
 	// ErrNotBootstrapped when no user config exists. Set by the full `tap`
 	// surface and the MCP server; direct Tap API callers may leave it false.
@@ -209,7 +217,7 @@ func (t *Tap) resolveKegForRoles(ctx context.Context, opts KegTargetOptions, ide
 		if err != nil {
 			return nil, err
 		}
-		if !opts.BypassFlightRestrictions && opts.FlightContext != nil {
+		if !opts.BypassFlightRestrictions && !opts.KegAdministration && opts.FlightContext != nil {
 			if err := t.enforceFlightSnapshot(opts.FlightContext, k, flightRole); err != nil {
 				return nil, err
 			}
