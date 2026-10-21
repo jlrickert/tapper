@@ -2,6 +2,40 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.47.0 - 2026-10-21
+
+
+
+### ⚡ Performance
+- fetch context in one call and cache hub API discovery
+- **keg:** make touch cheap and batch snapshot and dirty index reads
+
+
+### 🐛 Bug Fixes
+- **mcp:** point edit errors at their fix and flag repeated failures
+- resolve bare batch placeholder links and scope telemetry spools
+- **mcp:** confine local attachment transfers to the working directory
+- **auth:** refresh a shared auth store in one process at a time
+- harden telemetry spools, search cover, and archive index memory
+- **auth:** keep logout and login authoritative over a running refresh
+- **orient:** describe agent sessions by flight and bound lock waits
+- **mcp:** classify every failure and report refusals by kind
+- **keg:** enforce archive limits while staging and narrow node import
+
+
+### 🚀 Features
+- **keg:** index archives by offset and replace contents on import
+- **mcp:** declare output schemas and scope node_search to the flight
+- **relay:** reconnect on credential_expired and retry token refresh
+- **apicontract:** adopt API revision 2026-10-17
+- **relay:** reauth in band with protocol 4 frames and end codes
+- **flight:** let a flight manage its namespace's kegs and flights
+
+
+### 🚜 Refactor
+- **mcp:** tidy tool descriptions and drop id_only for format %i
+
+
 ## v0.46.0 - 2026-10-13
 
 
