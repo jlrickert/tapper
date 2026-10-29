@@ -193,6 +193,26 @@ func TestRenderMarkdown_hubStyleResolution(t *testing.T) {
 	require.NotContains(t, out, `href="/@foldwise/example/9"`)
 }
 
+// A video embedded with image syntax renders as a player, with a link to
+// the file for a browser that cannot play it; a plain link to a video, and an
+// embedded image, render as they always have.
+func TestRenderMarkdown_EmbeddedVideoIsAPlayer(t *testing.T) {
+	opts := keg.RenderOptions{BaseURL: "/@foldwise/example/", NodeID: "5", NoTrailingSlash: true}
+	src := strings.Join([]string{
+		`![The "demo"](./videos/clip%20one.mp4)`,
+		"",
+		"Or [the file](./videos/clip.mp4), beside ![diagram](./images/d.png).",
+	}, "\n")
+	html, err := keg.RenderMarkdown([]byte(src), opts)
+	require.NoError(t, err)
+	out := string(html)
+	require.Contains(t, out, `<video controls preload="metadata" src="/@foldwise/example/5/videos/clip%20one.mp4" title="The &quot;demo&quot;">`+
+		`<a href="/@foldwise/example/5/videos/clip%20one.mp4">The &quot;demo&quot;</a></video>`)
+	require.Contains(t, out, `<a href="/@foldwise/example/5/videos/clip.mp4">the file</a>`)
+	require.Contains(t, out, `<img src="/@foldwise/example/5/images/d.png" alt="diagram"`)
+	require.NotContains(t, out, `<img src="/@foldwise/example/5/videos/`)
+}
+
 func TestRenderMarkdown_BareKegReferenceRemainsPlainText(t *testing.T) {
 	opts := keg.RenderOptions{
 		BaseURL:         "/@foldwise/example/",

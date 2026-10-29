@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"net/url"
+	"path"
 	"regexp"
 	"strings"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/extension"
 	"github.com/yuin/goldmark/parser"
+	"github.com/yuin/goldmark/renderer"
 	"github.com/yuin/goldmark/text"
 	"github.com/yuin/goldmark/util"
 
@@ -77,6 +79,9 @@ func RenderMarkdown(src []byte, opts RenderOptions) ([]byte, error) {
 			parser.WithASTTransformers(
 				util.Prioritized(&nodeLinkTransformer{opts: opts}, 100),
 			),
+		),
+		goldmark.WithRendererOptions(
+			renderer.WithNodeRenderers(util.Prioritized(videoRenderer{}, 100)),
 		),
 	)
 
@@ -179,6 +184,7 @@ type nodeLinkTransformer struct {
 }
 
 func (t *nodeLinkTransformer) Transform(doc *ast.Document, reader text.Reader, pc parser.Context) {
+	var videos []*ast.Image
 	_ = ast.Walk(doc, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
 		if !entering {
 			return ast.WalkContinue, nil
@@ -194,8 +200,73 @@ func (t *nodeLinkTransformer) Transform(doc *ast.Document, reader text.Reader, p
 		}
 		if newDest, ok := ResolveNodeLink(string(*dest), t.opts); ok {
 			*dest = []byte(newDest)
+			if img, ok := n.(*ast.Image); ok && isVideoPath(newDest) {
+				videos = append(videos, img)
+			}
 		}
 		return ast.WalkContinue, nil
+	})
+	// An image whose destination is one of a node's videos embeds a player.
+	// Replaced after the walk, which must not see its tree change.
+	for _, img := range videos {
+		video := &videoNode{src: string(img.Destination), caption: string(img.Text(reader.Source()))} //nolint:staticcheck // the alt text, as goldmark renders it
+		img.Parent().ReplaceChild(img.Parent(), img, video)
+	}
+}
+
+// isVideoPath reports whether a resolved destination names a file in a
+// node's videos directory.
+func isVideoPath(dest string) bool {
+	u, err := url.Parse(dest)
+	return err == nil && path.Base(path.Dir(u.Path)) == "videos"
+}
+
+// videoKind is the kind of a video embedded with image syntax.
+var videoKind = ast.NewNodeKind("Video")
+
+// videoNode is a video embedded with image syntax: ![caption](./videos/NAME).
+type videoNode struct {
+	ast.BaseInline
+	src     string
+	caption string
+}
+
+func (n *videoNode) Kind() ast.NodeKind { return videoKind }
+
+func (n *videoNode) Dump(source []byte, level int) {
+	ast.DumpHelper(n, source, level, map[string]string{"Src": n.src, "Caption": n.caption}, nil)
+}
+
+// videoRenderer renders a videoNode as a player that falls back to a link
+// to the file.
+type videoRenderer struct{}
+
+func (videoRenderer) RegisterFuncs(reg renderer.NodeRendererFuncRegisterer) {
+	reg.Register(videoKind, func(w util.BufWriter, _ []byte, n ast.Node, entering bool) (ast.WalkStatus, error) {
+		if !entering {
+			return ast.WalkSkipChildren, nil
+		}
+		v := n.(*videoNode)
+		src := util.EscapeHTML(util.URLEscape([]byte(v.src), true))
+		label := v.caption
+		if label == "" {
+			label = path.Base(v.src)
+			if name, err := url.PathUnescape(label); err == nil {
+				label = name
+			}
+		}
+		_, _ = w.WriteString(`<video controls preload="metadata" src="`)
+		_, _ = w.Write(src)
+		if v.caption != "" {
+			_, _ = w.WriteString(`" title="`)
+			_, _ = w.Write(util.EscapeHTML([]byte(v.caption)))
+		}
+		_, _ = w.WriteString(`"><a href="`)
+		_, _ = w.Write(src)
+		_, _ = w.WriteString(`">`)
+		_, _ = w.Write(util.EscapeHTML([]byte(label)))
+		_, _ = w.WriteString(`</a></video>`)
+		return ast.WalkSkipChildren, nil
 	})
 }
 
