@@ -2,6 +2,20 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.48.0 - 2026-10-29
+
+
+
+### 📚 Documentation
+- **integrations:** describe video attachments for agents
+
+
+### 🚀 Features
+- **mcp:** add video attachments and hosted file_download
+- **relay:** advertise video input for models
+- **keg:** render an embedded video as a player
+
+
 ## v0.47.0 - 2026-10-21
 
 
