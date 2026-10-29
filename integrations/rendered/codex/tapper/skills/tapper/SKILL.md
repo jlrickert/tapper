@@ -176,7 +176,7 @@ code; the index does the work in O(matches) rather than O(total).
 | `mcp__tapper__node_merge`                                                           | Deduplicate: `node_read` both, then write the merged body into the target (`content` or `patch`, optional `meta`). Links to the source are repointed at the target and the source goes to the trash as merged. Guard the source with its combined `hash`, the target with `content_hash` (and `meta_hash` with meta). |
 | `mcp__tapper__keg_replace`                                                          | Manage. Find and replace across a keg in one atomic write (literal or `regex`, narrowed by `query`, optionally in `include_meta`). Run it with `dry_run` first to see every node that would change. A node the write would refuse (schemas, metadata that must parse, a body opening with frontmatter) is reported with its error, without its bodies, and left alone while the rest are written; `dry_run` reports the same errors. At most 500 matching nodes per call, refused ones included. |
 | `mcp__tapper__trash_list`, `mcp__tapper__trash_restore`                            | Where the keg keeps a trash, list removed nodes and why they went, and restore 1–100 of them at their ids with their history and assets. An entry an archive restore moved to make way shows `displaced_from` (the id it was trashed at) and restores at its new id. |
-| `mcp__tapper__file_delete`, `mcp__tapper__image_delete`                        | Destructive attachment operations — see the Snapshots section below before calling.                                 |
+| `mcp__tapper__file_delete`, `mcp__tapper__image_delete`, `mcp__tapper__video_delete` | Destructive attachment operations — see the Snapshots section below before calling.                                 |
 | `mcp__tapper__snapshot_create`                                                   | Capture a revision before a destructive or large edit.                                                                |
 | `mcp__tapper__snapshot_list`, `mcp__tapper__snapshot_read`                 | Inspect read-only prior revisions.                                                                                    |
 | `mcp__tapper__snapshot_restore`                                                    | Recover the current node from a prior revision.                                                                       |
@@ -322,10 +322,11 @@ does not activate it or change the connection's pinned root.
 | `mcp__tapper__keg_info`, `mcp__tapper__node_stats` | KEG diagnostics and node statistics. |
 | `mcp__tapper__url` | The Hub web link for a KEG, note, flight, or namespace (`ref` as `42`, `@ns/keg/42`, `keg:~alias/42`, `+slug`, `@ns`), returned as `url`, `kind`, and canonical `ref`. Use it to hand the reader a clickable link; it never reads the note. |
 | `mcp__tapper__lock_acquire`, `mcp__tapper__lock_status`, `mcp__tapper__lock_release` | Advisory locks; acquisition returns a private token for release. A held lock is waited for up to `wait_seconds` (default 10, max 60), then fails with `LOCK_TIMEOUT`. node_edit does not accept a lock token. |
-| `mcp__tapper__file_list`, `mcp__tapper__image_list` | Stored attachment names. |
+| `mcp__tapper__file_list`, `mcp__tapper__image_list`, `mcp__tapper__video_list` | Stored attachment names, each with its `tapper://` resource link. |
 | `mcp__tapper__file_upload`, `mcp__tapper__image_upload` | Inline base64/data URI/embedded resource uploads; local stdio also accepts source_path. Link the returned stored filename. |
+| `mcp__tapper__video_upload` | Store an MP4, WebM, or Ogg video on a node, from the same sources as the other uploads; other bytes are refused. |
 | `mcp__tapper__image_download` | Image content block and metadata; local stdio optionally accepts dest_path. |
-| `mcp__tapper__file_download` | Local stdio only: writes an explicit destination path. Absent on hosted MCP. |
+| `mcp__tapper__file_download`, `mcp__tapper__video_download` | The attachment's bytes as an embedded resource, with metadata. Local stdio `video_download` optionally accepts dest_path; local stdio `file_download` requires one. |
 
 ## Manage: schemas and repair
 
@@ -445,20 +446,23 @@ between kegs is an operator task the user runs outside MCP.
 
 ## Attachments
 
-A node's uploaded files and images live in two directories inside the node's
-own directory, so they are linked relative to it — the same base the `../NODEID`
-form above counts from:
+A node's uploaded files, images, and videos live in directories inside the
+node's own directory, so they are linked relative to it — the same base the
+`../NODEID` form above counts from:
 
 - **File:** `[label](./assets/FILE)` — anything uploaded with
   `mcp__tapper__file_upload`.
 - **Image:** `![alt](./images/IMAGE)` — anything uploaded with
   `mcp__tapper__image_upload`.
+- **Video:** `![caption](./videos/VIDEO)` — anything uploaded with
+  `mcp__tapper__video_upload`. It plays on the node's page; a plain
+  `[label](./videos/VIDEO)` stays a link to the file.
 
-**Both directory names are plural**: `assets/` and `images/`, never `asset/` or
-`image/`. Uploading succeeds regardless of how you later write the link, so a
+**The directory names are plural**: `assets/`, `images/`, and `videos/`, never
+`asset/`, `image/`, or `video/`. Uploading succeeds regardless of how you later write the link, so a
 singular path fails silently as a broken reference rather than as an error.
 
-Use `mcp__tapper__file_list` and `mcp__tapper__image_list` to get the exact
+Use `mcp__tapper__file_list`, `mcp__tapper__image_list`, and `mcp__tapper__video_list` to get the exact
 stored names; the upload may normalize the filename you supplied.
 
 ## Secret handling

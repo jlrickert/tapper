@@ -35,18 +35,21 @@ between kegs is an operator task the user runs outside MCP.
 
 ## Attachments
 
-A node's uploaded files and images live in two directories inside the node's
-own directory, so they are linked relative to it — the same base the `../NODEID`
-form above counts from:
+A node's uploaded files, images, and videos live in directories inside the
+node's own directory, so they are linked relative to it — the same base the
+`../NODEID` form above counts from:
 
 - **File:** `[label](./assets/FILE)` — anything uploaded with
   `mcp__tapper__file_upload`.
 - **Image:** `![alt](./images/IMAGE)` — anything uploaded with
   `mcp__tapper__image_upload`.
+- **Video:** `![caption](./videos/VIDEO)` — anything uploaded with
+  `mcp__tapper__video_upload`. It plays on the node's page; a plain
+  `[label](./videos/VIDEO)` stays a link to the file.
 
-**Both directory names are plural**: `assets/` and `images/`, never `asset/` or
-`image/`. Uploading succeeds regardless of how you later write the link, so a
+**The directory names are plural**: `assets/`, `images/`, and `videos/`, never
+`asset/`, `image/`, or `video/`. Uploading succeeds regardless of how you later write the link, so a
 singular path fails silently as a broken reference rather than as an error.
 
-Use `mcp__tapper__file_list` and `mcp__tapper__image_list` to get the exact
+Use `mcp__tapper__file_list`, `mcp__tapper__image_list`, and `mcp__tapper__video_list` to get the exact
 stored names; the upload may normalize the filename you supplied.
