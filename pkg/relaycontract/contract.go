@@ -91,6 +91,9 @@ const (
 	CapabilityTools = "tools"
 	// CapabilityVision: the model accepts image input.
 	CapabilityVision = "vision"
+	// CapabilityVideo: the model accepts video input (an OpenAI-style
+	// "video_url" content part).
+	CapabilityVideo = "video"
 )
 
 // Reasoning modes a relay advertises for a model. Empty means the model does

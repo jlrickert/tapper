@@ -405,10 +405,10 @@ func (c *Client) listModels(ctx context.Context) []relaycontract.Model {
 				m.Capabilities = []string{relaycontract.CapabilityEmbeddings}
 				m.Reasoning = ""
 			default:
-				// Tools and vision, when discovery or config found them, ride
-				// along with chat.
+				// Tools, vision, and video, when discovery or config found
+				// them, ride along with chat.
 				caps := []string{relaycontract.CapabilityChat, relaycontract.CapabilityStream}
-				for _, c := range []string{relaycontract.CapabilityTools, relaycontract.CapabilityVision} {
+				for _, c := range []string{relaycontract.CapabilityTools, relaycontract.CapabilityVision, relaycontract.CapabilityVideo} {
 					if slices.Contains(m.Capabilities, c) {
 						caps = append(caps, c)
 					}

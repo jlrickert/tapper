@@ -138,8 +138,8 @@ relay:
     keyed by model id or glob. Each entry takes `contextWindow` (the window
     the provider serves), `maxContextWindow` (the most the model supports),
     `reasoning` (`none`, `toggle` for on/off, or `effort` for
-    low/medium/high), `tools` and `vision` (whether the model calls tools
-    and accepts images), and `canonical` (the provider-neutral name Hub pools
+    low/medium/high), `tools`, `vision`, and `video` (whether the model
+    calls tools, accepts images, and accepts video), and `canonical` (the provider-neutral name Hub pools
     the model under, lowercase letters, digits, `.`, `_` and `-`; derived from
     the id when unset). Set fields override what the relay discovered; globs
     apply in key order, then an exact id. Use it for providers that report
@@ -194,10 +194,10 @@ relay:
 
 What the relay reports to Hub, per model:
 
-| Provider | Max context | Served context | Reasoning | Tools, vision |
+| Provider | Max context | Served context | Reasoning | Tools, vision, video |
 |---|---|---|---|---|
 | `ollama` | `/api/show` `model_info.*.context_length` | `num_ctx` parameter, else the loaded context from `/api/ps`, else unknown | `/api/show` `thinking.values`: levels mean `effort`, booleans `toggle`. An `embedding` capability makes it an embedding model | `/api/show` `tools` and `vision` capabilities |
-| `openrouter` | `/models` `context_length` | `top_provider.context_length` | `effort` when `supported_parameters` includes `reasoning` | `supported_parameters` includes `tools`; `architecture.input_modalities` includes `image` |
+| `openrouter` | `/models` `context_length` | `top_provider.context_length` | `effort` when `supported_parameters` includes `reasoning` | `supported_parameters` includes `tools`; `architecture.input_modalities` includes `image`, and `video` for video |
 | `openai`, `openai-compatible` | from `metadata` | from `metadata` | from `metadata` | from `metadata` |
 
 Hub shows the max and served context beside each model's context setting, and

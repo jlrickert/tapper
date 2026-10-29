@@ -265,6 +265,9 @@
                         "vision": {
                           "type": "boolean"
                         },
+                        "video": {
+                          "type": "boolean"
+                        },
                         "canonical": {
                           "type": "string",
                           "description": "Provider-neutral model name used by Hub pools."
@@ -306,6 +309,9 @@
                           "type": "boolean"
                         },
                         "vision": {
+                          "type": "boolean"
+                        },
+                        "video": {
                           "type": "boolean"
                         },
                         "canonical": {

@@ -28,9 +28,9 @@ type ModelMeta struct {
 	// Reasoning is "none", relaycontract.ReasoningToggle, or
 	// relaycontract.ReasoningEffort; empty keeps what discovery found.
 	Reasoning string
-	// Tools and Vision say whether the model calls tools and accepts images;
-	// nil keeps what discovery found.
-	Tools, Vision *bool
+	// Tools, Vision, and Video say whether the model calls tools, accepts
+	// images, and accepts video; nil keeps what discovery found.
+	Tools, Vision, Video *bool
 	// Canonical is the provider-neutral name Hub pools the model under;
 	// empty derives it with relaycontract.CanonicalModel.
 	Canonical string
@@ -82,6 +82,7 @@ func (m ModelMeta) apply(model *relaycontract.Model) {
 	}
 	setCapability(model, relaycontract.CapabilityTools, m.Tools)
 	setCapability(model, relaycontract.CapabilityVision, m.Vision)
+	setCapability(model, relaycontract.CapabilityVideo, m.Video)
 	if m.Canonical != "" {
 		model.Canonical = m.Canonical
 	}
@@ -199,6 +200,9 @@ func (p *Provider) ListModels(ctx context.Context) ([]relaycontract.Model, error
 		}
 		if slices.Contains(l.Architecture.InputModalities, "image") {
 			m.Capabilities = append(m.Capabilities, relaycontract.CapabilityVision)
+		}
+		if slices.Contains(l.Architecture.InputModalities, "video") {
+			m.Capabilities = append(m.Capabilities, relaycontract.CapabilityVideo)
 		}
 		if ollama != nil {
 			ollama.describe(ctx, p, &m)
