@@ -285,20 +285,23 @@ or a call with different arguments, starts that tool's count again.
 | --- | --- |
 | `file_list`, `file_upload`, `file_download`, `file_delete` | Manage file attachments |
 | `image_list`, `image_upload`, `image_download`, `image_delete` | Manage image attachments |
+| `video_list`, `video_upload`, `video_download`, `video_delete` | Manage video attachments (MP4, WebM, Ogg) |
 
 The transfer tools come in two variants, chosen by whether the server shares a
 filesystem with the agent driving it.
 
 Local `tap mcp` runs on your machine, so a path names the same file on both
-sides. It publishes the full round-trip: `file_upload` and `image_upload` accept
-`source_path` and `file:` URIs alongside `data_base64`, data URIs, and embedded
-resources; `file_download` writes to `dest_path`; and `image_download` takes an
-optional `dest_path`, returning the image as MCP content when you omit it.
+sides. It publishes the full round-trip: the uploads accept `source_path` and
+`file:` URIs alongside `data_base64`, data URIs, and embedded resources;
+`file_download` writes to `dest_path`; and `image_download` and
+`video_download` take an optional `dest_path`, returning the attachment as MCP
+content when you omit it.
 
 Hosted `/mcp` shares no filesystem with the agent, so a path there would name
 the server's own disk. Its uploads accept only embedded resources, data URIs,
 and base64 bytes; `image_download` always returns MCP image content; and
-`file_download` is not registered. Those fields are absent from the published
+`file_download` and `video_download` always return the attachment as an
+embedded resource, with no `dest_path`. Those fields are absent from the published
 schema rather than refused at call time, so a hosted agent never has the
 vocabulary to ask.
 

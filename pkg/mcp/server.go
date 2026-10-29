@@ -145,6 +145,7 @@ func NewServer(tap *tapper.Tap, version string, defaults KegDefaults, opts ...Se
 	registerOrientTools(srv, tap, defaults)
 	registerSchemaTools(srv, tap, defaults)
 	registerFileTools(srv, tap, defaults, opt.SharedFilesystem)
+	registerVideoTools(srv, tap, defaults, opt.SharedFilesystem)
 	registerDoctorTools(srv, tap, defaults)
 	registerLockTools(srv, tap, defaults)
 	registerFlightTools(srv, defaults, opt.FlightProvider)

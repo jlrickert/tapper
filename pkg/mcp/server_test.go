@@ -249,7 +249,8 @@ func TestMCP_ToolsList(t *testing.T) {
 		"keg_settings_read", "keg_settings_edit", "node_stats", "node_create", "node_edit", "node_delete", "node_move",
 		"index_rebuild", "index_list", "index_read", "keg_check", "snapshot_list", "snapshot_create",
 		"snapshot_read", "snapshot_restore", "file_list", "image_list", "file_delete", "image_delete",
-		"file_upload", "image_upload", "image_download", "orient", "session_refresh",
+		"file_upload", "image_upload", "file_download", "image_download",
+		"video_list", "video_upload", "video_download", "video_delete", "orient", "session_refresh",
 		"lock_acquire", "lock_release", "lock_status", "lock_force_release", "flight_list", "flight_read",
 		"flight_create", "flight_edit", "flight_delete", "schema_list", "schema_read", "schema_create",
 		"schema_edit", "schema_delete", "schema_validate",
@@ -260,7 +261,7 @@ func TestMCP_ToolsList(t *testing.T) {
 	}
 	for _, banned := range []string{
 		"config", "config_template", "repo_init", "export", "import", "auth_status", "license",
-		"file_download", "keg_visibility", "namespace_create",
+		"keg_visibility", "namespace_create",
 	} {
 		require.Falsef(t, names[banned], "agent-safe surface exposed %q", banned)
 	}
@@ -295,7 +296,8 @@ func TestMCP_CommonAgentSafeSurface(t *testing.T) {
 		"index_list", "index_read", "snapshot_list", "snapshot_create",
 		"snapshot_read", "snapshot_restore", "orient", "session_refresh",
 		"file_list", "image_list", "file_delete", "image_delete",
-		"file_upload", "image_upload", "image_download",
+		"file_upload", "image_upload", "file_download", "image_download",
+		"video_list", "video_upload", "video_download", "video_delete",
 		"schema_list", "schema_read", "schema_create", "schema_edit",
 		"schema_delete", "schema_validate", "keg_check", "keg_list", "explore_kegs", "explore_flights", "explore_people", "session_info",
 		"lock_acquire", "lock_release", "lock_status", "lock_force_release",
@@ -308,7 +310,7 @@ func TestMCP_CommonAgentSafeSurface(t *testing.T) {
 
 	// Machine-local and tenant-administration tools must be absent.
 	for _, banned := range []string{
-		"auth_status", "config", "config_template", "license", "repo_init", "integrate", "export", "import", "file_download",
+		"auth_status", "config", "config_template", "license", "repo_init", "integrate", "export", "import",
 		"keg_grants", "keg_grant", "keg_revoke", "keg_visibility",
 		"namespace_members", "namespace_add_member",
 		"namespace_set_role", "namespace_remove_member", "namespace_create",
@@ -1776,7 +1778,7 @@ func TestMCP_ToolsList_IncludesFileTransferTools(t *testing.T) {
 	}
 
 	require.Contains(t, names, "file_upload")
-	require.NotContains(t, names, "file_download")
+	require.Contains(t, names, "file_download")
 	require.Contains(t, names, "image_upload")
 	require.Contains(t, names, "image_download")
 }
@@ -1809,6 +1811,8 @@ func TestMCP_LocalSurfacePublishesLocalPathTransfers(t *testing.T) {
 		{"image_upload", "source_path"},
 		{"file_download", "dest_path"},
 		{"image_download", "dest_path"},
+		{"video_upload", "source_path"},
+		{"video_download", "dest_path"},
 	} {
 		require.Contains(t, properties, want.tool, "tap mcp must publish %s", want.tool)
 		require.Contains(t, properties[want.tool], want.field,
@@ -1996,6 +2000,160 @@ func TestMCP_DownloadImageReturnsImageContent(t *testing.T) {
 	require.Equal(t, "hosted.png", structured.Filename)
 	require.Equal(t, "image/png", structured.MIMEType)
 	require.Equal(t, len(pngData), structured.Size)
+}
+
+// A hosted agent shares no disk with the server, so file_download hands back
+// the file's bytes, as an embedded resource at the attachment's resource URI.
+func TestMCP_HostedDownloadFileReturnsTheFile(t *testing.T) {
+	t.Parallel()
+	session, ctx := newTestSessionWithOpts(t)
+
+	createRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name:      "node_create",
+		Arguments: batchCreateArgs(map[string]any{"title": "Hosted File Download Node"}),
+	})
+	require.NoError(t, err)
+	nodeID := extractText(t, createRes)
+
+	csv := []byte("name,count\nJared,3\n")
+	uploadAttachment(t, ctx, session, "file_upload", nodeID, "my data.csv", csv)
+
+	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name:      "file_download",
+		Arguments: map[string]any{"node_id": nodeID, "filename": "my data.csv"},
+	})
+	require.NoError(t, err)
+	require.False(t, res.IsError, "file_download returned error: %s", extractText(t, res))
+	var resource *sdkmcp.ResourceContents
+	for _, c := range res.Content {
+		if e, ok := c.(*sdkmcp.EmbeddedResource); ok {
+			resource = e.Resource
+		}
+	}
+	require.NotNil(t, resource, "file_download should return the file's bytes")
+	require.Equal(t, "tapper://node/"+nodeID+"/attachments/file/my%20data.csv", resource.URI)
+	require.Equal(t, "text/csv", resource.MIMEType)
+	require.Equal(t, csv, resource.Blob)
+
+	var structured struct {
+		NodeID   string `json:"node_id"`
+		Filename string `json:"filename"`
+		MIMEType string `json:"mime_type"`
+		Size     int    `json:"size"`
+	}
+	raw, err := json.Marshal(res.StructuredContent)
+	require.NoError(t, err)
+	require.NoError(t, json.Unmarshal(raw, &structured))
+	require.Equal(t, nodeID, structured.NodeID)
+	require.Equal(t, "my data.csv", structured.Filename)
+	require.Equal(t, len(csv), structured.Size)
+
+	missing, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name:      "file_download",
+		Arguments: map[string]any{"node_id": nodeID, "filename": "absent.csv"},
+	})
+	require.NoError(t, err)
+	require.True(t, missing.IsError, "a missing file should be a tool error")
+}
+
+// tinyMP4 is the opening of an MP4 file: enough for its container to be
+// recognized as video.
+func tinyMP4() []byte {
+	return []byte{0, 0, 0, 0x18, 'f', 't', 'y', 'p', 'i', 's', 'o', 'm', 0, 0, 2, 0, 'i', 's', 'o', 'm', 'm', 'p', '4', '1'}
+}
+
+// A hosted agent uploads a video to a node, finds it listed with its link,
+// downloads the same bytes, and deletes it.
+func TestMCP_HostedVideoRoundTrip(t *testing.T) {
+	t.Parallel()
+	session, ctx := newTestSessionWithOpts(t)
+	createRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name:      "node_create",
+		Arguments: batchCreateArgs(map[string]any{"title": "Hosted Video Node"}),
+	})
+	require.NoError(t, err)
+	nodeID := extractText(t, createRes)
+	clip := tinyMP4()
+
+	upload := uploadAttachment(t, ctx, session, "video_upload", nodeID, "clip.mp4", clip)
+	require.Contains(t, extractText(t, upload), "clip.mp4")
+
+	listRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: "video_list", Arguments: map[string]any{"node_id": nodeID}})
+	require.NoError(t, err)
+	require.Contains(t, extractText(t, listRes), "clip.mp4")
+	links := resourceLinks(listRes)
+	require.Len(t, links, 1)
+	uri := "tapper://node/" + nodeID + "/attachments/video/clip.mp4"
+	require.Equal(t, uri, links[0].URI)
+
+	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: "video_download", Arguments: map[string]any{"node_id": nodeID, "filename": "clip.mp4"}})
+	require.NoError(t, err)
+	require.False(t, res.IsError, "video_download returned error: %s", extractText(t, res))
+	var resource *sdkmcp.ResourceContents
+	for _, c := range res.Content {
+		if e, ok := c.(*sdkmcp.EmbeddedResource); ok {
+			resource = e.Resource
+		}
+	}
+	require.NotNil(t, resource, "video_download should return the video's bytes")
+	require.Equal(t, uri, resource.URI)
+	require.Equal(t, "video/mp4", resource.MIMEType)
+	require.Equal(t, clip, resource.Blob)
+
+	del, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: "video_delete", Arguments: map[string]any{"node_id": nodeID, "filename": "clip.mp4"}})
+	require.NoError(t, err)
+	require.False(t, del.IsError, "video_delete returned error: %s", extractText(t, del))
+	listRes, err = session.CallTool(ctx, &sdkmcp.CallToolParams{Name: "video_list", Arguments: map[string]any{"node_id": nodeID}})
+	require.NoError(t, err)
+	require.NotContains(t, extractText(t, listRes), "clip.mp4", "the deleted video is gone")
+}
+
+// Bytes that are not a supported video container are not stored as one.
+func TestMCP_VideoUploadRefusesNonVideo(t *testing.T) {
+	t.Parallel()
+	session, ctx := newTestSessionWithOpts(t)
+	createRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name:      "node_create",
+		Arguments: batchCreateArgs(map[string]any{"title": "Not A Video Node"}),
+	})
+	require.NoError(t, err)
+	nodeID := extractText(t, createRes)
+
+	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "video_upload",
+		Arguments: map[string]any{
+			"node_id":     nodeID,
+			"filename":    "notes.mp4",
+			"data_base64": base64.StdEncoding.EncodeToString([]byte("just some text")),
+		},
+	})
+	require.NoError(t, err)
+	require.True(t, res.IsError, "a non-video upload should be refused")
+}
+
+// `tap mcp` saves a video to a new local file when given a destination.
+func TestMCP_LocalVideoDownloadWritesTheFile(t *testing.T) {
+	t.Parallel()
+	session, rt, ctx := newLocalTestSessionWithRuntime(t)
+	createRes, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name:      "node_create",
+		Arguments: batchCreateArgs(map[string]any{"title": "Local Video Node"}),
+	})
+	require.NoError(t, err)
+	nodeID := extractText(t, createRes)
+	clip := tinyMP4()
+	uploadAttachment(t, ctx, session, "video_upload", nodeID, "clip.mp4", clip)
+
+	dest := "/home/testuser/clip-copy.mp4"
+	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name:      "video_download",
+		Arguments: map[string]any{"node_id": nodeID, "filename": "clip.mp4", "dest_path": dest},
+	})
+	require.NoError(t, err)
+	require.False(t, res.IsError, "video_download returned error: %s", extractText(t, res))
+	got, err := rt.ReadFile(dest)
+	require.NoError(t, err)
+	require.Equal(t, clip, got)
 }
 
 func TestMCP_DownloadImageSchemaRejectsDestPath(t *testing.T) {

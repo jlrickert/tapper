@@ -81,6 +81,10 @@ var tapMethodToSurfaces = map[string]struct {
 	"DownloadFile":  {CLI: "file download", MCP: []string{"file_download"}},
 	"UploadImage":   {CLI: "image upload", MCP: []string{"image_upload"}},
 	"DownloadImage": {CLI: "image download", MCP: []string{"image_download"}},
+	"ListVideos":    {CLI: "video list", MCP: []string{"video_list"}},
+	"DeleteVideo":   {CLI: "video delete", MCP: []string{"video_delete"}},
+	"UploadVideo":   {CLI: "video upload", MCP: []string{"video_upload"}},
+	"DownloadVideo": {CLI: "video download", MCP: []string{"video_download"}},
 
 	// Lock operations
 	"Lock":        {CLI: "lock acquire", MCP: []string{"lock_acquire"}},
@@ -150,6 +154,7 @@ var tapMethodsExcluded = map[string]string{
 	"DoctorConfig":             "tapper-config health check helper; called by Doctor CLI/MCP surfaces",
 	"ConfigExplain":            "shares surface with Config via --explain flag / explain field",
 	"ReadImage":                "underlying byte-read helper used by image download surfaces; not a standalone operation",
+	"ReadVideo":                "underlying byte-read helper used by video download surfaces; not a standalone operation",
 	"ReadAttachment":           "underlying byte-read helper backing the MCP attachment resource template; CLI reads attachments through `file download` and `image download`",
 	"AuthLogout":               "security: MCP agents must not be able to revoke hub credentials; CLI-only by design",
 	"Integrate":                "CLI-only native plugin installation via the official `tap integrate` surface",
