@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -310,5 +311,37 @@ func TestSameCatalogSeesMetadataChanges(t *testing.T) {
 	}
 	if !sameCatalog(append(a, b...), append(b, a...)) {
 		t.Fatal("order must not matter")
+	}
+}
+
+// A model OpenRouter lists as taking video input is offered as watching
+// video, and config can say otherwise.
+func TestOpenRouterDiscoveryFindsVideoInput(t *testing.T) {
+	no := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[
+			{"id":"google/gemini-x","supported_parameters":["tools"],"architecture":{"input_modalities":["text","image","video"]}},
+			{"id":"google/gemini-y","architecture":{"input_modalities":["text","image","video"]}},
+			{"id":"meta/llama","architecture":{"input_modalities":["text","image"]}}
+		]}`))
+	}))
+	t.Cleanup(srv.Close)
+	p := newProvider(t, ProviderConfig{
+		Name: "openrouter", Kind: KindOpenRouter, BaseURL: srv.URL,
+		Metadata: map[string]ModelMeta{"google/gemini-y": {Video: &no}},
+	})
+	models, err := p.ListModels(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := byID(models)
+	if m := got["google/gemini-x"]; !reflect.DeepEqual(m.Capabilities, []string{relaycontract.CapabilityTools, relaycontract.CapabilityVision, relaycontract.CapabilityVideo}) {
+		t.Fatalf("gemini-x capabilities = %v", m.Capabilities)
+	}
+	if m := got["google/gemini-y"]; !reflect.DeepEqual(m.Capabilities, []string{relaycontract.CapabilityVision}) {
+		t.Fatalf("gemini-y capabilities = %v, want video turned off by config", m.Capabilities)
+	}
+	if m := got["meta/llama"]; slices.Contains(m.Capabilities, relaycontract.CapabilityVideo) {
+		t.Fatalf("llama capabilities = %v, want no video", m.Capabilities)
 	}
 }

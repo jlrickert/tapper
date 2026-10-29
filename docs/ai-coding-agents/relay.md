@@ -90,12 +90,12 @@ declare it under `models.variants` (on Ollama the relay creates it with that
 `num_ctx`). A metadata change reaches Hub on the next catalog refresh, like a
 new model.
 
-Chat models also say whether they call tools and accept images:
-- Ollama reports both through `/api/show`.
-- OpenRouter reports them through `supported_parameters` and `architecture.input_modalities`.
-- `models.metadata` can set `tools: true|false` and `vision: true|false` for any provider.
+Chat models also say whether they call tools, accept images, and accept video:
+- Ollama reports tools and images through `/api/show`.
+- OpenRouter reports all three through `supported_parameters` and `architecture.input_modalities`.
+- `models.metadata` can set `tools`, `vision`, and `video` (`true|false`) for any provider.
 
-Hub shows these as badges on agent model lists and sends tool and image requests only to models that support them.
+Hub shows these as badges on agent model lists and sends tool, image, and video requests only to models that support them.
 
 Hub pools models by a **canonical name**, so the same weights at the same precision served by different providers or relays are one model:
 - `@<you>/qwen3.6-35b`, whether it runs as Ollama's `qwen3.6:35b-mlx` or LM Studio's `qwen/qwen3.6-35b`.

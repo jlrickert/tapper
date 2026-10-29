@@ -357,8 +357,8 @@ type RelayModelFilter struct {
 // RelayModelMeta is configured model metadata. ContextWindow is the window
 // the provider serves; MaxContextWindow the most the model supports.
 // Reasoning is none, toggle (on or off), or effort (low, medium, high).
-// Tools and Vision say whether the model calls tools and accepts images,
-// when the provider does not report it or reports it wrong. Canonical is the
+// Tools, Vision, and Video say whether the model calls tools, accepts
+// images, and accepts video, when the provider does not report it or reports it wrong. Canonical is the
 // provider-neutral name Hub pools the model under, when the derived one
 // (lowercase, no source prefix, no quantization suffix) is not the right
 // match.
@@ -368,6 +368,7 @@ type RelayModelMeta struct {
 	Reasoning        string `yaml:"reasoning,omitempty"`
 	Tools            *bool  `yaml:"tools,omitempty"`
 	Vision           *bool  `yaml:"vision,omitempty"`
+	Video            *bool  `yaml:"video,omitempty"`
 	Canonical        string `yaml:"canonical,omitempty"`
 }
 

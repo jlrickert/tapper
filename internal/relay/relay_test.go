@@ -985,3 +985,26 @@ func TestRunHubBacksOffWhenCredentialExpiresAtOnce(t *testing.T) {
 		t.Fatal("relay never redialed")
 	}
 }
+
+// A model configured as taking video is advertised to the hub as watching
+// video, beside chat.
+func TestRegisterAdvertisesVideo(t *testing.T) {
+	yes := true
+	_, psrv := newFakeProvider(t, "gemini-x", "llama3:8b")
+	p, err := NewProvider(ProviderConfig{Name: "local", Kind: KindOpenAICompatible, BaseURL: psrv.URL,
+		Metadata: map[string]ModelMeta{"gemini-x": {Video: &yes}}}, func(string) string { return "" }, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hub := newFakeHub(t)
+	startRelay(t, hub, []*Provider{p}, nil)
+	reg := handshake(t, context.Background(), hub.accept(t))
+
+	caps := map[string]string{}
+	for _, m := range reg.Models {
+		caps[m.ID] = strings.Join(m.Capabilities, ",")
+	}
+	if caps["gemini-x"] != "chat,stream,video" || caps["llama3:8b"] != "chat,stream" {
+		t.Fatalf("advertised capabilities = %v", caps)
+	}
+}
