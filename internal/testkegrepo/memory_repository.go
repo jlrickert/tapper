@@ -41,6 +41,7 @@ type memoryNode struct {
 	stats   *NodeStats
 	files   map[string][]byte
 	images  map[string][]byte
+	videos  map[string][]byte
 }
 
 type memorySnapshot struct {
@@ -635,6 +636,79 @@ func (r *MemoryRepository) deleteAsset(ctx context.Context, id NodeId, name stri
 	return nil
 }
 
+var _ RepositoryVideos = (*MemoryRepository)(nil)
+
+// ListVideos returns a node's video names, sorted.
+func (r *MemoryRepository) ListVideos(ctx context.Context, id NodeId) ([]string, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	node := r.nodes[id]
+	if node == nil {
+		return nil, ErrNotExist
+	}
+	names := make([]string, 0, len(node.videos))
+	for name := range node.videos {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	return names, nil
+}
+
+// ReadVideo returns a video's original bytes.
+func (r *MemoryRepository) ReadVideo(ctx context.Context, id NodeId, name string) ([]byte, error) {
+	if err := ValidateAssetName(name); err != nil {
+		return nil, err
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	node := r.nodes[id]
+	if node == nil {
+		return nil, ErrNotExist
+	}
+	data, ok := node.videos[name]
+	if !ok {
+		return nil, ErrNotExist
+	}
+	return cloneBytes(data), nil
+}
+
+// WriteVideo stores a video's original bytes under name.
+func (r *MemoryRepository) WriteVideo(ctx context.Context, id NodeId, name string, data []byte) error {
+	if err := ValidateAssetName(name); err != nil {
+		return err
+	}
+	return r.updateNode(ctx, id, func(node *memoryNode) {
+		node.videos[name] = cloneBytes(data)
+	})
+}
+
+// DeleteVideo removes a video.
+func (r *MemoryRepository) DeleteVideo(ctx context.Context, id NodeId, name string) error {
+	if err := ValidateAssetName(name); err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	node := r.nodes[id]
+	if node == nil {
+		return ErrNotExist
+	}
+	if _, ok := node.videos[name]; !ok {
+		return ErrNotExist
+	}
+	delete(node.videos, name)
+	return nil
+}
+
 func (r *MemoryRepository) WithKegAtomicWrite(ctx context.Context, fn func(context.Context) error) error {
 	return r.WithKegWrite(ctx, func(writeCtx context.Context) error {
 		r.mu.Lock()
@@ -940,7 +1014,7 @@ func (r *MemoryRepository) Emit(event NodeEvent) {
 }
 
 func newMemoryNode() *memoryNode {
-	return &memoryNode{files: make(map[string][]byte), images: make(map[string][]byte)}
+	return &memoryNode{files: make(map[string][]byte), images: make(map[string][]byte), videos: make(map[string][]byte)}
 }
 
 func cloneBytes(data []byte) []byte {
@@ -1040,6 +1114,9 @@ func cloneMemoryNode(node *memoryNode) *memoryNode {
 	}
 	for name, data := range node.images {
 		copyNode.images[name] = cloneBytes(data)
+	}
+	for name, data := range node.videos {
+		copyNode.videos[name] = cloneBytes(data)
 	}
 	return copyNode
 }

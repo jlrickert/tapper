@@ -41,6 +41,7 @@ func registerFileTools(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults
 	}
 	registerUploadFile(srv, tap, defaults)
 	registerUploadImage(srv, tap, defaults)
+	registerHostedDownloadFile(srv, tap, defaults)
 	registerDownloadImage(srv, tap, defaults)
 }
 
@@ -260,6 +261,7 @@ func registerLocalUploadFile(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDe
 const (
 	uploadFileLinkHint  = " Link it from the node body as [label](./assets/FILENAME) — the directory is plural."
 	uploadImageLinkHint = " Link it from the node body as ![alt](./images/FILENAME) — the directory is plural."
+	uploadVideoLinkHint = " Embed it in the node body as ![caption](./videos/FILENAME) to play it on the node's page — the directory is plural."
 )
 
 func uploadFileTool(description string) *sdkmcp.Tool {
@@ -336,6 +338,61 @@ type downloadFileInput struct {
 	Filename string `json:"filename" jsonschema:"Filename to download."`
 	DestPath string `json:"dest_path" jsonschema:"New file path within the server working directory; existing files are refused."`
 	Keg      string `json:"keg,omitempty" jsonschema:"KEG to use, as @namespace/keg; a bare name uses your default namespace. Omit it to use the default KEG."`
+}
+
+// hostedDownloadFileInput is file_download without a destination: a hosted
+// server shares no filesystem with its agent, so the bytes come back in the
+// result instead, as image_download returns an image.
+type hostedDownloadFileInput struct {
+	NodeID   string `json:"node_id" jsonschema:"Node ID containing the file."`
+	Filename string `json:"filename" jsonschema:"Filename to download."`
+	Keg      string `json:"keg,omitempty" jsonschema:"KEG to use, as @namespace/keg; a bare name uses your default namespace. Omit it to use the default KEG."`
+}
+
+// fileContentOutput describes the file the hosted file_download returns as an
+// embedded resource.
+type fileContentOutput struct {
+	NodeID   string `json:"node_id" jsonschema:"The node the file belongs to."`
+	Filename string `json:"filename" jsonschema:"The file's name."`
+	MIMEType string `json:"mime_type" jsonschema:"The file's MIME type."`
+	Size     int    `json:"size" jsonschema:"The file's size in bytes."`
+}
+
+func registerHostedDownloadFile(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {
+	sdkmcp.AddTool(srv, &sdkmcp.Tool{
+		Name:         "file_download",
+		Description:  "Memory: Return a file attachment from a node as an embedded resource holding its bytes, to read a PDF, document, or text file.",
+		OutputSchema: outputSchema[fileContentOutput](),
+		Annotations: &sdkmcp.ToolAnnotations{
+			ReadOnlyHint:  true,
+			OpenWorldHint: boolPtr(false),
+		},
+	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in hostedDownloadFileInput) (*sdkmcp.CallToolResult, any, error) {
+		data, mimeType, err := tap.ReadAttachment(ctx, tapper.ReadAttachmentOptions{
+			KegTargetOptions: resolveKegTarget(ctx, in.Keg, defaults),
+			NodeID:           in.NodeID,
+			Kind:             keg.AttachmentFile,
+			Name:             in.Filename,
+		})
+		if err != nil {
+			return errorResult(err), nil, nil
+		}
+		if len(data) > maxAttachmentResourceBytes {
+			return errorResult(fmt.Errorf("file %q is %d bytes, over the %d byte download limit: %w", in.Filename, len(data), maxAttachmentResourceBytes, keg.ErrInvalid)), nil, nil
+		}
+		// A bare node id has a canonical resource URI; any other node
+		// argument names the file alone.
+		uri := escapeURIComponent(in.Filename)
+		if nodeID := strings.TrimSpace(in.NodeID); nodeID != "" {
+			if _, err := strconv.Atoi(nodeID); err == nil {
+				uri = attachmentResourceURI(nodeID, keg.AttachmentFile, in.Filename, in.Keg)
+			}
+		}
+		return &sdkmcp.CallToolResult{
+			Content:           []sdkmcp.Content{&sdkmcp.EmbeddedResource{Resource: &sdkmcp.ResourceContents{URI: uri, MIMEType: mimeType, Blob: data}}},
+			StructuredContent: fileContentOutput{NodeID: in.NodeID, Filename: in.Filename, MIMEType: mimeType, Size: len(data)},
+		}, nil, nil
+	})
 }
 
 func registerDownloadFile(srv *sdkmcp.Server, tap *tapper.Tap, defaults KegDefaults) {

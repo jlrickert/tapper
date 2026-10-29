@@ -334,6 +334,7 @@ func NewRootCmd(deps *Deps) *cobra.Command {
 		NewFlightCmd(deps),
 		NewHubCmd(deps),
 		NewImageCmd(deps),
+		NewVideoCmd(deps),
 		NewIndexCmd(deps),
 		NewContextInfoCmd(deps),
 		NewLockCmd(deps),
