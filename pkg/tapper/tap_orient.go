@@ -27,7 +27,7 @@ const orientRulesSummary = "Rules:\n" +
 	"- Writes may invalidate the hash you were holding; not every mutation returns a replacement. Re-read with `node_read`, `schema_read`, or `keg_settings_read` before each guarded write; a hash never covers two writes, so an edit followed by a delete needs two reads. `node_edit` uses per-part hashes: pass `node_read`'s `content_hash` as `expected_content_hash` and `meta_hash` as `expected_meta_hash`; editing one part never invalidates the other's hash, and each edit result returns the new part hashes. `node_delete` and `node_move` take the combined `hash`.\n" +
 	"- Node ids are per-keg counters. Node 4 in one keg has nothing to do with node 4 in another, ids are never reused after a removal, and a create takes the next free id rather than filling a gap.\n" +
 	"- Node 0 is the keg's placeholder landing node. Leave it alone: it carries no `type` on purpose, it is where links to unwritten content land, and removing it makes the keg read as uninitialized. Write your content in a new node instead.\n" +
-	"- Attachments on a node are linked relative to that node's own directory: `[label](./assets/FILE)` for files and `![alt](./images/IMAGE)` for images. Both directory names are plural.\n"
+	"- Attachments on a node are linked relative to that node's own directory: `[label](./assets/FILE)` for files, `![alt](./images/IMAGE)` for images, and `![caption](./videos/VIDEO)` for videos, which plays on the node's page. The directory names are plural.\n"
 
 // OrientOptions is the input to Tap.Orient. Flight is the only selector used
 // by orientation; the embedded target options remain for CLI profile

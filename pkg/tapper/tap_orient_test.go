@@ -226,6 +226,7 @@ func TestTap_Orient_StatesZeroNodeAndAttachmentPaths(t *testing.T) {
 	require.Contains(t, guide, "Node 0 is the keg's placeholder landing node")
 	require.Contains(t, guide, "(./assets/FILE)")
 	require.Contains(t, guide, "(./images/IMAGE)")
+	require.Contains(t, guide, "(./videos/VIDEO)")
 }
 
 func rowFor(t *testing.T, payload, ref string) string {
